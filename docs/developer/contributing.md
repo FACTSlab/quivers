@@ -15,7 +15,7 @@ This guide covers setting up a development environment, understanding the projec
 Clone the repository and install in development mode:
 
 ```bash
-git clone https://github.com/aaronstevenwhite/quivers
+git clone https://github.com/FACTSlab/quivers
 cd quivers
 pip install -e ".[dev]"
 ```

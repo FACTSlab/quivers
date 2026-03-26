@@ -22,7 +22,7 @@ Install from source:
 
 ```bash
 pip install torch
-git clone https://github.com/aaronstevenwhite/quivers
+git clone https://github.com/FACTSlab/quivers
 cd quivers
 pip install -e .
 ```

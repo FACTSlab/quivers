@@ -47,10 +47,10 @@ docs = [
 ]
 
 [project.urls]
-Homepage = "https://github.com/aaronstevenwhite/quivers"
-Repository = "https://github.com/aaronstevenwhite/quivers"
-Documentation = "https://aaronstevenwhite.github.io/quivers"
-Changelog = "https://github.com/aaronstevenwhite/quivers/blob/main/CHANGELOG.md"
+Homepage = "https://github.com/FACTSlab/quivers"
+Repository = "https://github.com/FACTSlab/quivers"
+Documentation = "https://FACTSlab.github.io/quivers"
+Changelog = "https://github.com/FACTSlab/quivers/blob/main/CHANGELOG.md"
 
 [project.entry-points."pygments.lexers"]
 qvr = "quivers.dsl.pygments_lexer:QvrLexer"

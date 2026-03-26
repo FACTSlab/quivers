@@ -11,7 +11,7 @@ Quivers is not yet available on PyPI. Install directly from source:
 
 ```bash
 # Clone the repository
-git clone https://github.com/aaronstevenwhite/quivers
+git clone https://github.com/FACTSlab/quivers
 cd quivers
 
 # Install in development mode
