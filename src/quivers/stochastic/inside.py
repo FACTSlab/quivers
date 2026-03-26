@@ -158,8 +158,7 @@ class InsideAlgorithm(nn.Module):
         # use cell list to avoid in-place writes
         # cells[i][j] is a (batch, N) tensor
         cells: list[list[torch.Tensor | None]] = [
-            [None for _ in range(seq_len + 1)]
-            for _ in range(seq_len)
+            [None for _ in range(seq_len + 1)] for _ in range(seq_len)
         ]
 
         # lexical step
@@ -174,8 +173,8 @@ class InsideAlgorithm(nn.Module):
                 parts = []
 
                 for k in range(i + 1, j):
-                    left = cells[i][k]    # (batch, N)
-                    right = cells[k][j]   # (batch, N)
+                    left = cells[i][k]  # (batch, N)
+                    right = cells[k][j]  # (batch, N)
 
                     # combine: (batch, N_A, N_B, N_C)
                     combined = (
@@ -186,7 +185,8 @@ class InsideAlgorithm(nn.Module):
 
                     # marginalize over B and C
                     split_score = torch.logsumexp(
-                        combined.reshape(batch, N, -1), dim=-1,
+                        combined.reshape(batch, N, -1),
+                        dim=-1,
                     )
                     parts.append(split_score)
 

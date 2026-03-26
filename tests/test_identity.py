@@ -1,11 +1,10 @@
 """Tests for identity morphisms and categorical identity laws."""
 
 import torch
-import pytest
 
-from quivers.core.objects import FinSet, ProductSet
+from quivers.core.objects import FinSet
 from quivers.core.morphisms import morphism, observed, identity
-from quivers.core.quantales import PRODUCT_FUZZY, BOOLEAN
+from quivers.core.quantales import BOOLEAN
 
 
 class TestIdentityMorphism:
@@ -44,9 +43,7 @@ class TestIdentityLaws:
         idx_y = identity(y)
 
         result = f >> idx_y
-        torch.testing.assert_close(
-            result.tensor, f_data, atol=1e-5, rtol=1e-5
-        )
+        torch.testing.assert_close(result.tensor, f_data, atol=1e-5, rtol=1e-5)
 
     def test_left_identity(self):
         """identity(X) >> f ≈ f."""
@@ -59,9 +56,7 @@ class TestIdentityLaws:
         idx_x = identity(x)
 
         result = idx_x >> f
-        torch.testing.assert_close(
-            result.tensor, f_data, atol=1e-5, rtol=1e-5
-        )
+        torch.testing.assert_close(result.tensor, f_data, atol=1e-5, rtol=1e-5)
 
     def test_identity_laws_with_latent(self):
         """Identity laws hold for latent (sigmoid-valued) morphisms."""
@@ -76,24 +71,22 @@ class TestIdentityLaws:
         left_id = idx_x >> f
         right_id = f >> idx_y
 
-        torch.testing.assert_close(
-            left_id.tensor, f.tensor, atol=1e-5, rtol=1e-5
-        )
+        torch.testing.assert_close(left_id.tensor, f.tensor, atol=1e-5, rtol=1e-5)
 
-        torch.testing.assert_close(
-            right_id.tensor, f.tensor, atol=1e-5, rtol=1e-5
-        )
+        torch.testing.assert_close(right_id.tensor, f.tensor, atol=1e-5, rtol=1e-5)
 
     def test_boolean_identity_laws(self):
         """Identity laws hold in the Boolean quantale."""
         x = FinSet("X", 3)
         y = FinSet("Y", 2)
 
-        f_data = torch.tensor([
-            [1.0, 0.0],
-            [0.0, 1.0],
-            [1.0, 1.0],
-        ])
+        f_data = torch.tensor(
+            [
+                [1.0, 0.0],
+                [0.0, 1.0],
+                [1.0, 1.0],
+            ]
+        )
 
         f = observed(x, y, f_data, quantale=BOOLEAN)
         idx_x = identity(x, quantale=BOOLEAN)
@@ -102,13 +95,9 @@ class TestIdentityLaws:
         left_id = idx_x >> f
         right_id = f >> idx_y
 
-        torch.testing.assert_close(
-            left_id.tensor, f_data, atol=1e-5, rtol=1e-5
-        )
+        torch.testing.assert_close(left_id.tensor, f_data, atol=1e-5, rtol=1e-5)
 
-        torch.testing.assert_close(
-            right_id.tensor, f_data, atol=1e-5, rtol=1e-5
-        )
+        torch.testing.assert_close(right_id.tensor, f_data, atol=1e-5, rtol=1e-5)
 
     def test_identity_compose_identity(self):
         """id >> id = id."""
@@ -116,6 +105,4 @@ class TestIdentityLaws:
         idx = identity(x)
         result = idx >> idx
 
-        torch.testing.assert_close(
-            result.tensor, torch.eye(3), atol=1e-5, rtol=1e-5
-        )
+        torch.testing.assert_close(result.tensor, torch.eye(3), atol=1e-5, rtol=1e-5)

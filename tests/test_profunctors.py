@@ -6,7 +6,6 @@ import pytest
 from quivers.core.objects import FinSet
 from quivers.core.morphisms import observed
 from quivers.enriched.profunctors import Profunctor
-from quivers.core.quantales import PRODUCT_FUZZY
 
 
 class TestProfunctor:
@@ -38,9 +37,7 @@ class TestProfunctor:
         composed = pf.compose(pg)
 
         expected = (f >> g).tensor
-        torch.testing.assert_close(
-            composed.tensor, expected, atol=1e-5, rtol=1e-5
-        )
+        torch.testing.assert_close(composed.tensor, expected, atol=1e-5, rtol=1e-5)
 
     def test_to_morphism(self):
         a = FinSet("A", 3)

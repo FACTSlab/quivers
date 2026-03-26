@@ -1,8 +1,5 @@
 """Tests for the kleisli DSL (lexer, parser, compiler, loader)."""
 
-import tempfile
-from pathlib import Path
-
 import torch
 import pytest
 
@@ -48,13 +45,8 @@ from quivers.dsl.ast_nodes import (
     ExprParser,
 )
 from quivers.continuous.programs import MonadicProgram
-from quivers.continuous.inline import (
-    FixedDistribution,
-    DirectBernoulli,
-    DirectTruncatedNormal,
-)
-from quivers.core.objects import FinSet, ProductSet, CoproductSet
-from quivers.core.quantales import PRODUCT_FUZZY, BOOLEAN
+from quivers.core.objects import FinSet
+from quivers.core.quantales import BOOLEAN
 from quivers.program import Program
 
 
@@ -79,9 +71,15 @@ class TestLexer:
         source = "quantale object latent observed let output identity marginalize"
         tokens = Lexer(source).tokenize()
         expected = [
-            TokenType.QUANTALE, TokenType.OBJECT, TokenType.LATENT,
-            TokenType.OBSERVED, TokenType.LET, TokenType.OUTPUT,
-            TokenType.IDENTITY, TokenType.MARGINALIZE, TokenType.EOF,
+            TokenType.QUANTALE,
+            TokenType.OBJECT,
+            TokenType.LATENT,
+            TokenType.OBSERVED,
+            TokenType.LET,
+            TokenType.OUTPUT,
+            TokenType.IDENTITY,
+            TokenType.MARGINALIZE,
+            TokenType.EOF,
         ]
         actual = [t.type for t in tokens]
         assert actual == expected
@@ -91,11 +89,20 @@ class TestLexer:
         source = ": -> >> * + @ = . ( ) [ ] ,"
         tokens = Lexer(source).tokenize()
         expected = [
-            TokenType.COLON, TokenType.ARROW, TokenType.COMPOSE,
-            TokenType.PRODUCT, TokenType.COPRODUCT, TokenType.TENSOR,
-            TokenType.EQUALS, TokenType.DOT, TokenType.LPAREN,
-            TokenType.RPAREN, TokenType.LBRACKET, TokenType.RBRACKET,
-            TokenType.COMMA, TokenType.EOF,
+            TokenType.COLON,
+            TokenType.ARROW,
+            TokenType.COMPOSE,
+            TokenType.PRODUCT,
+            TokenType.COPRODUCT,
+            TokenType.TENSOR,
+            TokenType.EQUALS,
+            TokenType.DOT,
+            TokenType.LPAREN,
+            TokenType.RPAREN,
+            TokenType.LBRACKET,
+            TokenType.RBRACKET,
+            TokenType.COMMA,
+            TokenType.EOF,
         ]
         actual = [t.type for t in tokens]
         assert actual == expected
@@ -132,8 +139,15 @@ class TestLexer:
         """Comments after code are handled."""
         source = "object X : 3 # this is X"
         tokens = Lexer(source).tokenize()
-        types = [t.type for t in tokens if t.type not in (TokenType.NEWLINE, TokenType.EOF)]
-        assert types == [TokenType.OBJECT, TokenType.IDENT, TokenType.COLON, TokenType.INT]
+        types = [
+            t.type for t in tokens if t.type not in (TokenType.NEWLINE, TokenType.EOF)
+        ]
+        assert types == [
+            TokenType.OBJECT,
+            TokenType.IDENT,
+            TokenType.COLON,
+            TokenType.INT,
+        ]
 
     def test_full_program(self):
         """A complete program tokenizes without errors."""
@@ -234,9 +248,7 @@ class TestParser:
     def test_let_marginalize(self):
         """Parse a let binding with marginalization."""
         source = (
-            "object X : 3\nobject Y : 4\n"
-            "latent f : X -> X\n"
-            "let m = f.marginalize(X)"
+            "object X : 3\nobject Y : 4\nlatent f : X -> X\nlet m = f.marginalize(X)"
         )
         mod = self._parse(source)
         let_stmt = mod.statements[3]
@@ -526,12 +538,7 @@ class TestLoader:
     def test_load_file(self, tmp_path):
         """Load a .kl file from disk."""
         kl_file = tmp_path / "test_model.kl"
-        kl_file.write_text(
-            "object X : 3\n"
-            "object Y : 4\n"
-            "latent f : X -> Y\n"
-            "output f\n"
-        )
+        kl_file.write_text("object X : 3\nobject Y : 4\nlatent f : X -> Y\noutput f\n")
         prog = load(kl_file)
         assert isinstance(prog, Program)
         assert prog().shape == torch.Size([3, 4])
@@ -539,9 +546,7 @@ class TestLoader:
     def test_load_string_path(self, tmp_path):
         """Load accepts string paths."""
         kl_file = tmp_path / "model.kl"
-        kl_file.write_text(
-            "object X : 2\nlatent f : X -> X\noutput f\n"
-        )
+        kl_file.write_text("object X : 2\nlatent f : X -> X\noutput f\n")
         prog = load(str(kl_file))
         assert isinstance(prog, Program)
 
@@ -755,8 +760,12 @@ class TestLexerContinuous:
         source = "space continuous stochastic discretize embed"
         tokens = Lexer(source).tokenize()
         expected = [
-            TokenType.SPACE, TokenType.CONTINUOUS, TokenType.STOCHASTIC,
-            TokenType.DISCRETIZE, TokenType.EMBED, TokenType.EOF,
+            TokenType.SPACE,
+            TokenType.CONTINUOUS,
+            TokenType.STOCHASTIC,
+            TokenType.DISCRETIZE,
+            TokenType.EMBED,
+            TokenType.EOF,
         ]
         actual = [t.type for t in tokens]
         assert actual == expected
@@ -812,9 +821,7 @@ class TestParserContinuous:
     def test_space_product(self):
         """Parse product space: A * B."""
         mod = self._parse(
-            "space R3 : Euclidean(3)\n"
-            "space S4 : Simplex(4)\n"
-            "space PS : R3 * S4"
+            "space R3 : Euclidean(3)\nspace S4 : Simplex(4)\nspace PS : R3 * S4"
         )
         stmt = mod.statements[2]
         assert isinstance(stmt.space_expr, SpaceProduct)
@@ -822,10 +829,7 @@ class TestParserContinuous:
 
     def test_space_reference(self):
         """Parse space reference (bare identifier)."""
-        mod = self._parse(
-            "space R3 : Euclidean(3)\n"
-            "space alias : R3"
-        )
+        mod = self._parse("space R3 : Euclidean(3)\nspace alias : R3")
         stmt = mod.statements[1]
         assert isinstance(stmt.space_expr, TypeName)
         assert stmt.space_expr.name == "R3"
@@ -833,9 +837,7 @@ class TestParserContinuous:
     def test_continuous_decl(self):
         """Parse continuous morphism declaration."""
         mod = self._parse(
-            "object X : 3\n"
-            "space R3 : Euclidean(3)\n"
-            "continuous f : X -> R3 ~ Normal"
+            "object X : 3\nspace R3 : Euclidean(3)\ncontinuous f : X -> R3 ~ Normal"
         )
         stmt = mod.statements[2]
         assert isinstance(stmt, ContinuousMorphismDecl)
@@ -859,11 +861,7 @@ class TestParserContinuous:
 
     def test_stochastic_decl(self):
         """Parse stochastic morphism declaration."""
-        mod = self._parse(
-            "object X : 3\n"
-            "object Y : 4\n"
-            "stochastic s : X -> Y"
-        )
+        mod = self._parse("object X : 3\nobject Y : 4\nstochastic s : X -> Y")
         stmt = mod.statements[2]
         assert isinstance(stmt, StochasticMorphismDecl)
         assert stmt.name == "s"
@@ -871,8 +869,7 @@ class TestParserContinuous:
     def test_discretize_decl(self):
         """Parse discretize declaration."""
         mod = self._parse(
-            "space B : Euclidean(1, low=0.0, high=1.0)\n"
-            "discretize d : B -> 10"
+            "space B : Euclidean(1, low=0.0, high=1.0)\ndiscretize d : B -> 10"
         )
         stmt = mod.statements[1]
         assert isinstance(stmt, DiscretizeDecl)
@@ -881,11 +878,7 @@ class TestParserContinuous:
 
     def test_embed_decl(self):
         """Parse embed declaration."""
-        mod = self._parse(
-            "object X : 5\n"
-            "space R3 : Euclidean(3)\n"
-            "embed e : X -> R3"
-        )
+        mod = self._parse("object X : 5\nspace R3 : Euclidean(3)\nembed e : X -> R3")
         stmt = mod.statements[2]
         assert isinstance(stmt, EmbedDecl)
         assert stmt.domain_name == "X"
@@ -954,9 +947,7 @@ class TestCompilerContinuous:
         from quivers.continuous.spaces import ProductSpace
 
         ast = parse(
-            "space R3 : Euclidean(3)\n"
-            "space S4 : Simplex(4)\n"
-            "space PS : R3 * S4"
+            "space R3 : Euclidean(3)\nspace S4 : Simplex(4)\nspace PS : R3 * S4"
         )
         compiler = Compiler(ast)
         env = compiler.compile_env()
@@ -968,9 +959,7 @@ class TestCompilerContinuous:
         from quivers.continuous.families import ConditionalNormal
 
         ast = parse(
-            "object X : 5\n"
-            "space R3 : Euclidean(3)\n"
-            "continuous f : X -> R3 ~ Normal"
+            "object X : 5\nspace R3 : Euclidean(3)\ncontinuous f : X -> R3 ~ Normal"
         )
         compiler = Compiler(ast)
         env = compiler.compile_env()
@@ -982,9 +971,7 @@ class TestCompilerContinuous:
         from quivers.continuous.families import ConditionalDirichlet
 
         ast = parse(
-            "object X : 3\n"
-            "space S : Simplex(4)\n"
-            "continuous g : X -> S ~ Dirichlet"
+            "object X : 3\nspace S : Simplex(4)\ncontinuous g : X -> S ~ Dirichlet"
         )
         compiler = Compiler(ast)
         env = compiler.compile_env()
@@ -1008,9 +995,7 @@ class TestCompilerContinuous:
         from quivers.continuous.families import ConditionalBeta
 
         ast = parse(
-            "object X : 3\n"
-            "space R2 : Euclidean(2)\n"
-            "continuous b : X -> R2 ~ Beta"
+            "object X : 3\nspace R2 : Euclidean(2)\ncontinuous b : X -> R2 ~ Beta"
         )
         compiler = Compiler(ast)
         env = compiler.compile_env()
@@ -1021,9 +1006,7 @@ class TestCompilerContinuous:
         from quivers.continuous.families import ConditionalLaplace
 
         ast = parse(
-            "object X : 3\n"
-            "space R2 : Euclidean(2)\n"
-            "continuous l : X -> R2 ~ Laplace"
+            "object X : 3\nspace R2 : Euclidean(2)\ncontinuous l : X -> R2 ~ Laplace"
         )
         compiler = Compiler(ast)
         env = compiler.compile_env()
@@ -1033,11 +1016,7 @@ class TestCompilerContinuous:
         """Compile a stochastic morphism."""
         from quivers.stochastic import StochasticMorphism
 
-        ast = parse(
-            "object X : 3\n"
-            "object Y : 4\n"
-            "stochastic s : X -> Y"
-        )
+        ast = parse("object X : 3\nobject Y : 4\nstochastic s : X -> Y")
         compiler = Compiler(ast)
         env = compiler.compile_env()
         assert isinstance(env["s"], StochasticMorphism)
@@ -1046,10 +1025,7 @@ class TestCompilerContinuous:
         """Compile a Discretize boundary morphism."""
         from quivers.continuous.boundaries import Discretize
 
-        ast = parse(
-            "space B : Euclidean(1, low=0.0, high=1.0)\n"
-            "discretize d : B -> 10"
-        )
+        ast = parse("space B : Euclidean(1, low=0.0, high=1.0)\ndiscretize d : B -> 10")
         compiler = Compiler(ast)
         env = compiler.compile_env()
         assert isinstance(env["d"], Discretize)
@@ -1058,11 +1034,7 @@ class TestCompilerContinuous:
         """Compile an Embed boundary morphism."""
         from quivers.continuous.boundaries import Embed
 
-        ast = parse(
-            "object X : 5\n"
-            "space R3 : Euclidean(3)\n"
-            "embed e : X -> R3"
-        )
+        ast = parse("object X : 5\nspace R3 : Euclidean(3)\nembed e : X -> R3")
         compiler = Compiler(ast)
         env = compiler.compile_env()
         assert isinstance(env["e"], Embed)
@@ -1093,10 +1065,7 @@ class TestCompilerContinuous:
     def test_undefined_object_in_embed_error(self):
         """CompileError for undefined object in embed."""
         with pytest.raises(CompileError, match="undefined object"):
-            ast = parse(
-                "space R : Euclidean(2)\n"
-                "embed e : missing -> R"
-            )
+            ast = parse("space R : Euclidean(2)\nembed e : missing -> R")
             Compiler(ast).compile_env()
 
 
@@ -1213,11 +1182,24 @@ class TestContinuousDSLIntegration:
         """Verify every distribution family is accessible via DSL."""
         # families that work with unbounded Euclidean
         unbounded_families = [
-            "Normal", "LogitNormal", "Beta",
-            "Cauchy", "Laplace", "Gumbel", "LogNormal", "StudentT",
-            "Exponential", "Gamma", "Chi2", "HalfCauchy", "HalfNormal",
-            "InverseGamma", "Weibull", "Pareto",
-            "Kumaraswamy", "ContinuousBernoulli",
+            "Normal",
+            "LogitNormal",
+            "Beta",
+            "Cauchy",
+            "Laplace",
+            "Gumbel",
+            "LogNormal",
+            "StudentT",
+            "Exponential",
+            "Gamma",
+            "Chi2",
+            "HalfCauchy",
+            "HalfNormal",
+            "InverseGamma",
+            "Weibull",
+            "Pareto",
+            "Kumaraswamy",
+            "ContinuousBernoulli",
             "FisherSnedecor",
         ]
 
@@ -1502,8 +1484,7 @@ class TestCompilerProgram:
         loss.backward()
 
         has_grad = any(
-            p.grad is not None and p.grad.abs().sum() > 0
-            for p in prog.parameters()
+            p.grad is not None and p.grad.abs().sum() > 0 for p in prog.parameters()
         )
         assert has_grad
 
@@ -1555,19 +1536,22 @@ class TestCompilerProgram:
     def test_undefined_morphism_error(self):
         """Draw from undefined morphism raises CompileError."""
         with pytest.raises(CompileError):
-            Compiler(parse("""
+            Compiler(
+                parse("""
                 object X : 3
                 space R : Euclidean(2)
 
                 program p : X -> R
                     draw y ~ nonexistent
                     return y
-            """)).compile_env()
+            """)
+            ).compile_env()
 
     def test_undefined_variable_error(self):
         """Draw from undefined variable raises CompileError."""
         with pytest.raises(CompileError):
-            Compiler(parse("""
+            Compiler(
+                parse("""
                 object X : 3
                 space R : Euclidean(2)
                 space S : Euclidean(4)
@@ -1578,12 +1562,14 @@ class TestCompilerProgram:
                     draw y ~ f
                     draw z ~ g(w)
                     return z
-            """)).compile_env()
+            """)
+            ).compile_env()
 
     def test_undefined_return_var_error(self):
         """Return of unbound variable raises CompileError."""
         with pytest.raises(CompileError):
-            Compiler(parse("""
+            Compiler(
+                parse("""
                 object X : 3
                 space R : Euclidean(2)
                 continuous f : X -> R ~ Normal
@@ -1591,12 +1577,14 @@ class TestCompilerProgram:
                 program p : X -> R
                     draw y ~ f
                     return w
-            """)).compile_env()
+            """)
+            ).compile_env()
 
     def test_duplicate_variable_error(self):
         """Duplicate variable name in draw raises CompileError."""
         with pytest.raises(CompileError):
-            Compiler(parse("""
+            Compiler(
+                parse("""
                 object X : 3
                 space R : Euclidean(2)
                 continuous f : X -> R ~ Normal
@@ -1605,7 +1593,8 @@ class TestCompilerProgram:
                     draw y ~ f
                     draw y ~ f
                     return y
-            """)).compile_env()
+            """)
+            ).compile_env()
 
     def test_program_as_output(self):
         """Program can be used as the output expression."""
@@ -2191,8 +2180,12 @@ class TestPDSFaithfulFactivity:
         r = env["respond"].rsample(x)
 
         intermediates = {
-            "x": x, "y": y, "z": z,
-            "b": b, "c": c, "d": d,
+            "x": x,
+            "y": y,
+            "z": z,
+            "b": b,
+            "c": c,
+            "d": d,
             "r": r,
         }
         lj = prog.log_joint(entity, intermediates)
@@ -2597,10 +2590,15 @@ class TestExecutionTupleFeatures:
         c_val = env["bern_c"].rsample(y_val)
         d_val = env["bern_d"].rsample(z_val)
 
-        lj = prog.log_joint(entity, {
-            "y": y_val, "z": z_val,
-            "c": c_val, "d": d_val,
-        })
+        lj = prog.log_joint(
+            entity,
+            {
+                "y": y_val,
+                "z": z_val,
+                "c": c_val,
+                "d": d_val,
+            },
+        )
         assert lj.shape == (2,)
         assert torch.isfinite(lj).all()
 
@@ -2712,8 +2710,13 @@ class TestExecutionTupleFeatures:
         r = env["respond"].rsample(x)
 
         intermediates = {
-            "x": x, "y": y, "z": z,
-            "b": b, "c": c, "d": d, "r": r,
+            "x": x,
+            "y": y,
+            "z": z,
+            "b": b,
+            "c": c,
+            "d": d,
+            "r": r,
         }
         lj = prog.log_joint(entity, intermediates)
         assert lj.shape == (2,)
@@ -3424,7 +3427,10 @@ class TestExecutionLetSteps:
 
         assert isinstance(result, dict)
         assert set(result.keys()) == {
-            "tau_know", "cg_complement", "cg_matrix", "response",
+            "tau_know",
+            "cg_complement",
+            "cg_matrix",
+            "response",
         }
 
         # cg_complement is deterministically 1 (factive presupposition)
@@ -3458,20 +3464,26 @@ class TestExecutionLetSteps:
         result = prog.rsample(entity)
 
         # log_joint should work with labeled keys
-        lj = prog.log_joint(entity, {
-            "belief": result["belief"],
-            "truth": result["truth"],
-            "cg_status": result["cg_status"],
-        })
+        lj = prog.log_joint(
+            entity,
+            {
+                "belief": result["belief"],
+                "truth": result["truth"],
+                "cg_status": result["cg_status"],
+            },
+        )
         assert lj.shape == (2,)
         assert torch.isfinite(lj).all()
 
         # log_joint should also work with variable name keys
-        lj2 = prog.log_joint(entity, {
-            "theta": result["belief"],
-            "b": result["truth"],
-            "cg": result["cg_status"],
-        })
+        lj2 = prog.log_joint(
+            entity,
+            {
+                "theta": result["belief"],
+                "b": result["truth"],
+                "cg": result["cg_status"],
+            },
+        )
         assert torch.allclose(lj, lj2)
 
     def test_repr_with_let(self):
@@ -3851,7 +3863,7 @@ class TestMixedInlineDistributions:
         morph = prog.morphism
         inp = torch.randn(8, 1)
         # sample to get intermediates
-        y = morph.rsample(inp)
+        morph.rsample(inp)
         # log_joint needs intermediate values
         mu_sample = torch.randn(8, 1)
         x_sample = torch.randn(8, 1)
@@ -3967,21 +3979,25 @@ class TestStackCombinator:
 
     def test_stack_independent_params(self):
         """stack creates independent parameters, unlike repeat."""
-        repeat_prog = Compiler(parse("""
+        repeat_prog = Compiler(
+            parse("""
             object X : 4
             space H : Euclidean(8)
             continuous f : H -> H ~ Normal [scale=0.1]
             let model = repeat(f, 3)
             output model
-        """)).compile()
+        """)
+        ).compile()
 
-        stack_prog = Compiler(parse("""
+        stack_prog = Compiler(
+            parse("""
             object X : 4
             space H : Euclidean(8)
             continuous f : H -> H ~ Normal [scale=0.1]
             let model = stack(f, 3)
             output model
-        """)).compile()
+        """)
+        ).compile()
 
         repeat_params = sum(p.numel() for p in repeat_prog.parameters())
         stack_params = sum(p.numel() for p in stack_prog.parameters())
@@ -3991,33 +4007,38 @@ class TestStackCombinator:
 
     def test_stack_rsample_shape(self):
         """stack(f, 3) produces correct output shape."""
-        prog = Compiler(parse("""
+        prog = Compiler(
+            parse("""
             object X : 4
             space H : Euclidean(8)
             embed e : X -> H
             continuous f : H -> H ~ Normal [scale=0.1]
             let model = e >> stack(f, 3)
             output model
-        """)).compile()
+        """)
+        ).compile()
         y = prog.rsample(torch.zeros(4, 4))
         assert y.shape[0] == 4
         assert torch.isfinite(y).all()
 
     def test_stack_count_one(self):
         """stack(f, 1) is equivalent to a single fresh copy."""
-        prog = Compiler(parse("""
+        prog = Compiler(
+            parse("""
             object X : 4
             space H : Euclidean(8)
             continuous f : H -> H ~ Normal
             let model = stack(f, 1)
             output model
-        """)).compile()
+        """)
+        ).compile()
         y = prog.rsample(torch.zeros(2, 8))
         assert torch.isfinite(y).all()
 
     def test_stack_in_composition(self):
         """stack can be composed with >> and other combinators."""
-        prog = Compiler(parse("""
+        prog = Compiler(
+            parse("""
             object X : 4
             space H : Euclidean(8)
             space Out : Euclidean(2)
@@ -4026,7 +4047,8 @@ class TestStackCombinator:
             continuous g : H -> Out ~ Normal [scale=0.1]
             let model = e >> stack(f, 4) >> g
             output model
-        """)).compile()
+        """)
+        ).compile()
         y = prog.rsample(torch.zeros(3, 4))
         assert y.shape == torch.Size([3, 4, 2])
         assert torch.isfinite(y).all()
@@ -4037,21 +4059,24 @@ class TestArrowSyntax:
 
     def test_arrow_basic(self):
         """x <- Normal(0.0, 1.0) works as draw replacement."""
-        prog = Compiler(parse("""
+        prog = Compiler(
+            parse("""
             object Unit : 1
             space H : Euclidean(4)
             program test : Unit -> H
                 x <- Normal(0.0, 1.0)
                 return x
             output test
-        """)).compile()
+        """)
+        ).compile()
         y = prog.rsample(torch.zeros(8, 1))
         assert y.shape[0] == 8
         assert torch.isfinite(y).all()
 
     def test_arrow_mixed_with_draw(self):
         """<- and draw can coexist in same program."""
-        prog = Compiler(parse("""
+        prog = Compiler(
+            parse("""
             object Unit : 1
             space H : Euclidean(4)
             program test : Unit -> H
@@ -4059,13 +4084,15 @@ class TestArrowSyntax:
                 y <- Normal(x, 0.5)
                 return y
             output test
-        """)).compile()
+        """)
+        ).compile()
         y = prog.rsample(torch.zeros(8, 1))
         assert torch.isfinite(y).all()
 
     def test_arrow_with_let(self):
         """<- works alongside let bindings."""
-        prog = Compiler(parse("""
+        prog = Compiler(
+            parse("""
             object Unit : 1
             space H : Euclidean(4)
             program test : Unit -> H
@@ -4074,7 +4101,8 @@ class TestArrowSyntax:
                 y <- Normal(doubled, 0.5)
                 return y
             output test
-        """)).compile()
+        """)
+        ).compile()
         y = prog.rsample(torch.zeros(8, 1))
         assert torch.isfinite(y).all()
 
@@ -4084,7 +4112,8 @@ class TestBackwardComposition:
 
     def test_backward_compose_basic(self):
         """f << g produces g >> f."""
-        prog = Compiler(parse("""
+        prog = Compiler(
+            parse("""
             object A : 3
             object B : 4
             object C : 5
@@ -4092,14 +4121,16 @@ class TestBackwardComposition:
             stochastic g : B -> C
             let h = g << f
             output h
-        """)).compile()
+        """)
+        ).compile()
         # g << f means f >> g: A -> C
         assert prog.morphism.domain.size == 3
         assert prog.morphism.codomain.size == 5
 
     def test_backward_compose_chain(self):
         """f << g << h produces h >> g >> f."""
-        prog = Compiler(parse("""
+        prog = Compiler(
+            parse("""
             object A : 3
             object B : 4
             object C : 5
@@ -4109,7 +4140,8 @@ class TestBackwardComposition:
             stochastic h : C -> D
             let chain = h << g << f
             output chain
-        """)).compile()
+        """)
+        ).compile()
         # h << g << f means f >> g >> h: A -> D
         assert prog.morphism.domain.size == 3
         assert prog.morphism.codomain.size == 6
@@ -4120,7 +4152,8 @@ class TestKleisliComposition:
 
     def test_kleisli_basic(self):
         """f >=> g is equivalent to f >> g."""
-        prog = Compiler(parse("""
+        prog = Compiler(
+            parse("""
             object A : 3
             object B : 4
             object C : 5
@@ -4128,13 +4161,15 @@ class TestKleisliComposition:
             stochastic g : B -> C
             let h = f >=> g
             output h
-        """)).compile()
+        """)
+        ).compile()
         assert prog.morphism.domain.size == 3
         assert prog.morphism.codomain.size == 5
 
     def test_kleisli_mixed_with_compose(self):
         """>=> and >> can be mixed in same expression."""
-        prog = Compiler(parse("""
+        prog = Compiler(
+            parse("""
             object A : 3
             object B : 4
             object C : 5
@@ -4144,7 +4179,8 @@ class TestKleisliComposition:
             stochastic h : C -> D
             let chain = f >=> g >> h
             output chain
-        """)).compile()
+        """)
+        ).compile()
         assert prog.morphism.domain.size == 3
         assert prog.morphism.codomain.size == 6
 
@@ -4154,25 +4190,29 @@ class TestTypeAlias:
 
     def test_type_basic(self):
         """type H = Euclidean(8) works like space H : Euclidean(8)."""
-        prog = Compiler(parse("""
+        prog = Compiler(
+            parse("""
             object X : 4
             type H = Euclidean(8)
             embed e : X -> H
             continuous f : H -> H ~ Normal
             let model = e >> f
             output model
-        """)).compile()
+        """)
+        ).compile()
         y = prog.rsample(torch.zeros(2, 4))
         assert y.shape[-1] == 8
 
     def test_type_parens_free(self):
         """type H = Euclidean 8 (parens-optional constructor)."""
-        prog = Compiler(parse("""
+        prog = Compiler(
+            parse("""
             object X : 4
             type H = Euclidean 8
             embed e : X -> H
             output e
-        """)).compile()
+        """)
+        ).compile()
         y = prog.rsample(torch.zeros(2, 4))
         assert y.shape[-1] == 8
 
@@ -4182,23 +4222,27 @@ class TestParensFreeConstructor:
 
     def test_space_parens_free(self):
         """space H : Euclidean 8 works without parentheses."""
-        prog = Compiler(parse("""
+        prog = Compiler(
+            parse("""
             object X : 4
             space H : Euclidean 8
             embed e : X -> H
             output e
-        """)).compile()
+        """)
+        ).compile()
         y = prog.rsample(torch.zeros(2, 4))
         assert y.shape[-1] == 8
 
     def test_space_parens_still_work(self):
         """Euclidean(8) still works with parentheses."""
-        prog = Compiler(parse("""
+        prog = Compiler(
+            parse("""
             object X : 4
             space H : Euclidean(8)
             embed e : X -> H
             output e
-        """)).compile()
+        """)
+        ).compile()
         y = prog.rsample(torch.zeros(2, 4))
         assert y.shape[-1] == 8
 
@@ -4208,7 +4252,8 @@ class TestWhereClause:
 
     def test_where_basic(self):
         """let x = expr where let y = expr."""
-        prog = Compiler(parse("""
+        prog = Compiler(
+            parse("""
             object A : 3
             object B : 4
             object C : 5
@@ -4218,13 +4263,15 @@ class TestWhereClause:
             where
                 let chain = g
             output model
-        """)).compile()
+        """)
+        ).compile()
         assert prog.morphism.domain.size == 3
         assert prog.morphism.codomain.size == 5
 
     def test_where_multiple_bindings(self):
         """where can have multiple let bindings."""
-        prog = Compiler(parse("""
+        prog = Compiler(
+            parse("""
             object A : 3
             object B : 4
             object C : 5
@@ -4237,13 +4284,15 @@ class TestWhereClause:
                 let first = f >> g
                 let second = h
             output model
-        """)).compile()
+        """)
+        ).compile()
         assert prog.morphism.domain.size == 3
         assert prog.morphism.codomain.size == 6
 
     def test_where_with_stack(self):
         """where clause with stack combinator."""
-        prog = Compiler(parse("""
+        prog = Compiler(
+            parse("""
             object X : 4
             space H : Euclidean(8)
             space Out : Euclidean(2)
@@ -4254,7 +4303,8 @@ class TestWhereClause:
             where
                 let layers = stack(f, 3)
             output model
-        """)).compile()
+        """)
+        ).compile()
         y = prog.rsample(torch.zeros(2, 4))
         assert y.shape[-1] == 2
         assert torch.isfinite(y).all()
@@ -4294,13 +4344,15 @@ class TestScanCombinator:
 
     def test_scan_basic_shape(self):
         """scan(cell) threads hidden state and returns correct shape."""
-        prog = Compiler(parse("""
+        prog = Compiler(
+            parse("""
             type Input = Euclidean 4
             type Hidden = Euclidean 8
             continuous cell : Input * Hidden -> Hidden ~ Normal [scale=0.1]
             let rnn = scan(cell)
             output rnn
-        """)).compile()
+        """)
+        ).compile()
 
         # (batch=3, seq_len=5, input_dim=4)
         x = torch.randn(3, 5, 4)
@@ -4310,7 +4362,8 @@ class TestScanCombinator:
 
     def test_scan_with_embed(self):
         """embed >> scan(cell) processes tokenized sequences."""
-        prog = Compiler(parse("""
+        prog = Compiler(
+            parse("""
             object Token : 16
             type Hidden = Euclidean 8
             type Embedded = Euclidean 4
@@ -4318,7 +4371,8 @@ class TestScanCombinator:
             continuous cell : Embedded * Hidden -> Hidden ~ Normal [scale=0.1]
             let rnn = tok_embed >> scan(cell)
             output rnn
-        """)).compile()
+        """)
+        ).compile()
 
         # (batch=2, seq_len=4) integer tokens
         tokens = torch.tensor([[0, 5, 3, 1], [2, 7, 15, 0]])
@@ -4328,7 +4382,8 @@ class TestScanCombinator:
 
     def test_scan_full_pipeline(self):
         """embed >> scan(cell) >> output_proj is a full RNN pipeline."""
-        prog = Compiler(parse("""
+        prog = Compiler(
+            parse("""
             object Token : 32
             type Embedded = Euclidean 16
             type Hidden = Euclidean 32
@@ -4338,7 +4393,8 @@ class TestScanCombinator:
             continuous output_proj : Hidden -> Output ~ Normal [scale=0.1]
             let rnn = tok_embed >> scan(cell) >> output_proj
             output rnn
-        """)).compile()
+        """)
+        ).compile()
 
         tokens = torch.tensor([[5, 12, 3, 27, 0]])
         out = prog.rsample(tokens)
@@ -4347,19 +4403,22 @@ class TestScanCombinator:
 
     def test_scan_learned_init(self):
         """scan(cell, init=learned) has a learnable initial state."""
-        prog = Compiler(parse("""
+        prog = Compiler(
+            parse("""
             type Input = Euclidean 4
             type Hidden = Euclidean 8
             continuous cell : Input * Hidden -> Hidden ~ Normal [scale=0.1]
             let rnn = scan(cell, init=learned)
             output rnn
-        """)).compile()
+        """)
+        ).compile()
 
         # check that h0 is a parameter
         from quivers.continuous.scan import ScanMorphism
+
         scan_morph = prog.morphism
         assert isinstance(scan_morph, ScanMorphism)
-        assert hasattr(scan_morph, '_h0')
+        assert hasattr(scan_morph, "_h0")
 
         x = torch.randn(2, 5, 4)
         out = prog.rsample(x)
@@ -4367,13 +4426,15 @@ class TestScanCombinator:
 
     def test_scan_different_seq_lengths(self):
         """scan handles different sequence lengths producing same output shape."""
-        prog = Compiler(parse("""
+        prog = Compiler(
+            parse("""
             type Input = Euclidean 4
             type Hidden = Euclidean 8
             continuous cell : Input * Hidden -> Hidden ~ Normal [scale=0.1]
             let rnn = scan(cell)
             output rnn
-        """)).compile()
+        """)
+        ).compile()
 
         # varying sequence lengths
         x3 = torch.randn(1, 3, 4)
@@ -4386,7 +4447,8 @@ class TestScanCombinator:
 
     def test_scan_with_monadic_cell(self):
         """scan works with a monadic program cell (e.g. GRU)."""
-        prog = Compiler(parse("""
+        prog = Compiler(
+            parse("""
             object Token : 16
             type Embedded = Euclidean 8
             type Hidden = Euclidean 16
@@ -4408,7 +4470,8 @@ class TestScanCombinator:
 
             let gru = tok_embed >> scan(gru_cell)
             output gru
-        """)).compile()
+        """)
+        ).compile()
 
         tokens = torch.tensor([[0, 5, 3, 1], [2, 7, 15, 0]])
         out = prog.rsample(tokens)
@@ -4417,13 +4480,15 @@ class TestScanCombinator:
 
     def test_scan_independent_params(self):
         """scan cell parameters are trainable."""
-        prog = Compiler(parse("""
+        prog = Compiler(
+            parse("""
             type Input = Euclidean 4
             type Hidden = Euclidean 8
             continuous cell : Input * Hidden -> Hidden ~ Normal [scale=0.1]
             let rnn = scan(cell)
             output rnn
-        """)).compile()
+        """)
+        ).compile()
 
         # verify parameters exist and are trainable
         params = list(prog.parameters())
@@ -4432,7 +4497,8 @@ class TestScanCombinator:
 
     def test_scan_in_composition_with_stack(self):
         """scan(cell) >> stack(layer, N) composes correctly."""
-        prog = Compiler(parse("""
+        prog = Compiler(
+            parse("""
             object Token : 16
             type Embedded = Euclidean 8
             type Hidden = Euclidean 16
@@ -4445,7 +4511,8 @@ class TestScanCombinator:
 
             let model = tok_embed >> scan(cell) >> stack(layer, 2) >> proj
             output model
-        """)).compile()
+        """)
+        ).compile()
 
         tokens = torch.tensor([[0, 5, 3, 1]])
         out = prog.rsample(tokens)
@@ -4455,12 +4522,14 @@ class TestScanCombinator:
     def test_scan_product_domain_error(self):
         """scan requires cell with product domain."""
         with pytest.raises(CompileError):
-            Compiler(parse("""
+            Compiler(
+                parse("""
                 type H = Euclidean 8
                 continuous cell : H -> H ~ Normal [scale=0.1]
                 let rnn = scan(cell)
                 output rnn
-            """)).compile()
+            """)
+            ).compile()
 
     def test_scan_log_joint(self):
         """scan.log_joint scores all intermediate hidden states."""
@@ -4473,14 +4542,15 @@ class TestScanCombinator:
         cell = ConditionalNormal(ProductSpace(A, H), H)
         scan_morph = ScanMorphism(cell, init="zeros")
 
-        x = torch.randn(3, 5, 4)        # (batch=3, seq_len=5, input=4)
-        hs = torch.randn(3, 5, 8)       # (batch=3, seq_len=5, hidden=8)
+        x = torch.randn(3, 5, 4)  # (batch=3, seq_len=5, input=4)
+        hs = torch.randn(3, 5, 8)  # (batch=3, seq_len=5, hidden=8)
         lj = scan_morph.log_joint(x, hs)
         assert lj.shape == (3,)
         assert torch.isfinite(lj).all()
 
 
 # ===== multi-line expression tests =========================================
+
 
 class TestLexerMultiLine:
     """Lexer suppresses NEWLINE tokens inside balanced () and []."""
@@ -4637,7 +4707,7 @@ class TestParserMultiLine:
 
     def test_multiline_program_body_unaffected(self):
         """Newlines in program bodies (outside brackets) still work."""
-        prog = loads("""
+        loads("""
             object Unit : 1
             object Obs : 1
             program model : Unit -> Obs

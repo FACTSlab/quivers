@@ -6,7 +6,7 @@ import pytest
 from quivers.core.objects import FinSet, FreeMonoid
 from quivers.core.morphisms import morphism, observed, FunctorMorphism
 from quivers.categorical.functors import FreeMonoidFunctor
-from quivers.core.quantales import PRODUCT_FUZZY, BOOLEAN
+from quivers.core.quantales import BOOLEAN
 
 
 class TestFreeMonoidFunctorObject:
@@ -92,9 +92,7 @@ class TestFreeMonoidFunctorMorphism:
         assert t[0, 3].item() == pytest.approx(0.0, abs=1e-6)
 
         # block 1 (length 1 -> length 1): should be f_data
-        torch.testing.assert_close(
-            t[1:3, 1:4], f_data, atol=1e-6, rtol=1e-6
-        )
+        torch.testing.assert_close(t[1:3, 1:4], f_data, atol=1e-6, rtol=1e-6)
 
         # off-diagonal blocks should be zero
         assert t[1, 0].item() == pytest.approx(0.0, abs=1e-6)
@@ -125,9 +123,7 @@ class TestFunctorPreservesComposition:
         fm_g = fm.map_morphism(g)
         composed = fm_f >> fm_g
 
-        torch.testing.assert_close(
-            fm_fg.tensor, composed.tensor, atol=1e-4, rtol=1e-4
-        )
+        torch.testing.assert_close(fm_fg.tensor, composed.tensor, atol=1e-4, rtol=1e-4)
 
 
 class TestGradientFlowThroughFunctor:
@@ -179,6 +175,4 @@ class TestQuantaleRespected:
         t = result.tensor  # (3, 3)
         assert t[0, 0].item() == pytest.approx(1.0, abs=1e-6)
 
-        torch.testing.assert_close(
-            t[1:3, 1:3], f_data, atol=1e-6, rtol=1e-6
-        )
+        torch.testing.assert_close(t[1:3, 1:3], f_data, atol=1e-6, rtol=1e-6)

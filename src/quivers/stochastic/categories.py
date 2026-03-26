@@ -103,9 +103,7 @@ class SlashCategory:
 
     def __post_init__(self) -> None:
         if self.direction not in ("/", "\\"):
-            raise ValueError(
-                f"direction must be '/' or '\\\\', got {self.direction!r}"
-            )
+            raise ValueError(f"direction must be '/' or '\\\\', got {self.direction!r}")
 
     def __repr__(self) -> str:
         res = _cat_str(self.result)
@@ -193,17 +191,16 @@ class ModalCategory:
 
 # union type for all category kinds
 Category = (
-    AtomicCategory
-    | SlashCategory
-    | ProductCategory
-    | UnitCategory
-    | ModalCategory
+    AtomicCategory | SlashCategory | ProductCategory | UnitCategory | ModalCategory
 )
 
 # all concrete category types for isinstance checks
 _CATEGORY_TYPES = (
-    AtomicCategory, SlashCategory, ProductCategory,
-    UnitCategory, ModalCategory,
+    AtomicCategory,
+    SlashCategory,
+    ProductCategory,
+    UnitCategory,
+    ModalCategory,
 )
 
 
@@ -218,6 +215,7 @@ def _cat_str(cat: Category) -> str:
 
 # each constructor is a callable: (system, current_cats) -> list[Category]
 # they generate new categories from existing ones
+
 
 def _slash_constructor(
     current: list[Category],
@@ -268,6 +266,7 @@ def _modal_constructor(
     callable
         A constructor function.
     """
+
     def constructor(current: list[Category]) -> list[Category]:
         return [ModalCategory(modality, c) for c in current]
 

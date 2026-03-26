@@ -24,13 +24,12 @@ import math
 import torch
 import torch.nn as nn
 
-from quivers.continuous.spaces import ContinuousSpace, Euclidean
+from quivers.continuous.spaces import Euclidean
 from quivers.continuous.morphisms import (
     AnySpace,
     ContinuousMorphism,
     _is_discrete,
 )
-from quivers.core._util import EPS
 
 
 class _ConditionedNet(nn.Module):
@@ -78,7 +77,9 @@ class _ConditionedNet(nn.Module):
         self._output_dim = output_dim
 
     def forward(
-        self, x: torch.Tensor, z_fixed: torch.Tensor,
+        self,
+        x: torch.Tensor,
+        z_fixed: torch.Tensor,
     ) -> tuple[torch.Tensor, torch.Tensor]:
         """Compute shift and log-scale.
 
@@ -104,8 +105,8 @@ class _ConditionedNet(nn.Module):
 
         combined = torch.cat([x_repr, z_fixed], dim=-1)
         out = self.net(combined)
-        shift = out[..., :self._output_dim]
-        log_scale = out[..., self._output_dim:].clamp(-5.0, 5.0)
+        shift = out[..., : self._output_dim]
+        log_scale = out[..., self._output_dim :].clamp(-5.0, 5.0)
         return shift, log_scale
 
 
@@ -159,11 +160,16 @@ class AffineCouplingLayer(nn.Module):
         n_transform = len(self._transform_idx)
 
         self.net = _ConditionedNet(
-            domain, n_fixed, n_transform, hidden_dim,
+            domain,
+            n_fixed,
+            n_transform,
+            hidden_dim,
         )
 
     def forward(
-        self, x: torch.Tensor, z: torch.Tensor,
+        self,
+        x: torch.Tensor,
+        z: torch.Tensor,
     ) -> tuple[torch.Tensor, torch.Tensor]:
         """Forward pass: base -> target.
 
@@ -195,7 +201,9 @@ class AffineCouplingLayer(nn.Module):
         return z_out, log_det
 
     def inverse(
-        self, x: torch.Tensor, z_out: torch.Tensor,
+        self,
+        x: torch.Tensor,
+        z_out: torch.Tensor,
     ) -> tuple[torch.Tensor, torch.Tensor]:
         """Inverse pass: target -> base.
 
@@ -287,7 +295,10 @@ class ConditionalFlow(ContinuousMorphism):
         for i in range(n_layers):
             self.layers.append(
                 AffineCouplingLayer(
-                    domain, d, mask_even=(i % 2 == 0), hidden_dim=hidden_dim,
+                    domain,
+                    d,
+                    mask_even=(i % 2 == 0),
+                    hidden_dim=hidden_dim,
                 )
             )
 
@@ -317,10 +328,7 @@ class ConditionalFlow(ContinuousMorphism):
             total_log_det = total_log_det + log_det
 
         # base distribution log-density (standard normal)
-        log_base = (
-            -0.5 * z.pow(2).sum(dim=-1)
-            - 0.5 * self._d * math.log(2 * math.pi)
-        )
+        log_base = -0.5 * z.pow(2).sum(dim=-1) - 0.5 * self._d * math.log(2 * math.pi)
 
         return log_base + total_log_det
 
@@ -350,10 +358,15 @@ class ConditionalFlow(ContinuousMorphism):
             total = n_extra * batch
 
             # replicate x for all samples
-            x_rep = x.unsqueeze(0).expand(
-                n_extra, *x.shape,
-            ).reshape(total, *x.shape[1:]) if x.dim() > 1 else (
-                x.unsqueeze(0).expand(n_extra, batch).reshape(total)
+            x_rep = (
+                x.unsqueeze(0)
+                .expand(
+                    n_extra,
+                    *x.shape,
+                )
+                .reshape(total, *x.shape[1:])
+                if x.dim() > 1
+                else (x.unsqueeze(0).expand(n_extra, batch).reshape(total))
             )
 
             z = torch.randn(total, self._d, device=x.device)

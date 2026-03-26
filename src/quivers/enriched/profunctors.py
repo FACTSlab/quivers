@@ -131,9 +131,7 @@ class Profunctor:
 
         # use quantale.compose which is exactly the coend formula
         n_contract = self._co.ndim
-        result_tensor = self._quantale.compose(
-            self._tensor, other._tensor, n_contract
-        )
+        result_tensor = self._quantale.compose(self._tensor, other._tensor, n_contract)
 
         return Profunctor(
             contra=self._contra,

@@ -3,17 +3,14 @@
 import torch
 import pytest
 
-from quivers.core.objects import FinSet, ProductSet, FreeMonoid, Unit
+from quivers.core.objects import FinSet, ProductSet, FreeMonoid
 from quivers.core.morphisms import (
-    ObservedMorphism,
-    LatentMorphism,
     ComposedMorphism,
     ProductMorphism,
     MarginalizedMorphism,
     morphism,
     observed,
 )
-from quivers.core.tensor_ops import noisy_or_reduce
 
 
 class TestObservedMorphism:
@@ -161,11 +158,13 @@ class TestComposition:
         g = observed(y, z, n_data)
         h = f >> g
 
-        expected = torch.tensor([
-            [1.0, 0.0, 1.0],
-            [0.0, 1.0, 0.0],
-            [1.0, 1.0, 1.0],
-        ])
+        expected = torch.tensor(
+            [
+                [1.0, 0.0, 1.0],
+                [0.0, 1.0, 0.0],
+                [1.0, 1.0, 1.0],
+            ]
+        )
 
         torch.testing.assert_close(h.tensor, expected, atol=1e-5, rtol=1e-5)
 

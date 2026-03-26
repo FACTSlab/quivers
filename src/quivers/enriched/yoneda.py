@@ -25,14 +25,14 @@ This module provides:
 
 from __future__ import annotations
 
-from collections.abc import Callable, Sequence
+from collections.abc import Sequence
 from dataclasses import dataclass
 import itertools
 
 import torch
 
-from quivers.core.objects import SetObject, FinSet
-from quivers.core.morphisms import Morphism, ObservedMorphism, observed, identity
+from quivers.core.objects import SetObject
+from quivers.core.morphisms import Morphism
 from quivers.core.quantales import PRODUCT_FUZZY, Quantale
 from quivers.enriched.profunctors import Profunctor
 
@@ -113,9 +113,7 @@ def representable_profunctor(
     q = quantale if quantale is not None else PRODUCT_FUZZY
     id_tensor = q.identity_tensor(obj.shape)
 
-    return Profunctor(
-        contra=obj, co=obj, tensor=id_tensor, quantale=q
-    )
+    return Profunctor(contra=obj, co=obj, tensor=id_tensor, quantale=q)
 
 
 def corepresentable_profunctor(
@@ -141,9 +139,7 @@ def corepresentable_profunctor(
     q = quantale if quantale is not None else PRODUCT_FUZZY
     id_tensor = q.identity_tensor(obj.shape)
 
-    return Profunctor(
-        contra=obj, co=obj, tensor=id_tensor, quantale=q
-    )
+    return Profunctor(contra=obj, co=obj, tensor=id_tensor, quantale=q)
 
 
 def yoneda_embedding(
@@ -206,8 +202,7 @@ def yoneda_lemma(
 
     if len(hom_tensors) != presheaf.size:
         raise ValueError(
-            f"expected {presheaf.size} hom tensors, "
-            f"got {len(hom_tensors)}"
+            f"expected {presheaf.size} hom tensors, got {len(hom_tensors)}"
         )
 
     obj_a = presheaf.objects[obj_index]
@@ -226,9 +221,7 @@ def yoneda_lemma(
         result_shape = obj_a.shape
         component = torch.full(result_shape, q.unit)
 
-        for a_idx in itertools.product(
-            *(range(s) for s in obj_a.shape)
-        ):
+        for a_idx in itertools.product(*(range(s) for s in obj_a.shape)):
             # extract hom(-, a): shape (*x_i.shape,)
             hom_slice = hom[(..., *a_idx)]
 
@@ -237,9 +230,7 @@ def yoneda_lemma(
 
             vals: list[torch.Tensor] = []
 
-            for x_idx in itertools.product(
-                *(range(s) for s in x_i.shape)
-            ):
+            for x_idx in itertools.product(*(range(s) for s in x_i.shape)):
                 h_val = hom_slice[x_idx]
                 f_val = f_xi[x_idx]
                 ih = _internal_hom_scalar(h_val, f_val, q)

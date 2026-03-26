@@ -184,9 +184,7 @@ class ContinuousMorphism(nn.Module, ABC):
         from quivers.core.morphisms import Morphism
 
         if isinstance(other, Morphism):
-            return ProductContinuousMorphism(
-                self, DiscreteAsContinuous(other)
-            )
+            return ProductContinuousMorphism(self, DiscreteAsContinuous(other))
 
         return NotImplemented
 
@@ -232,7 +230,10 @@ class _NeuralSource(nn.Module):
     """
 
     def __init__(
-        self, input_dim: int, param_dim: int, hidden_dim: int = 64,
+        self,
+        input_dim: int,
+        param_dim: int,
+        hidden_dim: int = 64,
     ) -> None:
         super().__init__()
         self.net = nn.Sequential(
@@ -260,7 +261,9 @@ class _NeuralSource(nn.Module):
 
 
 def _make_source(
-    domain: AnySpace, param_dim: int, hidden_dim: int = 64,
+    domain: AnySpace,
+    param_dim: int,
+    hidden_dim: int = 64,
 ) -> nn.Module:
     """Create an appropriate parameter source for the given domain.
 
@@ -354,7 +357,7 @@ class SampledComposition(ContinuousMorphism):
 
             if y.dim() > len(sample_shape) + 1:
                 # continuous intermediate: (..., batch, dim)
-                event_dims = y.shape[len(sample_shape) + 1:]
+                event_dims = y.shape[len(sample_shape) + 1 :]
                 flat_y = y.reshape(flat_size, *event_dims)
 
             else:
@@ -381,7 +384,9 @@ class SampledComposition(ContinuousMorphism):
         return z
 
     def log_prob(
-        self, x: torch.Tensor, z: torch.Tensor,
+        self,
+        x: torch.Tensor,
+        z: torch.Tensor,
     ) -> torch.Tensor:
         """Log-probability of z given x through the composition.
 
@@ -422,18 +427,25 @@ class SampledComposition(ContinuousMorphism):
         all_y = torch.arange(n_y, device=x.device)
 
         # log f(y | x) for all y: (batch, n_y)
-        x_expanded = x.unsqueeze(1).expand(
+        x.unsqueeze(1).expand(
             batch if x.dim() == 1 else x.shape[0],
-            n_y, *(() if x.dim() == 1 else x.shape[1:]),
+            n_y,
+            *(() if x.dim() == 1 else x.shape[1:]),
         )
 
         if x.dim() == 1:
             x_flat = x.unsqueeze(1).expand(batch, n_y).reshape(-1)
 
         else:
-            x_flat = x.unsqueeze(1).expand(
-                batch, n_y, x.shape[-1],
-            ).reshape(-1, x.shape[-1])
+            x_flat = (
+                x.unsqueeze(1)
+                .expand(
+                    batch,
+                    n_y,
+                    x.shape[-1],
+                )
+                .reshape(-1, x.shape[-1])
+            )
 
         y_flat = all_y.unsqueeze(0).expand(batch, n_y).reshape(-1)
 
@@ -444,9 +456,15 @@ class SampledComposition(ContinuousMorphism):
             z_flat = z.unsqueeze(1).expand(batch, n_y).reshape(-1)
 
         else:
-            z_flat = z.unsqueeze(1).expand(
-                batch, n_y, z.shape[-1],
-            ).reshape(-1, z.shape[-1])
+            z_flat = (
+                z.unsqueeze(1)
+                .expand(
+                    batch,
+                    n_y,
+                    z.shape[-1],
+                )
+                .reshape(-1, z.shape[-1])
+            )
 
         log_g = self.right.log_prob(y_flat, z_flat).reshape(batch, n_y)
 
@@ -454,7 +472,9 @@ class SampledComposition(ContinuousMorphism):
         return torch.logsumexp(log_f + log_g, dim=1)
 
     def _log_prob_mc(
-        self, x: torch.Tensor, z: torch.Tensor,
+        self,
+        x: torch.Tensor,
+        z: torch.Tensor,
     ) -> torch.Tensor:
         """Monte Carlo estimate of log-prob via importance sampling."""
         n = self.n_intermediate
@@ -475,9 +495,14 @@ class SampledComposition(ContinuousMorphism):
             z_flat = z.unsqueeze(0).expand(n, batch).reshape(n * batch)
 
         else:
-            z_flat = z.unsqueeze(0).expand(
-                n, *z.shape,
-            ).reshape(n * batch, -1)
+            z_flat = (
+                z.unsqueeze(0)
+                .expand(
+                    n,
+                    *z.shape,
+                )
+                .reshape(n * batch, -1)
+            )
 
         log_g = self.right.log_prob(y_flat, z_flat).reshape(n, batch)
 
@@ -514,7 +539,6 @@ class ProductContinuousMorphism(ContinuousMorphism):
         left: ContinuousMorphism,
         right: ContinuousMorphism,
     ) -> None:
-        from quivers.continuous.spaces import ProductSpace
 
         dom = _combine_spaces(left.domain, right.domain)
         cod = _combine_spaces(left.codomain, right.codomain)
@@ -548,8 +572,8 @@ class ProductContinuousMorphism(ContinuousMorphism):
 
     def log_prob(self, x: torch.Tensor, y: torch.Tensor) -> torch.Tensor:
         x_left, x_right = self._split_input(x)
-        y_left = y[..., :self._left_cod_dim]
-        y_right = y[..., self._left_cod_dim:]
+        y_left = y[..., : self._left_cod_dim]
+        y_right = y[..., self._left_cod_dim :]
 
         # reconstruct discrete indices if needed
         if _is_discrete(self.left.codomain):
@@ -558,13 +582,13 @@ class ProductContinuousMorphism(ContinuousMorphism):
         if _is_discrete(self.right.codomain):
             y_right = y_right.squeeze(-1).long()
 
-        return (
-            self.left.log_prob(x_left, y_left)
-            + self.right.log_prob(x_right, y_right)
+        return self.left.log_prob(x_left, y_left) + self.right.log_prob(
+            x_right, y_right
         )
 
     def _split_input(
-        self, x: torch.Tensor,
+        self,
+        x: torch.Tensor,
     ) -> tuple[torch.Tensor, torch.Tensor]:
         """Split concatenated domain input into left and right parts."""
         d = self._left_dom_dim
@@ -680,7 +704,7 @@ class FanOutMorphism(ContinuousMorphism):
         offset = 0
 
         for comp, d in zip(self._components, self._cod_dims):
-            y_slice = y[..., offset:offset + d]
+            y_slice = y[..., offset : offset + d]
 
             if _is_discrete(comp.codomain):
                 y_slice = y_slice.squeeze(-1).long()
@@ -718,9 +742,7 @@ class DiscreteAsContinuous(ContinuousMorphism):
         from quivers.core.morphisms import Morphism
 
         if not isinstance(inner, Morphism):
-            raise TypeError(
-                f"expected a discrete Morphism, got {type(inner).__name__}"
-            )
+            raise TypeError(f"expected a discrete Morphism, got {type(inner).__name__}")
 
         super().__init__(inner.domain, inner.codomain)
         self._inner = inner
@@ -773,14 +795,14 @@ class DiscreteAsContinuous(ContinuousMorphism):
         probs = t[x.long()]  # (batch, codomain_size)
 
         n_samples = (
-            int(torch.Size(sample_shape).numel())
-            if len(sample_shape) > 0
-            else 1
+            int(torch.Size(sample_shape).numel()) if len(sample_shape) > 0 else 1
         )
 
         # sample with replacement
         samples = torch.multinomial(
-            probs, n_samples, replacement=True,
+            probs,
+            n_samples,
+            replacement=True,
         )  # (batch, n_samples)
 
         if len(sample_shape) == 0:

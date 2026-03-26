@@ -4,12 +4,9 @@ import torch
 import pytest
 
 from quivers.core.objects import FinSet, ProductSet
-from quivers.core.morphisms import observed, identity
-from quivers.core.quantales import PRODUCT_FUZZY
 from quivers.enriched.profunctors import Profunctor
 from quivers.categorical.monoidal import CartesianMonoidal
 from quivers.enriched.day_convolution import (
-    day_convolution,
     day_unit,
     day_convolution_profunctors,
 )
@@ -54,9 +51,7 @@ class TestDayConvolutionProfunctors:
                     for di in range(2):
                         expected = p_data[ai, bi] * q_data[ci, di]
                         actual = result.tensor[ai, ci, bi, di]
-                        assert actual.item() == pytest.approx(
-                            expected.item(), abs=1e-6
-                        )
+                        assert actual.item() == pytest.approx(expected.item(), abs=1e-6)
 
     def test_profunctor_objects(self):
         """Day convolution produces correct contra/co objects."""

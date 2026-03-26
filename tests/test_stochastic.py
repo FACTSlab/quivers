@@ -3,10 +3,9 @@
 import torch
 import pytest
 
-from quivers.core.objects import FinSet, ProductSet, Unit
-from quivers.core.morphisms import identity, observed
+from quivers.core.objects import FinSet, ProductSet
+from quivers.core.morphisms import observed
 from quivers.stochastic import (
-    MarkovQuantale,
     MARKOV,
     StochasticMorphism,
     CategoricalMorphism,
@@ -14,10 +13,6 @@ from quivers.stochastic import (
     DiscretizedLogitNormal,
     DiscretizedBeta,
     DiscretizedTruncatedNormal,
-    ConditionedMorphism,
-    MixtureMorphism,
-    FactoredMorphism,
-    NormalizedMorphism,
     condition,
     mix,
     factor,
@@ -38,9 +33,7 @@ def _assert_row_stochastic(t: torch.Tensor, n_dom_dims: int, atol: float = 1e-5)
     """Assert that codomain fibers sum to 1."""
     cod_dims = tuple(range(n_dom_dims, t.ndim))
     row_sums = t.sum(dim=cod_dims)
-    torch.testing.assert_close(
-        row_sums, torch.ones_like(row_sums), atol=atol, rtol=0.0
-    )
+    torch.testing.assert_close(row_sums, torch.ones_like(row_sums), atol=atol, rtol=0.0)
 
 
 # ===== MarkovQuantale tests ==================================================
@@ -305,9 +298,7 @@ class TestDiscretizedBeta:
 
         t = f.tensor.squeeze()
         # all bins should be approximately equal
-        torch.testing.assert_close(
-            t, torch.full_like(t, 1.0 / 9), atol=0.02, rtol=0.0
-        )
+        torch.testing.assert_close(t, torch.full_like(t, 1.0 / 9), atol=0.02, rtol=0.0)
 
 
 class TestDiscretizedTruncatedNormal:
@@ -558,7 +549,7 @@ class TestExpectation:
 
     def test_expectation_weighted_mean(self):
         """Expectation computes weighted mean."""
-        A = FinSet("A", 1)
+        FinSet("A", 1)
         B = FinSet("B", 3)
 
         # fixed uniform stochastic morphism

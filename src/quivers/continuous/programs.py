@@ -49,10 +49,8 @@ PDS-style nested programs::
 
 from __future__ import annotations
 
-from collections.abc import Sequence
 
 import torch
-import torch.nn as nn
 
 from quivers.continuous.morphisms import AnySpace, ContinuousMorphism
 
@@ -199,7 +197,7 @@ class MonadicProgram(ContinuousMorphism):
         list[int]
             Feature dimensions for each component.
         """
-        from quivers.core.objects import ProductSet, SetObject
+        from quivers.core.objects import ProductSet
         from quivers.continuous.spaces import ContinuousSpace, ProductSpace
 
         if isinstance(space, (ProductSet, ProductSpace)):
@@ -420,7 +418,9 @@ class MonadicProgram(ContinuousMorphism):
 
                 else:
                     env[spec.var] = torch.full(
-                        (x.shape[0],), spec.value, device=x.device,
+                        (x.shape[0],),
+                        spec.value,
+                        device=x.device,
                     )
 
                 continue
@@ -448,9 +448,7 @@ class MonadicProgram(ContinuousMorphism):
 
                 if any_clamped:
                     # for partially observed destructuring, sample the rest
-                    all_clamped = all(
-                        v in observations for v in spec.vars
-                    )
+                    all_clamped = all(v in observations for v in spec.vars)
 
                     if not all_clamped:
                         result = morph.rsample(inp)
@@ -579,7 +577,9 @@ class MonadicProgram(ContinuousMorphism):
 
                     else:
                         env[spec.var] = torch.full(
-                            (x.shape[0],), spec.value, device=x.device,
+                            (x.shape[0],),
+                            spec.value,
+                            device=x.device,
                         )
 
                 continue
@@ -626,10 +626,7 @@ class MonadicProgram(ContinuousMorphism):
 
             else:
                 keyword = "observe" if s.is_observed else "draw"
-                lhs = (
-                    f"({',' .join(s.vars)})" if len(s.vars) > 1
-                    else s.vars[0]
-                )
+                lhs = f"({','.join(s.vars)})" if len(s.vars) > 1 else s.vars[0]
                 rhs = s.morphism_name.removeprefix("_step_")
 
                 if s.args:
@@ -640,8 +637,7 @@ class MonadicProgram(ContinuousMorphism):
         steps = ", ".join(parts)
         if self._return_labels and not self._return_is_single:
             ret_parts = [
-                f"{l}: {v}"
-                for l, v in zip(self._return_labels, self._return_vars)
+                f"{l}: {v}" for l, v in zip(self._return_labels, self._return_vars)
             ]
             ret = f"({', '.join(ret_parts)})"
 
@@ -650,9 +646,7 @@ class MonadicProgram(ContinuousMorphism):
 
         else:
             ret = self._return_vars[0]
-        params = (
-            f"({', '.join(self._params)})" if self._params else ""
-        )
+        params = f"({', '.join(self._params)})" if self._params else ""
         return (
             f"MonadicProgram{params}({self.domain!r} -> {self.codomain!r}, "
             f"[{steps}] -> {ret})"

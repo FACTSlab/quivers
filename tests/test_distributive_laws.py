@@ -4,7 +4,7 @@ import torch
 import pytest
 
 from quivers.core.objects import FinSet, FreeMonoid
-from quivers.core.morphisms import identity, observed
+from quivers.core.morphisms import identity
 from quivers.monadic.distributive_laws import FreeMonoidPowersetLaw
 from quivers.core.quantales import PRODUCT_FUZZY
 
@@ -42,9 +42,7 @@ class TestFreeMonoidPowersetLaw:
         assert t[0, 1].item() == pytest.approx(0.0)
 
         # block 1: 2x2 identity
-        torch.testing.assert_close(
-            t[1:3, 1:3], torch.eye(2), atol=1e-6, rtol=1e-6
-        )
+        torch.testing.assert_close(t[1:3, 1:3], torch.eye(2), atol=1e-6, rtol=1e-6)
 
     def test_requires_finset(self):
         law = FreeMonoidPowersetLaw(max_length=1)

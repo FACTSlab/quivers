@@ -88,7 +88,4 @@ class Predictive:
                 collected[name].append(site.value)
 
         # stack along a new leading dimension
-        return {
-            name: torch.stack(vals, dim=0)
-            for name, vals in collected.items()
-        }
+        return {name: torch.stack(vals, dim=0) for name, vals in collected.items()}

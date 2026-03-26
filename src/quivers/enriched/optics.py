@@ -30,8 +30,8 @@ import itertools
 
 import torch
 
-from quivers.core.objects import SetObject, FinSet, ProductSet, CoproductSet
-from quivers.core.morphisms import Morphism, ObservedMorphism, observed, identity
+from quivers.core.objects import SetObject, ProductSet, CoproductSet
+from quivers.core.morphisms import Morphism, observed, identity
 from quivers.core.quantales import PRODUCT_FUZZY, Quantale
 from quivers.enriched.profunctors import Profunctor
 
@@ -137,9 +137,7 @@ class Optic(ABC):
 
         # the profunctor view depends on the optic type,
         # but generally it's fwd >> bwd or a similar composition
-        tensor = self._quantale.compose(
-            fwd.tensor, bwd.tensor, self._focus_source.ndim
-        )
+        tensor = self._quantale.compose(fwd.tensor, bwd.tensor, self._focus_source.ndim)
 
         return Profunctor(
             contra=self._source,
@@ -184,20 +182,19 @@ class Lens(Optic):
         quantale: Quantale | None = None,
     ) -> None:
         if not isinstance(whole, ProductSet):
-            raise TypeError(
-                f"Lens requires ProductSet, got {type(whole).__name__}"
-            )
+            raise TypeError(f"Lens requires ProductSet, got {type(whole).__name__}")
 
         if not (0 <= focus_index < len(whole.components)):
             raise ValueError(
-                f"focus_index {focus_index} out of range "
-                f"[0, {len(whole.components)})"
+                f"focus_index {focus_index} out of range [0, {len(whole.components)})"
             )
 
         focus = whole.components[focus_index]
         super().__init__(
-            source=whole, target=whole,
-            focus_source=focus, focus_target=focus,
+            source=whole,
+            target=whole,
+            focus_source=focus,
+            focus_target=focus,
             quantale=quantale,
         )
         self._focus_index = focus_index
@@ -219,9 +216,7 @@ class Lens(Optic):
         whole = self._source
         focus = self._focus_source
 
-        data = torch.full(
-            (*whole.shape, *focus.shape), q.zero
-        )
+        data = torch.full((*whole.shape, *focus.shape), q.zero)
 
         # build projection tensor
         assert isinstance(whole, ProductSet)
@@ -235,7 +230,7 @@ class Lens(Optic):
 
         # for each element of the whole, project to the focus
         for idx in itertools.product(*(range(s) for s in whole.shape)):
-            focus_idx = idx[offset:offset + focus.ndim]
+            focus_idx = idx[offset : offset + focus.ndim]
             data[idx + focus_idx] = q.unit
 
         return observed(whole, focus, data, quantale=q)
@@ -261,9 +256,7 @@ class Lens(Optic):
         # and the unit for the complement
         assert isinstance(whole, ProductSet)
 
-        data = torch.full(
-            (*focus.shape, *whole.shape), q.zero
-        )
+        data = torch.full((*focus.shape, *whole.shape), q.zero)
 
         # compute dimension offset for focus
         components = whole.components
@@ -272,23 +265,17 @@ class Lens(Optic):
         for i in range(self._focus_index):
             offset += components[i].ndim
 
-        for focus_idx in itertools.product(
-            *(range(s) for s in focus.shape)
-        ):
+        for focus_idx in itertools.product(*(range(s) for s in focus.shape)):
             # for each complement index, set the delta
             complement_shapes: list[tuple[int, ...]] = []
 
             for i, comp in enumerate(components):
                 if i != self._focus_index:
-                    complement_shapes.append(
-                        tuple(range(s) for s in comp.shape)
-                    )
+                    complement_shapes.append(tuple(range(s) for s in comp.shape))
 
             # iterate over all whole indices where focus matches
-            for whole_idx in itertools.product(
-                *(range(s) for s in whole.shape)
-            ):
-                w_focus = whole_idx[offset:offset + focus.ndim]
+            for whole_idx in itertools.product(*(range(s) for s in whole.shape)):
+                w_focus = whole_idx[offset : offset + focus.ndim]
 
                 if w_focus == focus_idx:
                     data[focus_idx + whole_idx] = q.unit
@@ -321,20 +308,19 @@ class Prism(Optic):
         quantale: Quantale | None = None,
     ) -> None:
         if not isinstance(whole, CoproductSet):
-            raise TypeError(
-                f"Prism requires CoproductSet, got {type(whole).__name__}"
-            )
+            raise TypeError(f"Prism requires CoproductSet, got {type(whole).__name__}")
 
         if not (0 <= focus_index < len(whole.components)):
             raise ValueError(
-                f"focus_index {focus_index} out of range "
-                f"[0, {len(whole.components)})"
+                f"focus_index {focus_index} out of range [0, {len(whole.components)})"
             )
 
         focus = whole.components[focus_index]
         super().__init__(
-            source=whole, target=whole,
-            focus_source=focus, focus_target=focus,
+            source=whole,
+            target=whole,
+            focus_source=focus,
+            focus_target=focus,
             quantale=quantale,
         )
         self._focus_index = focus_index
@@ -359,9 +345,7 @@ class Prism(Optic):
         assert isinstance(whole, CoproductSet)
         start, end = whole.component_range(self._focus_index)
 
-        data = torch.full(
-            (whole.size, focus.size), q.zero
-        )
+        data = torch.full((whole.size, focus.size), q.zero)
 
         for i in range(focus.size):
             data[start + i, i] = q.unit
@@ -383,9 +367,7 @@ class Prism(Optic):
         assert isinstance(whole, CoproductSet)
         start, end = whole.component_range(self._focus_index)
 
-        data = torch.full(
-            (focus.size, whole.size), q.zero
-        )
+        data = torch.full((focus.size, whole.size), q.zero)
 
         for i in range(focus.size):
             data[i, start + i] = q.unit
@@ -449,10 +431,7 @@ class Adapter(Optic):
         bool
             True if the adapter is an isomorphism.
         """
-        if (
-            self._source != self._target
-            or self._focus_source != self._focus_target
-        ):
+        if self._source != self._target or self._focus_source != self._focus_target:
             return False
 
         fwd = self._from_morph
@@ -506,8 +485,10 @@ class Grate(Optic):
         quantale: Quantale | None = None,
     ) -> None:
         super().__init__(
-            source=source, target=source,
-            focus_source=focus, focus_target=focus,
+            source=source,
+            target=source,
+            focus_source=focus,
+            focus_target=focus,
             quantale=quantale,
         )
         self._index = index
@@ -536,9 +517,7 @@ class Grate(Optic):
             return observed(source, focus, data, quantale=q)
 
         # otherwise, use marginalization
-        return observed(
-            source, focus, self._cotraverse_tensor, quantale=q
-        )
+        return observed(source, focus, self._cotraverse_tensor, quantale=q)
 
     def backward(self) -> Morphism:
         """Rebuild whole from focus via cotraverse."""
@@ -556,7 +535,8 @@ class Grate(Optic):
         perm = list(range(n_src, n_src + n_foc)) + list(range(n_src))
 
         return observed(
-            focus, source,
+            focus,
+            source,
             self._cotraverse_tensor.permute(*perm),
             quantale=q,
         )

@@ -30,15 +30,13 @@ This module provides:
 
 from __future__ import annotations
 
-from abc import ABC, abstractmethod
 from collections.abc import Sequence
 from dataclasses import dataclass
-import itertools
 
 import torch
 
 from quivers.core.objects import SetObject, FinSet
-from quivers.core.morphisms import Morphism, ObservedMorphism, observed
+from quivers.core.morphisms import Morphism
 from quivers.core.quantales import PRODUCT_FUZZY, Quantale
 
 
@@ -64,9 +62,7 @@ class Weight:
 
     def __post_init__(self) -> None:
         if self.values.ndim != 1:
-            raise ValueError(
-                f"weight values must be 1D, got shape {self.values.shape}"
-            )
+            raise ValueError(f"weight values must be 1D, got shape {self.values.shape}")
 
         if self.quantale is None:
             self.quantale = PRODUCT_FUZZY
@@ -144,9 +140,7 @@ def weighted_limit(
     q = quantale if quantale is not None else PRODUCT_FUZZY
 
     if weight.size != diagram.size:
-        raise ValueError(
-            f"weight size {weight.size} != diagram size {diagram.size}"
-        )
+        raise ValueError(f"weight size {weight.size} != diagram size {diagram.size}")
 
     n = weight.size
 
@@ -225,9 +219,7 @@ def weighted_colimit(
     q = quantale if quantale is not None else PRODUCT_FUZZY
 
     if weight.size != diagram.size:
-        raise ValueError(
-            f"weight size {weight.size} != diagram size {diagram.size}"
-        )
+        raise ValueError(f"weight size {weight.size} != diagram size {diagram.size}")
 
     n = weight.size
 
@@ -297,8 +289,7 @@ def weighted_limit_morphisms(
 
     if weight.size != len(morphisms):
         raise ValueError(
-            f"weight size {weight.size} != "
-            f"number of morphisms {len(morphisms)}"
+            f"weight size {weight.size} != number of morphisms {len(morphisms)}"
         )
 
     n = len(morphisms)
@@ -350,8 +341,7 @@ def weighted_colimit_morphisms(
 
     if weight.size != len(morphisms):
         raise ValueError(
-            f"weight size {weight.size} != "
-            f"number of morphisms {len(morphisms)}"
+            f"weight size {weight.size} != number of morphisms {len(morphisms)}"
         )
 
     n = len(morphisms)
@@ -476,6 +466,4 @@ def _internal_hom_scalar(
 
     else:
         # general fallback: ¬(w ⊗ ¬x)
-        return quantale.negate(
-            quantale.tensor_op(w_t, quantale.negate(x))
-        )
+        return quantale.negate(quantale.tensor_op(w_t, quantale.negate(x)))

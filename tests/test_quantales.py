@@ -4,7 +4,6 @@ import torch
 import pytest
 
 from quivers.core.quantales import (
-    Quantale,
     ProductFuzzy,
     BooleanQuantale,
     PRODUCT_FUZZY,
@@ -123,11 +122,13 @@ class TestBooleanQuantale:
 
         result = q.compose(m, n, n_contract=1)
 
-        expected = torch.tensor([
-            [1.0, 0.0, 1.0],
-            [0.0, 1.0, 0.0],
-            [1.0, 1.0, 1.0],
-        ])
+        expected = torch.tensor(
+            [
+                [1.0, 0.0, 1.0],
+                [0.0, 1.0, 0.0],
+                [1.0, 1.0, 1.0],
+            ]
+        )
 
         torch.testing.assert_close(result, expected, atol=1e-5, rtol=1e-5)
 

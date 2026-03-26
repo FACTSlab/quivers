@@ -69,9 +69,7 @@ class ObjectMap(ABC):
         """
         ...
 
-    def fiber_indices(
-        self, target_idx: tuple[int, ...]
-    ) -> list[tuple[int, ...]]:
+    def fiber_indices(self, target_idx: tuple[int, ...]) -> list[tuple[int, ...]]:
         """Return all source indices that map to the given target index.
 
         Parameters
@@ -107,9 +105,7 @@ class Projection(ObjectMap):
         Indices of the components to keep (0-based).
     """
 
-    def __init__(
-        self, product: ProductSet, keep_indices: tuple[int, ...]
-    ) -> None:
+    def __init__(self, product: ProductSet, keep_indices: tuple[int, ...]) -> None:
         if not isinstance(product, ProductSet):
             raise TypeError(
                 f"Projection requires ProductSet, got {type(product).__name__}"
@@ -119,15 +115,11 @@ class Projection(ObjectMap):
 
         for idx in keep_indices:
             if not (0 <= idx < n):
-                raise ValueError(
-                    f"component index {idx} out of range [0, {n})"
-                )
+                raise ValueError(f"component index {idx} out of range [0, {n})")
 
         self._product = product
         self._keep_indices = keep_indices
-        self._drop_indices = tuple(
-            i for i in range(n) if i not in keep_indices
-        )
+        self._drop_indices = tuple(i for i in range(n) if i not in keep_indices)
 
         # build target set
         kept = [product.components[i] for i in keep_indices]
@@ -193,21 +185,16 @@ class Inclusion(ObjectMap):
         Which component to include (0-based).
     """
 
-    def __init__(
-        self, coproduct: CoproductSet, component_index: int
-    ) -> None:
+    def __init__(self, coproduct: CoproductSet, component_index: int) -> None:
         if not isinstance(coproduct, CoproductSet):
             raise TypeError(
-                f"Inclusion requires CoproductSet, got "
-                f"{type(coproduct).__name__}"
+                f"Inclusion requires CoproductSet, got {type(coproduct).__name__}"
             )
 
         n = len(coproduct.components)
 
         if not (0 <= component_index < n):
-            raise ValueError(
-                f"component_index {component_index} out of range [0, {n})"
-            )
+            raise ValueError(f"component_index {component_index} out of range [0, {n})")
 
         self._coproduct = coproduct
         self._component_index = component_index
@@ -270,9 +257,7 @@ def left_kan(
             continue
 
         # collect R(a, :) for all a in the fiber
-        slices = torch.stack(
-            [source_tensor[src_idx] for src_idx in fiber]
-        )
+        slices = torch.stack([source_tensor[src_idx] for src_idx in fiber])
 
         # join over the fiber dimension (dim=0)
         joined = q.join(slices, dim=0)
@@ -319,9 +304,7 @@ def right_kan(
             # empty fiber: meet over empty set = unit
             continue
 
-        slices = torch.stack(
-            [source_tensor[src_idx] for src_idx in fiber]
-        )
+        slices = torch.stack([source_tensor[src_idx] for src_idx in fiber])
 
         # meet over the fiber dimension (dim=0)
         met = q.meet(slices, dim=0)

@@ -884,13 +884,7 @@ class LetExprVar:
 
 
 # union type for let expression nodes
-LetExprNode = (
-    LetExprBinOp
-    | LetExprUnaryOp
-    | LetExprCall
-    | LetExprLiteral
-    | LetExprVar
-)
+LetExprNode = LetExprBinOp | LetExprUnaryOp | LetExprCall | LetExprLiteral | LetExprVar
 
 
 @dataclass(frozen=True)

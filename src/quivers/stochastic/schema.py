@@ -30,9 +30,9 @@ BackwardApplication, etc.), giving fine-grained control::
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
-from collections.abc import Iterator
 
 from quivers.stochastic.categories import (
+    AtomicCategory,
     Category,
     CategorySystem,
     ModalCategory,
@@ -46,6 +46,7 @@ from quivers.stochastic._rule_system import RuleSystem
 # ================================================================
 # abstract base
 # ================================================================
+
 
 class RuleSchema(ABC):
     """A functor CategorySystem -> RuleSystem.
@@ -122,6 +123,7 @@ class WeightedSchema(RuleSchema):
 # ================================================================
 # atomic schema bases
 # ================================================================
+
 
 class BinaryRuleSchema(RuleSchema):
     """Schema for binary rules, defined by a match predicate.
@@ -233,6 +235,7 @@ class UnaryRuleSchema(RuleSchema):
 # ================================================================
 # atomic binary schemas
 # ================================================================
+
 
 class ForwardApplication(BinaryRuleSchema):
     """C/B ⊗ B → C (right evaluation / forward application)."""
@@ -476,6 +479,7 @@ class ModalApplication(BinaryRuleSchema):
 # atomic unary schemas
 # ================================================================
 
+
 class RightLifting(UnaryRuleSchema):
     """A → C/(A\\C) (right adjunction unit / type raising)."""
 
@@ -620,6 +624,7 @@ class ModalProjection(UnaryRuleSchema):
 # generalized composition (special: recursive match)
 # ================================================================
 
+
 class GeneralizedComposition(RuleSchema):
     """Generalized composition through nested slashes (B^n).
 
@@ -719,10 +724,7 @@ def _match_pattern(
 
         else:
             # category atom constant: must match exactly
-            return (
-                isinstance(category, AtomicCategory)
-                and category.name == name
-            )
+            return isinstance(category, AtomicCategory) and category.name == name
 
     elif isinstance(pattern, CatPatternSlash):
         if not isinstance(category, SlashCategory):
@@ -731,19 +733,17 @@ def _match_pattern(
         if pattern.direction != category.direction:
             return False
 
-        return (
-            _match_pattern(pattern.result, category.result, bindings, variables)
-            and _match_pattern(pattern.argument, category.argument, bindings, variables)
-        )
+        return _match_pattern(
+            pattern.result, category.result, bindings, variables
+        ) and _match_pattern(pattern.argument, category.argument, bindings, variables)
 
     elif isinstance(pattern, CatPatternProduct):
         if not isinstance(category, ProductCategory):
             return False
 
-        return (
-            _match_pattern(pattern.left, category.left, bindings, variables)
-            and _match_pattern(pattern.right, category.right, bindings, variables)
-        )
+        return _match_pattern(
+            pattern.left, category.left, bindings, variables
+        ) and _match_pattern(pattern.right, category.right, bindings, variables)
 
     return False
 
@@ -846,7 +846,9 @@ class PatternBinarySchema(BinaryRuleSchema):
             return None
 
         return _instantiate_pattern(
-            self._conclusion, bindings, self._variables,
+            self._conclusion,
+            bindings,
+            self._variables,
         )
 
 
@@ -895,7 +897,9 @@ class PatternUnarySchema(UnaryRuleSchema):
             return []
 
         result = _instantiate_pattern(
-            self._conclusion, bindings, self._variables,
+            self._conclusion,
+            bindings,
+            self._variables,
         )
 
         if result is None:
@@ -911,7 +915,9 @@ class PatternUnarySchema(UnaryRuleSchema):
 EVALUATION = ForwardApplication() | BackwardApplication()
 HARMONIC_COMPOSITION = ForwardComposition() | BackwardComposition()
 CROSSED_COMPOSITION = ForwardCrossedComposition() | BackwardCrossedComposition()
-COMMUTATIVE_EVALUATION = CommutativeForwardApplication() | CommutativeBackwardApplication()
+COMMUTATIVE_EVALUATION = (
+    CommutativeForwardApplication() | CommutativeBackwardApplication()
+)
 ADJUNCTION_UNITS = RightLifting() | LeftLifting()
 TENSOR_INTRODUCTION = TensorIntroduction()
 TENSOR_PROJECTION = LeftProjection() | RightProjection()

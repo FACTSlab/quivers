@@ -36,8 +36,8 @@ import itertools
 
 import torch
 
-from quivers.core.objects import SetObject, FinSet, ProductSet
-from quivers.core.morphisms import Morphism, ObservedMorphism, observed, identity
+from quivers.core.objects import SetObject, ProductSet
+from quivers.core.morphisms import Morphism, observed, identity
 from quivers.core.quantales import PRODUCT_FUZZY, Quantale
 from quivers.categorical.monoidal import MonoidalStructure, CartesianMonoidal
 
@@ -192,10 +192,6 @@ class CartesianTrace(TracedMonoidal):
         # we need to extract the diagonal over the two U copies
         # and join over U
 
-        n_a = domain.ndim
-        n_u = feedback.ndim
-        n_b = codomain.ndim
-
         # the U dimensions in domain are at positions [n_a, n_a + n_u)
         # the U dimensions in codomain are at positions [n_a + n_u + n_b, n_a + n_u + n_b + n_u)
         result_shape = (*domain.shape, *codomain.shape)
@@ -203,15 +199,11 @@ class CartesianTrace(TracedMonoidal):
 
         # extract diagonal and join over U
         for a_idx in itertools.product(*(range(s) for s in domain.shape)):
-            for b_idx in itertools.product(
-                *(range(s) for s in codomain.shape)
-            ):
+            for b_idx in itertools.product(*(range(s) for s in codomain.shape)):
                 # collect f(a, u, b, u) for all u
                 vals: list[torch.Tensor] = []
 
-                for u_idx in itertools.product(
-                    *(range(s) for s in feedback.shape)
-                ):
+                for u_idx in itertools.product(*(range(s) for s in feedback.shape)):
                     src_idx = a_idx + u_idx + b_idx + u_idx
                     vals.append(t[src_idx].unsqueeze(0))
 
@@ -290,10 +282,6 @@ class IterativeTrace(TracedMonoidal):
         q = self._quantale
         t = morph.tensor
 
-        n_a = domain.ndim
-        n_u = feedback.ndim
-        n_b = codomain.ndim
-
         result_shape = (*domain.shape, *codomain.shape)
 
         # initialize with zero (bottom)
@@ -302,25 +290,17 @@ class IterativeTrace(TracedMonoidal):
         for _ in range(self._max_iter):
             current = torch.full(result_shape, q.zero)
 
-            for a_idx in itertools.product(
-                *(range(s) for s in domain.shape)
-            ):
-                for b_idx in itertools.product(
-                    *(range(s) for s in codomain.shape)
-                ):
+            for a_idx in itertools.product(*(range(s) for s in domain.shape)):
+                for b_idx in itertools.product(*(range(s) for s in codomain.shape)):
                     vals: list[torch.Tensor] = []
 
-                    for u_idx in itertools.product(
-                        *(range(s) for s in feedback.shape)
-                    ):
+                    for u_idx in itertools.product(*(range(s) for s in feedback.shape)):
                         src_idx = a_idx + u_idx + b_idx + u_idx
                         vals.append(t[src_idx].unsqueeze(0))
 
                     if vals:
                         stacked = torch.cat(vals)
-                        current[a_idx + b_idx] = q.join(
-                            stacked, dim=0
-                        )
+                        current[a_idx + b_idx] = q.join(stacked, dim=0)
 
             if torch.allclose(current, prev, atol=self._atol):
                 break
@@ -397,14 +377,10 @@ def partial_trace(
     cod = morph.codomain
 
     if not isinstance(dom, ProductSet) or not isinstance(cod, ProductSet):
-        raise TypeError(
-            "partial_trace requires ProductSet domain and codomain"
-        )
+        raise TypeError("partial_trace requires ProductSet domain and codomain")
 
     if len(dom.components) != len(cod.components):
-        raise ValueError(
-            "domain and codomain must have the same number of components"
-        )
+        raise ValueError("domain and codomain must have the same number of components")
 
     # validate feedback components match
     for idx in feedback_indices:
@@ -416,14 +392,12 @@ def partial_trace(
 
     # build feedback and external objects
     external_dom_comps = [
-        c for i, c in enumerate(dom.components)
-        if i not in feedback_indices
+        c for i, c in enumerate(dom.components) if i not in feedback_indices
     ]
     external_cod_comps = [
-        c for i, c in enumerate(cod.components)
-        if i not in feedback_indices
+        c for i, c in enumerate(cod.components) if i not in feedback_indices
     ]
-    feedback_comps = [dom.components[i] for i in feedback_indices]
+    [dom.components[i] for i in feedback_indices]
 
     # compute dimension indices
     n_dom = dom.ndim

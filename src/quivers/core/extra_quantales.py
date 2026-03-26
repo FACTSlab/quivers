@@ -27,7 +27,6 @@ import itertools
 import torch
 
 from quivers.core.quantales import Quantale
-from quivers.core._util import clamp_probs
 
 
 class LukasiewiczQuantale(Quantale):

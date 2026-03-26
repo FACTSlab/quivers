@@ -135,9 +135,7 @@ class Euclidean(ContinuousSpace):
         return self.low is not None and self.high is not None
 
     def contains(self, x: torch.Tensor) -> torch.Tensor:
-        result = torch.ones(
-            x.shape[:-1], dtype=torch.bool, device=x.device
-        )
+        result = torch.ones(x.shape[:-1], dtype=torch.bool, device=x.device)
 
         if self.low is not None:
             result = result & (x >= self.low).all(dim=-1)
@@ -149,13 +147,9 @@ class Euclidean(ContinuousSpace):
 
     def sample_uniform(self, n: int) -> torch.Tensor:
         if not self.is_bounded:
-            raise ValueError(
-                "cannot sample uniformly from unbounded Euclidean space"
-            )
+            raise ValueError("cannot sample uniformly from unbounded Euclidean space")
 
-        return (
-            torch.rand(n, self._dim) * (self.high - self.low) + self.low
-        )
+        return torch.rand(n, self._dim) * (self.high - self.low) + self.low
 
     def __repr__(self) -> str:
         bounds = ""
@@ -310,13 +304,11 @@ class ProductSpace(ContinuousSpace):
         return sum(s.dim for s in self.components)
 
     def contains(self, x: torch.Tensor) -> torch.Tensor:
-        result = torch.ones(
-            x.shape[:-1], dtype=torch.bool, device=x.device
-        )
+        result = torch.ones(x.shape[:-1], dtype=torch.bool, device=x.device)
         offset = 0
 
         for s in self.components:
-            chunk = x[..., offset:offset + s.dim]
+            chunk = x[..., offset : offset + s.dim]
             result = result & s.contains(chunk)
             offset += s.dim
 

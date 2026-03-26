@@ -4,13 +4,13 @@ import torch
 import pytest
 
 from quivers.core.objects import FinSet, ProductSet
-from quivers.core.morphisms import morphism, observed
+from quivers.core.morphisms import observed
 from quivers.enriched.kan_extensions import (
     Projection,
     left_kan,
     right_kan,
 )
-from quivers.core.quantales import PRODUCT_FUZZY, BOOLEAN
+from quivers.core.quantales import BOOLEAN
 
 
 class TestProjection:
@@ -72,13 +72,11 @@ class TestLeftKan:
                 prod = 1.0
 
                 for b_i in range(3):
-                    prod *= (1.0 - f_data[a_i, b_i, c_i])
+                    prod *= 1.0 - f_data[a_i, b_i, c_i]
 
                 expected[a_i, c_i] = 1.0 - prod
 
-        torch.testing.assert_close(
-            kan_result.tensor, expected, atol=1e-5, rtol=1e-5
-        )
+        torch.testing.assert_close(kan_result.tensor, expected, atol=1e-5, rtol=1e-5)
 
     def test_matches_codomain_marginalize(self):
         """left_kan on codomain product matches .marginalize()."""
@@ -95,7 +93,7 @@ class TestLeftKan:
         marginalized = f.marginalize(b)
 
         # equivalent: left Kan along projection from B×C → C
-        proj = Projection(cod, keep_indices=(1,))
+        Projection(cod, keep_indices=(1,))
 
         # reshape the morphism as A×(B×C) -> 1 to use left_kan on
         # the codomain side — but left_kan acts on domain, so we

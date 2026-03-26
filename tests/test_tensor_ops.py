@@ -6,7 +6,6 @@ from quivers.core.tensor_ops import (
     noisy_or_contract,
     noisy_or_reduce,
     noisy_and_reduce,
-    componentwise_lift,
 )
 
 
@@ -19,11 +18,13 @@ class TestNoisyOrContract:
         result = noisy_or_contract(m, n, n_contract=1)
 
         # boolean matmul: OR over j of (m[i,j] AND n[j,k])
-        expected = torch.tensor([
-            [1.0, 0.0, 1.0],
-            [0.0, 1.0, 0.0],
-            [1.0, 1.0, 1.0],
-        ])
+        expected = torch.tensor(
+            [
+                [1.0, 0.0, 1.0],
+                [0.0, 1.0, 0.0],
+                [1.0, 1.0, 1.0],
+            ]
+        )
 
         torch.testing.assert_close(result, expected, atol=1e-5, rtol=1e-5)
 
@@ -86,9 +87,7 @@ class TestNoisyOrContract:
         m = torch.zeros(3, 4)
         n = torch.rand(4, 5)
         result = noisy_or_contract(m, n, n_contract=1)
-        torch.testing.assert_close(
-            result, torch.zeros(3, 5), atol=1e-5, rtol=1e-5
-        )
+        torch.testing.assert_close(result, torch.zeros(3, 5), atol=1e-5, rtol=1e-5)
 
     def test_monotonicity(self):
         """Higher input values should produce higher (or equal) outputs."""

@@ -325,9 +325,7 @@ class Parser:
         while self._peek_type() == TokenType.COMMA:
             self._advance()
             name_tok = self._expect(TokenType.IDENT)
-            decls.append(
-                CategoryDecl(name=name_tok.value, line=tok.line, col=tok.col)
-            )
+            decls.append(CategoryDecl(name=name_tok.value, line=tok.line, col=tok.col))
 
         return decls
 
@@ -523,9 +521,11 @@ class Parser:
                 self._skip_newlines()
 
         return LetDecl(
-            name=name_tok.value, expr=expr,
+            name=name_tok.value,
+            expr=expr,
             where=tuple(where_bindings) if where_bindings else None,
-            line=tok.line, col=tok.col
+            line=tok.line,
+            col=tok.col,
         )
 
     def _parse_output_decl(self) -> OutputDecl:
@@ -543,8 +543,10 @@ class Parser:
         self._expect(TokenType.COLON)
         sexpr = self._parse_space_expr()
         return SpaceDecl(
-            name=name_tok.value, space_expr=sexpr,
-            line=tok.line, col=tok.col,
+            name=name_tok.value,
+            space_expr=sexpr,
+            line=tok.line,
+            col=tok.col,
         )
 
     def _parse_space_decl_from_type(self) -> SpaceDecl:
@@ -557,8 +559,10 @@ class Parser:
         self._expect(TokenType.EQUALS)
         sexpr = self._parse_space_expr()
         return SpaceDecl(
-            name=name_tok.value, space_expr=sexpr,
-            line=tok.line, col=tok.col,
+            name=name_tok.value,
+            space_expr=sexpr,
+            line=tok.line,
+            col=tok.col,
         )
 
     def _parse_space_expr(self) -> SpaceExpr:
@@ -638,16 +642,15 @@ class Parser:
         return args, kwargs
 
     def _parse_one_space_arg(
-        self, args: list[str], kwargs: dict[str, str],
+        self,
+        args: list[str],
+        kwargs: dict[str, str],
     ) -> None:
         """Parse a single positional or keyword argument."""
         tok = self._current()
 
         # keyword argument: IDENT = value
-        if (
-            tok.type == TokenType.IDENT
-            and self._peek_ahead() == TokenType.EQUALS
-        ):
+        if tok.type == TokenType.IDENT and self._peek_ahead() == TokenType.EQUALS:
             key_tok = self._advance()
             self._advance()  # consume =
             val_tok = self._advance()
@@ -833,8 +836,13 @@ class Parser:
         draws: list[DrawStep | LetStep] = []
         self._skip_newlines()
 
-        while self._peek_type() in (TokenType.DRAW, TokenType.OBSERVE, TokenType.LET) or (
-            self._peek_type() == TokenType.IDENT and self._peek_ahead() == TokenType.LARROW
+        while self._peek_type() in (
+            TokenType.DRAW,
+            TokenType.OBSERVE,
+            TokenType.LET,
+        ) or (
+            self._peek_type() == TokenType.IDENT
+            and self._peek_ahead() == TokenType.LARROW
         ):
             if self._peek_type() == TokenType.DRAW:
                 draws.append(self._parse_draw_step())
@@ -851,7 +859,9 @@ class Parser:
             self._skip_newlines()
 
         if not draws:
-            raise ParseError("program block requires at least one step", self._current())
+            raise ParseError(
+                "program block requires at least one step", self._current()
+            )
 
         # parse return statement: return <var> | return (<var>, ...)
         # optionally with labels: return (label: var, ...)
@@ -1091,8 +1101,10 @@ class Parser:
         if (
             val_tok.type == TokenType.IDENT
             and val_tok.value not in _LET_BUILTINS
-            and next_type not in (
-                TokenType.PRODUCT, TokenType.COPRODUCT,
+            and next_type
+            not in (
+                TokenType.PRODUCT,
+                TokenType.COPRODUCT,
                 TokenType.LPAREN,
             )
             # check for + and - via peek at actual token values
@@ -1107,10 +1119,10 @@ class Parser:
             )
 
         # simple numeric literal not followed by operator
-        if (
-            val_tok.type in (TokenType.FLOAT, TokenType.INT)
-            and not self._is_let_operator(next_type)
-        ):
+        if val_tok.type in (
+            TokenType.FLOAT,
+            TokenType.INT,
+        ) and not self._is_let_operator(next_type):
             self._advance()
             return LetStep(
                 name=name_tok.value,
@@ -1133,9 +1145,9 @@ class Parser:
         """Check if a token type is an arithmetic operator for let exprs."""
         return ttype in (
             TokenType.COPRODUCT,  # +
-            TokenType.PRODUCT,    # *
-            TokenType.MINUS,      # -
-            TokenType.SLASH,      # /
+            TokenType.PRODUCT,  # *
+            TokenType.MINUS,  # -
+            TokenType.SLASH,  # /
         )
 
     # -- let expression parser (arithmetic) ----------------------------------
@@ -1230,7 +1242,8 @@ class Parser:
             return node
 
         raise ParseError(
-            "expected number, variable, or expression in let binding", tok,
+            "expected number, variable, or expression in let binding",
+            tok,
         )
 
     def _parse_var_pattern(self) -> tuple[str, ...]:
@@ -1333,20 +1346,20 @@ class Parser:
         """Parse: tensor_expr ('>>' | '<<' | '>=' tensor_expr)*."""
         left = self._parse_tensor_expr()
 
-        while self._peek_type() in (TokenType.COMPOSE, TokenType.COMPOSE_BACK, TokenType.KLEISLI):
+        while self._peek_type() in (
+            TokenType.COMPOSE,
+            TokenType.COMPOSE_BACK,
+            TokenType.KLEISLI,
+        ):
             tok = self._advance()
             right = self._parse_tensor_expr()
 
             if tok.type == TokenType.COMPOSE_BACK:
                 # backward: f << g means g >> f
-                left = ExprCompose(
-                    left=right, right=left, line=tok.line, col=tok.col
-                )
+                left = ExprCompose(left=right, right=left, line=tok.line, col=tok.col)
             else:
                 # forward: f >> g or f >=> g (both same semantics)
-                left = ExprCompose(
-                    left=left, right=right, line=tok.line, col=tok.col
-                )
+                left = ExprCompose(left=left, right=right, line=tok.line, col=tok.col)
 
         return left
 
@@ -1357,9 +1370,7 @@ class Parser:
         while self._peek_type() == TokenType.TENSOR:
             tok = self._advance()
             right = self._parse_postfix_expr()
-            left = ExprTensorProduct(
-                left=left, right=right, line=tok.line, col=tok.col
-            )
+            left = ExprTensorProduct(left=left, right=right, line=tok.line, col=tok.col)
 
         return left
 
@@ -1395,8 +1406,8 @@ class Parser:
 
     def _parse_atom_expr(self) -> Expr:
         """Parse: 'identity' '(' IDENT ')' | 'fan' '(' expr_list ')'
-                | 'repeat' '(' expr ',' INT ')' | 'stack' '(' expr ',' INT ')'
-                | IDENT | '(' expr ')'."""
+        | 'repeat' '(' expr ',' INT ')' | 'stack' '(' expr ',' INT ')'
+        | IDENT | '(' expr ')'."""
         tok = self._current()
 
         if tok.type == TokenType.IDENTITY:
@@ -1404,9 +1415,7 @@ class Parser:
             self._expect(TokenType.LPAREN)
             name_tok = self._expect(TokenType.IDENT)
             self._expect(TokenType.RPAREN)
-            return ExprIdentity(
-                object_name=name_tok.value, line=tok.line, col=tok.col
-            )
+            return ExprIdentity(object_name=name_tok.value, line=tok.line, col=tok.col)
 
         elif tok.type == TokenType.FAN:
             self._advance()
@@ -1419,7 +1428,9 @@ class Parser:
 
             self._expect(TokenType.RPAREN)
             return ExprFan(
-                exprs=tuple(exprs), line=tok.line, col=tok.col,
+                exprs=tuple(exprs),
+                line=tok.line,
+                col=tok.col,
             )
 
         elif tok.type == TokenType.REPEAT:
@@ -1440,7 +1451,10 @@ class Parser:
 
             self._expect(TokenType.RPAREN)
             return ExprRepeat(
-                expr=inner, count=count, line=tok.line, col=tok.col,
+                expr=inner,
+                count=count,
+                line=tok.line,
+                col=tok.col,
             )
 
         elif tok.type == TokenType.STACK:
@@ -1456,7 +1470,10 @@ class Parser:
 
             self._expect(TokenType.RPAREN)
             return ExprStack(
-                expr=inner, count=count, line=tok.line, col=tok.col,
+                expr=inner,
+                count=count,
+                line=tok.line,
+                col=tok.col,
             )
 
         elif tok.type == TokenType.SCAN:
@@ -1491,7 +1508,10 @@ class Parser:
 
             self._expect(TokenType.RPAREN)
             return ExprScan(
-                expr=inner, init=init, line=tok.line, col=tok.col,
+                expr=inner,
+                init=init,
+                line=tok.line,
+                col=tok.col,
             )
 
         elif tok.type == TokenType.PARSER:
@@ -1500,16 +1520,26 @@ class Parser:
 
         elif tok.type == TokenType.CCG:
             # ccg(...) is sugar for parser(...) with CCG default rules
-            return self._parse_parser_expr(tok, default_rules=(
-                "evaluation", "harmonic_composition", "crossed_composition",
-            ))
+            return self._parse_parser_expr(
+                tok,
+                default_rules=(
+                    "evaluation",
+                    "harmonic_composition",
+                    "crossed_composition",
+                ),
+            )
 
         elif tok.type == TokenType.LAMBEK:
             # lambek(...) is sugar for parser(...) with Lambek default rules
-            return self._parse_parser_expr(tok, default_rules=(
-                "evaluation", "adjunction_units",
-                "tensor_introduction", "tensor_projection",
-            ))
+            return self._parse_parser_expr(
+                tok,
+                default_rules=(
+                    "evaluation",
+                    "adjunction_units",
+                    "tensor_introduction",
+                    "tensor_projection",
+                ),
+            )
 
         elif tok.type == TokenType.IDENT:
             self._advance()
@@ -1602,8 +1632,7 @@ class Parser:
 
                 else:
                     raise ParseError(
-                        "expected category name or integer index "
-                        "for start=",
+                        "expected category name or integer index for start=",
                         start_tok,
                     )
 
@@ -1649,10 +1678,7 @@ class Parser:
             terminal=terminal,
             start=start,
             depth=depth,
-            constructors=(
-                tuple(constructors) if constructors is not None
-                else None
-            ),
+            constructors=(tuple(constructors) if constructors is not None else None),
             line=tok.line,
             col=tok.col,
         )

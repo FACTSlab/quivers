@@ -75,13 +75,11 @@ class RuleSystem:
     @property
     def has_weights(self) -> bool:
         """Whether any rules carry explicit weights."""
-        return (
-            self.binary_weights is not None
-            or self.unary_weights is not None
-        )
+        return self.binary_weights is not None or self.unary_weights is not None
 
     def binary_tensors(
-        self, device: torch.device | None = None,
+        self,
+        device: torch.device | None = None,
     ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
         """Return binary rules as (results, lefts, rights) index tensors.
 
@@ -103,7 +101,8 @@ class RuleSystem:
         )
 
     def binary_weight_tensor(
-        self, device: torch.device | None = None,
+        self,
+        device: torch.device | None = None,
     ) -> torch.Tensor:
         """Return initial binary rule weights as a float tensor.
 
@@ -114,15 +113,20 @@ class RuleSystem:
         """
         if self.binary_weights is not None:
             return torch.tensor(
-                self.binary_weights, dtype=torch.float, device=device,
+                self.binary_weights,
+                dtype=torch.float,
+                device=device,
             )
 
         return torch.zeros(
-            self.n_binary, dtype=torch.float, device=device,
+            self.n_binary,
+            dtype=torch.float,
+            device=device,
         )
 
     def unary_tensors(
-        self, device: torch.device | None = None,
+        self,
+        device: torch.device | None = None,
     ) -> tuple[torch.Tensor, torch.Tensor] | None:
         """Return unary rules as (results, inputs) index tensors.
 
@@ -143,7 +147,8 @@ class RuleSystem:
         )
 
     def unary_weight_tensor(
-        self, device: torch.device | None = None,
+        self,
+        device: torch.device | None = None,
     ) -> torch.Tensor:
         """Return initial unary rule weights as a float tensor.
 
@@ -154,11 +159,15 @@ class RuleSystem:
         """
         if self.unary_weights is not None:
             return torch.tensor(
-                self.unary_weights, dtype=torch.float, device=device,
+                self.unary_weights,
+                dtype=torch.float,
+                device=device,
             )
 
         return torch.zeros(
-            self.n_unary, dtype=torch.float, device=device,
+            self.n_unary,
+            dtype=torch.float,
+            device=device,
         )
 
     def __add__(self, other: RuleSystem) -> RuleSystem:
@@ -214,20 +223,12 @@ class RuleSystem:
 
         # only carry weights if either side had explicit weights
         has_binary_w = (
-            self.binary_weights is not None
-            or other.binary_weights is not None
+            self.binary_weights is not None or other.binary_weights is not None
         )
-        has_unary_w = (
-            self.unary_weights is not None
-            or other.unary_weights is not None
-        )
+        has_unary_w = self.unary_weights is not None or other.unary_weights is not None
 
-        binary_weights = (
-            tuple(seen_binary.values()) if has_binary_w else None
-        )
-        unary_weights = (
-            tuple(seen_unary.values()) if has_unary_w else None
-        )
+        binary_weights = tuple(seen_binary.values()) if has_binary_w else None
+        unary_weights = tuple(seen_unary.values()) if has_unary_w else None
 
         desc_parts = []
 

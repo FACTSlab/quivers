@@ -16,7 +16,7 @@ from abc import ABC, abstractmethod
 import torch
 
 from quivers.core.objects import SetObject, FinSet, FreeMonoid
-from quivers.core.quantales import PRODUCT_FUZZY, Quantale
+from quivers.core.quantales import Quantale
 from quivers.core.tensor_ops import componentwise_lift
 
 

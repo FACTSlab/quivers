@@ -2,11 +2,9 @@
 
 from __future__ import annotations
 
-import math
 
 import pytest
 import torch
-import torch.nn as nn
 
 from quivers.core.objects import FinSet
 from quivers.continuous.spaces import (
@@ -17,10 +15,8 @@ from quivers.continuous.spaces import (
     ProductSpace,
 )
 from quivers.continuous.morphisms import (
-    ContinuousMorphism,
     SampledComposition,
     DiscreteAsContinuous,
-    _is_discrete,
 )
 from quivers.continuous.families import (
     ConditionalNormal,
@@ -223,8 +219,7 @@ class TestConditionalNormalDiscrete:
         loss.backward()
 
         has_grad = any(
-            p.grad is not None and p.grad.abs().sum() > 0
-            for p in f.parameters()
+            p.grad is not None and p.grad.abs().sum() > 0 for p in f.parameters()
         )
         assert has_grad
 
@@ -345,8 +340,7 @@ class TestConditionalBeta:
         loss.backward()
 
         has_grad = any(
-            p.grad is not None and p.grad.abs().sum() > 0
-            for p in f.parameters()
+            p.grad is not None and p.grad.abs().sum() > 0 for p in f.parameters()
         )
         assert has_grad
 
@@ -392,7 +386,9 @@ class TestConditionalDirichlet:
         assert samples.shape == (3, 4)
         assert (samples > 0.0).all()
         assert torch.allclose(
-            samples.sum(dim=-1), torch.ones(3), atol=1e-5,
+            samples.sum(dim=-1),
+            torch.ones(3),
+            atol=1e-5,
         )
 
     def test_log_prob(self):
@@ -673,8 +669,7 @@ class TestConditionalFlow:
         loss.backward()
 
         has_grad = any(
-            p.grad is not None and p.grad.abs().sum() > 0
-            for p in flow.parameters()
+            p.grad is not None and p.grad.abs().sum() > 0 for p in flow.parameters()
         )
         assert has_grad
 
@@ -788,9 +783,7 @@ class TestIntegration:
         f = ConditionalNormal(A, Y)
 
         # generate "target" data
-        target_means = torch.tensor(
-            [[1.0, 2.0], [-1.0, 0.0], [0.0, -1.0]]
-        )
+        target_means = torch.tensor([[1.0, 2.0], [-1.0, 0.0], [0.0, -1.0]])
 
         optimizer = torch.optim.Adam(f.parameters(), lr=0.01)
 
@@ -852,13 +845,15 @@ class TestIntegration:
 class TestLocScaleFamilies:
     """Tests for Cauchy, Laplace, Gumbel, LogNormal, StudentT."""
 
-    @pytest.fixture(params=[
-        ConditionalCauchy,
-        ConditionalLaplace,
-        ConditionalGumbel,
-        ConditionalLogNormal,
-        ConditionalStudentT,
-    ])
+    @pytest.fixture(
+        params=[
+            ConditionalCauchy,
+            ConditionalLaplace,
+            ConditionalGumbel,
+            ConditionalLogNormal,
+            ConditionalStudentT,
+        ]
+    )
     def family_cls(self, request):
         return request.param
 
@@ -891,8 +886,7 @@ class TestLocScaleFamilies:
         s = f.rsample(x)
         s.sum().backward()
         has_grad = any(
-            p.grad is not None and p.grad.abs().sum() > 0
-            for p in f.parameters()
+            p.grad is not None and p.grad.abs().sum() > 0 for p in f.parameters()
         )
         assert has_grad
 
@@ -925,16 +919,18 @@ class TestPositiveFamilies:
     """Tests for Exponential, Gamma, Chi2, HalfCauchy, HalfNormal,
     InverseGamma, Weibull, Pareto."""
 
-    @pytest.fixture(params=[
-        ConditionalExponential,
-        ConditionalGamma,
-        ConditionalChi2,
-        ConditionalHalfCauchy,
-        ConditionalHalfNormal,
-        ConditionalInverseGamma,
-        ConditionalWeibull,
-        ConditionalPareto,
-    ])
+    @pytest.fixture(
+        params=[
+            ConditionalExponential,
+            ConditionalGamma,
+            ConditionalChi2,
+            ConditionalHalfCauchy,
+            ConditionalHalfNormal,
+            ConditionalInverseGamma,
+            ConditionalWeibull,
+            ConditionalPareto,
+        ]
+    )
     def family_cls(self, request):
         return request.param
 
@@ -977,8 +973,7 @@ class TestPositiveFamilies:
         s = f.rsample(x)
         s.sum().backward()
         has_grad = any(
-            p.grad is not None and p.grad.abs().sum() > 0
-            for p in f.parameters()
+            p.grad is not None and p.grad.abs().sum() > 0 for p in f.parameters()
         )
         assert has_grad
 
@@ -991,10 +986,12 @@ class TestPositiveFamilies:
 class TestUnitIntervalFamilies:
     """Tests for Kumaraswamy, ContinuousBernoulli."""
 
-    @pytest.fixture(params=[
-        ConditionalKumaraswamy,
-        ConditionalContinuousBernoulli,
-    ])
+    @pytest.fixture(
+        params=[
+            ConditionalKumaraswamy,
+            ConditionalContinuousBernoulli,
+        ]
+    )
     def family_cls(self, request):
         return request.param
 
@@ -1128,8 +1125,7 @@ class TestConditionalMultivariateNormal:
         s = f.rsample(x)
         s.sum().backward()
         has_grad = any(
-            p.grad is not None and p.grad.abs().sum() > 0
-            for p in f.parameters()
+            p.grad is not None and p.grad.abs().sum() > 0 for p in f.parameters()
         )
         assert has_grad
 

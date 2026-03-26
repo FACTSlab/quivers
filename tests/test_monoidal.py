@@ -1,11 +1,10 @@
 """Tests for monoidal structures."""
 
 import torch
-import pytest
 
 from quivers.core.objects import FinSet, ProductSet, CoproductSet, Unit
 from quivers.core.morphisms import identity
-from quivers.categorical.monoidal import CartesianMonoidal, CoproductMonoidal, EmptySet, EMPTY
+from quivers.categorical.monoidal import CartesianMonoidal, CoproductMonoidal, EmptySet
 
 
 class TestCartesianMonoidal:

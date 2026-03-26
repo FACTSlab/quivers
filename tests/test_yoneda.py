@@ -1,15 +1,12 @@
 """Tests for Yoneda embedding and representable profunctors."""
 
 import torch
-import pytest
 
 from quivers.core.objects import FinSet
-from quivers.core.morphisms import observed, identity
-from quivers.core.quantales import PRODUCT_FUZZY
+from quivers.core.morphisms import observed
 from quivers.enriched.profunctors import Profunctor
 from quivers.enriched.yoneda import (
     representable_profunctor,
-    corepresentable_profunctor,
     yoneda_embedding,
     yoneda_density,
     verify_yoneda_fully_faithful,
@@ -71,6 +68,4 @@ class TestYonedaDensity:
 
         result = yoneda_density(f)
 
-        torch.testing.assert_close(
-            result, f.tensor, atol=1e-4, rtol=1e-4
-        )
+        torch.testing.assert_close(result, f.tensor, atol=1e-4, rtol=1e-4)

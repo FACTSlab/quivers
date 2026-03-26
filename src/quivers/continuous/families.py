@@ -30,19 +30,16 @@ import math
 from collections.abc import Callable
 
 import torch
-import torch.nn as nn
 import torch.nn.functional as F
 import torch.distributions as D
 
 from quivers.continuous.spaces import (
     ContinuousSpace,
     Euclidean,
-    Simplex,
 )
 from quivers.continuous.morphisms import (
     AnySpace,
     ContinuousMorphism,
-    _is_discrete,
     _make_source,
 )
 from quivers.core._util import EPS
@@ -51,6 +48,7 @@ from quivers.core._util import EPS
 # ============================================================================
 # parameter transforms
 # ============================================================================
+
 
 def _identity(x: torch.Tensor) -> torch.Tensor:
     return x
@@ -75,6 +73,7 @@ def _sigmoid(x: torch.Tensor) -> torch.Tensor:
 
 def _lower_bounded(bound: float) -> Callable:
     """Create a transform that ensures output > bound."""
+
     def transform(x: torch.Tensor) -> torch.Tensor:
         return F.softplus(x) + bound
 
@@ -155,7 +154,7 @@ class _IndependentConditional(ContinuousMorphism):
         offset = 0
 
         for name, transform in self._param_specs:
-            chunk = raw[..., offset:offset + self._d]
+            chunk = raw[..., offset : offset + self._d]
             params[name] = transform(chunk)
             offset += self._d
 
@@ -203,9 +202,7 @@ def _make_family(
     type
         A new ContinuousMorphism subclass.
     """
-    resolved_specs = [
-        (pname, _TRANSFORMS[tname]) for pname, tname in param_specs
-    ]
+    resolved_specs = [(pname, _TRANSFORMS[tname]) for pname, tname in param_specs]
 
     class _Cls(_IndependentConditional):
         __doc__ = doc
@@ -217,7 +214,11 @@ def _make_family(
             hidden_dim: int = 64,
         ) -> None:
             super().__init__(
-                domain, codomain, dist_class, resolved_specs, hidden_dim,
+                domain,
+                codomain,
+                dist_class,
+                resolved_specs,
+                hidden_dim,
             )
 
     _Cls.__name__ = name
@@ -276,7 +277,8 @@ class ConditionalNormal(ContinuousMorphism):
         self._d = d
 
     def _get_params(
-        self, x: torch.Tensor,
+        self,
+        x: torch.Tensor,
     ) -> tuple[torch.Tensor, torch.Tensor]:
         """Extract mu and sigma from the parameter source.
 
@@ -288,8 +290,8 @@ class ConditionalNormal(ContinuousMorphism):
             Standard deviation (positive). Shape (batch, d).
         """
         raw = self.param_source(x)  # (batch, 2*d)
-        mu = raw[..., :self._d]
-        log_sigma = raw[..., self._d:]
+        mu = raw[..., : self._d]
+        log_sigma = raw[..., self._d :]
         sigma = log_sigma.exp().clamp(min=EPS)
         return mu, sigma
 
@@ -298,9 +300,7 @@ class ConditionalNormal(ContinuousMorphism):
 
         # independent normal log-density, summed over dimensions
         log_p = (
-            -0.5 * ((y - mu) / sigma) ** 2
-            - sigma.log()
-            - 0.5 * math.log(2 * math.pi)
+            -0.5 * ((y - mu) / sigma) ** 2 - sigma.log() - 0.5 * math.log(2 * math.pi)
         )
 
         return log_p.sum(dim=-1)
@@ -314,7 +314,10 @@ class ConditionalNormal(ContinuousMorphism):
 
         # reparameterization trick
         eps = torch.randn(
-            *sample_shape, *mu.shape, device=mu.device, dtype=mu.dtype,
+            *sample_shape,
+            *mu.shape,
+            device=mu.device,
+            dtype=mu.dtype,
         )
 
         return mu + sigma * eps
@@ -348,11 +351,12 @@ class ConditionalLogitNormal(ContinuousMorphism):
         self._d = d
 
     def _get_params(
-        self, x: torch.Tensor,
+        self,
+        x: torch.Tensor,
     ) -> tuple[torch.Tensor, torch.Tensor]:
         raw = self.param_source(x)
-        mu = raw[..., :self._d]
-        log_sigma = raw[..., self._d:]
+        mu = raw[..., : self._d]
+        log_sigma = raw[..., self._d :]
         sigma = log_sigma.exp().clamp(min=EPS)
         return mu, sigma
 
@@ -383,7 +387,10 @@ class ConditionalLogitNormal(ContinuousMorphism):
         mu, sigma = self._get_params(x)
 
         eps = torch.randn(
-            *sample_shape, *mu.shape, device=mu.device, dtype=mu.dtype,
+            *sample_shape,
+            *mu.shape,
+            device=mu.device,
+            dtype=mu.dtype,
         )
         z = mu + sigma * eps
 
@@ -418,11 +425,12 @@ class ConditionalBeta(ContinuousMorphism):
         self._d = d
 
     def _get_params(
-        self, x: torch.Tensor,
+        self,
+        x: torch.Tensor,
     ) -> tuple[torch.Tensor, torch.Tensor]:
         raw = self.param_source(x)
-        log_alpha = raw[..., :self._d]
-        log_beta = raw[..., self._d:]
+        log_alpha = raw[..., : self._d]
+        log_beta = raw[..., self._d :]
         alpha = F.softplus(log_alpha) + 0.1
         beta = F.softplus(log_beta) + 0.1
         return alpha, beta
@@ -468,9 +476,7 @@ class ConditionalTruncatedNormal(ContinuousMorphism):
         hidden_dim: int = 64,
     ) -> None:
         if codomain.low is None or codomain.high is None:
-            raise ValueError(
-                "ConditionalTruncatedNormal requires a bounded codomain"
-            )
+            raise ValueError("ConditionalTruncatedNormal requires a bounded codomain")
 
         super().__init__(domain, codomain)
         d = codomain.dim
@@ -480,12 +486,13 @@ class ConditionalTruncatedNormal(ContinuousMorphism):
         self._high = codomain.high
 
     def _get_params(
-        self, x: torch.Tensor,
+        self,
+        x: torch.Tensor,
     ) -> tuple[torch.Tensor, torch.Tensor]:
         raw = self.param_source(x)
         # initialize mu near center of interval
-        mu = raw[..., :self._d] + (self._low + self._high) / 2.0
-        log_sigma = raw[..., self._d:]
+        mu = raw[..., : self._d] + (self._low + self._high) / 2.0
+        log_sigma = raw[..., self._d :]
         sigma = log_sigma.exp().clamp(min=EPS)
         return mu, sigma
 
@@ -493,9 +500,7 @@ class ConditionalTruncatedNormal(ContinuousMorphism):
         mu, sigma = self._get_params(x)
 
         log_phi = (
-            -0.5 * ((y - mu) / sigma) ** 2
-            - sigma.log()
-            - 0.5 * math.log(2 * math.pi)
+            -0.5 * ((y - mu) / sigma) ** 2 - sigma.log() - 0.5 * math.log(2 * math.pi)
         )
 
         normal = D.Normal(0, 1)
@@ -520,7 +525,10 @@ class ConditionalTruncatedNormal(ContinuousMorphism):
         beta = normal.cdf((self._high - mu) / sigma)
 
         u = torch.rand(
-            *sample_shape, *mu.shape, device=mu.device, dtype=mu.dtype,
+            *sample_shape,
+            *mu.shape,
+            device=mu.device,
+            dtype=mu.dtype,
         )
         u_scaled = alpha + u * (beta - alpha)
         u_scaled = u_scaled.clamp(min=EPS, max=1.0 - EPS)
@@ -581,31 +589,36 @@ class ConditionalDirichlet(ContinuousMorphism):
 # -- loc-scale family --------------------------------------------------------
 
 ConditionalCauchy = _make_family(
-    "ConditionalCauchy", D.Cauchy,
+    "ConditionalCauchy",
+    D.Cauchy,
     [("loc", "id"), ("scale", "softplus")],
     "Conditional Cauchy(loc(x), scale(x)). Heavy-tailed, no finite moments.",
 )
 
 ConditionalLaplace = _make_family(
-    "ConditionalLaplace", D.Laplace,
+    "ConditionalLaplace",
+    D.Laplace,
     [("loc", "id"), ("scale", "softplus")],
     "Conditional Laplace(loc(x), scale(x)). Sharp peak, heavier tails than normal.",
 )
 
 ConditionalGumbel = _make_family(
-    "ConditionalGumbel", D.Gumbel,
+    "ConditionalGumbel",
+    D.Gumbel,
     [("loc", "id"), ("scale", "softplus")],
     "Conditional Gumbel(loc(x), scale(x)). Extreme value distribution (type I).",
 )
 
 ConditionalLogNormal = _make_family(
-    "ConditionalLogNormal", D.LogNormal,
+    "ConditionalLogNormal",
+    D.LogNormal,
     [("loc", "id"), ("scale", "softplus")],
     "Conditional LogNormal(loc(x), scale(x)). Positive-valued, right-skewed.",
 )
 
 ConditionalStudentT = _make_family(
-    "ConditionalStudentT", D.StudentT,
+    "ConditionalStudentT",
+    D.StudentT,
     [("df", "softplus_shifted"), ("loc", "id"), ("scale", "softplus")],
     "Conditional StudentT(df(x), loc(x), scale(x)). Heavy-tailed with learnable df.",
 )
@@ -613,49 +626,57 @@ ConditionalStudentT = _make_family(
 # -- positive-valued distributions -------------------------------------------
 
 ConditionalExponential = _make_family(
-    "ConditionalExponential", D.Exponential,
+    "ConditionalExponential",
+    D.Exponential,
     [("rate", "softplus")],
     "Conditional Exponential(rate(x)). Memoryless, positive-valued.",
 )
 
 ConditionalGamma = _make_family(
-    "ConditionalGamma", D.Gamma,
+    "ConditionalGamma",
+    D.Gamma,
     [("concentration", "softplus_shifted"), ("rate", "softplus")],
     "Conditional Gamma(concentration(x), rate(x)). Positive-valued, flexible shape.",
 )
 
 ConditionalChi2 = _make_family(
-    "ConditionalChi2", D.Chi2,
+    "ConditionalChi2",
+    D.Chi2,
     [("df", "softplus_shifted")],
     "Conditional Chi2(df(x)). Positive-valued, sum of squared normals.",
 )
 
 ConditionalHalfCauchy = _make_family(
-    "ConditionalHalfCauchy", D.HalfCauchy,
+    "ConditionalHalfCauchy",
+    D.HalfCauchy,
     [("scale", "softplus")],
     "Conditional HalfCauchy(scale(x)). Heavy-tailed positive prior.",
 )
 
 ConditionalHalfNormal = _make_family(
-    "ConditionalHalfNormal", D.HalfNormal,
+    "ConditionalHalfNormal",
+    D.HalfNormal,
     [("scale", "softplus")],
     "Conditional HalfNormal(scale(x)). Folded normal, positive-valued.",
 )
 
 ConditionalInverseGamma = _make_family(
-    "ConditionalInverseGamma", D.InverseGamma,
+    "ConditionalInverseGamma",
+    D.InverseGamma,
     [("concentration", "softplus_shifted"), ("rate", "softplus")],
     "Conditional InverseGamma(concentration(x), rate(x)). Conjugate prior for normal variance.",
 )
 
 ConditionalWeibull = _make_family(
-    "ConditionalWeibull", D.Weibull,
+    "ConditionalWeibull",
+    D.Weibull,
     [("scale", "softplus"), ("concentration", "softplus")],
     "Conditional Weibull(scale(x), concentration(x)). Survival analysis, reliability.",
 )
 
 ConditionalPareto = _make_family(
-    "ConditionalPareto", D.Pareto,
+    "ConditionalPareto",
+    D.Pareto,
     [("scale", "softplus"), ("alpha", "softplus")],
     "Conditional Pareto(scale(x), alpha(x)). Power-law tail.",
 )
@@ -663,13 +684,15 @@ ConditionalPareto = _make_family(
 # -- (0, 1)-valued distributions ---------------------------------------------
 
 ConditionalKumaraswamy = _make_family(
-    "ConditionalKumaraswamy", D.Kumaraswamy,
+    "ConditionalKumaraswamy",
+    D.Kumaraswamy,
     [("concentration1", "softplus_shifted"), ("concentration0", "softplus_shifted")],
     "Conditional Kumaraswamy(a(x), b(x)). Beta-like on (0,1), closed-form CDF.",
 )
 
 ConditionalContinuousBernoulli = _make_family(
-    "ConditionalContinuousBernoulli", D.ContinuousBernoulli,
+    "ConditionalContinuousBernoulli",
+    D.ContinuousBernoulli,
     [("logits", "id")],
     "Conditional ContinuousBernoulli(logits(x)). Continuous relaxation of Bernoulli.",
 )
@@ -677,7 +700,8 @@ ConditionalContinuousBernoulli = _make_family(
 # -- two-df distributions ----------------------------------------------------
 
 ConditionalFisherSnedecor = _make_family(
-    "ConditionalFisherSnedecor", D.FisherSnedecor,
+    "ConditionalFisherSnedecor",
+    D.FisherSnedecor,
     [("df1", "softplus_shifted"), ("df2", "softplus_shifted")],
     "Conditional FisherSnedecor(df1(x), df2(x)). F-distribution, ratio of chi-squared.",
 )
@@ -716,8 +740,8 @@ class ConditionalUniform(ContinuousMorphism):
 
     def _get_dist(self, x: torch.Tensor) -> D.Uniform:
         raw = self.param_source(x)
-        loc = raw[..., :self._d]
-        width = F.softplus(raw[..., self._d:]) + EPS
+        loc = raw[..., : self._d]
+        width = F.softplus(raw[..., self._d :]) + EPS
         low = loc - width / 2.0
         high = loc + width / 2.0
         return D.Uniform(low, high)
@@ -772,14 +796,17 @@ class ConditionalMultivariateNormal(ContinuousMorphism):
 
     def _get_dist(self, x: torch.Tensor) -> D.MultivariateNormal:
         raw = self.param_source(x)
-        loc = raw[..., :self._d]
-        tril_raw = raw[..., self._d:]
+        loc = raw[..., : self._d]
+        tril_raw = raw[..., self._d :]
 
         # build lower-triangular matrix
         batch_shape = tril_raw.shape[:-1]
         L = torch.zeros(
-            *batch_shape, self._d, self._d,
-            device=tril_raw.device, dtype=tril_raw.dtype,
+            *batch_shape,
+            self._d,
+            self._d,
+            device=tril_raw.device,
+            dtype=tril_raw.dtype,
         )
 
         # fill lower triangle
@@ -788,9 +815,7 @@ class ConditionalMultivariateNormal(ContinuousMorphism):
 
         # ensure positive diagonal (for positive definiteness)
         diag_idx = torch.arange(self._d)
-        L[..., diag_idx, diag_idx] = F.softplus(
-            L[..., diag_idx, diag_idx]
-        ) + EPS
+        L[..., diag_idx, diag_idx] = F.softplus(L[..., diag_idx, diag_idx]) + EPS
 
         return D.MultivariateNormal(loc, scale_tril=L)
 
@@ -849,8 +874,8 @@ class ConditionalLowRankMVN(ContinuousMorphism):
         r = self._rank
 
         loc = raw[..., :d]
-        factor_raw = raw[..., d:d + d * r]
-        diag_raw = raw[..., d + d * r:]
+        factor_raw = raw[..., d : d + d * r]
+        diag_raw = raw[..., d + d * r :]
 
         cov_factor = factor_raw.reshape(*raw.shape[:-1], d, r)
         cov_diag = F.softplus(diag_raw) + EPS
@@ -910,7 +935,9 @@ class ConditionalRelaxedBernoulli(ContinuousMorphism):
     def _get_dist(self, x: torch.Tensor) -> D.RelaxedBernoulli:
         logits = self.param_source(x)
         temp = torch.tensor(
-            self._temperature, device=logits.device, dtype=logits.dtype,
+            self._temperature,
+            device=logits.device,
+            dtype=logits.dtype,
         )
         return D.RelaxedBernoulli(temperature=temp, logits=logits)
 
@@ -961,7 +988,9 @@ class ConditionalRelaxedOneHotCategorical(ContinuousMorphism):
     def _get_dist(self, x: torch.Tensor) -> D.RelaxedOneHotCategorical:
         logits = self.param_source(x)
         temp = torch.tensor(
-            self._temperature, device=logits.device, dtype=logits.dtype,
+            self._temperature,
+            device=logits.device,
+            dtype=logits.dtype,
         )
         return D.RelaxedOneHotCategorical(temperature=temp, logits=logits)
 
@@ -1026,15 +1055,16 @@ class ConditionalWishart(ContinuousMorphism):
         tril_raw = raw[..., 1:]
         batch_shape = tril_raw.shape[:-1]
         L = torch.zeros(
-            *batch_shape, d, d,
-            device=tril_raw.device, dtype=tril_raw.dtype,
+            *batch_shape,
+            d,
+            d,
+            device=tril_raw.device,
+            dtype=tril_raw.dtype,
         )
         idx = torch.tril_indices(d, d)
         L[..., idx[0], idx[1]] = tril_raw
         diag_idx = torch.arange(d)
-        L[..., diag_idx, diag_idx] = F.softplus(
-            L[..., diag_idx, diag_idx]
-        ) + EPS
+        L[..., diag_idx, diag_idx] = F.softplus(L[..., diag_idx, diag_idx]) + EPS
 
         return D.Wishart(df=df, scale_tril=L)
 
@@ -1105,8 +1135,7 @@ class ConditionalBernoulli(ContinuousMorphism):
 
         if not isinstance(codomain, SetObject) or codomain.size != 2:
             raise ValueError(
-                "ConditionalBernoulli requires a FinSet(2) codomain, "
-                f"got {codomain!r}"
+                f"ConditionalBernoulli requires a FinSet(2) codomain, got {codomain!r}"
             )
 
         super().__init__(domain, codomain)
@@ -1200,8 +1229,7 @@ class ConditionalCategorical(ContinuousMorphism):
 
         if not isinstance(codomain, SetObject):
             raise ValueError(
-                "ConditionalCategorical requires a FinSet codomain, "
-                f"got {codomain!r}"
+                f"ConditionalCategorical requires a FinSet codomain, got {codomain!r}"
             )
 
         super().__init__(domain, codomain)
@@ -1302,8 +1330,8 @@ try:
             raw = self.param_source(x)
             d = self._d
             loc = raw[..., :d]
-            scale = F.softplus(raw[..., d:2 * d]) + EPS
-            concentration = raw[..., 2 * d:]
+            scale = F.softplus(raw[..., d : 2 * d]) + EPS
+            concentration = raw[..., 2 * d :]
             return _GPD(loc, scale, concentration)
 
         def log_prob(self, x: torch.Tensor, y: torch.Tensor) -> torch.Tensor:

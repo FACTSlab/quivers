@@ -243,7 +243,6 @@ class Coalgebra(ABC):
         bool
             True if the counit law holds within tolerance.
         """
-        from quivers.monadic.comonads import Comonad as ComonadCls
 
         gamma = self.structure_map()
         eps = self._comonad.counit(self._carrier)  # type: ignore[union-attr]
@@ -265,7 +264,6 @@ class Coalgebra(ABC):
         bool
             True if coassociativity holds within tolerance.
         """
-        from quivers.monadic.comonads import Comonad as ComonadCls
 
         gamma = self.structure_map()
         delta = self._comonad.comultiply(self._carrier)  # type: ignore[union-attr]
@@ -336,9 +334,7 @@ class ObservedCoalgebra(Coalgebra):
         super().__init__(comonad, carrier)
         q = quantale if quantale is not None else PRODUCT_FUZZY
         wa = comonad.endofunctor.map_object(carrier)  # type: ignore[union-attr]
-        self._morphism = observed(
-            carrier, wa, structure_tensor, quantale=q
-        )
+        self._morphism = observed(carrier, wa, structure_tensor, quantale=q)
 
     def structure_map(self) -> Morphism:
         """The stored structure map γ: A → W(A)."""

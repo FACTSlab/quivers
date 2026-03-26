@@ -16,7 +16,6 @@ from __future__ import annotations
 from pygments.lexer import RegexLexer, words
 from pygments.token import (
     Comment,
-    Generic,
     Keyword,
     Name,
     Number,
@@ -39,21 +38,28 @@ class QvrLexer(RegexLexer):
         "root": [
             # comments
             (r"#.*$", Comment.Single),
-
             # declaration keywords — blue/purple tones via Keyword
             (
                 words(
                     (
-                        "quantale", "category", "object", "rule",
-                        "latent", "observed",
-                        "space", "continuous", "stochastic",
-                        "discretize", "embed", "program", "output",
+                        "quantale",
+                        "category",
+                        "object",
+                        "rule",
+                        "latent",
+                        "observed",
+                        "space",
+                        "continuous",
+                        "stochastic",
+                        "discretize",
+                        "embed",
+                        "program",
+                        "output",
                     ),
                     suffix=r"\b",
                 ),
                 Keyword.Declaration,
             ),
-
             # program body keywords — bold keyword color
             (
                 words(
@@ -62,63 +68,80 @@ class QvrLexer(RegexLexer):
                 ),
                 Keyword.Reserved,
             ),
-
             # quantale names — string-like (green tones)
             (
                 words(
                     (
-                        "product_fuzzy", "boolean", "lukasiewicz",
-                        "godel", "tropical",
+                        "product_fuzzy",
+                        "boolean",
+                        "lukasiewicz",
+                        "godel",
+                        "tropical",
                     ),
                     suffix=r"\b",
                 ),
                 String.Symbol,
             ),
-
             # space constructors — type/class (teal/cyan tones)
             (
                 words(
                     (
-                        "Euclidean", "UnitInterval", "Simplex",
-                        "PositiveReals", "FreeMonoid",
+                        "Euclidean",
+                        "UnitInterval",
+                        "Simplex",
+                        "PositiveReals",
+                        "FreeMonoid",
                     ),
                     suffix=r"\b",
                 ),
                 Name.Class,
             ),
-
             # distribution families — decorator color (distinct from types)
             (
                 words(
                     (
-                        "Normal", "LogitNormal", "Beta", "Bernoulli",
-                        "Uniform", "TruncatedNormal", "Dirichlet",
-                        "Exponential", "HalfCauchy", "HalfNormal",
-                        "LogNormal", "Gamma", "Categorical",
-                        "MultivariateNormal", "LowRankMVN",
-                        "RelaxedBernoulli", "RelaxedOneHotCategorical",
-                        "Wishart", "Flow",
+                        "Normal",
+                        "LogitNormal",
+                        "Beta",
+                        "Bernoulli",
+                        "Uniform",
+                        "TruncatedNormal",
+                        "Dirichlet",
+                        "Exponential",
+                        "HalfCauchy",
+                        "HalfNormal",
+                        "LogNormal",
+                        "Gamma",
+                        "Categorical",
+                        "MultivariateNormal",
+                        "LowRankMVN",
+                        "RelaxedBernoulli",
+                        "RelaxedOneHotCategorical",
+                        "Wishart",
+                        "Flow",
                     ),
                     suffix=r"\b",
                 ),
                 Name.Decorator,
             ),
-
             # built-in rule schemas — distinct from functions
             (
                 words(
                     (
-                        "evaluation", "harmonic_composition",
-                        "crossed_composition", "adjunction_units",
-                        "tensor_introduction", "tensor_projection",
-                        "modal_introduction", "modal_elimination",
+                        "evaluation",
+                        "harmonic_composition",
+                        "crossed_composition",
+                        "adjunction_units",
+                        "tensor_introduction",
+                        "tensor_projection",
+                        "modal_introduction",
+                        "modal_elimination",
                         "commutative_evaluation",
                     ),
                     suffix=r"\b",
                 ),
                 Name.Constant,
             ),
-
             # built-in type constructors (used in constructors=[...])
             (
                 words(
@@ -127,20 +150,27 @@ class QvrLexer(RegexLexer):
                 ),
                 Name.Constant,
             ),
-
             # built-in functions and combinators — builtin color
             (
                 words(
                     (
-                        "sigmoid", "exp", "log", "abs", "softplus",
-                        "identity", "parser", "repeat", "scan",
-                        "stack", "fan", "marginalize",
+                        "sigmoid",
+                        "exp",
+                        "log",
+                        "abs",
+                        "softplus",
+                        "identity",
+                        "parser",
+                        "repeat",
+                        "scan",
+                        "stack",
+                        "fan",
+                        "marginalize",
                     ),
                     suffix=r"\b",
                 ),
                 Name.Builtin,
             ),
-
             # arrows — all structural arrows share Keyword.Type
             (r"->", Keyword.Type),
             (r"<-", Keyword.Type),
@@ -159,23 +189,17 @@ class QvrLexer(RegexLexer):
             (r"[+\-*/]", Operator),
             # assignment
             (r"=", Operator),
-
             # numbers — number color
             (r"-?\d+\.\d+", Number.Float),
             (r"-?\d+", Number.Integer),
-
             # option keys inside brackets: scale=, hidden_dim=, etc.
             (r"[a-z_]+(?==)", Name.Attribute),
-
             # punctuation
             (r"[(),:.\[\]]", Punctuation),
-
             # capitalized identifiers (type names, user objects)
             (r"[A-Z]\w*", Name.Class),
-
             # regular identifiers (variables, morphism names)
             (r"[a-z_]\w*", Name.Variable),
-
             # whitespace
             (r"\s+", Text),
         ],

@@ -5,7 +5,7 @@ import pytest
 
 from quivers.core.objects import FinSet, ProductSet
 from quivers.core.morphisms import observed, identity
-from quivers.core.quantales import PRODUCT_FUZZY, BOOLEAN
+from quivers.core.quantales import BOOLEAN
 from quivers.categorical.monoidal import CartesianMonoidal
 from quivers.categorical.traced import (
     CartesianTrace,
@@ -31,14 +31,12 @@ class TestCartesianTrace:
 
         # Tr(id)(a, b) = ⋁_u id((a,u), (b,u)) = δ(a,b)
         expected = identity(a).tensor
-        torch.testing.assert_close(
-            result.tensor, expected, atol=1e-4, rtol=1e-4
-        )
+        torch.testing.assert_close(result.tensor, expected, atol=1e-4, rtol=1e-4)
 
     def test_trace_of_swap(self):
         """Trace of swap σ_{U,U}: U×U → U×U should be id_U (yanking)."""
         u = FinSet("U", 3)
-        uu = ProductSet(u, u)
+        ProductSet(u, u)
 
         monoidal = CartesianMonoidal()
         swap = monoidal.braiding(u, u)
@@ -47,9 +45,7 @@ class TestCartesianTrace:
         result = tracer.trace(swap, u, u, u)
 
         expected = identity(u).tensor
-        torch.testing.assert_close(
-            result.tensor, expected, atol=1e-4, rtol=1e-4
-        )
+        torch.testing.assert_close(result.tensor, expected, atol=1e-4, rtol=1e-4)
 
     def test_yanking_axiom(self):
         """Verify yanking: Tr(σ) = id."""
@@ -85,9 +81,7 @@ class TestIterativeTrace:
         result_ct = ct.trace(id_au, u, a, a).tensor
         result_it = it.trace(id_au, u, a, a).tensor
 
-        torch.testing.assert_close(
-            result_ct, result_it, atol=1e-4, rtol=1e-4
-        )
+        torch.testing.assert_close(result_ct, result_it, atol=1e-4, rtol=1e-4)
 
 
 class TestPartialTrace:
@@ -102,7 +96,7 @@ class TestPartialTrace:
 
         # create a morphism (A × U) → (B × U) as identity
         # with shapes matching
-        full = ProductSet(a, u, b, u)
+        ProductSet(a, u, b, u)
         data = torch.zeros(*dom.shape, *cod.shape)
 
         for ai in range(2):
@@ -138,6 +132,4 @@ class TestBooleanTrace:
         result = tracer.trace(id_au, u, a, a)
 
         expected = identity(a, quantale=BOOLEAN).tensor
-        torch.testing.assert_close(
-            result.tensor, expected, atol=1e-5, rtol=1e-5
-        )
+        torch.testing.assert_close(result.tensor, expected, atol=1e-5, rtol=1e-5)

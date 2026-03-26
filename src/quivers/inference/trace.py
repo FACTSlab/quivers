@@ -18,7 +18,7 @@ from dataclasses import dataclass, field
 import torch
 
 from quivers.continuous.morphisms import ContinuousMorphism
-from quivers.continuous.programs import MonadicProgram, _StepSpec, _LetSpec
+from quivers.continuous.programs import MonadicProgram, _LetSpec
 
 
 @dataclass
@@ -71,26 +71,21 @@ class Trace:
     @property
     def stochastic_sites(self) -> dict[str, SampleSite]:
         """Return only stochastic (non-deterministic) sites."""
-        return {
-            k: v for k, v in self.sites.items()
-            if not v.is_deterministic
-        }
+        return {k: v for k, v in self.sites.items() if not v.is_deterministic}
 
     @property
     def latent_sites(self) -> dict[str, SampleSite]:
         """Return only latent (non-observed, non-deterministic) sites."""
         return {
-            k: v for k, v in self.sites.items()
+            k: v
+            for k, v in self.sites.items()
             if not v.is_observed and not v.is_deterministic
         }
 
     @property
     def observed_sites(self) -> dict[str, SampleSite]:
         """Return only observed sites."""
-        return {
-            k: v for k, v in self.sites.items()
-            if v.is_observed
-        }
+        return {k: v for k, v in self.sites.items() if v.is_observed}
 
 
 def trace(
@@ -131,7 +126,9 @@ def trace(
         splits = torch.split(x, program._param_dims, dim=-1)
 
         for pname, chunk, is_cont in zip(
-            program._params, splits, program._param_is_continuous,
+            program._params,
+            splits,
+            program._param_is_continuous,
         ):
             if not is_cont and chunk.shape[-1] == 1:
                 env[pname] = chunk.squeeze(-1)
@@ -150,7 +147,9 @@ def trace(
 
             else:
                 env[spec.var] = torch.full(
-                    (x.shape[0],), spec.value, device=x.device,
+                    (x.shape[0],),
+                    spec.value,
+                    device=x.device,
                 )
 
             tr.sites[spec.var] = SampleSite(
@@ -252,14 +251,9 @@ def trace(
 
     else:
         keys = (
-            program._return_labels
-            if program._return_labels
-            else program._return_vars
+            program._return_labels if program._return_labels else program._return_vars
         )
-        tr.output = {
-            k: env[v]
-            for k, v in zip(keys, program._return_vars)
-        }
+        tr.output = {k: env[v] for k, v in zip(keys, program._return_vars)}
 
     tr.log_joint = total_lp
     return tr

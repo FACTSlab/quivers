@@ -4,9 +4,7 @@ from __future__ import annotations
 
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
-from functools import reduce
 from math import prod
-from collections.abc import Sequence
 
 
 class SetObject(ABC):
@@ -73,9 +71,7 @@ class FinSet(SetObject):
 
     def __post_init__(self) -> None:
         if self.cardinality < 1:
-            raise ValueError(
-                f"cardinality must be >= 1, got {self.cardinality}"
-            )
+            raise ValueError(f"cardinality must be >= 1, got {self.cardinality}")
 
     @property
     def size(self) -> int:
@@ -286,19 +282,13 @@ class FreeMonoid(CoproductSet):
 
     def __init__(self, generators: FinSet, max_length: int) -> None:
         if max_length < 0:
-            raise ValueError(
-                f"max_length must be >= 0, got {max_length}"
-            )
+            raise ValueError(f"max_length must be >= 0, got {max_length}")
 
         # build components: Unit, G, G^2, ..., G^max_length
         components: list[SetObject] = [Unit]
 
         for k in range(1, max_length + 1):
-            components.append(
-                ProductSet(*([generators] * k))
-                if k > 1
-                else generators
-            )
+            components.append(ProductSet(*([generators] * k)) if k > 1 else generators)
 
         super().__init__(*components)
         object.__setattr__(self, "generators", generators)
@@ -320,9 +310,7 @@ class FreeMonoid(CoproductSet):
         k = len(word)
 
         if k > self.max_length:
-            raise ValueError(
-                f"word length {k} exceeds max_length {self.max_length}"
-            )
+            raise ValueError(f"word length {k} exceeds max_length {self.max_length}")
 
         g = self.generators.cardinality
         base = self.offset(k)
@@ -336,9 +324,7 @@ class FreeMonoid(CoproductSet):
 
         for w in word:
             if not (0 <= w < g):
-                raise ValueError(
-                    f"generator index {w} out of range [0, {g})"
-                )
+                raise ValueError(f"generator index {w} out of range [0, {g})")
 
             idx = idx * g + w
 
@@ -358,9 +344,7 @@ class FreeMonoid(CoproductSet):
             Tuple of generator indices.
         """
         if not (0 <= flat_index < self.size):
-            raise ValueError(
-                f"flat_index {flat_index} out of range [0, {self.size})"
-            )
+            raise ValueError(f"flat_index {flat_index} out of range [0, {self.size})")
 
         g = self.generators.cardinality
 
@@ -387,6 +371,4 @@ class FreeMonoid(CoproductSet):
         raise RuntimeError("unreachable")
 
     def __repr__(self) -> str:
-        return (
-            f"FreeMonoid({self.generators!r}, max_length={self.max_length})"
-        )
+        return f"FreeMonoid({self.generators!r}, max_length={self.max_length})"

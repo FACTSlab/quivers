@@ -18,7 +18,6 @@ from abc import ABC, abstractmethod
 
 import torch
 
-from quivers.core.objects import SetObject
 from quivers.core.morphisms import Morphism, ObservedMorphism, observed
 from quivers.core.quantales import (
     Quantale,
@@ -129,9 +128,7 @@ class FuzzyToBool(BaseChange):
 
     def __init__(self, threshold: float = 0.5) -> None:
         if not (0.0 < threshold < 1.0):
-            raise ValueError(
-                f"threshold must be in (0, 1), got {threshold}"
-            )
+            raise ValueError(f"threshold must be in (0, 1), got {threshold}")
 
         self._threshold = threshold
 

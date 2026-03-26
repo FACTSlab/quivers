@@ -41,6 +41,7 @@ __all__ = ["RuleSystem"]
 # CCG: a specific combination of biclosed monoidal primitives
 # ================================================================
 
+
 def ccg_rules(
     system: CategorySystem,
     *,
@@ -98,6 +99,7 @@ def ccg_rules(
 # ================================================================
 # Lambek calculus: another combination of biclosed primitives
 # ================================================================
+
 
 def lambek_rules(
     system: CategorySystem,
@@ -159,6 +161,7 @@ def lambek_rules(
 # ================================================================
 # Custom / manual rules
 # ================================================================
+
 
 def custom_rules(
     binary: list[tuple[int, int, int]] | None = None,

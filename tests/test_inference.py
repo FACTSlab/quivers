@@ -11,22 +11,21 @@ from __future__ import annotations
 import unittest
 
 import torch
-import torch.nn as nn
 
 from quivers.core.objects import FinSet
 from quivers.continuous.spaces import Euclidean
 from quivers.continuous.families import ConditionalNormal
 from quivers.continuous.programs import MonadicProgram
-from quivers.inference.trace import trace, Trace, SampleSite
+from quivers.inference.trace import trace
 from quivers.inference.conditioning import condition, Conditioned
 from quivers.inference.guide import AutoNormalGuide, AutoDeltaGuide
 from quivers.inference.elbo import ELBO
 from quivers.inference.svi import SVI
 from quivers.inference.predictive import Predictive
 from quivers.dsl.lexer import Lexer
-from quivers.dsl.parser import Parser, ParseError
+from quivers.dsl.parser import Parser
 from quivers.dsl.compiler import Compiler
-from quivers.dsl.ast_nodes import DrawStep, LetStep, LetExprBinOp, LetExprVar, LetExprCall, LetExprLiteral
+from quivers.dsl.ast_nodes import DrawStep, LetStep, LetExprBinOp, LetExprCall
 
 
 # ============================================================================
@@ -44,7 +43,8 @@ def _create_simple_program() -> MonadicProgram:
     likelihood = ConditionalNormal(R1, R1)
 
     return MonadicProgram(
-        Unit, R1,
+        Unit,
+        R1,
         steps=[
             (("z",), prior, None),
             (("y",), likelihood, ("z",)),
@@ -62,10 +62,12 @@ def _create_program_with_let() -> MonadicProgram:
     likelihood = ConditionalNormal(R1, R1)
 
     # lambda that multiplies by 2
-    double = lambda env: env["z"] * 2.0
+    def double(env):
+        return env["z"] * 2.0
 
     return MonadicProgram(
-        Unit, R1,
+        Unit,
+        R1,
         steps=[
             (("z",), prior, None),
             (("w",), None, double),  # let binding
@@ -84,7 +86,8 @@ def _create_program_with_observe() -> MonadicProgram:
     likelihood = ConditionalNormal(R1, R1)
 
     return MonadicProgram(
-        Unit, R1,
+        Unit,
+        R1,
         steps=[
             (("z",), prior, None),
             (("y",), likelihood, ("z",), True),  # observed=True
@@ -117,7 +120,7 @@ class TestTrace(unittest.TestCase):
     def test_trace_records_all_sites(self):
         """Trace records all sites visited during execution."""
         prog = _create_simple_program()
-        Unit = FinSet("Unit", 1)
+        FinSet("Unit", 1)
         x = torch.zeros(4, dtype=torch.long)  # batch=4
 
         tr = trace(prog, x)
@@ -503,7 +506,7 @@ program test : Unit -> R1
         # check that the ProgramDecl has observe step
         prog_decl = None
         for stmt in ast.statements:
-            if hasattr(stmt, 'name') and stmt.name == 'test':
+            if hasattr(stmt, "name") and stmt.name == "test":
                 prog_decl = stmt
                 break
 
@@ -525,7 +528,7 @@ program test : Unit -> R1
 
         prog_decl = None
         for stmt in ast.statements:
-            if hasattr(stmt, 'name') and stmt.name == 'test':
+            if hasattr(stmt, "name") and stmt.name == "test":
                 prog_decl = stmt
                 break
 
@@ -546,7 +549,7 @@ program test : Unit -> R1
 
         prog_decl = None
         for stmt in ast.statements:
-            if hasattr(stmt, 'name') and stmt.name == 'test':
+            if hasattr(stmt, "name") and stmt.name == "test":
                 prog_decl = stmt
                 break
 
@@ -577,7 +580,7 @@ program test : Unit -> R1
 
         prog_decl = None
         for stmt in ast.statements:
-            if hasattr(stmt, 'name') and stmt.name == 'test':
+            if hasattr(stmt, "name") and stmt.name == "test":
                 prog_decl = stmt
                 break
 
@@ -600,7 +603,7 @@ program test : Unit -> R1
 
         prog_decl = None
         for stmt in ast.statements:
-            if hasattr(stmt, 'name') and stmt.name == 'test':
+            if hasattr(stmt, "name") and stmt.name == "test":
                 prog_decl = stmt
                 break
 
@@ -621,7 +624,7 @@ program test : Unit -> R1
 
         prog_decl = None
         for stmt in ast.statements:
-            if hasattr(stmt, 'name') and stmt.name == 'test':
+            if hasattr(stmt, "name") and stmt.name == "test":
                 prog_decl = stmt
                 break
 
@@ -642,7 +645,7 @@ program test : Unit -> R1
 
         prog_decl = None
         for stmt in ast.statements:
-            if hasattr(stmt, 'name') and stmt.name == 'test':
+            if hasattr(stmt, "name") and stmt.name == "test":
                 prog_decl = stmt
                 break
 
@@ -676,10 +679,10 @@ program test : Unit -> R1
     return y
 """
         try:
-            env = compile_dsl(src)
+            compile_dsl(src)
             # if compilation succeeds, the program was built
             assert True
-        except Exception as e:
+        except Exception:
             # some compilation failures are expected without full environment
             pass
 
@@ -710,10 +713,12 @@ class TestExpressionLetBindingExecution(unittest.TestCase):
         prior = ConditionalNormal(Unit, R1)
 
         # lambda for let z = x * 0.5
-        multiply = lambda env: env["x"] * 0.5
+        def multiply(env):
+            return env["x"] * 0.5
 
         prog = MonadicProgram(
-            Unit, R1,
+            Unit,
+            R1,
             steps=[
                 (("x",), prior, None),
                 (("z",), None, multiply),
@@ -736,10 +741,12 @@ class TestExpressionLetBindingExecution(unittest.TestCase):
         prior = ConditionalNormal(Unit, R1)
 
         # lambda for let z = x + y
-        add = lambda env: env["x"] + env["y"]
+        def add(env):
+            return env["x"] + env["y"]
 
         prog = MonadicProgram(
-            Unit, R1,
+            Unit,
+            R1,
             steps=[
                 (("x",), prior, None),
                 (("y",), prior, None),
@@ -752,7 +759,9 @@ class TestExpressionLetBindingExecution(unittest.TestCase):
         tr = trace(prog, x)
 
         assert "z" in tr.sites
-        assert torch.allclose(tr.sites["z"].value, tr.sites["x"].value + tr.sites["y"].value)
+        assert torch.allclose(
+            tr.sites["z"].value, tr.sites["x"].value + tr.sites["y"].value
+        )
 
     def test_let_binding_combined_operations(self):
         """Let binding with combined operations."""
@@ -761,10 +770,12 @@ class TestExpressionLetBindingExecution(unittest.TestCase):
         prior = ConditionalNormal(Unit, R1)
 
         # lambda for let z = x * 0.5 + y * 0.3
-        combined = lambda env: env["x"] * 0.5 + env["y"] * 0.3
+        def combined(env):
+            return env["x"] * 0.5 + env["y"] * 0.3
 
         prog = MonadicProgram(
-            Unit, R1,
+            Unit,
+            R1,
             steps=[
                 (("x",), prior, None),
                 (("y",), prior, None),

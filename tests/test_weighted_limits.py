@@ -4,13 +4,10 @@ import torch
 import pytest
 
 from quivers.core.objects import FinSet
-from quivers.core.morphisms import observed, identity
-from quivers.core.quantales import PRODUCT_FUZZY, BOOLEAN
+from quivers.core.morphisms import observed
 from quivers.enriched.weighted_limits import (
     Weight,
     Diagram,
-    weighted_limit,
-    weighted_colimit,
     weighted_limit_morphisms,
     weighted_colimit_morphisms,
     representable_weight,

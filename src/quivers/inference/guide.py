@@ -19,7 +19,7 @@ import torch
 import torch.nn as nn
 import torch.distributions as D
 
-from quivers.continuous.programs import MonadicProgram, _StepSpec, _LetSpec
+from quivers.continuous.programs import MonadicProgram, _LetSpec
 from quivers.continuous.spaces import ContinuousSpace
 
 
@@ -122,9 +122,7 @@ class AutoNormalGuide(Guide):
                 )
                 self.register_parameter(
                     f"log_scale_{var}",
-                    nn.Parameter(
-                        torch.full((dim,), torch.tensor(init_scale).log())
-                    ),
+                    nn.Parameter(torch.full((dim,), torch.tensor(init_scale).log())),
                 )
 
     @staticmethod

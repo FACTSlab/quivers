@@ -162,18 +162,28 @@ class Lexer:
 
             # handle <-, <<, and >=> operators
             if ch == "<":
-                if self._pos + 1 < len(self._source) and self._source[self._pos + 1] == "-":
+                if (
+                    self._pos + 1 < len(self._source)
+                    and self._source[self._pos + 1] == "-"
+                ):
                     self._advance()
                     self._advance()
                     tokens.append(Token(TokenType.LARROW, "<-", line, col))
-                elif self._pos + 1 < len(self._source) and self._source[self._pos + 1] == "<":
+                elif (
+                    self._pos + 1 < len(self._source)
+                    and self._source[self._pos + 1] == "<"
+                ):
                     self._advance()
                     self._advance()
                     tokens.append(Token(TokenType.COMPOSE_BACK, "<<", line, col))
                 else:
                     raise LexError(f"unexpected character {ch!r}", line, col)
 
-            elif ch == "-" and self._pos + 1 < len(self._source) and self._source[self._pos + 1] == ">":
+            elif (
+                ch == "-"
+                and self._pos + 1 < len(self._source)
+                and self._source[self._pos + 1] == ">"
+            ):
                 self._advance()
                 self._advance()
                 tokens.append(Token(TokenType.ARROW, "->", line, col))
@@ -190,16 +200,27 @@ class Lexer:
                 self._advance()
                 tokens.append(Token(TokenType.BACKSLASH, "\\", line, col))
 
-            elif ch == ">" and self._pos + 1 < len(self._source) and self._source[self._pos + 1] == "=":
-                if self._pos + 2 < len(self._source) and self._source[self._pos + 2] == ">":
+            elif (
+                ch == ">"
+                and self._pos + 1 < len(self._source)
+                and self._source[self._pos + 1] == "="
+            ):
+                if (
+                    self._pos + 2 < len(self._source)
+                    and self._source[self._pos + 2] == ">"
+                ):
                     self._advance()
                     self._advance()
                     self._advance()
                     tokens.append(Token(TokenType.KLEISLI, ">=>", line, col))
                 else:
-                    raise LexError(f"unexpected character sequence '>='", line, col)
+                    raise LexError("unexpected character sequence '>='", line, col)
 
-            elif ch == ">" and self._pos + 1 < len(self._source) and self._source[self._pos + 1] == ">":
+            elif (
+                ch == ">"
+                and self._pos + 1 < len(self._source)
+                and self._source[self._pos + 1] == ">"
+            ):
                 self._advance()
                 self._advance()
                 tokens.append(Token(TokenType.COMPOSE, ">>", line, col))
@@ -221,7 +242,11 @@ class Lexer:
                 self._advance()
                 tokens.append(Token(TokenType.TENSOR, "@", line, col))
 
-            elif ch == "=" and self._pos + 1 < len(self._source) and self._source[self._pos + 1] == ">":
+            elif (
+                ch == "="
+                and self._pos + 1 < len(self._source)
+                and self._source[self._pos + 1] == ">"
+            ):
                 self._advance()
                 self._advance()
                 tokens.append(Token(TokenType.DARROW, "=>", line, col))

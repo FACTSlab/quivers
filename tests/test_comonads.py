@@ -1,11 +1,9 @@
 """Tests for comonads and coKleisli categories."""
 
 import torch
-import pytest
 
 from quivers.core.objects import FinSet, ProductSet
-from quivers.core.morphisms import morphism, observed, identity
-from quivers.core.quantales import PRODUCT_FUZZY, BOOLEAN
+from quivers.core.morphisms import identity
 from quivers.monadic.comonads import (
     DiagonalComonad,
     CofreeComonad,
@@ -118,6 +116,4 @@ class TestCoKleisliCategory:
         id_a = cat.identity(a)
         eps = w.counit(a)
 
-        torch.testing.assert_close(
-            id_a.tensor, eps.tensor, atol=1e-5, rtol=1e-5
-        )
+        torch.testing.assert_close(id_a.tensor, eps.tensor, atol=1e-5, rtol=1e-5)

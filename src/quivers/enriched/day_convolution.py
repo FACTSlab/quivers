@@ -23,12 +23,10 @@ This module provides:
 from __future__ import annotations
 
 from collections.abc import Sequence
-import itertools
 
 import torch
 
-from quivers.core.objects import SetObject, FinSet, ProductSet
-from quivers.core.morphisms import Morphism, observed, identity
+from quivers.core.objects import SetObject
 from quivers.core.quantales import PRODUCT_FUZZY, Quantale
 from quivers.categorical.monoidal import MonoidalStructure
 from quivers.enriched.profunctors import Profunctor
@@ -236,6 +234,4 @@ def day_convolution_profunctors(
     perm = a_dims + c_dims + b_dims + d_dims
     result = outer.permute(*perm)
 
-    return Profunctor(
-        contra=contra, co=co, tensor=result, quantale=qnt
-    )
+    return Profunctor(contra=contra, co=co, tensor=result, quantale=qnt)

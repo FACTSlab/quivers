@@ -17,7 +17,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 from quivers.core.objects import FinSet
-from quivers.continuous.spaces import ContinuousSpace, Euclidean
+from quivers.continuous.spaces import Euclidean
 from quivers.continuous.morphisms import ContinuousMorphism
 from quivers.core._util import EPS
 
@@ -57,14 +57,11 @@ class Discretize(ContinuousMorphism):
         temperature: float = 0.1,
     ) -> None:
         if not isinstance(domain, Euclidean) or not domain.is_bounded:
-            raise ValueError(
-                "Discretize requires a bounded Euclidean domain"
-            )
+            raise ValueError("Discretize requires a bounded Euclidean domain")
 
         if domain.dim != 1:
             raise ValueError(
-                "Discretize currently supports 1-d spaces only, "
-                f"got dim={domain.dim}"
+                f"Discretize currently supports 1-d spaces only, got dim={domain.dim}"
             )
 
         codomain = FinSet("bins", n_bins)
@@ -181,7 +178,9 @@ class Embed(ContinuousMorphism):
     """
 
     def __init__(
-        self, domain: FinSet, codomain: Euclidean,
+        self,
+        domain: FinSet,
+        codomain: Euclidean,
     ) -> None:
         super().__init__(domain, codomain)
         n = domain.size
@@ -191,14 +190,14 @@ class Embed(ContinuousMorphism):
         if codomain.is_bounded:
             if d == 1:
                 init_centers = torch.linspace(
-                    codomain.low, codomain.high, n,
+                    codomain.low,
+                    codomain.high,
+                    n,
                 ).unsqueeze(-1)
 
             else:
                 init_centers = (
-                    torch.rand(n, d)
-                    * (codomain.high - codomain.low)
-                    + codomain.low
+                    torch.rand(n, d) * (codomain.high - codomain.low) + codomain.low
                 )
 
         else:
@@ -228,9 +227,7 @@ class Embed(ContinuousMorphism):
         import math
 
         log_p = (
-            -0.5 * ((y - mu) / sigma) ** 2
-            - sigma.log()
-            - 0.5 * math.log(2 * math.pi)
+            -0.5 * ((y - mu) / sigma) ** 2 - sigma.log() - 0.5 * math.log(2 * math.pi)
         )
 
         return log_p.sum(dim=-1)
@@ -258,7 +255,10 @@ class Embed(ContinuousMorphism):
         sigma = self.log_sigma[x.long()].exp().clamp(min=EPS)
 
         eps = torch.randn(
-            *sample_shape, *mu.shape, device=mu.device, dtype=mu.dtype,
+            *sample_shape,
+            *mu.shape,
+            device=mu.device,
+            dtype=mu.dtype,
         )
 
         return mu + sigma * eps

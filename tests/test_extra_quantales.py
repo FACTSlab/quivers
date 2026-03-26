@@ -6,9 +6,6 @@ import pytest
 from quivers.core.objects import FinSet
 from quivers.core.morphisms import observed, identity
 from quivers.core.extra_quantales import (
-    LukasiewiczQuantale,
-    GodelQuantale,
-    TropicalQuantale,
     LUKASIEWICZ,
     GODEL,
     TROPICAL,

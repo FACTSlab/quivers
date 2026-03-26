@@ -17,7 +17,7 @@ from abc import ABC, abstractmethod
 import torch
 
 from quivers.core.objects import SetObject, FinSet, FreeMonoid
-from quivers.core.morphisms import Morphism, ObservedMorphism, observed
+from quivers.core.morphisms import Morphism, observed
 from quivers.core.quantales import PRODUCT_FUZZY, Quantale
 from quivers.core.tensor_ops import componentwise_lift
 from quivers.monadic.monads import Monad, FuzzyPowersetMonad, FreeMonoidMonad
@@ -122,8 +122,7 @@ class FreeMonoidPowersetLaw(DistributiveLaw):
         """
         if not isinstance(obj, FinSet):
             raise TypeError(
-                f"FreeMonoidPowersetLaw requires FinSet, "
-                f"got {type(obj).__name__}"
+                f"FreeMonoidPowersetLaw requires FinSet, got {type(obj).__name__}"
             )
 
         fm = FreeMonoid(obj, max_length=self._max_length)

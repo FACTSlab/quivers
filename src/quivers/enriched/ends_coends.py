@@ -154,7 +154,7 @@ def _trace_and_reduce(
     pairs = list(zip(contra_dims, co_dims))
 
     for contra_d, co_d in pairs:
-        n = result.shape[contra_d]
+        result.shape[contra_d]
 
         # extract diagonal: moves the diagonal to the last dimension,
         # removes contra_d and co_d from their positions

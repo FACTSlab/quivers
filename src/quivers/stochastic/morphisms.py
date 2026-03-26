@@ -73,7 +73,6 @@ class StochasticMorphism(Morphism):
             each codomain fiber sums to 1.
         """
         logits = self._module.logits / self._temperature
-        n_cod = self.codomain.ndim
 
         # reshape to (prod(domain_shape), prod(codomain_shape))
         # apply softmax along last dim, then reshape back

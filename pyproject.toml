@@ -58,5 +58,8 @@ qvr = "quivers.dsl.pygments_lexer:QvrLexer"
 [tool.hatch.build.targets.wheel]
 packages = ["src/quivers"]
 
+[tool.ruff.lint]
+ignore = ["E741"]
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]

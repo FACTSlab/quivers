@@ -27,15 +27,14 @@ from abc import ABC, abstractmethod
 
 import torch
 
-from quivers.core.objects import SetObject, FinSet, ProductSet, Unit
+from quivers.core.objects import SetObject, ProductSet
 from quivers.core.quantales import PRODUCT_FUZZY, Quantale
 from quivers.core.morphisms import (
     Morphism,
-    ObservedMorphism,
     observed,
     identity,
 )
-from quivers.categorical.functors import Functor, IdentityFunctor, IDENTITY
+from quivers.categorical.functors import Functor
 
 
 class Comonad(ABC):
@@ -232,9 +231,7 @@ class DiagonalComonad(Comonad):
         import itertools
 
         source = ProductSet(obj, obj)
-        data = torch.full(
-            (*source.shape, *obj.shape), self._quantale.zero
-        )
+        data = torch.full((*source.shape, *obj.shape), self._quantale.zero)
 
         for idx in itertools.product(*(range(s) for s in obj.shape)):
             for idx2 in itertools.product(*(range(s) for s in obj.shape)):
@@ -263,9 +260,7 @@ class DiagonalComonad(Comonad):
         source = ProductSet(obj, obj)
         target = ProductSet(obj, obj, obj, obj)
 
-        data = torch.full(
-            (*source.shape, *target.shape), self._quantale.zero
-        )
+        data = torch.full((*source.shape, *target.shape), self._quantale.zero)
 
         for idx1 in itertools.product(*(range(s) for s in obj.shape)):
             for idx2 in itertools.product(*(range(s) for s in obj.shape)):
@@ -364,14 +359,10 @@ class CofreeComonad(Comonad):
         import itertools
 
         source = ProductSet(obj, self._store)
-        data = torch.full(
-            (*source.shape, *obj.shape), self._quantale.zero
-        )
+        data = torch.full((*source.shape, *obj.shape), self._quantale.zero)
 
         for a_idx in itertools.product(*(range(s) for s in obj.shape)):
-            for s_idx in itertools.product(
-                *(range(s) for s in self._store.shape)
-            ):
+            for s_idx in itertools.product(*(range(s) for s in self._store.shape)):
                 # (a, s) -> a
                 data[a_idx + s_idx + a_idx] = self._quantale.unit
 
@@ -397,14 +388,10 @@ class CofreeComonad(Comonad):
         source = ProductSet(obj, self._store)
         target = ProductSet(obj, self._store, self._store)
 
-        data = torch.full(
-            (*source.shape, *target.shape), self._quantale.zero
-        )
+        data = torch.full((*source.shape, *target.shape), self._quantale.zero)
 
         for a_idx in itertools.product(*(range(s) for s in obj.shape)):
-            for s_idx in itertools.product(
-                *(range(s) for s in self._store.shape)
-            ):
+            for s_idx in itertools.product(*(range(s) for s in self._store.shape)):
                 # (a, s) -> (a, s, s)
                 src = a_idx + s_idx
                 tgt = a_idx + s_idx + s_idx
@@ -443,9 +430,7 @@ class _DiagonalFunctor(Functor):
         """f ↦ f × f (parallel product)."""
         return morph @ morph
 
-    def map_tensor(
-        self, tensor: torch.Tensor, quantale: Quantale
-    ) -> torch.Tensor:
+    def map_tensor(self, tensor: torch.Tensor, quantale: Quantale) -> torch.Tensor:
         """Compute (f ⊗ f) tensor from f's tensor."""
         # f has shape (*dom, *cod). we need (*dom, *dom, *cod, *cod)
         n = tensor.ndim
@@ -454,9 +439,7 @@ class _DiagonalFunctor(Functor):
         # expand and outer product
         shape_l = list(tensor.shape) + [1] * n
         shape_r = [1] * n + list(tensor.shape)
-        outer = quantale.tensor_op(
-            tensor.reshape(shape_l), tensor.reshape(shape_r)
-        )
+        outer = quantale.tensor_op(tensor.reshape(shape_l), tensor.reshape(shape_r))
 
         # permute from [dom_l, cod_l, dom_r, cod_r]
         #           to [dom_l, dom_r, cod_l, cod_r]
@@ -491,9 +474,7 @@ class _StoreFunctor(Functor):
         id_s = identity(self._store, quantale=morph.quantale)
         return morph @ id_s
 
-    def map_tensor(
-        self, tensor: torch.Tensor, quantale: Quantale
-    ) -> torch.Tensor:
+    def map_tensor(self, tensor: torch.Tensor, quantale: Quantale) -> torch.Tensor:
         """Compute (f ⊗ id_S) tensor."""
         id_tensor = quantale.identity_tensor(self._store.shape)
         n_f = tensor.ndim
@@ -501,9 +482,7 @@ class _StoreFunctor(Functor):
 
         shape_l = list(tensor.shape) + [1] * n_id
         shape_r = [1] * n_f + list(id_tensor.shape)
-        outer = quantale.tensor_op(
-            tensor.reshape(shape_l), id_tensor.reshape(shape_r)
-        )
+        outer = quantale.tensor_op(tensor.reshape(shape_l), id_tensor.reshape(shape_r))
 
         # permute from [dom_f, cod_f, dom_s, cod_s]
         #           to [dom_f, dom_s, cod_f, cod_s]

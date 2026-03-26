@@ -1,10 +1,6 @@
 """Tests for adjunctions."""
 
-import torch
-import pytest
-
 from quivers.core.objects import FinSet, FreeMonoid
-from quivers.core.morphisms import observed, identity
 from quivers.categorical.adjunctions import FreeForgetfulAdjunction
 
 

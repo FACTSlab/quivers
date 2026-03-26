@@ -30,9 +30,7 @@ from quivers.core.objects import SetObject, FinSet, FreeMonoid
 from quivers.core.morphisms import Morphism, identity, observed
 from quivers.categorical.functors import (
     Functor,
-    IdentityFunctor,
     FreeMonoidFunctor,
-    IDENTITY,
 )
 
 
@@ -118,9 +116,7 @@ class Adjunction(ABC):
         """
         ...
 
-    def verify_triangle_left(
-        self, obj: SetObject, atol: float = 1e-5
-    ) -> bool:
+    def verify_triangle_left(self, obj: SetObject, atol: float = 1e-5) -> bool:
         """Verify left triangle identity: ε_{F(A)} ∘ F(η_A) ≈ id_{F(A)}.
 
         Parameters
@@ -144,9 +140,7 @@ class Adjunction(ABC):
 
         return torch.allclose(result, expected, atol=atol)
 
-    def verify_triangle_right(
-        self, obj: SetObject, atol: float = 1e-5
-    ) -> bool:
+    def verify_triangle_right(self, obj: SetObject, atol: float = 1e-5) -> bool:
         """Verify right triangle identity: G(ε_A) ∘ η_{G(A)} ≈ id_{G(A)}.
 
         Parameters

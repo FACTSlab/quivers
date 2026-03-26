@@ -89,10 +89,12 @@ class ChartParser(DeductiveSystem):
     ) -> None:
         axiom = LexicalAxiom(n_terminals, rule_system.n_categories)
         binary_ded = BinarySpanDeduction(
-            rule_system, learnable=learnable_rule_weights,
+            rule_system,
+            learnable=learnable_rule_weights,
         )
         unary_ded = UnarySpanDeduction(
-            rule_system, learnable=learnable_rule_weights,
+            rule_system,
+            learnable=learnable_rule_weights,
         )
         goal = SpanGoal(start_idx)
         schedule = CKYSchedule()
@@ -146,8 +148,12 @@ class ChartParser(DeductiveSystem):
         rule_system = schema(category_system)
 
         return cls.from_category_system(
-            category_system, rule_system, n_terminals,
-            start, semiring, learnable_rule_weights,
+            category_system,
+            rule_system,
+            n_terminals,
+            start,
+            semiring,
+            learnable_rule_weights,
         )
 
     @classmethod
@@ -186,9 +192,7 @@ class ChartParser(DeductiveSystem):
             start = AtomicCategory(start)
 
         if start not in category_system:
-            raise ValueError(
-                f"start category {start!r} not in category system"
-            )
+            raise ValueError(f"start category {start!r} not in category system")
 
         return cls(
             rule_system=rule_system,
@@ -295,11 +299,13 @@ class ChartParser(DeductiveSystem):
     def __repr__(self) -> str:
         semiring_desc = (
             f", semiring={self._semiring!r}"
-            if not isinstance(self._semiring, type(LOG_PROB)) else ""
+            if not isinstance(self._semiring, type(LOG_PROB))
+            else ""
         )
         rule_desc = (
             f" [{self._rule_system.description}]"
-            if self._rule_system.description else ""
+            if self._rule_system.description
+            else ""
         )
 
         return (

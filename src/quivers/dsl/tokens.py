@@ -40,8 +40,8 @@ class TokenType(Enum):
     STACK = auto()
     SCAN = auto()
     PARSER = auto()
-    CCG = auto()       # backward compat alias for parser with CCG defaults
-    LAMBEK = auto()    # backward compat alias for parser with Lambek defaults
+    CCG = auto()  # backward compat alias for parser with CCG defaults
+    LAMBEK = auto()  # backward compat alias for parser with Lambek defaults
 
     # type alias
     TYPE = auto()
@@ -52,28 +52,28 @@ class TokenType(Enum):
     FLOAT = auto()
 
     # operators and punctuation
-    COLON = auto()       # :
-    ARROW = auto()       # ->
-    DARROW = auto()      # =>
-    COMPOSE = auto()     # >>
+    COLON = auto()  # :
+    ARROW = auto()  # ->
+    DARROW = auto()  # =>
+    COMPOSE = auto()  # >>
     COMPOSE_BACK = auto()  # <<
-    KLEISLI = auto()     # >=>
-    LARROW = auto()      # <-
-    PRODUCT = auto()     # *
-    COPRODUCT = auto()   # +
-    TENSOR = auto()      # @
-    BACKSLASH = auto()   # \.
-    EQUALS = auto()      # =
-    DOT = auto()         # .
-    LPAREN = auto()      # (
-    RPAREN = auto()      # )
-    LBRACKET = auto()    # [
-    RBRACKET = auto()    # ]
-    COMMA = auto()       # ,
-    TILDE = auto()       # ~
-    MINUS = auto()       # -
-    SLASH = auto()       # /
-    WHERE = auto()       # where
+    KLEISLI = auto()  # >=>
+    LARROW = auto()  # <-
+    PRODUCT = auto()  # *
+    COPRODUCT = auto()  # +
+    TENSOR = auto()  # @
+    BACKSLASH = auto()  # \.
+    EQUALS = auto()  # =
+    DOT = auto()  # .
+    LPAREN = auto()  # (
+    RPAREN = auto()  # )
+    LBRACKET = auto()  # [
+    RBRACKET = auto()  # ]
+    COMMA = auto()  # ,
+    TILDE = auto()  # ~
+    MINUS = auto()  # -
+    SLASH = auto()  # /
+    WHERE = auto()  # where
 
     # special
     NEWLINE = auto()

@@ -21,7 +21,7 @@ from typing import TYPE_CHECKING
 
 import torch
 
-from quivers.core._util import EPS, clamp_probs
+from quivers.core._util import clamp_probs
 
 if TYPE_CHECKING:
     from quivers.core.quantales import Quantale
@@ -77,13 +77,9 @@ def noisy_or_contract(
     # reshape for broadcasting:
     # m: (*domain, *shared, *[1]*n_codomain)
     # n: (*[1]*n_domain, *shared, *codomain)
-    m_expanded = m.reshape(
-        *m.shape, *([1] * n_codomain)
-    )
+    m_expanded = m.reshape(*m.shape, *([1] * n_codomain))
 
-    n_expanded = n.reshape(
-        *([1] * n_domain), *n.shape
-    )
+    n_expanded = n.reshape(*([1] * n_domain), *n.shape)
 
     # element-wise product
     product = m_expanded * n_expanded  # (*domain, *shared, *codomain)
@@ -215,9 +211,7 @@ def componentwise_lift(
         raise ValueError(f"k must be >= 0, got {k}")
 
     if k == 0:
-        return torch.full(
-            (1, 1), quantale.unit, device=f.device, dtype=f.dtype
-        )
+        return torch.full((1, 1), quantale.unit, device=f.device, dtype=f.dtype)
 
     if k == 1:
         return f
@@ -234,18 +228,11 @@ def componentwise_lift(
         # step 1: outer product via quantale tensor_op
         shape_r = list(result.shape) + [1, 1]
         shape_f = [1] * (2 * n_a) + list(f.shape)
-        outer = quantale.tensor_op(
-            result.reshape(shape_r), f.reshape(shape_f)
-        )
+        outer = quantale.tensor_op(result.reshape(shape_r), f.reshape(shape_f))
 
         # step 2: permute [a1..an, b1..bn, a_{n+1}, b_{n+1}]
         #       to       [a1..an, a_{n+1}, b1..bn, b_{n+1}]
-        perm = (
-            list(range(n_a))
-            + [2 * n_a]
-            + list(range(n_a, 2 * n_a))
-            + [2 * n_a + 1]
-        )
+        perm = list(range(n_a)) + [2 * n_a] + list(range(n_a, 2 * n_a)) + [2 * n_a + 1]
         result = outer.permute(*perm)
 
     return result

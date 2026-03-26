@@ -40,7 +40,6 @@ Examples
 
 from __future__ import annotations
 
-import torch
 
 from quivers.stochastic.categories import (
     AtomicCategory,
@@ -93,9 +92,7 @@ class CCGParser(ChartParser):
             start_cat = start
 
         if start_cat not in category_system:
-            raise ValueError(
-                f"start category {start_cat!r} not in category system"
-            )
+            raise ValueError(f"start category {start_cat!r} not in category system")
 
         # build CCG rule system
         rules = ccg_rules(

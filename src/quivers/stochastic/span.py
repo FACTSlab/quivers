@@ -36,6 +36,7 @@ from quivers.stochastic._rule_system import RuleSystem
 # axiom: lexical entries
 # ================================================================
 
+
 class LexicalAxiom(Axiom):
     """Populate length-1 spans from a learnable lexicon.
 
@@ -53,9 +54,7 @@ class LexicalAxiom(Axiom):
     def __init__(self, n_terminals: int, n_categories: int) -> None:
         super().__init__()
         self._n_cat = n_categories
-        self.lexicon_logits = nn.Parameter(
-            torch.randn(n_terminals, n_categories) * 0.1
-        )
+        self.lexicon_logits = nn.Parameter(torch.randn(n_terminals, n_categories) * 0.1)
 
     @property
     def log_lexicon(self) -> torch.Tensor:
@@ -126,6 +125,7 @@ class _SpanChart:
 # deductions
 # ================================================================
 
+
 def _scatter_semiring(
     scores: torch.Tensor,
     indices: torch.Tensor,
@@ -136,7 +136,9 @@ def _scatter_semiring(
 ) -> torch.Tensor:
     """Scatter rule scores into category bins via semiring plus."""
     result = torch.full(
-        (batch, n_categories), semiring.zero, device=device,
+        (batch, n_categories),
+        semiring.zero,
+        device=device,
     )
 
     for cat_idx in range(n_categories):
@@ -145,11 +147,14 @@ def _scatter_semiring(
         if mask.any():
             relevant = scores[:, mask]
             aggregated = semiring.plus(relevant, dim=-1)
-            result = torch.cat([
-                result[:, :cat_idx],
-                aggregated.unsqueeze(-1),
-                result[:, cat_idx + 1:],
-            ], dim=-1)
+            result = torch.cat(
+                [
+                    result[:, :cat_idx],
+                    aggregated.unsqueeze(-1),
+                    result[:, cat_idx + 1 :],
+                ],
+                dim=-1,
+            )
 
     return result
 
@@ -220,7 +225,8 @@ class BinarySpanDeduction(Deduction):
 
             if self._n_rules > 0:
                 combined = semiring.times(
-                    combined, self.weights.unsqueeze(0),
+                    combined,
+                    self.weights.unsqueeze(0),
                 )
 
             parts.append(combined)
@@ -229,7 +235,9 @@ class BinarySpanDeduction(Deduction):
         split_scores = semiring.plus(stacked, dim=0)
 
         return _scatter_semiring(
-            split_scores, self._results, n_categories,
+            split_scores,
+            self._results,
+            n_categories,
             split_scores.shape[0],
             device=self._results.device,
             semiring=semiring,
@@ -265,10 +273,12 @@ class UnarySpanDeduction(Deduction):
 
         else:
             self.register_buffer(
-                "_results", torch.zeros(0, dtype=torch.long),
+                "_results",
+                torch.zeros(0, dtype=torch.long),
             )
             self.register_buffer(
-                "_inputs", torch.zeros(0, dtype=torch.long),
+                "_inputs",
+                torch.zeros(0, dtype=torch.long),
             )
 
         self._n_rules = rule_system.n_unary
@@ -305,12 +315,16 @@ class UnarySpanDeduction(Deduction):
 
             if self._n_rules > 0:
                 input_scores = semiring.times(
-                    input_scores, self.weights.unsqueeze(0),
+                    input_scores,
+                    self.weights.unsqueeze(0),
                 )
 
             additions = _scatter_semiring(
-                input_scores, self._results, n_categories,
-                cell.shape[0], device=cell.device,
+                input_scores,
+                self._results,
+                n_categories,
+                cell.shape[0],
+                device=cell.device,
                 semiring=semiring,
             )
 
@@ -322,6 +336,7 @@ class UnarySpanDeduction(Deduction):
 # ================================================================
 # goal
 # ================================================================
+
 
 class SpanGoal(Goal):
     """Extract chart[start_cat, 0, seq_len].
@@ -345,6 +360,7 @@ class SpanGoal(Goal):
 # ================================================================
 # schedule
 # ================================================================
+
 
 class CKYSchedule(Schedule):
     """Bottom-up CKY: process spans in increasing length order.
@@ -385,8 +401,10 @@ class CKYSchedule(Schedule):
 
                 for bd in binary_deds:
                     contrib = bd(
-                        None, semiring,
-                        i=i, j=j,
+                        None,
+                        semiring,
+                        i=i,
+                        j=j,
                         chart_cells=cells,
                         n_categories=n_categories,
                     )

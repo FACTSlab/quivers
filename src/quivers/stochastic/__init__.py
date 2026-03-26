@@ -30,7 +30,11 @@ categories : Category types including atoms, slashes, products, unit, modals
 from __future__ import annotations
 
 from quivers.stochastic.quantale import MarkovQuantale, MARKOV
-from quivers.stochastic.morphisms import StochasticMorphism, CategoricalMorphism, stochastic
+from quivers.stochastic.morphisms import (
+    StochasticMorphism,
+    CategoricalMorphism,
+    stochastic,
+)
 from quivers.stochastic.families import (
     DiscretizedNormal,
     DiscretizedLogitNormal,

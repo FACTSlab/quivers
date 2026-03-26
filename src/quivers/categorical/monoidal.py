@@ -54,9 +54,7 @@ class MonoidalStructure(ABC):
         ...
 
     @abstractmethod
-    def associator(
-        self, a: SetObject, b: SetObject, c: SetObject
-    ) -> ObservedMorphism:
+    def associator(self, a: SetObject, b: SetObject, c: SetObject) -> ObservedMorphism:
         """The associator (A ⊗ B) ⊗ C → A ⊗ (B ⊗ C).
 
         Parameters
@@ -104,9 +102,7 @@ class MonoidalStructure(ABC):
         ...
 
     @abstractmethod
-    def braiding(
-        self, a: SetObject, b: SetObject
-    ) -> ObservedMorphism:
+    def braiding(self, a: SetObject, b: SetObject) -> ObservedMorphism:
         """The braiding A ⊗ B → B ⊗ A.
 
         Parameters
@@ -150,9 +146,7 @@ class CartesianMonoidal(MonoidalStructure):
         """Terminal object {*}."""
         return Unit
 
-    def associator(
-        self, a: SetObject, b: SetObject, c: SetObject
-    ) -> ObservedMorphism:
+    def associator(self, a: SetObject, b: SetObject, c: SetObject) -> ObservedMorphism:
         """(A × B) × C → A × (B × C).
 
         Since ProductSet flattens, both sides are ProductSet(A,B,C),
@@ -201,9 +195,7 @@ class CartesianMonoidal(MonoidalStructure):
 
         return observed(source, target, data, quantale=self._quantale)
 
-    def braiding(
-        self, a: SetObject, b: SetObject
-    ) -> ObservedMorphism:
+    def braiding(self, a: SetObject, b: SetObject) -> ObservedMorphism:
         """A × B → B × A (swap permutation).
 
         The tensor has shape (*a.shape, *b.shape, *b.shape, *a.shape)
@@ -212,9 +204,7 @@ class CartesianMonoidal(MonoidalStructure):
         source = ProductSet(a, b)
         target = ProductSet(b, a)
 
-        data = torch.full(
-            (*source.shape, *target.shape), self._quantale.zero
-        )
+        data = torch.full((*source.shape, *target.shape), self._quantale.zero)
 
         for a_idx in itertools.product(*(range(s) for s in a.shape)):
             for b_idx in itertools.product(*(range(s) for s in b.shape)):
@@ -280,9 +270,7 @@ class CoproductMonoidal(MonoidalStructure):
         """Initial object ∅."""
         return EMPTY
 
-    def associator(
-        self, a: SetObject, b: SetObject, c: SetObject
-    ) -> ObservedMorphism:
+    def associator(self, a: SetObject, b: SetObject, c: SetObject) -> ObservedMorphism:
         """(A + B) + C → A + (B + C).
 
         Since CoproductSet flattens, both sides are CoproductSet(A,B,C),
@@ -328,9 +316,7 @@ class CoproductMonoidal(MonoidalStructure):
 
         return observed(source, target, data, quantale=self._quantale)
 
-    def braiding(
-        self, a: SetObject, b: SetObject
-    ) -> ObservedMorphism:
+    def braiding(self, a: SetObject, b: SetObject) -> ObservedMorphism:
         """A + B → B + A (block swap).
 
         Swaps the two coproduct components.

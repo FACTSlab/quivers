@@ -72,9 +72,7 @@ class DiscretizedNormal(Morphism):
 
         # learnable parameters: one (μ, log_σ) per domain element
         dom_size = domain.size
-        self._module.register_parameter(
-            "mu", nn.Parameter(torch.zeros(dom_size))
-        )
+        self._module.register_parameter("mu", nn.Parameter(torch.zeros(dom_size)))
         self._module.register_parameter(
             "log_sigma", nn.Parameter(torch.zeros(dom_size))
         )
@@ -140,9 +138,7 @@ class DiscretizedLogitNormal(Morphism):
         self._module.register_buffer("centers", centers)
 
         dom_size = domain.size
-        self._module.register_parameter(
-            "mu", nn.Parameter(torch.zeros(dom_size))
-        )
+        self._module.register_parameter("mu", nn.Parameter(torch.zeros(dom_size)))
         self._module.register_parameter(
             "log_sigma", nn.Parameter(torch.zeros(dom_size))
         )
@@ -169,9 +165,7 @@ class DiscretizedLogitNormal(Morphism):
 
         # log-density of normal at logit(center), plus jacobian
         z = (logit_expanded - mu_expanded) / sigma_expanded
-        log_density = -0.5 * z ** 2 - torch.log(
-            centers * (1.0 - centers)
-        ).unsqueeze(0)
+        log_density = -0.5 * z**2 - torch.log(centers * (1.0 - centers)).unsqueeze(0)
 
         probs = F.softmax(log_density, dim=-1)
         return probs.reshape(self.tensor_shape)
@@ -213,9 +207,7 @@ class DiscretizedBeta(Morphism):
         self._module.register_parameter(
             "log_alpha", nn.Parameter(torch.zeros(dom_size))
         )
-        self._module.register_parameter(
-            "log_beta", nn.Parameter(torch.zeros(dom_size))
-        )
+        self._module.register_parameter("log_beta", nn.Parameter(torch.zeros(dom_size)))
 
     @property
     def tensor(self) -> torch.Tensor:
@@ -235,10 +227,9 @@ class DiscretizedBeta(Morphism):
         beta_expanded = beta.unsqueeze(-1)
         centers_expanded = centers.unsqueeze(0)
 
-        log_density = (
-            (alpha_expanded - 1.0) * torch.log(centers_expanded.clamp(min=EPS))
-            + (beta_expanded - 1.0) * torch.log((1.0 - centers_expanded).clamp(min=EPS))
-        )
+        log_density = (alpha_expanded - 1.0) * torch.log(
+            centers_expanded.clamp(min=EPS)
+        ) + (beta_expanded - 1.0) * torch.log((1.0 - centers_expanded).clamp(min=EPS))
 
         probs = F.softmax(log_density, dim=-1)
         return probs.reshape(self.tensor_shape)

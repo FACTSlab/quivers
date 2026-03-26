@@ -107,9 +107,7 @@ def condition(f: Morphism, evidence: torch.Tensor) -> ConditionedMorphism:
 class _MixedModule(nn.Module):
     """Module wrapper for a mixture of morphisms."""
 
-    def __init__(
-        self, left_mod: nn.Module, right_mod: nn.Module
-    ) -> None:
+    def __init__(self, left_mod: nn.Module, right_mod: nn.Module) -> None:
         super().__init__()
         self.left = left_mod
         self.right = right_mod
@@ -164,9 +162,7 @@ class MixtureMorphism(Morphism):
             )
 
         else:
-            self._mix_module.register_buffer(
-                "logit_p", torch.tensor(init_logit)
-            )
+            self._mix_module.register_buffer("logit_p", torch.tensor(init_logit))
 
     @property
     def weight(self) -> torch.Tensor:

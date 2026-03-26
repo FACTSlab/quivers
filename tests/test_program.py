@@ -2,10 +2,9 @@
 
 import torch
 import torch.nn.functional as F
-import pytest
 
 from quivers.core.objects import FinSet
-from quivers.core.morphisms import morphism, observed
+from quivers.core.morphisms import morphism
 from quivers.program import Program
 
 
@@ -86,11 +85,13 @@ class TestTrainingLoop:
         optimizer = torch.optim.Adam(prog.parameters(), lr=0.05)
 
         # target: a specific boolean relation
-        target = torch.tensor([
-            [1.0, 0.0],
-            [0.0, 1.0],
-            [1.0, 1.0],
-        ])
+        target = torch.tensor(
+            [
+                [1.0, 0.0],
+                [0.0, 1.0],
+                [1.0, 1.0],
+            ]
+        )
 
         losses = []
 
@@ -119,12 +120,14 @@ class TestTrainingLoop:
         optimizer = torch.optim.Adam(prog.parameters(), lr=0.1)
 
         # target: identity-like (one-hot rows)
-        target = torch.tensor([
-            [1.0, 0.0, 0.0],
-            [0.0, 1.0, 0.0],
-            [0.0, 0.0, 1.0],
-            [1.0, 0.0, 0.0],
-        ])
+        target = torch.tensor(
+            [
+                [1.0, 0.0, 0.0],
+                [0.0, 1.0, 0.0],
+                [0.0, 0.0, 1.0],
+                [1.0, 0.0, 0.0],
+            ]
+        )
 
         initial_loss = None
 

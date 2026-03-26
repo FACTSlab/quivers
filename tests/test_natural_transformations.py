@@ -1,12 +1,11 @@
 """Tests for natural transformations."""
 
 import torch
-import pytest
 
 from quivers.core.objects import FinSet
 from quivers.core.morphisms import observed, identity
-from quivers.categorical.functors import IdentityFunctor, ComposedFunctor, FreeMonoidFunctor, IDENTITY
-from quivers.categorical.natural_transformations import NaturalTransformation, ComponentwiseNT
+from quivers.categorical.functors import ComposedFunctor, FreeMonoidFunctor, IDENTITY
+from quivers.categorical.natural_transformations import ComponentwiseNT
 
 
 class TestIdentityFunctor:
@@ -48,6 +47,7 @@ class TestComposedFunctor:
         composed = ComposedFunctor(IDENTITY, fm)
         t = torch.rand(2, 3)
         from quivers.core.quantales import PRODUCT_FUZZY
+
         result = composed.map_tensor(t, PRODUCT_FUZZY)
         expected = fm.map_tensor(t, PRODUCT_FUZZY)
         torch.testing.assert_close(result, expected)

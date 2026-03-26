@@ -112,14 +112,12 @@ class Morphism(ABC):
 
         if self.codomain != other.domain:
             raise TypeError(
-                f"cannot compose: codomain {self.codomain!r} "
-                f"!= domain {other.domain!r}"
+                f"cannot compose: codomain {self.codomain!r} != domain {other.domain!r}"
             )
 
         if not self._quantale.is_compatible(other._quantale):
             raise TypeError(
-                f"incompatible quantales: {self._quantale!r} "
-                f"and {other._quantale!r}"
+                f"incompatible quantales: {self._quantale!r} and {other._quantale!r}"
             )
 
         return ComposedMorphism(self, other)
@@ -207,8 +205,7 @@ class ObservedMorphism(Morphism):
 
         if data.shape != expected:
             raise ValueError(
-                f"data shape {data.shape} does not match "
-                f"expected {expected}"
+                f"data shape {data.shape} does not match expected {expected}"
             )
 
         self._module = _MorphismModule()
@@ -387,7 +384,6 @@ class ProductMorphism(Morphism):
         n_dom_l = self._left.domain.ndim
         n_cod_l = self._left.codomain.ndim
         n_dom_r = self._right.domain.ndim
-        n_cod_r = self._right.codomain.ndim
 
         # current layout: [dom_l dims] [cod_l dims] [dom_r dims] [cod_r dims]
         # target layout:  [dom_l dims] [dom_r dims] [cod_l dims] [cod_r dims]
@@ -464,15 +460,11 @@ class MarginalizedMorphism(Morphism):
             offset += component.ndim
 
         if not dims_to_reduce:
-            raise ValueError(
-                "none of the specified sets found in codomain components"
-            )
+            raise ValueError("none of the specified sets found in codomain components")
 
         # build new codomain
         if len(remaining_components) == 0:
-            raise ValueError(
-                "cannot marginalize all codomain components"
-            )
+            raise ValueError("cannot marginalize all codomain components")
 
         elif len(remaining_components) == 1:
             new_codomain = remaining_components[0]
@@ -532,9 +524,7 @@ class FunctorMorphism(Morphism):
 
     @property
     def tensor(self) -> torch.Tensor:
-        return self._functor.map_tensor(
-            self._inner.tensor, self._quantale
-        )
+        return self._functor.map_tensor(self._inner.tensor, self._quantale)
 
     def module(self) -> nn.Module:
         # same parameters as the inner morphism
@@ -595,7 +585,9 @@ class RepeatMorphism(Morphism):
             raise ValueError(f"n must be >= 1, got {n}")
 
         super().__init__(
-            inner.domain, inner.codomain, quantale=inner._quantale,
+            inner.domain,
+            inner.codomain,
+            quantale=inner._quantale,
         )
 
         self._inner = inner
@@ -645,11 +637,15 @@ class RepeatMorphism(Morphism):
 
                 else:
                     result = self._quantale.compose(
-                        result, base, self._n_contract,
+                        result,
+                        base,
+                        self._n_contract,
                     )
 
             base = self._quantale.compose(
-                base, base, self._n_contract,
+                base,
+                base,
+                self._n_contract,
             )
             n //= 2
 
@@ -659,9 +655,7 @@ class RepeatMorphism(Morphism):
         return _RepeatModule(self._inner.module())
 
     def __repr__(self) -> str:
-        return (
-            f"RepeatMorphism({self._inner!r}, n={self._n})"
-        )
+        return f"RepeatMorphism({self._inner!r}, n={self._n})"
 
 
 # -- factory functions -------------------------------------------------------
@@ -691,9 +685,7 @@ def morphism(
     LatentMorphism
         A learnable morphism.
     """
-    return LatentMorphism(
-        domain, codomain, init_scale=init_scale, quantale=quantale
-    )
+    return LatentMorphism(domain, codomain, init_scale=init_scale, quantale=quantale)
 
 
 def observed(

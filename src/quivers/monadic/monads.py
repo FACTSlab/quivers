@@ -31,14 +31,11 @@ from quivers.core.objects import SetObject, FinSet, FreeMonoid
 from quivers.core.quantales import PRODUCT_FUZZY, Quantale
 from quivers.core.morphisms import (
     Morphism,
-    ObservedMorphism,
-    ComposedMorphism,
     identity,
     observed,
 )
 from quivers.categorical.functors import (
     Functor,
-    IdentityFunctor,
     FreeMonoidFunctor,
     IDENTITY,
 )
@@ -273,8 +270,7 @@ class FreeMonoidMonad(Monad):
         """
         if not isinstance(obj, FinSet):
             raise TypeError(
-                f"FreeMonoidMonad.unit requires FinSet, got "
-                f"{type(obj).__name__}"
+                f"FreeMonoidMonad.unit requires FinSet, got {type(obj).__name__}"
             )
 
         fm = FreeMonoid(obj, max_length=self._max_length)
@@ -298,8 +294,7 @@ class FreeMonoidMonad(Monad):
         """
         if not isinstance(obj, FinSet):
             raise TypeError(
-                f"FreeMonoidMonad.multiply requires FinSet, got "
-                f"{type(obj).__name__}"
+                f"FreeMonoidMonad.multiply requires FinSet, got {type(obj).__name__}"
             )
 
         fm_a = FreeMonoid(obj, max_length=self._max_length)
@@ -354,9 +349,7 @@ class FreeMonoidMonad(Monad):
         if isinstance(cod, FinSet):
             return self.multiply(cod)
 
-        raise TypeError(
-            f"Cannot extract base object from codomain {cod!r}"
-        )
+        raise TypeError(f"Cannot extract base object from codomain {cod!r}")
 
     def __repr__(self) -> str:
         return f"FreeMonoidMonad(max_length={self._max_length})"

@@ -1,11 +1,9 @@
 """Tests for algebras and coalgebras."""
 
 import torch
-import pytest
 
 from quivers.core.objects import FinSet, FreeMonoid
-from quivers.core.morphisms import morphism, observed, identity
-from quivers.core.quantales import PRODUCT_FUZZY
+from quivers.core.morphisms import identity
 from quivers.monadic.monads import FuzzyPowersetMonad, FreeMonoidMonad
 from quivers.monadic.comonads import DiagonalComonad
 from quivers.monadic.algebras import (

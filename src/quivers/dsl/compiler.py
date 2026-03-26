@@ -18,7 +18,6 @@ from quivers.core.quantales import (
     BOOLEAN,
 )
 from quivers.core.morphisms import (
-    Morphism,
     morphism as make_latent,
     identity as make_identity,
 )
@@ -37,7 +36,6 @@ from quivers.dsl.ast_nodes import (
     StochasticMorphismDecl,
     DiscretizeDecl,
     EmbedDecl,
-    DrawStep,
     LetStep,
     LetExprBinOp,
     LetExprUnaryOp,
@@ -586,7 +584,11 @@ class Compiler:
 
         for name in names:
             morph = self._make_continuous_morphism(
-                domain, codomain, decl.family, decl.options, decl,
+                domain,
+                codomain,
+                decl.family,
+                decl.options,
+                decl,
             )
             self._morphisms[name] = morph
 
@@ -594,8 +596,12 @@ class Compiler:
             self._groups[decl.name] = names
 
     def _make_continuous_morphism(
-        self, domain, codomain, family_name: str,
-        options: dict[str, str], decl,
+        self,
+        domain,
+        codomain,
+        family_name: str,
+        options: dict[str, str],
+        decl,
     ):
         """Create a single continuous morphism from a family name."""
         # handle Flow specially
@@ -605,8 +611,10 @@ class Compiler:
             n_layers = int(options.get("n_layers", "4"))
             hidden_dim = int(options.get("hidden_dim", "64"))
             return ConditionalFlow(
-                domain, codomain,
-                n_layers=n_layers, hidden_dim=hidden_dim,
+                domain,
+                codomain,
+                n_layers=n_layers,
+                hidden_dim=hidden_dim,
             )
 
         # look up family
@@ -825,7 +833,9 @@ class Compiler:
                     )
 
             morph, step_args = self._resolve_draw_morphism(
-                draw, bound_vars, codomain,
+                draw,
+                bound_vars,
+                codomain,
             )
 
             # validate string arguments (variable references)
@@ -872,8 +882,7 @@ class Compiler:
 
                 else:
                     raise CompileError(
-                        f"cannot destructure non-product codomain "
-                        f"{morph.codomain!r}",
+                        f"cannot destructure non-product codomain {morph.codomain!r}",
                         draw.line,
                         draw.col,
                     )
@@ -890,7 +899,10 @@ class Compiler:
                 )
 
         prog = MonadicProgram(
-            domain, codomain, steps, decl.return_vars,
+            domain,
+            codomain,
+            steps,
+            decl.return_vars,
             params=decl.params,
             return_labels=decl.return_labels,
         )
@@ -938,8 +950,7 @@ class Compiler:
 
             # args are all strings (or None)
             step_args = (
-                tuple(str(a) for a in draw.args)
-                if draw.args is not None else None
+                tuple(str(a) for a in draw.args) if draw.args is not None else None
             )
             return morph, step_args
 
@@ -963,7 +974,10 @@ class Compiler:
 
             # determine codomain for the inline distribution
             inline_codomain = self._infer_inline_codomain(
-                draw.morphism, draw.args, draw.vars, program_codomain,
+                draw.morphism,
+                draw.args,
+                draw.vars,
+                program_codomain,
             )
 
             # build the morphism
@@ -989,8 +1003,7 @@ class Compiler:
             )
 
         raise CompileError(
-            f"undefined morphism or distribution family "
-            f"{draw.morphism!r}",
+            f"undefined morphism or distribution family {draw.morphism!r}",
             draw.line,
             draw.col,
         )
@@ -1039,7 +1052,10 @@ class Compiler:
                     return UnitInterval(f"_{var_names[0]}")
 
                 return Euclidean(
-                    f"_{var_names[0]}", 1, low=low, high=high,
+                    f"_{var_names[0]}",
+                    1,
+                    low=low,
+                    high=high,
                 )
 
             return UnitInterval(f"_{var_names[0]}")
@@ -1047,14 +1063,16 @@ class Compiler:
         elif family == "TruncatedNormal":
             # extract bounds from last two float args
             float_args = {
-                i: a for i, a in enumerate(args)
-                if isinstance(a, (int, float))
+                i: a for i, a in enumerate(args) if isinstance(a, (int, float))
             }
 
             if 2 in float_args and 3 in float_args:
                 low, high = float(float_args[2]), float(float_args[3])
                 return Euclidean(
-                    f"_{var_names[0]}", 1, low=low, high=high,
+                    f"_{var_names[0]}",
+                    1,
+                    low=low,
+                    high=high,
                 )
 
             return UnitInterval(f"_{var_names[0]}")
@@ -1192,9 +1210,7 @@ class Compiler:
 
         if isinstance(node, LetExprCall):
             func_name = node.func
-            arg_fns = [
-                Compiler._compile_let_expr(a) for a in node.args
-            ]
+            arg_fns = [Compiler._compile_let_expr(a) for a in node.args]
 
             def _call(env: dict) -> torch.Tensor:
                 args = [fn(env) for fn in arg_fns]
@@ -1223,7 +1239,7 @@ class Compiler:
     def _compile_let(self, decl: LetDecl) -> None:
         """Compile a let-binding with optional where clause."""
         # handle where clause bindings first (they define names used in main expr)
-        if hasattr(decl, 'where') and decl.where:
+        if hasattr(decl, "where") and decl.where:
             for where_decl in decl.where:
                 self._compile_let(where_decl)
 
@@ -1250,9 +1266,7 @@ class Compiler:
 
     # -- type resolution -----------------------------------------------------
 
-    def _resolve_type(
-        self, texpr: TypeExpr, bind_name: str | None = None
-    ) -> SetObject:
+    def _resolve_type(self, texpr: TypeExpr, bind_name: str | None = None) -> SetObject:
         """Resolve a type expression into a SetObject.
 
         Parameters
@@ -1428,9 +1442,7 @@ class Compiler:
             return ProductSpace(*components)
 
         else:
-            raise CompileError(
-                f"unknown space expression: {type(sexpr).__name__}"
-            )
+            raise CompileError(f"unknown space expression: {type(sexpr).__name__}")
 
     # -- expression compilation ----------------------------------------------
 
@@ -1510,10 +1522,7 @@ class Compiler:
 
             for sub_expr in expr.exprs:
                 # if a bare identifier refers to a group, expand it
-                if (
-                    isinstance(sub_expr, ExprIdent)
-                    and sub_expr.name in self._groups
-                ):
+                if isinstance(sub_expr, ExprIdent) and sub_expr.name in self._groups:
                     for member_name in self._groups[sub_expr.name]:
                         components.append(self._morphisms[member_name])
 
@@ -1554,6 +1563,7 @@ class Compiler:
 
         elif isinstance(expr, ExprStack):
             import copy
+
             morph = self._compile_expr(expr.expr)
             result = copy.deepcopy(morph)
 
@@ -1616,7 +1626,8 @@ class Compiler:
             # morphism mode: type-driven dispatch
             if morphisms:
                 return self._compile_parser_morphisms(
-                    morphisms, expr,
+                    morphisms,
+                    expr,
                 )
 
             # schema mode: categories + rule schemas → ChartParser
@@ -1628,13 +1639,12 @@ class Compiler:
                 )
 
             return self._compile_parser_schemas(
-                schemas, expr,
+                schemas,
+                expr,
             )
 
         else:
-            raise CompileError(
-                f"unknown expression type: {type(expr).__name__}"
-            )
+            raise CompileError(f"unknown expression type: {type(expr).__name__}")
 
     def _compile_parser_morphisms(
         self,
@@ -1676,7 +1686,7 @@ class Compiler:
                 if binary is not None:
                     raise CompileError(
                         "parser() received multiple binary morphisms "
-                        f"(codomain = domain ⊗ domain); expected one",
+                        "(codomain = domain ⊗ domain); expected one",
                         expr.line,
                         expr.col,
                     )
@@ -1686,8 +1696,7 @@ class Compiler:
             else:
                 if lexical is not None:
                     raise CompileError(
-                        "parser() received multiple lexical morphisms; "
-                        "expected one",
+                        "parser() received multiple lexical morphisms; expected one",
                         expr.line,
                         expr.col,
                     )
@@ -1696,28 +1705,30 @@ class Compiler:
 
         if binary is None:
             raise CompileError(
-                "parser() requires a binary morphism "
-                "(type N → N ⊗ N) among its rules",
+                "parser() requires a binary morphism (type N → N ⊗ N) among its rules",
                 expr.line,
                 expr.col,
             )
 
         if lexical is None:
             raise CompileError(
-                "parser() requires a lexical morphism "
-                "(type N → T) among its rules",
+                "parser() requires a lexical morphism (type N → T) among its rules",
                 expr.line,
                 expr.col,
             )
 
         try:
             return InsideAlgorithm(
-                binary, lexical, start=expr.start,
+                binary,
+                lexical,
+                start=expr.start,
             )
 
         except TypeError as e:
             raise CompileError(
-                str(e), expr.line, expr.col,
+                str(e),
+                expr.line,
+                expr.col,
             ) from e
 
     def _compile_parser_schemas(
@@ -1784,8 +1795,7 @@ class Compiler:
 
         if expr.terminal not in self._objects:
             raise CompileError(
-                f"terminal={expr.terminal!r} does not refer to a "
-                f"declared object",
+                f"terminal={expr.terminal!r} does not refer to a declared object",
                 expr.line,
                 expr.col,
             )
@@ -1794,11 +1804,11 @@ class Compiler:
 
         try:
             return ChartParser.from_schema(
-                schema, cs,
+                schema,
+                cs,
                 n_terminals=n_term,
                 start=expr.start,
             )
 
         except (TypeError, ValueError) as e:
             raise CompileError(str(e), expr.line, expr.col) from e
-

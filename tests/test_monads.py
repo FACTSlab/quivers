@@ -4,13 +4,13 @@ import torch
 import pytest
 
 from quivers.core.objects import FinSet, FreeMonoid
-from quivers.core.morphisms import morphism, observed, identity
+from quivers.core.morphisms import observed
 from quivers.monadic.monads import (
     FuzzyPowersetMonad,
     FreeMonoidMonad,
     KleisliCategory,
 )
-from quivers.core.quantales import PRODUCT_FUZZY, BOOLEAN
+from quivers.core.quantales import BOOLEAN
 
 
 class TestFuzzyPowersetMonad:
@@ -42,9 +42,7 @@ class TestFuzzyPowersetMonad:
         kleisli = m.kleisli_compose(f, g)
         rshift = (f >> g).tensor
 
-        torch.testing.assert_close(
-            kleisli.tensor, rshift, atol=1e-5, rtol=1e-5
-        )
+        torch.testing.assert_close(kleisli.tensor, rshift, atol=1e-5, rtol=1e-5)
 
     def test_boolean_kleisli(self):
         m = FuzzyPowersetMonad(quantale=BOOLEAN)
@@ -61,9 +59,7 @@ class TestFuzzyPowersetMonad:
         result = m.kleisli_compose(f, g)
 
         # should be g_data (since f is identity permutation)
-        torch.testing.assert_close(
-            result.tensor, g_data, atol=1e-5, rtol=1e-5
-        )
+        torch.testing.assert_close(result.tensor, g_data, atol=1e-5, rtol=1e-5)
 
 
 class TestFreeMonoidMonad:
@@ -129,9 +125,7 @@ class TestKleisliCategory:
         result = cat.compose(f, g)
         expected = (f >> g).tensor
 
-        torch.testing.assert_close(
-            result.tensor, expected, atol=1e-5, rtol=1e-5
-        )
+        torch.testing.assert_close(result.tensor, expected, atol=1e-5, rtol=1e-5)
 
 
 class TestMonadLaws:

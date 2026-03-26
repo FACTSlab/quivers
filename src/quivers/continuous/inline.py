@@ -27,8 +27,8 @@ from collections.abc import Callable
 import torch
 import torch.distributions as D
 
-from quivers.core.objects import FinSet, Unit
-from quivers.continuous.spaces import ContinuousSpace, Euclidean, UnitInterval
+from quivers.core.objects import Unit
+from quivers.continuous.spaces import Euclidean
 from quivers.continuous.morphisms import ContinuousMorphism, AnySpace
 from quivers.core._util import EPS
 
@@ -170,7 +170,8 @@ class MixedInlineDistribution(ContinuousMorphism):
         self._discrete = discrete
 
     def _resolve_params(
-        self, x: torch.Tensor,
+        self,
+        x: torch.Tensor,
     ) -> list[torch.Tensor]:
         """Reconstruct full parameter list from input + stored literals.
 
@@ -197,8 +198,10 @@ class MixedInlineDistribution(ContinuousMorphism):
             if kind == "lit":
                 # broadcast literal to match batch dimension
                 lit_val = torch.full(
-                    (x.shape[0],), float(value),
-                    device=x.device, dtype=x.dtype,
+                    (x.shape[0],),
+                    float(value),
+                    device=x.device,
+                    dtype=x.dtype,
                 )
                 params.append(lit_val)
 
@@ -210,7 +213,7 @@ class MixedInlineDistribution(ContinuousMorphism):
                     params.append(x[..., var_offset])
 
                 else:
-                    params.append(x[..., var_offset:var_offset + dim])
+                    params.append(x[..., var_offset : var_offset + dim])
 
                 var_offset += dim
 
@@ -266,8 +269,7 @@ class MixedInlineDistribution(ContinuousMorphism):
         params = self._resolve_params(x)
         dist = self._dist_builder(params)
         lp = dist.log_prob(
-            y.float() if self._discrete else
-            (y.squeeze(-1) if y.dim() > 1 else y)
+            y.float() if self._discrete else (y.squeeze(-1) if y.dim() > 1 else y)
         )
 
         if lp.dim() > 1:
@@ -471,8 +473,10 @@ class DirectTruncatedNormal(ContinuousMorphism):
         beta_cdf = normal.cdf((self._high - mu) / sigma)
 
         u = torch.rand(
-            *sample_shape, *mu.shape,
-            device=mu.device, dtype=mu.dtype,
+            *sample_shape,
+            *mu.shape,
+            device=mu.device,
+            dtype=mu.dtype,
         )
         u_scaled = alpha + u * (beta_cdf - alpha)
         u_scaled = u_scaled.clamp(min=EPS, max=1.0 - EPS)
@@ -528,7 +532,9 @@ class DirectTruncatedNormal(ContinuousMorphism):
 
 
 def make_fixed_logitnormal(
-    mu: float, sigma: float, codomain: AnySpace,
+    mu: float,
+    sigma: float,
+    codomain: AnySpace,
 ) -> FixedDistribution:
     """Create a fixed LogitNormal(mu, sigma) distribution.
 
@@ -558,7 +564,9 @@ def make_fixed_logitnormal(
 
 
 def make_fixed_uniform(
-    low: float, high: float, codomain: AnySpace,
+    low: float,
+    high: float,
+    codomain: AnySpace,
 ) -> FixedDistribution:
     """Create a fixed Uniform(low, high) distribution.
 
@@ -587,7 +595,9 @@ def make_fixed_uniform(
 
 
 def make_fixed_normal(
-    loc: float, scale: float, codomain: AnySpace,
+    loc: float,
+    scale: float,
+    codomain: AnySpace,
 ) -> FixedDistribution:
     """Create a fixed Normal(loc, scale) distribution.
 
@@ -616,7 +626,8 @@ def make_fixed_normal(
 
 
 def make_fixed_bernoulli(
-    prob: float, codomain: AnySpace,
+    prob: float,
+    codomain: AnySpace,
 ) -> FixedDistribution:
     """Create a fixed Bernoulli(prob) distribution.
 
@@ -641,7 +652,9 @@ def make_fixed_bernoulli(
 
 
 def make_fixed_beta(
-    concentration1: float, concentration0: float, codomain: AnySpace,
+    concentration1: float,
+    concentration0: float,
+    codomain: AnySpace,
 ) -> FixedDistribution:
     """Create a fixed Beta(concentration1, concentration0) distribution.
 
@@ -670,7 +683,8 @@ def make_fixed_beta(
 
 
 def make_fixed_exponential(
-    rate: float, codomain: AnySpace,
+    rate: float,
+    codomain: AnySpace,
 ) -> FixedDistribution:
     """Create a fixed Exponential(rate) distribution.
 
@@ -696,7 +710,8 @@ def make_fixed_exponential(
 
 
 def make_fixed_halfcauchy(
-    scale: float, codomain: AnySpace,
+    scale: float,
+    codomain: AnySpace,
 ) -> FixedDistribution:
     """Create a fixed HalfCauchy(scale) distribution.
 
@@ -722,7 +737,8 @@ def make_fixed_halfcauchy(
 
 
 def make_fixed_halfnormal(
-    scale: float, codomain: AnySpace,
+    scale: float,
+    codomain: AnySpace,
 ) -> FixedDistribution:
     """Create a fixed HalfNormal(scale) distribution.
 
@@ -748,7 +764,9 @@ def make_fixed_halfnormal(
 
 
 def make_fixed_lognormal(
-    loc: float, scale: float, codomain: AnySpace,
+    loc: float,
+    scale: float,
+    codomain: AnySpace,
 ) -> FixedDistribution:
     """Create a fixed LogNormal(loc, scale) distribution.
 
@@ -777,7 +795,9 @@ def make_fixed_lognormal(
 
 
 def make_fixed_gamma(
-    concentration: float, rate: float, codomain: AnySpace,
+    concentration: float,
+    rate: float,
+    codomain: AnySpace,
 ) -> FixedDistribution:
     """Create a fixed Gamma(concentration, rate) distribution.
 
@@ -880,8 +900,10 @@ def _truncated_normal_builder(
             alpha = normal.cdf((low - mu) / sigma)
             beta_cdf = normal.cdf((high - mu) / sigma)
             u = torch.rand(
-                *sample_shape, *mu.shape,
-                device=mu.device, dtype=mu.dtype,
+                *sample_shape,
+                *mu.shape,
+                device=mu.device,
+                dtype=mu.dtype,
             )
             u_scaled = alpha + u * (beta_cdf - alpha)
             u_scaled = u_scaled.clamp(min=EPS, max=1.0 - EPS)
@@ -896,8 +918,7 @@ def _truncated_normal_builder(
             normal = D.Normal(0, 1)
             log_Z = torch.log(
                 (
-                    normal.cdf((high - mu) / sigma)
-                    - normal.cdf((low - mu) / sigma)
+                    normal.cdf((high - mu) / sigma) - normal.cdf((low - mu) / sigma)
                 ).clamp(min=EPS)
             )
             return log_phi - log_Z
@@ -1019,15 +1040,12 @@ def make_inline_distribution(
             morph = factory(*all_floats, codomain)
             return morph, None
 
-        raise ValueError(
-            f"no fixed factory for inline family {family!r}"
-        )
+        raise ValueError(f"no fixed factory for inline family {family!r}")
 
     # has variable args: use the general MixedInlineDistribution
     if family not in _FAMILY_BUILDERS:
         raise ValueError(
-            f"no builder for inline family {family!r} "
-            f"with variable arguments"
+            f"no builder for inline family {family!r} with variable arguments"
         )
 
     param_names, dist_builder, discrete = _FAMILY_BUILDERS[family]
@@ -1065,13 +1083,19 @@ def make_inline_distribution(
 
     elif len(var_name_order) == 1 and variable_types:
         vtype = variable_types.get(var_name_order[0])
-        domain = vtype if vtype is not None else Euclidean("_inline_domain", total_var_dim)
+        domain = (
+            vtype if vtype is not None else Euclidean("_inline_domain", total_var_dim)
+        )
 
     else:
         domain = _infer_domain(var_name_order, variable_types)
 
     morph = MixedInlineDistribution(
-        domain, codomain, param_spec, dist_builder, discrete,
+        domain,
+        codomain,
+        param_spec,
+        dist_builder,
+        discrete,
     )
     return morph, tuple(var_name_order)
 

@@ -52,7 +52,6 @@ import torch
 import torch.nn as nn
 
 from quivers.continuous.morphisms import (
-    AnySpace,
     ContinuousMorphism,
     _event_dim,
 )
@@ -169,8 +168,7 @@ class ScanMorphism(ContinuousMorphism):
 
         elif init != "zeros":
             raise ValueError(
-                f"unknown init strategy {init!r}; "
-                f"expected 'zeros' or 'learned'"
+                f"unknown init strategy {init!r}; expected 'zeros' or 'learned'"
             )
 
     def rsample(
@@ -207,8 +205,10 @@ class ScanMorphism(ContinuousMorphism):
 
         else:
             h = torch.zeros(
-                batch, self._hidden_dim,
-                device=x.device, dtype=x.dtype,
+                batch,
+                self._hidden_dim,
+                device=x.device,
+                dtype=x.dtype,
             )
 
         # iterate over time
@@ -318,8 +318,10 @@ class ScanMorphism(ContinuousMorphism):
 
         else:
             h = torch.zeros(
-                batch, self._hidden_dim,
-                device=x.device, dtype=x.dtype,
+                batch,
+                self._hidden_dim,
+                device=x.device,
+                dtype=x.dtype,
             )
 
         for t in range(seq_len):
@@ -333,6 +335,4 @@ class ScanMorphism(ContinuousMorphism):
 
     def __repr__(self) -> str:
         init = f", init={self._init_strategy}" if self._init_strategy != "zeros" else ""
-        return (
-            f"ScanMorphism({self._cell!r}{init})"
-        )
+        return f"ScanMorphism({self._cell!r}{init})"

@@ -5,7 +5,6 @@ import pytest
 
 from quivers.core.objects import FinSet, ProductSet, CoproductSet
 from quivers.core.morphisms import observed, identity
-from quivers.core.quantales import PRODUCT_FUZZY
 from quivers.enriched.optics import (
     Lens,
     Prism,
@@ -129,9 +128,7 @@ class TestPrism:
         roundtrip = (build >> match).tensor
         expected = identity(a).tensor
 
-        torch.testing.assert_close(
-            roundtrip, expected, atol=1e-5, rtol=1e-5
-        )
+        torch.testing.assert_close(roundtrip, expected, atol=1e-5, rtol=1e-5)
 
     def test_prism_requires_coproduct(self):
         with pytest.raises(TypeError, match="CoproductSet"):
@@ -166,7 +163,7 @@ class TestComposeOptics:
         """Composing two lenses should produce a valid optic."""
         a = FinSet("A", 2)
         b = FinSet("B", 3)
-        c = FinSet("C", 2)
+        FinSet("C", 2)
 
         # outer lens: A × B → A
         whole = ProductSet(a, b)
@@ -180,7 +177,7 @@ class TestComposeOptics:
         composed = compose_optics(lens1, adapter)
 
         fwd = composed.forward()
-        bwd = composed.backward()
+        composed.backward()
 
         # forward: whole → a
         assert fwd.codomain.shape == a.shape

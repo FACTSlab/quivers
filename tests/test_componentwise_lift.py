@@ -61,8 +61,10 @@ class TestComponentwiseLiftProduct:
                     for b2 in range(4):
                         expected = f[a1, b1] * f[a2, b2]
                         torch.testing.assert_close(
-                            lifted[a1, a2, b1, b2], expected,
-                            atol=1e-6, rtol=1e-6,
+                            lifted[a1, a2, b1, b2],
+                            expected,
+                            atol=1e-6,
+                            rtol=1e-6,
                         )
 
     def test_k3_spot_check(self):
@@ -78,8 +80,10 @@ class TestComponentwiseLiftProduct:
         ]:
             expected = f[a1, b1] * f[a2, b2] * f[a3, b3]
             torch.testing.assert_close(
-                lifted[a1, a2, a3, b1, b2, b3], expected,
-                atol=1e-6, rtol=1e-6,
+                lifted[a1, a2, a3, b1, b2, b3],
+                expected,
+                atol=1e-6,
+                rtol=1e-6,
             )
 
     def test_k2_on_identity_is_identity(self):
@@ -95,7 +99,8 @@ class TestComponentwiseLiftProduct:
                     for b2 in range(n):
                         expected = 1.0 if (a1 == b1 and a2 == b2) else 0.0
                         assert lifted[a1, a2, b1, b2].item() == pytest.approx(
-                            expected, abs=1e-6,
+                            expected,
+                            abs=1e-6,
                         )
 
 
