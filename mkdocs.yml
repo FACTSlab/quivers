@@ -1,0 +1,172 @@
+site_name: Quivers
+site_description: V-enriched categorical relations as differentiable PyTorch tensors
+site_author: Aaron Steven White
+
+theme:
+  name: cinder
+  custom_dir: docs/overrides
+  highlightjs: false
+
+hooks:
+  - docs/hooks/register_qvr_lexer.py
+
+extra_css:
+  - css/pygments.css
+  - css/custom.css
+
+extra_javascript:
+  - https://cdnjs.cloudflare.com/ajax/libs/mathjax/3.2.2/es5/tex-mml-chtml.js
+
+markdown_extensions:
+  - admonition
+  - pymdownx.highlight:
+      use_pygments: true
+      guess_lang: false
+  - toc:
+      permalink: true
+  - pymdownx.arithmatex:
+      generic: true
+  - pymdownx.superfences
+  - pymdownx.tabbed:
+      alternate_style: true
+  - pymdownx.details
+  - attr_list
+  - def_list
+  - footnotes
+
+plugins:
+  - search
+  - mkdocstrings:
+      default_handler: python
+      handlers:
+        python:
+          paths:
+            - src
+          options:
+            show_source: true
+            show_root_heading: true
+            show_root_full_path: false
+            show_symbol_type_heading: true
+            show_symbol_type_toc: true
+            members_order: source
+            merge_init_into_class: true
+            docstring_style: numpy
+            docstring_section_style: spacy
+            show_signature_annotations: true
+            separate_signature: true
+            signature_crossrefs: true
+            heading_level: 2
+
+nav:
+  - Home: index.md
+  - Getting Started:
+    - Installation: getting-started/installation.md
+    - Quickstart: getting-started/quickstart.md
+    - Architecture: getting-started/architecture.md
+  - Guides:
+    - Overview: guides/index.md
+    - Core Types & Quantales: guides/core.md
+    - Morphisms & Composition: guides/morphisms.md
+    - Categorical Structures: guides/categorical.md
+    - Monads & Comonads: guides/monadic.md
+    - Enriched Category Theory: guides/enriched.md
+    - Stochastic Morphisms: guides/stochastic.md
+    - Continuous Distributions: guides/continuous.md
+    - Monadic Programs: guides/programs.md
+    - The QVR DSL: guides/dsl.md
+    - Variational Inference: guides/inference.md
+  - Examples Gallery:
+    - Overview: examples/index.md
+    - Neural Architectures:
+      - Transformer: examples/transformer.md
+      - Vanilla RNN: examples/vanilla-rnn.md
+      - LSTM: examples/lstm.md
+      - GRU: examples/gru.md
+      - Elman Network: examples/elman-rnn.md
+      - Bidirectional RNN: examples/bidirectional-rnn.md
+    - Generative Models:
+      - Variational Autoencoder: examples/vae.md
+      - Gaussian Mixture Model: examples/mixture-model.md
+      - "HMM (Discrete)": examples/hmm.md
+      - "HMM (Continuous)": examples/continuous-hmm.md
+    - Formal Grammars:
+      - PCFG: examples/pcfg.md
+      - CCG: examples/ccg.md
+      - Lambek Calculus: examples/type-logical.md
+      - Multimodal TLG: examples/multimodal-tlg.md
+      - Custom Rules: examples/custom-rules.md
+    - Probabilistic Programs:
+      - Bayesian Regression: examples/bayesian-regression.md
+  - Tutorials:
+    - Overview: tutorials/index.md
+    - "Tutorial 1: Your First Quiver": tutorials/first-quiver.md
+    - "Tutorial 2: Stochastic Relations": tutorials/stochastic-relations.md
+    - "Tutorial 3: Probabilistic Programs": tutorials/probabilistic-programs.md
+    - "Tutorial 4: Fuzzy Logic Factorization": tutorials/fuzzy-factorization.md
+    - "Tutorial 5: Variational Inference": tutorials/variational-inference.md
+  - API Reference:
+    - Overview: api/index.md
+    - Core:
+      - Objects: api/core/objects.md
+      - Quantales: api/core/quantales.md
+      - Extra Quantales: api/core/extra_quantales.md
+      - Morphisms: api/core/morphisms.md
+      - Tensor Operations: api/core/tensor_ops.md
+      - Utilities: api/core/util.md
+    - Categorical:
+      - Functors: api/categorical/functors.md
+      - Natural Transformations: api/categorical/natural_transformations.md
+      - Adjunctions: api/categorical/adjunctions.md
+      - Monoidal Structures: api/categorical/monoidal.md
+      - Base Change: api/categorical/base_change.md
+      - Traced Monoidal: api/categorical/traced.md
+    - Monadic:
+      - Monads: api/monadic/monads.md
+      - Comonads: api/monadic/comonads.md
+      - Algebras & Coalgebras: api/monadic/algebras.md
+      - Distributive Laws: api/monadic/distributive_laws.md
+    - Enriched:
+      - Ends & Coends: api/enriched/ends_coends.md
+      - Kan Extensions: api/enriched/kan_extensions.md
+      - Weighted Limits: api/enriched/weighted_limits.md
+      - Profunctors: api/enriched/profunctors.md
+      - Yoneda: api/enriched/yoneda.md
+      - Day Convolution: api/enriched/day_convolution.md
+      - Optics: api/enriched/optics.md
+    - Stochastic:
+      - Quantale: api/stochastic/quantale.md
+      - Morphisms: api/stochastic/morphisms.md
+      - Families: api/stochastic/families.md
+      - Transforms: api/stochastic/transforms.md
+      - Queries: api/stochastic/queries.md
+      - Giry Monad: api/stochastic/giry.md
+      - Categories: api/stochastic/categories.md
+      - Biclosed Monoidal: api/stochastic/biclosed.md
+      - Rule Systems: api/stochastic/rules.md
+      - Chart Semirings: api/stochastic/semiring.md
+      - Chart Parsers: api/stochastic/parsers.md
+      - Inside Algorithm: api/stochastic/inside.md
+    - Continuous:
+      - Spaces: api/continuous/spaces.md
+      - Morphisms: api/continuous/morphisms.md
+      - Families: api/continuous/families.md
+      - Programs: api/continuous/programs.md
+      - Boundaries: api/continuous/boundaries.md
+      - Flows: api/continuous/flows.md
+    - DSL:
+      - Compiler: api/dsl/compiler.md
+      - Parser: api/dsl/parser.md
+      - Lexer: api/dsl/lexer.md
+      - AST Nodes: api/dsl/ast_nodes.md
+      - Tokens: api/dsl/tokens.md
+    - Inference:
+      - Trace: api/inference/trace.md
+      - Conditioning: api/inference/conditioning.md
+      - Guides: api/inference/guide.md
+      - ELBO: api/inference/elbo.md
+      - SVI: api/inference/svi.md
+      - Predictive: api/inference/predictive.md
+    - Program: api/program.md
+  - Developer Guide:
+    - Contributing: developer/contributing.md
+    - Changelog: developer/changelog.md

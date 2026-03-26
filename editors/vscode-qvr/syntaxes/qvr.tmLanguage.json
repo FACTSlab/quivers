@@ -1,0 +1,115 @@
+{
+  "$schema": "https://raw.githubusercontent.com/martinring/tmlanguage/master/tmlanguage.json",
+  "name": "QVR",
+  "scopeName": "source.qvr",
+  "fileTypes": [
+    "qvr"
+  ],
+  "patterns": [
+    {
+      "include": "#comment"
+    },
+    {
+      "include": "#keyword-control"
+    },
+    {
+      "include": "#keyword-declaration"
+    },
+    {
+      "include": "#keyword-operator"
+    },
+    {
+      "include": "#builtin-function"
+    },
+    {
+      "include": "#distribution-family"
+    },
+    {
+      "include": "#numeric-literal"
+    },
+    {
+      "include": "#punctuation"
+    },
+    {
+      "include": "#identifier"
+    }
+  ],
+  "repository": {
+    "comment": {
+      "name": "comment.line.number-sign.qvr",
+      "match": "#.*$"
+    },
+    "keyword-control": {
+      "name": "keyword.control.qvr",
+      "match": "\\b(draw|observe|return|let|program)\\b"
+    },
+    "keyword-declaration": {
+      "name": "keyword.declaration.qvr",
+      "match": "\\b(quantale|object|space|latent|observed|stochastic|continuous|discretize|embed|output)\\b"
+    },
+    "keyword-operator": {
+      "patterns": [
+        {
+          "name": "keyword.operator.qvr",
+          "match": "->>"
+        },
+        {
+          "name": "keyword.operator.qvr",
+          "match": ">>"
+        },
+        {
+          "name": "keyword.operator.qvr",
+          "match": "@"
+        },
+        {
+          "name": "keyword.operator.qvr",
+          "match": "~"
+        }
+      ]
+    },
+    "builtin-function": {
+      "name": "support.function.builtin.qvr",
+      "match": "\\b(sigmoid|exp|log|abs|softplus|identity|marginalize)\\b"
+    },
+    "distribution-family": {
+      "name": "support.type.qvr",
+      "match": "\\b(Normal|LogitNormal|Beta|TruncatedNormal|Dirichlet|Bernoulli|Categorical|Uniform|Cauchy|Laplace|Gumbel|LogNormal|StudentT|Exponential|Gamma|Chi2|HalfCauchy|HalfNormal|InverseGamma|Weibull|Pareto|Kumaraswamy|ContinuousBernoulli|FisherSnedecor|MultivariateNormal|LowRankMVN|RelaxedBernoulli|RelaxedOneHotCategorical|Wishart|Flow)\\b"
+    },
+    "numeric-literal": {
+      "patterns": [
+        {
+          "name": "constant.numeric.qvr",
+          "match": "\\b\\d+\\.\\d+\\b"
+        },
+        {
+          "name": "constant.numeric.qvr",
+          "match": "\\b\\d+\\b"
+        }
+      ]
+    },
+    "punctuation": {
+      "patterns": [
+        {
+          "name": "punctuation.separator.qvr",
+          "match": "[()\\[\\],]"
+        },
+        {
+          "name": "punctuation.separator.qvr",
+          "match": ":"
+        },
+        {
+          "name": "keyword.operator.assignment.qvr",
+          "match": "="
+        },
+        {
+          "name": "keyword.operator.arithmetic.qvr",
+          "match": "[+*]"
+        }
+      ]
+    },
+    "identifier": {
+      "name": "variable.other.qvr",
+      "match": "[a-zA-Z_][a-zA-Z0-9_]*"
+    }
+  }
+}

@@ -1,0 +1,65 @@
+# ================================================================
+# Bayesian Bidirectional RNN
+# ================================================================
+#
+# A bidirectional RNN that processes sequences in both the forward
+# and backward directions using scan, then combines the final
+# hidden states for prediction.
+#
+# Architecture:
+#   Forward:  tok_embed >> scan(fwd_cell)   (left to right)
+#   Backward: tok_embed >> scan(bwd_cell)   (right to left — see note)
+#   Combined: (forward @ backward) >> combine
+#
+# Note: true right-to-left scanning would require reversing the
+# input sequence. The backward path here uses a separate cell
+# with independent parameters. In practice, the user would
+# reverse the token sequence before feeding it to the backward
+# path.
+#
+# The tensor product @ naturally expresses parallel, independent
+# processing of the two directional streams.
+
+object Token : 256
+
+type Embedded = Euclidean 64
+type FwdHidden = Euclidean 64
+type BwdHidden = Euclidean 64
+type Combined = Euclidean 128
+type Output = Euclidean 32
+
+# ================================================================
+# SHARED EMBEDDING
+# ================================================================
+
+embed tok_embed : Token -> Embedded
+
+# ================================================================
+# FORWARD RNN
+# Processes the sequence with scan, threading hidden state.
+# ================================================================
+
+continuous fwd_cell : Embedded * FwdHidden -> FwdHidden ~ Normal [scale=0.1]
+
+let forward_path = tok_embed >> scan(fwd_cell)
+
+# ================================================================
+# BACKWARD RNN
+# Separate cell with independent parameters.
+# ================================================================
+
+continuous bwd_cell : Embedded * BwdHidden -> BwdHidden ~ Normal [scale=0.1]
+
+let backward_path = tok_embed >> scan(bwd_cell)
+
+# ================================================================
+# COMBINATION
+# Tensor product runs forward and backward in parallel, then
+# combine projects to output space.
+# ================================================================
+
+continuous combine : Combined -> Output ~ Normal [scale=0.1]
+
+let birnn = (forward_path @ backward_path) >> combine
+
+output birnn

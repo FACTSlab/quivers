@@ -1,0 +1,60 @@
+# ================================================================
+# Bayesian Vanilla RNN
+# ================================================================
+#
+# A standard vanilla RNN expressed in the V-enriched categorical
+# framework. Each time step computes:
+#
+#   h_t = f(x_t, h_{t-1})
+#
+# where f is a Bayesian Kleisli morphism Embedded * Hidden -> Hidden
+# with stochastic weights drawn from a Normal prior.
+#
+# The scan combinator threads hidden state across the sequence:
+#   h_0 = zeros
+#   h_t = cell(x_t, h_{t-1})  for t = 1..T
+#
+# Architecture:
+#   tok_embed >> scan(cell) >> output_proj
+#
+# For deeper networks, stack multiple scans:
+#   tok_embed >> scan(cell_1) >> scan(cell_2) >> output_proj
+# where each cell_i has independent parameters.
+
+object Token : 256
+
+type Embedded = Euclidean 64
+type Hidden = Euclidean 128
+type Output = Euclidean 64
+
+# ================================================================
+# EMBEDDING
+# Lift discrete tokens into continuous space.
+# ================================================================
+
+embed tok_embed : Token -> Embedded
+
+# ================================================================
+# RECURRENT CELL
+# Takes concatenated (x_t, h_{t-1}) and produces h_t.
+# The product domain Embedded * Hidden is split by scan:
+# x_t from the input sequence, h_{t-1} from the previous step.
+# ================================================================
+
+continuous cell : Embedded * Hidden -> Hidden ~ Normal [scale=0.1]
+
+# ================================================================
+# OUTPUT PROJECTION
+# Map final hidden state to output space.
+# ================================================================
+
+continuous output_proj : Hidden -> Output ~ Normal [scale=0.1]
+
+# ================================================================
+# FULL RNN
+# scan(cell) threads hidden state across the input sequence.
+# ================================================================
+
+let rnn = tok_embed >> scan(cell) >> output_proj
+
+output rnn

@@ -1,0 +1,51 @@
+# ================================================================
+# Custom Rules: User-Defined Structural Rules of Inference
+# ================================================================
+#
+# This example demonstrates DSL-declared rules of inference using
+# sequent-style notation. Instead of (or in addition to) referencing
+# built-in schema primitives like `evaluation` or `harmonic_composition`,
+# you can declare rules explicitly in the DSL.
+#
+# Each `rule` declaration takes:
+#   - a name and universally quantified variables
+#   - premise category patterns (left of =>)
+#   - a conclusion category pattern (right of =>)
+#
+# Binary rules (2 premises) compile to PatternBinarySchema;
+# unary rules (1 premise) compile to PatternUnarySchema.
+# Both are RuleSchema functors composable with built-in schemas.
+#
+# This example defines a minimal AB grammar (Ajdukiewicz-Bar-Hillel)
+# using only forward and backward application, declared explicitly
+# rather than referencing the built-in `evaluation` schema.
+#
+# Usage:
+#   prog = load("custom_rules.qvr")
+#   grammar = prog.morphism
+#   tokens = torch.randint(0, 256, (batch, seq_len))
+#   log_probs = grammar(tokens)   # (batch,)
+
+category S, NP, N, VP, PP
+
+object Token : 256
+
+# forward application: X/Y, Y => X
+rule forward_app(X, Y) : X/Y, Y => X
+
+# backward application: Y, X\Y => X
+rule backward_app(X, Y) : Y, X\Y => X
+
+# forward composition: X/Y, Y/Z => X/Z
+rule forward_comp(X, Y, Z) : X/Y, Y/Z => X/Z
+
+# backward composition: Y\Z, X\Y => X\Z
+rule backward_comp(X, Y, Z) : Y\Z, X\Y => X\Z
+
+let grammar = parser(
+    rules=[forward_app, backward_app, forward_comp, backward_comp],
+    terminal=Token,
+    start=S
+)
+
+output grammar

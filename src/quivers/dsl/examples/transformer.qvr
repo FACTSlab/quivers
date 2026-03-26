@@ -1,0 +1,57 @@
+# ================================================================
+# Multi-Layer Bayesian Transformer
+# ================================================================
+#
+# A multi-layer Bayesian transformer for sequence modeling,
+# expressed as a compositional morphism network using the
+# stack combinator for deep copies and fan for multi-head attention.
+#
+# Architecture (4 independent layers via stack, each containing):
+#   1. Multi-head attention (4 heads via fan)
+#   2. Residual connection
+#   3. Feed-forward block (Latent -> FFHidden -> Latent)
+#   4. Residual connection
+#
+# The stack(layer, 4) creates 4 independent deep copies of the
+# layer structure, each with its own parameters (not weight-tied).
+# Multi-head attention uses replicated morphisms: four
+# independent heads applied via fan-out, then recombined
+# through a projection.
+
+object Token : 256
+
+type Latent = Euclidean 64
+type HeadOut = Euclidean 16
+type FFHidden = Euclidean 128
+
+# ================================================================
+# TOKEN EMBEDDING
+# Maps discrete tokens into continuous latent space.
+# ================================================================
+
+embed tok_embed : Token -> Latent
+
+# ================================================================
+# MULTI-HEAD SELF-ATTENTION & FEED-FORWARD LAYER
+# Single layer structure with four independent attention heads
+# and a two-layer feed-forward network. The stack combinator
+# will create 4 independent deep copies of this.
+# ================================================================
+
+continuous head[4] : Latent -> HeadOut ~ Normal [scale=0.1]
+continuous attn_proj : Latent -> Latent ~ Normal [scale=0.1]
+continuous ff_up : Latent -> FFHidden ~ Normal
+continuous ff_down : FFHidden -> Latent ~ Normal [scale=0.1]
+continuous residual_attn : Latent -> Latent ~ Normal [scale=0.01]
+continuous residual_ff : Latent -> Latent ~ Normal [scale=0.01]
+
+# ================================================================
+# FULL MULTI-LAYER TRANSFORMER (4 stacked independent layers)
+# Uses stack(layer, 4) to create 4 deep copies with independent
+# parameters instead of 4 manually-declared layers.
+# ================================================================
+
+let layer = fan(head) >> attn_proj >> residual_attn >> ff_up >> ff_down >> residual_ff
+let transformer = tok_embed >> stack(layer, 4)
+
+output transformer

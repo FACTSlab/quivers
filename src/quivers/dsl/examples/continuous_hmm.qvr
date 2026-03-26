@@ -1,0 +1,84 @@
+# ================================================================
+# Continuous State-Space Model (Bayesian HMM)
+# ================================================================
+#
+# A continuous-state hidden Markov model expressed as a scan
+# over a recurrent inference cell. This is the continuous analog
+# of the discrete HMM in hmm.qvr.
+#
+# A state-space model consists of:
+#   - Transition:  s_t ~ p(s_t | s_{t-1})
+#   - Emission:    o_t ~ p(o_t | s_t)
+#
+# GENERATIVE direction (top-down):
+#   Sample s_1, s_2, ..., s_T from the transition chain,
+#   then sample o_t from emission at each step.
+#
+# INFERENCE direction (bottom-up / filtering):
+#   Given observations o_1, ..., o_T, recover the posterior
+#   over latent states. This is an RNN: at each time step,
+#   update the state belief given the new observation:
+#
+#     h_t = inference_cell(o_t, h_{t-1})
+#
+#   The scan combinator threads the belief state across the
+#   observation sequence, exactly implementing Bayesian filtering.
+#
+# This example demonstrates both directions:
+#   - A monadic generative program (samples states and emissions)
+#   - A scan-based inference model (filters observations)
+
+type State = Euclidean 16
+type Obs = Euclidean 8
+
+# ================================================================
+# TRANSITION AND EMISSION KERNELS
+# Shared between the generative and inference models.
+# ================================================================
+
+continuous transition : State -> State ~ Normal [scale=0.1]
+continuous emission : State -> Obs ~ Normal [scale=0.1]
+
+# ================================================================
+# GENERATIVE MODEL (monadic program)
+# Samples a single (state, observation) pair from the prior.
+# To generate a sequence, this would be unrolled over time.
+# ================================================================
+
+program generative_step : State -> State
+    draw s_new ~ transition
+    observe o ~ emission(s_new)
+    return s_new
+
+# ================================================================
+# INFERENCE CELL
+# Takes (observation, previous_belief) and produces updated belief.
+# This is the continuous analog of the forward algorithm:
+# the cell maps (o_t, h_{t-1}) -> h_t, learning to incorporate
+# the new observation into the running state estimate.
+# ================================================================
+
+continuous inference_cell : Obs * State -> State ~ Normal [scale=0.1]
+
+# ================================================================
+# INFERENCE MODEL (scan-based filtering)
+# Given a sequence of observations, recover the final state
+# posterior by threading belief state across the sequence.
+#
+# Input: (batch, seq_len, obs_dim) — a sequence of observations
+# Output: (batch, state_dim) — the final state posterior
+# ================================================================
+
+let filter = scan(inference_cell)
+
+# ================================================================
+# RECONSTRUCTION
+# After filtering, decode the final state back to observation
+# space to check reconstruction quality.
+# ================================================================
+
+continuous decoder : State -> Obs ~ Normal [scale=0.1]
+
+let filter_and_reconstruct = scan(inference_cell) >> decoder
+
+output filter_and_reconstruct

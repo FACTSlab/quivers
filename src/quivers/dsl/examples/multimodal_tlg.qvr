@@ -1,0 +1,46 @@
+# ================================================================
+# Multimodal Type-Logical Grammar
+# ================================================================
+#
+# A learnable multimodal type-logical grammar assembled from
+# composable rule schema primitives with modal type constructors.
+#
+# This grammar uses:
+#   - evaluation (right/left application)
+#   - adjunction_units (Lambek lifting)
+#   - modal_introduction (A → ◇A)
+#   - modal_elimination (◇A → A)
+#
+# These are composed with the `constructors` parameter to
+# generate categories including the ◇ modality, and the
+# `depth` parameter to control nesting depth.
+#
+# The modal operators (◇, □) allow controlled structural rules
+# in type-logical grammar. ◇ licenses structural postulates
+# like associativity or commutativity in specific domains.
+#
+# Categorical perspective:
+#   Multimodal TLG (Moortgat 1997) extends the Lambek calculus
+#   with unary type constructors ◇ and □ that form a residuated
+#   pair (◇ ⊣ □). The structural rules associated with each
+#   modality are controlled by the grammar's structural component.
+#
+# Usage:
+#   prog = load("multimodal_tlg.qvr")
+#   tlg = prog.morphism
+#   tokens = torch.randint(0, 256, (batch, seq_len))
+#   log_probs = tlg(tokens)   # (batch,)
+
+category S, NP, N, VP, PP
+
+object Token : 256
+
+let tlg = parser(
+    rules=[evaluation, adjunction_units, modal_introduction, modal_elimination],
+    terminal=Token,
+    constructors=[slash, diamond],
+    depth=1,
+    start=S
+)
+
+output tlg

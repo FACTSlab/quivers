@@ -1,0 +1,74 @@
+# ================================================================
+# Hidden Markov Model (Discrete)
+# ================================================================
+#
+# A classic discrete HMM expressed as a V-enriched categorical
+# network over finite sets.
+#
+# An HMM consists of:
+#   - Initial state distribution:  pi : S -> S
+#   - Transition kernel:           T  : S -> S
+#   - Emission kernel:             E  : S -> O
+#
+# In the enriched-categorical view, T and E are morphisms in
+# the Kleisli category of the Giry monad. The n-step model is
+# the iterated Kleisli composition:
+#
+#     repeat(T) >> E
+#
+# repeat(T) — without a count — creates a RepeatMorphism whose
+# step count is set at runtime via prog(n_steps=N). This uses
+# repeated squaring for O(log n) matrix compositions:
+#
+#     prog = load("hmm.qvr")
+#     obs_3  = prog(n_steps=3)    # T^3 >> E
+#     obs_50 = prog(n_steps=50)   # T^50 >> E
+#
+# Note: this discrete formulation computes n-step MARGINAL
+# distributions over observations. For per-step emission (a
+# sequence of observations), see the continuous state-space
+# model in continuous_hmm.qvr, which uses scan for temporal
+# recurrence.
+#
+# Categorical operations demonstrated:
+#   - >> (Kleisli composition)
+#   - repeat (runtime-variable iterated composition)
+
+quantale product_fuzzy
+
+object State : 8
+object Obs : 16
+
+# ================================================================
+# INITIAL DISTRIBUTION
+# Stochastic matrix; in the Kleisli category, this represents
+# a family of initial distributions indexed by State.
+# ================================================================
+
+stochastic initial : State -> State
+
+# ================================================================
+# TRANSITION KERNEL
+# State-to-state stochastic matrix (stationary — same at each step).
+# ================================================================
+
+stochastic transition : State -> State
+
+# ================================================================
+# EMISSION KERNEL
+# State-to-observation stochastic matrix.
+# ================================================================
+
+stochastic emission : State -> Obs
+
+# ================================================================
+# COMPOSED MODELS
+# ================================================================
+
+# runtime-variable n-step model: use prog(n_steps=N) to set N
+let n_step = repeat(transition) >> emission
+
+# joint model: initial state -> observation (n-step)
+let hmm = initial >> n_step
+
+output hmm

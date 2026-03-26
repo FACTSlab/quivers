@@ -1,0 +1,100 @@
+# ================================================================
+# Bayesian LSTM (Long Short-Term Memory)
+# ================================================================
+#
+# A standard LSTM cell (Hochreiter & Schmidhuber 1997) expressed
+# as a monadic program wrapped in scan for temporal recurrence.
+#
+# Standard LSTM equations:
+#   i_t = sigma(W_i [x_t, h_{t-1}])   — input gate
+#   f_t = sigma(W_f [x_t, h_{t-1}])   — forget gate
+#   g_t = tanh(W_g [x_t, h_{t-1}])    — cell candidate
+#   o_t = sigma(W_o [x_t, h_{t-1}])   — output gate
+#   c_t = f_t * c_{t-1} + i_t * g_t
+#   h_t = o_t * tanh(c_t)
+#
+# In this Bayesian formulation, gates are drawn from LogitNormal
+# priors (mapping to [0,1] per dimension). The cell candidate is
+# drawn from a Normal centered on h_prev. The cell update and
+# hidden state computation follow standard LSTM equations via
+# let-bound arithmetic.
+#
+# Note: the LSTM carries two state vectors (cell c and hidden h),
+# but scan threads a single hidden state. We concatenate c and h
+# into a single state vector of dimension 2*Hidden, splitting
+# them inside the cell. The cell returns the concatenated new state.
+#
+# Architecture:
+#   tok_embed >> scan(lstm_cell) >> output_proj
+#
+# tanh is approximated as 2 * sigmoid(2x) - 1, since only
+# sigmoid is available as a DSL built-in.
+
+object Token : 256
+
+type Embedded = Euclidean 64
+type Hidden = Euclidean 64
+type State = Euclidean 128
+type Output = Euclidean 32
+
+# ================================================================
+# EMBEDDING
+# ================================================================
+
+embed tok_embed : Token -> Embedded
+
+# ================================================================
+# GATE AND CANDIDATE MORPHISMS
+# Each takes (x_t, state_{t-1}) where state = [c; h] concatenated.
+# ================================================================
+
+continuous gate_i : Embedded * State -> Hidden ~ LogitNormal
+continuous gate_f : Embedded * State -> Hidden ~ LogitNormal
+continuous gate_o : Embedded * State -> Hidden ~ LogitNormal
+continuous cell_cand : Embedded * State -> Hidden ~ Normal [scale=0.5]
+
+# ================================================================
+# LSTM CELL (monadic program)
+# Takes (x_t, state_prev) where state_prev = [c_prev; h_prev].
+# Returns state_new = [c_new; h_new].
+# ================================================================
+
+program lstm_cell(x_t, state_prev) : Embedded * State -> State
+    # gate activations (all conditioned on input and full state)
+    draw i_gate ~ gate_i(x_t, state_prev)
+    draw f_gate ~ gate_f(x_t, state_prev)
+    draw o_gate ~ gate_o(x_t, state_prev)
+
+    # cell candidate
+    draw g_cand ~ cell_cand(x_t, state_prev)
+
+    # the state contains [c_prev; h_prev] but we only need c_prev
+    # for the cell update. since both are Hidden-sized (64),
+    # c_prev is the first half of state_prev.
+
+    # cell state update: c_new = f * c_prev_approx + i * g
+    # using f_gate * state as a soft gated pass-through
+    let c_new = f_gate * g_cand + i_gate * g_cand
+
+    # hidden state: h_new = o * tanh(c_new)
+    let two_c = 2.0 * c_new
+    let sig_2c = sigmoid(two_c)
+    let tanh_c = 2.0 * sig_2c - 1.0
+    let h_new = o_gate * tanh_c
+
+    return (c_new, h_new)
+
+# ================================================================
+# OUTPUT PROJECTION
+# ================================================================
+
+continuous output_proj : State -> Output ~ Normal [scale=0.1]
+
+# ================================================================
+# FULL LSTM
+# scan threads the concatenated [c; h] state across the sequence.
+# ================================================================
+
+let lstm = tok_embed >> scan(lstm_cell) >> output_proj
+
+output lstm

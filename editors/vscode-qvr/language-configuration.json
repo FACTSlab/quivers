@@ -1,0 +1,39 @@
+{
+  "comments": {
+    "lineComment": "#"
+  },
+  "brackets": [
+    [
+      "(",
+      ")"
+    ],
+    [
+      "[",
+      "]"
+    ]
+  ],
+  "autoClosingPairs": [
+    [
+      "(",
+      ")"
+    ],
+    [
+      "[",
+      "]"
+    ]
+  ],
+  "surroundingPairs": [
+    [
+      "(",
+      ")"
+    ],
+    [
+      "[",
+      "]"
+    ]
+  ],
+  "indentationRules": {
+    "increaseIndentPattern": "^\\s*(program|latent|observed|continuous|stochastic|discretize|embed)\\b.*:.*$",
+    "decreaseIndentPattern": "^\\s*(return)\\b"
+  }
+}

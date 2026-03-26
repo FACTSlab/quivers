@@ -1,0 +1,41 @@
+# ================================================================
+# Bayesian Linear Regression
+# ================================================================
+#
+# A Bayesian linear regression model with hierarchical priors,
+# expressed as a monadic program.
+#
+# Model:
+#   sigma ~ HalfCauchy(2.0)
+#   beta_0 ~ Normal(0.0, 5.0)      — intercept
+#   beta_1 ~ Normal(0.0, 2.0)      — slope
+#   mu = beta_0 + beta_1 * x
+#   y ~ Normal(mu, sigma)
+#
+# This is the simplest meaningful probabilistic program: a
+# two-parameter linear model with a weakly informative prior
+# on the noise scale. It demonstrates the core draw/let/observe
+# pattern that all more complex models build upon.
+
+object Predictor : 1
+object Response : 1
+
+program bayesian_regression : Predictor -> Response
+    # noise scale: half-cauchy prior (weakly informative)
+    sigma <- HalfCauchy(2.0)
+
+    # regression coefficients (using <- notation)
+    beta_0 <- Normal(0.0, 5.0)
+    beta_1 <- Normal(0.0, 2.0)
+
+    # linear predictor (x enters as a latent draw here;
+    # in practice, conditioning replaces this with observed x)
+    x <- Normal(0.0, 1.0)
+    let mu = beta_0 + beta_1 * x
+
+    # observed response
+    observe y ~ Normal(mu, sigma)
+
+    return y
+
+output bayesian_regression

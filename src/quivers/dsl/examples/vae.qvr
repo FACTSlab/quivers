@@ -1,0 +1,70 @@
+# ================================================================
+# Deep Variational Autoencoder (Multi-Layer VAE)
+# ================================================================
+#
+# A VAE with multi-layer encoder and decoder networks,
+# expressed as a morphism network using stack for deep layers.
+#
+# Each network has independently-parameterized hidden layers:
+#   - Encoder: embed >> stack(enc_deep, 3) >> to_latent
+#   - Decoder: from_latent >> dec_1 >> stack(dec_deep, 2) >> to_obs
+#
+# In the categorical framework, the encoder is a Kleisli
+# morphism for the Giry monad that maps observations to a
+# distribution over latent codes, and the decoder is a
+# morphism from the latent space to the observation space.
+# The ELBO objective decomposes categorically into:
+#   - Reconstruction: faithfulness of encode >> decode
+#   - KL divergence: distance from the prior in the
+#     enriched hom-space
+
+object Pixel : 784
+
+type Latent = Euclidean 16
+type EncoderHidden = Euclidean 256
+type DecoderHidden = Euclidean 256
+type ObsSpace = Euclidean 784
+type UnitSpace = Euclidean 1
+
+# ================================================================
+# ENCODER (deep recognition network)
+# Maps observed pixels -> 3 hidden layers -> latent distribution
+# Using stack to create 3 independently-parameterized layers.
+# ================================================================
+
+embed pixel_embed : Pixel -> EncoderHidden
+continuous enc_deep : EncoderHidden -> EncoderHidden ~ Normal
+continuous enc_to_latent : EncoderHidden -> Latent ~ Normal [scale=0.5]
+
+let encoder = pixel_embed >> stack(enc_deep, 3) >> enc_to_latent
+
+# ================================================================
+# PRIOR
+# Standard normal prior over the latent space.
+# ================================================================
+
+continuous prior : UnitSpace -> Latent ~ Normal
+
+# ================================================================
+# DECODER (deep generative network)
+# Maps latent code -> 3 hidden layers -> reconstruction.
+# First layer has different type (Latent -> DecoderHidden),
+# then 2 stacked deep layers.
+# ================================================================
+
+continuous dec_1 : Latent -> DecoderHidden ~ Normal
+continuous dec_deep : DecoderHidden -> DecoderHidden ~ Normal
+continuous dec_to_obs : DecoderHidden -> ObsSpace ~ Normal [scale=0.1]
+
+let decoder = dec_1 >> stack(dec_deep, 2) >> dec_to_obs
+
+# ================================================================
+# FULL VAE
+# Generative: prior >> decoder (ancestral sampling).
+# Reconstruction: encoder >> decoder (posterior predictive).
+# ================================================================
+
+let generative = prior >> decoder
+let reconstruct = encoder >> decoder
+
+output generative

@@ -1,0 +1,84 @@
+# ================================================================
+# Bayesian GRU (Gated Recurrent Unit)
+# ================================================================
+#
+# A standard GRU cell (Cho et al. 2014) expressed as a monadic
+# program wrapped in scan for temporal recurrence.
+#
+# Standard GRU equations:
+#   z_t = sigma(W_z [x_t, h_{t-1}])     — update gate
+#   r_t = sigma(W_r [x_t, h_{t-1}])     — reset gate
+#   h~_t = tanh(W [x_t, r_t * h_{t-1}]) — candidate
+#   h_t = (1 - z_t) * h_{t-1} + z_t * h~_t
+#
+# In this Bayesian formulation, gate activations are drawn from
+# LogitNormal priors (mapping to [0,1] per dimension). The
+# candidate hidden state is drawn from a Normal centered on the
+# reset-gated previous state. The final GRU update interpolates
+# between h_prev and h_cand using the update gate z.
+#
+# Architecture:
+#   tok_embed >> scan(gru_cell) >> output_proj
+#
+# The scan combinator threads hidden state:
+#   h_0 = zeros
+#   h_t = gru_cell(x_t, h_{t-1})  for t = 1..T
+
+object Token : 256
+
+type Embedded = Euclidean 64
+type Hidden = Euclidean 128
+type Output = Euclidean 64
+
+# ================================================================
+# EMBEDDING
+# ================================================================
+
+embed tok_embed : Token -> Embedded
+
+# ================================================================
+# GATE AND CANDIDATE MORPHISMS
+# Each takes (x_t, h_prev) and produces a Hidden-dimensional output.
+# ================================================================
+
+continuous gate_z : Embedded * Hidden -> Hidden ~ LogitNormal
+continuous gate_r : Embedded * Hidden -> Hidden ~ LogitNormal
+continuous candidate : Embedded * Hidden -> Hidden ~ Normal [scale=0.1]
+
+# ================================================================
+# GRU CELL (monadic program)
+# Implements the standard GRU update equations with Bayesian
+# stochastic gates and candidate generation.
+# ================================================================
+
+program gru_cell(x_t, h_prev) : Embedded * Hidden -> Hidden
+    # gate activations
+    draw z ~ gate_z(x_t, h_prev)
+    draw r ~ gate_r(x_t, h_prev)
+
+    # reset-gated previous hidden state
+    let reset_hidden = r * h_prev
+
+    # candidate hidden state, conditioned on reset gate
+    h_cand <- Normal(reset_hidden, 0.5)
+
+    # GRU interpolation: h = (1 - z) * h_prev + z * h_cand
+    let z_complement = 1.0 - z
+    let h_new = z_complement * h_prev + z * h_cand
+
+    return h_new
+
+# ================================================================
+# OUTPUT PROJECTION
+# ================================================================
+
+continuous output_proj : Hidden -> Output ~ Normal [scale=0.1]
+
+# ================================================================
+# FULL GRU
+# scan threads hidden state across the sequence.
+# ================================================================
+
+let gru = tok_embed >> scan(gru_cell) >> output_proj
+
+output gru

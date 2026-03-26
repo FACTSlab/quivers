@@ -1,0 +1,58 @@
+# ================================================================
+# Bayesian Elman Network
+# ================================================================
+#
+# A single-layer Elman network (Elman 1990) expressed as a
+# scan over a recurrent cell. Each time step computes:
+#
+#   h_t = f(x_t, h_{t-1})
+#
+# Unlike the vanilla RNN which uses a single morphism for the
+# cell, the Elman network decomposes the cell into two stages:
+# a transition (processing input + hidden) and a context copy
+# (near-identity state persistence). This separation makes the
+# state propagation explicit.
+#
+# Architecture:
+#   tok_embed >> scan(cell) >> output_proj
+#
+# where cell = transition >> context_copy, composing the two
+# stages within each time step.
+
+object Token : 256
+
+type Embedded = Euclidean 64
+type Hidden = Euclidean 128
+type Output = Euclidean 64
+
+# ================================================================
+# EMBEDDING
+# ================================================================
+
+embed tok_embed : Token -> Embedded
+
+# ================================================================
+# RECURRENT CELL COMPONENTS
+# transition: process concatenated (x_t, h_{t-1}) into hidden
+# context_copy: near-identity state persistence (small noise)
+# ================================================================
+
+continuous transition : Embedded * Hidden -> Hidden ~ Normal [scale=0.1]
+continuous context_copy : Hidden -> Hidden ~ Normal [scale=0.01]
+
+# ================================================================
+# OUTPUT PROJECTION
+# ================================================================
+
+continuous output_proj : Hidden -> Output ~ Normal [scale=0.1]
+
+# ================================================================
+# FULL ELMAN NETWORK
+# The cell composes transition >> context_copy within each step.
+# scan threads hidden state across the input sequence.
+# ================================================================
+
+let cell = transition >> context_copy
+let elman = tok_embed >> scan(cell) >> output_proj
+
+output elman

@@ -1,0 +1,53 @@
+# ================================================================
+# Probabilistic Context-Free Grammar (PCFG)
+# ================================================================
+#
+# A PCFG is a pair of morphisms in the Kleisli category of the
+# Giry monad over finite sets:
+#
+#   binary_rules  : N → N ⊗ N    (branching)
+#   lexical_rules : N → T         (lexicalization)
+#
+# where N is the set of nonterminals and T is the terminal
+# vocabulary.  The deductive parser inspects the morphism types —
+# codomain N ⊗ N identifies the branching morphism, codomain T
+# identifies the lexicalization — and assembles a CKY deductive
+# system whose composition yields a morphism
+#
+#   FreeMonoid(T) → 1
+#
+# mapping variable-length terminal strings to their marginal
+# probability under the grammar (log-space, differentiable).
+#
+# Usage:
+#   prog = load("pcfg.qvr")
+#   tokens = torch.randint(0, 64, (batch, seq_len))
+#   log_probs = prog.morphism(tokens)   # (batch,)
+
+quantale product_fuzzy
+
+object N : 10
+object T : 64
+
+# ================================================================
+# KLEISLI MORPHISMS (learnable stochastic morphisms)
+# ================================================================
+
+# branching: N → N ⊗ N (distribution over nonterminal pairs)
+stochastic binary_rules : N -> N * N
+
+# lexicalization: N → T (distribution over terminal symbols)
+stochastic lexical_rules : N -> T
+
+# ================================================================
+# DEDUCTIVE PARSER
+# The compiler infers the deductive system from morphism types.
+# Start symbol is nonterminal index 0.
+# ================================================================
+
+let pcfg = parser(
+    rules=[binary_rules, lexical_rules],
+    start=0
+)
+
+output pcfg

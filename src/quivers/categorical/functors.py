@@ -1,0 +1,268 @@
+"""Endofunctors on V-enriched FinSet.
+
+A functor F maps objects to objects and morphisms to morphisms,
+preserving composition and identities. This module provides:
+
+    Functor (abstract)
+    ├── IdentityFunctor  — Id: A ↦ A, f ↦ f
+    ├── ComposedFunctor  — F ∘ G: applies G then F
+    └── FreeMonoidFunctor — A ↦ A*, f ↦ f* (block-diagonal, componentwise)
+"""
+
+from __future__ import annotations
+
+from abc import ABC, abstractmethod
+
+import torch
+
+from quivers.core.objects import SetObject, FinSet, FreeMonoid
+from quivers.core.quantales import PRODUCT_FUZZY, Quantale
+from quivers.core.tensor_ops import componentwise_lift
+
+
+class Functor(ABC):
+    """Abstract endofunctor on V-enriched FinSet.
+
+    Subclasses must implement map_object, map_morphism, and map_tensor.
+    """
+
+    @abstractmethod
+    def map_object(self, obj: SetObject) -> SetObject:
+        """Apply the functor to an object.
+
+        Parameters
+        ----------
+        obj : SetObject
+            Source object.
+
+        Returns
+        -------
+        SetObject
+            Image object.
+        """
+        ...
+
+    @abstractmethod
+    def map_morphism(self, morph: Morphism) -> FunctorMorphism:
+        """Apply the functor to a morphism.
+
+        Returns a lazy FunctorMorphism that recomputes its tensor
+        from the inner morphism, preserving gradient flow.
+
+        Parameters
+        ----------
+        morph : Morphism
+            Source morphism.
+
+        Returns
+        -------
+        FunctorMorphism
+            Image morphism.
+        """
+        ...
+
+    @abstractmethod
+    def map_tensor(self, tensor: torch.Tensor, quantale: Quantale) -> torch.Tensor:
+        """Apply the functor's action on the raw tensor level.
+
+        This is the computational core used by FunctorMorphism.tensor.
+
+        Parameters
+        ----------
+        tensor : torch.Tensor
+            The inner morphism's tensor.
+        quantale : Quantale
+            The enrichment algebra.
+
+        Returns
+        -------
+        torch.Tensor
+            The image tensor.
+        """
+        ...
+
+
+class IdentityFunctor(Functor):
+    """The identity endofunctor Id: C → C.
+
+    Maps every object and morphism to itself. Needed as the source
+    or target of natural transformations (e.g., monad unit η: Id ⇒ T).
+    """
+
+    def map_object(self, obj: SetObject) -> SetObject:
+        """Identity on objects: A ↦ A."""
+        return obj
+
+    def map_morphism(self, morph: Morphism) -> FunctorMorphism:
+        """Identity on morphisms: f ↦ f (wrapped as FunctorMorphism)."""
+        return FunctorMorphism(self, morph, morph.domain, morph.codomain)
+
+    def map_tensor(self, tensor: torch.Tensor, quantale: Quantale) -> torch.Tensor:
+        """Identity on tensors."""
+        return tensor
+
+    def __repr__(self) -> str:
+        return "IdentityFunctor()"
+
+
+class ComposedFunctor(Functor):
+    """Composition of two endofunctors: F ∘ G.
+
+    Applies G first, then F. Preserves functoriality:
+    (F ∘ G)(f) = F(G(f)).
+
+    Parameters
+    ----------
+    outer : Functor
+        The functor applied second (F).
+    inner : Functor
+        The functor applied first (G).
+    """
+
+    def __init__(self, outer: Functor, inner: Functor) -> None:
+        self._outer = outer
+        self._inner = inner
+
+    @property
+    def outer(self) -> Functor:
+        """The outer (second-applied) functor F."""
+        return self._outer
+
+    @property
+    def inner(self) -> Functor:
+        """The inner (first-applied) functor G."""
+        return self._inner
+
+    def map_object(self, obj: SetObject) -> SetObject:
+        """F(G(A))."""
+        return self._outer.map_object(self._inner.map_object(obj))
+
+    def map_morphism(self, morph: Morphism) -> FunctorMorphism:
+        """F(G(f)) as a lazy FunctorMorphism."""
+        domain = self.map_object(morph.domain)
+        codomain = self.map_object(morph.codomain)
+        return FunctorMorphism(self, morph, domain, codomain)
+
+    def map_tensor(self, tensor: torch.Tensor, quantale: Quantale) -> torch.Tensor:
+        """F's tensor action applied to G's tensor action."""
+        inner_result = self._inner.map_tensor(tensor, quantale)
+        return self._outer.map_tensor(inner_result, quantale)
+
+    def __repr__(self) -> str:
+        return f"ComposedFunctor({self._outer!r}, {self._inner!r})"
+
+
+class FreeMonoidFunctor(Functor):
+    """The free monoid endofunctor, truncated to max_length.
+
+    On objects: A ↦ FreeMonoid(A, max_length)
+    On morphisms: f ↦ f* (block-diagonal, componentwise on each stratum)
+
+    The morphism action assembles a block-diagonal tensor where the k-th
+    block is componentwise_lift(f, k) reshaped to 2D. This means strings
+    of length k map to strings of length k via componentwise application
+    of the underlying morphism.
+
+    Parameters
+    ----------
+    max_length : int
+        Maximum string length for the truncated free monoid.
+    """
+
+    def __init__(self, max_length: int) -> None:
+        if max_length < 0:
+            raise ValueError(f"max_length must be >= 0, got {max_length}")
+
+        self._max_length = max_length
+
+    @property
+    def max_length(self) -> int:
+        """Maximum string length."""
+        return self._max_length
+
+    def map_object(self, obj: SetObject) -> FreeMonoid:
+        """Apply functor to an object: A ↦ FreeMonoid(A, max_length).
+
+        For FinSet inputs, uses obj directly as generators. For other
+        SetObject types (e.g., FreeMonoid, CoproductSet), creates a
+        proxy FinSet with the same cardinality — this is needed for
+        iterated application (e.g., the triangle identities of an
+        adjunction require F(F(A)) = (A*)*).
+
+        Parameters
+        ----------
+        obj : SetObject
+            The generator set. Typically a FinSet, but any SetObject
+            is accepted by treating it as a flat set.
+
+        Returns
+        -------
+        FreeMonoid
+            The free monoid on obj.
+        """
+        if not isinstance(obj, FinSet):
+            # treat any SetObject as a flat set with its total cardinality
+            obj = FinSet(getattr(obj, "name", repr(obj)), obj.size)
+
+        return FreeMonoid(obj, max_length=self._max_length)
+
+    def map_morphism(self, morph: Morphism) -> FunctorMorphism:
+        """Apply functor to a morphism: f ↦ f* (block-diagonal).
+
+        Parameters
+        ----------
+        morph : Morphism
+            A morphism between FinSets.
+
+        Returns
+        -------
+        FunctorMorphism
+            Lazy image preserving gradient flow.
+        """
+        domain = self.map_object(morph.domain)
+        codomain = self.map_object(morph.codomain)
+
+        return FunctorMorphism(self, morph, domain, codomain)
+
+    def map_tensor(self, tensor: torch.Tensor, quantale: Quantale) -> torch.Tensor:
+        """Build the block-diagonal tensor for the free monoid action.
+
+        For each k=0..max_length, computes componentwise_lift(f, k),
+        reshapes the result to 2D (n_a^k × n_b^k), and assembles all
+        blocks via torch.block_diag.
+
+        Parameters
+        ----------
+        tensor : torch.Tensor
+            The inner morphism's 2D tensor of shape (n_a, n_b).
+        quantale : Quantale
+            The enrichment algebra (passed to componentwise_lift).
+
+        Returns
+        -------
+        torch.Tensor
+            Block-diagonal tensor of shape (total_a, total_b).
+        """
+        n_a, n_b = tensor.shape
+        blocks: list[torch.Tensor] = []
+
+        for k in range(self._max_length + 1):
+            lifted = componentwise_lift(tensor, k, quantale=quantale)
+
+            # reshape from (n_a,)*k + (n_b,)*k to (n_a^k, n_b^k)
+            rows = n_a**k if k > 0 else 1
+            cols = n_b**k if k > 0 else 1
+            blocks.append(lifted.reshape(rows, cols))
+
+        return torch.block_diag(*blocks)
+
+    def __repr__(self) -> str:
+        return f"FreeMonoidFunctor(max_length={self._max_length})"
+
+
+# -- module-level singletons ------------------------------------------------
+
+IDENTITY = IdentityFunctor()
+
+# avoid circular import — import at module level after class definitions
+from quivers.core.morphisms import Morphism, FunctorMorphism  # noqa: E402

@@ -1,0 +1,90 @@
+/* MathJax display equations */
+.MathJax_Display {
+    overflow-x: auto;
+    overflow-y: hidden;
+}
+
+/* code blocks — dark grey background */
+.codehilite,
+.highlight {
+    background: #2b2b2b !important;
+    border-radius: 6px;
+    padding: 0.8em 1em;
+}
+
+.codehilite pre,
+.highlight pre {
+    background: transparent !important;
+    margin: 0;
+}
+
+pre code {
+    font-size: 0.9em;
+    color: #f8f8f2;
+}
+
+/* API docs from mkdocstrings */
+.doc-heading code {
+    font-size: 1.1em;
+}
+
+.doc-contents {
+    padding-left: 1.5em;
+    border-left: 3px solid #eee;
+}
+
+/* ================================================================
+   QVR syntax highlighting — bright colors on dark background
+   Targets both .codehilite and .highlight wrappers.
+   ================================================================ */
+
+/* declaration keywords: object, space, continuous, program, ... */
+.codehilite .kd, .highlight .kd { color: #c792ea !important; font-weight: bold !important; }
+
+/* body keywords: draw, observe, let, return */
+.codehilite .kr, .highlight .kr { color: #ff79c6 !important; font-weight: bold !important; }
+
+/* type keywords: -> and ~ operators */
+.codehilite .kt, .highlight .kt { color: #82aaff !important; font-weight: bold !important; }
+
+/* distribution families (Name.Decorator): Normal, Beta, ... */
+.codehilite .nd, .highlight .nd { color: #ffcb6b !important; font-weight: bold !important; }
+
+/* space constructors + user types (Name.Class): Euclidean, Token, ... */
+.codehilite .nc, .highlight .nc { color: #89ddff !important; font-weight: bold !important; }
+
+/* built-in functions (Name.Builtin): sigmoid, exp, parser, scan, ... */
+.codehilite .nb, .highlight .nb { color: #c3e88d !important; }
+
+/* built-in schemas + constructors (Name.Constant): evaluation, slash, ... */
+.codehilite .no, .highlight .no { color: #c3e88d !important; font-style: italic !important; }
+
+/* quantale names (String.Symbol): product_fuzzy, boolean, ... */
+.codehilite .ss, .highlight .ss { color: #c3e88d !important; font-style: italic !important; }
+
+/* option keys (Name.Attribute): scale=, hidden_dim= */
+.codehilite .na, .highlight .na { color: #ffcb6b !important; }
+
+/* variables / morphism names (Name.Variable) */
+.codehilite .nv, .highlight .nv { color: #eeffff !important; }
+
+/* composition >>, <<, tensor @ (Operator, same as arithmetic) */
+
+/* arithmetic operators: + - * / = */
+.codehilite .o, .highlight .o { color: #89ddff !important; }
+
+/* numbers */
+.codehilite .mf, .highlight .mf { color: #f78c6c !important; }
+.codehilite .mi, .highlight .mi { color: #f78c6c !important; }
+
+/* comments */
+.codehilite .c1, .highlight .c1 { color: #7c8fa4 !important; font-style: italic !important; }
+
+/* punctuation */
+.codehilite .p, .highlight .p { color: #89ddff !important; }
+
+/* generic keyword (fallback) */
+.codehilite .k, .highlight .k { color: #c792ea !important; font-weight: bold !important; }
+
+/* generic name (fallback) */
+.codehilite .n, .highlight .n { color: #eeffff !important; }

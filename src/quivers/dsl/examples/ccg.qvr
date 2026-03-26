@@ -1,0 +1,50 @@
+# ================================================================
+# Weighted Combinatory Categorial Grammar (CCG)
+# ================================================================
+#
+# A learnable weighted CCG parser assembled from composable rule
+# schema primitives.  CCG uses:
+#
+#   - evaluation (forward/backward application)
+#   - harmonic_composition (forward/backward composition)
+#   - crossed_composition (forward/backward crossed composition)
+#
+# These are the structural rules of a biclosed monoidal category,
+# expressed as composable RuleSchema objects.
+# The `parser` keyword composes them into a deductive chart parser.
+#
+# Combinatory rules (structural, not learned):
+#   - Forward application (>):    X/Y   Y   →  X       (evaluation)
+#   - Backward application (<):   Y   X\Y   →  X       (evaluation)
+#   - Forward composition (>B):   X/Y  Y/Z  →  X/Z     (harmonic_composition)
+#   - Backward composition (<B):  Y\Z  X\Y  →  X\Z     (harmonic_composition)
+#   - Forward crossed comp (>Bx): X/Y  Y\Z  →  X\Z     (crossed_composition)
+#   - Backward crossed comp (<Bx): Y/Z X\Y  →  X/Z     (crossed_composition)
+#
+# The lexicon (word → category distribution) is a learnable
+# softmax-parameterized matrix. All computation uses log-space
+# CKY deductive parsing for numerical stability and gradient flow.
+#
+# Categorical perspective:
+#   CCG is the internal language of a closed monoidal category.
+#   The slashes are internal homs (left/right), application is
+#   the counit of the hom-tensor adjunction, and composition
+#   is composition of internal hom morphisms.
+#
+# Usage:
+#   prog = load("ccg.qvr")
+#   grammar = prog.morphism
+#   tokens = torch.randint(0, 256, (batch, seq_len))
+#   log_probs = grammar(tokens)   # (batch,)
+
+category S, NP, N, VP, PP
+
+object Token : 256
+
+let grammar = parser(
+    rules=[evaluation, harmonic_composition, crossed_composition],
+    terminal=Token,
+    start=S
+)
+
+output grammar

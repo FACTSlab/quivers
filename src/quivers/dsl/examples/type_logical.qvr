@@ -1,0 +1,52 @@
+# ================================================================
+# Weighted Type-Logical Grammar (Lambek Calculus)
+# ================================================================
+#
+# A learnable parser based on the non-commutative Lambek calculus
+# (L), assembled from composable rule schema primitives:
+#
+#   - evaluation (right/left application — modus ponens)
+#   - adjunction_units (Lambek lifting — units of hom-tensor adjunction)
+#   - tensor_introduction (product introduction: A, B ⊢ A⊗B)
+#   - tensor_projection (product elimination: A⊗B ⊢ A, A⊗B ⊢ B)
+#
+# Lambek calculus rules:
+#   - Right application:  A/B, B  ⊢  A           (evaluation)
+#   - Left application:   B, A\B  ⊢  A           (evaluation)
+#   - Lambek lifting:     A  ⊢  B/(A\B) (right)  (adjunction_units)
+#                          A  ⊢  (B/A)\B (left)   (adjunction_units)
+#   - Product intro:      A, B  ⊢  A⊗B           (tensor_introduction)
+#   - Product elim:       A⊗B  ⊢  A, A⊗B  ⊢  B  (tensor_projection)
+#
+# The Lambek calculus is:
+#   - Resource-sensitive: every hypothesis is used exactly once
+#   - Order-preserving: no permutation of arguments
+#   - Logically complete: composition is derivable from cut
+#
+# Categorical perspective:
+#   The Lambek calculus is the internal logic of a residuated
+#   monoidal category (biclosed monoidal category). Types are
+#   objects; proofs are morphisms. The residuation laws are:
+#
+#     A ⊗ B ⊢ C   iff   A ⊢ C/B   iff   B ⊢ A\C
+#
+#   This adjunction between ⊗ and the slashes makes the
+#   Lambek calculus the free residuated monoid.
+#
+# Usage:
+#   prog = load("type_logical.qvr")
+#   grammar = prog.morphism
+#   tokens = torch.randint(0, 256, (batch, seq_len))
+#   log_probs = grammar(tokens)   # (batch,)
+
+category S, NP, N, VP, PP
+
+object Token : 256
+
+let grammar = parser(
+    rules=[evaluation, adjunction_units, tensor_introduction, tensor_projection],
+    terminal=Token,
+    start=S
+)
+
+output grammar

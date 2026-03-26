@@ -1,0 +1,81 @@
+# ================================================================
+# Bayesian Gaussian Mixture Model
+# ================================================================
+#
+# A Bayesian GMM with K=4 components, expressed as a monadic
+# program in the V-enriched categorical framework.
+#
+# Generative process:
+#   1. Draw component weights from Exponential priors (a
+#      reparameterization of the symmetric Dirichlet)
+#   2. For each component k, draw:
+#      - mean mu_k from a Normal prior
+#      - precision tau_k from a Gamma prior
+#   3. Compute soft mixture observation as a weighted
+#      combination of component distributions
+#
+# This demonstrates:
+#   - Hierarchical priors (Gamma on precision)
+#   - The softplus built-in for positive transformations
+#   - Division for normalization
+#   - The full draw/let/observe pipeline
+
+object Unit : 1
+object Obs : 1
+
+program gmm : Unit -> Obs
+    # ============================================================
+    # COMPONENT PARAMETERS
+    # Priors on means and precisions for each component.
+    # ============================================================
+
+    # component means: spread around origin (using <- notation)
+    mu_1 <- Normal(0.0, 3.0)
+    mu_2 <- Normal(0.0, 3.0)
+    mu_3 <- Normal(0.0, 3.0)
+    mu_4 <- Normal(0.0, 3.0)
+
+    # component scale parameters from Gamma priors;
+    # softplus ensures positivity, then invert to get
+    # standard deviations (smaller tau -> wider components)
+    tau_1 <- Gamma(2.0, 1.0)
+    tau_2 <- Gamma(2.0, 1.0)
+    tau_3 <- Gamma(2.0, 1.0)
+    tau_4 <- Gamma(2.0, 1.0)
+
+    let sigma_1 = 1.0 / softplus(tau_1)
+    let sigma_2 = 1.0 / softplus(tau_2)
+    let sigma_3 = 1.0 / softplus(tau_3)
+    let sigma_4 = 1.0 / softplus(tau_4)
+
+    # ============================================================
+    # MIXING WEIGHTS
+    # Exponential(1) draws, normalized to form a simplex.
+    # This is equivalent to a symmetric Dirichlet(1,...,1) prior
+    # via the Gamma-Dirichlet relationship.
+    # ============================================================
+
+    weight_1 <- Exponential(1.0)
+    weight_2 <- Exponential(1.0)
+    weight_3 <- Exponential(1.0)
+    weight_4 <- Exponential(1.0)
+
+    # normalize to get mixture probabilities
+    let total = weight_1 + weight_2 + weight_3 + weight_4
+    let p1 = weight_1 / total
+    let p2 = weight_2 / total
+    let p3 = weight_3 / total
+
+    # ============================================================
+    # OBSERVATION
+    # Soft mixture: weighted combination of component parameters.
+    # ============================================================
+
+    let mix_mu = p1 * mu_1 + p2 * mu_2 + p3 * mu_3 + (1.0 - p1 - p2 - p3) * mu_4
+    let mix_sigma = p1 * sigma_1 + p2 * sigma_2 + p3 * sigma_3 + (1.0 - p1 - p2 - p3) * sigma_4
+
+    observe x ~ Normal(mix_mu, mix_sigma)
+
+    return x
+
+output gmm
