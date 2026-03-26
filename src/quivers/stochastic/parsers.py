@@ -35,6 +35,8 @@ The parsing algorithm is parameterized by a ``ChartSemiring``
 
 from __future__ import annotations
 
+from typing import cast
+
 import torch
 
 from quivers.stochastic.categories import (
@@ -232,14 +234,14 @@ class ChartParser(DeductiveSystem):
         torch.Tensor
             Shape ``(n_terminals, n_categories)``.
         """
-        return self.axiom.log_lexicon
+        return cast(LexicalAxiom, self.axiom).log_lexicon
 
-    def forward(self, tokens: torch.Tensor) -> torch.Tensor:
+    def forward(self, input: torch.Tensor) -> torch.Tensor:
         """Compute sentence scores via CKY chart parsing.
 
         Parameters
         ----------
-        tokens : torch.Tensor
+        input : torch.Tensor
             Integer tensor of terminal indices. Shape
             ``(batch, seq_len)`` or ``(seq_len,)`` for a single
             sentence.
@@ -251,14 +253,14 @@ class ChartParser(DeductiveSystem):
         """
         squeeze = False
 
-        if tokens.dim() == 1:
-            tokens = tokens.unsqueeze(0)
+        if input.dim() == 1:
+            input = input.unsqueeze(0)
             squeeze = True
 
-        if tokens.shape[1] == 0:
+        if input.shape[1] == 0:
             raise ValueError("cannot parse empty sentences")
 
-        result = super().forward(tokens)
+        result = super().forward(input)
 
         if squeeze:
             return result.squeeze(0)

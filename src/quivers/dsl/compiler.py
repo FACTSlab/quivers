@@ -11,6 +11,12 @@ based) morphisms, including stochastic (Markov kernels), boundary
 
 from __future__ import annotations
 
+from collections.abc import Callable
+from typing import cast
+
+import torch
+from quivers.continuous.spaces import ContinuousSpace
+from quivers.continuous.morphisms import AnySpace
 from quivers.core.objects import SetObject, FinSet, ProductSet, CoproductSet
 from quivers.core.quantales import (
     Quantale,
@@ -187,10 +193,14 @@ def _get_family_registry() -> dict[str, type]:
 
 
 # space constructor name -> factory (lazily populated)
-_SPACE_CONSTRUCTORS: dict[str, type] | None = None
+_SPACE_CONSTRUCTORS: (
+    dict[str, type[ContinuousSpace] | Callable[..., ContinuousSpace]] | None
+) = None
 
 
-def _get_space_constructors() -> dict[str, type]:
+def _get_space_constructors() -> dict[
+    str, type[ContinuousSpace] | Callable[..., ContinuousSpace]
+]:
     """Lazily build the space constructor registry."""
     global _SPACE_CONSTRUCTORS
 
@@ -728,6 +738,7 @@ class Compiler:
         )
 
         for name in names:
+            assert isinstance(domain, FinSet)
             morph = Embed(domain, codomain)
             self._morphisms[name] = morph
 
@@ -772,7 +783,7 @@ class Compiler:
         # resolve each draw step
         # track the codomain of each bound variable for type checking
         # named params are also bound variables
-        bound_vars: dict[str, object] = {}
+        bound_vars: dict[str, AnySpace | None] = {}
 
         if decl.params is not None:
             if isinstance(domain, (ProductSet, _PS)):
@@ -911,8 +922,8 @@ class Compiler:
     def _resolve_draw_morphism(
         self,
         draw,
-        bound_vars: dict[str, object],
-        program_codomain: object,
+        bound_vars: dict[str, AnySpace | None],
+        program_codomain: SetObject | ContinuousSpace | None,
     ) -> tuple:
         """Resolve a draw step's morphism, handling both named morphisms
         and inline distribution families.
@@ -1099,7 +1110,7 @@ class Compiler:
     def _validate_let_expr_vars(
         self,
         node: LetExprNode,
-        bound_vars: dict[str, object],
+        bound_vars: dict[str, AnySpace | None],
         step: LetStep,
     ) -> None:
         """Validate that all variables in a let expression are bound.
@@ -1133,7 +1144,9 @@ class Compiler:
                 self._validate_let_expr_vars(arg, bound_vars, step)
 
     @staticmethod
-    def _compile_let_expr(node: LetExprNode) -> callable:
+    def _compile_let_expr(
+        node: LetExprNode,
+    ) -> Callable[[dict[str, torch.Tensor]], torch.Tensor]:
         """Compile a let expression tree into a callable.
 
         The returned callable takes a dict[str, torch.Tensor] (the
@@ -1388,13 +1401,13 @@ class Compiler:
                     sexpr.col,
                 )
 
-            cls = constructors[cname]
+            constructor = cast(Callable[..., ContinuousSpace], constructors[cname])
             name = bind_name or cname
 
             # parse constructor arguments
             if cname == "UnitInterval":
                 # UnitInterval(name?) -- no dim needed
-                return cls(name)
+                return constructor(name)
 
             elif cname in ("Euclidean", "Simplex", "PositiveReals"):
                 # first positional arg is dim
@@ -1415,7 +1428,7 @@ class Compiler:
                     except ValueError:
                         kwargs[k] = v
 
-                return cls(name, dim, **kwargs)
+                return constructor(name, dim, **kwargs)
 
             else:
                 raise CompileError(
@@ -1718,10 +1731,11 @@ class Compiler:
             )
 
         try:
+            start = expr.start if isinstance(expr.start, int) else 0
             return InsideAlgorithm(
                 binary,
                 lexical,
-                start=expr.start,
+                start=start,
             )
 
         except TypeError as e:
@@ -1803,11 +1817,12 @@ class Compiler:
         n_term = self._objects[expr.terminal].size
 
         try:
+            start = expr.start if isinstance(expr.start, str) else "S"
             return ChartParser.from_schema(
                 schema,
                 cs,
                 n_terminals=n_term,
-                start=expr.start,
+                start=start,
             )
 
         except (TypeError, ValueError) as e:

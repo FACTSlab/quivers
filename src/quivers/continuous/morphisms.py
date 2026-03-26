@@ -31,7 +31,7 @@ Convention for input shapes
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
-from typing import Union
+from typing import Union, cast
 
 import torch
 import torch.nn as nn
@@ -281,11 +281,11 @@ def _make_source(
     nn.Module
         A _LookupSource or _NeuralSource.
     """
-    if _is_discrete(domain):
+    if isinstance(domain, SetObject):
         return _LookupSource(domain.size, param_dim)
 
     else:
-        return _NeuralSource(domain.dim, param_dim, hidden_dim)
+        return _NeuralSource(cast(ContinuousSpace, domain).dim, param_dim, hidden_dim)
 
 
 # -- composition via sampling ------------------------------------------------
@@ -386,9 +386,9 @@ class SampledComposition(ContinuousMorphism):
     def log_prob(
         self,
         x: torch.Tensor,
-        z: torch.Tensor,
+        y: torch.Tensor,
     ) -> torch.Tensor:
-        """Log-probability of z given x through the composition.
+        """Log-probability of y given x through the composition.
 
         When the intermediate space is discrete, computes the exact
         marginalization. When continuous, uses Monte Carlo estimation.
@@ -397,7 +397,7 @@ class SampledComposition(ContinuousMorphism):
         ----------
         x : torch.Tensor
             Inputs. Shape (batch,) or (batch, dom_dim).
-        z : torch.Tensor
+        y : torch.Tensor
             Outputs. Shape (batch,) or (batch, cod_dim).
 
         Returns
@@ -407,11 +407,11 @@ class SampledComposition(ContinuousMorphism):
         """
         intermediate = self.left.codomain
 
-        if _is_discrete(intermediate):
-            return self._log_prob_exact(x, z, intermediate)
+        if isinstance(intermediate, SetObject):
+            return self._log_prob_exact(x, y, intermediate)
 
         else:
-            return self._log_prob_mc(x, z)
+            return self._log_prob_mc(x, y)
 
     def _log_prob_exact(
         self,
@@ -675,7 +675,7 @@ class FanOutMorphism(ContinuousMorphism):
         outs = []
 
         for comp in self._components:
-            y = comp.rsample(x, sample_shape)
+            y = cast(ContinuousMorphism, comp).rsample(x, sample_shape)
 
             # ensure at least 2d for concatenation
             if y.dim() == 1:
@@ -703,7 +703,8 @@ class FanOutMorphism(ContinuousMorphism):
         lp = torch.zeros(x.shape[0], device=x.device)
         offset = 0
 
-        for comp, d in zip(self._components, self._cod_dims):
+        for comp_mod, d in zip(self._components, self._cod_dims):
+            comp = cast(ContinuousMorphism, comp_mod)
             y_slice = y[..., offset : offset + d]
 
             if _is_discrete(comp.codomain):

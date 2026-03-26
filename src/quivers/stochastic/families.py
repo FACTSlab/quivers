@@ -7,6 +7,8 @@ truncated normal).
 
 from __future__ import annotations
 
+from typing import cast
+
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -86,9 +88,11 @@ class DiscretizedNormal(Morphism):
         torch.Tensor
             Shape (*domain.shape, codomain.cardinality), rows sum to ~1.
         """
-        mu = self._module.mu  # (dom_size,)
-        sigma = self._module.log_sigma.exp().clamp(min=EPS)  # (dom_size,)
-        centers = self._module.centers  # (n_bins,)
+        mu = cast(torch.Tensor, self._module.mu)  # (dom_size,)
+        sigma = (
+            cast(torch.Tensor, self._module.log_sigma).exp().clamp(min=EPS)
+        )  # (dom_size,)
+        centers = cast(torch.Tensor, self._module.centers)  # (n_bins,)
 
         # compute log-density at each bin center for each domain element
         # mu: (dom, 1), centers: (1, bins)
@@ -152,9 +156,9 @@ class DiscretizedLogitNormal(Morphism):
         torch.Tensor
             Shape (*domain.shape, codomain.cardinality), rows sum to ~1.
         """
-        mu = self._module.mu
-        sigma = self._module.log_sigma.exp().clamp(min=EPS)
-        centers = self._module.centers
+        mu = cast(torch.Tensor, self._module.mu)
+        sigma = cast(torch.Tensor, self._module.log_sigma).exp().clamp(min=EPS)
+        centers = cast(torch.Tensor, self._module.centers)
 
         # logit transform of bin centers
         logit_centers = torch.log(centers / (1.0 - centers))
@@ -218,9 +222,9 @@ class DiscretizedBeta(Morphism):
         torch.Tensor
             Shape (*domain.shape, codomain.cardinality), rows sum to ~1.
         """
-        alpha = self._module.log_alpha.exp().clamp(min=EPS)
-        beta = self._module.log_beta.exp().clamp(min=EPS)
-        centers = self._module.centers
+        alpha = cast(torch.Tensor, self._module.log_alpha).exp().clamp(min=EPS)
+        beta = cast(torch.Tensor, self._module.log_beta).exp().clamp(min=EPS)
+        centers = cast(torch.Tensor, self._module.centers)
 
         # log Beta(x; α, β) ∝ (α-1)log(x) + (β-1)log(1-x)
         alpha_expanded = alpha.unsqueeze(-1)
@@ -291,9 +295,9 @@ class DiscretizedTruncatedNormal(Morphism):
         torch.Tensor
             Shape (*domain.shape, codomain.cardinality), rows sum to ~1.
         """
-        mu = self._module.mu
-        sigma = self._module.log_sigma.exp().clamp(min=EPS)
-        centers = self._module.centers
+        mu = cast(torch.Tensor, self._module.mu)
+        sigma = cast(torch.Tensor, self._module.log_sigma).exp().clamp(min=EPS)
+        centers = cast(torch.Tensor, self._module.centers)
 
         mu_expanded = mu.unsqueeze(-1)
         sigma_expanded = sigma.unsqueeze(-1)

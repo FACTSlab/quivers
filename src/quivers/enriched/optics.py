@@ -271,7 +271,7 @@ class Lens(Optic):
 
             for i, comp in enumerate(components):
                 if i != self._focus_index:
-                    complement_shapes.append(tuple(range(s) for s in comp.shape))
+                    complement_shapes.append(tuple(s for s in comp.shape))
 
             # iterate over all whole indices where focus matches
             for whole_idx in itertools.product(*(range(s) for s in whole.shape)):

@@ -58,7 +58,7 @@ Examples
 from __future__ import annotations
 
 from dataclasses import dataclass
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 
 
 @dataclass(frozen=True, eq=True)
@@ -253,7 +253,7 @@ def _unit_constructor(
 
 def _modal_constructor(
     modality: str,
-) -> callable:
+) -> Callable[[list[Category]], list[Category]]:
     """Create a modal constructor for a specific modality.
 
     Parameters
@@ -263,7 +263,7 @@ def _modal_constructor(
 
     Returns
     -------
-    callable
+    Callable[[list[Category]], list[Category]]
         A constructor function.
     """
 
@@ -274,7 +274,7 @@ def _modal_constructor(
 
 
 # registry of built-in constructors
-_BUILTIN_CONSTRUCTORS: dict[str, callable] = {
+_BUILTIN_CONSTRUCTORS: dict[str, Callable[[list[Category]], list[Category]]] = {
     "slash": _slash_constructor,
     "product": _product_constructor,
     "unit": _unit_constructor,
@@ -317,7 +317,7 @@ class CategorySystem:
         CategorySystem
             A new system with the given atomic categories.
         """
-        cats = [AtomicCategory(name) for name in names]
+        cats: list[Category] = [AtomicCategory(name) for name in names]
         return cls(cats)
 
     @classmethod

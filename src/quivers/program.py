@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 
+from typing import cast
+
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -54,10 +56,10 @@ class Program(nn.Module):
             self._root = morphism
 
         else:
-            self._root = morphism.module()
+            self._root = cast(Morphism, morphism).module()
 
     @property
-    def morphism(self) -> Morphism:
+    def morphism(self) -> Morphism | ContinuousMorphism | nn.Module:
         """The underlying morphism expression."""
         return self._morphism
 
@@ -95,10 +97,10 @@ class Program(nn.Module):
         TypeError
             If the underlying morphism is not continuous.
         """
-        if not self._is_continuous:
+        if not isinstance(self._morphism, ContinuousMorphism):
             raise TypeError("rsample is only available for continuous programs")
 
-        return self._morphism.rsample(x, sample_shape)
+        return cast(torch.Tensor, self._morphism.rsample(x, sample_shape))
 
     def log_prob(self, x: torch.Tensor, y: torch.Tensor) -> torch.Tensor:
         """Log-probability (continuous programs only).
@@ -120,10 +122,10 @@ class Program(nn.Module):
         TypeError
             If the underlying morphism is not continuous.
         """
-        if not self._is_continuous:
+        if not isinstance(self._morphism, ContinuousMorphism):
             raise TypeError("log_prob is only available for continuous programs")
 
-        return self._morphism.log_prob(x, y)
+        return cast(torch.Tensor, self._morphism.log_prob(x, y))
 
     def forward(self, n_steps: int | None = None) -> torch.Tensor:
         """Materialize the composed tensor (discrete programs only).
@@ -156,7 +158,7 @@ class Program(nn.Module):
         if n_steps is not None:
             self._set_repeat_steps(n_steps)
 
-        return self._morphism.tensor
+        return cast(Morphism, self._morphism).tensor
 
     def _set_repeat_steps(self, n: int) -> None:
         """Set n_steps on all RepeatMorphism nodes in the tree.
@@ -166,23 +168,28 @@ class Program(nn.Module):
         n : int
             Number of repetition steps.
         """
-        from quivers.core.morphisms import RepeatMorphism
+        from quivers.core.morphisms import (
+            RepeatMorphism,
+            ComposedMorphism,
+            ProductMorphism,
+            MarginalizedMorphism,
+            FunctorMorphism,
+        )
 
         def _walk(m: Morphism) -> None:
             if isinstance(m, RepeatMorphism):
                 m.n_steps = n
 
             # traverse composition tree
-            if hasattr(m, "_left"):
+            if isinstance(m, (ComposedMorphism, ProductMorphism)):
                 _walk(m._left)
-
-            if hasattr(m, "_right"):
                 _walk(m._right)
 
-            if hasattr(m, "_inner"):
+            if isinstance(m, (MarginalizedMorphism, FunctorMorphism, RepeatMorphism)):
                 _walk(m._inner)
 
-        _walk(self._morphism)
+        if isinstance(self._morphism, Morphism):
+            _walk(self._morphism)
 
     def log_membership(self) -> torch.Tensor:
         """Log of the membership tensor.
@@ -193,7 +200,7 @@ class Program(nn.Module):
             Log-membership values.  Entries near 0 map to large
             negative values.
         """
-        t = self._morphism.tensor
+        t = cast(Morphism, self._morphism).tensor
         return torch.log(t.clamp(min=1e-7))
 
     def nll_loss(
@@ -221,7 +228,7 @@ class Program(nn.Module):
         torch.Tensor
             Scalar mean negative log-likelihood.
         """
-        t = self._morphism.tensor
+        t = cast(Morphism, self._morphism).tensor
 
         # handle both flat and multi-dimensional indexing
         if domain_indices.ndim == 1:
@@ -253,5 +260,5 @@ class Program(nn.Module):
         torch.Tensor
             Scalar BCE loss.
         """
-        t = self._morphism.tensor
+        t = cast(Morphism, self._morphism).tensor
         return F.binary_cross_entropy(t, target)

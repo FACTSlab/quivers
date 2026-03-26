@@ -6,6 +6,8 @@ stochastic() factory function.
 
 from __future__ import annotations
 
+from typing import cast
+
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -72,7 +74,7 @@ class StochasticMorphism(Morphism):
             Tensor of shape (*domain.shape, *codomain.shape) where
             each codomain fiber sums to 1.
         """
-        logits = self._module.logits / self._temperature
+        logits = cast(torch.Tensor, self._module.logits) / self._temperature
 
         # reshape to (prod(domain_shape), prod(codomain_shape))
         # apply softmax along last dim, then reshape back

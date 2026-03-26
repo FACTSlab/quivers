@@ -16,6 +16,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 
 import torch
+from typing import cast
 
 from quivers.continuous.morphisms import ContinuousMorphism
 from quivers.continuous.programs import MonadicProgram, _LetSpec
@@ -125,6 +126,7 @@ def trace(
     if program._params is not None and program._param_dims is not None:
         splits = torch.split(x, program._param_dims, dim=-1)
 
+        assert program._param_is_continuous is not None
         for pname, chunk, is_cont in zip(
             program._params,
             splits,
@@ -143,7 +145,7 @@ def trace(
                 env[spec.var] = env[spec.value]
 
             elif callable(spec.value):
-                env[spec.var] = spec.value(env)
+                env[spec.var] = cast(torch.Tensor, spec.value(env))
 
             else:
                 env[spec.var] = torch.full(
@@ -162,7 +164,8 @@ def trace(
             continue
 
         # stochastic draw step
-        morph = program._modules[spec.morphism_name]
+        assert program._modules[spec.morphism_name] is not None
+        morph = cast(ContinuousMorphism, program._modules[spec.morphism_name])
         inp = program._resolve_input(spec, x, env)
 
         if len(spec.vars) == 1:
@@ -215,9 +218,10 @@ def trace(
             # compute log-prob for the full step
             if hasattr(morph, "log_joint") and hasattr(morph, "_return_vars"):
                 # sub-program: reconstruct intermediates
+                sub_morph = cast(MonadicProgram, morph)
                 sub_intermediates = {}
 
-                for sub_spec in morph._step_specs:
+                for sub_spec in sub_morph._step_specs:
                     if isinstance(sub_spec, _LetSpec):
                         continue
 
@@ -225,7 +229,7 @@ def trace(
                         if sv in env:
                             sub_intermediates[sv] = env[sv]
 
-                lp = morph.log_joint(inp, sub_intermediates)
+                lp = sub_morph.log_joint(inp, sub_intermediates)
 
             else:
                 # product morphism: stack and evaluate

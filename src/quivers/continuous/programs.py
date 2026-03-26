@@ -50,7 +50,10 @@ PDS-style nested programs::
 from __future__ import annotations
 
 
+import collections.abc
+
 import torch
+from typing import cast
 
 from quivers.continuous.morphisms import AnySpace, ContinuousMorphism
 
@@ -79,10 +82,10 @@ class _StepSpec:
         args: tuple[str, ...] | None,
         is_observed: bool = False,
     ) -> None:
-        self.vars = vars
-        self.morphism_name = morphism_name
-        self.args = args
-        self.is_observed = is_observed
+        self.vars: tuple[str, ...] = vars
+        self.morphism_name: str = morphism_name
+        self.args: tuple[str, ...] | None = args
+        self.is_observed: bool = is_observed
 
 
 class _LetSpec:
@@ -100,7 +103,9 @@ class _LetSpec:
 
     __slots__ = ("var", "value")
 
-    def __init__(self, var: str, value: float | str | callable) -> None:
+    def __init__(
+        self, var: str, value: float | str | collections.abc.Callable[..., torch.Tensor]
+    ) -> None:
         self.var = var
         self.value = value
 
@@ -325,7 +330,7 @@ class MonadicProgram(ContinuousMorphism):
             if isinstance(result, dict):
                 # sub-program returned dict but we're binding to single var
                 # — shouldn't happen if types are correct
-                env[spec.vars[0]] = result
+                env[spec.vars[0]] = result  # type: ignore[assignment]
 
             else:
                 env[spec.vars[0]] = result
@@ -340,7 +345,9 @@ class MonadicProgram(ContinuousMorphism):
                 # tensor result from product-codomain morphism: split
                 # along feature dim
                 morph = self._modules[spec.morphism_name]
-                dims = self._compute_component_dims(morph.codomain)
+                assert morph is not None
+                morph_cm = cast(ContinuousMorphism, morph)
+                dims = self._compute_component_dims(morph_cm.codomain)
                 splits = torch.split(result, dims, dim=-1)
 
                 for var_name, chunk in zip(spec.vars, splits):
@@ -358,7 +365,7 @@ class MonadicProgram(ContinuousMorphism):
 
         return names
 
-    def rsample(
+    def rsample(  # type: ignore[override]
         self,
         x: torch.Tensor,
         sample_shape: torch.Size = torch.Size(),
@@ -397,6 +404,7 @@ class MonadicProgram(ContinuousMorphism):
         if self._params is not None and self._param_dims is not None:
             splits = torch.split(x, self._param_dims, dim=-1)
 
+            assert self._param_is_continuous is not None
             for pname, chunk, is_cont in zip(
                 self._params, splits, self._param_is_continuous
             ):
@@ -414,7 +422,7 @@ class MonadicProgram(ContinuousMorphism):
                     env[spec.var] = env[spec.value]
 
                 elif callable(spec.value):
-                    env[spec.var] = spec.value(env)
+                    env[spec.var] = cast(torch.Tensor, spec.value(env))
 
                 else:
                     env[spec.var] = torch.full(
@@ -425,7 +433,8 @@ class MonadicProgram(ContinuousMorphism):
 
                 continue
 
-            morph = self._modules[spec.morphism_name]
+            assert self._modules[spec.morphism_name] is not None
+            morph = cast(ContinuousMorphism, self._modules[spec.morphism_name])
             inp = self._resolve_input(spec, x, env)
 
             # check if any vars in this step are observed
@@ -454,9 +463,10 @@ class MonadicProgram(ContinuousMorphism):
                         result = morph.rsample(inp)
                         # only bind un-clamped vars
                         if isinstance(result, dict):
+                            result_dict = cast(dict[str, torch.Tensor], result)
                             for v in spec.vars:
                                 if v not in observations:
-                                    env[v] = result[v]
+                                    env[v] = result_dict[v]
 
                         else:
                             dims = self._compute_component_dims(morph.codomain)
@@ -555,6 +565,7 @@ class MonadicProgram(ContinuousMorphism):
         if self._params is not None and self._param_dims is not None:
             splits = torch.split(x, self._param_dims, dim=-1)
 
+            assert self._param_is_continuous is not None
             for pname, chunk, is_cont in zip(
                 self._params, splits, self._param_is_continuous
             ):
@@ -573,7 +584,7 @@ class MonadicProgram(ContinuousMorphism):
                         env[spec.var] = env[spec.value]
 
                     elif callable(spec.value):
-                        env[spec.var] = spec.value(env)
+                        env[spec.var] = cast(torch.Tensor, spec.value(env))
 
                     else:
                         env[spec.var] = torch.full(
@@ -584,7 +595,8 @@ class MonadicProgram(ContinuousMorphism):
 
                 continue
 
-            morph = self._modules[spec.morphism_name]
+            assert self._modules[spec.morphism_name] is not None
+            morph = cast(ContinuousMorphism, self._modules[spec.morphism_name])
             inp = self._resolve_input(spec, x, env)
 
             if len(spec.vars) == 1:
@@ -597,9 +609,10 @@ class MonadicProgram(ContinuousMorphism):
                 if hasattr(morph, "log_joint") and hasattr(morph, "_return_vars"):
                     # reconstruct the sub-program's intermediates from
                     # the overall intermediates dict
+                    sub_morph = cast(MonadicProgram, morph)
                     sub_intermediates = {}
 
-                    for sub_spec in morph._step_specs:
+                    for sub_spec in sub_morph._step_specs:
                         if isinstance(sub_spec, _LetSpec):
                             continue
 
@@ -607,7 +620,7 @@ class MonadicProgram(ContinuousMorphism):
                             if sv in env:
                                 sub_intermediates[sv] = env[sv]
 
-                    total = total + morph.log_joint(inp, sub_intermediates)
+                    total = total + sub_morph.log_joint(inp, sub_intermediates)
 
                 else:
                     # product-codomain morphism: reconstruct stacked output
@@ -625,8 +638,9 @@ class MonadicProgram(ContinuousMorphism):
                 parts.append(f"let {s.var} = {s.value}")
 
             else:
+                assert isinstance(s, _StepSpec)
                 keyword = "observe" if s.is_observed else "draw"
-                lhs = f"({','.join(s.vars)})" if len(s.vars) > 1 else s.vars[0]
+                lhs = f"({','.join(s.vars)})" if len(s.vars) > 1 else s.vars[0]  # type: ignore[index]
                 rhs = s.morphism_name.removeprefix("_step_")
 
                 if s.args:

@@ -19,7 +19,7 @@ The hierarchy:
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, cast
 
 import torch
 import torch.nn as nn
@@ -213,7 +213,7 @@ class ObservedMorphism(Morphism):
 
     @property
     def tensor(self) -> torch.Tensor:
-        return self._module.data
+        return cast(torch.Tensor, self._module.data)
 
     def module(self) -> nn.Module:
         return self._module
@@ -261,7 +261,7 @@ class LatentMorphism(Morphism):
     @property
     def tensor(self) -> torch.Tensor:
         """Sigmoid-constrained tensor with values in (0, 1)."""
-        return torch.sigmoid(self._module.raw)
+        return torch.sigmoid(cast(torch.Tensor, self._module.raw))
 
     def module(self) -> nn.Module:
         return self._module
@@ -649,6 +649,7 @@ class RepeatMorphism(Morphism):
             )
             n //= 2
 
+        assert result is not None
         return result
 
     def module(self) -> nn.Module:

@@ -149,6 +149,7 @@ class Euclidean(ContinuousSpace):
         if not self.is_bounded:
             raise ValueError("cannot sample uniformly from unbounded Euclidean space")
 
+        assert self.low is not None and self.high is not None
         return torch.rand(n, self._dim) * (self.high - self.low) + self.low
 
     def __repr__(self) -> str:

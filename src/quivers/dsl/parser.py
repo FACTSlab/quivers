@@ -305,7 +305,7 @@ class Parser:
         name_tok = self._expect(TokenType.IDENT)
         return QuantaleDecl(name=name_tok.value, line=tok.line, col=tok.col)
 
-    def _parse_category_decl(self) -> CategoryDecl | list[CategoryDecl]:
+    def _parse_category_decl(self) -> CategoryDecl | list[Statement]:
         """Parse: category <name> [, <name> ...].
 
         Supports both single and comma-separated declarations::
@@ -320,7 +320,7 @@ class Parser:
         if self._peek_type() != TokenType.COMMA:
             return first
 
-        decls = [first]
+        decls: list[Statement] = [first]
 
         while self._peek_type() == TokenType.COMMA:
             self._advance()

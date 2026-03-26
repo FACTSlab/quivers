@@ -8,7 +8,7 @@ version = "0.1.0"
 description = "Computational category theory as differentiable tensor programs"
 readme = "README.md"
 license = {text = "MIT"}
-requires-python = ">=3.12"
+requires-python = ">=3.13"
 authors = [{name = "Aaron Steven White"}]
 keywords = [
     "category-theory",
@@ -23,7 +23,7 @@ classifiers = [
     "Intended Audience :: Science/Research",
     "License :: OSI Approved :: MIT License",
     "Programming Language :: Python :: 3",
-    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
     "Topic :: Scientific/Engineering",
     "Topic :: Scientific/Engineering :: Artificial Intelligence",
     "Topic :: Scientific/Engineering :: Mathematics",
@@ -37,7 +37,7 @@ dev = [
     "pytest>=7.0",
     "pytest-cov",
     "ruff",
-    "mypy",
+    "pyright",
 ]
 docs = [
     "mkdocs",

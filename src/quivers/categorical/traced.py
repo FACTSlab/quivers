@@ -286,6 +286,7 @@ class IterativeTrace(TracedMonoidal):
 
         # initialize with zero (bottom)
         prev = torch.full(result_shape, q.zero)
+        current = prev
 
         for _ in range(self._max_iter):
             current = torch.full(result_shape, q.zero)

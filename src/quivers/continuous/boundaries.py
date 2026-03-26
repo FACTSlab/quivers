@@ -12,6 +12,8 @@ Embed      — finite set -> continuous space (kernel density)
 
 from __future__ import annotations
 
+from typing import cast
+
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -72,6 +74,7 @@ class Discretize(ContinuousMorphism):
         self._temperature = temperature
 
         # compute bin centers and register as buffer
+        assert domain.low is not None and domain.high is not None
         centers = torch.linspace(domain.low, domain.high, n_bins)
         self.register_buffer("centers", centers)
 
@@ -121,7 +124,7 @@ class Discretize(ContinuousMorphism):
 
         else:
             # hard assignment: closest bin center
-            dists = (x - self.centers.unsqueeze(0)).abs()
+            dists = (x - cast(torch.Tensor, self.centers).unsqueeze(0)).abs()
             bins = dists.argmin(dim=-1)
 
         if len(sample_shape) > 0:
@@ -150,7 +153,9 @@ class Discretize(ContinuousMorphism):
             x_flat = x
 
         # squared distance to each bin center
-        dists_sq = (x_flat.unsqueeze(-1) - self.centers.unsqueeze(0)) ** 2
+        dists_sq = (
+            x_flat.unsqueeze(-1) - cast(torch.Tensor, self.centers).unsqueeze(0)
+        ) ** 2
 
         # softmax over negative distances
         return F.softmax(-dists_sq / self._temperature, dim=-1)
@@ -188,6 +193,7 @@ class Embed(ContinuousMorphism):
 
         # initialize centers evenly spaced across codomain
         if codomain.is_bounded:
+            assert codomain.low is not None and codomain.high is not None
             if d == 1:
                 init_centers = torch.linspace(
                     codomain.low,

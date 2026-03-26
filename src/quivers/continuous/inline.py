@@ -927,7 +927,7 @@ def _truncated_normal_builder(
             with torch.no_grad():
                 return self.rsample(sample_shape)
 
-    return _TruncNorm()
+    return _TruncNorm()  # type: ignore[return-value]
 
 
 def _logitnormal_builder(params: list[torch.Tensor]) -> D.Distribution:

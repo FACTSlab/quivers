@@ -559,7 +559,7 @@ class UnitCoercion(UnaryRuleSchema):
     def _description(self) -> str:
         return "unit-elim"
 
-    def match(self, cat, system):
+    def match(self, cat: Category, system: CategorySystem) -> list[Category]:
         unit = UnitCategory()
 
         if unit in system:
@@ -584,7 +584,7 @@ class ModalInjection(UnaryRuleSchema):
     def _description(self) -> str:
         return f"{self._modality}-intro"
 
-    def match(self, cat, system):
+    def match(self, cat: Category, system: CategorySystem) -> list[Category]:
         modal = ModalCategory(self._modality, cat)
 
         if modal in system:

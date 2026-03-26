@@ -18,7 +18,9 @@ from abc import ABC, abstractmethod
 import torch
 import torch.nn as nn
 import torch.distributions as D
+from typing import cast
 
+from quivers.continuous.morphisms import ContinuousMorphism
 from quivers.continuous.programs import MonadicProgram, _LetSpec
 from quivers.continuous.spaces import ContinuousSpace
 
@@ -112,7 +114,8 @@ class AutoNormalGuide(Guide):
                 self._latent_names.append(var)
 
                 # determine dimension from morphism codomain
-                morph = model._modules[spec.morphism_name]
+                assert model._modules[spec.morphism_name] is not None
+                morph = cast(ContinuousMorphism, model._modules[spec.morphism_name])
                 dim = self._infer_dim(morph, len(spec.vars))
 
                 # register learnable parameters
@@ -122,16 +125,18 @@ class AutoNormalGuide(Guide):
                 )
                 self.register_parameter(
                     f"log_scale_{var}",
-                    nn.Parameter(torch.full((dim,), torch.tensor(init_scale).log())),
+                    nn.Parameter(
+                        torch.full((dim,), torch.tensor(init_scale).log().item())
+                    ),
                 )
 
     @staticmethod
-    def _infer_dim(morph: nn.Module, n_vars: int) -> int:
+    def _infer_dim(morph: ContinuousMorphism, n_vars: int) -> int:
         """Infer the per-variable output dimension of a morphism.
 
         Parameters
         ----------
-        morph : nn.Module
+        morph : ContinuousMorphism
             The morphism module.
         n_vars : int
             Number of variables bound in this step.
@@ -144,7 +149,7 @@ class AutoNormalGuide(Guide):
         cod = morph.codomain
 
         if isinstance(cod, ContinuousSpace):
-            total_dim = cod.dim
+            total_dim: int = cod.dim
             return max(1, total_dim // n_vars)
 
         # discrete codomain: 1-dimensional
@@ -269,7 +274,8 @@ class AutoDeltaGuide(Guide):
 
                 self._latent_names.append(var)
 
-                morph = model._modules[spec.morphism_name]
+                assert model._modules[spec.morphism_name] is not None
+                morph = cast(ContinuousMorphism, model._modules[spec.morphism_name])
                 dim = AutoNormalGuide._infer_dim(morph, len(spec.vars))
 
                 self.register_parameter(

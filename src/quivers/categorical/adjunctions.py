@@ -27,7 +27,7 @@ from abc import ABC, abstractmethod
 import torch
 
 from quivers.core.objects import SetObject, FinSet, FreeMonoid
-from quivers.core.morphisms import Morphism, identity, observed
+from quivers.core.morphisms import FunctorMorphism, Morphism, identity, observed
 from quivers.categorical.functors import (
     Functor,
     FreeMonoidFunctor,
@@ -51,7 +51,7 @@ class ForgetfulFunctor(Functor):
         """Identity on objects."""
         return obj
 
-    def map_morphism(self, morph: Morphism) -> Morphism:
+    def map_morphism(self, morph: Morphism) -> FunctorMorphism:
         """Identity on morphisms."""
         from quivers.core.morphisms import FunctorMorphism
 

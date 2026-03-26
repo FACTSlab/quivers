@@ -6,6 +6,8 @@ normalization that wrap existing morphisms into new ones.
 
 from __future__ import annotations
 
+from typing import cast
+
 import torch
 import torch.nn as nn
 
@@ -167,7 +169,7 @@ class MixtureMorphism(Morphism):
     @property
     def weight(self) -> torch.Tensor:
         """The mixing weight p ∈ (0, 1)."""
-        return torch.sigmoid(self._mix_module.logit_p)
+        return torch.sigmoid(cast(torch.Tensor, self._mix_module.logit_p))
 
     @property
     def tensor(self) -> torch.Tensor:

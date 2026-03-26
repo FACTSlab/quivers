@@ -24,6 +24,8 @@ CKYSchedule
 
 from __future__ import annotations
 
+from typing import cast
+
 import torch
 import torch.nn as nn
 
@@ -61,7 +63,7 @@ class LexicalAxiom(Axiom):
         """Log-probability lexicon, shape (n_terminals, n_categories)."""
         return torch.log_softmax(self.lexicon_logits, dim=-1)
 
-    def forward(self, tokens, semiring):
+    def forward(self, tokens: torch.Tensor, semiring: ChartSemiring) -> _SpanChart:  # type: ignore[override]
         batch, seq_len = tokens.shape
         log_lex = self.log_lexicon[tokens]  # (batch, seq_len, C)
 
@@ -93,7 +95,15 @@ class _SpanChart:
 
     __slots__ = ("cells", "batch", "seq_len", "n_categories", "device", "semiring")
 
-    def __init__(self, cells, batch, seq_len, n_categories, device, semiring):
+    def __init__(
+        self,
+        cells: dict[tuple[int, int], torch.Tensor],
+        batch: int,
+        seq_len: int,
+        n_categories: int,
+        device: torch.device,
+        semiring: ChartSemiring,
+    ) -> None:
         self.cells = cells
         self.batch = batch
         self.seq_len = seq_len
@@ -206,11 +216,15 @@ class BinarySpanDeduction(Deduction):
         chart_cells = context["chart_cells"]
         n_categories = context["n_categories"]
 
+        _results = cast(torch.Tensor, self._results)
+        _lefts = cast(torch.Tensor, self._lefts)
+        _rights = cast(torch.Tensor, self._rights)
+
         if self._n_rules == 0:
             return torch.full(
                 (chart_cells[(i, i + 1)].shape[0], n_categories),
                 semiring.zero,
-                device=self._results.device,
+                device=_results.device,
             )
 
         parts = []
@@ -219,8 +233,8 @@ class BinarySpanDeduction(Deduction):
             left_cell = chart_cells[(i, k)]
             right_cell = chart_cells[(k, j)]
 
-            left_scores = left_cell[:, self._lefts]
-            right_scores = right_cell[:, self._rights]
+            left_scores = left_cell[:, _lefts]
+            right_scores = right_cell[:, _rights]
             combined = semiring.times(left_scores, right_scores)
 
             if self._n_rules > 0:
@@ -236,10 +250,10 @@ class BinarySpanDeduction(Deduction):
 
         return _scatter_semiring(
             split_scores,
-            self._results,
+            _results,
             n_categories,
             split_scores.shape[0],
-            device=self._results.device,
+            device=_results.device,
             semiring=semiring,
         )
 
@@ -308,10 +322,12 @@ class UnarySpanDeduction(Deduction):
         if not self.has_rules:
             return cell
 
+        _results = cast(torch.Tensor, self._results)
+        _inputs = cast(torch.Tensor, self._inputs)
         n_categories = cell.shape[1]
 
         for _ in range(self._iterations):
-            input_scores = cell[:, self._inputs]
+            input_scores = cell[:, _inputs]
 
             if self._n_rules > 0:
                 input_scores = semiring.times(
@@ -321,7 +337,7 @@ class UnarySpanDeduction(Deduction):
 
             additions = _scatter_semiring(
                 input_scores,
-                self._results,
+                _results,
                 n_categories,
                 cell.shape[0],
                 device=cell.device,
@@ -372,7 +388,7 @@ class CKYSchedule(Schedule):
 
     def run(self, chart, deductions, semiring):
         # chart is a _SpanChart
-        span_chart = chart
+        span_chart = cast(_SpanChart, chart)
         cells = span_chart.cells
         seq_len = span_chart.seq_len
         n_categories = span_chart.n_categories

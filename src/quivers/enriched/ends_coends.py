@@ -10,6 +10,7 @@ the functor category (end over all objects).
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from typing import TYPE_CHECKING
 
 import torch
@@ -114,7 +115,7 @@ def _trace_and_reduce(
     tensor: torch.Tensor,
     contra_dims: tuple[int, ...],
     co_dims: tuple[int, ...],
-    reduce_fn: object,
+    reduce_fn: Callable[..., torch.Tensor],
 ) -> torch.Tensor:
     """Extract diagonal and reduce over matched dimension pairs.
 

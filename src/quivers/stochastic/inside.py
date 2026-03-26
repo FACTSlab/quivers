@@ -175,6 +175,7 @@ class InsideAlgorithm(nn.Module):
                 for k in range(i + 1, j):
                     left = cells[i][k]  # (batch, N)
                     right = cells[k][j]  # (batch, N)
+                    assert left is not None and right is not None
 
                     # combine: (batch, N_A, N_B, N_C)
                     combined = (
@@ -202,8 +203,9 @@ class InsideAlgorithm(nn.Module):
 
         for i in range(seq_len):
             for j in range(i + 1, seq_len + 1):
-                if cells[i][j] is not None:
-                    chart[:, :, i, j] = cells[i][j]
+                cell = cells[i][j]
+                if cell is not None:
+                    chart[:, :, i, j] = cell
 
         return chart
 

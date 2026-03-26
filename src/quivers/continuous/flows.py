@@ -20,15 +20,16 @@ This module provides:
 from __future__ import annotations
 
 import math
+from typing import cast
 
 import torch
 import torch.nn as nn
 
-from quivers.continuous.spaces import Euclidean
+from quivers.core.objects import SetObject
+from quivers.continuous.spaces import ContinuousSpace, Euclidean
 from quivers.continuous.morphisms import (
     AnySpace,
     ContinuousMorphism,
-    _is_discrete,
 )
 
 
@@ -59,13 +60,13 @@ class _ConditionedNet(nn.Module):
     ) -> None:
         super().__init__()
 
-        if _is_discrete(domain):
+        if isinstance(domain, SetObject):
             self.embed = nn.Embedding(domain.size, hidden_dim)
             cond_dim = hidden_dim
 
         else:
             self.embed = None
-            cond_dim = domain.dim
+            cond_dim = cast(ContinuousSpace, domain).dim
 
         self.net = nn.Sequential(
             nn.Linear(cond_dim + input_dim, hidden_dim),
@@ -324,7 +325,7 @@ class ConditionalFlow(ContinuousMorphism):
 
         # inverse pass through layers (reverse order)
         for layer in reversed(self.layers):
-            z, log_det = layer.inverse(x, z)
+            z, log_det = cast(AffineCouplingLayer, layer).inverse(x, z)
             total_log_det = total_log_det + log_det
 
         # base distribution log-density (standard normal)

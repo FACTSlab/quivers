@@ -30,6 +30,7 @@ import torch
 from quivers.core.objects import SetObject, ProductSet
 from quivers.core.quantales import PRODUCT_FUZZY, Quantale
 from quivers.core.morphisms import (
+    FunctorMorphism,
     Morphism,
     observed,
     identity,
@@ -426,9 +427,10 @@ class _DiagonalFunctor(Functor):
         """A ↦ A × A."""
         return ProductSet(obj, obj)
 
-    def map_morphism(self, morph: Morphism) -> Morphism:
+    def map_morphism(self, morph: Morphism) -> FunctorMorphism:
         """f ↦ f × f (parallel product)."""
-        return morph @ morph
+        result = morph @ morph
+        return FunctorMorphism(self, morph, result.domain, result.codomain)
 
     def map_tensor(self, tensor: torch.Tensor, quantale: Quantale) -> torch.Tensor:
         """Compute (f ⊗ f) tensor from f's tensor."""
@@ -469,10 +471,11 @@ class _StoreFunctor(Functor):
         """A ↦ A × S."""
         return ProductSet(obj, self._store)
 
-    def map_morphism(self, morph: Morphism) -> Morphism:
+    def map_morphism(self, morph: Morphism) -> FunctorMorphism:
         """f ↦ f × id_S."""
         id_s = identity(self._store, quantale=morph.quantale)
-        return morph @ id_s
+        result = morph @ id_s
+        return FunctorMorphism(self, morph, result.domain, result.codomain)
 
     def map_tensor(self, tensor: torch.Tensor, quantale: Quantale) -> torch.Tensor:
         """Compute (f ⊗ id_S) tensor."""
