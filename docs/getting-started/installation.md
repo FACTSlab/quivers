@@ -5,20 +5,21 @@
 - **Python** >= 3.12
 - **PyTorch** >= 2.0
 
-## From Source
-
-Quivers is not yet available on PyPI. Install directly from source:
+## From PyPI
 
 ```bash
-# Clone the repository
-git clone https://github.com/FACTSlab/quivers
-cd quivers
-
-# Install in development mode
-pip install -e .
+pip install quivers
 ```
 
-This installs the `quivers` package with its core dependency on PyTorch.
+## From Source
+
+To install directly from source:
+
+```bash
+git clone https://github.com/FACTSlab/quivers
+cd quivers
+pip install -e .
+```
 
 ## Development Installation
 
