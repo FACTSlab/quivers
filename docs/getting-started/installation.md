@@ -29,8 +29,8 @@ pip install -e ".[dev]"
 ```
 
 This adds:
-- `pytest >= 7.0` — test runner
-- `pytest-cov` — coverage reporting
+- `pytest >= 7.0`: test runner
+- `pytest-cov`: coverage reporting
 
 ## Verify Installation
 
@@ -50,6 +50,6 @@ pytest tests/
 ## Dependencies
 
 Quivers depends on:
-- **torch** (>= 2.0) — differentiable tensors and automatic differentiation
+- **torch** (>= 2.0): differentiable tensors and automatic differentiation
 
 All functionality is built as pure Python atop PyTorch; no other system dependencies are required.

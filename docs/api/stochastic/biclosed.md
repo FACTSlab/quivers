@@ -6,11 +6,11 @@ The abstract framework for weighted deductive parsing, organized into three laye
 
 Five abstract primitives for weighted deductive parsing (Shieber, Schabes & Pereira 1995; Goodman 1999). All parsing algorithms are instances of this framework.
 
-- **`Axiom`** — Creates and populates the initial chart from input.
-- **`Deduction`** — A weighted inference step (chart → chart).
-- **`Goal`** — Extracts the result from a completed chart.
-- **`Schedule`** — Evaluation strategy (CKY bottom-up, Earley, agenda-based).
-- **`DeductiveSystem`** — Ties axiom, deductions, goal, schedule, and semiring into a single `nn.Module`.
+- **`Axiom`:** Creates and populates the initial chart from input.
+- **`Deduction`:** A weighted inference step (chart → chart).
+- **`Goal`:** Extracts the result from a completed chart.
+- **`Schedule`:** Evaluation strategy (CKY bottom-up, Earley, agenda-based).
+- **`DeductiveSystem`:** Ties axiom, deductions, goal, schedule, and semiring into a single `nn.Module`.
 
 ::: quivers.stochastic.deduction
 
@@ -33,10 +33,10 @@ The ~20 atomic schemas (e.g. `ForwardApplication`, `BackwardApplication`) compos
 
 Span-based instantiation of the abstract deductive framework for CKY chart parsing:
 
-- **`LexicalAxiom`** — Populates length-1 spans from a learnable lexicon.
-- **`BinarySpanDeduction`** — Applies binary structural rules with learnable weights.
-- **`UnarySpanDeduction`** — Applies unary rules to convergence.
-- **`SpanGoal`** — Extracts the start-symbol score for the full span.
-- **`CKYSchedule`** — Bottom-up evaluation by span length.
+- **`LexicalAxiom`:** Populates length-1 spans from a learnable lexicon.
+- **`BinarySpanDeduction`:** Applies binary structural rules with learnable weights.
+- **`UnarySpanDeduction`:** Applies unary rules to convergence.
+- **`SpanGoal`:** Extracts the start-symbol score for the full span.
+- **`CKYSchedule`:** Bottom-up evaluation by span length.
 
 ::: quivers.stochastic.span

@@ -223,7 +223,7 @@ print(comp.tensor.shape)  # [3, 3]
 
 ## Next Steps
 
-- **[Architecture](architecture.md)** — learn the package structure and design principles.
-- **[API Reference](../api/index.md)** — detailed documentation of all classes and functions.
-- **Guides** — core types, morphisms, categorical structures, stochastic and continuous morphisms, the DSL, and variational inference.
-- **Tutorials** — end-to-end examples including probabilistic programs and inference.
+- **[Architecture](architecture.md):** learn the package structure and design principles.
+- **[API Reference](../api/index.md):** detailed documentation of all classes and functions.
+- **Guides:** core types, morphisms, categorical structures, stochastic and continuous morphisms, the DSL, and variational inference.
+- **Tutorials:** end-to-end examples including probabilistic programs and inference.

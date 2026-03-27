@@ -329,7 +329,7 @@ This workflow applies to any quivers probabilistic program, from simple Gaussian
 
 ## Further Reading
 
-- **[Inference Guide](../guides/inference.md)** — Detailed documentation of trace, conditioning, guides, ELBO, and SVI
-- **[Continuous Morphisms](../guides/continuous.md)** — More on distributions and spaces
-- **[DSL Guide](../guides/dsl.md)** — Writing models in `.qvr` syntax
-- **Pyro documentation** — For further variational inference theory and techniques
+- **[Inference Guide](../guides/inference.md):** Detailed documentation of trace, conditioning, guides, ELBO, and SVI
+- **[Continuous Morphisms](../guides/continuous.md):** More on distributions and spaces
+- **[DSL Guide](../guides/dsl.md):** Writing models in `.qvr` syntax
+- **Pyro documentation:** For further variational inference theory and techniques
