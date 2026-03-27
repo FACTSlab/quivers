@@ -275,4 +275,4 @@ You have:
 - Used ConditionalNormal and ConditionalBernoulli
 - Integrated programs with PyTorch optimization
 
-Next, see how these concepts apply to linguistic modeling in [Tutorial 4](pds-model.md).
+Next, see fuzzy logic factorization with quantale-enriched composition in [Tutorial 4](fuzzy-factorization.md).

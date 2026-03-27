@@ -122,9 +122,6 @@ class DiscretizedLogitNormal(Morphism):
         Source object.
     codomain : FinSet
         Target object (bins on (0, 1)).
-    n_bins : int or None
-        If provided, overrides codomain cardinality for bin centers.
-        Bin centers are placed at evenly spaced quantiles in (0, 1).
     """
 
     def __init__(

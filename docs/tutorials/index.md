@@ -19,8 +19,8 @@ Build models in the FinStoch category: create Markov kernels (StochasticMorphism
 ### [3. Probabilistic Programs](probabilistic-programs.md)
 Construct MonadicPrograms by hand using the Python API: define continuous spaces, create conditional distribution families (ConditionalNormal, ConditionalBernoulli), build a program with draw and let steps, sample from it, and compute log-densities. Covers destructuring and the distinction between observed and latent sites.
 
-### [4. The PDS Model](pds-model.md)
-Walk through the Probabilistic Dynamic Semantics model for factive predicates: the motivating linguistic application. Write and compile a complete `.qvr` program modeling factivity as projection behavior across truth conditions. Sample from the compiled model and apply conditioning to fit observed responses.
+### [4. Fuzzy Logic Factorization](fuzzy-factorization.md)
+Factorize an observed fuzzy relation into a composition of learnable morphisms under the product fuzzy logic quantale. Covers observed and latent morphisms, noisy-OR composition, BCE loss training, and alternative quantales.
 
 ### [5. Variational Inference](variational-inference.md)
 Set up and run inference on a probabilistic program. Create a MonadicProgram, condition it on observed data, construct an AutoNormalGuide, set up ELBO and SVI, run a training loop, and use Predictive for posterior sampling. Demonstrates the full workflow from model definition to fitted inference.
