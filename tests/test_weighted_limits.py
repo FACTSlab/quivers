@@ -27,15 +27,15 @@ class TestWeight:
 
 class TestDiagram:
     def test_creation(self):
-        a = FinSet("A", 3)
-        b = FinSet("B", 4)
+        a = FinSet(name="A", cardinality=3)
+        b = FinSet(name="B", cardinality=4)
         d = Diagram(objects=[a, b])
         assert d.size == 2
 
 
 class TestRepresentableWeight:
     def test_representable(self):
-        j = FinSet("J", 3)
+        j = FinSet(name="J", cardinality=3)
         w = representable_weight(j, represented_at=1)
 
         assert w.values[0].item() == 0.0
@@ -45,7 +45,7 @@ class TestRepresentableWeight:
 
 class TestTerminalWeight:
     def test_terminal(self):
-        j = FinSet("J", 3)
+        j = FinSet(name="J", cardinality=3)
         w = terminal_weight(j)
 
         for i in range(3):
@@ -55,8 +55,8 @@ class TestTerminalWeight:
 class TestWeightedColimitMorphisms:
     def test_uniform_weight_colimit(self):
         """With uniform weights, colimit is the join over morphisms."""
-        a = FinSet("A", 2)
-        b = FinSet("B", 2)
+        a = FinSet(name="A", cardinality=2)
+        b = FinSet(name="B", cardinality=2)
 
         f1 = observed(a, b, torch.tensor([[0.8, 0.1], [0.2, 0.7]]))
         f2 = observed(a, b, torch.tensor([[0.3, 0.6], [0.5, 0.2]]))
@@ -71,8 +71,8 @@ class TestWeightedColimitMorphisms:
 
     def test_zero_weight_contributes_nothing(self):
         """A zero-weighted morphism should not contribute."""
-        a = FinSet("A", 2)
-        b = FinSet("B", 2)
+        a = FinSet(name="A", cardinality=2)
+        b = FinSet(name="B", cardinality=2)
 
         f1 = observed(a, b, torch.tensor([[0.8, 0.1], [0.2, 0.7]]))
         f2 = observed(a, b, torch.tensor([[0.3, 0.6], [0.5, 0.2]]))
@@ -88,8 +88,8 @@ class TestWeightedColimitMorphisms:
 class TestWeightedLimitMorphisms:
     def test_uniform_weight_limit(self):
         """With uniform unit weights, limit is the meet over morphisms."""
-        a = FinSet("A", 2)
-        b = FinSet("B", 2)
+        a = FinSet(name="A", cardinality=2)
+        b = FinSet(name="B", cardinality=2)
 
         f1 = observed(a, b, torch.tensor([[0.8, 0.1], [0.2, 0.7]]))
         f2 = observed(a, b, torch.tensor([[0.3, 0.6], [0.5, 0.2]]))

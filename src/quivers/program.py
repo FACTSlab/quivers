@@ -32,8 +32,8 @@ class Program(nn.Module):
     Examples
     --------
     >>> from quivers import FinSet, morphism, Program
-    >>> X = FinSet("X", 3)
-    >>> Y = FinSet("Y", 4)
+    >>> X = FinSet(name="X", cardinality=3)
+    >>> Y = FinSet(name="Y", cardinality=4)
     >>> f = morphism(X, Y)
     >>> prog = Program(f)
     >>> out = prog()  # shape (3, 4)

@@ -9,7 +9,7 @@ from quivers.core.quantales import BOOLEAN
 
 class TestIdentityMorphism:
     def test_basic_properties(self):
-        x = FinSet("X", 3)
+        x = FinSet(name="X", cardinality=3)
         idx = identity(x)
 
         assert idx.domain == x
@@ -17,12 +17,12 @@ class TestIdentityMorphism:
         assert idx.tensor.shape == (3, 3)
 
     def test_is_diagonal(self):
-        x = FinSet("X", 4)
+        x = FinSet(name="X", cardinality=4)
         idx = identity(x)
         torch.testing.assert_close(idx.tensor, torch.eye(4))
 
     def test_boolean_identity(self):
-        x = FinSet("X", 3)
+        x = FinSet(name="X", cardinality=3)
         idx = identity(x, quantale=BOOLEAN)
 
         assert idx.quantale is BOOLEAN
@@ -35,8 +35,8 @@ class TestIdentityLaws:
     def test_right_identity(self):
         """f >> identity(Y) ≈ f."""
         torch.manual_seed(42)
-        x = FinSet("X", 3)
-        y = FinSet("Y", 4)
+        x = FinSet(name="X", cardinality=3)
+        y = FinSet(name="Y", cardinality=4)
 
         f_data = torch.rand(3, 4)
         f = observed(x, y, f_data)
@@ -48,8 +48,8 @@ class TestIdentityLaws:
     def test_left_identity(self):
         """identity(X) >> f ≈ f."""
         torch.manual_seed(42)
-        x = FinSet("X", 3)
-        y = FinSet("Y", 4)
+        x = FinSet(name="X", cardinality=3)
+        y = FinSet(name="Y", cardinality=4)
 
         f_data = torch.rand(3, 4)
         f = observed(x, y, f_data)
@@ -61,8 +61,8 @@ class TestIdentityLaws:
     def test_identity_laws_with_latent(self):
         """Identity laws hold for latent (sigmoid-valued) morphisms."""
         torch.manual_seed(42)
-        x = FinSet("X", 3)
-        y = FinSet("Y", 4)
+        x = FinSet(name="X", cardinality=3)
+        y = FinSet(name="Y", cardinality=4)
 
         f = morphism(x, y)
         idx_x = identity(x)
@@ -77,8 +77,8 @@ class TestIdentityLaws:
 
     def test_boolean_identity_laws(self):
         """Identity laws hold in the Boolean quantale."""
-        x = FinSet("X", 3)
-        y = FinSet("Y", 2)
+        x = FinSet(name="X", cardinality=3)
+        y = FinSet(name="Y", cardinality=2)
 
         f_data = torch.tensor(
             [
@@ -101,7 +101,7 @@ class TestIdentityLaws:
 
     def test_identity_compose_identity(self):
         """id >> id = id."""
-        x = FinSet("X", 3)
+        x = FinSet(name="X", cardinality=3)
         idx = identity(x)
         result = idx >> idx
 

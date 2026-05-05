@@ -48,8 +48,8 @@ class DiscretizedNormal(Morphism):
 
     Examples
     --------
-    >>> A = FinSet("A", 2)
-    >>> B = FinSet("response", 7)
+    >>> A = FinSet(name="A", cardinality=2)
+    >>> B = FinSet(name="response", cardinality=7)
     >>> f = DiscretizedNormal(A, B, low=0.0, high=1.0)
     >>> t = f.tensor  # shape (2, 7), rows sum to ~1
     """

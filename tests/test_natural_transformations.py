@@ -10,12 +10,12 @@ from quivers.categorical.natural_transformations import ComponentwiseNT
 
 class TestIdentityFunctor:
     def test_map_object(self):
-        a = FinSet("A", 3)
+        a = FinSet(name="A", cardinality=3)
         assert IDENTITY.map_object(a) == a
 
     def test_map_morphism_tensor(self):
-        a = FinSet("A", 3)
-        b = FinSet("B", 4)
+        a = FinSet(name="A", cardinality=3)
+        b = FinSet(name="B", cardinality=4)
         f_data = torch.rand(3, 4)
         f = observed(a, b, f_data)
         result = IDENTITY.map_morphism(f)
@@ -31,14 +31,14 @@ class TestComposedFunctor:
     def test_composed_identity(self):
         """Id ∘ Id = Id on objects."""
         composed = ComposedFunctor(IDENTITY, IDENTITY)
-        a = FinSet("A", 3)
+        a = FinSet(name="A", cardinality=3)
         assert composed.map_object(a) == a
 
     def test_composed_with_free_monoid(self):
         """Id ∘ FreeMonoid maps A to A*."""
         fm = FreeMonoidFunctor(max_length=1)
         composed = ComposedFunctor(IDENTITY, fm)
-        a = FinSet("A", 2)
+        a = FinSet(name="A", cardinality=2)
         result = composed.map_object(a)
         assert result.size == 3  # 1 + 2
 
@@ -61,7 +61,7 @@ class TestComponentwiseNT:
             IDENTITY,
             component_fn=lambda obj: identity(obj),
         )
-        a = FinSet("A", 3)
+        a = FinSet(name="A", cardinality=3)
         comp = nt.component(a)
         torch.testing.assert_close(comp.tensor, torch.eye(3))
 
@@ -72,8 +72,8 @@ class TestComponentwiseNT:
             IDENTITY,
             component_fn=lambda obj: identity(obj),
         )
-        a = FinSet("A", 3)
-        b = FinSet("B", 4)
+        a = FinSet(name="A", cardinality=3)
+        b = FinSet(name="B", cardinality=4)
         f_data = torch.rand(3, 4)
         f = observed(a, b, f_data)
 

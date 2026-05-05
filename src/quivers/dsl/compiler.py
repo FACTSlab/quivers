@@ -1051,7 +1051,7 @@ class Compiler:
             return UnitInterval(f"_{var_names[0]}")
 
         elif family == "Bernoulli":
-            return FinSet(f"_{var_names[0]}", 2)
+            return FinSet(name=f"_{var_names[0]}", cardinality=2)
 
         elif family == "Uniform":
             # extract bounds from float args
@@ -1299,7 +1299,7 @@ class Compiler:
             # integer literal -> FinSet
             if texpr.name.isdigit():
                 name = bind_name if bind_name else f"_{texpr.name}"
-                return FinSet(name, int(texpr.name))
+                return FinSet(name=name, cardinality=int(texpr.name))
 
             # lookup in object environment
             if texpr.name in self._objects:
@@ -1313,11 +1313,11 @@ class Compiler:
 
         elif isinstance(texpr, TypeProduct):
             components = [self._resolve_type(c) for c in texpr.components]
-            return ProductSet(*components)
+            return ProductSet(components=tuple(components))
 
         elif isinstance(texpr, TypeCoproduct):
             components = [self._resolve_type(c) for c in texpr.components]
-            return CoproductSet(*components)
+            return CoproductSet(components=tuple(components))
 
         else:
             raise CompileError(f"unknown type expression: {type(texpr).__name__}")
@@ -1348,7 +1348,7 @@ class Compiler:
             if any(isinstance(c, ContinuousSpace) for c in components):
                 return ProductSpace(*components)
 
-            return ProductSet(*components)
+            return ProductSet(components=tuple(components))
 
         if not isinstance(texpr, TypeName):
             raise CompileError(

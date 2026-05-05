@@ -20,23 +20,13 @@ This module provides:
 
     CoKleisliCategory — wraps a comonad for composition
 """
-
 from __future__ import annotations
-
 from abc import ABC, abstractmethod
-
 import torch
-
 from quivers.core.objects import SetObject, ProductSet
 from quivers.core.quantales import PRODUCT_FUZZY, Quantale
-from quivers.core.morphisms import (
-    FunctorMorphism,
-    Morphism,
-    observed,
-    identity,
-)
+from quivers.core.morphisms import FunctorMorphism, Morphism, observed, identity
 from quivers.categorical.functors import Functor
-
 
 class Comonad(ABC):
     """Abstract comonad (W, ε, δ) on V-enriched FinSet.
@@ -100,13 +90,8 @@ class Comonad(ABC):
         Morphism
             Composed coKleisli morphism W(A) → C.
         """
-        # δ_A: W(A) → W(W(A))
         delta = self._comultiply_at_domain(f)
-
-        # W(f): W(W(A)) → W(B)
         wf = self.endofunctor.map_morphism(f)
-
-        # δ >> W(f) >> g: W(A) → C
         return delta >> wf >> g
 
     def _comultiply_at_domain(self, f: Morphism) -> Morphism:
@@ -124,11 +109,7 @@ class Comonad(ABC):
         Morphism
             The comultiplication δ_A: W(A) → W(W(A)).
         """
-        raise NotImplementedError(
-            "Subclasses must implement _comultiply_at_domain or "
-            "override cokleisli_compose"
-        )
-
+        raise NotImplementedError('Subclasses must implement _comultiply_at_domain or override cokleisli_compose')
 
 class CoKleisliCategory:
     """The coKleisli category of a comonad.
@@ -183,7 +164,6 @@ class CoKleisliCategory:
         """
         return self._comonad.cokleisli_compose(f, g)
 
-
 class DiagonalComonad(Comonad):
     """The diagonal comonad W(A) = A × A with projection and diagonal.
 
@@ -200,7 +180,7 @@ class DiagonalComonad(Comonad):
         The enrichment algebra. Defaults to PRODUCT_FUZZY.
     """
 
-    def __init__(self, quantale: Quantale | None = None) -> None:
+    def __init__(self, quantale: Quantale | None=None) -> None:
         self._quantale = quantale if quantale is not None else PRODUCT_FUZZY
         self._functor = _DiagonalFunctor()
 
@@ -227,18 +207,12 @@ class DiagonalComonad(Comonad):
         ObservedMorphism
             The projection morphism.
         """
-        # tensor shape: (*obj.shape, *obj.shape, *obj.shape)
-        # i.e. (a1, a2) -> a where a = a1
         import itertools
-
-        source = ProductSet(obj, obj)
+        source = ProductSet(components=(obj, obj))
         data = torch.full((*source.shape, *obj.shape), self._quantale.zero)
-
         for idx in itertools.product(*(range(s) for s in obj.shape)):
             for idx2 in itertools.product(*(range(s) for s in obj.shape)):
-                # source index: idx + idx2, target index: idx
                 data[idx + idx2 + idx] = self._quantale.unit
-
         return observed(source, obj, data, quantale=self._quantale)
 
     def comultiply(self, obj: SetObject) -> Morphism:
@@ -257,23 +231,18 @@ class DiagonalComonad(Comonad):
             The comultiplication morphism.
         """
         import itertools
-
-        source = ProductSet(obj, obj)
-        target = ProductSet(obj, obj, obj, obj)
-
+        source = ProductSet(components=(obj, obj))
+        target = ProductSet(components=(obj, obj, obj, obj))
         data = torch.full((*source.shape, *target.shape), self._quantale.zero)
-
         for idx1 in itertools.product(*(range(s) for s in obj.shape)):
             for idx2 in itertools.product(*(range(s) for s in obj.shape)):
                 src = idx1 + idx2
                 tgt = idx1 + idx2 + idx1 + idx2
                 data[src + tgt] = self._quantale.unit
-
         return observed(source, target, data, quantale=self._quantale)
 
     def cokleisli_compose(self, f: Morphism, g: Morphism) -> Morphism:
         """CoKleisli composition using the diagonal comonad."""
-        # extract A from W(A) = A × A
         delta = self.comultiply(self._extract_base(f.domain))
         wf = self._functor.map_morphism(f)
         return delta >> wf >> g
@@ -296,12 +265,10 @@ class DiagonalComonad(Comonad):
         """
         if isinstance(wa, ProductSet) and len(wa.components) >= 2:
             return wa.components[0]
-
         return wa
 
     def __repr__(self) -> str:
-        return f"DiagonalComonad({self._quantale!r})"
-
+        return f'DiagonalComonad({self._quantale!r})'
 
 class CofreeComonad(Comonad):
     """The cofree comonad W(A) = A × S for a fixed store object S.
@@ -320,11 +287,7 @@ class CofreeComonad(Comonad):
         The enrichment algebra. Defaults to PRODUCT_FUZZY.
     """
 
-    def __init__(
-        self,
-        store: SetObject,
-        quantale: Quantale | None = None,
-    ) -> None:
+    def __init__(self, store: SetObject, quantale: Quantale | None=None) -> None:
         self._store = store
         self._quantale = quantale if quantale is not None else PRODUCT_FUZZY
         self._functor = _StoreFunctor(store)
@@ -358,15 +321,11 @@ class CofreeComonad(Comonad):
             The extraction morphism.
         """
         import itertools
-
-        source = ProductSet(obj, self._store)
+        source = ProductSet(components=(obj, self._store))
         data = torch.full((*source.shape, *obj.shape), self._quantale.zero)
-
         for a_idx in itertools.product(*(range(s) for s in obj.shape)):
             for s_idx in itertools.product(*(range(s) for s in self._store.shape)):
-                # (a, s) -> a
                 data[a_idx + s_idx + a_idx] = self._quantale.unit
-
         return observed(source, obj, data, quantale=self._quantale)
 
     def comultiply(self, obj: SetObject) -> Morphism:
@@ -385,36 +344,26 @@ class CofreeComonad(Comonad):
             The comultiplication morphism.
         """
         import itertools
-
-        source = ProductSet(obj, self._store)
-        target = ProductSet(obj, self._store, self._store)
-
+        source = ProductSet(components=(obj, self._store))
+        target = ProductSet(components=(obj, self._store, self._store))
         data = torch.full((*source.shape, *target.shape), self._quantale.zero)
-
         for a_idx in itertools.product(*(range(s) for s in obj.shape)):
             for s_idx in itertools.product(*(range(s) for s in self._store.shape)):
-                # (a, s) -> (a, s, s)
                 src = a_idx + s_idx
                 tgt = a_idx + s_idx + s_idx
                 data[src + tgt] = self._quantale.unit
-
         return observed(source, target, data, quantale=self._quantale)
 
     def _comultiply_at_domain(self, f: Morphism) -> Morphism:
-        # extract A from W(A) = A × S
         dom = f.domain
-
         if isinstance(dom, ProductSet) and len(dom.components) >= 2:
             base = dom.components[0]
-
         else:
             base = dom
-
         return self.comultiply(base)
 
     def __repr__(self) -> str:
-        return f"CofreeComonad(store={self._store!r})"
-
+        return f'CofreeComonad(store={self._store!r})'
 
 class _DiagonalFunctor(Functor):
     """The diagonal functor W(A) = A × A.
@@ -425,7 +374,7 @@ class _DiagonalFunctor(Functor):
 
     def map_object(self, obj: SetObject) -> ProductSet:
         """A ↦ A × A."""
-        return ProductSet(obj, obj)
+        return ProductSet(components=(obj, obj))
 
     def map_morphism(self, morph: Morphism) -> FunctorMorphism:
         """f ↦ f × f (parallel product)."""
@@ -434,28 +383,20 @@ class _DiagonalFunctor(Functor):
 
     def map_tensor(self, tensor: torch.Tensor, quantale: Quantale) -> torch.Tensor:
         """Compute (f ⊗ f) tensor from f's tensor."""
-        # f has shape (*dom, *cod). we need (*dom, *dom, *cod, *cod)
         n = tensor.ndim
         half = n // 2
-
-        # expand and outer product
         shape_l = list(tensor.shape) + [1] * n
         shape_r = [1] * n + list(tensor.shape)
         outer = quantale.tensor_op(tensor.reshape(shape_l), tensor.reshape(shape_r))
-
-        # permute from [dom_l, cod_l, dom_r, cod_r]
-        #           to [dom_l, dom_r, cod_l, cod_r]
         dom_l = list(range(half))
         cod_l = list(range(half, n))
         dom_r = list(range(n, n + half))
         cod_r = list(range(n + half, 2 * n))
         perm = dom_l + dom_r + cod_l + cod_r
-
         return outer.permute(*perm)
 
     def __repr__(self) -> str:
-        return "DiagonalFunctor()"
-
+        return 'DiagonalFunctor()'
 
 class _StoreFunctor(Functor):
     """The store functor W(A) = A × S for a fixed S.
@@ -469,7 +410,7 @@ class _StoreFunctor(Functor):
 
     def map_object(self, obj: SetObject) -> ProductSet:
         """A ↦ A × S."""
-        return ProductSet(obj, self._store)
+        return ProductSet(components=(obj, self._store))
 
     def map_morphism(self, morph: Morphism) -> FunctorMorphism:
         """f ↦ f × id_S."""
@@ -482,23 +423,17 @@ class _StoreFunctor(Functor):
         id_tensor = quantale.identity_tensor(self._store.shape)
         n_f = tensor.ndim
         n_id = id_tensor.ndim
-
         shape_l = list(tensor.shape) + [1] * n_id
         shape_r = [1] * n_f + list(id_tensor.shape)
         outer = quantale.tensor_op(tensor.reshape(shape_l), id_tensor.reshape(shape_r))
-
-        # permute from [dom_f, cod_f, dom_s, cod_s]
-        #           to [dom_f, dom_s, cod_f, cod_s]
         half_f = n_f // 2
         half_id = n_id // 2
-
         dom_f = list(range(half_f))
         cod_f = list(range(half_f, n_f))
         dom_s = list(range(n_f, n_f + half_id))
         cod_s = list(range(n_f + half_id, n_f + n_id))
         perm = dom_f + dom_s + cod_f + cod_s
-
         return outer.permute(*perm)
 
     def __repr__(self) -> str:
-        return f"StoreFunctor(store={self._store!r})"
+        return f'StoreFunctor(store={self._store!r})'

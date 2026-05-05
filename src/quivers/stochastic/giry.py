@@ -52,7 +52,7 @@ class GiryMonad(Monad):
     >>> from quivers import FinSet
     >>> from quivers.stochastic.giry import GiryMonad, FinStoch
     >>> G = GiryMonad()
-    >>> A = FinSet("A", 3)
+    >>> A = FinSet(name="A", cardinality=3)
     >>> eta = G.unit(A)  # Kronecker delta: shape (3, 3)
     >>> finstoch = FinStoch()
     >>> # compose stochastic morphisms via finstoch.compose(f, g)
@@ -136,9 +136,9 @@ class FinStoch(KleisliCategory):
     >>> from quivers.stochastic import StochasticMorphism
     >>> from quivers.stochastic.giry import FinStoch
     >>> cat = FinStoch()
-    >>> A = FinSet("A", 3)
-    >>> B = FinSet("B", 4)
-    >>> C = FinSet("C", 2)
+    >>> A = FinSet(name="A", cardinality=3)
+    >>> B = FinSet(name="B", cardinality=4)
+    >>> C = FinSet(name="C", cardinality=2)
     >>> f = StochasticMorphism(A, B)
     >>> g = StochasticMorphism(B, C)
     >>> h = cat.compose(f, g)  # A → C via matrix multiplication

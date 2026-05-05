@@ -96,8 +96,8 @@ def condition(f: Morphism, evidence: torch.Tensor) -> ConditionedMorphism:
 
     Examples
     --------
-    >>> A = FinSet("A", 2)
-    >>> B = FinSet("B", 3)
+    >>> A = FinSet(name="A", cardinality=2)
+    >>> B = FinSet(name="B", cardinality=3)
     >>> f = StochasticMorphism(A, B)
     >>> e = torch.tensor([1.0, 0.0, 1.0])  # observe B != 1
     >>> g = condition(f, e)

@@ -9,18 +9,13 @@ This module provides:
     ├── CartesianMonoidal  — (FinSet, ×, 1)
     └── CoproductMonoidal  — (FinSet, +, ∅)
 """
-
 from __future__ import annotations
-
 import itertools
 from abc import ABC, abstractmethod
-
 import torch
-
 from quivers.core.objects import SetObject, FinSet, ProductSet, CoproductSet, Unit
 from quivers.core.morphisms import ObservedMorphism, observed
 from quivers.core.quantales import PRODUCT_FUZZY, Quantale
-
 
 class MonoidalStructure(ABC):
     """Abstract monoidal structure on a category.
@@ -117,12 +112,11 @@ class MonoidalStructure(ABC):
         """
         ...
 
-
 class CartesianMonoidal(MonoidalStructure):
     """Cartesian monoidal structure: (FinSet, ×, 1).
 
     The product is the cartesian product (ProductSet), the unit is
-    the terminal object (Unit = FinSet("1", 1)).
+    the terminal object (Unit = FinSet(name="1", cardinality=1)).
 
     Since ProductSet auto-flattens, the associator (A×B)×C → A×(B×C)
     is the identity (both sides flatten to ProductSet(A,B,C)). The
@@ -134,12 +128,12 @@ class CartesianMonoidal(MonoidalStructure):
         The enrichment algebra for coherence morphisms.
     """
 
-    def __init__(self, quantale: Quantale | None = None) -> None:
+    def __init__(self, quantale: Quantale | None=None) -> None:
         self._quantale = quantale if quantale is not None else PRODUCT_FUZZY
 
     def product(self, a: SetObject, b: SetObject) -> ProductSet:
         """Cartesian product A × B."""
-        return ProductSet(a, b)
+        return ProductSet(components=(a, b))
 
     @property
     def unit(self) -> FinSet:
@@ -152,8 +146,7 @@ class CartesianMonoidal(MonoidalStructure):
         Since ProductSet flattens, both sides are ProductSet(A,B,C),
         so this is the identity morphism.
         """
-        # both flatten to the same ProductSet
-        flat = ProductSet(a, b, c)
+        flat = ProductSet(components=(a, b, c))
         data = self._quantale.identity_tensor(flat.shape)
         return observed(flat, flat, data, quantale=self._quantale)
 
@@ -164,18 +157,12 @@ class CartesianMonoidal(MonoidalStructure):
         Since Unit has size 1, this is a "squeeze" that drops
         the trivial dimension.
         """
-        source = ProductSet(Unit, a)  # shape: (1, *a.shape)
+        source = ProductSet(components=(Unit, a))
         target = a
-
-        # build identity-like tensor from source.shape to target.shape
         data = torch.zeros(*source.shape, *target.shape)
-
         for idx in itertools.product(*(range(s) for s in target.shape)):
-            # source index: (0,) + idx
-            # target index: idx
             src = (0,) + idx
             data[src + idx] = self._quantale.unit
-
         return observed(source, target, data, quantale=self._quantale)
 
     def right_unitor(self, a: SetObject) -> ObservedMorphism:
@@ -183,16 +170,12 @@ class CartesianMonoidal(MonoidalStructure):
 
         The tensor maps (a₁, ..., aₙ, 1) → (a₁, ..., aₙ).
         """
-        source = ProductSet(a, Unit)  # shape: (*a.shape, 1)
+        source = ProductSet(components=(a, Unit))
         target = a
-
         data = torch.zeros(*source.shape, *target.shape)
-
         for idx in itertools.product(*(range(s) for s in target.shape)):
-            # source index: idx + (0,)
             src = idx + (0,)
             data[src + idx] = self._quantale.unit
-
         return observed(source, target, data, quantale=self._quantale)
 
     def braiding(self, a: SetObject, b: SetObject) -> ObservedMorphism:
@@ -201,28 +184,26 @@ class CartesianMonoidal(MonoidalStructure):
         The tensor has shape (*a.shape, *b.shape, *b.shape, *a.shape)
         with unit on entries where the swap holds.
         """
-        source = ProductSet(a, b)
-        target = ProductSet(b, a)
-
+        source = ProductSet(components=(a, b))
+        target = ProductSet(components=(b, a))
         data = torch.full((*source.shape, *target.shape), self._quantale.zero)
-
         for a_idx in itertools.product(*(range(s) for s in a.shape)):
             for b_idx in itertools.product(*(range(s) for s in b.shape)):
                 src = a_idx + b_idx
                 tgt = b_idx + a_idx
                 data[src + tgt] = self._quantale.unit
-
         return observed(source, target, data, quantale=self._quantale)
 
     def __repr__(self) -> str:
-        return "CartesianMonoidal()"
-
+        return 'CartesianMonoidal()'
+from typing import Literal
 
 class EmptySet(SetObject):
     """The initial object (empty set) with cardinality 0.
 
     Used as the unit for coproduct monoidal structure.
     """
+    kind: Literal['empty_set'] = 'empty_set'
 
     @property
     def size(self) -> int:
@@ -232,19 +213,9 @@ class EmptySet(SetObject):
     def shape(self) -> tuple[int, ...]:
         return (0,)
 
-    def __repr__(self) -> str:
-        return "EmptySet()"
-
-    def __hash__(self) -> int:
-        return hash("EmptySet")
-
-    def __eq__(self, other: object) -> bool:
-        return isinstance(other, EmptySet)
-
-
-# module-level singleton
+    def __str__(self) -> str:
+        return 'EmptySet()'
 EMPTY = EmptySet()
-
 
 class CoproductMonoidal(MonoidalStructure):
     """Coproduct monoidal structure: (FinSet, +, ∅).
@@ -258,12 +229,12 @@ class CoproductMonoidal(MonoidalStructure):
         The enrichment algebra for coherence morphisms.
     """
 
-    def __init__(self, quantale: Quantale | None = None) -> None:
+    def __init__(self, quantale: Quantale | None=None) -> None:
         self._quantale = quantale if quantale is not None else PRODUCT_FUZZY
 
     def product(self, a: SetObject, b: SetObject) -> CoproductSet:
         """Coproduct A + B."""
-        return CoproductSet(a, b)
+        return CoproductSet(components=(a, b))
 
     @property
     def unit(self) -> EmptySet:
@@ -276,7 +247,7 @@ class CoproductMonoidal(MonoidalStructure):
         Since CoproductSet flattens, both sides are CoproductSet(A,B,C),
         so this is the identity.
         """
-        flat = CoproductSet(a, b, c)
+        flat = CoproductSet(components=(a, b, c))
         data = self._quantale.identity_tensor(flat.shape)
         return observed(flat, flat, data, quantale=self._quantale)
 
@@ -286,17 +257,13 @@ class CoproductMonoidal(MonoidalStructure):
         Since ∅ has size 0, CoproductSet(∅, A) has the same size as A.
         The unitor is the identity (offset for A starts at 0).
         """
-        source = CoproductSet(EMPTY, a)
+        source = CoproductSet(components=(EMPTY, a))
         target = a
-
-        # source.size == a.size (empty contributes 0)
         n = target.size
         data = torch.zeros(n, *target.shape)
-
         for i in range(n):
             idx = (i,)
             data[idx + idx] = self._quantale.unit
-
         return observed(source, target, data, quantale=self._quantale)
 
     def right_unitor(self, a: SetObject) -> ObservedMorphism:
@@ -304,16 +271,13 @@ class CoproductMonoidal(MonoidalStructure):
 
         Since ∅ has size 0, CoproductSet(A, ∅) has the same size as A.
         """
-        source = CoproductSet(a, EMPTY)
+        source = CoproductSet(components=(a, EMPTY))
         target = a
-
         n = target.size
         data = torch.zeros(n, *target.shape)
-
         for i in range(n):
             idx = (i,)
             data[idx + idx] = self._quantale.unit
-
         return observed(source, target, data, quantale=self._quantale)
 
     def braiding(self, a: SetObject, b: SetObject) -> ObservedMorphism:
@@ -321,24 +285,17 @@ class CoproductMonoidal(MonoidalStructure):
 
         Swaps the two coproduct components.
         """
-        source = CoproductSet(a, b)
-        target = CoproductSet(b, a)
-
+        source = CoproductSet(components=(a, b))
+        target = CoproductSet(components=(b, a))
         n_a = a.size
         n_b = b.size
         n = n_a + n_b
-
         data = torch.full((n, n), self._quantale.zero)
-
-        # elements 0..n_a-1 in source (from A) map to n_b..n-1 in target
         for i in range(n_a):
             data[i, n_b + i] = self._quantale.unit
-
-        # elements n_a..n-1 in source (from B) map to 0..n_b-1 in target
         for i in range(n_b):
             data[n_a + i, i] = self._quantale.unit
-
         return observed(source, target, data, quantale=self._quantale)
 
     def __repr__(self) -> str:
-        return "CoproductMonoidal()"
+        return 'CoproductMonoidal()'

@@ -1130,8 +1130,10 @@ def _infer_domain(
 
         return Euclidean("_inline_domain", 1)
 
-    # multiple variables: create a product
-    from quivers.core.objects import ProductSet
+    # multiple variables: create a product. Use ProductSpace when any
+    # component is a ContinuousSpace; ProductSet for the all-discrete case.
+    from quivers.core.objects import ProductSet, SetObject
+    from quivers.continuous.spaces import ContinuousSpace, ProductSpace
 
     components = []
 
@@ -1144,4 +1146,6 @@ def _infer_domain(
         else:
             components.append(Euclidean(f"_inline_{vn}", 1))
 
-    return ProductSet(*components)
+    if any(isinstance(c, ContinuousSpace) for c in components):
+        return ProductSpace(*components)
+    return ProductSet(components=tuple(components))

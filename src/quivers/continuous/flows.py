@@ -268,7 +268,7 @@ class ConditionalFlow(ContinuousMorphism):
     --------
     >>> from quivers import FinSet
     >>> from quivers.continuous.spaces import Euclidean
-    >>> A = FinSet("context", 10)
+    >>> A = FinSet(name="context", cardinality=10)
     >>> Y = Euclidean("output", 4)
     >>> flow = ConditionalFlow(A, Y, n_layers=6)
     >>> x = torch.tensor([0, 1, 2])

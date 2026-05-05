@@ -1658,7 +1658,7 @@ class TestConditionalBernoulli:
         from quivers.core.objects import FinSet
 
         dom = UnitInterval(1)
-        cod = FinSet("Truth", 2)
+        cod = FinSet(name="Truth", cardinality=2)
         bern = ConditionalBernoulli(dom, cod)
 
         x = torch.rand(8, 1)
@@ -1674,7 +1674,7 @@ class TestConditionalBernoulli:
         from quivers.core.objects import FinSet
 
         dom = UnitInterval(1)
-        cod = FinSet("Truth", 2)
+        cod = FinSet(name="Truth", cardinality=2)
         bern = ConditionalBernoulli(dom, cod)
 
         x = torch.rand(8, 1)
@@ -1692,15 +1692,15 @@ class TestConditionalBernoulli:
 
         dom = UnitInterval(1)
         with pytest.raises(ValueError, match="FinSet.*2"):
-            ConditionalBernoulli(dom, FinSet("Bad", 3))
+            ConditionalBernoulli(dom, FinSet(name="Bad", cardinality=3))
 
     def test_bernoulli_discrete_domain(self):
         """Bernoulli works with discrete (FinSet) domain too."""
         from quivers.continuous.families import ConditionalBernoulli
         from quivers.core.objects import FinSet
 
-        dom = FinSet("Entity", 4)
-        cod = FinSet("Truth", 2)
+        dom = FinSet(name="Entity", cardinality=4)
+        cod = FinSet(name="Truth", cardinality=2)
         bern = ConditionalBernoulli(dom, cod)
 
         x = torch.tensor([0, 1, 2, 3])
@@ -1715,7 +1715,7 @@ class TestConditionalBernoulli:
         from quivers.core.objects import FinSet
 
         dom = UnitInterval(1)
-        cod = FinSet("Truth", 2)
+        cod = FinSet(name="Truth", cardinality=2)
         bern = ConditionalBernoulli(dom, cod)
 
         x = torch.rand(4, 1)
@@ -1784,7 +1784,7 @@ class TestConditionalCategorical:
         from quivers.core.objects import FinSet
 
         dom = Euclidean("X", 3)
-        cod = FinSet("Color", 5)
+        cod = FinSet(name="Color", cardinality=5)
         cat = ConditionalCategorical(dom, cod)
 
         x = torch.randn(8, 3)
@@ -1800,7 +1800,7 @@ class TestConditionalCategorical:
         from quivers.core.objects import FinSet
 
         dom = Euclidean("X", 2)
-        cod = FinSet("Cat", 4)
+        cod = FinSet(name="Cat", cardinality=4)
         cat = ConditionalCategorical(dom, cod)
 
         x = torch.randn(8, 2)
@@ -1843,7 +1843,7 @@ class TestConditionalCategorical:
         from quivers.core.objects import FinSet
 
         dom = Euclidean("X", 2)
-        cod = FinSet("Cat", 4)
+        cod = FinSet(name="Cat", cardinality=4)
         cat = ConditionalCategorical(dom, cod)
 
         x = torch.randn(6, 2)

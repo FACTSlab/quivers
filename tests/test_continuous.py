@@ -180,7 +180,7 @@ class TestProductSpace:
 
 class TestConditionalNormalDiscrete:
     def test_basic_shapes(self):
-        A = FinSet("A", 5)
+        A = FinSet(name="A", cardinality=5)
         Y = Euclidean("Y", 3)
         f = ConditionalNormal(A, Y)
 
@@ -189,7 +189,7 @@ class TestConditionalNormalDiscrete:
         assert samples.shape == (3, 3)
 
     def test_log_prob_shape(self):
-        A = FinSet("A", 4)
+        A = FinSet(name="A", cardinality=4)
         Y = Euclidean("Y", 2)
         f = ConditionalNormal(A, Y)
 
@@ -199,7 +199,7 @@ class TestConditionalNormalDiscrete:
         assert lp.shape == (4,)
 
     def test_log_prob_finite(self):
-        A = FinSet("A", 3)
+        A = FinSet(name="A", cardinality=3)
         Y = Euclidean("Y", 1)
         f = ConditionalNormal(A, Y)
 
@@ -209,7 +209,7 @@ class TestConditionalNormalDiscrete:
         assert torch.isfinite(lp).all()
 
     def test_gradient_flow(self):
-        A = FinSet("A", 3)
+        A = FinSet(name="A", cardinality=3)
         Y = Euclidean("Y", 2)
         f = ConditionalNormal(A, Y)
 
@@ -224,7 +224,7 @@ class TestConditionalNormalDiscrete:
         assert has_grad
 
     def test_sample_shape(self):
-        A = FinSet("A", 3)
+        A = FinSet(name="A", cardinality=3)
         Y = Euclidean("Y", 2)
         f = ConditionalNormal(A, Y)
 
@@ -233,7 +233,7 @@ class TestConditionalNormalDiscrete:
         assert samples.shape == (5, 2, 2)
 
     def test_different_domain_elements_differ(self):
-        A = FinSet("A", 3)
+        A = FinSet(name="A", cardinality=3)
         Y = Euclidean("Y", 2)
         f = ConditionalNormal(A, Y)
 
@@ -286,7 +286,7 @@ class TestConditionalNormalContinuous:
 
 class TestConditionalLogitNormal:
     def test_samples_in_unit_interval(self):
-        A = FinSet("A", 3)
+        A = FinSet(name="A", cardinality=3)
         Y = Euclidean("Y", 2, low=0.0, high=1.0)
         f = ConditionalLogitNormal(A, Y)
 
@@ -296,7 +296,7 @@ class TestConditionalLogitNormal:
         assert (samples < 1.0).all()
 
     def test_log_prob_finite(self):
-        A = FinSet("A", 2)
+        A = FinSet(name="A", cardinality=2)
         Y = Euclidean("Y", 1, low=0.0, high=1.0)
         f = ConditionalLogitNormal(A, Y)
 
@@ -308,7 +308,7 @@ class TestConditionalLogitNormal:
 
 class TestConditionalBeta:
     def test_samples_in_unit_interval(self):
-        A = FinSet("A", 4)
+        A = FinSet(name="A", cardinality=4)
         Y = Euclidean("Y", 2, low=0.0, high=1.0)
         f = ConditionalBeta(A, Y)
 
@@ -319,7 +319,7 @@ class TestConditionalBeta:
         assert (samples < 1.0).all()
 
     def test_log_prob(self):
-        A = FinSet("A", 2)
+        A = FinSet(name="A", cardinality=2)
         Y = Euclidean("Y", 1, low=0.0, high=1.0)
         f = ConditionalBeta(A, Y)
 
@@ -330,7 +330,7 @@ class TestConditionalBeta:
         assert torch.isfinite(lp).all()
 
     def test_gradient_flow(self):
-        A = FinSet("A", 2)
+        A = FinSet(name="A", cardinality=2)
         Y = Euclidean("Y", 2, low=0.0, high=1.0)
         f = ConditionalBeta(A, Y)
 
@@ -347,7 +347,7 @@ class TestConditionalBeta:
 
 class TestConditionalTruncatedNormal:
     def test_samples_in_bounds(self):
-        A = FinSet("A", 3)
+        A = FinSet(name="A", cardinality=3)
         Y = Euclidean("Y", 2, low=-1.0, high=1.0)
         f = ConditionalTruncatedNormal(A, Y)
 
@@ -358,13 +358,13 @@ class TestConditionalTruncatedNormal:
         assert (samples <= 1.0).all()
 
     def test_requires_bounded_codomain(self):
-        A = FinSet("A", 2)
+        A = FinSet(name="A", cardinality=2)
         Y = Euclidean("Y", 1)
         with pytest.raises(ValueError, match="bounded"):
             ConditionalTruncatedNormal(A, Y)
 
     def test_log_prob(self):
-        A = FinSet("A", 2)
+        A = FinSet(name="A", cardinality=2)
         Y = Euclidean("Y", 1, low=0.0, high=1.0)
         f = ConditionalTruncatedNormal(A, Y)
 
@@ -377,7 +377,7 @@ class TestConditionalTruncatedNormal:
 
 class TestConditionalDirichlet:
     def test_samples_on_simplex(self):
-        A = FinSet("A", 3)
+        A = FinSet(name="A", cardinality=3)
         Y = Simplex("probs", 4)
         f = ConditionalDirichlet(A, Y)
 
@@ -392,7 +392,7 @@ class TestConditionalDirichlet:
         )
 
     def test_log_prob(self):
-        A = FinSet("A", 2)
+        A = FinSet(name="A", cardinality=2)
         Y = Simplex("probs", 3)
         f = ConditionalDirichlet(A, Y)
 
@@ -427,11 +427,11 @@ class TestSampledComposition:
 
     def test_discrete_to_continuous(self):
         """Discrete >> continuous composition."""
-        A = FinSet("A", 5)
+        A = FinSet(name="A", cardinality=5)
         Y = Euclidean("Y", 2)
 
-        f = StochasticMorphism(A, FinSet("mid", 3))
-        g = ConditionalNormal(FinSet("mid", 3), Y)
+        f = StochasticMorphism(A, FinSet(name="mid", cardinality=3))
+        g = ConditionalNormal(FinSet(name="mid", cardinality=3), Y)
 
         h = f >> g
         assert isinstance(h, SampledComposition)
@@ -442,8 +442,8 @@ class TestSampledComposition:
 
     def test_log_prob_exact_discrete_intermediate(self):
         """When intermediate is discrete, log_prob is exact."""
-        A = FinSet("A", 3)
-        B = FinSet("B", 4)
+        A = FinSet(name="A", cardinality=3)
+        B = FinSet(name="B", cardinality=4)
         Y = Euclidean("Y", 2)
 
         f = StochasticMorphism(A, B)
@@ -475,8 +475,8 @@ class TestSampledComposition:
 
 class TestDiscreteAsContinuous:
     def test_wrap_stochastic_morphism(self):
-        A = FinSet("A", 3)
-        B = FinSet("B", 4)
+        A = FinSet(name="A", cardinality=3)
+        B = FinSet(name="B", cardinality=4)
         f = StochasticMorphism(A, B)
         fc = DiscreteAsContinuous(f)
 
@@ -487,8 +487,8 @@ class TestDiscreteAsContinuous:
         assert (samples < 4).all()
 
     def test_log_prob(self):
-        A = FinSet("A", 2)
-        B = FinSet("B", 3)
+        A = FinSet(name="A", cardinality=2)
+        B = FinSet(name="B", cardinality=3)
         f = StochasticMorphism(A, B)
         fc = DiscreteAsContinuous(f)
 
@@ -502,8 +502,8 @@ class TestDiscreteAsContinuous:
 
     def test_rshift_discrete_continuous(self):
         """discrete_morphism >> continuous_morphism via __rrshift__."""
-        A = FinSet("A", 3)
-        B = FinSet("B", 4)
+        A = FinSet(name="A", cardinality=3)
+        B = FinSet(name="B", cardinality=4)
         Y = Euclidean("Y", 2)
 
         f = StochasticMorphism(A, B)
@@ -562,7 +562,7 @@ class TestDiscretize:
 
 class TestEmbed:
     def test_basic(self):
-        A = FinSet("A", 5)
+        A = FinSet(name="A", cardinality=5)
         Y = Euclidean("Y", 2, low=0.0, high=1.0)
         e = Embed(A, Y)
 
@@ -571,7 +571,7 @@ class TestEmbed:
         assert samples.shape == (5, 2)
 
     def test_log_prob(self):
-        A = FinSet("A", 3)
+        A = FinSet(name="A", cardinality=3)
         Y = Euclidean("Y", 2, low=0.0, high=1.0)
         e = Embed(A, Y)
 
@@ -582,7 +582,7 @@ class TestEmbed:
         assert torch.isfinite(lp).all()
 
     def test_gradient_flow(self):
-        A = FinSet("A", 3)
+        A = FinSet(name="A", cardinality=3)
         Y = Euclidean("Y", 1)
         e = Embed(A, Y)
 
@@ -595,7 +595,7 @@ class TestEmbed:
         assert e.centers.grad.abs().sum() > 0
 
     def test_sample_shape(self):
-        A = FinSet("A", 3)
+        A = FinSet(name="A", cardinality=3)
         Y = Euclidean("Y", 2)
         e = Embed(A, Y)
 
@@ -611,7 +611,7 @@ class TestEmbed:
 
 class TestAffineCouplingLayer:
     def test_forward_inverse_roundtrip(self):
-        A = FinSet("A", 3)
+        A = FinSet(name="A", cardinality=3)
         layer = AffineCouplingLayer(A, dim=4, mask_even=True)
 
         x = torch.tensor([0, 1, 2])
@@ -630,7 +630,7 @@ class TestAffineCouplingLayer:
 
 class TestConditionalFlow:
     def test_basic_discrete_domain(self):
-        A = FinSet("A", 5)
+        A = FinSet(name="A", cardinality=5)
         Y = Euclidean("Y", 4)
         flow = ConditionalFlow(A, Y, n_layers=4)
 
@@ -648,7 +648,7 @@ class TestConditionalFlow:
         assert samples.shape == (3, 4)
 
     def test_log_prob(self):
-        A = FinSet("A", 3)
+        A = FinSet(name="A", cardinality=3)
         Y = Euclidean("Y", 4)
         flow = ConditionalFlow(A, Y, n_layers=4)
 
@@ -659,7 +659,7 @@ class TestConditionalFlow:
         assert torch.isfinite(lp).all()
 
     def test_gradient_flow(self):
-        A = FinSet("A", 3)
+        A = FinSet(name="A", cardinality=3)
         Y = Euclidean("Y", 4)
         flow = ConditionalFlow(A, Y, n_layers=4)
 
@@ -674,13 +674,13 @@ class TestConditionalFlow:
         assert has_grad
 
     def test_requires_dim_ge_2(self):
-        A = FinSet("A", 3)
+        A = FinSet(name="A", cardinality=3)
         Y = Euclidean("Y", 1)
         with pytest.raises(ValueError, match="dim >= 2"):
             ConditionalFlow(A, Y)
 
     def test_sample_shape(self):
-        A = FinSet("A", 3)
+        A = FinSet(name="A", cardinality=3)
         Y = Euclidean("Y", 4)
         flow = ConditionalFlow(A, Y, n_layers=2)
 
@@ -690,7 +690,7 @@ class TestConditionalFlow:
 
     def test_log_prob_consistency(self):
         """Log-probs should be higher near the mode of the distribution."""
-        A = FinSet("A", 1)
+        A = FinSet(name="A", cardinality=1)
         Y = Euclidean("Y", 2)
         flow = ConditionalFlow(A, Y, n_layers=4, hidden_dim=32)
 
@@ -715,8 +715,8 @@ class TestConditionalFlow:
 class TestIntegration:
     def test_discrete_continuous_pipeline(self):
         """FinSet -> FinSet -> Euclidean pipeline (PDS-like)."""
-        A = FinSet("context", 5)
-        B = FinSet("state", 3)
+        A = FinSet(name="context", cardinality=5)
+        B = FinSet(name="state", cardinality=3)
         Y = Euclidean("response", 2)
 
         f = StochasticMorphism(A, B)
@@ -730,7 +730,7 @@ class TestIntegration:
 
     def test_embed_then_continuous(self):
         """FinSet -Embed-> Euclidean -ConditionalNormal-> Euclidean."""
-        A = FinSet("A", 4)
+        A = FinSet(name="A", cardinality=4)
         mid = Euclidean("mid", 2, low=0.0, high=1.0)
         Y = Euclidean("Y", 1)
 
@@ -778,7 +778,7 @@ class TestIntegration:
         """A minimal training loop with continuous morphisms."""
         torch.manual_seed(42)
 
-        A = FinSet("A", 3)
+        A = FinSet(name="A", cardinality=3)
         Y = Euclidean("Y", 2)
         f = ConditionalNormal(A, Y)
 
@@ -811,7 +811,7 @@ class TestIntegration:
 
     def test_parameter_count(self):
         """Continuous morphisms should have learnable parameters."""
-        A = FinSet("A", 5)
+        A = FinSet(name="A", cardinality=5)
         Y = Euclidean("Y", 3)
         f = ConditionalNormal(A, Y)
 
@@ -821,8 +821,8 @@ class TestIntegration:
 
     def test_mixed_operators(self):
         """The >> operator works between discrete and continuous morphisms."""
-        A = FinSet("A", 3)
-        B = FinSet("B", 4)
+        A = FinSet(name="A", cardinality=3)
+        B = FinSet(name="B", cardinality=4)
         Y = Euclidean("Y", 2)
 
         discrete = StochasticMorphism(A, B)
@@ -858,7 +858,7 @@ class TestLocScaleFamilies:
         return request.param
 
     def test_rsample_shape_discrete(self, family_cls):
-        A = FinSet("A", 5)
+        A = FinSet(name="A", cardinality=5)
         Y = Euclidean("Y", 3)
         f = family_cls(A, Y)
 
@@ -867,7 +867,7 @@ class TestLocScaleFamilies:
         assert s.shape == (3, 3)
 
     def test_log_prob_shape_discrete(self, family_cls):
-        A = FinSet("A", 4)
+        A = FinSet(name="A", cardinality=4)
         Y = Euclidean("Y", 2)
         f = family_cls(A, Y)
 
@@ -878,7 +878,7 @@ class TestLocScaleFamilies:
         assert torch.isfinite(lp).all()
 
     def test_gradient_flow(self, family_cls):
-        A = FinSet("A", 3)
+        A = FinSet(name="A", cardinality=3)
         Y = Euclidean("Y", 2)
         f = family_cls(A, Y)
 
@@ -901,7 +901,7 @@ class TestLocScaleFamilies:
 
     def test_lognormal_positive(self):
         """LogNormal samples should be positive."""
-        A = FinSet("A", 3)
+        A = FinSet(name="A", cardinality=3)
         Y = Euclidean("Y", 2)
         f = ConditionalLogNormal(A, Y)
 
@@ -935,7 +935,7 @@ class TestPositiveFamilies:
         return request.param
 
     def test_rsample_shape(self, family_cls):
-        A = FinSet("A", 4)
+        A = FinSet(name="A", cardinality=4)
         Y = Euclidean("Y", 2)
         f = family_cls(A, Y)
 
@@ -944,7 +944,7 @@ class TestPositiveFamilies:
         assert s.shape == (4, 2)
 
     def test_samples_positive(self, family_cls):
-        A = FinSet("A", 3)
+        A = FinSet(name="A", cardinality=3)
         Y = Euclidean("Y", 2)
         f = family_cls(A, Y)
 
@@ -953,7 +953,7 @@ class TestPositiveFamilies:
         assert (s > 0).all()
 
     def test_log_prob_finite(self, family_cls):
-        A = FinSet("A", 3)
+        A = FinSet(name="A", cardinality=3)
         Y = Euclidean("Y", 2)
         f = family_cls(A, Y)
 
@@ -965,7 +965,7 @@ class TestPositiveFamilies:
         assert torch.isfinite(lp).all()
 
     def test_gradient_flow(self, family_cls):
-        A = FinSet("A", 3)
+        A = FinSet(name="A", cardinality=3)
         Y = Euclidean("Y", 2)
         f = family_cls(A, Y)
 
@@ -996,7 +996,7 @@ class TestUnitIntervalFamilies:
         return request.param
 
     def test_rsample_shape(self, family_cls):
-        A = FinSet("A", 4)
+        A = FinSet(name="A", cardinality=4)
         Y = Euclidean("Y", 2)
         f = family_cls(A, Y)
 
@@ -1005,7 +1005,7 @@ class TestUnitIntervalFamilies:
         assert s.shape == (4, 2)
 
     def test_samples_in_unit_interval(self, family_cls):
-        A = FinSet("A", 3)
+        A = FinSet(name="A", cardinality=3)
         Y = Euclidean("Y", 2)
         f = family_cls(A, Y)
 
@@ -1015,7 +1015,7 @@ class TestUnitIntervalFamilies:
         assert (s < 1).all()
 
     def test_log_prob_finite(self, family_cls):
-        A = FinSet("A", 3)
+        A = FinSet(name="A", cardinality=3)
         Y = Euclidean("Y", 2)
         f = family_cls(A, Y)
 
@@ -1033,7 +1033,7 @@ class TestUnitIntervalFamilies:
 
 class TestFisherSnedecor:
     def test_rsample_shape(self):
-        A = FinSet("A", 3)
+        A = FinSet(name="A", cardinality=3)
         Y = Euclidean("Y", 2)
         f = ConditionalFisherSnedecor(A, Y)
 
@@ -1043,7 +1043,7 @@ class TestFisherSnedecor:
         assert (s > 0).all()
 
     def test_log_prob_finite(self):
-        A = FinSet("A", 3)
+        A = FinSet(name="A", cardinality=3)
         Y = Euclidean("Y", 2)
         f = ConditionalFisherSnedecor(A, Y)
 
@@ -1061,7 +1061,7 @@ class TestFisherSnedecor:
 
 class TestConditionalUniform:
     def test_rsample_shape(self):
-        A = FinSet("A", 3)
+        A = FinSet(name="A", cardinality=3)
         Y = Euclidean("Y", 2)
         f = ConditionalUniform(A, Y)
 
@@ -1070,7 +1070,7 @@ class TestConditionalUniform:
         assert s.shape == (3, 2)
 
     def test_log_prob_finite(self):
-        A = FinSet("A", 3)
+        A = FinSet(name="A", cardinality=3)
         Y = Euclidean("Y", 2)
         f = ConditionalUniform(A, Y)
 
@@ -1097,7 +1097,7 @@ class TestConditionalUniform:
 
 class TestConditionalMultivariateNormal:
     def test_rsample_shape(self):
-        A = FinSet("A", 3)
+        A = FinSet(name="A", cardinality=3)
         Y = Euclidean("Y", 4)
         f = ConditionalMultivariateNormal(A, Y)
 
@@ -1106,7 +1106,7 @@ class TestConditionalMultivariateNormal:
         assert s.shape == (3, 4)
 
     def test_log_prob_shape(self):
-        A = FinSet("A", 3)
+        A = FinSet(name="A", cardinality=3)
         Y = Euclidean("Y", 4)
         f = ConditionalMultivariateNormal(A, Y)
 
@@ -1117,7 +1117,7 @@ class TestConditionalMultivariateNormal:
         assert torch.isfinite(lp).all()
 
     def test_gradient_flow(self):
-        A = FinSet("A", 3)
+        A = FinSet(name="A", cardinality=3)
         Y = Euclidean("Y", 3)
         f = ConditionalMultivariateNormal(A, Y)
 
@@ -1141,7 +1141,7 @@ class TestConditionalMultivariateNormal:
 
 class TestConditionalLowRankMVN:
     def test_rsample_shape(self):
-        A = FinSet("A", 3)
+        A = FinSet(name="A", cardinality=3)
         Y = Euclidean("Y", 4)
         f = ConditionalLowRankMVN(A, Y, rank=2)
 
@@ -1150,7 +1150,7 @@ class TestConditionalLowRankMVN:
         assert s.shape == (3, 4)
 
     def test_log_prob_shape(self):
-        A = FinSet("A", 3)
+        A = FinSet(name="A", cardinality=3)
         Y = Euclidean("Y", 4)
         f = ConditionalLowRankMVN(A, Y, rank=2)
 
@@ -1161,7 +1161,7 @@ class TestConditionalLowRankMVN:
         assert torch.isfinite(lp).all()
 
     def test_default_rank(self):
-        A = FinSet("A", 3)
+        A = FinSet(name="A", cardinality=3)
         Y = Euclidean("Y", 4)
         f = ConditionalLowRankMVN(A, Y)
 
@@ -1176,7 +1176,7 @@ class TestConditionalLowRankMVN:
 
 class TestConditionalRelaxedBernoulli:
     def test_rsample_shape(self):
-        A = FinSet("A", 3)
+        A = FinSet(name="A", cardinality=3)
         Y = Euclidean("Y", 4)
         f = ConditionalRelaxedBernoulli(A, Y)
 
@@ -1185,7 +1185,7 @@ class TestConditionalRelaxedBernoulli:
         assert s.shape == (3, 4)
 
     def test_samples_in_unit_interval(self):
-        A = FinSet("A", 3)
+        A = FinSet(name="A", cardinality=3)
         Y = Euclidean("Y", 4)
         f = ConditionalRelaxedBernoulli(A, Y)
 
@@ -1195,7 +1195,7 @@ class TestConditionalRelaxedBernoulli:
         assert (s < 1).all()
 
     def test_log_prob_finite(self):
-        A = FinSet("A", 3)
+        A = FinSet(name="A", cardinality=3)
         Y = Euclidean("Y", 2)
         f = ConditionalRelaxedBernoulli(A, Y)
 
@@ -1206,7 +1206,7 @@ class TestConditionalRelaxedBernoulli:
         assert torch.isfinite(lp).all()
 
     def test_custom_temperature(self):
-        A = FinSet("A", 3)
+        A = FinSet(name="A", cardinality=3)
         Y = Euclidean("Y", 2)
         f = ConditionalRelaxedBernoulli(A, Y, temperature=0.1)
 
@@ -1215,7 +1215,7 @@ class TestConditionalRelaxedBernoulli:
 
 class TestConditionalRelaxedOneHotCategorical:
     def test_rsample_shape(self):
-        A = FinSet("A", 3)
+        A = FinSet(name="A", cardinality=3)
         Y = Simplex("Y", 5)
         f = ConditionalRelaxedOneHotCategorical(A, Y)
 
@@ -1224,7 +1224,7 @@ class TestConditionalRelaxedOneHotCategorical:
         assert s.shape == (3, 5)
 
     def test_samples_on_simplex(self):
-        A = FinSet("A", 3)
+        A = FinSet(name="A", cardinality=3)
         Y = Simplex("Y", 4)
         f = ConditionalRelaxedOneHotCategorical(A, Y)
 
@@ -1234,7 +1234,7 @@ class TestConditionalRelaxedOneHotCategorical:
         assert torch.allclose(s.sum(dim=-1), torch.ones(3), atol=1e-5)
 
     def test_log_prob_finite(self):
-        A = FinSet("A", 3)
+        A = FinSet(name="A", cardinality=3)
         Y = Simplex("Y", 4)
         f = ConditionalRelaxedOneHotCategorical(A, Y)
 
@@ -1252,7 +1252,7 @@ class TestConditionalRelaxedOneHotCategorical:
 
 class TestConditionalWishart:
     def test_rsample_shape(self):
-        A = FinSet("A", 3)
+        A = FinSet(name="A", cardinality=3)
         Y = Euclidean("Y", 2)  # 2x2 matrices, flattened to 4
         f = ConditionalWishart(A, Y)
 
@@ -1262,7 +1262,7 @@ class TestConditionalWishart:
         assert s.shape == (3, 4)
 
     def test_log_prob_finite(self):
-        A = FinSet("A", 3)
+        A = FinSet(name="A", cardinality=3)
         Y = Euclidean("Y", 2)
         f = ConditionalWishart(A, Y)
 
@@ -1282,7 +1282,7 @@ class TestFactoryFamilySampleShape:
     """Verify sample_shape works for factory-generated families."""
 
     def test_cauchy_sample_shape(self):
-        A = FinSet("A", 3)
+        A = FinSet(name="A", cardinality=3)
         Y = Euclidean("Y", 2)
         f = ConditionalCauchy(A, Y)
 
@@ -1291,7 +1291,7 @@ class TestFactoryFamilySampleShape:
         assert s.shape == (5, 2, 2)
 
     def test_gamma_sample_shape(self):
-        A = FinSet("A", 3)
+        A = FinSet(name="A", cardinality=3)
         Y = Euclidean("Y", 2)
         f = ConditionalGamma(A, Y)
 

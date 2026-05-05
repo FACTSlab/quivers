@@ -8,9 +8,9 @@ Quick start::
 
     from quivers import FinSet, morphism, observed, identity, Program
 
-    X = FinSet("X", 3)
-    Y = FinSet("Y", 4)
-    Z = FinSet("Z", 2)
+    X = FinSet(name="X", cardinality=3)
+    Y = FinSet(name="Y", cardinality=4)
+    Z = FinSet(name="Z", cardinality=2)
 
     f = morphism(X, Y)           # latent (learnable)
     g = morphism(Y, Z)           # latent (learnable)
