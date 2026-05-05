@@ -288,7 +288,7 @@ class ForwardComposition(BinaryRuleSchema):
             and right.direction == "/"
             and left.argument == right.result
         ):
-            return SlashCategory(left.result, right.argument, "/")
+            return SlashCategory(result=left.result, argument=right.argument, direction="/")
 
         return None
 
@@ -308,7 +308,7 @@ class BackwardComposition(BinaryRuleSchema):
             and right.direction == "\\"
             and right.argument == left.result
         ):
-            return SlashCategory(right.result, left.argument, "\\")
+            return SlashCategory(result=right.result, argument=left.argument, direction="\\")
 
         return None
 
@@ -328,7 +328,7 @@ class ForwardCrossedComposition(BinaryRuleSchema):
             and right.direction == "\\"
             and left.argument == right.result
         ):
-            return SlashCategory(left.result, right.argument, "\\")
+            return SlashCategory(result=left.result, argument=right.argument, direction="\\")
 
         return None
 
@@ -348,7 +348,7 @@ class BackwardCrossedComposition(BinaryRuleSchema):
             and right.direction == "\\"
             and right.argument == left.result
         ):
-            return SlashCategory(right.result, left.argument, "/")
+            return SlashCategory(result=right.result, argument=left.argument, direction="/")
 
         return None
 
@@ -397,7 +397,7 @@ class TensorIntroduction(BinaryRuleSchema):
         return "⊗-intro"
 
     def match(self, left, right):
-        return ProductCategory(left, right)
+        return ProductCategory(left=left, right=right)
 
 
 class LeftUnitElimination(BinaryRuleSchema):
@@ -462,7 +462,7 @@ class ModalApplication(BinaryRuleSchema):
             and inner_left.direction == "/"
             and inner_left.argument == inner_right
         ):
-            return ModalCategory(self._modality, inner_left.result)
+            return ModalCategory(modality=self._modality, inner=inner_left.result)
 
         # ◇A ⊗ ◇(A\C) → ◇C
         if (
@@ -470,7 +470,7 @@ class ModalApplication(BinaryRuleSchema):
             and inner_right.direction == "\\"
             and inner_right.argument == inner_left
         ):
-            return ModalCategory(self._modality, inner_right.result)
+            return ModalCategory(modality=self._modality, inner=inner_right.result)
 
         return None
 
@@ -491,10 +491,10 @@ class RightLifting(UnaryRuleSchema):
         results = []
 
         for c in system:
-            inner = SlashCategory(c, cat, "\\")
+            inner = SlashCategory(result=c, argument=cat, direction="\\")
 
             if inner in system:
-                raised = SlashCategory(c, inner, "/")
+                raised = SlashCategory(result=c, argument=inner, direction="/")
 
                 if raised in system:
                     results.append(raised)
@@ -513,10 +513,10 @@ class LeftLifting(UnaryRuleSchema):
         results = []
 
         for c in system:
-            inner = SlashCategory(c, cat, "/")
+            inner = SlashCategory(result=c, argument=cat, direction="/")
 
             if inner in system:
-                raised = SlashCategory(c, inner, "\\")
+                raised = SlashCategory(result=c, argument=inner, direction="\\")
 
                 if raised in system:
                     results.append(raised)
@@ -585,7 +585,7 @@ class ModalInjection(UnaryRuleSchema):
         return f"{self._modality}-intro"
 
     def match(self, cat: Category, system: CategorySystem) -> list[Category]:
-        modal = ModalCategory(self._modality, cat)
+        modal = ModalCategory(modality=self._modality, inner=cat)
 
         if modal in system:
             return [modal]
@@ -668,7 +668,7 @@ class GeneralizedComposition(RuleSchema):
             return
 
         if right.result == left.argument:
-            result = SlashCategory(left.result, right.argument, right.direction)
+            result = SlashCategory(result=left.result, argument=right.argument, direction=right.direction)
 
             if result in system:
                 rules.append((system.index(result), li, ri))
@@ -775,7 +775,7 @@ def _instantiate_pattern(
         if pattern.name in variables:
             return bindings.get(pattern.name)
 
-        return AtomicCategory(pattern.name)
+        return AtomicCategory(name=pattern.name)
 
     elif isinstance(pattern, CatPatternSlash):
         result = _instantiate_pattern(pattern.result, bindings, variables)
@@ -784,7 +784,7 @@ def _instantiate_pattern(
         if result is None or argument is None:
             return None
 
-        return SlashCategory(result, argument, pattern.direction)
+        return SlashCategory(result=result, argument=argument, direction=pattern.direction)
 
     elif isinstance(pattern, CatPatternProduct):
         left = _instantiate_pattern(pattern.left, bindings, variables)
@@ -793,7 +793,7 @@ def _instantiate_pattern(
         if left is None or right is None:
             return None
 
-        return ProductCategory(left, right)
+        return ProductCategory(left=left, right=right)
 
     return None
 
