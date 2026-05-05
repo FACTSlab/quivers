@@ -262,7 +262,6 @@ from quivers.dsl import (
     parse as dsl_parse,
     loads as dsl_loads,
     load as dsl_load,
-    LexError,
     ParseError,
     CompileError,
 )
@@ -480,7 +479,6 @@ __all__ = [
     "dsl_parse",
     "dsl_loads",
     "dsl_load",
-    "LexError",
     "ParseError",
     "CompileError",
 ]

@@ -30,7 +30,7 @@ classifiers = [
 ]
 dependencies = [
     "torch>=2.0",
-    "didactic>=0.3.2",
+    "didactic>=0.5.0",
     "panproto>=0.45.0",
     "panproto-grammars-all>=0.45.0",
 ]

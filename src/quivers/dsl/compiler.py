@@ -58,6 +58,7 @@ from quivers.dsl.ast_nodes import (
     TypeCoproduct,
     SpaceExpr,
     SpaceConstructor,
+    SpaceName,
     SpaceProduct,
     Expr,
     ExprIdent,
@@ -519,13 +520,13 @@ class Compiler:
         domain = self._resolve_type(decl.domain)
         codomain = self._resolve_type(decl.codomain)
 
-        if decl.kind == "latent":
+        if decl.morphism_kind == "latent":
             scale = float(decl.options.get("scale", "0.5"))
             morph = make_latent(
                 domain, codomain, init_scale=scale, quantale=self._quantale
             )
 
-        elif decl.kind == "observed":
+        elif decl.morphism_kind == "observed":
             if decl.init_expr is not None:
                 morph = self._compile_expr(decl.init_expr)
 
@@ -549,7 +550,7 @@ class Compiler:
 
         else:
             raise CompileError(
-                f"unknown morphism kind {decl.kind!r}",
+                f"unknown morphism kind {decl.morphism_kind!r}",
                 decl.line,
                 decl.col,
             )
@@ -805,22 +806,22 @@ class Compiler:
                         step.col,
                     )
 
-                if isinstance(step.value, str):
+                if isinstance(step.value, LetExprVar):
                     # simple variable alias
-                    if step.value not in bound_vars:
+                    if step.value.name not in bound_vars:
                         raise CompileError(
-                            f"undefined variable {step.value!r} in let binding",
+                            f"undefined variable {step.value.name!r} in let binding",
                             step.line,
                             step.col,
                         )
 
-                    bound_vars[step.name] = bound_vars[step.value]
-                    steps.append(((step.name,), None, step.value))
+                    bound_vars[step.name] = bound_vars[step.value.name]
+                    steps.append(((step.name,), None, step.value.name))
 
-                elif isinstance(step.value, (int, float)):
+                elif isinstance(step.value, LetExprLiteral):
                     # numeric literal
                     bound_vars[step.name] = None
-                    steps.append(((step.name,), None, step.value))
+                    steps.append(((step.name,), None, step.value.value))
 
                 else:
                     # expression tree: compile to callable
@@ -1437,7 +1438,7 @@ class Compiler:
                     sexpr.col,
                 )
 
-        elif isinstance(sexpr, TypeName):
+        elif isinstance(sexpr, SpaceName):
             # reference to previously declared space
             if sexpr.name in self._spaces:
                 return self._spaces[sexpr.name]

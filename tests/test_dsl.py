@@ -3,10 +3,7 @@
 import torch
 import pytest
 
-from quivers.dsl import loads, load, parse, LexError, ParseError, CompileError
-from quivers.dsl.lexer import Lexer
-from quivers.dsl.tokens import TokenType
-from quivers.dsl.parser import Parser
+from quivers.dsl import loads, load, parse, ParseError, CompileError
 from quivers.dsl.compiler import Compiler
 from quivers.dsl.ast_nodes import (
     Module,
@@ -25,6 +22,8 @@ from quivers.dsl.ast_nodes import (
     EmbedDecl,
     DrawStep,
     LetStep,
+    LetExprLiteral,
+    LetExprVar,
     ProgramDecl,
     LetDecl,
     OutputDecl,
@@ -32,6 +31,7 @@ from quivers.dsl.ast_nodes import (
     TypeProduct,
     TypeCoproduct,
     SpaceConstructor,
+    SpaceName,
     SpaceProduct,
     ExprIdent,
     ExprIdentity,
@@ -53,124 +53,9 @@ from quivers.program import Program
 # ===== lexer tests ==========================================================
 
 
-class TestLexer:
-    def test_empty_source(self):
-        """Empty source produces only EOF."""
-        tokens = Lexer("").tokenize()
-        assert len(tokens) == 1
-        assert tokens[0].type == TokenType.EOF
-
-    def test_comment_only(self):
-        """Comment-only source produces only EOF (plus maybe newlines)."""
-        tokens = Lexer("# this is a comment\n").tokenize()
-        types = [t.type for t in tokens if t.type != TokenType.NEWLINE]
-        assert types == [TokenType.EOF]
-
-    def test_keywords(self):
-        """All keywords are recognized."""
-        source = "quantale object latent observed let output identity marginalize"
-        tokens = Lexer(source).tokenize()
-        expected = [
-            TokenType.QUANTALE,
-            TokenType.OBJECT,
-            TokenType.LATENT,
-            TokenType.OBSERVED,
-            TokenType.LET,
-            TokenType.OUTPUT,
-            TokenType.IDENTITY,
-            TokenType.MARGINALIZE,
-            TokenType.EOF,
-        ]
-        actual = [t.type for t in tokens]
-        assert actual == expected
-
-    def test_operators(self):
-        """All operators are correctly tokenized."""
-        source = ": -> >> * + @ = . ( ) [ ] ,"
-        tokens = Lexer(source).tokenize()
-        expected = [
-            TokenType.COLON,
-            TokenType.ARROW,
-            TokenType.COMPOSE,
-            TokenType.PRODUCT,
-            TokenType.COPRODUCT,
-            TokenType.TENSOR,
-            TokenType.EQUALS,
-            TokenType.DOT,
-            TokenType.LPAREN,
-            TokenType.RPAREN,
-            TokenType.LBRACKET,
-            TokenType.RBRACKET,
-            TokenType.COMMA,
-            TokenType.EOF,
-        ]
-        actual = [t.type for t in tokens]
-        assert actual == expected
-
-    def test_identifiers_and_integers(self):
-        """Identifiers and integer literals are recognized."""
-        source = "foo bar_baz 42 100"
-        tokens = Lexer(source).tokenize()
-        expected = [
-            (TokenType.IDENT, "foo"),
-            (TokenType.IDENT, "bar_baz"),
-            (TokenType.INT, "42"),
-            (TokenType.INT, "100"),
-            (TokenType.EOF, ""),
-        ]
-        actual = [(t.type, t.value) for t in tokens]
-        assert actual == expected
-
-    def test_line_tracking(self):
-        """Line numbers are tracked correctly."""
-        source = "object X : 3\nobject Y : 4"
-        tokens = Lexer(source).tokenize()
-        # first 'object' on line 1, second 'object' on line 2
-        object_tokens = [t for t in tokens if t.type == TokenType.OBJECT]
-        assert object_tokens[0].line == 1
-        assert object_tokens[1].line == 2
-
-    def test_unexpected_character(self):
-        """Unexpected characters raise LexError."""
-        with pytest.raises(LexError, match="unexpected character"):
-            Lexer("object X : 3 $").tokenize()
-
-    def test_inline_comments(self):
-        """Comments after code are handled."""
-        source = "object X : 3 # this is X"
-        tokens = Lexer(source).tokenize()
-        types = [
-            t.type for t in tokens if t.type not in (TokenType.NEWLINE, TokenType.EOF)
-        ]
-        assert types == [
-            TokenType.OBJECT,
-            TokenType.IDENT,
-            TokenType.COLON,
-            TokenType.INT,
-        ]
-
-    def test_full_program(self):
-        """A complete program tokenizes without errors."""
-        source = """
-        # model definition
-        quantale product_fuzzy
-        object X : 3
-        object Y : 4
-        latent f : X -> Y
-        let g = f >> identity(X)
-        output f
-        """
-        tokens = Lexer(source).tokenize()
-        assert tokens[-1].type == TokenType.EOF
-
-
-# ===== parser tests =========================================================
-
-
 class TestParser:
     def _parse(self, source: str) -> Module:
-        tokens = Lexer(source).tokenize()
-        return Parser(tokens).parse()
+        return parse(source)
 
     def test_quantale_decl(self):
         """Parse a quantale declaration."""
@@ -211,7 +96,7 @@ class TestParser:
         mod = self._parse("object X : 3\nlatent f : X -> X")
         stmt = mod.statements[1]
         assert isinstance(stmt, MorphismDecl)
-        assert stmt.kind == "latent"
+        assert stmt.morphism_kind == "latent"
         assert stmt.name == "f"
 
     def test_observed_morphism_with_identity(self):
@@ -219,7 +104,7 @@ class TestParser:
         mod = self._parse("object X : 3\nobserved h : X -> X = identity(X)")
         stmt = mod.statements[1]
         assert isinstance(stmt, MorphismDecl)
-        assert stmt.kind == "observed"
+        assert stmt.morphism_kind == "observed"
         assert isinstance(stmt.init_expr, ExprIdentity)
         assert stmt.init_expr.object_name == "X"
 
@@ -277,12 +162,12 @@ class TestParser:
 
     def test_parse_error_expected_type(self):
         """ParseError on malformed type expression."""
-        with pytest.raises(ParseError, match="expected type expression"):
+        with pytest.raises(ParseError):
             self._parse("object X : >>")
 
     def test_parse_error_expected_statement(self):
         """ParseError on unexpected token at statement level."""
-        with pytest.raises(ParseError, match="expected statement"):
+        with pytest.raises(ParseError):
             self._parse("42")
 
     def test_chained_compose(self):
@@ -754,36 +639,9 @@ class TestIntegration:
 # ===== new lexer tests for continuous extensions ============================
 
 
-class TestLexerContinuous:
-    def test_new_keywords(self):
-        """New keywords: space, continuous, stochastic, discretize, embed."""
-        source = "space continuous stochastic discretize embed"
-        tokens = Lexer(source).tokenize()
-        expected = [
-            TokenType.SPACE,
-            TokenType.CONTINUOUS,
-            TokenType.STOCHASTIC,
-            TokenType.DISCRETIZE,
-            TokenType.EMBED,
-            TokenType.EOF,
-        ]
-        actual = [t.type for t in tokens]
-        assert actual == expected
-
-    def test_tilde_operator(self):
-        """The ~ (tilde) operator is lexed."""
-        tokens = Lexer("~").tokenize()
-        assert tokens[0].type == TokenType.TILDE
-        assert tokens[0].value == "~"
-
-
-# ===== new parser tests for continuous extensions ===========================
-
-
 class TestParserContinuous:
     def _parse(self, source: str) -> Module:
-        tokens = Lexer(source).tokenize()
-        return Parser(tokens).parse()
+        return parse(source)
 
     def test_space_decl_euclidean(self):
         """Parse a Euclidean space declaration."""
@@ -831,7 +689,7 @@ class TestParserContinuous:
         """Parse space reference (bare identifier)."""
         mod = self._parse("space R3 : Euclidean(3)\nspace alias : R3")
         stmt = mod.statements[1]
-        assert isinstance(stmt.space_expr, TypeName)
+        assert isinstance(stmt.space_expr, SpaceName)
         assert stmt.space_expr.name == "R3"
 
     def test_continuous_decl(self):
@@ -1291,23 +1149,6 @@ class TestContinuousDSLIntegration:
 
 
 # ===== monadic program tests ================================================
-
-
-class TestLexerProgram:
-    def test_program_keyword(self):
-        """Lexer recognizes 'program' keyword."""
-        tokens = Lexer("program").tokenize()
-        assert tokens[0].type == TokenType.PROGRAM
-
-    def test_draw_keyword(self):
-        """Lexer recognizes 'draw' keyword."""
-        tokens = Lexer("draw").tokenize()
-        assert tokens[0].type == TokenType.DRAW
-
-    def test_return_keyword(self):
-        """Lexer recognizes 'return' keyword."""
-        tokens = Lexer("return").tokenize()
-        assert tokens[0].type == TokenType.RETURN
 
 
 class TestParserProgram:
@@ -3192,7 +3033,8 @@ class TestParserLetSteps:
         step = prog.draws[0]
         assert isinstance(step, LetStep)
         assert step.name == "x"
-        assert step.value == 0.5
+        assert isinstance(step.value, LetExprLiteral)
+        assert step.value.value == 0.5
 
     def test_let_int_literal(self):
         """let x = 1 parses to LetStep with float(1) value."""
@@ -3208,7 +3050,8 @@ class TestParserLetSteps:
         prog = [s for s in mod.statements if isinstance(s, ProgramDecl)][0]
         step = prog.draws[0]
         assert isinstance(step, LetStep)
-        assert step.value == 1.0
+        assert isinstance(step.value, LetExprLiteral)
+        assert step.value.value == 1.0
 
     def test_let_variable_reference(self):
         """let y = x parses to LetStep with str value."""
@@ -3225,7 +3068,8 @@ class TestParserLetSteps:
         step = prog.draws[1]
         assert isinstance(step, LetStep)
         assert step.name == "y"
-        assert step.value == "x"
+        assert isinstance(step.value, LetExprVar)
+        assert step.value.name == "x"
 
     def test_let_interleaved_with_draws(self):
         """let steps can appear between draw steps."""
@@ -3503,20 +3347,6 @@ class TestExecutionLetSteps:
 
 
 # ===== replicate / fan / repeat tests =========================================
-
-
-class TestLexerCombinators:
-    """Lexer tests for fan and repeat keywords."""
-
-    def test_fan_token(self):
-        """fan is tokenized as FAN keyword."""
-        tokens = Lexer("fan").tokenize()
-        assert tokens[0].type == TokenType.FAN
-
-    def test_repeat_token(self):
-        """repeat is tokenized as REPEAT keyword."""
-        tokens = Lexer("repeat").tokenize()
-        assert tokens[0].type == TokenType.REPEAT
 
 
 class TestParserCombinators:
@@ -4550,46 +4380,6 @@ class TestScanCombinator:
 
 
 # ===== multi-line expression tests =========================================
-
-
-class TestLexerMultiLine:
-    """Lexer suppresses NEWLINE tokens inside balanced () and []."""
-
-    def test_no_newlines_inside_parens(self):
-        """Newlines inside () are suppressed."""
-        source = "foo(\n  bar,\n  baz\n)"
-        tokens = Lexer(source).tokenize()
-        types = [t.type for t in tokens]
-        assert TokenType.NEWLINE not in types
-
-    def test_no_newlines_inside_brackets(self):
-        """Newlines inside [] are suppressed."""
-        source = "[\n  a,\n  b\n]"
-        tokens = Lexer(source).tokenize()
-        types = [t.type for t in tokens]
-        assert TokenType.NEWLINE not in types
-
-    def test_no_newlines_nested_brackets(self):
-        """Newlines inside nested () and [] are suppressed."""
-        source = "foo(\n  x=[\n    a,\n    b\n  ]\n)"
-        tokens = Lexer(source).tokenize()
-        types = [t.type for t in tokens]
-        assert TokenType.NEWLINE not in types
-
-    def test_newlines_outside_brackets_preserved(self):
-        """Newlines outside () and [] are still emitted."""
-        source = "foo\nbar"
-        tokens = Lexer(source).tokenize()
-        types = [t.type for t in tokens]
-        assert TokenType.NEWLINE in types
-
-    def test_newlines_after_close_paren_preserved(self):
-        """Newlines after closing ) are emitted normally."""
-        source = "foo(x)\nbar"
-        tokens = Lexer(source).tokenize()
-        types = [t.type for t in tokens]
-        # should have exactly one newline (between the two statements)
-        assert types.count(TokenType.NEWLINE) == 1
 
 
 class TestParserMultiLine:
