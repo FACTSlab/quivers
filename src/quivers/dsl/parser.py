@@ -255,7 +255,7 @@ def _walk_space(t: _Tree, vid: str) -> SpaceExpr:
         return SpaceName(name=t.text(t.positional(vid)[0]), line=line, col=col)
     if k == "space_constructor":
         ctor_vid = t.field(vid, "constructor")
-        ctor = t.text(ctor_vid) if ctor_vid else ""
+        ctor = _required_text(t, ctor_vid, vid, "constructor")
         args: list[str] = []
         kwargs: dict[str, str] = {}
         for arg_vid in t.fields(vid, "args"):
@@ -278,8 +278,8 @@ def _walk_space(t: _Tree, vid: str) -> SpaceExpr:
         ctor_vid = t.field(vid, "constructor")
         arg_vid = t.field(vid, "arg")
         return SpaceConstructor(
-            constructor=t.text(ctor_vid) if ctor_vid else "",
-            args=(t.text(arg_vid),) if arg_vid else (),
+            constructor=_required_text(t, ctor_vid, vid, "constructor"),
+            args=(_required_text(t, arg_vid, vid, "arg"),),
             kwargs={},
             line=line,
             col=col,
@@ -551,7 +551,7 @@ def _walk_program_step(t: _Tree, vid: str) -> DrawStep | LetStep:
             args_list.append(_walk_draw_arg(t, av))
         return DrawStep(
             vars=vars_t,
-            morphism=t.text(morph_vid) if morph_vid else "",
+            morphism=_required_text(t, morph_vid, vid, "morphism"),
             args=tuple(args_list) if args_list else None,
             is_observed=(k == "observe_step"),
             line=line,
@@ -564,8 +564,8 @@ def _walk_program_step(t: _Tree, vid: str) -> DrawStep | LetStep:
         for av in t.fields(vid, "args"):
             args_list.append(_walk_draw_arg(t, av))
         return DrawStep(
-            vars=(t.text(var_vid),) if var_vid else (),
-            morphism=t.text(morph_vid) if morph_vid else "",
+            vars=(_required_text(t, var_vid, vid, "var"),),
+            morphism=_required_text(t, morph_vid, vid, "morphism"),
             args=tuple(args_list) if args_list else None,
             line=line,
             col=col,
@@ -576,7 +576,7 @@ def _walk_program_step(t: _Tree, vid: str) -> DrawStep | LetStep:
         if val_vid is None:
             raise ParseError(f"let_step missing value at {vid}")
         return LetStep(
-            name=t.text(name_vid) if name_vid else "",
+            name=_required_text(t, name_vid, vid, "name"),
             value=_walk_let_arith(t, val_vid),
             line=line,
             col=col,
@@ -604,7 +604,7 @@ def _walk_statement(t: _Tree, vid: str) -> Statement | list[Statement]:
 
     if k == "quantale_decl":
         nv = t.field(vid, "name")
-        return QuantaleDecl(name=t.text(nv) if nv else "", line=line, col=col)
+        return QuantaleDecl(name=_required_text(t, nv, vid, "name"), line=line, col=col)
     if k == "category_decl":
         out: list[Statement] = []
         for nv in t.fields(vid, "names"):
@@ -621,7 +621,7 @@ def _walk_statement(t: _Tree, vid: str) -> Statement | list[Statement]:
         if tv is None:
             raise ParseError(f"object_decl missing type at {vid}")
         return ObjectDecl(
-            name=t.text(nv) if nv else "",
+            name=_required_text(t, nv, vid, "name"),
             type_expr=_walk_type(t, tv),
             line=line,
             col=col,
@@ -643,7 +643,7 @@ def _walk_statement(t: _Tree, vid: str) -> Statement | list[Statement]:
             raise ParseError(f"morphism_decl missing domain/codomain at {vid}")
         return MorphismDecl(
             morphism_kind=morph_kind,  # type: ignore[arg-type]
-            name=t.text(nv) if nv else "",
+            name=_required_text(t, nv, vid, "name"),
             domain=_walk_type(t, dv),
             codomain=_walk_type(t, cv),
             init_expr=init_expr,
@@ -662,7 +662,7 @@ def _walk_statement(t: _Tree, vid: str) -> Statement | list[Statement]:
         if vv is None:
             raise ParseError(f"{k} missing value at {vid}")
         return SpaceDecl(
-            name=t.text(nv) if nv else "",
+            name=_required_text(t, nv, vid, "name"),
             space_expr=_walk_space(t, vv),
             line=line,
             col=col,
@@ -679,10 +679,10 @@ def _walk_statement(t: _Tree, vid: str) -> Statement | list[Statement]:
         if dv is None or cv is None:
             raise ParseError(f"continuous_decl missing domain/codomain at {vid}")
         return ContinuousMorphismDecl(
-            name=t.text(nv) if nv else "",
+            name=_required_text(t, nv, vid, "name"),
             domain=_walk_type(t, dv),
             codomain=_walk_type(t, cv),
-            family=t.text(fv) if fv else "",
+            family=_required_text(t, fv, vid, "family"),
             options=options,
             replicate=replicate,
             line=line,
@@ -697,7 +697,7 @@ def _walk_statement(t: _Tree, vid: str) -> Statement | list[Statement]:
         if dv is None or cv is None:
             raise ParseError(f"stochastic_decl missing domain/codomain at {vid}")
         return StochasticMorphismDecl(
-            name=t.text(nv) if nv else "",
+            name=_required_text(t, nv, vid, "name"),
             domain=_walk_type(t, dv),
             codomain=_walk_type(t, cv),
             replicate=replicate,
@@ -713,8 +713,8 @@ def _walk_statement(t: _Tree, vid: str) -> Statement | list[Statement]:
         if bv is None:
             raise ParseError(f"discretize_decl missing bins at {vid}")
         return DiscretizeDecl(
-            name=t.text(nv) if nv else "",
-            space_name=t.text(sv) if sv else "",
+            name=_required_text(t, nv, vid, "name"),
+            space_name=_required_text(t, sv, vid, "space"),
             n_bins=int(t.text(bv)),
             options=options,
             line=line,
@@ -727,9 +727,9 @@ def _walk_statement(t: _Tree, vid: str) -> Statement | list[Statement]:
         dv = t.field(vid, "domain")
         cv = t.field(vid, "codomain")
         return EmbedDecl(
-            name=t.text(nv) if nv else "",
-            domain_name=t.text(dv) if dv else "",
-            codomain_name=t.text(cv) if cv else "",
+            name=_required_text(t, nv, vid, "name"),
+            domain_name=_required_text(t, dv, vid, "domain"),
+            codomain_name=_required_text(t, cv, vid, "codomain"),
             replicate=replicate,
             line=line,
             col=col,
@@ -750,7 +750,7 @@ def _walk_statement(t: _Tree, vid: str) -> Statement | list[Statement]:
         if dv is None or cv is None:
             raise ParseError(f"program_decl missing domain/codomain at {vid}")
         return ProgramDecl(
-            name=t.text(nv) if nv else "",
+            name=_required_text(t, nv, vid, "name"),
             params=params,
             domain=_walk_type(t, dv),
             codomain=_walk_type(t, cv),
@@ -777,7 +777,7 @@ def _walk_statement(t: _Tree, vid: str) -> Statement | list[Statement]:
         if vv is None:
             raise ParseError(f"let_decl missing value at {vid}")
         return LetDecl(
-            name=t.text(nv) if nv else "",
+            name=_required_text(t, nv, vid, "name"),
             expr=_walk_expr(t, vv),
             where=where,
             line=line,
@@ -803,13 +803,29 @@ def _walk_rule_decl(t: _Tree, vid: str, line: int, col: int) -> RuleDecl:
     if concl_vid is None:
         raise ParseError(f"rule_decl missing conclusion at {vid}")
     return RuleDecl(
-        name=t.text(nv) if nv else "",
+        name=_required_text(t, nv, vid, "name"),
         variables=tuple(t.text(v) for v in var_vids),
         premises=tuple(_walk_cat_pattern(t, p) for p in prem_vids),
         conclusion=_walk_cat_pattern(t, concl_vid),
         line=line,
         col=col,
     )
+
+
+def _required_text(t: _Tree, child_vid: str | None, parent_vid: str, field_name: str) -> str:
+    """Return the text of a required-by-grammar field, raising if missing.
+
+    Several Statement variants — quantale, object, morphism, space, etc. —
+    declare an identifier ``name`` field. Tree-sitter guarantees the
+    field exists on a successful parse, so a ``None`` here means the
+    parse was corrupted (an ``ERROR`` node leaked through, or the
+    grammar was edited without updating the walker).
+    """
+    if child_vid is None:
+        raise ParseError(
+            f"missing required {field_name!r} field at {parent_vid} (malformed parse)"
+        )
+    return t.text(child_vid)
 
 
 def _walk_options(t: _Tree, vid: str) -> dict[str, str]:
