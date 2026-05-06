@@ -47,8 +47,45 @@ class TypeCoproduct(TypeExpr):
     kind: Literal["type_coproduct"] = "type_coproduct"
 
 
+class TypeSlash(TypeExpr):
+    """Residuated slash type: ``result / argument`` or ``result \\ argument``.
+
+    Legal only when both operands inhabit a residuated universe (typically
+    a ``FreeResiduated`` object). The compiler enforces this at use-site.
+    """
+
+    result: TypeExpr
+    argument: TypeExpr
+    direction: Literal["/", "\\"]
+    line: int = 0
+    col: int = 0
+    kind: Literal["type_slash"] = "type_slash"
+
+
+class TypeEffectApply(TypeExpr):
+    """Effect-typed type-application: ``T(X)``, ``Continuation[ρ](NP)``.
+
+    The ``effect`` field names the effect (a previously-declared
+    ``EffectDecl`` or stdlib effect); ``args`` are its applied arguments.
+    Legal only inside a ``FreeResiduated`` whose ``effects`` list mentions
+    the named effect.
+    """
+
+    effect: str
+    args: tuple[TypeExpr, ...]
+    line: int = 0
+    col: int = 0
+    kind: Literal["type_effect_apply"] = "type_effect_apply"
+
+
 # ---------------------------------------------------------------------------
 # category patterns (for rule declarations)
+#
+# Phase 1 of the categorial-effects integration adds TypeSlash and
+# TypeEffectApply above and will eventually fold the CatPattern family
+# into TypeExpr; until the tree-sitter grammar is regenerated to emit
+# unified type-expression nodes for residuated patterns, the CatPattern
+# variants below remain in place as the surface for `rule` declarations.
 # ---------------------------------------------------------------------------
 
 
