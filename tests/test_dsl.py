@@ -944,7 +944,7 @@ class TestPDSFactivityPattern:
 class TestConditionalBernoulli:
     """Tests for ConditionalBernoulli (continuous -> discrete bridge)."""
 
-    @pytest.mark.xfail(reason='blocked on panproto/panproto#87 (mixed-domain ProductSpace)', strict=True)
+    @pytest.mark.xfail(reason='blocked on panproto/didactic#30 (mixed-domain ProductSpace)', strict=True)
     def test_bernoulli_basic_sample(self):
         """Bernoulli produces {0, 1} samples."""
         from quivers.continuous.families import ConditionalBernoulli
@@ -959,7 +959,7 @@ class TestConditionalBernoulli:
         assert y.dtype == torch.long
         assert set(y.tolist()).issubset({0, 1})
 
-    @pytest.mark.xfail(reason='blocked on panproto/panproto#87 (mixed-domain ProductSpace)', strict=True)
+    @pytest.mark.xfail(reason='blocked on panproto/didactic#30 (mixed-domain ProductSpace)', strict=True)
     def test_bernoulli_log_prob(self):
         """Log-prob is well-defined for {0, 1} targets."""
         from quivers.continuous.families import ConditionalBernoulli
@@ -975,7 +975,7 @@ class TestConditionalBernoulli:
         assert torch.isfinite(lp).all()
         assert (lp <= 0).all()
 
-    @pytest.mark.xfail(reason='blocked on panproto/panproto#87 (mixed-domain ProductSpace)', strict=True)
+    @pytest.mark.xfail(reason='blocked on panproto/didactic#30 (mixed-domain ProductSpace)', strict=True)
     def test_bernoulli_requires_finset2(self):
         """Codomain must be FinSet(2)."""
         from quivers.continuous.families import ConditionalBernoulli
@@ -997,7 +997,7 @@ class TestConditionalBernoulli:
         assert y.shape == (4,)
         assert y.dtype == torch.long
 
-    @pytest.mark.xfail(reason='blocked on panproto/panproto#87 (mixed-domain ProductSpace)', strict=True)
+    @pytest.mark.xfail(reason='blocked on panproto/didactic#30 (mixed-domain ProductSpace)', strict=True)
     def test_bernoulli_sample_shape(self):
         """sample_shape adds leading dimensions."""
         from quivers.continuous.families import ConditionalBernoulli
@@ -1346,7 +1346,7 @@ class TestExecutionTupleFeatures:
         assert lj.shape == (2,)
         assert torch.isfinite(lj).all()
 
-    @pytest.mark.xfail(reason='blocked on panproto/panproto#87 (mixed-domain ProductSpace)', strict=True)
+    @pytest.mark.xfail(reason='blocked on panproto/didactic#30 (mixed-domain ProductSpace)', strict=True)
     def test_pds_factivity_with_nesting(self):
         """Full PDS factivity with nested sub-programs and tuple returns."""
         source = "\n            # PDS factivity model (Grove & White 2025)\n            # with nested sub-programs for CG and TauKnow updates\n\n            object Entity : 2\n            object Truth : 2\n            space Belief : UnitInterval(1)\n            space Response : Euclidean(1, low=0.0, high=1.0)\n\n            # prior morphisms\n            continuous prior_x : Entity -> Belief ~ LogitNormal\n            continuous prior_y : Entity -> Belief ~ LogitNormal\n            continuous prior_z : Entity -> Belief ~ LogitNormal\n\n            # bernoulli bridges (continuous -> discrete)\n            continuous bern_b : Belief -> Truth ~ Bernoulli\n            continuous bern_c : Belief -> Truth ~ Bernoulli\n            continuous bern_d : Belief -> Truth ~ Bernoulli\n\n            # response function\n            continuous respond : Belief -> Response ~ TruncatedNormal\n\n            # inner CG update sub-program\n            # corresponds to PDS: let' c (Bern y) (let' d (Bern z) ...)\n            program cg_update(y, z) : Belief * Belief -> Truth * Truth\n                draw c ~ bern_c(y)\n                draw d ~ bern_d(z)\n                return (c, d)\n\n            # outer factivity prior\n            # corresponds to PDS factivityPrior\n            program factivityPrior : Entity -> Truth * Truth * Truth * Response\n                draw x ~ prior_x\n                draw y ~ prior_y\n                draw z ~ prior_z\n                draw b ~ bern_b(x)\n                draw (c, d) ~ cg_update(y, z)\n                draw r ~ respond(x)\n                return (b, c, d, r)\n\n            output factivityPrior\n        "
@@ -1364,7 +1364,7 @@ class TestExecutionTupleFeatures:
         assert (result['r'] >= 0.0).all()
         assert (result['r'] <= 1.0).all()
 
-    @pytest.mark.xfail(reason='blocked on panproto/panproto#87 (mixed-domain ProductSpace)', strict=True)
+    @pytest.mark.xfail(reason='blocked on panproto/didactic#30 (mixed-domain ProductSpace)', strict=True)
     def test_pds_factivity_log_joint_nested(self):
         """log_joint with the full nested PDS factivity model."""
         source = '\n            object Entity : 2\n            object Truth : 2\n            space Belief : UnitInterval(1)\n            space Response : Euclidean(1, low=0.0, high=1.0)\n\n            continuous prior_x : Entity -> Belief ~ LogitNormal\n            continuous prior_y : Entity -> Belief ~ LogitNormal\n            continuous prior_z : Entity -> Belief ~ LogitNormal\n            continuous bern_b : Belief -> Truth ~ Bernoulli\n            continuous bern_c : Belief -> Truth ~ Bernoulli\n            continuous bern_d : Belief -> Truth ~ Bernoulli\n            continuous respond : Belief -> Response ~ TruncatedNormal\n\n            program cg_update(y, z) : Belief * Belief -> Truth * Truth\n                draw c ~ bern_c(y)\n                draw d ~ bern_d(z)\n                return (c, d)\n\n            program factivityPrior : Entity -> Truth * Truth * Truth * Response\n                draw x ~ prior_x\n                draw y ~ prior_y\n                draw z ~ prior_z\n                draw b ~ bern_b(x)\n                draw (c, d) ~ cg_update(y, z)\n                draw r ~ respond(x)\n                return (b, c, d, r)\n        '
@@ -1521,7 +1521,7 @@ class TestExecutionInlineDistributions:
         assert samples.shape == (4, 1)
         assert (samples >= 0).all() and (samples <= 1).all()
 
-    @pytest.mark.xfail(reason='blocked on panproto/panproto#87 (mixed-domain ProductSpace)', strict=True)
+    @pytest.mark.xfail(reason='blocked on panproto/didactic#30 (mixed-domain ProductSpace)', strict=True)
     def test_labeled_return_dict_keys(self):
         """Labeled returns produce dict with label keys."""
         source = '\n            object Entity : 2\n            object Truth : 2\n            space Belief : UnitInterval()\n            program p : Entity -> Truth * Belief\n                draw x ~ LogitNormal(0.0, 1.0)\n                draw b ~ Bernoulli(x)\n                return (state: b, prob: x)\n        '
@@ -1535,7 +1535,7 @@ class TestExecutionInlineDistributions:
         assert set(result['state'].tolist()).issubset({0, 1})
         assert (result['prob'] > 0).all() and (result['prob'] < 1).all()
 
-    @pytest.mark.xfail(reason='blocked on panproto/panproto#87 (mixed-domain ProductSpace)', strict=True)
+    @pytest.mark.xfail(reason='blocked on panproto/didactic#30 (mixed-domain ProductSpace)', strict=True)
     def test_full_pds_factivity_inline(self):
         """Full PDS factivity model with inline distributions.
 
@@ -1562,7 +1562,7 @@ class TestExecutionInlineDistributions:
         assert (result['response'] >= 0).all()
         assert (result['response'] <= 1).all()
 
-    @pytest.mark.xfail(reason='blocked on panproto/panproto#87 (mixed-domain ProductSpace)', strict=True)
+    @pytest.mark.xfail(reason='blocked on panproto/didactic#30 (mixed-domain ProductSpace)', strict=True)
     def test_pds_factivity_log_joint(self):
         """log_joint works with inline distributions and labels."""
         source = '\n            object Entity : 2\n            object Truth : 2\n            space Belief : UnitInterval()\n\n            program p : Entity -> Truth * Belief\n                draw x ~ LogitNormal(0.0, 1.0)\n                draw b ~ Bernoulli(x)\n                return (state: b, prob: x)\n        '
@@ -1577,7 +1577,7 @@ class TestExecutionInlineDistributions:
         assert lj.shape == (2,)
         assert torch.isfinite(lj).all()
 
-    @pytest.mark.xfail(reason='blocked on panproto/panproto#87 (mixed-domain ProductSpace)', strict=True)
+    @pytest.mark.xfail(reason='blocked on panproto/didactic#30 (mixed-domain ProductSpace)', strict=True)
     def test_pds_factivity_log_joint_with_labels(self):
         """log_joint also accepts label keys."""
         source = '\n            object Entity : 2\n            object Truth : 2\n            space Belief : UnitInterval()\n\n            program p : Entity -> Truth * Belief\n                draw x ~ LogitNormal(0.0, 1.0)\n                draw b ~ Bernoulli(x)\n                return (state: b, prob: x)\n        '
@@ -1698,7 +1698,7 @@ class TestCompilerLetSteps:
 class TestExecutionLetSteps:
     """Execution tests for let bindings inside program blocks."""
 
-    @pytest.mark.xfail(reason='blocked on panproto/panproto#87 (mixed-domain ProductSpace)', strict=True)
+    @pytest.mark.xfail(reason='blocked on panproto/didactic#30 (mixed-domain ProductSpace)', strict=True)
     def test_let_constant_in_rsample(self):
         """let constant produces correct value in rsample output."""
         source = '\n            object A : 2\n            object B : 2\n            space C : UnitInterval()\n            program p : A -> B * C\n                let c = 1\n                draw x ~ LogitNormal(0.0, 1.0)\n                return (c, x)\n        '
@@ -1729,7 +1729,7 @@ class TestExecutionLetSteps:
         assert lj.shape == (2,)
         assert torch.isfinite(lj).all()
 
-    @pytest.mark.xfail(reason='blocked on panproto/panproto#87 (mixed-domain ProductSpace)', strict=True)
+    @pytest.mark.xfail(reason='blocked on panproto/didactic#30 (mixed-domain ProductSpace)', strict=True)
     def test_let_in_labeled_return(self):
         """let-bound variables work with labeled returns."""
         source = '\n            object A : 2\n            object B : 2\n            space C : UnitInterval()\n            program p : A -> B * C\n                draw x ~ LogitNormal(0.0, 1.0)\n                let cg = 1\n                return (cg_status: cg, belief: x)\n        '
@@ -1748,7 +1748,7 @@ class TestExecutionLetSteps:
         result = prog.rsample(torch.tensor([0, 1]))
         assert set(result.tolist()).issubset({0, 1})
 
-    @pytest.mark.xfail(reason='blocked on panproto/panproto#87 (mixed-domain ProductSpace)', strict=True)
+    @pytest.mark.xfail(reason='blocked on panproto/didactic#30 (mixed-domain ProductSpace)', strict=True)
     def test_faithful_pds_factivity(self):
         """Faithful PDS factivity model with deterministic CG presupposition.
 
@@ -1771,7 +1771,7 @@ class TestExecutionLetSteps:
         assert (result['response'] >= 0).all()
         assert (result['response'] <= 1).all()
 
-    @pytest.mark.xfail(reason='blocked on panproto/panproto#87 (mixed-domain ProductSpace)', strict=True)
+    @pytest.mark.xfail(reason='blocked on panproto/didactic#30 (mixed-domain ProductSpace)', strict=True)
     def test_faithful_pds_log_joint(self):
         """log_joint for PDS factivity: let contributes 0, draws contribute density."""
         source = '\n            object Entity : 2\n            object Truth : 2\n            space Belief : UnitInterval()\n\n            program p : Entity -> Truth * Belief\n                draw theta ~ LogitNormal(0.0, 1.0)\n                let cg = 1\n                draw b ~ Bernoulli(theta)\n                return (cg_status: cg, truth: b, belief: theta)\n        '

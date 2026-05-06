@@ -46,7 +46,7 @@ class RuleSystem(dx.Model):
     # Cross-field length checks (binary_weights / binary_rules,
     # unary_weights / unary_rules) are not expressible as didactic 0.5.0
     # axioms — the expression evaluator has no `null` literal and
-    # @validates is single-field. Filed as panproto/panproto#88.
+    # @validates is single-field. Filed as panproto/didactic#31.
     # Until then, callers that pass mismatched-length weight tuples will
     # surface the inconsistency at tensor-construction time.
 
