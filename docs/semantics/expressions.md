@@ -99,7 +99,7 @@ $$
 \llbracket \mathsf{repeat}(e, n) \rrbracket \;=\; \underbrace{\llbracket e \rrbracket \circ \cdots \circ \llbracket e \rrbracket}_{n \text{ copies}},
 $$
 
-defined when $\mathrm{dom}(\llbracket e \rrbracket) = \mathrm{cod}(\llbracket e \rrbracket)$, i.e.\ when $\llbracket e \rrbracket$ is an endomorphism. Without an explicit count, $\mathsf{repeat}(e)$ denotes the *least fixed point* of the endofunctor $h \mapsto \llbracket e \rrbracket \circ h$ in the lattice of $\mathcal{V}$-relations on $X$, when it exists.
+defined when $\mathrm{dom}(\llbracket e \rrbracket) = \mathrm{cod}(\llbracket e \rrbracket)$, i.e.\ when $\llbracket e \rrbracket$ is an endomorphism. With no explicit count, $\mathsf{repeat}(e)$ denotes a single application of $\llbracket e \rrbracket$ wrapped as a `RepeatMorphism` whose count is a learnable parameter; the $n = 1$ default is a structural placeholder for downstream training.
 
 ### 3.4 Scan
 
@@ -109,7 +109,7 @@ $$
 \llbracket \mathsf{scan}(e, \mathit{init}) \rrbracket \;=\; \mathrm{Tr}^{S}\bigl( \llbracket e \rrbracket \bigr) \circ s_0,
 $$
 
-where $\mathrm{Tr}^{S} : \mathcal{C}(X \otimes S, Y \otimes S) \to \mathcal{C}(X, Y)$ is the trace operator of the appropriate traced symmetric monoidal category $\mathcal{C}$ ([Joyal–Street–Verity 1996]). Concretely:
+where $\mathrm{Tr}^{S} : \mathcal{C}(X \otimes S, Y \otimes S) \to \mathcal{C}(X, Y)$ is the trace operator of the appropriate traced symmetric monoidal category $\mathcal{C}$ ([Joyal, Street & Verity 1996](https://doi.org/10.1017/S0305004100074338)). Concretely:
 
 - In $\mathcal{V}\text{-}\mathbf{Rel}$, $\mathrm{Tr}^{S}$ is the *iterative* trace, defined by quantale-join over the orbit of $S$;
 - In $\mathbf{Stoch}$ and $\mathbf{Kern}$, $\mathrm{Tr}^{S}$ is implemented as a sequence of Markov-kernel compositions seeded by $s_0$.
@@ -151,6 +151,6 @@ Every well-typed expression denotes a morphism in a symmetric monoidal closed ca
 | Bifunctoriality | $\llbracket (e_1 \mathbin{>\!\!>} e_2) \mathbin{@} (e_3 \mathbin{>\!\!>} e_4) \rrbracket = \llbracket (e_1 \mathbin{@} e_3) \mathbin{>\!\!>} (e_2 \mathbin{@} e_4) \rrbracket$ |
 | Symmetry | $\llbracket e_1 \mathbin{@} e_2 \rrbracket = \sigma_{Y_1, Y_2} \circ \llbracket e_2 \mathbin{@} e_1 \rrbracket \circ \sigma^{-1}_{X_1, X_2}$ |
 
-These are the equational theory of symmetric monoidal categories; together with the trace axioms ([Joyal–Street–Verity 1996, §3]), they constitute the equational semantics of QVR expressions.
+These are the equational theory of symmetric monoidal categories; together with the trace axioms ([Joyal, Street & Verity 1996, §3](https://doi.org/10.1017/S0305004100074338)), they constitute the equational semantics of QVR expressions.
 
 The compiler does *not* normalise expressions modulo these laws — it computes a literal AST-driven tensor expression. The laws are nevertheless valid statements about denotations, and the [Adequacy](adequacy.md) theorem confirms they are respected by the implementation up to the floating-point precision of the underlying tensor library.
