@@ -75,6 +75,17 @@ nav:
     - Monadic Programs: guides/programs.md
     - The QVR DSL: guides/dsl.md
     - Variational Inference: guides/inference.md
+  - Denotational Semantics:
+    - Overview: semantics/index.md
+    - Setting and Notation: semantics/setting.md
+    - Quantales and Base Change: semantics/quantales.md
+    - Types and Spaces: semantics/types-and-spaces.md
+    - Morphisms: semantics/morphisms.md
+    - Expressions: semantics/expressions.md
+    - Programs: semantics/programs.md
+    - Grammar Fragment: semantics/grammar.md
+    - The Program Theory: semantics/program-theory.md
+    - Adequacy: semantics/adequacy.md
   - Examples Gallery:
     - Overview: examples/index.md
     - Neural Architectures:
@@ -154,11 +165,11 @@ nav:
       - Boundaries: api/continuous/boundaries.md
       - Flows: api/continuous/flows.md
     - DSL:
-      - Compiler: api/dsl/compiler.md
       - Parser: api/dsl/parser.md
-      - Lexer: api/dsl/lexer.md
       - AST Nodes: api/dsl/ast_nodes.md
-      - Tokens: api/dsl/tokens.md
+      - Compiler: api/dsl/compiler.md
+      - Resolution Lenses: api/dsl/resolution.md
+      - Program Theory: api/dsl/program_theory.md
     - Inference:
       - Trace: api/inference/trace.md
       - Conditioning: api/inference/conditioning.md

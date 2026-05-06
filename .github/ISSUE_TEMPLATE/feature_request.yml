@@ -1,0 +1,31 @@
+name: Feature request
+description: Propose a new capability or an extension to an existing one.
+labels: ["enhancement"]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem
+      description: What is the use case you cannot currently satisfy with quivers?
+    validations:
+      required: true
+
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposal
+      description: What change to the public API or to the DSL would address it? Sketch the surface, not the implementation.
+    validations:
+      required: true
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+      description: Workarounds you have tried, or alternative designs you have ruled out.
+
+  - type: textarea
+    id: extra
+    attributes:
+      label: Additional context
+      description: Citations, prior art in other libraries, links to relevant categorical literature, etc.

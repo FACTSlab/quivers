@@ -12,11 +12,14 @@ quivers/
 ├── enriched/          # ends/coends, Kan, weighted limits, profunctors, Yoneda, optics
 ├── stochastic/        # FinStoch (Markov kernels), families, conditioning, Giry monad
 ├── continuous/        # parameterized families, boundaries, flows, monadic programs
-├── dsl/               # lexer, parser, compiler for .qvr files
+├── dsl/               # panproto-driven parser, didactic AST nodes,
+│                      # compiler, resolution lenses, Program Theory
 ├── inference/         # trace-based conditioning, variational guides, SVI
 ├── program.py         # nn.Module wrapper for morphisms
-└── giry.py            # backward-compatibility shim
+└── giry.py            # re-exports GiryMonad and FinStoch from stochastic.giry
 ```
+
+The QVR tree-sitter grammar lives at the repo root under `grammars/qvr/`; it is vendored by panproto's `panproto-grammars-all` distribution and consumed at runtime by quivers' parser.
 
 ## Module Descriptions
 
@@ -86,15 +89,17 @@ Continuous and hybrid discrete-continuous morphisms and monadic programs.
 
 ### `dsl/`
 
-Domain-specific language for quiver expressions in `.qvr` files.
+Domain-specific language for quiver expressions in `.qvr` files. Parsing is delegated to panproto via the `qvr` tree-sitter grammar (located at `grammars/qvr/` in the repo, vendored by `panproto-grammars-all`); quivers does not run a hand-written lexer.
 
-- **`tokens.py`:** Token types.
-- **`lexer.py`:** Lexical analysis: `Lexer`.
-- **`parser.py`:** Syntax analysis: `Parser`.
-- **`ast_nodes.py`:** Abstract syntax tree node definitions.
-- **`compiler.py`:** Code generation from AST: `Compiler`.
+- **`parser.py`:** Walks the panproto-produced parse tree and builds a tree of `dx.Model` AST nodes. Public surface: `parse()`, `parse_file()`, `ParseError`.
+- **`ast_nodes.py`:** Every AST node is a `dx.Model`. Recursive sums (`TypeExpr`, `CatPattern`, `SpaceExpr`, `Expr`, `LetExprNode`, `ProgramStep`, `Statement`) are `dx.TaggedUnion` roots discriminated by a `kind: Literal[...]` field.
+- **`resolution.py`:** Bidirectional resolution as a `dx.Lens` family. `TypeExprToSetObject` maps `TypeExpr` AST trees to `SetObject` values; `SpaceExprToContinuousSpace` maps `SpaceExpr` trees to `ContinuousSpace` (with a `SetObject` fallback for mixed-domain product spaces). The resolution environment (object/space inventory) is carried on the lens instance — that's the dependent-optics shape.
+- **`compiler.py`:** Walks the AST, delegating type and space resolution to the lenses in `resolution.py`, and produces a `quivers.Program`. Public surface: `Compiler`, `CompileError`.
+- **`program_theory.py`:** Defines `QVR_PROGRAM_PROTOCOL` (a panproto protocol whose vertex kinds enumerate every `SetObject` and `ContinuousSpace` variant plus the QVR declaration variants) and `extract_program_schema(compiler)`, which walks a compiled environment and emits a panproto `Schema`. This makes every `.qvr` program a schema in panproto's sense — diff, migrate, and lens-generation workflows apply.
+- **`pygments_lexer.py`:** A minimal Pygments lexer used to syntax-highlight `.qvr` blocks in this documentation site (registered as the `qvr` lexer entry point).
+- **`examples/`:** Reference `.qvr` programs that drive the test suite and the tree-sitter grammar fixtures.
 
-Top-level DSL API: `parse()`, `loads()`, `load()`, plus exceptions `LexError`, `ParseError`, `CompileError`.
+Top-level DSL API: `parse()`, `parse_file()`, `loads()`, `load()`, `Compiler`, `Module`, `QVR_PROGRAM_PROTOCOL`, `extract_program_schema()`, plus exceptions `ParseError`, `CompileError`.
 
 ### `inference/`
 
@@ -110,7 +115,7 @@ Variational inference for posterior estimation in monadic programs.
 ### Root-level modules
 
 - **`program.py`:** `Program`: wraps a morphism (discrete or continuous) as a differentiable `nn.Module`.
-- **`giry.py`:** Backward-compatibility wrapper; re-exports `GiryMonad` and `FinStoch` from `quivers.stochastic.giry`.
+- **`giry.py`:** Convenience re-export of `GiryMonad` and `FinStoch` from `quivers.stochastic.giry`.
 
 ## Dependency Graph
 
@@ -152,7 +157,10 @@ This layering ensures that users can work at the level of abstraction appropriat
 ## Design Principles
 
 - **Tensors as morphisms**: $\mathcal{V}$-relations are represented as PyTorch tensors, making them amenable to automatic differentiation and GPU acceleration.
+- **Value types are didactic Models**: every record-shaped value (AST nodes, `FinSet`, `ProductSet`, `CoproductSet`, `ContinuousSpace` variants, `Category` variants, `RuleSystem`) is a frozen `dx.Model`. This buys uniform construction, structural equality, JSON round-trips via `model_dump_json` / `model_validate_json`, and cross-field axioms via `__axioms__`. Recursive sums are `dx.TaggedUnion` roots with a `kind: Literal[...]` discriminator.
+- **Tensor-bearing classes stay mutable**: `Presheaf`, `Weight`, `SampleSite`, and `Trace` accumulate `torch.Tensor` fields and are mutated in place during inference; they remain `@dataclass`.
 - **Lazy composition**: morphism composition creates a DAG; the final tensor is materialized only on evaluation.
 - **Type safety**: categorical constraints (domain/codomain compatibility) are enforced statically in Python.
 - **Module transparency**: all morphisms expose a `.module()` method returning an `nn.Module`, enabling integration with PyTorch training loops.
 - **Quantale flexibility**: the same morphism structure works with any quantale; swapping quantales changes semantics (fuzzy, Boolean, tropical, etc.) without code duplication.
+- **DSL pipeline as a panproto theory morphism**: parsing is delegated to panproto's tree-sitter–driven AST registry; resolution is a `dx.Lens` family; each compiled program extracts to a panproto `Schema` against `QVR_PROGRAM_PROTOCOL`. Diff/migrate/lens-generation tools work on `.qvr` programs out of the box.
