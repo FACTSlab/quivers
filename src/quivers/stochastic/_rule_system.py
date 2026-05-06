@@ -19,21 +19,21 @@ class RuleSystem(dx.Model):
 
     Attributes
     ----------
-    binary_rules : tuple of (int, int, int)
-        Each triple is (result_idx, left_idx, right_idx).
-    unary_rules : tuple of (int, int)
-        Each pair is (result_idx, input_idx).
+    binary_rules : tuple[tuple[int, ...], ...]
+        Each inner tuple is ``(result_idx, left_idx, right_idx)``.
+    unary_rules : tuple[tuple[int, ...], ...]
+        Each inner tuple is ``(result_idx, input_idx)``.
     n_categories : int
         Total number of categories in the system.
     description : str
-        Human-readable label (e.g., "CCG", "Lambek(L)").
-    binary_weights : tuple of float or None
-        Initial log-weights for binary rules. If None, all rules
-        are unweighted (weight 0 in log-space). Length must match
-        ``binary_rules`` if provided.
-    unary_weights : tuple of float or None
-        Initial log-weights for unary rules. If None, all rules
-        are unweighted. Length must match ``unary_rules`` if provided.
+        Human-readable label (e.g. ``"CCG"``, ``"Lambek(L)"``).
+    binary_weights : tuple[float, ...] | None
+        Initial log-weights for binary rules. ``None`` means all rules
+        are unweighted (weight 0 in log-space). When supplied, length
+        must match ``binary_rules``.
+    unary_weights : tuple[float, ...] | None
+        Initial log-weights for unary rules. ``None`` means all rules
+        are unweighted. When supplied, length must match ``unary_rules``.
     """
 
     binary_rules: tuple[tuple[int, ...], ...] = ()

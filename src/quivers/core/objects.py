@@ -58,7 +58,7 @@ class FinSet(SetObject):
     name : str
         Human-readable name for the set.
     cardinality : int
-        Number of elements (must be >= 1).
+        Number of elements (must be ``>= 1``).
     """
 
     name: str
