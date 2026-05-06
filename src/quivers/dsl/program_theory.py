@@ -1,0 +1,375 @@
+"""Program Theory: a panproto protocol for the resolved (post-compilation) DSL.
+
+The :data:`QVR_PROGRAM_PROTOCOL` protocol describes the static structure of
+a compiled `.qvr` program — every object, space, morphism, and output the
+program declares — as a panproto :class:`~panproto.Schema`. This sits one
+layer above the syntactic ``qvr`` protocol from
+``panproto-grammars-all``: the syntactic protocol carries the AST as
+parsed, this protocol carries the AST after the resolution layer
+(``_resolve_type``, ``_resolve_space``) has run.
+
+Why have it
+-----------
+Once two programs share this protocol, panproto's structural diff,
+auto-lens-generation, and breaking-change detection apply to compiled
+programs as a whole. Two `.qvr` files that compile to structurally
+equivalent programs produce equal Schemas; two that diverge surface
+their divergence through :func:`panproto.diff_schemas`.
+
+Vertex kinds
+------------
+
+Top-level container:
+    ``program``
+        the root vertex; one per compiled module.
+
+Discrete objects (mirrors :mod:`quivers.core.objects`):
+    ``finset`` ``product_set`` ``coproduct_set`` ``free_monoid`` ``empty_set``
+
+Continuous spaces (mirrors :mod:`quivers.continuous.spaces`):
+    ``euclidean`` ``simplex`` ``positive_reals`` ``product_space``
+
+Top-level declarations:
+    ``object_decl`` ``space_decl`` ``morphism_decl``
+    ``continuous_morphism_decl`` ``stochastic_morphism_decl``
+    ``discretize_decl`` ``embed_decl`` ``output_decl``
+
+Edge kinds
+----------
+
+``decl``
+    ``program -> *_decl``: each declaration is a child of the root program.
+``binds_to``
+    ``object_decl -> set_object`` / ``space_decl -> space``.
+``component``
+    ``product_set | coproduct_set -> set_object``;
+    ``product_space -> space``: structural recursion into composite types.
+``domain`` / ``codomain``
+    ``morphism_decl | continuous_morphism_decl | stochastic_morphism_decl ->
+    set_object | space``.
+``output``
+    ``program -> output_decl``.
+
+Constraint sorts carry the per-vertex scalar metadata: ``name``,
+``cardinality``, ``dim``, ``low``, ``high``, ``family``, ``modality``,
+``morphism_kind``, ``replicate``, ``n_bins``.
+"""
+
+from __future__ import annotations
+
+from typing import TYPE_CHECKING
+
+import panproto
+
+from quivers.continuous.spaces import (
+    ContinuousSpace,
+    Euclidean,
+    PositiveReals,
+    ProductSpace,
+    Simplex,
+)
+from quivers.core.objects import (
+    CoproductSet,
+    FinSet,
+    FreeMonoid,
+    ProductSet,
+    SetObject,
+)
+
+if TYPE_CHECKING:
+    from quivers.dsl.compiler import Compiler
+
+
+# ---------------------------------------------------------------------------
+# protocol definition
+# ---------------------------------------------------------------------------
+
+_OBJECT_KINDS = [
+    "program",
+    # discrete
+    "finset",
+    "product_set",
+    "coproduct_set",
+    "free_monoid",
+    "empty_set",
+    # continuous
+    "euclidean",
+    "simplex",
+    "positive_reals",
+    "product_space",
+    # declarations
+    "object_decl",
+    "space_decl",
+    "morphism_decl",
+    "continuous_morphism_decl",
+    "stochastic_morphism_decl",
+    "discretize_decl",
+    "embed_decl",
+    "output_decl",
+]
+
+_SET_OBJECT_KINDS = ["finset", "product_set", "coproduct_set", "free_monoid", "empty_set"]
+_SPACE_KINDS = ["euclidean", "simplex", "positive_reals", "product_space"]
+_DOMAIN_KINDS = _SET_OBJECT_KINDS + _SPACE_KINDS
+_DECL_KINDS = [
+    "object_decl",
+    "space_decl",
+    "morphism_decl",
+    "continuous_morphism_decl",
+    "stochastic_morphism_decl",
+    "discretize_decl",
+    "embed_decl",
+    "output_decl",
+]
+
+_MORPHISM_DECL_KINDS = [
+    "morphism_decl",
+    "continuous_morphism_decl",
+    "stochastic_morphism_decl",
+    "discretize_decl",
+    "embed_decl",
+]
+
+_EDGE_RULES = [
+    {"edge_kind": "decl", "src_kinds": ["program"], "tgt_kinds": _DECL_KINDS},
+    # ``binds_to`` covers both object_decl→set_object and space_decl→space:
+    # panproto requires a unique edge_kind label, so the two cases share one
+    # rule whose src/tgt kinds are unioned. The Schema-level validator then
+    # accepts any valid pairing across the union.
+    {
+        "edge_kind": "binds_to",
+        "src_kinds": ["object_decl", "space_decl"],
+        "tgt_kinds": _SET_OBJECT_KINDS + _SPACE_KINDS,
+    },
+    # ``component`` covers ProductSet/CoproductSet → set-object children
+    # and ProductSpace → space|set-object children (mixed-domain products
+    # land here too).
+    {
+        "edge_kind": "component",
+        "src_kinds": ["product_set", "coproduct_set", "product_space"],
+        "tgt_kinds": _DOMAIN_KINDS,
+    },
+    {"edge_kind": "generators", "src_kinds": ["free_monoid"], "tgt_kinds": ["finset"]},
+    {"edge_kind": "domain", "src_kinds": _MORPHISM_DECL_KINDS, "tgt_kinds": _DOMAIN_KINDS},
+    {"edge_kind": "codomain", "src_kinds": _MORPHISM_DECL_KINDS, "tgt_kinds": _DOMAIN_KINDS},
+    {"edge_kind": "output", "src_kinds": ["program"], "tgt_kinds": ["output_decl"]},
+]
+
+_CONSTRAINT_SORTS = [
+    "name",
+    "cardinality",
+    "max_length",
+    "dim",
+    "low",
+    "high",
+    "family",
+    "modality",
+    "morphism_kind",
+    "replicate",
+    "n_bins",
+    "quantale",
+]
+
+QVR_PROGRAM_PROTOCOL: panproto.Protocol = panproto.define_protocol(
+    {
+        "name": "qvr_program",
+        # Reuse the brat schema/instance theories — both shape graphs with
+        # vertices, edges, and constraint metadata; the kinds and rules above
+        # are what specialise them to the compiled-quivers shape.
+        "schema_theory": "ThBratSchema",
+        "instance_theory": "ThBratInstance",
+        "edge_rules": _EDGE_RULES,
+        "obj_kinds": _OBJECT_KINDS,
+        "constraint_sorts": _CONSTRAINT_SORTS,
+    }
+)
+
+
+# ---------------------------------------------------------------------------
+# extraction: compiled program -> panproto.Schema
+# ---------------------------------------------------------------------------
+
+
+class _SchemaWriter:
+    """Helper that emits set-object / space subgraphs into a SchemaBuilder."""
+
+    def __init__(self, builder: panproto.SchemaBuilder) -> None:
+        self._builder = builder
+        self._object_ids: dict[int, str] = {}  # by id(value)
+        self._counter = 0
+
+    def _fresh(self, prefix: str) -> str:
+        self._counter += 1
+        return f"{prefix}_{self._counter}"
+
+    # -- discrete -------------------------------------------------------
+
+    def write_set_object(self, obj: SetObject) -> str:
+        """Emit vertices/constraints for a SetObject; return the root vid."""
+        cached = self._object_ids.get(id(obj))
+        if cached is not None:
+            return cached
+        if isinstance(obj, FinSet):
+            vid = self._fresh("finset")
+            self._builder.vertex(vid, "finset")
+            self._builder.constraint(vid, "name", obj.name)
+            self._builder.constraint(vid, "cardinality", str(obj.cardinality))
+        elif isinstance(obj, ProductSet):
+            vid = self._fresh("product_set")
+            self._builder.vertex(vid, "product_set")
+            for child in obj.components:
+                cvid = self.write_set_object(child)
+                self._builder.edge(vid, cvid, "component")
+        elif isinstance(obj, CoproductSet):
+            vid = self._fresh("coproduct_set")
+            self._builder.vertex(vid, "coproduct_set")
+            for child in obj.components:
+                cvid = self.write_set_object(child)
+                self._builder.edge(vid, cvid, "component")
+        elif isinstance(obj, FreeMonoid):
+            vid = self._fresh("free_monoid")
+            self._builder.vertex(vid, "free_monoid")
+            self._builder.constraint(vid, "max_length", str(obj.max_length))
+            gvid = self.write_set_object(obj.generators)
+            self._builder.edge(vid, gvid, "generators")
+        else:
+            # EmptySet (defined in categorical.monoidal) lands here
+            vid = self._fresh("empty_set")
+            self._builder.vertex(vid, "empty_set")
+        self._object_ids[id(obj)] = vid
+        return vid
+
+    # -- continuous -----------------------------------------------------
+
+    def write_space(self, space: ContinuousSpace) -> str:
+        cached = self._object_ids.get(id(space))
+        if cached is not None:
+            return cached
+        if isinstance(space, Euclidean):
+            vid = self._fresh("euclidean")
+            self._builder.vertex(vid, "euclidean")
+            self._builder.constraint(vid, "name", space.name)
+            self._builder.constraint(vid, "dim", str(space.dim))
+            if space.low is not None:
+                self._builder.constraint(vid, "low", str(space.low))
+            if space.high is not None:
+                self._builder.constraint(vid, "high", str(space.high))
+        elif isinstance(space, Simplex):
+            vid = self._fresh("simplex")
+            self._builder.vertex(vid, "simplex")
+            self._builder.constraint(vid, "name", space.name)
+            self._builder.constraint(vid, "dim", str(space.dim))
+        elif isinstance(space, PositiveReals):
+            vid = self._fresh("positive_reals")
+            self._builder.vertex(vid, "positive_reals")
+            self._builder.constraint(vid, "name", space.name)
+            self._builder.constraint(vid, "dim", str(space.dim))
+        elif isinstance(space, ProductSpace):
+            vid = self._fresh("product_space")
+            self._builder.vertex(vid, "product_space")
+            for child in space.components:
+                if isinstance(child, ContinuousSpace):
+                    cvid = self.write_space(child)
+                else:
+                    cvid = self.write_set_object(child)
+                self._builder.edge(vid, cvid, "component")
+        else:
+            raise TypeError(f"unsupported ContinuousSpace variant: {type(space).__name__}")
+        self._object_ids[id(space)] = vid
+        return vid
+
+    def write_any(self, target: object) -> str:
+        if isinstance(target, ContinuousSpace):
+            return self.write_space(target)
+        if isinstance(target, SetObject):
+            return self.write_set_object(target)
+        raise TypeError(f"unsupported domain/codomain: {type(target).__name__}")
+
+
+# ---------------------------------------------------------------------------
+# the public extractor
+# ---------------------------------------------------------------------------
+
+
+def extract_program_schema(compiler: "Compiler") -> panproto.Schema:
+    """Produce a :class:`panproto.Schema` for a compiled program.
+
+    Walks the compiler's resolved environment (objects, spaces, morphisms)
+    and emits a graph of vertices and edges in the
+    :data:`QVR_PROGRAM_PROTOCOL` protocol. The returned schema validates
+    against that protocol and is suitable for :func:`panproto.diff_schemas`,
+    :func:`panproto.auto_generate_lens`, and the rest of panproto's
+    schema-level operations.
+
+    Parameters
+    ----------
+    compiler
+        A :class:`~quivers.dsl.compiler.Compiler` after :meth:`compile_env`
+        (or :meth:`compile`) has populated the resolved environments.
+
+    Returns
+    -------
+    panproto.Schema
+        A program-level Schema in the ``qvr_program`` protocol.
+    """
+    builder = QVR_PROGRAM_PROTOCOL.schema()
+    writer = _SchemaWriter(builder)
+
+    builder.vertex("program", "program")
+    if compiler._quantale is not None:
+        builder.constraint("program", "quantale", type(compiler._quantale).__name__)
+
+    # object decls
+    for name, obj in compiler._objects.items():
+        decl_vid = f"object_decl::{name}"
+        builder.vertex(decl_vid, "object_decl")
+        builder.constraint(decl_vid, "name", name)
+        builder.edge("program", decl_vid, "decl")
+        target_vid = writer.write_set_object(obj)
+        builder.edge(decl_vid, target_vid, "binds_to")
+
+    # space decls
+    for name, space in compiler._spaces.items():
+        decl_vid = f"space_decl::{name}"
+        builder.vertex(decl_vid, "space_decl")
+        builder.constraint(decl_vid, "name", name)
+        builder.edge("program", decl_vid, "decl")
+        target_vid = writer.write_space(space)
+        builder.edge(decl_vid, target_vid, "binds_to")
+
+    # morphism decls — the compiler's _morphisms env holds named primitive
+    # morphisms; we record them as morphism_decl vertices with domain/codomain.
+    # composite morphisms (let-bindings, output) are derived rather than
+    # recorded directly; the structural Diff-able layer is the named decls.
+    for name, morphism in compiler._morphisms.items():
+        # the kind of declaration depends on the morphism class; classify
+        # heuristically from the runtime type's module
+        mod = type(morphism).__module__
+        if "continuous" in mod and "stochastic" not in mod:
+            kind = "continuous_morphism_decl"
+        elif "stochastic" in mod or "Stochastic" in type(morphism).__name__:
+            kind = "stochastic_morphism_decl"
+        else:
+            kind = "morphism_decl"
+
+        decl_vid = f"{kind}::{name}"
+        builder.vertex(decl_vid, kind)
+        builder.constraint(decl_vid, "name", name)
+        builder.edge("program", decl_vid, "decl")
+
+        dom = getattr(morphism, "domain", None)
+        cod = getattr(morphism, "codomain", None)
+        if dom is not None:
+            try:
+                dom_vid = writer.write_any(dom)
+                builder.edge(decl_vid, dom_vid, "domain")
+            except TypeError:
+                pass
+        if cod is not None:
+            try:
+                cod_vid = writer.write_any(cod)
+                builder.edge(decl_vid, cod_vid, "codomain")
+            except TypeError:
+                pass
+
+    return builder.build()

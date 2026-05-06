@@ -29,6 +29,10 @@ from pathlib import Path
 from quivers.dsl.ast_nodes import Module
 from quivers.dsl.compiler import Compiler, CompileError
 from quivers.dsl.parser import ParseError, parse, parse_file
+from quivers.dsl.program_theory import (
+    QVR_PROGRAM_PROTOCOL,
+    extract_program_schema,
+)
 from quivers.program import Program
 
 
@@ -53,4 +57,6 @@ __all__ = [
     "CompileError",
     "Module",
     "Compiler",
+    "QVR_PROGRAM_PROTOCOL",
+    "extract_program_schema",
 ]
