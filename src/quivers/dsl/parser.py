@@ -142,9 +142,7 @@ class _Tree:
         return int(sb) if sb is not None else 0
 
     def positional(self, parent_id: str) -> list[str]:
-        kids = [
-            e.tgt for e in self.children.get(parent_id, []) if e.kind == "child_of"
-        ]
+        kids = [e.tgt for e in self.children.get(parent_id, []) if e.kind == "child_of"]
         kids.sort(key=self._sort_key)
         return kids
 
@@ -155,9 +153,7 @@ class _Tree:
         return None
 
     def fields(self, parent_id: str, name: str) -> list[str]:
-        kids = [
-            e.tgt for e in self.children.get(parent_id, []) if e.kind == name
-        ]
+        kids = [e.tgt for e in self.children.get(parent_id, []) if e.kind == name]
         kids.sort(key=self._sort_key)
         return kids
 
@@ -236,7 +232,9 @@ def _walk_cat_pattern(t: _Tree, vid: str) -> CatPattern:
         acs = t.consts(argument)
         direction = "/"
         if rcs.get("end-byte") is not None and acs.get("start-byte") is not None:
-            mid = t.source[int(rcs["end-byte"]) : int(acs["start-byte"])].decode("utf-8")
+            mid = t.source[int(rcs["end-byte"]) : int(acs["start-byte"])].decode(
+                "utf-8"
+            )
             direction = "\\" if "\\" in mid else "/"
         return CatPatternSlash(
             result=_walk_cat_pattern(t, result),
@@ -812,7 +810,9 @@ def _walk_rule_decl(t: _Tree, vid: str, line: int, col: int) -> RuleDecl:
     )
 
 
-def _required_text(t: _Tree, child_vid: str | None, parent_vid: str, field_name: str) -> str:
+def _required_text(
+    t: _Tree, child_vid: str | None, parent_vid: str, field_name: str
+) -> str:
     """Return the text of a required-by-grammar field, raising if missing.
 
     Several Statement variants — quantale, object, morphism, space, etc. —

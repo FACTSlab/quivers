@@ -15,6 +15,7 @@ The hierarchy:
     ├── FunctorMorphism     — lazy image of a morphism under a functor
     └── RepeatMorphism      — runtime-variable iterated composition (T^n)
 """
+
 from __future__ import annotations
 from abc import ABC, abstractmethod
 from typing import TYPE_CHECKING, cast
@@ -22,8 +23,10 @@ import torch
 import torch.nn as nn
 from quivers.core.objects import SetObject, ProductSet
 from quivers.core.quantales import PRODUCT_FUZZY, Quantale
+
 if TYPE_CHECKING:
     from quivers.categorical.functors import Functor
+
 
 class Morphism(ABC):
     """Abstract base for morphisms between finite sets.
@@ -42,7 +45,9 @@ class Morphism(ABC):
         The enrichment algebra. Defaults to PRODUCT_FUZZY.
     """
 
-    def __init__(self, domain: SetObject, codomain: SetObject, quantale: Quantale | None=None) -> None:
+    def __init__(
+        self, domain: SetObject, codomain: SetObject, quantale: Quantale | None = None
+    ) -> None:
         self._domain = domain
         self._codomain = codomain
         self._quantale = quantale if quantale is not None else PRODUCT_FUZZY
@@ -97,9 +102,13 @@ class Morphism(ABC):
         if not isinstance(other, Morphism):
             return NotImplemented
         if self.codomain != other.domain:
-            raise TypeError(f'cannot compose: codomain {self.codomain!r} != domain {other.domain!r}')
+            raise TypeError(
+                f"cannot compose: codomain {self.codomain!r} != domain {other.domain!r}"
+            )
         if not self._quantale.is_compatible(other._quantale):
-            raise TypeError(f'incompatible quantales: {self._quantale!r} and {other._quantale!r}')
+            raise TypeError(
+                f"incompatible quantales: {self._quantale!r} and {other._quantale!r}"
+            )
         return ComposedMorphism(self, other)
 
     def __matmul__(self, other: Morphism) -> ProductMorphism:
@@ -144,11 +153,14 @@ class Morphism(ABC):
 
     def __repr__(self) -> str:
         cls = type(self).__name__
-        return f'{cls}({self.domain!r} -> {self.codomain!r})'
+        return f"{cls}({self.domain!r} -> {self.codomain!r})"
+
 
 class _MorphismModule(nn.Module):
     """Internal nn.Module wrapper for a single morphism's parameters."""
+
     pass
+
 
 class ObservedMorphism(Morphism):
     """A morphism with a fixed (non-learnable) tensor.
@@ -165,13 +177,21 @@ class ObservedMorphism(Morphism):
         The enrichment algebra. Defaults to PRODUCT_FUZZY.
     """
 
-    def __init__(self, domain: SetObject, codomain: SetObject, data: torch.Tensor, quantale: Quantale | None=None) -> None:
+    def __init__(
+        self,
+        domain: SetObject,
+        codomain: SetObject,
+        data: torch.Tensor,
+        quantale: Quantale | None = None,
+    ) -> None:
         super().__init__(domain, codomain, quantale=quantale)
         expected = self.tensor_shape
         if data.shape != expected:
-            raise ValueError(f'data shape {data.shape} does not match expected {expected}')
+            raise ValueError(
+                f"data shape {data.shape} does not match expected {expected}"
+            )
         self._module = _MorphismModule()
-        self._module.register_buffer('data', data)
+        self._module.register_buffer("data", data)
 
     @property
     def tensor(self) -> torch.Tensor:
@@ -179,6 +199,7 @@ class ObservedMorphism(Morphism):
 
     def module(self) -> nn.Module:
         return self._module
+
 
 class LatentMorphism(Morphism):
     """A learnable morphism backed by an nn.Parameter.
@@ -200,12 +221,18 @@ class LatentMorphism(Morphism):
         The enrichment algebra. Defaults to PRODUCT_FUZZY.
     """
 
-    def __init__(self, domain: SetObject, codomain: SetObject, init_scale: float=0.5, quantale: Quantale | None=None) -> None:
+    def __init__(
+        self,
+        domain: SetObject,
+        codomain: SetObject,
+        init_scale: float = 0.5,
+        quantale: Quantale | None = None,
+    ) -> None:
         super().__init__(domain, codomain, quantale=quantale)
         shape = self.tensor_shape
         self._module = _MorphismModule()
         raw = nn.Parameter(torch.randn(shape) * init_scale)
-        self._module.register_parameter('raw', raw)
+        self._module.register_parameter("raw", raw)
 
     @property
     def raw(self) -> nn.Parameter:
@@ -220,6 +247,7 @@ class LatentMorphism(Morphism):
     def module(self) -> nn.Module:
         return self._module
 
+
 class _ComposedModule(nn.Module):
     """Module for composed morphisms that owns sub-modules."""
 
@@ -227,6 +255,7 @@ class _ComposedModule(nn.Module):
         super().__init__()
         self.left = left_mod
         self.right = right_mod
+
 
 class ComposedMorphism(Morphism):
     """V-enriched composition of two morphisms.
@@ -261,10 +290,13 @@ class ComposedMorphism(Morphism):
 
     @property
     def tensor(self) -> torch.Tensor:
-        return self._quantale.compose(self._left.tensor, self._right.tensor, self._n_contract)
+        return self._quantale.compose(
+            self._left.tensor, self._right.tensor, self._n_contract
+        )
 
     def module(self) -> nn.Module:
         return _ComposedModule(self._left.module(), self._right.module())
+
 
 class _ProductModule(nn.Module):
     """Module for product morphisms."""
@@ -273,6 +305,7 @@ class _ProductModule(nn.Module):
         super().__init__()
         self.left = left_mod
         self.right = right_mod
+
 
 class ProductMorphism(Morphism):
     """Tensor (parallel) product of two morphisms.
@@ -318,12 +351,14 @@ class ProductMorphism(Morphism):
     def module(self) -> nn.Module:
         return _ProductModule(self._left.module(), self._right.module())
 
+
 class _MarginalizedModule(nn.Module):
     """Module for marginalized morphisms."""
 
     def __init__(self, inner_mod: nn.Module) -> None:
         super().__init__()
         self.inner = inner_mod
+
 
 class MarginalizedMorphism(Morphism):
     """Morphism with codomain dimensions marginalized via the quantale's join.
@@ -339,11 +374,17 @@ class MarginalizedMorphism(Morphism):
         Codomain components to marginalize over.
     """
 
-    def __init__(self, inner: Morphism, sets_to_marginalize: tuple[SetObject, ...] | list[SetObject]) -> None:
+    def __init__(
+        self,
+        inner: Morphism,
+        sets_to_marginalize: tuple[SetObject, ...] | list[SetObject],
+    ) -> None:
         codomain = inner.codomain
         sets_to_marginalize = tuple(sets_to_marginalize)
         if not isinstance(codomain, ProductSet):
-            raise TypeError(f'can only marginalize over ProductSet codomain, got {type(codomain).__name__}')
+            raise TypeError(
+                f"can only marginalize over ProductSet codomain, got {type(codomain).__name__}"
+            )
         n_domain = inner.domain.ndim
         remaining_components: list[SetObject] = []
         dims_to_reduce: list[int] = []
@@ -356,9 +397,9 @@ class MarginalizedMorphism(Morphism):
                 remaining_components.append(component)
             offset += component.ndim
         if not dims_to_reduce:
-            raise ValueError('none of the specified sets found in codomain components')
+            raise ValueError("none of the specified sets found in codomain components")
         if len(remaining_components) == 0:
-            raise ValueError('cannot marginalize all codomain components')
+            raise ValueError("cannot marginalize all codomain components")
         elif len(remaining_components) == 1:
             new_codomain = remaining_components[0]
         else:
@@ -373,6 +414,7 @@ class MarginalizedMorphism(Morphism):
 
     def module(self) -> nn.Module:
         return _MarginalizedModule(self._inner.module())
+
 
 class FunctorMorphism(Morphism):
     """Lazy image of a morphism under a functor.
@@ -393,7 +435,9 @@ class FunctorMorphism(Morphism):
         The image of the inner morphism's codomain under the functor.
     """
 
-    def __init__(self, functor: Functor, inner: Morphism, domain: SetObject, codomain: SetObject) -> None:
+    def __init__(
+        self, functor: Functor, inner: Morphism, domain: SetObject, codomain: SetObject
+    ) -> None:
         super().__init__(domain, codomain, quantale=inner._quantale)
         self._functor = functor
         self._inner = inner
@@ -410,12 +454,14 @@ class FunctorMorphism(Morphism):
     def module(self) -> nn.Module:
         return self._inner.module()
 
+
 class _RepeatModule(nn.Module):
     """Module wrapper for RepeatMorphism parameters."""
 
     def __init__(self, inner_mod: nn.Module) -> None:
         super().__init__()
         self.inner = inner_mod
+
 
 class RepeatMorphism(Morphism):
     """Runtime-variable iterated composition (matrix power).
@@ -452,11 +498,13 @@ class RepeatMorphism(Morphism):
     >>> rep.tensor  # now computes T^10
     """
 
-    def __init__(self, inner: Morphism, n: int=1) -> None:
+    def __init__(self, inner: Morphism, n: int = 1) -> None:
         if inner.domain != inner.codomain:
-            raise TypeError(f'repeat requires an endomorphism, got {inner.domain!r} -> {inner.codomain!r}')
+            raise TypeError(
+                f"repeat requires an endomorphism, got {inner.domain!r} -> {inner.codomain!r}"
+            )
         if n < 1:
-            raise ValueError(f'n must be >= 1, got {n}')
+            raise ValueError(f"n must be >= 1, got {n}")
         super().__init__(inner.domain, inner.codomain, quantale=inner._quantale)
         self._inner = inner
         self._n = n
@@ -475,7 +523,7 @@ class RepeatMorphism(Morphism):
     @n_steps.setter
     def n_steps(self, value: int) -> None:
         if value < 1:
-            raise ValueError(f'n_steps must be >= 1, got {value}')
+            raise ValueError(f"n_steps must be >= 1, got {value}")
         self._n = value
 
     @property
@@ -508,9 +556,15 @@ class RepeatMorphism(Morphism):
         return _RepeatModule(self._inner.module())
 
     def __repr__(self) -> str:
-        return f'RepeatMorphism({self._inner!r}, n={self._n})'
+        return f"RepeatMorphism({self._inner!r}, n={self._n})"
 
-def morphism(domain: SetObject, codomain: SetObject, init_scale: float=0.5, quantale: Quantale | None=None) -> LatentMorphism:
+
+def morphism(
+    domain: SetObject,
+    codomain: SetObject,
+    init_scale: float = 0.5,
+    quantale: Quantale | None = None,
+) -> LatentMorphism:
     """Create a latent (learnable) morphism.
 
     Parameters
@@ -531,7 +585,13 @@ def morphism(domain: SetObject, codomain: SetObject, init_scale: float=0.5, quan
     """
     return LatentMorphism(domain, codomain, init_scale=init_scale, quantale=quantale)
 
-def observed(domain: SetObject, codomain: SetObject, data: torch.Tensor, quantale: Quantale | None=None) -> ObservedMorphism:
+
+def observed(
+    domain: SetObject,
+    codomain: SetObject,
+    data: torch.Tensor,
+    quantale: Quantale | None = None,
+) -> ObservedMorphism:
     """Create an observed (fixed) morphism.
 
     Parameters
@@ -552,7 +612,8 @@ def observed(domain: SetObject, codomain: SetObject, data: torch.Tensor, quantal
     """
     return ObservedMorphism(domain, codomain, data, quantale=quantale)
 
-def identity(obj: SetObject, quantale: Quantale | None=None) -> ObservedMorphism:
+
+def identity(obj: SetObject, quantale: Quantale | None = None) -> ObservedMorphism:
     """Create the identity morphism on an object.
 
     Returns an observed morphism obj -> obj whose tensor is the

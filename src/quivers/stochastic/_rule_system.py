@@ -167,9 +167,7 @@ class RuleSystem(dx.Model):
         has_binary_w = (
             self.binary_weights is not None or other.binary_weights is not None
         )
-        has_unary_w = (
-            self.unary_weights is not None or other.unary_weights is not None
-        )
+        has_unary_w = self.unary_weights is not None or other.unary_weights is not None
 
         binary_weights = tuple(seen_binary.values()) if has_binary_w else None
         unary_weights = tuple(seen_unary.values()) if has_unary_w else None

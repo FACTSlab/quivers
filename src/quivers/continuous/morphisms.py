@@ -27,6 +27,7 @@ Convention for input shapes
 - Discrete codomain: y is LongTensor of shape (batch,)
 - Continuous codomain: y is FloatTensor of shape (batch, dim)
 """
+
 from __future__ import annotations
 from abc import ABC, abstractmethod
 from typing import Union, cast
@@ -34,11 +35,14 @@ import torch
 import torch.nn as nn
 from quivers.core.objects import SetObject
 from quivers.continuous.spaces import ContinuousSpace
+
 AnySpace = Union[SetObject, ContinuousSpace]
+
 
 def _is_discrete(space: AnySpace) -> bool:
     """Check whether a space is discrete (SetObject)."""
     return isinstance(space, SetObject)
+
 
 class ContinuousMorphism(nn.Module, ABC):
     """Abstract base for morphisms involving continuous spaces.
@@ -96,7 +100,9 @@ class ContinuousMorphism(nn.Module, ABC):
         ...
 
     @abstractmethod
-    def rsample(self, x: torch.Tensor, sample_shape: torch.Size=torch.Size()) -> torch.Tensor:
+    def rsample(
+        self, x: torch.Tensor, sample_shape: torch.Size = torch.Size()
+    ) -> torch.Tensor:
         """Reparameterized samples from p(. | x).
 
         Gradients flow through the returned samples back to the
@@ -118,7 +124,9 @@ class ContinuousMorphism(nn.Module, ABC):
         """
         ...
 
-    def sample(self, x: torch.Tensor, sample_shape: torch.Size=torch.Size()) -> torch.Tensor:
+    def sample(
+        self, x: torch.Tensor, sample_shape: torch.Size = torch.Size()
+    ) -> torch.Tensor:
         """Non-reparameterized samples (no gradient through samples).
 
         Parameters
@@ -141,6 +149,7 @@ class ContinuousMorphism(nn.Module, ABC):
         if isinstance(other, ContinuousMorphism):
             return SampledComposition(self, other)
         from quivers.core.morphisms import Morphism
+
         if isinstance(other, Morphism):
             return SampledComposition(self, DiscreteAsContinuous(other))
         return NotImplemented
@@ -148,6 +157,7 @@ class ContinuousMorphism(nn.Module, ABC):
     def __rrshift__(self, other: object) -> ContinuousMorphism:
         """Handle discrete_morphism >> continuous_morphism."""
         from quivers.core.morphisms import Morphism
+
         if isinstance(other, Morphism):
             return SampledComposition(DiscreteAsContinuous(other), self)
         return NotImplemented
@@ -157,13 +167,15 @@ class ContinuousMorphism(nn.Module, ABC):
         if isinstance(other, ContinuousMorphism):
             return ProductContinuousMorphism(self, other)
         from quivers.core.morphisms import Morphism
+
         if isinstance(other, Morphism):
             return ProductContinuousMorphism(self, DiscreteAsContinuous(other))
         return NotImplemented
 
     def __repr__(self) -> str:
         cls = type(self).__name__
-        return f'{cls}({self.domain!r} -> {self.codomain!r})'
+        return f"{cls}({self.domain!r} -> {self.codomain!r})"
+
 
 class _LookupSource(nn.Module):
     """Parameter source for discrete domains: index into a table.
@@ -190,6 +202,7 @@ class _LookupSource(nn.Module):
         """
         return self.table[x.long()]
 
+
 class _NeuralSource(nn.Module):
     """Parameter source for continuous domains: a small MLP.
 
@@ -197,9 +210,15 @@ class _NeuralSource(nn.Module):
     network with tanh activations.
     """
 
-    def __init__(self, input_dim: int, param_dim: int, hidden_dim: int=64) -> None:
+    def __init__(self, input_dim: int, param_dim: int, hidden_dim: int = 64) -> None:
         super().__init__()
-        self.net = nn.Sequential(nn.Linear(input_dim, hidden_dim), nn.Tanh(), nn.Linear(hidden_dim, hidden_dim), nn.Tanh(), nn.Linear(hidden_dim, param_dim))
+        self.net = nn.Sequential(
+            nn.Linear(input_dim, hidden_dim),
+            nn.Tanh(),
+            nn.Linear(hidden_dim, hidden_dim),
+            nn.Tanh(),
+            nn.Linear(hidden_dim, param_dim),
+        )
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         """Compute parameters from continuous input.
@@ -216,7 +235,8 @@ class _NeuralSource(nn.Module):
         """
         return self.net(x)
 
-def _make_source(domain: AnySpace, param_dim: int, hidden_dim: int=64) -> nn.Module:
+
+def _make_source(domain: AnySpace, param_dim: int, hidden_dim: int = 64) -> nn.Module:
     """Create an appropriate parameter source for the given domain.
 
     Parameters
@@ -237,6 +257,7 @@ def _make_source(domain: AnySpace, param_dim: int, hidden_dim: int=64) -> nn.Mod
         return _LookupSource(domain.size, param_dim)
     else:
         return _NeuralSource(cast(ContinuousSpace, domain).dim, param_dim, hidden_dim)
+
 
 class SampledComposition(ContinuousMorphism):
     """Composition of morphisms via ancestral sampling.
@@ -263,13 +284,20 @@ class SampledComposition(ContinuousMorphism):
         spaces. Ignored when the intermediate space is discrete.
     """
 
-    def __init__(self, left: ContinuousMorphism, right: ContinuousMorphism, n_intermediate: int=100) -> None:
+    def __init__(
+        self,
+        left: ContinuousMorphism,
+        right: ContinuousMorphism,
+        n_intermediate: int = 100,
+    ) -> None:
         super().__init__(left.domain, right.codomain)
         self.left = left
         self.right = right
         self.n_intermediate = n_intermediate
 
-    def rsample(self, x: torch.Tensor, sample_shape: torch.Size=torch.Size()) -> torch.Tensor:
+    def rsample(
+        self, x: torch.Tensor, sample_shape: torch.Size = torch.Size()
+    ) -> torch.Tensor:
         """Ancestral sampling: y ~ f(x, .), then z ~ g(y, .).
 
         Parameters
@@ -286,11 +314,11 @@ class SampledComposition(ContinuousMorphism):
         """
         y = self.left.rsample(x, sample_shape)
         if len(sample_shape) > 0:
-            leading = y.shape[:len(sample_shape)]
+            leading = y.shape[: len(sample_shape)]
             batch = x.shape[0]
             flat_size = int(torch.tensor(leading).prod().item()) * batch
             if y.dim() > len(sample_shape) + 1:
-                event_dims = y.shape[len(sample_shape) + 1:]
+                event_dims = y.shape[len(sample_shape) + 1 :]
                 flat_y = y.reshape(flat_size, *event_dims)
             else:
                 flat_y = y.reshape(flat_size)
@@ -330,22 +358,32 @@ class SampledComposition(ContinuousMorphism):
         else:
             return self._log_prob_mc(x, y)
 
-    def _log_prob_exact(self, x: torch.Tensor, z: torch.Tensor, intermediate: SetObject) -> torch.Tensor:
+    def _log_prob_exact(
+        self, x: torch.Tensor, z: torch.Tensor, intermediate: SetObject
+    ) -> torch.Tensor:
         """Exact log-prob via finite summation over discrete intermediate."""
         batch = x.shape[0]
         n_y = intermediate.size
         all_y = torch.arange(n_y, device=x.device)
-        x.unsqueeze(1).expand(batch if x.dim() == 1 else x.shape[0], n_y, *(() if x.dim() == 1 else x.shape[1:]))
+        x.unsqueeze(1).expand(
+            batch if x.dim() == 1 else x.shape[0],
+            n_y,
+            *(() if x.dim() == 1 else x.shape[1:]),
+        )
         if x.dim() == 1:
             x_flat = x.unsqueeze(1).expand(batch, n_y).reshape(-1)
         else:
-            x_flat = x.unsqueeze(1).expand(batch, n_y, x.shape[-1]).reshape(-1, x.shape[-1])
+            x_flat = (
+                x.unsqueeze(1).expand(batch, n_y, x.shape[-1]).reshape(-1, x.shape[-1])
+            )
         y_flat = all_y.unsqueeze(0).expand(batch, n_y).reshape(-1)
         log_f = self.left.log_prob(x_flat, y_flat).reshape(batch, n_y)
         if z.dim() == 1:
             z_flat = z.unsqueeze(1).expand(batch, n_y).reshape(-1)
         else:
-            z_flat = z.unsqueeze(1).expand(batch, n_y, z.shape[-1]).reshape(-1, z.shape[-1])
+            z_flat = (
+                z.unsqueeze(1).expand(batch, n_y, z.shape[-1]).reshape(-1, z.shape[-1])
+            )
         log_g = self.right.log_prob(y_flat, z_flat).reshape(batch, n_y)
         return torch.logsumexp(log_f + log_g, dim=1)
 
@@ -363,7 +401,11 @@ class SampledComposition(ContinuousMorphism):
         else:
             z_flat = z.unsqueeze(0).expand(n, *z.shape).reshape(n * batch, -1)
         log_g = self.right.log_prob(y_flat, z_flat).reshape(n, batch)
-        return torch.logsumexp(log_g, dim=0) - torch.tensor(float(n), device=x.device).log()
+        return (
+            torch.logsumexp(log_g, dim=0)
+            - torch.tensor(float(n), device=x.device).log()
+        )
+
 
 class ProductContinuousMorphism(ContinuousMorphism):
     """Independent product of two continuous morphisms.
@@ -394,7 +436,9 @@ class ProductContinuousMorphism(ContinuousMorphism):
         self._left_cod_dim = _event_dim(left.codomain)
         self._right_cod_dim = _event_dim(right.codomain)
 
-    def rsample(self, x: torch.Tensor, sample_shape: torch.Size=torch.Size()) -> torch.Tensor:
+    def rsample(
+        self, x: torch.Tensor, sample_shape: torch.Size = torch.Size()
+    ) -> torch.Tensor:
         x_left, x_right = self._split_input(x)
         y_left = self.left.rsample(x_left, sample_shape)
         y_right = self.right.rsample(x_right, sample_shape)
@@ -406,13 +450,15 @@ class ProductContinuousMorphism(ContinuousMorphism):
 
     def log_prob(self, x: torch.Tensor, y: torch.Tensor) -> torch.Tensor:
         x_left, x_right = self._split_input(x)
-        y_left = y[..., :self._left_cod_dim]
-        y_right = y[..., self._left_cod_dim:]
+        y_left = y[..., : self._left_cod_dim]
+        y_right = y[..., self._left_cod_dim :]
         if _is_discrete(self.left.codomain):
             y_left = y_left.squeeze(-1).long()
         if _is_discrete(self.right.codomain):
             y_right = y_right.squeeze(-1).long()
-        return self.left.log_prob(x_left, y_left) + self.right.log_prob(x_right, y_right)
+        return self.left.log_prob(x_left, y_left) + self.right.log_prob(
+            x_right, y_right
+        )
 
     def _split_input(self, x: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
         """Split concatenated domain input into left and right parts."""
@@ -424,6 +470,7 @@ class ProductContinuousMorphism(ContinuousMorphism):
         if _is_discrete(self.right.domain):
             x_right = x_right.squeeze(-1).long()
         return (x_left, x_right)
+
 
 class FanOutMorphism(ContinuousMorphism):
     """Fan-out morphism: copy input to N morphisms, concatenate outputs.
@@ -445,13 +492,15 @@ class FanOutMorphism(ContinuousMorphism):
 
     def __init__(self, components: list[ContinuousMorphism]) -> None:
         if not components:
-            raise ValueError('fan-out requires at least one component')
+            raise ValueError("fan-out requires at least one component")
         domain = components[0].domain
         for i, c in enumerate(components[1:], 1):
             dom_dim = _event_dim(domain)
             c_dim = _event_dim(c.domain)
             if dom_dim != c_dim:
-                raise TypeError(f'fan-out: component {i} domain dim {c_dim} != component 0 domain dim {dom_dim}')
+                raise TypeError(
+                    f"fan-out: component {i} domain dim {c_dim} != component 0 domain dim {dom_dim}"
+                )
         codomain = components[0].codomain
         for c in components[1:]:
             codomain = _combine_spaces(codomain, c.codomain)
@@ -459,7 +508,9 @@ class FanOutMorphism(ContinuousMorphism):
         self._components = torch.nn.ModuleList(components)
         self._cod_dims = [_event_dim(c.codomain) for c in components]
 
-    def rsample(self, x: torch.Tensor, sample_shape: torch.Size=torch.Size()) -> torch.Tensor:
+    def rsample(
+        self, x: torch.Tensor, sample_shape: torch.Size = torch.Size()
+    ) -> torch.Tensor:
         """Sample from all components and concatenate outputs.
 
         Parameters
@@ -501,12 +552,13 @@ class FanOutMorphism(ContinuousMorphism):
         offset = 0
         for comp_mod, d in zip(self._components, self._cod_dims):
             comp = cast(ContinuousMorphism, comp_mod)
-            y_slice = y[..., offset:offset + d]
+            y_slice = y[..., offset : offset + d]
             if _is_discrete(comp.codomain):
                 y_slice = y_slice.squeeze(-1).long()
             lp = lp + comp.log_prob(x, y_slice)
             offset += d
         return lp
+
 
 class DiscreteAsContinuous(ContinuousMorphism):
     """Wrap a discrete Morphism as a ContinuousMorphism.
@@ -530,8 +582,9 @@ class DiscreteAsContinuous(ContinuousMorphism):
 
     def __init__(self, inner: object) -> None:
         from quivers.core.morphisms import Morphism
+
         if not isinstance(inner, Morphism):
-            raise TypeError(f'expected a discrete Morphism, got {type(inner).__name__}')
+            raise TypeError(f"expected a discrete Morphism, got {type(inner).__name__}")
         super().__init__(inner.domain, inner.codomain)
         self._inner = inner
         self._inner_module = inner.module()
@@ -555,7 +608,9 @@ class DiscreteAsContinuous(ContinuousMorphism):
         probs = t[x.long(), y.long()]
         return torch.log(probs.clamp(min=1e-07))
 
-    def rsample(self, x: torch.Tensor, sample_shape: torch.Size=torch.Size()) -> torch.Tensor:
+    def rsample(
+        self, x: torch.Tensor, sample_shape: torch.Size = torch.Size()
+    ) -> torch.Tensor:
         """Sample from the categorical distribution defined by the tensor.
 
         Note: not reparameterizable. Gradients do not flow through
@@ -575,12 +630,15 @@ class DiscreteAsContinuous(ContinuousMorphism):
         """
         t = self._inner.tensor
         probs = t[x.long()]
-        n_samples = int(torch.Size(sample_shape).numel()) if len(sample_shape) > 0 else 1
+        n_samples = (
+            int(torch.Size(sample_shape).numel()) if len(sample_shape) > 0 else 1
+        )
         samples = torch.multinomial(probs, n_samples, replacement=True)
         if len(sample_shape) == 0:
             return samples.squeeze(-1)
         else:
             return samples.T.reshape(*sample_shape, -1)
+
 
 def _event_dim(space: AnySpace) -> int:
     """Get the event dimensionality of a space.
@@ -590,6 +648,7 @@ def _event_dim(space: AnySpace) -> int:
     if isinstance(space, ContinuousSpace):
         return space.dim
     return 1
+
 
 def _combine_spaces(a: AnySpace, b: AnySpace) -> AnySpace:
     """Create a product of two spaces (possibly mixed types).
@@ -602,5 +661,6 @@ def _combine_spaces(a: AnySpace, b: AnySpace) -> AnySpace:
     def _as_continuous(s: AnySpace) -> ContinuousSpace:
         if isinstance(s, ContinuousSpace):
             return s
-        return Euclidean(name=f'idx({s!r})', dim=1)
+        return Euclidean(name=f"idx({s!r})", dim=1)
+
     return ProductSpace(components=(_as_continuous(a), _as_continuous(b)))

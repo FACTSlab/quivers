@@ -15,7 +15,11 @@ from quivers.enriched.day_convolution import (
 class TestDayUnit:
     def test_unit_presheaf(self):
         """Unit presheaf has I at the unit index, ⊥ elsewhere."""
-        objects = [FinSet(name="A", cardinality=2), FinSet(name="B", cardinality=3), FinSet(name="I", cardinality=1)]
+        objects = [
+            FinSet(name="A", cardinality=2),
+            FinSet(name="B", cardinality=3),
+            FinSet(name="I", cardinality=1),
+        ]
         result = day_unit(objects, unit_index=2)
 
         assert result.shape == (3,)

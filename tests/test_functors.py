@@ -1,4 +1,5 @@
 """Tests for Functor ABC and FreeMonoidFunctor."""
+
 import torch
 import pytest
 from quivers.core.objects import FinSet, FreeMonoid
@@ -6,11 +7,11 @@ from quivers.core.morphisms import morphism, observed, FunctorMorphism
 from quivers.categorical.functors import FreeMonoidFunctor
 from quivers.core.quantales import BOOLEAN
 
-class TestFreeMonoidFunctorObject:
 
+class TestFreeMonoidFunctorObject:
     def test_map_object(self):
         fm = FreeMonoidFunctor(max_length=2)
-        a = FinSet(name='A', cardinality=3)
+        a = FinSet(name="A", cardinality=3)
         result = fm.map_object(a)
         assert isinstance(result, FreeMonoid)
         assert result.generators == a
@@ -20,31 +21,31 @@ class TestFreeMonoidFunctorObject:
     def test_map_object_accepts_non_finset(self):
         """FreeMonoidFunctor accepts any SetObject via proxy FinSet."""
         fm = FreeMonoidFunctor(max_length=1)
-        inner = FreeMonoid(generators=FinSet(name='A', cardinality=2), max_length=1)
+        inner = FreeMonoid(generators=FinSet(name="A", cardinality=2), max_length=1)
         result = fm.map_object(inner)
         assert isinstance(result, FreeMonoid)
         assert result.size == 4
 
     def test_max_length_zero(self):
         fm = FreeMonoidFunctor(max_length=0)
-        a = FinSet(name='A', cardinality=5)
+        a = FinSet(name="A", cardinality=5)
         result = fm.map_object(a)
         assert result.size == 1
 
-class TestFreeMonoidFunctorMorphism:
 
+class TestFreeMonoidFunctorMorphism:
     def test_map_morphism_returns_functor_morphism(self):
         fm = FreeMonoidFunctor(max_length=1)
-        a = FinSet(name='A', cardinality=3)
-        b = FinSet(name='B', cardinality=4)
+        a = FinSet(name="A", cardinality=3)
+        b = FinSet(name="B", cardinality=4)
         f = morphism(a, b)
         result = fm.map_morphism(f)
         assert isinstance(result, FunctorMorphism)
 
     def test_map_morphism_domain_codomain(self):
         fm = FreeMonoidFunctor(max_length=2)
-        a = FinSet(name='A', cardinality=2)
-        b = FinSet(name='B', cardinality=3)
+        a = FinSet(name="A", cardinality=2)
+        b = FinSet(name="B", cardinality=3)
         f = morphism(a, b)
         result = fm.map_morphism(f)
         assert isinstance(result.domain, FreeMonoid)
@@ -54,8 +55,8 @@ class TestFreeMonoidFunctorMorphism:
 
     def test_map_morphism_tensor_shape(self):
         fm = FreeMonoidFunctor(max_length=2)
-        a = FinSet(name='A', cardinality=2)
-        b = FinSet(name='B', cardinality=3)
+        a = FinSet(name="A", cardinality=2)
+        b = FinSet(name="B", cardinality=3)
         f = morphism(a, b)
         result = fm.map_morphism(f)
         assert result.tensor.shape == (7, 13)
@@ -63,8 +64,8 @@ class TestFreeMonoidFunctorMorphism:
     def test_block_diagonal_structure(self):
         """The functor morphism should have block-diagonal structure."""
         fm = FreeMonoidFunctor(max_length=1)
-        a = FinSet(name='A', cardinality=2)
-        b = FinSet(name='B', cardinality=3)
+        a = FinSet(name="A", cardinality=2)
+        b = FinSet(name="B", cardinality=3)
         f_data = torch.tensor([[0.5, 0.3, 0.1], [0.2, 0.8, 0.4]])
         f = observed(a, b, f_data)
         result = fm.map_morphism(f)
@@ -77,14 +78,15 @@ class TestFreeMonoidFunctorMorphism:
         assert t[1, 0].item() == pytest.approx(0.0, abs=1e-06)
         assert t[2, 0].item() == pytest.approx(0.0, abs=1e-06)
 
+
 class TestFunctorPreservesComposition:
     """F(f >> g) ≈ F(f) >> F(g) on boolean inputs."""
 
     def test_preserves_composition_boolean(self):
         fm = FreeMonoidFunctor(max_length=1)
-        a = FinSet(name='A', cardinality=2)
-        b = FinSet(name='B', cardinality=2)
-        c = FinSet(name='C', cardinality=2)
+        a = FinSet(name="A", cardinality=2)
+        b = FinSet(name="B", cardinality=2)
+        c = FinSet(name="C", cardinality=2)
         f_data = torch.tensor([[1.0, 0.0], [0.0, 1.0]])
         g_data = torch.tensor([[0.0, 1.0], [1.0, 0.0]])
         f = observed(a, b, f_data)
@@ -94,14 +96,16 @@ class TestFunctorPreservesComposition:
         fm_f = fm.map_morphism(f)
         fm_g = fm.map_morphism(g)
         composed = fm_f >> fm_g
-        torch.testing.assert_close(fm_fg.tensor, composed.tensor, atol=0.0001, rtol=0.0001)
+        torch.testing.assert_close(
+            fm_fg.tensor, composed.tensor, atol=0.0001, rtol=0.0001
+        )
+
 
 class TestGradientFlowThroughFunctor:
-
     def test_gradient_flows(self):
         fm = FreeMonoidFunctor(max_length=1)
-        a = FinSet(name='A', cardinality=2)
-        b = FinSet(name='B', cardinality=3)
+        a = FinSet(name="A", cardinality=2)
+        b = FinSet(name="B", cardinality=3)
         f = morphism(a, b)
         result = fm.map_morphism(f)
         loss = result.tensor.sum()
@@ -111,8 +115,8 @@ class TestGradientFlowThroughFunctor:
 
     def test_module_delegates_to_inner(self):
         fm = FreeMonoidFunctor(max_length=1)
-        a = FinSet(name='A', cardinality=2)
-        b = FinSet(name='B', cardinality=3)
+        a = FinSet(name="A", cardinality=2)
+        b = FinSet(name="B", cardinality=3)
         f = morphism(a, b)
         result = fm.map_morphism(f)
         inner_params = list(f.module().parameters())
@@ -121,13 +125,14 @@ class TestGradientFlowThroughFunctor:
         for ip, fp in zip(inner_params, functor_params):
             assert ip.data_ptr() == fp.data_ptr()
 
+
 class TestQuantaleRespected:
     """FreeMonoidFunctor should use the morphism's quantale."""
 
     def test_boolean_functor(self):
         fm = FreeMonoidFunctor(max_length=1)
-        a = FinSet(name='A', cardinality=2)
-        b = FinSet(name='B', cardinality=2)
+        a = FinSet(name="A", cardinality=2)
+        b = FinSet(name="B", cardinality=2)
         f_data = torch.tensor([[1.0, 0.0], [0.0, 1.0]])
         f = observed(a, b, f_data, quantale=BOOLEAN)
         result = fm.map_morphism(f)

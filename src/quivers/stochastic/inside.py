@@ -47,11 +47,13 @@ Examples
 >>> tokens = torch.randint(0, 10, (4, 6))  # batch=4, length=6
 >>> log_probs = cky(tokens)  # (4,)
 """
+
 from __future__ import annotations
 import torch
 import torch.nn as nn
 from quivers.core.morphisms import Morphism
 from quivers.core.objects import ProductSet
+
 
 class InsideAlgorithm(nn.Module):
     """CKY inside algorithm for differentiable PCFG parsing.
@@ -81,12 +83,16 @@ class InsideAlgorithm(nn.Module):
         If the morphisms have incompatible types.
     """
 
-    def __init__(self, binary: Morphism, lexical: Morphism, start: int=0) -> None:
+    def __init__(self, binary: Morphism, lexical: Morphism, start: int = 0) -> None:
         super().__init__()
         if not isinstance(binary.codomain, ProductSet):
-            raise TypeError(f'binary morphism codomain must be a ProductSet, got {binary.codomain!r}')
+            raise TypeError(
+                f"binary morphism codomain must be a ProductSet, got {binary.codomain!r}"
+            )
         if binary.domain != lexical.domain:
-            raise TypeError(f'binary and lexical must share the same domain (nonterminals), got {binary.domain!r} and {lexical.domain!r}')
+            raise TypeError(
+                f"binary and lexical must share the same domain (nonterminals), got {binary.domain!r} and {lexical.domain!r}"
+            )
         self._binary = binary
         self._lexical = lexical
         self._start = start
@@ -129,7 +135,9 @@ class InsideAlgorithm(nn.Module):
         log_binary = torch.log(self._binary.tensor.clamp(min=1e-30))
         log_lexical = torch.log(self._lexical.tensor.clamp(min=1e-30))
         N = self._n_nonterm
-        cells: list[list[torch.Tensor | None]] = [[None for _ in range(seq_len + 1)] for _ in range(seq_len)]
+        cells: list[list[torch.Tensor | None]] = [
+            [None for _ in range(seq_len + 1)] for _ in range(seq_len)
+        ]
         for i in range(seq_len):
             tok_i = tokens[:, i]
             cells[i][i + 1] = log_lexical[:, tok_i].T
@@ -141,12 +149,20 @@ class InsideAlgorithm(nn.Module):
                     left = cells[i][k]
                     right = cells[k][j]
                     assert left is not None and right is not None
-                    combined = log_binary.unsqueeze(0) + left.unsqueeze(1).unsqueeze(3) + right.unsqueeze(1).unsqueeze(2)
-                    split_score = torch.logsumexp(combined.reshape(batch, N, -1), dim=-1)
+                    combined = (
+                        log_binary.unsqueeze(0)
+                        + left.unsqueeze(1).unsqueeze(3)
+                        + right.unsqueeze(1).unsqueeze(2)
+                    )
+                    split_score = torch.logsumexp(
+                        combined.reshape(batch, N, -1), dim=-1
+                    )
                     parts.append(split_score)
                 stacked = torch.stack(parts, dim=0)
                 cells[i][j] = torch.logsumexp(stacked, dim=0)
-        chart = torch.full((batch, N, seq_len, seq_len + 1), float('-inf'), device=tokens.device)
+        chart = torch.full(
+            (batch, N, seq_len, seq_len + 1), float("-inf"), device=tokens.device
+        )
         for i in range(seq_len):
             for j in range(i + 1, seq_len + 1):
                 cell = cells[i][j]
@@ -175,7 +191,7 @@ class InsideAlgorithm(nn.Module):
             tokens = tokens.unsqueeze(0)
             squeeze = True
         if tokens.shape[1] == 0:
-            raise ValueError('cannot parse empty sentences')
+            raise ValueError("cannot parse empty sentences")
         chart = self._fill_chart(tokens)
         result = chart[:, self._start, 0, tokens.shape[1]]
         if squeeze:
@@ -203,11 +219,11 @@ class InsideAlgorithm(nn.Module):
             tokens = tokens.unsqueeze(0)
             squeeze = True
         if tokens.shape[1] == 0:
-            raise ValueError('cannot parse empty sentences')
+            raise ValueError("cannot parse empty sentences")
         chart = self._fill_chart(tokens)
         if squeeze:
             return chart.squeeze(0)
         return chart
 
     def __repr__(self) -> str:
-        return f'InsideAlgorithm(N={self._n_nonterm}, T={self._n_term}, start={self._start})'
+        return f"InsideAlgorithm(N={self._n_nonterm}, T={self._n_term}, start={self._start})"

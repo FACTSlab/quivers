@@ -195,9 +195,7 @@ class SpaceExprToContinuousSpace(
         self._env_objects = env_objects
         self._name = name
 
-    def forward(
-        self, s: SpaceExpr, /
-    ) -> tuple[ContinuousSpace | SetObject, SpaceExpr]:
+    def forward(self, s: SpaceExpr, /) -> tuple[ContinuousSpace | SetObject, SpaceExpr]:
         return self._resolve(s, self._name), s
 
     def backward(
@@ -205,9 +203,7 @@ class SpaceExprToContinuousSpace(
     ) -> SpaceExpr:
         return complement
 
-    def _resolve(
-        self, s: SpaceExpr, scope_name: str
-    ) -> ContinuousSpace | SetObject:
+    def _resolve(self, s: SpaceExpr, scope_name: str) -> ContinuousSpace | SetObject:
         if isinstance(s, SpaceConstructor):
             return _build_space_constructor(s.constructor, s.args, s.kwargs, scope_name)
 
@@ -220,7 +216,8 @@ class SpaceExprToContinuousSpace(
 
         if isinstance(s, SpaceProduct):
             components = tuple(
-                self._resolve(c, f"{scope_name}_{i}") for i, c in enumerate(s.components)
+                self._resolve(c, f"{scope_name}_{i}")
+                for i, c in enumerate(s.components)
             )
             return ProductSpace(components=components)
 

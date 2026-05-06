@@ -78,7 +78,9 @@ def test_output_decl_recorded_for_hmm() -> None:
     schema = extract_program_schema(compiler)
     output_ids = [v.id for v in schema.vertices if v.kind == "output_decl"]
     assert len(output_ids) == 1, "expected exactly one output_decl"
-    output_constraints = {c.sort: c.value for c in schema.constraints_for(output_ids[0])}
+    output_constraints = {
+        c.sort: c.value for c in schema.constraints_for(output_ids[0])
+    }
     # hmm.qvr's `output hmm` resolves to ExprIdent(name='hmm')
     assert output_constraints["name"] == "hmm"
     # the program -> output_decl edge with kind 'output' is present
@@ -100,10 +102,7 @@ def test_diff_distinguishes_distinct_programs() -> None:
     diff = panproto.diff_schemas(schema_a, schema_b).to_dict()
     # at minimum, the two schemas should differ — they declare different
     # objects (State/Obs vs N/T) and different morphisms.
-    assert (
-        len(diff["added_vertices"]) > 0
-        or len(diff["removed_vertices"]) > 0
-    )
+    assert len(diff["added_vertices"]) > 0 or len(diff["removed_vertices"]) > 0
 
 
 def test_identical_compilation_produces_equal_schemas() -> None:

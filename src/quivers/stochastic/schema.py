@@ -288,7 +288,9 @@ class ForwardComposition(BinaryRuleSchema):
             and right.direction == "/"
             and left.argument == right.result
         ):
-            return SlashCategory(result=left.result, argument=right.argument, direction="/")
+            return SlashCategory(
+                result=left.result, argument=right.argument, direction="/"
+            )
 
         return None
 
@@ -308,7 +310,9 @@ class BackwardComposition(BinaryRuleSchema):
             and right.direction == "\\"
             and right.argument == left.result
         ):
-            return SlashCategory(result=right.result, argument=left.argument, direction="\\")
+            return SlashCategory(
+                result=right.result, argument=left.argument, direction="\\"
+            )
 
         return None
 
@@ -328,7 +332,9 @@ class ForwardCrossedComposition(BinaryRuleSchema):
             and right.direction == "\\"
             and left.argument == right.result
         ):
-            return SlashCategory(result=left.result, argument=right.argument, direction="\\")
+            return SlashCategory(
+                result=left.result, argument=right.argument, direction="\\"
+            )
 
         return None
 
@@ -348,7 +354,9 @@ class BackwardCrossedComposition(BinaryRuleSchema):
             and right.direction == "\\"
             and right.argument == left.result
         ):
-            return SlashCategory(result=right.result, argument=left.argument, direction="/")
+            return SlashCategory(
+                result=right.result, argument=left.argument, direction="/"
+            )
 
         return None
 
@@ -668,7 +676,9 @@ class GeneralizedComposition(RuleSchema):
             return
 
         if right.result == left.argument:
-            result = SlashCategory(result=left.result, argument=right.argument, direction=right.direction)
+            result = SlashCategory(
+                result=left.result, argument=right.argument, direction=right.direction
+            )
 
             if result in system:
                 rules.append((system.index(result), li, ri))
@@ -784,7 +794,9 @@ def _instantiate_pattern(
         if result is None or argument is None:
             return None
 
-        return SlashCategory(result=result, argument=argument, direction=pattern.direction)
+        return SlashCategory(
+            result=result, argument=argument, direction=pattern.direction
+        )
 
     elif isinstance(pattern, CatPatternProduct):
         left = _instantiate_pattern(pattern.left, bindings, variables)

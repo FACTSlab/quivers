@@ -9,6 +9,7 @@ This module provides:
     ├── CartesianMonoidal  — (FinSet, ×, 1)
     └── CoproductMonoidal  — (FinSet, +, ∅)
 """
+
 from __future__ import annotations
 import itertools
 from abc import ABC, abstractmethod
@@ -17,6 +18,7 @@ import torch
 from quivers.core.objects import SetObject, FinSet, ProductSet, CoproductSet, Unit
 from quivers.core.morphisms import ObservedMorphism, observed
 from quivers.core.quantales import PRODUCT_FUZZY, Quantale
+
 
 class MonoidalStructure(ABC):
     """Abstract monoidal structure on a category.
@@ -113,6 +115,7 @@ class MonoidalStructure(ABC):
         """
         ...
 
+
 class CartesianMonoidal(MonoidalStructure):
     """Cartesian monoidal structure: (FinSet, ×, 1).
 
@@ -129,7 +132,7 @@ class CartesianMonoidal(MonoidalStructure):
         The enrichment algebra for coherence morphisms.
     """
 
-    def __init__(self, quantale: Quantale | None=None) -> None:
+    def __init__(self, quantale: Quantale | None = None) -> None:
         self._quantale = quantale if quantale is not None else PRODUCT_FUZZY
 
     def product(self, a: SetObject, b: SetObject) -> ProductSet:
@@ -196,7 +199,7 @@ class CartesianMonoidal(MonoidalStructure):
         return observed(source, target, data, quantale=self._quantale)
 
     def __repr__(self) -> str:
-        return 'CartesianMonoidal()'
+        return "CartesianMonoidal()"
 
 
 class EmptySet(SetObject):
@@ -205,7 +208,7 @@ class EmptySet(SetObject):
     Used as the unit for coproduct monoidal structure.
     """
 
-    kind: Literal['empty_set'] = 'empty_set'
+    kind: Literal["empty_set"] = "empty_set"
 
     @property
     def size(self) -> int:
@@ -216,10 +219,11 @@ class EmptySet(SetObject):
         return (0,)
 
     def __str__(self) -> str:
-        return 'EmptySet()'
+        return "EmptySet()"
 
 
 EMPTY = EmptySet()
+
 
 class CoproductMonoidal(MonoidalStructure):
     """Coproduct monoidal structure: (FinSet, +, ∅).
@@ -233,7 +237,7 @@ class CoproductMonoidal(MonoidalStructure):
         The enrichment algebra for coherence morphisms.
     """
 
-    def __init__(self, quantale: Quantale | None=None) -> None:
+    def __init__(self, quantale: Quantale | None = None) -> None:
         self._quantale = quantale if quantale is not None else PRODUCT_FUZZY
 
     def product(self, a: SetObject, b: SetObject) -> CoproductSet:
@@ -302,4 +306,4 @@ class CoproductMonoidal(MonoidalStructure):
         return observed(source, target, data, quantale=self._quantale)
 
     def __repr__(self) -> str:
-        return 'CoproductMonoidal()'
+        return "CoproductMonoidal()"

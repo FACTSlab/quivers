@@ -1,15 +1,16 @@
 """Tests for comonads and coKleisli categories."""
+
 import torch
 from quivers.core.objects import FinSet, ProductSet
 from quivers.core.morphisms import identity
 from quivers.monadic.comonads import DiagonalComonad, CofreeComonad, CoKleisliCategory
 
-class TestDiagonalComonad:
 
+class TestDiagonalComonad:
     def test_counit_is_projection(self):
         """ε_A: A × A → A should be first projection."""
         w = DiagonalComonad()
-        a = FinSet(name='A', cardinality=3)
+        a = FinSet(name="A", cardinality=3)
         eps = w.counit(a)
         assert eps.tensor.shape == (3, 3, 3)
         for a1 in range(3):
@@ -21,7 +22,7 @@ class TestDiagonalComonad:
     def test_comultiply_is_diagonal(self):
         """δ_A: A × A → (A × A) × (A × A) should duplicate pairs."""
         w = DiagonalComonad()
-        a = FinSet(name='A', cardinality=2)
+        a = FinSet(name="A", cardinality=2)
         delta = w.comultiply(a)
         assert delta.tensor.shape == (2, 2, 2, 2, 2, 2)
         for a1 in range(2):
@@ -32,7 +33,7 @@ class TestDiagonalComonad:
     def test_counit_law_left(self):
         """ε_W(A) ∘ δ_A = id_W(A) (left counit)."""
         w = DiagonalComonad()
-        a = FinSet(name='A', cardinality=2)
+        a = FinSet(name="A", cardinality=2)
         wa = ProductSet(components=(a, a))
         delta = w.comultiply(a)
         eps_wa = w.counit(wa)
@@ -40,13 +41,13 @@ class TestDiagonalComonad:
         expected = identity(wa).tensor
         torch.testing.assert_close(result, expected, atol=1e-05, rtol=1e-05)
 
-class TestCofreeComonad:
 
+class TestCofreeComonad:
     def test_counit_projects(self):
         """ε_A: A × S → A should project to A."""
-        s = FinSet(name='S', cardinality=2)
+        s = FinSet(name="S", cardinality=2)
         w = CofreeComonad(store=s)
-        a = FinSet(name='A', cardinality=3)
+        a = FinSet(name="A", cardinality=3)
         eps = w.counit(a)
         assert eps.tensor.shape == (3, 2, 3)
         for ai in range(3):
@@ -57,9 +58,9 @@ class TestCofreeComonad:
 
     def test_comultiply_duplicates_store(self):
         """δ_A: A × S → (A × S) × S should duplicate S."""
-        s = FinSet(name='S', cardinality=2)
+        s = FinSet(name="S", cardinality=2)
         w = CofreeComonad(store=s)
-        a = FinSet(name='A', cardinality=2)
+        a = FinSet(name="A", cardinality=2)
         delta = w.comultiply(a)
         assert delta.tensor.shape == (2, 2, 2, 2, 2)
         for ai in range(2):
@@ -69,9 +70,9 @@ class TestCofreeComonad:
 
     def test_counit_law(self):
         """ε ∘ δ = id."""
-        s = FinSet(name='S', cardinality=2)
+        s = FinSet(name="S", cardinality=2)
         w = CofreeComonad(store=s)
-        a = FinSet(name='A', cardinality=2)
+        a = FinSet(name="A", cardinality=2)
         wa = ProductSet(components=(a, s))
         delta = w.comultiply(a)
         eps_wa = w.counit(wa)
@@ -79,13 +80,13 @@ class TestCofreeComonad:
         expected = identity(wa).tensor
         torch.testing.assert_close(result, expected, atol=1e-05, rtol=1e-05)
 
-class TestCoKleisliCategory:
 
+class TestCoKleisliCategory:
     def test_identity_is_counit(self):
         """CoKleisli identity at A is ε_A: W(A) → A."""
         w = DiagonalComonad()
         cat = CoKleisliCategory(w)
-        a = FinSet(name='A', cardinality=3)
+        a = FinSet(name="A", cardinality=3)
         id_a = cat.identity(a)
         eps = w.counit(a)
         torch.testing.assert_close(id_a.tensor, eps.tensor, atol=1e-05, rtol=1e-05)

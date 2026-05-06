@@ -21,6 +21,7 @@ This module provides:
     left_kan()  — left Kan extension
     right_kan() — right Kan extension
 """
+
 from __future__ import annotations
 import itertools
 from abc import ABC, abstractmethod
@@ -28,6 +29,7 @@ import torch
 from quivers.core.objects import SetObject, ProductSet, CoproductSet
 from quivers.core.morphisms import Morphism, ObservedMorphism, observed
 from quivers.core.quantales import PRODUCT_FUZZY, Quantale
+
 
 class ObjectMap(ABC):
     """An abstract deterministic map between finite sets.
@@ -83,6 +85,7 @@ class ObjectMap(ABC):
                 result.append(src_idx)
         return result
 
+
 class Projection(ObjectMap):
     """Projection from a product to a subset of its components.
 
@@ -99,11 +102,13 @@ class Projection(ObjectMap):
 
     def __init__(self, product: ProductSet, keep_indices: tuple[int, ...]) -> None:
         if not isinstance(product, ProductSet):
-            raise TypeError(f'Projection requires ProductSet, got {type(product).__name__}')
+            raise TypeError(
+                f"Projection requires ProductSet, got {type(product).__name__}"
+            )
         n = len(product.components)
         for idx in keep_indices:
             if not 0 <= idx < n:
-                raise ValueError(f'component index {idx} out of range [0, {n})')
+                raise ValueError(f"component index {idx} out of range [0, {n})")
         self._product = product
         self._keep_indices = keep_indices
         self._drop_indices = tuple((i for i in range(n) if i not in keep_indices))
@@ -148,6 +153,7 @@ class Projection(ObjectMap):
                 result.append(source_idx[offset + d])
         return tuple(result)
 
+
 class Inclusion(ObjectMap):
     """Coproduct inclusion ι_k: Aₖ → A₁ + ... + Aₙ.
 
@@ -163,10 +169,12 @@ class Inclusion(ObjectMap):
 
     def __init__(self, coproduct: CoproductSet, component_index: int) -> None:
         if not isinstance(coproduct, CoproductSet):
-            raise TypeError(f'Inclusion requires CoproductSet, got {type(coproduct).__name__}')
+            raise TypeError(
+                f"Inclusion requires CoproductSet, got {type(coproduct).__name__}"
+            )
         n = len(coproduct.components)
         if not 0 <= component_index < n:
-            raise ValueError(f'component_index {component_index} out of range [0, {n})')
+            raise ValueError(f"component_index {component_index} out of range [0, {n})")
         self._coproduct = coproduct
         self._component_index = component_index
         self._component = coproduct.components[component_index]
@@ -184,10 +192,13 @@ class Inclusion(ObjectMap):
 
     def apply(self, source_idx: tuple[int, ...]) -> tuple[int, ...]:
         """Embed into the coproduct with offset."""
-        flat_idx, = source_idx
+        (flat_idx,) = source_idx
         return (self._offset + flat_idx,)
 
-def left_kan(morph: Morphism, along: ObjectMap, quantale: Quantale | None=None) -> ObservedMorphism:
+
+def left_kan(
+    morph: Morphism, along: ObjectMap, quantale: Quantale | None = None
+) -> ObservedMorphism:
     """Left Kan extension of a morphism along an object map.
 
     Computes: (Lan_p R)(a', b) = ⋁{a : p(a) = a'} R(a, b)
@@ -221,7 +232,10 @@ def left_kan(morph: Morphism, along: ObjectMap, quantale: Quantale | None=None) 
         result[tgt_idx] = joined
     return observed(target, codomain, result, quantale=q)
 
-def right_kan(morph: Morphism, along: ObjectMap, quantale: Quantale | None=None) -> ObservedMorphism:
+
+def right_kan(
+    morph: Morphism, along: ObjectMap, quantale: Quantale | None = None
+) -> ObservedMorphism:
     """Right Kan extension of a morphism along an object map.
 
     Computes: (Ran_p R)(a', b) = ⋀{a : p(a) = a'} R(a, b)

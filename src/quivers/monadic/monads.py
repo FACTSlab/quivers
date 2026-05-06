@@ -20,6 +20,7 @@ This module provides:
 
     KleisliCategory — wraps a monad for composition
 """
+
 from __future__ import annotations
 from abc import ABC, abstractmethod
 import torch
@@ -27,6 +28,7 @@ from quivers.core.objects import SetObject, FinSet, FreeMonoid
 from quivers.core.quantales import PRODUCT_FUZZY, Quantale
 from quivers.core.morphisms import Morphism, identity, observed
 from quivers.categorical.functors import Functor, FreeMonoidFunctor, IDENTITY
+
 
 class Monad(ABC):
     """Abstract monad (T, η, μ) on V-enriched FinSet.
@@ -100,7 +102,10 @@ class Monad(ABC):
 
         Subclasses can override for efficiency.
         """
-        raise NotImplementedError('Subclasses must implement _multiply_at_codomain or override kleisli_compose')
+        raise NotImplementedError(
+            "Subclasses must implement _multiply_at_codomain or override kleisli_compose"
+        )
+
 
 class KleisliCategory:
     """The Kleisli category of a monad.
@@ -155,6 +160,7 @@ class KleisliCategory:
         """
         return self._monad.kleisli_compose(f, g)
 
+
 class FuzzyPowersetMonad(Monad):
     """The fuzzy powerset monad with a given quantale.
 
@@ -171,7 +177,7 @@ class FuzzyPowersetMonad(Monad):
         The enrichment algebra. Defaults to PRODUCT_FUZZY.
     """
 
-    def __init__(self, quantale: Quantale | None=None) -> None:
+    def __init__(self, quantale: Quantale | None = None) -> None:
         self._quantale = quantale if quantale is not None else PRODUCT_FUZZY
 
     @property
@@ -200,7 +206,8 @@ class FuzzyPowersetMonad(Monad):
         return identity(g.codomain, quantale=self._quantale)
 
     def __repr__(self) -> str:
-        return f'FuzzyPowersetMonad({self._quantale!r})'
+        return f"FuzzyPowersetMonad({self._quantale!r})"
+
 
 class FreeMonoidMonad(Monad):
     """The free monoid monad, truncated to max_length.
@@ -237,7 +244,9 @@ class FreeMonoidMonad(Monad):
         (a, offset_1 + a) and 0 elsewhere.
         """
         if not isinstance(obj, FinSet):
-            raise TypeError(f'FreeMonoidMonad.unit requires FinSet, got {type(obj).__name__}')
+            raise TypeError(
+                f"FreeMonoidMonad.unit requires FinSet, got {type(obj).__name__}"
+            )
         fm = FreeMonoid(generators=obj, max_length=self._max_length)
         n = obj.cardinality
         data = torch.zeros(n, fm.size)
@@ -254,9 +263,14 @@ class FreeMonoidMonad(Monad):
         max_length, the entry is 0 (truncation).
         """
         if not isinstance(obj, FinSet):
-            raise TypeError(f'FreeMonoidMonad.multiply requires FinSet, got {type(obj).__name__}')
+            raise TypeError(
+                f"FreeMonoidMonad.multiply requires FinSet, got {type(obj).__name__}"
+            )
         fm_a = FreeMonoid(generators=obj, max_length=self._max_length)
-        fm_fm_a = FreeMonoid(generators=FinSet(name=f'{obj.name}*', cardinality=fm_a.size), max_length=self._max_length)
+        fm_fm_a = FreeMonoid(
+            generators=FinSet(name=f"{obj.name}*", cardinality=fm_a.size),
+            max_length=self._max_length,
+        )
         data = torch.zeros(fm_fm_a.size, fm_a.size)
         for i in range(fm_fm_a.size):
             outer_word = fm_fm_a.decode(i)
@@ -285,7 +299,7 @@ class FreeMonoidMonad(Monad):
             return self.multiply(cod.generators)
         if isinstance(cod, FinSet):
             return self.multiply(cod)
-        raise TypeError(f'Cannot extract base object from codomain {cod!r}')
+        raise TypeError(f"Cannot extract base object from codomain {cod!r}")
 
     def __repr__(self) -> str:
-        return f'FreeMonoidMonad(max_length={self._max_length})'
+        return f"FreeMonoidMonad(max_length={self._max_length})"

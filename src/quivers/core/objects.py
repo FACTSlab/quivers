@@ -5,11 +5,13 @@ The set-object family is a sum type with four variants — :class:`FinSet`,
 by ``kind``. ``SetObject`` is the :class:`dx.TaggedUnion` root that gathers
 them; ``X * Y`` and ``X + Y`` work on any pair of variants.
 """
+
 from math import prod
 from typing import Literal
 import didactic.api as dx
 
-class SetObject(dx.TaggedUnion, discriminator='kind'):
+
+class SetObject(dx.TaggedUnion, discriminator="kind"):
     """The category of finite sets, product sets, and coproduct sets.
 
     Variants share two derived properties (:attr:`size`, :attr:`shape`) and
@@ -31,20 +33,22 @@ class SetObject(dx.TaggedUnion, discriminator='kind'):
         """Number of tensor dimensions."""
         return len(self.shape)
 
-    def __mul__(self, other: 'SetObject') -> 'ProductSet':
+    def __mul__(self, other: "SetObject") -> "ProductSet":
         if not isinstance(other, SetObject):
             return NotImplemented
         return ProductSet(components=(self, other))
 
-    def __add__(self, other: 'SetObject') -> 'CoproductSet':
+    def __add__(self, other: "SetObject") -> "CoproductSet":
         if not isinstance(other, SetObject):
             return NotImplemented
         return CoproductSet(components=(self, other))
 
+
 def _check_cardinality(value: int) -> int:
     if value < 1:
-        raise ValueError(f'cardinality must be >= 1, got {value}')
+        raise ValueError(f"cardinality must be >= 1, got {value}")
     return value
+
 
 class FinSet(SetObject):
     """A named finite set with a fixed cardinality.
@@ -56,9 +60,10 @@ class FinSet(SetObject):
     cardinality : int
         Number of elements (must be >= 1).
     """
+
     name: str
     cardinality: int = dx.field(converter=_check_cardinality)
-    kind: Literal['finset'] = 'finset'
+    kind: Literal["finset"] = "finset"
 
     @property
     def size(self) -> int:
@@ -69,10 +74,13 @@ class FinSet(SetObject):
         return (self.cardinality,)
 
     def __str__(self) -> str:
-        return f'FinSet(name={self.name!r}, cardinality={self.cardinality})'
-Unit: FinSet = FinSet(name='1', cardinality=1)
+        return f"FinSet(name={self.name!r}, cardinality={self.cardinality})"
 
-def _flatten_products(items: tuple['SetObject', ...]) -> tuple['SetObject', ...]:
+
+Unit: FinSet = FinSet(name="1", cardinality=1)
+
+
+def _flatten_products(items: tuple["SetObject", ...]) -> tuple["SetObject", ...]:
     """Flatten nested ProductSet so that P(A, P(B, C)) collapses to P(A, B, C)."""
     out: list[SetObject] = []
     for c in items:
@@ -82,14 +90,18 @@ def _flatten_products(items: tuple['SetObject', ...]) -> tuple['SetObject', ...]
             out.append(c)
     return tuple(out)
 
+
 class ProductSet(SetObject):
     """Cartesian product of finite sets.
 
     Nested products are flattened: ``ProductSet(components=(A, ProductSet(components=(B, C))))``
     constructs to ``ProductSet`` with ``components == (A, B, C)``.
     """
-    components: tuple[SetObject, ...] = dx.field(default=(), converter=_flatten_products)
-    kind: Literal['product_set'] = 'product_set'
+
+    components: tuple[SetObject, ...] = dx.field(
+        default=(), converter=_flatten_products
+    )
+    kind: Literal["product_set"] = "product_set"
 
     @property
     def size(self) -> int:
@@ -103,10 +115,11 @@ class ProductSet(SetObject):
         return tuple(result)
 
     def __str__(self) -> str:
-        inner = ' × '.join((str(c) for c in self.components))
-        return f'({inner})'
+        inner = " × ".join((str(c) for c in self.components))
+        return f"({inner})"
 
-def _flatten_coproducts(items: tuple['SetObject', ...]) -> tuple['SetObject', ...]:
+
+def _flatten_coproducts(items: tuple["SetObject", ...]) -> tuple["SetObject", ...]:
     """Flatten nested CoproductSet so that C(A, C(B, C)) collapses to C(A, B, C)."""
     out: list[SetObject] = []
     for c in items:
@@ -116,6 +129,7 @@ def _flatten_coproducts(items: tuple['SetObject', ...]) -> tuple['SetObject', ..
             out.append(c)
     return tuple(out)
 
+
 class CoproductSet(SetObject):
     """Tagged union (coproduct) of finite sets.
 
@@ -123,8 +137,11 @@ class CoproductSet(SetObject):
     a single dimension of that total size with offsets recoverable from
     :attr:`offsets`.
     """
-    components: tuple[SetObject, ...] = dx.field(default=(), converter=_flatten_coproducts)
-    kind: Literal['coproduct_set'] = 'coproduct_set'
+
+    components: tuple[SetObject, ...] = dx.field(
+        default=(), converter=_flatten_coproducts
+    )
+    kind: Literal["coproduct_set"] = "coproduct_set"
 
     @dx.derived
     def offsets(self) -> tuple[int, ...]:
@@ -155,12 +172,15 @@ class CoproductSet(SetObject):
         return (start, end)
 
     def __str__(self) -> str:
-        inner = ' + '.join((str(c) for c in self.components))
-        return f'({inner})'
+        inner = " + ".join((str(c) for c in self.components))
+        return f"({inner})"
 
-def _build_free_monoid_components(generators: FinSet, max_length: int) -> tuple[SetObject, ...]:
+
+def _build_free_monoid_components(
+    generators: FinSet, max_length: int
+) -> tuple[SetObject, ...]:
     if max_length < 0:
-        raise ValueError(f'max_length must be >= 0, got {max_length}')
+        raise ValueError(f"max_length must be >= 0, got {max_length}")
     components: list[SetObject] = [Unit]
     for k in range(1, max_length + 1):
         if k == 1:
@@ -168,6 +188,7 @@ def _build_free_monoid_components(generators: FinSet, max_length: int) -> tuple[
         else:
             components.append(ProductSet(components=tuple([generators] * k)))
     return tuple(components)
+
 
 class FreeMonoid(SetObject):
     """Free monoid on a generator set, truncated to ``max_length``.
@@ -184,13 +205,16 @@ class FreeMonoid(SetObject):
     max_length : int
         Maximum string length (inclusive).
     """
+
     generators: FinSet
     max_length: int
-    kind: Literal['free_monoid'] = 'free_monoid'
+    kind: Literal["free_monoid"] = "free_monoid"
 
     @dx.derived
     def _coproduct(self) -> CoproductSet:
-        return CoproductSet(components=_build_free_monoid_components(self.generators, self.max_length))
+        return CoproductSet(
+            components=_build_free_monoid_components(self.generators, self.max_length)
+        )
 
     def as_coproduct(self) -> CoproductSet:
         """Return the underlying coproduct view."""
@@ -218,7 +242,7 @@ class FreeMonoid(SetObject):
         """Encode a word (tuple of generator indices) to a flat index."""
         k = len(word)
         if k > self.max_length:
-            raise ValueError(f'word length {k} exceeds max_length {self.max_length}')
+            raise ValueError(f"word length {k} exceeds max_length {self.max_length}")
         g = self.generators.cardinality
         base = self.offset(k)
         if k == 0:
@@ -226,14 +250,14 @@ class FreeMonoid(SetObject):
         idx = 0
         for w in word:
             if not 0 <= w < g:
-                raise ValueError(f'generator index {w} out of range [0, {g})')
+                raise ValueError(f"generator index {w} out of range [0, {g})")
             idx = idx * g + w
         return base + idx
 
     def decode(self, flat_index: int) -> tuple[int, ...]:
         """Decode a flat index back to a word."""
         if not 0 <= flat_index < self.size:
-            raise ValueError(f'flat_index {flat_index} out of range [0, {self.size})')
+            raise ValueError(f"flat_index {flat_index} out of range [0, {self.size})")
         g = self.generators.cardinality
         cop = self._coproduct
         for k in range(len(cop.components)):
@@ -248,7 +272,9 @@ class FreeMonoid(SetObject):
                     local //= g
                 digits.reverse()
                 return tuple(digits)
-        raise RuntimeError('unreachable')
+        raise RuntimeError("unreachable")
 
     def __str__(self) -> str:
-        return f'FreeMonoid(generators={self.generators!s}, max_length={self.max_length})'
+        return (
+            f"FreeMonoid(generators={self.generators!s}, max_length={self.max_length})"
+        )

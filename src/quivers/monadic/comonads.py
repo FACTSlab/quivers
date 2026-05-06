@@ -20,6 +20,7 @@ This module provides:
 
     CoKleisliCategory — wraps a comonad for composition
 """
+
 from __future__ import annotations
 from abc import ABC, abstractmethod
 import torch
@@ -27,6 +28,7 @@ from quivers.core.objects import SetObject, ProductSet
 from quivers.core.quantales import PRODUCT_FUZZY, Quantale
 from quivers.core.morphisms import FunctorMorphism, Morphism, observed, identity
 from quivers.categorical.functors import Functor
+
 
 class Comonad(ABC):
     """Abstract comonad (W, ε, δ) on V-enriched FinSet.
@@ -109,7 +111,10 @@ class Comonad(ABC):
         Morphism
             The comultiplication δ_A: W(A) → W(W(A)).
         """
-        raise NotImplementedError('Subclasses must implement _comultiply_at_domain or override cokleisli_compose')
+        raise NotImplementedError(
+            "Subclasses must implement _comultiply_at_domain or override cokleisli_compose"
+        )
+
 
 class CoKleisliCategory:
     """The coKleisli category of a comonad.
@@ -164,6 +169,7 @@ class CoKleisliCategory:
         """
         return self._comonad.cokleisli_compose(f, g)
 
+
 class DiagonalComonad(Comonad):
     """The diagonal comonad W(A) = A × A with projection and diagonal.
 
@@ -180,7 +186,7 @@ class DiagonalComonad(Comonad):
         The enrichment algebra. Defaults to PRODUCT_FUZZY.
     """
 
-    def __init__(self, quantale: Quantale | None=None) -> None:
+    def __init__(self, quantale: Quantale | None = None) -> None:
         self._quantale = quantale if quantale is not None else PRODUCT_FUZZY
         self._functor = _DiagonalFunctor()
 
@@ -208,6 +214,7 @@ class DiagonalComonad(Comonad):
             The projection morphism.
         """
         import itertools
+
         source = ProductSet(components=(obj, obj))
         data = torch.full((*source.shape, *obj.shape), self._quantale.zero)
         for idx in itertools.product(*(range(s) for s in obj.shape)):
@@ -231,6 +238,7 @@ class DiagonalComonad(Comonad):
             The comultiplication morphism.
         """
         import itertools
+
         source = ProductSet(components=(obj, obj))
         target = ProductSet(components=(obj, obj, obj, obj))
         data = torch.full((*source.shape, *target.shape), self._quantale.zero)
@@ -268,7 +276,8 @@ class DiagonalComonad(Comonad):
         return wa
 
     def __repr__(self) -> str:
-        return f'DiagonalComonad({self._quantale!r})'
+        return f"DiagonalComonad({self._quantale!r})"
+
 
 class CofreeComonad(Comonad):
     """The cofree comonad W(A) = A × S for a fixed store object S.
@@ -287,7 +296,7 @@ class CofreeComonad(Comonad):
         The enrichment algebra. Defaults to PRODUCT_FUZZY.
     """
 
-    def __init__(self, store: SetObject, quantale: Quantale | None=None) -> None:
+    def __init__(self, store: SetObject, quantale: Quantale | None = None) -> None:
         self._store = store
         self._quantale = quantale if quantale is not None else PRODUCT_FUZZY
         self._functor = _StoreFunctor(store)
@@ -321,6 +330,7 @@ class CofreeComonad(Comonad):
             The extraction morphism.
         """
         import itertools
+
         source = ProductSet(components=(obj, self._store))
         data = torch.full((*source.shape, *obj.shape), self._quantale.zero)
         for a_idx in itertools.product(*(range(s) for s in obj.shape)):
@@ -344,6 +354,7 @@ class CofreeComonad(Comonad):
             The comultiplication morphism.
         """
         import itertools
+
         source = ProductSet(components=(obj, self._store))
         target = ProductSet(components=(obj, self._store, self._store))
         data = torch.full((*source.shape, *target.shape), self._quantale.zero)
@@ -363,7 +374,8 @@ class CofreeComonad(Comonad):
         return self.comultiply(base)
 
     def __repr__(self) -> str:
-        return f'CofreeComonad(store={self._store!r})'
+        return f"CofreeComonad(store={self._store!r})"
+
 
 class _DiagonalFunctor(Functor):
     """The diagonal functor W(A) = A × A.
@@ -396,7 +408,8 @@ class _DiagonalFunctor(Functor):
         return outer.permute(*perm)
 
     def __repr__(self) -> str:
-        return 'DiagonalFunctor()'
+        return "DiagonalFunctor()"
+
 
 class _StoreFunctor(Functor):
     """The store functor W(A) = A × S for a fixed S.
@@ -436,4 +449,4 @@ class _StoreFunctor(Functor):
         return outer.permute(*perm)
 
     def __repr__(self) -> str:
-        return f'StoreFunctor(store={self._store!r})'
+        return f"StoreFunctor(store={self._store!r})"

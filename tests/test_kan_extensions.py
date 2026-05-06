@@ -1,4 +1,5 @@
 """Tests for Kan extensions."""
+
 import torch
 import pytest
 from quivers.core.objects import FinSet, ProductSet
@@ -6,27 +7,27 @@ from quivers.core.morphisms import observed
 from quivers.enriched.kan_extensions import Projection, left_kan, right_kan
 from quivers.core.quantales import BOOLEAN
 
-class TestProjection:
 
+class TestProjection:
     def test_source_target(self):
-        a = FinSet(name='A', cardinality=2)
-        b = FinSet(name='B', cardinality=3)
-        c = FinSet(name='C', cardinality=4)
+        a = FinSet(name="A", cardinality=2)
+        b = FinSet(name="B", cardinality=3)
+        c = FinSet(name="C", cardinality=4)
         p = ProductSet(components=(a, b, c))
         proj = Projection(p, keep_indices=(0, 2))
         assert proj.source == p
         assert proj.target.shape == (2, 4)
 
     def test_apply(self):
-        a = FinSet(name='A', cardinality=2)
-        b = FinSet(name='B', cardinality=3)
+        a = FinSet(name="A", cardinality=2)
+        b = FinSet(name="B", cardinality=3)
         p = ProductSet(components=(a, b))
         proj = Projection(p, keep_indices=(0,))
         assert proj.apply((1, 2)) == (1,)
 
     def test_fiber_indices(self):
-        a = FinSet(name='A', cardinality=2)
-        b = FinSet(name='B', cardinality=3)
+        a = FinSet(name="A", cardinality=2)
+        b = FinSet(name="B", cardinality=3)
         p = ProductSet(components=(a, b))
         proj = Projection(p, keep_indices=(0,))
         fiber = proj.fiber_indices((1,))
@@ -35,14 +36,14 @@ class TestProjection:
         assert (1, 1) in fiber
         assert (1, 2) in fiber
 
-class TestLeftKan:
 
+class TestLeftKan:
     def test_domain_reduction(self):
         """left_kan with Projection joins over domain fiber."""
         torch.manual_seed(42)
-        a = FinSet(name='A', cardinality=2)
-        b = FinSet(name='B', cardinality=3)
-        c = FinSet(name='C', cardinality=4)
+        a = FinSet(name="A", cardinality=2)
+        b = FinSet(name="B", cardinality=3)
+        c = FinSet(name="C", cardinality=4)
         dom = ProductSet(components=(a, b))
         f_data = torch.rand(*dom.shape, *c.shape)
         f = observed(dom, c, f_data)
@@ -61,9 +62,9 @@ class TestLeftKan:
     def test_matches_codomain_marginalize(self):
         """left_kan on codomain product matches .marginalize()."""
         torch.manual_seed(42)
-        a = FinSet(name='A', cardinality=2)
-        b = FinSet(name='B', cardinality=3)
-        c = FinSet(name='C', cardinality=4)
+        a = FinSet(name="A", cardinality=2)
+        b = FinSet(name="B", cardinality=3)
+        c = FinSet(name="C", cardinality=4)
         cod = ProductSet(components=(b, c))
         f_data = torch.rand(*a.shape, *cod.shape)
         f = observed(a, cod, f_data)
@@ -73,9 +74,9 @@ class TestLeftKan:
 
     def test_left_kan_boolean(self):
         """Left Kan with Boolean quantale uses OR."""
-        a = FinSet(name='A', cardinality=2)
-        b = FinSet(name='B', cardinality=2)
-        c = FinSet(name='C', cardinality=2)
+        a = FinSet(name="A", cardinality=2)
+        b = FinSet(name="B", cardinality=2)
+        c = FinSet(name="C", cardinality=2)
         dom = ProductSet(components=(a, b))
         f_data = torch.zeros(2, 2, 2)
         f_data[0, 0, 0] = 1.0
@@ -86,13 +87,13 @@ class TestLeftKan:
         assert result.tensor[0, 0].item() == pytest.approx(1.0)
         assert result.tensor[0, 1].item() == pytest.approx(1.0)
 
-class TestRightKan:
 
+class TestRightKan:
     def test_right_kan_uses_meet(self):
         """Right Kan should use meet (AND for boolean)."""
-        a = FinSet(name='A', cardinality=2)
-        b = FinSet(name='B', cardinality=2)
-        c = FinSet(name='C', cardinality=2)
+        a = FinSet(name="A", cardinality=2)
+        b = FinSet(name="B", cardinality=2)
+        c = FinSet(name="C", cardinality=2)
         dom = ProductSet(components=(a, b))
         f_data = torch.zeros(2, 2, 2)
         f_data[0, 0, 0] = 1.0
@@ -104,9 +105,9 @@ class TestRightKan:
         assert result.tensor[0, 1].item() == pytest.approx(0.0)
 
     def test_right_kan_shape(self):
-        a = FinSet(name='A', cardinality=2)
-        b = FinSet(name='B', cardinality=3)
-        c = FinSet(name='C', cardinality=4)
+        a = FinSet(name="A", cardinality=2)
+        b = FinSet(name="B", cardinality=3)
+        c = FinSet(name="C", cardinality=4)
         dom = ProductSet(components=(a, b))
         f_data = torch.rand(2, 3, 4)
         f = observed(dom, c, f_data)

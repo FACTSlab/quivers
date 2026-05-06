@@ -45,11 +45,13 @@ Examples
 >>> x = torch.randn(8, 10, 32)  # batch=8, seq_len=10, input_dim=32
 >>> h = scanned.rsample(x)      # (8, 64)
 """
+
 from __future__ import annotations
 import torch
 import torch.nn as nn
 from quivers.continuous.morphisms import ContinuousMorphism, _event_dim
 from quivers.continuous.spaces import ContinuousSpace, ProductSpace
+
 
 def _extract_input_space(cell: ContinuousMorphism) -> ContinuousSpace:
     """Extract the per-timestep input space from a cell's product domain.
@@ -76,15 +78,21 @@ def _extract_input_space(cell: ContinuousMorphism) -> ContinuousSpace:
     domain = cell.domain
     codomain = cell.codomain
     if not isinstance(domain, ProductSpace):
-        raise TypeError(f'scan cell must have a ProductSpace domain, got {type(domain).__name__}: {domain!r}')
+        raise TypeError(
+            f"scan cell must have a ProductSpace domain, got {type(domain).__name__}: {domain!r}"
+        )
     components = domain.components
     if len(components) < 2:
-        raise TypeError(f'scan cell product domain must have at least 2 components, got {len(components)}')
+        raise TypeError(
+            f"scan cell product domain must have at least 2 components, got {len(components)}"
+        )
     hidden_component = components[-1]
     cod_dim = _event_dim(codomain)
     hid_dim = _event_dim(hidden_component)
     if hid_dim != cod_dim:
-        raise TypeError(f'scan cell: last domain component dim ({hid_dim}) does not match codomain dim ({cod_dim}); the cell must have type A * H -> H')
+        raise TypeError(
+            f"scan cell: last domain component dim ({hid_dim}) does not match codomain dim ({cod_dim}); the cell must have type A * H -> H"
+        )
     if len(components) == 2:
         return components[0]
     else:
@@ -92,6 +100,7 @@ def _extract_input_space(cell: ContinuousMorphism) -> ContinuousSpace:
         for c in components[1:-1]:
             result = ProductSpace(components=(result, c))
         return result
+
 
 class ScanMorphism(ContinuousMorphism):
     """Temporal scan: apply a recurrent cell across a sequence.
@@ -118,7 +127,7 @@ class ScanMorphism(ContinuousMorphism):
         (default) or ``"learned"`` (trainable initial state).
     """
 
-    def __init__(self, cell: ContinuousMorphism, init: str='zeros') -> None:
+    def __init__(self, cell: ContinuousMorphism, init: str = "zeros") -> None:
         input_space = _extract_input_space(cell)
         hidden_space = cell.codomain
         super().__init__(input_space, hidden_space)
@@ -126,12 +135,16 @@ class ScanMorphism(ContinuousMorphism):
         self._init_strategy = init
         self._input_dim = _event_dim(input_space)
         self._hidden_dim = _event_dim(hidden_space)
-        if init == 'learned':
+        if init == "learned":
             self._h0 = nn.Parameter(torch.zeros(self._hidden_dim))
-        elif init != 'zeros':
-            raise ValueError(f"unknown init strategy {init!r}; expected 'zeros' or 'learned'")
+        elif init != "zeros":
+            raise ValueError(
+                f"unknown init strategy {init!r}; expected 'zeros' or 'learned'"
+            )
 
-    def rsample(self, x: torch.Tensor, sample_shape: torch.Size=torch.Size()) -> torch.Tensor:
+    def rsample(
+        self, x: torch.Tensor, sample_shape: torch.Size = torch.Size()
+    ) -> torch.Tensor:
         """Run the cell across the time dimension of x.
 
         Parameters
@@ -152,7 +165,7 @@ class ScanMorphism(ContinuousMorphism):
         if x.dim() == 2:
             x = x.unsqueeze(1)
         batch, seq_len, _ = x.shape
-        if self._init_strategy == 'learned':
+        if self._init_strategy == "learned":
             h = self._h0.unsqueeze(0).expand(batch, -1)
         else:
             h = torch.zeros(batch, self._hidden_dim, device=x.device, dtype=x.dtype)
@@ -173,7 +186,9 @@ class ScanMorphism(ContinuousMorphism):
         return h
 
     @staticmethod
-    def _flatten_cell_output(result: torch.Tensor | dict[str, torch.Tensor]) -> torch.Tensor:
+    def _flatten_cell_output(
+        result: torch.Tensor | dict[str, torch.Tensor],
+    ) -> torch.Tensor:
         """Flatten a cell output to a single tensor.
 
         Monadic programs with tuple returns produce dicts. For scan,
@@ -206,7 +221,9 @@ class ScanMorphism(ContinuousMorphism):
         NotImplementedError
             Always.
         """
-        raise NotImplementedError('log_prob is not supported for scan morphisms; computing p(h_T | x_{1:T}) requires marginalizing over all intermediate hidden states. use rsample() for forward sampling, or log_joint() for scoring given all intermediates.')
+        raise NotImplementedError(
+            "log_prob is not supported for scan morphisms; computing p(h_T | x_{1:T}) requires marginalizing over all intermediate hidden states. use rsample() for forward sampling, or log_joint() for scoring given all intermediates."
+        )
 
     def log_joint(self, x: torch.Tensor, hidden_states: torch.Tensor) -> torch.Tensor:
         """Joint log-density given all intermediate hidden states.
@@ -230,7 +247,7 @@ class ScanMorphism(ContinuousMorphism):
         """
         batch, seq_len, _ = x.shape
         total = torch.zeros(batch, device=x.device)
-        if self._init_strategy == 'learned':
+        if self._init_strategy == "learned":
             h = self._h0.unsqueeze(0).expand(batch, -1)
         else:
             h = torch.zeros(batch, self._hidden_dim, device=x.device, dtype=x.dtype)
@@ -243,5 +260,5 @@ class ScanMorphism(ContinuousMorphism):
         return total
 
     def __repr__(self) -> str:
-        init = f', init={self._init_strategy}' if self._init_strategy != 'zeros' else ''
-        return f'ScanMorphism({self._cell!r}{init})'
+        init = f", init={self._init_strategy}" if self._init_strategy != "zeros" else ""
+        return f"ScanMorphism({self._cell!r}{init})"

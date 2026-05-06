@@ -1,4 +1,5 @@
 """Tests for distributive laws."""
+
 import torch
 import pytest
 from quivers.core.objects import FinSet, FreeMonoid
@@ -6,12 +7,12 @@ from quivers.core.morphisms import identity
 from quivers.monadic.distributive_laws import FreeMonoidPowersetLaw
 from quivers.core.quantales import PRODUCT_FUZZY
 
-class TestFreeMonoidPowersetLaw:
 
+class TestFreeMonoidPowersetLaw:
     def test_distribute_is_identity(self):
         """For identity on A, the distributive law is the identity on A*."""
         law = FreeMonoidPowersetLaw(max_length=2)
-        a = FinSet(name='A', cardinality=2)
+        a = FinSet(name="A", cardinality=2)
         result = law.distribute(a)
         fm = FreeMonoid(generators=a, max_length=2)
         expected = identity(fm).tensor
@@ -19,14 +20,14 @@ class TestFreeMonoidPowersetLaw:
 
     def test_distribute_shape(self):
         law = FreeMonoidPowersetLaw(max_length=1)
-        a = FinSet(name='A', cardinality=3)
+        a = FinSet(name="A", cardinality=3)
         result = law.distribute(a)
         assert result.tensor.shape == (4, 4)
 
     def test_distribute_block_diagonal(self):
         """The distributive law tensor should be block-diagonal."""
         law = FreeMonoidPowersetLaw(max_length=1)
-        a = FinSet(name='A', cardinality=2)
+        a = FinSet(name="A", cardinality=2)
         result = law.distribute(a)
         t = result.tensor
         assert t[0, 0].item() == pytest.approx(1.0)
@@ -35,8 +36,10 @@ class TestFreeMonoidPowersetLaw:
 
     def test_requires_finset(self):
         law = FreeMonoidPowersetLaw(max_length=1)
-        with pytest.raises(TypeError, match='FinSet'):
-            law.distribute(FreeMonoid(generators=FinSet(name='A', cardinality=2), max_length=1))
+        with pytest.raises(TypeError, match="FinSet"):
+            law.distribute(
+                FreeMonoid(generators=FinSet(name="A", cardinality=2), max_length=1)
+            )
 
     def test_outer_inner_monads(self):
         law = FreeMonoidPowersetLaw(max_length=2)

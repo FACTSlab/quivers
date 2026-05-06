@@ -179,9 +179,7 @@ _CMDECL = ContinuousMorphismDecl(
     family="Normal",
     options={},
 )
-_SMDECL = StochasticMorphismDecl(
-    name="t", domain=_TYPE_NAME, codomain=_TYPE_NAME
-)
+_SMDECL = StochasticMorphismDecl(name="t", domain=_TYPE_NAME, codomain=_TYPE_NAME)
 _DDECL = DiscretizeDecl(name="d", space_name="R3", n_bins=10, options={})
 _EDECL = EmbedDecl(name="e", domain_name="X", codomain_name="R3")
 _PDECL = ProgramDecl(

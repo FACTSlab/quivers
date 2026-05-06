@@ -110,7 +110,13 @@ _OBJECT_KINDS = [
     "output_decl",
 ]
 
-_SET_OBJECT_KINDS = ["finset", "product_set", "coproduct_set", "free_monoid", "empty_set"]
+_SET_OBJECT_KINDS = [
+    "finset",
+    "product_set",
+    "coproduct_set",
+    "free_monoid",
+    "empty_set",
+]
 _SPACE_KINDS = ["euclidean", "simplex", "positive_reals", "product_space"]
 _DOMAIN_KINDS = _SET_OBJECT_KINDS + _SPACE_KINDS
 _DECL_KINDS = [
@@ -152,8 +158,16 @@ _EDGE_RULES = [
         "tgt_kinds": _DOMAIN_KINDS,
     },
     {"edge_kind": "generators", "src_kinds": ["free_monoid"], "tgt_kinds": ["finset"]},
-    {"edge_kind": "domain", "src_kinds": _MORPHISM_DECL_KINDS, "tgt_kinds": _DOMAIN_KINDS},
-    {"edge_kind": "codomain", "src_kinds": _MORPHISM_DECL_KINDS, "tgt_kinds": _DOMAIN_KINDS},
+    {
+        "edge_kind": "domain",
+        "src_kinds": _MORPHISM_DECL_KINDS,
+        "tgt_kinds": _DOMAIN_KINDS,
+    },
+    {
+        "edge_kind": "codomain",
+        "src_kinds": _MORPHISM_DECL_KINDS,
+        "tgt_kinds": _DOMAIN_KINDS,
+    },
     {"edge_kind": "output", "src_kinds": ["program"], "tgt_kinds": ["output_decl"]},
 ]
 
@@ -286,7 +300,9 @@ class _SchemaWriter:
                     cvid = self.write_set_object(child)
                 self._builder.edge(vid, cvid, "component")
         else:
-            raise TypeError(f"unsupported ContinuousSpace variant: {type(space).__name__}")
+            raise TypeError(
+                f"unsupported ContinuousSpace variant: {type(space).__name__}"
+            )
         self._object_ids[id(space)] = vid
         return vid
 
