@@ -658,33 +658,31 @@ class Compiler:
     def _resolve_type(self, texpr: TypeExpr, bind_name: str | None=None) -> SetObject:
         """Resolve a type expression into a SetObject.
 
-        Parameters
-        ----------
-        texpr : TypeExpr
-            The type expression to resolve.
-        bind_name : str or None
-            If provided, used as the FinSet name for integer literals.
-
-        Returns
-        -------
-        SetObject
-            The resolved object.
+        Delegates to :class:`~quivers.dsl.resolution.TypeExprToSetObject`,
+        a :class:`didactic.api.Lens` parameterised by the current object
+        environment. Integer-literal :class:`TypeName` nodes that aren't
+        in the environment use ``bind_name`` (falling back to
+        ``"_<value>"``) as the synthesised :class:`FinSet` name; this
+        thin wrapper is kept so the literal-naming policy stays in
+        compiler control.
         """
-        if isinstance(texpr, TypeName):
-            if texpr.name.isdigit():
-                name = bind_name if bind_name else f'_{texpr.name}'
-                return FinSet(name=name, cardinality=int(texpr.name))
-            if texpr.name in self._objects:
-                return self._objects[texpr.name]
-            raise CompileError(f'undefined object {texpr.name!r}', texpr.line, texpr.col)
-        elif isinstance(texpr, TypeProduct):
-            components = [self._resolve_type(c) for c in texpr.components]
-            return ProductSet(components=tuple(components))
-        elif isinstance(texpr, TypeCoproduct):
-            components = [self._resolve_type(c) for c in texpr.components]
-            return CoproductSet(components=tuple(components))
-        else:
-            raise CompileError(f'unknown type expression: {type(texpr).__name__}')
+        from quivers.dsl.resolution import TypeExprToSetObject
+
+        if (
+            isinstance(texpr, TypeName)
+            and texpr.name.isdigit()
+            and texpr.name not in self._objects
+            and bind_name is not None
+        ):
+            return FinSet(name=bind_name, cardinality=int(texpr.name))
+
+        try:
+            resolved, _ = TypeExprToSetObject(self._objects).forward(texpr)
+        except KeyError as e:
+            line = getattr(texpr, "line", 0)
+            col = getattr(texpr, "col", 0)
+            raise CompileError(str(e).strip("'\""), line, col) from e
+        return resolved
 
     def _resolve_any_space(self, texpr: TypeExpr):
         """Resolve a type expression to either a SetObject or ContinuousSpace.
@@ -721,50 +719,34 @@ class Compiler:
     def _resolve_space(self, sexpr: SpaceExpr, bind_name: str | None=None):
         """Resolve a space expression into a ContinuousSpace.
 
-        Parameters
-        ----------
-        sexpr : SpaceExpr
-            The space expression.
-        bind_name : str or None
-            Used as the space name for constructor calls.
-
-        Returns
-        -------
-        ContinuousSpace
-            The resolved space.
+        Delegates to :class:`~quivers.dsl.resolution.SpaceExprToContinuousSpace`,
+        a :class:`didactic.api.Lens` parameterised by both the space and
+        object environments (a bare identifier may resolve to either).
         """
-        constructors = _get_space_constructors()
+        from quivers.dsl.resolution import SpaceExprToContinuousSpace
+
         if isinstance(sexpr, SpaceConstructor):
+            constructors = _get_space_constructors()
             cname = sexpr.constructor
             if cname not in constructors:
-                raise CompileError(f"unknown space constructor {cname!r}; available: {', '.join(sorted(constructors))}", sexpr.line, sexpr.col)
-            constructor = cast(Callable[..., ContinuousSpace], constructors[cname])
-            name = bind_name or cname
-            if cname == 'UnitInterval':
-                return constructor(name)
-            elif cname in ('Euclidean', 'Simplex', 'PositiveReals'):
-                if not sexpr.args:
-                    raise CompileError(f'{cname} requires a dimension argument', sexpr.line, sexpr.col)
-                dim = int(sexpr.args[0])
-                kwargs = {}
-                for k, v in sexpr.kwargs.items():
-                    try:
-                        kwargs[k] = float(v)
-                    except ValueError:
-                        kwargs[k] = v
-                return constructor(name=name, dim=dim, **kwargs)
-            else:
-                raise CompileError(f'unsupported space constructor {cname!r}', sexpr.line, sexpr.col)
-        elif isinstance(sexpr, SpaceName):
-            if sexpr.name in self._spaces:
-                return self._spaces[sexpr.name]
-            raise CompileError(f'undefined space {sexpr.name!r}', sexpr.line, sexpr.col)
-        elif isinstance(sexpr, SpaceProduct):
-            from quivers.continuous.spaces import ProductSpace
-            components = [self._resolve_space(c) for c in sexpr.components]
-            return ProductSpace(components=tuple(components))
-        else:
-            raise CompileError(f'unknown space expression: {type(sexpr).__name__}')
+                raise CompileError(
+                    f"unknown space constructor {cname!r}; available: "
+                    f"{', '.join(sorted(constructors))}",
+                    sexpr.line,
+                    sexpr.col,
+                )
+
+        try:
+            resolved, _ = SpaceExprToContinuousSpace(
+                env_spaces=self._spaces,
+                env_objects=self._objects,
+                name=bind_name or "_anon",
+            ).forward(sexpr)
+        except (KeyError, ValueError) as e:
+            line = getattr(sexpr, "line", 0)
+            col = getattr(sexpr, "col", 0)
+            raise CompileError(str(e).strip("'\""), line, col) from e
+        return resolved
 
     def _compile_expr(self, expr: Expr):
         """Compile a value expression into a morphism.
