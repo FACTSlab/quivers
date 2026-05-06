@@ -43,12 +43,16 @@ class RuleSystem(dx.Model):
     binary_weights: tuple[float, ...] | None = None
     unary_weights: tuple[float, ...] | None = None
 
-    # Cross-field length checks (binary_weights / binary_rules,
-    # unary_weights / unary_rules) are not expressible as didactic 0.5.0
-    # axioms — the expression evaluator has no `null` literal and
-    # @validates is single-field. Filed as panproto/didactic#31.
-    # Until then, callers that pass mismatched-length weight tuples will
-    # surface the inconsistency at tensor-construction time.
+    __axioms__ = (
+        dx.axiom(
+            "binary_weights == null || length binary_weights == length binary_rules",
+            message="binary_weights length must match binary_rules",
+        ),
+        dx.axiom(
+            "unary_weights == null || length unary_weights == length unary_rules",
+            message="unary_weights length must match unary_rules",
+        ),
+    )
 
     @property
     def n_binary(self) -> int:

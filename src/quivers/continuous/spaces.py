@@ -19,6 +19,8 @@ from typing import Literal
 import didactic.api as dx
 import torch
 
+from quivers.core.objects import SetObject
+
 
 # ---------------------------------------------------------------------------
 # the ContinuousSpace sum
@@ -148,9 +150,11 @@ class PositiveReals(ContinuousSpace):
 # ---------------------------------------------------------------------------
 
 
-def _flatten_spaces(items: tuple["ContinuousSpace", ...]) -> tuple["ContinuousSpace", ...]:
+def _flatten_spaces(
+    items: tuple["ContinuousSpace | SetObject", ...],
+) -> tuple["ContinuousSpace | SetObject", ...]:
     """Flatten nested ProductSpace so that P(A, P(B, C)) collapses to P(A, B, C)."""
-    out: list[ContinuousSpace] = []
+    out: list[ContinuousSpace | SetObject] = []
     for s in items:
         if isinstance(s, ProductSpace):
             out.extend(s.components)
@@ -159,22 +163,41 @@ def _flatten_spaces(items: tuple["ContinuousSpace", ...]) -> tuple["ContinuousSp
     return tuple(out)
 
 
-def _product_name(components: tuple["ContinuousSpace", ...]) -> str:
-    return " × ".join(c.name for c in components)
+def _component_name(c: "ContinuousSpace | SetObject") -> str:
+    return c.name if isinstance(c, ContinuousSpace) else str(c)
 
 
-def _product_dim(components: tuple["ContinuousSpace", ...]) -> int:
-    return sum(c.dim for c in components)
+def _component_dim(c: "ContinuousSpace | SetObject") -> int:
+    """Return the event-shape width of a product component.
+
+    ContinuousSpace components contribute :attr:`dim`; SetObject
+    components contribute the length of their tensor :attr:`shape`
+    (1 for FinSet, len(components) for ProductSet, 1 for CoproductSet).
+    """
+    return c.dim if isinstance(c, ContinuousSpace) else len(c.shape)
+
+
+def _product_name(components: tuple["ContinuousSpace | SetObject", ...]) -> str:
+    return " × ".join(_component_name(c) for c in components)
+
+
+def _product_dim(components: tuple["ContinuousSpace | SetObject", ...]) -> int:
+    return sum(_component_dim(c) for c in components)
 
 
 class ProductSpace(ContinuousSpace):
-    """Cartesian product of continuous spaces.
+    """Cartesian product of continuous spaces (and discrete objects).
 
-    Nested products are flattened on construction; :attr:`name` and
-    :attr:`dim` are derived from :attr:`components`.
+    Components may be a mix of :class:`ContinuousSpace` variants and
+    :class:`~quivers.core.objects.SetObject` variants — programs whose
+    domain or codomain combines discrete and continuous variables produce
+    such a ProductSpace at compile time. Nested products are flattened
+    on construction; :attr:`name` and :attr:`dim` are derived from
+    :attr:`components` (for SetObject components, :attr:`dim` falls back
+    to ``len(component.shape)``).
     """
 
-    components: tuple[ContinuousSpace, ...] = dx.field(
+    components: tuple[ContinuousSpace | SetObject, ...] = dx.field(
         default=(), converter=_flatten_spaces
     )
     kind: Literal["product_space"] = "product_space"
