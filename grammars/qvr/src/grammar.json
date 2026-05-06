@@ -1831,6 +1831,10 @@
         },
         {
           "type": "SYMBOL",
+          "name": "chart_fold_expr"
+        },
+        {
+          "type": "SYMBOL",
           "name": "expr_ident"
         }
       ]
@@ -2142,6 +2146,123 @@
           "value": ")"
         }
       ]
+    },
+    "chart_fold_expr": {
+      "type": "SEQ",
+      "members": [
+        {
+          "type": "STRING",
+          "value": "chart_fold"
+        },
+        {
+          "type": "STRING",
+          "value": "("
+        },
+        {
+          "type": "CHOICE",
+          "members": [
+            {
+              "type": "FIELD",
+              "name": "args",
+              "content": {
+                "type": "SEQ",
+                "members": [
+                  {
+                    "type": "SYMBOL",
+                    "name": "chart_fold_arg"
+                  },
+                  {
+                    "type": "REPEAT",
+                    "content": {
+                      "type": "SEQ",
+                      "members": [
+                        {
+                          "type": "STRING",
+                          "value": ","
+                        },
+                        {
+                          "type": "SYMBOL",
+                          "name": "chart_fold_arg"
+                        }
+                      ]
+                    }
+                  }
+                ]
+              }
+            },
+            {
+              "type": "BLANK"
+            }
+          ]
+        },
+        {
+          "type": "STRING",
+          "value": ")"
+        }
+      ]
+    },
+    "chart_fold_arg": {
+      "type": "PREC",
+      "value": 10,
+      "content": {
+        "type": "SEQ",
+        "members": [
+          {
+            "type": "FIELD",
+            "name": "key",
+            "content": {
+              "type": "CHOICE",
+              "members": [
+                {
+                  "type": "STRING",
+                  "value": "lex"
+                },
+                {
+                  "type": "STRING",
+                  "value": "binary"
+                },
+                {
+                  "type": "STRING",
+                  "value": "unary"
+                },
+                {
+                  "type": "STRING",
+                  "value": "start"
+                },
+                {
+                  "type": "STRING",
+                  "value": "depth"
+                },
+                {
+                  "type": "STRING",
+                  "value": "effect_depth"
+                }
+              ]
+            }
+          },
+          {
+            "type": "STRING",
+            "value": "="
+          },
+          {
+            "type": "FIELD",
+            "name": "value",
+            "content": {
+              "type": "CHOICE",
+              "members": [
+                {
+                  "type": "SYMBOL",
+                  "name": "_expr"
+                },
+                {
+                  "type": "SYMBOL",
+                  "name": "integer"
+                }
+              ]
+            }
+          }
+        ]
+      }
     },
     "parser_arg": {
       "type": "SEQ",

@@ -226,6 +226,33 @@ class ExprParser(Expr):
     kind: Literal["expr_parser"] = "expr_parser"
 
 
+class ExprChartFold(Expr):
+    """Desugared parser-construction primitive.
+
+    Surface form: ``chart_fold(lex=, binary=, unary=, start=, depth=,
+    effect_depth=)``.
+
+    Constructs a chart parser from morphism-valued arguments rather
+    than from a list of named rule schemas. ``lex`` is a morphism
+    Token -> Cat; ``binary`` is a Cat * Cat -> Cat morphism (the
+    union of all binary rule schemas); ``unary`` is an optional
+    Cat -> Cat morphism (the union of all unary rule schemas);
+    ``start`` is the goal category name (or integer index);
+    ``depth`` is the maximum category nesting depth; ``effect_depth``
+    bounds effect-stack nesting (Phase 7; defaults to 0).
+    """
+
+    lex: Expr
+    binary: Expr | None = None
+    unary: Expr | None = None
+    start: str | int = "S"
+    depth: int = 1
+    effect_depth: int = 0
+    line: int = 0
+    col: int = 0
+    kind: Literal["expr_chart_fold"] = "expr_chart_fold"
+
+
 class ExprCurry(Expr):
     """Residuation-witness curry combinator.
 

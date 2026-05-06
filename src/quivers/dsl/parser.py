@@ -22,6 +22,7 @@ from quivers.dsl.ast_nodes import (
     EmbedDecl,
     EnumSetLiteral,
     Expr,
+    ExprChartFold,
     ExprCompose,
     ExprCurry,
     ExprFan,
@@ -420,6 +421,8 @@ def _walk_expr(t: _Tree, vid: str) -> Expr:
         )
     if k == "parser_expr":
         return _walk_parser_expr(t, vid, line, col)
+    if k == "chart_fold_expr":
+        return _walk_chart_fold_expr(t, vid, line, col)
     raise ParseError(f"unexpected expr kind: {k}")
 
 
@@ -503,6 +506,71 @@ def _walk_parser_expr(t: _Tree, vid: str, line: int, col: int) -> ExprParser:
         start=start,
         depth=depth,
         constructors=constructors,
+        line=line,
+        col=col,
+    )
+
+
+def _walk_chart_fold_expr(t: _Tree, vid: str, line: int, col: int) -> ExprChartFold:
+    """Walk a chart_fold_expr into ExprChartFold.
+
+    Each chart_fold_arg has a `key` field (one of lex, binary, unary,
+    start, depth, effect_depth) and a `value` field that is either an
+    expression or an integer literal.
+    """
+    lex: Expr | None = None
+    binary: Expr | None = None
+    unary: Expr | None = None
+    start: str | int = "S"
+    depth = 1
+    effect_depth = 0
+
+    for arg_vid in t.fields(vid, "args"):
+        if t.kind(arg_vid) != "chart_fold_arg":
+            continue
+        val_vid = t.field(arg_vid, "value")
+        if val_vid is None:
+            raise ParseError(f"chart_fold_arg missing value at {arg_vid}")
+        # The `key` is an anonymous-keyword token (panproto/panproto#86)
+        # whose t.field()/t.text() returns nothing useful; recover it
+        # from the leading bytes of the chart_fold_arg node, taking
+        # everything before the first '='.
+        arg_text = t.text(arg_vid)
+        eq_idx = arg_text.find("=")
+        if eq_idx < 0:
+            raise ParseError(f"chart_fold_arg missing '=' at {arg_vid}")
+        key_text = arg_text[:eq_idx].strip()
+        if key_text == "lex":
+            lex = _walk_expr(t, val_vid)
+        elif key_text == "binary":
+            binary = _walk_expr(t, val_vid)
+        elif key_text == "unary":
+            unary = _walk_expr(t, val_vid)
+        elif key_text == "start":
+            v_text = t.text(val_vid)
+            try:
+                start = int(v_text)
+            except ValueError:
+                start = v_text
+        elif key_text == "depth":
+            depth = int(t.text(val_vid))
+        elif key_text == "effect_depth":
+            effect_depth = int(t.text(val_vid))
+        else:
+            raise ParseError(
+                f"unknown chart_fold argument key {key_text!r} at {arg_vid}"
+            )
+
+    if lex is None:
+        raise ParseError(f"chart_fold(...) requires lex= argument at {vid}")
+
+    return ExprChartFold(
+        lex=lex,
+        binary=binary,
+        unary=unary,
+        start=start,
+        depth=depth,
+        effect_depth=effect_depth,
         line=line,
         col=col,
     )

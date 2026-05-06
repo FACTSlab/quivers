@@ -64,6 +64,120 @@
     }
   },
   {
+    "type": "chart_fold_arg",
+    "named": true,
+    "fields": {
+      "key": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "binary",
+            "named": false
+          },
+          {
+            "type": "depth",
+            "named": false
+          },
+          {
+            "type": "effect_depth",
+            "named": false
+          },
+          {
+            "type": "lex",
+            "named": false
+          },
+          {
+            "type": "start",
+            "named": false
+          },
+          {
+            "type": "unary",
+            "named": false
+          }
+        ]
+      },
+      "value": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "chart_fold_expr",
+            "named": true
+          },
+          {
+            "type": "compose_expr",
+            "named": true
+          },
+          {
+            "type": "expr_ident",
+            "named": true
+          },
+          {
+            "type": "expr_paren",
+            "named": true
+          },
+          {
+            "type": "fan_expr",
+            "named": true
+          },
+          {
+            "type": "identity_expr",
+            "named": true
+          },
+          {
+            "type": "integer",
+            "named": true
+          },
+          {
+            "type": "parser_expr",
+            "named": true
+          },
+          {
+            "type": "postfix_expr",
+            "named": true
+          },
+          {
+            "type": "repeat_expr",
+            "named": true
+          },
+          {
+            "type": "scan_expr",
+            "named": true
+          },
+          {
+            "type": "stack_expr",
+            "named": true
+          },
+          {
+            "type": "tensor_expr",
+            "named": true
+          }
+        ]
+      }
+    }
+  },
+  {
+    "type": "chart_fold_expr",
+    "named": true,
+    "fields": {
+      "args": {
+        "multiple": true,
+        "required": false,
+        "types": [
+          {
+            "type": ",",
+            "named": false
+          },
+          {
+            "type": "chart_fold_arg",
+            "named": true
+          }
+        ]
+      }
+    }
+  },
+  {
     "type": "compose_expr",
     "named": true,
     "fields": {
@@ -71,6 +185,10 @@
         "multiple": false,
         "required": true,
         "types": [
+          {
+            "type": "chart_fold_expr",
+            "named": true
+          },
           {
             "type": "compose_expr",
             "named": true
@@ -139,6 +257,10 @@
         "multiple": false,
         "required": true,
         "types": [
+          {
+            "type": "chart_fold_expr",
+            "named": true
+          },
           {
             "type": "compose_expr",
             "named": true
@@ -477,6 +599,10 @@
       "required": true,
       "types": [
         {
+          "type": "chart_fold_expr",
+          "named": true
+        },
+        {
           "type": "compose_expr",
           "named": true
         },
@@ -534,6 +660,10 @@
           {
             "type": ",",
             "named": false
+          },
+          {
+            "type": "chart_fold_expr",
+            "named": true
           },
           {
             "type": "compose_expr",
@@ -838,6 +968,10 @@
         "multiple": false,
         "required": true,
         "types": [
+          {
+            "type": "chart_fold_expr",
+            "named": true
+          },
           {
             "type": "compose_expr",
             "named": true
@@ -1146,6 +1280,10 @@
         "required": false,
         "types": [
           {
+            "type": "chart_fold_expr",
+            "named": true
+          },
+          {
             "type": "compose_expr",
             "named": true
           },
@@ -1393,6 +1531,10 @@
         "required": true,
         "types": [
           {
+            "type": "chart_fold_expr",
+            "named": true
+          },
+          {
             "type": "compose_expr",
             "named": true
           },
@@ -1540,6 +1682,10 @@
         "multiple": false,
         "required": true,
         "types": [
+          {
+            "type": "chart_fold_expr",
+            "named": true
+          },
           {
             "type": "compose_expr",
             "named": true
@@ -1762,6 +1908,10 @@
         "multiple": false,
         "required": true,
         "types": [
+          {
+            "type": "chart_fold_expr",
+            "named": true
+          },
           {
             "type": "compose_expr",
             "named": true
@@ -1993,6 +2143,10 @@
         "multiple": false,
         "required": true,
         "types": [
+          {
+            "type": "chart_fold_expr",
+            "named": true
+          },
           {
             "type": "compose_expr",
             "named": true
@@ -2492,6 +2646,10 @@
         "required": true,
         "types": [
           {
+            "type": "chart_fold_expr",
+            "named": true
+          },
+          {
             "type": "compose_expr",
             "named": true
           },
@@ -2634,6 +2792,10 @@
         "required": true,
         "types": [
           {
+            "type": "chart_fold_expr",
+            "named": true
+          },
+          {
             "type": "compose_expr",
             "named": true
           },
@@ -2683,6 +2845,10 @@
         "multiple": false,
         "required": true,
         "types": [
+          {
+            "type": "chart_fold_expr",
+            "named": true
+          },
           {
             "type": "compose_expr",
             "named": true
@@ -3189,6 +3355,10 @@
     "named": false
   },
   {
+    "type": "binary",
+    "named": false
+  },
+  {
     "type": "categories",
     "named": false
   },
@@ -3198,6 +3368,10 @@
   },
   {
     "type": "ccg",
+    "named": false
+  },
+  {
+    "type": "chart_fold",
     "named": false
   },
   {
@@ -3226,6 +3400,10 @@
   },
   {
     "type": "draw",
+    "named": false
+  },
+  {
+    "type": "effect_depth",
     "named": false
   },
   {
@@ -3270,6 +3448,10 @@
   },
   {
     "type": "let",
+    "named": false
+  },
+  {
+    "type": "lex",
     "named": false
   },
   {
@@ -3371,6 +3553,10 @@
   },
   {
     "type": "type",
+    "named": false
+  },
+  {
+    "type": "unary",
     "named": false
   },
   {

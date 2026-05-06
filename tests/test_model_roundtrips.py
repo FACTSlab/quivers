@@ -20,6 +20,7 @@ from quivers.dsl.ast_nodes import (
     DrawStep,
     EmbedDecl,
     Expr,
+    ExprChartFold,
     ExprCompose,
     ExprCurry,
     ExprFan,
@@ -143,6 +144,14 @@ _E_PARSER = ExprParser(
     depth=1,
 )
 _E_CURRY = ExprCurry(inner=_E_IDENT, direction="right")
+_E_CHART_FOLD = ExprChartFold(
+    lex=ExprIdent(name="lex"),
+    binary=ExprIdent(name="combine"),
+    unary=None,
+    start="S",
+    depth=2,
+    effect_depth=0,
+)
 
 # AST: let-expr nodes
 _LE_LIT = LetExprLiteral(value=0.5)
@@ -269,6 +278,7 @@ CASES: list[tuple[type, object]] = [
     (Expr, _E_MARG),
     (Expr, _E_PARSER),
     (Expr, _E_CURRY),
+    (Expr, _E_CHART_FOLD),
     # AST: let-expr nodes
     (LetExprNode, _LE_LIT),
     (LetExprNode, _LE_VAR),

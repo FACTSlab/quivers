@@ -54,6 +54,7 @@ from quivers.dsl.ast_nodes import (
     ExprIdentity,
     ExprCompose,
     ExprTensorProduct,
+    ExprChartFold,
     ExprCurry,
     ExprMarginalize,
     ExprFan,
@@ -1256,6 +1257,8 @@ class Compiler:
                 return CurriedMorphism(inner, direction=expr.direction)
             except (TypeError, ValueError) as e:
                 raise CompileError(str(e), expr.line, expr.col) from e
+        elif isinstance(expr, ExprChartFold):
+            return self._compile_chart_fold(expr)
         elif isinstance(expr, ExprFan):
             from quivers.continuous.morphisms import FanOutMorphism
 
@@ -1401,6 +1404,60 @@ class Compiler:
             start = expr.start if isinstance(expr.start, int) else 0
             return InsideAlgorithm(binary, lexical, start=start)
         except TypeError as e:
+            raise CompileError(str(e), expr.line, expr.col) from e
+
+    def _compile_chart_fold(self, expr):
+        """Compile a chart_fold(...) primitive expression.
+
+        chart_fold is the explicit form of which the legacy
+        parser(rules=...) is sugar. Given a lexical morphism
+        ``lex : Token -> Cat`` plus a binary morphism (and optional
+        unary morphism) on Cat, it constructs an InsideAlgorithm-based
+        chart parser. The user-visible structure of the parser is
+        therefore expressible from primitives — no opaque parser()
+        call required.
+
+        Effect-typed chart cells (``effect_depth`` > 0) are recognised
+        but not yet realised; they raise CompileError until the
+        Phase 7 effect-lifting machinery lands.
+        """
+        from quivers.stochastic.inside import InsideAlgorithm
+
+        if expr.effect_depth > 0:
+            raise CompileError(
+                "chart_fold(effect_depth=) > 0 requires the Phase 7 "
+                "effect-lifting machinery (not yet implemented)",
+                expr.line,
+                expr.col,
+            )
+
+        lex = self._compile_expr(expr.lex)
+        if expr.binary is None:
+            raise CompileError(
+                "chart_fold(...) requires a binary= argument (a morphism "
+                "Cat * Cat -> Cat representing the union of binary rule "
+                "schemas)",
+                expr.line,
+                expr.col,
+            )
+        binary = self._compile_expr(expr.binary)
+
+        if expr.unary is not None:
+            # Unary morphisms are represented in InsideAlgorithm by
+            # composing them into the binary step; for now reject
+            # explicit unary= until Phase 7 wires up the unary chart-cell
+            # firings explicitly.
+            raise CompileError(
+                "chart_fold(unary=) is not yet supported; unary "
+                "rules will be wired in alongside Phase 7 joint dispatch",
+                expr.line,
+                expr.col,
+            )
+
+        try:
+            start = expr.start if isinstance(expr.start, int) else 0
+            return InsideAlgorithm(binary, lex, start=start)
+        except (TypeError, ValueError) as e:
             raise CompileError(str(e), expr.line, expr.col) from e
 
     def _compile_parser_schemas(self, schemas: list, expr: ExprParser):

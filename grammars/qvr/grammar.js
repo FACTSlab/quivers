@@ -391,6 +391,7 @@ module.exports = grammar({
       $.stack_expr,
       $.scan_expr,
       $.parser_expr,
+      $.chart_fold_expr,
       $.expr_ident,
     ),
 
@@ -435,6 +436,29 @@ module.exports = grammar({
       optional(field('args', commaSep1($.parser_arg))),
       ')',
     ),
+
+    // chart_fold(lex=, binary=, unary=, start=, depth=, effect_depth=)
+    // — desugared parser-construction primitive of Phase 5. Each
+    // keyword argument carries a value that is itself an expression
+    // (lex, binary, unary) or an identifier/integer literal
+    // (start, depth, effect_depth).
+    chart_fold_expr: $ => seq(
+      'chart_fold',
+      '(',
+      optional(field('args', commaSep1($.chart_fold_arg))),
+      ')',
+    ),
+
+    chart_fold_arg: $ => prec(10, seq(
+      field('key', choice(
+        'lex', 'binary', 'unary', 'start', 'depth', 'effect_depth',
+      )),
+      '=',
+      field('value', choice(
+        $._expr,
+        $.integer,
+      )),
+    )),
 
     parser_arg: $ => seq(
       field('key', choice(
