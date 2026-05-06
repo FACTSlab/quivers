@@ -88,8 +88,8 @@
 (continuous_decl family: (identifier) @type)
 
 ; identifiers in patterns / expressions
-(cat_atom    (identifier) @type)
 (type_atom   (identifier) @type)
+(type_effect_apply effect: (identifier) @type)
 (space_atom  (identifier) @type)
 (expr_ident  (identifier) @variable)
 (let_var     (identifier) @variable)

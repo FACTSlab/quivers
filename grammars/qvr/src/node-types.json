@@ -44,162 +44,6 @@
     }
   },
   {
-    "type": "cat_atom",
-    "named": true,
-    "fields": {},
-    "children": {
-      "multiple": false,
-      "required": true,
-      "types": [
-        {
-          "type": "identifier",
-          "named": true
-        }
-      ]
-    }
-  },
-  {
-    "type": "cat_paren",
-    "named": true,
-    "fields": {},
-    "children": {
-      "multiple": false,
-      "required": true,
-      "types": [
-        {
-          "type": "cat_atom",
-          "named": true
-        },
-        {
-          "type": "cat_paren",
-          "named": true
-        },
-        {
-          "type": "cat_product",
-          "named": true
-        },
-        {
-          "type": "cat_slash",
-          "named": true
-        }
-      ]
-    }
-  },
-  {
-    "type": "cat_product",
-    "named": true,
-    "fields": {
-      "left": {
-        "multiple": false,
-        "required": true,
-        "types": [
-          {
-            "type": "cat_atom",
-            "named": true
-          },
-          {
-            "type": "cat_paren",
-            "named": true
-          },
-          {
-            "type": "cat_product",
-            "named": true
-          },
-          {
-            "type": "cat_slash",
-            "named": true
-          }
-        ]
-      },
-      "right": {
-        "multiple": false,
-        "required": true,
-        "types": [
-          {
-            "type": "cat_atom",
-            "named": true
-          },
-          {
-            "type": "cat_paren",
-            "named": true
-          },
-          {
-            "type": "cat_product",
-            "named": true
-          },
-          {
-            "type": "cat_slash",
-            "named": true
-          }
-        ]
-      }
-    }
-  },
-  {
-    "type": "cat_slash",
-    "named": true,
-    "fields": {
-      "argument": {
-        "multiple": false,
-        "required": true,
-        "types": [
-          {
-            "type": "cat_atom",
-            "named": true
-          },
-          {
-            "type": "cat_paren",
-            "named": true
-          },
-          {
-            "type": "cat_product",
-            "named": true
-          },
-          {
-            "type": "cat_slash",
-            "named": true
-          }
-        ]
-      },
-      "direction": {
-        "multiple": false,
-        "required": true,
-        "types": [
-          {
-            "type": "/",
-            "named": false
-          },
-          {
-            "type": "\\",
-            "named": false
-          }
-        ]
-      },
-      "result": {
-        "multiple": false,
-        "required": true,
-        "types": [
-          {
-            "type": "cat_atom",
-            "named": true
-          },
-          {
-            "type": "cat_paren",
-            "named": true
-          },
-          {
-            "type": "cat_product",
-            "named": true
-          },
-          {
-            "type": "cat_slash",
-            "named": true
-          }
-        ]
-      }
-    }
-  },
-  {
     "type": "category_decl",
     "named": true,
     "fields": {
@@ -360,11 +204,19 @@
             "named": true
           },
           {
+            "type": "type_effect_apply",
+            "named": true
+          },
+          {
             "type": "type_paren",
             "named": true
           },
           {
             "type": "type_product",
+            "named": true
+          },
+          {
+            "type": "type_slash",
             "named": true
           }
         ]
@@ -382,11 +234,19 @@
             "named": true
           },
           {
+            "type": "type_effect_apply",
+            "named": true
+          },
+          {
             "type": "type_paren",
             "named": true
           },
           {
             "type": "type_product",
+            "named": true
+          },
+          {
+            "type": "type_slash",
             "named": true
           }
         ]
@@ -1154,11 +1014,19 @@
             "named": true
           },
           {
+            "type": "type_effect_apply",
+            "named": true
+          },
+          {
             "type": "type_paren",
             "named": true
           },
           {
             "type": "type_product",
+            "named": true
+          },
+          {
+            "type": "type_slash",
             "named": true
           }
         ]
@@ -1176,11 +1044,19 @@
             "named": true
           },
           {
+            "type": "type_effect_apply",
+            "named": true
+          },
+          {
             "type": "type_paren",
             "named": true
           },
           {
             "type": "type_product",
+            "named": true
+          },
+          {
+            "type": "type_slash",
             "named": true
           }
         ]
@@ -1298,11 +1174,19 @@
             "named": true
           },
           {
+            "type": "type_effect_apply",
+            "named": true
+          },
+          {
             "type": "type_paren",
             "named": true
           },
           {
             "type": "type_product",
+            "named": true
+          },
+          {
+            "type": "type_slash",
             "named": true
           }
         ]
@@ -1637,11 +1521,19 @@
             "named": true
           },
           {
+            "type": "type_effect_apply",
+            "named": true
+          },
+          {
             "type": "type_paren",
             "named": true
           },
           {
             "type": "type_product",
+            "named": true
+          },
+          {
+            "type": "type_slash",
             "named": true
           }
         ]
@@ -1659,11 +1551,19 @@
             "named": true
           },
           {
+            "type": "type_effect_apply",
+            "named": true
+          },
+          {
             "type": "type_paren",
             "named": true
           },
           {
             "type": "type_product",
+            "named": true
+          },
+          {
+            "type": "type_slash",
             "named": true
           }
         ]
@@ -1896,19 +1796,27 @@
         "required": true,
         "types": [
           {
-            "type": "cat_atom",
+            "type": "type_atom",
             "named": true
           },
           {
-            "type": "cat_paren",
+            "type": "type_coproduct",
             "named": true
           },
           {
-            "type": "cat_product",
+            "type": "type_effect_apply",
             "named": true
           },
           {
-            "type": "cat_slash",
+            "type": "type_paren",
+            "named": true
+          },
+          {
+            "type": "type_product",
+            "named": true
+          },
+          {
+            "type": "type_slash",
             "named": true
           }
         ]
@@ -1932,19 +1840,27 @@
             "named": false
           },
           {
-            "type": "cat_atom",
+            "type": "type_atom",
             "named": true
           },
           {
-            "type": "cat_paren",
+            "type": "type_coproduct",
             "named": true
           },
           {
-            "type": "cat_product",
+            "type": "type_effect_apply",
             "named": true
           },
           {
-            "type": "cat_slash",
+            "type": "type_paren",
+            "named": true
+          },
+          {
+            "type": "type_product",
+            "named": true
+          },
+          {
+            "type": "type_slash",
             "named": true
           }
         ]
@@ -2402,11 +2318,19 @@
             "named": true
           },
           {
+            "type": "type_effect_apply",
+            "named": true
+          },
+          {
             "type": "type_paren",
             "named": true
           },
           {
             "type": "type_product",
+            "named": true
+          },
+          {
+            "type": "type_slash",
             "named": true
           }
         ]
@@ -2424,11 +2348,19 @@
             "named": true
           },
           {
+            "type": "type_effect_apply",
+            "named": true
+          },
+          {
             "type": "type_paren",
             "named": true
           },
           {
             "type": "type_product",
+            "named": true
+          },
+          {
+            "type": "type_slash",
             "named": true
           }
         ]
@@ -2635,11 +2567,19 @@
             "named": true
           },
           {
+            "type": "type_effect_apply",
+            "named": true
+          },
+          {
             "type": "type_paren",
             "named": true
           },
           {
             "type": "type_product",
+            "named": true
+          },
+          {
+            "type": "type_slash",
             "named": true
           }
         ]
@@ -2657,11 +2597,69 @@
             "named": true
           },
           {
+            "type": "type_effect_apply",
+            "named": true
+          },
+          {
             "type": "type_paren",
             "named": true
           },
           {
             "type": "type_product",
+            "named": true
+          },
+          {
+            "type": "type_slash",
+            "named": true
+          }
+        ]
+      }
+    }
+  },
+  {
+    "type": "type_effect_apply",
+    "named": true,
+    "fields": {
+      "args": {
+        "multiple": true,
+        "required": true,
+        "types": [
+          {
+            "type": ",",
+            "named": false
+          },
+          {
+            "type": "type_atom",
+            "named": true
+          },
+          {
+            "type": "type_coproduct",
+            "named": true
+          },
+          {
+            "type": "type_effect_apply",
+            "named": true
+          },
+          {
+            "type": "type_paren",
+            "named": true
+          },
+          {
+            "type": "type_product",
+            "named": true
+          },
+          {
+            "type": "type_slash",
+            "named": true
+          }
+        ]
+      },
+      "effect": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "identifier",
             "named": true
           }
         ]
@@ -2685,11 +2683,19 @@
           "named": true
         },
         {
+          "type": "type_effect_apply",
+          "named": true
+        },
+        {
           "type": "type_paren",
           "named": true
         },
         {
           "type": "type_product",
+          "named": true
+        },
+        {
+          "type": "type_slash",
           "named": true
         }
       ]
@@ -2712,11 +2718,19 @@
             "named": true
           },
           {
+            "type": "type_effect_apply",
+            "named": true
+          },
+          {
             "type": "type_paren",
             "named": true
           },
           {
             "type": "type_product",
+            "named": true
+          },
+          {
+            "type": "type_slash",
             "named": true
           }
         ]
@@ -2734,11 +2748,99 @@
             "named": true
           },
           {
+            "type": "type_effect_apply",
+            "named": true
+          },
+          {
             "type": "type_paren",
             "named": true
           },
           {
             "type": "type_product",
+            "named": true
+          },
+          {
+            "type": "type_slash",
+            "named": true
+          }
+        ]
+      }
+    }
+  },
+  {
+    "type": "type_slash",
+    "named": true,
+    "fields": {
+      "argument": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "type_atom",
+            "named": true
+          },
+          {
+            "type": "type_coproduct",
+            "named": true
+          },
+          {
+            "type": "type_effect_apply",
+            "named": true
+          },
+          {
+            "type": "type_paren",
+            "named": true
+          },
+          {
+            "type": "type_product",
+            "named": true
+          },
+          {
+            "type": "type_slash",
+            "named": true
+          }
+        ]
+      },
+      "direction": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "/",
+            "named": false
+          },
+          {
+            "type": "\\",
+            "named": false
+          }
+        ]
+      },
+      "result": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "type_atom",
+            "named": true
+          },
+          {
+            "type": "type_coproduct",
+            "named": true
+          },
+          {
+            "type": "type_effect_apply",
+            "named": true
+          },
+          {
+            "type": "type_paren",
+            "named": true
+          },
+          {
+            "type": "type_product",
+            "named": true
+          },
+          {
+            "type": "type_slash",
             "named": true
           }
         ]

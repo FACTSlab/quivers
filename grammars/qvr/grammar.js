@@ -19,10 +19,9 @@ const PREC = {
   postfix: 3,    // .method(...)
   // type expression precedence:
   type_coproduct: 1,  // +
-  type_product:   2,  // *
-  // category-pattern precedence:
-  cat_slash:   1,     // / \   (right-associative; binds looser than product)
-  cat_product: 2,     // *
+  type_slash:     2,  // / \   (residuated; binds tighter than +, looser than *)
+  type_product:   3,  // *
+  type_apply:     4,  // T(X)  effect-typed application
   // let-arithmetic precedence:
   let_add: 1,
   let_mul: 2,
@@ -114,33 +113,10 @@ module.exports = grammar({
       field('variables', commaSep1($.identifier)),
       ')',
       ':',
-      field('premises', commaSep1($._cat_pattern)),
+      field('premises', commaSep1($._type_expr)),
       '=>',
-      field('conclusion', $._cat_pattern),
+      field('conclusion', $._type_expr),
     ),
-
-    _cat_pattern: $ => choice(
-      $.cat_slash,
-      $.cat_product,
-      $.cat_atom,
-      $.cat_paren,
-    ),
-
-    cat_atom: $ => $.identifier,
-
-    cat_paren: $ => seq('(', $._cat_pattern, ')'),
-
-    cat_product: $ => prec.left(PREC.cat_product, seq(
-      field('left',  $._cat_pattern),
-      '*',
-      field('right', $._cat_pattern),
-    )),
-
-    cat_slash: $ => prec.left(PREC.cat_slash, seq(
-      field('result',    $._cat_pattern),
-      field('direction', choice('/', '\\')),
-      field('argument',  $._cat_pattern),
-    )),
 
     // ---------------------------------------------------------------
     // type expressions  (categorical objects: products and coproducts of finsets)
@@ -148,7 +124,9 @@ module.exports = grammar({
 
     _type_expr: $ => choice(
       $.type_coproduct,
+      $.type_slash,
       $.type_product,
+      $.type_effect_apply,
       $.type_atom,
       $.type_paren,
     ),
@@ -167,6 +145,24 @@ module.exports = grammar({
       field('left',  $._type_expr),
       '+',
       field('right', $._type_expr),
+    )),
+
+    type_slash: $ => prec.left(PREC.type_slash, seq(
+      field('result',    $._type_expr),
+      field('direction', choice('/', '\\')),
+      field('argument',  $._type_expr),
+    )),
+
+    // T(X)  — effect-typed application.
+    // The named effect must already be a fully-instantiated effect
+    // (parameters baked into its declared name; e.g. `Cont_S(NP)`,
+    // not `Cont[S](NP)`). This avoids parse ambiguity with the
+    // `[option_block]` that may follow a morphism's codomain.
+    type_effect_apply: $ => prec(PREC.type_apply, seq(
+      field('effect', $.identifier),
+      '(',
+      field('args', commaSep1($._type_expr)),
+      ')',
     )),
 
     // ---------------------------------------------------------------
