@@ -29,7 +29,7 @@ class TestDiagram:
     def test_creation(self):
         a = FinSet(name="A", cardinality=3)
         b = FinSet(name="B", cardinality=4)
-        d = Diagram(objects=[a, b])
+        d = Diagram(objects=(a, b))
         assert d.size == 2
 
 
