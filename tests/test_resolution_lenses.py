@@ -17,16 +17,9 @@ from pathlib import Path
 import pytest
 
 from quivers.dsl.ast_nodes import (
-    ContinuousMorphismDecl,
-    DiscretizeDecl,
-    EmbedDecl,
     MorphismDecl,
     ObjectDecl,
-    ProgramDecl,
     SpaceDecl,
-    SpaceExpr,
-    StochasticMorphismDecl,
-    TypeExpr,
 )
 from quivers.dsl.compiler import Compiler
 from quivers.dsl.parser import parse_file
@@ -41,20 +34,17 @@ EXAMPLE_PATHS = sorted(EXAMPLES_DIR.glob("*.qvr"))
 
 
 def _walk_type_exprs(module):
-    """Yield every TypeExpr that appears in the module."""
+    """Yield every TypeExpr that the compiler routes through ``_resolve_type``.
+
+    Continuous and stochastic morphism declarations and program-block
+    domains/codomains may reference space-only names; the compiler routes
+    those through ``_resolve_any_space`` instead. They're excluded here so
+    the lens-vs-compiler comparison stays apples-to-apples.
+    """
     for stmt in module.statements:
         if isinstance(stmt, ObjectDecl):
             yield stmt.type_expr
         elif isinstance(stmt, MorphismDecl):
-            yield stmt.domain
-            yield stmt.codomain
-        elif isinstance(stmt, ContinuousMorphismDecl):
-            yield stmt.domain
-            yield stmt.codomain
-        elif isinstance(stmt, StochasticMorphismDecl):
-            yield stmt.domain
-            yield stmt.codomain
-        elif isinstance(stmt, ProgramDecl):
             yield stmt.domain
             yield stmt.codomain
 
@@ -66,30 +56,25 @@ def _walk_space_exprs(module):
             yield stmt.name, stmt.space_expr
 
 
+def _build_object_env(module) -> dict:
+    """Build the object environment by walking object_decls in source order."""
+    objects: dict = {}
+    for stmt in module.statements:
+        if isinstance(stmt, ObjectDecl):
+            lens = TypeExprToSetObject(objects)
+            resolved, _ = lens.forward(stmt.type_expr)
+            objects[stmt.name] = resolved
+    return objects
+
+
 @pytest.mark.parametrize("path", EXAMPLE_PATHS, ids=[p.stem for p in EXAMPLE_PATHS])
 def test_type_lens_roundtrip(path: Path) -> None:
     """GetPut law: every TypeExpr round-trips through the resolution lens."""
     module = parse_file(path)
-    # Build the object env by partially compiling object_decls.
-    objects: dict = {}
-    for stmt in module.statements:
-        if isinstance(stmt, ObjectDecl):
-            try:
-                lens = TypeExprToSetObject(objects)
-                resolved, _ = lens.forward(stmt.type_expr)
-                objects[stmt.name] = resolved
-            except KeyError:
-                pass  # forward declarations / order issues — skip
-
+    objects = _build_object_env(module)
     lens = TypeExprToSetObject(objects)
     for texpr in _walk_type_exprs(module):
-        if not isinstance(texpr, TypeExpr):
-            continue
-        try:
-            resolved, complement = lens.forward(texpr)
-        except KeyError:
-            # may legitimately reference space-only names; skip
-            continue
+        resolved, complement = lens.forward(texpr)
         # GetPut law
         assert lens.backward(resolved, complement) == texpr
 
@@ -99,26 +84,12 @@ def test_type_lens_agrees_with_compiler(path: Path) -> None:
     """Lens forward agrees with Compiler._resolve_type on every example."""
     module = parse_file(path)
     compiler = Compiler(module)
-    # Run compile_env to populate _objects without going all the way to the Program.
-    try:
-        compiler.compile_env()
-    except Exception:
-        # programs that need full compile() — skip the env step but still
-        # check whatever _objects got built before the error
-        pass
+    compiler.compile_env()
 
     lens = TypeExprToSetObject(compiler._objects)
     for texpr in _walk_type_exprs(module):
-        if not isinstance(texpr, TypeExpr):
-            continue
-        try:
-            lens_resolved, _ = lens.forward(texpr)
-        except KeyError:
-            continue
-        try:
-            compiler_resolved = compiler._resolve_type(texpr)
-        except Exception:
-            continue
+        lens_resolved, _ = lens.forward(texpr)
+        compiler_resolved = compiler._resolve_type(texpr)
         assert lens_resolved == compiler_resolved, (
             f"lens / compiler disagree on {texpr!r} in {path.name}"
         )
@@ -128,25 +99,12 @@ def test_type_lens_agrees_with_compiler(path: Path) -> None:
 def test_space_lens_roundtrip(path: Path) -> None:
     """GetPut law: every SpaceExpr round-trips through the space lens."""
     module = parse_file(path)
-    objects: dict = {}
+    objects = _build_object_env(module)
     spaces: dict = {}
-    for stmt in module.statements:
-        if isinstance(stmt, ObjectDecl):
-            try:
-                tlens = TypeExprToSetObject(objects)
-                resolved, _ = tlens.forward(stmt.type_expr)
-                objects[stmt.name] = resolved
-            except KeyError:
-                pass
 
     for name, sexpr in _walk_space_exprs(module):
-        if not isinstance(sexpr, SpaceExpr):
-            continue
         slens = SpaceExprToContinuousSpace(spaces, objects, name)
-        try:
-            resolved, complement = slens.forward(sexpr)
-        except (KeyError, ValueError):
-            continue
+        resolved, complement = slens.forward(sexpr)
         assert slens.backward(resolved, complement) == sexpr
         # populate env for subsequent decls
         spaces[name] = resolved

@@ -68,6 +68,7 @@ from quivers.continuous.spaces import (
     ProductSpace,
     Simplex,
 )
+from quivers.categorical.monoidal import EmptySet
 from quivers.core.objects import (
     CoproductSet,
     FinSet,
@@ -232,10 +233,11 @@ class _SchemaWriter:
             self._builder.constraint(vid, "max_length", str(obj.max_length))
             gvid = self.write_set_object(obj.generators)
             self._builder.edge(vid, gvid, "generators")
-        else:
-            # EmptySet (defined in categorical.monoidal) lands here
+        elif isinstance(obj, EmptySet):
             vid = self._fresh("empty_set")
             self._builder.vertex(vid, "empty_set")
+        else:
+            raise TypeError(f"unsupported SetObject variant: {type(obj).__name__}")
         self._object_ids[id(obj)] = vid
         return vid
 
@@ -339,18 +341,10 @@ def extract_program_schema(compiler: "Compiler") -> panproto.Schema:
 
     # morphism decls — the compiler's _morphisms env holds named primitive
     # morphisms; we record them as morphism_decl vertices with domain/codomain.
-    # composite morphisms (let-bindings, output) are derived rather than
+    # Composite morphisms (let-bindings, output) are derived rather than
     # recorded directly; the structural Diff-able layer is the named decls.
     for name, morphism in compiler._morphisms.items():
-        # the kind of declaration depends on the morphism class; classify
-        # heuristically from the runtime type's module
-        mod = type(morphism).__module__
-        if "continuous" in mod and "stochastic" not in mod:
-            kind = "continuous_morphism_decl"
-        elif "stochastic" in mod or "Stochastic" in type(morphism).__name__:
-            kind = "stochastic_morphism_decl"
-        else:
-            kind = "morphism_decl"
+        kind = _classify_morphism_kind(morphism)
 
         decl_vid = f"{kind}::{name}"
         builder.vertex(decl_vid, kind)
@@ -360,16 +354,60 @@ def extract_program_schema(compiler: "Compiler") -> panproto.Schema:
         dom = getattr(morphism, "domain", None)
         cod = getattr(morphism, "codomain", None)
         if dom is not None:
-            try:
-                dom_vid = writer.write_any(dom)
-                builder.edge(decl_vid, dom_vid, "domain")
-            except TypeError:
-                pass
+            dom_vid = writer.write_any(dom)
+            builder.edge(decl_vid, dom_vid, "domain")
         if cod is not None:
-            try:
-                cod_vid = writer.write_any(cod)
-                builder.edge(decl_vid, cod_vid, "codomain")
-            except TypeError:
-                pass
+            cod_vid = writer.write_any(cod)
+            builder.edge(decl_vid, cod_vid, "codomain")
+
+    # output decl — the compiler's `_output_expr` holds the AST expression
+    # whose compilation produces the program's root morphism. We record an
+    # output_decl vertex carrying the expression's source-text form (when
+    # available) as a name constraint; the structural diff cares about
+    # presence/absence of an output, not its detailed shape.
+    if compiler._output_expr is not None:
+        out_vid = "output_decl"
+        builder.vertex(out_vid, "output_decl")
+        # ExprIdent / ExprIdentity carry a single name; composite expressions
+        # don't have a single canonical name, so mark them as "<composite>".
+        expr = compiler._output_expr
+        from quivers.dsl.ast_nodes import ExprIdent, ExprIdentity
+
+        if isinstance(expr, ExprIdent):
+            label = expr.name
+        elif isinstance(expr, ExprIdentity):
+            label = f"identity({expr.object_name})"
+        else:
+            label = "<composite>"
+        builder.constraint(out_vid, "name", label)
+        builder.edge("program", out_vid, "output")
 
     return builder.build()
+
+
+def _classify_morphism_kind(morphism: object) -> str:
+    """Classify a runtime morphism into the program-theory vertex kind.
+
+    The compiler's ``_morphisms`` env holds primitive morphisms produced
+    by every kind of morphism declaration (``MorphismDecl``,
+    ``ContinuousMorphismDecl``, ``StochasticMorphismDecl``,
+    ``DiscretizeDecl``, ``EmbedDecl``). Classification routes through
+    ``isinstance`` rather than module/class name string-matching so the
+    boundaries are explicit.
+    """
+    # Imports are local because these modules form a long dependency
+    # chain; importing at module top level would deepen the import graph
+    # for callers that only need QVR_PROGRAM_PROTOCOL itself.
+    from quivers.continuous.boundaries import Discretize, Embed
+    from quivers.continuous.morphisms import ContinuousMorphism
+    from quivers.stochastic.morphisms import StochasticMorphism
+
+    if isinstance(morphism, Discretize):
+        return "discretize_decl"
+    if isinstance(morphism, Embed):
+        return "embed_decl"
+    if isinstance(morphism, StochasticMorphism):
+        return "stochastic_morphism_decl"
+    if isinstance(morphism, ContinuousMorphism):
+        return "continuous_morphism_decl"
+    return "morphism_decl"

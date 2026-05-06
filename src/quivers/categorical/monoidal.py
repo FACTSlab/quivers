@@ -12,6 +12,7 @@ This module provides:
 from __future__ import annotations
 import itertools
 from abc import ABC, abstractmethod
+from typing import Literal
 import torch
 from quivers.core.objects import SetObject, FinSet, ProductSet, CoproductSet, Unit
 from quivers.core.morphisms import ObservedMorphism, observed
@@ -196,13 +197,14 @@ class CartesianMonoidal(MonoidalStructure):
 
     def __repr__(self) -> str:
         return 'CartesianMonoidal()'
-from typing import Literal
+
 
 class EmptySet(SetObject):
     """The initial object (empty set) with cardinality 0.
 
     Used as the unit for coproduct monoidal structure.
     """
+
     kind: Literal['empty_set'] = 'empty_set'
 
     @property
@@ -215,6 +217,8 @@ class EmptySet(SetObject):
 
     def __str__(self) -> str:
         return 'EmptySet()'
+
+
 EMPTY = EmptySet()
 
 class CoproductMonoidal(MonoidalStructure):

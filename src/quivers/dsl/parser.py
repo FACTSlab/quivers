@@ -427,8 +427,16 @@ def _walk_parser_expr(t: _Tree, vid: str, line: int, col: int) -> ExprParser:
     depth = 1
     constructors: tuple[str, ...] | None = None
 
-    keyword_vid = t.field(vid, "keyword")
-    keyword = t.text(keyword_vid) if keyword_vid else "parser"
+    # `keyword` is an anonymous-token field (`choice('parser', 'ccg',
+    # 'lambek')`) — panproto/panproto#86 means it doesn't surface as an
+    # edge target. Recover from source: the keyword occupies the bytes
+    # between the parser_expr's start and the first '('.
+    cs = t.consts(vid)
+    sb = int(cs["start-byte"])
+    paren_at = t.source.find(b"(", sb)
+    if paren_at < 0:
+        raise ParseError(f"parser_expr at {vid} has no '(': source malformed")
+    keyword = t.source[sb:paren_at].decode("utf-8").strip()
 
     for arg_vid in t.fields(vid, "args"):
         val_vid = t.field(arg_vid, "value")
@@ -494,9 +502,14 @@ def _walk_let_arith(t: _Tree, vid: str) -> LetExprNode:
     if k == "let_var":
         return LetExprVar(name=t.text(t.positional(vid)[0]))
     if k == "let_call":
+        # The `func` field is an anonymous-string-choice token; recover the
+        # function name from the source bytes between the let_call vertex's
+        # start and the first `(`. See panproto/panproto#86.
         cs = t.consts(vid)
         sb = int(cs["start-byte"])
         paren_at = t.source.find(b"(", sb)
+        if paren_at < 0:
+            raise ParseError(f"let_call at {vid} has no '(': source malformed")
         func = t.source[sb:paren_at].decode("utf-8").strip()
         return LetExprCall(
             func=func,

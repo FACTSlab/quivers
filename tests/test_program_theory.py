@@ -23,14 +23,11 @@ EXAMPLE_PATHS = sorted(EXAMPLES_DIR.glob("*.qvr"))
 
 
 def _compile_to_env(path: Path) -> Compiler:
-    """Parse and compile_env, swallowing later-stage errors so we keep
-    the resolved object/space/morphism dicts."""
+    """Parse the program and run :meth:`Compiler.compile_env` to populate
+    the resolved object/space/morphism dictionaries."""
     module = parse_file(path)
     compiler = Compiler(module)
-    try:
-        compiler.compile_env()
-    except Exception:
-        pass  # extracted schema reflects whatever resolved before the error
+    compiler.compile_env()
     return compiler
 
 
@@ -73,6 +70,23 @@ def test_program_schema_object_decls_for_hmm() -> None:
         finset_props.append(props)
     cardinalities = sorted(int(p["cardinality"]) for p in finset_props)
     assert cardinalities == [8, 16]
+
+
+def test_output_decl_recorded_for_hmm() -> None:
+    """The compiler's output expression surfaces as an output_decl vertex."""
+    compiler = _compile_to_env(EXAMPLES_DIR / "hmm.qvr")
+    schema = extract_program_schema(compiler)
+    output_ids = [v.id for v in schema.vertices if v.kind == "output_decl"]
+    assert len(output_ids) == 1, "expected exactly one output_decl"
+    output_constraints = {c.sort: c.value for c in schema.constraints_for(output_ids[0])}
+    # hmm.qvr's `output hmm` resolves to ExprIdent(name='hmm')
+    assert output_constraints["name"] == "hmm"
+    # the program -> output_decl edge with kind 'output' is present
+    output_edges = [
+        e for e in schema.edges if e.src == "program" and e.kind == "output"
+    ]
+    assert len(output_edges) == 1
+    assert output_edges[0].tgt == output_ids[0]
 
 
 def test_diff_distinguishes_distinct_programs() -> None:

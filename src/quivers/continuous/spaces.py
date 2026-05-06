@@ -214,9 +214,17 @@ class ProductSpace(ContinuousSpace):
         result = torch.ones(x.shape[:-1], dtype=torch.bool, device=x.device)
         offset = 0
         for s in self.components:
-            chunk = x[..., offset : offset + s.dim]
-            result = result & s.contains(chunk)
-            offset += s.dim
+            width = _component_dim(s)
+            if isinstance(s, ContinuousSpace):
+                chunk = x[..., offset : offset + width]
+                result = result & s.contains(chunk)
+            else:
+                # SetObject component (mixed-domain product): the slice is a
+                # discrete index. Check it falls inside the index range.
+                chunk = x[..., offset : offset + width]
+                in_range = (chunk >= 0).all(dim=-1) & (chunk < s.size).all(dim=-1)
+                result = result & in_range
+            offset += width
         return result
 
     def __str__(self) -> str:

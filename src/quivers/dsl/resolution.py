@@ -53,6 +53,14 @@ from quivers.dsl.ast_nodes import (
     TypeName,
     TypeProduct,
 )
+# TypeName is imported for its role as a TypeExpr variant; not used as a
+# space-expression variant in the migrated AST.
+
+
+__all__ = [
+    "TypeExprToSetObject",
+    "SpaceExprToContinuousSpace",
+]
 
 
 # ---------------------------------------------------------------------------
@@ -150,13 +158,14 @@ def _build_space_constructor(
 
 
 class SpaceExprToContinuousSpace(
-    dx.Lens["SpaceExpr | TypeName", ContinuousSpace | SetObject, "SpaceExpr | TypeName"]
+    dx.Lens[SpaceExpr, ContinuousSpace | SetObject, SpaceExpr]
 ):
     """Resolve a :class:`SpaceExpr` AST tree to a :class:`ContinuousSpace`.
 
-    Mixed-domain programs may also embed bare type names (referring to
-    discrete :class:`SetObject` declarations) in space expressions — the
-    forward direction dispatches accordingly:
+    Bare identifiers (:class:`SpaceName`) may resolve to either a
+    previously declared continuous space or, for mixed-domain programs,
+    a discrete :class:`SetObject` declared earlier — the forward
+    direction dispatches accordingly:
 
     - :class:`SpaceConstructor` → invoke the named constructor with the
       parsed numeric args.
@@ -174,29 +183,32 @@ class SpaceExprToContinuousSpace(
         a bare identifier does not name a continuous space.
     name : str
         The binding name for the new space (used by
-        :class:`SpaceConstructor` outputs).
+        :class:`SpaceConstructor` outputs); callers passing a
+        :class:`SpaceConstructor` should provide the declaration name.
     """
 
     def __init__(
         self,
         env_spaces: dict[str, ContinuousSpace],
         env_objects: dict[str, SetObject],
-        name: str = "_anon",
+        name: str,
     ) -> None:
         self._env_spaces = env_spaces
         self._env_objects = env_objects
         self._name = name
 
     def forward(
-        self, s, /
-    ) -> tuple[ContinuousSpace | SetObject, "SpaceExpr | TypeName"]:
+        self, s: SpaceExpr, /
+    ) -> tuple[ContinuousSpace | SetObject, SpaceExpr]:
         return self._resolve(s, self._name), s
 
-    def backward(self, r, complement, /):
+    def backward(
+        self, r: ContinuousSpace | SetObject, complement: SpaceExpr, /
+    ) -> SpaceExpr:
         return complement
 
     def _resolve(
-        self, s, scope_name: str
+        self, s: SpaceExpr, scope_name: str
     ) -> ContinuousSpace | SetObject:
         if isinstance(s, SpaceConstructor):
             return _build_space_constructor(s.constructor, s.args, s.kwargs, scope_name)
@@ -207,18 +219,6 @@ class SpaceExprToContinuousSpace(
             if s.name in self._env_objects:
                 return self._env_objects[s.name]
             raise KeyError(f"undefined space {s.name!r} (line {s.line}, col {s.col})")
-
-        # legacy compat: TypeName can appear in space-expression slots before
-        # the AST migration drops it (it doesn't, but the field is annotated
-        # to accept the union of SetObject- and ContinuousSpace-shaped names)
-        if isinstance(s, TypeName):
-            if s.name in self._env_spaces:
-                return self._env_spaces[s.name]
-            if s.name in self._env_objects:
-                return self._env_objects[s.name]
-            raise KeyError(
-                f"undefined name {s.name!r} (line {s.line}, col {s.col})"
-            )
 
         if isinstance(s, SpaceProduct):
             components = tuple(
