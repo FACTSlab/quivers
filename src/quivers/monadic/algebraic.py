@@ -32,7 +32,6 @@ References
 from __future__ import annotations
 
 
-
 from quivers.core.morphisms import Morphism
 from quivers.core.objects import SetObject
 from quivers.monadic.typeclasses import Monad
