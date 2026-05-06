@@ -72,7 +72,9 @@ from quivers.categorical.monoidal import EmptySet
 from quivers.core.objects import (
     CoproductSet,
     FinSet,
+    EnumSet,
     FreeMonoid,
+    FreeResiduated,
     ProductSet,
     SetObject,
 )
@@ -94,6 +96,8 @@ _OBJECT_KINDS = [
     "coproduct_set",
     "free_monoid",
     "empty_set",
+    "enum_set",
+    "free_residuated",
     # continuous
     "euclidean",
     "simplex",
@@ -108,6 +112,7 @@ _OBJECT_KINDS = [
     "discretize_decl",
     "embed_decl",
     "output_decl",
+    "schema_decl",
 ]
 
 _SET_OBJECT_KINDS = [
@@ -116,6 +121,8 @@ _SET_OBJECT_KINDS = [
     "coproduct_set",
     "free_monoid",
     "empty_set",
+    "enum_set",
+    "free_residuated",
 ]
 _SPACE_KINDS = ["euclidean", "simplex", "positive_reals", "product_space"]
 _DOMAIN_KINDS = _SET_OBJECT_KINDS + _SPACE_KINDS
@@ -157,7 +164,11 @@ _EDGE_RULES = [
         "src_kinds": ["product_set", "coproduct_set", "product_space"],
         "tgt_kinds": _DOMAIN_KINDS,
     },
-    {"edge_kind": "generators", "src_kinds": ["free_monoid"], "tgt_kinds": ["finset"]},
+    {
+        "edge_kind": "generators",
+        "src_kinds": ["free_monoid", "free_residuated"],
+        "tgt_kinds": ["finset", "enum_set"],
+    },
     {
         "edge_kind": "domain",
         "src_kinds": _MORPHISM_DECL_KINDS,
@@ -260,6 +271,20 @@ class _SchemaWriter:
         elif isinstance(obj, EmptySet):
             vid = self._fresh("empty_set")
             self._builder.vertex(vid, "empty_set")
+        elif isinstance(obj, EnumSet):
+            vid = self._fresh("enum_set")
+            self._builder.vertex(vid, "enum_set")
+            self._builder.constraint(vid, "name", obj.name)
+            for elem in obj.elements:
+                self._builder.constraint(vid, "element", elem)
+        elif isinstance(obj, FreeResiduated):
+            vid = self._fresh("free_residuated")
+            self._builder.vertex(vid, "free_residuated")
+            self._builder.constraint(vid, "depth", str(obj.depth))
+            for op in obj.ops:
+                self._builder.constraint(vid, "op", op)
+            gvid = self.write_set_object(obj.generators)
+            self._builder.edge(vid, gvid, "generators")
         else:
             raise TypeError(f"unsupported SetObject variant: {type(obj).__name__}")
         self._object_ids[id(obj)] = vid

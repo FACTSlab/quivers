@@ -11,8 +11,9 @@ The development is organised as follows.
 5. **[Expressions](expressions.md).** Compositional semantics of expression-level combinators: `>>`, `@`, `.marginalize`, `fan`, `repeat`, `stack`, `scan`, and the parser combinators.
 6. **[Programs](programs.md).** Monadic semantics of `program` blocks in the (discrete or continuous) Giry monad; the denotation of `draw`, `observe`, `let`, and `return`.
 7. **[Grammar fragment](grammar.md).** Categorical grammars, residuated lattices of category patterns, rule systems, and the chart-parser denotation.
-8. **[The program theory](program-theory.md).** The schema-level semantics: every compiled program lifts to a panproto `Schema` over the protocol $\mathsf{QVR}$, making syntactic equality of denotations decidable up to the protocol's natural equivalence.
-9. **[Adequacy](adequacy.md).** A statement and proof sketch of the adequacy theorem: the compiler implementation $\mathcal{C}$ agrees with the denotation $\llbracket\cdot\rrbracket$ on every well-typed module.
+8. **[Compositional effects](effects.md).** Typeclass + algebraic-effects framework over the residuated category universe; class-driven schema lifting; joint type-and-effect dispatch in the chart parser; conservativity over the bare grammar fragment.
+9. **[The program theory](program-theory.md).** The schema-level semantics: every compiled program lifts to a panproto `Schema` over the protocol $\mathsf{QVR}$, making syntactic equality of denotations decidable up to the protocol's natural equivalence.
+10. **[Adequacy](adequacy.md).** A statement and proof sketch of the adequacy theorem: the compiler implementation $\mathcal{C}$ agrees with the denotation $\llbracket\cdot\rrbracket$ on every well-typed module.
 
 ## Conventions
 

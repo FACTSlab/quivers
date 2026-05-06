@@ -75,6 +75,7 @@ nav:
     - Continuous Distributions: guides/continuous.md
     - Monadic Programs: guides/programs.md
     - The QVR DSL: guides/dsl.md
+    - Compositional Effects: guides/effects.md
     - Variational Inference: guides/inference.md
   - Denotational Semantics:
     - Overview: semantics/index.md
@@ -85,6 +86,7 @@ nav:
     - Expressions: semantics/expressions.md
     - Programs: semantics/programs.md
     - Grammar Fragment: semantics/grammar.md
+    - Compositional Effects: semantics/effects.md
     - The Program Theory: semantics/program-theory.md
     - Adequacy: semantics/adequacy.md
   - Examples Gallery:
