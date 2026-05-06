@@ -76,6 +76,7 @@ from quivers.core.objects import (
     ProductSet,
     SetObject,
 )
+from quivers.dsl.ast_nodes import ExprIdent, ExprIdentity
 
 if TYPE_CHECKING:
     from quivers.dsl.compiler import Compiler
@@ -380,8 +381,6 @@ def extract_program_schema(compiler: "Compiler") -> panproto.Schema:
         # ExprIdent / ExprIdentity carry a single name; composite expressions
         # don't have a single canonical name, so mark them as "<composite>".
         expr = compiler._output_expr
-        from quivers.dsl.ast_nodes import ExprIdent, ExprIdentity
-
         if isinstance(expr, ExprIdent):
             label = expr.name
         elif isinstance(expr, ExprIdentity):
