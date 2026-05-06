@@ -10,8 +10,8 @@ from quivers.program import Program
 
 class TestProgram:
     def test_basic_forward(self):
-        x = FinSet("X", 3)
-        y = FinSet("Y", 4)
+        x = FinSet(name="X", cardinality=3)
+        y = FinSet(name="Y", cardinality=4)
         f = morphism(x, y)
         prog = Program(f)
 
@@ -21,9 +21,9 @@ class TestProgram:
         assert (out < 1).all()
 
     def test_parameters_collected(self):
-        x = FinSet("X", 3)
-        y = FinSet("Y", 4)
-        z = FinSet("Z", 2)
+        x = FinSet(name="X", cardinality=3)
+        y = FinSet(name="Y", cardinality=4)
+        z = FinSet(name="Z", cardinality=2)
 
         f = morphism(x, y)
         g = morphism(y, z)
@@ -34,8 +34,8 @@ class TestProgram:
         assert len(params) == 2
 
     def test_nll_loss(self):
-        x = FinSet("X", 3)
-        y = FinSet("Y", 4)
+        x = FinSet(name="X", cardinality=3)
+        y = FinSet(name="Y", cardinality=4)
         f = morphism(x, y)
         prog = Program(f)
 
@@ -47,8 +47,8 @@ class TestProgram:
         assert loss.item() > 0
 
     def test_bce_loss(self):
-        x = FinSet("X", 3)
-        y = FinSet("Y", 4)
+        x = FinSet(name="X", cardinality=3)
+        y = FinSet(name="Y", cardinality=4)
         f = morphism(x, y)
         prog = Program(f)
 
@@ -58,8 +58,8 @@ class TestProgram:
         assert loss.item() > 0
 
     def test_log_membership(self):
-        x = FinSet("X", 3)
-        y = FinSet("Y", 4)
+        x = FinSet(name="X", cardinality=3)
+        y = FinSet(name="Y", cardinality=4)
         f = morphism(x, y)
         prog = Program(f)
 
@@ -73,9 +73,9 @@ class TestTrainingLoop:
         """End-to-end: train a composed model, verify loss decreases."""
         torch.manual_seed(42)
 
-        x = FinSet("X", 3)
-        y = FinSet("Y", 4)
-        z = FinSet("Z", 2)
+        x = FinSet(name="X", cardinality=3)
+        y = FinSet(name="Y", cardinality=4)
+        z = FinSet(name="Z", cardinality=2)
 
         f = morphism(x, y)
         g = morphism(y, z)
@@ -112,8 +112,8 @@ class TestTrainingLoop:
         """Train a single latent morphism to match a target."""
         torch.manual_seed(42)
 
-        x = FinSet("X", 4)
-        y = FinSet("Y", 3)
+        x = FinSet(name="X", cardinality=4)
+        y = FinSet(name="Y", cardinality=3)
 
         f = morphism(x, y)
         prog = Program(f)
@@ -158,8 +158,8 @@ class TestTrainingLoop:
         """
         torch.manual_seed(99)
 
-        x = FinSet("X", 4)
-        y = FinSet("Y", 5)
+        x = FinSet(name="X", cardinality=4)
+        y = FinSet(name="Y", cardinality=5)
 
         f = morphism(x, y)
         prog = Program(f)

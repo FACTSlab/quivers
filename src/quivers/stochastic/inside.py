@@ -39,8 +39,8 @@ Examples
 --------
 >>> from quivers.core.objects import FinSet, ProductSet
 >>> from quivers.stochastic.morphisms import StochasticMorphism
->>> N = FinSet("N", 5)
->>> T = FinSet("T", 10)
+>>> N = FinSet(name="N", cardinality=5)
+>>> T = FinSet(name="T", cardinality=10)
 >>> binary = StochasticMorphism(N, ProductSet(N, N))
 >>> lexical = StochasticMorphism(N, T)
 >>> cky = InsideAlgorithm(binary, lexical, start=0)
@@ -49,10 +49,8 @@ Examples
 """
 
 from __future__ import annotations
-
 import torch
 import torch.nn as nn
-
 from quivers.core.morphisms import Morphism
 from quivers.core.objects import ProductSet
 
@@ -85,35 +83,21 @@ class InsideAlgorithm(nn.Module):
         If the morphisms have incompatible types.
     """
 
-    def __init__(
-        self,
-        binary: Morphism,
-        lexical: Morphism,
-        start: int = 0,
-    ) -> None:
+    def __init__(self, binary: Morphism, lexical: Morphism, start: int = 0) -> None:
         super().__init__()
-
-        # validate types
         if not isinstance(binary.codomain, ProductSet):
             raise TypeError(
-                f"binary morphism codomain must be a ProductSet, "
-                f"got {binary.codomain!r}"
+                f"binary morphism codomain must be a ProductSet, got {binary.codomain!r}"
             )
-
         if binary.domain != lexical.domain:
             raise TypeError(
-                f"binary and lexical must share the same domain "
-                f"(nonterminals), got {binary.domain!r} and "
-                f"{lexical.domain!r}"
+                f"binary and lexical must share the same domain (nonterminals), got {binary.domain!r} and {lexical.domain!r}"
             )
-
         self._binary = binary
         self._lexical = lexical
         self._start = start
         self._n_nonterm = binary.domain.size
         self._n_term = lexical.codomain.size
-
-        # register the parameter modules
         self._binary_mod = binary.module()
         self._lexical_mod = lexical.module()
 
@@ -148,65 +132,42 @@ class InsideAlgorithm(nn.Module):
             Chart of shape ``(batch, N, seq_len, seq_len+1)``.
         """
         batch, seq_len = tokens.shape
-
-        # get rule probabilities in log-space
         log_binary = torch.log(self._binary.tensor.clamp(min=1e-30))
         log_lexical = torch.log(self._lexical.tensor.clamp(min=1e-30))
-
         N = self._n_nonterm
-
-        # use cell list to avoid in-place writes
-        # cells[i][j] is a (batch, N) tensor
         cells: list[list[torch.Tensor | None]] = [
             [None for _ in range(seq_len + 1)] for _ in range(seq_len)
         ]
-
-        # lexical step
         for i in range(seq_len):
             tok_i = tokens[:, i]
-            cells[i][i + 1] = log_lexical[:, tok_i].T  # (batch, N)
-
-        # binary step
+            cells[i][i + 1] = log_lexical[:, tok_i].T
         for span_len in range(2, seq_len + 1):
             for i in range(seq_len - span_len + 1):
                 j = i + span_len
                 parts = []
-
                 for k in range(i + 1, j):
-                    left = cells[i][k]  # (batch, N)
-                    right = cells[k][j]  # (batch, N)
+                    left = cells[i][k]
+                    right = cells[k][j]
                     assert left is not None and right is not None
-
-                    # combine: (batch, N_A, N_B, N_C)
                     combined = (
                         log_binary.unsqueeze(0)
                         + left.unsqueeze(1).unsqueeze(3)
                         + right.unsqueeze(1).unsqueeze(2)
                     )
-
-                    # marginalize over B and C
                     split_score = torch.logsumexp(
-                        combined.reshape(batch, N, -1),
-                        dim=-1,
+                        combined.reshape(batch, N, -1), dim=-1
                     )
                     parts.append(split_score)
-
                 stacked = torch.stack(parts, dim=0)
                 cells[i][j] = torch.logsumexp(stacked, dim=0)
-
-        # reassemble into chart tensor
         chart = torch.full(
-            (batch, N, seq_len, seq_len + 1),
-            float("-inf"),
-            device=tokens.device,
+            (batch, N, seq_len, seq_len + 1), float("-inf"), device=tokens.device
         )
-
         for i in range(seq_len):
             for j in range(i + 1, seq_len + 1):
                 cell = cells[i][j]
                 if cell is not None:
                     chart[:, :, i, j] = cell
-
         return chart
 
     def forward(self, tokens: torch.Tensor) -> torch.Tensor:
@@ -226,20 +187,15 @@ class InsideAlgorithm(nn.Module):
             Shape ``(batch,)`` or scalar for a single sentence.
         """
         squeeze = False
-
         if tokens.dim() == 1:
             tokens = tokens.unsqueeze(0)
             squeeze = True
-
         if tokens.shape[1] == 0:
             raise ValueError("cannot parse empty sentences")
-
         chart = self._fill_chart(tokens)
         result = chart[:, self._start, 0, tokens.shape[1]]
-
         if squeeze:
             return result.squeeze(0)
-
         return result
 
     def inside_chart(self, tokens: torch.Tensor) -> torch.Tensor:
@@ -259,24 +215,15 @@ class InsideAlgorithm(nn.Module):
             ``[b, A, i, j]`` is ``log P(w_i..w_{j-1} | A)``.
         """
         squeeze = False
-
         if tokens.dim() == 1:
             tokens = tokens.unsqueeze(0)
             squeeze = True
-
         if tokens.shape[1] == 0:
             raise ValueError("cannot parse empty sentences")
-
         chart = self._fill_chart(tokens)
-
         if squeeze:
             return chart.squeeze(0)
-
         return chart
 
     def __repr__(self) -> str:
-        return (
-            f"InsideAlgorithm("
-            f"N={self._n_nonterm}, T={self._n_term}, "
-            f"start={self._start})"
-        )
+        return f"InsideAlgorithm(N={self._n_nonterm}, T={self._n_term}, start={self._start})"

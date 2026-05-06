@@ -23,8 +23,8 @@ class TestBoolToFuzzy:
 
     def test_apply_to_morphism(self):
         bc = BoolToFuzzy()
-        a = FinSet("A", 2)
-        b = FinSet("B", 2)
+        a = FinSet(name="A", cardinality=2)
+        b = FinSet(name="B", cardinality=2)
         data = torch.tensor([[1.0, 0.0], [0.0, 1.0]])
         f = observed(a, b, data, quantale=BOOLEAN)
 
@@ -73,8 +73,8 @@ class TestRoundTrip:
         torch.testing.assert_close(back, t)
 
     def test_apply_to_morphism_roundtrip(self):
-        a = FinSet("A", 2)
-        b = FinSet("B", 2)
+        a = FinSet(name="A", cardinality=2)
+        b = FinSet(name="B", cardinality=2)
         data = torch.tensor([[1.0, 0.0], [0.0, 1.0]])
 
         f = observed(a, b, data, quantale=BOOLEAN)

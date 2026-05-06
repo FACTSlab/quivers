@@ -38,8 +38,8 @@ class StochasticMorphism(Morphism):
 
     Examples
     --------
-    >>> A = FinSet("A", 3)
-    >>> B = FinSet("B", 4)
+    >>> A = FinSet(name="A", cardinality=3)
+    >>> B = FinSet(name="B", cardinality=4)
     >>> f = StochasticMorphism(A, B)
     >>> t = f.tensor  # shape (3, 4), rows sum to 1
     >>> t.sum(dim=-1)  # tensor([1., 1., 1.])

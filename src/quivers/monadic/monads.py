@@ -22,23 +22,12 @@ This module provides:
 """
 
 from __future__ import annotations
-
 from abc import ABC, abstractmethod
-
 import torch
-
 from quivers.core.objects import SetObject, FinSet, FreeMonoid
 from quivers.core.quantales import PRODUCT_FUZZY, Quantale
-from quivers.core.morphisms import (
-    Morphism,
-    identity,
-    observed,
-)
-from quivers.categorical.functors import (
-    Functor,
-    FreeMonoidFunctor,
-    IDENTITY,
-)
+from quivers.core.morphisms import Morphism, identity, observed
+from quivers.categorical.functors import Functor, FreeMonoidFunctor, IDENTITY
 
 
 class Monad(ABC):
@@ -103,18 +92,9 @@ class Monad(ABC):
         Morphism
             Composed Kleisli morphism A → T(C).
         """
-        # T(g): T(B) → T(T(C))
         tg = self.endofunctor.map_morphism(g)
-
-        # f >> T(g): A → T(T(C))
         f_then_tg = f >> tg
-
-        # μ_C: T(T(C)) → T(C)
-        # need to extract C from g's codomain T(C)
-        # for FuzzyPowerset: T = Id so C = g.codomain
-        # for FreeMonoid: g.codomain = FreeMonoid(C), C = g.codomain.generators
         mu = self._multiply_at_codomain(g)
-
         return f_then_tg >> mu
 
     def _multiply_at_codomain(self, g: Morphism) -> Morphism:
@@ -122,12 +102,8 @@ class Monad(ABC):
 
         Subclasses can override for efficiency.
         """
-        # default: extract the base object from g's codomain
-        # T(C) = g.codomain, so we need the C such that T(C) = g.codomain
-        # this is functor-specific
         raise NotImplementedError(
-            "Subclasses must implement _multiply_at_codomain or override "
-            "kleisli_compose"
+            "Subclasses must implement _multiply_at_codomain or override kleisli_compose"
         )
 
 
@@ -224,7 +200,6 @@ class FuzzyPowersetMonad(Monad):
 
     def kleisli_compose(self, f: Morphism, g: Morphism) -> Morphism:
         """Kleisli composition = V-enriched composition via >>."""
-        # since T = Id, f >=> g = μ ∘ T(g) ∘ f = id ∘ g ∘ f = f >> g
         return f >> g
 
     def _multiply_at_codomain(self, g: Morphism) -> Morphism:
@@ -237,7 +212,7 @@ class FuzzyPowersetMonad(Monad):
 class FreeMonoidMonad(Monad):
     """The free monoid monad, truncated to max_length.
 
-    T(A) = FreeMonoid(A, max_length) = 1 + A + A² + ... + A^max_length.
+    T(A) = FreeMonoid(generators=A, max_length=max_length) = 1 + A + A² + ... + A^max_length.
     η_A: A → A* embeds each element as a length-1 word.
     μ_A: (A*)* → A* flattens nested words by concatenation
     (truncated to max_length).
@@ -272,17 +247,12 @@ class FreeMonoidMonad(Monad):
             raise TypeError(
                 f"FreeMonoidMonad.unit requires FinSet, got {type(obj).__name__}"
             )
-
-        fm = FreeMonoid(obj, max_length=self._max_length)
+        fm = FreeMonoid(generators=obj, max_length=self._max_length)
         n = obj.cardinality
         data = torch.zeros(n, fm.size)
-
-        # length-1 stratum starts at offset(1)
         offset = fm.offset(1)
-
         for a in range(n):
             data[a, offset + a] = 1.0
-
         return observed(obj, fm, data)
 
     def multiply(self, obj: SetObject) -> Morphism:
@@ -296,39 +266,23 @@ class FreeMonoidMonad(Monad):
             raise TypeError(
                 f"FreeMonoidMonad.multiply requires FinSet, got {type(obj).__name__}"
             )
-
-        fm_a = FreeMonoid(obj, max_length=self._max_length)
+        fm_a = FreeMonoid(generators=obj, max_length=self._max_length)
         fm_fm_a = FreeMonoid(
-            FinSet(f"{obj.name}*", fm_a.size),
+            generators=FinSet(name=f"{obj.name}*", cardinality=fm_a.size),
             max_length=self._max_length,
         )
-
         data = torch.zeros(fm_fm_a.size, fm_a.size)
-
-        # for each element in (A*)*: decode as a word of A*-indices,
-        # decode each A*-index as a word of A-indices, concatenate,
-        # encode the result in A*
         for i in range(fm_fm_a.size):
-            # decode i as a word of fm_a-indices
             outer_word = fm_fm_a.decode(i)
-
-            # decode each inner index
             inner_words: list[tuple[int, ...]] = []
-
             for idx in outer_word:
                 inner_words.append(fm_a.decode(idx))
-
-            # concatenate
             flat: tuple[int, ...] = ()
-
             for w in inner_words:
                 flat = flat + w
-
-            # encode if within length bound
             if len(flat) <= self._max_length:
                 j = fm_a.encode(flat)
                 data[i, j] = 1.0
-
         return observed(fm_fm_a, fm_a, data)
 
     def kleisli_compose(self, f: Morphism, g: Morphism) -> Morphism:
@@ -341,14 +295,10 @@ class FreeMonoidMonad(Monad):
     def _multiply_at_codomain(self, g: Morphism) -> Morphism:
         """Extract the base object C from g: B → T(C) = FreeMonoid(C)."""
         cod = g.codomain
-
         if isinstance(cod, FreeMonoid):
             return self.multiply(cod.generators)
-
-        # if codomain is already a FinSet, assume T(C) = C (length 0)
         if isinstance(cod, FinSet):
             return self.multiply(cod)
-
         raise TypeError(f"Cannot extract base object from codomain {cod!r}")
 
     def __repr__(self) -> str:

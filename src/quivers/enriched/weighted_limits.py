@@ -33,6 +33,7 @@ from __future__ import annotations
 from collections.abc import Sequence
 from dataclasses import dataclass
 
+import didactic.api as dx
 import torch
 
 from quivers.core.objects import SetObject, FinSet
@@ -47,6 +48,8 @@ class Weight:
     Represents a weight functor W: J → V where J is a finite set of
     indices, and W assigns a V-value (scalar in the quantale's lattice)
     to each index.
+
+    Holds a ``torch.Tensor`` of values; not a value type.
 
     Parameters
     ----------
@@ -73,8 +76,7 @@ class Weight:
         return self.values.shape[0]
 
 
-@dataclass
-class Diagram:
+class Diagram(dx.Model):
     """A finite diagram of morphisms sharing a common domain or codomain.
 
     For weighted limits, this is a collection of morphisms
@@ -82,16 +84,16 @@ class Diagram:
     For weighted colimits, this is a collection of morphisms
     D(j): A_j → X for each index j (cocone-shaped).
 
-    In the simplest case (discrete diagram), this is just a list of
+    In the simplest case (discrete diagram), this is just a tuple of
     objects with no connecting morphisms.
 
     Parameters
     ----------
-    objects : Sequence[SetObject]
+    objects : tuple[SetObject, ...]
         The objects A_j in the diagram, one per index j.
     """
 
-    objects: Sequence[SetObject]
+    objects: tuple[SetObject, ...]
 
     @property
     def size(self) -> int:

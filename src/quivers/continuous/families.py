@@ -256,8 +256,8 @@ class ConditionalNormal(ContinuousMorphism):
     --------
     >>> from quivers import FinSet
     >>> from quivers.continuous.spaces import Euclidean
-    >>> A = FinSet("context", 5)
-    >>> Y = Euclidean("response", 3)
+    >>> A = FinSet(name="context", cardinality=5)
+    >>> Y = Euclidean(name="response", dim=3)
     >>> f = ConditionalNormal(A, Y)
     >>> x = torch.tensor([0, 1, 2])
     >>> samples = f.rsample(x)  # shape (3, 3)

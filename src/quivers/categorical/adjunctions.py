@@ -213,9 +213,9 @@ class FreeForgetfulAdjunction(Adjunction):
             The embedding morphism.
         """
         if not isinstance(obj, FinSet):
-            obj = FinSet(getattr(obj, "name", repr(obj)), obj.size)
+            obj = FinSet(name=getattr(obj, "name", repr(obj)), cardinality=obj.size)
 
-        fm = FreeMonoid(obj, max_length=self._max_length)
+        fm = FreeMonoid(generators=obj, max_length=self._max_length)
         n = obj.cardinality
         data = torch.zeros(n, fm.size)
         offset = fm.offset(1)
@@ -250,9 +250,9 @@ class FreeForgetfulAdjunction(Adjunction):
             return self._counit_at_free_monoid(obj)
 
         if not isinstance(obj, FinSet):
-            obj = FinSet(getattr(obj, "name", repr(obj)), obj.size)
+            obj = FinSet(name=getattr(obj, "name", repr(obj)), cardinality=obj.size)
 
-        fm = FreeMonoid(obj, max_length=self._max_length)
+        fm = FreeMonoid(generators=obj, max_length=self._max_length)
         data = torch.zeros(fm.size, obj.cardinality)
 
         # length-1 words: project to the corresponding element
@@ -282,8 +282,8 @@ class FreeForgetfulAdjunction(Adjunction):
             The concatenation/evaluation map.
         """
         m = fm.size
-        proxy = FinSet(repr(fm), m)
-        fmfm = FreeMonoid(proxy, max_length=self._max_length)
+        proxy = FinSet(name=repr(fm), cardinality=m)
+        fmfm = FreeMonoid(generators=proxy, max_length=self._max_length)
 
         data = torch.zeros(fmfm.size, fm.size)
 

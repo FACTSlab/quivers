@@ -16,14 +16,14 @@ from quivers.enriched.yoneda import (
 class TestRepresentableProfunctor:
     def test_representable_is_identity(self):
         """y(A) should be the identity profunctor."""
-        a = FinSet("A", 3)
+        a = FinSet(name="A", cardinality=3)
         p = representable_profunctor(a)
 
         expected = torch.eye(3)
         torch.testing.assert_close(p.tensor, expected)
 
     def test_contra_and_co(self):
-        a = FinSet("A", 3)
+        a = FinSet(name="A", cardinality=3)
         p = representable_profunctor(a)
 
         assert p.contra == a
@@ -34,8 +34,8 @@ class TestYonedaEmbedding:
     def test_embedding_equals_profunctor_view(self):
         """y(f) should equal Profunctor.from_morphism(f)."""
         torch.manual_seed(42)
-        a = FinSet("A", 3)
-        b = FinSet("B", 4)
+        a = FinSet(name="A", cardinality=3)
+        b = FinSet(name="B", cardinality=4)
         f_data = torch.rand(3, 4)
         f = observed(a, b, f_data)
 
@@ -47,9 +47,9 @@ class TestYonedaEmbedding:
     def test_preserves_composition(self):
         """y(f >> g) ≈ y(f) ; y(g)."""
         torch.manual_seed(42)
-        a = FinSet("A", 3)
-        b = FinSet("B", 4)
-        c = FinSet("C", 2)
+        a = FinSet(name="A", cardinality=3)
+        b = FinSet(name="B", cardinality=4)
+        c = FinSet(name="C", cardinality=2)
 
         f = observed(a, b, torch.rand(3, 4))
         g = observed(b, c, torch.rand(4, 2))
@@ -61,8 +61,8 @@ class TestYonedaDensity:
     def test_density_recovers_morphism(self):
         """Yoneda density: id_A >> f = f."""
         torch.manual_seed(42)
-        a = FinSet("A", 3)
-        b = FinSet("B", 4)
+        a = FinSet(name="A", cardinality=3)
+        b = FinSet(name="B", cardinality=4)
         f_data = torch.rand(3, 4)
         f = observed(a, b, f_data)
 

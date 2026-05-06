@@ -191,7 +191,7 @@ class ChartParser(DeductiveSystem):
             A new parser instance.
         """
         if isinstance(start, str):
-            start = AtomicCategory(start)
+            start = AtomicCategory(name=start)
 
         if start not in category_system:
             raise ValueError(f"start category {start!r} not in category system")

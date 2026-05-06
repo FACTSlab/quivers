@@ -155,7 +155,7 @@ class ComposedFunctor(Functor):
 class FreeMonoidFunctor(Functor):
     """The free monoid endofunctor, truncated to max_length.
 
-    On objects: A ↦ FreeMonoid(A, max_length)
+    On objects: A ↦ FreeMonoid(generators=A, max_length=max_length)
     On morphisms: f ↦ f* (block-diagonal, componentwise on each stratum)
 
     The morphism action assembles a block-diagonal tensor where the k-th
@@ -181,7 +181,7 @@ class FreeMonoidFunctor(Functor):
         return self._max_length
 
     def map_object(self, obj: SetObject) -> FreeMonoid:
-        """Apply functor to an object: A ↦ FreeMonoid(A, max_length).
+        """Apply functor to an object: A ↦ FreeMonoid(generators=A, max_length=max_length).
 
         For FinSet inputs, uses obj directly as generators. For other
         SetObject types (e.g., FreeMonoid, CoproductSet), creates a
@@ -202,9 +202,9 @@ class FreeMonoidFunctor(Functor):
         """
         if not isinstance(obj, FinSet):
             # treat any SetObject as a flat set with its total cardinality
-            obj = FinSet(getattr(obj, "name", repr(obj)), obj.size)
+            obj = FinSet(name=getattr(obj, "name", repr(obj)), cardinality=obj.size)
 
-        return FreeMonoid(obj, max_length=self._max_length)
+        return FreeMonoid(generators=obj, max_length=self._max_length)
 
     def map_morphism(self, morph: Morphism) -> FunctorMorphism:
         """Apply functor to a morphism: f ↦ f* (block-diagonal).

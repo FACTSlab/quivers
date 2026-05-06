@@ -445,12 +445,12 @@ def partial_trace(
         ext_dom = external_dom_comps[0]
 
     else:
-        ext_dom = ProductSet(*external_dom_comps)
+        ext_dom = ProductSet(components=tuple(external_dom_comps))
 
     if len(external_cod_comps) == 1:
         ext_cod = external_cod_comps[0]
 
     else:
-        ext_cod = ProductSet(*external_cod_comps)
+        ext_cod = ProductSet(components=tuple(external_cod_comps))
 
     return observed(ext_dom, ext_cod, result, quantale=q)

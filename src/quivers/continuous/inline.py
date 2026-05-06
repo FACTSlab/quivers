@@ -20,22 +20,14 @@ Terminology
 """
 
 from __future__ import annotations
-
 import math
 from collections.abc import Callable
-
 import torch
 import torch.distributions as D
-
 from quivers.core.objects import Unit
 from quivers.continuous.spaces import Euclidean
 from quivers.continuous.morphisms import ContinuousMorphism, AnySpace
 from quivers.core._util import EPS
-
-
-# ============================================================================
-# fixed-parameter distributions
-# ============================================================================
 
 
 class FixedDistribution(ContinuousMorphism):
@@ -55,19 +47,14 @@ class FixedDistribution(ContinuousMorphism):
     """
 
     def __init__(
-        self,
-        codomain: AnySpace,
-        make_dist: Callable,
-        discrete: bool = False,
+        self, codomain: AnySpace, make_dist: Callable, discrete: bool = False
     ) -> None:
         super().__init__(Unit, codomain)
         self._make_dist_fn = make_dist
         self._discrete = discrete
 
     def rsample(
-        self,
-        x: torch.Tensor,
-        sample_shape: torch.Size = torch.Size(),
+        self, x: torch.Tensor, sample_shape: torch.Size = torch.Size()
     ) -> torch.Tensor:
         """Sample from the fixed distribution.
 
@@ -85,10 +72,8 @@ class FixedDistribution(ContinuousMorphism):
         """
         batch = x.shape[0]
         dist = self._make_dist_fn(batch, x.device)
-
         if self._discrete:
             return dist.sample(sample_shape).long()
-
         return dist.rsample(sample_shape)
 
     def log_prob(self, x: torch.Tensor, y: torch.Tensor) -> torch.Tensor:
@@ -109,17 +94,9 @@ class FixedDistribution(ContinuousMorphism):
         batch = x.shape[0]
         dist = self._make_dist_fn(batch, x.device)
         lp = dist.log_prob(y.float() if self._discrete else y)
-
-        # sum over event dimensions if present
         if lp.dim() > 1:
             return lp.sum(dim=-1)
-
         return lp
-
-
-# ============================================================================
-# direct-parameter distributions
-# ============================================================================
 
 
 class MixedInlineDistribution(ContinuousMorphism):
@@ -169,10 +146,7 @@ class MixedInlineDistribution(ContinuousMorphism):
         self._dist_builder = dist_builder
         self._discrete = discrete
 
-    def _resolve_params(
-        self,
-        x: torch.Tensor,
-    ) -> list[torch.Tensor]:
+    def _resolve_params(self, x: torch.Tensor) -> list[torch.Tensor]:
         """Reconstruct full parameter list from input + stored literals.
 
         Parameters
@@ -187,42 +161,27 @@ class MixedInlineDistribution(ContinuousMorphism):
             One tensor per parameter, each shape ``(batch,)`` or
             ``(batch, dim)``.
         """
-        # ensure x is at least 2D for consistent slicing
         if x.dim() == 1:
             x = x.unsqueeze(-1)
-
         params = []
         var_offset = 0
-
         for kind, value in self._param_spec:
             if kind == "lit":
-                # broadcast literal to match batch dimension
                 lit_val = torch.full(
-                    (x.shape[0],),
-                    float(value),
-                    device=x.device,
-                    dtype=x.dtype,
+                    (x.shape[0],), float(value), device=x.device, dtype=x.dtype
                 )
                 params.append(lit_val)
-
             else:
-                # variable: slice from stacked input
                 dim = int(value)
-
                 if dim == 1:
                     params.append(x[..., var_offset])
-
                 else:
                     params.append(x[..., var_offset : var_offset + dim])
-
                 var_offset += dim
-
         return params
 
     def rsample(
-        self,
-        x: torch.Tensor,
-        sample_shape: torch.Size = torch.Size(),
+        self, x: torch.Tensor, sample_shape: torch.Size = torch.Size()
     ) -> torch.Tensor:
         """Sample from the distribution.
 
@@ -240,15 +199,11 @@ class MixedInlineDistribution(ContinuousMorphism):
         """
         params = self._resolve_params(x)
         dist = self._dist_builder(params)
-
         if self._discrete:
             return dist.sample(sample_shape).long()
-
         result = dist.rsample(sample_shape)
-
         if result.dim() == 1:
             result = result.unsqueeze(-1)
-
         return result
 
     def log_prob(self, x: torch.Tensor, y: torch.Tensor) -> torch.Tensor:
@@ -269,12 +224,10 @@ class MixedInlineDistribution(ContinuousMorphism):
         params = self._resolve_params(x)
         dist = self._dist_builder(params)
         lp = dist.log_prob(
-            y.float() if self._discrete else (y.squeeze(-1) if y.dim() > 1 else y)
+            y.float() if self._discrete else y.squeeze(-1) if y.dim() > 1 else y
         )
-
         if lp.dim() > 1:
             return lp.sum(dim=-1)
-
         return lp
 
 
@@ -301,9 +254,7 @@ class DirectBernoulli(ContinuousMorphism):
         super().__init__(domain, codomain)
 
     def rsample(
-        self,
-        x: torch.Tensor,
-        sample_shape: torch.Size = torch.Size(),
+        self, x: torch.Tensor, sample_shape: torch.Size = torch.Size()
     ) -> torch.Tensor:
         """Sample from Bernoulli(probs=x).
 
@@ -363,9 +314,7 @@ class DirectNormal(ContinuousMorphism):
         super().__init__(domain, codomain)
 
     def rsample(
-        self,
-        x: torch.Tensor,
-        sample_shape: torch.Size = torch.Size(),
+        self, x: torch.Tensor, sample_shape: torch.Size = torch.Size()
     ) -> torch.Tensor:
         """Sample from Normal(loc, scale).
 
@@ -385,10 +334,8 @@ class DirectNormal(ContinuousMorphism):
         scale = x[..., 1].clamp(min=EPS)
         dist = D.Normal(loc, scale)
         result = dist.rsample(sample_shape)
-
         if result.dim() == 1:
             result = result.unsqueeze(-1)
-
         return result
 
     def log_prob(self, x: torch.Tensor, y: torch.Tensor) -> torch.Tensor:
@@ -436,20 +383,14 @@ class DirectTruncatedNormal(ContinuousMorphism):
     """
 
     def __init__(
-        self,
-        domain: AnySpace,
-        codomain: AnySpace,
-        low: float,
-        high: float,
+        self, domain: AnySpace, codomain: AnySpace, low: float, high: float
     ) -> None:
         super().__init__(domain, codomain)
         self._low = low
         self._high = high
 
     def rsample(
-        self,
-        x: torch.Tensor,
-        sample_shape: torch.Size = torch.Size(),
+        self, x: torch.Tensor, sample_shape: torch.Size = torch.Size()
     ) -> torch.Tensor:
         """Sample from TruncatedNormal(mu, sigma, low, high).
 
@@ -467,26 +408,15 @@ class DirectTruncatedNormal(ContinuousMorphism):
         """
         mu = x[..., 0]
         sigma = x[..., 1].clamp(min=EPS)
-
         normal = D.Normal(0, 1)
         alpha = normal.cdf((self._low - mu) / sigma)
         beta_cdf = normal.cdf((self._high - mu) / sigma)
-
-        u = torch.rand(
-            *sample_shape,
-            *mu.shape,
-            device=mu.device,
-            dtype=mu.dtype,
-        )
+        u = torch.rand(*sample_shape, *mu.shape, device=mu.device, dtype=mu.dtype)
         u_scaled = alpha + u * (beta_cdf - alpha)
         u_scaled = u_scaled.clamp(min=EPS, max=1.0 - EPS)
-
         result = normal.icdf(u_scaled) * sigma + mu
-
-        # ensure 2D output for continuous codomain consistency
         if result.dim() == 1:
             result = result.unsqueeze(-1)
-
         return result
 
     def log_prob(self, x: torch.Tensor, y: torch.Tensor) -> torch.Tensor:
@@ -506,15 +436,12 @@ class DirectTruncatedNormal(ContinuousMorphism):
         """
         mu = x[..., 0]
         sigma = x[..., 1].clamp(min=EPS)
-
         y_flat = y.squeeze(-1) if y.dim() > 1 else y
-
         log_phi = (
             -0.5 * ((y_flat - mu) / sigma) ** 2
             - sigma.log()
             - 0.5 * math.log(2 * math.pi)
         )
-
         normal = D.Normal(0, 1)
         log_Z = torch.log(
             (
@@ -522,19 +449,11 @@ class DirectTruncatedNormal(ContinuousMorphism):
                 - normal.cdf((self._low - mu) / sigma)
             ).clamp(min=EPS)
         )
-
         return log_phi - log_Z
 
 
-# ============================================================================
-# factory functions for creating inline distributions from DSL args
-# ============================================================================
-
-
 def make_fixed_logitnormal(
-    mu: float,
-    sigma: float,
-    codomain: AnySpace,
+    mu: float, sigma: float, codomain: AnySpace
 ) -> FixedDistribution:
     """Create a fixed LogitNormal(mu, sigma) distribution.
 
@@ -564,9 +483,7 @@ def make_fixed_logitnormal(
 
 
 def make_fixed_uniform(
-    low: float,
-    high: float,
-    codomain: AnySpace,
+    low: float, high: float, codomain: AnySpace
 ) -> FixedDistribution:
     """Create a fixed Uniform(low, high) distribution.
 
@@ -595,9 +512,7 @@ def make_fixed_uniform(
 
 
 def make_fixed_normal(
-    loc: float,
-    scale: float,
-    codomain: AnySpace,
+    loc: float, scale: float, codomain: AnySpace
 ) -> FixedDistribution:
     """Create a fixed Normal(loc, scale) distribution.
 
@@ -625,10 +540,7 @@ def make_fixed_normal(
     return FixedDistribution(codomain, builder)
 
 
-def make_fixed_bernoulli(
-    prob: float,
-    codomain: AnySpace,
-) -> FixedDistribution:
+def make_fixed_bernoulli(prob: float, codomain: AnySpace) -> FixedDistribution:
     """Create a fixed Bernoulli(prob) distribution.
 
     Parameters
@@ -652,9 +564,7 @@ def make_fixed_bernoulli(
 
 
 def make_fixed_beta(
-    concentration1: float,
-    concentration0: float,
-    codomain: AnySpace,
+    concentration1: float, concentration0: float, codomain: AnySpace
 ) -> FixedDistribution:
     """Create a fixed Beta(concentration1, concentration0) distribution.
 
@@ -682,10 +592,7 @@ def make_fixed_beta(
     return FixedDistribution(codomain, builder)
 
 
-def make_fixed_exponential(
-    rate: float,
-    codomain: AnySpace,
-) -> FixedDistribution:
+def make_fixed_exponential(rate: float, codomain: AnySpace) -> FixedDistribution:
     """Create a fixed Exponential(rate) distribution.
 
     Parameters
@@ -709,10 +616,7 @@ def make_fixed_exponential(
     return FixedDistribution(codomain, builder)
 
 
-def make_fixed_halfcauchy(
-    scale: float,
-    codomain: AnySpace,
-) -> FixedDistribution:
+def make_fixed_halfcauchy(scale: float, codomain: AnySpace) -> FixedDistribution:
     """Create a fixed HalfCauchy(scale) distribution.
 
     Parameters
@@ -736,10 +640,7 @@ def make_fixed_halfcauchy(
     return FixedDistribution(codomain, builder)
 
 
-def make_fixed_halfnormal(
-    scale: float,
-    codomain: AnySpace,
-) -> FixedDistribution:
+def make_fixed_halfnormal(scale: float, codomain: AnySpace) -> FixedDistribution:
     """Create a fixed HalfNormal(scale) distribution.
 
     Parameters
@@ -764,9 +665,7 @@ def make_fixed_halfnormal(
 
 
 def make_fixed_lognormal(
-    loc: float,
-    scale: float,
-    codomain: AnySpace,
+    loc: float, scale: float, codomain: AnySpace
 ) -> FixedDistribution:
     """Create a fixed LogNormal(loc, scale) distribution.
 
@@ -795,9 +694,7 @@ def make_fixed_lognormal(
 
 
 def make_fixed_gamma(
-    concentration: float,
-    rate: float,
-    codomain: AnySpace,
+    concentration: float, rate: float, codomain: AnySpace
 ) -> FixedDistribution:
     """Create a fixed Gamma(concentration, rate) distribution.
 
@@ -825,12 +722,6 @@ def make_fixed_gamma(
     return FixedDistribution(codomain, builder)
 
 
-# ============================================================================
-# inline family registry: maps family names -> (param_names, factory)
-# ============================================================================
-
-# maps family name -> (ordered param names, factory function)
-# factory is called with (*float_values, codomain) for all-fixed case
 _FIXED_FACTORIES: dict[str, tuple[tuple[str, ...], Callable]] = {
     "LogitNormal": (("mu", "sigma"), make_fixed_logitnormal),
     "Normal": (("loc", "scale"), make_fixed_normal),
@@ -860,11 +751,8 @@ def get_inline_param_names(family: str) -> tuple[str, ...] | None:
     """
     if family in _FIXED_FACTORIES:
         return _FIXED_FACTORIES[family][0]
-
-    # families with direct-variable support but no all-fixed factory
     if family == "TruncatedNormal":
         return ("mu", "sigma", "low", "high")
-
     return None
 
 
@@ -878,9 +766,7 @@ def _bernoulli_builder(params: list[torch.Tensor]) -> D.Distribution:
     return D.Bernoulli(probs=params[0].clamp(EPS, 1.0 - EPS))
 
 
-def _truncated_normal_builder(
-    params: list[torch.Tensor],
-) -> D.Distribution:
+def _truncated_normal_builder(params: list[torch.Tensor]) -> D.Distribution:
     """Build TruncatedNormal from [mu, sigma, low, high].
 
     Returns a proxy object with rsample and log_prob that performs
@@ -888,7 +774,6 @@ def _truncated_normal_builder(
     """
     mu, sigma, low_t, high_t = params
     sigma = sigma.clamp(min=EPS)
-    # extract scalar bounds from broadcast tensors
     low = float(low_t.flatten()[0])
     high = float(high_t.flatten()[0])
 
@@ -899,12 +784,7 @@ def _truncated_normal_builder(
             normal = D.Normal(0, 1)
             alpha = normal.cdf((low - mu) / sigma)
             beta_cdf = normal.cdf((high - mu) / sigma)
-            u = torch.rand(
-                *sample_shape,
-                *mu.shape,
-                device=mu.device,
-                dtype=mu.dtype,
-            )
+            u = torch.rand(*sample_shape, *mu.shape, device=mu.device, dtype=mu.dtype)
             u_scaled = alpha + u * (beta_cdf - alpha)
             u_scaled = u_scaled.clamp(min=EPS, max=1.0 - EPS)
             return normal.icdf(u_scaled) * sigma + mu
@@ -927,7 +807,7 @@ def _truncated_normal_builder(
             with torch.no_grad():
                 return self.rsample(sample_shape)
 
-    return _TruncNorm()  # type: ignore[return-value]
+    return _TruncNorm()
 
 
 def _logitnormal_builder(params: list[torch.Tensor]) -> D.Distribution:
@@ -971,7 +851,6 @@ def _gamma_builder(params: list[torch.Tensor]) -> D.Distribution:
     return D.Gamma(params[0].clamp(min=EPS), params[1].clamp(min=EPS))
 
 
-# maps family name -> (param_names, builder, discrete)
 _FAMILY_BUILDERS: dict[str, tuple[tuple[str, ...], Callable, bool]] = {
     "Normal": (("loc", "scale"), _normal_builder, False),
     "Bernoulli": (("probs",), _bernoulli_builder, True),
@@ -982,11 +861,7 @@ _FAMILY_BUILDERS: dict[str, tuple[tuple[str, ...], Callable, bool]] = {
     ),
     "LogitNormal": (("mu", "sigma"), _logitnormal_builder, False),
     "Uniform": (("low", "high"), _uniform_builder, False),
-    "Beta": (
-        ("concentration1", "concentration0"),
-        _beta_builder,
-        False,
-    ),
+    "Beta": (("concentration1", "concentration0"), _beta_builder, False),
     "Exponential": (("rate",), _exponential_builder, False),
     "HalfCauchy": (("scale",), _halfcauchy_builder, False),
     "HalfNormal": (("scale",), _halfnormal_builder, False),
@@ -1030,79 +905,55 @@ def make_inline_distribution(
         to pass as step input (None = use program input).
     """
     var_names = [a for a in args if isinstance(a, str)]
-
-    # all literals: create fixed distribution (unchanged)
     if not var_names:
         all_floats = [float(a) for a in args]
-
         if family in _FIXED_FACTORIES:
             _, factory = _FIXED_FACTORIES[family]
             morph = factory(*all_floats, codomain)
-            return morph, None
-
+            return (morph, None)
         raise ValueError(f"no fixed factory for inline family {family!r}")
-
-    # has variable args: use the general MixedInlineDistribution
     if family not in _FAMILY_BUILDERS:
         raise ValueError(
             f"no builder for inline family {family!r} with variable arguments"
         )
-
     param_names, dist_builder, discrete = _FAMILY_BUILDERS[family]
-
     if len(args) != len(param_names):
         raise ValueError(
-            f"inline {family} expects {len(param_names)} args "
-            f"({', '.join(param_names)}), got {len(args)}"
+            f"inline {family} expects {len(param_names)} args ({', '.join(param_names)}), got {len(args)}"
         )
-
-    # build param_spec and compute variable domain dimension
     param_spec: list[tuple[str, int | float]] = []
     var_name_order: list[str] = []
     total_var_dim = 0
-
     for i, arg in enumerate(args):
         if isinstance(arg, (int, float)):
             param_spec.append(("lit", float(arg)))
-
         else:
-            # variable: determine its dimension from type info
             var_dim = 1
-
             if variable_types and arg in variable_types:
                 vtype = variable_types[arg]
                 var_dim = getattr(vtype, "dim", 1)
-
             param_spec.append(("var", var_dim))
             var_name_order.append(arg)
             total_var_dim += var_dim
-
-    # build the domain from variable dimensions
     if total_var_dim == 0:
-        domain = Euclidean("_inline_domain", 1)
-
+        domain = Euclidean(name="_inline_domain", dim=1)
     elif len(var_name_order) == 1 and variable_types:
         vtype = variable_types.get(var_name_order[0])
         domain = (
-            vtype if vtype is not None else Euclidean("_inline_domain", total_var_dim)
+            vtype
+            if vtype is not None
+            else Euclidean(name="_inline_domain", dim=total_var_dim)
         )
-
     else:
         domain = _infer_domain(var_name_order, variable_types)
-
     morph = MixedInlineDistribution(
-        domain,
-        codomain,
-        param_spec,
-        dist_builder,
-        discrete,
+        domain, codomain, param_spec, dist_builder, discrete
     )
-    return morph, tuple(var_name_order)
+    return (morph, tuple(var_name_order))
 
 
 def _infer_domain(
-    var_names: list[str],
-    variable_types: dict[str, AnySpace] | None,
+    var_names: list[str], variable_types: dict[str, AnySpace] | None
 ) -> AnySpace:
     """Infer a domain space from variable types.
 
@@ -1119,29 +970,22 @@ def _infer_domain(
         The inferred domain.
     """
     if variable_types is None or not var_names:
-        # fallback: use a generic euclidean space
-        return Euclidean("_inline_domain", len(var_names))
-
+        return Euclidean(name="_inline_domain", dim=len(var_names))
     if len(var_names) == 1:
         vtype = variable_types.get(var_names[0])
-
         if vtype is not None:
             return vtype
-
-        return Euclidean("_inline_domain", 1)
-
-    # multiple variables: create a product
+        return Euclidean(name="_inline_domain", dim=1)
     from quivers.core.objects import ProductSet
+    from quivers.continuous.spaces import ContinuousSpace, ProductSpace
 
     components = []
-
     for vn in var_names:
         vtype = variable_types.get(vn)
-
         if vtype is not None:
             components.append(vtype)
-
         else:
-            components.append(Euclidean(f"_inline_{vn}", 1))
-
-    return ProductSet(*components)
+            components.append(Euclidean(name=f"_inline_{vn}", dim=1))
+    if any((isinstance(c, ContinuousSpace) for c in components)):
+        return ProductSpace(components=tuple(components))
+    return ProductSet(components=tuple(components))

@@ -66,7 +66,7 @@ class Discretize(ContinuousMorphism):
                 f"Discretize currently supports 1-d spaces only, got dim={domain.dim}"
             )
 
-        codomain = FinSet("bins", n_bins)
+        codomain = FinSet(name="bins", cardinality=n_bins)
         super().__init__(domain, codomain)
 
         self._n_bins = n_bins

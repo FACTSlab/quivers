@@ -1,4 +1,4 @@
-"""Optics: composable bidirectional transformations.
+"""Optics: composable bidirectional transformations in Rel(V).
 
 Optics generalize lenses and prisms to provide composable
 "accessors" that can get, set, and transform parts of a
@@ -21,6 +21,15 @@ This module provides concrete optic types:
     └── Grate    — closed-structure optics
 
     compose_optics() — compose two optics sequentially
+
+These are V-enriched optics: ``forward()`` and ``backward()`` return
+:class:`Morphism` (tensor-shaped fuzzy relations) and ``backward()``
+joins over the complement axis using the quantale's join. This is a
+distinct abstraction from ``didactic.Lens`` (instance-level, with an
+explicit complement value) and from ``didactic.DependentLens`` (schema-
+level, wrapping ``panproto.ProtolensChain``). ``didactic`` 0.6.0 has
+no V-enriched lens flavour, so this module stays on its own
+implementation pending a future ``dx.QuantaleLens`` or equivalent.
 """
 
 from __future__ import annotations

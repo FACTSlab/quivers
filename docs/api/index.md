@@ -69,13 +69,13 @@ The `continuous` package handles continuous-valued distributions and spaces.
 
 ## DSL Package
 
-The `dsl` package implements the QVR domain-specific language for quivers.
+The `dsl` package implements the QVR domain-specific language for quivers. Parsing is delegated to panproto via the `qvr` tree-sitter grammar; AST nodes and value types are didactic Models.
 
-- **Compiler**: Compilation from AST to quivers
-- **Parser**: Parsing DSL syntax
-- **Lexer**: Tokenization of DSL input
-- **AST Nodes**: Abstract syntax tree node definitions
-- **Tokens**: Token definitions and types
+- **Parser**: panproto-driven parser walker (`parse`, `parse_file`, `ParseError`)
+- **AST Nodes**: didactic Model definitions for every syntactic node
+- **Compiler**: lowering from AST to `Program` (`Compiler`, `CompileError`)
+- **Resolution**: bidirectional `dx.Lens` family from `TypeExpr` / `SpaceExpr` to runtime values
+- **Program Theory**: `QVR_PROGRAM_PROTOCOL` and `extract_program_schema` for emitting a panproto `Schema` from a compiled program
 
 ## Inference Package
 

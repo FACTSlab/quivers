@@ -125,7 +125,7 @@ class FreeMonoidPowersetLaw(DistributiveLaw):
                 f"FreeMonoidPowersetLaw requires FinSet, got {type(obj).__name__}"
             )
 
-        fm = FreeMonoid(obj, max_length=self._max_length)
+        fm = FreeMonoid(generators=obj, max_length=self._max_length)
 
         # the distributive law at the tensor level is the block-diagonal
         # identity: for each stratum k, the k-fold componentwise lift

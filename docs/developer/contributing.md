@@ -6,9 +6,10 @@ This guide covers setting up a development environment, understanding the projec
 
 ### Prerequisites
 
-- Python 3.12 or later
+- Python 3.14 or later
 - pip or conda
 - git
+- A C toolchain (the panproto-grammars-all wheel ships pre-built tree-sitter parsers; building it from source requires a working C compiler)
 
 ### Installation
 
@@ -48,18 +49,25 @@ quivers/
 │   ├── getting-started/           # User guides
 │   ├── guides/                    # Long-form guides
 │   └── tutorials/                 # Tutorials
+├── grammars/qvr/                  # Tree-sitter grammar for the QVR DSL
+│   ├── grammar.js                 # Grammar source of truth
+│   ├── grammar.json               # Generated; vendored by panproto
+│   ├── src/                       # Generated parser.c + node-types.json
+│   ├── test/corpus/               # Tree-sitter fixtures
+│   └── queries/                   # Editor highlight queries
 ├── src/quivers/                   # Main package
 │   ├── __init__.py
 │   ├── categorical/               # Categorical algebra
 │   ├── continuous/                # Continuous distributions (30+ families)
-│   ├── core/                      # Core types and utilities
-│   ├── dsl/                       # QVR DSL (lexer, parser, interpreter)
-│   │   ├── tokens.py              # Token definitions
-│   │   ├── parser.py              # Recursive descent parser
-│   │   ├── ast_nodes.py           # AST node definitions
-│   │   ├── interpreter.py         # Execution engine
-│   │   ├── examples/              # Example .qvr files
-│   │   └── ...
+│   ├── core/                      # Core types (didactic Models)
+│   ├── dsl/                       # QVR DSL pipeline
+│   │   ├── parser.py              # panproto-driven parser walker
+│   │   ├── ast_nodes.py           # didactic Model AST nodes
+│   │   ├── compiler.py            # AST -> Program lowering
+│   │   ├── resolution.py          # dx.Lens family for type/space resolution
+│   │   ├── program_theory.py      # QVR_PROGRAM_PROTOCOL + Schema extractor
+│   │   ├── pygments_lexer.py      # Pygments lexer for docs highlighting
+│   │   └── examples/              # Example .qvr files
 │   ├── enriched/                  # Enriched categories
 │   ├── inference/                 # Variational inference
 │   ├── monadic/                   # Monadic programs (draw, observe, return)
@@ -74,7 +82,7 @@ quivers/
 
 ### Type Hints
 
-Include type hints in all function signatures. Use modern Python 3.12+ syntax:
+Include type hints in all function signatures. Use modern Python 3.14+ syntax:
 
 - Use `dict[K, V]` not `Dict[K, V]`
 - Use `list[T]` not `List[T]`
@@ -136,66 +144,56 @@ Avoid stating the obvious. Comments should explain "why," not "what."
 
 ### Python Version and Modern Features
 
-Maintain compatibility with Python 3.12 and later. Use modern features:
+Target Python 3.14 and later. Use modern features:
 
 - Type union syntax: `X | None` instead of `Union[X, None]`
 - Positional-only parameters: `def func(a, /, b)`
-- Named tuple literals (Python 3.12+, consider `dataclass` for earlier versions)
+- `Literal[...]` discriminators for `dx.TaggedUnion` variants
+
+### Value types are didactic Models
+
+Every record-shaped value (AST nodes, `FinSet`, `ProductSet`, `CoproductSet`, `ContinuousSpace` variants, `Category` variants, `RuleSystem`) subclasses `didactic.api.Model`. Recursive sums are `dx.TaggedUnion` roots discriminated by a `kind: Literal[...]` field. Use `dx.field(..., converter=...)` for normalization (e.g., flattening nested `ProductSet` components), `@dx.derived` for computed fields, and `__axioms__` for cross-field invariants.
+
+Tensor-bearing accumulators (`Presheaf`, `Weight`, `SampleSite`, `Trace`) remain `@dataclass` because they hold mutable `torch.Tensor` fields.
 
 ## The DSL Pipeline
 
 The QVR DSL processes `.qvr` files through these stages:
 
-### 1. Tokenization (tokens.py)
+### 1. Parsing
 
-The lexer breaks source text into tokens. Each token carries type, value, line, and column:
+`quivers.dsl.parser.parse(source)` and `parse_file(path)` delegate to panproto's tree-sitter–driven `AstParserRegistry`, which loads the QVR grammar from `panproto-grammars-all`. The parser walker then converts the parse tree into a tree of `dx.Model` AST nodes. Lexical and syntactic errors both raise `ParseError`.
 
-```python
-class TokenType(Enum):
-    QUANTALE = auto()
-    OBJECT = auto()
-    PROGRAM = auto()
-    DRAW = auto()
-    OBSERVE = auto()
-    ...
-```
+### 2. AST Nodes
 
-Keywords like `program`, `draw`, `observe`, `return` map to specific token types. Operators (`->`, `>>`, `@`, `~`) and punctuation are also tokenized.
-
-### 2. Parsing (parser.py)
-
-The recursive descent parser transforms the token stream into an Abstract Syntax Tree (AST). The grammar is documented in the module docstring:
-
-- **Statements**: quantale, object, morphism, space, continuous, stochastic, discretize, embed, program, let, output declarations
-- **Programs**: blocks with draw/observe steps and return statements
-- **Expressions**: identity, composition (>>), tensor product (@), marginalization
-- **Types**: products (*), coproducts (+)
-
-### 3. AST Nodes (ast_nodes.py)
-
-Each syntax construct maps to a dataclass:
+Each syntax construct is a `dx.Model`. Recursive sums (`TypeExpr`, `CatPattern`, `SpaceExpr`, `Expr`, `LetExprNode`, `ProgramStep`, `Statement`) are `dx.TaggedUnion` roots:
 
 ```python
-@dataclass
-class ProgramDecl(Statement):
+import didactic.api as dx
+from typing import Literal
+
+class ProgramDecl(dx.Model):
+    kind: Literal["program_decl"] = "program_decl"
     name: str
     params: tuple[str, ...] | None
     domain: TypeExpr
     codomain: TypeExpr
-    draws: tuple[DrawStep | LetStep, ...]
+    body: tuple[ProgramStep, ...]
     return_vars: tuple[str, ...]
     return_labels: tuple[str, ...] | None
 ```
 
-### 4. Interpretation (interpreter.py)
+### 3. Resolution Lenses
 
-The interpreter walks the AST and executes programs:
+`quivers.dsl.resolution` exposes `TypeExprToSetObject(env)` and `SpaceExprToContinuousSpace(env_spaces, env_objects, name)` as `dx.Lens` instances. The compiler invokes their `forward` direction; the complement preserves the original AST node so `backward` recovers it verbatim.
 
-- Builds up a scope mapping variable names to values
-- Executes draw steps by sampling from morphism distributions
-- Executes observe steps by conditioning
-- Processes let steps to bind computed expressions
-- Returns final values according to the return statement
+### 4. Compilation
+
+`quivers.dsl.compiler.Compiler(ast).compile()` walks the AST, calls the resolution lenses, validates domain/codomain compatibility, builds the morphism DAG, and wraps the result in a `quivers.Program`.
+
+### 5. Schema Extraction
+
+`extract_program_schema(compiler)` walks the resolved environment and emits a `panproto.Schema` over `QVR_PROGRAM_PROTOCOL`. Use this to compare two programs with `panproto schema diff` or generate migration lenses between them.
 
 ## Adding a New Distribution Family
 
@@ -203,14 +201,13 @@ To add a new continuous distribution family:
 
 ### 1. Define the Distribution Class
 
-Create a new class in `src/quivers/continuous/distributions.py` or a new module:
+Create a new class in `src/quivers/continuous/families.py` or a new module:
 
 ```python
-from dataclasses import dataclass
+import didactic.api as dx
 import torch
 
-@dataclass(frozen=True)
-class MyDistribution:
+class MyDistribution(dx.Model):
     """My custom probability distribution.
 
     Parameters
@@ -220,34 +217,20 @@ class MyDistribution:
     param2 : float
         Second parameter.
     """
+
     param1: float
     param2: float
 
     def sample(self, size: int) -> torch.Tensor:
-        """Draw samples from this distribution."""
-        # implement sampling
-        pass
+        ...
 
     def log_prob(self, value: torch.Tensor) -> torch.Tensor:
-        """Compute log probability density."""
-        # implement log-density
-        pass
+        ...
 ```
 
 ### 2. Register in the DSL
 
-Add the distribution to the DSL's family registry in `src/quivers/dsl/interpreter.py`:
-
-```python
-DISTRIBUTION_FAMILIES: dict[str, type] = {
-    "Normal": ...,
-    "Beta": ...,
-    "MyDistribution": MyDistribution,
-    ...
-}
-```
-
-Update `src/quivers/dsl/tokens.py` if the distribution name should be syntax-highlighted as a keyword.
+Add the family to the compiler's family registry in `src/quivers/dsl/compiler.py` so that `~ MyDistribution(...)` clauses resolve to your class.
 
 ### 3. Add Tests
 

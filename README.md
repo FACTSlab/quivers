@@ -3,7 +3,7 @@
 [![CI](https://github.com/FACTSlab/quivers/actions/workflows/ci.yml/badge.svg)](https://github.com/FACTSlab/quivers/actions/workflows/ci.yml)
 [![Docs](https://github.com/FACTSlab/quivers/actions/workflows/docs.yml/badge.svg)](https://FACTSlab.github.io/quivers)
 [![PyPI](https://img.shields.io/pypi/v/quivers)](https://pypi.org/project/quivers/)
-[![Python 3.13+](https://img.shields.io/badge/python-3.13%2B-blue)](https://www.python.org/downloads/)
+[![Python 3.14+](https://img.shields.io/badge/python-3.14%2B-blue)](https://www.python.org/downloads/)
 [![License: MIT](https://img.shields.io/badge/license-MIT-green)](LICENSE)
 
 Computational category theory as differentiable tensor programs.
@@ -19,7 +19,7 @@ Computational category theory as differentiable tensor programs.
 - **Stochastic morphisms**: the FinStoch category of Markov kernels; discretized distribution families (normal, logit-normal, beta, truncated normal); conditioning, mixing, and normalization transforms; the Giry monad; query functions (prob, marginal_prob, expectation).
 - **Continuous morphisms**: 30+ parameterized conditional distribution families; continuous spaces (Euclidean, simplex, unit interval, positive reals); sampled composition; normalizing flows; discrete-continuous boundaries (discretize/embed).
 - **Monadic programs**: probabilistic programs with draw, observe, and return statements; ancestral sampling; log-joint computation; hybrid discrete-continuous random variables.
-- **QVR DSL**: a `.qvr` file format with lexer, recursive descent parser, AST, and compiler; supports object/morphism declarations, program blocks, let bindings, type expressions, and grammar-based parsers (PCFG, CCG, Lambek, multimodal type-logical).
+- **QVR DSL**: a `.qvr` file format whose tree-sitter grammar is registered in [panproto](https://panproto.dev) and whose AST nodes, value types, and resolution lenses are built on [didactic](https://panproto.dev/didactic/) Models; supports object/morphism declarations, program blocks, let bindings, type expressions, and grammar-based parsers (PCFG, CCG, Lambek, multimodal type-logical). Each `.qvr` program also extracts to a panproto `Schema` for diff/migrate workflows.
 - **Variational inference**: execution traces, conditioning, automatic variational guides (normal, delta), ELBO computation, stochastic variational inference (SVI), posterior predictive sampling.
 
 ## Installation
@@ -122,11 +122,14 @@ src/quivers/
 ├── enriched/       # ends/coends, Kan extensions, profunctors, Yoneda, Day, optics
 ├── stochastic/     # Markov kernels, Giry monad, grammar parsers, chart algorithms
 ├── continuous/     # distribution families, spaces, flows, monadic programs
-├── dsl/            # lexer, parser, AST, compiler for .qvr files
+├── dsl/            # panproto-driven parser, AST (didactic Models),
+│                   # compiler, resolution lenses, Program Theory
 ├── inference/      # traces, conditioning, guides, ELBO, SVI, predictive
 ├── program.py      # Program: wraps morphisms as nn.Module
 └── giry.py         # GiryMonad, FinStoch
 ```
+
+The tree-sitter grammar lives at the repo root under `grammars/qvr/` and is vendored by panproto's `panproto-grammars-all` distribution.
 
 ## Documentation
 
@@ -141,8 +144,10 @@ Full documentation: [https://FACTSlab.github.io/quivers](https://FACTSlab.github
 
 ## Requirements
 
-- Python 3.13+
+- Python 3.14+
 - PyTorch 2.0+
+- didactic 0.6.0+ (typed-data layer over panproto)
+- panproto 0.45.0+ and panproto-grammars-all 0.45.0+ (QVR tree-sitter parser)
 
 ## Contributing
 

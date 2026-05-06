@@ -45,6 +45,9 @@ class Presheaf:
     category (collection of objects with hom-sets between them).
     In the simplest case, F assigns a V-tensor to each object.
 
+    Holds a mutable ``dict[int, torch.Tensor]`` of values that grows during
+    yoneda extension; not a value type.
+
     Parameters
     ----------
     objects : Sequence[SetObject]
