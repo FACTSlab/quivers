@@ -48,6 +48,8 @@ class Weight:
     indices, and W assigns a V-value (scalar in the quantale's lattice)
     to each index.
 
+    Holds a ``torch.Tensor`` of values; not a value type.
+
     Parameters
     ----------
     values : torch.Tensor
