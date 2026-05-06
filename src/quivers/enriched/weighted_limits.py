@@ -87,7 +87,7 @@ class Diagram(dx.Model):
     In the simplest case (discrete diagram), this is just a tuple of
     objects with no connecting morphisms.
 
-    Parameters
+    Attributes
     ----------
     objects : tuple[SetObject, ...]
         The objects A_j in the diagram, one per index j.

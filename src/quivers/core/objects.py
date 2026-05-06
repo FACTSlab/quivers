@@ -53,7 +53,7 @@ def _check_cardinality(value: int) -> int:
 class FinSet(SetObject):
     """A named finite set with a fixed cardinality.
 
-    Parameters
+    Attributes
     ----------
     name : str
         Human-readable name for the set.
@@ -198,7 +198,7 @@ class FreeMonoid(SetObject):
     ``Unit + G + G×G + ... + G^max_length``; obtain it via
     :meth:`as_coproduct`.
 
-    Parameters
+    Attributes
     ----------
     generators : FinSet
         The generator set.

@@ -17,7 +17,7 @@ import torch
 class RuleSystem(dx.Model):
     """A composable set of structural rules for chart parsing.
 
-    Parameters
+    Attributes
     ----------
     binary_rules : tuple of (int, int, int)
         Each triple is (result_idx, left_idx, right_idx).
