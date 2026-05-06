@@ -14,10 +14,6 @@ import pytest
 
 # AST nodes
 from quivers.dsl.ast_nodes import (
-    CatPattern,
-    CatPatternName,
-    CatPatternProduct,
-    CatPatternSlash,
     CategoryDecl,
     ContinuousMorphismDecl,
     DiscretizeDecl,
@@ -58,6 +54,8 @@ from quivers.dsl.ast_nodes import (
     Statement,
     StochasticMorphismDecl,
     TypeCoproduct,
+    TypeEffectApply,
+    TypeSlash,
     TypeExpr,
     TypeName,
     TypeProduct,
@@ -111,12 +109,11 @@ _TYPE_NAME = TypeName(name="State")
 _TYPE_PRODUCT = TypeProduct(components=(TypeName(name="A"), TypeName(name="B")))
 _TYPE_COPRODUCT = TypeCoproduct(components=(_TYPE_NAME, TypeName(name="X")))
 
-# AST: cat patterns
-_CAT_NAME = CatPatternName(name="X")
-_CAT_SLASH = CatPatternSlash(
-    result=_CAT_NAME, argument=CatPatternName(name="Y"), direction="/"
+# AST: residuated patterns (now part of TypeExpr)
+_TYPE_SLASH = TypeSlash(
+    result=TypeName(name="X"), argument=TypeName(name="Y"), direction="/"
 )
-_CAT_PRODUCT = CatPatternProduct(left=_CAT_NAME, right=CatPatternName(name="Z"))
+_TYPE_EFFECT_APPLY = TypeEffectApply(effect="Cont_S", args=(TypeName(name="NP"),))
 
 # AST: space expressions
 _SPACE_NAME = SpaceName(name="R3")
@@ -160,8 +157,8 @@ _CDECL = CategoryDecl(name="S")
 _RDECL = RuleDecl(
     name="app",
     variables=("X", "Y"),
-    premises=(_CAT_SLASH, CatPatternName(name="Y")),
-    conclusion=CatPatternName(name="X"),
+    premises=(_TYPE_SLASH, TypeName(name="Y")),
+    conclusion=TypeName(name="X"),
 )
 _ODECL = ObjectDecl(name="State", type_expr=_TYPE_NAME)
 _MDECL = MorphismDecl(
@@ -248,10 +245,8 @@ CASES: list[tuple[type, object]] = [
     (TypeExpr, _TYPE_NAME),
     (TypeExpr, _TYPE_PRODUCT),
     (TypeExpr, _TYPE_COPRODUCT),
-    # AST: cat patterns
-    (CatPattern, _CAT_NAME),
-    (CatPattern, _CAT_SLASH),
-    (CatPattern, _CAT_PRODUCT),
+    (TypeExpr, _TYPE_SLASH),
+    (TypeExpr, _TYPE_EFFECT_APPLY),
     # AST: space expressions
     (SpaceExpr, _SPACE_NAME),
     (SpaceExpr, _SPACE_CTOR),

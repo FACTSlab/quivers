@@ -703,15 +703,15 @@ def _match_pattern(
 ) -> bool:
     """Match a category pattern against a concrete category.
 
-    Attempts to unify ``pattern`` with ``category``, extending
-    ``bindings`` with variable assignments. Returns True on
+    Attempts to unify ``pattern`` (a :class:`TypeExpr`) with ``category``,
+    extending ``bindings`` with variable assignments. Returns True on
     success, False on failure. Mutates ``bindings`` in place.
 
     Parameters
     ----------
     pattern
-        A category pattern AST node (CatPatternName, CatPatternSlash,
-        or CatPatternProduct).
+        A :class:`TypeExpr` AST node (``TypeName``, ``TypeProduct``,
+        ``TypeSlash``, or ``TypeEffectApply``).
     category : Category
         The concrete category to match against.
     bindings : dict
@@ -719,24 +719,26 @@ def _match_pattern(
     variables : frozenset
         The set of variable names (from the rule's parameter list).
     """
-    from quivers.dsl.ast_nodes import CatPatternName, CatPatternSlash, CatPatternProduct
+    from quivers.dsl.ast_nodes import (
+        TypeEffectApply,
+        TypeName,
+        TypeProduct,
+        TypeSlash,
+    )
 
-    if isinstance(pattern, CatPatternName):
+    if isinstance(pattern, TypeName):
         name = pattern.name
 
         if name in variables:
-            # pattern variable: bind or check consistency
             if name in bindings:
                 return bindings[name] == category
 
             bindings[name] = category
             return True
 
-        else:
-            # category atom constant: must match exactly
-            return isinstance(category, AtomicCategory) and category.name == name
+        return isinstance(category, AtomicCategory) and category.name == name
 
-    elif isinstance(pattern, CatPatternSlash):
+    if isinstance(pattern, TypeSlash):
         if not isinstance(category, SlashCategory):
             return False
 
@@ -747,13 +749,37 @@ def _match_pattern(
             pattern.result, category.result, bindings, variables
         ) and _match_pattern(pattern.argument, category.argument, bindings, variables)
 
-    elif isinstance(pattern, CatPatternProduct):
+    if isinstance(pattern, TypeProduct):
+        # TypeProduct is variadic; fold left-associatively to match the
+        # binary ProductCategory tree shape.
+        comps = pattern.components
+        if len(comps) < 2:
+            return False
         if not isinstance(category, ProductCategory):
             return False
 
-        return _match_pattern(
-            pattern.left, category.left, bindings, variables
-        ) and _match_pattern(pattern.right, category.right, bindings, variables)
+        # Unfold the category's left spine to as many positions as
+        # there are components, then match component-wise.
+        spine: list[Category] = [category.right]
+        cur: Category = category.left
+        while len(spine) < len(comps) - 1 and isinstance(cur, ProductCategory):
+            spine.append(cur.right)
+            cur = cur.left
+        spine.append(cur)
+        spine.reverse()
+
+        if len(spine) != len(comps):
+            return False
+        for sub_pat, sub_cat in zip(comps, spine):
+            if not _match_pattern(sub_pat, sub_cat, bindings, variables):
+                return False
+        return True
+
+    if isinstance(pattern, TypeEffectApply):
+        # Effect-typed application is matched in Phase 7 once effect
+        # categories are part of the runtime CategorySystem; for now
+        # signal a non-match so the rule does not fire on bare effects.
+        return False
 
     return False
 
@@ -763,12 +789,12 @@ def _instantiate_pattern(
     bindings: dict[str, Category],
     variables: frozenset[str],
 ) -> Category | None:
-    """Instantiate a category pattern with bound variables.
+    """Instantiate a category pattern (TypeExpr) with bound variables.
 
     Parameters
     ----------
     pattern
-        A category pattern AST node.
+        A :class:`TypeExpr` AST node.
     bindings : dict
         Variable bindings from matching.
     variables : frozenset
@@ -779,15 +805,20 @@ def _instantiate_pattern(
     Category or None
         The concrete category, or None if a variable is unbound.
     """
-    from quivers.dsl.ast_nodes import CatPatternName, CatPatternSlash, CatPatternProduct
+    from quivers.dsl.ast_nodes import (
+        TypeEffectApply,
+        TypeName,
+        TypeProduct,
+        TypeSlash,
+    )
 
-    if isinstance(pattern, CatPatternName):
+    if isinstance(pattern, TypeName):
         if pattern.name in variables:
             return bindings.get(pattern.name)
 
         return AtomicCategory(name=pattern.name)
 
-    elif isinstance(pattern, CatPatternSlash):
+    if isinstance(pattern, TypeSlash):
         result = _instantiate_pattern(pattern.result, bindings, variables)
         argument = _instantiate_pattern(pattern.argument, bindings, variables)
 
@@ -798,14 +829,26 @@ def _instantiate_pattern(
             result=result, argument=argument, direction=pattern.direction
         )
 
-    elif isinstance(pattern, CatPatternProduct):
-        left = _instantiate_pattern(pattern.left, bindings, variables)
-        right = _instantiate_pattern(pattern.right, bindings, variables)
-
-        if left is None or right is None:
+    if isinstance(pattern, TypeProduct):
+        comps = pattern.components
+        if len(comps) < 2:
             return None
+        instantiated: list[Category] = []
+        for sub in comps:
+            cat = _instantiate_pattern(sub, bindings, variables)
+            if cat is None:
+                return None
+            instantiated.append(cat)
+        # Fold left-associatively to a binary ProductCategory tree.
+        result_cat: Category = instantiated[0]
+        for nxt in instantiated[1:]:
+            result_cat = ProductCategory(left=result_cat, right=nxt)
+        return result_cat
 
-        return ProductCategory(left=left, right=right)
+    if isinstance(pattern, TypeEffectApply):
+        # Effect-typed instantiation is part of Phase 7; bare effects
+        # are not yet representable as CategorySystem entries.
+        return None
 
     return None
 

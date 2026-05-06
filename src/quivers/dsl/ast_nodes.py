@@ -79,51 +79,6 @@ class TypeEffectApply(TypeExpr):
 
 
 # ---------------------------------------------------------------------------
-# category patterns (for rule declarations)
-#
-# Phase 1 of the categorial-effects integration adds TypeSlash and
-# TypeEffectApply above and will eventually fold the CatPattern family
-# into TypeExpr; until the tree-sitter grammar is regenerated to emit
-# unified type-expression nodes for residuated patterns, the CatPattern
-# variants below remain in place as the surface for `rule` declarations.
-# ---------------------------------------------------------------------------
-
-
-class CatPattern(dx.TaggedUnion, discriminator="kind"):
-    """Sum of category-pattern node kinds."""
-
-
-class CatPatternName(CatPattern):
-    """A named category pattern element (variable or atom)."""
-
-    name: str
-    line: int = 0
-    col: int = 0
-    kind: Literal["cat_pattern_name"] = "cat_pattern_name"
-
-
-class CatPatternSlash(CatPattern):
-    """A slash category pattern: ``result/argument`` or ``result\\argument``."""
-
-    result: CatPattern
-    argument: CatPattern
-    direction: Literal["/", "\\"]
-    line: int = 0
-    col: int = 0
-    kind: Literal["cat_pattern_slash"] = "cat_pattern_slash"
-
-
-class CatPatternProduct(CatPattern):
-    """A product category pattern: ``left * right``."""
-
-    left: CatPattern
-    right: CatPattern
-    line: int = 0
-    col: int = 0
-    kind: Literal["cat_pattern_product"] = "cat_pattern_product"
-
-
-# ---------------------------------------------------------------------------
 # space expressions (continuous spaces)
 # ---------------------------------------------------------------------------
 
@@ -382,12 +337,17 @@ class CategoryDecl(Statement):
 
 
 class RuleDecl(Statement):
-    """Rule-of-inference declaration."""
+    """Rule-of-inference declaration.
+
+    Premises and conclusion are :class:`TypeExpr` patterns drawn from
+    the unified type-expression family: ``TypeName``, ``TypeProduct``,
+    ``TypeSlash`` (residuated), and ``TypeEffectApply`` (effect-typed).
+    """
 
     name: str
     variables: tuple[str, ...]
-    premises: tuple[CatPattern, ...]
-    conclusion: CatPattern
+    premises: tuple[TypeExpr, ...]
+    conclusion: TypeExpr
     line: int = 0
     col: int = 0
     kind: Literal["rule_decl"] = "rule_decl"

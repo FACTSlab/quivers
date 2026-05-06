@@ -10,14 +10,11 @@ from __future__ import annotations
 
 import warnings
 from pathlib import Path
+from typing import Literal
 
 import panproto
 
 from quivers.dsl.ast_nodes import (
-    CatPattern,
-    CatPatternName,
-    CatPatternProduct,
-    CatPatternSlash,
     CategoryDecl,
     ContinuousMorphismDecl,
     DiscretizeDecl,
@@ -57,9 +54,11 @@ from quivers.dsl.ast_nodes import (
     Statement,
     StochasticMorphismDecl,
     TypeCoproduct,
+    TypeEffectApply,
     TypeExpr,
     TypeName,
     TypeProduct,
+    TypeSlash,
 )
 
 
@@ -190,6 +189,37 @@ def _walk_type(t: _Tree, vid: str) -> TypeExpr:
             line=line,
             col=col,
         )
+    if k == "type_slash":
+        result_vid = t.field(vid, "result")
+        argument_vid = t.field(vid, "argument")
+        if result_vid is None or argument_vid is None:
+            raise ParseError(f"type_slash missing result/argument at {vid}")
+        rcs = t.consts(result_vid)
+        acs = t.consts(argument_vid)
+        direction: Literal["/", "\\"] = "/"
+        if rcs.get("end-byte") is not None and acs.get("start-byte") is not None:
+            mid = t.source[int(rcs["end-byte"]) : int(acs["start-byte"])].decode(
+                "utf-8"
+            )
+            direction = "\\" if "\\" in mid else "/"
+        return TypeSlash(
+            result=_walk_type(t, result_vid),
+            argument=_walk_type(t, argument_vid),
+            direction=direction,
+            line=line,
+            col=col,
+        )
+    if k == "type_effect_apply":
+        effect_vid = t.field(vid, "effect")
+        if effect_vid is None:
+            raise ParseError(f"type_effect_apply missing effect at {vid}")
+        arg_vids = t.fields(vid, "args")
+        return TypeEffectApply(
+            effect=t.text(effect_vid),
+            args=tuple(_walk_type(t, av) for av in arg_vids),
+            line=line,
+            col=col,
+        )
     raise ParseError(f"unexpected type-expression kind: {k}")
 
 
@@ -208,47 +238,6 @@ def _flatten_type(t: _Tree, vid: str, op_kind: str) -> list[TypeExpr]:
     else:
         out.append(_walk_type(t, right_vid))
     return out
-
-
-def _walk_cat_pattern(t: _Tree, vid: str) -> CatPattern:
-    k = t.kind(vid)
-    line, col = t.line_col(vid)
-    if k == "cat_atom":
-        return CatPatternName(name=t.text(t.positional(vid)[0]), line=line, col=col)
-    if k == "cat_paren":
-        return _walk_cat_pattern(t, t.positional(vid)[0])
-    if k == "cat_product":
-        left = t.field(vid, "left")
-        right = t.field(vid, "right")
-        if left is None or right is None:
-            raise ParseError(f"cat_product missing operands at {vid}")
-        return CatPatternProduct(
-            left=_walk_cat_pattern(t, left),
-            right=_walk_cat_pattern(t, right),
-            line=line,
-            col=col,
-        )
-    if k == "cat_slash":
-        result = t.field(vid, "result")
-        argument = t.field(vid, "argument")
-        if result is None or argument is None:
-            raise ParseError(f"cat_slash missing result/argument at {vid}")
-        rcs = t.consts(result)
-        acs = t.consts(argument)
-        direction = "/"
-        if rcs.get("end-byte") is not None and acs.get("start-byte") is not None:
-            mid = t.source[int(rcs["end-byte"]) : int(acs["start-byte"])].decode(
-                "utf-8"
-            )
-            direction = "\\" if "\\" in mid else "/"
-        return CatPatternSlash(
-            result=_walk_cat_pattern(t, result),
-            argument=_walk_cat_pattern(t, argument),
-            direction=direction,
-            line=line,
-            col=col,
-        )
-    raise ParseError(f"unexpected cat_pattern kind: {k}")
 
 
 def _walk_space(t: _Tree, vid: str) -> SpaceExpr:
@@ -808,8 +797,8 @@ def _walk_rule_decl(t: _Tree, vid: str, line: int, col: int) -> RuleDecl:
     return RuleDecl(
         name=_required_text(t, nv, vid, "name"),
         variables=tuple(t.text(v) for v in var_vids),
-        premises=tuple(_walk_cat_pattern(t, p) for p in prem_vids),
-        conclusion=_walk_cat_pattern(t, concl_vid),
+        premises=tuple(_walk_type(t, p) for p in prem_vids),
+        conclusion=_walk_type(t, concl_vid),
         line=line,
         col=col,
     )

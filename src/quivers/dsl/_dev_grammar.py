@@ -75,9 +75,9 @@ def _shared_lib_extension() -> str:
 
 def _build_shared_lib(grammar_dir: Path) -> Path:
     """Compile ``parser.c`` to a shared library, cached by mtime."""
-    cache_root = Path(
-        os.environ.get("XDG_CACHE_HOME") or Path.home() / ".cache"
-    ) / "quivers"
+    cache_root = (
+        Path(os.environ.get("XDG_CACHE_HOME") or Path.home() / ".cache") / "quivers"
+    )
     cache_root.mkdir(parents=True, exist_ok=True)
     out = cache_root / f"qvr_grammar{_shared_lib_extension()}"
     src = grammar_dir / "src" / "parser.c"
