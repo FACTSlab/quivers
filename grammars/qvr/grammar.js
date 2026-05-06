@@ -370,11 +370,17 @@ module.exports = grammar({
       field('method', $.method_call),
     )),
 
-    method_call: $ => seq(
-      field('name', 'marginalize'),
-      '(',
-      field('args', commaSep1($.identifier)),
-      ')',
+    method_call: $ => choice(
+      seq(
+        field('name', 'marginalize'),
+        '(',
+        field('args', commaSep1($.identifier)),
+        ')',
+      ),
+      // residuation-witness combinators (Phase 4): given f : X * Y -> Z
+      // where Z lives in a residuated universe, produce f.curry_right :
+      // X -> Z/Y or f.curry_left : Y -> X\Z. No arguments.
+      seq(field('name', choice('curry_right', 'curry_left'))),
     ),
 
     _atom_expr: $ => choice(

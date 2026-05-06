@@ -226,6 +226,27 @@ class ExprParser(Expr):
     kind: Literal["expr_parser"] = "expr_parser"
 
 
+class ExprCurry(Expr):
+    """Residuation-witness curry combinator.
+
+    For an inner morphism ``f : X * Y -> Z`` whose codomain ``Z``
+    inhabits a residuated universe, ``f.curry_right`` denotes the
+    morphism ``X -> Z/Y`` and ``f.curry_left`` denotes ``Y -> X\\Z``.
+
+    The categorical interpretation is the right (resp. left) component
+    of the residuation-adjunction unit/counit triangle. Validity of the
+    construction is checked at compile time: domain must factor as a
+    non-commutative product and codomain must inhabit a residuated
+    universe (a :class:`FreeResiduated` object in scope).
+    """
+
+    inner: Expr
+    direction: Literal["right", "left"]
+    line: int = 0
+    col: int = 0
+    kind: Literal["expr_curry"] = "expr_curry"
+
+
 # ---------------------------------------------------------------------------
 # let-step arithmetic expressions
 # ---------------------------------------------------------------------------

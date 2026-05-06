@@ -23,6 +23,7 @@ from quivers.dsl.ast_nodes import (
     EnumSetLiteral,
     Expr,
     ExprCompose,
+    ExprCurry,
     ExprFan,
     ExprIdent,
     ExprIdentity,
@@ -345,13 +346,33 @@ def _walk_expr(t: _Tree, vid: str) -> Expr:
             inner_vid = t.field(vid, "inner")
             if inner_vid is None:
                 raise ParseError(f"postfix_expr missing inner at {vid}")
-            names = tuple(t.text(av) for av in t.fields(method_vid, "args"))
-            return ExprMarginalize(
-                inner=_walk_expr(t, inner_vid),
-                names=names,
-                line=line,
-                col=col,
-            )
+            # method_call's `name` field is an anonymous-keyword token
+            # (panproto/panproto#86) so its t.text() may be empty.
+            # Recover the method name from the leading bytes of the
+            # method_call node itself: the keyword always appears at
+            # the start, optionally followed by `(args)`.
+            mtext = t.text(method_vid)
+            paren = mtext.find("(")
+            method_name = (mtext[:paren] if paren >= 0 else mtext).strip()
+            if method_name == "marginalize":
+                names = tuple(t.text(av) for av in t.fields(method_vid, "args"))
+                return ExprMarginalize(
+                    inner=_walk_expr(t, inner_vid),
+                    names=names,
+                    line=line,
+                    col=col,
+                )
+            if method_name in ("curry_right", "curry_left"):
+                direction: Literal["right", "left"] = (
+                    "right" if method_name == "curry_right" else "left"
+                )
+                return ExprCurry(
+                    inner=_walk_expr(t, inner_vid),
+                    direction=direction,
+                    line=line,
+                    col=col,
+                )
+            raise ParseError(f"unknown postfix method {method_name!r} at {vid}")
         raise ParseError(f"unexpected postfix method at {vid}")
     if k == "identity_expr":
         obj_vid = t.field(vid, "object")

@@ -54,6 +54,7 @@ from quivers.dsl.ast_nodes import (
     ExprIdentity,
     ExprCompose,
     ExprTensorProduct,
+    ExprCurry,
     ExprMarginalize,
     ExprFan,
     ExprRepeat,
@@ -1245,6 +1246,14 @@ class Compiler:
                 sets.append(self._objects[name])
             try:
                 return inner.marginalize(*sets)
+            except (TypeError, ValueError) as e:
+                raise CompileError(str(e), expr.line, expr.col) from e
+        elif isinstance(expr, ExprCurry):
+            from quivers.core.morphisms import CurriedMorphism
+
+            inner = self._compile_expr(expr.inner)
+            try:
+                return CurriedMorphism(inner, direction=expr.direction)
             except (TypeError, ValueError) as e:
                 raise CompileError(str(e), expr.line, expr.col) from e
         elif isinstance(expr, ExprFan):

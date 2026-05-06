@@ -21,6 +21,7 @@ from quivers.dsl.ast_nodes import (
     EmbedDecl,
     Expr,
     ExprCompose,
+    ExprCurry,
     ExprFan,
     ExprIdent,
     ExprIdentity,
@@ -141,6 +142,7 @@ _E_PARSER = ExprParser(
     start="S",
     depth=1,
 )
+_E_CURRY = ExprCurry(inner=_E_IDENT, direction="right")
 
 # AST: let-expr nodes
 _LE_LIT = LetExprLiteral(value=0.5)
@@ -266,6 +268,7 @@ CASES: list[tuple[type, object]] = [
     (Expr, _E_SCAN),
     (Expr, _E_MARG),
     (Expr, _E_PARSER),
+    (Expr, _E_CURRY),
     # AST: let-expr nodes
     (LetExprNode, _LE_LIT),
     (LetExprNode, _LE_VAR),

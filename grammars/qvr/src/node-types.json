@@ -1045,7 +1045,7 @@
     "fields": {
       "args": {
         "multiple": true,
-        "required": true,
+        "required": false,
         "types": [
           {
             "type": ",",
@@ -1061,6 +1061,14 @@
         "multiple": false,
         "required": true,
         "types": [
+          {
+            "type": "curry_left",
+            "named": false
+          },
+          {
+            "type": "curry_right",
+            "named": false
+          },
           {
             "type": "marginalize",
             "named": false
@@ -3198,6 +3206,14 @@
   },
   {
     "type": "continuous",
+    "named": false
+  },
+  {
+    "type": "curry_left",
+    "named": false
+  },
+  {
+    "type": "curry_right",
     "named": false
   },
   {
