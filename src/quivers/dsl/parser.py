@@ -835,8 +835,9 @@ def _walk_options(t: _Tree, vid: str) -> dict[str, str]:
             continue
         kvid = t.field(entry, "key")
         vvid = t.field(entry, "value")
-        if kvid and vvid:
-            out[t.text(kvid)] = t.text(vvid)
+        out[_required_text(t, kvid, entry, "key")] = _required_text(
+            t, vvid, entry, "value"
+        )
     return out
 
 
@@ -856,9 +857,8 @@ def _walk_return_pattern(
                 continue
             lvid = t.field(entry, "label")
             vvid = t.field(entry, "var")
-            if lvid and vvid:
-                labels.append(t.text(lvid))
-                vars_l.append(t.text(vvid))
+            labels.append(_required_text(t, lvid, entry, "label"))
+            vars_l.append(_required_text(t, vvid, entry, "var"))
         return tuple(vars_l), tuple(labels)
     raise ParseError(f"unexpected return pattern kind: {k}")
 
