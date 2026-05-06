@@ -122,9 +122,9 @@ The four tensor-bearing accumulators (`Presheaf`, `Weight`, `SampleSite`, `Trace
 
 ## References
 
-- Joyal, A., Street, R., and Verity, D. (1996). *Traced Monoidal Categories*. Mathematical Proceedings of the Cambridge Philosophical Society, 119(3), 447–468.
-- Giry, M. (1982). *A Categorical Approach to Probability Theory*. Lecture Notes in Mathematics, 915, 68–85.
-- Cho, K. and Jacobs, B. (2019). *Disintegration and Bayesian inversion via string diagrams*. Mathematical Structures in Computer Science, 29(7), 938–971.
-- Fritz, T. (2020). *A synthetic approach to Markov kernels, conditional independence and theorems on sufficient statistics*. Advances in Mathematics, 370, 107239.
-- Kelly, G. M. (1982). *Basic Concepts of Enriched Category Theory*. Cambridge University Press.
-- Lawvere, F. W. (1973). *Metric Spaces, Generalized Logic, and Closed Categories*. Rendiconti del Seminario Matematico e Fisico di Milano, 43(1), 135–166.
+- Joyal, A., Street, R., and Verity, D. (1996). *Traced Monoidal Categories*. Mathematical Proceedings of the Cambridge Philosophical Society, 119(3), 447–468. [doi:10.1017/S0305004100074338](https://doi.org/10.1017/S0305004100074338).
+- Giry, M. (1982). *A Categorical Approach to Probability Theory*. In *Categorical Aspects of Topology and Analysis*, Lecture Notes in Mathematics 915, 68–85. Springer. [doi:10.1007/BFb0092872](https://doi.org/10.1007/BFb0092872).
+- Cho, K. and Jacobs, B. (2019). *Disintegration and Bayesian inversion via string diagrams*. Mathematical Structures in Computer Science, 29(7), 938–971. [doi:10.1017/S0960129518000488](https://doi.org/10.1017/S0960129518000488).
+- Fritz, T. (2020). *A synthetic approach to Markov kernels, conditional independence and theorems on sufficient statistics*. Advances in Mathematics, 370, 107239. [doi:10.1016/j.aim.2020.107239](https://doi.org/10.1016/j.aim.2020.107239).
+- Kelly, G. M. (1982). *Basic Concepts of Enriched Category Theory*. London Mathematical Society Lecture Note Series 64. Cambridge University Press. Republished as Reprints in Theory and Applications of Categories 10 (2005). [tac:reprints/articles/10/tr10abs.html](http://www.tac.mta.ca/tac/reprints/articles/10/tr10abs.html).
+- Lawvere, F. W. (1973). *Metric Spaces, Generalized Logic, and Closed Categories*. Rendiconti del Seminario Matematico e Fisico di Milano, 43(1), 135–166. [doi:10.1007/BF02924844](https://doi.org/10.1007/BF02924844). Republished as Reprints in Theory and Applications of Categories 1 (2002). [tac:reprints/articles/1/tr1abs.html](http://www.tac.mta.ca/tac/reprints/articles/1/tr1abs.html).

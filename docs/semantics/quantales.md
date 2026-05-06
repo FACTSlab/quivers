@@ -63,6 +63,26 @@ For each quantale we record which elementary properties hold; these determine wh
 
 A quantale is *integral* if $\mathbf{1}$ is the top element and *idempotent* if $a \otimes a = a$ for all $a$. Cancellativity means $a \otimes b = a \otimes c \Rightarrow b = c$ whenever $a \neq \bot$. Idempotent integral quantales are precisely *frames* (locales).
 
+### 2.1 A note on the product-fuzzy and Łukasiewicz pairs
+
+The product-fuzzy and Łukasiewicz $(\otimes, \oplus)$ pairs are *t-norm / t-conorm* pairs on $[0, 1]$, equipping the unit interval with the structure of a *commutative residuated lattice* (an MV-algebra in the Łukasiewicz case). They are **not** strict quantales: the full quantale-distributivity law
+
+$$
+a \otimes \bigoplus_{i} b_i \;=\; \bigoplus_i (a \otimes b_i)
+$$
+
+fails in general for these two pairs.
+
+For example, in the product-fuzzy pair with $a = b_1 = b_2 = 1/2$:
+
+$$
+a \otimes (b_1 \oplus b_2) \;=\; \tfrac{1}{2}\bigl(1 - \tfrac{1}{4}\bigr) \;=\; \tfrac{3}{8},
+\qquad
+(a \otimes b_1) \oplus (a \otimes b_2) \;=\; 1 - \tfrac{9}{16} \;=\; \tfrac{7}{16}.
+$$
+
+Strict quantale-distributivity holds in the idempotent ($\mathcal{V}_{\mathbb{B}}$ and $\mathcal{V}_{\mathrm{G}}$) and tropical ($\mathcal{V}_{\mathrm{T}}$) cases. For $\mathcal{V}_{\mathrm{pf}}$ and $\mathcal{V}_{\mathrm{L}}$, the categorical apparatus of $\mathcal{V}\text{-}\mathbf{Rel}$ should be read as describing the *Bayesian noisy-OR* (resp.\ *Łukasiewicz-bounded-sum*) aggregation under the multiplicative t-norm, rather than as a strict $\mathcal{V}$-enriched category in Kelly's sense. Composition, tensor, and the equational laws of [Expressions §5](expressions.md#5-coherence-and-equational-laws) hold up to this standard caveat: equations involving $\bigoplus$-distribution over $\otimes$ are exact in the idempotent / tropical cases and approximate in the t-norm cases.
+
 ## 3. Base change
 
 A *quantale homomorphism* $h : \mathcal{V} \to \mathcal{W}$ is a join-preserving monoid map: $h(a \otimes_{\mathcal{V}} b) = h(a) \otimes_{\mathcal{W}} h(b)$, $h(\mathbf{1}_{\mathcal{V}}) = \mathbf{1}_{\mathcal{W}}$, and $h$ commutes with arbitrary joins.

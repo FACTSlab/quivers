@@ -66,7 +66,7 @@ $$
 (k_1; k_2)(x, z) \;=\; \sum_{y} k_1(x, y) \cdot k_2(y, z).
 $$
 
-This coincides with the $\mathcal{V}_{\mathrm{pf}}$-relation composition modulo the column-normalisation constraint, i.e.\ $\mathbf{Stoch}$ is a *full* sub-Kleisli-category of the multiplicative $\mathcal{V}_{\mathrm{pf}}\text{-}\mathbf{Rel}$ restricted to row-stochastic relations.
+Note that $\mathbf{Stoch}$ is *not* a sub-category of $\mathcal{V}_{\mathrm{pf}}\text{-}\mathbf{Rel}$: their composition operations differ. $\mathcal{V}_{\mathrm{pf}}\text{-}\mathbf{Rel}$ uses noisy-OR aggregation (the t-conorm $\bigoplus a_i = 1 - \prod (1 - a_i)$) while $\mathbf{Stoch}$ uses ordinary summation, which is the correct aggregation for events partitioning the sample space. The two categories share an underlying tensor representation in $[0, 1]^{|X| \times |Y|}$, but the categorical structure is supplied by different binary operations.
 
 ### 2.1 Distribution-family morphisms
 

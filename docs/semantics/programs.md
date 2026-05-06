@@ -25,11 +25,11 @@ The block body is a sequence of statements interpreted in the *Kleisli* category
 
 Let $\mathcal{G}$ denote the Giry monad on $\mathbf{SBor}$, with unit $\eta_S : S \to \mathcal{G}(S)$ given by $s \mapsto \delta_s$ (Dirac at $s$) and multiplication $\mu_S : \mathcal{G}(\mathcal{G}(S)) \to \mathcal{G}(S)$ given by integration. The Kleisli category $\mathbf{Kern}$ of $\mathcal{G}$ has the same objects as $\mathbf{SBor}$ and morphisms $S \to T$ given by Markov kernels $S \to \mathcal{G}(T)$.
 
-A QVR program is denoted by a single morphism in $\mathbf{Kern}$, built compositionally by interpreting each statement as a *Kleisli arrow* and composing them via Kleisli composition $\diamond$:
+A QVR program is denoted by a single morphism in $\mathbf{Kern}$, built compositionally by interpreting each statement as a *Kleisli arrow* and composing them via Kleisli composition $\diamond$. For $k_1 : S \to \mathcal{G}(T)$ and $k_2 : T \to \mathcal{G}(U)$:
 
 $$
-(k_1 \diamond k_2)(s) \;=\; \mu_T \bigl( \mathcal{G}(k_2)(k_1(s)) \bigr)
-\;=\; \int_T k_2(t) \, k_1(s, \mathrm{d}t).
+(k_1 \diamond k_2)(s, C) \;=\; \mu_U \bigl( \mathcal{G}(k_2)(k_1(s)) \bigr)(C)
+\;=\; \int_T k_2(t, C) \, k_1(s, \mathrm{d}t).
 $$
 
 We extend a program-body environment to track *random variables*: for a pre-fixed program domain $\Gamma$ and a current statement-context $\Phi = (X_1, \dots, X_k)$, every random variable bound earlier in the body has a Kleisli arrow
@@ -46,14 +46,14 @@ $$
 
 ## 2. Statements
 
-We give the denotation of each statement form as a Kleisli arrow on the program's accumulated random-variable context $\Phi$. Concretely, the body is interpreted as a chain
+We give the denotation of each statement form as a Kleisli arrow on the program's accumulated random-variable context $\Phi$. Concretely, the body is interpreted as the Kleisli composite
 
 $$
-\Gamma \xrightarrow{\;k_1\;} \mathcal{G}(\Phi_1) \xrightarrow{\;k_2\;} \mathcal{G}(\Phi_2) \xrightarrow{\quad} \cdots \xrightarrow{\;k_n\;} \mathcal{G}(\Phi_n)
-\xrightarrow{\;\eta \circ \pi_e\;} \mathcal{G}(\llbracket \tau_2 \rrbracket),
+\mathcal{B}\llbracket s_1; \cdots; s_n; \mathsf{return}\ e \rrbracket
+\;=\; \mathsf{ret}_e \diamond \mathcal{S}\llbracket s_n \rrbracket \diamond \cdots \diamond \mathcal{S}\llbracket s_1 \rrbracket,
 $$
 
-where $\pi_e$ is the projection onto the components named by the `return` clause.
+where each $\mathcal{S}\llbracket s_i \rrbracket : \Phi_{i-1} \to \mathcal{G}(\Phi_i)$ is the Kleisli arrow assigned to statement $s_i$ (with $\Phi_0 = \Gamma$), and $\mathsf{ret}_e : \Phi_n \to \mathcal{G}(\llbracket \tau_2 \rrbracket)$ is the deterministic Kleisli arrow $\eta \circ \pi_e$ projecting onto the components named by the `return` clause.
 
 ### 2.1 Draw
 
@@ -66,16 +66,18 @@ draw v ~ F(args)
 denotes the Kleisli arrow extending the context with a fresh random variable distributed according to family $F$:
 
 $$
-\mathcal{S}\llbracket \mathsf{draw}\ v \sim F(\bar a) \rrbracket : \mathcal{G}(\Phi) \to \mathcal{G}(\Phi \times \llbracket \mathsf{cod}(F) \rrbracket),
+\mathcal{S}\llbracket \mathsf{draw}\ v \sim F(\bar a) \rrbracket : \Phi \to \mathcal{G}\bigl(\Phi \times \llbracket \mathsf{cod}(F) \rrbracket\bigr),
 $$
 
-defined by
+defined on measurable rectangles $B \times C$ (with $B \subseteq \Phi$, $C \subseteq \llbracket \mathsf{cod}(F) \rrbracket$) by
 
 $$
-\mathcal{S}\llbracket \mathsf{draw}\ v \sim F(\bar a) \rrbracket(\nu)\ (B \times C) \;=\; \int_{B} p_F\bigl( y \,;\, \theta_F(\bar a, \phi) \bigr)\, \mathrm{d}y \, \cdot\, \nu(\mathrm{d}\phi)\,\mathbf{1}_C(\phi),
+\mathcal{S}\llbracket \mathsf{draw}\ v \sim F(\bar a) \rrbracket(\phi,\, B \times C)
+\;=\;
+\mathbf{1}_B(\phi) \cdot \int_C p_F\bigl( y \,;\, \theta_F(\bar a, \phi) \bigr)\, \mathrm{d}y,
 $$
 
-where $\theta_F$ is the family's parameter map (which may depend on previously-drawn variables in $\phi$). In short: draw a fresh sample from $F$ conditioned on the current context, and append it to the context.
+where $\theta_F$ is the family's parameter map (which may depend on previously-drawn variables in $\phi$). In short: keep the current trace $\phi$ and append a fresh sample from $F$ conditioned on it. The induced action on measures over $\Phi$ is $\mu_{\Phi \times \mathsf{cod}(F)} \circ \mathcal{G}\bigl(\mathcal{S}\llbracket \mathsf{draw} \rrbracket\bigr)$.
 
 ### 2.2 Observe
 
@@ -85,13 +87,15 @@ An observe statement
 observe v ~ F(args)
 ```
 
-denotes a *score* update, multiplying the joint by the likelihood of $v$ under $F$:
+denotes a *score* update against an externally-supplied observed value $v_{\mathrm{obs}}$. As a Kleisli arrow in the *unnormalised* Giry monad $\mathcal{G}_{\le 1}$ (sub-probability measures),
 
 $$
-\mathcal{S}\llbracket \mathsf{observe}\ v \sim F(\bar a) \rrbracket(\nu) \;=\; p_F\bigl(v \,;\, \theta_F(\bar a, \phi)\bigr) \cdot \nu(\mathrm{d}\phi),
+\mathcal{S}\llbracket \mathsf{observe}\ v \sim F(\bar a) \rrbracket : \Phi \to \mathcal{G}_{\le 1}(\Phi),
+\qquad
+\mathcal{S}\llbracket \mathsf{observe}\ v \sim F(\bar a) \rrbracket(\phi,\, B) \;=\; \mathbf{1}_B(\phi) \cdot p_F\bigl( v_{\mathrm{obs}} \,;\, \theta_F(\bar a, \phi)\bigr).
 $$
 
-a *sub-probability* measure on $\Phi$. In the Kleisli category of the *unnormalised* Giry monad, this is the natural Kleisli arrow; the standard practice is to defer normalisation to the inference layer (see [`quivers.inference`](../api/inference/svi.md)). The categorical setting is the *Markov category with conditioning* of [Cho–Jacobs 2019] / [Fritz 2020].
+The trace context is preserved, but the total mass of the resulting measure is the likelihood of $v_{\mathrm{obs}}$ at $\phi$. Normalisation and posterior inference are deferred to the inference layer (see [`quivers.inference`](../api/inference/svi.md)). The categorical setting is the *Markov category with conditioning* of [Cho & Jacobs 2019](https://doi.org/10.1017/S0960129518000488) and [Fritz 2020](https://doi.org/10.1016/j.aim.2020.107239).
 
 ### 2.3 Let
 
@@ -104,10 +108,19 @@ let v = expr
 denotes a *deterministic* extension of the context. The right-hand side `expr` is an arithmetic / function-application expression over previously-bound names; it denotes a measurable map $h : \Phi \to T$, and the let statement is the Kleisli arrow
 
 $$
-\mathcal{S}\llbracket \mathsf{let}\ v = \mathit{expr} \rrbracket(\nu)\ (B \times C) \;=\; \int_C \mathbf{1}_B\bigl(h(\phi)\bigr)\, \nu(\mathrm{d}\phi),
+\mathcal{S}\llbracket \mathsf{let}\ v = \mathit{expr} \rrbracket : \Phi \to \mathcal{G}(\Phi \times T),
+\qquad
+\mathcal{S}\llbracket \mathsf{let}\ v = \mathit{expr} \rrbracket(\phi) \;=\; \delta_{(\phi,\, h(\phi))},
 $$
 
-i.e.\ pushforward by $h$ paired with the identity on the existing context (the *strength* of the Giry monad).
+a Dirac kernel. Equivalently, on rectangles $B \times C$:
+
+$$
+\mathcal{S}\llbracket \mathsf{let}\ v = \mathit{expr} \rrbracket(\phi,\, B \times C)
+\;=\; \mathbf{1}_B(\phi) \cdot \mathbf{1}_C\bigl(h(\phi)\bigr),
+$$
+
+i.e.\ pushforward by $\mathrm{id}_{\Phi} \times h$ realised through the *strength* of the Giry monad.
 
 The arithmetic sublanguage is interpreted standardly: $\mathbb{R}$-valued and $\mathbb{N}$-valued operators denote the corresponding measurable functions on the relevant space; built-in functions (`sigmoid`, `exp`, `log`, `abs`, `softplus`) denote the corresponding total measurable maps.
 
@@ -119,13 +132,15 @@ A return statement
 return e
 ```
 
-closes the body. If $e = (v_1, \dots, v_m)$ is a tuple of bound names, the denotation is the marginalisation of the joint posterior onto the named coordinates:
+closes the body. If $e = (v_1, \dots, v_m)$ is a tuple of bound names, the return clause is the deterministic Kleisli arrow
 
 $$
-\mathcal{B}\llbracket \cdots \,;\, \mathsf{return}\ (v_1, \dots, v_m) \rrbracket(\gamma) \;=\; (\pi_{v_1, \dots, v_m})_{*} \, \nu_n(\gamma),
+\mathsf{ret}_e : \Phi_n \to \mathcal{G}\bigl(\llbracket \tau_2 \rrbracket\bigr),
+\qquad
+\mathsf{ret}_e(\phi) \;=\; \delta_{\pi_{v_1, \dots, v_m}(\phi)},
 $$
 
-where $\nu_n$ is the joint context measure produced by interpreting the body up to statement $n$, and $\pi_{v_1, \dots, v_m}$ is the projection onto the named coordinates.
+where $\pi_{v_1, \dots, v_m} : \Phi_n \to \llbracket \tau_2 \rrbracket$ projects the trace onto the named coordinates. Composing with the body chain marginalises the joint (sub-)probability measure onto those coordinates.
 
 If $e$ contains labels (`return (a: x, b: y)`), the labels rename the coordinates of the resulting product space; this is a purely syntactic rebinding without semantic effect.
 
@@ -151,7 +166,7 @@ i.e.\ a morphism in $\mathbf{Kern}$ with extended domain. Concretely, parameter 
 Two programs $P : X \to Y$ and $Q : Y \to Z$ compose by Kleisli composition:
 
 $$
-\llbracket Q \mathbin{>\!\!>} P \rrbracket(x) \;=\; \int_Y \llbracket Q \rrbracket(y) \, \llbracket P \rrbracket(x, \mathrm{d}y).
+\llbracket P \mathbin{>\!\!>} Q \rrbracket(x, C) \;=\; \int_Y \llbracket Q \rrbracket(y, C) \, \llbracket P \rrbracket(x, \mathrm{d}y).
 $$
 
 The DSL exposes this through `output` declarations: `output P >> Q` denotes the Kleisli composite of the two program kernels.
@@ -171,4 +186,4 @@ These are valid statements about denotations of QVR programs; in particular, the
 
 ## 6. Inference and conditioning
 
-The denotation of a program is a *kernel* — not yet a posterior. Conditioning on observed data, normalisation, and approximate posterior inference are *external* operations on the denotation, supplied by the [`quivers.inference`](../api/inference/svi.md) module. The categorical apparatus is that of *Markov categories with conditionals* ([Cho–Jacobs 2019]); the implementation realises trace-based conditioning and stochastic variational inference as concrete instances of that theory.
+The denotation of a program is a *kernel* — not yet a posterior. Conditioning on observed data, normalisation, and approximate posterior inference are *external* operations on the denotation, supplied by the [`quivers.inference`](../api/inference/svi.md) module. The categorical apparatus is that of *Markov categories with conditionals* ([Cho & Jacobs 2019](https://doi.org/10.1017/S0960129518000488); [Fritz 2020](https://doi.org/10.1016/j.aim.2020.107239)); the implementation realises trace-based conditioning and stochastic variational inference as concrete instances of that theory.
