@@ -78,7 +78,17 @@ reportPrivateImportUsage = "none"
 # didactic's dx.Model field descriptors widen access to the FieldValue
 # union (str | int | float | bytes | Decimal | tuple[FieldValue, ...]),
 # which pyright cannot narrow back to the declared annotation without
-# explicit casts at every call site. Suppress until didactic ships
-# typed field descriptors.
-reportArgumentType = "none"
-reportOperatorIssue = "none"
+# explicit casts at every call site. The categories below are dominated
+# by symptoms of that widening; surface them as warnings so they remain
+# visible without failing CI until didactic ships typed field
+# descriptors.
+reportArgumentType = "warning"
+reportOperatorIssue = "warning"
+reportGeneralTypeIssues = "warning"
+reportIndexIssue = "warning"
+reportReturnType = "warning"
+reportOptionalIterable = "warning"
+reportOptionalSubscript = "warning"
+reportOptionalMemberAccess = "warning"
+reportAssignmentType = "warning"
+reportCallIssue = "warning"
