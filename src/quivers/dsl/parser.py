@@ -20,6 +20,7 @@ from quivers.dsl.ast_nodes import (
     DiscretizeDecl,
     DrawStep,
     EmbedDecl,
+    EnumSetLiteral,
     Expr,
     ExprCompose,
     ExprFan,
@@ -31,6 +32,7 @@ from quivers.dsl.ast_nodes import (
     ExprScan,
     ExprStack,
     ExprTensorProduct,
+    FreeResiduatedExpr,
     LetDecl,
     LetExprBinOp,
     LetExprCall,
@@ -46,6 +48,7 @@ from quivers.dsl.ast_nodes import (
     ProgramDecl,
     QuantaleDecl,
     RuleDecl,
+    SchemaDecl,
     SpaceConstructor,
     SpaceDecl,
     SpaceExpr,
@@ -607,17 +610,29 @@ def _walk_statement(t: _Tree, vid: str) -> Statement | list[Statement]:
         return out if len(out) > 1 else out[0]
     if k == "rule_decl":
         return _walk_rule_decl(t, vid, line, col)
+    if k == "schema_decl":
+        return _walk_schema_decl(t, vid, line, col)
     if k == "object_decl":
         nv = t.field(vid, "name")
         tv = t.field(vid, "type")
-        if tv is None:
-            raise ParseError(f"object_decl missing type at {vid}")
-        return ObjectDecl(
-            name=_required_text(t, nv, vid, "name"),
-            type_expr=_walk_type(t, tv),
-            line=line,
-            col=col,
-        )
+        iv = t.field(vid, "init")
+        if tv is not None:
+            return ObjectDecl(
+                name=_required_text(t, nv, vid, "name"),
+                type_expr=_walk_type(t, tv),
+                init=None,
+                line=line,
+                col=col,
+            )
+        if iv is not None:
+            return ObjectDecl(
+                name=_required_text(t, nv, vid, "name"),
+                type_expr=None,
+                init=_walk_object_initializer(t, iv),
+                line=line,
+                col=col,
+            )
+        raise ParseError(f"object_decl missing type/init at {vid}")
     if k == "morphism_decl":
         cs = t.consts(vid)
         prefix = t.source[int(cs["start-byte"]) : int(cs["start-byte"]) + 8].decode(
@@ -799,6 +814,72 @@ def _walk_rule_decl(t: _Tree, vid: str, line: int, col: int) -> RuleDecl:
         variables=tuple(t.text(v) for v in var_vids),
         premises=tuple(_walk_type(t, p) for p in prem_vids),
         conclusion=_walk_type(t, concl_vid),
+        line=line,
+        col=col,
+    )
+
+
+def _walk_object_initializer(t: _Tree, vid: str) -> EnumSetLiteral | FreeResiduatedExpr:
+    k = t.kind(vid)
+    line, col = t.line_col(vid)
+    if k == "enum_set_literal":
+        elem_vids = t.fields(vid, "elements")
+        return EnumSetLiteral(
+            elements=tuple(t.text(e) for e in elem_vids),
+            line=line,
+            col=col,
+        )
+    if k == "free_residuated_expr":
+        gen_vid = t.field(vid, "generators")
+        if gen_vid is None:
+            raise ParseError(f"free_residuated_expr missing generators at {vid}")
+        depth = 1
+        ops: list[str] = []
+        # The grammar's free_residuated_arg variants carry one of two
+        # field-tagged children: a depth integer or per-op identifier(s).
+        for arg_vid in t.positional(vid):
+            if t.kind(arg_vid) != "free_residuated_arg":
+                continue
+            d = t.field(arg_vid, "depth")
+            if d is not None:
+                depth = int(t.text(d))
+                continue
+            for op_vid in t.fields(arg_vid, "op"):
+                ops.append(t.text(op_vid))
+        if not ops:
+            ops = ["slash"]
+        return FreeResiduatedExpr(
+            generators=t.text(gen_vid),
+            depth=depth,
+            ops=tuple(ops),
+            line=line,
+            col=col,
+        )
+    raise ParseError(f"unexpected object_initializer kind: {k}")
+
+
+def _walk_schema_decl(t: _Tree, vid: str, line: int, col: int) -> SchemaDecl:
+    nv = t.field(vid, "name")
+    param_vids = t.fields(vid, "parameters")
+    dom_vid = t.field(vid, "domain")
+    cod_vid = t.field(vid, "codomain")
+    if dom_vid is None or cod_vid is None:
+        raise ParseError(f"schema_decl missing domain/codomain at {vid}")
+    param_names: list[tuple[str, ...]] = []
+    param_types: list[TypeExpr] = []
+    for pv in param_vids:
+        name_vids = t.fields(pv, "names")
+        type_vid = t.field(pv, "type")
+        if type_vid is None:
+            raise ParseError(f"schema_parameter missing type at {pv}")
+        param_names.append(tuple(t.text(n) for n in name_vids))
+        param_types.append(_walk_type(t, type_vid))
+    return SchemaDecl(
+        name=_required_text(t, nv, vid, "name"),
+        parameter_names=tuple(param_names),
+        parameter_types=tuple(param_types),
+        domain=_walk_type(t, dom_vid),
+        codomain=_walk_type(t, cod_vid),
         line=line,
         col=col,
     )

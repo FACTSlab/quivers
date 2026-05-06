@@ -434,6 +434,26 @@
     }
   },
   {
+    "type": "enum_set_literal",
+    "named": true,
+    "fields": {
+      "elements": {
+        "multiple": true,
+        "required": true,
+        "types": [
+          {
+            "type": ",",
+            "named": false
+          },
+          {
+            "type": "identifier",
+            "named": true
+          }
+        ]
+      }
+    }
+  },
+  {
     "type": "expr_ident",
     "named": true,
     "fields": {},
@@ -561,6 +581,58 @@
           }
         ]
       }
+    }
+  },
+  {
+    "type": "free_residuated_arg",
+    "named": true,
+    "fields": {
+      "depth": {
+        "multiple": false,
+        "required": false,
+        "types": [
+          {
+            "type": "integer",
+            "named": true
+          }
+        ]
+      },
+      "op": {
+        "multiple": true,
+        "required": false,
+        "types": [
+          {
+            "type": "identifier",
+            "named": true
+          }
+        ]
+      }
+    }
+  },
+  {
+    "type": "free_residuated_expr",
+    "named": true,
+    "fields": {
+      "generators": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "identifier",
+            "named": true
+          }
+        ]
+      }
+    },
+    "children": {
+      "multiple": true,
+      "required": false,
+      "types": [
+        {
+          "type": "free_residuated_arg",
+          "named": true
+        }
+      ]
     }
   },
   {
@@ -1151,6 +1223,20 @@
     "type": "object_decl",
     "named": true,
     "fields": {
+      "init": {
+        "multiple": false,
+        "required": false,
+        "types": [
+          {
+            "type": "enum_set_literal",
+            "named": true
+          },
+          {
+            "type": "free_residuated_expr",
+            "named": true
+          }
+        ]
+      },
       "name": {
         "multiple": false,
         "required": true,
@@ -1163,7 +1249,7 @@
       },
       "type": {
         "multiple": false,
-        "required": true,
+        "required": false,
         "types": [
           {
             "type": "type_atom",
@@ -1948,6 +2034,146 @@
     }
   },
   {
+    "type": "schema_decl",
+    "named": true,
+    "fields": {
+      "codomain": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "type_atom",
+            "named": true
+          },
+          {
+            "type": "type_coproduct",
+            "named": true
+          },
+          {
+            "type": "type_effect_apply",
+            "named": true
+          },
+          {
+            "type": "type_paren",
+            "named": true
+          },
+          {
+            "type": "type_product",
+            "named": true
+          },
+          {
+            "type": "type_slash",
+            "named": true
+          }
+        ]
+      },
+      "domain": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "type_atom",
+            "named": true
+          },
+          {
+            "type": "type_coproduct",
+            "named": true
+          },
+          {
+            "type": "type_effect_apply",
+            "named": true
+          },
+          {
+            "type": "type_paren",
+            "named": true
+          },
+          {
+            "type": "type_product",
+            "named": true
+          },
+          {
+            "type": "type_slash",
+            "named": true
+          }
+        ]
+      },
+      "name": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "identifier",
+            "named": true
+          }
+        ]
+      },
+      "parameters": {
+        "multiple": true,
+        "required": true,
+        "types": [
+          {
+            "type": ",",
+            "named": false
+          },
+          {
+            "type": "schema_parameter",
+            "named": true
+          }
+        ]
+      }
+    }
+  },
+  {
+    "type": "schema_parameter",
+    "named": true,
+    "fields": {
+      "names": {
+        "multiple": true,
+        "required": true,
+        "types": [
+          {
+            "type": ",",
+            "named": false
+          },
+          {
+            "type": "identifier",
+            "named": true
+          }
+        ]
+      },
+      "type": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "type_atom",
+            "named": true
+          },
+          {
+            "type": "type_coproduct",
+            "named": true
+          },
+          {
+            "type": "type_effect_apply",
+            "named": true
+          },
+          {
+            "type": "type_paren",
+            "named": true
+          },
+          {
+            "type": "type_product",
+            "named": true
+          },
+          {
+            "type": "type_slash",
+            "named": true
+          }
+        ]
+      }
+    }
+  },
+  {
     "type": "signed_number",
     "named": true,
     "fields": {},
@@ -2017,6 +2243,10 @@
         },
         {
           "type": "rule_decl",
+          "named": true
+        },
+        {
+          "type": "schema_decl",
           "named": true
         },
         {
@@ -2931,6 +3161,10 @@
     "named": false
   },
   {
+    "type": "FreeResiduated",
+    "named": false
+  },
+  {
     "type": "[",
     "named": false
   },
@@ -3048,6 +3282,10 @@
     "named": false
   },
   {
+    "type": "ops",
+    "named": false
+  },
+  {
     "type": "output",
     "named": false
   },
@@ -3084,6 +3322,10 @@
     "named": false
   },
   {
+    "type": "schema",
+    "named": false
+  },
+  {
     "type": "sigmoid",
     "named": false
   },
@@ -3117,6 +3359,14 @@
   },
   {
     "type": "where",
+    "named": false
+  },
+  {
+    "type": "{",
+    "named": false
+  },
+  {
+    "type": "}",
     "named": false
   },
   {

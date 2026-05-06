@@ -353,11 +353,80 @@ class RuleDecl(Statement):
     kind: Literal["rule_decl"] = "rule_decl"
 
 
-class ObjectDecl(Statement):
-    """Object declaration: ``object <name> : <type_expr>``."""
+class SchemaDecl(Statement):
+    """Pattern-polymorphic morphism schema declaration.
+
+    Surface form: ``schema r[X, Y : Cat] : (X/Y) * Y -> X``.
+
+    Parameters are encoded as two parallel tuples — :attr:`parameter_names`
+    holds, for each parameter group, the tuple of variable names (e.g.
+    ``("X", "Y")`` for ``X, Y : Cat``); :attr:`parameter_types` holds the
+    corresponding type expressions. The arity invariant
+    ``len(parameter_names) == len(parameter_types)`` is enforced via a
+    dx.axiom.
+
+    Arity (binary vs. unary) is derived from the domain shape: a
+    top-level :class:`TypeProduct` with two components produces a
+    binary schema; any other domain shape produces a unary schema.
+    """
 
     name: str
-    type_expr: TypeExpr
+    parameter_names: tuple[tuple[str, ...], ...]
+    parameter_types: tuple[TypeExpr, ...]
+    domain: TypeExpr
+    codomain: TypeExpr
+    line: int = 0
+    col: int = 0
+    kind: Literal["schema_decl"] = "schema_decl"
+
+    __axioms__ = (
+        dx.axiom(
+            "length parameter_names == length parameter_types",
+            message="schema parameter_names and parameter_types must align",
+        ),
+    )
+
+
+class ObjectInitializer(dx.TaggedUnion, discriminator="kind"):
+    """Sum of object-initializer kinds for the ``=`` form of ObjectDecl."""
+
+
+class EnumSetLiteral(ObjectInitializer):
+    """A ``{NP, S, VP}``-shaped enum-set initializer."""
+
+    elements: tuple[str, ...]
+    line: int = 0
+    col: int = 0
+    kind: Literal["enum_set_literal"] = "enum_set_literal"
+
+
+class FreeResiduatedExpr(ObjectInitializer):
+    """A ``FreeResiduated(generators, depth=, ops=[...])`` initializer."""
+
+    generators: str
+    depth: int = 1
+    ops: tuple[str, ...] = ("slash",)
+    line: int = 0
+    col: int = 0
+    kind: Literal["free_residuated_expr"] = "free_residuated_expr"
+
+
+class ObjectDecl(Statement):
+    """Object declaration.
+
+    Three surface forms:
+
+    - ``object X : 3`` — anonymous-element FinSet of cardinality 3.
+      ``type_expr`` carries the TypeExpr; ``init`` is None.
+    - ``object Atoms = {NP, S, VP}`` — EnumSet of named atoms.
+      ``init`` carries an :class:`EnumSetLiteral`; ``type_expr`` is None.
+    - ``object Cat = FreeResiduated(Atoms, depth=4)`` — residuated
+      category universe. ``init`` carries a :class:`FreeResiduatedExpr`.
+    """
+
+    name: str
+    type_expr: TypeExpr | None = None
+    init: ObjectInitializer | None = None
     line: int = 0
     col: int = 0
     kind: Literal["object_decl"] = "object_decl"

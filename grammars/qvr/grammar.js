@@ -47,6 +47,7 @@ module.exports = grammar({
       $.quantale_decl,
       $.category_decl,
       $.rule_decl,
+      $.schema_decl,
       $.object_decl,
       $.morphism_decl,
       $.space_decl,
@@ -71,11 +72,45 @@ module.exports = grammar({
       field('names', commaSep1($.identifier)),
     ),
 
+    // `object X : 3` — anonymous-element FinSet of cardinality 3 (or
+    // a TypeExpr binding for products / coproducts).
+    // `object Atoms = {NP, S, VP}` — named-element EnumSet.
+    // `object Cat = FreeResiduated(Atoms, depth=4, ops=[/, \\, *])`
+    //               — residuated category universe over an EnumSet.
     object_decl: $ => seq(
       'object',
       field('name', $.identifier),
-      ':',
-      field('type', $._type_expr),
+      choice(
+        seq(':', field('type', $._type_expr)),
+        seq('=', field('init', $._object_initializer)),
+      ),
+    ),
+
+    _object_initializer: $ => choice(
+      $.enum_set_literal,
+      $.free_residuated_expr,
+    ),
+
+    enum_set_literal: $ => seq(
+      '{',
+      field('elements', commaSep1($.identifier)),
+      '}',
+    ),
+
+    free_residuated_expr: $ => seq(
+      'FreeResiduated',
+      '(',
+      field('generators', $.identifier),
+      optional(seq(
+        ',',
+        commaSep1($.free_residuated_arg),
+      )),
+      ')',
+    ),
+
+    free_residuated_arg: $ => choice(
+      seq('depth', '=', field('depth', $.integer)),
+      seq('ops', '=', '[', commaSep1(field('op', $.identifier)), ']'),
     ),
 
     morphism_decl: $ => seq(
@@ -116,6 +151,28 @@ module.exports = grammar({
       field('premises', commaSep1($._type_expr)),
       '=>',
       field('conclusion', $._type_expr),
+    ),
+
+    // `schema r[X, Y : Cat] : (X/Y) * Y -> X` — pattern-polymorphic
+    // morphism schema. Domain shape determines arity: a 2-component
+    // product domain produces a binary chart-rule; a single-component
+    // domain produces a unary rule.
+    schema_decl: $ => seq(
+      'schema',
+      field('name', $.identifier),
+      '[',
+      field('parameters', commaSep1($.schema_parameter)),
+      ']',
+      ':',
+      field('domain', $._type_expr),
+      '->',
+      field('codomain', $._type_expr),
+    ),
+
+    schema_parameter: $ => seq(
+      field('names', commaSep1($.identifier)),
+      ':',
+      field('type', $._type_expr),
     ),
 
     // ---------------------------------------------------------------

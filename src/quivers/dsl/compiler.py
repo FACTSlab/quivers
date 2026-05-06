@@ -31,6 +31,9 @@ from quivers.dsl.ast_nodes import (
     StochasticMorphismDecl,
     DiscretizeDecl,
     EmbedDecl,
+    EnumSetLiteral,
+    FreeResiduatedExpr,
+    SchemaDecl,
     LetStep,
     LetExprBinOp,
     LetExprUnaryOp,
@@ -328,6 +331,8 @@ class Compiler:
             self._compile_category(stmt)
         elif isinstance(stmt, RuleDecl):
             self._compile_rule(stmt)
+        elif isinstance(stmt, SchemaDecl):
+            self._compile_schema(stmt)
         elif isinstance(stmt, ObjectDecl):
             self._compile_object(stmt)
         elif isinstance(stmt, MorphismDecl):
@@ -423,14 +428,124 @@ class Compiler:
             )
         self._rules[decl.name] = schema
 
+    def _compile_schema(self, decl: SchemaDecl) -> None:
+        """Compile a pattern-polymorphic schema declaration.
+
+        Creates a ``PatternBinarySchema`` when the declared domain is a
+        :class:`TypeProduct` with two components, otherwise a
+        ``PatternUnarySchema``. Pattern variables are the union of the
+        ``names`` lists across all :class:`SchemaParameter` entries; the
+        parameter type-expression is consulted only for well-formedness
+        (it must reference a residuated universe in scope; the
+        type-checker does not yet enforce this — the chart-parser
+        catches mismatches at firing time).
+        """
+        from quivers.stochastic.schema import (
+            PatternBinarySchema,
+            PatternUnarySchema,
+            SCHEMA_REGISTRY,
+        )
+
+        if decl.name in self._rules:
+            raise CompileError(
+                f"schema {decl.name!r} already declared",
+                decl.line,
+                decl.col,
+            )
+        if decl.name in SCHEMA_REGISTRY:
+            raise CompileError(
+                f"schema {decl.name!r} shadows a built-in schema; choose a different name",
+                decl.line,
+                decl.col,
+            )
+
+        variables: frozenset[str] = frozenset(
+            n for group in decl.parameter_names for n in group
+        )
+
+        # Decide arity from the domain shape:
+        #  - top-level TypeProduct with exactly 2 components → binary
+        #  - any other shape (TypeName, TypeSlash, TypeEffectApply,
+        #    or a non-binary TypeProduct) → unary
+        if isinstance(decl.domain, TypeProduct) and len(decl.domain.components) == 2:
+            left, right = decl.domain.components
+            schema = PatternBinarySchema(
+                left_pattern=left,
+                right_pattern=right,
+                conclusion_pattern=decl.codomain,
+                variables=variables,
+                name=decl.name,
+            )
+        else:
+            schema = PatternUnarySchema(
+                premise_pattern=decl.domain,
+                conclusion_pattern=decl.codomain,
+                variables=variables,
+                name=decl.name,
+            )
+
+        self._rules[decl.name] = schema
+
     def _compile_object(self, decl: ObjectDecl) -> None:
-        """Compile an object declaration into the environment."""
+        """Compile an object declaration into the environment.
+
+        Three surface forms are recognised:
+
+        - ``object X : <type_expr>`` — resolves via the
+          :class:`TypeExprToSetObject` lens.
+        - ``object Atoms = {NP, S, VP}`` — constructs an
+          :class:`EnumSet`.
+        - ``object Cat = FreeResiduated(Atoms, depth=, ops=[...])`` —
+          constructs a :class:`FreeResiduated` over a previously-declared
+          :class:`EnumSet`.
+        """
+        from quivers.core.objects import EnumSet, FreeResiduated
+
         if decl.name in self._objects:
             raise CompileError(
                 f"object {decl.name!r} already declared", decl.line, decl.col
             )
-        obj = self._resolve_type(decl.type_expr, decl.name)
-        self._objects[decl.name] = obj
+
+        if decl.type_expr is not None:
+            obj = self._resolve_type(decl.type_expr, decl.name)
+            self._objects[decl.name] = obj
+            return
+
+        if decl.init is None:
+            raise CompileError(
+                f"object {decl.name!r} has no type or initializer",
+                decl.line,
+                decl.col,
+            )
+
+        if isinstance(decl.init, EnumSetLiteral):
+            self._objects[decl.name] = EnumSet(
+                name=decl.name, elements=decl.init.elements
+            )
+            return
+
+        if isinstance(decl.init, FreeResiduatedExpr):
+            gen = self._objects.get(decl.init.generators)
+            if not isinstance(gen, EnumSet):
+                raise CompileError(
+                    f"FreeResiduated generators {decl.init.generators!r} must "
+                    f"reference a previously-declared EnumSet (got "
+                    f"{type(gen).__name__ if gen else 'undefined'})",
+                    decl.line,
+                    decl.col,
+                )
+            self._objects[decl.name] = FreeResiduated(
+                generators=gen,
+                depth=decl.init.depth,
+                ops=decl.init.ops,
+            )
+            return
+
+        raise CompileError(
+            f"unrecognised object initializer for {decl.name!r}",
+            decl.line,
+            decl.col,
+        )
 
     def _compile_morphism(self, decl: MorphismDecl) -> None:
         """Compile a morphism declaration into the environment."""
@@ -1292,16 +1407,36 @@ class Compiler:
         from quivers.stochastic.categories import CategorySystem
         from quivers.stochastic.parsers import ChartParser
 
+        from quivers.core.objects import FreeResiduated
+
         if expr.categories:
             categories = list(expr.categories)
         elif self._categories:
             categories = list(self._categories)
         else:
-            raise CompileError(
-                "parser() with schema rules requires category atoms — either declare them with `category S`, `category NP`, ... or pass categories=[S, NP, ...] inline",
-                expr.line,
-                expr.col,
-            )
+            # Look for a FreeResiduated object in scope and use its
+            # generators' atom names. If exactly one residuated universe
+            # is declared, this avoids the user having to spell out
+            # `categories=[NP, S, VP, ...]` redundantly.
+            residuated = [
+                obj for obj in self._objects.values() if isinstance(obj, FreeResiduated)
+            ]
+            if len(residuated) == 1:
+                categories = list(residuated[0].generators.elements)
+            elif len(residuated) > 1:
+                raise CompileError(
+                    "parser() with schema rules: multiple FreeResiduated "
+                    "objects in scope; pass categories=[...] explicitly to "
+                    "select the atom set",
+                    expr.line,
+                    expr.col,
+                )
+            else:
+                raise CompileError(
+                    "parser() with schema rules requires category atoms — declare them via `object Atoms = {NP, S, VP, ...}` plus `object Cat = FreeResiduated(Atoms, ...)`, or pass categories=[NP, S, VP, ...] inline",
+                    expr.line,
+                    expr.col,
+                )
         if expr.constructors is not None:
             cs = CategorySystem.from_generators(
                 atoms=categories,
