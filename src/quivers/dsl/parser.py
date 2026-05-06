@@ -77,9 +77,14 @@ _REGISTRY: panproto.AstParserRegistry | None = None
 def _registry() -> panproto.AstParserRegistry:
     global _REGISTRY
     if _REGISTRY is None:
-        with warnings.catch_warnings():
-            warnings.simplefilter("ignore")
-            _REGISTRY = panproto.AstParserRegistry()
+        from quivers.dsl import _dev_grammar
+
+        if _dev_grammar.is_active():
+            _REGISTRY = _dev_grammar.registry()  # type: ignore[assignment]
+        else:
+            with warnings.catch_warnings():
+                warnings.simplefilter("ignore")
+                _REGISTRY = panproto.AstParserRegistry()
         if "qvr" not in _REGISTRY.protocol_names():
             raise ParseError(
                 "panproto registry has no `qvr` protocol; install "
