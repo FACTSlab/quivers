@@ -50,7 +50,7 @@ class TestLukasiewiczQuantale:
     def test_identity_composition(self):
         """id >> id = id for Łukasiewicz."""
         q = LUKASIEWICZ
-        a = FinSet("A", 3)
+        a = FinSet(name="A", cardinality=3)
         id_a = identity(a, quantale=q)
         result = (id_a >> id_a).tensor
         expected = q.identity_tensor((3,))
@@ -60,8 +60,8 @@ class TestLukasiewiczQuantale:
     def test_composition(self):
         """V-enriched composition with Łukasiewicz quantale."""
         q = LUKASIEWICZ
-        a = FinSet("A", 2)
-        b = FinSet("B", 2)
+        a = FinSet(name="A", cardinality=2)
+        b = FinSet(name="B", cardinality=2)
 
         f_data = torch.tensor([[0.8, 0.3], [0.5, 0.9]])
         g_data = torch.tensor([[0.7, 0.2], [0.4, 0.8]])
@@ -109,7 +109,7 @@ class TestGodelQuantale:
     def test_identity_composition(self):
         """id >> id = id for Gödel."""
         q = GODEL
-        a = FinSet("A", 3)
+        a = FinSet(name="A", cardinality=3)
         id_a = identity(a, quantale=q)
         result = (id_a >> id_a).tensor
         expected = q.identity_tensor((3,))
@@ -124,9 +124,9 @@ class TestGodelQuantale:
         # (f >> g)(a, c) = max_b min(f(a,b), g(b,c))
         # (0, 0) = max(min(0.8, 0.7), min(0.3, 0.4)) = max(0.7, 0.3) = 0.7
         # (0, 1) = max(min(0.8, 0.2), min(0.3, 0.6)) = max(0.2, 0.3) = 0.3
-        a = FinSet("A", 2)
-        b = FinSet("B", 2)
-        c = FinSet("C", 2)
+        a = FinSet(name="A", cardinality=2)
+        b = FinSet(name="B", cardinality=2)
+        c = FinSet(name="C", cardinality=2)
 
         f = observed(a, b, torch.tensor([[0.8, 0.3], [0.5, 0.9]]), quantale=q)
         g = observed(b, c, torch.tensor([[0.7, 0.2], [0.4, 0.6]]), quantale=q)
@@ -182,9 +182,9 @@ class TestTropicalQuantale:
     def test_shortest_path_composition(self):
         """Tropical composition is (min, +) = shortest path."""
         q = TROPICAL
-        a = FinSet("A", 2)
-        b = FinSet("B", 2)
-        c = FinSet("C", 2)
+        a = FinSet(name="A", cardinality=2)
+        b = FinSet(name="B", cardinality=2)
+        c = FinSet(name="C", cardinality=2)
 
         # distances
         f_data = torch.tensor([[1.0, 3.0], [2.0, 1.0]])
@@ -205,8 +205,8 @@ class TestTropicalQuantale:
     def test_identity_composition(self):
         """id >> f = f for tropical."""
         q = TROPICAL
-        a = FinSet("A", 2)
-        b = FinSet("B", 2)
+        a = FinSet(name="A", cardinality=2)
+        b = FinSet(name="B", cardinality=2)
 
         f_data = torch.tensor([[1.0, 3.0], [2.0, 1.0]])
         f = observed(a, b, f_data, quantale=q)

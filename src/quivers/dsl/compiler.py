@@ -10,25 +10,14 @@ based) morphisms, including stochastic (Markov kernels), boundary
 """
 
 from __future__ import annotations
-
 from collections.abc import Callable
-from typing import cast
-
 import torch
 from quivers.continuous.spaces import ContinuousSpace
 from quivers.continuous.morphisms import AnySpace
-from quivers.core.objects import SetObject, FinSet, ProductSet, CoproductSet
-from quivers.core.quantales import (
-    Quantale,
-    PRODUCT_FUZZY,
-    BOOLEAN,
-)
-from quivers.core.morphisms import (
-    morphism as make_latent,
-    identity as make_identity,
-)
+from quivers.core.objects import SetObject, FinSet, ProductSet
+from quivers.core.quantales import Quantale, PRODUCT_FUZZY, BOOLEAN
+from quivers.core.morphisms import morphism as make_latent, identity as make_identity
 from quivers.program import Program
-
 from quivers.dsl.ast_nodes import (
     Module,
     Statement,
@@ -55,10 +44,8 @@ from quivers.dsl.ast_nodes import (
     TypeExpr,
     TypeName,
     TypeProduct,
-    TypeCoproduct,
     SpaceExpr,
     SpaceConstructor,
-    SpaceProduct,
     Expr,
     ExprIdent,
     ExprIdentity,
@@ -72,8 +59,6 @@ from quivers.dsl.ast_nodes import (
     ExprParser,
 )
 
-
-# quantale name -> singleton lookup
 _QUANTALE_REGISTRY: dict[str, Quantale] = {
     "product_fuzzy": PRODUCT_FUZZY,
     "boolean": BOOLEAN,
@@ -89,31 +74,25 @@ def _register_extra_quantales() -> None:
             _QUANTALE_REGISTRY["lukasiewicz"] = LUKASIEWICZ
             _QUANTALE_REGISTRY["godel"] = GODEL
             _QUANTALE_REGISTRY["tropical"] = TROPICAL
-
         except ImportError:
             pass
-
     if "markov" not in _QUANTALE_REGISTRY:
         try:
             from quivers.stochastic import MARKOV
 
             _QUANTALE_REGISTRY["markov"] = MARKOV
-
         except ImportError:
             pass
 
 
-# distribution family name -> class lookup (lazily populated)
 _FAMILY_REGISTRY: dict[str, type] | None = None
 
 
 def _get_family_registry() -> dict[str, type]:
     """Lazily build the distribution family registry."""
     global _FAMILY_REGISTRY
-
     if _FAMILY_REGISTRY is not None:
         return _FAMILY_REGISTRY
-
     from quivers.continuous.families import (
         ConditionalNormal,
         ConditionalLogitNormal,
@@ -147,7 +126,6 @@ def _get_family_registry() -> dict[str, type]:
     )
 
     _FAMILY_REGISTRY = {
-        # canonical names (PascalCase, matching class suffix)
         "Normal": ConditionalNormal,
         "LogitNormal": ConditionalLogitNormal,
         "Beta": ConditionalBeta,
@@ -175,24 +153,18 @@ def _get_family_registry() -> dict[str, type]:
         "RelaxedBernoulli": ConditionalRelaxedBernoulli,
         "RelaxedOneHotCategorical": ConditionalRelaxedOneHotCategorical,
         "Wishart": ConditionalWishart,
-        # discrete-valued
         "Bernoulli": ConditionalBernoulli,
         "Categorical": ConditionalCategorical,
     }
-
-    # try adding GeneralizedPareto (optional)
     try:
         from quivers.continuous.families import ConditionalGeneralizedPareto
 
         _FAMILY_REGISTRY["GeneralizedPareto"] = ConditionalGeneralizedPareto
-
-    except (ImportError, AttributeError):
+    except ImportError, AttributeError:
         pass
-
     return _FAMILY_REGISTRY
 
 
-# space constructor name -> factory (lazily populated)
 _SPACE_CONSTRUCTORS: (
     dict[str, type[ContinuousSpace] | Callable[..., ContinuousSpace]] | None
 ) = None
@@ -203,10 +175,8 @@ def _get_space_constructors() -> dict[
 ]:
     """Lazily build the space constructor registry."""
     global _SPACE_CONSTRUCTORS
-
     if _SPACE_CONSTRUCTORS is not None:
         return _SPACE_CONSTRUCTORS
-
     from quivers.continuous.spaces import (
         Euclidean,
         Simplex,
@@ -222,7 +192,6 @@ def _get_space_constructors() -> dict[
         "UnitInterval": UnitInterval,
         "ProductSpace": ProductSpace,
     }
-
     return _SPACE_CONSTRUCTORS
 
 
@@ -267,12 +236,12 @@ class Compiler:
     def __init__(self, module: Module) -> None:
         self._module = module
         self._quantale: Quantale = PRODUCT_FUZZY
-        self._categories: list[str] = []  # category atom names
-        self._rules: dict = {}  # name -> RuleSchema (from rule declarations)
+        self._categories: list[str] = []
+        self._rules: dict = {}
         self._objects: dict[str, SetObject] = {}
-        self._spaces: dict = {}  # name -> ContinuousSpace
-        self._morphisms: dict = {}  # name -> Morphism or ContinuousMorphism
-        self._groups: dict[str, list[str]] = {}  # base_name -> [name_0, name_1, ...]
+        self._spaces: dict = {}
+        self._morphisms: dict = {}
+        self._groups: dict[str, list[str]] = {}
         self._output_expr: Expr | None = None
 
     @property
@@ -319,13 +288,10 @@ class Compiler:
             On semantic errors (undefined names, type mismatches, etc.).
         """
         _register_extra_quantales()
-
         for stmt in self._module.statements:
             self._compile_statement(stmt)
-
         if self._output_expr is None:
             raise CompileError("no output declaration found")
-
         root_morphism = self._compile_expr(self._output_expr)
         return Program(root_morphism)
 
@@ -340,85 +306,60 @@ class Compiler:
             Combined environment of objects, spaces, morphisms, and the quantale.
         """
         _register_extra_quantales()
-
         for stmt in self._module.statements:
             self._compile_statement(stmt)
-
         env: dict = {}
         env["__quantale__"] = self._quantale
-
         for name, obj in self._objects.items():
             env[name] = obj
-
         for name, space in self._spaces.items():
             env[name] = space
-
         for name, morph in self._morphisms.items():
             env[name] = morph
-
         for name, rule in self._rules.items():
             env[name] = rule
-
         return env
-
-    # -- statement compilation -----------------------------------------------
 
     def _compile_statement(self, stmt: Statement) -> None:
         """Dispatch to the appropriate statement compiler."""
         if isinstance(stmt, QuantaleDecl):
             self._compile_quantale(stmt)
-
         elif isinstance(stmt, CategoryDecl):
             self._compile_category(stmt)
-
         elif isinstance(stmt, RuleDecl):
             self._compile_rule(stmt)
-
         elif isinstance(stmt, ObjectDecl):
             self._compile_object(stmt)
-
         elif isinstance(stmt, MorphismDecl):
             self._compile_morphism(stmt)
-
         elif isinstance(stmt, SpaceDecl):
             self._compile_space(stmt)
-
         elif isinstance(stmt, ContinuousMorphismDecl):
             self._compile_continuous_morphism(stmt)
-
         elif isinstance(stmt, StochasticMorphismDecl):
             self._compile_stochastic_morphism(stmt)
-
         elif isinstance(stmt, DiscretizeDecl):
             self._compile_discretize(stmt)
-
         elif isinstance(stmt, EmbedDecl):
             self._compile_embed(stmt)
-
         elif isinstance(stmt, ProgramDecl):
             self._compile_program(stmt)
-
         elif isinstance(stmt, LetDecl):
             self._compile_let(stmt)
-
         elif isinstance(stmt, OutputDecl):
             self._compile_output(stmt)
-
         else:
             raise CompileError(f"unknown statement type: {type(stmt).__name__}")
 
     def _compile_quantale(self, decl: QuantaleDecl) -> None:
         """Set the active quantale."""
         name = decl.name.lower()
-
         if name not in _QUANTALE_REGISTRY:
             raise CompileError(
-                f"unknown quantale {decl.name!r}; "
-                f"available: {', '.join(sorted(_QUANTALE_REGISTRY))}",
+                f"unknown quantale {decl.name!r}; available: {', '.join(sorted(_QUANTALE_REGISTRY))}",
                 decl.line,
                 decl.col,
             )
-
         self._quantale = _QUANTALE_REGISTRY[name]
 
     def _compile_category(self, decl: CategoryDecl) -> None:
@@ -430,11 +371,8 @@ class Compiler:
         """
         if decl.name in self._categories:
             raise CompileError(
-                f"category {decl.name!r} already declared",
-                decl.line,
-                decl.col,
+                f"category {decl.name!r} already declared", decl.line, decl.col
             )
-
         self._categories.append(decl.name)
 
     def _compile_rule(self, decl: RuleDecl) -> None:
@@ -452,22 +390,16 @@ class Compiler:
 
         if decl.name in self._rules:
             raise CompileError(
-                f"rule {decl.name!r} already declared",
-                decl.line,
-                decl.col,
+                f"rule {decl.name!r} already declared", decl.line, decl.col
             )
-
         if decl.name in SCHEMA_REGISTRY:
             raise CompileError(
-                f"rule {decl.name!r} shadows a built-in schema; "
-                f"choose a different name",
+                f"rule {decl.name!r} shadows a built-in schema; choose a different name",
                 decl.line,
                 decl.col,
             )
-
         variables = frozenset(decl.variables)
         n_premises = len(decl.premises)
-
         if n_premises == 2:
             schema = PatternBinarySchema(
                 left_pattern=decl.premises[0],
@@ -476,7 +408,6 @@ class Compiler:
                 variables=variables,
                 name=decl.name,
             )
-
         elif n_premises == 1:
             schema = PatternUnarySchema(
                 premise_pattern=decl.premises[0],
@@ -484,26 +415,20 @@ class Compiler:
                 variables=variables,
                 name=decl.name,
             )
-
         else:
             raise CompileError(
-                f"rule {decl.name!r} has {n_premises} premises; "
-                f"only unary (1) and binary (2) rules are supported",
+                f"rule {decl.name!r} has {n_premises} premises; only unary (1) and binary (2) rules are supported",
                 decl.line,
                 decl.col,
             )
-
         self._rules[decl.name] = schema
 
     def _compile_object(self, decl: ObjectDecl) -> None:
         """Compile an object declaration into the environment."""
         if decl.name in self._objects:
             raise CompileError(
-                f"object {decl.name!r} already declared",
-                decl.line,
-                decl.col,
+                f"object {decl.name!r} already declared", decl.line, decl.col
             )
-
         obj = self._resolve_type(decl.type_expr, decl.name)
         self._objects[decl.name] = obj
 
@@ -511,60 +436,42 @@ class Compiler:
         """Compile a morphism declaration into the environment."""
         if decl.name in self._morphisms:
             raise CompileError(
-                f"morphism {decl.name!r} already declared",
-                decl.line,
-                decl.col,
+                f"morphism {decl.name!r} already declared", decl.line, decl.col
             )
-
         domain = self._resolve_type(decl.domain)
         codomain = self._resolve_type(decl.codomain)
-
-        if decl.kind == "latent":
+        if decl.morphism_kind == "latent":
             scale = float(decl.options.get("scale", "0.5"))
             morph = make_latent(
                 domain, codomain, init_scale=scale, quantale=self._quantale
             )
-
-        elif decl.kind == "observed":
+        elif decl.morphism_kind == "observed":
             if decl.init_expr is not None:
                 morph = self._compile_expr(decl.init_expr)
-
-                # verify domain/codomain match
                 if morph.domain != domain or morph.codomain != codomain:
                     raise CompileError(
-                        f"morphism {decl.name!r} init expression has "
-                        f"type {morph.domain!r} -> {morph.codomain!r}, "
-                        f"expected {domain!r} -> {codomain!r}",
+                        f"morphism {decl.name!r} init expression has type {morph.domain!r} -> {morph.codomain!r}, expected {domain!r} -> {codomain!r}",
                         decl.line,
                         decl.col,
                     )
-
             else:
                 raise CompileError(
-                    f"observed morphism {decl.name!r} requires "
-                    f"an initializer (e.g. = identity({decl.domain}))",
+                    f"observed morphism {decl.name!r} requires an initializer (e.g. = identity({decl.domain}))",
                     decl.line,
                     decl.col,
                 )
-
         else:
             raise CompileError(
-                f"unknown morphism kind {decl.kind!r}",
-                decl.line,
-                decl.col,
+                f"unknown morphism kind {decl.morphism_kind!r}", decl.line, decl.col
             )
-
         self._morphisms[decl.name] = morph
 
     def _compile_space(self, decl: SpaceDecl) -> None:
         """Compile a space declaration into the space environment."""
         if decl.name in self._spaces:
             raise CompileError(
-                f"space {decl.name!r} already declared",
-                decl.line,
-                decl.col,
+                f"space {decl.name!r} already declared", decl.line, decl.col
             )
-
         space = self._resolve_space(decl.space_expr, decl.name)
         self._spaces[decl.name] = space
 
@@ -577,106 +484,71 @@ class Compiler:
         """
         if decl.name in self._morphisms:
             raise CompileError(
-                f"morphism {decl.name!r} already declared",
-                decl.line,
-                decl.col,
+                f"morphism {decl.name!r} already declared", decl.line, decl.col
             )
-
         domain = self._resolve_any_space(decl.domain)
         codomain = self._resolve_any_space(decl.codomain)
-
         count = decl.replicate if decl.replicate is not None else 1
         names = (
             [f"{decl.name}_{i}" for i in range(count)]
             if decl.replicate is not None
             else [decl.name]
         )
-
         for name in names:
             morph = self._make_continuous_morphism(
-                domain,
-                codomain,
-                decl.family,
-                decl.options,
-                decl,
+                domain, codomain, decl.family, decl.options, decl
             )
             self._morphisms[name] = morph
-
         if decl.replicate is not None:
             self._groups[decl.name] = names
 
     def _make_continuous_morphism(
-        self,
-        domain,
-        codomain,
-        family_name: str,
-        options: dict[str, str],
-        decl,
+        self, domain, codomain, family_name: str, options: dict[str, str], decl
     ):
         """Create a single continuous morphism from a family name."""
-        # handle Flow specially
         if family_name == "Flow":
             from quivers.continuous.flows import ConditionalFlow
 
             n_layers = int(options.get("n_layers", "4"))
             hidden_dim = int(options.get("hidden_dim", "64"))
             return ConditionalFlow(
-                domain,
-                codomain,
-                n_layers=n_layers,
-                hidden_dim=hidden_dim,
+                domain, codomain, n_layers=n_layers, hidden_dim=hidden_dim
             )
-
-        # look up family
         registry = _get_family_registry()
-
         if family_name not in registry:
             raise CompileError(
-                f"unknown distribution family {family_name!r}; "
-                f"available: {', '.join(sorted(registry))}",
+                f"unknown distribution family {family_name!r}; available: {', '.join(sorted(registry))}",
                 decl.line,
                 decl.col,
             )
-
         cls = registry[family_name]
         hidden_dim = int(options.get("hidden_dim", "64"))
-
-        # some families have extra constructor args
         kwargs: dict = {"hidden_dim": hidden_dim}
-
         if "rank" in options:
             kwargs["rank"] = int(options["rank"])
-
         if "temperature" in options:
             kwargs["temperature"] = float(options["temperature"])
-
         return cls(domain, codomain, **kwargs)
 
     def _compile_stochastic_morphism(self, decl: StochasticMorphismDecl) -> None:
         """Compile a stochastic morphism declaration."""
         if decl.name in self._morphisms:
             raise CompileError(
-                f"morphism {decl.name!r} already declared",
-                decl.line,
-                decl.col,
+                f"morphism {decl.name!r} already declared", decl.line, decl.col
             )
-
         from quivers.stochastic import StochasticMorphism
 
         domain = self._resolve_type(decl.domain)
         codomain = self._resolve_type(decl.codomain)
-
         count = decl.replicate if decl.replicate is not None else 1
         names = (
             [f"{decl.name}_{i}" for i in range(count)]
             if decl.replicate is not None
             else [decl.name]
         )
-
         for name in names:
             morph = StochasticMorphism(domain, codomain)
             self._morphisms[name] = morph
-
         if decl.replicate is not None:
             self._groups[decl.name] = names
 
@@ -684,18 +556,12 @@ class Compiler:
         """Compile a discretize boundary morphism."""
         if decl.name in self._morphisms:
             raise CompileError(
-                f"morphism {decl.name!r} already declared",
-                decl.line,
-                decl.col,
+                f"morphism {decl.name!r} already declared", decl.line, decl.col
             )
-
         if decl.space_name not in self._spaces:
             raise CompileError(
-                f"undefined space {decl.space_name!r}",
-                decl.line,
-                decl.col,
+                f"undefined space {decl.space_name!r}", decl.line, decl.col
             )
-
         from quivers.continuous.boundaries import Discretize
 
         space = self._spaces[decl.space_name]
@@ -706,42 +572,30 @@ class Compiler:
         """Compile an embed boundary morphism."""
         if decl.name in self._morphisms:
             raise CompileError(
-                f"morphism {decl.name!r} already declared",
-                decl.line,
-                decl.col,
+                f"morphism {decl.name!r} already declared", decl.line, decl.col
             )
-
         if decl.domain_name not in self._objects:
             raise CompileError(
-                f"undefined object {decl.domain_name!r}",
-                decl.line,
-                decl.col,
+                f"undefined object {decl.domain_name!r}", decl.line, decl.col
             )
-
         if decl.codomain_name not in self._spaces:
             raise CompileError(
-                f"undefined space {decl.codomain_name!r}",
-                decl.line,
-                decl.col,
+                f"undefined space {decl.codomain_name!r}", decl.line, decl.col
             )
-
         from quivers.continuous.boundaries import Embed
 
         domain = self._objects[decl.domain_name]
         codomain = self._spaces[decl.codomain_name]
-
         count = decl.replicate if decl.replicate is not None else 1
         names = (
             [f"{decl.name}_{i}" for i in range(count)]
             if decl.replicate is not None
             else [decl.name]
         )
-
         for name in names:
             assert isinstance(domain, FinSet)
             morph = Embed(domain, codomain)
             self._morphisms[name] = morph
-
         if decl.replicate is not None:
             self._groups[decl.name] = names
 
@@ -749,107 +603,69 @@ class Compiler:
         """Compile a monadic program block into a MonadicProgram."""
         if decl.name in self._morphisms:
             raise CompileError(
-                f"morphism {decl.name!r} already declared",
-                decl.line,
-                decl.col,
+                f"morphism {decl.name!r} already declared", decl.line, decl.col
             )
-
         from quivers.continuous.programs import MonadicProgram
 
         domain = self._resolve_any_space(decl.domain)
         codomain = self._resolve_any_space(decl.codomain)
-
-        # if named params are given, validate count matches product domain
         from quivers.continuous.spaces import ProductSpace as _PS
 
         if decl.params is not None:
             if isinstance(domain, (ProductSet, _PS)):
                 if len(decl.params) != len(domain.components):
                     raise CompileError(
-                        f"program has {len(decl.params)} params but domain "
-                        f"has {len(domain.components)} components",
+                        f"program has {len(decl.params)} params but domain has {len(domain.components)} components",
                         decl.line,
                         decl.col,
                     )
-
             elif len(decl.params) != 1:
                 raise CompileError(
-                    f"program has {len(decl.params)} params but domain "
-                    f"is not a product type",
+                    f"program has {len(decl.params)} params but domain is not a product type",
                     decl.line,
                     decl.col,
                 )
-
-        # resolve each draw step
-        # track the codomain of each bound variable for type checking
-        # named params are also bound variables
         bound_vars: dict[str, AnySpace | None] = {}
-
         if decl.params is not None:
             if isinstance(domain, (ProductSet, _PS)):
                 for pname, factor in zip(decl.params, domain.components):
                     bound_vars[pname] = factor
-
             else:
                 bound_vars[decl.params[0]] = domain
-
         steps: list[tuple] = []
-
         for step in decl.draws:
             if isinstance(step, LetStep):
-                # deterministic let binding
                 if step.name in bound_vars:
                     raise CompileError(
                         f"variable {step.name!r} already bound in program",
                         step.line,
                         step.col,
                     )
-
-                if isinstance(step.value, str):
-                    # simple variable alias
-                    if step.value not in bound_vars:
+                if isinstance(step.value, LetExprVar):
+                    if step.value.name not in bound_vars:
                         raise CompileError(
-                            f"undefined variable {step.value!r} in let binding",
+                            f"undefined variable {step.value.name!r} in let binding",
                             step.line,
                             step.col,
                         )
-
-                    bound_vars[step.name] = bound_vars[step.value]
-                    steps.append(((step.name,), None, step.value))
-
-                elif isinstance(step.value, (int, float)):
-                    # numeric literal
+                    bound_vars[step.name] = bound_vars[step.value.name]
+                    steps.append(((step.name,), None, step.value.name))
+                elif isinstance(step.value, LetExprLiteral):
                     bound_vars[step.name] = None
-                    steps.append(((step.name,), None, step.value))
-
+                    steps.append(((step.name,), None, step.value.value))
                 else:
-                    # expression tree: compile to callable
                     self._validate_let_expr_vars(step.value, bound_vars, step)
                     compiled_fn = self._compile_let_expr(step.value)
                     bound_vars[step.name] = None
                     steps.append(((step.name,), None, compiled_fn))
-
                 continue
-
-            # draw step
             draw = step
-
-            # check for duplicate variable names
             for v in draw.vars:
                 if v in bound_vars:
                     raise CompileError(
-                        f"variable {v!r} already bound in program",
-                        draw.line,
-                        draw.col,
+                        f"variable {v!r} already bound in program", draw.line, draw.col
                     )
-
-            morph, step_args = self._resolve_draw_morphism(
-                draw,
-                bound_vars,
-                codomain,
-            )
-
-            # validate string arguments (variable references)
+            morph, step_args = self._resolve_draw_morphism(draw, bound_vars, codomain)
             if step_args is not None:
                 for arg_name in step_args:
                     if arg_name not in bound_vars:
@@ -858,57 +674,38 @@ class Compiler:
                             draw.line,
                             draw.col,
                         )
-
-            # record the variable codomain(s)
             if len(draw.vars) == 1:
                 bound_vars[draw.vars[0]] = morph.codomain
-
-            else:
-                # destructuring: morphism must return a product or
-                # be a tuple-returning MonadicProgram
-                if isinstance(morph, MonadicProgram) and not morph._return_is_single:
-                    # the sub-program returns a dict; bind each var
-                    if len(draw.vars) != len(morph._return_vars):
-                        raise CompileError(
-                            f"destructuring {len(draw.vars)} vars but "
-                            f"sub-program returns {len(morph._return_vars)}",
-                            draw.line,
-                            draw.col,
-                        )
-
-                    for v in draw.vars:
-                        bound_vars[v] = None  # type info not tracked for dict returns
-
-                elif isinstance(morph.codomain, ProductSet):
-                    if len(draw.vars) != len(morph.codomain.components):
-                        raise CompileError(
-                            f"destructuring {len(draw.vars)} vars but "
-                            f"codomain has {len(morph.codomain.components)} components",
-                            draw.line,
-                            draw.col,
-                        )
-
-                    for v, factor in zip(draw.vars, morph.codomain.components):
-                        bound_vars[v] = factor
-
-                else:
+            elif isinstance(morph, MonadicProgram) and (not morph._return_is_single):
+                if len(draw.vars) != len(morph._return_vars):
                     raise CompileError(
-                        f"cannot destructure non-product codomain {morph.codomain!r}",
+                        f"destructuring {len(draw.vars)} vars but sub-program returns {len(morph._return_vars)}",
                         draw.line,
                         draw.col,
                     )
-
+                for v in draw.vars:
+                    bound_vars[v] = None
+            elif isinstance(morph.codomain, ProductSet):
+                if len(draw.vars) != len(morph.codomain.components):
+                    raise CompileError(
+                        f"destructuring {len(draw.vars)} vars but codomain has {len(morph.codomain.components)} components",
+                        draw.line,
+                        draw.col,
+                    )
+                for v, factor in zip(draw.vars, morph.codomain.components):
+                    bound_vars[v] = factor
+            else:
+                raise CompileError(
+                    f"cannot destructure non-product codomain {morph.codomain!r}",
+                    draw.line,
+                    draw.col,
+                )
             steps.append((draw.vars, morph, step_args, draw.is_observed))
-
-        # validate return variables
         for rv in decl.return_vars:
             if rv not in bound_vars:
                 raise CompileError(
-                    f"return variable {rv!r} not bound in program",
-                    decl.line,
-                    decl.col,
+                    f"return variable {rv!r} not bound in program", decl.line, decl.col
                 )
-
         prog = MonadicProgram(
             domain,
             codomain,
@@ -943,76 +740,50 @@ class Compiler:
             The compiled morphism and the variable-only args for
             the step spec (None = use program input).
         """
-        # first check if it's an existing named morphism
         if draw.morphism in self._morphisms:
             morph = self._morphisms[draw.morphism]
-
-            # validate args are all variable names (no float literals
-            # for named morphisms)
             if draw.args is not None:
                 for a in draw.args:
                     if isinstance(a, (int, float)):
                         raise CompileError(
-                            f"literal argument {a} not allowed for "
-                            f"named morphism {draw.morphism!r}",
+                            f"literal argument {a} not allowed for named morphism {draw.morphism!r}",
                             draw.line,
                             draw.col,
                         )
-
-            # args are all strings (or None)
             step_args = (
-                tuple(str(a) for a in draw.args) if draw.args is not None else None
+                tuple((str(a) for a in draw.args)) if draw.args is not None else None
             )
-            return morph, step_args
-
-        # check if it's an inline distribution family
+            return (morph, step_args)
         from quivers.continuous.inline import (
             get_inline_param_names,
             make_inline_distribution,
         )
 
         param_names = get_inline_param_names(draw.morphism)
-
         if param_names is not None:
-            # it's an inline family
             if draw.args is None:
                 raise CompileError(
-                    f"inline distribution {draw.morphism!r} requires "
-                    f"arguments (e.g. {draw.morphism}(...))",
+                    f"inline distribution {draw.morphism!r} requires arguments (e.g. {draw.morphism}(...))",
                     draw.line,
                     draw.col,
                 )
-
-            # determine codomain for the inline distribution
             inline_codomain = self._infer_inline_codomain(
-                draw.morphism,
-                draw.args,
-                draw.vars,
-                program_codomain,
+                draw.morphism, draw.args, draw.vars, program_codomain
             )
-
-            # build the morphism
             morph, var_args = make_inline_distribution(
                 draw.morphism,
                 draw.args,
                 inline_codomain,
                 variable_types={k: v for k, v in bound_vars.items() if v is not None},
             )
-            return morph, var_args
-
-        # also check the family registry (for families not in
-        # inline specs but that could still be used inline)
+            return (morph, var_args)
         registry = _get_family_registry()
-
         if draw.morphism in registry:
             raise CompileError(
-                f"distribution family {draw.morphism!r} is not supported "
-                f"as an inline distribution; declare it as a continuous "
-                f"morphism instead",
+                f"distribution family {draw.morphism!r} is not supported as an inline distribution; declare it as a continuous morphism instead",
                 draw.line,
                 draw.col,
             )
-
         raise CompileError(
             f"undefined morphism or distribution family {draw.morphism!r}",
             draw.line,
@@ -1048,70 +819,41 @@ class Compiler:
 
         if family == "LogitNormal":
             return UnitInterval(f"_{var_names[0]}")
-
         elif family == "Bernoulli":
-            return FinSet(f"_{var_names[0]}", 2)
-
+            return FinSet(name=f"_{var_names[0]}", cardinality=2)
         elif family == "Uniform":
-            # extract bounds from float args
             float_args = [a for a in args if isinstance(a, (int, float))]
-
             if len(float_args) >= 2:
-                low, high = float(float_args[0]), float(float_args[1])
-
+                low, high = (float(float_args[0]), float(float_args[1]))
                 if low == 0.0 and high == 1.0:
                     return UnitInterval(f"_{var_names[0]}")
-
-                return Euclidean(
-                    f"_{var_names[0]}",
-                    1,
-                    low=low,
-                    high=high,
-                )
-
+                return Euclidean(name=f"_{var_names[0]}", dim=1, low=low, high=high)
             return UnitInterval(f"_{var_names[0]}")
-
         elif family == "TruncatedNormal":
-            # extract bounds from last two float args
             float_args = {
                 i: a for i, a in enumerate(args) if isinstance(a, (int, float))
             }
-
             if 2 in float_args and 3 in float_args:
-                low, high = float(float_args[2]), float(float_args[3])
-                return Euclidean(
-                    f"_{var_names[0]}",
-                    1,
-                    low=low,
-                    high=high,
-                )
-
+                low, high = (float(float_args[2]), float(float_args[3]))
+                return Euclidean(name=f"_{var_names[0]}", dim=1, low=low, high=high)
             return UnitInterval(f"_{var_names[0]}")
-
         elif family == "Normal":
-            return Euclidean(f"_{var_names[0]}", 1)
-
+            return Euclidean(name=f"_{var_names[0]}", dim=1)
         elif family == "Beta":
             return UnitInterval(f"_{var_names[0]}")
-
         elif family == "Exponential":
             from quivers.continuous.spaces import PositiveReals
 
-            return PositiveReals(f"_{var_names[0]}", 1)
-
+            return PositiveReals(name=f"_{var_names[0]}", dim=1)
         elif family in ("HalfCauchy", "HalfNormal", "LogNormal", "Gamma"):
             from quivers.continuous.spaces import PositiveReals
 
-            return PositiveReals(f"_{var_names[0]}", 1)
-
+            return PositiveReals(name=f"_{var_names[0]}", dim=1)
         else:
-            return Euclidean(f"_{var_names[0]}", 1)
+            return Euclidean(name=f"_{var_names[0]}", dim=1)
 
     def _validate_let_expr_vars(
-        self,
-        node: LetExprNode,
-        bound_vars: dict[str, AnySpace | None],
-        step: LetStep,
+        self, node: LetExprNode, bound_vars: dict[str, AnySpace | None], step: LetStep
     ) -> None:
         """Validate that all variables in a let expression are bound.
 
@@ -1131,14 +873,11 @@ class Compiler:
                     step.line,
                     step.col,
                 )
-
         elif isinstance(node, LetExprBinOp):
             self._validate_let_expr_vars(node.left, bound_vars, step)
             self._validate_let_expr_vars(node.right, bound_vars, step)
-
         elif isinstance(node, LetExprUnaryOp):
             self._validate_let_expr_vars(node.operand, bound_vars, step)
-
         elif isinstance(node, LetExprCall):
             for arg in node.args:
                 self._validate_let_expr_vars(arg, bound_vars, step)
@@ -1168,15 +907,12 @@ class Compiler:
             val = node.value
 
             def _literal(env: dict) -> torch.Tensor:
-                # return a 0-dim scalar tensor that broadcasts with any shape
                 for v in env.values():
                     if isinstance(v, torch.Tensor):
                         return torch.tensor(val, device=v.device)
-
                 return torch.tensor(val)
 
             return _literal
-
         if isinstance(node, LetExprVar):
             name = node.name
 
@@ -1184,7 +920,6 @@ class Compiler:
                 return env[name]
 
             return _var
-
         if isinstance(node, LetExprBinOp):
             left_fn = Compiler._compile_let_expr(node.left)
             right_fn = Compiler._compile_let_expr(node.right)
@@ -1193,26 +928,18 @@ class Compiler:
             def _binop(env: dict) -> torch.Tensor:
                 l = left_fn(env)
                 r = right_fn(env)
-
-                # broadcast shapes so (batch,) op (batch, dim) works
                 l, r = torch.broadcast_tensors(l, r)
-
                 if op == "+":
                     return l + r
-
                 elif op == "-":
                     return l - r
-
                 elif op == "*":
                     return l * r
-
                 elif op == "/":
                     return l / r
-
                 raise ValueError(f"unknown operator: {op}")
 
             return _binop
-
         if isinstance(node, LetExprUnaryOp):
             inner_fn = Compiler._compile_let_expr(node.operand)
 
@@ -1220,106 +947,71 @@ class Compiler:
                 return -inner_fn(env)
 
             return _neg
-
         if isinstance(node, LetExprCall):
             func_name = node.func
             arg_fns = [Compiler._compile_let_expr(a) for a in node.args]
 
             def _call(env: dict) -> torch.Tensor:
                 args = [fn(env) for fn in arg_fns]
-
                 if func_name == "sigmoid":
                     return torch.sigmoid(args[0])
-
                 elif func_name == "exp":
                     return torch.exp(args[0])
-
                 elif func_name == "log":
                     return torch.log(args[0])
-
                 elif func_name == "abs":
                     return torch.abs(args[0])
-
                 elif func_name == "softplus":
                     return torch.nn.functional.softplus(args[0])
-
                 raise ValueError(f"unknown function: {func_name}")
 
             return _call
-
         raise CompileError(f"unknown let expression node: {type(node).__name__}")
 
     def _compile_let(self, decl: LetDecl) -> None:
         """Compile a let-binding with optional where clause."""
-        # handle where clause bindings first (they define names used in main expr)
         if hasattr(decl, "where") and decl.where:
             for where_decl in decl.where:
                 self._compile_let(where_decl)
-
         if decl.name in self._morphisms:
-            raise CompileError(
-                f"name {decl.name!r} already bound",
-                decl.line,
-                decl.col,
-            )
-
+            raise CompileError(f"name {decl.name!r} already bound", decl.line, decl.col)
         morph = self._compile_expr(decl.expr)
         self._morphisms[decl.name] = morph
 
     def _compile_output(self, decl: OutputDecl) -> None:
         """Record the output expression."""
         if self._output_expr is not None:
-            raise CompileError(
-                "multiple output declarations",
-                decl.line,
-                decl.col,
-            )
-
+            raise CompileError("multiple output declarations", decl.line, decl.col)
         self._output_expr = decl.expr
-
-    # -- type resolution -----------------------------------------------------
 
     def _resolve_type(self, texpr: TypeExpr, bind_name: str | None = None) -> SetObject:
         """Resolve a type expression into a SetObject.
 
-        Parameters
-        ----------
-        texpr : TypeExpr
-            The type expression to resolve.
-        bind_name : str or None
-            If provided, used as the FinSet name for integer literals.
-
-        Returns
-        -------
-        SetObject
-            The resolved object.
+        Delegates to :class:`~quivers.dsl.resolution.TypeExprToSetObject`,
+        a :class:`didactic.api.Lens` parameterised by the current object
+        environment. Integer-literal :class:`TypeName` nodes that aren't
+        in the environment use ``bind_name`` (falling back to
+        ``"_<value>"``) as the synthesised :class:`FinSet` name; this
+        thin wrapper is kept so the literal-naming policy stays in
+        compiler control.
         """
-        if isinstance(texpr, TypeName):
-            # integer literal -> FinSet
-            if texpr.name.isdigit():
-                name = bind_name if bind_name else f"_{texpr.name}"
-                return FinSet(name, int(texpr.name))
+        from quivers.dsl.resolution import TypeExprToSetObject
 
-            # lookup in object environment
-            if texpr.name in self._objects:
-                return self._objects[texpr.name]
+        if (
+            isinstance(texpr, TypeName)
+            and texpr.name.isdigit()
+            and texpr.name not in self._objects
+            and bind_name is not None
+        ):
+            return FinSet(name=bind_name, cardinality=int(texpr.name))
 
-            raise CompileError(
-                f"undefined object {texpr.name!r}",
-                texpr.line,
-                texpr.col,
-            )
-
-        elif isinstance(texpr, TypeProduct):
-            components = [self._resolve_type(c) for c in texpr.components]
-            return ProductSet(*components)
-
-        elif isinstance(texpr, TypeCoproduct):
-            components = [self._resolve_type(c) for c in texpr.components]
-            return CoproductSet(*components)
-
-        else:
-            raise CompileError(f"unknown type expression: {type(texpr).__name__}")
+        try:
+            resolved, _ = TypeExprToSetObject(self._objects).forward(texpr)
+        except KeyError as e:
+            line = getattr(texpr, "line", 0)
+            col = getattr(texpr, "col", 0)
+            raise CompileError(str(e).strip("'\""), line, col) from e
+        return resolved
 
     def _resolve_any_space(self, texpr: TypeExpr):
         """Resolve a type expression to either a SetObject or ContinuousSpace.
@@ -1342,122 +1034,53 @@ class Compiler:
             from quivers.continuous.spaces import ContinuousSpace, ProductSpace
 
             components = [self._resolve_any_space(c) for c in texpr.components]
-
-            # if any component is a continuous space, build ProductSpace
-            if any(isinstance(c, ContinuousSpace) for c in components):
-                return ProductSpace(*components)
-
-            return ProductSet(*components)
-
+            if any((isinstance(c, ContinuousSpace) for c in components)):
+                return ProductSpace(components=tuple(components))
+            return ProductSet(components=tuple(components))
         if not isinstance(texpr, TypeName):
             raise CompileError(
-                f"unsupported type expression in domain/codomain: "
-                f"{type(texpr).__name__}",
+                f"unsupported type expression in domain/codomain: {type(texpr).__name__}",
                 getattr(texpr, "line", 0),
                 getattr(texpr, "col", 0),
             )
-
         name = texpr.name
-
-        # check objects first
         if name in self._objects:
             return self._objects[name]
-
-        # check spaces
         if name in self._spaces:
             return self._spaces[name]
-
-        raise CompileError(
-            f"undefined object or space {name!r}",
-            texpr.line,
-            texpr.col,
-        )
+        raise CompileError(f"undefined object or space {name!r}", texpr.line, texpr.col)
 
     def _resolve_space(self, sexpr: SpaceExpr, bind_name: str | None = None):
         """Resolve a space expression into a ContinuousSpace.
 
-        Parameters
-        ----------
-        sexpr : SpaceExpr
-            The space expression.
-        bind_name : str or None
-            Used as the space name for constructor calls.
-
-        Returns
-        -------
-        ContinuousSpace
-            The resolved space.
+        Delegates to :class:`~quivers.dsl.resolution.SpaceExprToContinuousSpace`,
+        a :class:`didactic.api.Lens` parameterised by both the space and
+        object environments (a bare identifier may resolve to either).
         """
-        constructors = _get_space_constructors()
+        from quivers.dsl.resolution import SpaceExprToContinuousSpace
 
         if isinstance(sexpr, SpaceConstructor):
+            constructors = _get_space_constructors()
             cname = sexpr.constructor
-
             if cname not in constructors:
                 raise CompileError(
-                    f"unknown space constructor {cname!r}; "
-                    f"available: {', '.join(sorted(constructors))}",
+                    f"unknown space constructor {cname!r}; available: "
+                    f"{', '.join(sorted(constructors))}",
                     sexpr.line,
                     sexpr.col,
                 )
 
-            constructor = cast(Callable[..., ContinuousSpace], constructors[cname])
-            name = bind_name or cname
-
-            # parse constructor arguments
-            if cname == "UnitInterval":
-                # UnitInterval(name?) -- no dim needed
-                return constructor(name)
-
-            elif cname in ("Euclidean", "Simplex", "PositiveReals"):
-                # first positional arg is dim
-                if not sexpr.args:
-                    raise CompileError(
-                        f"{cname} requires a dimension argument",
-                        sexpr.line,
-                        sexpr.col,
-                    )
-
-                dim = int(sexpr.args[0])
-                kwargs = {}
-
-                for k, v in sexpr.kwargs.items():
-                    try:
-                        kwargs[k] = float(v)
-
-                    except ValueError:
-                        kwargs[k] = v
-
-                return constructor(name, dim, **kwargs)
-
-            else:
-                raise CompileError(
-                    f"unsupported space constructor {cname!r}",
-                    sexpr.line,
-                    sexpr.col,
-                )
-
-        elif isinstance(sexpr, TypeName):
-            # reference to previously declared space
-            if sexpr.name in self._spaces:
-                return self._spaces[sexpr.name]
-
-            raise CompileError(
-                f"undefined space {sexpr.name!r}",
-                sexpr.line,
-                sexpr.col,
-            )
-
-        elif isinstance(sexpr, SpaceProduct):
-            from quivers.continuous.spaces import ProductSpace
-
-            components = [self._resolve_space(c) for c in sexpr.components]
-            return ProductSpace(*components)
-
-        else:
-            raise CompileError(f"unknown space expression: {type(sexpr).__name__}")
-
-    # -- expression compilation ----------------------------------------------
+        try:
+            resolved, _ = SpaceExprToContinuousSpace(
+                env_spaces=self._spaces,
+                env_objects=self._objects,
+                name=bind_name or "_anon",
+            ).forward(sexpr)
+        except (KeyError, ValueError) as e:
+            line = getattr(sexpr, "line", 0)
+            col = getattr(sexpr, "col", 0)
+            raise CompileError(str(e).strip("'\""), line, col) from e
+        return resolved
 
     def _compile_expr(self, expr: Expr):
         """Compile a value expression into a morphism.
@@ -1475,195 +1098,126 @@ class Compiler:
         if isinstance(expr, ExprIdent):
             if expr.name not in self._morphisms:
                 raise CompileError(
-                    f"undefined morphism {expr.name!r}",
-                    expr.line,
-                    expr.col,
+                    f"undefined morphism {expr.name!r}", expr.line, expr.col
                 )
-
             return self._morphisms[expr.name]
-
         elif isinstance(expr, ExprIdentity):
             if expr.object_name not in self._objects:
                 raise CompileError(
-                    f"undefined object {expr.object_name!r}",
-                    expr.line,
-                    expr.col,
+                    f"undefined object {expr.object_name!r}", expr.line, expr.col
                 )
-
             obj = self._objects[expr.object_name]
             return make_identity(obj, quantale=self._quantale)
-
         elif isinstance(expr, ExprCompose):
             left = self._compile_expr(expr.left)
             right = self._compile_expr(expr.right)
-
             try:
                 return left >> right
-
             except TypeError as e:
                 raise CompileError(str(e), expr.line, expr.col) from e
-
         elif isinstance(expr, ExprTensorProduct):
             left = self._compile_expr(expr.left)
             right = self._compile_expr(expr.right)
             return left @ right
-
         elif isinstance(expr, ExprMarginalize):
             inner = self._compile_expr(expr.inner)
             sets = []
-
             for name in expr.names:
                 if name not in self._objects:
                     raise CompileError(
-                        f"undefined object {name!r} in marginalize",
-                        expr.line,
-                        expr.col,
+                        f"undefined object {name!r} in marginalize", expr.line, expr.col
                     )
-
                 sets.append(self._objects[name])
-
             try:
                 return inner.marginalize(*sets)
-
             except (TypeError, ValueError) as e:
                 raise CompileError(str(e), expr.line, expr.col) from e
-
         elif isinstance(expr, ExprFan):
             from quivers.continuous.morphisms import FanOutMorphism
 
             components = []
-
             for sub_expr in expr.exprs:
-                # if a bare identifier refers to a group, expand it
                 if isinstance(sub_expr, ExprIdent) and sub_expr.name in self._groups:
                     for member_name in self._groups[sub_expr.name]:
                         components.append(self._morphisms[member_name])
-
                 else:
                     morph = self._compile_expr(sub_expr)
                     components.append(morph)
-
             try:
                 return FanOutMorphism(components)
-
             except (TypeError, ValueError) as e:
                 raise CompileError(str(e), expr.line, expr.col) from e
-
         elif isinstance(expr, ExprRepeat):
             morph = self._compile_expr(expr.expr)
-
             if expr.count is None:
-                # runtime-variable repeat: create RepeatMorphism
                 from quivers.core.morphisms import RepeatMorphism
 
                 try:
                     return RepeatMorphism(morph, n=1)
-
                 except (TypeError, ValueError) as e:
                     raise CompileError(str(e), expr.line, expr.col) from e
-
-            # static unrolling: compile-time composition chain
             result = morph
-
             for _ in range(expr.count - 1):
                 try:
                     result = result >> morph
-
                 except TypeError as e:
                     raise CompileError(str(e), expr.line, expr.col) from e
-
             return result
-
         elif isinstance(expr, ExprStack):
             import copy
 
             morph = self._compile_expr(expr.expr)
             result = copy.deepcopy(morph)
-
             for _ in range(expr.count - 1):
                 clone = copy.deepcopy(morph)
                 try:
                     result = result >> clone
-
                 except TypeError as e:
                     raise CompileError(str(e), expr.line, expr.col) from e
-
             return result
-
         elif isinstance(expr, ExprScan):
             from quivers.continuous.scan import ScanMorphism
 
             cell = self._compile_expr(expr.expr)
-
             try:
                 return ScanMorphism(cell, init=expr.init)
-
             except TypeError as e:
                 raise CompileError(str(e), expr.line, expr.col) from e
-
         elif isinstance(expr, ExprParser):
             from quivers.stochastic.schema import SCHEMA_REGISTRY
 
-            # partition rules into schemas and morphism references
             schemas: list = []
             morphisms: list = []
-
             for rule_name in expr.rules:
-                # check DSL-declared rules first, then built-in schemas
                 if rule_name in self._rules:
                     schemas.append(self._rules[rule_name])
-
                 elif (schema_obj := SCHEMA_REGISTRY.get(rule_name)) is not None:
                     schemas.append(schema_obj)
-
                 elif rule_name in self._morphisms:
                     morphisms.append(self._morphisms[rule_name])
-
                 else:
                     raise CompileError(
-                        f"unknown rule {rule_name!r}; not a declared rule, "
-                        f"schema primitive ({', '.join(sorted(SCHEMA_REGISTRY))}), "
-                        f"or a declared morphism",
+                        f"unknown rule {rule_name!r}; not a declared rule, schema primitive ({', '.join(sorted(SCHEMA_REGISTRY))}), or a declared morphism",
                         expr.line,
                         expr.col,
                     )
-
             if schemas and morphisms:
                 raise CompileError(
-                    "parser() rules must be all schema primitives "
-                    "or all morphism references, not a mix",
+                    "parser() rules must be all schema primitives or all morphism references, not a mix",
                     expr.line,
                     expr.col,
                 )
-
-            # morphism mode: type-driven dispatch
             if morphisms:
-                return self._compile_parser_morphisms(
-                    morphisms,
-                    expr,
-                )
-
-            # schema mode: categories + rule schemas → ChartParser
+                return self._compile_parser_morphisms(morphisms, expr)
             if not schemas:
                 raise CompileError(
-                    "parser() requires at least one rule",
-                    expr.line,
-                    expr.col,
+                    "parser() requires at least one rule", expr.line, expr.col
                 )
-
-            return self._compile_parser_schemas(
-                schemas,
-                expr,
-            )
-
+            return self._compile_parser_schemas(schemas, expr)
         else:
             raise CompileError(f"unknown expression type: {type(expr).__name__}")
 
-    def _compile_parser_morphisms(
-        self,
-        morphisms: list,
-        expr: ExprParser,
-    ):
+    def _compile_parser_morphisms(self, morphisms: list, expr: ExprParser):
         """Compile parser from user-declared morphisms via type inspection.
 
         Classifies each morphism by its type signature:
@@ -1685,27 +1239,20 @@ class Compiler:
 
         binary = None
         lexical = None
-
         for morph in morphisms:
             cod = morph.codomain
-
-            # N → N ⊗ N: codomain is a product whose components
-            # are all equal to the domain
             if (
                 isinstance(cod, ProductSet)
                 and len(cod.components) == 2
-                and all(c == morph.domain for c in cod.components)
+                and all((c == morph.domain for c in cod.components))
             ):
                 if binary is not None:
                     raise CompileError(
-                        "parser() received multiple binary morphisms "
-                        "(codomain = domain ⊗ domain); expected one",
+                        "parser() received multiple binary morphisms (codomain = domain ⊗ domain); expected one",
                         expr.line,
                         expr.col,
                     )
-
                 binary = morph
-
             else:
                 if lexical is not None:
                     raise CompileError(
@@ -1713,43 +1260,26 @@ class Compiler:
                         expr.line,
                         expr.col,
                     )
-
                 lexical = morph
-
         if binary is None:
             raise CompileError(
                 "parser() requires a binary morphism (type N → N ⊗ N) among its rules",
                 expr.line,
                 expr.col,
             )
-
         if lexical is None:
             raise CompileError(
                 "parser() requires a lexical morphism (type N → T) among its rules",
                 expr.line,
                 expr.col,
             )
-
         try:
             start = expr.start if isinstance(expr.start, int) else 0
-            return InsideAlgorithm(
-                binary,
-                lexical,
-                start=start,
-            )
-
+            return InsideAlgorithm(binary, lexical, start=start)
         except TypeError as e:
-            raise CompileError(
-                str(e),
-                expr.line,
-                expr.col,
-            ) from e
+            raise CompileError(str(e), expr.line, expr.col) from e
 
-    def _compile_parser_schemas(
-        self,
-        schemas: list,
-        expr: ExprParser,
-    ):
+    def _compile_parser_schemas(self, schemas: list, expr: ExprParser):
         """Compile parser from schema functors over a category system.
 
         Parameters
@@ -1762,68 +1292,44 @@ class Compiler:
         from quivers.stochastic.categories import CategorySystem
         from quivers.stochastic.parsers import ChartParser
 
-        # resolve categories: explicit parameter or declared via `category`
         if expr.categories:
             categories = list(expr.categories)
-
         elif self._categories:
             categories = list(self._categories)
-
         else:
             raise CompileError(
-                "parser() with schema rules requires category atoms — "
-                "either declare them with `category S`, `category NP`, ... "
-                "or pass categories=[S, NP, ...] inline",
+                "parser() with schema rules requires category atoms — either declare them with `category S`, `category NP`, ... or pass categories=[S, NP, ...] inline",
                 expr.line,
                 expr.col,
             )
-
-        # build category system from constructors + depth
         if expr.constructors is not None:
             cs = CategorySystem.from_generators(
                 atoms=categories,
                 constructors=list(expr.constructors),
                 max_depth=expr.depth,
             )
-
         else:
             cs = CategorySystem.from_atoms_and_slash_depth(
-                categories,
-                max_depth=expr.depth,
+                categories, max_depth=expr.depth
             )
-
-        # compose schemas via union
         schema = schemas[0]
-
         for piece in schemas[1:]:
             schema = schema | piece
-
-        # resolve terminal vocabulary from explicit parameter
         if expr.terminal is None:
             raise CompileError(
-                "parser() with schema rules requires terminal=<object> — "
-                "the declared object serving as the terminal vocabulary",
+                "parser() with schema rules requires terminal=<object> — the declared object serving as the terminal vocabulary",
                 expr.line,
                 expr.col,
             )
-
         if expr.terminal not in self._objects:
             raise CompileError(
                 f"terminal={expr.terminal!r} does not refer to a declared object",
                 expr.line,
                 expr.col,
             )
-
         n_term = self._objects[expr.terminal].size
-
         try:
             start = expr.start if isinstance(expr.start, str) else "S"
-            return ChartParser.from_schema(
-                schema,
-                cs,
-                n_terminals=n_term,
-                start=start,
-            )
-
+            return ChartParser.from_schema(schema, cs, n_terminals=n_term, start=start)
         except (TypeError, ValueError) as e:
             raise CompileError(str(e), expr.line, expr.col) from e

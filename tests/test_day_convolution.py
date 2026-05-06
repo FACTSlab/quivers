@@ -15,7 +15,11 @@ from quivers.enriched.day_convolution import (
 class TestDayUnit:
     def test_unit_presheaf(self):
         """Unit presheaf has I at the unit index, ⊥ elsewhere."""
-        objects = [FinSet("A", 2), FinSet("B", 3), FinSet("I", 1)]
+        objects = [
+            FinSet(name="A", cardinality=2),
+            FinSet(name="B", cardinality=3),
+            FinSet(name="I", cardinality=1),
+        ]
         result = day_unit(objects, unit_index=2)
 
         assert result.shape == (3,)
@@ -27,10 +31,10 @@ class TestDayUnit:
 class TestDayConvolutionProfunctors:
     def test_external_tensor_product(self):
         """(P ⊛ Q)(ac, bd) = P(a, b) ⊗ Q(c, d)."""
-        a = FinSet("A", 2)
-        b = FinSet("B", 3)
-        c = FinSet("C", 2)
-        d = FinSet("D", 2)
+        a = FinSet(name="A", cardinality=2)
+        b = FinSet(name="B", cardinality=3)
+        c = FinSet(name="C", cardinality=2)
+        d = FinSet(name="D", cardinality=2)
 
         p_data = torch.rand(2, 3)
         q_data = torch.rand(2, 2)
@@ -55,10 +59,10 @@ class TestDayConvolutionProfunctors:
 
     def test_profunctor_objects(self):
         """Day convolution produces correct contra/co objects."""
-        a = FinSet("A", 2)
-        b = FinSet("B", 3)
-        c = FinSet("C", 4)
-        d = FinSet("D", 5)
+        a = FinSet(name="A", cardinality=2)
+        b = FinSet(name="B", cardinality=3)
+        c = FinSet(name="C", cardinality=4)
+        d = FinSet(name="D", cardinality=5)
 
         p = Profunctor(contra=a, co=b, tensor=torch.rand(2, 3))
         q = Profunctor(contra=c, co=d, tensor=torch.rand(4, 5))

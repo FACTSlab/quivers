@@ -36,25 +36,20 @@ Examples
 --------
 >>> from quivers.continuous.spaces import Euclidean, ProductSpace
 >>> from quivers.continuous.families import ConditionalNormal
->>> A = Euclidean("input", 32)
->>> H = Euclidean("hidden", 64)
+>>> A = Euclidean(name="input", dim=32)
+>>> H = Euclidean(name="hidden", dim=64)
 >>> cell = ConditionalNormal(ProductSpace(A, H), H, scale=0.1)
 >>> scanned = ScanMorphism(cell, init="zeros")
->>> scanned.domain   # Euclidean("input", 32)
->>> scanned.codomain # Euclidean("hidden", 64)
+>>> scanned.domain   # Euclidean(name="input", dim=32)
+>>> scanned.codomain # Euclidean(name="hidden", dim=64)
 >>> x = torch.randn(8, 10, 32)  # batch=8, seq_len=10, input_dim=32
 >>> h = scanned.rsample(x)      # (8, 64)
 """
 
 from __future__ import annotations
-
 import torch
 import torch.nn as nn
-
-from quivers.continuous.morphisms import (
-    ContinuousMorphism,
-    _event_dim,
-)
+from quivers.continuous.morphisms import ContinuousMorphism, _event_dim
 from quivers.continuous.spaces import ContinuousSpace, ProductSpace
 
 
@@ -82,44 +77,28 @@ def _extract_input_space(cell: ContinuousMorphism) -> ContinuousSpace:
     """
     domain = cell.domain
     codomain = cell.codomain
-
     if not isinstance(domain, ProductSpace):
         raise TypeError(
-            f"scan cell must have a ProductSpace domain, "
-            f"got {type(domain).__name__}: {domain!r}"
+            f"scan cell must have a ProductSpace domain, got {type(domain).__name__}: {domain!r}"
         )
-
     components = domain.components
-
     if len(components) < 2:
         raise TypeError(
-            f"scan cell product domain must have at least 2 "
-            f"components, got {len(components)}"
+            f"scan cell product domain must have at least 2 components, got {len(components)}"
         )
-
-    # the last component must match the codomain (the hidden state)
     hidden_component = components[-1]
     cod_dim = _event_dim(codomain)
     hid_dim = _event_dim(hidden_component)
-
     if hid_dim != cod_dim:
         raise TypeError(
-            f"scan cell: last domain component dim ({hid_dim}) "
-            f"does not match codomain dim ({cod_dim}); the cell "
-            f"must have type A * H -> H"
+            f"scan cell: last domain component dim ({hid_dim}) does not match codomain dim ({cod_dim}); the cell must have type A * H -> H"
         )
-
-    # the input space is everything except the last component
     if len(components) == 2:
         return components[0]
-
     else:
-        # rebuild a product of the non-hidden components
         result = components[0]
-
         for c in components[1:-1]:
-            result = ProductSpace(result, c)
-
+            result = ProductSpace(components=(result, c))
         return result
 
 
@@ -148,33 +127,23 @@ class ScanMorphism(ContinuousMorphism):
         (default) or ``"learned"`` (trainable initial state).
     """
 
-    def __init__(
-        self,
-        cell: ContinuousMorphism,
-        init: str = "zeros",
-    ) -> None:
+    def __init__(self, cell: ContinuousMorphism, init: str = "zeros") -> None:
         input_space = _extract_input_space(cell)
         hidden_space = cell.codomain
-
         super().__init__(input_space, hidden_space)
-
         self._cell = cell
         self._init_strategy = init
         self._input_dim = _event_dim(input_space)
         self._hidden_dim = _event_dim(hidden_space)
-
         if init == "learned":
             self._h0 = nn.Parameter(torch.zeros(self._hidden_dim))
-
         elif init != "zeros":
             raise ValueError(
                 f"unknown init strategy {init!r}; expected 'zeros' or 'learned'"
             )
 
     def rsample(
-        self,
-        x: torch.Tensor,
-        sample_shape: torch.Size = torch.Size(),
+        self, x: torch.Tensor, sample_shape: torch.Size = torch.Size()
     ) -> torch.Tensor:
         """Run the cell across the time dimension of x.
 
@@ -194,50 +163,26 @@ class ScanMorphism(ContinuousMorphism):
             sample_shape is non-empty.
         """
         if x.dim() == 2:
-            # single time step: (batch, input_dim) -> (batch, 1, input_dim)
             x = x.unsqueeze(1)
-
         batch, seq_len, _ = x.shape
-
-        # initialize hidden state
         if self._init_strategy == "learned":
             h = self._h0.unsqueeze(0).expand(batch, -1)
-
         else:
-            h = torch.zeros(
-                batch,
-                self._hidden_dim,
-                device=x.device,
-                dtype=x.dtype,
-            )
-
-        # iterate over time
+            h = torch.zeros(batch, self._hidden_dim, device=x.device, dtype=x.dtype)
         for t in range(seq_len):
-            x_t = x[:, t, :]  # (batch, input_dim)
-            cell_input = torch.cat([x_t, h], dim=-1)  # (batch, input_dim + hidden_dim)
-
-            # only pass sample_shape on the first step
+            x_t = x[:, t, :]
+            cell_input = torch.cat([x_t, h], dim=-1)
             if t == 0 and len(sample_shape) > 0:
                 h = self._cell.rsample(cell_input, sample_shape)
                 h = self._flatten_cell_output(h)
-
-                # if sample_shape introduced extra dims, reshape x
-                # for subsequent steps
                 if len(sample_shape) > 0 and h.dim() > 2:
-                    # h is (*sample_shape, batch, hidden_dim)
-                    # expand x to match: (*sample_shape, batch, seq_len, input_dim)
                     x = x.unsqueeze(0).expand(*sample_shape, *x.shape)
-
             else:
                 if h.dim() > 2:
-                    # h has sample dims: (*sample_shape, batch, hidden_dim)
-                    # x_t needs matching: (*sample_shape, batch, input_dim)
                     x_t = x[..., t, :]
                     cell_input = torch.cat([x_t, h], dim=-1)
-
                 h = self._cell.rsample(cell_input)
                 h = self._flatten_cell_output(h)
-
         return h
 
     @staticmethod
@@ -262,7 +207,6 @@ class ScanMorphism(ContinuousMorphism):
         """
         if isinstance(result, dict):
             return torch.cat(list(result.values()), dim=-1)
-
         return result
 
     def log_prob(self, x: torch.Tensor, y: torch.Tensor) -> torch.Tensor:
@@ -278,18 +222,10 @@ class ScanMorphism(ContinuousMorphism):
             Always.
         """
         raise NotImplementedError(
-            "log_prob is not supported for scan morphisms; "
-            "computing p(h_T | x_{1:T}) requires marginalizing "
-            "over all intermediate hidden states. use rsample() "
-            "for forward sampling, or log_joint() for scoring "
-            "given all intermediates."
+            "log_prob is not supported for scan morphisms; computing p(h_T | x_{1:T}) requires marginalizing over all intermediate hidden states. use rsample() for forward sampling, or log_joint() for scoring given all intermediates."
         )
 
-    def log_joint(
-        self,
-        x: torch.Tensor,
-        hidden_states: torch.Tensor,
-    ) -> torch.Tensor:
+    def log_joint(self, x: torch.Tensor, hidden_states: torch.Tensor) -> torch.Tensor:
         """Joint log-density given all intermediate hidden states.
 
         Computes:
@@ -311,26 +247,16 @@ class ScanMorphism(ContinuousMorphism):
         """
         batch, seq_len, _ = x.shape
         total = torch.zeros(batch, device=x.device)
-
-        # initial hidden state
         if self._init_strategy == "learned":
             h = self._h0.unsqueeze(0).expand(batch, -1)
-
         else:
-            h = torch.zeros(
-                batch,
-                self._hidden_dim,
-                device=x.device,
-                dtype=x.dtype,
-            )
-
+            h = torch.zeros(batch, self._hidden_dim, device=x.device, dtype=x.dtype)
         for t in range(seq_len):
             x_t = x[:, t, :]
             h_t = hidden_states[:, t, :]
             cell_input = torch.cat([x_t, h], dim=-1)
             total = total + self._cell.log_prob(cell_input, h_t)
             h = h_t
-
         return total
 
     def __repr__(self) -> str:

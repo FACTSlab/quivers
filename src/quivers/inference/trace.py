@@ -26,6 +26,8 @@ from quivers.continuous.programs import MonadicProgram, _LetSpec
 class SampleSite:
     """Record of a single sample site in a program trace.
 
+    Holds a ``torch.Tensor`` per site; not a value type.
+
     Parameters
     ----------
     name : str
@@ -54,6 +56,9 @@ class SampleSite:
 @dataclass
 class Trace:
     """Complete execution trace of a monadic program.
+
+    Mutable accumulator: ``sites`` grows as the program executes; not a
+    value type.
 
     Parameters
     ----------

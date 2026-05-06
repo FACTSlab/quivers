@@ -4,11 +4,11 @@ build-backend = "hatchling.build"
 
 [project]
 name = "quivers"
-version = "0.1.0"
+version = "0.2.0"
 description = "Computational category theory as differentiable tensor programs"
 readme = "README.md"
 license = {text = "MIT"}
-requires-python = ">=3.13"
+requires-python = ">=3.14"
 authors = [{name = "Aaron Steven White"}]
 keywords = [
     "category-theory",
@@ -23,13 +23,16 @@ classifiers = [
     "Intended Audience :: Science/Research",
     "License :: OSI Approved :: MIT License",
     "Programming Language :: Python :: 3",
-    "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3.14",
     "Topic :: Scientific/Engineering",
     "Topic :: Scientific/Engineering :: Artificial Intelligence",
     "Topic :: Scientific/Engineering :: Mathematics",
 ]
 dependencies = [
     "torch>=2.0",
+    "didactic>=0.6.0",
+    "panproto>=0.45.0",
+    "panproto-grammars-all>=0.45.0",
 ]
 
 [project.optional-dependencies]
@@ -64,3 +67,28 @@ ignore = ["E741"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+
+[tool.pyright]
+include = ["src/quivers"]
+pythonVersion = "3.14"
+# torch's __all__ omits most of its public surface, so every torch.*
+# access trips reportPrivateImportUsage. This is upstream torch typing
+# behaviour, not a quivers concern.
+reportPrivateImportUsage = "none"
+# didactic's dx.Model field descriptors widen access to the FieldValue
+# union (str | int | float | bytes | Decimal | tuple[FieldValue, ...]),
+# which pyright cannot narrow back to the declared annotation without
+# explicit casts at every call site. The categories below are dominated
+# by symptoms of that widening; surface them as warnings so they remain
+# visible without failing CI until didactic ships typed field
+# descriptors.
+reportArgumentType = "warning"
+reportOperatorIssue = "warning"
+reportGeneralTypeIssues = "warning"
+reportIndexIssue = "warning"
+reportReturnType = "warning"
+reportOptionalIterable = "warning"
+reportOptionalSubscript = "warning"
+reportOptionalMemberAccess = "warning"
+reportAssignmentType = "warning"
+reportCallIssue = "warning"

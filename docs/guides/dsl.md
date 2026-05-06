@@ -7,8 +7,14 @@ The `.qvr` (quivers) DSL is a declarative language for specifying morphism netwo
 The compilation pipeline is:
 
 ```
-.qvr source → Lexer → Tokens → Parser → AST → Compiler → Program (nn.Module)
+.qvr source
+  → panproto tree-sitter parser (qvr grammar)
+  → AST (didactic dx.Model nodes)
+  → Compiler + resolution lenses
+  → Program (nn.Module)
 ```
+
+Parsing is delegated to [panproto](https://panproto.dev): the QVR tree-sitter grammar at `grammars/qvr/` is registered with the `panproto-grammars-all` distribution, and `quivers.dsl.parser` walks the panproto-produced parse tree, building a tree of `dx.Model` AST nodes (see [`ast_nodes`](../api/dsl/ast_nodes.md)). Resolution from syntactic `TypeExpr` / `SpaceExpr` trees to runtime `SetObject` / `ContinuousSpace` values is expressed as a `dx.Lens` family in [`resolution.py`](../api/dsl/resolution.md). Each compiled program also extracts to a panproto `Schema` via [`program_theory`](../api/dsl/program_theory.md), so diff/migrate/lens-generation tooling applies directly to `.qvr` programs.
 
 Use the high-level API:
 
@@ -32,7 +38,7 @@ optimizer = torch.optim.Adam(prog.parameters())
 
 ## Grammar
 
-The full grammar is:
+The authoritative grammar is the tree-sitter source at `grammars/qvr/grammar.js` in the quivers repository. The summary below is a human-readable EBNF view of the same productions; the tree-sitter grammar is the source of truth.
 
 ```
 module         := statement*
@@ -881,20 +887,19 @@ program factivity : Entity -> Truth * Truth * Truth * Resp
     return (tau_know: tau_know, cg_complement: cg_complement, cg_matrix: cg_matrix, response: response)
 ```
 
-For more examples, see the [Examples Gallery](../examples/index.md).
+For more examples, see the [Examples Gallery](../examples/index.md). For a formal account of what `.qvr` programs *mean*, see the [Denotational Semantics](../semantics/index.md).
 
 ## Compilation Process
 
 The `Compiler` transforms the AST to a `Program`:
 
-1. **Resolve declarations**: collect all objects, spaces, morphisms
-2. **Type check**: ensure domains/codomains match in compositions
-3. **Build morphism DAG**: construct morphism modules
-4. **Wrap in Program**: create an `nn.Module` that manages all parameters
+1. **Resolve declarations**: collect all objects, spaces, morphisms. Type and space resolution is delegated to the lens family in `quivers.dsl.resolution` — `TypeExprToSetObject` (parameterized by the object inventory) and `SpaceExprToContinuousSpace` (parameterized by the space and object inventories). Each lens is `dx.Lens[<AST>, <runtime value>, <AST>]`; round-trip laws hold by construction.
+2. **Type check**: ensure domains/codomains match in compositions.
+3. **Build morphism DAG**: construct morphism modules.
+4. **Wrap in Program**: create an `nn.Module` that manages all parameters.
 
 ```python
-from quivers.dsl.compiler import Compiler
-from quivers.dsl.parser import parse
+from quivers.dsl import Compiler, parse
 
 source = "object X : 3\nlatent f : X -> X\noutput f"
 ast = parse(source)
@@ -902,26 +907,38 @@ compiler = Compiler(ast)
 program = compiler.compile()
 ```
 
-## Error Handling
+### Programs as panproto schemas
 
-The DSL provides three error types:
-
-- `LexError`: invalid tokens or characters
-- `ParseError`: syntax error (wrong token sequence)
-- `CompileError`: semantic error (type mismatch, undefined name)
+After compilation, the resolved environment can be exported as a panproto `Schema` over `QVR_PROGRAM_PROTOCOL`:
 
 ```python
-from quivers.dsl import loads, LexError, ParseError, CompileError
+from quivers.dsl import loads, extract_program_schema
+
+program = loads(source)
+schema = extract_program_schema(program._compiler)  # Schema instance
+```
+
+The schema's vertices enumerate every declared object, space, and morphism (with kinds drawn from `finset`, `product_set`, `coproduct_set`, `free_monoid`, `empty_set`, `euclidean`, `simplex`, `positive_reals`, `product_space`, plus the declaration variants). This makes `panproto schema diff`, `panproto lens generate`, and the rest of the panproto toolbox available on `.qvr` programs without further work.
+
+## Error Handling
+
+The DSL provides two error types:
+
+- `ParseError`: syntactic error (the tree-sitter grammar reported an error node, or a required field was missing in the parse tree)
+- `CompileError`: semantic error (type mismatch, undefined name, ill-formed program structure)
+
+```python
+from quivers.dsl import loads, ParseError, CompileError
 
 try:
     prog = loads(bad_source)
-except LexError as e:
-    print(f"Lexical error: {e}")
 except ParseError as e:
     print(f"Parse error: {e}")
 except CompileError as e:
     print(f"Compilation error: {e}")
 ```
+
+Tree-sitter's lexer is integrated with the grammar, so lexical errors surface as `ParseError`.
 
 ## Comments
 

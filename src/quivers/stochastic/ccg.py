@@ -86,7 +86,7 @@ class CCGParser(ChartParser):
     ) -> None:
         # resolve start category
         if isinstance(start, str):
-            start_cat = AtomicCategory(start)
+            start_cat = AtomicCategory(name=start)
 
         else:
             start_cat = start

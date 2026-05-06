@@ -22,8 +22,7 @@ from quivers.inference.guide import AutoNormalGuide, AutoDeltaGuide
 from quivers.inference.elbo import ELBO
 from quivers.inference.svi import SVI
 from quivers.inference.predictive import Predictive
-from quivers.dsl.lexer import Lexer
-from quivers.dsl.parser import Parser
+from quivers.dsl.parser import parse
 from quivers.dsl.compiler import Compiler
 from quivers.dsl.ast_nodes import DrawStep, LetStep, LetExprBinOp, LetExprCall
 
@@ -35,8 +34,8 @@ from quivers.dsl.ast_nodes import DrawStep, LetStep, LetExprBinOp, LetExprCall
 
 def _create_simple_program() -> MonadicProgram:
     """Create a simple 2-step program: draw z ~ prior, draw y ~ likelihood(z)."""
-    Unit = FinSet("Unit", 1)
-    R1 = Euclidean("R1", 1)
+    Unit = FinSet(name="Unit", cardinality=1)
+    R1 = Euclidean(name="R1", dim=1)
 
     # use ConditionalNormal which learns parameters based on input
     prior = ConditionalNormal(Unit, R1)
@@ -55,8 +54,8 @@ def _create_simple_program() -> MonadicProgram:
 
 def _create_program_with_let() -> MonadicProgram:
     """Create a program with a let binding: draw z ~ prior, let w = z * 2, draw y ~ likelihood(w)."""
-    Unit = FinSet("Unit", 1)
-    R1 = Euclidean("R1", 1)
+    Unit = FinSet(name="Unit", cardinality=1)
+    R1 = Euclidean(name="R1", dim=1)
 
     prior = ConditionalNormal(Unit, R1)
     likelihood = ConditionalNormal(R1, R1)
@@ -79,8 +78,8 @@ def _create_program_with_let() -> MonadicProgram:
 
 def _create_program_with_observe() -> MonadicProgram:
     """Create a program marked with observed flag."""
-    Unit = FinSet("Unit", 1)
-    R1 = Euclidean("R1", 1)
+    Unit = FinSet(name="Unit", cardinality=1)
+    R1 = Euclidean(name="R1", dim=1)
 
     prior = ConditionalNormal(Unit, R1)
     likelihood = ConditionalNormal(R1, R1)
@@ -98,14 +97,12 @@ def _create_program_with_observe() -> MonadicProgram:
 
 def parse_dsl(src: str):
     """Parse DSL source code and return the AST."""
-    tokens = Lexer(src).tokenize()
-    return Parser(tokens).parse()
+    return parse(src)
 
 
 def compile_dsl(src: str) -> dict:
     """Compile DSL source code and return the compiled environment."""
-    tokens = Lexer(src).tokenize()
-    ast = Parser(tokens).parse()
+    ast = parse(src)
     return Compiler(ast).compile_env()
 
 
@@ -120,7 +117,7 @@ class TestTrace(unittest.TestCase):
     def test_trace_records_all_sites(self):
         """Trace records all sites visited during execution."""
         prog = _create_simple_program()
-        FinSet("Unit", 1)
+        FinSet(name="Unit", cardinality=1)
         x = torch.zeros(4, dtype=torch.long)  # batch=4
 
         tr = trace(prog, x)
@@ -708,8 +705,8 @@ class TestExpressionLetBindingExecution(unittest.TestCase):
 
     def test_let_binding_with_multiplication(self):
         """Let binding with multiplication works."""
-        Unit = FinSet("Unit", 1)
-        R1 = Euclidean("R1", 1)
+        Unit = FinSet(name="Unit", cardinality=1)
+        R1 = Euclidean(name="R1", dim=1)
         prior = ConditionalNormal(Unit, R1)
 
         # lambda for let z = x * 0.5
@@ -736,8 +733,8 @@ class TestExpressionLetBindingExecution(unittest.TestCase):
 
     def test_let_binding_with_addition(self):
         """Let binding with addition works."""
-        Unit = FinSet("Unit", 1)
-        R1 = Euclidean("R1", 1)
+        Unit = FinSet(name="Unit", cardinality=1)
+        R1 = Euclidean(name="R1", dim=1)
         prior = ConditionalNormal(Unit, R1)
 
         # lambda for let z = x + y
@@ -765,8 +762,8 @@ class TestExpressionLetBindingExecution(unittest.TestCase):
 
     def test_let_binding_combined_operations(self):
         """Let binding with combined operations."""
-        Unit = FinSet("Unit", 1)
-        R1 = Euclidean("R1", 1)
+        Unit = FinSet(name="Unit", cardinality=1)
+        R1 = Euclidean(name="R1", dim=1)
         prior = ConditionalNormal(Unit, R1)
 
         # lambda for let z = x * 0.5 + y * 0.3

@@ -8,9 +8,9 @@ Quick start::
 
     from quivers import FinSet, morphism, observed, identity, Program
 
-    X = FinSet("X", 3)
-    Y = FinSet("Y", 4)
-    Z = FinSet("Z", 2)
+    X = FinSet(name="X", cardinality=3)
+    Y = FinSet(name="Y", cardinality=4)
+    Z = FinSet(name="Z", cardinality=2)
 
     f = morphism(X, Y)           # latent (learnable)
     g = morphism(Y, Z)           # latent (learnable)
@@ -20,7 +20,7 @@ Quick start::
     output = program()           # tensor of shape (3, 2)
 """
 
-__version__ = "0.1.0"
+__version__ = "0.2.0"
 
 from quivers.core.objects import (
     SetObject,
@@ -262,7 +262,6 @@ from quivers.dsl import (
     parse as dsl_parse,
     loads as dsl_loads,
     load as dsl_load,
-    LexError,
     ParseError,
     CompileError,
 )
@@ -480,7 +479,6 @@ __all__ = [
     "dsl_parse",
     "dsl_loads",
     "dsl_load",
-    "LexError",
     "ParseError",
     "CompileError",
 ]

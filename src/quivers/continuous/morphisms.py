@@ -29,17 +29,13 @@ Convention for input shapes
 """
 
 from __future__ import annotations
-
 from abc import ABC, abstractmethod
 from typing import Union, cast
-
 import torch
 import torch.nn as nn
-
 from quivers.core.objects import SetObject
 from quivers.continuous.spaces import ContinuousSpace
 
-# union type for all spaces (discrete or continuous)
 AnySpace = Union[SetObject, ContinuousSpace]
 
 
@@ -105,9 +101,7 @@ class ContinuousMorphism(nn.Module, ABC):
 
     @abstractmethod
     def rsample(
-        self,
-        x: torch.Tensor,
-        sample_shape: torch.Size = torch.Size(),
+        self, x: torch.Tensor, sample_shape: torch.Size = torch.Size()
     ) -> torch.Tensor:
         """Reparameterized samples from p(. | x).
 
@@ -131,9 +125,7 @@ class ContinuousMorphism(nn.Module, ABC):
         ...
 
     def sample(
-        self,
-        x: torch.Tensor,
-        sample_shape: torch.Size = torch.Size(),
+        self, x: torch.Tensor, sample_shape: torch.Size = torch.Size()
     ) -> torch.Tensor:
         """Non-reparameterized samples (no gradient through samples).
 
@@ -152,19 +144,14 @@ class ContinuousMorphism(nn.Module, ABC):
         with torch.no_grad():
             return self.rsample(x, sample_shape)
 
-    # -- categorical operators ------------------------------------------------
-
     def __rshift__(self, other: object) -> ContinuousMorphism:
         """Composition via ancestral sampling: self >> other."""
         if isinstance(other, ContinuousMorphism):
             return SampledComposition(self, other)
-
-        # discrete morphism on the right
         from quivers.core.morphisms import Morphism
 
         if isinstance(other, Morphism):
             return SampledComposition(self, DiscreteAsContinuous(other))
-
         return NotImplemented
 
     def __rrshift__(self, other: object) -> ContinuousMorphism:
@@ -173,27 +160,21 @@ class ContinuousMorphism(nn.Module, ABC):
 
         if isinstance(other, Morphism):
             return SampledComposition(DiscreteAsContinuous(other), self)
-
         return NotImplemented
 
     def __matmul__(self, other: object) -> ProductContinuousMorphism:
         """Independent product: self @ other."""
         if isinstance(other, ContinuousMorphism):
             return ProductContinuousMorphism(self, other)
-
         from quivers.core.morphisms import Morphism
 
         if isinstance(other, Morphism):
             return ProductContinuousMorphism(self, DiscreteAsContinuous(other))
-
         return NotImplemented
 
     def __repr__(self) -> str:
         cls = type(self).__name__
         return f"{cls}({self.domain!r} -> {self.codomain!r})"
-
-
-# -- parameter sources -------------------------------------------------------
 
 
 class _LookupSource(nn.Module):
@@ -229,12 +210,7 @@ class _NeuralSource(nn.Module):
     network with tanh activations.
     """
 
-    def __init__(
-        self,
-        input_dim: int,
-        param_dim: int,
-        hidden_dim: int = 64,
-    ) -> None:
+    def __init__(self, input_dim: int, param_dim: int, hidden_dim: int = 64) -> None:
         super().__init__()
         self.net = nn.Sequential(
             nn.Linear(input_dim, hidden_dim),
@@ -260,11 +236,7 @@ class _NeuralSource(nn.Module):
         return self.net(x)
 
 
-def _make_source(
-    domain: AnySpace,
-    param_dim: int,
-    hidden_dim: int = 64,
-) -> nn.Module:
+def _make_source(domain: AnySpace, param_dim: int, hidden_dim: int = 64) -> nn.Module:
     """Create an appropriate parameter source for the given domain.
 
     Parameters
@@ -283,12 +255,8 @@ def _make_source(
     """
     if isinstance(domain, SetObject):
         return _LookupSource(domain.size, param_dim)
-
     else:
         return _NeuralSource(cast(ContinuousSpace, domain).dim, param_dim, hidden_dim)
-
-
-# -- composition via sampling ------------------------------------------------
 
 
 class SampledComposition(ContinuousMorphism):
@@ -328,9 +296,7 @@ class SampledComposition(ContinuousMorphism):
         self.n_intermediate = n_intermediate
 
     def rsample(
-        self,
-        x: torch.Tensor,
-        sample_shape: torch.Size = torch.Size(),
+        self, x: torch.Tensor, sample_shape: torch.Size = torch.Size()
     ) -> torch.Tensor:
         """Ancestral sampling: y ~ f(x, .), then z ~ g(y, .).
 
@@ -346,48 +312,29 @@ class SampledComposition(ContinuousMorphism):
         torch.Tensor
             Samples from the composed morphism.
         """
-        # sample intermediate values from left morphism
         y = self.left.rsample(x, sample_shape)
-
-        # flatten sample_shape + batch into a single batch dim for right
         if len(sample_shape) > 0:
             leading = y.shape[: len(sample_shape)]
             batch = x.shape[0]
             flat_size = int(torch.tensor(leading).prod().item()) * batch
-
             if y.dim() > len(sample_shape) + 1:
-                # continuous intermediate: (..., batch, dim)
                 event_dims = y.shape[len(sample_shape) + 1 :]
                 flat_y = y.reshape(flat_size, *event_dims)
-
             else:
-                # discrete intermediate: (..., batch)
                 flat_y = y.reshape(flat_size)
-
         else:
             flat_y = y
-
-        # sample from right morphism
         z = self.right.rsample(flat_y)
-
-        # reshape back to (*sample_shape, batch, ...)
         if len(sample_shape) > 0:
             batch = x.shape[0]
-
             if z.dim() > 1:
                 event_dims = z.shape[1:]
                 z = z.reshape(*sample_shape, batch, *event_dims)
-
             else:
                 z = z.reshape(*sample_shape, batch)
-
         return z
 
-    def log_prob(
-        self,
-        x: torch.Tensor,
-        y: torch.Tensor,
-    ) -> torch.Tensor:
+    def log_prob(self, x: torch.Tensor, y: torch.Tensor) -> torch.Tensor:
         """Log-probability of y given x through the composition.
 
         When the intermediate space is discrete, computes the exact
@@ -406,114 +353,58 @@ class SampledComposition(ContinuousMorphism):
             Log-probabilities. Shape (batch,).
         """
         intermediate = self.left.codomain
-
         if isinstance(intermediate, SetObject):
             return self._log_prob_exact(x, y, intermediate)
-
         else:
             return self._log_prob_mc(x, y)
 
     def _log_prob_exact(
-        self,
-        x: torch.Tensor,
-        z: torch.Tensor,
-        intermediate: SetObject,
+        self, x: torch.Tensor, z: torch.Tensor, intermediate: SetObject
     ) -> torch.Tensor:
         """Exact log-prob via finite summation over discrete intermediate."""
         batch = x.shape[0]
         n_y = intermediate.size
-
-        # all possible intermediate values
         all_y = torch.arange(n_y, device=x.device)
-
-        # log f(y | x) for all y: (batch, n_y)
         x.unsqueeze(1).expand(
             batch if x.dim() == 1 else x.shape[0],
             n_y,
             *(() if x.dim() == 1 else x.shape[1:]),
         )
-
         if x.dim() == 1:
             x_flat = x.unsqueeze(1).expand(batch, n_y).reshape(-1)
-
         else:
             x_flat = (
-                x.unsqueeze(1)
-                .expand(
-                    batch,
-                    n_y,
-                    x.shape[-1],
-                )
-                .reshape(-1, x.shape[-1])
+                x.unsqueeze(1).expand(batch, n_y, x.shape[-1]).reshape(-1, x.shape[-1])
             )
-
         y_flat = all_y.unsqueeze(0).expand(batch, n_y).reshape(-1)
-
         log_f = self.left.log_prob(x_flat, y_flat).reshape(batch, n_y)
-
-        # log g(z | y) for all y: (batch, n_y)
         if z.dim() == 1:
             z_flat = z.unsqueeze(1).expand(batch, n_y).reshape(-1)
-
         else:
             z_flat = (
-                z.unsqueeze(1)
-                .expand(
-                    batch,
-                    n_y,
-                    z.shape[-1],
-                )
-                .reshape(-1, z.shape[-1])
+                z.unsqueeze(1).expand(batch, n_y, z.shape[-1]).reshape(-1, z.shape[-1])
             )
-
         log_g = self.right.log_prob(y_flat, z_flat).reshape(batch, n_y)
-
-        # log p(z | x) = log sum_y exp(log f(y|x) + log g(z|y))
         return torch.logsumexp(log_f + log_g, dim=1)
 
-    def _log_prob_mc(
-        self,
-        x: torch.Tensor,
-        z: torch.Tensor,
-    ) -> torch.Tensor:
+    def _log_prob_mc(self, x: torch.Tensor, z: torch.Tensor) -> torch.Tensor:
         """Monte Carlo estimate of log-prob via importance sampling."""
         n = self.n_intermediate
         batch = x.shape[0]
-
-        # draw intermediate samples: (n, batch, ...)
         y = self.left.rsample(x, torch.Size([n]))
-
-        # evaluate g(z | y_i) for each sample
         if y.dim() == 2:
-            # discrete or 1d intermediate: (n, batch)
             y_flat = y.reshape(n * batch)
-
         else:
             y_flat = y.reshape(n * batch, -1)
-
         if z.dim() == 1:
             z_flat = z.unsqueeze(0).expand(n, batch).reshape(n * batch)
-
         else:
-            z_flat = (
-                z.unsqueeze(0)
-                .expand(
-                    n,
-                    *z.shape,
-                )
-                .reshape(n * batch, -1)
-            )
-
+            z_flat = z.unsqueeze(0).expand(n, *z.shape).reshape(n * batch, -1)
         log_g = self.right.log_prob(y_flat, z_flat).reshape(n, batch)
-
-        # log-mean-exp for numerical stability
         return (
             torch.logsumexp(log_g, dim=0)
             - torch.tensor(float(n), device=x.device).log()
         )
-
-
-# -- product morphism --------------------------------------------------------
 
 
 class ProductContinuousMorphism(ContinuousMorphism):
@@ -534,16 +425,10 @@ class ProductContinuousMorphism(ContinuousMorphism):
         Right factor morphism.
     """
 
-    def __init__(
-        self,
-        left: ContinuousMorphism,
-        right: ContinuousMorphism,
-    ) -> None:
-
+    def __init__(self, left: ContinuousMorphism, right: ContinuousMorphism) -> None:
         dom = _combine_spaces(left.domain, right.domain)
         cod = _combine_spaces(left.codomain, right.codomain)
         super().__init__(dom, cod)
-
         self.left = left
         self.right = right
         self._left_dom_dim = _event_dim(left.domain)
@@ -552,60 +437,39 @@ class ProductContinuousMorphism(ContinuousMorphism):
         self._right_cod_dim = _event_dim(right.codomain)
 
     def rsample(
-        self,
-        x: torch.Tensor,
-        sample_shape: torch.Size = torch.Size(),
+        self, x: torch.Tensor, sample_shape: torch.Size = torch.Size()
     ) -> torch.Tensor:
         x_left, x_right = self._split_input(x)
-
         y_left = self.left.rsample(x_left, sample_shape)
         y_right = self.right.rsample(x_right, sample_shape)
-
-        # ensure both are at least 2d for concatenation
         if y_left.dim() < y_right.dim():
             y_left = y_left.unsqueeze(-1)
-
         elif y_right.dim() < y_left.dim():
             y_right = y_right.unsqueeze(-1)
-
         return torch.cat([y_left, y_right], dim=-1)
 
     def log_prob(self, x: torch.Tensor, y: torch.Tensor) -> torch.Tensor:
         x_left, x_right = self._split_input(x)
         y_left = y[..., : self._left_cod_dim]
         y_right = y[..., self._left_cod_dim :]
-
-        # reconstruct discrete indices if needed
         if _is_discrete(self.left.codomain):
             y_left = y_left.squeeze(-1).long()
-
         if _is_discrete(self.right.codomain):
             y_right = y_right.squeeze(-1).long()
-
         return self.left.log_prob(x_left, y_left) + self.right.log_prob(
             x_right, y_right
         )
 
-    def _split_input(
-        self,
-        x: torch.Tensor,
-    ) -> tuple[torch.Tensor, torch.Tensor]:
+    def _split_input(self, x: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
         """Split concatenated domain input into left and right parts."""
         d = self._left_dom_dim
         x_left = x[..., :d]
         x_right = x[..., d:]
-
-        # reconstruct discrete indices if needed
         if _is_discrete(self.left.domain):
             x_left = x_left.squeeze(-1).long()
-
         if _is_discrete(self.right.domain):
             x_right = x_right.squeeze(-1).long()
-
-        return x_left, x_right
-
-
-# -- fan-out (diagonal) morphism -----------------------------------------------
+        return (x_left, x_right)
 
 
 class FanOutMorphism(ContinuousMorphism):
@@ -629,34 +493,23 @@ class FanOutMorphism(ContinuousMorphism):
     def __init__(self, components: list[ContinuousMorphism]) -> None:
         if not components:
             raise ValueError("fan-out requires at least one component")
-
         domain = components[0].domain
-
-        # all components must share the same domain
         for i, c in enumerate(components[1:], 1):
             dom_dim = _event_dim(domain)
             c_dim = _event_dim(c.domain)
-
             if dom_dim != c_dim:
                 raise TypeError(
-                    f"fan-out: component {i} domain dim {c_dim} "
-                    f"!= component 0 domain dim {dom_dim}"
+                    f"fan-out: component {i} domain dim {c_dim} != component 0 domain dim {dom_dim}"
                 )
-
-        # build product codomain
         codomain = components[0].codomain
-
         for c in components[1:]:
             codomain = _combine_spaces(codomain, c.codomain)
-
         super().__init__(domain, codomain)
         self._components = torch.nn.ModuleList(components)
         self._cod_dims = [_event_dim(c.codomain) for c in components]
 
     def rsample(
-        self,
-        x: torch.Tensor,
-        sample_shape: torch.Size = torch.Size(),
+        self, x: torch.Tensor, sample_shape: torch.Size = torch.Size()
     ) -> torch.Tensor:
         """Sample from all components and concatenate outputs.
 
@@ -673,16 +526,11 @@ class FanOutMorphism(ContinuousMorphism):
             Concatenated outputs from all components.
         """
         outs = []
-
         for comp in self._components:
             y = cast(ContinuousMorphism, comp).rsample(x, sample_shape)
-
-            # ensure at least 2d for concatenation
             if y.dim() == 1:
                 y = y.unsqueeze(-1)
-
             outs.append(y)
-
         return torch.cat(outs, dim=-1)
 
     def log_prob(self, x: torch.Tensor, y: torch.Tensor) -> torch.Tensor:
@@ -702,21 +550,14 @@ class FanOutMorphism(ContinuousMorphism):
         """
         lp = torch.zeros(x.shape[0], device=x.device)
         offset = 0
-
         for comp_mod, d in zip(self._components, self._cod_dims):
             comp = cast(ContinuousMorphism, comp_mod)
             y_slice = y[..., offset : offset + d]
-
             if _is_discrete(comp.codomain):
                 y_slice = y_slice.squeeze(-1).long()
-
             lp = lp + comp.log_prob(x, y_slice)
             offset += d
-
         return lp
-
-
-# -- discrete-continuous bridge -----------------------------------------------
 
 
 class DiscreteAsContinuous(ContinuousMorphism):
@@ -744,11 +585,8 @@ class DiscreteAsContinuous(ContinuousMorphism):
 
         if not isinstance(inner, Morphism):
             raise TypeError(f"expected a discrete Morphism, got {type(inner).__name__}")
-
         super().__init__(inner.domain, inner.codomain)
         self._inner = inner
-
-        # register the inner morphism's module for parameter collection
         self._inner_module = inner.module()
 
     def log_prob(self, x: torch.Tensor, y: torch.Tensor) -> torch.Tensor:
@@ -768,12 +606,10 @@ class DiscreteAsContinuous(ContinuousMorphism):
         """
         t = self._inner.tensor
         probs = t[x.long(), y.long()]
-        return torch.log(probs.clamp(min=1e-7))
+        return torch.log(probs.clamp(min=1e-07))
 
     def rsample(
-        self,
-        x: torch.Tensor,
-        sample_shape: torch.Size = torch.Size(),
+        self, x: torch.Tensor, sample_shape: torch.Size = torch.Size()
     ) -> torch.Tensor:
         """Sample from the categorical distribution defined by the tensor.
 
@@ -793,28 +629,15 @@ class DiscreteAsContinuous(ContinuousMorphism):
             Sampled codomain indices. Shape (*sample_shape, batch).
         """
         t = self._inner.tensor
-        probs = t[x.long()]  # (batch, codomain_size)
-
+        probs = t[x.long()]
         n_samples = (
             int(torch.Size(sample_shape).numel()) if len(sample_shape) > 0 else 1
         )
-
-        # sample with replacement
-        samples = torch.multinomial(
-            probs,
-            n_samples,
-            replacement=True,
-        )  # (batch, n_samples)
-
+        samples = torch.multinomial(probs, n_samples, replacement=True)
         if len(sample_shape) == 0:
             return samples.squeeze(-1)
-
         else:
-            # reshape to (*sample_shape, batch)
             return samples.T.reshape(*sample_shape, -1)
-
-
-# -- helpers ------------------------------------------------------------------
 
 
 def _event_dim(space: AnySpace) -> int:
@@ -824,7 +647,6 @@ def _event_dim(space: AnySpace) -> int:
     """
     if isinstance(space, ContinuousSpace):
         return space.dim
-
     return 1
 
 
@@ -839,7 +661,6 @@ def _combine_spaces(a: AnySpace, b: AnySpace) -> AnySpace:
     def _as_continuous(s: AnySpace) -> ContinuousSpace:
         if isinstance(s, ContinuousSpace):
             return s
+        return Euclidean(name=f"idx({s!r})", dim=1)
 
-        return Euclidean(f"idx({s!r})", 1)
-
-    return ProductSpace(_as_continuous(a), _as_continuous(b))
+    return ProductSpace(components=(_as_continuous(a), _as_continuous(b)))
