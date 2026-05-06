@@ -67,3 +67,18 @@ ignore = ["E741"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+
+[tool.pyright]
+include = ["src/quivers"]
+pythonVersion = "3.14"
+# torch's __all__ omits most of its public surface, so every torch.*
+# access trips reportPrivateImportUsage. This is upstream torch typing
+# behaviour, not a quivers concern.
+reportPrivateImportUsage = "none"
+# didactic's dx.Model field descriptors widen access to the FieldValue
+# union (str | int | float | bytes | Decimal | tuple[FieldValue, ...]),
+# which pyright cannot narrow back to the declared annotation without
+# explicit casts at every call site. Suppress until didactic ships
+# typed field descriptors.
+reportArgumentType = "none"
+reportOperatorIssue = "none"
