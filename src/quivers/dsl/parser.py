@@ -47,7 +47,6 @@ from quivers.dsl.ast_nodes import (
     ObjectDecl,
     OutputDecl,
     ProgramDecl,
-    ProgramStep,
     QuantaleDecl,
     RuleDecl,
     SpaceConstructor,

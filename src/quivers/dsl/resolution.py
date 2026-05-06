@@ -20,11 +20,11 @@ verbatim. Round-trip laws hold by construction:
 - ``backward(*forward(t)) == t`` (GetPut)
 - ``forward(backward(s, c)) == (s, c)`` (PutGet)
 
-didactic 0.6.0's :class:`~didactic.api.Lens` is the pure-Python lens
-authoring surface; the panproto-side wiring (compiling each lens to a
-``panproto.Lens`` so the laws are checked against a runnable panproto)
-lands later. Until then, lenses behave as regular Python objects with
-``forward``/``backward`` methods.
+:class:`didactic.api.Lens` is a pure-Python authoring surface; the
+panproto-side compilation (each ``Lens`` becoming a ``panproto.Lens``
+with formal complement-bearing get/put and runtime law-checking) is a
+later didactic feature. Today these lenses behave as ordinary Python
+objects with ``forward`` / ``backward`` methods and ``>>`` composition.
 """
 
 import didactic.api as dx
@@ -53,8 +53,6 @@ from quivers.dsl.ast_nodes import (
     TypeName,
     TypeProduct,
 )
-# TypeName is imported for its role as a TypeExpr variant; not used as a
-# space-expression variant in the migrated AST.
 
 
 __all__ = [

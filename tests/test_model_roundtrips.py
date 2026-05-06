@@ -5,9 +5,9 @@ roundtrip fixture dumps it to JSON, validates back from JSON, and asserts
 equality. This pins didactic's serialization contract for the migrated
 classes and surfaces any encoding/decoding asymmetries.
 
-didactic 0.5.0 uses the union root's :py:meth:`model_validate_json` for
-TaggedUnion dispatch on the ``kind`` discriminator; flat dx.Model
-subclasses use their own.
+For TaggedUnion variants the round-trip goes through the union root's
+:py:meth:`model_validate_json`, exercising the ``kind`` discriminator
+dispatch; flat :class:`dx.Model` subclasses validate against themselves.
 """
 
 import pytest

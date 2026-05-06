@@ -10,15 +10,53 @@ based) morphisms, including stochastic (Markov kernels), boundary
 """
 from __future__ import annotations
 from collections.abc import Callable
-from typing import cast
 import torch
 from quivers.continuous.spaces import ContinuousSpace
 from quivers.continuous.morphisms import AnySpace
-from quivers.core.objects import SetObject, FinSet, ProductSet, CoproductSet
+from quivers.core.objects import SetObject, FinSet, ProductSet
 from quivers.core.quantales import Quantale, PRODUCT_FUZZY, BOOLEAN
 from quivers.core.morphisms import morphism as make_latent, identity as make_identity
 from quivers.program import Program
-from quivers.dsl.ast_nodes import Module, Statement, QuantaleDecl, CategoryDecl, RuleDecl, ObjectDecl, MorphismDecl, SpaceDecl, ContinuousMorphismDecl, StochasticMorphismDecl, DiscretizeDecl, EmbedDecl, LetStep, LetExprBinOp, LetExprUnaryOp, LetExprCall, LetExprLiteral, LetExprVar, LetExprNode, ProgramDecl, LetDecl, OutputDecl, TypeExpr, TypeName, TypeProduct, TypeCoproduct, SpaceExpr, SpaceConstructor, SpaceName, SpaceProduct, Expr, ExprIdent, ExprIdentity, ExprCompose, ExprTensorProduct, ExprMarginalize, ExprFan, ExprRepeat, ExprStack, ExprScan, ExprParser
+from quivers.dsl.ast_nodes import (
+    Module,
+    Statement,
+    QuantaleDecl,
+    CategoryDecl,
+    RuleDecl,
+    ObjectDecl,
+    MorphismDecl,
+    SpaceDecl,
+    ContinuousMorphismDecl,
+    StochasticMorphismDecl,
+    DiscretizeDecl,
+    EmbedDecl,
+    LetStep,
+    LetExprBinOp,
+    LetExprUnaryOp,
+    LetExprCall,
+    LetExprLiteral,
+    LetExprVar,
+    LetExprNode,
+    ProgramDecl,
+    LetDecl,
+    OutputDecl,
+    TypeExpr,
+    TypeName,
+    TypeProduct,
+    SpaceExpr,
+    SpaceConstructor,
+    Expr,
+    ExprIdent,
+    ExprIdentity,
+    ExprCompose,
+    ExprTensorProduct,
+    ExprMarginalize,
+    ExprFan,
+    ExprRepeat,
+    ExprStack,
+    ExprScan,
+    ExprParser,
+)
 _QUANTALE_REGISTRY: dict[str, Quantale] = {'product_fuzzy': PRODUCT_FUZZY, 'boolean': BOOLEAN}
 
 def _register_extra_quantales() -> None:

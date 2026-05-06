@@ -192,11 +192,20 @@ QVR_PROGRAM_PROTOCOL: panproto.Protocol = panproto.define_protocol(
 
 
 class _SchemaWriter:
-    """Helper that emits set-object / space subgraphs into a SchemaBuilder."""
+    """Helper that emits set-object / space subgraphs into a SchemaBuilder.
+
+    Each emitted SetObject / ContinuousSpace instance gets its own vertex,
+    keyed in the cache by Python object identity. Structural deduplication
+    (one vertex per ``__eq__``-equivalent value) would collapse the
+    components of e.g. ``ProductSet(components=(N, N))`` into a single
+    target — and ``component`` edges between the same source and target
+    can't repeat under panproto's edge-set semantics — so we keep distinct
+    occurrences distinct.
+    """
 
     def __init__(self, builder: panproto.SchemaBuilder) -> None:
         self._builder = builder
-        self._object_ids: dict[int, str] = {}  # by id(value)
+        self._object_ids: dict[int, str] = {}
         self._counter = 0
 
     def _fresh(self, prefix: str) -> str:

@@ -461,7 +461,14 @@ class ProgramDecl(Statement):
 
 
 class LetDecl(Statement):
-    """Let binding: ``let <name> = <expr> [where let_decl+]``."""
+    """Let binding: ``let <name> = <expr> [where let_decl+]``.
+
+    The optional ``where`` clause carries nested :class:`LetDecl`
+    statements; the field is typed as ``tuple[Statement, ...]`` (the
+    union root) because didactic does not yet accept self-referential
+    forward refs in field annotations. The parser only ever writes
+    :class:`LetDecl` instances into the tuple.
+    """
 
     name: str
     expr: Expr

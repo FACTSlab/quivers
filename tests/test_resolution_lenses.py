@@ -112,10 +112,22 @@ def test_space_lens_roundtrip(path: Path) -> None:
 
 def test_lens_class_metadata() -> None:
     """The lens classes expose ``__source__`` and ``__target__`` on the
-    instances they construct, per ``didactic.api.Lens``'s
-    ``__init_subclass__`` contract."""
-    # The base ``didactic.api.Lens`` records source/target at subclass
-    # time when declared as ``Lens[A, B]``; our lenses use 3-arg form
-    # so source/target are recorded but C is the complement.
-    assert TypeExprToSetObject.__source__ is not None
-    assert TypeExprToSetObject.__target__ is not None
+    classes themselves, per ``didactic.api.Lens``'s
+    ``__init_subclass__`` contract.
+
+    ``didactic.api.Lens.__init_subclass__`` walks ``__orig_bases__`` for a
+    ``Lens[A, B, C]`` parameterisation and records ``A`` as
+    ``__source__`` and ``B`` as ``__target__`` only when each is a
+    plain class. Union-typed targets (e.g.
+    ``ContinuousSpace | SetObject``) record as ``None``; that's the
+    case for :class:`SpaceExprToContinuousSpace`.
+    """
+    from quivers.core.objects import SetObject
+    from quivers.dsl.ast_nodes import SpaceExpr, TypeExpr
+
+    assert TypeExprToSetObject.__source__ is TypeExpr
+    assert TypeExprToSetObject.__target__ is SetObject
+    assert SpaceExprToContinuousSpace.__source__ is SpaceExpr
+    # target is a Union[ContinuousSpace, SetObject]; not a single class,
+    # so didactic records None.
+    assert SpaceExprToContinuousSpace.__target__ is None
