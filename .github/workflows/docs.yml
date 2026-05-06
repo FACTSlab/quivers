@@ -22,7 +22,7 @@ jobs:
         with:
           python-version: "3.14"
       - run: pip install -e ".[docs]"
-      - run: mkdocs build
+      - run: mkdocs build --strict
       - uses: actions/upload-pages-artifact@v3
         with:
           path: site/
