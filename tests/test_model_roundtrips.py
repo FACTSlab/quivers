@@ -77,8 +77,10 @@ from quivers.stochastic._rule_system import RuleSystem
 # core/objects
 from quivers.core.objects import (
     CoproductSet,
+    EnumSet,
     FinSet,
     FreeMonoid,
+    FreeResiduated,
     ProductSet,
     SetObject,
 )
@@ -216,6 +218,8 @@ _FINSET = FinSet(name="X", cardinality=4)
 _PRODUCT_SET = ProductSet(components=(_FINSET, FinSet(name="Y", cardinality=3)))
 _COPRODUCT_SET = CoproductSet(components=(_FINSET, _FINSET))
 _FREE_MONOID = FreeMonoid(generators=_FINSET, max_length=2)
+_ENUM_SET = EnumSet(name="Atoms", elements=("NP", "S", "VP"))
+_FREE_RES = FreeResiduated(generators=_ENUM_SET, depth=1, ops=("slash",))
 
 # EmptySet (categorical/monoidal)
 _EMPTY = EmptySet()
@@ -300,6 +304,8 @@ CASES: list[tuple[type, object]] = [
     (SetObject, _PRODUCT_SET),
     (SetObject, _COPRODUCT_SET),
     (SetObject, _FREE_MONOID),
+    (SetObject, _ENUM_SET),
+    (SetObject, _FREE_RES),
     (SetObject, _EMPTY),
     # continuous spaces
     (ContinuousSpace, _EUCLID),
