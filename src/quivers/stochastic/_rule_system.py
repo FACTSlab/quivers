@@ -143,7 +143,7 @@ class RuleSystem(dx.Model):
                 f"counts: {self.n_categories} vs {other.n_categories}"
             )
 
-        seen_binary: dict[tuple[int, int, int], float] = {}
+        seen_binary: dict[tuple[int, ...], float] = {}
         for i, rule in enumerate(self.binary_rules):
             w = self.binary_weights[i] if self.binary_weights else 0.0
             seen_binary[rule] = w
@@ -152,7 +152,7 @@ class RuleSystem(dx.Model):
                 w = other.binary_weights[i] if other.binary_weights else 0.0
                 seen_binary[rule] = w
 
-        seen_unary: dict[tuple[int, int], float] = {}
+        seen_unary: dict[tuple[int, ...], float] = {}
         for i, rule in enumerate(self.unary_rules):
             w = self.unary_weights[i] if self.unary_weights else 0.0
             seen_unary[rule] = w
