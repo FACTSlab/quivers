@@ -59,6 +59,9 @@ Changelog = "https://github.com/FACTSlab/quivers/blob/main/CHANGELOG.md"
 [project.entry-points."pygments.lexers"]
 qvr = "quivers.dsl.pygments_lexer:QvrLexer"
 
+[project.scripts]
+qvr = "quivers.cli:main"
+
 [tool.hatch.build.targets.wheel]
 packages = ["src/quivers"]
 

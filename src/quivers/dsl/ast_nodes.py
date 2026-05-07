@@ -423,6 +423,7 @@ class SchemaDecl(Statement):
     parameter_types: tuple[TypeExpr, ...]
     domain: TypeExpr
     codomain: TypeExpr
+    docs: tuple[str, ...] = ()
     line: int = 0
     col: int = 0
     kind: Literal["schema_decl"] = "schema_decl"
@@ -480,11 +481,15 @@ class ObjectDecl(Statement):
       ``init`` carries an :class:`EnumSetLiteral`; ``type_expr`` is None.
     - ``object Cat = FreeResiduated(Atoms, depth=4)`` — residuated
       category universe. ``init`` carries a :class:`FreeResiduatedExpr`.
+
+    Doc comments (``##``-prefixed lines) immediately preceding the
+    declaration are accumulated into :attr:`docs`.
     """
 
     name: str
     type_expr: TypeExpr | None = None
     init: ObjectInitializer | None = None
+    docs: tuple[str, ...] = ()
     line: int = 0
     col: int = 0
     kind: Literal["object_decl"] = "object_decl"
@@ -504,6 +509,7 @@ class MorphismDecl(Statement):
     codomain: TypeExpr
     init_expr: Expr | None = None
     options: dict[str, str] = dx.field(default_factory=dict)
+    docs: tuple[str, ...] = ()
     line: int = 0
     col: int = 0
     kind: Literal["morphism_decl"] = "morphism_decl"
@@ -517,6 +523,51 @@ class SpaceDecl(Statement):
     line: int = 0
     col: int = 0
     kind: Literal["space_decl"] = "space_decl"
+
+
+class TypeAliasDecl(Statement):
+    """Space-level alias declaration: ``type Latent = Euclidean(16)``."""
+
+    name: str
+    space_expr: SpaceExpr
+    line: int = 0
+    col: int = 0
+    kind: Literal["type_alias_decl"] = "type_alias_decl"
+
+
+class AliasDecl(Statement):
+    """Object-level type alias: ``alias Sentence = Cat / NP``.
+
+    Binds ``name`` to the resolved :class:`SetObject` of ``type_expr``
+    in the compiler's object environment. The alias is transparent:
+    every later occurrence of ``name`` resolves to the underlying
+    object, with no reference-counting or recursion bound.
+    """
+
+    name: str
+    type_expr: TypeExpr
+    docs: tuple[str, ...] = ()
+    line: int = 0
+    col: int = 0
+    kind: Literal["alias_decl"] = "alias_decl"
+
+
+class BundleDecl(Statement):
+    """First-class schema-bundle binding.
+
+    Surface form: ``bundle CCG = [forward_app, backward_app,
+    harmonic_composition]``. Binds ``name`` to a tuple of schema
+    references; ``parser(rules=CCG, ...)`` and
+    ``chart_fold(binary=CCG, ...)`` resolve the bundle by name and
+    splice its members into the rule list.
+    """
+
+    name: str
+    rules: tuple[str, ...]
+    docs: tuple[str, ...] = ()
+    line: int = 0
+    col: int = 0
+    kind: Literal["bundle_decl"] = "bundle_decl"
 
 
 class ContinuousMorphismDecl(Statement):
@@ -579,6 +630,7 @@ class ProgramDecl(Statement):
     draws: tuple[ProgramStep, ...]
     return_vars: tuple[str, ...]
     return_labels: tuple[str, ...] | None = None
+    docs: tuple[str, ...] = ()
     line: int = 0
     col: int = 0
     kind: Literal["program_decl"] = "program_decl"

@@ -273,6 +273,57 @@ let grammar = parser(
 )
 ```
 
+### Doc Comments
+
+Lines starting with `##` are *doc comments*: they're attached to the
+declaration that immediately follows and surface through the AST,
+the panproto schema, and tooling (`qvr check --json`, future LSP
+hover). Plain `#` line comments are dropped at parse time.
+
+```qvr
+## The terminal vocabulary; cardinality 256 is one byte.
+object Token : 256
+
+## Forward application: (X/Y) * Y -> X.
+schema forward_app[X, Y : Cat] : (X/Y) * Y -> X
+```
+
+Doc comments are recognised on `object`, `morphism`, `schema`,
+`alias`, `bundle`, and `program` declarations.
+
+### Alias
+
+`alias` declarations bind a short name to a type-level expression:
+
+```qvr
+## A short alias for the cartesian product of inputs.
+alias Pair = X * Y
+
+## A residuated pattern reused across schemas.
+alias Sentence = S \ NP
+```
+
+Object-shaped aliases (resolvable to a `SetObject`) are interchangeable
+with the underlying object — `latent f : Pair -> X` works. Residuated
+patterns are stored as syntactic aliases and substituted at schema
+use-sites; they cannot stand on their own as morphism domains.
+
+### Bundle
+
+`bundle` declarations name a tuple of rule references that
+`parser(rules=…)` and `chart_fold(binary=…)` splice into the rule
+list:
+
+```qvr
+## CCG core bundle.
+bundle CCG = [forward_app, backward_app, harmonic_composition]
+
+let grammar = parser(rules=[CCG], terminal=Token, start=S)
+```
+
+Bundles can reference other bundles; the expander detects cycles and
+reports them as `CompileError: bundle cycle through ...`.
+
 ### Object
 
 Three surface forms:

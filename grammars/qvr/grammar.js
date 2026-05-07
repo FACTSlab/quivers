@@ -31,7 +31,7 @@ const PREC = {
 module.exports = grammar({
   name: 'qvr',
 
-  extras: $ => [/\s/, $.line_comment],
+  extras: $ => [/\s/, $.doc_comment, $.line_comment],
 
   word: $ => $.identifier,
 
@@ -52,6 +52,8 @@ module.exports = grammar({
       $.morphism_decl,
       $.space_decl,
       $.type_alias_decl,
+      $.alias_decl,
+      $.bundle_decl,
       $.continuous_decl,
       $.stochastic_decl,
       $.discretize_decl,
@@ -245,11 +247,34 @@ module.exports = grammar({
     ),
 
     // ML-style: `type Latent = Euclidean 16`
+    // ML-style: `type Latent = Euclidean 16`
     type_alias_decl: $ => seq(
       'type',
       field('name', $.identifier),
       '=',
       field('value', $._space_expr),
+    ),
+
+    // `alias Foo = X * Y` — object-level type alias. Distinct keyword
+    // from `type` to keep the parse unambiguous between the
+    // overlapping type_atom and space_atom productions.
+    alias_decl: $ => seq(
+      'alias',
+      field('name', $.identifier),
+      '=',
+      field('value', $._type_expr),
+    ),
+
+    // `bundle CCG = [forward_app, backward_app]` — first-class
+    // schema-bundle binding. parser(rules=CCG) and chart_fold's
+    // schema-set arguments accept the bundle by name.
+    bundle_decl: $ => seq(
+      'bundle',
+      field('name', $.identifier),
+      '=',
+      '[',
+      optional(field('rules', commaSep1($.identifier))),
+      ']',
     ),
 
     _space_expr: $ => choice(
@@ -635,6 +660,12 @@ module.exports = grammar({
     // tokens
     // ---------------------------------------------------------------
 
+    // `## …` doc comments are extracted into the AST and forwarded
+    // into the program-theory schema metadata. Standalone `#` line
+    // comments are dropped at parse time. The `##` form must be
+    // matched before the bare `#` line_comment so the lexer doesn't
+    // greedy-eat the second `#` as part of a regular comment.
+    doc_comment:  _ => token(prec(1, seq('##', /[^\n]*/))),
     line_comment: _ => token(seq('#', /[^\n]*/)),
 
     identifier: _ => /[A-Za-z_][A-Za-z0-9_]*/,

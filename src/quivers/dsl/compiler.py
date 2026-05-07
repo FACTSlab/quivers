@@ -29,6 +29,8 @@ from quivers.dsl.ast_nodes import (
     SpaceDecl,
     ContinuousMorphismDecl,
     StochasticMorphismDecl,
+    AliasDecl,
+    BundleDecl,
     DiscretizeDecl,
     EmbedDecl,
     EnumSetLiteral,
@@ -244,6 +246,9 @@ class Compiler:
         self._quantale: Quantale = PRODUCT_FUZZY
         self._categories: list[str] = []
         self._rules: dict = {}
+        self._bundles: dict[str, tuple[str, ...]] = {}
+        self._aliases: dict[str, TypeExpr] = {}
+        self._alias_names: set[str] = set()
         self._objects: dict[str, SetObject] = {}
         self._spaces: dict = {}
         self._morphisms: dict = {}
@@ -336,6 +341,10 @@ class Compiler:
             self._compile_rule(stmt)
         elif isinstance(stmt, SchemaDecl):
             self._compile_schema(stmt)
+        elif isinstance(stmt, AliasDecl):
+            self._compile_alias(stmt)
+        elif isinstance(stmt, BundleDecl):
+            self._compile_bundle(stmt)
         elif isinstance(stmt, ObjectDecl):
             self._compile_object(stmt)
         elif isinstance(stmt, MorphismDecl):
@@ -488,6 +497,73 @@ class Compiler:
             )
 
         self._rules[decl.name] = schema
+
+    def _compile_alias(self, decl) -> None:
+        """Compile an ``alias Foo = ...`` type-level alias.
+
+        Two cases:
+
+        - The right-hand side resolves cleanly as a :class:`SetObject`
+          (TypeName / TypeProduct / TypeCoproduct over named objects).
+          The alias binds to that SetObject in :attr:`self._objects`,
+          so ``Foo`` is usable wherever an ordinary object reference
+          is — `latent f : Foo -> Bar`, `parser(rules=..., terminal=Foo)`
+          etc.
+        - The right-hand side is a residuated pattern (TypeSlash /
+          TypeEffectApply) or otherwise fails SetObject resolution.
+          The alias is recorded in :attr:`self._aliases` for textual
+          substitution at use site (inside schema patterns).
+        """
+        if decl.name in self._alias_names:
+            raise CompileError(
+                f"alias {decl.name!r} already declared",
+                decl.line,
+                decl.col,
+            )
+        if decl.name in self._objects:
+            raise CompileError(
+                f"alias {decl.name!r} shadows an existing object",
+                decl.line,
+                decl.col,
+            )
+        self._alias_names.add(decl.name)
+        try:
+            resolved = self._resolve_type(decl.type_expr, decl.name)
+        except TypeError, KeyError:
+            # Residuated / effect-typed RHS: record as a syntactic
+            # alias for substitution at schema-pattern use site.
+            self._aliases[decl.name] = decl.type_expr
+            return
+        self._objects[decl.name] = resolved
+
+    def _compile_bundle(self, decl) -> None:
+        """Compile a ``bundle CCG = [r1, r2, ...]`` rule bundle.
+
+        Each entry must resolve at compile time as either a previously-
+        declared rule / schema or as a built-in entry of
+        :data:`SCHEMA_REGISTRY`. The bundle is recorded under its name
+        in ``self._bundles`` so ``parser(rules=CCG)`` and
+        ``chart_fold(binary=CCG)`` can splice its members.
+        """
+        from quivers.stochastic.schema import SCHEMA_REGISTRY
+
+        if decl.name in self._bundles:
+            raise CompileError(
+                f"bundle {decl.name!r} already declared",
+                decl.line,
+                decl.col,
+            )
+        if decl.name in self._rules or decl.name in SCHEMA_REGISTRY:
+            raise CompileError(
+                f"bundle {decl.name!r} shadows a rule / built-in schema",
+                decl.line,
+                decl.col,
+            )
+        # Member references are resolved lazily at use-site (in the
+        # parser-rules expander) so that bundles can forward-reference
+        # other bundles. Cycles surface as ``cycle through ...`` errors
+        # at expansion time.
+        self._bundles[decl.name] = tuple(decl.rules)
 
     def _compile_object(self, decl: ObjectDecl) -> None:
         """Compile an object declaration into the environment.
@@ -1333,7 +1409,31 @@ class Compiler:
 
             schemas: list = []
             morphisms: list = []
+
+            def _expand(name: str, seen: frozenset[str]) -> list[str]:
+                """Recursively expand a bundle reference into rule names.
+
+                Cycle detection: if ``name`` already appears in ``seen``,
+                raises CompileError.
+                """
+                if name not in self._bundles:
+                    return [name]
+                if name in seen:
+                    raise CompileError(
+                        f"bundle cycle through {name!r}",
+                        expr.line,
+                        expr.col,
+                    )
+                expanded: list[str] = []
+                for member in self._bundles[name]:
+                    expanded.extend(_expand(member, seen | {name}))
+                return expanded
+
+            resolved_rules: list[str] = []
             for rule_name in expr.rules:
+                resolved_rules.extend(_expand(rule_name, frozenset()))
+
+            for rule_name in resolved_rules:
                 if rule_name in self._rules:
                     schemas.append(self._rules[rule_name])
                 elif (schema_obj := SCHEMA_REGISTRY.get(rule_name)) is not None:

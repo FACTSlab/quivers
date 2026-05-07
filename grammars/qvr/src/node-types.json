@@ -1,5 +1,51 @@
 [
   {
+    "type": "alias_decl",
+    "named": true,
+    "fields": {
+      "name": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "identifier",
+            "named": true
+          }
+        ]
+      },
+      "value": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "type_atom",
+            "named": true
+          },
+          {
+            "type": "type_coproduct",
+            "named": true
+          },
+          {
+            "type": "type_effect_apply",
+            "named": true
+          },
+          {
+            "type": "type_paren",
+            "named": true
+          },
+          {
+            "type": "type_product",
+            "named": true
+          },
+          {
+            "type": "type_slash",
+            "named": true
+          }
+        ]
+      }
+    }
+  },
+  {
     "type": "arrow_draw_step",
     "named": true,
     "fields": {
@@ -35,6 +81,36 @@
         "multiple": false,
         "required": true,
         "types": [
+          {
+            "type": "identifier",
+            "named": true
+          }
+        ]
+      }
+    }
+  },
+  {
+    "type": "bundle_decl",
+    "named": true,
+    "fields": {
+      "name": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "identifier",
+            "named": true
+          }
+        ]
+      },
+      "rules": {
+        "multiple": true,
+        "required": false,
+        "types": [
+          {
+            "type": ",",
+            "named": false
+          },
           {
             "type": "identifier",
             "named": true
@@ -2394,6 +2470,14 @@
       "required": false,
       "types": [
         {
+          "type": "alias_decl",
+          "named": true
+        },
+        {
+          "type": "bundle_decl",
+          "named": true
+        },
+        {
           "type": "category_decl",
           "named": true
         },
@@ -3389,7 +3473,15 @@
     "named": false
   },
   {
+    "type": "alias",
+    "named": false
+  },
+  {
     "type": "binary",
+    "named": false
+  },
+  {
+    "type": "bundle",
     "named": false
   },
   {
@@ -3431,6 +3523,11 @@
   {
     "type": "discretize",
     "named": false
+  },
+  {
+    "type": "doc_comment",
+    "named": true,
+    "extra": true
   },
   {
     "type": "draw",

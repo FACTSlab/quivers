@@ -8,6 +8,7 @@
   "quantale"
   "category"
   "rule"
+  "schema"
   "object"
   "let"
   "output"
@@ -35,7 +36,12 @@
   "parser"
   "ccg"
   "lambek"
+  "chart_fold"
   "marginalize"
+  "curry_right"
+  "curry_left"
+  "FreeResiduated"
+  "FreeMonoid"
 ] @function.builtin
 
 (let_call func: _ @function.builtin)
@@ -72,6 +78,8 @@
 (object_decl   name: (identifier) @type)
 (rule_decl     name: (identifier) @function)
 (rule_decl     variables: (identifier) @variable.parameter)
+(schema_decl   name: (identifier) @function)
+(schema_parameter names: (identifier) @variable.parameter)
 (morphism_decl name: (identifier) @function)
 (let_decl      name: (identifier) @function)
 (continuous_decl name: (identifier) @function)
@@ -81,6 +89,9 @@
 (program_decl  name: (identifier) @function)
 (space_decl    name: (identifier) @type)
 (type_alias_decl name: (identifier) @type)
+(enum_set_literal elements: (identifier) @constant)
+(free_residuated_expr generators: (identifier) @type)
+(free_monoid_expr generators: (identifier) @type)
 
 (space_constructor       constructor: (identifier) @type.builtin)
 (space_constructor_bare  constructor: (identifier) @type.builtin)

@@ -183,7 +183,9 @@ nav:
       - AST Nodes: api/dsl/ast_nodes.md
       - Compiler: api/dsl/compiler.md
       - Resolution Lenses: api/dsl/resolution.md
+      - Constraint Solver: api/dsl/constraints.md
       - Program Theory: api/dsl/program_theory.md
+    - CLI: api/cli.md
     - Inference:
       - Trace: api/inference/trace.md
       - Conditioning: api/inference/conditioning.md

@@ -15,6 +15,8 @@ from typing import Literal
 import panproto
 
 from quivers.dsl.ast_nodes import (
+    AliasDecl,
+    BundleDecl,
     CategoryDecl,
     ContinuousMorphismDecl,
     DiscretizeDecl,
@@ -764,6 +766,26 @@ def _walk_statement(t: _Tree, vid: str) -> Statement | list[Statement]:
             line=line,
             col=col,
         )
+    if k == "alias_decl":
+        nv = t.field(vid, "name")
+        vv = t.field(vid, "value")
+        if vv is None:
+            raise ParseError(f"alias_decl missing value at {vid}")
+        return AliasDecl(
+            name=_required_text(t, nv, vid, "name"),
+            type_expr=_walk_type(t, vv),
+            line=line,
+            col=col,
+        )
+    if k == "bundle_decl":
+        nv = t.field(vid, "name")
+        rule_vids = t.fields(vid, "rules")
+        return BundleDecl(
+            name=_required_text(t, nv, vid, "name"),
+            rules=tuple(t.text(r) for r in rule_vids),
+            line=line,
+            col=col,
+        )
     if k == "continuous_decl":
         rep_vid = t.field(vid, "replicate")
         replicate = int(t.text(t.positional(rep_vid)[0])) if rep_vid else None
@@ -1062,15 +1084,48 @@ def parse(source: str | bytes, file_path: str = "<source>") -> Module:
         raise ParseError(f"panproto schema has no source_file vertex for {file_path}")
 
     statements: list[Statement] = []
+    pending_docs: list[str] = []
     for child in tree.positional(root_id):
-        if tree.kind(child) == "line_comment":
+        ckind = tree.kind(child)
+        if ckind == "line_comment":
+            # plain `# ...` comments are dropped at parse time
+            continue
+        if ckind == "doc_comment":
+            # `## ...` doc comments are accumulated; attached to the
+            # next statement that carries a docs field.
+            text = tree.text(child)
+            stripped = text[2:].lstrip() if text.startswith("##") else text
+            pending_docs.append(stripped.rstrip())
             continue
         result = _walk_statement(tree, child)
-        if isinstance(result, list):
-            statements.extend(result)
-        else:
-            statements.append(result)
+        results = result if isinstance(result, list) else [result]
+        if pending_docs:
+            docs = tuple(pending_docs)
+            results = [_attach_docs(s, docs) for s in results]
+            pending_docs = []
+        statements.extend(results)
     return Module(statements=tuple(statements))
+
+
+def _attach_docs(stmt: Statement, docs: tuple[str, ...]) -> Statement:
+    """Attach accumulated ``##`` doc-comment lines to a Statement.
+
+    Returns a copy of ``stmt`` with its ``docs`` field extended;
+    Statement variants that lack a ``docs`` field are returned
+    unchanged. didactic Models are immutable; :meth:`Model.with_` is
+    the field-replacement constructor.
+    """
+    # `docs` is a declared field on a fixed subset of Statement
+    # variants (ObjectDecl, MorphismDecl, SchemaDecl, ProgramDecl,
+    # AliasDecl, BundleDecl). Probe via the class's field-spec
+    # registry rather than instance __getattr__, since dx.Model's
+    # attribute fall-through raises AttributeError on undeclared
+    # field accesses.
+    fields = getattr(type(stmt), "__field_specs__", None)
+    if fields is None or "docs" not in fields:
+        return stmt
+    existing = stmt.docs  # type: ignore[attr-defined]
+    return stmt.with_(docs=tuple(existing) + docs)  # type: ignore[attr-defined]
 
 
 def parse_file(path: str | Path) -> Module:
