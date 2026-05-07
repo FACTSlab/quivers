@@ -21,12 +21,12 @@ gives a verifiable interpretation chain.
 
 References
 ----------
-- Plotkin, G. and Power, J. (2003). *Algebraic Operations and Generic
-  Effects*. Applied Categorical Structures, 11(1), 69–94.
-- Bauer, A. and Pretnar, M. (2015). *Programming with Algebraic Effects
-  and Handlers*. Journal of Logical and Algebraic Methods in
-  Programming, 84(1), 108–123.
-  [doi:10.1016/j.jlamp.2014.02.001](https://doi.org/10.1016/j.jlamp.2014.02.001)
+- Plotkin, G. and Power, J. (2003). *Algebraic operations and generic
+  effects*. Applied Categorical Structures, 11(1), 69–94.
+  doi:10.1023/A:1023064908962.
+- Bauer, A. and Pretnar, M. (2015). *Programming with algebraic
+  effects and handlers*. Journal of Logical and Algebraic Methods in
+  Programming, 84(1), 108–123. doi:10.1016/j.jlamp.2014.02.001.
 """
 
 from __future__ import annotations

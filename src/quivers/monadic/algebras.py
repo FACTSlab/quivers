@@ -38,7 +38,7 @@ import torch
 from quivers.core.objects import SetObject
 from quivers.core.morphisms import Morphism, observed, identity
 from quivers.core.quantales import PRODUCT_FUZZY, Quantale
-from quivers.monadic.monads import Monad
+from quivers.monadic.typeclasses import Monad
 
 
 class Algebra(ABC):

@@ -459,6 +459,16 @@ class FreeResiduatedExpr(ObjectInitializer):
     kind: Literal["free_residuated_expr"] = "free_residuated_expr"
 
 
+class FreeMonoidExpr(ObjectInitializer):
+    """A ``FreeMonoid(generators, max_length=)`` initializer."""
+
+    generators: str
+    max_length: int
+    line: int = 0
+    col: int = 0
+    kind: Literal["free_monoid_expr"] = "free_monoid_expr"
+
+
 class ObjectDecl(Statement):
     """Object declaration.
 

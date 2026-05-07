@@ -1,22 +1,28 @@
 """Monadic structures: typeclass hierarchy, instances, transformers,
 algebraic effects, comonads, algebras, and distributive laws.
 
-Two layers coexist:
-
-- The legacy interface (:class:`monads.Monad` ABC and friends) remains
-  in place for back-compat.
-- The new typeclass tower (:mod:`typeclasses`, :mod:`instances`,
-  :mod:`transformers`, :mod:`algebraic`, :mod:`bridges`,
-  :mod:`theories`) is the Phase 6 surface used by the categorial-
-  effects integration in the DSL.
-
-The two layers will converge once every legacy ``Monad`` subclass is
-re-cast as a typeclass instance and the legacy ABC is retired.
+The :class:`Monad` ABC lives in :mod:`typeclasses`. Concrete monad
+implementations (``FuzzyPowersetMonad``, ``FreeMonoidMonad``,
+``GiryMonad``, etc.) subclass it directly and provide the
+``fmap_obj`` / ``fmap`` / ``pure`` / ``apply`` / ``join`` operations.
+``unit`` and ``multiply`` are exposed as aliases on the concrete
+classes for the Eilenberg–Moore vocabulary.
 """
 
-# Legacy interface (back-compat with pre-Phase-6 callers).
+# Typeclass tower.
+from quivers.monadic.typeclasses import (
+    Functor,
+    Applicative,
+    Monad,
+    Alternative,
+    MonadPlus,
+    Foldable,
+    Traversable,
+    MonadTrans,
+)
+
+# Concrete monad instances of the tower.
 from quivers.monadic.monads import (
-    Monad as LegacyMonad,
     KleisliCategory,
     FuzzyPowersetMonad,
     FreeMonoidMonad,
@@ -41,17 +47,7 @@ from quivers.monadic.distributive_laws import (
     FreeMonoidPowersetLaw,
 )
 
-# New typeclass spine.
-from quivers.monadic.typeclasses import (
-    Functor,
-    Applicative,
-    Monad,
-    Alternative,
-    MonadPlus,
-    Foldable,
-    Traversable,
-    MonadTrans,
-)
+# Stdlib effect instances and adjacent infrastructure.
 from quivers.monadic.instances import (
     Identity,
     Maybe,
@@ -84,24 +80,6 @@ from quivers.monadic.bridges import (
 
 
 __all__ = [
-    # Legacy
-    "LegacyMonad",
-    "KleisliCategory",
-    "FuzzyPowersetMonad",
-    "FreeMonoidMonad",
-    "Comonad",
-    "CoKleisliCategory",
-    "DiagonalComonad",
-    "CofreeComonad",
-    "Algebra",
-    "FreeAlgebra",
-    "ObservedAlgebra",
-    "Coalgebra",
-    "CofreeCoalgebra",
-    "ObservedCoalgebra",
-    "EilenbergMooreCategory",
-    "DistributiveLaw",
-    "FreeMonoidPowersetLaw",
     # Typeclasses
     "Functor",
     "Applicative",
@@ -111,7 +89,27 @@ __all__ = [
     "Foldable",
     "Traversable",
     "MonadTrans",
-    # Instances
+    # Concrete monads
+    "KleisliCategory",
+    "FuzzyPowersetMonad",
+    "FreeMonoidMonad",
+    # Comonads
+    "Comonad",
+    "CoKleisliCategory",
+    "DiagonalComonad",
+    "CofreeComonad",
+    # Algebras
+    "Algebra",
+    "FreeAlgebra",
+    "ObservedAlgebra",
+    "Coalgebra",
+    "CofreeCoalgebra",
+    "ObservedCoalgebra",
+    "EilenbergMooreCategory",
+    # Distributive laws
+    "DistributiveLaw",
+    "FreeMonoidPowersetLaw",
+    # Stdlib effect instances
     "Identity",
     "Maybe",
     "Alternative_",

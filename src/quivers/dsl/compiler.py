@@ -32,6 +32,7 @@ from quivers.dsl.ast_nodes import (
     DiscretizeDecl,
     EmbedDecl,
     EnumSetLiteral,
+    FreeMonoidExpr,
     FreeResiduatedExpr,
     SchemaDecl,
     LetStep,
@@ -523,6 +524,23 @@ class Compiler:
         if isinstance(decl.init, EnumSetLiteral):
             self._objects[decl.name] = EnumSet(
                 name=decl.name, elements=decl.init.elements
+            )
+            return
+
+        if isinstance(decl.init, FreeMonoidExpr):
+            from quivers.core.objects import FinSet, FreeMonoid
+
+            gen = self._objects.get(decl.init.generators)
+            if not isinstance(gen, FinSet):
+                raise CompileError(
+                    f"FreeMonoid generators {decl.init.generators!r} must "
+                    f"reference a previously-declared FinSet (got "
+                    f"{type(gen).__name__ if gen else 'undefined'})",
+                    decl.line,
+                    decl.col,
+                )
+            self._objects[decl.name] = FreeMonoid(
+                generators=gen, max_length=decl.init.max_length
             )
             return
 

@@ -89,6 +89,7 @@ module.exports = grammar({
     _object_initializer: $ => choice(
       $.enum_set_literal,
       $.free_residuated_expr,
+      $.free_monoid_expr,
     ),
 
     enum_set_literal: $ => seq(
@@ -111,6 +112,16 @@ module.exports = grammar({
     free_residuated_arg: $ => choice(
       seq('depth', '=', field('depth', $.integer)),
       seq('ops', '=', '[', commaSep1(field('op', $.identifier)), ']'),
+    ),
+
+    // FreeMonoid(generators, max_length=N) — bounded Kleene closure.
+    free_monoid_expr: $ => seq(
+      'FreeMonoid',
+      '(',
+      field('generators', $.identifier),
+      ',',
+      'max_length', '=', field('max_length', $.integer),
+      ')',
     ),
 
     morphism_decl: $ => seq(

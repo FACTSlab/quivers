@@ -1,12 +1,11 @@
 # Compositional Effects
 
-The Phase 6/7 categorial-effects integration adds two parallel
-typeclass towers — Haskell-style monads and Hughes-style arrows — and
-layers a class-driven schema-lifting machinery on top, so that
-linguistic effects (scope-taking, anaphora, focus / alternatives,
-presupposition, supplements, plurality) compose with the residuated
-category universe through the same surface as ordinary categorial
-grammar rules.
+QVR exposes two parallel typeclass towers — Haskell-style monads and
+Hughes-style arrows — together with a class-driven schema-lifting
+machinery, so that linguistic effects (scope-taking, anaphora, focus
+/ alternatives, presupposition, supplements, plurality) compose with
+the residuated category universe through the same surface as ordinary
+categorial grammar rules.
 
 This guide walks through the framework. Formal denotations are in the
 [Denotational Semantics](../semantics/effects.md) section.
@@ -24,13 +23,13 @@ The monad-side hierarchy:
 |-------|------|----------------|
 | `Functor` | `fmap` | structure-preserving lifts |
 | `Applicative` | `pure`, `apply` | uniform-lift of base rules through an effect |
-| `Monad` | `join` (and derived `bind`) | scope-extruding lifts (Charlow) |
+| `Monad` | `join` (and derived `bind`) | scope-extruding lifts (Bumford & Charlow 2026) |
 | `Alternative` | `empty`, `alt` | non-deterministic / Hamblin-style branches |
 | `MonadPlus` | combines `Monad` and `Alternative` | branching effects with substitution |
 | `Foldable` / `Traversable` | `foldr`, `traverse` | distribute Applicative actions through a structure |
 | `MonadTrans` | `lift` | stack one monad on top of another |
 
-The arrow-side hierarchy (Hughes 2000, [doi:10.1016/S0167-6423(99)00023-4](https://doi.org/10.1016/S0167-6423(99)00023-4)):
+The arrow-side hierarchy (Hughes 2000, *Generalising monads to arrows*, [doi:10.1016/S0167-6423(99)00023-4](https://doi.org/10.1016/S0167-6423(99)00023-4)):
 
 | Class | Adds | Use |
 |-------|------|-----|
@@ -164,7 +163,7 @@ the joint search space.
 ## Worked example: scope-taking via Continuation
 
 The example file `src/quivers/dsl/examples/quantifier_scope.qvr`
-illustrates a Charlow-style scope-taking grammar:
+illustrates a Bumford & Charlow-style scope-taking grammar:
 
 ```qvr
 object Atoms = {NP, S, VP, N, PP}
@@ -195,8 +194,7 @@ user would see if they enumerated the lifts manually.
 
 ## References
 
-- Hughes, J. (2000). *Generalising Monads to Arrows*. [doi:10.1016/S0167-6423(99)00023-4](https://doi.org/10.1016/S0167-6423(99)00023-4)
-- Bauer, A. and Pretnar, M. (2015). *Programming with Algebraic Effects and Handlers*. [doi:10.1016/j.jlamp.2014.02.001](https://doi.org/10.1016/j.jlamp.2014.02.001)
-- Bumford, D. and Charlow, S. (2014). *Making distinctions: linguistic effects and their interactions*. [doi:10.1007/s10988-014-9167-3](https://doi.org/10.1007/s10988-014-9167-3)
-- Charlow, S. (2020). *Static and dynamic exceptional scope*. [doi:10.3765/sp.13.16](https://doi.org/10.3765/sp.13.16)
-- Bumford, D. (2017). *Split-scope effects*. [doi:10.1007/s10988-017-9216-9](https://doi.org/10.1007/s10988-017-9216-9)
+- Bumford, D. and Charlow, S. (2026). [*Effect-Driven Interpretation: Functors for Natural Language Composition*](https://www.cambridge.org/core/elements/abs/effectdriven-interpretation/56671E539160AAA1DACF8555B82A2FE4). Cambridge Elements in Semantics. Cambridge University Press. Online ISBN 9781009285377; preprint [arXiv:2504.00316](https://arxiv.org/abs/2504.00316), draft at [simoncharlow.com/papers/cup-effects.pdf](https://simoncharlow.com/papers/cup-effects.pdf).
+- Hughes, J. (2000). [*Generalising monads to arrows*](https://doi.org/10.1016/S0167-6423(99)00023-4). Science of Computer Programming, 37(1–3), 67–111.
+- Plotkin, G. and Power, J. (2003). [*Algebraic operations and generic effects*](https://doi.org/10.1023/A:1023064908962). Applied Categorical Structures, 11(1), 69–94.
+- Bauer, A. and Pretnar, M. (2015). [*Programming with algebraic effects and handlers*](https://doi.org/10.1016/j.jlamp.2014.02.001). Journal of Logical and Algebraic Methods in Programming, 84(1), 108–123.

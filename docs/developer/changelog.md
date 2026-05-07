@@ -6,6 +6,33 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/), and this
 
 ## [Unreleased]
 
+### Added
+
+- Pattern-polymorphic `schema` declarations: `schema r[X, Y : Cat] : (X/Y) * Y -> X`. Subsumes `rule` with explicit parameter types and a unified domain/codomain shape.
+- New SetObject variants: `EnumSet(name, elements)` for named-element finite sets, `FreeResiduated(generators, depth, ops)` for residuated category universes. New surface syntax `object Atoms = {NP, S, VP}`, `object Cat = FreeResiduated(Atoms, depth=4, ops=[slash])`, `object Free = FreeMonoid(X, max_length=4)`.
+- `TypeSlash` and `TypeEffectApply` `TypeExpr` variants — residuated patterns and effect-typed types are first-class. The `CatPattern` AST family is removed.
+- `chart_fold(...)` primitive expression — desugared form of `parser(rules=...)`.
+- `.curry_right` / `.curry_left` postfix combinators witnessing the residuation isomorphisms.
+- Typeclass tower: `Functor`, `Applicative`, `Monad`, `Alternative`, `MonadPlus`, `Foldable`, `Traversable`, `MonadTrans`. Concrete monads subclass `Monad` directly.
+- Stdlib effect instances (`Identity`, `Maybe`, `Alternative_`, `Continuation`, `State`, `Reader`, `Writer`, `List`); transformers (`StateT`, `ReaderT`, `MaybeT`, `ContT`, `WriterT`); algebraic effects (`Operation`, `EffectSignature`, `Handler`, `FreeMonad`); bridges (`Kleisli`, `ArrowMonad`).
+- `quivers.arrows` package — Hughes-style arrow hierarchy (`Category_`, `Arrow`, `ArrowChoice`, `ArrowApply`, `ArrowLoop`, `ArrowZero`, `ArrowPlus`).
+- `quivers.stochastic.effect_lifts.class_directed_lifts` — class-driven schema lifting for effect-typed parsers.
+- New tree-sitter grammar at `grammars/qvr/` with regenerated parser; unified `_type_expr` family subsumes the prior `_cat_pattern` productions.
+- Local-grammar override at `quivers.dsl._dev_grammar` (activated by `QVR_USE_LOCAL_GRAMMAR=1`).
+- `docs/guides/effects.md`, `docs/semantics/effects.md`, `quantifier_scope.qvr` example.
+
+### Changed
+
+- The `Monad` ABC is the typeclass-tower one; concrete monads (`FuzzyPowersetMonad`, `FreeMonoidMonad`, `GiryMonad`) subclass it directly with both typeclass operations and Eilenberg–Moore aliases.
+- `RuleDecl` premises and conclusion are typed at `TypeExpr`.
+- `ObjectDecl` admits both `: type_expr` and `= initializer` forms.
+- `parser(...)` infers category atoms from a uniquely-declared `FreeResiduated` in scope when no `categories=` argument is supplied.
+- `QVR_PROGRAM_PROTOCOL` extended with `enum_set`, `free_residuated`, `schema_decl` vertex kinds.
+
+### Filed upstream
+
+- panproto/panproto#89, #91, #92 — runtime grammar override; `tuple[bare_dx.Model, ...]`; fields typed at typeclass ABCs.
+
 ## [0.2.0] - 2026-05-06
 
 ### Changed

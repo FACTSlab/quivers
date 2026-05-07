@@ -1,4 +1,4 @@
-"""Class-driven schema lifting for effect-typed parsers (Phase 7).
+"""Class-driven schema lifting for effect-typed parsers.
 
 The :func:`class_directed_lifts` function takes a base
 :class:`SchemaDecl` and an effect instance and returns a tuple of
@@ -13,13 +13,12 @@ additionally registers against :class:`Applicative` also gets
 ``apply`` lifts; every :class:`Monad` gets ``bind`` lifts; and so
 on across both the monad-style and arrow-style towers.
 
-The lifted schemas are real :class:`SchemaDecl` instances and feed
-into the same :class:`PatternBinarySchema` / :class:`PatternUnarySchema`
+The lifted schemas are :class:`SchemaDecl` instances and feed into
+the same :class:`PatternBinarySchema` / :class:`PatternUnarySchema`
 machinery as user-written schemas; the chart-fixed-point machinery in
 :mod:`quivers.stochastic.parsers` consumes them uniformly with the
-base schemas. This is the implementation of Phase 7's *joint
-type-and-effect dispatch*: the chart cells are indexed by
-``(Cat, EffectStack)`` pairs, and at each cell the parser fires:
+base schemas. The chart cells are indexed by ``(Cat, EffectStack)``
+pairs, and at each cell the parser fires:
 
 1. **Base schemas** between effect-pure cells (the classical Lambek
    case).
@@ -33,12 +32,10 @@ type-and-effect dispatch*: the chart cells are indexed by
 
 References
 ----------
-- Charlow, S. (2020). *Static and dynamic exceptional scope*.
-  Semantics and Pragmatics 13(16).
-  [doi:10.3765/sp.13.16](https://doi.org/10.3765/sp.13.16)
-- Bumford, D. and Charlow, S. (2014). *Making distinctions:
-  linguistic effects and their interactions*.
-  [doi:10.1007/s10988-014-9167-3](https://doi.org/10.1007/s10988-014-9167-3)
+- Bumford, D. and Charlow, S. (2026). *Effect-Driven Interpretation:
+  Functors for Natural Language Composition*. Cambridge Elements in
+  Semantics. Cambridge University Press. Online ISBN 9781009285377;
+  preprint arXiv:2504.00316.
 """
 
 from __future__ import annotations
@@ -70,7 +67,7 @@ def _effect_name(effect: object) -> str:
     """Return the user-facing name for an effect instance.
 
     Stdlib effects expose a ``name`` attribute (set on each dx.Model
-    instance by the Phase 6 stdlib). User-defined effects can supply
+    instance by the stdlib). User-defined effects can supply
     a ``__effect_name__`` class attribute or fall back to the class
     name.
     """

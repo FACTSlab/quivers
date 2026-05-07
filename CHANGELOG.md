@@ -6,6 +6,39 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/), and this
 
 ## [Unreleased]
 
+### Added
+
+- Pattern-polymorphic `schema` declarations: `schema r[X, Y : Cat] : (X/Y) * Y -> X`. Subsumes `rule` with explicit parameter types and a unified domain/codomain shape.
+- New SetObject variants: `EnumSet(name, elements)` for named-element finite sets, `FreeResiduated(generators, depth, ops)` for residuated category universes. New surface syntax `object Atoms = {NP, S, VP}` and `object Cat = FreeResiduated(Atoms, depth=4, ops=[slash])`.
+- `FreeMonoid` surface form: `object Free = FreeMonoid(X, max_length=4)`.
+- `TypeSlash` and `TypeEffectApply` `TypeExpr` variants — residuated patterns and effect-typed types are first-class. The `CatPattern` AST family is removed (folded into `TypeExpr`).
+- `chart_fold(lex=, binary=, unary=, start=, depth=, effect_depth=)` primitive expression — desugared form of `parser(rules=...)`.
+- `.curry_right` / `.curry_left` postfix combinators witnessing the residuation isomorphisms; backed by `quivers.core.morphisms.CurriedMorphism`.
+- Typeclass tower in `quivers.monadic.typeclasses`: `Functor`, `Applicative`, `Monad`, `Alternative`, `MonadPlus`, `Foldable`, `Traversable`, `MonadTrans`. Concrete monads (`FuzzyPowersetMonad`, `FreeMonoidMonad`, `GiryMonad`) subclass `Monad` directly.
+- Stdlib effect instances in `quivers.monadic.instances`: `Identity`, `Maybe`, `Alternative_`, `Continuation`, `State`, `Reader`, `Writer`, `List`. Monad transformers in `quivers.monadic.transformers`: `StateT`, `ReaderT`, `MaybeT`, `ContT`, `WriterT`.
+- Algebraic effects + handlers in `quivers.monadic.algebraic`: `Operation`, `EffectSignature`, `Handler`, `FreeMonad`.
+- `quivers.monadic.bridges`: `Kleisli`, `ArrowMonad`, `kleisli`, `arrow_monad` connecting the monad and arrow towers.
+- `quivers.arrows` package — Hughes-style arrow hierarchy (`Category_`, `Arrow`, `ArrowChoice`, `ArrowApply`, `ArrowLoop`, `ArrowZero`, `ArrowPlus`) with panproto-theory mirrors.
+- `quivers.stochastic.effect_lifts.class_directed_lifts` — class-driven schema lifting for effect-typed parsers.
+- New tree-sitter grammar at `grammars/qvr/` with regenerated parser; the unified `_type_expr` family subsumes the prior `_cat_pattern` productions.
+- Local-grammar override at `quivers.dsl._dev_grammar` (activated by `QVR_USE_LOCAL_GRAMMAR=1`) that compiles the in-tree grammar and injects it into `panproto.AstParserRegistry` when the upstream `panproto-grammars-all` wheel lags the in-tree source.
+- `docs/guides/effects.md` and `docs/semantics/effects.md` — user guide and formal denotational layer for the typeclass + algebraic-effects framework.
+- `quantifier_scope.qvr` example demonstrating Charlow-style scope-taking via `Continuation`.
+
+### Changed
+
+- The `Monad` ABC is the typeclass-tower one (`quivers.monadic.typeclasses.Monad`); the previous parallel ABC in `quivers.monadic.monads` is removed. Concrete monads provide both the typeclass operations (`pure`, `apply`, `join`) and the Eilenberg–Moore aliases (`unit`, `multiply`).
+- `RuleDecl` premises and conclusion are typed at `TypeExpr` (previously `CatPattern`).
+- `ObjectDecl` admits both `: type_expr` and `= initializer` forms.
+- `parser(...)` infers category atoms from a uniquely-declared `FreeResiduated` in scope when no `categories=` argument is supplied.
+- `QVR_PROGRAM_PROTOCOL` extended with `enum_set`, `free_residuated`, `schema_decl` vertex kinds.
+
+### Filed upstream
+
+- panproto/panproto#89 — runtime grammar override for in-development grammar work.
+- panproto/panproto#91 — `tuple[bare_dx.Model, ...]` field types.
+- panproto/panproto#92 — fields typed at typeclass ABCs.
+
 ## [0.2.0] - 2026-05-06
 
 ### Changed

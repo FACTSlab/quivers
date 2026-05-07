@@ -714,6 +714,32 @@
     }
   },
   {
+    "type": "free_monoid_expr",
+    "named": true,
+    "fields": {
+      "generators": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "identifier",
+            "named": true
+          }
+        ]
+      },
+      "max_length": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "integer",
+            "named": true
+          }
+        ]
+      }
+    }
+  },
+  {
     "type": "free_residuated_arg",
     "named": true,
     "fields": {
@@ -1375,6 +1401,10 @@
         "types": [
           {
             "type": "enum_set_literal",
+            "named": true
+          },
+          {
+            "type": "free_monoid_expr",
             "named": true
           },
           {
@@ -3335,6 +3365,10 @@
     "named": false
   },
   {
+    "type": "FreeMonoid",
+    "named": false
+  },
+  {
     "type": "FreeResiduated",
     "named": false
   },
@@ -3465,6 +3499,10 @@
   },
   {
     "type": "marginalize",
+    "named": false
+  },
+  {
+    "type": "max_length",
     "named": false
   },
   {

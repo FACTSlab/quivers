@@ -196,6 +196,10 @@
         {
           "type": "SYMBOL",
           "name": "free_residuated_expr"
+        },
+        {
+          "type": "SYMBOL",
+          "name": "free_monoid_expr"
         }
       ]
     },
@@ -385,6 +389,51 @@
               "value": "]"
             }
           ]
+        }
+      ]
+    },
+    "free_monoid_expr": {
+      "type": "SEQ",
+      "members": [
+        {
+          "type": "STRING",
+          "value": "FreeMonoid"
+        },
+        {
+          "type": "STRING",
+          "value": "("
+        },
+        {
+          "type": "FIELD",
+          "name": "generators",
+          "content": {
+            "type": "SYMBOL",
+            "name": "identifier"
+          }
+        },
+        {
+          "type": "STRING",
+          "value": ","
+        },
+        {
+          "type": "STRING",
+          "value": "max_length"
+        },
+        {
+          "type": "STRING",
+          "value": "="
+        },
+        {
+          "type": "FIELD",
+          "name": "max_length",
+          "content": {
+            "type": "SYMBOL",
+            "name": "integer"
+          }
+        },
+        {
+          "type": "STRING",
+          "value": ")"
         }
       ]
     },

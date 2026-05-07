@@ -776,9 +776,9 @@ def _match_pattern(
         return True
 
     if isinstance(pattern, TypeEffectApply):
-        # Effect-typed application is matched in Phase 7 once effect
-        # categories are part of the runtime CategorySystem; for now
-        # signal a non-match so the rule does not fire on bare effects.
+        # Effect-typed application requires effect categories in the
+        # runtime CategorySystem; absent that, signal a non-match so
+        # the rule does not fire on bare effects.
         return False
 
     return False
@@ -846,8 +846,8 @@ def _instantiate_pattern(
         return result_cat
 
     if isinstance(pattern, TypeEffectApply):
-        # Effect-typed instantiation is part of Phase 7; bare effects
-        # are not yet representable as CategorySystem entries.
+        # Effect-typed instantiation requires CategorySystem entries
+        # for the wrapped effect; absent that, return None.
         return None
 
     return None

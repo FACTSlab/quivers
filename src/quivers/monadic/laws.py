@@ -18,8 +18,9 @@ that:
 
 References
 ----------
-- Hughes, J. (2000). *Generalising Monads to Arrows*.
-  [doi:10.1016/S0167-6423(99)00023-4](https://doi.org/10.1016/S0167-6423(99)00023-4)
+- Hughes, J. (2000). *Generalising monads to arrows*. Science of
+  Computer Programming, 37(1–3), 67–111.
+  doi:10.1016/S0167-6423(99)00023-4.
 """
 
 from __future__ import annotations

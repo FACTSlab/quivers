@@ -1,11 +1,10 @@
 # Denotational Semantics of Compositional Effects
 
-The Phase 6/7 categorial-effects integration introduces two parallel
-typeclass towers (monads and arrows) and a class-driven schema-lifting
-machinery that layers monadic / applicative effects over the
-residuated category universe. This page assigns formal denotations to
-the surface constructs and proves the integration is a conservative
-extension of the residuated-grammar fragment of
+QVR layers monadic / applicative effects over the residuated category
+universe through two parallel typeclass towers (monads and arrows)
+plus a class-driven schema-lifting machinery. This page assigns
+formal denotations to the surface constructs and proves the layering
+is a conservative extension of the residuated-grammar fragment of
 [Grammar Fragment](grammar.md).
 
 ## 1. Setting
@@ -197,7 +196,7 @@ $$
 $$
 
 with $\mathrm{arrow\_monad} \circ \mathrm{kleisli} = \mathrm{id}$ on
-$\mathrm{ThMonad}$ (Hughes 2000, Theorem 3.1). Consequently, the
+$\mathrm{ThMonad}$ ([Hughes 2000](https://doi.org/10.1016/S0167-6423(99)00023-4), Theorem 3.1). Consequently, the
 arrow-side and monad-side presentations of any effect agree on
 denotation, and the `chart_fold` runtime can equivalently express its
 `loop_arr` construction as Kleisli iteration of the binary step.
@@ -207,14 +206,12 @@ the joint type-and-effect dispatch of [§4](#4-joint-type-and-effect-dispatch)
 collapses to the classical residuated-grammar dispatch of
 [Grammar Fragment §4](grammar.md#4-the-chart-parser-denotation), and
 the inside score is the standard Lambek / CCG / multimodal-TLG
-chart-parser denotation. The Phase 6/7 framework is therefore a
-strict extension that preserves all pre-existing denotations.
+chart-parser denotation. The effects framework is therefore a strict
+extension over the bare grammar fragment.
 
 ## References
 
-- Hughes, J. (2000). *Generalising Monads to Arrows*. Science of Computer Programming, 37(1–3), 67–111. [doi:10.1016/S0167-6423(99)00023-4](https://doi.org/10.1016/S0167-6423(99)00023-4)
-- Plotkin, G. and Power, J. (2003). *Algebraic Operations and Generic Effects*. Applied Categorical Structures, 11(1), 69–94.
-- Bauer, A. and Pretnar, M. (2015). *Programming with Algebraic Effects and Handlers*. Journal of Logical and Algebraic Methods in Programming, 84(1), 108–123. [doi:10.1016/j.jlamp.2014.02.001](https://doi.org/10.1016/j.jlamp.2014.02.001)
-- Bumford, D. and Charlow, S. (2014). *Making distinctions: linguistic effects and their interactions*. Linguistics and Philosophy. [doi:10.1007/s10988-014-9167-3](https://doi.org/10.1007/s10988-014-9167-3)
-- Charlow, S. (2020). *Static and dynamic exceptional scope*. Semantics and Pragmatics 13(16). [doi:10.3765/sp.13.16](https://doi.org/10.3765/sp.13.16)
-- Bumford, D. (2017). *Split-scope effects*. Linguistics and Philosophy. [doi:10.1007/s10988-017-9216-9](https://doi.org/10.1007/s10988-017-9216-9)
+- Bumford, D. and Charlow, S. (2026). [*Effect-Driven Interpretation: Functors for Natural Language Composition*](https://www.cambridge.org/core/elements/abs/effectdriven-interpretation/56671E539160AAA1DACF8555B82A2FE4). Cambridge Elements in Semantics. Cambridge University Press. Online ISBN 9781009285377; preprint [arXiv:2504.00316](https://arxiv.org/abs/2504.00316), draft at [simoncharlow.com/papers/cup-effects.pdf](https://simoncharlow.com/papers/cup-effects.pdf).
+- Hughes, J. (2000). [*Generalising monads to arrows*](https://doi.org/10.1016/S0167-6423(99)00023-4). Science of Computer Programming, 37(1–3), 67–111.
+- Plotkin, G. and Power, J. (2003). [*Algebraic operations and generic effects*](https://doi.org/10.1023/A:1023064908962). Applied Categorical Structures, 11(1), 69–94.
+- Bauer, A. and Pretnar, M. (2015). [*Programming with algebraic effects and handlers*](https://doi.org/10.1016/j.jlamp.2014.02.001). Journal of Logical and Algebraic Methods in Programming, 84(1), 108–123.

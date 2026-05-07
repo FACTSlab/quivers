@@ -135,10 +135,20 @@ nav:
       - Base Change: api/categorical/base_change.md
       - Traced Monoidal: api/categorical/traced.md
     - Monadic:
-      - Monads: api/monadic/monads.md
+      - Typeclass Hierarchy: api/monadic/typeclasses.md
+      - Stdlib Effect Instances: api/monadic/instances.md
+      - Monad Transformers: api/monadic/transformers.md
+      - Algebraic Effects: api/monadic/algebraic.md
+      - Bridges: api/monadic/bridges.md
+      - Typeclass Theories: api/monadic/theories.md
+      - Typeclass Laws: api/monadic/laws.md
+      - Concrete Monads: api/monadic/monads.md
       - Comonads: api/monadic/comonads.md
       - Algebras & Coalgebras: api/monadic/algebras.md
       - Distributive Laws: api/monadic/distributive_laws.md
+    - Arrows:
+      - Typeclass Hierarchy: api/arrows/typeclasses.md
+      - Arrow Theories: api/arrows/theories.md
     - Enriched:
       - Ends & Coends: api/enriched/ends_coends.md
       - Kan Extensions: api/enriched/kan_extensions.md
@@ -148,6 +158,7 @@ nav:
       - Day Convolution: api/enriched/day_convolution.md
       - Optics: api/enriched/optics.md
     - Stochastic:
+      - Effect Schema Lifting: api/stochastic/effect_lifts.md
       - Quantale: api/stochastic/quantale.md
       - Morphisms: api/stochastic/morphisms.md
       - Families: api/stochastic/families.md

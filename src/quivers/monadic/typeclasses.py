@@ -17,28 +17,28 @@ Haskell admits them. The class-extension lattice is:
     MonadTrans   — orthogonal: lifts an inner monad through a stacked
                    transformer; not a sub-class of any of the above.
 
-The :func:`Phase 7 <quivers.stochastic.effect_lifts.class_directed_lifts>`
+The :func:`quivers.stochastic.effect_lifts.class_directed_lifts`
 schema-lifting machinery dispatches on which classes an effect
 inhabits, never on the effect's identity, so user-defined effects
 extend the framework automatically.
 
 Each typeclass is also mirrored by a :mod:`panproto.Theory` in
-:mod:`quivers.monadic.theories` (forthcoming); class-extension is
-realised there as theory inclusion via :func:`panproto.colimit`,
-making every instance a verifiable theory morphism.
+:mod:`quivers.monadic.theories`; class-extension is realised there as
+theory inclusion via :func:`panproto.colimit`, making every instance
+a verifiable theory morphism.
 
 References
 ----------
-- Hughes, J. (2000). *Generalising Monads to Arrows*. Science of
+- Bumford, D. and Charlow, S. (2026). *Effect-Driven Interpretation:
+  Functors for Natural Language Composition*. Cambridge Elements in
+  Semantics. Cambridge University Press. Online ISBN 9781009285377;
+  preprint arXiv:2504.00316.
+- Hughes, J. (2000). *Generalising monads to arrows*. Science of
   Computer Programming, 37(1–3), 67–111.
-  [doi:10.1016/S0167-6423(99)00023-4](https://doi.org/10.1016/S0167-6423(99)00023-4)
-- Bauer, A. and Pretnar, M. (2015). *Programming with Algebraic Effects
-  and Handlers*. Journal of Logical and Algebraic Methods in
-  Programming, 84(1), 108–123.
-  [doi:10.1016/j.jlamp.2014.02.001](https://doi.org/10.1016/j.jlamp.2014.02.001)
-- Bumford, D. and Charlow, S. (2014). *Making distinctions: linguistic
-  effects and their interactions*. Linguistics and Philosophy.
-  [doi:10.1007/s10988-014-9167-3](https://doi.org/10.1007/s10988-014-9167-3)
+  doi:10.1016/S0167-6423(99)00023-4.
+- Bauer, A. and Pretnar, M. (2015). *Programming with algebraic
+  effects and handlers*. Journal of Logical and Algebraic Methods in
+  Programming, 84(1), 108–123. doi:10.1016/j.jlamp.2014.02.001.
 """
 
 from __future__ import annotations
@@ -101,13 +101,19 @@ class Applicative(Functor, ABC):
     def pure(self, A: SetObject) -> Morphism:
         """``η_A : A → F(A)``."""
 
-    @abstractmethod
     def apply(self, A: SetObject, B: SetObject) -> Morphism:
         """``F(A → B) ⊗ F(A) → F(B)``.
 
         Realised in V-Rel as a parameterised binary operation; the
-        concrete construction depends on the instance.
+        concrete construction depends on the instance and on the
+        internal-hom representation of the underlying enriched
+        category. The default implementation raises
+        :exc:`NotImplementedError`; concrete instances override.
         """
+        raise NotImplementedError(
+            f"{type(self).__name__}.apply requires an internal-hom "
+            "construction; override on the concrete instance"
+        )
 
     def lift_a2(
         self, A: SetObject, B: SetObject, C: SetObject, f: Morphism

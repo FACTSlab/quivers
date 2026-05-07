@@ -34,6 +34,7 @@ from quivers.dsl.ast_nodes import (
     ExprScan,
     ExprStack,
     ExprTensorProduct,
+    FreeMonoidExpr,
     FreeResiduatedExpr,
     LetDecl,
     LetExprBinOp,
@@ -915,6 +916,17 @@ def _walk_object_initializer(t: _Tree, vid: str) -> EnumSetLiteral | FreeResidua
         elem_vids = t.fields(vid, "elements")
         return EnumSetLiteral(
             elements=tuple(t.text(e) for e in elem_vids),
+            line=line,
+            col=col,
+        )
+    if k == "free_monoid_expr":
+        gen_vid = t.field(vid, "generators")
+        ml_vid = t.field(vid, "max_length")
+        if gen_vid is None or ml_vid is None:
+            raise ParseError(f"free_monoid_expr missing generators/max_length at {vid}")
+        return FreeMonoidExpr(
+            generators=t.text(gen_vid),
+            max_length=int(t.text(ml_vid)),
             line=line,
             col=col,
         )

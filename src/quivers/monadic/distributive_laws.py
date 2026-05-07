@@ -20,7 +20,8 @@ from quivers.core.objects import SetObject, FinSet, FreeMonoid
 from quivers.core.morphisms import Morphism, observed
 from quivers.core.quantales import PRODUCT_FUZZY, Quantale
 from quivers.core.tensor_ops import componentwise_lift
-from quivers.monadic.monads import Monad, FuzzyPowersetMonad, FreeMonoidMonad
+from quivers.monadic.monads import FuzzyPowersetMonad, FreeMonoidMonad
+from quivers.monadic.typeclasses import Monad
 
 
 class DistributiveLaw(ABC):
