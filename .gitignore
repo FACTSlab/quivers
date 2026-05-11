@@ -40,3 +40,4 @@ Thumbs.db
 
 # Local development notes (not committed)
 notes/
+.claude/
