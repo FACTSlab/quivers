@@ -30,8 +30,7 @@ from quivers.inference import trace, Trace, SampleSite
 model = ...  # MonadicProgram
 
 # Execute model with tracing
-with trace() as tr:
-    samples = model.rsample(x, sample_shape=torch.Size([10]))
+tr = trace(model, x)
 
 # Access sites
 sites = tr.sites  # dict[site_name -> SampleSite]
@@ -314,8 +313,7 @@ Enable tracing to inspect sites and log probabilities:
 ```python
 from quivers.inference import trace
 
-with trace() as tr:
-    samples = model.rsample(x)
+tr = trace(model, x)
 
 for name, site in tr.sites.items():
     print(f"{name}: log_prob={site.log_prob.item():.4f}")
