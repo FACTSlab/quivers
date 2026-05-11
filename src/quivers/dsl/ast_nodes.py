@@ -321,6 +321,30 @@ class LetExprVar(LetExprNode):
     kind: Literal["let_expr_var"] = "let_expr_var"
 
 
+class LetExprIndex(LetExprNode):
+    """Indexed access into a finite-domain-indexed family ``a[i]``.
+
+    Categorically the *pullback* morphism: given a finite-fibration
+    ``index : N → A`` and a per-A morphism ``arr : A → B``, the
+    indexed expression ``arr[index[n]]`` denotes
+    ``arr ∘ index : N → B`` — the natural Kleisli pullback of
+    ``arr`` along ``index``.
+
+    Attributes
+    ----------
+    array : LetExprNode
+        The indexed-family expression (typically a :class:`LetExprVar`
+        naming a previously-drawn plate variable).
+    indices : tuple of LetExprNode
+        The index expressions; supports multi-dim indexing for
+        nested plates (``coefs[subj[n], k]``).
+    """
+
+    array: LetExprNode
+    indices: tuple[LetExprNode, ...]
+    kind: Literal["let_expr_index"] = "let_expr_index"
+
+
 # ---------------------------------------------------------------------------
 # program-block steps
 # ---------------------------------------------------------------------------
@@ -340,6 +364,120 @@ class DrawStep(ProgramStep):
     line: int = 0
     col: int = 0
     kind: Literal["draw_step"] = "draw_step"
+
+
+class PlateDrawStep(ProgramStep):
+    """A finite-domain-indexed draw: ``draw v : A -> B ~ F(args)``.
+
+    Denotes the indexed family of independent draws
+
+        v(a) ~ F(args(a))   for each a in [[A]]
+
+    realised in the program trace as a single random variable
+    ``v : A → B`` of function-space type. In the Giry-monad
+    Kleisli semantics, this is
+
+        S[draw v : A → B ~ F](φ) = δ_φ ⊗ Π_{a∈A} F(args(a))
+
+    i.e. the joint distribution over the function-space ``B^A``
+    factorises as the independent product across the index set.
+
+    Compiled to a tensor of shape ``(|A|, *B.shape)`` whose
+    distribution under the variational posterior is one independent
+    copy of ``F`` per row.
+
+    Attributes
+    ----------
+    name : str
+        Bound name of the indexed random variable.
+    index : TypeExpr
+        The index set ``A`` (a previously-declared object).
+    codomain : TypeExpr
+        The per-index codomain ``B`` (typically ``Euclidean(K)``).
+    morphism : str
+        Distribution family name (``Normal``, ``MultivariateNormal``,
+        etc.).
+    args : tuple
+        Family arguments. May contain :class:`GatherExpr` so the
+        prior's hyperparameters can depend on the index.
+    """
+
+    name: str
+    index: TypeExpr
+    codomain: TypeExpr
+    morphism: str
+    args: tuple[str | float, ...] | None = None
+    line: int = 0
+    col: int = 0
+    kind: Literal["plate_draw_step"] = "plate_draw_step"
+
+
+class VectorisedObserveStep(ProgramStep):
+    """A batched observation: ``observe r[n] ~ F(θ[n]) for n in N``.
+
+    Denotes the product likelihood
+
+        Π_{n ∈ [[N]]} p_F(r_obs(n); θ(n))
+
+    realised in the sub-probabilistic Giry monad as
+
+        S[obs r[n] ~ F(θ[n]) for n in N] : Φ → G_{≤1}(Φ)
+        S[..](φ, B) = 1_B(φ) · Π_{n ∈ N} p_F(r_obs(n); θ(n, φ))
+
+    The trace context is preserved; the total mass of the resulting
+    measure is the joint likelihood of the dataset.
+
+    Attributes
+    ----------
+    index_var : str
+        Loop variable bound across the observation index set.
+    index_set : TypeExpr
+        The observation index set ``N`` (an object declared at
+        module level, typically of FinSet kind).
+    morphism : str
+        Distribution family name.
+    args : tuple
+        Family arguments, which may include :class:`GatherExpr` and
+        :class:`LetExprNode` sub-expressions referencing the loop
+        variable.
+    response_var : str
+        The data column whose entry at index ``n`` provides the
+        observed value of the ``n``-th observation.
+    """
+
+    index_var: str
+    index_set: TypeExpr
+    morphism: str
+    args: tuple[str | float, ...] | None = None
+    response_var: str = ""
+    line: int = 0
+    col: int = 0
+    kind: Literal["vectorised_observe_step"] = "vectorised_observe_step"
+
+
+class MarginalizeStep(ProgramStep):
+    """A discrete-latent marginalisation: ``marginalize v``.
+
+    Given a previously-drawn discrete latent ``v : Φ → G(C)``, the
+    marginalisation pushes forward through the projection
+    ``π_{Φ\\C} : Φ × C → Φ``:
+
+        marg(v) : Φ → G(Φ)
+        marg(v) = G(π_{Φ\\C}) ∘ S[draw v]
+
+    Numerically realised as ``log_sum_exp`` over the ``C`` axis in
+    the trace's accumulated log-likelihood.
+
+    Attributes
+    ----------
+    var_name : str
+        Name of the previously-drawn discrete latent variable.
+    """
+
+    var_name: str
+    line: int = 0
+    col: int = 0
+    kind: Literal["marginalize_step"] = "marginalize_step"
 
 
 class LetStep(ProgramStep):
@@ -634,6 +772,115 @@ class ProgramDecl(Statement):
     line: int = 0
     col: int = 0
     kind: Literal["program_decl"] = "program_decl"
+
+
+class RandomEffectDecl(Statement):
+    """A crossed random-effect declaration.
+
+    Sugar for the standard hierarchical-Bayesian random-effect
+    construction:
+
+    .. code-block:: qvr
+
+        random_effect by_subj : Subj -> Euclidean(K)
+            correlation eta = 2.0
+            scale_dist = HalfNormal(1.0)
+
+    desugars (denotationally) to the joint kernel
+
+        scale ~ scale_dist over Euclidean(K, low=0)
+        corr  ~ LKJ(K, eta)               over CorrelationMatrix(K)
+        cov   = cholesky_quad_form(corr, scale)
+        by_subj : Subj → Euclidean(K)
+                ~ MultivariateNormal(0, cov)              [PlateDrawStep]
+
+    The desugaring is purely syntactic; the resulting kernel
+    composition has the same denotation in **Kern** as the explicit
+    four-line construction.
+
+    Attributes
+    ----------
+    name : str
+        Bound name of the random-effect indexed family.
+    index : TypeExpr
+        The grouping factor's index set (e.g. ``Subj``).
+    codomain_dim : int
+        Dimensionality of the per-level coefficient vector ``K``.
+    correlation_eta : float
+        LKJ concentration parameter ``η``. Larger values concentrate
+        on the identity correlation. Default 2.0.
+    scale_family : str
+        Distribution family for the half-line scale prior.
+    scale_args : tuple
+        Family arguments for the scale prior.
+    """
+
+    name: str
+    index: TypeExpr
+    codomain_dim: int
+    correlation_eta: float = 2.0
+    scale_family: str = "HalfNormal"
+    scale_args: tuple[str | float, ...] = ()
+    line: int = 0
+    col: int = 0
+    kind: Literal["random_effect_decl"] = "random_effect_decl"
+
+
+class PosteriorDecl(Statement):
+    """A posterior / generated-quantities block.
+
+    Runs *after* the model program has been conditioned on data; its
+    body is a deterministic function of the posterior over latents.
+    Categorically: given the conditioned model's posterior kernel
+    ``q(θ | data) : Data → G(Latents)``, the posterior block denotes a
+    morphism ``Latents → τ_out`` in **Kern** which lifts to
+    ``Data → G(τ_out)`` by post-composition.
+
+    Operationally: each posterior sample (variational draw, or one
+    MCMC iterate) is run through the body; the runner aggregates
+    the per-sample outputs.
+
+    Surface form mirrors :class:`ProgramDecl`:
+
+    .. code-block:: qvr
+
+        posterior class_probs (model) : Item -> Simplex(4)
+            let logprob = item_loglik + log(class_prior)
+            let probs = softmax(logprob)
+            return probs
+
+    Attributes
+    ----------
+    name : str
+        The posterior-quantity's name.
+    model : str
+        Name of the model program whose posterior is consumed.
+    params : tuple of str
+        Optional parameters supplied at evaluation time.
+    domain : TypeExpr
+        Domain of the resulting kernel.
+    codomain : TypeExpr
+        Codomain of the resulting kernel.
+    steps : tuple of ProgramStep
+        Body steps. ``draw`` is disallowed (posterior is deterministic
+        post-conditioning); ``observe`` is disallowed; ``let`` and
+        ``marginalize`` are permitted.
+    return_vars : tuple of str
+        Tuple of variables to return as the posterior quantity.
+    """
+
+    name: str
+    model: str
+    params: tuple[str, ...] | None
+    domain: TypeExpr
+    codomain: TypeExpr
+    steps: tuple[ProgramStep, ...]
+    return_vars: tuple[str, ...]
+    return_labels: tuple[str, ...] | None = None
+    docs: tuple[str, ...] = ()
+    line: int = 0
+    col: int = 0
+    kind: Literal["posterior_decl"] = "posterior_decl"
 
 
 class LetDecl(Statement):
