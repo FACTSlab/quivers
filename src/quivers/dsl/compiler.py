@@ -236,9 +236,7 @@ class _ChartHandlerComposite(torch.nn.Module):
             return base_out
         log_handler = torch.log(self._handler.tensor.clamp(min=1e-30))
         # log[batch, B] = logsumexp_A(base_out[batch, A] + log_handler[A, B])
-        return torch.logsumexp(
-            base_out.unsqueeze(2) + log_handler.unsqueeze(0), dim=1
-        )
+        return torch.logsumexp(base_out.unsqueeze(2) + log_handler.unsqueeze(0), dim=1)
 
     def __repr__(self) -> str:
         return f"ChartHandlerComposite({self._base!r} ; {self._handler!r})"
@@ -1615,9 +1613,7 @@ class Compiler:
 
         try:
             start = expr.start if isinstance(expr.start, int) else 0
-            parser = InsideAlgorithm(
-                binary, lex, start=start, unary=unary
-            )
+            parser = InsideAlgorithm(binary, lex, start=start, unary=unary)
         except (TypeError, ValueError) as e:
             raise CompileError(str(e), expr.line, expr.col) from e
 

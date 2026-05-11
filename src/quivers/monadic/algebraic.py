@@ -128,9 +128,7 @@ class EffectSignature(dx.Model):
 # ---------------------------------------------------------------------------
 
 
-def _carrier_size(
-    signature: EffectSignature, leaf_size: int, depth: int
-) -> int:
+def _carrier_size(signature: EffectSignature, leaf_size: int, depth: int) -> int:
     """Total cardinality of ``Free_Σ^{≤depth}(A)`` for ``|A| = leaf_size``."""
     if depth < 0:
         raise ValueError(f"depth must be >= 0, got {depth}")
@@ -139,7 +137,7 @@ def _carrier_size(
     sub_size = _carrier_size(signature, leaf_size, depth - 1)
     total = leaf_size
     for op in signature.operations:
-        total += op.parameter.size * (sub_size ** op.result.size)
+        total += op.parameter.size * (sub_size**op.result.size)
     return total
 
 
@@ -181,16 +179,14 @@ def _decompose_carrier_index(
     """
     if depth == 0 or not signature.operations:
         if not 0 <= flat < leaf_size:
-            raise ValueError(
-                f"flat index {flat} out of carrier range [0, {leaf_size})"
-            )
+            raise ValueError(f"flat index {flat} out of carrier range [0, {leaf_size})")
         return ("leaf", -1, flat, 0)
     if flat < leaf_size:
         return ("leaf", -1, flat, 0)
     rest = flat - leaf_size
     sub_size = _carrier_size(signature, leaf_size, depth - 1)
     for i, op in enumerate(signature.operations):
-        cont_card = sub_size ** op.result.size
+        cont_card = sub_size**op.result.size
         block = op.parameter.size * cont_card
         if rest < block:
             p_idx = rest // cont_card
@@ -220,7 +216,7 @@ def _compose_carrier_index(
     sub_size = _carrier_size(signature, leaf_size, depth - 1)
     offset = leaf_size
     for i, op in enumerate(signature.operations):
-        cont_card = sub_size ** op.result.size
+        cont_card = sub_size**op.result.size
         block = op.parameter.size * cont_card
         if i == op_index:
             return offset + p_idx * cont_card + cont_flat
@@ -228,9 +224,7 @@ def _compose_carrier_index(
     raise ValueError(f"op_index {op_index} out of range")
 
 
-def _decode_continuation(
-    flat: int, sub_size: int, result_size: int
-) -> tuple[int, ...]:
+def _decode_continuation(flat: int, sub_size: int, result_size: int) -> tuple[int, ...]:
     """Decode a function-space flat index into the output tuple.
 
     The encoding is row-major: ``flat = ∑_i outputs[i] · sub_size^(result_size-1-i)``.
@@ -243,9 +237,7 @@ def _decode_continuation(
     return tuple(outs)
 
 
-def _encode_continuation(
-    outputs: tuple[int, ...], sub_size: int
-) -> int:
+def _encode_continuation(outputs: tuple[int, ...], sub_size: int) -> int:
     """Inverse of :func:`_decode_continuation`."""
     flat = 0
     for v in outputs:
@@ -305,8 +297,7 @@ class Handler(dx.Model):
         spec = {
             "id": f"quivers.handler.{self.signature.name}",
             "description": (
-                f"Handler from {self.signature.name} into the "
-                "registered target monad."
+                f"Handler from {self.signature.name} into the registered target monad."
             ),
             "theories": [
                 {
@@ -359,9 +350,7 @@ class Handler(dx.Model):
         sub_morph = self.run(A, depth - 1)
         sub_size = _carrier_size(self.signature, leaf_size, depth - 1)
         target_A_size = target_A.size
-        data = torch.full(
-            (carrier.size, target_A_size), PRODUCT_FUZZY.zero
-        )
+        data = torch.full((carrier.size, target_A_size), PRODUCT_FUZZY.zero)
         # Leaf branch.
         return_t = self.return_clause.tensor.reshape(leaf_size, target_A_size)
         for a_flat in range(leaf_size):
@@ -373,14 +362,12 @@ class Handler(dx.Model):
             # Clause has source = op.parameter × [op.result → target(A)]
             # and codomain = target(A). Encode the target-side function-
             # space cardinality:
-            target_cont_card = target_A_size ** op.result.size
+            target_cont_card = target_A_size**op.result.size
             target_cont_fs = FinSet(
                 name=f"_target_cont_{op.name}",
                 cardinality=target_cont_card,
             )
-            clause_src = ProductSet(
-                components=(op.parameter, target_cont_fs)
-            )
+            clause_src = ProductSet(components=(op.parameter, target_cont_fs))
             if clause.domain != clause_src or clause.codomain != target_A:
                 raise TypeError(
                     f"handler clause {op.name!r} has shape "
@@ -391,7 +378,7 @@ class Handler(dx.Model):
                 op.parameter.size, target_cont_card, target_A_size
             )
             sub_t = sub_morph.tensor.reshape(sub_size, target_A_size)
-            cont_card = sub_size ** op.result.size
+            cont_card = sub_size**op.result.size
             block = op.parameter.size * cont_card
             for p_idx in range(op.parameter.size):
                 for cont_flat in range(cont_card):
@@ -435,9 +422,7 @@ class Handler(dx.Model):
                                     data[outer_flat, b] = max(cur, bw)
                             continue
                         for j, jw in per_slot[slot_idx]:
-                            stack.append(
-                                (slot_idx + 1, w * jw, choices + [j])
-                            )
+                            stack.append((slot_idx + 1, w * jw, choices + [j]))
             offset += block
         return observed(carrier, target_A, data)
 
@@ -497,13 +482,11 @@ class FreeMonad(dx.Model):
             return f
         sub_A_size = _carrier_size(self.signature, A.size, self.depth - 1)
         sub_B_size = _carrier_size(self.signature, B.size, self.depth - 1)
-        sub_recur = FreeMonad(
-            signature=self.signature, depth=self.depth - 1
-        ).fmap(A, B, f)
-        sub_t = sub_recur.tensor.reshape(sub_A_size, sub_B_size)
-        data = torch.full(
-            (carrier_A.size, carrier_B.size), PRODUCT_FUZZY.zero
+        sub_recur = FreeMonad(signature=self.signature, depth=self.depth - 1).fmap(
+            A, B, f
         )
+        sub_t = sub_recur.tensor.reshape(sub_A_size, sub_B_size)
+        data = torch.full((carrier_A.size, carrier_B.size), PRODUCT_FUZZY.zero)
         # Leaf branch: route through f.
         f_t = f.tensor.reshape(A.size, B.size)
         for a in range(A.size):
@@ -515,8 +498,8 @@ class FreeMonad(dx.Model):
         offset_A = A.size
         offset_B = B.size
         for op in self.signature.operations:
-            cont_A_card = sub_A_size ** op.result.size
-            cont_B_card = sub_B_size ** op.result.size
+            cont_A_card = sub_A_size**op.result.size
+            cont_B_card = sub_B_size**op.result.size
             block_A = op.parameter.size * cont_A_card
             block_B = op.parameter.size * cont_B_card
             for p_idx in range(op.parameter.size):
@@ -536,27 +519,19 @@ class FreeMonad(dx.Model):
                     if any(not slot for slot in per_slot):
                         continue
                     src = offset_A + p_idx * cont_A_card + cont_A_flat
-                    stack: list[tuple[int, float, list[int]]] = [
-                        (0, 1.0, [])
-                    ]
+                    stack: list[tuple[int, float, list[int]]] = [(0, 1.0, [])]
                     while stack:
                         slot_idx, w, choices = stack.pop()
                         if slot_idx == op.result.size:
                             cont_B_flat = _encode_continuation(
                                 tuple(choices), sub_B_size
                             )
-                            tgt = (
-                                offset_B
-                                + p_idx * cont_B_card
-                                + cont_B_flat
-                            )
+                            tgt = offset_B + p_idx * cont_B_card + cont_B_flat
                             cur = data[src, tgt].item()
                             data[src, tgt] = max(cur, w)
                             continue
                         for j, jw in per_slot[slot_idx]:
-                            stack.append(
-                                (slot_idx + 1, w * jw, choices + [j])
-                            )
+                            stack.append((slot_idx + 1, w * jw, choices + [j]))
             offset_A += block_A
             offset_B += block_B
         return observed(carrier_A, carrier_B, data)
@@ -576,9 +551,7 @@ class FreeMonad(dx.Model):
         carrier_FA = _tree_carrier(self.signature, carrier_A, self.depth)
         FA_size = carrier_FA.size
         A_carrier_size = carrier_A.size
-        data = torch.full(
-            (FA_size, A_carrier_size), PRODUCT_FUZZY.zero
-        )
+        data = torch.full((FA_size, A_carrier_size), PRODUCT_FUZZY.zero)
 
         def splice(outer_flat: int, depth_remaining: int) -> dict[int, float]:
             """Compute join image of an outer index at the given depth."""
@@ -595,7 +568,7 @@ class FreeMonad(dx.Model):
             rest = outer_flat - A_carrier_size
             offset = 0
             for i, op in enumerate(self.signature.operations):
-                cont_card = sub_outer_size ** op.result.size
+                cont_card = sub_outer_size**op.result.size
                 block = op.parameter.size * cont_card
                 if rest < block:
                     p_idx = rest // cont_card
@@ -625,11 +598,9 @@ class FreeMonad(dx.Model):
                     inner_offset_at_depth = _carrier_op_offset(
                         self.signature, A.size, self.depth, i
                     )
-                    inner_cont_card = sub_inner_size ** op.result.size
+                    inner_cont_card = sub_inner_size**op.result.size
                     out: dict[int, float] = {}
-                    stack: list[tuple[int, float, list[int]]] = [
-                        (0, 1.0, [])
-                    ]
+                    stack: list[tuple[int, float, list[int]]] = [(0, 1.0, [])]
                     while stack:
                         slot_idx, w, choices = stack.pop()
                         if slot_idx == op.result.size:
@@ -642,9 +613,7 @@ class FreeMonad(dx.Model):
                                 + inner_cont_flat
                             )
                             if target_idx < A_carrier_size:
-                                out[target_idx] = max(
-                                    out.get(target_idx, 0.0), w
-                                )
+                                out[target_idx] = max(out.get(target_idx, 0.0), w)
                             continue
                         for choice, choice_w in per_slot[slot_idx].items():
                             if choice_w > 0 and choice < sub_inner_size:
@@ -737,71 +706,52 @@ class FreeMonad(dx.Model):
                     return {}
                 op = sig.operations[a_op]
                 sub_a_size = _carrier_size(sig, A.size, da - 1)
-                cont_outs = _decode_continuation(
-                    a_cont, sub_a_size, op.result.size
-                )
+                cont_outs = _decode_continuation(a_cont, sub_a_size, op.result.size)
                 per_slot: list[dict[int, float]] = [
-                    recur(da - 1, db, dc - 1, k_r, b_flat)
-                    for k_r in cont_outs
+                    recur(da - 1, db, dc - 1, k_r, b_flat) for k_r in cont_outs
                 ]
                 if any(not slot for slot in per_slot):
                     return {}
                 sub_c_size = _carrier_size(sig, C.size, dc - 1)
                 offset_c = _carrier_op_offset(sig, C.size, dc, a_op)
-                cont_card_c = sub_c_size ** op.result.size
+                cont_card_c = sub_c_size**op.result.size
                 out_dist: dict[int, float] = {}
                 stack: list[tuple[int, float, list[int]]] = [(0, 1.0, [])]
                 while stack:
                     slot_idx, w, choices = stack.pop()
                     if slot_idx == op.result.size:
-                        cont_c_flat = _encode_continuation(
-                            tuple(choices), sub_c_size
-                        )
-                        c_idx = (
-                            offset_c + a_pay * cont_card_c + cont_c_flat
-                        )
+                        cont_c_flat = _encode_continuation(tuple(choices), sub_c_size)
+                        c_idx = offset_c + a_pay * cont_card_c + cont_c_flat
                         out_dist[c_idx] = max(out_dist.get(c_idx, 0.0), w)
                         continue
                     for cc, cw in per_slot[slot_idx].items():
                         if cc < sub_c_size:
-                            stack.append(
-                                (slot_idx + 1, w * cw, choices + [cc])
-                            )
+                            stack.append((slot_idx + 1, w * cw, choices + [cc]))
                 return out_dist
             # a is leaf, b is op
             if dc < 1:
                 return {}
             op = sig.operations[b_op]
             sub_b_size = _carrier_size(sig, B.size, db - 1)
-            cont_outs = _decode_continuation(
-                b_cont, sub_b_size, op.result.size
-            )
-            per_slot = [
-                recur(da, db - 1, dc - 1, a_flat, k_r) for k_r in cont_outs
-            ]
+            cont_outs = _decode_continuation(b_cont, sub_b_size, op.result.size)
+            per_slot = [recur(da, db - 1, dc - 1, a_flat, k_r) for k_r in cont_outs]
             if any(not slot for slot in per_slot):
                 return {}
             sub_c_size = _carrier_size(sig, C.size, dc - 1)
             offset_c = _carrier_op_offset(sig, C.size, dc, b_op)
-            cont_card_c = sub_c_size ** op.result.size
+            cont_card_c = sub_c_size**op.result.size
             out_dist = {}
             stack = [(0, 1.0, [])]
             while stack:
                 slot_idx, w, choices = stack.pop()
                 if slot_idx == op.result.size:
-                    cont_c_flat = _encode_continuation(
-                        tuple(choices), sub_c_size
-                    )
-                    c_idx = (
-                        offset_c + b_pay * cont_card_c + cont_c_flat
-                    )
+                    cont_c_flat = _encode_continuation(tuple(choices), sub_c_size)
+                    c_idx = offset_c + b_pay * cont_card_c + cont_c_flat
                     out_dist[c_idx] = max(out_dist.get(c_idx, 0.0), w)
                     continue
                 for cc, cw in per_slot[slot_idx].items():
                     if cc < sub_c_size:
-                        stack.append(
-                            (slot_idx + 1, w * cw, choices + [cc])
-                        )
+                        stack.append((slot_idx + 1, w * cw, choices + [cc]))
             return out_dist
 
         for a_flat in range(carrier_A.size):
@@ -829,7 +779,7 @@ def _carrier_op_offset(
     for i, op in enumerate(signature.operations):
         if i == op_index:
             return offset
-        cont_card = sub_size ** op.result.size
+        cont_card = sub_size**op.result.size
         offset += op.parameter.size * cont_card
     raise ValueError(f"op_index {op_index} out of range")
 

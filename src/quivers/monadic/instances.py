@@ -73,7 +73,7 @@ def _function_space(domain: SetObject, codomain: SetObject) -> FinSet:
     inputs. The bijection ``flat ↔ tuple-of-outputs`` is computed
     by :func:`_decode_function`.
     """
-    card = codomain.size ** domain.size
+    card = codomain.size**domain.size
     return FinSet(
         name=f"[{domain!s}→{codomain!s}]",
         cardinality=card,
@@ -193,8 +193,10 @@ class Maybe(dx.Model):
         nothing_B = FinSet(name=f"_nothing_{B!s}", cardinality=1)
         # The failure-side branch is the unique map between the two
         # singletons (identity).
-        failure_branch = id_morph(nothing_A) if nothing_A.name == nothing_B.name else (
-            constant(nothing_A, nothing_B, 0)
+        failure_branch = (
+            id_morph(nothing_A)
+            if nothing_A.name == nothing_B.name
+            else (constant(nothing_A, nothing_B, 0))
         )
         return coproduct_map((f, failure_branch))
 
@@ -416,9 +418,7 @@ class Alternative_(dx.Model):
             for b_flat in range(B.size):
                 for a_flat in range(A.size):
                     ab_flat = a_flat * B.size + b_flat
-                    data[fn_flat, b_flat, a_flat, outputs[ab_flat]] = (
-                        PRODUCT_FUZZY.unit
-                    )
+                    data[fn_flat, b_flat, a_flat, outputs[ab_flat]] = PRODUCT_FUZZY.unit
         data = data.reshape(*source.shape, *target.shape)
         return observed(source, target, data)
 
@@ -547,9 +547,7 @@ class Continuation(dx.Model):
 
     def apply(self, A: SetObject, B: SetObject) -> Morphism:
         # Derive apply from lift_a2 and the function-space evaluation.
-        return self.lift_a2(
-            _function_space(A, B), A, B, _evaluation_morphism(A, B)
-        )
+        return self.lift_a2(_function_space(A, B), A, B, _evaluation_morphism(A, B))
 
     def join(self, A: SetObject) -> Morphism:
         # join_A : Cont_ρ(Cont_ρ(A)) → Cont_ρ(A).
@@ -697,9 +695,7 @@ class State(dx.Model):
                 f_lookup[a] = 0
         data = torch.full((sA.cardinality, sB.cardinality), PRODUCT_FUZZY.zero)
         for s_fn_flat in range(sA.cardinality):
-            s_fn_outs = _decode_function(
-                s_fn_flat, sigma.size, target_A.size
-            )
+            s_fn_outs = _decode_function(s_fn_flat, sigma.size, target_A.size)
             # Build the new state function by applying f to the A coord.
             new_outs: list[int] = []
             for sig in range(sigma.size):
@@ -731,9 +727,7 @@ class State(dx.Model):
         return observed(A, sA, data)
 
     def apply(self, A: SetObject, B: SetObject) -> Morphism:
-        return self.lift_a2(
-            _function_space(A, B), A, B, _evaluation_morphism(A, B)
-        )
+        return self.lift_a2(_function_space(A, B), A, B, _evaluation_morphism(A, B))
 
     def join(self, A: SetObject) -> Morphism:
         # join(mm)(σ) = let (m, σ') = mm(σ) in m(σ')
@@ -744,9 +738,7 @@ class State(dx.Model):
         target_sA = ProductSet(components=(sA, sigma))
         data = torch.full((ssA.cardinality, sA.cardinality), PRODUCT_FUZZY.zero)
         for mm_flat in range(ssA.cardinality):
-            mm_outs = _decode_function(
-                mm_flat, sigma.size, target_sA.size
-            )
+            mm_outs = _decode_function(mm_flat, sigma.size, target_sA.size)
             new_outs: list[int] = []
             for sig in range(sigma.size):
                 m_sig_flat = mm_outs[sig]
@@ -865,9 +857,7 @@ class Reader(dx.Model):
         return observed(A, rA, data)
 
     def apply(self, A: SetObject, B: SetObject) -> Morphism:
-        return self.lift_a2(
-            _function_space(A, B), A, B, _evaluation_morphism(A, B)
-        )
+        return self.lift_a2(_function_space(A, B), A, B, _evaluation_morphism(A, B))
 
     def join(self, A: SetObject) -> Morphism:
         # join(mm)(r) = mm(r)(r). mm : ρ → (ρ → A); apply twice at r.
@@ -997,14 +987,11 @@ class Writer(dx.Model):
 
     def pure(self, A: SetObject) -> Morphism:
         # pure(a) = (a, unit). Pairs a with the constant unit_index.
-        target = self.fmap_obj(A)
         unit_const = constant(A, self.monoid, self.unit_index)
         return pair((id_morph(A), unit_const))
 
     def apply(self, A: SetObject, B: SetObject) -> Morphism:
-        return self.lift_a2(
-            _function_space(A, B), A, B, _evaluation_morphism(A, B)
-        )
+        return self.lift_a2(_function_space(A, B), A, B, _evaluation_morphism(A, B))
 
     def join(self, A: SetObject) -> Morphism:
         # join((a, m1), m2) = (a, m1 ⊕ m2)
@@ -1184,10 +1171,9 @@ class List(dx.Model):
         # cardinality grows fast. To keep this tractable we encode
         # FreeMonoid(A) as a FinSet of cardinality lA.size and use
         # the standard FreeMonoid-over-FinSet construction.
-        list_a_as_finset = FinSet(
-            name=f"_list_atoms_{A!s}", cardinality=lA.size
-        )
+        list_a_as_finset = FinSet(name=f"_list_atoms_{A!s}", cardinality=lA.size)
         from quivers.core.objects import FreeMonoid as FM
+
         llA = FM(generators=list_a_as_finset, max_length=self.max_length)
         data = torch.full((llA.size, lA.size), PRODUCT_FUZZY.zero)
         for outer_flat in range(llA.size):

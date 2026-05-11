@@ -25,7 +25,6 @@ import torch
 from quivers.core.morphisms import Morphism, ObservedMorphism, observed, identity
 from quivers.core.objects import (
     CoproductSet,
-    FinSet,
     ProductSet,
     SetObject,
     Unit,
@@ -72,9 +71,7 @@ def inj(
         Enrichment algebra.
     """
     if not 0 <= index < len(components):
-        raise ValueError(
-            f"injection index {index} out of range [0, {len(components)})"
-        )
+        raise ValueError(f"injection index {index} out of range [0, {len(components)})")
     q = _q(quantale)
     source = components[index]
     target = CoproductSet(components=components)
@@ -216,9 +213,7 @@ def pair(
         # and leg with extra middle dims for already-accumulated codomains.
         cur_extra = leg.codomain.ndim
         prev_extra = result_t.ndim - dom_ndim
-        result_view = result_t.reshape(
-            *result_t.shape, *([1] * cur_extra)
-        )
+        result_view = result_t.reshape(*result_t.shape, *([1] * cur_extra))
         leg_view = leg.tensor.reshape(
             *leg.tensor.shape[:dom_ndim],
             *([1] * prev_extra),

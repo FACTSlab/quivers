@@ -41,7 +41,7 @@ from quivers.core._factories import (
 )
 from quivers.core.morphisms import Morphism, observed
 from quivers.core.morphisms import identity as id_morph
-from quivers.core.objects import CoproductSet, ProductSet, SetObject
+from quivers.core.objects import ProductSet, SetObject
 from quivers.core.quantales import PRODUCT_FUZZY
 
 
@@ -57,15 +57,9 @@ def _trace_v_rel(f: Morphism, C: SetObject) -> Morphism:
     symmetric-monoidal trace on V-Rel (Joyal-Street-Verity 1996, §3).
     """
     if not isinstance(f.domain, ProductSet) or len(f.domain.components) != 2:
-        raise TypeError(
-            "trace requires f : A⊗C → B⊗C; got domain "
-            f"{f.domain!r}"
-        )
+        raise TypeError(f"trace requires f : A⊗C → B⊗C; got domain {f.domain!r}")
     if not isinstance(f.codomain, ProductSet) or len(f.codomain.components) != 2:
-        raise TypeError(
-            "trace requires f : A⊗C → B⊗C; got codomain "
-            f"{f.codomain!r}"
-        )
+        raise TypeError(f"trace requires f : A⊗C → B⊗C; got codomain {f.codomain!r}")
     A, C_dom = f.domain.components
     B, C_cod = f.codomain.components
     if C_dom != C or C_cod != C:
@@ -78,7 +72,6 @@ def _trace_v_rel(f: Morphism, C: SetObject) -> Morphism:
     # Then for each (a_idx, b_idx), join over the diagonal of the two
     # C axes (where the two C-coordinates are equal).
     A_ndim = A.ndim
-    C_ndim = C.ndim
     B_ndim = B.ndim
     data = f.tensor  # shape: (*A, *C, *B, *C)
     # Build the trace tensor by enumerating the diagonal of C.

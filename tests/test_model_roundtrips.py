@@ -345,10 +345,14 @@ CASES: list[tuple[type, object]] = [
 # ---------------------------------------------------------------------------
 
 _OP_GET = Operation(
-    name="get", parameter=FinSet(name="P", cardinality=2), result=FinSet(name="R", cardinality=3)
+    name="get",
+    parameter=FinSet(name="P", cardinality=2),
+    result=FinSet(name="R", cardinality=3),
 )
 _OP_PUT = Operation(
-    name="put", parameter=FinSet(name="R", cardinality=3), result=FinSet(name="P", cardinality=2)
+    name="put",
+    parameter=FinSet(name="R", cardinality=3),
+    result=FinSet(name="P", cardinality=2),
 )
 _EFFECT_SIG = EffectSignature(name="IO", operations=(_OP_GET, _OP_PUT))
 _FREE_MONAD = FreeMonad(signature=_EFFECT_SIG)

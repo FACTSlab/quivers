@@ -21,20 +21,16 @@ is the identity on monad theories (Hughes 2000, Theorem 3.1).
 from __future__ import annotations
 
 import didactic.api as dx
-import torch
 
-from quivers.arrows.typeclasses import Arrow, ArrowApply
-from quivers.core._factories import pair, parallel
-from quivers.core.morphisms import Morphism, observed
+from quivers.arrows.typeclasses import Arrow, ArrowApply, Category_
+from quivers.core._factories import parallel
+from quivers.core.morphisms import Morphism
 from quivers.core.morphisms import identity as id_morph
-from quivers.core.objects import ProductSet, SetObject, Unit
-from quivers.core.quantales import PRODUCT_FUZZY
+from quivers.core.objects import ProductSet, SetObject
 from quivers.monadic.typeclasses import Monad
 
 
-def _monad_strength(
-    m, A: SetObject, B: SetObject
-) -> Morphism:
+def _monad_strength(m, A: SetObject, B: SetObject) -> Morphism:
     """Canonical monad strength ``σ_m : A ⊗ m(B) → m(A ⊗ B)``.
 
     Constructed uniformly via ``lift_a2(id_{A×B})`` after the
@@ -46,11 +42,8 @@ def _monad_strength(
 
     Concretely realised here by direct tensor enumeration.
     """
-    mA = m.fmap_obj(A)
     mB = m.fmap_obj(B)
     AB = ProductSet(components=(A, B))
-    mAB = m.fmap_obj(AB)
-    source = ProductSet(components=(A, mB))
     id_AB = id_morph(AB)
     lifted = m.lift_a2(A, B, AB, id_AB)
     pure_A = m.pure(A)
@@ -125,7 +118,6 @@ class Kleisli(dx.Model):
         Realised as ``(f × id_C) ; strength_m(B, C)``.
         """
         m = self.monad
-        A = f.domain
         mB = f.codomain
         # Recover the underlying B from m(B).
         B = _recover_value_type(m, mB)
@@ -151,9 +143,7 @@ Arrow.register(Kleisli)
 ArrowApply.register(Kleisli)
 
 
-def _monad_strength_second(
-    m, B: SetObject, C: SetObject
-) -> Morphism:
+def _monad_strength_second(m, B: SetObject, C: SetObject) -> Morphism:
     """``σ'_m : m(B) × C → m(B × C)`` (strength on the second factor).
 
     Built via the standard symmetry of the strength: pre-compose with
@@ -162,8 +152,6 @@ def _monad_strength_second(
     """
     BC = ProductSet(components=(B, C))
     mB = m.fmap_obj(B)
-    mBC = m.fmap_obj(BC)
-    source = ProductSet(components=(mB, C))
     # Use lift_a2 on the identity to build the joint action:
     id_BC = id_morph(BC)
     lifted = m.lift_a2(B, C, BC, id_BC)
@@ -184,7 +172,7 @@ def _recover_value_type(m, mB: SetObject) -> SetObject:
     State's image is a function-space whose codomain is ``A × σ``
     so the preimage is the product's first factor; etc.
     """
-    from quivers.core.objects import CoproductSet, FinSet, FreeMonoid
+    from quivers.core.objects import CoproductSet, FreeMonoid
 
     # If fmap_obj is identity, return as-is.
     candidate = m.fmap_obj(mB)
@@ -356,8 +344,6 @@ def cokleisli(comonad) -> CoKleisli:
     """
     return CoKleisli(comonad=comonad)
 
-
-from quivers.arrows.typeclasses import Category_
 
 Category_.register(CoKleisli)
 

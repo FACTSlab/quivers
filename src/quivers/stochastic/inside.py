@@ -280,9 +280,7 @@ def _apply_unary_closure(
     cell = log_cell
     for _ in range(max_iters):
         # cell_unary[batch, A] = logsumexp_B(cell[batch, B] + log_unary[B, A])
-        cell_unary = torch.logsumexp(
-            cell.unsqueeze(2) + log_unary.unsqueeze(0), dim=1
-        )
+        cell_unary = torch.logsumexp(cell.unsqueeze(2) + log_unary.unsqueeze(0), dim=1)
         # Quantale-join (noisy-OR in log-space) of cell and cell_unary
         # ≈ logaddexp.
         new_cell = torch.logaddexp(cell, cell_unary)

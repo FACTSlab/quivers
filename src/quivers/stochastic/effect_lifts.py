@@ -293,12 +293,8 @@ def make_swap_schema(
         name=f"swap_{outer}_{inner}_{base_name}",
         parameter_names=(("X",),),
         parameter_types=(TypeName(name="Cat"),),
-        domain=_wrap_with_effect(
-            _wrap_with_effect(TypeName(name="X"), inner), outer
-        ),
-        codomain=_wrap_with_effect(
-            _wrap_with_effect(TypeName(name="X"), outer), inner
-        ),
+        domain=_wrap_with_effect(_wrap_with_effect(TypeName(name="X"), inner), outer),
+        codomain=_wrap_with_effect(_wrap_with_effect(TypeName(name="X"), outer), inner),
     )
 
 
