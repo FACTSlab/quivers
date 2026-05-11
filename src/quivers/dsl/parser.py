@@ -41,17 +41,23 @@ from quivers.dsl.ast_nodes import (
     LetDecl,
     LetExprBinOp,
     LetExprCall,
+    LetExprIndex,
     LetExprLiteral,
     LetExprNode,
     LetExprUnaryOp,
     LetExprVar,
     LetStep,
+    MarginalizeStep,
     Module,
     MorphismDecl,
     ObjectDecl,
     OutputDecl,
+    PlateDrawStep,
+    PosteriorDecl,
     ProgramDecl,
+    ProgramStep,
     QuantaleDecl,
+    RandomEffectDecl,
     RuleDecl,
     SchemaDecl,
     SpaceConstructor,
@@ -62,6 +68,7 @@ from quivers.dsl.ast_nodes import (
     Statement,
     StochasticMorphismDecl,
     TypeCoproduct,
+    VectorisedObserveStep,
     TypeEffectApply,
     TypeExpr,
     TypeName,
@@ -587,6 +594,21 @@ def _walk_let_arith(t: _Tree, vid: str) -> LetExprNode:
         return LetExprLiteral(value=float(t.text(t.positional(vid)[0])))
     if k == "let_var":
         return LetExprVar(name=t.text(t.positional(vid)[0]))
+    if k == "let_index":
+        # arr[i, j, ...] — the Kleisli pullback of arr along the
+        # finite-fibration index expression. The `array` field is a
+        # nested let_arith (typically a let_var) and the `indices`
+        # fields are the index expressions in order.
+        array_vid = t.field(vid, "array")
+        if array_vid is None:
+            raise ParseError(f"let_index missing array at {vid}")
+        index_vids = t.fields(vid, "indices")
+        if not index_vids:
+            raise ParseError(f"let_index requires at least one index at {vid}")
+        return LetExprIndex(
+            array=_walk_let_arith(t, array_vid),
+            indices=tuple(_walk_let_arith(t, iv) for iv in index_vids),
+        )
     if k == "let_call":
         # The `func` field is an anonymous-string-choice token; recover the
         # function name from the source bytes between the let_call vertex's
@@ -621,9 +643,56 @@ def _walk_let_arith(t: _Tree, vid: str) -> LetExprNode:
     raise ParseError(f"unexpected let_arith kind: {k}")
 
 
-def _walk_program_step(t: _Tree, vid: str) -> DrawStep | LetStep:
+def _walk_program_step(t: _Tree, vid: str) -> ProgramStep:
     k = t.kind(vid)
     line, col = t.line_col(vid)
+    if k == "plate_draw_step":
+        # draw name : INDEX -> CODOMAIN ~ Family(args)
+        name_vid = t.field(vid, "name")
+        index_vid = t.field(vid, "index")
+        codom_vid = t.field(vid, "codomain")
+        morph_vid = t.field(vid, "morphism")
+        if name_vid is None or index_vid is None or codom_vid is None:
+            raise ParseError(f"plate_draw_step malformed at {vid}")
+        args_list: list[str | float] = []
+        for av in t.fields(vid, "args"):
+            args_list.append(_walk_draw_arg(t, av))
+        return PlateDrawStep(
+            name=_required_text(t, name_vid, vid, "name"),
+            index=_walk_type(t, index_vid),
+            codomain=_walk_type(t, codom_vid),
+            morphism=_required_text(t, morph_vid, vid, "morphism"),
+            args=tuple(args_list) if args_list else None,
+            line=line,
+            col=col,
+        )
+    if k == "vectorised_observe_step":
+        # observe response[idx] ~ Family(args) for idx in INDEX_SET
+        resp_vid = t.field(vid, "response")
+        idx_vid = t.field(vid, "index_var")
+        set_vid = t.field(vid, "index_set")
+        morph_vid = t.field(vid, "morphism")
+        if resp_vid is None or idx_vid is None or set_vid is None:
+            raise ParseError(f"vectorised_observe_step malformed at {vid}")
+        args_list = []
+        for av in t.fields(vid, "args"):
+            args_list.append(_walk_draw_arg(t, av))
+        return VectorisedObserveStep(
+            index_var=_required_text(t, idx_vid, vid, "index_var"),
+            index_set=_walk_type(t, set_vid),
+            morphism=_required_text(t, morph_vid, vid, "morphism"),
+            args=tuple(args_list) if args_list else None,
+            response_var=_required_text(t, resp_vid, vid, "response"),
+            line=line,
+            col=col,
+        )
+    if k == "marginalize_step":
+        var_vid = t.field(vid, "var")
+        return MarginalizeStep(
+            var_name=_required_text(t, var_vid, vid, "var"),
+            line=line,
+            col=col,
+        )
     if k in ("draw_step", "observe_step"):
         var_vid = t.field(vid, "vars")
         if var_vid is None:
@@ -908,6 +977,72 @@ def _walk_statement(t: _Tree, vid: str) -> Statement | list[Statement]:
             raise ParseError(f"output_decl missing value at {vid}")
         return OutputDecl(
             expr=_walk_expr(t, vv),
+            line=line,
+            col=col,
+        )
+    if k == "random_effect_decl":
+        nv = t.field(vid, "name")
+        iv = t.field(vid, "index")
+        dim_vid = t.field(vid, "codomain_dim")
+        eta_vid = t.field(vid, "eta")
+        sf_vid = t.field(vid, "scale_family")
+        if nv is None or iv is None or dim_vid is None:
+            raise ParseError(f"random_effect_decl malformed at {vid}")
+        dim = int(float(t.text(dim_vid)))
+        eta = float(t.text(eta_vid)) if eta_vid else 2.0
+        scale_family = (
+            _required_text(t, sf_vid, vid, "scale_family")
+            if sf_vid is not None
+            else "HalfNormal"
+        )
+        scale_args: list[str | float] = []
+        for av in t.fields(vid, "scale_args"):
+            scale_args.append(_walk_draw_arg(t, av))
+        return RandomEffectDecl(
+            name=_required_text(t, nv, vid, "name"),
+            index=_walk_type(t, iv),
+            codomain_dim=dim,
+            correlation_eta=eta,
+            scale_family=scale_family,
+            scale_args=tuple(scale_args),
+            line=line,
+            col=col,
+        )
+    if k == "posterior_decl":
+        nv = t.field(vid, "name")
+        mv = t.field(vid, "model")
+        if nv is None or mv is None:
+            raise ParseError(f"posterior_decl missing name/model at {vid}")
+        params_vids = t.fields(vid, "params")
+        params: tuple[str, ...] | None = (
+            tuple(t.text(pv) for pv in params_vids) if params_vids else None
+        )
+        steps_t = tuple(_walk_program_step(t, sv) for sv in t.fields(vid, "steps"))
+        # Disallow draw / observe inside posterior bodies — posterior
+        # is deterministic post-conditioning.
+        for s in steps_t:
+            if isinstance(s, (DrawStep, PlateDrawStep, VectorisedObserveStep)):
+                raise ParseError(
+                    "posterior block may not contain draw / observe steps "
+                    "(posterior runs after conditioning)"
+                )
+        ret_vid = t.field(vid, "return")
+        if ret_vid is None:
+            raise ParseError(f"posterior_decl missing return at {vid}")
+        return_vars, return_labels = _walk_return_pattern(t, ret_vid)
+        dv = t.field(vid, "domain")
+        cv = t.field(vid, "codomain")
+        if dv is None or cv is None:
+            raise ParseError(f"posterior_decl missing domain/codomain at {vid}")
+        return PosteriorDecl(
+            name=_required_text(t, nv, vid, "name"),
+            model=_required_text(t, mv, vid, "model"),
+            params=params,
+            domain=_walk_type(t, dv),
+            codomain=_walk_type(t, cv),
+            steps=steps_t,
+            return_vars=return_vars,
+            return_labels=return_labels,
             line=line,
             col=col,
         )

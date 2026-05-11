@@ -915,6 +915,10 @@
             "named": true
           },
           {
+            "type": "let_index",
+            "named": true
+          },
+          {
             "type": "let_literal",
             "named": true
           },
@@ -967,6 +971,10 @@
             "named": true
           },
           {
+            "type": "let_index",
+            "named": true
+          },
+          {
             "type": "let_literal",
             "named": true
           },
@@ -1007,6 +1015,10 @@
             "named": true
           },
           {
+            "type": "let_index",
+            "named": true
+          },
+          {
             "type": "let_literal",
             "named": true
           },
@@ -1033,6 +1045,14 @@
             "named": false
           },
           {
+            "type": "cholesky_quad_form",
+            "named": false
+          },
+          {
+            "type": "cumsum",
+            "named": false
+          },
+          {
             "type": "exp",
             "named": false
           },
@@ -1042,6 +1062,10 @@
           },
           {
             "type": "sigmoid",
+            "named": false
+          },
+          {
+            "type": "softmax",
             "named": false
           },
           {
@@ -1133,6 +1157,60 @@
     }
   },
   {
+    "type": "let_index",
+    "named": true,
+    "fields": {
+      "array": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "let_var",
+            "named": true
+          }
+        ]
+      },
+      "indices": {
+        "multiple": true,
+        "required": true,
+        "types": [
+          {
+            "type": ",",
+            "named": false
+          },
+          {
+            "type": "let_binop",
+            "named": true
+          },
+          {
+            "type": "let_call",
+            "named": true
+          },
+          {
+            "type": "let_index",
+            "named": true
+          },
+          {
+            "type": "let_literal",
+            "named": true
+          },
+          {
+            "type": "let_paren",
+            "named": true
+          },
+          {
+            "type": "let_unary",
+            "named": true
+          },
+          {
+            "type": "let_var",
+            "named": true
+          }
+        ]
+      }
+    }
+  },
+  {
     "type": "let_literal",
     "named": true,
     "fields": {},
@@ -1165,6 +1243,10 @@
         },
         {
           "type": "let_call",
+          "named": true
+        },
+        {
+          "type": "let_index",
           "named": true
         },
         {
@@ -1213,6 +1295,10 @@
             "named": true
           },
           {
+            "type": "let_index",
+            "named": true
+          },
+          {
             "type": "let_literal",
             "named": true
           },
@@ -1245,6 +1331,10 @@
             "named": true
           },
           {
+            "type": "let_index",
+            "named": true
+          },
+          {
             "type": "let_literal",
             "named": true
           },
@@ -1273,6 +1363,22 @@
           "named": true
         }
       ]
+    }
+  },
+  {
+    "type": "marginalize_step",
+    "named": true,
+    "fields": {
+      "var": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "identifier",
+            "named": true
+          }
+        ]
+      }
     }
   },
   {
@@ -1781,6 +1887,262 @@
     }
   },
   {
+    "type": "plate_draw_step",
+    "named": true,
+    "fields": {
+      "args": {
+        "multiple": true,
+        "required": false,
+        "types": [
+          {
+            "type": ",",
+            "named": false
+          },
+          {
+            "type": "identifier",
+            "named": true
+          },
+          {
+            "type": "signed_number",
+            "named": true
+          }
+        ]
+      },
+      "codomain": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "type_atom",
+            "named": true
+          },
+          {
+            "type": "type_coproduct",
+            "named": true
+          },
+          {
+            "type": "type_effect_apply",
+            "named": true
+          },
+          {
+            "type": "type_paren",
+            "named": true
+          },
+          {
+            "type": "type_product",
+            "named": true
+          },
+          {
+            "type": "type_slash",
+            "named": true
+          }
+        ]
+      },
+      "index": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "type_atom",
+            "named": true
+          },
+          {
+            "type": "type_coproduct",
+            "named": true
+          },
+          {
+            "type": "type_effect_apply",
+            "named": true
+          },
+          {
+            "type": "type_paren",
+            "named": true
+          },
+          {
+            "type": "type_product",
+            "named": true
+          },
+          {
+            "type": "type_slash",
+            "named": true
+          }
+        ]
+      },
+      "morphism": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "identifier",
+            "named": true
+          }
+        ]
+      },
+      "name": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "identifier",
+            "named": true
+          }
+        ]
+      }
+    }
+  },
+  {
+    "type": "posterior_decl",
+    "named": true,
+    "fields": {
+      "codomain": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "type_atom",
+            "named": true
+          },
+          {
+            "type": "type_coproduct",
+            "named": true
+          },
+          {
+            "type": "type_effect_apply",
+            "named": true
+          },
+          {
+            "type": "type_paren",
+            "named": true
+          },
+          {
+            "type": "type_product",
+            "named": true
+          },
+          {
+            "type": "type_slash",
+            "named": true
+          }
+        ]
+      },
+      "domain": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "type_atom",
+            "named": true
+          },
+          {
+            "type": "type_coproduct",
+            "named": true
+          },
+          {
+            "type": "type_effect_apply",
+            "named": true
+          },
+          {
+            "type": "type_paren",
+            "named": true
+          },
+          {
+            "type": "type_product",
+            "named": true
+          },
+          {
+            "type": "type_slash",
+            "named": true
+          }
+        ]
+      },
+      "model": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "identifier",
+            "named": true
+          }
+        ]
+      },
+      "name": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "identifier",
+            "named": true
+          }
+        ]
+      },
+      "params": {
+        "multiple": true,
+        "required": false,
+        "types": [
+          {
+            "type": ",",
+            "named": false
+          },
+          {
+            "type": "identifier",
+            "named": true
+          }
+        ]
+      },
+      "return": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "identifier",
+            "named": true
+          },
+          {
+            "type": "return_labeled_tuple",
+            "named": true
+          },
+          {
+            "type": "return_tuple",
+            "named": true
+          }
+        ]
+      },
+      "steps": {
+        "multiple": true,
+        "required": false,
+        "types": [
+          {
+            "type": "arrow_draw_step",
+            "named": true
+          },
+          {
+            "type": "draw_step",
+            "named": true
+          },
+          {
+            "type": "let_step",
+            "named": true
+          },
+          {
+            "type": "marginalize_step",
+            "named": true
+          },
+          {
+            "type": "observe_step",
+            "named": true
+          },
+          {
+            "type": "plate_draw_step",
+            "named": true
+          },
+          {
+            "type": "vectorised_observe_step",
+            "named": true
+          }
+        ]
+      }
+    }
+  },
+  {
     "type": "postfix_expr",
     "named": true,
     "fields": {
@@ -1973,7 +2335,19 @@
             "named": true
           },
           {
+            "type": "marginalize_step",
+            "named": true
+          },
+          {
             "type": "observe_step",
+            "named": true
+          },
+          {
+            "type": "plate_draw_step",
+            "named": true
+          },
+          {
+            "type": "vectorised_observe_step",
             "named": true
           }
         ]
@@ -1985,6 +2359,108 @@
     "named": true,
     "fields": {
       "name": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "identifier",
+            "named": true
+          }
+        ]
+      }
+    }
+  },
+  {
+    "type": "random_effect_decl",
+    "named": true,
+    "fields": {
+      "codomain_dim": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "float",
+            "named": true
+          },
+          {
+            "type": "integer",
+            "named": true
+          }
+        ]
+      },
+      "eta": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "float",
+            "named": true
+          },
+          {
+            "type": "integer",
+            "named": true
+          }
+        ]
+      },
+      "index": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "type_atom",
+            "named": true
+          },
+          {
+            "type": "type_coproduct",
+            "named": true
+          },
+          {
+            "type": "type_effect_apply",
+            "named": true
+          },
+          {
+            "type": "type_paren",
+            "named": true
+          },
+          {
+            "type": "type_product",
+            "named": true
+          },
+          {
+            "type": "type_slash",
+            "named": true
+          }
+        ]
+      },
+      "name": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "identifier",
+            "named": true
+          }
+        ]
+      },
+      "scale_args": {
+        "multiple": true,
+        "required": false,
+        "types": [
+          {
+            "type": ",",
+            "named": false
+          },
+          {
+            "type": "identifier",
+            "named": true
+          },
+          {
+            "type": "signed_number",
+            "named": true
+          }
+        ]
+      },
+      "scale_family": {
         "multiple": false,
         "required": true,
         "types": [
@@ -2510,11 +2986,19 @@
           "named": true
         },
         {
+          "type": "posterior_decl",
+          "named": true
+        },
+        {
           "type": "program_decl",
           "named": true
         },
         {
           "type": "quantale_decl",
+          "named": true
+        },
+        {
+          "type": "random_effect_decl",
           "named": true
         },
         {
@@ -3381,6 +3865,100 @@
     }
   },
   {
+    "type": "vectorised_observe_step",
+    "named": true,
+    "fields": {
+      "args": {
+        "multiple": true,
+        "required": false,
+        "types": [
+          {
+            "type": ",",
+            "named": false
+          },
+          {
+            "type": "identifier",
+            "named": true
+          },
+          {
+            "type": "signed_number",
+            "named": true
+          }
+        ]
+      },
+      "index_set": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "type_atom",
+            "named": true
+          },
+          {
+            "type": "type_coproduct",
+            "named": true
+          },
+          {
+            "type": "type_effect_apply",
+            "named": true
+          },
+          {
+            "type": "type_paren",
+            "named": true
+          },
+          {
+            "type": "type_product",
+            "named": true
+          },
+          {
+            "type": "type_slash",
+            "named": true
+          }
+        ]
+      },
+      "index_var": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "identifier",
+            "named": true
+          }
+        ]
+      },
+      "morphism": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "identifier",
+            "named": true
+          }
+        ]
+      },
+      "response": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "identifier",
+            "named": true
+          }
+        ]
+      }
+    },
+    "children": {
+      "multiple": false,
+      "required": true,
+      "types": [
+        {
+          "type": "identifier",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
     "type": "(",
     "named": false
   },
@@ -3501,11 +4079,23 @@
     "named": false
   },
   {
+    "type": "cholesky_quad_form",
+    "named": false
+  },
+  {
     "type": "constructors",
     "named": false
   },
   {
     "type": "continuous",
+    "named": false
+  },
+  {
+    "type": "correlation",
+    "named": false
+  },
+  {
+    "type": "cumsum",
     "named": false
   },
   {
@@ -3542,6 +4132,10 @@
     "named": false
   },
   {
+    "type": "eta",
+    "named": false
+  },
+  {
     "type": "exp",
     "named": false
   },
@@ -3554,11 +4148,19 @@
     "named": true
   },
   {
+    "type": "for",
+    "named": false
+  },
+  {
     "type": "identifier",
     "named": true
   },
   {
     "type": "identity",
+    "named": false
+  },
+  {
+    "type": "in",
     "named": false
   },
   {
@@ -3627,11 +4229,19 @@
     "named": false
   },
   {
+    "type": "posterior",
+    "named": false
+  },
+  {
     "type": "program",
     "named": false
   },
   {
     "type": "quantale",
+    "named": false
+  },
+  {
+    "type": "random_effect",
     "named": false
   },
   {
@@ -3651,6 +4261,10 @@
     "named": false
   },
   {
+    "type": "scale_dist",
+    "named": false
+  },
+  {
     "type": "scan",
     "named": false
   },
@@ -3660,6 +4274,10 @@
   },
   {
     "type": "sigmoid",
+    "named": false
+  },
+  {
+    "type": "softmax",
     "named": false
   },
   {

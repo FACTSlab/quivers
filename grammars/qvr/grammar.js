@@ -61,6 +61,8 @@ module.exports = grammar({
       $.program_decl,
       $.let_decl,
       $.output_decl,
+      $.random_effect_decl,
+      $.posterior_decl,
     ),
 
     // ---------------------------------------------------------------
@@ -149,6 +151,53 @@ module.exports = grammar({
     )),
 
     output_decl: $ => seq('output', field('value', $._expr)),
+
+    // ---------------------------------------------------------------
+    // hierarchical Bayesian declarations
+    // ---------------------------------------------------------------
+
+    // random_effect by_subj : Subj -> Euclidean(K) correlation eta = 2.0 scale_dist = HalfNormal(1.0)
+    //
+    // Sugar for the canonical LKJ-Cholesky + half-normal scale +
+    // cholesky_quad_form covariance reconstruction + per-level
+    // MultivariateNormal plate-draw pattern.
+    random_effect_decl: $ => seq(
+      'random_effect',
+      field('name', $.identifier),
+      ':',
+      field('index', $._type_expr),
+      '->',
+      field('codomain_dim', $._numeric_literal),
+      'correlation',
+      'eta',
+      '=',
+      field('eta', $._numeric_literal),
+      'scale_dist',
+      '=',
+      field('scale_family', $.identifier),
+      optional(seq('(', field('scale_args', commaSep1($._draw_arg)), ')')),
+    ),
+
+    // posterior class_probs (model) : domain -> codomain { steps return ... }
+    //
+    // Runs after the model program is conditioned; allowed step kinds
+    // are `let_step` and `marginalize_step`. `draw` / `observe` are
+    // rejected by the walker.
+    posterior_decl: $ => seq(
+      'posterior',
+      field('name', $.identifier),
+      '(',
+      field('model', $.identifier),
+      ')',
+      optional(seq('[', field('params', commaSep1($.identifier)), ']')),
+      ':',
+      field('domain', $._type_expr),
+      '->',
+      field('codomain', $._type_expr),
+      field('steps', repeat($._program_step)),
+      'return',
+      field('return', $._return_pattern),
+    ),
 
     // ---------------------------------------------------------------
     // rule declarations (CCG/Lambek-style)
@@ -528,10 +577,57 @@ module.exports = grammar({
     ),
 
     _program_step: $ => choice(
+      // Hierarchical-Bayesian step variants. Listed first so the parser
+      // commits to the more specific shape (with `:` after the name) when
+      // it can; the bare draw_step fires when the type annotation is
+      // absent.
+      $.plate_draw_step,
+      $.vectorised_observe_step,
+      $.marginalize_step,
       $.draw_step,
       $.observe_step,
       $.arrow_draw_step,
       $.let_step,
+    ),
+
+    // Finite-domain-indexed draw: `draw v : A -> B ~ Family(args)`.
+    // Denotes an A-indexed plate of independent F-draws; categorically
+    // a Kern-morphism A → B by the natural iso Kern(1, B^A) ≅ Kern(A, B).
+    plate_draw_step: $ => prec(2, seq(
+      'draw',
+      field('name', $.identifier),
+      ':',
+      field('index', $._type_expr),
+      '->',
+      field('codomain', $._type_expr),
+      '~',
+      field('morphism', $.identifier),
+      optional(seq('(', field('args', commaSep1($._draw_arg)), ')')),
+    )),
+
+    // Vectorised observation: `observe r[n] ~ Family(args) for n in N`.
+    // Categorically the batched-likelihood kernel Φ → G_{≤1}(Φ) with
+    // score ∏_{n ∈ N} p_F(r_obs(n); θ(n, φ)).
+    vectorised_observe_step: $ => prec(2, seq(
+      'observe',
+      field('response', $.identifier),
+      '[',
+      field('index_var', $.identifier),
+      ']',
+      '~',
+      field('morphism', $.identifier),
+      optional(seq('(', field('args', commaSep1($._draw_arg)), ')')),
+      'for',
+      $.identifier,        // index_var (parsed but discarded; same as above)
+      'in',
+      field('index_set', $._type_expr),
+    )),
+
+    // Program-level discrete-latent marginalisation: `marginalize c`.
+    // Categorically the pushforward G(π_{Φ\\C}); numerically log-sum-exp.
+    marginalize_step: $ => seq(
+      'marginalize',
+      field('var', $.identifier),
     ),
 
     draw_step: $ => seq(
@@ -621,9 +717,20 @@ module.exports = grammar({
     _let_atom: $ => choice(
       $.let_paren,
       $.let_call,
+      $.let_index,
       $.let_var,
       $.let_literal,
     ),
+
+    // Indexed access into a finite-domain-indexed family: arr[i, j, ...].
+    // Categorically the Kleisli pullback ι^* v = v ∘ ι : N → B for a
+    // plate variable v : A → B and a finite fibration ι : N → A.
+    let_index: $ => prec.left(seq(
+      field('array', $.let_var),
+      '[',
+      field('indices', commaSep1($._let_arith)),
+      ']',
+    )),
 
     let_paren: $ => seq('(', $._let_arith, ')'),
 
@@ -632,7 +739,11 @@ module.exports = grammar({
     let_literal: $ => $._numeric_literal,
 
     let_call: $ => seq(
-      field('func', choice('sigmoid', 'exp', 'log', 'abs', 'softplus')),
+      field('func', choice(
+        'sigmoid', 'exp', 'log', 'abs', 'softplus',
+        // Bayesian-modelling deterministic morphisms.
+        'cumsum', 'softmax', 'cholesky_quad_form',
+      )),
       '(',
       field('args', commaSep1($._let_arith)),
       ')',
