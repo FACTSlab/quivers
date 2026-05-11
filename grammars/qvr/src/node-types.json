@@ -1574,6 +1574,72 @@
     }
   },
   {
+    "type": "morphism_kind",
+    "named": true,
+    "fields": {
+      "codomain": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "type_atom",
+            "named": true
+          },
+          {
+            "type": "type_coproduct",
+            "named": true
+          },
+          {
+            "type": "type_effect_apply",
+            "named": true
+          },
+          {
+            "type": "type_paren",
+            "named": true
+          },
+          {
+            "type": "type_product",
+            "named": true
+          },
+          {
+            "type": "type_slash",
+            "named": true
+          }
+        ]
+      },
+      "domain": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "type_atom",
+            "named": true
+          },
+          {
+            "type": "type_coproduct",
+            "named": true
+          },
+          {
+            "type": "type_effect_apply",
+            "named": true
+          },
+          {
+            "type": "type_paren",
+            "named": true
+          },
+          {
+            "type": "type_product",
+            "named": true
+          },
+          {
+            "type": "type_slash",
+            "named": true
+          }
+        ]
+      }
+    }
+  },
+  {
     "type": "object_decl",
     "named": true,
     "fields": {
@@ -1636,6 +1702,11 @@
         ]
       }
     }
+  },
+  {
+    "type": "object_kind",
+    "named": true,
+    "fields": {}
   },
   {
     "type": "observe_step",
@@ -2297,6 +2368,10 @@
           {
             "type": "identifier",
             "named": true
+          },
+          {
+            "type": "typed_program_param",
+            "named": true
           }
         ]
       },
@@ -2604,6 +2679,11 @@
         ]
       }
     }
+  },
+  {
+    "type": "scalar_kind",
+    "named": true,
+    "fields": {}
   },
   {
     "type": "scan_expr",
@@ -3744,6 +3824,40 @@
     }
   },
   {
+    "type": "typed_program_param",
+    "named": true,
+    "fields": {
+      "kind": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "morphism_kind",
+            "named": true
+          },
+          {
+            "type": "object_kind",
+            "named": true
+          },
+          {
+            "type": "scalar_kind",
+            "named": true
+          }
+        ]
+      },
+      "name": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "identifier",
+            "named": true
+          }
+        ]
+      }
+    }
+  },
+  {
     "type": "var_tuple",
     "named": true,
     "fields": {},
@@ -3921,11 +4035,35 @@
     "named": false
   },
   {
+    "type": "FinSet",
+    "named": false
+  },
+  {
     "type": "FreeMonoid",
     "named": false
   },
   {
     "type": "FreeResiduated",
+    "named": false
+  },
+  {
+    "type": "Mor",
+    "named": false
+  },
+  {
+    "type": "Nat",
+    "named": false
+  },
+  {
+    "type": "Object",
+    "named": false
+  },
+  {
+    "type": "Real",
+    "named": false
+  },
+  {
+    "type": "Space",
     "named": false
   },
   {

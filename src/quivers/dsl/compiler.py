@@ -47,9 +47,13 @@ from quivers.dsl.ast_nodes import (
     LetExprVar,
     LetExprNode,
     MarginalizeStep,
+    MorphismParam,
+    ObjectParam,
     PlateDrawStep,
     PosteriorDecl,
     ProgramDecl,
+    ProgramParam,
+    ScalarParam,
     VectorisedObserveStep,
     LetDecl,
     OutputDecl,
@@ -299,6 +303,10 @@ class Compiler:
         self._morphisms: dict = {}
         self._groups: dict[str, list[str]] = {}
         self._output_expr: Expr | None = None
+        # Parametric-program templates: dependent kernels Π(p:P).Kern(dom(p),cod(p))
+        # stored as their unsubstituted AST decl. Instantiated at each call
+        # site by parameter substitution + α-renaming of internal latents.
+        self._program_templates: dict[str, ProgramDecl] = {}
 
     @property
     def categories(self) -> list[str]:
@@ -857,8 +865,446 @@ class Compiler:
         if decl.replicate is not None:
             self._groups[decl.name] = names
 
+    def _expand_template_calls(
+        self, steps: tuple[ProgramStep, ...]
+    ) -> tuple[ProgramStep, ...]:
+        """Inline parametric-program-template call sites in a step list.
+
+        A ``draw v ~ T(args)`` step whose morphism name ``T`` is a
+        registered parametric program denotes the instantiation of
+        the dependent kernel at the supplied arguments. The body of
+        ``T`` is substituted (formal parameters → actual arguments)
+        and α-renamed (every locally-bound name is prefixed by
+        ``v$``, except the return-variable which is renamed to ``v``
+        directly so the call's binding receives the template's
+        return value). The renamed step list replaces the call site.
+
+        Recursive template calls (a template body that itself calls
+        another template) are handled by post-expansion: after a
+        template is inlined its expanded steps are themselves
+        recursively expanded, with cycle detection.
+        """
+        expanded: list[ProgramStep] = []
+        for step in steps:
+            if (
+                isinstance(step, DrawStep)
+                and not step.is_observed
+                and step.morphism in self._program_templates
+            ):
+                tmpl = self._program_templates[step.morphism]
+                if len(step.vars) != 1:
+                    raise CompileError(
+                        f"template call {step.morphism!r} may bind only one "
+                        f"variable, got tuple {step.vars}",
+                        step.line,
+                        step.col,
+                    )
+                bind_name = step.vars[0]
+                args = step.args or ()
+                inst = self._instantiate_template(tmpl, bind_name, args, step)
+                # Recursively expand any nested template calls in the
+                # inlined body.
+                expanded.extend(self._expand_template_calls(inst))
+                continue
+            if (
+                isinstance(step, PlateDrawStep)
+                and step.morphism in self._program_templates
+            ):
+                raise CompileError(
+                    f"template {step.morphism!r} cannot be called from a "
+                    f"plate-draw step; use a bare 'draw' inside the template "
+                    f"body for the plate or wrap the call in a per-index "
+                    f"helper",
+                    step.line,
+                    step.col,
+                )
+            expanded.append(step)
+        return tuple(expanded)
+
+    def _instantiate_template(
+        self,
+        tmpl: ProgramDecl,
+        bind_name: str,
+        args: tuple,
+        call_site: ProgramStep,
+    ) -> tuple[ProgramStep, ...]:
+        """Realise one call site of a parametric program template.
+
+        Categorical denotation: given the dependent kernel
+        :math:`\\Pi (p_i : P_i).\\ \\mathbf{Kern}(\\mathrm{dom}(p),\\, \\mathrm{cod}(p))`
+        carried by ``tmpl``, return the concrete Kern-morphism at
+        ``args`` (a section of the family). The morphism is
+        represented as the renamed step list whose internal latents
+        contribute their own factors to the caller's joint kernel,
+        with the return-variable renamed to ``bind_name`` so the
+        call's binding receives the template's output value.
+
+        Substitution + α-renaming together realise the categorical
+        substitution lemma: substituting actuals for formals
+        commutes with denotation up to renaming-equivalence.
+        """
+        type_params = tmpl.type_params or ()
+        if len(args) != len(type_params):
+            raise CompileError(
+                f"template {tmpl.name!r} expects {len(type_params)} arguments, "
+                f"got {len(args)}",
+                call_site.line,
+                call_site.col,
+            )
+        # Build the parameter-substitution environment.
+        type_subst: dict[str, TypeExpr] = {}
+        value_subst: dict[str, str | float] = {}
+        for param, arg in zip(type_params, args):
+            if isinstance(param, ObjectParam):
+                if not isinstance(arg, str):
+                    raise CompileError(
+                        f"template {tmpl.name!r}: parameter {param.name!r} "
+                        f"({param.universe}) requires a type-name argument, "
+                        f"got {arg!r}",
+                        call_site.line,
+                        call_site.col,
+                    )
+                # Validate the named object/space matches the declared
+                # universe.
+                if param.universe == "FinSet" and arg not in self._objects:
+                    raise CompileError(
+                        f"template {tmpl.name!r}: parameter {param.name!r} : "
+                        f"FinSet expects a finite-set object, but {arg!r} is "
+                        f"not a declared object",
+                        call_site.line,
+                        call_site.col,
+                    )
+                if param.universe == "Space" and arg not in self._spaces:
+                    raise CompileError(
+                        f"template {tmpl.name!r}: parameter {param.name!r} : "
+                        f"Space expects a continuous space, but {arg!r} is "
+                        f"not a declared space",
+                        call_site.line,
+                        call_site.col,
+                    )
+                if (
+                    param.universe == "Object"
+                    and arg not in self._objects
+                    and arg not in self._spaces
+                ):
+                    raise CompileError(
+                        f"template {tmpl.name!r}: parameter {param.name!r} : "
+                        f"Object expects a declared object or space, got {arg!r}",
+                        call_site.line,
+                        call_site.col,
+                    )
+                type_subst[param.name] = TypeName(
+                    name=arg, line=call_site.line, col=call_site.col
+                )
+            elif isinstance(param, ScalarParam):
+                if isinstance(arg, str):
+                    # Scalar parameter passed as a name (e.g., a previously
+                    # let-bound scalar in the caller). Pass through as a
+                    # string reference; the caller's bound_vars will
+                    # resolve it at draw-site time.
+                    value_subst[param.name] = arg
+                else:
+                    value_subst[param.name] = float(arg)
+            elif isinstance(param, MorphismParam):
+                if not isinstance(arg, str):
+                    raise CompileError(
+                        f"template {tmpl.name!r}: parameter {param.name!r} : "
+                        f"Mor[...] expects a morphism name, got {arg!r}",
+                        call_site.line,
+                        call_site.col,
+                    )
+                if (
+                    arg not in self._morphisms
+                    and arg not in self._program_templates
+                ):
+                    raise CompileError(
+                        f"template {tmpl.name!r}: parameter {param.name!r}: "
+                        f"morphism {arg!r} is not declared",
+                        call_site.line,
+                        call_site.col,
+                    )
+                value_subst[param.name] = arg
+            else:
+                raise CompileError(
+                    f"template {tmpl.name!r}: unknown parameter kind for "
+                    f"{getattr(param, 'name', '?')!r}",
+                    call_site.line,
+                    call_site.col,
+                )
+        # Collect all locally-bound names in the template body (latents
+        # drawn, plate-draws, lets, observe loop-vars). These are
+        # α-renamed to live in the caller's namespace.
+        local_names = self._collect_template_local_names(tmpl)
+        # The return variable (if a single identifier) receives the
+        # call's binding name directly; other locals are namespaced.
+        return_var = (
+            tmpl.return_vars[0]
+            if len(tmpl.return_vars) == 1
+            else None
+        )
+        rename: dict[str, str] = {}
+        for nm in local_names:
+            if nm == return_var:
+                rename[nm] = bind_name
+            else:
+                rename[nm] = f"{bind_name}${nm}"
+        # Walk the template body, applying parameter substitution +
+        # α-renaming step by step.
+        return tuple(
+            self._rename_step(step, type_subst, value_subst, rename)
+            for step in tmpl.draws
+        )
+
+    def _collect_template_local_names(
+        self, tmpl: ProgramDecl
+    ) -> set[str]:
+        """All names bound inside the template body (latents + lets)."""
+        out: set[str] = set()
+        for step in tmpl.draws:
+            if isinstance(step, DrawStep):
+                out.update(step.vars)
+            elif isinstance(step, PlateDrawStep):
+                out.add(step.name)
+            elif isinstance(step, LetStep):
+                out.add(step.name)
+            elif isinstance(step, VectorisedObserveStep):
+                out.add(step.index_var)
+                if step.response_var:
+                    out.add(step.response_var)
+        return out
+
+    def _rename_type(
+        self, texpr: TypeExpr, type_subst: dict[str, TypeExpr]
+    ) -> TypeExpr:
+        """Substitute object parameters inside a type expression."""
+        if isinstance(texpr, TypeName):
+            if texpr.name in type_subst:
+                return type_subst[texpr.name]
+            return texpr
+        if isinstance(texpr, TypeProduct):
+            return TypeProduct(
+                components=tuple(
+                    self._rename_type(c, type_subst) for c in texpr.components
+                ),
+                line=texpr.line,
+                col=texpr.col,
+            )
+        return texpr
+
+    def _rename_args(
+        self,
+        args: tuple | None,
+        value_subst: dict[str, str | float],
+        rename: dict[str, str],
+    ) -> tuple | None:
+        """Apply parameter substitution and α-renaming inside a draw-arg list."""
+        if args is None:
+            return None
+        out: list = []
+        for a in args:
+            if isinstance(a, str):
+                if a in value_subst:
+                    out.append(value_subst[a])
+                elif a in rename:
+                    out.append(rename[a])
+                else:
+                    out.append(a)
+            else:
+                out.append(a)
+        return tuple(out)
+
+    def _rename_step(
+        self,
+        step: ProgramStep,
+        type_subst: dict[str, TypeExpr],
+        value_subst: dict[str, str | float],
+        rename: dict[str, str],
+    ) -> ProgramStep:
+        """Apply parameter substitution + α-renaming to a single step."""
+        if isinstance(step, DrawStep):
+            new_vars = tuple(rename.get(v, v) for v in step.vars)
+            new_morph = value_subst.get(step.morphism, step.morphism)
+            if not isinstance(new_morph, str):
+                raise CompileError(
+                    f"draw step morphism {step.morphism!r} substituted to a "
+                    f"non-string value {new_morph!r}",
+                    step.line,
+                    step.col,
+                )
+            return DrawStep(
+                vars=new_vars,
+                morphism=new_morph,
+                args=self._rename_args(step.args, value_subst, rename),
+                is_observed=step.is_observed,
+                line=step.line,
+                col=step.col,
+            )
+        if isinstance(step, PlateDrawStep):
+            new_morph = value_subst.get(step.morphism, step.morphism)
+            if not isinstance(new_morph, str):
+                raise CompileError(
+                    f"plate-draw step morphism {step.morphism!r} substituted "
+                    f"to a non-string value {new_morph!r}",
+                    step.line,
+                    step.col,
+                )
+            return PlateDrawStep(
+                name=rename.get(step.name, step.name),
+                index=self._rename_type(step.index, type_subst),
+                codomain=self._rename_type(step.codomain, type_subst),
+                morphism=new_morph,
+                args=self._rename_args(step.args, value_subst, rename),
+                line=step.line,
+                col=step.col,
+            )
+        if isinstance(step, LetStep):
+            return LetStep(
+                name=rename.get(step.name, step.name),
+                expr=self._rename_let_expr(step.expr, value_subst, rename),
+                line=step.line,
+                col=step.col,
+            )
+        if isinstance(step, VectorisedObserveStep):
+            new_morph = value_subst.get(step.morphism, step.morphism)
+            if not isinstance(new_morph, str):
+                raise CompileError(
+                    f"observe step morphism {step.morphism!r} substituted to "
+                    f"a non-string value {new_morph!r}",
+                    step.line,
+                    step.col,
+                )
+            return VectorisedObserveStep(
+                index_var=rename.get(step.index_var, step.index_var),
+                index_set=self._rename_type(step.index_set, type_subst),
+                morphism=new_morph,
+                args=self._rename_args(step.args, value_subst, rename),
+                response_var=rename.get(step.response_var, step.response_var),
+                line=step.line,
+                col=step.col,
+            )
+        if isinstance(step, MarginalizeStep):
+            return MarginalizeStep(
+                var_name=rename.get(step.var_name, step.var_name),
+                line=step.line,
+                col=step.col,
+            )
+        raise CompileError(
+            f"unsupported step kind in template body: {type(step).__name__}",
+            getattr(step, "line", 0),
+            getattr(step, "col", 0),
+        )
+
+    def _rename_let_expr(
+        self,
+        expr: LetExprNode,
+        value_subst: dict[str, str | float],
+        rename: dict[str, str],
+    ) -> LetExprNode:
+        """Apply parameter substitution + α-renaming inside a let RHS."""
+        if isinstance(expr, LetExprVar):
+            if expr.name in value_subst:
+                val = value_subst[expr.name]
+                if isinstance(val, str):
+                    return LetExprVar(name=val, line=expr.line, col=expr.col)
+                return LetExprLiteral(value=float(val), line=expr.line, col=expr.col)
+            if expr.name in rename:
+                return LetExprVar(
+                    name=rename[expr.name], line=expr.line, col=expr.col
+                )
+            return expr
+        if isinstance(expr, LetExprLiteral):
+            return expr
+        if isinstance(expr, LetExprBinOp):
+            return LetExprBinOp(
+                op=expr.op,
+                lhs=self._rename_let_expr(expr.lhs, value_subst, rename),
+                rhs=self._rename_let_expr(expr.rhs, value_subst, rename),
+                line=expr.line,
+                col=expr.col,
+            )
+        if isinstance(expr, LetExprUnaryOp):
+            return LetExprUnaryOp(
+                op=expr.op,
+                operand=self._rename_let_expr(expr.operand, value_subst, rename),
+                line=expr.line,
+                col=expr.col,
+            )
+        if isinstance(expr, LetExprCall):
+            new_callee = value_subst.get(expr.callee, expr.callee)
+            if not isinstance(new_callee, str):
+                raise CompileError(
+                    f"let-expression callee {expr.callee!r} substituted to "
+                    f"non-string value {new_callee!r}",
+                    expr.line,
+                    expr.col,
+                )
+            return LetExprCall(
+                callee=new_callee,
+                args=tuple(
+                    self._rename_let_expr(a, value_subst, rename) for a in expr.args
+                ),
+                line=expr.line,
+                col=expr.col,
+            )
+        if isinstance(expr, LetExprIndex):
+            new_arr = value_subst.get(expr.array, expr.array)
+            if not isinstance(new_arr, str):
+                raise CompileError(
+                    f"let-expression array {expr.array!r} substituted to "
+                    f"non-string value {new_arr!r}",
+                    expr.line,
+                    expr.col,
+                )
+            arr_name = rename.get(new_arr, new_arr) if isinstance(new_arr, str) else new_arr
+            return LetExprIndex(
+                array=arr_name,
+                indices=tuple(
+                    self._rename_let_expr(i, value_subst, rename) for i in expr.indices
+                ),
+                line=expr.line,
+                col=expr.col,
+            )
+        return expr
+
     def _compile_program(self, decl: ProgramDecl) -> None:
-        """Compile a monadic program block into a MonadicProgram."""
+        """Compile a monadic program block into a MonadicProgram.
+
+        Parametric programs (those carrying ``type_params``) are not
+        compiled into a runtime ``MonadicProgram`` directly. They
+        denote a dependent kernel
+
+        .. math::
+
+            \\Pi (p_1 : P_1) \\ldots \\Pi (p_n : P_n).\\ \\mathbf{Kern}(\\mathrm{dom}(p),\\, \\mathrm{cod}(p))
+
+        in the indexed family of Kleisli arrows over the parameter
+        category, and are stored as templates. Each call site of a
+        template (a ``draw v ~ template(args)`` step inside another
+        program) is realised by substituting the actual arguments
+        for the formal parameters and α-renaming all locally-bound
+        latents under the call's binding name, then inlining the
+        renamed body into the caller's step list. The freshness of
+        latent names per call site is the syntactic shadow of the
+        fact that distinct call sites contribute distinct factors
+        to the parent's joint kernel.
+        """
+        if decl.type_params is not None:
+            # Parametric program — store as a template; defer body
+            # compilation until each call site instantiates it.
+            if decl.name in self._morphisms or decl.name in self._program_templates:
+                raise CompileError(
+                    f"morphism {decl.name!r} already declared",
+                    decl.line,
+                    decl.col,
+                )
+            if decl.params is not None:
+                raise CompileError(
+                    f"parametric program {decl.name!r} cannot also take data parameters",
+                    decl.line,
+                    decl.col,
+                )
+            self._program_templates[decl.name] = decl
+            return
         if decl.name in self._morphisms:
             raise CompileError(
                 f"morphism {decl.name!r} already declared", decl.line, decl.col
@@ -890,8 +1336,15 @@ class Compiler:
                     bound_vars[pname] = factor
             else:
                 bound_vars[decl.params[0]] = domain
+        # Expand any parametric-template call sites by inlining the
+        # substituted + α-renamed template body. This realises the
+        # dependent-kernel application: each call site is a section
+        # of the family Π(p:P).Kern(dom(p), cod(p)) at the supplied
+        # arguments, contributing its own factors to the parent's
+        # joint kernel.
+        expanded_draws = self._expand_template_calls(decl.draws)
         steps: list[tuple] = []
-        for step in decl.draws:
+        for step in expanded_draws:
             if isinstance(step, PlateDrawStep):
                 # draw v : A -> B ~ Family(args).  By the natural iso
                 # Kern(1, B^A) ≅ Kern(A, B), the plate variable IS a

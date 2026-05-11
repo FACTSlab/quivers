@@ -2692,7 +2692,7 @@
                     "members": [
                       {
                         "type": "SYMBOL",
-                        "name": "identifier"
+                        "name": "_program_param"
                       },
                       {
                         "type": "REPEAT",
@@ -2705,7 +2705,7 @@
                             },
                             {
                               "type": "SYMBOL",
-                              "name": "identifier"
+                              "name": "_program_param"
                             }
                           ]
                         }
@@ -2770,6 +2770,128 @@
             "type": "SYMBOL",
             "name": "_return_pattern"
           }
+        }
+      ]
+    },
+    "_program_param": {
+      "type": "CHOICE",
+      "members": [
+        {
+          "type": "SYMBOL",
+          "name": "identifier"
+        },
+        {
+          "type": "SYMBOL",
+          "name": "typed_program_param"
+        }
+      ]
+    },
+    "typed_program_param": {
+      "type": "SEQ",
+      "members": [
+        {
+          "type": "FIELD",
+          "name": "name",
+          "content": {
+            "type": "SYMBOL",
+            "name": "identifier"
+          }
+        },
+        {
+          "type": "STRING",
+          "value": ":"
+        },
+        {
+          "type": "FIELD",
+          "name": "kind",
+          "content": {
+            "type": "SYMBOL",
+            "name": "_param_kind"
+          }
+        }
+      ]
+    },
+    "_param_kind": {
+      "type": "CHOICE",
+      "members": [
+        {
+          "type": "SYMBOL",
+          "name": "object_kind"
+        },
+        {
+          "type": "SYMBOL",
+          "name": "scalar_kind"
+        },
+        {
+          "type": "SYMBOL",
+          "name": "morphism_kind"
+        }
+      ]
+    },
+    "object_kind": {
+      "type": "CHOICE",
+      "members": [
+        {
+          "type": "STRING",
+          "value": "FinSet"
+        },
+        {
+          "type": "STRING",
+          "value": "Space"
+        },
+        {
+          "type": "STRING",
+          "value": "Object"
+        }
+      ]
+    },
+    "scalar_kind": {
+      "type": "CHOICE",
+      "members": [
+        {
+          "type": "STRING",
+          "value": "Real"
+        },
+        {
+          "type": "STRING",
+          "value": "Nat"
+        }
+      ]
+    },
+    "morphism_kind": {
+      "type": "SEQ",
+      "members": [
+        {
+          "type": "STRING",
+          "value": "Mor"
+        },
+        {
+          "type": "STRING",
+          "value": "["
+        },
+        {
+          "type": "FIELD",
+          "name": "domain",
+          "content": {
+            "type": "SYMBOL",
+            "name": "_type_expr"
+          }
+        },
+        {
+          "type": "STRING",
+          "value": ","
+        },
+        {
+          "type": "FIELD",
+          "name": "codomain",
+          "content": {
+            "type": "SYMBOL",
+            "name": "_type_expr"
+          }
+        },
+        {
+          "type": "STRING",
+          "value": "]"
         }
       ]
     },

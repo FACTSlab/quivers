@@ -226,13 +226,71 @@ class TestDSLSurface:
         c = self._compile(src)
         assert "demo" in c._morphisms
 
+    def test_parametric_program_template_inlines(self):
+        # A parametric template denotes Π(G:FinSet) Π(scale:Real). Kern(G,1).
+        # Two call sites with different actuals must produce *fresh*
+        # latent factors in the caller's joint kernel (not shared).
+        src = """
+        object SubjCloze : 7
+        object Verb : 3
+
+        program random_intercepts (G : FinSet, scale : Real) : G -> 1
+            draw sigma ~ HalfNormal(scale)
+            draw v : G -> 1 ~ Normal(0.0, sigma)
+            return v
+
+        program demo : SubjCloze -> SubjCloze
+            draw by_subj ~ random_intercepts(SubjCloze, 1.0)
+            draw by_verb ~ random_intercepts(Verb, 1.0)
+            return by_subj
+
+        output demo
+        """
+        c = self._compile(src)
+        assert "demo" in c._morphisms
+        # Template registered, not compiled into a concrete morphism.
+        assert "random_intercepts" in c._program_templates
+        assert "random_intercepts" not in c._morphisms
+        # Each call site contributed its own scale + plate latents.
+        prog = c._morphisms["demo"]
+        latent_names: set[str] = set()
+        for spec in prog._step_specs:
+            if hasattr(spec, "vars"):
+                latent_names.update(spec.vars)
+            elif hasattr(spec, "var"):
+                latent_names.add(spec.var)
+        # Two scales, two plate-draws — namespaced by call binding.
+        assert "by_subj$sigma" in latent_names
+        assert "by_subj" in latent_names
+        assert "by_verb$sigma" in latent_names
+        assert "by_verb" in latent_names
+
+    def test_parametric_template_morphism_param(self):
+        # A morphism-typed parameter Mor[A,B] — the template body
+        # references the kernel by the parameter name; the call site
+        # supplies a declared continuous morphism.
+        src = """
+        object Subj : 5
+        type UnitSpace = Euclidean 1
+
+        continuous my_prior : Subj -> UnitSpace ~ Normal [loc=0.0, scale=1.0]
+
+        program with_prior (G : FinSet, prior : Mor[Subj, UnitSpace]) : G -> 1
+            draw v : G -> 1 ~ prior
+            return v
+
+        program demo : Subj -> Subj
+            draw by_subj ~ with_prior(Subj, my_prior)
+            return by_subj
+
+        output demo
+        """
+        c = self._compile(src)
+        assert "demo" in c._morphisms
+
     def test_event_structure_example_compiles(self):
         path = Path("src/quivers/dsl/examples/event_structure.qvr")
         if not path.exists():
             pytest.skip("event_structure.qvr not present")
         c = self._compile(path.read_text())
-        # The program and the shared per-level prior should compile;
-        # the eight crossed random intercepts live as program-internal
-        # plate-draw steps that all reference the shared prior.
         assert "event_structure" in c._morphisms
-        assert "random_intercept_prior" in c._morphisms

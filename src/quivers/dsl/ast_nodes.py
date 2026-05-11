@@ -758,8 +758,84 @@ class EmbedDecl(Statement):
     kind: Literal["embed_decl"] = "embed_decl"
 
 
+class ProgramParam(dx.TaggedUnion, discriminator="kind"):
+    """Sum of typed-program-parameter variants.
+
+    A *parametric* program declaration takes a list of typed
+    parameters (objects, scalars, or morphisms) and denotes a
+    dependent kernel
+
+    .. math::
+
+        \\Pi (p_1 : P_1) \\ldots \\Pi (p_n : P_n).\\ \\mathbf{Kern}(\\mathrm{dom}(p),\\, \\mathrm{cod}(p))
+
+    in the indexed family of Kleisli arrows over the parameter
+    category. Each call site substitutes specific arguments, yielding
+    a concrete Kern-morphism with fresh latent factors inlined into
+    the caller's trace; the freshness corresponds to the fact that
+    distinct call sites contribute distinct factors to the parent's
+    joint kernel.
+    """
+
+
+class ObjectParam(ProgramParam):
+    """Object-typed program parameter: ``G : FinSet`` / ``Space`` / ``Object``.
+
+    Denotes a dependent quantification over an object of the
+    relevant subcategory: ``FinSet`` ranges over finite-set objects,
+    ``Space`` over continuous spaces, ``Object`` over either.
+    """
+
+    name: str
+    universe: Literal["FinSet", "Space", "Object"]
+    line: int = 0
+    col: int = 0
+    kind: Literal["object_param"] = "object_param"
+
+
+class ScalarParam(ProgramParam):
+    """Scalar-valued program parameter: ``s : Real`` / ``Nat``.
+
+    Denotes a dependent quantification over a hom-object of scalar
+    type (real or nonnegative-integer values, used as
+    hyperparameters and cardinalities respectively).
+    """
+
+    name: str
+    scalar_kind: Literal["Real", "Nat"]
+    line: int = 0
+    col: int = 0
+    kind: Literal["scalar_param"] = "scalar_param"
+
+
+class MorphismParam(ProgramParam):
+    """Morphism-typed program parameter: ``f : Mor[A, B]``.
+
+    Denotes a dependent quantification over the hom-set
+    :math:`\\mathbf{Kern}(A, B)`; the body may reference ``f`` as a
+    family in any plate-draw or draw step whose codomain matches
+    ``B``.
+    """
+
+    name: str
+    domain: TypeExpr
+    codomain: TypeExpr
+    line: int = 0
+    col: int = 0
+    kind: Literal["morphism_param"] = "morphism_param"
+
+
 class ProgramDecl(Statement):
-    """Monadic program block with optional named params and tuple returns."""
+    """Monadic program block with optional named params and tuple returns.
+
+    A program is either *concrete* (no ``type_params``) — denoting a
+    single Kern-morphism ``dom → cod`` — or *parametric* (with
+    ``type_params``) — denoting a dependent family of Kern-morphisms
+    indexed by the parameters. Parametric programs are not compiled
+    into a runtime ``MonadicProgram`` directly; instead, the
+    compiler stores them as templates and inlines a freshly-renamed
+    copy of the body at each call site.
+    """
 
     name: str
     params: tuple[str, ...] | None
@@ -768,6 +844,7 @@ class ProgramDecl(Statement):
     draws: tuple[ProgramStep, ...]
     return_vars: tuple[str, ...]
     return_labels: tuple[str, ...] | None = None
+    type_params: tuple[ProgramParam, ...] | None = None
     docs: tuple[str, ...] = ()
     line: int = 0
     col: int = 0

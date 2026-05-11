@@ -540,10 +540,18 @@ module.exports = grammar({
     // program blocks
     // ---------------------------------------------------------------
 
+    // A program may be:
+    //   - concrete:        `program name (data1, data2) : dom -> cod`
+    //                      data params bind to the program's domain components.
+    //   - parametric:      `program name (G : FinSet, s : Real, f : Mor[A,B]) : dom -> cod`
+    //                      typed params denote a dependent family of kernels
+    //                      indexed by their parameters; instantiated at each
+    //                      call site by substitution + α-renaming.
+    // The two forms are distinguished by whether any param carries a `:`.
     program_decl: $ => seq(
       'program',
       field('name', $.identifier),
-      optional(seq('(', field('params', commaSep1($.identifier)), ')')),
+      optional(seq('(', field('params', commaSep1($._program_param)), ')')),
       ':',
       field('domain', $._type_expr),
       '->',
@@ -551,6 +559,43 @@ module.exports = grammar({
       field('steps', repeat1($._program_step)),
       'return',
       field('return', $._return_pattern),
+    ),
+
+    _program_param: $ => choice(
+      $.identifier,
+      $.typed_program_param,
+    ),
+
+    // Typed program parameter: `name : Kind`.
+    // Kinds:
+    //   FinSet, Space, Object — object-typed (parametric over an
+    //     object of the relevant subcategory).
+    //   Real, Nat              — scalar-typed (a hyperparameter value).
+    //   Mor[Dom, Cod]          — morphism-typed (a kernel of the given
+    //                            signature, passed in by name).
+    typed_program_param: $ => seq(
+      field('name', $.identifier),
+      ':',
+      field('kind', $._param_kind),
+    ),
+
+    _param_kind: $ => choice(
+      $.object_kind,
+      $.scalar_kind,
+      $.morphism_kind,
+    ),
+
+    object_kind: $ => choice('FinSet', 'Space', 'Object'),
+
+    scalar_kind: $ => choice('Real', 'Nat'),
+
+    morphism_kind: $ => seq(
+      'Mor',
+      '[',
+      field('domain', $._type_expr),
+      ',',
+      field('codomain', $._type_expr),
+      ']',
     ),
 
     _program_step: $ => choice(

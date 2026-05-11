@@ -50,12 +50,16 @@ from quivers.dsl.ast_nodes import (
     MarginalizeStep,
     Module,
     MorphismDecl,
+    MorphismParam,
     ObjectDecl,
+    ObjectParam,
     OutputDecl,
     PlateDrawStep,
     PosteriorDecl,
     ProgramDecl,
+    ProgramParam,
     ProgramStep,
+    ScalarParam,
     QuantaleDecl,
     RuleDecl,
     SchemaDecl,
@@ -739,6 +743,46 @@ def _walk_program_step(t: _Tree, vid: str) -> ProgramStep:
     raise ParseError(f"unexpected program-step kind: {k}")
 
 
+def _walk_program_param(t: _Tree, vid: str) -> ProgramParam:
+    """Walk a ``typed_program_param`` node into a typed ProgramParam.
+
+    Recognises the three universes (object / scalar / morphism) and
+    builds the matching AST variant. The parametric-program denotation
+    treats each parameter as a dependent quantification over the
+    corresponding category of its kind.
+    """
+    nv = t.field(vid, "name")
+    kv = t.field(vid, "kind")
+    if nv is None or kv is None:
+        raise ParseError(f"typed_program_param missing name/kind at {vid}")
+    name = t.text(nv)
+    line, col = t.line_col(vid)
+    kk = t.kind(kv)
+    if kk == "object_kind":
+        universe = t.text(kv)
+        if universe not in ("FinSet", "Space", "Object"):
+            raise ParseError(f"unknown object universe {universe!r} at {vid}")
+        return ObjectParam(name=name, universe=universe, line=line, col=col)  # type: ignore[arg-type]
+    if kk == "scalar_kind":
+        sk = t.text(kv)
+        if sk not in ("Real", "Nat"):
+            raise ParseError(f"unknown scalar kind {sk!r} at {vid}")
+        return ScalarParam(name=name, scalar_kind=sk, line=line, col=col)  # type: ignore[arg-type]
+    if kk == "morphism_kind":
+        dv = t.field(kv, "domain")
+        cv = t.field(kv, "codomain")
+        if dv is None or cv is None:
+            raise ParseError(f"morphism_kind missing domain/codomain at {kv}")
+        return MorphismParam(
+            name=name,
+            domain=_walk_type(t, dv),
+            codomain=_walk_type(t, cv),
+            line=line,
+            col=col,
+        )
+    raise ParseError(f"unexpected program-param kind: {kk}")
+
+
 def _walk_draw_arg(t: _Tree, vid: str) -> str | float:
     k = t.kind(vid)
     if k == "identifier":
@@ -923,8 +967,23 @@ def _walk_statement(t: _Tree, vid: str) -> Statement | list[Statement]:
         )
     if k == "program_decl":
         params_vids = t.fields(vid, "params")
+        data_params: list[str] = []
+        type_params_list: list[ProgramParam] = []
+        for pv in params_vids:
+            if t.kind(pv) == "typed_program_param":
+                type_params_list.append(_walk_program_param(t, pv))
+            else:
+                data_params.append(t.text(pv))
+        if data_params and type_params_list:
+            raise ParseError(
+                f"program {_required_text(t, t.field(vid, 'name'), vid, 'name')!r} "
+                f"mixes bare data parameters and typed template parameters"
+            )
         params: tuple[str, ...] | None = (
-            tuple(t.text(pv) for pv in params_vids) if params_vids else None
+            tuple(data_params) if data_params else None
+        )
+        type_params: tuple[ProgramParam, ...] | None = (
+            tuple(type_params_list) if type_params_list else None
         )
         steps = tuple(_walk_program_step(t, sv) for sv in t.fields(vid, "steps"))
         ret_vid = t.field(vid, "return")
@@ -944,6 +1003,7 @@ def _walk_statement(t: _Tree, vid: str) -> Statement | list[Statement]:
             draws=steps,
             return_vars=return_vars,
             return_labels=return_labels,
+            type_params=type_params,
             line=line,
             col=col,
         )
