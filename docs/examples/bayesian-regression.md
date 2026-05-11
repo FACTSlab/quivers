@@ -54,7 +54,26 @@ Bayesian linear regression models $y = \beta_0 + \beta_1 x + \varepsilon$ with p
 
 ## Python Usage
 
-<!-- TODO: add working Python usage example -->
+```python
+import torch
+from quivers.dsl import load
+from quivers.inference import AutoNormalGuide, ELBO, SVI
+
+program = load("bayesian_regression.qvr")
+model = program.morphism  # underlying MonadicProgram
+
+observations = {"y": y_observed}        # shape (n,)
+
+guide = AutoNormalGuide(model, observed_names={"y"})
+elbo  = ELBO(num_particles=1)
+optimizer = torch.optim.Adam(
+    list(model.parameters()) + list(guide.parameters()), lr=1e-2,
+)
+svi = SVI(model, guide, optimizer, elbo)
+
+for step in range(2000):
+    loss = svi.step(x_observed, observations)
+```
 
 ## Categorical Perspective
 
