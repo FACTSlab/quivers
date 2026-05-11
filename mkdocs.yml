@@ -117,6 +117,7 @@ nav:
       - Custom Rules: examples/custom-rules.md
     - Probabilistic Programs:
       - Overview: examples/bayesian-regression.md
+      - Event Structure Model: examples/event-structure.md
   - Tutorials:
     - Overview: tutorials/index.md
     - "Tutorial 1: Your First Quiver": tutorials/first-quiver.md

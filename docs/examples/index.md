@@ -459,6 +459,32 @@ output grammar
 
 ## Probabilistic Programs
 
+### [Event-Structure Latent-Class Model](event-structure.md)
+
+A four-class telicity × durativity latent-class model over cloze and proportion responses. Exercises plate-draws, a parametric `random_intercepts` template instantiated 8 times for crossed random intercepts on subject, verb, sense, and item, an ordinal monotone spline via `cumsum` of `HalfNormal` increments, vectorised observes against a runtime `observations` dict, and program-level `marginalize` for the discrete latent class.
+
+**Features:** `program`, parametric templates, plate-draw `: G -> 1`, `observe r[n] ~ ... for n in N`, `marginalize`, `cumsum`, `HalfNormal`
+
+```qvr
+program random_intercepts (G : FinSet, scale : Real) : G -> 1
+    draw sigma ~ HalfNormal(scale)
+    draw v : G -> 1 ~ Normal(0.0, sigma)
+    return v
+
+program event_structure : Item -> Item
+    draw intercept_cloze ~ Normal(0.0, 1.0)
+    draw by_subj_cloze ~ random_intercepts(SubjCloze, 1.0)
+    draw by_verb_cloze ~ random_intercepts(Verb,     1.0)
+    draw duration_incr_cloze : Item -> 11 ~ HalfNormal(1.0)
+    let duration_eff_cloze = cumsum(duration_incr_cloze)
+
+    observe cloze_resp[n] ~ Bernoulli(intercept_cloze) for n in RespCloze
+    marginalize cloze_resp
+    return intercept_cloze
+```
+
+---
+
 ### [Bayesian Linear Regression](bayesian-regression.md)
 
 The simplest meaningful probabilistic program: a two-parameter linear model with a `HalfCauchy` prior on noise scale. Demonstrates the core `draw`/`let`/`observe` pattern.

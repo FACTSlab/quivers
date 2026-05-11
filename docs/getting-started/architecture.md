@@ -126,6 +126,8 @@ Domain-specific language for quiver expressions in `.qvr` files. Parsing is dele
 
 Top-level DSL API: `parse()`, `parse_file()`, `loads()`, `load()`, `Compiler`, `Module`, `QVR_PROGRAM_PROTOCOL`, `extract_program_schema()`, plus exceptions `ParseError`, `CompileError`.
 
+Parametric programs — `program name (G : FinSet, scale : Real, prior : Mor[A, B]) : dom -> cod` — are stored as templates on the compiler (`Compiler._program_templates`) and inlined per call site by substitution + α-renaming; the runtime `MonadicProgram` is built from the inlined step list, so distinct call sites contribute distinct factors to the parent's joint kernel.
+
 ### `inference/`
 
 Variational inference for posterior estimation in monadic programs.

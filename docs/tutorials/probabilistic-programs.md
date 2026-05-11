@@ -9,6 +9,10 @@ In this tutorial, you will construct probabilistic programs that mix discrete an
 - **MonadicProgram**: A probabilistic computation with draw and let steps
 - **Draw step**: Sample a random variable from a distribution conditioned on prior variables
 - **Let step**: Deterministic transformation of prior variables
+- **Plate-draw step**: An indexed plate of independent draws (`draw v : A -> K ~ F(args)`)
+- **Vectorised observe**: A batched-likelihood step reading from a runtime `observations` dict (`observe r[n] ~ F(args) for n in N`)
+- **Marginalize step**: Log-sum-exp pushforward over a discrete latent (`marginalize c`)
+- **Parametric program**: A typed-parameter template inlined per call site as fresh latents
 - **Log-probability**: The log of the joint density
 
 ## Setup

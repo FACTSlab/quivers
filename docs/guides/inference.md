@@ -130,6 +130,8 @@ $$\mathcal{L}(\phi) = \mathbb{E}_{q_\phi(z | x, y)} [\log p(y, z | x) - \log q_\
 
 It lower bounds the log marginal likelihood $\log p(y | x)$ and equals it when $q_\phi = p(\cdot | x, y)$.
 
+Vectorised-observe steps read their response tensors from a runtime `observations: dict[str, torch.Tensor]` keyed by the observed-variable name. The dict is threaded through `ELBO.forward` and `SVI.step` via the `observations` kwarg, alongside the domain input.
+
 The `ELBO` class computes this:
 
 ```python

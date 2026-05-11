@@ -124,7 +124,75 @@ i.e.\ pushforward by $\mathrm{id}_{\Phi} \times h$ realised through the *strengt
 
 The arithmetic sublanguage is interpreted standardly: $\mathbb{R}$-valued and $\mathbb{N}$-valued operators denote the corresponding measurable functions on the relevant space; built-in functions (`sigmoid`, `exp`, `log`, `abs`, `softplus`) denote the corresponding total measurable maps.
 
-### 2.4 Return
+### 2.4 Plate-Draw
+
+A plate-draw statement
+
+```
+draw v : A -> K ~ F(args)
+```
+
+denotes an $A$-indexed plate of independent $F$-draws. The natural isomorphism
+
+$$
+\mathbf{Kern}(\mathbf{1}, K^A) \;\cong\; \mathbf{Kern}(A, K)
+$$
+
+identifies a single $\mathcal{G}(K^A)$-valued draw with an $A$-indexed family of $\mathcal{G}(K)$-valued draws. The statement therefore denotes the context-extending Kleisli arrow
+
+$$
+\mathcal{S}\llbracket \mathsf{draw}\ v : A \to K \sim F(\bar a) \rrbracket : \Phi \to \mathcal{G}\bigl(\Phi \times K^A\bigr),
+$$
+
+with density $\prod_{a \in A} p_F\bigl(v(a) \,;\, \theta_F(\bar a, \phi)\bigr)$ on the appended coordinate. When $K$ is a numeric literal it is interpreted as $\mathrm{Euclidean}(K)$.
+
+### 2.5 Vectorised Observe
+
+A vectorised-observe statement
+
+```
+observe r[n] ~ F(args) for n in N
+```
+
+denotes a sub-probabilistic Kleisli arrow in $\mathcal{G}_{\le 1}$,
+
+$$
+\mathcal{S}\llbracket \mathsf{observe}\ r[n] \sim F(\bar a)\ \mathsf{for}\ n \in N \rrbracket : \Phi \to \mathcal{G}_{\le 1}(\Phi),
+\qquad
+\phi \;\longmapsto\; \mathbf{1}_{(\cdot)}(\phi) \cdot \prod_{n \in N} p_F\bigl( r_{\mathrm{obs}}(n) \,;\, \theta_F(\bar a, n, \phi) \bigr).
+$$
+
+The response buffer $r_{\mathrm{obs}} : N \to \llbracket \mathsf{cod}(F) \rrbracket$ is supplied externally by the inference layer; the trace context is preserved and the total mass of the resulting measure is the batched likelihood.
+
+### 2.6 Marginalize
+
+A marginalize statement `marginalize c` pushes the accumulated (sub-)probability measure on $\Phi \times C$ forward through the projection $\pi_{\Phi} : \Phi \times C \to \Phi$:
+
+$$
+\mathcal{S}\llbracket \mathsf{marginalize}\ c \rrbracket : \mathcal{G}_{\le 1}(\Phi \times C) \to \mathcal{G}_{\le 1}(\Phi),
+\qquad
+\nu \;\longmapsto\; \pi_{\Phi *} \nu.
+$$
+
+For a discrete latent $C$, the projection is computed by log-sum-exp on the accumulated log-likelihood; for a measurable continuous $C$, it is fibrewise integration. The statement requires $c$ to name a previously bound coordinate of the context.
+
+### 2.7 Indexed Gather (Let-Pullback)
+
+A `let` right-hand side of the form `arr[idx]` is the *Kleisli pullback*. For a plate variable $v : A \to \mathcal{G}(B)$ bound earlier in the body, and a finite fibration $\iota : N \to A$ named in the context, the gather $\iota^* v$ is the composite
+
+$$
+\iota^* v \;=\; v \circ \iota \;:\; N \to \mathcal{G}(B).
+$$
+
+Interpreted as a deterministic measurable map on the accumulated context (because $v$ has already been realised as a tensor $A \to B$ in the trace), the let-step denotes the Dirac extension
+
+$$
+\mathcal{S}\llbracket \mathsf{let}\ w = \mathit{arr}[\mathit{idx}] \rrbracket(\phi)
+\;=\;
+\delta_{(\phi,\, \phi.\mathit{arr}[\phi.\mathit{idx}])}.
+$$
+
+### 2.8 Return
 
 A return statement
 
@@ -160,6 +228,30 @@ $$
 $$
 
 i.e.\ a morphism in $\mathbf{Kern}$ with extended domain. Concretely, parameter names are added to $\Gamma$ before the body is interpreted; the resulting Kleisli arrow is reused with each fresh parameter assignment by the training loop.
+
+## 3a. Parametric programs
+
+A program whose parameter list contains *typed* parameters denotes a *dependent* family of Kleisli arrows. With parameters $p_i : P_i$ drawn from the universes
+
+| Parameter kind | Universe $P_i$ |
+|---|---|
+| `FinSet`, `Space`, `Object` | an object of the relevant subcategory of $\mathbf{Kern}$ |
+| `Real`, `Nat` | a hom-object of scalar type (a hyperparameter) |
+| `Mor[A, B]` | the hom-set $\mathbf{Kern}(A, B)$ |
+
+the denotation lives in the dependent kernel space
+
+$$
+\llbracket P \rrbracket \;:\; \prod_{p_1 : P_1} \cdots \prod_{p_k : P_k} \mathbf{Kern}\bigl(\mathrm{dom}(p), \mathrm{cod}(p)\bigr),
+$$
+
+an object of the indexed family of Kleisli arrows over the parameter category. The domain and codomain may themselves mention the formal parameters, so each fibre is a kernel between possibly-different objects of $\mathbf{Kern}$.
+
+### Inline expansion as substitution
+
+A call site `draw v ~ P(a₁, …, aₖ)` inside another program is interpreted by *substitution* on the dependent denotation: the actual arguments $a_i$ are substituted for the formal parameters $p_i$ in the body of $P$, yielding a closed Kleisli arrow which is then inlined as a sequence of statements into the caller's body. Internal latents are α-renamed under a fresh prefix $v\$$, and the return-variable is renamed to $v$ directly; the result is a well-typed sequence of caller-level Kleisli arrows.
+
+This is sound by a standard substitution lemma: because each formal parameter is bound at the top of the body and the body interprets to a Kleisli arrow built compositionally from its statements, substitution commutes with the body's denotation function $\mathcal{B}\llbracket \cdot \rrbracket$. The α-renaming step is sound because the body's denotation depends only on the multiset of bound-variable types, not on the names. Two call sites of the same template therefore contribute *distinct* factors to the caller's joint kernel — fresh latents per use — recovering the standard "plate-of-plates" semantics for hierarchical models.
 
 ## 4. Composition of programs
 

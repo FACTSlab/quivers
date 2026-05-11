@@ -121,7 +121,7 @@ Codomains are determined by the return statement shape.
 
 Two key operations:
 
-### rsample(domain_values, n_samples)
+### rsample(domain_values, n_samples, observations=None)
 
 Generate samples by executing the program:
 
@@ -133,7 +133,7 @@ samples = program.rsample(domain_val, n_samples=1000)
 
 Sequential ancestral sampling: each draw step samples, previous draws are available to subsequent steps.
 
-### log_joint(domain_values, codomain_values)
+### log_joint(domain_values, codomain_values, observations=None)
 
 Compute $\log p(y, z_1, \ldots, z_k | x)$, where $x$ is domain input, $y$ is codomain (return value), and $z_i$ are intermediate latent draws:
 
@@ -146,6 +146,23 @@ log_pjoint = program.log_joint(x, y)
 ```
 
 Useful for variational inference: `log_joint` enters the ELBO computation.
+
+### The `observations` dict
+
+Vectorised-observe steps (`observe r[n] ~ F(args) for n in N`) read their response buffers from a runtime `observations: dict[str, torch.Tensor]`, keyed by the observed-variable name. The dict is passed as the `observations` kwarg to `rsample`, `log_joint`, and `ELBO.forward`:
+
+```python
+observations = {
+    "cloze_resp": cloze_tensor,    # shape (n_cloze_resp,)
+    "prop_resp":  prop_tensor,     # shape (n_prop_resp,)
+}
+
+samples  = program.rsample(x, n_samples=1, observations=observations)
+log_pjoint = program.log_joint(x, y, observations=observations)
+loss = elbo(x, y, observations=observations)
+```
+
+There is no `.qvr`-level data block; the tensor sources live in Python at the call site, and the keys must match the response identifiers declared in the program body.
 
 ## Named Parameters
 
@@ -271,3 +288,46 @@ output my_prog
 ```
 
 into a MonadicProgram instance that can be trained.
+
+## Hierarchical Models with Parametric Templates
+
+A parametric program declares a reusable kernel template polymorphic over typed parameters (`FinSet`, `Space`, `Object`, `Real`, `Nat`, or `Mor[A, B]`). Each call site `draw v ~ template(...)` inlines a fresh α-renamed copy of the template's body, so call sites contribute distinct latents.
+
+```qvr
+object Subject : 200
+object Verb : 100
+object Resp : 5000
+
+program random_intercepts (G : FinSet, scale : Real) : G -> 1
+    draw sigma ~ HalfNormal(scale)
+    draw v : G -> 1 ~ Normal(0.0, sigma)
+    return v
+
+program crossed : Resp -> Resp
+    draw intercept ~ Normal(0.0, 1.0)
+
+    draw by_subject ~ random_intercepts(Subject, 1.0)
+    draw by_verb    ~ random_intercepts(Verb,    1.0)
+
+    observe response[n] ~ Bernoulli(intercept) for n in Resp
+    return intercept
+
+output crossed
+```
+
+Each `random_intercepts` call inlines an independent `sigma` and per-level plate; the observed response is the runtime tensor supplied via `observations={"response": response_tensor}`. Monotone ordinal effects are expressed as `cumsum` of `HalfNormal` increments (positive support ⇒ monotone partial sums); discrete latent classes are integrated out with `marginalize`.
+
+```python
+from quivers.dsl import load
+from quivers.inference import ELBO, AutoNormalGuide, SVI
+
+program = load("crossed.qvr")
+observations = {"response": response_tensor}
+
+guide = AutoNormalGuide(program, observed_names={"response"})
+elbo  = ELBO(model=program, guide=guide)
+svi   = SVI(model=program, guide=guide)
+
+for _ in range(2000):
+    svi.step(domain_input, observations=observations, optimizer=optimizer)
+```

@@ -145,6 +145,17 @@ log_q = guide.log_prob(x, posterior_samples)
 print(log_q.shape)  # [4]
 ```
 
+## Passing Observations at Runtime
+
+Programs that use vectorised observes (`observe r[n] ~ F(args) for n in N`) read their response tensors from a runtime `observations: dict[str, torch.Tensor]` keyed by the observed-variable name. The dict is forwarded to `MonadicProgram.rsample`, `log_joint`, and `ELBO.forward` via the `observations` kwarg, and through `SVI.step`:
+
+```python
+observations = {"y": y_observed}            # shape matches the program's N
+loss = svi.step(domain_input, observations=observations, optimizer=optimizer)
+```
+
+There is no `.qvr`-level data block; observation tensors live in Python at the call site.
+
 ## Setting Up Inference
 
 Define the ELBO loss and optimizer:

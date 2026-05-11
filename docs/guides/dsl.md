@@ -126,23 +126,41 @@ embed_decl      := 'embed' IDENT ['[' INT ']'] ':' IDENT '->' IDENT
 program_decl   := 'program' IDENT ['(' param_list ')'] ':'
                    type_expr '->' type_expr
                    program_body
-param_list     := IDENT (',' IDENT)*
+param_list     := program_param (',' program_param)*
+program_param  := IDENT | IDENT ':' param_kind
+param_kind     := 'FinSet' | 'Space' | 'Object'
+                | 'Real' | 'Nat'
+                | 'Mor' '[' type_expr ',' type_expr ']'
 
 program_body   := program_step+ return_stmt
 
-program_step   := draw_step | observe_step | let_step
+program_step   := plate_draw_step | vectorised_observe_step
+                | marginalize_step
+                | draw_step | observe_step | let_step
 draw_step      := 'draw' var_pattern '~' IDENT ['(' arg_list ')']
                 | IDENT '<-' IDENT ['(' arg_list ')']
 observe_step   := 'observe' var_pattern '~' IDENT ['(' arg_list ')']
+plate_draw_step       := 'draw' IDENT ':' type_expr '->' type_expr
+                          '~' IDENT ['(' arg_list ')']
+vectorised_observe_step := 'observe' IDENT '[' IDENT ']'
+                            '~' IDENT ['(' arg_list ')']
+                            'for' IDENT 'in' type_expr
+marginalize_step := 'marginalize' IDENT
 let_step       := 'let' IDENT '=' let_expr
 let_expr       := let_term (('+' | '-') let_term)*
 let_term       := let_unary (('*' | '/') let_unary)*
 let_unary      := '-' let_atom | let_atom
 let_atom       := IDENT '(' let_expr (',' let_expr)* ')'
+                | IDENT '[' let_expr (',' let_expr)* ']'
                 | IDENT | INT | FLOAT | '(' let_expr ')'
 var_pattern    := IDENT | '(' IDENT (',' IDENT)* ')'
 arg_list       := arg (',' arg)*
 arg            := '-' (INT | FLOAT) | IDENT | INT | FLOAT
+
+posterior_decl := 'posterior' IDENT '(' IDENT ')' ':'
+                   type_expr '->' type_expr
+                   (let_step | marginalize_step)*
+                   return_stmt
 
 return_stmt    := 'return' return_pattern
 return_pattern := IDENT | '(' return_entry (',' return_entry)* ')'
@@ -897,7 +915,7 @@ The Lambek calculus inference rules (forward / backward application) become *the
 
 ### Program
 
-Define a probabilistic program:
+Define a probabilistic program. The body is a sequence of *steps* (draw, plate-draw, observe, vectorised-observe, let, marginalize) followed by `return`. Each step is a Kleisli arrow on the accumulated random-variable context $\Phi$; the program denotes the composite $\Gamma \to \mathcal{G}(\tau_2)$ in $\mathbf{Kern}$.
 
 ```qvr
 program my_prog : X -> Y
@@ -914,6 +932,117 @@ program with_params(a, b) : (X * Z) -> Y
     return y
 ```
 
+#### Plate-Draw
+
+`draw v : A -> K ~ Family(args)` introduces an $A$-indexed plate of independent $F$-distributed draws. The codomain `K` may be a numeric literal (interpreted as `Euclidean(K)`) or any space expression. Categorically, this is a $\mathbf{Kern}$-morphism $A \to \mathcal{G}(K)$, equivalently a single arrow $\mathbf{1} \to \mathcal{G}(K^A)$ via the natural isomorphism $\mathbf{Kern}(\mathbf{1}, K^A) \cong \mathbf{Kern}(A, K)$.
+
+```qvr
+object Item : 1000
+
+draw duration_incr : Item -> 11 ~ HalfNormal(1.0)
+draw by_subject    : Subject -> 1 ~ Normal(0.0, sigma)
+```
+
+#### Vectorised Observe
+
+`observe r[n] ~ Family(args) for n in N` accumulates a batched log-likelihood: a sub-probability kernel $\Phi \to \mathcal{G}_{\le 1}(\Phi)$ with score $\prod_{n \in N} p_F(r_{\mathrm{obs}}(n); \theta(n, \phi))$. The response buffer `r` is supplied at runtime via the `observations` dict passed to `MonadicProgram.rsample` / `log_joint` / `ELBO.forward`.
+
+```qvr
+observe cloze_resp[n] ~ Bernoulli(intercept_cloze) for n in RespCloze
+```
+
+#### Marginalize
+
+`marginalize c` pushes the accumulated joint measure forward through the projection $\pi : \Phi \times C \to \Phi$, integrating out the named discrete-latent component by log-sum-exp on the log-likelihood.
+
+```qvr
+draw class : Item -> 4 ~ Categorical(class_logits)
+marginalize class
+```
+
+Only `let` and `marginalize` steps are admissible inside a `posterior` block (see below); inside a `program` block any step kind may appear.
+
+#### Indexed Gather in `let`
+
+A `let`-expression of the form `arr[idx]` denotes the Kleisli pullback of a plate variable along a finite fibration. For a plate `v : A -> B` and an index morphism $\iota : N \to A$, the gather $\iota^* v = v \circ \iota$ is itself a $\mathbf{Kern}$-morphism $N \to B$.
+
+```qvr
+draw by_verb : Verb -> 1 ~ Normal(0.0, sigma)
+let intercept_for_item = by_verb[verb_of_item]
+```
+
+#### Parametric Programs
+
+A `program` declaration whose parameter list contains *typed* parameters denotes a dependent family of kernels rather than a single kernel:
+
+$$
+\llbracket P \rrbracket \;:\; \prod_{p_1 : P_1} \cdots \prod_{p_k : P_k} \mathbf{Kern}\bigl(\mathrm{dom}(p), \mathrm{cod}(p)\bigr).
+$$
+
+Three parameter universes are available:
+
+| Kind | Universe | Quantifies over |
+|---|---|---|
+| `FinSet`, `Space`, `Object` | object of the relevant subcategory | the carrier of a plate |
+| `Real`, `Nat` | hom-object of scalar type | a hyperparameter value |
+| `Mor[A, B]` | the hom-set $\mathbf{Kern}(A, B)$ | a kernel passed in by name |
+
+Parametric programs are *not* compiled to runtime `MonadicProgram`s in isolation; the compiler stores them as templates and inlines them at each call site:
+
+```qvr
+draw v ~ template(arg1, arg2, ...)
+```
+
+At each call site the template's body is substituted (formal parameters → actual arguments) and α-renamed (internal latents are prefixed by `v$`, the return variable is renamed to `v` directly). The renamed step list is inlined into the caller, so distinct call sites contribute distinct factors to the parent's joint kernel — fresh latents per use, no inadvertent tying.
+
+```qvr
+# Parametric random-intercepts template: one HalfNormal scale and
+# a per-level Normal(0, σ) plate, polymorphic over the grouping
+# object G and the half-normal hyperparameter scale.
+program random_intercepts (G : FinSet, scale : Real) : G -> 1
+    draw sigma ~ HalfNormal(scale)
+    draw v : G -> 1 ~ Normal(0.0, sigma)
+    return v
+```
+
+#### Posterior Blocks
+
+A `posterior name (model) : domain -> codomain ... return ...` declaration denotes a deterministic post-conditioning kernel. The body may contain `let` and `marginalize` steps only; `draw` and `observe` are rejected. Categorically it is a $\mathbf{Kern}$-morphism $\text{Latents} \to \tau_{\mathrm{out}}$ that lifts to $\text{Data} \to \mathcal{G}(\tau_{\mathrm{out}})$ by post-composition with the model's posterior kernel $q(\theta \mid \mathrm{data})$.
+
+```qvr
+posterior class_probs (event_structure) : Item -> 4
+    let logits = softmax(class_logits)
+    return logits
+```
+
+### Hierarchical Bayesian Models
+
+The plate-draw, vectorised-observe, parametric-program, and `marginalize` constructs compose into idiomatic hierarchical Bayesian models. The pattern below shows crossed random intercepts on two grouping factors, both reusing a single parametric template:
+
+```qvr
+object Subject : 200
+object Verb : 100
+object Resp : 5000
+
+program random_intercepts (G : FinSet, scale : Real) : G -> 1
+    draw sigma ~ HalfNormal(scale)
+    draw v : G -> 1 ~ Normal(0.0, sigma)
+    return v
+
+program crossed : Resp -> Resp
+    draw intercept ~ Normal(0.0, 1.0)
+
+    draw by_subject ~ random_intercepts(Subject, 1.0)
+    draw by_verb    ~ random_intercepts(Verb,    1.0)
+
+    observe response[n] ~ Bernoulli(intercept) for n in Resp
+    return intercept
+
+output crossed
+```
+
+Each call to `random_intercepts` inlines a fresh `sigma` and a fresh per-level plate `v` under α-renamed names (`by_subject$sigma`, `by_subject$v`, …), so the two grouping factors share *structure* but not *latents*. Monotone ordinal-spline coefficients are expressed as `cumsum` of `HalfNormal` increments; categorical latent classes are marginalised with `marginalize`.
+
 ### Let Expressions (Arithmetic)
 
 Inside a `program` block, `let` bindings support full arithmetic with standard operator precedence, unary negation, and built-in functions:
@@ -925,12 +1054,17 @@ let adjusted = (1.0 - lapse) * p_raw + 0.5 * lapse
 let mean = (x + y + z) / 3.0
 let negated = -raw_score
 
-# built-in functions: sigmoid, exp, log, abs, softplus
+# built-in functions: sigmoid, exp, log, abs, softplus,
+# cumsum, softmax, cholesky_quad_form
 let prob = sigmoid(eta)
 let positive = softplus(raw)
 let log_rate = log(rate)
 let magnitude = abs(x - 0.5)
+let monotone = cumsum(increments)
+let weights = softmax(logits)
 ```
+
+Each `let`-builtin denotes a deterministic measurable map, lifted into the Kleisli category as a Dirac kernel. `cumsum` realises the partial-sum endomorphism over a plate; `softmax` is the standard simplex map; `cholesky_quad_form(L, x)` computes $x^\top L L^\top x$ for a lower-triangular Cholesky factor `L`.
 
 ### Inline Distributions
 

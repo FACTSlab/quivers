@@ -99,3 +99,35 @@ The combinators $\mathsf{ccg}$ and $\mathsf{lambek}$ fix the rule system $\Sigma
 | $\mathsf{parser}$ | User-supplied $\Sigma$ via the `rules` argument |
 
 Their denotations are special cases of [§4](#4-the-chart-parser-denotation).
+
+## 7. Program-grammar fragment
+
+The Bayesian-modelling step kinds and the `posterior` declaration introduce additional productions in the QVR grammar. The shapes below mirror the tree-sitter source at `grammars/qvr/grammar.js`; semantics is given in [Programs §2.4–§2.8 and §3a](programs.md).
+
+```ebnf
+typed_program_param := IDENT ':' param_kind
+param_kind          := object_kind | scalar_kind | morphism_kind
+object_kind         := 'FinSet' | 'Space' | 'Object'
+scalar_kind         := 'Real'   | 'Nat'
+morphism_kind       := 'Mor' '[' type_expr ',' type_expr ']'
+
+plate_draw_step     := 'draw' IDENT ':' type_expr '->' type_expr
+                       '~' IDENT [ '(' arg_list ')' ]
+
+vectorised_observe_step
+                    := 'observe' IDENT '[' IDENT ']'
+                       '~' IDENT [ '(' arg_list ')' ]
+                       'for' IDENT 'in' type_expr
+
+marginalize_step    := 'marginalize' IDENT
+
+let_index           := IDENT '[' let_arith (',' let_arith)* ']'
+
+posterior_decl      := 'posterior' IDENT '(' IDENT ')'
+                       [ '[' IDENT (',' IDENT)* ']' ]
+                       ':' type_expr '->' type_expr
+                       (let_step | marginalize_step)*
+                       'return' return_pattern
+```
+
+A `program_decl` is *parametric* iff its parameter list contains any `typed_program_param`; the walker dispatches parametric programs to the call-site inliner rather than to the runtime program compiler. The `posterior_decl` walker rejects `draw` and `observe` steps in its body — admissible steps are `let_step` (including `let_index` right-hand sides) and `marginalize_step`.

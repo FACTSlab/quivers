@@ -69,3 +69,8 @@ Quivers abstracts over inference algorithms, so the same model specification wor
 ## Extensions and Advanced Usage
 
 For multi-dimensional regression, add predictor variables and coefficients. For hierarchical models, nest probabilistic programs (samples from one become parameters of another). For Bayesian nonparametrics, use distributions like the Dirichlet process. A Bayesian linear regression program can serve as a component in a larger hierarchical model or be extended with non-linear transformations and richer likelihood models.
+
+## See Also
+
+- [Event-Structure Latent-Class Model](event-structure.md) for a full hierarchical example with crossed random intercepts via parametric templates, an ordinal monotone spline, vectorised observes, and discrete-latent marginalisation.
+- [DSL Guide: Hierarchical Bayesian Models](../guides/dsl.md#hierarchical-bayesian-models) for the plate-draw, parametric-template, and `marginalize` constructs.
