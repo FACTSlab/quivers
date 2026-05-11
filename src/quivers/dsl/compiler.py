@@ -50,7 +50,6 @@ from quivers.dsl.ast_nodes import (
     PlateDrawStep,
     PosteriorDecl,
     ProgramDecl,
-    ProgramStep,
     RandomEffectDecl,
     VectorisedObserveStep,
     LetDecl,
@@ -412,6 +411,10 @@ class Compiler:
             self._compile_let(stmt)
         elif isinstance(stmt, OutputDecl):
             self._compile_output(stmt)
+        elif isinstance(stmt, RandomEffectDecl):
+            self._compile_random_effect(stmt)
+        elif isinstance(stmt, PosteriorDecl):
+            self._compile_posterior(stmt)
         else:
             raise CompileError(f"unknown statement type: {type(stmt).__name__}")
 
@@ -900,6 +903,7 @@ class Compiler:
                 # |A| copies of the per-row family's codomain.
                 from quivers.continuous.bayesian import PlateDraw as _PlateDraw
                 from quivers.continuous.spaces import Euclidean as _Euc
+
                 idx_space = self._resolve_any_space(step.index)
                 # The per-row codomain `B` is either a declared object /
                 # space or an integer literal interpreted as
@@ -935,31 +939,85 @@ class Compiler:
                 if step.name in bound_vars:
                     raise CompileError(
                         f"variable {step.name!r} already bound in program",
-                        step.line, step.col,
+                        step.line,
+                        step.col,
                     )
                 bound_vars[step.name] = plate.codomain
                 steps.append(((step.name,), plate, step_args, False))
                 continue
-            if isinstance(step, (VectorisedObserveStep, MarginalizeStep)):
-                # The categorical denotations of VectorisedObserveStep
-                # (batched-likelihood kernel Φ → G_{≤1}(Φ) with score
-                # ∏_n p_F(r_obs(n); θ(n, φ))) and MarginalizeStep
-                # (pushforward G(π_{Φ\\C})) are realised by
-                # `quivers.continuous.bayesian.VectorisedObserve` and
-                # `quivers.continuous.bayesian.marginalize_categorical`.
-                # Their MonadicProgram step-spec dispatchers are
-                # not yet wired (the runtime's `rsample` / `log_joint`
-                # loops are draw-and-let only).
-                raise CompileError(
-                    f"{type(step).__name__} parses and has a categorical "
-                    "denotation in Kern, but the MonadicProgram runtime "
-                    "loop does not yet dispatch on it. Compose the model "
-                    "via `quivers.continuous.bayesian.VectorisedObserve` "
-                    "and `marginalize_categorical` at the Python builder "
-                    "layer until the runtime extension lands.",
-                    step.line,
-                    step.col,
+            if isinstance(step, VectorisedObserveStep):
+                # observe r[n] ~ Family(args) for n in N — the batched-
+                # likelihood kernel Φ → G_{≤1}(Φ) with score
+                # ∏_n p_F(r_obs(n); θ(n, φ)). Realised as a
+                # VectorisedObserve wrapping the per-row family;
+                # threads through the existing _StepSpec(is_observed=True)
+                # path. The response buffer is supplied at runtime
+                # via the `observations` dict on the program.
+                from quivers.continuous.bayesian import (
+                    VectorisedObserve as _VectorisedObserve,
                 )
+
+                idx_space = self._resolve_any_space(step.index_set)
+                _synth = DrawStep(
+                    vars=(step.index_var,),
+                    morphism=step.morphism,
+                    args=step.args,
+                    is_observed=True,
+                    line=step.line,
+                    col=step.col,
+                )
+                # Use the program's declared codomain as a fallback for
+                # type inference on inline distributions; the family's
+                # codomain is what actually matters.
+                family, step_args = self._resolve_draw_morphism(
+                    _synth, bound_vars, codomain
+                )
+                # Build a placeholder response of the right shape; the
+                # actual values are supplied at fit time via the
+                # `observations[response_var]` dict-entry. The buffer
+                # only carries shape information here.
+                resp_shape: tuple[int, ...]
+                if hasattr(family.codomain, "dim"):
+                    resp_shape = (idx_space.size, int(family.codomain.dim))
+                else:
+                    resp_shape = (idx_space.size,) + tuple(family.codomain.shape)
+                import torch as _torch
+
+                placeholder = _torch.zeros(*resp_shape)
+                vec_obs = _VectorisedObserve(family, placeholder)
+                # The step's response_var is the data column supplied
+                # at fit time. We expose it as the bound name so the
+                # runtime's observations[response_var] = data flow
+                # automatically clamps the placeholder.
+                if step.response_var not in bound_vars:
+                    bound_vars[step.response_var] = family.codomain
+                steps.append(((step.response_var,), vec_obs, step_args, True))
+                continue
+            if isinstance(step, MarginalizeStep):
+                # marginalize v — pushforward G(π_{Φ\\C}). Realised as a
+                # deterministic let-step that applies log-sum-exp across
+                # the class axis of the named variable's per-class score
+                # tensor (the runtime convention is that a previously-
+                # observed-or-let variable named `v_logprob_per_class`
+                # carries the per-class log-likelihoods).
+                if step.var_name not in bound_vars:
+                    raise CompileError(
+                        f"marginalize: variable {step.var_name!r} not bound",
+                        step.line,
+                        step.col,
+                    )
+                import torch as _torch
+
+                target_var = step.var_name
+
+                def _marginalize_callable(env: dict, _v=target_var) -> "_torch.Tensor":
+                    tensor = env[_v]
+                    return _torch.logsumexp(tensor, dim=-1)
+
+                marg_name = f"_marg_{step.var_name}"
+                bound_vars[marg_name] = None
+                steps.append(((marg_name,), None, _marginalize_callable))
+                continue
             if isinstance(step, LetStep):
                 if step.name in bound_vars:
                     raise CompileError(
@@ -1302,9 +1360,7 @@ class Compiler:
                     L_flat, scale = args[0], args[1]
                     K = scale.shape[-1]
                     L = L_flat.reshape(*L_flat.shape[:-1], K, K)
-                    mask = torch.tril(
-                        torch.ones(K, K, device=L.device, dtype=L.dtype)
-                    )
+                    mask = torch.tril(torch.ones(K, K, device=L.device, dtype=L.dtype))
                     L = L * mask
                     R = L @ L.transpose(-1, -2)
                     D = scale.unsqueeze(-1) * torch.eye(
@@ -1351,6 +1407,109 @@ class Compiler:
         if self._output_expr is not None:
             raise CompileError("multiple output declarations", decl.line, decl.col)
         self._output_expr = decl.expr
+
+    def _compile_random_effect(self, decl: RandomEffectDecl) -> None:
+        """Compile a random_effect declaration to a per-index plate prior.
+
+        Categorical denotation: the canonical hierarchical random-
+        effect prior
+
+        .. math::
+
+            \\mathrm{scale}  &\\sim \\mathrm{ScaleFamily}(\\ldots),\\\\
+            L  &\\sim \\mathrm{LKJ}(K, \\eta) \\text{ (Cholesky factor)},\\\\
+            \\Sigma  &= \\operatorname{diag}(\\mathrm{scale})\\, L L^T \\operatorname{diag}(\\mathrm{scale}),\\\\
+            v(a)  &\\sim \\mathcal{N}(0,\\, \\Sigma),\\quad a \\in A.
+
+        Realised by constructing a :class:`PlateDraw` over a
+        :class:`MultivariateNormal` whose covariance comes from the
+        LKJ-Cholesky reconstruction with the supplied scale prior.
+        The whole assembly is registered as a single morphism under
+        :attr:`name` so it composes with the existing
+        :class:`MonadicProgram` step machinery: downstream programs
+        reference ``decl.name`` as if it were an ordinary
+        plate-indexed family.
+        """
+        from quivers.continuous.bayesian import _RandomEffectPrior
+        from quivers.continuous.families import ConditionalMultivariateNormal
+        from quivers.continuous.spaces import Euclidean as _Euc
+
+        if decl.name in self._morphisms:
+            raise CompileError(f"name {decl.name!r} already bound", decl.line, decl.col)
+        idx_space = self._resolve_any_space(decl.index)
+        K = decl.codomain_dim
+        # The per-row codomain is Euclidean(K); the covariance is a
+        # K×K positive-definite matrix passed as a flat K*K vector to
+        # ConditionalMultivariateNormal.
+        per_row = _Euc(name=f"_re_codom_{decl.name}", dim=K)
+        # The per-row family conditions on the flat covariance.
+        cov_space = _Euc(name=f"_re_cov_{decl.name}", dim=K * K)
+        mvn = ConditionalMultivariateNormal(cov_space, per_row)
+        # Wrap an LKJ-Cholesky + scale draw + cholesky_quad_form
+        # composition into a derived `_RandomEffectPrior` ContinuousMorphism
+        # that, on rsample, draws an LKJ Cholesky factor and a
+        # scale vector, reconstructs the covariance, and then samples
+        # the per-row plate of MVN values.
+        re_prior = _RandomEffectPrior(
+            name=decl.name,
+            index_size=idx_space.size,
+            K=K,
+            eta=decl.correlation_eta,
+            scale_family_name=decl.scale_family,
+            scale_args=decl.scale_args,
+            mvn=mvn,
+        )
+        # Wrap as PlateDraw-shaped ContinuousMorphism. Since
+        # _RandomEffectPrior already produces a (batch, |A|*K)-shaped
+        # sample, register it directly as the morphism for `decl.name`.
+        self._morphisms[decl.name] = re_prior
+
+    def _compile_posterior(self, decl: PosteriorDecl) -> None:
+        """Compile a posterior block.
+
+        Categorical denotation: given the conditioned model's
+        posterior kernel
+        :math:`q(\\theta \\mid \\mathrm{data}) : \\mathrm{Data}
+        \\to \\mathcal{G}(\\Theta)`, the posterior block denotes a
+        morphism :math:`\\Theta \\to \\tau_{\\mathrm{out}}` that lifts
+        to :math:`\\mathrm{Data} \\to \\mathcal{G}(\\tau_{\\mathrm{out}})`
+        by post-composition.
+
+        Operationally: a posterior block is a deterministic
+        :class:`MonadicProgram` (no ``draw`` / ``observe`` steps —
+        only ``let`` and ``marginalize``) that consumes a per-sample
+        snapshot of the model's latents and produces the derived
+        quantity. The compiled posterior is registered in
+        :attr:`_posteriors` so the inference layer can run it over
+        each posterior draw.
+        """
+        if not hasattr(self, "_posteriors"):
+            self._posteriors = {}
+        if decl.model not in self._morphisms:
+            raise CompileError(
+                f"posterior block references undefined model {decl.model!r}",
+                decl.line,
+                decl.col,
+            )
+        # Synthesise a ProgramDecl-compatible structure and route
+        # through `_compile_program`. The posterior body's allowed
+        # step kinds (LetStep, MarginalizeStep) are a subset of
+        # what _compile_program already handles.
+        synth = ProgramDecl(
+            name=decl.name,
+            params=decl.params,
+            domain=decl.domain,
+            codomain=decl.codomain,
+            draws=decl.steps,
+            return_vars=decl.return_vars,
+            return_labels=decl.return_labels,
+            line=decl.line,
+            col=decl.col,
+        )
+        self._compile_program(synth)
+        # Move the compiled posterior into the dedicated dict so the
+        # inference runner can distinguish models from posteriors.
+        self._posteriors[decl.name] = self._morphisms.pop(decl.name)
 
     def _resolve_type(self, texpr: TypeExpr, bind_name: str | None = None) -> SetObject:
         """Resolve a type expression into a SetObject.

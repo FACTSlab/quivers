@@ -6,7 +6,35 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/), and this
 
 ## [Unreleased]
 
-## [0.3.0] - 2026-05-11
+## [0.4.0] - 2026-05-11
+
+### Added
+
+- Hierarchical-Bayesian modelling primitives in `quivers.continuous.bayesian`, each carrying its categorical denotation in **Kern**:
+  - `PlateDraw(index_size, family, domain)` — finite-domain-indexed draw realised as a Kern-morphism `A → B` by the natural isomorphism `Kern(1, B^A) ≅ Kern(A, B)`; subclass of `ContinuousMorphism` so it threads through the existing `MonadicProgram` step machinery.
+  - `VectorisedObserve(family, response)` — batched-observation kernel `Φ → G_{≤1}(Φ)` with score `∏_n p_F(r_obs(n); θ(n, φ))`.
+  - `marginalize_categorical(log_probs)` — program-level pushforward through `π_{Φ\C}` realised as `log_sum_exp` over the class axis.
+  - `LKJCorrelationFactor(K, eta)` — LKJ prior on `CholeskyFactor(K)` via the Lewandowski-Kurowicka-Joe onion method; analytic `log_prob` matches Stan's `lkj_corr_cholesky_lpdf`.
+  - `Truncated(base, lower, upper)` — generic interval-truncation combinator (rejection sampling with Monte-Carlo truncation-mass estimation).
+  - `cumsum(K)`, `softmax(K)` — deterministic morphisms for monotone splines and simplex projection.
+  - `cholesky_quad_form(K)` — covariance reconstruction `Σ = diag(s) L L^T diag(s)`.
+  - `CholeskyFactor(K)` `ContinuousSpace` — manifold of K×K lower-triangular factors of correlation matrices.
+- Surface syntax for hierarchical-Bayesian models in `.qvr`:
+  - `draw v : A -> K ~ Family(args)` — finite-domain-indexed plate draw.
+  - `observe r[n] ~ Family(args) for n in N` — vectorised observation.
+  - `marginalize c` — program-level discrete-latent marginalisation.
+  - `arr[idx]` — Kleisli pullback gather expression inside `let`-bodies.
+  - `random_effect name : Idx -> K correlation eta = N scale_dist = Family(args)` — sugar for the canonical scale + LKJ-Cholesky + covariance + per-level MVN plate-draw recipe.
+  - `posterior name (model) : domain -> codomain { steps return ... }` — deterministic post-conditioning block whose body consumes posterior latents.
+  - Let-expression builtins: `cumsum`, `softmax`, `cholesky_quad_form` join the existing `sigmoid` / `exp` / `log` / `abs` / `softplus`.
+- AST nodes in `quivers.dsl.ast_nodes`: `PlateDrawStep`, `VectorisedObserveStep`, `MarginalizeStep`, `LetExprIndex`, `RandomEffectDecl`, `PosteriorDecl`; each docstring carries the Kern denotation.
+- Stan-model port at `src/quivers/dsl/examples/event_structure.qvr` — a faithful translation of the four-class telicity × durativity latent-class model from `~/Projects/supertelicity/analysis/event-structure-induction/models/event-structure-model.stan`, demonstrating crossed random effects, ordinal monotone splines, vectorised observations, and `marginalize` over the discrete latent class.
+- `tests/test_bayesian.py` — 15 tests covering every new primitive and every new AST node's parse / compile round-trip, plus a compile-time smoke test on the Stan-model port.
+
+### Changed
+
+- `_walk_program_step` return type widened from `DrawStep | LetStep` to the `ProgramStep` union root.
+- Tree-sitter grammar regenerated (`grammars/qvr/src/parser.c`, `grammar.json`, `node-types.json`) to recognise the new program steps and top-level declarations.
 
 ### Added
 

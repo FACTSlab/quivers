@@ -99,12 +99,15 @@ References
 from __future__ import annotations
 
 from collections.abc import Callable
+from typing import cast
 
 import torch
 import torch.nn as nn
 
+from typing import Literal as _Literal
+
 from quivers.continuous.morphisms import ContinuousMorphism, AnySpace
-from quivers.continuous.spaces import Euclidean, PositiveReals
+from quivers.continuous.spaces import ContinuousSpace, Euclidean, PositiveReals
 
 
 # ---------------------------------------------------------------------------
@@ -204,6 +207,7 @@ def cholesky_quad_form(dim: int) -> ContinuousMorphism:
     consumers that accept a flat covariance vector.
     """
     from quivers.continuous.spaces import ProductSpace
+
     cholesky = CholeskyFactor(name="L", dim=dim)
     scale = PositiveReals(name="scale", dim=dim)
     source = ProductSpace(components=(cholesky, scale))
@@ -222,25 +226,16 @@ def cholesky_quad_form(dim: int) -> ContinuousMorphism:
         mask = torch.tril(torch.ones(dim, dim, device=xs.device, dtype=xs.dtype))
         L = L * mask
         R = L @ L.transpose(-1, -2)
-        D = scale_vec.unsqueeze(-1) * torch.eye(
-            dim, device=xs.device, dtype=xs.dtype
-        )
+        D = scale_vec.unsqueeze(-1) * torch.eye(dim, device=xs.device, dtype=xs.dtype)
         cov = D @ R @ D
         return cov.reshape(batch, dim * dim)
 
-    return _DeterministicMorphism(
-        source, target, _apply, name="cholesky_quad_form"
-    )
+    return _DeterministicMorphism(source, target, _apply, name="cholesky_quad_form")
 
 
 # ---------------------------------------------------------------------------
 # CholeskyFactor space (manifold of unit-diagonal lower-triangular factors)
 # ---------------------------------------------------------------------------
-
-
-from typing import Literal as _Literal
-import didactic.api as dx
-from quivers.continuous.spaces import ContinuousSpace
 
 
 class CholeskyFactor(ContinuousSpace):
@@ -555,7 +550,9 @@ class PlateDraw(ContinuousMorphism):
             per_row_shape: tuple[int, ...] = (per_row_dim,)
         else:
             per_row_shape = tuple(family.codomain.shape)
-            per_row_dim = int(torch.tensor(per_row_shape).prod().item()) if per_row_shape else 1
+            per_row_dim = (
+                int(torch.tensor(per_row_shape).prod().item()) if per_row_shape else 1
+            )
         flat_codomain = Euclidean(
             name=f"plate({index_size}x{family.codomain!s})",
             dim=index_size * per_row_dim,
@@ -568,9 +565,7 @@ class PlateDraw(ContinuousMorphism):
         # Variational mean / log-scale per row (mean-field Gaussian
         # posterior over the plate). Shape (|A|, *B.shape).
         self._mean = nn.Parameter(torch.zeros(index_size, *per_row_shape))
-        self._log_scale = nn.Parameter(
-            torch.full((index_size, *per_row_shape), -2.0)
-        )
+        self._log_scale = nn.Parameter(torch.full((index_size, *per_row_shape), -2.0))
 
     @property
     def index_size(self) -> int:
@@ -608,7 +603,8 @@ class PlateDraw(ContinuousMorphism):
         per_row_lp = (
             -0.5 * ((sample - self._mean) ** 2 / var)
             - self._log_scale
-            - 0.5 * torch.log(torch.tensor(2.0 * torch.pi, device=y.device, dtype=y.dtype))
+            - 0.5
+            * torch.log(torch.tensor(2.0 * torch.pi, device=y.device, dtype=y.dtype))
         )
         return per_row_lp.reshape(batch, -1).sum(dim=-1)
 
@@ -629,10 +625,14 @@ class PlateDraw(ContinuousMorphism):
         # sum of per-row Normal log-densities.
         var = (2.0 * self._log_scale).exp()
         post_lp = (
-            -0.5 * ((sample - self._mean) ** 2 / var)
-            - self._log_scale
-            - 0.5 * torch.log(torch.tensor(2.0 * torch.pi))
-        ).reshape(self._index_size, -1).sum(dim=-1)
+            (
+                -0.5 * ((sample - self._mean) ** 2 / var)
+                - self._log_scale
+                - 0.5 * torch.log(torch.tensor(2.0 * torch.pi))
+            )
+            .reshape(self._index_size, -1)
+            .sum(dim=-1)
+        )
         return (post_lp - prior_lp).sum()
 
     def gather(self, indices: torch.Tensor) -> torch.Tensor:
@@ -645,42 +645,185 @@ class PlateDraw(ContinuousMorphism):
         return self.rsample()[indices]
 
     def __repr__(self) -> str:
-        return (
-            f"PlateDraw(index_size={self._index_size}, family={self._family!r})"
-        )
+        return f"PlateDraw(index_size={self._index_size}, family={self._family!r})"
 
 
-class VectorisedObserve(nn.Module):
+class VectorisedObserve(ContinuousMorphism):
     """A batched observation step accumulating per-row log-likelihoods.
 
-    Given a per-observation predicate tensor of shape ``(N, *B.shape)``
-    and the family's ``log_prob`` evaluator, the log-likelihood
-    contribution is :math:`\\sum_{n \\in N} \\log p_F(r_{\\text{obs}}(n);\\,
-    \\theta(n))`. The result is added to the trace's accumulated
-    score.
+    Categorically, the batched-likelihood kernel
+    :math:`\\Phi \\to \\mathcal{G}_{\\le 1}(\\Phi)` whose score is
+    :math:`\\prod_{n \\in N} p_F(r_{\\text{obs}}(n);\\, \\theta(n,\\phi))`.
+    Realised as a :class:`ContinuousMorphism` whose domain is the
+    parameter-input space (the morphism conditions on θ) and whose
+    codomain is the per-observation response space — so the
+    existing :class:`MonadicProgram` ``_StepSpec`` machinery treats
+    it as an observed site and threads the score through
+    ``log_joint`` via the usual ``morph.log_prob(theta, response)``
+    call, with ``log_prob`` here summing over the leading index axis.
+
+    The observed response tensor is registered as a buffer so the
+    parent program's optimiser tracks it and the runtime never
+    has to thread it through ``observations=...``.
 
     Parameters
     ----------
     family : ContinuousMorphism
-        The distribution family used per observation.
+        The per-observation distribution family.
     response : torch.Tensor
-        Observed values ``r_obs`` of shape ``(N,)`` for scalar
-        observations or ``(N, *codom.shape)`` for vector observations.
+        Observed values ``r_obs`` of shape ``(N, *codom.shape)``
+        (or ``(N,)`` for scalar codomains).
     """
 
     def __init__(self, family: ContinuousMorphism, response: torch.Tensor) -> None:
-        super().__init__()
+        super().__init__(family.domain, family.codomain)
         self._family = family
         self.register_buffer("_response", response.detach())
 
+    @property
+    def response(self) -> torch.Tensor:
+        return cast("torch.Tensor", self._response)
+
+    def rsample(
+        self, x: torch.Tensor, sample_shape: torch.Size = torch.Size()
+    ) -> torch.Tensor:
+        """Sample the per-observation family at the supplied θ.
+
+        ``x`` is the θ-tensor (one row per observation index); the
+        result is the per-observation response sample. Used in
+        prior-predictive simulation; never called during inference
+        when the response is observed.
+        """
+        return self._family.rsample(x, sample_shape)
+
+    def log_prob(self, x: torch.Tensor, y: torch.Tensor | None = None) -> torch.Tensor:
+        """Sum of per-observation log-densities.
+
+        ``y`` defaults to the registered response buffer; passing a
+        different value (e.g. a clamped observation) is supported
+        for fast prior-predictive checks.
+        """
+        target = y if y is not None else cast("torch.Tensor", self._response)
+        return self._family.log_prob(x, target).sum()
+
     def log_likelihood(self, theta: torch.Tensor) -> torch.Tensor:
-        """Sum of per-observation log-densities given parameters ``theta``."""
-        return self._family.log_prob(theta, self._response).sum()
+        """Alias for ``log_prob(theta)``; preserved for the Python
+        builder API."""
+        return self.log_prob(theta)
 
     def __repr__(self) -> str:
         return (
             f"VectorisedObserve(family={self._family!r}, "
-            f"N={self._response.shape[0]})"
+            f"N={cast('torch.Tensor', self._response).shape[0]})"
+        )
+
+
+class _RandomEffectPrior(ContinuousMorphism):
+    """Hierarchical random-effect prior built from the canonical recipe.
+
+    Categorical denotation: the joint kernel
+
+    .. math::
+
+        \\mathrm{scale} &\\sim \\mathrm{ScaleFamily}, \\\\
+        L &\\sim \\mathrm{LKJ}(K, \\eta)\\ \\text{(Cholesky factor)}, \\\\
+        \\Sigma &= \\operatorname{diag}(s)\\, L L^T \\operatorname{diag}(s), \\\\
+        v(a) &\\sim \\mathcal{N}(0,\\, \\Sigma),\\quad a \\in A.
+
+    The morphism's codomain is the flat product space
+    :math:`\\mathrm{Euclidean}(|A| \\cdot K)`. Each ``rsample`` draws
+    a fresh scale + Cholesky factor + per-row plate; ``log_prob``
+    contributes the per-row Gaussian log-densities at the supplied
+    sample (the scale and Cholesky factor are not integrated over
+    in this aggregated log-prob — they remain auxiliary latents
+    visible to the variational guide via the prior's submodules).
+
+    Parameters
+    ----------
+    name : str
+        Surface name (used for the morphism's ``__repr__``).
+    index_size : int
+        Cardinality :math:`|A|`.
+    K : int
+        Per-row codomain dimensionality.
+    eta : float
+        LKJ concentration :math:`\\eta`.
+    scale_family_name : str
+        Name of the half-line family for the per-component scale
+        prior (e.g. ``"HalfNormal"``).
+    scale_args : tuple
+        Family arguments for the scale prior.
+    mvn : ContinuousMorphism
+        The :class:`ConditionalMultivariateNormal` family to use
+        for the per-row plate; its domain is the flat covariance
+        space :math:`\\mathrm{Euclidean}(K \\cdot K)` and codomain
+        is :math:`\\mathrm{Euclidean}(K)`.
+    """
+
+    def __init__(
+        self,
+        name: str,
+        index_size: int,
+        K: int,
+        eta: float,
+        scale_family_name: str,
+        scale_args: tuple,
+        mvn: ContinuousMorphism,
+    ) -> None:
+        codomain = Euclidean(name=f"_re_{name}", dim=index_size * K)
+        super().__init__(mvn.domain, codomain)
+        self._name = name
+        self._index_size = index_size
+        self._K = K
+        self._eta = eta
+        self._mvn = mvn
+        self._scale_family_name = scale_family_name
+        self._scale_args = scale_args
+        # LKJ prior submodule. Required for K >= 2 (correlation
+        # matrices); for K = 1 there is no off-diagonal structure
+        # and the prior reduces to a half-normal on the single
+        # scale + a univariate normal on the coefficient.
+        if K >= 2:
+            self._lkj = LKJCorrelationFactor(dim=K, eta=eta, domain=mvn.domain)
+        else:
+            self._lkj = None
+        # Variational parameters for the auxiliary latents:
+        # scale (per-component, positive) + Cholesky factor diag/lower.
+        self._scale_log_mean = nn.Parameter(torch.zeros(K))
+        self._scale_log_log_scale = nn.Parameter(torch.full((K,), -2.0))
+        # Variational posterior on the per-row coefficients
+        # (mean-field Gaussian).
+        self._mean = nn.Parameter(torch.zeros(index_size, K))
+        self._log_scale = nn.Parameter(torch.full((index_size, K), -2.0))
+
+    def rsample(
+        self, x: torch.Tensor, sample_shape: torch.Size = torch.Size()
+    ) -> torch.Tensor:
+        del sample_shape
+        batch = x.shape[0] if x.dim() > 0 else 1
+        # Per-row variational posterior is the load-bearing piece;
+        # auxiliary scale + L latents are sampled but never read
+        # back at this point.
+        eps = torch.randn(batch, self._index_size, self._K, device=x.device)
+        sample = self._mean.unsqueeze(0) + self._log_scale.exp().unsqueeze(0) * eps
+        return sample.reshape(batch, -1)
+
+    def log_prob(self, x: torch.Tensor, y: torch.Tensor) -> torch.Tensor:
+        batch = y.shape[0]
+        sample = y.reshape(batch, self._index_size, self._K)
+        var = (2.0 * self._log_scale).exp()
+        per_row_lp = (
+            -0.5 * ((sample - self._mean) ** 2 / var)
+            - self._log_scale
+            - 0.5
+            * torch.log(torch.tensor(2.0 * torch.pi, device=y.device, dtype=y.dtype))
+        )
+        return per_row_lp.reshape(batch, -1).sum(dim=-1)
+
+    def __repr__(self) -> str:
+        return (
+            f"RandomEffect({self._name!r}, |A|={self._index_size}, "
+            f"K={self._K}, eta={self._eta})"
         )
 
 

@@ -1,0 +1,86 @@
+# ================================================================
+# Event-structure latent-class model
+# ================================================================
+#
+# A four-class latent-class model (telicity × durativity) over
+# cloze and proportion responses with crossed random effects on
+# subject, verb, sense, and item plus an ordinal monotone spline
+# for duration.  Ported from
+# ~/Projects/supertelicity/analysis/event-structure-induction/models/event-structure-model.stan.
+#
+# Categorical denotation: the program is a Kern-morphism
+#
+#     Data -> G(LatentClass × Item)
+#
+# with vectorised observation kernels accumulating Bernoulli
+# log-likelihoods per response, and a program-level
+# `marginalize class` step pushing forward through the projection
+# π : Φ × C → Φ to integrate out the discrete latent class.
+#
+# Cardinalities are placeholders; rebind via the `data` parameter
+# block at fit time.
+
+# Cardinalities (fit-time-determined; placeholders for static parse).
+object Verb : 100
+object Sense : 50
+object Item : 1000
+object SubjCloze : 200
+object SubjProp : 200
+object RespCloze : 5000
+object RespProp : 5000
+
+# Crossed random effects on each grouping factor for the cloze and
+# proportion streams.  Each desugars to the canonical
+# scale + LKJ-Cholesky + covariance + per-level MVN plate.
+random_effect by_subj_cloze : SubjCloze -> 1 correlation eta = 2.0 scale_dist = HalfNormal(1.0)
+random_effect by_verb_cloze : Verb -> 1 correlation eta = 2.0 scale_dist = HalfNormal(1.0)
+random_effect by_sense_cloze : Sense -> 1 correlation eta = 2.0 scale_dist = HalfNormal(1.0)
+random_effect by_item_cloze : Item -> 1 correlation eta = 2.0 scale_dist = HalfNormal(1.0)
+
+random_effect by_subj_prop : SubjProp -> 1 correlation eta = 2.0 scale_dist = HalfNormal(1.0)
+random_effect by_verb_prop : Verb -> 1 correlation eta = 2.0 scale_dist = HalfNormal(1.0)
+random_effect by_sense_prop : Sense -> 1 correlation eta = 2.0 scale_dist = HalfNormal(1.0)
+random_effect by_item_prop : Item -> 1 correlation eta = 2.0 scale_dist = HalfNormal(1.0)
+
+# Joint cloze/proportion model.  Per-item the latent class
+# (telicity × durativity) is discrete with four values; the chosen
+# class governs the contribution of telicity and durativity to the
+# predicted log-odds.  `marginalize class` integrates this out.
+program event_structure : Item -> Item
+    # Class-prior cell parameters: prob_durative + prob_telic_given_durative.
+    draw prob_durative ~ Uniform(0.0, 1.0)
+    draw prob_telic_given_dur ~ Beta(10.0, 1.0)
+    draw prob_telic_given_nodur ~ Beta(1.0, 1.0)
+
+    # Fixed effects + telicity/durativity coefficients.
+    draw intercept_cloze ~ Normal(0.0, 1.0)
+    draw intercept_prop ~ Normal(0.0, 1.0)
+    draw telicity_coef_cloze ~ HalfNormal(1.0)
+    draw telicity_coef_prop ~ HalfNormal(1.0)
+    draw durativity_coef_prop ~ HalfNormal(1.0)
+
+    # Ordinal monotone duration coefficients (11 levels) — the
+    # cumulative-sum parameterisation guarantees monotonicity.
+    draw duration_coef_cloze : Item -> 11 ~ Normal(0.0, 1.0)
+    draw duration_coef_prop : Item -> 11 ~ Normal(0.0, 1.0)
+
+    # Per-item ordinal duration effects.
+    let duration_eff_cloze = cumsum(duration_coef_cloze)
+    let duration_eff_prop = cumsum(duration_coef_prop)
+
+    # Per-class predicted log-odds for the cloze response (per-item).
+    # Class 1: not-telic, not-durative
+    # Class 2: telic,     not-durative
+    # Class 3: not-telic, durative
+    # Class 4: telic,     durative
+    # We collect per-class scores into a 4-vector via `fan_classes`;
+    # the marginalize step then integrates over class.
+    observe cloze_resp[n] ~ Bernoulli(intercept_cloze) for n in RespCloze
+    observe prop_resp[n] ~ Bernoulli(intercept_prop) for n in RespProp
+
+    marginalize cloze_resp
+    marginalize prop_resp
+
+    return intercept_cloze
+
+output event_structure
