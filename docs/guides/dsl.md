@@ -1010,10 +1010,18 @@ program random_intercepts (G : FinSet, scale : Real) : G -> 1
 A `posterior name (model) : domain -> codomain ... return ...` declaration denotes a deterministic post-conditioning kernel. The body may contain `let` and `marginalize` steps only; `draw` and `observe` are rejected. Categorically it is a $\mathbf{Kern}$-morphism $\text{Latents} \to \tau_{\mathrm{out}}$ that lifts to $\text{Data} \to \mathcal{G}(\tau_{\mathrm{out}})$ by post-composition with the model's posterior kernel $q(\theta \mid \mathrm{data})$.
 
 ```qvr
-posterior class_probs (event_structure) : Item -> 4
-    let logits = softmax(class_logits)
-    return logits
+type Logits4 = Euclidean 4
+
+program scored : Item -> Logits4
+    draw raw_logits ~ Normal(0.0, 1.0)
+    return raw_logits
+
+posterior class_probs (scored) [raw_logits] : Item -> Logits4
+    let probs = softmax(raw_logits)
+    return probs
 ```
+
+The bracketed `[raw_logits]` names the model-latent the posterior body consumes — a per-sample snapshot of the model's trace. The body is restricted to `let` and `marginalize` steps.
 
 ### Hierarchical Bayesian Models
 
