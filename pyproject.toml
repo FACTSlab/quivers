@@ -45,7 +45,7 @@ dev = [
 docs = [
     "mkdocs",
     "mkdocstrings[python]",
-    "mkdocs-cinder",
+    "mkdocs-terminal",
     "pymdown-extensions",
     "pygments",
 ]

@@ -3,9 +3,8 @@ site_description: V-enriched categorical relations as differentiable PyTorch ten
 site_author: Aaron Steven White
 
 theme:
-  name: cinder
+  name: terminal
   custom_dir: docs/overrides
-  highlightjs: false
 
 hooks:
   - docs/hooks/register_qvr_lexer.py
