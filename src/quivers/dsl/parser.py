@@ -57,7 +57,6 @@ from quivers.dsl.ast_nodes import (
     ProgramDecl,
     ProgramStep,
     QuantaleDecl,
-    RandomEffectDecl,
     RuleDecl,
     SchemaDecl,
     SpaceConstructor,
@@ -977,34 +976,6 @@ def _walk_statement(t: _Tree, vid: str) -> Statement | list[Statement]:
             raise ParseError(f"output_decl missing value at {vid}")
         return OutputDecl(
             expr=_walk_expr(t, vv),
-            line=line,
-            col=col,
-        )
-    if k == "random_effect_decl":
-        nv = t.field(vid, "name")
-        iv = t.field(vid, "index")
-        dim_vid = t.field(vid, "codomain_dim")
-        eta_vid = t.field(vid, "eta")
-        sf_vid = t.field(vid, "scale_family")
-        if nv is None or iv is None or dim_vid is None:
-            raise ParseError(f"random_effect_decl malformed at {vid}")
-        dim = int(float(t.text(dim_vid)))
-        eta = float(t.text(eta_vid)) if eta_vid else 2.0
-        scale_family = (
-            _required_text(t, sf_vid, vid, "scale_family")
-            if sf_vid is not None
-            else "HalfNormal"
-        )
-        scale_args: list[str | float] = []
-        for av in t.fields(vid, "scale_args"):
-            scale_args.append(_walk_draw_arg(t, av))
-        return RandomEffectDecl(
-            name=_required_text(t, nv, vid, "name"),
-            index=_walk_type(t, iv),
-            codomain_dim=dim,
-            correlation_eta=eta,
-            scale_family=scale_family,
-            scale_args=tuple(scale_args),
             line=line,
             col=col,
         )

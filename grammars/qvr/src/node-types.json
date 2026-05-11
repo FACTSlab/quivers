@@ -2371,108 +2371,6 @@
     }
   },
   {
-    "type": "random_effect_decl",
-    "named": true,
-    "fields": {
-      "codomain_dim": {
-        "multiple": false,
-        "required": true,
-        "types": [
-          {
-            "type": "float",
-            "named": true
-          },
-          {
-            "type": "integer",
-            "named": true
-          }
-        ]
-      },
-      "eta": {
-        "multiple": false,
-        "required": true,
-        "types": [
-          {
-            "type": "float",
-            "named": true
-          },
-          {
-            "type": "integer",
-            "named": true
-          }
-        ]
-      },
-      "index": {
-        "multiple": false,
-        "required": true,
-        "types": [
-          {
-            "type": "type_atom",
-            "named": true
-          },
-          {
-            "type": "type_coproduct",
-            "named": true
-          },
-          {
-            "type": "type_effect_apply",
-            "named": true
-          },
-          {
-            "type": "type_paren",
-            "named": true
-          },
-          {
-            "type": "type_product",
-            "named": true
-          },
-          {
-            "type": "type_slash",
-            "named": true
-          }
-        ]
-      },
-      "name": {
-        "multiple": false,
-        "required": true,
-        "types": [
-          {
-            "type": "identifier",
-            "named": true
-          }
-        ]
-      },
-      "scale_args": {
-        "multiple": true,
-        "required": false,
-        "types": [
-          {
-            "type": ",",
-            "named": false
-          },
-          {
-            "type": "identifier",
-            "named": true
-          },
-          {
-            "type": "signed_number",
-            "named": true
-          }
-        ]
-      },
-      "scale_family": {
-        "multiple": false,
-        "required": true,
-        "types": [
-          {
-            "type": "identifier",
-            "named": true
-          }
-        ]
-      }
-    }
-  },
-  {
     "type": "repeat_expr",
     "named": true,
     "fields": {
@@ -2995,10 +2893,6 @@
         },
         {
           "type": "quantale_decl",
-          "named": true
-        },
-        {
-          "type": "random_effect_decl",
           "named": true
         },
         {
@@ -4091,10 +3985,6 @@
     "named": false
   },
   {
-    "type": "correlation",
-    "named": false
-  },
-  {
     "type": "cumsum",
     "named": false
   },
@@ -4129,10 +4019,6 @@
   },
   {
     "type": "embed",
-    "named": false
-  },
-  {
-    "type": "eta",
     "named": false
   },
   {
@@ -4241,10 +4127,6 @@
     "named": false
   },
   {
-    "type": "random_effect",
-    "named": false
-  },
-  {
     "type": "repeat",
     "named": false
   },
@@ -4258,10 +4140,6 @@
   },
   {
     "type": "rules",
-    "named": false
-  },
-  {
-    "type": "scale_dist",
     "named": false
   },
   {

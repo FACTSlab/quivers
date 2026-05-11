@@ -12,8 +12,7 @@ Covers:
 
 The runtime extensions are not yet wired into the SVI guide; an
 end-to-end fit on synthetic data is reserved for a follow-up
-test once the inference layer recognises ``_RandomEffectPrior``
-sites.
+test once the inference layer recognises plate-draw sites.
 """
 
 from __future__ import annotations
@@ -199,24 +198,6 @@ class TestDSLSurface:
         # First gathered row equals sample[2].
         assert torch.allclose(gathered[0], sample[2])
 
-    def test_random_effect_decl(self):
-        src = """
-        object Subj : 10
-
-        random_effect by_subj : Subj -> 3 correlation eta = 2.0 scale_dist = HalfNormal(1.0)
-
-        program demo : Subj -> Subj
-            draw mu : Subj -> 1 ~ Normal(0.0, 1.0)
-            return mu
-
-        output demo
-        """
-        c = self._compile(src)
-        assert "by_subj" in c._morphisms
-        from quivers.continuous.bayesian import _RandomEffectPrior
-
-        assert isinstance(c._morphisms["by_subj"], _RandomEffectPrior)
-
     def test_vectorised_observe(self):
         src = """
         object Resp : 20
@@ -250,16 +231,8 @@ class TestDSLSurface:
         if not path.exists():
             pytest.skip("event_structure.qvr not present")
         c = self._compile(path.read_text())
-        # The model + 8 random-effect priors should all compile.
+        # The program and the shared per-level prior should compile;
+        # the eight crossed random intercepts live as program-internal
+        # plate-draw steps that all reference the shared prior.
         assert "event_structure" in c._morphisms
-        for name in (
-            "by_subj_cloze",
-            "by_verb_cloze",
-            "by_sense_cloze",
-            "by_item_cloze",
-            "by_subj_prop",
-            "by_verb_prop",
-            "by_sense_prop",
-            "by_item_prop",
-        ):
-            assert name in c._morphisms, f"{name} not compiled"
+        assert "random_intercept_prior" in c._morphisms

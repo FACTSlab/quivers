@@ -61,7 +61,6 @@ module.exports = grammar({
       $.program_decl,
       $.let_decl,
       $.output_decl,
-      $.random_effect_decl,
       $.posterior_decl,
     ),
 
@@ -155,28 +154,6 @@ module.exports = grammar({
     // ---------------------------------------------------------------
     // hierarchical Bayesian declarations
     // ---------------------------------------------------------------
-
-    // random_effect by_subj : Subj -> Euclidean(K) correlation eta = 2.0 scale_dist = HalfNormal(1.0)
-    //
-    // Sugar for the canonical LKJ-Cholesky + half-normal scale +
-    // cholesky_quad_form covariance reconstruction + per-level
-    // MultivariateNormal plate-draw pattern.
-    random_effect_decl: $ => seq(
-      'random_effect',
-      field('name', $.identifier),
-      ':',
-      field('index', $._type_expr),
-      '->',
-      field('codomain_dim', $._numeric_literal),
-      'correlation',
-      'eta',
-      '=',
-      field('eta', $._numeric_literal),
-      'scale_dist',
-      '=',
-      field('scale_family', $.identifier),
-      optional(seq('(', field('scale_args', commaSep1($._draw_arg)), ')')),
-    ),
 
     // posterior class_probs (model) : domain -> codomain { steps return ... }
     //

@@ -24,10 +24,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/), and this
   - `observe r[n] ~ Family(args) for n in N` — vectorised observation.
   - `marginalize c` — program-level discrete-latent marginalisation.
   - `arr[idx]` — Kleisli pullback gather expression inside `let`-bodies.
-  - `random_effect name : Idx -> K correlation eta = N scale_dist = Family(args)` — sugar for the canonical scale + LKJ-Cholesky + covariance + per-level MVN plate-draw recipe.
   - `posterior name (model) : domain -> codomain { steps return ... }` — deterministic post-conditioning block whose body consumes posterior latents.
+  - Prior structure is reused across grouping factors by referencing a named `continuous` morphism in the family slot of a plate-draw, e.g. `draw by_subj : Subj -> 1 ~ random_intercept_prior` — no `random_effect`-specific sugar, just morphism naming and reuse.
   - Let-expression builtins: `cumsum`, `softmax`, `cholesky_quad_form` join the existing `sigmoid` / `exp` / `log` / `abs` / `softplus`.
-- AST nodes in `quivers.dsl.ast_nodes`: `PlateDrawStep`, `VectorisedObserveStep`, `MarginalizeStep`, `LetExprIndex`, `RandomEffectDecl`, `PosteriorDecl`; each docstring carries the Kern denotation.
+- AST nodes in `quivers.dsl.ast_nodes`: `PlateDrawStep`, `VectorisedObserveStep`, `MarginalizeStep`, `LetExprIndex`, `PosteriorDecl`; each docstring carries the Kern denotation.
 - Stan-model port at `src/quivers/dsl/examples/event_structure.qvr` — a faithful translation of the four-class telicity × durativity latent-class model from `~/Projects/supertelicity/analysis/event-structure-induction/models/event-structure-model.stan`, demonstrating crossed random effects, ordinal monotone splines, vectorised observations, and `marginalize` over the discrete latent class.
 - `tests/test_bayesian.py` — 15 tests covering every new primitive and every new AST node's parse / compile round-trip, plus a compile-time smoke test on the Stan-model port.
 

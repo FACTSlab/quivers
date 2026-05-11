@@ -50,7 +50,6 @@ from quivers.dsl.ast_nodes import (
     PlateDrawStep,
     PosteriorDecl,
     ProgramDecl,
-    RandomEffectDecl,
     VectorisedObserveStep,
     LetDecl,
     OutputDecl,
@@ -411,8 +410,6 @@ class Compiler:
             self._compile_let(stmt)
         elif isinstance(stmt, OutputDecl):
             self._compile_output(stmt)
-        elif isinstance(stmt, RandomEffectDecl):
-            self._compile_random_effect(stmt)
         elif isinstance(stmt, PosteriorDecl):
             self._compile_posterior(stmt)
         else:
@@ -1407,62 +1404,6 @@ class Compiler:
         if self._output_expr is not None:
             raise CompileError("multiple output declarations", decl.line, decl.col)
         self._output_expr = decl.expr
-
-    def _compile_random_effect(self, decl: RandomEffectDecl) -> None:
-        """Compile a random_effect declaration to a per-index plate prior.
-
-        Categorical denotation: the canonical hierarchical random-
-        effect prior
-
-        .. math::
-
-            \\mathrm{scale}  &\\sim \\mathrm{ScaleFamily}(\\ldots),\\\\
-            L  &\\sim \\mathrm{LKJ}(K, \\eta) \\text{ (Cholesky factor)},\\\\
-            \\Sigma  &= \\operatorname{diag}(\\mathrm{scale})\\, L L^T \\operatorname{diag}(\\mathrm{scale}),\\\\
-            v(a)  &\\sim \\mathcal{N}(0,\\, \\Sigma),\\quad a \\in A.
-
-        Realised by constructing a :class:`PlateDraw` over a
-        :class:`MultivariateNormal` whose covariance comes from the
-        LKJ-Cholesky reconstruction with the supplied scale prior.
-        The whole assembly is registered as a single morphism under
-        :attr:`name` so it composes with the existing
-        :class:`MonadicProgram` step machinery: downstream programs
-        reference ``decl.name`` as if it were an ordinary
-        plate-indexed family.
-        """
-        from quivers.continuous.bayesian import _RandomEffectPrior
-        from quivers.continuous.families import ConditionalMultivariateNormal
-        from quivers.continuous.spaces import Euclidean as _Euc
-
-        if decl.name in self._morphisms:
-            raise CompileError(f"name {decl.name!r} already bound", decl.line, decl.col)
-        idx_space = self._resolve_any_space(decl.index)
-        K = decl.codomain_dim
-        # The per-row codomain is Euclidean(K); the covariance is a
-        # K×K positive-definite matrix passed as a flat K*K vector to
-        # ConditionalMultivariateNormal.
-        per_row = _Euc(name=f"_re_codom_{decl.name}", dim=K)
-        # The per-row family conditions on the flat covariance.
-        cov_space = _Euc(name=f"_re_cov_{decl.name}", dim=K * K)
-        mvn = ConditionalMultivariateNormal(cov_space, per_row)
-        # Wrap an LKJ-Cholesky + scale draw + cholesky_quad_form
-        # composition into a derived `_RandomEffectPrior` ContinuousMorphism
-        # that, on rsample, draws an LKJ Cholesky factor and a
-        # scale vector, reconstructs the covariance, and then samples
-        # the per-row plate of MVN values.
-        re_prior = _RandomEffectPrior(
-            name=decl.name,
-            index_size=idx_space.size,
-            K=K,
-            eta=decl.correlation_eta,
-            scale_family_name=decl.scale_family,
-            scale_args=decl.scale_args,
-            mvn=mvn,
-        )
-        # Wrap as PlateDraw-shaped ContinuousMorphism. Since
-        # _RandomEffectPrior already produces a (batch, |A|*K)-shaped
-        # sample, register it directly as the morphism for `decl.name`.
-        self._morphisms[decl.name] = re_prior
 
     def _compile_posterior(self, decl: PosteriorDecl) -> None:
         """Compile a posterior block.

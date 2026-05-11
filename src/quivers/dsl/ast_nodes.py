@@ -774,58 +774,6 @@ class ProgramDecl(Statement):
     kind: Literal["program_decl"] = "program_decl"
 
 
-class RandomEffectDecl(Statement):
-    """A crossed random-effect declaration.
-
-    Sugar for the standard hierarchical-Bayesian random-effect
-    construction:
-
-    .. code-block:: qvr
-
-        random_effect by_subj : Subj -> Euclidean(K)
-            correlation eta = 2.0
-            scale_dist = HalfNormal(1.0)
-
-    desugars (denotationally) to the joint kernel
-
-        scale ~ scale_dist over Euclidean(K, low=0)
-        corr  ~ LKJ(K, eta)               over CorrelationMatrix(K)
-        cov   = cholesky_quad_form(corr, scale)
-        by_subj : Subj → Euclidean(K)
-                ~ MultivariateNormal(0, cov)              [PlateDrawStep]
-
-    The desugaring is purely syntactic; the resulting kernel
-    composition has the same denotation in **Kern** as the explicit
-    four-line construction.
-
-    Attributes
-    ----------
-    name : str
-        Bound name of the random-effect indexed family.
-    index : TypeExpr
-        The grouping factor's index set (e.g. ``Subj``).
-    codomain_dim : int
-        Dimensionality of the per-level coefficient vector ``K``.
-    correlation_eta : float
-        LKJ concentration parameter ``η``. Larger values concentrate
-        on the identity correlation. Default 2.0.
-    scale_family : str
-        Distribution family for the half-line scale prior.
-    scale_args : tuple
-        Family arguments for the scale prior.
-    """
-
-    name: str
-    index: TypeExpr
-    codomain_dim: int
-    correlation_eta: float = 2.0
-    scale_family: str = "HalfNormal"
-    scale_args: tuple[str | float, ...] = ()
-    line: int = 0
-    col: int = 0
-    kind: Literal["random_effect_decl"] = "random_effect_decl"
-
-
 class PosteriorDecl(Statement):
     """A posterior / generated-quantities block.
 
