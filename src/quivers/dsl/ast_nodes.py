@@ -47,43 +47,35 @@ class TypeCoproduct(TypeExpr):
     kind: Literal["type_coproduct"] = "type_coproduct"
 
 
-# ---------------------------------------------------------------------------
-# category patterns (for rule declarations)
-# ---------------------------------------------------------------------------
+class TypeSlash(TypeExpr):
+    """Residuated slash type: ``result / argument`` or ``result \\ argument``.
 
+    Legal only when both operands inhabit a residuated universe (typically
+    a ``FreeResiduated`` object). The compiler enforces this at use-site.
+    """
 
-class CatPattern(dx.TaggedUnion, discriminator="kind"):
-    """Sum of category-pattern node kinds."""
-
-
-class CatPatternName(CatPattern):
-    """A named category pattern element (variable or atom)."""
-
-    name: str
-    line: int = 0
-    col: int = 0
-    kind: Literal["cat_pattern_name"] = "cat_pattern_name"
-
-
-class CatPatternSlash(CatPattern):
-    """A slash category pattern: ``result/argument`` or ``result\\argument``."""
-
-    result: CatPattern
-    argument: CatPattern
+    result: TypeExpr
+    argument: TypeExpr
     direction: Literal["/", "\\"]
     line: int = 0
     col: int = 0
-    kind: Literal["cat_pattern_slash"] = "cat_pattern_slash"
+    kind: Literal["type_slash"] = "type_slash"
 
 
-class CatPatternProduct(CatPattern):
-    """A product category pattern: ``left * right``."""
+class TypeEffectApply(TypeExpr):
+    """Effect-typed type-application: ``T(X)``, ``Continuation[ρ](NP)``.
 
-    left: CatPattern
-    right: CatPattern
+    The ``effect`` field names the effect (a previously-declared
+    ``EffectDecl`` or stdlib effect); ``args`` are its applied arguments.
+    Legal only inside a ``FreeResiduated`` whose ``effects`` list mentions
+    the named effect.
+    """
+
+    effect: str
+    args: tuple[TypeExpr, ...]
     line: int = 0
     col: int = 0
-    kind: Literal["cat_pattern_product"] = "cat_pattern_product"
+    kind: Literal["type_effect_apply"] = "type_effect_apply"
 
 
 # ---------------------------------------------------------------------------
@@ -234,6 +226,54 @@ class ExprParser(Expr):
     kind: Literal["expr_parser"] = "expr_parser"
 
 
+class ExprChartFold(Expr):
+    """Desugared parser-construction primitive.
+
+    Surface form: ``chart_fold(lex=, binary=, unary=, start=, depth=,
+    effect_depth=)``.
+
+    Constructs a chart parser from morphism-valued arguments rather
+    than from a list of named rule schemas. ``lex`` is a morphism
+    Token -> Cat; ``binary`` is a Cat * Cat -> Cat morphism (the
+    union of all binary rule schemas); ``unary`` is an optional
+    Cat -> Cat morphism (the union of all unary rule schemas);
+    ``start`` is the goal category name (or integer index);
+    ``depth`` is the maximum category nesting depth; ``effect_depth``
+    bounds effect-stack nesting (Phase 7; defaults to 0).
+    """
+
+    lex: Expr
+    binary: Expr | None = None
+    unary: Expr | None = None
+    start: str | int = "S"
+    depth: int = 1
+    effect_depth: int = 0
+    line: int = 0
+    col: int = 0
+    kind: Literal["expr_chart_fold"] = "expr_chart_fold"
+
+
+class ExprCurry(Expr):
+    """Residuation-witness curry combinator.
+
+    For an inner morphism ``f : X * Y -> Z`` whose codomain ``Z``
+    inhabits a residuated universe, ``f.curry_right`` denotes the
+    morphism ``X -> Z/Y`` and ``f.curry_left`` denotes ``Y -> X\\Z``.
+
+    The categorical interpretation is the right (resp. left) component
+    of the residuation-adjunction unit/counit triangle. Validity of the
+    construction is checked at compile time: domain must factor as a
+    non-commutative product and codomain must inhabit a residuated
+    universe (a :class:`FreeResiduated` object in scope).
+    """
+
+    inner: Expr
+    direction: Literal["right", "left"]
+    line: int = 0
+    col: int = 0
+    kind: Literal["expr_curry"] = "expr_curry"
+
+
 # ---------------------------------------------------------------------------
 # let-step arithmetic expressions
 # ---------------------------------------------------------------------------
@@ -345,22 +385,111 @@ class CategoryDecl(Statement):
 
 
 class RuleDecl(Statement):
-    """Rule-of-inference declaration."""
+    """Rule-of-inference declaration.
+
+    Premises and conclusion are :class:`TypeExpr` patterns drawn from
+    the unified type-expression family: ``TypeName``, ``TypeProduct``,
+    ``TypeSlash`` (residuated), and ``TypeEffectApply`` (effect-typed).
+    """
 
     name: str
     variables: tuple[str, ...]
-    premises: tuple[CatPattern, ...]
-    conclusion: CatPattern
+    premises: tuple[TypeExpr, ...]
+    conclusion: TypeExpr
     line: int = 0
     col: int = 0
     kind: Literal["rule_decl"] = "rule_decl"
 
 
-class ObjectDecl(Statement):
-    """Object declaration: ``object <name> : <type_expr>``."""
+class SchemaDecl(Statement):
+    """Pattern-polymorphic morphism schema declaration.
+
+    Surface form: ``schema r[X, Y : Cat] : (X/Y) * Y -> X``.
+
+    Parameters are encoded as two parallel tuples — :attr:`parameter_names`
+    holds, for each parameter group, the tuple of variable names (e.g.
+    ``("X", "Y")`` for ``X, Y : Cat``); :attr:`parameter_types` holds the
+    corresponding type expressions. The arity invariant
+    ``len(parameter_names) == len(parameter_types)`` is enforced via a
+    dx.axiom.
+
+    Arity (binary vs. unary) is derived from the domain shape: a
+    top-level :class:`TypeProduct` with two components produces a
+    binary schema; any other domain shape produces a unary schema.
+    """
 
     name: str
-    type_expr: TypeExpr
+    parameter_names: tuple[tuple[str, ...], ...]
+    parameter_types: tuple[TypeExpr, ...]
+    domain: TypeExpr
+    codomain: TypeExpr
+    docs: tuple[str, ...] = ()
+    line: int = 0
+    col: int = 0
+    kind: Literal["schema_decl"] = "schema_decl"
+
+    __axioms__ = (
+        dx.axiom(
+            "length parameter_names == length parameter_types",
+            message="schema parameter_names and parameter_types must align",
+        ),
+    )
+
+
+class ObjectInitializer(dx.TaggedUnion, discriminator="kind"):
+    """Sum of object-initializer kinds for the ``=`` form of ObjectDecl."""
+
+
+class EnumSetLiteral(ObjectInitializer):
+    """A ``{NP, S, VP}``-shaped enum-set initializer."""
+
+    elements: tuple[str, ...]
+    line: int = 0
+    col: int = 0
+    kind: Literal["enum_set_literal"] = "enum_set_literal"
+
+
+class FreeResiduatedExpr(ObjectInitializer):
+    """A ``FreeResiduated(generators, depth=, ops=[...])`` initializer."""
+
+    generators: str
+    depth: int = 1
+    ops: tuple[str, ...] = ("slash",)
+    line: int = 0
+    col: int = 0
+    kind: Literal["free_residuated_expr"] = "free_residuated_expr"
+
+
+class FreeMonoidExpr(ObjectInitializer):
+    """A ``FreeMonoid(generators, max_length=)`` initializer."""
+
+    generators: str
+    max_length: int
+    line: int = 0
+    col: int = 0
+    kind: Literal["free_monoid_expr"] = "free_monoid_expr"
+
+
+class ObjectDecl(Statement):
+    """Object declaration.
+
+    Three surface forms:
+
+    - ``object X : 3`` — anonymous-element FinSet of cardinality 3.
+      ``type_expr`` carries the TypeExpr; ``init`` is None.
+    - ``object Atoms = {NP, S, VP}`` — EnumSet of named atoms.
+      ``init`` carries an :class:`EnumSetLiteral`; ``type_expr`` is None.
+    - ``object Cat = FreeResiduated(Atoms, depth=4)`` — residuated
+      category universe. ``init`` carries a :class:`FreeResiduatedExpr`.
+
+    Doc comments (``##``-prefixed lines) immediately preceding the
+    declaration are accumulated into :attr:`docs`.
+    """
+
+    name: str
+    type_expr: TypeExpr | None = None
+    init: ObjectInitializer | None = None
+    docs: tuple[str, ...] = ()
     line: int = 0
     col: int = 0
     kind: Literal["object_decl"] = "object_decl"
@@ -380,6 +509,7 @@ class MorphismDecl(Statement):
     codomain: TypeExpr
     init_expr: Expr | None = None
     options: dict[str, str] = dx.field(default_factory=dict)
+    docs: tuple[str, ...] = ()
     line: int = 0
     col: int = 0
     kind: Literal["morphism_decl"] = "morphism_decl"
@@ -393,6 +523,51 @@ class SpaceDecl(Statement):
     line: int = 0
     col: int = 0
     kind: Literal["space_decl"] = "space_decl"
+
+
+class TypeAliasDecl(Statement):
+    """Space-level alias declaration: ``type Latent = Euclidean(16)``."""
+
+    name: str
+    space_expr: SpaceExpr
+    line: int = 0
+    col: int = 0
+    kind: Literal["type_alias_decl"] = "type_alias_decl"
+
+
+class AliasDecl(Statement):
+    """Object-level type alias: ``alias Sentence = Cat / NP``.
+
+    Binds ``name`` to the resolved :class:`SetObject` of ``type_expr``
+    in the compiler's object environment. The alias is transparent:
+    every later occurrence of ``name`` resolves to the underlying
+    object, with no reference-counting or recursion bound.
+    """
+
+    name: str
+    type_expr: TypeExpr
+    docs: tuple[str, ...] = ()
+    line: int = 0
+    col: int = 0
+    kind: Literal["alias_decl"] = "alias_decl"
+
+
+class BundleDecl(Statement):
+    """First-class schema-bundle binding.
+
+    Surface form: ``bundle CCG = [forward_app, backward_app,
+    harmonic_composition]``. Binds ``name`` to a tuple of schema
+    references; ``parser(rules=CCG, ...)`` and
+    ``chart_fold(binary=CCG, ...)`` resolve the bundle by name and
+    splice its members into the rule list.
+    """
+
+    name: str
+    rules: tuple[str, ...]
+    docs: tuple[str, ...] = ()
+    line: int = 0
+    col: int = 0
+    kind: Literal["bundle_decl"] = "bundle_decl"
 
 
 class ContinuousMorphismDecl(Statement):
@@ -455,6 +630,7 @@ class ProgramDecl(Statement):
     draws: tuple[ProgramStep, ...]
     return_vars: tuple[str, ...]
     return_labels: tuple[str, ...] | None = None
+    docs: tuple[str, ...] = ()
     line: int = 0
     col: int = 0
     kind: Literal["program_decl"] = "program_decl"

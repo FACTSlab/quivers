@@ -10,21 +10,23 @@ from __future__ import annotations
 
 import warnings
 from pathlib import Path
+from typing import Literal
 
 import panproto
 
 from quivers.dsl.ast_nodes import (
-    CatPattern,
-    CatPatternName,
-    CatPatternProduct,
-    CatPatternSlash,
+    AliasDecl,
+    BundleDecl,
     CategoryDecl,
     ContinuousMorphismDecl,
     DiscretizeDecl,
     DrawStep,
     EmbedDecl,
+    EnumSetLiteral,
     Expr,
+    ExprChartFold,
     ExprCompose,
+    ExprCurry,
     ExprFan,
     ExprIdent,
     ExprIdentity,
@@ -34,6 +36,8 @@ from quivers.dsl.ast_nodes import (
     ExprScan,
     ExprStack,
     ExprTensorProduct,
+    FreeMonoidExpr,
+    FreeResiduatedExpr,
     LetDecl,
     LetExprBinOp,
     LetExprCall,
@@ -49,6 +53,7 @@ from quivers.dsl.ast_nodes import (
     ProgramDecl,
     QuantaleDecl,
     RuleDecl,
+    SchemaDecl,
     SpaceConstructor,
     SpaceDecl,
     SpaceExpr,
@@ -57,9 +62,11 @@ from quivers.dsl.ast_nodes import (
     Statement,
     StochasticMorphismDecl,
     TypeCoproduct,
+    TypeEffectApply,
     TypeExpr,
     TypeName,
     TypeProduct,
+    TypeSlash,
 )
 
 
@@ -77,9 +84,14 @@ _REGISTRY: panproto.AstParserRegistry | None = None
 def _registry() -> panproto.AstParserRegistry:
     global _REGISTRY
     if _REGISTRY is None:
-        with warnings.catch_warnings():
-            warnings.simplefilter("ignore")
-            _REGISTRY = panproto.AstParserRegistry()
+        from quivers.dsl import _dev_grammar
+
+        if _dev_grammar.is_active():
+            _REGISTRY = _dev_grammar.registry()  # type: ignore[assignment]
+        else:
+            with warnings.catch_warnings():
+                warnings.simplefilter("ignore")
+                _REGISTRY = panproto.AstParserRegistry()
         if "qvr" not in _REGISTRY.protocol_names():
             raise ParseError(
                 "panproto registry has no `qvr` protocol; install "
@@ -185,6 +197,37 @@ def _walk_type(t: _Tree, vid: str) -> TypeExpr:
             line=line,
             col=col,
         )
+    if k == "type_slash":
+        result_vid = t.field(vid, "result")
+        argument_vid = t.field(vid, "argument")
+        if result_vid is None or argument_vid is None:
+            raise ParseError(f"type_slash missing result/argument at {vid}")
+        rcs = t.consts(result_vid)
+        acs = t.consts(argument_vid)
+        direction: Literal["/", "\\"] = "/"
+        if rcs.get("end-byte") is not None and acs.get("start-byte") is not None:
+            mid = t.source[int(rcs["end-byte"]) : int(acs["start-byte"])].decode(
+                "utf-8"
+            )
+            direction = "\\" if "\\" in mid else "/"
+        return TypeSlash(
+            result=_walk_type(t, result_vid),
+            argument=_walk_type(t, argument_vid),
+            direction=direction,
+            line=line,
+            col=col,
+        )
+    if k == "type_effect_apply":
+        effect_vid = t.field(vid, "effect")
+        if effect_vid is None:
+            raise ParseError(f"type_effect_apply missing effect at {vid}")
+        arg_vids = t.fields(vid, "args")
+        return TypeEffectApply(
+            effect=t.text(effect_vid),
+            args=tuple(_walk_type(t, av) for av in arg_vids),
+            line=line,
+            col=col,
+        )
     raise ParseError(f"unexpected type-expression kind: {k}")
 
 
@@ -203,47 +246,6 @@ def _flatten_type(t: _Tree, vid: str, op_kind: str) -> list[TypeExpr]:
     else:
         out.append(_walk_type(t, right_vid))
     return out
-
-
-def _walk_cat_pattern(t: _Tree, vid: str) -> CatPattern:
-    k = t.kind(vid)
-    line, col = t.line_col(vid)
-    if k == "cat_atom":
-        return CatPatternName(name=t.text(t.positional(vid)[0]), line=line, col=col)
-    if k == "cat_paren":
-        return _walk_cat_pattern(t, t.positional(vid)[0])
-    if k == "cat_product":
-        left = t.field(vid, "left")
-        right = t.field(vid, "right")
-        if left is None or right is None:
-            raise ParseError(f"cat_product missing operands at {vid}")
-        return CatPatternProduct(
-            left=_walk_cat_pattern(t, left),
-            right=_walk_cat_pattern(t, right),
-            line=line,
-            col=col,
-        )
-    if k == "cat_slash":
-        result = t.field(vid, "result")
-        argument = t.field(vid, "argument")
-        if result is None or argument is None:
-            raise ParseError(f"cat_slash missing result/argument at {vid}")
-        rcs = t.consts(result)
-        acs = t.consts(argument)
-        direction = "/"
-        if rcs.get("end-byte") is not None and acs.get("start-byte") is not None:
-            mid = t.source[int(rcs["end-byte"]) : int(acs["start-byte"])].decode(
-                "utf-8"
-            )
-            direction = "\\" if "\\" in mid else "/"
-        return CatPatternSlash(
-            result=_walk_cat_pattern(t, result),
-            argument=_walk_cat_pattern(t, argument),
-            direction=direction,
-            line=line,
-            col=col,
-        )
-    raise ParseError(f"unexpected cat_pattern kind: {k}")
 
 
 def _walk_space(t: _Tree, vid: str) -> SpaceExpr:
@@ -348,13 +350,33 @@ def _walk_expr(t: _Tree, vid: str) -> Expr:
             inner_vid = t.field(vid, "inner")
             if inner_vid is None:
                 raise ParseError(f"postfix_expr missing inner at {vid}")
-            names = tuple(t.text(av) for av in t.fields(method_vid, "args"))
-            return ExprMarginalize(
-                inner=_walk_expr(t, inner_vid),
-                names=names,
-                line=line,
-                col=col,
-            )
+            # method_call's `name` field is an anonymous-keyword token
+            # (panproto/panproto#86) so its t.text() may be empty.
+            # Recover the method name from the leading bytes of the
+            # method_call node itself: the keyword always appears at
+            # the start, optionally followed by `(args)`.
+            mtext = t.text(method_vid)
+            paren = mtext.find("(")
+            method_name = (mtext[:paren] if paren >= 0 else mtext).strip()
+            if method_name == "marginalize":
+                names = tuple(t.text(av) for av in t.fields(method_vid, "args"))
+                return ExprMarginalize(
+                    inner=_walk_expr(t, inner_vid),
+                    names=names,
+                    line=line,
+                    col=col,
+                )
+            if method_name in ("curry_right", "curry_left"):
+                direction: Literal["right", "left"] = (
+                    "right" if method_name == "curry_right" else "left"
+                )
+                return ExprCurry(
+                    inner=_walk_expr(t, inner_vid),
+                    direction=direction,
+                    line=line,
+                    col=col,
+                )
+            raise ParseError(f"unknown postfix method {method_name!r} at {vid}")
         raise ParseError(f"unexpected postfix method at {vid}")
     if k == "identity_expr":
         obj_vid = t.field(vid, "object")
@@ -402,6 +424,8 @@ def _walk_expr(t: _Tree, vid: str) -> Expr:
         )
     if k == "parser_expr":
         return _walk_parser_expr(t, vid, line, col)
+    if k == "chart_fold_expr":
+        return _walk_chart_fold_expr(t, vid, line, col)
     raise ParseError(f"unexpected expr kind: {k}")
 
 
@@ -485,6 +509,71 @@ def _walk_parser_expr(t: _Tree, vid: str, line: int, col: int) -> ExprParser:
         start=start,
         depth=depth,
         constructors=constructors,
+        line=line,
+        col=col,
+    )
+
+
+def _walk_chart_fold_expr(t: _Tree, vid: str, line: int, col: int) -> ExprChartFold:
+    """Walk a chart_fold_expr into ExprChartFold.
+
+    Each chart_fold_arg has a `key` field (one of lex, binary, unary,
+    start, depth, effect_depth) and a `value` field that is either an
+    expression or an integer literal.
+    """
+    lex: Expr | None = None
+    binary: Expr | None = None
+    unary: Expr | None = None
+    start: str | int = "S"
+    depth = 1
+    effect_depth = 0
+
+    for arg_vid in t.fields(vid, "args"):
+        if t.kind(arg_vid) != "chart_fold_arg":
+            continue
+        val_vid = t.field(arg_vid, "value")
+        if val_vid is None:
+            raise ParseError(f"chart_fold_arg missing value at {arg_vid}")
+        # The `key` is an anonymous-keyword token (panproto/panproto#86)
+        # whose t.field()/t.text() returns nothing useful; recover it
+        # from the leading bytes of the chart_fold_arg node, taking
+        # everything before the first '='.
+        arg_text = t.text(arg_vid)
+        eq_idx = arg_text.find("=")
+        if eq_idx < 0:
+            raise ParseError(f"chart_fold_arg missing '=' at {arg_vid}")
+        key_text = arg_text[:eq_idx].strip()
+        if key_text == "lex":
+            lex = _walk_expr(t, val_vid)
+        elif key_text == "binary":
+            binary = _walk_expr(t, val_vid)
+        elif key_text == "unary":
+            unary = _walk_expr(t, val_vid)
+        elif key_text == "start":
+            v_text = t.text(val_vid)
+            try:
+                start = int(v_text)
+            except ValueError:
+                start = v_text
+        elif key_text == "depth":
+            depth = int(t.text(val_vid))
+        elif key_text == "effect_depth":
+            effect_depth = int(t.text(val_vid))
+        else:
+            raise ParseError(
+                f"unknown chart_fold argument key {key_text!r} at {arg_vid}"
+            )
+
+    if lex is None:
+        raise ParseError(f"chart_fold(...) requires lex= argument at {vid}")
+
+    return ExprChartFold(
+        lex=lex,
+        binary=binary,
+        unary=unary,
+        start=start,
+        depth=depth,
+        effect_depth=effect_depth,
         line=line,
         col=col,
     )
@@ -613,17 +702,29 @@ def _walk_statement(t: _Tree, vid: str) -> Statement | list[Statement]:
         return out if len(out) > 1 else out[0]
     if k == "rule_decl":
         return _walk_rule_decl(t, vid, line, col)
+    if k == "schema_decl":
+        return _walk_schema_decl(t, vid, line, col)
     if k == "object_decl":
         nv = t.field(vid, "name")
         tv = t.field(vid, "type")
-        if tv is None:
-            raise ParseError(f"object_decl missing type at {vid}")
-        return ObjectDecl(
-            name=_required_text(t, nv, vid, "name"),
-            type_expr=_walk_type(t, tv),
-            line=line,
-            col=col,
-        )
+        iv = t.field(vid, "init")
+        if tv is not None:
+            return ObjectDecl(
+                name=_required_text(t, nv, vid, "name"),
+                type_expr=_walk_type(t, tv),
+                init=None,
+                line=line,
+                col=col,
+            )
+        if iv is not None:
+            return ObjectDecl(
+                name=_required_text(t, nv, vid, "name"),
+                type_expr=None,
+                init=_walk_object_initializer(t, iv),
+                line=line,
+                col=col,
+            )
+        raise ParseError(f"object_decl missing type/init at {vid}")
     if k == "morphism_decl":
         cs = t.consts(vid)
         prefix = t.source[int(cs["start-byte"]) : int(cs["start-byte"]) + 8].decode(
@@ -662,6 +763,26 @@ def _walk_statement(t: _Tree, vid: str) -> Statement | list[Statement]:
         return SpaceDecl(
             name=_required_text(t, nv, vid, "name"),
             space_expr=_walk_space(t, vv),
+            line=line,
+            col=col,
+        )
+    if k == "alias_decl":
+        nv = t.field(vid, "name")
+        vv = t.field(vid, "value")
+        if vv is None:
+            raise ParseError(f"alias_decl missing value at {vid}")
+        return AliasDecl(
+            name=_required_text(t, nv, vid, "name"),
+            type_expr=_walk_type(t, vv),
+            line=line,
+            col=col,
+        )
+    if k == "bundle_decl":
+        nv = t.field(vid, "name")
+        rule_vids = t.fields(vid, "rules")
+        return BundleDecl(
+            name=_required_text(t, nv, vid, "name"),
+            rules=tuple(t.text(r) for r in rule_vids),
             line=line,
             col=col,
         )
@@ -803,8 +924,85 @@ def _walk_rule_decl(t: _Tree, vid: str, line: int, col: int) -> RuleDecl:
     return RuleDecl(
         name=_required_text(t, nv, vid, "name"),
         variables=tuple(t.text(v) for v in var_vids),
-        premises=tuple(_walk_cat_pattern(t, p) for p in prem_vids),
-        conclusion=_walk_cat_pattern(t, concl_vid),
+        premises=tuple(_walk_type(t, p) for p in prem_vids),
+        conclusion=_walk_type(t, concl_vid),
+        line=line,
+        col=col,
+    )
+
+
+def _walk_object_initializer(t: _Tree, vid: str) -> EnumSetLiteral | FreeResiduatedExpr:
+    k = t.kind(vid)
+    line, col = t.line_col(vid)
+    if k == "enum_set_literal":
+        elem_vids = t.fields(vid, "elements")
+        return EnumSetLiteral(
+            elements=tuple(t.text(e) for e in elem_vids),
+            line=line,
+            col=col,
+        )
+    if k == "free_monoid_expr":
+        gen_vid = t.field(vid, "generators")
+        ml_vid = t.field(vid, "max_length")
+        if gen_vid is None or ml_vid is None:
+            raise ParseError(f"free_monoid_expr missing generators/max_length at {vid}")
+        return FreeMonoidExpr(
+            generators=t.text(gen_vid),
+            max_length=int(t.text(ml_vid)),
+            line=line,
+            col=col,
+        )
+    if k == "free_residuated_expr":
+        gen_vid = t.field(vid, "generators")
+        if gen_vid is None:
+            raise ParseError(f"free_residuated_expr missing generators at {vid}")
+        depth = 1
+        ops: list[str] = []
+        # The grammar's free_residuated_arg variants carry one of two
+        # field-tagged children: a depth integer or per-op identifier(s).
+        for arg_vid in t.positional(vid):
+            if t.kind(arg_vid) != "free_residuated_arg":
+                continue
+            d = t.field(arg_vid, "depth")
+            if d is not None:
+                depth = int(t.text(d))
+                continue
+            for op_vid in t.fields(arg_vid, "op"):
+                ops.append(t.text(op_vid))
+        if not ops:
+            ops = ["slash"]
+        return FreeResiduatedExpr(
+            generators=t.text(gen_vid),
+            depth=depth,
+            ops=tuple(ops),
+            line=line,
+            col=col,
+        )
+    raise ParseError(f"unexpected object_initializer kind: {k}")
+
+
+def _walk_schema_decl(t: _Tree, vid: str, line: int, col: int) -> SchemaDecl:
+    nv = t.field(vid, "name")
+    param_vids = t.fields(vid, "parameters")
+    dom_vid = t.field(vid, "domain")
+    cod_vid = t.field(vid, "codomain")
+    if dom_vid is None or cod_vid is None:
+        raise ParseError(f"schema_decl missing domain/codomain at {vid}")
+    param_names: list[tuple[str, ...]] = []
+    param_types: list[TypeExpr] = []
+    for pv in param_vids:
+        name_vids = t.fields(pv, "names")
+        type_vid = t.field(pv, "type")
+        if type_vid is None:
+            raise ParseError(f"schema_parameter missing type at {pv}")
+        param_names.append(tuple(t.text(n) for n in name_vids))
+        param_types.append(_walk_type(t, type_vid))
+    return SchemaDecl(
+        name=_required_text(t, nv, vid, "name"),
+        parameter_names=tuple(param_names),
+        parameter_types=tuple(param_types),
+        domain=_walk_type(t, dom_vid),
+        codomain=_walk_type(t, cod_vid),
         line=line,
         col=col,
     )
@@ -886,15 +1084,48 @@ def parse(source: str | bytes, file_path: str = "<source>") -> Module:
         raise ParseError(f"panproto schema has no source_file vertex for {file_path}")
 
     statements: list[Statement] = []
+    pending_docs: list[str] = []
     for child in tree.positional(root_id):
-        if tree.kind(child) == "line_comment":
+        ckind = tree.kind(child)
+        if ckind == "line_comment":
+            # plain `# ...` comments are dropped at parse time
+            continue
+        if ckind == "doc_comment":
+            # `## ...` doc comments are accumulated; attached to the
+            # next statement that carries a docs field.
+            text = tree.text(child)
+            stripped = text[2:].lstrip() if text.startswith("##") else text
+            pending_docs.append(stripped.rstrip())
             continue
         result = _walk_statement(tree, child)
-        if isinstance(result, list):
-            statements.extend(result)
-        else:
-            statements.append(result)
+        results = result if isinstance(result, list) else [result]
+        if pending_docs:
+            docs = tuple(pending_docs)
+            results = [_attach_docs(s, docs) for s in results]
+            pending_docs = []
+        statements.extend(results)
     return Module(statements=tuple(statements))
+
+
+def _attach_docs(stmt: Statement, docs: tuple[str, ...]) -> Statement:
+    """Attach accumulated ``##`` doc-comment lines to a Statement.
+
+    Returns a copy of ``stmt`` with its ``docs`` field extended;
+    Statement variants that lack a ``docs`` field are returned
+    unchanged. didactic Models are immutable; :meth:`Model.with_` is
+    the field-replacement constructor.
+    """
+    # `docs` is a declared field on a fixed subset of Statement
+    # variants (ObjectDecl, MorphismDecl, SchemaDecl, ProgramDecl,
+    # AliasDecl, BundleDecl). Probe via the class's field-spec
+    # registry rather than instance __getattr__, since dx.Model's
+    # attribute fall-through raises AttributeError on undeclared
+    # field accesses.
+    fields = getattr(type(stmt), "__field_specs__", None)
+    if fields is None or "docs" not in fields:
+        return stmt
+    existing = stmt.docs  # type: ignore[attr-defined]
+    return stmt.with_(docs=tuple(existing) + docs)  # type: ignore[attr-defined]
 
 
 def parse_file(path: str | Path) -> Module:

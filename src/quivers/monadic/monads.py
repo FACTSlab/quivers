@@ -1,175 +1,44 @@
-"""Monads and Kleisli categories on V-enriched FinSet.
+"""Concrete monad instances on V-enriched FinSet.
 
-A monad (T, η, μ) consists of an endofunctor T, a unit η: Id ⇒ T,
-and a multiplication μ: T² ⇒ T satisfying:
+The :class:`Monad` typeclass itself lives in
+:mod:`quivers.monadic.typeclasses`; this module provides two concrete
+monad instances together with the :class:`KleisliCategory` adapter.
 
-    μ ∘ T(μ) = μ ∘ μ_T    (associativity)
-    μ ∘ η_T = id           (left unit)
-    μ ∘ T(η) = id          (right unit)
+- :class:`FuzzyPowersetMonad` — the powerset monad over a quantale,
+  whose Kleisli category is the V-enriched relation category.
+- :class:`FreeMonoidMonad` — the free monoid monad on a finite alphabet,
+  truncated to a maximum length.
+- :class:`KleisliCategory` — wraps any :class:`Monad` instance for
+  composition.
 
-The Kleisli category of a monad has the same objects but morphisms
-A → B are morphisms A → T(B) in the base category, composed via:
-
-    f >=> g = μ_C ∘ T(g) ∘ f
-
-This module provides:
-
-    Monad (abstract)
-    ├── FuzzyPowersetMonad — Kleisli category = FuzzyRel
-    └── FreeMonoidMonad    — Kleisli category = string-valued relations
-
-    KleisliCategory — wraps a monad for composition
+Both concrete monads subclass :class:`Monad` and implement the
+required ``fmap_obj`` / ``fmap`` / ``pure`` / ``join`` operations.
+``apply`` is inherited from :class:`Applicative` and raises when the
+internal-hom construction is not supplied per-instance.
 """
 
 from __future__ import annotations
-from abc import ABC, abstractmethod
-import torch
-from quivers.core.objects import SetObject, FinSet, FreeMonoid
-from quivers.core.quantales import PRODUCT_FUZZY, Quantale
+
+from quivers.categorical.functors import (
+    IDENTITY,
+    Functor,
+    FreeMonoidFunctor,
+)
 from quivers.core.morphisms import Morphism, identity, observed
-from quivers.categorical.functors import Functor, FreeMonoidFunctor, IDENTITY
-
-
-class Monad(ABC):
-    """Abstract monad (T, η, μ) on V-enriched FinSet.
-
-    Subclasses must implement endofunctor, unit, and multiply.
-    Kleisli composition is derived.
-    """
-
-    @property
-    @abstractmethod
-    def endofunctor(self) -> Functor:
-        """The underlying endofunctor T."""
-        ...
-
-    @abstractmethod
-    def unit(self, obj: SetObject) -> Morphism:
-        """The unit component η_A: A → T(A).
-
-        Parameters
-        ----------
-        obj : SetObject
-            The object A.
-
-        Returns
-        -------
-        Morphism
-            The unit morphism η_A.
-        """
-        ...
-
-    @abstractmethod
-    def multiply(self, obj: SetObject) -> Morphism:
-        """The multiplication component μ_A: T(T(A)) → T(A).
-
-        Parameters
-        ----------
-        obj : SetObject
-            The object A.
-
-        Returns
-        -------
-        Morphism
-            The multiplication morphism μ_A.
-        """
-        ...
-
-    def kleisli_compose(self, f: Morphism, g: Morphism) -> Morphism:
-        """Kleisli composition: f >=> g = μ_C ∘ T(g) ∘ f.
-
-        For f: A → T(B) and g: B → T(C), produces A → T(C).
-
-        Parameters
-        ----------
-        f : Morphism
-            Left Kleisli morphism A → T(B).
-        g : Morphism
-            Right Kleisli morphism B → T(C).
-
-        Returns
-        -------
-        Morphism
-            Composed Kleisli morphism A → T(C).
-        """
-        tg = self.endofunctor.map_morphism(g)
-        f_then_tg = f >> tg
-        mu = self._multiply_at_codomain(g)
-        return f_then_tg >> mu
-
-    def _multiply_at_codomain(self, g: Morphism) -> Morphism:
-        """Get μ for the appropriate object given g's codomain structure.
-
-        Subclasses can override for efficiency.
-        """
-        raise NotImplementedError(
-            "Subclasses must implement _multiply_at_codomain or override kleisli_compose"
-        )
-
-
-class KleisliCategory:
-    """The Kleisli category of a monad.
-
-    Objects are the same as the base category. Morphisms A → B
-    in the Kleisli category are morphisms A → T(B) in the base
-    category.
-
-    Parameters
-    ----------
-    monad : Monad
-        The underlying monad.
-    """
-
-    def __init__(self, monad: Monad) -> None:
-        self._monad = monad
-
-    @property
-    def monad(self) -> Monad:
-        """The underlying monad."""
-        return self._monad
-
-    def identity(self, obj: SetObject) -> Morphism:
-        """Kleisli identity at object A: η_A: A → T(A).
-
-        Parameters
-        ----------
-        obj : SetObject
-            The object A.
-
-        Returns
-        -------
-        Morphism
-            The Kleisli identity morphism.
-        """
-        return self._monad.unit(obj)
-
-    def compose(self, f: Morphism, g: Morphism) -> Morphism:
-        """Kleisli composition: f >=> g.
-
-        Parameters
-        ----------
-        f : Morphism
-            Left morphism A → T(B).
-        g : Morphism
-            Right morphism B → T(C).
-
-        Returns
-        -------
-        Morphism
-            Composed morphism A → T(C).
-        """
-        return self._monad.kleisli_compose(f, g)
+from quivers.core.objects import FinSet, FreeMonoid, SetObject
+from quivers.core.quantales import PRODUCT_FUZZY, Quantale
+from quivers.monadic.typeclasses import Monad
 
 
 class FuzzyPowersetMonad(Monad):
     """The fuzzy powerset monad with a given quantale.
 
-    At the set level, T(A) = A because fuzzy subsets are represented
-    as membership function tensors, not as elements of a powerset.
-    The unit η_A = identity(A) and the multiplication μ_A = identity(A).
+    At the set level, ``T(A) = A`` because fuzzy subsets are
+    represented as membership-function tensors, not as elements of a
+    powerset. The unit ``η_A = identity(A)`` and the multiplication
+    ``μ_A = identity(A)``.
 
-    The Kleisli composition f >=> g reduces to quantale.compose(f, g),
-    which is exactly the >> operator on morphisms.
+    Kleisli composition is V-enriched composition (``>>`` on morphisms).
 
     Parameters
     ----------
@@ -190,116 +59,207 @@ class FuzzyPowersetMonad(Monad):
         """T = Id (identity functor at set level)."""
         return IDENTITY
 
-    def unit(self, obj: SetObject) -> Morphism:
-        """η_A = identity(A): Kronecker delta."""
-        return identity(obj, quantale=self._quantale)
+    # Typeclass interface
+    def fmap_obj(self, A: SetObject) -> SetObject:
+        return A
 
-    def multiply(self, obj: SetObject) -> Morphism:
-        """μ_A = identity(A): union of fuzzy sets."""
-        return identity(obj, quantale=self._quantale)
+    def fmap(self, A: SetObject, B: SetObject, f: Morphism) -> Morphism:
+        return f
+
+    def pure(self, A: SetObject) -> Morphism:
+        return identity(A, quantale=self._quantale)
+
+    def join(self, A: SetObject) -> Morphism:
+        return identity(A, quantale=self._quantale)
+
+    # Eilenberg–Moore vocabulary aliases.
+    def unit(self, A: SetObject) -> Morphism:
+        """``η_A : A → T(A)``; alias for :meth:`pure`."""
+        return self.pure(A)
+
+    def multiply(self, A: SetObject) -> Morphism:
+        """``μ_A : T(T(A)) → T(A)``; alias for :meth:`join`."""
+        return self.join(A)
 
     def kleisli_compose(self, f: Morphism, g: Morphism) -> Morphism:
-        """Kleisli composition = V-enriched composition via >>."""
+        """Kleisli composition; V-enriched composition via ``>>``."""
         return f >> g
-
-    def _multiply_at_codomain(self, g: Morphism) -> Morphism:
-        return identity(g.codomain, quantale=self._quantale)
 
     def __repr__(self) -> str:
         return f"FuzzyPowersetMonad({self._quantale!r})"
 
 
 class FreeMonoidMonad(Monad):
-    """The free monoid monad, truncated to max_length.
+    """The free monoid monad, truncated to ``max_length``.
 
-    T(A) = FreeMonoid(generators=A, max_length=max_length) = 1 + A + A² + ... + A^max_length.
-    η_A: A → A* embeds each element as a length-1 word.
-    μ_A: (A*)* → A* flattens nested words by concatenation
-    (truncated to max_length).
+    ``T(A) = FreeMonoid(generators=A, max_length=max_length) =
+    1 + A + A² + ... + A^max_length``.
+
+    - ``η_A : A → A*`` embeds each element as a length-1 word.
+    - ``μ_A : (A*)* → A*`` flattens nested words by concatenation
+      (truncated to ``max_length``).
 
     Parameters
     ----------
     max_length : int
-        Maximum string length for the truncated free monoid.
+        Maximum word length (inclusive). Defaults to 4.
+    quantale : Quantale or None
+        The enrichment algebra. Defaults to PRODUCT_FUZZY.
     """
 
-    def __init__(self, max_length: int) -> None:
+    def __init__(self, max_length: int = 4, quantale: Quantale | None = None) -> None:
+        if max_length < 1:
+            raise ValueError(f"max_length must be >= 1, got {max_length}")
         self._max_length = max_length
-        self._functor = FreeMonoidFunctor(max_length)
+        self._quantale = quantale if quantale is not None else PRODUCT_FUZZY
 
     @property
     def max_length(self) -> int:
-        """Maximum string length."""
         return self._max_length
 
     @property
+    def quantale(self) -> Quantale:
+        return self._quantale
+
+    @property
     def endofunctor(self) -> Functor:
-        """T = FreeMonoidFunctor(max_length)."""
-        return self._functor
+        return FreeMonoidFunctor(max_length=self._max_length)
 
-    def unit(self, obj: SetObject) -> Morphism:
-        """η_A: A → A* embeds each element as a length-1 word.
-
-        The tensor has shape (|A|, |A*|) with 1 at positions
-        (a, offset_1 + a) and 0 elsewhere.
-        """
-        if not isinstance(obj, FinSet):
+    # Typeclass interface
+    def fmap_obj(self, A: SetObject) -> SetObject:
+        if not isinstance(A, FinSet):
             raise TypeError(
-                f"FreeMonoidMonad.unit requires FinSet, got {type(obj).__name__}"
+                f"FreeMonoidMonad.fmap_obj requires a FinSet, got {type(A).__name__}"
             )
-        fm = FreeMonoid(generators=obj, max_length=self._max_length)
-        n = obj.cardinality
-        data = torch.zeros(n, fm.size)
-        offset = fm.offset(1)
-        for a in range(n):
-            data[a, offset + a] = 1.0
-        return observed(obj, fm, data)
+        return FreeMonoid(generators=A, max_length=self._max_length)
 
-    def multiply(self, obj: SetObject) -> Morphism:
-        """μ_A: (A*)* → A* flattens nested words by concatenation.
+    def fmap(self, A: SetObject, B: SetObject, f: Morphism) -> Morphism:
+        return self.endofunctor.map_morphism(f)
 
-        A word in (A*)* at stratum k is a k-tuple of words in A*.
-        Flattening concatenates them. If the total length exceeds
-        max_length, the entry is 0 (truncation).
+    def pure(self, A: SetObject) -> Morphism:
+        """``η_A : A → A*`` — embed elements as length-1 words.
+
+        Returns a morphism whose tensor is ``[0, I, 0, ..., 0]`` along
+        the codomain's component-axis: zero on the empty word, identity
+        on the length-1 component, zero elsewhere.
         """
-        if not isinstance(obj, FinSet):
+        import torch
+
+        if not isinstance(A, FinSet):
             raise TypeError(
-                f"FreeMonoidMonad.multiply requires FinSet, got {type(obj).__name__}"
+                f"FreeMonoidMonad.pure requires a FinSet, got {type(A).__name__}"
             )
-        fm_a = FreeMonoid(generators=obj, max_length=self._max_length)
-        fm_fm_a = FreeMonoid(
-            generators=FinSet(name=f"{obj.name}*", cardinality=fm_a.size),
-            max_length=self._max_length,
+        ta = self.fmap_obj(A)
+        n = A.cardinality
+        total = ta.size  # type: ignore[attr-defined]
+        # offset of the length-1 component
+        start, _ = ta.component_range(1)  # type: ignore[attr-defined]
+        data = torch.zeros((n, total))
+        for i in range(n):
+            data[i, start + i] = 1.0
+        return observed(A, ta, data, quantale=self._quantale)
+
+    def join(self, A: SetObject) -> Morphism:
+        """``μ_A : (A*)* → A*`` — flatten nested words by concatenation.
+
+        The flattened-result indexing follows the canonical word-encoding
+        of :class:`FreeMonoid`; flattenings whose total length exceeds
+        ``max_length`` are dropped.
+        """
+        import torch
+
+        if not isinstance(A, FinSet):
+            raise TypeError(
+                f"FreeMonoidMonad.join requires a FinSet, got {type(A).__name__}"
+            )
+        ta = self.fmap_obj(A)  # FreeMonoid(A, max_length)
+        # The outer free monoid is over an alphabet whose elements are
+        # the indices of the inner free monoid; that alphabet is a
+        # FinSet of cardinality ta.size.
+        outer_alphabet = FinSet(
+            name=f"{A.name}*",
+            cardinality=ta.size,  # type: ignore[attr-defined]
         )
-        data = torch.zeros(fm_fm_a.size, fm_a.size)
-        for i in range(fm_fm_a.size):
-            outer_word = fm_fm_a.decode(i)
-            inner_words: list[tuple[int, ...]] = []
-            for idx in outer_word:
-                inner_words.append(fm_a.decode(idx))
-            flat: tuple[int, ...] = ()
-            for w in inner_words:
-                flat = flat + w
-            if len(flat) <= self._max_length:
-                j = fm_a.encode(flat)
-                data[i, j] = 1.0
-        return observed(fm_fm_a, fm_a, data)
+        tta = FreeMonoid(generators=outer_alphabet, max_length=self._max_length)
+        outer_size = tta.size  # type: ignore[attr-defined]
+        inner_size = ta.size  # type: ignore[attr-defined]
+        data = torch.zeros((outer_size, inner_size))
+        for k in range(outer_size):
+            outer_word = tta.decode(k)  # type: ignore[attr-defined]
+            # Each entry of outer_word is an index into ta; decode it
+            # to obtain the inner A-word, then concatenate.
+            concatenated: list[int] = []
+            for inner_idx in outer_word:
+                inner_word = ta.decode(inner_idx)  # type: ignore[attr-defined]
+                concatenated.extend(inner_word)
+            if len(concatenated) > self._max_length:
+                continue
+            flat = ta.encode(tuple(concatenated))  # type: ignore[attr-defined]
+            data[k, flat] = 1.0
+        return observed(tta, ta, data, quantale=self._quantale)
 
-    def kleisli_compose(self, f: Morphism, g: Morphism) -> Morphism:
-        """Kleisli composition: f >=> g = μ_C ∘ T(g) ∘ f."""
-        tg = self._functor.map_morphism(g)
-        f_then_tg = f >> tg
-        mu = self._multiply_at_codomain(g)
-        return f_then_tg >> mu
+    def unit(self, A: SetObject) -> Morphism:
+        """Alias for :meth:`pure`."""
+        return self.pure(A)
 
-    def _multiply_at_codomain(self, g: Morphism) -> Morphism:
-        """Extract the base object C from g: B → T(C) = FreeMonoid(C)."""
-        cod = g.codomain
-        if isinstance(cod, FreeMonoid):
-            return self.multiply(cod.generators)
-        if isinstance(cod, FinSet):
-            return self.multiply(cod)
-        raise TypeError(f"Cannot extract base object from codomain {cod!r}")
+    def multiply(self, A: SetObject) -> Morphism:
+        """Alias for :meth:`join`."""
+        return self.join(A)
 
     def __repr__(self) -> str:
-        return f"FreeMonoidMonad(max_length={self._max_length})"
+        return (
+            f"FreeMonoidMonad(max_length={self._max_length}, "
+            f"quantale={self._quantale!r})"
+        )
+
+
+class KleisliCategory:
+    """The Kleisli category of a monad.
+
+    Objects are the same as the base category. Morphisms ``A → B`` in
+    the Kleisli category are morphisms ``A → T(B)`` in the base
+    category. Composition uses the underlying monad's
+    :meth:`Monad.join`, falling through to a closed-form
+    ``kleisli_compose`` method on the monad when available.
+
+    Parameters
+    ----------
+    monad : Monad
+        The underlying monad instance.
+    """
+
+    def __init__(self, monad: Monad) -> None:
+        self._monad = monad
+
+    @property
+    def monad(self) -> Monad:
+        return self._monad
+
+    def identity(self, obj: SetObject) -> Morphism:
+        """Kleisli identity: ``η_A : A → T(A)``."""
+        return self._monad.pure(obj)
+
+    def compose(self, f: Morphism, g: Morphism) -> Morphism:
+        """Kleisli composition.
+
+        For ``f : A → T(B)`` and ``g : B → T(C)``, returns
+        ``A → T(C)`` via the monad's bind / join construction.
+        """
+        # Defer to a closed-form kleisli_compose when the monad ships
+        # one; otherwise the generic join-based construction requires
+        # an internal-hom representation supplied per instance.
+        kc = getattr(self._monad, "kleisli_compose", None)
+        if callable(kc):
+            return kc(f, g)
+        raise NotImplementedError(
+            f"KleisliCategory.compose: {type(self._monad).__name__} "
+            "exposes no closed-form kleisli composition; supply one "
+            "via the bridges in quivers.monadic.bridges"
+        )
+
+
+__all__ = [
+    "FuzzyPowersetMonad",
+    "FreeMonoidMonad",
+    "KleisliCategory",
+]

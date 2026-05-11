@@ -37,3 +37,6 @@ site/
 # OS
 .DS_Store
 Thumbs.db
+
+# Local development notes (not committed)
+notes/

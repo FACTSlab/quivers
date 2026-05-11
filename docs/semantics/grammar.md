@@ -49,7 +49,7 @@ $$
 r \,:\, \mathrm{Hom}(\pi_1) \otimes \cdots \otimes \mathrm{Hom}(\pi_m) \to \mathrm{Hom}(\pi)
 $$
 
-between hom-functors of $\mathcal{C}_{\mathrm{Atom}}$, weighted by an optional log-score $\beta_r \in \mathbb{R}$ (zero by default). The collection of all declared rules forms a *rule system* $\Sigma$, formally a functor $\Sigma : \mathrm{Atom}^{\mathrm{op}} \times \mathrm{Atom} \to \mathbf{Vect}_{\mathbb{R}}$ assigning to each pair $(\pi, \pi')$ the $\mathbb{R}$-vector space spanned by derivations $\pi \vdash \pi'$.
+between hom-functors of $\mathcal{C}_{\mathrm{Atom}}$, weighted by an optional log-score $\beta_r \in \mathbb{R}$ (zero by default). The collection of all declared rules forms a *rule system* $\Sigma$, formally a profunctor $\Sigma : \mathcal{C}_{\mathrm{Atom}}^{\mathrm{op}} \times \mathcal{C}_{\mathrm{Atom}} \to \mathbf{Vect}_{\mathbb{R}}$ assigning to each pair $(\pi, \pi')$ the $\mathbb{R}$-vector space spanned by $\Sigma$-derivations $\pi \vdash \pi'$.
 
 The DSL realises $\Sigma$ as an instance of [`quivers.stochastic._rule_system.RuleSystem`](../api/stochastic/rules.md), whose `binary_rules` and `unary_rules` fields enumerate the rule schemas and whose `binary_weights` / `unary_weights` carry the (initial) log-scores $\beta_r$.
 

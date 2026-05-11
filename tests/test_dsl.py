@@ -9,9 +9,7 @@ from quivers.dsl.ast_nodes import (
     QuantaleDecl,
     CategoryDecl,
     RuleDecl,
-    CatPatternName,
-    CatPatternSlash,
-    CatPatternProduct,
+    TypeSlash,
     ObjectDecl,
     MorphismDecl,
     SpaceDecl,
@@ -2823,7 +2821,7 @@ class TestRuleDecl:
         assert decl.name == "forward_app"
         assert decl.variables == ("X", "Y")
         assert len(decl.premises) == 2
-        assert isinstance(decl.conclusion, CatPatternName)
+        assert isinstance(decl.conclusion, TypeName)
         assert decl.conclusion.name == "X"
 
     def test_parse_unary_rule(self):
@@ -2836,8 +2834,8 @@ class TestRuleDecl:
         assert decl.name == "left_proj"
         assert decl.variables == ("A", "B")
         assert len(decl.premises) == 1
-        assert isinstance(decl.premises[0], CatPatternProduct)
-        assert isinstance(decl.conclusion, CatPatternName)
+        assert isinstance(decl.premises[0], TypeProduct)
+        assert isinstance(decl.conclusion, TypeName)
 
     def test_parse_slash_patterns(self):
         """Forward and backward slash patterns parse correctly."""
@@ -2847,10 +2845,10 @@ class TestRuleDecl:
         stmts = ast.statements
         assert len(stmts) == 2
         fwd = stmts[0]
-        assert isinstance(fwd.premises[0], CatPatternSlash)
+        assert isinstance(fwd.premises[0], TypeSlash)
         assert fwd.premises[0].direction == "/"
         bwd = stmts[1]
-        assert isinstance(bwd.premises[1], CatPatternSlash)
+        assert isinstance(bwd.premises[1], TypeSlash)
         assert bwd.premises[1].direction == "\\"
 
     def test_parse_composition_rule(self):
@@ -2859,7 +2857,7 @@ class TestRuleDecl:
         decl = ast.statements[0]
         assert isinstance(decl, RuleDecl)
         assert decl.variables == ("X", "Y", "Z")
-        assert isinstance(decl.conclusion, CatPatternSlash)
+        assert isinstance(decl.conclusion, TypeSlash)
         assert decl.conclusion.direction == "/"
 
     def test_compile_binary_rule(self):

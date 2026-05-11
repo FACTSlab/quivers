@@ -29,8 +29,14 @@ from quivers.dsl.ast_nodes import (
     SpaceDecl,
     ContinuousMorphismDecl,
     StochasticMorphismDecl,
+    AliasDecl,
+    BundleDecl,
     DiscretizeDecl,
     EmbedDecl,
+    EnumSetLiteral,
+    FreeMonoidExpr,
+    FreeResiduatedExpr,
+    SchemaDecl,
     LetStep,
     LetExprBinOp,
     LetExprUnaryOp,
@@ -51,6 +57,8 @@ from quivers.dsl.ast_nodes import (
     ExprIdentity,
     ExprCompose,
     ExprTensorProduct,
+    ExprChartFold,
+    ExprCurry,
     ExprMarginalize,
     ExprFan,
     ExprRepeat,
@@ -195,6 +203,45 @@ def _get_space_constructors() -> dict[
     return _SPACE_CONSTRUCTORS
 
 
+class _ChartHandlerComposite(torch.nn.Module):
+    """Post-handler composition over a chart parser's output.
+
+    Wraps a base ``InsideAlgorithm`` (or any callable returning a
+    ``(batch, N)``-shaped tensor of log-probabilities over the start
+    symbol's enriched category cell) and composes one or more
+    handler morphisms on the output. Each handler's tensor is taken
+    as a ``N × N'`` log-probability transition that reduces the
+    effect stack on the output cell.
+    """
+
+    def __init__(self, base, handler) -> None:
+        super().__init__()
+        self._base = base
+        self._handler = handler
+        # Register the handler's module so parameters and buffers are
+        # tracked through training.
+        if hasattr(handler, "module"):
+            self._handler_mod = handler.module()
+        else:
+            self._handler_mod = handler
+
+    def forward(self, tokens):
+        base_out = self._base(tokens)
+        # base_out shape: (batch,) for the start-symbol log-prob, or
+        # (batch, N) for the cell distribution. Handlers reduce the
+        # cell distribution along the N axis via log-space matrix
+        # multiplication; if base_out is scalar, the handler is a
+        # no-op identity on the start-symbol axis.
+        if base_out.dim() == 1:
+            return base_out
+        log_handler = torch.log(self._handler.tensor.clamp(min=1e-30))
+        # log[batch, B] = logsumexp_A(base_out[batch, A] + log_handler[A, B])
+        return torch.logsumexp(base_out.unsqueeze(2) + log_handler.unsqueeze(0), dim=1)
+
+    def __repr__(self) -> str:
+        return f"ChartHandlerComposite({self._base!r} ; {self._handler!r})"
+
+
 class CompileError(Exception):
     """Raised when the compiler encounters a semantic error.
 
@@ -238,6 +285,9 @@ class Compiler:
         self._quantale: Quantale = PRODUCT_FUZZY
         self._categories: list[str] = []
         self._rules: dict = {}
+        self._bundles: dict[str, tuple[str, ...]] = {}
+        self._aliases: dict[str, TypeExpr] = {}
+        self._alias_names: set[str] = set()
         self._objects: dict[str, SetObject] = {}
         self._spaces: dict = {}
         self._morphisms: dict = {}
@@ -328,6 +378,12 @@ class Compiler:
             self._compile_category(stmt)
         elif isinstance(stmt, RuleDecl):
             self._compile_rule(stmt)
+        elif isinstance(stmt, SchemaDecl):
+            self._compile_schema(stmt)
+        elif isinstance(stmt, AliasDecl):
+            self._compile_alias(stmt)
+        elif isinstance(stmt, BundleDecl):
+            self._compile_bundle(stmt)
         elif isinstance(stmt, ObjectDecl):
             self._compile_object(stmt)
         elif isinstance(stmt, MorphismDecl):
@@ -423,14 +479,208 @@ class Compiler:
             )
         self._rules[decl.name] = schema
 
+    def _compile_schema(self, decl: SchemaDecl) -> None:
+        """Compile a pattern-polymorphic schema declaration.
+
+        Creates a ``PatternBinarySchema`` when the declared domain is a
+        :class:`TypeProduct` with two components, otherwise a
+        ``PatternUnarySchema``. Pattern variables are the union of the
+        ``names`` lists across all :class:`SchemaParameter` entries; the
+        parameter type-expression is consulted only for well-formedness
+        (it must reference a residuated universe in scope; the
+        type-checker does not yet enforce this — the chart-parser
+        catches mismatches at firing time).
+        """
+        from quivers.stochastic.schema import (
+            PatternBinarySchema,
+            PatternUnarySchema,
+            SCHEMA_REGISTRY,
+        )
+
+        if decl.name in self._rules:
+            raise CompileError(
+                f"schema {decl.name!r} already declared",
+                decl.line,
+                decl.col,
+            )
+        if decl.name in SCHEMA_REGISTRY:
+            raise CompileError(
+                f"schema {decl.name!r} shadows a built-in schema; choose a different name",
+                decl.line,
+                decl.col,
+            )
+
+        variables: frozenset[str] = frozenset(
+            n for group in decl.parameter_names for n in group
+        )
+
+        # Decide arity from the domain shape:
+        #  - top-level TypeProduct with exactly 2 components → binary
+        #  - any other shape (TypeName, TypeSlash, TypeEffectApply,
+        #    or a non-binary TypeProduct) → unary
+        if isinstance(decl.domain, TypeProduct) and len(decl.domain.components) == 2:
+            left, right = decl.domain.components
+            schema = PatternBinarySchema(
+                left_pattern=left,
+                right_pattern=right,
+                conclusion_pattern=decl.codomain,
+                variables=variables,
+                name=decl.name,
+            )
+        else:
+            schema = PatternUnarySchema(
+                premise_pattern=decl.domain,
+                conclusion_pattern=decl.codomain,
+                variables=variables,
+                name=decl.name,
+            )
+
+        self._rules[decl.name] = schema
+
+    def _compile_alias(self, decl) -> None:
+        """Compile an ``alias Foo = ...`` type-level alias.
+
+        Two cases:
+
+        - The right-hand side resolves cleanly as a :class:`SetObject`
+          (TypeName / TypeProduct / TypeCoproduct over named objects).
+          The alias binds to that SetObject in :attr:`self._objects`,
+          so ``Foo`` is usable wherever an ordinary object reference
+          is — `latent f : Foo -> Bar`, `parser(rules=..., terminal=Foo)`
+          etc.
+        - The right-hand side is a residuated pattern (TypeSlash /
+          TypeEffectApply) or otherwise fails SetObject resolution.
+          The alias is recorded in :attr:`self._aliases` for textual
+          substitution at use site (inside schema patterns).
+        """
+        if decl.name in self._alias_names:
+            raise CompileError(
+                f"alias {decl.name!r} already declared",
+                decl.line,
+                decl.col,
+            )
+        if decl.name in self._objects:
+            raise CompileError(
+                f"alias {decl.name!r} shadows an existing object",
+                decl.line,
+                decl.col,
+            )
+        self._alias_names.add(decl.name)
+        try:
+            resolved = self._resolve_type(decl.type_expr, decl.name)
+        except TypeError, KeyError:
+            # Residuated / effect-typed RHS: record as a syntactic
+            # alias for substitution at schema-pattern use site.
+            self._aliases[decl.name] = decl.type_expr
+            return
+        self._objects[decl.name] = resolved
+
+    def _compile_bundle(self, decl) -> None:
+        """Compile a ``bundle CCG = [r1, r2, ...]`` rule bundle.
+
+        Each entry must resolve at compile time as either a previously-
+        declared rule / schema or as a built-in entry of
+        :data:`SCHEMA_REGISTRY`. The bundle is recorded under its name
+        in ``self._bundles`` so ``parser(rules=CCG)`` and
+        ``chart_fold(binary=CCG)`` can splice its members.
+        """
+        from quivers.stochastic.schema import SCHEMA_REGISTRY
+
+        if decl.name in self._bundles:
+            raise CompileError(
+                f"bundle {decl.name!r} already declared",
+                decl.line,
+                decl.col,
+            )
+        if decl.name in self._rules or decl.name in SCHEMA_REGISTRY:
+            raise CompileError(
+                f"bundle {decl.name!r} shadows a rule / built-in schema",
+                decl.line,
+                decl.col,
+            )
+        # Member references are resolved lazily at use-site (in the
+        # parser-rules expander) so that bundles can forward-reference
+        # other bundles. Cycles surface as ``cycle through ...`` errors
+        # at expansion time.
+        self._bundles[decl.name] = tuple(decl.rules)
+
     def _compile_object(self, decl: ObjectDecl) -> None:
-        """Compile an object declaration into the environment."""
+        """Compile an object declaration into the environment.
+
+        Three surface forms are recognised:
+
+        - ``object X : <type_expr>`` — resolves via the
+          :class:`TypeExprToSetObject` lens.
+        - ``object Atoms = {NP, S, VP}`` — constructs an
+          :class:`EnumSet`.
+        - ``object Cat = FreeResiduated(Atoms, depth=, ops=[...])`` —
+          constructs a :class:`FreeResiduated` over a previously-declared
+          :class:`EnumSet`.
+        """
+        from quivers.core.objects import EnumSet, FreeResiduated
+
         if decl.name in self._objects:
             raise CompileError(
                 f"object {decl.name!r} already declared", decl.line, decl.col
             )
-        obj = self._resolve_type(decl.type_expr, decl.name)
-        self._objects[decl.name] = obj
+
+        if decl.type_expr is not None:
+            obj = self._resolve_type(decl.type_expr, decl.name)
+            self._objects[decl.name] = obj
+            return
+
+        if decl.init is None:
+            raise CompileError(
+                f"object {decl.name!r} has no type or initializer",
+                decl.line,
+                decl.col,
+            )
+
+        if isinstance(decl.init, EnumSetLiteral):
+            self._objects[decl.name] = EnumSet(
+                name=decl.name, elements=decl.init.elements
+            )
+            return
+
+        if isinstance(decl.init, FreeMonoidExpr):
+            from quivers.core.objects import FinSet, FreeMonoid
+
+            gen = self._objects.get(decl.init.generators)
+            if not isinstance(gen, FinSet):
+                raise CompileError(
+                    f"FreeMonoid generators {decl.init.generators!r} must "
+                    f"reference a previously-declared FinSet (got "
+                    f"{type(gen).__name__ if gen else 'undefined'})",
+                    decl.line,
+                    decl.col,
+                )
+            self._objects[decl.name] = FreeMonoid(
+                generators=gen, max_length=decl.init.max_length
+            )
+            return
+
+        if isinstance(decl.init, FreeResiduatedExpr):
+            gen = self._objects.get(decl.init.generators)
+            if not isinstance(gen, EnumSet):
+                raise CompileError(
+                    f"FreeResiduated generators {decl.init.generators!r} must "
+                    f"reference a previously-declared EnumSet (got "
+                    f"{type(gen).__name__ if gen else 'undefined'})",
+                    decl.line,
+                    decl.col,
+                )
+            self._objects[decl.name] = FreeResiduated(
+                generators=gen,
+                depth=decl.init.depth,
+                ops=decl.init.ops,
+            )
+            return
+
+        raise CompileError(
+            f"unrecognised object initializer for {decl.name!r}",
+            decl.line,
+            decl.col,
+        )
 
     def _compile_morphism(self, decl: MorphismDecl) -> None:
         """Compile a morphism declaration into the environment."""
@@ -1132,6 +1382,16 @@ class Compiler:
                 return inner.marginalize(*sets)
             except (TypeError, ValueError) as e:
                 raise CompileError(str(e), expr.line, expr.col) from e
+        elif isinstance(expr, ExprCurry):
+            from quivers.core.morphisms import CurriedMorphism
+
+            inner = self._compile_expr(expr.inner)
+            try:
+                return CurriedMorphism(inner, direction=expr.direction)
+            except (TypeError, ValueError) as e:
+                raise CompileError(str(e), expr.line, expr.col) from e
+        elif isinstance(expr, ExprChartFold):
+            return self._compile_chart_fold(expr)
         elif isinstance(expr, ExprFan):
             from quivers.continuous.morphisms import FanOutMorphism
 
@@ -1188,7 +1448,31 @@ class Compiler:
 
             schemas: list = []
             morphisms: list = []
+
+            def _expand(name: str, seen: frozenset[str]) -> list[str]:
+                """Recursively expand a bundle reference into rule names.
+
+                Cycle detection: if ``name`` already appears in ``seen``,
+                raises CompileError.
+                """
+                if name not in self._bundles:
+                    return [name]
+                if name in seen:
+                    raise CompileError(
+                        f"bundle cycle through {name!r}",
+                        expr.line,
+                        expr.col,
+                    )
+                expanded: list[str] = []
+                for member in self._bundles[name]:
+                    expanded.extend(_expand(member, seen | {name}))
+                return expanded
+
+            resolved_rules: list[str] = []
             for rule_name in expr.rules:
+                resolved_rules.extend(_expand(rule_name, frozenset()))
+
+            for rule_name in resolved_rules:
                 if rule_name in self._rules:
                     schemas.append(self._rules[rule_name])
                 elif (schema_obj := SCHEMA_REGISTRY.get(rule_name)) is not None:
@@ -1279,6 +1563,68 @@ class Compiler:
         except TypeError as e:
             raise CompileError(str(e), expr.line, expr.col) from e
 
+    def _compile_chart_fold(self, expr):
+        """Compile a chart_fold(...) primitive expression.
+
+        chart_fold is the explicit form of which the legacy
+        parser(rules=...) is sugar. Given a lexical morphism
+        ``lex : Token -> Cat`` plus a binary morphism (and optional
+        unary morphism) on Cat, it constructs an InsideAlgorithm-based
+        chart parser. The user-visible structure of the parser is
+        therefore expressible from primitives — no opaque parser()
+        call required.
+
+        Effect-typed chart cells (``effect_depth`` > 0) extend the
+        category universe to ``Cat × EffectStack_{≤d}`` via the
+        class-driven lifting machinery in
+        :mod:`quivers.stochastic.effect_lifts`; the caller is expected
+        to have constructed ``binary`` (and any ``unary``) over this
+        enlarged universe, typically via
+        :func:`quivers.stochastic.effect_lifts.lift_rule_set` over the
+        declared :class:`EffectDecl` instances in scope. The
+        ``effect_depth`` integer flows through to the parser as the
+        depth bound used for any depth-truncating reductions over
+        intermediate cells.
+
+        Handler firings (``handlers=`` argument) are applied as a
+        post-composition step on the parser's denotation: the final
+        chart cell is routed through each handler's :meth:`run`
+        morphism in declared order, reducing the effect stack as the
+        handlers compose.
+        """
+        from quivers.stochastic.inside import InsideAlgorithm
+
+        lex = self._compile_expr(expr.lex)
+        if expr.binary is None:
+            raise CompileError(
+                "chart_fold(...) requires a binary= argument (a morphism "
+                "Cat * Cat -> Cat representing the union of binary rule "
+                "schemas)",
+                expr.line,
+                expr.col,
+            )
+        binary = self._compile_expr(expr.binary)
+
+        unary = self._compile_expr(expr.unary) if expr.unary is not None else None
+
+        handlers_morphisms: list = []
+        for h_expr in getattr(expr, "handlers", ()) or ():
+            handlers_morphisms.append(self._compile_expr(h_expr))
+
+        try:
+            start = expr.start if isinstance(expr.start, int) else 0
+            parser = InsideAlgorithm(binary, lex, start=start, unary=unary)
+        except (TypeError, ValueError) as e:
+            raise CompileError(str(e), expr.line, expr.col) from e
+
+        # Compose handlers as post-applications on the parser's output.
+        # Each handler is a morphism Cat → Cat (or a more refined effect
+        # reduction); composition is right-to-left in declaration order.
+        result = parser
+        for handler in handlers_morphisms:
+            result = _ChartHandlerComposite(result, handler)
+        return result
+
     def _compile_parser_schemas(self, schemas: list, expr: ExprParser):
         """Compile parser from schema functors over a category system.
 
@@ -1292,16 +1638,36 @@ class Compiler:
         from quivers.stochastic.categories import CategorySystem
         from quivers.stochastic.parsers import ChartParser
 
+        from quivers.core.objects import FreeResiduated
+
         if expr.categories:
             categories = list(expr.categories)
         elif self._categories:
             categories = list(self._categories)
         else:
-            raise CompileError(
-                "parser() with schema rules requires category atoms — either declare them with `category S`, `category NP`, ... or pass categories=[S, NP, ...] inline",
-                expr.line,
-                expr.col,
-            )
+            # Look for a FreeResiduated object in scope and use its
+            # generators' atom names. If exactly one residuated universe
+            # is declared, this avoids the user having to spell out
+            # `categories=[NP, S, VP, ...]` redundantly.
+            residuated = [
+                obj for obj in self._objects.values() if isinstance(obj, FreeResiduated)
+            ]
+            if len(residuated) == 1:
+                categories = list(residuated[0].generators.elements)
+            elif len(residuated) > 1:
+                raise CompileError(
+                    "parser() with schema rules: multiple FreeResiduated "
+                    "objects in scope; pass categories=[...] explicitly to "
+                    "select the atom set",
+                    expr.line,
+                    expr.col,
+                )
+            else:
+                raise CompileError(
+                    "parser() with schema rules requires category atoms — declare them via `object Atoms = {NP, S, VP, ...}` plus `object Cat = FreeResiduated(Atoms, ...)`, or pass categories=[NP, S, VP, ...] inline",
+                    expr.line,
+                    expr.col,
+                )
         if expr.constructors is not None:
             cs = CategorySystem.from_generators(
                 atoms=categories,

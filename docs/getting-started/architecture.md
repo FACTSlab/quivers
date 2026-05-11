@@ -8,9 +8,16 @@ The quivers library is organized into eight subpackages, each providing a layer 
 quivers/
 ├── core/              # foundational types and operations
 ├── categorical/       # functors, transformations, adjunctions, monoidal
-├── monadic/           # monads, comonads, algebras, distributive laws
+├── monadic/           # typeclass tower (Functor → Applicative →
+│                      # Monad → MonadPlus, plus Traversable /
+│                      # MonadTrans), stdlib effect instances,
+│                      # transformers, algebraic effects,
+│                      # Kleisli/ArrowMonad bridges, panproto theories
+├── arrows/            # Hughes-style arrow tower (Category_ → Arrow →
+│                      # ArrowApply / ArrowChoice / ArrowLoop)
 ├── enriched/          # ends/coends, Kan, weighted limits, profunctors, Yoneda, optics
-├── stochastic/        # FinStoch (Markov kernels), families, conditioning, Giry monad
+├── stochastic/        # FinStoch (Markov kernels), families, conditioning,
+│                      # Giry monad, chart parsers, effect_lifts
 ├── continuous/        # parameterized families, boundaries, flows, monadic programs
 ├── dsl/               # panproto-driven parser, didactic AST nodes,
 │                      # compiler, resolution lenses, Program Theory
@@ -46,12 +53,30 @@ Categorical structures built from objects and morphisms.
 
 ### `monadic/`
 
-Monadic structures: monads, comonads, and their algebras.
+A Haskell-style typeclass hierarchy with concrete monad instances
+plus comonads, algebras, distributive laws, transformers, and
+algebraic effects. Each typeclass is mirrored by a panproto theory.
 
-- **`monads.py`:** Monads and Kleisli categories: `Monad`, `KleisliCategory`, `FuzzyPowersetMonad`, `FreeMonoidMonad`.
-- **`comonads.py`:** Comonads and coKleisli categories: `Comonad`, `CoKleisliCategory`, `DiagonalComonad`, `CofreeComonad`.
-- **`algebras.py`:** Eilenberg-Moore structure: `Algebra`, `FreeAlgebra`, `ObservedAlgebra`, `Coalgebra`, `CofreeCoalgebra`, `ObservedCoalgebra`, `EilenbergMooreCategory`.
-- **`distributive_laws.py`:** Composing monads: `DistributiveLaw`, `FreeMonoidPowersetLaw`.
+Modules:
+
+- **`typeclasses.py`:** `Functor`, `Applicative`, `Monad`, `Alternative`, `MonadPlus`, `Foldable`, `Traversable`, `MonadTrans` ABCs.
+- **`monads.py`:** `KleisliCategory`, `FuzzyPowersetMonad`, `FreeMonoidMonad` (concrete Monad instances).
+- **`comonads.py`:** `Comonad`, `CoKleisliCategory`, `DiagonalComonad`, `CofreeComonad`.
+- **`algebras.py`:** Eilenberg–Moore: `Algebra`, `FreeAlgebra`, `ObservedAlgebra`, `Coalgebra`, `CofreeCoalgebra`, `ObservedCoalgebra`, `EilenbergMooreCategory`.
+- **`distributive_laws.py`:** `DistributiveLaw`, `FreeMonoidPowersetLaw`.
+- **`instances.py`:** stdlib effect instances: `Identity`, `Maybe`, `Alternative_`, `Continuation`, `State`, `Reader`, `Writer`, `List`. Each registers against the appropriate ABC(s) via `ABC.register(...)`.
+- **`transformers.py`:** monad transformers: `StateT`, `ReaderT`, `MaybeT`, `ContT`, `WriterT`.
+- **`algebraic.py`:** algebraic effects + handlers: `Operation`, `EffectSignature`, `Handler`, `FreeMonad`.
+- **`bridges.py`:** `Kleisli`, `ArrowMonad` plus `kleisli` / `arrow_monad` factory helpers connecting the monad and arrow towers.
+- **`theories.py`:** panproto-theory mirrors of each typeclass (`ThFunctor`, `ThApplicative`, `ThMonad`, `ThAlternative`, `ThMonadPlus`, `ThMonadTrans`, `ThFoldable`, `ThTraversable`).
+- **`laws.py`:** runtime-checkable typeclass-law scaffolding.
+
+### `arrows/`
+
+Hughes-style arrow tower (parallel to the monad-side hierarchy).
+
+- **`typeclasses.py`:** `Category_`, `Arrow`, `ArrowChoice`, `ArrowApply`, `ArrowLoop`, `ArrowZero`, `ArrowPlus` ABCs.
+- **`theories.py`:** panproto-theory mirrors of each arrow typeclass.
 
 ### `enriched/`
 

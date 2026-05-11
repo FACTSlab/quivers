@@ -28,7 +28,8 @@ from __future__ import annotations
 from quivers.core.objects import SetObject
 from quivers.core.morphisms import Morphism, identity
 from quivers.categorical.functors import Functor, IDENTITY
-from quivers.monadic.monads import Monad, KleisliCategory
+from quivers.monadic.monads import KleisliCategory
+from quivers.monadic.typeclasses import Monad
 from quivers.stochastic.quantale import MARKOV
 
 
@@ -63,61 +64,35 @@ class GiryMonad(Monad):
         """G = Id at the set level."""
         return IDENTITY
 
-    def unit(self, obj: SetObject) -> Morphism:
-        """η_A = δ: the Kronecker delta (deterministic distribution).
+    # Typeclass interface
+    def fmap_obj(self, A: SetObject) -> SetObject:
+        return A
 
-        Parameters
-        ----------
-        obj : SetObject
-            The object A.
+    def fmap(self, A: SetObject, B: SetObject, f: Morphism) -> Morphism:
+        return f
 
-        Returns
-        -------
-        Morphism
-            The identity/delta morphism η_A: A → A.
+    def pure(self, A: SetObject) -> Morphism:
+        """``η_A = δ`` — Kronecker delta (deterministic distribution)."""
+        return identity(A, quantale=MARKOV)
+
+    def join(self, A: SetObject) -> Morphism:
+        """``μ_A`` — flatten nested distributions.
+
+        Since ``G(A) = A`` at the finite-set level, the flattening is
+        the identity.
         """
-        return identity(obj, quantale=MARKOV)
+        return identity(A, quantale=MARKOV)
 
-    def multiply(self, obj: SetObject) -> Morphism:
-        """μ_A = id: flatten nested distributions.
+    # Convenience aliases for the historical Eilenberg–Moore vocabulary.
+    def unit(self, A: SetObject) -> Morphism:
+        return self.pure(A)
 
-        For finite sets, flattening G(G(A)) → G(A) is just the
-        identity because G(A) = A at the set level.
-
-        Parameters
-        ----------
-        obj : SetObject
-            The object A.
-
-        Returns
-        -------
-        Morphism
-            The multiplication morphism μ_A: A → A.
-        """
-        return identity(obj, quantale=MARKOV)
+    def multiply(self, A: SetObject) -> Morphism:
+        return self.join(A)
 
     def kleisli_compose(self, f: Morphism, g: Morphism) -> Morphism:
-        """Kleisli composition via sum-product (matrix multiplication).
-
-        Since G = Id, the Kleisli composition f >=> g is just
-        standard composition f >> g under the MarkovQuantale.
-
-        Parameters
-        ----------
-        f : Morphism
-            Left Kleisli morphism A → B.
-        g : Morphism
-            Right Kleisli morphism B → C.
-
-        Returns
-        -------
-        Morphism
-            Composed morphism A → C.
-        """
+        """Kleisli composition via sum-product (matrix multiplication)."""
         return f >> g
-
-    def _multiply_at_codomain(self, g: Morphism) -> Morphism:
-        return identity(g.codomain, quantale=MARKOV)
 
     def __repr__(self) -> str:
         return "GiryMonad()"

@@ -19,10 +19,9 @@ const PREC = {
   postfix: 3,    // .method(...)
   // type expression precedence:
   type_coproduct: 1,  // +
-  type_product:   2,  // *
-  // category-pattern precedence:
-  cat_slash:   1,     // / \   (right-associative; binds looser than product)
-  cat_product: 2,     // *
+  type_slash:     2,  // / \   (residuated; binds tighter than +, looser than *)
+  type_product:   3,  // *
+  type_apply:     4,  // T(X)  effect-typed application
   // let-arithmetic precedence:
   let_add: 1,
   let_mul: 2,
@@ -32,7 +31,7 @@ const PREC = {
 module.exports = grammar({
   name: 'qvr',
 
-  extras: $ => [/\s/, $.line_comment],
+  extras: $ => [/\s/, $.doc_comment, $.line_comment],
 
   word: $ => $.identifier,
 
@@ -48,10 +47,13 @@ module.exports = grammar({
       $.quantale_decl,
       $.category_decl,
       $.rule_decl,
+      $.schema_decl,
       $.object_decl,
       $.morphism_decl,
       $.space_decl,
       $.type_alias_decl,
+      $.alias_decl,
+      $.bundle_decl,
       $.continuous_decl,
       $.stochastic_decl,
       $.discretize_decl,
@@ -72,11 +74,56 @@ module.exports = grammar({
       field('names', commaSep1($.identifier)),
     ),
 
+    // `object X : 3` — anonymous-element FinSet of cardinality 3 (or
+    // a TypeExpr binding for products / coproducts).
+    // `object Atoms = {NP, S, VP}` — named-element EnumSet.
+    // `object Cat = FreeResiduated(Atoms, depth=4, ops=[/, \\, *])`
+    //               — residuated category universe over an EnumSet.
     object_decl: $ => seq(
       'object',
       field('name', $.identifier),
-      ':',
-      field('type', $._type_expr),
+      choice(
+        seq(':', field('type', $._type_expr)),
+        seq('=', field('init', $._object_initializer)),
+      ),
+    ),
+
+    _object_initializer: $ => choice(
+      $.enum_set_literal,
+      $.free_residuated_expr,
+      $.free_monoid_expr,
+    ),
+
+    enum_set_literal: $ => seq(
+      '{',
+      field('elements', commaSep1($.identifier)),
+      '}',
+    ),
+
+    free_residuated_expr: $ => seq(
+      'FreeResiduated',
+      '(',
+      field('generators', $.identifier),
+      optional(seq(
+        ',',
+        commaSep1($.free_residuated_arg),
+      )),
+      ')',
+    ),
+
+    free_residuated_arg: $ => choice(
+      seq('depth', '=', field('depth', $.integer)),
+      seq('ops', '=', '[', commaSep1(field('op', $.identifier)), ']'),
+    ),
+
+    // FreeMonoid(generators, max_length=N) — bounded Kleene closure.
+    free_monoid_expr: $ => seq(
+      'FreeMonoid',
+      '(',
+      field('generators', $.identifier),
+      ',',
+      'max_length', '=', field('max_length', $.integer),
+      ')',
     ),
 
     morphism_decl: $ => seq(
@@ -114,33 +161,32 @@ module.exports = grammar({
       field('variables', commaSep1($.identifier)),
       ')',
       ':',
-      field('premises', commaSep1($._cat_pattern)),
+      field('premises', commaSep1($._type_expr)),
       '=>',
-      field('conclusion', $._cat_pattern),
+      field('conclusion', $._type_expr),
     ),
 
-    _cat_pattern: $ => choice(
-      $.cat_slash,
-      $.cat_product,
-      $.cat_atom,
-      $.cat_paren,
+    // `schema r[X, Y : Cat] : (X/Y) * Y -> X` — pattern-polymorphic
+    // morphism schema. Domain shape determines arity: a 2-component
+    // product domain produces a binary chart-rule; a single-component
+    // domain produces a unary rule.
+    schema_decl: $ => seq(
+      'schema',
+      field('name', $.identifier),
+      '[',
+      field('parameters', commaSep1($.schema_parameter)),
+      ']',
+      ':',
+      field('domain', $._type_expr),
+      '->',
+      field('codomain', $._type_expr),
     ),
 
-    cat_atom: $ => $.identifier,
-
-    cat_paren: $ => seq('(', $._cat_pattern, ')'),
-
-    cat_product: $ => prec.left(PREC.cat_product, seq(
-      field('left',  $._cat_pattern),
-      '*',
-      field('right', $._cat_pattern),
-    )),
-
-    cat_slash: $ => prec.left(PREC.cat_slash, seq(
-      field('result',    $._cat_pattern),
-      field('direction', choice('/', '\\')),
-      field('argument',  $._cat_pattern),
-    )),
+    schema_parameter: $ => seq(
+      field('names', commaSep1($.identifier)),
+      ':',
+      field('type', $._type_expr),
+    ),
 
     // ---------------------------------------------------------------
     // type expressions  (categorical objects: products and coproducts of finsets)
@@ -148,7 +194,9 @@ module.exports = grammar({
 
     _type_expr: $ => choice(
       $.type_coproduct,
+      $.type_slash,
       $.type_product,
+      $.type_effect_apply,
       $.type_atom,
       $.type_paren,
     ),
@@ -169,6 +217,24 @@ module.exports = grammar({
       field('right', $._type_expr),
     )),
 
+    type_slash: $ => prec.left(PREC.type_slash, seq(
+      field('result',    $._type_expr),
+      field('direction', choice('/', '\\')),
+      field('argument',  $._type_expr),
+    )),
+
+    // T(X)  — effect-typed application.
+    // The named effect must already be a fully-instantiated effect
+    // (parameters baked into its declared name; e.g. `Cont_S(NP)`,
+    // not `Cont[S](NP)`). This avoids parse ambiguity with the
+    // `[option_block]` that may follow a morphism's codomain.
+    type_effect_apply: $ => prec(PREC.type_apply, seq(
+      field('effect', $.identifier),
+      '(',
+      field('args', commaSep1($._type_expr)),
+      ')',
+    )),
+
     // ---------------------------------------------------------------
     // space expressions  (continuous spaces)
     // ---------------------------------------------------------------
@@ -181,11 +247,34 @@ module.exports = grammar({
     ),
 
     // ML-style: `type Latent = Euclidean 16`
+    // ML-style: `type Latent = Euclidean 16`
     type_alias_decl: $ => seq(
       'type',
       field('name', $.identifier),
       '=',
       field('value', $._space_expr),
+    ),
+
+    // `alias Foo = X * Y` — object-level type alias. Distinct keyword
+    // from `type` to keep the parse unambiguous between the
+    // overlapping type_atom and space_atom productions.
+    alias_decl: $ => seq(
+      'alias',
+      field('name', $.identifier),
+      '=',
+      field('value', $._type_expr),
+    ),
+
+    // `bundle CCG = [forward_app, backward_app]` — first-class
+    // schema-bundle binding. parser(rules=CCG) and chart_fold's
+    // schema-set arguments accept the bundle by name.
+    bundle_decl: $ => seq(
+      'bundle',
+      field('name', $.identifier),
+      '=',
+      '[',
+      optional(field('rules', commaSep1($.identifier))),
+      ']',
     ),
 
     _space_expr: $ => choice(
@@ -317,11 +406,17 @@ module.exports = grammar({
       field('method', $.method_call),
     )),
 
-    method_call: $ => seq(
-      field('name', 'marginalize'),
-      '(',
-      field('args', commaSep1($.identifier)),
-      ')',
+    method_call: $ => choice(
+      seq(
+        field('name', 'marginalize'),
+        '(',
+        field('args', commaSep1($.identifier)),
+        ')',
+      ),
+      // residuation-witness combinators (Phase 4): given f : X * Y -> Z
+      // where Z lives in a residuated universe, produce f.curry_right :
+      // X -> Z/Y or f.curry_left : Y -> X\Z. No arguments.
+      seq(field('name', choice('curry_right', 'curry_left'))),
     ),
 
     _atom_expr: $ => choice(
@@ -332,6 +427,7 @@ module.exports = grammar({
       $.stack_expr,
       $.scan_expr,
       $.parser_expr,
+      $.chart_fold_expr,
       $.expr_ident,
     ),
 
@@ -376,6 +472,29 @@ module.exports = grammar({
       optional(field('args', commaSep1($.parser_arg))),
       ')',
     ),
+
+    // chart_fold(lex=, binary=, unary=, start=, depth=, effect_depth=)
+    // — desugared parser-construction primitive of Phase 5. Each
+    // keyword argument carries a value that is itself an expression
+    // (lex, binary, unary) or an identifier/integer literal
+    // (start, depth, effect_depth).
+    chart_fold_expr: $ => seq(
+      'chart_fold',
+      '(',
+      optional(field('args', commaSep1($.chart_fold_arg))),
+      ')',
+    ),
+
+    chart_fold_arg: $ => prec(10, seq(
+      field('key', choice(
+        'lex', 'binary', 'unary', 'start', 'depth', 'effect_depth',
+      )),
+      '=',
+      field('value', choice(
+        $._expr,
+        $.integer,
+      )),
+    )),
 
     parser_arg: $ => seq(
       field('key', choice(
@@ -541,6 +660,12 @@ module.exports = grammar({
     // tokens
     // ---------------------------------------------------------------
 
+    // `## …` doc comments are extracted into the AST and forwarded
+    // into the program-theory schema metadata. Standalone `#` line
+    // comments are dropped at parse time. The `##` form must be
+    // matched before the bare `#` line_comment so the lexer doesn't
+    // greedy-eat the second `#` as part of a regular comment.
+    doc_comment:  _ => token(prec(1, seq('##', /[^\n]*/))),
     line_comment: _ => token(seq('#', /[^\n]*/)),
 
     identifier: _ => /[A-Za-z_][A-Za-z0-9_]*/,

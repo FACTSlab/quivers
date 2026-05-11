@@ -1,0 +1,18 @@
+# GitHub linguist overrides for the QVR DSL.
+#
+# The .qvr extension is the source language for quivers programs; we
+# want GitHub to render it with `R` (the closest stand-in linguist
+# ships) for syntax-aware diffs and to count it in the repository
+# language statistics, until the upstream linguist project gains a
+# dedicated `qvr` entry.
+
+*.qvr linguist-language=R
+*.qvr linguist-detectable=true
+
+# The vendored tree-sitter grammar's generated artifacts are not
+# project source; mark them as generated so the file-tree language
+# stats and diff defaults reflect the hand-written sources.
+grammars/qvr/src/parser.c             linguist-generated=true
+grammars/qvr/src/grammar.json         linguist-generated=true
+grammars/qvr/src/node-types.json      linguist-generated=true
+grammars/qvr/src/tree_sitter/*.h      linguist-vendored=true

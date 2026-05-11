@@ -106,7 +106,7 @@ The test suite at `tests/test_resolution_lenses.py` and `tests/test_program_theo
 |-----------|-----------|
 | `test_resolution_lenses.py` | $\mathrm{forward}(\tau) = \llbracket \tau \rrbracket$ and $\mathrm{forward}(\sigma) = \llbracket \sigma \rrbracket$ on every example program. |
 | `test_resolution_lenses.py` | GetPut and PutGet laws hold on every example. |
-| `test_resolution_lenses.py` | The lens-driven resolution agrees with the legacy compiler dispatch on every example. |
+| `test_resolution_lenses.py` | The lens-driven resolution agrees with the compiler's `_resolve_type` dispatch on every example. |
 | `test_program_theory.py` | $\mathcal{S}(M)$ validates against $\mathsf{QVR}$ on every example. |
 | `test_program_theory.py` | $\mathcal{S}(M_1) \neq \mathcal{S}(M_2)$ when $M_1, M_2$ differ in declarations. |
 | `test_program_theory.py` | Idempotence: $\mathcal{S}(M)$ recomputed twice yields equal schemas. |
@@ -122,9 +122,9 @@ The four tensor-bearing accumulators (`Presheaf`, `Weight`, `SampleSite`, `Trace
 
 ## References
 
-- Joyal, A., Street, R., and Verity, D. (1996). *Traced Monoidal Categories*. Mathematical Proceedings of the Cambridge Philosophical Society, 119(3), 447–468. [doi:10.1017/S0305004100074338](https://doi.org/10.1017/S0305004100074338).
-- Giry, M. (1982). *A Categorical Approach to Probability Theory*. In *Categorical Aspects of Topology and Analysis*, Lecture Notes in Mathematics 915, 68–85. Springer. [doi:10.1007/BFb0092872](https://doi.org/10.1007/BFb0092872).
-- Cho, K. and Jacobs, B. (2019). *Disintegration and Bayesian inversion via string diagrams*. Mathematical Structures in Computer Science, 29(7), 938–971. [doi:10.1017/S0960129518000488](https://doi.org/10.1017/S0960129518000488).
-- Fritz, T. (2020). *A synthetic approach to Markov kernels, conditional independence and theorems on sufficient statistics*. Advances in Mathematics, 370, 107239. [doi:10.1016/j.aim.2020.107239](https://doi.org/10.1016/j.aim.2020.107239).
-- Kelly, G. M. (1982). *Basic Concepts of Enriched Category Theory*. London Mathematical Society Lecture Note Series 64. Cambridge University Press. Republished as Reprints in Theory and Applications of Categories 10 (2005). [tac:reprints/articles/10/tr10abs.html](http://www.tac.mta.ca/tac/reprints/articles/10/tr10abs.html).
-- Lawvere, F. W. (1973). *Metric Spaces, Generalized Logic, and Closed Categories*. Rendiconti del Seminario Matematico e Fisico di Milano, 43(1), 135–166. [doi:10.1007/BF02924844](https://doi.org/10.1007/BF02924844). Republished as Reprints in Theory and Applications of Categories 1 (2002). [tac:reprints/articles/1/tr1abs.html](http://www.tac.mta.ca/tac/reprints/articles/1/tr1abs.html).
+- Joyal, A., Street, R., and Verity, D. (1996). [*Traced monoidal categories*](https://doi.org/10.1017/S0305004100074338). Mathematical Proceedings of the Cambridge Philosophical Society, 119(3), 447–468.
+- Giry, M. (1982). [*A categorical approach to probability theory*](https://doi.org/10.1007/BFb0092872). In B. Banaschewski (ed.), *Categorical Aspects of Topology and Analysis*, Lecture Notes in Mathematics 915, 68–85. Springer.
+- Cho, K. and Jacobs, B. (2019). [*Disintegration and Bayesian inversion via string diagrams*](https://doi.org/10.1017/S0960129518000488). Mathematical Structures in Computer Science, 29(7), 938–971.
+- Fritz, T. (2020). [*A synthetic approach to Markov kernels, conditional independence and theorems on sufficient statistics*](https://doi.org/10.1016/j.aim.2020.107239). Advances in Mathematics, 370, 107239.
+- Kelly, G. M. (1982). [*Basic Concepts of Enriched Category Theory*](http://www.tac.mta.ca/tac/reprints/articles/10/tr10abs.html). London Mathematical Society Lecture Note Series 64. Cambridge University Press. Republished as Reprints in Theory and Applications of Categories 10 (2005).
+- Lawvere, F. W. (1973). [*Metric spaces, generalized logic, and closed categories*](https://doi.org/10.1007/BF02924844). Rendiconti del Seminario Matematico e Fisico di Milano, 43(1), 135–166. Republished as Reprints in Theory and Applications of Categories 1 (2002), [tac:reprints/articles/1/tr1abs.html](http://www.tac.mta.ca/tac/reprints/articles/1/tr1abs.html).

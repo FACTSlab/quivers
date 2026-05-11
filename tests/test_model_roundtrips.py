@@ -14,17 +14,15 @@ import pytest
 
 # AST nodes
 from quivers.dsl.ast_nodes import (
-    CatPattern,
-    CatPatternName,
-    CatPatternProduct,
-    CatPatternSlash,
     CategoryDecl,
     ContinuousMorphismDecl,
     DiscretizeDecl,
     DrawStep,
     EmbedDecl,
     Expr,
+    ExprChartFold,
     ExprCompose,
+    ExprCurry,
     ExprFan,
     ExprIdent,
     ExprIdentity,
@@ -58,6 +56,8 @@ from quivers.dsl.ast_nodes import (
     Statement,
     StochasticMorphismDecl,
     TypeCoproduct,
+    TypeEffectApply,
+    TypeSlash,
     TypeExpr,
     TypeName,
     TypeProduct,
@@ -79,8 +79,10 @@ from quivers.stochastic._rule_system import RuleSystem
 # core/objects
 from quivers.core.objects import (
     CoproductSet,
+    EnumSet,
     FinSet,
     FreeMonoid,
+    FreeResiduated,
     ProductSet,
     SetObject,
 )
@@ -100,6 +102,15 @@ from quivers.continuous.spaces import (
 # enriched/weighted_limits
 from quivers.enriched.weighted_limits import Diagram
 
+# monadic/algebraic + bridges
+from quivers.monadic.algebraic import (
+    EffectSignature,
+    FreeMonad,
+    Handler,
+    Operation,
+)
+from quivers.monadic.bridges import ArrowMonad, Kleisli
+
 
 # ---------------------------------------------------------------------------
 # instances
@@ -111,12 +122,11 @@ _TYPE_NAME = TypeName(name="State")
 _TYPE_PRODUCT = TypeProduct(components=(TypeName(name="A"), TypeName(name="B")))
 _TYPE_COPRODUCT = TypeCoproduct(components=(_TYPE_NAME, TypeName(name="X")))
 
-# AST: cat patterns
-_CAT_NAME = CatPatternName(name="X")
-_CAT_SLASH = CatPatternSlash(
-    result=_CAT_NAME, argument=CatPatternName(name="Y"), direction="/"
+# AST: residuated patterns (now part of TypeExpr)
+_TYPE_SLASH = TypeSlash(
+    result=TypeName(name="X"), argument=TypeName(name="Y"), direction="/"
 )
-_CAT_PRODUCT = CatPatternProduct(left=_CAT_NAME, right=CatPatternName(name="Z"))
+_TYPE_EFFECT_APPLY = TypeEffectApply(effect="Cont_S", args=(TypeName(name="NP"),))
 
 # AST: space expressions
 _SPACE_NAME = SpaceName(name="R3")
@@ -142,6 +152,15 @@ _E_PARSER = ExprParser(
     start="S",
     depth=1,
 )
+_E_CURRY = ExprCurry(inner=_E_IDENT, direction="right")
+_E_CHART_FOLD = ExprChartFold(
+    lex=ExprIdent(name="lex"),
+    binary=ExprIdent(name="combine"),
+    unary=None,
+    start="S",
+    depth=2,
+    effect_depth=0,
+)
 
 # AST: let-expr nodes
 _LE_LIT = LetExprLiteral(value=0.5)
@@ -160,8 +179,8 @@ _CDECL = CategoryDecl(name="S")
 _RDECL = RuleDecl(
     name="app",
     variables=("X", "Y"),
-    premises=(_CAT_SLASH, CatPatternName(name="Y")),
-    conclusion=CatPatternName(name="X"),
+    premises=(_TYPE_SLASH, TypeName(name="Y")),
+    conclusion=TypeName(name="X"),
 )
 _ODECL = ObjectDecl(name="State", type_expr=_TYPE_NAME)
 _MDECL = MorphismDecl(
@@ -219,6 +238,8 @@ _FINSET = FinSet(name="X", cardinality=4)
 _PRODUCT_SET = ProductSet(components=(_FINSET, FinSet(name="Y", cardinality=3)))
 _COPRODUCT_SET = CoproductSet(components=(_FINSET, _FINSET))
 _FREE_MONOID = FreeMonoid(generators=_FINSET, max_length=2)
+_ENUM_SET = EnumSet(name="Atoms", elements=("NP", "S", "VP"))
+_FREE_RES = FreeResiduated(generators=_ENUM_SET, depth=1, ops=("slash",))
 
 # EmptySet (categorical/monoidal)
 _EMPTY = EmptySet()
@@ -248,10 +269,8 @@ CASES: list[tuple[type, object]] = [
     (TypeExpr, _TYPE_NAME),
     (TypeExpr, _TYPE_PRODUCT),
     (TypeExpr, _TYPE_COPRODUCT),
-    # AST: cat patterns
-    (CatPattern, _CAT_NAME),
-    (CatPattern, _CAT_SLASH),
-    (CatPattern, _CAT_PRODUCT),
+    (TypeExpr, _TYPE_SLASH),
+    (TypeExpr, _TYPE_EFFECT_APPLY),
     # AST: space expressions
     (SpaceExpr, _SPACE_NAME),
     (SpaceExpr, _SPACE_CTOR),
@@ -267,6 +286,8 @@ CASES: list[tuple[type, object]] = [
     (Expr, _E_SCAN),
     (Expr, _E_MARG),
     (Expr, _E_PARSER),
+    (Expr, _E_CURRY),
+    (Expr, _E_CHART_FOLD),
     # AST: let-expr nodes
     (LetExprNode, _LE_LIT),
     (LetExprNode, _LE_VAR),
@@ -305,6 +326,8 @@ CASES: list[tuple[type, object]] = [
     (SetObject, _PRODUCT_SET),
     (SetObject, _COPRODUCT_SET),
     (SetObject, _FREE_MONOID),
+    (SetObject, _ENUM_SET),
+    (SetObject, _FREE_RES),
     (SetObject, _EMPTY),
     # continuous spaces
     (ContinuousSpace, _EUCLID),
@@ -315,6 +338,93 @@ CASES: list[tuple[type, object]] = [
     # enriched diagram
     (Diagram, _DIAGRAM),
 ]
+
+
+# ---------------------------------------------------------------------------
+# monadic/algebraic + bridges
+# ---------------------------------------------------------------------------
+
+_OP_GET = Operation(
+    name="get",
+    parameter=FinSet(name="P", cardinality=2),
+    result=FinSet(name="R", cardinality=3),
+)
+_OP_PUT = Operation(
+    name="put",
+    parameter=FinSet(name="R", cardinality=3),
+    result=FinSet(name="P", cardinality=2),
+)
+_EFFECT_SIG = EffectSignature(name="IO", operations=(_OP_GET, _OP_PUT))
+_FREE_MONAD = FreeMonad(signature=_EFFECT_SIG)
+
+
+@pytest.mark.parametrize(
+    "root,instance",
+    [
+        (Operation, _OP_GET),
+        (EffectSignature, _EFFECT_SIG),
+        (FreeMonad, _FREE_MONAD),
+    ],
+    ids=["Operation", "EffectSignature-tuple-of-Operation", "FreeMonad"],
+)
+def test_algebraic_full_roundtrip(root: type, instance: object) -> None:
+    """Operation, EffectSignature, and FreeMonad survive full JSON round-trips.
+
+    Exercises panproto/didactic#38: ``tuple[Operation, ...]`` field on
+    ``EffectSignature`` requires bare-``dx.Model`` element classification.
+    """
+    raw = instance.model_dump_json()  # type: ignore[attr-defined]
+    parsed = root.model_validate_json(raw)  # type: ignore[attr-defined]
+    assert parsed == instance
+
+
+class _RuntimeMonad:
+    """Stand-in for a typeclass-instance object held in an opaque field."""
+
+
+def test_handler_opaque_fields_do_not_serialise() -> None:
+    """``Handler`` round-trips its ``signature`` but drops opaque fields.
+
+    Exercises panproto/didactic#39: typeclass-ABC fields use
+    ``dx.field(opaque=True)`` and are explicitly documented as not
+    round-tripping through JSON.
+    """
+    monad = _RuntimeMonad()
+    h = Handler(
+        signature=_EFFECT_SIG,
+        target=monad,
+        return_clause="ret-morphism",
+        operation_clauses={"get": "gc"},
+    )
+    # In-process: opaque fields are identity-preserved.
+    assert h.target is monad
+    assert h.return_clause == "ret-morphism"
+    assert h.operation_clauses == {"get": "gc"}
+
+    # JSON round-trip: signature survives, opaque fields drop to their default.
+    restored = Handler.model_validate_json(h.model_dump_json())
+    assert restored.signature == _EFFECT_SIG
+    assert restored.target is None
+    assert restored.return_clause is None
+    assert restored.operation_clauses == {}
+
+
+def test_kleisli_opaque_monad_field() -> None:
+    """``Kleisli`` holds its monad opaquely; identity preserved in-process."""
+    monad = _RuntimeMonad()
+    kl = Kleisli(monad=monad)
+    assert kl.monad is monad
+    restored = Kleisli.model_validate_json(kl.model_dump_json())
+    assert restored.monad is None
+
+
+def test_arrow_monad_opaque_arrow_field() -> None:
+    """``ArrowMonad`` holds its arrow opaquely; identity preserved in-process."""
+    arrow = _RuntimeMonad()
+    am = ArrowMonad(arrow=arrow)
+    assert am.arrow is arrow
+    restored = ArrowMonad.model_validate_json(am.model_dump_json())
+    assert restored.arrow is None
 
 
 def _id(case: tuple[type, object]) -> str:

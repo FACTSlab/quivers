@@ -17,7 +17,7 @@ $$
 \qquad \llbracket f \rrbracket \in V^{|{\llbracket \tau_1 \rrbracket}| \times |{\llbracket \tau_2 \rrbracket}|}.
 $$
 
-For `latent`, the entries are *free parameters* drawn from $V$; the realisation in PyTorch is a tensor of `requires_grad = True` parameters passed through a constraint map $V \cong \sigma : \mathbb{R} \to V$ (the sigmoid for $\mathcal{V}_{\mathrm{pf}}$, the identity for $\mathcal{V}_{\mathrm{T}}$, etc.).
+For `latent`, the entries are *free parameters* drawn from $V$; the realisation in PyTorch is a tensor of `requires_grad = True` parameters passed through a constraint map $\sigma : \mathbb{R} \to V$ (the sigmoid for $\mathcal{V}_{\mathrm{pf}}$, the identity for $\mathcal{V}_{\mathrm{T}}$, etc.).
 
 For `observed g : τ₁ -> τ₂ = data`, the entries are *fixed*: $\llbracket g \rrbracket(x, y) = \mathrm{data}[x, y]$.
 
@@ -35,13 +35,13 @@ Composition $;$, tensor $\boxtimes$, and identity $1_X$ in $\mathcal{V}\text{-}\
 
 ### 1.2 Marginalisation
 
-The expression `f.marginalize(X)` denotes the $\mathcal{V}$-coend along $X$:
+For $f : X \otimes Y \to Z$ in $\mathcal{V}\text{-}\mathbf{Rel}$, the expression `f.marginalize(X)` denotes the $\mathcal{V}$-enriched colimit (quantale-join) of $f$ along the $X$-coordinate:
 
 $$
-\llbracket f.\mathrm{marginalize}(X) \rrbracket(z) \;=\; \bigoplus_{x \in \llbracket X \rrbracket} \llbracket f \rrbracket(x, z).
+\llbracket f.\mathrm{marginalize}(X) \rrbracket(y, z) \;=\; \bigoplus_{x \in \llbracket X \rrbracket} \llbracket f \rrbracket\bigl((x, y), z\bigr),
 $$
 
-This is the universal way to project the $X$-coordinate out of $f : X \otimes Y \to Z$ in $\mathcal{V}\text{-}\mathbf{Rel}$.
+a morphism $Y \to Z$. Equivalently, it is the postcomposition with the $\mathcal{V}$-relation $\top_X : X \to \mathbf{1}$ that sends every $x$ to $\mathbf{1}$, after the canonical reassociation $X \otimes Y \cong Y \otimes X$.
 
 ## 2. Stochastic morphisms
 
@@ -51,7 +51,7 @@ A `stochastic` declaration
 stochastic kern : τ₁ -> τ₂
 ```
 
-denotes a morphism of $\mathbf{Stoch}$, i.e.\ a column-stochastic $|{\llbracket \tau_1 \rrbracket}| \times |{\llbracket \tau_2 \rrbracket}|$ matrix:
+denotes a morphism of $\mathbf{Stoch}$, i.e.\ a row-stochastic $|{\llbracket \tau_1 \rrbracket}| \times |{\llbracket \tau_2 \rrbracket}|$ matrix (each row $\llbracket \mathrm{kern} \rrbracket(x, \cdot)$ is a probability distribution over $\llbracket \tau_2 \rrbracket$):
 
 $$
 \llbracket \mathrm{kern} \rrbracket(x, \cdot) \in \mathcal{G}_{\mathrm{fin}}\bigl(\llbracket \tau_2 \rrbracket\bigr)
@@ -119,7 +119,7 @@ The `@` combinator extends to all three strata via the canonical monoidal struct
 | Both discrete | $\mathcal{V}\text{-}\mathbf{Rel}$ |
 | Both stochastic | $\mathbf{Stoch}$ |
 | Both continuous | $\mathbf{Kern}$ |
-| Mixed | The smallest enclosing category, via the embeddings of [§5](#5-stratum-transitions) |
+| Mixed | The smallest enclosing category, via the canonical embeddings $\mathcal{V}_{\mathbb{B}}\text{-}\mathbf{Rel} \hookrightarrow \mathbf{Stoch} \hookrightarrow \mathbf{Kern}$ of [Setting §4](setting.md#4-the-three-semantic-strata) |
 
 The denotation is the parallel product of kernels:
 

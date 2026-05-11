@@ -43,6 +43,12 @@ def _walk_type_exprs(module):
     """
     for stmt in module.statements:
         if isinstance(stmt, ObjectDecl):
+            # ObjectDecls of the `=` form (EnumSet / FreeResiduated)
+            # carry init= rather than type_expr=; skip those — they
+            # are handled by the compiler's _compile_object directly,
+            # not via the type-resolution lens.
+            if stmt.type_expr is None:
+                continue
             yield stmt.type_expr
         elif isinstance(stmt, MorphismDecl):
             yield stmt.domain
@@ -57,13 +63,32 @@ def _walk_space_exprs(module):
 
 
 def _build_object_env(module) -> dict:
-    """Build the object environment by walking object_decls in source order."""
+    """Build the object environment by walking object_decls in source order.
+
+    ObjectDecls of the ``=`` form (EnumSet / FreeResiduated) are
+    constructed directly here rather than routed through the
+    TypeExprToSetObject lens; those constructors have no TypeExpr
+    surface and therefore no lens-forward to compare against.
+    """
+    from quivers.dsl.ast_nodes import EnumSetLiteral, FreeResiduatedExpr
+    from quivers.core.objects import EnumSet, FreeResiduated
+
     objects: dict = {}
     for stmt in module.statements:
-        if isinstance(stmt, ObjectDecl):
+        if not isinstance(stmt, ObjectDecl):
+            continue
+        if stmt.type_expr is not None:
             lens = TypeExprToSetObject(objects)
             resolved, _ = lens.forward(stmt.type_expr)
             objects[stmt.name] = resolved
+        elif isinstance(stmt.init, EnumSetLiteral):
+            objects[stmt.name] = EnumSet(name=stmt.name, elements=stmt.init.elements)
+        elif isinstance(stmt.init, FreeResiduatedExpr):
+            gen = objects.get(stmt.init.generators)
+            if isinstance(gen, EnumSet):
+                objects[stmt.name] = FreeResiduated(
+                    generators=gen, depth=stmt.init.depth, ops=stmt.init.ops
+                )
     return objects
 
 
