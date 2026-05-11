@@ -37,14 +37,22 @@ from quivers.dsl.ast_nodes import (
     FreeMonoidExpr,
     FreeResiduatedExpr,
     SchemaDecl,
+    DrawStep,
     LetStep,
     LetExprBinOp,
+    LetExprIndex,
     LetExprUnaryOp,
     LetExprCall,
     LetExprLiteral,
     LetExprVar,
     LetExprNode,
+    MarginalizeStep,
+    PlateDrawStep,
+    PosteriorDecl,
     ProgramDecl,
+    ProgramStep,
+    RandomEffectDecl,
+    VectorisedObserveStep,
     LetDecl,
     OutputDecl,
     TypeExpr,
@@ -884,6 +892,74 @@ class Compiler:
                 bound_vars[decl.params[0]] = domain
         steps: list[tuple] = []
         for step in decl.draws:
+            if isinstance(step, PlateDrawStep):
+                # draw v : A -> B ~ Family(args).  By the natural iso
+                # Kern(1, B^A) ≅ Kern(A, B), the plate variable IS a
+                # Kern-morphism A → B; we realise it as a PlateDraw
+                # whose codomain is the flat product space of
+                # |A| copies of the per-row family's codomain.
+                from quivers.continuous.bayesian import PlateDraw as _PlateDraw
+                from quivers.continuous.spaces import Euclidean as _Euc
+                idx_space = self._resolve_any_space(step.index)
+                # The per-row codomain `B` is either a declared object /
+                # space or an integer literal interpreted as
+                # `Euclidean(N)` — the standard convention for
+                # continuous per-row families.
+                if (
+                    isinstance(step.codomain, TypeName)
+                    and step.codomain.name.isdigit()
+                    and step.codomain.name not in self._objects
+                ):
+                    cod_space = _Euc(
+                        name=f"_plate_codom_{step.name}",
+                        dim=int(step.codomain.name),
+                    )
+                else:
+                    cod_space = self._resolve_any_space(step.codomain)
+                # Synthesize a DrawStep so we can reuse the inline /
+                # family-registry resolution logic. The synthetic step
+                # carries the plate's per-row codomain so the family
+                # is built at the right dimensionality.
+                _synth = DrawStep(
+                    vars=(step.name,),
+                    morphism=step.morphism,
+                    args=step.args,
+                    is_observed=False,
+                    line=step.line,
+                    col=step.col,
+                )
+                family, step_args = self._resolve_draw_morphism(
+                    _synth, bound_vars, cod_space
+                )
+                plate = _PlateDraw(idx_space.size, family, domain=family.domain)
+                if step.name in bound_vars:
+                    raise CompileError(
+                        f"variable {step.name!r} already bound in program",
+                        step.line, step.col,
+                    )
+                bound_vars[step.name] = plate.codomain
+                steps.append(((step.name,), plate, step_args, False))
+                continue
+            if isinstance(step, (VectorisedObserveStep, MarginalizeStep)):
+                # The categorical denotations of VectorisedObserveStep
+                # (batched-likelihood kernel Φ → G_{≤1}(Φ) with score
+                # ∏_n p_F(r_obs(n); θ(n, φ))) and MarginalizeStep
+                # (pushforward G(π_{Φ\\C})) are realised by
+                # `quivers.continuous.bayesian.VectorisedObserve` and
+                # `quivers.continuous.bayesian.marginalize_categorical`.
+                # Their MonadicProgram step-spec dispatchers are
+                # not yet wired (the runtime's `rsample` / `log_joint`
+                # loops are draw-and-let only).
+                raise CompileError(
+                    f"{type(step).__name__} parses and has a categorical "
+                    "denotation in Kern, but the MonadicProgram runtime "
+                    "loop does not yet dispatch on it. Compose the model "
+                    "via `quivers.continuous.bayesian.VectorisedObserve` "
+                    "and `marginalize_categorical` at the Python builder "
+                    "layer until the runtime extension lands.",
+                    step.line,
+                    step.col,
+                )
             if isinstance(step, LetStep):
                 if step.name in bound_vars:
                     raise CompileError(
@@ -1213,9 +1289,51 @@ class Compiler:
                     return torch.abs(args[0])
                 elif func_name == "softplus":
                     return torch.nn.functional.softplus(args[0])
+                elif func_name == "cumsum":
+                    return torch.cumsum(args[0], dim=-1)
+                elif func_name == "softmax":
+                    return torch.softmax(args[0], dim=-1)
+                elif func_name == "cholesky_quad_form":
+                    # cholesky_quad_form(corr, scale): given a flattened
+                    # K×K correlation Cholesky factor `L` (shape (*, K*K))
+                    # and a per-component scale vector (shape (*, K)),
+                    # returns the covariance Σ = diag(s)·L L^T·diag(s)
+                    # flattened to (*, K*K).
+                    L_flat, scale = args[0], args[1]
+                    K = scale.shape[-1]
+                    L = L_flat.reshape(*L_flat.shape[:-1], K, K)
+                    mask = torch.tril(
+                        torch.ones(K, K, device=L.device, dtype=L.dtype)
+                    )
+                    L = L * mask
+                    R = L @ L.transpose(-1, -2)
+                    D = scale.unsqueeze(-1) * torch.eye(
+                        K, device=L.device, dtype=L.dtype
+                    )
+                    cov = D @ R @ D
+                    return cov.reshape(*cov.shape[:-2], K * K)
                 raise ValueError(f"unknown function: {func_name}")
 
             return _call
+        if isinstance(node, LetExprIndex):
+            # Indexed gather along the leading axis of the array.
+            # Realises the Kleisli pullback ι^* v = v ∘ ι for a finite
+            # fibration ι : N → A and a plate variable v : A → B.
+            arr_fn = Compiler._compile_let_expr(node.array)
+            idx_fns = [Compiler._compile_let_expr(ix) for ix in node.indices]
+
+            def _index(env: dict) -> torch.Tensor:
+                arr = arr_fn(env)
+                idx_tensors = [fn(env) for fn in idx_fns]
+                # Cast each index to a long-typed tensor; broadcast and
+                # use advanced indexing along the leading dims of arr.
+                long_idx = tuple(
+                    ix.to(torch.long) if ix.dtype != torch.long else ix
+                    for ix in idx_tensors
+                )
+                return arr[long_idx]
+
+            return _index
         raise CompileError(f"unknown let expression node: {type(node).__name__}")
 
     def _compile_let(self, decl: LetDecl) -> None:

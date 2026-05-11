@@ -516,8 +516,8 @@ class Truncated(ContinuousMorphism):
 # ---------------------------------------------------------------------------
 
 
-class PlateDraw(nn.Module):
-    """A finite-domain-indexed draw realised as a single tensor parameter.
+class PlateDraw(ContinuousMorphism):
+    """A finite-domain-indexed draw, as a Kern-morphism ``A → B``.
 
     Concretely: ``v : A → B ~ F(theta)`` becomes a tensor of shape
     ``(|A|, *B.shape)`` whose ``a``-th row is an independent
@@ -525,28 +525,48 @@ class PlateDraw(nn.Module):
     posterior factorises across rows by default; the prior's ELBO
     contribution is :math:`\\sum_a \\log p_F(v_a; \\theta_a)`.
 
-    Categorically: a Dirac kernel
-    :math:`\\mathbf{1} \\to \\mathcal{G}(B^A)` factoring as the
-    independent product :math:`\\prod_{a \\in A} F(\\theta_a)`. The
-    gathered morphism ``v[indices]`` is the pullback along the
-    finite fibration :math:`\\iota : N \\to A`.
+    Categorically: by the natural isomorphism
+    :math:`\\mathbf{Kern}(\\mathbf{1}, B^A) \\cong \\mathbf{Kern}(A, B)`,
+    the plate variable IS a Kern-morphism :math:`A \\to B`. The
+    PlateDraw is realised as a :class:`ContinuousMorphism` whose
+    codomain is the flat product-space of ``index_size`` copies of
+    the per-row family's codomain.
 
     Parameters
     ----------
     index_size : int
         Cardinality :math:`|A|`.
     family : ContinuousMorphism
-        Per-row distribution family (its codomain becomes the
-        per-row codomain).
+        Per-row distribution family.
+    domain : AnySpace
+        The program's input space (broadcast conditioning).
     """
 
-    def __init__(self, index_size: int, family: ContinuousMorphism) -> None:
-        super().__init__()
+    def __init__(
+        self,
+        index_size: int,
+        family: ContinuousMorphism,
+        domain: AnySpace | None = None,
+    ) -> None:
+        # Continuous spaces use `dim` instead of `shape`; treat
+        # them uniformly by extracting a flat dim count.
+        if hasattr(family.codomain, "dim"):
+            per_row_dim = int(family.codomain.dim)
+            per_row_shape: tuple[int, ...] = (per_row_dim,)
+        else:
+            per_row_shape = tuple(family.codomain.shape)
+            per_row_dim = int(torch.tensor(per_row_shape).prod().item()) if per_row_shape else 1
+        flat_codomain = Euclidean(
+            name=f"plate({index_size}x{family.codomain!s})",
+            dim=index_size * per_row_dim,
+        )
+        actual_domain = domain if domain is not None else family.domain
+        super().__init__(actual_domain, flat_codomain)
         self._index_size = index_size
         self._family = family
+        self._per_row_shape = per_row_shape
         # Variational mean / log-scale per row (mean-field Gaussian
         # posterior over the plate). Shape (|A|, *B.shape).
-        per_row_shape = tuple(family.codomain.shape)
         self._mean = nn.Parameter(torch.zeros(index_size, *per_row_shape))
         self._log_scale = nn.Parameter(
             torch.full((index_size, *per_row_shape), -2.0)
@@ -560,10 +580,37 @@ class PlateDraw(nn.Module):
     def family(self) -> ContinuousMorphism:
         return self._family
 
-    def rsample(self) -> torch.Tensor:
-        """Reparameterised sample: ``(|A|, *B.shape)`` tensor."""
-        eps = torch.randn_like(self._mean)
-        return self._mean + self._log_scale.exp() * eps
+    def rsample(
+        self, x: torch.Tensor, sample_shape: torch.Size = torch.Size()
+    ) -> torch.Tensor:
+        """Reparameterised sample.
+
+        Returns a flat ``(batch, |A| * prod(B.shape))`` tensor. Each
+        batch row is one independent plate sample with mean-field
+        Gaussian variational posterior.
+        """
+        del sample_shape
+        batch = x.shape[0] if x.dim() > 0 else 1
+        eps = torch.randn(batch, *self._mean.shape, device=x.device, dtype=x.dtype)
+        sample = self._mean.unsqueeze(0) + self._log_scale.exp().unsqueeze(0) * eps
+        # Flatten the index axis with the per-row codomain shape.
+        return sample.reshape(batch, -1)
+
+    def log_prob(self, x: torch.Tensor, y: torch.Tensor) -> torch.Tensor:
+        """Log-density of the variational posterior on the plate sample.
+
+        ``y`` is the flat-shape sample; reshape to ``(batch, |A|, *B.shape)``
+        and sum the per-row Gaussian log-density.
+        """
+        batch = y.shape[0]
+        sample = y.reshape(batch, self._index_size, *self._per_row_shape)
+        var = (2.0 * self._log_scale).exp()
+        per_row_lp = (
+            -0.5 * ((sample - self._mean) ** 2 / var)
+            - self._log_scale
+            - 0.5 * torch.log(torch.tensor(2.0 * torch.pi, device=y.device, dtype=y.dtype))
+        )
+        return per_row_lp.reshape(batch, -1).sum(dim=-1)
 
     def kl_to_prior(self, conditioning: torch.Tensor) -> torch.Tensor:
         """Approximate KL[q(v) || p(v)] via reparameterised Monte-Carlo.
