@@ -5,9 +5,16 @@ site_author: Aaron Steven White
 theme:
   name: terminal
   custom_dir: docs/overrides
+  features:
+    # Promote each section's `Overview` child into the section
+    # heading so the parent label itself is clickable, instead of
+    # appearing as inert grey text alongside its children.
+    - navigation.side.indexes
 
-hooks:
-  - docs/hooks/register_qvr_lexer.py
+extra:
+  # Pair with `navigation.side.indexes`: the child whose nav title
+  # matches this is treated as the section's index page.
+  INDEX_PAGE_NAV_TITLE: Overview
 
 extra_css:
   - css/pygments.css

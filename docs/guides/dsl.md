@@ -40,7 +40,7 @@ optimizer = torch.optim.Adam(prog.parameters())
 
 The authoritative grammar is the tree-sitter source at `grammars/qvr/grammar.js` in the quivers repository. The summary below is a human-readable EBNF view of the same productions; the tree-sitter grammar is the source of truth.
 
-```
+```ebnf
 module         := statement*
 
 statement      := quantale_decl
