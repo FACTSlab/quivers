@@ -274,7 +274,7 @@ def make_swap_schema(
         swap_TU[X : Cat] : T(U(X)) -> U(T(X))
 
     The schema is consumed by the chart's *commutation firing* rule
-    of [Effects §4.4](../../docs/semantics/effects.md#4-joint-type-and-effect-dispatch).
+    of [Effects §4.4](../../semantics/effects.md#4-joint-type-and-effect-dispatch).
     """
     from quivers.monadic.distributive_laws import DistributiveLaw
 
