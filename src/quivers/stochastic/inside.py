@@ -83,7 +83,13 @@ class InsideAlgorithm(nn.Module):
         If the morphisms have incompatible types.
     """
 
-    def __init__(self, binary: Morphism, lexical: Morphism, start: int = 0) -> None:
+    def __init__(
+        self,
+        binary: Morphism,
+        lexical: Morphism,
+        start: int = 0,
+        unary: Morphism | None = None,
+    ) -> None:
         super().__init__()
         if not isinstance(binary.codomain, ProductSet):
             raise TypeError(
@@ -93,13 +99,24 @@ class InsideAlgorithm(nn.Module):
             raise TypeError(
                 f"binary and lexical must share the same domain (nonterminals), got {binary.domain!r} and {lexical.domain!r}"
             )
+        if unary is not None:
+            if unary.domain != binary.domain or unary.codomain != binary.domain:
+                raise TypeError(
+                    f"unary morphism must have shape N -> N matching binary "
+                    f"domain {binary.domain!r}; got {unary.domain!r} -> {unary.codomain!r}"
+                )
         self._binary = binary
         self._lexical = lexical
+        self._unary = unary
         self._start = start
         self._n_nonterm = binary.domain.size
         self._n_term = lexical.codomain.size
         self._binary_mod = binary.module()
         self._lexical_mod = lexical.module()
+        if unary is not None:
+            self._unary_mod = unary.module()
+        else:
+            self._unary_mod = None
 
     @property
     def n_nonterminals(self) -> int:
@@ -134,13 +151,21 @@ class InsideAlgorithm(nn.Module):
         batch, seq_len = tokens.shape
         log_binary = torch.log(self._binary.tensor.clamp(min=1e-30))
         log_lexical = torch.log(self._lexical.tensor.clamp(min=1e-30))
+        log_unary = (
+            torch.log(self._unary.tensor.clamp(min=1e-30))
+            if self._unary is not None
+            else None
+        )
         N = self._n_nonterm
         cells: list[list[torch.Tensor | None]] = [
             [None for _ in range(seq_len + 1)] for _ in range(seq_len)
         ]
         for i in range(seq_len):
             tok_i = tokens[:, i]
-            cells[i][i + 1] = log_lexical[:, tok_i].T
+            cell = log_lexical[:, tok_i].T
+            if log_unary is not None:
+                cell = _apply_unary_closure(cell, log_unary)
+            cells[i][i + 1] = cell
         for span_len in range(2, seq_len + 1):
             for i in range(seq_len - span_len + 1):
                 j = i + span_len
@@ -159,7 +184,10 @@ class InsideAlgorithm(nn.Module):
                     )
                     parts.append(split_score)
                 stacked = torch.stack(parts, dim=0)
-                cells[i][j] = torch.logsumexp(stacked, dim=0)
+                cell = torch.logsumexp(stacked, dim=0)
+                if log_unary is not None:
+                    cell = _apply_unary_closure(cell, log_unary)
+                cells[i][j] = cell
         chart = torch.full(
             (batch, N, seq_len, seq_len + 1), float("-inf"), device=tokens.device
         )
@@ -227,3 +255,38 @@ class InsideAlgorithm(nn.Module):
 
     def __repr__(self) -> str:
         return f"InsideAlgorithm(N={self._n_nonterm}, T={self._n_term}, start={self._start})"
+
+
+def _apply_unary_closure(
+    log_cell: torch.Tensor, log_unary: torch.Tensor, max_iters: int = 8
+) -> torch.Tensor:
+    """Reflexive-transitive closure under unary rules in log-space.
+
+    Iteratively updates ``cell[A] ← logsumexp_B(cell[B] + log_unary[B, A])``
+    and joins with the original ``cell`` until a fixed point is reached
+    (or ``max_iters`` is exceeded). Convergence is guaranteed for unary
+    matrices whose absorbing spectrum is below the quantale's unit.
+
+    Parameters
+    ----------
+    log_cell : torch.Tensor
+        Shape ``(batch, N)`` — the current cell's log-probabilities
+        for each nonterminal.
+    log_unary : torch.Tensor
+        Shape ``(N, N)`` — the log-probability matrix of unary rules.
+    max_iters : int
+        Closure-iteration cap.
+    """
+    cell = log_cell
+    for _ in range(max_iters):
+        # cell_unary[batch, A] = logsumexp_B(cell[batch, B] + log_unary[B, A])
+        cell_unary = torch.logsumexp(
+            cell.unsqueeze(2) + log_unary.unsqueeze(0), dim=1
+        )
+        # Quantale-join (noisy-OR in log-space) of cell and cell_unary
+        # ≈ logaddexp.
+        new_cell = torch.logaddexp(cell, cell_unary)
+        if torch.allclose(new_cell, cell, atol=1e-6, rtol=1e-6):
+            return new_cell
+        cell = new_cell
+    return cell

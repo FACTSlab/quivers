@@ -102,6 +102,15 @@ from quivers.continuous.spaces import (
 # enriched/weighted_limits
 from quivers.enriched.weighted_limits import Diagram
 
+# monadic/algebraic + bridges
+from quivers.monadic.algebraic import (
+    EffectSignature,
+    FreeMonad,
+    Handler,
+    Operation,
+)
+from quivers.monadic.bridges import ArrowMonad, Kleisli
+
 
 # ---------------------------------------------------------------------------
 # instances
@@ -329,6 +338,89 @@ CASES: list[tuple[type, object]] = [
     # enriched diagram
     (Diagram, _DIAGRAM),
 ]
+
+
+# ---------------------------------------------------------------------------
+# monadic/algebraic + bridges
+# ---------------------------------------------------------------------------
+
+_OP_GET = Operation(
+    name="get", parameter=FinSet(name="P", cardinality=2), result=FinSet(name="R", cardinality=3)
+)
+_OP_PUT = Operation(
+    name="put", parameter=FinSet(name="R", cardinality=3), result=FinSet(name="P", cardinality=2)
+)
+_EFFECT_SIG = EffectSignature(name="IO", operations=(_OP_GET, _OP_PUT))
+_FREE_MONAD = FreeMonad(signature=_EFFECT_SIG)
+
+
+@pytest.mark.parametrize(
+    "root,instance",
+    [
+        (Operation, _OP_GET),
+        (EffectSignature, _EFFECT_SIG),
+        (FreeMonad, _FREE_MONAD),
+    ],
+    ids=["Operation", "EffectSignature-tuple-of-Operation", "FreeMonad"],
+)
+def test_algebraic_full_roundtrip(root: type, instance: object) -> None:
+    """Operation, EffectSignature, and FreeMonad survive full JSON round-trips.
+
+    Exercises panproto/didactic#38: ``tuple[Operation, ...]`` field on
+    ``EffectSignature`` requires bare-``dx.Model`` element classification.
+    """
+    raw = instance.model_dump_json()  # type: ignore[attr-defined]
+    parsed = root.model_validate_json(raw)  # type: ignore[attr-defined]
+    assert parsed == instance
+
+
+class _RuntimeMonad:
+    """Stand-in for a typeclass-instance object held in an opaque field."""
+
+
+def test_handler_opaque_fields_do_not_serialise() -> None:
+    """``Handler`` round-trips its ``signature`` but drops opaque fields.
+
+    Exercises panproto/didactic#39: typeclass-ABC fields use
+    ``dx.field(opaque=True)`` and are explicitly documented as not
+    round-tripping through JSON.
+    """
+    monad = _RuntimeMonad()
+    h = Handler(
+        signature=_EFFECT_SIG,
+        target=monad,
+        return_clause="ret-morphism",
+        operation_clauses={"get": "gc"},
+    )
+    # In-process: opaque fields are identity-preserved.
+    assert h.target is monad
+    assert h.return_clause == "ret-morphism"
+    assert h.operation_clauses == {"get": "gc"}
+
+    # JSON round-trip: signature survives, opaque fields drop to their default.
+    restored = Handler.model_validate_json(h.model_dump_json())
+    assert restored.signature == _EFFECT_SIG
+    assert restored.target is None
+    assert restored.return_clause is None
+    assert restored.operation_clauses == {}
+
+
+def test_kleisli_opaque_monad_field() -> None:
+    """``Kleisli`` holds its monad opaquely; identity preserved in-process."""
+    monad = _RuntimeMonad()
+    kl = Kleisli(monad=monad)
+    assert kl.monad is monad
+    restored = Kleisli.model_validate_json(kl.model_dump_json())
+    assert restored.monad is None
+
+
+def test_arrow_monad_opaque_arrow_field() -> None:
+    """``ArrowMonad`` holds its arrow opaquely; identity preserved in-process."""
+    arrow = _RuntimeMonad()
+    am = ArrowMonad(arrow=arrow)
+    assert am.arrow is arrow
+    restored = ArrowMonad.model_validate_json(am.model_dump_json())
+    assert restored.arrow is None
 
 
 def _id(case: tuple[type, object]) -> str:

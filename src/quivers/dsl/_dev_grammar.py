@@ -1,17 +1,12 @@
 """Local-grammar override for the QVR tree-sitter parser.
 
-The QVR grammar lives in-tree at ``grammars/qvr/`` and is normally
-vendored into ``panproto-grammars-all`` for use through
-``panproto.AstParserRegistry``. During grammar development the
-upstream wheel lags this repository's ``grammars/qvr/`` source by one
-or more releases, so the standard registry returns the previous
-grammar's vertex kinds and breaks downstream walker / compiler tests.
-
-This module compiles ``grammars/qvr/src/parser.c`` to a shared library
-on demand, loads the resulting ``TSLanguage*`` via ``ctypes``, and
-constructs a ``panproto._native.AstParserRegistry`` whose ``qvr``
-protocol uses the locally-compiled grammar instead of the one shipped
-by ``panproto-grammars-all``.
+The QVR grammar lives in-tree at ``grammars/qvr/`` and will be vendored
+into ``panproto-grammars-all`` once it stabilises. In the meantime, this
+module compiles ``grammars/qvr/src/parser.c`` to a shared library on
+demand, loads the resulting ``TSLanguage*`` via ``ctypes``, and installs
+it through panproto's :meth:`AstParserRegistry.override_grammar` API so
+the standard registry serves the in-tree grammar in place of whatever
+``panproto-grammars-all`` currently ships for ``qvr``.
 
 Activation: set the environment variable ``QVR_USE_LOCAL_GRAMMAR=1``
 before importing :mod:`quivers.dsl.parser`. With the variable unset,
@@ -20,9 +15,6 @@ the standard panproto registry is used.
 The build step requires a working C compiler in ``$PATH``; cached at
 ``$XDG_CACHE_HOME/quivers/qvr_grammar.dylib`` (or the platform-specific
 extension) and rebuilt only when ``parser.c`` is newer than the cache.
-
-Tracking issue: panproto/panproto#89 (request for first-class runtime
-grammar override).
 """
 
 from __future__ import annotations
@@ -31,8 +23,6 @@ import ctypes
 import os
 import subprocess
 import sys
-import warnings
-from importlib.resources import files
 from pathlib import Path
 
 import panproto
@@ -101,20 +91,19 @@ def _build_shared_lib(grammar_dir: Path) -> Path:
     return out
 
 
-# Module-level state to keep ctypes buffers alive while the registry
-# holds raw pointers into them. A module-level reference is sufficient.
 _REGISTRY: object | None = None
-_KEEPALIVE: tuple[object, ...] = ()
+_LIB_KEEPALIVE: ctypes.CDLL | None = None
 
 
 def registry() -> object:
     """Return a panproto registry whose ``qvr`` grammar is the local build.
 
-    Callers should hold the registry for as long as parsing is needed;
-    the underlying ctypes buffers and shared library remain alive via
-    a module-level reference.
+    The standard :func:`panproto.AstParserRegistry` constructor populates
+    the registry with everything ``panproto-grammars-all`` and other
+    installed companion packages contribute, then
+    :meth:`override_grammar` swaps in the locally-compiled QVR grammar.
     """
-    global _REGISTRY, _KEEPALIVE
+    global _REGISTRY, _LIB_KEEPALIVE
     if _REGISTRY is not None:
         return _REGISTRY
 
@@ -127,29 +116,19 @@ def registry() -> object:
 
     grammar_json = (grammar_dir / "src" / "grammar.json").read_bytes()
     node_types = (grammar_dir / "src" / "node-types.json").read_bytes()
-    gj_buf = ctypes.create_string_buffer(grammar_json)
-    nt_buf = ctypes.create_string_buffer(node_types)
 
-    extra = {
-        "name": "qvr",
-        "extensions": ["qvr"],
-        "language_ptr": language_ptr,
-        "node_types_ptr": ctypes.addressof(nt_buf),
-        "node_types_len": len(node_types),
-        "tags_query_ptr": None,
-        "tags_query_len": 0,
-        "grammar_json_ptr": ctypes.addressof(gj_buf),
-        "grammar_json_len": len(grammar_json),
-    }
+    reg = panproto.AstParserRegistry()
+    reg.override_grammar(
+        name="qvr",
+        extensions=["qvr"],
+        language_ptr=language_ptr,
+        node_types=node_types,
+        grammar_json=grammar_json,
+    )
 
-    with warnings.catch_warnings():
-        warnings.simplefilter("ignore")
-        _REGISTRY = panproto._native.AstParserRegistry(extra_grammars=[extra])
-
-    # Keep ctypes buffers and the shared library alive for the lifetime
-    # of the registry; without these references, garbage collection
-    # would invalidate the pointers panproto holds.
-    _KEEPALIVE = (lib, gj_buf, nt_buf)
-    _ = files  # silence import-not-used in case importlib.resources is
-    # later removed; retained for future packaged-grammar support
+    # Keep the shared library alive for the lifetime of the registry;
+    # the TSLanguage* is owned by ``lib`` and panproto holds it by raw
+    # pointer.
+    _LIB_KEEPALIVE = lib
+    _REGISTRY = reg
     return _REGISTRY

@@ -61,11 +61,13 @@ the parallel product. This is the symmetric monoidal structure of $\mathcal{V}\t
 
 ### 2.5 Marginalisation
 
+For $\llbracket e \rrbracket : X_1 \otimes \cdots \otimes X_k \otimes Y \to Z$,
+
 $$
-\llbracket e.\mathsf{marginalize}(X_1, \dots, X_k) \rrbracket(z) \;=\; \bigoplus_{x_1, \dots, x_k} \llbracket e \rrbracket\bigl((x_1, \dots, x_k, \cdot), z\bigr).
+\llbracket e.\mathsf{marginalize}(X_1, \dots, X_k) \rrbracket(y, z) \;=\; \bigoplus_{x_1, \dots, x_k} \llbracket e \rrbracket\bigl((x_1, \dots, x_k, y), z\bigr),
 $$
 
-In $\mathbf{Stoch}$ and $\mathbf{Kern}$ the join $\bigoplus$ is integration against the marginal; in $\mathcal{V}\text{-}\mathbf{Rel}$ it is the quantale join.
+a morphism $Y \to Z$ obtained by joining the marginalised coordinates out of the input. In $\mathbf{Stoch}$ and $\mathbf{Kern}$ the join $\bigoplus$ is integration against the corresponding marginal; in $\mathcal{V}\text{-}\mathbf{Rel}$ it is the quantale join. When $k$ equals the full input arity (no remaining $Y$), the result is a morphism $\mathbf{1} \to Z$.
 
 ## 3. Tupling and replication
 
@@ -103,13 +105,13 @@ defined when $\mathrm{dom}(\llbracket e \rrbracket) = \mathrm{cod}(\llbracket e 
 
 ### 3.4 Scan
 
-For $e : X \otimes S \to Y \otimes S$ and an initial state $\mathit{init} \in \{ \mathrm{zeros}, \mathrm{learned} \}$ supplying $s_0 : 1 \to S$,
+For $\llbracket e \rrbracket : X \otimes S \to Y \otimes S$,
 
 $$
-\llbracket \mathsf{scan}(e, \mathit{init}) \rrbracket \;=\; \mathrm{Tr}^{S}\bigl( \llbracket e \rrbracket \bigr) \circ s_0,
+\llbracket \mathsf{scan}(e, \mathit{init}) \rrbracket \;=\; \mathrm{Tr}^{S}\bigl( \llbracket e \rrbracket \bigr) : X \to Y,
 $$
 
-where $\mathrm{Tr}^{S} : \mathcal{C}(X \otimes S, Y \otimes S) \to \mathcal{C}(X, Y)$ is the trace operator of the appropriate traced symmetric monoidal category $\mathcal{C}$ ([Joyal, Street & Verity 1996](https://doi.org/10.1017/S0305004100074338)). Concretely:
+where $\mathrm{Tr}^{S} : \mathcal{C}(X \otimes S, Y \otimes S) \to \mathcal{C}(X, Y)$ is the trace operator of the appropriate traced symmetric monoidal category $\mathcal{C}$ ([Joyal, Street & Verity 1996](https://doi.org/10.1017/S0305004100074338)) eliminating the recurrent state $S$. The annotation $\mathit{init} \in \{\mathrm{zeros}, \mathrm{learned}\}$ selects the *initialisation policy* for the trace's fixed-point evaluation — the choice of distinguished element of $S$ from which the trace's iterative computation seeds — and is part of the chosen realisation of $\mathrm{Tr}^{S}$ rather than a separate composition. Concretely:
 
 - In $\mathcal{V}\text{-}\mathbf{Rel}$, $\mathrm{Tr}^{S}$ is the *iterative* trace, defined by quantale-join over the orbit of $S$;
 - In $\mathbf{Stoch}$ and $\mathbf{Kern}$, $\mathrm{Tr}^{S}$ is implemented as a sequence of Markov-kernel compositions seeded by $s_0$.
@@ -140,7 +142,7 @@ In the $\mathcal{V}_{\mathrm{pf}}$-semiring this is the inside-algorithm probabi
 
 ## 5. Coherence and equational laws
 
-Every well-typed expression denotes a morphism in a symmetric monoidal closed category (for the discrete and stochastic strata) or a symmetric monoidal category (for the continuous stratum). Consequently the following equations between denotations hold *by construction*:
+Every well-typed expression denotes a morphism in a symmetric monoidal category (closed in the discrete $\mathcal{V}$-enriched stratum; not generally closed for $\mathbf{Stoch}$ or $\mathbf{Kern}$). Consequently the following equations between denotations hold *by construction*:
 
 | Law | Statement |
 |-----|-----------|

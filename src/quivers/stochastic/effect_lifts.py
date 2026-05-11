@@ -262,6 +262,58 @@ def class_directed_lifts(
     return tuple(lifts)
 
 
+def make_swap_schema(
+    distributive_law: object, base_schema: SchemaDecl | None = None
+) -> SchemaDecl:
+    """Generate a ``swap_TU`` schema from a registered distributive law.
+
+    Given a :class:`DistributiveLaw` ``λ : S ∘ T ⇒ T ∘ S``, the chart
+    parser uses ``swap_TU`` to exchange sibling effect orderings at a
+    cell whose effect stack ends in ``T·U``:
+
+        swap_TU[X : Cat] : T(U(X)) -> U(T(X))
+
+    The schema is consumed by the chart's *commutation firing* rule
+    of [Effects §4.4](../../docs/semantics/effects.md#4-joint-type-and-effect-dispatch).
+    """
+    from quivers.monadic.distributive_laws import DistributiveLaw
+
+    if not isinstance(distributive_law, DistributiveLaw):
+        raise TypeError(
+            "make_swap_schema requires a DistributiveLaw instance; "
+            f"got {type(distributive_law).__name__}"
+        )
+    # The naming convention for the swap schema reuses the monad
+    # class names; the schema's directionality (S∘T → T∘S) matches
+    # the underlying λ : S(T(-)) → T(S(-)).
+    outer = type(distributive_law.outer_monad).__name__
+    inner = type(distributive_law.inner_monad).__name__
+    base_name = base_schema.name if base_schema is not None else "swap"
+    return SchemaDecl(
+        name=f"swap_{outer}_{inner}_{base_name}",
+        parameter_names=(("X",),),
+        parameter_types=(TypeName(name="Cat"),),
+        domain=_wrap_with_effect(
+            _wrap_with_effect(TypeName(name="X"), inner), outer
+        ),
+        codomain=_wrap_with_effect(
+            _wrap_with_effect(TypeName(name="X"), outer), inner
+        ),
+    )
+
+
+def swap_rule_set(
+    distributive_laws: tuple[object, ...],
+) -> tuple[SchemaDecl, ...]:
+    """Generate one ``swap_TU`` schema per registered distributive law.
+
+    The resulting tuple is appended to the chart parser's rule set
+    alongside the class-driven lifts; the chart's commutation-firing
+    dispatch picks each swap schema up by name.
+    """
+    return tuple(make_swap_schema(law) for law in distributive_laws)
+
+
 def lift_rule_set(
     base_schemas: tuple[SchemaDecl, ...], effects: tuple[object, ...]
 ) -> tuple[SchemaDecl, ...]:
@@ -280,5 +332,7 @@ def lift_rule_set(
 
 __all__ = [
     "class_directed_lifts",
+    "make_swap_schema",
+    "swap_rule_set",
     "lift_rule_set",
 ]

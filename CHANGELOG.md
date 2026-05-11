@@ -6,22 +6,25 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/), and this
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-05-11
+
 ### Added
 
 - Pattern-polymorphic `schema` declarations: `schema r[X, Y : Cat] : (X/Y) * Y -> X`. Subsumes `rule` with explicit parameter types and a unified domain/codomain shape.
 - New SetObject variants: `EnumSet(name, elements)` for named-element finite sets, `FreeResiduated(generators, depth, ops)` for residuated category universes. New surface syntax `object Atoms = {NP, S, VP}` and `object Cat = FreeResiduated(Atoms, depth=4, ops=[slash])`.
 - `FreeMonoid` surface form: `object Free = FreeMonoid(X, max_length=4)`.
 - `TypeSlash` and `TypeEffectApply` `TypeExpr` variants — residuated patterns and effect-typed types are first-class. The `CatPattern` AST family is removed (folded into `TypeExpr`).
-- `chart_fold(lex=, binary=, unary=, start=, depth=, effect_depth=)` primitive expression — desugared form of `parser(rules=...)`.
+- `chart_fold(lex=, binary=, unary=, start=, depth=, effect_depth=, handlers=)` primitive expression — desugared form of `parser(rules=...)`. `unary=` is wired through the inside algorithm's reflexive-transitive unary-rule closure. `handlers=` post-composes effect handlers on the parser output as log-space transition morphisms.
 - `.curry_right` / `.curry_left` postfix combinators witnessing the residuation isomorphisms; backed by `quivers.core.morphisms.CurriedMorphism`.
 - Typeclass tower in `quivers.monadic.typeclasses`: `Functor`, `Applicative`, `Monad`, `Alternative`, `MonadPlus`, `Foldable`, `Traversable`, `MonadTrans`. Concrete monads (`FuzzyPowersetMonad`, `FreeMonoidMonad`, `GiryMonad`) subclass `Monad` directly.
-- Stdlib effect instances in `quivers.monadic.instances`: `Identity`, `Maybe`, `Alternative_`, `Continuation`, `State`, `Reader`, `Writer`, `List`. Monad transformers in `quivers.monadic.transformers`: `StateT`, `ReaderT`, `MaybeT`, `ContT`, `WriterT`.
-- Algebraic effects + handlers in `quivers.monadic.algebraic`: `Operation`, `EffectSignature`, `Handler`, `FreeMonad`.
-- `quivers.monadic.bridges`: `Kleisli`, `ArrowMonad`, `kleisli`, `arrow_monad` connecting the monad and arrow towers.
-- `quivers.arrows` package — Hughes-style arrow hierarchy (`Category_`, `Arrow`, `ArrowChoice`, `ArrowApply`, `ArrowLoop`, `ArrowZero`, `ArrowPlus`) with panproto-theory mirrors.
-- `quivers.stochastic.effect_lifts.class_directed_lifts` — class-driven schema lifting for effect-typed parsers.
+- Stdlib effect instances in `quivers.monadic.instances`: `Identity`, `Maybe`, `Alternative_`, `Continuation`, `State`, `Reader`, `Writer`, `List`. All operations (`pure`, `fmap`, `apply`, `join`, `bind`, `lift_a2`, `empty`, `alt`, `foldr`, `traverse`) are concrete V-relation realisations; function-space-dependent operations encode `[A → B]` as a finite `FinSet` of cardinality `|B|^|A|`. Monad transformers in `quivers.monadic.transformers`: `StateT`, `ReaderT`, `MaybeT`, `ContT`, `WriterT`.
+- Algebraic effects + handlers in `quivers.monadic.algebraic`: `Operation`, `EffectSignature`, `Handler`, `FreeMonad`. `FreeMonad` carrier is the bounded-depth signature-tree set realised as a flat `FinSet` with structural decomposition via `_decompose_carrier_index` / `_compose_carrier_index`; `pure`, `fmap`, `join`, `bind`, `lift_a2` satisfy the monad laws up to truncation. `Handler.run` is the post-order tree fold interpreting each leaf through `return_clause` and each operation node through `operation_clauses`. `EffectSignature.to_theory()` and `Handler.as_theory_morphism()` realise the panproto-side theory and theory morphism.
+- `quivers.monadic.bridges`: `Kleisli`, `ArrowMonad`, `CoKleisli`, `kleisli`, `arrow_monad`, `cokleisli` connecting the monad and arrow towers. `Kleisli.compose` is fmap-then-join with structural recovery of the underlying B; `Kleisli.first` is realised via the canonical monad strength `σ = (pure × id) >> lift_a2(id_{A⊗B})`; `Kleisli.app` routes through the Applicative apply. `ArrowMonad` provides `fmap/pure/apply/join/bind/lift_a2` via the underlying arrow's `arr`/`id_arr`/`app`/`compose`. `CoKleisli` is registered as `Category_`; promoting to `Arrow` requires an explicit comonad costrength supplied via `first_via_costrength(f, C, costrength)`.
+- `quivers.arrows` package — Hughes-style arrow hierarchy (`Category_`, `Arrow`, `ArrowChoice`, `ArrowApply`, `ArrowLoop`, `ArrowZero`, `ArrowPlus`) with panproto-theory mirrors. New `quivers.arrows.instances` with `VRel`, `Function`, `Stochastic` arrow instances; `loop_arr` realised via the V-quantale iterative trace (Joyal-Street-Verity 1996, §3).
+- `quivers.stochastic.effect_lifts.class_directed_lifts` — class-driven schema lifting for effect-typed parsers. `make_swap_schema` / `swap_rule_set` emit `swap_TU` schemas from registered `DistributiveLaw` instances for commutation firings.
+- `quivers.core._factories` module — concrete morphism constructors `inj`, `case`, `pi`, `pair`, `parallel`, `terminal`, `constant`, `distrib_right`, `coproduct_map`. The algebra on which the stdlib monads, arrows, and algebraic-effects layer are built.
 - New tree-sitter grammar at `grammars/qvr/` with regenerated parser; the unified `_type_expr` family subsumes the prior `_cat_pattern` productions.
-- Local-grammar override at `quivers.dsl._dev_grammar` (activated by `QVR_USE_LOCAL_GRAMMAR=1`) that compiles the in-tree grammar and injects it into `panproto.AstParserRegistry` when the upstream `panproto-grammars-all` wheel lags the in-tree source.
+- Local-grammar override at `quivers.dsl._dev_grammar` (activated by `QVR_USE_LOCAL_GRAMMAR=1`) using panproto 0.47's first-class `AstParserRegistry.override_grammar()` API. Compiles the in-tree grammar and installs it into the standard registry when the upstream `panproto-grammars-all` bundle hasn't yet vendored the latest grammar source.
 - `docs/guides/effects.md` and `docs/semantics/effects.md` — user guide and formal denotational layer for the typeclass + algebraic-effects framework.
 - `quantifier_scope.qvr` example demonstrating Charlow-style scope-taking via `Continuation`.
 
@@ -32,12 +35,31 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/), and this
 - `ObjectDecl` admits both `: type_expr` and `= initializer` forms.
 - `parser(...)` infers category atoms from a uniquely-declared `FreeResiduated` in scope when no `categories=` argument is supplied.
 - `QVR_PROGRAM_PROTOCOL` extended with `enum_set`, `free_residuated`, `schema_decl` vertex kinds.
+- `InsideAlgorithm` accepts an optional `unary` morphism; the chart fills with reflexive-transitive unary-rule closure at each cell.
+- `chart_fold(effect_depth>0)` no longer raises `CompileError`; the parameter flows through as informational metadata and the caller-supplied `binary` morphism (typically built via `lift_rule_set` over declared effects) provides the lifted firings. `handlers=` are post-composed via `_ChartHandlerComposite` log-space transitions.
+- Denotational-semantics docs: corrected marginalisation formulas (proper handling of residual input `Y`), Kleisli composition ordering in `programs.md` (`s_1 ⋄ ⋯ ⋄ s_n ⋄ ret`, not the reverse), scan formula typing in `expressions.md`, profunctor typing in `grammar.md`, the row-stochastic/`column-stochastic` distinction in `morphisms.md`, the `arrow_monad ∘ kleisli ≅ id` natural isomorphism in `effects.md`.
 
-### Filed upstream
+### Fixed
 
-- panproto/panproto#89 — runtime grammar override for in-development grammar work.
-- panproto/panproto#91 — `tuple[bare_dx.Model, ...]` field types.
-- panproto/panproto#92 — fields typed at typeclass ABCs.
+- `FreeMonad` carrier no longer collapses under `CoproductSet` auto-flattening when the leaf type is itself a coproduct; the flat-`FinSet` representation preserves the recursive leaf-vs-operation structure.
+- `FreeMonad.lift_a2` is the correct free-monad applicative recursion (bi-depth `(d_a, d_b, d_c)` tracking with proper continuation re-encoding), replacing a prior block-identity rule that misrepresented op-summand handling.
+- `FreeMonad.join` splices outer trees correctly through `_carrier_op_offset`, replacing a prior block-identity that mapped op-summand indices without accounting for the differing inner/outer continuation cardinalities.
+- `CoKleisli.first` was type-incorrect (`W(A) × C → B × C` vs the required `W(A × C) → B × C`); now registered as `Category_` only, with `first_via_costrength` for promotion to `Arrow` when a comonad costrength is supplied.
+- `List.fmap_obj` accepts non-`FinSet` inputs by re-encoding via cardinality; `List(List(A))` now type-checks and the monad laws hold on its own image.
+- `TypeCoproduct` was already correctly handled at `resolution.py:119`; documented as such.
+- Bridge round-trip claim in `effects.md` §7 corrected from `=` to `≅` (Hughes 2000 proves natural isomorphism via the `1 ⊗ A ≅ A` unitor, not equality).
+
+### Upstream
+
+- panproto/panproto#89 closed and shipped in panproto 0.47.0 — first-class runtime grammar override via `AstParserRegistry.override_grammar()`.
+- panproto/didactic#38 closed and shipped in didactic 0.7.0 — `tuple[Model, ...]` field types accept any `dx.Model` element directly (the workaround tuple-of-`TaggedUnion`-roots is no longer needed).
+- panproto/didactic#39 closed and shipped in didactic 0.7.0 — `dx.field(opaque=True)` for fields typed at typeclass ABCs (`Monad`, `ArrowApply`, etc.); opaque fields preserve in-process identity through `with_` but drop to `None` on JSON round-trip.
+
+### Dependencies
+
+- `panproto >= 0.47.0` (was `>= 0.45.0`).
+- `panproto-grammars-all >= 0.47.0` (was `>= 0.45.0`).
+- `didactic >= 0.7.1` (was `>= 0.6.0`).
 
 ## [0.2.0] - 2026-05-06
 

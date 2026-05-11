@@ -187,7 +187,7 @@ clause of $H$).
 
 The `kleisli` and `arrow_monad` bridges of
 [`quivers.monadic.bridges`](../api/index.md#monadic-package) realise
-the canonical natural transformations:
+the canonical theory morphisms:
 
 $$
 \mathrm{kleisli} \;:\; \mathrm{ThMonad} \;\to\; \mathrm{ThArrowApply},
@@ -195,11 +195,19 @@ $$
 \mathrm{arrow\_monad} \;:\; \mathrm{ThArrowApply} \;\to\; \mathrm{ThMonad}
 $$
 
-with $\mathrm{arrow\_monad} \circ \mathrm{kleisli} = \mathrm{id}$ on
-$\mathrm{ThMonad}$ ([Hughes 2000](https://doi.org/10.1016/S0167-6423(99)00023-4), Theorem 3.1). Consequently, the
+with $\mathrm{arrow\_monad} \circ \mathrm{kleisli} \;\cong\; \mathrm{id}_{\mathrm{ThMonad}}$
+and $\mathrm{kleisli} \circ \mathrm{arrow\_monad} \;\cong\; \mathrm{id}_{\mathrm{ThArrowApply}}$
+naturally isomorphic (not equal) via the canonical
+$1 \otimes A \cong A$ unitor that absorbs the
+``ArrowMonad(a)(A) = a(1, A)`` boxing
+([Hughes 2000](https://doi.org/10.1016/S0167-6423(99)00023-4), Theorem 3.1). Consequently the
 arrow-side and monad-side presentations of any effect agree on
-denotation, and the `chart_fold` runtime can equivalently express its
-`loop_arr` construction as Kleisli iteration of the binary step.
+denotation up to the canonical isomorphism. When the underlying
+monad is also a *monad-fix* — admitting a least-fixed-point
+operator — the `chart_fold` runtime's `loop_arr` construction agrees
+denotationally with the Kleisli-iteration of the binary step; for
+monads without `mfix`, the arrow-side trace is the well-defined
+realisation and the Kleisli side is undefined.
 
 **Conservativity.** When the declared effects list $\bar T$ is empty,
 the joint type-and-effect dispatch of [§4](#4-joint-type-and-effect-dispatch)

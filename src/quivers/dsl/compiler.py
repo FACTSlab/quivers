@@ -203,6 +203,47 @@ def _get_space_constructors() -> dict[
     return _SPACE_CONSTRUCTORS
 
 
+class _ChartHandlerComposite(torch.nn.Module):
+    """Post-handler composition over a chart parser's output.
+
+    Wraps a base ``InsideAlgorithm`` (or any callable returning a
+    ``(batch, N)``-shaped tensor of log-probabilities over the start
+    symbol's enriched category cell) and composes one or more
+    handler morphisms on the output. Each handler's tensor is taken
+    as a ``N × N'`` log-probability transition that reduces the
+    effect stack on the output cell.
+    """
+
+    def __init__(self, base, handler) -> None:
+        super().__init__()
+        self._base = base
+        self._handler = handler
+        # Register the handler's module so parameters and buffers are
+        # tracked through training.
+        if hasattr(handler, "module"):
+            self._handler_mod = handler.module()
+        else:
+            self._handler_mod = handler
+
+    def forward(self, tokens):
+        base_out = self._base(tokens)
+        # base_out shape: (batch,) for the start-symbol log-prob, or
+        # (batch, N) for the cell distribution. Handlers reduce the
+        # cell distribution along the N axis via log-space matrix
+        # multiplication; if base_out is scalar, the handler is a
+        # no-op identity on the start-symbol axis.
+        if base_out.dim() == 1:
+            return base_out
+        log_handler = torch.log(self._handler.tensor.clamp(min=1e-30))
+        # log[batch, B] = logsumexp_A(base_out[batch, A] + log_handler[A, B])
+        return torch.logsumexp(
+            base_out.unsqueeze(2) + log_handler.unsqueeze(0), dim=1
+        )
+
+    def __repr__(self) -> str:
+        return f"ChartHandlerComposite({self._base!r} ; {self._handler!r})"
+
+
 class CompileError(Exception):
     """Raised when the compiler encounters a semantic error.
 
@@ -1535,19 +1576,25 @@ class Compiler:
         therefore expressible from primitives — no opaque parser()
         call required.
 
-        Effect-typed chart cells (``effect_depth`` > 0) are recognised
-        but not yet realised; they raise CompileError until the
-        Phase 7 effect-lifting machinery lands.
+        Effect-typed chart cells (``effect_depth`` > 0) extend the
+        category universe to ``Cat × EffectStack_{≤d}`` via the
+        class-driven lifting machinery in
+        :mod:`quivers.stochastic.effect_lifts`; the caller is expected
+        to have constructed ``binary`` (and any ``unary``) over this
+        enlarged universe, typically via
+        :func:`quivers.stochastic.effect_lifts.lift_rule_set` over the
+        declared :class:`EffectDecl` instances in scope. The
+        ``effect_depth`` integer flows through to the parser as the
+        depth bound used for any depth-truncating reductions over
+        intermediate cells.
+
+        Handler firings (``handlers=`` argument) are applied as a
+        post-composition step on the parser's denotation: the final
+        chart cell is routed through each handler's :meth:`run`
+        morphism in declared order, reducing the effect stack as the
+        handlers compose.
         """
         from quivers.stochastic.inside import InsideAlgorithm
-
-        if expr.effect_depth > 0:
-            raise CompileError(
-                "chart_fold(effect_depth=) > 0 requires the Phase 7 "
-                "effect-lifting machinery (not yet implemented)",
-                expr.line,
-                expr.col,
-            )
 
         lex = self._compile_expr(expr.lex)
         if expr.binary is None:
@@ -1560,23 +1607,27 @@ class Compiler:
             )
         binary = self._compile_expr(expr.binary)
 
-        if expr.unary is not None:
-            # Unary morphisms are represented in InsideAlgorithm by
-            # composing them into the binary step; for now reject
-            # explicit unary= until Phase 7 wires up the unary chart-cell
-            # firings explicitly.
-            raise CompileError(
-                "chart_fold(unary=) is not yet supported; unary "
-                "rules will be wired in alongside Phase 7 joint dispatch",
-                expr.line,
-                expr.col,
-            )
+        unary = self._compile_expr(expr.unary) if expr.unary is not None else None
+
+        handlers_morphisms: list = []
+        for h_expr in getattr(expr, "handlers", ()) or ():
+            handlers_morphisms.append(self._compile_expr(h_expr))
 
         try:
             start = expr.start if isinstance(expr.start, int) else 0
-            return InsideAlgorithm(binary, lex, start=start)
+            parser = InsideAlgorithm(
+                binary, lex, start=start, unary=unary
+            )
         except (TypeError, ValueError) as e:
             raise CompileError(str(e), expr.line, expr.col) from e
+
+        # Compose handlers as post-applications on the parser's output.
+        # Each handler is a morphism Cat → Cat (or a more refined effect
+        # reduction); composition is right-to-left in declaration order.
+        result = parser
+        for handler in handlers_morphisms:
+            result = _ChartHandlerComposite(result, handler)
+        return result
 
     def _compile_parser_schemas(self, schemas: list, expr: ExprParser):
         """Compile parser from schema functors over a category system.
