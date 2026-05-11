@@ -461,7 +461,7 @@ output grammar
 
 ### [Event-Structure Latent-Class Model](event-structure.md)
 
-A four-class telicity × durativity latent-class model over cloze and proportion responses. Exercises plate-draws, a parametric `random_intercepts` template instantiated 8 times for crossed random intercepts on subject, verb, sense, and item, an ordinal monotone spline via `cumsum` of `HalfNormal` increments, vectorised observes against a runtime `observations` dict, and program-level `marginalize` for the discrete latent class.
+A four-class telicity × durativity latent-class model over cloze and proportion responses. Exercises plate-draws, a parametric `random_intercepts` template instantiated 8 times for crossed random intercepts on subject, verb, sense, and item, an ordinal monotone spline via `cumsum` of `HalfNormal` increments, vectorised observes against a runtime `observations` dict, and program-level `marginalize` for coordinate marginalisation.
 
 **Features:** `program`, parametric templates, plate-draw `: G -> 1`, `observe r[n] ~ ... for n in N`, `marginalize`, `cumsum`, `HalfNormal`
 

@@ -147,11 +147,11 @@ print(log_q.shape)  # [4]
 
 ## Passing Observations at Runtime
 
-Programs that use vectorised observes (`observe r[n] ~ F(args) for n in N`) read their response tensors from a runtime `observations: dict[str, torch.Tensor]` keyed by the observed-variable name. The dict is forwarded to `MonadicProgram.rsample`, `log_joint`, and `ELBO.forward` via the `observations` kwarg, and through `SVI.step`:
+Programs that use vectorised observes (`observe r[n] ~ F(args) for n in N`) read their response tensors from a runtime `observations: dict[str, torch.Tensor]` keyed by the observed-variable name. The dict is forwarded to `MonadicProgram.rsample` (kwarg) and to `ELBO.forward` / `SVI.step` (positional, after the program input):
 
 ```python
 observations = {"y": y_observed}            # shape matches the program's N
-loss = svi.step(domain_input, observations=observations, optimizer=optimizer)
+loss = svi.step(domain_input, observations)
 ```
 
 There is no `.qvr`-level data block; observation tensors live in Python at the call site.
@@ -204,13 +204,11 @@ for step in range(num_steps):
         optimizer.zero_grad()
 
         # Compute ELBO loss
-        loss = svi.step(torch.zeros(batch_size, 1, dtype=torch.long))
+        loss = svi.step(
+            torch.zeros(batch_size, 1, dtype=torch.long), batch_obs
+        )
 
-        # Backward and optimize
-        loss.backward()
-        optimizer.step()
-
-        batch_losses.append(loss.item())
+        batch_losses.append(loss)
 
     epoch_loss = sum(batch_losses) / len(batch_losses)
     losses.append(epoch_loss)

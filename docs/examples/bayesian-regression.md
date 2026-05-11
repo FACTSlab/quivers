@@ -72,5 +72,5 @@ For multi-dimensional regression, add predictor variables and coefficients. For 
 
 ## See Also
 
-- [Event-Structure Latent-Class Model](event-structure.md) for a full hierarchical example with crossed random intercepts via parametric templates, an ordinal monotone spline, vectorised observes, and discrete-latent marginalisation.
+- [Event-Structure Latent-Class Model](event-structure.md) for a full hierarchical example with crossed random intercepts via parametric templates, an ordinal monotone spline, vectorised observes, and coordinate marginalisation.
 - [DSL Guide: Hierarchical Bayesian Models](../guides/dsl.md#hierarchical-bayesian-models) for the plate-draw, parametric-template, and `marginalize` constructs.

@@ -43,10 +43,12 @@ program.add_draw("y", "f", args=("x",))
 program.add_return("y")
 
 # Forward pass: sampling
-samples = program(torch.randn(5), n_samples=100)  # shape (100, 3)
+samples = program.rsample(
+    torch.randn(5), sample_shape=torch.Size([100])
+)  # shape (100, 3)
 
-# Log joint: log p(output, latents | input)
-log_joint = program.log_joint(input_data, output_data)
+# Log joint: sum_i log p(z_i | pa(z_i)) given every bound variable
+log_joint = program.log_joint(input_data, {"x": x_val, "y": y_val})
 ```
 
 ## Draw Steps
@@ -121,35 +123,34 @@ Codomains are determined by the return statement shape.
 
 Two key operations:
 
-### rsample(domain_values, n_samples, observations=None)
+### rsample(x, sample_shape=(), observations=None)
 
 Generate samples by executing the program:
 
 ```python
-domain_val = torch.randn(5)
-samples = program.rsample(domain_val, n_samples=1000)
+x = torch.randn(5)
+samples = program.rsample(x, sample_shape=torch.Size([1000]))
 # shape: (1000, codomain_dim)
 ```
 
-Sequential ancestral sampling: each draw step samples, previous draws are available to subsequent steps.
+Sequential ancestral sampling: each draw step samples, previous draws are available to subsequent steps. `observations` is an optional `dict[str, torch.Tensor]` clamping observed sites to runtime data.
 
-### log_joint(domain_values, codomain_values, observations=None)
+### log_joint(x, intermediates)
 
-Compute $\log p(y, z_1, \ldots, z_k | x)$, where $x$ is domain input, $y$ is codomain (return value), and $z_i$ are intermediate latent draws:
+Compute $\log p(z_1, \ldots, z_k | x) = \sum_i \log p(z_i \mid \mathrm{pa}(z_i))$ given all bound-variable values:
 
 ```python
 x = torch.randn(5)
-y = torch.randn(3)  # output
+intermediates = {"z": z_value, "y": y_value}  # every bound variable
 
-log_pjoint = program.log_joint(x, y)
-# scalar or batch (depending on input shapes)
+log_pjoint = program.log_joint(x, intermediates)
 ```
 
-Useful for variational inference: `log_joint` enters the ELBO computation.
+`log_joint` is the core kernel summed across the program's draw / plate-draw / observe steps, used inside `ELBO.forward` after the guide samples latents.
 
 ### The `observations` dict
 
-Vectorised-observe steps (`observe r[n] ~ F(args) for n in N`) read their response buffers from a runtime `observations: dict[str, torch.Tensor]`, keyed by the observed-variable name. The dict is passed as the `observations` kwarg to `rsample`, `log_joint`, and `ELBO.forward`:
+Vectorised-observe steps (`observe r[n] ~ F(args) for n in N`) read their response buffers from a runtime `observations: dict[str, torch.Tensor]`, keyed by the observed-variable name. The dict is passed as the `observations` kwarg to `MonadicProgram.rsample` and as the final positional argument to `ELBO.forward` / `SVI.step`:
 
 ```python
 observations = {
@@ -157,9 +158,8 @@ observations = {
     "prop_resp":  prop_tensor,     # shape (n_prop_resp,)
 }
 
-samples  = program.rsample(x, n_samples=1, observations=observations)
-log_pjoint = program.log_joint(x, y, observations=observations)
-loss = elbo(x, y, observations=observations)
+samples = program.rsample(x, observations=observations)
+loss = elbo(model, guide, x, observations)
 ```
 
 There is no `.qvr`-level data block; the tensor sources live in Python at the call site, and the keys must match the response identifiers declared in the program body.
@@ -322,12 +322,16 @@ from quivers.dsl import load
 from quivers.inference import ELBO, AutoNormalGuide, SVI
 
 program = load("crossed.qvr")
+model = program.morphism  # underlying MonadicProgram
 observations = {"response": response_tensor}
 
-guide = AutoNormalGuide(program, observed_names={"response"})
-elbo  = ELBO(model=program, guide=guide)
-svi   = SVI(model=program, guide=guide)
+guide = AutoNormalGuide(model, observed_names={"response"})
+elbo  = ELBO(num_particles=1)
+optimizer = torch.optim.Adam(
+    list(model.parameters()) + list(guide.parameters()), lr=1e-2,
+)
+svi = SVI(model, guide, optimizer, elbo)
 
 for _ in range(2000):
-    svi.step(domain_input, observations=observations, optimizer=optimizer)
+    svi.step(domain_input, observations)
 ```

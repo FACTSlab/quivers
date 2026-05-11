@@ -115,14 +115,14 @@ observe cloze_resp[n] ~ Bernoulli(intercept_cloze) for n in RespCloze
 
 This denotes the sub-probabilistic kernel $\Phi \to \mathcal{G}_{\le 1}(\Phi)$ with score $\prod_{n \in \mathrm{RespCloze}} p_{\mathrm{Bern}}(r_{\mathrm{obs}}(n); \theta(n, \phi))$. The response buffer $r_{\mathrm{obs}}$ is supplied at runtime via the `observations` dict, keyed by the response identifier `cloze_resp`.
 
-### Discrete-latent marginalisation
+### Coordinate marginalisation
 
 ```qvr
 marginalize cloze_resp
 marginalize prop_resp
 ```
 
-The `marginalize` step pushes the accumulated joint measure forward through the projection $\pi : \Phi \times C \to \Phi$, integrating out the named coordinate by log-sum-exp on the accumulated log-likelihood. The two `marginalize` steps sum out the discrete latent class across the cloze and proportion sides of the experiment.
+The `marginalize` step pushes the accumulated joint measure forward through the projection $\pi : \Phi \times C \to \Phi$, integrating out the named coordinate by log-sum-exp on the accumulated log-likelihood. In a fully developed four-class telicity × durativity model the marginalised coordinate would be an explicit discrete latent class drawn earlier in the program; here `cloze_resp` and `prop_resp` stand in as the per-response coordinates the marginalisation operates on.
 
 ## Python Usage
 
@@ -132,22 +132,22 @@ from quivers.dsl import load
 from quivers.inference import AutoNormalGuide, ELBO, SVI
 
 program = load("event_structure.qvr")
+model = program.morphism  # underlying MonadicProgram
 
 observations = {
     "cloze_resp": cloze_response_tensor,   # shape (n_cloze_resp,)
     "prop_resp":  prop_response_tensor,    # shape (n_prop_resp,)
 }
 
-guide = AutoNormalGuide(program, observed_names={"cloze_resp", "prop_resp"})
-elbo  = ELBO(model=program, guide=guide)
-svi   = SVI(model=program, guide=guide)
-
+guide = AutoNormalGuide(model, observed_names={"cloze_resp", "prop_resp"})
+elbo  = ELBO(num_particles=1)
 optimizer = torch.optim.Adam(
-    list(program.parameters()) + list(guide.parameters()), lr=1e-2,
+    list(model.parameters()) + list(guide.parameters()), lr=1e-2,
 )
+svi = SVI(model, guide, optimizer, elbo)
 
 for step in range(5000):
-    loss = svi.step(item_input, observations=observations, optimizer=optimizer)
+    loss = svi.step(item_input, observations)
 ```
 
 ## Categorical Perspective
@@ -158,4 +158,4 @@ $$
 \llbracket \mathsf{event\_structure} \rrbracket \;:\; \mathrm{Data} \to \mathcal{G}\bigl(\mathrm{LatentClass} \times \mathrm{Item}\bigr),
 $$
 
-assembled by Kleisli composition of its step denotations. The vectorised observes accumulate Bernoulli log-likelihoods per response into a sub-probability kernel in $\mathcal{G}_{\le 1}$; the `marginalize` steps push forward through projection to integrate out the discrete latent class. The eight calls to `random_intercepts` are eight distinct fibres of the dependent kernel $\prod_{G : \mathbf{FinSet}} \prod_{\mathrm{scale} : \mathbb{R}} \mathbf{Kern}(G, \mathbf{1})$; substitution-and-α-rename at each call site is sound by the standard substitution lemma for the body's denotation function.
+assembled by Kleisli composition of its step denotations. The vectorised observes accumulate Bernoulli log-likelihoods per response into a sub-probability kernel in $\mathcal{G}_{\le 1}$; the `marginalize` steps push forward through projection on the corresponding trace coordinates. The eight calls to `random_intercepts` are eight distinct fibres of the dependent kernel $\prod_{G : \mathbf{FinSet}} \prod_{\mathrm{scale} : \mathbb{R}} \mathbf{Kern}(G, \mathbf{1})$; substitution-and-α-rename at each call site is sound by the standard substitution lemma for the body's denotation function.

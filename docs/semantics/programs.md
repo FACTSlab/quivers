@@ -212,22 +212,22 @@ where $\pi_{v_1, \dots, v_m} : \Phi_n \to \llbracket \tau_2 \rrbracket$ projects
 
 If $e$ contains labels (`return (a: x, b: y)`), the labels rename the coordinates of the resulting product space; this is a purely syntactic rebinding without semantic effect.
 
-## 3. Parameters and closures
+## 3. Data parameters
 
-A program declared with parameters
+A program declared with bare-identifier parameters
 
 ```
 program P (q₁, …, qₖ) : τ₁ -> τ₂
     body
 ```
 
-denotes a *parameterised* family of kernels: with $\Theta = \prod_i \Theta_{q_i}$ the parameter space (each $\Theta_{q_i}$ determined by $q_i$'s type),
+names the components of the domain $\tau_1$: when $\tau_1 = \sigma_1 \times \cdots \times \sigma_k$ is a $k$-fold product, each $q_i$ binds to the projection $\pi_i$ of the input. The denotation is unchanged from the unparameterised form,
 
 $$
-\llbracket P \rrbracket : \Theta \times \llbracket \tau_1 \rrbracket \to \mathcal{G}(\llbracket \tau_2 \rrbracket),
+\llbracket P \rrbracket : \llbracket \tau_1 \rrbracket \to \mathcal{G}(\llbracket \tau_2 \rrbracket),
 $$
 
-i.e.\ a morphism in $\mathbf{Kern}$ with extended domain. Concretely, parameter names are added to $\Gamma$ before the body is interpreted; the resulting Kleisli arrow is reused with each fresh parameter assignment by the training loop.
+i.e.\ a single morphism in $\mathbf{Kern}$; the $q_i$ are syntactic conveniences in the body, not additional dependent parameters. Typed parameters — covered in §3a below — extend this to dependent kernel families.
 
 ## 3a. Parametric programs
 
