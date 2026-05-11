@@ -98,25 +98,25 @@ nav:
   - Examples Gallery:
     - Overview: examples/index.md
     - Neural Architectures:
-      - Transformer: examples/transformer.md
+      - Overview: examples/transformer.md
       - Vanilla RNN: examples/vanilla-rnn.md
       - LSTM: examples/lstm.md
       - GRU: examples/gru.md
       - Elman Network: examples/elman-rnn.md
       - Bidirectional RNN: examples/bidirectional-rnn.md
     - Generative Models:
-      - Variational Autoencoder: examples/vae.md
+      - Overview: examples/vae.md
       - Gaussian Mixture Model: examples/mixture-model.md
       - "HMM (Discrete)": examples/hmm.md
       - "HMM (Continuous)": examples/continuous-hmm.md
     - Formal Grammars:
-      - PCFG: examples/pcfg.md
+      - Overview: examples/pcfg.md
       - CCG: examples/ccg.md
       - Lambek Calculus: examples/type-logical.md
       - Multimodal TLG: examples/multimodal-tlg.md
       - Custom Rules: examples/custom-rules.md
     - Probabilistic Programs:
-      - Bayesian Regression: examples/bayesian-regression.md
+      - Overview: examples/bayesian-regression.md
   - Tutorials:
     - Overview: tutorials/index.md
     - "Tutorial 1: Your First Quiver": tutorials/first-quiver.md
@@ -127,21 +127,21 @@ nav:
   - API Reference:
     - Overview: api/index.md
     - Core:
-      - Objects: api/core/objects.md
+      - Overview: api/core/objects.md
       - Quantales: api/core/quantales.md
       - Extra Quantales: api/core/extra_quantales.md
       - Morphisms: api/core/morphisms.md
       - Tensor Operations: api/core/tensor_ops.md
       - Utilities: api/core/util.md
     - Categorical:
-      - Functors: api/categorical/functors.md
+      - Overview: api/categorical/functors.md
       - Natural Transformations: api/categorical/natural_transformations.md
       - Adjunctions: api/categorical/adjunctions.md
       - Monoidal Structures: api/categorical/monoidal.md
       - Base Change: api/categorical/base_change.md
       - Traced Monoidal: api/categorical/traced.md
     - Monadic:
-      - Typeclass Hierarchy: api/monadic/typeclasses.md
+      - Overview: api/monadic/typeclasses.md
       - Stdlib Effect Instances: api/monadic/instances.md
       - Monad Transformers: api/monadic/transformers.md
       - Algebraic Effects: api/monadic/algebraic.md
@@ -153,10 +153,10 @@ nav:
       - Algebras & Coalgebras: api/monadic/algebras.md
       - Distributive Laws: api/monadic/distributive_laws.md
     - Arrows:
-      - Typeclass Hierarchy: api/arrows/typeclasses.md
+      - Overview: api/arrows/typeclasses.md
       - Arrow Theories: api/arrows/theories.md
     - Enriched:
-      - Ends & Coends: api/enriched/ends_coends.md
+      - Overview: api/enriched/ends_coends.md
       - Kan Extensions: api/enriched/kan_extensions.md
       - Weighted Limits: api/enriched/weighted_limits.md
       - Profunctors: api/enriched/profunctors.md
@@ -164,7 +164,7 @@ nav:
       - Day Convolution: api/enriched/day_convolution.md
       - Optics: api/enriched/optics.md
     - Stochastic:
-      - Effect Schema Lifting: api/stochastic/effect_lifts.md
+      - Overview: api/stochastic/effect_lifts.md
       - Quantale: api/stochastic/quantale.md
       - Morphisms: api/stochastic/morphisms.md
       - Families: api/stochastic/families.md
@@ -178,14 +178,14 @@ nav:
       - Chart Parsers: api/stochastic/parsers.md
       - Inside Algorithm: api/stochastic/inside.md
     - Continuous:
-      - Spaces: api/continuous/spaces.md
+      - Overview: api/continuous/spaces.md
       - Morphisms: api/continuous/morphisms.md
       - Families: api/continuous/families.md
       - Programs: api/continuous/programs.md
       - Boundaries: api/continuous/boundaries.md
       - Flows: api/continuous/flows.md
     - DSL:
-      - Parser: api/dsl/parser.md
+      - Overview: api/dsl/parser.md
       - AST Nodes: api/dsl/ast_nodes.md
       - Compiler: api/dsl/compiler.md
       - Resolution Lenses: api/dsl/resolution.md
@@ -193,7 +193,7 @@ nav:
       - Program Theory: api/dsl/program_theory.md
     - CLI: api/cli.md
     - Inference:
-      - Trace: api/inference/trace.md
+      - Overview: api/inference/trace.md
       - Conditioning: api/inference/conditioning.md
       - Guides: api/inference/guide.md
       - ELBO: api/inference/elbo.md
@@ -201,5 +201,5 @@ nav:
       - Predictive: api/inference/predictive.md
     - Program: api/program.md
   - Developer Guide:
-    - Contributing: developer/contributing.md
+    - Overview: developer/contributing.md
     - Changelog: developer/changelog.md
