@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "quivers"
-version = "0.2.0"
+version = "0.3.0"
 description = "Computational category theory as differentiable tensor programs"
 readme = "README.md"
 license = {text = "MIT"}
@@ -30,9 +30,9 @@ classifiers = [
 ]
 dependencies = [
     "torch>=2.0",
-    "didactic>=0.6.0",
-    "panproto>=0.45.0",
-    "panproto-grammars-all>=0.45.0",
+    "didactic>=0.7.1",
+    "panproto>=0.47.0",
+    "panproto-grammars-all>=0.47.0",
 ]
 
 [project.optional-dependencies]
@@ -58,6 +58,9 @@ Changelog = "https://github.com/FACTSlab/quivers/blob/main/CHANGELOG.md"
 
 [project.entry-points."pygments.lexers"]
 qvr = "quivers.dsl.pygments_lexer:QvrLexer"
+
+[project.scripts]
+qvr = "quivers.cli:main"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/quivers"]
@@ -89,6 +92,21 @@ reportIndexIssue = "warning"
 reportReturnType = "warning"
 reportOptionalIterable = "warning"
 reportOptionalSubscript = "warning"
-reportOptionalMemberAccess = "warning"
-reportAssignmentType = "warning"
+# Fields declared with `dx.field(opaque=True)` are typed at `object` by
+# the dx.Model contract — the runtime holds the actual typeclass-instance
+# reference by identity but pyright cannot see the methods on it. The
+# same widening surfaces as reportCallIssue when those methods are
+# invoked. Surface as warnings to stay visible without failing CI.
+reportAttributeAccessIssue = "warning"
 reportCallIssue = "warning"
+reportAssignmentType = "warning"
+reportOptionalMemberAccess = "warning"
+# pygments_lexer.py shadows class variables on pygments.lexer.Lexer
+# (`filenames`, `mimetypes`) and overrides `get_tokens_unprocessed` with
+# the tree-sitter-driven tokenizer; both are intentional and match the
+# Pygments extension contract.
+reportIncompatibleVariableOverride = "warning"
+reportIncompatibleMethodOverride = "warning"
+# tree_sitter is an optional dependency only used by the Pygments
+# highlighter fallback path; suppress its missing-import error.
+reportMissingImports = "warning"

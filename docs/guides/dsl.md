@@ -46,6 +46,7 @@ module         := statement*
 statement      := quantale_decl
                 | category_decl
                 | rule_decl
+                | schema_decl
                 | object_decl
                 | morphism_decl
                 | space_decl
@@ -64,15 +65,39 @@ quantale_decl  := 'quantale' ('product_fuzzy' | 'boolean'
 category_decl  := 'category' IDENT (',' IDENT)*
 
 rule_decl      := 'rule' IDENT '(' IDENT (',' IDENT)* ')' ':'
-                  cat_pattern (',' cat_pattern)* '=>' cat_pattern
-cat_pattern    := cat_slash
-cat_slash      := cat_product (('/' | '\') cat_product)*
-cat_product    := cat_primary ('*' cat_primary)*
-cat_primary    := IDENT | '(' cat_pattern ')'
+                  type_expr (',' type_expr)* '=>' type_expr
 
-object_decl    := 'object' IDENT ':' type_expr
-type_expr      := product_type ('+' product_type)*
-product_type   := primary_type ('*' primary_type)*
+# Pattern-polymorphic morphism schema with explicit parameter types
+# and a unified domain/codomain shape.
+schema_decl    := 'schema' IDENT '[' schema_param (',' schema_param)* ']'
+                  ':' type_expr '->' type_expr
+schema_param   := IDENT (',' IDENT)* ':' type_expr
+
+# Object declarations come in three forms:
+#   object X : 3                                     — anonymous-element FinSet
+#   object Atoms = {NP, S, VP}                       — EnumSet
+#   object Cat = FreeResiduated(Atoms, depth=4, ops=[slash])  — residuated universe
+object_decl    := 'object' IDENT (':' type_expr | '=' object_init)
+object_init    := enum_set_literal | free_residuated_expr
+enum_set_literal := '{' IDENT (',' IDENT)* '}'
+free_residuated_expr := 'FreeResiduated' '(' IDENT
+                       (',' free_residuated_arg)* ')'
+free_residuated_arg  := 'depth' '=' INT
+                      | 'ops' '=' '[' IDENT (',' IDENT)* ']'
+free_monoid_expr := 'FreeMonoid' '(' IDENT ',' 'max_length' '=' INT ')'
+
+# TypeExpr is the unified pattern sublanguage. Slash and effect-typed
+# forms are legal inside any TypeExpr; the compiler enforces
+# residuated-universe constraints on slash patterns at use-site.
+type_expr      := type_coproduct
+                | type_slash
+                | type_product
+                | type_effect_apply
+                | primary_type
+type_coproduct := type_expr '+' type_expr
+type_slash     := type_expr ('/' | '\') type_expr
+type_product   := type_expr '*' type_expr
+type_effect_apply := IDENT '(' type_expr (',' type_expr)* ')'
 primary_type   := IDENT | INT | '(' type_expr ')'
 
 morphism_decl  := ('latent' | 'observed') IDENT ':' type_expr '->' type_expr
@@ -129,6 +154,8 @@ compose_expr   := tensor_expr (('>>' | '>=>' | '<<') tensor_expr)*
 tensor_expr    := postfix_expr ('@' postfix_expr)*
 postfix_expr   := atom_expr ('.' method_call)*
 method_call    := 'marginalize' '(' IDENT (',' IDENT)* ')'
+                | 'curry_right'
+                | 'curry_left'
 atom_expr      := 'identity' '(' IDENT ')'
                 | 'fan' '(' expr (',' expr)* ')'
                 | 'repeat' '(' expr [',' INT] ')'
@@ -137,6 +164,7 @@ atom_expr      := 'identity' '(' IDENT ')'
                 | 'parser' '(' parser_args ')'
                 | 'ccg' '(' parser_args ')'
                 | 'lambek' '(' parser_args ')'
+                | 'chart_fold' '(' chart_fold_args ')'
                 | IDENT
                 | '(' expr ')'
 
@@ -146,6 +174,17 @@ parser_args    := 'rules' '=' '[' IDENT (',' IDENT)* ']'
                   [',' 'start' '=' (IDENT | INT)]
                   [',' 'depth' '=' INT]
                   [',' 'constructors' '=' '[' IDENT (',' IDENT)* ']']
+
+# chart_fold(...) is the desugared form of parser(...). lex= is a
+# morphism Token -> Cat; binary= and unary= are morphisms over the
+# residuated universe; effect_depth= bounds effect-stack nesting.
+chart_fold_args := chart_fold_arg (',' chart_fold_arg)*
+chart_fold_arg  := 'lex' '=' expr
+                 | 'binary' '=' expr
+                 | 'unary' '=' expr
+                 | 'start' '=' (IDENT | INT)
+                 | 'depth' '=' INT
+                 | 'effect_depth' '=' INT
 
 output_decl    := 'output' expr
 ```
@@ -234,16 +273,106 @@ let grammar = parser(
 )
 ```
 
-### Object
+### Doc Comments
 
-Declare a finite set:
+Lines starting with `##` are *doc comments*: they're attached to the
+declaration that immediately follows and surface through the AST,
+the panproto schema, and tooling (`qvr check --json`, future LSP
+hover). Plain `#` line comments are dropped at parse time.
 
 ```qvr
+## The terminal vocabulary; cardinality 256 is one byte.
+object Token : 256
+
+## Forward application: (X/Y) * Y -> X.
+schema forward_app[X, Y : Cat] : (X/Y) * Y -> X
+```
+
+Doc comments are recognised on `object`, `morphism`, `schema`,
+`alias`, `bundle`, and `program` declarations.
+
+### Alias
+
+`alias` declarations bind a short name to a type-level expression:
+
+```qvr
+## A short alias for the cartesian product of inputs.
+alias Pair = X * Y
+
+## A residuated pattern reused across schemas.
+alias Sentence = S \ NP
+```
+
+Object-shaped aliases (resolvable to a `SetObject`) are interchangeable
+with the underlying object — `latent f : Pair -> X` works. Residuated
+patterns are stored as syntactic aliases and substituted at schema
+use-sites; they cannot stand on their own as morphism domains.
+
+### Bundle
+
+`bundle` declarations name a tuple of rule references that
+`parser(rules=…)` and `chart_fold(binary=…)` splice into the rule
+list:
+
+```qvr
+## CCG core bundle.
+bundle CCG = [forward_app, backward_app, harmonic_composition]
+
+let grammar = parser(rules=[CCG], terminal=Token, start=S)
+```
+
+Bundles can reference other bundles; the expander detects cycles and
+reports them as `CompileError: bundle cycle through ...`.
+
+### Object
+
+Three surface forms:
+
+```qvr
+# 1. anonymous-element FinSet of given cardinality, or a TypeExpr
 object X : 3          # FinSet("X", 3)
 object Y : 4
 object XY : X * Y     # ProductSet(X, Y)
 object Sum : X + Y    # CoproductSet(X, Y)
-object Free : FreeMonoid(X, max_length=2)  # (not currently supported in DSL)
+object Free = FreeMonoid(X, max_length=2)  # FreeMonoid(generators=X, max_length=2)
+
+# 2. EnumSet — a finite set whose elements have explicit names.
+#    Cardinality is len(elements); used for declaring atom collections
+#    (e.g. categorial-grammar atoms) that are referenced by name.
+object Atoms = {NP, S, VP, N, PP}
+
+# 3. FreeResiduated — the residuated category universe over an EnumSet
+#    of generators, closed under the listed connectives up to a bounded
+#    nesting depth. Used as the parameter type of `schema` declarations.
+object Cat = FreeResiduated(Atoms, depth=2, ops=[slash])
+# ops accepts: slash, product, unit, diamond, box
+
+# 4. FreeMonoid — bounded Kleene closure over a FinSet of generators.
+object Free = FreeMonoid(X, max_length=4)
+```
+
+The `=` form binds `EnumSet` and `FreeResiduated` runtime objects (see
+the [Compositional Effects](effects.md) guide for how they participate
+in effect-typed schema lifting).
+
+### Schema (Pattern-Polymorphic Morphism)
+
+A `schema` declaration generalises the `rule` keyword: it declares a
+morphism schema with explicit pattern-variable types. The arity is
+derived from the domain shape — a 2-component `TypeProduct` produces a
+binary chart-rule; any other domain produces a unary rule.
+
+```qvr
+# Forward application: (X/Y) * Y -> X
+schema forward_app[X, Y : Cat] : (X/Y) * Y -> X
+
+# Backward application: Y * (X\Y) -> X
+schema backward_app[X, Y : Cat] : Y * (X\Y) -> X
+
+# Effect-typed schemas — the `T(X)` form is a TypeEffectApply
+# pattern; legal inside any TypeExpr position. See the Effects
+# guide for the typeclass-driven lifting machinery.
+schema apply_Cont[X, Y : Cat] : Cont_S(X/Y) * Cont_S(Y) -> Cont_S(X)
 ```
 
 ### Morphism
@@ -718,6 +847,53 @@ parser = ChartParser.from_schema(modal_schema, cs, n_terminals=100, start="S")
 | `COUNTING` | + | × | Derivation counting |
 
 **Learnable rule weights:** Each structural rule carries a learnable log-weight that biases the deduction scores. These are registered as `nn.Parameter` by default. To fix rule weights, pass `learnable_rule_weights=False` to the parser constructor.
+
+### chart_fold (Desugared Parser Construction)
+
+`chart_fold(...)` is the explicit form of which `parser(rules=...)` is sugar. Given a lexical morphism plus binary (and optional unary) morphisms over the residuated universe, it constructs a chart parser whose user-visible structure is expressible from primitives — no opaque `parser()` call required.
+
+```qvr
+object Atoms = {NP, S, VP, N, PP}
+object Cat = FreeResiduated(Atoms, depth=2, ops=[slash])
+object Token : 256
+
+schema forward_app[X, Y : Cat] : (X/Y) * Y -> X
+latent lex : Token -> Cat
+
+let grammar = chart_fold(
+    lex=lex,
+    binary=forward_app,
+    start=S,
+    depth=2,
+    effect_depth=0
+)
+output grammar
+```
+
+The `effect_depth` parameter bounds effect-stack nesting in the joint type-and-effect dispatch (see [Compositional Effects](effects.md)); leave at `0` for ordinary categorial grammars.
+
+### Curry Combinators (Residuation Witnesses)
+
+The `.curry_right` and `.curry_left` postfix combinators witness the right- and left-residuation isomorphisms. For an inner morphism `f : X * Y -> Z`:
+
+| Postfix | Result |
+|---------|--------|
+| `f.curry_right` | morphism `X -> Z/Y` |
+| `f.curry_left`  | morphism `Y -> X\Z` |
+
+Underlying tensor data is unchanged; only the domain/codomain factoring is reinterpreted. Validity requires the inner morphism's domain to factor as a non-trivial product.
+
+```qvr
+object X : 3
+object Y : 4
+object Z : 5
+
+latent f : X * Y -> Z
+let g = f.curry_right    # g : X -> Z/Y
+output g
+```
+
+The Lambek calculus inference rules (forward / backward application) become *theorems* derivable from `identity` + `curry`.
 
 ### Program
 

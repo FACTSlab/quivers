@@ -128,4 +128,4 @@ $$
 \mathrm{forward}(\mathrm{backward}(s, c)) = (s, c).
 $$
 
-The same structure holds for `SpaceExprToContinuousSpace`, with codomain $\mathbf{SBor} \cup \iota(\mathbf{FinSet})$ (the disjoint union of the two object classes, used to admit the mixed-domain fallback).
+The same structure holds for `SpaceExprToContinuousSpace`, with codomain $\mathbf{SBor}$ (which contains $\iota(\mathbf{FinSet})$ as the discrete-$\sigma$-algebra full subcategory used by the mixed-domain fallback).

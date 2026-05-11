@@ -559,6 +559,111 @@ class RepeatMorphism(Morphism):
         return f"RepeatMorphism({self._inner!r}, n={self._n})"
 
 
+class CurriedMorphism(Morphism):
+    """Residuation-witness curried morphism.
+
+    For an inner morphism ``f : X * Y -> Z`` whose codomain ``Z`` lives
+    in a residuated universe (a :class:`FreeResiduated`), produces the
+    morphism corresponding to the relevant residuation isomorphism:
+
+    - ``direction='right'`` realises the right-residuation
+      ``X * Y -> Z  ≅  X -> Z/Y`` (counit of the right-residual
+      adjunction),
+    - ``direction='left'`` realises the left-residuation
+      ``X * Y -> Z  ≅  Y -> X\\Z``.
+
+    The underlying tensor data is reinterpreted, not recomputed: the
+    same V-relation is presented under a different domain/codomain
+    factoring in the residuated universe.
+
+    Parameters
+    ----------
+    inner : Morphism
+        The base morphism. Must have a domain that factors as a
+        non-trivial product (``ProductSet`` with at least two
+        components) and a codomain that inhabits a residuated universe.
+    direction : Literal['right', 'left']
+        Which residuation to apply.
+
+    Raises
+    ------
+    TypeError
+        If ``inner.domain`` does not factor as a product.
+    """
+
+    def __init__(self, inner: Morphism, direction: str = "right") -> None:
+        from quivers.core.objects import FreeResiduated, ProductSet
+        from quivers.stochastic.categories import (
+            AtomicCategory,
+            SlashCategory,
+        )
+
+        if direction not in ("right", "left"):
+            raise ValueError(f"direction must be 'right' or 'left', got {direction!r}")
+        if not isinstance(inner.domain, ProductSet) or len(inner.domain.components) < 2:
+            raise TypeError(
+                f"curry requires inner morphism with product domain, "
+                f"got {type(inner.domain).__name__}"
+            )
+
+        # Split off the first or last factor of the domain product
+        # depending on direction; the residuation moves it into the
+        # codomain via the slash constructor.
+        components = inner.domain.components
+        if direction == "right":
+            new_domain_components = components[:-1]
+            absorbed = components[-1]
+        else:
+            new_domain_components = components[1:]
+            absorbed = components[0]
+
+        if len(new_domain_components) == 1:
+            new_domain = new_domain_components[0]
+        else:
+            new_domain = ProductSet(components=new_domain_components)
+
+        # Codomain is the residuation of inner.codomain by `absorbed`.
+        # When inner.codomain is a FreeResiduated universe, the new
+        # codomain is the same universe (closed under residuation).
+        # Otherwise, the construction is interpreted in the implicit
+        # residuated structure on the existing codomain.
+        if isinstance(inner.codomain, FreeResiduated):
+            new_codomain: SetObject = inner.codomain
+        else:
+            slash = "/" if direction == "right" else "\\"
+            cat = SlashCategory(
+                result=AtomicCategory(name=str(inner.codomain)),
+                argument=AtomicCategory(name=str(absorbed)),
+                direction=slash,  # type: ignore[arg-type]
+            )
+            new_codomain = inner.codomain  # underlying type unchanged
+            self._slash_category = cat
+
+        super().__init__(new_domain, new_codomain, quantale=inner._quantale)
+        self._inner = inner
+        self._direction = direction
+
+    @property
+    def inner(self) -> Morphism:
+        return self._inner
+
+    @property
+    def direction(self) -> str:
+        return self._direction
+
+    @property
+    def tensor(self) -> torch.Tensor:
+        # The residuation isomorphism is the identity on tensor data:
+        # the same V-relation, viewed under a different factoring.
+        return self._inner.tensor
+
+    def module(self) -> nn.Module:
+        return self._inner.module()
+
+    def __repr__(self) -> str:
+        return f"CurriedMorphism({self._inner!r}, direction={self._direction!r})"
+
+
 def morphism(
     domain: SetObject,
     codomain: SetObject,

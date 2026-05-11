@@ -33,6 +33,12 @@ jobs:
     strategy:
       matrix:
         python-version: ["3.14"]
+    env:
+      # The QVR tree-sitter grammar in grammars/qvr/ is not yet vendored
+      # in panproto-grammars-all; the local-grammar override compiles
+      # the in-tree grammar and installs it via
+      # AstParserRegistry.override_grammar at registry construction.
+      QVR_USE_LOCAL_GRAMMAR: "1"
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5

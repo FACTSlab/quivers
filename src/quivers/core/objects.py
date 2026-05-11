@@ -278,3 +278,129 @@ class FreeMonoid(SetObject):
         return (
             f"FreeMonoid(generators={self.generators!s}, max_length={self.max_length})"
         )
+
+
+class EnumSet(SetObject):
+    """A finite set whose elements have explicit names.
+
+    Unlike :class:`FinSet`, whose elements are anonymous integers
+    ``0..cardinality-1``, an :class:`EnumSet` carries a tuple of element
+    names; the cardinality is ``len(elements)``. Names must be unique.
+
+    Used for declaring atom collections (e.g. categorial-grammar atoms
+    like ``{NP, S, VP}``) that other constructions reference by name.
+
+    Attributes
+    ----------
+    name : str
+        Human-readable name for the set.
+    elements : tuple of str
+        The element names. Must be unique and non-empty.
+    """
+
+    name: str
+    elements: tuple[str, ...]
+    kind: Literal["enum_set"] = "enum_set"
+
+    __axioms__ = (
+        dx.axiom(
+            "length elements >= 1",
+            message="EnumSet must have at least one element",
+        ),
+    )
+
+    @property
+    def cardinality(self) -> int:
+        return len(self.elements)
+
+    @property
+    def size(self) -> int:
+        return len(self.elements)
+
+    @property
+    def shape(self) -> tuple[int, ...]:
+        return (len(self.elements),)
+
+    def index(self, name: str) -> int:
+        """Return the integer index of the element ``name``."""
+        try:
+            return self.elements.index(name)
+        except ValueError as e:
+            raise KeyError(
+                f"{name!r} is not an element of EnumSet {self.name!r}"
+            ) from e
+
+    def __str__(self) -> str:
+        inner = ", ".join(self.elements)
+        return f"{self.name}{{{inner}}}"
+
+
+class FreeResiduated(SetObject):
+    """The residuated category universe over a generator set.
+
+    Closes the generator atoms under the residuated monoidal connectives
+    (``/``, ``\\``, ``*``, optional ``◇`` / ``□``) up to a bounded
+    nesting depth. The runtime carrier is a finite enumeration of all
+    admissible category strings produced by
+    :func:`quivers.stochastic.categories.CategorySystem.from_generators`.
+
+    Attributes
+    ----------
+    generators : EnumSet
+        The atom generators (e.g. ``EnumSet(name='Atoms', elements=('NP', 'S', 'VP'))``).
+    depth : int
+        Maximum nesting depth of category constructors. ``depth=0``
+        gives only atoms; each increment doubles (slash) or grows
+        polynomially (product).
+    ops : tuple of str
+        The connectives to close under. Allowed names:
+        ``"slash"`` (both ``/`` and ``\\``), ``"product"`` (``*``),
+        ``"unit"`` (the monoidal unit), ``"diamond"`` (``◇``),
+        ``"box"`` (``□``).
+    """
+
+    generators: EnumSet
+    depth: int = 1
+    ops: tuple[str, ...] = ("slash",)
+    kind: Literal["free_residuated"] = "free_residuated"
+
+    __axioms__ = (
+        dx.axiom("depth >= 0", message="FreeResiduated depth must be non-negative"),
+    )
+
+    def system(self) -> object:
+        """Return the underlying :class:`CategorySystem`.
+
+        The system is constructed on each call (cheap for small depths;
+        callers expecting to use it multiple times should hold a
+        reference). Storing the result inside the model would require
+        a non-frozen field, which is incompatible with the dx.Model
+        contract.
+        """
+        from quivers.stochastic.categories import CategorySystem
+
+        return CategorySystem.from_generators(
+            list(self.generators.elements),
+            constructors=list(self.ops),
+            max_depth=self.depth,
+        )
+
+    @property
+    def size(self) -> int:
+        sys = self.system()
+        # CategorySystem implements __len__ as the cardinality of its
+        # finite category enumeration; fall through any AttributeError
+        # in the property body would mask as "missing field" via the
+        # dx.Model __getattr__ fallback, so coerce to a definite int.
+        return int(len(sys))  # type: ignore[arg-type]
+
+    @property
+    def shape(self) -> tuple[int, ...]:
+        return (self.size,)
+
+    def __str__(self) -> str:
+        ops = ", ".join(self.ops)
+        return (
+            f"FreeResiduated(generators={self.generators.name}, "
+            f"depth={self.depth}, ops=[{ops}])"
+        )

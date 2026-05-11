@@ -26,12 +26,24 @@ The `categorical` package implements standard category theory concepts and struc
 
 ## Monadic Package
 
-The `monadic` package covers monad and comonad theory and their algebraic structures.
+A typeclass hierarchy plus concrete monad instances, comonads,
+algebras, distributive laws, transformers, and algebraic effects.
 
-- **Monads**: Monad definitions and operations
-- **Comonads**: Comonad definitions and operations
-- **Algebras**: Monad and comonad algebras and coalgebras
-- **Distributive Laws**: Distributive laws between monads
+- **Typeclass Hierarchy**: `Functor`, `Applicative`, `Monad`, `Alternative`, `MonadPlus`, `Foldable`, `Traversable`, `MonadTrans` ABCs
+- **Stdlib Effect Instances**: `Identity`, `Maybe`, `Alternative_`, `Continuation`, `State`, `Reader`, `Writer`, `List`
+- **Monad Transformers**: `StateT`, `ReaderT`, `MaybeT`, `ContT`, `WriterT`
+- **Algebraic Effects**: `Operation`, `EffectSignature`, `Handler`, `FreeMonad`
+- **Bridges**: `Kleisli` / `ArrowMonad` connecting the monad and arrow towers
+- **Typeclass Theories**: panproto-theory mirrors
+- **Concrete Monads**: `KleisliCategory`, `FuzzyPowersetMonad`, `FreeMonoidMonad`
+- **Comonads**, **Algebras**, **Distributive Laws**
+
+## Arrows Package
+
+Hughes-style arrow tower (parallel to the monad-side hierarchy).
+
+- **Typeclass Hierarchy**: `Category_`, `Arrow`, `ArrowChoice`, `ArrowApply`, `ArrowLoop`, `ArrowZero`, `ArrowPlus`
+- **Arrow Theories**: panproto-theory mirrors
 
 ## Enriched Package
 

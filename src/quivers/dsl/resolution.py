@@ -49,9 +49,11 @@ from quivers.dsl.ast_nodes import (
     SpaceName,
     SpaceProduct,
     TypeCoproduct,
+    TypeEffectApply,
     TypeExpr,
     TypeName,
     TypeProduct,
+    TypeSlash,
 )
 
 
@@ -117,6 +119,23 @@ class TypeExprToSetObject(dx.Lens[TypeExpr, SetObject, TypeExpr]):
         if isinstance(t, TypeCoproduct):
             components = tuple(self._resolve(c) for c in t.components)
             return CoproductSet(components=components)
+
+        if isinstance(t, TypeSlash):
+            raise TypeError(
+                f"residuated TypeSlash {t.direction!r} is not a "
+                "resolvable SetObject; slash patterns appear only in "
+                "rule declarations, where they are matched against "
+                "the runtime Category system rather than resolved to "
+                "set objects (line {}, col {})".format(t.line, t.col)
+            )
+
+        if isinstance(t, TypeEffectApply):
+            raise TypeError(
+                f"effect-typed TypeEffectApply {t.effect!r} is not "
+                "yet resolvable as a SetObject; effect-typed "
+                "categories arrive in the Phase 7 effect-lifting "
+                f"machinery (line {t.line}, col {t.col})"
+            )
 
         raise TypeError(f"unexpected TypeExpr variant: {type(t).__name__}")
 

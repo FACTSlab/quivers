@@ -50,7 +50,7 @@ We give the denotation of each statement form as a Kleisli arrow on the program'
 
 $$
 \mathcal{B}\llbracket s_1; \cdots; s_n; \mathsf{return}\ e \rrbracket
-\;=\; \mathsf{ret}_e \diamond \mathcal{S}\llbracket s_n \rrbracket \diamond \cdots \diamond \mathcal{S}\llbracket s_1 \rrbracket,
+\;=\; \mathcal{S}\llbracket s_1 \rrbracket \diamond \mathcal{S}\llbracket s_2 \rrbracket \diamond \cdots \diamond \mathcal{S}\llbracket s_n \rrbracket \diamond \mathsf{ret}_e,
 $$
 
 where each $\mathcal{S}\llbracket s_i \rrbracket : \Phi_{i-1} \to \mathcal{G}(\Phi_i)$ is the Kleisli arrow assigned to statement $s_i$ (with $\Phi_0 = \Gamma$), and $\mathsf{ret}_e : \Phi_n \to \mathcal{G}(\llbracket \tau_2 \rrbracket)$ is the deterministic Kleisli arrow $\eta \circ \pi_e$ projecting onto the components named by the `return` clause.
