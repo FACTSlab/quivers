@@ -6,6 +6,136 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/), and this
 
 ## [Unreleased]
 
+## [0.4.1] - 2026-05-12
+
+Three connected bug fixes that unblock hierarchical-Bayesian
+workflows under the 0.4 surface. No grammar or parser changes;
+panproto does not need to revendor `panproto-grammars-all` for this
+release.
+
+### Fixed
+
+- **Variational guides respect constrained supports.**
+  `quivers.inference.AutoNormalGuide` and
+  `quivers.inference.AutoDeltaGuide` previously sampled in
+  unconstrained real space for every latent and fed the result
+  into the prior's `log_prob`, which raised
+  `ValueError: Expected value to be within the support of the
+  distribution` for any constrained family (`HalfNormal`, `Beta`,
+  `Uniform`, `Exponential`, `Gamma`, `LogNormal`, `LogitNormal`,
+  `HalfCauchy`, `Dirichlet`, …). Every `ContinuousMorphism` now
+  exposes a `support: Constraint` property; the inline
+  distributions (`FixedDistribution`, `MixedInlineDistribution`,
+  `DirectBernoulli`, `DirectTruncatedNormal`) and the
+  family-conditional distributions in `quivers.continuous.families`
+  override it with the correct constraint. The auto-guides sample
+  `z ~ Normal(loc, scale)` in unconstrained space, push through
+  `biject_to(support)` to land on the constrained side, and
+  evaluate `log_prob` with the Jacobian correction
+  (`log N(z) + log|det J_{T^{-1}}(v)|`). The simplex case routes
+  through `StickBreakingTransform` and accounts for the d ↔ d-1
+  dimension reduction. This is the same construction Pyro's
+  `AutoNormal` uses.
+
+- **`condition(model, data)` exposes host data to `let`-expression
+  gather, and plate latents are batch-invariant.** Keys in the
+  conditioning data dict that do not match a declared sample /
+  observe site are pre-populated into the trace environment as
+  deterministic values, visible to `let`-expression evaluation.
+  Free variables in `let` expressions (variables not bound by any
+  sample / observe / let / lambda step) are no longer rejected at
+  compile time; the runtime resolves them against the
+  conditioning data dict. Together with the batch-invariant plate
+  semantics below, this unlocks the canonical crossed-random-
+  effects idiom:
+  ```
+  program p : Resp -> Resp
+      by_subj : Subj <- Normal(0.0, 1.0)
+      let mu = sigmoid(by_subj[subj_idx])
+      observe r : Resp <- Bernoulli(mu)
+      return mu
+
+  cond = condition(p.morphism, {"subj_idx": idx, "r": y})
+  ```
+  Plate draws (`v : A <- F(args)`) are now batch-invariant: the
+  latent is a single shared tensor of shape `(|A|, *B.shape)` —
+  the standard Pyro / NumPyro semantic — instead of being
+  replicated against the program input's leading batch axis. The
+  gather `by_subj[subj_idx]` along the plate axis then produces a
+  per-row predictor of shape `(N_resp,)` that broadcasts cleanly
+  against an observed `Resp`-plate kernel. Scalar-per-row plates
+  (`Normal`, `HalfNormal`, …) drop the trailing length-1 axis so
+  the latent has the natural `(|A|,)` shape. Both
+  :class:`AutoNormalGuide` and :class:`AutoDeltaGuide` were
+  updated to advertise the same shape on the variational side:
+  plate latents are stored as `(|A|, unconstrained_dim)` parameter
+  tensors and sampled batch-invariant so ELBO substitution into
+  the model's log-joint env aligns shape-by-shape with the
+  model's :class:`PlateDraw` output. (Without this, the SVI step
+  ran into an `IndexError` from the plate-axis gather even though
+  `cond.trace(...)` on the same model succeeded.)
+
+- **Inline `Dirichlet` accepted as a prior with scalar or vector
+  concentration.** `pc <- Dirichlet(α)` and
+  `pc <- Dirichlet([α_1, …, α_K])` both compile. For scalar `α`,
+  the simplex dimension is inferred from the program's declared
+  codomain (`dim` for a `ContinuousSpace`, `cardinality` for a
+  `SetObject`, or 2 as a minimum); for a per-component vector,
+  the simplex dimension is the number of literals. The
+  `make_fixed_dirichlet` factory accepts both single-element
+  sequences (treated as symmetric) and per-component sequences.
+  Previous behaviour was to raise
+  `distribution family 'Dirichlet' is not supported as an inline
+  distribution; declare it as a continuous morphism instead`, or
+  to crash on the vector form with
+  `TypeError: make_fixed_dirichlet() takes 2 positional arguments
+  but 4 were given`.
+
+### Internal
+
+- `ContinuousMorphism.support` defaults to `constraints.real`;
+  every constrained-output subclass overrides it. Variational
+  guides consume this through
+  `torch.distributions.constraint_registry.biject_to`.
+- `_FAMILY_SUPPORTS` in `quivers.continuous.inline` maps each
+  inline family to its support, applied by
+  `make_inline_distribution` when constructing a
+  `MixedInlineDistribution`. `Uniform` and `TruncatedNormal`
+  specialise to the actual interval when both bounds are literal.
+- `trace()` pre-populates `env` with the non-site keys of the
+  observations dict before the program's steps run.
+- `_validate_let_expr_vars` treats unbound names as deferred host
+  references; the eval-time evaluator raises a clear `KeyError` if
+  the value is missing.
+- `PlateDraw.rsample` is batch-invariant: returns
+  `(|A|, *B.shape)` regardless of the program input's batch axis;
+  scalar-per-row plates squeeze the trailing length-1 dimension.
+  `PlateDraw.log_prob` accepts either the natural plate-latent
+  shape or the legacy flat `(batch, |A| · prod(B))` shape for
+  back-compat.
+- `_VECTOR_PARAM_FAMILIES` in `quivers.continuous.inline` lists
+  the inline families whose all-literal factory takes a single
+  vector argument rather than splatting positional floats; the
+  parser's flattened literal sequence is re-bundled into a list
+  before the factory call. Currently `{"Dirichlet"}`; the
+  mechanism is ready for `MultivariateNormal`, `Wishart`, and
+  `LKJCorrelationFactor` as those land.
+- `make_fixed_dirichlet` treats a single-element concentration
+  sequence as a scalar (symmetric Dirichlet), broadcast to the
+  codomain's simplex dimension; multi-element sequences must
+  match the codomain dimension exactly.
+
+### Tests
+
+`tests/test_inference_constrained.py` (21 cases): every supported
+constrained family under both auto-guides, host-data passing
+through `condition`, the end-to-end Bernoulli hierarchical-
+regression observation kernel that exercises the plate-gather →
+observe-plate composition, an SVI-step regression that verifies
+the guide / model plate shapes align and the ELBO descends with
+``loc_by_subj`` driven negative by all-zero responses, and inline
+Dirichlet with both scalar and vector concentrations.
+
 ## [0.4.0] - 2026-05-12
 
 This release lands three deeply-interconnected bodies of work in a

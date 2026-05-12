@@ -143,6 +143,25 @@ def trace(
             else:
                 env[pname] = chunk
 
+    # Pre-populate env with any keys in ``observations`` that don't
+    # match a declared sample/observe site. This is the host-data
+    # channel: `condition(model, {"resp": y, "subj_idx": idx})` makes
+    # ``subj_idx`` visible to ``let mu = by_subj[subj_idx]`` inside
+    # the program body without forcing the user to redeclare every
+    # per-row covariate as a sample site. Without this, integer index
+    # arrays would have nowhere to live — observations are clamped on
+    # sample sites, and program inputs are a single tensor with a
+    # fixed factoring.
+    _declared: set[str] = set()
+    for _spec in program._step_specs:
+        if isinstance(_spec, _LetSpec):
+            _declared.add(_spec.var)
+        else:
+            _declared.update(_spec.vars)
+    for _key, _val in observations.items():
+        if _key not in _declared:
+            env[_key] = _val
+
     for spec in program._step_specs:
         if isinstance(spec, _LetSpec):
             # deterministic binding

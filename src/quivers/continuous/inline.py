@@ -24,6 +24,7 @@ import math
 from collections.abc import Callable
 import torch
 import torch.distributions as D
+from torch.distributions import constraints as _constraints
 from quivers.core.objects import Unit
 from quivers.continuous.spaces import Euclidean
 from quivers.continuous.morphisms import ContinuousMorphism, AnySpace
@@ -44,14 +45,28 @@ class FixedDistribution(ContinuousMorphism):
         ``(batch_size: int, device: torch.device) -> Distribution``.
     discrete : bool
         Whether the output is discrete (returns LongTensor).
+    support : _constraints.Constraint, optional
+        The support of the underlying distribution. Used by variational
+        guides to apply the right bijector for unconstrained→constrained
+        sampling. Defaults to ``constraints.real``; the factory
+        functions for each family supply the correct constraint.
     """
 
     def __init__(
-        self, codomain: AnySpace, make_dist: Callable, discrete: bool = False
+        self,
+        codomain: AnySpace,
+        make_dist: Callable,
+        discrete: bool = False,
+        support: _constraints.Constraint | None = None,
     ) -> None:
         super().__init__(Unit, codomain)
         self._make_dist_fn = make_dist
         self._discrete = discrete
+        self._support = support if support is not None else D.constraints.real
+
+    @property
+    def support(self) -> _constraints.Constraint:
+        return self._support
 
     def rsample(
         self, x: torch.Tensor, sample_shape: torch.Size = torch.Size()
@@ -131,6 +146,9 @@ class MixedInlineDistribution(ContinuousMorphism):
         Receives one 1-D tensor per parameter (all same batch size).
     discrete : bool
         Whether the output is discrete (returns LongTensor).
+    support : Constraint, optional
+        Support of the underlying distribution; used by variational
+        guides. Defaults to ``constraints.real``.
     """
 
     def __init__(
@@ -140,11 +158,17 @@ class MixedInlineDistribution(ContinuousMorphism):
         param_spec: list[tuple[str, int | float]],
         dist_builder: Callable,
         discrete: bool = False,
+        support: _constraints.Constraint | None = None,
     ) -> None:
         super().__init__(domain, codomain)
         self._param_spec = param_spec
         self._dist_builder = dist_builder
         self._discrete = discrete
+        self._support = support if support is not None else _constraints.real
+
+    @property
+    def support(self) -> _constraints.Constraint:
+        return self._support
 
     def _resolve_params(self, x: torch.Tensor) -> list[torch.Tensor]:
         """Reconstruct full parameter list from input + stored literals.
@@ -252,6 +276,10 @@ class DirectBernoulli(ContinuousMorphism):
 
     def __init__(self, domain: AnySpace, codomain: AnySpace) -> None:
         super().__init__(domain, codomain)
+
+    @property
+    def support(self) -> _constraints.Constraint:
+        return _constraints.boolean
 
     def rsample(
         self, x: torch.Tensor, sample_shape: torch.Size = torch.Size()
@@ -389,6 +417,10 @@ class DirectTruncatedNormal(ContinuousMorphism):
         self._low = low
         self._high = high
 
+    @property
+    def support(self) -> _constraints.Constraint:
+        return _constraints.interval(self._low, self._high)
+
     def rsample(
         self, x: torch.Tensor, sample_shape: torch.Size = torch.Size()
     ) -> torch.Tensor:
@@ -479,7 +511,7 @@ def make_fixed_logitnormal(
         base = D.Normal(mu_t, sigma_t)
         return D.TransformedDistribution(base, [D.SigmoidTransform()])
 
-    return FixedDistribution(codomain, builder)
+    return FixedDistribution(codomain, builder, support=_constraints.unit_interval)
 
 
 def make_fixed_uniform(
@@ -508,7 +540,9 @@ def make_fixed_uniform(
         high_t = torch.full((batch, d), high, device=device)
         return D.Uniform(low_t, high_t)
 
-    return FixedDistribution(codomain, builder)
+    return FixedDistribution(
+        codomain, builder, support=_constraints.interval(low, high)
+    )
 
 
 def make_fixed_normal(
@@ -560,7 +594,9 @@ def make_fixed_bernoulli(prob: float, codomain: AnySpace) -> FixedDistribution:
         probs_t = torch.full((batch,), prob, device=device)
         return D.Bernoulli(probs=probs_t)
 
-    return FixedDistribution(codomain, builder, discrete=True)
+    return FixedDistribution(
+        codomain, builder, discrete=True, support=_constraints.boolean
+    )
 
 
 def make_fixed_beta(
@@ -589,7 +625,7 @@ def make_fixed_beta(
         b = torch.full((batch, d), concentration0, device=device)
         return D.Beta(a, b)
 
-    return FixedDistribution(codomain, builder)
+    return FixedDistribution(codomain, builder, support=_constraints.unit_interval)
 
 
 def make_fixed_exponential(rate: float, codomain: AnySpace) -> FixedDistribution:
@@ -613,7 +649,7 @@ def make_fixed_exponential(rate: float, codomain: AnySpace) -> FixedDistribution
         rate_t = torch.full((batch, d), rate, device=device)
         return D.Exponential(rate_t)
 
-    return FixedDistribution(codomain, builder)
+    return FixedDistribution(codomain, builder, support=_constraints.positive)
 
 
 def make_fixed_halfcauchy(scale: float, codomain: AnySpace) -> FixedDistribution:
@@ -637,7 +673,7 @@ def make_fixed_halfcauchy(scale: float, codomain: AnySpace) -> FixedDistribution
         scale_t = torch.full((batch, d), scale, device=device)
         return D.HalfCauchy(scale_t)
 
-    return FixedDistribution(codomain, builder)
+    return FixedDistribution(codomain, builder, support=_constraints.positive)
 
 
 def make_fixed_halfnormal(scale: float, codomain: AnySpace) -> FixedDistribution:
@@ -661,7 +697,7 @@ def make_fixed_halfnormal(scale: float, codomain: AnySpace) -> FixedDistribution
         scale_t = torch.full((batch, d), scale, device=device)
         return D.HalfNormal(scale_t)
 
-    return FixedDistribution(codomain, builder)
+    return FixedDistribution(codomain, builder, support=_constraints.positive)
 
 
 def make_fixed_lognormal(
@@ -690,7 +726,7 @@ def make_fixed_lognormal(
         scale_t = torch.full((batch, d), scale, device=device)
         return D.LogNormal(loc_t, scale_t)
 
-    return FixedDistribution(codomain, builder)
+    return FixedDistribution(codomain, builder, support=_constraints.positive)
 
 
 def make_fixed_gamma(
@@ -719,7 +755,69 @@ def make_fixed_gamma(
         rate_t = torch.full((batch, d), rate, device=device)
         return D.Gamma(conc_t, rate_t)
 
-    return FixedDistribution(codomain, builder)
+    return FixedDistribution(codomain, builder, support=_constraints.positive)
+
+
+def make_fixed_dirichlet(
+    concentration: float | list[float], codomain: AnySpace
+) -> FixedDistribution:
+    """Create a fixed Dirichlet(concentration) distribution on the simplex
+    over the codomain's element axis.
+
+    Parameters
+    ----------
+    concentration : float or list of float
+        Concentration parameter. A scalar is broadcast to all simplex
+        components (symmetric Dirichlet). A list / tuple of length
+        equal to the codomain's dimension specifies per-component
+        concentrations. Each entry must be positive.
+    codomain : AnySpace
+        Output space; its ``dim`` attribute gives the simplex
+        dimension (the number of components).
+
+    Returns
+    -------
+    FixedDistribution
+        Distribution morphism sampling from the chosen Dirichlet on
+        the (d-1)-simplex embedded in ``R^d``.
+    """
+    d = getattr(codomain, "dim", 1)
+    if d < 2:
+        raise ValueError(f"Dirichlet codomain must have dim >= 2, got dim={d}")
+    if isinstance(concentration, (list, tuple)):
+        if len(concentration) == 1:
+            # Single-element sequence is treated as a scalar
+            # (symmetric Dirichlet); broadcast to the codomain's
+            # simplex dimension.
+            conc_values = [float(concentration[0])] * d
+        elif len(concentration) != d:
+            raise ValueError(
+                f"Dirichlet concentration vector has length "
+                f"{len(concentration)} but codomain has dim={d}"
+            )
+        else:
+            conc_values = [float(c) for c in concentration]
+    else:
+        conc_values = [float(concentration)] * d
+    if any(c <= 0.0 for c in conc_values):
+        raise ValueError(
+            f"Dirichlet concentration must be positive componentwise, got {conc_values}"
+        )
+    conc_tuple = tuple(conc_values)
+
+    def builder(batch: int, device: torch.device) -> D.Distribution:
+        conc_t = torch.tensor(conc_tuple, device=device).expand(batch, d)
+        return D.Dirichlet(conc_t)
+
+    return FixedDistribution(codomain, builder, support=_constraints.simplex)
+
+
+# Families whose all-literal factory takes a single vector
+# argument (a ``list[float]`` or ``tuple[float, ...]``) rather than
+# one positional float per scalar parameter. The inline call site in
+# ``make_inline_distribution`` re-bundles the splat-flattened
+# literals into a list before invoking the factory.
+_VECTOR_PARAM_FAMILIES: frozenset[str] = frozenset({"Dirichlet"})
 
 
 _FIXED_FACTORIES: dict[str, tuple[tuple[str, ...], Callable]] = {
@@ -733,6 +831,26 @@ _FIXED_FACTORIES: dict[str, tuple[tuple[str, ...], Callable]] = {
     "HalfNormal": (("scale",), make_fixed_halfnormal),
     "LogNormal": (("loc", "scale"), make_fixed_lognormal),
     "Gamma": (("concentration", "rate"), make_fixed_gamma),
+    "Dirichlet": (("concentration",), make_fixed_dirichlet),
+}
+
+# Per-family support constraints for inline distributions. Used when
+# constructing a :class:`MixedInlineDistribution` (which has at least one
+# variable-bound parameter) so the resulting morphism advertises the
+# correct constrained support to variational guides.
+_FAMILY_SUPPORTS: dict[str, _constraints.Constraint] = {
+    "Normal": _constraints.real,
+    "Bernoulli": _constraints.boolean,
+    "TruncatedNormal": _constraints.real,  # interval is set per-call
+    "LogitNormal": _constraints.unit_interval,
+    "Uniform": _constraints.real,  # interval is set per-call
+    "Beta": _constraints.unit_interval,
+    "Exponential": _constraints.positive,
+    "HalfCauchy": _constraints.positive,
+    "HalfNormal": _constraints.positive,
+    "LogNormal": _constraints.positive,
+    "Gamma": _constraints.positive,
+    "Dirichlet": _constraints.simplex,
 }
 
 
@@ -851,6 +969,13 @@ def _gamma_builder(params: list[torch.Tensor]) -> D.Distribution:
     return D.Gamma(params[0].clamp(min=EPS), params[1].clamp(min=EPS))
 
 
+def _dirichlet_builder(params: list[torch.Tensor]) -> D.Distribution:
+    """Build Dirichlet from [concentration]. The concentration tensor is
+    ``(batch,)`` for scalar input (broadcast to the simplex dimension at
+    sample time) or ``(batch, d)`` for a per-fibre vector."""
+    return D.Dirichlet(params[0].clamp(min=EPS))
+
+
 _FAMILY_BUILDERS: dict[str, tuple[tuple[str, ...], Callable, bool]] = {
     "Normal": (("loc", "scale"), _normal_builder, False),
     "Bernoulli": (("probs",), _bernoulli_builder, True),
@@ -867,6 +992,7 @@ _FAMILY_BUILDERS: dict[str, tuple[tuple[str, ...], Callable, bool]] = {
     "HalfNormal": (("scale",), _halfnormal_builder, False),
     "LogNormal": (("loc", "scale"), _lognormal_builder, False),
     "Gamma": (("concentration", "rate"), _gamma_builder, False),
+    "Dirichlet": (("concentration",), _dirichlet_builder, False),
 }
 
 
@@ -909,7 +1035,17 @@ def make_inline_distribution(
         all_floats = [float(a) for a in args]
         if family in _FIXED_FACTORIES:
             _, factory = _FIXED_FACTORIES[family]
-            morph = factory(*all_floats, codomain)
+            # Vector-parameter families take a single ``list[float]``
+            # / ``tuple[float, ...]`` argument rather than splatting
+            # the literals. The parser surfaces ``Dirichlet([1, 2, 3])``
+            # as three positional float args (the grammar's draw-arg
+            # list flattens any bracket-bounded numeric sequence), so
+            # we re-bundle here when the factory's documented contract
+            # is a single vector argument.
+            if family in _VECTOR_PARAM_FAMILIES:
+                morph = factory(all_floats, codomain)
+            else:
+                morph = factory(*all_floats, codomain)
             return (morph, None)
         raise ValueError(f"no fixed factory for inline family {family!r}")
     if family not in _FAMILY_BUILDERS:
@@ -946,8 +1082,29 @@ def make_inline_distribution(
         )
     else:
         domain = _infer_domain(var_name_order, variable_types)
+    fam_support: _constraints.Constraint = _FAMILY_SUPPORTS.get(
+        family, _constraints.real
+    )
+    # TruncatedNormal / Uniform encode bounded supports via two literal
+    # arguments; if both bounds are literal we can specialise the
+    # constraint to the matching :class:`interval`. Otherwise we fall
+    # back to ``real`` (the closest correct guide-side approximation).
+    if family in ("TruncatedNormal", "Uniform"):
+        lit_args: list[float] = []
+        for kind, value in param_spec:
+            if kind == "lit":
+                lit_args.append(float(value))
+        if family == "Uniform" and len(lit_args) == 2:
+            fam_support = _constraints.interval(lit_args[0], lit_args[1])
+        elif family == "TruncatedNormal" and len(lit_args) >= 2:
+            fam_support = _constraints.interval(lit_args[-2], lit_args[-1])
     morph = MixedInlineDistribution(
-        domain, codomain, param_spec, dist_builder, discrete
+        domain,
+        codomain,
+        param_spec,
+        dist_builder,
+        discrete,
+        support=fam_support,
     )
     return (morph, tuple(var_name_order))
 

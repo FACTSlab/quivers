@@ -32,6 +32,7 @@ from collections.abc import Callable
 import torch
 import torch.nn.functional as F
 import torch.distributions as D
+from torch.distributions import constraints as _constraints
 
 from quivers.continuous.spaces import (
     ContinuousSpace,
@@ -350,6 +351,10 @@ class ConditionalLogitNormal(ContinuousMorphism):
         self.param_source = _make_source(domain, 2 * d, hidden_dim)
         self._d = d
 
+    @property
+    def support(self) -> _constraints.Constraint:
+        return _constraints.unit_interval
+
     def _get_params(
         self,
         x: torch.Tensor,
@@ -424,6 +429,10 @@ class ConditionalBeta(ContinuousMorphism):
         self.param_source = _make_source(domain, 2 * d, hidden_dim)
         self._d = d
 
+    @property
+    def support(self) -> _constraints.Constraint:
+        return _constraints.unit_interval
+
     def _get_params(
         self,
         x: torch.Tensor,
@@ -484,6 +493,10 @@ class ConditionalTruncatedNormal(ContinuousMorphism):
         self._d = d
         self._low = codomain.low
         self._high = codomain.high
+
+    @property
+    def support(self) -> _constraints.Constraint:
+        return _constraints.interval(float(self._low), float(self._high))
 
     def _get_params(
         self,
@@ -562,6 +575,10 @@ class ConditionalDirichlet(ContinuousMorphism):
         d = codomain.dim
         self.param_source = _make_source(domain, d, hidden_dim)
         self._d = d
+
+    @property
+    def support(self) -> _constraints.Constraint:
+        return _constraints.simplex
 
     def _get_concentration(self, x: torch.Tensor) -> torch.Tensor:
         raw = self.param_source(x)
@@ -737,6 +754,21 @@ class ConditionalUniform(ContinuousMorphism):
         # param_dim = d (loc) + d (raw_width)
         self.param_source = _make_source(domain, 2 * d, hidden_dim)
         self._d = d
+        # The bounds are data-dependent, so we cannot pin a single
+        # interval at construction time; advertise the codomain's
+        # declared bounds when available, otherwise fall back to the
+        # real line.
+        low, high = getattr(codomain, "low", None), getattr(codomain, "high", None)
+        if low is not None and high is not None:
+            self._support_cache: _constraints.Constraint = _constraints.interval(
+                float(low), float(high)
+            )
+        else:
+            self._support_cache = _constraints.real
+
+    @property
+    def support(self) -> _constraints.Constraint:
+        return self._support_cache
 
     def _get_dist(self, x: torch.Tensor) -> D.Uniform:
         raw = self.param_source(x)
@@ -1044,6 +1076,10 @@ class ConditionalWishart(ContinuousMorphism):
         self.param_source = _make_source(domain, 1 + n_tril, hidden_dim)
         self._d = d
         self._n_tril = n_tril
+
+    @property
+    def support(self) -> _constraints.Constraint:
+        return _constraints.positive_definite
 
     def _get_dist(self, x: torch.Tensor) -> D.Wishart:
         raw = self.param_source(x)

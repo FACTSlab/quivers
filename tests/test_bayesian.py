@@ -111,11 +111,15 @@ class TestPrimitives:
         per_row = Euclidean(name="row", dim=2)
         family = ConditionalNormal(domain, per_row)
         plate = PlateDraw(index_size=5, family=family, domain=domain)
+        # Plate draws are batch-invariant: the latent is a global
+        # model parameter shared across every row of an observed
+        # plate, not replicated per program-input batch row.
         sample = plate.rsample(torch.zeros(3, 1))
-        # batch × (|A| · K)
-        assert sample.shape == (3, 5 * 2)
+        assert sample.shape == (5, 2)
         lp = plate.log_prob(torch.zeros(3, 1), sample)
-        assert lp.shape == (3,)
+        # Scalar log-density wrapped in a length-1 tensor so it
+        # broadcasts cleanly against the response plate downstream.
+        assert lp.shape == (1,)
         assert torch.isfinite(lp).all()
 
     def test_vectorised_observe_log_prob(self):
