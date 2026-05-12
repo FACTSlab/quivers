@@ -1,108 +1,159 @@
-# Grammar Fragment
+# Weighted Deduction Fragment
 
-The QVR grammar fragment introduces three syntactic categories — `category`, `rule`, and the `cat_pattern` sub-language — together with the parser combinators of [Expressions §4](expressions.md#4-parser-combinators). Together they describe a categorial-grammar-style chart parser whose denotations sit in the Kleisli category $\mathbf{Stoch}$ (or $\mathbf{Kern}$, when continuous score weights are used).
+The QVR weighted-deduction fragment is declared by the
+`deduction NAME : Domain -> Codomain { … }` block. A single block
+realises grammar-style parsers, type-theoretic proof systems,
+Datalog-shaped fixed-point evaluations, and graph algorithms as
+parameter settings on the same agenda engine. See
+[Weighted Deduction Systems](../guides/deduction.md) for the user
+guide; this page gives the formal denotation.
 
-## 1. Category atoms
+## 1. Item algebra
 
-A declaration `category A, B, C` introduces atoms $A, B, C \in \mathrm{Atom}$. Their denotation is purely *syntactic*: each atom is a distinct generator of the free monoidal-residuated category that follows.
+A `deduction` block fixes a single item algebra `I` via the
+`atoms { … }` field. The atoms are the closed set of nullary and
+parametric constructor symbols; an item `i ∈ I` is a constructor
+application `c(a_1, …, a_n)` with `c` an atom and `a_1, …, a_n`
+arbitrary nested items. Concretely, `I` is the free algebra over
+the atoms quotiented by the underlying carrier object `Term`'s
+identification of structurally equal applications.
 
-## 2. Category patterns
+Pattern variables (single-uppercase identifiers in a rule body)
+range over `I`; the unifier supplies first-order substitutions.
 
-The grammar of patterns
-
-$$
-\pi \;::=\; A \;\big|\; \pi_1 / \pi_2 \;\big|\; \pi_1 \backslash \pi_2 \;\big|\; \pi_1 \star \pi_2 \;\big|\; \mathbf{1}
-$$
-
-generates the free *bi-residuated monoidal category* $\mathcal{C}_{\mathrm{Atom}}$ on the atoms. Concretely, $\mathcal{C}_{\mathrm{Atom}}$ has:
-
-- objects: equivalence classes of patterns under the residuated equations,
-- morphisms: derivations in the appropriate sequent calculus (Lambek calculus, with optional non-associativity for multimodal extensions).
-
-The two slashes are the residuals of $\star$ on the right and left, respectively, with the standard adjunctions
-
-$$
-\pi_1 \star \pi_2 \to \pi_3 \quad \Longleftrightarrow \quad \pi_1 \to \pi_3 / \pi_2 \quad \Longleftrightarrow \quad \pi_2 \to \pi_1 \backslash \pi_3.
-$$
-
-These adjunctions, together with the symmetric monoidal structure of $\star$, axiomatise $\mathcal{C}_{\mathrm{Atom}}$ as the free symmetric residuated monoidal category on $\mathrm{Atom}$.
-
-## 3. Rules
+## 2. Rules
 
 A rule declaration
 
 ```
-rule r(X₁, …, Xₖ) : π₁, …, πₘ => π
+rule r : π_1, …, π_m |- π
 ```
 
-introduces a sequent-calculus axiom
+introduces a hyperedge in the rule-system multicategory: a
+universally quantified sequent
 
 $$
-\frac{\quad \pi_1[\bar X / \bar\pi]\quad \cdots \quad \pi_m[\bar X / \bar\pi]\quad}{\pi[\bar X / \bar\pi]} \quad (r)
+\frac{\pi_1[\bar X / \bar\pi] \quad \cdots \quad \pi_m[\bar X / \bar\pi]}{\pi[\bar X / \bar\pi]} \quad (r)
 $$
 
-universally quantified over substitutions $[\bar X / \bar\pi]$ for the rule's parameter list. Rules of arity 1 (one premise) and arity 2 (two premises) cover all built-in cases.
+over substitutions `[\bar X / \bar\pi]` for the rule's free pattern
+variables. The hyperedge carries a log-weight `β_r ∈ K` for the
+declared semiring `K` (zero by default, learnable per axiom-source
+entry).
 
-Each rule denotes a natural transformation
+The collection of all rules forms a rule system
+`Σ : I^{op} × I → K-Vect` assigning to each pair `(i, i')` the
+`K`-module spanned by `Σ`-derivations `i ⊢ i'`. Rules are
+hyperedges in the multicategory of items; the agenda fires each
+rule by substitution along a pattern morphism into the chart.
+
+## 3. Semiring
+
+The semiring field selects the scoring quantale `K`:
+
+| Field value | $\oplus$ (plus) | $\otimes$ (times) | Use |
+|-------------|-----------------|--------------------|-----|
+| `LogProb` | logsumexp | + | marginal log-probability |
+| `Viterbi` | max | + | best-derivation decoding |
+| `Boolean` | or | and | recognition |
+| `Counting` | + | × | derivation counts |
+| `ProductFuzzy` | max | × | fuzzy membership |
+
+The chart is enriched over `K`; the agenda enumerates derivations
+under `K`'s monoidal operations.
+
+## 4. Axiom injector
+
+A deduction needs an *axiom injector*
+`ax : Input → List(I × K)` producing the initial chart from an
+input. The block admits three surface forms:
+
+- `lexicon { "word" : Cat = lf @ learnable, … }` — label-indexed
+  lookup table inline.
+- `lexicon from "path.tsv" with learnable` — same shape loaded
+  from a TSV.
+- `axioms = some_kernel_morphism` — a declared Kleisli morphism
+  `Input → List(I × K)`.
+
+## 5. Goal and depth
+
+`start s` declares the start atom; the goal predicate is
+"there exists a derivation whose conclusion is `c(s, …)` for
+some configured wrapper constructor (e.g. a `span(0, n, s)` over
+the full input range)."
+
+`depth d` bounds the maximum derivation depth so the agenda
+terminates on any finite input.
+
+## 6. Chart denotation
+
+Fix the deduction `D = (I, Σ, K, ax, goal, s, d)` and an input
+`w`. The *chart* is the function
 
 $$
-r \,:\, \mathrm{Hom}(\pi_1) \otimes \cdots \otimes \mathrm{Hom}(\pi_m) \to \mathrm{Hom}(\pi)
+\alpha : I \to K, \qquad
+\alpha[i] = \bigoplus_{\text{deriv } d : i_1, …, i_k \vdash i}
+            \bigotimes_{\ell=1}^{k} \alpha[i_{\ell}]
 $$
 
-between hom-functors of $\mathcal{C}_{\mathrm{Atom}}$, weighted by an optional log-score $\beta_r \in \mathbb{R}$ (zero by default). The collection of all declared rules forms a *rule system* $\Sigma$, formally a profunctor $\Sigma : \mathcal{C}_{\mathrm{Atom}}^{\mathrm{op}} \times \mathcal{C}_{\mathrm{Atom}} \to \mathbf{Vect}_{\mathbb{R}}$ assigning to each pair $(\pi, \pi')$ the $\mathbb{R}$-vector space spanned by $\Sigma$-derivations $\pi \vdash \pi'$.
+— the `K`-join over all `Σ`-derivations of `i`, of the product
+of the children's weights. The base case is the axiom injector:
+`α[i] = w` for every `(i, w) ∈ ax(input)`, all other unproven
+items at `⊥`.
 
-The DSL realises $\Sigma$ as an instance of [`quivers.stochastic._rule_system.RuleSystem`](../api/stochastic/rules.md), whose `binary_rules` and `unary_rules` fields enumerate the rule schemas and whose `binary_weights` / `unary_weights` carry the (initial) log-scores $\beta_r$.
-
-## 4. The chart-parser denotation
-
-Fix a rule system $\Sigma$, an alphabet $\mathrm{Token}$ of categories assigned to lexical items by the discrete morphism `lex : Token -> Atom`, a start symbol $s \in \mathrm{Atom}$, and a depth bound $d$.
-
-For an input $w = (w_1, \dots, w_n) \in \mathrm{Token}^n$, the *chart parser* assigns to each contiguous substring $w_{i:j}$ and each pattern $\pi$ the *inside score*
+The denotation of the deduction is the goal weight:
 
 $$
-\alpha[i, j, \pi] \;=\; \bigoplus_{\text{deriv}\ d : \pi_1, \dots, \pi_k \vdash \pi}
-\bigotimes_{\ell=1}^{k} \alpha[i_{\ell}, j_{\ell}, \pi_{\ell}],
+\llbracket D \rrbracket(w) = \bigoplus_{i ∈ \mathrm{goal}} α[i].
 $$
 
-the join over all $\Sigma$-derivations of $\pi$ that span $w_{i:j}$, of the product of the children's inside scores. The base case is the lexical insertion $\alpha[i, i+1, \mathrm{lex}(w_i)] = \mathbf{1}$, all other base cases $\bot$.
+When `K = LogProb` this is the inside log-probability of the
+input under the rule system; when `K = Viterbi` it is the
+best-derivation score; when `K = Boolean` it is the membership
+predicate `w ∈ L(D)`.
 
-The denotation of the parser combinator is the inside score of the start symbol:
+## 7. Strategy independence
 
-$$
-\llbracket \mathsf{parser}(\Sigma, s, d) \rrbracket(w) \;=\; \alpha[0, |w|, s].
-$$
+The chart is the least pre-fixed point of the rule-system functor
+in the `K`-enriched lattice (Tarski-Knaster). The agenda is the
+*operational realisation* of the fixed-point computation; a
+strategy is a tuple `(Agenda, π, stop)` with `Agenda` a queue
+discipline (FIFO / LIFO / priority), `π` a priority function, and
+`stop` a termination predicate.
 
-When the underlying $\bigoplus$ is the noisy-OR of $\mathcal{V}_{\mathrm{pf}}$ this is a soft-membership probability. When it is the additive structure of $[0, 1]$ (with row-stochastic rule weights), it is exactly the inside-algorithm probability $P(w \mid \Sigma)$ of a probabilistic context-free / categorial grammar. When it is the Boolean quantale, it is the membership predicate $w \in L(\Sigma, s)$.
+Goodman 1999 §3 (semiring parsing) establishes that for any
+`K` and any pair of well-formed strategies, the resulting chart
+value at every item is identical. The runtime picks a default
+strategy from rule arities and the semiring's algebraic properties
+(CKY-sweep for context-free + idempotent, A\* for weighted +
+idempotent + admissible heuristic, semi-naïve for Datalog-shaped,
+Viterbi for `(max, ⊗)`, depth-first for proof-search-shaped).
 
-## 5. Soundness of the chart algorithm
+## 8. Charts as first-class differentiable values
 
-The chart algorithm computes $\alpha[i, j, \pi]$ by dynamic programming over the lattice of substrings, using the algebraic identity
+The chart's underlying weight storage is a `torch.Tensor` (dense)
+or `dict[Item, torch.Tensor]` (sparse) with `requires_grad`
+flowing from rule-weight parameters through the agenda's
+`semiring.times` / `semiring.plus` operations.
 
-$$
-\bigoplus_{\substack{\pi_1, \pi_2 \\ k \in (i, j)}}
-\beta_r \otimes \alpha[i, k, \pi_1] \otimes \alpha[k, j, \pi_2]
-\;=\;
-\alpha[i, j, \pi]
-\quad \text{for each binary rule } r : \pi_1, \pi_2 \vdash \pi.
-$$
+- **Finite-iteration** deductions (no fixpoint cycles): autodiff
+  through the bounded number of semiring operations is automatic.
+- **Fixed-point** deductions (cyclic): the gradient `∂C^* / ∂θ`
+  is solved via the implicit-function theorem at convergence
+  (`torch.linalg.solve` over `∂F/∂C^*`).
+- **Inside-outside-friendly** semirings (commutative + idempotent
+  + with inverses, e.g. `LogProb`, `Viterbi`): the runtime emits
+  an analytic outside computation (Eisner & Goldlust 2005) as a
+  second agenda pass that propagates outside weights from the
+  goal back to all items.
 
-This is an instance of *Tarski–Knaster* fixed-point computation in the lattice of pattern-indexed quantale-valued functions; the chart algorithm is the standard bottom-up enumeration. Soundness — i.e.\ the chart's value equals the inside score of [§4](#4-the-chart-parser-denotation) — follows from the distributivity of $\otimes$ over $\bigoplus$ in the underlying quantale.
+## 9. Program-fragment integration
 
-## 6. Special cases
-
-The combinators $\mathsf{ccg}$ and $\mathsf{lambek}$ fix the rule system $\Sigma$:
-
-| Combinator | Rule system $\Sigma$ |
-|------------|----------------------|
-| $\mathsf{ccg}$ | Forward and backward application; type-raising; harmonic forward composition |
-| $\mathsf{lambek}$ | Application + left/right introduction; no type-raising |
-| $\mathsf{parser}$ | User-supplied $\Sigma$ via the `rules` argument |
-
-Their denotations are special cases of [§4](#4-the-chart-parser-denotation).
-
-## 7. Program-grammar fragment
-
-The Bayesian-modelling step kinds, effect signatures, and the `over`-modifier introduce additional productions in the QVR grammar. The shapes below mirror the tree-sitter source at `grammars/qvr/grammar.js`; semantics is given in [Programs §2.1–§2.8 and §3a](programs.md).
+The Bayesian-modelling step kinds, effect signatures, and the
+`over`-modifier introduce additional productions in the QVR
+grammar. The shapes below mirror the tree-sitter source at
+`grammars/qvr/grammar.js`; semantics is given in
+[Programs §2.1–§2.8 and §3a](programs.md).
 
 ```ebnf
 typed_program_param := IDENT ':' param_kind
@@ -134,3 +185,13 @@ program_decl        := 'program' IDENT [ '(' param_list ')' ]
 ```
 
 A `program_decl` is *parametric* iff its parameter list contains any `typed_program_param`; the walker dispatches parametric programs to the call-site inliner rather than to the runtime program compiler. A program declared with `! effect_set` has its body checked against the declared capability set: the actual effects of the body must form a subset of `effect_set`, and `! Pure` rejects any `bind_step` / `observe_step` / `marginalize_step`. A program declared with `over M` is a posterior block consuming the latents of model `M`; the consumed latents appear as data parameters in the program's parameter list.
+
+## References
+
+- Shieber, Schabes & Pereira (1995). *Principles and implementation of deductive parsing*. J. Logic Programming 24:3–36.
+- Goodman (1999). *Semiring parsing*. Computational Linguistics 25(4):573–605.
+- Pereira & Warren (1983). *Parsing as deduction*. Artificial Intelligence 23:231–278.
+- Klein & Manning (2001). *Parsing and hypergraphs*. ACL.
+- Nederhof (2003). *Weighted deductive parsing and Knuth's algorithm*. Computational Linguistics 29(1):135–143.
+- Eisner & Goldlust (2005). *Compiling Comp Ling: Practical weighted dynamic programming and the Dyna language*. EMNLP.
+- McAllester (2002). *Complexity of agenda-driven Datalog*. ACM TOPLAS 24(5):512–537.

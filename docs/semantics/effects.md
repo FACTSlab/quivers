@@ -173,8 +173,8 @@ $$
 
 where $\mathrm{Tree}_{\Sigma, n}(A)$ is the set of $\Sigma$-shaped
 trees of depth $\le n$ whose leaves are values in $A$. The runtime
-realisation truncates at the `effect_depth` parameter of
-`chart_fold(...)` to keep the carrier finite.
+realisation truncates at the `depth` parameter of the enclosing
+`deduction { … }` block to keep the carrier finite.
 
 A handler $H : \Sigma \to S$ is a panproto theory morphism
 $\mathrm{Th}\Sigma \to \mathrm{Th}S$; the denotation of

@@ -44,9 +44,7 @@ The authoritative grammar is the tree-sitter source at `grammars/qvr/grammar.js`
 module         := statement*
 
 statement      := quantale_decl
-                | category_decl
-                | rule_decl
-                | schema_decl
+                | deduction_decl
                 | object_decl
                 | morphism_decl
                 | space_decl
@@ -62,16 +60,32 @@ statement      := quantale_decl
 quantale_decl  := 'quantale' ('product_fuzzy' | 'boolean'
                               | 'lukasiewicz' | 'godel' | 'tropical')
 
-category_decl  := 'category' IDENT (',' IDENT)*
-
-rule_decl      := 'rule' IDENT '(' IDENT (',' IDENT)* ')' ':'
-                  type_expr (',' type_expr)* '=>' type_expr
-
-# Pattern-polymorphic morphism schema with explicit parameter types
-# and a unified domain/codomain shape.
-schema_decl    := 'schema' IDENT '[' schema_param (',' schema_param)* ']'
-                  ':' type_expr '->' type_expr
-schema_param   := IDENT (',' IDENT)* ':' type_expr
+# Weighted deduction system: the agenda-based framework subsumes
+# CKY, Earley, Viterbi, inside-outside, semi-naïve Datalog, A*,
+# Knuth, and bidirectional MLTT proof search.
+deduction_decl := 'deduction' IDENT ':' type_expr '->' type_expr
+                  '{' deduction_field+ '}'
+deduction_field
+               := atoms_field | sequent_rule | semiring_field
+                | start_field | depth_field
+                | lexicon_block | lexicon_from_file
+                | axioms_field
+                | signature_field | encoder_field
+atoms_field    := 'atoms' '{' IDENT (',' IDENT)* '}'
+sequent_rule   := 'rule' IDENT ':' term_pattern (',' term_pattern)*
+                  ('|-' | '⊢') term_pattern
+term_pattern   := IDENT | IDENT '(' term_pattern (',' term_pattern)* ')'
+semiring_field := 'semiring' ('LogProb' | 'Viterbi' | 'Boolean'
+                              | 'Counting' | 'ProductFuzzy')
+start_field    := 'start' IDENT
+depth_field    := 'depth' INT
+lexicon_block  := 'lexicon' '{' lexicon_entry+ '}'
+lexicon_entry  := STRING ':' type_expr '=' let_expr ['@' 'learnable']
+lexicon_from_file
+               := 'lexicon' 'from' STRING ['with' 'learnable']
+axioms_field   := 'axioms' '=' IDENT
+signature_field := 'signature' IDENT
+encoder_field  := 'encoder' IDENT
 
 # Object declarations come in three forms:
 #   object X : 3                                     — anonymous-element FinSet
@@ -195,30 +209,10 @@ atom_expr      := 'identity' '(' IDENT ')'
                 | 'repeat' '(' expr [',' INT] ')'
                 | 'stack' '(' expr ',' INT ')'
                 | 'scan' '(' expr [',' scan_init] ')'
-                | 'parser' '(' parser_args ')'
-                | 'ccg' '(' parser_args ')'
-                | 'lambek' '(' parser_args ')'
-                | 'chart_fold' '(' chart_fold_args ')'
                 | IDENT
                 | '(' expr ')'
 
 scan_init      := 'init' '=' ('zeros' | 'learned')
-parser_args    := 'rules' '=' '[' IDENT (',' IDENT)* ']'
-                  [',' 'categories' '=' '[' IDENT (',' IDENT)* ']']
-                  [',' 'start' '=' (IDENT | INT)]
-                  [',' 'depth' '=' INT]
-                  [',' 'constructors' '=' '[' IDENT (',' IDENT)* ']']
-
-# chart_fold(...) is the desugared form of parser(...). lex= is a
-# morphism Token -> Cat; binary= and unary= are morphisms over the
-# residuated universe; effect_depth= bounds effect-stack nesting.
-chart_fold_args := chart_fold_arg (',' chart_fold_arg)*
-chart_fold_arg  := 'lex' '=' expr
-                 | 'binary' '=' expr
-                 | 'unary' '=' expr
-                 | 'start' '=' (IDENT | INT)
-                 | 'depth' '=' INT
-                 | 'effect_depth' '=' INT
 
 export_decl    := 'export' expr
 ```
@@ -237,75 +231,123 @@ quantale godel
 quantale tropical
 ```
 
-### Category
+### Deduction
 
-Declare category atoms, generators for a free categorical structure used by grammar-based parsers. These are distinct from `object` declarations (which define finite sets with cardinality).
+A `deduction NAME : Domain -> Codomain { … }` block declares an
+agenda-based weighted deduction. The seven irreducible parameters
+of an agenda-driven deduction — item algebra, rule set, semiring,
+axiom source, goal predicate, start symbol, depth bound — become
+named fields in the block:
 
+<!-- compile: false -->
 ```qvr
-# single declaration
-category S
+deduction CCG : Term -> Term {
+    atoms {
+        NP, S, N, VP, PP,
+        Fwd, Bwd,
+        span
+    }
 
-# comma-separated (equivalent to multiple separate declarations)
-category NP, N, VP, PP
+    rule fwd_app
+        : span(I, K, Fwd(X, Y)), span(K, J, Y)
+        |- span(I, J, X)
+
+    rule bwd_app
+        : span(I, K, Y), span(K, J, Bwd(X, Y))
+        |- span(I, J, X)
+
+    semiring  LogProb
+    start     S
+    depth     6
+}
 ```
 
-Category atoms are used by `parser()` to build a `CategorySystem` from which complex categories (slash types, products, etc.) are enumerated.
+- **`atoms { … }`** declares the closed constructor universe.
+  Every identifier appearing in a rule pattern must be either an
+  atom or a single-uppercase wildcard variable (`X`, `Y`, `Z`,
+  `I`, `J`, `K`, …).
+- **`rule NAME : premises |- conclusion`** is a sequent. Premises
+  are comma-separated; arity is arbitrary (unary rules fire on a
+  single chart cell, binary on a pair of adjacent cells, etc.).
+- **`semiring`** selects the scoring algebra: `LogProb`,
+  `Viterbi`, `Boolean`, `Counting`, or `ProductFuzzy`.
+- **`start`** declares the goal-item predicate (the start atom).
+- **`depth`** bounds derivation depth so the agenda terminates on
+  any finite input.
 
-### Rule (Rule of Inference)
+Pattern variables are single uppercase identifiers; every other
+identifier in a rule pattern must be listed in `atoms`. A variable
+appearing more than once in the same rule must unify across
+occurrences.
 
-Declare a structural rule of inference using sequent-style notation. Rules are universally quantified over pattern variables and can appear in `parser(rules=[...])` alongside built-in schema primitives.
+Slash, tensor, and modal type constructors are *user-declared
+atoms*, not built-in syntax: `Fwd(X, Y) ≡ X/Y`,
+`Bwd(X, Y) ≡ X\Y`, `Tns(X, Y) ≡ X⊗Y`, `Dia(X) ≡ ◇X`,
+`Box(X) ≡ □X`, `Cont(X) ≡ continuation-typed X`. The user is free
+to introduce additional constructors for any algebra the
+deduction reasons over.
 
+#### Axiom sources
+
+A deduction needs an axiom-injection kernel that maps an input
+into initial weighted chart items. The block admits three forms:
+
+<!-- compile: false -->
 ```qvr
-# binary rule: forward application
-rule forward_app(X, Y) : X/Y, Y => X
+deduction PCFG : Term -> Term {
+    atoms { S, NP, VP, Det, N, V, the, cat, sleeps, span, leaf }
+    rule branch : span(I, K, B), span(K, J, C) |- span(I, J, A)
+    rule anchor : leaf(I, T)                    |- span(I, J, A)
 
-# binary rule: backward application
-rule backward_app(X, Y) : Y, X\Y => X
+    # Inline lexicon: label-indexed lookup.
+    lexicon {
+        "the"    : Det = the    @ learnable
+        "cat"    : N   = cat    @ learnable
+        "sleeps" : V   = sleeps @ learnable
+    }
 
-# binary rule: forward composition
-rule forward_comp(X, Y, Z) : X/Y, Y/Z => X/Z
-
-# unary rule: left projection
-rule left_proj(A, B) : A * B => A
+    semiring LogProb
+    start    S
+}
 ```
 
-Each rule takes a parenthesized list of universally quantified variables, a colon, a comma-separated list of premise patterns, a `=>` sequent arrow, and a conclusion pattern. Category patterns support slash types (`X/Y`, `X\Y`), product types (`A * B`), and parenthesized grouping.
+The three alternatives:
 
-Rules with two premises compile to `PatternBinarySchema`; rules with one premise compile to `PatternUnarySchema`. Both are `RuleSchema` functors that compose with the built-in schemas via `|` (union).
+| Form | Use when |
+|------|----------|
+| `lexicon { "word" : Cat = lf @ learnable … }` | label-indexed lookup table inline in the block |
+| `lexicon from "path.tsv" with learnable` | label-indexed lookup loaded from a TSV at compile time |
+| `axioms = some_morphism` | general kernel `Input → List(Item × K)` defined as a declared morphism |
 
+Marking a lexicon entry `@ learnable` allocates an
+`nn.Parameter` log-weight initialised to `0.0`.
+
+#### Chart-query expressions
+
+The runtime view of a compiled deduction exposes the chart as a
+first-class differentiable value with four query methods. Inside
+a `program` block (Kleisli-bind sigil `<-`), a deduction call
+yields a `chart` value:
+
+<!-- compile: false -->
 ```qvr
-# use DSL-declared rules in a parser
-category S, NP, N, VP, PP
-object Token : 256
-
-rule fwd(X, Y) : X/Y, Y => X
-rule bwd(X, Y) : Y, X\Y => X
-rule fwd_comp(X, Y, Z) : X/Y, Y/Z => X/Z
-
-let grammar = parser(
-    rules=[fwd, bwd, fwd_comp],
-    terminal=Token,
-    start=S
-)
-
-export grammar
+program parse_score : Sentence -> Real ! Sample, Score
+    chart <- CCG(input)
+    let w = chart.goal_weight()
+    observe valid <- Bernoulli(sigmoid(w))
+    return w
 ```
 
-DSL-declared rules and built-in schema primitives can be freely mixed:
+- `chart.weight(item)` — log-weight of a fully-determined item.
+- `chart.enumerate(pattern)` — list of `(item, weight)` pairs
+  matching a pattern with wildcards.
+- `chart.derivations(item)` — derivation forest under the
+  derivation semiring.
+- `chart.goal_weight()` — log-weight of the goal predicate.
 
-```qvr
-category S, NP, N
-object Token : 256
-
-# custom binary rule alongside a built-in schema
-rule my_rule(X, Y) : X/Y, Y => X
-
-let grammar = parser(
-    rules=[my_rule, harmonic_composition],
-    terminal=Token,
-    start=S
-)
-```
+Each returns a `torch.Tensor` whose gradients flow back through
+the agenda's semiring operations to any `learnable` axiom or rule
+weight.
 
 ### Doc Comments
 
@@ -318,12 +360,12 @@ hover). Plain `#` line comments are dropped at parse time.
 ## The terminal vocabulary; cardinality 256 is one byte.
 object Token : 256
 
-## Forward application: (X/Y) * Y -> X.
-schema forward_app[X, Y : Cat] : (X/Y) * Y -> X
+## Latent token-to-category embedding learned during training.
+latent emit : Token -> Token
 ```
 
-Doc comments are recognised on `object`, `morphism`, `schema`,
-`alias`, `bundle`, and `program` declarations.
+Doc comments are recognised on `object`, `morphism`, `alias`, and
+`program` declarations.
 
 ### Alias
 
@@ -343,23 +385,6 @@ with the underlying object — `latent f : Pair -> X` works. Residuated
 patterns are stored as syntactic aliases and substituted at schema
 use-sites; they cannot stand on their own as morphism domains.
 
-### Bundle
-
-`bundle` declarations name a tuple of rule references that
-`parser(rules=…)` and `chart_fold(binary=…)` splice into the rule
-list:
-
-<!-- compile: false -->
-```qvr
-## CCG core bundle.
-bundle CCG = [forward_app, backward_app, harmonic_composition]
-
-let grammar = parser(rules=[CCG], terminal=Token, start=S)
-```
-
-Bundles can reference other bundles; the expander detects cycles and
-reports them as `CompileError: bundle cycle through ...`.
-
 ### Object
 
 Three surface forms:
@@ -372,43 +397,8 @@ object XY : X * Y     # ProductSet(X, Y)
 object Sum : X + Y    # CoproductSet(X, Y)
 object Free = FreeMonoid(X, max_length=2)  # FreeMonoid(generators=X, max_length=2)
 
-# 2. EnumSet — a finite set whose elements have explicit names.
-#    Cardinality is len(elements); used for declaring atom collections
-#    (e.g. categorial-grammar atoms) that are referenced by name.
-object Atoms = {NP, S, VP, N, PP}
-
-# 3. FreeResiduated — the residuated category universe over an EnumSet
-#    of generators, closed under the listed connectives up to a bounded
-#    nesting depth. Used as the parameter type of `schema` declarations.
-object Cat = FreeResiduated(Atoms, depth=2, ops=[slash])
-# ops accepts: slash, product, unit, diamond, box
-
-# 4. FreeMonoid — bounded Kleene closure over a FinSet of generators.
+# 2. FreeMonoid — bounded Kleene closure over a FinSet of generators.
 object Strings = FreeMonoid(X, max_length=4)
-```
-
-The `=` form binds `EnumSet` and `FreeResiduated` runtime objects (see
-the [Compositional Effects](effects.md) guide for how they participate
-in effect-typed schema lifting).
-
-### Schema (Pattern-Polymorphic Morphism)
-
-A `schema` declaration generalises the `rule` keyword: it declares a
-morphism schema with explicit pattern-variable types. The arity is
-derived from the domain shape — a 2-component `TypeProduct` produces a
-binary chart-rule; any other domain produces a unary rule.
-
-```qvr
-# Forward application: (X/Y) * Y -> X
-schema forward_app[X, Y : Cat] : (X/Y) * Y -> X
-
-# Backward application: Y * (X\Y) -> X
-schema backward_app[X, Y : Cat] : Y * (X\Y) -> X
-
-# Effect-typed schemas — the `T(X)` form is a TypeEffectApply
-# pattern; legal inside any TypeExpr position. See the Effects
-# guide for the typeclass-driven lifting machinery.
-schema apply_Cont[X, Y : Cat] : Cont_S(X/Y) * Cont_S(Y) -> Cont_S(X)
 ```
 
 ### Morphism
@@ -702,227 +692,6 @@ where
 ```
 
 The `where` keyword introduces a block of local definitions that are scoped to the parent let binding. This improves readability for complex nested compositions.
-
-### Grammar Constructs
-
-The DSL provides keywords for differentiable parsing over formal grammars. All compile to `DeductiveSystem` subclasses (as `nn.Module`) that accept tokenized sentences and return log-probabilities.
-
-#### Deductive Parser
-
-The `parser` keyword creates a differentiable deductive parser from a `rules=[...]` list. Each entry in `rules` is resolved at compile time, either as a **schema functor** (a registered `CategorySystem → RuleSystem` natural transformation) or as a **declared morphism** (whose type signature determines its deductive role). The same uniform `parser()` interface handles categorial grammars, PCFGs, and anything between.
-
-**Schema rules.** When entries resolve to registered schema primitives, the compiler composes them and applies the resulting functor to a category system. Category atoms are declared with the `category` keyword (these are generators for a free categorical structure, distinct from `object` declarations which define finite sets with cardinality):
-
-```qvr
-# category atoms: generators for the free categorical structure
-category S, NP, N, VP, PP
-
-# terminal vocabulary: a finite set with cardinality
-object Token : 256
-
-let grammar = parser(
-    rules=[evaluation, harmonic_composition, crossed_composition],
-    terminal=Token,
-    start=S
-)
-
-export grammar
-```
-
-Alternatively, categories can be listed inline via `categories=[...]` for concise one-off definitions:
-
-```qvr
-object Token : 256
-
-let grammar = parser(
-    categories=[S, NP, N, VP, PP],
-    rules=[evaluation, harmonic_composition, crossed_composition],
-    terminal=Token,
-    start=S
-)
-
-export grammar
-```
-
-When neither `categories=[...]` nor `category` declarations are present, the compiler raises an error; there is no implicit inference. Similarly, `terminal=` is required for schema-based parsers: it explicitly names the declared `object` serving as the terminal vocabulary.
-
-```qvr
-# Lambek calculus: evaluation + adjunction units + tensor operations
-category S, NP, N
-object Token : 256
-
-let grammar = parser(
-    rules=[evaluation, adjunction_units, tensor_introduction, tensor_projection],
-    terminal=Token,
-    start=S
-)
-```
-
-```qvr
-# novel grammar: evaluation + harmonic composition + tensor (no crossed composition)
-category S, NP, N
-object Token : 256
-
-let hybrid = parser(
-    rules=[evaluation, harmonic_composition, tensor_introduction],
-    terminal=Token,
-    start=S
-)
-```
-
-The `rules` parameter lists names of rule schema primitives (resolved via `SCHEMA_REGISTRY`). The `terminal` parameter names the declared object whose cardinality gives the terminal vocabulary size. The `start` parameter (default `S`) selects the start category. Two additional optional parameters control the category inventory:
-
-- **`depth`** (default 1): Maximum nesting depth for generated complex categories. `depth=2` generates categories like `(S/NP)/VP` in addition to `S/NP`.
-- **`constructors`** (default `[slash]`): Which type constructors to use when enumerating categories. Available constructors are `slash`, `product`, `unit`, `diamond`, and `box`. When omitted, only slash categories (X/Y, X\Y) are generated.
-
-```qvr
-category S, NP, N
-object Token : 256
-
-# depth=2 for deeper slash nesting
-let grammar = parser(
-    rules=[evaluation, harmonic_composition],
-    terminal=Token,
-    depth=2,
-    start=S
-)
-
-# multimodal type-logical grammar with diamond modalities
-category VP, PP
-
-let tlg = parser(
-    rules=[evaluation, adjunction_units, modal_introduction, modal_elimination],
-    terminal=Token,
-    constructors=[slash, diamond],
-    depth=1,
-    start=S
-)
-
-# full multimodal with unit type
-let mtlg = parser(
-    rules=[
-        evaluation, adjunction_units,
-        unit_introduction, unit_elimination,
-        modal_introduction, modal_elimination,
-        modal_application
-    ],
-    terminal=Token,
-    constructors=[slash, unit, diamond],
-    depth=1,
-    start=S
-)
-```
-
-The available rule schema primitives are:
-
-| Primitive | Categorical operation | Example rules |
-|---|---|---|
-| `evaluation` | Counit of hom-tensor adjunction | X/Y Y → X, Y X\Y → X |
-| `harmonic_composition` | Composition of same-direction homs | X/Y Y/Z → X/Z |
-| `crossed_composition` | Composition mixing slash directions | X/Y Y\Z → X\Z |
-| `generalized_composition` | Higher-order composition (B^n) | X/Y Y\|Z₁...\|Zₙ → X\|Z₁...\|Zₙ |
-| `adjunction_units` | Units of the hom-tensor adjunction | A → B/(A\B), A → (B/A)\B |
-| `tensor_introduction` | Product formation | A, B → A⊗B |
-| `tensor_projection` | Product elimination | A⊗B → A, A⊗B → B |
-| `commutative_evaluation` | Evaluation with reversed argument order | B X/B → X |
-| `unit_introduction` | Monoidal unit laws | I⊗A → A, A⊗I → A |
-| `unit_elimination` | Unit coercion | A → I |
-| `modal_introduction` | Modal injection | A → ◇A (or □A) |
-| `modal_elimination` | Modal projection | ◇A → A (or □A → A) |
-| `modal_application` | Modal function application | ◇(C/B) ⊗ ◇B → ◇C |
-
-**Convenience aliases:** `ccg(...)` is shorthand for `parser(... rules=[evaluation, harmonic_composition, crossed_composition])`. `lambek(...)` is shorthand for `parser(... rules=[evaluation, adjunction_units, tensor_introduction, tensor_projection])`. Both accept an optional `rules=` override.
-
-**Morphism rules.** When entries resolve to declared morphisms, the compiler inspects their type signatures to determine their deductive role. A morphism `N → N ⊗ N` (codomain is a product of the domain with itself) contributes binary deductions; a morphism `N → T` (codomain differs from the domain) contributes lexical axioms. The deductive system is derived entirely from the types.
-
-```qvr
-object N : 10   # nonterminals
-object T : 64   # terminals
-
-# Kleisli morphisms: branching and lexicalization
-stochastic binary_rules : N -> N * N
-stochastic lexical_rules : N -> T
-
-let pcfg = parser(
-    rules=[binary_rules, lexical_rules],
-    start=0
-)
-
-export pcfg
-```
-
-No special keywords distinguish "binary" from "lexical"; the compiler reads the types. The `start` parameter (default `0`) selects the start nonterminal index.
-
-The same primitives are available in Python for programmatic use via composable `RuleSchema` objects:
-
-```python
-from quivers.stochastic import (
-    CategorySystem, ChartParser, VITERBI,
-    EVALUATION, HARMONIC_COMPOSITION, ADJUNCTION_UNITS,
-    MODAL_INTRODUCTION, MODAL_ELIMINATION,
-    CCG, LAMBEK,
-)
-
-# compose schemas with | (union)
-my_schema = EVALUATION | HARMONIC_COMPOSITION | ADJUNCTION_UNITS
-
-# instantiate over a category system
-cs = CategorySystem.from_atoms_and_slash_depth(["S", "NP", "N"], max_depth=1)
-parser = ChartParser.from_schema(my_schema, cs, n_terminals=100, start="S")
-
-# with semiring selection (Viterbi for best-parse decoding)
-parser = ChartParser.from_schema(
-    my_schema, cs, n_terminals=100, start="S", semiring=VITERBI,
-)
-
-# use a grammar preset directly
-parser = ChartParser.from_schema(CCG, cs, n_terminals=100, start="S")
-
-# multimodal category system with diamond constructor
-cs = CategorySystem.from_generators(
-    atoms=["S", "NP", "N"],
-    constructors=["slash", "diamond"],
-    max_depth=1,
-)
-modal_schema = EVALUATION | ADJUNCTION_UNITS | MODAL_INTRODUCTION | MODAL_ELIMINATION
-parser = ChartParser.from_schema(modal_schema, cs, n_terminals=100, start="S")
-```
-
-**Semiring parameterization:** The deductive parser is parameterized by a `ChartSemiring` (Goodman, 1999), which determines the scoring algebra. Different semirings yield different parsing algorithms from the same CKY skeleton:
-
-| Semiring | ⊕ (plus) | ⊗ (times) | Use case |
-|---|---|---|---|
-| `LOG_PROB` (default) | logsumexp | + | Marginal log-probability |
-| `VITERBI` | max | + | Best-parse decoding |
-| `BOOLEAN` | or | and | Recognition (yes/no) |
-| `COUNTING` | + | × | Derivation counting |
-
-**Learnable rule weights:** Each structural rule carries a learnable log-weight that biases the deduction scores. These are registered as `nn.Parameter` by default. To fix rule weights, pass `learnable_rule_weights=False` to the parser constructor.
-
-### chart_fold (Desugared Parser Construction)
-
-`chart_fold(...)` is the explicit form of which `parser(rules=...)` is sugar. Given a lexical morphism plus binary (and optional unary) morphisms over the residuated universe, it constructs a chart parser whose user-visible structure is expressible from primitives — no opaque `parser()` call required.
-
-<!-- compile: false -->
-```qvr
-object Atoms = {NP, S, VP, N, PP}
-object Cat = FreeResiduated(Atoms, depth=2, ops=[slash])
-object Token : 256
-
-schema forward_app[X, Y : Cat] : (X/Y) * Y -> X
-latent lex : Token -> Cat
-
-let grammar = chart_fold(
-    lex=lex,
-    binary=forward_app,
-    start=S,
-    depth=2,
-    effect_depth=0
-)
-export grammar
-```
-
-The `effect_depth` parameter bounds effect-stack nesting in the joint type-and-effect dispatch (see [Compositional Effects](effects.md)); leave at `0` for ordinary categorial grammars.
 
 ### Curry Combinators (Residuation Witnesses)
 
