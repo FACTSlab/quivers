@@ -1,0 +1,22 @@
+# Bayesian linear regression with a near-collinear design.
+#
+# Prior:        a, b ~ Normal(0, 1)
+# Likelihood:   y_i ~ Normal(a + b * x_i, sigma)
+#
+# When x_i is highly correlated with the constant 1 — generated
+# from a "correlation_strength + noise" pattern in the benchmark's
+# data generator — the posterior over (a, b) has a strong
+# off-diagonal correlation. AutoNormalGuide (mean-field) collapses
+# the off-diagonal to zero; AutoMultivariateNormalGuide and HMC
+# recover it. Used as the Tier-3 algorithm-separation benchmark.
+
+object Obs : 50
+
+program correlated_regression : Obs -> Obs
+    a <- Normal(0.0, 1.0)
+    b <- Normal(0.0, 1.0)
+    let mu = a + b * x_design
+    observe y : Obs <- Normal(mu, 0.5)
+    return mu
+
+export correlated_regression
