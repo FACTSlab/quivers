@@ -471,6 +471,8 @@ class BindStep(ProgramStep):
     index: TypeExpr | None = None
     mode: Literal["sample", "score", "marginal"] = "sample"
     scope: tuple[ProgramStep, ...] | None = None
+    over: str | None = None
+    via: str | None = None
     line: int = 0
     col: int = 0
     kind: Literal["bind_step"] = "bind_step"
@@ -577,9 +579,25 @@ class MarginalizeStep(ProgramStep):
     coordinate, (2) the scope's steps, (3) this MarginalizeStep
     that pushes forward through the projection
     :math:`\\pi_{\\Phi} : \\Phi \\times C \\to \\Phi`.
+
+    When the surface block carries ``over G via idx``, the
+    reduction is fibred: the body's per-row log-density tensor
+    of shape ``(N, K)`` is scatter-added along ``via_var`` to
+    shape ``(|G|, K)``, the categorical prior ``probs_var``
+    contributes ``log probs[g, k]`` per (group, class), and the
+    final log-sum-exp over the class axis is summed over groups.
+    This denotes the right Kan extension along the fibration
+    :math:`r : \\text{Resp} \\to G` in :math:`\\mathbf{Kern}`,
+    followed by integration of the class axis under the
+    categorical prior.
     """
 
     var_name: str
+    class_size: int = 0
+    probs_var: str | None = None
+    over_obj: str | None = None
+    via_var: str | None = None
+    body_ll_var: str | None = None
     line: int = 0
     col: int = 0
     kind: Literal["marginalize_step"] = "marginalize_step"

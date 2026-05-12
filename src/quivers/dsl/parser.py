@@ -780,8 +780,16 @@ def _walk_bind_step(
     index_expr = _walk_type(t, idx_vid) if idx_vid is not None else None
 
     scope_t: tuple[ProgramStep, ...] | None = None
+    over_t: str | None = None
+    via_t: str | None = None
     if mode == "marginal":
         scope_t = tuple(_walk_program_step(t, sv) for sv in t.fields(vid, "scope"))
+        over_vid = t.field(vid, "over")
+        if over_vid is not None:
+            over_t = _required_text(t, over_vid, vid, "over")
+        via_vid = t.field(vid, "via")
+        if via_vid is not None:
+            via_t = _required_text(t, via_vid, vid, "via")
 
     return BindStep(
         vars=vars_t,
@@ -790,6 +798,8 @@ def _walk_bind_step(
         index=index_expr,
         mode=mode,
         scope=scope_t,
+        over=over_t,
+        via=via_t,
         line=line,
         col=col,
     )
