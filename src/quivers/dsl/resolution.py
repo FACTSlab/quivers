@@ -132,9 +132,9 @@ class TypeExprToSetObject(dx.Lens[TypeExpr, SetObject, TypeExpr]):
         if isinstance(t, TypeEffectApply):
             raise TypeError(
                 f"effect-typed TypeEffectApply {t.effect!r} is not "
-                "yet resolvable as a SetObject; effect-typed "
-                "categories arrive in the Phase 7 effect-lifting "
-                f"machinery (line {t.line}, col {t.col})"
+                "resolvable as a SetObject; effect-typed categories "
+                "live in the chart parser's effect-lifting layer "
+                f"(line {t.line}, col {t.col})"
             )
 
         raise TypeError(f"unexpected TypeExpr variant: {type(t).__name__}")

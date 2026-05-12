@@ -1,102 +1,75 @@
-# Custom Rules of Inference
+# Custom Sequent Rules
 
 ## QVR Source
 
 ```qvr
-category S, NP, N, VP, PP
-object Token : 256
+object Term : 16
 
-rule forward_app(X, Y) : X/Y, Y => X
-rule backward_app(X, Y) : Y, X\Y => X
-rule forward_comp(X, Y, Z) : X/Y, Y/Z => X/Z
-rule backward_comp(X, Y, Z) : Y\Z, X\Y => X\Z
+deduction AB : Term -> Term {
+    atoms {
+        S, NP, N, VP, PP,
+        Fwd, Bwd,
+        span
+    }
 
-let grammar = parser(
-    rules=[forward_app, backward_app, forward_comp, backward_comp],
-    terminal=Token,
-    start=S
-)
+    rule fwd_app
+        : span(I, K, Fwd(X, Y)), span(K, J, Y)
+        |- span(I, J, X)
 
-export grammar
+    rule bwd_app
+        : span(I, K, Y), span(K, J, Bwd(X, Y))
+        |- span(I, J, X)
+
+    rule fwd_comp
+        : span(I, K, Fwd(X, Y)), span(K, J, Fwd(Y, Z))
+        |- span(I, J, Fwd(X, Z))
+
+    rule bwd_comp
+        : span(I, K, Bwd(Y, Z)), span(K, J, Bwd(X, Y))
+        |- span(I, J, Bwd(X, Z))
+
+    semiring  LogProb
+    start     S
+    depth     6
+}
 ```
 
 ## Overview
 
-The `rule` declaration lets you define inference rules using sequent-style notation instead of relying on pre-defined schemas. This example manually defines the four standard CCG rules (forward/backward application and composition), demonstrating the custom rule syntax, universally quantified variables, and compile-time instantiation.
+Every rule in a `deduction { … }` block is a sequent declared in the DSL itself; there are no built-in named rule schemas to import. This example defines an AB grammar (Ajdukiewicz-Bar-Hillel) plus harmonic composition over chart-spans `span(I, J, X)`. `Fwd(X, Y)` is the forward-slash constructor `X/Y`; `Bwd(X, Y)` is the backward-slash constructor `X\Y`.
 
 ## Walkthrough
 
-The category and token declarations are identical to previous examples.
+`atoms { … }` lists every identifier the rules may match literally. Category atoms (`S`, `NP`, `N`, `VP`, `PP`), slash constructors (`Fwd`, `Bwd`), and the chart-item constructor (`span`) are atoms. Identifiers that appear in a rule pattern but are *not* listed in `atoms` are pattern variables; the convention is single uppercase letters (`X`, `Y`, `Z`, `I`, `J`, `K`).
 
-`rule forward_app(X, Y) : X/Y, Y => X` introduces a rule with two universally quantified variables. The left side of `=>` lists premises (input categories in linear order); the right side is the conclusion. Here: a functor $X/Y$ adjacent to a $Y$ yields $X$. The compiler instantiates this for every pair of categories, generating grounded rules like `S/NP, NP => S`.
+Each rule's body is a sequent: comma-separated premises on the left of `|-`, a single conclusion on the right. The premise multiplicity determines whether the rule fires on a single chart cell (unary) or on a pair of adjacent cells (binary).
 
-`rule backward_app(X, Y) : Y, X\Y => X` is the mirror image: $Y$ on the left and $X \backslash Y$ on the right yields $X$. The sequent notation makes linear order explicit.
-
-`rule forward_comp(X, Y, Z) : X/Y, Y/Z => X/Z` has three variables. Two functors compose: $X/Y$ and $Y/Z$ produce $X/Z$ by threading the inner argument through.
-
-`rule backward_comp(X, Y, Z) : Y\Z, X\Y => X\Z` is the backward version: $Y \backslash Z$ and $X \backslash Y$ produce $X \backslash Z$.
-
-The parser collects these four rules and instantiates each for all valid category combinations at compile time, producing an explicit rule table.
+A variable appearing multiple times in the same rule unifies across occurrences: in `fwd_app`, the `Y` in the first premise must match the `Y` in the second premise. Different rules instantiate independently.
 
 ## DSL Features
 
-- **`rule` keyword**: Syntax is `rule Name(vars) : Premises => Conclusion`. Premises are comma-separated and ordered left-to-right matching input order.
-- **Universally quantified variables** (X, Y, Z): Match any category. A variable appearing multiple times must unify to the same category in all occurrences.
-- **Slash patterns** ($X/Y$, $X \backslash Y$): Recognized as composite category patterns by the compiler, not atomic categories.
-- **Compile-time instantiation**: For $n$ atomic categories and $k$ variables, the compiler generates up to $n^k$ grounded rule instances.
+- **`rule NAME : premises |- conclusion`**: a sequent rule. Arbitrary-arity premise lists are supported; the compiler dispatches to the appropriate chart-cell shape.
+- **Pattern variables vs atoms**: single-uppercase identifiers bind as wildcards; every other identifier in a rule pattern must appear in the surrounding `atoms { … }` block.
+- **Constructor applications in patterns**: `Fwd(X, Y)`, `Bwd(X, Y)`, `span(I, J, X)` are patterns whose head is an atom and whose arguments are nested patterns. Matching is structural and unification-based.
 
 ## Pattern Matching and Unification
 
-The compiler uses pattern matching and unification to instantiate custom rules:
+The compiler uses first-order pattern matching with occurs-checking-free unification to fire rules:
 
-- **Variable patterns** ($X$, $Y$, $Z$): Metavariables that match any concrete category. Multiple occurrences of the same variable must unify.
-- **Slash patterns** ($X/Y$): Match functor categories whose components unify with $X$ and $Y$. Will not match atomic or product categories.
-- **Product patterns** ($X \otimes Y$): Match product categories whose components unify with $X$ and $Y$.
+- **Variables** (`X`, `Y`, `Z`): metavariables that match any concrete subterm. Repeated occurrences within a rule must unify.
+- **Constructor patterns** (`Fwd(X, Y)`): match constructor-application items whose head is the same atom and whose children unify.
 
-The compiler exhaustively iterates over all valid assignments subject to unification constraints.
+The agenda fires each rule at every chart cell (unary) or every pair of adjacent cells (binary) whose categories unify with the rule's premises; the conclusion item is then inserted into the chart under the rule's weight.
 
-## Equivalence to Pre-defined Schemas
+## Extending the Rule Set
 
-These four rules are equivalent to the pre-defined `evaluation` (forward + backward application) and `harmonic_composition` (forward + backward composition) schemas. The reason to use custom rules is transparency: you can see and modify the exact rule structure, omit rules you don't want (e.g., drop `backward_comp`), or add constraints (e.g., restrict which categories participate in composition).
+Additional combinators are spelled out as more sequent rules in the same block:
 
-## Advanced Custom Rules
+- **Type-raising** (unary): `rule type_raise : span(I, J, X) |- span(I, J, Fwd(Y, Bwd(Y, X)))` — note that introducing a fresh wildcard like `Y` in the conclusion requires either an `axioms = …` source or a downstream rule that pins it down.
+- **Restricted composition**: `rule restricted_comp : span(I, K, Fwd(X, Y)), span(K, J, Fwd(Y, NP)) |- span(I, J, Fwd(X, NP))` — by replacing the third wildcard with the literal `NP` atom we constrain when the rule fires.
 
-The custom rule syntax covers standard CCG combinators and
-restricted variants:
-
-- **Type-raising**: `rule type_raise(X, Y) : X => Y/(Y\X)`
-- **Restricted composition**: `rule restricted_comp(X, Y) : X/Y, Y/NP => X/NP` (composition only when the right functor's argument is NP)
-
-Rule premise multiplicity is unary or binary; combinators that
-need three or more premises are expressed as a chain of binary
-rules sharing intermediate categories.
+Rule premise multiplicity is unary or binary; combinators that need three or more premises are expressed as a chain of binary rules sharing intermediate categories.
 
 ## Categorical Perspective
 
-Custom rules are schema functors from category patterns to rule instances. Given a rule like `forward_comp(X, Y, Z) : X/Y, Y/Z => X/Z`, the compiler treats the pattern as a functor from the category of variable assignments (all triples of concrete categories) to the set of grounded rules. Unification of variables across multiple occurrences corresponds to a pullback: the compiler requires that the diagram of pattern substitutions commutes. Different presentations of the same logical structure (custom rules vs. pre-defined schemas) generate the same set of grounded rules.
-
-## Mixing Custom and Pre-defined Rules
-
-You can freely mix custom rules with pre-defined schemas:
-
-<!-- compile: false -->
-```qvr
-category S, NP, N, VP, PP, Conj
-object Token : 256
-
-rule coord_left(X)   : X, Conj    => XConj  # introduces helper
-rule coord_right(X)  : XConj, X   => X      # consumes helper
-
-let grammar = parser(
-    rules=[forward_app, harmonic_composition, coord_left, coord_right],
-    terminal=Token,
-    start=S
-)
-
-export grammar
-```
-
-The compiler instantiates all rules (custom and pre-defined)
-into the same rule table, and the parser applies them uniformly.
-Genuinely ternary patterns are factored into pairs of binary
-rules sharing a fresh intermediate category, as shown above.
+Sequent rules are hyperedges in the rule-system multicategory. A binary rule is a 2-input / 1-output hyperedge whose endpoints are pattern templates; firing the rule against the chart is the substitution along a pattern morphism into the category of concrete chart items. Variable unification across premises is exactly the pullback in the category of variable assignments: two premise patterns sharing a variable `Y` constrain the two assignments to agree on `Y`'s value. The agenda's least-pre-fixed-point computation in the `LogProb`-enriched lattice of charts is independent of firing order (Goodman 1999 §3); the runtime picks a default strategy from rule arities and semiring properties.

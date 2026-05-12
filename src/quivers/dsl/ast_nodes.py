@@ -239,7 +239,7 @@ class ExprChartFold(Expr):
     Cat -> Cat morphism (the union of all unary rule schemas);
     ``start`` is the goal category name (or integer index);
     ``depth`` is the maximum category nesting depth; ``effect_depth``
-    bounds effect-stack nesting (Phase 7; defaults to 0).
+    bounds effect-stack nesting (defaults to 0).
     """
 
     lex: Expr

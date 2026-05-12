@@ -2,45 +2,51 @@
 # Multimodal Type-Logical Grammar
 # ================================================================
 #
-# A learnable multimodal type-logical grammar assembled from
-# composable rule schema primitives with modal type constructors.
+# Multimodal TLG (Moortgat 1997) extends the Lambek calculus
+# with unary type constructors ◇ and □ that form a residuated
+# pair (◇ ⊣ □). The structural rules associated with each
+# modality are controlled by the grammar's structural component;
+# here we license modal introduction and elimination, leaving
+# additional structural postulates as further rules a user can
+# add.
 #
-# This grammar uses:
-#   - evaluation (right/left application)
-#   - adjunction_units (Lambek lifting)
-#   - modal_introduction (A → ◇A)
-#   - modal_elimination (◇A → A)
-#
-# These are composed with the `constructors` parameter to
-# generate categories including the ◇ modality, and the
-# `depth` parameter to control nesting depth.
-#
-# The modal operators (◇, □) allow controlled structural rules
-# in type-logical grammar. ◇ licenses structural postulates
-# like associativity or commutativity in specific domains.
-#
-# Categorical perspective:
-#   Multimodal TLG (Moortgat 1997) extends the Lambek calculus
-#   with unary type constructors ◇ and □ that form a residuated
-#   pair (◇ ⊣ □). The structural rules associated with each
-#   modality are controlled by the grammar's structural component.
-#
-# Usage:
-#   prog = load("multimodal_tlg.qvr")
-#   tlg = prog.morphism
-#   tokens = torch.randint(0, 256, (batch, seq_len))
-#   log_probs = tlg(tokens)   # (batch,)
+# Categories carry slash (`Fwd(X, Y)`, `Bwd(X, Y)`) and modal
+# (`Dia(X) ≡ ◇X`, `Box(X) ≡ □X`) constructors. Chart items are
+# `span(I, J, X)` triples.
 
-category S, NP, N, VP, PP
+object Term : 16
 
-object Token : 256
+deduction MMTLG : Term -> Term {
+    atoms {
+        # Category atoms.
+        S, NP, N, VP, PP,
+        # Slash + modal constructors.
+        Fwd, Bwd, Dia, Box,
+        # Chart-item constructor.
+        span
+    }
 
-let tlg = parser(
-    rules=[evaluation, adjunction_units, modal_introduction, modal_elimination],
-    terminal=Token,
-    constructors=[slash, diamond],
-    depth=1,
-    start=S
-)
+    # Right application.
+    rule right_app
+        : span(I, K, Fwd(A, B)), span(K, J, B)
+        |- span(I, J, A)
 
-export tlg
+    # Left application.
+    rule left_app
+        : span(I, K, B), span(K, J, Bwd(A, B))
+        |- span(I, J, A)
+
+    # Modal introduction: A  ⊢  ◇A
+    rule dia_intro
+        : span(I, J, A)
+        |- span(I, J, Dia(A))
+
+    # Modal elimination:  ◇A  ⊢  A
+    rule dia_elim
+        : span(I, J, Dia(A))
+        |- span(I, J, A)
+
+    semiring  LogProb
+    start     S
+    depth     6
+}
