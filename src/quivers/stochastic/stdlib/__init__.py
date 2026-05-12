@@ -24,8 +24,6 @@ indexed by the agenda strategy and the semiring.
 
 from __future__ import annotations
 
-import torch
-
 from quivers.stochastic.agenda import (
     DeductionSystem,
     InferenceRule,
@@ -37,7 +35,6 @@ from quivers.stochastic.agenda import (
 )
 from quivers.stochastic.semiring import (
     BOOLEAN,
-    COUNTING,
     LOG_PROB,
     VITERBI,
 )
@@ -76,8 +73,7 @@ CCG = DeductionSystem(
     rules=tuple(_ccg_rules()),
     semiring=LOG_PROB,
     axiom_injector=lambda axioms: list(axioms),
-    goal=lambda item: isinstance(item, tuple) and item[0] == "span"
-        and item[1] == "S",
+    goal=lambda item: isinstance(item, tuple) and item[0] == "span" and item[1] == "S",
     agenda_factory=cky_agenda,
 )
 
@@ -108,8 +104,7 @@ Lambek = DeductionSystem(
     rules=tuple(_lambek_rules()),
     semiring=LOG_PROB,
     axiom_injector=lambda axioms: list(axioms),
-    goal=lambda item: isinstance(item, tuple) and item[0] == "span"
-        and item[1] == "S",
+    goal=lambda item: isinstance(item, tuple) and item[0] == "span" and item[1] == "S",
     agenda_factory=cky_agenda,
 )
 
@@ -138,12 +133,10 @@ def _stlc_rules() -> list[InferenceRule]:
         InferenceRule(
             name="app_synth",
             premises=(
-                ("synth", Wildcard("f"),
-                 ("arrow", Wildcard("A"), Wildcard("B"))),
+                ("synth", Wildcard("f"), ("arrow", Wildcard("A"), Wildcard("B"))),
                 ("check", Wildcard("a"), Wildcard("A")),
             ),
-            conclusion=("synth", ("app", Wildcard("f"), Wildcard("a")),
-                        Wildcard("B")),
+            conclusion=("synth", ("app", Wildcard("f"), Wildcard("a")), Wildcard("B")),
         ),
     ]
 
@@ -204,13 +197,20 @@ def _mltt_rules() -> list[InferenceRule]:
         InferenceRule(
             name="app",
             premises=(
-                ("judges", Wildcard("G"), Wildcard("f"),
-                 ("pi", Wildcard("A"), Wildcard("B"))),
+                (
+                    "judges",
+                    Wildcard("G"),
+                    Wildcard("f"),
+                    ("pi", Wildcard("A"), Wildcard("B")),
+                ),
                 ("judges", Wildcard("G"), Wildcard("a"), Wildcard("A")),
             ),
-            conclusion=("judges", Wildcard("G"),
-                        ("app", Wildcard("f"), Wildcard("a")),
-                        Wildcard("B")),
+            conclusion=(
+                "judges",
+                Wildcard("G"),
+                ("app", Wildcard("f"), Wildcard("a")),
+                Wildcard("B"),
+            ),
             side_condition=_app_term_depth_bound,
         ),
     ]
@@ -367,8 +367,13 @@ def _edit_distance_rules() -> list[InferenceRule]:
             name="match",
             premises=(
                 ("dist", Wildcard("i_p"), Wildcard("j_p")),
-                ("match", Wildcard("i"), Wildcard("j"),
-                 Wildcard("i_p"), Wildcard("j_p")),
+                (
+                    "match",
+                    Wildcard("i"),
+                    Wildcard("j"),
+                    Wildcard("i_p"),
+                    Wildcard("j_p"),
+                ),
             ),
             conclusion=("dist", Wildcard("i"), Wildcard("j")),
         ),

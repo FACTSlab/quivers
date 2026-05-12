@@ -165,7 +165,9 @@ def instantiate(pattern: Pattern, bindings: Bindings) -> Item:
     return tuple(out)
 
 
-def match(pattern: Pattern, item: Item, bindings: Bindings | None = None) -> Bindings | None:
+def match(
+    pattern: Pattern, item: Item, bindings: Bindings | None = None
+) -> Bindings | None:
     """Match an item against a pattern."""
     if bindings is None:
         bindings = {}
@@ -686,8 +688,15 @@ def run_agenda(
                 # Collect all sibling premises by matching the
                 # remaining premise patterns against the chart.
                 _fire_rule_with_premise(
-                    rule, premise_idx, item, weight, bindings, chart,
-                    semiring, agenda, rule_callback,
+                    rule,
+                    premise_idx,
+                    item,
+                    weight,
+                    bindings,
+                    chart,
+                    semiring,
+                    agenda,
+                    rule_callback,
                 )
 
     goal_items: list[tuple[Item, torch.Tensor]] = []
@@ -774,8 +783,14 @@ def _fire_remaining_premises(
     """
     if not remaining_indices:
         _fire(
-            rule, bindings, fixed_idx, fixed_pair, chart,
-            semiring, agenda, rule_callback,
+            rule,
+            bindings,
+            fixed_idx,
+            fixed_pair,
+            chart,
+            semiring,
+            agenda,
+            rule_callback,
         )
         return
     next_idx = remaining_indices[0]
@@ -844,7 +859,9 @@ def _fire(
     # Compute the conclusion's weight.
     if rule.weight_fn is not None:
         conclusion_weight = rule.weight_fn(
-            bindings, premise_weights, semiring,
+            bindings,
+            premise_weights,
+            semiring,
         )
     elif not premise_weights:
         conclusion_weight = torch.tensor(
@@ -863,7 +880,10 @@ def _fire(
     agenda.push(conclusion_item, conclusion_weight)
     if rule_callback is not None:
         rule_callback(
-            rule.name, antecedents, conclusion_item, conclusion_weight,
+            rule.name,
+            antecedents,
+            conclusion_item,
+            conclusion_weight,
         )
 
 
@@ -941,9 +961,7 @@ class DeductionSystem:
             goal=self.goal,
             max_iterations=self.max_iterations,
             chart=self.chart_factory(),
-            rule_callback=(
-                _rule_callback if registry is not None else None
-            ),
+            rule_callback=(_rule_callback if registry is not None else None),
         )
         # Propagate any attached item-encoder to the result.
         comp = getattr(self, "_item_encoder", None)
@@ -957,7 +975,9 @@ class DeductionSystem:
                 "goal_items": result.goal_items,
             }
             chart_loss = registry.evaluate_on(
-                "chart", target=deduction_name, env=chart_env,
+                "chart",
+                target=deduction_name,
+                env=chart_env,
             )
             losses = rule_loss_acc + [chart_loss]
         else:

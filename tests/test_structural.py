@@ -8,10 +8,6 @@ import torch
 
 from quivers.dsl import loads
 from quivers.structural import (
-    Encoder,
-    Context,
-    Decoder,
-    Signature,
     Term,
     bound_var,
     make_term,
@@ -151,6 +147,7 @@ def test_rule_attached_loss_fires_on_each_rule_application():
     prog = loads(src)
     D = prog.deductions["D"]
     import torch as _t
+
     chart = D([(("atom", "NP"), _t.tensor(0.0))])
     # The rule `app : NP, NP |- S` matches twice on the single-NP
     # axiom (the agenda's semi-naïve loop fires the rule once when
@@ -181,6 +178,7 @@ def test_chart_attached_loss_fires_after_deduction_completes():
     prog = loads(src)
     D = prog.deductions["D"]
     import torch as _t
+
     chart = D([(("atom", "NP"), _t.tensor(0.0))])
     assert chart.attached_loss is not None
     assert float(chart.attached_loss) == 7.0
@@ -222,6 +220,7 @@ def test_undeclared_sort_in_constructor_domain_raises():
     """
     import pytest
     from quivers.dsl import CompileError
+
     with pytest.raises(CompileError, match="undeclared sort 'Name'"):
         loads(src)
 
@@ -239,6 +238,7 @@ def test_undeclared_binder_var_sort_raises():
     """
     import pytest
     from quivers.dsl import CompileError
+
     with pytest.raises(CompileError, match="undeclared sort"):
         loads(src)
 
@@ -324,6 +324,7 @@ def test_vocab_clause_only_valid_on_data_sorts():
     """
     import pytest
     from quivers.dsl import CompileError
+
     with pytest.raises(CompileError, match="vocab clause is only valid"):
         loads(src)
 
@@ -336,6 +337,7 @@ def test_duplicate_vocab_entry_rejected():
     """
     import pytest
     from quivers.dsl import CompileError
+
     with pytest.raises(CompileError, match="duplicate entry"):
         loads(src)
 
@@ -350,6 +352,7 @@ def test_reserved_op_name_rejected():
     """
     import pytest
     from quivers.dsl import CompileError
+
     with pytest.raises(CompileError, match="reserved"):
         loads(src)
 
@@ -403,7 +406,8 @@ def test_attention_mode_threads_prefix_list():
     # Compress a 3-element sequence; the framework walks the chain
     # and threads the prefix.
     t = make_term(
-        "Cons", "a",
+        "Cons",
+        "a",
         make_term("Cons", "b", make_term("Cons", "c", make_term("Nil"))),
     )
     v = C(t)
@@ -517,7 +521,8 @@ def test_tree_lstm_compresses_a_tree():
     sig = tree_signature(dim=8)
     C = tree_lstm_encoder(sig, dim=8)
     t = make_term(
-        "Node", "*",
+        "Node",
+        "*",
         make_term("Leaf", "x"),
         make_term("Node", "+", make_term("Leaf", "y"), make_term("Leaf", "z")),
     )
@@ -583,6 +588,7 @@ def test_deduction_with_attached_encoder_exposes_embeddings():
     assert getattr(D, "_item_signature", None) is not None
     assert getattr(D, "_item_encoder", None) is not None
     import torch as _t
+
     chart = D([(("atom", "NP"), _t.tensor(0.0)), (("atom", "S"), _t.tensor(0.0))])
     # The chart-as-presheaf works as before.
     assert chart.chart.get(("atom", "S")) is not None

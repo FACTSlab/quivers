@@ -97,7 +97,9 @@ class Decoder(nn.Module):
         depth: int,
         structure_fns: dict[str, Callable[[torch.Tensor], torch.Tensor]],
         primitive_fns: dict[str, Callable[[torch.Tensor], torch.Tensor]],
-        factor_fns: dict[str, dict[int, Callable[[torch.Tensor], tuple[torch.Tensor, ...]]]],
+        factor_fns: dict[
+            str, dict[int, Callable[[torch.Tensor], tuple[torch.Tensor, ...]]]
+        ],
         binder_select_fn: Callable[[torch.Tensor, list[torch.Tensor]], torch.Tensor],
         data_vocab: dict[str, list[DataLeaf]],
         modules_owned: list[nn.Module] | None = None,
@@ -107,9 +109,7 @@ class Decoder(nn.Module):
         self.signature = signature
         self.sort_dims = dict(sort_dims)
         if depth <= 0:
-            raise ValueError(
-                f"decoder {name!r}: depth must be positive, got {depth}"
-            )
+            raise ValueError(f"decoder {name!r}: depth must be positive, got {depth}")
         self.depth = depth
         self.structure_fns = dict(structure_fns)
         self.primitive_fns = dict(primitive_fns)
@@ -139,7 +139,10 @@ class Decoder(nn.Module):
         sort: str | None = None,
     ) -> Term:
         return self._decode_object(
-            vec, ctx or EMPTY_CONTEXT, self._resolve_sort(sort), self.depth,
+            vec,
+            ctx or EMPTY_CONTEXT,
+            self._resolve_sort(sort),
+            self.depth,
         )
 
     def __call__(
@@ -166,7 +169,11 @@ class Decoder(nn.Module):
     # ---- per-sort dispatchers ----
 
     def _decode_object(
-        self, vec: torch.Tensor, ctx: Context, sort: str, budget: int,
+        self,
+        vec: torch.Tensor,
+        ctx: Context,
+        sort: str,
+        budget: int,
     ) -> Term:
         candidates = self._object_candidates(ctx, sort, budget)
         logits = self._structure_logits(vec, sort, candidates)
@@ -186,8 +193,7 @@ class Decoder(nn.Module):
         fn = self.primitive_fns.get(sort) or self.primitive_fns.get("*")
         if fn is None:
             raise RuntimeError(
-                f"decoder {self.name!r}: no primitive head for data sort "
-                f"{sort!r}"
+                f"decoder {self.name!r}: no primitive head for data sort {sort!r}"
             )
         logits = fn(vec)
         if logits.shape[-1] < len(vocab):
@@ -217,12 +223,19 @@ class Decoder(nn.Module):
         return in_scope[idx][0]
 
     def _decode_bound_var(
-        self, vec: torch.Tensor, ctx: Context, sort: str,
+        self,
+        vec: torch.Tensor,
+        ctx: Context,
+        sort: str,
     ) -> Term:
         return bound_var(self._decode_index(vec, ctx, sort))
 
     def _decode_op(
-        self, op: str, vec: torch.Tensor, ctx: Context, budget: int,
+        self,
+        op: str,
+        vec: torch.Tensor,
+        ctx: Context,
+        budget: int,
     ) -> Term:
         sig = self.signature
         if op in sig.constructors:
@@ -248,7 +261,10 @@ class Decoder(nn.Module):
                 if spec.annot_sort is not None:
                     ann_vec = sub_vecs[ai]
                     ann = self._decode_child(
-                        ann_vec, ctx, spec.annot_sort, budget - 1,
+                        ann_vec,
+                        ctx,
+                        spec.annot_sort,
+                        budget - 1,
                     )
                     binder_children.append(ann)
                     annot_terms.append(ann if isinstance(ann, Term) else None)
@@ -260,16 +276,23 @@ class Decoder(nn.Module):
             # 2. Extend the context with one entry per bound variable.
             ctx_ext = ctx
             for spec, ann_term, ann_vec in zip(
-                b.binds, annot_terms, annot_vecs,
+                b.binds,
+                annot_terms,
+                annot_vecs,
             ):
-                slot_vec = ann_vec if ann_vec is not None else torch.zeros(
-                    self.sort_dims[spec.sort]
+                slot_vec = (
+                    ann_vec
+                    if ann_vec is not None
+                    else torch.zeros(self.sort_dims[spec.sort])
                 )
                 ctx_ext = ctx_ext.push(spec.sort, slot_vec, ann_term)
             # 3. Decode each scoped argument in the extended context.
             for j, spec in enumerate(b.scoped):
                 child = self._decode_child(
-                    sub_vecs[n_annots + j], ctx_ext, spec.sort, budget - 1,
+                    sub_vecs[n_annots + j],
+                    ctx_ext,
+                    spec.sort,
+                    budget - 1,
                 )
                 binder_children.append(child)
             return Term(op=op, args=tuple(binder_children))
@@ -278,13 +301,15 @@ class Decoder(nn.Module):
         )
 
     def _decode_child(
-        self, vec: torch.Tensor, ctx: Context, sort: str, budget: int,
+        self,
+        vec: torch.Tensor,
+        ctx: Context,
+        sort: str,
+        budget: int,
     ) -> TermArg:
         sort_decl = self.signature.sorts.get(sort)
         if sort_decl is None:
-            raise RuntimeError(
-                f"decoder {self.name!r}: unknown sort {sort!r}"
-            )
+            raise RuntimeError(f"decoder {self.name!r}: unknown sort {sort!r}")
         if sort_decl.kind == "data":
             return self._decode_data(vec, sort)
         if sort_decl.kind == "index":
@@ -292,9 +317,11 @@ class Decoder(nn.Module):
         return self._decode_object(vec, ctx, sort, budget)
 
     def _object_candidates(
-        self, ctx: Context, sort: str, budget: int,
+        self,
+        ctx: Context,
+        sort: str,
+        budget: int,
     ) -> list[str]:
-        sig = self.signature
         cands = list(self._candidates_by_sort.get(sort, []))
         if ctx.by_sort(sort):
             cands.append(BOUND_VAR_OP)
@@ -305,7 +332,8 @@ class Decoder(nn.Module):
             )
         if budget <= 0:
             terminating = [
-                c for c in cands
+                c
+                for c in cands
                 if c == BOUND_VAR_OP or self._is_recursion_terminating(c)
             ]
             if not terminating:
@@ -330,21 +358,22 @@ class Decoder(nn.Module):
             sd = sig.sorts.get(s)
             if sd is None:
                 raise RuntimeError(
-                    f"decoder {self.name!r}: op {op!r} mentions undeclared "
-                    f"sort {s!r}"
+                    f"decoder {self.name!r}: op {op!r} mentions undeclared sort {s!r}"
                 )
             if sd.kind == "object":
                 return False
         return True
 
     def _structure_logits(
-        self, vec: torch.Tensor, sort: str, candidates: list[str],
+        self,
+        vec: torch.Tensor,
+        sort: str,
+        candidates: list[str],
     ) -> torch.Tensor:
         fn = self.structure_fns.get(sort) or self.structure_fns.get("*")
         if fn is None:
             raise RuntimeError(
-                f"decoder {self.name!r}: no structure logit producer for sort "
-                f"{sort!r}"
+                f"decoder {self.name!r}: no structure logit producer for sort {sort!r}"
             )
         logits = fn(vec)
         if logits.shape[-1] < len(candidates):
@@ -356,7 +385,11 @@ class Decoder(nn.Module):
         return logits[..., : len(candidates)]
 
     def _factor(
-        self, vec: torch.Tensor, op: str, sort: str, n: int,
+        self,
+        vec: torch.Tensor,
+        op: str,
+        sort: str,
+        n: int,
     ) -> tuple[torch.Tensor, ...]:
         per_sort = self.factor_fns.get(sort) or self.factor_fns.get("*")
         if per_sort is None:
@@ -395,7 +428,11 @@ class Decoder(nn.Module):
                 f"{type(term).__name__}"
             )
         return self._logp_object(
-            term, vec, ctx or EMPTY_CONTEXT, self._resolve_sort(sort), self.depth,
+            term,
+            vec,
+            ctx or EMPTY_CONTEXT,
+            self._resolve_sort(sort),
+            self.depth,
         )
 
     def _logp_object(
@@ -414,12 +451,12 @@ class Decoder(nn.Module):
                     f"in-scope variable of that sort"
                 )
             structure_lp = torch.log_softmax(
-                self._structure_logits(vec, sort, cands), dim=-1,
+                self._structure_logits(vec, sort, cands),
+                dim=-1,
             )[cands.index(BOUND_VAR_OP)]
             if len(term.args) != 1 or not isinstance(term.args[0], int):
                 raise RuntimeError(
-                    f"decoder {self.name!r}: malformed BoundVar args "
-                    f"{term.args!r}"
+                    f"decoder {self.name!r}: malformed BoundVar args {term.args!r}"
                 )
             var_lp = self._logp_index(vec, ctx, sort, term.args[0])
             return structure_lp + var_lp
@@ -431,7 +468,8 @@ class Decoder(nn.Module):
                 f"reference an unknown op"
             )
         structure_lp = torch.log_softmax(
-            self._structure_logits(vec, sort, cands), dim=-1,
+            self._structure_logits(vec, sort, cands),
+            dim=-1,
         )[cands.index(term.op)]
 
         sig = self.signature
@@ -448,7 +486,11 @@ class Decoder(nn.Module):
             total = structure_lp
             for i, child_sort in enumerate(cons.domain):
                 total = total + self._logp_child(
-                    term.args[i], sub_vecs[i], ctx, child_sort, budget - 1,
+                    term.args[i],
+                    sub_vecs[i],
+                    ctx,
+                    child_sort,
+                    budget - 1,
                 )
             return total
 
@@ -470,7 +512,11 @@ class Decoder(nn.Module):
             if spec.annot_sort is not None:
                 child = term.args[ai]
                 total = total + self._logp_child(
-                    child, sub_vecs[ai], ctx, spec.annot_sort, budget - 1,
+                    child,
+                    sub_vecs[ai],
+                    ctx,
+                    spec.annot_sort,
+                    budget - 1,
                 )
                 annot_terms.append(child if isinstance(child, Term) else None)
                 annot_vecs.append(sub_vecs[ai])
@@ -480,15 +526,21 @@ class Decoder(nn.Module):
                 annot_vecs.append(None)
         ctx_ext = ctx
         for spec, ann_term, ann_vec in zip(b.binds, annot_terms, annot_vecs):
-            slot_vec = ann_vec if ann_vec is not None else torch.zeros(
-                self.sort_dims[spec.sort]
+            slot_vec = (
+                ann_vec
+                if ann_vec is not None
+                else torch.zeros(self.sort_dims[spec.sort])
             )
             ctx_ext = ctx_ext.push(spec.sort, slot_vec, ann_term)
         n_annots = ai
         for j, spec in enumerate(b.scoped):
             idx = n_annots + j
             total = total + self._logp_child(
-                term.args[idx], sub_vecs[idx], ctx_ext, spec.sort, budget - 1,
+                term.args[idx],
+                sub_vecs[idx],
+                ctx_ext,
+                spec.sort,
+                budget - 1,
             )
         return total
 
@@ -502,9 +554,7 @@ class Decoder(nn.Module):
     ) -> torch.Tensor:
         sd = self.signature.sorts.get(sort)
         if sd is None:
-            raise RuntimeError(
-                f"decoder {self.name!r}: unknown sort {sort!r}"
-            )
+            raise RuntimeError(f"decoder {self.name!r}: unknown sort {sort!r}")
         if sd.kind == "data":
             if isinstance(child, Term):
                 raise TypeError(
@@ -527,7 +577,10 @@ class Decoder(nn.Module):
         return self._logp_object(child, vec, ctx, sort, budget)
 
     def _logp_data(
-        self, token: DataLeaf, vec: torch.Tensor, sort: str,
+        self,
+        token: DataLeaf,
+        vec: torch.Tensor,
+        sort: str,
     ) -> torch.Tensor:
         vocab = self.data_vocab.get(sort)
         if not vocab:
@@ -542,8 +595,7 @@ class Decoder(nn.Module):
         fn = self.primitive_fns.get(sort) or self.primitive_fns.get("*")
         if fn is None:
             raise RuntimeError(
-                f"decoder {self.name!r}: no primitive head for data sort "
-                f"{sort!r}"
+                f"decoder {self.name!r}: no primitive head for data sort {sort!r}"
             )
         logits = fn(vec)
         if logits.shape[-1] < len(vocab):
@@ -552,12 +604,14 @@ class Decoder(nn.Module):
                 f"{logits.shape[-1]} logits but the vocabulary has "
                 f"{len(vocab)} tokens"
             )
-        return torch.log_softmax(logits[..., : len(vocab)], dim=-1)[
-            vocab.index(token)
-        ]
+        return torch.log_softmax(logits[..., : len(vocab)], dim=-1)[vocab.index(token)]
 
     def _logp_index(
-        self, vec: torch.Tensor, ctx: Context, sort: str, index: int,
+        self,
+        vec: torch.Tensor,
+        ctx: Context,
+        sort: str,
+        index: int,
     ) -> torch.Tensor:
         in_scope = ctx.by_sort(sort)
         if not in_scope:

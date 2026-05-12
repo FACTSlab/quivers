@@ -280,9 +280,7 @@ def _node_kind_to_pygments_token(
 # ---------------------------------------------------------------------------
 
 
-_TS_PARSER: (
-    tuple[tree_sitter.Parser, tree_sitter.Language, ctypes.CDLL] | None
-) = None
+_TS_PARSER: tuple[tree_sitter.Parser, tree_sitter.Language, ctypes.CDLL] | None = None
 
 
 def _load_parser() -> tuple[tree_sitter.Parser, tree_sitter.Language, ctypes.CDLL]:
@@ -366,7 +364,9 @@ class QvrLexer(Lexer):
                     yield (cursor, Text, gap)
             node_text = src_bytes[start:end].decode("utf-8")
             token = _node_kind_to_pygments_token(
-                node.type, node_text, parent_kind,
+                node.type,
+                node_text,
+                parent_kind,
             )
             yield (start, token, node_text)
             cursor = end

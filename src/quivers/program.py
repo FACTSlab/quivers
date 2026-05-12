@@ -77,8 +77,7 @@ class Program(nn.Module):
         """Domain of the underlying morphism."""
         if self._morphism is None:
             raise AttributeError(
-                "this Program has no exported morphism; its domain "
-                "is undefined"
+                "this Program has no exported morphism; its domain is undefined"
             )
         return self._morphism.domain
 
@@ -87,8 +86,7 @@ class Program(nn.Module):
         """Codomain of the underlying morphism."""
         if self._morphism is None:
             raise AttributeError(
-                "this Program has no exported morphism; its codomain "
-                "is undefined"
+                "this Program has no exported morphism; its codomain is undefined"
             )
         return self._morphism.codomain
 

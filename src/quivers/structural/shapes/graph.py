@@ -27,15 +27,14 @@ def graph_signature(
     ``vertex_kinds`` maps name -> embedding dim.
     ``edge_kinds`` maps name -> (src_kind, tgt_kind, directed).
     """
-    vk = {
-        n: VertexKind(name=n, kind="data", dim=d)
-        for n, d in vertex_kinds.items()
-    }
+    vk = {n: VertexKind(name=n, kind="data", dim=d) for n, d in vertex_kinds.items()}
     ek = {
         n: EdgeKind(name=n, src=s, tgt=t, directed=directed)
         for n, (s, t, directed) in edge_kinds.items()
     }
-    return Signature(name=name, vertex_kinds_t=tuple(vk.values()), edge_kinds_t=tuple(ek.values()))
+    return Signature(
+        name=name, vertex_kinds_t=tuple(vk.values()), edge_kinds_t=tuple(ek.values())
+    )
 
 
 def gnn_encoder(
@@ -63,7 +62,9 @@ def gnn_encoder(
                 if key not in table:
                     table[key] = nn.Parameter(torch.randn(vdim) * 0.1)
                 return table[key]
+
             return init
+
         init_fns[vname] = make_init()
 
         gru = nn.GRUCell(vdim, vdim)
@@ -72,12 +73,14 @@ def gnn_encoder(
         def make_update(gru=gru, vdim=vdim):
             def upd(self_e, msg):
                 return gru(msg.reshape(1, vdim), self_e.reshape(1, vdim)).reshape(vdim)
+
             return upd
+
         update_fns[vname] = make_update()
 
     for ename, e in sig.edge_kinds.items():
-        src_dim = (sig.vertex_kinds[e.src].dim or dim)
-        tgt_dim = (sig.vertex_kinds[e.tgt].dim or dim)
+        src_dim = sig.vertex_kinds[e.src].dim or dim
+        tgt_dim = sig.vertex_kinds[e.tgt].dim or dim
         out_dim = tgt_dim
         mlp = nn.Sequential(
             nn.Linear(src_dim + tgt_dim, max(out_dim, 64)),
@@ -90,7 +93,9 @@ def gnn_encoder(
             def msg(s, t):
                 cat = torch.cat([s.reshape(-1), t.reshape(-1)], dim=0)
                 return mlp(cat)
+
             return msg
+
         message_fns[ename] = make_msg()
 
     def readout_fn(embeds, mode=readout):

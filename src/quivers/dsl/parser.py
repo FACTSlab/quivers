@@ -648,8 +648,11 @@ def _walk_let_arith(t: _Tree, vid: str) -> LetExprNode:
     if k == "let_list":
         # `[a, b, c]` — list literal in let-expressions.
         return LetExprList(
-            items=tuple(_walk_let_arith(t, av) for av in t.positional(vid)
-                        if t.kind(av) not in ("[", "]", ",")),
+            items=tuple(
+                _walk_let_arith(t, av)
+                for av in t.positional(vid)
+                if t.kind(av) not in ("[", "]", ",")
+            ),
         )
     if k == "let_string":
         # `"..."` — string literal. Strip the surrounding quotes and
@@ -771,18 +774,14 @@ def _walk_bind_step(
     args_list: list[str | float] = []
     for av in t.fields(vid, "args"):
         args_list.append(_walk_draw_arg(t, av))
-    args_t: tuple[str | float, ...] | None = (
-        tuple(args_list) if args_list else None
-    )
+    args_t: tuple[str | float, ...] | None = tuple(args_list) if args_list else None
 
     idx_vid = t.field(vid, "index")
     index_expr = _walk_type(t, idx_vid) if idx_vid is not None else None
 
     scope_t: tuple[ProgramStep, ...] | None = None
     if mode == "marginal":
-        scope_t = tuple(
-            _walk_program_step(t, sv) for sv in t.fields(vid, "scope")
-        )
+        scope_t = tuple(_walk_program_step(t, sv) for sv in t.fields(vid, "scope"))
 
     return BindStep(
         vars=vars_t,
@@ -1046,9 +1045,7 @@ def _walk_statement(t: _Tree, vid: str) -> Statement | list[Statement]:
                 f"program {_required_text(t, t.field(vid, 'name'), vid, 'name')!r} "
                 f"mixes bare data parameters and typed template parameters"
             )
-        params: tuple[str, ...] | None = (
-            tuple(data_params) if data_params else None
-        )
+        params: tuple[str, ...] | None = tuple(data_params) if data_params else None
         type_params: tuple[ProgramParam, ...] | None = (
             tuple(type_params_list) if type_params_list else None
         )
@@ -1138,9 +1135,7 @@ def _walk_statement(t: _Tree, vid: str) -> Statement | list[Statement]:
     raise ParseError(f"unexpected statement kind: {k}")
 
 
-def _walk_deduction_decl(
-    t: _Tree, vid: str, line: int, col: int
-) -> DeductionDecl:
+def _walk_deduction_decl(t: _Tree, vid: str, line: int, col: int) -> DeductionDecl:
     """Walk a ``deduction NAME : dom -> cod { … }`` block.
 
     Collects the brace-delimited body's atoms, sequent rules,
@@ -1171,21 +1166,21 @@ def _walk_deduction_decl(
                 atoms.append(t.text(av))
         elif kk == "deduction_rule":
             r_name = _required_text(t, t.field(child, "name"), child, "name")
-            premises = tuple(
-                _walk_type(t, pv) for pv in t.fields(child, "premises")
-            )
+            premises = tuple(_walk_type(t, pv) for pv in t.fields(child, "premises"))
             conc_vid = t.field(child, "conclusion")
             if conc_vid is None:
                 raise ParseError(f"deduction_rule missing conclusion at {child}")
             conclusion = _walk_type(t, conc_vid)
             rl, rc = t.line_col(child)
-            rules.append(SequentRule(
-                name=r_name,
-                premises=premises,
-                conclusion=conclusion,
-                line=rl,
-                col=rc,
-            ))
+            rules.append(
+                SequentRule(
+                    name=r_name,
+                    premises=premises,
+                    conclusion=conclusion,
+                    line=rl,
+                    col=rc,
+                )
+            )
         elif kk == "deduction_semiring":
             semiring = _required_text(t, t.field(child, "semiring"), child, "semiring")
         elif kk == "deduction_start":
@@ -1203,13 +1198,9 @@ def _walk_deduction_decl(
             if path_raw.startswith('"') and path_raw.endswith('"'):
                 path_raw = path_raw[1:-1]
             lex_from_file = path_raw
-            lex_from_file_learnable = (
-                t.field(child, "learnable") is not None
-            )
+            lex_from_file_learnable = t.field(child, "learnable") is not None
         elif kk == "deduction_axioms":
-            axioms_source = _required_text(
-                t, t.field(child, "source"), child, "source"
-            )
+            axioms_source = _required_text(t, t.field(child, "source"), child, "source")
         elif kk == "deduction_signature":
             item_signature = _required_text(
                 t, t.field(child, "signature"), child, "signature"
@@ -1500,9 +1491,7 @@ def parse_file(path: str | Path) -> Module:
 # ---------------------------------------------------------------------------
 
 
-def _walk_signature_decl(
-    t: _Tree, vid: str, line: int, col: int
-) -> SignatureDecl:
+def _walk_signature_decl(t: _Tree, vid: str, line: int, col: int) -> SignatureDecl:
     name_vid = t.field(vid, "name")
     if name_vid is None:
         raise ParseError(f"signature_decl missing name at {vid}")
@@ -1559,7 +1548,8 @@ def _walk_sort_decl(t: _Tree, vid: str) -> SortDecl:
         # `vocab_literal` is a wrapper choice over string/integer/
         # float; descend to the inner concrete literal node.
         inner_vids = [
-            c for c in t.positional(vlit_vid)
+            c
+            for c in t.positional(vlit_vid)
             if t.kind(c) in ("string", "integer", "float")
         ]
         if len(inner_vids) != 1:
@@ -1589,7 +1579,11 @@ def _walk_constructor_decl(t: _Tree, vid: str) -> ConstructorDecl:
     codomain = t.text(t.field(vid, "codomain"))
     ln, cl = t.line_col(vid)
     return ConstructorDecl(
-        name=name, domain=domain, codomain=codomain, line=ln, col=cl,
+        name=name,
+        domain=domain,
+        codomain=codomain,
+        line=ln,
+        col=cl,
     )
 
 
@@ -1599,14 +1593,16 @@ def _walk_binder_decl(t: _Tree, vid: str) -> BinderDecl:
     for b in t.fields(vid, "binds"):
         annot_vid = t.field(b, "annot")
         annot_sort_vid = t.field(b, "annot_sort")
-        binds_list.append(BinderVar(
-            var=t.text(t.field(b, "var")),
-            sort=t.text(t.field(b, "sort")),
-            annot=t.text(annot_vid) if annot_vid is not None else None,
-            annot_sort=(
-                t.text(annot_sort_vid) if annot_sort_vid is not None else None
-            ),
-        ))
+        binds_list.append(
+            BinderVar(
+                var=t.text(t.field(b, "var")),
+                sort=t.text(t.field(b, "sort")),
+                annot=t.text(annot_vid) if annot_vid is not None else None,
+                annot_sort=(
+                    t.text(annot_sort_vid) if annot_sort_vid is not None else None
+                ),
+            )
+        )
     binds = tuple(binds_list)
     scoped = tuple(
         BinderArg(
@@ -1618,8 +1614,12 @@ def _walk_binder_decl(t: _Tree, vid: str) -> BinderDecl:
     codomain = t.text(t.field(vid, "codomain"))
     ln, cl = t.line_col(vid)
     return BinderDecl(
-        name=name, binds=binds, scoped=scoped, codomain=codomain,
-        line=ln, col=cl,
+        name=name,
+        binds=binds,
+        scoped=scoped,
+        codomain=codomain,
+        line=ln,
+        col=cl,
     )
 
 
@@ -1648,18 +1648,19 @@ def _walk_edge_kind_decl(t: _Tree, vid: str) -> EdgeKindDecl:
     elif arrow_txt == "--":
         directed = False
     else:
-        raise ParseError(
-            f"edge_kind_decl at {vid}: unknown arrow {arrow_txt!r}"
-        )
+        raise ParseError(f"edge_kind_decl at {vid}: unknown arrow {arrow_txt!r}")
     ln, cl = t.line_col(vid)
     return EdgeKindDecl(
-        name=name, src=src, tgt=tgt, directed=directed, line=ln, col=cl,
+        name=name,
+        src=src,
+        tgt=tgt,
+        directed=directed,
+        line=ln,
+        col=cl,
     )
 
 
-def _walk_encoder_decl(
-    t: _Tree, vid: str, line: int, col: int
-) -> EncoderDecl:
+def _walk_encoder_decl(t: _Tree, vid: str, line: int, col: int) -> EncoderDecl:
     name = t.text(t.field(vid, "name"))
     signature = t.text(t.field(vid, "signature"))
     sig_args = tuple(t.text(c) for c in t.fields(vid, "sig_args"))
@@ -1699,50 +1700,61 @@ def _walk_encoder_decl(
                 mode = "attention"
                 prefix_var = t.text(prefix_v)
             cln, ccl = t.line_col(child)
-            op_rules.append(EncoderRule(
-                op=op, args=args, body=body, mode=mode,
-                state_var=state_var, prefix_var=prefix_var,
-                line=cln, col=ccl,
-            ))
+            op_rules.append(
+                EncoderRule(
+                    op=op,
+                    args=args,
+                    body=body,
+                    mode=mode,
+                    state_var=state_var,
+                    prefix_var=prefix_var,
+                    line=cln,
+                    col=ccl,
+                )
+            )
         elif ck == "encoder_init_rule":
-            init_rules.append(EncoderInitRule(
-                kind=t.text(t.field(child, "kind")),
-                arg=t.text(t.field(child, "arg")),
-                body=_walk_let_arith(t, t.field(child, "body")),
-            ))
+            init_rules.append(
+                EncoderInitRule(
+                    kind=t.text(t.field(child, "kind")),
+                    arg=t.text(t.field(child, "arg")),
+                    body=_walk_let_arith(t, t.field(child, "body")),
+                )
+            )
         elif ck == "encoder_message_rule":
-            message_rules.append(EncoderMessageRule(
-                edge_kind=t.text(t.field(child, "edge_kind")),
-                src=t.text(t.field(child, "src")),
-                tgt=t.text(t.field(child, "tgt")),
-                body=_walk_let_arith(t, t.field(child, "body")),
-            ))
+            message_rules.append(
+                EncoderMessageRule(
+                    edge_kind=t.text(t.field(child, "edge_kind")),
+                    src=t.text(t.field(child, "src")),
+                    tgt=t.text(t.field(child, "tgt")),
+                    body=_walk_let_arith(t, t.field(child, "body")),
+                )
+            )
         elif ck == "encoder_update_rule":
-            update_rules.append(EncoderUpdateRule(
-                vertex_kind=t.text(t.field(child, "vertex_kind")),
-                self_var=t.text(t.field(child, "self")),
-                msgs_var=t.text(t.field(child, "msgs")),
-                body=_walk_let_arith(t, t.field(child, "body")),
-            ))
+            update_rules.append(
+                EncoderUpdateRule(
+                    vertex_kind=t.text(t.field(child, "vertex_kind")),
+                    self_var=t.text(t.field(child, "self")),
+                    msgs_var=t.text(t.field(child, "msgs")),
+                    body=_walk_let_arith(t, t.field(child, "body")),
+                )
+            )
         elif ck == "encoder_var_init":
             vs_vid = t.field(child, "var_sort")
             if vs_vid is None:
-                raise ParseError(
-                    f"encoder_var_init at {child} missing var_sort"
-                )
+                raise ParseError(f"encoder_var_init at {child} missing var_sort")
             annot_vid = t.field(child, "annot_sort")
             ty_vid = t.field(child, "ty")
             ln, cl = t.line_col(child)
-            var_inits.append(EncoderVarInit(
-                var_sort=t.text(vs_vid),
-                annot_sort=(
-                    t.text(annot_vid) if annot_vid is not None else None
-                ),
-                ty=t.text(ty_vid) if ty_vid is not None else None,
-                body=_walk_let_arith(t, t.field(child, "body")),
-                line=ln,
-                col=cl,
-            ))
+            var_inits.append(
+                EncoderVarInit(
+                    var_sort=t.text(vs_vid),
+                    annot_sort=(t.text(annot_vid) if annot_vid is not None else None),
+                    ty=t.text(ty_vid) if ty_vid is not None else None,
+                    body=_walk_let_arith(t, t.field(child, "body")),
+                    line=ln,
+                    col=cl,
+                )
+            )
 
     return EncoderDecl(
         name=name,
@@ -1761,9 +1773,7 @@ def _walk_encoder_decl(
     )
 
 
-def _walk_decoder_decl(
-    t: _Tree, vid: str, line: int, col: int
-) -> DecoderDecl:
+def _walk_decoder_decl(t: _Tree, vid: str, line: int, col: int) -> DecoderDecl:
     name = t.text(t.field(vid, "name"))
     signature = t.text(t.field(vid, "signature"))
     sig_args = tuple(t.text(c) for c in t.fields(vid, "sig_args"))
@@ -1822,9 +1832,7 @@ def _walk_decoder_decl(
     )
 
 
-def _walk_loss_decl(
-    t: _Tree, vid: str, line: int, col: int
-) -> LossDecl:
+def _walk_loss_decl(t: _Tree, vid: str, line: int, col: int) -> LossDecl:
     name = t.text(t.field(vid, "name"))
     weight_vid = t.field(vid, "weight")
     weight = _walk_let_arith(t, weight_vid) if weight_vid is not None else None
@@ -1851,14 +1859,10 @@ def _walk_loss_decl(
             )
         elif tgt_vid is not None:
             if kind_vid is None:
-                raise ParseError(
-                    f"loss_attachment at {att_vid}: missing kind"
-                )
+                raise ParseError(f"loss_attachment at {att_vid}: missing kind")
             k = t.text(kind_vid)
             if k not in ("program", "deduction", "encoder", "decoder"):
-                raise ParseError(
-                    f"loss_attachment at {att_vid}: unknown kind {k!r}"
-                )
+                raise ParseError(f"loss_attachment at {att_vid}: unknown kind {k!r}")
             attachment = LossAttachment(
                 attachment_kind=k,  # type: ignore[arg-type]
                 target=t.text(tgt_vid),

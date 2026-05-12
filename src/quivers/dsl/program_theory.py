@@ -558,9 +558,7 @@ def extract_deduction_schema(compiler: "Compiler") -> panproto.Schema:
         sys_vid = f"deduction:{name}"
         builder.vertex(sys_vid, "deduction_system")
         builder.constraint(sys_vid, "name", name)
-        builder.constraint(
-            sys_vid, "semiring", system.semiring.__class__.__name__
-        )
+        builder.constraint(sys_vid, "semiring", system.semiring.__class__.__name__)
         for rule_idx, rule in enumerate(system.rules):
             rule_vid = f"{sys_vid}/rule:{rule.name}"
             builder.vertex(rule_vid, "deduction_rule")

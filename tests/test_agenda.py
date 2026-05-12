@@ -7,7 +7,6 @@ the canonical algorithmic specialisations.
 
 from __future__ import annotations
 
-import math
 import os
 
 os.environ.setdefault("QVR_USE_LOCAL_GRAMMAR", "1")
@@ -15,9 +14,7 @@ os.environ.setdefault("QVR_USE_LOCAL_GRAMMAR", "1")
 import torch
 
 from quivers.stochastic.agenda import (
-    Agenda,
     AgendaResult,
-    Chart,
     ChartView,
     DeductionSystem,
     FIFOAgenda,
@@ -26,12 +23,10 @@ from quivers.stochastic.agenda import (
     LIFOAgenda,
     PriorityQueueAgenda,
     Wildcard,
-    astar_agenda,
     cky_agenda,
     depth_first_agenda,
     earley_agenda,
     instantiate,
-    knuth_agenda,
     match,
     run_agenda,
     semi_naive_agenda,
@@ -77,7 +72,9 @@ class TestMatch:
         assert match(pat, item) == {"A": "NP", "j": 3}
 
     def test_instantiate_substitutes(self):
-        out = instantiate(("span", Wildcard("X"), 0, Wildcard("j")), {"X": "VP", "j": 4})
+        out = instantiate(
+            ("span", Wildcard("X"), 0, Wildcard("j")), {"X": "VP", "j": 4}
+        )
         assert out == ("span", "VP", 0, 4)
 
 
@@ -217,7 +214,9 @@ class TestEndToEnd:
                 rules=rules,
                 semiring=semiring,
                 agenda=agenda_factory(),
-                goal=lambda item: isinstance(item, tuple) and item[0] == "span" and item[1] == "S",
+                goal=lambda item: (
+                    isinstance(item, tuple) and item[0] == "span" and item[1] == "S"
+                ),
             )
             # Collect weights as a dict for comparison.
             weights.append({i: float(w) for i, w in r.goal_items})
@@ -327,8 +326,13 @@ class TestChartView:
             rules=(rule,),
             semiring=LOG_PROB,
             axiom_injector=lambda inp: inp,
-            goal=lambda item: isinstance(item, tuple) and item[0] == "span"
-            and item[1] == "S" and item[2] == 0 and item[3] == 3,
+            goal=lambda item: (
+                isinstance(item, tuple)
+                and item[0] == "span"
+                and item[1] == "S"
+                and item[2] == 0
+                and item[3] == 3
+            ),
         )
 
     def test_call_returns_chartview(self):

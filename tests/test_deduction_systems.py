@@ -19,21 +19,13 @@ import torch
 from quivers.dsl.compiler import Compiler
 from quivers.dsl.parser import parse
 from quivers.dsl.program_theory import (
-    QVR_DEDUCTION_PROTOCOL,
     extract_deduction_schema,
 )
 from quivers.stochastic.agenda import Wildcard
 from quivers.stochastic.stdlib import (
-    CCG,
     STDLIB_DEDUCTIONS,
     Datalog,
-    Dijkstra,
-    EditDistance,
-    HMM,
-    Lambek,
     MLTT,
-    STLC,
-    ViterbiHMM,
 )
 
 
@@ -45,8 +37,15 @@ from quivers.stochastic.stdlib import (
 class TestStdlibRegistry:
     def test_registry_contains_canonical_systems(self):
         expected = {
-            "CCG", "Lambek", "STLC", "MLTT", "Datalog",
-            "Dijkstra", "HMM", "ViterbiHMM", "EditDistance",
+            "CCG",
+            "Lambek",
+            "STLC",
+            "MLTT",
+            "Datalog",
+            "Dijkstra",
+            "HMM",
+            "ViterbiHMM",
+            "EditDistance",
         }
         assert expected <= set(STDLIB_DEDUCTIONS)
 

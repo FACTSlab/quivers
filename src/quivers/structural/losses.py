@@ -23,16 +23,7 @@ LossWeight = Callable[[Mapping[str, "TrainEnv"]], torch.Tensor]
 # in practice), an input tensor, a structured-term observation, or a
 # raw scalar/tensor target. The union is open at the boundary; we
 # alias it precisely so we never silently widen to `Any`.
-TrainEnv = (
-    torch.nn.Module
-    | torch.Tensor
-    | int
-    | float
-    | str
-    | list
-    | tuple
-    | dict
-)
+TrainEnv = torch.nn.Module | torch.Tensor | int | float | str | list | tuple | dict
 
 
 AttachmentKind = Literal[
@@ -86,17 +77,19 @@ class LossRegistry:
         self.entries.append(entry)
 
     def by_attachment(
-        self, kind: AttachmentKind, target: str | None = None,
+        self,
+        kind: AttachmentKind,
+        target: str | None = None,
     ) -> list[LossEntry]:
         return [
             e
             for e in self.entries
-            if e.attachment_kind == kind
-            and (target is None or e.target == target)
+            if e.attachment_kind == kind and (target is None or e.target == target)
         ]
 
     def evaluate(
-        self, env: Mapping[str, TrainEnv] | None = None,
+        self,
+        env: Mapping[str, TrainEnv] | None = None,
     ) -> torch.Tensor:
         """Sum all registered losses, weighted, under ``env``."""
         return self._weighted_sum(self.entries, env or {})
@@ -121,10 +114,7 @@ class LossRegistry:
                 continue
             if target is not None and e.target != target:
                 continue
-            if (
-                rule_deduction is not None
-                and e.rule_deduction != rule_deduction
-            ):
+            if rule_deduction is not None and e.rule_deduction != rule_deduction:
                 continue
             matching.append(e)
         return self._weighted_sum(matching, env or {})

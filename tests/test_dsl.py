@@ -17,7 +17,6 @@ from quivers.dsl.ast_nodes import (
     StochasticMorphismDecl,
     DiscretizeDecl,
     EmbedDecl,
-    DrawStep,
     LetStep,
     LetExprLiteral,
     LetExprVar,
@@ -1899,6 +1898,7 @@ class TestParserLetSteps:
     def test_let_interleaved_with_draws(self):
         """let steps can appear between bind steps."""
         from quivers.dsl.ast_nodes import BindStep
+
         source = "\n            object A : 2\n            space B : UnitInterval()\n            object C : 2\n            program p : A -> C * B\n                x <- LogitNormal(0.0, 1.0)\n                let c = 1\n                b <- Bernoulli(x)\n                return (b, x)\n        "
         mod = parse(source)
         prog = [s for s in mod.statements if isinstance(s, ProgramDecl)][0]

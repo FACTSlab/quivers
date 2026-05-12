@@ -39,13 +39,21 @@ def seq_signature(name: str = "Seq", dim: int = 64) -> Signature:
     constructors = {
         "Nil": Constructor(name="Nil", domain=(), codomain="Seq"),
         "Cons": Constructor(
-            name="Cons", domain=("A", "Seq"), codomain="Seq",
+            name="Cons",
+            domain=("A", "Seq"),
+            codomain="Seq",
         ),
     }
-    return Signature(name=name, sorts_t=tuple(sorts.values()), constructors_t=tuple(constructors.values()))
+    return Signature(
+        name=name,
+        sorts_t=tuple(sorts.values()),
+        constructors_t=tuple(constructors.values()),
+    )
 
 
-def _data_embedder(dim: int) -> tuple[nn.ParameterDict, Callable[[DataLeaf], torch.Tensor]]:
+def _data_embedder(
+    dim: int,
+) -> tuple[nn.ParameterDict, Callable[[DataLeaf], torch.Tensor]]:
     table = nn.ParameterDict()
 
     def embed(key: DataLeaf, table=table, dim=dim) -> torch.Tensor:

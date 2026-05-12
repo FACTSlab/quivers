@@ -141,7 +141,9 @@ def make_default_op_fn(
     return mlp, call
 
 
-def make_default_var_init(in_dim: int, out_dim: int) -> tuple[nn.Module, Callable[[torch.Tensor], torch.Tensor]]:
+def make_default_var_init(
+    in_dim: int, out_dim: int
+) -> tuple[nn.Module, Callable[[torch.Tensor], torch.Tensor]]:
     """A parametric `var_init(ty)` function: an MLP mapping a type
     embedding to a fresh variable embedding."""
     mlp = nn.Sequential(
@@ -293,7 +295,9 @@ class Encoder(nn.Module):
         return rule.fn(*children)
 
     def _compress_attention_chain(
-        self, term: Term, ctx: Context,
+        self,
+        term: Term,
+        ctx: Context,
     ) -> torch.Tensor:
         """Iteratively walk a chain of recursive applications of the
         same constructor, threading a *prefix* list of the
@@ -315,12 +319,8 @@ class Encoder(nn.Module):
         chain: list[tuple[tuple, tuple[str, ...]]] = []
         current: Term = term
         while isinstance(current, Term) and current.op == op:
-            non_rec_args = tuple(
-                a for i, a in enumerate(current.args) if i != rec_idx
-            )
-            non_rec_sorts = tuple(
-                s for i, s in enumerate(cons.domain) if i != rec_idx
-            )
+            non_rec_args = tuple(a for i, a in enumerate(current.args) if i != rec_idx)
+            non_rec_sorts = tuple(s for i, s in enumerate(cons.domain) if i != rec_idx)
             chain.append((non_rec_args, non_rec_sorts))
             current = current.args[rec_idx]
 
@@ -477,16 +477,12 @@ class Encoder(nn.Module):
                     f"{sort!r} must be a Term, got {type(arg).__name__}"
                 )
             return self._compress_object(arg, ctx)
-        raise RuntimeError(
-            f"encoder {self.name!r}: unknown sort kind {kind!r}"
-        )
+        raise RuntimeError(f"encoder {self.name!r}: unknown sort kind {kind!r}")
 
     def _require_op_fn(self, op: str) -> _PerOpFn:
         rule = self.op_fns.get(op)
         if rule is None:
-            raise RuntimeError(
-                f"encoder {self.name!r}: no per-op function for {op!r}"
-            )
+            raise RuntimeError(f"encoder {self.name!r}: no per-op function for {op!r}")
         return rule
 
     # -----------------------------------------------------------------
@@ -500,13 +496,11 @@ class Encoder(nn.Module):
     ) -> torch.Tensor:
         if not self.signature.is_graph():
             raise RuntimeError(
-                f"encoder {self.name!r}: forward_graph requires a graph "
-                f"signature"
+                f"encoder {self.name!r}: forward_graph requires a graph signature"
             )
         if self.iterations <= 0:
             raise RuntimeError(
-                f"encoder {self.name!r}: graph encoder requires "
-                f"`iterations` > 0"
+                f"encoder {self.name!r}: graph encoder requires `iterations` > 0"
             )
 
         embeds: list[torch.Tensor] = []
@@ -514,8 +508,7 @@ class Encoder(nn.Module):
             init = self.init_fns.get(vkind)
             if init is None:
                 raise RuntimeError(
-                    f"encoder {self.name!r}: no init for vertex_kind "
-                    f"{vkind!r}"
+                    f"encoder {self.name!r}: no init for vertex_kind {vkind!r}"
                 )
             embeds.append(init(payload))
 
@@ -530,14 +523,12 @@ class Encoder(nn.Module):
                 edge_spec = self.signature.edge_kinds.get(ekind)
                 if edge_spec is None:
                     raise RuntimeError(
-                        f"encoder {self.name!r}: unknown edge_kind "
-                        f"{ekind!r}"
+                        f"encoder {self.name!r}: unknown edge_kind {ekind!r}"
                     )
                 m_fn = self.message_fns.get(ekind)
                 if m_fn is None:
                     raise RuntimeError(
-                        f"encoder {self.name!r}: no message fn for "
-                        f"edge_kind {ekind!r}"
+                        f"encoder {self.name!r}: no message fn for edge_kind {ekind!r}"
                     )
                 inboxes[tgt].append(m_fn(embeds[src], embeds[tgt]))
                 if not edge_spec.directed:
@@ -548,8 +539,7 @@ class Encoder(nn.Module):
                 upd = self.update_fns.get(vkind)
                 if upd is None:
                     raise RuntimeError(
-                        f"encoder {self.name!r}: no update fn for "
-                        f"vertex_kind {vkind!r}"
+                        f"encoder {self.name!r}: no update fn for vertex_kind {vkind!r}"
                     )
                 msgs = inboxes[i]
                 if msgs:
@@ -561,7 +551,6 @@ class Encoder(nn.Module):
 
         if self.readout is None:
             raise RuntimeError(
-                f"encoder {self.name!r}: graph encoder requires a "
-                f"readout function"
+                f"encoder {self.name!r}: graph encoder requires a readout function"
             )
         return self.readout(embeds)

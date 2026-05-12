@@ -14,7 +14,7 @@ import torch.nn as nn
 
 from ..encoder import Encoder, _PerOpFn
 from ..decoder import Decoder
-from ..signature import DataLeaf, Constructor, Signature, Sort, Term
+from ..signature import DataLeaf, Constructor, Signature, Sort
 
 
 def tree_signature(name: str = "Tree", dim: int = 64) -> Signature:
@@ -26,13 +26,21 @@ def tree_signature(name: str = "Tree", dim: int = 64) -> Signature:
     constructors = {
         "Leaf": Constructor(name="Leaf", domain=("L",), codomain="Tree"),
         "Node": Constructor(
-            name="Node", domain=("B", "Tree", "Tree"), codomain="Tree",
+            name="Node",
+            domain=("B", "Tree", "Tree"),
+            codomain="Tree",
         ),
     }
-    return Signature(name=name, sorts_t=tuple(sorts.values()), constructors_t=tuple(constructors.values()))
+    return Signature(
+        name=name,
+        sorts_t=tuple(sorts.values()),
+        constructors_t=tuple(constructors.values()),
+    )
 
 
-def _data_embedder(dim: int) -> tuple[nn.ParameterDict, Callable[[DataLeaf], torch.Tensor]]:
+def _data_embedder(
+    dim: int,
+) -> tuple[nn.ParameterDict, Callable[[DataLeaf], torch.Tensor]]:
     table = nn.ParameterDict()
 
     def embed(key: DataLeaf) -> torch.Tensor:
@@ -67,7 +75,9 @@ def tree_lstm_encoder(sig: Signature | None = None, dim: int = 64) -> Encoder:
     def leaf_fn(token: torch.Tensor) -> torch.Tensor:
         return leaf_proj(token)
 
-    def node_fn(label: torch.Tensor, left: torch.Tensor, right: torch.Tensor) -> torch.Tensor:
+    def node_fn(
+        label: torch.Tensor, left: torch.Tensor, right: torch.Tensor
+    ) -> torch.Tensor:
         b = label_proj(label)
         cat = torch.cat([b, left, right], dim=-1)
         gate = torch.sigmoid(gate_mlp(cat))
@@ -98,9 +108,7 @@ def tree_decoder(
 ) -> Decoder:
     """Top-down structural decoder over a tree signature."""
     if not leaf_vocab or not label_vocab:
-        raise ValueError(
-            "tree_decoder requires non-empty leaf_vocab and label_vocab"
-        )
+        raise ValueError("tree_decoder requires non-empty leaf_vocab and label_vocab")
     sig = sig or tree_signature(dim=dim)
     structure = nn.Linear(dim, 3)  # Leaf / Node / BoundVar (unused)
     leaf_head = nn.Linear(dim, len(leaf_vocab))
@@ -138,5 +146,13 @@ def tree_decoder(
         factor_fns={"Tree": {1: f1, 3: f3}},
         binder_select_fn=binder_select_fn,
         data_vocab={"L": leaf_vocab, "B": label_vocab},
-        modules_owned=[structure, leaf_head, label_head, factor_1, factor_3, bs_q, bs_k],
+        modules_owned=[
+            structure,
+            leaf_head,
+            label_head,
+            factor_1,
+            factor_3,
+            bs_q,
+            bs_k,
+        ],
     )

@@ -20,7 +20,6 @@ from __future__ import annotations
 import os
 from pathlib import Path
 
-import pytest
 import torch
 
 # Ensure the local-grammar override is on for parser-driven tests.

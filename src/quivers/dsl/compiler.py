@@ -75,25 +75,12 @@ from quivers.dsl.ast_nodes import (
     SchemaDecl,
     BindStep,
     EncoderDecl,
-    EncoderInitRule,
-    EncoderMessageRule,
-    EncoderRule,
-    EncoderUpdateRule,
     DecoderDecl,
     DeductionDecl,
     LossDecl,
-    LossAttachment,
     SignatureDecl,
-    SortDecl,
-    SortDim,
-    BinderDecl,
-    ConstructorDecl,
-    EdgeKindDecl,
-    VertexKindDecl,
     DrawStep,
     ExportDecl,
-    LexiconEntry,
-    SequentRule,
     TypeEffectApply,
     TypeSlash,
     LetStep,
@@ -113,7 +100,7 @@ from quivers.dsl.ast_nodes import (
     ObjectParam,
     PlateDrawStep,
     ProgramDecl,
-    ProgramParam,
+    ProgramStep,
     ScalarParam,
     VectorisedObserveStep,
     LetDecl,
@@ -1018,19 +1005,22 @@ class Compiler:
                 continue
             if step.mode == "sample":
                 if step.index is None:
-                    out.append(DrawStep(
-                        vars=step.vars,
-                        morphism=step.morphism,
-                        args=step.args,
-                        is_observed=False,
-                        line=step.line,
-                        col=step.col,
-                    ))
+                    out.append(
+                        DrawStep(
+                            vars=step.vars,
+                            morphism=step.morphism,
+                            args=step.args,
+                            is_observed=False,
+                            line=step.line,
+                            col=step.col,
+                        )
+                    )
                 else:
                     if len(step.vars) != 1:
                         raise CompileError(
                             "indexed sample bind must bind a single name",
-                            step.line, step.col,
+                            step.line,
+                            step.col,
                         )
                     # The per-row codomain for a plate-draw is taken
                     # from the family's natural codomain at compile
@@ -1044,81 +1034,96 @@ class Compiler:
                     # resolver interprets as "scalar per-row codomain"
                     # (Euclidean(1)); families that declare richer
                     # codomains override this.
-                    out.append(PlateDrawStep(
-                        name=step.vars[0],
-                        index=step.index,
-                        codomain=TypeName(name="1", line=step.line, col=step.col),
-                        morphism=step.morphism,
-                        args=step.args,
-                        line=step.line,
-                        col=step.col,
-                    ))
+                    out.append(
+                        PlateDrawStep(
+                            name=step.vars[0],
+                            index=step.index,
+                            codomain=TypeName(name="1", line=step.line, col=step.col),
+                            morphism=step.morphism,
+                            args=step.args,
+                            line=step.line,
+                            col=step.col,
+                        )
+                    )
             elif step.mode == "score":
                 if step.index is None:
-                    out.append(DrawStep(
-                        vars=step.vars,
-                        morphism=step.morphism,
-                        args=step.args,
-                        is_observed=True,
-                        line=step.line,
-                        col=step.col,
-                    ))
+                    out.append(
+                        DrawStep(
+                            vars=step.vars,
+                            morphism=step.morphism,
+                            args=step.args,
+                            is_observed=True,
+                            line=step.line,
+                            col=step.col,
+                        )
+                    )
                 else:
                     if len(step.vars) != 1:
                         raise CompileError(
                             "indexed observe bind must bind a single name",
-                            step.line, step.col,
+                            step.line,
+                            step.col,
                         )
-                    out.append(VectorisedObserveStep(
-                        index_var=step.vars[0],
-                        index_set=step.index,
-                        morphism=step.morphism,
-                        args=step.args,
-                        response_var=step.vars[0],
-                        line=step.line,
-                        col=step.col,
-                    ))
+                    out.append(
+                        VectorisedObserveStep(
+                            index_var=step.vars[0],
+                            index_set=step.index,
+                            morphism=step.morphism,
+                            args=step.args,
+                            response_var=step.vars[0],
+                            line=step.line,
+                            col=step.col,
+                        )
+                    )
             elif step.mode == "marginal":
                 if len(step.vars) != 1:
                     raise CompileError(
                         "marginalize bind must bind a single name",
-                        step.line, step.col,
+                        step.line,
+                        step.col,
                     )
                 # Introduce the coordinate as a sample step; then
                 # recursively expand the scope's steps; then emit
                 # the marginalize reduction at scope-end.
                 if step.index is None:
-                    out.append(DrawStep(
-                        vars=step.vars,
-                        morphism=step.morphism,
-                        args=step.args,
-                        is_observed=False,
-                        line=step.line,
-                        col=step.col,
-                    ))
+                    out.append(
+                        DrawStep(
+                            vars=step.vars,
+                            morphism=step.morphism,
+                            args=step.args,
+                            is_observed=False,
+                            line=step.line,
+                            col=step.col,
+                        )
+                    )
                 else:
-                    out.append(PlateDrawStep(
-                        name=step.vars[0],
-                        index=step.index,
-                        codomain=TypeName(name="1", line=step.line, col=step.col),
-                        morphism=step.morphism,
-                        args=step.args,
-                        line=step.line,
-                        col=step.col,
-                    ))
+                    out.append(
+                        PlateDrawStep(
+                            name=step.vars[0],
+                            index=step.index,
+                            codomain=TypeName(name="1", line=step.line, col=step.col),
+                            morphism=step.morphism,
+                            args=step.args,
+                            line=step.line,
+                            col=step.col,
+                        )
+                    )
                 # Scope's steps.
                 scope_steps = step.scope if step.scope is not None else ()
                 out.extend(self._expand_bind_steps(scope_steps))
                 # Pushforward reduction.
-                out.append(MarginalizeStep(
-                    var_name=step.vars[0],
-                    line=step.line,
-                    col=step.col,
-                ))
+                out.append(
+                    MarginalizeStep(
+                        var_name=step.vars[0],
+                        line=step.line,
+                        col=step.col,
+                    )
+                )
             else:
                 raise CompileError(
                     f"unknown bind mode {step.mode!r}",
-                    step.line, step.col,
+                    step.line,
+                    step.col,
                 )
         return tuple(out)
 
@@ -1160,14 +1165,16 @@ class Compiler:
             raise CompileError(
                 f"program {decl.name!r} is declared `! Pure` but body "
                 f"uses effects {sorted(actual)}",
-                decl.line, decl.col,
+                decl.line,
+                decl.col,
             )
         unaccounted = actual - declared - {"Pure"}
         if unaccounted:
             raise CompileError(
                 f"program {decl.name!r} body uses effects {sorted(unaccounted)} "
                 f"not listed in `! {{{', '.join(sorted(declared))}}}`",
-                decl.line, decl.col,
+                decl.line,
+                decl.col,
             )
 
     def _expand_template_calls(
@@ -1318,10 +1325,7 @@ class Compiler:
                         call_site.line,
                         call_site.col,
                     )
-                if (
-                    arg not in self._morphisms
-                    and arg not in self._program_templates
-                ):
+                if arg not in self._morphisms and arg not in self._program_templates:
                     raise CompileError(
                         f"template {tmpl.name!r}: parameter {param.name!r}: "
                         f"morphism {arg!r} is not declared",
@@ -1342,11 +1346,7 @@ class Compiler:
         local_names = self._collect_template_local_names(tmpl)
         # The return variable (if a single identifier) receives the
         # call's binding name directly; other locals are namespaced.
-        return_var = (
-            tmpl.return_vars[0]
-            if len(tmpl.return_vars) == 1
-            else None
-        )
+        return_var = tmpl.return_vars[0] if len(tmpl.return_vars) == 1 else None
         rename: dict[str, str] = {}
         for nm in local_names:
             if nm == return_var:
@@ -1364,9 +1364,7 @@ class Compiler:
             for step in expanded_body
         )
 
-    def _collect_template_local_names(
-        self, tmpl: ProgramDecl
-    ) -> set[str]:
+    def _collect_template_local_names(self, tmpl: ProgramDecl) -> set[str]:
         """All names bound inside the template body (latents + lets).
 
         Walks the *unexpanded* v0.5 BindStep / LetStep surface; the
@@ -1533,9 +1531,7 @@ class Compiler:
                     return LetExprVar(name=val, line=expr.line, col=expr.col)
                 return LetExprLiteral(value=float(val), line=expr.line, col=expr.col)
             if expr.name in rename:
-                return LetExprVar(
-                    name=rename[expr.name], line=expr.line, col=expr.col
-                )
+                return LetExprVar(name=rename[expr.name], line=expr.line, col=expr.col)
             return expr
         if isinstance(expr, LetExprLiteral):
             return expr
@@ -1580,7 +1576,9 @@ class Compiler:
                     expr.line,
                     expr.col,
                 )
-            arr_name = rename.get(new_arr, new_arr) if isinstance(new_arr, str) else new_arr
+            arr_name = (
+                rename.get(new_arr, new_arr) if isinstance(new_arr, str) else new_arr
+            )
             return LetExprIndex(
                 array=arr_name,
                 indices=tuple(
@@ -1832,7 +1830,8 @@ class Compiler:
                     self._validate_let_expr_vars(step.value, bound_vars, step)
                     deductions_globals = dict(getattr(self, "_deductions", {}))
                     compiled_fn = self._compile_let_expr(
-                        step.value, globals_=deductions_globals,
+                        step.value,
+                        globals_=deductions_globals,
                     )
                     bound_vars[step.name] = None
                     steps.append(((step.name,), None, compiled_fn))
@@ -2057,6 +2056,7 @@ class Compiler:
         lambda-environment extension.
         """
         deductions = getattr(self, "_deductions", {})
+
         # Inner walker carries a set of locally-bound names from
         # surrounding lambdas, so a lambda's `param` is treated as
         # in-scope inside its body.
@@ -2068,7 +2068,8 @@ class Compiler:
                     return
                 raise CompileError(
                     f"undefined variable {node.name!r} in let expression",
-                    step.line, step.col,
+                    step.line,
+                    step.col,
                 )
             if isinstance(node, LetExprBinOp):
                 _walk(node.left, locals_set)
@@ -2152,13 +2153,13 @@ class Compiler:
                     return (name,)
                 if name in globs and name != "__constructors__":
                     return globs[name]
-                raise CompileError(
-                    f"undefined variable {name!r} in let expression"
-                )
+                raise CompileError(f"undefined variable {name!r} in let expression")
 
             return _var
         if isinstance(node, LetExprList):
-            item_fns = [Compiler._compile_let_expr(it, globals_=globals_) for it in node.items]
+            item_fns = [
+                Compiler._compile_let_expr(it, globals_=globals_) for it in node.items
+            ]
 
             def _list(env: dict) -> list:
                 return [fn(env) for fn in item_fns]
@@ -2216,7 +2217,9 @@ class Compiler:
         if isinstance(node, LetExprMethodCall):
             recv_fn = Compiler._compile_let_expr(node.receiver, globals_=globals_)
             method = node.method
-            arg_fns = [Compiler._compile_let_expr(a, globals_=globals_) for a in node.args]
+            arg_fns = [
+                Compiler._compile_let_expr(a, globals_=globals_) for a in node.args
+            ]
 
             def _method(env: dict):
                 receiver = recv_fn(env)
@@ -2224,15 +2227,16 @@ class Compiler:
                 fn = getattr(receiver, method, None)
                 if fn is None:
                     raise CompileError(
-                        f"object {type(receiver).__name__!r} has no "
-                        f"method {method!r}"
+                        f"object {type(receiver).__name__!r} has no method {method!r}"
                     )
                 return fn(*args)
 
             return _method
         if isinstance(node, LetExprCall):
             func_name = node.func
-            arg_fns = [Compiler._compile_let_expr(a, globals_=globals_) for a in node.args]
+            arg_fns = [
+                Compiler._compile_let_expr(a, globals_=globals_) for a in node.args
+            ]
 
             # Built-in tensor operations.
             _TENSOR_BUILTINS = {
@@ -2344,9 +2348,7 @@ class Compiler:
                     L_flat, scale = args[0], args[1]
                     K = scale.shape[-1]
                     L = L_flat.reshape(*L_flat.shape[:-1], K, K)
-                    mask = torch.tril(
-                        torch.ones(K, K, device=L.device, dtype=L.dtype)
-                    )
+                    mask = torch.tril(torch.ones(K, K, device=L.device, dtype=L.dtype))
                     L = L * mask
                     R = L @ L.transpose(-1, -2)
                     D = scale.unsqueeze(-1) * torch.eye(
@@ -2360,9 +2362,7 @@ class Compiler:
                 # The free term algebra over named constructor symbols
                 # is thus fully under the user's control — no
                 # identifier is silently treated as a constructor.
-                constructors = (globals_ or {}).get(
-                    "__constructors__", frozenset()
-                )
+                constructors = (globals_ or {}).get("__constructors__", frozenset())
                 if func_name in constructors:
                     args = [fn(env) for fn in arg_fns]
                     return (func_name, *args)
@@ -2378,7 +2378,9 @@ class Compiler:
             # Realises the Kleisli pullback ι^* v = v ∘ ι for a finite
             # fibration ι : N → A and a plate variable v : A → B.
             arr_fn = Compiler._compile_let_expr(node.array, globals_=globals_)
-            idx_fns = [Compiler._compile_let_expr(ix, globals_=globals_) for ix in node.indices]
+            idx_fns = [
+                Compiler._compile_let_expr(ix, globals_=globals_) for ix in node.indices
+            ]
 
             def _index(env: dict) -> torch.Tensor:
                 arr = arr_fn(env)
@@ -2422,7 +2424,8 @@ class Compiler:
         if decl.name in self._signatures:
             raise CompileError(
                 f"signature {decl.name!r} already declared",
-                decl.line, decl.col,
+                decl.line,
+                decl.col,
             )
 
         # Sort table.
@@ -2431,13 +2434,15 @@ class Compiler:
             if s.name in sorts:
                 raise CompileError(
                     f"signature {decl.name!r}: duplicate sort {s.name!r}",
-                    s.line, s.col,
+                    s.line,
+                    s.col,
                 )
             if s.vocab and s.kind != "data":
                 raise CompileError(
                     f"signature {decl.name!r}: vocab clause is only valid "
                     f"on `data` sorts; sort {s.name!r} has kind {s.kind!r}",
-                    s.line, s.col,
+                    s.line,
+                    s.col,
                 )
             vocab_entries: list[SortVocabEntry] = []
             seen_vals: set = set()
@@ -2447,7 +2452,8 @@ class Compiler:
                     raise CompileError(
                         f"signature {decl.name!r}: sort {s.name!r} vocabulary "
                         f"contains duplicate entry {value!r}",
-                        s.line, s.col,
+                        s.line,
+                        s.col,
                     )
                 seen_vals.add(value)
                 vocab_entries.append(SortVocabEntry(kind=lit.kind, value=value))
@@ -2464,7 +2470,8 @@ class Compiler:
             if v.name in vertex_kinds:
                 raise CompileError(
                     f"signature {decl.name!r}: duplicate vertex_kind {v.name!r}",
-                    v.line, v.col,
+                    v.line,
+                    v.col,
                 )
             vertex_kinds[v.name] = VertexKind(name=v.name, kind=v.kind, dim=v.dim)
         edge_kinds: dict[str, EdgeKind] = {}
@@ -2472,22 +2479,28 @@ class Compiler:
             if e.name in edge_kinds:
                 raise CompileError(
                     f"signature {decl.name!r}: duplicate edge_kind {e.name!r}",
-                    e.line, e.col,
+                    e.line,
+                    e.col,
                 )
             if e.src not in vertex_kinds:
                 raise CompileError(
                     f"signature {decl.name!r}: edge_kind {e.name!r} has "
                     f"unknown source vertex_kind {e.src!r}",
-                    e.line, e.col,
+                    e.line,
+                    e.col,
                 )
             if e.tgt not in vertex_kinds:
                 raise CompileError(
                     f"signature {decl.name!r}: edge_kind {e.name!r} has "
                     f"unknown target vertex_kind {e.tgt!r}",
-                    e.line, e.col,
+                    e.line,
+                    e.col,
                 )
             edge_kinds[e.name] = EdgeKind(
-                name=e.name, src=e.src, tgt=e.tgt, directed=e.directed,
+                name=e.name,
+                src=e.src,
+                tgt=e.tgt,
+                directed=e.directed,
             )
 
         # Constructors. Every sort mentioned in a constructor must
@@ -2501,12 +2514,14 @@ class Compiler:
                 raise CompileError(
                     f"signature {decl.name!r}: constructor name {c.name!r} "
                     f"is reserved by the framework",
-                    c.line, c.col,
+                    c.line,
+                    c.col,
                 )
             if c.name in constructors:
                 raise CompileError(
                     f"signature {decl.name!r}: duplicate constructor {c.name!r}",
-                    c.line, c.col,
+                    c.line,
+                    c.col,
                 )
             for s in c.domain:
                 if s not in sorts:
@@ -2514,13 +2529,15 @@ class Compiler:
                         f"signature {decl.name!r}: constructor {c.name!r} "
                         f"references undeclared sort {s!r}; declare it in "
                         f"the signature's `sorts {{ … }}` block",
-                        c.line, c.col,
+                        c.line,
+                        c.col,
                     )
             if c.codomain not in sorts:
                 raise CompileError(
                     f"signature {decl.name!r}: constructor {c.name!r} has "
                     f"unknown codomain sort {c.codomain!r}",
-                    c.line, c.col,
+                    c.line,
+                    c.col,
                 )
             constructors[c.name] = Constructor(
                 name=c.name,
@@ -2541,39 +2558,45 @@ class Compiler:
                 raise CompileError(
                     f"signature {decl.name!r}: binder name {b.name!r} is "
                     f"reserved by the framework",
-                    b.line, b.col,
+                    b.line,
+                    b.col,
                 )
             if b.name in binders or b.name in constructors:
                 raise CompileError(
                     f"signature {decl.name!r}: duplicate binder {b.name!r}",
-                    b.line, b.col,
+                    b.line,
+                    b.col,
                 )
             for v in b.binds:
                 if v.sort not in sorts:
                     raise CompileError(
                         f"signature {decl.name!r}: binder {b.name!r} introduces "
                         f"variable of undeclared sort {v.sort!r}",
-                        b.line, b.col,
+                        b.line,
+                        b.col,
                     )
                 if v.annot_sort is not None and v.annot_sort not in sorts:
                     raise CompileError(
                         f"signature {decl.name!r}: binder {b.name!r} variable "
                         f"{v.var!r} annotated by undeclared sort "
                         f"{v.annot_sort!r}",
-                        b.line, b.col,
+                        b.line,
+                        b.col,
                     )
             for a in b.scoped:
                 if a.sort not in sorts:
                     raise CompileError(
                         f"signature {decl.name!r}: binder {b.name!r} scoped arg "
                         f"{a.arg!r} has undeclared sort {a.sort!r}",
-                        b.line, b.col,
+                        b.line,
+                        b.col,
                     )
             if b.codomain not in sorts:
                 raise CompileError(
                     f"signature {decl.name!r}: binder {b.name!r} has "
                     f"unknown codomain sort {b.codomain!r}",
-                    b.line, b.col,
+                    b.line,
+                    b.col,
                 )
             binders[b.name] = Binder(
                 name=b.name,
@@ -2585,9 +2608,7 @@ class Compiler:
                     )
                     for v in b.binds
                 ),
-                scoped=tuple(
-                    BinderArgSpec(arg=a.arg, sort=a.sort) for a in b.scoped
-                ),
+                scoped=tuple(BinderArgSpec(arg=a.arg, sort=a.sort) for a in b.scoped),
                 codomain=b.codomain,
             )
 
@@ -2637,9 +2658,9 @@ class Compiler:
 
         if decl.signature not in self._signatures:
             raise CompileError(
-                f"encoder {decl.name!r}: unknown signature "
-                f"{decl.signature!r}",
-                decl.line, decl.col,
+                f"encoder {decl.name!r}: unknown signature {decl.signature!r}",
+                decl.line,
+                decl.col,
             )
         sig = self._signatures[decl.signature]
 
@@ -2649,11 +2670,17 @@ class Compiler:
         _diag = f"encoder {decl.name!r}"
         for s_name, s in sig.sorts.items():
             sort_dims[s_name] = self._resolve_dim(
-                sig, s_name, overrides, _diag,
+                sig,
+                s_name,
+                overrides,
+                _diag,
             )
         for v_name in sig.vertex_kinds:
             sort_dims[v_name] = self._resolve_dim(
-                sig, v_name, overrides, _diag,
+                sig,
+                v_name,
+                overrides,
+                _diag,
             )
 
         # Set the compiler's per-let globals so let-expressions in
@@ -2679,7 +2706,8 @@ class Compiler:
                 raise CompileError(
                     f"encoder {decl.name!r}: op {op!r} is not in signature "
                     f"{sig.name!r}",
-                    rule.line, rule.col,
+                    rule.line,
+                    rule.col,
                 )
             args = rule.args
 
@@ -2687,7 +2715,8 @@ class Compiler:
                 raise CompileError(
                     f"encoder {decl.name!r}: op {op!r} expects "
                     f"{len(domain)} arguments, got {len(rule.args)}",
-                    rule.line, rule.col,
+                    rule.line,
+                    rule.col,
                 )
 
             body_fn = self._compile_let_expr(rule.body, globals_=globs)
@@ -2704,16 +2733,14 @@ class Compiler:
                     # alias `state_var` for the recursive child's
                     # already-computed embedding.
                     def call(*children):
-                        env = {
-                            name: child
-                            for name, child in zip(args_, children)
-                        }
+                        env = {name: child for name, child in zip(args_, children)}
                         if state_var is not None:
                             # Convention: the recursive child is the
                             # last positional in the surface form
                             # `Cons(head, tail) recurrent state |-> ...`.
                             env[state_var] = children[-1]
                         return body_fn(env)
+
                     return call
                 if mode == "attention":
                     # Children are the non-recursive args followed by
@@ -2728,22 +2755,19 @@ class Compiler:
                         # source). The recursive arg name is the
                         # last in `args_`; it sees the running step
                         # state, mirroring `recurrent`.
-                        env = {
-                            name: child
-                            for name, child in zip(args_[:-1], non_rec)
-                        }
+                        env = {name: child for name, child in zip(args_[:-1], non_rec)}
                         if args_:
                             env[args_[-1]] = state_arg
                         if prefix_var is not None:
                             env[prefix_var] = prefix_list
                         return body_fn(env)
+
                     return call
 
                 def call(*children):
-                    env = {
-                        name: child for name, child in zip(args_, children)
-                    }
+                    env = {name: child for name, child in zip(args_, children)}
                     return body_fn(env)
+
                 return call
 
             op_fns[op] = _PerOpFn(
@@ -2768,14 +2792,15 @@ class Compiler:
                 out_dim = sort_dims[c.codomain]
             else:
                 b = sig.binders[op_name]
-                arg_dims = tuple(
-                    sort_dims[s] for s in b.domain()
-                )
+                arg_dims = tuple(sort_dims[s] for s in b.domain())
                 out_dim = sort_dims[b.codomain]
             mod, call = make_default_op_fn(op_name, arg_dims, out_dim)
             modules_owned.append(mod)
             op_fns[op_name] = _PerOpFn(
-                op=op_name, mode="plain", args=(), fn=call,
+                op=op_name,
+                mode="plain",
+                args=(),
+                fn=call,
             )
 
         # var_init functions for binders. We allocate one per
@@ -2808,14 +2833,17 @@ class Compiler:
                     init_param = nn.Parameter(torch.randn(out_dim) * 0.1)
                     holder = nn.Module()
                     holder.register_parameter(
-                        f"unannot_var_{spec.sort}", init_param,
+                        f"unannot_var_{spec.sort}",
+                        init_param,
                     )
                     modules_owned.append(holder)
 
                     def make_unannot(p=init_param):
                         def call(_annot=None):
                             return p
+
                         return call
+
                     var_init_fns[key] = make_unannot()
 
         # User-supplied per-(var_sort, annot_sort) var_init bodies.
@@ -2830,7 +2858,9 @@ class Compiler:
                 def make_call(body_fn=body_fn):
                     def call(_annot=None):
                         return body_fn({})
+
                     return call
+
                 var_init_fns[key] = make_call()
             else:
                 if vi.ty is None:
@@ -2839,14 +2869,17 @@ class Compiler:
                         f"{vi.var_sort!r} from {vi.annot_sort!r} requires "
                         f"an `as <name>` clause to bind the annotation "
                         f"embedding in the body",
-                        vi.line, vi.col,
+                        vi.line,
+                        vi.col,
                     )
                 key = (vi.var_sort, vi.annot_sort)
 
                 def make_call(body_fn=body_fn, arg=vi.ty):
                     def call(ty):
                         return body_fn({arg: ty})
+
                     return call
+
                 var_init_fns[key] = make_call()
 
         # Data embedders: one learnable table per data sort, keyed by
@@ -2864,24 +2897,28 @@ class Compiler:
 
             def init_call(payload, body_fn=ib, arg=ir.arg):
                 return body_fn({arg: payload})
+
             init_fns[ir.kind] = init_call
         for mr in decl.message_rules:
             mb = self._compile_let_expr(mr.body, globals_=globs)
 
             def msg_call(s, t, body_fn=mb, sv=mr.src, tv=mr.tgt):
                 return body_fn({sv: s, tv: t})
+
             message_fns[mr.edge_kind] = msg_call
         for ur in decl.update_rules:
             ub = self._compile_let_expr(ur.body, globals_=globs)
 
             def upd_call(slf, msgs, body_fn=ub, sv=ur.self_var, mv=ur.msgs_var):
                 return body_fn({sv: slf, mv: msgs})
+
             update_fns[ur.vertex_kind] = upd_call
         if decl.readout is not None:
             rb = self._compile_let_expr(decl.readout, globals_=globs)
 
             def readout_call(embeds, body_fn=rb):
                 return body_fn({"embeds": embeds})
+
             readout = readout_call
 
         comp = Encoder(
@@ -2901,7 +2938,8 @@ class Compiler:
         if decl.name in self._morphisms:
             raise CompileError(
                 f"encoder {decl.name!r} name conflicts with existing morphism",
-                decl.line, decl.col,
+                decl.line,
+                decl.col,
             )
         self._encoders[decl.name] = comp
         self._morphisms[decl.name] = comp
@@ -2921,7 +2959,8 @@ class Compiler:
         if decl.signature not in self._signatures:
             raise CompileError(
                 f"decoder {decl.name!r}: unknown signature {decl.signature!r}",
-                decl.line, decl.col,
+                decl.line,
+                decl.col,
             )
         sig: Signature = self._signatures[decl.signature]
 
@@ -2930,7 +2969,10 @@ class Compiler:
         _diag = f"decoder {decl.name!r}"
         for s_name in sig.sorts:
             sort_dims[s_name] = self._resolve_dim(
-                sig, s_name, overrides, _diag,
+                sig,
+                s_name,
+                overrides,
+                _diag,
             )
 
         globs = self._lex_globals_for_structural()
@@ -2940,7 +2982,7 @@ class Compiler:
         # Each object sort needs one structure head emitting logits
         # over its candidate set (constructors + binders +
         # BoundVar). We size each head to the candidate set size.
-        structure_fns: dict[str, _Callable[[torch.Tensor], torch.Tensor]] = {}
+        structure_fns: dict[str, Callable[[torch.Tensor], torch.Tensor]] = {}
         for s_name, s in sig.sorts.items():
             if s.kind != "object":
                 continue
@@ -2960,15 +3002,20 @@ class Compiler:
             def _make_struct(head=head):
                 def call(v: torch.Tensor) -> torch.Tensor:
                     return head(v.reshape(-1))
+
                 return call
+
             structure_fns[s_name] = _make_struct()
 
         # User-supplied structure override.
         if decl.structure is not None and decl.structure_arg is not None:
             sb = self._compile_let_expr(decl.structure, globals_=globs)
 
-            def _struct_override(v: torch.Tensor, body_fn=sb, arg=decl.structure_arg) -> torch.Tensor:
+            def _struct_override(
+                v: torch.Tensor, body_fn=sb, arg=decl.structure_arg
+            ) -> torch.Tensor:
                 return body_fn({arg: v})
+
             structure_fns["*"] = _struct_override
 
         # ---- primitive heads, per data sort ----
@@ -2977,7 +3024,7 @@ class Compiler:
         # unpopulated; here we only allocate when the vocab is set
         # via the compiler's data_vocab attribute (declared
         # separately if and when needed).
-        primitive_fns: dict[str, _Callable[[torch.Tensor], torch.Tensor]] = {}
+        primitive_fns: dict[str, Callable[[torch.Tensor], torch.Tensor]] = {}
         for s_name, s in sig.sorts.items():
             if s.kind != "data":
                 continue
@@ -2988,21 +3035,28 @@ class Compiler:
             def _make_prim(head=head):
                 def call(v: torch.Tensor) -> torch.Tensor:
                     return head(v.reshape(-1))
+
                 return call
+
             primitive_fns[s_name] = _make_prim()
 
         if decl.primitive is not None and decl.primitive_arg is not None:
             pb = self._compile_let_expr(decl.primitive, globals_=globs)
 
-            def _prim_override(v: torch.Tensor, body_fn=pb, arg=decl.primitive_arg) -> torch.Tensor:
+            def _prim_override(
+                v: torch.Tensor, body_fn=pb, arg=decl.primitive_arg
+            ) -> torch.Tensor:
                 return body_fn({arg: v})
+
             primitive_fns["*"] = _prim_override
 
         # ---- factor functions: per object sort, per arity ----
         # Every arity that occurs in the signature gets a learned
         # linear projection `dim -> n*dim` reshaped to a tuple of
         # n sub-vectors. This is the formally correct child split.
-        factor_fns: dict[str, dict[int, _Callable[[torch.Tensor], tuple[torch.Tensor, ...]]]] = {}
+        factor_fns: dict[
+            str, dict[int, Callable[[torch.Tensor], tuple[torch.Tensor, ...]]]
+        ] = {}
         arities_by_sort: dict[str, set[int]] = {}
         for c in sig.constructors.values():
             if c.arity > 0:
@@ -3013,7 +3067,9 @@ class Compiler:
 
         for sort, arities in arities_by_sort.items():
             d = sort_dims[sort]
-            per_arity: dict[int, _Callable[[torch.Tensor], tuple[torch.Tensor, ...]]] = {}
+            per_arity: dict[
+                int, Callable[[torch.Tensor], tuple[torch.Tensor, ...]]
+            ] = {}
             for n in arities:
                 lin = nn.Linear(d, d * n)
                 modules_owned.append(lin)
@@ -3022,7 +3078,9 @@ class Compiler:
                     def call(v: torch.Tensor) -> tuple[torch.Tensor, ...]:
                         out = lin(v.reshape(-1))
                         return tuple(out[i * d : (i + 1) * d] for i in range(n))
+
                     return call
+
                 per_arity[n] = _make_factor()
             factor_fns[sort] = per_arity
 
@@ -3050,6 +3108,7 @@ class Compiler:
                             f"{n} returned {len(result)} sub-vectors"
                         )
                     return tuple(result)
+
                 return call
 
             for sort, per_arity in factor_fns.items():
@@ -3076,12 +3135,18 @@ class Compiler:
             keys = torch.stack([k(e.reshape(-1)) for e in embeds], dim=0)
             return keys @ qv
 
-        binder_select_fn: _Callable[[torch.Tensor, list[torch.Tensor]], torch.Tensor]
+        binder_select_fn: Callable[[torch.Tensor, list[torch.Tensor]], torch.Tensor]
         if decl.binder_select is not None and decl.binder_select_arg is not None:
             bb = self._compile_let_expr(decl.binder_select, globals_=globs)
 
-            def _bs_override(v: torch.Tensor, embeds: list[torch.Tensor], body_fn=bb, arg=decl.binder_select_arg) -> torch.Tensor:
+            def _bs_override(
+                v: torch.Tensor,
+                embeds: list[torch.Tensor],
+                body_fn=bb,
+                arg=decl.binder_select_arg,
+            ) -> torch.Tensor:
                 return body_fn({arg: v, "embeds": embeds})
+
             binder_select_fn = _bs_override
         else:
             binder_select_fn = _binder_select_default
@@ -3101,11 +3166,11 @@ class Compiler:
         if decl.name in self._morphisms:
             raise CompileError(
                 f"decoder {decl.name!r} name conflicts with existing morphism",
-                decl.line, decl.col,
+                decl.line,
+                decl.col,
             )
         self._decoders[decl.name] = dec
         self._morphisms[decl.name] = dec
-
 
     def _compile_loss(self, decl: LossDecl) -> None:
         """Compile a loss declaration into a registry entry."""
@@ -3118,14 +3183,16 @@ class Compiler:
         if decl.weight is not None:
             weight_fn = self._compile_let_expr(decl.weight, globals_=globs)
         att = decl.attachment
-        self._loss_registry.add(LossEntry(
-            name=decl.name,
-            body=body_fn,
-            weight=weight_fn,
-            attachment_kind=att.attachment_kind,
-            target=att.target,
-            rule_deduction=att.rule_deduction,
-        ))
+        self._loss_registry.add(
+            LossEntry(
+                name=decl.name,
+                body=body_fn,
+                weight=weight_fn,
+                attachment_kind=att.attachment_kind,
+                target=att.target,
+                rule_deduction=att.rule_deduction,
+            )
+        )
 
     def _lex_globals_for_structural(self) -> dict:
         """Build the globals dict visible to encoder/decoder/loss
@@ -3175,6 +3242,7 @@ class Compiler:
                         p = nn.Parameter(torch.randn(dim) * 0.1)
                         table[skey] = p
                     return table[skey]
+
                 return call
 
             out[s_name] = make_embed()
@@ -3192,9 +3260,7 @@ class Compiler:
         token positions.
         """
         return {
-            s.name: list(s.vocab_values)
-            for s in sig.sorts.values()
-            if s.kind == "data"
+            s.name: list(s.vocab_values) for s in sig.sorts.values() if s.kind == "data"
         }
 
     def _compile_deduction(self, decl: DeductionDecl) -> None:
@@ -3235,7 +3301,8 @@ class Compiler:
         if decl.name in self._deductions or decl.name in self._morphisms:
             raise CompileError(
                 f"deduction {decl.name!r} already declared",
-                decl.line, decl.col,
+                decl.line,
+                decl.col,
             )
 
         # Pattern-conversion: TypeExpr -> agenda-engine Pattern.
@@ -3304,11 +3371,13 @@ class Compiler:
         for sr in decl.rules:
             premises = tuple(_convert_pattern(p) for p in sr.premises)
             conclusion = _convert_pattern(sr.conclusion)
-            inference_rules.append(InferenceRule(
-                name=sr.name,
-                premises=premises,
-                conclusion=conclusion,
-            ))
+            inference_rules.append(
+                InferenceRule(
+                    name=sr.name,
+                    premises=premises,
+                    conclusion=conclusion,
+                )
+            )
 
         # ---- Axiom source ----
         #
@@ -3327,7 +3396,8 @@ class Compiler:
                 raise CompileError(
                     f"deduction {decl.name!r}: axioms source "
                     f"{src_name!r} is not a declared morphism",
-                    decl.line, decl.col,
+                    decl.line,
+                    decl.col,
                 )
             morph = self._morphisms[src_name]
 
@@ -3353,14 +3423,17 @@ class Compiler:
                     raise CompileError(
                         f"deduction {decl.name!r}: lexicon entry for "
                         f"{entry.word!r} has unresolved variable: {e}",
-                        entry.line, entry.col,
+                        entry.line,
+                        entry.col,
                     ) from e
-                entries.append((
-                    entry.word,
-                    _convert_pattern(entry.category),
-                    lf_value,
-                    entry.learnable,
-                ))
+                entries.append(
+                    (
+                        entry.word,
+                        _convert_pattern(entry.category),
+                        lf_value,
+                        entry.learnable,
+                    )
+                )
             # File-loaded lexicon: TSV with `word\tcategory\tlf` rows.
             if decl.lexicon_from_file is not None:
                 file_entries = self._load_lexicon_tsv(
@@ -3378,9 +3451,7 @@ class Compiler:
             for idx, (_w, _cat, _lf, is_learnable) in enumerate(entries):
                 if is_learnable:
                     p = nn.Parameter(torch.zeros(()))
-                    axiom_module.register_parameter(
-                        f"lex_weight_{idx}", p
-                    )
+                    axiom_module.register_parameter(f"lex_weight_{idx}", p)
                     param_list.append(p)
                 else:
                     param_list.append(None)
@@ -3389,7 +3460,9 @@ class Compiler:
             entries_local = tuple(entries)
             params_local = tuple(param_list)
 
-            def _axiom_injector(input_value, _entries=entries_local, _params=params_local):
+            def _axiom_injector(
+                input_value, _entries=entries_local, _params=params_local
+            ):
                 # `input_value` may be a list/tuple of token strings,
                 # OR a list of `(token, position)` pairs. We accept
                 # bare-string lists for the common case.
@@ -3446,8 +3519,12 @@ class Compiler:
             # 3. CKY-shaped span: ("span", i, j, ("atom", "S"), lf).
             if head == "span" and len(item) >= 4:
                 cat = item[3]
-                if (isinstance(cat, tuple) and len(cat) == 2
-                        and cat[0] == "atom" and cat[1] == start):
+                if (
+                    isinstance(cat, tuple)
+                    and len(cat) == 2
+                    and cat[0] == "atom"
+                    and cat[1] == start
+                ):
                     return True
             return False
 
@@ -3485,7 +3562,8 @@ class Compiler:
                 raise CompileError(
                     f"deduction {decl.name!r}: unknown item signature "
                     f"{decl.item_signature!r}",
-                    decl.line, decl.col,
+                    decl.line,
+                    decl.col,
                 )
             system._item_signature = sigs[decl.item_signature]  # type: ignore[attr-defined]
         if decl.item_encoder is not None:
@@ -3494,13 +3572,17 @@ class Compiler:
                 raise CompileError(
                     f"deduction {decl.name!r}: unknown item encoder "
                     f"{decl.item_encoder!r}",
-                    decl.line, decl.col,
+                    decl.line,
+                    decl.col,
                 )
             system._item_encoder = comps[decl.item_encoder]  # type: ignore[attr-defined]
         self._deductions[decl.name] = system
 
     def _load_lexicon_tsv(
-        self, path: str, learnable: bool, decl: "DeductionDecl",
+        self,
+        path: str,
+        learnable: bool,
+        decl: "DeductionDecl",
     ) -> list[tuple[str, "Any", "Any", bool]]:
         """Load a lexicon from a TSV file at compile time.
 
@@ -3514,7 +3596,6 @@ class Compiler:
         with ``/`` are absolute.
         """
         from pathlib import Path
-        from quivers.dsl.parser import _walk_type, _walk_let_arith
         # Re-parse the category and LF text by feeding them to the
         # tree-sitter parser inside a synthetic dummy program.
         # This keeps the lexicon-file syntax aligned with the
@@ -3529,7 +3610,8 @@ class Compiler:
         if not p.exists():
             raise CompileError(
                 f"deduction {decl.name!r}: lexicon file {path!r} not found",
-                decl.line, decl.col,
+                decl.line,
+                decl.col,
             )
         out: list[tuple[str, "Any", "Any", bool]] = []
         with p.open("r", encoding="utf-8") as fh:
@@ -3543,7 +3625,8 @@ class Compiler:
                         f"deduction {decl.name!r}: lexicon file "
                         f"{path!r}:{lineno}: expected 3 tab-separated "
                         f"columns (word, category, lf), got {len(parts)}",
-                        decl.line, decl.col,
+                        decl.line,
+                        decl.col,
                     )
                 word, cat_text, lf_text = parts[0], parts[1], parts[2]
                 # Build a TypeName for the category atom. (Richer
@@ -3559,6 +3642,7 @@ class Compiler:
                     # Parse the LF text as a let-arith expression
                     # by wrapping it in a tiny synthetic program.
                     from quivers.dsl.parser import parse as _parse
+
                     syn_src = (
                         "object _DummyObj : 1\n"
                         "program _dummy_prog : _DummyObj -> _DummyObj\n"
@@ -3570,11 +3654,16 @@ class Compiler:
                     # The third statement is the program; its
                     # second step's value carries the parsed LF.
                     prog = next(
-                        s for s in syn_mod.statements
-                        if hasattr(s, "draws") and getattr(s, "name", None) == "_dummy_prog"
+                        s
+                        for s in syn_mod.statements
+                        if hasattr(s, "draws")
+                        and getattr(s, "name", None) == "_dummy_prog"
                     )
                     let_step = prog.draws[1]
-                    lf_value = Compiler._compile_let_expr(let_step.value, globals_=globals_)({})
+                    lex_globals = self._lex_globals_for_structural()
+                    lf_value = Compiler._compile_let_expr(
+                        let_step.value, globals_=lex_globals
+                    )({})
                 else:
                     lf_value = lf_text
                 out.append((word, cat_pattern, lf_value, learnable))

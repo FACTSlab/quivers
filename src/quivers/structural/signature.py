@@ -23,6 +23,7 @@ arbitrary Python data leaves).
 from __future__ import annotations
 
 from collections.abc import Iterable
+from dataclasses import dataclass
 from typing import Literal
 
 import didactic.api as dx
@@ -300,9 +301,7 @@ class Term(dx.Model):
 def bound_var(index: int) -> Term:
     """A de-Bruijn variable reference."""
     if not isinstance(index, int) or index < 0:
-        raise TypeError(
-            f"bound_var requires a non-negative int, got {index!r}"
-        )
+        raise TypeError(f"bound_var requires a non-negative int, got {index!r}")
     return Term(op="BoundVar", args=(index,))
 
 
@@ -315,18 +314,13 @@ def make_term(op: str, *args) -> Term:
     time.
     """
     if not isinstance(op, str):
-        raise TypeError(
-            f"make_term requires a string op, got {type(op).__name__}"
-        )
+        raise TypeError(f"make_term requires a string op, got {type(op).__name__}")
     return Term(op=op, args=tuple(args))
 
 
 # ---------------------------------------------------------------------------
 # de-Bruijn context
 # ---------------------------------------------------------------------------
-
-
-from dataclasses import dataclass
 
 
 # `ContextEntry` and `Context` are intentionally plain dataclasses
@@ -397,11 +391,7 @@ class Context:
         """All entries whose ``var_sort`` matches; returned as
         ``(depth-index, entry)`` pairs for the decoder's
         categorical-over-in-scope-variables."""
-        return [
-            (i, e)
-            for i, e in enumerate(self.entries)
-            if e.var_sort == sort
-        ]
+        return [(i, e) for i, e in enumerate(self.entries) if e.var_sort == sort]
 
 
 EMPTY_CONTEXT = Context()

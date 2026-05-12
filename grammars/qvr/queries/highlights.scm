@@ -203,7 +203,7 @@
 (deduction_start start: (identifier) @constant)
 (deduction_axioms source: (identifier) @function)
 (deduction_signature signature: (identifier) @type)
-(deduction_compressor_attach compressor: (identifier) @function)
+(deduction_encoder_attach encoder: (identifier) @function)
 (lexicon_entry word: (string) @string)
 (lexicon_entry learnable: (learnable_marker) @keyword)
 
