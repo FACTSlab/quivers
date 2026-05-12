@@ -111,3 +111,8 @@ reportOptionalMemberAccess = "warning"
 reportIncompatibleVariableOverride = "warning"
 reportIncompatibleMethodOverride = "warning"
 reportMissingImports = "warning"
+# Per-branch redeclaration of nested helpers (`make_call`, `call`,
+# `_axiom_injector`) is intentional: each branch builds a closure
+# with branch-specific captures and only one branch is reached at
+# runtime.
+reportRedeclaration = "warning"

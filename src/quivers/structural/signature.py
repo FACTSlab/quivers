@@ -24,7 +24,7 @@ from __future__ import annotations
 
 from collections.abc import Iterable
 from dataclasses import dataclass
-from typing import Literal
+from typing import Literal, TypeAlias
 
 import didactic.api as dx
 import torch
@@ -39,7 +39,7 @@ DataLeaf = str | int | float | bytes | bool
 # Term; data positions carry a DataLeaf; index positions carry an
 # int. (Term is a forward reference here because it's defined
 # below in this module.)
-TermArg = "Term | DataLeaf | int"
+TermArg: TypeAlias = "Term | DataLeaf | int"
 
 # The closed enumeration of sort kinds a signature can declare.
 SortKind = Literal["object", "index", "data"]
