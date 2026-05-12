@@ -28,7 +28,7 @@ continuous combine : Combined -> Output ~ Normal [scale=0.1]
 
 let birnn = (forward_path @ backward_path) >> combine
 
-output birnn
+export birnn
 ```
 
 ## Walkthrough

@@ -43,7 +43,7 @@ from quivers.dsl.ast_nodes import (
     Module,
     MorphismDecl,
     ObjectDecl,
-    OutputDecl,
+    ExportDecl,
     ProgramDecl,
     ProgramStep,
     QuantaleDecl,
@@ -210,7 +210,7 @@ _PDECL = ProgramDecl(
     return_vars=("x",),
 )
 _LDECL = LetDecl(name="h", expr=_E_IDENT)
-_OUTDECL = OutputDecl(expr=_E_IDENT)
+_OUTDECL = ExportDecl(expr=_E_IDENT)
 
 _MODULE = Module(statements=(_QDECL, _ODECL, _MDECL, _OUTDECL))
 

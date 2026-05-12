@@ -7,7 +7,16 @@
   ],
   "patterns": [
     {
+      "include": "#comment-doc"
+    },
+    {
       "include": "#comment"
+    },
+    {
+      "include": "#string"
+    },
+    {
+      "include": "#keyword-effect"
     },
     {
       "include": "#keyword-control"
@@ -16,10 +25,25 @@
       "include": "#keyword-declaration"
     },
     {
+      "include": "#keyword-structural"
+    },
+    {
+      "include": "#keyword-deduction"
+    },
+    {
       "include": "#keyword-operator"
     },
     {
       "include": "#builtin-function"
+    },
+    {
+      "include": "#builtin-type"
+    },
+    {
+      "include": "#semiring"
+    },
+    {
+      "include": "#quantale"
     },
     {
       "include": "#distribution-family"
@@ -35,55 +59,113 @@
     }
   ],
   "repository": {
+    "comment-doc": {
+      "name": "comment.block.documentation.qvr",
+      "match": "##.*$"
+    },
     "comment": {
       "name": "comment.line.number-sign.qvr",
       "match": "#.*$"
     },
+    "string": {
+      "name": "string.quoted.double.qvr",
+      "begin": "\"",
+      "end": "\"",
+      "patterns": [
+        {
+          "name": "constant.character.escape.qvr",
+          "match": "\\\\."
+        }
+      ]
+    },
     "keyword-control": {
       "name": "keyword.control.qvr",
-      "match": "\\b(draw|observe|return|let|program)\\b"
+      "match": "\\b(observe|return|let|program|marginalize|in|for|where|export|output|alias|bundle)\\b"
     },
     "keyword-declaration": {
       "name": "keyword.declaration.qvr",
-      "match": "\\b(quantale|object|space|latent|observed|stochastic|continuous|discretize|embed|output)\\b"
+      "match": "\\b(quantale|category|object|space|latent|observed|stochastic|continuous|discretize|embed|type|schema|rule)\\b"
+    },
+    "keyword-structural": {
+      "name": "keyword.declaration.structural.qvr",
+      "match": "\\b(signature|encoder|decoder|loss|sorts|constructors|binders|vertex_kinds|edge_kinds|binds|dim|vocab|weight|on|of|chart|iterations|readout|init|message|update|var_init|as|recurrent|attention|structure|primitive|factor|binder_select|body|recursive|data|index)\\b"
+    },
+    "keyword-deduction": {
+      "name": "keyword.declaration.deduction.qvr",
+      "match": "\\b(deduction|atoms|semiring|start|depth|lexicon|from|with|axioms|learnable|compressor)\\b"
+    },
+    "keyword-effect": {
+      "name": "keyword.other.effect.qvr",
+      "match": "\\b(Pure|Sample|Score|Marginal|over)\\b"
     },
     "keyword-operator": {
       "patterns": [
         {
-          "name": "keyword.operator.qvr",
-          "match": "->>"
+          "comment": "Encoder / decoder body arrow (must be matched before bitwise `|`).",
+          "name": "keyword.operator.body-arrow.qvr",
+          "match": "\\|->"
         },
         {
-          "name": "keyword.operator.qvr",
-          "match": ">>"
+          "comment": "Sequent arrow used in deduction rules.",
+          "name": "keyword.operator.sequent.qvr",
+          "match": "\\|-|⊢"
         },
         {
+          "comment": "Compose-and-flip arrows (longest-first).",
           "name": "keyword.operator.qvr",
-          "match": "@"
+          "match": ">=>|>>|<<|->|=>|<-"
+        },
+        {
+          "comment": "Graph undirected-edge arrow (matched before unary minus).",
+          "name": "keyword.operator.edge.qvr",
+          "match": "--"
         },
         {
           "name": "keyword.operator.qvr",
           "match": "~"
+        },
+        {
+          "comment": "Effect-signature marker on programs.",
+          "name": "keyword.operator.effect.qvr",
+          "match": "!"
+        },
+        {
+          "name": "keyword.operator.qvr",
+          "match": "@"
         }
       ]
     },
     "builtin-function": {
       "name": "support.function.builtin.qvr",
-      "match": "\\b(sigmoid|exp|log|abs|softplus|identity|marginalize)\\b"
+      "match": "\\b(sigmoid|exp|log|abs|softplus|cumsum|softmax|log1p|sqrt|neg|length|map|filter|fold|logsumexp|logsumexp_over|cholesky_quad_form|identity|fan|repeat|stack|scan|parser|ccg|lambek|chart_fold|parse|curry_right|curry_left|FreeResiduated|FreeMonoid)\\b"
+    },
+    "builtin-type": {
+      "name": "support.class.builtin.qvr",
+      "match": "\\b(Euclidean|Simplex|PositiveReals|UnitInterval|ProductSpace|CholeskyFactor|FinSet|Real|Mor)\\b"
+    },
+    "semiring": {
+      "comment": "Semiring names recognised by `deduction { semiring … }`.",
+      "name": "support.constant.semiring.qvr",
+      "match": "\\b(LogProb|Boolean|Viterbi|Counting|ProductFuzzy)\\b"
+    },
+    "quantale": {
+      "comment": "Built-in quantale names.",
+      "name": "support.constant.quantale.qvr",
+      "match": "\\b(product_fuzzy|boolean|lukasiewicz|godel|tropical)\\b"
     },
     "distribution-family": {
-      "name": "support.type.qvr",
-      "match": "\\b(Normal|LogitNormal|Beta|TruncatedNormal|Dirichlet|Bernoulli|Categorical|Uniform|Cauchy|Laplace|Gumbel|LogNormal|StudentT|Exponential|Gamma|Chi2|HalfCauchy|HalfNormal|InverseGamma|Weibull|Pareto|Kumaraswamy|ContinuousBernoulli|FisherSnedecor|MultivariateNormal|LowRankMVN|RelaxedBernoulli|RelaxedOneHotCategorical|Wishart|Flow)\\b"
+      "name": "support.type.distribution.qvr",
+      "match": "\\b(Normal|LogitNormal|Beta|TruncatedNormal|Truncated|Dirichlet|Bernoulli|Categorical|Uniform|Cauchy|Laplace|Gumbel|LogNormal|StudentT|Exponential|Gamma|Chi2|HalfCauchy|HalfNormal|InverseGamma|Weibull|Pareto|Kumaraswamy|ContinuousBernoulli|FisherSnedecor|MultivariateNormal|LowRankMVN|RelaxedBernoulli|RelaxedOneHotCategorical|Wishart|Flow|LKJCorrelationFactor)\\b"
     },
     "numeric-literal": {
       "patterns": [
         {
-          "name": "constant.numeric.qvr",
-          "match": "\\b\\d+\\.\\d+\\b"
+          "name": "constant.numeric.float.qvr",
+          "match": "-?\\b\\d+\\.\\d+(?:[eE][+-]?\\d+)?\\b"
         },
         {
-          "name": "constant.numeric.qvr",
-          "match": "\\b\\d+\\b"
+          "name": "constant.numeric.integer.qvr",
+          "match": "-?\\b\\d+\\b"
         }
       ]
     },
@@ -91,7 +173,7 @@
       "patterns": [
         {
           "name": "punctuation.separator.qvr",
-          "match": "[()\\[\\],]"
+          "match": "[()\\[\\]{},;]"
         },
         {
           "name": "punctuation.separator.qvr",
@@ -103,13 +185,23 @@
         },
         {
           "name": "keyword.operator.arithmetic.qvr",
-          "match": "[+*]"
+          "match": "[+*/\\\\]"
         }
       ]
     },
     "identifier": {
-      "name": "variable.other.qvr",
-      "match": "[a-zA-Z_][a-zA-Z0-9_]*"
+      "patterns": [
+        {
+          "comment": "PascalCase / UPPER-leading identifiers colour as types.",
+          "name": "entity.name.type.qvr",
+          "match": "\\b[A-Z][A-Za-z0-9_]*\\b"
+        },
+        {
+          "comment": "Snake-case / lowercase-leading identifiers colour as variables.",
+          "name": "variable.other.qvr",
+          "match": "\\b[a-z_][A-Za-z0-9_]*\\b"
+        }
+      ]
     }
   }
 }

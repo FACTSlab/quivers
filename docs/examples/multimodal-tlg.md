@@ -14,7 +14,7 @@ let tlg = parser(
     start=S
 )
 
-output tlg
+export tlg
 ```
 
 ## Overview

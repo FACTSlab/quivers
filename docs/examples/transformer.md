@@ -24,7 +24,7 @@ continuous residual_ff : Latent -> Latent ~ Normal [scale=0.01]
 let layer = fan(head) >> attn_proj >> residual_attn >> ff_up >> ff_down >> residual_ff
 let transformer = tok_embed >> stack(layer, 4)
 
-output transformer
+export transformer
 ```
 
 ## Walkthrough
@@ -67,7 +67,7 @@ These type declarations shape the entire data flow. The type system ensures that
 
 ### Output Declaration
 
-`output transformer` marks the composed morphism as the target of inference and learning.
+`export transformer` marks the composed morphism as a compiled module output.
 
 ## DSL Features
 

@@ -67,4 +67,4 @@ let decoder = dec_1 >> stack(dec_deep, 2) >> dec_to_obs
 let generative = prior >> decoder
 let reconstruct = encoder >> decoder
 
-output generative
+export generative

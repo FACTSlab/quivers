@@ -55,44 +55,44 @@ $$
 
 where each $\mathcal{S}\llbracket s_i \rrbracket : \Phi_{i-1} \to \mathcal{G}(\Phi_i)$ is the Kleisli arrow assigned to statement $s_i$ (with $\Phi_0 = \Gamma$), and $\mathsf{ret}_e : \Phi_n \to \mathcal{G}(\llbracket \tau_2 \rrbracket)$ is the deterministic Kleisli arrow $\eta \circ \pi_e$ projecting onto the components named by the `return` clause.
 
-### 2.1 Draw
+### 2.1 Bind
 
-A draw statement
+A bind statement
 
 ```
-draw v ~ F(args)
+v <- F(args)
 ```
 
 denotes the Kleisli arrow extending the context with a fresh random variable distributed according to family $F$:
 
 $$
-\mathcal{S}\llbracket \mathsf{draw}\ v \sim F(\bar a) \rrbracket : \Phi \to \mathcal{G}\bigl(\Phi \times \llbracket \mathsf{cod}(F) \rrbracket\bigr),
+\mathcal{S}\llbracket v \leftarrow F(\bar a) \rrbracket : \Phi \to \mathcal{G}\bigl(\Phi \times \llbracket \mathsf{cod}(F) \rrbracket\bigr),
 $$
 
 defined on measurable rectangles $B \times C$ (with $B \subseteq \Phi$, $C \subseteq \llbracket \mathsf{cod}(F) \rrbracket$) by
 
 $$
-\mathcal{S}\llbracket \mathsf{draw}\ v \sim F(\bar a) \rrbracket(\phi,\, B \times C)
+\mathcal{S}\llbracket v \leftarrow F(\bar a) \rrbracket(\phi,\, B \times C)
 \;=\;
 \mathbf{1}_B(\phi) \cdot \int_C p_F\bigl( y \,;\, \theta_F(\bar a, \phi) \bigr)\, \mathrm{d}y,
 $$
 
-where $\theta_F$ is the family's parameter map (which may depend on previously-drawn variables in $\phi$). In short: keep the current trace $\phi$ and append a fresh sample from $F$ conditioned on it. The induced action on measures over $\Phi$ is $\mu_{\Phi \times \mathsf{cod}(F)} \circ \mathcal{G}\bigl(\mathcal{S}\llbracket \mathsf{draw} \rrbracket\bigr)$.
+where $\theta_F$ is the family's parameter map (which may depend on previously-bound variables in $\phi$). In short: keep the current trace $\phi$ and append a fresh sample from $F$ conditioned on it. The induced action on measures over $\Phi$ is $\mu_{\Phi \times \mathsf{cod}(F)} \circ \mathcal{G}\bigl(\mathcal{S}\llbracket \mathsf{bind} \rrbracket\bigr)$.
 
 ### 2.2 Observe
 
 An observe statement
 
 ```
-observe v ~ F(args)
+observe v <- F(args)
 ```
 
 denotes a *score* update against an externally-supplied observed value $v_{\mathrm{obs}}$. As a Kleisli arrow in the *unnormalised* Giry monad $\mathcal{G}_{\le 1}$ (sub-probability measures),
 
 $$
-\mathcal{S}\llbracket \mathsf{observe}\ v \sim F(\bar a) \rrbracket : \Phi \to \mathcal{G}_{\le 1}(\Phi),
+\mathcal{S}\llbracket \mathsf{observe}\ v \leftarrow F(\bar a) \rrbracket : \Phi \to \mathcal{G}_{\le 1}(\Phi),
 \qquad
-\mathcal{S}\llbracket \mathsf{observe}\ v \sim F(\bar a) \rrbracket(\phi,\, B) \;=\; \mathbf{1}_B(\phi) \cdot p_F\bigl( v_{\mathrm{obs}} \,;\, \theta_F(\bar a, \phi)\bigr).
+\mathcal{S}\llbracket \mathsf{observe}\ v \leftarrow F(\bar a) \rrbracket(\phi,\, B) \;=\; \mathbf{1}_B(\phi) \cdot p_F\bigl( v_{\mathrm{obs}} \,;\, \theta_F(\bar a, \phi)\bigr).
 $$
 
 The trace context is preserved, but the total mass of the resulting measure is the likelihood of $v_{\mathrm{obs}}$ at $\phi$. Normalisation and posterior inference are deferred to the inference layer (see [`quivers.inference`](../api/inference/svi.md)). The categorical setting is the *Markov category with conditioning* of [Cho & Jacobs 2019](https://doi.org/10.1017/S0960129518000488) and [Fritz 2020](https://doi.org/10.1016/j.aim.2020.107239).
@@ -124,7 +124,83 @@ i.e.\ pushforward by $\mathrm{id}_{\Phi} \times h$ realised through the *strengt
 
 The arithmetic sublanguage is interpreted standardly: $\mathbb{R}$-valued and $\mathbb{N}$-valued operators denote the corresponding measurable functions on the relevant space; built-in functions (`sigmoid`, `exp`, `log`, `abs`, `softplus`) denote the corresponding total measurable maps.
 
-### 2.4 Return
+### 2.4 Indexed Bind (Plate)
+
+An indexed bind
+
+```
+v : A <- F(args)
+```
+
+declares $v$ as an $A$-indexed plate of independent $F$-draws. The per-fiber codomain $K = \mathsf{cod}(F)$ is taken from the family. The natural isomorphism
+
+$$
+\mathbf{Kern}(\mathbf{1}, K^A) \;\cong\; \mathbf{Kern}(A, K)
+$$
+
+identifies a single $\mathcal{G}(K^A)$-valued draw with an $A$-indexed family of $\mathcal{G}(K)$-valued draws. The statement therefore denotes the context-extending Kleisli arrow
+
+$$
+\mathcal{S}\llbracket v : A \leftarrow F(\bar a) \rrbracket : \Phi \to \mathcal{G}\bigl(\Phi \times K^A\bigr),
+$$
+
+with density $\prod_{a \in A} p_F\bigl(v(a) \,;\, \theta_F(\bar a, \phi)\bigr)$ on the appended coordinate.
+
+### 2.5 Indexed Observe
+
+An indexed-observe statement
+
+```
+observe r : N <- F(args)
+```
+
+denotes a sub-probabilistic Kleisli arrow in $\mathcal{G}_{\le 1}$,
+
+$$
+\mathcal{S}\llbracket \mathsf{observe}\ r : N \leftarrow F(\bar a) \rrbracket : \Phi \to \mathcal{G}_{\le 1}(\Phi),
+\qquad
+\phi \;\longmapsto\; \mathbf{1}_{(\cdot)}(\phi) \cdot \prod_{n \in N} p_F\bigl( r_{\mathrm{obs}}(n) \,;\, \theta_F(\bar a, n, \phi) \bigr).
+$$
+
+Bracket-indexed family arguments `theta[N]` in $\bar a$ pick out the $N$-section of a previously-bound plate variable. The response buffer $r_{\mathrm{obs}} : N \to \llbracket \mathsf{cod}(F) \rrbracket$ is supplied externally by the inference layer; the trace context is preserved and the total mass of the resulting measure is the batched likelihood.
+
+### 2.6 Marginalize
+
+A scoped marginalize statement
+
+```
+marginalize c : A <- F(args) in { s₁; …; sₖ }
+```
+
+introduces the coordinate $c$ bound to $F(\bar a)$, optionally $A$-indexed, with $s_1; \ldots; s_k$ as its integration scope. After interpreting the scope body, the accumulated (sub-)probability measure on $\Phi \times C$ is pushed forward through the projection $\pi_{\Phi} : \Phi \times C \to \Phi$:
+
+$$
+\mathcal{S}\llbracket \mathsf{marginalize}\ c \rrbracket : \mathcal{G}_{\le 1}(\Phi \times C) \to \mathcal{G}_{\le 1}(\Phi),
+\qquad
+\nu \;\longmapsto\; \pi_{\Phi *} \nu.
+$$
+
+For a discrete latent $C$, the projection is computed by log-sum-exp on the accumulated log-likelihood; for a measurable continuous $C$, it is fibrewise integration. After the scope closes, $c$ falls out of scope.
+
+The four bind variants — scalar, indexed, scored, marginalised — are uniformly a single underlying step with a `mode ∈ {sample, score, marginal}` tag and an optional index `A`. The scalar/plate axis is orthogonal to the full-probability/sub-probability distinction.
+
+### 2.7 Indexed Gather (Let-Pullback)
+
+A `let` right-hand side of the form `arr[idx]` is the *Kleisli pullback*. For a plate variable $v : A \to \mathcal{G}(B)$ bound earlier in the body, and a finite fibration $\iota : N \to A$ named in the context, the gather $\iota^* v$ is the composite
+
+$$
+\iota^* v \;=\; v \circ \iota \;:\; N \to \mathcal{G}(B).
+$$
+
+Interpreted as a deterministic measurable map on the accumulated context (because $v$ has already been realised as a tensor $A \to B$ in the trace), the let-step denotes the Dirac extension
+
+$$
+\mathcal{S}\llbracket \mathsf{let}\ w = \mathit{arr}[\mathit{idx}] \rrbracket(\phi)
+\;=\;
+\delta_{(\phi,\, \phi.\mathit{arr}[\phi.\mathit{idx}])}.
+$$
+
+### 2.8 Return
 
 A return statement
 
@@ -142,24 +218,48 @@ $$
 
 where $\pi_{v_1, \dots, v_m} : \Phi_n \to \llbracket \tau_2 \rrbracket$ projects the trace onto the named coordinates. Composing with the body chain marginalises the joint (sub-)probability measure onto those coordinates.
 
-If $e$ contains labels (`return (a: x, b: y)`), the labels rename the coordinates of the resulting product space; this is a purely syntactic rebinding without semantic effect.
+A bare-tuple return `return (x, y)` projects the trace onto the named coordinates; the resulting product space's components are ordered by tuple position.
 
-## 3. Parameters and closures
+## 3. Data parameters
 
-A program declared with parameters
+A program declared with bare-identifier parameters
 
 ```
 program P (q₁, …, qₖ) : τ₁ -> τ₂
     body
 ```
 
-denotes a *parameterised* family of kernels: with $\Theta = \prod_i \Theta_{q_i}$ the parameter space (each $\Theta_{q_i}$ determined by $q_i$'s type),
+names the components of the domain $\tau_1$: when $\tau_1 = \sigma_1 \times \cdots \times \sigma_k$ is a $k$-fold product, each $q_i$ binds to the projection $\pi_i$ of the input. The denotation is unchanged from the unparameterised form,
 
 $$
-\llbracket P \rrbracket : \Theta \times \llbracket \tau_1 \rrbracket \to \mathcal{G}(\llbracket \tau_2 \rrbracket),
+\llbracket P \rrbracket : \llbracket \tau_1 \rrbracket \to \mathcal{G}(\llbracket \tau_2 \rrbracket),
 $$
 
-i.e.\ a morphism in $\mathbf{Kern}$ with extended domain. Concretely, parameter names are added to $\Gamma$ before the body is interpreted; the resulting Kleisli arrow is reused with each fresh parameter assignment by the training loop.
+i.e.\ a single morphism in $\mathbf{Kern}$; the $q_i$ are syntactic conveniences in the body, not additional dependent parameters. Typed parameters — covered in §3a below — extend this to dependent kernel families.
+
+## 3a. Parametric programs
+
+A program whose parameter list contains *typed* parameters denotes a *dependent* family of Kleisli arrows. With parameters $p_i : P_i$ drawn from the universes
+
+| Parameter kind | Universe $P_i$ |
+|---|---|
+| `FinSet`, `Space`, `Object` | an object of the relevant subcategory of $\mathbf{Kern}$ |
+| `Real`, `Nat` | a hom-object of scalar type (a hyperparameter) |
+| `Mor[A, B]` | the hom-set $\mathbf{Kern}(A, B)$ |
+
+the denotation lives in the dependent kernel space
+
+$$
+\llbracket P \rrbracket \;:\; \prod_{p_1 : P_1} \cdots \prod_{p_k : P_k} \mathbf{Kern}\bigl(\mathrm{dom}(p), \mathrm{cod}(p)\bigr),
+$$
+
+an object of the indexed family of Kleisli arrows over the parameter category. The domain and codomain may themselves mention the formal parameters, so each fibre is a kernel between possibly-different objects of $\mathbf{Kern}$.
+
+### Inline expansion as substitution
+
+A call site `v <- P(a₁, …, aₖ)` inside another program is interpreted by *substitution* on the dependent denotation: the actual arguments $a_i$ are substituted for the formal parameters $p_i$ in the body of $P$, yielding a closed Kleisli arrow which is then inlined as a sequence of statements into the caller's body. Internal latents are α-renamed under a fresh prefix $v\$$, and the return-variable is renamed to $v$ directly; the result is a well-typed sequence of caller-level Kleisli arrows.
+
+This is sound by a standard substitution lemma: because each formal parameter is bound at the top of the body and the body interprets to a Kleisli arrow built compositionally from its statements, substitution commutes with the body's denotation function $\mathcal{B}\llbracket \cdot \rrbracket$. The α-renaming step is sound because the body's denotation depends only on the multiset of bound-variable types, not on the names. Two call sites of the same template therefore contribute *distinct* factors to the caller's joint kernel — fresh latents per use — recovering the standard "plate-of-plates" semantics for hierarchical models.
 
 ## 4. Composition of programs
 

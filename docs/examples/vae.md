@@ -30,7 +30,7 @@ let decoder = dec_1 >> stack(dec_deep, 2) >> dec_to_obs
 let generative = prior >> decoder
 let reconstruct = encoder >> decoder
 
-output generative
+export generative
 ```
 
 ## Walkthrough
@@ -45,7 +45,7 @@ The decoder mirrors the encoder: `dec_1` expands from 16-d latent space to 256-d
 
 Two compositions define the model's two execution paths. `let generative = prior >> decoder` samples a latent code from the prior and decodes it (used for generating new data). `let reconstruct = encoder >> decoder` encodes observed data and decodes it (used for training via the ELBO). The `>>` operator is Kleisli composition: the output distribution of the left morphism feeds into the right morphism.
 
-`output generative` marks the generative path as the primary exposed model.
+`export generative` marks the generative path as a compiled module output.
 
 ## DSL Features
 

@@ -71,4 +71,4 @@ let n_step = repeat(transition) >> emission
 # joint model: initial state -> observation (n-step)
 let hmm = initial >> n_step
 
-output hmm
+export hmm

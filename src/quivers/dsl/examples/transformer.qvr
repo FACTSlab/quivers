@@ -54,4 +54,4 @@ continuous residual_ff : Latent -> Latent ~ Normal [scale=0.01]
 let layer = fan(head) >> attn_proj >> residual_attn >> ff_up >> ff_down >> residual_ff
 let transformer = tok_embed >> stack(layer, 4)
 
-output transformer
+export transformer

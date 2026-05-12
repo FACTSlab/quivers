@@ -57,4 +57,4 @@ continuous output_proj : Hidden -> Output ~ Normal [scale=0.1]
 
 let rnn = tok_embed >> scan(cell) >> output_proj
 
-output rnn
+export rnn

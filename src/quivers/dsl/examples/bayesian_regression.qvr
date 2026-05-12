@@ -34,8 +34,8 @@ program bayesian_regression : Predictor -> Response
     let mu = beta_0 + beta_1 * x
 
     # observed response
-    observe y ~ Normal(mu, sigma)
+    observe y <- Normal(mu, sigma)
 
     return y
 
-output bayesian_regression
+export bayesian_regression

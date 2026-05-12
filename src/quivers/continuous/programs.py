@@ -149,12 +149,18 @@ class MonadicProgram(ContinuousMorphism):
         return_vars: tuple[str, ...],
         params: tuple[str, ...] | None = None,
         return_labels: tuple[str, ...] | None = None,
+        effect_set: frozenset[str] | None = None,
     ) -> None:
         super().__init__(domain, codomain)
         self._return_vars = return_vars
         self._return_is_single = len(return_vars) == 1
         self._params = params
         self._return_labels = return_labels
+        # The v0.5 effect-row annotation. None when unannotated;
+        # otherwise carries the declared capability set
+        # (Sample / Score / Marginal / Pure) for introspection by
+        # downstream inference / dispatch code.
+        self.effect_set: frozenset[str] | None = effect_set
         self._step_specs: list[_StepSpec | _LetSpec] = []
 
         # compute input component dimensions for param splitting

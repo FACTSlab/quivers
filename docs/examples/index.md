@@ -30,7 +30,7 @@ continuous residual_ff : Latent -> Latent ~ Normal [scale=0.01]
 let layer = fan(head) >> attn_proj >> residual_attn >> ff_up >> ff_down >> residual_ff
 let transformer = tok_embed >> stack(layer, 4)
 
-output transformer
+export transformer
 ```
 
 ---
@@ -54,7 +54,7 @@ continuous output_proj : Hidden -> Output ~ Normal [scale=0.1]
 
 let rnn = tok_embed >> scan(cell) >> output_proj
 
-output rnn
+export rnn
 ```
 
 ---
@@ -63,7 +63,7 @@ output rnn
 
 An LSTM cell expressed as a monadic program and wrapped with `scan` for temporal recurrence. Demonstrates gate activations from LogitNormal priors and tanh approximation via `2 * sigmoid(2x) - 1`.
 
-**Features:** `program`, `scan`, `continuous`, `draw`, `let` arithmetic, `sigmoid`, `LogitNormal`, `type`
+**Features:** `program`, `scan`, `continuous`, `<-`, `let` arithmetic, `sigmoid`, `LogitNormal`, `type`
 
 ```qvr
 object Token : 256
@@ -80,10 +80,10 @@ continuous gate_o : Embedded * State -> Hidden ~ LogitNormal
 continuous cell_cand : Embedded * State -> Hidden ~ Normal [scale=0.5]
 
 program lstm_cell(x_t, state_prev) : Embedded * State -> State
-    draw i_gate ~ gate_i(x_t, state_prev)
-    draw f_gate ~ gate_f(x_t, state_prev)
-    draw o_gate ~ gate_o(x_t, state_prev)
-    draw g_cand ~ cell_cand(x_t, state_prev)
+    i_gate <- gate_i(x_t, state_prev)
+    f_gate <- gate_f(x_t, state_prev)
+    o_gate <- gate_o(x_t, state_prev)
+    g_cand <- cell_cand(x_t, state_prev)
 
     let c_new = f_gate * g_cand + i_gate * g_cand
     let two_c = 2.0 * c_new
@@ -97,7 +97,7 @@ continuous output_proj : State -> Output ~ Normal [scale=0.1]
 
 let lstm = tok_embed >> scan(lstm_cell) >> output_proj
 
-output lstm
+export lstm
 ```
 
 ---
@@ -106,7 +106,7 @@ output lstm
 
 A Gated Recurrent Unit cell expressed as a monadic program with update and reset gates controlling information flow. Demonstrates inline distribution syntax with `<-`.
 
-**Features:** `program`, `scan`, `continuous`, `draw`, `<-` bind syntax, `let` arithmetic, `LogitNormal`, `type`
+**Features:** `program`, `scan`, `continuous`, `<-` bind syntax, `let` arithmetic, `LogitNormal`, `type`
 
 ```qvr
 object Token : 256
@@ -120,8 +120,8 @@ continuous gate_z : Embedded * Hidden -> Hidden ~ LogitNormal
 continuous gate_r : Embedded * Hidden -> Hidden ~ LogitNormal
 
 program gru_cell(x_t, h_prev) : Embedded * Hidden -> Hidden
-    draw z ~ gate_z(x_t, h_prev)
-    draw r ~ gate_r(x_t, h_prev)
+    z <- gate_z(x_t, h_prev)
+    r <- gate_r(x_t, h_prev)
 
     let reset_hidden = r * h_prev
 
@@ -136,7 +136,7 @@ continuous output_proj : Hidden -> Output ~ Normal [scale=0.1]
 
 let gru = tok_embed >> scan(gru_cell) >> output_proj
 
-output gru
+export gru
 ```
 
 ---
@@ -162,7 +162,7 @@ continuous output_proj : Hidden -> Output ~ Normal [scale=0.1]
 let cell = transition >> context_copy
 let elman = tok_embed >> scan(cell) >> output_proj
 
-output elman
+export elman
 ```
 
 ---
@@ -195,7 +195,7 @@ continuous combine : Combined -> Output ~ Normal [scale=0.1]
 
 let birnn = (forward_path @ backward_path) >> combine
 
-output birnn
+export birnn
 ```
 
 ---
@@ -232,7 +232,7 @@ let decoder = dec_1 >> stack(dec_deep, 2) >> dec_to_obs
 let generative = prior >> decoder
 let reconstruct = encoder >> decoder
 
-output generative
+export generative
 ```
 
 ---
@@ -274,10 +274,10 @@ program gmm : Unit -> Obs
     let mix_mu = p1 * mu_1 + p2 * mu_2 + p3 * mu_3 + (1.0 - p1 - p2 - p3) * mu_4
     let mix_sigma = p1 * sigma_1 + p2 * sigma_2 + p3 * sigma_3 + (1.0 - p1 - p2 - p3) * sigma_4
 
-    observe x ~ Normal(mix_mu, mix_sigma)
+    observe x <- Normal(mix_mu, mix_sigma)
     return x
 
-output gmm
+export gmm
 ```
 
 ---
@@ -301,7 +301,7 @@ stochastic emission : State -> Obs
 let n_step = repeat(transition) >> emission
 let hmm = initial >> n_step
 
-output hmm
+export hmm
 ```
 
 ---
@@ -310,7 +310,7 @@ output hmm
 
 A continuous-state hidden Markov model using `scan` for temporal recurrence. Includes both a generative direction (monadic program sampling state-observation pairs) and an inference direction (scan-based Bayesian filtering over observation sequences).
 
-**Features:** `continuous`, `program`, `scan`, `>>`, `draw`, `observe`, `type`
+**Features:** `continuous`, `program`, `scan`, `>>`, `<-`, `observe`, `type`
 
 ```qvr
 type State = Euclidean 16
@@ -320,9 +320,9 @@ continuous transition : State -> State ~ Normal [scale=0.1]
 continuous emission : State -> Obs ~ Normal [scale=0.1]
 
 program generative_step : State -> State
-    draw s_new ~ transition
+    s_new <- transition
 
-    observe o ~ emission(s_new)
+    observe o <- emission(s_new)
 
     return s_new
 
@@ -334,7 +334,7 @@ continuous decoder : State -> Obs ~ Normal [scale=0.1]
 
 let filter_and_reconstruct = scan(inference_cell) >> decoder
 
-output filter_and_reconstruct
+export filter_and_reconstruct
 ```
 
 ---
@@ -361,7 +361,7 @@ let pcfg = parser(
     start=0
 )
 
-output pcfg
+export pcfg
 ```
 
 ---
@@ -382,7 +382,7 @@ let grammar = parser(
     start=S
 )
 
-output grammar
+export grammar
 ```
 
 ---
@@ -403,7 +403,7 @@ let grammar = parser(
     start=S
 )
 
-output grammar
+export grammar
 ```
 
 ---
@@ -426,7 +426,7 @@ let tlg = parser(
     start=S
 )
 
-output tlg
+export tlg
 ```
 
 ---
@@ -452,16 +452,44 @@ let grammar = parser(
     start=S
 )
 
-output grammar
+export grammar
 ```
 
 ---
 
 ## Probabilistic Programs
 
+### [Event-Structure Latent-Class Model](event-structure.md)
+
+A four-class telicity × durativity latent-class model over cloze and proportion responses. Exercises indexed binds, a parametric `random_intercepts` template instantiated 8 times for crossed random intercepts on subject, verb, sense, and item, an ordinal monotone spline via `cumsum` of `HalfNormal` increments, indexed observes against a runtime `observations` dict, and scoped `marginalize` for coordinate marginalisation.
+
+**Features:** `program`, parametric templates, indexed bind `v : A <- F(args)`, `observe r : N <- F(args)`, scoped `marginalize`, `cumsum`, `HalfNormal`
+
+<!-- compile: false -->
+```qvr
+program random_intercepts (G : FinSet, scale : Real) : G -> 1
+    sigma <- HalfNormal(scale)
+    v : G <- Normal(0.0, sigma)
+    return v
+
+program event_structure : Item -> Item
+    intercept_cloze <- Normal(0.0, 1.0)
+    by_subj_cloze <- random_intercepts(SubjCloze, 1.0)
+    by_verb_cloze <- random_intercepts(Verb,     1.0)
+    duration_incr_cloze : Item <- HalfNormal(1.0)
+    let duration_eff_cloze = cumsum(duration_incr_cloze)
+
+    marginalize cloze_resp : RespCloze <- Bernoulli(intercept_cloze) in {
+        observe cloze_resp : RespCloze <- Bernoulli(intercept_cloze)
+    }
+    return intercept_cloze
+```
+
+---
+
 ### [Bayesian Linear Regression](bayesian-regression.md)
 
-The simplest meaningful probabilistic program: a two-parameter linear model with a `HalfCauchy` prior on noise scale. Demonstrates the core `draw`/`let`/`observe` pattern.
+The simplest meaningful probabilistic program: a two-parameter linear model with a `HalfCauchy` prior on noise scale. Demonstrates the core bind/let/observe pattern.
 
 **Features:** `program`, `<-` bind syntax, `HalfCauchy`, `let` arithmetic, `observe`
 
@@ -477,10 +505,10 @@ program bayesian_regression : Predictor -> Response
 
     let mu = beta_0 + beta_1 * x
 
-    observe y ~ Normal(mu, sigma)
+    observe y <- Normal(mu, sigma)
     return y
 
-output bayesian_regression
+export bayesian_regression
 ```
 
 ---

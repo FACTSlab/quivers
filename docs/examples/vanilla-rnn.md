@@ -19,7 +19,7 @@ continuous output_proj : Hidden -> Output ~ Normal [scale=0.1]
 
 let rnn = tok_embed >> scan(cell) >> output_proj
 
-output rnn
+export rnn
 ```
 
 ## Walkthrough
@@ -48,7 +48,7 @@ When the scan combinator uses this cell, it automatically constructs the product
 
 ### Output Declaration
 
-`output rnn` designates the composed morphism as the target of learning and inference.
+`export rnn` designates the composed morphism as a compiled module output.
 
 ## DSL Features
 

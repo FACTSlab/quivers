@@ -1,0 +1,101 @@
+# Montague-style grammar + entailment prover, end-to-end on NLI.
+#
+# This example illustrates QVR's central claim: a single weighted-
+# deduction framework, in which the user declares the data-
+# constructor algebra (atomic + parametric) and the inference
+# rules over it. Nothing here is privileged grammar syntax —
+# everything is a constructor application or a sequent rule.
+
+# ===========================================================
+# 1. Universe of types/terms.
+# ===========================================================
+#
+# A single object holds all constructor-tagged tuples; the
+# concrete numeric size is irrelevant for symbolic deduction.
+
+object Term : 8
+
+# ===========================================================
+# 2. Montague grammar deduction.
+# ===========================================================
+#
+# Haskell-style: declare every constructor symbol used in
+# patterns and lexicon LFs. Atoms (NP, S, N) are nullary
+# constructors. Parametric constructors (Fwd, Bwd, Forall,
+# Implies, Pred, ...) are used as `Fwd(X, Y)`, `Pred(p, x)`,
+# etc. The compiler does NOT bake in any grammar formalism —
+# slashes, modes, modalities, and proof terms are whatever the
+# user declares here.
+
+deduction Montague : Term -> Term {
+    atoms {
+        # Type constructors.
+        NP, S, N,
+        Fwd, Bwd,
+        # Chart-item constructor: `span(i, j, cat, lf)` packages a
+        # derivation covering tokens [i, j) of type `cat` with
+        # logical form `lf`.
+        span,
+        # Logical-form combinator: `App(f, a)` is function application.
+        App,
+        # LF constructors (treated identically — same algebra).
+        every_lf, some_lf, pred_dog, pred_cat, pred_anim, pred_bark
+    }
+
+    # Sequent rules. Identifiers not in the atoms set (I, J, K,
+    # X, Y, F, A) are pattern variables; the unifier binds them
+    # at firing time.
+    rule fwd_app
+        : span(I, K, Fwd(X, Y), F), span(K, J, X, A)
+        |- span(I, J, Y, App(F, A))
+
+    rule bwd_app
+        : span(I, K, X, A), span(K, J, Bwd(X, Y), F)
+        |- span(I, J, Y, App(F, A))
+
+    lexicon {
+        "every"  : Fwd(Fwd(Bwd(NP, S), S), NP) = every_lf  @ learnable
+        "some"   : Fwd(Fwd(Bwd(NP, S), S), NP) = some_lf   @ learnable
+        "dog"    : NP                          = pred_dog  @ learnable
+        "cat"    : NP                          = pred_cat  @ learnable
+        "animal" : NP                          = pred_anim @ learnable
+        "barks"  : Bwd(NP, S)                  = pred_bark @ learnable
+    }
+
+    semiring  LogProb
+    start     S
+    depth     6
+}
+
+# ===========================================================
+# 3. Entailment prover deduction.
+# ===========================================================
+#
+# Modus ponens over a `Claim` constructor wrapping LFs. The
+# user declares every symbol used in proof patterns.
+
+deduction Prover : Term -> Term {
+    atoms { Claim, Implies, App }
+
+    # Modus ponens.
+    rule modus_ponens
+        : Claim(P), Claim(Implies(P, Q))
+        |- Claim(Q)
+
+    # Functorial rewrite: claims under any one-argument context.
+    # If `X` entails `Y` (recorded by `Claim(Implies(X, Y))`), and
+    # we claim `App(F, X)`, we may claim `App(F, Y)`.
+    rule app_subst
+        : Claim(App(F, X)), Claim(Implies(X, Y))
+        |- Claim(App(F, Y))
+
+    semiring  LogProb
+}
+
+# ===========================================================
+# 4. Module export.
+# ===========================================================
+
+object Dummy : 1
+latent dummy : Dummy -> Dummy
+export dummy

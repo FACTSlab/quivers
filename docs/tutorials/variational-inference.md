@@ -42,8 +42,8 @@ likelihood = ConditionalNormal(R, R)
 model = MonadicProgram(
     Unit, R,
     steps=[
-        (("z",), prior, None),           # z ~ prior(unit)
-        (("y",), likelihood, ("z",)),    # y ~ likelihood(z)
+        (("z",), prior, None),           # z <- prior(unit)
+        (("y",), likelihood, ("z",)),    # y <- likelihood(z)
     ],
     return_vars=("z", "y"),
 )
@@ -145,6 +145,17 @@ log_q = guide.log_prob(x, posterior_samples)
 print(log_q.shape)  # [4]
 ```
 
+## Passing Observations at Runtime
+
+Programs that use indexed observes (`observe r : N <- F(args)`) read their response tensors from a runtime `observations: dict[str, torch.Tensor]` keyed by the observed-variable name. The dict is forwarded to `MonadicProgram.rsample` (kwarg) and to `ELBO.forward` / `SVI.step` (positional, after the program input):
+
+```python
+observations = {"y": y_observed}            # shape matches the program's N
+loss = svi.step(domain_input, observations)
+```
+
+There is no `.qvr`-level data block; observation tensors live in Python at the call site.
+
 ## Setting Up Inference
 
 Define the ELBO loss and optimizer:
@@ -193,13 +204,11 @@ for step in range(num_steps):
         optimizer.zero_grad()
 
         # Compute ELBO loss
-        loss = svi.step(torch.zeros(batch_size, 1, dtype=torch.long))
+        loss = svi.step(
+            torch.zeros(batch_size, 1, dtype=torch.long), batch_obs
+        )
 
-        # Backward and optimize
-        loss.backward()
-        optimizer.step()
-
-        batch_losses.append(loss.item())
+        batch_losses.append(loss)
 
     epoch_loss = sum(batch_losses) / len(batch_losses)
     losses.append(epoch_loss)
@@ -288,15 +297,14 @@ object Truth : 2
 object Resp : 1
 
 program factivity : Entity -> Truth * Truth * Truth * Resp
-    draw theta_know ~ LogitNormal(0.0, 1.0)
-    draw theta_cg ~ LogitNormal(0.0, 1.0)
+    theta_know <- LogitNormal(0.0, 1.0)
+    theta_cg <- LogitNormal(0.0, 1.0)
     let cg_complement = 1
-    draw tau_know ~ Bernoulli(theta_know)
-    draw cg_matrix ~ Bernoulli(theta_cg)
-    draw sigma ~ Uniform(0.0, 1.0)
-    observe response ~ TruncatedNormal(theta_know, sigma, 0.0, 1.0)
-    return (tau_know: tau_know, cg_complement: cg_complement,
-            cg_matrix: cg_matrix, response: response)
+    tau_know <- Bernoulli(theta_know)
+    cg_matrix <- Bernoulli(theta_cg)
+    sigma <- Uniform(0.0, 1.0)
+    observe response <- TruncatedNormal(theta_know, sigma, 0.0, 1.0)
+    return (tau_know, cg_complement, cg_matrix, response)
 """)
 
 # Observed response judgments from a linguistic experiment

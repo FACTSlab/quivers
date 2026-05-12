@@ -53,8 +53,8 @@ continuous candidate : Embedded * Hidden -> Hidden ~ Normal [scale=0.1]
 
 program gru_cell(x_t, h_prev) : Embedded * Hidden -> Hidden
     # gate activations
-    draw z ~ gate_z(x_t, h_prev)
-    draw r ~ gate_r(x_t, h_prev)
+    z <- gate_z(x_t, h_prev)
+    r <- gate_r(x_t, h_prev)
 
     # reset-gated previous hidden state
     let reset_hidden = r * h_prev
@@ -81,4 +81,4 @@ continuous output_proj : Hidden -> Output ~ Normal [scale=0.1]
 
 let gru = tok_embed >> scan(gru_cell) >> output_proj
 
-output gru
+export gru

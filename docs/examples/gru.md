@@ -19,8 +19,8 @@ continuous gate_r : Embedded * Hidden -> Hidden ~ LogitNormal
 continuous candidate : Embedded * Hidden -> Hidden ~ Normal [scale=0.1]
 
 program gru_cell(x_t, h_prev) : Embedded * Hidden -> Hidden
-    draw z ~ gate_z(x_t, h_prev)
-    draw r ~ gate_r(x_t, h_prev)
+    z <- gate_z(x_t, h_prev)
+    r <- gate_r(x_t, h_prev)
 
     let reset_hidden = r * h_prev
 
@@ -35,7 +35,7 @@ continuous output_proj : Hidden -> Output ~ Normal [scale=0.1]
 
 let gru = tok_embed >> scan(gru_cell) >> output_proj
 
-output gru
+export gru
 ```
 
 ## Walkthrough
@@ -50,9 +50,9 @@ The GRU does not need a separate State type because it maintains only a single h
 
 ### Monadic GRU Cell Program
 
-The program applies both gates via `draw` statements, then computes the reset-gated previous state: `let reset_hidden = r * h_prev`. When the reset gate is near 0, the previous state is effectively forgotten before candidate generation; when near 1, it passes through freely.
+The program applies both gates via bind steps `z <- gate_z(x_t, h_prev)` and `r <- gate_r(x_t, h_prev)`, then computes the reset-gated previous state: `let reset_hidden = r * h_prev`. When the reset gate is near 0, the previous state is effectively forgotten before candidate generation; when near 1, it passes through freely.
 
-The inline distribution `h_cand <- Normal(reset_hidden, 0.5)` samples the candidate hidden state from a Normal distribution centered at the reset-gated state with standard deviation 0.5. The `<-` syntax samples directly from a specified distribution rather than applying a learned morphism; the mean depends on a computed value while the standard deviation is fixed.
+The inline distribution `h_cand <- Normal(reset_hidden, 0.5)` samples the candidate hidden state from a Normal distribution centered at the reset-gated state with standard deviation 0.5. The mean depends on a computed value while the standard deviation is fixed.
 
 The final interpolation `h_new = z_complement * h_prev + z * h_cand` is a convex combination controlled by the update gate. When $z \approx 1$, the state updates to the candidate; when $z \approx 0$, the previous state is retained.
 
@@ -62,7 +62,7 @@ The final interpolation `h_new = z_complement * h_prev + z * h_cand` is a convex
 
 ## DSL Features
 
-- **Inline distribution sampling**: `name <- Distribution(params)` samples from a distribution with arbitrary computed parameters, without a separately declared morphism. The `<-` operator is distinct from `draw ... ~`, which applies a declared morphism with learned parameters.
+- **Bind operator `<-`**: The unique sampling-step sigil. `name <- F(args)` samples from `F` (a declared morphism, an inline distribution constructor, or a sub-program) and binds the result. Inline forms support arbitrary computed parameters; declared `continuous` morphisms carry learned parameters.
 - **Two-gate architecture**: Two LogitNormal-prior morphisms (update and reset) instead of the LSTM's three, reducing parameter count by roughly 30%.
 - **Convex interpolation**: The update equation `(1-z) * h_prev + z * h_cand` blends previous and candidate states, with the gate controlling the mix.
 
