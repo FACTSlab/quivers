@@ -99,3 +99,38 @@ The combinators $\mathsf{ccg}$ and $\mathsf{lambek}$ fix the rule system $\Sigma
 | $\mathsf{parser}$ | User-supplied $\Sigma$ via the `rules` argument |
 
 Their denotations are special cases of [§4](#4-the-chart-parser-denotation).
+
+## 7. Program-grammar fragment
+
+The Bayesian-modelling step kinds, effect signatures, and the `over`-modifier introduce additional productions in the QVR grammar. The shapes below mirror the tree-sitter source at `grammars/qvr/grammar.js`; semantics is given in [Programs §2.1–§2.8 and §3a](programs.md).
+
+```ebnf
+typed_program_param := IDENT ':' param_kind
+param_kind          := object_kind | scalar_kind | morphism_kind
+object_kind         := 'FinSet' | 'Space' | 'Object'
+scalar_kind         := 'Real'   | 'Nat'
+morphism_kind       := 'Mor' '[' type_expr ',' type_expr ']'
+
+effect_set          := effect (',' effect)*
+effect              := 'Sample' | 'Score' | 'Marginal' | 'Pure'
+
+bind_step           := var_pattern [ ':' type_expr ] '<-' IDENT
+                       [ '(' draw_arg_list ')' ]
+
+observe_step        := 'observe' IDENT [ ':' type_expr ] '<-' IDENT
+                       [ '(' draw_arg_list ')' ]
+
+marginalize_step    := 'marginalize' IDENT [ ':' type_expr ] '<-' IDENT
+                       [ '(' draw_arg_list ')' ]
+                       'in' '{' program_step* '}'
+
+let_index           := IDENT '[' let_arith (',' let_arith)* ']'
+
+program_decl        := 'program' IDENT [ '(' param_list ')' ]
+                       ':' type_expr '->' type_expr
+                       [ '!' effect_set ]
+                       [ 'over' IDENT ]
+                       program_step* 'return' return_pattern
+```
+
+A `program_decl` is *parametric* iff its parameter list contains any `typed_program_param`; the walker dispatches parametric programs to the call-site inliner rather than to the runtime program compiler. A program declared with `! effect_set` has its body checked against the declared capability set: the actual effects of the body must form a subset of `effect_set`, and `! Pure` rejects any `bind_step` / `observe_step` / `marginalize_step`. A program declared with `over M` is a posterior block consuming the latents of model `M`; the consumed latents appear as data parameters in the program's parameter list.

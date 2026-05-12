@@ -14,10 +14,10 @@ program bayesian_regression : Predictor -> Response
 
     let mu = beta_0 + beta_1 * x
 
-    observe y ~ Normal(mu, sigma)
+    observe y <- Normal(mu, sigma)
     return y
 
-output bayesian_regression
+export bayesian_regression
 ```
 
 ## Overview
@@ -38,9 +38,9 @@ Bayesian linear regression models $y = \beta_0 + \beta_1 x + \varepsilon$ with p
 
 `let mu = beta_0 + beta_1 * x` computes the linear predictor deterministically. The `let` keyword signals a non-random computation; `mu` inherits its randomness from its inputs rather than being sampled independently.
 
-`observe y ~ Normal(mu, sigma)` conditions the model on the observed response. During inference, this multiplies the posterior probability by the likelihood of the observed $y$ under $\mathrm{Normal}(\mu, \sigma)$, implementing Bayesian updating.
+`observe y <- Normal(mu, sigma)` conditions the model on the observed response. During inference, this multiplies the posterior probability by the likelihood of the observed $y$ under $\mathrm{Normal}(\mu, \sigma)$, implementing Bayesian updating.
 
-`return y` specifies the program's output. `output bayesian_regression` exports it.
+`return y` specifies the program's output. `export bayesian_regression` exports it.
 
 ## DSL Features
 
@@ -54,7 +54,26 @@ Bayesian linear regression models $y = \beta_0 + \beta_1 x + \varepsilon$ with p
 
 ## Python Usage
 
-<!-- TODO: add working Python usage example -->
+```python
+import torch
+from quivers.dsl import load
+from quivers.inference import AutoNormalGuide, ELBO, SVI
+
+program = load("bayesian_regression.qvr")
+model = program.morphism  # underlying MonadicProgram
+
+observations = {"y": y_observed}        # shape (n,)
+
+guide = AutoNormalGuide(model, observed_names={"y"})
+elbo  = ELBO(num_particles=1)
+optimizer = torch.optim.Adam(
+    list(model.parameters()) + list(guide.parameters()), lr=1e-2,
+)
+svi = SVI(model, guide, optimizer, elbo)
+
+for step in range(2000):
+    loss = svi.step(x_observed, observations)
+```
 
 ## Categorical Perspective
 
@@ -69,3 +88,8 @@ Quivers abstracts over inference algorithms, so the same model specification wor
 ## Extensions and Advanced Usage
 
 For multi-dimensional regression, add predictor variables and coefficients. For hierarchical models, nest probabilistic programs (samples from one become parameters of another). For Bayesian nonparametrics, use distributions like the Dirichlet process. A Bayesian linear regression program can serve as a component in a larger hierarchical model or be extended with non-linear transformations and richer likelihood models.
+
+## See Also
+
+- [Event-Structure Latent-Class Model](event-structure.md) for a full hierarchical example with crossed random intercepts via parametric templates, an ordinal monotone spline, vectorised observes, and coordinate marginalisation.
+- [DSL Guide: Hierarchical Bayesian Models](../guides/dsl.md#hierarchical-bayesian-models) for the plate-draw, parametric-template, and `marginalize` constructs.

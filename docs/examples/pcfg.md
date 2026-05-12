@@ -13,7 +13,7 @@ stochastic lexical_rules : N -> T
 
 let pcfg = parser(rules=[binary_rules, lexical_rules], start=0)
 
-output pcfg
+export pcfg
 ```
 
 ## Overview
@@ -32,7 +32,7 @@ The declaration `quantale product_fuzzy` selects a quantale where weights live i
 
 The `parser` combinator accepts the two morphisms and a start index. The compiler inspects the target types to determine which rules are binary (N -> N * N) versus lexical (N -> T). The resulting `pcfg` object performs CKY parsing to compute all parse trees with their probabilities.
 
-`output pcfg` exports the parser for use in subsequent computations.
+`export pcfg` exports the parser as a compiled module output.
 
 ## DSL Features
 

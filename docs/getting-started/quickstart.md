@@ -130,7 +130,7 @@ object Z : 2
 
 latent f : X -> Y
 latent g : Y -> Z
-output f >> g
+export f >> g
 ```
 
 Load and run:
@@ -153,7 +153,7 @@ object Y : 4
 object Z : 2
 latent f : X -> Y
 latent g : Y -> Z
-output f >> g
+export f >> g
 """
 
 prog = dsl_loads(source)

@@ -30,8 +30,7 @@ from quivers.inference import trace, Trace, SampleSite
 model = ...  # MonadicProgram
 
 # Execute model with tracing
-with trace() as tr:
-    samples = model.rsample(x, n_samples=10)
+tr = trace(model, x)
 
 # Access sites
 sites = tr.sites  # dict[site_name -> SampleSite]
@@ -88,17 +87,13 @@ from quivers.inference import AutoNormalGuide
 model = ...  # MonadicProgram
 conditioned = condition(model, observations)
 
-guide = AutoNormalGuide(
-    model=conditioned,
-    hidden_dim=32,
-    n_hidden=2,
-)
+guide = AutoNormalGuide(conditioned, observed_names=set(observations))
 
-# Sample from guide
-z_guide = guide.rsample(x, y_obs, n_samples=100)
+# Sample latents from guide
+latents = guide.rsample(x)  # dict {name: tensor}
 
 # Log probability under guide
-log_q = guide.log_prob(x, y_obs, z_guide)
+log_q = guide.log_prob(x, latents)
 ```
 
 ### AutoDeltaGuide
@@ -110,16 +105,13 @@ $$q_\phi(z | x, y) = \delta_{z^*_\phi(x, y)}(z)$$
 ```python
 from quivers.inference import AutoDeltaGuide
 
-guide = AutoDeltaGuide(
-    model=conditioned,
-    hidden_dim=64,
-)
+guide = AutoDeltaGuide(conditioned, observed_names=set(observations))
 
-# Point estimate
-z_map = guide.rsample(x, y_obs)  # deterministic
+# Point estimate (deterministic)
+z_map = guide.rsample(x)
 
-# Delta log probability (0 if equal, -∞ otherwise; clamped)
-log_q = guide.log_prob(x, y_obs, z_map)
+# Delta log probability (always 0; the delta term cancels in the ELBO)
+log_q = guide.log_prob(x, z_map)
 ```
 
 ## ELBO: Evidence Lower Bound
@@ -130,20 +122,22 @@ $$\mathcal{L}(\phi) = \mathbb{E}_{q_\phi(z | x, y)} [\log p(y, z | x) - \log q_\
 
 It lower bounds the log marginal likelihood $\log p(y | x)$ and equals it when $q_\phi = p(\cdot | x, y)$.
 
+Indexed-observe steps (`observe r : N <- F(args)`) read their response tensors from a runtime `observations: dict[str, torch.Tensor]` keyed by the observed-variable name. The dict is threaded through `ELBO.forward` and `SVI.step` via the `observations` kwarg, alongside the domain input.
+
 The `ELBO` class computes this:
 
 ```python
 from quivers.inference import ELBO
 
-model = ...  # joint p
+model = ...  # MonadicProgram (joint p)
 guide = ...  # variational q
 
-elbo = ELBO(model=model, guide=guide)
+elbo = ELBO(num_particles=10)
 
 # Compute loss
 x = torch.randn(5)
-y = torch.randn(3)
-loss = elbo(x, y, n_samples=10)  # negative ELBO (for minimization)
+observations = {"y": y_obs}
+loss = elbo(model, guide, x, observations)  # negative ELBO (for minimization)
 
 loss.backward()  # backprop through both model and guide
 ```
@@ -159,26 +153,27 @@ Internally, the ELBO:
 The SVI training loop optimizes both model and guide parameters:
 
 ```python
-from quivers.inference import SVI
+from quivers.inference import ELBO, SVI
 import torch.optim as optim
 
-model = ...
-guide = ...
-
-svi = SVI(model=model, guide=guide)
+model = ...   # MonadicProgram
+guide = ...   # Guide
+elbo  = ELBO(num_particles=5)
 
 optimizer = optim.Adam(
     list(model.parameters()) + list(guide.parameters()),
     lr=1e-3,
 )
 
+svi = SVI(model, guide, optimizer, elbo)
+
 # Training loop
 for epoch in range(100):
     x = next(data_loader)  # minibatch
-    y = x[:, -1]  # observations
+    observations = {"y": x[:, -1]}
     x_input = x[:, :-1]
 
-    loss = svi.step(x_input, y, n_samples=5, optimizer=optimizer)
+    loss = svi.step(x_input, observations)
     print(f"Epoch {epoch}: loss={loss:.4f}")
 ```
 
@@ -204,7 +199,8 @@ predictive = Predictive(
 
 # Sample from posterior predictive
 x_new = torch.randn(5)
-y_new_samples = predictive(x_new)  # shape (1000, 3)
+samples = predictive(x_new)              # dict[str, torch.Tensor]
+y_new_samples = samples["y"]             # shape (num_samples, batch, ...)
 
 # Posterior mean and credible intervals
 y_mean = y_new_samples.mean(dim=0)
@@ -257,34 +253,33 @@ y_obs = 2.0 * x_obs + torch.randn(100, 1) * 0.1
 conditioned = condition(program, {"y": y_obs})
 
 # Variational guide
-guide = AutoNormalGuide(
-    model=conditioned,
-    hidden_dim=16,
-    n_hidden=1,
-)
+guide = AutoNormalGuide(conditioned, observed_names={"y"})
+elbo  = ELBO(num_particles=10)
 
 # Optimization
-svi = SVI(model=conditioned, guide=guide)
 optimizer = optim.Adam(
     list(conditioned.parameters()) + list(guide.parameters()),
     lr=1e-2,
 )
+svi = SVI(conditioned, guide, optimizer, elbo)
 
+observations = {"y": y_obs}
 for epoch in range(100):
-    loss = svi.step(x_obs, y_obs, n_samples=10, optimizer=optimizer)
+    loss = svi.step(x_obs, observations)
     if epoch % 10 == 0:
         print(f"Epoch {epoch}: loss={loss:.4f}")
 
 # Posterior predictive on new data
 x_new = torch.linspace(-3, 3, 50).view(-1, 1)
 predictive = Predictive(model=conditioned, guide=guide, num_samples=500)
-y_pred = predictive(x_new)
+samples = predictive(x_new)
+y_pred = samples["y"]
 
 # Summarize
 y_mean = y_pred.mean(dim=0)
 y_std = y_pred.std(dim=0)
 
-print(f"Posterior mean of w: {y_mean[0]:.2f} ± {y_std[0]:.2f}")
+print(f"Posterior mean of w: {y_mean[0, 0]:.2f} ± {y_std[0, 0]:.2f}")
 ```
 
 ## Advanced: Custom Guides
@@ -295,17 +290,19 @@ Implement a custom guide by subclassing `Guide`:
 from quivers.inference.guide import Guide
 
 class MyGuide(Guide):
-    def __init__(self, model, **kwargs):
-        super().__init__(model, **kwargs)
+    def __init__(self, model):
+        super().__init__()
         self.mu_net = torch.nn.Linear(5, 10)
         self.sigma_net = torch.nn.Linear(5, 10)
 
-    def log_prob(self, x, y, z):
-        """Compute log q(z | x, y)"""
+    def rsample(self, x: torch.Tensor) -> dict[str, torch.Tensor]:
+        """Sample latent sites z ~ q(· | x). Returns {site_name: tensor}."""
         raise NotImplementedError()
 
-    def rsample(self, x, y, n_samples=1):
-        """Sample z ~ q(· | x, y)"""
+    def log_prob(
+        self, x: torch.Tensor, sites: dict[str, torch.Tensor]
+    ) -> torch.Tensor:
+        """Compute log q(sites | x), summed across latent sites."""
         raise NotImplementedError()
 ```
 
@@ -316,8 +313,7 @@ Enable tracing to inspect sites and log probabilities:
 ```python
 from quivers.inference import trace
 
-with trace() as tr:
-    samples = model.rsample(x, n_samples=1)
+tr = trace(model, x)
 
 for name, site in tr.sites.items():
     print(f"{name}: log_prob={site.log_prob.item():.4f}")

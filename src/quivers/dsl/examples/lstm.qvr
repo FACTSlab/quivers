@@ -61,12 +61,12 @@ continuous cell_cand : Embedded * State -> Hidden ~ Normal [scale=0.5]
 
 program lstm_cell(x_t, state_prev) : Embedded * State -> State
     # gate activations (all conditioned on input and full state)
-    draw i_gate ~ gate_i(x_t, state_prev)
-    draw f_gate ~ gate_f(x_t, state_prev)
-    draw o_gate ~ gate_o(x_t, state_prev)
+    i_gate <- gate_i(x_t, state_prev)
+    f_gate <- gate_f(x_t, state_prev)
+    o_gate <- gate_o(x_t, state_prev)
 
     # cell candidate
-    draw g_cand ~ cell_cand(x_t, state_prev)
+    g_cand <- cell_cand(x_t, state_prev)
 
     # the state contains [c_prev; h_prev] but we only need c_prev
     # for the cell update. since both are Hidden-sized (64),
@@ -97,4 +97,4 @@ continuous output_proj : State -> Output ~ Normal [scale=0.1]
 
 let lstm = tok_embed >> scan(lstm_cell) >> output_proj
 
-output lstm
+export lstm

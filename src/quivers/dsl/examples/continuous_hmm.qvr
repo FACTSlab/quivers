@@ -46,8 +46,8 @@ continuous emission : State -> Obs ~ Normal [scale=0.1]
 # ================================================================
 
 program generative_step : State -> State
-    draw s_new ~ transition
-    observe o ~ emission(s_new)
+    s_new <- transition
+    observe o <- emission(s_new)
     return s_new
 
 # ================================================================
@@ -81,4 +81,4 @@ continuous decoder : State -> Obs ~ Normal [scale=0.1]
 
 let filter_and_reconstruct = scan(inference_cell) >> decoder
 
-output filter_and_reconstruct
+export filter_and_reconstruct

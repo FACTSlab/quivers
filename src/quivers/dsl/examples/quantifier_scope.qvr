@@ -9,7 +9,7 @@
 #
 # Surface form mirrors Bumford & Charlow's typeclass-organised
 # treatment: the residuated category universe Cat is closed under
-# slash + product; effect-typed types T(X) are first-class TypeExpr
+# slash + product; effect-typed types T[X] are first-class TypeExpr
 # variants (TypeEffectApply); pattern-polymorphic schemas with
 # effect-typed parameters are SchemaDecls.
 #
@@ -68,4 +68,4 @@ let grammar = parser(
     start=S
 )
 
-output grammar
+export grammar

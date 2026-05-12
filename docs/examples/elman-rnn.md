@@ -21,7 +21,7 @@ continuous output_proj : Hidden -> Output ~ Normal [scale=0.1]
 let cell = transition >> context_copy
 let elman = tok_embed >> scan(cell) >> output_proj
 
-output elman
+export elman
 ```
 
 ## Walkthrough

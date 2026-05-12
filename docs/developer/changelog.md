@@ -6,7 +6,80 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/), and this
 
 ## [Unreleased]
 
-## [0.3.0] - 2026-05-11
+## [0.5.0] - 2026-05-11
+
+### Changed (breaking, pre-1.0 clean cut)
+
+Surface DSL homogenisation. The program-block surface is reorganised
+around a single Kleisli-bind sigil `<-`, type-annotated indexing on
+the binder, scoped marginalisation, and `!`-prefixed effect
+signatures. See `CHANGELOG.md` for the full migration table.
+
+Headline changes:
+
+- `draw v ~ F` → `v <- F`. The `draw` keyword is retired; `<-` is
+  the unique Kleisli-bind sigil.
+- `draw v : A -> K ~ F` → `v : A <- F`. Indexed (plate) binds use
+  a type annotation on the binder.
+- `observe r[n] ~ F for n in N` → `observe r : N <- F`. The
+  `for n in N` form is dropped; vectorised observes use the same
+  type-annotation shape as plates.
+- `marginalize c` → `marginalize c : A <- F in { … }`. Always
+  scoped; the integration target is visible at the binding site.
+- `posterior P (M) [v]` → `program P(v) : … ! Pure over M`.
+- `!` effect signature on programs: `Sample`, `Score`,
+  `Marginal`, `Pure`. The compiler verifies actual vs. declared
+  effects.
+- `output` → `export` (multiple per module allowed).
+- Labelled-tuple return form dropped.
+
+### Agenda-based weighted-deduction framework
+
+Also in v0.5: a declarative `deduction { … }` block backed by a
+general agenda-engine runtime (`quivers.stochastic.agenda`).
+
+- One engine, seven parameters subsumes CKY, Earley, Viterbi,
+  semi-naïve Datalog, A* parsing, Knuth's algorithm, depth-first
+  MLTT proof search.
+- Charts as first-class differentiable values:
+  `view.weight(item)`, `view.enumerate(pattern)`,
+  `view.goal_weight()` return torch tensors with autograd.
+- Pre-registered stdlib deductions in `quivers.stochastic.stdlib`:
+  CCG, Lambek, STLC, MLTT, Datalog, Dijkstra, HMM, ViterbiHMM,
+  EditDistance.
+- panproto integration: `QVR_DEDUCTION_PROTOCOL` +
+  `extract_deduction_schema(compiler)` makes deductions
+  first-class schemas.
+
+## [0.4.0] - 2026-05-11
+
+### Added
+
+- Hierarchical-Bayesian modelling primitives in `quivers.continuous.bayesian`, each carrying its categorical denotation in **Kern**:
+  - `PlateDraw(index_size, family, domain)` — finite-domain-indexed draw realised as a Kern-morphism `A → B` by the natural isomorphism `Kern(1, B^A) ≅ Kern(A, B)`; subclass of `ContinuousMorphism` so it threads through the existing `MonadicProgram` step machinery.
+  - `VectorisedObserve(family, response)` — batched-observation kernel `Φ → G_{≤1}(Φ)` with score `∏_n p_F(r_obs(n); θ(n, φ))`.
+  - `marginalize_categorical(log_probs)` — program-level pushforward through `π_{Φ\C}` realised as `log_sum_exp` over the class axis.
+  - `LKJCorrelationFactor(K, eta)` — LKJ prior on `CholeskyFactor(K)` via the Lewandowski-Kurowicka-Joe onion method; analytic `log_prob` matches Stan's `lkj_corr_cholesky_lpdf`.
+  - `Truncated(base, lower, upper)` — generic interval-truncation combinator (rejection sampling with Monte-Carlo truncation-mass estimation).
+  - `cumsum(K)`, `softmax(K)` — deterministic morphisms for monotone splines and simplex projection.
+  - `cholesky_quad_form(K)` — covariance reconstruction `Σ = diag(s) L L^T diag(s)`.
+  - `CholeskyFactor(K)` `ContinuousSpace` — manifold of K×K lower-triangular factors of correlation matrices.
+- Surface syntax for hierarchical-Bayesian models in `.qvr`:
+  - `draw v : A -> K ~ Family(args)` — finite-domain-indexed plate draw.
+  - `observe r[n] ~ Family(args) for n in N` — vectorised observation.
+  - `marginalize c` — program-level discrete-latent marginalisation.
+  - `arr[idx]` — Kleisli pullback gather expression inside `let`-bodies.
+  - `posterior name (model) : domain -> codomain { steps return ... }` — deterministic post-conditioning block whose body consumes posterior latents.
+  - Parametric programs: `program name (G : FinSet, scale : Real, prior : Mor[A, B]) : dom -> cod ...` — programs polymorphic over objects, scalars, and morphisms; denote dependent kernels `Π(p:P).Kern(dom(p), cod(p))`. Instantiated at each call site `draw v ~ name(args)` by parameter substitution + α-renaming, so each call contributes fresh latent factors to the caller's joint kernel. Supports the random-effects reuse story without tying latents across call sites.
+  - Let-expression builtins: `cumsum`, `softmax`, `cholesky_quad_form` join the existing `sigmoid` / `exp` / `log` / `abs` / `softplus`.
+- AST nodes in `quivers.dsl.ast_nodes`: `PlateDrawStep`, `VectorisedObserveStep`, `MarginalizeStep`, `LetExprIndex`, `PosteriorDecl`; each docstring carries the Kern denotation.
+- Stan-model port at `src/quivers/dsl/examples/event_structure.qvr` — a faithful translation of the four-class telicity × durativity latent-class model from `~/Projects/supertelicity/analysis/event-structure-induction/models/event-structure-model.stan`, demonstrating crossed random effects, ordinal monotone splines, vectorised observations, and `marginalize` over the discrete latent class.
+- `tests/test_bayesian.py` — 15 tests covering every new primitive and every new AST node's parse / compile round-trip, plus a compile-time smoke test on the Stan-model port.
+
+### Changed
+
+- `_walk_program_step` return type widened from `DrawStep | LetStep` to the `ProgramStep` union root.
+- Tree-sitter grammar regenerated (`grammars/qvr/src/parser.c`, `grammar.json`, `node-types.json`) to recognise the new program steps and top-level declarations.
 
 ### Added
 

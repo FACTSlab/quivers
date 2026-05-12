@@ -17,7 +17,7 @@ let grammar = parser(
     start=S
 )
 
-output grammar
+export grammar
 ```
 
 ## Overview
@@ -61,16 +61,15 @@ These four rules are equivalent to the pre-defined `evaluation` (forward + backw
 
 ## Advanced Custom Rules
 
-The custom rule syntax supports more than standard CCG rules:
+The custom rule syntax covers standard CCG combinators and
+restricted variants:
 
-- **Type-raising**: `rule type_raise(X, Y, Z) : X => (Z/X)/Y`
-- **Null insertion**: `rule null_insertion(X) : => X` (derives a category from an empty span)
-- **Ternary combination**: `rule ternary_combo(X, Y, Z, W) : X, Y, Z => W`
+- **Type-raising**: `rule type_raise(X, Y) : X => Y/(Y\X)`
 - **Restricted composition**: `rule restricted_comp(X, Y) : X/Y, Y/NP => X/NP` (composition only when the right functor's argument is NP)
 
-## Python Usage
-
-<!-- TODO: add working Python usage example -->
+Rule premise multiplicity is unary or binary; combinators that
+need three or more premises are expressed as a chain of binary
+rules sharing intermediate categories.
 
 ## Categorical Perspective
 
@@ -80,19 +79,24 @@ Custom rules are schema functors from category patterns to rule instances. Given
 
 You can freely mix custom rules with pre-defined schemas:
 
+<!-- compile: false -->
 ```qvr
-category S, NP, N, VP, PP
+category S, NP, N, VP, PP, Conj
 object Token : 256
 
-rule coord_and(X, Y) : X, and, X => X  # Custom coordination rule
+rule coord_left(X)   : X, Conj    => XConj  # introduces helper
+rule coord_right(X)  : XConj, X   => X      # consumes helper
 
 let grammar = parser(
-    rules=[forward_app, harmonic_composition, coord_and],
+    rules=[forward_app, harmonic_composition, coord_left, coord_right],
     terminal=Token,
     start=S
 )
 
-output grammar
+export grammar
 ```
 
-The compiler instantiates all rules (custom and pre-defined) into the same rule table, and the parser applies them uniformly.
+The compiler instantiates all rules (custom and pre-defined)
+into the same rule table, and the parser applies them uniformly.
+Genuinely ternary patterns are factored into pairs of binary
+rules sharing a fresh intermediate category, as shown above.

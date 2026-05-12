@@ -184,7 +184,7 @@ let grammar = parser(
     rules=[forward_app, backward_app, apply_Cont_fwd, scope_take],
     terminal=Token, start=S
 )
-output grammar
+export grammar
 ```
 
 In production code, the lifted schemas (`apply_Cont_fwd`,

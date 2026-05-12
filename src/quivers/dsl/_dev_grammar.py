@@ -23,6 +23,7 @@ import ctypes
 import os
 import subprocess
 import sys
+import warnings
 from pathlib import Path
 
 import panproto
@@ -117,7 +118,16 @@ def registry() -> object:
     grammar_json = (grammar_dir / "src" / "grammar.json").read_bytes()
     node_types = (grammar_dir / "src" / "node-types.json").read_bytes()
 
-    reg = panproto.AstParserRegistry()
+    # panproto's `AstParserRegistry()` constructor emits RuntimeWarnings
+    # for every companion grammar it can't register at import time
+    # (currently `al`, `csharp`, `erlang` on this environment). Those
+    # are upstream-packaging issues that quivers cannot fix here; the
+    # standard non-dev path suppresses them via a `catch_warnings`
+    # block in `quivers.dsl.parser._registry`, and the dev path does
+    # the same so test output stays clean.
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", RuntimeWarning)
+        reg = panproto.AstParserRegistry()
     reg.override_grammar(
         name="qvr",
         extensions=["qvr"],

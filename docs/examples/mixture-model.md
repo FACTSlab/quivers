@@ -7,102 +7,62 @@ A Gaussian Mixture Model assigns data points to one of $k$ Gaussian components, 
 ## QVR Source
 
 ```qvr
-program gmm {
+object Unit : 1
+object Obs : 1
 
-  n_data: int
-  k_components: int = 4
-  data_dim: int = 2
-}
+program gmm : Unit -> Obs
+    mu_1 <- Normal(0.0, 3.0)
+    mu_2 <- Normal(0.0, 3.0)
+    mu_3 <- Normal(0.0, 3.0)
+    mu_4 <- Normal(0.0, 3.0)
 
-let n_data_range = range(n_data)
+    tau_1 <- Gamma(2.0, 1.0)
+    tau_2 <- Gamma(2.0, 1.0)
+    tau_3 <- Gamma(2.0, 1.0)
+    tau_4 <- Gamma(2.0, 1.0)
 
-type Precision = Euclidean 1
-type Mean = Euclidean data_dim
-type MixtureWeights = Euclidean k_components
-type Data = Euclidean data_dim
+    let sigma_1 = 1.0 / softplus(tau_1)
+    let sigma_2 = 1.0 / softplus(tau_2)
+    let sigma_3 = 1.0 / softplus(tau_3)
+    let sigma_4 = 1.0 / softplus(tau_4)
 
-continuous shape_prior : UnitSpace -> Precision ~ Gamma(shape=2.0, rate=0.1)
-continuous rate_prior : UnitSpace -> Precision ~ Exponential(rate=0.5)
+    weight_1 <- Exponential(1.0)
+    weight_2 <- Exponential(1.0)
+    weight_3 <- Exponential(1.0)
+    weight_4 <- Exponential(1.0)
 
-let component_precision = shape_prior >> softplus
+    let total = weight_1 + weight_2 + weight_3 + weight_4
+    let p1 = weight_1 / total
+    let p2 = weight_2 / total
+    let p3 = weight_3 / total
 
-continuous mean_prior : UnitSpace -> Mean ~ Normal
+    let mix_mu = p1 * mu_1 + p2 * mu_2 + p3 * mu_3 + (1.0 - p1 - p2 - p3) * mu_4
+    let mix_sigma = p1 * sigma_1 + p2 * sigma_2 + p3 * sigma_3 + (1.0 - p1 - p2 - p3) * sigma_4
 
-let component_means = stack(mean_prior, k_components)
+    observe x <- Normal(mix_mu, mix_sigma)
 
-continuous weight_prior : UnitSpace -> MixtureWeights ~ Exponential(rate=1.0)
+    return x
 
-let mixture_weights = weight_prior >> softmax
-
-continuous likelihood : (Mean, Precision) -> Data ~ Normal
-
-program generative_step(i) {
-
-  z <- categorical(mixture_weights)
-  mu <- component_means[z]
-  tau <- component_precision
-  x <- likelihood(mu, tau)
-  return x
-}
-
-program generative_process {
-
-  precisions <- component_precision.sample()
-  means <- component_means.sample()
-  weights <- mixture_weights.sample()
-  data <- map(generative_step, n_data_range)
-  return data
-}
-
-program inference_step(x_i, i) {
-
-  z <- categorical(mixture_weights)
-  mu <- component_means[z]
-  tau <- component_precision
-  observe x_i ~ likelihood(mu, tau)
-}
-
-program inference {
-
-  precisions <- component_precision.sample()
-  means <- component_means.sample()
-  weights <- mixture_weights.sample()
-  observations <- load_data(n_data_range)
-  map(inference_step, zip(observations, n_data_range))
-  return (precisions, means, weights, observations)
-}
-
-output generative_process
+export gmm
 ```
 
 ## Walkthrough
 
-The `program gmm { ... }` block declares runtime parameters: `n_data` (number of observations), `k_components` (default 4), and `data_dim` (default 2). These are not known at compile time.
+The model fixes a four-component Gaussian mixture with priors on per-component means, scales, and mixing weights.
 
-Type declarations set up the spaces: `Precision` is 1-d (scalar), `Mean` and `Data` are `data_dim`-dimensional, and `MixtureWeights` is `k_components`-dimensional.
+Each `mu_k <- Normal(0.0, 3.0)` is a scalar bind of the $k$-th component mean from a wide Normal prior. Each `tau_k <- Gamma(2.0, 1.0)` draws a positive precision parameter; the `let sigma_k = 1.0 / softplus(tau_k)` deterministic step converts the precision to a standard deviation via `softplus` (ensuring positivity) and inversion.
 
-The precision prior is `shape_prior` (Gamma with shape=2.0, rate=0.1, giving a mean around 20) composed with `softplus` to guarantee positivity. An alternative exponential prior (`rate_prior`) is also declared.
+The four `weight_k <- Exponential(1.0)` binds draw independent Exponential(1) values; the deterministic `let` steps normalise them to a length-four simplex `(p1, p2, p3, 1 - p1 - p2 - p3)`. This is the Gamma–Dirichlet construction of a symmetric Dirichlet(1) prior over mixing weights.
 
-The mean prior is a standard normal, and `stack(mean_prior, k_components)` produces `k_components` independent draws.
-
-The mixture weight prior is constructed compositionally: `weight_prior` draws `k_components` values from Exponential(1.0), then `softmax` normalizes them to sum to one. Drawing $k$ independent Exponential(1) samples and normalizing produces a symmetric Dirichlet(1) distribution, so the Dirichlet is built from simpler pieces rather than declared as a primitive.
-
-`likelihood : (Mean, Precision) -> Data ~ Normal` defines the per-component observation distribution.
-
-`generative_step` generates one data point: sample a component index `z` from `categorical(mixture_weights)`, look up `component_means[z]` and `component_precision`, then draw from the likelihood. `generative_process` samples the global parameters once, then `map(generative_step, n_data_range)` generates all data points.
-
-`inference_step` mirrors the generative step but replaces sampling with `observe x_i ~ likelihood(mu, tau)`, which conditions on the observed data point by multiplying the current density by the likelihood. `inference` loads real data and maps `inference_step` over it, returning posterior samples of all parameters.
+The let-bindings `mix_mu` and `mix_sigma` form a soft (weighted-mean) mixture of the component parameters. The single `observe x <- Normal(mix_mu, mix_sigma)` step scores the observation against this soft mixture, accumulating a sub-probability factor on the trace.
 
 ## DSL Features
 
-- **`program` block with parameters**: Parametric stochastic computations with runtime-variable inputs (`n_data`, `k_components`).
-- **Bind operator (`<-`)**: Draws a sample from the right-hand distribution and binds it to the left-hand variable.
-- **`observe`**: Conditions the computation on observed data by multiplying in the likelihood. Dual of sampling.
-- **`softplus` / `softmax`**: Deterministic transformations composed with stochastic morphisms to enforce constraints (positivity, normalization).
-- **`categorical(weights)`**: Discrete distribution over component indices, parameterized by mixture weights.
-- **Indexing (`component_means[z]`)**: Selects from an array of parameters using a discrete random variable.
-- **`map(f, sequence)`**: Applies a subprogram to each element of a sequence. Used for both generation and inference over data points.
-- **`stack(f, k)`**: Produces `k` independent copies of morphism `f` (here, `k` independent mean priors).
+- **Bind operator (`<-`)**: Samples from the right-hand distribution and binds the result to the left-hand variable.
+- **`observe`**: Conditions on observed data by multiplying the trace by the likelihood. Dual of sampling.
+- **`softplus`**: Deterministic positivity-preserving transformation used inside `let` steps.
+- **Arithmetic in `let`**: `+`, `-`, `*`, `/` plus built-ins compose previously bound variables into derived random variables.
+- **`export`**: Marks the program as a compiled output of the module.
 
 ## Python Usage
 
@@ -112,4 +72,4 @@ The mixture weight prior is constructed compositionally: `weight_prior` draws `k
 
 The composition `weight_prior >> softmax` constructs a symmetric Dirichlet distribution without naming Dirichlet as a primitive. The Exponential distribution is a morphism from the terminal object to a 1-d positive space; `stack` lifts it to $k$ independent copies; and `softmax` is a natural transformation from $\mathbb{R}^k$ to the $(k{-}1)$-simplex. Composing these yields a morphism from the terminal object to the simplex, which is exactly the symmetric Dirichlet(1). This illustrates the compositional principle: distributions usually treated as primitives in other frameworks can be decomposed into simpler morphisms and transformations.
 
-The duality between `generative_process` and `inference` reflects Bayes' rule at the level of morphism composition. The generative process composes priors with the likelihood to produce a joint distribution over parameters and data ($* \to \Theta \times X$). The inference process reverses the direction by using `observe` to condition on data, producing a posterior over parameters ($X \to \Theta$). These are related by the factorization $p(\theta, x) = p(\theta)p(x \mid \theta) = p(x)p(\theta \mid x)$.
+The bind/observe duality reflects Bayes' rule at the level of morphism composition. The sequence of `<-` binds composes priors into a joint distribution over the component parameters ($* \to \Theta$). The `observe x <- Normal(mix_mu, mix_sigma)` step conditions on data, contributing a sub-probability factor in $\mathcal{G}_{\le 1}$ whose total mass is the likelihood. Inference recovers the posterior over $\Theta$ via the factorization $p(\theta, x) = p(\theta)p(x \mid \theta) = p(x)p(\theta \mid x)$.

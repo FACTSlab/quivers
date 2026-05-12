@@ -19,7 +19,7 @@ stochastic emission : State -> Obs
 let n_step = repeat(transition) >> emission
 let hmm = initial >> n_step
 
-output hmm
+export hmm
 ```
 
 ## Walkthrough

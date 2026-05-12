@@ -2,11 +2,11 @@
   "name": "vscode-qvr",
   "displayName": "QVR Syntax Highlighting",
   "description": "Syntax highlighting for the Quivers QVR probabilistic programming language",
-  "version": "0.1.0",
+  "version": "0.4.0",
   "publisher": "quivers",
   "repository": {
     "type": "git",
-    "url": "https://github.com/quivers/kleisli"
+    "url": "https://github.com/FACTSlab/quivers"
   },
   "engines": {
     "vscode": "^1.75.0"

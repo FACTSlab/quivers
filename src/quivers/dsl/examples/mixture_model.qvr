@@ -74,8 +74,8 @@ program gmm : Unit -> Obs
     let mix_mu = p1 * mu_1 + p2 * mu_2 + p3 * mu_3 + (1.0 - p1 - p2 - p3) * mu_4
     let mix_sigma = p1 * sigma_1 + p2 * sigma_2 + p3 * sigma_3 + (1.0 - p1 - p2 - p3) * sigma_4
 
-    observe x ~ Normal(mix_mu, mix_sigma)
+    observe x <- Normal(mix_mu, mix_sigma)
 
     return x
 
-output gmm
+export gmm
