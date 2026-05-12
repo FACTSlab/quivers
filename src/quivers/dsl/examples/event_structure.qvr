@@ -103,11 +103,12 @@ program event_structure : Item -> Item
     telicity_durativity_probs : Class4 <- Dirichlet(prob_durative)
 
     # Per-row per-class log-likelihoods for the cloze and proportion
-    # responses.  The runtime convention for the grouped
-    # `marginalize` block below is that the body populates the
-    # latent's bound name with a per-(N, K) log-likelihood tensor;
-    # the block's reduction then scatter-adds along the response →
-    # item fibration and applies the log-sum-exp under the
+    # responses.  The body of a grouped `marginalize` block ends
+    # with an `observe` step; the compiler vectorises the body over
+    # the class axis (the latent is in scope as `arange(K)`), so
+    # the observe's per-row log-likelihood is captured as the
+    # (N, K) tensor the block's reduction then scatter-adds along
+    # the response → item fibration and log-sum-exps under the
     # categorical prior, summed over items.
     #
     # Categorical denotation: the grouped block is the right Kan
@@ -117,13 +118,13 @@ program event_structure : Item -> Item
     marginalize class_cloze : Class4 <- Dirichlet(telicity_durativity_probs)
         over Item via item_cloze_idx
         in {
-            cloze_ll : RespCloze <- HalfNormal(1.0)
+            observe cloze_resp : RespCloze <- Normal(intercept_cloze, 1.0)
         }
 
     marginalize class_prop : Class4 <- Dirichlet(telicity_durativity_probs)
         over Item via item_prop_idx
         in {
-            prop_ll : RespProp <- HalfNormal(1.0)
+            observe prop_resp : RespProp <- Normal(intercept_cloze, 1.0)
         }
 
     return intercept_cloze

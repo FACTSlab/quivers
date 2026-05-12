@@ -781,15 +781,49 @@ def _walk_bind_step(
 
     scope_t: tuple[ProgramStep, ...] | None = None
     over_t: str | None = None
+    over_objs_t: tuple[str, ...] | None = None
     via_t: str | None = None
+    via_axes_t: tuple[str, ...] | None = None
+    reduction_t: str | None = None
     if mode == "marginal":
         scope_t = tuple(_walk_program_step(t, sv) for sv in t.fields(vid, "scope"))
         over_vid = t.field(vid, "over")
         if over_vid is not None:
-            over_t = _required_text(t, over_vid, vid, "over")
+            # `over` is now a type expression; for a single plate
+            # it's a TypeName, for a product `G * H` it's a TypeProduct.
+            over_expr = _walk_type(t, over_vid)
+            if isinstance(over_expr, TypeName):
+                over_t = over_expr.name
+            elif isinstance(over_expr, TypeProduct):
+                names: list[str] = []
+                for comp in over_expr.components:
+                    if not isinstance(comp, TypeName):
+                        raise ParseError(
+                            f"marginalize: `over` product components must "
+                            f"be plate names; got {type(comp).__name__} "
+                            f"at {over_vid}"
+                        )
+                    names.append(comp.name)
+                over_objs_t = tuple(names)
+            else:
+                raise ParseError(
+                    f"marginalize: `over` must be a plate name or "
+                    f"product of plate names; got "
+                    f"{type(over_expr).__name__} at {over_vid}"
+                )
         via_vid = t.field(vid, "via")
         if via_vid is not None:
-            via_t = _required_text(t, via_vid, vid, "via")
+            # `via` is either a bare identifier or a `via_product(...)`.
+            if t.kind(via_vid) == "via_product":
+                axis_ids = t.fields(via_vid, "axis")
+                via_axes_t = tuple(
+                    _required_text(t, av, via_vid, "axis") for av in axis_ids
+                )
+            else:
+                via_t = _required_text(t, via_vid, vid, "via")
+        red_vid = t.field(vid, "reduction")
+        if red_vid is not None:
+            reduction_t = _required_text(t, red_vid, vid, "reduction")
 
     return BindStep(
         vars=vars_t,
@@ -799,7 +833,10 @@ def _walk_bind_step(
         mode=mode,
         scope=scope_t,
         over=over_t,
+        over_objs=over_objs_t,
         via=via_t,
+        via_axes=via_axes_t,
+        reduction=reduction_t,
         line=line,
         col=col,
     )

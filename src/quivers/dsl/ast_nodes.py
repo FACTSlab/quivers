@@ -471,8 +471,17 @@ class BindStep(ProgramStep):
     index: TypeExpr | None = None
     mode: Literal["sample", "score", "marginal"] = "sample"
     scope: tuple[ProgramStep, ...] | None = None
+    # `over G`: the grouping plate. ``over_obj`` is the single
+    # plate name; ``over_objs`` is the tuple of plate names when
+    # the user wrote a type product (e.g. ``over G * H``).
     over: str | None = None
+    over_objs: tuple[str, ...] | None = None
+    # `via idx` (single fibration) or `via product(idx_a, idx_b)`
+    # (tuple of co-indexed fibrations).
     via: str | None = None
+    via_axes: tuple[str, ...] | None = None
+    # `reduction = logsumexp | sum | mean`.
+    reduction: str | None = None
     line: int = 0
     col: int = 0
     kind: Literal["bind_step"] = "bind_step"
@@ -571,6 +580,60 @@ class VectorisedObserveStep(ProgramStep):
     kind: Literal["vectorised_observe_step"] = "vectorised_observe_step"
 
 
+class GroupedLatentInitStep(ProgramStep):
+    """Internal compiler IR: initialise the latent's environment
+    slot to ``torch.arange(class_size)`` at the start of a grouped
+    marginalize block's body.
+
+    The body's downstream ``let`` and ``observe`` steps then see the
+    latent as a length-``K`` index tensor; any arithmetic involving
+    the latent broadcasts across the class axis. The terminal
+    captured observe (see :class:`GroupedBodyObserveStep`) overwrites
+    this slot with the per-(N, K) log-likelihood tensor the
+    marginalize step consumes.
+    """
+
+    latent_name: str
+    class_size: int
+    line: int = 0
+    col: int = 0
+    kind: Literal["grouped_latent_init_step"] = "grouped_latent_init_step"
+
+
+class GroupedBodyObserveStep(ProgramStep):
+    """Internal compiler IR: a captured observe inside a grouped
+    marginalize block.
+
+    The body of a grouped marginalize block ends with an observe
+    step whose per-row log-likelihood depends on the latent. Rather
+    than accumulating the scalar log-density into the program-level
+    joint (the normal observe path), this captured form:
+
+    1. Computes ``family.log_prob(theta, response)`` per row,
+       broadcasting ``theta`` across the class axis if it carries
+       one (because upstream ``let`` steps referenced the latent).
+    2. Stores the resulting ``(N, K)`` tensor at the marginalize
+       block's latent slot, where the
+       :class:`MarginalizeStep`'s runtime callable picks it up,
+       applies the prior, and reduces.
+
+    Categorically: the captured observe is the body's
+    contribution to the right Kan extension along the fibration in
+    :math:`\\mathbf{Kern}` — the per-(row, class) log-likelihood
+    tensor that the per-group accumulator scatter-adds.
+    """
+
+    response_var: str
+    morphism: str
+    args: tuple[str | float, ...] | None = None
+    index_set: TypeExpr | None = None
+    index_var: str = ""
+    latent_name: str = ""
+    line: int = 0
+    col: int = 0
+    kind: Literal["grouped_body_observe_step"] = "grouped_body_observe_step"
+
+
 class MarginalizeStep(ProgramStep):
     """Internal compiler IR: a marginalisation reduction.
 
@@ -596,8 +659,20 @@ class MarginalizeStep(ProgramStep):
     class_size: int = 0
     probs_var: str | None = None
     over_obj: str | None = None
+    # Product grouping plate: a tuple of plate names whose
+    # cardinalities multiply to give the flat group cardinality.
+    # ``None`` for a single grouping plate; in that case
+    # ``over_obj`` carries the singleton name.
+    over_objs: tuple[str, ...] | None = None
     via_var: str | None = None
+    # Product fibration: a tuple of co-indexed fibration names.
+    # ``None`` for a single fibration; in that case ``via_var``
+    # carries the singleton name.
+    via_axes: tuple[str, ...] | None = None
     body_ll_var: str | None = None
+    # Per-group reduction over the class axis. ``None`` defaults
+    # to ``"logsumexp"`` at the runtime call site.
+    reduction: str | None = None
     line: int = 0
     col: int = 0
     kind: Literal["marginalize_step"] = "marginalize_step"

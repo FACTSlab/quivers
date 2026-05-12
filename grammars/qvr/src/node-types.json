@@ -3693,6 +3693,36 @@
         "required": false,
         "types": [
           {
+            "type": "type_atom",
+            "named": true
+          },
+          {
+            "type": "type_coproduct",
+            "named": true
+          },
+          {
+            "type": "type_effect_apply",
+            "named": true
+          },
+          {
+            "type": "type_paren",
+            "named": true
+          },
+          {
+            "type": "type_product",
+            "named": true
+          },
+          {
+            "type": "type_slash",
+            "named": true
+          }
+        ]
+      },
+      "reduction": {
+        "multiple": false,
+        "required": false,
+        "types": [
+          {
             "type": "identifier",
             "named": true
           }
@@ -3736,6 +3766,10 @@
         "types": [
           {
             "type": "identifier",
+            "named": true
+          },
+          {
+            "type": "via_product",
             "named": true
           }
         ]
@@ -6203,6 +6237,22 @@
     }
   },
   {
+    "type": "via_product",
+    "named": true,
+    "fields": {
+      "axis": {
+        "multiple": true,
+        "required": true,
+        "types": [
+          {
+            "type": "identifier",
+            "named": true
+          }
+        ]
+      }
+    }
+  },
+  {
     "type": "vocab_literal",
     "named": true,
     "fields": {},
@@ -6600,6 +6650,10 @@
     "named": false
   },
   {
+    "type": "product",
+    "named": false
+  },
+  {
     "type": "program",
     "named": false
   },
@@ -6617,6 +6671,10 @@
   },
   {
     "type": "recursive",
+    "named": false
+  },
+  {
+    "type": "reduction",
     "named": false
   },
   {

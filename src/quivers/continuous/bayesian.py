@@ -754,48 +754,117 @@ def marginalize_categorical(log_probs_per_class: torch.Tensor) -> torch.Tensor:
     return torch.logsumexp(log_probs_per_class, dim=-1)
 
 
+def _flatten_product_indices(
+    group_indices: tuple[torch.Tensor, ...],
+    group_sizes: tuple[int, ...],
+) -> tuple[torch.Tensor, int]:
+    """Compose a tuple of co-indexed fibration tensors into a
+    single flat group index on the product grouping plate.
+
+    The product :math:`G_1 \\times G_2 \\times \\dots \\times G_r`
+    is row-major: ``flat = idx_1 * (|G_2| ... |G_r|) + idx_2 * (|G_3| ...) + ... + idx_r``.
+
+    Returns ``(flat_index, total_groups)`` where ``total_groups =
+    \\prod_i |G_i|``.
+    """
+    if not group_indices:
+        raise ValueError(
+            "_flatten_product_indices: need at least one fibration "
+            "tensor"
+        )
+    if len(group_indices) != len(group_sizes):
+        raise ValueError(
+            "_flatten_product_indices: number of indices "
+            f"({len(group_indices)}) must equal number of sizes "
+            f"({len(group_sizes)})"
+        )
+    n_rows = int(group_indices[0].shape[0])
+    for j, idx in enumerate(group_indices):
+        if idx.shape != (n_rows,):
+            raise ValueError(
+                f"_flatten_product_indices: fibration {j} has shape "
+                f"{tuple(idx.shape)}; expected ({n_rows},) to match "
+                f"the first fibration"
+            )
+    total = 1
+    for size in group_sizes:
+        if size <= 0:
+            raise ValueError(
+                "_flatten_product_indices: all group sizes must be "
+                f"positive; got {group_sizes}"
+            )
+        total *= int(size)
+    flat = torch.zeros(n_rows, dtype=torch.long, device=group_indices[0].device)
+    running = 1
+    for j in range(len(group_indices) - 1, -1, -1):
+        size = int(group_sizes[j])
+        idx_j = group_indices[j].to(torch.long)
+        if (idx_j < 0).any() or (idx_j >= size).any():
+            raise ValueError(
+                f"_flatten_product_indices: fibration {j} has entries "
+                f"outside [0, {size})"
+            )
+        flat = flat + idx_j * running
+        running *= size
+    return flat, total
+
+
 def marginalize_grouped(
     log_likelihood_per_row_per_class: torch.Tensor,
-    group_index: torch.Tensor,
+    group_index: torch.Tensor | tuple[torch.Tensor, ...],
     log_prior_per_group_per_class: torch.Tensor,
-    num_groups: int,
+    num_groups: int | tuple[int, ...],
+    *,
+    reduction: str = "logsumexp",
 ) -> torch.Tensor:
     """Per-group marginalisation over a discrete latent class.
 
     Given a per-(response, class) log-likelihood tensor of shape
-    ``(N, K)``, a fibration ``r : Resp → G`` realised as a long
-    tensor ``group_index`` of shape ``(N,)`` with entries in
-    ``[0, |G|)``, a per-(group, class) log-prior of shape
-    ``(|G|, K)`` (broadcastable from ``(K,)``), and ``|G|``, return
-    the scalar
+    ``(N, K)``, a fibration
+    :math:`r : \\text{Resp} \\to G` (or a tuple of co-indexed
+    fibrations into a product grouping plate
+    :math:`G_1 \\times \\dots \\times G_r`), a per-(group, class)
+    log-prior, and ``|G|``, return the scalar
 
     .. math::
 
-        \\sum_{g \\in G}\\, \\log\\sum_{k=1}^{K}
-        \\exp\\!\\left[\\log \\pi(g,k) + \\sum_{n:\\, r(n)=g}
-        \\ell(n,k)\\right].
+        \\sum_{g \\in G}\\, \\rho\\!\\left[
+            \\log \\pi(g, \\cdot) + \\sum_{n:\\, r(n) = g} \\ell(n, \\cdot)
+        \\right]
 
-    The per-group accumulator is realised as a scatter-add along
-    the fibration; this is the right Kan extension along
-    :math:`r : \\text{Resp} \\to G` in :math:`\\mathbf{Kern}` with
-    the additive monoid on log-densities. The mixture over the
-    class axis is then the standard log-sum-exp, weighted by the
-    categorical prior. The final sum aggregates the per-group
-    log-marginals into the program-level log-density contribution.
+    where :math:`\\rho` is the per-group reduction over the class
+    axis selected by ``reduction``: ``logsumexp`` for the canonical
+    marginal-likelihood mixture, ``sum`` for the joint scoring (no
+    marginalisation), ``mean`` for the symmetric average. The
+    per-group accumulator is realised as a scatter-add along the
+    fibration; this is the right Kan extension along ``r`` in
+    :math:`\\mathbf{Kern}` with the additive monoid on
+    log-densities. The final sum aggregates the per-group log-
+    marginals into the program-level log-density contribution.
 
     Parameters
     ----------
     log_likelihood_per_row_per_class : torch.Tensor
         Per-(response, class) log-likelihood of shape ``(N, K)``.
-        Must be finite for the gradient to flow.
-    group_index : torch.Tensor
-        Long tensor of shape ``(N,)`` mapping each response row to
-        its group index. Entries must lie in ``[0, num_groups)``.
+    group_index : torch.Tensor or tuple[torch.Tensor, ...]
+        Single fibration: long tensor of shape ``(N,)`` mapping
+        each response row to its group index in ``[0, num_groups)``.
+        Product fibration: a tuple of co-indexed long tensors, one
+        per grouping plate; ``num_groups`` must be a matching tuple.
+        The product grouping plate
+        :math:`G_1 \\times \\dots \\times G_r` is flattened in row-
+        major order before the scatter-add.
     log_prior_per_group_per_class : torch.Tensor
-        Per-(group, class) log-prior of shape ``(num_groups, K)``
-        or ``(K,)`` (broadcast).
-    num_groups : int
-        Cardinality of the group plate.
+        Per-(group, class) log-prior of shape ``(num_groups, K)``,
+        ``(K,)`` (broadcast over the group axis), or — for product
+        fibrations — ``(num_groups_1, ..., num_groups_r, K)``.
+    num_groups : int or tuple[int, ...]
+        Cardinality of the (product) group plate.
+    reduction : {"logsumexp", "sum", "mean"}
+        Per-group reduction over the class axis. ``logsumexp`` is
+        the canonical mixture marginalisation; ``sum`` joint-scores
+        without marginalising the class; ``mean`` averages
+        symmetrically. Default ``logsumexp``.
 
     Returns
     -------
@@ -807,50 +876,172 @@ def marginalize_grouped(
     Edge cases:
 
     * ``K == 1``: the log-sum-exp collapses to the body's log-
-      likelihood and the prior contribution; equivalent to a
-      vanilla scattered ``observe`` plus a constant.
+      likelihood plus the constant log-prior.
     * Identity fibration (``group_index = arange(N)`` and
       ``num_groups == N``): each row is its own group, recovering
-      the per-row mixture (``marginalize_categorical`` followed
-      by a sum, with the per-row prior).
+      the per-row mixture.
+    * Empty fibre: contributes a multiplicative identity to the
+      product (``log 1 = 0``), so an unused group adds zero per
+      class before the reduction.
     """
-    if log_likelihood_per_row_per_class.dim() != 2:
+    if reduction not in ("logsumexp", "sum", "mean"):
         raise ValueError(
-            "log_likelihood_per_row_per_class must have shape (N, K); "
-            f"got shape {tuple(log_likelihood_per_row_per_class.shape)}"
+            "reduction must be one of 'logsumexp', 'sum', 'mean'; "
+            f"got {reduction!r}"
         )
-    n_rows, n_classes = log_likelihood_per_row_per_class.shape
-    if group_index.shape != (n_rows,):
+    if log_likelihood_per_row_per_class.dim() < 1:
         raise ValueError(
-            "group_index must have shape (N,) matching the leading axis "
-            f"of the log-likelihood; got {tuple(group_index.shape)} vs N={n_rows}"
+            "log_likelihood_per_row_per_class must have at least one "
+            "axis (the class axis); got "
+            f"{log_likelihood_per_row_per_class.shape}"
         )
-    if group_index.dtype != torch.long:
-        group_index = group_index.to(torch.long)
-    if num_groups <= 0:
-        raise ValueError(f"num_groups must be positive; got {num_groups}")
-    if (group_index < 0).any() or (group_index >= num_groups).any():
-        raise ValueError(
-            f"group_index entries must lie in [0, {num_groups}); "
-            "out-of-range index detected"
+    # Two operating modes:
+    #
+    # 1. ``ll`` has a leading row axis (shape ``(N, *extra, K)``):
+    #    scatter-add along the fibration to obtain
+    #    ``(G, *extra, K)``, apply the per-cell prior, reduce over
+    #    the class axis, and sum over groups. The shape of the
+    #    return value is ``(*extra,)`` — a scalar if there are no
+    #    extra (outer-class) axes, otherwise a tensor whose axes
+    #    are the outer-block class axes still in scope.
+    #
+    # 2. ``ll`` has no row axis (shape ``(*extra, K)``): this
+    #    occurs for *intermediate* levels of a nested marginalize
+    #    stack, where the innermost level has already integrated
+    #    the per-row contributions. There is no scatter step; the
+    #    prior is added across the extra axes and the class axis is
+    #    reduced. The return shape is ``(*extra_except_class_axis,)``.
+    # The mode is detected from the shape of ``group_index``.
+    flat_group_index_shape: tuple[int, ...]
+    if isinstance(group_index, tuple):
+        flat_group_index_shape = group_index[0].shape
+    else:
+        flat_group_index_shape = group_index.shape
+    if flat_group_index_shape:
+        n_idx = flat_group_index_shape[0]
+        # If the user supplied a fibration of length N > 0, the ll
+        # MUST carry a leading axis of length N. A length-N fibration
+        # paired with an ll whose leading axis differs is a shape
+        # mismatch — not the "no row axis" intermediate path.
+        if (
+            n_idx > 0
+            and log_likelihood_per_row_per_class.dim() >= 2
+            and log_likelihood_per_row_per_class.shape[0] != n_idx
+        ):
+            raise ValueError(
+                "group_index must have shape (N,) matching the "
+                "leading axis of the log-likelihood; got "
+                f"{flat_group_index_shape} vs N="
+                f"{log_likelihood_per_row_per_class.shape[0]}"
+            )
+        has_row_axis = (
+            n_idx > 0
+            and log_likelihood_per_row_per_class.dim() >= 2
+            and log_likelihood_per_row_per_class.shape[0] == n_idx
         )
-    # Scatter-add the (N, K) per-row log-likelihood along the
-    # fibration to obtain a (|G|, K) per-group accumulator. The
-    # zeros initialiser is correct because log-density addition
-    # corresponds to multiplication of probabilities; an empty
-    # fibre contributes a multiplicative identity (log 1 = 0).
+    else:
+        has_row_axis = False
+    if not has_row_axis:
+        # No N-axis: apply prior + reduce over the class axis only.
+        # ``log_prior_per_group_per_class`` is broadcastable across
+        # the extra axes (typically just (K,)).
+        weighted = log_prior_per_group_per_class + log_likelihood_per_row_per_class
+        if reduction == "logsumexp":
+            return torch.logsumexp(weighted, dim=-1)
+        if reduction == "sum":
+            return weighted.sum(dim=-1)
+        return weighted.mean(dim=-1)
+    n_rows = int(log_likelihood_per_row_per_class.shape[0])
+    n_classes = int(log_likelihood_per_row_per_class.shape[-1])
+    extra_axes = tuple(log_likelihood_per_row_per_class.shape[1:-1])
+
+    # Resolve single-vs-product fibration into a flat group index.
+    if isinstance(group_index, tuple):
+        if not isinstance(num_groups, tuple):
+            raise ValueError(
+                "marginalize_grouped: product fibration (tuple "
+                "group_index) requires num_groups to be a tuple of "
+                f"matching length; got {type(num_groups).__name__}"
+            )
+        flat_index, total_groups = _flatten_product_indices(
+            group_index, num_groups
+        )
+        # Flatten an (G_1, ..., G_r, K) prior to (G_1 * ... * G_r, K).
+        if log_prior_per_group_per_class.dim() == 1:
+            log_prior_flat: torch.Tensor = log_prior_per_group_per_class
+        elif log_prior_per_group_per_class.dim() == 2 and (
+            log_prior_per_group_per_class.shape[0] == total_groups
+            or log_prior_per_group_per_class.shape[0] == 1
+        ):
+            log_prior_flat = log_prior_per_group_per_class
+        else:
+            expected_axes = len(num_groups) + 1
+            if log_prior_per_group_per_class.dim() != expected_axes:
+                raise ValueError(
+                    "marginalize_grouped: product-fibration prior "
+                    f"must have shape (*{num_groups}, K) or (K,); "
+                    f"got {tuple(log_prior_per_group_per_class.shape)}"
+                )
+            log_prior_flat = log_prior_per_group_per_class.reshape(
+                total_groups, n_classes
+            )
+    else:
+        if isinstance(num_groups, tuple):
+            raise ValueError(
+                "marginalize_grouped: scalar group_index requires "
+                f"scalar num_groups; got {num_groups!r}"
+            )
+        if group_index.shape != (n_rows,):
+            raise ValueError(
+                "group_index must have shape (N,) matching the "
+                "leading axis of the log-likelihood; got "
+                f"{tuple(group_index.shape)} vs N={n_rows}"
+            )
+        if num_groups <= 0:
+            raise ValueError(f"num_groups must be positive; got {num_groups}")
+        if (group_index < 0).any() or (group_index >= num_groups).any():
+            raise ValueError(
+                f"group_index entries must lie in [0, {num_groups}); "
+                "out-of-range index detected"
+            )
+        flat_index = group_index.to(torch.long)
+        total_groups = int(num_groups)
+        log_prior_flat = log_prior_per_group_per_class
+
+    # Scatter-add the (N, *extra, K) per-row log-likelihood along
+    # the fibration to obtain a (|G|, *extra, K) per-group
+    # accumulator. ``index_add`` operates on the leading axis;
+    # ``extra`` axes ride along as broadcast.
+    grouped_shape: tuple[int, ...] = (total_groups,) + extra_axes + (n_classes,)
     grouped = torch.zeros(
-        num_groups,
-        n_classes,
+        grouped_shape,
         dtype=log_likelihood_per_row_per_class.dtype,
         device=log_likelihood_per_row_per_class.device,
     )
-    grouped = grouped.index_add(0, group_index, log_likelihood_per_row_per_class)
-    # Broadcast the per-group prior against the accumulator and
-    # log-sum-exp over the class axis.
-    weighted = log_prior_per_group_per_class + grouped
-    per_group = torch.logsumexp(weighted, dim=-1)
-    return per_group.sum()
+    grouped = grouped.index_add(0, flat_index, log_likelihood_per_row_per_class)
+    # Broadcast log_prior_flat shaped ``(K,)`` or ``(G, K)``
+    # against the accumulator ``(G, *extra, K)``. We insert
+    # singleton axes for ``*extra`` so the broadcast is well-formed.
+    prior_view = log_prior_flat
+    if prior_view.dim() == 1:
+        # (K,) → (1,) * len(extra) + (K,) → broadcasts against
+        # (G, *extra, K).
+        for _ in extra_axes:
+            prior_view = prior_view.unsqueeze(0)
+    elif prior_view.dim() == 2 and prior_view.shape[0] == total_groups:
+        # (G, K) → (G, *(1,)*len(extra), K).
+        for _ in extra_axes:
+            prior_view = prior_view.unsqueeze(1)
+    weighted = prior_view + grouped
+    if reduction == "logsumexp":
+        per_group = torch.logsumexp(weighted, dim=-1)
+    elif reduction == "sum":
+        per_group = weighted.sum(dim=-1)
+    else:  # mean
+        per_group = weighted.mean(dim=-1)
+    # Sum over the group axis; extra axes (outer-block class
+    # broadcasts) pass through unchanged.
+    return per_group.sum(dim=0)
 
 
 __all__ = [

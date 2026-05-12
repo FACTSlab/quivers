@@ -126,14 +126,20 @@ class TestMarginalizeGroupedPrimitive:
         # The likelihood gradient must be non-trivial at every position.
         assert (ll.grad.abs() > 0).all()
 
-    def test_rejects_wrong_ll_rank(self):
-        with pytest.raises(ValueError, match="shape \\(N, K\\)"):
-            marginalize_grouped(
-                torch.zeros(3),
-                torch.zeros(3, dtype=torch.long),
-                torch.zeros(2),
-                2,
-            )
+    def test_one_d_input_runs_nested_intermediate_path(self):
+        """A 1-D ``(K,)`` input is the contribution of an
+        already-reduced inner block; the primitive applies the
+        prior and reduces over the class axis (no scatter step)."""
+        ll = torch.tensor([0.1, 0.2, 0.3])
+        log_prior = torch.log(torch.tensor([0.5, 0.3, 0.2]))
+        out = marginalize_grouped(
+            ll,
+            torch.zeros(0, dtype=torch.long),  # no rows to scatter
+            log_prior,
+            1,
+        )
+        expected = torch.logsumexp(log_prior + ll, dim=-1)
+        assert torch.allclose(out, expected, atol=1e-6)
 
     def test_rejects_mismatched_index_length(self):
         with pytest.raises(ValueError, match="leading axis"):
@@ -214,10 +220,10 @@ class TestGroupedMarginalizeSurface:
         program demo : Item -> Item
             probs : Class <- HalfNormal(1.0)
             idx : Resp <- HalfNormal(1.0)
-            marginalize class : Class <- Dirichlet(probs)
+            marginalize cls : Class <- Dirichlet(probs)
                 over Item via idx
                 in {
-                    inner : Resp <- HalfNormal(1.0)
+                    observe r : Resp <- HalfNormal(1.0)
                 }
             return probs
 

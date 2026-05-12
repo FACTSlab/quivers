@@ -1188,12 +1188,42 @@ module.exports = grammar({
       '<-',
       field('morphism', $.identifier),
       optional(seq('(', field('args', commaSep1($._draw_arg)), ')')),
-      optional(seq('over', field('over', $.identifier))),
-      optional(seq('via', field('via', $.identifier))),
+      // `over G` declares a single grouping plate; `over G * H`
+      // declares a product grouping plate whose flat cardinality is
+      // |G|·|H|. The compiler resolves the type-product into a
+      // tuple of plate cardinalities and pairs it with the
+      // co-indexed `via` fibrations.
+      optional(seq('over', field('over', $._type_expr))),
+      // `via idx` declares a single response→group fibration;
+      // `via product(idx_a, idx_b, ...)` declares a tuple of
+      // co-indexed fibrations into the corresponding product
+      // grouping plate. The arity of the `product(...)` form must
+      // match the arity of the `over` type product.
+      optional(seq('via', field('via', $._via_spec))),
+      // `reduction = logsumexp | sum | mean` controls the per-group
+      // reduction over the class axis: `logsumexp` is the canonical
+      // mixture-marginalisation form, `sum` is the joint scoring
+      // form (used by predictive paths), `mean` is the symmetric
+      // average. Defaults to `logsumexp`.
+      optional(seq('reduction', '=', field('reduction', $.identifier))),
       'in',
       '{',
       field('scope', repeat($._program_step)),
       '}',
+    ),
+
+    // Fibration specification: either a single identifier or a
+    // `product(...)` of identifiers naming the per-axis fibrations.
+    _via_spec: $ => choice(
+      $.identifier,
+      $.via_product,
+    ),
+
+    via_product: $ => seq(
+      'product',
+      '(',
+      commaSep1(field('axis', $.identifier)),
+      ')',
     ),
 
     let_step: $ => seq(
