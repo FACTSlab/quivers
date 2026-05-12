@@ -60,8 +60,7 @@ module.exports = grammar({
       $.embed_decl,
       $.program_decl,
       $.let_decl,
-      $.output_decl,
-      $.posterior_decl,
+      $.export_decl,
     ),
 
     // ---------------------------------------------------------------
@@ -149,33 +148,13 @@ module.exports = grammar({
       )),
     )),
 
-    output_decl: $ => seq('output', field('value', $._expr)),
+    // Module-level export: `export E`. Any number per module; each
+    // selects a top-level morphism / posterior / deduction for the
+    // compiled output. Replaces the v0.4 `output` keyword (which
+    // permitted exactly one) — semantically a public binding.
+    export_decl: $ => seq('export', field('value', $._expr)),
 
     // ---------------------------------------------------------------
-    // hierarchical Bayesian declarations
-    // ---------------------------------------------------------------
-
-    // posterior class_probs (model) : domain -> codomain { steps return ... }
-    //
-    // Runs after the model program is conditioned; allowed step kinds
-    // are `let_step` and `marginalize_step`. `draw` / `observe` are
-    // rejected by the walker.
-    posterior_decl: $ => seq(
-      'posterior',
-      field('name', $.identifier),
-      '(',
-      field('model', $.identifier),
-      ')',
-      optional(seq('[', field('params', commaSep1($.identifier)), ']')),
-      ':',
-      field('domain', $._type_expr),
-      '->',
-      field('codomain', $._type_expr),
-      field('steps', repeat($._program_step)),
-      'return',
-      field('return', $._return_pattern),
-    ),
-
     // ---------------------------------------------------------------
     // rule declarations (CCG/Lambek-style)
     // ---------------------------------------------------------------
@@ -540,14 +519,26 @@ module.exports = grammar({
     // program blocks
     // ---------------------------------------------------------------
 
-    // A program may be:
-    //   - concrete:        `program name (data1, data2) : dom -> cod`
-    //                      data params bind to the program's domain components.
-    //   - parametric:      `program name (G : FinSet, s : Real, f : Mor[A,B]) : dom -> cod`
-    //                      typed params denote a dependent family of kernels
-    //                      indexed by their parameters; instantiated at each
-    //                      call site by substitution + α-renaming.
-    // The two forms are distinguished by whether any param carries a `:`.
+    // A program is a monadic-kernel block:
+    //   program name (params) : dom -> cod ! Sample, Score [over M]
+    //       body
+    //       return e
+    //
+    // Parameter list (optional):
+    //   - concrete:     bare identifiers `(data1, data2)` naming the
+    //                   components of the domain product.
+    //   - parametric:   typed `(G : FinSet, s : Real, f : Mor[A,B])`
+    //                   denoting a dependent kernel family.
+    //
+    // Effect signature (optional, after `!`):
+    //   A comma-separated list of capabilities the body uses. Empty
+    //   set is unannotated; explicit `! Pure` disallows sample/score
+    //   steps. Effects: `Sample`, `Score`, `Marginal`, `Pure`.
+    //
+    // Posterior modifier (optional, after `over`):
+    //   `over M` declares this program runs over a per-sample
+    //   snapshot of the model M's latent trace — the v0.5 replacement
+    //   for the v0.4 `posterior` keyword.
     program_decl: $ => seq(
       'program',
       field('name', $.identifier),
@@ -556,6 +547,8 @@ module.exports = grammar({
       field('domain', $._type_expr),
       '->',
       field('codomain', $._type_expr),
+      optional(seq('!', field('effects', commaSep1($.identifier)))),
+      optional(seq('over', field('over_model', $.identifier))),
       field('steps', repeat1($._program_step)),
       'return',
       field('return', $._return_pattern),
@@ -599,81 +592,68 @@ module.exports = grammar({
     ),
 
     _program_step: $ => choice(
-      // Hierarchical-Bayesian step variants. Listed first so the parser
-      // commits to the more specific shape (with `:` after the name) when
-      // it can; the bare draw_step fires when the type annotation is
-      // absent.
-      $.plate_draw_step,
-      $.vectorised_observe_step,
       $.marginalize_step,
-      $.draw_step,
       $.observe_step,
-      $.arrow_draw_step,
+      $.bind_step,
       $.let_step,
     ),
 
-    // Finite-domain-indexed draw: `draw v : A -> B ~ Family(args)`.
-    // Denotes an A-indexed plate of independent F-draws; categorically
-    // a Kern-morphism A → B by the natural iso Kern(1, B^A) ≅ Kern(A, B).
-    plate_draw_step: $ => prec(2, seq(
-      'draw',
-      field('name', $.identifier),
-      ':',
-      field('index', $._type_expr),
-      '->',
-      field('codomain', $._type_expr),
-      '~',
-      field('morphism', $.identifier),
-      optional(seq('(', field('args', commaSep1($._draw_arg)), ')')),
-    )),
-
-    // Vectorised observation: `observe r[n] ~ Family(args) for n in N`.
-    // Categorically the batched-likelihood kernel Φ → G_{≤1}(Φ) with
-    // score ∏_{n ∈ N} p_F(r_obs(n); θ(n, φ)).
-    vectorised_observe_step: $ => prec(2, seq(
-      'observe',
-      field('response', $.identifier),
-      '[',
-      field('index_var', $.identifier),
-      ']',
-      '~',
-      field('morphism', $.identifier),
-      optional(seq('(', field('args', commaSep1($._draw_arg)), ')')),
-      'for',
-      $.identifier,        // index_var (parsed but discarded; same as above)
-      'in',
-      field('index_set', $._type_expr),
-    )),
-
-    // Program-level discrete-latent marginalisation: `marginalize c`.
-    // Categorically the pushforward G(π_{Φ\\C}); numerically log-sum-exp.
-    marginalize_step: $ => seq(
-      'marginalize',
-      field('var', $.identifier),
-    ),
-
-    draw_step: $ => seq(
-      'draw',
+    // Kleisli bind: the unique sampling-step shape.
+    //
+    //   v        <- F(args)              -- scalar draw
+    //   v : A    <- F(args)              -- A-indexed plate
+    //   (a, b)   <- F(args)              -- destructuring tuple bind
+    //
+    // The optional `: A` annotation declares v as an A-indexed family
+    // (categorically a Kern-morphism A → ⟦cod(F)⟧, equivalently a
+    // single arrow 1 → ⟦cod(F)⟧^A via the iso Kern(1, K^A) ≅ Kern(A, K)).
+    // Arguments may be inline bracket-indexed sections `theta[N]`
+    // referring to plate variables.
+    bind_step: $ => prec.right(seq(
       field('vars', $._var_pattern),
-      '~',
-      field('morphism', $.identifier),
-      optional(seq('(', field('args', commaSep1($._draw_arg)), ')')),
-    ),
-
-    observe_step: $ => seq(
-      'observe',
-      field('vars', $._var_pattern),
-      '~',
-      field('morphism', $.identifier),
-      optional(seq('(', field('args', commaSep1($._draw_arg)), ')')),
-    ),
-
-    // alternative do-notation: `x <- f(...)`
-    arrow_draw_step: $ => seq(
-      field('var', $.identifier),
+      optional(seq(':', field('index', $._type_expr))),
       '<-',
       field('morphism', $.identifier),
       optional(seq('(', field('args', commaSep1($._draw_arg)), ')')),
+    )),
+
+    // Scored bind — same shape as `bind_step` but prefixed with
+    // `observe`, marking the bound coordinate as clamped at runtime
+    // by the `observations` dict; the resulting kernel becomes
+    // sub-probabilistic.
+    //
+    //   observe v        <- F(args)
+    //   observe r : N    <- F(theta[N])   -- N-indexed batched score
+    observe_step: $ => prec.right(seq(
+      'observe',
+      field('var', $.identifier),
+      optional(seq(':', field('index', $._type_expr))),
+      '<-',
+      field('morphism', $.identifier),
+      optional(seq('(', field('args', commaSep1($._draw_arg)), ')')),
+    )),
+
+    // Scoped marginalisation. Introduces a coordinate `c` bound to a
+    // kernel `F(args)`, optionally indexed by `: A`; the body in `{ … }`
+    // is the integration scope. At the end of the scope the coordinate
+    // is pushed forward through the projection (logsumexp for discrete,
+    // fibrewise integration for continuous), and `c` falls out of
+    // scope. Replaces v0.4's trailing `marginalize c` form.
+    //
+    //   marginalize class : Item <- Categorical(probs) in {
+    //       observe r : N <- Bernoulli(theta[class[N]])
+    //   }
+    marginalize_step: $ => seq(
+      'marginalize',
+      field('var', $.identifier),
+      optional(seq(':', field('index', $._type_expr))),
+      '<-',
+      field('morphism', $.identifier),
+      optional(seq('(', field('args', commaSep1($._draw_arg)), ')')),
+      'in',
+      '{',
+      field('scope', repeat($._program_step)),
+      '}',
     ),
 
     let_step: $ => seq(
@@ -683,10 +663,25 @@ module.exports = grammar({
       field('value', $._let_arith),
     ),
 
+    // A family argument is one of:
+    //   - a numeric literal: `1.0`, `-3`
+    //   - an identifier: `sigma`, `intercept`
+    //   - a bracket-indexed family section: `theta[N]`
+    //     where `N` is a type-expr naming a plate's index set.
+    // The bracket form annotates that the argument is an N-indexed
+    // family — categorically a section of `theta : N → P`.
     _draw_arg: $ => choice(
+      $.bracket_index_arg,
       $.identifier,
       $.signed_number,
     ),
+
+    bracket_index_arg: $ => prec(1, seq(
+      field('name', $.identifier),
+      '[',
+      field('index', $._type_expr),
+      ']',
+    )),
 
     _var_pattern: $ => choice(
       $.identifier,
@@ -703,7 +698,6 @@ module.exports = grammar({
     _return_pattern: $ => choice(
       $.identifier,
       $.return_tuple,
-      $.return_labeled_tuple,
     ),
 
     return_tuple: $ => seq(
@@ -711,19 +705,6 @@ module.exports = grammar({
       commaSep1($.identifier),
       optional(','),
       ')',
-    ),
-
-    return_labeled_tuple: $ => seq(
-      '(',
-      commaSep1($.return_label_entry),
-      optional(','),
-      ')',
-    ),
-
-    return_label_entry: $ => seq(
-      field('label', $.identifier),
-      ':',
-      field('var', $.identifier),
     ),
 
     // ---------------------------------------------------------------

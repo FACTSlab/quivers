@@ -37,7 +37,9 @@ from quivers.dsl.ast_nodes import (
     FreeMonoidExpr,
     FreeResiduatedExpr,
     SchemaDecl,
+    BindStep,
     DrawStep,
+    ExportDecl,
     LetStep,
     LetExprBinOp,
     LetExprIndex,
@@ -50,13 +52,11 @@ from quivers.dsl.ast_nodes import (
     MorphismParam,
     ObjectParam,
     PlateDrawStep,
-    PosteriorDecl,
     ProgramDecl,
     ProgramParam,
     ScalarParam,
     VectorisedObserveStep,
     LetDecl,
-    OutputDecl,
     TypeExpr,
     TypeName,
     TypeProduct,
@@ -416,10 +416,8 @@ class Compiler:
             self._compile_program(stmt)
         elif isinstance(stmt, LetDecl):
             self._compile_let(stmt)
-        elif isinstance(stmt, OutputDecl):
-            self._compile_output(stmt)
-        elif isinstance(stmt, PosteriorDecl):
-            self._compile_posterior(stmt)
+        elif isinstance(stmt, ExportDecl):
+            self._compile_export(stmt)
         else:
             raise CompileError(f"unknown statement type: {type(stmt).__name__}")
 
@@ -864,6 +862,190 @@ class Compiler:
             self._morphisms[name] = morph
         if decl.replicate is not None:
             self._groups[decl.name] = names
+
+    def _expand_bind_steps(
+        self, steps: tuple[ProgramStep, ...]
+    ) -> tuple[ProgramStep, ...]:
+        """Translate v0.5 :class:`BindStep` IR into the compiler's
+        internal step-IR (:class:`DrawStep`, :class:`PlateDrawStep`,
+        :class:`VectorisedObserveStep`, :class:`MarginalizeStep`).
+
+        The expansion is purely a syntactic refinement: each
+        BindStep dispatches on its ``mode`` and ``index`` fields
+        to one of the four internal step shapes. Marginalize binds
+        additionally inline a synthesised sample step for the
+        coordinate, followed by the scope's recursively-expanded
+        steps, followed by a :class:`MarginalizeStep` reduction.
+
+        ``LetStep`` passes through unchanged. The expansion
+        preserves the Kleisli-arrow denotation of the program body
+        — it is a reorganisation of the surface IR, not a change
+        of semantics.
+        """
+        out: list[ProgramStep] = []
+        for step in steps:
+            if isinstance(step, LetStep):
+                out.append(step)
+                continue
+            if not isinstance(step, BindStep):
+                # Pass-through for any internal-IR step that has
+                # already been expanded (e.g., template-inlined
+                # bodies that synthesised internal steps directly).
+                out.append(step)
+                continue
+            if step.mode == "sample":
+                if step.index is None:
+                    out.append(DrawStep(
+                        vars=step.vars,
+                        morphism=step.morphism,
+                        args=step.args,
+                        is_observed=False,
+                        line=step.line,
+                        col=step.col,
+                    ))
+                else:
+                    if len(step.vars) != 1:
+                        raise CompileError(
+                            "indexed sample bind must bind a single name",
+                            step.line, step.col,
+                        )
+                    # The per-row codomain for a plate-draw is taken
+                    # from the family's natural codomain at compile
+                    # time; the IR carries a `codomain` field that
+                    # the compiler's PlateDrawStep handler resolves
+                    # via the family's domain/codomain dimensions.
+                    # For the v0.5 unified surface, the index annotation
+                    # `: A` declares the index set; the per-row codomain
+                    # is implicit (taken from the family). We supply a
+                    # placeholder `TypeName("1")` which the family
+                    # resolver interprets as "scalar per-row codomain"
+                    # (Euclidean(1)); families that declare richer
+                    # codomains override this.
+                    out.append(PlateDrawStep(
+                        name=step.vars[0],
+                        index=step.index,
+                        codomain=TypeName(name="1", line=step.line, col=step.col),
+                        morphism=step.morphism,
+                        args=step.args,
+                        line=step.line,
+                        col=step.col,
+                    ))
+            elif step.mode == "score":
+                if step.index is None:
+                    out.append(DrawStep(
+                        vars=step.vars,
+                        morphism=step.morphism,
+                        args=step.args,
+                        is_observed=True,
+                        line=step.line,
+                        col=step.col,
+                    ))
+                else:
+                    if len(step.vars) != 1:
+                        raise CompileError(
+                            "indexed observe bind must bind a single name",
+                            step.line, step.col,
+                        )
+                    out.append(VectorisedObserveStep(
+                        index_var=step.vars[0],
+                        index_set=step.index,
+                        morphism=step.morphism,
+                        args=step.args,
+                        response_var=step.vars[0],
+                        line=step.line,
+                        col=step.col,
+                    ))
+            elif step.mode == "marginal":
+                if len(step.vars) != 1:
+                    raise CompileError(
+                        "marginalize bind must bind a single name",
+                        step.line, step.col,
+                    )
+                # Introduce the coordinate as a sample step; then
+                # recursively expand the scope's steps; then emit
+                # the marginalize reduction at scope-end.
+                if step.index is None:
+                    out.append(DrawStep(
+                        vars=step.vars,
+                        morphism=step.morphism,
+                        args=step.args,
+                        is_observed=False,
+                        line=step.line,
+                        col=step.col,
+                    ))
+                else:
+                    out.append(PlateDrawStep(
+                        name=step.vars[0],
+                        index=step.index,
+                        codomain=TypeName(name="1", line=step.line, col=step.col),
+                        morphism=step.morphism,
+                        args=step.args,
+                        line=step.line,
+                        col=step.col,
+                    ))
+                # Scope's steps.
+                scope_steps = step.scope if step.scope is not None else ()
+                out.extend(self._expand_bind_steps(scope_steps))
+                # Pushforward reduction.
+                out.append(MarginalizeStep(
+                    var_name=step.vars[0],
+                    line=step.line,
+                    col=step.col,
+                ))
+            else:
+                raise CompileError(
+                    f"unknown bind mode {step.mode!r}",
+                    step.line, step.col,
+                )
+        return tuple(out)
+
+    def _verify_effects(
+        self, decl: ProgramDecl, steps: tuple[ProgramStep, ...]
+    ) -> None:
+        """Verify the program body's effect usage matches `! effects`.
+
+        Each program step contributes to the program's *actual*
+        effect set:
+
+        * ``DrawStep`` / ``PlateDrawStep`` with ``is_observed=False``
+          contribute ``Sample``.
+        * ``DrawStep`` / ``VectorisedObserveStep`` with score-bind
+          shape contribute ``Score``.
+        * ``MarginalizeStep`` contributes ``Marginal``.
+        * ``LetStep`` contributes nothing (purely deterministic).
+
+        If the declaration includes ``! effects``, the actual set
+        must be a subset of the declared set. A declared
+        ``Pure`` rejects any of {Sample, Score, Marginal}.
+        """
+        if decl.effects is None:
+            return  # unannotated → no verification
+        declared = decl.effects
+        actual: set[str] = set()
+        for step in steps:
+            if isinstance(step, (DrawStep, PlateDrawStep)):
+                if isinstance(step, DrawStep) and step.is_observed:
+                    actual.add("Score")
+                else:
+                    actual.add("Sample")
+            elif isinstance(step, VectorisedObserveStep):
+                actual.add("Score")
+            elif isinstance(step, MarginalizeStep):
+                actual.add("Marginal")
+            # LetStep contributes nothing.
+        if "Pure" in declared and actual:
+            raise CompileError(
+                f"program {decl.name!r} is declared `! Pure` but body "
+                f"uses effects {sorted(actual)}",
+                decl.line, decl.col,
+            )
+        unaccounted = actual - declared - {"Pure"}
+        if unaccounted:
+            raise CompileError(
+                f"program {decl.name!r} body uses effects {sorted(unaccounted)} "
+                f"not listed in `! {{{', '.join(sorted(declared))}}}`",
+                decl.line, decl.col,
+            )
 
     def _expand_template_calls(
         self, steps: tuple[ProgramStep, ...]
@@ -1336,13 +1518,23 @@ class Compiler:
                     bound_vars[pname] = factor
             else:
                 bound_vars[decl.params[0]] = domain
-        # Expand any parametric-template call sites by inlining the
+        # First, expand the v0.5 unified surface (BindStep) into the
+        # internal IR (DrawStep / PlateDrawStep / VectorisedObserveStep /
+        # MarginalizeStep) that the rest of the compiler consumes.
+        # The expansion translates each BindStep based on its mode +
+        # index annotation, and inlines marginalize scopes.
+        ir_draws = self._expand_bind_steps(decl.draws)
+        # Effect-set verification: walk the expanded IR and check
+        # that the declared `!` capability set is consistent with
+        # the body's actual effect usage.
+        self._verify_effects(decl, ir_draws)
+        # Then expand parametric-template call sites by inlining the
         # substituted + α-renamed template body. This realises the
         # dependent-kernel application: each call site is a section
         # of the family Π(p:P).Kern(dom(p), cod(p)) at the supplied
         # arguments, contributing its own factors to the parent's
         # joint kernel.
-        expanded_draws = self._expand_template_calls(decl.draws)
+        expanded_draws = self._expand_template_calls(ir_draws)
         steps: list[tuple] = []
         for step in expanded_draws:
             if isinstance(step, PlateDrawStep):
@@ -1546,9 +1738,24 @@ class Compiler:
             steps,
             decl.return_vars,
             params=decl.params,
-            return_labels=decl.return_labels,
+            return_labels=None,
+            effect_set=decl.effects,
         )
-        self._morphisms[decl.name] = prog
+        # Posterior-block routing: `over M` programs go to the
+        # posterior registry rather than the morphism registry.
+        if decl.over_model is not None:
+            if not hasattr(self, "_posteriors"):
+                self._posteriors = {}
+            if decl.over_model not in self._morphisms:
+                raise CompileError(
+                    f"posterior block 'over {decl.over_model}' references "
+                    f"undefined model {decl.over_model!r}",
+                    decl.line,
+                    decl.col,
+                )
+            self._posteriors[decl.name] = prog
+        else:
+            self._morphisms[decl.name] = prog
 
     def _resolve_draw_morphism(
         self,
@@ -1852,58 +2059,23 @@ class Compiler:
         morph = self._compile_expr(decl.expr)
         self._morphisms[decl.name] = morph
 
-    def _compile_output(self, decl: OutputDecl) -> None:
-        """Record the output expression."""
-        if self._output_expr is not None:
-            raise CompileError("multiple output declarations", decl.line, decl.col)
-        self._output_expr = decl.expr
+    def _compile_export(self, decl: ExportDecl) -> None:
+        """Record an exported expression.
 
-    def _compile_posterior(self, decl: PosteriorDecl) -> None:
-        """Compile a posterior block.
-
-        Categorical denotation: given the conditioned model's
-        posterior kernel
-        :math:`q(\\theta \\mid \\mathrm{data}) : \\mathrm{Data}
-        \\to \\mathcal{G}(\\Theta)`, the posterior block denotes a
-        morphism :math:`\\Theta \\to \\tau_{\\mathrm{out}}` that lifts
-        to :math:`\\mathrm{Data} \\to \\mathcal{G}(\\tau_{\\mathrm{out}})`
-        by post-composition.
-
-        Operationally: a posterior block is a deterministic
-        :class:`MonadicProgram` (no ``draw`` / ``observe`` steps —
-        only ``let`` and ``marginalize``) that consumes a per-sample
-        snapshot of the model's latents and produces the derived
-        quantity. The compiled posterior is registered in
-        :attr:`_posteriors` so the inference layer can run it over
-        each posterior draw.
+        Replaces v0.4's single-output model: a module may declare
+        any number of ``export`` statements, each selecting a
+        top-level binding for the module's public surface. The
+        compiled output runner picks the first export; further
+        exports become additional accessible morphisms on the
+        compiled object.
         """
-        if not hasattr(self, "_posteriors"):
-            self._posteriors = {}
-        if decl.model not in self._morphisms:
-            raise CompileError(
-                f"posterior block references undefined model {decl.model!r}",
-                decl.line,
-                decl.col,
-            )
-        # Synthesise a ProgramDecl-compatible structure and route
-        # through `_compile_program`. The posterior body's allowed
-        # step kinds (LetStep, MarginalizeStep) are a subset of
-        # what _compile_program already handles.
-        synth = ProgramDecl(
-            name=decl.name,
-            params=decl.params,
-            domain=decl.domain,
-            codomain=decl.codomain,
-            draws=decl.steps,
-            return_vars=decl.return_vars,
-            return_labels=decl.return_labels,
-            line=decl.line,
-            col=decl.col,
-        )
-        self._compile_program(synth)
-        # Move the compiled posterior into the dedicated dict so the
-        # inference runner can distinguish models from posteriors.
-        self._posteriors[decl.name] = self._morphisms.pop(decl.name)
+        if not hasattr(self, "_exports"):
+            self._exports = []
+        self._exports.append(decl.expr)
+        # Maintain backwards compatibility with internal helpers
+        # that consult `_output_expr`: the first export wins.
+        if self._output_expr is None:
+            self._output_expr = decl.expr
 
     def _resolve_type(self, texpr: TypeExpr, bind_name: str | None = None) -> SetObject:
         """Resolve a type expression into a SetObject.

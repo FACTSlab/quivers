@@ -16,13 +16,14 @@ import panproto
 
 from quivers.dsl.ast_nodes import (
     AliasDecl,
+    BindStep,
     BundleDecl,
     CategoryDecl,
     ContinuousMorphismDecl,
     DiscretizeDecl,
-    DrawStep,
     EmbedDecl,
     EnumSetLiteral,
+    ExportDecl,
     Expr,
     ExprChartFold,
     ExprCompose,
@@ -47,15 +48,11 @@ from quivers.dsl.ast_nodes import (
     LetExprUnaryOp,
     LetExprVar,
     LetStep,
-    MarginalizeStep,
     Module,
     MorphismDecl,
     MorphismParam,
     ObjectDecl,
     ObjectParam,
-    OutputDecl,
-    PlateDrawStep,
-    PosteriorDecl,
     ProgramDecl,
     ProgramParam,
     ProgramStep,
@@ -71,7 +68,6 @@ from quivers.dsl.ast_nodes import (
     Statement,
     StochasticMorphismDecl,
     TypeCoproduct,
-    VectorisedObserveStep,
     TypeEffectApply,
     TypeExpr,
     TypeName,
@@ -647,88 +643,22 @@ def _walk_let_arith(t: _Tree, vid: str) -> LetExprNode:
 
 
 def _walk_program_step(t: _Tree, vid: str) -> ProgramStep:
+    """Walk a program-body step into its AST node.
+
+    The v0.5 surface admits four step kinds: ``bind_step`` (sample),
+    ``observe_step`` (score), ``marginalize_step`` (scoped
+    marginalize), and ``let_step``. The first three all denote
+    Kleisli binds and walk into :class:`BindStep` with a populated
+    ``mode`` field.
+    """
     k = t.kind(vid)
     line, col = t.line_col(vid)
-    if k == "plate_draw_step":
-        # draw name : INDEX -> CODOMAIN ~ Family(args)
-        name_vid = t.field(vid, "name")
-        index_vid = t.field(vid, "index")
-        codom_vid = t.field(vid, "codomain")
-        morph_vid = t.field(vid, "morphism")
-        if name_vid is None or index_vid is None or codom_vid is None:
-            raise ParseError(f"plate_draw_step malformed at {vid}")
-        args_list: list[str | float] = []
-        for av in t.fields(vid, "args"):
-            args_list.append(_walk_draw_arg(t, av))
-        return PlateDrawStep(
-            name=_required_text(t, name_vid, vid, "name"),
-            index=_walk_type(t, index_vid),
-            codomain=_walk_type(t, codom_vid),
-            morphism=_required_text(t, morph_vid, vid, "morphism"),
-            args=tuple(args_list) if args_list else None,
-            line=line,
-            col=col,
-        )
-    if k == "vectorised_observe_step":
-        # observe response[idx] ~ Family(args) for idx in INDEX_SET
-        resp_vid = t.field(vid, "response")
-        idx_vid = t.field(vid, "index_var")
-        set_vid = t.field(vid, "index_set")
-        morph_vid = t.field(vid, "morphism")
-        if resp_vid is None or idx_vid is None or set_vid is None:
-            raise ParseError(f"vectorised_observe_step malformed at {vid}")
-        args_list = []
-        for av in t.fields(vid, "args"):
-            args_list.append(_walk_draw_arg(t, av))
-        return VectorisedObserveStep(
-            index_var=_required_text(t, idx_vid, vid, "index_var"),
-            index_set=_walk_type(t, set_vid),
-            morphism=_required_text(t, morph_vid, vid, "morphism"),
-            args=tuple(args_list) if args_list else None,
-            response_var=_required_text(t, resp_vid, vid, "response"),
-            line=line,
-            col=col,
-        )
+    if k == "bind_step":
+        return _walk_bind_step(t, vid, mode="sample", line=line, col=col)
+    if k == "observe_step":
+        return _walk_bind_step(t, vid, mode="score", line=line, col=col)
     if k == "marginalize_step":
-        var_vid = t.field(vid, "var")
-        return MarginalizeStep(
-            var_name=_required_text(t, var_vid, vid, "var"),
-            line=line,
-            col=col,
-        )
-    if k in ("draw_step", "observe_step"):
-        var_vid = t.field(vid, "vars")
-        if var_vid is None:
-            raise ParseError(f"{k} missing vars at {vid}")
-        if t.kind(var_vid) == "var_tuple":
-            vars_t = tuple(t.text(c) for c in t.positional(var_vid))
-        else:
-            vars_t = (t.text(var_vid),)
-        morph_vid = t.field(vid, "morphism")
-        args_list: list[str | float] = []
-        for av in t.fields(vid, "args"):
-            args_list.append(_walk_draw_arg(t, av))
-        return DrawStep(
-            vars=vars_t,
-            morphism=_required_text(t, morph_vid, vid, "morphism"),
-            args=tuple(args_list) if args_list else None,
-            is_observed=(k == "observe_step"),
-            line=line,
-            col=col,
-        )
-    if k == "arrow_draw_step":
-        var_vid = t.field(vid, "var")
-        morph_vid = t.field(vid, "morphism")
-        args_list = []
-        for av in t.fields(vid, "args"):
-            args_list.append(_walk_draw_arg(t, av))
-        return DrawStep(
-            vars=(_required_text(t, var_vid, vid, "var"),),
-            morphism=_required_text(t, morph_vid, vid, "morphism"),
-            args=tuple(args_list) if args_list else None,
-            line=line,
-            col=col,
-        )
+        return _walk_bind_step(t, vid, mode="marginal", line=line, col=col)
     if k == "let_step":
         name_vid = t.field(vid, "name")
         val_vid = t.field(vid, "value")
@@ -741,6 +671,71 @@ def _walk_program_step(t: _Tree, vid: str) -> ProgramStep:
             col=col,
         )
     raise ParseError(f"unexpected program-step kind: {k}")
+
+
+def _walk_bind_step(
+    t: _Tree,
+    vid: str,
+    mode: Literal["sample", "score", "marginal"],
+    line: int,
+    col: int,
+) -> BindStep:
+    """Walk a bind / observe / marginalize step into a unified BindStep.
+
+    All three surface shapes share the same underlying grammar
+    fields (optional index annotation, morphism, optional args);
+    marginalize additionally carries a `scope` block. The mode
+    parameter picks between sample / score / marginal Kleisli-bind
+    semantics, all of which are captured by the BindStep's
+    ``mode`` field.
+    """
+    # var-name(s): sample uses _var_pattern (single or tuple);
+    # score / marginal use a single 'var' identifier field.
+    if mode == "sample":
+        var_vid = t.field(vid, "vars")
+        if var_vid is None:
+            raise ParseError(f"bind_step missing vars at {vid}")
+        if t.kind(var_vid) == "var_tuple":
+            vars_t = tuple(t.text(c) for c in t.positional(var_vid))
+        else:
+            vars_t = (t.text(var_vid),)
+    else:
+        var_vid = t.field(vid, "var")
+        if var_vid is None:
+            raise ParseError(f"{mode}_step missing var at {vid}")
+        vars_t = (_required_text(t, var_vid, vid, "var"),)
+
+    morph_vid = t.field(vid, "morphism")
+    if morph_vid is None:
+        raise ParseError(f"{mode}_step missing morphism at {vid}")
+    morphism = _required_text(t, morph_vid, vid, "morphism")
+
+    args_list: list[str | float] = []
+    for av in t.fields(vid, "args"):
+        args_list.append(_walk_draw_arg(t, av))
+    args_t: tuple[str | float, ...] | None = (
+        tuple(args_list) if args_list else None
+    )
+
+    idx_vid = t.field(vid, "index")
+    index_expr = _walk_type(t, idx_vid) if idx_vid is not None else None
+
+    scope_t: tuple[ProgramStep, ...] | None = None
+    if mode == "marginal":
+        scope_t = tuple(
+            _walk_program_step(t, sv) for sv in t.fields(vid, "scope")
+        )
+
+    return BindStep(
+        vars=vars_t,
+        morphism=morphism,
+        args=args_t,
+        index=index_expr,
+        mode=mode,
+        scope=scope_t,
+        line=line,
+        col=col,
+    )
 
 
 def _walk_program_param(t: _Tree, vid: str) -> ProgramParam:
@@ -784,6 +779,14 @@ def _walk_program_param(t: _Tree, vid: str) -> ProgramParam:
 
 
 def _walk_draw_arg(t: _Tree, vid: str) -> str | float:
+    """Walk a family-argument into its compiler representation.
+
+    Identifiers and numeric literals are walked into their natural
+    Python values. A ``bracket_index_arg`` (e.g., ``theta[N]``) is
+    encoded as the string ``"theta[N]"`` — the compiler detects
+    the bracket and unpacks the section's name and index set when
+    resolving the argument at draw / observe time.
+    """
     k = t.kind(vid)
     if k == "identifier":
         return t.text(vid)
@@ -791,6 +794,12 @@ def _walk_draw_arg(t: _Tree, vid: str) -> str | float:
         return float(t.text(vid))
     if k in ("integer", "float"):
         return float(t.text(vid))
+    if k == "bracket_index_arg":
+        nv = t.field(vid, "name")
+        iv = t.field(vid, "index")
+        if nv is None or iv is None:
+            raise ParseError(f"bracket_index_arg malformed at {vid}")
+        return f"{t.text(nv)}[{t.text(iv)}]"
     raise ParseError(f"unexpected draw arg kind: {k}")
 
 
@@ -985,16 +994,33 @@ def _walk_statement(t: _Tree, vid: str) -> Statement | list[Statement]:
         type_params: tuple[ProgramParam, ...] | None = (
             tuple(type_params_list) if type_params_list else None
         )
+        effects_vids = t.fields(vid, "effects")
+        effects_set: frozenset[str] | None = (
+            frozenset(t.text(ev) for ev in effects_vids) if effects_vids else None
+        )
+        over_vid = t.field(vid, "over_model")
+        over_model: str | None = t.text(over_vid) if over_vid is not None else None
         steps = tuple(_walk_program_step(t, sv) for sv in t.fields(vid, "steps"))
         ret_vid = t.field(vid, "return")
         if ret_vid is None:
             raise ParseError(f"program_decl missing return at {vid}")
-        return_vars, return_labels = _walk_return_pattern(t, ret_vid)
+        return_vars, _return_labels = _walk_return_pattern(t, ret_vid)
         nv = t.field(vid, "name")
         dv = t.field(vid, "domain")
         cv = t.field(vid, "codomain")
         if dv is None or cv is None:
             raise ParseError(f"program_decl missing domain/codomain at {vid}")
+        # Posterior-block constraint: when `over M` is set, the body
+        # must be deterministic — no `sample` / `score` binds.
+        if over_model is not None:
+            for s in steps:
+                if isinstance(s, BindStep) and s.mode in ("sample", "score"):
+                    raise ParseError(
+                        f"program with 'over {over_model}' is a posterior "
+                        "block and may not contain sample / observe binds "
+                        "(posterior runs after conditioning); use 'let' "
+                        "and 'marginalize' only"
+                    )
         return ProgramDecl(
             name=_required_text(t, nv, vid, "name"),
             params=params,
@@ -1002,7 +1028,8 @@ def _walk_statement(t: _Tree, vid: str) -> Statement | list[Statement]:
             codomain=_walk_type(t, cv),
             draws=steps,
             return_vars=return_vars,
-            return_labels=return_labels,
+            effects=effects_set,
+            over_model=over_model,
             type_params=type_params,
             line=line,
             col=col,
@@ -1030,50 +1057,12 @@ def _walk_statement(t: _Tree, vid: str) -> Statement | list[Statement]:
             line=line,
             col=col,
         )
-    if k == "output_decl":
+    if k == "export_decl":
         vv = t.field(vid, "value")
         if vv is None:
-            raise ParseError(f"output_decl missing value at {vid}")
-        return OutputDecl(
+            raise ParseError(f"export_decl missing value at {vid}")
+        return ExportDecl(
             expr=_walk_expr(t, vv),
-            line=line,
-            col=col,
-        )
-    if k == "posterior_decl":
-        nv = t.field(vid, "name")
-        mv = t.field(vid, "model")
-        if nv is None or mv is None:
-            raise ParseError(f"posterior_decl missing name/model at {vid}")
-        params_vids = t.fields(vid, "params")
-        params: tuple[str, ...] | None = (
-            tuple(t.text(pv) for pv in params_vids) if params_vids else None
-        )
-        steps_t = tuple(_walk_program_step(t, sv) for sv in t.fields(vid, "steps"))
-        # Disallow draw / observe inside posterior bodies — posterior
-        # is deterministic post-conditioning.
-        for s in steps_t:
-            if isinstance(s, (DrawStep, PlateDrawStep, VectorisedObserveStep)):
-                raise ParseError(
-                    "posterior block may not contain draw / observe steps "
-                    "(posterior runs after conditioning)"
-                )
-        ret_vid = t.field(vid, "return")
-        if ret_vid is None:
-            raise ParseError(f"posterior_decl missing return at {vid}")
-        return_vars, return_labels = _walk_return_pattern(t, ret_vid)
-        dv = t.field(vid, "domain")
-        cv = t.field(vid, "codomain")
-        if dv is None or cv is None:
-            raise ParseError(f"posterior_decl missing domain/codomain at {vid}")
-        return PosteriorDecl(
-            name=_required_text(t, nv, vid, "name"),
-            model=_required_text(t, mv, vid, "model"),
-            params=params,
-            domain=_walk_type(t, dv),
-            codomain=_walk_type(t, cv),
-            steps=steps_t,
-            return_vars=return_vars,
-            return_labels=return_labels,
             line=line,
             col=col,
         )
@@ -1208,22 +1197,18 @@ def _walk_options(t: _Tree, vid: str) -> dict[str, str]:
 def _walk_return_pattern(
     t: _Tree, vid: str
 ) -> tuple[tuple[str, ...], tuple[str, ...] | None]:
+    """Walk a return clause into (vars, labels=None).
+
+    The labels return slot is retained in the signature for
+    compatibility with internal callers that destructure two
+    values, but is always ``None`` under the v0.5 surface (the
+    labelled-tuple form has been dropped as dead syntax).
+    """
     k = t.kind(vid)
     if k == "identifier":
         return (t.text(vid),), None
     if k == "return_tuple":
         return tuple(t.text(c) for c in t.positional(vid)), None
-    if k == "return_labeled_tuple":
-        labels: list[str] = []
-        vars_l: list[str] = []
-        for entry in t.positional(vid):
-            if t.kind(entry) != "return_label_entry":
-                continue
-            lvid = t.field(entry, "label")
-            vvid = t.field(entry, "var")
-            labels.append(_required_text(t, lvid, entry, "label"))
-            vars_l.append(_required_text(t, vvid, entry, "var"))
-        return tuple(vars_l), tuple(labels)
     raise ParseError(f"unexpected return pattern kind: {k}")
 
 

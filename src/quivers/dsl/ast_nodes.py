@@ -354,130 +354,70 @@ class ProgramStep(dx.TaggedUnion, discriminator="kind"):
     """Sum of program-block step node kinds."""
 
 
-class DrawStep(ProgramStep):
-    """A single ``draw`` or ``observe`` step inside a program block."""
+class BindStep(ProgramStep):
+    """A Kleisli bind inside a program block — the unified step shape.
+
+    Surface forms:
+
+    .. code-block:: qvr
+
+        v        <- F(args)                              # mode=sample, scalar
+        v : A    <- F(args)                              # mode=sample, A-indexed plate
+        (a, b)   <- F(args)                              # destructuring tuple bind
+        observe v        <- F(args)                      # mode=score, scalar
+        observe r : N    <- F(theta[N])                  # mode=score, N-indexed
+        marginalize c    <- F(args) in { steps }         # mode=marginal, scoped
+        marginalize c : A <- F(args) in { steps }        # mode=marginal, A-indexed
+
+    Categorical denotation:
+
+    * ``mode="sample"`` extends the trace by a fresh Kleisli arrow
+      :math:`\\Phi \\to \\mathcal{G}(\\Phi \\times K)`. When ``index``
+      is non-``None`` the iso
+      :math:`\\mathbf{Kern}(\\mathbf{1}, K^A) \\cong \\mathbf{Kern}(A, K)`
+      lifts the per-fiber family to an indexed family.
+    * ``mode="score"`` is a sub-probabilistic Kleisli arrow
+      :math:`\\Phi \\to \\mathcal{G}_{\\le 1}(\\Phi)` clamping the
+      bound coordinate to a runtime-supplied observation; the
+      indexed form denotes the batched-likelihood kernel
+      :math:`\\prod_{n} p_F(r_{\\mathrm{obs}}(n); \\theta(n, \\phi))`.
+    * ``mode="marginal"`` introduces a coordinate, executes the
+      scope's steps with that coordinate in trace context, and at
+      the end of the scope pushes forward through the projection
+      :math:`\\pi_{\\Phi} : \\Phi \\times C \\to \\Phi` (logsumexp for
+      discrete, fibrewise integration for continuous). The
+      coordinate is local to ``scope``.
+
+    Attributes
+    ----------
+    vars : tuple[str, ...]
+        Bound names. For sample mode, may be a tuple for
+        destructuring; score and marginal modes always carry a
+        single name.
+    index : TypeExpr | None
+        Optional index-set annotation; non-``None`` for plate /
+        vectorised / indexed-marginalize forms.
+    morphism : str
+        Family / morphism name on the kernel-expression RHS.
+    args : tuple
+        Family arguments. Strings of the form ``"name[Index]"`` are
+        bracket-indexed family sections — categorically sections of
+        an ``Index``-indexed family.
+    mode : Literal["sample", "score", "marginal"]
+        Kleisli-bind mode.
+    scope : tuple[ProgramStep, ...] | None
+        Integration scope; non-``None`` iff ``mode == "marginal"``.
+    """
 
     vars: tuple[str, ...]
     morphism: str
     args: tuple[str | float, ...] | None = None
-    is_observed: bool = False
+    index: TypeExpr | None = None
+    mode: Literal["sample", "score", "marginal"] = "sample"
+    scope: tuple[ProgramStep, ...] | None = None
     line: int = 0
     col: int = 0
-    kind: Literal["draw_step"] = "draw_step"
-
-
-class PlateDrawStep(ProgramStep):
-    """A finite-domain-indexed draw: ``draw v : A -> B ~ F(args)``.
-
-    Denotes the indexed family of independent draws
-
-        v(a) ~ F(args(a))   for each a in [[A]]
-
-    realised in the program trace as a single random variable
-    ``v : A → B`` of function-space type. In the Giry-monad
-    Kleisli semantics, this is
-
-        S[draw v : A → B ~ F](φ) = δ_φ ⊗ Π_{a∈A} F(args(a))
-
-    i.e. the joint distribution over the function-space ``B^A``
-    factorises as the independent product across the index set.
-
-    Compiled to a tensor of shape ``(|A|, *B.shape)`` whose
-    distribution under the variational posterior is one independent
-    copy of ``F`` per row.
-
-    Attributes
-    ----------
-    name : str
-        Bound name of the indexed random variable.
-    index : TypeExpr
-        The index set ``A`` (a previously-declared object).
-    codomain : TypeExpr
-        The per-index codomain ``B`` (typically ``Euclidean(K)``).
-    morphism : str
-        Distribution family name (``Normal``, ``MultivariateNormal``,
-        etc.).
-    args : tuple
-        Family arguments. May contain :class:`GatherExpr` so the
-        prior's hyperparameters can depend on the index.
-    """
-
-    name: str
-    index: TypeExpr
-    codomain: TypeExpr
-    morphism: str
-    args: tuple[str | float, ...] | None = None
-    line: int = 0
-    col: int = 0
-    kind: Literal["plate_draw_step"] = "plate_draw_step"
-
-
-class VectorisedObserveStep(ProgramStep):
-    """A batched observation: ``observe r[n] ~ F(θ[n]) for n in N``.
-
-    Denotes the product likelihood
-
-        Π_{n ∈ [[N]]} p_F(r_obs(n); θ(n))
-
-    realised in the sub-probabilistic Giry monad as
-
-        S[obs r[n] ~ F(θ[n]) for n in N] : Φ → G_{≤1}(Φ)
-        S[..](φ, B) = 1_B(φ) · Π_{n ∈ N} p_F(r_obs(n); θ(n, φ))
-
-    The trace context is preserved; the total mass of the resulting
-    measure is the joint likelihood of the dataset.
-
-    Attributes
-    ----------
-    index_var : str
-        Loop variable bound across the observation index set.
-    index_set : TypeExpr
-        The observation index set ``N`` (an object declared at
-        module level, typically of FinSet kind).
-    morphism : str
-        Distribution family name.
-    args : tuple
-        Family arguments, which may include :class:`GatherExpr` and
-        :class:`LetExprNode` sub-expressions referencing the loop
-        variable.
-    response_var : str
-        The data column whose entry at index ``n`` provides the
-        observed value of the ``n``-th observation.
-    """
-
-    index_var: str
-    index_set: TypeExpr
-    morphism: str
-    args: tuple[str | float, ...] | None = None
-    response_var: str = ""
-    line: int = 0
-    col: int = 0
-    kind: Literal["vectorised_observe_step"] = "vectorised_observe_step"
-
-
-class MarginalizeStep(ProgramStep):
-    """A discrete-latent marginalisation: ``marginalize v``.
-
-    Given a previously-drawn discrete latent ``v : Φ → G(C)``, the
-    marginalisation pushes forward through the projection
-    ``π_{Φ\\C} : Φ × C → Φ``:
-
-        marg(v) : Φ → G(Φ)
-        marg(v) = G(π_{Φ\\C}) ∘ S[draw v]
-
-    Numerically realised as ``log_sum_exp`` over the ``C`` axis in
-    the trace's accumulated log-likelihood.
-
-    Attributes
-    ----------
-    var_name : str
-        Name of the previously-drawn discrete latent variable.
-    """
-
-    var_name: str
-    line: int = 0
-    col: int = 0
-    kind: Literal["marginalize_step"] = "marginalize_step"
+    kind: Literal["bind_step"] = "bind_step"
 
 
 class LetStep(ProgramStep):
@@ -493,6 +433,100 @@ class LetStep(ProgramStep):
     line: int = 0
     col: int = 0
     kind: Literal["let_step"] = "let_step"
+
+
+# ---------------------------------------------------------------------------
+# Internal compiler-only step shapes.
+#
+# The parser emits exclusively :class:`BindStep` and :class:`LetStep` for
+# program bodies under the v0.5 unified surface. The compiler expands a
+# BindStep into one of the four specialised forms below at the entry to
+# `_compile_program`, based on the bind's `mode` and `index` fields:
+#
+#   - sample, no index  -> DrawStep
+#   - sample, with idx  -> PlateDrawStep
+#   - score, no index   -> DrawStep with is_observed=True
+#   - score, with idx   -> VectorisedObserveStep
+#   - marginal          -> MarginalizeStep (the scope steps are expanded
+#                          inline; the variable is registered for that scope)
+#
+# These types are not part of the public surface — they are an internal
+# IR consumed by the rest of the compiler / template-expansion / runtime
+# step-builder machinery. Keeping them lets the compiler's existing deep
+# code paths continue unchanged while the surface presents a single
+# Kleisli-bind form.
+# ---------------------------------------------------------------------------
+
+
+class DrawStep(ProgramStep):
+    """Internal compiler IR: a scalar sample or score step.
+
+    Synthesised from a :class:`BindStep` with no index annotation;
+    ``is_observed`` distinguishes sample (``False``) from score
+    (``True``).
+    """
+
+    vars: tuple[str, ...]
+    morphism: str
+    args: tuple[str | float, ...] | None = None
+    is_observed: bool = False
+    line: int = 0
+    col: int = 0
+    kind: Literal["draw_step"] = "draw_step"
+
+
+class PlateDrawStep(ProgramStep):
+    """Internal compiler IR: an A-indexed sample step.
+
+    Synthesised from a :class:`BindStep` with ``mode='sample'`` and
+    an index annotation. Categorically a Kern-morphism
+    :math:`A \\to \\mathcal{G}(K)` realised as a single tensor of
+    shape ``(|A|, *K.shape)``.
+    """
+
+    name: str
+    index: TypeExpr
+    codomain: TypeExpr
+    morphism: str
+    args: tuple[str | float, ...] | None = None
+    line: int = 0
+    col: int = 0
+    kind: Literal["plate_draw_step"] = "plate_draw_step"
+
+
+class VectorisedObserveStep(ProgramStep):
+    """Internal compiler IR: an A-indexed score step.
+
+    Synthesised from a :class:`BindStep` with ``mode='score'`` and
+    an index annotation. Denotes the sub-probabilistic kernel
+    :math:`\\Phi \\to \\mathcal{G}_{\\le 1}(\\Phi)` with score
+    :math:`\\prod_{n} p_F(r_{\\mathrm{obs}}(n); \\theta(n, \\phi))`.
+    """
+
+    index_var: str
+    index_set: TypeExpr
+    morphism: str
+    args: tuple[str | float, ...] | None = None
+    response_var: str = ""
+    line: int = 0
+    col: int = 0
+    kind: Literal["vectorised_observe_step"] = "vectorised_observe_step"
+
+
+class MarginalizeStep(ProgramStep):
+    """Internal compiler IR: a marginalisation reduction.
+
+    The :class:`BindStep` for marginalize is expanded by the
+    compiler into: (1) a sample step that introduces the
+    coordinate, (2) the scope's steps, (3) this MarginalizeStep
+    that pushes forward through the projection
+    :math:`\\pi_{\\Phi} : \\Phi \\times C \\to \\Phi`.
+    """
+
+    var_name: str
+    line: int = 0
+    col: int = 0
+    kind: Literal["marginalize_step"] = "marginalize_step"
 
 
 # ---------------------------------------------------------------------------
@@ -826,15 +860,28 @@ class MorphismParam(ProgramParam):
 
 
 class ProgramDecl(Statement):
-    """Monadic program block with optional named params and tuple returns.
+    """Monadic program block — the unique program-form in QVR.
 
     A program is either *concrete* (no ``type_params``) — denoting a
     single Kern-morphism ``dom → cod`` — or *parametric* (with
     ``type_params``) — denoting a dependent family of Kern-morphisms
     indexed by the parameters. Parametric programs are not compiled
-    into a runtime ``MonadicProgram`` directly; instead, the
-    compiler stores them as templates and inlines a freshly-renamed
-    copy of the body at each call site.
+    into a runtime ``MonadicProgram`` directly; the compiler stores
+    them as templates and inlines a freshly-renamed copy of the body
+    at each call site.
+
+    Effects and posterior modifier:
+
+    * ``effects`` carries the capability set declared after ``!``:
+      ``frozenset({"Sample", "Score"})``, ``frozenset({"Marginal"})``,
+      ``frozenset({"Pure"})``, etc. ``None`` means unannotated (the
+      compiler infers the set from the body but does not enforce a
+      restriction).
+    * ``over_model`` declares the program is a *posterior block*
+      over another program's latents — replacing the standalone
+      ``posterior`` keyword. A program with ``over_model`` set is
+      routed by the compiler to the posterior registry; its body
+      must be deterministic (``Pure`` or at most ``Pure | Marginal``).
     """
 
     name: str
@@ -843,69 +890,13 @@ class ProgramDecl(Statement):
     codomain: TypeExpr
     draws: tuple[ProgramStep, ...]
     return_vars: tuple[str, ...]
-    return_labels: tuple[str, ...] | None = None
+    effects: frozenset[str] | None = None
+    over_model: str | None = None
     type_params: tuple[ProgramParam, ...] | None = None
     docs: tuple[str, ...] = ()
     line: int = 0
     col: int = 0
     kind: Literal["program_decl"] = "program_decl"
-
-
-class PosteriorDecl(Statement):
-    """A posterior / generated-quantities block.
-
-    Runs *after* the model program has been conditioned on data; its
-    body is a deterministic function of the posterior over latents.
-    Categorically: given the conditioned model's posterior kernel
-    ``q(θ | data) : Data → G(Latents)``, the posterior block denotes a
-    morphism ``Latents → τ_out`` in **Kern** which lifts to
-    ``Data → G(τ_out)`` by post-composition.
-
-    Operationally: each posterior sample (variational draw, or one
-    MCMC iterate) is run through the body; the runner aggregates
-    the per-sample outputs.
-
-    Surface form mirrors :class:`ProgramDecl`:
-
-    .. code-block:: qvr
-
-        posterior class_probs (model) : Item -> Simplex(4)
-            let logprob = item_loglik + log(class_prior)
-            let probs = softmax(logprob)
-            return probs
-
-    Attributes
-    ----------
-    name : str
-        The posterior-quantity's name.
-    model : str
-        Name of the model program whose posterior is consumed.
-    params : tuple of str
-        Optional parameters supplied at evaluation time.
-    domain : TypeExpr
-        Domain of the resulting kernel.
-    codomain : TypeExpr
-        Codomain of the resulting kernel.
-    steps : tuple of ProgramStep
-        Body steps. ``draw`` is disallowed (posterior is deterministic
-        post-conditioning); ``observe`` is disallowed; ``let`` and
-        ``marginalize`` are permitted.
-    return_vars : tuple of str
-        Tuple of variables to return as the posterior quantity.
-    """
-
-    name: str
-    model: str
-    params: tuple[str, ...] | None
-    domain: TypeExpr
-    codomain: TypeExpr
-    steps: tuple[ProgramStep, ...]
-    return_vars: tuple[str, ...]
-    return_labels: tuple[str, ...] | None = None
-    docs: tuple[str, ...] = ()
-    line: int = 0
-    col: int = 0
-    kind: Literal["posterior_decl"] = "posterior_decl"
 
 
 class LetDecl(Statement):
@@ -926,13 +917,19 @@ class LetDecl(Statement):
     kind: Literal["let_decl"] = "let_decl"
 
 
-class OutputDecl(Statement):
-    """Output declaration: ``output <expr>``."""
+class ExportDecl(Statement):
+    """Module-level export: ``export <expr>``.
+
+    Any number per module; each selects a top-level morphism /
+    posterior / deduction for the compiled output. Replaces v0.4's
+    ``output`` keyword (which permitted exactly one per module);
+    semantically a public binding in the module namespace.
+    """
 
     expr: Expr
     line: int = 0
     col: int = 0
-    kind: Literal["output_decl"] = "output_decl"
+    kind: Literal["export_decl"] = "export_decl"
 
 
 # ---------------------------------------------------------------------------

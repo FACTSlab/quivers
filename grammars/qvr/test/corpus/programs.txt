@@ -3,7 +3,7 @@ simple program with return
 ==================
 
 program p : A -> B
-    draw x ~ f
+    x <- f
     return x
 
 ---
@@ -13,20 +13,20 @@ program p : A -> B
     name: (identifier)
     domain: (type_atom (identifier))
     codomain: (type_atom (identifier))
-    steps: (draw_step
+    steps: (bind_step
       vars: (identifier)
       morphism: (identifier))
     return: (identifier)))
 
 ==================
-program with params, observe, and labeled return
+program with params, observe, and return tuple
 ==================
 
 program model(y, z) : Belief * Belief -> Truth * Truth
-    draw c ~ bern_c(y)
-    observe d ~ bern_d(z, 0.5)
+    c <- bern_c(y)
+    observe d <- bern_d(z, 0.5)
     let threshold = 0.5
-    return (state: c, prob: d)
+    return (c, d)
 
 ---
 
@@ -41,28 +41,28 @@ program model(y, z) : Belief * Belief -> Truth * Truth
     codomain: (type_product
       left: (type_atom (identifier))
       right: (type_atom (identifier)))
-    steps: (draw_step
+    steps: (bind_step
       vars: (identifier)
       morphism: (identifier)
       args: (identifier))
     steps: (observe_step
-      vars: (identifier)
+      var: (identifier)
       morphism: (identifier)
       args: (identifier)
       args: (signed_number (float)))
     steps: (let_step
       name: (identifier)
       value: (let_literal (float)))
-    return: (return_labeled_tuple
-      (return_label_entry label: (identifier) var: (identifier))
-      (return_label_entry label: (identifier) var: (identifier)))))
+    return: (return_tuple
+      (identifier)
+      (identifier))))
 
 ==================
 let-step arithmetic
 ==================
 
 program p : A -> B
-    draw x ~ f
+    x <- f
     let logit = log(p) - log(1.0 - p)
     let combined = x * 0.5 + y * 0.5
     return logit
@@ -74,7 +74,7 @@ program p : A -> B
     name: (identifier)
     domain: (type_atom (identifier))
     codomain: (type_atom (identifier))
-    steps: (draw_step vars: (identifier) morphism: (identifier))
+    steps: (bind_step vars: (identifier) morphism: (identifier))
     steps: (let_step
       name: (identifier)
       value: (let_binop
@@ -95,12 +95,35 @@ program p : A -> B
     return: (identifier)))
 
 ==================
-arrow-style draw
+indexed plate bind
 ==================
 
-program p : A -> B
-    x <- f(theta)
-    return x
+program p : Item -> 1
+    v : Item <- Normal(0.0, 1.0)
+    return v
+
+---
+
+(source_file
+  (program_decl
+    name: (identifier)
+    domain: (type_atom (identifier))
+    codomain: (type_atom (integer))
+    steps: (bind_step
+      vars: (identifier)
+      index: (type_atom (identifier))
+      morphism: (identifier)
+      args: (signed_number (float))
+      args: (signed_number (float)))
+    return: (identifier)))
+
+==================
+scored vectorised bind
+==================
+
+program p : N -> N
+    observe r : N <- Bernoulli(theta)
+    return r
 
 ---
 
@@ -109,8 +132,84 @@ program p : A -> B
     name: (identifier)
     domain: (type_atom (identifier))
     codomain: (type_atom (identifier))
-    steps: (arrow_draw_step
+    steps: (observe_step
       var: (identifier)
+      index: (type_atom (identifier))
       morphism: (identifier)
       args: (identifier))
+    return: (identifier)))
+
+==================
+scoped marginalize
+==================
+
+program p : Item -> Item
+    marginalize class : Item <- Categorical(probs) in {
+        observe r : N <- Bernoulli(theta)
+    }
+    return r
+
+---
+
+(source_file
+  (program_decl
+    name: (identifier)
+    domain: (type_atom (identifier))
+    codomain: (type_atom (identifier))
+    steps: (marginalize_step
+      var: (identifier)
+      index: (type_atom (identifier))
+      morphism: (identifier)
+      args: (identifier)
+      scope: (observe_step
+        var: (identifier)
+        index: (type_atom (identifier))
+        morphism: (identifier)
+        args: (identifier)))
+    return: (identifier)))
+
+==================
+effect signature and posterior over-clause
+==================
+
+program post : X -> Y ! Pure over event_structure
+    let probs = softmax(raw_logits)
+    return probs
+
+---
+
+(source_file
+  (program_decl
+    name: (identifier)
+    domain: (type_atom (identifier))
+    codomain: (type_atom (identifier))
+    effects: (identifier)
+    over_model: (identifier)
+    steps: (let_step
+      name: (identifier)
+      value: (let_call args: (let_var (identifier))))
+    return: (identifier)))
+
+==================
+bracket-index argument
+==================
+
+program p : N -> N
+    observe r : N <- Bernoulli(theta[N])
+    return r
+
+---
+
+(source_file
+  (program_decl
+    name: (identifier)
+    domain: (type_atom (identifier))
+    codomain: (type_atom (identifier))
+    steps: (observe_step
+      var: (identifier)
+      index: (type_atom (identifier))
+      morphism: (identifier)
+      args: (bracket_index_arg
+        name: (identifier)
+        index: (type_atom (identifier))))
     return: (identifier)))
