@@ -85,8 +85,8 @@ class ContinuousMorphism(nn.Module, ABC):
         """The support constraint of the distribution this morphism samples
         from, in the form of a :class:`torch.distributions.constraints.Constraint`.
 
-        Used by variational guides (:class:`quivers.inference.guide.AutoNormalGuide`,
-        :class:`quivers.inference.guide.AutoDeltaGuide`) to determine the
+        Used by variational guides (:class:`quivers.inference.AutoNormalGuide`,
+        :class:`quivers.inference.AutoDeltaGuide`) to determine the
         correct bijector that maps an unconstrained variational
         approximation back to the constrained support of the prior, so
         that samples used to evaluate the prior's ``log_prob`` lie inside

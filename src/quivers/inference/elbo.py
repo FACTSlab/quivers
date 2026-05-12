@@ -15,7 +15,7 @@ import torch
 import torch.nn as nn
 
 from quivers.continuous.programs import MonadicProgram
-from quivers.inference.guide import Guide
+from quivers.inference.guides import Guide
 
 
 class ELBO(nn.Module):

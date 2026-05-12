@@ -10,7 +10,7 @@ from __future__ import annotations
 import torch
 
 from quivers.continuous.programs import MonadicProgram
-from quivers.inference.guide import Guide
+from quivers.inference.guides import Guide
 from quivers.inference.elbo import ELBO
 
 
