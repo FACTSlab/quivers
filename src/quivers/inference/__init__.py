@@ -55,6 +55,13 @@ from quivers.inference.objectives import (
     RenyiBound,
     VRIWAEBound,
 )
+from quivers.inference.mcmc import (
+    HMCKernel,
+    MCMC,
+    MCMCKernel,
+    MCMCResult,
+    NUTSKernel,
+)
 from quivers.inference.svi import SVI
 from quivers.inference.predictive import Predictive
 
@@ -76,6 +83,11 @@ __all__ = [
     "AutoIAFGuide",
     "AutoNeuralSplineGuide",
     "AutoMixtureGuide",
+    "MCMCKernel",
+    "HMCKernel",
+    "NUTSKernel",
+    "MCMC",
+    "MCMCResult",
     "Objective",
     "ELBO",
     "IWAEBound",
