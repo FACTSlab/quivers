@@ -14,7 +14,13 @@ from collections.abc import Callable
 from typing import Any
 import torch
 import torch.nn as nn
-from quivers.continuous.spaces import ContinuousSpace
+from quivers.continuous.spaces import (
+    ContinuousSpace,
+    Euclidean,
+    PositiveReals,
+    Simplex,
+    UnitInterval,
+)
 from quivers.continuous.morphisms import AnySpace
 from quivers.core.objects import SetObject, FinSet, ProductSet
 from quivers.core.quantales import Quantale, PRODUCT_FUZZY, BOOLEAN
@@ -2007,8 +2013,6 @@ class Compiler:
         AnySpace
             The inferred codomain.
         """
-        from quivers.continuous.spaces import UnitInterval, Euclidean
-
         if family == "LogitNormal":
             return UnitInterval(f"_{var_names[0]}")
         elif family == "Bernoulli":
@@ -2033,14 +2037,35 @@ class Compiler:
             return Euclidean(name=f"_{var_names[0]}", dim=1)
         elif family == "Beta":
             return UnitInterval(f"_{var_names[0]}")
-        elif family == "Exponential":
-            from quivers.continuous.spaces import PositiveReals
-
+        elif family in (
+            "Exponential",
+            "HalfCauchy",
+            "HalfNormal",
+            "LogNormal",
+            "Gamma",
+        ):
             return PositiveReals(name=f"_{var_names[0]}", dim=1)
-        elif family in ("HalfCauchy", "HalfNormal", "LogNormal", "Gamma"):
-            from quivers.continuous.spaces import PositiveReals
-
-            return PositiveReals(name=f"_{var_names[0]}", dim=1)
+        elif family == "Dirichlet":
+            # Inline Dirichlet returns a simplex value whose dimension
+            # is the declared codomain's `dim`. If the user passed an
+            # explicit list / tuple of concentrations we infer the
+            # simplex dimension from its length; otherwise fall back
+            # to the program's declared codomain dim, or 2 (the
+            # minimum simplex).
+            sim_dim: int | None = None
+            for a in args:
+                if isinstance(a, (list, tuple)) and len(a) > 0:
+                    sim_dim = len(a)
+                    break
+            if sim_dim is None and isinstance(program_codomain, ContinuousSpace):
+                sim_dim = getattr(program_codomain, "dim", None)
+            if sim_dim is None and isinstance(program_codomain, SetObject):
+                # A discrete codomain of cardinality `k` indexes a
+                # k-simplex of class probabilities.
+                sim_dim = getattr(program_codomain, "cardinality", None)
+            if sim_dim is None or sim_dim < 2:
+                sim_dim = 2
+            return Simplex(name=f"_{var_names[0]}", dim=sim_dim)
         else:
             return Euclidean(name=f"_{var_names[0]}", dim=1)
 
@@ -2054,6 +2079,13 @@ class Compiler:
         parameter — both of these are resolved at runtime by the
         let-expression evaluator's `globals_` channel and its
         lambda-environment extension.
+
+        Free variables that match none of the above are treated as
+        *host-data references*: the value is expected to arrive at
+        runtime through :func:`quivers.inference.condition`'s data
+        dict (e.g. per-row index arrays for hierarchical regression).
+        The runtime raises a clear ``KeyError`` if the data dict
+        doesn't supply such a name.
         """
         deductions = getattr(self, "_deductions", {})
 
@@ -2066,11 +2098,10 @@ class Compiler:
                     return
                 if node.name in locals_set:
                     return
-                raise CompileError(
-                    f"undefined variable {node.name!r} in let expression",
-                    step.line,
-                    step.col,
-                )
+                # Otherwise the variable is a host-data reference; the
+                # trace runtime resolves it against the conditioning
+                # data dict at execution time.
+                return
             if isinstance(node, LetExprBinOp):
                 _walk(node.left, locals_set)
                 _walk(node.right, locals_set)
