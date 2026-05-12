@@ -15,6 +15,12 @@ from __future__ import annotations
 
 from quivers.inference.guides.base import Guide
 from quivers.inference.guides.delta import AutoDeltaGuide
+from quivers.inference.guides.flow import (
+    AutoIAFGuide,
+    AutoNeuralSplineGuide,
+    AutoNormalizingFlow,
+)
+from quivers.inference.guides.laplace import AutoLaplaceApproximation
 from quivers.inference.guides.multivariate_normal import (
     AutoLowRankMultivariateNormalGuide,
     AutoMultivariateNormalGuide,
@@ -27,4 +33,8 @@ __all__ = [
     "AutoMultivariateNormalGuide",
     "AutoLowRankMultivariateNormalGuide",
     "AutoDeltaGuide",
+    "AutoLaplaceApproximation",
+    "AutoNormalizingFlow",
+    "AutoIAFGuide",
+    "AutoNeuralSplineGuide",
 ]

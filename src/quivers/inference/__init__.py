@@ -31,9 +31,13 @@ from quivers.inference.conditioning import Conditioned, condition
 from quivers.inference.registry import LatentRegistry, LatentSite
 from quivers.inference.guides import (
     AutoDeltaGuide,
+    AutoIAFGuide,
+    AutoLaplaceApproximation,
     AutoLowRankMultivariateNormalGuide,
     AutoMultivariateNormalGuide,
+    AutoNeuralSplineGuide,
     AutoNormalGuide,
+    AutoNormalizingFlow,
     Guide,
 )
 from quivers.inference.estimators import (
@@ -66,6 +70,10 @@ __all__ = [
     "AutoMultivariateNormalGuide",
     "AutoLowRankMultivariateNormalGuide",
     "AutoDeltaGuide",
+    "AutoLaplaceApproximation",
+    "AutoNormalizingFlow",
+    "AutoIAFGuide",
+    "AutoNeuralSplineGuide",
     "Objective",
     "ELBO",
     "IWAEBound",
