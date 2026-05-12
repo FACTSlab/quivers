@@ -296,12 +296,16 @@ class TestCompiler:
                 "\n                object X : 3\n                export f\n            "
             )
 
-    def test_no_export_error(self):
-        """CompileError when no export declaration."""
-        with pytest.raises(CompileError, match="no export"):
-            loads(
-                "\n                object X : 3\n                latent f : X -> X\n            "
-            )
+    def test_no_export_produces_morphism_less_program(self):
+        """A module with no export compiles into a Program with no
+        exported morphism; the module's structural artifacts
+        (objects, morphisms) are reachable but ``forward()`` raises."""
+        prog = loads(
+            "\n                object X : 3\n                latent f : X -> X\n            "
+        )
+        assert prog.morphism is None
+        with pytest.raises(TypeError, match="no exported morphism"):
+            prog.forward()
 
     def test_duplicate_object_error(self):
         """CompileError on duplicate object name."""

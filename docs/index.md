@@ -15,6 +15,8 @@ The library provides:
 - **Continuous morphisms**: parameterized families of distributions (30+); boundaries (discretize/embed); normalizing flows; monadic programs (probabilistic computations with discrete and continuous random variables).
 - **Monadic DSL**: a `.qvr` file format and compiler for writing categorical programs declaratively.
 - **Variational inference**: trace-based conditioning, variational guides, ELBO and SVI for posterior inference.
+- **Weighted-deduction framework**: a single agenda-engine runtime subsumes CKY, Earley, Viterbi, semi-naïve Datalog, A* parsing, Knuth's algorithm, and MLTT proof search. Surface `deduction { … }` blocks declare the seven canonical parameters; charts are first-class differentiable values.
+- **Structural compression**: `signature { … }`, `encoder { … }`, `decoder { … }`, and `loss { … }` blocks form a uniform F-algebra / F-coalgebra interface for compressing arbitrary structured objects to fixed-length vectors and decoding them back under a learned distribution — realising transformers, tree-LSTMs, graph-NNs, autoregressive LMs, VAEs, and vector inside-outside parsers as instances of one categorical pattern.
 
 ## Quick Start
 

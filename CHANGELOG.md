@@ -6,7 +6,35 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/), and this
 
 ## [Unreleased]
 
-## [0.5.0] - 2026-05-11
+## [0.4.0] - 2026-05-12
+
+This release lands three deeply-interconnected bodies of work in a
+single minor bump, all motivated by the goal of making quivers a
+unified surface for probabilistic, weighted-deductive, and
+neural-symbolic programs:
+
+1. **DSL surface homogenisation** — one Kleisli-bind sigil `<-`,
+   type-annotated indexed binds, scoped `marginalize`, and
+   `!`-prefixed effect signatures.
+2. **Agenda-based weighted-deduction framework** — a single
+   engine subsuming CKY, Earley, Viterbi, inside-outside,
+   semi-naïve Datalog, A\* parsing, Knuth's algorithm, and MLTT
+   proof search, declared via `deduction { … }` blocks with
+   first-class differentiable charts.
+3. **Hierarchical-Bayesian + arrow / algebraic-effects substrate**
+   — plate draws, vectorised observations, marginalisation,
+   LKJ priors, Cholesky factor spaces, the Hughes arrow tower
+   (`Arrow`, `ArrowChoice`, `ArrowApply`, `ArrowLoop`,
+   `ArrowZero`, `ArrowPlus`), stdlib monads / monad transformers,
+   algebraic effects + handlers via `FreeMonad`.
+4. **Structural compression: signatures, encoders, decoders,
+   losses** — a uniform algebraic interface for compressing
+   arbitrary structured objects (sequences, trees, graphs, charts,
+   typed lambda terms) to fixed-length vectors and decoding them
+   back under a learned distribution. Realises transformers,
+   tree-LSTMs, graph-NNs, autoregressive LMs, VAEs, and
+   vector-inside-outside parsers as instances of one F-algebra /
+   F-coalgebra pattern.
 
 ### Changed (breaking, pre-1.0 clean cut)
 
@@ -158,7 +186,129 @@ settings on a single engine.
   protocol correspond to deduction-system specialisations
   (e.g., CCG ⊂ Lambek ⊂ MultimodalLambek).
 
-## [0.4.0] - 2026-05-11
+### Structural compression: signatures, encoders, decoders, losses
+
+The release lands a uniform algebraic interface for compressing
+arbitrary structured objects to fixed-length vectors and decoding
+them back under a learned distribution. Categorically: every
+constructor algebra a user declares is the initial Σ-algebra `T_Σ`
+of a multi-sorted signature; a **encoder** is a Σ-algebra
+homomorphism `T_Σ → Vec_D`, and a **decoder** is a Kleisli
+coalgebra `Vec_D → Kern(T_Σ)`. The recursion / corecursion is
+supplied by the framework; the analyst supplies only the
+per-operation parametric functions. This single abstraction
+subsumes RNN / transformer / tree-LSTM / graph-NN encoders,
+autoregressive LM and variational decoders, and the proposal's
+vector inside-outside parser (the chart's item signature is Σ, the
+parser's `combine` / `split^L,R` are the per-operation encoder
+functions, the attention-weighted aggregation lives entirely
+inside the encoder — outside the chart's role, so the
+semiring abstraction is not broken).
+
+- **Signature blocks** declare sorts, constructors, binders, and
+  (for graph signatures) vertex / edge kinds:
+  ```qvr
+  signature LF {
+      sorts {
+          Term : object dim 64
+          Type : object dim 32
+          Name : data   dim 32 vocab { "dog", "cat", "every" }
+      }
+      constructors {
+          Const : Name      -> Term
+          App   : Term, Term -> Term
+      }
+      binders {
+          Lam : binds (x : Term : ty : Type) in (body : Term) -> Term
+      }
+  }
+  ```
+  Three sort kinds: `object` (recursively decoded), `data`
+  (opaque raw values; data sorts may declare a closed vocabulary
+  via `vocab { … }` of string / integer / float literals),
+  `index` (de-Bruijn slots). The reserved `BoundVar` op is a
+  built-in de-Bruijn reference; binders thread a typed context Γ
+  carrying `(var_sort, embedding, type_term)` per scope entry.
+  Binder variables may carry an annotation sort via
+  `binds (x : Term : ty : Type)` — the variable's type is
+  structurally tracked through the de-Bruijn context.
+- **Encoder blocks** declare an F-algebra homomorphism
+  `T_Σ → Vec_D`. Per-constructor bodies are user-supplied or
+  scaffolded as 2-layer MLPs by the compiler with correct
+  per-arg dimensions. Sequence sugar — `Cons(head, tail) recurrent
+  state |-> body` for left-folds and `Cons(head, tail) attention
+  prefix |-> body` for iterative outside-in walks that thread a
+  running prefix list — handles RNN / transformer-shaped
+  encoders uniformly. Graph signatures use a
+  `message_passing`-shaped body (`init[V]`, `message[E]`,
+  `update[V]`, `readout`, `iterations N`).
+- **Decoder blocks** are Kleisli coalgebras `Vec_D → Kern(T_Σ)`
+  with `sample(vec) -> Term` and `log_prob(term, vec) -> Tensor`.
+  Per-sort `structure` / `primitive` / `factor` / `binder_select`
+  heads are scaffolded as learnable neural networks; the
+  corecursion (structure choice, factor split, recursive descent
+  with extended Γ at binders, BoundVar fallback to in-scope
+  variables, depth-bounded termination) is supplied by the
+  framework. No silent type coercion or sentinel value: an
+  observed term whose shape doesn't match the canonical form
+  raises with a typed diagnostic.
+- **`var_init` per (var_sort, annot_sort) pair**: multiple
+  `var_init Term from Type as ty |-> body` declarations per
+  encoder, one per pair of sorts the signature's binders
+  introduce; the compiler scaffolds defaults for omitted pairs.
+- **Stdlib shapes** (`quivers.structural.shapes`): `Seq[A]` with
+  `rnn_encoder`, `transformer_encoder`, `bow_encoder`,
+  `ar_decoder`; `Tree[L, B]` with `tree_lstm_encoder` and
+  `tree_decoder`; `Graph[V, E]` with `graph_signature` and
+  `gnn_encoder` (per-edge-kind message MLP, per-vertex-kind
+  GRU update, mean / sum / max readout).
+- **Deduction integration**: a `deduction` block may declare an
+  item `signature` and attach a `encoder`; the chart's
+  `embedding(item)` query returns a differentiable vector
+  computed by the attached encoder's algebra-homomorphism
+  recursion over the chart-item term.
+- **Loss attachments** (`loss <name> [weight ...] [on <site>] { body }`):
+  attachable at `global`, `program <name>`, `deduction <name>`,
+  `encoder <name>`, `decoder <name>`, `rule <name> in <D>`,
+  and `chart of <D>` sites. Rule-attached losses fire on every
+  rule application during chart construction (the agenda's
+  `_fire` path invokes a registered `rule_callback` with the
+  full antecedent list); chart-attached losses fire once on the
+  completed chart. `LossRegistry.evaluate_on(kind, target, env)`
+  returns the weighted partial sum for a given attachment site;
+  `ChartView.attached_loss` exposes the accumulated rule + chart
+  losses fired during a deduction's run.
+- **Optional `export`**: a module with only signatures /
+  encoders / decoders / losses (no top-level morphism) now
+  compiles into a `Program(None)` container; the artifacts are
+  reachable through `prog.signatures` / `prog.encoders` /
+  `prog.decoders` / `prog.losses`. The previous `no export
+  declaration found` hard error is replaced by a precise
+  diagnostic on `forward()`.
+- **Strict declaration discipline**: every sort referenced in a
+  constructor's domain or a binder's variables / scoped
+  arguments / codomain must be declared in the signature's
+  `sorts { … }` block — no silent auto-registration. Every sort
+  with no inline `dim` must have its dim supplied by every
+  encoder / decoder over the signature. Reserved op names
+  (`BoundVar`, `Data`) are rejected as user-declared constructors
+  or binders. `vocab` clauses are only valid on `data` sorts;
+  duplicate vocabulary entries are rejected.
+- **Public surface**: `quivers.structural` exports `Signature`,
+  `Sort`, `Constructor`, `Binder`, `BinderVarSpec`,
+  `BinderArgSpec`, `VertexKind`, `EdgeKind`, `Term`, `Context`,
+  `EMPTY_CONTEXT`, `DataLeaf`, `Encoder`, `Decoder`,
+  `LossEntry`, `LossRegistry`, `bound_var`, `make_term`.
+  `quivers.structural.shapes` exports the canonical sequence /
+  tree / graph factories.
+- **27 new tests** in `tests/test_structural.py` cover every
+  surface form, every strict-rule diagnostic, the typed-binder
+  discipline, end-to-end compression and decoding for sequences /
+  trees / graphs, rule-attached and chart-attached loss firing,
+  per-pair `var_init` overrides, recurrent / attention modes, and
+  the data-sort vocabulary pipeline.
+
+### Hierarchical-Bayesian primitives and arrow / effects tower
 
 ### Added
 

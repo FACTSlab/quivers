@@ -45,9 +45,12 @@ import heapq
 from abc import ABC, abstractmethod
 from collections.abc import Callable, Iterable
 from dataclasses import dataclass, field
-from typing import Any
+from typing import Any, TYPE_CHECKING
 
 import torch
+
+if TYPE_CHECKING:
+    from quivers.structural.encoder import Encoder
 
 from quivers.stochastic.semiring import ChartSemiring, LOG_PROB
 
@@ -136,31 +139,47 @@ class InferenceRule:
     side_condition: Callable[[Bindings], bool] | None = None
 
 
-def match(pattern: Pattern, item: Item, bindings: Bindings | None = None) -> Bindings | None:
-    """Match an item against a pattern.
+def instantiate(pattern: Pattern, bindings: Bindings) -> Item:
+    """Substitute wildcards in a pattern with their bound values.
 
-    Returns the extended bindings if the pattern matches; returns
-    ``None`` otherwise. Wildcards in the pattern bind to the
-    corresponding slots in the item; repeated wildcards (same
-    name) must bind to equal values.
+    Returns a concrete item with no wildcards. Raises
+    :class:`KeyError` if a wildcard in the pattern has no binding.
 
-    Parameters
-    ----------
-    pattern : Pattern
-        Pattern to match against.
-    item : Item
-        Concrete item.
-    bindings : Bindings, optional
-        Pre-existing bindings (e.g. from previous premise matches);
-        new wildcards extend this environment.
-
-    Returns
-    -------
-    Bindings or None
-        Extended bindings on success, ``None`` on mismatch.
+    The pattern may be a bare :class:`Wildcard` (treated as "the
+    entire item is the wildcard"), a structural tuple, or a leaf
+    value (returned unchanged). Recursion runs over tuple
+    children.
     """
+    if isinstance(pattern, Wildcard):
+        return bindings[pattern.name]
+    if not isinstance(pattern, tuple):
+        return pattern
+    out: list[Any] = []
+    for p in pattern:
+        if isinstance(p, Wildcard):
+            out.append(bindings[p.name])
+        elif isinstance(p, tuple):
+            out.append(instantiate(p, bindings))
+        else:
+            out.append(p)
+    return tuple(out)
+
+
+def match(pattern: Pattern, item: Item, bindings: Bindings | None = None) -> Bindings | None:
+    """Match an item against a pattern."""
     if bindings is None:
         bindings = {}
+    if isinstance(pattern, Wildcard):
+        existing = bindings.get(pattern.name)
+        if existing is None:
+            return {**bindings, pattern.name: item}
+        if existing == item:
+            return bindings
+        return None
+    if not isinstance(pattern, tuple) or not isinstance(item, tuple):
+        if pattern == item:
+            return bindings
+        return None
     if len(pattern) != len(item):
         return None
     out = dict(bindings)
@@ -172,7 +191,6 @@ def match(pattern: Pattern, item: Item, bindings: Bindings | None = None) -> Bin
             elif existing != v:
                 return None
         elif isinstance(p, tuple) and isinstance(v, tuple):
-            # Nested structural match.
             sub = match(p, v, out)
             if sub is None:
                 return None
@@ -180,23 +198,6 @@ def match(pattern: Pattern, item: Item, bindings: Bindings | None = None) -> Bin
         elif p != v:
             return None
     return out
-
-
-def instantiate(pattern: Pattern, bindings: Bindings) -> Item:
-    """Substitute wildcards in a pattern with their bound values.
-
-    Returns a concrete item with no wildcards. Raises
-    :class:`KeyError` if a wildcard in the pattern has no binding.
-    """
-    out: list[Any] = []
-    for p in pattern:
-        if isinstance(p, Wildcard):
-            out.append(bindings[p.name])
-        elif isinstance(p, tuple):
-            out.append(instantiate(p, bindings))
-        else:
-            out.append(p)
-    return tuple(out)
 
 
 # ---------------------------------------------------------------------------
@@ -343,6 +344,13 @@ class ChartView:
         return self._result.chart
 
     @property
+    def attached_loss(self) -> torch.Tensor | None:
+        """The sum of rule-attached and chart-attached loss values
+        fired during this deduction's run, or ``None`` if no losses
+        were declared at those sites."""
+        return self._result.attached_loss
+
+    @property
     def semiring(self) -> ChartSemiring:
         """The semiring the chart was computed over."""
         return self._result.semiring
@@ -385,6 +393,23 @@ class ChartView:
         differentiable.
         """
         return list(self._result.chart.lookup(pattern))
+
+    def embedding(self, item: Item) -> torch.Tensor:
+        """Return the vector embedding of ``item`` under the deduction's
+        attached encoder.
+
+        Requires the originating :class:`DeductionSystem` to carry an
+        ``_item_encoder`` attribute (set by the DSL compiler when
+        the deduction's body declares ``encoder C``). Items are
+        converted to :class:`quivers.structural.Term` form on the fly.
+        """
+        encoder = getattr(self._result, "encoder", None)
+        if encoder is None:
+            raise RuntimeError(
+                "chart has no attached encoder; declare "
+                "`signature ... encoder ...` in the deduction block"
+            )
+        return encoder(item)
 
     def derivations(self, item: Item) -> list[Item]:
         """Return the set of items derived under ``item`` in the
@@ -571,6 +596,11 @@ class AgendaResult:
     semiring: ChartSemiring
     goal_items: list[tuple[Item, torch.Tensor]] = field(default_factory=list)
     iterations: int = 0
+    encoder: Encoder | None = None
+    # Sum of all rule-attached + chart-attached loss values fired
+    # during this run, populated by `DeductionSystem.run` when a
+    # loss registry is attached. `None` if no losses fired.
+    attached_loss: torch.Tensor | None = None
 
 
 def run_agenda(
@@ -581,6 +611,13 @@ def run_agenda(
     goal: Callable[[Item], bool] | None = None,
     max_iterations: int = 100_000,
     chart: Chart | None = None,
+    rule_callback: (
+        Callable[
+            [str, list[tuple[Item, torch.Tensor]], Item, torch.Tensor],
+            None,
+        ]
+        | None
+    ) = None,
 ) -> AgendaResult:
     """Run the agenda-driven deduction engine to fixed point.
 
@@ -650,7 +687,7 @@ def run_agenda(
                 # remaining premise patterns against the chart.
                 _fire_rule_with_premise(
                     rule, premise_idx, item, weight, bindings, chart,
-                    semiring, agenda,
+                    semiring, agenda, rule_callback,
                 )
 
     goal_items: list[tuple[Item, torch.Tensor]] = []
@@ -678,6 +715,13 @@ def _fire_rule_with_premise(
     chart: Chart,
     semiring: ChartSemiring,
     agenda: Agenda,
+    rule_callback: (
+        Callable[
+            [str, list[tuple[Item, torch.Tensor]], Item, torch.Tensor],
+            None,
+        ]
+        | None
+    ) = None,
 ) -> None:
     """Fire a rule where one premise is the popped item.
 
@@ -698,6 +742,7 @@ def _fire_rule_with_premise(
         remaining_indices=[i for i in range(len(rule.premises)) if i != fixed_idx],
         fixed_idx=fixed_idx,
         fixed_pair=(fixed_item, fixed_weight),
+        rule_callback=rule_callback,
     )
 
 
@@ -712,6 +757,13 @@ def _fire_remaining_premises(
     remaining_indices: list[int],
     fixed_idx: int,
     fixed_pair,
+    rule_callback: (
+        Callable[
+            [str, list[tuple[Item, torch.Tensor]], Item, torch.Tensor],
+            None,
+        ]
+        | None
+    ) = None,
 ) -> None:
     """Recursively match remaining premise patterns.
 
@@ -721,7 +773,10 @@ def _fire_remaining_premises(
     fires.
     """
     if not remaining_indices:
-        _fire(rule, bindings, fixed_idx, fixed_pair, chart, semiring, agenda)
+        _fire(
+            rule, bindings, fixed_idx, fixed_pair, chart,
+            semiring, agenda, rule_callback,
+        )
         return
     next_idx = remaining_indices[0]
     next_pattern = rule.premises[next_idx]
@@ -739,6 +794,7 @@ def _fire_remaining_premises(
             remaining_indices=remaining_indices[1:],
             fixed_idx=fixed_idx,
             fixed_pair=fixed_pair,
+            rule_callback=rule_callback,
         )
 
 
@@ -750,6 +806,13 @@ def _fire(
     chart: Chart,
     semiring: ChartSemiring,
     agenda: Agenda,
+    rule_callback: (
+        Callable[
+            [str, list[tuple[Item, torch.Tensor]], Item, torch.Tensor],
+            None,
+        ]
+        | None
+    ) = None,
 ) -> None:
     """All premises matched — instantiate and push the conclusion.
 
@@ -762,11 +825,11 @@ def _fire(
     """
     if rule.side_condition is not None and not rule.side_condition(bindings):
         return
-    # Gather premise weights from the chart.
-    premise_weights: list[torch.Tensor] = []
+    # Gather premise (item, weight) pairs in declaration order.
+    antecedents: list[tuple[Item, torch.Tensor]] = []
     for i, premise_pattern in enumerate(rule.premises):
         if i == fixed_idx:
-            premise_weights.append(fixed_pair[1])
+            antecedents.append(fixed_pair)
             continue
         try:
             premise_item = instantiate(premise_pattern, bindings)
@@ -775,29 +838,33 @@ def _fire(
         w = chart.get(premise_item)
         if w is None:
             return
-        premise_weights.append(w)
+        antecedents.append((premise_item, w))
+
+    premise_weights = tuple(w for _, w in antecedents)
     # Compute the conclusion's weight.
     if rule.weight_fn is not None:
         conclusion_weight = rule.weight_fn(
-            bindings, tuple(premise_weights), semiring
+            bindings, premise_weights, semiring,
+        )
+    elif not premise_weights:
+        conclusion_weight = torch.tensor(
+            float(semiring.one) if hasattr(semiring.one, "__float__") else 0.0,
+            dtype=torch.get_default_dtype(),
         )
     else:
-        # Semiring product of premise weights.
-        if not premise_weights:
-            conclusion_weight = torch.tensor(
-                float(semiring.one) if hasattr(semiring.one, '__float__') else 0.0,
-                dtype=torch.get_default_dtype(),
-            )
-        else:
-            acc = premise_weights[0]
-            for w in premise_weights[1:]:
-                acc = semiring.times(acc, w)
-            conclusion_weight = acc
+        acc = premise_weights[0]
+        for w in premise_weights[1:]:
+            acc = semiring.times(acc, w)
+        conclusion_weight = acc
     try:
         conclusion_item = instantiate(rule.conclusion, bindings)
     except KeyError:
         return
     agenda.push(conclusion_item, conclusion_weight)
+    if rule_callback is not None:
+        rule_callback(
+            rule.name, antecedents, conclusion_item, conclusion_weight,
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -839,7 +906,34 @@ class DeductionSystem:
     def run(self, input_value: Any) -> AgendaResult:
         """Run the deduction system on an input value."""
         axioms = self.axiom_injector(input_value)
-        return run_agenda(
+        registry = getattr(self, "_loss_registry", None)
+        deduction_name = getattr(self, "_deduction_name", None)
+        rule_loss_acc: list[torch.Tensor] = []
+
+        def _rule_callback(
+            rule_name: str,
+            antecedents: list[tuple[Item, torch.Tensor]],
+            conclusion: Item,
+            conclusion_w: torch.Tensor,
+        ) -> None:
+            if registry is None or deduction_name is None:
+                return
+            env = {
+                "rule": rule_name,
+                "deduction": deduction_name,
+                "antecedents": list(antecedents),
+                "conclusion": conclusion,
+                "weight": conclusion_w,
+            }
+            val = registry.evaluate_on(
+                "rule",
+                target=rule_name,
+                env=env,
+                rule_deduction=deduction_name,
+            )
+            rule_loss_acc.append(val)
+
+        result = run_agenda(
             axioms=axioms,
             rules=self.rules,
             semiring=self.semiring,
@@ -847,7 +941,33 @@ class DeductionSystem:
             goal=self.goal,
             max_iterations=self.max_iterations,
             chart=self.chart_factory(),
+            rule_callback=(
+                _rule_callback if registry is not None else None
+            ),
         )
+        # Propagate any attached item-encoder to the result.
+        comp = getattr(self, "_item_encoder", None)
+        if comp is not None:
+            result.encoder = comp
+        # Evaluate chart-attached losses on the completed chart.
+        if registry is not None and deduction_name is not None:
+            chart_env = {
+                "deduction": deduction_name,
+                "chart": result.chart,
+                "goal_items": result.goal_items,
+            }
+            chart_loss = registry.evaluate_on(
+                "chart", target=deduction_name, env=chart_env,
+            )
+            losses = rule_loss_acc + [chart_loss]
+        else:
+            losses = rule_loss_acc
+        if losses:
+            total = losses[0]
+            for v in losses[1:]:
+                total = total + v
+            result.attached_loss = total
+        return result
 
     def __call__(self, input_value: Any) -> ChartView:
         """Run the deduction and return a :class:`ChartView`.

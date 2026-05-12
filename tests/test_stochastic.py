@@ -456,7 +456,7 @@ class TestProb:
         dom_idx = torch.tensor([0, 1, 2])
         cod_idx = torch.tensor([0, 1, 2])
         result = prob(f, dom_idx, cod_idx)
-        expected = torch.tensor([t[0, 0], t[1, 1], t[2, 2]])
+        expected = torch.stack([t[0, 0], t[1, 1], t[2, 2]]).detach()
         torch.testing.assert_close(result, expected)
 
 

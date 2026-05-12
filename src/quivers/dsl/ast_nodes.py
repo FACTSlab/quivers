@@ -345,6 +345,62 @@ class LetExprIndex(LetExprNode):
     kind: Literal["let_expr_index"] = "let_expr_index"
 
 
+class LetExprString(LetExprNode):
+    """String literal in a let expression.
+
+    Used for tokenisation, lexicon keys, and as ground-atom names
+    in LF constructors like ``pred("dog")`` and
+    ``forall("x", body)``. The runtime represents these as plain
+    Python strings.
+    """
+
+    value: str
+    kind: Literal["let_expr_string"] = "let_expr_string"
+
+
+class LetExprList(LetExprNode):
+    """List literal in a let expression — ``[a, b, c]``.
+
+    Categorically a free-monoid element over the value sublanguage;
+    the runtime represents it as a Python list (with autograd
+    flowing through tensor-valued items).
+    """
+
+    items: tuple[LetExprNode, ...]
+    kind: Literal["let_expr_list"] = "let_expr_list"
+
+
+class LetExprLambda(LetExprNode):
+    """Lambda expression ``param -> body`` in a let expression.
+
+    Closes over the surrounding let-environment at instantiation
+    time. Categorically a curried function in the Kleisli
+    setting; used as the argument to fold / map / filter / reduce
+    combinators.
+    """
+
+    param: str
+    body: LetExprNode
+    kind: Literal["let_expr_lambda"] = "let_expr_lambda"
+
+
+class LetExprMethodCall(LetExprNode):
+    """Method call ``receiver.method(args)`` in a let expression.
+
+    The receiver is itself a let-expression (typically a variable
+    reference to a let-bound chart-valued, list-valued, or other
+    object-valued value); the method is dispatched at runtime
+    against the receiver's type. Used primarily for chart-view
+    queries (``chart.weight(item)``, ``chart.enumerate(pattern)``,
+    ``chart.goal_weight()``).
+    """
+
+    receiver: LetExprNode
+    method: str
+    args: tuple[LetExprNode, ...]
+    kind: Literal["let_expr_method_call"] = "let_expr_method_call"
+
+
 # ---------------------------------------------------------------------------
 # program-block steps
 # ---------------------------------------------------------------------------
@@ -948,6 +1004,54 @@ class SequentRule(dx.Model):
     col: int = 0
 
 
+class LexiconEntry(dx.Model):
+    """A single entry in a deduction's lexicon block.
+
+    Maps a literal word string to a (category, logical-form)
+    pair, with an optional learnable log-weight. Multiple
+    entries with the same ``word`` give the model a latent
+    disjunction over (cat, lf) options for that word — at
+    chart-construction time, each becomes an independent span
+    axiom and the chart's semiring aggregates them (the
+    standard semiring-parsing realisation of latent lexical
+    categories / logical forms).
+
+    Either or both of ``category`` and ``lf`` may carry
+    structural metavariables; under Curry-Howard these are
+    types and proof witnesses, and the lexicon is a
+    *family of typed terms* in the deduction's term algebra.
+    Both slots are syntactically open enough to express
+    type-logical grammars, dependent-type systems,
+    Datalog facts, edit-distance alignment moves, or any other
+    item algebra the deduction operates over.
+
+    Attributes
+    ----------
+    word : str
+        The literal lexical token (typically a surface word in
+        an NLP setting, but may be any string-keyed item label).
+    category : TypeExpr
+        The entry's syntactic / type-theoretic category. Used
+        as the leftmost field of the span axiom emitted at chart
+        time.
+    lf : LetExprNode
+        The entry's logical form / proof witness, as a
+        let-sublanguage expression evaluated at axiom-injection
+        time.
+    learnable : bool
+        Whether to allocate a per-entry :class:`nn.Parameter`
+        log-weight (default scale ``0.0``) that the optimizer
+        can adjust during training.
+    """
+
+    word: str
+    category: TypeExpr
+    lf: LetExprNode
+    learnable: bool = False
+    line: int = 0
+    col: int = 0
+
+
 class DeductionDecl(Statement):
     """A weighted-deduction-system declaration.
 
@@ -960,13 +1064,27 @@ class DeductionDecl(Statement):
             semiring  SemiringName
             start     StartSymbol
             depth     N
+
+            # One of three optional axiom-source forms:
+            lexicon {                          # inline lexicon block
+                "every" : Cat = lf @ learnable
+                ...
+            }
+            lexicon from "path/to/lexicon.tsv" with learnable
+                                               # file-loaded lexicon
+            axioms = some_kernel_morphism      # general axiom source
         }
 
     Categorical denotation: the system denotes a
     :math:`\\mathcal{V}`-presheaf-valued morphism
     :math:`\\mathrm{Domain} \\to \\mathbf{Set}^{I^{\\mathrm{op}}}_{K}`,
     computed as the least pre-fixed point of the rule-system
-    functor in the :math:`K`-enriched lattice of charts.
+    functor in the :math:`K`-enriched lattice of charts. The
+    axiom-source field declares the kernel
+    :math:`\\mathrm{Input} \\to \\mathrm{List}(I \\times K)` that
+    produces the chart's initial items from an input value;
+    ``lexicon`` is a sugar specialisation for the
+    label-indexed-lookup case.
     """
 
     name: str
@@ -977,9 +1095,331 @@ class DeductionDecl(Statement):
     semiring: str | None = None
     start: str | None = None
     depth: int | None = None
+    lexicon: tuple[LexiconEntry, ...] = ()
+    lexicon_from_file: str | None = None
+    lexicon_from_file_learnable: bool = False
+    axioms_source: str | None = None
+    item_signature: str | None = None
+    item_encoder: str | None = None
     line: int = 0
     col: int = 0
     kind: Literal["deduction_decl"] = "deduction_decl"
+
+
+# ---------------------------------------------------------------------------
+# structural-compression: signatures, encoders, decoders, losses
+# ---------------------------------------------------------------------------
+
+
+class SortVocabLiteral(dx.Model):
+    """One entry of a data sort's closed vocabulary.
+
+    The literal carries its surface text plus a tag so the compiler
+    can decode each entry into the canonical Python value the
+    runtime stores in :attr:`Sort.vocab` (``str``, ``int``, or
+    ``float``).
+    """
+
+    kind: Literal["string", "integer", "float"]
+    text: str
+
+
+class SortDecl(dx.Model):
+    """One sort within a signature.
+
+    `kind` is one of ``"object"``, ``"index"``, ``"data"``. The dim
+    is optional at the signature level; if absent, every encoder /
+    decoder over this signature must supply it. ``vocab`` is the
+    closed-vocabulary literal sequence for data sorts (empty for
+    object / index sorts).
+    """
+
+    name: str
+    kind: Literal["object", "index", "data"]
+    dim: int | None = None
+    vocab: tuple[SortVocabLiteral, ...] = ()
+    line: int = 0
+    col: int = 0
+
+
+class ConstructorDecl(dx.Model):
+    """A typed operation `name : s_1, ..., s_n -> s` in a signature."""
+
+    name: str
+    domain: tuple[str, ...]
+    codomain: str
+    line: int = 0
+    col: int = 0
+
+
+class BinderVar(dx.Model):
+    """A variable introduced by a binder.
+
+    ``var`` and ``annot`` are names used for diagnostics only —
+    references are by de-Bruijn index inside the scope. ``sort`` is
+    the sort of the variable itself; ``annot_sort`` is the sort of
+    the variable's type annotation, if one is supplied. When
+    ``annot_sort`` is set, the binder constructor takes one
+    additional positional argument (immediately preceding the
+    bound variable's role in the scope) of that sort, which the
+    encoder / decoder thread into Γ alongside the variable's
+    embedding.
+    """
+
+    var: str
+    sort: str
+    annot: str | None = None
+    annot_sort: str | None = None
+
+
+class BinderArg(dx.Model):
+    """An argument of a binder constructor; ``scoped`` arguments live
+    in the extended context."""
+
+    arg: str
+    sort: str
+
+
+class BinderDecl(dx.Model):
+    """A binder constructor introducing new scoped variables."""
+
+    name: str
+    binds: tuple[BinderVar, ...]
+    scoped: tuple[BinderArg, ...]
+    codomain: str
+    line: int = 0
+    col: int = 0
+
+
+class VertexKindDecl(dx.Model):
+    """A vertex kind in a graph-shaped signature."""
+
+    name: str
+    kind: Literal["object", "index", "data"]
+    dim: int | None = None
+    line: int = 0
+    col: int = 0
+
+
+class EdgeKindDecl(dx.Model):
+    """An edge kind in a graph-shaped signature.
+
+    ``directed`` is True for ``src -> tgt``, False for ``src -- tgt``.
+    """
+
+    name: str
+    src: str
+    tgt: str
+    directed: bool = True
+    line: int = 0
+    col: int = 0
+
+
+class SignatureDecl(Statement):
+    """A signature block declaring an algebra over which encoders,
+    decoders, and rules are defined.
+
+    A signature may be **inductive** (sorts + constructors + binders)
+    or **graph-shaped** (vertex_kinds + edge_kinds), or both.
+    """
+
+    name: str
+    params: tuple[str, ...] = ()
+    sorts: tuple[SortDecl, ...] = ()
+    constructors: tuple[ConstructorDecl, ...] = ()
+    binders: tuple[BinderDecl, ...] = ()
+    vertex_kinds: tuple[VertexKindDecl, ...] = ()
+    edge_kinds: tuple[EdgeKindDecl, ...] = ()
+    line: int = 0
+    col: int = 0
+    kind: Literal["signature_decl"] = "signature_decl"
+
+
+class SortDim(dx.Model):
+    """A `(sort, dim)` association declared in a encoder/decoder."""
+
+    sort: str
+    dim: int
+
+
+class EncoderVarInit(dx.Model):
+    """One `var_init <var_sort> [from <annot_sort> [as <name>]]` rule.
+
+    ``annot_sort=None`` is the unannotated-binder case (no type
+    annotation; the body sees no extra arg).  When ``annot_sort`` is
+    set, ``ty`` is the body's parameter name bound to the annotation
+    embedding.
+    """
+
+    var_sort: str
+    annot_sort: str | None = None
+    ty: str | None = None
+    body: "LetExprNode"
+    line: int = 0
+    col: int = 0
+
+
+class EncoderRule(dx.Model):
+    """A per-operation encoder function.
+
+    The body is a let-expression evaluated in an environment where the
+    constructor arguments (as named in ``args``) are bound to child
+    vectors, plus framework-supplied helpers (``ctx`` for binder
+    contexts, ``state``/``prefix`` for recurrent / attention shapes).
+
+    ``mode`` selects sequence sugar:
+
+    * ``"plain"`` — direct algebra-hom rule (default).
+    * ``"recurrent"`` — left-fold, ``state`` carries the accumulator.
+    * ``"attention"`` — ``prefix`` carries the running list of prior
+      compressed children.
+    """
+
+    op: str
+    args: tuple[str, ...]
+    body: "LetExprNode"
+    mode: Literal["plain", "recurrent", "attention"] = "plain"
+    state_var: str | None = None
+    prefix_var: str | None = None
+    line: int = 0
+    col: int = 0
+
+
+class EncoderInitRule(dx.Model):
+    """Graph-signature initialiser: maps vertex `data` payloads to
+    initial vertex embeddings before message passing."""
+
+    kind: str
+    arg: str
+    body: "LetExprNode"
+    line: int = 0
+    col: int = 0
+
+
+class EncoderMessageRule(dx.Model):
+    """Graph-signature message: maps a `(src, tgt)` pair on an edge
+    kind to a message vector."""
+
+    edge_kind: str
+    src: str
+    tgt: str
+    body: "LetExprNode"
+    line: int = 0
+    col: int = 0
+
+
+class EncoderUpdateRule(dx.Model):
+    """Graph-signature update: maps `(self_embed, aggregated_msgs)`
+    to the next vertex embedding, per vertex kind."""
+
+    vertex_kind: str
+    self_var: str
+    msgs_var: str
+    body: "LetExprNode"
+    line: int = 0
+    col: int = 0
+
+
+class EncoderDecl(Statement):
+    """An algebra homomorphism from an inductive or graph signature
+    to a fixed-dimension vector carrier.
+
+    Surface form::
+
+        encoder C over Sig {
+            dim Term = 64
+            App(f, x)        |-> mlp_app([f, x])
+            Lam(ty, body)    |-> mlp_lam([ty, body])
+            var_init(ty)     |-> mlp_var_init(ty)
+            iterations 4                       # graph-only
+            init Atom(a)     |-> atom_embed[a] # graph-only
+            message[e](s, t) |-> mlp_msg([s, t])
+            update[V](s, m)  |-> gru_update(s, m)
+            readout          |-> mean_pool
+        }
+    """
+
+    name: str
+    signature: str
+    sig_args: tuple[str, ...] = ()
+    dims: tuple[SortDim, ...] = ()
+    op_rules: tuple[EncoderRule, ...] = ()
+    init_rules: tuple[EncoderInitRule, ...] = ()
+    message_rules: tuple[EncoderMessageRule, ...] = ()
+    update_rules: tuple[EncoderUpdateRule, ...] = ()
+    iterations: int | None = None
+    readout: "LetExprNode | None" = None
+    var_inits: tuple[EncoderVarInit, ...] = ()
+    line: int = 0
+    col: int = 0
+    kind: Literal["encoder_decl"] = "encoder_decl"
+
+
+class DecoderDecl(Statement):
+    """A Kleisli coalgebraic decoder over an inductive or graph
+    signature.
+
+    Surface form::
+
+        decoder D over Sig depth 8 {
+            dim Term = 64
+            structure(v)      |-> structure_logits(v)
+            primitive(v)      |-> primitive_logits(v)
+            factor(v)         |-> factor_split(v)
+            binder_select(v)  |-> binder_logits(v)
+            body              |-> recursive
+        }
+    """
+
+    name: str
+    signature: str
+    sig_args: tuple[str, ...] = ()
+    depth: int = 8
+    dims: tuple[SortDim, ...] = ()
+    structure: "LetExprNode | None" = None
+    structure_arg: str | None = None
+    primitive: "LetExprNode | None" = None
+    primitive_arg: str | None = None
+    factor: "LetExprNode | None" = None
+    factor_arg: str | None = None
+    binder_select: "LetExprNode | None" = None
+    binder_select_arg: str | None = None
+    recursive_default: bool = True
+    line: int = 0
+    col: int = 0
+    kind: Literal["decoder_decl"] = "decoder_decl"
+
+
+class LossAttachment(dx.Model):
+    """Where a loss fires.
+
+    ``attachment_kind`` is one of:
+
+    * ``"global"`` — fires once per training step.
+    * ``"program"`` — fires after a named program invocation.
+    * ``"deduction"`` — fires after a named deduction's chart build.
+    * ``"encoder"`` / ``"decoder"`` — fires after the named call.
+    * ``"rule"`` — fires on each application of a named rule.
+    * ``"chart"`` — fires once on the chart of a named deduction.
+    """
+
+    attachment_kind: Literal[
+        "global", "program", "deduction", "encoder", "decoder", "rule", "chart"
+    ] = "global"
+    target: str | None = None
+    rule_deduction: str | None = None
+
+
+class LossDecl(Statement):
+    """A weighted scalar loss, attachable to any training site."""
+
+    name: str
+    weight: "LetExprNode | None" = None
+    attachment: LossAttachment = dx.field(default_factory=LossAttachment)
+    body: "LetExprNode"
+    line: int = 0
+    col: int = 0
+    kind: Literal["loss_decl"] = "loss_decl"
 
 
 # ---------------------------------------------------------------------------

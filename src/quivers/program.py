@@ -39,7 +39,10 @@ class Program(nn.Module):
     >>> out = prog()  # shape (3, 4)
     """
 
-    def __init__(self, morphism: Morphism | ContinuousMorphism | nn.Module) -> None:
+    def __init__(
+        self,
+        morphism: Morphism | ContinuousMorphism | nn.Module | None = None,
+    ) -> None:
         super().__init__()
         self._morphism = morphism
         self._is_continuous = isinstance(morphism, ContinuousMorphism)
@@ -51,26 +54,42 @@ class Program(nn.Module):
 
         # registering the module tree makes all parameters visible
         # to optimizer via self.parameters()
-        if self._is_continuous or self._is_callable_module:
+        if morphism is None:
+            # A morphism-less Program is a container for structural
+            # artifacts (signatures, encoders, decoders, losses)
+            # in a module that declares no top-level exported morphism.
+            self._root = None
+        elif self._is_continuous or self._is_callable_module:
             # continuous morphisms and parser modules are already nn.Modules
             self._root = morphism
-
         else:
             self._root = cast(Morphism, morphism).module()
 
     @property
-    def morphism(self) -> Morphism | ContinuousMorphism | nn.Module:
-        """The underlying morphism expression."""
+    def morphism(self) -> Morphism | ContinuousMorphism | nn.Module | None:
+        """The underlying morphism expression, or ``None`` for a
+        morphism-less module (one declaring only signatures /
+        encoders / decoders / losses)."""
         return self._morphism
 
     @property
     def domain(self):
         """Domain of the underlying morphism."""
+        if self._morphism is None:
+            raise AttributeError(
+                "this Program has no exported morphism; its domain "
+                "is undefined"
+            )
         return self._morphism.domain
 
     @property
     def codomain(self):
         """Codomain of the underlying morphism."""
+        if self._morphism is None:
+            raise AttributeError(
+                "this Program has no exported morphism; its codomain "
+                "is undefined"
+            )
         return self._morphism.codomain
 
     def rsample(
@@ -149,6 +168,11 @@ class Program(nn.Module):
         TypeError
             If the underlying morphism is continuous.
         """
+        if self._morphism is None:
+            raise TypeError(
+                "forward() is not supported on a Program with no exported "
+                "morphism; this module declares structural artifacts only"
+            )
         if self._is_continuous:
             raise TypeError(
                 "forward() is not supported for continuous programs; "

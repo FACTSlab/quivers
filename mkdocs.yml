@@ -84,6 +84,7 @@ nav:
     - Compositional Effects: guides/effects.md
     - Variational Inference: guides/inference.md
     - Weighted Deduction Systems: guides/deduction.md
+    - Structural Compression: guides/structural-compression.md
   - Denotational Semantics:
     - Overview: semantics/index.md
     - Setting and Notation: semantics/setting.md
@@ -193,6 +194,11 @@ nav:
       - Resolution Lenses: api/dsl/resolution.md
       - Constraint Solver: api/dsl/constraints.md
       - Program Theory: api/dsl/program_theory.md
+    - Structural:
+      - Signatures: api/structural/signature.md
+      - Encoders: api/structural/encoder.md
+      - Decoders: api/structural/decoder.md
+      - Loss Registry: api/structural/losses.md
     - CLI: api/cli.md
     - Inference:
       - Overview: api/inference/trace.md

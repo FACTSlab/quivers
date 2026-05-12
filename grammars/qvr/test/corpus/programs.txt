@@ -78,8 +78,9 @@ program p : A -> B
     steps: (let_step
       name: (identifier)
       value: (let_binop
-        left: (let_call args: (let_var (identifier)))
+        left: (let_call func: (identifier) args: (let_var (identifier)))
         right: (let_call
+          func: (identifier)
           args: (let_binop
             left: (let_literal (float))
             right: (let_var (identifier))))))
@@ -187,7 +188,7 @@ program post : X -> Y ! Pure over event_structure
     over_model: (identifier)
     steps: (let_step
       name: (identifier)
-      value: (let_call args: (let_var (identifier))))
+      value: (let_call func: (identifier) args: (let_var (identifier))))
     return: (identifier)))
 
 ==================

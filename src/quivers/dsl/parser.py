@@ -19,8 +19,28 @@ from quivers.dsl.ast_nodes import (
     BindStep,
     BundleDecl,
     CategoryDecl,
+    BinderArg,
+    BinderDecl,
+    BinderVar,
+    EncoderDecl,
+    EncoderInitRule,
+    EncoderMessageRule,
+    EncoderRule,
+    EncoderUpdateRule,
+    EncoderVarInit,
+    ConstructorDecl,
+    DecoderDecl,
     DeductionDecl,
+    EdgeKindDecl,
+    LexiconEntry,
+    LossAttachment,
+    LossDecl,
     SequentRule,
+    SignatureDecl,
+    SortDecl,
+    SortDim,
+    SortVocabLiteral,
+    VertexKindDecl,
     ContinuousMorphismDecl,
     DiscretizeDecl,
     EmbedDecl,
@@ -45,8 +65,12 @@ from quivers.dsl.ast_nodes import (
     LetExprBinOp,
     LetExprCall,
     LetExprIndex,
+    LetExprLambda,
+    LetExprList,
     LetExprLiteral,
+    LetExprMethodCall,
     LetExprNode,
+    LetExprString,
     LetExprUnaryOp,
     LetExprVar,
     LetStep,
@@ -611,18 +635,50 @@ def _walk_let_arith(t: _Tree, vid: str) -> LetExprNode:
             indices=tuple(_walk_let_arith(t, iv) for iv in index_vids),
         )
     if k == "let_call":
-        # The `func` field is an anonymous-string-choice token; recover the
-        # function name from the source bytes between the let_call vertex's
-        # start and the first `(`. See panproto/panproto#86.
-        cs = t.consts(vid)
-        sb = int(cs["start-byte"])
-        paren_at = t.source.find(b"(", sb)
-        if paren_at < 0:
-            raise ParseError(f"let_call at {vid} has no '(': source malformed")
-        func = t.source[sb:paren_at].decode("utf-8").strip()
+        # The `func` field is now an `$.identifier` non-terminal. The
+        # walker reads it as a plain text node.
+        func_vid = t.field(vid, "func")
+        if func_vid is None:
+            raise ParseError(f"let_call missing func at {vid}")
+        func = t.text(func_vid)
         return LetExprCall(
             func=func,
             args=tuple(_walk_let_arith(t, av) for av in t.fields(vid, "args")),
+        )
+    if k == "let_list":
+        # `[a, b, c]` — list literal in let-expressions.
+        return LetExprList(
+            items=tuple(_walk_let_arith(t, av) for av in t.positional(vid)
+                        if t.kind(av) not in ("[", "]", ",")),
+        )
+    if k == "let_string":
+        # `"..."` — string literal. Strip the surrounding quotes and
+        # interpret backslash escapes.
+        raw = t.text(t.positional(vid)[0])
+        if raw.startswith('"') and raw.endswith('"'):
+            raw = raw[1:-1]
+        return LetExprString(value=raw.encode("utf-8").decode("unicode_escape"))
+    if k == "let_lambda":
+        # `param -> body` — lambda in the let-sublanguage.
+        param_vid = t.field(vid, "param")
+        body_vid = t.field(vid, "body")
+        if param_vid is None or body_vid is None:
+            raise ParseError(f"let_lambda missing param/body at {vid}")
+        return LetExprLambda(
+            param=t.text(param_vid),
+            body=_walk_let_arith(t, body_vid),
+        )
+    if k == "let_method_call":
+        # `receiver.method(args)` — dispatched at runtime.
+        recv_vid = t.field(vid, "receiver")
+        method_vid = t.field(vid, "method")
+        if recv_vid is None or method_vid is None:
+            raise ParseError(f"let_method_call missing receiver/method at {vid}")
+        args = tuple(_walk_let_arith(t, av) for av in t.fields(vid, "args"))
+        return LetExprMethodCall(
+            receiver=_walk_let_arith(t, recv_vid),
+            method=t.text(method_vid),
+            args=args,
         )
     if k == "let_unary":
         op_vid = t.field(vid, "operand")
@@ -1071,6 +1127,14 @@ def _walk_statement(t: _Tree, vid: str) -> Statement | list[Statement]:
         )
     if k == "deduction_decl":
         return _walk_deduction_decl(t, vid, line, col)
+    if k == "signature_decl":
+        return _walk_signature_decl(t, vid, line, col)
+    if k == "encoder_decl":
+        return _walk_encoder_decl(t, vid, line, col)
+    if k == "decoder_decl":
+        return _walk_decoder_decl(t, vid, line, col)
+    if k == "loss_decl":
+        return _walk_loss_decl(t, vid, line, col)
     raise ParseError(f"unexpected statement kind: {k}")
 
 
@@ -1093,6 +1157,12 @@ def _walk_deduction_decl(
     semiring: str | None = None
     start: str | None = None
     depth: int | None = None
+    lex_entries: list[LexiconEntry] = []
+    lex_from_file: str | None = None
+    lex_from_file_learnable: bool = False
+    axioms_source: str | None = None
+    item_signature: str | None = None
+    item_encoder: str | None = None
     # Walk children in order.
     for child in t.positional(vid):
         kk = t.kind(child)
@@ -1122,6 +1192,32 @@ def _walk_deduction_decl(
             start = _required_text(t, t.field(child, "start"), child, "start")
         elif kk == "deduction_depth":
             depth = int(_required_text(t, t.field(child, "depth"), child, "depth"))
+        elif kk == "deduction_lexicon":
+            for entry_vid in t.positional(child):
+                if t.kind(entry_vid) != "lexicon_entry":
+                    continue
+                lex_entries.append(_walk_lexicon_entry(t, entry_vid))
+        elif kk == "deduction_lexicon_from_file":
+            path_raw = _required_text(t, t.field(child, "path"), child, "path")
+            # Strip surrounding quotes from the string literal.
+            if path_raw.startswith('"') and path_raw.endswith('"'):
+                path_raw = path_raw[1:-1]
+            lex_from_file = path_raw
+            lex_from_file_learnable = (
+                t.field(child, "learnable") is not None
+            )
+        elif kk == "deduction_axioms":
+            axioms_source = _required_text(
+                t, t.field(child, "source"), child, "source"
+            )
+        elif kk == "deduction_signature":
+            item_signature = _required_text(
+                t, t.field(child, "signature"), child, "signature"
+            )
+        elif kk == "deduction_encoder_attach":
+            item_encoder = _required_text(
+                t, t.field(child, "encoder"), child, "encoder"
+            )
     return DeductionDecl(
         name=_required_text(t, nv, vid, "name"),
         domain=_walk_type(t, dv),
@@ -1131,6 +1227,38 @@ def _walk_deduction_decl(
         semiring=semiring,
         start=start,
         depth=depth,
+        lexicon=tuple(lex_entries),
+        lexicon_from_file=lex_from_file,
+        lexicon_from_file_learnable=lex_from_file_learnable,
+        axioms_source=axioms_source,
+        item_signature=item_signature,
+        item_encoder=item_encoder,
+        line=line,
+        col=col,
+    )
+
+
+def _walk_lexicon_entry(t: _Tree, vid: str) -> LexiconEntry:
+    """Walk a single `lexicon_entry` into a :class:`LexiconEntry`.
+
+    Surface form: ``"word" : Category = lf_template @ learnable``.
+    """
+    wv = t.field(vid, "word")
+    cv = t.field(vid, "category")
+    lv = t.field(vid, "lf")
+    if wv is None or cv is None or lv is None:
+        raise ParseError(f"lexicon_entry malformed at {vid}")
+    word_raw = t.text(wv)
+    if word_raw.startswith('"') and word_raw.endswith('"'):
+        word_raw = word_raw[1:-1]
+    learnable_vid = t.field(vid, "learnable")
+    learnable = learnable_vid is not None
+    line, col = t.line_col(vid)
+    return LexiconEntry(
+        word=word_raw,
+        category=_walk_type(t, cv),
+        lf=_walk_let_arith(t, lv),
+        learnable=learnable,
         line=line,
         col=col,
     )
@@ -1365,3 +1493,382 @@ def parse_file(path: str | Path) -> Module:
     """Parse a `.qvr` file at `path`."""
     p = Path(path)
     return parse(p.read_bytes(), str(p))
+
+
+# ---------------------------------------------------------------------------
+# structural-compression walkers
+# ---------------------------------------------------------------------------
+
+
+def _walk_signature_decl(
+    t: _Tree, vid: str, line: int, col: int
+) -> SignatureDecl:
+    name_vid = t.field(vid, "name")
+    if name_vid is None:
+        raise ParseError(f"signature_decl missing name at {vid}")
+    name = t.text(name_vid)
+    params = tuple(t.text(c) for c in t.fields(vid, "params"))
+
+    sorts: list[SortDecl] = []
+    constructors: list[ConstructorDecl] = []
+    binders: list[BinderDecl] = []
+    vertex_kinds: list[VertexKindDecl] = []
+    edge_kinds: list[EdgeKindDecl] = []
+
+    for child in t.positional(vid):
+        ck = t.kind(child)
+        if ck == "signature_sorts":
+            for s in t.fields(child, "sorts"):
+                sorts.append(_walk_sort_decl(t, s))
+        elif ck == "signature_constructors":
+            for c in t.fields(child, "constructors"):
+                constructors.append(_walk_constructor_decl(t, c))
+        elif ck == "signature_binders":
+            for b in t.fields(child, "binders"):
+                binders.append(_walk_binder_decl(t, b))
+        elif ck == "signature_vertex_kinds":
+            for v in t.fields(child, "vertex_kinds"):
+                vertex_kinds.append(_walk_vertex_kind_decl(t, v))
+        elif ck == "signature_edge_kinds":
+            for e in t.fields(child, "edge_kinds"):
+                edge_kinds.append(_walk_edge_kind_decl(t, e))
+
+    return SignatureDecl(
+        name=name,
+        params=params,
+        sorts=tuple(sorts),
+        constructors=tuple(constructors),
+        binders=tuple(binders),
+        vertex_kinds=tuple(vertex_kinds),
+        edge_kinds=tuple(edge_kinds),
+        line=line,
+        col=col,
+    )
+
+
+def _walk_sort_decl(t: _Tree, vid: str) -> SortDecl:
+    name = t.text(t.field(vid, "name"))
+    kind_vid = t.field(vid, "kind")
+    if kind_vid is None:
+        raise ParseError(f"sort_decl missing kind at {vid}")
+    kind_txt = t.text(kind_vid)
+    dim_vid = t.field(vid, "dim")
+    dim = int(t.text(dim_vid)) if dim_vid is not None else None
+    vocab: list[SortVocabLiteral] = []
+    for vlit_vid in t.fields(vid, "vocab"):
+        # `vocab_literal` is a wrapper choice over string/integer/
+        # float; descend to the inner concrete literal node.
+        inner_vids = [
+            c for c in t.positional(vlit_vid)
+            if t.kind(c) in ("string", "integer", "float")
+        ]
+        if len(inner_vids) != 1:
+            raise ParseError(
+                f"sort_decl {name!r}: vocabulary literal at {vlit_vid} is "
+                f"malformed (expected one of string/integer/float, got "
+                f"{[t.kind(c) for c in inner_vids]!r})"
+            )
+        inner = inner_vids[0]
+        lit_kind = t.kind(inner)
+        vocab.append(SortVocabLiteral(kind=lit_kind, text=t.text(inner)))
+    ln, cl = t.line_col(vid)
+    return SortDecl(
+        name=name,
+        kind=kind_txt,
+        dim=dim,
+        vocab=tuple(vocab),
+        line=ln,
+        col=cl,
+    )
+
+
+def _walk_constructor_decl(t: _Tree, vid: str) -> ConstructorDecl:
+    name = t.text(t.field(vid, "name"))
+    domain_vids = t.fields(vid, "domain")
+    domain = tuple(t.text(d) for d in domain_vids)
+    codomain = t.text(t.field(vid, "codomain"))
+    ln, cl = t.line_col(vid)
+    return ConstructorDecl(
+        name=name, domain=domain, codomain=codomain, line=ln, col=cl,
+    )
+
+
+def _walk_binder_decl(t: _Tree, vid: str) -> BinderDecl:
+    name = t.text(t.field(vid, "name"))
+    binds_list: list[BinderVar] = []
+    for b in t.fields(vid, "binds"):
+        annot_vid = t.field(b, "annot")
+        annot_sort_vid = t.field(b, "annot_sort")
+        binds_list.append(BinderVar(
+            var=t.text(t.field(b, "var")),
+            sort=t.text(t.field(b, "sort")),
+            annot=t.text(annot_vid) if annot_vid is not None else None,
+            annot_sort=(
+                t.text(annot_sort_vid) if annot_sort_vid is not None else None
+            ),
+        ))
+    binds = tuple(binds_list)
+    scoped = tuple(
+        BinderArg(
+            arg=t.text(t.field(a, "arg")),
+            sort=t.text(t.field(a, "sort")),
+        )
+        for a in t.fields(vid, "scoped")
+    )
+    codomain = t.text(t.field(vid, "codomain"))
+    ln, cl = t.line_col(vid)
+    return BinderDecl(
+        name=name, binds=binds, scoped=scoped, codomain=codomain,
+        line=ln, col=cl,
+    )
+
+
+def _walk_vertex_kind_decl(t: _Tree, vid: str) -> VertexKindDecl:
+    name = t.text(t.field(vid, "name"))
+    kind_vid = t.field(vid, "kind")
+    if kind_vid is None:
+        raise ParseError(f"vertex_kind_decl missing kind at {vid}")
+    kind_txt = t.text(kind_vid)
+    dim_vid = t.field(vid, "dim")
+    dim = int(t.text(dim_vid)) if dim_vid is not None else None
+    ln, cl = t.line_col(vid)
+    return VertexKindDecl(name=name, kind=kind_txt, dim=dim, line=ln, col=cl)
+
+
+def _walk_edge_kind_decl(t: _Tree, vid: str) -> EdgeKindDecl:
+    name = t.text(t.field(vid, "name"))
+    src = t.text(t.field(vid, "src"))
+    tgt = t.text(t.field(vid, "tgt"))
+    arrow_vid = t.field(vid, "arrow")
+    if arrow_vid is None:
+        raise ParseError(f"edge_kind_decl missing arrow at {vid}")
+    arrow_txt = t.text(arrow_vid)
+    if arrow_txt == "->":
+        directed = True
+    elif arrow_txt == "--":
+        directed = False
+    else:
+        raise ParseError(
+            f"edge_kind_decl at {vid}: unknown arrow {arrow_txt!r}"
+        )
+    ln, cl = t.line_col(vid)
+    return EdgeKindDecl(
+        name=name, src=src, tgt=tgt, directed=directed, line=ln, col=cl,
+    )
+
+
+def _walk_encoder_decl(
+    t: _Tree, vid: str, line: int, col: int
+) -> EncoderDecl:
+    name = t.text(t.field(vid, "name"))
+    signature = t.text(t.field(vid, "signature"))
+    sig_args = tuple(t.text(c) for c in t.fields(vid, "sig_args"))
+
+    dims: list[SortDim] = []
+    op_rules: list[EncoderRule] = []
+    init_rules: list[EncoderInitRule] = []
+    message_rules: list[EncoderMessageRule] = []
+    update_rules: list[EncoderUpdateRule] = []
+    iterations: int | None = None
+    readout: LetExprNode | None = None
+    var_inits: list[EncoderVarInit] = []
+
+    for child in t.positional(vid):
+        ck = t.kind(child)
+        if ck == "encoder_dim":
+            sort = t.text(t.field(child, "sort"))
+            dim = int(t.text(t.field(child, "dim")))
+            dims.append(SortDim(sort=sort, dim=dim))
+        elif ck == "encoder_iterations":
+            iterations = int(t.text(t.field(child, "iterations")))
+        elif ck == "encoder_readout":
+            readout = _walk_let_arith(t, t.field(child, "body"))
+        elif ck == "encoder_op_rule":
+            op = t.text(t.field(child, "op"))
+            args = tuple(t.text(a) for a in t.fields(child, "args"))
+            body = _walk_let_arith(t, t.field(child, "body"))
+            state_v = t.field(child, "state")
+            prefix_v = t.field(child, "prefix")
+            mode = "plain"
+            state_var = None
+            prefix_var = None
+            if state_v is not None:
+                mode = "recurrent"
+                state_var = t.text(state_v)
+            elif prefix_v is not None:
+                mode = "attention"
+                prefix_var = t.text(prefix_v)
+            cln, ccl = t.line_col(child)
+            op_rules.append(EncoderRule(
+                op=op, args=args, body=body, mode=mode,
+                state_var=state_var, prefix_var=prefix_var,
+                line=cln, col=ccl,
+            ))
+        elif ck == "encoder_init_rule":
+            init_rules.append(EncoderInitRule(
+                kind=t.text(t.field(child, "kind")),
+                arg=t.text(t.field(child, "arg")),
+                body=_walk_let_arith(t, t.field(child, "body")),
+            ))
+        elif ck == "encoder_message_rule":
+            message_rules.append(EncoderMessageRule(
+                edge_kind=t.text(t.field(child, "edge_kind")),
+                src=t.text(t.field(child, "src")),
+                tgt=t.text(t.field(child, "tgt")),
+                body=_walk_let_arith(t, t.field(child, "body")),
+            ))
+        elif ck == "encoder_update_rule":
+            update_rules.append(EncoderUpdateRule(
+                vertex_kind=t.text(t.field(child, "vertex_kind")),
+                self_var=t.text(t.field(child, "self")),
+                msgs_var=t.text(t.field(child, "msgs")),
+                body=_walk_let_arith(t, t.field(child, "body")),
+            ))
+        elif ck == "encoder_var_init":
+            vs_vid = t.field(child, "var_sort")
+            if vs_vid is None:
+                raise ParseError(
+                    f"encoder_var_init at {child} missing var_sort"
+                )
+            annot_vid = t.field(child, "annot_sort")
+            ty_vid = t.field(child, "ty")
+            ln, cl = t.line_col(child)
+            var_inits.append(EncoderVarInit(
+                var_sort=t.text(vs_vid),
+                annot_sort=(
+                    t.text(annot_vid) if annot_vid is not None else None
+                ),
+                ty=t.text(ty_vid) if ty_vid is not None else None,
+                body=_walk_let_arith(t, t.field(child, "body")),
+                line=ln,
+                col=cl,
+            ))
+
+    return EncoderDecl(
+        name=name,
+        signature=signature,
+        sig_args=sig_args,
+        dims=tuple(dims),
+        op_rules=tuple(op_rules),
+        init_rules=tuple(init_rules),
+        message_rules=tuple(message_rules),
+        update_rules=tuple(update_rules),
+        iterations=iterations,
+        readout=readout,
+        var_inits=tuple(var_inits),
+        line=line,
+        col=col,
+    )
+
+
+def _walk_decoder_decl(
+    t: _Tree, vid: str, line: int, col: int
+) -> DecoderDecl:
+    name = t.text(t.field(vid, "name"))
+    signature = t.text(t.field(vid, "signature"))
+    sig_args = tuple(t.text(c) for c in t.fields(vid, "sig_args"))
+    depth_vid = t.field(vid, "depth")
+    depth = int(t.text(depth_vid)) if depth_vid is not None else 8
+
+    dims: list[SortDim] = []
+    structure_body: LetExprNode | None = None
+    structure_arg: str | None = None
+    primitive_body: LetExprNode | None = None
+    primitive_arg: str | None = None
+    factor_body: LetExprNode | None = None
+    factor_arg: str | None = None
+    binder_body: LetExprNode | None = None
+    binder_arg: str | None = None
+    recursive_default = False
+
+    for child in t.positional(vid):
+        ck = t.kind(child)
+        if ck == "decoder_dim":
+            sort = t.text(t.field(child, "sort"))
+            dim = int(t.text(t.field(child, "dim")))
+            dims.append(SortDim(sort=sort, dim=dim))
+        elif ck == "decoder_structure":
+            structure_arg = t.text(t.field(child, "arg"))
+            structure_body = _walk_let_arith(t, t.field(child, "body"))
+        elif ck == "decoder_primitive":
+            primitive_arg = t.text(t.field(child, "arg"))
+            primitive_body = _walk_let_arith(t, t.field(child, "body"))
+        elif ck == "decoder_factor":
+            factor_arg = t.text(t.field(child, "arg"))
+            factor_body = _walk_let_arith(t, t.field(child, "body"))
+        elif ck == "decoder_binder_select":
+            binder_arg = t.text(t.field(child, "arg"))
+            binder_body = _walk_let_arith(t, t.field(child, "body"))
+        elif ck == "decoder_body_default":
+            recursive_default = True
+
+    return DecoderDecl(
+        name=name,
+        signature=signature,
+        sig_args=sig_args,
+        depth=depth,
+        dims=tuple(dims),
+        structure=structure_body,
+        structure_arg=structure_arg,
+        primitive=primitive_body,
+        primitive_arg=primitive_arg,
+        factor=factor_body,
+        factor_arg=factor_arg,
+        binder_select=binder_body,
+        binder_select_arg=binder_arg,
+        recursive_default=recursive_default,
+        line=line,
+        col=col,
+    )
+
+
+def _walk_loss_decl(
+    t: _Tree, vid: str, line: int, col: int
+) -> LossDecl:
+    name = t.text(t.field(vid, "name"))
+    weight_vid = t.field(vid, "weight")
+    weight = _walk_let_arith(t, weight_vid) if weight_vid is not None else None
+    body = _walk_let_arith(t, t.field(vid, "body"))
+
+    attachment = LossAttachment(attachment_kind="global")
+    att_vid = t.field(vid, "attachment")
+    if att_vid is not None:
+        kind_vid = t.field(att_vid, "kind")
+        tgt_vid = t.field(att_vid, "target")
+        rule_vid = t.field(att_vid, "rule_name")
+        ded_vid = t.field(att_vid, "deduction")
+        chart_vid = t.field(att_vid, "chart_of")
+        if rule_vid is not None and ded_vid is not None:
+            attachment = LossAttachment(
+                attachment_kind="rule",
+                target=t.text(rule_vid),
+                rule_deduction=t.text(ded_vid),
+            )
+        elif chart_vid is not None:
+            attachment = LossAttachment(
+                attachment_kind="chart",
+                target=t.text(chart_vid),
+            )
+        elif tgt_vid is not None:
+            if kind_vid is None:
+                raise ParseError(
+                    f"loss_attachment at {att_vid}: missing kind"
+                )
+            k = t.text(kind_vid)
+            if k not in ("program", "deduction", "encoder", "decoder"):
+                raise ParseError(
+                    f"loss_attachment at {att_vid}: unknown kind {k!r}"
+                )
+            attachment = LossAttachment(
+                attachment_kind=k,  # type: ignore[arg-type]
+                target=t.text(tgt_vid),
+            )
+
+    return LossDecl(
+        name=name,
+        weight=weight,
+        attachment=attachment,
+        body=body,
+        line=line,
+        col=col,
+    )

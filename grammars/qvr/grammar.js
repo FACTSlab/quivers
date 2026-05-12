@@ -70,6 +70,10 @@ module.exports = grammar({
       $.let_decl,
       $.export_decl,
       $.deduction_decl,
+      $.signature_decl,
+      $.encoder_decl,
+      $.decoder_decl,
+      $.loss_decl,
     ),
 
     // ---------------------------------------------------------------
@@ -195,8 +199,23 @@ module.exports = grammar({
         $.deduction_semiring,
         $.deduction_start,
         $.deduction_depth,
+        $.deduction_lexicon,
+        $.deduction_lexicon_from_file,
+        $.deduction_axioms,
+        $.deduction_signature,
+        $.deduction_encoder_attach,
       )),
       '}',
+    ),
+
+    deduction_signature: $ => seq(
+      'signature',
+      field('signature', $.identifier),
+    ),
+
+    deduction_encoder_attach: $ => seq(
+      'encoder',
+      field('encoder', $.identifier),
     ),
 
     // Atoms block: `atoms { A, B, C }`.
@@ -233,6 +252,427 @@ module.exports = grammar({
     deduction_depth: $ => seq(
       'depth',
       field('depth', $.integer),
+    ),
+
+    // Inline lexicon block — for small / hand-built deductions:
+    //
+    //   lexicon {
+    //       "every"  : S/(S\NP) = every_lf  @ learnable
+    //       "dog"    : S\NP     = pred_dog  @ learnable
+    //   }
+    //
+    // Each entry maps a literal word string to a (category,
+    // LF-template) pair with an optional `@ learnable` modifier
+    // that requests a per-entry `nn.Parameter` log-weight.
+    deduction_lexicon: $ => seq(
+      'lexicon',
+      '{',
+      repeat($.lexicon_entry),
+      '}',
+    ),
+
+    lexicon_entry: $ => seq(
+      field('word', $.string),
+      ':',
+      field('category', $._type_expr),
+      '=',
+      field('lf', $._let_arith),
+      optional(seq('@', field('learnable', $.learnable_marker))),
+    ),
+
+    learnable_marker: $ => 'learnable',
+
+    // File-loaded lexicon — for large vocabularies:
+    //
+    //   lexicon from "lexicon.tsv" with learnable
+    //
+    // The path is resolved relative to the source .qvr file. The
+    // file is read at compile time; one nn.Parameter is allocated
+    // per row when `with learnable` is present. Supported
+    // formats: TSV with three columns `word, category, lf_term`.
+    deduction_lexicon_from_file: $ => seq(
+      'lexicon',
+      'from',
+      field('path', $.string),
+      optional(seq('with', field('learnable', $.learnable_marker))),
+    ),
+
+    // General axiom source — for axioms that are not lexicon-shaped:
+    //
+    //   axioms = some_morphism_name
+    //
+    // The named morphism is a kernel `Input -> List[(Item, Weight)]`
+    // resolved from the surrounding module's `let` / `continuous` /
+    // `stochastic` bindings. `lexicon { … }` and `lexicon from "..."`
+    // are sugar for the lexical specialisation of this primitive.
+    deduction_axioms: $ => seq(
+      'axioms',
+      '=',
+      field('source', $.identifier),
+    ),
+
+    // ---------------------------------------------------------------
+    // structural-compression: signatures, encoders, decoders, losses
+    // ---------------------------------------------------------------
+    //
+    // A `signature` block declares the algebra over which encoders
+    // and decoders are defined. It contains sorts, constructors (typed
+    // operations), binders (operations that introduce scoped variables
+    // under a de-Bruijn discipline with explicit bound-variable types),
+    // and optionally vertex/edge kinds for graph-shaped signatures.
+
+    signature_decl: $ => seq(
+      'signature',
+      field('name', $.identifier),
+      optional(seq('[', field('params', commaSep1($.identifier)), ']')),
+      '{',
+      repeat(choice(
+        $.signature_sorts,
+        $.signature_constructors,
+        $.signature_binders,
+        $.signature_vertex_kinds,
+        $.signature_edge_kinds,
+      )),
+      '}',
+    ),
+
+    signature_sorts: $ => seq(
+      'sorts',
+      '{',
+      repeat(field('sorts', $.sort_decl)),
+      '}',
+    ),
+
+    sort_decl: $ => seq(
+      field('name', $.identifier),
+      ':',
+      field('kind', $.sort_kind),
+      optional(seq('dim', field('dim', $.integer))),
+      optional(seq(
+        'vocab',
+        '{',
+        field('vocab', commaSep1($.vocab_literal)),
+        '}',
+      )),
+      optional(','),
+    ),
+
+    sort_kind: $ => choice('object', 'index', 'data'),
+
+    // A closed-vocabulary entry. We accept the three principal
+    // data-leaf shapes: string literals, signed integers, and
+    // floats. The compiler validates that the host sort is `data`.
+    vocab_literal: $ => choice(
+      $.string,
+      $.integer,
+      $.float,
+    ),
+
+    signature_constructors: $ => seq(
+      'constructors',
+      '{',
+      repeat(field('constructors', $.constructor_decl)),
+      '}',
+    ),
+
+    constructor_decl: $ => seq(
+      field('name', $.identifier),
+      ':',
+      optional(field('domain', commaSep1($._sig_sort))),
+      '->',
+      field('codomain', $._sig_sort),
+      optional(','),
+    ),
+
+    _sig_sort: $ => prec(1, $.identifier),
+
+    signature_binders: $ => seq(
+      'binders',
+      '{',
+      repeat(field('binders', $.binder_decl)),
+      '}',
+    ),
+
+    binder_decl: $ => seq(
+      field('name', $.identifier),
+      ':',
+      'binds',
+      '(',
+      field('binds', commaSep1($.binder_var_decl)),
+      ')',
+      'in',
+      '(',
+      field('scoped', commaSep1($.binder_arg_decl)),
+      ')',
+      '->',
+      field('codomain', $._sig_sort),
+      optional(','),
+    ),
+
+    // A binder variable: `var : sort` introduces a variable of the
+    // given sort; an optional `: annot : annot_sort` clause attaches
+    // a type annotation visible to the encoder / decoder while
+    // not itself entering the scope of `body`.
+    binder_var_decl: $ => seq(
+      field('var', $.identifier),
+      ':',
+      field('sort', $.identifier),
+      optional(seq(
+        ':',
+        field('annot', $.identifier),
+        ':',
+        field('annot_sort', $.identifier),
+      )),
+    ),
+
+    binder_arg_decl: $ => seq(
+      field('arg', $.identifier),
+      ':',
+      field('sort', $.identifier),
+    ),
+
+    signature_vertex_kinds: $ => seq(
+      'vertex_kinds',
+      '{',
+      repeat(field('vertex_kinds', $.vertex_kind_decl)),
+      '}',
+    ),
+
+    vertex_kind_decl: $ => seq(
+      field('name', $.identifier),
+      ':',
+      field('kind', $.sort_kind),
+      optional(seq('dim', field('dim', $.integer))),
+      optional(','),
+    ),
+
+    signature_edge_kinds: $ => seq(
+      'edge_kinds',
+      '{',
+      repeat(field('edge_kinds', $.edge_kind_decl)),
+      '}',
+    ),
+
+    edge_kind_decl: $ => seq(
+      field('name', $.identifier),
+      ':',
+      field('src', $.identifier),
+      field('arrow', $.edge_arrow),
+      field('tgt', $.identifier),
+      optional(','),
+    ),
+
+    edge_arrow: $ => choice('->', '--'),
+
+    // ---------------------------------------------------------------
+    // Encoder declaration: an algebra homomorphism T_Σ -> Vec_D
+    // realised by per-constructor parametric functions.
+
+    encoder_decl: $ => seq(
+      'encoder',
+      field('name', $.identifier),
+      'over',
+      field('signature', $.identifier),
+      optional(seq('[', field('sig_args', commaSep1($.identifier)), ']')),
+      '{',
+      repeat(choice(
+        $.encoder_dim,
+        $.encoder_iterations,
+        $.encoder_readout,
+        $.encoder_op_rule,
+        $.encoder_message_rule,
+        $.encoder_update_rule,
+        $.encoder_init_rule,
+        $.encoder_var_init,
+      )),
+      '}',
+    ),
+
+    encoder_dim: $ => seq(
+      'dim',
+      field('sort', $.identifier),
+      '=',
+      field('dim', $.integer),
+    ),
+
+    encoder_iterations: $ => seq(
+      'iterations',
+      field('iterations', $.integer),
+    ),
+
+    encoder_readout: $ => seq(
+      'readout',
+      '|->',
+      field('body', $._let_arith),
+    ),
+
+    // Per-constructor rule. The mode controls how arguments are
+    // threaded:
+    //   <constructor>(arg1, ..., argN)              |-> body   (plain)
+    //   <constructor>(...)  recurrent <state>       |-> body   (sequence)
+    //   <constructor>(...)  attention <prefix>      |-> body   (transformer)
+    encoder_op_rule: $ => seq(
+      field('op', $.identifier),
+      optional(seq('(', commaSep1(field('args', $.identifier)), ')')),
+      optional(choice(
+        seq('recurrent', field('state', $.identifier)),
+        seq('attention', field('prefix', $.identifier)),
+      )),
+      '|->',
+      field('body', $._let_arith),
+    ),
+
+    encoder_init_rule: $ => seq(
+      'init',
+      field('kind', $.identifier),
+      '(',
+      field('arg', $.identifier),
+      ')',
+      '|->',
+      field('body', $._let_arith),
+    ),
+
+    encoder_message_rule: $ => seq(
+      'message',
+      '[',
+      field('edge_kind', $.identifier),
+      ']',
+      '(',
+      field('src', $.identifier),
+      ',',
+      field('tgt', $.identifier),
+      ')',
+      '|->',
+      field('body', $._let_arith),
+    ),
+
+    encoder_update_rule: $ => seq(
+      'update',
+      '[',
+      field('vertex_kind', $.identifier),
+      ']',
+      '(',
+      field('self', $.identifier),
+      ',',
+      field('msgs', $.identifier),
+      ')',
+      '|->',
+      field('body', $._let_arith),
+    ),
+
+    // Per-(var_sort, annot_sort) `var_init` body. Multiple
+    // declarations per encoder are permitted, one per pair the
+    // signature's binders introduce. The `from <annot_sort>` clause
+    // is omitted for unannotated binders.
+    //
+    //   var_init Term from Type as ty   |-> mlp_tv(ty)
+    //   var_init Type                   |-> type_var_init
+    encoder_var_init: $ => seq(
+      'var_init',
+      field('var_sort', $.identifier),
+      optional(seq(
+        'from',
+        field('annot_sort', $.identifier),
+        optional(seq('as', field('ty', $.identifier))),
+      )),
+      '|->',
+      field('body', $._let_arith),
+    ),
+
+    // ---------------------------------------------------------------
+    // Decoder declaration: a Kleisli arrow Vec_D -> Kern(T_Σ).
+
+    decoder_decl: $ => seq(
+      'decoder',
+      field('name', $.identifier),
+      'over',
+      field('signature', $.identifier),
+      optional(seq('[', field('sig_args', commaSep1($.identifier)), ']')),
+      optional(seq('depth', field('depth', $.integer))),
+      '{',
+      repeat(choice(
+        $.decoder_dim,
+        $.decoder_structure,
+        $.decoder_primitive,
+        $.decoder_factor,
+        $.decoder_binder_select,
+        $.decoder_body_default,
+      )),
+      '}',
+    ),
+
+    decoder_dim: $ => seq(
+      'dim',
+      field('sort', $.identifier),
+      '=',
+      field('dim', $.integer),
+    ),
+
+    decoder_structure: $ => seq(
+      'structure',
+      '(',
+      field('arg', $.identifier),
+      ')',
+      '|->',
+      field('body', $._let_arith),
+    ),
+
+    decoder_primitive: $ => seq(
+      'primitive',
+      '(',
+      field('arg', $.identifier),
+      ')',
+      '|->',
+      field('body', $._let_arith),
+    ),
+
+    decoder_factor: $ => seq(
+      'factor',
+      '(',
+      field('arg', $.identifier),
+      ')',
+      '|->',
+      field('body', $._let_arith),
+    ),
+
+    decoder_binder_select: $ => seq(
+      'binder_select',
+      '(',
+      field('arg', $.identifier),
+      ')',
+      '|->',
+      field('body', $._let_arith),
+    ),
+
+    decoder_body_default: $ => seq(
+      'body',
+      '|->',
+      field('default', 'recursive'),
+    ),
+
+    // ---------------------------------------------------------------
+    // Loss declaration: attachable, weighted scalar objectives.
+
+    loss_decl: $ => seq(
+      'loss',
+      field('name', $.identifier),
+      optional(seq('weight', field('weight', $._let_arith))),
+      optional(seq('on', field('attachment', $.loss_attachment))),
+      '{',
+      field('body', $._let_arith),
+      '}',
+    ),
+
+    loss_attachment: $ => choice(
+      seq(field('kind', $.loss_attachment_kind),
+          field('target', $.identifier)),
+      seq('rule', field('rule_name', $.identifier), 'in',
+          field('deduction', $.identifier)),
+      seq('chart', 'of', field('chart_of', $.identifier)),
+    ),
+
+    loss_attachment_kind: $ => choice(
+      'program', 'deduction', 'encoder', 'decoder',
     ),
 
     // ---------------------------------------------------------------
@@ -826,11 +1266,57 @@ module.exports = grammar({
 
     _let_atom: $ => choice(
       $.let_paren,
+      $.let_method_call,
       $.let_call,
       $.let_index,
+      $.let_list,
+      $.let_lambda,
+      $.let_string,
       $.let_var,
       $.let_literal,
     ),
+
+    // List literal in let-expressions: `[a, b, c]`. Categorically
+    // an element of the free monoid `let_arith^*` over the
+    // arithmetic / let-value sublanguage; the runtime represents
+    // it as a Python list with autograd-transparent contents.
+    let_list: $ => seq(
+      '[',
+      optional(seq(
+        commaSep1($._let_arith),
+        optional(','),
+      )),
+      ']',
+    ),
+
+    // String literal: `"foo"`. Used for tokenisation, lexicon
+    // keys, and as ground-atom names in LF constructors like
+    // `pred("dog")`.
+    let_string: $ => $._string_literal,
+
+    // Lambda expression: `param -> body`. Categorically a curried
+    // function in the Kleisli setting; the runtime evaluator
+    // closes over the surrounding let environment when
+    // instantiating the closure.
+    let_lambda: $ => prec.right(seq(
+      field('param', $.identifier),
+      '->',
+      field('body', $._let_arith),
+    )),
+
+    // Method-call expression: `receiver.method(args)`. Used to
+    // dispatch chart queries (`chart.weight(item)`,
+    // `chart.enumerate(pattern)`, `chart.goal_weight()`) and any
+    // future ChartView API. The receiver is always a let_var so
+    // the runtime can resolve it from the environment.
+    let_method_call: $ => prec.left(2, seq(
+      field('receiver', $.let_var),
+      '.',
+      field('method', $.identifier),
+      '(',
+      optional(field('args', commaSep1($._let_arith))),
+      ')',
+    )),
 
     // Indexed access into a finite-domain-indexed family: arr[i, j, ...].
     // Categorically the Kleisli pullback ι^* v = v ∘ ι : N → B for a
@@ -848,16 +1334,38 @@ module.exports = grammar({
 
     let_literal: $ => $._numeric_literal,
 
-    let_call: $ => seq(
-      field('func', choice(
-        'sigmoid', 'exp', 'log', 'abs', 'softplus',
-        // Bayesian-modelling deterministic morphisms.
-        'cumsum', 'softmax', 'cholesky_quad_form',
-      )),
+    // Generalised let-call: `func(args, ...)`.
+    //
+    // The function name is any identifier. The runtime
+    // dispatch handles three cases:
+    //
+    //   1. Built-in numeric morphisms (`sigmoid`, `exp`, `log`,
+    //      `abs`, `softplus`, `cumsum`, `softmax`,
+    //      `cholesky_quad_form`) — evaluated as the corresponding
+    //      torch operations on tensor inputs.
+    //
+    //   2. Built-in higher-order combinators (`logsumexp_over`,
+    //      `fold`, `map`, `filter`, `length`, `parse`) — evaluated
+    //      with their declarative semantics; lambdas in arg
+    //      position are closures over the local environment.
+    //
+    //   3. *Constructor* application (anything else): produces a
+    //      structured tuple `(func_name, *args)`. This is the
+    //      LF-construction mode — `pred("dog")` builds
+    //      `("pred", "dog")`; `forall("x", body)` builds
+    //      `("forall", "x", body)`; `implies(p, q)` builds
+    //      `("implies", p, q)`. The runtime treats these tuples
+    //      as ordinary chart items.
+    //
+    // Categorically, the constructor mode realises the free
+    // term algebra over the named operation symbols, embedding
+    // it as values in the let-sublanguage.
+    let_call: $ => prec(1, seq(
+      field('func', $.identifier),
       '(',
-      field('args', commaSep1($._let_arith)),
+      optional(field('args', commaSep1($._let_arith))),
       ')',
-    ),
+    )),
 
     let_unary: $ => prec(PREC.let_unary, seq(
       '-',
@@ -896,6 +1404,21 @@ module.exports = grammar({
     float:   _ => /[0-9]+\.[0-9]+([eE][+-]?[0-9]+)?/,
 
     signed_number: $ => seq(optional('-'), choice($.integer, $.float)),
+
+    // String literals: double-quoted, with backslash escapes.
+    // The grammar restricts to single-line strings (no embedded
+    // newlines); multiline strings are not part of the v0.5
+    // surface.
+    _string_literal: $ => $.string,
+
+    string: _ => token(seq(
+      '"',
+      repeat(choice(
+        /[^"\\\n]/,
+        seq('\\', /./),
+      )),
+      '"',
+    )),
   },
 });
 
