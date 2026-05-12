@@ -64,6 +64,8 @@ from quivers.inference.mcmc import (
 )
 from quivers.inference.svi import SVI
 from quivers.inference.predictive import Predictive
+from quivers.inference.dais import AutoDAIS
+from quivers.inference.warmup import WarmupThenHMC
 
 __all__ = [
     "Trace",
@@ -88,6 +90,8 @@ __all__ = [
     "NUTSKernel",
     "MCMC",
     "MCMCResult",
+    "AutoDAIS",
+    "WarmupThenHMC",
     "Objective",
     "ELBO",
     "IWAEBound",
