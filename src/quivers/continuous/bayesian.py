@@ -654,33 +654,6 @@ class PlateDraw(ContinuousMorphism):
         # 1-d shape it can broadcast against the response plate.
         return per_row_lp.reshape(-1).sum().unsqueeze(0)
 
-    def kl_to_prior(self, conditioning: torch.Tensor) -> torch.Tensor:
-        """Approximate KL[q(v) || p(v)] via reparameterised Monte-Carlo.
-
-        ``conditioning`` is a parameter tensor passed to the family's
-        ``log_prob``; for unconditioned priors this is a zero
-        broadcast.
-        """
-        sample = self.rsample()  # (|A|, *B.shape)
-        prior_lp = self._family.log_prob(
-            conditioning.expand(self._index_size, *conditioning.shape[1:]),
-            sample,
-        )
-        # Posterior log-density: mean-field Gaussian.
-        # q(v_a) = N(v_a; mean_a, scale_a^2 I), so log q is the
-        # sum of per-row Normal log-densities.
-        var = (2.0 * self._log_scale).exp()
-        post_lp = (
-            (
-                -0.5 * ((sample - self._mean) ** 2 / var)
-                - self._log_scale
-                - 0.5 * torch.log(torch.tensor(2.0 * torch.pi))
-            )
-            .reshape(self._index_size, -1)
-            .sum(dim=-1)
-        )
-        return (post_lp - prior_lp).sum()
-
     def gather(self, indices: torch.Tensor) -> torch.Tensor:
         """Pullback ``v[indices]`` along a finite fibration.
 
