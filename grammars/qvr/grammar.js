@@ -1159,11 +1159,28 @@ module.exports = grammar({
     // is the integration scope. At the end of the scope the coordinate
     // is pushed forward through the projection (logsumexp for discrete,
     // fibrewise integration for continuous), and `c` falls out of
-    // scope. Replaces v0.4's trailing `marginalize c` form.
+    // scope.
     //
-    //   marginalize class : Item <- Categorical(probs) in {
+    // A grouped block additionally declares a grouping plate `over G`
+    // and a fibration `via idx` from the response plate to G; in that
+    // case the body's per-response log-density is scatter-added along
+    // the fibration before the log-sum-exp, giving the per-group
+    // log-mixture
+    //
+    //     Σ_g logsumexp_k [ log π(g,k) + Σ_{n: idx(n)=g} ll(n,k) ]
+    //
+    // realising the right Kan extension along the fibration in Kern.
+    //
+    //   marginalize class : K <- Categorical(probs) in {
     //       observe r : N <- Bernoulli(theta[class[N]])
     //   }
+    //
+    //   marginalize class : K <- Categorical(probs)
+    //       over G via idx
+    //       in {
+    //           let logit = base + sign[class]
+    //           observe r : N <- Bernoulli(logit)
+    //       }
     marginalize_step: $ => seq(
       'marginalize',
       field('var', $.identifier),
@@ -1171,6 +1188,8 @@ module.exports = grammar({
       '<-',
       field('morphism', $.identifier),
       optional(seq('(', field('args', commaSep1($._draw_arg)), ')')),
+      optional(seq('over', field('over', $.identifier))),
+      optional(seq('via', field('via', $.identifier))),
       'in',
       '{',
       field('scope', repeat($._program_step)),

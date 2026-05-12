@@ -6,6 +6,38 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/), and this
 
 ## [Unreleased]
 
+### Added
+
+- **Scoped grouped `marginalize` blocks with `over` / `via` fibration support.**
+  The `marginalize` block now accepts optional `over G via idx`
+  clauses declaring a grouping plate `G` and a fibration
+  `idx : Resp → G` from the response plate to the group plate.
+  The body's per-row per-class log-likelihood is scatter-added
+  along `idx` to give a per-(group, class) accumulator, the
+  categorical prior is added per group, and the log-sum-exp over
+  the class axis is summed over groups. This is the canonical
+  hierarchical-Bayes per-group log-mixture pattern (Stan's
+  `target += log_mix(probs, ll_item[i])`), and corresponds
+  categorically to a right Kan extension along the fibration in
+  $\mathbf{Kern}$ followed by the standard categorical-marginal
+  log-sum-exp under the prior. Both clauses must appear together;
+  a half-grouped block is a compile-time error. Surface:
+
+  ```qvr
+  marginalize class : K <- Categorical(probs)
+      over G via idx
+      in {
+          <body>
+      }
+  ```
+
+  The runtime primitive `quivers.continuous.bayesian.marginalize_grouped`
+  is exposed for direct use and is also wired into the compiler's
+  `MarginalizeStep` runtime path. Degenerates to the global mixture
+  when `over` / `via` are omitted, to the per-row mixture under the
+  identity fibration, and to the per-block mixture under a coarser
+  fibration.
+
 ## [0.4.1] - 2026-05-12
 
 Three connected bug fixes that unblock hierarchical-Bayesian

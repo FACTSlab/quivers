@@ -781,6 +781,105 @@ def marginalize_categorical(log_probs_per_class: torch.Tensor) -> torch.Tensor:
     return torch.logsumexp(log_probs_per_class, dim=-1)
 
 
+def marginalize_grouped(
+    log_likelihood_per_row_per_class: torch.Tensor,
+    group_index: torch.Tensor,
+    log_prior_per_group_per_class: torch.Tensor,
+    num_groups: int,
+) -> torch.Tensor:
+    """Per-group marginalisation over a discrete latent class.
+
+    Given a per-(response, class) log-likelihood tensor of shape
+    ``(N, K)``, a fibration ``r : Resp → G`` realised as a long
+    tensor ``group_index`` of shape ``(N,)`` with entries in
+    ``[0, |G|)``, a per-(group, class) log-prior of shape
+    ``(|G|, K)`` (broadcastable from ``(K,)``), and ``|G|``, return
+    the scalar
+
+    .. math::
+
+        \\sum_{g \\in G}\\, \\log\\sum_{k=1}^{K}
+        \\exp\\!\\left[\\log \\pi(g,k) + \\sum_{n:\\, r(n)=g}
+        \\ell(n,k)\\right].
+
+    The per-group accumulator is realised as a scatter-add along
+    the fibration; this is the right Kan extension along
+    :math:`r : \\text{Resp} \\to G` in :math:`\\mathbf{Kern}` with
+    the additive monoid on log-densities. The mixture over the
+    class axis is then the standard log-sum-exp, weighted by the
+    categorical prior. The final sum aggregates the per-group
+    log-marginals into the program-level log-density contribution.
+
+    Parameters
+    ----------
+    log_likelihood_per_row_per_class : torch.Tensor
+        Per-(response, class) log-likelihood of shape ``(N, K)``.
+        Must be finite for the gradient to flow.
+    group_index : torch.Tensor
+        Long tensor of shape ``(N,)`` mapping each response row to
+        its group index. Entries must lie in ``[0, num_groups)``.
+    log_prior_per_group_per_class : torch.Tensor
+        Per-(group, class) log-prior of shape ``(num_groups, K)``
+        or ``(K,)`` (broadcast).
+    num_groups : int
+        Cardinality of the group plate.
+
+    Returns
+    -------
+    torch.Tensor
+        Scalar program-level log-density contribution.
+
+    Notes
+    -----
+    Edge cases:
+
+    * ``K == 1``: the log-sum-exp collapses to the body's log-
+      likelihood and the prior contribution; equivalent to a
+      vanilla scattered ``observe`` plus a constant.
+    * Identity fibration (``group_index = arange(N)`` and
+      ``num_groups == N``): each row is its own group, recovering
+      the per-row mixture (``marginalize_categorical`` followed
+      by a sum, with the per-row prior).
+    """
+    if log_likelihood_per_row_per_class.dim() != 2:
+        raise ValueError(
+            "log_likelihood_per_row_per_class must have shape (N, K); "
+            f"got shape {tuple(log_likelihood_per_row_per_class.shape)}"
+        )
+    n_rows, n_classes = log_likelihood_per_row_per_class.shape
+    if group_index.shape != (n_rows,):
+        raise ValueError(
+            "group_index must have shape (N,) matching the leading axis "
+            f"of the log-likelihood; got {tuple(group_index.shape)} vs N={n_rows}"
+        )
+    if group_index.dtype != torch.long:
+        group_index = group_index.to(torch.long)
+    if num_groups <= 0:
+        raise ValueError(f"num_groups must be positive; got {num_groups}")
+    if (group_index < 0).any() or (group_index >= num_groups).any():
+        raise ValueError(
+            f"group_index entries must lie in [0, {num_groups}); "
+            "out-of-range index detected"
+        )
+    # Scatter-add the (N, K) per-row log-likelihood along the
+    # fibration to obtain a (|G|, K) per-group accumulator. The
+    # zeros initialiser is correct because log-density addition
+    # corresponds to multiplication of probabilities; an empty
+    # fibre contributes a multiplicative identity (log 1 = 0).
+    grouped = torch.zeros(
+        num_groups,
+        n_classes,
+        dtype=log_likelihood_per_row_per_class.dtype,
+        device=log_likelihood_per_row_per_class.device,
+    )
+    grouped = grouped.index_add(0, group_index, log_likelihood_per_row_per_class)
+    # Broadcast the per-group prior against the accumulator and
+    # log-sum-exp over the class axis.
+    weighted = log_prior_per_group_per_class + grouped
+    per_group = torch.logsumexp(weighted, dim=-1)
+    return per_group.sum()
+
+
 __all__ = [
     "CholeskyFactor",
     "LKJCorrelationFactor",
@@ -791,4 +890,5 @@ __all__ = [
     "softmax",
     "cholesky_quad_form",
     "marginalize_categorical",
+    "marginalize_grouped",
 ]

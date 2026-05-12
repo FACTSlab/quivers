@@ -22,6 +22,7 @@ from quivers.continuous.spaces import (
     UnitInterval,
 )
 from quivers.continuous.morphisms import AnySpace
+from quivers.continuous.bayesian import marginalize_grouped
 from quivers.core.objects import SetObject, FinSet, ProductSet
 from quivers.core.quantales import Quantale, PRODUCT_FUZZY, BOOLEAN
 from quivers.core.morphisms import morphism as make_latent, identity as make_identity
@@ -1088,6 +1089,69 @@ class Compiler:
                         step.line,
                         step.col,
                     )
+                # Grouped form: `over G via idx` declares the grouping
+                # plate and the response→group fibration. Both clauses
+                # must appear together; a half-grouped form is a
+                # user error rather than something to silently fall
+                # through to ungrouped semantics.
+                if (step.over is None) != (step.via is None):
+                    raise CompileError(
+                        "marginalize: `over` and `via` clauses must appear "
+                        "together; got only one of them",
+                        step.line,
+                        step.col,
+                    )
+                # Resolve the per-class size from the latent's index
+                # annotation when present. The grouped form requires
+                # an explicit `: K` annotation so the prior's class
+                # axis can be sized at compile time.
+                class_size = 0
+                if step.index is not None:
+                    if isinstance(step.index, TypeName):
+                        nm = step.index.name
+                        if nm.isdigit():
+                            class_size = int(nm)
+                        elif nm in self._objects:
+                            class_size = int(self._objects[nm].size)
+                if step.over is not None and class_size == 0:
+                    raise CompileError(
+                        "grouped marginalize requires an explicit class-set "
+                        "annotation (e.g. `marginalize c : K <- ...`) so the "
+                        "class axis is sized at compile time",
+                        step.line,
+                        step.col,
+                    )
+                if step.over is not None and step.over not in self._objects:
+                    raise CompileError(
+                        f"grouped marginalize: `over` object "
+                        f"{step.over!r} is not a declared object",
+                        step.line,
+                        step.col,
+                    )
+                # Extract the categorical prior's `probs` argument. The
+                # grouped form expects the morphism to be a
+                # Categorical-like family whose first positional
+                # argument is the per-class probability tensor.
+                probs_var: str | None = None
+                if step.over is not None:
+                    if not step.args:
+                        raise CompileError(
+                            "grouped marginalize requires the latent's "
+                            "categorical family to carry a probs argument "
+                            "(e.g. `Categorical(probs)`)",
+                            step.line,
+                            step.col,
+                        )
+                    first = step.args[0]
+                    if not isinstance(first, str):
+                        raise CompileError(
+                            "grouped marginalize: the categorical family's "
+                            "first argument must be a named probs tensor "
+                            f"(got literal {first!r})",
+                            step.line,
+                            step.col,
+                        )
+                    probs_var = first
                 # Introduce the coordinate as a sample step; then
                 # recursively expand the scope's steps; then emit
                 # the marginalize reduction at scope-end.
@@ -1117,10 +1181,18 @@ class Compiler:
                 # Scope's steps.
                 scope_steps = step.scope if step.scope is not None else ()
                 out.extend(self._expand_bind_steps(scope_steps))
-                # Pushforward reduction.
+                # Pushforward reduction. The grouped form additionally
+                # threads the fibration data so the runtime can build
+                # the per-group accumulator and apply the per-group
+                # log-mixture.
                 out.append(
                     MarginalizeStep(
                         var_name=step.vars[0],
+                        class_size=class_size,
+                        probs_var=probs_var,
+                        over_obj=step.over,
+                        via_var=step.via,
+                        body_ll_var=step.vars[0],
                         line=step.line,
                         col=step.col,
                     )
@@ -1512,8 +1584,28 @@ class Compiler:
                 col=step.col,
             )
         if isinstance(step, MarginalizeStep):
+            renamed_via = (
+                rename.get(step.via_var, step.via_var)
+                if step.via_var is not None
+                else None
+            )
+            renamed_probs = (
+                rename.get(step.probs_var, step.probs_var)
+                if step.probs_var is not None
+                else None
+            )
+            renamed_body_ll = (
+                rename.get(step.body_ll_var, step.body_ll_var)
+                if step.body_ll_var is not None
+                else None
+            )
             return MarginalizeStep(
                 var_name=rename.get(step.var_name, step.var_name),
+                class_size=step.class_size,
+                probs_var=renamed_probs,
+                over_obj=step.over_obj,
+                via_var=renamed_via,
+                body_ll_var=renamed_body_ll,
                 line=step.line,
                 col=step.col,
             )
@@ -1786,22 +1878,91 @@ class Compiler:
                 # marginalize v — pushforward G(π_{Φ\\C}). Realised as a
                 # deterministic let-step that applies log-sum-exp across
                 # the class axis of the named variable's per-class score
-                # tensor (the runtime convention is that a previously-
-                # observed-or-let variable named `v_logprob_per_class`
-                # carries the per-class log-likelihoods).
+                # tensor. The runtime convention is that the body
+                # populates `env[v]` with a per-class log-likelihood
+                # tensor before this step executes.
                 if step.var_name not in bound_vars:
                     raise CompileError(
                         f"marginalize: variable {step.var_name!r} not bound",
                         step.line,
                         step.col,
                     )
-                import torch as _torch
-
                 target_var = step.var_name
+                if step.over_obj is not None:
+                    # Grouped: validate fibration metadata against the
+                    # surrounding program scope so a mistyped `over` or
+                    # `via` is caught at compile time rather than
+                    # silently feeding bogus shapes into the runtime.
+                    if step.via_var is None or step.via_var not in bound_vars:
+                        raise CompileError(
+                            f"grouped marginalize: `via` variable "
+                            f"{step.via_var!r} is not bound in program scope",
+                            step.line,
+                            step.col,
+                        )
+                    if step.over_obj not in self._objects:
+                        raise CompileError(
+                            f"grouped marginalize: `over` object "
+                            f"{step.over_obj!r} is not a declared object",
+                            step.line,
+                            step.col,
+                        )
+                    if step.probs_var is None or step.probs_var not in bound_vars:
+                        raise CompileError(
+                            f"grouped marginalize: categorical prior "
+                            f"{step.probs_var!r} is not bound in program scope",
+                            step.line,
+                            step.col,
+                        )
+                    num_groups = int(self._objects[step.over_obj].size)
+                    num_classes = step.class_size
+                    via_var = step.via_var
+                    probs_var = step.probs_var
 
-                def _marginalize_callable(env: dict, _v=target_var) -> "_torch.Tensor":
+                    def _marginalize_grouped_callable(
+                        env: dict,
+                        _v: str = target_var,
+                        _via: str = via_var,
+                        _probs: str = probs_var,
+                        _g: int = num_groups,
+                        _k: int = num_classes,
+                    ) -> torch.Tensor:
+                        ll = env[_v]
+                        if ll.dim() != 2 or ll.shape[-1] != _k:
+                            raise ValueError(
+                                f"grouped marginalize: per-row per-class "
+                                f"log-likelihood {_v!r} must have shape "
+                                f"(N, {_k}); got {tuple(ll.shape)}"
+                            )
+                        idx = env[_via]
+                        if idx.dim() == 2 and idx.shape[-1] == 1:
+                            idx = idx.squeeze(-1)
+                        idx = idx.to(torch.long)
+                        probs = env[_probs]
+                        log_prior = torch.log(probs.clamp_min(1e-38))
+                        result = marginalize_grouped(
+                            ll,
+                            idx,
+                            log_prior,
+                            _g,
+                        )
+                        # Programs sum per-row contributions to build
+                        # the joint log-density; a grouped block
+                        # already aggregates over both rows and groups,
+                        # so we return a length-1 tensor that broadcasts
+                        # cleanly against the surrounding plate.
+                        return result.reshape(1)
+
+                    marg_name = f"_marg_{step.var_name}"
+                    bound_vars[marg_name] = None
+                    steps.append(((marg_name,), None, _marginalize_grouped_callable))
+                    continue
+
+                def _marginalize_callable(
+                    env: dict, _v: str = target_var
+                ) -> torch.Tensor:
                     tensor = env[_v]
-                    return _torch.logsumexp(tensor, dim=-1)
+                    return torch.logsumexp(tensor, dim=-1)
 
                 marg_name = f"_marg_{step.var_name}"
                 bound_vars[marg_name] = None

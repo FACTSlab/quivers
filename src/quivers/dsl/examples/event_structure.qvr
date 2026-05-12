@@ -39,6 +39,8 @@ object SubjCloze : 200
 object SubjProp : 200
 object RespCloze : 5000
 object RespProp : 5000
+# Four cells of the telicity × durativity cross-classification.
+object Class4 : 4
 
 # Parametric random-intercepts template: one scale hyperprior +
 # a per-level Normal(0, σ) plate, polymorphic over the grouping
@@ -87,14 +89,42 @@ program event_structure : Item -> Item
     let duration_eff_cloze = cumsum(duration_incr_cloze)
     let duration_eff_prop = cumsum(duration_incr_prop)
 
-    # Per-class predicted log-odds for the cloze and proportion
-    # responses.  `marginalize` integrates over the discrete
-    # latent class.
-    observe cloze_resp : RespCloze <- Bernoulli(intercept_cloze)
-    observe prop_resp : RespProp <- Bernoulli(intercept_prop)
+    # Response → item fibrations.  Supplied at fit time as long
+    # tensors of group indices (one per response row).  Declared as
+    # half-normal plates here so the static surface parses; the
+    # runtime overrides them with the observed mappings.
+    item_cloze_idx : RespCloze <- HalfNormal(1.0)
+    item_prop_idx : RespProp <- HalfNormal(1.0)
 
-    marginalize cloze_resp
-    marginalize prop_resp
+    # Class-prior probabilities over the four telicity × durativity
+    # cells.  Drawn as a Dirichlet on the 4-simplex; the convention
+    # is that the concentration vector is supplied as a previously
+    # drawn plate variable.
+    telicity_durativity_probs : Class4 <- Dirichlet(prob_durative)
+
+    # Per-row per-class log-likelihoods for the cloze and proportion
+    # responses.  The runtime convention for the grouped
+    # `marginalize` block below is that the body populates the
+    # latent's bound name with a per-(N, K) log-likelihood tensor;
+    # the block's reduction then scatter-adds along the response →
+    # item fibration and applies the log-sum-exp under the
+    # categorical prior, summed over items.
+    #
+    # Categorical denotation: the grouped block is the right Kan
+    # extension along the response-to-item fibration in Kern,
+    # followed by log-sum-exp over the class axis weighted by the
+    # categorical prior, summed over items.
+    marginalize class_cloze : Class4 <- Dirichlet(telicity_durativity_probs)
+        over Item via item_cloze_idx
+        in {
+            cloze_ll : RespCloze <- HalfNormal(1.0)
+        }
+
+    marginalize class_prop : Class4 <- Dirichlet(telicity_durativity_probs)
+        over Item via item_prop_idx
+        in {
+            prop_ll : RespProp <- HalfNormal(1.0)
+        }
 
     return intercept_cloze
 

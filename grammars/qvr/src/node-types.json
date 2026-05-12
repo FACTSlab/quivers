@@ -3688,6 +3688,16 @@
           }
         ]
       },
+      "over": {
+        "multiple": false,
+        "required": false,
+        "types": [
+          {
+            "type": "identifier",
+            "named": true
+          }
+        ]
+      },
       "scope": {
         "multiple": true,
         "required": false,
@@ -3713,6 +3723,16 @@
       "var": {
         "multiple": false,
         "required": true,
+        "types": [
+          {
+            "type": "identifier",
+            "named": true
+          }
+        ]
+      },
+      "via": {
+        "multiple": false,
+        "required": false,
         "types": [
           {
             "type": "identifier",
@@ -6681,6 +6701,10 @@
   },
   {
     "type": "vertex_kinds",
+    "named": false
+  },
+  {
+    "type": "via",
     "named": false
   },
   {
