@@ -580,25 +580,65 @@ class PlateDraw(ContinuousMorphism):
     ) -> torch.Tensor:
         """Reparameterised sample.
 
-        Returns a flat ``(batch, |A| * prod(B.shape))`` tensor. Each
-        batch row is one independent plate sample with mean-field
-        Gaussian variational posterior.
+        A plate draw is *batch-invariant*: the latent vector is a
+        global model parameter shared across every row of an
+        observed plate. The returned tensor has shape
+        ``(|A|, *B.shape)`` regardless of the program input's
+        leading batch dimension.
+
+        This is the standard Pyro / NumPyro semantic: a sample inside
+        a ``plate("subj", n_subj)`` context is one ``(n_subj,)``
+        vector, *not* a per-particle (batch, n_subj) replication. The
+        gather ``arr[idx]`` along the plate axis then composes
+        cleanly with per-row observed-plate axes downstream.
         """
-        del sample_shape
-        batch = x.shape[0] if x.dim() > 0 else 1
-        eps = torch.randn(batch, *self._mean.shape, device=x.device, dtype=x.dtype)
-        sample = self._mean.unsqueeze(0) + self._log_scale.exp().unsqueeze(0) * eps
-        # Flatten the index axis with the per-row codomain shape.
-        return sample.reshape(batch, -1)
+        del sample_shape, x  # plate latents are batch-invariant
+        eps = torch.randn(
+            *self._mean.shape, device=self._mean.device, dtype=self._mean.dtype
+        )
+        sample = self._mean + self._log_scale.exp() * eps
+        # Scalar-per-row plates have ``per_row_shape == (1,)``; the
+        # trailing length-1 axis is noise from how the family
+        # advertises its codomain (Euclidean(name=..., dim=1)). Squeeze
+        # it so the latent has the natural ``(|A|,)`` shape and
+        # downstream ``arr[idx]`` advance-indexing produces ``(N,)``
+        # without the user having to squeeze manually.
+        if (
+            sample.dim() >= 2
+            and sample.shape[-1] == 1
+            and len(self._per_row_shape) == 1
+        ):
+            sample = sample.squeeze(-1)
+        return sample
 
     def log_prob(self, x: torch.Tensor, y: torch.Tensor) -> torch.Tensor:
         """Log-density of the variational posterior on the plate sample.
 
-        ``y`` is the flat-shape sample; reshape to ``(batch, |A|, *B.shape)``
-        and sum the per-row Gaussian log-density.
+        Accepts ``y`` shaped either as the natural plate-latent
+        ``(|A|, *B.shape)`` (one shared sample, the new convention)
+        or the legacy flat ``(batch, |A| * prod(B.shape))``; the
+        latter reshape is preserved for back-compat with any caller
+        that pre-flattened the latent.
         """
-        batch = y.shape[0]
-        sample = y.reshape(batch, self._index_size, *self._per_row_shape)
+        del x  # plate latents are batch-invariant
+        # Accept the new natural plate shape (``(|A|, *per_row_shape)``
+        # or the squeezed ``(|A|,)`` for scalar-per-row plates) before
+        # falling back to the legacy ``(batch, flat)`` reshape.
+        if (
+            len(self._per_row_shape) == 1
+            and self._per_row_shape[0] == 1
+            and y.dim() == 1
+            and y.shape[0] == self._index_size
+        ):
+            sample = y.unsqueeze(-1)
+            collapse_batch = False
+        elif y.dim() == 1 + len(self._per_row_shape) and y.shape[0] == self._index_size:
+            sample = y
+            collapse_batch = False
+        else:
+            batch = y.shape[0]
+            sample = y.reshape(batch, self._index_size, *self._per_row_shape)
+            collapse_batch = True
         var = (2.0 * self._log_scale).exp()
         per_row_lp = (
             -0.5 * ((sample - self._mean) ** 2 / var)
@@ -606,7 +646,13 @@ class PlateDraw(ContinuousMorphism):
             - 0.5
             * torch.log(torch.tensor(2.0 * torch.pi, device=y.device, dtype=y.dtype))
         )
-        return per_row_lp.reshape(batch, -1).sum(dim=-1)
+        if collapse_batch:
+            return per_row_lp.reshape(per_row_lp.shape[0], -1).sum(dim=-1)
+        # Plate-latent shape: return a scalar log-density. We wrap in
+        # a length-1 tensor so the downstream log-joint accumulator
+        # (which sums batched per-step contributions) sees a uniform
+        # 1-d shape it can broadcast against the response plate.
+        return per_row_lp.reshape(-1).sum().unsqueeze(0)
 
     def kl_to_prior(self, conditioning: torch.Tensor) -> torch.Tensor:
         """Approximate KL[q(v) || p(v)] via reparameterised Monte-Carlo.

@@ -33,6 +33,7 @@ from abc import ABC, abstractmethod
 from typing import cast
 import torch
 import torch.nn as nn
+from torch.distributions import constraints as _constraints
 from quivers.core.objects import SetObject
 from quivers.continuous.spaces import ContinuousSpace
 
@@ -78,6 +79,29 @@ class ContinuousMorphism(nn.Module, ABC):
     def codomain(self) -> AnySpace:
         """Target space."""
         return self._codomain
+
+    @property
+    def support(self) -> _constraints.Constraint:
+        """The support constraint of the distribution this morphism samples
+        from, in the form of a :class:`torch.distributions.constraints.Constraint`.
+
+        Used by variational guides (:class:`quivers.inference.guide.AutoNormalGuide`,
+        :class:`quivers.inference.guide.AutoDeltaGuide`) to determine the
+        correct bijector that maps an unconstrained variational
+        approximation back to the constrained support of the prior, so
+        that samples used to evaluate the prior's ``log_prob`` lie inside
+        its support (avoiding ``Expected value to be within the support
+        of the distribution`` errors).
+
+        Subclasses representing a constrained distribution family
+        (``HalfNormal``, ``Beta``, ``Uniform``, ``Dirichlet``,
+        ``LogitNormal``, ``Wishart``, …) should override this property
+        to return the appropriate constraint. The default is
+        :data:`torch.distributions.constraints.real`, which is correct
+        for unconstrained families like ``Normal`` and discrete
+        codomains (where the guide skips the site anyway).
+        """
+        return _constraints.real
 
     @abstractmethod
     def log_prob(self, x: torch.Tensor, y: torch.Tensor) -> torch.Tensor:

@@ -936,6 +936,7 @@ The supported inline distribution families are:
 | `HalfNormal` | `scale` | PositiveReals |
 | `LogNormal` | `loc`, `scale` | PositiveReals |
 | `Gamma` | `concentration`, `rate` | PositiveReals |
+| `Dirichlet` | `concentration` | Simplex (codomain `dim` / `cardinality`) |
 | `TruncatedNormal` | `mu`, `sigma`, `low`, `high` | Euclidean (bounded) |
 
 Every parameter position in every family accepts either a literal value or a previously-bound variable. When all arguments are literals, a fixed distribution is created; when any argument is a variable, the general `MixedInlineDistribution` mechanism handles parameter resolution at runtime.
