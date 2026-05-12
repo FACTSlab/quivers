@@ -21,6 +21,7 @@ from quivers.inference.guides.flow import (
     AutoNormalizingFlow,
 )
 from quivers.inference.guides.laplace import AutoLaplaceApproximation
+from quivers.inference.guides.mixture import AutoMixtureGuide
 from quivers.inference.guides.multivariate_normal import (
     AutoLowRankMultivariateNormalGuide,
     AutoMultivariateNormalGuide,
@@ -37,4 +38,5 @@ __all__ = [
     "AutoNormalizingFlow",
     "AutoIAFGuide",
     "AutoNeuralSplineGuide",
+    "AutoMixtureGuide",
 ]
