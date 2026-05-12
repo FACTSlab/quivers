@@ -32,6 +32,7 @@ A `signature` declares the sorts, constructors, binders, and (for
 graph signatures) vertex / edge kinds of an inductive (or
 graph-shaped) algebra.
 
+<!-- compile: cumulative -->
 ```qvr
 signature LF {
     sorts {
@@ -93,11 +94,12 @@ Strict declaration rules:
 
 ## Encoder blocks
 
-A encoder declares the carrier dim per sort plus one
+An encoder declares the carrier dim per sort plus one
 parametric function per constructor / binder. Bodies are
 optional — the compiler scaffolds a 2-layer MLP per omitted op
 with the correct per-arg dim sequence.
 
+<!-- compile: cumulative -->
 ```qvr
 encoder C over LF {
     dim Term = 64
@@ -137,6 +139,7 @@ use a learnable nullary constant keyed by `var_sort` alone.
 For sequence signatures (`Seq[A] = Nil | Cons(A, Seq)`), two
 extra body shapes are available:
 
+<!-- compile: false -->
 ```qvr
 encoder RNN over Seq {
     Nil                              |-> 0.0
@@ -196,6 +199,7 @@ scaffolded as learnable neural networks; the corecursion (op
 choice, factor split, recursive descent, BoundVar fallback to
 in-scope variables) is supplied by the framework.
 
+<!-- compile: cumulative -->
 ```qvr
 decoder D over LF depth 8 { body |-> recursive }
 ```
@@ -247,11 +251,16 @@ encoder; the chart's `embedding(item)` operation then returns
 a differentiable vector computed by the attached encoder's
 algebra-homomorphism recursion over the chart-item term.
 
+<!-- compile: false -->
 ```qvr
 signature ChartItem {
-    sorts { Item : object dim 128 }
+    sorts {
+        Item : object dim 128
+        Idx  : data   dim 8
+        Type : object dim 32
+    }
     constructors {
-        span : Int, Int, Type -> Item
+        span : Idx, Idx, Type -> Item
     }
 }
 

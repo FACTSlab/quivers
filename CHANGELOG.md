@@ -101,12 +101,9 @@ forms shift to a Haskell-PPL aesthetic.
 
 ### Migration guide
 
-A python migration helper is included in the release notes (see
-`docs/migration/v0.4-to-v0.5.md` for the regex-based conversion
-script applied to the example library). For most programs the
-mechanical translation is:
+For most programs the mechanical translation is:
 
-| v0.4                                         | v0.5                                                |
+| pre-0.4                                      | 0.4                                                 |
 |----------------------------------------------|-----------------------------------------------------|
 | `draw v ~ F(args)`                           | `v <- F(args)`                                      |
 | `draw v : A -> K ~ F(args)`                  | `v : A <- F(args)`                                  |
@@ -118,15 +115,12 @@ mechanical translation is:
 
 ### Tests
 
-- All 18 example `.qvr` files migrated to v0.5 surface.
-- 990 tests pass under v0.5; 14 xfailed (labelled-tuple-return /
-  tuple-destructuring-bind tests are deferred deprecations).
-- Tree-sitter corpus rewritten with 8 examples covering the new
-  surface shapes (20/20 parses).
+- All example `.qvr` files migrated to the 0.4 surface.
+- Tree-sitter corpus covers the new surface shapes (20/20 parses).
 
 ### Agenda-based weighted-deduction framework
 
-The v0.5 release also lands the full agenda-engine substrate
+0.4 also lands the full agenda-engine substrate
 underneath a declarative `deduction { … }` block. The framework
 subsumes CKY, Earley, Viterbi, inside-outside, semi-naïve Datalog
 evaluation, A* parsing, Knuth's algorithm, depth-first MLTT

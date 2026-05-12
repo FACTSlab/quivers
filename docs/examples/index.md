@@ -465,6 +465,7 @@ A four-class telicity × durativity latent-class model over cloze and proportion
 
 **Features:** `program`, parametric templates, indexed bind `v : A <- F(args)`, `observe r : N <- F(args)`, scoped `marginalize`, `cumsum`, `HalfNormal`
 
+<!-- compile: false -->
 ```qvr
 program random_intercepts (G : FinSet, scale : Real) : G -> 1
     sigma <- HalfNormal(scale)

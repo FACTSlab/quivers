@@ -90,6 +90,7 @@ A named `continuous` morphism cannot bundle a fresh scale draw per call because 
 
 ### Indexed binds
 
+<!-- compile: false -->
 ```qvr
 v : G <- Normal(0.0, sigma)
 duration_incr_cloze : Item <- HalfNormal(1.0)
@@ -101,6 +102,7 @@ An indexed bind `v : A <- F(args)` denotes the Kleisli morphism $A \to \mathcal{
 
 The eleven duration levels carry a monotone-increasing effect via the `cumsum` parameterisation: per-level positive increments are drawn from `HalfNormal(1.0)` and accumulated into partial sums.
 
+<!-- compile: false -->
 ```qvr
 duration_incr_cloze : Item <- HalfNormal(1.0)
 let duration_eff_cloze = cumsum(duration_incr_cloze)
@@ -110,6 +112,7 @@ Because `HalfNormal` has support $[0, \infty)$, the partial sums are monotone-in
 
 ### Indexed observes
 
+<!-- compile: false -->
 ```qvr
 observe cloze_resp : RespCloze <- Bernoulli(intercept_cloze)
 ```
@@ -118,6 +121,7 @@ This denotes the sub-probabilistic kernel $\Phi \to \mathcal{G}_{\le 1}(\Phi)$ w
 
 ### Coordinate marginalisation
 
+<!-- compile: false -->
 ```qvr
 marginalize cloze_resp : RespCloze <- Bernoulli(intercept_cloze) in {
     observe cloze_resp : RespCloze <- Bernoulli(intercept_cloze)
