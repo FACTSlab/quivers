@@ -4,39 +4,115 @@ All notable changes to the quivers library are documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/), and this project adheres to [Semantic Versioning](https://semver.org/).
 
-## [Unreleased]
+## [0.5.0] - 2026-05-12
 
-### Added
+A substantive expansion of the inference layer plus the full
+implementation of scoped grouped `marginalize` blocks (issue #9).
+Pre-1.0 clean break: no backwards-compatibility shims; user code
+that relied on the `SVI(loss=...)` keyword should switch to
+`SVI(objective=...)`, and `Predictive(guide=...)` should use the
+positional `posterior` argument.
 
-- **Scoped grouped `marginalize` blocks with `over` / `via` fibration support.**
-  The `marginalize` block now accepts optional `over G via idx`
-  clauses declaring a grouping plate `G` and a fibration
-  `idx : Resp → G` from the response plate to the group plate.
-  The body's per-row per-class log-likelihood is scatter-added
-  along `idx` to give a per-(group, class) accumulator, the
-  categorical prior is added per group, and the log-sum-exp over
-  the class axis is summed over groups. This is the canonical
-  hierarchical-Bayes per-group log-mixture pattern (Stan's
-  `target += log_mix(probs, ll_item[i])`), and corresponds
-  categorically to a right Kan extension along the fibration in
-  $\mathbf{Kern}$ followed by the standard categorical-marginal
-  log-sum-exp under the prior. Both clauses must appear together;
-  a half-grouped block is a compile-time error. Surface:
+### Added — inference layer
 
-  ```qvr
-  marginalize class : K <- Categorical(probs)
-      over G via idx
-      in {
-          <body>
-      }
-  ```
+- **`LatentRegistry`** — per-site introspection helper that every
+  guide and MCMC kernel consumes. Walks the model's `_step_specs`
+  once at construction and exposes per-site (support, dims, plate
+  vs scalar, bijector, flat-vector offsets) plus flatten /
+  unflatten between site dicts and a single flat unconstrained
+  vector.
+- **Transforms / flows** — `TransformModule` cooperative base
+  inheriting both `torch.distributions.transforms.Transform` and
+  `torch.nn.Module`. Primitives: `AffineCouplingTransform` (RealNVP),
+  `MaskedAutoregressiveTransform` (MAF), `InverseAutoregressiveTransform`
+  (IAF), `NeuralSplineCouplingTransform` (NSF rational-quadratic
+  spline coupling), `LULinearTransform` (Glow), `BatchNormTransform`,
+  plus `MADE` and helper masks.
+- **Variational objectives** — `Objective` ABC and four
+  implementations: `ELBO`, `IWAEBound` (Burda-Grosse-Salakhutdinov
+  2016), `RenyiBound` (Li-Turner 2016), `VRIWAEBound`
+  (Daudel-Douc-Roueff 2023). Each accepts a pluggable
+  `GradientEstimator` strategy: `Reparameterised` (default),
+  `StickingTheLanding` (Roeder-Wu-Duvenaud 2017),
+  `DoublyReparameterised` (Tucker-Lawson-Gu-Maddison 2019; default
+  for IWAE), `ScoreFunction`.
+- **Guide zoo** — `AutoMultivariateNormalGuide` (full-rank Cholesky
+  Gaussian), `AutoLowRankMultivariateNormalGuide` (Σ = W W^T +
+  diag(σ²) via Woodbury), `AutoNormalizingFlow` (user-supplied
+  transform stack), `AutoIAFGuide` (preconfigured IAF stack with
+  reverse permutations), `AutoNeuralSplineGuide` (NSF coupling
+  stack), `AutoLaplaceApproximation` (two-phase: SVI MAP then
+  Hessian-derived Gaussian), `AutoMixtureGuide` (Gumbel-Softmax
+  mixture of component guides).
+- **MCMC** — `HMCKernel` and `NUTSKernel` operating on the flat
+  unconstrained latent vector via the `LatentRegistry`. Both
+  support identity / diagonal / dense mass matrices, Nesterov
+  dual-averaging step-size adaptation (Hoffman-Gelman 2014 Alg 6),
+  and Welford-online mass-matrix adaptation. `MCMC` driver orchestrates
+  parallel chains with warmup-then-sample phases and produces
+  `MCMCResult` carrying per-site posterior draws + split-R̂ + ESS
+  diagnostics.
+- **Hybrid samplers** — `AutoDAIS` (differentiable annealed
+  importance sampling guide; Geffner-Domke 2021 / Zhang et al.
+  2021) and `WarmupThenHMC` (SVI warmup then MCMC seeded from the
+  guide's posterior mean).
+- **`Predictive`** now accepts either a `Guide` or an `MCMCResult`
+  as its posterior; the MCMC overload iterates the recorded
+  posterior draws.
 
-  The runtime primitive `quivers.continuous.bayesian.marginalize_grouped`
-  is exposed for direct use and is also wired into the compiler's
-  `MarginalizeStep` runtime path. Degenerates to the global mixture
-  when `over` / `via` are omitted, to the per-row mixture under the
-  identity fibration, and to the per-block mixture under a coarser
-  fibration.
+### Added — issue #9: scoped grouped `marginalize` blocks
+
+- **`marginalize <v> : K <- F(probs) over G via idx in { ... }`**
+  with the full feature surface from issue #9:
+  - **Arbitrary nesting** of grouped marginalize blocks. The
+    runtime distinguishes the innermost level (which has a row
+    axis and a fibration to scatter along) from outer levels
+    (which consume already-reduced contributions broadcast over
+    the surviving outer class axes), so a stack of N blocks
+    composes to the correct hierarchical log-mixture. Tested at
+    depths 3-7.
+  - **Product fibrations** via `via product(idx_a, idx_b, ...)`
+    paired with `over G * H` product grouping plates.
+  - **`reduction = logsumexp | sum | mean`** per block.
+  - **Continuous latents in scope** inside the body; the compiler
+    binds the latent name to `torch.arange(K)` so let-arithmetic
+    referencing the latent broadcasts across the class axis.
+  - **Body vectorisation**: the body's terminal `observe` step is
+    captured by the compiler (`GroupedBodyObserveStep` IR) and its
+    per-row per-class log-likelihood is stored at the latent's
+    environment slot for the marginalize callable to consume. No
+    user-side `let` boilerplate.
+- `quivers.continuous.bayesian.marginalize_grouped` generalised
+  to accept multi-axis broadcast inputs, product fibrations, and
+  the three reduction modes.
+- `dsl/examples/event_structure.qvr` now uses real `observe`
+  steps inside the grouped blocks.
+
+### Added — synthetic benchmark suite
+
+- `tests/benchmarks/` with Tier-1 conjugate (Beta-Bernoulli,
+  Normal-Normal) and Tier-3 hard-geometry (correlated MVN)
+  benchmarks. Models live in `tests/benchmarks/models/*.qvr` as
+  canonical didactic models; dataset / reference modules are plain
+  functions returning `(model, observations, true_params)`. The
+  Tier-3 suite includes a capture test for the mean-field failure
+  mode on a correlated posterior.
+
+### Changed
+
+- **`SVI`** takes an `objective: Objective` instead of `loss: ELBO`.
+- **`Predictive`** takes a positional `posterior: Guide | MCMCResult`
+  instead of a `guide:` keyword.
+- The variational machinery moved off `PlateDraw` (`kl_to_prior`
+  removed; the deeper migration of `_mean`/`_log_scale` happens
+  in v0.5.0 alongside the rest of the refactor).
+
+### Removed
+
+- `PlateDraw.kl_to_prior` (no callers; the Guide hierarchy owns
+  variational distributions now).
+- `quivers.inference.elbo` (re-exported from
+  `quivers.inference.objectives` as `ELBO`).
 
 ## [0.4.1] - 2026-05-12
 
