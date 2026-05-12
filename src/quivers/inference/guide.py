@@ -49,6 +49,7 @@ from torch.distributions.transforms import Transform
 from torch.distributions.constraint_registry import biject_to
 from typing import cast
 
+from quivers.continuous.bayesian import PlateDraw
 from quivers.continuous.morphisms import ContinuousMorphism
 from quivers.continuous.programs import MonadicProgram, _LetSpec
 from quivers.continuous.spaces import ContinuousSpace
@@ -210,6 +211,15 @@ class AutoNormalGuide(Guide):
         self._supports: dict[str, _constraints.Constraint] = {}
         self._constrained_dims: dict[str, int] = {}
         self._unconstrained_dims: dict[str, int] = {}
+        # Plate latents are *batch-invariant* — the trace's model
+        # side produces shape ``(|A|, *B.shape)`` regardless of the
+        # program input's leading batch axis (this is the Pyro plate
+        # semantic that landed in PlateDraw.rsample). The guide must
+        # match: producing a ``(batch, …)``-broadcast plate latent
+        # would mismatch the model side and break downstream gather
+        # / observe composition.
+        self._is_plate: dict[str, bool] = {}
+        self._plate_index_sizes: dict[str, int] = {}
 
         for spec in model._step_specs:
             if isinstance(spec, _LetSpec):
@@ -223,23 +233,54 @@ class AutoNormalGuide(Guide):
 
                 assert model._modules[spec.morphism_name] is not None
                 morph = cast(ContinuousMorphism, model._modules[spec.morphism_name])
-                constrained_dim = self._infer_dim(morph, len(spec.vars))
-                support = _support_for_morphism(morph)
-                unconstrained_dim = _unconstrained_dim(support, constrained_dim)
+                is_plate = isinstance(morph, PlateDraw)
+                if is_plate:
+                    # Use the plate's per-row codomain dim, not the
+                    # flat ``|A| * d`` advertised through the
+                    # PlateDraw's codomain space — the guide stores
+                    # one ``(loc, log_scale)`` pair per (index,
+                    # codomain-coordinate).
+                    plate = cast(PlateDraw, morph)
+                    inner = plate.family
+                    inner_cod = inner.codomain
+                    per_row_dim = (
+                        inner_cod.dim if isinstance(inner_cod, ContinuousSpace) else 1
+                    )
+                    constrained_dim = max(1, per_row_dim)
+                    support = _support_for_morphism(inner)
+                    unconstrained_dim = _unconstrained_dim(support, constrained_dim)
+                    self._plate_index_sizes[var] = plate.index_size
+                else:
+                    constrained_dim = self._infer_dim(morph, len(spec.vars))
+                    support = _support_for_morphism(morph)
+                    unconstrained_dim = _unconstrained_dim(support, constrained_dim)
 
                 self._supports[var] = support
                 self._constrained_dims[var] = constrained_dim
                 self._unconstrained_dims[var] = unconstrained_dim
+                self._is_plate[var] = is_plate
+
+                # Parameter shape: ``(|A|, unconstrained_dim)`` for
+                # plate latents (one variational ``(loc, scale)`` per
+                # index × coordinate), ``(unconstrained_dim,)`` for
+                # the non-plate scalar-per-program case.
+                if is_plate:
+                    param_shape: tuple[int, ...] = (
+                        self._plate_index_sizes[var],
+                        unconstrained_dim,
+                    )
+                else:
+                    param_shape = (unconstrained_dim,)
 
                 self.register_parameter(
                     f"loc_{var}",
-                    nn.Parameter(torch.zeros(unconstrained_dim)),
+                    nn.Parameter(torch.zeros(param_shape)),
                 )
                 self.register_parameter(
                     f"log_scale_{var}",
                     nn.Parameter(
                         torch.full(
-                            (unconstrained_dim,),
+                            param_shape,
                             torch.tensor(init_scale).log().item(),
                         )
                     ),
@@ -258,7 +299,14 @@ class AutoNormalGuide(Guide):
         return biject_to(self._supports[name])
 
     def rsample(self, x: torch.Tensor) -> dict[str, torch.Tensor]:
-        """Sample from the per-site Normal-then-bijector guide."""
+        """Sample from the per-site Normal-then-bijector guide.
+
+        Plate latents are batch-invariant — drawn once at shape
+        ``(|A|, *B.shape)`` to match the model's :class:`PlateDraw`
+        output. Non-plate latents broadcast against ``x.shape[0]``
+        so multiple-particle ELBOs receive independent draws per
+        particle.
+        """
         batch = x.shape[0]
         result: dict[str, torch.Tensor] = {}
 
@@ -269,15 +317,24 @@ class AutoNormalGuide(Guide):
             uncon_dim = self._unconstrained_dims[name]
             con_dim = self._constrained_dims[name]
 
-            loc_batch = loc.unsqueeze(0).expand(batch, uncon_dim)
-            scale_batch = scale.unsqueeze(0).expand(batch, uncon_dim)
-            z = D.Normal(loc_batch, scale_batch).rsample()
-            v = _apply_bijector(self._bijector(name), z, con_dim)
-
-            # Match the tracer's shape convention: 1-dim sites are
-            # represented as (batch,), not (batch, 1).
-            if v.dim() == 2 and v.shape[-1] == 1:
-                v = v.squeeze(-1)
+            if self._is_plate[name]:
+                z = D.Normal(loc, scale).rsample()
+                v = _apply_bijector(self._bijector(name), z, con_dim)
+                # Match the tracer's plate-shape convention: a
+                # scalar-per-row plate is ``(|A|,)``, not
+                # ``(|A|, 1)``.
+                if v.dim() == 2 and v.shape[-1] == 1:
+                    v = v.squeeze(-1)
+            else:
+                loc_batch = loc.unsqueeze(0).expand(batch, uncon_dim)
+                scale_batch = scale.unsqueeze(0).expand(batch, uncon_dim)
+                z = D.Normal(loc_batch, scale_batch).rsample()
+                v = _apply_bijector(self._bijector(name), z, con_dim)
+                # Match the tracer's scalar-site convention: 1-dim
+                # sites are represented as ``(batch,)``, not
+                # ``(batch, 1)``.
+                if v.dim() == 2 and v.shape[-1] == 1:
+                    v = v.squeeze(-1)
 
             result[name] = v
 
@@ -317,20 +374,35 @@ class AutoNormalGuide(Guide):
             loc = getattr(self, f"loc_{name}")
             log_scale = getattr(self, f"log_scale_{name}")
             scale = log_scale.exp().clamp(min=1e-6)
-            uncon_dim = self._unconstrained_dims[name]
-            loc_batch = loc.unsqueeze(0).expand(batch, uncon_dim)
-            scale_batch = scale.unsqueeze(0).expand(batch, uncon_dim)
-
-            log_q_z = D.Normal(loc_batch, scale_batch).log_prob(z)
-            if log_q_z.dim() > 1:
-                log_q_z = log_q_z.sum(dim=-1)
-
+            if self._is_plate[name]:
+                # Broadcast the plate prior's ``(|A|, uncon)``
+                # parameter tensor against the plate sample shape;
+                # log_q is summed over the plate axis and the
+                # coordinate axis, producing a scalar that is then
+                # broadcast against the batch.
+                log_q_z = D.Normal(loc, scale).log_prob(z)
+            else:
+                uncon_dim = self._unconstrained_dims[name]
+                loc_batch = loc.unsqueeze(0).expand(batch, uncon_dim)
+                scale_batch = scale.unsqueeze(0).expand(batch, uncon_dim)
+                log_q_z = D.Normal(loc_batch, scale_batch).log_prob(z)
             # Jacobian of the inverse transform (constrained -> unconstrained).
             log_abs_det = bij.inv.log_abs_det_jacobian(v, z)
-            while log_abs_det.dim() > 1:
-                log_abs_det = log_abs_det.sum(dim=-1)
 
-            total = total + log_q_z + log_abs_det
+            if self._is_plate[name]:
+                # Plate latents contribute a single scalar density
+                # per program execution (summed over the plate axis
+                # and the coordinate axis); broadcast it against
+                # the (batch,) accumulator.
+                log_q_z = log_q_z.reshape(-1).sum()
+                log_abs_det = log_abs_det.reshape(-1).sum()
+                total = total + log_q_z + log_abs_det
+            else:
+                if log_q_z.dim() > 1:
+                    log_q_z = log_q_z.sum(dim=-1)
+                while log_abs_det.dim() > 1:
+                    log_abs_det = log_abs_det.sum(dim=-1)
+                total = total + log_q_z + log_abs_det
 
         return total
 
@@ -379,6 +451,8 @@ class AutoDeltaGuide(Guide):
         self._supports: dict[str, _constraints.Constraint] = {}
         self._constrained_dims: dict[str, int] = {}
         self._unconstrained_dims: dict[str, int] = {}
+        self._is_plate: dict[str, bool] = {}
+        self._plate_index_sizes: dict[str, int] = {}
 
         for spec in model._step_specs:
             if isinstance(spec, _LetSpec):
@@ -392,19 +466,38 @@ class AutoDeltaGuide(Guide):
 
                 assert model._modules[spec.morphism_name] is not None
                 morph = cast(ContinuousMorphism, model._modules[spec.morphism_name])
-                constrained_dim = AutoNormalGuide._infer_dim(morph, len(spec.vars))
-                support = _support_for_morphism(morph)
-                unconstrained_dim = _unconstrained_dim(support, constrained_dim)
+                is_plate = isinstance(morph, PlateDraw)
+                if is_plate:
+                    plate = cast(PlateDraw, morph)
+                    inner = plate.family
+                    inner_cod = inner.codomain
+                    per_row_dim = (
+                        inner_cod.dim if isinstance(inner_cod, ContinuousSpace) else 1
+                    )
+                    constrained_dim = max(1, per_row_dim)
+                    support = _support_for_morphism(inner)
+                    unconstrained_dim = _unconstrained_dim(support, constrained_dim)
+                    self._plate_index_sizes[var] = plate.index_size
+                    param_shape: tuple[int, ...] = (
+                        self._plate_index_sizes[var],
+                        unconstrained_dim,
+                    )
+                else:
+                    constrained_dim = AutoNormalGuide._infer_dim(morph, len(spec.vars))
+                    support = _support_for_morphism(morph)
+                    unconstrained_dim = _unconstrained_dim(support, constrained_dim)
+                    param_shape = (unconstrained_dim,)
 
                 self._supports[var] = support
                 self._constrained_dims[var] = constrained_dim
                 self._unconstrained_dims[var] = unconstrained_dim
+                self._is_plate[var] = is_plate
 
                 self.register_parameter(
                     f"unconstrained_{var}",
                     nn.Parameter(
-                        torch.full((unconstrained_dim,), init_value)
-                        + torch.randn(unconstrained_dim) * 0.01
+                        torch.full(param_shape, init_value)
+                        + torch.randn(param_shape) * 0.01
                     ),
                 )
 
@@ -418,12 +511,22 @@ class AutoDeltaGuide(Guide):
 
         for name in self._latent_names:
             z = getattr(self, f"unconstrained_{name}")
-            uncon_dim = self._unconstrained_dims[name]
             con_dim = self._constrained_dims[name]
-            z_batch = z.unsqueeze(0).expand(batch, uncon_dim)
-            v = _apply_bijector(self._bijector(name), z_batch, con_dim)
-            if v.dim() == 2 and v.shape[-1] == 1:
-                v = v.squeeze(-1)
+
+            if self._is_plate[name]:
+                # Plate point estimate is batch-invariant: a single
+                # tensor of shape ``(|A|, *B.shape)`` shared across
+                # every program execution.
+                v = _apply_bijector(self._bijector(name), z, con_dim)
+                if v.dim() == 2 and v.shape[-1] == 1:
+                    v = v.squeeze(-1)
+            else:
+                uncon_dim = self._unconstrained_dims[name]
+                z_batch = z.unsqueeze(0).expand(batch, uncon_dim)
+                v = _apply_bijector(self._bijector(name), z_batch, con_dim)
+                if v.dim() == 2 and v.shape[-1] == 1:
+                    v = v.squeeze(-1)
+
             result[name] = v
 
         return result

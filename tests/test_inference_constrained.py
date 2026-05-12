@@ -24,7 +24,7 @@ import pytest
 import torch
 
 from quivers.dsl import loads
-from quivers.inference import AutoDeltaGuide, AutoNormalGuide
+from quivers.inference import ELBO, SVI, AutoDeltaGuide, AutoNormalGuide
 from quivers.inference.conditioning import condition
 from quivers.inference.trace import trace
 
@@ -152,6 +152,55 @@ def test_condition_data_dict_visible_to_let_expression() -> None:
     assert by_subj.shape == (4,)
     assert mu.shape == (12,)
     assert torch.allclose(mu, by_subj[subj_idx])
+
+
+def test_hierarchical_regression_svi_step_runs() -> None:
+    """End-to-end SVI step against an observed Bernoulli kernel over
+    a per-row plate-gather predictor. The guide-supplied plate
+    latent must have the same shape as the model's :class:`PlateDraw`
+    output ``(|Subj|,)`` so the ``let mu = by_subj[subj_idx]``
+    gather composes when ELBO substitutes the guide sample into the
+    model's log-joint env. A regression test for the original
+    crossed-random-effects target use case."""
+    torch.manual_seed(0)
+    prog = loads(
+        "object Subj : 4\n"
+        "object Resp : 12\n"
+        "\n"
+        "program p : Resp -> Resp\n"
+        "    by_subj : Subj <- Normal(0.0, 1.0)\n"
+        "    let mu = sigmoid(by_subj[subj_idx])\n"
+        "    observe r : Resp <- Bernoulli(mu)\n"
+        "    return mu\n"
+        "export p\n"
+    )
+    model = prog.morphism
+    guide = AutoNormalGuide(model, observed_names={"r"})
+
+    # Guide-side and model-side plate-latent shapes must agree.
+    assert guide.rsample(torch.zeros(1, 1))["by_subj"].shape == (4,)
+
+    obs = {
+        "subj_idx": torch.tensor([0, 1, 2, 3, 0, 1, 2, 3, 0, 1, 2, 3]),
+        "r": torch.zeros(12),
+    }
+    opt = torch.optim.Adam(list(model.parameters()) + list(guide.parameters()), lr=5e-2)
+    svi = SVI(model, guide, opt, ELBO())
+
+    # One step must complete without the IndexError that occurs when
+    # guide latents are shaped against the program-input batch axis.
+    loss0 = float(svi.step(torch.zeros(1, 1), obs))
+    assert torch.isfinite(torch.tensor(loss0))
+
+    # Loss should descend with all-zero responses (model wants
+    # by_subj's loc to go strongly negative so sigmoid(by_subj) → 0
+    # matches the data).
+    losses = [float(svi.step(torch.zeros(1, 1), obs)) for _ in range(200)]
+    assert losses[-1] < loss0
+    loc_final = guide.loc_by_subj.detach()
+    assert (loc_final < 0).all(), (
+        f"loc_by_subj should be driven negative by all-zero responses, got {loc_final}"
+    )
 
 
 def test_hierarchical_regression_observation_kernel_composes() -> None:

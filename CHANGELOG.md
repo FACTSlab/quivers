@@ -65,7 +65,15 @@ release.
   per-row predictor of shape `(N_resp,)` that broadcasts cleanly
   against an observed `Resp`-plate kernel. Scalar-per-row plates
   (`Normal`, `HalfNormal`, …) drop the trailing length-1 axis so
-  the latent has the natural `(|A|,)` shape.
+  the latent has the natural `(|A|,)` shape. Both
+  :class:`AutoNormalGuide` and :class:`AutoDeltaGuide` were
+  updated to advertise the same shape on the variational side:
+  plate latents are stored as `(|A|, unconstrained_dim)` parameter
+  tensors and sampled batch-invariant so ELBO substitution into
+  the model's log-joint env aligns shape-by-shape with the
+  model's :class:`PlateDraw` output. (Without this, the SVI step
+  ran into an `IndexError` from the plate-axis gather even though
+  `cond.trace(...)` on the same model succeeded.)
 
 - **Inline `Dirichlet` accepted as a prior with scalar or vector
   concentration.** `pc <- Dirichlet(α)` and
@@ -119,12 +127,14 @@ release.
 
 ### Tests
 
-`tests/test_inference_constrained.py` (20 cases): every supported
+`tests/test_inference_constrained.py` (21 cases): every supported
 constrained family under both auto-guides, host-data passing
-through `condition` (including the end-to-end Bernoulli
-hierarchical-regression observation kernel that exercises the
-plate-gather → observe-plate composition), and inline Dirichlet
-with both scalar and vector concentrations.
+through `condition`, the end-to-end Bernoulli hierarchical-
+regression observation kernel that exercises the plate-gather →
+observe-plate composition, an SVI-step regression that verifies
+the guide / model plate shapes align and the ELBO descends with
+``loc_by_subj`` driven negative by all-zero responses, and inline
+Dirichlet with both scalar and vector concentrations.
 
 ## [0.4.0] - 2026-05-12
 
