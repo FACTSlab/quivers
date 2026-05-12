@@ -15,10 +15,16 @@ from __future__ import annotations
 
 from quivers.inference.guides.base import Guide
 from quivers.inference.guides.delta import AutoDeltaGuide
+from quivers.inference.guides.multivariate_normal import (
+    AutoLowRankMultivariateNormalGuide,
+    AutoMultivariateNormalGuide,
+)
 from quivers.inference.guides.normal import AutoNormalGuide
 
 __all__ = [
     "Guide",
     "AutoNormalGuide",
+    "AutoMultivariateNormalGuide",
+    "AutoLowRankMultivariateNormalGuide",
     "AutoDeltaGuide",
 ]

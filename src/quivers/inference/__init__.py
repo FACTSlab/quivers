@@ -29,7 +29,13 @@ from __future__ import annotations
 from quivers.inference.trace import Trace, SampleSite, trace
 from quivers.inference.conditioning import Conditioned, condition
 from quivers.inference.registry import LatentRegistry, LatentSite
-from quivers.inference.guides import Guide, AutoNormalGuide, AutoDeltaGuide
+from quivers.inference.guides import (
+    AutoDeltaGuide,
+    AutoLowRankMultivariateNormalGuide,
+    AutoMultivariateNormalGuide,
+    AutoNormalGuide,
+    Guide,
+)
 from quivers.inference.estimators import (
     DoublyReparameterised,
     GradientEstimator,
@@ -57,6 +63,8 @@ __all__ = [
     "LatentSite",
     "Guide",
     "AutoNormalGuide",
+    "AutoMultivariateNormalGuide",
+    "AutoLowRankMultivariateNormalGuide",
     "AutoDeltaGuide",
     "Objective",
     "ELBO",
