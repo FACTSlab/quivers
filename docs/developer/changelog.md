@@ -6,6 +6,36 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/), and this
 
 ## [Unreleased]
 
+## [0.5.0] - 2026-05-11
+
+### Changed (breaking, pre-1.0 clean cut)
+
+Surface DSL homogenisation. The program-block surface is reorganised
+around a single Kleisli-bind sigil `<-`, type-annotated indexing on
+the binder, scoped marginalisation, and `!`-prefixed effect
+signatures. See `CHANGELOG.md` for the full migration table.
+
+Headline changes:
+
+- `draw v ~ F` → `v <- F`. The `draw` keyword is retired; `<-` is
+  the unique Kleisli-bind sigil.
+- `draw v : A -> K ~ F` → `v : A <- F`. Indexed (plate) binds use
+  a type annotation on the binder.
+- `observe r[n] ~ F for n in N` → `observe r : N <- F`. The
+  `for n in N` form is dropped; vectorised observes use the same
+  type-annotation shape as plates.
+- `marginalize c` → `marginalize c : A <- F in { … }`. Always
+  scoped; the integration target is visible at the binding site.
+- `posterior P (M) [v]` → `program P(v) : … ! Pure over M`.
+- `!` effect signature on programs: `Sample`, `Score`,
+  `Marginal`, `Pure`. The compiler verifies actual vs. declared
+  effects.
+- `output` → `export` (multiple per module allowed).
+- Labelled-tuple return form dropped.
+
+Deferred to v0.6: the agenda-based deduction framework + chart
+values (see `.claude/plans/convert-all-dataclasses-and-golden-marble.md`).
+
 ## [0.4.0] - 2026-05-11
 
 ### Added

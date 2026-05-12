@@ -26,7 +26,7 @@ prog = loads('''
     object X : 3
     object Y : 4
     latent f : X -> Y
-    output f
+    export f
 ''')
 
 # Compile from file
@@ -57,7 +57,7 @@ statement      := quantale_decl
                 | program_decl
                 | let_decl
                 | type_decl
-                | output_decl
+                | export_decl
 
 quantale_decl  := 'quantale' ('product_fuzzy' | 'boolean'
                               | 'lukasiewicz' | 'godel' | 'tropical')
@@ -125,27 +125,44 @@ embed_decl      := 'embed' IDENT ['[' INT ']'] ':' IDENT '->' IDENT
 
 program_decl   := 'program' IDENT ['(' param_list ')'] ':'
                    type_expr '->' type_expr
+                   ['!' effect_set]
+                   ['over' IDENT]
                    program_body
 param_list     := program_param (',' program_param)*
 program_param  := IDENT | IDENT ':' param_kind
 param_kind     := 'FinSet' | 'Space' | 'Object'
                 | 'Real' | 'Nat'
                 | 'Mor' '[' type_expr ',' type_expr ']'
+effect_set     := effect (',' effect)*
+effect         := 'Sample' | 'Score' | 'Marginal' | 'Pure'
 
 program_body   := program_step+ return_stmt
 
-program_step   := plate_draw_step | vectorised_observe_step
-                | marginalize_step
-                | draw_step | observe_step | let_step
-draw_step      := 'draw' var_pattern '~' IDENT ['(' arg_list ')']
-                | IDENT '<-' IDENT ['(' arg_list ')']
-observe_step   := 'observe' var_pattern '~' IDENT ['(' arg_list ')']
-plate_draw_step       := 'draw' IDENT ':' type_expr '->' type_expr
-                          '~' IDENT ['(' arg_list ')']
-vectorised_observe_step := 'observe' IDENT '[' IDENT ']'
-                            '~' IDENT ['(' arg_list ')']
-                            'for' IDENT 'in' type_expr
-marginalize_step := 'marginalize' IDENT
+program_step   := bind_step | observe_step
+                | marginalize_step | let_step
+
+# Kleisli bind — the unique sampling step shape.
+#   v        <- F(args)              -- scalar draw
+#   v : A    <- F(args)              -- A-indexed plate
+#   (a, b)   <- F(args)              -- destructuring tuple bind
+bind_step      := var_pattern [':' type_expr] '<-' IDENT
+                  ['(' draw_arg_list ')']
+
+# Scored bind — same shape as bind_step, prefixed with `observe`.
+#   observe v        <- F(args)
+#   observe r : N    <- F(theta[N])
+observe_step   := 'observe' IDENT [':' type_expr] '<-' IDENT
+                  ['(' draw_arg_list ')']
+
+# Scoped marginalisation — coordinate `c` is bound to `F(args)`,
+# optionally `A`-indexed; the steps in the `{ … }` body are the
+# integration scope. At end of scope the coordinate is pushed
+# forward through projection (logsumexp for discrete, fibrewise
+# integration for continuous).
+marginalize_step := 'marginalize' IDENT [':' type_expr] '<-' IDENT
+                    ['(' draw_arg_list ')']
+                    'in' '{' program_step* '}'
+
 let_step       := 'let' IDENT '=' let_expr
 let_expr       := let_term (('+' | '-') let_term)*
 let_term       := let_unary (('*' | '/') let_unary)*
@@ -154,17 +171,16 @@ let_atom       := IDENT '(' let_expr (',' let_expr)* ')'
                 | IDENT '[' let_expr (',' let_expr)* ']'
                 | IDENT | INT | FLOAT | '(' let_expr ')'
 var_pattern    := IDENT | '(' IDENT (',' IDENT)* ')'
-arg_list       := arg (',' arg)*
-arg            := '-' (INT | FLOAT) | IDENT | INT | FLOAT
 
-posterior_decl := 'posterior' IDENT '(' IDENT ')' ':'
-                   type_expr '->' type_expr
-                   (let_step | marginalize_step)*
-                   return_stmt
+# A family argument may be a numeric literal, an identifier, or a
+# bracket-indexed family section `theta[N]` denoting a section of
+# the N-indexed family `theta : N → P`.
+draw_arg_list  := draw_arg (',' draw_arg)*
+draw_arg       := IDENT '[' type_expr ']'
+                | '-' (INT | FLOAT) | IDENT | INT | FLOAT
 
 return_stmt    := 'return' return_pattern
-return_pattern := IDENT | '(' return_entry (',' return_entry)* ')'
-return_entry   := IDENT ':' IDENT | IDENT
+return_pattern := IDENT | '(' IDENT (',' IDENT)* ')'
 
 let_decl       := 'let' IDENT '=' expr ['where' let_decl+]
 expr           := compose_expr
@@ -204,7 +220,7 @@ chart_fold_arg  := 'lex' '=' expr
                  | 'depth' '=' INT
                  | 'effect_depth' '=' INT
 
-output_decl    := 'output' expr
+export_decl    := 'export' expr
 ```
 
 ## Declarations
@@ -272,7 +288,7 @@ let grammar = parser(
     start=S
 )
 
-output grammar
+export grammar
 ```
 
 DSL-declared rules and built-in schema primitives can be freely mixed:
@@ -529,7 +545,7 @@ stochastic emission : State -> Obs
 # runtime-variable: no count specified
 let n_step = repeat(transition) >> emission
 
-output n_step
+export n_step
 ```
 
 ```python
@@ -602,7 +618,7 @@ continuous output_proj : Hidden -> Output ~ Normal [scale=0.1]
 
 let rnn = tok_embed >> scan(cell) >> output_proj
 
-output rnn
+export rnn
 ```
 
 For deeper temporal models, stack multiple scans:
@@ -612,17 +628,15 @@ let deep_rnn = tok_embed >> scan(cell_1) >> scan(cell_2) >> output_proj
 
 Each `scan` threads its own hidden state independently.
 
-### Arrow Bind Syntax
+### Kleisli Bind Syntax
 
-Alternative syntax for draw steps using the `<-` operator:
+The `<-` operator is the unique sampling-step sigil in a `program` body:
 
 ```qvr
-# these are equivalent:
-draw x ~ Normal(0.0, 1.0)
 x <- Normal(0.0, 1.0)
 ```
 
-Both forms introduce a variable x in a probabilistic program. The `<-` notation is more concise and aligns with functional programming conventions.
+It introduces `x` as a random variable distributed according to the given family. The same sigil carries every sampling-step variant — scalar draws, indexed plates, scored observes, and scoped marginalisations — distinguished by the surrounding shape (see the program-block section below).
 
 ### Backward Composition
 
@@ -693,7 +707,7 @@ let grammar = parser(
     start=S
 )
 
-output grammar
+export grammar
 ```
 
 Alternatively, categories can be listed inline via `categories=[...]` for concise one-off definitions:
@@ -708,7 +722,7 @@ let grammar = parser(
     start=S
 )
 
-output grammar
+export grammar
 ```
 
 When neither `categories=[...]` nor `category` declarations are present, the compiler raises an error; there is no implicit inference. Similarly, `terminal=` is required for schema-based parsers: it explicitly names the declared `object` serving as the terminal vocabulary.
@@ -815,7 +829,7 @@ let pcfg = parser(
     start=0
 )
 
-output pcfg
+export pcfg
 ```
 
 No special keywords distinguish "binary" from "lexical"; the compiler reads the types. The `start` parameter (default `0`) selects the start nonterminal index.
@@ -885,7 +899,7 @@ let grammar = chart_fold(
     depth=2,
     effect_depth=0
 )
-output grammar
+export grammar
 ```
 
 The `effect_depth` parameter bounds effect-stack nesting in the joint type-and-effect dispatch (see [Compositional Effects](effects.md)); leave at `0` for ordinary categorial grammars.
@@ -908,66 +922,79 @@ object Z : 5
 
 latent f : X * Y -> Z
 let g = f.curry_right    # g : X -> Z/Y
-output g
+export g
 ```
 
 The Lambek calculus inference rules (forward / backward application) become *theorems* derivable from `identity` + `curry`.
 
 ### Program
 
-Define a probabilistic program. The body is a sequence of *steps* (draw, plate-draw, observe, vectorised-observe, let, marginalize) followed by `return`. Each step is a Kleisli arrow on the accumulated random-variable context $\Phi$; the program denotes the composite $\Gamma \to \mathcal{G}(\tau_2)$ in $\mathbf{Kern}$.
+Define a probabilistic program. The body is a sequence of *steps* (bind, observe, let, marginalize) followed by `return`. Each step is a Kleisli arrow on the accumulated random-variable context $\Phi$; the program denotes the composite $\Gamma \to \mathcal{G}(\tau_2)$ in $\mathbf{Kern}$.
 
 ```qvr
 program my_prog : X -> Y
-    draw mu ~ LogitNormal(0.0, 1.0)
-    draw x ~ Normal(mu, 1.0)
+    mu <- LogitNormal(0.0, 1.0)
+    x <- Normal(mu, 1.0)
 
     return x
 
 program with_params(a, b) : (X * Z) -> Y
     let w = a
 
-    draw x ~ f(w)
-    draw y ~ g(x, b)
+    x <- f(w)
+    y <- g(x, b)
     return y
 ```
 
-#### Plate-Draw
+#### Effect Signatures
 
-`draw v : A -> K ~ Family(args)` introduces an $A$-indexed plate of independent $F$-distributed draws. The codomain `K` may be a numeric literal (interpreted as `Euclidean(K)`) or any space expression. Categorically, this is a $\mathbf{Kern}$-morphism $A \to \mathcal{G}(K)$, equivalently a single arrow $\mathbf{1} \to \mathcal{G}(K^A)$ via the natural isomorphism $\mathbf{Kern}(\mathbf{1}, K^A) \cong \mathbf{Kern}(A, K)$.
+A program declaration may carry an effect signature after `!`, a comma-separated subset of `{Sample, Score, Marginal, Pure}`. The compiler verifies that the body's actual effects are a subset of the declared set; `! Pure` rejects any sample / score / marginal binds.
+
+```qvr
+program prior : Unit -> Y ! Sample
+    mu <- Normal(0.0, 1.0)
+    return mu
+
+program deterministic : X -> X ! Pure
+    let y = x
+    return y
+```
+
+#### Indexed Bind (Plate)
+
+`v : A <- Family(args)` declares `v` as an $A$-indexed family of independent $F$-distributed draws. Categorically `v : A → \mathcal{G}(K)` where `K` is the per-fiber codomain taken from the family; equivalently a single arrow $\mathbf{1} \to \mathcal{G}(K^A)$ via the natural isomorphism $\mathbf{Kern}(\mathbf{1}, K^A) \cong \mathbf{Kern}(A, K)$.
 
 ```qvr
 object Item : 1000
 
-draw duration_incr : Item -> 11 ~ HalfNormal(1.0)
-draw by_subject    : Subject -> 1 ~ Normal(0.0, sigma)
+duration_incr : Item <- HalfNormal(1.0)
+by_subject    : Subject <- Normal(0.0, sigma)
 ```
 
-#### Vectorised Observe
+#### Indexed Observe
 
-`observe r[n] ~ Family(args) for n in N` accumulates a batched log-likelihood: a sub-probability kernel $\Phi \to \mathcal{G}_{\le 1}(\Phi)$ with score $\prod_{n \in N} p_F(r_{\mathrm{obs}}(n); \theta(n, \phi))$. The response buffer `r` is supplied at runtime via the `observations` dict passed to `MonadicProgram.rsample` / `log_joint` / `ELBO.forward`.
+`observe r : N <- Family(args)` accumulates a batched log-likelihood: a sub-probability kernel $\Phi \to \mathcal{G}_{\le 1}(\Phi)$ with score $\prod_{n \in N} p_F(r_{\mathrm{obs}}(n); \theta(n, \phi))$. The response buffer `r` is supplied at runtime via the `observations` dict passed to `MonadicProgram.rsample` / `log_joint` / `ELBO.forward`. Family arguments may use bracket-indexed sections `theta[N]` to refer to plate variables.
 
 ```qvr
-observe cloze_resp[n] ~ Bernoulli(intercept_cloze) for n in RespCloze
+observe cloze_resp : RespCloze <- Bernoulli(intercept_cloze)
 ```
 
-#### Marginalize
+#### Scoped Marginalize
 
-`marginalize c` pushes the accumulated joint measure forward through the projection $\pi : \Phi \times C \to \Phi$, integrating out the named discrete-latent component by log-sum-exp on the log-likelihood.
+`marginalize c : A <- F(args) in { … }` introduces a coordinate `c` bound to a kernel `F(args)`, optionally `A`-indexed, with the `{ … }` block as its integration scope. At the end of the scope the coordinate is pushed forward through the projection $\pi : \Phi \times C \to \Phi$, integrating it out by log-sum-exp on the log-likelihood (discrete) or fibrewise integration (continuous); `c` then falls out of scope.
 
 ```qvr
-draw class : Item -> 4 ~ Categorical(class_logits)
-marginalize class
+marginalize class : Item <- Categorical(class_logits) in {
+    observe r : N <- Bernoulli(theta[class[N]])
+}
 ```
-
-Only `let` and `marginalize` steps are admissible inside a `posterior` block (see below); inside a `program` block any step kind may appear.
 
 #### Indexed Gather in `let`
 
 A `let`-expression of the form `arr[idx]` denotes the Kleisli pullback of a plate variable along a finite fibration. For a plate `v : A -> B` and an index morphism $\iota : N \to A$, the gather $\iota^* v = v \circ \iota$ is itself a $\mathbf{Kern}$-morphism $N \to B$.
 
 ```qvr
-draw by_verb : Verb -> 1 ~ Normal(0.0, sigma)
+by_verb : Verb <- Normal(0.0, sigma)
 let intercept_for_item = by_verb[verb_of_item]
 ```
 
@@ -990,7 +1017,7 @@ Three parameter universes are available:
 Parametric programs are *not* compiled to runtime `MonadicProgram`s in isolation; the compiler stores them as templates and inlines them at each call site:
 
 ```qvr
-draw v ~ template(arg1, arg2, ...)
+v <- template(arg1, arg2, ...)
 ```
 
 At each call site the template's body is substituted (formal parameters → actual arguments) and α-renamed (internal latents are prefixed by `v$`, the return variable is renamed to `v` directly). The renamed step list is inlined into the caller, so distinct call sites contribute distinct factors to the parent's joint kernel — fresh latents per use, no inadvertent tying.
@@ -1000,28 +1027,28 @@ At each call site the template's body is substituted (formal parameters → actu
 # a per-level Normal(0, σ) plate, polymorphic over the grouping
 # object G and the half-normal hyperparameter scale.
 program random_intercepts (G : FinSet, scale : Real) : G -> 1
-    draw sigma ~ HalfNormal(scale)
-    draw v : G -> 1 ~ Normal(0.0, sigma)
+    sigma <- HalfNormal(scale)
+    v : G <- Normal(0.0, sigma)
     return v
 ```
 
 #### Posterior Blocks
 
-A `posterior name (model) : domain -> codomain ... return ...` declaration denotes a deterministic post-conditioning kernel. The body may contain `let` and `marginalize` steps only; `draw` and `observe` are rejected. Categorically it is a $\mathbf{Kern}$-morphism $\text{Latents} \to \tau_{\mathrm{out}}$ that lifts to $\text{Data} \to \mathcal{G}(\tau_{\mathrm{out}})$ by post-composition with the model's posterior kernel $q(\theta \mid \mathrm{data})$.
+A `program name(latents) : domain -> codomain ! Pure over model` declaration denotes a deterministic post-conditioning kernel. The `over model` modifier marks the program as consuming the named model's latents; the consumed latents appear as data parameters in the parameter list. The `! Pure` effect signature rejects any sample, score, or marginal binds — the body is restricted to `let` (and `marginalize` over its own scope). Categorically it is a $\mathbf{Kern}$-morphism $\text{Latents} \to \tau_{\mathrm{out}}$ that lifts to $\text{Data} \to \mathcal{G}(\tau_{\mathrm{out}})$ by post-composition with the model's posterior kernel $q(\theta \mid \mathrm{data})$.
 
 ```qvr
 type Logits4 = Euclidean 4
 
 program scored : Item -> Logits4
-    draw raw_logits ~ Normal(0.0, 1.0)
+    raw_logits <- Normal(0.0, 1.0)
     return raw_logits
 
-posterior class_probs (scored) [raw_logits] : Item -> Logits4
+program class_probs(raw_logits) : Item -> Logits4 ! Pure over scored
     let probs = softmax(raw_logits)
     return probs
 ```
 
-The bracketed `[raw_logits]` names the model-latent the posterior body consumes — a per-sample snapshot of the model's trace. The body is restricted to `let` and `marginalize` steps.
+The data parameter `raw_logits` names the model latent the body consumes — a per-sample snapshot of the model's trace.
 
 ### Hierarchical Bayesian Models
 
@@ -1033,23 +1060,23 @@ object Verb : 100
 object Resp : 5000
 
 program random_intercepts (G : FinSet, scale : Real) : G -> 1
-    draw sigma ~ HalfNormal(scale)
-    draw v : G -> 1 ~ Normal(0.0, sigma)
+    sigma <- HalfNormal(scale)
+    v : G <- Normal(0.0, sigma)
     return v
 
 program crossed : Resp -> Resp
-    draw intercept ~ Normal(0.0, 1.0)
+    intercept <- Normal(0.0, 1.0)
 
-    draw by_subject ~ random_intercepts(Subject, 1.0)
-    draw by_verb    ~ random_intercepts(Verb,    1.0)
+    by_subject <- random_intercepts(Subject, 1.0)
+    by_verb    <- random_intercepts(Verb,    1.0)
 
-    observe response[n] ~ Bernoulli(intercept) for n in Resp
+    observe response : Resp <- Bernoulli(intercept)
     return intercept
 
-output crossed
+export crossed
 ```
 
-Each call to `random_intercepts` inlines a fresh `sigma` and a fresh per-level plate `v` under α-renamed names (`by_subject$sigma`, `by_subject$v`, …), so the two grouping factors share *structure* but not *latents*. Monotone ordinal-spline coefficients are expressed as `cumsum` of `HalfNormal` increments; categorical latent classes are marginalised with `marginalize`.
+Each call to `random_intercepts` inlines a fresh `sigma` and a fresh per-level plate `v` under α-renamed names (`by_subject$sigma`, `by_subject$v`, …), so the two grouping factors share *structure* but not *latents*. Monotone ordinal-spline coefficients are expressed as `cumsum` of `HalfNormal` increments; categorical latent classes are marginalised with a scoped `marginalize … in { … }` block.
 
 ### Let Expressions (Arithmetic)
 
@@ -1076,24 +1103,24 @@ Each `let`-builtin denotes a deterministic measurable map, lifted into the Kleis
 
 ### Inline Distributions
 
-Draw and observe steps support inline distribution construction with any mix of literal and variable arguments. All 11 distribution families support arbitrary combinations:
+Bind and observe steps support inline distribution construction with any mix of literal and variable arguments. All 11 distribution families support arbitrary combinations:
 
 ```qvr
 # all-literal (fixed): Unit -> codomain
-draw x ~ Normal(0.0, 1.0)
-draw p ~ Beta(2.0, 5.0)
+x <- Normal(0.0, 1.0)
+p <- Beta(2.0, 5.0)
 
 # all-variable (direct): variables -> codomain
-draw y ~ Normal(mu, sigma)
-draw b ~ Bernoulli(theta)
+y <- Normal(mu, sigma)
+b <- Bernoulli(theta)
 
 # mixed literal/variable: any combination works
-draw h_cand ~ Normal(reset_hidden, 0.5)
-draw z ~ Normal(0.0, learned_scale)
-draw r ~ TruncatedNormal(mu, sigma, 0.0, 1.0)
+h_cand <- Normal(reset_hidden, 0.5)
+z <- Normal(0.0, learned_scale)
+r <- TruncatedNormal(mu, sigma, 0.0, 1.0)
 
 # negative literals
-draw z ~ Normal(-1.5, 0.3)
+z <- Normal(-1.5, 0.3)
 ```
 
 The supported inline distribution families are:
@@ -1127,14 +1154,14 @@ let marg = fg.marginalize(Y)
 let composed = f >> g >> h
 ```
 
-### Output
+### Export
 
-Export a morphism as the program output:
+Export a morphism as a compiled program output. Any number of `export` declarations may appear per module; each is compiled into a separate output:
 
 ```qvr
-output f
-output fg
-output my_prog
+export f
+export fg
+export my_prog
 ```
 
 ## Examples
@@ -1150,7 +1177,7 @@ latent g : Y -> Y
 
 let fg = f >> g
 
-output fg
+export fg
 ```
 
 ### Continuous Conditional Model
@@ -1166,7 +1193,7 @@ continuous likelihood : Latent -> Obs ~ Normal [scale=0.1]
 
 let posterior = prior >> likelihood
 
-output posterior
+export posterior
 ```
 
 ### Probabilistic Program with Observations
@@ -1177,10 +1204,10 @@ object Data : 1
 space Y : Euclidean(2)
 
 program regression : Data -> Y
-    draw theta ~ LogitNormal(0.0, 1.0)
-    draw y ~ Normal(theta, 0.5)
+    theta <- LogitNormal(0.0, 1.0)
+    y <- Normal(theta, 0.5)
 
-    observe _ ~ Normal(y, 0.1)
+    observe _ <- Normal(y, 0.1)
 
     return y
 ```
@@ -1193,16 +1220,16 @@ object Truth : 2
 object Resp : 1
 
 program factivity : Entity -> Truth * Truth * Truth * Resp
-    draw theta_know ~ LogitNormal(0.0, 1.0)
-    draw theta_cg ~ LogitNormal(0.0, 1.0)
+    theta_know <- LogitNormal(0.0, 1.0)
+    theta_cg <- LogitNormal(0.0, 1.0)
 
     let cg_complement = 1.0 - theta_cg
 
-    draw tau_know ~ Bernoulli(theta_know)
-    draw cg_matrix ~ Bernoulli(theta_cg)
-    draw sigma ~ Uniform(0.0, 1.0)
-    observe response ~ TruncatedNormal(theta_know, sigma, 0.0, 1.0)
-    return (tau_know: tau_know, cg_complement: cg_complement, cg_matrix: cg_matrix, response: response)
+    tau_know <- Bernoulli(theta_know)
+    cg_matrix <- Bernoulli(theta_cg)
+    sigma <- Uniform(0.0, 1.0)
+    observe response <- TruncatedNormal(theta_know, sigma, 0.0, 1.0)
+    return (tau_know, cg_complement, cg_matrix, response)
 ```
 
 For more examples, see the [Examples Gallery](../examples/index.md). For a formal account of what `.qvr` programs *mean*, see the [Denotational Semantics](../semantics/index.md).
@@ -1219,7 +1246,7 @@ The `Compiler` transforms the AST to a `Program`:
 ```python
 from quivers.dsl import Compiler, parse
 
-source = "object X : 3\nlatent f : X -> X\noutput f"
+source = "object X : 3\nlatent f : X -> X\nexport f"
 ast = parse(source)
 compiler = Compiler(ast)
 program = compiler.compile()

@@ -6,12 +6,13 @@ In this tutorial, you will construct probabilistic programs that mix discrete an
 
 - **Continuous spaces**: Euclidean, UnitInterval, Simplex, PositiveReals
 - **Conditional distribution families**: Parameterized distributions (ConditionalNormal, ConditionalBernoulli, etc.)
-- **MonadicProgram**: A probabilistic computation with draw and let steps
-- **Draw step**: Sample a random variable from a distribution conditioned on prior variables
+- **MonadicProgram**: A probabilistic computation with bind and let steps
+- **Bind step**: Sample a random variable from a distribution conditioned on prior variables (`v <- F(args)`)
 - **Let step**: Deterministic transformation of prior variables
-- **Plate-draw step**: An indexed plate of independent draws (`draw v : A -> K ~ F(args)`)
-- **Vectorised observe**: A batched-likelihood step reading from a runtime `observations` dict (`observe r[n] ~ F(args) for n in N`)
-- **Marginalize step**: Log-sum-exp pushforward over a discrete latent (`marginalize c`)
+- **Indexed bind (plate)**: An indexed plate of independent draws (`v : A <- F(args)`)
+- **Indexed observe**: A batched-likelihood step reading from a runtime `observations` dict (`observe r : N <- F(args)`)
+- **Scoped marginalize**: Log-sum-exp pushforward over a latent coordinate (`marginalize c : A <- F(args) in { … }`)
+- **Effect signature**: A program's capability set declared after `!` (subset of `{Sample, Score, Marginal, Pure}`); the compiler verifies actual body effects are a subset
 - **Parametric program**: A typed-parameter template inlined per call site as fresh latents
 - **Log-probability**: The log of the joint density
 
@@ -99,10 +100,10 @@ Other families available include ConditionalBernoulli, ConditionalBeta, Conditio
 
 A MonadicProgram represents a probabilistic computation as a sequence of steps. Each step is either:
 
-1. **Draw**: Sample a random variable from a conditional distribution
+1. **Bind**: Sample a random variable from a conditional distribution (`v <- F`)
 2. **Let**: Compute a deterministic transformation
 
-Construct a simple two-stage program: draw z from a prior, then draw y from a likelihood conditioned on z.
+Construct a simple two-stage program: bind z from a prior, then bind y from a likelihood conditioned on z.
 
 ```python
 Unit = FinSet("Unit", 1)
@@ -114,8 +115,8 @@ likelihood = ConditionalNormal(R, R)
 program = MonadicProgram(
     Unit, R,  # input space, output space
     steps=[
-        (("z",), prior, None),          # draw z ~ prior(unit)
-        (("y",), likelihood, ("z",)),   # draw y ~ likelihood(z)
+        (("z",), prior, None),          # z <- prior(unit)
+        (("y",), likelihood, ("z",)),   # y <- likelihood(z)
     ],
     return_vars=("y",),
 )
@@ -123,7 +124,7 @@ program = MonadicProgram(
 
 The tuple structure:
 
-- `(var_names,)`: Names of variables drawn in this step (a tuple, even if one variable)
+- `(var_names,)`: Names of variables bound in this step (a tuple, even if one variable)
 - `family`: The conditional distribution, or `None` for a let binding
 - `input_vars`: Names of prior variables this step depends on, or `None` for a prior
 
@@ -163,7 +164,7 @@ program = MonadicProgram(
     steps=[
         (("z",), prior, None),
         (("w",), None, square),           # let w = z^2
-        (("y",), likelihood, ("w",)),    # draw y ~ likelihood(w)
+        (("y",), likelihood, ("w",)),    # y <- likelihood(w)
     ],
     return_vars=("y",),
 )
@@ -274,7 +275,7 @@ You have:
 
 - Created continuous spaces
 - Defined conditional distribution families
-- Built MonadicPrograms with draw and let steps
+- Built MonadicPrograms with bind and let steps
 - Sampled from programs and computed log-densities
 - Used ConditionalNormal and ConditionalBernoulli
 - Integrated programs with PyTorch optimization

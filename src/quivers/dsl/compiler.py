@@ -355,7 +355,7 @@ class Compiler:
         for stmt in self._module.statements:
             self._compile_statement(stmt)
         if self._output_expr is None:
-            raise CompileError("no output declaration found")
+            raise CompileError("no export declaration found")
         root_morphism = self._compile_expr(self._output_expr)
         return Program(root_morphism)
 
@@ -1230,29 +1230,49 @@ class Compiler:
                 rename[nm] = bind_name
             else:
                 rename[nm] = f"{bind_name}${nm}"
-        # Walk the template body, applying parameter substitution +
+        # Expand the template body's BindStep IR into the
+        # compiler's internal step shapes first (so the rename pass
+        # operates on a uniform IR).
+        expanded_body = self._expand_bind_steps(tmpl.draws)
+        # Walk the expanded body, applying parameter substitution +
         # α-renaming step by step.
         return tuple(
             self._rename_step(step, type_subst, value_subst, rename)
-            for step in tmpl.draws
+            for step in expanded_body
         )
 
     def _collect_template_local_names(
         self, tmpl: ProgramDecl
     ) -> set[str]:
-        """All names bound inside the template body (latents + lets)."""
+        """All names bound inside the template body (latents + lets).
+
+        Walks the *unexpanded* v0.5 BindStep / LetStep surface; the
+        BindStep covers sample / score / marginal modes, contributing
+        all bound names to the local-name set for α-renaming.
+        """
         out: set[str] = set()
-        for step in tmpl.draws:
-            if isinstance(step, DrawStep):
-                out.update(step.vars)
-            elif isinstance(step, PlateDrawStep):
-                out.add(step.name)
-            elif isinstance(step, LetStep):
-                out.add(step.name)
-            elif isinstance(step, VectorisedObserveStep):
-                out.add(step.index_var)
-                if step.response_var:
-                    out.add(step.response_var)
+
+        def _walk(steps):
+            for step in steps:
+                if isinstance(step, BindStep):
+                    out.update(step.vars)
+                    if step.scope is not None:
+                        _walk(step.scope)
+                elif isinstance(step, LetStep):
+                    out.add(step.name)
+                # Internal IR (post-expand) — also covered, for the
+                # case where _collect_local_names is invoked on
+                # already-expanded steps.
+                elif isinstance(step, DrawStep):
+                    out.update(step.vars)
+                elif isinstance(step, PlateDrawStep):
+                    out.add(step.name)
+                elif isinstance(step, VectorisedObserveStep):
+                    out.add(step.index_var)
+                    if step.response_var:
+                        out.add(step.response_var)
+
+        _walk(tmpl.draws)
         return out
 
     def _rename_type(

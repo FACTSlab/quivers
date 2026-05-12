@@ -14,10 +14,10 @@ program bayesian_regression : Predictor -> Response
 
     let mu = beta_0 + beta_1 * x
 
-    observe y ~ Normal(mu, sigma)
+    observe y <- Normal(mu, sigma)
     return y
 
-output bayesian_regression
+export bayesian_regression
 ```
 
 ## Overview
@@ -38,9 +38,9 @@ Bayesian linear regression models $y = \beta_0 + \beta_1 x + \varepsilon$ with p
 
 `let mu = beta_0 + beta_1 * x` computes the linear predictor deterministically. The `let` keyword signals a non-random computation; `mu` inherits its randomness from its inputs rather than being sampled independently.
 
-`observe y ~ Normal(mu, sigma)` conditions the model on the observed response. During inference, this multiplies the posterior probability by the likelihood of the observed $y$ under $\mathrm{Normal}(\mu, \sigma)$, implementing Bayesian updating.
+`observe y <- Normal(mu, sigma)` conditions the model on the observed response. During inference, this multiplies the posterior probability by the likelihood of the observed $y$ under $\mathrm{Normal}(\mu, \sigma)$, implementing Bayesian updating.
 
-`return y` specifies the program's output. `output bayesian_regression` exports it.
+`return y` specifies the program's output. `export bayesian_regression` exports it.
 
 ## DSL Features
 

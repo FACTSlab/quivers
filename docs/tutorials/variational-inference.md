@@ -42,8 +42,8 @@ likelihood = ConditionalNormal(R, R)
 model = MonadicProgram(
     Unit, R,
     steps=[
-        (("z",), prior, None),           # z ~ prior(unit)
-        (("y",), likelihood, ("z",)),    # y ~ likelihood(z)
+        (("z",), prior, None),           # z <- prior(unit)
+        (("y",), likelihood, ("z",)),    # y <- likelihood(z)
     ],
     return_vars=("z", "y"),
 )
@@ -147,7 +147,7 @@ print(log_q.shape)  # [4]
 
 ## Passing Observations at Runtime
 
-Programs that use vectorised observes (`observe r[n] ~ F(args) for n in N`) read their response tensors from a runtime `observations: dict[str, torch.Tensor]` keyed by the observed-variable name. The dict is forwarded to `MonadicProgram.rsample` (kwarg) and to `ELBO.forward` / `SVI.step` (positional, after the program input):
+Programs that use indexed observes (`observe r : N <- F(args)`) read their response tensors from a runtime `observations: dict[str, torch.Tensor]` keyed by the observed-variable name. The dict is forwarded to `MonadicProgram.rsample` (kwarg) and to `ELBO.forward` / `SVI.step` (positional, after the program input):
 
 ```python
 observations = {"y": y_observed}            # shape matches the program's N
@@ -297,15 +297,14 @@ object Truth : 2
 object Resp : 1
 
 program factivity : Entity -> Truth * Truth * Truth * Resp
-    draw theta_know ~ LogitNormal(0.0, 1.0)
-    draw theta_cg ~ LogitNormal(0.0, 1.0)
+    theta_know <- LogitNormal(0.0, 1.0)
+    theta_cg <- LogitNormal(0.0, 1.0)
     let cg_complement = 1
-    draw tau_know ~ Bernoulli(theta_know)
-    draw cg_matrix ~ Bernoulli(theta_cg)
-    draw sigma ~ Uniform(0.0, 1.0)
-    observe response ~ TruncatedNormal(theta_know, sigma, 0.0, 1.0)
-    return (tau_know: tau_know, cg_complement: cg_complement,
-            cg_matrix: cg_matrix, response: response)
+    tau_know <- Bernoulli(theta_know)
+    cg_matrix <- Bernoulli(theta_cg)
+    sigma <- Uniform(0.0, 1.0)
+    observe response <- TruncatedNormal(theta_know, sigma, 0.0, 1.0)
+    return (tau_know, cg_complement, cg_matrix, response)
 """)
 
 # Observed response judgments from a linguistic experiment

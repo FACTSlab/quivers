@@ -12,7 +12,7 @@ let grammar = parser(
     start=S
 )
 
-output grammar
+export grammar
 ```
 
 ## Overview

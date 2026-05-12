@@ -655,7 +655,7 @@ class TestStochasticIntegration:
         from quivers.dsl import loads
 
         prog = loads(
-            "\n            quantale markov\n            object X : 3\n            observed h : X -> X = identity(X)\n            output h\n        "
+            "\n            quantale markov\n            object X : 3\n            observed h : X -> X = identity(X)\n            export h\n        "
         )
         expected = torch.eye(3)
         torch.testing.assert_close(prog(), expected)

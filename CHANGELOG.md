@@ -6,6 +6,106 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/), and this
 
 ## [Unreleased]
 
+## [0.5.0] - 2026-05-11
+
+### Changed (breaking, pre-1.0 clean cut)
+
+Surface DSL homogenisation. The program-block surface is reorganised
+around a single Kleisli-bind sigil `<-`, type-annotated indexing on
+the binder, scoped marginalisation, and `!`-prefixed effect
+signatures. The categorical denotation is unchanged; only the surface
+forms shift to a Haskell-PPL aesthetic.
+
+- **`draw v ~ F(args)` → `v <- F(args)`** — the `draw` keyword is
+  retired in favour of the unique Kleisli-bind sigil `<-`. The
+  surface-arrow alternative (the v0.4 do-notation `v <- F` form) is
+  unified with the new sigil; there is now one and only one way to
+  introduce a random variable.
+- **`draw v : A -> K ~ F(args)` → `v : A <- F(args)`** — indexed
+  (plate) binds use a type annotation on the binder rather than a
+  separate keyword family. The per-fiber codomain is taken from the
+  family; the `: A` annotation declares the index set.
+- **`observe v ~ F(args)` → `observe v <- F(args)`** — scored binds
+  retain the `observe` prefix; the rest of the line matches the
+  Kleisli-bind shape.
+- **`observe r[n] ~ F(args) for n in N` → `observe r : N <- F(args)`** —
+  the vectorised-observe `for n in N` shape collapses into the
+  type-annotated form. Bracket-indexed family arguments `theta[N]`
+  annotate that an argument is a section of an N-indexed family.
+- **`marginalize c` (trailing) → `marginalize c : A <- F(args) in { … }`** —
+  marginalisation is always scoped; the integration target and the
+  scope are visible at the binding site. The categorical pushforward
+  becomes visually local to its binding.
+- **`posterior name (model) [params] : dom -> cod` → `program name (params) : dom -> cod ! Pure over model`** —
+  posterior blocks are encoded as `program` declarations with a
+  `! Pure` effect signature and an `over model` modifier. The
+  parser routes such programs to the posterior registry and the
+  compiler enforces the determinism constraint.
+- **`!` effect signature on programs** — `program P : X -> Y ! Sample, Score`
+  declares the body's capability set. Effects: `Sample`,
+  `Score`, `Marginal`, `Pure`. The compiler verifies the body's
+  actual effects are a subset of the declared set (or rejects
+  any effect when `Pure` is declared).
+- **`output X` → `export X`** — module-level exports replace
+  `output`; multiple `export` declarations per module are allowed.
+- **Drop labelled-tuple return form** — the v0.4 `return (a: x, b: y)`
+  form was purely syntactic rebinding without semantic effect; it
+  is removed as dead surface.
+
+### Internal
+
+- `BindStep` unifies the four old step shapes (`DrawStep`,
+  `PlateDrawStep`, `VectorisedObserveStep`, `MarginalizeStep`) at
+  the AST level; the old shapes remain as compiler-internal IR
+  consumed by the runtime step-builder. The parser emits only
+  `BindStep` and `LetStep`; the compiler's `_expand_bind_steps`
+  pass translates to the internal IR.
+- `ProgramDecl` gains `effects: frozenset[str] | None` and
+  `over_model: str | None` fields.
+- `MonadicProgram` gains an `effect_set: frozenset[str] | None`
+  field for introspection by downstream inference / dispatch code.
+- `ExportDecl` replaces `OutputDecl`. The first declared export
+  is the module's primary output; subsequent exports are
+  accessible as additional module bindings.
+- The DSL's `<-` arrow now binds with `prec.right`, eliminating
+  the previous GLR ambiguity between draw-args and following
+  steps.
+
+### Migration guide
+
+A python migration helper is included in the release notes (see
+`docs/migration/v0.4-to-v0.5.md` for the regex-based conversion
+script applied to the example library). For most programs the
+mechanical translation is:
+
+| v0.4                                         | v0.5                                                |
+|----------------------------------------------|-----------------------------------------------------|
+| `draw v ~ F(args)`                           | `v <- F(args)`                                      |
+| `draw v : A -> K ~ F(args)`                  | `v : A <- F(args)`                                  |
+| `observe v ~ F(args)`                        | `observe v <- F(args)`                              |
+| `observe r[n] ~ F(args) for n in N`          | `observe r : N <- F(args)`                          |
+| `marginalize c`                              | `marginalize c <- F(args) in { … }`                 |
+| `posterior P (M) [v] : … ` body              | `program P(v) : … ! Pure over M ` body              |
+| `output E`                                   | `export E`                                          |
+
+### Tests
+
+- All 18 example `.qvr` files migrated to v0.5 surface.
+- 990 tests pass under v0.5; 14 xfailed (labelled-tuple-return /
+  tuple-destructuring-bind tests are deferred deprecations).
+- Tree-sitter corpus rewritten with 8 examples covering the new
+  surface shapes (20/20 parses).
+
+### Deferred (planned for v0.6)
+
+The agenda-based weighted-deduction framework and chart-as-first-class-value
+runtime — replacing the `parser` / `ccg` / `lambek` / `chart_fold`
+combinators with a single declarative `deduction { … }` block and a
+unified `parse(D)` morphism combinator — are designed (see
+`.claude/plans/convert-all-dataclasses-and-golden-marble.md`) but
+deferred to a separate v0.6 PR. The current release keeps the v0.4
+parser combinators in place for grammar-using examples.
+
 ## [0.4.0] - 2026-05-11
 
 ### Added

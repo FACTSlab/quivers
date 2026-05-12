@@ -17,7 +17,7 @@ let grammar = parser(
     start=S
 )
 
-output grammar
+export grammar
 ```
 
 ## Overview
@@ -92,7 +92,7 @@ let grammar = parser(
     start=S
 )
 
-output grammar
+export grammar
 ```
 
 The compiler instantiates all rules (custom and pre-defined) into the same rule table, and the parser applies them uniformly.

@@ -50,4 +50,4 @@ let pcfg = parser(
     start=0
 )
 
-output pcfg
+export pcfg

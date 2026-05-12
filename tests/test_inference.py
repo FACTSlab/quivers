@@ -24,7 +24,7 @@ from quivers.inference.svi import SVI
 from quivers.inference.predictive import Predictive
 from quivers.dsl.parser import parse
 from quivers.dsl.compiler import Compiler
-from quivers.dsl.ast_nodes import DrawStep, LetStep, LetExprBinOp, LetExprCall
+from quivers.dsl.ast_nodes import BindStep, DrawStep, LetStep, LetExprBinOp, LetExprCall
 
 
 # ============================================================================
@@ -491,11 +491,11 @@ class TestDSLObserve(unittest.TestCase):
     """Tests for the observe keyword in DSL programs."""
 
     def test_parse_observe_step(self):
-        """Parser produces DrawStep with is_observed=True for observe."""
+        """Parser produces a BindStep with mode='score' for observe."""
         src = """
 program test : Unit -> R1
-    draw x ~ prior
-    observe y ~ likelihood(x)
+    x <- prior
+    observe y <- likelihood(x)
     return y
 """
         ast = parse_dsl(src)
@@ -508,17 +508,17 @@ program test : Unit -> R1
                 break
 
         assert prog_decl is not None
-        # second step should have is_observed=True
+        # second step should be a score-mode BindStep
         observe_step = prog_decl.draws[1]
-        assert isinstance(observe_step, DrawStep)
-        assert observe_step.is_observed is True
+        assert isinstance(observe_step, BindStep)
+        assert observe_step.mode == "score"
 
     def test_parse_observe_with_args(self):
         """Parser handles observe with arguments."""
         src = """
 program test : Unit -> R1
-    draw x ~ prior
-    observe y ~ likelihood(x)
+    x <- prior
+    observe y <- likelihood(x)
     return y
 """
         ast = parse_dsl(src)
@@ -530,16 +530,16 @@ program test : Unit -> R1
                 break
 
         observe_step = prog_decl.draws[1]
-        assert observe_step.is_observed is True
+        assert observe_step.mode == "score"
         assert observe_step.args is not None
         assert "x" in observe_step.args
 
     def test_draw_and_observe_difference(self):
-        """Parse can distinguish draw from observe."""
+        """Parse distinguishes sample-mode and score-mode binds."""
         src = """
 program test : Unit -> R1
-    draw x ~ prior
-    observe y ~ likelihood(x)
+    x <- prior
+    observe y <- likelihood(x)
     return y
 """
         ast = parse_dsl(src)
@@ -553,8 +553,8 @@ program test : Unit -> R1
         draw_step = prog_decl.draws[0]
         observe_step = prog_decl.draws[1]
 
-        assert draw_step.is_observed is False
-        assert observe_step.is_observed is True
+        assert draw_step.mode == "sample"
+        assert observe_step.mode == "score"
 
 
 # ============================================================================
@@ -569,7 +569,7 @@ class TestExpressionLetBindings(unittest.TestCase):
         """Parser handles let z = x * 0.5."""
         src = """
 program test : Unit -> R1
-    draw x ~ prior
+    x <- prior
     let z = x * 0.5
     return z
 """
@@ -591,8 +591,8 @@ program test : Unit -> R1
         """Parser handles let z = x + y."""
         src = """
 program test : Unit -> R1
-    draw x ~ prior
-    draw y ~ prior
+    x <- prior
+    y <- prior
     let z = x + y
     return z
 """
@@ -613,7 +613,7 @@ program test : Unit -> R1
         """Parser handles let z = sigmoid(x)."""
         src = """
 program test : Unit -> R1
-    draw x ~ prior
+    x <- prior
     let z = sigmoid(x)
     return z
 """
@@ -634,7 +634,7 @@ program test : Unit -> R1
         """Parser handles let z = sigmoid(x) * 0.5 + 0.25."""
         src = """
 program test : Unit -> R1
-    draw x ~ prior
+    x <- prior
     let z = sigmoid(x) * 0.5 + 0.25
     return z
 """
@@ -671,8 +671,8 @@ latent prior : Unit -> R1
 latent likelihood : R1 -> R1
 
 program test : Unit -> R1
-    draw x ~ prior
-    observe y ~ likelihood(x)
+    x <- prior
+    observe y <- likelihood(x)
     return y
 """
         try:

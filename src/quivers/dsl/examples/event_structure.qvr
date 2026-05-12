@@ -44,45 +44,45 @@ object RespProp : 5000
 # a per-level Normal(0, σ) plate, polymorphic over the grouping
 # object G and the half-normal scale hyperparameter.
 program random_intercepts (G : FinSet, scale : Real) : G -> 1
-    draw sigma ~ HalfNormal(scale)
-    draw v : G -> 1 ~ Normal(0.0, sigma)
+    sigma <- HalfNormal(scale)
+    v : G <- Normal(0.0, sigma)
     return v
 
 # Joint cloze/proportion model.
 program event_structure : Item -> Item
     # Class-prior cell parameters.
-    draw prob_durative ~ Uniform(0.0, 1.0)
-    draw prob_telic_given_dur ~ Beta(10.0, 1.0)
-    draw prob_telic_given_nodur ~ Beta(1.0, 1.0)
+    prob_durative <- Uniform(0.0, 1.0)
+    prob_telic_given_dur <- Beta(10.0, 1.0)
+    prob_telic_given_nodur <- Beta(1.0, 1.0)
 
     # Fixed effects + telicity/durativity coefficients.
-    draw intercept_cloze ~ Normal(0.0, 1.0)
-    draw intercept_prop ~ Normal(0.0, 1.0)
-    draw telicity_coef_cloze ~ HalfNormal(1.0)
-    draw telicity_coef_prop ~ HalfNormal(1.0)
-    draw durativity_coef_prop ~ HalfNormal(1.0)
+    intercept_cloze <- Normal(0.0, 1.0)
+    intercept_prop <- Normal(0.0, 1.0)
+    telicity_coef_cloze <- HalfNormal(1.0)
+    telicity_coef_prop <- HalfNormal(1.0)
+    durativity_coef_prop <- HalfNormal(1.0)
 
     # Crossed random intercepts: each call to `random_intercepts`
     # produces a fresh σ and a fresh per-level plate.  The shared
     # structure (HalfNormal scale + Normal(0, σ) per level) is
     # written once in the template.
-    draw by_subj_cloze ~ random_intercepts(SubjCloze, 1.0)
-    draw by_verb_cloze ~ random_intercepts(Verb, 1.0)
-    draw by_sense_cloze ~ random_intercepts(Sense, 1.0)
-    draw by_item_cloze ~ random_intercepts(Item, 1.0)
+    by_subj_cloze <- random_intercepts(SubjCloze, 1.0)
+    by_verb_cloze <- random_intercepts(Verb, 1.0)
+    by_sense_cloze <- random_intercepts(Sense, 1.0)
+    by_item_cloze <- random_intercepts(Item, 1.0)
 
-    draw by_subj_prop ~ random_intercepts(SubjProp, 1.0)
-    draw by_verb_prop ~ random_intercepts(Verb, 1.0)
-    draw by_sense_prop ~ random_intercepts(Sense, 1.0)
-    draw by_item_prop ~ random_intercepts(Item, 1.0)
+    by_subj_prop <- random_intercepts(SubjProp, 1.0)
+    by_verb_prop <- random_intercepts(Verb, 1.0)
+    by_sense_prop <- random_intercepts(Sense, 1.0)
+    by_item_prop <- random_intercepts(Item, 1.0)
 
     # Ordinal monotone duration coefficients (11 levels).  The
     # cumulative-sum parameterisation yields a monotone-increasing
     # spline iff the increments have nonnegative support, so the
     # per-step increments are drawn from a half-normal.  `cumsum`
     # then maps positive increments to monotone partial sums.
-    draw duration_incr_cloze : Item -> 11 ~ HalfNormal(1.0)
-    draw duration_incr_prop : Item -> 11 ~ HalfNormal(1.0)
+    duration_incr_cloze : Item <- HalfNormal(1.0)
+    duration_incr_prop : Item <- HalfNormal(1.0)
 
     let duration_eff_cloze = cumsum(duration_incr_cloze)
     let duration_eff_prop = cumsum(duration_incr_prop)
@@ -90,12 +90,12 @@ program event_structure : Item -> Item
     # Per-class predicted log-odds for the cloze and proportion
     # responses.  `marginalize` integrates over the discrete
     # latent class.
-    observe cloze_resp[n] ~ Bernoulli(intercept_cloze) for n in RespCloze
-    observe prop_resp[n] ~ Bernoulli(intercept_prop) for n in RespProp
+    observe cloze_resp : RespCloze <- Bernoulli(intercept_cloze)
+    observe prop_resp : RespProp <- Bernoulli(intercept_prop)
 
     marginalize cloze_resp
     marginalize prop_resp
 
     return intercept_cloze
 
-output event_structure
+export event_structure

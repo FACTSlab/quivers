@@ -16,46 +16,47 @@ object RespCloze : 5000
 object RespProp : 5000
 
 program random_intercepts (G : FinSet, scale : Real) : G -> 1
-    draw sigma ~ HalfNormal(scale)
-    draw v : G -> 1 ~ Normal(0.0, sigma)
+    sigma <- HalfNormal(scale)
+    v : G <- Normal(0.0, sigma)
     return v
 
 program event_structure : Item -> Item
-    draw prob_durative ~ Uniform(0.0, 1.0)
-    draw prob_telic_given_dur ~ Beta(10.0, 1.0)
-    draw prob_telic_given_nodur ~ Beta(1.0, 1.0)
+    prob_durative <- Uniform(0.0, 1.0)
+    prob_telic_given_dur <- Beta(10.0, 1.0)
+    prob_telic_given_nodur <- Beta(1.0, 1.0)
 
-    draw intercept_cloze ~ Normal(0.0, 1.0)
-    draw intercept_prop ~ Normal(0.0, 1.0)
-    draw telicity_coef_cloze ~ HalfNormal(1.0)
-    draw telicity_coef_prop ~ HalfNormal(1.0)
-    draw durativity_coef_prop ~ HalfNormal(1.0)
+    intercept_cloze <- Normal(0.0, 1.0)
+    intercept_prop <- Normal(0.0, 1.0)
+    telicity_coef_cloze <- HalfNormal(1.0)
+    telicity_coef_prop <- HalfNormal(1.0)
+    durativity_coef_prop <- HalfNormal(1.0)
 
-    draw by_subj_cloze  ~ random_intercepts(SubjCloze, 1.0)
-    draw by_verb_cloze  ~ random_intercepts(Verb,      1.0)
-    draw by_sense_cloze ~ random_intercepts(Sense,     1.0)
-    draw by_item_cloze  ~ random_intercepts(Item,      1.0)
+    by_subj_cloze  <- random_intercepts(SubjCloze, 1.0)
+    by_verb_cloze  <- random_intercepts(Verb,      1.0)
+    by_sense_cloze <- random_intercepts(Sense,     1.0)
+    by_item_cloze  <- random_intercepts(Item,      1.0)
 
-    draw by_subj_prop   ~ random_intercepts(SubjProp,  1.0)
-    draw by_verb_prop   ~ random_intercepts(Verb,      1.0)
-    draw by_sense_prop  ~ random_intercepts(Sense,     1.0)
-    draw by_item_prop   ~ random_intercepts(Item,      1.0)
+    by_subj_prop   <- random_intercepts(SubjProp,  1.0)
+    by_verb_prop   <- random_intercepts(Verb,      1.0)
+    by_sense_prop  <- random_intercepts(Sense,     1.0)
+    by_item_prop   <- random_intercepts(Item,      1.0)
 
-    draw duration_incr_cloze : Item -> 11 ~ HalfNormal(1.0)
-    draw duration_incr_prop  : Item -> 11 ~ HalfNormal(1.0)
+    duration_incr_cloze : Item <- HalfNormal(1.0)
+    duration_incr_prop  : Item <- HalfNormal(1.0)
 
     let duration_eff_cloze = cumsum(duration_incr_cloze)
     let duration_eff_prop  = cumsum(duration_incr_prop)
 
-    observe cloze_resp[n] ~ Bernoulli(intercept_cloze) for n in RespCloze
-    observe prop_resp[n]  ~ Bernoulli(intercept_prop)  for n in RespProp
-
-    marginalize cloze_resp
-    marginalize prop_resp
+    marginalize cloze_resp : RespCloze <- Bernoulli(intercept_cloze) in {
+        observe cloze_resp : RespCloze <- Bernoulli(intercept_cloze)
+    }
+    marginalize prop_resp : RespProp <- Bernoulli(intercept_prop) in {
+        observe prop_resp : RespProp <- Bernoulli(intercept_prop)
+    }
 
     return intercept_cloze
 
-output event_structure
+export event_structure
 ```
 
 ## Walkthrough
@@ -72,8 +73,8 @@ The class prior factors through a cell parameterisation: $\mathrm{prob\_durative
 
 ```qvr
 program random_intercepts (G : FinSet, scale : Real) : G -> 1
-    draw sigma ~ HalfNormal(scale)
-    draw v : G -> 1 ~ Normal(0.0, sigma)
+    sigma <- HalfNormal(scale)
+    v : G <- Normal(0.0, sigma)
     return v
 ```
 
@@ -87,30 +88,30 @@ a half-normal scale hyperprior followed by a $G$-indexed Normal-$(0, \sigma)$ pl
 
 A named `continuous` morphism cannot bundle a fresh scale draw per call because morphism reference is invocation, not instantiation; parametric programs *are* instantiated freshly at each call, which is the right categorical handle for prior reuse.
 
-### Plate-draws
+### Indexed binds
 
 ```qvr
-draw v : G -> 1 ~ Normal(0.0, sigma)
-draw duration_incr_cloze : Item -> 11 ~ HalfNormal(1.0)
+v : G <- Normal(0.0, sigma)
+duration_incr_cloze : Item <- HalfNormal(1.0)
 ```
 
-A plate-draw `draw v : A -> K ~ F(args)` denotes the Kleisli morphism $A \to \mathcal{G}(K)$ given by independent $F$-draws indexed by $A$, equivalently a single arrow $\mathbf{1} \to \mathcal{G}(K^A)$ via the natural isomorphism $\mathbf{Kern}(\mathbf{1}, K^A) \cong \mathbf{Kern}(A, K)$. Numeric codomains are interpreted as `Euclidean(K)`.
+An indexed bind `v : A <- F(args)` denotes the Kleisli morphism $A \to \mathcal{G}(K)$ given by independent $F$-draws indexed by $A$, equivalently a single arrow $\mathbf{1} \to \mathcal{G}(K^A)$ via the natural isomorphism $\mathbf{Kern}(\mathbf{1}, K^A) \cong \mathbf{Kern}(A, K)$. The per-fiber codomain $K = \mathsf{cod}(F)$ is taken from the family.
 
 ### Ordinal monotone spline
 
 The eleven duration levels carry a monotone-increasing effect via the `cumsum` parameterisation: per-level positive increments are drawn from `HalfNormal(1.0)` and accumulated into partial sums.
 
 ```qvr
-draw duration_incr_cloze : Item -> 11 ~ HalfNormal(1.0)
+duration_incr_cloze : Item <- HalfNormal(1.0)
 let duration_eff_cloze = cumsum(duration_incr_cloze)
 ```
 
 Because `HalfNormal` has support $[0, \infty)$, the partial sums are monotone-increasing by construction. The `let` step lifts the deterministic measurable map $\mathrm{cumsum}$ into the Kleisli category as a Dirac kernel.
 
-### Vectorised observes
+### Indexed observes
 
 ```qvr
-observe cloze_resp[n] ~ Bernoulli(intercept_cloze) for n in RespCloze
+observe cloze_resp : RespCloze <- Bernoulli(intercept_cloze)
 ```
 
 This denotes the sub-probabilistic kernel $\Phi \to \mathcal{G}_{\le 1}(\Phi)$ with score $\prod_{n \in \mathrm{RespCloze}} p_{\mathrm{Bern}}(r_{\mathrm{obs}}(n); \theta(n, \phi))$. The response buffer $r_{\mathrm{obs}}$ is supplied at runtime via the `observations` dict, keyed by the response identifier `cloze_resp`.
@@ -118,11 +119,12 @@ This denotes the sub-probabilistic kernel $\Phi \to \mathcal{G}_{\le 1}(\Phi)$ w
 ### Coordinate marginalisation
 
 ```qvr
-marginalize cloze_resp
-marginalize prop_resp
+marginalize cloze_resp : RespCloze <- Bernoulli(intercept_cloze) in {
+    observe cloze_resp : RespCloze <- Bernoulli(intercept_cloze)
+}
 ```
 
-The `marginalize` step pushes the accumulated joint measure forward through the projection $\pi : \Phi \times C \to \Phi$, integrating out the named coordinate by log-sum-exp on the accumulated log-likelihood. In a fully developed four-class telicity × durativity model the marginalised coordinate would be an explicit discrete latent class drawn earlier in the program; here `cloze_resp` and `prop_resp` stand in as the per-response coordinates the marginalisation operates on.
+The scoped `marginalize c : A <- F in { … }` step introduces the coordinate `c` bound to a kernel `F`, optionally `A`-indexed, with the `{ … }` body as its integration scope. At the end of the scope, the accumulated joint measure on $\Phi \times C$ is pushed forward through the projection $\pi : \Phi \times C \to \Phi$, integrating out `c` by log-sum-exp on the accumulated log-likelihood; `c` then falls out of scope.
 
 ## Python Usage
 

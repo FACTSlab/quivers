@@ -172,11 +172,11 @@ class TestDSLSurface:
         object Subj : 5
 
         program demo : Subj -> Subj
-            draw coefs : Subj -> 3 ~ Normal(0.0, 1.0)
+            coefs : Subj <- Normal(0.0, 1.0)
             let z = coefs
             return z
 
-        output demo
+        export demo
         """
         c = self._compile(src)
         assert "demo" in c._morphisms
@@ -203,11 +203,11 @@ class TestDSLSurface:
         object Resp : 20
 
         program demo : Resp -> Resp
-            draw mu : Resp -> 1 ~ Normal(0.0, 1.0)
-            observe r[n] ~ Normal(0.0, 1.0) for n in Resp
+            mu : Resp <- Normal(0.0, 1.0)
+            observe r : Resp <- Normal(0.0, 1.0)
             return mu
 
-        output demo
+        export demo
         """
         c = self._compile(src)
         assert "demo" in c._morphisms
@@ -215,13 +215,15 @@ class TestDSLSurface:
     def test_marginalize_step(self):
         src = """
         object Item : 5
+        type R = Euclidean 1
 
-        program demo : Item -> Item
-            draw class_probs : Item -> 4 ~ Normal(0.0, 1.0)
-            marginalize class_probs
-            return class_probs
+        program demo : Item -> R ! Sample, Marginal
+            marginalize class_probs : Item <- Normal(0.0, 1.0) in {
+                z <- Normal(0.0, 1.0)
+            }
+            return z
 
-        output demo
+        export demo
         """
         c = self._compile(src)
         assert "demo" in c._morphisms
@@ -235,16 +237,16 @@ class TestDSLSurface:
         object Verb : 3
 
         program random_intercepts (G : FinSet, scale : Real) : G -> 1
-            draw sigma ~ HalfNormal(scale)
-            draw v : G -> 1 ~ Normal(0.0, sigma)
+            sigma <- HalfNormal(scale)
+            v : G <- Normal(0.0, sigma)
             return v
 
         program demo : SubjCloze -> SubjCloze
-            draw by_subj ~ random_intercepts(SubjCloze, 1.0)
-            draw by_verb ~ random_intercepts(Verb, 1.0)
+            by_subj <- random_intercepts(SubjCloze, 1.0)
+            by_verb <- random_intercepts(Verb, 1.0)
             return by_subj
 
-        output demo
+        export demo
         """
         c = self._compile(src)
         assert "demo" in c._morphisms
@@ -276,14 +278,14 @@ class TestDSLSurface:
         continuous my_prior : Subj -> UnitSpace ~ Normal [loc=0.0, scale=1.0]
 
         program with_prior (G : FinSet, prior : Mor[Subj, UnitSpace]) : G -> 1
-            draw v : G -> 1 ~ prior
+            v : G <- prior
             return v
 
         program demo : Subj -> Subj
-            draw by_subj ~ with_prior(Subj, my_prior)
+            by_subj <- with_prior(Subj, my_prior)
             return by_subj
 
-        output demo
+        export demo
         """
         c = self._compile(src)
         assert "demo" in c._morphisms

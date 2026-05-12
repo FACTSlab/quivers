@@ -18,7 +18,7 @@ Computational category theory as differentiable tensor programs.
 - **Monadic constructs**: monads, comonads, Kleisli/coKleisli categories, algebras, coalgebras, Eilenberg-Moore categories, distributive laws.
 - **Stochastic morphisms**: the FinStoch category of Markov kernels; discretized distribution families (normal, logit-normal, beta, truncated normal); conditioning, mixing, and normalization transforms; the Giry monad; query functions (prob, marginal_prob, expectation).
 - **Continuous morphisms**: 30+ parameterized conditional distribution families; continuous spaces (Euclidean, simplex, unit interval, positive reals); sampled composition; normalizing flows; discrete-continuous boundaries (discretize/embed).
-- **Monadic programs**: probabilistic programs with draw, observe, and return statements; ancestral sampling; log-joint computation; hybrid discrete-continuous random variables.
+- **Monadic programs**: probabilistic programs with a single Kleisli-bind syntax (`v <- F(args)`), scored binds (`observe v <- F(args)`), scoped marginalisation, and `!`-prefixed effect signatures (`! Sample, Score, Marginal, Pure`); ancestral sampling; log-joint computation; hybrid discrete-continuous random variables.
 - **QVR DSL**: a `.qvr` file format whose tree-sitter grammar is registered in [panproto](https://panproto.dev) and whose AST nodes, value types, and resolution lenses are built on [didactic](https://panproto.dev/didactic/) Models; supports object/morphism declarations, program blocks, let bindings, type expressions, and grammar-based parsers (PCFG, CCG, Lambek, multimodal type-logical). Each `.qvr` program also extracts to a panproto `Schema` for diff/migrate workflows.
 - **Variational inference**: execution traces, conditioning, automatic variational guides (normal, delta), ELBO computation, stochastic variational inference (SVI), posterior predictive sampling.
 
@@ -97,16 +97,16 @@ source = """
 object Predictor : 1
 object Response : 1
 
-program regression : Predictor -> Response
+program regression : Predictor -> Response ! Sample, Score
     sigma <- HalfCauchy(2.0)
     beta_0 <- Normal(0.0, 5.0)
     beta_1 <- Normal(0.0, 2.0)
     x <- Normal(0.0, 1.0)
     let mu = beta_0 + beta_1 * x
-    observe y ~ Normal(mu, sigma)
+    observe y <- Normal(mu, sigma)
     return y
 
-output regression
+export regression
 """
 
 model = loads(source)

@@ -102,7 +102,7 @@ Their denotations are special cases of [§4](#4-the-chart-parser-denotation).
 
 ## 7. Program-grammar fragment
 
-The Bayesian-modelling step kinds and the `posterior` declaration introduce additional productions in the QVR grammar. The shapes below mirror the tree-sitter source at `grammars/qvr/grammar.js`; semantics is given in [Programs §2.4–§2.8 and §3a](programs.md).
+The Bayesian-modelling step kinds, effect signatures, and the `over`-modifier introduce additional productions in the QVR grammar. The shapes below mirror the tree-sitter source at `grammars/qvr/grammar.js`; semantics is given in [Programs §2.1–§2.8 and §3a](programs.md).
 
 ```ebnf
 typed_program_param := IDENT ':' param_kind
@@ -111,23 +111,26 @@ object_kind         := 'FinSet' | 'Space' | 'Object'
 scalar_kind         := 'Real'   | 'Nat'
 morphism_kind       := 'Mor' '[' type_expr ',' type_expr ']'
 
-plate_draw_step     := 'draw' IDENT ':' type_expr '->' type_expr
-                       '~' IDENT [ '(' arg_list ')' ]
+effect_set          := effect (',' effect)*
+effect              := 'Sample' | 'Score' | 'Marginal' | 'Pure'
 
-vectorised_observe_step
-                    := 'observe' IDENT '[' IDENT ']'
-                       '~' IDENT [ '(' arg_list ')' ]
-                       'for' IDENT 'in' type_expr
+bind_step           := var_pattern [ ':' type_expr ] '<-' IDENT
+                       [ '(' draw_arg_list ')' ]
 
-marginalize_step    := 'marginalize' IDENT
+observe_step        := 'observe' IDENT [ ':' type_expr ] '<-' IDENT
+                       [ '(' draw_arg_list ')' ]
+
+marginalize_step    := 'marginalize' IDENT [ ':' type_expr ] '<-' IDENT
+                       [ '(' draw_arg_list ')' ]
+                       'in' '{' program_step* '}'
 
 let_index           := IDENT '[' let_arith (',' let_arith)* ']'
 
-posterior_decl      := 'posterior' IDENT '(' IDENT ')'
-                       [ '[' IDENT (',' IDENT)* ']' ]
+program_decl        := 'program' IDENT [ '(' param_list ')' ]
                        ':' type_expr '->' type_expr
-                       (let_step | marginalize_step)*
-                       'return' return_pattern
+                       [ '!' effect_set ]
+                       [ 'over' IDENT ]
+                       program_step* 'return' return_pattern
 ```
 
-A `program_decl` is *parametric* iff its parameter list contains any `typed_program_param`; the walker dispatches parametric programs to the call-site inliner rather than to the runtime program compiler. The `posterior_decl` walker rejects `draw` and `observe` steps in its body — admissible steps are `let_step` (including `let_index` right-hand sides) and `marginalize_step`.
+A `program_decl` is *parametric* iff its parameter list contains any `typed_program_param`; the walker dispatches parametric programs to the call-site inliner rather than to the runtime program compiler. A program declared with `! effect_set` has its body checked against the declared capability set: the actual effects of the body must form a subset of `effect_set`, and `! Pure` rejects any `bind_step` / `observe_step` / `marginalize_step`. A program declared with `over M` is a posterior block consuming the latents of model `M`; the consumed latents appear as data parameters in the program's parameter list.

@@ -51,7 +51,7 @@ class TestAliasDecl:
             object Y : 4
             alias Pair = X * Y
             latent f : Pair -> X
-            output f
+            export f
         """)
         prog = loads(src)
         assert prog is not None
@@ -63,18 +63,18 @@ class TestAliasDecl:
             object Y : 4
             alias Pair = X * Y
             latent f : Pair -> X
-            output f
+            export f
         """)
         src_direct = textwrap.dedent("""
             object X : 3
             object Y : 4
             latent f : X * Y -> X
-            output f
+            export f
         """)
         m_aliased = parse(src_aliased)
         m_direct = parse(src_direct)
         # The aliased AST has one extra statement (the AliasDecl); the
-        # remaining MorphismDecl/OutputDecl agree on shape.
+        # remaining MorphismDecl/ExportDecl agree on shape.
         decls_aliased = [
             s for s in m_aliased.statements if not isinstance(s, AliasDecl)
         ]
@@ -89,7 +89,7 @@ class TestAliasDecl:
             object Token : 256
             schema fwd[X, Y : Cat] : (X/Y) * Y -> X
             let g = parser(rules=[fwd], terminal=Token, start=S)
-            output g
+            export g
         """)
         prog = loads(src)
         assert prog is not None
@@ -137,7 +137,7 @@ class TestBundleDecl:
             schema backward_app[X, Y : Cat] : Y * (X\\Y) -> X
             bundle CCG = [forward_app, backward_app]
             let grammar = parser(rules=[CCG], terminal=Token, start=S)
-            output grammar
+            export grammar
         """)
         prog = loads(src)
         assert prog is not None
@@ -153,7 +153,7 @@ class TestBundleDecl:
             bundle CORE = [fa, ba]
             bundle EXT = [CORE, fa]
             let g = parser(rules=[EXT], terminal=Token, start=S)
-            output g
+            export g
         """)
         prog = loads(src)
         assert prog is not None
@@ -169,7 +169,7 @@ class TestBundleDecl:
             bundle A = [fa, B]
             bundle B = [A]
             let g = parser(rules=[A], terminal=Token, start=S)
-            output g
+            export g
         """)
         with pytest.raises(CompileError, match="cycle"):
             loads(src)
@@ -183,7 +183,7 @@ class TestBundleDecl:
             object Token : 256
             bundle B = [no_such_rule]
             let g = parser(rules=[B], terminal=Token, start=S)
-            output g
+            export g
         """)
         with pytest.raises(CompileError, match="unknown rule"):
             loads(src)
@@ -280,7 +280,7 @@ class TestFreeMonoidSurface:
         src = textwrap.dedent("""
             object X : 3
             object Free = FreeMonoid(X, max_length=4)
-            output identity(Free)
+            export identity(Free)
         """)
         prog = loads(src)
         assert prog is not None
@@ -319,7 +319,7 @@ class TestConstraintSolver:
     def test_clean_module_yields_no_violations(self):
         src = textwrap.dedent("""
             object X : 3
-            output identity(X)
+            export identity(X)
         """)
         m = parse(src)
         assert check_constraints(m) == []
@@ -389,7 +389,7 @@ class TestQvrCheckCli:
             "clean.qvr",
             """
             object X : 3
-            output identity(X)
+            export identity(X)
             """,
         )
         out = io.StringIO()
@@ -419,7 +419,7 @@ class TestQvrCheckCli:
             """
             object X : 3
             latent f : X -> Y
-            output f
+            export f
             """,
         )
         out = io.StringIO()
@@ -433,7 +433,7 @@ class TestQvrCheckCli:
             "any.qvr",
             """
             object X : 3
-            output identity(X)
+            export identity(X)
             """,
         )
         out = io.StringIO()
