@@ -69,17 +69,47 @@ log_pjoint = conditioned.log_joint(x, y_obs)
 
 The conditioned model is a `Conditioned` instance that wraps the original model and enforces observation constraints.
 
+### Host data: per-row covariates and index arrays
+
+Keys in the `condition` data dict that don't match any declared sample / observe site are exposed to the program's runtime environment as deterministic values, visible to `let`-expression evaluation. This is the canonical hook for per-row covariate or index arrays used in hierarchical regression:
+
+```python
+import torch
+from quivers.dsl import loads
+from quivers.inference import condition
+
+model = loads('''
+object Subj : 4
+object Resp : 12
+
+program p : Resp -> Resp
+    by_subj : Subj <- Normal(0.0, 1.0)
+    let mu = by_subj[subj_idx]
+    observe r : Resp <- Normal(mu, 1.0)
+    return r
+export p
+''').morphism
+
+subj_idx = torch.tensor([0, 1, 2, 3, 0, 1, 2, 3, 0, 1, 2, 3])
+r_obs    = torch.zeros(12)
+
+cond = condition(model, {"subj_idx": subj_idx, "r": r_obs})
+tr   = cond.trace(torch.zeros(12, 1))
+```
+
+`r` matches the observed sample site `r : Resp <- Normal(mu, 1.0)` and is clamped as usual. `subj_idx` doesn't match any site; it lands in the runtime environment, and `let mu = by_subj[subj_idx]` advance-indexes into the per-subject draw. Free variables in `let` expressions (names not bound by any sample / observe / let / lambda step) resolve against the data dict at trace time; if the value is missing the runtime raises a clear `KeyError`.
+
 ## Guides: Variational Families
 
 A guide $q_\phi(z | x, y)$ is a variational family approximating the posterior. quivers provides automatic guide construction.
 
 ### AutoNormalGuide
 
-A diagonal Gaussian approximation to the posterior:
+A diagonal Gaussian approximation to the posterior, with a per-site bijector that maps unconstrained Normal samples to the prior's constrained support:
 
-$$q_\phi(z | x, y) = \prod_i \mathcal{N}(z_i | \mu_i(x, y), \sigma_i(x, y))$$
+$$q_\phi(z_i | x, y) = T_i\bigl(\,\mathcal{N}(\mu_i, \sigma_i)\,\bigr)$$
 
-where $\mu$ and $\sigma$ are learned neural networks.
+where $T_i = \mathsf{biject\_to}(\mathrm{support}(p_i))$ is the bijector for site $i$'s prior support — the identity on the real line for `Normal`, $\exp$ for `HalfNormal` / `Gamma` / `Exponential` / `LogNormal`, sigmoid for `Beta` / `Uniform(0, 1)` / `LogitNormal`, an affine-shifted sigmoid for arbitrary `Uniform(low, high)` / `TruncatedNormal`, and `StickBreakingTransform` for `Dirichlet`. The learnable parameters $(\mu_i, \sigma_i)$ live in the unconstrained space; the constrained sample $v_i = T_i(z_i)$ is always inside the prior's support, so `prior.log_prob(v_i)` evaluates without raising `Expected value to be within the support of …`. Pyro's `AutoNormal` uses the same construction.
 
 ```python
 from quivers.inference import AutoNormalGuide
@@ -87,30 +117,32 @@ from quivers.inference import AutoNormalGuide
 model = ...  # MonadicProgram
 conditioned = condition(model, observations)
 
-guide = AutoNormalGuide(conditioned, observed_names=set(observations))
+guide = AutoNormalGuide(conditioned.model, observed_names=set(observations))
 
-# Sample latents from guide
+# Sample latents from guide (each lives in its prior's support)
 latents = guide.rsample(x)  # dict {name: tensor}
 
-# Log probability under guide
+# Log probability under guide (with Jacobian correction)
 log_q = guide.log_prob(x, latents)
 ```
 
 ### AutoDeltaGuide
 
-A delta (point mass) approximation, i.e. a single best estimate:
+A delta (point mass) approximation, i.e. a single best estimate. The point lives in the unconstrained space and is pushed through `biject_to(support)` at evaluation time, so it always lies inside the prior's support:
 
-$$q_\phi(z | x, y) = \delta_{z^*_\phi(x, y)}(z)$$
+$$q_\phi(z_i | x, y) = \delta_{T_i(\zeta_i)}(z_i)$$
+
+where $\zeta_i$ is the learnable unconstrained point and $T_i$ the same per-site bijector as `AutoNormalGuide`.
 
 ```python
 from quivers.inference import AutoDeltaGuide
 
-guide = AutoDeltaGuide(conditioned, observed_names=set(observations))
+guide = AutoDeltaGuide(conditioned.model, observed_names=set(observations))
 
-# Point estimate (deterministic)
+# Point estimate (deterministic, inside the prior's support)
 z_map = guide.rsample(x)
 
-# Delta log probability (always 0; the delta term cancels in the ELBO)
+# Delta log probability (zero; the delta term cancels in the ELBO)
 log_q = guide.log_prob(x, z_map)
 ```
 

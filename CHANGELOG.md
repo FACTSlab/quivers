@@ -6,6 +6,94 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/), and this
 
 ## [Unreleased]
 
+## [0.4.1] - 2026-05-12
+
+Three connected bug fixes that unblock hierarchical-Bayesian
+workflows under the 0.4 surface. No grammar or parser changes;
+panproto does not need to revendor `panproto-grammars-all` for this
+release.
+
+### Fixed
+
+- **Variational guides respect constrained supports.**
+  `quivers.inference.AutoNormalGuide` and
+  `quivers.inference.AutoDeltaGuide` previously sampled in
+  unconstrained real space for every latent and fed the result
+  into the prior's `log_prob`, which raised
+  `ValueError: Expected value to be within the support of the
+  distribution` for any constrained family (`HalfNormal`, `Beta`,
+  `Uniform`, `Exponential`, `Gamma`, `LogNormal`, `LogitNormal`,
+  `HalfCauchy`, `Dirichlet`, …). Every `ContinuousMorphism` now
+  exposes a `support: Constraint` property; the inline
+  distributions (`FixedDistribution`, `MixedInlineDistribution`,
+  `DirectBernoulli`, `DirectTruncatedNormal`) and the
+  family-conditional distributions in `quivers.continuous.families`
+  override it with the correct constraint. The auto-guides sample
+  `z ~ Normal(loc, scale)` in unconstrained space, push through
+  `biject_to(support)` to land on the constrained side, and
+  evaluate `log_prob` with the Jacobian correction
+  (`log N(z) + log|det J_{T^{-1}}(v)|`). The simplex case routes
+  through `StickBreakingTransform` and accounts for the d ↔ d-1
+  dimension reduction. This is the same construction Pyro's
+  `AutoNormal` uses.
+
+- **`condition(model, data)` exposes host data to `let`-expression
+  gather.** Keys in the conditioning data dict that do not match a
+  declared sample / observe site are now pre-populated into the
+  trace environment as deterministic values, visible to
+  `let`-expression evaluation. This unlocks the canonical per-row
+  hierarchical-regression idiom: a per-group prior draw indexed
+  by a per-row integer array supplied as host data, e.g.
+  ```
+  program p : Resp -> Resp
+      by_subj : Subj <- Normal(0.0, 1.0)
+      let mu = by_subj[subj_idx]
+      observe r : Resp <- Normal(mu, 1.0)
+      return r
+
+  cond = condition(p.morphism, {"subj_idx": idx, "r": y})
+  ```
+  Free variables in `let` expressions (variables not bound by any
+  sample / observe / let / lambda step) are no longer rejected at
+  compile time; the runtime resolves them against the
+  conditioning data dict.
+
+- **Inline `Dirichlet` accepted as a prior.**
+  `pc <- Dirichlet(α)` with scalar `α` is now a valid inline-prior
+  step; the simplex dimension is inferred from the program's
+  declared codomain (`dim` for a `ContinuousSpace`, `cardinality`
+  for a `SetObject`, or 2 as a minimum). The factory accepts
+  vector concentrations (`make_fixed_dirichlet([α₁, α₂, α₃])`)
+  for symmetric or asymmetric Dirichlets. Previous behaviour was
+  to raise
+  `distribution family 'Dirichlet' is not supported as an inline
+  distribution; declare it as a continuous morphism instead`.
+
+### Internal
+
+- `ContinuousMorphism.support` defaults to `constraints.real`;
+  every constrained-output subclass overrides it. Variational
+  guides consume this through
+  `torch.distributions.constraint_registry.biject_to`.
+- `_FAMILY_SUPPORTS` in `quivers.continuous.inline` maps each
+  inline family to its support, applied by
+  `make_inline_distribution` when constructing a
+  `MixedInlineDistribution`. `Uniform` and `TruncatedNormal`
+  specialise to the actual interval when both bounds are literal.
+- `trace()` pre-populates `env` with the non-site keys of the
+  observations dict before the program's steps run.
+- `_validate_let_expr_vars` treats unbound names as deferred host
+  references; the eval-time evaluator raises a clear `KeyError` if
+  the value is missing.
+
+### Tests
+
+`tests/test_inference_constrained.py` (18 cases): every supported
+constrained family under both auto-guides, host-data passing
+through `condition`, and inline Dirichlet end-to-end (sample on
+simplex, score under prior, guide gradient flow through the
+simplex bijector).
+
 ## [0.4.0] - 2026-05-12
 
 This release lands three deeply-interconnected bodies of work in a
