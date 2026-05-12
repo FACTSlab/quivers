@@ -14,8 +14,8 @@ from typing import Literal
 import torch
 
 
-LossBody = Callable[[Mapping[str, "TrainEnv"]], torch.Tensor]
-LossWeight = Callable[[Mapping[str, "TrainEnv"]], torch.Tensor]
+type LossBody = Callable[[Mapping[str, "TrainEnv"]], torch.Tensor]
+type LossWeight = Callable[[Mapping[str, "TrainEnv"]], torch.Tensor]
 
 
 # Anything that a loss body might pluck out of the environment dict:
@@ -23,10 +23,12 @@ LossWeight = Callable[[Mapping[str, "TrainEnv"]], torch.Tensor]
 # in practice), an input tensor, a structured-term observation, or a
 # raw scalar/tensor target. The union is open at the boundary; we
 # alias it precisely so we never silently widen to `Any`.
-TrainEnv = torch.nn.Module | torch.Tensor | int | float | str | list | tuple | dict
+type TrainEnv = (
+    torch.nn.Module | torch.Tensor | int | float | str | list | tuple | dict
+)
 
 
-AttachmentKind = Literal[
+type AttachmentKind = Literal[
     "global",
     "program",
     "deduction",

@@ -36,7 +36,7 @@ from quivers.dsl import Compiler, CompileError, ParseError, parse
 from quivers.dsl.constraints import check_constraints
 
 
-Severity = Literal["error", "warning", "note"]
+type Severity = Literal["error", "warning", "note"]
 
 
 @dataclass(frozen=True)

@@ -30,13 +30,13 @@ Convention for input shapes
 
 from __future__ import annotations
 from abc import ABC, abstractmethod
-from typing import Union, cast
+from typing import cast
 import torch
 import torch.nn as nn
 from quivers.core.objects import SetObject
 from quivers.continuous.spaces import ContinuousSpace
 
-AnySpace = Union[SetObject, ContinuousSpace]
+type AnySpace = SetObject | ContinuousSpace
 
 
 def _is_discrete(space: AnySpace) -> bool:

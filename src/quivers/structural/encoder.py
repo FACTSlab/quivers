@@ -71,7 +71,7 @@ from .signature import (
 BOUND_VAR_OP = "BoundVar"
 
 
-PerOpMode = Literal["plain", "recurrent", "attention"]
+type PerOpMode = Literal["plain", "recurrent", "attention"]
 
 
 @dataclass(frozen=True)

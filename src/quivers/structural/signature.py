@@ -24,7 +24,7 @@ from __future__ import annotations
 
 from collections.abc import Iterable
 from dataclasses import dataclass
-from typing import Literal, TypeAlias
+from typing import Literal
 
 import didactic.api as dx
 import torch
@@ -33,16 +33,16 @@ import torch
 # argument position. The union enumerates the cases we accept;
 # anything outside this list is rejected at runtime with a typed
 # error rather than silently coerced.
-DataLeaf = str | int | float | bytes | bool
+type DataLeaf = str | int | float | bytes | bool
 
 # A positional argument inside a Term. Object positions carry a
 # Term; data positions carry a DataLeaf; index positions carry an
 # int. (Term is a forward reference here because it's defined
 # below in this module.)
-TermArg: TypeAlias = "Term | DataLeaf | int"
+type TermArg = Term | DataLeaf | int
 
 # The closed enumeration of sort kinds a signature can declare.
-SortKind = Literal["object", "index", "data"]
+type SortKind = Literal["object", "index", "data"]
 
 
 # ---------------------------------------------------------------------------
