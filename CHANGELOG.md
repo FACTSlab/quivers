@@ -575,20 +575,13 @@ surface for categorial grammars driven by it.
 
 ### Key citations
 
-- Charlow 2025, *Static and dynamic exceptional scope*,
-  *Journal of Semantics* (advance article, doi:10.1093/jos/ffad012).
-- Bumford & Charlow (forthcoming, 2026), *Effect-Driven
-  Interpretation: Functors for Natural Language Composition*,
-  Elements in Semantics, Cambridge University Press
-  (online ISBN 9781009285377; preprint arXiv:2504.00316).
-- Hughes 2000, *Generalising monads to arrows* (Sci. Comp. Prog.
-  37:67–111).
-- Bauer & Pretnar 2015, *Programming with algebraic effects and
-  handlers* (J. Logic Algebr. Methods Program. 84:108–123).
-- Plotkin & Power 2003, *Algebraic operations and generic effects*
-  (Appl. Categ. Structures 11:69–94).
-- Joyal–Street–Verity 1996, *Traced monoidal categories*
-  (Math. Proc. Camb. Phil. Soc. 119:447–468).
+- Charlow, S. (2025). [*Static and dynamic exceptional scope*](https://doi.org/10.1093/jos/ffad012). Journal of Semantics (advance article).
+- Bumford, D. and Charlow, S. (forthcoming, 2026). [*Effect-Driven Interpretation: Functors for Natural Language Composition*](https://www.cambridge.org/core/elements/abs/effectdriven-interpretation/56671E539160AAA1DACF8555B82A2FE4). Elements in Semantics, Cambridge University Press. Online ISBN 9781009285377; preprint [arXiv:2504.00316](https://arxiv.org/abs/2504.00316).
+- Hughes, J. (2000). [*Generalising monads to arrows*](https://doi.org/10.1016/S0167-6423(99)00023-4). Science of Computer Programming 37(1–3):67–111.
+- Bauer, A. and Pretnar, M. (2015). [*Programming with algebraic effects and handlers*](https://doi.org/10.1016/j.jlamp.2014.02.001). Journal of Logical and Algebraic Methods in Programming 84(1):108–123.
+- Plotkin, G. and Power, J. (2003). [*Algebraic operations and generic effects*](https://doi.org/10.1023/A:1023064908962). Applied Categorical Structures 11(1):69–94.
+- Joyal, A., Street, R., and Verity, D. (1996). [*Traced monoidal categories*](https://doi.org/10.1017/S0305004100074338). Mathematical Proceedings of the Cambridge Philosophical Society 119(3):447–468.
+- McBride, C. and Paterson, R. (2008). [*Applicative programming with effects*](https://doi.org/10.1017/S0956796807006326). Journal of Functional Programming 18(1):1–13.
 
 ## [0.2.0] - 2026-05-06
 

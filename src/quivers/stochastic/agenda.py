@@ -27,16 +27,31 @@ when the semiring is idempotent.
 References
 ----------
 - Shieber, Schabes & Pereira (1995) "Principles and Implementation
-  of Deductive Parsing." J. Logic Programming 24:3–36.
+  of Deductive Parsing." Journal of Logic Programming 24(1-2):3-36.
+  doi:10.1016/0743-1066(95)00035-I
+- Pereira & Warren (1983) "Parsing as Deduction." Proceedings of
+  the 21st Annual Meeting of the ACL, pp. 137-144.
+  doi:10.3115/981311.981338
+- Knuth (1977) "A Generalization of Dijkstra's Algorithm."
+  Information Processing Letters 6(1):1-5.
+  doi:10.1016/0020-0190(77)90002-3
 - Goodman (1999) "Semiring Parsing." Computational Linguistics
-  25(4):573–605.
+  25(4):573-605. https://aclanthology.org/J99-4004/
+- Klein & Manning (2001) "Parsing and Hypergraphs." Proceedings
+  of IWPT, pp. 123-134. doi:10.1007/1-4020-2295-6_18
 - McAllester (2002) "On the Complexity Analysis of Static
-  Analyses." ACM TOPLAS 24(5):512–537.
+  Analyses." Journal of the ACM 49(4):512-537.
+  doi:10.1145/581771.581774
 - Nederhof (2003) "Weighted Deductive Parsing and Knuth's
-  Algorithm." Computational Linguistics 29(1):135–143.
-- Klein & Manning (2001) "Parsing and Hypergraphs." IWPT.
+  Algorithm." Computational Linguistics 29(1):135-143.
+  doi:10.1162/089120103321337467
+- Eisner, Goldlust & Smith (2005) "Compiling Comp Ling: Practical
+  Weighted Dynamic Programming and the Dyna Language."
+  Proceedings of HLT-EMNLP, pp. 281-290.
+  https://aclanthology.org/H05-1036/
 - Eisner & Blatz (2007) "Program Transformations for Optimization
-  of Parsing Algorithms."
+  of Parsing Algorithms and other Weighted Logic Programs."
+  Proceedings of the 11th Conference on Formal Grammar.
 """
 
 from __future__ import annotations
