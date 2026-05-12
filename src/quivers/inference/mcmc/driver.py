@@ -279,8 +279,6 @@ class MCMC:
                 and v.shape[-1] == 1
             ):
                 v = v.squeeze(-1)
-            if not site.is_plate and v.dim() >= 1 and v.shape[0] == 1:
-                v = v.squeeze(0)
             out[site.name] = v
         return out
 

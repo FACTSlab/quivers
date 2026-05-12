@@ -478,7 +478,7 @@ class TestPredictive(unittest.TestCase):
         pred = Predictive(prog, guide, num_samples=10)
 
         assert pred.model is prog
-        assert pred.guide is guide
+        assert pred.posterior is guide
         assert pred.num_samples == 10
 
 
