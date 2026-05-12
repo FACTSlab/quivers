@@ -156,7 +156,7 @@ natural transformation through $\mathrm{Th}\mathfrak{C}_1, \dots,
 
 The chart algorithm (CKY) is the standard inside-score recurrence and
 is sound for arbitrary $\mathcal{V}$-quantale-valued semirings (see
-[Grammar Fragment §5](grammar.md#5-soundness-of-the-chart-algorithm)).
+[Grammar Fragment §7](grammar.md#7-strategy-independence)).
 $\square$
 
 ## 6. Free-monad denotation
@@ -212,7 +212,7 @@ realisation and the Kleisli side is undefined.
 **Conservativity.** When the declared effects list $\bar T$ is empty,
 the joint type-and-effect dispatch of [§4](#4-joint-type-and-effect-dispatch)
 collapses to the classical residuated-grammar dispatch of
-[Grammar Fragment §4](grammar.md#4-the-chart-parser-denotation), and
+[Grammar Fragment §6](grammar.md#6-chart-denotation), and
 the inside score is the standard Lambek / CCG / multimodal-TLG
 chart-parser denotation. The effects framework is therefore a strict
 extension over the bare grammar fragment.

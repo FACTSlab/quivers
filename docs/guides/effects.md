@@ -217,3 +217,5 @@ user would see if they enumerated the lifts manually.
 - Hughes, J. (2000). [*Generalising monads to arrows*](https://doi.org/10.1016/S0167-6423(99)00023-4). Science of Computer Programming, 37(1–3), 67–111.
 - Plotkin, G. and Power, J. (2003). [*Algebraic operations and generic effects*](https://doi.org/10.1023/A:1023064908962). Applied Categorical Structures, 11(1), 69–94.
 - Bauer, A. and Pretnar, M. (2015). [*Programming with algebraic effects and handlers*](https://doi.org/10.1016/j.jlamp.2014.02.001). Journal of Logical and Algebraic Methods in Programming, 84(1), 108–123.
+- Charlow, S. (2025). [*Static and dynamic exceptional scope*](https://doi.org/10.1093/jos/ffad012). Journal of Semantics (advance article).
+- McBride, C. and Paterson, R. (2008). [*Applicative programming with effects*](https://doi.org/10.1017/S0956796807006326). Journal of Functional Programming, 18(1), 1–13.
