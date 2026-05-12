@@ -19,6 +19,8 @@ from quivers.dsl.ast_nodes import (
     BindStep,
     BundleDecl,
     CategoryDecl,
+    DeductionDecl,
+    SequentRule,
     ContinuousMorphismDecl,
     DiscretizeDecl,
     EmbedDecl,
@@ -1004,7 +1006,7 @@ def _walk_statement(t: _Tree, vid: str) -> Statement | list[Statement]:
         ret_vid = t.field(vid, "return")
         if ret_vid is None:
             raise ParseError(f"program_decl missing return at {vid}")
-        return_vars, _return_labels = _walk_return_pattern(t, ret_vid)
+        return_vars, return_labels = _walk_return_pattern(t, ret_vid)
         nv = t.field(vid, "name")
         dv = t.field(vid, "domain")
         cv = t.field(vid, "codomain")
@@ -1028,6 +1030,7 @@ def _walk_statement(t: _Tree, vid: str) -> Statement | list[Statement]:
             codomain=_walk_type(t, cv),
             draws=steps,
             return_vars=return_vars,
+            return_labels=return_labels,
             effects=effects_set,
             over_model=over_model,
             type_params=type_params,
@@ -1066,7 +1069,71 @@ def _walk_statement(t: _Tree, vid: str) -> Statement | list[Statement]:
             line=line,
             col=col,
         )
+    if k == "deduction_decl":
+        return _walk_deduction_decl(t, vid, line, col)
     raise ParseError(f"unexpected statement kind: {k}")
+
+
+def _walk_deduction_decl(
+    t: _Tree, vid: str, line: int, col: int
+) -> DeductionDecl:
+    """Walk a ``deduction NAME : dom -> cod { … }`` block.
+
+    Collects the brace-delimited body's atoms, sequent rules,
+    and field assignments (semiring, start, depth) into a
+    :class:`DeductionDecl`.
+    """
+    nv = t.field(vid, "name")
+    dv = t.field(vid, "domain")
+    cv = t.field(vid, "codomain")
+    if nv is None or dv is None or cv is None:
+        raise ParseError(f"deduction_decl missing name/domain/codomain at {vid}")
+    atoms: list[str] = []
+    rules: list[SequentRule] = []
+    semiring: str | None = None
+    start: str | None = None
+    depth: int | None = None
+    # Walk children in order.
+    for child in t.positional(vid):
+        kk = t.kind(child)
+        if kk == "deduction_atoms":
+            for av in t.fields(child, "atoms"):
+                atoms.append(t.text(av))
+        elif kk == "deduction_rule":
+            r_name = _required_text(t, t.field(child, "name"), child, "name")
+            premises = tuple(
+                _walk_type(t, pv) for pv in t.fields(child, "premises")
+            )
+            conc_vid = t.field(child, "conclusion")
+            if conc_vid is None:
+                raise ParseError(f"deduction_rule missing conclusion at {child}")
+            conclusion = _walk_type(t, conc_vid)
+            rl, rc = t.line_col(child)
+            rules.append(SequentRule(
+                name=r_name,
+                premises=premises,
+                conclusion=conclusion,
+                line=rl,
+                col=rc,
+            ))
+        elif kk == "deduction_semiring":
+            semiring = _required_text(t, t.field(child, "semiring"), child, "semiring")
+        elif kk == "deduction_start":
+            start = _required_text(t, t.field(child, "start"), child, "start")
+        elif kk == "deduction_depth":
+            depth = int(_required_text(t, t.field(child, "depth"), child, "depth"))
+    return DeductionDecl(
+        name=_required_text(t, nv, vid, "name"),
+        domain=_walk_type(t, dv),
+        codomain=_walk_type(t, cv),
+        atoms=tuple(atoms),
+        rules=tuple(rules),
+        semiring=semiring,
+        start=start,
+        depth=depth,
+        line=line,
+        col=col,
+    )
 
 
 def _walk_rule_decl(t: _Tree, vid: str, line: int, col: int) -> RuleDecl:
@@ -1197,18 +1264,33 @@ def _walk_options(t: _Tree, vid: str) -> dict[str, str]:
 def _walk_return_pattern(
     t: _Tree, vid: str
 ) -> tuple[tuple[str, ...], tuple[str, ...] | None]:
-    """Walk a return clause into (vars, labels=None).
+    """Walk a return clause into (vars, labels).
 
-    The labels return slot is retained in the signature for
-    compatibility with internal callers that destructure two
-    values, but is always ``None`` under the v0.5 surface (the
-    labelled-tuple form has been dropped as dead syntax).
+    Three forms:
+
+    * ``return x`` — single variable; ``vars=(x,)``, ``labels=None``.
+    * ``return (x, y, z)`` — positional tuple; ``vars=(x, y, z)``,
+      ``labels=None``.
+    * ``return (a: x, b: y)`` — labelled tuple; ``vars=(x, y)``,
+      ``labels=(a, b)``. The labels rename the coordinates of the
+      output product space at the schema level.
     """
     k = t.kind(vid)
     if k == "identifier":
         return (t.text(vid),), None
     if k == "return_tuple":
         return tuple(t.text(c) for c in t.positional(vid)), None
+    if k == "return_labeled_tuple":
+        labels: list[str] = []
+        vars_l: list[str] = []
+        for entry in t.positional(vid):
+            if t.kind(entry) != "return_label_entry":
+                continue
+            lvid = t.field(entry, "label")
+            vvid = t.field(entry, "var")
+            labels.append(_required_text(t, lvid, entry, "label"))
+            vars_l.append(_required_text(t, vvid, entry, "var"))
+        return tuple(vars_l), tuple(labels)
     raise ParseError(f"unexpected return pattern kind: {k}")
 
 

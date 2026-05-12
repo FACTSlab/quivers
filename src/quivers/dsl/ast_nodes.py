@@ -890,6 +890,7 @@ class ProgramDecl(Statement):
     codomain: TypeExpr
     draws: tuple[ProgramStep, ...]
     return_vars: tuple[str, ...]
+    return_labels: tuple[str, ...] | None = None
     effects: frozenset[str] | None = None
     over_model: str | None = None
     type_params: tuple[ProgramParam, ...] | None = None
@@ -930,6 +931,55 @@ class ExportDecl(Statement):
     line: int = 0
     col: int = 0
     kind: Literal["export_decl"] = "export_decl"
+
+
+class SequentRule(dx.Model):
+    """A named sequent-style inference rule inside a deduction block.
+
+    ``rule name : premises |- conclusion``. Patterns may contain
+    single-uppercase-identifier wildcards (e.g. ``X``, ``Y``) that
+    bind to actual category subexpressions when the rule fires.
+    """
+
+    name: str
+    premises: tuple[TypeExpr, ...]
+    conclusion: TypeExpr
+    line: int = 0
+    col: int = 0
+
+
+class DeductionDecl(Statement):
+    """A weighted-deduction-system declaration.
+
+    Surface form::
+
+        deduction NAME : Domain -> Codomain {
+            atoms { A, B, ... }
+            rule r1 : premises |- conclusion
+            rule r2 : ...
+            semiring  SemiringName
+            start     StartSymbol
+            depth     N
+        }
+
+    Categorical denotation: the system denotes a
+    :math:`\\mathcal{V}`-presheaf-valued morphism
+    :math:`\\mathrm{Domain} \\to \\mathbf{Set}^{I^{\\mathrm{op}}}_{K}`,
+    computed as the least pre-fixed point of the rule-system
+    functor in the :math:`K`-enriched lattice of charts.
+    """
+
+    name: str
+    domain: TypeExpr
+    codomain: TypeExpr
+    atoms: tuple[str, ...]
+    rules: tuple[SequentRule, ...]
+    semiring: str | None = None
+    start: str | None = None
+    depth: int | None = None
+    line: int = 0
+    col: int = 0
+    kind: Literal["deduction_decl"] = "deduction_decl"
 
 
 # ---------------------------------------------------------------------------

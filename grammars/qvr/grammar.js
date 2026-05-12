@@ -22,6 +22,7 @@ const PREC = {
   type_slash:     2,  // / \   (residuated; binds tighter than +, looser than *)
   type_product:   3,  // *
   type_apply:     4,  // T(X)  effect-typed application
+  bind_step:     10,  // outranks type_apply for `(` lookahead at step start
   // let-arithmetic precedence:
   let_add: 1,
   let_mul: 2,
@@ -35,7 +36,14 @@ module.exports = grammar({
 
   word: $ => $.identifier,
 
-  conflicts: $ => [],
+  conflicts: $ => [
+    // `_let_atom` vs `let_index`: after a `let_var`, a `[` may
+    // either continue into a `let_index` (gather expression) or
+    // end the atom. tree-sitter cannot decide on one token of
+    // lookahead; declaring the conflict triggers GLR exploration
+    // and the longer-match wins via let_index's left-precedence.
+    [$._let_atom, $.let_index],
+  ],
 
   rules: {
     // ---------------------------------------------------------------
@@ -61,6 +69,7 @@ module.exports = grammar({
       $.program_decl,
       $.let_decl,
       $.export_decl,
+      $.deduction_decl,
     ),
 
     // ---------------------------------------------------------------
@@ -153,6 +162,78 @@ module.exports = grammar({
     // compiled output. Replaces the v0.4 `output` keyword (which
     // permitted exactly one) — semantically a public binding.
     export_decl: $ => seq('export', field('value', $._expr)),
+
+    // Weighted-deduction system declaration.
+    //
+    //   deduction CG : Token -> Cat {
+    //       atoms { NP, S, VP }
+    //       rule fwd_app  : X/Y, Y       |- X
+    //       rule bwd_app  : Y, Y\X       |- X
+    //       semiring  ProductFuzzy
+    //       start     S
+    //       depth     4
+    //   }
+    //
+    // The body is a record of seven canonical parameters of an
+    // agenda-based deduction (Shieber-Schabes-Pereira 1995;
+    // Goodman 1999): items / atoms, rules (sequent-style),
+    // semiring, axiom-source, goal predicate, start symbol,
+    // depth bound. Concrete parsing strategies (CKY, Earley, A*,
+    // Knuth) are picked by the compiler from these parameters;
+    // an explicit `strategy = …` field may override.
+    deduction_decl: $ => seq(
+      'deduction',
+      field('name', $.identifier),
+      ':',
+      field('domain', $._type_expr),
+      '->',
+      field('codomain', $._type_expr),
+      '{',
+      repeat(choice(
+        $.deduction_atoms,
+        $.deduction_rule,
+        $.deduction_semiring,
+        $.deduction_start,
+        $.deduction_depth,
+      )),
+      '}',
+    ),
+
+    // Atoms block: `atoms { A, B, C }`.
+    deduction_atoms: $ => seq(
+      'atoms',
+      '{',
+      field('atoms', commaSep1($.identifier)),
+      '}',
+    ),
+
+    // Sequent-style rule:
+    //   rule name : premise1, premise2, ... |- conclusion
+    // Wildcards bind via single-uppercase identifiers; concrete
+    // atom names match literally.
+    deduction_rule: $ => seq(
+      'rule',
+      field('name', $.identifier),
+      ':',
+      field('premises', commaSep1($._type_expr)),
+      choice('|-', '⊢'),
+      field('conclusion', $._type_expr),
+    ),
+
+    deduction_semiring: $ => seq(
+      'semiring',
+      field('semiring', $.identifier),
+    ),
+
+    deduction_start: $ => seq(
+      'start',
+      field('start', $.identifier),
+    ),
+
+    deduction_depth: $ => seq(
+      'depth',
+      field('depth', $.integer),
+    ),
 
     // ---------------------------------------------------------------
     // ---------------------------------------------------------------
@@ -609,13 +690,13 @@ module.exports = grammar({
     // single arrow 1 → ⟦cod(F)⟧^A via the iso Kern(1, K^A) ≅ Kern(A, K)).
     // Arguments may be inline bracket-indexed sections `theta[N]`
     // referring to plate variables.
-    bind_step: $ => prec.right(seq(
+    bind_step: $ => prec.dynamic(PREC.bind_step, prec.right(seq(
       field('vars', $._var_pattern),
       optional(seq(':', field('index', $._type_expr))),
       '<-',
       field('morphism', $.identifier),
       optional(seq('(', field('args', commaSep1($._draw_arg)), ')')),
-    )),
+    ))),
 
     // Scored bind — same shape as `bind_step` but prefixed with
     // `observe`, marking the bound coordinate as clamped at runtime
@@ -688,15 +769,24 @@ module.exports = grammar({
       $.var_tuple,
     ),
 
+    // Destructuring tuple bind uses square brackets to disambiguate
+    // from a `(...)` opening a `type_effect_apply` continuation of
+    // the program's codomain type. Parens-prefixed tuple binds
+    // would create an unresolvable LR(1) ambiguity at the
+    // boundary between the codomain and the first program step.
+    //
+    //   [a, b] <- F(args)        -- destructure F's tuple return
+    //   [a, b, c] <- sub(...)    -- destructure a sub-program
     var_tuple: $ => seq(
-      '(',
+      '[',
       commaSep1($.identifier),
       optional(','),
-      ')',
+      ']',
     ),
 
     _return_pattern: $ => choice(
       $.identifier,
+      $.return_labeled_tuple,
       $.return_tuple,
     ),
 
@@ -705,6 +795,23 @@ module.exports = grammar({
       commaSep1($.identifier),
       optional(','),
       ')',
+    ),
+
+    // Labelled-tuple return: `return (a: x, b: y)`. Renames the
+    // coordinates of the resulting product space — purely
+    // syntactic rebinding at the schema level; preserves the
+    // categorical denotation up to coordinate renaming.
+    return_labeled_tuple: $ => prec(1, seq(
+      '(',
+      commaSep1($.return_label_entry),
+      optional(','),
+      ')',
+    )),
+
+    return_label_entry: $ => seq(
+      field('label', $.identifier),
+      ':',
+      field('var', $.identifier),
     ),
 
     // ---------------------------------------------------------------

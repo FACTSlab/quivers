@@ -1377,10 +1377,6 @@ class TestPDSFaithfulFactivity:
         assert (response >= 0.0).all()
         assert (response <= 1.0).all()
 
-    @pytest.mark.xfail(
-        reason="Deprecated v0.4 feature: labelled-tuple return / tuple destructuring bind dropped in v0.5; tracked as a follow-up.",
-        strict=False,
-    )
     def test_pds_factivity_log_joint(self):
         """log_joint is computable when all intermediates are given."""
         source = "\n            object Entity : 2\n            object Truth : 2\n            space Belief : UnitInterval(1)\n            space Response : Euclidean(1, low=0.0, high=1.0)\n\n            continuous prior_x : Entity -> Belief ~ LogitNormal\n            continuous prior_y : Entity -> Belief ~ LogitNormal\n            continuous prior_z : Entity -> Belief ~ LogitNormal\n            continuous bern_b : Belief -> Truth ~ Bernoulli\n            continuous bern_c : Belief -> Truth ~ Bernoulli\n            continuous bern_d : Belief -> Truth ~ Bernoulli\n            continuous respond : Belief -> Response ~ TruncatedNormal\n\n            program factivity : Entity -> Response\n                x <- prior_x\n                y <- prior_y\n                z <- prior_z\n                b <- bern_b(x)\n                c <- bern_c(y)\n                d <- bern_d(z)\n                r <- respond(x)\n                return r\n        "
@@ -1451,24 +1447,14 @@ class TestParserTupleFeatures:
         assert isinstance(prog_stmt, ProgramDecl)
         assert prog_stmt.params == ("y", "z")
 
-    @pytest.mark.xfail(
-        reason="v0.5 grammar disambiguation between tuple-bind '(a,) <- f' and "
-        "type-expression parenthesisation needs additional GLR conflict "
-        "annotations; deferred to a follow-up.",
-        strict=False,
-    )
     def test_destructuring_draw(self):
-        """Parse a tuple destructuring bind: `(a, b) <- morphism`."""
+        """Parse a tuple destructuring bind: `[a, b] <- morphism`."""
         ast = parse(
-            "\n            object T : 2\n            space B : UnitInterval(1)\n            continuous f : T -> B ~ LogitNormal\n            continuous g : B -> T ~ Bernoulli\n\n            program sub : T -> B\n                x <- f\n                return x\n\n            program p : T -> B\n                (a,) <- sub\n                return a\n        "
+            "\n            object T : 2\n            space B : UnitInterval(1)\n            continuous f : T -> B ~ LogitNormal\n            continuous g : B -> T ~ Bernoulli\n\n            program sub : T -> B\n                x <- f\n                return x\n\n            program p : T -> B\n                [a] <- sub\n                return a\n        "
         )
         prog_stmt = ast.statements[5]
         assert prog_stmt.draws[0].vars == ("a",)
 
-    @pytest.mark.xfail(
-        reason="Deprecated v0.4 feature: labelled-tuple return / tuple destructuring bind dropped in v0.5; tracked as a follow-up.",
-        strict=False,
-    )
     def test_multi_arg_draw(self):
         """Parse draw z ~ f(x, y)."""
         ast = parse(
@@ -1510,13 +1496,9 @@ class TestCompilerTupleFeatures:
         with pytest.raises(CompileError, match="not bound"):
             Compiler(parse(source)).compile_env()
 
-    @pytest.mark.xfail(
-        reason="Deprecated v0.4 feature: labelled-tuple return / tuple destructuring bind dropped in v0.5; tracked as a follow-up.",
-        strict=False,
-    )
     def test_destructuring_draw_compiles(self):
         """Destructuring draw from sub-program compiles."""
-        source = "\n            object Entity : 2\n            object Truth : 2\n            space Belief : UnitInterval(1)\n\n            continuous prior : Entity -> Belief ~ LogitNormal\n            continuous bern : Belief -> Truth ~ Bernoulli\n\n            program sub(y, z) : Belief * Belief -> Truth * Truth\n                c <- bern(y)\n                d <- bern(z)\n                return (c, d)\n\n            program outer : Entity -> Truth * Truth\n                y <- prior\n                z <- prior\n                (c, d) <- sub(y, z)\n                return (c, d)\n        "
+        source = "\n            object Entity : 2\n            object Truth : 2\n            space Belief : UnitInterval(1)\n\n            continuous prior : Entity -> Belief ~ LogitNormal\n            continuous bern : Belief -> Truth ~ Bernoulli\n\n            program sub(y, z) : Belief * Belief -> Truth * Truth\n                c <- bern(y)\n                d <- bern(z)\n                return (c, d)\n\n            program outer : Entity -> Truth * Truth\n                y <- prior\n                z <- prior\n                [c, d] <- sub(y, z)\n                return (c, d)\n        "
         env = Compiler(parse(source)).compile_env()
         outer = env["outer"]
         assert isinstance(outer, MonadicProgram)
@@ -1561,13 +1543,9 @@ class TestExecutionTupleFeatures:
         assert result["c"].dtype == torch.long
         assert result["d"].dtype == torch.long
 
-    @pytest.mark.xfail(
-        reason="Deprecated v0.4 feature: labelled-tuple return / tuple destructuring bind dropped in v0.5; tracked as a follow-up.",
-        strict=False,
-    )
     def test_multi_arg_draw(self):
         """Multi-arg draw stacks inputs for sub-program."""
-        source = "\n            object Entity : 2\n            object Truth : 2\n            space Belief : UnitInterval(1)\n\n            continuous prior : Entity -> Belief ~ LogitNormal\n            continuous bern_c : Belief -> Truth ~ Bernoulli\n            continuous bern_d : Belief -> Truth ~ Bernoulli\n\n            program sub(y, z) : Belief * Belief -> Truth * Truth\n                c <- bern_c(y)\n                d <- bern_d(z)\n                return (c, d)\n\n            program outer : Entity -> Truth * Truth\n                y <- prior\n                z <- prior\n                (c, d) <- sub(y, z)\n                return (c, d)\n        "
+        source = "\n            object Entity : 2\n            object Truth : 2\n            space Belief : UnitInterval(1)\n\n            continuous prior : Entity -> Belief ~ LogitNormal\n            continuous bern_c : Belief -> Truth ~ Bernoulli\n            continuous bern_d : Belief -> Truth ~ Bernoulli\n\n            program sub(y, z) : Belief * Belief -> Truth * Truth\n                c <- bern_c(y)\n                d <- bern_d(z)\n                return (c, d)\n\n            program outer : Entity -> Truth * Truth\n                y <- prior\n                z <- prior\n                [c, d] <- sub(y, z)\n                return (c, d)\n        "
         env = Compiler(parse(source)).compile_env()
         prog = env["outer"]
         entity = torch.tensor([0, 1])
@@ -1589,13 +1567,9 @@ class TestExecutionTupleFeatures:
         assert lj.shape == (2,)
         assert torch.isfinite(lj).all()
 
-    @pytest.mark.xfail(
-        reason="Deprecated v0.4 feature: labelled-tuple return / tuple destructuring bind dropped in v0.5; tracked as a follow-up.",
-        strict=False,
-    )
     def test_log_joint_nested_programs(self):
         """log_joint works with nested sub-programs."""
-        source = "\n            object Entity : 2\n            object Truth : 2\n            space Belief : UnitInterval(1)\n\n            continuous prior : Entity -> Belief ~ LogitNormal\n            continuous bern_c : Belief -> Truth ~ Bernoulli\n            continuous bern_d : Belief -> Truth ~ Bernoulli\n\n            program sub(y, z) : Belief * Belief -> Truth * Truth\n                c <- bern_c(y)\n                d <- bern_d(z)\n                return (c, d)\n\n            program outer : Entity -> Truth * Truth\n                y <- prior\n                z <- prior\n                (c, d) <- sub(y, z)\n                return (c, d)\n        "
+        source = "\n            object Entity : 2\n            object Truth : 2\n            space Belief : UnitInterval(1)\n\n            continuous prior : Entity -> Belief ~ LogitNormal\n            continuous bern_c : Belief -> Truth ~ Bernoulli\n            continuous bern_d : Belief -> Truth ~ Bernoulli\n\n            program sub(y, z) : Belief * Belief -> Truth * Truth\n                c <- bern_c(y)\n                d <- bern_d(z)\n                return (c, d)\n\n            program outer : Entity -> Truth * Truth\n                y <- prior\n                z <- prior\n                [c, d] <- sub(y, z)\n                return (c, d)\n        "
         env = Compiler(parse(source)).compile_env()
         prog = env["outer"]
         entity = torch.tensor([0, 1])
@@ -1609,7 +1583,7 @@ class TestExecutionTupleFeatures:
 
     def test_pds_factivity_with_nesting(self):
         """Full PDS factivity with nested sub-programs and tuple returns."""
-        source = "\n            # PDS factivity model (Grove & White 2025)\n            # with nested sub-programs for CG and TauKnow updates\n\n            object Entity : 2\n            object Truth : 2\n            space Belief : UnitInterval(1)\n            space Response : Euclidean(1, low=0.0, high=1.0)\n\n            # prior morphisms\n            continuous prior_x : Entity -> Belief ~ LogitNormal\n            continuous prior_y : Entity -> Belief ~ LogitNormal\n            continuous prior_z : Entity -> Belief ~ LogitNormal\n\n            # bernoulli bridges (continuous -> discrete)\n            continuous bern_b : Belief -> Truth ~ Bernoulli\n            continuous bern_c : Belief -> Truth ~ Bernoulli\n            continuous bern_d : Belief -> Truth ~ Bernoulli\n\n            # response function\n            continuous respond : Belief -> Response ~ TruncatedNormal\n\n            # inner CG update sub-program\n            # corresponds to PDS: let' c (Bern y) (let' d (Bern z) ...)\n            program cg_update(y, z) : Belief * Belief -> Truth * Truth\n                c <- bern_c(y)\n                d <- bern_d(z)\n                return (c, d)\n\n            # outer factivity prior\n            # corresponds to PDS factivityPrior\n            program factivityPrior : Entity -> Truth * Truth * Truth * Response\n                x <- prior_x\n                y <- prior_y\n                z <- prior_z\n                b <- bern_b(x)\n                (c, d) <- cg_update(y, z)\n                r <- respond(x)\n                return (b, c, d, r)\n\n            export factivityPrior\n        "
+        source = "\n            # PDS factivity model (Grove & White 2025)\n            # with nested sub-programs for CG and TauKnow updates\n\n            object Entity : 2\n            object Truth : 2\n            space Belief : UnitInterval(1)\n            space Response : Euclidean(1, low=0.0, high=1.0)\n\n            # prior morphisms\n            continuous prior_x : Entity -> Belief ~ LogitNormal\n            continuous prior_y : Entity -> Belief ~ LogitNormal\n            continuous prior_z : Entity -> Belief ~ LogitNormal\n\n            # bernoulli bridges (continuous -> discrete)\n            continuous bern_b : Belief -> Truth ~ Bernoulli\n            continuous bern_c : Belief -> Truth ~ Bernoulli\n            continuous bern_d : Belief -> Truth ~ Bernoulli\n\n            # response function\n            continuous respond : Belief -> Response ~ TruncatedNormal\n\n            # inner CG update sub-program\n            # corresponds to PDS: let' c (Bern y) (let' d (Bern z) ...)\n            program cg_update(y, z) : Belief * Belief -> Truth * Truth\n                c <- bern_c(y)\n                d <- bern_d(z)\n                return (c, d)\n\n            # outer factivity prior\n            # corresponds to PDS factivityPrior\n            program factivityPrior : Entity -> Truth * Truth * Truth * Response\n                x <- prior_x\n                y <- prior_y\n                z <- prior_z\n                b <- bern_b(x)\n                [c, d] <- cg_update(y, z)\n                r <- respond(x)\n                return (b, c, d, r)\n\n            export factivityPrior\n        "
         prog = Compiler(parse(source)).compile()
         assert isinstance(prog, Program)
         entity = torch.tensor([0, 1])
@@ -1624,13 +1598,9 @@ class TestExecutionTupleFeatures:
         assert (result["r"] >= 0.0).all()
         assert (result["r"] <= 1.0).all()
 
-    @pytest.mark.xfail(
-        reason="Deprecated v0.4 feature: labelled-tuple return / tuple destructuring bind dropped in v0.5; tracked as a follow-up.",
-        strict=False,
-    )
     def test_pds_factivity_log_joint_nested(self):
         """log_joint with the full nested PDS factivity model."""
-        source = "\n            object Entity : 2\n            object Truth : 2\n            space Belief : UnitInterval(1)\n            space Response : Euclidean(1, low=0.0, high=1.0)\n\n            continuous prior_x : Entity -> Belief ~ LogitNormal\n            continuous prior_y : Entity -> Belief ~ LogitNormal\n            continuous prior_z : Entity -> Belief ~ LogitNormal\n            continuous bern_b : Belief -> Truth ~ Bernoulli\n            continuous bern_c : Belief -> Truth ~ Bernoulli\n            continuous bern_d : Belief -> Truth ~ Bernoulli\n            continuous respond : Belief -> Response ~ TruncatedNormal\n\n            program cg_update(y, z) : Belief * Belief -> Truth * Truth\n                c <- bern_c(y)\n                d <- bern_d(z)\n                return (c, d)\n\n            program factivityPrior : Entity -> Truth * Truth * Truth * Response\n                x <- prior_x\n                y <- prior_y\n                z <- prior_z\n                b <- bern_b(x)\n                (c, d) <- cg_update(y, z)\n                r <- respond(x)\n                return (b, c, d, r)\n        "
+        source = "\n            object Entity : 2\n            object Truth : 2\n            space Belief : UnitInterval(1)\n            space Response : Euclidean(1, low=0.0, high=1.0)\n\n            continuous prior_x : Entity -> Belief ~ LogitNormal\n            continuous prior_y : Entity -> Belief ~ LogitNormal\n            continuous prior_z : Entity -> Belief ~ LogitNormal\n            continuous bern_b : Belief -> Truth ~ Bernoulli\n            continuous bern_c : Belief -> Truth ~ Bernoulli\n            continuous bern_d : Belief -> Truth ~ Bernoulli\n            continuous respond : Belief -> Response ~ TruncatedNormal\n\n            program cg_update(y, z) : Belief * Belief -> Truth * Truth\n                c <- bern_c(y)\n                d <- bern_d(z)\n                return (c, d)\n\n            program factivityPrior : Entity -> Truth * Truth * Truth * Response\n                x <- prior_x\n                y <- prior_y\n                z <- prior_z\n                b <- bern_b(x)\n                [c, d] <- cg_update(y, z)\n                r <- respond(x)\n                return (b, c, d, r)\n        "
         env = Compiler(parse(source)).compile_env()
         prog = env["factivityPrior"]
         entity = torch.tensor([0, 1])
@@ -1690,10 +1660,6 @@ class TestParserInlineDistributions:
 class TestParserLabeledReturns:
     """Test parsing of labeled return syntax."""
 
-    @pytest.mark.xfail(
-        reason="Deprecated v0.4 feature: labelled-tuple return / tuple destructuring bind dropped in v0.5; tracked as a follow-up.",
-        strict=False,
-    )
     def test_labeled_return(self):
         """Return with labels: return (a: x, b: y)."""
         source = "\n            object Entity : 2\n            object Truth : 2\n            space Belief : UnitInterval()\n            continuous f : Entity -> Belief ~ LogitNormal\n            continuous g : Entity -> Belief ~ LogitNormal\n            program p : Entity -> Truth * Truth\n                x <- f\n                y <- g\n                return (state: x, prob: y)\n        "
@@ -1702,10 +1668,6 @@ class TestParserLabeledReturns:
         assert prog.return_vars == ("x", "y")
         assert prog.return_labels == ("state", "prob")
 
-    @pytest.mark.xfail(
-        reason="Deprecated v0.4 feature: labelled-tuple return / tuple destructuring bind dropped in v0.5; tracked as a follow-up.",
-        strict=False,
-    )
     def test_unlabeled_return_still_works(self):
         """Regular unlabeled return (backward compat)."""
         source = "\n            object Entity : 2\n            space Belief : UnitInterval()\n            continuous f : Entity -> Belief ~ LogitNormal\n            continuous g : Entity -> Belief ~ LogitNormal\n            program p : Entity -> Belief * Belief\n                x <- f\n                y <- g\n                return (x, y)\n        "
@@ -1714,10 +1676,6 @@ class TestParserLabeledReturns:
         assert prog.return_vars == ("x", "y")
         assert prog.return_labels is None
 
-    @pytest.mark.xfail(
-        reason="Deprecated v0.4 feature: labelled-tuple return / tuple destructuring bind dropped in v0.5; tracked as a follow-up.",
-        strict=False,
-    )
     def test_single_return_no_labels(self):
         """Single return can't have labels."""
         source = "\n            object Entity : 2\n            space Belief : UnitInterval()\n            continuous f : Entity -> Belief ~ LogitNormal\n            program p : Entity -> Belief\n                x <- f\n                return x\n        "
@@ -1800,10 +1758,6 @@ class TestExecutionInlineDistributions:
         assert samples.shape == (4, 1)
         assert (samples >= 0).all() and (samples <= 1).all()
 
-    @pytest.mark.xfail(
-        reason="Deprecated v0.4 feature: labelled-tuple return / tuple destructuring bind dropped in v0.5; tracked as a follow-up.",
-        strict=False,
-    )
     def test_labeled_return_dict_keys(self):
         """Labeled returns produce dict with label keys."""
         source = "\n            object Entity : 2\n            object Truth : 2\n            space Belief : UnitInterval()\n            program p : Entity -> Truth * Belief\n                x <- LogitNormal(0.0, 1.0)\n                b <- Bernoulli(x)\n                return (state: b, prob: x)\n        "
@@ -1817,10 +1771,6 @@ class TestExecutionInlineDistributions:
         assert set(result["state"].tolist()).issubset({0, 1})
         assert (result["prob"] > 0).all() and (result["prob"] < 1).all()
 
-    @pytest.mark.xfail(
-        reason="Deprecated v0.4 feature: labelled-tuple return / tuple destructuring bind dropped in v0.5; tracked as a follow-up.",
-        strict=False,
-    )
     def test_full_pds_factivity_inline(self):
         """Full PDS factivity model with inline distributions.
 
@@ -1831,7 +1781,7 @@ class TestExecutionInlineDistributions:
         - labeled returns for semantic structure
         - nested sub-programs
         """
-        source = "\n            object Entity : 2\n            object Truth : 2\n\n            space Belief : UnitInterval()\n            space Resp : Euclidean(1, low=0.0, high=1.0)\n\n            # inner CG update sub-program\n            program cg_update(y, z) : Belief * Belief -> Truth * Truth\n                c <- Bernoulli(y)\n                d <- Bernoulli(z)\n                return (c, d)\n\n            # response kernel with two-stage randomness\n            program response_kernel : Entity -> Resp\n                mu <- LogitNormal(0.0, 1.0)\n                sigma <- Uniform(0.0, 1.0)\n                r <- TruncatedNormal(mu, sigma, 0.0, 1.0)\n                return r\n\n            # full factivity prior\n            program factivityPrior : Entity -> Truth * Truth * Truth * Resp\n                x <- LogitNormal(0.0, 1.0)\n                y <- LogitNormal(0.0, 1.0)\n                z <- LogitNormal(0.0, 1.0)\n                b <- Bernoulli(x)\n                (c, d) <- cg_update(y, z)\n                r <- response_kernel\n                return (tau_know: b, cg_c: c, cg_d: d, response: r)\n        "
+        source = "\n            object Entity : 2\n            object Truth : 2\n\n            space Belief : UnitInterval()\n            space Resp : Euclidean(1, low=0.0, high=1.0)\n\n            # inner CG update sub-program\n            program cg_update(y, z) : Belief * Belief -> Truth * Truth\n                c <- Bernoulli(y)\n                d <- Bernoulli(z)\n                return (c, d)\n\n            # response kernel with two-stage randomness\n            program response_kernel : Entity -> Resp\n                mu <- LogitNormal(0.0, 1.0)\n                sigma <- Uniform(0.0, 1.0)\n                r <- TruncatedNormal(mu, sigma, 0.0, 1.0)\n                return r\n\n            # full factivity prior\n            program factivityPrior : Entity -> Truth * Truth * Truth * Resp\n                x <- LogitNormal(0.0, 1.0)\n                y <- LogitNormal(0.0, 1.0)\n                z <- LogitNormal(0.0, 1.0)\n                b <- Bernoulli(x)\n                [c, d] <- cg_update(y, z)\n                r <- response_kernel\n                return (tau_know: b, cg_c: c, cg_d: d, response: r)\n        "
         env = Compiler(parse(source)).compile_env()
         prog = env["factivityPrior"]
         entity = torch.tensor([0, 1])
@@ -1847,10 +1797,6 @@ class TestExecutionInlineDistributions:
         assert (result["response"] >= 0).all()
         assert (result["response"] <= 1).all()
 
-    @pytest.mark.xfail(
-        reason="Deprecated v0.4 feature: labelled-tuple return / tuple destructuring bind dropped in v0.5; tracked as a follow-up.",
-        strict=False,
-    )
     def test_pds_factivity_log_joint(self):
         """log_joint works with inline distributions and labels."""
         source = "\n            object Entity : 2\n            object Truth : 2\n            space Belief : UnitInterval()\n\n            program p : Entity -> Truth * Belief\n                x <- LogitNormal(0.0, 1.0)\n                b <- Bernoulli(x)\n                return (state: b, prob: x)\n        "
@@ -1865,10 +1811,6 @@ class TestExecutionInlineDistributions:
         assert lj.shape == (2,)
         assert torch.isfinite(lj).all()
 
-    @pytest.mark.xfail(
-        reason="Deprecated v0.4 feature: labelled-tuple return / tuple destructuring bind dropped in v0.5; tracked as a follow-up.",
-        strict=False,
-    )
     def test_pds_factivity_log_joint_with_labels(self):
         """log_joint also accepts label keys."""
         source = "\n            object Entity : 2\n            object Truth : 2\n            space Belief : UnitInterval()\n\n            program p : Entity -> Truth * Belief\n                x <- LogitNormal(0.0, 1.0)\n                b <- Bernoulli(x)\n                return (state: b, prob: x)\n        "
@@ -2023,10 +1965,6 @@ class TestExecutionLetSteps:
         assert lj.shape == (2,)
         assert torch.isfinite(lj).all()
 
-    @pytest.mark.xfail(
-        reason="Deprecated v0.4 feature: labelled-tuple return / tuple destructuring bind dropped in v0.5; tracked as a follow-up.",
-        strict=False,
-    )
     def test_let_in_labeled_return(self):
         """let-bound variables work with labeled returns."""
         source = "\n            object A : 2\n            object B : 2\n            space C : UnitInterval()\n            program p : A -> B * C\n                x <- LogitNormal(0.0, 1.0)\n                let cg = 1\n                return (cg_status: cg, belief: x)\n        "
@@ -2045,10 +1983,6 @@ class TestExecutionLetSteps:
         result = prog.rsample(torch.tensor([0, 1]))
         assert set(result.tolist()).issubset({0, 1})
 
-    @pytest.mark.xfail(
-        reason="Deprecated v0.4 feature: labelled-tuple return / tuple destructuring bind dropped in v0.5; tracked as a follow-up.",
-        strict=False,
-    )
     def test_faithful_pds_factivity(self):
         """Faithful PDS factivity model with deterministic CG presupposition.
 
@@ -2076,10 +2010,6 @@ class TestExecutionLetSteps:
         assert (result["response"] >= 0).all()
         assert (result["response"] <= 1).all()
 
-    @pytest.mark.xfail(
-        reason="Deprecated v0.4 feature: labelled-tuple return / tuple destructuring bind dropped in v0.5; tracked as a follow-up.",
-        strict=False,
-    )
     def test_faithful_pds_log_joint(self):
         """log_joint for PDS factivity: let contributes 0, draws contribute density."""
         source = "\n            object Entity : 2\n            object Truth : 2\n            space Belief : UnitInterval()\n\n            program p : Entity -> Truth * Belief\n                theta <- LogitNormal(0.0, 1.0)\n                let cg = 1\n                b <- Bernoulli(theta)\n                return (cg_status: cg, truth: b, belief: theta)\n        "

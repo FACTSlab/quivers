@@ -460,3 +460,119 @@ def _classify_morphism_kind(morphism: object) -> str:
     if isinstance(morphism, ContinuousMorphism):
         return "continuous_morphism_decl"
     return "morphism_decl"
+
+
+# ---------------------------------------------------------------------------
+# Deduction-system protocol
+# ---------------------------------------------------------------------------
+
+
+_DEDUCTION_OBJECT_KINDS = [
+    "deduction_system",
+    "deduction_rule",
+    "deduction_atom",
+    "deduction_premise",
+    "deduction_conclusion",
+]
+
+_DEDUCTION_EDGE_RULES = [
+    {
+        "edge_kind": "decl",
+        "src_kinds": ["deduction_system"],
+        "tgt_kinds": ["deduction_rule"],
+    },
+    {
+        "edge_kind": "atom",
+        "src_kinds": ["deduction_system"],
+        "tgt_kinds": ["deduction_atom"],
+    },
+    {
+        "edge_kind": "premise",
+        "src_kinds": ["deduction_rule"],
+        "tgt_kinds": ["deduction_premise"],
+    },
+    {
+        "edge_kind": "conclusion",
+        "src_kinds": ["deduction_rule"],
+        "tgt_kinds": ["deduction_conclusion"],
+    },
+]
+
+_DEDUCTION_CONSTRAINT_SORTS = [
+    "name",
+    "semiring",
+    "start",
+    "depth",
+    "pattern",
+]
+
+
+QVR_DEDUCTION_PROTOCOL: panproto.Protocol = panproto.define_protocol(
+    {
+        "name": "qvr_deduction",
+        "schema_theory": "ThBratSchema",
+        "instance_theory": "ThBratInstance",
+        "edge_rules": _DEDUCTION_EDGE_RULES,
+        "obj_kinds": _DEDUCTION_OBJECT_KINDS,
+        "constraint_sorts": _DEDUCTION_CONSTRAINT_SORTS,
+    }
+)
+"""Panproto protocol for a weighted deductive system.
+
+Vertex kinds:
+    * ``deduction_system`` — the top-level declaration.
+    * ``deduction_atom`` — an atom of the item algebra.
+    * ``deduction_rule`` — a named sequent-style inference rule.
+    * ``deduction_premise`` — one premise pattern of a rule.
+    * ``deduction_conclusion`` — a rule's conclusion pattern.
+
+Edges:
+    * ``decl`` — system :math:`\\to` rule.
+    * ``atom`` — system :math:`\\to` atom.
+    * ``premise`` — rule :math:`\\to` premise.
+    * ``conclusion`` — rule :math:`\\to` conclusion.
+
+Constraint sorts carry the system's semiring, start, depth, and
+each pattern's textual form. Schema morphisms over this protocol
+correspond to specialisations of deduction systems
+(e.g., :math:`\\mathsf{CCG} \\subset \\mathsf{Lambek} \\subset \\mathsf{MultimodalLambek}`).
+"""
+
+
+def extract_deduction_schema(compiler: "Compiler") -> panproto.Schema:
+    """Produce a :class:`panproto.Schema` for the compiler's
+    deduction-system environment.
+
+    Walks the compiler's ``_deductions`` registry and emits one
+    panproto vertex per deduction system, one per rule, one per
+    atom, and per-premise / per-conclusion pattern vertices. The
+    returned schema validates against
+    :data:`QVR_DEDUCTION_PROTOCOL` and is suitable for
+    :func:`panproto.diff_schemas` and
+    :func:`panproto.auto_generate_lens` operations over deduction
+    systems.
+    """
+    builder = QVR_DEDUCTION_PROTOCOL.schema()
+    deductions = getattr(compiler, "_deductions", {})
+    for name, system in deductions.items():
+        sys_vid = f"deduction:{name}"
+        builder.vertex(sys_vid, "deduction_system")
+        builder.constraint(sys_vid, "name", name)
+        builder.constraint(
+            sys_vid, "semiring", system.semiring.__class__.__name__
+        )
+        for rule_idx, rule in enumerate(system.rules):
+            rule_vid = f"{sys_vid}/rule:{rule.name}"
+            builder.vertex(rule_vid, "deduction_rule")
+            builder.constraint(rule_vid, "name", rule.name)
+            builder.edge(sys_vid, rule_vid, "decl")
+            for prem_idx, premise in enumerate(rule.premises):
+                p_vid = f"{rule_vid}/premise:{prem_idx}"
+                builder.vertex(p_vid, "deduction_premise")
+                builder.constraint(p_vid, "pattern", repr(premise))
+                builder.edge(rule_vid, p_vid, "premise")
+            conc_vid = f"{rule_vid}/conclusion"
+            builder.vertex(conc_vid, "deduction_conclusion")
+            builder.constraint(conc_vid, "pattern", repr(rule.conclusion))
+            builder.edge(rule_vid, conc_vid, "conclusion")
+    return builder.build()

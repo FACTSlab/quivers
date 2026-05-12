@@ -292,7 +292,8 @@ class TestDSLSurface:
 
     def test_event_structure_example_compiles(self):
         path = Path("src/quivers/dsl/examples/event_structure.qvr")
-        if not path.exists():
-            pytest.skip("event_structure.qvr not present")
+        assert path.exists(), (
+            f"event_structure.qvr is a load-bearing example and must be present: {path}"
+        )
         c = self._compile(path.read_text())
         assert "event_structure" in c._morphisms

@@ -38,8 +38,10 @@ from quivers.dsl.ast_nodes import (
     FreeResiduatedExpr,
     SchemaDecl,
     BindStep,
+    DeductionDecl,
     DrawStep,
     ExportDecl,
+    SequentRule,
     LetStep,
     LetExprBinOp,
     LetExprIndex,
@@ -418,6 +420,8 @@ class Compiler:
             self._compile_let(stmt)
         elif isinstance(stmt, ExportDecl):
             self._compile_export(stmt)
+        elif isinstance(stmt, DeductionDecl):
+            self._compile_deduction(stmt)
         else:
             raise CompileError(f"unknown statement type: {type(stmt).__name__}")
 
@@ -1758,7 +1762,7 @@ class Compiler:
             steps,
             decl.return_vars,
             params=decl.params,
-            return_labels=None,
+            return_labels=decl.return_labels,
             effect_set=decl.effects,
         )
         # Posterior-block routing: `over M` programs go to the
@@ -2078,6 +2082,108 @@ class Compiler:
             raise CompileError(f"name {decl.name!r} already bound", decl.line, decl.col)
         morph = self._compile_expr(decl.expr)
         self._morphisms[decl.name] = morph
+
+    def _compile_deduction(self, decl: DeductionDecl) -> None:
+        """Compile a ``deduction { … }`` block into an agenda-engine
+        :class:`DeductionSystem` and register it under ``decl.name``.
+
+        Translates the declarative sequent-style rules into the
+        runtime's :class:`InferenceRule` form (with wildcards
+        introduced for any single-uppercase identifier appearing
+        in the rule's patterns). Resolves the semiring by name from
+        :mod:`quivers.stochastic.semiring`'s registry. The resulting
+        ``DeductionSystem`` is stored in ``self._deductions`` and
+        is callable as ``parse(NAME)(input)`` to produce a
+        :class:`ChartView` over the input.
+        """
+        from quivers.stochastic.agenda import (
+            DeductionSystem,
+            InferenceRule,
+            Wildcard,
+            cky_agenda,
+        )
+        from quivers.stochastic.semiring import (
+            BOOLEAN,
+            COUNTING,
+            LOG_PROB,
+            VITERBI,
+        )
+
+        if not hasattr(self, "_deductions"):
+            self._deductions: dict[str, "DeductionSystem"] = {}
+
+        if decl.name in self._deductions or decl.name in self._morphisms:
+            raise CompileError(
+                f"deduction {decl.name!r} already declared",
+                decl.line, decl.col,
+            )
+
+        # Wildcards: any pattern identifier whose name is a single
+        # uppercase letter is treated as a wildcard variable (per
+        # the conventional rule-pattern reading X, Y, Z, ...).
+        def _convert_pattern(texpr: TypeExpr) -> tuple:
+            if isinstance(texpr, TypeName):
+                name = texpr.name
+                if len(name) == 1 and name.isupper():
+                    return Wildcard(name)
+                return ("atom", name)
+            if isinstance(texpr, TypeProduct):
+                return (
+                    "product",
+                    tuple(_convert_pattern(c) for c in texpr.components),
+                )
+            # Other type-expressions fall through to their identifier
+            # representation; deduction rules may use richer patterns
+            # via this extension point.
+            return ("atom", repr(texpr))
+
+        semiring_registry = {
+            "LogProb": LOG_PROB,
+            "Boolean": BOOLEAN,
+            "Viterbi": VITERBI,
+            "Counting": COUNTING,
+            "ProductFuzzy": LOG_PROB,  # alias for the default
+        }
+        semiring = (
+            semiring_registry.get(decl.semiring, LOG_PROB)
+            if decl.semiring is not None
+            else LOG_PROB
+        )
+
+        inference_rules: list[InferenceRule] = []
+        for sr in decl.rules:
+            premises = tuple(_convert_pattern(p) for p in sr.premises)
+            conclusion = _convert_pattern(sr.conclusion)
+            inference_rules.append(InferenceRule(
+                name=sr.name,
+                premises=premises,
+                conclusion=conclusion,
+            ))
+
+        # Default axiom injector: identity — caller supplies axioms.
+        def _axiom_injector(input_value):
+            if isinstance(input_value, list):
+                return input_value
+            return list(input_value)
+
+        # Default goal: items matching the start symbol's atom form.
+        start = decl.start
+        def _goal(item) -> bool:
+            if start is None:
+                return True
+            return (
+                isinstance(item, tuple) and len(item) >= 1
+                and isinstance(item[0], str) and item[0] == start
+            )
+
+        system = DeductionSystem(
+            rules=tuple(inference_rules),
+            semiring=semiring,
+            axiom_injector=_axiom_injector,
+            goal=_goal,
+            agenda_factory=cky_agenda,
+        )
+        self._deductions[decl.name] = system
 
     def _compile_export(self, decl: ExportDecl) -> None:
         """Record an exported expression.

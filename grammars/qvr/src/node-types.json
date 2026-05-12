@@ -576,6 +576,256 @@
     }
   },
   {
+    "type": "deduction_atoms",
+    "named": true,
+    "fields": {
+      "atoms": {
+        "multiple": true,
+        "required": true,
+        "types": [
+          {
+            "type": ",",
+            "named": false
+          },
+          {
+            "type": "identifier",
+            "named": true
+          }
+        ]
+      }
+    }
+  },
+  {
+    "type": "deduction_decl",
+    "named": true,
+    "fields": {
+      "codomain": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "type_atom",
+            "named": true
+          },
+          {
+            "type": "type_coproduct",
+            "named": true
+          },
+          {
+            "type": "type_effect_apply",
+            "named": true
+          },
+          {
+            "type": "type_paren",
+            "named": true
+          },
+          {
+            "type": "type_product",
+            "named": true
+          },
+          {
+            "type": "type_slash",
+            "named": true
+          }
+        ]
+      },
+      "domain": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "type_atom",
+            "named": true
+          },
+          {
+            "type": "type_coproduct",
+            "named": true
+          },
+          {
+            "type": "type_effect_apply",
+            "named": true
+          },
+          {
+            "type": "type_paren",
+            "named": true
+          },
+          {
+            "type": "type_product",
+            "named": true
+          },
+          {
+            "type": "type_slash",
+            "named": true
+          }
+        ]
+      },
+      "name": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "identifier",
+            "named": true
+          }
+        ]
+      }
+    },
+    "children": {
+      "multiple": true,
+      "required": false,
+      "types": [
+        {
+          "type": "deduction_atoms",
+          "named": true
+        },
+        {
+          "type": "deduction_depth",
+          "named": true
+        },
+        {
+          "type": "deduction_rule",
+          "named": true
+        },
+        {
+          "type": "deduction_semiring",
+          "named": true
+        },
+        {
+          "type": "deduction_start",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "deduction_depth",
+    "named": true,
+    "fields": {
+      "depth": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "integer",
+            "named": true
+          }
+        ]
+      }
+    }
+  },
+  {
+    "type": "deduction_rule",
+    "named": true,
+    "fields": {
+      "conclusion": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "type_atom",
+            "named": true
+          },
+          {
+            "type": "type_coproduct",
+            "named": true
+          },
+          {
+            "type": "type_effect_apply",
+            "named": true
+          },
+          {
+            "type": "type_paren",
+            "named": true
+          },
+          {
+            "type": "type_product",
+            "named": true
+          },
+          {
+            "type": "type_slash",
+            "named": true
+          }
+        ]
+      },
+      "name": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "identifier",
+            "named": true
+          }
+        ]
+      },
+      "premises": {
+        "multiple": true,
+        "required": true,
+        "types": [
+          {
+            "type": ",",
+            "named": false
+          },
+          {
+            "type": "type_atom",
+            "named": true
+          },
+          {
+            "type": "type_coproduct",
+            "named": true
+          },
+          {
+            "type": "type_effect_apply",
+            "named": true
+          },
+          {
+            "type": "type_paren",
+            "named": true
+          },
+          {
+            "type": "type_product",
+            "named": true
+          },
+          {
+            "type": "type_slash",
+            "named": true
+          }
+        ]
+      }
+    }
+  },
+  {
+    "type": "deduction_semiring",
+    "named": true,
+    "fields": {
+      "semiring": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "identifier",
+            "named": true
+          }
+        ]
+      }
+    }
+  },
+  {
+    "type": "deduction_start",
+    "named": true,
+    "fields": {
+      "start": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "identifier",
+            "named": true
+          }
+        ]
+      }
+    }
+  },
+  {
     "type": "discretize_decl",
     "named": true,
     "fields": {
@@ -2302,6 +2552,10 @@
             "named": true
           },
           {
+            "type": "return_labeled_tuple",
+            "named": true
+          },
+          {
             "type": "return_tuple",
             "named": true
           }
@@ -2427,6 +2681,47 @@
       "types": [
         {
           "type": "integer",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "return_label_entry",
+    "named": true,
+    "fields": {
+      "label": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "identifier",
+            "named": true
+          }
+        ]
+      },
+      "var": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "identifier",
+            "named": true
+          }
+        ]
+      }
+    }
+  },
+  {
+    "type": "return_labeled_tuple",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": true,
+      "required": true,
+      "types": [
+        {
+          "type": "return_label_entry",
           "named": true
         }
       ]
@@ -2798,6 +3093,10 @@
         },
         {
           "type": "continuous_decl",
+          "named": true
+        },
+        {
+          "type": "deduction_decl",
           "named": true
         },
         {
@@ -3854,6 +4153,10 @@
     "named": false
   },
   {
+    "type": "atoms",
+    "named": false
+  },
+  {
     "type": "binary",
     "named": false
   },
@@ -3899,6 +4202,10 @@
   },
   {
     "type": "curry_right",
+    "named": false
+  },
+  {
+    "type": "deduction",
     "named": false
   },
   {
@@ -4048,6 +4355,10 @@
     "named": false
   },
   {
+    "type": "semiring",
+    "named": false
+  },
+  {
     "type": "sigmoid",
     "named": false
   },
@@ -4096,11 +4407,19 @@
     "named": false
   },
   {
+    "type": "|-",
+    "named": false
+  },
+  {
     "type": "}",
     "named": false
   },
   {
     "type": "~",
+    "named": false
+  },
+  {
+    "type": "⊢",
     "named": false
   }
 ]
