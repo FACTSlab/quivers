@@ -17,9 +17,9 @@ registry : :class:`LatentRegistry`, the per-site introspection
 guides : Variational guide families (mean-field, full-rank /
     low-rank Gaussian, normalising-flow, structured, mixture,
     Laplace). Re-exported here at top level.
-elbo : Evidence lower bound (kept as a thin re-export of
-    :class:`ELBO` from :mod:`quivers.inference.objectives` once
-    objectives land).
+estimators : Gradient estimators (reparameterised, sticking-the-
+    landing, DReG, score-function).
+objectives : Variational objectives (ELBO, IWAE, Rényi, VR-IWAE).
 svi : Stochastic variational inference training loop.
 predictive : Posterior predictive sampling.
 """
@@ -30,7 +30,20 @@ from quivers.inference.trace import Trace, SampleSite, trace
 from quivers.inference.conditioning import Conditioned, condition
 from quivers.inference.registry import LatentRegistry, LatentSite
 from quivers.inference.guides import Guide, AutoNormalGuide, AutoDeltaGuide
-from quivers.inference.elbo import ELBO
+from quivers.inference.estimators import (
+    DoublyReparameterised,
+    GradientEstimator,
+    Reparameterised,
+    ScoreFunction,
+    StickingTheLanding,
+)
+from quivers.inference.objectives import (
+    ELBO,
+    IWAEBound,
+    Objective,
+    RenyiBound,
+    VRIWAEBound,
+)
 from quivers.inference.svi import SVI
 from quivers.inference.predictive import Predictive
 
@@ -45,7 +58,16 @@ __all__ = [
     "Guide",
     "AutoNormalGuide",
     "AutoDeltaGuide",
+    "Objective",
     "ELBO",
+    "IWAEBound",
+    "RenyiBound",
+    "VRIWAEBound",
+    "GradientEstimator",
+    "Reparameterised",
+    "StickingTheLanding",
+    "DoublyReparameterised",
+    "ScoreFunction",
     "SVI",
     "Predictive",
 ]
