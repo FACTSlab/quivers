@@ -2046,17 +2046,24 @@ class Compiler:
         ):
             return PositiveReals(name=f"_{var_names[0]}", dim=1)
         elif family == "Dirichlet":
-            # Inline Dirichlet returns a simplex value whose dimension
-            # is the declared codomain's `dim`. If the user passed an
-            # explicit list / tuple of concentrations we infer the
-            # simplex dimension from its length; otherwise fall back
-            # to the program's declared codomain dim, or 2 (the
-            # minimum simplex).
+            # Inline Dirichlet's simplex dimension:
+            #
+            # * ``Dirichlet([a_1, …, a_K])`` (parser flattens the
+            #   bracketed numeric sequence into K positional literal
+            #   floats) → K-simplex.
+            # * ``Dirichlet(alpha)`` with a single scalar literal →
+            #   simplex dimension comes from the program's declared
+            #   codomain (``dim`` for a ContinuousSpace,
+            #   ``cardinality`` for a SetObject), defaulting to 2.
             sim_dim: int | None = None
-            for a in args:
-                if isinstance(a, (list, tuple)) and len(a) > 0:
-                    sim_dim = len(a)
-                    break
+            n_literals = sum(1 for a in args if isinstance(a, (int, float)))
+            if n_literals >= 2:
+                sim_dim = n_literals
+            if sim_dim is None:
+                for a in args:
+                    if isinstance(a, (list, tuple)) and len(a) > 0:
+                        sim_dim = len(a)
+                        break
             if sim_dim is None and isinstance(program_codomain, ContinuousSpace):
                 sim_dim = getattr(program_codomain, "dim", None)
             if sim_dim is None and isinstance(program_codomain, SetObject):

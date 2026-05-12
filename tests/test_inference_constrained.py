@@ -143,17 +143,45 @@ def test_condition_data_dict_visible_to_let_expression() -> None:
     cond = condition(model, {"subj_idx": subj_idx})
     tr = cond.trace(torch.zeros(12, 1))
 
-    # The point of this test: the let-expression reference to
-    # ``subj_idx`` resolves at runtime to the value supplied through
-    # ``condition``; it no longer raises ``undefined variable
-    # 'subj_idx' in let expression`` at compile time.
+    # by_subj is a batch-invariant plate latent of shape (|Subj|,).
+    # The gather along its only axis with subj_idx of shape (12,)
+    # produces mu of shape (12,) — exactly the per-row predictor
+    # the hierarchical-regression idiom needs.
     by_subj = tr.sites["by_subj"].value
     mu = tr.sites["mu"].value
-    # by_subj advance-indexed along its first axis with subj_idx gives
-    # mu the row-axis of subj_idx prepended to whatever by_subj's
-    # trailing shape is.
-    expected = by_subj[subj_idx]
-    assert torch.allclose(mu, expected)
+    assert by_subj.shape == (4,)
+    assert mu.shape == (12,)
+    assert torch.allclose(mu, by_subj[subj_idx])
+
+
+def test_hierarchical_regression_observation_kernel_composes() -> None:
+    """End-to-end shape check for the canonical crossed-random-
+    effects idiom: a per-subject prior draw, gathered per response
+    row, fed as the parameter of an observed Bernoulli plate. The
+    trace must complete (no shape-broadcast failure inside the
+    observation kernel) and the clamped observation's log_prob must
+    be finite and (response_plate,)-shaped."""
+    prog = loads(
+        "object Subj : 4\n"
+        "object Resp : 12\n"
+        "\n"
+        "program p : Resp -> Resp\n"
+        "    by_subj : Subj <- Normal(0.0, 1.0)\n"
+        "    let mu = sigmoid(by_subj[subj_idx])\n"
+        "    observe r : Resp <- Bernoulli(mu)\n"
+        "    return mu\n"
+        "export p\n"
+    )
+    subj_idx = torch.tensor([0, 1, 2, 3, 0, 1, 2, 3, 0, 1, 2, 3])
+    r_obs = torch.tensor([0.0, 1.0, 1.0, 0.0, 1.0, 0.0, 1.0, 0.0, 0.0, 1.0, 1.0, 1.0])
+    cond = condition(prog.morphism, {"subj_idx": subj_idx, "r": r_obs})
+    tr = cond.trace(torch.zeros(12, 1))
+
+    assert tr.sites["by_subj"].value.shape == (4,)
+    assert tr.sites["mu"].value.shape == (12,)
+    assert tr.sites["r"].value.shape == (12,)
+    assert torch.allclose(tr.sites["r"].value, r_obs)
+    assert torch.isfinite(tr.sites["r"].log_prob).all()
 
 
 def test_condition_data_dict_alongside_observations() -> None:
@@ -181,6 +209,7 @@ def test_condition_data_dict_alongside_observations() -> None:
     assert torch.allclose(tr.sites["r"].value, r)
     # `subj_idx` populated env, and the gather fired without error.
     assert "mu" in tr.sites
+    assert tr.sites["mu"].value.shape == (6,)
 
 
 # ---------------------------------------------------------------------------
@@ -203,6 +232,29 @@ def test_inline_dirichlet_scalar_concentration() -> None:
     assert pc.shape == (5, 3)
     assert torch.allclose(pc.sum(dim=-1), torch.ones(5), atol=1e-5)
     assert (pc >= 0).all()
+
+
+def test_inline_dirichlet_vector_concentration() -> None:
+    """``Dirichlet([α_1, …, α_K])`` with a per-component
+    concentration vector is accepted. The parser flattens the
+    bracketed sequence into K positional literal floats; the
+    inline-distribution call site re-bundles them into a list
+    before invoking ``make_fixed_dirichlet``, and the codomain-
+    inference path reads the simplex dimension from the
+    literal-count rather than from the program's declared
+    codomain."""
+    prog = loads(
+        "object Item : 8\n"
+        "program p : Item -> Item\n"
+        "    pc : Item <- Dirichlet([1.0, 2.0, 3.0])\n"
+        "    return pc\n"
+        "export p\n"
+    )
+    tr = trace(prog.morphism, torch.zeros(2, 1))
+    # `pc : Item` is a plate over Item of 3-simplex Dirichlet
+    # draws; the result has shape (|Item|, 3) regardless of the
+    # program input's leading batch axis.
+    assert tr.sites["pc"].value.shape == (8, 3)
 
 
 def test_inline_dirichlet_under_autonormal_guide() -> None:

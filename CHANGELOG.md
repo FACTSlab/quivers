@@ -38,36 +38,50 @@ release.
   `AutoNormal` uses.
 
 - **`condition(model, data)` exposes host data to `let`-expression
-  gather.** Keys in the conditioning data dict that do not match a
-  declared sample / observe site are now pre-populated into the
-  trace environment as deterministic values, visible to
-  `let`-expression evaluation. This unlocks the canonical per-row
-  hierarchical-regression idiom: a per-group prior draw indexed
-  by a per-row integer array supplied as host data, e.g.
-  ```
-  program p : Resp -> Resp
-      by_subj : Subj <- Normal(0.0, 1.0)
-      let mu = by_subj[subj_idx]
-      observe r : Resp <- Normal(mu, 1.0)
-      return r
-
-  cond = condition(p.morphism, {"subj_idx": idx, "r": y})
-  ```
+  gather, and plate latents are batch-invariant.** Keys in the
+  conditioning data dict that do not match a declared sample /
+  observe site are pre-populated into the trace environment as
+  deterministic values, visible to `let`-expression evaluation.
   Free variables in `let` expressions (variables not bound by any
   sample / observe / let / lambda step) are no longer rejected at
   compile time; the runtime resolves them against the
-  conditioning data dict.
+  conditioning data dict. Together with the batch-invariant plate
+  semantics below, this unlocks the canonical crossed-random-
+  effects idiom:
+  ```
+  program p : Resp -> Resp
+      by_subj : Subj <- Normal(0.0, 1.0)
+      let mu = sigmoid(by_subj[subj_idx])
+      observe r : Resp <- Bernoulli(mu)
+      return mu
 
-- **Inline `Dirichlet` accepted as a prior.**
-  `pc <- Dirichlet(α)` with scalar `α` is now a valid inline-prior
-  step; the simplex dimension is inferred from the program's
-  declared codomain (`dim` for a `ContinuousSpace`, `cardinality`
-  for a `SetObject`, or 2 as a minimum). The factory accepts
-  vector concentrations (`make_fixed_dirichlet([α₁, α₂, α₃])`)
-  for symmetric or asymmetric Dirichlets. Previous behaviour was
-  to raise
+  cond = condition(p.morphism, {"subj_idx": idx, "r": y})
+  ```
+  Plate draws (`v : A <- F(args)`) are now batch-invariant: the
+  latent is a single shared tensor of shape `(|A|, *B.shape)` —
+  the standard Pyro / NumPyro semantic — instead of being
+  replicated against the program input's leading batch axis. The
+  gather `by_subj[subj_idx]` along the plate axis then produces a
+  per-row predictor of shape `(N_resp,)` that broadcasts cleanly
+  against an observed `Resp`-plate kernel. Scalar-per-row plates
+  (`Normal`, `HalfNormal`, …) drop the trailing length-1 axis so
+  the latent has the natural `(|A|,)` shape.
+
+- **Inline `Dirichlet` accepted as a prior with scalar or vector
+  concentration.** `pc <- Dirichlet(α)` and
+  `pc <- Dirichlet([α_1, …, α_K])` both compile. For scalar `α`,
+  the simplex dimension is inferred from the program's declared
+  codomain (`dim` for a `ContinuousSpace`, `cardinality` for a
+  `SetObject`, or 2 as a minimum); for a per-component vector,
+  the simplex dimension is the number of literals. The
+  `make_fixed_dirichlet` factory accepts both single-element
+  sequences (treated as symmetric) and per-component sequences.
+  Previous behaviour was to raise
   `distribution family 'Dirichlet' is not supported as an inline
-  distribution; declare it as a continuous morphism instead`.
+  distribution; declare it as a continuous morphism instead`, or
+  to crash on the vector form with
+  `TypeError: make_fixed_dirichlet() takes 2 positional arguments
+  but 4 were given`.
 
 ### Internal
 
@@ -85,14 +99,32 @@ release.
 - `_validate_let_expr_vars` treats unbound names as deferred host
   references; the eval-time evaluator raises a clear `KeyError` if
   the value is missing.
+- `PlateDraw.rsample` is batch-invariant: returns
+  `(|A|, *B.shape)` regardless of the program input's batch axis;
+  scalar-per-row plates squeeze the trailing length-1 dimension.
+  `PlateDraw.log_prob` accepts either the natural plate-latent
+  shape or the legacy flat `(batch, |A| · prod(B))` shape for
+  back-compat.
+- `_VECTOR_PARAM_FAMILIES` in `quivers.continuous.inline` lists
+  the inline families whose all-literal factory takes a single
+  vector argument rather than splatting positional floats; the
+  parser's flattened literal sequence is re-bundled into a list
+  before the factory call. Currently `{"Dirichlet"}`; the
+  mechanism is ready for `MultivariateNormal`, `Wishart`, and
+  `LKJCorrelationFactor` as those land.
+- `make_fixed_dirichlet` treats a single-element concentration
+  sequence as a scalar (symmetric Dirichlet), broadcast to the
+  codomain's simplex dimension; multi-element sequences must
+  match the codomain dimension exactly.
 
 ### Tests
 
-`tests/test_inference_constrained.py` (18 cases): every supported
+`tests/test_inference_constrained.py` (20 cases): every supported
 constrained family under both auto-guides, host-data passing
-through `condition`, and inline Dirichlet end-to-end (sample on
-simplex, score under prior, guide gradient flow through the
-simplex bijector).
+through `condition` (including the end-to-end Bernoulli
+hierarchical-regression observation kernel that exercises the
+plate-gather → observe-plate composition), and inline Dirichlet
+with both scalar and vector concentrations.
 
 ## [0.4.0] - 2026-05-12
 

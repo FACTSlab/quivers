@@ -785,12 +785,18 @@ def make_fixed_dirichlet(
     if d < 2:
         raise ValueError(f"Dirichlet codomain must have dim >= 2, got dim={d}")
     if isinstance(concentration, (list, tuple)):
-        if len(concentration) != d:
+        if len(concentration) == 1:
+            # Single-element sequence is treated as a scalar
+            # (symmetric Dirichlet); broadcast to the codomain's
+            # simplex dimension.
+            conc_values = [float(concentration[0])] * d
+        elif len(concentration) != d:
             raise ValueError(
                 f"Dirichlet concentration vector has length "
                 f"{len(concentration)} but codomain has dim={d}"
             )
-        conc_values = [float(c) for c in concentration]
+        else:
+            conc_values = [float(c) for c in concentration]
     else:
         conc_values = [float(concentration)] * d
     if any(c <= 0.0 for c in conc_values):
@@ -804,6 +810,14 @@ def make_fixed_dirichlet(
         return D.Dirichlet(conc_t)
 
     return FixedDistribution(codomain, builder, support=_constraints.simplex)
+
+
+# Families whose all-literal factory takes a single vector
+# argument (a ``list[float]`` or ``tuple[float, ...]``) rather than
+# one positional float per scalar parameter. The inline call site in
+# ``make_inline_distribution`` re-bundles the splat-flattened
+# literals into a list before invoking the factory.
+_VECTOR_PARAM_FAMILIES: frozenset[str] = frozenset({"Dirichlet"})
 
 
 _FIXED_FACTORIES: dict[str, tuple[tuple[str, ...], Callable]] = {
@@ -1021,7 +1035,17 @@ def make_inline_distribution(
         all_floats = [float(a) for a in args]
         if family in _FIXED_FACTORIES:
             _, factory = _FIXED_FACTORIES[family]
-            morph = factory(*all_floats, codomain)
+            # Vector-parameter families take a single ``list[float]``
+            # / ``tuple[float, ...]`` argument rather than splatting
+            # the literals. The parser surfaces ``Dirichlet([1, 2, 3])``
+            # as three positional float args (the grammar's draw-arg
+            # list flattens any bracket-bounded numeric sequence), so
+            # we re-bundle here when the factory's documented contract
+            # is a single vector argument.
+            if family in _VECTOR_PARAM_FAMILIES:
+                morph = factory(all_floats, codomain)
+            else:
+                morph = factory(*all_floats, codomain)
             return (morph, None)
         raise ValueError(f"no fixed factory for inline family {family!r}")
     if family not in _FAMILY_BUILDERS:
