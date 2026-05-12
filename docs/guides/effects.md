@@ -122,9 +122,9 @@ construction:
   Equivalently: a panproto theory morphism from
   `signature.to_theory()` into the target monad's theory.
 
-Handlers compose with `chart_fold` to produce parsers that interpret
-their effect-typed denotation through registered handlers, ending in
-an effect-pure target.
+Handlers compose with a `deduction { … }` block to produce parsers
+that interpret their effect-typed denotation through registered
+handlers, ending in an effect-pure target.
 
 ## Bridges between the two towers
 
@@ -166,25 +166,44 @@ The example file `src/quivers/dsl/examples/quantifier_scope.qvr`
 illustrates a Bumford & Charlow-style scope-taking grammar:
 
 ```qvr
-object Atoms = {NP, S, VP, N, PP}
-object Cat = FreeResiduated(Atoms, depth=2, ops=[slash])
-object Token : 256
+object Term : 16
 
-# Base schemas (the Lambek calculus core).
-schema forward_app[X, Y : Cat] : (X/Y) * Y -> X
-schema backward_app[X, Y : Cat] : Y * (X\Y) -> X
+deduction QScope : Term -> Term {
+    atoms {
+        S, NP, N, VP, PP,
+        Fwd, Bwd, Cont,
+        span
+    }
 
-# Lifted schemas under the Continuation effect.
-schema apply_Cont_fwd[X, Y : Cat] : Cont_S(X/Y) * Cont_S(Y) -> Cont_S(X)
-schema scope_take[X, Y : Cat] : Cont_S(X) * (X\Y) -> Cont_S(Y)
+    # Base forward / backward application.
+    rule fwd_app
+        : span(I, K, Fwd(A, B)), span(K, J, B)
+        |- span(I, J, A)
+    rule bwd_app
+        : span(I, K, B), span(K, J, Bwd(A, B))
+        |- span(I, J, A)
 
-latent lex : Token -> Cat
+    # Applicative lift of forward application under Cont:
+    #   Cont(A/B) * Cont(B) ⊢ Cont(A)
+    rule fwd_app_cont
+        : span(I, K, Cont(Fwd(A, B))), span(K, J, Cont(B))
+        |- span(I, J, Cont(A))
 
-let grammar = parser(
-    rules=[forward_app, backward_app, apply_Cont_fwd, scope_take],
-    terminal=Token, start=S
-)
-export grammar
+    # Pure: A ⊢ Cont(A)
+    rule pure_cont
+        : span(I, J, A) |- span(I, J, Cont(A))
+
+    # Scope-extruding bind: a Cont-typed expression takes scope
+    # over an inner argument by absorbing the surrounding context.
+    #   Cont(A) * (A\B) ⊢ Cont(B)
+    rule scope_take
+        : span(I, K, Cont(A)), span(K, J, Bwd(B, A))
+        |- span(I, J, Cont(B))
+
+    semiring  LogProb
+    start     S
+    depth     6
+}
 ```
 
 In production code, the lifted schemas (`apply_Cont_fwd`,

@@ -166,7 +166,7 @@ The QVR DSL processes `.qvr` files through these stages:
 
 ### 2. AST Nodes
 
-Each syntax construct is a `dx.Model`. Recursive sums (`TypeExpr`, `CatPattern`, `SpaceExpr`, `Expr`, `LetExprNode`, `ProgramStep`, `Statement`) are `dx.TaggedUnion` roots:
+Each syntax construct is a `dx.Model`. Recursive sums (`TypeExpr`, `SpaceExpr`, `Expr`, `LetExprNode`, `ProgramStep`, `Statement`) are `dx.TaggedUnion` roots:
 
 ```python
 import didactic.api as dx
