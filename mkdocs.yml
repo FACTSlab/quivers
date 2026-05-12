@@ -83,6 +83,7 @@ nav:
     - The QVR DSL: guides/dsl.md
     - Compositional Effects: guides/effects.md
     - Variational Inference: guides/inference.md
+    - Weighted Deduction Systems: guides/deduction.md
   - Denotational Semantics:
     - Overview: semantics/index.md
     - Setting and Notation: semantics/setting.md

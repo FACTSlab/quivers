@@ -33,8 +33,23 @@ Headline changes:
 - `output` → `export` (multiple per module allowed).
 - Labelled-tuple return form dropped.
 
-Deferred to v0.6: the agenda-based deduction framework + chart
-values (see `.claude/plans/convert-all-dataclasses-and-golden-marble.md`).
+### Agenda-based weighted-deduction framework
+
+Also in v0.5: a declarative `deduction { … }` block backed by a
+general agenda-engine runtime (`quivers.stochastic.agenda`).
+
+- One engine, seven parameters subsumes CKY, Earley, Viterbi,
+  semi-naïve Datalog, A* parsing, Knuth's algorithm, depth-first
+  MLTT proof search.
+- Charts as first-class differentiable values:
+  `view.weight(item)`, `view.enumerate(pattern)`,
+  `view.goal_weight()` return torch tensors with autograd.
+- Pre-registered stdlib deductions in `quivers.stochastic.stdlib`:
+  CCG, Lambek, STLC, MLTT, Datalog, Dijkstra, HMM, ViterbiHMM,
+  EditDistance.
+- panproto integration: `QVR_DEDUCTION_PROTOCOL` +
+  `extract_deduction_schema(compiler)` makes deductions
+  first-class schemas.
 
 ## [0.4.0] - 2026-05-11
 

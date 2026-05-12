@@ -96,15 +96,67 @@ mechanical translation is:
 - Tree-sitter corpus rewritten with 8 examples covering the new
   surface shapes (20/20 parses).
 
-### Deferred (planned for v0.6)
+### Agenda-based weighted-deduction framework
 
-The agenda-based weighted-deduction framework and chart-as-first-class-value
-runtime — replacing the `parser` / `ccg` / `lambek` / `chart_fold`
-combinators with a single declarative `deduction { … }` block and a
-unified `parse(D)` morphism combinator — are designed (see
-`.claude/plans/convert-all-dataclasses-and-golden-marble.md`) but
-deferred to a separate v0.6 PR. The current release keeps the v0.4
-parser combinators in place for grammar-using examples.
+The v0.5 release also lands the full agenda-engine substrate
+underneath a declarative `deduction { … }` block. The framework
+subsumes CKY, Earley, Viterbi, inside-outside, semi-naïve Datalog
+evaluation, A* parsing, Knuth's algorithm, depth-first MLTT
+proof search, and edit-distance dynamic programming as parameter
+settings on a single engine.
+
+- **Surface form**:
+  ```qvr
+  deduction CG : Atom -> Atom {
+      atoms { NP, S, VP }
+      rule fwd_app : X/Y, Y |- X
+      rule bwd_app : Y, Y\X |- X
+      semiring  LogProb
+      start  S
+      depth  4
+  }
+  ```
+  Single-uppercase-letter pattern names (`X`, `Y`) bind as
+  wildcards; non-wildcard atoms match literally. The block
+  declares the seven irreducible parameters of an agenda-based
+  deduction (item algebra via atoms, rule set, semiring, axiom
+  source, goal predicate, start symbol, depth bound). Concrete
+  parsing strategies are selected by the compiler from these
+  parameters.
+
+- **Charts as first-class differentiable values**: each
+  deduction's runtime view exposes
+  `chart.weight(item)`, `chart.enumerate(pattern)`,
+  `chart.derivations(item)`, `chart.goal_weight()` — all returning
+  `torch.Tensor` values whose gradients flow back through the
+  agenda's semiring operations to any `requires_grad=True`
+  axiom / rule weight, enabling end-to-end gradient-based
+  learning over deduction systems (the Goodman 1999 semiring
+  framework lifted to PyTorch tensors).
+
+- **Pre-registered stdlib deductions**
+  (`quivers.stochastic.stdlib`): `CCG`, `Lambek`, `STLC`,
+  `MLTT`, `Datalog`, `Dijkstra`, `HMM`, `ViterbiHMM`,
+  `EditDistance`. Users import and run them directly:
+  ```python
+  from quivers.stochastic.stdlib import Datalog
+  view = Datalog(edge_axioms)
+  reaches = view.enumerate(("reach", source, Wildcard("Y")))
+  ```
+
+- **Agenda strategies**: `cky_agenda()`, `earley_agenda()`,
+  `viterbi_agenda(priority_fn)`, `astar_agenda(g_plus_h)`,
+  `knuth_agenda()`, `depth_first_agenda()`,
+  `semi_naive_agenda()`. Strategy independence
+  (Goodman 1999 §3) is verified in `test_agenda.py`: under
+  idempotent semirings, chart values agree across all
+  strategies.
+
+- **panproto integration**: `QVR_DEDUCTION_PROTOCOL` and
+  `extract_deduction_schema(compiler)` make deduction systems
+  first-class panproto schemas. Schema morphisms over the
+  protocol correspond to deduction-system specialisations
+  (e.g., CCG ⊂ Lambek ⊂ MultimodalLambek).
 
 ## [0.4.0] - 2026-05-11
 
