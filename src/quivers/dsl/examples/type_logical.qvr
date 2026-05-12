@@ -1,52 +1,66 @@
 # ================================================================
-# Weighted Type-Logical Grammar (Lambek Calculus)
+# Weighted Type-Logical Grammar (Lambek calculus)
 # ================================================================
 #
-# A learnable parser based on the non-commutative Lambek calculus
-# (L), assembled from composable rule schema primitives:
+# The non-commutative Lambek calculus L, expressed as an
+# agenda-based weighted deduction. Categories carry slash
+# (`Fwd(X, Y) ≡ X/Y`, `Bwd(X, Y) ≡ X\Y`) and tensor
+# (`Tns(X, Y) ≡ X⊗Y`) constructors. Chart items are
+# `span(I, J, X)` triples covering tokens `[I, J)` with
+# category `X`.
 #
-#   - evaluation (right/left application — modus ponens)
-#   - adjunction_units (Lambek lifting — units of hom-tensor adjunction)
-#   - tensor_introduction (product introduction: A, B ⊢ A⊗B)
-#   - tensor_projection (product elimination: A⊗B ⊢ A, A⊗B ⊢ B)
+# Lambek rules realised below:
+#   - right / left application (modus ponens)
+#   - product introduction      A, B  ⊢  A⊗B
+#   - product elimination       A⊗B   ⊢  A   and   A⊗B   ⊢  B
 #
-# Lambek calculus rules:
-#   - Right application:  A/B, B  ⊢  A           (evaluation)
-#   - Left application:   B, A\B  ⊢  A           (evaluation)
-#   - Lambek lifting:     A  ⊢  B/(A\B) (right)  (adjunction_units)
-#                          A  ⊢  (B/A)\B (left)   (adjunction_units)
-#   - Product intro:      A, B  ⊢  A⊗B           (tensor_introduction)
-#   - Product elim:       A⊗B  ⊢  A, A⊗B  ⊢  B  (tensor_projection)
+# The Lambek calculus is resource-sensitive (every hypothesis is
+# used exactly once) and order-preserving (no permutation). It
+# is the internal logic of a residuated monoidal category
+# (biclosed monoidal category): the residuation laws
 #
-# The Lambek calculus is:
-#   - Resource-sensitive: every hypothesis is used exactly once
-#   - Order-preserving: no permutation of arguments
-#   - Logically complete: composition is derivable from cut
+#   A ⊗ B  ⊢  C   iff   A  ⊢  C/B   iff   B  ⊢  A\C
 #
-# Categorical perspective:
-#   The Lambek calculus is the internal logic of a residuated
-#   monoidal category (biclosed monoidal category). Types are
-#   objects; proofs are morphisms. The residuation laws are:
-#
-#     A ⊗ B ⊢ C   iff   A ⊢ C/B   iff   B ⊢ A\C
-#
-#   This adjunction between ⊗ and the slashes makes the
-#   Lambek calculus the free residuated monoid.
-#
-# Usage:
-#   prog = load("type_logical.qvr")
-#   grammar = prog.morphism
-#   tokens = torch.randint(0, 256, (batch, seq_len))
-#   log_probs = grammar(tokens)   # (batch,)
+# make L the free residuated monoid over its atoms.
 
-category S, NP, N, VP, PP
+object Term : 16
 
-object Token : 256
+deduction Lambek : Term -> Term {
+    atoms {
+        # Category atoms.
+        S, NP, N, VP, PP,
+        # Slash + tensor constructors.
+        Fwd, Bwd, Tns,
+        # Chart-item constructor.
+        span
+    }
 
-let grammar = parser(
-    rules=[evaluation, adjunction_units, tensor_introduction, tensor_projection],
-    terminal=Token,
-    start=S
-)
+    # Right application: A/B, B  ⊢  A
+    rule right_app
+        : span(I, K, Fwd(A, B)), span(K, J, B)
+        |- span(I, J, A)
 
-export grammar
+    # Left application:  B, A\B  ⊢  A
+    rule left_app
+        : span(I, K, B), span(K, J, Bwd(A, B))
+        |- span(I, J, A)
+
+    # Product introduction: A, B  ⊢  A⊗B
+    rule tensor_intro
+        : span(I, K, A), span(K, J, B)
+        |- span(I, J, Tns(A, B))
+
+    # Product elimination (left projection): A⊗B  ⊢  A
+    rule tensor_left
+        : span(I, J, Tns(A, B))
+        |- span(I, J, A)
+
+    # Product elimination (right projection): A⊗B  ⊢  B
+    rule tensor_right
+        : span(I, J, Tns(A, B))
+        |- span(I, J, B)
+
+    semiring  LogProb
+    start     S
+    depth     6
+}

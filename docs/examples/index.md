@@ -343,116 +343,132 @@ export filter_and_reconstruct
 
 ### [Probabilistic Context-Free Grammar](pcfg.md)
 
-A learnable PCFG expressed as a pair of morphisms in the Kleisli category of the Giry monad: a branching morphism $N \to N \otimes N$ and a lexicalization morphism $N \to T$. The compiler inspects morphism types to assemble a CKY deductive system.
+A learnable PCFG declared as an agenda-based weighted deduction over chart-spans `span(I, J, N)`. Branching and lexical-anchor rules are sequents; the lexicon block ships learnable per-entry log-weights; the `LogProb` semiring carries differentiable inside scores.
 
-**Features:** `stochastic`, `parser` (morphism rules), `quantale`, product codomain (`N * N`)
+**Features:** `deduction`, `atoms`, sequent rules, `lexicon`, `semiring LogProb`
 
 ```qvr
-quantale product_fuzzy
+object Term : 16
 
-object N : 10
-object T : 64
+deduction PCFG : Term -> Term {
+    atoms { S, NP, VP, Det, N, V, the, a, cat, dog, sleeps, runs, span, leaf }
 
-stochastic binary_rules : N -> N * N
-stochastic lexical_rules : N -> T
+    rule branch  : span(I, K, B), span(K, J, C) |- span(I, J, A)
+    rule anchor  : leaf(I, T)                    |- span(I, J, A)
 
-let pcfg = parser(
-    rules=[binary_rules, lexical_rules],
-    start=0
-)
+    lexicon {
+        "the"    : Det = the    @ learnable
+        "cat"    : N   = cat    @ learnable
+        "sleeps" : V   = sleeps @ learnable
+    }
 
-export pcfg
+    semiring  LogProb
+    start     S
+    depth     6
+}
 ```
 
 ---
 
 ### [Weighted Combinatory Categorial Grammar](ccg.md)
 
-A weighted CCG parser composed from rule schema primitives: `evaluation` (forward/backward application), `harmonic_composition` (forward/backward composition), and `crossed_composition` (forward/backward crossed composition).
+A weighted CCG parser whose six structural combinators — forward / backward application, harmonic composition, crossed composition — are each one sequent rule over `span(I, J, X)`. The slash constructors `Fwd(X, Y) ≡ X/Y` and `Bwd(X, Y) ≡ X\Y` are user-declared atoms.
 
-**Features:** `category`, `parser`, `object`, rule schemas, `terminal=`
+**Features:** `deduction`, `atoms`, sequent rules, slash constructors, `semiring LogProb`
 
 ```qvr
-category S, NP, N, VP, PP
-object Token : 256
+object Term : 16
 
-let grammar = parser(
-    rules=[evaluation, harmonic_composition, crossed_composition],
-    terminal=Token,
-    start=S
-)
+deduction CCG : Term -> Term {
+    atoms { NP, S, N, VP, PP, Fwd, Bwd, span }
 
-export grammar
+    rule fwd_app    : span(I, K, Fwd(X, Y)), span(K, J, Y)       |- span(I, J, X)
+    rule bwd_app    : span(I, K, Y),         span(K, J, Bwd(X, Y)) |- span(I, J, X)
+    rule fwd_comp   : span(I, K, Fwd(X, Y)), span(K, J, Fwd(Y, Z)) |- span(I, J, Fwd(X, Z))
+    rule bwd_comp   : span(I, K, Bwd(Y, Z)), span(K, J, Bwd(X, Y)) |- span(I, J, Bwd(X, Z))
+    rule fwd_xcomp  : span(I, K, Fwd(X, Y)), span(K, J, Bwd(Y, Z)) |- span(I, J, Bwd(X, Z))
+    rule bwd_xcomp  : span(I, K, Fwd(Y, Z)), span(K, J, Bwd(X, Y)) |- span(I, J, Fwd(X, Z))
+
+    semiring  LogProb
+    start     S
+    depth     6
+}
 ```
 
 ---
 
 ### [Type-Logical Grammar (Lambek Calculus)](type-logical.md)
 
-A weighted parser based on the non-commutative Lambek calculus, assembled from schema primitives: `evaluation`, `adjunction_units` (Lambek lifting), `tensor_introduction`, and `tensor_projection`.
+A weighted parser based on the non-commutative Lambek calculus: right and left application, plus product introduction and elimination over the tensor constructor `Tns(A, B) ≡ A⊗B`.
 
-**Features:** `category`, `parser`, `object`, rule schemas, `terminal=`
+**Features:** `deduction`, slash + tensor constructors, sequent rules, `semiring LogProb`
 
 ```qvr
-category S, NP, N, VP, PP
-object Token : 256
+object Term : 16
 
-let grammar = parser(
-    rules=[evaluation, adjunction_units, tensor_introduction, tensor_projection],
-    terminal=Token,
-    start=S
-)
+deduction Lambek : Term -> Term {
+    atoms { S, NP, N, VP, PP, Fwd, Bwd, Tns, span }
 
-export grammar
+    rule right_app    : span(I, K, Fwd(A, B)), span(K, J, B)         |- span(I, J, A)
+    rule left_app     : span(I, K, B),         span(K, J, Bwd(A, B)) |- span(I, J, A)
+    rule tensor_intro : span(I, K, A),         span(K, J, B)         |- span(I, J, Tns(A, B))
+    rule tensor_left  : span(I, J, Tns(A, B))                        |- span(I, J, A)
+    rule tensor_right : span(I, J, Tns(A, B))                        |- span(I, J, B)
+
+    semiring  LogProb
+    start     S
+    depth     6
+}
 ```
 
 ---
 
 ### [Multimodal Type-Logical Grammar](multimodal-tlg.md)
 
-A multimodal type-logical grammar (Moortgat 1997) with modal type constructors. Uses `constructors=[slash, diamond]` to generate diamond-modal categories alongside standard slash categories.
+A multimodal type-logical grammar (Moortgat 1997) extending the Lambek calculus with unary modal constructors `Dia(A) ≡ ◇A` and `Box(A) ≡ □A`. The deduction licenses base right / left application together with modal introduction and elimination.
 
-**Features:** `category`, `parser`, `object`, rule schemas, `constructors`, `diamond` modality
+**Features:** `deduction`, modal constructors, unary + binary sequent rules
 
 ```qvr
-category S, NP, N, VP, PP
-object Token : 256
+object Term : 16
 
-let tlg = parser(
-    rules=[evaluation, adjunction_units, modal_introduction, modal_elimination],
-    terminal=Token,
-    constructors=[slash, diamond],
-    depth=1,
-    start=S
-)
+deduction MMTLG : Term -> Term {
+    atoms { S, NP, N, VP, PP, Fwd, Bwd, Dia, Box, span }
 
-export tlg
+    rule right_app  : span(I, K, Fwd(A, B)), span(K, J, B)         |- span(I, J, A)
+    rule left_app   : span(I, K, B),         span(K, J, Bwd(A, B)) |- span(I, J, A)
+    rule dia_intro  : span(I, J, A)                                |- span(I, J, Dia(A))
+    rule dia_elim   : span(I, J, Dia(A))                           |- span(I, J, A)
+
+    semiring  LogProb
+    start     S
+    depth     6
+}
 ```
 
 ---
 
-### [Custom Rules of Inference](custom-rules.md)
+### [Custom Sequent Rules](custom-rules.md)
 
-A parser using explicitly declared rules of inference in sequent-style notation with universally quantified pattern variables, instead of built-in schema primitives.
+An AB grammar declared from the rule level up: each combinator is one sequent in the `deduction { … }` block. Single-uppercase identifiers (`X`, `Y`, `Z`, `I`, `J`, `K`) bind as pattern variables; every other identifier in a rule pattern must appear in the surrounding `atoms { … }` block.
 
-**Features:** `category`, `rule`, `parser`, `terminal=`, `\` backslash, `=>`
+**Features:** `deduction`, `atoms`, sequent rules, pattern variables
 
 ```qvr
-category S, NP, N, VP, PP
-object Token : 256
+object Term : 16
 
-rule forward_app(X, Y) : X/Y, Y => X
-rule backward_app(X, Y) : Y, X\Y => X
-rule forward_comp(X, Y, Z) : X/Y, Y/Z => X/Z
-rule backward_comp(X, Y, Z) : Y\Z, X\Y => X\Z
+deduction AB : Term -> Term {
+    atoms { S, NP, N, VP, PP, Fwd, Bwd, span }
 
-let grammar = parser(
-    rules=[forward_app, backward_app, forward_comp, backward_comp],
-    terminal=Token,
-    start=S
-)
+    rule fwd_app  : span(I, K, Fwd(X, Y)), span(K, J, Y)         |- span(I, J, X)
+    rule bwd_app  : span(I, K, Y),         span(K, J, Bwd(X, Y)) |- span(I, J, X)
+    rule fwd_comp : span(I, K, Fwd(X, Y)), span(K, J, Fwd(Y, Z)) |- span(I, J, Fwd(X, Z))
+    rule bwd_comp : span(I, K, Bwd(Y, Z)), span(K, J, Bwd(X, Y)) |- span(I, J, Bwd(X, Z))
 
-export grammar
+    semiring  LogProb
+    start     S
+    depth     6
+}
 ```
 
 ---

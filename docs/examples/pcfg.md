@@ -3,68 +3,71 @@
 ## QVR Source
 
 ```qvr
-quantale product_fuzzy
+object Term : 16
 
-object N : 10
-object T : 64
+deduction PCFG : Term -> Term {
+    atoms {
+        S, NP, VP,
+        Det, N, V,
+        the, a, cat, dog, sleeps, runs,
+        span, leaf
+    }
 
-stochastic binary_rules : N -> N * N
-stochastic lexical_rules : N -> T
+    rule branch
+        : span(I, K, B), span(K, J, C)
+        |- span(I, J, A)
 
-let pcfg = parser(rules=[binary_rules, lexical_rules], start=0)
+    rule anchor
+        : leaf(I, T)
+        |- span(I, J, A)
 
-export pcfg
+    lexicon {
+        "the"     : Det = the     @ learnable
+        "a"       : Det = a       @ learnable
+        "cat"     : N   = cat     @ learnable
+        "dog"     : N   = dog     @ learnable
+        "sleeps"  : V   = sleeps  @ learnable
+        "runs"    : V   = runs    @ learnable
+    }
+
+    semiring  LogProb
+    start     S
+    depth     6
+}
 ```
 
 ## Overview
 
-A PCFG associates probabilities with context-free grammar productions. This example demonstrates stochastic morphisms in a product semiring, the `parser` combinator, type-driven dispatch between binary and lexical rules, and quantale-based weight aggregation.
+A PCFG is an agenda-based weighted deduction over CKY chart items `span(I, J, N)` (token range `[I, J)` carrying nonterminal `N`) under the `LogProb` semiring. Two rule families drive the parse:
+
+- `branch` — binary branching: adjacent spans of categories `B` and `C` combine into a span of some category `A`. The wildcard `A` is bound at firing time, weighted by the `(A → B C)` production probability the lexicon supplies.
+- `anchor` — lexical anchoring: a `leaf(I, T)` axiom for a token at position `I` carrying preterminal `T` lifts to a span of width 1.
+
+Production probabilities are learnable per lexicon entry; the `@ learnable` marker allocates a per-entry `nn.Parameter` log-weight that the optimizer can adjust during training.
 
 ## Walkthrough
 
-The declaration `quantale product_fuzzy` selects a quantale where weights live in [0, 1], ordered by the usual inequality, with multiplication as the monoidal operation. All stochastic morphisms in the program carry weights from this quantale, and composing rules during parsing multiplies their weights.
+`atoms { … }` enumerates the constructor universe: nonterminals (`S`, `NP`, `VP`), preterminals / POS tags (`Det`, `N`, `V`), the closed-class terminal vocabulary (`the`, `a`, `cat`, `dog`, …), and the chart-item / leaf constructors (`span`, `leaf`).
 
-`object N : 10` introduces a nonterminal category with ten indices (0 through 9). `object T : 64` introduces the terminal category with 64 indices.
+The `branch` rule's pattern variables `A`, `B`, `C` range freely over nonterminal atoms; concrete branchings are restricted by which combinations the surrounding training data exercises (the lexicon controls only the leaf side here, leaving branching weights to a richer setting where each `(A, B, C)` triple is also `@ learnable`). The `anchor` rule grounds a leaf at position `I` into a unit-width span, with the preterminal-to-token mapping supplied by the `lexicon` block.
 
-`stochastic binary_rules : N -> N * N` declares a stochastic morphism from nonterminals to pairs of nonterminals in the Kleisli category of the stochastic monad. Each instance carries a probability weight: for example, nonterminal 0 might expand to the pair (0, 1) with probability 0.3 and to (1, 2) with probability 0.7.
-
-`stochastic lexical_rules : N -> T` declares a stochastic morphism from nonterminals to terminals. Nonterminal 3 might expand to terminal 42 with probability 0.8 and to terminal 15 with probability 0.2.
-
-The `parser` combinator accepts the two morphisms and a start index. The compiler inspects the target types to determine which rules are binary (N -> N * N) versus lexical (N -> T). The resulting `pcfg` object performs CKY parsing to compute all parse trees with their probabilities.
-
-`export pcfg` exports the parser as a compiled module output.
+The `lexicon { … }` block ships one `(word, category, lf)` entry per closed-class terminal; each entry is a learnable weight on a `(category → token)` emission. The semiring is `LogProb`, so inside probabilities accumulate in log space; gradients flow back through the agenda's semiring operations to the learnable weights.
 
 ## DSL Features
 
-- **`stochastic` keyword**: Declares morphisms with multiple weighted outputs per input, treated as first-class values that can be passed to combinators like `parser`.
-- **Product type `N * N`**: The compiler recognizes a morphism targeting a product type as a binary rule (type-driven dispatch).
-- **`parser` combinator**: Higher-order function that takes a list of morphisms and a start index, builds a parse table, and provides an interface for computing derivations.
-- **`quantale product_fuzzy`**: Sets the global semiring for weight aggregation: multiplication for combining probabilities along a derivation, addition (or max) for combining alternative derivations.
-
-## Python Usage
-
-<!-- TODO: add working Python usage example -->
+- **Single deduction block** declares the whole grammar: rule set, lexicon, semiring, start symbol, depth bound — no separate parser combinator.
+- **`lexicon { … }`** is the axiom-injection sugar for label-indexed lookups: every `"word" : Cat = lf @ learnable` line becomes a `(leaf(I, Cat), weight)` axiom whenever the input token at position `I` equals `"word"`.
+- **Pattern-polymorphic rules**: the `branch` rule is one sequent that fires for *any* nonterminal triple `(A, B, C)` consistent with the chart. There is no separate production declaration per triple.
+- **Chart as first-class differentiable value**: at runtime the deduction's `chart.weight(item)`, `chart.enumerate(pattern)`, and `chart.goal_weight()` return `torch.Tensor` values whose gradients flow back through the agenda's semiring operations.
 
 ## Categorical Perspective
 
-Branching rules like `binary_rules : N -> N * N` are morphisms in the Kleisli category of the stochastic monad, where a morphism from $X$ to $Y$ is a function $X \to \mathcal{D}(Y)$ mapping each element to a probability distribution. Kleisli composition of these morphisms multiplies the weights along derivation paths, which is exactly what the CKY algorithm does when it combines subtrees. The product quantale provides the algebraic scaffolding: associativity of Kleisli composition means the parser handles nested derivation structure without manual weight management, and quantale distributivity ensures that aggregation over alternative derivations is well-defined. The type system enforces the binary/lexical distinction at compile time, since $N \to N \otimes N$ and $N \to T$ are different morphism types.
+A PCFG is a weighted deduction in the `LogProb` semiring whose chart is a `K`-valued presheaf over the item algebra `I` of `span(I, J, N)` triples. Branching rules are binary hyperedges in the rule-system hypergraph; anchor rules are unary hyperedges. The least pre-fixed point of the rule-system functor in the `K`-enriched lattice of charts is the inside table; the strategy-independence theorem (Goodman 1999) says CKY-sweep, A\*, and Knuth's algorithm all compute the same chart value. The compiler picks a default strategy from the rule arities and the semiring's algebraic properties.
 
-## CKY Algorithm and Derivation
+## CKY and Inside-Outside
 
-The CKY algorithm is a bottom-up dynamic programming approach. Given n terminals, it constructs a triangular table where entry (i, j) stores the nonterminals that can derive the subsequence from position i to j, along with derivation probabilities.
-
-The algorithm has three phases. First, lexical rules populate the base cases: for each position and terminal, it computes which nonterminals can produce that terminal. Second, it iterates over increasing span lengths, considering all split points and querying binary_rules to find nonterminals that expand into compatible pairs. The weight of each new derivation is the product of the left-span weight, right-span weight, and rule weight. Third, it returns entries for the full span [0, n) corresponding to the start nonterminal.
-
-The stochastic morphism interface abstracts storage details; whether rules live in a dense table, sparse hash map, or are computed on the fly, the parser works the same way.
-
-## Nonterminal Indices and Start Symbols
-
-When you use `start=0`, you identify a numeric index into the nonterminal category N. If the QVR program instead used a `category` declaration with symbolic names, you could write `start=S` to refer by name.
-
-In this example, `object N : 10` creates indices 0 through 9. Index 0 often represents the sentence category (S), index 1 noun phrases (NP), and so on, though the mapping is user-defined.
+For deductions whose semiring is commutative + idempotent + supports inverses (`LogProb`, `Viterbi`), the runtime emits an analytic outside pass via Eisner & Goldlust 2005 in addition to the inside fixpoint; this yields closed-form gradients of any chart value with respect to rule weights and is faster and more numerically stable than backpropagating through the unrolled agenda. For other semirings the runtime falls back to autodiff through the chart-fill operations.
 
 ## Connections to Language Modeling
 
-PCFGs assign a sentence probability by summing over all parse tree probabilities. This sum can serve as a language model for tasks like machine translation or speech recognition.
-
-The CKY algorithm extends to inside-outside probabilities, enabling EM learning of rule probabilities from unparsed sentences. Changing the `quantale` declaration (e.g., to log-probabilities or a different semiring) changes the aggregation strategy without modifying the grammar.
+Summing `chart.goal_weight()` over derivations gives the sentence's marginal log-probability under the grammar; that scalar is a perfectly ordinary log-prob and can be used as a language model in a downstream `program`. EM-style training reduces to maximising `chart.goal_weight()` on observed sentences; the analytic outside pass handles the gradient. Changing the `semiring` field (e.g., from `LogProb` to `Viterbi`) selects a different aggregation strategy without touching the rules.

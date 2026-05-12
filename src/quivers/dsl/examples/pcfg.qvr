@@ -2,52 +2,58 @@
 # Probabilistic Context-Free Grammar (PCFG)
 # ================================================================
 #
-# A PCFG is a pair of morphisms in the Kleisli category of the
-# Giry monad over finite sets:
+# A PCFG is an agenda-based weighted deduction over CKY chart
+# items `span(I, J, N)` (token range `[I, J)` with nonterminal
+# `N`) under the `LogProb` semiring. Two rule families:
 #
-#   binary_rules  : N → N ⊗ N    (branching)
-#   lexical_rules : N → T         (lexicalization)
+#   - binary branching: span(I, K, B), span(K, J, C) |- span(I, J, A)
+#       weighted by the (A → B C) production probability.
+#   - lexical anchor:   leaf(I, T)                   |- span(I, I+1, A)
+#       weighted by the (A → T) emission probability.
 #
-# where N is the set of nonterminals and T is the terminal
-# vocabulary.  The deductive parser inspects the morphism types —
-# codomain N ⊗ N identifies the branching morphism, codomain T
-# identifies the lexicalization — and assembles a CKY deductive
-# system whose composition yields a morphism
-#
-#   FreeMonoid(T) → 1
-#
-# mapping variable-length terminal strings to their marginal
-# probability under the grammar (log-space, differentiable).
-#
-# Usage:
-#   prog = load("pcfg.qvr")
-#   tokens = torch.randint(0, 64, (batch, seq_len))
-#   log_probs = prog.morphism(tokens)   # (batch,)
+# A concrete PCFG instantiates the deduction with a finite set
+# of nonterminal / preterminal / terminal atoms and a lexicon
+# of `(A, B, C)` and `(A, T)` weights. The fragment below
+# illustrates a 3-nonterminal grammar; production weights are
+# learnable per lexicon entry.
 
-quantale product_fuzzy
+object Term : 16
 
-object N : 10
-object T : 64
+deduction PCFG : Term -> Term {
+    atoms {
+        # Nonterminals.
+        S, NP, VP,
+        # Preterminals (POS tags).
+        Det, N, V,
+        # Terminals appearing in the lexicon.
+        the, a, cat, dog, sleeps, runs,
+        # Chart-item / leaf constructors.
+        span, leaf
+    }
 
-# ================================================================
-# KLEISLI MORPHISMS (learnable stochastic morphisms)
-# ================================================================
+    # Binary branching: any (A → B C) production fires if its
+    # children's spans abut. The pattern variables `A`, `B`, `C`
+    # range over nonterminals; concrete branchings are licensed
+    # by the lexicon entries below.
+    rule branch
+        : span(I, K, B), span(K, J, C)
+        |- span(I, J, A)
 
-# branching: N → N ⊗ N (distribution over nonterminal pairs)
-stochastic binary_rules : N -> N * N
+    # Lexical anchor for a single token.
+    rule anchor
+        : leaf(I, T)
+        |- span(I, J, A)
 
-# lexicalization: N → T (distribution over terminal symbols)
-stochastic lexical_rules : N -> T
+    lexicon {
+        "the"     : Det = the     @ learnable
+        "a"       : Det = a       @ learnable
+        "cat"     : N   = cat     @ learnable
+        "dog"     : N   = dog     @ learnable
+        "sleeps"  : V   = sleeps  @ learnable
+        "runs"    : V   = runs    @ learnable
+    }
 
-# ================================================================
-# DEDUCTIVE PARSER
-# The compiler infers the deductive system from morphism types.
-# Start symbol is nonterminal index 0.
-# ================================================================
-
-let pcfg = parser(
-    rules=[binary_rules, lexical_rules],
-    start=0
-)
-
-export pcfg
+    semiring  LogProb
+    start     S
+    depth     6
+}

@@ -3,54 +3,75 @@
 ## QVR Source
 
 ```qvr
-category S, NP, N, VP, PP
-object Token : 256
+object Term : 16
 
-let grammar = parser(
-    rules=[evaluation, adjunction_units, tensor_introduction, tensor_projection],
-    terminal=Token,
-    start=S
-)
+deduction Lambek : Term -> Term {
+    atoms {
+        S, NP, N, VP, PP,
+        Fwd, Bwd, Tns,
+        span
+    }
 
-export grammar
+    rule right_app
+        : span(I, K, Fwd(A, B)), span(K, J, B)
+        |- span(I, J, A)
+
+    rule left_app
+        : span(I, K, B), span(K, J, Bwd(A, B))
+        |- span(I, J, A)
+
+    rule tensor_intro
+        : span(I, K, A), span(K, J, B)
+        |- span(I, J, Tns(A, B))
+
+    rule tensor_left
+        : span(I, J, Tns(A, B))
+        |- span(I, J, A)
+
+    rule tensor_right
+        : span(I, J, Tns(A, B))
+        |- span(I, J, B)
+
+    semiring  LogProb
+    start     S
+    depth     6
+}
 ```
 
 ## Overview
 
-Type-logical grammar, grounded in the Lambek calculus, is a resource-conscious approach to syntax that requires each linguistic resource to be used exactly once in a specified order. This example demonstrates the four rule schemas that implement the Lambek calculus: `evaluation`, `adjunction_units`, `tensor_introduction`, and `tensor_projection`.
+Type-logical grammar, grounded in the non-commutative Lambek calculus, is a resource-conscious approach to syntax: every hypothesis is used exactly once and argument order is preserved. The deduction above lists slash (`Fwd`, `Bwd`) and tensor (`Tns`) constructors over chart-spans `span(I, J, X)`, and licenses right / left application, product introduction, and product elimination as sequent rules.
 
 ## Walkthrough
 
-`category S, NP, N, VP, PP` introduces five atomic formulas. In the Lambek calculus, formulas are built inductively: if $X$ and $Y$ are formulas, then $X/Y$ (right division) and $X \backslash Y$ (left division) are also formulas. The grammar can express categories like $S/(\mathrm{NP} \backslash \mathrm{VP})$ or $\mathrm{VP}/\mathrm{PP}$.
+`atoms { … }` declares the constructor vocabulary. Category atoms are `S`, `NP`, `N`, `VP`, `PP`; structural constructors are `Fwd(A, B) ≡ A/B`, `Bwd(A, B) ≡ A\B`, `Tns(A, B) ≡ A⊗B`. The chart-item constructor `span(I, J, X)` packages a derivation covering tokens `[I, J)` carrying category `X`. Single-uppercase identifiers (`A`, `B`, `I`, `J`, `K`) appearing in rule patterns bind as wildcards.
 
-`object Token : 256` introduces the terminal vocabulary. Tokens are assigned base categories via a lexicon.
+The rules realise the four logical core operations of the Lambek calculus:
 
-The parser uses four rule schemas:
+- **`right_app`** — modus ponens for forward slash: `A/B, B ⊢ A`.
+- **`left_app`** — modus ponens for backward slash: `B, A\B ⊢ A`.
+- **`tensor_intro`** — product introduction: adjacent derivations of `A` and `B` combine into a derivation of `A⊗B`.
+- **`tensor_left` / `tensor_right`** — product elimination: a derivation of `A⊗B` projects to derivations of either component over the same span.
 
-- **`evaluation`** encodes the beta rule: $X/Y, Y \vdash X$ and $Y, X \backslash Y \vdash X$. Given a functor and its argument in the correct linear order, derive the result.
-- **`adjunction_units`** implements identity laws ($A \vdash A$), ensuring every atomic formula can be trivially derived as a goal.
-- **`tensor_introduction`** combines two adjacent derivations using disjoint resources: if $X \vdash A$ and $Y \vdash B$ (disjoint spans), then $X, Y \vdash A \otimes B$. The disjointness constraint enforces resource sensitivity.
-- **`tensor_projection`** decomposes a product: if $X \vdash A \otimes B$, split into derivations of $A$ from the left part and $B$ from the right part. This is needed for bottom-up parsing to identify constituent structure.
-
-Together these four schemas yield a complete implementation of the Lambek calculus. The parser uses a chart-based algorithm (similar to CKY) guaranteed to terminate on finite input.
+Together these rules yield the equational theory of the residuated monoid. The agenda runs to depth 6 by default; the `LogProb` semiring accumulates inside log-probabilities that flow back as gradients to learnable axiom weights.
 
 ## DSL Features
 
-- **`evaluation` schema**: Generates the elimination rules for $X/Y$ and $X \backslash Y$ across all category pairs.
-- **`adjunction_units` schema**: Provides structural units (identity/base cases) for the logical system.
-- **`tensor_introduction` and `tensor_projection`**: Manage the tensor product (concatenation), ensuring the linear structure of the input is preserved throughout derivation.
-- **Residuation laws**: The three connectives ($\otimes$, $/$, $\backslash$) satisfy $A \otimes B \vdash C \iff A \vdash C/B \iff B \vdash A \backslash C$, enforcing resource sensitivity.
-
-## Python Usage
-
-<!-- TODO: add working Python usage example -->
+- **Sequent rules with arbitrary arity**: rule bodies declare premises on the left of `|-` and a single conclusion on the right; the compiler routes unary patterns to unary chart cells and binary patterns to binary chart cells.
+- **Resource sensitivity is structural**: there is no contraction or weakening rule, so every premise in a sequent must match a distinct chart cell.
+- **Order preservation**: pattern variables appear in textual order; the parser enforces left-to-right span composition.
+- **Tensor and slash as user atoms**: there is no special syntax — `Tns`, `Fwd`, `Bwd` are atoms declared in the `atoms { … }` block and may be replaced or extended by the user.
 
 ## Categorical Perspective
 
-The Lambek calculus adds linearity to the closed monoidal category picture: each resource (atomic variable) appears exactly once in any proof term. This corresponds to the free symmetric monoidal closed category on a set of generators. The tensor product $\otimes$ is concatenation, and the divisions $/$ and $\backslash$ are its left and right adjoints, respectively. The residuation laws $A \otimes B \vdash C \iff A \vdash C/B \iff B \vdash A \backslash C$ are exactly the statement of this adjunction. Because there is no contraction (copying) or weakening (discarding), every derivation consumes its input span exactly once, and the chart-based parser enforces this by restricting each cell to its designated span.
+The Lambek calculus is the internal language of a residuated monoidal category (biclosed monoidal category). The tensor `⊗` is the monoidal product; the two slashes are its left and right adjoints. The residuation laws
+
+```
+A ⊗ B  ⊢  C   iff   A  ⊢  C/B   iff   B  ⊢  A\C
+```
+
+are the statement of that adjunction. Because there is no contraction (copying) or weakening (discarding), every derivation consumes its input span exactly once; the agenda's span indexing enforces this by attaching each item to a single token range.
 
 ## Connections to Other Formalisms
 
-The Lambek calculus is more expressive than context-free grammar (handling extraction, gapping) but less expressive than unrestricted phrase-structure grammars, remaining decidable and efficiently parseable.
-
-Compared to CCG, the Lambek calculus is more restricted: it enforces strict linearity and resource sensitivity, while CCG implicitly permits structural rules (weakening, contraction). The multimodal extensions (see multimodal-tlg) introduce controlled structural operators that can license specific deviations from strict linearity.
+The Lambek calculus is strictly more expressive than context-free grammar (handling extraction, gapping) but remains decidable and efficiently parseable. Compared to CCG it is more restricted: CCG implicitly permits structural rules (weakening, contraction) that the Lambek calculus does not. The multimodal extensions (see [multimodal-tlg](multimodal-tlg.md)) introduce controlled structural operators that license specific deviations from strict linearity.

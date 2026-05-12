@@ -2,49 +2,73 @@
 # Weighted Combinatory Categorial Grammar (CCG)
 # ================================================================
 #
-# A learnable weighted CCG parser assembled from composable rule
-# schema primitives.  CCG uses:
+# A learnable weighted CCG parser declared as an agenda-based
+# weighted deduction over chart items. CCG's structural rules
+# are:
 #
-#   - evaluation (forward/backward application)
-#   - harmonic_composition (forward/backward composition)
-#   - crossed_composition (forward/backward crossed composition)
+#   - Forward / backward application      (evaluation)
+#   - Forward / backward composition      (harmonic_composition)
+#   - Forward / backward crossed comp.    (crossed_composition)
 #
-# These are the structural rules of a biclosed monoidal category,
-# expressed as composable RuleSchema objects.
-# The `parser` keyword composes them into a deductive chart parser.
+# Each is one sequent rule below. `Fwd(X, Y)` constructs the
+# forward-slash category `X/Y`; `Bwd(X, Y)` constructs the
+# backward-slash category `X\Y`. The compiler treats every
+# identifier listed in `atoms { … }` as a nullary or parametric
+# constructor; single-uppercase identifiers (`X`, `Y`, `Z`, `I`,
+# `J`, `K`) bind as pattern variables.
 #
-# Combinatory rules (structural, not learned):
-#   - Forward application (>):    X/Y   Y   →  X       (evaluation)
-#   - Backward application (<):   Y   X\Y   →  X       (evaluation)
-#   - Forward composition (>B):   X/Y  Y/Z  →  X/Z     (harmonic_composition)
-#   - Backward composition (<B):  Y\Z  X\Y  →  X\Z     (harmonic_composition)
-#   - Forward crossed comp (>Bx): X/Y  Y\Z  →  X\Z     (crossed_composition)
-#   - Backward crossed comp (<Bx): Y/Z X\Y  →  X/Z     (crossed_composition)
+# Chart items are `span(I, J, X)` triples covering tokens
+# `[I, J)` with category `X`. The semiring is `LogProb` for
+# differentiable inside scores.
 #
-# The lexicon (word → category distribution) is a learnable
-# softmax-parameterized matrix. All computation uses log-space
-# CKY deductive parsing for numerical stability and gradient flow.
-#
-# Categorical perspective:
-#   CCG is the internal language of a closed monoidal category.
-#   The slashes are internal homs (left/right), application is
-#   the counit of the hom-tensor adjunction, and composition
-#   is composition of internal hom morphisms.
-#
-# Usage:
-#   prog = load("ccg.qvr")
-#   grammar = prog.morphism
-#   tokens = torch.randint(0, 256, (batch, seq_len))
-#   log_probs = grammar(tokens)   # (batch,)
+# Categorical perspective: CCG is the internal language of a
+# closed monoidal category. The slashes are internal homs;
+# application is the counit of the hom-tensor adjunction;
+# composition is composition of internal hom morphisms.
 
-category S, NP, N, VP, PP
+object Term : 16
 
-object Token : 256
+deduction CCG : Term -> Term {
+    atoms {
+        # Category atoms.
+        NP, S, N, VP, PP,
+        # Slash constructors.
+        Fwd, Bwd,
+        # Chart-item constructor.
+        span
+    }
 
-let grammar = parser(
-    rules=[evaluation, harmonic_composition, crossed_composition],
-    terminal=Token,
-    start=S
-)
+    # Forward application: X/Y, Y => X
+    rule fwd_app
+        : span(I, K, Fwd(X, Y)), span(K, J, Y)
+        |- span(I, J, X)
 
-export grammar
+    # Backward application: Y, X\Y => X
+    rule bwd_app
+        : span(I, K, Y), span(K, J, Bwd(X, Y))
+        |- span(I, J, X)
+
+    # Forward composition: X/Y, Y/Z => X/Z
+    rule fwd_comp
+        : span(I, K, Fwd(X, Y)), span(K, J, Fwd(Y, Z))
+        |- span(I, J, Fwd(X, Z))
+
+    # Backward composition: Y\Z, X\Y => X\Z
+    rule bwd_comp
+        : span(I, K, Bwd(Y, Z)), span(K, J, Bwd(X, Y))
+        |- span(I, J, Bwd(X, Z))
+
+    # Forward crossed composition: X/Y, Y\Z => X\Z
+    rule fwd_xcomp
+        : span(I, K, Fwd(X, Y)), span(K, J, Bwd(Y, Z))
+        |- span(I, J, Bwd(X, Z))
+
+    # Backward crossed composition: Y/Z, X\Y => X/Z
+    rule bwd_xcomp
+        : span(I, K, Fwd(Y, Z)), span(K, J, Bwd(X, Y))
+        |- span(I, J, Fwd(X, Z))
+
+    semiring  LogProb
+    start     S
+    depth     6
+}

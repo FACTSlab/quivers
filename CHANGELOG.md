@@ -385,6 +385,211 @@ semiring abstraction is not broken).
 - `panproto-grammars-all >= 0.47.0` (was `>= 0.45.0`).
 - `didactic >= 0.7.1` (was `>= 0.6.0`).
 
+## [0.3.0] - 2026-04-12
+
+This release provides effects integration: a typeclass +
+algebraic-effects substrate underneath the DSL, joint type-and-effect
+schema lifting in the chart parser, and a substantially expanded
+surface for categorial grammars driven by it.
+
+### Surface
+
+- **Unified type-expression family.** The categorial-pattern
+  sublanguage (`CatPattern`, `CatPatternSlash`, `CatPatternProduct`)
+  is folded into `TypeExpr`. Slash patterns (`X/Y`, `X\Y`) parse as
+  `TypeSlash`; effect-typed applications (`T(X)`, `Cont_S(NP)`) parse
+  as `TypeEffectApply`. Rule and schema premises / conclusions are
+  typed at `TypeExpr` uniformly.
+- **`schema` declarations.** Pattern-polymorphic morphism schemas
+  with explicit parameter types and a unified domain / codomain
+  shape: `schema forward_app[X, Y : Cat] : (X/Y) * Y -> X`. Arity is
+  derived from the domain shape — a 2-component `TypeProduct`
+  produces a binary chart-rule, otherwise unary.
+- **`EnumSet` and `FreeResiduated` object initializers.**
+  `object Atoms = {NP, S, VP}` declares an `EnumSet`;
+  `object Cat = FreeResiduated(Atoms, depth=2, ops=[slash])` declares
+  the residuated category universe over an `EnumSet` of generators,
+  closed under the listed connectives up to a bounded nesting depth.
+- **`FreeMonoid` object surface.** `object Strings = FreeMonoid(X, max_length=4)`
+  parses, walks, and compiles to a runtime `FreeMonoid` carrier.
+- **`chart_fold(...)` primitive.** `chart_fold(lex=…, binary=…,
+  unary=…, start=…, depth=…, effect_depth=…)` exposes the inside
+  algorithm as a first-class morphism expression. Accepts unary
+  binaries via the reflexive-transitive closure of unary chart cells.
+- **Residuation-witness combinators.** `.curry_right` and
+  `.curry_left` postfix methods realise the right / left
+  residuation isomorphism on a binary morphism. Forward / backward
+  application become *theorems* derivable from identity + curry
+  once joint type-and-effect dispatch fires.
+- **`alias` declarations.** Object-shaped aliases (`alias Pair = X *
+  Y`) bind a resolved `SetObject` in the compiler environment;
+  residuated aliases (`alias VP = S \ NP`) are stored for syntactic
+  substitution at schema-pattern use sites. Duplicate-declaration
+  and shadowing diagnostics included.
+- **`bundle` declarations.** `bundle CCG = [forward_app,
+  backward_app, harmonic_composition]` names a tuple of rule
+  references that `parser(rules=…)` and `chart_fold(binary=…)`
+  splice into the rule list. Bundles can reference other bundles;
+  the expander detects cycles.
+- **Doc comments.** Lines starting with `##` attach to the next
+  declaration that carries a docs field (`object`, `morphism`,
+  `schema`, `program`, `alias`, `bundle`). Plain `#` line comments
+  continue to be dropped at parse time.
+
+### Categorial-effects substrate
+
+- **Typeclass tower** (`quivers.monadic.typeclasses`). `Functor` /
+  `Applicative` / `Monad` / `Alternative` / `MonadPlus` /
+  `Foldable` / `Traversable` / `MonadTrans`. Each ABC documents its
+  laws; the runtime law-check scaffold lives in `laws.py`.
+- **Arrow tower** (`quivers.arrows`). `Category_` / `Arrow` /
+  `ArrowChoice` / `ArrowApply` / `ArrowLoop` / `ArrowZero` /
+  `ArrowPlus` (Hughes 2000 §3). `ArrowApply` is bridged to `Monad`;
+  `ArrowLoop` is the denotational target of `chart_fold`'s loop.
+- **Stdlib effect instances** (`quivers.monadic.instances`).
+  `Identity`, `Maybe`, `Alternative_` (Hamblin powerset),
+  `Continuation(answer)`, `State(state)`, `Reader(env)`,
+  `Writer(monoid)`, `List(max_length)`. Each is a `dx.Model`
+  registered against its appropriate ABC via `ABC.register(...)`,
+  with concrete V-relation realisations of `pure` / `fmap` /
+  `apply` / `join` / `bind` / `lift_a2`.
+- **Monad transformers** (`quivers.monadic.transformers`).
+  `StateT(state)`, `ReaderT(env)`, `MaybeT`, `ContT(answer)`,
+  `WriterT(monoid)`.
+- **Algebraic effects + handlers** (`quivers.monadic.algebraic`).
+  `Operation`, `EffectSignature`, `Handler`, `FreeMonad(signature)`
+  with a bounded-depth flat-FinSet carrier that preserves the
+  recursive leaf-vs-operation structure. `Handler.run` is a
+  post-order tree fold; a handler is a panproto theory morphism
+  from `sig.to_theory()` into the target monad's theory.
+- **Bridges** (`quivers.monadic.bridges`). `Kleisli(monad)` wraps a
+  `Monad` as `Arrow` / `ArrowApply` with concrete strength and app;
+  `ArrowMonad(arrow)` wraps an `ArrowApply` as a `Monad`. The
+  Joyal–Street–Verity iterative trace realises `loop_arr`.
+
+### Chart parser
+
+- **Class-directed lifts** (`quivers.stochastic.effect_lifts.class_directed_lifts`).
+  Given a base `SchemaDecl` and an effect, returns the tuple of
+  lifted schemas keyed by the effect's typeclass interface:
+  `Applicative` → `pure_T` / `apply_T`; `Monad` → adds `bind_T`
+  (Charlow's scope-extruding lift); `Alternative` → adds `alt_T`;
+  `MonadPlus` is their union. Dispatch is on the typeclass, never
+  the effect's identity, so adding a new effect or a new typeclass
+  extends the lifting machinery automatically.
+- **`lift_rule_set(base, effects)`** applies the dispatch matrix
+  pairwise across a rule-set and an effect-stack, returning the
+  union of base + lifted schemas; consumed uniformly by the
+  chart-fold runtime.
+- **`chart_fold` end-to-end.** The compiler path drops the previous
+  `effect_depth > 0` guard, composes handlers as log-space
+  transitions on the parser output, and emits `swap_TU` schemas
+  from registered `DistributiveLaw` instances.
+
+### Tooling
+
+- **`qvr check` CLI** (`quivers.cli.{__init__,check}`). Parse +
+  constraint-solver + compile pipeline over a list of `.qvr` files;
+  structured JSON output via `--json`; exit codes `0` / `1` / `2`
+  for clean / error / usage. Registered as the `qvr` console script.
+- **Constraint solver** (`quivers.dsl.constraints.check_constraints`).
+  Walks the parsed AST and reports `residuated_constraint`,
+  `effect_constraint`, and `bundle_unknown_member` violations
+  without invoking the full compiler. Surfaced via `qvr check`.
+- **Pygments lexer** (`quivers.dsl.pygments_lexer`). Driven by the
+  in-tree tree-sitter parser via the `_dev_grammar` shim, so the
+  highlighter always reflects the authoritative grammar.
+- **Highlight queries** (`grammars/qvr/queries/highlights.scm`)
+  refreshed for `schema_decl`, `type_slash`, `type_effect_apply`,
+  `chart_fold`, `curry_right` / `curry_left`, `EnumSet` /
+  `FreeResiduated` / `FreeMonoid`, `alias_decl`, `bundle_decl`.
+- **GitHub linguist** (`.gitattributes`). `.qvr` classified as
+  detectable; tree-sitter generated artefacts marked vendored /
+  generated.
+
+### Examples + documentation
+
+- **`quantifier_scope.qvr`** — Charlow-style scope-taking grammar
+  using the `Continuation` effect, exercising the new surface
+  (`EnumSet`, `FreeResiduated`, `schema`, `Cont_S(X)`) end-to-end.
+- **`docs/guides/effects.md`** — typeclass + algebraic-effects
+  framework: monad and arrow towers, stdlib effect instances,
+  class-driven schema lifting, joint type-and-effect dispatch,
+  bridges between the two towers.
+- **`docs/semantics/effects.md`** — denotational layer: panproto-
+  theory mirrors of each typeclass, effect-typed schema
+  denotations as natural transformations, joint type-and-effect
+  chart dispatch, lifting-adequacy theorem, conservativity over
+  the bare-grammar fragment.
+- **`docs/getting-started/architecture.md`** — `quivers/arrows/`
+  section added; `quivers/monadic/` rewritten to cover the
+  typeclass spine, transformers, algebraic effects, bridges,
+  theories, laws.
+- **mkdocstrings stubs** for every new public module:
+  `quivers.monadic.{typeclasses,instances,transformers,algebraic,bridges,theories,laws}`,
+  `quivers.arrows.{typeclasses,theories}`,
+  `quivers.stochastic.effect_lifts`.
+
+### Internal
+
+- **Program theory** (`quivers.dsl.program_theory`). Vertex kinds
+  extended with `enum_set`, `free_residuated`, `schema_decl`.
+  `write_set_object` branches for `EnumSet` (name + element
+  constraints) and `FreeResiduated` (depth + op constraints +
+  `generators` edge to an `enum_set`).
+- **Local-grammar override** (`quivers.dsl._dev_grammar`). Adopts
+  panproto 0.47's first-class `AstParserRegistry.override_grammar`
+  API, replacing the previous ctypes-pinned-buffer shim. Activated
+  by `QVR_USE_LOCAL_GRAMMAR=1` until `panproto-grammars-all` vendors
+  the new QVR grammar.
+- **`quivers.core._factories`** — the concrete morphism alphabet
+  (coproduct injection / case eliminator, product projection /
+  pairing, parallel pair, distributivity, terminal, constant,
+  coproduct functorial action) on which the typeclass realisations
+  are built.
+- **Legacy `Monad` ABC removed.** `quivers.monadic.monads` no
+  longer ships a parallel `Monad`; `FuzzyPowersetMonad`,
+  `FreeMonoidMonad`, and `GiryMonad` subclass the typeclass `Monad`
+  directly. The Eilenberg–Moore aliases (`unit`, `multiply`,
+  `kleisli_compose`) are kept as convenience methods.
+  `FreeMonoidMonad.join` now does the full word-concatenation
+  tensor with truncation beyond `max_length`.
+
+### Dependencies
+
+- `panproto >= 0.47.0` (was `>= 0.45.0`).
+- `panproto-grammars-all >= 0.47.0` (was `>= 0.45.0`).
+- `didactic >= 0.7.0` (was `>= 0.6.0`).
+
+### Tests
+
+- 986 tests pass under `QVR_USE_LOCAL_GRAMMAR=1`. New surface
+  coverage: 32 cases in `tests/test_dsl_extensions.py` (aliases,
+  bundles, doc comments, FreeMonoid surface, constraint solver,
+  `qvr check` CLI, highlight-query parity, Pygments lexer
+  round-trips, grammar-shape parity across every example).
+- Monad unit laws hold on `Identity`, `Maybe`, `Alternative_`,
+  `State`, `Reader`, `Writer`; `FreeMonad` left / right unit laws
+  hold up to truncation; trace yanking and identity verified on
+  `VRel`.
+
+### Key citations
+
+- Charlow 2025, *Static and dynamic exceptional scope*,
+  *Journal of Semantics* (advance article, doi:10.1093/jos/ffad012).
+- Bumford & Charlow (forthcoming, 2026), *Effect-Driven
+  Interpretation: Functors for Natural Language Composition*,
+  Elements in Semantics, Cambridge University Press
+  (online ISBN 9781009285377; preprint arXiv:2504.00316).
+- Hughes 2000, *Generalising monads to arrows* (Sci. Comp. Prog.
+  37:67–111).
+- Bauer & Pretnar 2015, *Programming with algebraic effects and
+  handlers* (J. Logic Algebr. Methods Program. 84:108–123).
+- Plotkin & Power 2003, *Algebraic operations and generic effects*
+  (Appl. Categ. Structures 11:69–94).
+- Joyal–Street–Verity 1996, *Traced monoidal categories*
+  (Math. Proc. Camb. Phil. Soc. 119:447–468).
+
 ## [0.2.0] - 2026-05-06
 
 ### Changed
