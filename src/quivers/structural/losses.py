@@ -23,9 +23,7 @@ type LossWeight = Callable[[Mapping[str, "TrainEnv"]], torch.Tensor]
 # in practice), an input tensor, a structured-term observation, or a
 # raw scalar/tensor target. The union is open at the boundary; we
 # alias it precisely so we never silently widen to `Any`.
-type TrainEnv = (
-    torch.nn.Module | torch.Tensor | int | float | str | list | tuple | dict
-)
+type TrainEnv = torch.nn.Module | torch.Tensor | int | float | str | list | tuple | dict
 
 
 type AttachmentKind = Literal[
