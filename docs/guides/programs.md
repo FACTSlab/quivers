@@ -344,7 +344,7 @@ to the program-level log-density. Categorically this is the right Kan extension 
 - *single observe with coarser fibration*: the per-block hierarchical mixture,
 - *multiple observes sharing a per-item class indicator*: the joint mixture across heterogeneous response axes.
 
-The `over` object must be declared. Each observe's `via` name must be a previously bound plate variable. The categorical family's first argument is the prior tensor; its shape may be `(K,)` (shared across groups) or `(|G|, K)` (per-group prior). The runtime primitive is exposed at `quivers.continuous.bayesian.marginalize_grouped(ll, idx, log_prior, num_groups)` and accepts either a single `(N, K)` tensor (single-observe case) or a parallel list of `(N_m, K)` tensors with their per-axis fibrations (multi-observe case).
+The `over` object must be declared. Each observe's `via` name must be a previously bound plate variable. The categorical family's first argument is the prior tensor; its shape may be `(K,)` (shared across groups) or `(|G|, K)` (per-group prior). The runtime primitive is exposed at `quivers.continuous.plate.marginalize_grouped(ll, idx, log_prior, num_groups)` and accepts either a single `(N, K)` tensor (single-observe case) or a parallel list of `(N_m, K)` tensors with their per-axis fibrations (multi-observe case).
 
 Product fibrations are supported on each observe via `via product(idx_a, idx_b)`, paired with an `over G * H` product grouping plate on the marginalize header. The product-fibration arity must match the grouping plate's arity. See the [composition-rule semantics](../semantics/composition-rules.md) for the formal denotation and `tests/test_grouped_marginalize_combinations.py` for examples.
 

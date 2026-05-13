@@ -1,7 +1,7 @@
 """Tests for scoped grouped ``marginalize`` blocks.
 
 Covers (i) the runtime primitive
-:func:`quivers.continuous.bayesian.marginalize_grouped` and
+:func:`quivers.continuous.plate.marginalize_grouped` and
 (ii) the DSL surface ``marginalize c : K <- Dirichlet(probs) over G
 via idx in { ... }`` that compiles to it.
 
@@ -20,7 +20,7 @@ import os
 import pytest
 import torch
 
-from quivers.continuous.bayesian import (
+from quivers.continuous.plate import (
     marginalize_categorical,
     marginalize_grouped,
 )

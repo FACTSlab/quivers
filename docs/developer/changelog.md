@@ -100,7 +100,7 @@ general agenda-engine runtime (`quivers.stochastic.agenda`).
 
 ### Added
 
-- Hierarchical-Bayesian modelling primitives in `quivers.continuous.bayesian`, each carrying its categorical denotation in **Kern**:
+- Hierarchical-Bayesian modelling primitives in `quivers.continuous.plate`, each carrying its categorical denotation in **Kern**:
   - `PlateDraw(index_size, family, domain)`, finite-domain-indexed draw realised as a Kern-morphism `A → B` by the natural isomorphism `Kern(1, B^A) ≅ Kern(A, B)`; subclass of `ContinuousMorphism` so it threads through the existing `MonadicProgram` step machinery.
   - `VectorisedObserve(family, response)`, batched-observation kernel `Φ → G_{≤1}(Φ)` with score `∏_n p_F(r_obs(n); θ(n, φ))`.
   - `marginalize_categorical(log_probs)`, program-level pushforward through `π_{Φ\C}` realised as `log_sum_exp` over the class axis.

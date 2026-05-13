@@ -15,7 +15,7 @@ import os
 import pytest
 import torch
 
-from quivers.continuous.bayesian import marginalize_grouped
+from quivers.continuous.plate import marginalize_grouped
 
 
 _LOCAL_GRAMMAR = pytest.mark.skipif(

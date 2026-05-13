@@ -22,7 +22,7 @@ import os
 import pytest
 import torch
 
-from quivers.continuous.bayesian import (
+from quivers.continuous.plate import (
     marginalize_categorical,
     marginalize_grouped,
 )

@@ -3,7 +3,7 @@
 Covers:
 
 * Per-primitive unit tests for the building blocks in
-  :mod:`quivers.continuous.bayesian` (LKJ, Truncated, cumsum,
+  :mod:`quivers.continuous.plate` (LKJ, Truncated, cumsum,
   softmax, cholesky_quad_form, PlateDraw, VectorisedObserve,
   marginalize_categorical).
 * DSL parse / compile round-trips for every new AST node.
@@ -33,7 +33,7 @@ os.environ.setdefault("QVR_USE_LOCAL_GRAMMAR", "1")
 
 class TestPrimitives:
     def test_cumsum(self):
-        from quivers.continuous.bayesian import cumsum
+        from quivers.continuous.plate import cumsum
 
         cm = cumsum(5)
         x = torch.tensor([[1.0, 2.0, 3.0, 4.0, 5.0]])
@@ -42,14 +42,14 @@ class TestPrimitives:
         assert torch.allclose(out, expected)
 
     def test_softmax(self):
-        from quivers.continuous.bayesian import softmax
+        from quivers.continuous.plate import softmax
 
         sm = softmax(3)
         out = sm.rsample(torch.zeros(2, 3))
         assert torch.allclose(out, torch.full((2, 3), 1.0 / 3.0))
 
     def test_lkj_sample_shape_and_diag(self):
-        from quivers.continuous.bayesian import LKJCorrelationFactor
+        from quivers.continuous.plate import LKJCorrelationFactor
         from quivers.continuous.spaces import Euclidean
 
         K = 4
@@ -73,7 +73,7 @@ class TestPrimitives:
             assert (off <= 1.0 + 1e-4).all()
 
     def test_lkj_log_prob_finite(self):
-        from quivers.continuous.bayesian import LKJCorrelationFactor
+        from quivers.continuous.plate import LKJCorrelationFactor
         from quivers.continuous.spaces import Euclidean
 
         lkj = LKJCorrelationFactor(dim=3, eta=2.0, domain=Euclidean(name="in", dim=1))
@@ -82,7 +82,7 @@ class TestPrimitives:
         assert torch.isfinite(lp).all()
 
     def test_truncated_in_bounds(self):
-        from quivers.continuous.bayesian import Truncated
+        from quivers.continuous.plate import Truncated
         from quivers.continuous.spaces import Euclidean
         from quivers.continuous.families import ConditionalNormal
 
@@ -95,7 +95,7 @@ class TestPrimitives:
         assert (sample <= 5.0).all()
 
     def test_marginalize_categorical(self):
-        from quivers.continuous.bayesian import marginalize_categorical
+        from quivers.continuous.plate import marginalize_categorical
 
         logp = torch.tensor([[-1.0, -2.0, -3.0]])
         out = marginalize_categorical(logp)
@@ -103,7 +103,7 @@ class TestPrimitives:
         assert torch.allclose(out, expected)
 
     def test_plate_draw_shape(self):
-        from quivers.continuous.bayesian import PlateDraw
+        from quivers.continuous.plate import PlateDraw
         from quivers.continuous.families import ConditionalNormal
         from quivers.continuous.spaces import Euclidean
 
@@ -123,7 +123,7 @@ class TestPrimitives:
         assert torch.isfinite(lp).all()
 
     def test_vectorized_observe_log_prob(self):
-        from quivers.continuous.bayesian import VectorisedObserve
+        from quivers.continuous.plate import VectorisedObserve
         from quivers.continuous.families import ConditionalNormal
         from quivers.continuous.spaces import Euclidean
 
@@ -141,7 +141,7 @@ class TestPrimitives:
     def test_cholesky_quad_form_via_let(self):
         # The deterministic morphism is exposed both as a Python helper
         # and as a let-builtin; here we exercise the helper directly.
-        from quivers.continuous.bayesian import cholesky_quad_form
+        from quivers.continuous.plate import cholesky_quad_form
 
         cqf = cholesky_quad_form(3)
         # input is (cholesky_flat, scale) concatenated
@@ -185,7 +185,7 @@ class TestDSLSurface:
         assert "demo" in c._morphisms
 
     def test_let_index_gather(self):
-        from quivers.continuous.bayesian import PlateDraw
+        from quivers.continuous.plate import PlateDraw
         from quivers.continuous.families import ConditionalNormal
         from quivers.continuous.spaces import Euclidean
 

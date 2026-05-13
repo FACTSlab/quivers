@@ -31,7 +31,7 @@ Log-density is the change-of-variables identity:
         + \\log\\bigl|\\det J_{T_i^{-1}}(v_i)\\bigr|
     \\Bigr].
 
-Plate latents (:class:`~quivers.continuous.bayesian.PlateDraw`)
+Plate latents (:class:`~quivers.continuous.plate.PlateDraw`)
 are stored as ``(|A|, d_i)`` parameter tensors and sampled batch-
 invariantly: the latent vector is a global model parameter shared
 across every row of an observed plate, not replicated against the

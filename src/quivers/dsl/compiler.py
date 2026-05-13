@@ -23,7 +23,7 @@ from quivers.continuous.spaces import (
     UnitInterval,
 )
 from quivers.continuous.morphisms import AnySpace
-from quivers.continuous.bayesian import marginalize_grouped
+from quivers.continuous.plate import marginalize_grouped
 from quivers.core.objects import SetObject, FinSet, ProductSet
 from quivers.core.quantales import (
     BOOLEAN,
@@ -2872,7 +2872,7 @@ class Compiler:
                 # Kern-morphism A → B; we realise it as a PlateDraw
                 # whose codomain is the flat product space of
                 # |A| copies of the per-row family's codomain.
-                from quivers.continuous.bayesian import PlateDraw as _PlateDraw
+                from quivers.continuous.plate import PlateDraw as _PlateDraw
                 from quivers.continuous.spaces import Euclidean as _Euc
 
                 idx_space = self._resolve_any_space(step.index)
@@ -3016,7 +3016,7 @@ class Compiler:
                 # threads through the existing _StepSpec(is_observed=True)
                 # path. The response buffer is supplied at runtime
                 # via the `observations` dict on the program.
-                from quivers.continuous.bayesian import (
+                from quivers.continuous.plate import (
                     VectorisedObserve as _VectorisedObserve,
                 )
 

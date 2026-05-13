@@ -13,7 +13,7 @@ unconstrained vector can be turned into a fully constrained site
 dict (and back) in one pass.
 
 The registry is the only place in the inference layer that knows
-about :class:`~quivers.continuous.bayesian.PlateDraw`, the layout
+about :class:`~quivers.continuous.plate.PlateDraw`, the layout
 of ``MonadicProgram._step_specs``, or the per-site
 constraint-to-bijector mapping. Every downstream component —
 :class:`~quivers.inference.guides.base.Guide`,
@@ -49,7 +49,7 @@ from torch.distributions import constraints as _constraints
 from torch.distributions.constraint_registry import biject_to
 from torch.distributions.transforms import Transform
 
-from quivers.continuous.bayesian import PlateDraw
+from quivers.continuous.plate import PlateDraw
 from quivers.continuous.morphisms import ContinuousMorphism
 from quivers.continuous.programs import MonadicProgram, _LetSpec
 from quivers.continuous.spaces import ContinuousSpace
@@ -108,7 +108,7 @@ class LatentSite:
         on a 5-simplex, ``4``; otherwise equals ``constrained_dim``).
     is_plate : bool
         Whether this site is a plate draw
-        (:class:`~quivers.continuous.bayesian.PlateDraw`).
+        (:class:`~quivers.continuous.plate.PlateDraw`).
     plate_index_size : int
         ``|A|`` for a plate site, ``0`` otherwise.
     spec_index : int
