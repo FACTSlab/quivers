@@ -143,6 +143,60 @@ class ExprIdentity(Expr):
     kind: Literal["expr_identity"] = "expr_identity"
 
 
+class ExprDagger(Expr):
+    """Compact-closed dagger / transpose of an expression."""
+
+    inner: Expr
+    line: int = 0
+    col: int = 0
+    kind: Literal["expr_dagger"] = "expr_dagger"
+
+
+class ExprTrace(Expr):
+    """Compact-closed trace of an expression along a named object."""
+
+    inner: Expr
+    object_name: str
+    line: int = 0
+    col: int = 0
+    kind: Literal["expr_trace"] = "expr_trace"
+
+
+class ExprChangeBase(Expr):
+    """Change-of-base: apply a quantale homomorphism to a morphism.
+
+    ``inner.change_base(homomorphism_name)`` resolves
+    ``homomorphism_name`` against the compiler's homomorphism
+    catalog (see :mod:`quivers.core.quantale_morphisms`) and
+    returns a new morphism over the homomorphism's target
+    quantale.
+    """
+
+    inner: Expr
+    homomorphism: str
+    line: int = 0
+    col: int = 0
+    kind: Literal["expr_change_base"] = "expr_change_base"
+
+
+class ExprCup(Expr):
+    """Compact-closed unit ``η_A : I → A ⊗ A`` for a named object."""
+
+    object_name: str
+    line: int = 0
+    col: int = 0
+    kind: Literal["expr_cup"] = "expr_cup"
+
+
+class ExprCap(Expr):
+    """Compact-closed counit ``ε_A : A ⊗ A → I`` for a named object."""
+
+    object_name: str
+    line: int = 0
+    col: int = 0
+    kind: Literal["expr_cap"] = "expr_cap"
+
+
 class ExprCompose(Expr):
     """Quantale-typed sequential composition.
 

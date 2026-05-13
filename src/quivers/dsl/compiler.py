@@ -26,6 +26,32 @@ from quivers.continuous.bayesian import marginalize_grouped
 from quivers.core.objects import SetObject, FinSet, ProductSet
 from quivers.core.quantales import Quantale, PRODUCT_FUZZY, BOOLEAN
 from quivers.core.morphisms import morphism as make_latent, identity as make_identity
+from quivers.core.morphisms import cap as _make_cap, cup as _make_cup
+from quivers.core.quantale_morphisms import (
+    EXPECTATION,
+    LOG_PROB as _LOG_PROB_HOM,
+    MATERIAL_IMPLICATION,
+    MAX_PLUS as _MAX_PLUS_HOM,
+    embedding as _make_embedding,
+    threshold as _make_threshold,
+)
+
+
+def _build_default_homomorphism_catalog() -> dict:
+    """Build the user-facing catalog of named quantale
+    homomorphisms exposed through ``f.change_base(name)`` in the
+    DSL. The keys here are the names the user writes; the values
+    are :class:`QuantaleHomomorphism` instances from
+    :mod:`quivers.core.quantale_morphisms`.
+    """
+    return {
+        "expectation": EXPECTATION,
+        "log_prob": _LOG_PROB_HOM,
+        "max_plus": _MAX_PLUS_HOM,
+        "material_implication": MATERIAL_IMPLICATION,
+        "threshold": _make_threshold(0.5),
+        "boolean_embedding": _make_embedding(BOOLEAN, PRODUCT_FUZZY),
+    }
 from quivers.program import Program
 from quivers.structural.encoder import (
     Encoder,
@@ -125,7 +151,12 @@ from quivers.dsl.ast_nodes import (
     ExprTensorProduct,
     ExprChartFold,
     ExprCurry,
+    ExprCap,
+    ExprChangeBase,
+    ExprCup,
+    ExprDagger,
     ExprMarginalize,
+    ExprTrace,
     ExprFan,
     ExprRepeat,
     ExprStack,
@@ -385,6 +416,7 @@ class Compiler:
         self._bundles: dict[str, tuple[str, ...]] = {}
         self._aliases: dict[str, TypeExpr] = {}
         self._alias_names: set[str] = set()
+        self._homomorphisms: dict = _build_default_homomorphism_catalog()
         self._objects: dict[str, SetObject] = {}
         self._spaces: dict = {}
         self._morphisms: dict = {}
@@ -4353,6 +4385,19 @@ class Compiler:
             raise CompileError(str(e).strip("'\""), line, col) from e
         return resolved
 
+    def _resolve_homomorphism(self, name: str):
+        """Look up a named quantale homomorphism for change-of-base.
+
+        The compiler's homomorphism catalog is keyed by short
+        names (``"expectation"``, ``"log_prob"``, ``"max_plus"``,
+        ``"material_implication"``, ``"threshold"``,
+        ``"boolean_embedding"``) and returns the corresponding
+        :class:`QuantaleHomomorphism` instance. Returns ``None``
+        for an unknown name; the caller raises a compile error
+        with the available-names list.
+        """
+        return self._homomorphisms.get(name)
+
     def _compose_with_op(self, left, right, op: str):
         """Dispatch a composition expression to the quantale
         implied by the surface operator.
@@ -4455,6 +4500,56 @@ class Compiler:
                 )
             obj = self._objects[expr.object_name]
             return make_identity(obj, quantale=self._quantale)
+        elif isinstance(expr, ExprDagger):
+            inner = self._compile_expr(expr.inner)
+            return inner.dagger
+        elif isinstance(expr, ExprTrace):
+            inner = self._compile_expr(expr.inner)
+            if expr.object_name not in self._objects:
+                raise CompileError(
+                    f"trace: undefined object {expr.object_name!r}",
+                    expr.line,
+                    expr.col,
+                )
+            try:
+                return inner.trace(self._objects[expr.object_name])
+            except TypeError as e:
+                raise CompileError(str(e), expr.line, expr.col) from e
+        elif isinstance(expr, ExprChangeBase):
+            inner = self._compile_expr(expr.inner)
+            phi = self._resolve_homomorphism(expr.homomorphism)
+            if phi is None:
+                raise CompileError(
+                    f"change_base: undefined homomorphism "
+                    f"{expr.homomorphism!r}; available: "
+                    f"{sorted(self._homomorphisms.keys())}",
+                    expr.line,
+                    expr.col,
+                )
+            try:
+                return inner.change_base(phi)
+            except TypeError as e:
+                raise CompileError(str(e), expr.line, expr.col) from e
+        elif isinstance(expr, ExprCup):
+            if expr.object_name not in self._objects:
+                raise CompileError(
+                    f"cup: undefined object {expr.object_name!r}",
+                    expr.line,
+                    expr.col,
+                )
+            return _make_cup(
+                self._objects[expr.object_name], quantale=self._quantale
+            )
+        elif isinstance(expr, ExprCap):
+            if expr.object_name not in self._objects:
+                raise CompileError(
+                    f"cap: undefined object {expr.object_name!r}",
+                    expr.line,
+                    expr.col,
+                )
+            return _make_cap(
+                self._objects[expr.object_name], quantale=self._quantale
+            )
         elif isinstance(expr, ExprCompose):
             left = self._compile_expr(expr.left)
             right = self._compile_expr(expr.right)

@@ -215,6 +215,132 @@ class Morphism(ABC):
         """
         return MarginalizedMorphism(self, sets)
 
+    @property
+    def dagger(self) -> "ObservedMorphism":
+        """Transpose / dagger of ``self : A → B``, producing a
+        morphism ``B → A`` whose tensor has the domain and codomain
+        axes swapped.
+
+        The compact-closed structure of V-Cat means every object is
+        self-dual (``A^* = A``), so the dagger is well-defined for
+        every quantale. The semantic interpretation depends on the
+        quantale: ProductFuzzy gives the tensor transpose, Markov
+        the Bayes-uniform-prior inversion, Viterbi the max-plus
+        reversal, Boolean the relational converse.
+
+        Categorically:
+        ``f^† = (ε_B ⊗ id_A) ∘ (id_B ⊗ f^* ⊗ id_A) ∘ (id_B ⊗ η_A)``
+        — but for finite-set objects the unit / counit collapse to
+        the diagonal / co-diagonal, and the dagger reduces to a
+        tensor transpose along the domain/codomain axes.
+
+        Returns
+        -------
+        ObservedMorphism
+            Morphism ``B → A`` whose tensor is the axis-swapped
+            tensor of ``self``. Gradients propagate to the original
+            morphism's parameters through the transpose.
+        """
+        d_ndim = len(self._domain.shape)
+        c_ndim = len(self._codomain.shape)
+        # Build the permutation that brings the codomain axes to
+        # the front and the domain axes to the back.
+        perm = tuple(range(d_ndim, d_ndim + c_ndim)) + tuple(range(d_ndim))
+        t = self.tensor.permute(perm)
+        return ObservedMorphism(
+            self._codomain, self._domain, t, quantale=self._quantale
+        )
+
+    def trace(self, obj: SetObject) -> "ObservedMorphism":
+        """Trace of ``self : X ⊗ A → A ⊗ Y`` along ``obj = A``,
+        producing a morphism ``X → Y``.
+
+        Concretely the trace contracts the A axis on the domain
+        side with the A axis on the codomain side via the quantale's
+        ``tensor_op`` and then joins (``self._quantale.join``) over
+        the contracted axis. This is the categorical trace
+        ``tr_A(f) : X → Y = (ε_A ⊗ id_Y) ∘ (id_A ⊗ f) ∘ (η_A ⊗ id_X)``.
+
+        The morphism's domain must be a product set whose first
+        component is ``obj``; the codomain must be a product set
+        whose first component is ``obj``. If this is not the case
+        a TypeError is raised — the user should call
+        :meth:`ProductSet.swap` style helpers (not yet exposed) to
+        reorder axes before tracing.
+
+        Parameters
+        ----------
+        obj : SetObject
+            The object to contract over. Must appear at the start
+            of both the domain and codomain product sets.
+
+        Returns
+        -------
+        ObservedMorphism
+            Morphism ``X → Y`` (the trace).
+        """
+        from quivers.core.objects import ProductSet
+
+        if not isinstance(self._domain, ProductSet) or not isinstance(
+            self._codomain, ProductSet
+        ):
+            raise TypeError(
+                "trace: requires the morphism's domain and codomain "
+                "to both be ProductSets with the contracted object "
+                f"at the front; got domain={self._domain!r}, "
+                f"codomain={self._codomain!r}"
+            )
+        if self._domain.components[0] != obj:
+            raise TypeError(
+                f"trace: domain's first component {self._domain.components[0]!r} "
+                f"!= contraction object {obj!r}"
+            )
+        if self._codomain.components[0] != obj:
+            raise TypeError(
+                f"trace: codomain's first component {self._codomain.components[0]!r} "
+                f"!= contraction object {obj!r}"
+            )
+        # Domain side: take the diagonal along the leading A axes
+        # (which appear once on the domain side and once on the
+        # codomain side in the tensor's index list). The diagonal
+        # picks the A=A part of the tensor — the categorical
+        # ``η ⊗ id`` step — then we sum (quantale-join) over A.
+        t = self.tensor
+        d_ndim = len(self._domain.shape)
+        c_ndim = len(self._codomain.shape)
+        a_ndim = len(obj.shape)
+        # Domain axes: 0..d_ndim-1 with A at 0..a_ndim-1.
+        # Codomain axes: d_ndim..d_ndim+c_ndim-1 with A at
+        # d_ndim..d_ndim+a_ndim-1.
+        # To trace, we want to identify the leading A axes on each
+        # side and join over them.
+        for k in range(a_ndim):
+            t = torch.diagonal(t, dim1=0, dim2=d_ndim - k)
+            # diagonal moves the contracted axis to the end; we
+            # then need to reorder so subsequent diagonals operate
+            # on the next pair.
+        # After ``a_ndim`` diagonals, the original (d_ndim + c_ndim)
+        # axis tensor is reduced to (d_ndim - a_ndim) + (c_ndim -
+        # a_ndim) + a_ndim axes; the trailing ``a_ndim`` axes are
+        # the survivors of the diagonal (one per contracted axis).
+        # Join over those trailing axes using the quantale's join.
+        trailing = tuple(range(t.dim() - a_ndim, t.dim()))
+        t = self._quantale.join(t, dim=trailing)
+        # Recover the X and Y product sets.
+        x_components = tuple(self._domain.components[1:])
+        y_components = tuple(self._codomain.components[1:])
+        if len(x_components) == 1:
+            new_domain = x_components[0]
+        else:
+            new_domain = ProductSet(components=x_components)
+        if len(y_components) == 1:
+            new_codomain = y_components[0]
+        else:
+            new_codomain = ProductSet(components=y_components)
+        return ObservedMorphism(
+            new_domain, new_codomain, t, quantale=self._quantale
+        )
+
     def __repr__(self) -> str:
         cls = type(self).__name__
         return f"{cls}({self.domain!r} -> {self.codomain!r})"
@@ -878,3 +1004,60 @@ def extract_morphism(module: nn.Module) -> Morphism | None:
     separate categorical object attached.
     """
     return getattr(module, "_morphism", None)
+
+
+def cup(obj: SetObject, quantale: Quantale | None = None) -> ObservedMorphism:
+    """The compact-closed unit ``η_A : I → A ⊗ A``.
+
+    For finite-set objects with their natural product, ``η_A`` is
+    the *diagonal*: every entry ``(a, a)`` carries the quantale's
+    monoidal unit and the off-diagonal entries carry the join unit
+    (``zero``). The Kronecker-like tensor produced is the identity
+    morphism's tensor reshaped from ``(*A.shape, *A.shape)`` to
+    ``(1, *A.shape, *A.shape)`` so that the leading axis is the
+    singleton input ``I``.
+
+    Categorically the cup and the trivial-domain identity satisfy
+    ``ε ∘ (id ⊗ η) = id``; the snake equation that makes V-Cat
+    compact-closed.
+
+    Parameters
+    ----------
+    obj : SetObject
+        The object whose dual is being introduced. Every quantale
+        ships an identity tensor; this morphism reshapes it as a
+        Kleisli arrow from the singleton domain.
+    quantale : Quantale, optional
+        Override the default (ProductFuzzy) quantale.
+
+    Returns
+    -------
+    ObservedMorphism
+        Morphism ``I → A ⊗ A`` whose tensor is the diagonal of the
+        target.
+    """
+    from quivers.core.objects import FinSet, ProductSet
+
+    q = quantale if quantale is not None else PRODUCT_FUZZY
+    diag = q.identity_tensor(obj.shape)
+    # Wrap in a leading singleton axis so the morphism's domain is
+    # the unit object I (the singleton finite set).
+    I = FinSet(name="1", cardinality=1)
+    cod = ProductSet(components=(obj, obj))
+    return ObservedMorphism(I, cod, diag.unsqueeze(0), quantale=q)
+
+
+def cap(obj: SetObject, quantale: Quantale | None = None) -> ObservedMorphism:
+    """The compact-closed counit ``ε_A : A ⊗ A → I``.
+
+    The dual of :func:`cup`. The tensor is the diagonal flattened
+    into ``(*A.shape, *A.shape, 1)`` so the trailing axis is the
+    unit codomain ``I``.
+    """
+    from quivers.core.objects import FinSet, ProductSet
+
+    q = quantale if quantale is not None else PRODUCT_FUZZY
+    diag = q.identity_tensor(obj.shape)
+    I = FinSet(name="1", cardinality=1)
+    dom = ProductSet(components=(obj, obj))
+    return ObservedMorphism(dom, I, diag.unsqueeze(-1), quantale=q)

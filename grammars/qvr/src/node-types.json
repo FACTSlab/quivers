@@ -330,6 +330,22 @@
     }
   },
   {
+    "type": "cap_expr",
+    "named": true,
+    "fields": {
+      "object": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "identifier",
+            "named": true
+          }
+        ]
+      }
+    }
+  },
+  {
     "type": "category_decl",
     "named": true,
     "fields": {
@@ -388,11 +404,19 @@
         "required": true,
         "types": [
           {
+            "type": "cap_expr",
+            "named": true
+          },
+          {
             "type": "chart_fold_expr",
             "named": true
           },
           {
             "type": "compose_expr",
+            "named": true
+          },
+          {
+            "type": "cup_expr",
             "named": true
           },
           {
@@ -472,11 +496,19 @@
         "required": true,
         "types": [
           {
+            "type": "cap_expr",
+            "named": true
+          },
+          {
             "type": "chart_fold_expr",
             "named": true
           },
           {
             "type": "compose_expr",
+            "named": true
+          },
+          {
+            "type": "cup_expr",
             "named": true
           },
           {
@@ -568,11 +600,19 @@
         "required": true,
         "types": [
           {
+            "type": "cap_expr",
+            "named": true
+          },
+          {
             "type": "chart_fold_expr",
             "named": true
           },
           {
             "type": "compose_expr",
+            "named": true
+          },
+          {
+            "type": "cup_expr",
             "named": true
           },
           {
@@ -759,6 +799,22 @@
         "types": [
           {
             "type": "replicate_count",
+            "named": true
+          }
+        ]
+      }
+    }
+  },
+  {
+    "type": "cup_expr",
+    "named": true,
+    "fields": {
+      "object": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "identifier",
             "named": true
           }
         ]
@@ -2288,11 +2344,19 @@
         "required": true,
         "types": [
           {
+            "type": "cap_expr",
+            "named": true
+          },
+          {
             "type": "chart_fold_expr",
             "named": true
           },
           {
             "type": "compose_expr",
+            "named": true
+          },
+          {
+            "type": "cup_expr",
             "named": true
           },
           {
@@ -2363,11 +2427,19 @@
       "required": true,
       "types": [
         {
+          "type": "cap_expr",
+          "named": true
+        },
+        {
           "type": "chart_fold_expr",
           "named": true
         },
         {
           "type": "compose_expr",
+          "named": true
+        },
+        {
+          "type": "cup_expr",
           "named": true
         },
         {
@@ -2426,11 +2498,19 @@
             "named": false
           },
           {
+            "type": "cap_expr",
+            "named": true
+          },
+          {
             "type": "chart_fold_expr",
             "named": true
           },
           {
             "type": "compose_expr",
+            "named": true
+          },
+          {
+            "type": "cup_expr",
             "named": true
           },
           {
@@ -2803,11 +2883,19 @@
         "required": true,
         "types": [
           {
+            "type": "cap_expr",
+            "named": true
+          },
+          {
             "type": "chart_fold_expr",
             "named": true
           },
           {
             "type": "compose_expr",
+            "named": true
+          },
+          {
+            "type": "cup_expr",
             "named": true
           },
           {
@@ -3823,6 +3911,10 @@
         "required": true,
         "types": [
           {
+            "type": "change_base",
+            "named": false
+          },
+          {
             "type": "curry_left",
             "named": false
           },
@@ -3831,7 +3923,15 @@
             "named": false
           },
           {
+            "type": "dagger",
+            "named": false
+          },
+          {
             "type": "marginalize",
+            "named": false
+          },
+          {
+            "type": "trace",
             "named": false
           }
         ]
@@ -3907,11 +4007,19 @@
         "required": false,
         "types": [
           {
+            "type": "cap_expr",
+            "named": true
+          },
+          {
             "type": "chart_fold_expr",
             "named": true
           },
           {
             "type": "compose_expr",
+            "named": true
+          },
+          {
+            "type": "cup_expr",
             "named": true
           },
           {
@@ -4355,11 +4463,19 @@
         "required": true,
         "types": [
           {
+            "type": "cap_expr",
+            "named": true
+          },
+          {
             "type": "chart_fold_expr",
             "named": true
           },
           {
             "type": "compose_expr",
+            "named": true
+          },
+          {
+            "type": "cup_expr",
             "named": true
           },
           {
@@ -4609,11 +4725,19 @@
         "required": true,
         "types": [
           {
+            "type": "cap_expr",
+            "named": true
+          },
+          {
             "type": "chart_fold_expr",
             "named": true
           },
           {
             "type": "compose_expr",
+            "named": true
+          },
+          {
+            "type": "cup_expr",
             "named": true
           },
           {
@@ -4849,11 +4973,19 @@
         "required": true,
         "types": [
           {
+            "type": "cap_expr",
+            "named": true
+          },
+          {
             "type": "chart_fold_expr",
             "named": true
           },
           {
             "type": "compose_expr",
+            "named": true
+          },
+          {
+            "type": "cup_expr",
             "named": true
           },
           {
@@ -5570,11 +5702,19 @@
         "required": true,
         "types": [
           {
+            "type": "cap_expr",
+            "named": true
+          },
+          {
             "type": "chart_fold_expr",
             "named": true
           },
           {
             "type": "compose_expr",
+            "named": true
+          },
+          {
+            "type": "cup_expr",
             "named": true
           },
           {
@@ -5716,11 +5856,19 @@
         "required": true,
         "types": [
           {
+            "type": "cap_expr",
+            "named": true
+          },
+          {
             "type": "chart_fold_expr",
             "named": true
           },
           {
             "type": "compose_expr",
+            "named": true
+          },
+          {
+            "type": "cup_expr",
             "named": true
           },
           {
@@ -5770,11 +5918,19 @@
         "required": true,
         "types": [
           {
+            "type": "cap_expr",
+            "named": true
+          },
+          {
             "type": "chart_fold_expr",
             "named": true
           },
           {
             "type": "compose_expr",
+            "named": true
+          },
+          {
+            "type": "cup_expr",
             "named": true
           },
           {
@@ -6480,6 +6636,10 @@
     "named": false
   },
   {
+    "type": "cap",
+    "named": false
+  },
+  {
     "type": "categories",
     "named": false
   },
@@ -6489,6 +6649,10 @@
   },
   {
     "type": "ccg",
+    "named": false
+  },
+  {
+    "type": "change_base",
     "named": false
   },
   {
@@ -6508,11 +6672,19 @@
     "named": false
   },
   {
+    "type": "cup",
+    "named": false
+  },
+  {
     "type": "curry_left",
     "named": false
   },
   {
     "type": "curry_right",
+    "named": false
+  },
+  {
+    "type": "dagger",
     "named": false
   },
   {
@@ -6779,6 +6951,10 @@
   },
   {
     "type": "terminal",
+    "named": false
+  },
+  {
+    "type": "trace",
     "named": false
   },
   {

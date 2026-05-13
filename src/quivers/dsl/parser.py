@@ -53,7 +53,12 @@ from quivers.dsl.ast_nodes import (
     ExprFan,
     ExprIdent,
     ExprIdentity,
+    ExprCap,
+    ExprChangeBase,
+    ExprCup,
+    ExprDagger,
     ExprMarginalize,
+    ExprTrace,
     ExprParser,
     ExprRepeat,
     ExprScan,
@@ -413,6 +418,35 @@ def _walk_expr(t: _Tree, vid: str) -> Expr:
                     line=line,
                     col=col,
                 )
+            if method_name == "dagger":
+                return ExprDagger(
+                    inner=_walk_expr(t, inner_vid), line=line, col=col
+                )
+            if method_name == "trace":
+                args = t.fields(method_vid, "args")
+                if len(args) != 1:
+                    raise ParseError(
+                        f"trace() takes exactly one object argument at {vid}"
+                    )
+                return ExprTrace(
+                    inner=_walk_expr(t, inner_vid),
+                    object_name=t.text(args[0]),
+                    line=line,
+                    col=col,
+                )
+            if method_name == "change_base":
+                args = t.fields(method_vid, "args")
+                if len(args) != 1:
+                    raise ParseError(
+                        f"change_base() takes exactly one "
+                        f"homomorphism argument at {vid}"
+                    )
+                return ExprChangeBase(
+                    inner=_walk_expr(t, inner_vid),
+                    homomorphism=t.text(args[0]),
+                    line=line,
+                    col=col,
+                )
             raise ParseError(f"unknown postfix method {method_name!r} at {vid}")
         raise ParseError(f"unexpected postfix method at {vid}")
     if k == "identity_expr":
@@ -420,6 +454,16 @@ def _walk_expr(t: _Tree, vid: str) -> Expr:
         if obj_vid is None:
             raise ParseError(f"identity_expr missing object at {vid}")
         return ExprIdentity(object_name=t.text(obj_vid), line=line, col=col)
+    if k == "cup_expr":
+        obj_vid = t.field(vid, "object")
+        if obj_vid is None:
+            raise ParseError(f"cup_expr missing object at {vid}")
+        return ExprCup(object_name=t.text(obj_vid), line=line, col=col)
+    if k == "cap_expr":
+        obj_vid = t.field(vid, "object")
+        if obj_vid is None:
+            raise ParseError(f"cap_expr missing object at {vid}")
+        return ExprCap(object_name=t.text(obj_vid), line=line, col=col)
     if k == "fan_expr":
         return ExprFan(
             exprs=tuple(_walk_expr(t, av) for av in t.fields(vid, "args")),

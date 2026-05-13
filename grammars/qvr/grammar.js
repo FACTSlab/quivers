@@ -976,15 +976,35 @@ module.exports = grammar({
         field('args', commaSep1($.identifier)),
         ')',
       ),
-      // residuation-witness combinators (Phase 4): given f : X * Y -> Z
+      // residuation-witness combinators: given f : X * Y -> Z
       // where Z lives in a residuated universe, produce f.curry_right :
       // X -> Z/Y or f.curry_left : Y -> X\Z. No arguments.
       seq(field('name', choice('curry_right', 'curry_left'))),
+      // change-of-base: given f : A -> B over quantale V and
+      // a homomorphism φ : V -> W, ``f.change_base(phi)`` is the
+      // V-Cat morphism A -> B over W with tensor φ.apply(f.tensor).
+      seq(
+        field('name', 'change_base'),
+        '(',
+        field('args', $.identifier),
+        ')',
+      ),
+      // compact-closed surface: ``f.dagger`` for the transpose,
+      // ``f.trace(A)`` for the trace along object A.
+      seq(field('name', 'dagger')),
+      seq(
+        field('name', 'trace'),
+        '(',
+        field('args', $.identifier),
+        ')',
+      ),
     ),
 
     _atom_expr: $ => choice(
       $.expr_paren,
       $.identity_expr,
+      $.cup_expr,
+      $.cap_expr,
       $.fan_expr,
       $.repeat_expr,
       $.stack_expr,
@@ -1000,6 +1020,21 @@ module.exports = grammar({
 
     identity_expr: $ => seq(
       'identity', '(', field('object', $.identifier), ')',
+    ),
+
+    // Compact-closed unit / counit. ``cup(A)`` builds the
+    // morphism ``I -> A * A`` whose tensor is the diagonal on A
+    // (every entry ``(a, a)`` carries the quantale's monoidal
+    // unit). ``cap(A)`` is the dual ``A * A -> I``. Together
+    // ``cup`` and ``cap`` provide the unit / counit of the
+    // compact-closed structure on V-Cat; the snake equations
+    // ``(ε ⊗ id) ∘ (id ⊗ η) = id`` hold by construction.
+    cup_expr: $ => seq(
+      'cup', '(', field('object', $.identifier), ')',
+    ),
+
+    cap_expr: $ => seq(
+      'cap', '(', field('object', $.identifier), ')',
     ),
 
     fan_expr: $ => seq(
