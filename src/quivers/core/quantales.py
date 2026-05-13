@@ -121,6 +121,31 @@ class Semigroupoid(CompositionRule):
     pass
 
 
+class BilinearForm(CompositionRule):
+    """A composition rule with **no** associativity guarantee.
+
+    ``(f >> g)`` is still well-defined as a binary tensor
+    contraction, but ``(f >> g) >> h`` may differ from
+    ``f >> (g >> h)``. Callers fix an association order
+    explicitly — the type system records that the operation
+    isn't associative so downstream optimizations can't reorder
+    composition chains.
+
+    Examples include signed-dot-product compositions (sign
+    flipping breaks associativity), top-k truncating compositions
+    (early truncation isn't commutative with later contractions),
+    and attention-style softmax-then-multiply rules.
+
+    Sibling of :class:`Semigroupoid` under
+    :class:`CompositionRule`: ``BilinearForm`` *opts out* of the
+    associativity promise that ``Semigroupoid`` carries; a rule
+    that's actually associative should be declared as
+    ``Semigroupoid`` instead.
+    """
+
+    pass
+
+
 class Quantale(Semigroupoid):
     """Abstract commutative quantale for V-enriched categories.
 
@@ -692,6 +717,69 @@ def semigroupoid(
     return CustomSemigroupoid(
         name, tensor_op, join, verify_associative=verify_associative
     )
+
+
+class CustomBilinearForm(BilinearForm):
+    """User-defined :class:`BilinearForm` built from callable
+    operations.
+
+    Use for composition rules whose ``tensor_op`` is **not**
+    associative — for example signed-dot-product or top-k
+    truncating rules. Callers must pin an association order
+    explicitly when chaining; the runtime doesn't promise that
+    ``(f >> g) >> h == f >> (g >> h)``.
+
+    No associativity smoke test runs (the construction is honest
+    about non-associativity); a non-associative op would just
+    fail the check anyway.
+
+    Parameters
+    ----------
+    name : str
+        Human-readable name.
+    tensor_op : Callable
+        Binary product (need not be associative).
+    join : Callable
+        Reduction along an axis.
+    """
+
+    def __init__(
+        self,
+        name: str,
+        tensor_op: Callable[[torch.Tensor, torch.Tensor], torch.Tensor],
+        join: Callable[[torch.Tensor, int | tuple[int, ...]], torch.Tensor],
+    ) -> None:
+        if not name:
+            raise ValueError("CustomBilinearForm: name must be non-empty")
+        self._name = str(name)
+        self._tensor_op = tensor_op
+        self._join = join
+
+    @property
+    def name(self) -> str:
+        return self._name
+
+    def tensor_op(
+        self, a: torch.Tensor, b: torch.Tensor
+    ) -> torch.Tensor:
+        return self._tensor_op(a, b)
+
+    def join(
+        self, t: torch.Tensor, dim: int | tuple[int, ...]
+    ) -> torch.Tensor:
+        return self._join(t, dim)
+
+    def __repr__(self) -> str:
+        return f"CustomBilinearForm(name={self._name!r})"
+
+
+def bilinear_form(
+    name: str,
+    tensor_op: Callable[[torch.Tensor, torch.Tensor], torch.Tensor],
+    join: Callable[[torch.Tensor, int | tuple[int, ...]], torch.Tensor],
+) -> CustomBilinearForm:
+    """Convenience constructor for :class:`CustomBilinearForm`."""
+    return CustomBilinearForm(name, tensor_op, join)
 
 
 def material_implication() -> CustomSemigroupoid:
