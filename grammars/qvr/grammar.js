@@ -943,6 +943,11 @@ module.exports = grammar({
     //   +>   Łukasiewicz (probabilistic sum bounded by 1). The
     //        ``+`` evokes the "soft OR" sum operation of the
     //        Łukasiewicz t-conorm.
+    //   $>   Real sum-product on ℝ (canonical numeric semiring;
+    //        ⊕ = +, ⊗ = ·). The ``$`` evokes "real value".
+    //   %>   Probability sum-product on [0, 1] (same operations
+    //        as $>, clamped to the unit interval). The ``%``
+    //        evokes "percentage".
     //
     // Cross-operator composition (mixing ``>>`` and ``*>`` in a
     // single chain) requires an explicit ``.change_base(φ)``
@@ -953,6 +958,7 @@ module.exports = grammar({
       field('op',    choice(
         '>>', '<<', '>=>',
         '*>', '~>', '||>', '?>', '&&>', '+>',
+        '$>', '%>',
       )),
       field('right', $._expr),
     )),

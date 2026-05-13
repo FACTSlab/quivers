@@ -173,14 +173,37 @@ _QUANTALE_REGISTRY: dict[str, Quantale] = {
 
 
 def _register_extra_quantales() -> None:
-    """Lazily register extra quantales if the module is available."""
+    """Lazily register every shipped quantale into the
+    ``quantale <name>`` resolution table the DSL uses at module
+    top.
+
+    The registration is idempotent and short-circuits when the
+    table is already populated. Catching :class:`ImportError`
+    keeps the compiler usable for users who don't have the
+    optional dependencies (e.g. the stochastic module pulls in
+    ``torch.distributions`` heavily).
+    """
     if "lukasiewicz" not in _QUANTALE_REGISTRY:
         try:
-            from quivers.core.extra_quantales import LUKASIEWICZ, GODEL, TROPICAL
+            from quivers.core.extra_quantales import (
+                COUNTING,
+                GODEL,
+                LOG_PROB,
+                LUKASIEWICZ,
+                MAX_PLUS,
+                PROBABILITY,
+                REAL,
+                TROPICAL,
+            )
 
             _QUANTALE_REGISTRY["lukasiewicz"] = LUKASIEWICZ
             _QUANTALE_REGISTRY["godel"] = GODEL
             _QUANTALE_REGISTRY["tropical"] = TROPICAL
+            _QUANTALE_REGISTRY["max_plus"] = MAX_PLUS
+            _QUANTALE_REGISTRY["log_prob"] = LOG_PROB
+            _QUANTALE_REGISTRY["real"] = REAL
+            _QUANTALE_REGISTRY["probability"] = PROBABILITY
+            _QUANTALE_REGISTRY["counting"] = COUNTING
         except ImportError:
             pass
     if "markov" not in _QUANTALE_REGISTRY:
@@ -4453,15 +4476,19 @@ class Compiler:
         have applied an explicit ``.change_base(φ)`` upstream.
         """
         from quivers.core.extra_quantales import (
+            COUNTING,
             GODEL,
             LOG_PROB,
             LUKASIEWICZ,
             MAX_PLUS,
+            PROBABILITY,
+            REAL,
         )
         from quivers.core.morphisms import ComposedMorphism, Morphism
         from quivers.core.quantales import BOOLEAN
         from quivers.stochastic.quantale import MARKOV
 
+        del COUNTING  # exposed via module-level `quantale counting` only
         op_to_quantale: dict[str, object] = {
             ">>": None,  # use operands' shared quantale
             ">=>": None,
@@ -4471,6 +4498,8 @@ class Compiler:
             "?>": MAX_PLUS,
             "&&>": BOOLEAN,
             "+>": LUKASIEWICZ,
+            "$>": REAL,
+            "%>": PROBABILITY,
         }
         if op not in op_to_quantale:
             raise CompileError(

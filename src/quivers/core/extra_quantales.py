@@ -392,6 +392,220 @@ class LogProbQuantale(Quantale):
         return result
 
 
+class RealQuantale(Quantale):
+    """Sum-product semiring on the real numbers
+    :math:`(\\mathbb{R}, +, \\cdot)`.
+
+    The canonical numeric semiring: addition is the lattice join,
+    multiplication the monoidal tensor. Distinct from
+    :class:`ProductFuzzy` (whose join is noisy-OR on ``[0, 1]``)
+    and from :class:`MarkovQuantale` (which constrains rows to
+    sum to 1). Use when entries are unbounded real weights with
+    no probability interpretation — adjacency-matrix weights,
+    bilinear scores, signed similarities, regression
+    coefficients. Mirrors the ``RealWeight`` semiring shipped by
+    ``arcweight``.
+    """
+
+    @property
+    def name(self) -> str:
+        return "Real"
+
+    def tensor_op(self, a: torch.Tensor, b: torch.Tensor) -> torch.Tensor:
+        """Real multiplication: ``a · b``."""
+        return a * b
+
+    def join(self, t: torch.Tensor, dim: int | tuple[int, ...]) -> torch.Tensor:
+        """Sum along the contracted axes."""
+        if isinstance(dim, int):
+            dim = (dim,)
+        result = t
+        for d in sorted(dim, reverse=True):
+            result = result.sum(dim=d)
+        return result
+
+    def meet(self, t: torch.Tensor, dim: int | tuple[int, ...]) -> torch.Tensor:
+        """Min along the contracted axes (the meet of the real-
+        line lattice ordered by ≤)."""
+        if isinstance(dim, int):
+            dim = (dim,)
+        result = t
+        for d in sorted(dim, reverse=True):
+            result = result.min(dim=d).values
+        return result
+
+    def negate(self, t: torch.Tensor) -> torch.Tensor:
+        """Real-line additive inverse: ``-t``."""
+        return -t
+
+    @property
+    def unit(self) -> float:
+        """Monoidal unit: 1 (a · 1 = a)."""
+        return 1.0
+
+    @property
+    def zero(self) -> float:
+        """Join unit: 0 (a + 0 = a)."""
+        return 0.0
+
+    def identity_tensor(self, obj_shape: tuple[int, ...]) -> torch.Tensor:
+        """Identity matrix: ones on the diagonal, zeros elsewhere."""
+        full_shape = obj_shape + obj_shape
+        result = torch.zeros(full_shape)
+        ndim = len(obj_shape)
+        if ndim == 1:
+            n = obj_shape[0]
+            for i in range(n):
+                result[i, i] = 1.0
+        else:
+            for idx in itertools.product(*(range(s) for s in obj_shape)):
+                result[idx + idx] = 1.0
+        return result
+
+
+class ProbabilityQuantale(Quantale):
+    """Sum-product semiring on ``[0, 1]``.
+
+    Same operations as :class:`RealQuantale` but restricted to the
+    unit interval: entries are clamped to ``[0, 1]`` at every
+    tensor op so the result is interpretable as a probability.
+    Distinct from :class:`ProductFuzzy` (whose join is noisy-OR
+    rather than sum) and :class:`MarkovQuantale` (which enforces
+    row-stochasticity). Use when entries are *unnormalised*
+    probabilities — confusion-matrix entries, soft co-occurrence
+    counts, fuzzy-set membership with additive aggregation.
+    Mirrors the ``ProbabilityWeight`` semiring shipped by
+    ``arcweight``.
+    """
+
+    @property
+    def name(self) -> str:
+        return "Probability"
+
+    def tensor_op(self, a: torch.Tensor, b: torch.Tensor) -> torch.Tensor:
+        """Probability multiplication: ``a · b`` clamped to
+        ``[0, 1]``."""
+        return (a * b).clamp(min=0.0, max=1.0)
+
+    def join(self, t: torch.Tensor, dim: int | tuple[int, ...]) -> torch.Tensor:
+        """Sum along the contracted axes, clamped to ``[0, 1]``."""
+        if isinstance(dim, int):
+            dim = (dim,)
+        result = t
+        for d in sorted(dim, reverse=True):
+            result = result.sum(dim=d)
+        return result.clamp(min=0.0, max=1.0)
+
+    def meet(self, t: torch.Tensor, dim: int | tuple[int, ...]) -> torch.Tensor:
+        """Min along the contracted axes."""
+        if isinstance(dim, int):
+            dim = (dim,)
+        result = t
+        for d in sorted(dim, reverse=True):
+            result = result.min(dim=d).values
+        return result
+
+    def negate(self, t: torch.Tensor) -> torch.Tensor:
+        """Complement on the unit interval: ``1 - t``."""
+        return (1.0 - t).clamp(min=0.0, max=1.0)
+
+    @property
+    def unit(self) -> float:
+        """Monoidal unit: 1."""
+        return 1.0
+
+    @property
+    def zero(self) -> float:
+        """Join unit: 0."""
+        return 0.0
+
+    def identity_tensor(self, obj_shape: tuple[int, ...]) -> torch.Tensor:
+        full_shape = obj_shape + obj_shape
+        result = torch.zeros(full_shape)
+        ndim = len(obj_shape)
+        if ndim == 1:
+            n = obj_shape[0]
+            for i in range(n):
+                result[i, i] = 1.0
+        else:
+            for idx in itertools.product(*(range(s) for s in obj_shape)):
+                result[idx + idx] = 1.0
+        return result
+
+
+class CountingQuantale(Quantale):
+    """Sum-product semiring on the non-negative integers
+    :math:`(\\mathbb{N}, +, \\cdot)`.
+
+    Counting algebra: composition counts the number of distinct
+    paths through a structure. Distinct from
+    :class:`BooleanQuantale` (which collapses to existence) and
+    from :class:`RealQuantale` (which allows non-integer / signed
+    weights). Used in weighted parsing, derivation counting,
+    enumeration over discrete structures. Mirrors the
+    ``IntegerWeight`` semiring shipped by ``arcweight``.
+
+    The underlying tensor is float-typed (PyTorch's autograd
+    requires it) but operations are integer-respecting: the join
+    is plain summation and the tensor product is multiplication.
+    """
+
+    @property
+    def name(self) -> str:
+        return "Counting"
+
+    def tensor_op(self, a: torch.Tensor, b: torch.Tensor) -> torch.Tensor:
+        """Integer multiplication: ``a · b``."""
+        return a * b
+
+    def join(self, t: torch.Tensor, dim: int | tuple[int, ...]) -> torch.Tensor:
+        """Sum along the contracted axes."""
+        if isinstance(dim, int):
+            dim = (dim,)
+        result = t
+        for d in sorted(dim, reverse=True):
+            result = result.sum(dim=d)
+        return result
+
+    def meet(self, t: torch.Tensor, dim: int | tuple[int, ...]) -> torch.Tensor:
+        """Min along the contracted axes."""
+        if isinstance(dim, int):
+            dim = (dim,)
+        result = t
+        for d in sorted(dim, reverse=True):
+            result = result.min(dim=d).values
+        return result
+
+    def negate(self, t: torch.Tensor) -> torch.Tensor:
+        raise NotImplementedError(
+            "negation is not well-defined for the counting "
+            "(non-negative integer) quantale"
+        )
+
+    @property
+    def unit(self) -> float:
+        """Monoidal unit: 1 (the empty product of paths)."""
+        return 1.0
+
+    @property
+    def zero(self) -> float:
+        """Join unit: 0 (no paths)."""
+        return 0.0
+
+    def identity_tensor(self, obj_shape: tuple[int, ...]) -> torch.Tensor:
+        full_shape = obj_shape + obj_shape
+        result = torch.zeros(full_shape)
+        ndim = len(obj_shape)
+        if ndim == 1:
+            n = obj_shape[0]
+            for i in range(n):
+                result[i, i] = 1.0
+        else:
+            for idx in itertools.product(*(range(s) for s in obj_shape)):
+                result[idx + idx] = 1.0
+        return result
+
+
 # -- module-level singletons ------------------------------------------------
 
 LUKASIEWICZ = LukasiewiczQuantale()
@@ -399,3 +613,6 @@ GODEL = GodelQuantale()
 TROPICAL = TropicalQuantale()
 MAX_PLUS = MaxPlusQuantale()
 LOG_PROB = LogProbQuantale()
+REAL = RealQuantale()
+PROBABILITY = ProbabilityQuantale()
+COUNTING = CountingQuantale()
