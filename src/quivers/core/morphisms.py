@@ -147,6 +147,55 @@ class Morphism(ABC):
             return NotImplemented
         return ProductMorphism(self, other)
 
+    def change_base(self, phi) -> "ObservedMorphism":
+        """Apply a quantale homomorphism ``φ : V → W`` to this
+        morphism, producing a new morphism in W whose tensor is
+        ``φ.apply(self.tensor)`` and whose quantale is ``φ.target``.
+
+        The result is an :class:`ObservedMorphism` because the
+        base-changed tensor is a concrete materialised value, not
+        a learnable parameter; the original morphism's parameters
+        still live on ``self`` and gradients flow through them
+        normally (``φ.apply`` is a tensor operation that autograd
+        tracks).
+
+        Categorically this realises the 2-functor
+        :math:`(-) \\otimes_\\varphi W : V\\text{-}\\mathbf{Cat} \\to W\\text{-}\\mathbf{Cat}`
+        on a single morphism.
+
+        Parameters
+        ----------
+        phi : QuantaleHomomorphism
+            The change-of-base functor. Its source must match
+            ``self.quantale``.
+
+        Returns
+        -------
+        ObservedMorphism
+            A morphism over ``phi.target`` with the transported
+            tensor.
+        """
+        from quivers.core.quantale_morphisms import QuantaleHomomorphism
+
+        if not isinstance(phi, QuantaleHomomorphism):
+            raise TypeError(
+                f"change_base: expected QuantaleHomomorphism; got "
+                f"{type(phi).__name__}"
+            )
+        if type(phi.source) is not type(self._quantale):
+            raise TypeError(
+                f"change_base: homomorphism source "
+                f"{phi.source.name!r} does not match this morphism's "
+                f"quantale {self._quantale.name!r}"
+            )
+        new_tensor = phi.apply(self.tensor)
+        return ObservedMorphism(
+            self._domain,
+            self._codomain,
+            new_tensor,
+            quantale=phi.target,
+        )
+
     def marginalize(self, *sets: SetObject) -> MarginalizedMorphism:
         """Marginalize (join-reduce) over codomain components.
 

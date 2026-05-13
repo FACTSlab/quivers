@@ -144,10 +144,29 @@ class ExprIdentity(Expr):
 
 
 class ExprCompose(Expr):
-    """Sequential composition: ``left >> right``."""
+    """Quantale-typed sequential composition.
+
+    The ``op`` field selects which enrichment quantale's monoidal
+    structure to use for the V-Cat composition:
+
+    * ``">>"`` — ProductFuzzy noisy-OR (the default).
+    * ``"<<"`` — reverse ProductFuzzy.
+    * ``">=>"`` — Kleisli composition (operands' shared quantale).
+    * ``"*>"`` — Markov sum-product.
+    * ``"~>"`` — LogProb (log-space sum-product).
+    * ``"||>"`` — Gödel (lattice min/max with Heyting implication).
+    * ``"?>"`` — Viterbi (max-plus tropical, best path).
+    * ``"&&>"`` — Boolean (∧/∨).
+    * ``"+>"`` — Łukasiewicz (probabilistic sum bounded by 1).
+
+    Each operator carries its own quantale; cross-operator
+    composition in one chain requires explicit ``.change_base(φ)``
+    between segments.
+    """
 
     left: Expr
     right: Expr
+    op: str = ">>"
     line: int = 0
     col: int = 0
     kind: Literal["expr_compose"] = "expr_compose"

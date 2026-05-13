@@ -4353,6 +4353,82 @@ class Compiler:
             raise CompileError(str(e).strip("'\""), line, col) from e
         return resolved
 
+    def _compose_with_op(self, left, right, op: str):
+        """Dispatch a composition expression to the quantale
+        implied by the surface operator.
+
+        Each composition operator carries an enrichment quantale.
+        ``>>``, ``<<`` (already swapped to forward), and ``>=>``
+        all use the operands' shared quantale (the existing
+        :meth:`Morphism.__rshift__` path, which raises
+        ``incompatible quantales`` if they differ).
+
+        The new operators (``*>``, ``~>``, ``||>``, ``?>``,
+        ``&&>``, ``+>``) each fix the composition quantale at the
+        operator and re-tag the operands accordingly. If the
+        operands' declared quantales already match the operator's
+        target, no base change is needed; otherwise the user must
+        have applied an explicit ``.change_base(φ)`` upstream.
+        """
+        from quivers.core.extra_quantales import (
+            GODEL,
+            LOG_PROB,
+            LUKASIEWICZ,
+            MAX_PLUS,
+        )
+        from quivers.core.morphisms import ComposedMorphism, Morphism
+        from quivers.core.quantales import BOOLEAN
+        from quivers.stochastic.quantale import MARKOV
+
+        op_to_quantale: dict[str, object] = {
+            ">>": None,  # use operands' shared quantale
+            ">=>": None,
+            "*>": MARKOV,
+            "~>": LOG_PROB,
+            "||>": GODEL,
+            "?>": MAX_PLUS,
+            "&&>": BOOLEAN,
+            "+>": LUKASIEWICZ,
+        }
+        if op not in op_to_quantale:
+            raise CompileError(
+                f"unknown composition operator {op!r}", 0, 0
+            )
+        target_quantale = op_to_quantale[op]
+        if target_quantale is None:
+            # ``>>`` and ``>=>``: fall through to the operands' own
+            # composition machinery, which uses the shared quantale
+            # (and errors on a mismatch as before).
+            return left >> right
+        # Validate both operands carry the operator's target
+        # quantale. The operator does NOT auto-base-change; the
+        # user must have applied ``.change_base(...)`` upstream to
+        # bring both operands to the target quantale before
+        # composing.
+        if not isinstance(left, Morphism) or not isinstance(right, Morphism):
+            raise TypeError(
+                f"composition operator {op!r}: both operands must be "
+                f"Morphism instances; got "
+                f"{type(left).__name__} {op} {type(right).__name__}"
+            )
+        for label, m in (("left", left), ("right", right)):
+            if type(m.quantale) is not type(target_quantale):
+                raise TypeError(
+                    f"composition operator {op!r}: {label} operand's "
+                    f"quantale is {m.quantale.name!r}, but the "
+                    f"operator dispatches to "
+                    f"{target_quantale.name!r}; apply "  # type: ignore[union-attr]
+                    f"`.change_base(...)` first to convert "
+                    f"{label} into the operator's quantale"
+                )
+        if left.codomain != right.domain:
+            raise TypeError(
+                f"composition operator {op!r}: cannot compose "
+                f"codomain {left.codomain!r} != domain "
+                f"{right.domain!r}"
+            )
+        return ComposedMorphism(left, right)
+
     def _compile_expr(self, expr: Expr):
         """Compile a value expression into a morphism.
 
@@ -4383,7 +4459,7 @@ class Compiler:
             left = self._compile_expr(expr.left)
             right = self._compile_expr(expr.right)
             try:
-                return left >> right
+                return self._compose_with_op(left, right, expr.op)
             except TypeError as e:
                 raise CompileError(str(e), expr.line, expr.col) from e
         elif isinstance(expr, ExprTensorProduct):

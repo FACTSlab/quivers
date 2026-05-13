@@ -262,8 +262,140 @@ class TropicalQuantale(Quantale):
         return result
 
 
+class MaxPlusQuantale(Quantale):
+    """Tropical *max-plus* semiring on :math:`(-\\infty, \\infty]`.
+
+    Distinct from :class:`TropicalQuantale` (which is *min-plus*,
+    suited to shortest-path aggregations): the join here is
+    :math:`\\max` and the tensor is :math:`+`. This is the Viterbi
+    / best-path semiring — the canonical algebra for MAP decoding
+    in HMMs, CRFs, and weighted automata.
+    """
+
+    @property
+    def name(self) -> str:
+        return "MaxPlus"
+
+    def tensor_op(self, a: torch.Tensor, b: torch.Tensor) -> torch.Tensor:
+        """Max-plus tensor: ``a + b`` (real-valued addition)."""
+        return a + b
+
+    def join(self, t: torch.Tensor, dim: int | tuple[int, ...]) -> torch.Tensor:
+        """Supremum (max): best path."""
+        if isinstance(dim, int):
+            dim = (dim,)
+        result = t
+        for d in sorted(dim, reverse=True):
+            result = result.max(dim=d).values
+        return result
+
+    def meet(self, t: torch.Tensor, dim: int | tuple[int, ...]) -> torch.Tensor:
+        """Infimum (min): worst path."""
+        if isinstance(dim, int):
+            dim = (dim,)
+        result = t
+        for d in sorted(dim, reverse=True):
+            result = result.min(dim=d).values
+        return result
+
+    def negate(self, t: torch.Tensor) -> torch.Tensor:
+        raise NotImplementedError(
+            "negation is not well-defined for the max-plus quantale"
+        )
+
+    @property
+    def unit(self) -> float:
+        """Monoidal unit: 0 (a + 0 = a)."""
+        return 0.0
+
+    @property
+    def zero(self) -> float:
+        """Join unit: -inf (max(-inf, a) = a)."""
+        return -float("inf")
+
+    def identity_tensor(self, obj_shape: tuple[int, ...]) -> torch.Tensor:
+        full_shape = obj_shape + obj_shape
+        result = torch.full(full_shape, -float("inf"))
+        ndim = len(obj_shape)
+        if ndim == 1:
+            n = obj_shape[0]
+            for i in range(n):
+                result[i, i] = 0.0
+        else:
+            for idx in itertools.product(*(range(s) for s in obj_shape)):
+                result[idx + idx] = 0.0
+        return result
+
+
+class LogProbQuantale(Quantale):
+    """Log-space sum-product semiring on :math:`(-\\infty, 0]`.
+
+    Tensor is real addition (probability multiplication in log-
+    space) and join is :func:`torch.logsumexp` (probability
+    summation in log-space). Pairs naturally with float32
+    numerics for hierarchical-Bayes log-likelihood pipelines: the
+    "Markov" quantale's sum-product is numerically delicate for
+    long chains; LogProb is the same algebra moved to log-space
+    where addition and logsumexp are both well-conditioned.
+    """
+
+    @property
+    def name(self) -> str:
+        return "LogProb"
+
+    def tensor_op(self, a: torch.Tensor, b: torch.Tensor) -> torch.Tensor:
+        """Log-tensor: ``a + b`` (probability multiplication in
+        log-space)."""
+        return a + b
+
+    def join(self, t: torch.Tensor, dim: int | tuple[int, ...]) -> torch.Tensor:
+        """Logsumexp: numerically stable log-of-sum-of-exp."""
+        if isinstance(dim, int):
+            dim = (dim,)
+        return torch.logsumexp(t, dim=dim)
+
+    def meet(self, t: torch.Tensor, dim: int | tuple[int, ...]) -> torch.Tensor:
+        """Min in log-space — meaningful for "least likely" paths."""
+        if isinstance(dim, int):
+            dim = (dim,)
+        result = t
+        for d in sorted(dim, reverse=True):
+            result = result.min(dim=d).values
+        return result
+
+    def negate(self, t: torch.Tensor) -> torch.Tensor:
+        raise NotImplementedError(
+            "negation is not well-defined for the log-prob quantale"
+        )
+
+    @property
+    def unit(self) -> float:
+        """Monoidal unit: 0 (log 1 = 0)."""
+        return 0.0
+
+    @property
+    def zero(self) -> float:
+        """Join unit: -inf (log 0 = -inf)."""
+        return -float("inf")
+
+    def identity_tensor(self, obj_shape: tuple[int, ...]) -> torch.Tensor:
+        full_shape = obj_shape + obj_shape
+        result = torch.full(full_shape, -float("inf"))
+        ndim = len(obj_shape)
+        if ndim == 1:
+            n = obj_shape[0]
+            for i in range(n):
+                result[i, i] = 0.0
+        else:
+            for idx in itertools.product(*(range(s) for s in obj_shape)):
+                result[idx + idx] = 0.0
+        return result
+
+
 # -- module-level singletons ------------------------------------------------
 
 LUKASIEWICZ = LukasiewiczQuantale()
 GODEL = GodelQuantale()
 TROPICAL = TropicalQuantale()
+MAX_PLUS = MaxPlusQuantale()
+LOG_PROB = LogProbQuantale()

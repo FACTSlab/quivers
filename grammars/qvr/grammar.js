@@ -914,9 +914,46 @@ module.exports = grammar({
       $._atom_expr,
     ),
 
+    // Composition operators. Each one carries its enrichment
+    // quantale so the V-Cat composition dispatches to that
+    // quantale's monoidal structure regardless of the operands'
+    // declared quantale. The operator set was chosen to share
+    // family resemblance with canonical operators in other
+    // languages rather than clashing with them:
+    //
+    //   >>   ProductFuzzy noisy-OR (the default; family-resembles
+    //        Haskell's ``>>`` for Kleisli sequencing).
+    //   <<   Reverse ``>>`` (Haskell ``<<``-shaped).
+    //   >=>  Kleisli composition (Haskell's ``>=>`` — direct
+    //        family match).
+    //   *>   Markov sum-product (family-resembles Haskell's
+    //        Applicative ``*>``: both sequence two operations
+    //        in a single arrow).
+    //   ~>   LogProb sum-product in log-space (family-resembles
+    //        the natural-transformation ``~>`` used in Haskell
+    //        / lens libraries).
+    //   ||>  Gödel (min / max with Heyting implication). The
+    //        ``||`` shape echoes the logical-OR symbol; Gödel's
+    //        join is max which is the fuzzy extension of OR.
+    //   ?>   Viterbi (max-plus tropical, best path). The ``?``
+    //        reads as "which choice is best" — Viterbi is the
+    //        MAP-decoding semiring.
+    //   &&>  Boolean (∧ / ∨). The ``&&`` shape echoes the
+    //        logical-AND symbol — Boolean's tensor is AND.
+    //   +>   Łukasiewicz (probabilistic sum bounded by 1). The
+    //        ``+`` evokes the "soft OR" sum operation of the
+    //        Łukasiewicz t-conorm.
+    //
+    // Cross-operator composition (mixing ``>>`` and ``*>`` in a
+    // single chain) requires an explicit ``.change_base(φ)``
+    // between the two segments — the operator carries the
+    // quantale but does not auto-convert operands.
     compose_expr: $ => prec.left(PREC.compose, seq(
       field('left',  $._expr),
-      field('op',    choice('>>', '<<', '>=>')),
+      field('op',    choice(
+        '>>', '<<', '>=>',
+        '*>', '~>', '||>', '?>', '&&>', '+>',
+      )),
       field('right', $._expr),
     )),
 
