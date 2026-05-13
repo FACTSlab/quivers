@@ -278,7 +278,7 @@ class TestDSLSurface:
         object Subj : 5
         type UnitSpace = Euclidean 1
 
-        continuous my_prior : Subj -> UnitSpace ~ Normal [loc=0.0, scale=1.0]
+        kernel my_prior : Subj -> UnitSpace ~ Normal [loc=0.0, scale=1.0]
 
         program with_prior (G : FinSet, prior : Mor[Subj, UnitSpace]) : G -> 1
             v : G <- prior

@@ -63,8 +63,7 @@ module.exports = grammar({
       $.type_alias_decl,
       $.alias_decl,
       $.bundle_decl,
-      $.continuous_decl,
-      $.stochastic_decl,
+      $.kernel_decl,
       $.discretize_decl,
       $.embed_decl,
       $.program_decl,
@@ -235,7 +234,70 @@ module.exports = grammar({
       '->',
       field('codomain', $._type_expr),
       optional(field('options', $.option_block)),
+      // Optional parameter-prior clause: ``~ Family(args) [options]
+      // [over <axes> [iid over <axes>]]``.  Promotes the declared
+      // morphism from a free-parameter point estimate to a random
+      // variable whose representing tensor is drawn from the named
+      // family at the requested axis-role configuration.
+      optional(field('prior', $.morphism_prior)),
       optional(seq('=', field('init', $._expr))),
+    ),
+
+    // Prior on a latent morphism's representing tensor.  The grammar
+    // requires literal ``(args)`` because a prior is fully specified
+    // at declaration time (in contrast to ``continuous`` morphisms,
+    // whose family parameters come from the input at sample time
+    // via a parameter network).  The optional ``axis_role_clause``
+    // controls the event/batch structure of the prior; see the DSL
+    // guide for the categorical reading.
+    morphism_prior: $ => seq(
+      '~',
+      field('family', $.identifier),
+      '(',
+      field('args', commaSep1($._draw_arg)),
+      ')',
+      optional(field('options', $.option_block)),
+      optional(field('axes', $.axis_role_clause)),
+    ),
+
+    // Axis-role clause: ``over <axes> [iid over <axes>]``.
+    //
+    // ``over <axes>`` names the event axes of the surrounding
+    // distribution: the axes on which the family's joint structure
+    // (e.g. an MVN covariance, a MatrixNormal Kronecker pair, a GP
+    // kernel) lives.  Axis count must match the family's declared
+    // ``event_rank``; the positional ordering of names corresponds
+    // positionally to the family's event-axis ordering (e.g. for
+    // ``MatrixNormal`` the first axis is the row axis).
+    //
+    // ``iid over <axes>`` is an optional readability assertion that
+    // names the batch axes (the complement of ``over``).  The
+    // compiler rejects overlap or unknown names.
+    //
+    // Axis names resolve against the named factors of the
+    // surrounding morphism's dom/cod (or the type annotation on a
+    // ``<-`` or ``observe`` step).  The reserved tokens ``dom`` and
+    // ``cod`` are legal shortcuts only when the corresponding side
+    // is a single unfactored object; for a product-typed side, every
+    // factor must be named explicitly.
+    axis_role_clause: $ => seq(
+      'over',
+      field('over', $._axis_list),
+      optional(seq(
+        'iid', 'over',
+        field('iid_over', $._axis_list),
+      )),
+    ),
+
+    _axis_list: $ => choice(
+      $.identifier,
+      $.axis_tuple,
+    ),
+
+    axis_tuple: $ => seq(
+      '(',
+      commaSep1(field('axis', $.identifier)),
+      ')',
     ),
 
     let_decl: $ => prec.right(seq(
@@ -938,27 +1000,29 @@ module.exports = grammar({
     // continuous / stochastic / discretize / embed declarations
     // ---------------------------------------------------------------
 
-    continuous_decl: $ => seq(
-      'continuous',
+    // Markov-kernel declaration: ``kernel f : A -> B [~ Family
+    // [options] [axes]]``.  Without a ``~`` clause, declares a
+    // lookup-table kernel on finite sets (a categorical kernel
+    // ``A → D(B)`` realised as a learnable matrix of conditional
+    // probabilities).  With a ``~`` clause, declares a parametric
+    // kernel ``A → G(B)`` whose family's parameters are produced
+    // from the input by a parameter network at sample time.  The
+    // optional ``axis_role_clause`` configures the output family's
+    // event/batch decomposition over codomain factors.
+    kernel_decl: $ => seq(
+      'kernel',
       field('name', $.identifier),
       optional(field('replicate', $.replicate_count)),
       ':',
       field('domain', $._type_expr),
       '->',
       field('codomain', $._type_expr),
-      '~',
-      field('family', $.identifier),
-      optional(field('options', $.option_block)),
-    ),
-
-    stochastic_decl: $ => seq(
-      'stochastic',
-      field('name', $.identifier),
-      optional(field('replicate', $.replicate_count)),
-      ':',
-      field('domain', $._type_expr),
-      '->',
-      field('codomain', $._type_expr),
+      optional(seq(
+        '~',
+        field('family', $.identifier),
+        optional(field('options', $.option_block)),
+        optional(field('axes', $.axis_role_clause)),
+      )),
     ),
 
     discretize_decl: $ => seq(
@@ -1358,6 +1422,11 @@ module.exports = grammar({
       '<-',
       field('morphism', $.identifier),
       optional(seq('(', field('args', commaSep1($._draw_arg)), ')')),
+      // Optional axis-role clause configures the draw's event /
+      // batch decomposition over the factors of the type annotation
+      // (``: T``).  Required when the family's event_rank > 0 and
+      // ambiguous from the type alone.
+      optional(field('axes', $.axis_role_clause)),
     ))),
 
     // Scored bind — same shape as `bind_step` but prefixed with
@@ -1385,6 +1454,11 @@ module.exports = grammar({
       '<-',
       field('morphism', $.identifier),
       optional(seq('(', field('args', commaSep1($._draw_arg)), ')')),
+      // Optional axis-role clause configures the event / batch
+      // decomposition of the response tensor.  The plate axis ``:
+      // N`` (and any ``via`` fibration) is the batch; ``over <axes>``
+      // names additional event axes carried by the family.
+      optional(field('axes', $.axis_role_clause)),
     )),
 
     // Scoped marginalisation. Introduces a coordinate `c` bound to a
@@ -1426,6 +1500,13 @@ module.exports = grammar({
       '<-',
       field('morphism', $.identifier),
       optional(seq('(', field('args', commaSep1($._draw_arg)), ')')),
+      // NOTE: ``marginalize`` reserves ``over`` for the grouping
+      // plate (``over G`` / ``over G * H``).  An axis-role clause
+      // on the integration family is therefore NOT spelled with
+      // ``over`` here; if you need joint structure on a continuous
+      // integration variable, lift the draw out into a preceding
+      // ``<-`` step that carries the axis-role clause, then
+      // ``marginalize`` over its name.
       // `over G` declares a single grouping plate; `over G * H`
       // declares a product grouping plate whose flat cardinality is
       // |G|·|H|. The compiler resolves the type-product into a

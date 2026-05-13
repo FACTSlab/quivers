@@ -70,7 +70,7 @@ class QvrLexer(RegexLexer):
                     (
                         "category", "object", "rule",
                         "latent", "observed",
-                        "space", "continuous", "stochastic",
+                        "space", "kernel",
                         "discretize", "embed", "program", "output",
                         "alias", "bundle", "atoms", "schema",
                         "signature", "compressor",

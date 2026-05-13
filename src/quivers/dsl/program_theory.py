@@ -31,7 +31,7 @@ Continuous spaces (mirrors :mod:`quivers.continuous.spaces`):
 
 Top-level declarations:
     ``object_decl`` ``space_decl`` ``morphism_decl``
-    ``continuous_morphism_decl`` ``stochastic_morphism_decl``
+    ``kernel_decl`` ``kernel_decl``
     ``discretize_decl`` ``embed_decl`` ``output_decl``
 
 Edge kinds
@@ -45,7 +45,7 @@ Edge kinds
     ``product_set | coproduct_set -> set_object``;
     ``product_space -> space``: structural recursion into composite types.
 ``domain`` / ``codomain``
-    ``morphism_decl | continuous_morphism_decl | stochastic_morphism_decl ->
+    ``morphism_decl | kernel_decl | kernel_decl ->
     set_object | space``.
 ``output``
     ``program -> output_decl``.
@@ -107,8 +107,8 @@ _OBJECT_KINDS = [
     "object_decl",
     "space_decl",
     "morphism_decl",
-    "continuous_morphism_decl",
-    "stochastic_morphism_decl",
+    "kernel_decl",
+    "kernel_decl",
     "discretize_decl",
     "embed_decl",
     "output_decl",
@@ -130,8 +130,8 @@ _DECL_KINDS = [
     "object_decl",
     "space_decl",
     "morphism_decl",
-    "continuous_morphism_decl",
-    "stochastic_morphism_decl",
+    "kernel_decl",
+    "kernel_decl",
     "discretize_decl",
     "embed_decl",
     "output_decl",
@@ -139,8 +139,8 @@ _DECL_KINDS = [
 
 _MORPHISM_DECL_KINDS = [
     "morphism_decl",
-    "continuous_morphism_decl",
-    "stochastic_morphism_decl",
+    "kernel_decl",
+    "kernel_decl",
     "discretize_decl",
     "embed_decl",
 ]
@@ -439,7 +439,7 @@ def _classify_morphism_kind(morphism: object) -> str:
 
     The compiler's ``_morphisms`` env holds primitive morphisms produced
     by every kind of morphism declaration (``MorphismDecl``,
-    ``ContinuousMorphismDecl``, ``StochasticMorphismDecl``,
+    ``KernelDecl``, ``KernelDecl``,
     ``DiscretizeDecl``, ``EmbedDecl``). Classification routes through
     ``isinstance`` rather than module/class name string-matching so the
     boundaries are explicit.
@@ -456,9 +456,9 @@ def _classify_morphism_kind(morphism: object) -> str:
     if isinstance(morphism, Embed):
         return "embed_decl"
     if isinstance(morphism, StochasticMorphism):
-        return "stochastic_morphism_decl"
+        return "kernel_decl"
     if isinstance(morphism, ContinuousMorphism):
-        return "continuous_morphism_decl"
+        return "kernel_decl"
     return "morphism_decl"
 
 

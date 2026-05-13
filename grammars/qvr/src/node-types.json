@@ -46,6 +46,56 @@
     }
   },
   {
+    "type": "axis_role_clause",
+    "named": true,
+    "fields": {
+      "iid_over": {
+        "multiple": false,
+        "required": false,
+        "types": [
+          {
+            "type": "axis_tuple",
+            "named": true
+          },
+          {
+            "type": "identifier",
+            "named": true
+          }
+        ]
+      },
+      "over": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "axis_tuple",
+            "named": true
+          },
+          {
+            "type": "identifier",
+            "named": true
+          }
+        ]
+      }
+    }
+  },
+  {
+    "type": "axis_tuple",
+    "named": true,
+    "fields": {
+      "axis": {
+        "multiple": true,
+        "required": true,
+        "types": [
+          {
+            "type": "identifier",
+            "named": true
+          }
+        ]
+      }
+    }
+  },
+  {
     "type": "bind_step",
     "named": true,
     "fields": {
@@ -67,6 +117,16 @@
           },
           {
             "type": "signed_number",
+            "named": true
+          }
+        ]
+      },
+      "axes": {
+        "multiple": false,
+        "required": false,
+        "types": [
+          {
+            "type": "axis_role_clause",
             "named": true
           }
         ]
@@ -832,112 +892,6 @@
         "types": [
           {
             "type": "identifier",
-            "named": true
-          }
-        ]
-      }
-    }
-  },
-  {
-    "type": "continuous_decl",
-    "named": true,
-    "fields": {
-      "codomain": {
-        "multiple": false,
-        "required": true,
-        "types": [
-          {
-            "type": "type_atom",
-            "named": true
-          },
-          {
-            "type": "type_coproduct",
-            "named": true
-          },
-          {
-            "type": "type_effect_apply",
-            "named": true
-          },
-          {
-            "type": "type_paren",
-            "named": true
-          },
-          {
-            "type": "type_product",
-            "named": true
-          },
-          {
-            "type": "type_slash",
-            "named": true
-          }
-        ]
-      },
-      "domain": {
-        "multiple": false,
-        "required": true,
-        "types": [
-          {
-            "type": "type_atom",
-            "named": true
-          },
-          {
-            "type": "type_coproduct",
-            "named": true
-          },
-          {
-            "type": "type_effect_apply",
-            "named": true
-          },
-          {
-            "type": "type_paren",
-            "named": true
-          },
-          {
-            "type": "type_product",
-            "named": true
-          },
-          {
-            "type": "type_slash",
-            "named": true
-          }
-        ]
-      },
-      "family": {
-        "multiple": false,
-        "required": true,
-        "types": [
-          {
-            "type": "identifier",
-            "named": true
-          }
-        ]
-      },
-      "name": {
-        "multiple": false,
-        "required": true,
-        "types": [
-          {
-            "type": "identifier",
-            "named": true
-          }
-        ]
-      },
-      "options": {
-        "multiple": false,
-        "required": false,
-        "types": [
-          {
-            "type": "option_block",
-            "named": true
-          }
-        ]
-      },
-      "replicate": {
-        "multiple": false,
-        "required": false,
-        "types": [
-          {
-            "type": "replicate_count",
             "named": true
           }
         ]
@@ -3044,6 +2998,122 @@
     }
   },
   {
+    "type": "kernel_decl",
+    "named": true,
+    "fields": {
+      "axes": {
+        "multiple": false,
+        "required": false,
+        "types": [
+          {
+            "type": "axis_role_clause",
+            "named": true
+          }
+        ]
+      },
+      "codomain": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "type_atom",
+            "named": true
+          },
+          {
+            "type": "type_coproduct",
+            "named": true
+          },
+          {
+            "type": "type_effect_apply",
+            "named": true
+          },
+          {
+            "type": "type_paren",
+            "named": true
+          },
+          {
+            "type": "type_product",
+            "named": true
+          },
+          {
+            "type": "type_slash",
+            "named": true
+          }
+        ]
+      },
+      "domain": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "type_atom",
+            "named": true
+          },
+          {
+            "type": "type_coproduct",
+            "named": true
+          },
+          {
+            "type": "type_effect_apply",
+            "named": true
+          },
+          {
+            "type": "type_paren",
+            "named": true
+          },
+          {
+            "type": "type_product",
+            "named": true
+          },
+          {
+            "type": "type_slash",
+            "named": true
+          }
+        ]
+      },
+      "family": {
+        "multiple": false,
+        "required": false,
+        "types": [
+          {
+            "type": "identifier",
+            "named": true
+          }
+        ]
+      },
+      "name": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "identifier",
+            "named": true
+          }
+        ]
+      },
+      "options": {
+        "multiple": false,
+        "required": false,
+        "types": [
+          {
+            "type": "option_block",
+            "named": true
+          }
+        ]
+      },
+      "replicate": {
+        "multiple": false,
+        "required": false,
+        "types": [
+          {
+            "type": "replicate_count",
+            "named": true
+          }
+        ]
+      }
+    }
+  },
+  {
     "type": "let_binop",
     "named": true,
     "fields": {
@@ -4592,6 +4662,16 @@
             "named": true
           }
         ]
+      },
+      "prior": {
+        "multiple": false,
+        "required": false,
+        "types": [
+          {
+            "type": "morphism_prior",
+            "named": true
+          }
+        ]
       }
     }
   },
@@ -4655,6 +4735,64 @@
           },
           {
             "type": "type_slash",
+            "named": true
+          }
+        ]
+      }
+    }
+  },
+  {
+    "type": "morphism_prior",
+    "named": true,
+    "fields": {
+      "args": {
+        "multiple": true,
+        "required": true,
+        "types": [
+          {
+            "type": ",",
+            "named": false
+          },
+          {
+            "type": "bracket_index_arg",
+            "named": true
+          },
+          {
+            "type": "identifier",
+            "named": true
+          },
+          {
+            "type": "signed_number",
+            "named": true
+          }
+        ]
+      },
+      "axes": {
+        "multiple": false,
+        "required": false,
+        "types": [
+          {
+            "type": "axis_role_clause",
+            "named": true
+          }
+        ]
+      },
+      "family": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "identifier",
+            "named": true
+          }
+        ]
+      },
+      "options": {
+        "multiple": false,
+        "required": false,
+        "types": [
+          {
+            "type": "option_block",
             "named": true
           }
         ]
@@ -4752,6 +4890,16 @@
           },
           {
             "type": "signed_number",
+            "named": true
+          }
+        ]
+      },
+      "axes": {
+        "multiple": false,
+        "required": false,
+        "types": [
+          {
+            "type": "axis_role_clause",
             "named": true
           }
         ]
@@ -5959,10 +6107,6 @@
           "named": true
         },
         {
-          "type": "continuous_decl",
-          "named": true
-        },
-        {
           "type": "contraction_decl",
           "named": true
         },
@@ -5988,6 +6132,10 @@
         },
         {
           "type": "export_decl",
+          "named": true
+        },
+        {
+          "type": "kernel_decl",
           "named": true
         },
         {
@@ -6028,10 +6176,6 @@
         },
         {
           "type": "space_decl",
-          "named": true
-        },
-        {
-          "type": "stochastic_decl",
           "named": true
         },
         {
@@ -6326,92 +6470,6 @@
           },
           {
             "type": "trans_compose",
-            "named": true
-          }
-        ]
-      }
-    }
-  },
-  {
-    "type": "stochastic_decl",
-    "named": true,
-    "fields": {
-      "codomain": {
-        "multiple": false,
-        "required": true,
-        "types": [
-          {
-            "type": "type_atom",
-            "named": true
-          },
-          {
-            "type": "type_coproduct",
-            "named": true
-          },
-          {
-            "type": "type_effect_apply",
-            "named": true
-          },
-          {
-            "type": "type_paren",
-            "named": true
-          },
-          {
-            "type": "type_product",
-            "named": true
-          },
-          {
-            "type": "type_slash",
-            "named": true
-          }
-        ]
-      },
-      "domain": {
-        "multiple": false,
-        "required": true,
-        "types": [
-          {
-            "type": "type_atom",
-            "named": true
-          },
-          {
-            "type": "type_coproduct",
-            "named": true
-          },
-          {
-            "type": "type_effect_apply",
-            "named": true
-          },
-          {
-            "type": "type_paren",
-            "named": true
-          },
-          {
-            "type": "type_product",
-            "named": true
-          },
-          {
-            "type": "type_slash",
-            "named": true
-          }
-        ]
-      },
-      "name": {
-        "multiple": false,
-        "required": true,
-        "types": [
-          {
-            "type": "identifier",
-            "named": true
-          }
-        ]
-      },
-      "replicate": {
-        "multiple": false,
-        "required": false,
-        "types": [
-          {
-            "type": "replicate_count",
             "named": true
           }
         ]
@@ -7437,10 +7495,6 @@
     "named": false
   },
   {
-    "type": "continuous",
-    "named": false
-  },
-  {
     "type": "contraction",
     "named": false
   },
@@ -7542,6 +7596,10 @@
     "named": false
   },
   {
+    "type": "iid",
+    "named": false
+  },
+  {
     "type": "in",
     "named": false
   },
@@ -7559,6 +7617,10 @@
   },
   {
     "type": "iterations",
+    "named": false
+  },
+  {
+    "type": "kernel",
     "named": false
   },
   {
@@ -7720,10 +7782,6 @@
   },
   {
     "type": "start",
-    "named": false
-  },
-  {
-    "type": "stochastic",
     "named": false
   },
   {

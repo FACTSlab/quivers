@@ -45,21 +45,21 @@ object Obs : 16
 # a family of initial distributions indexed by State.
 # ================================================================
 
-stochastic initial : State -> State
+kernel initial : State -> State
 
 # ================================================================
 # TRANSITION KERNEL
 # State-to-state stochastic matrix (stationary , same at each step).
 # ================================================================
 
-stochastic transition : State -> State
+kernel transition : State -> State
 
 # ================================================================
 # EMISSION KERNEL
 # State-to-observation stochastic matrix.
 # ================================================================
 
-stochastic emission : State -> Obs
+kernel emission : State -> Obs
 
 # ================================================================
 # COMPOSED MODELS

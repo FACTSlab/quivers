@@ -36,8 +36,8 @@ type Obs = Euclidean 8
 # Shared between the generative and inference models.
 # ================================================================
 
-continuous transition : State -> State ~ Normal [scale=0.1]
-continuous emission : State -> Obs ~ Normal [scale=0.1]
+kernel transition : State -> State ~ Normal [scale=0.1]
+kernel emission : State -> Obs ~ Normal [scale=0.1]
 
 # ================================================================
 # GENERATIVE MODEL (monadic program)
@@ -58,7 +58,7 @@ program generative_step : State -> State
 # the new observation into the running state estimate.
 # ================================================================
 
-continuous inference_cell : Obs * State -> State ~ Normal [scale=0.1]
+kernel inference_cell : Obs * State -> State ~ Normal [scale=0.1]
 
 # ================================================================
 # INFERENCE MODEL (scan-based filtering)
@@ -77,7 +77,7 @@ let filter = scan(inference_cell)
 # space to check reconstruction quality.
 # ================================================================
 
-continuous decoder : State -> Obs ~ Normal [scale=0.1]
+kernel decoder : State -> Obs ~ Normal [scale=0.1]
 
 let filter_and_reconstruct = scan(inference_cell) >> decoder
 

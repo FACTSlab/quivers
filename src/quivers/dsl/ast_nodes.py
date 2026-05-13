@@ -12,6 +12,60 @@ import didactic.api as dx
 
 
 # ---------------------------------------------------------------------------
+# axis-role surface: per-distribution event / batch axis specification
+# ---------------------------------------------------------------------------
+
+
+class AxisSpec(dx.Model):
+    """Axis-role specification on a distribution clause.
+
+    Surface form: ``over <axes> [iid over <axes>]``.
+
+    ``over`` names the event axes — the axes on which the family's
+    joint structure (an MVN covariance, a MatrixNormal Kronecker pair,
+    a GP kernel) lives.  The axis count must match the family's
+    declared event rank; the positional ordering corresponds
+    positionally to the family's event-axis ordering.
+
+    ``iid_over`` is an optional readability assertion naming the batch
+    axes (the complement of ``over`` in the surrounding morphism's
+    type signature).  Inconsistency with the type signature or with
+    ``over`` is a compile-time error.
+
+    Axis names resolve against the named factors of the surrounding
+    morphism's dom/cod.  The reserved tokens ``dom`` and ``cod`` are
+    legal shortcuts only when the corresponding side is a single
+    unfactored object.
+    """
+
+    over: tuple[str, ...]
+    iid_over: tuple[str, ...] = ()
+    line: int = 0
+    col: int = 0
+
+
+class MorphismPrior(dx.Model):
+    """Parameter prior on a ``latent`` morphism's representing tensor.
+
+    Surface form: ``~ Family(args) [options] [axis_role_clause]``.
+
+    Promotes the declared morphism from a free-parameter point
+    estimate to a random variable whose representing tensor is drawn
+    from the named family at the requested axis-role configuration.
+    Categorically: the morphism becomes the deterministic wrap of a
+    sample from ``family(args)``, with the family's event/batch
+    structure controlled by ``axes``.
+    """
+
+    family: str
+    args: tuple[str | float, ...] = ()
+    options: dict[str, str] = dx.field(default_factory=dict)
+    axes: AxisSpec | None = None
+    line: int = 0
+    col: int = 0
+
+
+# ---------------------------------------------------------------------------
 # type expressions (categorical objects: products and coproducts of finsets)
 # ---------------------------------------------------------------------------
 
@@ -597,6 +651,13 @@ class BindStep(ProgramStep):
     index: TypeExpr | None = None
     mode: Literal["sample", "score", "marginal"] = "sample"
     scope: tuple[ProgramStep, ...] | None = None
+    # Axis-role clause: ``over <axes> [iid over <axes>]`` on the
+    # family invocation.  Configures the event/batch decomposition
+    # of the family over the named axes of the step's type
+    # annotation (``: T``).  Required when ``family.event_rank > 0``
+    # and ambiguous from the annotation alone; rejected at compile
+    # time on mismatch with the family's event rank.
+    axes: AxisSpec | None = None
     # ``over G`` on the marginalize-mode bind declares the grouping
     # plate.  ``over_obj`` is the single plate name; ``over_objs``
     # is the tuple of plate names when the user wrote a type
@@ -1053,6 +1114,11 @@ class MorphismDecl(Statement):
     codomain: TypeExpr
     init_expr: Expr | None = None
     options: dict[str, str] = dx.field(default_factory=dict)
+    # Parameter prior on the morphism's representing tensor.  Legal
+    # only on ``latent`` declarations; promotes the morphism from
+    # a free-parameter point estimate to a random morphism whose
+    # tensor is drawn from the named family.
+    prior: MorphismPrior | None = None
     docs: tuple[str, ...] = ()
     line: int = 0
     col: int = 0
@@ -1114,30 +1180,30 @@ class BundleDecl(Statement):
     kind: Literal["bundle_decl"] = "bundle_decl"
 
 
-class ContinuousMorphismDecl(Statement):
-    """Continuous morphism declaration."""
+class KernelDecl(Statement):
+    """Markov-kernel declaration: ``kernel f : A -> B [~ Family ...]``.
+
+    Without a ``~`` clause, declares a lookup-table kernel on finite
+    sets — a categorical kernel :math:`A \\to D(B)` realised as a
+    learnable matrix of conditional probabilities.
+
+    With a ``~ Family [options] [axes]`` clause, declares a parametric
+    kernel :math:`A \\to G(B)` whose family's parameters are produced
+    from the input by a parameter network at sample time.  The
+    optional ``axes`` clause configures the family's event/batch
+    decomposition over codomain factors.
+    """
 
     name: str
     domain: TypeExpr
     codomain: TypeExpr
-    family: str
+    family: str | None = None
     options: dict[str, str] = dx.field(default_factory=dict)
+    axes: AxisSpec | None = None
     replicate: int | None = None
     line: int = 0
     col: int = 0
-    kind: Literal["continuous_morphism_decl"] = "continuous_morphism_decl"
-
-
-class StochasticMorphismDecl(Statement):
-    """Stochastic morphism declaration."""
-
-    name: str
-    domain: TypeExpr
-    codomain: TypeExpr
-    replicate: int | None = None
-    line: int = 0
-    col: int = 0
-    kind: Literal["stochastic_morphism_decl"] = "stochastic_morphism_decl"
+    kind: Literal["kernel_decl"] = "kernel_decl"
 
 
 class DiscretizeDecl(Statement):

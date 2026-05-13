@@ -69,6 +69,7 @@ from quivers.structural.encoder import (
     make_default_var_init,
 )
 from quivers.structural.decoder import Decoder
+from quivers.stochastic import StochasticMorphism
 from quivers.stochastic.agenda import (
     DeductionSystem,
     InferenceRule,
@@ -107,8 +108,7 @@ from quivers.dsl.ast_nodes import (
     ObjectDecl,
     MorphismDecl,
     SpaceDecl,
-    ContinuousMorphismDecl,
-    StochasticMorphismDecl,
+    KernelDecl,
     AliasDecl,
     BundleDecl,
     DiscretizeDecl,
@@ -743,10 +743,8 @@ class Compiler:
             self._compile_morphism(stmt)
         elif isinstance(stmt, SpaceDecl):
             self._compile_space(stmt)
-        elif isinstance(stmt, ContinuousMorphismDecl):
-            self._compile_continuous_morphism(stmt)
-        elif isinstance(stmt, StochasticMorphismDecl):
-            self._compile_stochastic_morphism(stmt)
+        elif isinstance(stmt, KernelDecl):
+            self._compile_kernel(stmt)
         elif isinstance(stmt, DiscretizeDecl):
             self._compile_discretize(stmt)
         elif isinstance(stmt, EmbedDecl):
@@ -1333,30 +1331,42 @@ class Compiler:
         space = self._resolve_space(decl.space_expr, decl.name)
         self._spaces[decl.name] = space
 
-    def _compile_continuous_morphism(self, decl: ContinuousMorphismDecl) -> None:
-        """Compile a continuous morphism declaration.
+    def _compile_kernel(self, decl: KernelDecl) -> None:
+        """Compile a Markov-kernel declaration ``kernel f : A -> B [~ F ...]``.
 
-        If ``decl.replicate`` is set, creates N independent copies
-        named ``name_0`` through ``name_{N-1}`` and registers the
-        base name as a group.
+        Without a ``~`` clause the declaration is a lookup-table
+        kernel on finite sets, realised as a
+        :class:`quivers.stochastic.StochasticMorphism`.  With a ``~``
+        clause it is a parametric kernel whose family parameters are
+        produced from the input by a parameter network at sample
+        time; the ``decl.axes`` clause configures the family's
+        event/batch decomposition over codomain factors.  Replicate
+        counts produce N independent copies named ``name_0`` through
+        ``name_{N-1}`` with the base name registered as a group.
         """
         if decl.name in self._morphisms:
             raise CompileError(
                 f"morphism {decl.name!r} already declared", decl.line, decl.col
             )
-        domain = self._resolve_any_space(decl.domain)
-        codomain = self._resolve_any_space(decl.codomain)
         count = decl.replicate if decl.replicate is not None else 1
         names = (
             [f"{decl.name}_{i}" for i in range(count)]
             if decl.replicate is not None
             else [decl.name]
         )
-        for name in names:
-            morph = self._make_continuous_morphism(
-                domain, codomain, decl.family, decl.options, decl
-            )
-            self._morphisms[name] = morph
+        if decl.family is None:
+            domain = self._resolve_type(decl.domain)
+            codomain = self._resolve_type(decl.codomain)
+            for name in names:
+                self._morphisms[name] = StochasticMorphism(domain, codomain)
+        else:
+            domain = self._resolve_any_space(decl.domain)
+            codomain = self._resolve_any_space(decl.codomain)
+            for name in names:
+                morph = self._make_continuous_morphism(
+                    domain, codomain, decl.family, decl.options, decl
+                )
+                self._morphisms[name] = morph
         if decl.replicate is not None:
             self._groups[decl.name] = names
 
@@ -1387,28 +1397,6 @@ class Compiler:
         if "temperature" in options:
             kwargs["temperature"] = float(options["temperature"])
         return cls(domain, codomain, **kwargs)
-
-    def _compile_stochastic_morphism(self, decl: StochasticMorphismDecl) -> None:
-        """Compile a stochastic morphism declaration."""
-        if decl.name in self._morphisms:
-            raise CompileError(
-                f"morphism {decl.name!r} already declared", decl.line, decl.col
-            )
-        from quivers.stochastic import StochasticMorphism
-
-        domain = self._resolve_type(decl.domain)
-        codomain = self._resolve_type(decl.codomain)
-        count = decl.replicate if decl.replicate is not None else 1
-        names = (
-            [f"{decl.name}_{i}" for i in range(count)]
-            if decl.replicate is not None
-            else [decl.name]
-        )
-        for name in names:
-            morph = StochasticMorphism(domain, codomain)
-            self._morphisms[name] = morph
-        if decl.replicate is not None:
-            self._groups[decl.name] = names
 
     def _compile_discretize(self, decl: DiscretizeDecl) -> None:
         """Compile a discretize boundary morphism."""
