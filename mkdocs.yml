@@ -211,3 +211,4 @@ nav:
   - Developer Guide:
     - Overview: developer/contributing.md
     - Changelog: developer/changelog.md
+    - Inference benchmarks: developer/inference-benchmarks.md

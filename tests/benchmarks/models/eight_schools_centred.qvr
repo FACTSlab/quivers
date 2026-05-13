@@ -1,0 +1,28 @@
+# Eight Schools (centred parameterisation, scalar measurement sd).
+#
+# Hierarchical Bayes canonical benchmark (Gelman et al. 2013).
+#
+# Prior:    mu  ~ Normal(0, 10)             — global mean effect
+#           tau ~ HalfCauchy(5)              — between-school sd
+#           theta_j ~ Normal(mu, tau)       — per-school latent effect
+# Likelihood: y_j ~ Normal(theta_j, 12)     — observed estimates with
+#                                             a fixed shared sd
+#
+# Simplified from the textbook formulation (which uses per-school
+# measurement sigma_j) so the inline likelihood takes only the
+# latent theta_j; the scalar sigma=12 is roughly the median of the
+# canonical sigma_j vector. The hard funnel-shaped posterior
+# geometry over (mu, tau, theta) is preserved.
+#
+# Tier-2 hierarchical-Bayes stress for mean-field VI.
+
+object School : 8
+
+program eight_schools_centred : School -> School
+    mu <- Normal(0.0, 10.0)
+    tau <- HalfCauchy(5.0)
+    theta : School <- Normal(mu, tau)
+    observe y : School <- Normal(theta, 12.0)
+    return theta
+
+export eight_schools_centred
