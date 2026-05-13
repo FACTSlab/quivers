@@ -1407,6 +1407,227 @@ class ConditionalCategorical(ContinuousMorphism):
         return dist.sample(sample_shape).long()
 
 
+class ConditionalBinomial(ContinuousMorphism):
+    """Conditional Binomial(total_count, probs(x)).
+
+    The ``total_count`` (number of trials) is a fixed
+    hyperparameter set at construction time — typical for binomial
+    likelihoods where ``n`` is known per observation. Only the
+    ``probs`` parameter is learnable.
+
+    Outputs integer counts in ``{0, 1, ..., total_count}``.
+
+    Parameters
+    ----------
+    domain : SetObject or ContinuousSpace
+        Source space.
+    codomain : ContinuousSpace
+        Target space.
+    total_count : int
+        Number of Bernoulli trials per observation.
+    hidden_dim : int
+        Hidden layer width for the parameter source.
+    """
+
+    def __init__(
+        self,
+        domain: AnySpace,
+        codomain: ContinuousSpace,
+        total_count: int = 1,
+        hidden_dim: int = 64,
+    ) -> None:
+        if total_count < 1:
+            raise ValueError(
+                f"ConditionalBinomial: total_count must be >= 1, got {total_count}"
+            )
+        super().__init__(domain, codomain)
+        d = codomain.dim
+        self._d = d
+        self._total_count = int(total_count)
+        self.param_source = _make_source(domain, d, hidden_dim)
+
+    @property
+    def support(self) -> _constraints.Constraint:
+        return _constraints.integer_interval(0, self._total_count)
+
+    def _get_dist(self, x: torch.Tensor) -> D.Binomial:
+        logits = self.param_source(x)
+        return D.Binomial(total_count=self._total_count, logits=logits)
+
+    def log_prob(self, x: torch.Tensor, y: torch.Tensor) -> torch.Tensor:
+        dist = self._get_dist(x)
+        return dist.log_prob(y.float()).sum(dim=-1)
+
+    def rsample(
+        self,
+        x: torch.Tensor,
+        sample_shape: torch.Size = torch.Size(),
+    ) -> torch.Tensor:
+        dist = self._get_dist(x)
+        return dist.sample(sample_shape).long()
+
+
+class ConditionalLogisticNormal(ContinuousMorphism):
+    """Conditional LogisticNormal on the simplex.
+
+    Pushes a Normal(loc(x), scale(x)) draw through the softmax
+    transform to produce a simplex-valued sample. Multivariate
+    analogue of :class:`ConditionalLogitNormal`. Useful as an
+    alternative to :class:`ConditionalDirichlet` when the
+    underlying simplex distribution should be Gaussian in
+    logit space rather than Beta-shaped.
+
+    Parameters
+    ----------
+    domain : SetObject or ContinuousSpace
+        Source space.
+    codomain : ContinuousSpace
+        Target space; ``codomain.dim`` is the simplex dimension.
+    hidden_dim : int
+        Hidden layer width for the parameter source.
+    """
+
+    def __init__(
+        self,
+        domain: AnySpace,
+        codomain: ContinuousSpace,
+        hidden_dim: int = 64,
+    ) -> None:
+        super().__init__(domain, codomain)
+        d = codomain.dim
+        # We use a Normal in (d-1)-dim space and the
+        # StickBreakingTransform to land on the d-simplex.
+        # torch.distributions.LogisticNormal handles this.
+        self.param_source = _make_source(domain, 2 * (d - 1), hidden_dim)
+        self._d = d
+
+    @property
+    def support(self) -> _constraints.Constraint:
+        return _constraints.simplex
+
+    def _get_dist(self, x: torch.Tensor) -> D.LogisticNormal:
+        raw = self.param_source(x)
+        d_minus_1 = self._d - 1
+        loc = raw[..., :d_minus_1]
+        scale = F.softplus(raw[..., d_minus_1:]) + EPS
+        return D.LogisticNormal(loc, scale)
+
+    def log_prob(self, x: torch.Tensor, y: torch.Tensor) -> torch.Tensor:
+        dist = self._get_dist(x)
+        return dist.log_prob(y)
+
+    def rsample(
+        self,
+        x: torch.Tensor,
+        sample_shape: torch.Size = torch.Size(),
+    ) -> torch.Tensor:
+        dist = self._get_dist(x)
+        return dist.rsample(sample_shape)
+
+
+class ConditionalOneHotCategorical(ContinuousMorphism):
+    """Conditional OneHotCategorical(probs(x)).
+
+    Generalises :class:`ConditionalCategorical` to one-hot
+    encoded outputs (vector of zeros with a single one). Useful
+    as a discrete-output observation kernel where downstream
+    code wants a vector rather than an integer index.
+
+    Parameters
+    ----------
+    domain : SetObject or ContinuousSpace
+        Source space.
+    codomain : ContinuousSpace
+        Target space; ``codomain.dim`` is the number of categories.
+    hidden_dim : int
+        Hidden layer width for the parameter source.
+    """
+
+    def __init__(
+        self,
+        domain: AnySpace,
+        codomain: ContinuousSpace,
+        hidden_dim: int = 64,
+    ) -> None:
+        super().__init__(domain, codomain)
+        d = codomain.dim
+        self._d = d
+        self.param_source = _make_source(domain, d, hidden_dim)
+
+    @property
+    def support(self) -> _constraints.Constraint:
+        # torch's OneHotCategorical.support is OneHot(); the
+        # variational guide treats it as a simplex bijector target.
+        return D.OneHotCategorical.support  # type: ignore[return-value]
+
+    def _get_dist(self, x: torch.Tensor) -> D.OneHotCategorical:
+        logits = self.param_source(x)
+        return D.OneHotCategorical(logits=logits)
+
+    def log_prob(self, x: torch.Tensor, y: torch.Tensor) -> torch.Tensor:
+        dist = self._get_dist(x)
+        return dist.log_prob(y.float())
+
+    def rsample(
+        self,
+        x: torch.Tensor,
+        sample_shape: torch.Size = torch.Size(),
+    ) -> torch.Tensor:
+        dist = self._get_dist(x)
+        return dist.sample(sample_shape).float()
+
+
+class ConditionalLKJCholesky(ContinuousMorphism):
+    """Conditional LKJCholesky(dim, concentration(x)).
+
+    Produces lower-triangular Cholesky factors of correlation
+    matrices on the LKJ distribution (Lewandowski-Kurowicka-Joe
+    2009, doi:10.1016/j.jmva.2009.04.008). The matrix dimension
+    is taken from ``codomain.dim``; only the concentration parameter
+    is learnable.
+
+    Parameters
+    ----------
+    domain : SetObject or ContinuousSpace
+        Source space.
+    codomain : ContinuousSpace
+        Target space; ``codomain.dim`` is the correlation-matrix size.
+    hidden_dim : int
+        Hidden layer width for the parameter source.
+    """
+
+    def __init__(
+        self,
+        domain: AnySpace,
+        codomain: ContinuousSpace,
+        hidden_dim: int = 64,
+    ) -> None:
+        super().__init__(domain, codomain)
+        self._matrix_dim = codomain.dim
+        self.param_source = _make_source(domain, 1, hidden_dim)
+
+    @property
+    def support(self) -> _constraints.Constraint:
+        return _constraints.corr_cholesky
+
+    def _get_dist(self, x: torch.Tensor) -> D.LKJCholesky:
+        raw = self.param_source(x)
+        concentration = F.softplus(raw.squeeze(-1)) + 0.1
+        return D.LKJCholesky(dim=self._matrix_dim, concentration=concentration)
+
+    def log_prob(self, x: torch.Tensor, y: torch.Tensor) -> torch.Tensor:
+        dist = self._get_dist(x)
+        return dist.log_prob(y)
+
+    def rsample(
+        self,
+        x: torch.Tensor,
+        sample_shape: torch.Size = torch.Size(),
+    ) -> torch.Tensor:
+        dist = self._get_dist(x)
+        return dist.sample(sample_shape)
+
+
 # ============================================================================
 # optional: generalized Pareto (requires recent torch)
 # ============================================================================
@@ -1650,6 +1871,60 @@ _register_family(
         conditional_class_override=ConditionalCategorical,
     )
 )
+
+_register_family(
+    FamilySpec(
+        name="Binomial",
+        dist_class=D.Binomial,
+        params=(ParamSpec("probs", "sigmoid"),),
+        support=_constraints.nonnegative_integer,
+        discrete=True,
+        output_kind="categorical",
+        docstring="Conditional Binomial(n=total_count, probs(x)) with fixed total_count.",
+        conditional_class_override=ConditionalBinomial,
+    )
+)
+
+
+_register_family(
+    FamilySpec(
+        name="LogisticNormal",
+        dist_class=D.LogisticNormal,
+        params=(ParamSpec("loc", "id"), ParamSpec("scale", "softplus")),
+        support=_constraints.simplex,
+        output_kind="vector",
+        docstring="Conditional LogisticNormal(loc(x), scale(x)) on the simplex.",
+        conditional_class_override=ConditionalLogisticNormal,
+    )
+)
+
+
+_register_family(
+    FamilySpec(
+        name="OneHotCategorical",
+        dist_class=D.OneHotCategorical,
+        params=(ParamSpec("logits", "id", kind="vector"),),
+        support=D.OneHotCategorical.support,
+        discrete=False,  # vector output, not integer-scalar
+        output_kind="vector",
+        docstring="Conditional OneHotCategorical(logits(x)) — one-hot vector output.",
+        conditional_class_override=ConditionalOneHotCategorical,
+    )
+)
+
+
+_register_family(
+    FamilySpec(
+        name="LKJCholesky",
+        dist_class=D.LKJCholesky,
+        params=(ParamSpec("concentration", "softplus_shifted"),),
+        support=_constraints.corr_cholesky,
+        output_kind="matrix",
+        docstring="Conditional LKJCholesky(matrix_dim, concentration(x)) for correlation Cholesky factors.",
+        conditional_class_override=ConditionalLKJCholesky,
+    )
+)
+
 
 if _HAS_GPD:
     _register_family(
