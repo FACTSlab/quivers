@@ -4,120 +4,105 @@ Complete `.qvr` programs spanning neural architectures, probabilistic models, an
 
 All source files are in `docs/examples/source/`.
 
-## Neural Architectures
 
-### [Multi-Layer Bayesian Transformer](transformer.md)
+## Sequence Architectures
 
-A 4-layer Bayesian transformer with multi-head attention (4 independent heads via `replicate` + `fan`) and feed-forward blocks, using the `stack` combinator for deep composition. Each layer has independently-parameterized morphisms.
+Bayesian sequence models for language modelling: each example declares a tokeniser-style embed, a sequence processor, and a Categorical [`lm_head`](../api/continuous/morphisms.md) so the program's `observe` step scores the next- or masked-token target under a Categorical likelihood. Forward sampling via [`MonadicProgram.rsample`](../api/continuous/programs.md) runs the model on synthetic inputs.
 
-**Features:** `embed`, `continuous`, `stack`, `head[4]` replicate, `fan`, `>>`, `let`, `type`
+The Elman SRN (Elman 1990, [doi:10.1207/s15516709cog1402_1](https://doi.org/10.1207/s15516709cog1402_1)) is the same Kleisli morphism `Embedded * Hidden -> Hidden` threaded by [`scan`](../guides/dsl.md#scan-temporal-recurrence) as the vanilla RNN example below: the "context units" of the classical SRN are exactly the `h_{t-1}` argument that `scan` passes into the cell at each step, so there is no separate Elman example.
 
-```qvr
-object Token : 256
-type Latent = Euclidean 64
-type HeadOut = Euclidean 16
-type FFHidden = Euclidean 128
+### [Vanilla RNN Language Model](vanilla-rnn-lm.md)
 
-embed tok_embed : Token -> Latent
+A single-cell recurrent language model. The cell is a Bayesian [Kleisli morphism](https://ncatlab.org/nlab/show/Kleisli+category) `Embedded * Hidden -> Hidden` with Normal weight priors; `scan` threads the hidden state across the token sequence; a Categorical `lm_head` scores the next-token target.
 
-continuous head[4] : Latent -> HeadOut ~ Normal [scale=0.1]
-continuous attn_proj : Latent -> Latent ~ Normal [scale=0.1]
-continuous ff_up : Latent -> FFHidden ~ Normal
-continuous ff_down : FFHidden -> Latent ~ Normal [scale=0.1]
-continuous residual_attn : Latent -> Latent ~ Normal [scale=0.01]
-continuous residual_ff : Latent -> Latent ~ Normal [scale=0.01]
-
-let layer = fan(head) >> attn_proj >> residual_attn >> ff_up >> ff_down >> residual_ff
-let transformer = tok_embed >> stack(layer, 4)
-
-export transformer
-```
-
----
-
-### [Bayesian Vanilla RNN](vanilla-rnn.md)
-
-A recurrent network using `scan` to thread hidden state across the input sequence. The cell has a product domain to accept both the current input and previous hidden state.
-
-**Features:** `embed`, `continuous`, `scan`, `>>` composition, `type`, product domain
+**Distinguishing feature:** [`scan`](../guides/dsl.md#scan-temporal-recurrence) for temporal recurrence over a sequence-valued input.
 
 ```qvr
 object Token : 256
+
 type Embedded = Euclidean 64
 type Hidden = Euclidean 128
-type Output = Euclidean 64
 
 embed tok_embed : Token -> Embedded
 
-continuous cell : Embedded * Hidden -> Hidden ~ Normal [scale=0.1]
-continuous output_proj : Hidden -> Output ~ Normal [scale=0.1]
+kernel cell : Embedded * Hidden -> Hidden ~ Normal [scale=0.1]
+kernel lm_head : Hidden -> Token ~ Categorical
 
-let rnn = tok_embed >> scan(cell) >> output_proj
+let backbone = tok_embed >> scan(cell)
 
-export rnn
+program vanilla_rnn_lm : Token -> Token
+    h <- backbone
+    observe next_token : Token <- lm_head(h)
+    return next_token
+
+export vanilla_rnn_lm
 ```
 
 ---
 
-### [Bayesian LSTM](lstm.md)
+### [LSTM Language Model](lstm-lm.md)
 
-An LSTM cell expressed as a monadic program and wrapped with `scan` for temporal recurrence. Demonstrates gate activations from LogitNormal priors and tanh approximation via `2 * sigmoid(2x) - 1`.
+A Bayesian LSTM ([Hochreiter and Schmidhuber 1997](https://doi.org/10.1162/neco.1997.9.8.1735)). The recurrent cell is a parametric [`program`](../guides/dsl.md#program) that draws the four standard gates (`i`, `f`, `o`, `g`) from `LogitNormal` and `Normal` priors, updates the cell state by `c_t = f_t * c_{t-1} + i_t * g_t`, and emits `h_t = o_t * tanh(c_t)`.
 
-**Features:** `program`, `scan`, `continuous`, `<-`, `let` arithmetic, `sigmoid`, `LogitNormal`, `type`
+**Distinguishing feature:** parametric `program` cell composed with `scan`, exercising `let` arithmetic and the `sigmoid` builtin to realise tanh as `2 * sigmoid(2x) - 1`.
 
 ```qvr
 object Token : 256
+
 type Embedded = Euclidean 64
-type Hidden = Euclidean 64
-type State = Euclidean 128
-type Output = Euclidean 32
+type Hidden = Euclidean 128
 
 embed tok_embed : Token -> Embedded
 
-continuous gate_i : Embedded * State -> Hidden ~ LogitNormal
-continuous gate_f : Embedded * State -> Hidden ~ LogitNormal
-continuous gate_o : Embedded * State -> Hidden ~ LogitNormal
-continuous cell_cand : Embedded * State -> Hidden ~ Normal [scale=0.5]
+kernel gate_i : Embedded * Hidden -> Hidden ~ LogitNormal
+kernel gate_f : Embedded * Hidden -> Hidden ~ LogitNormal
+kernel gate_o : Embedded * Hidden -> Hidden ~ LogitNormal
+kernel cell_cand : Embedded * Hidden -> Hidden ~ Normal [scale=0.5]
+kernel lm_head : Hidden -> Token ~ Categorical
 
-program lstm_cell(x_t, state_prev) : Embedded * State -> State
-    i_gate <- gate_i(x_t, state_prev)
-    f_gate <- gate_f(x_t, state_prev)
-    o_gate <- gate_o(x_t, state_prev)
-    g_cand <- cell_cand(x_t, state_prev)
+program lstm_cell(x_t, c_prev) : Embedded * Hidden -> Hidden
+    i_gate <- gate_i(x_t, c_prev)
+    f_gate <- gate_f(x_t, c_prev)
+    o_gate <- gate_o(x_t, c_prev)
+    g_cand <- cell_cand(x_t, c_prev)
 
-    let c_new = f_gate * g_cand + i_gate * g_cand
+    let c_new = f_gate * c_prev + i_gate * g_cand
     let two_c = 2.0 * c_new
     let sig_2c = sigmoid(two_c)
     let tanh_c = 2.0 * sig_2c - 1.0
     let h_new = o_gate * tanh_c
 
-    return (c_new, h_new)
+    return c_new
 
-continuous output_proj : State -> Output ~ Normal [scale=0.1]
+let backbone = tok_embed >> scan(lstm_cell)
 
-let lstm = tok_embed >> scan(lstm_cell) >> output_proj
+program lstm_lm : Token -> Token
+    h <- backbone
+    observe next_token : Token <- lm_head(h)
+    return next_token
 
-export lstm
+export lstm_lm
 ```
 
 ---
 
-### [Bayesian GRU](gru.md)
+### [GRU Language Model](gru-lm.md)
 
-A Gated Recurrent Unit cell expressed as a monadic program with update and reset gates controlling information flow. Demonstrates inline distribution syntax with `<-`.
+A Bayesian GRU ([Cho et al. 2014](https://doi.org/10.3115/v1/D14-1179)). The cell draws update and reset gates from `LogitNormal`, builds a candidate from the reset-gated previous state via a Normal kernel, and interpolates with the update gate.
 
-**Features:** `program`, `scan`, `continuous`, `<-` bind syntax, `let` arithmetic, `LogitNormal`, `type`
+**Distinguishing feature:** parametric `program` cell with interior `let` arithmetic and indexed Normal arguments, all composed under `scan`.
 
 ```qvr
 object Token : 256
+
 type Embedded = Euclidean 64
 type Hidden = Euclidean 128
-type Output = Euclidean 64
 
 embed tok_embed : Token -> Embedded
 
-continuous gate_z : Embedded * Hidden -> Hidden ~ LogitNormal
-continuous gate_r : Embedded * Hidden -> Hidden ~ LogitNormal
+kernel gate_z : Embedded * Hidden -> Hidden ~ LogitNormal
+kernel gate_r : Embedded * Hidden -> Hidden ~ LogitNormal
+kernel lm_head : Hidden -> Token ~ Categorical
 
 program gru_cell(x_t, h_prev) : Embedded * Hidden -> Hidden
     z <- gate_z(x_t, h_prev)
@@ -132,70 +117,137 @@ program gru_cell(x_t, h_prev) : Embedded * Hidden -> Hidden
 
     return h_new
 
-continuous output_proj : Hidden -> Output ~ Normal [scale=0.1]
+let backbone = tok_embed >> scan(gru_cell)
 
-let gru = tok_embed >> scan(gru_cell) >> output_proj
+program gru_lm : Token -> Token
+    h <- backbone
+    observe next_token : Token <- lm_head(h)
+    return next_token
 
-export gru
+export gru_lm
 ```
 
 ---
 
-### [Bayesian Elman Network](elman-rnn.md)
+### [Bidirectional RNN Masked Language Model](bidirectional-rnn-lm.md)
 
-A Bayesian Elman network decomposing the recurrent cell into a transition stage followed by a near-identity context copy. Demonstrates composition within the scan combinator.
+A bidirectional RNN used as a masked language model in the spirit of [BERT](https://doi.org/10.18653/v1/N19-1423). Two independent recurrent paths scan the sequence forward and backward; the tensor product `@` runs them in parallel in the [Giry monad](https://doi.org/10.1007/BFb0092872)'s Kleisli category, and a Categorical `lm_head` scores the masked-token target from the combined representation.
 
-**Features:** `embed`, `continuous`, `scan`, `>>` composition, product domain, `type`
-
-```qvr
-object Token : 256
-type Embedded = Euclidean 64
-type Hidden = Euclidean 128
-type Output = Euclidean 64
-
-embed tok_embed : Token -> Embedded
-
-continuous transition : Embedded * Hidden -> Hidden ~ Normal [scale=0.1]
-continuous context_copy : Hidden -> Hidden ~ Normal [scale=0.01]
-continuous output_proj : Hidden -> Output ~ Normal [scale=0.1]
-
-let cell = transition >> context_copy
-let elman = tok_embed >> scan(cell) >> output_proj
-
-export elman
-```
-
----
-
-### [Bayesian Bidirectional RNN](bidirectional-rnn.md)
-
-A bidirectional RNN that processes sequences in both directions using `scan`, then combines the final hidden states. The tensor product `@` runs forward and backward paths in parallel.
-
-**Features:** `embed`, `continuous`, `scan`, `@` tensor product, `>>` composition, product domain, `type`
+**Distinguishing feature:** the [tensor product](../guides/morphisms.md) `@` to run the forward and backward Kleisli morphisms in parallel.
 
 ```qvr
 object Token : 256
+
 type Embedded = Euclidean 64
 type FwdHidden = Euclidean 64
 type BwdHidden = Euclidean 64
 type Combined = Euclidean 128
-type Output = Euclidean 32
 
 embed tok_embed : Token -> Embedded
 
-continuous fwd_cell : Embedded * FwdHidden -> FwdHidden ~ Normal [scale=0.1]
+kernel fwd_cell : Embedded * FwdHidden -> FwdHidden ~ Normal [scale=0.1]
+kernel bwd_cell : Embedded * BwdHidden -> BwdHidden ~ Normal [scale=0.1]
+kernel combine : Combined -> Combined ~ Normal [scale=0.1]
+kernel lm_head : Combined -> Token ~ Categorical
 
 let forward_path = tok_embed >> scan(fwd_cell)
-
-continuous bwd_cell : Embedded * BwdHidden -> BwdHidden ~ Normal [scale=0.1]
-
 let backward_path = tok_embed >> scan(bwd_cell)
+let backbone = (forward_path @ backward_path) >> combine
 
-continuous combine : Combined -> Output ~ Normal [scale=0.1]
+program bidirectional_rnn_lm : Token -> Token
+    h <- backbone
+    observe masked_token : Token <- lm_head(h)
+    return masked_token
 
-let birnn = (forward_path @ backward_path) >> combine
+export bidirectional_rnn_lm
+```
 
-export birnn
+---
+
+### [Transformer Language Model](transformer-lm.md)
+
+A four-layer Bayesian transformer ([Vaswani et al. 2017](https://doi.org/10.48550/arXiv.1706.03762)) with four-head attention. The `kernel head[4]` declaration creates four independently-parameterised heads; `fan(head)` runs them in parallel and concatenates outputs, and `stack(layer, 4)` produces four independent transformer blocks.
+
+**Distinguishing feature:** [`stack`](../guides/dsl.md#stack-independent-multi-layer) for independent deep copies and [`fan`](../guides/dsl.md#fan-out-diagonal-morphism) for parallel multi-head attention.
+
+```qvr
+object Token : 256
+
+type Latent = Euclidean 64
+type HeadOut = Euclidean 16
+type FFHidden = Euclidean 128
+
+embed tok_embed : Token -> Latent
+
+kernel head[4] : Latent -> HeadOut ~ Normal [scale=0.1]
+kernel attn_proj : Latent -> Latent ~ Normal [scale=0.1]
+kernel ff_up : Latent -> FFHidden ~ Normal
+kernel ff_down : FFHidden -> Latent ~ Normal [scale=0.1]
+kernel residual_attn : Latent -> Latent ~ Normal [scale=0.01]
+kernel residual_ff : Latent -> Latent ~ Normal [scale=0.01]
+kernel lm_head : Latent -> Token ~ Categorical
+
+let layer = fan(head) >> attn_proj >> residual_attn >> ff_up >> ff_down >> residual_ff
+let backbone = tok_embed >> stack(layer, 4)
+
+program transformer_lm : Token -> Token
+    h <- backbone
+    observe next_token : Token <- lm_head(h)
+    return next_token
+
+export transformer_lm
+```
+
+---
+
+### [Sequence-to-Sequence Model](seq2seq.md)
+
+A single transformer-style encoder-decoder ([Sutskever, Vinyals, and Le 2014](https://doi.org/10.48550/arXiv.1409.3215); [Vaswani et al. 2017](https://doi.org/10.48550/arXiv.1706.03762)) combining both halves in one example. The encoder maps a source sequence to a Latent representation, the decoder maps a target prefix to its own Latent, and a `cross` morphism merges the two streams before the Categorical `lm_head` scores the next target token.
+
+**Distinguishing feature:** simultaneous use of `stack` (deep per-side blocks) and `@` (parallel encoder/decoder composition) to assemble the two halves of an encoder/decoder.
+
+```qvr
+object Source : 256
+object Target : 256
+
+type Latent = Euclidean 64
+type HeadOut = Euclidean 16
+type FFHidden = Euclidean 128
+type Combined = Euclidean 128
+
+embed src_embed : Source -> Latent
+embed tgt_embed : Target -> Latent
+
+kernel enc_head[4] : Latent -> HeadOut ~ Normal [scale=0.1]
+kernel enc_attn_proj : Latent -> Latent ~ Normal [scale=0.1]
+kernel enc_residual_attn : Latent -> Latent ~ Normal [scale=0.01]
+kernel enc_ff_up : Latent -> FFHidden ~ Normal
+kernel enc_ff_down : FFHidden -> Latent ~ Normal [scale=0.1]
+kernel enc_residual_ff : Latent -> Latent ~ Normal [scale=0.01]
+
+kernel dec_head[4] : Latent -> HeadOut ~ Normal [scale=0.1]
+kernel dec_attn_proj : Latent -> Latent ~ Normal [scale=0.1]
+kernel dec_residual_attn : Latent -> Latent ~ Normal [scale=0.01]
+kernel dec_ff_up : Latent -> FFHidden ~ Normal
+kernel dec_ff_down : FFHidden -> Latent ~ Normal [scale=0.1]
+kernel dec_residual_ff : Latent -> Latent ~ Normal [scale=0.01]
+
+kernel cross : Combined -> Combined ~ Normal [scale=0.1]
+kernel lm_head : Combined -> Target ~ Categorical
+
+let enc_block = fan(enc_head) >> enc_attn_proj >> enc_residual_attn >> enc_ff_up >> enc_ff_down >> enc_residual_ff
+let dec_block = fan(dec_head) >> dec_attn_proj >> dec_residual_attn >> dec_ff_up >> dec_ff_down >> dec_residual_ff
+
+let encoder = src_embed >> stack(enc_block, 4)
+let decoder = tgt_embed >> stack(dec_block, 4)
+let backbone = (encoder @ decoder) >> cross
+
+program seq2seq : Source * Target -> Target
+    h <- backbone
+    observe next_token : Target <- lm_head(h)
+    return next_token
+
+export seq2seq
 ```
 
 ---
@@ -533,14 +585,14 @@ export bayesian_regression
 
 The table below shows which DSL features each example demonstrates.
 
-| Example | `program` | `continuous` | `stochastic` | `embed` | `>>` | `@` | `fan` | `stack` | `scan` | `repeat` | `<-` | `let` arith | `observe` | Grammar | Built-ins |
-|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
-| [Transformer](transformer.md) | | ✓ | | ✓ | ✓ | | ✓ | ✓ | | | | | | | |
-| [Vanilla RNN](vanilla-rnn.md) | | ✓ | | ✓ | ✓ | | | | ✓ | | | | | | |
-| [LSTM](lstm.md) | ✓ | ✓ | | ✓ | ✓ | | | | ✓ | | ✓ | ✓ | | | `sigmoid` |
-| [GRU](gru.md) | ✓ | ✓ | | ✓ | ✓ | | | | ✓ | | ✓ | ✓ | | | |
-| [Elman](elman-rnn.md) | | ✓ | | ✓ | ✓ | | | | ✓ | | | | | | |
-| [Bidirectional](bidirectional-rnn.md) | | ✓ | | ✓ | ✓ | ✓ | | | ✓ | | | | | | |
+| Example | `program` | `kernel` | `embed` | `>>` | `@` | `fan` | `stack` | `scan` | `repeat` | `<-` | `let` arith | `observe` | Grammar | Built-ins |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| [Vanilla RNN LM](vanilla-rnn-lm.md) | ✓ | ✓ | ✓ | ✓ | | | | ✓ | | ✓ | | ✓ | | |
+| [LSTM LM](lstm-lm.md) | ✓ | ✓ | ✓ | ✓ | | | | ✓ | | ✓ | ✓ | ✓ | | `sigmoid` |
+| [GRU LM](gru-lm.md) | ✓ | ✓ | ✓ | ✓ | | | | ✓ | | ✓ | ✓ | ✓ | | |
+| [Bidirectional RNN LM](bidirectional-rnn-lm.md) | ✓ | ✓ | ✓ | ✓ | ✓ | | | ✓ | | ✓ | | ✓ | | |
+| [Transformer LM](transformer-lm.md) | ✓ | ✓ | ✓ | ✓ | | ✓ | ✓ | | | ✓ | | ✓ | | |
+| [Seq2Seq](seq2seq.md) | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | | | ✓ | | ✓ | | |
 | [VAE](vae.md) | | ✓ | | ✓ | ✓ | | | ✓ | | | | | | | |
 | [GMM](mixture-model.md) | ✓ | | | | | | | | | | ✓ | ✓ | ✓ | | `softplus` |
 | [HMM (discrete)](hmm.md) | | | ✓ | | ✓ | | | | | ✓ | | | | | |

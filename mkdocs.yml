@@ -112,34 +112,25 @@ nav:
     - Adequacy: semantics/adequacy.md
   - Examples Gallery:
     - Overview: examples/index.md
-    - Neural Architectures:
-      - Overview: examples/transformer.md
-      - Vanilla RNN: examples/vanilla-rnn.md
-      - LSTM: examples/lstm.md
-      - GRU: examples/gru.md
-      - Elman Network: examples/elman-rnn.md
-      - Bidirectional RNN: examples/bidirectional-rnn.md
-    - Sequence-to-Sequence:
-      - Encoder: examples/encoder.md
-      - Decoder: examples/decoder.md
+    - Sequence Architectures:
+      - Vanilla RNN LM: examples/vanilla-rnn-lm.md
+      - LSTM LM: examples/lstm-lm.md
+      - GRU LM: examples/gru-lm.md
+      - Bidirectional RNN LM: examples/bidirectional-rnn-lm.md
+      - Transformer LM: examples/transformer-lm.md
+      - Seq2Seq: examples/seq2seq.md
     - Generative Models:
       - Overview: examples/vae.md
       - Gaussian Mixture Model: examples/mixture-model.md
       - "HMM (Discrete)": examples/hmm.md
       - "HMM (Continuous)": examples/continuous-hmm.md
-    - Time Series and State Space:
-      - "AR(1)": examples/ar1.md
-      - Linear-Gaussian SSM: examples/linear-gaussian-ssm.md
-      - Deep Markov Model: examples/deep-markov.md
-      - Stochastic Volatility: examples/stochastic-volatility.md
-      - Change-Point Detection: examples/changepoint.md
-      - Weibull Survival: examples/survival-weibull.md
     - Formal Grammars:
       - Overview: examples/pcfg.md
       - CCG: examples/ccg.md
       - Lambek Calculus: examples/type-logical.md
       - Multimodal TLG: examples/multimodal-tlg.md
       - Custom Rules: examples/custom-rules.md
+      - Quantifier Scope: examples/quantifier-scope.md
     - Probabilistic Programs:
       - Overview: examples/bayesian-regression.md
       - Event Structure Model: examples/event-structure.md

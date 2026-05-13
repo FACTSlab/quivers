@@ -1,0 +1,34 @@
+# ================================================================
+# Bayesian Vanilla RNN Language Model
+# ================================================================
+#
+# A standard vanilla RNN used as a causal language model. Each
+# time step computes
+#
+#   h_t = f(x_t, h_{t-1})
+#
+# where f is a Bayesian Kleisli morphism with stochastic weights
+# drawn from a Normal prior. The scan combinator threads hidden
+# state across the input sequence; the per-position hidden state
+# is then projected onto the Token vocabulary by a Categorical
+# lm_head, and the next-token target is observed under that
+# Categorical likelihood.
+
+object Token : 256
+
+type Embedded = Euclidean 64
+type Hidden = Euclidean 128
+
+embed tok_embed : Token -> Embedded
+
+kernel cell : Embedded * Hidden -> Hidden ~ Normal [scale=0.1]
+kernel lm_head : Hidden -> Token ~ Categorical
+
+let backbone = tok_embed >> scan(cell)
+
+program vanilla_rnn_lm : Token -> Token
+    h <- backbone
+    observe next_token : Token <- lm_head(h)
+    return next_token
+
+export vanilla_rnn_lm

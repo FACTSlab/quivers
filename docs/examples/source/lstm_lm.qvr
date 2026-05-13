@@ -1,0 +1,59 @@
+# ================================================================
+# Bayesian LSTM Language Model
+# ================================================================
+#
+# A canonical LSTM cell ([Hochreiter and Schmidhuber 1997]
+# (https://doi.org/10.1162/neco.1997.9.8.1735)) wrapped in scan
+# and used as a causal language model.
+#
+# The canonical LSTM equations are
+#
+#   i_t = sigma(W_i [x_t, c_{t-1}])    input gate
+#   f_t = sigma(W_f [x_t, c_{t-1}])    forget gate
+#   o_t = sigma(W_o [x_t, c_{t-1}])    output gate
+#   g_t = phi   (W_g [x_t, c_{t-1}])   cell candidate
+#   c_t = f_t * c_{t-1} + i_t * g_t    cell update
+#   h_t = o_t * tanh(c_t)              hidden state
+#
+# All four gates and the candidate are Bayesian Kleisli morphisms
+# with stochastic weights drawn from the indicated prior. tanh is
+# realised from sigmoid via the identity 2*sigmoid(2x) - 1.
+#
+# scan threads the cell state c_t across the sequence; the
+# Categorical lm_head reads c_T and scores the next-token target.
+
+object Token : 256
+
+type Embedded = Euclidean 64
+type Hidden = Euclidean 128
+
+embed tok_embed : Token -> Embedded
+
+kernel gate_i : Embedded * Hidden -> Hidden ~ LogitNormal
+kernel gate_f : Embedded * Hidden -> Hidden ~ LogitNormal
+kernel gate_o : Embedded * Hidden -> Hidden ~ LogitNormal
+kernel cell_cand : Embedded * Hidden -> Hidden ~ Normal [scale=0.5]
+kernel lm_head : Hidden -> Token ~ Categorical
+
+program lstm_cell(x_t, c_prev) : Embedded * Hidden -> Hidden
+    i_gate <- gate_i(x_t, c_prev)
+    f_gate <- gate_f(x_t, c_prev)
+    o_gate <- gate_o(x_t, c_prev)
+    g_cand <- cell_cand(x_t, c_prev)
+
+    let c_new = f_gate * c_prev + i_gate * g_cand
+    let two_c = 2.0 * c_new
+    let sig_2c = sigmoid(two_c)
+    let tanh_c = 2.0 * sig_2c - 1.0
+    let h_new = o_gate * tanh_c
+
+    return c_new
+
+let backbone = tok_embed >> scan(lstm_cell)
+
+program lstm_lm : Token -> Token
+    h <- backbone
+    observe next_token : Token <- lm_head(h)
+    return next_token
+
+export lstm_lm
