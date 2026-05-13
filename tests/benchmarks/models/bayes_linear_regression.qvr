@@ -1,0 +1,24 @@
+# Bayesian linear regression with a well-conditioned design.
+#
+# Prior:        a, b ~ Normal(0, 1)
+# Likelihood:   y_i ~ Normal(a + b * x_i, sigma)    (sigma known)
+#
+# Unlike `correlated_regression.qvr` the design x_design is sampled
+# from a standard Normal (uncorrelated with the constant), so the
+# posterior over (a, b) is nearly axis-aligned. The closed-form
+# ridge-style posterior mean and covariance are computed in
+# tests/benchmarks/references.bayes_linear_regression_reference.
+#
+# Tier-1 conjugate-recovery benchmark for joint posterior recovery
+# with a clean (no-correlation-pathology) two-parameter geometry.
+
+object Obs : 60
+
+program bayes_linear_regression : Obs -> Obs
+    a <- Normal(0.0, 1.0)
+    b <- Normal(0.0, 1.0)
+    let mu = a + b * x_design
+    observe y : Obs <- Normal(mu, 0.3)
+    return mu
+
+export bayes_linear_regression

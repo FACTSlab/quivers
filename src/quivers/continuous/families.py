@@ -34,6 +34,12 @@ import torch.nn.functional as F
 import torch.distributions as D
 from torch.distributions import constraints as _constraints
 
+from quivers.continuous.family_spec import (
+    FamilySpec,
+    ParamSpec,
+    _RAW_TRANSFORMS as _TRANSFORMS,
+    register as _register_family,
+)
 from quivers.continuous.spaces import (
     ContinuousSpace,
     Euclidean,
@@ -46,32 +52,6 @@ from quivers.continuous.morphisms import (
 from quivers.core._util import EPS
 
 
-# ============================================================================
-# parameter transforms
-# ============================================================================
-
-
-def _identity(x: torch.Tensor) -> torch.Tensor:
-    return x
-
-
-def _softplus(x: torch.Tensor) -> torch.Tensor:
-    return F.softplus(x) + EPS
-
-
-def _softplus_shifted(x: torch.Tensor) -> torch.Tensor:
-    """Positive with minimum 0.1 for concentration-like params."""
-    return F.softplus(x) + 0.1
-
-
-def _exp(x: torch.Tensor) -> torch.Tensor:
-    return x.exp().clamp(min=EPS)
-
-
-def _sigmoid(x: torch.Tensor) -> torch.Tensor:
-    return torch.sigmoid(x)
-
-
 def _lower_bounded(bound: float) -> Callable:
     """Create a transform that ensures output > bound."""
 
@@ -81,14 +61,26 @@ def _lower_bounded(bound: float) -> Callable:
     return transform
 
 
-# registry of named transforms
-_TRANSFORMS: dict[str, Callable] = {
-    "id": _identity,
-    "softplus": _softplus,
-    "softplus_shifted": _softplus_shifted,
-    "exp": _exp,
-    "sigmoid": _sigmoid,
-}
+def _resolve_support(
+    dist_class: type, override: _constraints.Constraint | None
+) -> _constraints.Constraint:
+    """Look up the family's output support from the torch class, or
+    use the user-supplied override. Falls back to ``real`` when
+    neither is available."""
+    if override is not None:
+        return override
+    support = getattr(dist_class, "support", None)
+    if isinstance(support, _constraints.Constraint):
+        return support
+    return _constraints.real
+
+
+def _resolve_discrete(dist_class: type, override: bool | None) -> bool:
+    """Discrete iff the torch distribution lacks reparameterised
+    sampling (``has_rsample == False``)."""
+    if override is not None:
+        return override
+    return not bool(getattr(dist_class, "has_rsample", True))
 
 
 # ============================================================================
@@ -126,12 +118,14 @@ class _IndependentConditional(ContinuousMorphism):
         dist_class: type,
         param_specs: list[tuple[str, Callable]],
         hidden_dim: int = 64,
+        discrete: bool = False,
     ) -> None:
         super().__init__(domain, codomain)
         d = codomain.dim
         self._d = d
         self._dist_class = dist_class
         self._param_specs = param_specs
+        self._discrete = discrete
 
         # total raw parameters: one scalar per spec per codomain dim
         total_raw = len(param_specs) * d
@@ -163,7 +157,8 @@ class _IndependentConditional(ContinuousMorphism):
 
     def log_prob(self, x: torch.Tensor, y: torch.Tensor) -> torch.Tensor:
         dist = self._get_dist(x)
-        return dist.log_prob(y).sum(dim=-1)
+        y_typed = y.float() if self._discrete else y
+        return dist.log_prob(y_typed).sum(dim=-1)
 
     def rsample(
         self,
@@ -171,7 +166,14 @@ class _IndependentConditional(ContinuousMorphism):
         sample_shape: torch.Size = torch.Size(),
     ) -> torch.Tensor:
         dist = self._get_dist(x)
-        return dist.rsample(sample_shape)
+        if self._discrete:
+            return dist.sample(sample_shape).long()
+        if getattr(dist, "has_rsample", True):
+            return dist.rsample(sample_shape)
+        # Continuous but non-reparameterisable (e.g. VonMises). Fall
+        # back to ``.sample()`` — gradients won't flow through the
+        # sample but the distribution still scores log-probabilities.
+        return dist.sample(sample_shape)
 
 
 # ============================================================================
@@ -184,26 +186,44 @@ def _make_family(
     dist_class: type,
     param_specs: list[tuple[str, str]],
     doc: str,
+    *,
+    dsl_name: str | None = None,
+    support: _constraints.Constraint | None = None,
+    discrete: bool | None = None,
 ) -> type:
     """Generate a named conditional distribution class.
+
+    Each call also installs a :class:`FamilySpec` into the unified
+    catalog so the inline (fixed / mixed) call paths and the DSL
+    compiler discover the family automatically.
 
     Parameters
     ----------
     name : str
-        Class name (e.g. "ConditionalCauchy").
+        Class name (e.g. ``"ConditionalCauchy"``).
     dist_class : type
-        The torch.distributions class.
+        The :mod:`torch.distributions` class.
     param_specs : list of (str, str)
-        Parameter specifications as (name, transform_name) pairs.
+        Ordered ``(parameter_name, transform_name)`` pairs.
     doc : str
         Class docstring.
+    dsl_name : str, optional
+        DSL key. Defaults to ``name.removeprefix("Conditional")``.
+    support : Constraint, optional
+        Output support. Auto-detected from ``dist_class.support`` if
+        absent.
+    discrete : bool, optional
+        Whether the family is discrete. Auto-detected from
+        ``not dist_class.has_rsample`` if absent.
 
     Returns
     -------
     type
-        A new ContinuousMorphism subclass.
+        A new :class:`ContinuousMorphism` subclass.
     """
     resolved_specs = [(pname, _TRANSFORMS[tname]) for pname, tname in param_specs]
+    is_discrete = _resolve_discrete(dist_class, discrete)
+    out_support = _resolve_support(dist_class, support)
 
     class _Cls(_IndependentConditional):
         __doc__ = doc
@@ -220,10 +240,28 @@ def _make_family(
                 dist_class,
                 resolved_specs,
                 hidden_dim,
+                discrete=is_discrete,
             )
 
     _Cls.__name__ = name
     _Cls.__qualname__ = name
+
+    if dsl_name is None:
+        dsl_name = name.removeprefix("Conditional")
+    _register_family(
+        FamilySpec(
+            name=dsl_name,
+            dist_class=dist_class,
+            params=tuple(
+                ParamSpec(name=pname, transform=tname) for pname, tname in param_specs
+            ),
+            support=out_support,
+            discrete=is_discrete,
+            output_kind="independent",
+            docstring=doc,
+            conditional_class_override=_Cls,
+        )
+    )
     return _Cls
 
 
@@ -721,6 +759,45 @@ ConditionalFisherSnedecor = _make_family(
     D.FisherSnedecor,
     [("df1", "softplus_shifted"), ("df2", "softplus_shifted")],
     "Conditional FisherSnedecor(df1(x), df2(x)). F-distribution, ratio of chi-squared.",
+)
+
+# -- discrete count distributions --------------------------------------------
+
+ConditionalPoisson = _make_family(
+    "ConditionalPoisson",
+    D.Poisson,
+    [("rate", "softplus")],
+    "Conditional Poisson(rate(x)). Discrete, non-negative integer counts.",
+)
+
+ConditionalGeometric = _make_family(
+    "ConditionalGeometric",
+    D.Geometric,
+    [("probs", "sigmoid")],
+    "Conditional Geometric(probs(x)). Number of failures before first success.",
+)
+
+ConditionalNegativeBinomial = _make_family(
+    "ConditionalNegativeBinomial",
+    D.NegativeBinomial,
+    [("total_count", "softplus_shifted"), ("probs", "sigmoid")],
+    "Conditional NegativeBinomial(total_count(x), probs(x)). "
+    "Discrete, over-dispersed count distribution.",
+)
+
+# -- circular distributions --------------------------------------------------
+
+# VonMises is continuous (angles on the real line) but torch flags it
+# ``has_rsample=False`` because reparameterised gradients are not
+# implemented. Override the discrete-detection so the conditional
+# class uses ``.sample()`` without casting to long.
+ConditionalVonMises = _make_family(
+    "ConditionalVonMises",
+    D.VonMises,
+    [("loc", "id"), ("concentration", "softplus")],
+    "Conditional VonMises(loc(x), concentration(x)). "
+    "Circular analogue of the Normal distribution.",
+    discrete=False,
 )
 
 # -- uniform distribution (special parameterization) -------------------------
@@ -1386,3 +1463,207 @@ try:
 
 except AttributeError:
     _HAS_GPD = False
+
+
+# ============================================================================
+# FamilySpec registrations for hand-written classes
+# ============================================================================
+#
+# The factory-generated families (Cauchy, Laplace, ..., VonMises) are
+# registered inside :func:`_make_family`. The hand-written specials
+# below (Normal, LogitNormal, Beta, TruncatedNormal, Dirichlet, Uniform,
+# MultivariateNormal, LowRankMVN, RelaxedBernoulli,
+# RelaxedOneHotCategorical, Wishart, Bernoulli, Categorical) require
+# explicit registration. Each :class:`FamilySpec` records the same
+# canonical info the factory-generated ones do; the
+# ``conditional_class_override`` field carries the hand-written class
+# so the unified catalog can build a ConditionalX from any DSL name.
+
+
+_register_family(
+    FamilySpec(
+        name="Normal",
+        dist_class=D.Normal,
+        params=(ParamSpec("loc", "id"), ParamSpec("scale", "softplus")),
+        support=_constraints.real,
+        output_kind="independent",
+        docstring="Conditional Normal(loc(x), scale(x)).",
+        conditional_class_override=ConditionalNormal,
+    )
+)
+
+_register_family(
+    FamilySpec(
+        name="LogitNormal",
+        dist_class=D.TransformedDistribution,
+        params=(ParamSpec("mu", "id"), ParamSpec("sigma", "softplus")),
+        support=_constraints.unit_interval,
+        output_kind="independent",
+        docstring="LogitNormal(mu(x), sigma(x)) — Normal pushed through sigmoid.",
+        conditional_class_override=ConditionalLogitNormal,
+    )
+)
+
+_register_family(
+    FamilySpec(
+        name="Beta",
+        dist_class=D.Beta,
+        params=(
+            ParamSpec("concentration1", "softplus_shifted"),
+            ParamSpec("concentration0", "softplus_shifted"),
+        ),
+        support=_constraints.unit_interval,
+        output_kind="independent",
+        docstring="Conditional Beta(alpha(x), beta(x)) on (0, 1).",
+        conditional_class_override=ConditionalBeta,
+    )
+)
+
+_register_family(
+    FamilySpec(
+        name="TruncatedNormal",
+        dist_class=D.Normal,  # surrogate; inline path handles truncation
+        params=(
+            ParamSpec("mu", "id"),
+            ParamSpec("sigma", "softplus"),
+        ),
+        support=_constraints.real,  # interval set per-call when bounds are literal
+        output_kind="independent",
+        docstring="TruncatedNormal(mu(x), sigma(x), low, high) — Normal truncated to [low, high].",
+        conditional_class_override=ConditionalTruncatedNormal,
+    )
+)
+
+_register_family(
+    FamilySpec(
+        name="Dirichlet",
+        dist_class=D.Dirichlet,
+        params=(ParamSpec("concentration", "softplus_shifted", kind="vector"),),
+        support=_constraints.simplex,
+        output_kind="vector",
+        docstring="Conditional Dirichlet(alpha(x)) on the simplex.",
+        conditional_class_override=ConditionalDirichlet,
+    )
+)
+
+_register_family(
+    FamilySpec(
+        name="Uniform",
+        dist_class=D.Uniform,
+        params=(ParamSpec("low", "id"), ParamSpec("high", "id")),
+        support=_constraints.real,  # interval set per-call when bounds are literal
+        output_kind="independent",
+        docstring="Conditional Uniform(low(x), high(x)).",
+        conditional_class_override=ConditionalUniform,
+    )
+)
+
+_register_family(
+    FamilySpec(
+        name="MultivariateNormal",
+        dist_class=D.MultivariateNormal,
+        params=(ParamSpec("loc", "id"), ParamSpec("scale_tril", "id")),
+        support=_constraints.real_vector,
+        output_kind="mvn",
+        docstring="Conditional MultivariateNormal(loc(x), scale_tril(x)).",
+        conditional_class_override=ConditionalMultivariateNormal,
+    )
+)
+
+_register_family(
+    FamilySpec(
+        name="LowRankMVN",
+        dist_class=D.LowRankMultivariateNormal,
+        params=(
+            ParamSpec("loc", "id"),
+            ParamSpec("cov_factor", "id"),
+            ParamSpec("cov_diag", "softplus"),
+        ),
+        support=_constraints.real_vector,
+        output_kind="mvn",
+        docstring="Conditional LowRankMVN(loc(x), W(x), D(x)) — Σ = W W^T + diag(D).",
+        conditional_class_override=ConditionalLowRankMVN,
+    )
+)
+
+_register_family(
+    FamilySpec(
+        name="RelaxedBernoulli",
+        dist_class=D.RelaxedBernoulli,
+        params=(ParamSpec("temperature", "softplus"), ParamSpec("logits", "id")),
+        support=_constraints.unit_interval,
+        output_kind="independent",
+        docstring="RelaxedBernoulli(temperature, logits(x)) — Gumbel-softmax / continuous Bernoulli.",
+        conditional_class_override=ConditionalRelaxedBernoulli,
+    )
+)
+
+_register_family(
+    FamilySpec(
+        name="RelaxedOneHotCategorical",
+        dist_class=D.RelaxedOneHotCategorical,
+        params=(ParamSpec("temperature", "softplus"), ParamSpec("logits", "id", kind="vector")),
+        support=_constraints.simplex,
+        output_kind="vector",
+        docstring="RelaxedOneHotCategorical(temperature, logits(x)) — Gumbel-softmax on the simplex.",
+        conditional_class_override=ConditionalRelaxedOneHotCategorical,
+    )
+)
+
+_register_family(
+    FamilySpec(
+        name="Wishart",
+        dist_class=D.Wishart,
+        params=(
+            ParamSpec("df", "softplus_shifted"),
+            ParamSpec("scale_tril", "id"),
+        ),
+        support=_constraints.positive_definite,
+        output_kind="matrix",
+        docstring="Conditional Wishart(df(x), scale_tril(x)) — positive-definite matrices.",
+        conditional_class_override=ConditionalWishart,
+    )
+)
+
+_register_family(
+    FamilySpec(
+        name="Bernoulli",
+        dist_class=D.Bernoulli,
+        params=(ParamSpec("probs", "sigmoid"),),
+        support=_constraints.boolean,
+        discrete=True,
+        output_kind="categorical",
+        docstring="Conditional Bernoulli(probs(x)).",
+        conditional_class_override=ConditionalBernoulli,
+    )
+)
+
+_register_family(
+    FamilySpec(
+        name="Categorical",
+        dist_class=D.Categorical,
+        params=(ParamSpec("logits", "id", kind="vector"),),
+        support=_constraints.nonnegative_integer,
+        discrete=True,
+        output_kind="categorical",
+        docstring="Conditional Categorical(logits(x)) over {0, ..., k-1}.",
+        conditional_class_override=ConditionalCategorical,
+    )
+)
+
+if _HAS_GPD:
+    _register_family(
+        FamilySpec(
+            name="GeneralizedPareto",
+            dist_class=_GPD,  # type: ignore[name-defined]
+            params=(
+                ParamSpec("loc", "id"),
+                ParamSpec("scale", "softplus"),
+                ParamSpec("concentration", "id"),
+            ),
+            support=_constraints.real,
+            output_kind="independent",
+            docstring="Conditional GeneralizedPareto(loc(x), scale(x), concentration(x)).",
+            conditional_class_override=ConditionalGeneralizedPareto,  # type: ignore[name-defined]
+        )
+    )

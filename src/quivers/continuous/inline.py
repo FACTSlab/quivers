@@ -17,6 +17,16 @@ Terminology
 - **Direct**: some or all parameters come from bound variables at
   runtime. The morphism uses the input tensor directly as
   distribution parameters (no learned neural-net transformation).
+
+Architecture
+------------
+Each family is described once by a :class:`FamilySpec` in
+:mod:`quivers.continuous.family_spec`. The factories and builders
+below dispatch on the registered spec rather than maintaining
+per-family hard-coded functions; specials (truncated, Dirichlet,
+uniform, transformed) override the generic dispatch by setting
+``fixed_factory_override`` / ``mixed_builder_override`` on their
+FamilySpec entry.
 """
 
 from __future__ import annotations
@@ -28,6 +38,11 @@ from torch.distributions import constraints as _constraints
 from quivers.core.objects import Unit
 from quivers.continuous.spaces import Euclidean
 from quivers.continuous.morphisms import ContinuousMorphism, AnySpace
+from quivers.continuous.family_spec import (
+    FAMILY_REGISTRY,
+    FamilySpec,
+    ParamSpec,
+)
 from quivers.core._util import EPS
 
 
@@ -89,7 +104,10 @@ class FixedDistribution(ContinuousMorphism):
         dist = self._make_dist_fn(batch, x.device)
         if self._discrete:
             return dist.sample(sample_shape).long()
-        return dist.rsample(sample_shape)
+        if getattr(dist, "has_rsample", True):
+            return dist.rsample(sample_shape)
+        # Continuous but non-reparameterisable (e.g. VonMises).
+        return dist.sample(sample_shape)
 
     def log_prob(self, x: torch.Tensor, y: torch.Tensor) -> torch.Tensor:
         """Log-probability under the fixed distribution.
@@ -224,8 +242,14 @@ class MixedInlineDistribution(ContinuousMorphism):
         params = self._resolve_params(x)
         dist = self._dist_builder(params)
         if self._discrete:
+            # Discrete samples are kept at the distribution's native
+            # batch shape; downstream code unpacks as needed.
             return dist.sample(sample_shape).long()
-        result = dist.rsample(sample_shape)
+        if getattr(dist, "has_rsample", True):
+            result = dist.rsample(sample_shape)
+        else:
+            # Continuous but non-reparameterisable (e.g. VonMises).
+            result = dist.sample(sample_shape)
         if result.dim() == 1:
             result = result.unsqueeze(-1)
         return result
@@ -1146,3 +1170,126 @@ def _infer_domain(
     if any((isinstance(c, ContinuousSpace) for c in components)):
         return ProductSpace(components=tuple(components))
     return ProductSet(components=tuple(components))
+
+
+# ---------------------------------------------------------------------------
+# Auto-generated inline support from :data:`FAMILY_REGISTRY`.
+#
+# For every registered family with ``output_kind == "independent"``
+# that isn't already in the hand-written dicts, build a generic
+# :class:`FixedDistribution` factory and a matching mixed-mode
+# builder.  This is the architectural seam that closes the gap
+# between the conditional path and the inline path: a family
+# declared once via :func:`quivers.continuous.family_spec.register`
+# automatically becomes usable in DSL ``F(args)`` syntax.
+# ---------------------------------------------------------------------------
+
+
+def _build_generic_fixed_factory(spec: FamilySpec) -> Callable:
+    """Return a fixed-factory callable matching the
+    ``make_fixed_X(literal_args..., codomain)`` calling convention.
+
+    The factory broadcasts each scalar literal to ``(batch, d)``
+    where ``d = getattr(codomain, "dim", 1)`` and clamps the value
+    by the per-parameter inline clamp before passing it to the
+    underlying torch distribution.  Discrete families have their
+    output cast to ``long`` by :class:`FixedDistribution`.
+    """
+
+    def factory(*all_args) -> FixedDistribution:
+        # Match the existing factory convention from
+        # ``make_inline_distribution``: positional literals followed
+        # by the codomain as the final positional argument.
+        if len(all_args) != len(spec.params) + 1:
+            raise ValueError(
+                f"inline {spec.name} expects "
+                f"{len(spec.params)} literal args "
+                f"({', '.join(spec.param_names)}) plus codomain; "
+                f"got {len(all_args)} args"
+            )
+        *literal_args, codomain = all_args
+        d = getattr(codomain, "dim", 1)
+        clamped_floats = []
+        for param, val in zip(spec.params, literal_args):
+            f = float(val)
+            clamped_floats.append(
+                float(param.inline_clamp(torch.tensor(f)).item())
+            )
+
+        def builder(batch: int, device: torch.device) -> D.Distribution:
+            kwargs = {}
+            for param, val in zip(spec.params, clamped_floats):
+                kwargs[param.name] = torch.full(
+                    (batch, d), val, device=device
+                )
+            return spec.dist_class(**kwargs)
+
+        return FixedDistribution(
+            codomain,
+            builder,
+            discrete=spec.discrete,
+            support=spec.support,
+        )
+
+    return factory
+
+
+def _build_generic_mixed_builder(spec: FamilySpec) -> Callable:
+    """Return a mixed-mode builder accepting a list of resolved
+    parameter tensors and returning a torch distribution.
+
+    Each tensor is passed through the per-parameter inline clamp
+    before construction.
+    """
+
+    def builder(params: list[torch.Tensor]) -> D.Distribution:
+        if len(params) != len(spec.params):
+            raise ValueError(
+                f"inline {spec.name} mixed builder expects "
+                f"{len(spec.params)} tensors; got {len(params)}"
+            )
+        kwargs = {}
+        for param, t in zip(spec.params, params):
+            kwargs[param.name] = param.inline_clamp(t)
+        return spec.dist_class(**kwargs)
+
+    return builder
+
+
+def _auto_register_inline(spec: FamilySpec) -> None:
+    """Populate the inline dicts for ``spec`` unless a hand-written
+    entry is already present (the hand-written entries declared
+    above take precedence over the auto-generated ones).
+
+    Skips families whose output is not per-dimension independent —
+    Dirichlet, Multivariate, OneHot, Wishart, etc. need special
+    construction logic that the generic factory can't synthesise.
+    """
+    if spec.name in _FIXED_FACTORIES or spec.name in _FAMILY_BUILDERS:
+        return  # hand-written entry takes precedence
+    if spec.output_kind != "independent":
+        return  # specials must be hand-written
+    factory = _build_generic_fixed_factory(spec)
+    builder = _build_generic_mixed_builder(spec)
+    _FIXED_FACTORIES[spec.name] = (spec.param_names, factory)
+    _FAMILY_BUILDERS[spec.name] = (spec.param_names, builder, spec.discrete)
+    _FAMILY_SUPPORTS[spec.name] = spec.support
+
+
+# Ensure :mod:`quivers.continuous.families` has registered every
+# family before we walk the registry. Imported here rather than at
+# module top to break the import cycle (families.py imports inline
+# indirectly via the DSL compiler).
+from quivers.continuous import families as _families  # noqa: E402, F401
+
+for _spec in FAMILY_REGISTRY.values():
+    _auto_register_inline(_spec)
+
+
+def reload_inline_registry() -> None:
+    """Refresh the inline dicts from
+    :data:`quivers.continuous.family_spec.FAMILY_REGISTRY`. Useful
+    when new families are registered after :mod:`inline` has
+    imported (test plugins, downstream extensions)."""
+    for spec in FAMILY_REGISTRY.values():
+        _auto_register_inline(spec)
