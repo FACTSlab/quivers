@@ -127,13 +127,19 @@ nav:
       - Gaussian Mixture Model: examples/mixture-model.md
       - "HMM (Discrete)": examples/hmm.md
       - "HMM (Continuous)": examples/continuous-hmm.md
+    - Time Series and State Space:
+      - "AR(1)": examples/ar1.md
+      - Linear-Gaussian SSM: examples/linear-gaussian-ssm.md
+      - Deep Markov Model: examples/deep-markov.md
+      - Stochastic Volatility: examples/stochastic-volatility.md
+      - Change-Point Detection: examples/changepoint.md
+      - Weibull Survival: examples/survival-weibull.md
     - Formal Grammars:
       - Overview: examples/pcfg.md
       - CCG: examples/ccg.md
       - Lambek Calculus: examples/type-logical.md
       - Multimodal TLG: examples/multimodal-tlg.md
       - Custom Rules: examples/custom-rules.md
-      - Quantifier Scope: examples/quantifier-scope.md
     - Probabilistic Programs:
       - Overview: examples/bayesian-regression.md
       - Event Structure Model: examples/event-structure.md

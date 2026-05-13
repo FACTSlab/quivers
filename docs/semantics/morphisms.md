@@ -45,10 +45,10 @@ a morphism $Y \to Z$. Equivalently, it is the postcomposition with the $\mathcal
 
 ## 2. Stochastic morphisms
 
-A `kernel` declaration with finite-set codomain and no `~ Family` clause,
+A `stochastic` declaration
 
 ```
-kernel kern : τ₁ -> τ₂
+stochastic kern : τ₁ -> τ₂
 ```
 
 denotes a morphism of $\mathbf{Stoch}$, i.e.\ a row-stochastic $|{\llbracket \tau_1 \rrbracket}| \times |{\llbracket \tau_2 \rrbracket}|$ matrix (each row $\llbracket \mathrm{kern} \rrbracket(x, \cdot)$ is a probability distribution over $\llbracket \tau_2 \rrbracket$):
@@ -73,7 +73,7 @@ Note that $\mathbf{Stoch}$ is *not* a sub-category of $\mathcal{V}_{\mathrm{pf}}
 Continuous distribution families *parameterised* by a finite set, declared with
 
 ```
-kernel f : τ₁ -> σ ~ Family
+continuous f : τ₁ -> σ ~ Family
 ```
 
 denote morphisms of $\mathbf{Kern}$:
@@ -88,10 +88,10 @@ where $\theta : \llbracket \tau_1 \rrbracket \to \Theta$ is the family's paramet
 
 ## 3. Continuous morphisms
 
-A `kernel` declaration whose source is itself a space, e.g.
+A `continuous` declaration whose source is itself a space, e.g.
 
 ```
-kernel g : σ₁ -> σ₂ ~ Family
+continuous g : σ₁ -> σ₂ ~ Family
 ```
 
 denotes a Markov kernel between standard Borel spaces:
