@@ -142,4 +142,4 @@ Three things:
 
 ## Next
 
-Chapter 2 lifts this model to a generalised linear model: logistic and Poisson regression, with link functions and posterior-predictive calibration plots.
+[Chapter 2](02-glms.md) lifts this model to a generalised linear model: logistic and Poisson regression, with link functions and posterior-predictive calibration plots.

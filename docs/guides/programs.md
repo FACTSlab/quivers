@@ -113,6 +113,7 @@ The return value's shape determines the codomain. Tuples are bare-positional; th
 ## Domains and Codomains
 
 Domains can be:
+
 - A single `FinSet` or `ContinuousSpace`
 - A product of sets/spaces: `X * Y * Z`
 - Named parameters: the domain is the product, but variables can refer to sub-components

@@ -21,17 +21,17 @@ VI is fast and scales; MCMC is unbiased and respects curvature. Hybrids try to g
 
 ```mermaid
 flowchart TD
-    start([Posterior shape]) --> id{Identifiable,<br/>weak correlation?}
-    id -- yes --> normal[AutoNormalGuide<br/><i>default</i>]
-    id -- no  --> corr{Strong correlations?}
-    corr -- yes --> dim{D &lt; 500?}
-    dim -- yes --> mvn[AutoMultivariateNormalGuide]
-    dim -- no  --> lr[AutoLowRankMultivariateNormalGuide]
-    corr -- no  --> multi{Multimodal?}
-    multi -- yes --> mix[AutoMixtureGuide<br/><i>or</i> AutoNormalizingFlow<br/><i>or</i> AutoIAFGuide]
-    multi -- no  --> tails{Non-Gaussian tails?}
-    tails -- yes --> flow[AutoIAFGuide<br/><i>or</i> AutoNeuralSplineGuide]
-    tails -- no  --> normal2[back to AutoNormalGuide]
+    start(["Posterior shape"]) --> id{"Identifiable,<br/>weak correlation?"}
+    id -- yes --> normal["AutoNormalGuide<br/>default"]
+    id -- no  --> corr{"Strong correlations?"}
+    corr -- yes --> dim{"D less than 500?"}
+    dim -- yes --> mvn["AutoMultivariateNormalGuide"]
+    dim -- no  --> lr["AutoLowRankMultivariateNormalGuide"]
+    corr -- no  --> multi{"Multimodal?"}
+    multi -- yes --> mix["AutoMixtureGuide<br/>or AutoNormalizingFlow<br/>or AutoIAFGuide"]
+    multi -- no  --> tails{"Non-Gaussian tails?"}
+    tails -- yes --> flow["AutoIAFGuide<br/>or AutoNeuralSplineGuide"]
+    tails -- no  --> normal2["back to AutoNormalGuide"]
 ```
 
 The shipped guides:
@@ -164,4 +164,4 @@ Whenever you're unsure which guide handles a model shape, look at
 
 ## Next
 
-Chapter 7 (optional reading) peeks under the hood at the categorical machinery: quantales, change-of-base, enriched composition. Useful if you want to extend the library or understand the type-error messages fluently. If you're happy with the DSL surface, you can stop here.
+[Chapter 7](07-categorical.md) (optional reading) peeks under the hood at the categorical machinery: quantales, change-of-base, enriched composition. Useful if you want to extend the library or understand the type-error messages fluently. If you're happy with the DSL surface, you can stop here.

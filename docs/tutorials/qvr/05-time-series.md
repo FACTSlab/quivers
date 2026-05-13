@@ -123,4 +123,4 @@ The `KalmanSmoother` family computes the marginal likelihood of the observation 
 
 ## Next
 
-Chapter 6 surveys the inference algorithms: nine variational guides, four objectives, HMC and NUTS, two hybrid samplers. We'll work out which combination fits which kind of model.
+[Chapter 6](06-inference-zoo.md) surveys the inference algorithms: nine variational guides, four objectives, HMC and NUTS, two hybrid samplers. We'll work out which combination fits which kind of model.

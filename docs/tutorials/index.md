@@ -2,7 +2,7 @@
 
 Quivers exposes the same model through two surfaces: a `.qvr` DSL aimed at people who write probabilistic programs, and a typed Python API aimed at people who build libraries on top of the category-theoretic core. These tutorials are organised into two parallel tracks accordingly. Pick the one that matches what you're trying to do.
 
-## QVR DSL track, for probabilistic-programming users
+## QVR DSL track
 
 If you have written a model in Pyro, NumPyro, Stan, or PyMC and want to do the same thing in quivers, start here. The `.qvr` syntax is the primary user-facing surface: you declare types, write a `program` block whose steps look like `v <- Normal(0, 1)` or `observe y <- Bernoulli(p)`, and fit it with SVI or NUTS. Category theory is mostly invisible; the categorical machinery is the implementation, not the API.
 
@@ -18,7 +18,7 @@ Each chapter shows the QVR version of a familiar model alongside its Pyro / NumP
 
 You can read the first six chapters without touching category theory. Chapter 7 is the bridge to the Python API track.
 
-## Python API track, for library developers and category-theory-fluent users
+## Python API track
 
 The Python API gives you direct access to the typed categorical surface: `FinSet`, `Morphism`, `Quantale`, `MonadicProgram`, the inference primitives, the structural-compression building blocks. Use this track if you are building tooling on top of quivers, extending the categorical machinery, or want to understand what the DSL compiles into.
 

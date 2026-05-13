@@ -6,12 +6,12 @@ The inference subpackage is a six-layer stack, each layer consumable independent
 
 ```mermaid
 flowchart TB
-    L6[<b>Layer 6</b>: SVI / MCMC / Predictive drivers]
-    L5[<b>Layer 5</b>: Hybrid samplers<br/>AutoDAIS, WarmupThenHMC]
-    L4[<b>Layer 4</b>: Guides Auto*Guide  |  MCMC kernels HMC, NUTS]
-    L3[<b>Layer 3</b>: Objectives ELBO / IWAE / Renyi / VR-IWAE<br/>× Estimators Reparam / StL / DReG / Score]
-    L2[<b>Layer 2</b>: Transforms / normalising-flow primitives<br/>affine coupling, MAF, IAF, NSF, BN, LU]
-    L1[<b>Layer 1</b>: LatentRegistry<br/>model introspection: support, dims, plate, parent]
+    L6["Layer 6: SVI, MCMC, Predictive drivers"]
+    L5["Layer 5: Hybrid samplers<br/>AutoDAIS, WarmupThenHMC"]
+    L4["Layer 4: Guides Auto*Guide and MCMC kernels HMC, NUTS"]
+    L3["Layer 3: Objectives ELBO, IWAE, Renyi, VR-IWAE<br/>times Estimators Reparam, StL, DReG, Score"]
+    L2["Layer 2: Transforms and normalising-flow primitives<br/>affine coupling, MAF, IAF, NSF, BN, LU"]
+    L1["Layer 1: LatentRegistry<br/>model introspection of support, dims, plate, parent"]
     L6 --> L5 --> L4 --> L3 --> L2 --> L1
 ```
 
@@ -21,14 +21,14 @@ Every guide and MCMC kernel consumes a single `LatentRegistry.from_model(model, 
 
 ```mermaid
 flowchart TB
-    M[Model<br/>MonadicProgram]
-    T[Trace<br/>record sample sites]
-    C[Condition<br/>clamp observations]
-    LR[LatentRegistry<br/>introspect remaining sites]
-    G[Guide<br/>variational family<br/>Auto*Guide subclass]
-    O[Objective<br/>ELBO / IWAEBound / RenyiBound / VRIWAEBound<br/>plus Estimator]
-    S[SVI<br/>stochastic optimisation]
-    P[Predictive<br/>sample from posterior;<br/>consumes a Guide or an MCMCResult]
+    M["Model<br/>MonadicProgram"]
+    T["Trace<br/>record sample sites"]
+    C["Condition<br/>clamp observations"]
+    LR["LatentRegistry<br/>introspect remaining sites"]
+    G["Guide<br/>variational family<br/>Auto*Guide subclass"]
+    O["Objective<br/>ELBO, IWAEBound, RenyiBound, VRIWAEBound<br/>plus Estimator"]
+    S["SVI<br/>stochastic optimisation"]
+    P["Predictive<br/>sample from posterior<br/>consumes a Guide or an MCMCResult"]
     M --> T --> C --> LR --> G --> O --> S --> P
 ```
 
@@ -52,6 +52,7 @@ for name, site in sites.items():
 ```
 
 A `SampleSite` records:
+
 - `name`: identifier of the sample
 - `value`: sampled value
 - `log_prob`: log probability of the sample
@@ -113,19 +114,19 @@ tr   = cond.trace(torch.zeros(12, 1))
 
 ## Guides: Variational Families
 
-A guide $q_\phi(z | x, y)$ is a variational family approximating the posterior. Eleven `Auto*Guide` subclasses cover the standard zoo; each is constructed from the model and a set of observed site names:
+A guide $q_\phi(z | x, y)$ is a variational family approximating the posterior. Eleven `Auto*Guide` subclasses cover the standard zoo, all documented under [Variational Guides](../api/inference/guide.md); each is constructed from the model and a set of observed site names:
 
 | Guide | Posterior structure | When to use |
 |---|---|---|
-| `AutoNormalGuide` | Diagonal Normal (mean-field) | Default; identifiable posterior, weak correlation |
-| `AutoMultivariateNormalGuide` | Full-rank Normal (Cholesky) | Strong posterior correlations; D ≲ 1000 |
-| `AutoLowRankMultivariateNormalGuide` | Low-rank + diagonal | Hierarchical models with localized correlations |
-| `AutoLaplaceApproximation` | Gaussian centred at MAP w/ Hessian inverse | Post-hoc; cheap quadratic-around-MAP |
-| `AutoNormalizingFlow` | Composed bijector over Normal base | Multimodal / heavy-tailed posteriors |
-| `AutoIAFGuide` | Inverse autoregressive flow | Flagship NF default |
-| `AutoNeuralSplineGuide` | Rational-quadratic spline coupling | Sharper than IAF for bounded support |
-| `AutoMixtureGuide` | K-component mixture of guides | Multimodal posteriors |
-| `AutoDeltaGuide` | Dirac at MAP | Quick MAP; no uncertainty |
+| [`AutoNormalGuide`](../api/inference/guide.md#quivers.inference.guides.AutoNormalGuide) | Diagonal Normal (mean-field) | Default; identifiable posterior, weak correlation |
+| [`AutoMultivariateNormalGuide`](../api/inference/guide.md#quivers.inference.guides.AutoMultivariateNormalGuide) | Full-rank Normal (Cholesky) | Strong posterior correlations; D ≲ 1000 |
+| [`AutoLowRankMultivariateNormalGuide`](../api/inference/guide.md#quivers.inference.guides.AutoLowRankMultivariateNormalGuide) | Low-rank + diagonal | Hierarchical models with localized correlations |
+| [`AutoLaplaceApproximation`](../api/inference/guide.md#quivers.inference.guides.AutoLaplaceApproximation) | Gaussian centred at MAP w/ Hessian inverse | Post-hoc; cheap quadratic-around-MAP |
+| [`AutoNormalizingFlow`](../api/inference/guide.md#quivers.inference.guides.AutoNormalizingFlow) | Composed bijector over Normal base | Multimodal / heavy-tailed posteriors |
+| [`AutoIAFGuide`](../api/inference/guide.md#quivers.inference.guides.AutoIAFGuide) | Inverse autoregressive flow | Flagship NF default |
+| [`AutoNeuralSplineGuide`](../api/inference/guide.md#quivers.inference.guides.AutoNeuralSplineGuide) | Rational-quadratic spline coupling | Sharper than IAF for bounded support |
+| [`AutoMixtureGuide`](../api/inference/guide.md#quivers.inference.guides.AutoMixtureGuide) | K-component mixture of guides | Multimodal posteriors |
+| [`AutoDeltaGuide`](../api/inference/guide.md#quivers.inference.guides.AutoDeltaGuide) | Dirac at MAP | Quick MAP; no uncertainty |
 
 Every guide uses `biject_to(support)` per site, so samples always lie inside the prior's constrained support; `log_prob` carries the corresponding log-det Jacobian.
 

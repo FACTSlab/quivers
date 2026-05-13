@@ -149,4 +149,4 @@ to the log-density, which is the right Kan extension along the fibration `Item -
 
 ## Next
 
-Chapter 5 looks at sequence-shaped models: HMMs, state-space models, and the chart-shaped deduction surface.
+[Chapter 5](05-time-series.md) looks at sequence-shaped models: HMMs, state-space models, and the chart-shaped deduction surface.

@@ -32,7 +32,7 @@ tree-sitter test        # run corpus tests
 tree-sitter parse FILE  # parse a single .qvr file
 ```
 
-The 16 example programs in `../../src/quivers/dsl/examples/` parse cleanly
+The 16 example programs in `../../docs/examples/source/` parse cleanly
 (no `ERROR` nodes).
 
 ## Use as a panproto-registered grammar

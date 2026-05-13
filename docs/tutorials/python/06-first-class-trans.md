@@ -147,4 +147,4 @@ The technical content is straightforward; the value comes from removing a specia
 
 ## Next
 
-Chapter 7 introduces the `CompositionRule → BilinearForm | Semigroupoid → Quantale` hierarchy and the `EinsumWiring` surface for operadic n-ary contractions.
+[Tutorial 7](07-composition-rules.md) introduces the `CompositionRule → BilinearForm | Semigroupoid → Quantale` hierarchy and the `EinsumWiring` surface for operadic n-ary contractions.

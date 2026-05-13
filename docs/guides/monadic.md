@@ -36,6 +36,7 @@ class MyMonad(Monad):
 ## Kleisli Category
 
 Every monad $T$ induces a Kleisli category $\mathcal{C}_T$ where:
+
 - Objects are the same as $\mathcal{C}$
 - Morphisms $X \rightsquigarrow Y$ are morphisms $X \to T(Y)$ in $\mathcal{C}$
 - Composition is Kleisli composition: $(g \circ_T f)(x) = \mu(T(g)(f(x)))$
@@ -125,6 +126,7 @@ class MyComonad(Comonad):
 ## CoKleisli Category
 
 The coKleisli category $\mathcal{C}^W$ has:
+
 - Objects as in $\mathcal{C}$
 - Morphisms $X \rightleftharpoons Y$ are morphisms $W(X) \to Y$ in $\mathcal{C}$
 - Composition: $(g \circ^W f) = \text{extend}(g, f)$
@@ -197,6 +199,7 @@ hom = algebra.homomorphism_to(other_algebra)
 ## Eilenberg-Moore Category
 
 The Eilenberg-Moore category $\mathcal{C}^T$ of a monad $T$ has:
+
 - Objects: $T$-algebras $(X, a: T(X) \to X)$
 - Morphisms: algebra homomorphisms
 

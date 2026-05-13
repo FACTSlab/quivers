@@ -335,9 +335,12 @@ You have:
 
 This workflow applies to any quivers probabilistic program, from simple Gaussian models to complex linguistic models like PDS.
 
+## Next
+
+[Tutorial 6](06-first-class-trans.md) covers first-class transformations: `MorphismTransformation` and `QuantaleHomomorphism` as values, the `>>>` composition operator, and change-of-base pipelines.
+
 ## Further Reading
 
 - **[Inference Guide](../../guides/inference.md):** Detailed documentation of trace, conditioning, guides, ELBO, and SVI
 - **[Continuous Morphisms](../../guides/continuous.md):** More on distributions and spaces
 - **[DSL Guide](../../guides/dsl.md):** Writing models in `.qvr` syntax
-- **Pyro documentation:** For further variational inference theory and techniques

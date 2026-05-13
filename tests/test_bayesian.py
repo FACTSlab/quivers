@@ -8,7 +8,7 @@ Covers:
   marginalize_categorical).
 * DSL parse / compile round-trips for every new AST node.
 * End-to-end compile of the Stan-model port at
-  ``src/quivers/dsl/examples/event_structure.qvr``.
+  ``docs/examples/source/event_structure.qvr``.
 
 The runtime extensions are not yet wired into the SVI guide; an
 end-to-end fit on synthetic data is reserved for a follow-up
@@ -294,7 +294,7 @@ class TestDSLSurface:
         assert "demo" in c._morphisms
 
     def test_event_structure_example_compiles(self):
-        path = Path("src/quivers/dsl/examples/event_structure.qvr")
+        path = Path("docs/examples/source/event_structure.qvr")
         assert path.exists(), (
             f"event_structure.qvr is a load-bearing example and must be present: {path}"
         )

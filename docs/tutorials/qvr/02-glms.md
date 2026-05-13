@@ -133,4 +133,4 @@ Three observations from this chapter you may have already noticed:
 
 ## Next
 
-Chapter 3 covers hierarchical models: the place where mean-field VI starts to misbehave and where NUTS earns its keep.
+[Chapter 3](03-hierarchical.md) covers hierarchical models: the place where mean-field VI starts to misbehave and where NUTS earns its keep.

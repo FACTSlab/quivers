@@ -5,6 +5,7 @@
 A functor $F: \mathcal{C} \to \mathcal{D}$ between $\mathcal{V}$-enriched categories maps objects to objects and morphisms to morphisms, preserving composition and identity.
 
 In quivers, a `Functor` is defined by:
+
 - An object map $F_\text{obj}: \text{Ob}(\mathcal{C}) \to \text{Ob}(\mathcal{D})$
 - A morphism map preserving composition: $F(g \circ f) = F(g) \circ F(f)$
 
@@ -102,6 +103,7 @@ assert isinstance(T_X, FreeMonoid)
 ## Monoidal Structures
 
 A monoidal category $(\mathcal{C}, \otimes, I)$ has:
+
 - A bifunctor $\otimes: \mathcal{C} \times \mathcal{C} \to \mathcal{C}$ (the product)
 - A unit object $I$
 - Natural associativity, left identity, right identity (with coherence)

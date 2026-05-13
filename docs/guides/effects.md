@@ -162,7 +162,7 @@ the joint search space.
 
 ## Worked example: scope-taking via Continuation
 
-The example file `src/quivers/dsl/examples/quantifier_scope.qvr`
+The example file `docs/examples/source/quantifier_scope.qvr`
 illustrates a Bumford & Charlow-style scope-taking grammar:
 
 ```qvr

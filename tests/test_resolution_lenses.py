@@ -1,6 +1,6 @@
 """Round-trip law tests for the QVR resolution lenses.
 
-For every parsed example program in ``src/quivers/dsl/examples/``, walk
+For every parsed example program in ``docs/examples/source/``, walk
 the AST and run :class:`TypeExprToSetObject` and
 :class:`SpaceExprToContinuousSpace` on every TypeExpr / SpaceExpr it
 contains, asserting:
@@ -29,7 +29,7 @@ from quivers.dsl.resolution import (
 )
 
 
-EXAMPLES_DIR = Path(__file__).parent.parent / "src/quivers/dsl/examples"
+EXAMPLES_DIR = Path(__file__).parent.parent / "docs/examples/source"
 EXAMPLE_PATHS = sorted(EXAMPLES_DIR.glob("*.qvr"))
 
 

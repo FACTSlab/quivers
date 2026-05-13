@@ -10,14 +10,14 @@ The library decomposes into eight layers. Each is consumable in isolation; each 
 
 ```mermaid
 flowchart TB
-    L8[<b>Layer 8</b>: QVR DSL<br/>.qvr files; tree-sitter grammar; panproto AST]
-    L7[<b>Layer 7</b>: Structural compression<br/>signature / encoder / decoder / loss blocks]
-    L6[<b>Layer 6</b>: Inference<br/>guides, objectives, MCMC kernels, hybrid samplers]
-    L5[<b>Layer 5</b>: Continuous probabilistic programs<br/>MonadicProgram, distribution families, flows, plates]
-    L4[<b>Layer 4</b>: Stochastic morphisms<br/>Markov kernels, Giry monad, chart deduction surface]
-    L3[<b>Layer 3</b>: Monadic and enriched constructs<br/>monads, algebras, ends/coends, Kan, profunctors]
-    L2[<b>Layer 2</b>: Categorical structure<br/>functors, naturals, adjunctions, monoidal, traced]
-    L1[<b>Layer 1</b>: Core V-enriched algebra<br/>FinSet, Morphism, CompositionRule hierarchy, wiring]
+    L8["Layer 8: QVR DSL<br/>.qvr files, tree-sitter grammar, panproto AST"]
+    L7["Layer 7: Structural compression<br/>signature, encoder, decoder, loss blocks"]
+    L6["Layer 6: Inference<br/>guides, objectives, MCMC kernels, hybrid samplers"]
+    L5["Layer 5: Continuous probabilistic programs<br/>MonadicProgram, distribution families, flows, plates"]
+    L4["Layer 4: Stochastic morphisms<br/>Markov kernels, Giry monad, chart deduction surface"]
+    L3["Layer 3: Monadic and enriched constructs<br/>monads, algebras, ends, coends, Kan, profunctors"]
+    L2["Layer 2: Categorical structure<br/>functors, naturals, adjunctions, monoidal, traced"]
+    L1["Layer 1: Core V-enriched algebra<br/>FinSet, Morphism, CompositionRule hierarchy, wiring"]
     L8 --> L7 --> L6 --> L5 --> L4 --> L3 --> L2 --> L1
 ```
 
@@ -27,10 +27,10 @@ The composition surface is a small hierarchy:
 
 ```mermaid
 flowchart TB
-    CR[CompositionRule]
-    BF[BilinearForm<br/><i>no associativity promise</i>]
-    SG[Semigroupoid<br/><i>associative ⊗, no identity</i>]
-    Q[Quantale<br/><i>associative ⊗ with identity, plus meet/negate</i>]
+    CR["CompositionRule"]
+    BF["BilinearForm<br/>no associativity promise"]
+    SG["Semigroupoid<br/>associative tensor, no identity"]
+    Q["Quantale<br/>associative tensor with identity, plus meet and negate"]
     CR --> BF
     CR --> SG
     SG --> Q

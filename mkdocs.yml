@@ -25,6 +25,7 @@ extra_javascript:
   - https://cdnjs.cloudflare.com/ajax/libs/mathjax/3.2.2/es5/tex-mml-chtml.js
   - js/mermaid-init.js
   - https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js
+  - js/tabbed.js
 
 markdown_extensions:
   - admonition
@@ -42,6 +43,7 @@ markdown_extensions:
           format: !!python/name:pymdownx.superfences.fence_code_format
   - pymdownx.tabbed:
       alternate_style: true
+      slugify: !!python/object/apply:pymdownx.slugs.slugify {kwds: {case: lower}}
   - pymdownx.details
   - attr_list
   - def_list
@@ -131,24 +133,7 @@ nav:
     - Probabilistic Programs:
       - Overview: examples/bayesian-regression.md
       - Event Structure Model: examples/event-structure.md
-  - Tutorials:
-    - Overview: tutorials/index.md
-    - QVR DSL track:
-      - "1. Your first model": tutorials/qvr/01-first-model.md
-      - "2. Generalised linear models": tutorials/qvr/02-glms.md
-      - "3. Hierarchical models": tutorials/qvr/03-hierarchical.md
-      - "4. Mixtures and discrete latents": tutorials/qvr/04-marginalize.md
-      - "5. Sequence models": tutorials/qvr/05-time-series.md
-      - "6. Choosing an inference algorithm": tutorials/qvr/06-inference-zoo.md
-      - "7. Under the hood: the categorical surface": tutorials/qvr/07-categorical.md
-    - Python API track:
-      - "1. Your first quiver": tutorials/python/01-first-quiver.md
-      - "2. Stochastic relations": tutorials/python/02-stochastic-relations.md
-      - "3. Probabilistic programs": tutorials/python/03-probabilistic-programs.md
-      - "4. Fuzzy logic factorisation": tutorials/python/04-fuzzy-factorization.md
-      - "5. Variational inference": tutorials/python/05-variational-inference.md
-      - "6. First-class transformations": tutorials/python/06-first-class-trans.md
-      - "7. Composition rules beyond quantales": tutorials/python/07-composition-rules.md
+  - Tutorials: tutorials/index.md
   - API Reference:
     - Overview: api/index.md
     - Core:
@@ -216,7 +201,7 @@ nav:
       - Constraint Solver: api/dsl/constraints.md
       - Program Theory: api/dsl/program_theory.md
     - Structural:
-      - Signatures: api/structural/signature.md
+      - Overview: api/structural/signature.md
       - Encoders: api/structural/encoder.md
       - Decoders: api/structural/decoder.md
       - Loss Registry: api/structural/losses.md

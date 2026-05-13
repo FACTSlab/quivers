@@ -2,7 +2,7 @@
 
 Complete `.qvr` programs spanning neural architectures, probabilistic models, and linguistic applications. Each example compiles to a trainable `nn.Module`. Click through for a walkthrough of the code and its categorical interpretation.
 
-All source files are in `src/quivers/dsl/examples/`.
+All source files are in `docs/examples/source/`.
 
 ## Neural Architectures
 
