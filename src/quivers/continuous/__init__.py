@@ -88,6 +88,8 @@ from quivers.continuous.families import (
     ConditionalRelaxedOneHotCategorical,
     # matrix-valued
     ConditionalWishart,
+    ConditionalInverseWishart,
+    ConditionalMatrixNormal,
     # discrete-valued
     ConditionalBernoulli,
     ConditionalCategorical,
@@ -166,6 +168,8 @@ __all__ = [
     "ConditionalRelaxedOneHotCategorical",
     # families — matrix-valued
     "ConditionalWishart",
+    "ConditionalInverseWishart",
+    "ConditionalMatrixNormal",
     # discrete-valued conditional distributions
     "ConditionalBernoulli",
     "ConditionalCategorical",

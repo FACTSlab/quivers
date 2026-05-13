@@ -273,6 +273,8 @@ from quivers.continuous import (
     ConditionalRelaxedOneHotCategorical,
     # families — matrix-valued
     ConditionalWishart,
+    ConditionalInverseWishart,
+    ConditionalMatrixNormal,
     # families — discrete-valued
     ConditionalBernoulli,
     ConditionalCategorical,
@@ -520,6 +522,8 @@ __all__ = [
     "ConditionalRelaxedOneHotCategorical",
     # continuous — families (matrix-valued)
     "ConditionalWishart",
+    "ConditionalInverseWishart",
+    "ConditionalMatrixNormal",
     # continuous — families (discrete-valued)
     "ConditionalBernoulli",
     "ConditionalCategorical",

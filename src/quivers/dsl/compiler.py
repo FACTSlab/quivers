@@ -407,6 +407,8 @@ def _get_family_registry() -> dict[str, type]:
         ConditionalRelaxedBernoulli,
         ConditionalRelaxedOneHotCategorical,
         ConditionalWishart,
+        ConditionalInverseWishart,
+        ConditionalMatrixNormal,
         ConditionalBernoulli,
         ConditionalCategorical,
     )
@@ -439,6 +441,8 @@ def _get_family_registry() -> dict[str, type]:
         "RelaxedBernoulli": ConditionalRelaxedBernoulli,
         "RelaxedOneHotCategorical": ConditionalRelaxedOneHotCategorical,
         "Wishart": ConditionalWishart,
+        "InverseWishart": ConditionalInverseWishart,
+        "MatrixNormal": ConditionalMatrixNormal,
         "Bernoulli": ConditionalBernoulli,
         "Categorical": ConditionalCategorical,
     }

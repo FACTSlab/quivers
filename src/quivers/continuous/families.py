@@ -1199,6 +1199,212 @@ class ConditionalWishart(ContinuousMorphism):
 
 
 # ============================================================================
+# matrix-valued: MatrixNormal (Kronecker covariance)
+# ============================================================================
+
+
+class ConditionalMatrixNormal(ContinuousMorphism):
+    """Conditional Matrix-Normal :math:`\\mathcal{MN}(M, U, V)`.
+
+    The matrix-Normal distribution on :math:`\\mathbb{R}^{n \\times p}`
+    factorises with a Kronecker-product covariance: if
+    :math:`X \\sim \\mathcal{MN}(M, U, V)` then
+    :math:`\\mathrm{vec}(X) \\sim \\mathcal{N}(\\mathrm{vec}(M), V \\otimes U)`
+    with :math:`U \\in \\mathbb{R}^{n \\times n}` the row covariance
+    and :math:`V \\in \\mathbb{R}^{p \\times p}` the column covariance.
+
+    Categorically, the Kronecker structure is the tensor product
+    of two Gaussians; it is strictly more constrained than the
+    flat :math:`np`-dim MVN that the same parameter tensor could
+    carry, so the surface keeps the two families distinct (no
+    auto-substitution).  Use this when the prior should express
+    independent row and column correlation structure.
+
+    The codomain's product factorisation supplies the row and
+    column dimensions.  The grammar surface
+    ``~ MatrixNormal(loc, row_scale, col_scale) over (dom, cod)``
+    binds the first axis listed in ``over`` to the row covariance
+    and the second to the column covariance.
+
+    Parameters
+    ----------
+    domain : AnySpace
+        Source space.
+    codomain : ContinuousSpace
+        Target space whose factorisation supplies ``(n, p)``.  Must
+        carry a product structure of two factors; the first is the
+        row axis, the second the column.
+    rows : int
+        Row dimension :math:`n`.
+    cols : int
+        Column dimension :math:`p`.
+    hidden_dim : int
+        Hidden layer width for the parameter network.
+    """
+
+    event_rank: int = 2
+
+    def __init__(
+        self,
+        domain: AnySpace,
+        codomain: ContinuousSpace,
+        rows: int,
+        cols: int,
+        hidden_dim: int = 64,
+    ) -> None:
+        super().__init__(domain, codomain)
+        self._rows = int(rows)
+        self._cols = int(cols)
+        n_loc = self._rows * self._cols
+        n_row_tril = self._rows * (self._rows + 1) // 2
+        n_col_tril = self._cols * (self._cols + 1) // 2
+        self._n_loc = n_loc
+        self._n_row_tril = n_row_tril
+        self._n_col_tril = n_col_tril
+        self.param_source = _make_source(
+            domain, n_loc + n_row_tril + n_col_tril, hidden_dim
+        )
+
+    def _build_tril(
+        self, raw: torch.Tensor, d: int, n_tril: int
+    ) -> torch.Tensor:
+        batch_shape = raw.shape[:-1]
+        L = torch.zeros(*batch_shape, d, d, device=raw.device, dtype=raw.dtype)
+        idx = torch.tril_indices(d, d)
+        L[..., idx[0], idx[1]] = raw[..., :n_tril]
+        diag_idx = torch.arange(d)
+        L[..., diag_idx, diag_idx] = (
+            F.softplus(L[..., diag_idx, diag_idx]) + EPS
+        )
+        return L
+
+    def _get_dist(self, x: torch.Tensor) -> D.MultivariateNormal:
+        raw = self.param_source(x)
+        n, p = self._rows, self._cols
+        offset = 0
+        loc_flat = raw[..., offset : offset + self._n_loc]
+        offset += self._n_loc
+        row_raw = raw[..., offset : offset + self._n_row_tril]
+        offset += self._n_row_tril
+        col_raw = raw[..., offset : offset + self._n_col_tril]
+
+        U_chol = self._build_tril(row_raw, n, self._n_row_tril)
+        V_chol = self._build_tril(col_raw, p, self._n_col_tril)
+        # Cholesky of the Kronecker covariance Sigma = V (X) U is
+        # L_Sigma = V_chol (X) U_chol so vec(X) ~ N(vec(M), L L^T).
+        L_kron = torch.einsum(
+            "...ij,...kl->...ikjl", V_chol, U_chol
+        ).reshape(*loc_flat.shape[:-1], n * p, n * p)
+        return D.MultivariateNormal(loc_flat, scale_tril=L_kron)
+
+    def log_prob(self, x: torch.Tensor, y: torch.Tensor) -> torch.Tensor:
+        # y has shape (..., n*p) or (..., n, p); flatten if matrix.
+        if y.dim() >= 2 and y.shape[-2:] == (self._rows, self._cols):
+            y = y.reshape(*y.shape[:-2], self._rows * self._cols)
+        return self._get_dist(x).log_prob(y)
+
+    def rsample(
+        self,
+        x: torch.Tensor,
+        sample_shape: torch.Size = torch.Size(),
+    ) -> torch.Tensor:
+        sample_flat = self._get_dist(x).rsample(sample_shape)
+        return sample_flat.reshape(
+            *sample_flat.shape[:-1], self._rows, self._cols
+        )
+
+
+# ============================================================================
+# matrix-valued: InverseWishart
+# ============================================================================
+
+
+class ConditionalInverseWishart(ContinuousMorphism):
+    """Conditional Inverse-Wishart over positive-definite matrices.
+
+    Conjugate prior for the covariance of a multivariate normal.
+    Realised as a deterministic inversion of a Wishart sample so
+    autograd flows; equivalent in distribution to drawing
+    :math:`\\Sigma^{-1} \\sim \\mathcal{W}(\\nu, V^{-1})` and
+    inverting.  See Gelman et al. (2013) §3.6 for the conjugacy
+    statement.
+
+    Parameters
+    ----------
+    domain : AnySpace
+        Source space.
+    codomain : ContinuousSpace
+        Target space whose ``dim`` is the matrix size :math:`d`.
+    hidden_dim : int
+        Hidden layer width for the parameter network.
+    """
+
+    event_rank: int = 2
+
+    def __init__(
+        self,
+        domain: AnySpace,
+        codomain: ContinuousSpace,
+        hidden_dim: int = 64,
+    ) -> None:
+        super().__init__(domain, codomain)
+        d = codomain.dim
+        n_tril = d * (d + 1) // 2
+        self._d = d
+        self._n_tril = n_tril
+        self.param_source = _make_source(domain, 1 + n_tril, hidden_dim)
+
+    @property
+    def support(self) -> _constraints.Constraint:
+        return _constraints.positive_definite
+
+    def _get_wishart(self, x: torch.Tensor) -> D.Wishart:
+        raw = self.param_source(x)
+        d = self._d
+        # df must exceed d - 1.
+        df = F.softplus(raw[..., 0]) + d
+        tril_raw = raw[..., 1:]
+        batch_shape = tril_raw.shape[:-1]
+        L = torch.zeros(
+            *batch_shape, d, d, device=tril_raw.device, dtype=tril_raw.dtype
+        )
+        idx = torch.tril_indices(d, d)
+        L[..., idx[0], idx[1]] = tril_raw
+        diag_idx = torch.arange(d)
+        L[..., diag_idx, diag_idx] = (
+            F.softplus(L[..., diag_idx, diag_idx]) + EPS
+        )
+        # IW(nu, V) is the inverse of W(nu, V^-1); we parameterise
+        # the wishart with scale_tril L and invert the sample.
+        return D.Wishart(df=df, scale_tril=L)
+
+    def log_prob(self, x: torch.Tensor, y: torch.Tensor) -> torch.Tensor:
+        # y is positive-definite matrix Sigma; the wishart variate
+        # is Sigma^{-1}.  log p_IW(Sigma) = log p_W(Sigma^{-1}) +
+        # log |d Sigma^{-1} / d Sigma| where the Jacobian of matrix
+        # inversion at a d x d positive-definite matrix is
+        # (-1)^d det(Sigma)^{-(d+1)} so the log absolute Jacobian
+        # is -(d + 1) log det(Sigma).
+        d = self._d
+        y_mat = y.reshape(*y.shape[:-1], d, d) if y.dim() < 2 or y.shape[-2:] != (d, d) else y
+        if y_mat.shape[-2:] != (d, d):
+            y_mat = y.reshape(*y.shape[:-1], d, d)
+        y_inv = torch.linalg.inv(y_mat)
+        log_det = torch.logdet(y_mat)
+        wishart = self._get_wishart(x)
+        return wishart.log_prob(y_inv) - (d + 1) * log_det
+
+    def rsample(
+        self,
+        x: torch.Tensor,
+        sample_shape: torch.Size = torch.Size(),
+    ) -> torch.Tensor:
+        w = self._get_wishart(x).rsample(sample_shape)
+        sigma = torch.linalg.inv(w)
+        return sigma.reshape(*sigma.shape[:-2], self._d * self._d)
+
+
+# ============================================================================
 # optional: GeneralizedPareto (may not be in all torch versions)
 # ============================================================================
 
