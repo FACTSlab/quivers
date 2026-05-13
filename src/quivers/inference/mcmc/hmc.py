@@ -700,12 +700,19 @@ class NUTSKernel(MCMCKernel):
             n_accept_steps += subtree.n_accept_steps
             if not subtree.terminated:
                 # Multinomial choice between current proposal and
-                # the new subtree.
-                log_total = (
-                    math.log(math.exp(log_weight) + math.exp(subtree.log_weight))
-                    if math.isfinite(log_weight) and math.isfinite(subtree.log_weight)
-                    else max(log_weight, subtree.log_weight)
-                )
+                # the new subtree. ``log_total = log(e^a + e^b)``
+                # via the numerically-stable logaddexp form:
+                # ``max(a, b) + log1p(exp(min - max))``. This avoids
+                # log(0) when both terms underflow to zero, which
+                # happens routinely on ill-conditioned posteriors.
+                if math.isfinite(log_weight) and math.isfinite(
+                    subtree.log_weight
+                ):
+                    a = max(log_weight, subtree.log_weight)
+                    b = min(log_weight, subtree.log_weight)
+                    log_total = a + math.log1p(math.exp(b - a))
+                else:
+                    log_total = max(log_weight, subtree.log_weight)
                 if math.isfinite(log_total):
                     prob_new = math.exp(subtree.log_weight - log_total)
                 else:
