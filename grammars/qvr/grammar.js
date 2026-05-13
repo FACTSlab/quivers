@@ -989,10 +989,16 @@ module.exports = grammar({
       // change-of-base: given f : A -> B over quantale V and
       // a homomorphism φ : V -> W, ``f.change_base(phi)`` is the
       // V-Cat morphism A -> B over W with tensor φ.apply(f.tensor).
+      // The argument can be either a bare name (resolving a
+      // registered quantale homomorphism or transformation) or a
+      // factory call ``softmax_over(Cluster)`` /
+      // ``bayes_invert(prior)`` that builds a parametric
+      // :class:`MorphismTransformation` from object / morphism
+      // arguments resolved in the surrounding scope.
       seq(
         field('name', 'change_base'),
         '(',
-        field('args', $.identifier),
+        field('arg', $._change_base_arg),
         ')',
       ),
       // compact-closed surface: ``f.dagger`` for the transpose,
@@ -1011,6 +1017,23 @@ module.exports = grammar({
       // pin a learned composition as a structural input to a
       // downstream model — equivalent to detach() on the tensor.
       seq(field('name', 'freeze')),
+    ),
+
+    // Argument to ``change_base``: either a bare identifier (the
+    // existing surface, resolving a named homomorphism or
+    // transformation) or a factory-call expression that builds a
+    // parametric :class:`MorphismTransformation` from one or more
+    // object / morphism arguments resolved in scope.
+    _change_base_arg: $ => choice(
+      $.transformation_call,
+      $.identifier,
+    ),
+
+    transformation_call: $ => seq(
+      field('factory', $.identifier),
+      '(',
+      optional(field('args', commaSep1($.identifier))),
+      ')',
     ),
 
     _atom_expr: $ => choice(

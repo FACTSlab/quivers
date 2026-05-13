@@ -192,17 +192,26 @@ class ExprTrace(Expr):
 
 
 class ExprChangeBase(Expr):
-    """Change-of-base: apply a quantale homomorphism to a morphism.
+    """Change-of-base: apply a quantale homomorphism or
+    morphism-transformation to a morphism.
 
-    ``inner.change_base(homomorphism_name)`` resolves
-    ``homomorphism_name`` against the compiler's homomorphism
-    catalog (see :mod:`quivers.core.quantale_morphisms`) and
-    returns a new morphism over the homomorphism's target
-    quantale.
+    Two surface forms are accepted:
+
+    * Bare-name lookup (``call_args == ()``): the ``factory``
+      string resolves a registered singleton in the compiler's
+      transformation catalog (see
+      :mod:`quivers.core.quantale_morphisms` and
+      :mod:`quivers.core.morphism_transformations`).
+    * Factory call (``call_args`` non-empty): the ``factory``
+      string resolves a registered factory callable; each entry
+      of ``call_args`` is the name of a value (object, morphism,
+      …) in the surrounding scope that the compiler resolves and
+      passes to the factory.
     """
 
     inner: Expr
-    homomorphism: str
+    factory: str
+    call_args: tuple[str, ...] = ()
     line: int = 0
     col: int = 0
     kind: Literal["expr_change_base"] = "expr_change_base"

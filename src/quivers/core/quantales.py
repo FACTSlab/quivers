@@ -1149,3 +1149,70 @@ REICHENBACH = PRODUCT_FUZZY.dual()
 BOOLEAN_DUAL = BOOLEAN.dual()
 DUAL_LUKASIEWICZ = LUKASIEWICZ.dual()
 DUAL_GODEL = GODEL.dual()
+
+
+# ============================================================================
+# Markov sum-product quantale (Kleisli composition for stochastic kernels)
+# ============================================================================
+#
+# Lives here rather than in ``quivers.stochastic.quantale`` so the
+# core categorical layer can reference it without crossing into
+# the stochastic subpackage (which itself depends on core).
+
+
+class MarkovQuantale(Quantale):
+    """Sum-product composition for stochastic matrices.
+
+    Implements the composition rule of FinStoch:
+
+        (g ∘ f)(a, c) = Σ_b f(a, b) · g(b, c)
+
+    standard matrix multiplication on row-stochastic matrices.
+    Formally:
+
+        ⊗ = product,   ⋁ = sum,   ⋀ = product,
+        ¬ = complement (1 - p),
+        I = 1.0, ⊥ = 0.0.
+
+    Not a true quantale in the lattice-theoretic sense (Σ is not
+    idempotent), but the composition formula matches the quantale
+    interface and composition of row-stochastic matrices yields
+    row-stochastic matrices.
+    """
+
+    @property
+    def name(self) -> str:
+        return "Markov"
+
+    def tensor_op(self, a, b):
+        return a * b
+
+    def join(self, t, dim):
+        if isinstance(dim, int):
+            dim = (dim,)
+        return t.sum(dim=dim)
+
+    def meet(self, t, dim):
+        if isinstance(dim, int):
+            dim = (dim,)
+        result = t
+        for d in sorted(dim, reverse=True):
+            result = result.prod(dim=d)
+        return result
+
+    def negate(self, t):
+        return 1.0 - t
+
+    @property
+    def unit(self) -> float:
+        return 1.0
+
+    @property
+    def zero(self) -> float:
+        return 0.0
+
+    def compose(self, m, n, n_contract):
+        return super().compose(m, n, n_contract)
+
+
+MARKOV = MarkovQuantale()

@@ -31,8 +31,9 @@ import torch
 import torch.nn.functional as F
 
 from quivers.core._util import EPS
-from quivers.core.objects import SetObject
+from quivers.core.objects import ProductSet, SetObject
 from quivers.core.quantales import (
+    MARKOV,
     PRODUCT_FUZZY,
     REAL,
     Quantale,
@@ -122,8 +123,6 @@ def _axis_index(morphism, axis_object: SetObject) -> int:
 
 def _decompose_object(obj) -> list:
     """Flatten a ProductSet into its constituent atomic objects."""
-    from quivers.core.objects import ProductSet
-
     if isinstance(obj, ProductSet):
         out = []
         for c in obj.components:
@@ -154,7 +153,6 @@ class Softmax(MorphismTransformation):
         axis_object: SetObject,
         source: Quantale = PRODUCT_FUZZY,
     ) -> None:
-        from quivers.stochastic.quantale import MARKOV
 
         self._axis_object = axis_object
         self._source = source
@@ -197,7 +195,6 @@ class L1Normalize(MorphismTransformation):
         axis_object: SetObject,
         source: Quantale = REAL,
     ) -> None:
-        from quivers.stochastic.quantale import MARKOV
 
         self._axis_object = axis_object
         self._source = source
@@ -278,7 +275,6 @@ class BayesInvert(MorphismTransformation):
     """
 
     def __init__(self, prior: torch.Tensor) -> None:
-        from quivers.stochastic.quantale import MARKOV
 
         if prior.dim() != 1:
             raise ValueError(
@@ -336,10 +332,73 @@ class BayesInvert(MorphismTransformation):
         return morphism.domain
 
 
+# ---------------------------------------------------------------------------
+# Factory functions exposed in the DSL transformation catalog.
+#
+# Each factory accepts compile-time values resolved from the DSL's
+# surrounding scope (objects, morphisms) and returns a fully-
+# constructed :class:`MorphismTransformation`. The compiler's
+# transformation catalog binds them so the user can write
+# ``f.change_base(softmax_over(B))`` /
+# ``f.change_base(bayes_invert(prior))`` in pure QVR.
+# ---------------------------------------------------------------------------
+
+
+def softmax_over(axis_object: SetObject) -> Softmax:
+    """Build a :class:`Softmax` transformation along ``axis_object``."""
+    return Softmax(axis_object)
+
+
+def l1_normalize_over(axis_object: SetObject) -> L1Normalize:
+    """Build an :class:`L1Normalize` transformation along ``axis_object``."""
+    return L1Normalize(axis_object)
+
+
+def l2_normalize_over(axis_object: SetObject) -> L2Normalize:
+    """Build an :class:`L2Normalize` transformation along ``axis_object``."""
+    return L2Normalize(axis_object)
+
+
+def bayes_invert(prior) -> BayesInvert:
+    """Build a :class:`BayesInvert` transformation from a prior.
+
+    ``prior`` may be a 1-D :class:`torch.Tensor` (used directly)
+    or any object that exposes a ``.tensor`` attribute (the
+    morphism convention used throughout the V-Cat layer). Duck
+    typing on ``.tensor`` avoids a circular import between
+    :mod:`quivers.core.morphisms` and this module. The morphism
+    form is what the DSL feeds in when the user writes
+    ``change_base(bayes_invert(prior_morph))``.
+    """
+    if isinstance(prior, torch.Tensor):
+        tensor = prior
+    elif hasattr(prior, "tensor"):
+        tensor = prior.tensor.detach().clone()
+    else:
+        raise TypeError(
+            f"bayes_invert: expected Tensor or .tensor-bearing "
+            f"morphism prior; got {type(prior).__name__}"
+        )
+    flat = tensor.flatten()
+    total = flat.sum()
+    if total.abs() < 1e-12:
+        raise ValueError(
+            "bayes_invert: prior sums to zero; cannot normalize"
+        )
+    if not torch.isclose(total, torch.tensor(1.0), atol=1e-5):
+        flat = flat.clamp(min=0.0)
+        flat = flat / flat.sum().clamp(min=1e-12)
+    return BayesInvert(flat)
+
+
 __all__ = [
     "BayesInvert",
     "L1Normalize",
     "L2Normalize",
     "MorphismTransformation",
     "Softmax",
+    "bayes_invert",
+    "l1_normalize_over",
+    "l2_normalize_over",
+    "softmax_over",
 ]

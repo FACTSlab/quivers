@@ -441,17 +441,48 @@ def _walk_expr(t: _Tree, vid: str) -> Expr:
                     inner=_walk_expr(t, inner_vid), line=line, col=col
                 )
             if method_name == "change_base":
-                args = t.fields(method_vid, "args")
-                if len(args) != 1:
+                # The argument is one of:
+                #   * a bare identifier — bare-name lookup in the
+                #     transformation catalog (legacy surface);
+                #   * a transformation_call node — a factory call
+                #     ``softmax_over(B)`` / ``bayes_invert(prior)``
+                #     whose factory and argument names resolve in
+                #     the surrounding scope.
+                arg_vid = t.field(method_vid, "arg")
+                if arg_vid is None:
                     raise ParseError(
-                        f"change_base() takes exactly one "
-                        f"homomorphism argument at {vid}"
+                        f"change_base() missing argument at {vid}"
                     )
-                return ExprChangeBase(
-                    inner=_walk_expr(t, inner_vid),
-                    homomorphism=t.text(args[0]),
-                    line=line,
-                    col=col,
+                arg_kind = t.kind(arg_vid)
+                if arg_kind == "identifier":
+                    return ExprChangeBase(
+                        inner=_walk_expr(t, inner_vid),
+                        factory=t.text(arg_vid),
+                        call_args=(),
+                        line=line,
+                        col=col,
+                    )
+                if arg_kind == "transformation_call":
+                    factory_vid = t.field(arg_vid, "factory")
+                    if factory_vid is None:
+                        raise ParseError(
+                            f"transformation_call missing factory "
+                            f"name at {arg_vid}"
+                        )
+                    factory_name = t.text(factory_vid)
+                    arg_names = tuple(
+                        t.text(a) for a in t.fields(arg_vid, "args")
+                    )
+                    return ExprChangeBase(
+                        inner=_walk_expr(t, inner_vid),
+                        factory=factory_name,
+                        call_args=arg_names,
+                        line=line,
+                        col=col,
+                    )
+                raise ParseError(
+                    f"change_base(): unexpected argument node "
+                    f"kind {arg_kind!r} at {arg_vid}"
                 )
             raise ParseError(f"unknown postfix method {method_name!r} at {vid}")
         raise ParseError(f"unexpected postfix method at {vid}")

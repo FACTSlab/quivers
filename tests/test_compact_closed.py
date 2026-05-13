@@ -227,7 +227,7 @@ def test_dsl_change_base_unknown_homomorphism_errors() -> None:
     let g = f.change_base(not_a_real_homomorphism)
     export g
     """
-    with pytest.raises(CompileError, match="undefined homomorphism"):
+    with pytest.raises(CompileError, match="undefined transformation"):
         loads(src)
 
 

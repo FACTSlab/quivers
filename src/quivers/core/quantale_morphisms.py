@@ -68,6 +68,7 @@ import torch
 from quivers.core.quantales import (
     COUNTING,
     GODEL,
+    MARKOV,
     PROBABILITY,
     REAL,
     TROPICAL,
@@ -191,8 +192,6 @@ class Expectation(QuantaleHomomorphism):
     """
 
     def __init__(self) -> None:
-        from quivers.stochastic.quantale import MARKOV
-
         self._source = MARKOV
         self._target = PRODUCT_FUZZY
 

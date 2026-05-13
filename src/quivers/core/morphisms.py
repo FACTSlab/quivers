@@ -36,7 +36,9 @@ from abc import ABC, abstractmethod
 from typing import TYPE_CHECKING, cast
 import torch
 import torch.nn as nn
+from quivers.core.morphism_transformations import MorphismTransformation
 from quivers.core.objects import SetObject, ProductSet
+from quivers.core.quantale_morphisms import QuantaleHomomorphism
 from quivers.core.quantales import PRODUCT_FUZZY, Quantale
 
 if TYPE_CHECKING:
@@ -179,11 +181,6 @@ class Morphism(ABC):
             codomain are preserved; for shape-aware ones (e.g.
             ``BayesInvert``) the transformation may swap them.
         """
-        from quivers.core.morphism_transformations import (
-            MorphismTransformation,
-        )
-        from quivers.core.quantale_morphisms import QuantaleHomomorphism
-
         if not isinstance(phi, (QuantaleHomomorphism, MorphismTransformation)):
             raise TypeError(
                 f"change_base: expected QuantaleHomomorphism or "

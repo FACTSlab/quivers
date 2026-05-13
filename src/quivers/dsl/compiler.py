@@ -25,9 +25,17 @@ from quivers.continuous.morphisms import AnySpace
 from quivers.continuous.bayesian import marginalize_grouped
 from quivers.core.objects import SetObject, FinSet, ProductSet
 from quivers.core.quantales import Quantale, PRODUCT_FUZZY, BOOLEAN
+from quivers.core.morphism_transformations import (
+    MorphismTransformation,
+    bayes_invert as _bayes_invert,
+    l1_normalize_over as _l1_normalize_over,
+    l2_normalize_over as _l2_normalize_over,
+    softmax_over as _softmax_over,
+)
 from quivers.core.morphisms import morphism as make_latent, identity as make_identity
 from quivers.core.morphisms import cap as _make_cap, cup as _make_cup
 from quivers.core.quantale_morphisms import (
+    QuantaleHomomorphism,
     COUNTING_FROM_REAL,
     COUNTING_TO_REAL,
     EXPECTATION,
@@ -162,13 +170,25 @@ _QUANTALE_REGISTRY: dict[str, Quantale] = {
 
 
 def _build_default_homomorphism_catalog() -> dict:
-    """Build the user-facing catalog of named quantale
-    homomorphisms exposed through ``f.change_base(name)`` in the
-    DSL. The keys here are the names the user writes; the values
-    are :class:`QuantaleHomomorphism` instances from
-    :mod:`quivers.core.quantale_morphisms`.
+    """Build the user-facing catalog of named change-of-base
+    targets exposed through ``f.change_base(name)`` in the DSL.
+
+    Two value kinds are accepted in the catalog:
+
+    * **Singletons** — :class:`QuantaleHomomorphism` or
+      :class:`MorphismTransformation` instances looked up by
+      bare name (``f.change_base(expectation)``).
+    * **Factories** — callables that build a
+      :class:`MorphismTransformation` from arguments named in the
+      DSL call expression (``f.change_base(softmax_over(B))``).
+      The compiler resolves each named argument against the
+      surrounding scope (objects, morphisms, quantales) and
+      invokes the factory with the resolved values.
+
+    Keys here are the surface names the user writes.
     """
     return {
+        # Singletons.
         "expectation": EXPECTATION,
         "log_prob": _LOG_PROB_HOM,
         "max_plus": _MAX_PLUS_HOM,
@@ -179,6 +199,12 @@ def _build_default_homomorphism_catalog() -> dict:
         "probability_to_real": PROBABILITY_TO_REAL,
         "counting_from_real": COUNTING_FROM_REAL,
         "counting_to_real": COUNTING_TO_REAL,
+        # Factories.  Each is a callable consumed at compile time
+        # when the user writes ``F(arg)`` inside change_base().
+        "softmax_over": _softmax_over,
+        "l1_normalize_over": _l1_normalize_over,
+        "l2_normalize_over": _l2_normalize_over,
+        "bayes_invert": _bayes_invert,
     }
 
 
@@ -4503,6 +4529,111 @@ class Compiler:
         """
         return self._homomorphisms.get(name)
 
+    def _resolve_change_base_arg(self, expr):
+        """Resolve a :class:`ExprChangeBase` argument to a callable
+        transformation.
+
+        Two surface forms are handled:
+
+        * Bare-name lookup (``expr.call_args == ()``): the
+          ``expr.factory`` string is looked up in the
+          transformation catalog as a singleton.  Returns the
+          stored :class:`QuantaleHomomorphism` or
+          :class:`MorphismTransformation` instance directly.
+        * Factory call (``expr.call_args`` non-empty): the
+          ``expr.factory`` string is looked up in the catalog as
+          a callable factory; each entry of ``call_args`` names a
+          value (object, morphism, …) in the surrounding scope.
+          Each argument is resolved to its compiled value and the
+          factory is invoked to produce the transformation
+          instance.
+        """
+        catalog = self._homomorphisms
+        if not expr.call_args:
+            phi = catalog.get(expr.factory)
+            if phi is None:
+                raise CompileError(
+                    f"change_base: undefined transformation "
+                    f"{expr.factory!r}; available: "
+                    f"{sorted(catalog)}",
+                    expr.line,
+                    expr.col,
+                )
+            if callable(phi) and not isinstance(
+                phi, (QuantaleHomomorphism, MorphismTransformation)
+            ):
+                raise CompileError(
+                    f"change_base: {expr.factory!r} is a "
+                    f"transformation factory and needs arguments; "
+                    f"call it like `{expr.factory}(axis_object)`",
+                    expr.line,
+                    expr.col,
+                )
+            return phi
+        factory = catalog.get(expr.factory)
+        if factory is None:
+            raise CompileError(
+                f"change_base: undefined factory "
+                f"{expr.factory!r}; available: "
+                f"{sorted(catalog)}",
+                expr.line,
+                expr.col,
+            )
+        if not callable(factory):
+            raise CompileError(
+                f"change_base: {expr.factory!r} resolves to a "
+                f"singleton, not a factory; cannot be called with "
+                f"arguments {expr.call_args!r}",
+                expr.line,
+                expr.col,
+            )
+        resolved: list = []
+        for arg_name in expr.call_args:
+            value = self._resolve_factory_argument(
+                arg_name, expr.line, expr.col, factory_name=expr.factory
+            )
+            resolved.append(value)
+        try:
+            return factory(*resolved)
+        except TypeError as e:
+            raise CompileError(
+                f"change_base: factory {expr.factory!r} rejected "
+                f"arguments {expr.call_args!r}: {e}",
+                expr.line,
+                expr.col,
+            ) from e
+
+    def _resolve_factory_argument(
+        self,
+        name: str,
+        line: int,
+        col: int,
+        *,
+        factory_name: str,
+    ):
+        """Resolve a named factory argument to its compiled value.
+
+        Tries the four value sorts that show up in transformation
+        factories (objects, morphisms, continuous morphisms,
+        quantales) and surfaces a helpful error if the name is
+        unknown.
+        """
+        if name in self._objects:
+            return self._objects[name]
+        if name in self._morphisms:
+            return self._morphisms[name]
+        if hasattr(self, "_continuous_morphisms") and name in self._continuous_morphisms:
+            return self._continuous_morphisms[name]
+        if name in _QUANTALE_REGISTRY:
+            return _QUANTALE_REGISTRY[name]
+        raise CompileError(
+            f"change_base: factory {factory_name!r} argument "
+            f"{name!r} unresolved (must name an object, morphism, "
+            f"or quantale)",
+            line,
+            col,
+        )
+
     def _compose_with_op(self, left, right, op: str):
         """Dispatch a composition expression to the quantale
         implied by the surface operator.
@@ -4628,15 +4759,7 @@ class Compiler:
                 raise CompileError(str(e), expr.line, expr.col) from e
         elif isinstance(expr, ExprChangeBase):
             inner = self._compile_expr(expr.inner)
-            phi = self._resolve_homomorphism(expr.homomorphism)
-            if phi is None:
-                raise CompileError(
-                    f"change_base: undefined homomorphism "
-                    f"{expr.homomorphism!r}; available: "
-                    f"{sorted(self._homomorphisms.keys())}",
-                    expr.line,
-                    expr.col,
-                )
+            phi = self._resolve_change_base_arg(expr)
             try:
                 return inner.change_base(phi)
             except TypeError as e:
