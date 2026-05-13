@@ -166,11 +166,65 @@ from quivers.continuous.families import (
     ConditionalLowRankMVN,
     ConditionalDirichlet,
     ConditionalWishart,
+    ConditionalInverseWishart,
+    ConditionalMatrixNormal,
 )
 
 # Multivariate normal with learned mean and cov
 mvn = ConditionalMultivariateNormal(domain, Euclidean(5))
 ```
+
+`event_rank` per family controls the axis-role surface in the DSL
+(see the [DSL guide](dsl.md) on `over <axes>`):
+
+| Family | Event rank | Categorical reading |
+|---|---|---|
+| `Normal`, `Beta`, `Gamma`, `Exponential`, etc. | 0 | Scalar; every codomain axis is iid by default |
+| `MultivariateNormal`, `LowRankMVN`, `Dirichlet`, `OneHotCategorical`, `LogisticNormal` | 1 | Vector; one named event axis carries the joint distribution |
+| `Wishart`, `InverseWishart`, `MatrixNormal`, `LKJCholesky` | 2 | Matrix; two named event axes carry the joint distribution |
+
+The DSL surface `~ Family over <axes>` requires the axis count to
+match the family's event rank exactly; mismatch is a compile-time
+error.  In particular, a flat MVN over `dim(A)*dim(B)` (dense
+covariance, event_rank 1 with a single named axis whose dim equals
+the product) is categorically distinct from a `MatrixNormal` over
+`(A, B)` (Kronecker structure `V ⊗ U`, event_rank 2); the surface
+keeps the two distinguishable rather than auto-substituting.
+
+#### MatrixNormal: Kronecker-covariance matrix prior
+
+```python
+from quivers.continuous.families import ConditionalMatrixNormal
+
+# Matrix-valued kernel: domain -> R^(rows*cols), with samples
+# reshaped to (rows, cols) and Kronecker covariance Σ = V ⊗ U.
+mn = ConditionalMatrixNormal(domain, Euclidean(rows * cols), rows=4, cols=8)
+```
+
+The matrix-Normal `MN(M, U, V)` is the natural prior for a
+weight matrix `W : R^d → R^k` whose row and column correlations
+factor separately.  When used as a `latent` morphism prior in the
+DSL (`latent W : Euclidean(D) -> Euclidean(K) ~ MatrixNormal(loc,
+row_scale, col_scale) over (dom, cod)`), the first axis listed in
+`over` binds the row covariance and the second the column
+covariance.
+
+#### InverseWishart: conjugate covariance prior
+
+```python
+from quivers.continuous.families import ConditionalInverseWishart
+
+# Conjugate prior on a d-dim covariance matrix.  Realised as the
+# inversion of a Wishart sample with the correct symmetric-matrix
+# change-of-variables Jacobian.
+iw = ConditionalInverseWishart(domain, Euclidean(d))
+```
+
+Conjugate prior for the covariance of a multivariate normal
+([Gelman, Carlin, Stern, Dunson, Vehtari & Rubin, 2013](https://doi.org/10.1201/b16018), §3.6).
+The change-of-variables Jacobian for inverting a positive-definite
+symmetric matrix contributes a `-(d + 1) log det(Σ)` term to the
+log-density.
 
 ### Discrete (Categorical)
 

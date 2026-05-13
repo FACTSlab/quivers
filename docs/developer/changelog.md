@@ -6,6 +6,51 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/), and this
 
 ## [Unreleased]
 
+### Added — axis-role surface for distribution clauses
+
+Every distribution clause (kernel declaration, latent parameter
+prior, sample step, observe step) accepts an optional
+`over <axes> [iid over <axes>]` post-clause.  `over` names the
+**event axes** of the family; remaining axes are iid (categorically
+a product of independent distributions).  Axis names resolve
+against the named factors of the surrounding morphism's dom/cod;
+`dom`/`cod` are shortcuts when that side is a single unfactored
+object.
+
+The axis count must match the family's declared `event_rank`
+(0 / 1 / 2 for scalar / vector / matrix families); mismatch is a
+compile-time error rather than a silent reinterpretation.  This
+preserves the categorical distinction between, e.g., a flat MVN
+over `dim(A)·dim(B)` with dense covariance and a `MatrixNormal`
+over `(A, B)` with Kronecker structure `V ⊗ U`.
+
+The latent morphism declaration accepts a `~ Family(args)
+[options] [over <axes>]` clause that puts a prior on the
+morphism's representing tensor.
+
+### Added — new families
+
+- [`ConditionalMatrixNormal`](../api/continuous/families.md#quivers.continuous.families.ConditionalMatrixNormal):
+  Matrix-Normal with Kronecker covariance `V ⊗ U`.  Event rank 2.
+  The natural prior for a weight matrix whose row and column
+  correlations factor separately.
+- [`ConditionalInverseWishart`](../api/continuous/families.md#quivers.continuous.families.ConditionalInverseWishart):
+  Conjugate prior for the covariance of a multivariate normal
+  ([Gelman et al. 2013](https://doi.org/10.1201/b16018) §3.6).
+  Event rank 2.
+
+### Changed — keyword unification
+
+The `continuous` and `stochastic` declaration keywords are removed
+in favour of a single `kernel` keyword.  A `kernel f : A -> B`
+declaration without a `~` clause declares a finite-set lookup-table
+kernel (the case formerly written with `stochastic`); with a
+`~ Family [options] [axes]` clause it declares a parametric kernel
+whose family parameters are produced by a neural parameter network
+on the input (the case formerly written with `continuous`).  This
+collapses two keywords whose distinction was already in the type
+signature into one whose name reads as "Markov kernel" everywhere.
+
 ## [0.5.0] - 2026-05-11
 
 ### Changed (breaking, pre-1.0 clean cut)
