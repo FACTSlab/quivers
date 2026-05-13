@@ -221,9 +221,10 @@ class TestGroupedMarginalizeSurface:
             probs : Class <- HalfNormal(1.0)
             idx : Resp <- HalfNormal(1.0)
             marginalize cls : Class <- Dirichlet(probs)
-                over Item via idx
+                over Item
+
                 in {
-                    observe r : Resp <- HalfNormal(1.0)
+                    observe r : Resp via idx <- HalfNormal(1.0)
                 }
             return probs
 
@@ -245,13 +246,13 @@ class TestGroupedMarginalizeSurface:
             marginalize class : Class <- Dirichlet(probs)
                 over Item
                 in {
-                    class : Resp <- HalfNormal(1.0)
+                    observe r : Resp <- HalfNormal(1.0)
                 }
             return probs
 
         export demo
         """
-        with pytest.raises(CompileError, match="`over` and `via`"):
+        with pytest.raises(CompileError, match="must carry its own `via"):
             _compile(src)
 
     def test_grouped_requires_class_annotation(self):
@@ -266,7 +267,8 @@ class TestGroupedMarginalizeSurface:
             probs : Class <- HalfNormal(1.0)
             idx : Resp <- HalfNormal(1.0)
             marginalize class <- Dirichlet(probs)
-                over Item via idx
+                over Item
+
                 in {
                     class : Resp <- HalfNormal(1.0)
                 }
@@ -289,7 +291,8 @@ class TestGroupedMarginalizeSurface:
             probs : Class <- HalfNormal(1.0)
             idx : Resp <- HalfNormal(1.0)
             marginalize class : Class <- Dirichlet(probs)
-                over NotAnObject via idx
+                over NotAnObject
+
                 in {
                     class : Resp <- HalfNormal(1.0)
                 }

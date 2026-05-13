@@ -103,28 +103,24 @@ program event_structure : Item -> Item
     telicity_durativity_probs : Class4 <- Dirichlet(prob_durative)
 
     # Per-row per-class log-likelihoods for the cloze and proportion
-    # responses.  The body of a grouped `marginalize` block ends
-    # with an `observe` step; the compiler vectorises the body over
-    # the class axis (the latent is in scope as `arange(K)`), so
-    # the observe's per-row log-likelihood is captured as the
-    # (N, K) tensor the block's reduction then scatter-adds along
-    # the response → item fibration and log-sum-exps under the
-    # categorical prior, summed over items.
+    # responses share a single per-item class indicator: both
+    # response axes scatter into the same per-(item, class)
+    # accumulator before the log-sum-exp.  The block declares
+    # one grouping plate (`over Item`); each `observe` inside
+    # carries its own `via <idx>` clause naming the response
+    # plate's fibration into the shared grouping plate.
     #
-    # Categorical denotation: the grouped block is the right Kan
-    # extension along the response-to-item fibration in Kern,
+    # Categorical denotation: the right Kan extension along the
+    # coproduct fibration `RespCloze + RespProp -> Item` in Kern,
     # followed by log-sum-exp over the class axis weighted by the
     # categorical prior, summed over items.
-    marginalize class_cloze : Class4 <- Dirichlet(telicity_durativity_probs)
-        over Item via item_cloze_idx
+    marginalize class : Class4 <- Dirichlet(telicity_durativity_probs)
+        over Item
         in {
-            observe cloze_resp : RespCloze <- Normal(intercept_cloze, 1.0)
-        }
-
-    marginalize class_prop : Class4 <- Dirichlet(telicity_durativity_probs)
-        over Item via item_prop_idx
-        in {
-            observe prop_resp : RespProp <- Normal(intercept_cloze, 1.0)
+            observe cloze_resp : RespCloze via item_cloze_idx
+                <- Normal(intercept_cloze, 1.0)
+            observe prop_resp  : RespProp  via item_prop_idx
+                <- Normal(intercept_cloze, 1.0)
         }
 
     return intercept_cloze

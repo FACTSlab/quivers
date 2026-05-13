@@ -879,6 +879,22 @@ def _walk_bind_step(
     via_t: str | None = None
     via_axes_t: tuple[str, ...] | None = None
     reduction_t: str | None = None
+    # The `via <idx>` clause appears on both observe steps (inside
+    # a grouped marginalize body, declaring the per-observe
+    # fibration into the shared grouping plate) and on marginalize
+    # steps themselves (the legacy header form).  For observe
+    # steps the grammar restricts `via` to a bare identifier; for
+    # marginalize steps it accepts either an identifier or a
+    # `via_product(...)`.
+    via_vid = t.field(vid, "via")
+    if via_vid is not None:
+        if t.kind(via_vid) == "via_product":
+            axis_ids = t.fields(via_vid, "axis")
+            via_axes_t = tuple(
+                _required_text(t, av, via_vid, "axis") for av in axis_ids
+            )
+        else:
+            via_t = _required_text(t, via_vid, vid, "via")
     if mode == "marginal":
         scope_t = tuple(_walk_program_step(t, sv) for sv in t.fields(vid, "scope"))
         over_vid = t.field(vid, "over")
@@ -905,16 +921,6 @@ def _walk_bind_step(
                     f"product of plate names; got "
                     f"{type(over_expr).__name__} at {over_vid}"
                 )
-        via_vid = t.field(vid, "via")
-        if via_vid is not None:
-            # `via` is either a bare identifier or a `via_product(...)`.
-            if t.kind(via_vid) == "via_product":
-                axis_ids = t.fields(via_vid, "axis")
-                via_axes_t = tuple(
-                    _required_text(t, av, via_vid, "axis") for av in axis_ids
-                )
-            else:
-                via_t = _required_text(t, via_vid, vid, "via")
         red_vid = t.field(vid, "reduction")
         if red_vid is not None:
             reduction_t = _required_text(t, red_vid, vid, "reduction")

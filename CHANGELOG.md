@@ -82,6 +82,43 @@ positional `posterior` argument, and imports from
   `l1_normalize`, `l2_normalize_over` → `l2_normalize` (DSL and
   Python API both).
 
+### Added: multi-observe grouped `marginalize` blocks
+
+A grouped `marginalize` block now supports multiple `observe`
+steps in the same body, each carrying its own `via <idx>` clause.
+The runtime scatter-sums each observe's `(N_m, K)` per-row
+per-class log-likelihood into the same `(|G|, K)` accumulator
+before the log-sum-exp; categorically the right Kan extension
+along the coproduct fibration $\coprod_m r_m : \coprod_m
+\mathrm{Resp}_m \to G$. The single-observe case is the unary
+slice; the multi-observe case unblocks hierarchical-Bayes
+models where multiple heterogeneous response axes share a
+per-group class indicator (the canonical pattern in the Stan
+likelihoods that motivated the work).
+
+- Surface change: the `via <idx>` clause moves from the
+  `marginalize` header to each `observe` step. The marginalize
+  header now declares only the grouping plate (`over G` or
+  `over G * H`); each observe inside the body carries its own
+  `via <idx>` (or `via product(idx_a, idx_b)`) clause. A
+  grouped body whose observe lacks a `via` is rejected at
+  compile time with a typed error.
+- Runtime: `quivers.continuous.bayesian.marginalize_grouped`
+  accepts either a single `(N, K)` log-likelihood tensor and
+  fibration (single-observe path) or a parallel list of
+  `(N_m, K)` tensors and fibrations (multi-observe path).
+- Pre-1.0 clean break: the previous `marginalize ... over G via
+  idx in { ... }` header form is removed. Users on 0.4.x with
+  a grouped marginalize block move the `via <idx>` clause from
+  the header onto the observe inside the body; a single
+  per-block fibration becomes a single observe carrying that
+  fibration. Multi-block patterns where two marginalize blocks
+  shared a class prior collapse to a single block with two
+  observes (per the canonical pattern in the issue that
+  motivated this).
+- `src/quivers/dsl/examples/event_structure.qvr` updated to the
+  single-block-with-two-observes form.
+
 ### Added: documentation overhaul
 
 - Two-track tutorial structure: a new **QVR DSL track** (seven

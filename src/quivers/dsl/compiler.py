@@ -140,6 +140,7 @@ from quivers.dsl.ast_nodes import (
     LetExprVar,
     LetExprNode,
     GroupedBodyObserveStep,
+    GroupedObserveEntry,
     GroupedLatentInitStep,
     MarginalizeStep,
     MorphismParam,
@@ -1554,6 +1555,8 @@ class Compiler:
                             morphism=step.morphism,
                             args=step.args,
                             response_var=step.vars[0],
+                            fibration_var=step.via,
+                            fibration_axes=step.via_axes,
                             line=step.line,
                             col=step.col,
                         )
@@ -1565,47 +1568,22 @@ class Compiler:
                         step.line,
                         step.col,
                     )
-                # Grouped form: `over G via idx` (single plate /
-                # single fibration) or `over G * H via product(...)`
-                # (product grouping plate). Both `over` and `via`
-                # must appear together; a half-grouped form is a
-                # user error rather than a silent fall-through to
-                # ungrouped semantics.
+                # Grouped form: `over G` (single plate) or
+                # `over G * H` (product grouping plate). The
+                # fibration data lives on each observe inside the
+                # body via that observe's `via <idx>` (or
+                # `via product(...)`) clause; the header carries
+                # only the grouping plate.
                 has_over = step.over is not None or step.over_objs is not None
-                has_via = step.via is not None or step.via_axes is not None
                 has_grouping = has_over
-                if has_over != has_via:
-                    raise CompileError(
-                        "marginalize: `over` and `via` clauses must appear "
-                        "together; got only one of them",
-                        step.line,
-                        step.col,
-                    )
-                # Normalize into tuple form so the downstream code
-                # handles single + product fibrations uniformly.
+                # Normalize the grouping plate into tuple form so
+                # the downstream code handles single + product
+                # uniformly.
                 over_names: tuple[str, ...] | None = None
                 if step.over_objs is not None:
                     over_names = step.over_objs
                 elif step.over is not None:
                     over_names = (step.over,)
-                via_names: tuple[str, ...] | None = None
-                if step.via_axes is not None:
-                    via_names = step.via_axes
-                elif step.via is not None:
-                    via_names = (step.via,)
-                # Arity match between `over` (product plate count)
-                # and `via` (fibration count).
-                if over_names is not None and via_names is not None:
-                    if len(over_names) != len(via_names):
-                        raise CompileError(
-                            "grouped marginalize: arity mismatch — "
-                            f"`over` declares {len(over_names)} plate(s) "
-                            f"({', '.join(over_names)}) but `via` declares "
-                            f"{len(via_names)} fibration(s) "
-                            f"({', '.join(via_names)})",
-                            step.line,
-                            step.col,
-                        )
                 # Resolve the per-class size from the latent's index
                 # annotation when present. The grouped form requires
                 # an explicit `: K` annotation so the prior's class
@@ -1709,52 +1687,76 @@ class Compiler:
                             col=step.col,
                         )
                     )
-                # Scope's steps. For a grouped block, rewrite the
-                # *last* VectorisedObserveStep in the expanded body
-                # as a captured-observe step that writes its per-row
-                # log-likelihood tensor to the latent's slot.
+                # Scope's steps. For a grouped block, rewrite every
+                # VectorisedObserveStep in the expanded body as a
+                # GroupedBodyObserveStep that writes its per-row
+                # per-class log-likelihood to a dedicated env slot.
+                # The surrounding MarginalizeStep's runtime callable
+                # collects each slot, pairs it with that observe's
+                # `via <idx>` fibration, and scatter-sums each
+                # contribution into the shared `(|G|, K)`
+                # accumulator before the reduction.
                 scope_steps = step.scope if step.scope is not None else ()
                 expanded_scope = list(self._expand_bind_steps(scope_steps))
+                body_observes: list[GroupedObserveEntry] = []
                 if has_grouping:
-                    # Find the last VectorisedObserveStep in the
-                    # expanded body and capture it as a
-                    # GroupedBodyObserveStep so its per-row
-                    # log-likelihood is stored at the latent's slot.
-                    # A nested marginalize block already converted
-                    # its body's observe to a GroupedBodyObserveStep;
-                    # in that case the inner block's marginalize
-                    # reduction produces the (N, K_outer)-shaped
-                    # contribution the outer block treats as its
-                    # captured ll, threading the multi-axis
-                    # broadcast pattern through both reductions.
-                    last_obs_idx: int | None = None
-                    for j in range(len(expanded_scope) - 1, -1, -1):
-                        if isinstance(expanded_scope[j], VectorisedObserveStep):
-                            last_obs_idx = j
-                            break
-                    if last_obs_idx is not None:
-                        obs = expanded_scope[last_obs_idx]
-                        assert isinstance(obs, VectorisedObserveStep)
-                        expanded_scope[last_obs_idx] = GroupedBodyObserveStep(
-                            response_var=obs.response_var,
-                            morphism=obs.morphism,
-                            args=obs.args,
-                            index_set=obs.index_set,
-                            index_var=obs.index_var,
-                            latent_name=latent_name,
-                            line=obs.line,
-                            col=obs.col,
-                        )
-                    else:
-                        # Nested case: the body already contains a
-                        # GroupedBodyObserveStep (from an inner
-                        # marginalize block). The inner block's
-                        # marginalize reduction writes a per-row
-                        # contribution to env that the outer block
-                        # treats as its captured-observe tensor.
-                        # We rebind the inner's marginalize result
-                        # to the outer's latent name so the outer
-                        # runtime callable picks it up.
+                    # Walk the body forward; rewrite each observe
+                    # into a GroupedBodyObserveStep with a unique
+                    # ll_slot and capture its per-observe fibration.
+                    for j, scoped_step in enumerate(expanded_scope):
+                        if isinstance(scoped_step, VectorisedObserveStep):
+                            if (
+                                scoped_step.fibration_var is None
+                                and scoped_step.fibration_axes is None
+                            ):
+                                raise CompileError(
+                                    "grouped marginalize: every observe "
+                                    "inside the body must carry its own "
+                                    "`via <idx>` clause "
+                                    "(e.g. `observe r : N via idx <- ...`); "
+                                    f"observe {scoped_step.response_var!r} "
+                                    "has no `via`",
+                                    scoped_step.line,
+                                    scoped_step.col,
+                                )
+                            ll_slot = (
+                                f"_grouped_ll_{latent_name}_"
+                                f"{len(body_observes)}"
+                            )
+                            expanded_scope[j] = GroupedBodyObserveStep(
+                                response_var=scoped_step.response_var,
+                                morphism=scoped_step.morphism,
+                                args=scoped_step.args,
+                                index_set=scoped_step.index_set,
+                                index_var=scoped_step.index_var,
+                                latent_name=latent_name,
+                                fibration_var=scoped_step.fibration_var,
+                                fibration_axes=scoped_step.fibration_axes,
+                                ll_slot=ll_slot,
+                                line=scoped_step.line,
+                                col=scoped_step.col,
+                            )
+                            body_observes.append(
+                                GroupedObserveEntry(
+                                    ll_slot=ll_slot,
+                                    fibration_var=scoped_step.fibration_var,
+                                    fibration_axes=scoped_step.fibration_axes,
+                                )
+                            )
+                    if not body_observes:
+                        # Nested case: a grouped marginalize block whose
+                        # body's only contribution to the per-group
+                        # accumulator is an inner grouped block.  The
+                        # inner block's MarginalizeStep produces the
+                        # (N_outer, K_outer) tensor the outer block
+                        # consumes.  Re-point the inner's
+                        # ``body_ll_var`` at the outer latent so the
+                        # outer codegen finds the tensor at the
+                        # expected slot, and record a single
+                        # body_observes entry whose ll_slot is the
+                        # outer latent's name (no per-observe
+                        # fibration, since the inner block already
+                        # performed its own scatter-add).
                         nested_marg_idx: int | None = None
                         for j in range(len(expanded_scope) - 1, -1, -1):
                             if isinstance(expanded_scope[j], MarginalizeStep):
@@ -1762,18 +1764,15 @@ class Compiler:
                                 break
                         if nested_marg_idx is None:
                             raise CompileError(
-                                "grouped marginalize: the body must end "
-                                "with at least one `observe` step (or an "
-                                "inner grouped marginalize) whose per-row "
-                                "log-likelihood produces the (N, K) tensor "
-                                "consumed by the marginalize reduction",
+                                "grouped marginalize: the body must "
+                                "contain at least one `observe` step "
+                                "(or an inner grouped marginalize) "
+                                "whose per-row log-likelihood produces "
+                                "the per-group accumulator's "
+                                "contribution",
                                 step.line,
                                 step.col,
                             )
-                        # Tag the inner marginalize so its codegen
-                        # writes its reduction output to the outer
-                        # latent's slot instead of a fresh
-                        # ``_marg_<inner>`` name.
                         inner_marg = expanded_scope[nested_marg_idx]
                         assert isinstance(inner_marg, MarginalizeStep)
                         expanded_scope[nested_marg_idx] = MarginalizeStep(
@@ -1782,40 +1781,30 @@ class Compiler:
                             probs_var=inner_marg.probs_var,
                             over_obj=inner_marg.over_obj,
                             over_objs=inner_marg.over_objs,
-                            via_var=inner_marg.via_var,
-                            via_axes=inner_marg.via_axes,
                             body_ll_var=latent_name,
+                            body_observes=inner_marg.body_observes,
                             reduction=inner_marg.reduction,
                             line=inner_marg.line,
                             col=inner_marg.col,
                         )
+                        body_observes.append(
+                            GroupedObserveEntry(ll_slot=latent_name)
+                        )
                 out.extend(expanded_scope)
-                # Pushforward reduction. The grouped form additionally
-                # threads the fibration data so the runtime can build
-                # the per-group accumulator and apply the per-group
-                # log-mixture.
-                # When the user wrote a single grouping plate /
-                # fibration, preserve the legacy scalar fields
-                # (``over_obj`` / ``via_var``) so existing tests
-                # and serialisation continue to round-trip. The
-                # product form populates the tuple fields instead.
+                # Pushforward reduction. When grouped, the
+                # MarginalizeStep carries the list of per-observe
+                # (ll_slot, fibration) entries the runtime callable
+                # consumes; the legacy single-fibration fields are
+                # gone.
                 single_over = (
                     over_names[0]
                     if over_names is not None and len(over_names) == 1
-                    else None
-                )
-                single_via = (
-                    via_names[0]
-                    if via_names is not None and len(via_names) == 1
                     else None
                 )
                 product_overs = (
                     over_names
                     if over_names is not None and len(over_names) > 1
                     else None
-                )
-                product_vias = (
-                    via_names if via_names is not None and len(via_names) > 1 else None
                 )
                 out.append(
                     MarginalizeStep(
@@ -1824,9 +1813,10 @@ class Compiler:
                         probs_var=probs_var,
                         over_obj=single_over,
                         over_objs=product_overs,
-                        via_var=single_via,
-                        via_axes=product_vias,
                         body_ll_var=step.vars[0],
+                        body_observes=(
+                            tuple(body_observes) if has_grouping else None
+                        ),
                         reduction=step.reduction,
                         line=step.line,
                         col=step.col,
@@ -2231,16 +2221,6 @@ class Compiler:
                 col=step.col,
             )
         if isinstance(step, MarginalizeStep):
-            renamed_via = (
-                rename.get(step.via_var, step.via_var)
-                if step.via_var is not None
-                else None
-            )
-            renamed_via_axes = (
-                tuple(rename.get(v, v) for v in step.via_axes)
-                if step.via_axes is not None
-                else None
-            )
             renamed_probs = (
                 rename.get(step.probs_var, step.probs_var)
                 if step.probs_var is not None
@@ -2251,15 +2231,32 @@ class Compiler:
                 if step.body_ll_var is not None
                 else None
             )
+            renamed_body_observes: tuple[GroupedObserveEntry, ...] | None = None
+            if step.body_observes is not None:
+                renamed_body_observes = tuple(
+                    GroupedObserveEntry(
+                        ll_slot=rename.get(entry.ll_slot, entry.ll_slot),
+                        fibration_var=(
+                            rename.get(entry.fibration_var, entry.fibration_var)
+                            if entry.fibration_var is not None
+                            else None
+                        ),
+                        fibration_axes=(
+                            tuple(rename.get(v, v) for v in entry.fibration_axes)
+                            if entry.fibration_axes is not None
+                            else None
+                        ),
+                    )
+                    for entry in step.body_observes
+                )
             return MarginalizeStep(
                 var_name=rename.get(step.var_name, step.var_name),
                 class_size=step.class_size,
                 probs_var=renamed_probs,
                 over_obj=step.over_obj,
                 over_objs=step.over_objs,
-                via_var=renamed_via,
-                via_axes=renamed_via_axes,
                 body_ll_var=renamed_body_ll,
+                body_observes=renamed_body_observes,
                 reduction=step.reduction,
                 line=step.line,
                 col=step.col,
@@ -2790,8 +2787,11 @@ class Compiler:
                 # block: compute the family's per-row log-likelihood
                 # against the supplied response data, broadcasting
                 # any (K,)-shaped parameters across the class axis,
-                # and store the resulting (N, K) tensor at the
-                # latent's slot.
+                # and store the resulting (N, K) tensor at this
+                # observe's dedicated env slot.  The surrounding
+                # MarginalizeStep collects each slot, pairs it with
+                # the observe's fibration, and scatter-sums each
+                # contribution into the shared (|G|, K) accumulator.
                 idx_space = self._resolve_any_space(step.index_set)
                 _synth = DrawStep(
                     vars=(step.index_var,),
@@ -2809,7 +2809,7 @@ class Compiler:
                 if step.response_var not in bound_vars:
                     bound_vars[step.response_var] = family.codomain
                 resp_var = step.response_var
-                latent_name = step.latent_name
+                ll_slot = step.ll_slot or step.latent_name
                 num_rows = int(idx_space.size)
 
                 def _captured_observe(
@@ -2817,7 +2817,7 @@ class Compiler:
                     _family=family,
                     _args=step_args,
                     _resp=resp_var,
-                    _latent=latent_name,
+                    _slot=ll_slot,
                     _N=num_rows,
                 ) -> torch.Tensor:
                     # Resolve theta from env using the same input-
@@ -2851,8 +2851,8 @@ class Compiler:
                         ll = ll.reshape(1, 1)
                     return ll
 
-                bound_vars[latent_name] = None
-                steps.append(((latent_name,), None, _captured_observe))
+                bound_vars[ll_slot] = None
+                steps.append(((ll_slot,), None, _captured_observe))
                 continue
             if isinstance(step, VectorisedObserveStep):
                 # observe r[n] ~ Family(args) for n in N — the batched-
@@ -2916,37 +2916,22 @@ class Compiler:
                         step.col,
                     )
                 target_var = step.var_name
-                # The grouped form populates either ``over_obj`` /
-                # ``via_var`` (single plate / fibration) or
-                # ``over_objs`` / ``via_axes`` (product plate /
-                # tuple of co-indexed fibrations).
+                # Grouped form: `over G` (single plate) or
+                # `over G * H` (product plate).  Per-observe
+                # fibration data lives in ``body_observes``: each
+                # entry is ``(ll_slot, fibration_var,
+                # fibration_axes)``.  The codegen iterates the
+                # entries, builds a parallel list of (ll, idx)
+                # pairs from ``env``, and calls the multi-axis
+                # form of ``marginalize_grouped``.
                 has_grouping = step.over_obj is not None or step.over_objs is not None
                 if has_grouping:
                     over_tuple: tuple[str, ...]
-                    via_tuple: tuple[str, ...]
                     if step.over_objs is not None:
                         over_tuple = step.over_objs
                     else:
                         assert step.over_obj is not None
                         over_tuple = (step.over_obj,)
-                    if step.via_axes is not None:
-                        via_tuple = step.via_axes
-                    else:
-                        if step.via_var is None:
-                            raise CompileError(
-                                "grouped marginalize: `via` is missing",
-                                step.line,
-                                step.col,
-                            )
-                        via_tuple = (step.via_var,)
-                    for via_name in via_tuple:
-                        if via_name not in bound_vars:
-                            raise CompileError(
-                                f"grouped marginalize: `via` variable "
-                                f"{via_name!r} is not bound in program scope",
-                                step.line,
-                                step.col,
-                            )
                     for over_name in over_tuple:
                         if over_name not in self._objects:
                             raise CompileError(
@@ -2962,71 +2947,147 @@ class Compiler:
                             step.line,
                             step.col,
                         )
+                    if not step.body_observes:
+                        raise CompileError(
+                            "grouped marginalize: the body must contain "
+                            "at least one observe step carrying its own "
+                            "`via <idx>` clause",
+                            step.line,
+                            step.col,
+                        )
+                    is_product = len(over_tuple) > 1
+                    # Verify each per-observe fibration's arity and
+                    # bound-ness in scope.  Each entry is either
+                    # single-fibration (``fibration_var`` set) or
+                    # product-fibration (``fibration_axes`` set
+                    # with length equal to ``len(over_tuple)``).
+                    for entry in step.body_observes:
+                        slot = entry.ll_slot
+                        fib_var = entry.fibration_var
+                        fib_axes = entry.fibration_axes
+                        if fib_var is None and fib_axes is None:
+                            # Nested-marginalize entry: the inner
+                            # block has already performed its own
+                            # scatter; the outer block consumes its
+                            # already-(|G|, K)-shaped output
+                            # directly with no further fibration.
+                            continue
+                        if is_product:
+                            if fib_axes is None or len(fib_axes) != len(over_tuple):
+                                raise CompileError(
+                                    "grouped marginalize: observe writing "
+                                    f"to slot {slot!r} must declare a "
+                                    f"`via product(...)` clause of arity "
+                                    f"{len(over_tuple)} matching the "
+                                    "product grouping plate",
+                                    step.line,
+                                    step.col,
+                                )
+                            for axis_name in fib_axes:
+                                if axis_name not in bound_vars:
+                                    raise CompileError(
+                                        f"grouped marginalize: per-observe "
+                                        f"`via` axis {axis_name!r} is not "
+                                        "bound in program scope",
+                                        step.line,
+                                        step.col,
+                                    )
+                        else:
+                            if fib_axes is not None:
+                                raise CompileError(
+                                    "grouped marginalize: `via product(...)` "
+                                    "on an observe requires the marginalize "
+                                    "header to declare a product grouping "
+                                    "plate `over G * H * ...`",
+                                    step.line,
+                                    step.col,
+                                )
+                            if fib_var not in bound_vars:
+                                raise CompileError(
+                                    f"grouped marginalize: per-observe "
+                                    f"`via` variable {fib_var!r} is not "
+                                    "bound in program scope",
+                                    step.line,
+                                    step.col,
+                                )
                     group_sizes = tuple(
                         int(self._objects[name].size) for name in over_tuple
                     )
                     num_classes = step.class_size
                     probs_var = step.probs_var
                     reduction = step.reduction or "logsumexp"
-                    is_product = len(via_tuple) > 1
+                    observe_specs = tuple(
+                        (entry.ll_slot, entry.fibration_var, entry.fibration_axes)
+                        for entry in step.body_observes
+                    )
 
                     def _marginalize_grouped_callable(
                         env: dict,
-                        _v: str = target_var,
-                        _vias: tuple[str, ...] = via_tuple,
+                        _specs: tuple[
+                            tuple[str, str | None, tuple[str, ...] | None], ...
+                        ] = observe_specs,
                         _probs: str = probs_var,
                         _sizes: tuple[int, ...] = group_sizes,
                         _k: int = num_classes,
                         _reduction: str = reduction,
                         _product: bool = is_product,
                     ) -> torch.Tensor:
-                        ll = env[_v]
-                        if ll.shape[-1] != _k:
-                            raise ValueError(
-                                f"grouped marginalize: per-row per-class "
-                                f"log-likelihood {_v!r} must end with the "
-                                f"class axis of size {_k}; got "
-                                f"{tuple(ll.shape)}"
-                            )
-                        if _product:
-                            idx_tuple = []
-                            for via_name in _vias:
-                                idx = env[via_name]
+                        # Collect per-observe (ll, idx) pairs from
+                        # env, with the shape contract that each
+                        # ll's trailing axis is the class axis.
+                        ll_list: list[torch.Tensor] = []
+                        idx_list: list[
+                            torch.Tensor | tuple[torch.Tensor, ...]
+                        ] = []
+                        for slot, fib_var, fib_axes in _specs:
+                            ll = env[slot]
+                            if ll.shape[-1] != _k:
+                                raise ValueError(
+                                    f"grouped marginalize: per-row "
+                                    f"per-class log-likelihood at slot "
+                                    f"{slot!r} must end with the class "
+                                    f"axis of size {_k}; got "
+                                    f"{tuple(ll.shape)}"
+                                )
+                            ll_list.append(ll)
+                            if fib_axes is not None:
+                                idx_tuple = []
+                                for axis_name in fib_axes:
+                                    idx = env[axis_name]
+                                    if idx.dim() == 2 and idx.shape[-1] == 1:
+                                        idx = idx.squeeze(-1)
+                                    idx_tuple.append(idx.to(torch.long))
+                                idx_list.append(tuple(idx_tuple))
+                            elif fib_var is not None:
+                                idx = env[fib_var]
                                 if idx.dim() == 2 and idx.shape[-1] == 1:
                                     idx = idx.squeeze(-1)
-                                idx_tuple.append(idx.to(torch.long))
-                            probs = env[_probs]
-                            log_prior = torch.log(probs.clamp_min(1e-38))
-                            result = marginalize_grouped(
-                                ll,
-                                tuple(idx_tuple),
-                                log_prior,
-                                _sizes,
-                                reduction=_reduction,
-                            )
-                        else:
-                            idx = env[_vias[0]]
-                            if idx.dim() == 2 and idx.shape[-1] == 1:
-                                idx = idx.squeeze(-1)
-                            idx = idx.to(torch.long)
-                            probs = env[_probs]
-                            log_prior = torch.log(probs.clamp_min(1e-38))
-                            result = marginalize_grouped(
-                                ll,
-                                idx,
-                                log_prior,
-                                _sizes[0],
-                                reduction=_reduction,
-                            )
-                        # Result is either a scalar (innermost or
-                        # standalone block) or a multi-axis tensor
-                        # (intermediate block in a nested stack,
-                        # with the surviving outer-class axes). The
-                        # outer block treats this as its captured
-                        # log-likelihood tensor; the outermost block
-                        # ultimately produces a scalar that we wrap
-                        # in a length-1 tensor so the surrounding
-                        # joint accumulator can broadcast cleanly.
+                                idx_list.append(idx.to(torch.long))
+                            else:
+                                # Nested-marginalize entry: the
+                                # inner block produced a
+                                # (|G|, K)-shaped tensor; bypass
+                                # scatter-add for this entry by
+                                # using an identity fibration.
+                                idx_list.append(
+                                    torch.arange(
+                                        int(ll.shape[0]),
+                                        dtype=torch.long,
+                                        device=ll.device,
+                                    )
+                                )
+                        probs = env[_probs]
+                        log_prior = torch.log(probs.clamp_min(1e-38))
+                        result = marginalize_grouped(
+                            ll_list,
+                            idx_list,
+                            log_prior,
+                            _sizes if _product else _sizes[0],
+                            reduction=_reduction,
+                        )
+                        # Outermost block returns a scalar; we wrap
+                        # in length-1 so the surrounding joint
+                        # accumulator can broadcast cleanly.
                         if result.dim() == 0:
                             return result.reshape(1)
                         return result

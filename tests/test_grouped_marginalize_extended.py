@@ -205,15 +205,16 @@ class TestNestedMarginalize:
             idx_b : Resp <- HalfNormal(1.0)
             idx_c : Resp <- HalfNormal(1.0)
             marginalize outer : K_outer <- Dirichlet(probs_a)
-                over G_outer via idx_a
+                over G_outer
+
                 in {
                     marginalize middle : K_middle <- Dirichlet(probs_b)
-                        over G_middle via idx_b
+                        over G_middle
                         in {
                             marginalize inner : K_inner <- Dirichlet(probs_c)
-                                over G_inner via idx_c
+                                over G_inner
                                 in {
-                                    observe r : Resp <- HalfNormal(1.0)
+                                    observe r : Resp via idx_a <- HalfNormal(1.0)
                                 }
                         }
                 }
@@ -249,15 +250,16 @@ class TestNestedMarginalize:
             idx_b : Resp <- HalfNormal(1.0)
             idx_c : Resp <- HalfNormal(1.0)
             marginalize outer : K_outer <- Dirichlet(probs_a)
-                over G_outer via idx_a
+                over G_outer
+
                 in {
                     marginalize middle : K_middle <- Dirichlet(probs_b)
-                        over G_middle via idx_b
+                        over G_middle
                         in {
                             marginalize inner : K_inner <- Dirichlet(probs_c)
-                                over G_inner via idx_c
+                                over G_inner
                                 in {
-                                    observe r : Resp <- HalfNormal(1.0)
+                                    observe r : Resp via idx_a <- HalfNormal(1.0)
                                 }
                         }
                 }
@@ -294,12 +296,13 @@ class TestNestedMarginalize:
             outer_idx : Resp <- HalfNormal(1.0)
             inner_idx : Resp <- HalfNormal(1.0)
             marginalize outer : K1 <- Dirichlet(probs_outer)
-                over G1 via outer_idx
+                over G1
+
                 in {
                     marginalize inner : K2 <- Dirichlet(probs_inner)
-                        over G2 via inner_idx
+                        over G2
                         in {
-                            observe r : Resp <- HalfNormal(1.0)
+                            observe r : Resp via outer_idx <- HalfNormal(1.0)
                         }
                 }
             return probs_outer
@@ -333,9 +336,10 @@ class TestProductFibrationSurface:
             item_idx : Resp <- HalfNormal(1.0)
             subj_idx : Resp <- HalfNormal(1.0)
             marginalize cls : Class <- Dirichlet(probs)
-                over Item * Subj via product(item_idx, subj_idx)
+                over Item * Subj
+
                 in {
-                    observe r : Resp <- HalfNormal(1.0)
+                    observe r : Resp via product(item_idx, subj_idx) <- HalfNormal(1.0)
                 }
             return probs
         export demo
@@ -357,9 +361,10 @@ class TestProductFibrationSurface:
             probs : Class <- HalfNormal(1.0)
             item_idx : Resp <- HalfNormal(1.0)
             marginalize cls : Class <- Dirichlet(probs)
-                over Item * Subj via item_idx
+                over Item * Subj
+
                 in {
-                    observe r : Resp <- HalfNormal(1.0)
+                    observe r : Resp via item_idx <- HalfNormal(1.0)
                 }
             return probs
         export demo
@@ -390,9 +395,9 @@ class TestReductionSurface:
             probs : Class <- HalfNormal(1.0)
             idx : Resp <- HalfNormal(1.0)
             marginalize cls : Class <- Dirichlet(probs)
-                over Item via idx reduction = sum
+                over Item reduction = sum
                 in {
-                    observe r : Resp <- HalfNormal(1.0)
+                    observe r : Resp via idx <- HalfNormal(1.0)
                 }
             return probs
         export demo
@@ -413,9 +418,9 @@ class TestReductionSurface:
             probs : Class <- HalfNormal(1.0)
             idx : Resp <- HalfNormal(1.0)
             marginalize cls : Class <- Dirichlet(probs)
-                over Item via idx reduction = bogus
+                over Item reduction = bogus
                 in {
-                    observe r : Resp <- HalfNormal(1.0)
+                    observe r : Resp via idx <- HalfNormal(1.0)
                 }
             return probs
         export demo
@@ -449,9 +454,10 @@ class TestSurfaceCompileErrors:
         program demo : Resp -> Resp
             idx : Resp <- HalfNormal(1.0)
             marginalize cls : Class <- Dirichlet(1.0)
-                over Item via idx
+                over Item
+
                 in {
-                    observe r : Resp <- HalfNormal(1.0)
+                    observe r : Resp via idx <- HalfNormal(1.0)
                 }
             return idx
         export demo
@@ -475,7 +481,8 @@ class TestSurfaceCompileErrors:
             probs : Class <- HalfNormal(1.0)
             idx : Resp <- HalfNormal(1.0)
             marginalize cls : Class <- Dirichlet(probs)
-                over Item via idx
+                over Item
+
                 in {
                     other : Resp <- HalfNormal(1.0)
                 }
@@ -505,9 +512,10 @@ def test_three_axis_product_fibration_dsl_compiles() -> None:
         idx_b : Resp <- HalfNormal(1.0)
         idx_c : Resp <- HalfNormal(1.0)
         marginalize cls : K <- Dirichlet(probs)
-            over A * B * C via product(idx_a, idx_b, idx_c)
+            over A * B * C
+
             in {
-                observe r : Resp <- HalfNormal(1.0)
+                observe r : Resp via product(idx_a, idx_b, idx_c) <- HalfNormal(1.0)
             }
         return probs
     export triple_prod

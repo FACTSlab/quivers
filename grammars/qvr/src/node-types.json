@@ -4260,20 +4260,6 @@
             "named": true
           }
         ]
-      },
-      "via": {
-        "multiple": false,
-        "required": false,
-        "types": [
-          {
-            "type": "identifier",
-            "named": true
-          },
-          {
-            "type": "via_product",
-            "named": true
-          }
-        ]
       }
     }
   },
@@ -4816,6 +4802,20 @@
         "types": [
           {
             "type": "identifier",
+            "named": true
+          }
+        ]
+      },
+      "via": {
+        "multiple": false,
+        "required": false,
+        "types": [
+          {
+            "type": "identifier",
+            "named": true
+          },
+          {
+            "type": "via_product",
             "named": true
           }
         ]

@@ -188,8 +188,17 @@ bind_step      := var_pattern [':' type_expr] '<-' IDENT
 # Scored bind, same shape as bind_step, prefixed with `observe`.
 #   observe v        <- F(args)
 #   observe r : N    <- F(theta[N])
-observe_step   := 'observe' IDENT [':' type_expr] '<-' IDENT
+#   observe r : N via idx <- F(theta[N])
+# Inside a grouped marginalize body the `via <idx>` clause is
+# required on every observe; it names the per-observe fibration
+# into the marginalize header's grouping plate.  `via product(...)`
+# carries a product fibration paired with an `over G * H * ...`
+# header.
+observe_step   := 'observe' IDENT [':' type_expr]
+                  ['via' via_spec]
+                  '<-' IDENT
                   ['(' draw_arg_list ')']
+via_spec       := IDENT | 'product' '(' IDENT (',' IDENT)* ')'
 
 # Scoped marginalisation, coordinate `c` is bound to `F(args)`,
 # optionally `A`-indexed; the steps in the `{ … }` body are the
@@ -199,12 +208,15 @@ observe_step   := 'observe' IDENT [':' type_expr] '<-' IDENT
 marginalize_step := 'marginalize' IDENT [':' type_expr] '<-' IDENT
                     ['(' draw_arg_list ')']
                     [grouping_clause]
+                    ['reduction' '=' IDENT]
                     'in' '{' program_step* '}'
 
-# Optional fibred marginalisation: the body's per-row log-
-# likelihood is scatter-added along `idx` to give one log-
-# likelihood per `(group, class)` pair before the logsumexp.
-grouping_clause := 'over' IDENT 'via' IDENT
+# Optional fibred marginalisation: the header declares the
+# grouping plate `G` (or product plate `G * H`).  Each observe
+# inside the body carries its own `via <idx>` clause; the runtime
+# scatter-sums per-axis log-likelihoods into the shared per-group
+# accumulator before the reduction.
+grouping_clause := 'over' type_expr
 
 let_step       := 'let' IDENT '=' let_expr
 let_expr       := let_term (('+' | '-') let_term)*

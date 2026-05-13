@@ -318,29 +318,34 @@ Each `random_intercepts` call inlines an independent `sigma` and per-level plate
 
 ## Grouped marginalisation: fibred discrete latents
 
-A scoped `marginalize` block accepts an optional `over G via idx` clause that declares a *grouping plate* `G` and a *fibration* `idx : Resp → G` from the response plate to the group plate. The body's per-row per-class log-likelihood is scatter-added along `idx` to give one log-likelihood per (group, class) pair; the log-sum-exp over the class axis is then weighted by the categorical prior and summed over groups:
+A scoped `marginalize` block accepts an optional `over G` clause that declares a *grouping plate* `G`. Inside the body, every `observe` step carries its own `via <idx>` clause naming the fibration `idx : Resp_m → G` from that observe's response plate to the shared grouping plate. The body's per-axis per-row per-class log-likelihoods are scatter-summed into a single `(|G|, K)` accumulator before the log-sum-exp over the class axis:
 
 ```
 marginalize class : K <- Categorical(probs)
-    over G via idx
+    over G
     in {
-        <body that populates per-(N, K) log-likelihoods>
+        observe r_a : Resp_a via idx_a <- F_a(...)
+        observe r_b : Resp_b via idx_b <- F_b(...)
+        ...
     }
 ```
 
 The block contributes
 
 $$
-\sum_{g \in G}\ \log\sum_{k=1}^{K}\exp\!\Big[\log \pi(g, k) + \sum_{n:\ \text{idx}(n)=g}\ell(n, k)\Big]
+\sum_{g \in G}\ \log\sum_{k=1}^{K}\exp\!\left[\log \pi(g, k) + \sum_{m}\sum_{n:\ \mathrm{idx}_m(n)=g}\ell_m(n, k)\right]
 $$
 
-to the program-level log-density. Categorically this is the right Kan extension along the fibration $r : \text{Resp} \to G$ in $\mathbf{Kern}$ (with the additive monoid on log-densities), composed with the standard categorical-marginal log-sum-exp under the prior $\pi$. The fibred form is the canonical hierarchical-Bayes likelihood pattern, equivalent to Stan's per-item `target += log_mix(probs, ll_item[i])` accumulation, and degenerates as expected:
+to the program-level log-density. Categorically this is the right Kan extension along the coproduct fibration $\coprod_m r_m : \coprod_m \mathrm{Resp}_m \to G$ in $\mathbf{Kern}$, composed with the standard categorical-marginal log-sum-exp under the prior $\pi$. The single-observe case is the unary slice; the multi-observe case is what makes the joint identification of mixture components by multiple heterogeneous response axes expressible. The fibred form is the canonical hierarchical-Bayes likelihood pattern, equivalent to Stan's per-item `target += log_mix(probs, sum_m ll_item_m[i])` accumulation, and degenerates as expected:
 
-- *no grouping plate, no fibration*: the global mixture form (ungrouped `marginalize`),
-- *identity fibration* (one group per row): the per-row mixture,
-- *coarser fibration*: the per-block hierarchical mixture.
+- *no grouping plate*: the global mixture form (ungrouped `marginalize`),
+- *single observe with identity fibration* (one group per row): the per-row mixture,
+- *single observe with coarser fibration*: the per-block hierarchical mixture,
+- *multiple observes sharing a per-item class indicator*: the joint mixture across heterogeneous response axes.
 
-Both clauses must appear together; a half-grouped block is a compile-time error. The `over` object must be declared, and the `via` name must be a previously bound plate variable. The categorical family's first argument is the prior tensor; its shape may be `(K,)` (shared across groups) or `(|G|, K)` (per-group prior). The runtime primitive is exposed at `quivers.continuous.bayesian.marginalize_grouped(ll, idx, log_prior, num_groups)`.
+The `over` object must be declared. Each observe's `via` name must be a previously bound plate variable. The categorical family's first argument is the prior tensor; its shape may be `(K,)` (shared across groups) or `(|G|, K)` (per-group prior). The runtime primitive is exposed at `quivers.continuous.bayesian.marginalize_grouped(ll, idx, log_prior, num_groups)` and accepts either a single `(N, K)` tensor (single-observe case) or a parallel list of `(N_m, K)` tensors with their per-axis fibrations (multi-observe case).
+
+Product fibrations are supported on each observe via `via product(idx_a, idx_b)`, paired with an `over G * H` product grouping plate on the marginalize header. The product-fibration arity must match the grouping plate's arity. See the [composition-rule semantics](../semantics/composition-rules.md) for the formal denotation and `tests/test_grouped_marginalize_combinations.py` for examples.
 
 ```python
 from quivers.dsl import load

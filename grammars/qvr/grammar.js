@@ -1367,10 +1367,21 @@ module.exports = grammar({
     //
     //   observe v        <- F(args)
     //   observe r : N    <- F(theta[N])   -- N-indexed batched score
+    //   observe r : N via idx <- F(...)   -- per-observe fibration
+    //   observe r : N via product(a, b) <- F(...)
+    //
+    // Inside a grouped `marginalize` block (header carries
+    // ``over G`` or ``over G * H``), every observe step MUST
+    // carry its own ``via <idx>`` (or ``via product(...)``)
+    // clause.  The compiler scatter-adds each observe's per-row
+    // per-class log-likelihood into the same per-group
+    // accumulator before the reduction.  Outside a grouped body
+    // ``via`` on an observe is a compile-time error.
     observe_step: $ => prec.right(seq(
       'observe',
       field('var', $.identifier),
       optional(seq(':', field('index', $._type_expr))),
+      optional(seq('via', field('via', $._via_spec))),
       '<-',
       field('morphism', $.identifier),
       optional(seq('(', field('args', commaSep1($._draw_arg)), ')')),
@@ -1383,25 +1394,30 @@ module.exports = grammar({
     // fibrewise integration for continuous), and `c` falls out of
     // scope.
     //
-    // A grouped block additionally declares a grouping plate `over G`
-    // and a fibration `via idx` from the response plate to G; in that
-    // case the body's per-response log-density is scatter-added along
-    // the fibration before the log-sum-exp, giving the per-group
-    // log-mixture
+    // A grouped block additionally declares a grouping plate
+    // ``over G`` (or a product plate ``over G * H``).  Inside the
+    // body, every observe step carries its own ``via <idx>``
+    // clause naming the per-observe fibration into the shared
+    // grouping plate.  The compiler scatter-adds each observe's
+    // per-row per-class log-likelihood into the same
+    // ``(|G|, K)`` accumulator before the reduction:
     //
-    //     Σ_g logsumexp_k [ log π(g,k) + Σ_{n: idx(n)=g} ll(n,k) ]
+    //     Σ_g logsumexp_k [ log π(g, k) +
+    //                       Σ_m Σ_{n: idx_m(n)=g} ℓ_m(n, k) ]
     //
-    // realising the right Kan extension along the fibration in Kern.
+    // realising the right Kan extension along the coproduct
+    // fibration ⨿_m r_m in Kern.  The single-observe case is the
+    // unary slice (M = 1).
     //
     //   marginalize class : K <- Categorical(probs) in {
     //       observe r : N <- Bernoulli(theta[class[N]])
     //   }
     //
     //   marginalize class : K <- Categorical(probs)
-    //       over G via idx
+    //       over G
     //       in {
     //           let logit = base + sign[class]
-    //           observe r : N <- Bernoulli(logit)
+    //           observe r : N via idx <- Bernoulli(logit)
     //       }
     marginalize_step: $ => seq(
       'marginalize',
@@ -1414,14 +1430,9 @@ module.exports = grammar({
       // declares a product grouping plate whose flat cardinality is
       // |G|·|H|. The compiler resolves the type-product into a
       // tuple of plate cardinalities and pairs it with the
-      // co-indexed `via` fibrations.
+      // co-indexed `via` fibrations declared on each observe in
+      // the body.
       optional(seq('over', field('over', $._type_expr))),
-      // `via idx` declares a single response→group fibration;
-      // `via product(idx_a, idx_b, ...)` declares a tuple of
-      // co-indexed fibrations into the corresponding product
-      // grouping plate. The arity of the `product(...)` form must
-      // match the arity of the `over` type product.
-      optional(seq('via', field('via', $._via_spec))),
       // `reduction = logsumexp | sum | mean` controls the per-group
       // reduction over the class axis: `logsumexp` is the canonical
       // mixture-marginalisation form, `sum` is the joint scoring

@@ -6047,6 +6047,31 @@
             ]
           },
           {
+            "type": "CHOICE",
+            "members": [
+              {
+                "type": "SEQ",
+                "members": [
+                  {
+                    "type": "STRING",
+                    "value": "via"
+                  },
+                  {
+                    "type": "FIELD",
+                    "name": "via",
+                    "content": {
+                      "type": "SYMBOL",
+                      "name": "_via_spec"
+                    }
+                  }
+                ]
+              },
+              {
+                "type": "BLANK"
+              }
+            ]
+          },
+          {
             "type": "STRING",
             "value": "<-"
           },
@@ -6229,31 +6254,6 @@
                   "content": {
                     "type": "SYMBOL",
                     "name": "_type_expr"
-                  }
-                }
-              ]
-            },
-            {
-              "type": "BLANK"
-            }
-          ]
-        },
-        {
-          "type": "CHOICE",
-          "members": [
-            {
-              "type": "SEQ",
-              "members": [
-                {
-                  "type": "STRING",
-                  "value": "via"
-                },
-                {
-                  "type": "FIELD",
-                  "name": "via",
-                  "content": {
-                    "type": "SYMBOL",
-                    "name": "_via_spec"
                   }
                 }
               ]

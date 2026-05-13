@@ -170,15 +170,24 @@ effect              := 'Sample' | 'Score' | 'Marginal' | 'Pure'
 bind_step           := var_pattern [ ':' type_expr ] '<-' IDENT
                        [ '(' draw_arg_list ')' ]
 
-observe_step        := 'observe' IDENT [ ':' type_expr ] '<-' IDENT
-                       [ '(' draw_arg_list ')' ]
+observe_step        := 'observe' IDENT [ ':' type_expr ]
+                       [ 'via' via_spec ]
+                       '<-' IDENT [ '(' draw_arg_list ')' ]
+via_spec            := IDENT
+                     | 'product' '(' IDENT (',' IDENT)* ')'
 
 marginalize_step    := 'marginalize' IDENT [ ':' type_expr ] '<-' IDENT
                        [ '(' draw_arg_list ')' ]
                        [ grouping_clause ]
+                       [ 'reduction' '=' IDENT ]
                        'in' '{' program_step* '}'
 
-grouping_clause     := 'over' IDENT 'via' IDENT
+# Header declares the grouping plate.  Each observe inside the
+# body carries its own `via <idx>` clause naming the per-axis
+# fibration into the shared plate; the runtime scatter-sums each
+# per-(N_m, K) log-likelihood into the same `(|G|, K)`
+# accumulator before the reduction.
+grouping_clause     := 'over' type_expr
 
 let_index           := IDENT '[' let_arith (',' let_arith)* ']'
 

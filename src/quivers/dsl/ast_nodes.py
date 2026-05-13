@@ -597,13 +597,18 @@ class BindStep(ProgramStep):
     index: TypeExpr | None = None
     mode: Literal["sample", "score", "marginal"] = "sample"
     scope: tuple[ProgramStep, ...] | None = None
-    # `over G`: the grouping plate. ``over_obj`` is the single
-    # plate name; ``over_objs`` is the tuple of plate names when
-    # the user wrote a type product (e.g. ``over G * H``).
+    # ``over G`` on the marginalize-mode bind declares the grouping
+    # plate.  ``over_obj`` is the single plate name; ``over_objs``
+    # is the tuple of plate names when the user wrote a type
+    # product (e.g. ``over G * H``).  Unused on score / sample
+    # binds.
     over: str | None = None
     over_objs: tuple[str, ...] | None = None
-    # `via idx` (single fibration) or `via product(idx_a, idx_b)`
-    # (tuple of co-indexed fibrations).
+    # ``via idx`` (single fibration) or ``via product(idx_a, idx_b)``
+    # (product fibration) on a score-mode bind inside a grouped
+    # marginalize body.  Every observe inside the body carries its
+    # own ``via`` clause naming the fibration into the shared
+    # grouping plate.  Unused on sample / marginal binds.
     via: str | None = None
     via_axes: tuple[str, ...] | None = None
     # `reduction = logsumexp | sum | mean`.
@@ -701,6 +706,13 @@ class VectorisedObserveStep(ProgramStep):
     morphism: str
     args: tuple[str | float, ...] | None = None
     response_var: str = ""
+    # ``via <idx>`` clause on the originating observe surface step.
+    # Inside a grouped marginalize body this names the per-observe
+    # fibration into the shared grouping plate; the product form
+    # ``via product(...)`` populates ``fibration_axes`` instead.
+    # Outside a grouped body both fields are unused.
+    fibration_var: str | None = None
+    fibration_axes: tuple[str, ...] | None = None
     line: int = 0
     col: int = 0
     kind: Literal["vectorized_observe_step"] = "vectorized_observe_step"
@@ -755,9 +767,46 @@ class GroupedBodyObserveStep(ProgramStep):
     index_set: TypeExpr | None = None
     index_var: str = ""
     latent_name: str = ""
+    # Per-observe fibration into the shared grouping plate.
+    # ``fibration_var`` carries a single-axis fibration's name;
+    # ``fibration_axes`` carries a product-fibration's tuple of
+    # axis names.  Exactly one is set inside a grouped body; the
+    # other is ``None``.
+    fibration_var: str | None = None
+    fibration_axes: tuple[str, ...] | None = None
+    # The env slot the captured-observe's (N_m, K) per-row
+    # per-class log-likelihood is written to.  Unique per observe
+    # inside a single grouped body so the surrounding
+    # MarginalizeStep can collect each axis's contribution
+    # separately and pair it with the right fibration.
+    ll_slot: str = ""
     line: int = 0
     col: int = 0
     kind: Literal["grouped_body_observe_step"] = "grouped_body_observe_step"
+
+
+class GroupedObserveEntry(dx.Model):
+    """One entry in a grouped :class:`MarginalizeStep`'s
+    ``body_observes`` list: the pairing of an env slot (where
+    the captured observe writes its ``(N_m, K)`` per-row
+    per-class log-likelihood) with the fibration that carries
+    those rows into the shared grouping plate.
+
+    Exactly one of ``fibration_var`` and ``fibration_axes`` is
+    non-``None``: a single-axis fibration uses
+    ``fibration_var``; a product fibration uses
+    ``fibration_axes`` (whose arity must match the marginalize
+    header's product-plate arity).
+
+    Both ``None`` flags a nested-marginalize entry: the inner
+    block has already performed its own scatter, so the outer
+    block consumes the ``(|G|, K)`` tensor at ``ll_slot``
+    directly with no further fibration.
+    """
+
+    ll_slot: str
+    fibration_var: str | None = None
+    fibration_axes: tuple[str, ...] | None = None
 
 
 class MarginalizeStep(ProgramStep):
@@ -790,12 +839,13 @@ class MarginalizeStep(ProgramStep):
     # ``None`` for a single grouping plate; in that case
     # ``over_obj`` carries the singleton name.
     over_objs: tuple[str, ...] | None = None
-    via_var: str | None = None
-    # Product fibration: a tuple of co-indexed fibration names.
-    # ``None`` for a single fibration; in that case ``via_var``
-    # carries the singleton name.
-    via_axes: tuple[str, ...] | None = None
     body_ll_var: str | None = None
+    # Grouped form: ordered tuple of per-observe entries.  Each
+    # entry pairs an env slot (where the observe writes its
+    # ``(N_m, K)`` log-likelihood) with the fibration into the
+    # shared grouping plate.  See :class:`GroupedObserveEntry`
+    # for the field semantics.  ``None`` outside a grouped body.
+    body_observes: tuple[GroupedObserveEntry, ...] | None = None
     # Per-group reduction over the class axis. ``None`` defaults
     # to ``"logsumexp"`` at the runtime call site.
     reduction: str | None = None

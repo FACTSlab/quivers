@@ -99,7 +99,7 @@ The `responsibilities` helper takes the marginalised block's name (`z`) and retu
 
 ## Hierarchical mixtures with grouping
 
-Suppose each observation belongs to one of `G` groups, and the categorical mixture proportions vary by group. The marginalisation has to respect group membership: the log-likelihood over the discrete latent gets aggregated *per group*, not per row.
+Suppose each observation belongs to one of `G` groups, and the categorical mixture proportions vary by group. The marginalisation has to respect group membership: the log-likelihood over the discrete latent gets aggregated *per group*, not per row. The `marginalize` header declares the grouping plate (`over G`); each observe inside the body carries its own `via <idx>` clause naming the fibration from its response plate into the grouping plate.
 
 <!-- compile: false -->
 ```qvr
@@ -115,22 +115,22 @@ program grouped_mixture : Item -> Item ! Sample, Score, Marginal
     sd_k  : K    <- HalfNormal(1.0)
 
     marginalize z : K <- Categorical(probs)
-        over G via group
+        over G
         in {
-            observe y <- Normal(mu_k[z], sd_k[z])
+            observe y : Item via group <- Normal(mu_k[z], sd_k[z])
         }
     return y
 
 export grouped_mixture
 ```
 
-The `over G via group` clause says "every Item is fibred over G by `group`, and the marginalisation is per group, not per row." The block contributes
+The `over G` clause on the header declares the grouping plate; the `via group` clause on the observe says "every row of `y` is fibred over G by `group`, and the marginalisation is per group, not per row." The block contributes
 
 $$
 \sum_{g \in G}\ \log\!\sum_{k=1}^{K}\exp\!\left[\log \pi_{g,k} + \sum_{n:\ \mathrm{group}(n)=g}\ \log f(y_n \mid \mu_k, \sigma_k)\right]
 $$
 
-to the log-density, which is the right Kan extension along the fibration `Item -> G` and matches Stan's `target += log_mix(probs[g], ll_item[i])` accumulation.
+to the log-density, which is the right Kan extension along the fibration `Item -> G` and matches Stan's `target += log_mix(probs[g], ll_item[i])` accumulation. A grouped block can contain multiple observes, each with its own `via <idx>` clause, when several heterogeneous response axes share the same per-group class indicator; the per-axis log-likelihoods scatter-sum into the same `(|G|, K)` accumulator before the log-sum-exp.
 
 ## When to marginalise vs sample
 

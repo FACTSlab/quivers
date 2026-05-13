@@ -47,9 +47,12 @@ def _build_nested_program(num_levels: int, n_resp: int = 8) -> str:
     prog_lines = [f"program nested_{num_levels} : Resp -> Resp"]
     for i in range(num_levels):
         prog_lines.append(f"    probs_{i} : K_{i} <- HalfNormal(1.0)")
-        prog_lines.append(f"    idx_{i} : Resp <- HalfNormal(1.0)")
-    # Build nested marginalize blocks. Each level opens a new
-    # scope; the innermost contains the observe.
+    # Only the innermost block has a fibration into a response
+    # plate; outer levels consume the inner block's already-
+    # scattered tensor with identity fibration.  See
+    # docs/guides/programs.md for the multi-level nesting
+    # semantics.
+    prog_lines.append("    idx_inner : Resp <- HalfNormal(1.0)")
     indent = "    "
     open_blocks: list[str] = []
     for i in range(num_levels):
@@ -58,12 +61,15 @@ def _build_nested_program(num_levels: int, n_resp: int = 8) -> str:
             f"{pad}marginalize lat_{i} : K_{i} <- Dirichlet(probs_{i})"
         )
         open_blocks.append(
-            f"{pad}    over G_{i} via idx_{i}"
+            f"{pad}    over G_{i}"
         )
         open_blocks.append(f"{pad}    in {{")
-    # Innermost body: a single observe step.
+    # Innermost body: a single observe step carrying the
+    # fibration to its response plate.
     inner_pad = indent * (num_levels + 1)
-    open_blocks.append(f"{inner_pad}observe r : Resp <- HalfNormal(1.0)")
+    open_blocks.append(
+        f"{inner_pad}observe r : Resp via idx_inner <- HalfNormal(1.0)"
+    )
     # Close blocks in reverse.
     for i in range(num_levels - 1, -1, -1):
         pad = indent * (i + 1)
@@ -86,13 +92,7 @@ def _make_obs(num_levels: int, n_resp: int = 8) -> dict[str, torch.Tensor]:
     obs: dict[str, torch.Tensor] = {"r": torch.zeros(n_resp)}
     for i in range(num_levels):
         obs[f"probs_{i}"] = torch.tensor([0.5, 0.5])
-        # Stagger fibrations: each level partitions the response
-        # plate differently so the scatter pattern at each depth
-        # is non-trivial.
-        idx = torch.tensor([j % 2 for j in range(n_resp)])
-        if i > 0:
-            idx = torch.tensor([(j + i) % 2 for j in range(n_resp)])
-        obs[f"idx_{i}"] = idx
+    obs["idx_inner"] = torch.tensor([j % 2 for j in range(n_resp)])
     return obs
 
 

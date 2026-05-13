@@ -54,12 +54,12 @@ class TestSurfaceCombinations:
             item_idx : Resp <- HalfNormal(1.0)
             subj_idx : Resp <- HalfNormal(1.0)
             marginalize outer : K_outer <- Dirichlet(probs_outer)
-                over Item via outer_idx
+                over Item
                 in {
                     marginalize inner : K_inner <- Dirichlet(probs_inner)
-                        over Item * Subj via product(item_idx, subj_idx)
+                        over Item * Subj
                         in {
-                            observe r : Resp <- HalfNormal(1.0)
+                            observe r : Resp via product(item_idx, subj_idx) <- HalfNormal(1.0)
                         }
                 }
             return probs_outer
@@ -86,12 +86,12 @@ class TestSurfaceCombinations:
             outer_idx : Resp <- HalfNormal(1.0)
             inner_idx : Resp <- HalfNormal(1.0)
             marginalize outer : K_outer <- Dirichlet(probs_outer)
-                over Item via outer_idx reduction = logsumexp
+                over Item reduction = logsumexp
                 in {
                     marginalize inner : K_inner <- Dirichlet(probs_inner)
-                        over Subj via inner_idx reduction = sum
+                        over Subj reduction = sum
                         in {
-                            observe r : Resp <- HalfNormal(1.0)
+                            observe r : Resp via inner_idx <- HalfNormal(1.0)
                         }
                 }
             return probs_outer
@@ -124,15 +124,16 @@ class TestSurfaceCombinations:
             idx_b : Resp <- HalfNormal(1.0)
             idx_c : Resp <- HalfNormal(1.0)
             marginalize a : K_a <- Dirichlet(probs_a)
-                over G_a via idx_a
+                over G_a
+
                 in {
                     marginalize b : K_b <- Dirichlet(probs_b)
-                        over G_b via idx_b
+                        over G_b
                         in {
                             marginalize c : K_c <- Dirichlet(probs_c)
-                                over G_c via idx_c
+                                over G_c
                                 in {
-                                    observe r : Resp <- Normal(mu_shift, 1.0)
+                                    observe r : Resp via idx_a <- Normal(mu_shift, 1.0)
                                 }
                         }
                 }
@@ -174,15 +175,16 @@ class TestRuntimeCombinations:
             idx_b : Resp <- HalfNormal(1.0)
             idx_c : Resp <- HalfNormal(1.0)
             marginalize a : K_a <- Dirichlet(probs_a)
-                over G_a via idx_a
+                over G_a
+
                 in {
                     marginalize b : K_b <- Dirichlet(probs_b)
-                        over G_b via idx_b
+                        over G_b
                         in {
                             marginalize c : K_c <- Dirichlet(probs_c)
-                                over G_c via idx_c
+                                over G_c
                                 in {
-                                    observe r : Resp <- Normal(mu_shift, 1.0)
+                                    observe r : Resp via idx_a <- Normal(mu_shift, 1.0)
                                 }
                         }
                 }
@@ -220,12 +222,12 @@ class TestRuntimeCombinations:
             item_idx : Resp <- HalfNormal(1.0)
             subj_idx : Resp <- HalfNormal(1.0)
             marginalize outer : K_outer <- Dirichlet(probs_outer)
-                over Item via outer_idx
+                over Item
                 in {
                     marginalize inner : K_inner <- Dirichlet(probs_inner)
-                        over Item * Subj via product(item_idx, subj_idx)
+                        over Item * Subj
                         in {
-                            observe r : Resp <- HalfNormal(1.0)
+                            observe r : Resp via product(item_idx, subj_idx) <- HalfNormal(1.0)
                         }
                 }
             return probs_outer

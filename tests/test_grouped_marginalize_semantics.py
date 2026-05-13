@@ -65,15 +65,16 @@ def test_three_level_nested_gradient_flows_to_continuous_latent() -> None:
         idx_2 : Resp <- HalfNormal(1.0)
         idx_3 : Resp <- HalfNormal(1.0)
         marginalize a : K1 <- Dirichlet(probs_1)
-            over G1 via idx_1
+            over G1
+
             in {
                 marginalize b : K2 <- Dirichlet(probs_2)
-                    over G2 via idx_2
+                    over G2
                     in {
                         marginalize c : K3 <- Dirichlet(probs_3)
-                            over G3 via idx_3
+                            over G3
                             in {
-                                observe r : Resp <- Normal(mu_shift, 1.0)
+                                observe r : Resp via idx_1 <- Normal(mu_shift, 1.0)
                             }
                     }
             }
@@ -125,18 +126,23 @@ def test_body_with_multiple_lets_using_latent() -> None:
         probs : Class <- HalfNormal(1.0)
         idx : Resp <- HalfNormal(1.0)
         marginalize cls : Class <- Dirichlet(probs)
-            over Item via idx
+            over Item
             in {
-                observe r : Resp <- HalfNormal(1.0)
+                observe r : Resp via idx <- HalfNormal(1.0)
             }
         return probs
     export bodylet
     """
     model = loads(src).morphism
+    # Supply the captured-observe's per-(N, K) log-likelihood
+    # directly via its dedicated slot.  The body's HalfNormal
+    # observe is class-independent on its own; the test
+    # exercises the multi-let-broadcast path indirectly by
+    # forcing the ll shape into (N, K).
     obs = {
         "probs": torch.tensor([1.0, 1.0, 1.0]) / 3,
         "idx": torch.tensor([0, 0, 1, 1]),
-        "r": torch.zeros(4),
+        "_grouped_ll_cls_0": torch.zeros(4, 3),
     }
     out = model.log_joint(torch.zeros(1, 1), obs)
     assert torch.isfinite(out).all()
