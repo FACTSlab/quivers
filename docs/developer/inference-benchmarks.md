@@ -16,11 +16,11 @@ Throughput is iterations per second for SVI guides, posterior draws per second f
 
 | Problem | AutoNormal | AutoMVN | AutoLaplace | HMC | NUTS |
 |---|---|---|---|---|---|
-| Beta-Bernoulli | **PASS**<br>`0.0398 / 0.05`<br>1236.1/s | **PASS**<br>`0.0402 / 0.05`<br>1030.6/s | **PASS**<br>`0.00926 / 0.05`<br>2014.4/s | **PASS**<br>`0.000594 / 0.05`<br>100.6/s | **PASS**<br>`0.00157 / 0.05`<br>160.3/s |
-| Normal-Normal | **PASS**<br>`0.123 / 0.15`<br>2126.3/s | **PASS**<br>`0.124 / 0.15`<br>1472.9/s | **PASS**<br>`4.77e-07 / 0.15`<br>3667.7/s | **PASS**<br>`0.000607 / 0.15`<br>61.2/s | **PASS**<br>`0.0225 / 0.15`<br>244.0/s |
-| Normal-Inverse-Gamma | **PASS**<br>`0.0345 / 0.2`<br>906.3/s | **PASS**<br>`0.0298 / 0.2`<br>645.9/s | **PASS**<br>`5.96e-08 / 0.2`<br>1689.2/s | **PASS**<br>`0.00715 / 0.2`<br>46.8/s | **PASS**<br>`0.0068 / 0.2`<br>49.7/s |
-| Gamma-Exponential | **PASS**<br>`0.0513 / 0.3`<br>1883.4/s | **PASS**<br>`0.057 / 0.3`<br>1355.8/s | **PASS**<br>`0.0249 / 0.3`<br>3760.6/s | **PASS**<br>`0.00806 / 0.3`<br>219.1/s | **PASS**<br>`0.0163 / 0.3`<br>180.5/s |
-| Bayesian linear regression | **PASS**<br>`0.0113 / 0.1`<br>1200.6/s | **PASS**<br>`0.00401 / 0.1`<br>766.3/s | **PASS**<br>`1.79e-07 / 0.1`<br>2473.0/s | **PASS**<br>`0.000134 / 0.1`<br>161.5/s | **PASS**<br>`0.00127 / 0.1`<br>41.9/s |
+| Beta-Bernoulli | **PASS**<br>`0.0398 / 0.05`<br>1149.7/s | **PASS**<br>`0.0402 / 0.05`<br>868.0/s | **PASS**<br>`0.00926 / 0.05`<br>1863.5/s | **PASS**<br>`0.000594 / 0.05`<br>114.2/s | **PASS**<br>`0.00157 / 0.05`<br>167.9/s |
+| Normal-Normal | **PASS**<br>`0.123 / 0.15`<br>2013.3/s | **PASS**<br>`0.124 / 0.15`<br>1395.7/s | **PASS**<br>`4.77e-07 / 0.15`<br>3451.5/s | **PASS**<br>`0.000607 / 0.15`<br>236.8/s | **PASS**<br>`0.0225 / 0.15`<br>256.7/s |
+| Normal-Inverse-Gamma | **PASS**<br>`0.0345 / 0.2`<br>883.0/s | **PASS**<br>`0.0298 / 0.2`<br>571.8/s | **PASS**<br>`5.96e-08 / 0.2`<br>1574.8/s | **PASS**<br>`0.00715 / 0.2`<br>102.6/s | **PASS**<br>`0.0068 / 0.2`<br>51.0/s |
+| Gamma-Exponential | **PASS**<br>`0.0513 / 0.3`<br>1803.4/s | **PASS**<br>`0.057 / 0.3`<br>1153.3/s | **PASS**<br>`0.0249 / 0.3`<br>3276.4/s | **PASS**<br>`0.00806 / 0.3`<br>233.1/s | **PASS**<br>`0.0163 / 0.3`<br>180.0/s |
+| Bayesian linear regression | **PASS**<br>`0.0113 / 0.1`<br>1222.2/s | **PASS**<br>`0.00401 / 0.1`<br>710.6/s | **PASS**<br>`1.79e-07 / 0.1`<br>2305.4/s | **PASS**<br>`0.000134 / 0.1`<br>163.5/s | **PASS**<br>`0.00127 / 0.1`<br>40.8/s |
 
 ### Problem details
 
@@ -34,8 +34,8 @@ Throughput is iterations per second for SVI guides, posterior draws per second f
 
 | Problem | AutoNormal | AutoMVN | AutoLaplace | HMC | NUTS |
 |---|---|---|---|---|---|
-| Eight Schools (centered) | **PASS**<br>`5.4 / 12`<br>798.5/s | **PASS**<br>`5.51 / 12`<br>597.7/s | **PASS**<br>`5.4 / 12`<br>1022.4/s | **PASS**<br>`4.38 / 12`<br>114.1/s | **PASS**<br>`5.75 / 12`<br>27.9/s |
-| Eight Schools (non-centered) | **PASS**<br>`0.891 / 8`<br>774.9/s | **PASS**<br>`1.06 / 8`<br>615.3/s | **PASS**<br>`2.01 / 8`<br>1576.6/s | **PASS**<br>`1.74 / 8`<br>114.8/s | **PASS**<br>`1.45 / 8`<br>33.9/s |
+| Eight Schools (centered) | **PASS**<br>`5.4 / 12`<br>776.5/s | **PASS**<br>`5.51 / 12`<br>559.8/s | **PASS**<br>`5.4 / 12`<br>1498.0/s | **PASS**<br>`4.38 / 12`<br>113.0/s | **PASS**<br>`5.75 / 12`<br>28.0/s |
+| Eight Schools (non-centered) | **PASS**<br>`0.891 / 8`<br>729.2/s | **PASS**<br>`1.06 / 8`<br>572.4/s | **PASS**<br>`2.01 / 8`<br>1448.6/s | **PASS**<br>`1.74 / 8`<br>110.3/s | **PASS**<br>`1.45 / 8`<br>34.1/s |
 
 ### Problem details
 
@@ -46,9 +46,9 @@ Throughput is iterations per second for SVI guides, posterior draws per second f
 
 | Problem | AutoNormal | AutoMVN | AutoLaplace | HMC | NUTS |
 |---|---|---|---|---|---|
-| Correlated regression | **PASS**<br>`0.0365 / 0.2`<br>1262.9/s | **PASS**<br>`0.0308 / 0.2`<br>760.1/s | **PASS**<br>`7.41e-05 / 0.2`<br>1957.6/s | **PASS**<br>`0.0512 / 0.2`<br>167.0/s | **PASS**<br>`0.0569 / 0.2`<br>68.1/s |
-| Neal's funnel (under-estimation capture) *(capture)* | **PASS**<br>`40.6 / 20.2`<br>1899.5/s | **PASS**<br>`40.6 / 20.2`<br>1356.2/s | **PASS**<br>`40.5 / 20.2`<br>2808.3/s | **PASS**<br>`42 / 20.2`<br>268.0/s | **PASS**<br>`40.9 / 20.2`<br>1041.8/s |
-| Ill-conditioned product Gaussian | **PASS**<br>`0.00643 / 0.3`<br>520.2/s | **PASS**<br>`0.00333 / 0.3`<br>530.1/s | **PASS**<br>`7.15e-07 / 0.3`<br>948.6/s | **PASS**<br>`0.086 / 0.3`<br>67.6/s | ERROR<br>`expected a positive input, got 0.0` |
+| Correlated regression | **PASS**<br>`0.0365 / 0.2`<br>1150.7/s | **PASS**<br>`0.0308 / 0.2`<br>681.6/s | **PASS**<br>`7.41e-05 / 0.2`<br>2314.7/s | **PASS**<br>`0.0512 / 0.2`<br>167.3/s | **PASS**<br>`0.0569 / 0.2`<br>67.1/s |
+| Neal's funnel (under-estimation capture) *(capture)* | **PASS**<br>`40.6 / 20.2`<br>1795.3/s | **PASS**<br>`40.6 / 20.2`<br>1279.6/s | **PASS**<br>`40.5 / 20.2`<br>2807.7/s | **PASS**<br>`42 / 20.2`<br>281.0/s | **PASS**<br>`40.9 / 20.2`<br>1027.6/s |
+| Ill-conditioned product Gaussian | **PASS**<br>`0.00643 / 0.3`<br>482.0/s | **PASS**<br>`0.00333 / 0.3`<br>461.1/s | **PASS**<br>`7.15e-07 / 0.3`<br>876.7/s | **PASS**<br>`0.086 / 0.3`<br>68.3/s | **PASS**<br>`0.0424 / 0.3`<br>54.5/s |
 
 ### Problem details
 
@@ -60,8 +60,8 @@ Throughput is iterations per second for SVI guides, posterior draws per second f
 
 | Problem | AutoNormal | AutoMVN | AutoLaplace | HMC | NUTS |
 |---|---|---|---|---|---|
-| HalfNormal scale | **PASS**<br>`0.0265 / 0.15`<br>1643.9/s | **PASS**<br>`0.0458 / 0.15`<br>1228.0/s | **PASS**<br>`0.0247 / 0.15`<br>2818.9/s | **PASS**<br>`0.00324 / 0.15`<br>180.4/s | **PASS**<br>`0.0124 / 0.15`<br>92.9/s |
-| TruncatedNormal recovery | **PASS**<br>`0.0318 / 0.05`<br>1473.4/s | **PASS**<br>`0.0309 / 0.05`<br>1109.3/s | **PASS**<br>`0.000249 / 0.05`<br>2356.8/s | **PASS**<br>`0.00095 / 0.05`<br>143.0/s | **PASS**<br>`0.00257 / 0.05`<br>104.0/s |
+| HalfNormal scale | **PASS**<br>`0.0265 / 0.15`<br>1561.4/s | **PASS**<br>`0.0458 / 0.15`<br>1045.9/s | **PASS**<br>`0.0247 / 0.15`<br>2725.6/s | **PASS**<br>`0.00324 / 0.15`<br>190.0/s | **PASS**<br>`0.0124 / 0.15`<br>90.7/s |
+| TruncatedNormal recovery | **PASS**<br>`0.0318 / 0.05`<br>1355.7/s | **PASS**<br>`0.0309 / 0.05`<br>1038.6/s | **PASS**<br>`0.000249 / 0.05`<br>2152.0/s | **PASS**<br>`0.00095 / 0.05`<br>145.2/s | **PASS**<br>`0.00257 / 0.05`<br>105.1/s |
 
 ### Problem details
 
