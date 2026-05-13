@@ -42,6 +42,7 @@ export transformer_lm
 
 ### Layer block
 
+<!-- compile: false -->
 ```qvr
 let layer = fan(head) >> attn_proj >> residual_attn >> ff_up >> ff_down >> residual_ff
 ```

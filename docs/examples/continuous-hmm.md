@@ -10,19 +10,19 @@ A continuous state-space model extends the HMM to continuous latent states and o
 type State = Euclidean 16
 type Obs = Euclidean 8
 
-continuous transition : State -> State ~ Normal [scale=0.1]
-continuous emission : State -> Obs ~ Normal [scale=0.1]
+kernel transition : State -> State ~ Normal [scale=0.1]
+kernel emission : State -> Obs ~ Normal [scale=0.1]
 
 program generative_step : State -> State
     s_new <- transition
     observe o <- emission(s_new)
     return s_new
 
-continuous inference_cell : Obs * State -> State ~ Normal [scale=0.1]
+kernel inference_cell : Obs * State -> State ~ Normal [scale=0.1]
 
 let filter = scan(inference_cell)
 
-continuous decoder : State -> Obs ~ Normal [scale=0.1]
+kernel decoder : State -> Obs ~ Normal [scale=0.1]
 
 let filter_and_reconstruct = scan(inference_cell) >> decoder
 

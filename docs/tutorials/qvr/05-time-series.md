@@ -40,8 +40,8 @@ type Output   = Euclidean 64
 
 embed tok_embed : Token -> Embedded
 
-continuous cell        : Embedded * Hidden -> Hidden ~ Normal [scale=0.1]
-continuous output_proj : Hidden -> Output             ~ Normal [scale=0.1]
+kernel cell        : Embedded * Hidden -> Hidden ~ Normal [scale=0.1]
+kernel output_proj : Hidden -> Output             ~ Normal [scale=0.1]
 
 let rnn = tok_embed >> scan(cell) >> output_proj
 export rnn

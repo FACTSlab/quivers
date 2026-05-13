@@ -77,7 +77,7 @@ print("smoke-train final loss:", float(loss))
 
 The transition stack is the Kleisli composition of two Gaussian kernels; the second kernel's mean depends on the sample from the first, so the joint per-step kernel is no longer Gaussian, only a reparameterisable density. `scan` realises the iterated Kleisli composition over the time index, so the full trajectory kernel is the right Kan extension of the per-step cell along the time projection.
 
-The recogniser is a directed inverse of the generative kernel: where the prior is a forward chain `s_0 -> s_1 -> ... -> s_T -> o_{1:T}`, the recogniser is the [encoder side](encoder.md) of an amortised variational posterior. The two share the latent space `State` but live in opposite Kleisli morphisms; SVI tunes them jointly against an ELBO.
+The recogniser is a directed inverse of the generative kernel: where the prior is a forward chain `s_0 -> s_1 -> ... -> s_T -> o_{1:T}`, the recogniser is the [encoder side](seq2seq.md) of an amortised variational posterior. The two share the latent space `State` but live in opposite Kleisli morphisms; SVI tunes them jointly against an ELBO.
 
 ```mermaid
 flowchart LR

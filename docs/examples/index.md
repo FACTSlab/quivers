@@ -270,15 +270,15 @@ type UnitSpace = Euclidean 1
 
 embed pixel_embed : Pixel -> EncoderHidden
 
-continuous enc_deep : EncoderHidden -> EncoderHidden ~ Normal
-continuous enc_to_latent : EncoderHidden -> Latent ~ Normal [scale=0.5]
+kernel enc_deep : EncoderHidden -> EncoderHidden ~ Normal
+kernel enc_to_latent : EncoderHidden -> Latent ~ Normal [scale=0.5]
 
 let encoder = pixel_embed >> stack(enc_deep, 3) >> enc_to_latent
 
-continuous prior : UnitSpace -> Latent ~ Normal
-continuous dec_1 : Latent -> DecoderHidden ~ Normal
-continuous dec_deep : DecoderHidden -> DecoderHidden ~ Normal
-continuous dec_to_obs : DecoderHidden -> ObsSpace ~ Normal [scale=0.1]
+kernel prior : UnitSpace -> Latent ~ Normal
+kernel dec_1 : Latent -> DecoderHidden ~ Normal
+kernel dec_deep : DecoderHidden -> DecoderHidden ~ Normal
+kernel dec_to_obs : DecoderHidden -> ObsSpace ~ Normal [scale=0.1]
 
 let decoder = dec_1 >> stack(dec_deep, 2) >> dec_to_obs
 let generative = prior >> decoder
@@ -346,9 +346,9 @@ quantale product_fuzzy
 object State : 8
 object Obs : 16
 
-stochastic initial : State -> State
-stochastic transition : State -> State
-stochastic emission : State -> Obs
+kernel initial : State -> State
+kernel transition : State -> State
+kernel emission : State -> Obs
 
 let n_step = repeat(transition) >> emission
 let hmm = initial >> n_step
@@ -368,8 +368,8 @@ A continuous-state hidden Markov model using `scan` for temporal recurrence. Inc
 type State = Euclidean 16
 type Obs = Euclidean 8
 
-continuous transition : State -> State ~ Normal [scale=0.1]
-continuous emission : State -> Obs ~ Normal [scale=0.1]
+kernel transition : State -> State ~ Normal [scale=0.1]
+kernel emission : State -> Obs ~ Normal [scale=0.1]
 
 program generative_step : State -> State
     s_new <- transition
@@ -378,11 +378,11 @@ program generative_step : State -> State
 
     return s_new
 
-continuous inference_cell : Obs * State -> State ~ Normal [scale=0.1]
+kernel inference_cell : Obs * State -> State ~ Normal [scale=0.1]
 
 let filter = scan(inference_cell)
 
-continuous decoder : State -> Obs ~ Normal [scale=0.1]
+kernel decoder : State -> Obs ~ Normal [scale=0.1]
 
 let filter_and_reconstruct = scan(inference_cell) >> decoder
 
