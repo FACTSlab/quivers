@@ -1,22 +1,24 @@
 # ================================================================
-# Deep Variational Autoencoder (Multi-Layer VAE)
+# Variational Autoencoder
 # ================================================================
 #
-# A VAE with multi-layer encoder and decoder networks,
-# expressed as a morphism network using stack for deep layers.
+# A VAE (Kingma & Welling 2014) with multi-layer encoder and
+# decoder networks, expressed as a morphism network using `stack`
+# for deep layers and explicit Kleisli composition (`>>`) to wire
+# encoder and decoder into generative and reconstruction paths.
 #
-# Each network has independently-parameterized hidden layers:
-#   - Encoder: embed >> stack(enc_deep, 3) >> to_latent
-#   - Decoder: from_latent >> dec_1 >> stack(dec_deep, 2) >> to_obs
+# Encoder:     pixel_embed >> stack(enc_deep, 3) >> enc_to_latent
+# Decoder:     dec_1       >> stack(dec_deep, 2) >> dec_to_obs
+# Generative:  prior   >> decoder         -- ancestral sampling
+# Reconstruct: encoder >> decoder         -- posterior predictive
 #
-# In the categorical framework, the encoder is a Kleisli
-# morphism for the Giry monad that maps observations to a
-# distribution over latent codes, and the decoder is a
-# morphism from the latent space to the observation space.
-# The ELBO objective decomposes categorically into:
-#   - Reconstruction: faithfulness of encode >> decode
-#   - KL divergence: distance from the prior in the
-#     enriched hom-space
+# In the categorical framework the encoder is a Kleisli morphism
+# for the Giry monad mapping observations to a distribution over
+# latent codes; the decoder is the Kleisli morphism from the
+# latent space back to the observation space.  The ELBO
+# decomposes categorically into a reconstruction term (the
+# faithfulness of `encoder >> decoder`) and a KL term (the
+# distance from the prior in the enriched hom-space).
 
 object Pixel : 784
 
@@ -26,44 +28,26 @@ type DecoderHidden = Euclidean 256
 type ObsSpace = Euclidean 784
 type UnitSpace = Euclidean 1
 
-# ================================================================
-# ENCODER (deep recognition network)
-# Maps observed pixels -> 3 hidden layers -> latent distribution
-# Using stack to create 3 independently-parameterized layers.
-# ================================================================
-
+# Encoder: discrete pixel index -> Euclidean embedding -> three
+# stacked hidden layers -> latent distribution.
 embed pixel_embed : Pixel -> EncoderHidden
 kernel enc_deep : EncoderHidden -> EncoderHidden ~ Normal
 kernel enc_to_latent : EncoderHidden -> Latent ~ Normal [scale=0.5]
 
 let encoder = pixel_embed >> stack(enc_deep, 3) >> enc_to_latent
 
-# ================================================================
-# PRIOR
 # Standard normal prior over the latent space.
-# ================================================================
-
 kernel prior : UnitSpace -> Latent ~ Normal
 
-# ================================================================
-# DECODER (deep generative network)
-# Maps latent code -> 3 hidden layers -> reconstruction.
-# First layer has different type (Latent -> DecoderHidden),
-# then 2 stacked deep layers.
-# ================================================================
-
+# Decoder: latent code -> three hidden layers -> reconstruction.
 kernel dec_1 : Latent -> DecoderHidden ~ Normal
 kernel dec_deep : DecoderHidden -> DecoderHidden ~ Normal
 kernel dec_to_obs : DecoderHidden -> ObsSpace ~ Normal [scale=0.1]
 
 let decoder = dec_1 >> stack(dec_deep, 2) >> dec_to_obs
 
-# ================================================================
-# FULL VAE
-# Generative: prior >> decoder (ancestral sampling).
-# Reconstruction: encoder >> decoder (posterior predictive).
-# ================================================================
-
+# Two execution paths: generative (prior-sampled) and
+# reconstruction (encoder-conditioned).
 let generative = prior >> decoder
 let reconstruct = encoder >> decoder
 

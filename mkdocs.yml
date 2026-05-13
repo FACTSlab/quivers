@@ -135,6 +135,13 @@ nav:
       - Overview: examples/bayesian-regression.md
       - Event Structure Model: examples/event-structure.md
       - Montague NLI: examples/montague-nli.md
+    - Latent-Variable Models:
+      - Factor Analysis: examples/factor-analysis.md
+      - Probabilistic PCA: examples/ppca.md
+      - Latent Dirichlet Allocation: examples/lda.md
+      - "Item Response Theory (2PL)": examples/irt-2pl.md
+      - Probabilistic Matrix Factorization: examples/pmf.md
+      - Bayesian Neural Network: examples/bnn.md
   - Tutorials:
     - Overview: tutorials/index.md
     - QVR DSL: tutorials/qvr/01-first-model.md
