@@ -4,6 +4,59 @@ All notable changes to the quivers library are documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/), and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Added — unified distribution family registry
+
+- **`FamilySpec` and `ParamSpec`** in
+  `quivers.continuous.family_spec` — a single source of truth per
+  family. Both the conditional path
+  (`_IndependentConditional` and the hand-written `ConditionalX`
+  classes) and the inline path (`FixedDistribution` /
+  `MixedInlineDistribution`) read from the same record. Replaces
+  the previous duplication between `families.py` and `inline.py`.
+- **Inline coverage for 11 previously registry-only families**:
+  Cauchy, Laplace, Gumbel, StudentT, Chi2, InverseGamma, Weibull,
+  Pareto, Kumaraswamy, ContinuousBernoulli, FisherSnedecor. Every
+  family declared via `_make_family` now auto-registers its
+  fixed-inline factory, mixed-inline builder, and support
+  constraint from the spec.
+- **New families**: ConditionalPoisson, ConditionalGeometric,
+  ConditionalNegativeBinomial, ConditionalVonMises plus their
+  inline factories. Brings the registry to 34 distinct
+  distribution families.
+- **`_IndependentConditional` is shape- and discreteness-aware**:
+  continuous-reparameterised, continuous-non-reparameterised
+  (VonMises), and discrete (Poisson / Geometric / Bernoulli /
+  Categorical) all share the same generic conditional class via
+  a `discrete` flag plus a fall-back to `.sample()` when the
+  underlying distribution lacks `rsample`.
+
+### Added — benchmark suite expansion
+
+- **Tier 1 conjugate**: normal_inverse_gamma (joint mean / variance
+  recovery), gamma_exponential, bayes_linear_regression
+  (well-conditioned).
+- **Tier 2 hierarchical**: eight_schools_centred and
+  eight_schools_noncentred (Rubin 1981 / Gelman et al. 2013) with
+  cached NUTS-derived posterior moments.
+- **Tier 3 hard geometry**: neal_funnel (scale-of-scale dependency,
+  Neal 2003), ill_conditioned_mvn (per-dim posteriors with
+  eigenvalues across four decades).
+- **Tier 6 constrained support**: half_normal_scale (positive
+  support), truncated_normal_recovery (unit interval).
+- **Metrics extension**: gaussian_kl (closed-form KL between two
+  Gaussians), wasserstein_2_1d (sorted-quantile W₂),
+  total_variation_grid (TV against a quadrature-supplied
+  density), split_r_hat and effective_sample_size (Vehtari et al.
+  2021).
+- **Runner** (`tests/benchmarks/runner.py`) drives an algorithm ×
+  problem grid across AutoNormalGuide, AutoMultivariateNormalGuide,
+  AutoLaplaceApproximation, HMCKernel, NUTSKernel and emits
+  `docs/developer/inference-benchmarks.md`. Capture problems
+  document expected failure modes (mean-field underfit on
+  correlated MVN / funnel posteriors).
+
 ## [0.5.0] - 2026-05-12
 
 A substantive expansion of the inference layer plus the full

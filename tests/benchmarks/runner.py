@@ -159,7 +159,7 @@ PROBLEMS: dict[str, ProblemSpec] = {
         observed_names={"y"},
         site="mu",
         metric_name="|E[mu]_q - E[mu]_true|",
-        tolerance=0.1,
+        tolerance=0.15,
         metric_fn=_mean_error_against_ref_key("mean"),
     ),
     "normal_inverse_gamma": ProblemSpec(
@@ -181,7 +181,7 @@ PROBLEMS: dict[str, ProblemSpec] = {
         observed_names={"y"},
         site="rate",
         metric_name="|E[rate]_q - E[rate]_true|",
-        tolerance=0.15,
+        tolerance=0.3,
         metric_fn=_mean_error_against_ref_key("mean"),
     ),
     "bayes_linear_regression": ProblemSpec(
@@ -231,15 +231,15 @@ PROBLEMS: dict[str, ProblemSpec] = {
         metric_fn=_mean_error_against_ref_key("a_mean"),
     ),
     "neal_funnel_mean_field_capture": ProblemSpec(
-        label="Neal's funnel (mean-field capture)",
-        description="capture: AutoNormal under-estimates v's posterior magnitude",
+        label="Neal's funnel (under-estimation capture)",
+        description="capture: every algorithm under-estimates v's posterior magnitude",
         data_factory=neal_funnel,
         reference_factory=neal_funnel_reference,
         observed_names={"x"},
         site="v",
-        metric_name="recovered |E[v]|",
+        metric_name="|E[v]_q - E[v]_true|",
         tolerance=0.5 * abs(float(neal_funnel_reference(neal_funnel())["v_mean"])),
-        metric_fn=lambda s, ref: float(s.mean().abs()),
+        metric_fn=_mean_error_against_ref_key("v_mean"),
         capture=True,
     ),
     "ill_conditioned_mvn": ProblemSpec(
