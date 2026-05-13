@@ -556,31 +556,110 @@ space S3 : Simplex(3)
 space RU : R3 * U
 ```
 
-### Continuous Morphism
+### Kernel
 
-Declare a conditional distribution:
+The `kernel` keyword declares a Markov kernel `A -> B`. Two shapes:
+
+- **Without a `~` clause**: a finite-set lookup-table kernel `A -> D(B)`, realised as a learnable matrix of conditional probabilities (the case formerly written with the now-removed `stochastic` keyword).
+- **With a `~ Family [options]` clause**: a parametric continuous kernel `A -> G(B)` whose family parameters come from the input by a neural parameter network at sample time (the case formerly written with `continuous`).
 
 <!-- compile: false -->
 ```qvr
-# Conditional normal: X → ℝ³
-continuous f : X -> R3 ~ Normal
+# Lookup-table kernel on finite sets.
+kernel s : X -> Y
+kernel cat : X -> Y * Z
 
-# Conditional with family and options
-continuous g : R3 -> R3 ~ Normal [scale=0.5]
-continuous k : X -> S3 ~ Dirichlet
+# Parametric kernel: input-conditional Normal on R^3.
+kernel f : X -> R3 ~ Normal
 
-# 30+ families supported (see continuous guide)
-continuous flow : R3 -> R3 ~ Flow [n_layers=6, hidden_dim=32]
+# Family options control the parameter network.
+kernel g : R3 -> R3 ~ Normal [scale=0.5]
+kernel k : X -> S3 ~ Dirichlet
+
+# 30+ families are registered; see the continuous guide.
+kernel flow : R3 -> R3 ~ Flow [n_layers=6, hidden_dim=32]
 ```
 
-### Stochastic Morphism
+### Axis-role clause: `over` and `iid over`
 
-Declare a Markov kernel (stochastic matrix):
+Every distribution clause (kernel declarations, latent parameter
+priors, bind steps, observe steps) accepts an optional
+**axis-role clause** of the form:
+
+```
+~ Family [options] over <axes> [iid over <axes>]
+```
+
+`over <axes>` names the **event axes** — the axes on which the
+family's joint structure lives.  The axis count must match the
+family's declared `event_rank` (0 for scalar families like Normal /
+Beta / Gamma; 1 for vector families like
+[`MultivariateNormal`](../api/continuous/families.md#quivers.continuous.families.ConditionalMultivariateNormal)
+/ Dirichlet; 2 for matrix families like
+[`MatrixNormal`](../api/continuous/families.md#quivers.continuous.families.ConditionalMatrixNormal)
+/ Wishart / LKJ-correlation).  The positional ordering of `over`
+axes corresponds positionally to the family's declared
+event-axis ordering (for asymmetric families like `MatrixNormal`,
+the first axis is the row axis, the second the column axis).
+
+`iid over <axes>` is an optional readability assertion naming the
+batch axes (the complement of `over`).  Any axis not in `over` is
+batched by default, which categorically is a product of
+independent distributions on that axis.
+
+**Axis names** resolve against the named factors of the
+surrounding morphism's dom and cod (or the type annotation `: T`
+on a sample / observe step).  The reserved tokens `dom` and `cod`
+are shortcuts when that side is a single unfactored object; for a
+product-typed side, every factor must be named explicitly.
+
+**Categorical reading.**  The surface preserves the distinction
+between joint-on-a-product-space (the family's event with possibly
+non-trivial correlation) and product-of-independents (iid batches
+across an axis), and between a flat MVN over $\dim(A)\cdot\dim(B)$
+with dense covariance versus a `MatrixNormal` with Kronecker
+structure $V \otimes U$ — there is no auto-substitution between
+families with different event ranks.  Renaming or refactoring a
+morphism's type invalidates axis references at type-check time
+rather than silently rebinding.
 
 <!-- compile: false -->
 ```qvr
-stochastic s : X -> Y
-stochastic cat : X -> (Y * Z)
+# Vector prior: 5-dim MVN over the codomain axis.
+mu : Euclidean(5) <- MVN(zeros, L) over cod
+
+# Matrix prior on a morphism: Kronecker MatrixNormal.
+latent W : Euclidean(32) -> Euclidean(64)
+    ~ MatrixNormal(loc, row_scale, col_scale) over (dom, cod)
+
+# Per-row Dirichlet on a transition kernel: each row is a
+# K-dim simplex independently, rows are iid.
+latent T : Euclidean(K) -> Euclidean(K)
+    ~ Dirichlet(alpha) over cod iid over dom
+
+# MVN response per observation row.
+observe y : N <- MVN(mu_hat, scale_tril) over cod
+```
+
+### Latent morphism prior
+
+A `latent` morphism declaration accepts a `~ Family(args)
+[options] [axis_role_clause]` clause that puts a prior on its
+representing tensor.  The literal `(args)` carry the prior's
+hyperparameters at declaration time (in contrast to `kernel`'s
+`~ Family` clause, whose parameters come from a neural network at
+sample time).  The compiler desugars the prior into a fresh
+sample site whose value is the tensor representing the morphism,
+making the morphism a deterministic wrap of that random tensor.
+
+<!-- compile: false -->
+```qvr
+# Free-parameter morphism (point estimate; MLE / MAP target).
+latent W : Euclidean(D) -> Euclidean(K)
+
+# The same morphism with a Matrix-Normal prior on its tensor.
+latent W : Euclidean(D) -> Euclidean(K)
+    ~ MatrixNormal(0.0, 1.0, 1.0) over (dom, cod)
 ```
 
 ### Discretize
@@ -609,10 +688,10 @@ Declare N independent copies of a morphism. Each copy has independent parameters
 <!-- compile: false -->
 ```qvr
 # creates head_0, head_1, head_2, head_3 with independent parameters
-continuous head[4] : Latent -> HeadOut ~ Normal [scale=0.1]
+kernel head[4] : Latent -> HeadOut ~ Normal [scale=0.1]
 
 # works with stochastic and embed too
-stochastic kernel[3] : State -> Obs
+kernel kernel[3] : State -> Obs
 
 embed tok[2] : Token -> Hidden
 ```
@@ -627,12 +706,12 @@ Copy a single input to N morphisms and concatenate their outputs. Accepts explic
 let parallel = fan(f, g, h)
 
 # group expansion: fan(head) expands to fan(head_0, head_1, head_2, head_3)
-continuous head[4] : Latent -> HeadOut ~ Normal [scale=0.1]
+kernel head[4] : Latent -> HeadOut ~ Normal [scale=0.1]
 
 let multi_head = fan(head)
 
 # commonly followed by a projection to recombine
-continuous proj : Combined -> Latent ~ Normal [scale=0.1]
+kernel proj : Combined -> Latent ~ Normal [scale=0.1]
 
 let attention = fan(head) >> proj
 ```
@@ -662,8 +741,8 @@ let same = repeat(f, 1)
 
 <!-- compile: false -->
 ```qvr
-stochastic transition : State -> State
-stochastic emission : State -> Obs
+kernel transition : State -> State
+kernel emission : State -> Obs
 
 # runtime-variable: no count specified
 let n_step = repeat(transition) >> emission
@@ -701,7 +780,7 @@ Thread hidden state across a sequence using a recurrent cell:
 <!-- compile: false -->
 ```qvr
 # Basic syntax: cell has product domain A * H -> H
-continuous cell : Embedded * Hidden -> Hidden ~ Normal [scale=0.1]
+kernel cell : Embedded * Hidden -> Hidden ~ Normal [scale=0.1]
 
 let rnn = tok_embed >> scan(cell) >> output_proj
 
@@ -726,7 +805,7 @@ The `scan` combinator implements temporal recurrence by threading hidden state `
 
 - **Product domains:** The continuous declaration syntax now supports product types:
   ```qvr
-continuous cell : InputType * HiddenType -> HiddenType ~ Normal [scale=0.1]
+kernel cell : InputType * HiddenType -> HiddenType ~ Normal [scale=0.1]
 ```
 
 **Example: Vanilla RNN**
@@ -738,8 +817,8 @@ type Output = Euclidean 64
 
 embed tok_embed : Token -> Embedded
 
-continuous cell : Embedded * Hidden -> Hidden ~ Normal [scale=0.1]
-continuous output_proj : Hidden -> Output ~ Normal [scale=0.1]
+kernel cell : Embedded * Hidden -> Hidden ~ Normal [scale=0.1]
+kernel output_proj : Hidden -> Output ~ Normal [scale=0.1]
 
 let rnn = tok_embed >> scan(cell) >> output_proj
 
@@ -1111,8 +1190,8 @@ object Cond : 2
 space Latent : Euclidean(3)
 space Obs : Euclidean(5)
 
-continuous prior : Cond -> Latent ~ Normal
-continuous likelihood : Latent -> Obs ~ Normal [scale=0.1]
+kernel prior : Cond -> Latent ~ Normal
+kernel likelihood : Latent -> Obs ~ Normal [scale=0.1]
 
 let posterior = prior >> likelihood
 

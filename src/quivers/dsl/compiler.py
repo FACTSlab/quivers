@@ -98,7 +98,9 @@ from quivers.structural.signature import (
 )
 from quivers.dsl.ast_nodes import SortVocabLiteral
 from quivers.dsl.ast_nodes import (
+    AxisSpec,
     Module,
+    MorphismPrior,
     Statement,
     CompositionRuleEntry,
     ContractionDecl,
@@ -372,6 +374,138 @@ def _register_extra_quantales() -> None:
 
 
 _FAMILY_REGISTRY: dict[str, type] | None = None
+
+
+# Event rank declared by each registered family.  Used by the
+# compiler to validate axis-role clauses (`over <axes> [iid over
+# <axes>]`): the number of names in `over` must equal the family's
+# event rank.  Scalar families have rank 0 (every codomain axis is
+# iid); vector families have rank 1; matrix families have rank 2.
+# Multivariate, matrix, and correlation families that take more
+# than one named event axis declare it here; everything else
+# defaults to 0 in the lookup helper.
+_FAMILY_EVENT_RANK: dict[str, int] = {
+    "MultivariateNormal": 1,
+    "LowRankMVN": 1,
+    "Dirichlet": 1,
+    "OneHotCategorical": 1,
+    "RelaxedOneHotCategorical": 1,
+    "LogisticNormal": 1,
+    "Wishart": 2,
+    "InverseWishart": 2,
+    "MatrixNormal": 2,
+    "LKJCholesky": 2,
+}
+
+
+def _family_event_rank(family_name: str) -> int:
+    """Return the declared event rank of a family (0 for scalar)."""
+    return _FAMILY_EVENT_RANK.get(family_name, 0)
+
+
+def _type_factor_names(texpr) -> tuple[bool, tuple[str, ...]]:
+    """Extract the axis names from a TypeExpr.
+
+    Returns ``(is_singleton, names)`` where ``is_singleton`` is True
+    when the type is a single unfactored object (the ``dom``/``cod``
+    shortcuts are legal) and ``names`` is the tuple of declared
+    factor names (for product types each component must be a named
+    object).
+
+    The DSL surface treats axes as named components of the
+    surrounding morphism's dom/cod.  A product type ``A * B`` has
+    factor names ``("A", "B")``; a single unfactored type has zero
+    factor names and admits the shortcut.  Parametric type
+    constructors like ``Euclidean(D)`` are treated as singletons
+    whose axis is the construct's argument name (``D``).
+    """
+    if isinstance(texpr, TypeName):
+        return True, (texpr.name,)
+    if isinstance(texpr, TypeEffectApply):
+        # e.g. Euclidean(D): axis name is the argument's name when
+        # it's itself a TypeName.
+        args = getattr(texpr, "args", None)
+        if args and len(args) == 1 and isinstance(args[0], TypeName):
+            return True, (args[0].name,)
+        return True, ()
+    if isinstance(texpr, TypeProduct):
+        names = []
+        for c in texpr.components:
+            _, sub = _type_factor_names(c)
+            names.extend(sub)
+        return False, tuple(names)
+    return False, ()
+
+
+def _available_axes_for(dom, cod) -> set[str]:
+    """The legal axis names for an axis-role clause on a morphism
+    declaration with the given dom and cod TypeExprs.
+
+    Returns the union of:
+      - ``dom`` shortcut if the dom is a single unfactored object,
+      - ``cod`` shortcut if the cod is a single unfactored object,
+      - every named factor of dom and cod.
+    """
+    dom_singleton, dom_names = _type_factor_names(dom)
+    cod_singleton, cod_names = _type_factor_names(cod)
+    out: set[str] = set(dom_names) | set(cod_names)
+    if dom_singleton:
+        out.add("dom")
+    if cod_singleton:
+        out.add("cod")
+    return out
+
+
+def _validate_axis_spec(
+    axes: AxisSpec,
+    family_name: str,
+    available_axes: set[str],
+    line: int,
+    col: int,
+) -> None:
+    """Reject malformed axis-role clauses at compile time.
+
+    Checks:
+
+    1. Every name in ``over`` and ``iid_over`` is one of the
+       ``available_axes`` (the named factors of the surrounding
+       morphism's dom/cod plus the ``dom``/``cod`` shortcuts when
+       legal).
+    2. ``over`` and ``iid_over`` are disjoint.
+    3. ``len(over) == family.event_rank``.  Mismatched arity is an
+       error rather than a silent reinterpretation: a flat MVN
+       over ``dim(A)*dim(B)`` and a MatrixNormal over ``(A, B)``
+       are categorically distinct families with different
+       covariance structures.
+    """
+    expected = _family_event_rank(family_name)
+    if len(axes.over) != expected:
+        raise CompileError(
+            f"axis-role clause: family {family_name!r} has event_rank "
+            f"{expected}, but `over` lists {len(axes.over)} axis name(s)",
+            line, col,
+        )
+    bad = [a for a in axes.over if a not in available_axes]
+    if bad:
+        raise CompileError(
+            f"axis-role clause: unknown axis name(s) {bad!r} in `over`; "
+            f"available: {sorted(available_axes)}",
+            line, col,
+        )
+    bad_iid = [a for a in axes.iid_over if a not in available_axes]
+    if bad_iid:
+        raise CompileError(
+            f"axis-role clause: unknown axis name(s) {bad_iid!r} in "
+            f"`iid over`; available: {sorted(available_axes)}",
+            line, col,
+        )
+    overlap = set(axes.over) & set(axes.iid_over)
+    if overlap:
+        raise CompileError(
+            f"axis-role clause: axes {sorted(overlap)!r} appear in both "
+            f"`over` and `iid over`; each axis has exactly one role",
+            line, col,
+        )
 
 
 def _get_family_registry() -> dict[str, type]:
@@ -1251,6 +1385,20 @@ class Compiler:
             raise CompileError(
                 f"morphism {decl.name!r} already declared", decl.line, decl.col
             )
+        if decl.prior is not None:
+            if decl.morphism_kind != "latent":
+                raise CompileError(
+                    f"morphism prior `~ Family(...)` is legal only on "
+                    f"`latent` declarations; got {decl.morphism_kind!r}",
+                    decl.line, decl.col,
+                )
+            if decl.prior.axes is not None:
+                _validate_axis_spec(
+                    decl.prior.axes,
+                    decl.prior.family,
+                    _available_axes_for(decl.domain, decl.codomain),
+                    decl.line, decl.col,
+                )
         domain = self._resolve_type(decl.domain)
         codomain = self._resolve_type(decl.codomain)
         if decl.morphism_kind == "latent":
@@ -1358,6 +1506,20 @@ class Compiler:
             if decl.replicate is not None
             else [decl.name]
         )
+        if decl.axes is not None:
+            if decl.family is None:
+                raise CompileError(
+                    "axis-role clause requires a `~ Family` clause on the "
+                    "kernel declaration; lookup-table kernels do not carry "
+                    "a parametric family.",
+                    decl.line, decl.col,
+                )
+            _validate_axis_spec(
+                decl.axes,
+                decl.family,
+                _available_axes_for(decl.domain, decl.codomain),
+                decl.line, decl.col,
+            )
         if decl.family is None:
             domain = self._resolve_type(decl.domain)
             codomain = self._resolve_type(decl.codomain)
