@@ -24,46 +24,46 @@ import pytest
 import torch
 
 from quivers.inference.estimators import (
-    DoublyReparameterised,
-    Reparameterised,
+    DoublyReparameterized,
+    Reparameterized,
     ScoreFunction,
     StickingTheLanding,
 )
 
 
 # ---------------------------------------------------------------------------
-# Reparameterised
+# Reparameterized
 # ---------------------------------------------------------------------------
 
 
-def test_reparameterised_returns_negative_mean_diff() -> None:
+def test_reparameterized_returns_negative_mean_diff() -> None:
     log_p = torch.tensor([[1.0, 2.0], [3.0, 4.0]])
     log_q = torch.tensor([[0.5, 1.5], [2.5, 3.5]])
-    out = Reparameterised().negative_objective(log_p, log_q)
+    out = Reparameterized().negative_objective(log_p, log_q)
     expected = -(log_p - log_q).mean()
     assert torch.allclose(out, expected, atol=1e-6)
 
 
-def test_reparameterised_gradient_flows_through_log_q() -> None:
+def test_reparameterized_gradient_flows_through_log_q() -> None:
     torch.manual_seed(0)
     phi = torch.tensor([1.0, 2.0], requires_grad=True)
     log_p = torch.randn(4, 2)
     log_q = (phi * torch.ones(4, 2)).sum(dim=-1, keepdim=True).expand(4, 2)
-    loss = Reparameterised().negative_objective(log_p, log_q)
+    loss = Reparameterized().negative_objective(log_p, log_q)
     loss.backward()
     assert phi.grad is not None
     assert torch.isfinite(phi.grad).all()
     assert torch.any(phi.grad.abs() > 0)
 
 
-def test_reparameterised_ignores_log_q_detached() -> None:
+def test_reparameterized_ignores_log_q_detached() -> None:
     log_p = torch.tensor([1.0, 2.0])
     log_q = torch.tensor([0.5, 1.5])
     fake_detached = torch.tensor([float("nan"), float("nan")])
     # Passing an unrelated tensor as log_q_detached must not affect
     # the result.
-    out = Reparameterised().negative_objective(log_p, log_q, fake_detached)
-    expected = Reparameterised().negative_objective(log_p, log_q, None)
+    out = Reparameterized().negative_objective(log_p, log_q, fake_detached)
+    expected = Reparameterized().negative_objective(log_p, log_q, None)
     assert torch.allclose(out, expected, atol=1e-6)
 
 
@@ -93,7 +93,7 @@ def test_stl_raises_without_detached_log_q() -> None:
 def test_stl_gradient_only_flows_through_log_p() -> None:
     """The detached log_q_detached means STL's loss doesn't propagate
     the variational-parameter dependence through log_q. log_p still
-    has its usual reparameterised path through the sample z. Here
+    has its usual reparameterized path through the sample z. Here
     we construct a case where phi appears in BOTH log_p (with a
     coefficient of 1.0) and log_q (with a coefficient of 10.0) but
     log_q is detached; the resulting gradient must reflect only the
@@ -114,7 +114,7 @@ def test_stl_gradient_only_flows_through_log_p() -> None:
 
 
 # ---------------------------------------------------------------------------
-# DoublyReparameterised (DReG)
+# DoublyReparameterized (DReG)
 # ---------------------------------------------------------------------------
 
 
@@ -124,7 +124,7 @@ def test_dreg_uses_squared_softmax_weights() -> None:
     log_p = torch.tensor([[1.0, 2.0], [3.0, 4.0], [5.0, 6.0]])
     log_q = torch.tensor([[0.5, 0.5], [1.5, 1.5], [2.5, 2.5]])
     log_q_det = torch.tensor([[0.4, 0.4], [1.4, 1.4], [2.4, 2.4]])
-    out = DoublyReparameterised().negative_objective(
+    out = DoublyReparameterized().negative_objective(
         log_p, log_q, log_q_det
     )
     log_w = log_p - log_q_det
@@ -137,7 +137,7 @@ def test_dreg_raises_without_detached_log_q() -> None:
     log_p = torch.tensor([[1.0], [2.0]])
     log_q = torch.tensor([[0.5], [1.5]])
     with pytest.raises(RuntimeError, match="log_q_detached"):
-        DoublyReparameterised().negative_objective(log_p, log_q, None)
+        DoublyReparameterized().negative_objective(log_p, log_q, None)
 
 
 def test_dreg_raises_on_scalar_log_p() -> None:
@@ -145,7 +145,7 @@ def test_dreg_raises_on_scalar_log_p() -> None:
     log_q = torch.tensor(0.5)
     log_q_det = torch.tensor(0.4)
     with pytest.raises(RuntimeError, match="leading particle axis"):
-        DoublyReparameterised().negative_objective(
+        DoublyReparameterized().negative_objective(
             log_p, log_q, log_q_det
         )
 
@@ -156,7 +156,7 @@ def test_dreg_gradient_flows() -> None:
     log_p = phi.sum().unsqueeze(0).expand(4, 1)
     log_q = (0.5 * phi).sum().unsqueeze(0).expand(4, 1)
     log_q_det = log_q.detach()
-    loss = DoublyReparameterised().negative_objective(
+    loss = DoublyReparameterized().negative_objective(
         log_p, log_q, log_q_det
     )
     loss.backward()

@@ -1,10 +1,10 @@
-"""Tests for normalising-flow variational guides.
+"""Tests for normalizing-flow variational guides.
 
 Verify the flow-based guides satisfy the standard guide
 contract: sample shapes match the mean-field reference, gradients
 flow through every flow-stack parameter under ELBO and IWAE, the
 log-density round-trips (``log_prob(rsample())`` is finite), and
-the IAF / NSF guides can be optimised end-to-end via SVI without
+the IAF / NSF guides can be optimized end-to-end via SVI without
 numerical blow-up.
 """
 

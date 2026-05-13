@@ -115,7 +115,7 @@ def test_dual_godel_tensor_op_is_max() -> None:
 
 
 # ---------------------------------------------------------------------------
-# DualQuantale generic behaviour
+# DualQuantale generic behavior
 # ---------------------------------------------------------------------------
 
 

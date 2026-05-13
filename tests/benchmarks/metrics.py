@@ -118,8 +118,8 @@ def total_variation_grid(
     width = (high - low) / num_bins
     counts = torch.histc(samples, bins=num_bins, min=low, max=high)
     empirical_density = counts / (counts.sum() * width + 1e-30)
-    p_normalised = ref_density / (ref_density.sum() * width + 1e-30)
-    return 0.5 * float(torch.abs(empirical_density - p_normalised).sum() * width)
+    p_normalized = ref_density / (ref_density.sum() * width + 1e-30)
+    return 0.5 * float(torch.abs(empirical_density - p_normalized).sum() * width)
 
 
 def coverage(

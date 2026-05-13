@@ -2,7 +2,7 @@
 
 Exercises every public abstraction (Agenda variants, Chart, rule
 matching, AgendaResult) on hand-built deduction systems covering
-the canonical algorithmic specialisations.
+the canonical algorithmic specializations.
 """
 
 from __future__ import annotations

@@ -2,7 +2,7 @@
 
 These three quantales share the categorical structure of a
 sum-product semiring (``⊕ = +``, ``⊗ = ·``) but differ in their
-underlying lattice and clamping behaviour:
+underlying lattice and clamping behavior:
 
 * :class:`RealQuantale` — entries in :math:`\\mathbb{R}` with no
   clamping. The canonical numeric semiring; closest analogue is

@@ -3,7 +3,7 @@
 Both guides treat the model's latents as a single flat
 unconstrained vector :math:`z \\in \\mathbb{R}^{D}` (where ``D``
 is the registry's total unconstrained dimensionality) and
-parameterise a joint Gaussian over it:
+parameterize a joint Gaussian over it:
 
 * :class:`AutoMultivariateNormalGuide` uses a full lower-
   triangular Cholesky factor ``L`` so the covariance
@@ -38,7 +38,7 @@ from quivers.inference.guides.base import Guide
 
 
 class _MVNCommon(Guide):
-    """Shared behaviour for the full-rank and low-rank MVN guides:
+    """Shared behavior for the full-rank and low-rank MVN guides:
     flat-vector sample / log-prob with per-site bijector + Jacobian
     accounting. Subclasses supply the base distribution
     (``_base_dist``)."""
@@ -69,14 +69,14 @@ class _MVNCommon(Guide):
     @abstractmethod
     def _base_dist(self) -> D.Distribution:
         """Return the flat-vector torch.distribution that this guide
-        parameterises. Defined by each subclass."""
+        parameterizes. Defined by each subclass."""
 
     # ------------------------------------------------------------------
     # Sampling
     # ------------------------------------------------------------------
 
     def rsample(self, x: torch.Tensor) -> dict[str, torch.Tensor]:
-        """One reparameterised draw, unflattened and bijected.
+        """One reparameterized draw, unflattened and bijected.
 
         The MVN samples a single ``(D,)``-shaped unconstrained
         vector. Per-site:
@@ -238,7 +238,7 @@ class AutoLowRankMultivariateNormalGuide(_MVNCommon):
     rank : int
         Number of correlated directions. Default ``5``.
     init_scale : float
-        Initial diagonal scale. ``W`` is initialised at zero.
+        Initial diagonal scale. ``W`` is initialized at zero.
     """
 
     def __init__(

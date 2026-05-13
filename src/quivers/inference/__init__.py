@@ -15,9 +15,9 @@ conditioning : Observation marking and ``condition()`` factory.
 registry : :class:`LatentRegistry`, the per-site introspection
     helper every guide and MCMC kernel consumes.
 guides : Variational guide families (mean-field, full-rank /
-    low-rank Gaussian, normalising-flow, structured, mixture,
+    low-rank Gaussian, normalizing-flow, structured, mixture,
     Laplace). Re-exported here at top level.
-estimators : Gradient estimators (reparameterised, sticking-the-
+estimators : Gradient estimators (reparameterized, sticking-the-
     landing, DReG, score-function).
 objectives : Variational objectives (ELBO, IWAE, Rényi, VR-IWAE).
 svi : Stochastic variational inference training loop.
@@ -42,9 +42,9 @@ from quivers.inference.guides import (
     Guide,
 )
 from quivers.inference.estimators import (
-    DoublyReparameterised,
+    DoublyReparameterized,
     GradientEstimator,
-    Reparameterised,
+    Reparameterized,
     ScoreFunction,
     StickingTheLanding,
 )
@@ -98,9 +98,9 @@ __all__ = [
     "RenyiBound",
     "VRIWAEBound",
     "GradientEstimator",
-    "Reparameterised",
+    "Reparameterized",
     "StickingTheLanding",
-    "DoublyReparameterised",
+    "DoublyReparameterized",
     "ScoreFunction",
     "SVI",
     "Predictive",

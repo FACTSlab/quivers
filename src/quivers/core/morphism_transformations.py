@@ -1,0 +1,345 @@
+"""Functorial change-of-base for non-pointwise morphism transformations.
+
+A :class:`~quivers.core.quantale_morphisms.QuantaleHomomorphism`
+acts pointwise on tensor entries (``log``, ``threshold``, ``max-plus
+lift``). That handles a useful but narrow class of change-of-base
+moves. The broader class — functors ``V-Cat -> W-Cat`` whose
+action on a morphism's tensor is **shape-aware** rather than
+strictly pointwise — covers softmax-style normalizations,
+Bayes-inversion under a prior, L1 / L2 / spectral row
+normalizations, top-k truncation, and Sinkhorn balancing.
+
+This module ships the abstract base
+:class:`MorphismTransformation` and four concrete subclasses
+(Softmax, L1Normalize, L2Normalize, BayesInvert) that cover the
+common practical needs. ``Morphism.change_base`` accepts either a
+``QuantaleHomomorphism`` (pointwise) or a ``MorphismTransformation``
+(shape-aware) and dispatches accordingly.
+
+Categorically, a ``MorphismTransformation`` is a (possibly lax)
+2-functor between V-Cat and W-Cat that need not factor through a
+quantale homomorphism on tensor entries — the action operates on
+whole rows / columns / matrices, and may carry parameter data
+(``BayesInvert`` carries a prior).
+"""
+
+from __future__ import annotations
+
+from abc import ABC, abstractmethod
+
+import torch
+import torch.nn.functional as F
+
+from quivers.core._util import EPS
+from quivers.core.objects import SetObject
+from quivers.core.quantales import (
+    PRODUCT_FUZZY,
+    REAL,
+    Quantale,
+)
+
+
+class MorphismTransformation(ABC):
+    """A shape-aware change-of-base transformation.
+
+    Concrete subclasses act on a morphism's whole tensor (not
+    entry-by-entry), optionally consuming an explicit axis
+    specification or external parameters (e.g. a prior). The
+    ``source`` quantale is the domain of the action; the
+    ``target`` quantale is the resulting morphism's quantale.
+
+    The base contract is:
+
+        morphism :: V-Cat(A, B)  -->  V-Cat(A', B')
+
+    where ``(A', B')`` is determined by the transformation
+    (often the same as ``(A, B)`` for normalizations; swapped
+    for Bayes inversion).
+    """
+
+    @property
+    @abstractmethod
+    def source(self) -> Quantale:
+        """The source quantale ``V``."""
+
+    @property
+    @abstractmethod
+    def target(self) -> Quantale:
+        """The target quantale ``W``."""
+
+    @abstractmethod
+    def apply(self, tensor: torch.Tensor, morphism) -> torch.Tensor:
+        """Transform ``morphism.tensor`` into a tensor over the target
+        quantale.
+
+        Parameters
+        ----------
+        tensor : torch.Tensor
+            The morphism's tensor at the current quantale.
+        morphism : Morphism
+            The full morphism, exposed so the transformation can
+            consult domain / codomain shape and pick the right axis.
+        """
+
+    def new_domain(self, morphism) -> SetObject:
+        """The transformed morphism's domain. Default: unchanged."""
+        return morphism.domain
+
+    def new_codomain(self, morphism) -> SetObject:
+        """The transformed morphism's codomain. Default: unchanged."""
+        return morphism.codomain
+
+    @property
+    def name(self) -> str:
+        return type(self).__name__
+
+    def __repr__(self) -> str:
+        return (
+            f"{type(self).__name__}"
+            f"({self.source.name} -> {self.target.name})"
+        )
+
+
+def _axis_index(morphism, axis_object: SetObject) -> int:
+    """Resolve a domain / codomain object to its axis index in the
+    morphism's tensor. Domain axes come first; codomain axes follow.
+
+    For a morphism ``f : A -> B`` with tensor shape
+    ``(|A|, |B|)``, ``_axis_index(f, A)`` returns 0 and
+    ``_axis_index(f, B)`` returns 1.
+    """
+    domain_objects = _decompose_object(morphism.domain)
+    codomain_objects = _decompose_object(morphism.codomain)
+    all_objects = domain_objects + codomain_objects
+    for i, obj in enumerate(all_objects):
+        if obj is axis_object or obj == axis_object:
+            return i
+    raise ValueError(
+        f"axis object {axis_object.name!r} not found in "
+        f"morphism shape {[o.name for o in all_objects]}"
+    )
+
+
+def _decompose_object(obj) -> list:
+    """Flatten a ProductSet into its constituent atomic objects."""
+    from quivers.core.objects import ProductSet
+
+    if isinstance(obj, ProductSet):
+        out = []
+        for c in obj.components:
+            out.extend(_decompose_object(c))
+        return out
+    return [obj]
+
+
+class Softmax(MorphismTransformation):
+    """Softmax-normalize along an axis, producing a Markov-style kernel.
+
+    Maps a ``ProductFuzzy`` (or ``Real``) tensor to a row-stochastic
+    Markov kernel by applying ``softmax`` along the axis indexed by
+    ``axis_object``. The output's entries lie in ``(0, 1)`` and
+    sum to 1 along that axis.
+
+    Parameters
+    ----------
+    axis_object : SetObject
+        The object whose axis the softmax is taken over.
+    source : Quantale, optional
+        The morphism's quantale before softmax. Default
+        ``PRODUCT_FUZZY``.
+    """
+
+    def __init__(
+        self,
+        axis_object: SetObject,
+        source: Quantale = PRODUCT_FUZZY,
+    ) -> None:
+        from quivers.stochastic.quantale import MARKOV
+
+        self._axis_object = axis_object
+        self._source = source
+        self._target = MARKOV
+
+    @property
+    def source(self) -> Quantale:
+        return self._source
+
+    @property
+    def target(self) -> Quantale:
+        return self._target
+
+    @property
+    def axis_object(self) -> SetObject:
+        return self._axis_object
+
+    def apply(self, tensor: torch.Tensor, morphism) -> torch.Tensor:
+        axis = _axis_index(morphism, self._axis_object)
+        return F.softmax(tensor, dim=axis)
+
+
+class L1Normalize(MorphismTransformation):
+    """L1-normalize along an axis: divide each entry by the row sum.
+
+    Maps a non-negative real tensor to one whose entries sum to
+    1 along the given axis. The output is row-stochastic on that
+    axis; semantically identical to a Markov kernel.
+
+    Parameters
+    ----------
+    axis_object : SetObject
+        The object whose axis is normalized.
+    source : Quantale, optional
+        Default :data:`REAL`.
+    """
+
+    def __init__(
+        self,
+        axis_object: SetObject,
+        source: Quantale = REAL,
+    ) -> None:
+        from quivers.stochastic.quantale import MARKOV
+
+        self._axis_object = axis_object
+        self._source = source
+        self._target = MARKOV
+
+    @property
+    def source(self) -> Quantale:
+        return self._source
+
+    @property
+    def target(self) -> Quantale:
+        return self._target
+
+    def apply(self, tensor: torch.Tensor, morphism) -> torch.Tensor:
+        axis = _axis_index(morphism, self._axis_object)
+        nonneg = tensor.clamp(min=0.0)
+        total = nonneg.sum(dim=axis, keepdim=True).clamp(min=EPS)
+        return nonneg / total
+
+
+class L2Normalize(MorphismTransformation):
+    """L2-normalize along an axis: divide each entry by the row norm.
+
+    Maps a real-valued tensor to one whose entries lie on the unit
+    L2 sphere along the given axis. The result is still in the
+    source quantale (Real); the morphism just has its rows
+    rescaled to unit length.
+
+    Parameters
+    ----------
+    axis_object : SetObject
+        The object whose axis is normalized.
+    source : Quantale, optional
+        Default :data:`REAL`. The target equals the source.
+    """
+
+    def __init__(
+        self,
+        axis_object: SetObject,
+        source: Quantale = REAL,
+    ) -> None:
+        self._axis_object = axis_object
+        self._source = source
+        self._target = source
+
+    @property
+    def source(self) -> Quantale:
+        return self._source
+
+    @property
+    def target(self) -> Quantale:
+        return self._target
+
+    def apply(self, tensor: torch.Tensor, morphism) -> torch.Tensor:
+        axis = _axis_index(morphism, self._axis_object)
+        norm = tensor.pow(2).sum(dim=axis, keepdim=True).sqrt().clamp(min=EPS)
+        return tensor / norm
+
+
+class BayesInvert(MorphismTransformation):
+    """Bayes-invert a Markov kernel under a prior.
+
+    Given a Markov kernel ``f : A -> B`` and a prior
+    ``pi : 1 -> A``, the Bayes-inverse ``f^{-1}_pi : B -> A`` is
+    the kernel satisfying
+
+        f^{-1}_pi(a | b) = f(b | a) * pi(a) / sum_a' f(b | a') * pi(a')
+
+    Mathematically this is the disintegration of the joint
+    distribution along the second margin. The domain and codomain
+    swap roles in the result.
+
+    Parameters
+    ----------
+    prior : torch.Tensor
+        Prior probabilities over the source's first object.
+        Shape ``(|A|,)``; must sum to 1.
+    """
+
+    def __init__(self, prior: torch.Tensor) -> None:
+        from quivers.stochastic.quantale import MARKOV
+
+        if prior.dim() != 1:
+            raise ValueError(
+                f"BayesInvert: prior must be 1-D; got {prior.dim()}-D"
+            )
+        if not torch.isclose(prior.sum(), torch.ones(())):
+            raise ValueError(
+                f"BayesInvert: prior must sum to 1; got sum={float(prior.sum()):.4f}"
+            )
+        if (prior < 0).any():
+            raise ValueError(
+                "BayesInvert: prior entries must be non-negative"
+            )
+        self._prior = prior.clone()
+        self._source = MARKOV
+        self._target = MARKOV
+
+    @property
+    def source(self) -> Quantale:
+        return self._source
+
+    @property
+    def target(self) -> Quantale:
+        return self._target
+
+    @property
+    def prior(self) -> torch.Tensor:
+        return self._prior.clone()
+
+    def apply(self, tensor: torch.Tensor, morphism) -> torch.Tensor:
+        if tensor.dim() != 2:
+            raise ValueError(
+                f"BayesInvert: expected 2-D Markov kernel; got "
+                f"{tensor.dim()}-D"
+            )
+        if tensor.shape[0] != self._prior.shape[0]:
+            raise ValueError(
+                f"BayesInvert: prior length {self._prior.shape[0]} "
+                f"!= kernel rows {tensor.shape[0]}"
+            )
+        # Joint over (a, b) is prior[a] * tensor[a, b].
+        joint = self._prior.unsqueeze(-1) * tensor
+        # Marginal over b is sum_a joint[a, b].
+        marginal_b = joint.sum(dim=0, keepdim=True).clamp(min=EPS)
+        # Posterior is joint / marginal_b, transposed so the
+        # result is (b, a) — the inverse kernel.
+        posterior = (joint / marginal_b).t().contiguous()
+        return posterior
+
+    def new_domain(self, morphism) -> SetObject:
+        # Bayes inversion swaps domain and codomain.
+        return morphism.codomain
+
+    def new_codomain(self, morphism) -> SetObject:
+        return morphism.domain
+
+
+__all__ = [
+    "BayesInvert",
+    "L1Normalize",
+    "L2Normalize",
+    "MorphismTransformation",
+    "Softmax",
+]

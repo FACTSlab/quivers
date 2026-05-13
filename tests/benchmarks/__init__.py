@@ -13,8 +13,8 @@ Tier coverage:
   Normal-Inverse-Gamma (joint mean / variance), Gamma-Exponential,
   Bayesian linear regression (well-conditioned). Mean error
   tolerances < 0.1 on the parameter of interest.
-* **Tier 2 — hierarchical**: Eight Schools, centred and
-  non-centred parameterisations (Rubin 1981, Gelman et al. 2013).
+* **Tier 2 — hierarchical**: Eight Schools, centered and
+  non-centered parameterizations (Rubin 1981, Gelman et al. 2013).
   Posterior mean / sd of ``mu``, ``tau`` and the per-school
   ``theta`` are compared against cached NUTS-derived moments.
 * **Tier 3 — hard geometry**: correlated regression, Neal's
@@ -38,8 +38,8 @@ from tests.benchmarks.datasets import (
     bayes_linear_regression,
     beta_bernoulli,
     correlated_regression,
-    eight_schools_centred,
-    eight_schools_noncentred,
+    eight_schools_centered,
+    eight_schools_noncentered,
     gamma_exponential,
     half_normal_scale,
     ill_conditioned_mvn,
@@ -88,8 +88,8 @@ __all__ = [
     "gamma_exponential_reference",
     "bayes_linear_regression_reference",
     # Tier 2
-    "eight_schools_centred",
-    "eight_schools_noncentred",
+    "eight_schools_centered",
+    "eight_schools_noncentered",
     "eight_schools_reference",
     # Tier 3
     "correlated_regression",

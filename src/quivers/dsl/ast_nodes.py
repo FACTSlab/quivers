@@ -144,7 +144,7 @@ class ExprIdentity(Expr):
 
 
 class ExprFromData(Expr):
-    """Data-derived initialiser ``from_data("KEY")``.
+    """Data-derived initializer ``from_data("KEY")``.
 
     The string key is resolved against the runtime data dictionary
     at fit time; the morphism's tensor is the looked-up value.
@@ -554,7 +554,7 @@ class BindStep(ProgramStep):
         single name.
     index : TypeExpr | None
         Optional index-set annotation; non-``None`` for plate /
-        vectorised / indexed-marginalize forms.
+        vectorized / indexed-marginalize forms.
     morphism : str
         Family / morphism name on the kernel-expression RHS.
     args : tuple
@@ -609,7 +609,7 @@ class LetStep(ProgramStep):
 #
 # The parser emits exclusively :class:`BindStep` and :class:`LetStep` for
 # program bodies under the v0.5 unified surface. The compiler expands a
-# BindStep into one of the four specialised forms below at the entry to
+# BindStep into one of the four specialized forms below at the entry to
 # `_compile_program`, based on the bind's `mode` and `index` fields:
 #
 #   - sample, no index  -> DrawStep
@@ -679,11 +679,11 @@ class VectorisedObserveStep(ProgramStep):
     response_var: str = ""
     line: int = 0
     col: int = 0
-    kind: Literal["vectorised_observe_step"] = "vectorised_observe_step"
+    kind: Literal["vectorized_observe_step"] = "vectorized_observe_step"
 
 
 class GroupedLatentInitStep(ProgramStep):
-    """Internal compiler IR: initialise the latent's environment
+    """Internal compiler IR: initialize the latent's environment
     slot to ``torch.arange(class_size)`` at the start of a grouped
     marginalize block's body.
 
@@ -1278,7 +1278,7 @@ class DeductionDecl(Statement):
     axiom-source field declares the kernel
     :math:`\\mathrm{Input} \\to \\mathrm{List}(I \\times K)` that
     produces the chart's initial items from an input value;
-    ``lexicon`` is a sugar specialisation for the
+    ``lexicon`` is a sugar specialization for the
     label-indexed-lookup case.
     """
 
@@ -1481,7 +1481,7 @@ class EncoderRule(dx.Model):
 
 
 class EncoderInitRule(dx.Model):
-    """Graph-signature initialiser: maps vertex `data` payloads to
+    """Graph-signature initializer: maps vertex `data` payloads to
     initial vertex embeddings before message passing."""
 
     kind: str

@@ -3,7 +3,7 @@
 Public surface (re-exported by the parent :mod:`quivers.inference`
 package): one ABC (:class:`Guide`) plus a zoo of concrete
 ``Auto*Guide`` subclasses spanning the standard variational-family
-ladder from mean-field Normal to normalising-flow stacks and
+ladder from mean-field Normal to normalizing-flow stacks and
 hierarchical / mixture / structured guides.
 
 Every concrete guide is built against a single

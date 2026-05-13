@@ -49,8 +49,8 @@ from tests.benchmarks.datasets import (
     bayes_linear_regression,
     beta_bernoulli,
     correlated_regression,
-    eight_schools_centred,
-    eight_schools_noncentred,
+    eight_schools_centered,
+    eight_schools_noncentered,
     gamma_exponential,
     half_normal_scale,
     ill_conditioned_mvn,
@@ -196,10 +196,10 @@ PROBLEMS: dict[str, ProblemSpec] = {
         metric_fn=_mean_error_against_ref_key("a_mean"),
     ),
     # Tier 2 — hierarchical
-    "eight_schools_centred": ProblemSpec(
-        label="Eight Schools (centred)",
+    "eight_schools_centered": ProblemSpec(
+        label="Eight Schools (centered)",
         description="mu, tau, theta_j; canonical hierarchical funnel",
-        data_factory=eight_schools_centred,
+        data_factory=eight_schools_centered,
         reference_factory=lambda _: eight_schools_reference(),
         observed_names={"y"},
         site="mu",
@@ -207,10 +207,10 @@ PROBLEMS: dict[str, ProblemSpec] = {
         tolerance=3.0 * float(eight_schools_reference()["mu_std"]),
         metric_fn=_mean_error_against_ref_key("mu_mean"),
     ),
-    "eight_schools_noncentred": ProblemSpec(
-        label="Eight Schools (non-centred)",
-        description="non-centred reparam removes funnel",
-        data_factory=eight_schools_noncentred,
+    "eight_schools_noncentered": ProblemSpec(
+        label="Eight Schools (non-centered)",
+        description="non-centered reparam removes funnel",
+        data_factory=eight_schools_noncentered,
         reference_factory=lambda _: eight_schools_reference(),
         observed_names={"y"},
         site="mu",
@@ -288,8 +288,8 @@ TIERS = [
         "bayes_linear_regression",
     ]),
     ("Tier 2 — Hierarchical", [
-        "eight_schools_centred",
-        "eight_schools_noncentred",
+        "eight_schools_centered",
+        "eight_schools_noncentered",
     ]),
     ("Tier 3 — Hard geometry", [
         "correlated_regression",

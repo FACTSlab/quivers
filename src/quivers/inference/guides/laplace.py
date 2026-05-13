@@ -86,7 +86,7 @@ class AutoLaplaceApproximation(Guide):
         init = torch.full((D_total,), float(init_value))
         init = init + 0.01 * torch.randn(D_total)
         self.map_z = nn.Parameter(init)
-        # Hessian-phase parameters; initialised to identity scale_tril
+        # Hessian-phase parameters; initialized to identity scale_tril
         # but only used after fit_hessian() is called.
         self.register_buffer("_hessian_fitted", torch.zeros((), dtype=torch.bool))
         self.register_buffer(

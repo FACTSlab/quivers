@@ -1,4 +1,4 @@
-"""Bijector and normalising-flow primitives.
+"""Bijector and normalizing-flow primitives.
 
 This module collects the differentiable bijections quivers's
 variational guides chain through. Every primitive is a subclass
@@ -39,7 +39,7 @@ Coverage
   Cheap learnable invertible linear layer; the standard inter-
   coupling-layer mixer.
 * :class:`BatchNormTransform` — running-statistics-based BN as a
-  normalising-flow transform (Dinh, Sohl-Dickstein, Bengio 2017,
+  normalizing-flow transform (Dinh, Sohl-Dickstein, Bengio 2017,
   same paper as RealNVP).
 
 Every primitive is fully implemented (forward, inverse,
@@ -209,8 +209,8 @@ def make_coupling_mlp(
     :class:`AffineCouplingTransform` or
     :class:`NeuralSplineCouplingTransform`.
 
-    The output layer is initialised to zero so the transform
-    starts as the identity, which is a standard normalising-flow
+    The output layer is initialized to zero so the transform
+    starts as the identity, which is a standard normalizing-flow
     initialisation (see Glow, Real NVP).
     """
     layers: list[nn.Module] = [nn.Linear(n_in, hidden), activation()]
@@ -467,9 +467,9 @@ def _searchsorted(bin_locs: torch.Tensor, inputs: torch.Tensor) -> torch.Tensor:
 
 def _rational_quadratic_spline(
     inputs: torch.Tensor,
-    unnormalised_widths: torch.Tensor,
-    unnormalised_heights: torch.Tensor,
-    unnormalised_derivatives: torch.Tensor,
+    unnormalized_widths: torch.Tensor,
+    unnormalized_heights: torch.Tensor,
+    unnormalized_derivatives: torch.Tensor,
     *,
     inverse: bool,
     tail_bound: float,
@@ -486,17 +486,17 @@ def _rational_quadratic_spline(
     inverse solves a quadratic per input via the quadratic
     formula.
     """
-    num_bins = unnormalised_widths.shape[-1]
+    num_bins = unnormalized_widths.shape[-1]
 
     in_mask = (inputs >= -tail_bound) & (inputs <= tail_bound)
     out_mask = ~in_mask
 
     out_inputs = inputs[in_mask]
-    out_widths = unnormalised_widths[in_mask]
-    out_heights = unnormalised_heights[in_mask]
-    out_derivatives = unnormalised_derivatives[in_mask]
+    out_widths = unnormalized_widths[in_mask]
+    out_heights = unnormalized_heights[in_mask]
+    out_derivatives = unnormalized_derivatives[in_mask]
 
-    # Normalise widths / heights to sum to 2 * tail_bound (the
+    # Normalize widths / heights to sum to 2 * tail_bound (the
     # spline lives on [-tail_bound, tail_bound]).
     widths = F.softmax(out_widths, dim=-1) * 2 * tail_bound
     heights = F.softmax(out_heights, dim=-1) * 2 * tail_bound
@@ -590,8 +590,8 @@ class NeuralSplineCouplingTransform(TransformModule):
     Same coupling structure as :class:`AffineCouplingTransform`,
     but the per-coordinate transform on ``x_b`` is a monotone
     rational-quadratic spline rather than an affine map. The
-    network outputs ``(unnormalised_widths, unnormalised_heights,
-    unnormalised_derivatives)`` per transformed coordinate;
+    network outputs ``(unnormalized_widths, unnormalized_heights,
+    unnormalized_derivatives)`` per transformed coordinate;
     ``num_bins`` knots per coordinate.
 
     Parameters
@@ -715,7 +715,7 @@ class NeuralSplineCouplingTransform(TransformModule):
 
 
 class LULinearTransform(TransformModule):
-    """Invertible linear layer parameterised as :math:`A = P L U`
+    """Invertible linear layer parameterized as :math:`A = P L U`
     (Kingma & Dhariwal 2018 Glow).
 
     The unit-lower-triangular ``L`` and unit-upper-triangular ``U``
@@ -804,7 +804,7 @@ class LULinearTransform(TransformModule):
 
 
 class BatchNormTransform(TransformModule):
-    """Batch-normalisation as a normalising-flow layer
+    """Batch-normalisation as a normalizing-flow layer
     (Dinh, Sohl-Dickstein, Bengio 2017).
 
     In ``training`` mode uses the batch statistics; in

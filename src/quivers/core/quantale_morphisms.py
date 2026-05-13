@@ -33,7 +33,7 @@ This module ships:
 * :class:`MaxPlus` — ProductFuzzy-to-Viterbi (max-plus tropical
   lift).
 
-* :class:`Threshold` — ProductFuzzy-to-Boolean (discretise at a
+* :class:`Threshold` — ProductFuzzy-to-Boolean (discretize at a
   threshold).
 
 * :class:`MaterialImplication` — ProductFuzzy-to-Godel (Heyting

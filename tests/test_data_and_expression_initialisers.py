@@ -1,14 +1,14 @@
 """Data-derived, expression-derived, and hyperparameter-dependent
-initialisers for ``observed`` / ``latent`` morphism declarations.
+initializers for ``observed`` / ``latent`` morphism declarations.
 
-Three kinds of initialisers are tested end-to-end:
+Three kinds of initializers are tested end-to-end:
 
 * ``observed f : A -> B = from_data("KEY")`` — runtime-supplied
   frozen tensor. The compiler resolves the string key against the
   ``data=`` dictionary passed to :func:`quivers.dsl.loads` and
   binds the resulting tensor as the morphism's data buffer.
 * ``observed f : A -> B = (g >> h).freeze`` — expression-derived
-  initialiser whose constituent morphisms' parameters are pinned;
+  initializer whose constituent morphisms' parameters are pinned;
   gradient flow stops at the freeze.
 * ``latent f : A -> B [scale=0.1]`` — hyperparameter-dependent
   initialisation already supported via the option block; tested
@@ -32,7 +32,7 @@ _LOCAL_GRAMMAR = pytest.mark.skipif(
 
 
 # ---------------------------------------------------------------------------
-# from_data initialiser
+# from_data initializer
 # ---------------------------------------------------------------------------
 
 
@@ -110,7 +110,7 @@ def test_from_data_shape_mismatch_with_declared_types_errors() -> None:
 
 @_LOCAL_GRAMMAR
 def test_from_data_does_not_register_parameters() -> None:
-    """A ``from_data``-initialised morphism is structural / frozen;
+    """A ``from_data``-initialized morphism is structural / frozen;
     its tensor is a buffer, not an ``nn.Parameter``."""
     src = """
     quantale product_fuzzy
@@ -175,12 +175,12 @@ def test_freeze_detaches_gradients() -> None:
 
 
 # ---------------------------------------------------------------------------
-# Expression-derived initialiser (no freeze): parameters propagate
+# Expression-derived initializer (no freeze): parameters propagate
 # ---------------------------------------------------------------------------
 
 
 @_LOCAL_GRAMMAR
-def test_expression_initialiser_propagates_parameters() -> None:
+def test_expression_initializer_propagates_parameters() -> None:
     """``observed h : A -> B = f`` (or any other expression) is an
     alias bound through the compiler; the underlying morphism's
     parameters are reachable via the alias. Without the

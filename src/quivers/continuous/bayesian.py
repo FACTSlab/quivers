@@ -3,7 +3,7 @@
 Adds the operations needed to express models of the kind found in
 hierarchical Bayesian regression / latent-class analysis (the
 canonical Stan workhorse): finite-domain-indexed draws (plates),
-vectorised observations with gather indexing, LKJ priors on
+vectorized observations with gather indexing, LKJ priors on
 correlation matrices, ordinal monotone splines via cumulative
 sum, and generic distribution truncation. Each primitive is
 declared with its categorical denotation in :math:`\\mathbf{Kern}`;
@@ -12,7 +12,7 @@ the runtime is a straight realisation of those denotations.
 Categorical foundations
 -----------------------
 * **Plate (indexed draw)**. Given a finite index set :math:`A` and a
-  parameterised family :math:`F : \\Theta \\to \\mathcal{G}(B)`, a
+  parameterized family :math:`F : \\Theta \\to \\mathcal{G}(B)`, a
   *plate draw* declares the kernel
 
   .. math::
@@ -66,12 +66,12 @@ Categorical foundations
   :math:`\\mathrm{cumsum} : \\mathrm{Euclidean}(K) \\to \\mathrm{Euclidean}(K)`,
   :math:`(x_1, \\dots, x_K) \\mapsto (x_1, x_1 + x_2, \\dots,
   \\sum_i x_i)`. Used for the standard monotonic-spline
-  parameterisation of ordinal coefficients.
+  parameterization of ordinal coefficients.
 
 * **LKJ correlation prior**. The Lewandowski-Kurowicka-Joe
   distribution :math:`\\mathrm{LKJ}(K, \\eta)` on the manifold
   :math:`\\mathrm{Corr}_K` of :math:`K \\times K` correlation
-  matrices, parameterised via the Cholesky factor for numerical
+  matrices, parameterized via the Cholesky factor for numerical
   stability. The accompanying ``cholesky_quad_form`` deterministic
   morphism reconstructs a full covariance
   :math:`\\Sigma = \\mathrm{diag}(s)\\, R\\, \\mathrm{diag}(s)`
@@ -122,7 +122,7 @@ class _DeterministicMorphism(ContinuousMorphism):
     kernel concentrated on :math:`f(x)`. Its log-density is
     :math:`-\\infty` everywhere except at :math:`y = f(x)` and
     :math:`0` (= :math:`\\log 1`) there; for gradient-based inference
-    we treat the sampling path as an identity reparameterisation
+    we treat the sampling path as an identity reparameterization
     of the deterministic image.
 
     Subclasses supply ``_apply(x) -> y``.
@@ -163,7 +163,7 @@ def cumsum(dim: int) -> _DeterministicMorphism:
 
     Maps :math:`(x_1, \\dots, x_K)` to
     :math:`(x_1, x_1 + x_2, \\dots, \\sum_i x_i)`. The canonical
-    monotonic-spline parameterisation for ordinal covariates
+    monotonic-spline parameterization for ordinal covariates
     (`coef ~ Normal(0, σ)` followed by `cumsum(coef - coef[0])`
     gives a 0-anchored, monotonically-increasing effect across the
     ordered levels).
@@ -177,7 +177,7 @@ def cumsum(dim: int) -> _DeterministicMorphism:
 def softmax(dim: int) -> _DeterministicMorphism:
     """Softmax ``softmax : Euclidean(dim) → Simplex(dim)``.
 
-    The standard exponential normaliser onto the probability
+    The standard exponential normalizer onto the probability
     simplex. Useful for closed-form class-probability computations
     in posterior blocks where we'd otherwise need a log-sum-exp
     aggregation by hand.
@@ -244,7 +244,7 @@ class CholeskyFactor(ContinuousSpace):
     Each element is a lower-triangular matrix :math:`L` whose rows
     have unit norm: :math:`L_{ii}^2 + \\sum_{j<i} L_{ij}^2 = 1` for
     every :math:`i`. The product :math:`L L^T` is then a
-    correlation matrix. The standard parameterisation places
+    correlation matrix. The standard parameterization places
     :math:`L` on a :math:`K(K-1)/2`-dimensional manifold.
 
     Carrier represented as a flat :math:`K \\times K` array
@@ -354,7 +354,7 @@ class LKJCorrelationFactor(ContinuousMorphism):
     def log_prob(self, x: torch.Tensor, y: torch.Tensor) -> torch.Tensor:
         """Log-density of the LKJ prior at the Cholesky factor ``y``.
 
-        Up to a normalising constant that doesn't depend on
+        Up to a normalizing constant that doesn't depend on
         :math:`L`, :math:`\\log p(L) = \\sum_{k=2}^{K} (K-k+2(\\eta-1))
         \\log L_{kk}`. The diagonal entries are extracted from the
         flattened representation.
@@ -507,7 +507,7 @@ class Truncated(ContinuousMorphism):
 
 
 # ---------------------------------------------------------------------------
-# Plate / vectorised observe / program-level marginalise Python builders
+# Plate / vectorized observe / program-level marginalise Python builders
 # ---------------------------------------------------------------------------
 
 
@@ -517,7 +517,7 @@ class PlateDraw(ContinuousMorphism):
     Concretely: ``v : A → B ~ F(theta)`` becomes a tensor of shape
     ``(|A|, *B.shape)`` whose ``a``-th row is an independent
     :math:`F(\\theta_a)`-distributed random variable. The variational
-    posterior factorises across rows by default; the prior's ELBO
+    posterior factorizes across rows by default; the prior's ELBO
     contribution is :math:`\\sum_a \\log p_F(v_a; \\theta_a)`.
 
     Categorically: by the natural isomorphism
@@ -578,7 +578,7 @@ class PlateDraw(ContinuousMorphism):
     def rsample(
         self, x: torch.Tensor, sample_shape: torch.Size = torch.Size()
     ) -> torch.Tensor:
-        """Reparameterised sample.
+        """Reparameterized sample.
 
         A plate draw is *batch-invariant*: the latent vector is a
         global model parameter shared across every row of an
@@ -682,7 +682,7 @@ class VectorisedObserve(ContinuousMorphism):
     call, with ``log_prob`` here summing over the leading index axis.
 
     The observed response tensor is registered as a buffer so the
-    parent program's optimiser tracks it and the runtime never
+    parent program's optimizer tracks it and the runtime never
     has to thread it through ``observations=...``.
 
     Parameters

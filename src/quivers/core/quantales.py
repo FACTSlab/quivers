@@ -270,7 +270,7 @@ class DualQuantale(Quantale):
         meet^op      = base.join         (along whatever axis)
         unit^op      = base.zero
         zero^op      = base.unit
-        negate^op    = base.negate       (involution self-dualises)
+        negate^op    = base.negate       (involution self-dualizes)
 
     Concretely for shipped pairs:
 

@@ -7,7 +7,7 @@ a tractable base distribution :math:`q_0` (typically
 trajectory's per-step parameters — step size, base mean / scale,
 and the inverse-temperature schedule — are *all variational
 parameters* trained by SVI. Concretely, every leapfrog operation
-is reparameterised through the momentum and position so gradients
+is reparameterized through the momentum and position so gradients
 flow end-to-end through the trajectory.
 
 DAIS gives an *unbiased* lower-bound estimator of the model
@@ -125,7 +125,7 @@ class AutoDAIS(Guide):
         # Learnable trajectory params.
         log_step = torch.log(torch.tensor(float(init_step_size)))
         self.log_step_size = nn.Parameter(log_step.expand(num_steps).clone())
-        # Inverse temperatures parameterised through a logit so they
+        # Inverse temperatures parameterized through a logit so they
         # stay in (0, 1) and are monotone-friendly. The final beta is
         # 1.0 (full target); the earlier ones are learned.
         # Initial schedule: linear in inverse temperature.

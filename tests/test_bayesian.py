@@ -12,7 +12,7 @@ Covers:
 
 The runtime extensions are not yet wired into the SVI guide; an
 end-to-end fit on synthetic data is reserved for a follow-up
-test once the inference layer recognises plate-draw sites.
+test once the inference layer recognizes plate-draw sites.
 """
 
 from __future__ import annotations
@@ -122,7 +122,7 @@ class TestPrimitives:
         assert lp.shape == (1,)
         assert torch.isfinite(lp).all()
 
-    def test_vectorised_observe_log_prob(self):
+    def test_vectorized_observe_log_prob(self):
         from quivers.continuous.bayesian import VectorisedObserve
         from quivers.continuous.families import ConditionalNormal
         from quivers.continuous.spaces import Euclidean
@@ -201,7 +201,7 @@ class TestDSLSurface:
         # First gathered row equals sample[2].
         assert torch.allclose(gathered[0], sample[2])
 
-    def test_vectorised_observe(self):
+    def test_vectorized_observe(self):
         src = """
         object Resp : 20
 

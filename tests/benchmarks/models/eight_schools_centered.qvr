@@ -1,4 +1,4 @@
-# Eight Schools (centred parameterisation, scalar measurement sd).
+# Eight Schools (centered parameterization, scalar measurement sd).
 #
 # Hierarchical Bayes canonical benchmark (Gelman et al. 2013).
 #
@@ -18,11 +18,11 @@
 
 object School : 8
 
-program eight_schools_centred : School -> School
+program eight_schools_centered : School -> School
     mu <- Normal(0.0, 10.0)
     tau <- HalfCauchy(5.0)
     theta : School <- Normal(mu, tau)
     observe y : School <- Normal(theta, 12.0)
     return theta
 
-export eight_schools_centred
+export eight_schools_centered

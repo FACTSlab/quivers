@@ -35,12 +35,12 @@ Throughput is iterations per second for SVI guides, posterior draws per second f
 | Problem | AutoNormal | AutoMVN | AutoLaplace | HMC | NUTS |
 |---|---|---|---|---|---|
 | Eight Schools (centred) | **PASS**<br>`5.4 / 12`<br>636.6/s | **PASS**<br>`5.51 / 12`<br>559.3/s | **PASS**<br>`5.4 / 12`<br>1324.4/s | **PASS**<br>`4.38 / 12`<br>101.3/s | **PASS**<br>`5.75 / 12`<br>15.5/s |
-| Eight Schools (non-centred) | **PASS**<br>`0.891 / 8`<br>661.2/s | **PASS**<br>`1.06 / 8`<br>549.0/s | **PASS**<br>`2.01 / 8`<br>1395.6/s | **PASS**<br>`1.74 / 8`<br>100.5/s | **PASS**<br>`1.45 / 8`<br>31.4/s |
+| Eight Schools (non-centered) | **PASS**<br>`0.891 / 8`<br>661.2/s | **PASS**<br>`1.06 / 8`<br>549.0/s | **PASS**<br>`2.01 / 8`<br>1395.6/s | **PASS**<br>`1.74 / 8`<br>100.5/s | **PASS**<br>`1.45 / 8`<br>31.4/s |
 
 ### Problem details
 
 - **Eight Schools (centred)** — mu, tau, theta_j; canonical hierarchical funnel. Metric: `|E[mu]_q - mu_ref|`, tolerance: `12`.
-- **Eight Schools (non-centred)** — non-centred reparam removes funnel. Metric: `|E[mu]_q - mu_ref|`, tolerance: `8`.
+- **Eight Schools (non-centered)** — non-centered reparam removes funnel. Metric: `|E[mu]_q - mu_ref|`, tolerance: `8`.
 
 ## Tier 3 — Hard geometry
 

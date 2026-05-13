@@ -148,52 +148,123 @@ class Morphism(ABC):
         return ProductMorphism(self, other)
 
     def change_base(self, phi) -> "ObservedMorphism":
-        """Apply a quantale homomorphism ``φ : V → W`` to this
-        morphism, producing a new morphism in W whose tensor is
-        ``φ.apply(self.tensor)`` and whose quantale is ``φ.target``.
+        """Transport this morphism along a change-of-base functor.
+
+        ``phi`` may be either a
+        :class:`~quivers.core.quantale_morphisms.QuantaleHomomorphism`
+        (pointwise: the action factors entry-by-entry through
+        ``phi.apply``) or a
+        :class:`~quivers.core.morphism_transformations.MorphismTransformation`
+        (shape-aware: the action consumes the whole tensor plus
+        the morphism for axis resolution).
 
         The result is an :class:`ObservedMorphism` because the
         base-changed tensor is a concrete materialised value, not
         a learnable parameter; the original morphism's parameters
         still live on ``self`` and gradients flow through them
-        normally (``φ.apply`` is a tensor operation that autograd
-        tracks).
-
-        Categorically this realises the 2-functor
-        :math:`(-) \\otimes_\\varphi W : V\\text{-}\\mathbf{Cat} \\to W\\text{-}\\mathbf{Cat}`
-        on a single morphism.
+        normally (the transformation is a tensor operation that
+        autograd tracks).
 
         Parameters
         ----------
-        phi : QuantaleHomomorphism
-            The change-of-base functor. Its source must match
+        phi : QuantaleHomomorphism or MorphismTransformation
+            The change-of-base functor. Its ``source`` must match
             ``self.quantale``.
 
         Returns
         -------
         ObservedMorphism
             A morphism over ``phi.target`` with the transported
-            tensor.
+            tensor. For pointwise transformations the domain and
+            codomain are preserved; for shape-aware ones (e.g.
+            ``BayesInvert``) the transformation may swap them.
         """
+        from quivers.core.morphism_transformations import (
+            MorphismTransformation,
+        )
         from quivers.core.quantale_morphisms import QuantaleHomomorphism
 
-        if not isinstance(phi, QuantaleHomomorphism):
+        if not isinstance(phi, (QuantaleHomomorphism, MorphismTransformation)):
             raise TypeError(
-                f"change_base: expected QuantaleHomomorphism; got "
-                f"{type(phi).__name__}"
+                f"change_base: expected QuantaleHomomorphism or "
+                f"MorphismTransformation; got {type(phi).__name__}"
             )
         if type(phi.source) is not type(self._quantale):
             raise TypeError(
-                f"change_base: homomorphism source "
+                f"change_base: source quantale "
                 f"{phi.source.name!r} does not match this morphism's "
                 f"quantale {self._quantale.name!r}"
             )
-        new_tensor = phi.apply(self.tensor)
+        if isinstance(phi, QuantaleHomomorphism):
+            new_tensor = phi.apply(self.tensor)
+            new_domain = self._domain
+            new_codomain = self._codomain
+        else:
+            new_tensor = phi.apply(self.tensor, self)
+            new_domain = phi.new_domain(self)
+            new_codomain = phi.new_codomain(self)
         return ObservedMorphism(
-            self._domain,
-            self._codomain,
+            new_domain,
+            new_codomain,
             new_tensor,
             quantale=phi.target,
+        )
+
+    def refactor(self, *, domain=None, codomain=None) -> "ObservedMorphism":
+        """Switch between flat and product views of this morphism.
+
+        Given a morphism ``f : A -> B`` whose tensor storage has
+        total numel matching the requested ``domain`` / ``codomain``
+        objects, return an equivalent morphism ``f' : A' -> B'``
+        whose tensor is the same data reshaped to the new factored
+        layout. ``A'`` and ``B'`` must be isomorphic to ``A`` and
+        ``B`` as objects — same cardinality, possibly different
+        product structure.
+
+        Categorically this is the action of an object iso
+        ``B ≅ B'`` on the morphism's tensor. Semantically it is
+        a no-op; presentation only.
+
+        Parameters
+        ----------
+        domain : SetObject, optional
+            New domain. Must have ``prod(shape) == prod(self.domain.shape)``.
+        codomain : SetObject, optional
+            New codomain. Same numel constraint.
+
+        Returns
+        -------
+        ObservedMorphism
+            The reshape of ``self`` into the requested type.
+        """
+        new_domain = domain if domain is not None else self._domain
+        new_codomain = codomain if codomain is not None else self._codomain
+
+        def _numel(shape) -> int:
+            n = 1
+            for s in shape:
+                n *= int(s)
+            return n
+
+        if _numel(new_domain.shape) != _numel(self._domain.shape):
+            raise ValueError(
+                f"refactor: domain numel {_numel(new_domain.shape)} "
+                f"does not match {_numel(self._domain.shape)} for "
+                f"{self._domain!r} -> {new_domain!r}"
+            )
+        if _numel(new_codomain.shape) != _numel(self._codomain.shape):
+            raise ValueError(
+                f"refactor: codomain numel "
+                f"{_numel(new_codomain.shape)} does not match "
+                f"{_numel(self._codomain.shape)} for "
+                f"{self._codomain!r} -> {new_codomain!r}"
+            )
+        target_shape = tuple(new_domain.shape) + tuple(new_codomain.shape)
+        return ObservedMorphism(
+            new_domain,
+            new_codomain,
+            self.tensor.reshape(target_shape),
+            quantale=self._quantale,
         )
 
     def marginalize(self, *sets: SetObject) -> MarginalizedMorphism:

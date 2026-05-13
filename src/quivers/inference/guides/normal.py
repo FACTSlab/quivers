@@ -1,6 +1,6 @@
 """Mean-field Normal variational guide.
 
-:class:`AutoNormalGuide` factorises the variational posterior as
+:class:`AutoNormalGuide` factorizes the variational posterior as
 a product of independent Normals — one per latent site in
 unconstrained space — and pushes each through the site's
 constrained-support bijector. This is the smallest and fastest
@@ -132,7 +132,7 @@ class AutoNormalGuide(Guide):
         return z, v
 
     def rsample(self, x: torch.Tensor) -> dict[str, torch.Tensor]:
-        """Reparameterised mean-field Normal-then-bijector sample."""
+        """Reparameterized mean-field Normal-then-bijector sample."""
         batch = x.shape[0]
         result: dict[str, torch.Tensor] = {}
         for site in self._registry.sites.values():

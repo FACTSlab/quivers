@@ -7,7 +7,7 @@ Coverage:
   off-diagonal; full-rank MVN and HMC recover.
 * **Neal's funnel** — the canonical scale-of-scale dependency
   (Neal 2003). Mean-field VI cannot fit the joint; HMC needs
-  reparameterised mass adaptation.
+  reparameterized mass adaptation.
 * **Ill-conditioned product Gaussian** — per-dim posteriors with
   scales spanning four orders of magnitude. Stress for mass-matrix
   adaptation; AutoNormalGuide with appropriate init_scale handles it.

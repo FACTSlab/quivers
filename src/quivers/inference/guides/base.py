@@ -1,6 +1,6 @@
 """Variational guide abstract base.
 
-A :class:`Guide` is a parameterised distribution
+A :class:`Guide` is a parameterized distribution
 :math:`q_\\phi(z \\mid x)` over a model's latent variables. The
 ABC fixes a uniform contract:
 
@@ -61,7 +61,7 @@ class Guide(nn.Module, ABC):
 
     @abstractmethod
     def rsample(self, x: torch.Tensor) -> dict[str, torch.Tensor]:
-        """Reparameterised sample from :math:`q_\\phi(z \\mid x)`.
+        """Reparameterized sample from :math:`q_\\phi(z \\mid x)`.
 
         Parameters
         ----------

@@ -1,6 +1,6 @@
-# Eight Schools (non-centred parameterisation, scalar measurement sd).
+# Eight Schools (non-centered parameterization, scalar measurement sd).
 #
-# Same generative model as eight_schools_centred but with theta_j
+# Same generative model as eight_schools_centered but with theta_j
 # written as deterministic transforms of independent standard-Normal
 # draws eta_j:
 #
@@ -10,13 +10,13 @@
 #     theta_j = mu + tau * eta_j
 #     y_j ~ Normal(theta_j, 12)
 #
-# Standard fix for the centred-parameterisation funnel pathology
+# Standard fix for the centered-parameterization funnel pathology
 # (Betancourt-Girolami 2015). VI / MCMC both converge faster here
-# than on the centred form.
+# than on the centered form.
 
 object School : 8
 
-program eight_schools_noncentred : School -> School
+program eight_schools_noncentered : School -> School
     mu <- Normal(0.0, 10.0)
     tau <- HalfCauchy(5.0)
     eta : School <- Normal(0.0, 1.0)
@@ -24,4 +24,4 @@ program eight_schools_noncentred : School -> School
     observe y : School <- Normal(theta, 12.0)
     return theta
 
-export eight_schools_noncentred
+export eight_schools_noncentered

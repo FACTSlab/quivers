@@ -4,7 +4,7 @@ Pareto-dominates plain HMC on posteriors whose prior init places
 chains far from the typical set (the canonical SuperTelicity-shape
 case with constrained-support hierarchical priors). The composite
 runs SVI to convergence on a chosen variational guide, then
-initialises the HMC / NUTS chain at the guide's posterior mean and
+initializes the HMC / NUTS chain at the guide's posterior mean and
 adapts the mass matrix to the guide's posterior covariance — so
 HMC's warmup is given a substantial head-start instead of starting
 from scratch.
@@ -43,7 +43,7 @@ class WarmupThenHMC:
     svi_steps : int
         Number of SVI steps in the warmup phase.
     svi_lr : float
-        Learning rate for the SVI optimiser. Default ``1e-2``.
+        Learning rate for the SVI optimizer. Default ``1e-2``.
     mcmc_warmup : int
         MCMC kernel's own warmup (on top of the SVI warmup; HMC
         still benefits from a few step-size-adaptation iterations

@@ -106,7 +106,7 @@ class FixedDistribution(ContinuousMorphism):
             return dist.sample(sample_shape).long()
         if getattr(dist, "has_rsample", True):
             return dist.rsample(sample_shape)
-        # Continuous but non-reparameterisable (e.g. VonMises).
+        # Continuous but non-reparameterizable (e.g. VonMises).
         return dist.sample(sample_shape)
 
     def log_prob(self, x: torch.Tensor, y: torch.Tensor) -> torch.Tensor:
@@ -248,7 +248,7 @@ class MixedInlineDistribution(ContinuousMorphism):
         if getattr(dist, "has_rsample", True):
             result = dist.rsample(sample_shape)
         else:
-            # Continuous but non-reparameterisable (e.g. VonMises).
+            # Continuous but non-reparameterizable (e.g. VonMises).
             result = dist.sample(sample_shape)
         if result.dim() == 1:
             result = result.unsqueeze(-1)
@@ -1110,7 +1110,7 @@ def make_inline_distribution(
         family, _constraints.real
     )
     # TruncatedNormal / Uniform encode bounded supports via two literal
-    # arguments; if both bounds are literal we can specialise the
+    # arguments; if both bounds are literal we can specialize the
     # constraint to the matching :class:`interval`. Otherwise we fall
     # back to ``real`` (the closest correct guide-side approximation).
     if family in ("TruncatedNormal", "Uniform"):
@@ -1263,7 +1263,7 @@ def _auto_register_inline(spec: FamilySpec) -> None:
 
     Skips families whose output is not per-dimension independent —
     Dirichlet, Multivariate, OneHot, Wishart, etc. need special
-    construction logic that the generic factory can't synthesise.
+    construction logic that the generic factory can't synthesize.
     """
     if spec.name in _FIXED_FACTORIES or spec.name in _FAMILY_BUILDERS:
         return  # hand-written entry takes precedence

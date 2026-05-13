@@ -1,7 +1,7 @@
 """Pre-registered library of weighted deduction systems.
 
 Ships agenda-engine :class:`DeductionSystem` instances for the
-canonical algorithmic specialisations enumerated in the
+canonical algorithmic specializations enumerated in the
 semiring-parsing / agenda-driven-deduction literature
 (Shieber-Schabes-Pereira 1995; Goodman 1999; Klein-Manning 2001;
 Nederhof 2003; Eisner-Blatz 2007; Vieira et al. on Dyna).
@@ -122,7 +122,7 @@ def _stlc_rules() -> list[InferenceRule]:
     annotation-check-to-synth, mode-switch.
     """
     return [
-        # mode-switch: Synth ⊢ Check (a synthesised type checks
+        # mode-switch: Synth ⊢ Check (a synthesized type checks
         # against itself).
         InferenceRule(
             name="synth_to_check",

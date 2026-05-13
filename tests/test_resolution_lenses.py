@@ -141,7 +141,7 @@ def test_lens_class_metadata() -> None:
     ``__init_subclass__`` contract.
 
     ``didactic.api.Lens.__init_subclass__`` walks ``__orig_bases__`` for a
-    ``Lens[A, B, C]`` parameterisation and records ``A`` as
+    ``Lens[A, B, C]`` parameterization and records ``A`` as
     ``__source__`` and ``B`` as ``__target__`` only when each is a
     plain class. Union-typed targets (e.g.
     ``ContinuousSpace | SetObject``) record as ``None``; that's the

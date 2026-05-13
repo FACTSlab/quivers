@@ -49,7 +49,7 @@ def loads(
         The ``.qvr`` source.
     data : dict, optional
         Maps string keys to tensors (or tensor-like objects) for
-        any ``from_data("KEY")`` initialisers in the source. The
+        any ``from_data("KEY")`` initializers in the source. The
         compiler looks each key up at compile time; an unknown key
         raises :class:`CompileError`.
     """

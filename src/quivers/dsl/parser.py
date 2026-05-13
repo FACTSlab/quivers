@@ -366,14 +366,14 @@ def _walk_expr(t: _Tree, vid: str) -> Expr:
             l, r = left_vid, right_vid
         if l is None or r is None:
             raise ParseError(f"compose_expr missing operands at {vid}")
-        # Normalise the operator text. The reverse composition
+        # Normalize the operator text. The reverse composition
         # operator ``<<`` has already been handled by swapping the
         # operands, so the stored op is the forward form ``>>``.
-        op_normalised = ">>" if op_text == "<<" else op_text
+        op_normalized = ">>" if op_text == "<<" else op_text
         return ExprCompose(
             left=_walk_expr(t, l),
             right=_walk_expr(t, r),
-            op=op_normalised,
+            op=op_normalized,
             line=line,
             col=col,
         )

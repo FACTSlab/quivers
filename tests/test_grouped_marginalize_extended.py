@@ -90,7 +90,7 @@ class TestReductionParameter:
 class TestProductFibration:
     """The runtime primitive accepts a tuple of co-indexed
     fibrations + a tuple of group sizes (the product grouping
-    plate). Behaviour matches the single-fibration form when the
+    plate). Behavior matches the single-fibration form when the
     product collapses to one axis, and matches a hand-rolled
     Python loop for the two-axis case."""
 

@@ -1,4 +1,4 @@
-"""Behavioural / semantic tests for the grouped ``marginalize``
+"""Behavioral / semantic tests for the grouped ``marginalize``
 block.
 
 These tests target the *semantic correctness* of the runtime, not

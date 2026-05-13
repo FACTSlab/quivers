@@ -67,7 +67,7 @@ def test_predictive_rejects_invalid_posterior_type() -> None:
 
 
 def test_predictive_with_guide_still_works() -> None:
-    """The Layer 3 behaviour — Predictive driven by a Guide —
+    """The Layer 3 behavior — Predictive driven by a Guide —
     must continue to work after the MCMC overload."""
     torch.manual_seed(0)
     model = _normal_normal_model()

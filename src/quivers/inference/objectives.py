@@ -11,7 +11,7 @@ bound-tightness.
 Every objective accepts a :class:`~quivers.inference.estimators.GradientEstimator`
 strategy that decides how the per-particle log-density tensors
 are turned into a scalar loss whose gradient is the chosen
-estimator. The default is :class:`~quivers.inference.estimators.Reparameterised`.
+estimator. The default is :class:`~quivers.inference.estimators.Reparameterized`.
 
 Particles are a leading torch axis throughout — no Python loop
 over the Monte Carlo dimension. This is critical for performance
@@ -37,9 +37,9 @@ import torch.nn as nn
 
 from quivers.continuous.programs import MonadicProgram
 from quivers.inference.estimators import (
-    DoublyReparameterised,
+    DoublyReparameterized,
     GradientEstimator,
-    Reparameterised,
+    Reparameterized,
 )
 from quivers.inference.guides import Guide
 
@@ -57,7 +57,7 @@ class Objective(nn.Module, ABC):
 
     def __init__(self, estimator: GradientEstimator | None = None) -> None:
         super().__init__()
-        self.estimator = estimator if estimator is not None else Reparameterised()
+        self.estimator = estimator if estimator is not None else Reparameterized()
 
     @abstractmethod
     def forward(
@@ -94,7 +94,7 @@ def _multi_particle_log_densities(
 
     The particle loop is a Python ``for`` over ``num_particles``
     — torch.distributions and the model's runtime path are not
-    vectorised over a Monte Carlo dimension in the current
+    vectorized over a Monte Carlo dimension in the current
     quivers runtime, so we stack the outputs into the leading
     axis after the fact. When ``num_particles == 1`` (the ELBO
     default) the loop runs once and the cost is the same as the
@@ -139,16 +139,16 @@ class ELBO(Objective):
             = \\mathbb{E}_{q_\\phi(z)} \\bigl[ \\log p(z, y) - \\log q_\\phi(z) \\bigr].
 
     Returns the *negated* ELBO so :meth:`Objective.forward` can be
-    plugged into a minimiser. ``num_particles`` averages independent
+    plugged into a minimizer. ``num_particles`` averages independent
     Monte-Carlo estimates; ``num_particles == 1`` is the standard
-    reparameterisation-trick ELBO.
+    reparameterization-trick ELBO.
 
     Parameters
     ----------
     num_particles : int
         Number of independent guide samples per step. Default ``1``.
     estimator : GradientEstimator, optional
-        Gradient-estimator strategy. Default :class:`Reparameterised`.
+        Gradient-estimator strategy. Default :class:`Reparameterized`.
     """
 
     def __init__(
@@ -170,7 +170,7 @@ class ELBO(Objective):
         x: torch.Tensor,
         observations: dict[str, torch.Tensor],
     ) -> torch.Tensor:
-        need_detached = not isinstance(self.estimator, Reparameterised)
+        need_detached = not isinstance(self.estimator, Reparameterized)
         log_p, log_q, log_q_det = _multi_particle_log_densities(
             model,
             guide,
@@ -202,8 +202,8 @@ class IWAEBound(Objective):
     a tighter lower bound on :math:`\\log p(y)` than the ELBO.
     Approaches the marginal likelihood as :math:`K \\to \\infty`.
 
-    The default estimator is :class:`DoublyReparameterised`
-    because the naive reparameterised gradient's signal-to-noise
+    The default estimator is :class:`DoublyReparameterized`
+    because the naive reparameterized gradient's signal-to-noise
     ratio for the inference network collapses as :math:`K` grows
     (Tucker-Lawson-Gu-Maddison 2019).
     """
@@ -214,7 +214,7 @@ class IWAEBound(Objective):
         estimator: GradientEstimator | None = None,
     ) -> None:
         if estimator is None:
-            estimator = DoublyReparameterised()
+            estimator = DoublyReparameterized()
         super().__init__(estimator=estimator)
         if num_particles < 1:
             raise ValueError(
@@ -230,7 +230,7 @@ class IWAEBound(Objective):
         observations: dict[str, torch.Tensor],
     ) -> torch.Tensor:
         # IWAE always needs the detached log_q for the DReG path;
-        # for plain reparameterised IWAE we still compute it so
+        # for plain reparameterized IWAE we still compute it so
         # the estimator interface is uniform.
         need_detached = True
         log_p, log_q, log_q_det = _multi_particle_log_densities(
@@ -247,7 +247,7 @@ class IWAEBound(Objective):
         # logsumexp IWAE bound and pipe it through the estimator
         # for variance-reduction tweaks (sticking-the-landing) or
         # high-variance score-function path.
-        if isinstance(self.estimator, DoublyReparameterised):
+        if isinstance(self.estimator, DoublyReparameterized):
             return self.estimator.negative_objective(log_p, log_q, log_q_det)
         # Standard IWAE surrogate: logsumexp_k [log p_k - log q_k] - log K
         log_w = log_p - log_q
@@ -313,7 +313,7 @@ class RenyiBound(Objective):
         x: torch.Tensor,
         observations: dict[str, torch.Tensor],
     ) -> torch.Tensor:
-        need_detached = not isinstance(self.estimator, Reparameterised)
+        need_detached = not isinstance(self.estimator, Reparameterized)
         log_p, log_q, _ = _multi_particle_log_densities(
             model,
             guide,
@@ -341,7 +341,7 @@ class VRIWAEBound(Objective):
     """Variational Rényi-IWAE bound (Daudel-Douc-Roueff 2023).
 
     Unifies :class:`ELBO`, :class:`IWAEBound`, and
-    :class:`RenyiBound` into a single bound parameterised by
+    :class:`RenyiBound` into a single bound parameterized by
     ``alpha`` and ``num_particles``:
 
     .. math::
@@ -385,7 +385,7 @@ class VRIWAEBound(Objective):
         x: torch.Tensor,
         observations: dict[str, torch.Tensor],
     ) -> torch.Tensor:
-        need_detached = not isinstance(self.estimator, Reparameterised)
+        need_detached = not isinstance(self.estimator, Reparameterized)
         log_p, log_q, _ = _multi_particle_log_densities(
             model,
             guide,

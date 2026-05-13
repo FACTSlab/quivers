@@ -202,7 +202,7 @@ QVR_PROGRAM_PROTOCOL: panproto.Protocol = panproto.define_protocol(
         "name": "qvr_program",
         # Reuse the brat schema/instance theories — both shape graphs with
         # vertices, edges, and constraint metadata; the kinds and rules above
-        # are what specialise them to the compiled-quivers shape.
+        # are what specialize them to the compiled-quivers shape.
         "schema_theory": "ThBratSchema",
         "instance_theory": "ThBratInstance",
         "edge_rules": _EDGE_RULES,
@@ -534,7 +534,7 @@ Edges:
 
 Constraint sorts carry the system's semiring, start, depth, and
 each pattern's textual form. Schema morphisms over this protocol
-correspond to specialisations of deduction systems
+correspond to specializations of deduction systems
 (e.g., :math:`\\mathsf{CCG} \\subset \\mathsf{Lambek} \\subset \\mathsf{MultimodalLambek}`).
 """
 

@@ -6,27 +6,27 @@ scalar loss whose ``backward()`` produces the chosen gradient
 estimator. Different strategies trade variance against
 applicability:
 
-* :class:`Reparameterised` — pathwise gradient (the standard SVI
-  reparameterisation trick). Lowest variance for reparameterisable
+* :class:`Reparameterized` — pathwise gradient (the standard SVI
+  reparameterization trick). Lowest variance for reparameterizable
   families; requires ``rsample``.
 * :class:`StickingTheLanding` — detaches the variational-parameter
   dependence in :math:`\\log q_\\phi(z)` so the gradient variance
   asymptotically vanishes as :math:`q \\to p^*`
   (Roeder-Wu-Duvenaud 2017,
   `doi:10.48550/arXiv.1703.09194 <https://doi.org/10.48550/arXiv.1703.09194>`_).
-* :class:`DoublyReparameterised` — the DReG estimator for IWAE
+* :class:`DoublyReparameterized` — the DReG estimator for IWAE
   (Tucker-Lawson-Gu-Maddison 2019,
   `doi:10.48550/arXiv.1810.04152 <https://doi.org/10.48550/arXiv.1810.04152>`_).
   Removes the score-function term whose variance grows with the
   particle count :math:`K`.
 * :class:`ScoreFunction` — REINFORCE / black-box VI. The
-  fallback for non-reparameterisable sites (discrete latents,
+  fallback for non-reparameterizable sites (discrete latents,
   reject-sampled families). Highest variance; pair with a
   baseline whenever possible.
 
 Estimators are *strategies* held by :class:`Objective`
 implementations; they don't store any state themselves and
-operate on tensors only. The :class:`Reparameterised` instance
+operate on tensors only. The :class:`Reparameterized` instance
 is a singleton — every objective defaults to it.
 """
 
@@ -78,14 +78,14 @@ class GradientEstimator(ABC):
         ...
 
 
-class Reparameterised(GradientEstimator):
+class Reparameterized(GradientEstimator):
     """Standard pathwise gradient.
 
     For the ELBO with ``num_particles = 1`` this is the textbook
-    reparameterisation trick (Kingma-Welling 2013,
+    reparameterization trick (Kingma-Welling 2013,
     `doi:10.48550/arXiv.1312.6114 <https://doi.org/10.48550/arXiv.1312.6114>`_).
     For higher ``num_particles`` it's the importance-weighted
-    score function with reparameterised samples — i.e. the IWAE
+    score function with reparameterized samples — i.e. the IWAE
     bound under the naive gradient.
     """
 
@@ -144,8 +144,8 @@ class StickingTheLanding(GradientEstimator):
         return -(diff.mean())
 
 
-class DoublyReparameterised(GradientEstimator):
-    """Doubly-reparameterised IWAE gradient (Tucker-Lawson-Gu-
+class DoublyReparameterized(GradientEstimator):
+    """Doubly-reparameterized IWAE gradient (Tucker-Lawson-Gu-
     Maddison 2019).
 
     Specialised for the IWAE bound at K particles. Reweights the
@@ -166,7 +166,7 @@ class DoublyReparameterised(GradientEstimator):
     surrogate loss whose ``backward()`` yields the right gradient
     is the standard trick: detach the importance weights from the
     autograd graph and use them as a non-differentiable scaling
-    on the per-particle reparameterised difference.
+    on the per-particle reparameterized difference.
     """
 
     def negative_objective(
@@ -177,14 +177,14 @@ class DoublyReparameterised(GradientEstimator):
     ) -> torch.Tensor:
         if log_q_detached is None:
             raise RuntimeError(
-                "DoublyReparameterised: requires the caller to supply "
+                "DoublyReparameterized: requires the caller to supply "
                 "log_q_detached (log q evaluated with the variational "
                 "parameters detached). The IWAE objective produces this "
                 "natively — confirm the objective is IWAEBound."
             )
         if log_p.dim() < 1:
             raise RuntimeError(
-                "DoublyReparameterised: log_p must have a leading "
+                "DoublyReparameterized: log_p must have a leading "
                 f"particle axis (K, batch); got shape {tuple(log_p.shape)}"
             )
         # w_k = softmax_k (log p_k - log q_k) along the particle
@@ -203,10 +203,10 @@ class ScoreFunction(GradientEstimator):
     `doi:10.48550/arXiv.1401.0118 <https://doi.org/10.48550/arXiv.1401.0118>`_).
 
     Uses the log-derivative identity instead of the
-    reparameterisation trick. Required when sampling is not
+    reparameterization trick. Required when sampling is not
     differentiable (discrete latents, hard-truncated families,
     accept-reject samplers). Variance is typically orders of
-    magnitude higher than reparameterised — combine with a
+    magnitude higher than reparameterized — combine with a
     control-variate baseline whenever possible.
     """
 
@@ -227,8 +227,8 @@ class ScoreFunction(GradientEstimator):
 
 __all__ = [
     "GradientEstimator",
-    "Reparameterised",
+    "Reparameterized",
     "StickingTheLanding",
-    "DoublyReparameterised",
+    "DoublyReparameterized",
     "ScoreFunction",
 ]

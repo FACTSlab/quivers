@@ -15,7 +15,7 @@ funnels through the adapter, which:
 * Rejects anything else with a typed error.
 
 This module verifies the adapter's contract plus the end-to-end
-behaviour of binding sites it unblocks:
+behavior of binding sites it unblocks:
 
 * A ``program`` block referencing a let-composed chain (``out <- h``
   where ``h = f >> g``) compiles and runs through ``rsample`` to
@@ -170,7 +170,7 @@ def test_program_binding_let_composed_chain_compiles_and_runs() -> None:
 @_LOCAL_GRAMMAR
 def test_program_binding_let_composed_chain_has_learnable_params() -> None:
     """The wrapped composed morphism still exposes its learnable
-    parameters to the outer program's optimiser."""
+    parameters to the outer program's optimizer."""
     from quivers.dsl import loads
 
     src = """

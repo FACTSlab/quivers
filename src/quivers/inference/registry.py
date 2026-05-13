@@ -26,7 +26,7 @@ Categorical interpretation
 ==========================
 
 Each latent site corresponds to a draw in the model's Kleisli
-arrow ``Γ → 𝒢(τ)``. The site's prior is a parameterised family
+arrow ``Γ → 𝒢(τ)``. The site's prior is a parameterized family
 ``F : Θ → 𝒢(B)`` with a support constraint
 ``C ⊆ B``. The bijector ``T : ℝ^d → C`` is the
 :func:`biject_to` lift of ``C``; its log-determinant gives the
@@ -173,7 +173,7 @@ class LatentRegistry:
     * Bijector forward / inverse with Jacobian accumulation
       (:meth:`to_constrained`, :meth:`to_unconstrained`).
 
-    All operations are vectorised — no per-site Python loops on
+    All operations are vectorized — no per-site Python loops on
     the hot path beyond the construction-time setup.
     """
 
@@ -511,7 +511,7 @@ class LatentRegistry:
         device: torch.device | None = None,
         dtype: torch.dtype | None = None,
     ) -> dict[str, torch.Tensor]:
-        """Return a dict of zero-initialised unconstrained site
+        """Return a dict of zero-initialized unconstrained site
         tensors with the supplied leading batch shape.
 
         Useful for HMC chain initialisation and AutoLaplace's MAP
@@ -531,7 +531,7 @@ class LatentRegistry:
         dtype: torch.dtype | None = None,
         scale: float = 1.0,
     ) -> dict[str, torch.Tensor]:
-        """Standard-normal-initialised unconstrained site tensors."""
+        """Standard-normal-initialized unconstrained site tensors."""
         out: dict[str, torch.Tensor] = {}
         for site in self._sites.values():
             shape = leading_shape + site.unconstrained_shape

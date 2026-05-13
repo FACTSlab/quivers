@@ -1,6 +1,6 @@
 """Normalising-flow variational guides.
 
-A normalising-flow guide parameterises the variational posterior
+A normalizing-flow guide parameterizes the variational posterior
 as the pushforward of a fixed base distribution
 :math:`p_0 = \\mathcal{N}(0, I)` through a learnable stack of
 invertible transforms :math:`T_1, \\dots, T_K`:
@@ -243,7 +243,7 @@ class _ReversePermutation(TransformModule):
 class AutoIAFGuide(AutoNormalizingFlow):
     """Inverse-autoregressive-flow guide.
 
-    Default normalising-flow guide for variational inference
+    Default normalizing-flow guide for variational inference
     (Kingma-Salimans-Jozefowicz et al. 2016). Stack of
     :class:`InverseAutoregressiveTransform` layers, each separated
     by a reverse permutation so successive layers have different

@@ -817,7 +817,7 @@ class Compiler:
     def _compile_object(self, decl: ObjectDecl) -> None:
         """Compile an object declaration into the environment.
 
-        Three surface forms are recognised:
+        Three surface forms are recognized:
 
         - ``object X : <type_expr>`` — resolves via the
           :class:`TypeExprToSetObject` lens.
@@ -887,7 +887,7 @@ class Compiler:
             return
 
         raise CompileError(
-            f"unrecognised object initializer for {decl.name!r}",
+            f"unrecognized object initializer for {decl.name!r}",
             decl.line,
             decl.col,
         )
@@ -909,31 +909,56 @@ class Compiler:
             if decl.init_expr is not None:
                 morph = self._compile_expr(decl.init_expr)
                 # The init expression's domain/codomain may be
-                # anonymous (e.g. ``from_data(...)`` synthesises
+                # anonymous (e.g. ``from_data(...)`` synthesizes
                 # them from the tensor shape). Accept a shape
                 # match and rebind to the user-declared types so
                 # downstream code sees the correct named objects.
+                #
+                # Compatibility is checked at the storage level
+                # rather than the type level: a flat init tensor
+                # whose total numel matches the declared product
+                # codomain's numel is accepted, then reshaped to
+                # the declared factored shape. This is the
+                # categorical view that ``B = B1 * B2 * ... * Bk``
+                # and ``B'`` of cardinality ``|B1| * ... * |Bk|``
+                # are isomorphic objects; the tensor storage is
+                # the same up to reshape.
                 if morph.domain != domain or morph.codomain != codomain:
-                    if (
-                        tuple(morph.domain.shape) == tuple(domain.shape)
-                        and tuple(morph.codomain.shape)
-                        == tuple(codomain.shape)
-                    ):
+                    def _numel(shape):
+                        n = 1
+                        for s in shape:
+                            n *= int(s)
+                        return n
+
+                    init_d = _numel(morph.domain.shape)
+                    init_c = _numel(morph.codomain.shape)
+                    decl_d = _numel(domain.shape)
+                    decl_c = _numel(codomain.shape)
+                    if init_d == decl_d and init_c == decl_c:
                         from quivers.core.morphisms import (
                             ObservedMorphism as _Obs,
                         )
 
+                        # Reshape the tensor to match the declared
+                        # factored shape. ``Tensor.reshape`` is a
+                        # no-op when the storage already matches.
+                        target_shape = tuple(domain.shape) + tuple(
+                            codomain.shape
+                        )
+                        reshaped = morph.tensor.reshape(target_shape)
                         morph = _Obs(
                             domain,
                             codomain,
-                            morph.tensor,
+                            reshaped,
                             quantale=morph.quantale,
                         )
                     else:
                         raise CompileError(
                             f"morphism {decl.name!r} init expression has "
-                            f"type {morph.domain!r} -> {morph.codomain!r}, "
-                            f"expected {domain!r} -> {codomain!r}",
+                            f"type {morph.domain!r} -> {morph.codomain!r} "
+                            f"(numel {init_d} -> {init_c}), expected "
+                            f"{domain!r} -> {codomain!r} "
+                            f"(numel {decl_d} -> {decl_c})",
                             decl.line,
                             decl.col,
                         )
@@ -1092,7 +1117,7 @@ class Compiler:
         The expansion is purely a syntactic refinement: each
         BindStep dispatches on its ``mode`` and ``index`` fields
         to one of the four internal step shapes. Marginalize binds
-        additionally inline a synthesised sample step for the
+        additionally inline a synthesized sample step for the
         coordinate, followed by the scope's recursively-expanded
         steps, followed by a :class:`MarginalizeStep` reduction.
 
@@ -1109,7 +1134,7 @@ class Compiler:
             if not isinstance(step, BindStep):
                 # Pass-through for any internal-IR step that has
                 # already been expanded (e.g., template-inlined
-                # bodies that synthesised internal steps directly).
+                # bodies that synthesized internal steps directly).
                 out.append(step)
                 continue
             if step.mode == "sample":
@@ -1207,7 +1232,7 @@ class Compiler:
                         step.line,
                         step.col,
                     )
-                # Normalise into tuple form so the downstream code
+                # Normalize into tuple form so the downstream code
                 # handles single + product fibrations uniformly.
                 over_names: tuple[str, ...] | None = None
                 if step.over_objs is not None:
@@ -3554,7 +3579,7 @@ class Compiler:
         # the registered vocabulary (built as encountered).
         data_embedders = self._build_data_embedders(sig, sort_dims, modules_owned)
 
-        # Graph specialisation.
+        # Graph specialization.
         iterations = decl.iterations or 0
         init_fns: dict[str, "Callable"] = {}
         message_fns: dict[str, "Callable"] = {}
@@ -4172,7 +4197,7 @@ class Compiler:
                 return True
             if not (isinstance(item, tuple) and len(item) > 0):
                 return False
-            # Three goal-item shapes the framework recognises by
+            # Three goal-item shapes the framework recognizes by
             # default; users can override via a custom goal
             # predicate (the `axioms = source_kernel` escape hatch
             # composes with an arbitrary `goal` field on the
@@ -4359,10 +4384,10 @@ class Compiler:
         """Resolve a type expression into a SetObject.
 
         Delegates to :class:`~quivers.dsl.resolution.TypeExprToSetObject`,
-        a :class:`didactic.api.Lens` parameterised by the current object
+        a :class:`didactic.api.Lens` parameterized by the current object
         environment. Integer-literal :class:`TypeName` nodes that aren't
         in the environment use ``bind_name`` (falling back to
-        ``"_<value>"``) as the synthesised :class:`FinSet` name; this
+        ``"_<value>"``) as the synthesized :class:`FinSet` name; this
         thin wrapper is kept so the literal-naming policy stays in
         compiler control.
         """
@@ -4425,7 +4450,7 @@ class Compiler:
         """Resolve a space expression into a ContinuousSpace.
 
         Delegates to :class:`~quivers.dsl.resolution.SpaceExprToContinuousSpace`,
-        a :class:`didactic.api.Lens` parameterised by both the space and
+        a :class:`didactic.api.Lens` parameterized by both the space and
         object environments (a bare identifier may resolve to either).
         """
         from quivers.dsl.resolution import SpaceExprToContinuousSpace
@@ -4455,7 +4480,7 @@ class Compiler:
 
     def bind_data(self, data: dict) -> None:
         """Bind a runtime data dictionary for ``from_data("KEY")``
-        initialisers.
+        initializers.
 
         Each key in ``data`` maps to a tensor (or tensor-like
         object) that supplies the morphism tensor for any
@@ -4695,7 +4720,7 @@ class Compiler:
                 tensor = torch.as_tensor(tensor)
             # The user-supplied domain/codomain on the morphism
             # declaration is in the parent ``observed`` decl; here
-            # we synthesise a one-shot ObservedMorphism whose
+            # we synthesize a one-shot ObservedMorphism whose
             # domain/codomain are inferred from the tensor's shape
             # split halfway. For the common ``observed f : A -> B =
             # from_data("KEY")`` pattern the parent decl supplies

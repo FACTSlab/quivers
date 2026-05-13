@@ -76,7 +76,7 @@ def _resolve_support(
 
 
 def _resolve_discrete(dist_class: type, override: bool | None) -> bool:
-    """Discrete iff the torch distribution lacks reparameterised
+    """Discrete iff the torch distribution lacks reparameterized
     sampling (``has_rsample == False``)."""
     if override is not None:
         return override
@@ -170,7 +170,7 @@ class _IndependentConditional(ContinuousMorphism):
             return dist.sample(sample_shape).long()
         if getattr(dist, "has_rsample", True):
             return dist.rsample(sample_shape)
-        # Continuous but non-reparameterisable (e.g. VonMises). Fall
+        # Continuous but non-reparameterizable (e.g. VonMises). Fall
         # back to ``.sample()`` — gradients won't flow through the
         # sample but the distribution still scores log-probabilities.
         return dist.sample(sample_shape)
@@ -788,7 +788,7 @@ ConditionalNegativeBinomial = _make_family(
 # -- circular distributions --------------------------------------------------
 
 # VonMises is continuous (angles on the real line) but torch flags it
-# ``has_rsample=False`` because reparameterised gradients are not
+# ``has_rsample=False`` because reparameterized gradients are not
 # implemented. Override the discrete-detection so the conditional
 # class uses ``.sample()`` without casting to long.
 ConditionalVonMises = _make_family(
@@ -1582,7 +1582,7 @@ class ConditionalMixture(ContinuousMorphism):
 
     Wraps a single conditional family class (one of the registered
     ``ConditionalX`` types) and gives it K independent
-    parameterisations plus learnable mixture logits, producing
+    parameterizations plus learnable mixture logits, producing
 
         p(y | x) = sum_k pi_k(x) * f_k(y | x)
 
@@ -1592,7 +1592,7 @@ class ConditionalMixture(ContinuousMorphism):
     Sampling is via ancestral simulation (Categorical pick + the
     chosen component's ``rsample``). ``log_prob`` evaluates the
     log-sum-exp of the per-component log-densities. The Categorical
-    pick is non-reparameterisable; gradient flow through the
+    pick is non-reparameterizable; gradient flow through the
     weights uses the score-function path (which higher-level
     objectives like IWAE can route through).
 

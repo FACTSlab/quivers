@@ -379,7 +379,7 @@ def test_change_base_then_compose_in_target_quantale() -> None:
             return MARKOV
 
         def apply(self, t):
-            # Row-normalise.
+            # Row-normalize.
             return t / t.sum(dim=-1, keepdim=True).clamp(min=1e-12)
 
     f_pf = LatentMorphism(A, B)

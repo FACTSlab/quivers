@@ -6,7 +6,7 @@
 #
 # The posterior over (v, x_1, ..., x_N) is funnel-shaped: small v
 # implies x_i ≈ 0 with very tight spread; large v admits x_i with
-# huge spread. HMC needs Riemannian / non-centred reparam to mix;
+# huge spread. HMC needs Riemannian / non-centered reparam to mix;
 # mean-field VI cannot capture the scale-of-scale dependency.
 # Neal 2003, doi:10.1214/aos/1056562461. Tier-3 hard-geometry
 # stress.

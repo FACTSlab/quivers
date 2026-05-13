@@ -18,9 +18,9 @@ from quivers.dsl import loads
 from quivers.inference import (
     ELBO,
     AutoNormalGuide,
-    DoublyReparameterised,
+    DoublyReparameterized,
     IWAEBound,
-    Reparameterised,
+    Reparameterized,
     RenyiBound,
     StickingTheLanding,
     VRIWAEBound,
@@ -115,10 +115,10 @@ def test_iwae_tightens_with_more_particles() -> None:
     model = _hierarchical_model()
     guide = AutoNormalGuide(model, observed_names={"r"})
     obs = _make_obs()
-    # Use the plain reparameterised gradient form so the surrogate
+    # Use the plain reparameterized gradient form so the surrogate
     # equals the bound.
-    iwae_4 = IWAEBound(num_particles=4, estimator=Reparameterised())
-    iwae_32 = IWAEBound(num_particles=32, estimator=Reparameterised())
+    iwae_4 = IWAEBound(num_particles=4, estimator=Reparameterized())
+    iwae_32 = IWAEBound(num_particles=32, estimator=Reparameterized())
     losses_4 = []
     losses_32 = []
     for _ in range(8):
@@ -139,7 +139,7 @@ def test_iwae_dreg_estimator_gradients_flow() -> None:
     torch.manual_seed(0)
     model = _hierarchical_model()
     guide = AutoNormalGuide(model, observed_names={"r"})
-    iwae = IWAEBound(num_particles=8, estimator=DoublyReparameterised())
+    iwae = IWAEBound(num_particles=8, estimator=DoublyReparameterized())
     loss = iwae(model, guide, torch.zeros(1, 1), _make_obs())
     loss.backward()
     for name, param in guide.named_parameters():
@@ -181,13 +181,13 @@ def test_vriwae_at_alpha_zero_matches_iwae_bound() -> None:
     K = 16
     torch.manual_seed(42)
     iwae_loss = float(
-        IWAEBound(num_particles=K, estimator=Reparameterised())(
+        IWAEBound(num_particles=K, estimator=Reparameterized())(
             model, guide, torch.zeros(1, 1), obs
         )
     )
     torch.manual_seed(42)
     vriwae_loss = float(
-        VRIWAEBound(alpha=0.0, num_particles=K, estimator=Reparameterised())(
+        VRIWAEBound(alpha=0.0, num_particles=K, estimator=Reparameterized())(
             model, guide, torch.zeros(1, 1), obs
         )
     )
@@ -287,13 +287,13 @@ def test_vriwae_at_alpha_zero_with_renyi_matches_iwae() -> None:
     K = 8
     torch.manual_seed(42)
     iwae = float(
-        IWAEBound(num_particles=K, estimator=Reparameterised())(
+        IWAEBound(num_particles=K, estimator=Reparameterized())(
             model, guide, torch.zeros(1, 1), obs
         )
     )
     torch.manual_seed(42)
     renyi = float(
-        RenyiBound(alpha=1e-6, num_particles=K, estimator=Reparameterised())(
+        RenyiBound(alpha=1e-6, num_particles=K, estimator=Reparameterized())(
             model, guide, torch.zeros(1, 1), obs
         )
     )

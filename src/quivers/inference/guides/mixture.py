@@ -6,10 +6,10 @@ A finite mixture of component guides:
 
     q(z) = \\sum_{k=1}^{K} \\pi_k\\, q_k(z),
 
-with :math:`\\pi \\in \\Delta^{K-1}` parameterised by an
+with :math:`\\pi \\in \\Delta^{K-1}` parameterized by an
 unconstrained logit vector. Sampling draws a component index
 :math:`k \\sim \\mathrm{Categorical}(\\pi)` (Gumbel-Softmax-relaxed
-during training so the choice is reparameterised) and then samples
+during training so the choice is reparameterized) and then samples
 :math:`z \\sim q_k`. Log-density uses ``logsumexp``:
 
 .. math::
@@ -23,7 +23,7 @@ instances to recover a multimodal posterior that no single
 unimodal guide can capture.
 
 Gradients flow through both the component variational parameters
-(via reparameterisation inside each component) and the mixture
+(via reparameterization inside each component) and the mixture
 logits (via the Gumbel-Softmax relaxation of the component pick).
 """
 
@@ -107,7 +107,7 @@ class AutoMixtureGuide(Guide):
     # ------------------------------------------------------------------
 
     def rsample(self, x: torch.Tensor) -> dict[str, torch.Tensor]:
-        """Reparameterised mixture draw via Gumbel-Softmax.
+        """Reparameterized mixture draw via Gumbel-Softmax.
 
         Each call samples a Gumbel-Softmax weight vector
         :math:`w \\in \\Delta^{K-1}` and returns

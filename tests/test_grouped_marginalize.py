@@ -27,7 +27,7 @@ from quivers.continuous.bayesian import (
 
 
 # A fixed default seed keeps the per-group reference and the
-# vectorised primitive at the same realisation.
+# vectorized primitive at the same realisation.
 torch.manual_seed(0)
 
 
@@ -35,7 +35,7 @@ class TestMarginalizeGroupedPrimitive:
     """Unit tests for the runtime primitive."""
 
     def test_matches_hand_rolled_reference(self):
-        """The vectorised scatter-add + log-sum-exp matches a Python loop."""
+        """The vectorized scatter-add + log-sum-exp matches a Python loop."""
         n_groups = 4
         n_classes = 3
         n_rows = 11
@@ -171,7 +171,7 @@ class TestMarginalizeGroupedPrimitive:
     def test_empty_fibre_contributes_logsumexp_of_prior(self):
         """A group with no responses contributes log_sum_exp_k(log π[g,k])
         = log Σ_k π[g,k], i.e. the prior's normalisation constant.
-        For a normalised prior this is zero."""
+        For a normalized prior this is zero."""
         ll = torch.randn(4, 3, dtype=torch.float64)
         # All rows go to group 0; group 1 is empty.
         idx = torch.zeros(4, dtype=torch.long)

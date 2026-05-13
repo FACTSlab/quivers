@@ -1,4 +1,4 @@
-"""Tests for normalising-flow transform primitives.
+"""Tests for normalizing-flow transform primitives.
 
 Every primitive must satisfy three invariants:
 
@@ -8,7 +8,7 @@ Every primitive must satisfy three invariants:
    ``log_abs_det_jacobian`` agrees with
    :func:`torch.autograd.functional.jacobian` to 1e-4 (a tight
    numerical match given float32).
-3. **Gradient flow**: parameters of the parameterised layers
+3. **Gradient flow**: parameters of the parameterized layers
    receive non-zero finite gradients when the chain is trained
    against a smooth target.
 
@@ -63,7 +63,7 @@ def test_affine_coupling_inverse_roundtrip() -> None:
     mask = alternating_mask(dim)
     n_a = int(mask.sum().item())
     n_b = dim - n_a
-    # Use a random-initialised net so the transform is non-trivial.
+    # Use a random-initialized net so the transform is non-trivial.
     net = make_coupling_mlp(n_a, 2 * n_b, hidden=16)
     for p in net.parameters():
         p.data = torch.randn_like(p)

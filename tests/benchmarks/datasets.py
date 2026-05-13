@@ -145,9 +145,9 @@ _EIGHT_SCHOOLS_Y = torch.tensor(
 )
 
 
-def eight_schools_centred(seed: int = 0) -> BenchmarkData:
-    """Eight Schools data (canonical Rubin 1981 fixtures), centred model."""
-    model = _load_model("eight_schools_centred")
+def eight_schools_centered(seed: int = 0) -> BenchmarkData:
+    """Eight Schools data (canonical Rubin 1981 fixtures), centered model."""
+    model = _load_model("eight_schools_centered")
     return BenchmarkData(
         model=model,
         observations={"y": _EIGHT_SCHOOLS_Y.clone()},
@@ -155,9 +155,9 @@ def eight_schools_centred(seed: int = 0) -> BenchmarkData:
     )
 
 
-def eight_schools_noncentred(seed: int = 0) -> BenchmarkData:
-    """Eight Schools data, non-centred reparameterisation."""
-    model = _load_model("eight_schools_noncentred")
+def eight_schools_noncentered(seed: int = 0) -> BenchmarkData:
+    """Eight Schools data, non-centered reparameterization."""
+    model = _load_model("eight_schools_noncentered")
     return BenchmarkData(
         model=model,
         observations={"y": _EIGHT_SCHOOLS_Y.clone()},
@@ -278,7 +278,7 @@ __all__ = [
     "beta_bernoulli", "normal_normal", "normal_inverse_gamma",
     "gamma_exponential", "bayes_linear_regression",
     # Tier 2
-    "eight_schools_centred", "eight_schools_noncentred",
+    "eight_schools_centered", "eight_schools_noncentered",
     # Tier 3
     "correlated_regression", "neal_funnel", "ill_conditioned_mvn",
     # Tier 6

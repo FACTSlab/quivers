@@ -23,7 +23,7 @@ in trajectory selection:
   length adaptively (Hoffman-Gelman 2014,
   `doi:10.48550/arXiv.1111.4246
   <https://doi.org/10.48550/arXiv.1111.4246>`_; Betancourt 2017's
-  efficient generalised NUTS,
+  efficient generalized NUTS,
   `doi:10.48550/arXiv.1701.02434
   <https://doi.org/10.48550/arXiv.1701.02434>`_).
 
@@ -418,7 +418,7 @@ def _uturn(
 class NUTSKernel(MCMCKernel):
     """No-U-Turn Sampler with multinomial sampling and the standard
     U-turn termination (Hoffman-Gelman 2014 algorithms 3 + 6,
-    Betancourt 2017's generalised slice variant for multinomial
+    Betancourt 2017's generalized slice variant for multinomial
     sampling).
 
     Parameters

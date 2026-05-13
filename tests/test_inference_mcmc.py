@@ -11,7 +11,7 @@ Cover:
    analytical posterior.
 3. :class:`NUTSKernel` on the same model — same recovery target,
    and the per-step tree depth stays well below ``max_tree_depth``.
-4. Driver-level behaviour: parallel chains, split-:math:`\\hat R`
+4. Driver-level behavior: parallel chains, split-:math:`\\hat R`
    close to ``1.0`` after convergence, ESS ≥ a small fraction of
    the chain length.
 """
@@ -329,7 +329,7 @@ def test_mcmc_init_strategy_prior_produces_finite_results() -> None:
 def test_hmc_with_dense_mass_matrix_runs() -> None:
     """The dense mass matrix path is exercised end-to-end. With
     adaptation enabled the Welford covariance feeds into a Cholesky
-    factorisation; we just need it to produce finite samples."""
+    factorization; we just need it to produce finite samples."""
     torch.manual_seed(0)
     model = _normal_normal_model()
     y = torch.randn(20) + 1.0

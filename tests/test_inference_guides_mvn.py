@@ -1,6 +1,6 @@
 """Tests for full-rank and low-rank multivariate-Normal guides.
 
-These guides parameterise a joint Gaussian over the flat
+These guides parameterize a joint Gaussian over the flat
 unconstrained latent vector and push back through per-site
 bijectors. The tests verify:
 
