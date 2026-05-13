@@ -65,6 +65,13 @@ from abc import ABC, abstractmethod
 
 import torch
 
+from quivers.core.extra_quantales import (
+    COUNTING,
+    GODEL,
+    PROBABILITY,
+    REAL,
+    TROPICAL,
+)
 from quivers.core.quantales import (
     BOOLEAN,
     PRODUCT_FUZZY,
@@ -251,8 +258,6 @@ class MaxPlus(QuantaleHomomorphism):
     """
 
     def __init__(self) -> None:
-        from quivers.core.extra_quantales import TROPICAL
-
         self._source = PRODUCT_FUZZY
         self._target = TROPICAL
 
@@ -322,8 +327,6 @@ class MaterialImplication(QuantaleHomomorphism):
     """
 
     def __init__(self) -> None:
-        from quivers.core.extra_quantales import GODEL
-
         self._source = PRODUCT_FUZZY
         self._target = GODEL
 
@@ -360,6 +363,107 @@ def embedding(source: Quantale, target: Quantale) -> Embedding:
     return Embedding(source, target)
 
 
+class ProbabilityClamp(QuantaleHomomorphism):
+    """Real → Probability via clamping to the unit interval.
+
+    Coerces a real-valued tensor into a probability tensor by
+    clamping entries to ``[0, 1]``. Lax — destroys information
+    outside the unit interval — but preserves the entry-wise
+    order on the survivors.
+    """
+
+    def __init__(self) -> None:
+        self._source = REAL
+        self._target = PROBABILITY
+
+    @property
+    def source(self) -> Quantale:
+        return self._source
+
+    @property
+    def target(self) -> Quantale:
+        return self._target
+
+    def apply(self, t: torch.Tensor) -> torch.Tensor:
+        return t.clamp(min=0.0, max=1.0)
+
+
+class CountingFromReal(QuantaleHomomorphism):
+    """Real → Counting via floor-and-clamp-to-non-negative.
+
+    Coerces a real-valued tensor into a non-negative integer
+    counting tensor by flooring and clamping at zero.
+    Information-destroying; inverse is :class:`CountingToReal`.
+    """
+
+    def __init__(self) -> None:
+        self._source = REAL
+        self._target = COUNTING
+
+    @property
+    def source(self) -> Quantale:
+        return self._source
+
+    @property
+    def target(self) -> Quantale:
+        return self._target
+
+    def apply(self, t: torch.Tensor) -> torch.Tensor:
+        return t.clamp(min=0.0).floor()
+
+
+class ProbabilityToReal(QuantaleHomomorphism):
+    """Probability → Real (sub-quantale inclusion).
+
+    Entries already lie in ``[0, 1] ⊂ ℝ``; the inclusion is
+    strict (preserves every operation).
+    """
+
+    def __init__(self) -> None:
+        self._source = PROBABILITY
+        self._target = REAL
+
+    @property
+    def source(self) -> Quantale:
+        return self._source
+
+    @property
+    def target(self) -> Quantale:
+        return self._target
+
+    def apply(self, t: torch.Tensor) -> torch.Tensor:
+        return t
+
+
+class CountingToReal(QuantaleHomomorphism):
+    """Counting → Real (sub-quantale inclusion).
+
+    Non-negative integers embed canonically in the reals; this
+    is the strict inclusion homomorphism.
+    """
+
+    def __init__(self) -> None:
+        self._source = COUNTING
+        self._target = REAL
+
+    @property
+    def source(self) -> Quantale:
+        return self._source
+
+    @property
+    def target(self) -> Quantale:
+        return self._target
+
+    def apply(self, t: torch.Tensor) -> torch.Tensor:
+        return t.to(dtype=torch.float32)
+
+
+PROBABILITY_CLAMP = ProbabilityClamp()
+COUNTING_FROM_REAL = CountingFromReal()
+PROBABILITY_TO_REAL = ProbabilityToReal()
+COUNTING_TO_REAL = CountingToReal()
+
+
 # Registry of canonical homomorphisms keyed by
 # ``(source.name, target.name)``. The compiler / user code can
 # look up the standard bridge between two quantales rather than
@@ -371,6 +475,10 @@ HOMOMORPHISM_REGISTRY: dict[tuple[str, str], QuantaleHomomorphism] = {
     ("ProductFuzzy", "Boolean"): Threshold(0.5),
     ("ProductFuzzy", "Godel"): MATERIAL_IMPLICATION,
     ("Boolean", "ProductFuzzy"): Embedding(BOOLEAN, PRODUCT_FUZZY),
+    ("Real", "Probability"): PROBABILITY_CLAMP,
+    ("Real", "Counting"): COUNTING_FROM_REAL,
+    ("Probability", "Real"): PROBABILITY_TO_REAL,
+    ("Counting", "Real"): COUNTING_TO_REAL,
 }
 
 
@@ -397,10 +505,18 @@ __all__ = [
     "MaxPlus",
     "Threshold",
     "MaterialImplication",
+    "ProbabilityClamp",
+    "CountingFromReal",
+    "ProbabilityToReal",
+    "CountingToReal",
     "EXPECTATION",
     "LOG_PROB",
     "MAX_PLUS",
     "MATERIAL_IMPLICATION",
+    "PROBABILITY_CLAMP",
+    "COUNTING_FROM_REAL",
+    "PROBABILITY_TO_REAL",
+    "COUNTING_TO_REAL",
     "threshold",
     "embedding",
     "HOMOMORPHISM_REGISTRY",

@@ -34,7 +34,6 @@ import pytest
 import torch
 
 from quivers.core.morphisms import (
-    Morphism,
     as_torch_module,
     extract_morphism,
 )

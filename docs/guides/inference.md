@@ -1,8 +1,21 @@
-# Variational Inference
+# Inference
 
-## The Inference Pipeline
+## Architecture
 
-Variational inference estimates a posterior distribution given observations. The quivers pipeline is:
+The inference subpackage is a six-layer stack, each layer consumable independently and re-exported from `quivers.inference`:
+
+```
+Layer 6 ── SVI / MCMC / Predictive drivers
+Layer 5 ── Hybrid samplers: AutoDAIS, WarmupThenHMC
+Layer 4 ── Guides {Auto*Guide}  |  MCMC kernels {HMC, NUTS}
+Layer 3 ── Objectives {ELBO, IWAE, Renyi, VR-IWAE} × Estimators {Reparam, StL, DReG, Score}
+Layer 2 ── Transforms / normalising-flow primitives (affine coupling, MAF, IAF, NSF, BN, LU)
+Layer 1 ── LatentRegistry (model introspection: support, dims, plate, parent)
+```
+
+Every guide and MCMC kernel consumes a single `LatentRegistry.from_model(model, observed_names)`, which flattens / unflattens between site-keyed dicts and a single unconstrained vector and routes every per-site bijector through `torch.distributions.constraint_registry.biject_to`.
+
+## The variational pipeline
 
 ```
 Model (MonadicProgram)
@@ -11,13 +24,15 @@ Trace (record sample sites)
     ↓
 Condition (clamp observations)
     ↓
-Guide (variational family)
+LatentRegistry (introspect remaining sites)
     ↓
-ELBO (loss function)
+Guide (variational family) — Auto*Guide subclass
+    ↓
+Objective (ELBO / IWAEBound / RenyiBound / VRIWAEBound) + Estimator
     ↓
 SVI (stochastic optimization)
     ↓
-Predictive (sample from posterior)
+Predictive (sample from posterior; consumes a Guide or an MCMCResult)
 ```
 
 ## Trace and Sample Sites
@@ -101,7 +116,21 @@ tr   = cond.trace(torch.zeros(12, 1))
 
 ## Guides: Variational Families
 
-A guide $q_\phi(z | x, y)$ is a variational family approximating the posterior. quivers provides automatic guide construction.
+A guide $q_\phi(z | x, y)$ is a variational family approximating the posterior. Eleven `Auto*Guide` subclasses cover the standard zoo; each is constructed from the model and a set of observed site names:
+
+| Guide | Posterior structure | When to use |
+|---|---|---|
+| `AutoNormalGuide` | Diagonal Normal (mean-field) | Default; identifiable posterior, weak correlation |
+| `AutoMultivariateNormalGuide` | Full-rank Normal (Cholesky) | Strong posterior correlations; D ≲ 1000 |
+| `AutoLowRankMultivariateNormalGuide` | Low-rank + diagonal | Hierarchical models with localized correlations |
+| `AutoLaplaceApproximation` | Gaussian centred at MAP w/ Hessian inverse | Post-hoc; cheap quadratic-around-MAP |
+| `AutoNormalizingFlow` | Composed bijector over Normal base | Multimodal / heavy-tailed posteriors |
+| `AutoIAFGuide` | Inverse autoregressive flow | Flagship NF default |
+| `AutoNeuralSplineGuide` | Rational-quadratic spline coupling | Sharper than IAF for bounded support |
+| `AutoMixtureGuide` | K-component mixture of guides | Multimodal posteriors |
+| `AutoDeltaGuide` | Dirac at MAP | Quick MAP; no uncertainty |
+
+Every guide uses `biject_to(support)` per site, so samples always lie inside the prior's constrained support; `log_prob` carries the corresponding log-det Jacobian.
 
 ### AutoNormalGuide
 
@@ -145,6 +174,35 @@ z_map = guide.rsample(x)
 # Delta log probability (zero; the delta term cancels in the ELBO)
 log_q = guide.log_prob(x, z_map)
 ```
+
+## Objectives and gradient estimators
+
+`SVI` accepts any `Objective` subclass, not just `ELBO`. Four are shipped:
+
+| Objective | Bound | Use case |
+|---|---|---|
+| `ELBO(num_particles=K)` | $\mathbb{E}_q[\log p - \log q]$ | Default |
+| `IWAEBound(K, estimator=...)` | $\mathbb{E}[\log \tfrac{1}{K}\sum_k (p/q)_k]$ | Tighter than ELBO for $K > 1$ (Burda et al. 2016) |
+| `RenyiBound(alpha, K)` | $\alpha$-divergence bound (Li-Turner 2016) | $\alpha = 0$ recovers IWAE; $\alpha = 1$ recovers ELBO |
+| `VRIWAEBound(alpha, K)` | Variational Rényi-IWAE (Daudel et al. 2023) | Interpolates cheap-vs-tight regimes |
+
+Each accepts an `estimator=` strategy:
+
+| Estimator | What it does |
+|---|---|
+| `Reparameterised` | Standard pathwise gradient (default) |
+| `StickingTheLanding` | Detaches variational params in `log_q` (Roeder et al. 2017); variance → 0 as $q \to p^*$ |
+| `DoublyReparameterised` | DReG for IWAE (Tucker et al. 2019); kills the K-growing score term |
+| `ScoreFunction` | REINFORCE; for non-reparameterisable sites |
+
+```python
+from quivers.inference import IWAEBound, DoublyReparameterised
+
+iwae = IWAEBound(num_particles=16, estimator=DoublyReparameterised())
+loss = iwae(model, guide, x, observations)
+```
+
+The Monte Carlo particle dimension is broadcast as a leading torch axis end-to-end; the inner `model.log_joint` evaluation is a single fused call against a `(K, batch, …)`-shaped latent dict.
 
 ## ELBO: Evidence Lower Bound
 
@@ -336,6 +394,75 @@ class MyGuide(Guide):
     ) -> torch.Tensor:
         """Compute log q(sites | x), summed across latent sites."""
         raise NotImplementedError()
+```
+
+## MCMC: HMC and NUTS
+
+When variational families underfit, fall back to gradient-based MCMC. The kernel runs on the registry's unconstrained vector; gradients flow through `torch.autograd.grad`.
+
+```python
+from quivers.inference import NUTSKernel, MCMC
+
+kernel = NUTSKernel(
+    target_accept_prob=0.8,
+    max_tree_depth=10,
+    mass_matrix="diagonal",
+)
+mcmc = MCMC(
+    kernel=kernel,
+    num_warmup=1000,
+    num_samples=2000,
+    num_chains=4,
+)
+result = mcmc.run(model, x, observations)
+
+print(result.r_hat)       # per-site split R-hat (Vehtari et al. 2021)
+print(result.ess)         # effective sample size
+print(result.divergences) # divergence count per chain
+samples = result.samples  # dict[str, Tensor] of shape (chains, draws, …)
+```
+
+`HMCKernel` and `NUTSKernel` both implement Nesterov dual-averaging step-size adaptation and Welford-online mass-matrix adaptation during warmup. The leapfrog integrator vectorises `num_chains` chains as a leading batch axis; warmup runs unvectorised (adaptation is impure), sampling runs vectorised (kernel is pure).
+
+## Hybrid samplers
+
+### AutoDAIS
+
+Differentiable annealed importance sampling (Geffner-Domke 2021, Zhang et al. 2021) wraps a base guide with $K$ HMC trajectories along an annealing path between base and target. The base mean / scale, the step size, and the inverse temperatures are jointly trained via SVI. Closes the parity gap with NumPyro / Pyro `AutoDAIS`.
+
+```python
+from quivers.inference import AutoNormalGuide, AutoDAIS
+
+base = AutoNormalGuide(model, observed_names={"y"})
+guide = AutoDAIS(base, num_steps=8, step_size=0.05, base_temperature=1.0)
+# Plug into SVI exactly like any other guide.
+```
+
+### WarmupThenHMC
+
+Train a variational guide to convergence, then initialise HMC chains from the guide's posterior mean. Pareto-dominates cold-start HMC on hierarchical models with skewed prior support.
+
+```python
+from quivers.inference import AutoMultivariateNormalGuide, NUTSKernel, WarmupThenHMC
+
+sampler = WarmupThenHMC(
+    guide=AutoMultivariateNormalGuide(model, observed_names={"y"}),
+    svi_steps=1000,
+    mcmc_kernel=NUTSKernel(),
+    mcmc_samples=2000,
+)
+result = sampler.run(model, x, observations)
+```
+
+## Predictive with MCMC
+
+`Predictive` consumes either a `Guide` or an `MCMCResult`. With an `MCMCResult`, it iterates over posterior samples instead of calling `guide.rsample`.
+
+```python
+from quivers.inference import Predictive
+
+predictive = Predictive(model=conditioned, posterior=result, num_samples=500)
+samples = predictive(x_new)
 ```
 
 ## Debugging

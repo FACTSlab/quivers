@@ -58,7 +58,6 @@ from quivers.core.morphisms import (
 )
 from quivers.core.objects import FinSet
 from quivers.core.quantale_morphisms import (
-    EXPECTATION,
     IdentityHom,
     LOG_PROB as LOG_PROB_HOM,
     MATERIAL_IMPLICATION,

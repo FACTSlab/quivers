@@ -8,13 +8,13 @@ A **quiver** is a directed graph with objects and arrows. In quivers, arrows are
 
 The library provides:
 
-- **Core categorical algebra**: finite sets and product constructions as objects; quantales (enrichment lattices) like Boolean, product fuzzy logic, Łukasiewicz, and Gödel; $\mathcal{V}$-enriched relations as parametrized tensors.
+- **Core categorical algebra**: finite sets and product constructions as objects; eleven shipped quantales (Boolean, product fuzzy, Łukasiewicz, Gödel, tropical min-plus, max-plus / Viterbi, log-prob, Markov, real, probability, counting) plus a homomorphism registry for change-of-base; $\mathcal{V}$-enriched relations as parametrized tensors with full compact-closed surface (`dagger`, `trace`, `cup`, `cap`).
 - **Categorical structures**: functors, natural transformations, adjunctions, monoidal categories, traced monoidal categories.
 - **Monadic and enriched constructs**: monads, comonads, algebras, Kleisli categories, ends/coends, Kan extensions, profunctors, Yoneda, Day convolution, optics.
 - **Stochastic morphisms**: the FinStoch category of Markov kernels; discretized families (normal, beta, truncated normal); conditioning and mixing; the Giry monad.
 - **Continuous morphisms**: parameterized families of distributions (30+); boundaries (discretize/embed); normalizing flows; monadic programs (probabilistic computations with discrete and continuous random variables).
 - **Monadic DSL**: a `.qvr` file format and compiler for writing categorical programs declaratively.
-- **Variational inference**: trace-based conditioning, variational guides, ELBO and SVI for posterior inference.
+- **Inference**: a six-layer stack on a shared `LatentRegistry` — nine variational guides (mean-field Normal, Delta, full / low-rank multivariate Normal, Laplace, general normalising flows, IAF, neural-spline coupling, finite mixtures); four objectives (ELBO, IWAE, Rényi, VR-IWAE) × four gradient estimators (reparameterised, sticking-the-landing, doubly-reparameterised, score-function); HMC and NUTS with dual-averaging step-size + Welford mass-matrix adaptation and R-hat / ESS / divergence diagnostics; hybrid `AutoDAIS` and `WarmupThenHMC` samplers; `Predictive` that consumes a `Guide` or an `MCMCResult`.
 - **Weighted-deduction framework**: a single agenda-engine runtime subsumes CKY, Earley, Viterbi, semi-naïve Datalog, A* parsing, Knuth's algorithm, and MLTT proof search. Surface `deduction { … }` blocks declare the seven canonical parameters; charts are first-class differentiable values.
 - **Structural compression**: `signature { … }`, `encoder { … }`, `decoder { … }`, and `loss { … }` blocks form a uniform F-algebra / F-coalgebra interface for compressing arbitrary structured objects to fixed-length vectors and decoding them back under a learned distribution — realising transformers, tree-LSTMs, graph-NNs, autoregressive LMs, VAEs, and vector inside-outside parsers as instances of one categorical pattern.
 

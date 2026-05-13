@@ -28,30 +28,19 @@ from quivers.core.quantales import Quantale, PRODUCT_FUZZY, BOOLEAN
 from quivers.core.morphisms import morphism as make_latent, identity as make_identity
 from quivers.core.morphisms import cap as _make_cap, cup as _make_cup
 from quivers.core.quantale_morphisms import (
+    COUNTING_FROM_REAL,
+    COUNTING_TO_REAL,
     EXPECTATION,
     LOG_PROB as _LOG_PROB_HOM,
     MATERIAL_IMPLICATION,
     MAX_PLUS as _MAX_PLUS_HOM,
+    PROBABILITY_CLAMP,
+    PROBABILITY_TO_REAL,
     embedding as _make_embedding,
     threshold as _make_threshold,
 )
 
 
-def _build_default_homomorphism_catalog() -> dict:
-    """Build the user-facing catalog of named quantale
-    homomorphisms exposed through ``f.change_base(name)`` in the
-    DSL. The keys here are the names the user writes; the values
-    are :class:`QuantaleHomomorphism` instances from
-    :mod:`quivers.core.quantale_morphisms`.
-    """
-    return {
-        "expectation": EXPECTATION,
-        "log_prob": _LOG_PROB_HOM,
-        "max_plus": _MAX_PLUS_HOM,
-        "material_implication": MATERIAL_IMPLICATION,
-        "threshold": _make_threshold(0.5),
-        "boolean_embedding": _make_embedding(BOOLEAN, PRODUCT_FUZZY),
-    }
 from quivers.program import Program
 from quivers.structural.encoder import (
     Encoder,
@@ -170,6 +159,27 @@ _QUANTALE_REGISTRY: dict[str, Quantale] = {
     "product_fuzzy": PRODUCT_FUZZY,
     "boolean": BOOLEAN,
 }
+
+
+def _build_default_homomorphism_catalog() -> dict:
+    """Build the user-facing catalog of named quantale
+    homomorphisms exposed through ``f.change_base(name)`` in the
+    DSL. The keys here are the names the user writes; the values
+    are :class:`QuantaleHomomorphism` instances from
+    :mod:`quivers.core.quantale_morphisms`.
+    """
+    return {
+        "expectation": EXPECTATION,
+        "log_prob": _LOG_PROB_HOM,
+        "max_plus": _MAX_PLUS_HOM,
+        "material_implication": MATERIAL_IMPLICATION,
+        "threshold": _make_threshold(0.5),
+        "boolean_embedding": _make_embedding(BOOLEAN, PRODUCT_FUZZY),
+        "probability_clamp": PROBABILITY_CLAMP,
+        "probability_to_real": PROBABILITY_TO_REAL,
+        "counting_from_real": COUNTING_FROM_REAL,
+        "counting_to_real": COUNTING_TO_REAL,
+    }
 
 
 def _register_extra_quantales() -> None:

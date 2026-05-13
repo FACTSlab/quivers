@@ -42,9 +42,6 @@ from quivers.core.extra_quantales import (
     COUNTING,
     PROBABILITY,
     REAL,
-    CountingQuantale,
-    ProbabilityQuantale,
-    RealQuantale,
 )
 from quivers.core.morphisms import LatentMorphism, ObservedMorphism
 from quivers.core.objects import FinSet
@@ -447,3 +444,150 @@ def test_change_base_real_to_log_prob_via_custom_homomorphism() -> None:
     g = f.change_base(_RealToLogProb())
     assert g.quantale.name == "LogProb"
     assert torch.allclose(g.tensor, torch.log(data))
+
+
+# ---------------------------------------------------------------------------
+# Quantale homomorphisms between Real / Probability / Counting
+# ---------------------------------------------------------------------------
+
+
+def test_probability_clamp_homomorphism_squeezes_into_unit_interval() -> None:
+    from quivers.core.quantale_morphisms import PROBABILITY_CLAMP
+
+    t = torch.tensor([-0.5, 0.3, 0.8, 1.7])
+    out = PROBABILITY_CLAMP.apply(t)
+    assert torch.allclose(out, torch.tensor([0.0, 0.3, 0.8, 1.0]))
+    assert PROBABILITY_CLAMP.source.name == "Real"
+    assert PROBABILITY_CLAMP.target.name == "Probability"
+
+
+def test_counting_from_real_floors_and_clamps_negative() -> None:
+    from quivers.core.quantale_morphisms import COUNTING_FROM_REAL
+
+    t = torch.tensor([-1.7, 0.3, 1.7, 3.0])
+    out = COUNTING_FROM_REAL.apply(t)
+    assert torch.allclose(out, torch.tensor([0.0, 0.0, 1.0, 3.0]))
+
+
+def test_probability_to_real_is_inclusion() -> None:
+    from quivers.core.quantale_morphisms import PROBABILITY_TO_REAL
+
+    t = torch.tensor([0.1, 0.5, 0.9])
+    out = PROBABILITY_TO_REAL.apply(t)
+    assert torch.allclose(out, t)
+    assert PROBABILITY_TO_REAL.source.name == "Probability"
+    assert PROBABILITY_TO_REAL.target.name == "Real"
+
+
+def test_counting_to_real_is_inclusion() -> None:
+    from quivers.core.quantale_morphisms import COUNTING_TO_REAL
+
+    t = torch.tensor([0.0, 1.0, 2.0, 5.0])
+    out = COUNTING_TO_REAL.apply(t)
+    assert torch.allclose(out, t)
+
+
+def test_lookup_homomorphism_real_to_probability() -> None:
+    from quivers.core.quantale_morphisms import lookup_homomorphism
+
+    phi = lookup_homomorphism(REAL, PROBABILITY)
+    assert phi is not None
+    assert phi.source.name == "Real"
+    assert phi.target.name == "Probability"
+
+
+def test_lookup_homomorphism_real_to_counting() -> None:
+    from quivers.core.quantale_morphisms import lookup_homomorphism
+
+    phi = lookup_homomorphism(REAL, COUNTING)
+    assert phi is not None
+    assert phi.target.name == "Counting"
+
+
+def test_lookup_homomorphism_probability_to_real() -> None:
+    from quivers.core.quantale_morphisms import lookup_homomorphism
+
+    phi = lookup_homomorphism(PROBABILITY, REAL)
+    assert phi is not None
+
+
+def test_change_base_real_to_probability_via_named_homomorphism() -> None:
+    A = FinSet(name="A", cardinality=3)
+    B = FinSet(name="B", cardinality=3)
+    data = torch.tensor(
+        [[-0.5, 0.3, 1.7], [0.0, 0.5, 1.0], [2.0, -1.0, 0.9]]
+    )
+    f = ObservedMorphism(A, B, data, quantale=REAL)
+    from quivers.core.quantale_morphisms import PROBABILITY_CLAMP
+
+    g = f.change_base(PROBABILITY_CLAMP)
+    assert g.quantale.name == "Probability"
+    expected = data.clamp(min=0.0, max=1.0)
+    assert torch.allclose(g.tensor, expected)
+
+
+@_LOCAL_GRAMMAR
+def test_dsl_change_base_to_probability_clamp() -> None:
+    from quivers.dsl import loads
+
+    src = """
+    quantale real
+    object A : 3
+
+    latent f : A -> A
+    let g = f.change_base(probability_clamp)
+    export g
+    """
+    m = loads(src)
+    assert m.morphism.quantale.name == "Probability"
+
+
+@_LOCAL_GRAMMAR
+def test_dsl_change_base_to_counting_from_real() -> None:
+    from quivers.dsl import loads
+
+    src = """
+    quantale real
+    object A : 3
+
+    latent f : A -> A
+    let g = f.change_base(counting_from_real)
+    export g
+    """
+    m = loads(src)
+    assert m.morphism.quantale.name == "Counting"
+
+
+# ---------------------------------------------------------------------------
+# Compact-closed surface on the new quantales
+# ---------------------------------------------------------------------------
+
+
+def test_real_dagger_swaps_axes() -> None:
+    A = FinSet(name="A", cardinality=3)
+    B = FinSet(name="B", cardinality=4)
+    data = torch.randn(3, 4)
+    f = ObservedMorphism(A, B, data, quantale=REAL)
+    g = f.dagger
+    assert g.domain is B
+    assert g.codomain is A
+    assert g.quantale.name == "Real"
+    assert torch.allclose(g.tensor, data.t())
+
+
+def test_probability_cup_returns_identity() -> None:
+    from quivers.core.morphisms import cup
+
+    A = FinSet(name="A", cardinality=3)
+    eta = cup(A, quantale=PROBABILITY)
+    assert eta.quantale.name == "Probability"
+    assert torch.allclose(eta.tensor.squeeze(0), torch.eye(3))
+
+
+def test_counting_cap_returns_identity() -> None:
+    from quivers.core.morphisms import cap
+
+    A = FinSet(name="A", cardinality=3)
+    eps = cap(A, quantale=COUNTING)
+    assert eps.quantale.name == "Counting"
+    assert torch.allclose(eps.tensor.squeeze(-1), torch.eye(3))

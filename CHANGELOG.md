@@ -114,20 +114,36 @@ positional `posterior` argument.
   `>>` (ProductFuzzy default), `<<` (reverse), `>=>` (Kleisli),
   `*>` (Markov sum-product), `~>` (LogProb log-space),
   `||>` (Gödel min/max + Heyting), `?>` (Viterbi max-plus),
-  `&&>` (Boolean), `+>` (Łukasiewicz). Each operator carries its
+  `&&>` (Boolean), `+>` (Łukasiewicz), `$>` (Real sum-product),
+  `%>` (Probability sum-product). Each operator carries its
   quantale; cross-operator chains require explicit
-  `.change_base(φ)`. Two new quantales: `MaxPlusQuantale`
-  (Viterbi / MAP) and `LogProbQuantale` (log-space sum-product).
+  `.change_base(φ)`. Five new quantale classes:
+  `MaxPlusQuantale` (Viterbi / MAP), `LogProbQuantale`
+  (log-space sum-product), `RealQuantale` (sum-product on ℝ),
+  `ProbabilityQuantale` (sum-product on [0, 1]), `CountingQuantale`
+  (sum-product on non-negative integers). The last three mirror
+  the corresponding arcweight weight-set semirings (`RealWeight`,
+  `ProbabilityWeight`, `IntegerWeight`) and round out the
+  built-in quantale catalog to eleven distinct algebras.
 - **Quantale homomorphisms** (`quivers.core.quantale_morphisms`)
   for change-of-base: `Expectation`, `LogProb`, `MaxPlus`,
   `Threshold`, `MaterialImplication`, `Embedding`, `IdentityHom`,
-  module-level singletons (`EXPECTATION`, `LOG_PROB_HOM`, …),
-  factory helpers `threshold(tau)` / `embedding(src, tgt)`, a
-  `HOMOMORPHISM_REGISTRY` keyed by `(source.name, target.name)`,
-  and `lookup_homomorphism()`. Morphisms expose
-  `.change_base(phi)` to apply a homomorphism; the DSL surface
-  is `f.change_base(name)` with the catalog wired into the
-  compiler.
+  `ProbabilityClamp` (Real → Probability), `CountingFromReal`
+  (Real → Counting via floor), `ProbabilityToReal` and
+  `CountingToReal` (sub-quantale inclusions). Module-level
+  singletons (`EXPECTATION`, `LOG_PROB_HOM`, `MAX_PLUS_HOM`,
+  `MATERIAL_IMPLICATION`, `PROBABILITY_CLAMP`,
+  `COUNTING_FROM_REAL`, `PROBABILITY_TO_REAL`,
+  `COUNTING_TO_REAL`); factory helpers `threshold(tau)` /
+  `embedding(src, tgt)`; a `HOMOMORPHISM_REGISTRY` keyed by
+  `(source.name, target.name)`; and `lookup_homomorphism()`.
+  Morphisms expose `.change_base(phi)` to apply a homomorphism;
+  the DSL surface is `f.change_base(name)` with the catalog
+  wired into the compiler (`expectation`, `log_prob`,
+  `max_plus`, `material_implication`, `threshold`,
+  `boolean_embedding`, `probability_clamp`,
+  `probability_to_real`, `counting_from_real`,
+  `counting_to_real`).
 - **Compact-closed surface** on V-Cat morphisms: `f.dagger`
   (transpose), `f.trace(A)` (categorical trace), `cup(A)` and
   `cap(A)` (unit / counit). Each operation is well-defined for
