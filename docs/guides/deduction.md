@@ -1,6 +1,6 @@
 # Weighted Deduction Systems
 
-QVR's `deduction { … }` block declares a weighted deductive system — a hyperedge of inference rules over an item algebra, paired with a semiring for weight aggregation. A single agenda-driven runtime evaluates the system; concrete parsing algorithms (CKY, Earley, Viterbi, A*, Knuth's, semi-naïve Datalog, MLTT proof search) fall out as parameter settings.
+QVR's `deduction { … }` block declares a weighted deductive system, a hyperedge of inference rules over an item algebra, paired with a semiring for weight aggregation. A single agenda-driven runtime evaluates the system; concrete parsing algorithms (CKY, Earley, Viterbi, A*, Knuth's, semi-naïve Datalog, MLTT proof search) fall out as parameter settings.
 
 ## The framework
 
@@ -36,7 +36,7 @@ The body declares the seven canonical parameters as named fields. Single-upperca
 
 ## Charts as first-class differentiable values
 
-Running a deduction yields a `ChartView` — a $K$-presheaf value with surface methods for querying:
+Running a deduction yields a `ChartView`, a $K$-presheaf value with surface methods for querying:
 
 ```python
 view = CG([
@@ -80,12 +80,12 @@ Each is a callable: `view = Datalog(axiom_list)` returns a `ChartView`.
 
 The agenda module exposes canonical strategy factories that may be passed to the `agenda_factory=` parameter of a `DeductionSystem`:
 
-- `cky_agenda()`, `earley_agenda()` — FIFO (semi-naïve).
-- `viterbi_agenda(priority_fn)` — priority-queue.
-- `astar_agenda(g_plus_h)` — priority-queue with an admissible heuristic.
-- `knuth_agenda()` — best-first hyperpath search (Knuth 1977; Nederhof 2003).
-- `depth_first_agenda()` — LIFO (proof search).
-- `semi_naive_agenda()` — FIFO for Datalog-shaped systems (McAllester 2002).
+- `cky_agenda()`, `earley_agenda()`, FIFO (semi-naïve).
+- `viterbi_agenda(priority_fn)`: priority-queue.
+- `astar_agenda(g_plus_h)`: priority-queue with an admissible heuristic.
+- `knuth_agenda()`: best-first hyperpath search (Knuth 1977; Nederhof 2003).
+- `depth_first_agenda()`: LIFO (proof search).
+- `semi_naive_agenda()`: FIFO for Datalog-shaped systems (McAllester 2002).
 
 ## panproto integration
 

@@ -14,6 +14,7 @@
 // @ts-check
 
 const PREC = {
+  trans_compose: 1, // >>> (Trans composition)
   compose: 1,    // >> << >=>
   tensor:  2,    // @
   postfix: 3,    // .method(...)
@@ -67,6 +68,7 @@ module.exports = grammar({
       $.discretize_decl,
       $.embed_decl,
       $.program_decl,
+      $.contraction_decl,
       $.let_decl,
       $.export_decl,
       $.deduction_decl,
@@ -80,7 +82,93 @@ module.exports = grammar({
     // simple declarations
     // ---------------------------------------------------------------
 
-    quantale_decl: $ => seq('quantale', field('name', $.identifier)),
+    // Composition-rule declaration.  Four surface forms differ only
+    // in the algebraic level they advertise:
+    //
+    //   ``quantale X``         — X must be a Quantale (full structure;
+    //                            identity / dagger / cup / cap are
+    //                            available).
+    //   ``semigroupoid X``     — X is associative but lacks identity.
+    //   ``bilinear_form X``    — X is a CompositionRule with no
+    //                            associativity promise.
+    //   ``composition_rule X`` — permissive: X is any CompositionRule.
+    //
+    // Each may optionally carry a user-defined body
+    // ``{ tensor_op(a, b) = …; join(t) = …; unit = …; … }`` that
+    // declares a fresh rule inline instead of referencing a registered
+    // singleton.  The compiler enforces that the body's operations
+    // match the keyword's algebraic level.
+    quantale_decl: $ => choice(
+      seq('quantale',         field('name', $.identifier), optional($.composition_rule_block)),
+      seq('semigroupoid',     field('name', $.identifier), optional($.composition_rule_block)),
+      seq('bilinear_form',    field('name', $.identifier), optional($.composition_rule_block)),
+      seq('composition_rule', field('name', $.identifier), optional($.composition_rule_block)),
+    ),
+
+    // Body of a user-defined composition rule.  Each entry is
+    // either ``key(p1, p2, …) = body`` (a function-valued field,
+    // for tensor_op / join / negation / meet) or ``key = body``
+    // (a value-valued field, for unit / zero literals).
+    composition_rule_block: $ => seq(
+      '{',
+      repeat($.composition_rule_entry),
+      '}',
+    ),
+
+    composition_rule_entry: $ => choice(
+      seq(
+        field('key', $.identifier),
+        '(',
+        field('params', commaSep1($.identifier)),
+        ')',
+        '=',
+        field('body', $._let_arith),
+      ),
+      seq(
+        field('key', $.identifier),
+        '=',
+        field('body', $._let_arith),
+      ),
+    ),
+
+    // N-ary operadic contraction declaration.  Declares a multi-
+    // input morphism whose body is an einsum-style wiring under a
+    // named composition rule:
+    //
+    //   contraction op_apply (
+    //       arg1 : A -> B,
+    //       arg2 : A -> C,
+    //       kernel : (B * C) -> D
+    //   ) : A -> D
+    //       rule product_fuzzy
+    //       wiring "ab, ac, bcd -> ad"
+    //
+    // The declaration registers a callable named ``op_apply`` that
+    // takes the three input morphisms and contracts them under the
+    // wiring spec using the rule's tensor_op and join.
+    contraction_decl: $ => seq(
+      'contraction',
+      field('name', $.identifier),
+      '(',
+      field('inputs', commaSep1($.contraction_input)),
+      ')',
+      ':',
+      field('domain', $._type_expr),
+      '->',
+      field('codomain', $._type_expr),
+      'rule',
+      field('rule_name', $.identifier),
+      'wiring',
+      field('wiring_spec', $.string),
+    ),
+
+    contraction_input: $ => seq(
+      field('name', $.identifier),
+      ':',
+      field('input_domain', $._type_expr),
+      '->',
+      field('input_codomain', $._type_expr),
+    ),
 
     category_decl: $ => seq(
       'category',
@@ -908,11 +996,25 @@ module.exports = grammar({
     // ---------------------------------------------------------------
 
     _expr: $ => choice(
+      $.trans_compose,
       $.compose_expr,
       $.tensor_expr,
       $.postfix_expr,
       $._atom_expr,
     ),
+
+    // Transformation composition.  ``t1 >>> t2`` denotes the
+    // sequential application of two :class:`MorphismTransformation`
+    // (or :class:`QuantaleHomomorphism`) values.  Distinct from
+    // ``>>`` (V-Cat morphism composition): ``>>`` composes
+    // morphisms within a quantale; ``>>>`` composes the change-of-
+    // base transformations between quantales.  Required type:
+    // ``t1.target == t2.source`` (checked at compile time).
+    trans_compose: $ => prec.left(PREC.trans_compose, seq(
+      field('left',  $._expr),
+      '>>>',
+      field('right', $._expr),
+    )),
 
     // Composition operators. Each one carries its enrichment
     // quantale so the V-Cat composition dispatches to that
@@ -986,19 +1088,19 @@ module.exports = grammar({
       // where Z lives in a residuated universe, produce f.curry_right :
       // X -> Z/Y or f.curry_left : Y -> X\Z. No arguments.
       seq(field('name', choice('curry_right', 'curry_left'))),
-      // change-of-base: given f : A -> B over quantale V and
-      // a homomorphism φ : V -> W, ``f.change_base(phi)`` is the
-      // V-Cat morphism A -> B over W with tensor φ.apply(f.tensor).
-      // The argument can be either a bare name (resolving a
-      // registered quantale homomorphism or transformation) or a
-      // factory call ``softmax_over(Cluster)`` /
-      // ``bayes_invert(prior)`` that builds a parametric
-      // :class:`MorphismTransformation` from object / morphism
-      // arguments resolved in the surrounding scope.
+      // change-of-base: given f : A -> B over quantale V and a
+      // transformation φ : Trans[V, W] (a QuantaleHomomorphism
+      // or MorphismTransformation), ``f.change_base(phi)`` is
+      // the V-Cat morphism A -> B over W with tensor
+      // φ.apply(f.tensor).  The argument is any expression that
+      // evaluates to a Trans value: a bare name (registered
+      // singleton or let-bound), a constructor call
+      // ``softmax(B)`` / ``bayes_invert(prior)``, or a
+      // composition ``t1 >>> t2``.
       seq(
         field('name', 'change_base'),
         '(',
-        field('arg', $._change_base_arg),
+        field('arg', $._expr),
         ')',
       ),
       // compact-closed surface: ``f.dagger`` for the transpose,
@@ -1019,23 +1121,6 @@ module.exports = grammar({
       seq(field('name', 'freeze')),
     ),
 
-    // Argument to ``change_base``: either a bare identifier (the
-    // existing surface, resolving a named homomorphism or
-    // transformation) or a factory-call expression that builds a
-    // parametric :class:`MorphismTransformation` from one or more
-    // object / morphism arguments resolved in scope.
-    _change_base_arg: $ => choice(
-      $.transformation_call,
-      $.identifier,
-    ),
-
-    transformation_call: $ => seq(
-      field('factory', $.identifier),
-      '(',
-      optional(field('args', commaSep1($.identifier))),
-      ')',
-    ),
-
     _atom_expr: $ => choice(
       $.expr_paren,
       $.identity_expr,
@@ -1048,8 +1133,22 @@ module.exports = grammar({
       $.scan_expr,
       $.parser_expr,
       $.chart_fold_expr,
+      $.morphism_call,
       $.expr_ident,
     ),
+
+    // Call expression for n-ary categorical operations declared
+    // by a ``contraction`` block.  Surface form ``name(arg1, arg2,
+    // ...)`` where ``name`` resolves a registered contraction and
+    // each argument is the name of a morphism in scope.  Higher
+    // precedence than bare identifier so ``foo(bar)`` parses as a
+    // call rather than ``foo`` followed by ``(bar)``.
+    morphism_call: $ => prec(20, seq(
+      field('callee', $.identifier),
+      '(',
+      field('args', commaSep1($.identifier)),
+      ')',
+    )),
 
     expr_paren: $ => seq('(', $._expr, ')'),
 

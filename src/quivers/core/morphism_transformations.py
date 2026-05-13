@@ -95,10 +95,7 @@ class MorphismTransformation(ABC):
         return type(self).__name__
 
     def __repr__(self) -> str:
-        return (
-            f"{type(self).__name__}"
-            f"({self.source.name} -> {self.target.name})"
-        )
+        return f"{type(self).__name__}({self.source.name} -> {self.target.name})"
 
 
 def _axis_index(morphism, axis_object: SetObject) -> int:
@@ -277,17 +274,13 @@ class BayesInvert(MorphismTransformation):
     def __init__(self, prior: torch.Tensor) -> None:
 
         if prior.dim() != 1:
-            raise ValueError(
-                f"BayesInvert: prior must be 1-D; got {prior.dim()}-D"
-            )
+            raise ValueError(f"BayesInvert: prior must be 1-D; got {prior.dim()}-D")
         if not torch.isclose(prior.sum(), torch.ones(())):
             raise ValueError(
                 f"BayesInvert: prior must sum to 1; got sum={float(prior.sum()):.4f}"
             )
         if (prior < 0).any():
-            raise ValueError(
-                "BayesInvert: prior entries must be non-negative"
-            )
+            raise ValueError("BayesInvert: prior entries must be non-negative")
         self._prior = prior.clone()
         self._source = MARKOV
         self._target = MARKOV
@@ -307,8 +300,7 @@ class BayesInvert(MorphismTransformation):
     def apply(self, tensor: torch.Tensor, morphism) -> torch.Tensor:
         if tensor.dim() != 2:
             raise ValueError(
-                f"BayesInvert: expected 2-D Markov kernel; got "
-                f"{tensor.dim()}-D"
+                f"BayesInvert: expected 2-D Markov kernel; got {tensor.dim()}-D"
             )
         if tensor.shape[0] != self._prior.shape[0]:
             raise ValueError(
@@ -339,22 +331,22 @@ class BayesInvert(MorphismTransformation):
 # surrounding scope (objects, morphisms) and returns a fully-
 # constructed :class:`MorphismTransformation`. The compiler's
 # transformation catalog binds them so the user can write
-# ``f.change_base(softmax_over(B))`` /
-# ``f.change_base(bayes_invert(prior))`` in pure QVR.
+# ``f.change_base(softmax(B))`` / ``f.change_base(bayes_invert(prior))``
+# in pure QVR.
 # ---------------------------------------------------------------------------
 
 
-def softmax_over(axis_object: SetObject) -> Softmax:
+def softmax(axis_object: SetObject) -> Softmax:
     """Build a :class:`Softmax` transformation along ``axis_object``."""
     return Softmax(axis_object)
 
 
-def l1_normalize_over(axis_object: SetObject) -> L1Normalize:
+def l1_normalize(axis_object: SetObject) -> L1Normalize:
     """Build an :class:`L1Normalize` transformation along ``axis_object``."""
     return L1Normalize(axis_object)
 
 
-def l2_normalize_over(axis_object: SetObject) -> L2Normalize:
+def l2_normalize(axis_object: SetObject) -> L2Normalize:
     """Build an :class:`L2Normalize` transformation along ``axis_object``."""
     return L2Normalize(axis_object)
 
@@ -382,9 +374,7 @@ def bayes_invert(prior) -> BayesInvert:
     flat = tensor.flatten()
     total = flat.sum()
     if total.abs() < 1e-12:
-        raise ValueError(
-            "bayes_invert: prior sums to zero; cannot normalize"
-        )
+        raise ValueError("bayes_invert: prior sums to zero; cannot normalize")
     if not torch.isclose(total, torch.tensor(1.0), atol=1e-5):
         flat = flat.clamp(min=0.0)
         flat = flat / flat.sum().clamp(min=1e-12)
@@ -398,7 +388,7 @@ __all__ = [
     "MorphismTransformation",
     "Softmax",
     "bayes_invert",
-    "l1_normalize_over",
-    "l2_normalize_over",
-    "softmax_over",
+    "l1_normalize",
+    "l2_normalize",
+    "softmax",
 ]

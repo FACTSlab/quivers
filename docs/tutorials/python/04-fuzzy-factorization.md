@@ -160,4 +160,4 @@ In this tutorial you:
 - Trained the factorization with BCE loss via `Program`
 - Inspected the learned fuzzy features
 
-Next, learn how to fit probabilistic models to data with variational inference in [Tutorial 5](variational-inference.md).
+Next, learn how to fit probabilistic models to data with variational inference in [Tutorial 5](05-variational-inference.md).

@@ -48,10 +48,10 @@ Type-logical grammar, grounded in the non-commutative Lambek calculus, is a reso
 
 The rules realise the four logical core operations of the Lambek calculus:
 
-- **`right_app`** — modus ponens for forward slash: `A/B, B ⊢ A`.
-- **`left_app`** — modus ponens for backward slash: `B, A\B ⊢ A`.
-- **`tensor_intro`** — product introduction: adjacent derivations of `A` and `B` combine into a derivation of `A⊗B`.
-- **`tensor_left` / `tensor_right`** — product elimination: a derivation of `A⊗B` projects to derivations of either component over the same span.
+- **`right_app`**: modus ponens for forward slash: `A/B, B ⊢ A`.
+- **`left_app`**: modus ponens for backward slash: `B, A\B ⊢ A`.
+- **`tensor_intro`**: product introduction: adjacent derivations of `A` and `B` combine into a derivation of `A⊗B`.
+- **`tensor_left` / `tensor_right`**: product elimination: a derivation of `A⊗B` projects to derivations of either component over the same span.
 
 Together these rules yield the equational theory of the residuated monoid. The agenda runs to depth 6 by default; the `LogProb` semiring accumulates inside log-probabilities that flow back as gradients to learnable axiom weights.
 
@@ -60,7 +60,7 @@ Together these rules yield the equational theory of the residuated monoid. The a
 - **Sequent rules with arbitrary arity**: rule bodies declare premises on the left of `|-` and a single conclusion on the right; the compiler routes unary patterns to unary chart cells and binary patterns to binary chart cells.
 - **Resource sensitivity is structural**: there is no contraction or weakening rule, so every premise in a sequent must match a distinct chart cell.
 - **Order preservation**: pattern variables appear in textual order; the parser enforces left-to-right span composition.
-- **Tensor and slash as user atoms**: there is no special syntax — `Tns`, `Fwd`, `Bwd` are atoms declared in the `atoms { … }` block and may be replaced or extended by the user.
+- **Tensor and slash as user atoms**: there is no special syntax, `Tns`, `Fwd`, `Bwd` are atoms declared in the `atoms { … }` block and may be replaced or extended by the user.
 
 ## Categorical Perspective
 

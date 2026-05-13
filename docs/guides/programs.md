@@ -334,7 +334,7 @@ $$
 \sum_{g \in G}\ \log\sum_{k=1}^{K}\exp\!\Big[\log \pi(g, k) + \sum_{n:\ \text{idx}(n)=g}\ell(n, k)\Big]
 $$
 
-to the program-level log-density. Categorically this is the right Kan extension along the fibration $r : \text{Resp} \to G$ in $\mathbf{Kern}$ (with the additive monoid on log-densities), composed with the standard categorical-marginal log-sum-exp under the prior $\pi$. The fibred form is the canonical hierarchical-Bayes likelihood pattern — equivalent to Stan's per-item `target += log_mix(probs, ll_item[i])` accumulation — and degenerates as expected:
+to the program-level log-density. Categorically this is the right Kan extension along the fibration $r : \text{Resp} \to G$ in $\mathbf{Kern}$ (with the additive monoid on log-densities), composed with the standard categorical-marginal log-sum-exp under the prior $\pi$. The fibred form is the canonical hierarchical-Bayes likelihood pattern, equivalent to Stan's per-item `target += log_mix(probs, ll_item[i])` accumulation, and degenerates as expected:
 
 - *no grouping plate, no fibration*: the global mixture form (ungrouped `marginalize`),
 - *identity fibration* (one group per row): the per-row mixture,

@@ -1,7 +1,7 @@
 # Compositional Effects
 
-QVR exposes two parallel typeclass towers — Haskell-style monads and
-Hughes-style arrows — together with a class-driven schema-lifting
+QVR exposes two parallel typeclass towers, Haskell-style monads and
+Hughes-style arrows, together with a class-driven schema-lifting
 machinery, so that linguistic effects (scope-taking, anaphora, focus
 / alternatives, presupposition, supplements, plurality) compose with
 the residuated category universe through the same surface as ordinary
@@ -112,12 +112,12 @@ For effects that don't fit a closed-form typeclass instance,
 `quivers.monadic.algebraic` provides a free-monad-over-signature
 construction:
 
-- `Operation(name, parameter, result)` — one operation in a signature.
-- `EffectSignature(name, operations)` — a signature; lifts to a
+- `Operation(name, parameter, result)`: one operation in a signature.
+- `EffectSignature(name, operations)`: a signature; lifts to a
   panproto theory via `to_theory()`.
-- `FreeMonad(signature)` — the free monad over the signature; a
+- `FreeMonad(signature)`: the free monad over the signature; a
   `Monad` instance automatically.
-- `Handler(signature, target, return_clause, operation_clauses)` —
+- `Handler(signature, target, return_clause, operation_clauses)` :
   interprets a `FreeMonad`-valued computation in a target monad.
   Equivalently: a panproto theory morphism from
   `signature.to_theory()` into the target monad's theory.
@@ -130,9 +130,9 @@ handlers, ending in an effect-pure target.
 
 `quivers.monadic.bridges` contains:
 
-- `kleisli(monad)` — wraps a `Monad` as a `Kleisli` arrow registered
+- `kleisli(monad)`: wraps a `Monad` as a `Kleisli` arrow registered
   against `Arrow` and `ArrowApply`.
-- `arrow_monad(arrow)` — wraps an `ArrowApply` as an `ArrowMonad`
+- `arrow_monad(arrow)`: wraps an `ArrowApply` as an `ArrowMonad`
   registered against `Monad`.
 
 The pair gives a free choice of presentation: write effects as monads
@@ -144,16 +144,16 @@ When the chart parser fires at span `(i, j)`, each cell carries a
 distribution over `(Cat, EffectStack)` pairs (the residuated universe
 ×️ a stack of declared effects). At each cell the parser considers:
 
-1. **Base firings** — when both children are effect-pure, the base
+1. **Base firings**, when both children are effect-pure, the base
    schema's pattern unifies on the type coordinate as in classical
    Lambek.
-2. **Lift firings** — when child effect-stacks differ, the
+2. **Lift firings**, when child effect-stacks differ, the
    class-driven lifts of `class_directed_lifts` interpose `pure_T` /
    `fmap_T` / `apply_T` / `bind_T` etc. as appropriate.
-3. **Handler firings** — when the cell holds a `T(α)` distribution and
+3. **Handler firings**, when the cell holds a `T(α)` distribution and
    a `Handler` from `T` is registered, applying the handler produces
    a fresh cell at a strictly-shorter effect-stack.
-4. **Commutation firings** — when a `DistributiveLaw(T, U)` (or arrow
+4. **Commutation firings**, when a `DistributiveLaw(T, U)` (or arrow
    analogue) is registered, the `swap_TU` schema exchanges sibling
    effect orderings.
 

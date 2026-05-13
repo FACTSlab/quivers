@@ -6,23 +6,54 @@
 [![Python 3.14+](https://img.shields.io/badge/python-3.14%2B-blue)](https://www.python.org/downloads/)
 [![License: MIT](https://img.shields.io/badge/license-MIT-green)](LICENSE)
 
-Computational category theory as differentiable tensor programs.
+A probabilistic programming language with a categorical implementation.
 
-**Quivers** is a Python library for building categorical and probabilistic models as differentiable PyTorch programs. It represents morphisms between finite sets as tensors valued in a quantale (a lattice with a monoidal product), then extends this to stochastic morphisms (Markov kernels), continuous distribution families, monadic probabilistic programs, and variational inference. A built-in functional DSL compiles `.qvr` specifications into trainable `nn.Module` instances.
+Quivers is a Python library for writing, fitting, and reasoning about probabilistic models. Models are declared in a small typed DSL whose surface looks like Pyro or NumPyro: you write a `program` block with `v <- F(args)` draws, `let` deterministic bindings, and `observe` statements. Compilation produces a trainable `nn.Module`. Inference goes through a stack of nine variational guides, four objectives, HMC, NUTS, and two hybrid samplers.
 
-## Features
+```qvr
+quantale real
+object Item : 100
 
-- **Core categorical algebra**: finite sets, product/coproduct constructions, and free monoids as objects; eleven shipped quantales as enrichment algebras (Boolean, product fuzzy, Łukasiewicz, Gödel, tropical min-plus, max-plus / Viterbi, log-prob, Markov, real, probability, counting); $\mathcal{V}$-enriched relations as parametrized tensors with composition via quantale operations.
-- **Categorical structures**: functors, natural transformations, adjunctions, monoidal categories, traced monoidal categories, change-of-base between quantales (`Expectation`, `LogProb`, `MaxPlus`, `Threshold`, `MaterialImplication`, `Embedding`, `ProbabilityClamp`, …) with a queryable registry; compact-closed structure (`f.dagger`, `f.trace(A)`, `cup(A)`, `cap(A)`) realised against every shipped quantale.
-- **Enriched category theory**: ends, coends, Kan extensions, weighted limits/colimits, profunctors, Yoneda embedding, Day convolution, optics (lenses, prisms, adapters, grates).
-- **Monadic constructs**: monads, comonads, Kleisli/coKleisli categories, algebras, coalgebras, Eilenberg-Moore categories, distributive laws.
-- **Stochastic morphisms**: the FinStoch category of Markov kernels; discretized distribution families (normal, logit-normal, beta, truncated normal); conditioning, mixing, and normalization transforms; the Giry monad; query functions (prob, marginal_prob, expectation).
-- **Continuous morphisms**: 30+ parameterized conditional distribution families; continuous spaces (Euclidean, simplex, unit interval, positive reals); sampled composition; normalizing flows; discrete-continuous boundaries (discretize/embed).
-- **Monadic programs**: probabilistic programs with a single Kleisli-bind syntax (`v <- F(args)`), scored binds (`observe v <- F(args)`), scoped marginalisation, and `!`-prefixed effect signatures (`! Sample, Score, Marginal, Pure`); ancestral sampling; log-joint computation; hybrid discrete-continuous random variables.
-- **QVR DSL**: a `.qvr` file format whose tree-sitter grammar is registered in [panproto](https://panproto.dev) and whose AST nodes, value types, and resolution lenses are built on [didactic](https://panproto.dev/didactic/) Models; supports object/morphism declarations, program blocks, let bindings, type expressions, and grammar-based parsers (PCFG, CCG, Lambek, multimodal type-logical). Each `.qvr` program also extracts to a panproto `Schema` for diff/migrate workflows.
-- **Inference**: a six-layer stack from a shared `LatentRegistry` upward. Nine variational guides (`AutoNormalGuide`, `AutoDeltaGuide`, `AutoMultivariateNormalGuide`, `AutoLowRankMultivariateNormalGuide`, `AutoLaplaceApproximation`, `AutoNormalizingFlow`, `AutoIAFGuide`, `AutoNeuralSplineGuide`, `AutoMixtureGuide`) sharing one introspection layer; four objective families (`ELBO`, `IWAEBound`, `RenyiBound`, `VRIWAEBound`) paired with four gradient estimators (`Reparameterised`, `StickingTheLanding`, `DoublyReparameterised`, `ScoreFunction`); `HMCKernel` and `NUTSKernel` with Nesterov dual-averaging step-size and Welford mass-matrix adaptation, R-hat / ESS / divergence diagnostics; hybrid `AutoDAIS` and `WarmupThenHMC` samplers; `Predictive` that consumes either a `Guide` or an `MCMCResult`. A normalizing-flow primitive library (RealNVP affine coupling, MAF / IAF, neural-spline rational-quadratic coupling) plugs into any flow-based guide.
-- **Weighted-deduction framework**: a single agenda-engine runtime parameterised by item algebra, arity-n rules, semiring, agenda discipline, and priority function subsumes CKY, Earley, Viterbi, semi-naïve Datalog, A* parsing, Knuth's algorithm, and MLTT proof search. Surface `deduction { … }` blocks declare the seven canonical parameters; charts are first-class differentiable values supporting `weight(item)`, `enumerate(pattern)`, `goal_weight()` operations whose gradients flow back through the agenda's semiring operations. Stdlib ships CCG, Lambek, STLC, MLTT, Datalog, Dijkstra, HMM, ViterbiHMM, EditDistance ready-to-use.
-- **Structural compression**: a uniform algebraic interface for compressing arbitrary structured objects (sequences, trees, graphs, parse charts, typed lambda terms with binders) to fixed-length vectors and decoding them back under a learned distribution. `signature { … }` blocks declare multi-sorted constructor algebras with typed binders under a de-Bruijn discipline; `encoder` blocks declare F-algebra homomorphisms `T_Σ → Vec_D` with sequence-recurrent and attention sugar; `decoder` blocks declare Kleisli coalgebras `Vec_D → Kern(T_Σ)` with `sample` and `log_prob`; `loss` declarations attach weighted scalar objectives at any program / deduction / encoder / decoder / rule / chart site. This realises transformers, tree-LSTMs, graph-NNs, autoregressive LMs, variational autoencoders, and the vector-inside-outside parser of Le-Zuidema / Drozdov / Kim as instances of one F-algebra / F-coalgebra pattern. Stdlib ships `Seq[A]` / `Tree[L, B]` / `Graph[V, E]` shapes with canonical RNN / Transformer / TreeLSTM / GNN / autoregressive-decoder implementations.
+program regression : Item -> Item ! Sample, Score
+    sigma  <- HalfNormal(1.0)
+    beta_0 <- Normal(0.0, 5.0)
+    beta_1 <- Normal(0.0, 2.0)
+    x      <- Normal(0.0, 1.0)
+    let mu = beta_0 + beta_1 * x
+    observe y <- Normal(mu, sigma)
+    return y
+
+export regression
+```
+
+```python
+from quivers.dsl import loads
+from quivers.inference import AutoNormalGuide, ELBO, SVI
+
+program = loads(open("regression.qvr").read())
+model   = program.morphism
+guide   = AutoNormalGuide(model, observed_names={"y"})
+svi     = SVI(model, guide, optimizer, ELBO())
+for _ in range(2000):
+    svi.step({"x": x_data}, {"y": y_data})
+```
+
+The rest is the [tutorial](https://FACTSlab.github.io/quivers/tutorials/).
+
+## What's distinctive
+
+Quivers does the things every PPL does: hierarchical models, GLMs, mixtures, sequence models, posterior-predictive checks. It also does a handful of things most PPLs don't:
+
+- **Typed-scope marginalisation.** `marginalize z : K <- Categorical(p) in { ... }` is a first-class block whose body runs once per discrete value, with `logsumexp` aggregation under the prior. Standard Rao-Blackwellisation, but spelt as syntax instead of as a config flag.
+- **Exact-likelihood structured families.** Hidden Markov models, Kalman smoothers, and similar structured likelihoods compose like ordinary distribution families; the forward / forward-backward / smoother passes are wrapped.
+- **First-class transformations.** Change-of-base transformations (softmax, L1/L2 normalisation, Bayes inversion, quantale homomorphisms) are values: let-bindable, composable with `>>>`, passable into `change_base`.
+- **Composition rules beyond quantales.** The `CompositionRule → BilinearForm | Semigroupoid → Quantale` hierarchy supports non-associative and non-unital composition rules with full operadic n-ary contractions via einsum-style wiring.
+- **Compile-time effects.** Programs carry an effect signature `! Sample, Score, Marginal, Pure` that the compiler checks against the body. `! Pure` blocks that try to `observe` are rejected with a typed error.
+- **A categorical denotational semantics.** Every well-typed QVR phrase has a [formal denotation](https://FACTSlab.github.io/quivers/semantics/) in a $\mathcal{V}$-enriched symmetric monoidal closed category. The compiler implementation is proved adequate against the denotation.
+- **A weighted-deduction surface.** Chart algorithms (CKY, Earley, Viterbi, semi-naïve Datalog, A*, Knuth's algorithm) compose with probabilistic programs through a single agenda-engine runtime parameterised by item algebra, rules, semiring, and priority. Charts are first-class differentiable values.
+- **A structural-compression surface.** `signature { … } encoder { … } decoder { … } loss { … }` blocks form an F-algebra / F-coalgebra interface for compressing structured objects (sequences, trees, graphs, parse charts) to fixed-length vectors and decoding them back. Realises transformers, tree-LSTMs, graph-NNs, autoregressive LMs, and the vector-inside-outside parser as instances of one pattern.
+
+The implementation rests on enriched category theory ([Kelly, 1982](http://www.tac.mta.ca/tac/reprints/articles/10/tr10abs.html)), the categorical foundations of probability ([Giry, 1982](https://doi.org/10.1007/BFb0092872); [Fritz, 2020](https://doi.org/10.1016/j.aim.2020.107239)), and the SVI / HMC inference substrate ([Hoffman, Blei, Wang & Paisley, 2013](https://doi.org/10.5555/2567709.2502622); [Neal, 2011](https://doi.org/10.1201/b10905-6); [Hoffman & Gelman, 2014](https://www.jmlr.org/papers/v15/hoffman14a.html)).
 
 ## Installation
 
@@ -35,125 +66,47 @@ Or install from source:
 ```bash
 git clone https://github.com/FACTSlab/quivers
 cd quivers
-pip install -e .
-```
-
-For development (includes pytest, ruff, pyright):
-
-```bash
 pip install -e ".[dev]"
 ```
 
-## Quick Start
+Requirements: Python 3.14+, PyTorch 2.0+, didactic 0.6.0+, panproto 0.45.0+, panproto-grammars-all 0.45.0+.
 
-### Discrete morphisms and composition
+## Learning path
 
-Define finite sets, create learnable and observed morphisms, and compose them:
+Two parallel tracks, depending on what you want:
 
-```python
-from quivers import FinSet, morphism, observed, Program
-import torch
+- **[QVR DSL tutorial](https://FACTSlab.github.io/quivers/tutorials/qvr/01-first-model/)** for probabilistic-programming users. Seven chapters, model development through inference, side-by-side with PyMC / NumPyro / Stan.
+- **[Python API tutorial](https://FACTSlab.github.io/quivers/tutorials/python/01-first-quiver/)** for library developers and category-theory-fluent users. Seven chapters covering the typed categorical surface end to end.
 
-X = FinSet("X", 3)
-Y = FinSet("Y", 4)
-Z = FinSet("Z", 2)
+Then:
 
-f = morphism(X, Y)                # learnable (sigmoid over raw params)
-g = observed(Y, Z, torch.rand(4, 2))  # fixed tensor
+- [Conceptual guides](https://FACTSlab.github.io/quivers/guides/) for feature-area deep dives.
+- [Examples gallery](https://FACTSlab.github.io/quivers/examples/) for end-to-end model code.
+- [Denotational semantics](https://FACTSlab.github.io/quivers/semantics/) for the formal treatment.
+- [API reference](https://FACTSlab.github.io/quivers/api/) for the typed surface.
 
-h = f >> g                         # V-enriched composition: X -> Z
-program = Program(h)
-output = program()                 # shape (3, 2), values in [0, 1]
-```
-
-Composition uses the product fuzzy quantale by default: AND is multiplication, OR is noisy-OR ($1 - \prod(1 - x_i)$). The result is a differentiable tensor, trainable via `program.parameters()`.
-
-### Stochastic morphisms
-
-Work with Markov kernels in the FinStoch category:
-
-```python
-from quivers import FinSet, stochastic, condition, prob
-
-S = FinSet("S", 3)
-O = FinSet("O", 5)
-
-transition = stochastic(S, S)   # learnable row-stochastic matrix
-emission = stochastic(S, O)     # learnable row-stochastic matrix
-
-# condition on an observation
-conditioned = condition(emission, obs_index=2)
-
-# query probabilities
-p = prob(transition, domain_idx=0, codomain_idx=1)
-```
-
-### The QVR DSL
-
-Write probabilistic programs in `.qvr` syntax and compile to `nn.Module`:
-
-```python
-from quivers.dsl import loads
-
-source = """
-object Predictor : 1
-object Response : 1
-
-program regression : Predictor -> Response ! Sample, Score
-    sigma <- HalfCauchy(2.0)
-    beta_0 <- Normal(0.0, 5.0)
-    beta_1 <- Normal(0.0, 2.0)
-    x <- Normal(0.0, 1.0)
-    let mu = beta_0 + beta_1 * x
-    observe y <- Normal(mu, sigma)
-    return y
-
-export regression
-"""
-
-model = loads(source)
-```
-
-## Project Structure
+## Project structure
 
 ```text
 src/quivers/
-├── core/           # objects, quantales, morphisms, tensor ops
-├── categorical/    # functors, natural transformations, adjunctions, monoidal, traced
-├── monadic/        # monads, comonads, algebras, distributive laws
-├── enriched/       # ends/coends, Kan extensions, profunctors, Yoneda, Day, optics
-├── stochastic/     # Markov kernels, Giry monad, grammar parsers, chart algorithms
-├── continuous/     # distribution families, spaces, flows, monadic programs
-├── dsl/            # panproto-driven parser, AST (didactic Models),
-│                   # compiler, resolution lenses, Program Theory
-├── inference/      # traces, conditioning, guides, ELBO, SVI, predictive
-├── program.py      # Program: wraps morphisms as nn.Module
-└── giry.py         # GiryMonad, FinStoch
+├── core/           objects, quantales, morphisms, tensor ops, wiring
+├── categorical/    functors, natural transformations, adjunctions, monoidal, traced
+├── monadic/        monads, comonads, algebras, distributive laws
+├── enriched/       ends/coends, Kan extensions, profunctors, Yoneda, Day, optics
+├── stochastic/     Markov kernels, Giry monad, grammar parsers, chart algorithms
+├── continuous/     distribution families, spaces, flows, monadic programs
+├── dsl/            parser (panproto / tree-sitter), AST (didactic Models),
+│                   compiler, resolution lenses, Program Theory
+├── inference/      registry, guides, objectives, estimators, MCMC, hybrids
+├── program.py      Program: wraps morphisms as nn.Module
+└── giry.py         GiryMonad, FinStoch
 ```
 
-The tree-sitter grammar lives at the repo root under `grammars/qvr/` and is vendored by panproto's `panproto-grammars-all` distribution.
-
-## Documentation
-
-Full documentation: [https://FACTSlab.github.io/quivers](https://FACTSlab.github.io/quivers)
-
-- [Installation](https://FACTSlab.github.io/quivers/getting-started/installation/)
-- [Quickstart](https://FACTSlab.github.io/quivers/getting-started/quickstart/)
-- [Conceptual Guides](https://FACTSlab.github.io/quivers/guides/)
-- [Tutorials](https://FACTSlab.github.io/quivers/tutorials/)
-- [Examples Gallery](https://FACTSlab.github.io/quivers/examples/)
-- [API Reference](https://FACTSlab.github.io/quivers/api/)
-
-## Requirements
-
-- Python 3.14+
-- PyTorch 2.0+
-- didactic 0.6.0+ (typed-data layer over panproto)
-- panproto 0.45.0+ and panproto-grammars-all 0.45.0+ (QVR tree-sitter parser)
+The tree-sitter grammar lives at `grammars/qvr/` and is vendored by [panproto](https://panproto.dev)'s `panproto-grammars-all` distribution.
 
 ## Contributing
 
-See [CONTRIBUTING.md](CONTRIBUTING.md) for development setup, code style conventions, and the git workflow.
+See [CONTRIBUTING.md](CONTRIBUTING.md) for development setup, code style, and the git workflow. Issues and pull requests welcome at [github.com/FACTSlab/quivers](https://github.com/FACTSlab/quivers).
 
 ## License
 

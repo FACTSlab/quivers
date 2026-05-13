@@ -444,6 +444,10 @@
             "named": true
           },
           {
+            "type": "morphism_call",
+            "named": true
+          },
+          {
             "type": "parser_expr",
             "named": true
           },
@@ -465,6 +469,10 @@
           },
           {
             "type": "tensor_expr",
+            "named": true
+          },
+          {
+            "type": "trans_compose",
             "named": true
           }
         ]
@@ -536,6 +544,10 @@
             "named": true
           },
           {
+            "type": "morphism_call",
+            "named": true
+          },
+          {
             "type": "parser_expr",
             "named": true
           },
@@ -557,6 +569,10 @@
           },
           {
             "type": "tensor_expr",
+            "named": true
+          },
+          {
+            "type": "trans_compose",
             "named": true
           }
         ]
@@ -652,6 +668,10 @@
             "named": true
           },
           {
+            "type": "morphism_call",
+            "named": true
+          },
+          {
             "type": "parser_expr",
             "named": true
           },
@@ -673,6 +693,105 @@
           },
           {
             "type": "tensor_expr",
+            "named": true
+          },
+          {
+            "type": "trans_compose",
+            "named": true
+          }
+        ]
+      }
+    }
+  },
+  {
+    "type": "composition_rule_block",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": true,
+      "required": false,
+      "types": [
+        {
+          "type": "composition_rule_entry",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "composition_rule_entry",
+    "named": true,
+    "fields": {
+      "body": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "let_binop",
+            "named": true
+          },
+          {
+            "type": "let_call",
+            "named": true
+          },
+          {
+            "type": "let_index",
+            "named": true
+          },
+          {
+            "type": "let_lambda",
+            "named": true
+          },
+          {
+            "type": "let_list",
+            "named": true
+          },
+          {
+            "type": "let_literal",
+            "named": true
+          },
+          {
+            "type": "let_method_call",
+            "named": true
+          },
+          {
+            "type": "let_paren",
+            "named": true
+          },
+          {
+            "type": "let_string",
+            "named": true
+          },
+          {
+            "type": "let_unary",
+            "named": true
+          },
+          {
+            "type": "let_var",
+            "named": true
+          }
+        ]
+      },
+      "key": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "identifier",
+            "named": true
+          }
+        ]
+      },
+      "params": {
+        "multiple": true,
+        "required": false,
+        "types": [
+          {
+            "type": ",",
+            "named": false
+          },
+          {
+            "type": "identifier",
             "named": true
           }
         ]
@@ -819,6 +938,192 @@
         "types": [
           {
             "type": "replicate_count",
+            "named": true
+          }
+        ]
+      }
+    }
+  },
+  {
+    "type": "contraction_decl",
+    "named": true,
+    "fields": {
+      "codomain": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "type_atom",
+            "named": true
+          },
+          {
+            "type": "type_coproduct",
+            "named": true
+          },
+          {
+            "type": "type_effect_apply",
+            "named": true
+          },
+          {
+            "type": "type_paren",
+            "named": true
+          },
+          {
+            "type": "type_product",
+            "named": true
+          },
+          {
+            "type": "type_slash",
+            "named": true
+          }
+        ]
+      },
+      "domain": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "type_atom",
+            "named": true
+          },
+          {
+            "type": "type_coproduct",
+            "named": true
+          },
+          {
+            "type": "type_effect_apply",
+            "named": true
+          },
+          {
+            "type": "type_paren",
+            "named": true
+          },
+          {
+            "type": "type_product",
+            "named": true
+          },
+          {
+            "type": "type_slash",
+            "named": true
+          }
+        ]
+      },
+      "inputs": {
+        "multiple": true,
+        "required": true,
+        "types": [
+          {
+            "type": ",",
+            "named": false
+          },
+          {
+            "type": "contraction_input",
+            "named": true
+          }
+        ]
+      },
+      "name": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "identifier",
+            "named": true
+          }
+        ]
+      },
+      "rule_name": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "identifier",
+            "named": true
+          }
+        ]
+      },
+      "wiring_spec": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "string",
+            "named": true
+          }
+        ]
+      }
+    }
+  },
+  {
+    "type": "contraction_input",
+    "named": true,
+    "fields": {
+      "input_codomain": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "type_atom",
+            "named": true
+          },
+          {
+            "type": "type_coproduct",
+            "named": true
+          },
+          {
+            "type": "type_effect_apply",
+            "named": true
+          },
+          {
+            "type": "type_paren",
+            "named": true
+          },
+          {
+            "type": "type_product",
+            "named": true
+          },
+          {
+            "type": "type_slash",
+            "named": true
+          }
+        ]
+      },
+      "input_domain": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "type_atom",
+            "named": true
+          },
+          {
+            "type": "type_coproduct",
+            "named": true
+          },
+          {
+            "type": "type_effect_apply",
+            "named": true
+          },
+          {
+            "type": "type_paren",
+            "named": true
+          },
+          {
+            "type": "type_product",
+            "named": true
+          },
+          {
+            "type": "type_slash",
+            "named": true
+          }
+        ]
+      },
+      "name": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "identifier",
             "named": true
           }
         ]
@@ -2400,6 +2705,10 @@
             "named": true
           },
           {
+            "type": "morphism_call",
+            "named": true
+          },
+          {
             "type": "parser_expr",
             "named": true
           },
@@ -2421,6 +2730,10 @@
           },
           {
             "type": "tensor_expr",
+            "named": true
+          },
+          {
+            "type": "trans_compose",
             "named": true
           }
         ]
@@ -2487,6 +2800,10 @@
           "named": true
         },
         {
+          "type": "morphism_call",
+          "named": true
+        },
+        {
           "type": "parser_expr",
           "named": true
         },
@@ -2508,6 +2825,10 @@
         },
         {
           "type": "tensor_expr",
+          "named": true
+        },
+        {
+          "type": "trans_compose",
           "named": true
         }
       ]
@@ -2562,6 +2883,10 @@
             "named": true
           },
           {
+            "type": "morphism_call",
+            "named": true
+          },
+          {
             "type": "parser_expr",
             "named": true
           },
@@ -2583,6 +2908,10 @@
           },
           {
             "type": "tensor_expr",
+            "named": true
+          },
+          {
+            "type": "trans_compose",
             "named": true
           }
         ]
@@ -2967,6 +3296,10 @@
             "named": true
           },
           {
+            "type": "morphism_call",
+            "named": true
+          },
+          {
             "type": "parser_expr",
             "named": true
           },
@@ -2988,6 +3321,10 @@
           },
           {
             "type": "tensor_expr",
+            "named": true
+          },
+          {
+            "type": "trans_compose",
             "named": true
           }
         ]
@@ -3949,11 +4286,71 @@
         "required": false,
         "types": [
           {
-            "type": "identifier",
+            "type": "cap_expr",
             "named": true
           },
           {
-            "type": "transformation_call",
+            "type": "chart_fold_expr",
+            "named": true
+          },
+          {
+            "type": "compose_expr",
+            "named": true
+          },
+          {
+            "type": "cup_expr",
+            "named": true
+          },
+          {
+            "type": "expr_ident",
+            "named": true
+          },
+          {
+            "type": "expr_paren",
+            "named": true
+          },
+          {
+            "type": "fan_expr",
+            "named": true
+          },
+          {
+            "type": "from_data_expr",
+            "named": true
+          },
+          {
+            "type": "identity_expr",
+            "named": true
+          },
+          {
+            "type": "morphism_call",
+            "named": true
+          },
+          {
+            "type": "parser_expr",
+            "named": true
+          },
+          {
+            "type": "postfix_expr",
+            "named": true
+          },
+          {
+            "type": "repeat_expr",
+            "named": true
+          },
+          {
+            "type": "scan_expr",
+            "named": true
+          },
+          {
+            "type": "stack_expr",
+            "named": true
+          },
+          {
+            "type": "tensor_expr",
+            "named": true
+          },
+          {
+            "type": "trans_compose",
             "named": true
           }
         ]
@@ -4003,6 +4400,36 @@
           {
             "type": "trace",
             "named": false
+          }
+        ]
+      }
+    }
+  },
+  {
+    "type": "morphism_call",
+    "named": true,
+    "fields": {
+      "args": {
+        "multiple": true,
+        "required": true,
+        "types": [
+          {
+            "type": ",",
+            "named": false
+          },
+          {
+            "type": "identifier",
+            "named": true
+          }
+        ]
+      },
+      "callee": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "identifier",
+            "named": true
           }
         ]
       }
@@ -4113,6 +4540,10 @@
             "named": true
           },
           {
+            "type": "morphism_call",
+            "named": true
+          },
+          {
             "type": "parser_expr",
             "named": true
           },
@@ -4134,6 +4565,10 @@
           },
           {
             "type": "tensor_expr",
+            "named": true
+          },
+          {
+            "type": "trans_compose",
             "named": true
           }
         ]
@@ -4573,6 +5008,10 @@
             "named": true
           },
           {
+            "type": "morphism_call",
+            "named": true
+          },
+          {
             "type": "parser_expr",
             "named": true
           },
@@ -4594,6 +5033,10 @@
           },
           {
             "type": "tensor_expr",
+            "named": true
+          },
+          {
+            "type": "trans_compose",
             "named": true
           }
         ]
@@ -4782,6 +5225,16 @@
           }
         ]
       }
+    },
+    "children": {
+      "multiple": false,
+      "required": false,
+      "types": [
+        {
+          "type": "composition_rule_block",
+          "named": true
+        }
+      ]
     }
   },
   {
@@ -4839,6 +5292,10 @@
             "named": true
           },
           {
+            "type": "morphism_call",
+            "named": true
+          },
+          {
             "type": "parser_expr",
             "named": true
           },
@@ -4860,6 +5317,10 @@
           },
           {
             "type": "tensor_expr",
+            "named": true
+          },
+          {
+            "type": "trans_compose",
             "named": true
           }
         ]
@@ -5091,6 +5552,10 @@
             "named": true
           },
           {
+            "type": "morphism_call",
+            "named": true
+          },
+          {
             "type": "parser_expr",
             "named": true
           },
@@ -5112,6 +5577,10 @@
           },
           {
             "type": "tensor_expr",
+            "named": true
+          },
+          {
+            "type": "trans_compose",
             "named": true
           }
         ]
@@ -5494,6 +5963,10 @@
           "named": true
         },
         {
+          "type": "contraction_decl",
+          "named": true
+        },
+        {
           "type": "decoder_decl",
           "named": true
         },
@@ -5824,6 +6297,10 @@
             "named": true
           },
           {
+            "type": "morphism_call",
+            "named": true
+          },
+          {
             "type": "parser_expr",
             "named": true
           },
@@ -5845,6 +6322,10 @@
           },
           {
             "type": "tensor_expr",
+            "named": true
+          },
+          {
+            "type": "trans_compose",
             "named": true
           }
         ]
@@ -5982,6 +6463,10 @@
             "named": true
           },
           {
+            "type": "morphism_call",
+            "named": true
+          },
+          {
             "type": "parser_expr",
             "named": true
           },
@@ -6003,6 +6488,10 @@
           },
           {
             "type": "tensor_expr",
+            "named": true
+          },
+          {
+            "type": "trans_compose",
             "named": true
           }
         ]
@@ -6048,6 +6537,10 @@
             "named": true
           },
           {
+            "type": "morphism_call",
+            "named": true
+          },
+          {
             "type": "parser_expr",
             "named": true
           },
@@ -6070,35 +6563,163 @@
           {
             "type": "tensor_expr",
             "named": true
+          },
+          {
+            "type": "trans_compose",
+            "named": true
           }
         ]
       }
     }
   },
   {
-    "type": "transformation_call",
+    "type": "trans_compose",
     "named": true,
     "fields": {
-      "args": {
-        "multiple": true,
-        "required": false,
-        "types": [
-          {
-            "type": ",",
-            "named": false
-          },
-          {
-            "type": "identifier",
-            "named": true
-          }
-        ]
-      },
-      "factory": {
+      "left": {
         "multiple": false,
         "required": true,
         "types": [
           {
-            "type": "identifier",
+            "type": "cap_expr",
+            "named": true
+          },
+          {
+            "type": "chart_fold_expr",
+            "named": true
+          },
+          {
+            "type": "compose_expr",
+            "named": true
+          },
+          {
+            "type": "cup_expr",
+            "named": true
+          },
+          {
+            "type": "expr_ident",
+            "named": true
+          },
+          {
+            "type": "expr_paren",
+            "named": true
+          },
+          {
+            "type": "fan_expr",
+            "named": true
+          },
+          {
+            "type": "from_data_expr",
+            "named": true
+          },
+          {
+            "type": "identity_expr",
+            "named": true
+          },
+          {
+            "type": "morphism_call",
+            "named": true
+          },
+          {
+            "type": "parser_expr",
+            "named": true
+          },
+          {
+            "type": "postfix_expr",
+            "named": true
+          },
+          {
+            "type": "repeat_expr",
+            "named": true
+          },
+          {
+            "type": "scan_expr",
+            "named": true
+          },
+          {
+            "type": "stack_expr",
+            "named": true
+          },
+          {
+            "type": "tensor_expr",
+            "named": true
+          },
+          {
+            "type": "trans_compose",
+            "named": true
+          }
+        ]
+      },
+      "right": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "cap_expr",
+            "named": true
+          },
+          {
+            "type": "chart_fold_expr",
+            "named": true
+          },
+          {
+            "type": "compose_expr",
+            "named": true
+          },
+          {
+            "type": "cup_expr",
+            "named": true
+          },
+          {
+            "type": "expr_ident",
+            "named": true
+          },
+          {
+            "type": "expr_paren",
+            "named": true
+          },
+          {
+            "type": "fan_expr",
+            "named": true
+          },
+          {
+            "type": "from_data_expr",
+            "named": true
+          },
+          {
+            "type": "identity_expr",
+            "named": true
+          },
+          {
+            "type": "morphism_call",
+            "named": true
+          },
+          {
+            "type": "parser_expr",
+            "named": true
+          },
+          {
+            "type": "postfix_expr",
+            "named": true
+          },
+          {
+            "type": "repeat_expr",
+            "named": true
+          },
+          {
+            "type": "scan_expr",
+            "named": true
+          },
+          {
+            "type": "stack_expr",
+            "named": true
+          },
+          {
+            "type": "tensor_expr",
+            "named": true
+          },
+          {
+            "type": "trans_compose",
             "named": true
           }
         ]
@@ -6676,6 +7297,10 @@
     "named": false
   },
   {
+    "type": ">>>",
+    "named": false
+  },
+  {
     "type": "?>",
     "named": false
   },
@@ -6748,6 +7373,10 @@
     "named": false
   },
   {
+    "type": "bilinear_form",
+    "named": false
+  },
+  {
     "type": "binary",
     "named": false
   },
@@ -6800,11 +7429,19 @@
     "named": false
   },
   {
+    "type": "composition_rule",
+    "named": false
+  },
+  {
     "type": "constructors",
     "named": false
   },
   {
     "type": "continuous",
+    "named": false
+  },
+  {
+    "type": "contraction",
     "named": false
   },
   {
@@ -7058,6 +7695,10 @@
     "named": false
   },
   {
+    "type": "semigroupoid",
+    "named": false
+  },
+  {
     "type": "semiring",
     "named": false
   },
@@ -7135,6 +7776,10 @@
   },
   {
     "type": "where",
+    "named": false
+  },
+  {
+    "type": "wiring",
     "named": false
   },
   {

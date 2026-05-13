@@ -22,6 +22,9 @@ from quivers.dsl.ast_nodes import (
     BinderArg,
     BinderDecl,
     BinderVar,
+    CompositionRuleEntry,
+    ContractionDecl,
+    ContractionInput,
     EncoderDecl,
     EncoderInitRule,
     EncoderMessageRule,
@@ -55,11 +58,13 @@ from quivers.dsl.ast_nodes import (
     ExprIdentity,
     ExprCap,
     ExprChangeBase,
+    ExprTransCompose,
     ExprCup,
     ExprDagger,
     ExprFreeze,
     ExprFromData,
     ExprMarginalize,
+    ExprMorphismCall,
     ExprTrace,
     ExprParser,
     ExprRepeat,
@@ -356,6 +361,28 @@ def _walk_expr(t: _Tree, vid: str) -> Expr:
         return _walk_expr(t, t.positional(vid)[0])
     if k == "expr_ident":
         return ExprIdent(name=t.text(t.positional(vid)[0]), line=line, col=col)
+    if k == "morphism_call":
+        callee_vid = t.field(vid, "callee")
+        if callee_vid is None:
+            raise ParseError(f"morphism_call missing callee at {vid}")
+        arg_vids = t.fields(vid, "args")
+        return ExprMorphismCall(
+            callee=t.text(callee_vid),
+            args=tuple(t.text(a) for a in arg_vids),
+            line=line,
+            col=col,
+        )
+    if k == "trans_compose":
+        left_vid = t.field(vid, "left")
+        right_vid = t.field(vid, "right")
+        if left_vid is None or right_vid is None:
+            raise ParseError(f"trans_compose missing operands at {vid}")
+        return ExprTransCompose(
+            left=_walk_expr(t, left_vid),
+            right=_walk_expr(t, right_vid),
+            line=line,
+            col=col,
+        )
     if k == "compose_expr":
         left_vid = t.field(vid, "left")
         right_vid = t.field(vid, "right")
@@ -421,9 +448,7 @@ def _walk_expr(t: _Tree, vid: str) -> Expr:
                     col=col,
                 )
             if method_name == "dagger":
-                return ExprDagger(
-                    inner=_walk_expr(t, inner_vid), line=line, col=col
-                )
+                return ExprDagger(inner=_walk_expr(t, inner_vid), line=line, col=col)
             if method_name == "trace":
                 args = t.fields(method_vid, "args")
                 if len(args) != 1:
@@ -437,52 +462,25 @@ def _walk_expr(t: _Tree, vid: str) -> Expr:
                     col=col,
                 )
             if method_name == "freeze":
-                return ExprFreeze(
-                    inner=_walk_expr(t, inner_vid), line=line, col=col
-                )
+                return ExprFreeze(inner=_walk_expr(t, inner_vid), line=line, col=col)
             if method_name == "change_base":
-                # The argument is one of:
-                #   * a bare identifier — bare-name lookup in the
-                #     transformation catalog (legacy surface);
-                #   * a transformation_call node — a factory call
-                #     ``softmax_over(B)`` / ``bayes_invert(prior)``
-                #     whose factory and argument names resolve in
-                #     the surrounding scope.
+                # The argument is any expression that evaluates to
+                # a transformation (a QuantaleHomomorphism or
+                # MorphismTransformation): a bare identifier
+                # (registered singleton or let-bound trans), a
+                # constructor call ``softmax(B)`` /
+                # ``bayes_invert(prior)`` (parsed as
+                # :class:`ExprMorphismCall` and dispatched in the
+                # compiler), or a composition ``t1 >>> t2`` (parsed
+                # as :class:`ExprTransCompose`).
                 arg_vid = t.field(method_vid, "arg")
                 if arg_vid is None:
-                    raise ParseError(
-                        f"change_base() missing argument at {vid}"
-                    )
-                arg_kind = t.kind(arg_vid)
-                if arg_kind == "identifier":
-                    return ExprChangeBase(
-                        inner=_walk_expr(t, inner_vid),
-                        factory=t.text(arg_vid),
-                        call_args=(),
-                        line=line,
-                        col=col,
-                    )
-                if arg_kind == "transformation_call":
-                    factory_vid = t.field(arg_vid, "factory")
-                    if factory_vid is None:
-                        raise ParseError(
-                            f"transformation_call missing factory "
-                            f"name at {arg_vid}"
-                        )
-                    factory_name = t.text(factory_vid)
-                    arg_names = tuple(
-                        t.text(a) for a in t.fields(arg_vid, "args")
-                    )
-                    return ExprChangeBase(
-                        inner=_walk_expr(t, inner_vid),
-                        factory=factory_name,
-                        call_args=arg_names,
-                        line=line,
-                        col=col,
-                    )
-                raise ParseError(
-                    f"change_base(): unexpected argument node "
-                    f"kind {arg_kind!r} at {arg_vid}"
+                    raise ParseError(f"change_base() missing argument at {vid}")
+                return ExprChangeBase(
+                    inner=_walk_expr(t, inner_vid),
+                    phi=_walk_expr(t, arg_vid),
+                    line=line,
+                    col=col,
                 )
             raise ParseError(f"unknown postfix method {method_name!r} at {vid}")
         raise ParseError(f"unexpected postfix method at {vid}")
@@ -508,11 +506,7 @@ def _walk_expr(t: _Tree, vid: str) -> Expr:
         raw_key = t.text(key_vid)
         # Strip surrounding quotes from the string literal.
         key = raw_key.strip()
-        if (
-            len(key) >= 2
-            and key[0] == key[-1]
-            and key[0] in ('"', "'")
-        ):
+        if len(key) >= 2 and key[0] == key[-1] and key[0] in ('"', "'"):
             key = key[1:-1]
         return ExprFromData(key=key, line=line, col=col)
     if k == "fan_expr":
@@ -1016,7 +1010,32 @@ def _walk_statement(t: _Tree, vid: str) -> Statement | list[Statement]:
 
     if k == "quantale_decl":
         nv = t.field(vid, "name")
-        return QuantaleDecl(name=_required_text(t, nv, vid, "name"), line=line, col=col)
+        # Tree-sitter doesn't emit a named child for the literal
+        # keyword token, so the ``level`` field doesn't appear in
+        # the parse tree.  Recover the keyword by reading the
+        # leading word from the declaration's source range.
+        decl_text = t.text(vid).lstrip()
+        level: str = "quantale"
+        for kw in ("composition_rule", "bilinear_form", "semigroupoid", "quantale"):
+            if decl_text.startswith(kw):
+                level = kw
+                break
+        body_entries: list = []
+        for child_vid in t.positional(vid):
+            if t.kind(child_vid) == "composition_rule_block":
+                for entry_vid in t.positional(child_vid):
+                    if t.kind(entry_vid) != "composition_rule_entry":
+                        continue
+                    body_entries.append(_walk_composition_rule_entry(t, entry_vid))
+        return QuantaleDecl(
+            name=_required_text(t, nv, vid, "name"),
+            declared_level=level,
+            body=tuple(body_entries),
+            line=line,
+            col=col,
+        )
+    if k == "contraction_decl":
+        return _walk_contraction_decl(t, vid, line, col)
     if k == "category_decl":
         out: list[Statement] = []
         for nv in t.fields(vid, "names"):
@@ -1397,6 +1416,86 @@ def _walk_lexicon_entry(t: _Tree, vid: str) -> LexiconEntry:
         category=_walk_type(t, cv),
         lf=_walk_let_arith(t, lv),
         learnable=learnable,
+        line=line,
+        col=col,
+    )
+
+
+def _walk_composition_rule_entry(t: _Tree, vid: str) -> CompositionRuleEntry:
+    """Walk a single ``composition_rule_entry`` node.
+
+    Two shapes:
+
+    * ``key(p1, p2, …) = body`` — function-valued entry; the
+      tuple of param names is non-empty.
+    * ``key = body``           — value-valued entry; ``params``
+      is empty and ``body`` is a literal-typed let-arith expression.
+    """
+    line, col = t.line_col(vid)
+    key_vid = t.field(vid, "key")
+    body_vid = t.field(vid, "body")
+    if key_vid is None or body_vid is None:
+        raise ParseError(f"composition_rule_entry missing key/body at {vid}")
+    params = tuple(t.text(p_vid) for p_vid in t.fields(vid, "params"))
+    return CompositionRuleEntry(
+        key=t.text(key_vid),
+        params=params,
+        body=_walk_let_arith(t, body_vid),
+        line=line,
+        col=col,
+    )
+
+
+def _walk_contraction_decl(t: _Tree, vid: str, line: int, col: int) -> ContractionDecl:
+    """Walk a ``contraction_decl`` node.
+
+    Captures the input list (each entry a typed morphism arg),
+    the output type ``domain -> codomain``, the rule name, and
+    the wiring spec string.
+    """
+    name_vid = t.field(vid, "name")
+    domain_vid = t.field(vid, "domain")
+    codomain_vid = t.field(vid, "codomain")
+    rule_vid = t.field(vid, "rule_name")
+    wiring_vid = t.field(vid, "wiring_spec")
+    if (
+        name_vid is None
+        or domain_vid is None
+        or codomain_vid is None
+        or rule_vid is None
+        or wiring_vid is None
+    ):
+        raise ParseError(f"contraction_decl missing required field at {vid}")
+    inputs: list[ContractionInput] = []
+    for inp_vid in t.fields(vid, "inputs"):
+        in_name_vid = t.field(inp_vid, "name")
+        in_dom_vid = t.field(inp_vid, "input_domain")
+        in_cod_vid = t.field(inp_vid, "input_codomain")
+        if in_name_vid is None or in_dom_vid is None or in_cod_vid is None:
+            raise ParseError(f"contraction_input missing field at {inp_vid}")
+        inp_line, inp_col = t.line_col(inp_vid)
+        inputs.append(
+            ContractionInput(
+                name=t.text(in_name_vid),
+                input_domain=_walk_type(t, in_dom_vid),
+                input_codomain=_walk_type(t, in_cod_vid),
+                line=inp_line,
+                col=inp_col,
+            )
+        )
+    # Strip surrounding quotes from the wiring spec string literal.
+    wiring_raw = t.text(wiring_vid)
+    if len(wiring_raw) >= 2 and wiring_raw[0] == '"' and wiring_raw[-1] == '"':
+        wiring_text = wiring_raw[1:-1]
+    else:
+        wiring_text = wiring_raw
+    return ContractionDecl(
+        name=t.text(name_vid),
+        inputs=tuple(inputs),
+        domain=_walk_type(t, domain_vid),
+        codomain=_walk_type(t, codomain_vid),
+        rule_name=t.text(rule_vid),
+        wiring_spec=wiring_text,
         line=line,
         col=col,
     )

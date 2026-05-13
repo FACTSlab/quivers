@@ -255,4 +255,4 @@ You have:
 - Computed marginal probabilities and expectations
 - Built multi-stage inference chains
 
-Next, learn how to work with continuous spaces and probabilistic programs in [Tutorial 3](probabilistic-programs.md).
+Next, learn how to work with continuous spaces and probabilistic programs in [Tutorial 3](03-probabilistic-programs.md).

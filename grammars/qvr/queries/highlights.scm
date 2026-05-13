@@ -15,8 +15,13 @@
 ; Module-level declaration / statement keywords.
 [
   "quantale"
+  "semigroupoid"
+  "bilinear_form"
+  "composition_rule"
+  "contraction"
   "category"
   "rule"
+  "wiring"
   "schema"
   "object"
   "let"
@@ -37,6 +42,7 @@
   "in"
   "for"
   "over"
+  "via"
   "return"
   "latent"
   "observed"
@@ -145,6 +151,7 @@
 [
   "->"
   "=>"
+  ">>>"
   ">>"
   "<<"
   ">=>"

@@ -23,6 +23,8 @@ extra_css:
 extra_javascript:
   - js/mathjax.js
   - https://cdnjs.cloudflare.com/ajax/libs/mathjax/3.2.2/es5/tex-mml-chtml.js
+  - js/mermaid-init.js
+  - https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js
 
 markdown_extensions:
   - admonition
@@ -33,13 +35,20 @@ markdown_extensions:
       permalink: true
   - pymdownx.arithmatex:
       generic: true
-  - pymdownx.superfences
+  - pymdownx.superfences:
+      custom_fences:
+        - name: mermaid
+          class: mermaid
+          format: !!python/name:pymdownx.superfences.fence_code_format
   - pymdownx.tabbed:
       alternate_style: true
   - pymdownx.details
   - attr_list
   - def_list
   - footnotes
+
+hooks:
+  - docs/hooks/register_qvr_lexer.py
 
 plugins:
   - search
@@ -73,6 +82,7 @@ nav:
   - Guides:
     - Overview: guides/index.md
     - Core Types & Quantales: guides/core.md
+    - Transformations & Composition Rules: guides/transformations.md
     - Morphisms & Composition: guides/morphisms.md
     - Categorical Structures: guides/categorical.md
     - Monads & Comonads: guides/monadic.md
@@ -89,6 +99,7 @@ nav:
     - Overview: semantics/index.md
     - Setting and Notation: semantics/setting.md
     - Quantales and Base Change: semantics/quantales.md
+    - Composition Rules: semantics/composition-rules.md
     - Types and Spaces: semantics/types-and-spaces.md
     - Morphisms: semantics/morphisms.md
     - Expressions: semantics/expressions.md
@@ -122,17 +133,27 @@ nav:
       - Event Structure Model: examples/event-structure.md
   - Tutorials:
     - Overview: tutorials/index.md
-    - "Tutorial 1: Your First Quiver": tutorials/first-quiver.md
-    - "Tutorial 2: Stochastic Relations": tutorials/stochastic-relations.md
-    - "Tutorial 3: Probabilistic Programs": tutorials/probabilistic-programs.md
-    - "Tutorial 4: Fuzzy Logic Factorization": tutorials/fuzzy-factorization.md
-    - "Tutorial 5: Variational Inference": tutorials/variational-inference.md
+    - QVR DSL track:
+      - "1. Your first model": tutorials/qvr/01-first-model.md
+      - "2. Generalised linear models": tutorials/qvr/02-glms.md
+      - "3. Hierarchical models": tutorials/qvr/03-hierarchical.md
+      - "4. Mixtures and discrete latents": tutorials/qvr/04-marginalize.md
+      - "5. Sequence models": tutorials/qvr/05-time-series.md
+      - "6. Choosing an inference algorithm": tutorials/qvr/06-inference-zoo.md
+      - "7. Under the hood: the categorical surface": tutorials/qvr/07-categorical.md
+    - Python API track:
+      - "1. Your first quiver": tutorials/python/01-first-quiver.md
+      - "2. Stochastic relations": tutorials/python/02-stochastic-relations.md
+      - "3. Probabilistic programs": tutorials/python/03-probabilistic-programs.md
+      - "4. Fuzzy logic factorisation": tutorials/python/04-fuzzy-factorization.md
+      - "5. Variational inference": tutorials/python/05-variational-inference.md
+      - "6. First-class transformations": tutorials/python/06-first-class-trans.md
+      - "7. Composition rules beyond quantales": tutorials/python/07-composition-rules.md
   - API Reference:
     - Overview: api/index.md
     - Core:
       - Overview: api/core/objects.md
       - Quantales: api/core/quantales.md
-      - Extra Quantales: api/core/extra_quantales.md
       - Morphisms: api/core/morphisms.md
       - Tensor Operations: api/core/tensor_ops.md
       - Utilities: api/core/util.md
@@ -204,7 +225,8 @@ nav:
       - Overview: api/inference/trace.md
       - Conditioning: api/inference/conditioning.md
       - Guides: api/inference/guide.md
-      - ELBO: api/inference/elbo.md
+      - Objectives: api/inference/elbo.md
+      - Estimators: api/inference/estimators.md
       - SVI: api/inference/svi.md
       - Predictive: api/inference/predictive.md
     - Program: api/program.md

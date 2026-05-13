@@ -6,11 +6,11 @@ Continuous morphisms act between continuous measurable spaces. quivers provides 
 
 ```
 ContinuousSpace (abstract)
-├── Euclidean          — ℝ^n with Lebesgue measure
-├── UnitInterval       — (0, 1) with Lebesgue measure
-├── Simplex            — standard n-simplex {x ∈ ℝⁿ⁺¹ : x ≥ 0, Σx = 1}
-├── PositiveReals      — (0, ∞) with Lebesgue measure
-└── ProductSpace       — product of spaces
+├── Euclidean         , ℝ^n with Lebesgue measure
+├── UnitInterval      , (0, 1) with Lebesgue measure
+├── Simplex           , standard n-simplex {x ∈ ℝⁿ⁺¹ : x ≥ 0, Σx = 1}
+├── PositiveReals     , (0, ∞) with Lebesgue measure
+└── ProductSpace      , product of spaces
 ```
 
 ### Euclidean Space

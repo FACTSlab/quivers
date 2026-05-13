@@ -44,13 +44,13 @@ deduction CCG : Term -> Term {
 
 ## Overview
 
-Combinatory Categorial Grammar (CCG) is expressed as an agenda-based weighted deduction whose items are chart spans `span(I, J, X)` (token range `[I, J)` carrying category `X`). The structural combinators of CCG — forward and backward application, harmonic composition, and crossed composition — each become one sequent rule. The semiring is `LogProb`, so inside scores flow as differentiable tensors back to whatever axiom / rule weights the user marks `learnable`.
+Combinatory Categorial Grammar (CCG) is expressed as an agenda-based weighted deduction whose items are chart spans `span(I, J, X)` (token range `[I, J)` carrying category `X`). The structural combinators of CCG, forward and backward application, harmonic composition, and crossed composition, each become one sequent rule. The semiring is `LogProb`, so inside scores flow as differentiable tensors back to whatever axiom / rule weights the user marks `learnable`.
 
 ## Walkthrough
 
 `object Term : 16` declares a finite carrier for chart items; the concrete cardinality is irrelevant because the deduction reasons symbolically over constructor-tagged tuples, not over enumerated elements of `Term`.
 
-`atoms { … }` lists every identifier the rules may match literally — category atoms (`NP`, `S`, `N`, `VP`, `PP`), slash constructors (`Fwd`, `Bwd`), and the chart-item constructor (`span`). Identifiers not listed here that appear in a rule pattern are bound as wildcards; the convention is single uppercase letters (`X`, `Y`, `Z`, `I`, `J`, `K`).
+`atoms { … }` lists every identifier the rules may match literally, category atoms (`NP`, `S`, `N`, `VP`, `PP`), slash constructors (`Fwd`, `Bwd`), and the chart-item constructor (`span`). Identifiers not listed here that appear in a rule pattern are bound as wildcards; the convention is single uppercase letters (`X`, `Y`, `Z`, `I`, `J`, `K`).
 
 Each `rule` is a sequent: premises on the left of `|-`, conclusion on the right. `Fwd(X, Y)` constructs the forward-slash category `X/Y`; `Bwd(X, Y)` constructs the backward-slash category `X\Y`. Adjacent spans whose end / start indices agree fire whichever rule's pattern matches their categories.
 
@@ -58,7 +58,7 @@ Each `rule` is a sequent: premises on the left of `|-`, conclusion on the right.
 
 ## DSL Features
 
-- **`deduction { … }` block**: declares the agenda-based weighted deduction in a single record. The block's seven irreducible parameters — item algebra (via `atoms`), rule set, semiring, axiom source, goal predicate, start symbol, depth bound — are field-by-field.
+- **`deduction { … }` block**: declares the agenda-based weighted deduction in a single record. The block's seven irreducible parameters, item algebra (via `atoms`), rule set, semiring, axiom source, goal predicate, start symbol, depth bound, are field-by-field.
 - **`atoms { … }`**: closes the constructor universe. Every identifier appearing in a rule pattern must be either an atom or a single-uppercase wildcard variable.
 - **Sequent rules**: arbitrary-arity premises on the left of `|-`, single conclusion on the right; rules with one premise are unary chart rules, with two are binary, and so on.
 - **Slash constructors**: `Fwd(X, Y)` and `Bwd(X, Y)` are user-declared atoms, not built-in syntax. The combinators are theorems in this presentation.

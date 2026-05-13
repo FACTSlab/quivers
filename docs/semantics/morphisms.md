@@ -21,7 +21,7 @@ For `latent`, the entries are *free parameters* drawn from $V$; the realisation 
 
 For `observed g : τ₁ -> τ₂ = data`, the entries are *fixed*: $\llbracket g \rrbracket(x, y) = \mathrm{data}[x, y]$.
 
-The implementation does not distinguish the two cases at the categorical level — both produce objects of $\mathcal{V}\text{-}\mathbf{Rel}$. The latent/observed distinction is operational, controlling the gradient-flow during training.
+The implementation does not distinguish the two cases at the categorical level: both produce objects of $\mathcal{V}\text{-}\mathbf{Rel}$. The latent/observed distinction is operational, controlling the gradient-flow during training.
 
 ### 1.1 Composition, tensor, identity
 

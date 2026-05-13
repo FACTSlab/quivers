@@ -67,10 +67,10 @@ The three strata are not independent: the inclusion $\iota : \mathbf{FinSet} \ho
 
 A *semantic environment* $\rho$ is a partial function from identifiers to denotations, partitioned into:
 
-- $\rho_{\mathrm{obj}}$ — finite-set objects;
-- $\rho_{\mathrm{spc}}$ — standard Borel spaces;
-- $\rho_{\mathrm{mor}}$ — morphisms (discrete, stochastic, or continuous);
-- $\rho_{\mathrm{cat}}$ — category atoms in the grammar fragment.
+- $\rho_{\mathrm{obj}}$: finite-set objects;
+- $\rho_{\mathrm{spc}}$: standard Borel spaces;
+- $\rho_{\mathrm{mor}}$: morphisms (discrete, stochastic, or continuous);
+- $\rho_{\mathrm{cat}}$: category atoms in the grammar fragment.
 
 Following established practice, we write $\rho[x \mapsto v]$ for the environment obtained by extending $\rho$ with the binding $x = v$. The denotation of a phrase $\phi$ in environment $\rho$ is written $\llbracket \phi \rrbracket_{\rho}$; we elide $\rho$ when the binding context is clear.
 
@@ -84,4 +84,4 @@ $$
 
 where $\Gamma$ is a typing context analogous to $\rho$ but tracking only sorts (object / space / morphism with domain–codomain types), and $\tau$ is the assigned sort. The denotational semantics is total on well-typed phrases: the denotation function is defined exactly on the derivation trees of $\Gamma \vdash \phi : \tau$.
 
-We do not present the type system in detail here — the implementation in `quivers.dsl.compiler` is its operational realisation, and the [Adequacy](adequacy.md) theorem establishes the soundness of typing with respect to the denotation.
+We do not present the type system in detail here, the implementation in `quivers.dsl.compiler` is its operational realisation, and the [Adequacy](adequacy.md) theorem establishes the soundness of typing with respect to the denotation.

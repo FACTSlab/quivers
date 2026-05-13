@@ -372,7 +372,7 @@ deduction PCFG : Term -> Term {
 
 ### [Weighted Combinatory Categorial Grammar](ccg.md)
 
-A weighted CCG parser whose six structural combinators — forward / backward application, harmonic composition, crossed composition — are each one sequent rule over `span(I, J, X)`. The slash constructors `Fwd(X, Y) ≡ X/Y` and `Bwd(X, Y) ≡ X\Y` are user-declared atoms.
+A weighted CCG parser whose six structural combinators, forward / backward application, harmonic composition, crossed composition, are each one sequent rule over `span(I, J, X)`. The slash constructors `Fwd(X, Y) ≡ X/Y` and `Bwd(X, Y) ≡ X\Y` are user-declared atoms.
 
 **Features:** `deduction`, `atoms`, sequent rules, slash constructors, `semiring LogProb`
 

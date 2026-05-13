@@ -42,9 +42,9 @@ Multimodal type-logical grammar (Moortgat 1997) extends the Lambek calculus with
 
 `atoms { … }` declares category atoms (`S`, `NP`, `N`, `VP`, `PP`), slash constructors (`Fwd`, `Bwd`), and modal constructors (`Dia`, `Box`). Chart items are `span(I, J, X)` triples.
 
-- **`right_app` / `left_app`** — modus ponens for forward / backward slash, exactly as in the base Lambek calculus.
-- **`dia_intro`** — modal introduction: a derivation of `A` lifts to a derivation of `Dia(A)` over the same span. This is the unit of the modality's monadic structure on the category of formulas.
-- **`dia_elim`** — modal elimination: a derivation of `Dia(A)` projects back to a derivation of `A` over the same span. Combined with structural rules licensed under the modality, `dia_elim` is what permits controlled exchange / weakening / contraction within modal-marked subderivations.
+- **`right_app` / `left_app`**: modus ponens for forward / backward slash, exactly as in the base Lambek calculus.
+- **`dia_intro`**: modal introduction: a derivation of `A` lifts to a derivation of `Dia(A)` over the same span. This is the unit of the modality's monadic structure on the category of formulas.
+- **`dia_elim`**: modal elimination: a derivation of `Dia(A)` projects back to a derivation of `A` over the same span. Combined with structural rules licensed under the modality, `dia_elim` is what permits controlled exchange / weakening / contraction within modal-marked subderivations.
 
 A richer fragment would add explicit modal structural rules (modal exchange, modal contraction) and the `Box` introduction / elimination duals; both are sequent rules in the same style.
 

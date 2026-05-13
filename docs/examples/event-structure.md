@@ -84,7 +84,7 @@ $$
 \llbracket \mathsf{random\_intercepts} \rrbracket \;:\; \prod_{G : \mathbf{FinSet}} \prod_{\mathrm{scale} : \mathbb{R}_{>0}} \mathbf{Kern}(G, \mathbf{1}),
 $$
 
-a half-normal scale hyperprior followed by a $G$-indexed Normal-$(0, \sigma)$ plate. Each of the eight call sites — `by_subj_cloze`, `by_verb_cloze`, ..., `by_item_prop` — inlines a fresh α-renamed copy of the body, so every grouping factor contributes an independent $\sigma$ and an independent per-level plate. The eight call sites realise crossed random intercepts on the cloze and proportion sides of the experiment.
+a half-normal scale hyperprior followed by a $G$-indexed Normal-$(0, \sigma)$ plate. Each of the eight call sites, `by_subj_cloze`, `by_verb_cloze`, ..., `by_item_prop`, inlines a fresh α-renamed copy of the body, so every grouping factor contributes an independent $\sigma$ and an independent per-level plate. The eight call sites realise crossed random intercepts on the cloze and proportion sides of the experiment.
 
 A named `continuous` morphism cannot bundle a fresh scale draw per call because morphism reference is invocation, not instantiation; parametric programs *are* instantiated freshly at each call, which is the right categorical handle for prior reuse.
 

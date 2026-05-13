@@ -30,7 +30,6 @@ colored operad whose colors are the V-Cat object types; the
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
-from collections.abc import Sequence
 
 import torch
 
@@ -121,18 +120,33 @@ class EinsumWiring(WiringRule):
                 f"got {type(composition_rule).__name__}"
             )
         if "->" not in spec:
-            raise ValueError(
-                f"EinsumWiring: spec must contain '->', got {spec!r}"
-            )
+            raise ValueError(f"EinsumWiring: spec must contain '->', got {spec!r}")
         lhs, rhs = spec.split("->", maxsplit=1)
         input_specs = tuple(s.strip() for s in lhs.split(","))
         output_spec = rhs.strip()
-        # Validate that every input is non-empty.
+        # Validate that every input is non-empty and uses distinct
+        # letters.  Duplicate letters within one input express a
+        # trace / diagonal contraction that this implementation
+        # does not realise; refusing them at construction time
+        # surfaces the limitation honestly rather than producing
+        # wrong shapes at apply time.
         for i, ispec in enumerate(input_specs):
             if not ispec:
+                raise ValueError(f"EinsumWiring: input {i} of spec {spec!r} is empty")
+            if len(set(ispec)) != len(ispec):
                 raise ValueError(
-                    f"EinsumWiring: input {i} of spec {spec!r} is empty"
+                    f"EinsumWiring: input {i} of spec {spec!r} repeats "
+                    f"an axis letter ({ispec!r}); diagonal/trace "
+                    f"contractions are not supported by this wiring"
                 )
+        # Output letters must also be distinct (a repeated output
+        # letter would require axis-duplication which einsum does
+        # not realise).
+        if len(set(output_spec)) != len(output_spec):
+            raise ValueError(
+                f"EinsumWiring: output {output_spec!r} of spec "
+                f"{spec!r} repeats an axis letter"
+            )
         # Build the axis universe (preserving first-mention order).
         seen: dict[str, None] = {}
         for ispec in input_specs:
@@ -204,15 +218,11 @@ class EinsumWiring(WiringRule):
             ch for ch in self._axis_universe if ch in self._output_spec
         ]
         if surviving_letters != list(self._output_spec):
-            permutation = [
-                surviving_letters.index(ch) for ch in self._output_spec
-            ]
+            permutation = [surviving_letters.index(ch) for ch in self._output_spec]
             acc = acc.permute(*permutation).contiguous()
         return acc
 
-    def _broadcast_to_universe(
-        self, tensor: torch.Tensor, spec: str
-    ) -> torch.Tensor:
+    def _broadcast_to_universe(self, tensor: torch.Tensor, spec: str) -> torch.Tensor:
         """Insert singleton dimensions so ``tensor`` aligns with the
         full ``self._axis_universe`` axis order.
 
@@ -249,9 +259,7 @@ class EinsumWiring(WiringRule):
         return permuted.reshape(target_shape)
 
 
-def einsum_wiring(
-    composition_rule: CompositionRule, spec: str
-) -> EinsumWiring:
+def einsum_wiring(composition_rule: CompositionRule, spec: str) -> EinsumWiring:
     """Convenience constructor for :class:`EinsumWiring`."""
     return EinsumWiring(composition_rule, spec)
 
@@ -265,7 +273,7 @@ def contract(
     Thin wrapper around :meth:`WiringRule.apply` for call-site
     readability::
 
-        result = contract(my_rule, prem1, prem2, kernel)
+        result = contract(my_rule, arg1, arg2, kernel)
 
     reads more naturally than the method-call form.
     """

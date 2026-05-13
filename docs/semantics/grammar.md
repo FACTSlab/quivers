@@ -68,11 +68,11 @@ A deduction needs an *axiom injector*
 `ax : Input → List(I × K)` producing the initial chart from an
 input. The block admits three surface forms:
 
-- `lexicon { "word" : Cat = lf @ learnable, … }` — label-indexed
+- `lexicon { "word" : Cat = lf @ learnable, … }`: label-indexed
   lookup table inline.
-- `lexicon from "path.tsv" with learnable` — same shape loaded
+- `lexicon from "path.tsv" with learnable`: same shape loaded
   from a TSV.
-- `axioms = some_kernel_morphism` — a declared Kleisli morphism
+- `axioms = some_kernel_morphism`: a declared Kleisli morphism
   `Input → List(I × K)`.
 
 ## 5. Goal and depth
@@ -96,7 +96,7 @@ $$
             \bigotimes_{\ell=1}^{k} \alpha[i_{\ell}]
 $$
 
-— the `K`-join over all `Σ`-derivations of `i`, of the product
+: the `K`-join over all `Σ`-derivations of `i`, of the product
 of the children's weights. The base case is the axiom injector:
 `α[i] = w` for every `(i, w) ∈ ax(input)`, all other unproven
 items at `⊥`.
@@ -149,11 +149,13 @@ flowing from rule-weight parameters through the agenda's
 
 ## 9. Program-fragment integration
 
-The Bayesian-modelling step kinds, effect signatures, and the
-`over`-modifier introduce additional productions in the QVR
-grammar. The shapes below mirror the tree-sitter source at
-`grammars/qvr/grammar.js`; semantics is given in
-[Programs §2.1–§2.8 and §3a](programs.md).
+The Bayesian-modelling step kinds, effect signatures, the
+`over`-modifier, the operadic-contraction call, and the
+transformation-composition operator introduce additional
+productions in the QVR grammar. The shapes below mirror the
+tree-sitter source at `grammars/qvr/grammar.js`; semantics is
+given in [Programs](programs.md), [Expressions](expressions.md),
+and [Composition Rules](composition-rules.md).
 
 ```ebnf
 typed_program_param := IDENT ':' param_kind
@@ -173,7 +175,10 @@ observe_step        := 'observe' IDENT [ ':' type_expr ] '<-' IDENT
 
 marginalize_step    := 'marginalize' IDENT [ ':' type_expr ] '<-' IDENT
                        [ '(' draw_arg_list ')' ]
+                       [ grouping_clause ]
                        'in' '{' program_step* '}'
+
+grouping_clause     := 'over' IDENT 'via' IDENT
 
 let_index           := IDENT '[' let_arith (',' let_arith)* ']'
 
@@ -182,9 +187,49 @@ program_decl        := 'program' IDENT [ '(' param_list ')' ]
                        [ '!' effect_set ]
                        [ 'over' IDENT ]
                        program_step* 'return' return_pattern
+
+# Top-level composition-rule selection. Four keywords name the
+# declared algebraic level; the optional body declares a fresh
+# rule inline.
+composition_rule_decl
+                    := ('quantale' | 'semigroupoid'
+                        | 'bilinear_form' | 'composition_rule')
+                       IDENT [ composition_rule_block ]
+
+composition_rule_block
+                    := '{' composition_rule_entry* '}'
+composition_rule_entry
+                    := IDENT '(' IDENT (',' IDENT)* ')' '=' let_expr
+                     | IDENT '=' let_expr
+
+# Operadic n-ary contraction declaration.
+contraction_decl    := 'contraction' IDENT
+                       '(' contraction_input (',' contraction_input)* ')'
+                       ':' type_expr '->' type_expr
+                       'rule' IDENT
+                       'wiring' STRING
+
+contraction_input   := IDENT ':' type_expr '->' type_expr
+
+# Transformation-valued expressions used inside change_base.
+# Distinct from morphism composition `>>` (see Expressions § 2.7).
+trans_compose       := expr '>>>' expr
+
+# Method-call postfix on a morphism expression. The change_base
+# argument is any expression that resolves to a transformation
+# (singleton, constructor call, let-bound trans, or `>>>` chain).
+change_base_postfix := expr '.' 'change_base' '(' expr ')'
+
+# Operadic call site: `IDENT(arg_1, ..., arg_n)` resolves to a
+# registered contraction or a parametric program template.
+morphism_call       := IDENT '(' IDENT (',' IDENT)* ')'
 ```
 
 A `program_decl` is *parametric* iff its parameter list contains any `typed_program_param`; the walker dispatches parametric programs to the call-site inliner rather than to the runtime program compiler. A program declared with `! effect_set` has its body checked against the declared capability set: the actual effects of the body must form a subset of `effect_set`, and `! Pure` rejects any `bind_step` / `observe_step` / `marginalize_step`. A program declared with `over M` is a posterior block consuming the latents of model `M`; the consumed latents appear as data parameters in the program's parameter list.
+
+A `composition_rule_decl` selects the module's underlying composition rule. With no body, the keyword resolves the named rule from the built-in catalogue and verifies it matches the declared algebraic level (`Quantale`, `Semigroupoid`, `BilinearForm`, or any `CompositionRule`). With a body, the entries declare the rule's operations inline; the keyword fixes the algebraic level, and the compiler verifies that the required entries (`tensor_op`, `join`, plus `unit`, `zero` for `quantale`) are present. See [Composition Rules](composition-rules.md) for the formal denotation.
+
+A `contraction_decl` declares an n-ary operadic morphism whose action contracts its input morphisms under the named composition rule using the wiring spec. Call sites `IDENT(arg_1, …, arg_n)` route through `morphism_call`; the compiler resolves `IDENT` against the contraction registry, the parametric-program template table, and the morphism scope in that order. See [Expressions § 2.8](expressions.md#28-operadic-contraction-call) for the call-site denotation.
 
 ## References
 

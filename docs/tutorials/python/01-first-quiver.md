@@ -205,4 +205,4 @@ You have:
 - Wrapped morphisms as differentiable modules
 - Learned that composition uses the quantale's operations (tensor product and join)
 
-Next, explore how these ideas extend to stochastic morphisms (Markov kernels) in [Tutorial 2](stochastic-relations.md).
+Next, explore how these ideas extend to stochastic morphisms (Markov kernels) in [Tutorial 2](02-stochastic-relations.md).

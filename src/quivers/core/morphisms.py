@@ -40,6 +40,7 @@ from quivers.core.morphism_transformations import MorphismTransformation
 from quivers.core.objects import SetObject, ProductSet
 from quivers.core.quantale_morphisms import QuantaleHomomorphism
 from quivers.core.quantales import PRODUCT_FUZZY, Quantale
+from quivers.core.trans import TransSeq
 
 if TYPE_CHECKING:
     from quivers.categorical.functors import Functor
@@ -181,10 +182,20 @@ class Morphism(ABC):
             codomain are preserved; for shape-aware ones (e.g.
             ``BayesInvert``) the transformation may swap them.
         """
+        if isinstance(phi, TransSeq):
+            # Apply the steps in order; each step's change_base
+            # type-checks its own source against the current
+            # quantale, so a malformed seam surfaces with the
+            # same error a hand-written sequence would produce.
+            current: ObservedMorphism = self  # type: ignore[assignment]
+            for step in phi.steps:
+                current = current.change_base(step)
+            return current
         if not isinstance(phi, (QuantaleHomomorphism, MorphismTransformation)):
             raise TypeError(
-                f"change_base: expected QuantaleHomomorphism or "
-                f"MorphismTransformation; got {type(phi).__name__}"
+                f"change_base: expected QuantaleHomomorphism, "
+                f"MorphismTransformation, or TransSeq; got "
+                f"{type(phi).__name__}"
             )
         if type(phi.source) is not type(self._quantale):
             raise TypeError(
@@ -405,9 +416,7 @@ class Morphism(ABC):
             new_codomain = y_components[0]
         else:
             new_codomain = ProductSet(components=y_components)
-        return ObservedMorphism(
-            new_domain, new_codomain, t, quantale=self._quantale
-        )
+        return ObservedMorphism(new_domain, new_codomain, t, quantale=self._quantale)
 
     def __repr__(self) -> str:
         cls = type(self).__name__

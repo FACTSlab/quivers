@@ -1,18 +1,19 @@
 """DSL surface for parametric morphism transformations.
 
-Exercises the factory-call form of ``change_base``:
+Exercises the constructor-call form of :class:`MorphismTransformation`
+values inside ``change_base``:
 
-* ``f.change_base(softmax_over(B))`` — Tier 1: factory with an
+* ``f.change_base(softmax(B))`` — Tier 1: constructor with an
   object argument resolved at compile time.
-* ``f.change_base(l1_normalize_over(B))`` — same shape.
-* ``f.change_base(l2_normalize_over(B))`` — same shape, identity
+* ``f.change_base(l1_normalize(B))`` — same shape.
+* ``f.change_base(l2_normalize(B))`` — same shape, identity
   target quantale.
-* ``f.change_base(bayes_invert(prior))`` — Tier 2: factory with
-  a morphism argument; the prior's tensor is read when the
-  factory runs to produce the :class:`BayesInvert`.
+* ``f.change_base(bayes_invert(prior))`` — Tier 2: constructor
+  with a morphism argument; the prior's tensor is read when the
+  constructor runs to produce the :class:`BayesInvert`.
 * Bare-name lookup paths still resolve singletons.
-* Helpful error messages for misuse (bare factory without args,
-  unknown factory, unknown argument).
+* Helpful error messages for misuse (bare constructor without
+  args, unknown constructor, unknown argument).
 """
 
 from __future__ import annotations
@@ -33,18 +34,18 @@ _LOCAL_GRAMMAR = pytest.mark.skipif(
 
 
 # ---------------------------------------------------------------------------
-# Tier 1 — object-argument factories
+# Tier 1 — object-argument constructors
 # ---------------------------------------------------------------------------
 
 
 @_LOCAL_GRAMMAR
-def test_softmax_over_compiles() -> None:
+def test_softmax_compiles() -> None:
     src = """
     quantale product_fuzzy
     object A : 3
     object B : 4
     latent f : A -> B
-    let g = f.change_base(softmax_over(B))
+    let g = f.change_base(softmax(B))
     export g
     """
     program = loads(src)
@@ -56,13 +57,13 @@ def test_softmax_over_compiles() -> None:
 
 
 @_LOCAL_GRAMMAR
-def test_l1_normalize_over_compiles() -> None:
+def test_l1_normalize_compiles() -> None:
     src = """
     quantale real
     object A : 3
     object B : 4
     latent f : A -> B
-    let g = f.change_base(l1_normalize_over(B))
+    let g = f.change_base(l1_normalize(B))
     export g
     """
     program = loads(src)
@@ -73,13 +74,13 @@ def test_l1_normalize_over_compiles() -> None:
 
 
 @_LOCAL_GRAMMAR
-def test_l2_normalize_over_compiles() -> None:
+def test_l2_normalize_compiles() -> None:
     src = """
     quantale real
     object A : 3
     object B : 4
     latent f : A -> B
-    let g = f.change_base(l2_normalize_over(B))
+    let g = f.change_base(l2_normalize(B))
     export g
     """
     program = loads(src)
@@ -89,7 +90,7 @@ def test_l2_normalize_over_compiles() -> None:
 
 
 # ---------------------------------------------------------------------------
-# Tier 2 — morphism-argument factory
+# Tier 2 — morphism-argument constructor
 # ---------------------------------------------------------------------------
 
 
@@ -123,22 +124,11 @@ def test_bare_name_homomorphism_still_resolves() -> None:
     quantale boolean
     object A : 3
     object B : 4
-    observed f : A -> B = identity_like(A, B)
-    let g = f.change_base(boolean_embedding)
-    export g
-    """
-    # ``identity_like`` doesn't exist; this is structural only —
-    # we just want the parse + change_base resolution path to work.
-    # Use a latent f instead.
-    src2 = """
-    quantale boolean
-    object A : 3
-    object B : 4
     latent f : A -> B
     let g = f.change_base(boolean_embedding)
     export g
     """
-    program = loads(src2)
+    program = loads(src)
     assert program.morphism is not None
 
 
@@ -148,27 +138,27 @@ def test_bare_name_homomorphism_still_resolves() -> None:
 
 
 @_LOCAL_GRAMMAR
-def test_bare_factory_without_args_errors() -> None:
+def test_bare_constructor_without_args_errors() -> None:
     src = """
     quantale real
     object A : 3
     object B : 4
     latent f : A -> B
-    let g = f.change_base(softmax_over)
+    let g = f.change_base(softmax)
     export g
     """
-    with pytest.raises(CompileError, match="factory"):
+    with pytest.raises(CompileError, match="needs arguments"):
         loads(src)
 
 
 @_LOCAL_GRAMMAR
-def test_unknown_factory_errors() -> None:
+def test_unknown_constructor_errors() -> None:
     src = """
     quantale real
     object A : 3
     object B : 4
     latent f : A -> B
-    let g = f.change_base(not_a_real_factory(B))
+    let g = f.change_base(not_a_real_constructor(B))
     export g
     """
     with pytest.raises(CompileError, match="undefined"):
@@ -176,13 +166,13 @@ def test_unknown_factory_errors() -> None:
 
 
 @_LOCAL_GRAMMAR
-def test_unknown_factory_arg_errors() -> None:
+def test_unknown_constructor_arg_errors() -> None:
     src = """
     quantale real
     object A : 3
     object B : 4
     latent f : A -> B
-    let g = f.change_base(softmax_over(NotAnObject))
+    let g = f.change_base(softmax(NotAnObject))
     export g
     """
     with pytest.raises(CompileError, match="unresolved"):

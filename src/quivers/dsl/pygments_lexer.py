@@ -48,6 +48,10 @@ from quivers.dsl._dev_grammar import _build_shared_lib, _grammar_dir
 _KEYWORD_TOKENS = {
     # module-level declaration keywords
     "quantale",
+    "semigroupoid",
+    "bilinear_form",
+    "composition_rule",
+    "contraction",
     "category",
     "rule",
     "schema",
@@ -79,6 +83,9 @@ _KEYWORD_TOKENS = {
     "Score",
     "Marginal",
     "over",
+    "via",
+    # contraction declaration body keywords
+    "wiring",
     # deduction blocks
     "deduction",
     "atoms",

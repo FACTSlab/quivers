@@ -192,29 +192,44 @@ class ExprTrace(Expr):
 
 
 class ExprChangeBase(Expr):
-    """Change-of-base: apply a quantale homomorphism or
-    morphism-transformation to a morphism.
+    """Change-of-base: apply a transformation (a quantale
+    homomorphism or :class:`MorphismTransformation`) to a
+    morphism.
 
-    Two surface forms are accepted:
+    The transformation is a first-class value: ``phi`` is any
+    expression whose compile-time value is a
+    :class:`MorphismTransformation` or
+    :class:`QuantaleHomomorphism`.  Concretely:
 
-    * Bare-name lookup (``call_args == ()``): the ``factory``
-      string resolves a registered singleton in the compiler's
-      transformation catalog (see
-      :mod:`quivers.core.quantale_morphisms` and
-      :mod:`quivers.core.morphism_transformations`).
-    * Factory call (``call_args`` non-empty): the ``factory``
-      string resolves a registered factory callable; each entry
-      of ``call_args`` is the name of a value (object, morphism,
-      …) in the surrounding scope that the compiler resolves and
-      passes to the factory.
+    * A bare identifier resolving a registered singleton
+      (``f.change_base(expectation)``) or a let-bound trans value
+      (``f.change_base(t)``).
+    * A constructor call (``f.change_base(softmax(B))``).
+    * A composition (``f.change_base(t1 >>> t2)``).
     """
 
     inner: Expr
-    factory: str
-    call_args: tuple[str, ...] = ()
+    phi: Expr
     line: int = 0
     col: int = 0
     kind: Literal["expr_change_base"] = "expr_change_base"
+
+
+class ExprTransCompose(Expr):
+    """Composition of two transformations: ``t1 >>> t2`` denotes
+    sequential application — first apply ``t1``, then ``t2``.
+
+    Required: ``t1.target == t2.source`` (typed at compile time;
+    a mismatch raises :class:`CompileError`).  The result behaves
+    as a transformation with ``source = t1.source`` and
+    ``target = t2.target``.
+    """
+
+    left: Expr
+    right: Expr
+    line: int = 0
+    col: int = 0
+    kind: Literal["expr_trans_compose"] = "expr_trans_compose"
 
 
 class ExprCup(Expr):
@@ -798,10 +813,57 @@ class Statement(dx.TaggedUnion, discriminator="kind"):
     """Sum of top-level statement kinds."""
 
 
+type CompositionLevel = Literal[
+    "quantale", "semigroupoid", "bilinear_form", "composition_rule"
+]
+"""Algebraic level the file declares for its composition rule.
+
+The four levels correspond to the
+:class:`~quivers.core.quantales.CompositionRule`-hierarchy:
+
+* ``"quantale"`` requires a full :class:`Quantale` (unit, zero,
+  meet, negate, identity, dagger, cup/cap).
+* ``"semigroupoid"`` requires a :class:`Semigroupoid`
+  (associative `tensor_op`, no identity required).
+* ``"bilinear_form"`` requires a :class:`BilinearForm`
+  (no associativity promise).
+* ``"composition_rule"`` is permissive: any
+  :class:`CompositionRule` is accepted.
+"""
+
+
+class CompositionRuleEntry(dx.Model):
+    """One entry of a composition-rule body block.
+
+    Function-valued entries (``tensor_op``, ``join``, ``negation``,
+    ``meet``) declare a lambda; value-valued entries (``unit``,
+    ``zero``) declare a numeric literal. The ``params`` tuple is
+    empty for value-valued entries.
+    """
+
+    key: str
+    params: tuple[str, ...] = ()
+    body: "LetExprNode"
+    line: int = 0
+    col: int = 0
+
+
 class QuantaleDecl(Statement):
-    """Quantale selection: ``quantale <name>``."""
+    """Composition-rule selection: ``quantale <name>``,
+    ``semigroupoid <name>``, ``bilinear_form <name>``, or
+    ``composition_rule <name>``, with an optional inline body.
+
+    Without a body the declaration looks up ``name`` in the
+    compiler's :data:`_QUANTALE_REGISTRY` and verifies the
+    registered rule matches the keyword's algebraic level. With a
+    body, the declaration *defines* a fresh composition rule
+    named ``name`` whose operations come from the supplied
+    expressions; the keyword fixes the rule's level.
+    """
 
     name: str
+    declared_level: CompositionLevel = "quantale"
+    body: tuple[CompositionRuleEntry, ...] = ()
     line: int = 0
     col: int = 0
     kind: Literal["quantale_decl"] = "quantale_decl"
@@ -1117,6 +1179,64 @@ class MorphismParam(ProgramParam):
     line: int = 0
     col: int = 0
     kind: Literal["morphism_param"] = "morphism_param"
+
+
+class ExprMorphismCall(Expr):
+    """Call expression ``callee(arg1, arg2, …)`` resolving to a
+    morphism-level operation.
+
+    Used by :class:`ContractionDecl` declarations: when the user
+    writes ``let out = op_apply(arg1, arg2, kernel)``, the
+    ``op_apply`` identifier resolves to a registered contraction
+    and the arguments are looked up in the morphism scope.
+    """
+
+    callee: str
+    args: tuple[str, ...]
+    line: int = 0
+    col: int = 0
+    kind: Literal["expr_morphism_call"] = "expr_morphism_call"
+
+
+class ContractionInput(dx.Model):
+    """One input wire of a :class:`ContractionDecl` declaration."""
+
+    name: str
+    input_domain: "TypeExpr"
+    input_codomain: "TypeExpr"
+    line: int = 0
+    col: int = 0
+
+
+class ContractionDecl(Statement):
+    """Operadic n-ary contraction declaration.
+
+    Surface form::
+
+        contraction op_apply (
+            arg1 : A -> B,
+            arg2 : A -> C,
+            kernel : (B * C) -> D
+        ) : A -> D
+            rule product_fuzzy
+            wiring "ab, ac, bcd -> ad"
+
+    Declares ``op_apply`` as a multi-input morphism that takes
+    three input morphisms and produces an output morphism by
+    einsum-style contraction under the named composition rule.
+    Compiles to a callable that wraps
+    :class:`~quivers.core.wiring.EinsumWiring`.
+    """
+
+    name: str
+    inputs: tuple[ContractionInput, ...]
+    domain: "TypeExpr"
+    codomain: "TypeExpr"
+    rule_name: str
+    wiring_spec: str
+    line: int = 0
+    col: int = 0
+    kind: Literal["contraction_decl"] = "contraction_decl"
 
 
 class ProgramDecl(Statement):

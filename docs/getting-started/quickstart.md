@@ -124,39 +124,43 @@ log_p = prog.log_prob(x, sample)  # log probability
 Write categorical programs declaratively in `.qvr` files:
 
 ```qvr
+quantale product_fuzzy
 object X : 3
 object Y : 4
 object Z : 2
 
 latent f : X -> Y
 latent g : Y -> Z
-export f >> g
+let composed = f >> g
+export composed
 ```
 
 Load and run:
 
 ```python
-from quivers import dsl_load, Program
+from quivers.dsl import load
 
-prog = dsl_load("program.qvr")
+prog = load("program.qvr")
 output = prog()
 ```
 
 Or use `loads` for inline strings:
 
 ```python
-from quivers import dsl_loads
+from quivers.dsl import loads
 
 source = """
+quantale product_fuzzy
 object X : 3
 object Y : 4
 object Z : 2
 latent f : X -> Y
 latent g : Y -> Z
-export f >> g
+let composed = f >> g
+export composed
 """
 
-prog = dsl_loads(source)
+prog = loads(source)
 output = prog()
 print(output.shape)  # torch.Size([3, 2])
 ```
@@ -166,9 +170,13 @@ Supported DSL operators:
 | Operator | Meaning | Example |
 |----------|---------|---------|
 | `>>` | composition | `f >> g` |
+| `>>>` | transformation composition | `softmax(B) >>> expectation` |
 | `@` | tensor product | `f @ g` |
-| `.marginalize(X)` | marginalize over object | `f.marginalize(X)` |
+| `.marginalize(X)` | marginalise over object | `f.marginalize(X)` |
+| `.change_base(t)` | change of base under transformation `t` | `f.change_base(softmax(B))` |
 | `identity(X)` | identity morphism | `observed id : X -> X = identity(X)` |
+
+The DSL also has surface for monadic probabilistic programs (`program ... ! Sample, Score`), composition rules at four algebraic levels (`quantale`, `semigroupoid`, `bilinear_form`, `composition_rule`), and operadic contractions (`contraction op (...) rule R wiring "..."`). The [QVR tutorial](../tutorials/qvr/01-first-model.md) walks the full surface.
 
 ## 6. Stochastic Morphisms
 

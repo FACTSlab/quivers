@@ -43,7 +43,8 @@ The authoritative grammar is the tree-sitter source at `grammars/qvr/grammar.js`
 ```ebnf
 module         := statement*
 
-statement      := quantale_decl
+statement      := composition_rule_decl
+                | contraction_decl
                 | deduction_decl
                 | object_decl
                 | morphism_decl
@@ -57,8 +58,30 @@ statement      := quantale_decl
                 | type_decl
                 | export_decl
 
-quantale_decl  := 'quantale' ('product_fuzzy' | 'boolean'
-                              | 'lukasiewicz' | 'godel' | 'tropical')
+# Selects the module's composition rule.  The keyword fixes the
+# required algebraic level; the optional body declares a fresh
+# rule inline (each entry is a let-expression).
+composition_rule_decl
+               := ('quantale' | 'semigroupoid'
+                   | 'bilinear_form' | 'composition_rule')
+                  IDENT [composition_rule_block]
+composition_rule_block
+               := '{' composition_rule_entry* '}'
+composition_rule_entry
+               := IDENT '(' IDENT (',' IDENT)* ')' '=' let_expr
+                | IDENT '=' let_expr
+
+# Operadic n-ary contraction.  Declares a callable that
+# contracts `n` input morphisms under a named composition rule
+# using an einsum-style wiring spec.
+contraction_decl
+               := 'contraction' IDENT
+                  '(' contraction_input (',' contraction_input)* ')'
+                  ':' type_expr '->' type_expr
+                  'rule' IDENT
+                  'wiring' STRING
+contraction_input
+               := IDENT ':' type_expr '->' type_expr
 
 # Weighted deduction system: the agenda-based framework subsumes
 # CKY, Earley, Viterbi, inside-outside, semi-naïve Datalog, A*,
@@ -88,9 +111,9 @@ signature_field := 'signature' IDENT
 encoder_field  := 'encoder' IDENT
 
 # Object declarations come in three forms:
-#   object X : 3                                     — anonymous-element FinSet
-#   object Atoms = {NP, S, VP}                       — EnumSet
-#   object Cat = FreeResiduated(Atoms, depth=4, ops=[slash])  — residuated universe
+#   object X : 3                                    , anonymous-element FinSet
+#   object Atoms = {NP, S, VP}                      , EnumSet
+#   object Cat = FreeResiduated(Atoms, depth=4, ops=[slash]) , residuated universe
 object_decl    := 'object' IDENT (':' type_expr | '=' object_init)
 object_init    := enum_set_literal | free_residuated_expr
 enum_set_literal := '{' IDENT (',' IDENT)* '}'
@@ -155,27 +178,33 @@ program_body   := program_step+ return_stmt
 program_step   := bind_step | observe_step
                 | marginalize_step | let_step
 
-# Kleisli bind — the unique sampling step shape.
+# Kleisli bind, the unique sampling step shape.
 #   v        <- F(args)              -- scalar draw
 #   v : A    <- F(args)              -- A-indexed plate
 #   (a, b)   <- F(args)              -- destructuring tuple bind
 bind_step      := var_pattern [':' type_expr] '<-' IDENT
                   ['(' draw_arg_list ')']
 
-# Scored bind — same shape as bind_step, prefixed with `observe`.
+# Scored bind, same shape as bind_step, prefixed with `observe`.
 #   observe v        <- F(args)
 #   observe r : N    <- F(theta[N])
 observe_step   := 'observe' IDENT [':' type_expr] '<-' IDENT
                   ['(' draw_arg_list ')']
 
-# Scoped marginalisation — coordinate `c` is bound to `F(args)`,
+# Scoped marginalisation, coordinate `c` is bound to `F(args)`,
 # optionally `A`-indexed; the steps in the `{ … }` body are the
 # integration scope. At end of scope the coordinate is pushed
 # forward through projection (logsumexp for discrete, fibrewise
 # integration for continuous).
 marginalize_step := 'marginalize' IDENT [':' type_expr] '<-' IDENT
                     ['(' draw_arg_list ')']
+                    [grouping_clause]
                     'in' '{' program_step* '}'
+
+# Optional fibred marginalisation: the body's per-row log-
+# likelihood is scatter-added along `idx` to give one log-
+# likelihood per `(group, class)` pair before the logsumexp.
+grouping_clause := 'over' IDENT 'via' IDENT
 
 let_step       := 'let' IDENT '=' let_expr
 let_expr       := let_term (('+' | '-') let_term)*
@@ -197,20 +226,41 @@ return_stmt    := 'return' return_pattern
 return_pattern := IDENT | '(' IDENT (',' IDENT)* ')'
 
 let_decl       := 'let' IDENT '=' expr ['where' let_decl+]
-expr           := compose_expr
-compose_expr   := tensor_expr (('>>' | '>=>' | '<<') tensor_expr)*
+
+# Morphism-valued expression sublanguage.  The compose family
+# tags each operator with the quantale whose composition it
+# realises (see guides/morphisms.md).  `>>>` is transformation
+# composition, distinct from morphism composition.
+expr           := trans_compose | compose_expr
+trans_compose  := expr '>>>' expr
+compose_expr   := tensor_expr (compose_op tensor_expr)*
+compose_op     := '>>' | '<<' | '>=>'
+                | '*>' | '~>' | '||>' | '?>'
+                | '&&>' | '+>' | '$>' | '%>'
 tensor_expr    := postfix_expr ('@' postfix_expr)*
 postfix_expr   := atom_expr ('.' method_call)*
 method_call    := 'marginalize' '(' IDENT (',' IDENT)* ')'
+                | 'change_base' '(' expr ')'
+                | 'trace' '(' IDENT ')'
+                | 'dagger'
+                | 'freeze'
                 | 'curry_right'
                 | 'curry_left'
 atom_expr      := 'identity' '(' IDENT ')'
+                | 'cup' '(' IDENT ')'
+                | 'cap' '(' IDENT ')'
                 | 'fan' '(' expr (',' expr)* ')'
                 | 'repeat' '(' expr [',' INT] ')'
                 | 'stack' '(' expr ',' INT ')'
                 | 'scan' '(' expr [',' scan_init] ')'
+                | morphism_call
                 | IDENT
                 | '(' expr ')'
+
+# Call shape used for contraction invocations and parametric
+# program template instantiation.  The compiler routes by what
+# the callee resolves to.
+morphism_call  := IDENT '(' IDENT (',' IDENT)* ')'
 
 scan_init      := 'init' '=' ('zeros' | 'learned')
 
@@ -223,20 +273,79 @@ export_decl    := 'export' expr
 
 Choose the enriching quantale (optional, defaults to `product_fuzzy`):
 
+<!-- compile: false -->
 ```qvr
 quantale product_fuzzy
 quantale boolean
 quantale lukasiewicz
 quantale godel
 quantale tropical
+quantale max_plus
+quantale log_prob
+quantale markov
+quantale real
+quantale probability
+quantale counting
 ```
+
+The keyword `quantale` resolves a name against the built-in composition-rule registry and verifies the registered rule is at the `Quantale` level. Three weaker levels are also surface-declarable:
+
+<!-- compile: false -->
+```qvr
+semigroupoid material_impl
+bilinear_form some_bf
+composition_rule any_rule
+```
+
+A `semigroupoid` rule promises associativity but not an identity; `bilinear_form` promises neither; `composition_rule` is permissive and accepts any rule in the registry. Operations that need the identity element (`identity(A)`, `f.dagger`, `f.trace(A)`, `cup(A)`, `cap(A)`) compile only under `quantale`. See [Composition Rules](../semantics/composition-rules.md) for the algebraic hierarchy and the operadic contraction surface.
+
+A composition rule can also be defined inline via a body block. Each entry is a `let`-expression:
+
+<!-- compile: false -->
+```qvr
+quantale my_godel {
+    tensor_op(a, b) = a * b
+    join(t) = sum(t)
+    unit = 1.0
+    zero = 0.0
+}
+
+semigroupoid my_semi {
+    tensor_op(a, b) = a * b
+    join(t) = sum(t)
+}
+
+bilinear_form my_bf {
+    tensor_op(a, b) = (a + b) * 0.5
+    join(t) = sum(t)
+}
+```
+
+`quantale` bodies require `tensor_op`, `join`, `unit`, `zero` (with optional `negation` and `meet`); `semigroupoid` and `bilinear_form` bodies require only `tensor_op` and `join`. The compiler verifies the entry set against the keyword's algebraic level.
+
+### Contraction
+
+A `contraction` block declares an operadic n-ary morphism, parameterised by an einsum-style wiring spec under a named composition rule:
+
+<!-- compile: false -->
+```qvr
+contraction op_apply (
+    arg1 : A -> B,
+    arg2 : A -> C,
+    kernel : B -> D
+) : A -> D
+    rule product_fuzzy
+    wiring "sp, sq, pqd -> sd"
+```
+
+The declared `op_apply` is callable from any expression site as `op_apply(arg1_morph, arg2_morph, kernel_morph)`. Each call checks argument count and per-argument shape (by numel) against the declared signature, then runs the einsum-style contraction under the named rule. See [Composition Rules § 4](../semantics/composition-rules.md#4-operadic-contractions) for the operadic action.
 
 ### Deduction
 
 A `deduction NAME : Domain -> Codomain { … }` block declares an
 agenda-based weighted deduction. The seven irreducible parameters
-of an agenda-driven deduction — item algebra, rule set, semiring,
-axiom source, goal predicate, start symbol, depth bound — become
+of an agenda-driven deduction, item algebra, rule set, semiring,
+axiom source, goal predicate, start symbol, depth bound, become
 named fields in the block:
 
 <!-- compile: false -->
@@ -338,12 +447,12 @@ program parse_score : Sentence -> Real ! Sample, Score
     return w
 ```
 
-- `chart.weight(item)` — log-weight of a fully-determined item.
-- `chart.enumerate(pattern)` — list of `(item, weight)` pairs
+- `chart.weight(item)`: log-weight of a fully-determined item.
+- `chart.enumerate(pattern)`: list of `(item, weight)` pairs
   matching a pattern with wildcards.
-- `chart.derivations(item)` — derivation forest under the
+- `chart.derivations(item)`: derivation forest under the
   derivation semiring.
-- `chart.goal_weight()` — log-weight of the goal predicate.
+- `chart.goal_weight()`: log-weight of the goal predicate.
 
 Each returns a `torch.Tensor` whose gradients flow back through
 the agenda's semiring operations to any `learnable` axiom or rule
@@ -381,7 +490,7 @@ alias Sentence = S \ NP
 ```
 
 Object-shaped aliases (resolvable to a `SetObject`) are interchangeable
-with the underlying object — `latent f : Pair -> X` works. Residuated
+with the underlying object, `latent f : Pair -> X` works. Residuated
 patterns are stored as syntactic aliases and substituted at schema
 use-sites; they cannot stand on their own as morphism domains.
 
@@ -397,7 +506,7 @@ object XY : X * Y     # ProductSet(X, Y)
 object Sum : X + Y    # CoproductSet(X, Y)
 object Free = FreeMonoid(X, max_length=2)  # FreeMonoid(generators=X, max_length=2)
 
-# 2. FreeMonoid — bounded Kleene closure over a FinSet of generators.
+# 2. FreeMonoid, bounded Kleene closure over a FinSet of generators.
 object Strings = FreeMonoid(X, max_length=4)
 ```
 
@@ -553,7 +662,7 @@ export n_step
 ```python
 prog = load("hmm.qvr")
 obs_3 = prog(n_steps=3)    # T^3 >> E
-obs_50 = prog(n_steps=50)  # T^50 >> E — same model, different length
+obs_50 = prog(n_steps=50)  # T^50 >> E, same model, different length
 ```
 
 The morphism's codomain must match its domain (endomorphism) for repeat to work.
@@ -642,7 +751,7 @@ The `<-` operator is the unique sampling-step sigil in a `program` body:
 x <- Normal(0.0, 1.0)
 ```
 
-It introduces `x` as a random variable distributed according to the given family. The same sigil carries every sampling-step variant — scalar draws, indexed plates, scored observes, and scoped marginalisations — distinguished by the surrounding shape (see the program-block section below).
+It introduces `x` as a random variable distributed according to the given family. The same sigil carries every sampling-step variant, scalar draws, indexed plates, scored observes, and scoped marginalisations, distinguished by the surrounding shape (see the program-block section below).
 
 ### Backward Composition
 
@@ -816,7 +925,7 @@ Parametric programs are *not* compiled to runtime `MonadicProgram`s in isolation
 v <- template(arg1, arg2, ...)
 ```
 
-At each call site the template's body is substituted (formal parameters → actual arguments) and α-renamed (internal latents are prefixed by `v$`, the return variable is renamed to `v` directly). The renamed step list is inlined into the caller, so distinct call sites contribute distinct factors to the parent's joint kernel — fresh latents per use, no inadvertent tying.
+At each call site the template's body is substituted (formal parameters → actual arguments) and α-renamed (internal latents are prefixed by `v$`, the return variable is renamed to `v` directly). The renamed step list is inlined into the caller, so distinct call sites contribute distinct factors to the parent's joint kernel, fresh latents per use, no inadvertent tying.
 
 ```qvr
 # Parametric random-intercepts template: one HalfNormal scale and
@@ -830,7 +939,7 @@ program random_intercepts (G : FinSet, scale : Real) : G -> 1
 
 #### Posterior Blocks
 
-A `program name(latents) : domain -> codomain ! Pure over model` declaration denotes a deterministic post-conditioning kernel. The `over model` modifier marks the program as consuming the named model's latents; the consumed latents appear as data parameters in the parameter list. The `! Pure` effect signature rejects any sample, score, or marginal binds — the body is restricted to `let` (and `marginalize` over its own scope). Categorically it is a $\mathbf{Kern}$-morphism $\text{Latents} \to \tau_{\mathrm{out}}$ that lifts to $\text{Data} \to \mathcal{G}(\tau_{\mathrm{out}})$ by post-composition with the model's posterior kernel $q(\theta \mid \mathrm{data})$.
+A `program name(latents) : domain -> codomain ! Pure over model` declaration denotes a deterministic post-conditioning kernel. The `over model` modifier marks the program as consuming the named model's latents; the consumed latents appear as data parameters in the parameter list. The `! Pure` effect signature rejects any sample, score, or marginal binds, the body is restricted to `let` (and `marginalize` over its own scope). Categorically it is a $\mathbf{Kern}$-morphism $\text{Latents} \to \tau_{\mathrm{out}}$ that lifts to $\text{Data} \to \mathcal{G}(\tau_{\mathrm{out}})$ by post-composition with the model's posterior kernel $q(\theta \mid \mathrm{data})$.
 
 <!-- compile: false -->
 ```qvr
@@ -845,7 +954,7 @@ program class_probs(raw_logits) : Item -> Logits4 ! Pure over scored
     return probs
 ```
 
-The data parameter `raw_logits` names the model latent the body consumes — a per-sample snapshot of the model's trace.
+The data parameter `raw_logits` names the model latent the body consumes, a per-sample snapshot of the model's trace.
 
 ### Hierarchical Bayesian Models
 
@@ -1040,7 +1149,7 @@ For more examples, see the [Examples Gallery](../examples/index.md). For a forma
 
 The `Compiler` transforms the AST to a `Program`:
 
-1. **Resolve declarations**: collect all objects, spaces, morphisms. Type and space resolution is delegated to the lens family in `quivers.dsl.resolution` — `TypeExprToSetObject` (parameterized by the object inventory) and `SpaceExprToContinuousSpace` (parameterized by the space and object inventories). Each lens is `dx.Lens[<AST>, <runtime value>, <AST>]`; round-trip laws hold by construction.
+1. **Resolve declarations**: collect all objects, spaces, morphisms. Type and space resolution is delegated to the lens family in `quivers.dsl.resolution`, `TypeExprToSetObject` (parameterized by the object inventory) and `SpaceExprToContinuousSpace` (parameterized by the space and object inventories). Each lens is `dx.Lens[<AST>, <runtime value>, <AST>]`; round-trip laws hold by construction.
 2. **Type check**: ensure domains/codomains match in compositions.
 3. **Build morphism DAG**: construct morphism modules.
 4. **Wrap in Program**: create an `nn.Module` that manages all parameters.

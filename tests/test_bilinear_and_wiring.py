@@ -190,6 +190,19 @@ def test_einsum_wiring_rejects_bad_spec() -> None:
         einsum_wiring(PRODUCT_FUZZY, "ij, jk ik")
 
 
+def test_einsum_wiring_rejects_repeated_input_letter() -> None:
+    """A diagonal/trace contraction (``ii`` in one input) is
+    refused at construction time rather than silently producing
+    the wrong shape."""
+    with pytest.raises(ValueError, match="repeats an axis letter"):
+        einsum_wiring(PRODUCT_FUZZY, "ii, jk -> ik")
+
+
+def test_einsum_wiring_rejects_repeated_output_letter() -> None:
+    with pytest.raises(ValueError, match="repeats an axis letter"):
+        einsum_wiring(PRODUCT_FUZZY, "ij, jk -> iik")
+
+
 def test_einsum_wiring_rejects_output_letter_not_in_inputs() -> None:
     """Output axis must appear in at least one input."""
     with pytest.raises(ValueError, match="not present in any input"):

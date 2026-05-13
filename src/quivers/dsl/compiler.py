@@ -11,7 +11,8 @@ based) morphisms, including stochastic (Markov kernels), boundary
 
 from __future__ import annotations
 from collections.abc import Callable
-from typing import Any
+from typing import Any  # pre-existing usages; new code should use precise types
+
 import torch
 import torch.nn as nn
 from quivers.continuous.spaces import (
@@ -24,18 +25,29 @@ from quivers.continuous.spaces import (
 from quivers.continuous.morphisms import AnySpace
 from quivers.continuous.bayesian import marginalize_grouped
 from quivers.core.objects import SetObject, FinSet, ProductSet
-from quivers.core.quantales import Quantale, PRODUCT_FUZZY, BOOLEAN
+from quivers.core.quantales import (
+    BOOLEAN,
+    BilinearForm,
+    CompositionRule,
+    CustomBilinearForm,
+    CustomQuantale,
+    CustomSemigroupoid,
+    PRODUCT_FUZZY,
+    Quantale,
+    Semigroupoid,
+    material_implication,
+)
+from quivers.core.wiring import EinsumWiring
+from quivers.core.trans import TransSeq
 from quivers.core.morphism_transformations import (
-    MorphismTransformation,
     bayes_invert as _bayes_invert,
-    l1_normalize_over as _l1_normalize_over,
-    l2_normalize_over as _l2_normalize_over,
-    softmax_over as _softmax_over,
+    l1_normalize as _l1_normalize,
+    l2_normalize as _l2_normalize,
+    softmax as _softmax,
 )
 from quivers.core.morphisms import morphism as make_latent, identity as make_identity
 from quivers.core.morphisms import cap as _make_cap, cup as _make_cup
 from quivers.core.quantale_morphisms import (
-    QuantaleHomomorphism,
     COUNTING_FROM_REAL,
     COUNTING_TO_REAL,
     EXPECTATION,
@@ -87,6 +99,8 @@ from quivers.dsl.ast_nodes import SortVocabLiteral
 from quivers.dsl.ast_nodes import (
     Module,
     Statement,
+    CompositionRuleEntry,
+    ContractionDecl,
     QuantaleDecl,
     CategoryDecl,
     RuleDecl,
@@ -150,11 +164,13 @@ from quivers.dsl.ast_nodes import (
     ExprCurry,
     ExprCap,
     ExprChangeBase,
+    ExprTransCompose,
     ExprCup,
     ExprDagger,
     ExprFreeze,
     ExprFromData,
     ExprMarginalize,
+    ExprMorphismCall,
     ExprTrace,
     ExprFan,
     ExprRepeat,
@@ -163,32 +179,112 @@ from quivers.dsl.ast_nodes import (
     ExprParser,
 )
 
-_QUANTALE_REGISTRY: dict[str, Quantale] = {
+# Registry of composition rules the DSL knows about by name.
+# Each entry maps a user-facing keyword (the right-hand side of
+# ``quantale X``, ``semigroupoid X``, ``bilinear_form X``,
+# ``composition_rule X``) to its concrete rule instance.  The
+# type is widened to ``CompositionRule`` (the common parent of
+# ``Quantale``, ``Semigroupoid``, and ``BilinearForm``) so
+# user-defined non-quantale composition rules can be registered
+# alongside the shipped ones.
+_QUANTALE_REGISTRY: dict[str, "CompositionRule"] = {
     "product_fuzzy": PRODUCT_FUZZY,
     "boolean": BOOLEAN,
 }
 
 
-def _build_default_homomorphism_catalog() -> dict:
-    """Build the user-facing catalog of named change-of-base
-    targets exposed through ``f.change_base(name)`` in the DSL.
+class _CompiledContraction:
+    """Compiled form of a :class:`ContractionDecl`.
 
-    Two value kinds are accepted in the catalog:
+    Stores the einsum wiring object, the declared output domain
+    and codomain (so the compiler can re-tag the result morphism
+    after the contraction), the expected input morphism types
+    (for shape validation), and the active composition rule.
 
-    * **Singletons** — :class:`QuantaleHomomorphism` or
-      :class:`MorphismTransformation` instances looked up by
-      bare name (``f.change_base(expectation)``).
-    * **Factories** — callables that build a
-      :class:`MorphismTransformation` from arguments named in the
-      DSL call expression (``f.change_base(softmax_over(B))``).
-      The compiler resolves each named argument against the
-      surrounding scope (objects, morphisms, quantales) and
-      invokes the factory with the resolved values.
+    A plain class (not a :class:`didactic.api.Model`) because the
+    fields are opaque runtime objects — :class:`EinsumWiring`,
+    :class:`SetObject` / :class:`ContinuousSpace`,
+    :class:`CompositionRule` instances — that don't translate to a
+    panproto sort.
+    """
 
-    Keys here are the surface names the user writes.
+    __slots__ = ("name", "wiring", "domain", "codomain", "input_types", "quantale")
+
+    def __init__(
+        self,
+        name: str,
+        wiring: "EinsumWiring",
+        domain: "AnySpace",
+        codomain: "AnySpace",
+        input_types: tuple[tuple[str, "AnySpace", "AnySpace"], ...],
+        quantale: "CompositionRule",
+    ) -> None:
+        self.name = name
+        self.wiring = wiring
+        self.domain = domain
+        self.codomain = codomain
+        self.input_types = input_types
+        self.quantale = quantale
+
+
+def _numel_shape(shape) -> int:
+    """Total cardinality of an object's shape — used to compare
+    declared vs actual morphism arities at contraction call sites."""
+    n = 1
+    for s in shape:
+        n *= int(s)
+    return n
+
+
+def _wrap_join_dim(user_join):
+    """Wrap a user-supplied ``join`` function so it accepts the
+    ``(tensor, dim)`` calling convention expected by the
+    :class:`CompositionRule` interface.
+
+    User-defined ``join(t) = expr`` bodies see ``t`` as a tensor
+    and reduce over its last axes via let-expression builtins
+    like ``sum(t)``, ``prod(t)``, ``logsumexp(t)``. The compose
+    machinery, however, calls ``join(tensor, dim)`` with an
+    explicit reduction axis. We bridge by reshaping the tensor
+    so the contracted axes collapse to a single trailing axis,
+    invoking ``user_join`` on the reshaped tensor, and reshaping
+    the result back.
+    """
+
+    def _join(t, dim):
+        if isinstance(dim, int):
+            dims: tuple[int, ...] = (dim,)
+        else:
+            dims = tuple(dim)
+        # Sort dims, normalize negatives.
+        ndim = t.dim()
+        dims = tuple(sorted((d % ndim for d in dims), reverse=True))
+        # Permute the dims-to-reduce to the trailing axes.
+        keep = [i for i in range(ndim) if i not in dims]
+        permuted = t.permute(*keep, *reversed(dims))
+        # Collapse the trailing reduce-axes into one.
+        keep_shape = permuted.shape[: len(keep)]
+        flat = permuted.reshape(*keep_shape, -1)
+        # The user's reducer takes only one argument; we feed
+        # the flattened tensor and accept whatever they reduce.
+        reduced = user_join(flat)
+        return reduced
+
+    return _join
+
+
+def _build_default_trans_singletons() -> dict:
+    """Built-in transformation singletons available as bare-name
+    references in the DSL.
+
+    Each value is a :class:`QuantaleHomomorphism` or
+    :class:`MorphismTransformation` (collectively, a ``Trans``
+    value).  Bare-name lookup produces the singleton:
+
+        let phi = expectation
+        let g = f.change_base(phi)
     """
     return {
-        # Singletons.
         "expectation": EXPECTATION,
         "log_prob": _LOG_PROB_HOM,
         "max_plus": _MAX_PLUS_HOM,
@@ -199,11 +295,22 @@ def _build_default_homomorphism_catalog() -> dict:
         "probability_to_real": PROBABILITY_TO_REAL,
         "counting_from_real": COUNTING_FROM_REAL,
         "counting_to_real": COUNTING_TO_REAL,
-        # Factories.  Each is a callable consumed at compile time
-        # when the user writes ``F(arg)`` inside change_base().
-        "softmax_over": _softmax_over,
-        "l1_normalize_over": _l1_normalize_over,
-        "l2_normalize_over": _l2_normalize_over,
+    }
+
+
+def _build_default_trans_constructors() -> dict:
+    """Built-in transformation constructors — callables that
+    accept compile-time arguments (objects, morphisms) resolved
+    from the DSL scope and return a :class:`MorphismTransformation`.
+
+    Surface form ``softmax(B)`` / ``bayes_invert(prior)`` parses
+    as :class:`ExprMorphismCall` and dispatches here when the
+    callee resolves into this dict.
+    """
+    return {
+        "softmax": _softmax,
+        "l1_normalize": _l1_normalize,
+        "l2_normalize": _l2_normalize,
         "bayes_invert": _bayes_invert,
     }
 
@@ -243,6 +350,8 @@ def _register_extra_quantales() -> None:
             _QUANTALE_REGISTRY["real"] = REAL
             _QUANTALE_REGISTRY["probability"] = PROBABILITY
             _QUANTALE_REGISTRY["counting"] = COUNTING
+            # Built-in non-quantale composition rules.
+            _QUANTALE_REGISTRY["material_impl"] = material_implication()
             # Named de-Morgan duals — each is the corresponding
             # ``X.dual()`` exposed under a DSL-friendly name so a
             # user can write ``quantale reichenbach``.
@@ -487,7 +596,19 @@ class Compiler:
         self._bundles: dict[str, tuple[str, ...]] = {}
         self._aliases: dict[str, TypeExpr] = {}
         self._alias_names: set[str] = set()
-        self._homomorphisms: dict = _build_default_homomorphism_catalog()
+        # Built-in transformation catalog: singletons looked up by
+        # bare name (``expectation``, ``log_prob``, …) and
+        # constructors invoked with arguments (``softmax(B)``,
+        # ``bayes_invert(prior)``).  Disjoint from
+        # :attr:`_transformations`, which holds user let-bound
+        # transformations defined inside the module.
+        self._trans_singletons: dict = _build_default_trans_singletons()
+        self._trans_constructors: dict = _build_default_trans_constructors()
+        # User-defined transformations bound via ``let t = …``.
+        # Disjoint from :attr:`_morphisms`: a ``let`` whose RHS
+        # resolves to a transformation lands here; a ``let`` whose
+        # RHS resolves to a morphism lands in ``_morphisms``.
+        self._transformations: dict = {}
         self._objects: dict[str, SetObject] = {}
         self._spaces: dict = {}
         self._morphisms: dict = {}
@@ -497,6 +618,11 @@ class Compiler:
         # stored as their unsubstituted AST decl. Instantiated at each call
         # site by parameter substitution + α-renaming of internal latents.
         self._program_templates: dict[str, ProgramDecl] = {}
+        # Operadic contraction declarations. Each entry is callable
+        # from the DSL at let-binding sites; the value records the
+        # compiled :class:`EinsumWiring` plus the declared domain /
+        # codomain typing for shape-checking at invocation time.
+        self._contractions: dict[str, "_CompiledContraction"] = {}
 
     @property
     def categories(self) -> list[str]:
@@ -626,6 +752,8 @@ class Compiler:
             self._compile_embed(stmt)
         elif isinstance(stmt, ProgramDecl):
             self._compile_program(stmt)
+        elif isinstance(stmt, ContractionDecl):
+            self._compile_contraction(stmt)
         elif isinstance(stmt, LetDecl):
             self._compile_let(stmt)
         elif isinstance(stmt, ExportDecl):
@@ -644,15 +772,211 @@ class Compiler:
             raise CompileError(f"unknown statement type: {type(stmt).__name__}")
 
     def _compile_quantale(self, decl: QuantaleDecl) -> None:
-        """Set the active quantale."""
-        name = decl.name.lower()
-        if name not in _QUANTALE_REGISTRY:
+        """Set the active composition rule for this module.
+
+        Four surface forms (distinguished by ``decl.declared_level``):
+
+        * ``quantale X`` — X must be a Quantale.
+        * ``semigroupoid X`` — X must be a Semigroupoid.
+        * ``bilinear_form X`` — X must be a BilinearForm.
+        * ``composition_rule X`` — X must be any CompositionRule.
+
+        Two body forms:
+
+        * **No body** — ``X`` names a registered rule in the
+          composition-rule registry; the compiler verifies it
+          matches the declared level.
+        * **With body** — ``decl.body`` is a list of entries
+          defining the rule's operations from scratch. The
+          compiler evaluates each entry's expression and builds
+          a fresh ``CustomQuantale``, ``CustomSemigroupoid``, or
+          ``CustomBilinearForm`` of the declared level, then
+          registers it under the supplied name.
+        """
+        level = decl.declared_level
+        if decl.body:
+            rule = self._build_custom_composition_rule(decl)
+        else:
+            name = decl.name.lower()
+            if name not in _QUANTALE_REGISTRY:
+                raise CompileError(
+                    f"unknown {level} {decl.name!r}; available: "
+                    f"{', '.join(sorted(_QUANTALE_REGISTRY))}",
+                    decl.line,
+                    decl.col,
+                )
+            rule = _QUANTALE_REGISTRY[name]
+        self._verify_composition_rule_level(rule, decl, level)
+        self._quantale = rule  # type: ignore[assignment]
+
+    def _verify_composition_rule_level(
+        self,
+        rule: "CompositionRule",
+        decl: QuantaleDecl,
+        level: str,
+    ) -> None:
+        """Confirm ``rule`` satisfies the algebraic level declared
+        by the keyword."""
+        required = {
+            "quantale": Quantale,
+            "semigroupoid": Semigroupoid,
+            "bilinear_form": BilinearForm,
+            "composition_rule": CompositionRule,
+        }
+        required_class = required.get(level, CompositionRule)
+        if not isinstance(rule, required_class):
+            actual = (
+                "Quantale"
+                if isinstance(rule, Quantale)
+                else "Semigroupoid"
+                if isinstance(rule, Semigroupoid)
+                else "BilinearForm"
+                if isinstance(rule, BilinearForm)
+                else "CompositionRule"
+            )
             raise CompileError(
-                f"unknown quantale {decl.name!r}; available: {', '.join(sorted(_QUANTALE_REGISTRY))}",
+                f"{level} {decl.name!r}: registered rule is a "
+                f"{actual}, which is not at level {level!r}. "
+                f"Either declare it with the matching keyword or "
+                f"register a rule at the right level.",
                 decl.line,
                 decl.col,
             )
-        self._quantale = _QUANTALE_REGISTRY[name]
+
+    def _build_custom_composition_rule(self, decl: QuantaleDecl) -> "CompositionRule":
+        """Build a fresh CompositionRule instance from a
+        ``quantale name { … }`` body, dispatching on the declared
+        level."""
+        entries: dict[str, "CompositionRuleEntry"] = {}
+        for entry in decl.body:
+            if entry.key in entries:
+                raise CompileError(
+                    f"{decl.declared_level} {decl.name!r}: duplicate "
+                    f"entry {entry.key!r}",
+                    entry.line,
+                    entry.col,
+                )
+            entries[entry.key] = entry
+        level = decl.declared_level
+        required_keys = {
+            "quantale": {"tensor_op", "join", "unit", "zero"},
+            "semigroupoid": {"tensor_op", "join"},
+            "bilinear_form": {"tensor_op", "join"},
+            "composition_rule": {"tensor_op", "join"},
+        }[level]
+        missing = required_keys - set(entries)
+        if missing:
+            raise CompileError(
+                f"{level} {decl.name!r}: missing required entries {sorted(missing)}",
+                decl.line,
+                decl.col,
+            )
+        # Compile each entry to a Python callable (function-valued
+        # entry like ``tensor_op(a, b) = …``) or a numeric value
+        # (literal-valued entry like ``unit = 1.0``). The union of
+        # callable and float is the natural type here; we keep
+        # them separate downstream so the level builders type-check
+        # each slot precisely.
+        compiled: dict[str, "Callable[..., torch.Tensor] | float"] = {}
+        for key, entry in entries.items():
+            compiled[key] = self._compile_composition_rule_entry(entry, decl)
+        # Build the concrete rule at the declared level.
+        tensor_op = compiled["tensor_op"]
+        join = compiled["join"]
+        if not callable(tensor_op):
+            raise CompileError(
+                f"{level} {decl.name!r}: ``tensor_op`` must be a "
+                f"function entry like ``tensor_op(a, b) = …``",
+                decl.line,
+                decl.col,
+            )
+        if not callable(join):
+            raise CompileError(
+                f"{level} {decl.name!r}: ``join`` must be a "
+                f"function entry like ``join(t) = …``",
+                decl.line,
+                decl.col,
+            )
+        join_wrapped = _wrap_join_dim(join)
+        if level == "quantale":
+            unit = compiled["unit"]
+            zero = compiled["zero"]
+            if callable(unit) or callable(zero):
+                raise CompileError(
+                    f"quantale {decl.name!r}: ``unit`` and ``zero`` "
+                    f"must be value entries (no parens)",
+                    decl.line,
+                    decl.col,
+                )
+            negate_fn = compiled.get("negation")
+            if negate_fn is not None and not callable(negate_fn):
+                raise CompileError(
+                    f"quantale {decl.name!r}: ``negation`` must be "
+                    f"a function entry like ``negation(a) = …``",
+                    decl.line,
+                    decl.col,
+                )
+            return CustomQuantale(
+                name=decl.name,
+                tensor_op=tensor_op,
+                join=join_wrapped,
+                unit=float(unit),
+                zero=float(zero),
+                negate=negate_fn,
+                verify=False,
+            )
+        if level == "semigroupoid":
+            return CustomSemigroupoid(
+                name=decl.name,
+                tensor_op=tensor_op,
+                join=join_wrapped,
+                verify_associative=False,
+            )
+        # ``bilinear_form`` and ``composition_rule`` both build a
+        # CustomBilinearForm: ``bilinear_form`` is the weakest
+        # named level (no associativity promise), and
+        # ``composition_rule`` is the permissive surface that
+        # admits any rule, for which BilinearForm is the right
+        # default since it makes no claim beyond the
+        # CompositionRule interface.
+        return CustomBilinearForm(
+            name=decl.name,
+            tensor_op=tensor_op,
+            join=join_wrapped,
+        )
+
+    def _compile_composition_rule_entry(
+        self,
+        entry: "CompositionRuleEntry",
+        decl: QuantaleDecl,
+    ) -> "Callable[..., torch.Tensor] | float":
+        """Compile one ``key(params) = body`` or ``key = body``
+        entry to a Python callable (when ``entry.params`` is
+        non-empty) or to its evaluated numeric value (when
+        ``entry.params`` is empty)."""
+        body_fn = Compiler._compile_let_expr(entry.body)
+        if not entry.params:
+            try:
+                return body_fn({})
+            except Exception as exc:
+                raise CompileError(
+                    f"{decl.declared_level} {decl.name!r}: value "
+                    f"entry {entry.key!r} could not be evaluated: {exc}",
+                    entry.line,
+                    entry.col,
+                ) from exc
+        param_names = entry.params
+
+        def _callable(*args):
+            if len(args) != len(param_names):
+                raise TypeError(
+                    f"{entry.key}(): expected {len(param_names)} "
+                    f"arguments, got {len(args)}"
+                )
+            env = dict(zip(param_names, args))
+            return body_fn(env)
+
+        return _callable
 
     def _compile_category(self, decl: CategoryDecl) -> None:
         """Register a category atom declaration.
@@ -950,6 +1274,7 @@ class Compiler:
                 # are isomorphic objects; the tensor storage is
                 # the same up to reshape.
                 if morph.domain != domain or morph.codomain != codomain:
+
                     def _numel(shape):
                         n = 1
                         for s in shape:
@@ -968,9 +1293,7 @@ class Compiler:
                         # Reshape the tensor to match the declared
                         # factored shape. ``Tensor.reshape`` is a
                         # no-op when the storage already matches.
-                        target_shape = tuple(domain.shape) + tuple(
-                            codomain.shape
-                        )
+                        target_shape = tuple(domain.shape) + tuple(codomain.shape)
                         reshaped = morph.tensor.reshape(target_shape)
                         morph = _Obs(
                             domain,
@@ -1492,9 +1815,7 @@ class Compiler:
                     else None
                 )
                 product_vias = (
-                    via_names
-                    if via_names is not None and len(via_names) > 1
-                    else None
+                    via_names if via_names is not None and len(via_names) > 1 else None
                 )
                 out.append(
                     MarginalizeStep(
@@ -2041,6 +2362,270 @@ class Compiler:
             )
         return expr
 
+    def _compile_morphism_call(self, expr: ExprMorphismCall):
+        """Compile ``callee(arg1, arg2, …)`` — currently used to
+        invoke a :class:`ContractionDecl` at a let-binding site.
+
+        Resolves ``expr.callee`` against the registered
+        contractions, validates that the argument count matches
+        the contraction's expected arity, resolves each argument
+        against the morphism scope, and runs the einsum-style
+        contraction. Returns the result as an
+        :class:`ObservedMorphism` with the contraction's declared
+        domain and codomain.
+        """
+        from quivers.core.morphisms import ObservedMorphism
+
+        contraction = self._contractions.get(expr.callee)
+        if contraction is None:
+            # Fall through to parametric-program template
+            # invocation: ``let applied = p(f)`` is the existing
+            # surface and should keep working when ``p`` is a
+            # parametric program rather than a contraction.
+            if expr.callee in self._program_templates:
+                return self._compile_program_template_call(expr)
+            raise CompileError(
+                f"morphism-call: undefined {expr.callee!r}; "
+                f"contractions: {sorted(self._contractions)}; "
+                f"program templates: {sorted(self._program_templates)}",
+                expr.line,
+                expr.col,
+            )
+        if len(expr.args) != len(contraction.input_types):
+            raise CompileError(
+                f"contraction {expr.callee!r}: expected "
+                f"{len(contraction.input_types)} arguments "
+                f"({', '.join(n for n, _, _ in contraction.input_types)}), "
+                f"got {len(expr.args)}",
+                expr.line,
+                expr.col,
+            )
+        resolved_morphs: list = []
+        for arg_name, (param_name, exp_dom, exp_cod) in zip(
+            expr.args, contraction.input_types
+        ):
+            if arg_name not in self._morphisms:
+                raise CompileError(
+                    f"contraction {expr.callee!r}: argument "
+                    f"{arg_name!r} (for parameter {param_name!r}) "
+                    f"is not a declared morphism",
+                    expr.line,
+                    expr.col,
+                )
+            morph = self._morphisms[arg_name]
+            # Light shape check: matching numel for domain / codomain.
+            if _numel_shape(morph.domain.shape) != _numel_shape(
+                exp_dom.shape
+            ) or _numel_shape(morph.codomain.shape) != _numel_shape(exp_cod.shape):
+                raise CompileError(
+                    f"contraction {expr.callee!r}: argument {arg_name!r} "
+                    f"has shape {tuple(morph.domain.shape)} -> "
+                    f"{tuple(morph.codomain.shape)} but parameter "
+                    f"{param_name!r} declares {tuple(exp_dom.shape)} -> "
+                    f"{tuple(exp_cod.shape)}",
+                    expr.line,
+                    expr.col,
+                )
+            resolved_morphs.append(morph)
+        # Run the wiring.
+        tensors = [m.tensor for m in resolved_morphs]
+        result_tensor = contraction.wiring.apply(*tensors)
+        return ObservedMorphism(
+            contraction.domain,
+            contraction.codomain,
+            result_tensor,
+            quantale=contraction.quantale,
+        )
+
+    def _compile_program_template_call(self, expr: ExprMorphismCall):
+        """Instantiate a parametric program template at a let-binding
+        site: ``let applied = p(f, …)`` substitutes the actual
+        morphism / object / scalar arguments for the template's
+        formal parameters, builds a synthetic non-parametric
+        :class:`ProgramDecl`, and compiles it into a runtime
+        :class:`MonadicProgram` morphism.
+
+        Realises the dependent-kernel application
+        :math:`\\Pi (p:P).\\ \\mathbf{Kern}(\\mathrm{dom}(p),\\, \\mathrm{cod}(p))`
+        at the supplied section: the result is the concrete
+        Kern-morphism the template denotes at those parameters,
+        materialised as a standalone morphism rather than inlined
+        into an enclosing program.
+        """
+        tmpl = self._program_templates[expr.callee]
+        type_params = tmpl.type_params or ()
+        args = expr.args
+        if len(args) != len(type_params):
+            raise CompileError(
+                f"template {expr.callee!r} expects {len(type_params)} "
+                f"arguments, got {len(args)}",
+                expr.line,
+                expr.col,
+            )
+        type_subst: dict[str, TypeExpr] = {}
+        value_subst: dict[str, str | float] = {}
+        for param, arg in zip(type_params, args):
+            if isinstance(param, ObjectParam):
+                if param.universe == "FinSet" and arg not in self._objects:
+                    raise CompileError(
+                        f"template {expr.callee!r}: parameter "
+                        f"{param.name!r} : FinSet expects a finite-set "
+                        f"object, but {arg!r} is not a declared object",
+                        expr.line,
+                        expr.col,
+                    )
+                if param.universe == "Space" and arg not in self._spaces:
+                    raise CompileError(
+                        f"template {expr.callee!r}: parameter "
+                        f"{param.name!r} : Space expects a continuous "
+                        f"space, but {arg!r} is not a declared space",
+                        expr.line,
+                        expr.col,
+                    )
+                if (
+                    param.universe == "Object"
+                    and arg not in self._objects
+                    and arg not in self._spaces
+                ):
+                    raise CompileError(
+                        f"template {expr.callee!r}: parameter "
+                        f"{param.name!r} : Object expects a declared "
+                        f"object or space, got {arg!r}",
+                        expr.line,
+                        expr.col,
+                    )
+                type_subst[param.name] = TypeName(
+                    name=arg, line=expr.line, col=expr.col
+                )
+            elif isinstance(param, ScalarParam):
+                value_subst[param.name] = arg
+            elif isinstance(param, MorphismParam):
+                if arg not in self._morphisms and arg not in self._program_templates:
+                    raise CompileError(
+                        f"template {expr.callee!r}: parameter "
+                        f"{param.name!r}: morphism {arg!r} is not "
+                        f"declared",
+                        expr.line,
+                        expr.col,
+                    )
+                value_subst[param.name] = arg
+            else:
+                raise CompileError(
+                    f"template {expr.callee!r}: unknown parameter kind "
+                    f"for {getattr(param, 'name', '?')!r}",
+                    expr.line,
+                    expr.col,
+                )
+        # Substitute parameters through the template body. We do not
+        # α-rename locals here: the synthetic program owns its own
+        # scope, so the template's local names (return-var, latents,
+        # let-bindings) need no further refresh.
+        expanded_body = self._expand_bind_steps(tmpl.draws)
+        empty_rename: dict[str, str] = {}
+        substituted_body = tuple(
+            self._rename_step(step, type_subst, value_subst, empty_rename)
+            for step in expanded_body
+        )
+        synth_domain = self._rename_type(tmpl.domain, type_subst)
+        synth_codomain = self._rename_type(tmpl.codomain, type_subst)
+        synth_name = f"__tmpl_call${expr.callee}${expr.line}${expr.col}"
+        # Defensively dodge collisions if the same call site is
+        # compiled twice for any reason.
+        suffix = 0
+        unique_name = synth_name
+        while unique_name in self._morphisms:
+            suffix += 1
+            unique_name = f"{synth_name}#{suffix}"
+        synth = ProgramDecl(
+            name=unique_name,
+            params=None,
+            domain=synth_domain,
+            codomain=synth_codomain,
+            draws=substituted_body,
+            return_vars=tmpl.return_vars,
+            return_labels=tmpl.return_labels,
+            effects=tmpl.effects,
+            over_model=None,
+            type_params=None,
+            docs=(),
+            line=expr.line,
+            col=expr.col,
+        )
+        self._compile_program(synth)
+        return self._morphisms.pop(unique_name)
+
+    def _compile_contraction(self, decl: ContractionDecl) -> None:
+        """Compile a ``contraction`` declaration into a callable
+        registered under ``decl.name``.
+
+        Categorically, a contraction is an n-ary operadic morphism:
+        it takes ``len(decl.inputs)`` input morphisms, contracts
+        them together under the named composition rule using the
+        einsum-style wiring spec, and returns a fresh morphism
+        with the declared ``domain -> codomain`` typing.
+
+        The compiled callable accepts that many input morphisms (in
+        the order declared in ``decl.inputs``) and returns an
+        :class:`ObservedMorphism` whose tensor is the contraction
+        result. The callable is registered in the morphism table
+        so the user can invoke it like any other morphism:
+        ``let out = op_apply(arg1, arg2, kernel)``.
+        """
+        if decl.name in self._morphisms or decl.name in self._program_templates:
+            raise CompileError(
+                f"contraction {decl.name!r} already declared as a morphism or program",
+                decl.line,
+                decl.col,
+            )
+        rule_name = decl.rule_name.lower()
+        if rule_name not in _QUANTALE_REGISTRY:
+            raise CompileError(
+                f"contraction {decl.name!r}: unknown rule "
+                f"{decl.rule_name!r}; available: "
+                f"{', '.join(sorted(_QUANTALE_REGISTRY))}",
+                decl.line,
+                decl.col,
+            )
+        rule = _QUANTALE_REGISTRY[rule_name]
+        try:
+            wiring = EinsumWiring(rule, decl.wiring_spec)
+        except ValueError as exc:
+            raise CompileError(
+                f"contraction {decl.name!r}: invalid wiring "
+                f"{decl.wiring_spec!r}: {exc}",
+                decl.line,
+                decl.col,
+            ) from exc
+        expected_arity = wiring.input_arity
+        if expected_arity != len(decl.inputs):
+            raise CompileError(
+                f"contraction {decl.name!r}: wiring spec declares "
+                f"{expected_arity} inputs but the parameter list "
+                f"has {len(decl.inputs)}",
+                decl.line,
+                decl.col,
+            )
+        # Resolve domain / codomain object refs.
+        domain_obj = self._resolve_type(decl.domain)
+        codomain_obj = self._resolve_type(decl.codomain)
+        # Resolve each input's domain / codomain for validation.
+        input_types = [
+            (
+                inp.name,
+                self._resolve_type(inp.input_domain),
+                self._resolve_type(inp.input_codomain),
+            )
+            for inp in decl.inputs
+        ]
+        self._contractions[decl.name] = _CompiledContraction(
+            name=decl.name,
+            wiring=wiring,
+            domain=domain_obj,
+            codomain=codomain_obj,
+            input_types=input_types,
+            quantale=rule,
+        )
+
     def _compile_program(self, decl: ProgramDecl) -> None:
         """Compile a monadic program block into a MonadicProgram.
 
@@ -2198,9 +2783,7 @@ class Compiler:
                         step.col,
                     )
                 bound_vars[step.latent_name] = None
-                steps.append(
-                    ((step.latent_name,), None, _grouped_latent_init)
-                )
+                steps.append(((step.latent_name,), None, _grouped_latent_init))
                 continue
             if isinstance(step, GroupedBodyObserveStep):
                 # The captured observe inside a grouped marginalize
@@ -2252,12 +2835,8 @@ class Compiler:
                         # dimensions; this preserves the per-(N, K)
                         # broadcast pattern when one part is (N,)
                         # and another is (K,).
-                        common_shape = torch.broadcast_shapes(
-                            *(p.shape for p in parts)
-                        )
-                        expanded = [
-                            p.expand(common_shape) for p in parts
-                        ]
+                        common_shape = torch.broadcast_shapes(*(p.shape for p in parts))
+                        expanded = [p.expand(common_shape) for p in parts]
                         theta = torch.stack(expanded, dim=-1)
                     response = env[_resp]
                     ll = _family.log_prob(theta, response)
@@ -2273,9 +2852,7 @@ class Compiler:
                     return ll
 
                 bound_vars[latent_name] = None
-                steps.append(
-                    ((latent_name,), None, _captured_observe)
-                )
+                steps.append(((latent_name,), None, _captured_observe))
                 continue
             if isinstance(step, VectorisedObserveStep):
                 # observe r[n] ~ Family(args) for n in N — the batched-
@@ -2343,9 +2920,7 @@ class Compiler:
                 # ``via_var`` (single plate / fibration) or
                 # ``over_objs`` / ``via_axes`` (product plate /
                 # tuple of co-indexed fibrations).
-                has_grouping = (
-                    step.over_obj is not None or step.over_objs is not None
-                )
+                has_grouping = step.over_obj is not None or step.over_objs is not None
                 if has_grouping:
                     over_tuple: tuple[str, ...]
                     via_tuple: tuple[str, ...]
@@ -3116,14 +3691,54 @@ class Compiler:
         raise CompileError(f"unknown let expression node: {type(node).__name__}")
 
     def _compile_let(self, decl: LetDecl) -> None:
-        """Compile a let-binding with optional where clause."""
+        """Compile a let-binding with optional where clause.
+
+        The RHS is first classified by surface shape:
+
+        * If it's an expression that denotes a transformation
+          (bare reference to a registered trans singleton or
+          let-bound trans, a constructor call against the
+          transformation catalog, or ``t1 >>> t2``), the binding
+          lands in :attr:`_transformations`.
+        * Otherwise it's compiled as a morphism expression and
+          lands in :attr:`_morphisms`.
+
+        The two namespaces are disjoint: a name cannot be used as
+        both a morphism and a transformation in the same module.
+        """
         if hasattr(decl, "where") and decl.where:
             for where_decl in decl.where:
                 self._compile_let(where_decl)
-        if decl.name in self._morphisms:
+        if decl.name in self._morphisms or decl.name in self._transformations:
             raise CompileError(f"name {decl.name!r} already bound", decl.line, decl.col)
+        if self._is_trans_expr(decl.expr):
+            self._transformations[decl.name] = self._compile_trans_expr(decl.expr)
+            return
         morph = self._compile_expr(decl.expr)
         self._morphisms[decl.name] = morph
+
+    def _is_trans_expr(self, expr) -> bool:
+        """Return True iff ``expr`` denotes a transformation value.
+
+        The classification is *purely structural* — based on the
+        expression's surface shape — and is the criterion the
+        let-binding logic uses to choose between the morphism and
+        transformation namespaces.  An :class:`ExprMorphismCall`
+        whose callee is in :attr:`_trans_constructors` is a
+        transformation; the same shape with a callee in
+        :attr:`_contractions` is a morphism.
+        """
+        if isinstance(expr, ExprTransCompose):
+            return True
+        if isinstance(expr, ExprIdent):
+            return (
+                expr.name in self._trans_singletons
+                or expr.name in self._transformations
+                or expr.name in self._trans_constructors
+            )
+        if isinstance(expr, ExprMorphismCall):
+            return expr.callee in self._trans_constructors
+        return False
 
     # ------------------------------------------------------------------
     # Structural-compression compilation
@@ -4516,123 +5131,192 @@ class Compiler:
         """
         self._data_bindings = dict(data)
 
-    def _resolve_homomorphism(self, name: str):
-        """Look up a named quantale homomorphism for change-of-base.
+    def _require_quantale(self, op_name: str, line: int, col: int) -> None:
+        """Raise ``CompileError`` if the module's composition rule
+        isn't a :class:`Quantale`.
 
-        The compiler's homomorphism catalog is keyed by short
-        names (``"expectation"``, ``"log_prob"``, ``"max_plus"``,
-        ``"material_implication"``, ``"threshold"``,
-        ``"boolean_embedding"``) and returns the corresponding
-        :class:`QuantaleHomomorphism` instance. Returns ``None``
-        for an unknown name; the caller raises a compile error
-        with the available-names list.
+        Operations that need a unit, zero, dagger, or compact-closed
+        structure (``identity``, ``cup``, ``cap``, ``.dagger``,
+        ``.trace``) call this before constructing their result.
+        The error names the operation and the active rule so the
+        user can decide whether to switch the file's
+        ``quantale`` / ``semigroupoid`` / ``bilinear_form``
+        declaration or drop the operation.
         """
-        return self._homomorphisms.get(name)
+        rule = self._quantale
+        if isinstance(rule, Quantale):
+            return
+        kind = (
+            "semigroupoid"
+            if isinstance(rule, Semigroupoid)
+            else (
+                "bilinear_form"
+                if isinstance(rule, BilinearForm)
+                else "composition_rule"
+            )
+        )
+        raise CompileError(
+            f"{op_name}: requires a Quantale composition rule (needs "
+            f"identity / unit / zero); the module declares {kind} "
+            f"{rule.name!r}, which does not have those. Switch the "
+            f"file-level declaration to ``quantale X`` for a "
+            f"Quantale X, or drop the {op_name} operation.",
+            line,
+            col,
+        )
 
-    def _resolve_change_base_arg(self, expr):
-        """Resolve a :class:`ExprChangeBase` argument to a callable
-        transformation.
+    def _compile_trans_expr(self, expr):
+        """Compile an expression that evaluates to a transformation.
 
-        Two surface forms are handled:
+        Recognised expression shapes:
 
-        * Bare-name lookup (``expr.call_args == ()``): the
-          ``expr.factory`` string is looked up in the
-          transformation catalog as a singleton.  Returns the
-          stored :class:`QuantaleHomomorphism` or
-          :class:`MorphismTransformation` instance directly.
-        * Factory call (``expr.call_args`` non-empty): the
-          ``expr.factory`` string is looked up in the catalog as
-          a callable factory; each entry of ``call_args`` names a
-          value (object, morphism, …) in the surrounding scope.
-          Each argument is resolved to its compiled value and the
-          factory is invoked to produce the transformation
-          instance.
+        * :class:`ExprIdent` — a bare name resolved against
+          :attr:`_transformations` (user let-bindings) and then
+          :attr:`_trans_singletons` (built-in singletons).
+        * :class:`ExprMorphismCall` — a constructor call whose
+          callee names an entry of :attr:`_trans_constructors`;
+          each argument is resolved against the surrounding scope
+          (objects, morphisms, quantales).
+        * :class:`ExprTransCompose` — ``t1 >>> t2``; recursively
+          compiles each side, flattens nested sequences, and
+          type-checks each adjacent ``target == source`` boundary,
+          returning a :class:`TransSeq` (or, for two single-step
+          values, an unboxed TransSeq of length 2).
+
+        Returns a value that the runtime understands: a
+        :class:`QuantaleHomomorphism`, a
+        :class:`MorphismTransformation`, or a :class:`TransSeq`.
+        Raises :class:`CompileError` on any unresolved reference
+        or type mismatch.
         """
-        catalog = self._homomorphisms
-        if not expr.call_args:
-            phi = catalog.get(expr.factory)
-            if phi is None:
+        if isinstance(expr, ExprIdent):
+            if expr.name in self._transformations:
+                return self._transformations[expr.name]
+            if expr.name in self._trans_singletons:
+                return self._trans_singletons[expr.name]
+            if expr.name in self._trans_constructors:
+                raise CompileError(
+                    f"change_base: {expr.name!r} is a transformation "
+                    f"constructor and needs arguments; call it like "
+                    f"`{expr.name}(axis_object)`",
+                    expr.line,
+                    expr.col,
+                )
+            raise CompileError(
+                f"change_base: undefined transformation "
+                f"{expr.name!r}; available singletons: "
+                f"{sorted(self._trans_singletons)}; constructors: "
+                f"{sorted(self._trans_constructors)}; let-bound: "
+                f"{sorted(self._transformations)}",
+                expr.line,
+                expr.col,
+            )
+        if isinstance(expr, ExprMorphismCall):
+            factory = self._trans_constructors.get(expr.callee)
+            if factory is None:
                 raise CompileError(
                     f"change_base: undefined transformation "
-                    f"{expr.factory!r}; available: "
-                    f"{sorted(catalog)}",
+                    f"constructor {expr.callee!r}; available: "
+                    f"{sorted(self._trans_constructors)}",
                     expr.line,
                     expr.col,
                 )
-            if callable(phi) and not isinstance(
-                phi, (QuantaleHomomorphism, MorphismTransformation)
-            ):
+            resolved: list = []
+            for arg_name in expr.args:
+                value = self._resolve_trans_constructor_argument(
+                    arg_name,
+                    expr.line,
+                    expr.col,
+                    constructor_name=expr.callee,
+                )
+                resolved.append(value)
+            try:
+                return factory(*resolved)
+            except (TypeError, ValueError) as e:
                 raise CompileError(
-                    f"change_base: {expr.factory!r} is a "
-                    f"transformation factory and needs arguments; "
-                    f"call it like `{expr.factory}(axis_object)`",
+                    f"change_base: constructor {expr.callee!r} "
+                    f"rejected arguments {expr.args!r}: {e}",
                     expr.line,
                     expr.col,
-                )
-            return phi
-        factory = catalog.get(expr.factory)
-        if factory is None:
-            raise CompileError(
-                f"change_base: undefined factory "
-                f"{expr.factory!r}; available: "
-                f"{sorted(catalog)}",
-                expr.line,
-                expr.col,
+                ) from e
+        if isinstance(expr, ExprTransCompose):
+            left_val = self._compile_trans_expr(expr.left)
+            right_val = self._compile_trans_expr(expr.right)
+            left_steps = (
+                left_val.steps if isinstance(left_val, TransSeq) else (left_val,)
             )
-        if not callable(factory):
-            raise CompileError(
-                f"change_base: {expr.factory!r} resolves to a "
-                f"singleton, not a factory; cannot be called with "
-                f"arguments {expr.call_args!r}",
-                expr.line,
-                expr.col,
+            right_steps = (
+                right_val.steps if isinstance(right_val, TransSeq) else (right_val,)
             )
-        resolved: list = []
-        for arg_name in expr.call_args:
-            value = self._resolve_factory_argument(
-                arg_name, expr.line, expr.col, factory_name=expr.factory
-            )
-            resolved.append(value)
-        try:
-            return factory(*resolved)
-        except TypeError as e:
-            raise CompileError(
-                f"change_base: factory {expr.factory!r} rejected "
-                f"arguments {expr.call_args!r}: {e}",
-                expr.line,
-                expr.col,
-            ) from e
+            steps = left_steps + right_steps
+            # Type-check the seam between each adjacent step.
+            for i in range(len(steps) - 1):
+                tgt = steps[i].target
+                src = steps[i + 1].source
+                if type(tgt) is not type(src):
+                    raise CompileError(
+                        f">>>: target of step {i} ({tgt.name!r}) "
+                        f"does not match source of step {i + 1} "
+                        f"({src.name!r})",
+                        expr.line,
+                        expr.col,
+                    )
+            return TransSeq(steps)
+        raise CompileError(
+            f"change_base: expression of kind "
+            f"{type(expr).__name__!r} does not denote a "
+            f"transformation",
+            expr.line,
+            expr.col,
+        )
 
-    def _resolve_factory_argument(
+    def _resolve_trans_constructor_argument(
         self,
         name: str,
         line: int,
         col: int,
         *,
-        factory_name: str,
+        constructor_name: str,
     ):
-        """Resolve a named factory argument to its compiled value.
-
-        Tries the four value sorts that show up in transformation
-        factories (objects, morphisms, continuous morphisms,
-        quantales) and surfaces a helpful error if the name is
-        unknown.
+        """Resolve a named constructor argument to its compiled
+        value.  Tries the value sorts that show up in
+        transformation constructors (objects, morphisms,
+        continuous morphisms, quantales) and surfaces a clear
+        error if the name doesn't resolve.
         """
         if name in self._objects:
             return self._objects[name]
         if name in self._morphisms:
             return self._morphisms[name]
-        if hasattr(self, "_continuous_morphisms") and name in self._continuous_morphisms:
+        if (
+            hasattr(self, "_continuous_morphisms")
+            and name in self._continuous_morphisms
+        ):
             return self._continuous_morphisms[name]
         if name in _QUANTALE_REGISTRY:
             return _QUANTALE_REGISTRY[name]
         raise CompileError(
-            f"change_base: factory {factory_name!r} argument "
-            f"{name!r} unresolved (must name an object, morphism, "
-            f"or quantale)",
+            f"change_base: constructor {constructor_name!r} "
+            f"argument {name!r} unresolved (must name an object, "
+            f"morphism, or quantale)",
             line,
             col,
         )
+
+    def _apply_trans(self, inner_morph, phi):
+        """Apply a transformation value (a singleton, constructor
+        result, or :class:`TransSeq`) to a morphism via the
+        morphism's own ``change_base``.
+
+        Sequences are unfolded into iterated change_base calls;
+        each intermediate result feeds the next step.
+        """
+        if isinstance(phi, TransSeq):
+            current = inner_morph
+            for step in phi.steps:
+                current = current.change_base(step)
+            return current
+        return inner_morph.change_base(phi)
 
     def _compose_with_op(self, left, right, op: str):
         """Dispatch a composition expression to the quantale
@@ -4678,9 +5362,7 @@ class Compiler:
             "%>": PROBABILITY,
         }
         if op not in op_to_quantale:
-            raise CompileError(
-                f"unknown composition operator {op!r}", 0, 0
-            )
+            raise CompileError(f"unknown composition operator {op!r}", 0, 0)
         target_quantale = op_to_quantale[op]
         if target_quantale is None:
             # ``>>`` and ``>=>``: fall through to the operands' own
@@ -4735,15 +5417,19 @@ class Compiler:
                     f"undefined morphism {expr.name!r}", expr.line, expr.col
                 )
             return self._morphisms[expr.name]
+        elif isinstance(expr, ExprMorphismCall):
+            return self._compile_morphism_call(expr)
         elif isinstance(expr, ExprIdentity):
             if expr.object_name not in self._objects:
                 raise CompileError(
                     f"undefined object {expr.object_name!r}", expr.line, expr.col
                 )
+            self._require_quantale("identity", expr.line, expr.col)
             obj = self._objects[expr.object_name]
             return make_identity(obj, quantale=self._quantale)
         elif isinstance(expr, ExprDagger):
             inner = self._compile_expr(expr.inner)
+            self._require_quantale("dagger", expr.line, expr.col)
             return inner.dagger
         elif isinstance(expr, ExprTrace):
             inner = self._compile_expr(expr.inner)
@@ -4753,15 +5439,16 @@ class Compiler:
                     expr.line,
                     expr.col,
                 )
+            self._require_quantale("trace", expr.line, expr.col)
             try:
                 return inner.trace(self._objects[expr.object_name])
             except TypeError as e:
                 raise CompileError(str(e), expr.line, expr.col) from e
         elif isinstance(expr, ExprChangeBase):
             inner = self._compile_expr(expr.inner)
-            phi = self._resolve_change_base_arg(expr)
+            phi = self._compile_trans_expr(expr.phi)
             try:
-                return inner.change_base(phi)
+                return self._apply_trans(inner, phi)
             except TypeError as e:
                 raise CompileError(str(e), expr.line, expr.col) from e
         elif isinstance(expr, ExprCup):
@@ -4771,9 +5458,8 @@ class Compiler:
                     expr.line,
                     expr.col,
                 )
-            return _make_cup(
-                self._objects[expr.object_name], quantale=self._quantale
-            )
+            self._require_quantale("cup", expr.line, expr.col)
+            return _make_cup(self._objects[expr.object_name], quantale=self._quantale)
         elif isinstance(expr, ExprCap):
             if expr.object_name not in self._objects:
                 raise CompileError(
@@ -4781,9 +5467,8 @@ class Compiler:
                     expr.line,
                     expr.col,
                 )
-            return _make_cap(
-                self._objects[expr.object_name], quantale=self._quantale
-            )
+            self._require_quantale("cap", expr.line, expr.col)
+            return _make_cap(self._objects[expr.object_name], quantale=self._quantale)
         elif isinstance(expr, ExprFreeze):
             inner = self._compile_expr(expr.inner)
             # Materialise the inner morphism's tensor with detach()
@@ -4825,9 +5510,7 @@ class Compiler:
             # (or via the high-level ``loads()`` ``data=`` kwarg).
             data_dict = getattr(self, "_data_bindings", None)
             if data_dict is None or expr.key not in data_dict:
-                available = (
-                    sorted(data_dict.keys()) if data_dict else []
-                )
+                available = sorted(data_dict.keys()) if data_dict else []
                 raise CompileError(
                     f"from_data: unknown data key {expr.key!r}; "
                     f"available: {available}. Bind the data dict via "
@@ -4869,9 +5552,7 @@ class Compiler:
                 cod = _FS(name="_data_unit", cardinality=1)
                 tensor = tensor.unsqueeze(-1)
             else:
-                cod_size = int(
-                    torch.tensor(tensor.shape[1:]).prod().item()
-                )
+                cod_size = int(torch.tensor(tensor.shape[1:]).prod().item())
                 cod = _FS(name=f"_data_cod_{expr.key}", cardinality=cod_size)
                 if tensor.dim() > 2:
                     tensor = tensor.reshape(tensor.shape[0], -1)

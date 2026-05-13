@@ -40,8 +40,8 @@ deduction PCFG : Term -> Term {
 
 A PCFG is an agenda-based weighted deduction over CKY chart items `span(I, J, N)` (token range `[I, J)` carrying nonterminal `N`) under the `LogProb` semiring. Two rule families drive the parse:
 
-- `branch` — binary branching: adjacent spans of categories `B` and `C` combine into a span of some category `A`. The wildcard `A` is bound at firing time, weighted by the `(A → B C)` production probability the lexicon supplies.
-- `anchor` — lexical anchoring: a `leaf(I, T)` axiom for a token at position `I` carrying preterminal `T` lifts to a span of width 1.
+- `branch`: binary branching: adjacent spans of categories `B` and `C` combine into a span of some category `A`. The wildcard `A` is bound at firing time, weighted by the `(A → B C)` production probability the lexicon supplies.
+- `anchor`: lexical anchoring: a `leaf(I, T)` axiom for a token at position `I` carrying preterminal `T` lifts to a span of width 1.
 
 Production probabilities are learnable per lexicon entry; the `@ learnable` marker allocates a per-entry `nn.Parameter` log-weight that the optimizer can adjust during training.
 
@@ -55,7 +55,7 @@ The `lexicon { … }` block ships one `(word, category, lf)` entry per closed-cl
 
 ## DSL Features
 
-- **Single deduction block** declares the whole grammar: rule set, lexicon, semiring, start symbol, depth bound — no separate parser combinator.
+- **Single deduction block** declares the whole grammar: rule set, lexicon, semiring, start symbol, depth bound, no separate parser combinator.
 - **`lexicon { … }`** is the axiom-injection sugar for label-indexed lookups: every `"word" : Cat = lf @ learnable` line becomes a `(leaf(I, Cat), weight)` axiom whenever the input token at position `I` equals `"word"`.
 - **Pattern-polymorphic rules**: the `branch` rule is one sequent that fires for *any* nonterminal triple `(A, B, C)` consistent with the chart. There is no separate production declaration per triple.
 - **Chart as first-class differentiable value**: at runtime the deduction's `chart.weight(item)`, `chart.enumerate(pattern)`, and `chart.goal_weight()` return `torch.Tensor` values whose gradients flow back through the agenda's semiring operations.

@@ -280,4 +280,4 @@ You have:
 - Used ConditionalNormal and ConditionalBernoulli
 - Integrated programs with PyTorch optimization
 
-Next, see fuzzy logic factorization with quantale-enriched composition in [Tutorial 4](fuzzy-factorization.md).
+Next, see fuzzy logic factorization with quantale-enriched composition in [Tutorial 4](04-fuzzy-factorization.md).

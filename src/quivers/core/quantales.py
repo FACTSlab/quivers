@@ -421,23 +421,17 @@ class DualQuantale(Quantale):
     def name(self) -> str:
         return self._name
 
-    def tensor_op(
-        self, a: torch.Tensor, b: torch.Tensor
-    ) -> torch.Tensor:
+    def tensor_op(self, a: torch.Tensor, b: torch.Tensor) -> torch.Tensor:
         # Dual ⊗ = base ⋁ (as a binary reduction).
         stacked = torch.stack([a, b], dim=-1)
         return self._base.join(stacked, dim=-1)
 
-    def join(
-        self, t: torch.Tensor, dim: int | tuple[int, ...]
-    ) -> torch.Tensor:
+    def join(self, t: torch.Tensor, dim: int | tuple[int, ...]) -> torch.Tensor:
         # Dual ⋁ is the base ⊗ folded as a reduction. We unbind
         # the requested axes and tensor-op the chunks together.
         return self._reduce_with_op(self._base.tensor_op, t, dim)
 
-    def meet(
-        self, t: torch.Tensor, dim: int | tuple[int, ...]
-    ) -> torch.Tensor:
+    def meet(self, t: torch.Tensor, dim: int | tuple[int, ...]) -> torch.Tensor:
         # Dual ⋀ = base ⋁ (the duals swap meet and join too).
         return self._base.join(t, dim=dim)
 
@@ -511,10 +505,11 @@ class CustomQuantale(Quantale):
     fixed sample inputs; serious deployments should write their
     own targeted unit tests.
 
-    A future DSL-level surface (``quantale name { ... }``) will
-    parse user expressions and build a CustomQuantale under the
-    hood; that surface depends on extending the QVR grammar's
-    expression language.
+    The DSL surface ``quantale name { tensor_op(a, b) = …;
+    join(t) = …; unit = …; zero = …; }`` compiles to this class
+    under the hood, with ``verify=False`` (user expressions are
+    arithmetic and routinely violate one of the canned samples
+    used by :meth:`_sanity_check`).
     """
 
     def __init__(
@@ -526,8 +521,7 @@ class CustomQuantale(Quantale):
         zero: float,
         negate: Callable[[torch.Tensor], torch.Tensor] | None = None,
         meet: (
-            Callable[[torch.Tensor, int | tuple[int, ...]], torch.Tensor]
-            | None
+            Callable[[torch.Tensor, int | tuple[int, ...]], torch.Tensor] | None
         ) = None,
         verify: bool = True,
     ) -> None:
@@ -547,19 +541,13 @@ class CustomQuantale(Quantale):
     def name(self) -> str:
         return self._name
 
-    def tensor_op(
-        self, a: torch.Tensor, b: torch.Tensor
-    ) -> torch.Tensor:
+    def tensor_op(self, a: torch.Tensor, b: torch.Tensor) -> torch.Tensor:
         return self._tensor_op(a, b)
 
-    def join(
-        self, t: torch.Tensor, dim: int | tuple[int, ...]
-    ) -> torch.Tensor:
+    def join(self, t: torch.Tensor, dim: int | tuple[int, ...]) -> torch.Tensor:
         return self._join(t, dim)
 
-    def meet(
-        self, t: torch.Tensor, dim: int | tuple[int, ...]
-    ) -> torch.Tensor:
+    def meet(self, t: torch.Tensor, dim: int | tuple[int, ...]) -> torch.Tensor:
         if self._meet is None:
             raise NotImplementedError(
                 f"CustomQuantale {self._name!r}: no meet supplied. "
@@ -672,14 +660,10 @@ class CustomSemigroupoid(Semigroupoid):
     def name(self) -> str:
         return self._name
 
-    def tensor_op(
-        self, a: torch.Tensor, b: torch.Tensor
-    ) -> torch.Tensor:
+    def tensor_op(self, a: torch.Tensor, b: torch.Tensor) -> torch.Tensor:
         return self._tensor_op(a, b)
 
-    def join(
-        self, t: torch.Tensor, dim: int | tuple[int, ...]
-    ) -> torch.Tensor:
+    def join(self, t: torch.Tensor, dim: int | tuple[int, ...]) -> torch.Tensor:
         return self._join(t, dim)
 
     def _check_associativity(self) -> None:
@@ -759,14 +743,10 @@ class CustomBilinearForm(BilinearForm):
     def name(self) -> str:
         return self._name
 
-    def tensor_op(
-        self, a: torch.Tensor, b: torch.Tensor
-    ) -> torch.Tensor:
+    def tensor_op(self, a: torch.Tensor, b: torch.Tensor) -> torch.Tensor:
         return self._tensor_op(a, b)
 
-    def join(
-        self, t: torch.Tensor, dim: int | tuple[int, ...]
-    ) -> torch.Tensor:
+    def join(self, t: torch.Tensor, dim: int | tuple[int, ...]) -> torch.Tensor:
         return self._join(t, dim)
 
     def __repr__(self) -> str:
@@ -790,6 +770,7 @@ def material_implication() -> CustomSemigroupoid:
     Associative but lacks an identity, so it's a semigroupoid,
     not a quantale.
     """
+
     def _impl(a: torch.Tensor, b: torch.Tensor) -> torch.Tensor:
         return 1.0 - a + a * b
 
@@ -1024,9 +1005,9 @@ class LukasiewiczQuantale(Quantale):
 class GodelQuantale(Quantale):
     """[0,1] with Gödel (min) t-norm.
 
-        ⊗ = min,   ⋁ = max,   ⋀ = min,
-        ¬ = Gödel neg (1 if a == 0 else 0),
-        I = 1.0, ⊥ = 0.0.
+    ⊗ = min,   ⋁ = max,   ⋀ = min,
+    ¬ = Gödel neg (1 if a == 0 else 0),
+    I = 1.0, ⊥ = 0.0.
     """
 
     @property

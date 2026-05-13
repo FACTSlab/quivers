@@ -4,35 +4,32 @@
 
 The inference subpackage is a six-layer stack, each layer consumable independently and re-exported from `quivers.inference`:
 
-```
-Layer 6 ── SVI / MCMC / Predictive drivers
-Layer 5 ── Hybrid samplers: AutoDAIS, WarmupThenHMC
-Layer 4 ── Guides {Auto*Guide}  |  MCMC kernels {HMC, NUTS}
-Layer 3 ── Objectives {ELBO, IWAE, Renyi, VR-IWAE} × Estimators {Reparam, StL, DReG, Score}
-Layer 2 ── Transforms / normalising-flow primitives (affine coupling, MAF, IAF, NSF, BN, LU)
-Layer 1 ── LatentRegistry (model introspection: support, dims, plate, parent)
+```mermaid
+flowchart TB
+    L6[<b>Layer 6</b>: SVI / MCMC / Predictive drivers]
+    L5[<b>Layer 5</b>: Hybrid samplers<br/>AutoDAIS, WarmupThenHMC]
+    L4[<b>Layer 4</b>: Guides Auto*Guide  |  MCMC kernels HMC, NUTS]
+    L3[<b>Layer 3</b>: Objectives ELBO / IWAE / Renyi / VR-IWAE<br/>× Estimators Reparam / StL / DReG / Score]
+    L2[<b>Layer 2</b>: Transforms / normalising-flow primitives<br/>affine coupling, MAF, IAF, NSF, BN, LU]
+    L1[<b>Layer 1</b>: LatentRegistry<br/>model introspection: support, dims, plate, parent]
+    L6 --> L5 --> L4 --> L3 --> L2 --> L1
 ```
 
 Every guide and MCMC kernel consumes a single `LatentRegistry.from_model(model, observed_names)`, which flattens / unflattens between site-keyed dicts and a single unconstrained vector and routes every per-site bijector through `torch.distributions.constraint_registry.biject_to`.
 
 ## The variational pipeline
 
-```
-Model (MonadicProgram)
-    ↓
-Trace (record sample sites)
-    ↓
-Condition (clamp observations)
-    ↓
-LatentRegistry (introspect remaining sites)
-    ↓
-Guide (variational family) — Auto*Guide subclass
-    ↓
-Objective (ELBO / IWAEBound / RenyiBound / VRIWAEBound) + Estimator
-    ↓
-SVI (stochastic optimization)
-    ↓
-Predictive (sample from posterior; consumes a Guide or an MCMCResult)
+```mermaid
+flowchart TB
+    M[Model<br/>MonadicProgram]
+    T[Trace<br/>record sample sites]
+    C[Condition<br/>clamp observations]
+    LR[LatentRegistry<br/>introspect remaining sites]
+    G[Guide<br/>variational family<br/>Auto*Guide subclass]
+    O[Objective<br/>ELBO / IWAEBound / RenyiBound / VRIWAEBound<br/>plus Estimator]
+    S[SVI<br/>stochastic optimisation]
+    P[Predictive<br/>sample from posterior;<br/>consumes a Guide or an MCMCResult]
+    M --> T --> C --> LR --> G --> O --> S --> P
 ```
 
 ## Trace and Sample Sites
@@ -138,7 +135,7 @@ A diagonal Gaussian approximation to the posterior, with a per-site bijector tha
 
 $$q_\phi(z_i | x, y) = T_i\bigl(\,\mathcal{N}(\mu_i, \sigma_i)\,\bigr)$$
 
-where $T_i = \mathsf{biject\_to}(\mathrm{support}(p_i))$ is the bijector for site $i$'s prior support — the identity on the real line for `Normal`, $\exp$ for `HalfNormal` / `Gamma` / `Exponential` / `LogNormal`, sigmoid for `Beta` / `Uniform(0, 1)` / `LogitNormal`, an affine-shifted sigmoid for arbitrary `Uniform(low, high)` / `TruncatedNormal`, and `StickBreakingTransform` for `Dirichlet`. The learnable parameters $(\mu_i, \sigma_i)$ live in the unconstrained space; the constrained sample $v_i = T_i(z_i)$ is always inside the prior's support, so `prior.log_prob(v_i)` evaluates without raising `Expected value to be within the support of …`. Pyro's `AutoNormal` uses the same construction.
+where $T_i = \mathsf{biject\_to}(\mathrm{support}(p_i))$ is the bijector for site $i$'s prior support, the identity on the real line for `Normal`, $\exp$ for `HalfNormal` / `Gamma` / `Exponential` / `LogNormal`, sigmoid for `Beta` / `Uniform(0, 1)` / `LogitNormal`, an affine-shifted sigmoid for arbitrary `Uniform(low, high)` / `TruncatedNormal`, and `StickBreakingTransform` for `Dirichlet`. The learnable parameters $(\mu_i, \sigma_i)$ live in the unconstrained space; the constrained sample $v_i = T_i(z_i)$ is always inside the prior's support, so `prior.log_prob(v_i)` evaluates without raising `Expected value to be within the support of …`. Pyro's `AutoNormal` uses the same construction.
 
 ```python
 from quivers.inference import AutoNormalGuide
