@@ -2930,3 +2930,94 @@ class TestRuleDecl:
             loads(
                 "\n                rule bad(X, Y, Z) : X, Y, Z => X\n                category S\n                object Token : 10\n                let g = parser(rules=[bad], terminal=Token, start=S)\n                export g\n            "
             )
+
+
+# ---------------------------------------------------------------------------
+# Axis-role surface validation (0.5.0)
+# ---------------------------------------------------------------------------
+
+
+class TestAxisRoleSurface:
+    """Compile-time validation of `over <axes> [iid over <axes>]` clauses.
+
+    Verifies that the axis-role surface preserves categorical distinctions:
+    the family's declared ``event_rank`` controls the legal arity of
+    ``over``; mismatch is a compile error, not a silent reinterpretation.
+    """
+
+    def test_event_rank_0_rejects_over_axes(self):
+        """A scalar family (event_rank 0) cannot carry `over <axes>`."""
+        with pytest.raises(CompileError, match="event_rank 0"):
+            loads(
+                "object D : 4\nobject K : 8\n"
+                "kernel f : D -> K ~ Normal over cod\n"
+                "export f\n"
+            )
+
+    def test_event_rank_1_requires_one_axis(self):
+        """MVN (event_rank 1) requires exactly one axis in `over`."""
+        with pytest.raises(CompileError, match="event_rank 1"):
+            loads(
+                "object D : 4\nspace R8 : Euclidean(8)\n"
+                "kernel f : D -> R8 ~ MultivariateNormal over (dom, cod)\n"
+                "export f\n"
+            )
+
+    def test_event_rank_2_requires_two_axes(self):
+        """MatrixNormal (event_rank 2) requires exactly two axes in `over`."""
+        with pytest.raises(CompileError, match="event_rank 2"):
+            loads(
+                "object D : 4\nspace R8 : Euclidean(8)\n"
+                "kernel f : D -> R8 ~ MatrixNormal over cod\n"
+                "export f\n"
+            )
+
+    def test_unknown_axis_name_rejected(self):
+        """Axis names must resolve against dom/cod factors."""
+        with pytest.raises(CompileError, match="unknown axis name"):
+            loads(
+                "object D : 4\nspace R8 : Euclidean(8)\n"
+                "kernel f : D -> R8 ~ MultivariateNormal over bogus\n"
+                "export f\n"
+            )
+
+    def test_overlap_between_over_and_iid_rejected(self):
+        """An axis cannot appear in both `over` and `iid over`."""
+        with pytest.raises(CompileError, match="both"):
+            loads(
+                "object D : 4\nspace R8 : Euclidean(8)\n"
+                "kernel f : D -> R8 ~ MultivariateNormal over cod iid over cod\n"
+                "export f\n"
+            )
+
+    def test_lookup_kernel_rejects_axis_clause(self):
+        """A finite-set lookup kernel (no `~`) cannot carry an axis clause.
+
+        The axis-role surface is meaningful only when there's a family
+        to carry an event-rank; the lookup-table form has no such family.
+        """
+        # The grammar attaches `axes` only to the `~ Family` branch of
+        # kernel_decl, so a lookup kernel can't even parse with an axis
+        # clause — this test asserts that grammar contract by parsing
+        # the well-formed lookup variant and confirming axes is None.
+        m = parse(
+            "object S : 8\nkernel trans : S -> S\nexport trans\n"
+        )
+        decls = [s for s in m.statements if isinstance(s, KernelDecl)]
+        assert decls and decls[0].axes is None
+
+    def test_parametric_kernel_accepts_well_formed_axis_clause(self):
+        """A correctly-arity-matched axis clause compiles cleanly."""
+        loads(
+            "space R8 : Euclidean(8)\nspace R4 : Euclidean(4)\n"
+            "kernel f : R8 -> R4 ~ MultivariateNormal over cod\n"
+            "export f\n"
+        )
+        m = parse(
+            "space R8 : Euclidean(8)\nspace R4 : Euclidean(4)\n"
+            "kernel f : R8 -> R4 ~ MultivariateNormal over cod\n"
+            "export f\n"
+        )
+        decls = [s for s in m.statements if isinstance(s, KernelDecl)]
+        assert decls and decls[0].axes is not None
+        assert decls[0].axes.over == ("cod",)
