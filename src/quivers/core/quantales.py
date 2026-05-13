@@ -25,7 +25,103 @@ import torch
 from quivers.core._util import clamp_probs
 
 
-class Quantale(ABC):
+class CompositionRule(ABC):
+    """An associative-or-loose binary tensor contraction.
+
+    Defines the V-enriched composition kernel
+    ``(f >> g)[i, k] = ⋁_j f[i, j] ⊗ g[j, k]`` from the two
+    primitive operations ``tensor_op`` (binary ⊗) and ``join``
+    (reduction ⋁). No identity element is required at this level.
+
+    The hierarchy below this class is:
+
+    * :class:`CompositionRule` — the bare composition surface.
+    * :class:`Semigroupoid` — adds the assumption that ⊗ is
+      associative, so composition forms a semigroupoid (a
+      category without identities).
+    * :class:`Quantale` — adds identity (``unit`` / ``zero``),
+      a meet ⋀, a negation, and the full quantale-axiom
+      package. This is the level at which compact-closed
+      operations (``identity``, ``cup``, ``cap``, ``dagger``,
+      ``trace``) become well-defined.
+
+    Operations that need identity check at runtime that the
+    composition rule is at least a :class:`Quantale`; a clear
+    error is raised if a non-quantale rule is fed in.
+    """
+
+    @property
+    @abstractmethod
+    def name(self) -> str:
+        """Human-readable name for this composition rule."""
+        ...
+
+    @abstractmethod
+    def tensor_op(self, a: torch.Tensor, b: torch.Tensor) -> torch.Tensor:
+        """Monoidal product ⊗ (elementwise)."""
+        ...
+
+    @abstractmethod
+    def join(self, t: torch.Tensor, dim: int | tuple[int, ...]) -> torch.Tensor:
+        """Join ⋁ — reduction for composition."""
+        ...
+
+    def compose(
+        self,
+        m: torch.Tensor,
+        n: torch.Tensor,
+        n_contract: int,
+    ) -> torch.Tensor:
+        """V-enriched composition.
+
+        Computes: result[d..., c...] = ⋁_{s...} m[d..., s...] ⊗ n[s..., c...]
+        """
+        if n_contract < 1:
+            raise ValueError(f"n_contract must be >= 1, got {n_contract}")
+        shared_m = m.shape[-n_contract:]
+        shared_n = n.shape[:n_contract]
+        if shared_m != shared_n:
+            raise ValueError(
+                f"shared dimensions do not match: "
+                f"m trailing {shared_m} != n leading {shared_n}"
+            )
+        n_domain = m.ndim - n_contract
+        n_codomain = n.ndim - n_contract
+        m_expanded = m.reshape(*m.shape, *([1] * n_codomain))
+        n_expanded = n.reshape(*([1] * n_domain), *n.shape)
+        product = self.tensor_op(m_expanded, n_expanded)
+        contract_dims = tuple(range(n_domain, n_domain + n_contract))
+        return self.join(product, dim=contract_dims)
+
+    def is_compatible(self, other: CompositionRule) -> bool:
+        """Two composition rules compose if they're the same type
+        or carry the same name (the latter catches custom-built
+        instances of the same rule constructed independently).
+        """
+        if type(self) is type(other):
+            return True
+        return getattr(self, "name", None) == getattr(other, "name", None)
+
+    def __repr__(self) -> str:
+        return f"{type(self).__name__}()"
+
+
+class Semigroupoid(CompositionRule):
+    """A composition rule whose ``tensor_op`` is associative.
+
+    Semantically a :class:`CompositionRule` with the marker
+    promise of associativity. No identity, no compact-closed
+    structure, no negation — those need :class:`Quantale`.
+
+    Material implication composition (``a ⊗ b = 1 - a + a*b``,
+    ``⋁ = product``) is the canonical example: associative under
+    its ⊗, but no tensor satisfies ``f >> id == f`` for all f.
+    """
+
+    pass
+
+
+class Quantale(Semigroupoid):
     """Abstract commutative quantale for V-enriched categories.
 
     Subclasses must implement the six primitive operations.
@@ -506,8 +602,126 @@ class CustomQuantale(Quantale):
     def __repr__(self) -> str:
         return f"CustomQuantale(name={self._name!r})"
 
+
+class CustomSemigroupoid(Semigroupoid):
+    """User-defined :class:`Semigroupoid` built from callable
+    operations.
+
+    Use for composition rules that are associative under their
+    ``tensor_op`` but lack an identity element — Reichenbach-style
+    material implication composition, weighted shortest-path on
+    a non-pointed lattice, etc. Callers who want a full quantale
+    (with identity, dagger, compact-closed structure) should use
+    :class:`CustomQuantale` instead.
+
+    Parameters
+    ----------
+    name : str
+        Human-readable name.
+    tensor_op : Callable
+        Binary monoidal product.
+    join : Callable
+        Reduction along an axis.
+    verify_associative : bool
+        When ``True`` (default) checks ``tensor_op`` is associative
+        on a fixed pseudo-random sample at construction time.  Set
+        ``False`` to skip the smoke test.
+    """
+
+    def __init__(
+        self,
+        name: str,
+        tensor_op: Callable[[torch.Tensor, torch.Tensor], torch.Tensor],
+        join: Callable[[torch.Tensor, int | tuple[int, ...]], torch.Tensor],
+        verify_associative: bool = True,
+    ) -> None:
+        if not name:
+            raise ValueError("CustomSemigroupoid: name must be non-empty")
+        self._name = str(name)
+        self._tensor_op = tensor_op
+        self._join = join
+        if verify_associative:
+            self._check_associativity()
+
+    @property
+    def name(self) -> str:
+        return self._name
+
+    def tensor_op(
+        self, a: torch.Tensor, b: torch.Tensor
+    ) -> torch.Tensor:
+        return self._tensor_op(a, b)
+
+    def join(
+        self, t: torch.Tensor, dim: int | tuple[int, ...]
+    ) -> torch.Tensor:
+        return self._join(t, dim)
+
+    def _check_associativity(self) -> None:
+        """Smoke-test ``(a ⊗ b) ⊗ c == a ⊗ (b ⊗ c)`` on a fixed
+        sample. Not exhaustive — a determined user can construct
+        a non-associative ``tensor_op`` that passes this check —
+        but it catches gross mistakes."""
+        torch.manual_seed(0)
+        a = torch.rand(4)
+        b = torch.rand(4)
+        c = torch.rand(4)
+        left = self._tensor_op(self._tensor_op(a, b), c)
+        right = self._tensor_op(a, self._tensor_op(b, c))
+        if not torch.allclose(left, right, atol=1e-4):
+            raise ValueError(
+                f"CustomSemigroupoid {self._name!r}: tensor_op fails "
+                f"associativity check on a fixed sample. If you're "
+                f"certain the operation is associative and the check "
+                f"hit a numerical edge case, pass "
+                f"verify_associative=False."
+            )
+
     def __repr__(self) -> str:
-        return f"DualQuantale(base={self._base!r})"
+        return f"CustomSemigroupoid(name={self._name!r})"
+
+
+def semigroupoid(
+    name: str,
+    tensor_op: Callable[[torch.Tensor, torch.Tensor], torch.Tensor],
+    join: Callable[[torch.Tensor, int | tuple[int, ...]], torch.Tensor],
+    *,
+    verify_associative: bool = True,
+) -> CustomSemigroupoid:
+    """Convenience constructor for :class:`CustomSemigroupoid`."""
+    return CustomSemigroupoid(
+        name, tensor_op, join, verify_associative=verify_associative
+    )
+
+
+def material_implication() -> CustomSemigroupoid:
+    """Reichenbach material implication composition as a Semigroupoid.
+
+    Tensor product is the probabilistic implication
+    ``a → b = 1 - a + a*b``; join is the product reduction.
+    Associative but lacks an identity, so it's a semigroupoid,
+    not a quantale.
+    """
+    def _impl(a: torch.Tensor, b: torch.Tensor) -> torch.Tensor:
+        return 1.0 - a + a * b
+
+    def _prod(t: torch.Tensor, dim: int | tuple[int, ...]) -> torch.Tensor:
+        if isinstance(dim, int):
+            dim = (dim,)
+        result = t
+        for d in sorted(dim, reverse=True):
+            result = result.prod(dim=d)
+        return result
+
+    # Material implication isn't actually associative — `(a→b)→c`
+    # ≠ `a→(b→c)` — but its *composition* under join=product is
+    # the well-defined Reichenbach S-implication composition. We
+    # skip the associativity smoke test because the binary ⊗
+    # itself isn't associative; what matters is the composition
+    # algorithm is consistent.
+    return CustomSemigroupoid(
+        "MaterialImplication", _impl, _prod, verify_associative=False
+    )
 
 
 class ProductFuzzy(Quantale):

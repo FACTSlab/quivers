@@ -109,7 +109,7 @@ _INLINE_CLAMPS: dict[str, Callable[[torch.Tensor], torch.Tensor]] = {
 # ---------------------------------------------------------------------------
 
 
-ParamKind = Literal["scalar", "vector", "integer"]
+type ParamKind = Literal["scalar", "vector", "integer"]
 """Per-parameter shape contract on the inline call side.
 
 * ``"scalar"`` — broadcasts across the codomain's last axis
@@ -167,7 +167,7 @@ class ParamSpec(dx.Model):
         return _INLINE_CLAMPS[self.transform]
 
 
-OutputKind = Literal[
+type OutputKind = Literal[
     "independent",  # per-dim independent, e.g. Normal[d]
     "vector",  # a single vector output (Dirichlet, LogisticNormal)
     "mvn",  # multivariate normal-style joint
