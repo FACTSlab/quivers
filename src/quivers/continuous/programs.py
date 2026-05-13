@@ -189,7 +189,23 @@ class MonadicProgram(ContinuousMorphism):
 
             else:
                 key = f"_step_{var_names[0]}"
-                self.add_module(key, morph)
+                from quivers.core.morphisms import as_torch_module
+
+                wrapped = as_torch_module(morph)
+                self.add_module(key, wrapped)
+                # The runtime accesses ``morph`` via
+                # ``self._modules[key]`` and expects an object whose
+                # ``rsample`` / ``log_prob`` methods are callable.
+                # When ``morph`` was already an :class:`nn.Module`
+                # (a ContinuousMorphism), the wrapped value is the
+                # morphism itself and those methods are available.
+                # When ``morph`` is a backend-agnostic
+                # :class:`Morphism` (e.g. a ComposedMorphism from
+                # the V-Cat hierarchy), the wrapper exposes the
+                # morphism's parameters; the categorical object is
+                # attached as ``wrapped._morphism`` so a runtime
+                # path that needs it can recover via
+                # :func:`extract_morphism`.
                 self._step_specs.append(
                     _StepSpec(var_names, key, arg_or_value, is_observed)
                 )
@@ -444,8 +460,29 @@ class MonadicProgram(ContinuousMorphism):
                 continue
 
             assert self._modules[spec.morphism_name] is not None
-            morph = cast(ContinuousMorphism, self._modules[spec.morphism_name])
+            bound = self._modules[spec.morphism_name]
             inp = self._resolve_input(spec, x, env)
+
+            # A bound module may be either a ContinuousMorphism
+            # (probabilistic; has rsample / log_prob) or the wrapper
+            # produced by :func:`as_torch_module` around a V-Cat
+            # :class:`Morphism` (deterministic; has ``_morphism``
+            # attached). The deterministic path materialises the
+            # morphism's tensor and contracts it against the input,
+            # binding the result like a let-step.
+            from quivers.core.morphisms import (
+                Morphism as _CatMorphism,
+                extract_morphism,
+            )
+
+            cat_morph = extract_morphism(bound)
+            if cat_morph is not None and not isinstance(bound, ContinuousMorphism):
+                value = self._apply_categorical_morphism(
+                    cat_morph, inp, x.shape[0]
+                )
+                self._bind_result(spec, value, env)
+                continue
+            morph = cast(ContinuousMorphism, bound)
 
             # check if any vars in this step are observed
             if len(spec.vars) == 1:
@@ -508,6 +545,59 @@ class MonadicProgram(ContinuousMorphism):
         # use labels as keys if available, otherwise variable names
         keys = self._return_labels if self._return_labels else self._return_vars
         return {k: env[v] for k, v in zip(keys, self._return_vars)}
+
+    def _apply_categorical_morphism(
+        self,
+        morph,
+        inp: torch.Tensor,
+        batch: int,
+    ) -> torch.Tensor:
+        """Apply a V-enriched :class:`Morphism` to a batched input
+        tensor as a deterministic step.
+
+        The morphism's tensor has shape ``(*dom.shape, *cod.shape)``
+        with values in the quantale's lattice. For a batched input
+        ``inp`` of shape ``(batch, *dom.shape)``, the V-enriched
+        action is the quantale tensor product followed by join over
+        the domain axes — equivalent to a matrix-vector contraction
+        when the quantale is product-fuzzy / Markov / boolean. We
+        delegate that contraction to the active quantale's
+        ``composition_kernel`` so a single deterministic-bind path
+        handles every supported quantale uniformly.
+        """
+        m_tensor = morph.tensor
+        # Broadcast inp to (batch, *dom.shape). For a one-hot input
+        # of shape (batch,) into a finite domain, treat the values
+        # as integer indices and gather the corresponding rows.
+        dom_shape = tuple(morph.domain.shape)
+        cod_shape = tuple(morph.codomain.shape)
+        if inp.dim() == 1 or (inp.dim() == 2 and inp.shape[-1] == 1):
+            idx = inp.reshape(-1).to(torch.long)
+            if idx.numel() != batch:
+                idx = idx[:batch] if idx.numel() > batch else idx.expand(batch)
+            # m_tensor has shape (*dom_shape, *cod_shape). Index
+            # selecting the first len(dom_shape) axes by `idx` gives
+            # (batch, *cod_shape). For a single-axis domain this is
+            # m_tensor[idx]; for multi-axis we treat each component
+            # of idx separately (and require dom_shape to be
+            # 1-axis for the simple gather path).
+            if len(dom_shape) == 1:
+                return m_tensor[idx]
+            # Multi-axis: contract by einsum below.
+            raise RuntimeError(
+                "deterministic V-Cat step: integer-indexed input "
+                f"only supported for 1-axis domains; got {dom_shape}"
+            )
+        # General contraction via einsum: input has shape
+        # (batch, *dom.shape), m has shape (*dom.shape, *cod.shape).
+        in_letters = "".join(
+            chr(ord("a") + i) for i in range(len(dom_shape))
+        )
+        out_letters = "".join(
+            chr(ord("a") + len(dom_shape) + j) for j in range(len(cod_shape))
+        )
+        eq = f"...{in_letters},{in_letters}{out_letters}->...{out_letters}"
+        return torch.einsum(eq, inp, m_tensor)
 
     def log_prob(self, x: torch.Tensor, y: torch.Tensor) -> torch.Tensor:
         """Log-probability is not supported for monadic programs.

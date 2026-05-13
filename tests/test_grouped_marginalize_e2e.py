@@ -19,10 +19,9 @@ layer:
    true class proportions are known is fit by SVI and the
    estimated proportions match within an ADVI-mean-field tolerance.
 
-These tests close the verification gap PR #10 left: the original
-implementation of issue #9 shipped the surface + the runtime
-primitive but never exercised them through the full
-log_joint / SVI / guide pipeline.
+Together these tests close the verification gap between the
+``marginalize_grouped`` runtime primitive and the full
+``log_joint`` / SVI / guide pipeline that consumes it.
 """
 
 from __future__ import annotations

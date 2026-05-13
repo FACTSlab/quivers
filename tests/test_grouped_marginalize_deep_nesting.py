@@ -1,9 +1,9 @@
 """Deeply nested grouped marginalize: arbitrary-depth stacks.
 
-Issue #9 calls for arbitrary nesting of grouped marginalize
-blocks. This module verifies the runtime handles 3 / 4 / 5 / 6 /
-7-level stacks compiled from procedurally generated DSL programs.
-Each test checks both compile-time validity and that
+The grouped ``marginalize`` block is meant to nest arbitrarily;
+this module verifies the runtime handles 3 / 4 / 5 / 6 / 7-level
+stacks compiled from procedurally generated DSL programs. Each
+test checks both compile-time validity and that
 ``model.log_joint`` produces a finite scalar end-to-end.
 
 The runtime's two operating modes (innermost has a row axis +

@@ -1,4 +1,5 @@
-"""Behavioural / semantic tests for issue #9.
+"""Behavioural / semantic tests for the grouped ``marginalize``
+block.
 
 These tests target the *semantic correctness* of the runtime, not
 just the validation surface. They verify:

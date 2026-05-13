@@ -514,23 +514,45 @@ class FanOutMorphism(ContinuousMorphism):
         The morphisms to fan out to. All must share the same domain.
     """
 
-    def __init__(self, components: list[ContinuousMorphism]) -> None:
+    def __init__(self, components: list) -> None:
+        from quivers.core.morphisms import Morphism as _CatMorphism
+
         if not components:
             raise ValueError("fan-out requires at least one component")
-        domain = components[0].domain
-        for i, c in enumerate(components[1:], 1):
+        # Backend-agnostic V-Cat morphisms (those that aren't
+        # already ContinuousMorphism subclasses) get wrapped in a
+        # deterministic continuous adapter so the FanOut's rsample
+        # / log_prob loop can dispatch uniformly. The wrapping
+        # exposes the V-Cat tensor through a categorical
+        # ``rsample`` that gathers / contracts the tensor against
+        # the input; ``log_prob`` evaluates the V-Cat tensor as a
+        # categorical likelihood when meaningful.
+        wrapped_components: list[ContinuousMorphism] = []
+        for c in components:
+            if isinstance(c, ContinuousMorphism):
+                wrapped_components.append(c)
+            elif isinstance(c, _CatMorphism):
+                wrapped_components.append(DiscreteAsContinuous(c))
+            else:
+                raise TypeError(
+                    f"fan-out: component of type "
+                    f"{type(c).__name__} is neither a "
+                    f"ContinuousMorphism nor a V-Cat Morphism"
+                )
+        domain = wrapped_components[0].domain
+        for i, c in enumerate(wrapped_components[1:], 1):
             dom_dim = _event_dim(domain)
             c_dim = _event_dim(c.domain)
             if dom_dim != c_dim:
                 raise TypeError(
                     f"fan-out: component {i} domain dim {c_dim} != component 0 domain dim {dom_dim}"
                 )
-        codomain = components[0].codomain
-        for c in components[1:]:
+        codomain = wrapped_components[0].codomain
+        for c in wrapped_components[1:]:
             codomain = _combine_spaces(codomain, c.codomain)
         super().__init__(domain, codomain)
-        self._components = torch.nn.ModuleList(components)
-        self._cod_dims = [_event_dim(c.codomain) for c in components]
+        self._components = torch.nn.ModuleList(wrapped_components)
+        self._cod_dims = [_event_dim(c.codomain) for c in wrapped_components]
 
     def rsample(
         self, x: torch.Tensor, sample_shape: torch.Size = torch.Size()

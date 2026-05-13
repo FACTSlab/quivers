@@ -14,6 +14,21 @@ The hierarchy:
     ├── MarginalizedMorphism — contract codomain dims via join
     ├── FunctorMorphism     — lazy image of a morphism under a functor
     └── RepeatMorphism      — runtime-variable iterated composition (T^n)
+
+PyTorch boundary
+================
+
+The categorical hierarchy is intentionally *not* a subclass of
+:class:`torch.nn.Module`: a Morphism is a categorical object and a
+Module is a PyTorch parameter container. When a Morphism needs to
+be bound into a parameter-tracking context (a :class:`MonadicProgram`,
+a :class:`FanMorphism`, a parametric-program parameter slot), the
+adapter :func:`as_torch_module` produces a backend-agnostic
+:class:`nn.Module` wrapping the morphism's parameters. Every
+binding site funnels through this adapter so the categorical /
+PyTorch boundary stays explicit and a JAX or numpy backend can
+replace ``as_torch_module`` without touching the morphism
+hierarchy itself.
 """
 
 from __future__ import annotations
@@ -739,3 +754,78 @@ def identity(obj: SetObject, quantale: Quantale | None = None) -> ObservedMorphi
     q = quantale if quantale is not None else PRODUCT_FUZZY
     data = q.identity_tensor(obj.shape)
     return ObservedMorphism(obj, obj, data, quantale=q)
+
+
+def as_torch_module(m: object) -> nn.Module:
+    """Coerce a Morphism into an :class:`nn.Module` for parameter
+    tracking at a binding site.
+
+    The adapter draws the line between the categorical morphism
+    hierarchy (backend-agnostic; lives in :mod:`quivers.core`) and
+    PyTorch's parameter-container infrastructure. Every site that
+    needs to register a morphism's parameters with a parent
+    :class:`nn.Module` (the :class:`MonadicProgram` step list, the
+    submodule list of a :class:`FanMorphism` / :class:`StackMorphism`
+    composite, a parametric-program parameter slot bound to a
+    morphism) calls this function once and stores the result.
+
+    Parameters
+    ----------
+    m : object
+        The morphism (or other object) to wrap. Accepted forms:
+
+        * Already an :class:`nn.Module` — returned unchanged so a
+          continuous :class:`MonadicProgram` step can pass its
+          :class:`ContinuousMorphism` straight through.
+        * A :class:`Morphism` with a ``.module()`` method (every
+          subclass of :class:`Morphism` defined in this file
+          implements it) — the result of ``m.module()`` is
+          returned. The morphism object itself is attached to the
+          wrapper under the synthetic attribute ``_morphism`` so
+          downstream code that needs the categorical object (e.g.
+          to compute ``tensor`` or apply a ``Functor``) can recover
+          it without rebuilding.
+
+    Returns
+    -------
+    nn.Module
+        A module whose parameters / buffers are exactly the
+        morphism's, suitable for ``add_module`` on a parent.
+
+    Raises
+    ------
+    TypeError
+        ``m`` is neither an :class:`nn.Module` nor a
+        :class:`Morphism`-shaped object with a ``.module()`` method.
+    """
+    if isinstance(m, nn.Module):
+        return m
+    if isinstance(m, Morphism):
+        wrapper = m.module()
+        if not isinstance(wrapper, nn.Module):
+            raise TypeError(
+                f"{type(m).__name__}.module() returned "
+                f"{type(wrapper).__name__}; expected nn.Module"
+            )
+        # Attach the original morphism on the wrapper so downstream
+        # code that needs the categorical object can recover it
+        # without rebuilding from the wrapped parameters.
+        wrapper._morphism = m  # type: ignore[attr-defined]
+        return wrapper
+    raise TypeError(
+        f"as_torch_module: cannot adapt {type(m).__name__} to "
+        f"nn.Module; expected an nn.Module or a Morphism with a "
+        f".module() method"
+    )
+
+
+def extract_morphism(module: nn.Module) -> Morphism | None:
+    """Recover the :class:`Morphism` previously bound through
+    :func:`as_torch_module`.
+
+    Returns the categorical morphism stored on the wrapper, or
+    ``None`` if the module was registered directly (i.e. was
+    already an :class:`nn.Module` subclass) and therefore has no
+    separate categorical object attached.
+    """
+    return getattr(module, "_morphism", None)
