@@ -225,7 +225,9 @@ def test_hand_written_family_registered(name: str) -> None:
 
 
 def test_param_spec_unknown_transform_raises() -> None:
-    with pytest.raises(ValueError, match="unknown transform"):
+    # Didactic wraps converter ValueErrors in its own ValidationError;
+    # accept either since both surface the same diagnostic.
+    with pytest.raises(Exception, match="unknown transform"):
         ParamSpec(name="x", transform="not_a_transform")
 
 

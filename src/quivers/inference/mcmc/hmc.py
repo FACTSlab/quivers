@@ -604,14 +604,17 @@ class NUTSKernel(MCMCKernel):
             p_plus = right.p_plus
             grad_plus = right.grad_plus
         # Multinomial choice between the two subtrees, weighted by
-        # their log-density mass.
+        # their log-density mass. ``log_total = log(e^a + e^b)``
+        # via the stable max + log1p(exp(min - max)) form to avoid
+        # log(0) when both terms underflow.
         log_w_left = left.log_weight
         log_w_right = right.log_weight
-        log_total = (
-            math.log(math.exp(log_w_left) + math.exp(log_w_right))
-            if math.isfinite(log_w_left) and math.isfinite(log_w_right)
-            else max(log_w_left, log_w_right)
-        )
+        if math.isfinite(log_w_left) and math.isfinite(log_w_right):
+            a = max(log_w_left, log_w_right)
+            b = min(log_w_left, log_w_right)
+            log_total = a + math.log1p(math.exp(b - a))
+        else:
+            log_total = max(log_w_left, log_w_right)
         if math.isfinite(log_total):
             prob_right = math.exp(log_w_right - log_total)
         else:

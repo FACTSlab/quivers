@@ -28,6 +28,7 @@ from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import Literal
 
+import didactic.api as dx
 import torch
 import torch.distributions as D
 import torch.nn.functional as F
@@ -123,9 +124,22 @@ ParamKind = Literal["scalar", "vector", "integer"]
 """
 
 
-@dataclass(frozen=True)
-class ParamSpec:
+def _validate_transform(name: str) -> str:
+    if name not in _RAW_TRANSFORMS:
+        raise ValueError(
+            f"ParamSpec: unknown transform {name!r}. "
+            f"Valid transforms: {sorted(_RAW_TRANSFORMS)}"
+        )
+    return name
+
+
+class ParamSpec(dx.Model):
     """Spec for a single parameter of a distribution family.
+
+    A :class:`didactic.api.Model` so the schema-aware tooling that
+    consumes :data:`FAMILY_REGISTRY` (didactic-driven serialization,
+    panproto schema export, …) sees the parameter list as typed
+    data rather than as opaque tuples.
 
     Attributes
     ----------
@@ -141,15 +155,8 @@ class ParamSpec:
     """
 
     name: str
-    transform: str
+    transform: str = dx.field(converter=_validate_transform)
     kind: ParamKind = "scalar"
-
-    def __post_init__(self) -> None:
-        if self.transform not in _RAW_TRANSFORMS:
-            raise ValueError(
-                f"ParamSpec {self.name}: unknown transform {self.transform!r}. "
-                f"Valid transforms: {sorted(_RAW_TRANSFORMS)}"
-            )
 
     @property
     def raw_transform(self) -> Callable[[torch.Tensor], torch.Tensor]:
@@ -180,6 +187,14 @@ inference rule.
 @dataclass(frozen=True)
 class FamilySpec:
     """Single source of truth for a distribution family.
+
+    Implemented as a plain ``@dataclass(frozen=True)`` rather than
+    a :class:`didactic.api.Model` because several fields are
+    Python callables (``fixed_factory_override``,
+    ``mixed_builder_override``) or class objects
+    (``conditional_class_override``) that don't translate to a
+    panproto sort. :class:`ParamSpec` is a ``dx.Model`` since its
+    fields are all primitive types.
 
     Used by:
 

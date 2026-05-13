@@ -1906,7 +1906,7 @@ _register_family(
     FamilySpec(
         name="Normal",
         dist_class=D.Normal,
-        params=(ParamSpec("loc", "id"), ParamSpec("scale", "softplus")),
+        params=(ParamSpec(name="loc", transform="id"), ParamSpec(name="scale", transform="softplus")),
         support=_constraints.real,
         output_kind="independent",
         docstring="Conditional Normal(loc(x), scale(x)).",
@@ -1918,7 +1918,7 @@ _register_family(
     FamilySpec(
         name="LogitNormal",
         dist_class=D.TransformedDistribution,
-        params=(ParamSpec("mu", "id"), ParamSpec("sigma", "softplus")),
+        params=(ParamSpec(name="mu", transform="id"), ParamSpec(name="sigma", transform="softplus")),
         support=_constraints.unit_interval,
         output_kind="independent",
         docstring="LogitNormal(mu(x), sigma(x)) — Normal pushed through sigmoid.",
@@ -1931,8 +1931,8 @@ _register_family(
         name="Beta",
         dist_class=D.Beta,
         params=(
-            ParamSpec("concentration1", "softplus_shifted"),
-            ParamSpec("concentration0", "softplus_shifted"),
+            ParamSpec(name="concentration1", transform="softplus_shifted"),
+            ParamSpec(name="concentration0", transform="softplus_shifted"),
         ),
         support=_constraints.unit_interval,
         output_kind="independent",
@@ -1946,8 +1946,8 @@ _register_family(
         name="TruncatedNormal",
         dist_class=D.Normal,  # surrogate; inline path handles truncation
         params=(
-            ParamSpec("mu", "id"),
-            ParamSpec("sigma", "softplus"),
+            ParamSpec(name="mu", transform="id"),
+            ParamSpec(name="sigma", transform="softplus"),
         ),
         support=_constraints.real,  # interval set per-call when bounds are literal
         output_kind="independent",
@@ -1960,7 +1960,7 @@ _register_family(
     FamilySpec(
         name="Dirichlet",
         dist_class=D.Dirichlet,
-        params=(ParamSpec("concentration", "softplus_shifted", kind="vector"),),
+        params=(ParamSpec(name="concentration", transform="softplus_shifted", kind="vector"),),
         support=_constraints.simplex,
         output_kind="vector",
         docstring="Conditional Dirichlet(alpha(x)) on the simplex.",
@@ -1972,7 +1972,7 @@ _register_family(
     FamilySpec(
         name="Uniform",
         dist_class=D.Uniform,
-        params=(ParamSpec("low", "id"), ParamSpec("high", "id")),
+        params=(ParamSpec(name="low", transform="id"), ParamSpec(name="high", transform="id")),
         support=_constraints.real,  # interval set per-call when bounds are literal
         output_kind="independent",
         docstring="Conditional Uniform(low(x), high(x)).",
@@ -1984,7 +1984,7 @@ _register_family(
     FamilySpec(
         name="MultivariateNormal",
         dist_class=D.MultivariateNormal,
-        params=(ParamSpec("loc", "id"), ParamSpec("scale_tril", "id")),
+        params=(ParamSpec(name="loc", transform="id"), ParamSpec(name="scale_tril", transform="id")),
         support=_constraints.real_vector,
         output_kind="mvn",
         docstring="Conditional MultivariateNormal(loc(x), scale_tril(x)).",
@@ -1997,9 +1997,9 @@ _register_family(
         name="LowRankMVN",
         dist_class=D.LowRankMultivariateNormal,
         params=(
-            ParamSpec("loc", "id"),
-            ParamSpec("cov_factor", "id"),
-            ParamSpec("cov_diag", "softplus"),
+            ParamSpec(name="loc", transform="id"),
+            ParamSpec(name="cov_factor", transform="id"),
+            ParamSpec(name="cov_diag", transform="softplus"),
         ),
         support=_constraints.real_vector,
         output_kind="mvn",
@@ -2012,7 +2012,7 @@ _register_family(
     FamilySpec(
         name="RelaxedBernoulli",
         dist_class=D.RelaxedBernoulli,
-        params=(ParamSpec("temperature", "softplus"), ParamSpec("logits", "id")),
+        params=(ParamSpec(name="temperature", transform="softplus"), ParamSpec(name="logits", transform="id")),
         support=_constraints.unit_interval,
         output_kind="independent",
         docstring="RelaxedBernoulli(temperature, logits(x)) — Gumbel-softmax / continuous Bernoulli.",
@@ -2024,7 +2024,7 @@ _register_family(
     FamilySpec(
         name="RelaxedOneHotCategorical",
         dist_class=D.RelaxedOneHotCategorical,
-        params=(ParamSpec("temperature", "softplus"), ParamSpec("logits", "id", kind="vector")),
+        params=(ParamSpec(name="temperature", transform="softplus"), ParamSpec(name="logits", transform="id", kind="vector")),
         support=_constraints.simplex,
         output_kind="vector",
         docstring="RelaxedOneHotCategorical(temperature, logits(x)) — Gumbel-softmax on the simplex.",
@@ -2037,8 +2037,8 @@ _register_family(
         name="Wishart",
         dist_class=D.Wishart,
         params=(
-            ParamSpec("df", "softplus_shifted"),
-            ParamSpec("scale_tril", "id"),
+            ParamSpec(name="df", transform="softplus_shifted"),
+            ParamSpec(name="scale_tril", transform="id"),
         ),
         support=_constraints.positive_definite,
         output_kind="matrix",
@@ -2051,7 +2051,7 @@ _register_family(
     FamilySpec(
         name="Bernoulli",
         dist_class=D.Bernoulli,
-        params=(ParamSpec("probs", "sigmoid"),),
+        params=(ParamSpec(name="probs", transform="sigmoid"),),
         support=_constraints.boolean,
         discrete=True,
         output_kind="categorical",
@@ -2064,7 +2064,7 @@ _register_family(
     FamilySpec(
         name="Categorical",
         dist_class=D.Categorical,
-        params=(ParamSpec("logits", "id", kind="vector"),),
+        params=(ParamSpec(name="logits", transform="id", kind="vector"),),
         support=_constraints.nonnegative_integer,
         discrete=True,
         output_kind="categorical",
@@ -2077,7 +2077,7 @@ _register_family(
     FamilySpec(
         name="Binomial",
         dist_class=D.Binomial,
-        params=(ParamSpec("probs", "sigmoid"),),
+        params=(ParamSpec(name="probs", transform="sigmoid"),),
         support=_constraints.nonnegative_integer,
         discrete=True,
         output_kind="categorical",
@@ -2091,7 +2091,7 @@ _register_family(
     FamilySpec(
         name="LogisticNormal",
         dist_class=D.LogisticNormal,
-        params=(ParamSpec("loc", "id"), ParamSpec("scale", "softplus")),
+        params=(ParamSpec(name="loc", transform="id"), ParamSpec(name="scale", transform="softplus")),
         support=_constraints.simplex,
         output_kind="vector",
         docstring="Conditional LogisticNormal(loc(x), scale(x)) on the simplex.",
@@ -2104,7 +2104,7 @@ _register_family(
     FamilySpec(
         name="OneHotCategorical",
         dist_class=D.OneHotCategorical,
-        params=(ParamSpec("logits", "id", kind="vector"),),
+        params=(ParamSpec(name="logits", transform="id", kind="vector"),),
         support=D.OneHotCategorical.support,
         discrete=False,  # vector output, not integer-scalar
         output_kind="vector",
@@ -2118,7 +2118,7 @@ _register_family(
     FamilySpec(
         name="LKJCholesky",
         dist_class=D.LKJCholesky,
-        params=(ParamSpec("concentration", "softplus_shifted"),),
+        params=(ParamSpec(name="concentration", transform="softplus_shifted"),),
         support=_constraints.corr_cholesky,
         output_kind="matrix",
         docstring="Conditional LKJCholesky(matrix_dim, concentration(x)) for correlation Cholesky factors.",
@@ -2133,9 +2133,9 @@ if _HAS_GPD:
             name="GeneralizedPareto",
             dist_class=_GPD,  # type: ignore[name-defined]
             params=(
-                ParamSpec("loc", "id"),
-                ParamSpec("scale", "softplus"),
-                ParamSpec("concentration", "id"),
+                ParamSpec(name="loc", transform="id"),
+                ParamSpec(name="scale", transform="softplus"),
+                ParamSpec(name="concentration", transform="id"),
             ),
             support=_constraints.real,
             output_kind="independent",
