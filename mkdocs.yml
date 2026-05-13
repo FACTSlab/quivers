@@ -133,6 +133,7 @@ nav:
       - Lambek Calculus: examples/type-logical.md
       - Multimodal TLG: examples/multimodal-tlg.md
       - Custom Rules: examples/custom-rules.md
+      - Quantifier Scope: examples/quantifier-scope.md
     - Probabilistic Programs:
       - Overview: examples/bayesian-regression.md
       - Event Structure Model: examples/event-structure.md

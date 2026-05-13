@@ -62,6 +62,16 @@ Together these rules yield the equational theory of the residuated monoid. The a
 - **Order preservation**: pattern variables appear in textual order; the parser enforces left-to-right span composition.
 - **Tensor and slash as user atoms**: there is no special syntax, `Tns`, `Fwd`, `Bwd` are atoms declared in the `atoms { … }` block and may be replaced or extended by the user.
 
+## Try it
+
+```python
+from quivers.dsl import load
+
+prog = load("docs/examples/source/type_logical.qvr")
+```
+
+Pair the deduction with a `lexicon { ... }` block of `"word" : Cat = lf @ learnable` axioms and fit per-entry log-weights with an [`AutoNormalGuide`](../api/inference/guide.md) plus [`SVI`](../api/inference/svi.md) over an [`ELBO`](../api/inference/elbo.md) objective, conditioning on the chart's goal weight per observed sentence. Switching `semiring` from `LogProb` to `Viterbi` returns the most-likely derivation under the current weights without changing any rule.
+
 ## Categorical Perspective
 
 The Lambek calculus is the internal language of a residuated monoidal category (biclosed monoidal category). The tensor `⊗` is the monoidal product; the two slashes are its left and right adjoints. The residuation laws

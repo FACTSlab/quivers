@@ -54,6 +54,16 @@ A richer fragment would add explicit modal structural rules (modal exchange, mod
 - **Modal constructors as atoms**: `Dia` and `Box` are user-declared atoms in the same vocabulary as the slash constructors. There is no built-in modal syntax.
 - **Depth bounding**: `depth 6` keeps modal nesting finite, which is essential because the category space is otherwise infinite (every `A` admits `Dia(A)`, `Dia(Dia(A))`, …).
 
+## Try it
+
+```python
+from quivers.dsl import load
+
+prog = load("docs/examples/source/multimodal_tlg.qvr")
+```
+
+Adding a `lexicon { ... }` block of learnable per-entry log-weights plus an outer `program` that observes the chart's goal weight on a corpus closes the fit loop. The modal structural-rule licensing is purely additional sequent rules: extending the modality with controlled exchange, contraction, or weakening just adds more rules to the deduction body without changing the surface.
+
 ## Categorical Perspective
 
 The diamond `◇` acts as a monad on the category of formulas: its unit `η : X → ◇X` (modal introduction) lifts any formula into the modal regime, and its multiplication `μ : ◇(◇X) → ◇X` (idempotence) collapses nested modals when the corresponding structural rule is licensed. The standard Lambek calculus is the internal language of a residuated monoidal category with no extra structure. Adding the diamond monad and licensing modal structural rules permits controlled relaxation of resource sensitivity: inside the monad, structural rules like exchange, weakening, and contraction become available without contaminating the surrounding linear context.

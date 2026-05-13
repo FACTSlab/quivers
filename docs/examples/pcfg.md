@@ -60,6 +60,16 @@ The `lexicon { … }` block ships one `(word, category, lf)` entry per closed-cl
 - **Pattern-polymorphic rules**: the `branch` rule is one sequent that fires for *any* nonterminal triple `(A, B, C)` consistent with the chart. There is no separate production declaration per triple.
 - **Chart as first-class differentiable value**: at runtime the deduction's `chart.weight(item)`, `chart.enumerate(pattern)`, and `chart.goal_weight()` return `torch.Tensor` values whose gradients flow back through the agenda's semiring operations.
 
+## Try it
+
+```python
+from quivers.dsl import load
+
+prog = load("docs/examples/source/pcfg.qvr")
+```
+
+To fit per-rule probabilities, wrap the deduction in a [`program`](../guides/dsl.md) that draws lexicon weights from a [Dirichlet](https://doi.org/10.1093/biomet/74.2.237) prior per preterminal and observes the chart's `chart.goal_weight()` against a corpus of sentences. The `@ learnable` markers on each lexicon entry expose `nn.Parameter`s the optimizer adjusts; an [`AutoNormalGuide`](../api/inference/guide.md) plus [`SVI`](../api/inference/svi.md) over an [`ELBO`](../api/inference/elbo.md) objective drives the fit. For Viterbi or counting semirings the chart returns a single max-derivation score or a derivation count, which can be conditioned in the same way.
+
 ## Categorical Perspective
 
 A PCFG is a weighted deduction in the `LogProb` semiring whose chart is a `K`-valued presheaf over the item algebra `I` of `span(I, J, N)` triples. Branching rules are binary hyperedges in the rule-system hypergraph; anchor rules are unary hyperedges. The least pre-fixed point of the rule-system functor in the `K`-enriched lattice of charts is the inside table; the strategy-independence theorem (Goodman 1999) says CKY-sweep, A\*, and Knuth's algorithm all compute the same chart value. The compiler picks a default strategy from the rule arities and the semiring's algebraic properties.

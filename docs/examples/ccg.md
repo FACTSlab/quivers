@@ -63,6 +63,16 @@ Each `rule` is a sequent: premises on the left of `|-`, conclusion on the right.
 - **Sequent rules**: arbitrary-arity premises on the left of `|-`, single conclusion on the right; rules with one premise are unary chart rules, with two are binary, and so on.
 - **Slash constructors**: `Fwd(X, Y)` and `Bwd(X, Y)` are user-declared atoms, not built-in syntax. The combinators are theorems in this presentation.
 
+## Try it
+
+```python
+from quivers.dsl import load
+
+prog = load("docs/examples/source/ccg.qvr")
+```
+
+Add a `lexicon { ... }` block to associate words with CCG categories and learnable per-entry log-weights, then fit by conditioning on observed sentence-level success in the chart's goal weight; an [`AutoNormalGuide`](../api/inference/guide.md) plus [`SVI`](../api/inference/svi.md) over an [`ELBO`](../api/inference/elbo.md) objective recovers categorial-lexicon weights from a corpus. The same deduction with `semiring Viterbi` returns the highest-weight derivation per sentence.
+
 ## Categorical Perspective
 
 CCG is the internal language of a closed monoidal category. The forward slash `X/Y` and backward slash `X\Y` are internal hom-objects (exponentials); the application rule is the counit of the hom-tensor adjunction, `[Y, X] ⊗ Y → X`. Composition corresponds to chaining adjunctions: given `X/Y` and `Y/Z`, transitivity yields `X/Z`. Crossed composition relies on a braiding isomorphism to swap argument order. The type of an expression completely determines what it can combine with, because the closed structure forces all combination to go through the adjunction.

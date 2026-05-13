@@ -70,6 +70,16 @@ Additional combinators are spelled out as more sequent rules in the same block:
 
 Rule premise multiplicity is unary or binary; combinators that need three or more premises are expressed as a chain of binary rules sharing intermediate categories.
 
+## Try it
+
+```python
+from quivers.dsl import load
+
+prog = load("docs/examples/source/custom_rules.qvr")
+```
+
+Each rule in the block is fully user-declared; experimenting with new combinators is a matter of adding a `rule NAME : premises |- conclusion` line and re-loading. Conditioning a downstream `program` on the chart's per-derivation log-weights then lets [`SVI`](../api/inference/svi.md) drive a categorial-lexicon fit through the new rule set without any compiler changes.
+
 ## Categorical Perspective
 
 Sequent rules are hyperedges in the rule-system multicategory. A binary rule is a 2-input / 1-output hyperedge whose endpoints are pattern templates; firing the rule against the chart is the substitution along a pattern morphism into the category of concrete chart items. Variable unification across premises is exactly the pullback in the category of variable assignments: two premise patterns sharing a variable `Y` constrain the two assignments to agree on `Y`'s value. The agenda's least-pre-fixed-point computation in the `LogProb`-enriched lattice of charts is independent of firing order (Goodman 1999 §3); the runtime picks a default strategy from rule arities and semiring properties.
