@@ -98,6 +98,55 @@ positional `posterior` argument.
   Tier-3 suite includes a capture test for the mean-field failure
   mode on a correlated posterior.
 
+### Added — V-Cat categorical surface
+
+- **Backend-agnostic morphism → `nn.Module` adapter**
+  (`quivers.core.morphisms.as_torch_module`). Every binding site
+  that calls `add_module` (`MonadicProgram` step list,
+  `FanOutMorphism`, parametric programs) funnels through the
+  adapter so non-Module morphisms (`LatentMorphism`,
+  `ComposedMorphism`, `ProductMorphism`, …) bind without crashing.
+  The wrapper attaches the original categorical morphism on
+  `_morphism` for runtime recovery; `MonadicProgram.rsample`
+  detects V-Cat steps and computes them as deterministic tensor
+  applications.
+- **Multi-quantale composition** with one operator per quantale.
+  `>>` (ProductFuzzy default), `<<` (reverse), `>=>` (Kleisli),
+  `*>` (Markov sum-product), `~>` (LogProb log-space),
+  `||>` (Gödel min/max + Heyting), `?>` (Viterbi max-plus),
+  `&&>` (Boolean), `+>` (Łukasiewicz). Each operator carries its
+  quantale; cross-operator chains require explicit
+  `.change_base(φ)`. Two new quantales: `MaxPlusQuantale`
+  (Viterbi / MAP) and `LogProbQuantale` (log-space sum-product).
+- **Quantale homomorphisms** (`quivers.core.quantale_morphisms`)
+  for change-of-base: `Expectation`, `LogProb`, `MaxPlus`,
+  `Threshold`, `MaterialImplication`, `Embedding`, `IdentityHom`,
+  module-level singletons (`EXPECTATION`, `LOG_PROB_HOM`, …),
+  factory helpers `threshold(tau)` / `embedding(src, tgt)`, a
+  `HOMOMORPHISM_REGISTRY` keyed by `(source.name, target.name)`,
+  and `lookup_homomorphism()`. Morphisms expose
+  `.change_base(phi)` to apply a homomorphism; the DSL surface
+  is `f.change_base(name)` with the catalog wired into the
+  compiler.
+- **Compact-closed surface** on V-Cat morphisms: `f.dagger`
+  (transpose), `f.trace(A)` (categorical trace), `cup(A)` and
+  `cap(A)` (unit / counit). Each operation is well-defined for
+  every quantale; the semantic interpretation depends on the
+  active quantale (ProductFuzzy: tensor transpose; Markov:
+  Bayes inversion; Viterbi: max-plus reversal; Boolean:
+  relational converse).
+- **Data-derived and expression-derived initialisers** for
+  morphism declarations. `observed f : A -> B = from_data("KEY")`
+  binds the morphism's tensor from a runtime-supplied data
+  dictionary (passed via the `data=` keyword on
+  `quivers.dsl.loads` / `load`, or `Compiler.bind_data(...)`).
+  `inner.freeze` is a postfix that materialises an expression's
+  tensor with `.detach().clone()` and wraps the result as a
+  parameter-free `ObservedMorphism`. Expression-derived
+  initialisers without `.freeze` propagate gradient lineage; the
+  declaration's type-check accepts shape-compatible inits and
+  re-tags them with the user-declared domain / codomain.
+
 ### Changed
 
 - **`SVI`** takes an `objective: Objective` instead of `loss: ELBO`.
@@ -106,6 +155,12 @@ positional `posterior` argument.
 - The variational machinery moved off `PlateDraw` (`kl_to_prior`
   removed; the deeper migration of `_mean`/`_log_scale` happens
   in v0.5.0 alongside the rest of the refactor).
+- `MonadicProgram` binding sites no longer crash on V-Cat
+  morphisms; the runtime applies them as deterministic tensor
+  steps.
+- `FanOutMorphism` accepts both ContinuousMorphism and V-Cat
+  morphism components; non-continuous components are wrapped in
+  `DiscreteAsContinuous` so the fan-out loop dispatches uniformly.
 
 ### Removed
 
