@@ -107,29 +107,50 @@ class PotentialFn:
         self._observations = observations
 
     def log_density(self, z: torch.Tensor) -> torch.Tensor:
-        """Unconstrained-space log-density (Jacobian-corrected)."""
-        per_site_unc = self._registry.unflatten_unconstrained(z)
-        constrained: dict[str, torch.Tensor] = {}
-        log_det_total = torch.zeros((), device=z.device, dtype=z.dtype)
-        for site in self._registry.sites.values():
-            z_site = per_site_unc[site.name]
-            if not site.is_plate:
-                z_site = z_site.unsqueeze(0)
-            v = site.bijector(z_site)
-            log_det_total = log_det_total + (
-                site.bijector.log_abs_det_jacobian(z_site, v).sum()
+        """Unconstrained-space log-density (Jacobian-corrected).
+
+        Trajectories that wander to the edge of a constrained
+        support can produce values that fall outside
+        :mod:`torch.distributions`' validation envelope (e.g. exact
+        zeros against a strictly-positive support after a long
+        leapfrog stride). Rather than letting the resulting
+        ``ValueError`` propagate and kill the chain, this method
+        returns ``-inf`` for those positions; the kernel reads
+        non-finite log-densities as divergent transitions and
+        rejects them in the Metropolis step.
+        """
+        try:
+            per_site_unc = self._registry.unflatten_unconstrained(z)
+            constrained: dict[str, torch.Tensor] = {}
+            log_det_total = torch.zeros((), device=z.device, dtype=z.dtype)
+            for site in self._registry.sites.values():
+                z_site = per_site_unc[site.name]
+                if not site.is_plate:
+                    z_site = z_site.unsqueeze(0)
+                v = site.bijector(z_site)
+                log_det_total = log_det_total + (
+                    site.bijector.log_abs_det_jacobian(z_site, v).sum()
+                )
+                if (
+                    site.constrained_dim == 1
+                    and v.dim() >= 1
+                    and v.shape[-1] == 1
+                ):
+                    v = v.squeeze(-1)
+                constrained[site.name] = v
+            log_p = self._model.log_joint(
+                self._x, {**constrained, **self._observations}
             )
-            if (
-                site.constrained_dim == 1
-                and v.dim() >= 1
-                and v.shape[-1] == 1
-            ):
-                v = v.squeeze(-1)
-            constrained[site.name] = v
-        log_p = self._model.log_joint(
-            self._x, {**constrained, **self._observations}
-        )
-        return log_p.sum() + log_det_total
+            result = log_p.sum() + log_det_total
+        except ValueError:
+            return torch.tensor(
+                float("-inf"), device=z.device, dtype=z.dtype
+            )
+        if not torch.isfinite(result):
+            return torch.tensor(
+                float("-inf"), device=z.device, dtype=z.dtype
+            )
+        return result
 
     def value_and_grad(
         self, z: torch.Tensor
@@ -139,11 +160,29 @@ class PotentialFn:
         ``z`` is expected to be a detached tensor; we make a fresh
         leaf with ``requires_grad=True`` so gradient propagation
         doesn't leak into the kernel's accumulated state.
+
+        For divergent positions (where the log-density is
+        ``-inf``), returns a zero gradient — the kernel rejects
+        the trajectory in the Metropolis step anyway, and a zero
+        gradient keeps the leapfrog integrator from producing NaN
+        downstream.
         """
         z_leaf = z.detach().clone().requires_grad_(True)
-        ld = self.log_density(z_leaf)
-        grad = torch.autograd.grad(ld, z_leaf, create_graph=False)[0]
-        return ld.detach(), grad.detach()
+        try:
+            ld = self.log_density(z_leaf)
+            if not torch.isfinite(ld):
+                return ld.detach(), torch.zeros_like(z)
+            grad = torch.autograd.grad(
+                ld, z_leaf, create_graph=False, allow_unused=False
+            )[0]
+            if grad is None or not torch.isfinite(grad).all():
+                return ld.detach(), torch.zeros_like(z)
+            return ld.detach(), grad.detach()
+        except (ValueError, RuntimeError):
+            return (
+                torch.tensor(float("-inf"), device=z.device, dtype=z.dtype),
+                torch.zeros_like(z),
+            )
 
 
 class MCMCKernel(ABC):

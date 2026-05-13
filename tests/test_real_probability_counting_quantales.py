@@ -38,7 +38,7 @@ import os
 import pytest
 import torch
 
-from quivers.core.extra_quantales import (
+from quivers.core.quantales import (
     COUNTING,
     PROBABILITY,
     REAL,
@@ -422,7 +422,7 @@ def test_counting_chain_gradients_flow() -> None:
 def test_change_base_real_to_log_prob_via_custom_homomorphism() -> None:
     """Apply ``log`` from Real to LogProb via a one-off
     homomorphism; the result is a LogProb-quantale morphism."""
-    from quivers.core.extra_quantales import LOG_PROB
+    from quivers.core.quantales import LOG_PROB
     from quivers.core.quantale_morphisms import QuantaleHomomorphism
 
     class _RealToLogProb(QuantaleHomomorphism):

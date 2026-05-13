@@ -44,7 +44,7 @@ import os
 import pytest
 import torch
 
-from quivers.core.extra_quantales import (
+from quivers.core.quantales import (
     GODEL,
     LOG_PROB,
     LUKASIEWICZ,

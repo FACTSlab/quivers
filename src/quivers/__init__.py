@@ -131,7 +131,7 @@ from quivers.enriched.weighted_limits import (
     representable_weight,
     terminal_weight,
 )
-from quivers.core.extra_quantales import (
+from quivers.core.quantales import (
     LukasiewiczQuantale,
     GodelQuantale,
     TropicalQuantale,

@@ -1577,6 +1577,207 @@ class ConditionalOneHotCategorical(ContinuousMorphism):
         return dist.sample(sample_shape).float()
 
 
+class ConditionalMixture(ContinuousMorphism):
+    """K-component mixture of a conditional family.
+
+    Wraps a single conditional family class (one of the registered
+    ``ConditionalX`` types) and gives it K independent
+    parameterisations plus learnable mixture logits, producing
+
+        p(y | x) = sum_k pi_k(x) * f_k(y | x)
+
+    where each ``f_k`` is an instance of the component class and
+    ``pi`` is the softmax of ``K`` learnable logits.
+
+    Sampling is via ancestral simulation (Categorical pick + the
+    chosen component's ``rsample``). ``log_prob`` evaluates the
+    log-sum-exp of the per-component log-densities. The Categorical
+    pick is non-reparameterisable; gradient flow through the
+    weights uses the score-function path (which higher-level
+    objectives like IWAE can route through).
+
+    Parameters
+    ----------
+    domain : SetObject or ContinuousSpace
+        Source space.
+    codomain : ContinuousSpace
+        Target space; matches the component family's codomain.
+    component_class : type
+        A ``ConditionalX`` class accepting ``(domain, codomain,
+        hidden_dim)`` constructor args.
+    num_components : int
+        Number of mixture components.
+    hidden_dim : int
+        Hidden width for both the mixture-logit MLP and each
+        component's parameter source.
+    """
+
+    def __init__(
+        self,
+        domain: AnySpace,
+        codomain: ContinuousSpace,
+        component_class: type,
+        num_components: int = 4,
+        hidden_dim: int = 64,
+    ) -> None:
+        if num_components < 2:
+            raise ValueError(
+                f"ConditionalMixture: num_components must be >= 2, "
+                f"got {num_components}"
+            )
+        super().__init__(domain, codomain)
+        self._K = int(num_components)
+        self._components = torch.nn.ModuleList(
+            [component_class(domain, codomain, hidden_dim) for _ in range(self._K)]
+        )
+        self.mixture_logits = _make_source(domain, self._K, hidden_dim)
+
+    @property
+    def support(self):  # type: ignore[override]
+        return self._components[0].support
+
+    def _log_weights(self, x: torch.Tensor) -> torch.Tensor:
+        logits = self.mixture_logits(x)
+        return torch.log_softmax(logits, dim=-1)
+
+    def log_prob(self, x: torch.Tensor, y: torch.Tensor) -> torch.Tensor:
+        log_w = self._log_weights(x)
+        per_comp = torch.stack(
+            [comp.log_prob(x, y) for comp in self._components], dim=-1
+        )
+        return torch.logsumexp(log_w + per_comp, dim=-1)
+
+    def rsample(
+        self,
+        x: torch.Tensor,
+        sample_shape: torch.Size = torch.Size(),
+    ) -> torch.Tensor:
+        log_w = self._log_weights(x)
+        cat = D.Categorical(logits=log_w)
+        comp_idx = cat.sample(sample_shape)  # (*sample_shape, batch)
+        # Draw from every component, then gather along a new K axis.
+        comp_samples = torch.stack(
+            [comp.rsample(x, sample_shape) for comp in self._components],
+            dim=-1,
+        )
+        # ``comp_samples`` has shape ``(*sample_shape, batch, *event,
+        # K)``. Broadcast ``comp_idx`` (shape ``(*sample_shape,
+        # batch)``) to match every event axis with size 1 then 1 on
+        # the K axis, so the final gather picks one element per
+        # batch row.
+        idx = comp_idx
+        for _ in range(comp_samples.dim() - 1 - idx.dim()):
+            idx = idx.unsqueeze(-1)
+        idx = idx.unsqueeze(-1)  # K-axis broadcast dim
+        idx = idx.expand(*comp_samples.shape[:-1], 1)
+        return comp_samples.gather(-1, idx).squeeze(-1)
+
+
+class ConditionalIndependent(ContinuousMorphism):
+    """Reinterpret the trailing batch dimension of a base conditional
+    family as an event dimension.
+
+    Equivalent to wrapping the base distribution in
+    :class:`torch.distributions.Independent` with
+    ``reinterpreted_batch_ndims = 1``. Used to make per-element
+    independence explicit when a downstream guide wants to score
+    a vector-valued observation as a single event.
+
+    Parameters
+    ----------
+    base : ContinuousMorphism
+        The base conditional family. The wrapped distribution sums
+        the base's per-element log-probabilities along the last
+        axis to score a vector-valued observation.
+    """
+
+    def __init__(self, base: ContinuousMorphism) -> None:
+        super().__init__(base.domain, base.codomain)
+        self._base = base
+
+    @property
+    def support(self):  # type: ignore[override]
+        return self._base.support
+
+    def log_prob(self, x: torch.Tensor, y: torch.Tensor) -> torch.Tensor:
+        # The base's log_prob already sums along the last axis for
+        # ``_IndependentConditional``; ``Independent`` adds the
+        # explicit reinterpretation for any base.
+        lp = self._base.log_prob(x, y)
+        if lp.dim() > 1:
+            return lp.sum(dim=-1)
+        return lp
+
+    def rsample(
+        self,
+        x: torch.Tensor,
+        sample_shape: torch.Size = torch.Size(),
+    ) -> torch.Tensor:
+        return self._base.rsample(x, sample_shape)
+
+
+class ConditionalTransformed(ContinuousMorphism):
+    """A base conditional family composed with a chain of bijectors.
+
+    Equivalent to :class:`torch.distributions.TransformedDistribution`
+    lifted to ContinuousMorphism. The ``transforms`` are applied in
+    forward order to ``rsample`` outputs; ``log_prob`` includes the
+    log-determinant Jacobian correction.
+
+    Parameters
+    ----------
+    base : ContinuousMorphism
+        Base conditional family.
+    transforms : list of torch.distributions.Transform
+        Bijectors applied in forward order. Each must implement
+        ``__call__``, ``inv``, and ``log_abs_det_jacobian``.
+    """
+
+    def __init__(
+        self,
+        base: ContinuousMorphism,
+        transforms: list,
+    ) -> None:
+        super().__init__(base.domain, base.codomain)
+        self._base = base
+        self._transforms = list(transforms)
+
+    @property
+    def support(self):  # type: ignore[override]
+        # The composed support is the codomain of the final transform.
+        if self._transforms:
+            return self._transforms[-1].codomain
+        return self._base.support
+
+    def rsample(
+        self,
+        x: torch.Tensor,
+        sample_shape: torch.Size = torch.Size(),
+    ) -> torch.Tensor:
+        z = self._base.rsample(x, sample_shape)
+        for tf in self._transforms:
+            z = tf(z)
+        return z
+
+    def log_prob(self, x: torch.Tensor, y: torch.Tensor) -> torch.Tensor:
+        # Invert the transforms to recover the base sample, then
+        # accumulate the log-det-Jacobian corrections.
+        z = y
+        log_det = torch.zeros(
+            y.shape[:-1] if y.dim() > 1 else (1,),
+            device=y.device,
+            dtype=y.dtype,
+        )
+        for tf in reversed(self._transforms):
+            z_prev = tf.inv(z)
+            ldj = tf.log_abs_det_jacobian(z_prev, z)
+            if ldj.dim() > log_det.dim():
+                ldj = ldj.sum(dim=tuple(range(log_det.dim(), ldj.dim())))
+            log_det = log_det + ldj
+            z = z_prev
+        return self._base.log_prob(x, z) - log_det
+
+
 class ConditionalLKJCholesky(ContinuousMorphism):
     """Conditional LKJCholesky(dim, concentration(x)).
 

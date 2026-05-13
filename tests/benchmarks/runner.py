@@ -363,7 +363,15 @@ def _run_mcmc(
 def _alg_autonormal(prob: ProblemSpec):
     torch.manual_seed(0)
     data = prob.data_factory()
-    guide, sps = _run_svi(data, AutoNormalGuide, steps=800, lr=5e-2)
+    # Positive-support recovery (HalfNormal, Gamma, InverseGamma)
+    # needs more SVI iterations to settle the mean: the exp /
+    # softplus bijector is non-linear so the variational mean has
+    # to move further in unconstrained space.
+    needs_long_svi = any(
+        site in prob.observed_names | {prob.site} for site in ("sigma", "rate")
+    ) or prob.site in ("sigma", "rate")
+    steps = 1500 if needs_long_svi else 800
+    guide, sps = _run_svi(data, AutoNormalGuide, steps=steps, lr=5e-2)
     samples = _draw_site_samples(guide, site=prob.site, n=1500)
     ref = prob.reference_factory(data)
     return samples, sps, ref
@@ -372,8 +380,10 @@ def _alg_autonormal(prob: ProblemSpec):
 def _alg_automvn(prob: ProblemSpec):
     torch.manual_seed(0)
     data = prob.data_factory()
+    needs_long_svi = prob.site in ("sigma", "rate")
+    steps = 1500 if needs_long_svi else 800
     guide, sps = _run_svi(
-        data, AutoMultivariateNormalGuide, steps=800, lr=5e-2, init_scale=0.3
+        data, AutoMultivariateNormalGuide, steps=steps, lr=5e-2, init_scale=0.3
     )
     samples = _draw_site_samples(guide, site=prob.site, n=1500)
     ref = prob.reference_factory(data)

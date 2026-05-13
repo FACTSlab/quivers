@@ -65,7 +65,7 @@ from abc import ABC, abstractmethod
 
 import torch
 
-from quivers.core.extra_quantales import (
+from quivers.core.quantales import (
     COUNTING,
     GODEL,
     PROBABILITY,

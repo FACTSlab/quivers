@@ -195,8 +195,10 @@ def _register_extra_quantales() -> None:
     """
     if "lukasiewicz" not in _QUANTALE_REGISTRY:
         try:
-            from quivers.core.extra_quantales import (
+            from quivers.core.quantales import (
                 COUNTING,
+                DUAL_GODEL,
+                DUAL_LUKASIEWICZ,
                 GODEL,
                 LOG_PROB,
                 LUKASIEWICZ,
@@ -205,6 +207,7 @@ def _register_extra_quantales() -> None:
                 REAL,
                 TROPICAL,
             )
+            from quivers.core.quantales import BOOLEAN_DUAL, REICHENBACH
 
             _QUANTALE_REGISTRY["lukasiewicz"] = LUKASIEWICZ
             _QUANTALE_REGISTRY["godel"] = GODEL
@@ -214,6 +217,13 @@ def _register_extra_quantales() -> None:
             _QUANTALE_REGISTRY["real"] = REAL
             _QUANTALE_REGISTRY["probability"] = PROBABILITY
             _QUANTALE_REGISTRY["counting"] = COUNTING
+            # Named de-Morgan duals — each is the corresponding
+            # ``X.dual()`` exposed under a DSL-friendly name so a
+            # user can write ``quantale reichenbach``.
+            _QUANTALE_REGISTRY["reichenbach"] = REICHENBACH
+            _QUANTALE_REGISTRY["boolean_dual"] = BOOLEAN_DUAL
+            _QUANTALE_REGISTRY["dual_lukasiewicz"] = DUAL_LUKASIEWICZ
+            _QUANTALE_REGISTRY["dual_godel"] = DUAL_GODEL
         except ImportError:
             pass
     if "markov" not in _QUANTALE_REGISTRY:
@@ -4485,7 +4495,7 @@ class Compiler:
         target, no base change is needed; otherwise the user must
         have applied an explicit ``.change_base(φ)`` upstream.
         """
-        from quivers.core.extra_quantales import (
+        from quivers.core.quantales import (
             COUNTING,
             GODEL,
             LOG_PROB,
