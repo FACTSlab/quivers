@@ -4,7 +4,99 @@ All notable changes to the quivers library are documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/), and this project adheres to [Semantic Versioning](https://semver.org/).
 
-## [Unreleased]
+## [0.5.0] - 2026-05-13
+
+A substantive expansion of the inference layer plus the full
+implementation of scoped grouped `marginalize` blocks (issue #9),
+a unified distribution family registry with every torch.distributions
+family exposed inline, the Tier-1 through Tier-6 benchmark grid
+emitting `docs/developer/inference-benchmarks.md`, and the
+categorical refinements from issues #15-#17 (quantale duality,
+shape-aware change-of-base, storage-level shape compatibility).
+Pre-1.0 clean break: no backwards-compatibility shims; user code
+that relied on the `SVI(loss=...)` keyword should switch to
+`SVI(objective=...)`, `Predictive(guide=...)` should use the
+positional `posterior` argument, and imports from
+`quivers.core.extra_quantales` move to `quivers.core.quantales`.
+
+### Added — quantale duality and user-defined quantales
+
+- **`Quantale.dual()`** returns a `DualQuantale` whose
+  `tensor_op` and `join` swap roles under the de-Morgan
+  involution. `ProductFuzzy.dual` gives the canonical
+  Reichenbach-flavor probabilistic-implication composition
+  (`⊗ = noisy-OR`, `⋁ = product reduction`); `Boolean.dual`
+  gives `(OR, AND)`; `Lukasiewicz.dual` gives the bounded-sum
+  t-conorm pair; `Godel.dual` gives `(max, min)`.
+- **Named singletons** `REICHENBACH`, `BOOLEAN_DUAL`,
+  `DUAL_LUKASIEWICZ`, `DUAL_GODEL` exported from
+  `quivers.core.quantales` and registered with the DSL quantale
+  catalog so users can write `quantale reichenbach`.
+- **`CustomQuantale`** accepts user-supplied `tensor_op` / `join`
+  / `unit` / `zero` / `negate` callables for arbitrary
+  user-defined quantales, with construction-time sanity checks
+  on the identity / absorbing axioms.
+
+### Added — functorial change-of-base
+
+- **`MorphismTransformation` ABC** in
+  `quivers.core.morphism_transformations`: shape-aware
+  change-of-base for transformations that don't factor pointwise
+  through a quantale homomorphism. Concrete subclasses:
+  `Softmax(axis_object)`, `L1Normalize(axis_object)`,
+  `L2Normalize(axis_object)`, `BayesInvert(prior)`.
+- **`Morphism.change_base`** now dispatches on either a
+  `QuantaleHomomorphism` (pointwise) or a `MorphismTransformation`
+  (shape-aware). The latter may swap the morphism's domain and
+  codomain (used by `BayesInvert`).
+
+### Added — shape compatibility under product / factored codomains
+
+- **Storage-level init check**: `observed f : A -> B = from_data("KEY")`
+  now matches the init tensor against the declared codomain on
+  *numel* rather than per-axis shape. A flat init whose total
+  cardinality matches a declared product codomain is accepted
+  and reshaped to the factored layout.
+- **`Morphism.refactor(domain=..., codomain=...)`** exposes the
+  reshape as a user-facing method: switch a morphism's view
+  between flat and product factorings of isomorphic objects.
+
+### Changed — module consolidation
+
+- `quivers.core.extra_quantales` is **deleted**. All its classes
+  (Lukasiewicz, Godel, Tropical, MaxPlus, LogProb, Real,
+  Probability, Counting) and singletons now live in
+  `quivers.core.quantales` alongside ProductFuzzy and Boolean.
+  Internal imports updated; user code that imported from
+  `extra_quantales` must update to import from `quantales`.
+
+### Added — distribution-family wrappers
+
+- **`ConditionalMixture`** wraps a `ConditionalX` family in a
+  K-component mixture with learnable mixture logits.
+- **`ConditionalIndependent`** reinterprets a base distribution's
+  trailing batch dim as an event dim (analogue of
+  `torch.distributions.Independent`).
+- **`ConditionalTransformed`** pushes a base through a chain of
+  bijectors, applying the log-det-Jacobian correction in `log_prob`.
+
+### Fixed — HMC at constrained-support boundaries
+
+- HMC's potential function now catches `torch.distributions`'
+  support-validation errors and returns `-inf`; the kernel reads
+  non-finite log-densities as divergent transitions and rejects
+  them in the Metropolis step. Eliminates the prior ERROR cells
+  in the benchmark matrix at the Gamma / InverseGamma /
+  HalfNormal support boundaries.
+
+### Changed — codebase-wide American spelling
+
+- All British spellings (centred / normalise / parameterise /
+  optimise / reparameterise / recognise / factorise / initialise
+  / specialise / organise / minimise / maximise / discretise and
+  their derived forms) converted to American spellings.
+  `eight_schools_centred.qvr` renamed to `eight_schools_centered.qvr`
+  with the program names updated to match.
 
 ### Added — unified distribution family registry
 
@@ -57,14 +149,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/), and this
   document expected failure modes (mean-field underfit on
   correlated MVN / funnel posteriors).
 
-## [0.5.0] - 2026-05-12
+### Added — earlier 0.5.0 work
 
-A substantive expansion of the inference layer plus the full
-implementation of scoped grouped `marginalize` blocks (issue #9).
-Pre-1.0 clean break: no backwards-compatibility shims; user code
-that relied on the `SVI(loss=...)` keyword should switch to
-`SVI(objective=...)`, and `Predictive(guide=...)` should use the
-positional `posterior` argument.
 
 ### Added — inference layer
 
