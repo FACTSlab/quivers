@@ -405,6 +405,10 @@ class MonadicProgram(ContinuousMorphism):
             observations = {}
 
         env: dict[str, torch.Tensor] = {}
+        # Reserved synthetic key: compiler-emitted let-callables that
+        # need the program input (e.g. captured observes inside a
+        # grouped marginalize block) read ``env["_x_input"]``.
+        env["_x_input"] = x
 
         # pre-populate env with named params (split product input)
         if self._params is not None and self._param_dims is not None:
@@ -562,6 +566,11 @@ class MonadicProgram(ContinuousMorphism):
 
         # if labels are used, map label keys back to variable names
         env = dict(intermediates)
+        # Reserved synthetic key: compiler-emitted let-callables that
+        # need the program input (e.g. captured observes inside a
+        # grouped marginalize block when the family takes the program
+        # input directly) read ``env["_x_input"]``.
+        env["_x_input"] = x
 
         if self._return_labels:
             for label, var in zip(self._return_labels, self._return_vars):

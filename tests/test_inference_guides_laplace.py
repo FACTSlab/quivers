@@ -175,3 +175,30 @@ def test_normal_normal_laplace_recovers_analytical_posterior() -> None:
         f"Laplace variance recovered {variance:.4f}; expected "
         f"{true_var:.4f}"
     )
+
+
+# ---------------------------------------------------------------------------
+# Validation paths
+# ---------------------------------------------------------------------------
+
+
+def test_laplace_rejects_zero_dim_model() -> None:
+    """A model with no continuous latents has nothing for Laplace
+    to fit. Constructing the guide should raise."""
+    import pytest
+
+    # A "model" with only observed sites — i.e. no latents.
+    src = (
+        "object Obs : 4\n"
+        "program p : Obs -> Obs\n"
+        "    mu <- Normal(0.0, 1.0)\n"
+        "    observe y : Obs <- Normal(mu, 1.0)\n"
+        "    return mu\n"
+        "export p\n"
+    )
+    model = loads(src).morphism
+    # Mark every latent as observed to make the registry empty.
+    with pytest.raises(ValueError, match="zero total"):
+        AutoLaplaceApproximation(
+            model, observed_names={"y", "mu"}
+        )

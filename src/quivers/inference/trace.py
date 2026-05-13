@@ -124,6 +124,10 @@ def trace(
         observations = {}
 
     env: dict[str, torch.Tensor] = {}
+    # Reserved synthetic key: compiler-emitted let-callables (e.g.
+    # captured observes inside a grouped marginalize block when the
+    # family takes the program input directly) read ``env["_x_input"]``.
+    env["_x_input"] = x
     tr = Trace()
     total_lp = torch.zeros(x.shape[0], device=x.device)
 

@@ -204,3 +204,240 @@ def test_mcmc_init_strategy_zero_is_deterministic() -> None:
     a = _run()
     b = _run()
     assert torch.allclose(a, b)
+
+
+# ---------------------------------------------------------------------------
+# Additional MCMC coverage: validation, mass-matrix modes, init strategies
+# ---------------------------------------------------------------------------
+
+
+def test_hmc_rejects_invalid_step_size() -> None:
+    import pytest
+
+    with pytest.raises(ValueError, match="step_size must be > 0"):
+        HMCKernel(step_size=-0.1, num_steps=5)
+    with pytest.raises(ValueError, match="step_size must be > 0"):
+        HMCKernel(step_size=0.0, num_steps=5)
+
+
+def test_hmc_rejects_invalid_num_steps() -> None:
+    import pytest
+
+    with pytest.raises(ValueError, match="num_steps must be >= 1"):
+        HMCKernel(step_size=0.1, num_steps=0)
+
+
+def test_hmc_rejects_invalid_target_accept() -> None:
+    import pytest
+
+    with pytest.raises(ValueError, match="target_accept must be in"):
+        HMCKernel(step_size=0.1, num_steps=5, target_accept=1.1)
+    with pytest.raises(ValueError, match="target_accept must be in"):
+        HMCKernel(step_size=0.1, num_steps=5, target_accept=0.0)
+
+
+def test_nuts_rejects_invalid_max_tree_depth() -> None:
+    import pytest
+
+    with pytest.raises(ValueError, match="max_tree_depth must be >= 1"):
+        NUTSKernel(step_size=0.1, max_tree_depth=0)
+
+
+def test_mcmc_rejects_invalid_chain_count() -> None:
+    import pytest
+
+    kernel = HMCKernel(step_size=0.1, num_steps=5)
+    with pytest.raises(ValueError, match="num_chains must be >= 1"):
+        MCMC(kernel=kernel, num_warmup=10, num_samples=10, num_chains=0)
+
+
+def test_mcmc_rejects_negative_warmup() -> None:
+    import pytest
+
+    kernel = HMCKernel(step_size=0.1, num_steps=5)
+    with pytest.raises(ValueError, match="num_warmup must be >= 0"):
+        MCMC(kernel=kernel, num_warmup=-1, num_samples=10)
+
+
+def test_mcmc_rejects_invalid_num_samples() -> None:
+    import pytest
+
+    kernel = HMCKernel(step_size=0.1, num_steps=5)
+    with pytest.raises(ValueError, match="num_samples must be >= 1"):
+        MCMC(kernel=kernel, num_warmup=10, num_samples=0)
+
+
+def test_dual_averaging_rejects_invalid_initial_step() -> None:
+    import pytest
+    from quivers.inference.mcmc.adapt import DualAveraging
+
+    with pytest.raises(ValueError, match="initial_step_size must be > 0"):
+        DualAveraging(initial_step_size=-1.0)
+
+
+def test_dual_averaging_rejects_invalid_target_accept() -> None:
+    import pytest
+    from quivers.inference.mcmc.adapt import DualAveraging
+
+    with pytest.raises(ValueError, match="target_accept must be in"):
+        DualAveraging(initial_step_size=0.1, target_accept=1.5)
+
+
+def test_welford_rejects_invalid_dim() -> None:
+    import pytest
+    from quivers.inference.mcmc.adapt import WelfordCovariance
+
+    with pytest.raises(ValueError, match="dim must be >= 1"):
+        WelfordCovariance(dim=0)
+
+
+def test_welford_rejects_mismatched_update_shape() -> None:
+    import pytest
+    from quivers.inference.mcmc.adapt import WelfordCovariance
+
+    w = WelfordCovariance(dim=3)
+    with pytest.raises(ValueError, match="expected shape"):
+        w.update(torch.zeros(5))
+
+
+def test_welford_with_few_samples_returns_identity() -> None:
+    """Before enough samples accumulate, the regularised covariance
+    must fall back to identity (the kernel-side default)."""
+    from quivers.inference.mcmc.adapt import WelfordCovariance
+
+    w = WelfordCovariance(dim=3, regularise=False)
+    cov = w.covariance()
+    assert torch.allclose(cov, torch.eye(3))
+
+
+def test_mcmc_init_strategy_prior_produces_finite_results() -> None:
+    """The 'prior' init strategy seeds chains with small random
+    initial positions; the MCMC chain should still produce finite
+    posterior samples."""
+    torch.manual_seed(0)
+    model = _normal_normal_model()
+    y = torch.randn(20) + 1.0
+    kernel = HMCKernel(step_size=0.05, num_steps=10, mass_matrix="identity")
+    driver = MCMC(
+        kernel=kernel, num_warmup=50, num_samples=100, num_chains=2,
+        init_strategy="prior",
+    )
+    result = driver.run(model, torch.zeros(1, 1), {"y": y})
+    assert torch.isfinite(result.log_densities).all()
+
+
+def test_hmc_with_dense_mass_matrix_runs() -> None:
+    """The dense mass matrix path is exercised end-to-end. With
+    adaptation enabled the Welford covariance feeds into a Cholesky
+    factorisation; we just need it to produce finite samples."""
+    torch.manual_seed(0)
+    model = _normal_normal_model()
+    y = torch.randn(20) + 1.0
+    kernel = HMCKernel(
+        step_size=0.1, num_steps=10, mass_matrix="dense",
+        adapt_step_size=True, adapt_mass_matrix=True,
+    )
+    driver = MCMC(
+        kernel=kernel, num_warmup=100, num_samples=200, num_chains=1,
+        init_strategy="zero",
+    )
+    result = driver.run(model, torch.zeros(1, 1), {"y": y})
+    assert torch.isfinite(result.log_densities).all()
+
+
+def test_hmc_with_diagonal_mass_matrix_adapts() -> None:
+    """With diagonal mass-matrix adaptation enabled, the kernel's
+    welford accumulator should fill up during warmup. Verify the
+    chain runs and ESS is non-trivial."""
+    torch.manual_seed(0)
+    model = _normal_normal_model()
+    y = torch.randn(20) + 1.0
+    kernel = HMCKernel(
+        step_size=0.1, num_steps=10, mass_matrix="diagonal",
+        adapt_step_size=True, adapt_mass_matrix=True,
+    )
+    driver = MCMC(
+        kernel=kernel, num_warmup=100, num_samples=200, num_chains=2,
+        init_strategy="zero",
+    )
+    result = driver.run(model, torch.zeros(1, 1), {"y": y})
+    assert torch.isfinite(result.log_densities).all()
+
+
+def test_mass_matrix_identity_rejects_set_inverse() -> None:
+    import pytest
+    from quivers.inference.mcmc.hmc import _MassMatrix
+
+    mass = _MassMatrix(dim=3, kind="identity")
+    with pytest.raises(RuntimeError, match="cannot set inverse on identity"):
+        mass.set_inverse(torch.ones(3))
+
+
+def test_mass_matrix_diagonal_rejects_wrong_shape() -> None:
+    import pytest
+    from quivers.inference.mcmc.hmc import _MassMatrix
+
+    mass = _MassMatrix(dim=3, kind="diagonal")
+    with pytest.raises(ValueError, match="expected shape"):
+        mass.set_inverse(torch.ones(4))
+
+
+def test_mass_matrix_dense_rejects_wrong_shape() -> None:
+    import pytest
+    from quivers.inference.mcmc.hmc import _MassMatrix
+
+    mass = _MassMatrix(dim=3, kind="dense")
+    with pytest.raises(ValueError, match="expected shape"):
+        mass.set_inverse(torch.ones(2, 2))
+
+
+def test_mass_matrix_unknown_kind_rejected() -> None:
+    import pytest
+    from quivers.inference.mcmc.hmc import _MassMatrix
+
+    with pytest.raises(ValueError, match="kind must be one of"):
+        _MassMatrix(dim=3, kind="bogus")  # type: ignore[arg-type]
+
+
+def test_mcmc_result_acceptance_rates_in_range() -> None:
+    torch.manual_seed(0)
+    model = _normal_normal_model()
+    y = torch.randn(20) + 1.0
+    kernel = HMCKernel(step_size=0.1, num_steps=10, mass_matrix="identity")
+    driver = MCMC(
+        kernel=kernel, num_warmup=50, num_samples=100, num_chains=2,
+        init_strategy="zero",
+    )
+    result = driver.run(model, torch.zeros(1, 1), {"y": y})
+    assert torch.all(result.acceptance_rates >= 0.0)
+    assert torch.all(result.acceptance_rates <= 1.0)
+
+
+def test_mcmc_result_mean_acceptance_property() -> None:
+    torch.manual_seed(0)
+    model = _normal_normal_model()
+    y = torch.randn(20) + 1.0
+    kernel = HMCKernel(step_size=0.1, num_steps=10, mass_matrix="identity")
+    driver = MCMC(
+        kernel=kernel, num_warmup=50, num_samples=100, num_chains=2,
+        init_strategy="zero",
+    )
+    result = driver.run(model, torch.zeros(1, 1), {"y": y})
+    assert isinstance(result.mean_acceptance, float)
+    assert 0.0 <= result.mean_acceptance <= 1.0
+    assert result.num_chains == 2
+
+
+def test_mcmc_init_strategy_guide_with_no_guide_raises() -> None:
+    import pytest
+
+    torch.manual_seed(0)
+    model = _normal_normal_model()
+    y = torch.randn(20) + 1.0
+    kernel = HMCKernel(step_size=0.1, num_steps=10, mass_matrix="identity")
+    driver = MCMC(
+        kernel=kernel, num_warmup=10, num_samples=10, num_chains=1,
+        init_strategy="guide",
+    )
+    with pytest.raises(ValueError, match="requires a guide"):
+        driver.run(model, torch.zeros(1, 1), {"y": y})

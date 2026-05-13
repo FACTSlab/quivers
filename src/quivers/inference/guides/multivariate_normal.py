@@ -26,6 +26,8 @@ the guide itself sees only the flat vector.
 
 from __future__ import annotations
 
+from abc import abstractmethod
+
 import torch
 import torch.distributions as D
 import torch.nn as nn
@@ -64,10 +66,10 @@ class _MVNCommon(Guide):
     # Subclass contract
     # ------------------------------------------------------------------
 
+    @abstractmethod
     def _base_dist(self) -> D.Distribution:
         """Return the flat-vector torch.distribution that this guide
         parameterises. Defined by each subclass."""
-        raise NotImplementedError
 
     # ------------------------------------------------------------------
     # Sampling

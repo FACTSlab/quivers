@@ -299,6 +299,134 @@ def test_batchnorm_inverse_roundtrip_in_eval_mode() -> None:
     assert torch.allclose(x, x_back, atol=1e-4)
 
 
+def test_batchnorm_log_det_matches_numerical_jacobian() -> None:
+    """In eval mode the BatchNorm transform is a per-coordinate
+    affine map, so the log-det is the sum of per-coordinate
+    log scales. Match against the numerical Jacobian."""
+    dim = 4
+    layer = BatchNormTransform(dim)
+    layer.train(True)
+    for _ in range(5):
+        _ = layer(torch.randn(10, dim))
+    layer.eval()
+    x = torch.randn(3, dim)
+    y = layer(x)
+    analytic = layer.log_abs_det_jacobian(x, y)
+    numeric = _numeric_log_abs_det(layer, x)
+    assert torch.allclose(analytic, numeric, atol=1e-4), (
+        f"BatchNorm log-det mismatch: analytic={analytic.tolist()}, "
+        f"numeric={numeric.tolist()}"
+    )
+
+
+# ---------------------------------------------------------------------------
+# Additional NSF coverage: log-det agreement with numerical Jacobian
+# ---------------------------------------------------------------------------
+
+
+def test_nsf_log_det_matches_numerical_jacobian() -> None:
+    """NSF spline-coupling log-det must match the numerical
+    Jacobian. We stay inside the tail bound so the spline is
+    active (outside, the identity gives log-det 0 trivially)."""
+    dim = 4
+    mask = alternating_mask(dim)
+    n_a = int(mask.sum().item())
+    n_b = dim - n_a
+    num_bins = 6
+    net = make_coupling_mlp(n_a, n_b * (3 * num_bins - 1), hidden=32)
+    for p in net.parameters():
+        p.data = torch.randn_like(p) * 0.3
+    layer = NeuralSplineCouplingTransform(
+        dim, net, mask, num_bins=num_bins, tail_bound=4.0
+    )
+    x = torch.randn(3, dim) * 1.5  # well inside tail
+    y = layer(x)
+    analytic = layer.log_abs_det_jacobian(x, y)
+    numeric = _numeric_log_abs_det(layer, x)
+    assert torch.allclose(analytic, numeric, atol=1e-3), (
+        f"NSF log-det mismatch: analytic={analytic.tolist()}, "
+        f"numeric={numeric.tolist()}"
+    )
+
+
+# ---------------------------------------------------------------------------
+# IAF autoregressive property
+# ---------------------------------------------------------------------------
+
+
+def test_iaf_autoregressive_property() -> None:
+    """IAF's forward map is parallel: output coordinate ``j``
+    depends on input coordinate ``j`` directly plus input
+    coordinates ``< j`` through the autoregressive shift / scale.
+    Perturbing input ``k`` with ``ordering[k] > ordering[j]``
+    must leave output ``j`` unchanged."""
+    torch.manual_seed(0)
+    dim = 5
+    made = MADE(dim=dim, n_per_dim=2, hidden=16, n_hidden_layers=1)
+    for p in made.parameters():
+        p.data = torch.randn_like(p) * 0.2
+    layer = InverseAutoregressiveTransform(made)
+    x = torch.randn(1, dim)
+    y_base = layer(x)
+    ordering = made.ordering
+    for k in range(dim):
+        x_pert = x.clone()
+        x_pert[0, k] = x_pert[0, k] + 1.0
+        y_pert = layer(x_pert)
+        for j in range(dim):
+            if int(ordering[k].item()) > int(ordering[j].item()):
+                assert torch.isclose(
+                    y_pert[0, j], y_base[0, j], atol=1e-5
+                ), (
+                    f"IAF output[{j}] (ordering={int(ordering[j])}) "
+                    f"changed when input[{k}] (ordering={int(ordering[k])}) "
+                    f"was perturbed; autoregressivity violated"
+                )
+
+
+# ---------------------------------------------------------------------------
+# Helper-function coverage: half_mask, alternating_mask
+# ---------------------------------------------------------------------------
+
+
+def test_alternating_mask_alternates() -> None:
+    m = alternating_mask(6, even=True)
+    assert m.shape == (6,)
+    assert m.dtype == torch.bool
+    assert m.tolist() == [True, False, True, False, True, False]
+    m_odd = alternating_mask(6, even=False)
+    assert m_odd.tolist() == [False, True, False, True, False, True]
+
+
+def test_half_mask_splits_in_half() -> None:
+    m = half_mask(6, first_half_true=True)
+    assert m.tolist() == [True, True, True, False, False, False]
+    m_second = half_mask(6, first_half_true=False)
+    assert m_second.tolist() == [False, False, False, True, True, True]
+
+
+# ---------------------------------------------------------------------------
+# Reverse-permutation flow primitive used inside AutoIAFGuide
+# ---------------------------------------------------------------------------
+
+
+def test_reverse_permutation_inverse_roundtrip() -> None:
+    """``AutoIAFGuide`` chains IAF layers with reverse permutations.
+    Verify the permutation primitive round-trips and reports a zero
+    log-det."""
+    from quivers.inference.guides.flow import _ReversePermutation
+
+    dim = 5
+    perm = _ReversePermutation(dim)
+    x = torch.randn(4, dim)
+    y = perm(x)
+    x_back = perm.inv(y)
+    assert torch.allclose(x, x_back, atol=1e-6)
+    assert torch.allclose(
+        perm.log_abs_det_jacobian(x, y), torch.zeros(4), atol=1e-6
+    )
+
+
 # ---------------------------------------------------------------------------
 # Compose round-trip across a multi-layer stack
 # ---------------------------------------------------------------------------

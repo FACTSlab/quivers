@@ -118,9 +118,9 @@ class AutoDAIS(Guide):
         self._D = self._registry.total_unconstrained_dim
         if self._D == 0:
             raise ValueError(
-                f"AutoDAIS: base registry has zero total "
-                f"unconstrained dimension; no continuous latents "
-                f"to anneal over"
+                "AutoDAIS: base registry has zero total "
+                "unconstrained dimension; no continuous latents "
+                "to anneal over"
             )
         # Learnable trajectory params.
         log_step = torch.log(torch.tensor(float(init_step_size)))
@@ -272,9 +272,7 @@ class AutoDAIS(Guide):
         # the first beta increment.
         log_q0_z = self.base.log_prob(x, base_sample).sum()
         log_pi_z = self._target_log_density(z)
-        prev_beta = torch.tensor(0.0, device=z.device, dtype=z.dtype)
-        log_weight = log_weight + (betas[0] - prev_beta) * (log_pi_z - log_q0_z)
-        prev_beta = betas[0]
+        log_weight = log_weight + betas[0] * (log_pi_z - log_q0_z)
         for t in range(self._num_steps):
             beta_t = betas[t]
             eps = torch.exp(self.log_step_size[t])

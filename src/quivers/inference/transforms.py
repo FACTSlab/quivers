@@ -51,7 +51,6 @@ rather than configuring topology through string flags.
 
 from __future__ import annotations
 
-from collections.abc import Callable
 
 import torch
 import torch.nn as nn
@@ -380,7 +379,6 @@ class MaskedAutoregressiveTransform(TransformModule):
         # Sequential inversion: for each coordinate in the
         # autoregressive order, evaluate the network on the
         # partially-reconstructed input.
-        dim = self.made.dim
         ordering = self.made.ordering
         # Order the indices by their degree, lowest first.
         order_idx = torch.argsort(ordering)
@@ -439,7 +437,6 @@ class InverseAutoregressiveTransform(TransformModule):
         return x * log_scale.exp() + shift
 
     def _inverse(self, y: torch.Tensor) -> torch.Tensor:
-        dim = self.made.dim
         ordering = self.made.ordering
         order_idx = torch.argsort(ordering)
         x = torch.zeros_like(y)

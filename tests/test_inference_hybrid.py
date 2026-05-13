@@ -206,3 +206,85 @@ def test_warmup_then_hmc_fit_guide_decreases_loss() -> None:
         f"WarmupThenHMC SVI warmup did not decrease loss: "
         f"early {early:.3f} vs late {late:.3f}"
     )
+
+
+# ---------------------------------------------------------------------------
+# Validation paths
+# ---------------------------------------------------------------------------
+
+
+def test_dais_rejects_leapfrog_steps_zero() -> None:
+    import pytest
+
+    torch.manual_seed(0)
+    model = _hierarchical_model()
+    obs = _make_hier_obs()
+    base = AutoNormalGuide(model, observed_names={"r"})
+    with pytest.raises(ValueError, match="leapfrog_steps must be >= 1"):
+        AutoDAIS(base, model, observations=obs, leapfrog_steps=0)
+
+
+def test_dais_rejects_invalid_step_size() -> None:
+    import pytest
+
+    torch.manual_seed(0)
+    model = _hierarchical_model()
+    obs = _make_hier_obs()
+    base = AutoNormalGuide(model, observed_names={"r"})
+    with pytest.raises(ValueError, match="init_step_size must be > 0"):
+        AutoDAIS(base, model, observations=obs, init_step_size=-0.1)
+
+
+def test_dais_rejects_invalid_init_temperature() -> None:
+    import pytest
+
+    torch.manual_seed(0)
+    model = _hierarchical_model()
+    obs = _make_hier_obs()
+    base = AutoNormalGuide(model, observed_names={"r"})
+    with pytest.raises(ValueError, match="init_temperature must be in"):
+        AutoDAIS(base, model, observations=obs, init_temperature=0.0)
+    with pytest.raises(ValueError, match="init_temperature must be in"):
+        AutoDAIS(base, model, observations=obs, init_temperature=1.0)
+
+
+def test_warmup_then_hmc_rejects_invalid_svi_steps() -> None:
+    import pytest
+
+    torch.manual_seed(0)
+    model = _hierarchical_model()
+    guide = AutoNormalGuide(model, observed_names={"r"})
+    kernel = HMCKernel(step_size=0.1, num_steps=5)
+    with pytest.raises(ValueError, match="svi_steps must be >= 1"):
+        WarmupThenHMC(
+            guide=guide, kernel=kernel,
+            svi_steps=0, mcmc_warmup=10, mcmc_samples=10,
+        )
+
+
+def test_warmup_then_hmc_rejects_invalid_mcmc_samples() -> None:
+    import pytest
+
+    torch.manual_seed(0)
+    model = _hierarchical_model()
+    guide = AutoNormalGuide(model, observed_names={"r"})
+    kernel = HMCKernel(step_size=0.1, num_steps=5)
+    with pytest.raises(ValueError, match="mcmc_samples must be >= 1"):
+        WarmupThenHMC(
+            guide=guide, kernel=kernel,
+            svi_steps=10, mcmc_warmup=10, mcmc_samples=0,
+        )
+
+
+def test_warmup_then_hmc_rejects_negative_warmup() -> None:
+    import pytest
+
+    torch.manual_seed(0)
+    model = _hierarchical_model()
+    guide = AutoNormalGuide(model, observed_names={"r"})
+    kernel = HMCKernel(step_size=0.1, num_steps=5)
+    with pytest.raises(ValueError, match="mcmc_warmup must be >= 0"):
+        WarmupThenHMC(
+            guide=guide, kernel=kernel,
+            svi_steps=10, mcmc_warmup=-1, mcmc_samples=10,
+        )

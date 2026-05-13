@@ -69,7 +69,7 @@ def _build_nested_program(num_levels: int, n_resp: int = 8) -> str:
         pad = indent * (i + 1)
         open_blocks.append(f"{pad}}}")
     prog_lines.extend(open_blocks)
-    prog_lines.append(f"    return probs_0")
+    prog_lines.append("    return probs_0")
     body = "\n        ".join(prog_lines)
     return dedent(
         f"""
@@ -181,7 +181,7 @@ class TestPrimitiveCompositionAcrossLevels:
         torch.manual_seed(0)
         N = 8
         K_a, K_b, K_c = 2, 3, 2  # outer-most a, then b, innermost c
-        G_a, G_b, G_c = 2, 2, 4
+        G_c = 4
         # Innermost (level c) sees a (N, K_a, K_b, K_c) ll.
         ll = torch.randn(N, K_a, K_b, K_c)
         idx_c = torch.tensor([0, 1, 2, 3, 0, 1, 2, 3])

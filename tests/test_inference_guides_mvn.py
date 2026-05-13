@@ -212,3 +212,52 @@ def test_lowrank_full_svi_run() -> None:
         f"AutoLowRankMultivariateNormalGuide loss did not improve: "
         f"early {early:.3f} vs late {late:.3f}"
     )
+
+
+# ---------------------------------------------------------------------------
+# Validation paths
+# ---------------------------------------------------------------------------
+
+
+def test_lowrank_rejects_rank_below_one() -> None:
+    import pytest
+
+    torch.manual_seed(0)
+    model = _hierarchical_model()
+    with pytest.raises(ValueError, match="rank must be >= 1"):
+        AutoLowRankMultivariateNormalGuide(
+            model, observed_names={"r"}, rank=0
+        )
+
+
+def test_lowrank_rejects_rank_exceeding_dim() -> None:
+    import pytest
+
+    torch.manual_seed(0)
+    model = _hierarchical_model()
+    with pytest.raises(ValueError, match="rank.*cannot exceed"):
+        AutoLowRankMultivariateNormalGuide(
+            model, observed_names={"r"}, rank=10000
+        )
+
+
+def test_mvn_log_prob_raises_on_missing_site() -> None:
+    import pytest
+
+    torch.manual_seed(0)
+    model = _hierarchical_model()
+    guide = AutoMultivariateNormalGuide(model, observed_names={"r"})
+    samples = guide.rsample(torch.zeros(1, 1))
+    # Drop one site to trigger the missing-site error.
+    name = next(iter(samples.keys()))
+    del samples[name]
+    with pytest.raises(KeyError, match="missing site"):
+        guide.log_prob(torch.zeros(1, 1), samples)
+
+
+def test_mvn_latent_names_returns_registry_order() -> None:
+    torch.manual_seed(0)
+    model = _hierarchical_model()
+    guide = AutoMultivariateNormalGuide(model, observed_names={"r"})
+    names = guide.latent_names
+    assert tuple(names) == tuple(guide.registry.names)

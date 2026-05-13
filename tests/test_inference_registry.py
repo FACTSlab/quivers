@@ -159,3 +159,109 @@ def test_registry_zero_unconstrained_shapes() -> None:
     assert z["sigma"].shape == (2, 3, 1)
     assert z["by_subj"].shape == (2, 3, 4, 1)
     assert (z["sigma"] == 0).all()
+
+
+# ---------------------------------------------------------------------------
+# Additional registry surface
+# ---------------------------------------------------------------------------
+
+
+def test_registry_iter_yields_sites_in_declaration_order() -> None:
+    """Iterating the registry yields LatentSite objects in the
+    order they appear in the model's _step_specs."""
+    from quivers.dsl import loads
+    from quivers.inference.registry import LatentRegistry, LatentSite
+
+    src = (
+        "object Subj : 3\n"
+        "object Resp : 6\n"
+        "program p : Resp -> Resp\n"
+        "    sigma <- HalfNormal(1.0)\n"
+        "    by_subj : Subj <- Normal(0.0, sigma)\n"
+        "    let mu = sigmoid(by_subj[subj_idx])\n"
+        "    observe r : Resp <- Bernoulli(mu)\n"
+        "    return mu\n"
+        "export p\n"
+    )
+    model = loads(src).morphism
+    reg = LatentRegistry.from_model(model, observed_names={"r"})
+    sites = list(reg)
+    names = [s.name for s in sites]
+    assert names == ["sigma", "by_subj"]
+    assert all(isinstance(s, LatentSite) for s in sites)
+
+
+def test_registry_contains_and_getitem() -> None:
+    from quivers.dsl import loads
+    from quivers.inference.registry import LatentRegistry
+
+    src = (
+        "object Subj : 3\n"
+        "object Resp : 6\n"
+        "program p : Resp -> Resp\n"
+        "    sigma <- HalfNormal(1.0)\n"
+        "    by_subj : Subj <- Normal(0.0, sigma)\n"
+        "    let mu = sigmoid(by_subj[subj_idx])\n"
+        "    observe r : Resp <- Bernoulli(mu)\n"
+        "    return mu\n"
+        "export p\n"
+    )
+    model = loads(src).morphism
+    reg = LatentRegistry.from_model(model, observed_names={"r"})
+    assert "sigma" in reg
+    assert "by_subj" in reg
+    assert "r" not in reg  # observed
+    site = reg["sigma"]
+    assert site.name == "sigma"
+
+
+def test_registry_len_matches_total_latents() -> None:
+    from quivers.dsl import loads
+    from quivers.inference.registry import LatentRegistry
+
+    src = (
+        "object Resp : 4\n"
+        "program p : Resp -> Resp\n"
+        "    a <- Normal(0.0, 1.0)\n"
+        "    b <- Normal(0.0, 1.0)\n"
+        "    observe r : Resp <- Normal(a + b, 1.0)\n"
+        "    return a\n"
+        "export p\n"
+    )
+    model = loads(src).morphism
+    reg = LatentRegistry.from_model(model, observed_names={"r"})
+    assert len(reg) == 2
+
+
+def test_registry_observed_names_returns_frozenset() -> None:
+    from quivers.dsl import loads
+    from quivers.inference.registry import LatentRegistry
+
+    src = (
+        "object Resp : 4\n"
+        "program p : Resp -> Resp\n"
+        "    mu <- Normal(0.0, 1.0)\n"
+        "    observe r : Resp <- Normal(mu, 1.0)\n"
+        "    return mu\n"
+        "export p\n"
+    )
+    model = loads(src).morphism
+    reg = LatentRegistry.from_model(model, observed_names={"r"})
+    assert reg.observed_names == frozenset({"r"})
+
+
+def test_registry_model_property_returns_construction_model() -> None:
+    from quivers.dsl import loads
+    from quivers.inference.registry import LatentRegistry
+
+    src = (
+        "object Resp : 4\n"
+        "program p : Resp -> Resp\n"
+        "    mu <- Normal(0.0, 1.0)\n"
+        "    observe r : Resp <- Normal(mu, 1.0)\n"
+        "    return mu\n"
+        "export p\n"
+    )
+    model = loads(src).morphism
+    reg = LatentRegistry.from_model(model, observed_names={"r"})
+    assert reg.model is model

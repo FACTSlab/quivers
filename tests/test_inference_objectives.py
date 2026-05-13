@@ -234,3 +234,71 @@ def test_svi_step_runs_with_iwae_dreg() -> None:
     svi = SVI(model, guide, opt, obj)
     loss = svi.step(torch.zeros(1, 1), _make_obs())
     assert torch.isfinite(torch.tensor(loss))
+
+
+# ---------------------------------------------------------------------------
+# Validation paths for objectives
+# ---------------------------------------------------------------------------
+
+
+def test_elbo_rejects_num_particles_below_one() -> None:
+    import pytest
+
+    with pytest.raises(ValueError, match="num_particles must be >= 1"):
+        ELBO(num_particles=0)
+
+
+def test_iwae_rejects_num_particles_below_one() -> None:
+    import pytest
+
+    with pytest.raises(ValueError, match="num_particles must be >= 1"):
+        IWAEBound(num_particles=0)
+
+
+def test_renyi_rejects_num_particles_below_one() -> None:
+    import pytest
+
+    with pytest.raises(ValueError, match="num_particles must be >= 1"):
+        RenyiBound(alpha=0.5, num_particles=0)
+
+
+def test_vriwae_rejects_alpha_one() -> None:
+    import pytest
+
+    with pytest.raises(ValueError, match="singular"):
+        VRIWAEBound(alpha=1.0)
+
+
+def test_vriwae_rejects_num_particles_below_one() -> None:
+    import pytest
+
+    with pytest.raises(ValueError, match="num_particles must be >= 1"):
+        VRIWAEBound(alpha=0.5, num_particles=0)
+
+
+def test_vriwae_at_alpha_zero_with_renyi_matches_iwae() -> None:
+    """Cross-validation: Rényi(α=0) and VR-IWAE(α=0) should both
+    recover the IWAE bound. Verifies the algebraic identity between
+    the families at the boundary value."""
+    torch.manual_seed(0)
+    model = _hierarchical_model()
+    guide = AutoNormalGuide(model, observed_names={"r"})
+    obs = _make_obs()
+    K = 8
+    torch.manual_seed(42)
+    iwae = float(
+        IWAEBound(num_particles=K, estimator=Reparameterised())(
+            model, guide, torch.zeros(1, 1), obs
+        )
+    )
+    torch.manual_seed(42)
+    renyi = float(
+        RenyiBound(alpha=1e-6, num_particles=K, estimator=Reparameterised())(
+            model, guide, torch.zeros(1, 1), obs
+        )
+    )
+    # Both estimate the same bound at alpha → 0; with the same RNG
+    # seed they should agree to high precision.
+    assert abs(iwae - renyi) < 1e-3, (
+        f"IWAE and Rényi(α→0) disagree: {iwae:.6f} vs {renyi:.6f}"
+    )

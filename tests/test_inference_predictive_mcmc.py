@@ -77,3 +77,34 @@ def test_predictive_with_guide_still_works() -> None:
     draws = pred(torch.zeros(1, 1), observations={"y": y})
     assert "mu" in draws
     assert draws["mu"].shape[0] == 5
+
+
+# ---------------------------------------------------------------------------
+# Validation paths
+# ---------------------------------------------------------------------------
+
+
+def test_predictive_rejects_zero_num_samples() -> None:
+    import pytest
+
+    model = _normal_normal_model()
+    guide = AutoNormalGuide(model, observed_names={"y"})
+    with pytest.raises(ValueError, match="num_samples must be >= 1"):
+        Predictive(model, guide, num_samples=0)
+
+
+def test_predictive_negative_num_samples_rejected() -> None:
+    import pytest
+
+    model = _normal_normal_model()
+    guide = AutoNormalGuide(model, observed_names={"y"})
+    with pytest.raises(ValueError, match="num_samples must be >= 1"):
+        Predictive(model, guide, num_samples=-5)
+
+
+def test_predictive_with_guide_default_num_samples() -> None:
+    """When num_samples is omitted, the guide path defaults to 100."""
+    model = _normal_normal_model()
+    guide = AutoNormalGuide(model, observed_names={"y"})
+    pred = Predictive(model, guide)
+    assert pred.num_samples == 100

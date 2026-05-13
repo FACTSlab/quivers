@@ -194,3 +194,71 @@ def test_autonormalizingflow_accepts_user_transforms() -> None:
     s = guide.rsample(torch.zeros(1, 1))
     log_q = guide.log_prob(torch.zeros(1, 1), s)
     assert torch.isfinite(log_q).all()
+
+
+# ---------------------------------------------------------------------------
+# Validation paths
+# ---------------------------------------------------------------------------
+
+
+def test_iaf_rejects_num_flows_zero() -> None:
+    import pytest
+
+    torch.manual_seed(0)
+    model = _hierarchical_model()
+    with pytest.raises(ValueError, match="num_flows must be >= 1"):
+        AutoIAFGuide(model, observed_names={"r"}, num_flows=0)
+
+
+def test_nsf_rejects_num_flows_zero() -> None:
+    import pytest
+
+    torch.manual_seed(0)
+    model = _hierarchical_model()
+    with pytest.raises(ValueError, match="num_flows must be >= 1"):
+        AutoNeuralSplineGuide(model, observed_names={"r"}, num_flows=0)
+
+
+def test_autonormalizing_flow_rejects_empty_transforms() -> None:
+    import pytest
+
+    torch.manual_seed(0)
+    model = _hierarchical_model()
+    with pytest.raises(ValueError, match="transforms list must be non-empty"):
+        AutoNormalizingFlow(model, observed_names={"r"}, transforms=[])
+
+
+def test_iaf_rejects_single_dim_model() -> None:
+    """IAF needs >= 2 dimensions for the autoregressive ordering
+    to make sense. A 1-dim model (single scalar latent) is rejected."""
+    import pytest
+
+    src = (
+        "object Obs : 4\n"
+        "program p : Obs -> Obs\n"
+        "    mu <- Normal(0.0, 1.0)\n"
+        "    observe y : Obs <- Normal(mu, 1.0)\n"
+        "    return mu\n"
+        "export p\n"
+    )
+    from quivers.dsl import loads
+    model = loads(src).morphism
+    with pytest.raises(ValueError, match=">= 2 unconstrained"):
+        AutoIAFGuide(model, observed_names={"y"})
+
+
+def test_nsf_rejects_single_dim_model() -> None:
+    import pytest
+
+    src = (
+        "object Obs : 4\n"
+        "program p : Obs -> Obs\n"
+        "    mu <- Normal(0.0, 1.0)\n"
+        "    observe y : Obs <- Normal(mu, 1.0)\n"
+        "    return mu\n"
+        "export p\n"
+    )
+    from quivers.dsl import loads
+    model = loads(src).morphism
+    with pytest.raises(ValueError, match=">= 2 unconstrained"):
+        AutoNeuralSplineGuide(model, observed_names={"y"})

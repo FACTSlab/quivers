@@ -18,7 +18,7 @@ import torch.nn as nn
 
 from quivers.continuous.programs import MonadicProgram
 from quivers.inference.guides.base import Guide
-from quivers.inference.registry import LatentRegistry, LatentSite
+from quivers.inference.registry import LatentSite
 
 
 class AutoDeltaGuide(Guide):

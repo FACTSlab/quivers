@@ -1633,6 +1633,18 @@ class Compiler:
                     out.add(step.index_var)
                     if step.response_var:
                         out.add(step.response_var)
+                elif isinstance(step, MarginalizeStep):
+                    out.add(step.var_name)
+                    if step.body_ll_var is not None:
+                        out.add(step.body_ll_var)
+                elif isinstance(step, GroupedLatentInitStep):
+                    out.add(step.latent_name)
+                elif isinstance(step, GroupedBodyObserveStep):
+                    out.add(step.index_var)
+                    if step.response_var:
+                        out.add(step.response_var)
+                    if step.latent_name:
+                        out.add(step.latent_name)
 
         _walk(tmpl.draws)
         return out
@@ -1752,6 +1764,11 @@ class Compiler:
                 if step.via_var is not None
                 else None
             )
+            renamed_via_axes = (
+                tuple(rename.get(v, v) for v in step.via_axes)
+                if step.via_axes is not None
+                else None
+            )
             renamed_probs = (
                 rename.get(step.probs_var, step.probs_var)
                 if step.probs_var is not None
@@ -1767,8 +1784,31 @@ class Compiler:
                 class_size=step.class_size,
                 probs_var=renamed_probs,
                 over_obj=step.over_obj,
+                over_objs=step.over_objs,
                 via_var=renamed_via,
+                via_axes=renamed_via_axes,
                 body_ll_var=renamed_body_ll,
+                reduction=step.reduction,
+                line=step.line,
+                col=step.col,
+            )
+        if isinstance(step, GroupedLatentInitStep):
+            return GroupedLatentInitStep(
+                latent_name=rename.get(step.latent_name, step.latent_name),
+                class_size=step.class_size,
+                line=step.line,
+                col=step.col,
+            )
+        if isinstance(step, GroupedBodyObserveStep):
+            return GroupedBodyObserveStep(
+                response_var=rename.get(step.response_var, step.response_var),
+                morphism=step.morphism,
+                args=self._rename_args(step.args, value_subst, rename),
+                index_set=self._rename_type(step.index_set, type_subst)
+                if step.index_set is not None
+                else None,
+                index_var=rename.get(step.index_var, step.index_var),
+                latent_name=rename.get(step.latent_name, step.latent_name),
                 line=step.line,
                 col=step.col,
             )
@@ -2049,9 +2089,9 @@ class Compiler:
                     # Resolve theta from env using the same input-
                     # stacking rule as the standard runtime path.
                     if _args is None:
-                        theta = env.get("_x_input")
-                        if theta is None:
-                            theta = torch.zeros(_N, 1)
+                        # No upstream variables to gather; the
+                        # family takes the program input directly.
+                        theta = env["_x_input"]
                     elif len(_args) == 1:
                         theta = env[_args[0]]
                     else:

@@ -421,3 +421,95 @@ class TestReductionSurface:
         """
         with pytest.raises(CompileError, match="unknown reduction"):
             loads(src)
+
+
+# ---------------------------------------------------------------------------
+# Additional surface-level compile-error coverage
+# ---------------------------------------------------------------------------
+
+
+@_LOCAL_GRAMMAR
+class TestSurfaceCompileErrors:
+    """Each error path the grouped-marginalize compiler raises has
+    its own test so a regression hides nothing."""
+
+    def test_categorical_with_literal_first_arg_errors(self) -> None:
+        """A grouped block's prior must reference a NAMED probs
+        tensor, not a literal — otherwise the runtime has nothing
+        to broadcast against."""
+        from quivers.dsl import loads
+        from quivers.dsl.compiler import CompileError
+
+        src = """
+        object Item : 3
+        object Resp : 6
+        object Class : 2
+
+        program demo : Resp -> Resp
+            idx : Resp <- HalfNormal(1.0)
+            marginalize cls : Class <- Dirichlet(1.0)
+                over Item via idx
+                in {
+                    observe r : Resp <- HalfNormal(1.0)
+                }
+            return idx
+        export demo
+        """
+        with pytest.raises(CompileError, match="named probs"):
+            loads(src)
+
+    def test_body_without_observe_errors(self) -> None:
+        """The body must end with an observe step (or a nested
+        marginalize). A body containing only let-steps or sample-
+        steps has no captured per-(N, K) ll to feed the reduction."""
+        from quivers.dsl import loads
+        from quivers.dsl.compiler import CompileError
+
+        src = """
+        object Item : 3
+        object Resp : 6
+        object Class : 2
+
+        program demo : Resp -> Resp
+            probs : Class <- HalfNormal(1.0)
+            idx : Resp <- HalfNormal(1.0)
+            marginalize cls : Class <- Dirichlet(probs)
+                over Item via idx
+                in {
+                    other : Resp <- HalfNormal(1.0)
+                }
+            return probs
+        export demo
+        """
+        with pytest.raises(CompileError, match="observe"):
+            loads(src)
+
+
+@_LOCAL_GRAMMAR
+def test_three_axis_product_fibration_dsl_compiles() -> None:
+    """`over A * B * C via product(idx_a, idx_b, idx_c)` parses
+    and compiles."""
+    from quivers.dsl import loads
+
+    src = """
+    object A : 2
+    object B : 2
+    object C : 2
+    object Resp : 8
+    object K : 2
+
+    program triple_prod : Resp -> Resp
+        probs : K <- HalfNormal(1.0)
+        idx_a : Resp <- HalfNormal(1.0)
+        idx_b : Resp <- HalfNormal(1.0)
+        idx_c : Resp <- HalfNormal(1.0)
+        marginalize cls : K <- Dirichlet(probs)
+            over A * B * C via product(idx_a, idx_b, idx_c)
+            in {
+                observe r : Resp <- HalfNormal(1.0)
+            }
+        return probs
+    export triple_prod
+    """
+    m = loads(src)
+    assert m.morphism is not None

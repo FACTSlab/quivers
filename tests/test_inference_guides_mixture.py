@@ -16,6 +16,8 @@ stuck at one mode (or averages them, missing both).
 
 from __future__ import annotations
 
+import math
+
 import torch
 
 from quivers.dsl import loads
@@ -157,3 +159,52 @@ def test_mixture_runs_end_to_end_svi() -> None:
         losses.append(svi.step(torch.zeros(1, 1), _make_obs()))
     for loss in losses:
         assert torch.isfinite(torch.tensor(loss))
+
+
+# ---------------------------------------------------------------------------
+# Validation paths
+# ---------------------------------------------------------------------------
+
+
+def test_mixture_rejects_invalid_temperature() -> None:
+    import pytest
+
+    torch.manual_seed(0)
+    model = _hierarchical_model()
+    comp1 = AutoNormalGuide(model, observed_names={"r"})
+    comp2 = AutoNormalGuide(model, observed_names={"r"})
+    with pytest.raises(ValueError, match="init_temperature must be positive"):
+        AutoMixtureGuide([comp1, comp2], init_temperature=0.0)
+
+
+def test_mixture_set_temperature_rejects_nonpositive() -> None:
+    import pytest
+
+    torch.manual_seed(0)
+    model = _hierarchical_model()
+    comp1 = AutoNormalGuide(model, observed_names={"r"})
+    comp2 = AutoNormalGuide(model, observed_names={"r"})
+    g = AutoMixtureGuide([comp1, comp2])
+    with pytest.raises(ValueError, match="must be positive"):
+        g.set_temperature(-1.0)
+
+
+def test_mixture_temperature_can_be_annealed() -> None:
+    torch.manual_seed(0)
+    model = _hierarchical_model()
+    comp1 = AutoNormalGuide(model, observed_names={"r"})
+    comp2 = AutoNormalGuide(model, observed_names={"r"})
+    g = AutoMixtureGuide([comp1, comp2], init_temperature=1.0)
+    assert math.isclose(g.temperature, 1.0, rel_tol=1e-6)
+    g.set_temperature(0.1)
+    assert math.isclose(g.temperature, 0.1, rel_tol=1e-6)
+
+
+def test_mixture_num_components_property() -> None:
+    torch.manual_seed(0)
+    model = _hierarchical_model()
+    comp1 = AutoNormalGuide(model, observed_names={"r"})
+    comp2 = AutoNormalGuide(model, observed_names={"r"})
+    comp3 = AutoNormalGuide(model, observed_names={"r"})
+    g = AutoMixtureGuide([comp1, comp2, comp3])
+    assert g.num_components == 3
