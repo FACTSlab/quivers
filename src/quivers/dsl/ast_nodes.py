@@ -143,6 +143,35 @@ class ExprIdentity(Expr):
     kind: Literal["expr_identity"] = "expr_identity"
 
 
+class ExprFromData(Expr):
+    """Data-derived initialiser ``from_data("KEY")``.
+
+    The string key is resolved against the runtime data dictionary
+    at fit time; the morphism's tensor is the looked-up value.
+    The resulting morphism is :class:`ObservedMorphism` — its
+    entries are frozen / structural inputs, not learnable
+    parameters.
+    """
+
+    key: str
+    line: int = 0
+    col: int = 0
+    kind: Literal["expr_from_data"] = "expr_from_data"
+
+
+class ExprFreeze(Expr):
+    """Detach gradients: ``inner.freeze`` materialises ``inner``'s
+    tensor with ``detach()`` and wraps the result as a frozen
+    :class:`ObservedMorphism`. Used to pin a learned composition
+    as a structural input that the downstream model treats as
+    constant."""
+
+    inner: Expr
+    line: int = 0
+    col: int = 0
+    kind: Literal["expr_freeze"] = "expr_freeze"
+
+
 class ExprDagger(Expr):
     """Compact-closed dagger / transpose of an expression."""
 

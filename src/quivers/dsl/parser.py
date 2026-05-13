@@ -57,6 +57,8 @@ from quivers.dsl.ast_nodes import (
     ExprChangeBase,
     ExprCup,
     ExprDagger,
+    ExprFreeze,
+    ExprFromData,
     ExprMarginalize,
     ExprTrace,
     ExprParser,
@@ -434,6 +436,10 @@ def _walk_expr(t: _Tree, vid: str) -> Expr:
                     line=line,
                     col=col,
                 )
+            if method_name == "freeze":
+                return ExprFreeze(
+                    inner=_walk_expr(t, inner_vid), line=line, col=col
+                )
             if method_name == "change_base":
                 args = t.fields(method_vid, "args")
                 if len(args) != 1:
@@ -464,6 +470,20 @@ def _walk_expr(t: _Tree, vid: str) -> Expr:
         if obj_vid is None:
             raise ParseError(f"cap_expr missing object at {vid}")
         return ExprCap(object_name=t.text(obj_vid), line=line, col=col)
+    if k == "from_data_expr":
+        key_vid = t.field(vid, "key")
+        if key_vid is None:
+            raise ParseError(f"from_data_expr missing key at {vid}")
+        raw_key = t.text(key_vid)
+        # Strip surrounding quotes from the string literal.
+        key = raw_key.strip()
+        if (
+            len(key) >= 2
+            and key[0] == key[-1]
+            and key[0] in ('"', "'")
+        ):
+            key = key[1:-1]
+        return ExprFromData(key=key, line=line, col=col)
     if k == "fan_expr":
         return ExprFan(
             exprs=tuple(_walk_expr(t, av) for av in t.fields(vid, "args")),

@@ -998,6 +998,13 @@ module.exports = grammar({
         field('args', $.identifier),
         ')',
       ),
+      // freeze: materialise an expression as a frozen
+      // :class:`ObservedMorphism`. The resulting morphism's
+      // parameters do not propagate gradients to the constituent
+      // morphisms; gradient flow stops at the freeze. Used to
+      // pin a learned composition as a structural input to a
+      // downstream model — equivalent to detach() on the tensor.
+      seq(field('name', 'freeze')),
     ),
 
     _atom_expr: $ => choice(
@@ -1005,6 +1012,7 @@ module.exports = grammar({
       $.identity_expr,
       $.cup_expr,
       $.cap_expr,
+      $.from_data_expr,
       $.fan_expr,
       $.repeat_expr,
       $.stack_expr,
@@ -1035,6 +1043,20 @@ module.exports = grammar({
 
     cap_expr: $ => seq(
       'cap', '(', field('object', $.identifier), ')',
+    ),
+
+    // Data-derived initialiser: ``from_data("KEY")`` resolves the
+    // string literal as a key into the runtime-supplied data
+    // dictionary at fit time, and the morphism's tensor is the
+    // looked-up value. The result is an :class:`ObservedMorphism`
+    // — the entries are structural / frozen, not learnable. Used
+    // for embeddings loaded from a file, adjacency matrices,
+    // dataset-derived priors, fixed parse structures.
+    from_data_expr: $ => seq(
+      'from_data',
+      '(',
+      field('key', $._string_literal),
+      ')',
     ),
 
     fan_expr: $ => seq(

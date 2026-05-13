@@ -155,6 +155,8 @@ from quivers.dsl.ast_nodes import (
     ExprChangeBase,
     ExprCup,
     ExprDagger,
+    ExprFreeze,
+    ExprFromData,
     ExprMarginalize,
     ExprTrace,
     ExprFan,
@@ -863,12 +865,35 @@ class Compiler:
         elif decl.morphism_kind == "observed":
             if decl.init_expr is not None:
                 morph = self._compile_expr(decl.init_expr)
+                # The init expression's domain/codomain may be
+                # anonymous (e.g. ``from_data(...)`` synthesises
+                # them from the tensor shape). Accept a shape
+                # match and rebind to the user-declared types so
+                # downstream code sees the correct named objects.
                 if morph.domain != domain or morph.codomain != codomain:
-                    raise CompileError(
-                        f"morphism {decl.name!r} init expression has type {morph.domain!r} -> {morph.codomain!r}, expected {domain!r} -> {codomain!r}",
-                        decl.line,
-                        decl.col,
-                    )
+                    if (
+                        tuple(morph.domain.shape) == tuple(domain.shape)
+                        and tuple(morph.codomain.shape)
+                        == tuple(codomain.shape)
+                    ):
+                        from quivers.core.morphisms import (
+                            ObservedMorphism as _Obs,
+                        )
+
+                        morph = _Obs(
+                            domain,
+                            codomain,
+                            morph.tensor,
+                            quantale=morph.quantale,
+                        )
+                    else:
+                        raise CompileError(
+                            f"morphism {decl.name!r} init expression has "
+                            f"type {morph.domain!r} -> {morph.codomain!r}, "
+                            f"expected {domain!r} -> {codomain!r}",
+                            decl.line,
+                            decl.col,
+                        )
             else:
                 raise CompileError(
                     f"observed morphism {decl.name!r} requires an initializer (e.g. = identity({decl.domain}))",
@@ -4385,6 +4410,18 @@ class Compiler:
             raise CompileError(str(e).strip("'\""), line, col) from e
         return resolved
 
+    def bind_data(self, data: dict) -> None:
+        """Bind a runtime data dictionary for ``from_data("KEY")``
+        initialisers.
+
+        Each key in ``data`` maps to a tensor (or tensor-like
+        object) that supplies the morphism tensor for any
+        ``from_data("KEY")`` expression that references it. The
+        bindings are consulted at compile time; supply them BEFORE
+        calling :meth:`compile`.
+        """
+        self._data_bindings = dict(data)
+
     def _resolve_homomorphism(self, name: str):
         """Look up a named quantale homomorphism for change-of-base.
 
@@ -4550,6 +4587,98 @@ class Compiler:
             return _make_cap(
                 self._objects[expr.object_name], quantale=self._quantale
             )
+        elif isinstance(expr, ExprFreeze):
+            inner = self._compile_expr(expr.inner)
+            # Materialise the inner morphism's tensor with detach()
+            # and wrap as an ObservedMorphism. Gradient flow stops
+            # at this boundary; the constituent morphisms' parameters
+            # are not part of the result's parameter set.
+            from quivers.core.morphisms import (
+                Morphism as _CatMorph,
+                ObservedMorphism as _Obs,
+            )
+
+            if not isinstance(inner, _CatMorph):
+                raise CompileError(
+                    f"freeze: inner expression compiled to "
+                    f"{type(inner).__name__}; expected a Morphism",
+                    expr.line,
+                    expr.col,
+                )
+            frozen = _Obs(
+                inner.domain,
+                inner.codomain,
+                inner.tensor.detach().clone(),
+                quantale=inner.quantale,
+            )
+            return frozen
+        elif isinstance(expr, ExprFromData):
+            # ``from_data("KEY")`` cannot resolve the tensor at
+            # compile time because the runtime data dict is only
+            # available at fit time. We must therefore emit a
+            # late-binding ObservedMorphism whose tensor is filled
+            # in via a fit-time hook on the program's data
+            # dictionary. For the standalone ``let``-expression
+            # case this is materialised as a deferred binding the
+            # compiler can resolve once the data dict is known.
+            #
+            # The data dictionary is stored on the Compiler under
+            # ``self._data_bindings``; users supply it via
+            # :meth:`Compiler.bind_data` BEFORE calling compile()
+            # (or via the high-level ``loads()`` ``data=`` kwarg).
+            data_dict = getattr(self, "_data_bindings", None)
+            if data_dict is None or expr.key not in data_dict:
+                available = (
+                    sorted(data_dict.keys()) if data_dict else []
+                )
+                raise CompileError(
+                    f"from_data: unknown data key {expr.key!r}; "
+                    f"available: {available}. Bind the data dict via "
+                    f"``Compiler.bind_data(...)`` or the ``data=`` "
+                    f"keyword on ``loads()`` before compiling.",
+                    expr.line,
+                    expr.col,
+                )
+            from quivers.core.morphisms import ObservedMorphism as _Obs
+
+            tensor = data_dict[expr.key]
+            if not isinstance(tensor, torch.Tensor):
+                tensor = torch.as_tensor(tensor)
+            # The user-supplied domain/codomain on the morphism
+            # declaration is in the parent ``observed`` decl; here
+            # we synthesise a one-shot ObservedMorphism whose
+            # domain/codomain are inferred from the tensor's shape
+            # split halfway. For the common ``observed f : A -> B =
+            # from_data("KEY")`` pattern the parent decl supplies
+            # the correct domain/codomain post-substitution; this
+            # let-expression path is for ``let h = from_data(...)``
+            # which the surrounding context constrains.
+            from quivers.core.objects import FinSet as _FS
+
+            if tensor.dim() < 1:
+                raise CompileError(
+                    f"from_data: tensor at key {expr.key!r} has "
+                    f"rank 0; cannot infer a morphism",
+                    expr.line,
+                    expr.col,
+                )
+            # Synthetic anonymous domain/codomain for the
+            # let-expression path. The morphism's downstream
+            # usage typically discards this synthetic typing
+            # because it is reassigned to a properly typed
+            # ``observed`` slot, OR used as a tensor source.
+            dom = _FS(name=f"_data_dom_{expr.key}", cardinality=tensor.shape[0])
+            if tensor.dim() == 1:
+                cod = _FS(name="_data_unit", cardinality=1)
+                tensor = tensor.unsqueeze(-1)
+            else:
+                cod_size = int(
+                    torch.tensor(tensor.shape[1:]).prod().item()
+                )
+                cod = _FS(name=f"_data_cod_{expr.key}", cardinality=cod_size)
+                if tensor.dim() > 2:
+                    tensor = tensor.reshape(tensor.shape[0], -1)
+            return _Obs(dom, cod, tensor, quantale=self._quantale)
         elif isinstance(expr, ExprCompose):
             left = self._compile_expr(expr.left)
             right = self._compile_expr(expr.right)
