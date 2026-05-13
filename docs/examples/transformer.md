@@ -83,7 +83,56 @@ These type declarations shape the entire data flow. The type system ensures that
 
 ## Python Usage
 
-<!-- TODO: add working Python usage example -->
+```python
+import torch
+from quivers.dsl import load
+
+prog = load("docs/examples/source/transformer.qvr")
+tokens = torch.randint(0, 256, (8, 32))   # (batch, seq_len)
+output = prog(tokens)                      # (8, 32, 64)
+```
+
+## Language model
+
+To use the transformer as a causal language model, project the per-position latent representation onto vocabulary-sized logits and observe a `Categorical` over the next-token target. The dedicated [decoder](decoder.md) example wires this end to end; minimally:
+
+```qvr
+object Token : 256
+type Latent = Euclidean 64
+type HeadOut = Euclidean 16
+type FFHidden = Euclidean 128
+type Logits = Euclidean 256
+
+embed tok_embed : Token -> Latent
+
+continuous head[4] : Latent -> HeadOut ~ Normal [scale=0.1]
+continuous attn_proj : Latent -> Latent ~ Normal [scale=0.1]
+continuous ff_up : Latent -> FFHidden ~ Normal
+continuous ff_down : FFHidden -> Latent ~ Normal [scale=0.1]
+continuous residual_attn : Latent -> Latent ~ Normal [scale=0.01]
+continuous residual_ff : Latent -> Latent ~ Normal [scale=0.01]
+continuous lm_head : Latent -> Logits ~ Normal [scale=0.1]
+
+let block = fan(head) >> attn_proj >> residual_attn >> ff_up >> ff_down >> residual_ff
+let transformer_lm = tok_embed >> stack(block, 4) >> lm_head
+
+export transformer_lm
+```
+
+Apply cross-entropy against the next-token labels:
+
+```python
+import torch
+prog = load("transformer_lm.qvr")
+inputs  = torch.randint(0, 256, (32, 64))   # (batch, seq_len)
+targets = torch.randint(0, 256, (32, 64))   # next-token labels
+logits  = prog(inputs)                       # (32, 64, 256)
+loss = torch.nn.functional.cross_entropy(
+    logits.reshape(-1, 256), targets.reshape(-1)
+)
+```
+
+For Bayesian training, wrap the loss in an [`ELBO`](../api/inference/elbo.md) and fit with [`SVI`](../api/inference/svi.md) under an [`AutoNormalGuide`](../api/inference/guide.md).
 
 ## Categorical Perspective
 

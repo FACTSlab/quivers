@@ -8,7 +8,7 @@
 #
 # Architecture:
 #   Forward:  tok_embed >> scan(fwd_cell)   (left to right)
-#   Backward: tok_embed >> scan(bwd_cell)   (right to left — see note)
+#   Backward: tok_embed >> scan(bwd_cell)   (right to left , see note)
 #   Combined: (forward @ backward) >> combine
 #
 # Note: true right-to-left scanning would require reversing the

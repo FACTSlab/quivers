@@ -6,9 +6,9 @@
 # program wrapped in scan for temporal recurrence.
 #
 # Standard GRU equations:
-#   z_t = sigma(W_z [x_t, h_{t-1}])     — update gate
-#   r_t = sigma(W_r [x_t, h_{t-1}])     — reset gate
-#   h~_t = tanh(W [x_t, r_t * h_{t-1}]) — candidate
+#   z_t = sigma(W_z [x_t, h_{t-1}])     , update gate
+#   r_t = sigma(W_r [x_t, h_{t-1}])     , reset gate
+#   h~_t = tanh(W [x_t, r_t * h_{t-1}]) , candidate
 #   h_t = (1 - z_t) * h_{t-1} + z_t * h~_t
 #
 # In this Bayesian formulation, gate activations are drawn from

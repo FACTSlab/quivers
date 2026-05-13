@@ -3,7 +3,7 @@
 # This example illustrates QVR's central claim: a single weighted-
 # deduction framework, in which the user declares the data-
 # constructor algebra (atomic + parametric) and the inference
-# rules over it. Nothing here is privileged grammar syntax —
+# rules over it. Nothing here is privileged grammar syntax ,
 # everything is a constructor application or a sequent rule.
 
 # ===========================================================
@@ -23,7 +23,7 @@ object Term : 8
 # patterns and lexicon LFs. Atoms (NP, S, N) are nullary
 # constructors. Parametric constructors (Fwd, Bwd, Forall,
 # Implies, Pred, ...) are used as `Fwd(X, Y)`, `Pred(p, x)`,
-# etc. The compiler does NOT bake in any grammar formalism —
+# etc. The compiler does NOT bake in any grammar formalism ,
 # slashes, modes, modalities, and proof terms are whatever the
 # user declares here.
 
@@ -38,7 +38,7 @@ deduction Montague : Term -> Term {
         span,
         # Logical-form combinator: `App(f, a)` is function application.
         App,
-        # LF constructors (treated identically — same algebra).
+        # LF constructors (treated identically , same algebra).
         every_lf, some_lf, pred_dog, pred_cat, pred_anim, pred_bark
     }
 

@@ -59,7 +59,49 @@ When the scan combinator uses this cell, it automatically constructs the product
 
 ## Python Usage
 
-<!-- TODO: add working Python usage example -->
+```python
+import torch
+from quivers.dsl import load
+
+prog = load("docs/examples/source/vanilla_rnn.qvr")
+tokens = torch.randint(0, 256, (8, 32))   # (batch, seq_len)
+output = prog(tokens)                      # (8, 64)
+```
+
+## Language model
+
+To use the vanilla RNN as a language model, project the final hidden state onto vocabulary-sized logits and observe a `Categorical` over the next-token target. In QVR:
+
+```qvr
+object Token : 256
+type Embedded = Euclidean 64
+type Hidden = Euclidean 128
+type Logits = Euclidean 256
+
+embed tok_embed : Token -> Embedded
+
+continuous cell : Embedded * Hidden -> Hidden ~ Normal [scale=0.1]
+continuous lm_head : Hidden -> Logits ~ Normal [scale=0.1]
+
+let rnn_lm = tok_embed >> scan(cell) >> lm_head
+
+export rnn_lm
+```
+
+At fit time, slice the per-position hidden states (each `scan` step emits one), apply `lm_head` per position, then take the cross-entropy against the next-token targets:
+
+```python
+import torch
+prog = load("rnn_lm.qvr")
+inputs  = torch.randint(0, 256, (32, 64))         # (batch, seq_len)
+targets = torch.randint(0, 256, (32, 64))         # next-token labels
+logits  = prog(inputs)                             # (32, 64, 256)
+loss = torch.nn.functional.cross_entropy(
+    logits.reshape(-1, 256), targets.reshape(-1)
+)
+```
+
+The same idiom upgrades to LSTM, GRU, Elman, or bidirectional RNN by swapping `cell`. For a transformer-style language model see the [decoder](decoder.md) example.
 
 ## Categorical Perspective
 

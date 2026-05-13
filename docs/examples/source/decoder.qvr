@@ -1,0 +1,38 @@
+# Sequence Decoder (Language-Model Head)
+#
+# A transformer-style stacked decoder that consumes a sequence of
+# token embeddings and predicts the next-token distribution at
+# each position. Each block carries multi-head self-attention
+# through `fan(head)`, a two-stage feed-forward, and residual
+# continuous morphisms. The final `lm_head` projects the latent
+# representation onto the vocabulary, so composing with a
+# downstream `softmax` change-of-base yields a probability vector
+# over `Token`.
+#
+# The decoder is a Kleisli arrow `Token -> Vocab` in the
+# continuous Kleisli category; pairing it with an encoder via
+# tensor product gives an encoder/decoder architecture suitable
+# for conditional generation.
+
+object Token : 256
+
+type Latent = Euclidean 64
+type HeadOut = Euclidean 16
+type FFHidden = Euclidean 128
+type Logits = Euclidean 256
+
+embed tok_embed : Token -> Latent
+
+continuous head[4] : Latent -> HeadOut ~ Normal [scale=0.1]
+continuous attn_proj : Latent -> Latent ~ Normal [scale=0.1]
+continuous residual_attn : Latent -> Latent ~ Normal [scale=0.01]
+continuous ff_up : Latent -> FFHidden ~ Normal
+continuous ff_down : FFHidden -> Latent ~ Normal [scale=0.1]
+continuous residual_ff : Latent -> Latent ~ Normal [scale=0.01]
+
+continuous lm_head : Latent -> Logits ~ Normal [scale=0.1]
+
+let block = fan(head) >> attn_proj >> residual_attn >> ff_up >> ff_down >> residual_ff
+let decoder = tok_embed >> stack(block, 4) >> lm_head
+
+export decoder

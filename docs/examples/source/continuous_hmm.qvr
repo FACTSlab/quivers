@@ -65,8 +65,8 @@ continuous inference_cell : Obs * State -> State ~ Normal [scale=0.1]
 # Given a sequence of observations, recover the final state
 # posterior by threading belief state across the sequence.
 #
-# Input: (batch, seq_len, obs_dim) — a sequence of observations
-# Output: (batch, state_dim) — the final state posterior
+# Input: (batch, seq_len, obs_dim) , a sequence of observations
+# Output: (batch, state_dim) , the final state posterior
 # ================================================================
 
 let filter = scan(inference_cell)

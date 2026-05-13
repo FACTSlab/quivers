@@ -6,10 +6,10 @@
 # as a monadic program wrapped in scan for temporal recurrence.
 #
 # Standard LSTM equations:
-#   i_t = sigma(W_i [x_t, h_{t-1}])   — input gate
-#   f_t = sigma(W_f [x_t, h_{t-1}])   — forget gate
-#   g_t = tanh(W_g [x_t, h_{t-1}])    — cell candidate
-#   o_t = sigma(W_o [x_t, h_{t-1}])   — output gate
+#   i_t = sigma(W_i [x_t, h_{t-1}])   , input gate
+#   f_t = sigma(W_f [x_t, h_{t-1}])   , forget gate
+#   g_t = tanh(W_g [x_t, h_{t-1}])    , cell candidate
+#   o_t = sigma(W_o [x_t, h_{t-1}])   , output gate
 #   c_t = f_t * c_{t-1} + i_t * g_t
 #   h_t = o_t * tanh(c_t)
 #

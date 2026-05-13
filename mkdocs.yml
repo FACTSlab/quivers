@@ -119,6 +119,9 @@ nav:
       - GRU: examples/gru.md
       - Elman Network: examples/elman-rnn.md
       - Bidirectional RNN: examples/bidirectional-rnn.md
+    - Sequence-to-Sequence:
+      - Encoder: examples/encoder.md
+      - Decoder: examples/decoder.md
     - Generative Models:
       - Overview: examples/vae.md
       - Gaussian Mixture Model: examples/mixture-model.md
@@ -133,7 +136,11 @@ nav:
     - Probabilistic Programs:
       - Overview: examples/bayesian-regression.md
       - Event Structure Model: examples/event-structure.md
-  - Tutorials: tutorials/index.md
+      - Montague NLI: examples/montague-nli.md
+  - Tutorials:
+    - Overview: tutorials/index.md
+    - QVR DSL: tutorials/qvr/01-first-model.md
+    - Python API: tutorials/python/01-first-quiver.md
   - API Reference:
     - Overview: api/index.md
     - Core:

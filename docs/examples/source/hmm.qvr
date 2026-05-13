@@ -16,7 +16,7 @@
 #
 #     repeat(T) >> E
 #
-# repeat(T) — without a count — creates a RepeatMorphism whose
+# repeat(T) , without a count , creates a RepeatMorphism whose
 # step count is set at runtime via prog(n_steps=N). This uses
 # repeated squaring for O(log n) matrix compositions:
 #
@@ -49,7 +49,7 @@ stochastic initial : State -> State
 
 # ================================================================
 # TRANSITION KERNEL
-# State-to-state stochastic matrix (stationary — same at each step).
+# State-to-state stochastic matrix (stationary , same at each step).
 # ================================================================
 
 stochastic transition : State -> State

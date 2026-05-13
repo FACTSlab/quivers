@@ -5,8 +5,7 @@
 # A four-class latent-class model (telicity × durativity) over
 # cloze and proportion responses with crossed random intercepts
 # on subject, verb, sense, and item plus an ordinal monotone
-# spline for duration.  Ported from
-# ~/Projects/supertelicity/analysis/event-structure-induction/models/event-structure-model.stan.
+# spline for duration.
 #
 # Categorical denotation: the program is a Kern-morphism
 #
