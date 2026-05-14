@@ -403,6 +403,28 @@ def _family_event_rank(family_name: str) -> int:
     return _FAMILY_EVENT_RANK.get(family_name, 0)
 
 
+def _shape_size(obj) -> int:
+    """Return the total size of a SetObject or ContinuousSpace.
+
+    For a SetObject this is the cardinality; for a ContinuousSpace
+    it is the product of its declared shape dimensions.
+    """
+    if hasattr(obj, "cardinality"):
+        return int(obj.cardinality)
+    if hasattr(obj, "dim"):
+        return int(obj.dim)
+    shape = getattr(obj, "shape", None)
+    if shape is not None:
+        size = 1
+        for d in shape:
+            size *= int(d)
+        return size
+    raise TypeError(
+        f"object {obj!r} has no cardinality / dim / shape; cannot "
+        f"determine size for axis-role lookup"
+    )
+
+
 def _type_factor_names(texpr) -> tuple[bool, tuple[str, ...]]:
     """Extract the axis names from a TypeExpr.
 
@@ -1562,7 +1584,55 @@ class Compiler:
             kwargs["rank"] = int(options["rank"])
         if "temperature" in options:
             kwargs["temperature"] = float(options["temperature"])
+        # For event_rank-2 matrix families (MatrixNormal) the
+        # constructor needs explicit row/column dims, which come
+        # from the axis-role clause's named factors.  When the
+        # user wrote ``~ MatrixNormal over (X, Y)``, X resolves
+        # to the rows axis and Y to the cols axis (positional
+        # ordering corresponds positionally to the family's
+        # declared event-axis ordering: rows first, cols second).
+        axes = getattr(decl, "axes", None)
+        if family_name == "MatrixNormal" and axes is not None:
+            if len(axes.over) != 2:
+                raise CompileError(
+                    f"MatrixNormal requires `over (rows_axis, cols_axis)`; "
+                    f"got over={axes.over!r}",
+                    decl.line, decl.col,
+                )
+            rows_axis, cols_axis = axes.over
+            kwargs["rows"] = self._axis_dim(decl, rows_axis)
+            kwargs["cols"] = self._axis_dim(decl, cols_axis)
         return cls(domain, codomain, **kwargs)
+
+    def _axis_dim(self, decl, axis_name: str) -> int:
+        """Resolve an axis name to its dimension.
+
+        ``axis_name`` is either a declared factor name of the
+        morphism's dom or cod, or the reserved shortcut ``dom`` /
+        ``cod``.  Returns the cardinality / dim of the resolved
+        object or space.
+        """
+        # The dom/cod shortcuts resolve to the morphism's dom/cod
+        # objects directly.
+        if axis_name == "dom":
+            obj = self._resolve_any_space(decl.domain)
+            return _shape_size(obj)
+        if axis_name == "cod":
+            obj = self._resolve_any_space(decl.codomain)
+            return _shape_size(obj)
+        # Otherwise the axis is a named factor of dom or cod.  For
+        # an unfactored side whose argument carries the same name
+        # (``Euclidean(D)`` with object D in scope) the axis name
+        # is the object's name; resolve it directly.
+        if axis_name in self._objects:
+            return int(self._objects[axis_name].cardinality)
+        if axis_name in self._spaces:
+            return _shape_size(self._spaces[axis_name])
+        raise CompileError(
+            f"axis-role clause: cannot resolve axis name {axis_name!r} to a "
+            f"dimension; not a declared object/space, and not a `dom`/`cod` "
+            f"shortcut", decl.line, decl.col,
+        )
 
     def _compile_discretize(self, decl: DiscretizeDecl) -> None:
         """Compile a discretize boundary morphism."""

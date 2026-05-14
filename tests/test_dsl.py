@@ -3021,3 +3021,29 @@ class TestAxisRoleSurface:
         decls = [s for s in m.statements if isinstance(s, KernelDecl)]
         assert decls and decls[0].axes is not None
         assert decls[0].axes.over == ("cod",)
+
+    def test_matrix_normal_axis_shape_resolution(self):
+        """`MatrixNormal over (dom, cod)` derives rows/cols from the
+        morphism's named factors and constructs the family with the
+        correct Kronecker shape."""
+        from quivers.dsl import Compiler
+        ast = parse(
+            "space SD : Euclidean(32)\nspace SK : Euclidean(64)\n"
+            "kernel W : SD -> SK ~ MatrixNormal over (dom, cod)\n"
+            "export W\n"
+        )
+        c = Compiler(ast)
+        c.compile()
+        W = c._morphisms["W"]
+        assert W._rows == 32
+        assert W._cols == 64
+        assert W.event_rank == 2
+
+    def test_matrix_normal_wrong_arity_rejected_with_shape_hint(self):
+        """MatrixNormal requires exactly two over-axes."""
+        with pytest.raises(CompileError, match="event_rank 2"):
+            loads(
+                "space SD : Euclidean(32)\nspace SK : Euclidean(64)\n"
+                "kernel W : SD -> SK ~ MatrixNormal over cod\n"
+                "export W\n"
+            )
