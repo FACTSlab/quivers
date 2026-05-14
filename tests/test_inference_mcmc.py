@@ -91,9 +91,7 @@ def test_find_reasonable_step_size_returns_finite_positive() -> None:
     def grad_log_density(z: torch.Tensor) -> torch.Tensor:
         return -z
 
-    eps = find_reasonable_step_size(
-        log_density, grad_log_density, torch.zeros(3)
-    )
+    eps = find_reasonable_step_size(log_density, grad_log_density, torch.zeros(3))
     assert math.isfinite(eps) and eps > 0
 
 
@@ -124,11 +122,17 @@ def test_hmc_recovers_conjugate_normal_normal_posterior() -> None:
     true_var = 1.0 / (N + 1)
 
     kernel = HMCKernel(
-        step_size=0.1, num_steps=15, mass_matrix="identity",
-        adapt_step_size=True, adapt_mass_matrix=False,
+        step_size=0.1,
+        num_steps=15,
+        mass_matrix="identity",
+        adapt_step_size=True,
+        adapt_mass_matrix=False,
     )
     driver = MCMC(
-        kernel=kernel, num_warmup=200, num_samples=500, num_chains=2,
+        kernel=kernel,
+        num_warmup=200,
+        num_samples=500,
+        num_chains=2,
         init_strategy="zero",
     )
     result = driver.run(model, torch.zeros(1, 1), {"y": y})
@@ -136,12 +140,10 @@ def test_hmc_recovers_conjugate_normal_normal_posterior() -> None:
     sample_mean = float(mu_samples.mean())
     sample_var = float(mu_samples.var(unbiased=True))
     assert abs(sample_mean - true_mean) < 0.15, (
-        f"HMC posterior mean off: got {sample_mean:.4f}, "
-        f"expected {true_mean:.4f}"
+        f"HMC posterior mean off: got {sample_mean:.4f}, expected {true_mean:.4f}"
     )
     assert abs(sample_var - true_var) < 0.05, (
-        f"HMC posterior variance off: got {sample_var:.4f}, "
-        f"expected {true_var:.4f}"
+        f"HMC posterior variance off: got {sample_var:.4f}, expected {true_var:.4f}"
     )
     assert result.mean_acceptance > 0.3
 
@@ -156,11 +158,17 @@ def test_nuts_recovers_conjugate_normal_normal_posterior() -> None:
     true_var = 1.0 / (N + 1)
 
     kernel = NUTSKernel(
-        step_size=0.1, max_tree_depth=8, mass_matrix="diagonal",
-        adapt_step_size=True, adapt_mass_matrix=True,
+        step_size=0.1,
+        max_tree_depth=8,
+        mass_matrix="diagonal",
+        adapt_step_size=True,
+        adapt_mass_matrix=True,
     )
     driver = MCMC(
-        kernel=kernel, num_warmup=200, num_samples=400, num_chains=2,
+        kernel=kernel,
+        num_warmup=200,
+        num_samples=400,
+        num_chains=2,
         init_strategy="zero",
     )
     result = driver.run(model, torch.zeros(1, 1), {"y": y})
@@ -196,7 +204,10 @@ def test_mcmc_init_strategy_zero_is_deterministic() -> None:
         torch.manual_seed(42)
         kernel = HMCKernel(step_size=0.1, num_steps=5, mass_matrix="identity")
         driver = MCMC(
-            kernel=kernel, num_warmup=10, num_samples=20, num_chains=2,
+            kernel=kernel,
+            num_warmup=10,
+            num_samples=20,
+            num_chains=2,
             init_strategy="zero",
         )
         return driver.run(model, torch.zeros(1, 1), {"y": y}).samples["mu"]
@@ -319,7 +330,10 @@ def test_mcmc_init_strategy_prior_produces_finite_results() -> None:
     y = torch.randn(20) + 1.0
     kernel = HMCKernel(step_size=0.05, num_steps=10, mass_matrix="identity")
     driver = MCMC(
-        kernel=kernel, num_warmup=50, num_samples=100, num_chains=2,
+        kernel=kernel,
+        num_warmup=50,
+        num_samples=100,
+        num_chains=2,
         init_strategy="prior",
     )
     result = driver.run(model, torch.zeros(1, 1), {"y": y})
@@ -334,11 +348,17 @@ def test_hmc_with_dense_mass_matrix_runs() -> None:
     model = _normal_normal_model()
     y = torch.randn(20) + 1.0
     kernel = HMCKernel(
-        step_size=0.1, num_steps=10, mass_matrix="dense",
-        adapt_step_size=True, adapt_mass_matrix=True,
+        step_size=0.1,
+        num_steps=10,
+        mass_matrix="dense",
+        adapt_step_size=True,
+        adapt_mass_matrix=True,
     )
     driver = MCMC(
-        kernel=kernel, num_warmup=100, num_samples=200, num_chains=1,
+        kernel=kernel,
+        num_warmup=100,
+        num_samples=200,
+        num_chains=1,
         init_strategy="zero",
     )
     result = driver.run(model, torch.zeros(1, 1), {"y": y})
@@ -353,11 +373,17 @@ def test_hmc_with_diagonal_mass_matrix_adapts() -> None:
     model = _normal_normal_model()
     y = torch.randn(20) + 1.0
     kernel = HMCKernel(
-        step_size=0.1, num_steps=10, mass_matrix="diagonal",
-        adapt_step_size=True, adapt_mass_matrix=True,
+        step_size=0.1,
+        num_steps=10,
+        mass_matrix="diagonal",
+        adapt_step_size=True,
+        adapt_mass_matrix=True,
     )
     driver = MCMC(
-        kernel=kernel, num_warmup=100, num_samples=200, num_chains=2,
+        kernel=kernel,
+        num_warmup=100,
+        num_samples=200,
+        num_chains=2,
         init_strategy="zero",
     )
     result = driver.run(model, torch.zeros(1, 1), {"y": y})
@@ -405,7 +431,10 @@ def test_mcmc_result_acceptance_rates_in_range() -> None:
     y = torch.randn(20) + 1.0
     kernel = HMCKernel(step_size=0.1, num_steps=10, mass_matrix="identity")
     driver = MCMC(
-        kernel=kernel, num_warmup=50, num_samples=100, num_chains=2,
+        kernel=kernel,
+        num_warmup=50,
+        num_samples=100,
+        num_chains=2,
         init_strategy="zero",
     )
     result = driver.run(model, torch.zeros(1, 1), {"y": y})
@@ -419,7 +448,10 @@ def test_mcmc_result_mean_acceptance_property() -> None:
     y = torch.randn(20) + 1.0
     kernel = HMCKernel(step_size=0.1, num_steps=10, mass_matrix="identity")
     driver = MCMC(
-        kernel=kernel, num_warmup=50, num_samples=100, num_chains=2,
+        kernel=kernel,
+        num_warmup=50,
+        num_samples=100,
+        num_chains=2,
         init_strategy="zero",
     )
     result = driver.run(model, torch.zeros(1, 1), {"y": y})
@@ -436,7 +468,10 @@ def test_mcmc_init_strategy_guide_with_no_guide_raises() -> None:
     y = torch.randn(20) + 1.0
     kernel = HMCKernel(step_size=0.1, num_steps=10, mass_matrix="identity")
     driver = MCMC(
-        kernel=kernel, num_warmup=10, num_samples=10, num_chains=1,
+        kernel=kernel,
+        num_warmup=10,
+        num_samples=10,
+        num_chains=1,
         init_strategy="guide",
     )
     with pytest.raises(ValueError, match="requires a guide"):

@@ -1266,17 +1266,13 @@ class ConditionalMatrixNormal(ContinuousMorphism):
             domain, n_loc + n_row_tril + n_col_tril, hidden_dim
         )
 
-    def _build_tril(
-        self, raw: torch.Tensor, d: int, n_tril: int
-    ) -> torch.Tensor:
+    def _build_tril(self, raw: torch.Tensor, d: int, n_tril: int) -> torch.Tensor:
         batch_shape = raw.shape[:-1]
         L = torch.zeros(*batch_shape, d, d, device=raw.device, dtype=raw.dtype)
         idx = torch.tril_indices(d, d)
         L[..., idx[0], idx[1]] = raw[..., :n_tril]
         diag_idx = torch.arange(d)
-        L[..., diag_idx, diag_idx] = (
-            F.softplus(L[..., diag_idx, diag_idx]) + EPS
-        )
+        L[..., diag_idx, diag_idx] = F.softplus(L[..., diag_idx, diag_idx]) + EPS
         return L
 
     def _get_dist(self, x: torch.Tensor) -> D.MultivariateNormal:
@@ -1293,9 +1289,9 @@ class ConditionalMatrixNormal(ContinuousMorphism):
         V_chol = self._build_tril(col_raw, p, self._n_col_tril)
         # Cholesky of the Kronecker covariance Sigma = V (X) U is
         # L_Sigma = V_chol (X) U_chol so vec(X) ~ N(vec(M), L L^T).
-        L_kron = torch.einsum(
-            "...ij,...kl->...ikjl", V_chol, U_chol
-        ).reshape(*loc_flat.shape[:-1], n * p, n * p)
+        L_kron = torch.einsum("...ij,...kl->...ikjl", V_chol, U_chol).reshape(
+            *loc_flat.shape[:-1], n * p, n * p
+        )
         return D.MultivariateNormal(loc_flat, scale_tril=L_kron)
 
     def log_prob(self, x: torch.Tensor, y: torch.Tensor) -> torch.Tensor:
@@ -1310,9 +1306,7 @@ class ConditionalMatrixNormal(ContinuousMorphism):
         sample_shape: torch.Size = torch.Size(),
     ) -> torch.Tensor:
         sample_flat = self._get_dist(x).rsample(sample_shape)
-        return sample_flat.reshape(
-            *sample_flat.shape[:-1], self._rows, self._cols
-        )
+        return sample_flat.reshape(*sample_flat.shape[:-1], self._rows, self._cols)
 
 
 # ============================================================================
@@ -1372,9 +1366,7 @@ class ConditionalInverseWishart(ContinuousMorphism):
         idx = torch.tril_indices(d, d)
         L[..., idx[0], idx[1]] = tril_raw
         diag_idx = torch.arange(d)
-        L[..., diag_idx, diag_idx] = (
-            F.softplus(L[..., diag_idx, diag_idx]) + EPS
-        )
+        L[..., diag_idx, diag_idx] = F.softplus(L[..., diag_idx, diag_idx]) + EPS
         # IW(nu, V) is the inverse of W(nu, V^-1); we parameterise
         # the wishart with scale_tril L and invert the sample.
         return D.Wishart(df=df, scale_tril=L)
@@ -1387,7 +1379,11 @@ class ConditionalInverseWishart(ContinuousMorphism):
         # (-1)^d det(Sigma)^{-(d+1)} so the log absolute Jacobian
         # is -(d + 1) log det(Sigma).
         d = self._d
-        y_mat = y.reshape(*y.shape[:-1], d, d) if y.dim() < 2 or y.shape[-2:] != (d, d) else y
+        y_mat = (
+            y.reshape(*y.shape[:-1], d, d)
+            if y.dim() < 2 or y.shape[-2:] != (d, d)
+            else y
+        )
         if y_mat.shape[-2:] != (d, d):
             y_mat = y.reshape(*y.shape[:-1], d, d)
         y_inv = torch.linalg.inv(y_mat)
@@ -1829,8 +1825,7 @@ class ConditionalMixture(ContinuousMorphism):
     ) -> None:
         if num_components < 2:
             raise ValueError(
-                f"ConditionalMixture: num_components must be >= 2, "
-                f"got {num_components}"
+                f"ConditionalMixture: num_components must be >= 2, got {num_components}"
             )
         super().__init__(domain, codomain)
         self._K = int(num_components)
@@ -2288,9 +2283,7 @@ def _gauss_legendre_16(
     nodes = torch.tensor(
         [(1.0 + n) * 0.5 for n in nodes_pm1], device=device, dtype=dtype
     )
-    weights = torch.tensor(
-        [w * 0.5 for w in weights_pm1], device=device, dtype=dtype
-    )
+    weights = torch.tensor([w * 0.5 for w in weights_pm1], device=device, dtype=dtype)
     return nodes, weights
 
 
@@ -2335,9 +2328,7 @@ class ConditionalHorseshoe(ContinuousMorphism):
     ) -> None:
         super().__init__(domain, codomain)
         if scale <= 0.0:
-            raise ValueError(
-                f"ConditionalHorseshoe: scale must be > 0, got {scale!r}"
-            )
+            raise ValueError(f"ConditionalHorseshoe: scale must be > 0, got {scale!r}")
         self._d = codomain.dim
         inv_softplus_scale = math.log(math.expm1(scale))
         self._raw_scale = torch.nn.Parameter(
@@ -2486,7 +2477,10 @@ _register_family(
     FamilySpec(
         name="Normal",
         dist_class=D.Normal,
-        params=(ParamSpec(name="loc", transform="id"), ParamSpec(name="scale", transform="softplus")),
+        params=(
+            ParamSpec(name="loc", transform="id"),
+            ParamSpec(name="scale", transform="softplus"),
+        ),
         support=_constraints.real,
         output_kind="independent",
         docstring="Conditional Normal(loc(x), scale(x)).",
@@ -2498,7 +2492,10 @@ _register_family(
     FamilySpec(
         name="LogitNormal",
         dist_class=D.TransformedDistribution,
-        params=(ParamSpec(name="mu", transform="id"), ParamSpec(name="sigma", transform="softplus")),
+        params=(
+            ParamSpec(name="mu", transform="id"),
+            ParamSpec(name="sigma", transform="softplus"),
+        ),
         support=_constraints.unit_interval,
         output_kind="independent",
         docstring="LogitNormal(mu(x), sigma(x)) — Normal pushed through sigmoid.",
@@ -2540,7 +2537,11 @@ _register_family(
     FamilySpec(
         name="Dirichlet",
         dist_class=D.Dirichlet,
-        params=(ParamSpec(name="concentration", transform="softplus_shifted", kind="vector"),),
+        params=(
+            ParamSpec(
+                name="concentration", transform="softplus_shifted", kind="vector"
+            ),
+        ),
         support=_constraints.simplex,
         output_kind="vector",
         docstring="Conditional Dirichlet(alpha(x)) on the simplex.",
@@ -2552,7 +2553,10 @@ _register_family(
     FamilySpec(
         name="Uniform",
         dist_class=D.Uniform,
-        params=(ParamSpec(name="low", transform="id"), ParamSpec(name="high", transform="id")),
+        params=(
+            ParamSpec(name="low", transform="id"),
+            ParamSpec(name="high", transform="id"),
+        ),
         support=_constraints.real,  # interval set per-call when bounds are literal
         output_kind="independent",
         docstring="Conditional Uniform(low(x), high(x)).",
@@ -2564,7 +2568,10 @@ _register_family(
     FamilySpec(
         name="MultivariateNormal",
         dist_class=D.MultivariateNormal,
-        params=(ParamSpec(name="loc", transform="id"), ParamSpec(name="scale_tril", transform="id")),
+        params=(
+            ParamSpec(name="loc", transform="id"),
+            ParamSpec(name="scale_tril", transform="id"),
+        ),
         support=_constraints.real_vector,
         output_kind="mvn",
         docstring="Conditional MultivariateNormal(loc(x), scale_tril(x)).",
@@ -2592,7 +2599,10 @@ _register_family(
     FamilySpec(
         name="RelaxedBernoulli",
         dist_class=D.RelaxedBernoulli,
-        params=(ParamSpec(name="temperature", transform="softplus"), ParamSpec(name="logits", transform="id")),
+        params=(
+            ParamSpec(name="temperature", transform="softplus"),
+            ParamSpec(name="logits", transform="id"),
+        ),
         support=_constraints.unit_interval,
         output_kind="independent",
         docstring="RelaxedBernoulli(temperature, logits(x)) — Gumbel-softmax / continuous Bernoulli.",
@@ -2604,7 +2614,10 @@ _register_family(
     FamilySpec(
         name="RelaxedOneHotCategorical",
         dist_class=D.RelaxedOneHotCategorical,
-        params=(ParamSpec(name="temperature", transform="softplus"), ParamSpec(name="logits", transform="id", kind="vector")),
+        params=(
+            ParamSpec(name="temperature", transform="softplus"),
+            ParamSpec(name="logits", transform="id", kind="vector"),
+        ),
         support=_constraints.simplex,
         output_kind="vector",
         docstring="RelaxedOneHotCategorical(temperature, logits(x)) — Gumbel-softmax on the simplex.",
@@ -2671,7 +2684,10 @@ _register_family(
     FamilySpec(
         name="LogisticNormal",
         dist_class=D.LogisticNormal,
-        params=(ParamSpec(name="loc", transform="id"), ParamSpec(name="scale", transform="softplus")),
+        params=(
+            ParamSpec(name="loc", transform="id"),
+            ParamSpec(name="scale", transform="softplus"),
+        ),
         support=_constraints.simplex,
         output_kind="vector",
         docstring="Conditional LogisticNormal(loc(x), scale(x)) on the simplex.",
@@ -2983,5 +2999,3 @@ class Truncated(ContinuousMorphism):
 
     def __repr__(self) -> str:
         return f"Truncated({self._base!r}, lower={self._lower}, upper={self._upper})"
-
-

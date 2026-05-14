@@ -113,9 +113,7 @@ def test_svi_runs_on_grouped_marginalize_model() -> None:
     variational parameters."""
     src = _two_class_mixture_model()
     model = loads(src).morphism
-    guide = AutoNormalGuide(
-        model, observed_names={"probs", "idx", "_grouped_ll_cls_0"}
-    )
+    guide = AutoNormalGuide(model, observed_names={"probs", "idx", "_grouped_ll_cls_0"})
     obs = {
         "probs": torch.tensor([0.6, 0.4]),
         "idx": torch.tensor([0, 0, 1, 1, 2, 2, 3, 3]),
@@ -139,9 +137,7 @@ def test_svi_gradients_flow_into_continuous_latent_guide_params() -> None:
     proving the marginalize block doesn't break the autograd chain."""
     src = _two_class_mixture_model()
     model = loads(src).morphism
-    guide = AutoNormalGuide(
-        model, observed_names={"probs", "idx", "_grouped_ll_cls_0"}
-    )
+    guide = AutoNormalGuide(model, observed_names={"probs", "idx", "_grouped_ll_cls_0"})
     obs = {
         "probs": torch.tensor([0.6, 0.4]),
         "idx": torch.tensor([0, 0, 1, 1, 2, 2, 3, 3]),
@@ -211,9 +207,7 @@ def test_grouped_marginalize_recovers_mixture_proportions() -> None:
         "idx": torch.zeros(N, dtype=torch.long),  # single group
         "_grouped_ll_cls_0": ll,
     }
-    guide = AutoNormalGuide(
-        model, observed_names={"probs", "idx", "_grouped_ll_cls_0"}
-    )
+    guide = AutoNormalGuide(model, observed_names={"probs", "idx", "_grouped_ll_cls_0"})
     optim = torch.optim.Adam(
         list(model.parameters()) + list(guide.parameters()), lr=5e-2
     )
@@ -313,10 +307,10 @@ def test_two_task_mixture_recovers_joint_proportions() -> None:
     # Class-1 items get higher ll in their per-axis class-1 column.
     ll_a = torch.zeros(n_a, n_class)
     ll_b = torch.zeros(n_b, n_class)
-    ll_a[:n_a // 2, 0] = 1.0
-    ll_a[n_a // 2:, 1] = 1.0
-    ll_b[:n_b // 2, 0] = 1.0
-    ll_b[n_b // 2:, 1] = 1.0
+    ll_a[: n_a // 2, 0] = 1.0
+    ll_a[n_a // 2 :, 1] = 1.0
+    ll_b[: n_b // 2, 0] = 1.0
+    ll_b[n_b // 2 :, 1] = 1.0
     obs = {
         "probs": torch.tensor([0.5, 0.5]),
         "idx_a": torch.tensor([0, 0, 1, 1, 2, 2, 3, 3]),
@@ -327,8 +321,11 @@ def test_two_task_mixture_recovers_joint_proportions() -> None:
     guide = AutoNormalGuide(
         model,
         observed_names={
-            "probs", "idx_a", "idx_b",
-            "_grouped_ll_cls_0", "_grouped_ll_cls_1",
+            "probs",
+            "idx_a",
+            "idx_b",
+            "_grouped_ll_cls_0",
+            "_grouped_ll_cls_1",
         },
     )
     optim = torch.optim.Adam(

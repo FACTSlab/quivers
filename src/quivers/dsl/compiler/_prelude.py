@@ -69,6 +69,7 @@ _QUANTALE_REGISTRY: dict[str, "CompositionRule"] = {
     "boolean": BOOLEAN,
 }
 
+
 class _CompiledContraction:
     """Compiled form of a :class:`ContractionDecl`.
 
@@ -380,28 +381,32 @@ def _validate_axis_spec(
         raise CompileError(
             f"axis-role clause: family {family_name!r} has event_rank "
             f"{expected}, but `over` lists {len(axes.over)} axis name(s)",
-            line, col,
+            line,
+            col,
         )
     bad = [a for a in axes.over if a not in available_axes]
     if bad:
         raise CompileError(
             f"axis-role clause: unknown axis name(s) {bad!r} in `over`; "
             f"available: {sorted(available_axes)}",
-            line, col,
+            line,
+            col,
         )
     bad_iid = [a for a in axes.iid_over if a not in available_axes]
     if bad_iid:
         raise CompileError(
             f"axis-role clause: unknown axis name(s) {bad_iid!r} in "
             f"`iid over`; available: {sorted(available_axes)}",
-            line, col,
+            line,
+            col,
         )
     overlap = set(axes.over) & set(axes.iid_over)
     if overlap:
         raise CompileError(
             f"axis-role clause: axes {sorted(overlap)!r} appear in both "
             f"`over` and `iid over`; each axis has exactly one role",
-            line, col,
+            line,
+            col,
         )
 
 

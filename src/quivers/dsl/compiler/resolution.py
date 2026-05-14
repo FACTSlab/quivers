@@ -1,4 +1,5 @@
 """Compiler mixin: type and space resolution."""
+
 from __future__ import annotations
 from quivers.core.objects import FinSet, SetObject
 from quivers.dsl.ast_nodes import (

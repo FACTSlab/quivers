@@ -162,8 +162,11 @@ def test_warmup_then_hmc_recovers_conjugate_posterior() -> None:
 
     guide = AutoMultivariateNormalGuide(model, observed_names={"y"})
     kernel = HMCKernel(
-        step_size=0.1, num_steps=10, mass_matrix="identity",
-        adapt_step_size=True, adapt_mass_matrix=False,
+        step_size=0.1,
+        num_steps=10,
+        mass_matrix="identity",
+        adapt_step_size=True,
+        adapt_mass_matrix=False,
     )
     composite = WarmupThenHMC(
         guide=guide,
@@ -195,9 +198,13 @@ def test_warmup_then_hmc_fit_guide_decreases_loss() -> None:
     guide = AutoNormalGuide(model, observed_names={"r"})
     kernel = HMCKernel(step_size=0.1, num_steps=5, mass_matrix="identity")
     composite = WarmupThenHMC(
-        guide=guide, kernel=kernel,
-        svi_steps=100, mcmc_warmup=10, mcmc_samples=20,
-        num_chains=1, svi_lr=1e-2,
+        guide=guide,
+        kernel=kernel,
+        svi_steps=100,
+        mcmc_warmup=10,
+        mcmc_samples=20,
+        num_chains=1,
+        svi_lr=1e-2,
     )
     losses = composite.fit_guide(model, torch.zeros(1, 1), obs)
     early = sum(losses[:10]) / 10
@@ -257,8 +264,11 @@ def test_warmup_then_hmc_rejects_invalid_svi_steps() -> None:
     kernel = HMCKernel(step_size=0.1, num_steps=5)
     with pytest.raises(ValueError, match="svi_steps must be >= 1"):
         WarmupThenHMC(
-            guide=guide, kernel=kernel,
-            svi_steps=0, mcmc_warmup=10, mcmc_samples=10,
+            guide=guide,
+            kernel=kernel,
+            svi_steps=0,
+            mcmc_warmup=10,
+            mcmc_samples=10,
         )
 
 
@@ -271,8 +281,11 @@ def test_warmup_then_hmc_rejects_invalid_mcmc_samples() -> None:
     kernel = HMCKernel(step_size=0.1, num_steps=5)
     with pytest.raises(ValueError, match="mcmc_samples must be >= 1"):
         WarmupThenHMC(
-            guide=guide, kernel=kernel,
-            svi_steps=10, mcmc_warmup=10, mcmc_samples=0,
+            guide=guide,
+            kernel=kernel,
+            svi_steps=10,
+            mcmc_warmup=10,
+            mcmc_samples=0,
         )
 
 
@@ -285,6 +298,9 @@ def test_warmup_then_hmc_rejects_negative_warmup() -> None:
     kernel = HMCKernel(step_size=0.1, num_steps=5)
     with pytest.raises(ValueError, match="mcmc_warmup must be >= 0"):
         WarmupThenHMC(
-            guide=guide, kernel=kernel,
-            svi_steps=10, mcmc_warmup=-1, mcmc_samples=10,
+            guide=guide,
+            kernel=kernel,
+            svi_steps=10,
+            mcmc_warmup=-1,
+            mcmc_samples=10,
         )

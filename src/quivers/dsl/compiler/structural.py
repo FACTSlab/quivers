@@ -2,6 +2,7 @@
 
 Handles signature, encoder, decoder, and loss declarations.
 """
+
 from __future__ import annotations
 from collections.abc import Callable
 import torch

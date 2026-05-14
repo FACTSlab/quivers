@@ -93,8 +93,7 @@ class AutoNormalizingFlow(Guide):
             )
         if not transforms:
             raise ValueError(
-                f"{type(self).__name__}: transforms list must be "
-                f"non-empty"
+                f"{type(self).__name__}: transforms list must be non-empty"
             )
         self._D = D_total
         self.flow = nn.ModuleList(transforms)
@@ -105,9 +104,7 @@ class AutoNormalizingFlow(Guide):
     # Flow forward / inverse
     # ------------------------------------------------------------------
 
-    def _forward(
-        self, z0: torch.Tensor
-    ) -> tuple[torch.Tensor, torch.Tensor]:
+    def _forward(self, z0: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
         """Push ``z0`` through the flow; return ``(z_K, sum log|det|)``."""
         log_det_total = torch.zeros(z0.shape[:-1], device=z0.device)
         z = z0
@@ -117,9 +114,7 @@ class AutoNormalizingFlow(Guide):
             z = z_next
         return z, log_det_total
 
-    def _inverse(
-        self, z_K: torch.Tensor
-    ) -> tuple[torch.Tensor, torch.Tensor]:
+    def _inverse(self, z_K: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
         """Reverse the flow; return ``(z_0, sum log|det|)`` where the
         log-det is accumulated in the *forward* direction so adding
         it to ``log p_0(z_0)`` produces the correct ``log q(z_K)``."""
@@ -148,15 +143,9 @@ class AutoNormalizingFlow(Guide):
         for site in self._registry.sites.values():
             z_site = per_site[site.name]
             if not site.is_plate:
-                z_site = z_site.unsqueeze(0).expand(
-                    batch, *site.unconstrained_shape
-                )
+                z_site = z_site.unsqueeze(0).expand(batch, *site.unconstrained_shape)
             v = site.bijector(z_site)
-            if (
-                site.constrained_dim == 1
-                and v.dim() >= 1
-                and v.shape[-1] == 1
-            ):
+            if site.constrained_dim == 1 and v.dim() >= 1 and v.shape[-1] == 1:
                 v = v.squeeze(-1)
             result[site.name] = v
         return result
@@ -173,13 +162,10 @@ class AutoNormalizingFlow(Guide):
         for site in self._registry.sites.values():
             if site.name not in sites:
                 raise KeyError(
-                    f"{type(self).__name__}.log_prob: missing site "
-                    f"{site.name!r}"
+                    f"{type(self).__name__}.log_prob: missing site {site.name!r}"
                 )
             v = sites[site.name]
-            if site.constrained_dim == 1 and v.dim() == (
-                1 if site.is_plate else 1
-            ):
+            if site.constrained_dim == 1 and v.dim() == (1 if site.is_plate else 1):
                 v_e = v.unsqueeze(-1)
             else:
                 v_e = v
@@ -222,9 +208,7 @@ class _ReversePermutation(TransformModule):
 
         self.domain = _constraints.real_vector
         self.codomain = _constraints.real_vector
-        self.register_buffer(
-            "perm", torch.arange(dim - 1, -1, -1, dtype=torch.long)
-        )
+        self.register_buffer("perm", torch.arange(dim - 1, -1, -1, dtype=torch.long))
         self.register_buffer("inv_perm", torch.argsort(self.perm))
 
     def _call(self, x: torch.Tensor) -> torch.Tensor:
@@ -233,9 +217,7 @@ class _ReversePermutation(TransformModule):
     def _inverse(self, y: torch.Tensor) -> torch.Tensor:
         return y.index_select(-1, self.inv_perm)
 
-    def log_abs_det_jacobian(
-        self, x: torch.Tensor, y: torch.Tensor
-    ) -> torch.Tensor:
+    def log_abs_det_jacobian(self, x: torch.Tensor, y: torch.Tensor) -> torch.Tensor:
         del y
         return torch.zeros(x.shape[:-1], device=x.device)
 
@@ -278,9 +260,7 @@ class AutoIAFGuide(AutoNormalizingFlow):
         num_hidden_layers: int = 2,
     ) -> None:
         if num_flows < 1:
-            raise ValueError(
-                f"AutoIAFGuide: num_flows must be >= 1, got {num_flows}"
-            )
+            raise ValueError(f"AutoIAFGuide: num_flows must be >= 1, got {num_flows}")
         registry = Guide.build_registry(model, observed_names)
         D_total = registry.total_unconstrained_dim
         if hidden_dim is None:
@@ -344,8 +324,7 @@ class AutoNeuralSplineGuide(AutoNormalizingFlow):
     ) -> None:
         if num_flows < 1:
             raise ValueError(
-                f"AutoNeuralSplineGuide: num_flows must be >= 1, "
-                f"got {num_flows}"
+                f"AutoNeuralSplineGuide: num_flows must be >= 1, got {num_flows}"
             )
         registry = Guide.build_registry(model, observed_names)
         D_total = registry.total_unconstrained_dim

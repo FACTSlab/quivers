@@ -3,6 +3,7 @@
 Handles bind-step expansion, effect verification, template inlining,
 program bodies, contractions, and let-expression compilation.
 """
+
 from __future__ import annotations
 from collections.abc import Callable
 from typing import cast
@@ -351,10 +352,7 @@ class _ProgramsMixin:
                                     scoped_step.line,
                                     scoped_step.col,
                                 )
-                            ll_slot = (
-                                f"_grouped_ll_{latent_name}_"
-                                f"{len(body_observes)}"
-                            )
+                            ll_slot = f"_grouped_ll_{latent_name}_{len(body_observes)}"
                             expanded_scope[j] = GroupedBodyObserveStep(
                                 response_var=scoped_step.response_var,
                                 morphism=scoped_step.morphism,
@@ -419,9 +417,7 @@ class _ProgramsMixin:
                             line=inner_marg.line,
                             col=inner_marg.col,
                         )
-                        body_observes.append(
-                            GroupedObserveEntry(ll_slot=latent_name)
-                        )
+                        body_observes.append(GroupedObserveEntry(ll_slot=latent_name))
                 out.extend(expanded_scope)
                 # Pushforward reduction. When grouped, the
                 # MarginalizeStep carries the list of per-observe
@@ -446,9 +442,7 @@ class _ProgramsMixin:
                         over_obj=single_over,
                         over_objs=product_overs,
                         body_ll_var=step.vars[0],
-                        body_observes=(
-                            tuple(body_observes) if has_grouping else None
-                        ),
+                        body_observes=(tuple(body_observes) if has_grouping else None),
                         reduction=step.reduction,
                         line=step.line,
                         col=step.col,
@@ -1668,9 +1662,7 @@ class _ProgramsMixin:
                         # env, with the shape contract that each
                         # ll's trailing axis is the class axis.
                         ll_list: list[torch.Tensor] = []
-                        idx_list: list[
-                            torch.Tensor | tuple[torch.Tensor, ...]
-                        ] = []
+                        idx_list: list[torch.Tensor | tuple[torch.Tensor, ...]] = []
                         for slot, fib_var, fib_axes in _specs:
                             ll = env[slot]
                             if ll.shape[-1] != _k:
@@ -2145,7 +2137,8 @@ class _ProgramsMixin:
             return _var
         if isinstance(node, LetExprList):
             item_fns = [
-                _ProgramsMixin._compile_let_expr(it, globals_=globals_) for it in node.items
+                _ProgramsMixin._compile_let_expr(it, globals_=globals_)
+                for it in node.items
             ]
 
             def _list(env: dict) -> list:
@@ -2205,7 +2198,8 @@ class _ProgramsMixin:
             recv_fn = _ProgramsMixin._compile_let_expr(node.receiver, globals_=globals_)
             method = node.method
             arg_fns = [
-                _ProgramsMixin._compile_let_expr(a, globals_=globals_) for a in node.args
+                _ProgramsMixin._compile_let_expr(a, globals_=globals_)
+                for a in node.args
             ]
 
             def _method(env: dict):
@@ -2222,7 +2216,8 @@ class _ProgramsMixin:
         if isinstance(node, LetExprCall):
             func_name = node.func
             arg_fns = [
-                _ProgramsMixin._compile_let_expr(a, globals_=globals_) for a in node.args
+                _ProgramsMixin._compile_let_expr(a, globals_=globals_)
+                for a in node.args
             ]
 
             # Built-in tensor operations.
@@ -2371,7 +2366,8 @@ class _ProgramsMixin:
             # fibration ι : N → A and a plate variable v : A → B.
             arr_fn = _ProgramsMixin._compile_let_expr(node.array, globals_=globals_)
             idx_fns = [
-                _ProgramsMixin._compile_let_expr(ix, globals_=globals_) for ix in node.indices
+                _ProgramsMixin._compile_let_expr(ix, globals_=globals_)
+                for ix in node.indices
             ]
 
             def _index(env: dict) -> torch.Tensor:

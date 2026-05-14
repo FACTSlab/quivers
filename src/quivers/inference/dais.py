@@ -90,23 +90,18 @@ class AutoDAIS(Guide):
     ) -> None:
         super().__init__()
         if num_steps < 1:
-            raise ValueError(
-                f"AutoDAIS: num_steps must be >= 1, got {num_steps}"
-            )
+            raise ValueError(f"AutoDAIS: num_steps must be >= 1, got {num_steps}")
         if leapfrog_steps < 1:
             raise ValueError(
-                f"AutoDAIS: leapfrog_steps must be >= 1, got "
-                f"{leapfrog_steps}"
+                f"AutoDAIS: leapfrog_steps must be >= 1, got {leapfrog_steps}"
             )
         if init_step_size <= 0:
             raise ValueError(
-                f"AutoDAIS: init_step_size must be > 0, got "
-                f"{init_step_size}"
+                f"AutoDAIS: init_step_size must be > 0, got {init_step_size}"
             )
         if not 0.0 < init_temperature < 1.0:
             raise ValueError(
-                f"AutoDAIS: init_temperature must be in (0, 1), got "
-                f"{init_temperature}"
+                f"AutoDAIS: init_temperature must be in (0, 1), got {init_temperature}"
             )
         self.base = base
         self._registry = base.registry
@@ -129,9 +124,9 @@ class AutoDAIS(Guide):
         # stay in (0, 1) and are monotone-friendly. The final beta is
         # 1.0 (full target); the earlier ones are learned.
         # Initial schedule: linear in inverse temperature.
-        init_betas = torch.linspace(
-            init_temperature, 1.0, num_steps + 1
-        )[:-1]  # length num_steps; last one is fixed at 1.0.
+        init_betas = torch.linspace(init_temperature, 1.0, num_steps + 1)[
+            :-1
+        ]  # length num_steps; last one is fixed at 1.0.
         # Store as raw logits and apply a cumulative-softplus to
         # keep them monotone increasing.
         increments = torch.zeros(num_steps)
@@ -169,16 +164,10 @@ class AutoDAIS(Guide):
             log_det_total = log_det_total + (
                 site.bijector.log_abs_det_jacobian(z_site, v).sum()
             )
-            if (
-                site.constrained_dim == 1
-                and v.dim() >= 1
-                and v.shape[-1] == 1
-            ):
+            if site.constrained_dim == 1 and v.dim() >= 1 and v.shape[-1] == 1:
                 v = v.squeeze(-1)
             constrained[site.name] = v
-        log_p = self._model.log_joint(
-            self._x, {**constrained, **self._observations}
-        )
+        log_p = self._model.log_joint(self._x, {**constrained, **self._observations})
         return log_p.sum() + log_det_total
 
     def _grad_target(self, z_flat: torch.Tensor) -> torch.Tensor:
@@ -210,20 +199,14 @@ class AutoDAIS(Guide):
             base_log_det = base_log_det + (
                 site.bijector.log_abs_det_jacobian(z_site, v).sum()
             )
-            if (
-                site.constrained_dim == 1
-                and v.dim() >= 1
-                and v.shape[-1] == 1
-            ):
+            if site.constrained_dim == 1 and v.dim() >= 1 and v.shape[-1] == 1:
                 v = v.squeeze(-1)
             constrained[site.name] = v
         log_q0 = self.base.log_prob(self._x, constrained).sum()
         log_pi = self._target_log_density(z_flat)
         return (1.0 - beta) * log_q0 + beta * log_pi
 
-    def _grad_bridge(
-        self, z_flat: torch.Tensor, beta: torch.Tensor
-    ) -> torch.Tensor:
+    def _grad_bridge(self, z_flat: torch.Tensor, beta: torch.Tensor) -> torch.Tensor:
         z = z_flat.detach().clone().requires_grad_(True)
         ld = self._bridge_log_density(z, beta)
         return torch.autograd.grad(ld, z, create_graph=True)[0]
@@ -240,23 +223,17 @@ class AutoDAIS(Guide):
         unc: dict[str, torch.Tensor] = {}
         for site in self._registry.sites.values():
             v = base_sample[site.name]
-            if site.constrained_dim == 1 and v.dim() == (
-                1 if site.is_plate else 1
-            ):
+            if site.constrained_dim == 1 and v.dim() == (1 if site.is_plate else 1):
                 v_e = v.unsqueeze(-1)
             else:
                 v_e = v
-            if not site.is_plate and v_e.dim() == len(
-                site.unconstrained_shape
-            ) + 1:
+            if not site.is_plate and v_e.dim() == len(site.unconstrained_shape) + 1:
                 v_e = v_e[0]
             z = site.bijector.inv(v_e)
             unc[site.name] = z
         return self._registry.flatten_unconstrained(unc)
 
-    def _trajectory(
-        self, x: torch.Tensor
-    ) -> tuple[torch.Tensor, torch.Tensor]:
+    def _trajectory(self, x: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
         """Run the annealed trajectory; return the flat unconstrained
         endpoint and the accumulated log-importance-weight.
 
@@ -286,18 +263,12 @@ class AutoDAIS(Guide):
                 p = p + 0.5 * eps * g
             if t < self._num_steps - 1:
                 next_beta = betas[t + 1]
-                log_q0_z = self.base.log_prob(
-                    x, self._materialise_constrained(z)
-                ).sum()
+                log_q0_z = self.base.log_prob(x, self._materialise_constrained(z)).sum()
                 log_pi_z = self._target_log_density(z)
-                log_weight = log_weight + (next_beta - beta_t) * (
-                    log_pi_z - log_q0_z
-                )
+                log_weight = log_weight + (next_beta - beta_t) * (log_pi_z - log_q0_z)
         return z, log_weight
 
-    def _materialise_constrained(
-        self, z_flat: torch.Tensor
-    ) -> dict[str, torch.Tensor]:
+    def _materialise_constrained(self, z_flat: torch.Tensor) -> dict[str, torch.Tensor]:
         per_site_unc = self._registry.unflatten_unconstrained(z_flat)
         out: dict[str, torch.Tensor] = {}
         for site in self._registry.sites.values():
@@ -305,11 +276,7 @@ class AutoDAIS(Guide):
             if not site.is_plate:
                 z_site = z_site.unsqueeze(0)
             v = site.bijector(z_site)
-            if (
-                site.constrained_dim == 1
-                and v.dim() >= 1
-                and v.shape[-1] == 1
-            ):
+            if site.constrained_dim == 1 and v.dim() >= 1 and v.shape[-1] == 1:
                 v = v.squeeze(-1)
             out[site.name] = v
         return out

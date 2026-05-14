@@ -39,32 +39,25 @@ def posterior_mean_error(
         return float(torch.abs(empirical - float(true_mean)))
     empirical = samples.mean(dim=0)
     truth = (
-        true_mean
-        if isinstance(true_mean, torch.Tensor)
-        else torch.tensor(true_mean)
+        true_mean if isinstance(true_mean, torch.Tensor) else torch.tensor(true_mean)
     )
     return float(
         torch.linalg.vector_norm(empirical - truth) / math.sqrt(samples.shape[-1])
     )
 
 
-def posterior_variance_error(
-    samples: torch.Tensor, true_variance: float
-) -> float:
+def posterior_variance_error(samples: torch.Tensor, true_variance: float) -> float:
     """Absolute error between empirical variance and the truth."""
     empirical = float(samples.var(unbiased=True))
     return abs(empirical - float(true_variance))
 
 
-def correlation_error(
-    samples: torch.Tensor, true_correlation: float
-) -> float:
+def correlation_error(samples: torch.Tensor, true_correlation: float) -> float:
     """For 2-D posterior samples, absolute error in the empirical
     correlation."""
     if samples.dim() != 2 or samples.shape[-1] != 2:
         raise ValueError(
-            f"correlation_error: expected (N, 2) samples; got "
-            f"{tuple(samples.shape)}"
+            f"correlation_error: expected (N, 2) samples; got {tuple(samples.shape)}"
         )
     mean = samples.mean(dim=0)
     centered = samples - mean
@@ -84,8 +77,7 @@ def total_variation_1d(
     ``samples`` and the reference distribution."""
     if samples.dim() != 1:
         raise ValueError(
-            f"total_variation_1d: expected 1-D samples; got "
-            f"{samples.dim()}-D"
+            f"total_variation_1d: expected 1-D samples; got {samples.dim()}-D"
         )
     if eval_range is None:
         low = float(samples.min()) - 1.0
@@ -135,9 +127,7 @@ def coverage(
     return lower <= float(true_value) <= upper
 
 
-def wasserstein_2_1d(
-    samples_a: torch.Tensor, samples_b: torch.Tensor
-) -> float:
+def wasserstein_2_1d(samples_a: torch.Tensor, samples_b: torch.Tensor) -> float:
     """1-D 2-Wasserstein distance via sorted-CDF matching.
 
     For two empirical distributions on ``\\mathbb{R}`` the 2-Wasserstein
@@ -154,21 +144,14 @@ def wasserstein_2_1d(
     return float(((qa - qb) ** 2).mean().sqrt())
 
 
-def gaussian_kl(
-    mu_a: float, var_a: float, mu_b: float, var_b: float
-) -> float:
+def gaussian_kl(mu_a: float, var_a: float, mu_b: float, var_b: float) -> float:
     """KL(N(mu_a, var_a) || N(mu_b, var_b)) — closed form.
 
     Useful when both the candidate and reference posteriors are
     Gaussian (Tier-1 Normal-Normal, Eight Schools mu).
     """
     return float(
-        0.5
-        * (
-            math.log(var_b / var_a)
-            + (var_a + (mu_a - mu_b) ** 2) / var_b
-            - 1.0
-        )
+        0.5 * (math.log(var_b / var_a) + (var_a + (mu_a - mu_b) ** 2) / var_b - 1.0)
     )
 
 
@@ -184,9 +167,7 @@ def _split_chains(samples: torch.Tensor) -> torch.Tensor:
     Output: ``(2 * num_chains, num_draws // 2, ...)``.
     """
     if samples.shape[1] < 4:
-        raise ValueError(
-            "split_r_hat: need at least 4 draws per chain to split"
-        )
+        raise ValueError("split_r_hat: need at least 4 draws per chain to split")
     half = samples.shape[1] // 2
     return torch.cat([samples[:, :half], samples[:, half : 2 * half]], dim=0)
 
@@ -206,9 +187,7 @@ def split_r_hat(samples: torch.Tensor) -> float:
             for i in range(split.shape[-1])
         ]
         return max(rhats)
-    raise ValueError(
-        f"split_r_hat: samples must be 2-D or 3-D; got {samples.dim()}-D"
-    )
+    raise ValueError(f"split_r_hat: samples must be 2-D or 3-D; got {samples.dim()}-D")
 
 
 def _r_hat_univariate(samples: torch.Tensor) -> float:
@@ -243,8 +222,7 @@ def effective_sample_size(samples: torch.Tensor) -> float:
             for i in range(samples.shape[-1])
         )
     raise ValueError(
-        f"effective_sample_size: samples must be 2-D or 3-D; got "
-        f"{samples.dim()}-D"
+        f"effective_sample_size: samples must be 2-D or 3-D; got {samples.dim()}-D"
     )
 
 

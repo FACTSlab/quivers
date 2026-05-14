@@ -42,9 +42,7 @@ from tests.benchmarks.references import (
 
 
 def _train_svi(model, guide, obs, *, steps: int = 400, lr: float = 5e-2) -> None:
-    optim = torch.optim.Adam(
-        list(model.parameters()) + list(guide.parameters()), lr=lr
-    )
+    optim = torch.optim.Adam(list(model.parameters()) + list(guide.parameters()), lr=lr)
     svi = SVI(model, guide, optim, ELBO())
     for _ in range(steps):
         svi.step(torch.zeros(1, 1), obs)
@@ -73,9 +71,7 @@ def test_autonormal_normal_normal_recovers_mean() -> None:
     _train_svi(data.model, guide, data.observations)
     samples = _guide_samples(guide, site="mu")
     err = posterior_mean_error(samples, ref["mean"])
-    assert err < 0.1, (
-        f"AutoNormalGuide / Normal-Normal: mean error {err:.4f} > 0.1"
-    )
+    assert err < 0.1, f"AutoNormalGuide / Normal-Normal: mean error {err:.4f} > 0.1"
 
 
 def test_autonormal_normal_normal_recovers_variance() -> None:
@@ -105,11 +101,17 @@ def test_hmc_normal_normal_recovers_mean() -> None:
     data = normal_normal()
     ref = normal_normal_reference(data)
     kernel = HMCKernel(
-        step_size=0.1, num_steps=10, mass_matrix="identity",
-        adapt_step_size=True, adapt_mass_matrix=False,
+        step_size=0.1,
+        num_steps=10,
+        mass_matrix="identity",
+        adapt_step_size=True,
+        adapt_mass_matrix=False,
     )
     driver = MCMC(
-        kernel=kernel, num_warmup=100, num_samples=400, num_chains=2,
+        kernel=kernel,
+        num_warmup=100,
+        num_samples=400,
+        num_chains=2,
         init_strategy="zero",
     )
     result = driver.run(data.model, torch.zeros(1, 1), data.observations)
@@ -139,11 +141,17 @@ def test_hmc_beta_bernoulli_recovers_mean() -> None:
     data = beta_bernoulli()
     ref = beta_bernoulli_reference(data)
     kernel = HMCKernel(
-        step_size=0.05, num_steps=10, mass_matrix="identity",
-        adapt_step_size=True, adapt_mass_matrix=False,
+        step_size=0.05,
+        num_steps=10,
+        mass_matrix="identity",
+        adapt_step_size=True,
+        adapt_mass_matrix=False,
     )
     driver = MCMC(
-        kernel=kernel, num_warmup=200, num_samples=500, num_chains=2,
+        kernel=kernel,
+        num_warmup=200,
+        num_samples=500,
+        num_chains=2,
         init_strategy="zero",
     )
     result = driver.run(data.model, torch.zeros(1, 1), data.observations)

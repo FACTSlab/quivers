@@ -66,8 +66,7 @@ class Objective(nn.Module, ABC):
         guide: Guide,
         x: torch.Tensor,
         observations: dict[str, torch.Tensor],
-    ) -> torch.Tensor:
-        ...
+    ) -> torch.Tensor: ...
 
 
 # ---------------------------------------------------------------------------
@@ -158,9 +157,7 @@ class ELBO(Objective):
     ) -> None:
         super().__init__(estimator=estimator)
         if num_particles < 1:
-            raise ValueError(
-                f"ELBO: num_particles must be >= 1, got {num_particles}"
-            )
+            raise ValueError(f"ELBO: num_particles must be >= 1, got {num_particles}")
         self.num_particles = num_particles
 
     def forward(
@@ -368,9 +365,7 @@ class VRIWAEBound(Objective):
     ) -> None:
         super().__init__(estimator=estimator)
         if alpha == 1.0:
-            raise ValueError(
-                "VRIWAEBound: alpha == 1.0 is singular. Use ELBO instead."
-            )
+            raise ValueError("VRIWAEBound: alpha == 1.0 is singular. Use ELBO instead.")
         if num_particles < 1:
             raise ValueError(
                 f"VRIWAEBound: num_particles must be >= 1, got {num_particles}"

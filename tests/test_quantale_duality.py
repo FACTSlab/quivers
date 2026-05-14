@@ -259,6 +259,4 @@ def test_dsl_quantale_registry_includes_named_duals() -> None:
 
     _register_extra_quantales()
     for key in ("reichenbach", "boolean_dual", "dual_lukasiewicz", "dual_godel"):
-        assert key in _QUANTALE_REGISTRY, (
-            f"DSL quantale registry missing {key!r}"
-        )
+        assert key in _QUANTALE_REGISTRY, f"DSL quantale registry missing {key!r}"

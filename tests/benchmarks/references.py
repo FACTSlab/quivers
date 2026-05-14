@@ -83,11 +83,14 @@ def normal_inverse_gamma_reference(
     a_N = a0 + N / 2.0
     b_N = b0 + 0.5 * ssq + 0.5 * N * kappa0 / kappa_N * (ybar - mu0) ** 2
     return {
-        "kappa_N": kappa_N, "mu_N": mu_N, "a_N": a_N, "b_N": b_N,
+        "kappa_N": kappa_N,
+        "mu_N": mu_N,
+        "a_N": a_N,
+        "b_N": b_N,
         "mu_mean": mu_N,
         "mu_variance": b_N / (kappa_N * (a_N - 1.0)),
         "sigma2_mean": b_N / (a_N - 1.0),
-        "sigma2_variance": b_N ** 2 / ((a_N - 1.0) ** 2 * (a_N - 2.0)),
+        "sigma2_variance": b_N**2 / ((a_N - 1.0) ** 2 * (a_N - 2.0)),
     }
 
 
@@ -100,7 +103,8 @@ def gamma_exponential_reference(data: BenchmarkData) -> dict[str, float]:
     a = a0 + N
     b = b0 + sum_y
     return {
-        "a": a, "b": b,
+        "a": a,
+        "b": b,
         "mean": a / b,
         "variance": a / (b * b),
     }
@@ -118,9 +122,7 @@ def bayes_linear_regression_reference(
     precision = torch.eye(2) + X.t() @ X / sigma2
     covariance = torch.linalg.inv(precision)
     mean = covariance @ (X.t() @ y / sigma2)
-    correlation = float(
-        covariance[0, 1] / (covariance[0, 0] * covariance[1, 1]).sqrt()
-    )
+    correlation = float(covariance[0, 1] / (covariance[0, 0] * covariance[1, 1]).sqrt())
     return {
         "mean": mean,
         "covariance": covariance,
@@ -163,9 +165,7 @@ def eight_schools_reference() -> dict[str, torch.Tensor | float]:
         "tau_mean": 7.5,
         "tau_std": 6.0,
         # Per-school theta posterior means (shape (8,)).
-        "theta_mean": torch.tensor(
-            [10.4, 7.5, 6.0, 7.2, 4.9, 5.7, 9.7, 7.9]
-        ),
+        "theta_mean": torch.tensor([10.4, 7.5, 6.0, 7.2, 4.9, 5.7, 9.7, 7.9]),
     }
 
 
@@ -209,17 +209,15 @@ def ill_conditioned_mvn_reference(
 ) -> dict[str, torch.Tensor]:
     """Per-dim Gaussian posterior:
 
-        x_i | y_i ~ Normal(
-            y_i / (1 + (obs/prior)^2),
-            1 / (1/prior^2 + 1/obs^2)
-        )
+    x_i | y_i ~ Normal(
+        y_i / (1 + (obs/prior)^2),
+        1 / (1/prior^2 + 1/obs^2)
+    )
     """
     prior_scales = data.true_params["prior_scales"]
     obs_scale = float(data.true_params["obs_scale"])
     assert isinstance(prior_scales, torch.Tensor)
-    y_vec = torch.stack(
-        [data.observations[f"y_{i + 1}"].squeeze() for i in range(5)]
-    )
+    y_vec = torch.stack([data.observations[f"y_{i + 1}"].squeeze() for i in range(5)])
     prior_prec = 1.0 / prior_scales.pow(2)
     obs_prec = 1.0 / (obs_scale * obs_scale)
     post_prec = prior_prec + obs_prec
@@ -250,10 +248,9 @@ def half_normal_scale_reference(
     prior_scale = float(data.true_params["prior_scale"])
     sigma = torch.linspace(0.05, 6.0, 4096)
     sum_sq = float((y * y).sum())
-    log_prior = (
-        math.log(2.0 / math.sqrt(2.0 * math.pi * prior_scale * prior_scale))
-        - sigma.pow(2) / (2.0 * prior_scale * prior_scale)
-    )
+    log_prior = math.log(
+        2.0 / math.sqrt(2.0 * math.pi * prior_scale * prior_scale)
+    ) - sigma.pow(2) / (2.0 * prior_scale * prior_scale)
     log_lik = -N * sigma.log() - 0.5 * sum_sq / sigma.pow(2)
     log_post = log_prior + log_lik
     log_post -= log_post.max()
@@ -280,13 +277,8 @@ def truncated_normal_recovery_reference(
     z_hi = (high - mu_grid[:, None]) / sigma
     # Use scipy for numerically-stable log-CDF / log-PDF.
     normal = torch.distributions.Normal(0.0, 1.0)
-    log_phi = (
-        normal.log_prob((y[None, :] - mu_grid[:, None]) / sigma)
-        - math.log(sigma)
-    )
-    log_Z = torch.log(
-        (normal.cdf(z_hi) - normal.cdf(z_lo)).clamp(min=1e-30)
-    )
+    log_phi = normal.log_prob((y[None, :] - mu_grid[:, None]) / sigma) - math.log(sigma)
+    log_Z = torch.log((normal.cdf(z_hi) - normal.cdf(z_lo)).clamp(min=1e-30))
     log_lik = (log_phi - log_Z).sum(dim=-1)
     log_prior = torch.zeros_like(mu_grid)  # Uniform(0, 1)
     log_post = log_prior + log_lik

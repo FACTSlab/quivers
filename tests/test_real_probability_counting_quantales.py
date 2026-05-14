@@ -194,10 +194,12 @@ def test_probability_compose_clamps_to_unit_interval() -> None:
     A = FinSet(name="A", cardinality=2)
     B = FinSet(name="B", cardinality=2)
     C = FinSet(name="C", cardinality=2)
-    f = ObservedMorphism(A, B, torch.tensor([[0.5, 0.5], [0.5, 0.5]]),
-                         quantale=PROBABILITY)
-    g = ObservedMorphism(B, C, torch.tensor([[0.5, 0.5], [0.5, 0.5]]),
-                         quantale=PROBABILITY)
+    f = ObservedMorphism(
+        A, B, torch.tensor([[0.5, 0.5], [0.5, 0.5]]), quantale=PROBABILITY
+    )
+    g = ObservedMorphism(
+        B, C, torch.tensor([[0.5, 0.5], [0.5, 0.5]]), quantale=PROBABILITY
+    )
     chain = f >> g
     assert chain.quantale.name == "Probability"
     # Every entry must be in [0, 1].
@@ -514,9 +516,7 @@ def test_lookup_homomorphism_probability_to_real() -> None:
 def test_change_base_real_to_probability_via_named_homomorphism() -> None:
     A = FinSet(name="A", cardinality=3)
     B = FinSet(name="B", cardinality=3)
-    data = torch.tensor(
-        [[-0.5, 0.3, 1.7], [0.0, 0.5, 1.0], [2.0, -1.0, 0.9]]
-    )
+    data = torch.tensor([[-0.5, 0.3, 1.7], [0.0, 0.5, 1.0], [2.0, -1.0, 0.9]])
     f = ObservedMorphism(A, B, data, quantale=REAL)
     from quivers.core.quantale_morphisms import PROBABILITY_CLAMP
 

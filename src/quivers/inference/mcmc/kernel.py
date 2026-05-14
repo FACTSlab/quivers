@@ -131,11 +131,7 @@ class PotentialFn:
                 log_det_total = log_det_total + (
                     site.bijector.log_abs_det_jacobian(z_site, v).sum()
                 )
-                if (
-                    site.constrained_dim == 1
-                    and v.dim() >= 1
-                    and v.shape[-1] == 1
-                ):
+                if site.constrained_dim == 1 and v.dim() >= 1 and v.shape[-1] == 1:
                     v = v.squeeze(-1)
                 constrained[site.name] = v
             log_p = self._model.log_joint(
@@ -143,18 +139,12 @@ class PotentialFn:
             )
             result = log_p.sum() + log_det_total
         except ValueError:
-            return torch.tensor(
-                float("-inf"), device=z.device, dtype=z.dtype
-            )
+            return torch.tensor(float("-inf"), device=z.device, dtype=z.dtype)
         if not torch.isfinite(result):
-            return torch.tensor(
-                float("-inf"), device=z.device, dtype=z.dtype
-            )
+            return torch.tensor(float("-inf"), device=z.device, dtype=z.dtype)
         return result
 
-    def value_and_grad(
-        self, z: torch.Tensor
-    ) -> tuple[torch.Tensor, torch.Tensor]:
+    def value_and_grad(self, z: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
         """Return ``(log_density, grad_log_density)`` for ``z``.
 
         ``z`` is expected to be a detached tensor; we make a fresh
@@ -178,7 +168,7 @@ class PotentialFn:
             if grad is None or not torch.isfinite(grad).all():
                 return ld.detach(), torch.zeros_like(z)
             return ld.detach(), grad.detach()
-        except (ValueError, RuntimeError):
+        except ValueError, RuntimeError:
             return (
                 torch.tensor(float("-inf"), device=z.device, dtype=z.dtype),
                 torch.zeros_like(z),

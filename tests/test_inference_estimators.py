@@ -76,9 +76,7 @@ def test_stl_uses_detached_log_q() -> None:
     log_p = torch.tensor([[1.0, 2.0]])
     log_q = torch.tensor([[10.0, 20.0]])  # would dominate if used
     log_q_det = torch.tensor([[0.5, 1.5]])
-    out = StickingTheLanding().negative_objective(
-        log_p, log_q, log_q_det
-    )
+    out = StickingTheLanding().negative_objective(log_p, log_q, log_q_det)
     expected = -(log_p - log_q_det).mean()
     assert torch.allclose(out, expected, atol=1e-6)
 
@@ -103,9 +101,7 @@ def test_stl_gradient_only_flows_through_log_p() -> None:
     log_p = (1.0 * phi).sum().unsqueeze(0).unsqueeze(0).expand(3, 1)
     log_q = (10.0 * phi).sum().unsqueeze(0).unsqueeze(0).expand(3, 1)
     log_q_det = log_q.detach()
-    loss = StickingTheLanding().negative_objective(
-        log_p, log_q, log_q_det
-    )
+    loss = StickingTheLanding().negative_objective(log_p, log_q, log_q_det)
     loss.backward()
     # Gradient of -(log_p − log_q_det).mean() with respect to phi
     # is -1 * coefficient_of_phi_in_log_p (broadcast over batch).
@@ -124,9 +120,7 @@ def test_dreg_uses_squared_softmax_weights() -> None:
     log_p = torch.tensor([[1.0, 2.0], [3.0, 4.0], [5.0, 6.0]])
     log_q = torch.tensor([[0.5, 0.5], [1.5, 1.5], [2.5, 2.5]])
     log_q_det = torch.tensor([[0.4, 0.4], [1.4, 1.4], [2.4, 2.4]])
-    out = DoublyReparameterized().negative_objective(
-        log_p, log_q, log_q_det
-    )
+    out = DoublyReparameterized().negative_objective(log_p, log_q, log_q_det)
     log_w = log_p - log_q_det
     weights = torch.softmax(log_w, dim=0).detach()
     expected = -((weights**2) * (log_p - log_q)).sum(dim=0).mean()
@@ -145,9 +139,7 @@ def test_dreg_raises_on_scalar_log_p() -> None:
     log_q = torch.tensor(0.5)
     log_q_det = torch.tensor(0.4)
     with pytest.raises(RuntimeError, match="leading particle axis"):
-        DoublyReparameterized().negative_objective(
-            log_p, log_q, log_q_det
-        )
+        DoublyReparameterized().negative_objective(log_p, log_q, log_q_det)
 
 
 def test_dreg_gradient_flows() -> None:
@@ -156,9 +148,7 @@ def test_dreg_gradient_flows() -> None:
     log_p = phi.sum().unsqueeze(0).expand(4, 1)
     log_q = (0.5 * phi).sum().unsqueeze(0).expand(4, 1)
     log_q_det = log_q.detach()
-    loss = DoublyReparameterized().negative_objective(
-        log_p, log_q, log_q_det
-    )
+    loss = DoublyReparameterized().negative_objective(log_p, log_q, log_q_det)
     loss.backward()
     assert phi.grad is not None
     assert torch.isfinite(phi.grad).all()
@@ -225,12 +215,10 @@ def test_stl_gradient_variance_vanishes_at_perfect_guide() -> None:
     # Construct a synthetic case where log_p == log_q_det (perfect
     # guide). Both depend on phi with the same coefficient, so the
     # difference is zero.
-    log_p = (phi * torch.ones(8, 1))
+    log_p = phi * torch.ones(8, 1)
     log_q = log_p.clone()
     log_q_det = log_p.detach()
-    loss = StickingTheLanding().negative_objective(
-        log_p, log_q, log_q_det
-    )
+    loss = StickingTheLanding().negative_objective(log_p, log_q, log_q_det)
     loss.backward()
     # STL gradient at the optimum: -1 (from log_p's coefficient)
     # since log_q_det is detached. Note this is the gradient of

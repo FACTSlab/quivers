@@ -163,6 +163,7 @@ def test_renyi_returns_finite_scalar() -> None:
 
 def test_renyi_rejects_singular_alpha() -> None:
     import pytest
+
     with pytest.raises(ValueError, match="alpha == 1.0"):
         RenyiBound(alpha=1.0)
 
@@ -228,9 +229,7 @@ def test_svi_step_runs_with_iwae_dreg() -> None:
     model = _hierarchical_model()
     guide = AutoNormalGuide(model, observed_names={"r"})
     obj = IWAEBound(num_particles=8)
-    opt = torch.optim.Adam(
-        list(model.parameters()) + list(guide.parameters()), lr=1e-2
-    )
+    opt = torch.optim.Adam(list(model.parameters()) + list(guide.parameters()), lr=1e-2)
     svi = SVI(model, guide, opt, obj)
     loss = svi.step(torch.zeros(1, 1), _make_obs())
     assert torch.isfinite(torch.tensor(loss))

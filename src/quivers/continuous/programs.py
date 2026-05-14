@@ -476,9 +476,7 @@ class MonadicProgram(ContinuousMorphism):
 
             cat_morph = extract_morphism(bound)
             if cat_morph is not None and not isinstance(bound, ContinuousMorphism):
-                value = self._apply_categorical_morphism(
-                    cat_morph, inp, x.shape[0]
-                )
+                value = self._apply_categorical_morphism(cat_morph, inp, x.shape[0])
                 self._bind_result(spec, value, env)
                 continue
             morph = cast(ContinuousMorphism, bound)
@@ -589,9 +587,7 @@ class MonadicProgram(ContinuousMorphism):
             )
         # General contraction via einsum: input has shape
         # (batch, *dom.shape), m has shape (*dom.shape, *cod.shape).
-        in_letters = "".join(
-            chr(ord("a") + i) for i in range(len(dom_shape))
-        )
+        in_letters = "".join(chr(ord("a") + i) for i in range(len(dom_shape)))
         out_letters = "".join(
             chr(ord("a") + len(dom_shape) + j) for j in range(len(cod_shape))
         )

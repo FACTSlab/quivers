@@ -120,9 +120,7 @@ class QuantaleHomomorphism(ABC):
         return type(self).__name__
 
     def __repr__(self) -> str:
-        return (
-            f"{type(self).__name__}({self.source.name} -> {self.target.name})"
-        )
+        return f"{type(self).__name__}({self.source.name} -> {self.target.name})"
 
 
 class IdentityHom(QuantaleHomomorphism):
@@ -289,9 +287,7 @@ class Threshold(QuantaleHomomorphism):
 
     def __init__(self, tau: float = 0.5) -> None:
         if not 0.0 <= tau <= 1.0:
-            raise ValueError(
-                f"Threshold: tau must be in [0, 1]; got {tau}"
-            )
+            raise ValueError(f"Threshold: tau must be in [0, 1]; got {tau}")
         self._tau = tau
         self._source = PRODUCT_FUZZY
         self._target = BOOLEAN

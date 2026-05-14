@@ -55,16 +55,13 @@ class Predictive:
         if isinstance(posterior, MCMCResult):
             available = posterior.num_chains * posterior.num_samples
             self.num_samples = (
-                min(num_samples, available)
-                if num_samples is not None
-                else available
+                min(num_samples, available) if num_samples is not None else available
             )
         else:
             self.num_samples = num_samples if num_samples is not None else 100
         if self.num_samples < 1:
             raise ValueError(
-                f"Predictive: num_samples must be >= 1, got "
-                f"{self.num_samples}"
+                f"Predictive: num_samples must be >= 1, got {self.num_samples}"
             )
 
     def _iter_mcmc_latents(self) -> list[dict[str, torch.Tensor]]:
@@ -80,9 +77,7 @@ class Predictive:
         for idx in perm.tolist():
             chain = idx // self.posterior.num_samples
             step = idx % self.posterior.num_samples
-            out.append(
-                {name: draws[chain, step] for name, draws in samples.items()}
-            )
+            out.append({name: draws[chain, step] for name, draws in samples.items()})
         return out
 
     @torch.no_grad()
@@ -124,9 +119,7 @@ class Predictive:
                     continue
                 collected.setdefault(name, []).append(site.value)
 
-        return {
-            name: torch.stack(vals, dim=0) for name, vals in collected.items()
-        }
+        return {name: torch.stack(vals, dim=0) for name, vals in collected.items()}
 
 
 __all__ = ["Predictive"]

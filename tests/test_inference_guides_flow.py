@@ -98,9 +98,7 @@ def test_iaf_log_prob_finite_on_own_samples() -> None:
 def test_nsf_log_prob_finite_on_own_samples() -> None:
     torch.manual_seed(0)
     model = _hierarchical_model()
-    guide = AutoNeuralSplineGuide(
-        model, observed_names={"r"}, num_flows=2, num_bins=4
-    )
+    guide = AutoNeuralSplineGuide(model, observed_names={"r"}, num_flows=2, num_bins=4)
     samples = guide.rsample(torch.zeros(1, 1))
     log_q = guide.log_prob(torch.zeros(1, 1), samples)
     assert log_q.shape == (1,)
@@ -132,9 +130,7 @@ def test_iaf_gradients_flow_through_made_weights() -> None:
 def test_nsf_gradients_flow_through_coupling_mlps() -> None:
     torch.manual_seed(0)
     model = _hierarchical_model()
-    guide = AutoNeuralSplineGuide(
-        model, observed_names={"r"}, num_flows=2, num_bins=4
-    )
+    guide = AutoNeuralSplineGuide(model, observed_names={"r"}, num_flows=2, num_bins=4)
     elbo = ELBO()
     loss = elbo(model, guide, torch.zeros(1, 1), _make_obs())
     loss.backward()
@@ -242,6 +238,7 @@ def test_iaf_rejects_single_dim_model() -> None:
         "export p\n"
     )
     from quivers.dsl import loads
+
     model = loads(src).morphism
     with pytest.raises(ValueError, match=">= 2 unconstrained"):
         AutoIAFGuide(model, observed_names={"y"})
@@ -259,6 +256,7 @@ def test_nsf_rejects_single_dim_model() -> None:
         "export p\n"
     )
     from quivers.dsl import loads
+
     model = loads(src).morphism
     with pytest.raises(ValueError, match=">= 2 unconstrained"):
         AutoNeuralSplineGuide(model, observed_names={"y"})

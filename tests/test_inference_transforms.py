@@ -156,9 +156,7 @@ def test_maf_autoregressive_property() -> None:
         y_perturb = layer(x_perturb)
         for j in range(dim):
             if ordering[k] > ordering[j]:
-                assert torch.allclose(
-                    y_base[0, j], y_perturb[0, j], atol=1e-5
-                ), (
+                assert torch.allclose(y_base[0, j], y_perturb[0, j], atol=1e-5), (
                     f"MAF leaks: perturbing input {k} (deg {ordering[k]}) "
                     f"changed output {j} (deg {ordering[j]})"
                 )
@@ -375,9 +373,7 @@ def test_iaf_autoregressive_property() -> None:
         y_pert = layer(x_pert)
         for j in range(dim):
             if int(ordering[k].item()) > int(ordering[j].item()):
-                assert torch.isclose(
-                    y_pert[0, j], y_base[0, j], atol=1e-5
-                ), (
+                assert torch.isclose(y_pert[0, j], y_base[0, j], atol=1e-5), (
                     f"IAF output[{j}] (ordering={int(ordering[j])}) "
                     f"changed when input[{k}] (ordering={int(ordering[k])}) "
                     f"was perturbed; autoregressivity violated"
@@ -422,9 +418,7 @@ def test_reverse_permutation_inverse_roundtrip() -> None:
     y = perm(x)
     x_back = perm.inv(y)
     assert torch.allclose(x, x_back, atol=1e-6)
-    assert torch.allclose(
-        perm.log_abs_det_jacobian(x, y), torch.zeros(4), atol=1e-6
-    )
+    assert torch.allclose(perm.log_abs_det_jacobian(x, y), torch.zeros(4), atol=1e-6)
 
 
 # ---------------------------------------------------------------------------

@@ -69,9 +69,7 @@ class WarmupThenHMC:
         objective: Objective | None = None,
     ) -> None:
         if svi_steps < 1:
-            raise ValueError(
-                f"WarmupThenHMC: svi_steps must be >= 1, got {svi_steps}"
-            )
+            raise ValueError(f"WarmupThenHMC: svi_steps must be >= 1, got {svi_steps}")
         if mcmc_warmup < 0:
             raise ValueError(
                 f"WarmupThenHMC: mcmc_warmup must be >= 0, got {mcmc_warmup}"

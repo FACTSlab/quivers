@@ -132,19 +132,13 @@ class AutoLaplaceApproximation(Guide):
                 log_det_sum = log_det_sum + (
                     site.bijector.log_abs_det_jacobian(z_site, v).sum()
                 )
-                if (
-                    site.constrained_dim == 1
-                    and v.dim() >= 1
-                    and v.shape[-1] == 1
-                ):
+                if site.constrained_dim == 1 and v.dim() >= 1 and v.shape[-1] == 1:
                     v = v.squeeze(-1)
                 constrained[site.name] = v
             log_p = model.log_joint(x, {**constrained, **observations})
             return -(log_p.sum() + log_det_sum)
 
-        H = torch.autograd.functional.hessian(
-            neg_log_joint, self.map_z.detach()
-        )
+        H = torch.autograd.functional.hessian(neg_log_joint, self.map_z.detach())
         H = 0.5 * (H + H.t())
         eigvals, eigvecs = torch.linalg.eigh(H)
         eigvals_clamped = eigvals.clamp(min=jitter)
@@ -165,9 +159,7 @@ class AutoLaplaceApproximation(Guide):
         if not bool(self._hessian_fitted):
             # MAP phase: return the point estimate.
             return self.map_z
-        return D.MultivariateNormal(
-            self.map_z, scale_tril=self._scale_tril
-        ).rsample()
+        return D.MultivariateNormal(self.map_z, scale_tril=self._scale_tril).rsample()
 
     def rsample(self, x: torch.Tensor) -> dict[str, torch.Tensor]:
         """Sample from the Laplace posterior, unflatten, and biject."""
@@ -179,15 +171,9 @@ class AutoLaplaceApproximation(Guide):
         for site in self._registry.sites.values():
             z_site = per_site[site.name]
             if not site.is_plate:
-                z_site = z_site.unsqueeze(0).expand(
-                    batch, *site.unconstrained_shape
-                )
+                z_site = z_site.unsqueeze(0).expand(batch, *site.unconstrained_shape)
             v = site.bijector(z_site)
-            if (
-                site.constrained_dim == 1
-                and v.dim() >= 1
-                and v.shape[-1] == 1
-            ):
+            if site.constrained_dim == 1 and v.dim() >= 1 and v.shape[-1] == 1:
                 v = v.squeeze(-1)
             result[site.name] = v
         return result
@@ -216,13 +202,10 @@ class AutoLaplaceApproximation(Guide):
         for site in self._registry.sites.values():
             if site.name not in sites:
                 raise KeyError(
-                    f"{type(self).__name__}.log_prob: missing site "
-                    f"{site.name!r}"
+                    f"{type(self).__name__}.log_prob: missing site {site.name!r}"
                 )
             v = sites[site.name]
-            if site.constrained_dim == 1 and v.dim() == (
-                1 if site.is_plate else 1
-            ):
+            if site.constrained_dim == 1 and v.dim() == (1 if site.is_plate else 1):
                 v_e = v.unsqueeze(-1)
             else:
                 v_e = v

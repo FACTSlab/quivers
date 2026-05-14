@@ -1,4 +1,5 @@
 """Compiler: transform a quivers DSL AST into a trainable Program."""
+
 from __future__ import annotations
 from quivers.core.quantales import PRODUCT_FUZZY, Quantale
 from quivers.core.objects import SetObject

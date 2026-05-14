@@ -57,19 +57,13 @@ def _build_nested_program(num_levels: int, n_resp: int = 8) -> str:
     open_blocks: list[str] = []
     for i in range(num_levels):
         pad = indent * (i + 1)
-        open_blocks.append(
-            f"{pad}marginalize lat_{i} : K_{i} <- Dirichlet(probs_{i})"
-        )
-        open_blocks.append(
-            f"{pad}    over G_{i}"
-        )
+        open_blocks.append(f"{pad}marginalize lat_{i} : K_{i} <- Dirichlet(probs_{i})")
+        open_blocks.append(f"{pad}    over G_{i}")
         open_blocks.append(f"{pad}    in {{")
     # Innermost body: a single observe step carrying the
     # fibration to its response plate.
     inner_pad = indent * (num_levels + 1)
-    open_blocks.append(
-        f"{inner_pad}observe r : Resp via idx_inner <- HalfNormal(1.0)"
-    )
+    open_blocks.append(f"{inner_pad}observe r : Resp via idx_inner <- HalfNormal(1.0)")
     # Close blocks in reverse.
     for i in range(num_levels - 1, -1, -1):
         pad = indent * (i + 1)
@@ -149,9 +143,7 @@ class TestPrimitiveCompositionAcrossLevels:
         idx_inner = torch.tensor([0, 1, 2, 0, 1, 2])
         prior_inner = torch.log(torch.ones(K_inner) / K_inner)
         # Inner reduces last axis (K_inner), preserves K_outer.
-        inner_out = marginalize_grouped(
-            ll, idx_inner, prior_inner, G_inner
-        )
+        inner_out = marginalize_grouped(ll, idx_inner, prior_inner, G_inner)
         # inner_out shape: (K_outer,) — the per-outer-class log-
         # marginal of the inner block.
         assert inner_out.shape == (K_outer,)
@@ -168,13 +160,9 @@ class TestPrimitiveCompositionAcrossLevels:
         grouped = torch.zeros(G_inner, K_outer, K_inner)
         grouped = grouped.index_add(0, idx_inner, ll)
         # Reduce inner axis under inner prior.
-        per_group = torch.logsumexp(
-            prior_inner + grouped, dim=-1
-        )  # (G_inner, K_outer)
+        per_group = torch.logsumexp(prior_inner + grouped, dim=-1)  # (G_inner, K_outer)
         per_outer = per_group.sum(dim=0)  # (K_outer,)
-        outer_expected = torch.logsumexp(
-            prior_outer + per_outer, dim=-1
-        )
+        outer_expected = torch.logsumexp(prior_outer + per_outer, dim=-1)
         assert torch.allclose(outer_out, outer_expected, atol=1e-6)
 
     def test_three_level_primitive_composition(self) -> None:
@@ -211,9 +199,7 @@ class TestPrimitiveCompositionAcrossLevels:
         # Hand-rolled three-level reference.
         grouped = torch.zeros(G_c, K_a, K_b, K_c)
         grouped = grouped.index_add(0, idx_c, ll)
-        per_group_c = torch.logsumexp(
-            prior_c + grouped, dim=-1
-        )  # (G_c, K_a, K_b)
+        per_group_c = torch.logsumexp(prior_c + grouped, dim=-1)  # (G_c, K_a, K_b)
         c_marg = per_group_c.sum(dim=0)  # (K_a, K_b)
         b_marg = torch.logsumexp(prior_b + c_marg, dim=-1)  # (K_a,)
         a_marg = torch.logsumexp(prior_a + b_marg, dim=-1)  # scalar
@@ -273,9 +259,7 @@ class TestVariedFibrations:
         idx_b = torch.tensor([0, 0, 1, 1, 2, 2, 0, 0, 1, 1, 2, 2])
         idx_c = torch.tensor([0, 0, 0, 0, 0, 0, 1, 1, 1, 1, 1, 1])
         prior = torch.log(torch.ones(K) / K)
-        out = marginalize_grouped(
-            ll, (idx_a, idx_b, idx_c), prior, (G1, G2, G3)
-        )
+        out = marginalize_grouped(ll, (idx_a, idx_b, idx_c), prior, (G1, G2, G3))
         # Hand-rolled: scatter into a flat (G1*G2*G3,)-indexed
         # accumulator (row-major).
         flat_idx = idx_a * (G2 * G3) + idx_b * G3 + idx_c
@@ -303,9 +287,7 @@ class TestMixedReductionsAcrossLevels:
         prior_in = torch.log(torch.ones(K_in) / K_in)
         prior_out = torch.log(torch.ones(K_out) / K_out)
         # Inner uses sum reduction.
-        inner = marginalize_grouped(
-            ll, idx, prior_in, 3, reduction="sum"
-        )
+        inner = marginalize_grouped(ll, idx, prior_in, 3, reduction="sum")
         # Outer uses logsumexp reduction.
         out = marginalize_grouped(
             inner,

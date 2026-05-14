@@ -3,6 +3,7 @@
 Handles quantale, category, rule, schema, alias, bundle, object,
 morphism, space, kernel, discretize, and embed declarations.
 """
+
 from __future__ import annotations
 from collections.abc import Callable
 import torch
@@ -532,14 +533,16 @@ class _DeclarationsMixin:
                 raise CompileError(
                     f"morphism prior `~ Family(...)` is legal only on "
                     f"`latent` declarations; got {decl.morphism_kind!r}",
-                    decl.line, decl.col,
+                    decl.line,
+                    decl.col,
                 )
             if decl.prior.axes is not None:
                 _validate_axis_spec(
                     decl.prior.axes,
                     decl.prior.family,
                     _available_axes_for(decl.domain, decl.codomain),
-                    decl.line, decl.col,
+                    decl.line,
+                    decl.col,
                 )
         domain = self._resolve_type(decl.domain)
         codomain = self._resolve_type(decl.codomain)
@@ -654,13 +657,15 @@ class _DeclarationsMixin:
                     "axis-role clause requires a `~ Family` clause on the "
                     "kernel declaration; lookup-table kernels do not carry "
                     "a parametric family.",
-                    decl.line, decl.col,
+                    decl.line,
+                    decl.col,
                 )
             _validate_axis_spec(
                 decl.axes,
                 decl.family,
                 _available_axes_for(decl.domain, decl.codomain),
-                decl.line, decl.col,
+                decl.line,
+                decl.col,
             )
         if decl.family is None:
             domain = self._resolve_type(decl.domain)
@@ -717,7 +722,8 @@ class _DeclarationsMixin:
                 raise CompileError(
                     f"MatrixNormal requires `over (rows_axis, cols_axis)`; "
                     f"got over={axes.over!r}",
-                    decl.line, decl.col,
+                    decl.line,
+                    decl.col,
                 )
             rows_axis, cols_axis = axes.over
             kwargs["rows"] = self._axis_dim(decl, rows_axis)
@@ -751,7 +757,9 @@ class _DeclarationsMixin:
         raise CompileError(
             f"axis-role clause: cannot resolve axis name {axis_name!r} to a "
             f"dimension; not a declared object/space, and not a `dom`/`cod` "
-            f"shortcut", decl.line, decl.col,
+            f"shortcut",
+            decl.line,
+            decl.col,
         )
 
     def _compile_discretize(self, decl: DiscretizeDecl) -> None:

@@ -52,8 +52,12 @@ def test_refactor_product_to_flat() -> None:
 def test_refactor_domain_and_codomain_together() -> None:
     A = FinSet(name="A", cardinality=6)
     B = FinSet(name="B", cardinality=8)
-    A_prod = ProductSet(components=(FinSet(name="A1", cardinality=2), FinSet(name="A2", cardinality=3)))
-    B_prod = ProductSet(components=(FinSet(name="B1", cardinality=2), FinSet(name="B2", cardinality=4)))
+    A_prod = ProductSet(
+        components=(FinSet(name="A1", cardinality=2), FinSet(name="A2", cardinality=3))
+    )
+    B_prod = ProductSet(
+        components=(FinSet(name="B1", cardinality=2), FinSet(name="B2", cardinality=4))
+    )
     tensor = torch.randn(6, 8)
     m = observed(A, B, tensor)
     m2 = m.refactor(domain=A_prod, codomain=B_prod)

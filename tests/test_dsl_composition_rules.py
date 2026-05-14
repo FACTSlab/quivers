@@ -228,13 +228,14 @@ latent f : A -> B
         ("cap(A)", "cap"),
     ],
 )
-def test_quantale_only_ops_rejected_under_semigroupoid(
-    expr: str, op_name: str
-) -> None:
-    src = _NON_QUANTALE_HEADER + f"""
+def test_quantale_only_ops_rejected_under_semigroupoid(expr: str, op_name: str) -> None:
+    src = (
+        _NON_QUANTALE_HEADER
+        + f"""
     let x = {expr}
     export x
     """
+    )
     with pytest.raises(CompileError, match=op_name):
         loads(src)
 

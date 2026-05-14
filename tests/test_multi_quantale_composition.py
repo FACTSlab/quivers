@@ -162,9 +162,7 @@ def test_change_base_chain_through_two_homomorphisms() -> None:
     A = FinSet(name="A", cardinality=2)
     data = torch.tensor([[0.3, 0.7], [0.6, 0.4]])
     f = ObservedMorphism(A, A, data)
-    g = f.change_base(threshold(0.5)).change_base(
-        embedding(BOOLEAN, PRODUCT_FUZZY)
-    )
+    g = f.change_base(threshold(0.5)).change_base(embedding(BOOLEAN, PRODUCT_FUZZY))
     expected = (data > 0.5).to(dtype=torch.float32)
     assert torch.allclose(g.tensor, expected)
     assert g.quantale.name == "ProductFuzzy"

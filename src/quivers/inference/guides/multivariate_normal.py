@@ -96,15 +96,9 @@ class _MVNCommon(Guide):
         for site in self._registry.sites.values():
             z_site = per_site[site.name]
             if not site.is_plate:
-                z_site = z_site.unsqueeze(0).expand(
-                    batch, *site.unconstrained_shape
-                )
+                z_site = z_site.unsqueeze(0).expand(batch, *site.unconstrained_shape)
             v = site.bijector(z_site)
-            if (
-                site.constrained_dim == 1
-                and v.dim() >= 1
-                and v.shape[-1] == 1
-            ):
+            if site.constrained_dim == 1 and v.dim() >= 1 and v.shape[-1] == 1:
                 v = v.squeeze(-1)
             result[site.name] = v
         return result
@@ -135,8 +129,7 @@ class _MVNCommon(Guide):
         for site in self._registry.sites.values():
             if site.name not in sites:
                 raise KeyError(
-                    f"{type(self).__name__}.log_prob: missing site "
-                    f"{site.name!r}"
+                    f"{type(self).__name__}.log_prob: missing site {site.name!r}"
                 )
             v = sites[site.name]
             if site.constrained_dim == 1:
@@ -201,9 +194,7 @@ class AutoMultivariateNormalGuide(_MVNCommon):
         init_diag = torch.full((self._D,), float(init_scale))
         init_diag_raw = torch.log(torch.expm1(init_diag.clamp(min=1e-6)))
         self.scale_diag_raw = nn.Parameter(init_diag_raw)
-        self.scale_offdiag = nn.Parameter(
-            torch.zeros(self._D, self._D)
-        )
+        self.scale_offdiag = nn.Parameter(torch.zeros(self._D, self._D))
 
     def _scale_tril(self) -> torch.Tensor:
         """Build the Cholesky factor: strictly-lower-triangular
@@ -251,8 +242,7 @@ class AutoLowRankMultivariateNormalGuide(_MVNCommon):
         super().__init__(model, observed_names)
         if rank < 1:
             raise ValueError(
-                f"AutoLowRankMultivariateNormalGuide: rank must be "
-                f">= 1, got {rank}"
+                f"AutoLowRankMultivariateNormalGuide: rank must be >= 1, got {rank}"
             )
         if rank > self._D:
             raise ValueError(
@@ -264,9 +254,7 @@ class AutoLowRankMultivariateNormalGuide(_MVNCommon):
         init_diag = torch.full((self._D,), float(init_scale))
         init_diag_raw = torch.log(torch.expm1(init_diag.clamp(min=1e-6)))
         self.cov_diag_raw = nn.Parameter(init_diag_raw)
-        self.cov_factor = nn.Parameter(
-            torch.zeros(self._D, rank)
-        )
+        self.cov_factor = nn.Parameter(torch.zeros(self._D, rank))
 
     def _base_dist(self) -> D.Distribution:
         cov_diag = F.softplus(self.cov_diag_raw) + 1e-6

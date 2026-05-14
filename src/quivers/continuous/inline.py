@@ -1211,16 +1211,12 @@ def _build_generic_fixed_factory(spec: FamilySpec) -> Callable:
         clamped_floats = []
         for param, val in zip(spec.params, literal_args):
             f = float(val)
-            clamped_floats.append(
-                float(param.inline_clamp(torch.tensor(f)).item())
-            )
+            clamped_floats.append(float(param.inline_clamp(torch.tensor(f)).item()))
 
         def builder(batch: int, device: torch.device) -> D.Distribution:
             kwargs = {}
             for param, val in zip(spec.params, clamped_floats):
-                kwargs[param.name] = torch.full(
-                    (batch, d), val, device=device
-                )
+                kwargs[param.name] = torch.full((batch, d), val, device=device)
             return spec.dist_class(**kwargs)
 
         return FixedDistribution(

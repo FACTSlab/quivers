@@ -86,9 +86,7 @@ class _MassMatrix:
                 f"diagonal, dense; got {kind!r}"
             )
 
-    def sample_momentum(
-        self, generator: torch.Generator | None = None
-    ) -> torch.Tensor:
+    def sample_momentum(self, generator: torch.Generator | None = None) -> torch.Tensor:
         """Draw :math:`p \\sim \\mathcal{N}(0, M)` (note: not
         :math:`M^{-1}`; momentum precision is the *mass* matrix)."""
         if self.kind == "identity":
@@ -221,17 +219,12 @@ class HMCKernel(MCMCKernel):
         adapt_mass_matrix: bool = True,
     ) -> None:
         if step_size <= 0:
-            raise ValueError(
-                f"HMCKernel: step_size must be > 0, got {step_size}"
-            )
+            raise ValueError(f"HMCKernel: step_size must be > 0, got {step_size}")
         if num_steps < 1:
-            raise ValueError(
-                f"HMCKernel: num_steps must be >= 1, got {num_steps}"
-            )
+            raise ValueError(f"HMCKernel: num_steps must be >= 1, got {num_steps}")
         if not 0.0 < target_accept < 1.0:
             raise ValueError(
-                f"HMCKernel: target_accept must be in (0, 1), "
-                f"got {target_accept}"
+                f"HMCKernel: target_accept must be in (0, 1), got {target_accept}"
             )
         self._step_size = step_size
         self._num_steps = num_steps
@@ -239,9 +232,7 @@ class HMCKernel(MCMCKernel):
         self._target_accept = target_accept
         self._divergence_threshold = divergence_threshold
         self._adapt_step_size = adapt_step_size
-        self._adapt_mass_matrix = (
-            adapt_mass_matrix and mass_matrix != "identity"
-        )
+        self._adapt_mass_matrix = adapt_mass_matrix and mass_matrix != "identity"
         self._mass: _MassMatrix | None = None
         self._dual_avg: DualAveraging | None = None
         self._welford: WelfordCovariance | None = None
@@ -360,11 +351,19 @@ class _NUTSBuildTreeResult:
     """Internal accumulator returned by the recursive tree builder."""
 
     __slots__ = (
-        "z_minus", "p_minus", "grad_minus",
-        "z_plus", "p_plus", "grad_plus",
-        "z_proposal", "log_density_proposal",
-        "log_weight", "n_proposals",
-        "terminated", "sum_accept_prob", "n_accept_steps",
+        "z_minus",
+        "p_minus",
+        "grad_minus",
+        "z_plus",
+        "p_plus",
+        "grad_plus",
+        "z_proposal",
+        "log_density_proposal",
+        "log_weight",
+        "n_proposals",
+        "terminated",
+        "sum_accept_prob",
+        "n_accept_steps",
     )
 
     def __init__(
@@ -448,17 +447,14 @@ class NUTSKernel(MCMCKernel):
         adapt_mass_matrix: bool = True,
     ) -> None:
         if step_size <= 0:
-            raise ValueError(
-                f"NUTSKernel: step_size must be > 0, got {step_size}"
-            )
+            raise ValueError(f"NUTSKernel: step_size must be > 0, got {step_size}")
         if max_tree_depth < 1:
             raise ValueError(
                 f"NUTSKernel: max_tree_depth must be >= 1, got {max_tree_depth}"
             )
         if not 0.0 < target_accept < 1.0:
             raise ValueError(
-                f"NUTSKernel: target_accept must be in (0, 1), "
-                f"got {target_accept}"
+                f"NUTSKernel: target_accept must be in (0, 1), got {target_accept}"
             )
         self._step_size = step_size
         self._max_depth = max_tree_depth
@@ -466,9 +462,7 @@ class NUTSKernel(MCMCKernel):
         self._target_accept = target_accept
         self._divergence_threshold = divergence_threshold
         self._adapt_step_size = adapt_step_size
-        self._adapt_mass_matrix = (
-            adapt_mass_matrix and mass_matrix != "identity"
-        )
+        self._adapt_mass_matrix = adapt_mass_matrix and mass_matrix != "identity"
         self._mass: _MassMatrix | None = None
         self._dual_avg: DualAveraging | None = None
         self._welford: WelfordCovariance | None = None
@@ -536,7 +530,13 @@ class NUTSKernel(MCMCKernel):
         if depth == 0:
             # Base case: single leapfrog step.
             z1, p1, ld1, g1 = _leapfrog(
-                z, p, grad, eps * direction, 1, potential, self._mass  # type: ignore[arg-type]
+                z,
+                p,
+                grad,
+                eps * direction,
+                1,
+                potential,
+                self._mass,  # type: ignore[arg-type]
             )
             assert self._mass is not None
             h1 = float(-ld1 + self._mass.kinetic(p1))
@@ -685,16 +685,30 @@ class NUTSKernel(MCMCKernel):
             direction = 1 if torch.rand(()).item() > 0.5 else -1
             if direction == -1:
                 subtree = self._build_tree(
-                    z_minus, p_minus, grad_minus,
-                    log_u, direction, depth, h0, potential, eps,
+                    z_minus,
+                    p_minus,
+                    grad_minus,
+                    log_u,
+                    direction,
+                    depth,
+                    h0,
+                    potential,
+                    eps,
                 )
                 z_minus = subtree.z_minus
                 p_minus = subtree.p_minus
                 grad_minus = subtree.grad_minus
             else:
                 subtree = self._build_tree(
-                    z_plus, p_plus, grad_plus,
-                    log_u, direction, depth, h0, potential, eps,
+                    z_plus,
+                    p_plus,
+                    grad_plus,
+                    log_u,
+                    direction,
+                    depth,
+                    h0,
+                    potential,
+                    eps,
                 )
                 z_plus = subtree.z_plus
                 p_plus = subtree.p_plus
@@ -708,9 +722,7 @@ class NUTSKernel(MCMCKernel):
                 # ``max(a, b) + log1p(exp(min - max))``. This avoids
                 # log(0) when both terms underflow to zero, which
                 # happens routinely on ill-conditioned posteriors.
-                if math.isfinite(log_weight) and math.isfinite(
-                    subtree.log_weight
-                ):
+                if math.isfinite(log_weight) and math.isfinite(subtree.log_weight):
                     a = max(log_weight, subtree.log_weight)
                     b = min(log_weight, subtree.log_weight)
                     log_total = a + math.log1p(math.exp(b - a))

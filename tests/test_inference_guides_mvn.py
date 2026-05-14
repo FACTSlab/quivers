@@ -102,9 +102,7 @@ def test_lowrank_rsample_shapes_match_autonormal() -> None:
     model = _hierarchical_model()
     obs_names = {"r"}
     g_normal = AutoNormalGuide(model, observed_names=obs_names)
-    g_lr = AutoLowRankMultivariateNormalGuide(
-        model, observed_names=obs_names, rank=2
-    )
+    g_lr = AutoLowRankMultivariateNormalGuide(model, observed_names=obs_names, rank=2)
     s_normal = g_normal.rsample(torch.zeros(1, 1))
     s_lr = g_lr.rsample(torch.zeros(1, 1))
     assert set(s_normal.keys()) == set(s_lr.keys())
@@ -132,9 +130,7 @@ def test_mvn_gradients_flow_through_cholesky() -> None:
 def test_lowrank_gradients_flow_through_factor_and_diag() -> None:
     torch.manual_seed(0)
     model = _hierarchical_model()
-    guide = AutoLowRankMultivariateNormalGuide(
-        model, observed_names={"r"}, rank=3
-    )
+    guide = AutoLowRankMultivariateNormalGuide(model, observed_names={"r"}, rank=3)
     elbo = ELBO()
     loss = elbo(model, guide, torch.zeros(1, 1), _make_obs())
     loss.backward()
@@ -164,9 +160,7 @@ def test_mvn_learns_offdiagonal_correlation() -> None:
     off-diagonal entry after SVI."""
     torch.manual_seed(0)
     model = _coupled_pair_model()
-    guide = AutoMultivariateNormalGuide(
-        model, observed_names={"r"}, init_scale=0.3
-    )
+    guide = AutoMultivariateNormalGuide(model, observed_names={"r"}, init_scale=0.3)
     obs = _make_coupled_obs()
     optim = torch.optim.Adam(guide.parameters(), lr=5e-2)
     svi = SVI(model, guide, optim, ELBO(num_particles=4))
@@ -193,9 +187,7 @@ def test_mvn_learns_offdiagonal_correlation() -> None:
 def test_lowrank_full_svi_run() -> None:
     torch.manual_seed(0)
     model = _hierarchical_model()
-    guide = AutoLowRankMultivariateNormalGuide(
-        model, observed_names={"r"}, rank=2
-    )
+    guide = AutoLowRankMultivariateNormalGuide(model, observed_names={"r"}, rank=2)
     optim = torch.optim.Adam(
         list(model.parameters()) + list(guide.parameters()), lr=1e-2
     )
@@ -225,9 +217,7 @@ def test_lowrank_rejects_rank_below_one() -> None:
     torch.manual_seed(0)
     model = _hierarchical_model()
     with pytest.raises(ValueError, match="rank must be >= 1"):
-        AutoLowRankMultivariateNormalGuide(
-            model, observed_names={"r"}, rank=0
-        )
+        AutoLowRankMultivariateNormalGuide(model, observed_names={"r"}, rank=0)
 
 
 def test_lowrank_rejects_rank_exceeding_dim() -> None:
@@ -236,9 +226,7 @@ def test_lowrank_rejects_rank_exceeding_dim() -> None:
     torch.manual_seed(0)
     model = _hierarchical_model()
     with pytest.raises(ValueError, match="rank.*cannot exceed"):
-        AutoLowRankMultivariateNormalGuide(
-            model, observed_names={"r"}, rank=10000
-        )
+        AutoLowRankMultivariateNormalGuide(model, observed_names={"r"}, rank=10000)
 
 
 def test_mvn_log_prob_raises_on_missing_site() -> None:

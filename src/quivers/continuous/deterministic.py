@@ -141,12 +141,8 @@ def cholesky_quad_form(dim: int) -> ContinuousMorphism:
         mask = torch.tril(torch.ones(dim, dim, device=xs.device, dtype=xs.dtype))
         L = L * mask
         R = L @ L.transpose(-1, -2)
-        D = scale_vec.unsqueeze(-1) * torch.eye(
-            dim, device=xs.device, dtype=xs.dtype
-        )
+        D = scale_vec.unsqueeze(-1) * torch.eye(dim, device=xs.device, dtype=xs.dtype)
         cov = D @ R @ D
         return cov.reshape(batch, dim * dim)
 
-    return _DeterministicMorphism(
-        source, target, _apply, name="cholesky_quad_form"
-    )
+    return _DeterministicMorphism(source, target, _apply, name="cholesky_quad_form")

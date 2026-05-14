@@ -65,13 +65,11 @@ class DualAveraging:
     ) -> None:
         if initial_step_size <= 0:
             raise ValueError(
-                f"DualAveraging: initial_step_size must be > 0, "
-                f"got {initial_step_size}"
+                f"DualAveraging: initial_step_size must be > 0, got {initial_step_size}"
             )
         if not 0.0 < target_accept < 1.0:
             raise ValueError(
-                f"DualAveraging: target_accept must be in (0, 1), "
-                f"got {target_accept}"
+                f"DualAveraging: target_accept must be in (0, 1), got {target_accept}"
             )
         self._mu = math.log(10.0 * initial_step_size)
         self._target_accept = target_accept
@@ -100,15 +98,13 @@ class DualAveraging:
         self._step_count += 1
         m = float(self._step_count)
         eta_h = 1.0 / (m + self._t0)
-        self._h_bar = (
-            (1.0 - eta_h) * self._h_bar
-            + eta_h * (self._target_accept - acceptance_prob)
+        self._h_bar = (1.0 - eta_h) * self._h_bar + eta_h * (
+            self._target_accept - acceptance_prob
         )
         self._log_step = self._mu - math.sqrt(m) / self._gamma * self._h_bar
         eta_step = m ** (-self._kappa)
         self._log_step_smoothed = (
-            eta_step * self._log_step
-            + (1.0 - eta_step) * self._log_step_smoothed
+            eta_step * self._log_step + (1.0 - eta_step) * self._log_step_smoothed
         )
 
     @property
@@ -153,9 +149,7 @@ class WelfordCovariance:
         diagonal: bool = False,
     ) -> None:
         if dim < 1:
-            raise ValueError(
-                f"WelfordCovariance: dim must be >= 1, got {dim}"
-            )
+            raise ValueError(f"WelfordCovariance: dim must be >= 1, got {dim}")
         self._dim = dim
         self._regularise = regularise
         self._diagonal = diagonal
@@ -253,7 +247,7 @@ def find_reasonable_step_size(
         log_accept = -float("inf")
     direction = 1 if log_accept > target_log_accept else -1
     for _ in range(100):
-        eps = eps * (2.0 ** direction)
+        eps = eps * (2.0**direction)
         if eps < 1e-10 or eps > 1e10:
             break
         z1 = z + eps * p + 0.5 * eps * eps * g0
@@ -264,9 +258,8 @@ def find_reasonable_step_size(
         new_log_accept = float(h1 - h0)
         if not math.isfinite(new_log_accept):
             new_log_accept = -float("inf")
-        crossed = (
-            (direction == 1 and new_log_accept < target_log_accept)
-            or (direction == -1 and new_log_accept > target_log_accept)
+        crossed = (direction == 1 and new_log_accept < target_log_accept) or (
+            direction == -1 and new_log_accept > target_log_accept
         )
         log_accept = new_log_accept
         if crossed:

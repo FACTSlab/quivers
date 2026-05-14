@@ -34,9 +34,7 @@ from tests.benchmarks.references import (
 
 
 def _train(model, guide, obs, *, steps: int = 800, lr: float = 5e-2) -> None:
-    optim = torch.optim.Adam(
-        list(model.parameters()) + list(guide.parameters()), lr=lr
-    )
+    optim = torch.optim.Adam(list(model.parameters()) + list(guide.parameters()), lr=lr)
     svi = SVI(model, guide, optim, ELBO())
     for _ in range(steps):
         svi.step(torch.zeros(1, 1), obs)

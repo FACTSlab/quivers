@@ -42,9 +42,7 @@ from tests.benchmarks.references import (
 
 
 def _train(model, guide, obs, *, steps: int = 600, lr: float = 5e-2) -> None:
-    optim = torch.optim.Adam(
-        list(model.parameters()) + list(guide.parameters()), lr=lr
-    )
+    optim = torch.optim.Adam(list(model.parameters()) + list(guide.parameters()), lr=lr)
     svi = SVI(model, guide, optim, ELBO())
     for _ in range(steps):
         svi.step(torch.zeros(1, 1), obs)
@@ -54,9 +52,7 @@ def _joint_samples(guide, sites: tuple[str, ...], n: int = 1500) -> torch.Tensor
     rows = []
     for _ in range(n):
         d = guide.rsample(torch.zeros(1, 1))
-        rows.append(
-            torch.stack([d[s].detach().reshape(-1)[0] for s in sites])
-        )
+        rows.append(torch.stack([d[s].detach().reshape(-1)[0] for s in sites]))
     return torch.stack(rows, dim=0)
 
 
@@ -98,9 +94,7 @@ def test_mvn_recovers_correlation() -> None:
     _train(data.model, guide, data.observations, steps=800, lr=5e-2)
     samples = _joint_samples(guide, ("a", "b"))
     err = correlation_error(samples, float(ref["correlation"]))
-    assert err < 0.15, (
-        f"AutoMVN / CorrelatedMVN: correlation error {err:.4f} > 0.15"
-    )
+    assert err < 0.15, f"AutoMVN / CorrelatedMVN: correlation error {err:.4f} > 0.15"
 
 
 def test_hmc_recovers_correlation_and_means() -> None:
@@ -108,11 +102,17 @@ def test_hmc_recovers_correlation_and_means() -> None:
     data = correlated_regression()
     ref = correlated_regression_reference(data)
     kernel = HMCKernel(
-        step_size=0.1, num_steps=15, mass_matrix="diagonal",
-        adapt_step_size=True, adapt_mass_matrix=True,
+        step_size=0.1,
+        num_steps=15,
+        mass_matrix="diagonal",
+        adapt_step_size=True,
+        adapt_mass_matrix=True,
     )
     driver = MCMC(
-        kernel=kernel, num_warmup=200, num_samples=600, num_chains=2,
+        kernel=kernel,
+        num_warmup=200,
+        num_samples=600,
+        num_chains=2,
         init_strategy="zero",
     )
     result = driver.run(data.model, torch.zeros(1, 1), data.observations)

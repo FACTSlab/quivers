@@ -31,9 +31,7 @@ from tests.benchmarks.references import eight_schools_reference
 
 
 def _train_svi(model, guide, obs, *, steps: int = 1000, lr: float = 3e-2) -> None:
-    optim = torch.optim.Adam(
-        list(model.parameters()) + list(guide.parameters()), lr=lr
-    )
+    optim = torch.optim.Adam(list(model.parameters()) + list(guide.parameters()), lr=lr)
     svi = SVI(model, guide, optim, ELBO())
     for _ in range(steps):
         svi.step(torch.zeros(1, 1), obs)
@@ -66,8 +64,7 @@ def test_autonormal_centered_recovers_mu_within_band() -> None:
     # mean-field underfit on tau which propagates to mu.
     tol = 3.0 * float(ref["mu_std"])
     assert err < tol, (
-        f"AutoNormalGuide / Eight-Schools (centered): "
-        f"mu error {err:.4f} > {tol:.4f}"
+        f"AutoNormalGuide / Eight-Schools (centered): mu error {err:.4f} > {tol:.4f}"
     )
 
 
@@ -83,8 +80,7 @@ def test_autonormal_centered_tau_does_not_collapse_to_zero() -> None:
     samples = _guide_scalar_samples(guide, site="tau")
     tau_mean = float(samples.mean())
     assert tau_mean > 0.3, (
-        f"AutoNormalGuide / Eight-Schools (centered): tau collapsed "
-        f"to {tau_mean:.4f}"
+        f"AutoNormalGuide / Eight-Schools (centered): tau collapsed to {tau_mean:.4f}"
     )
 
 
@@ -147,6 +143,5 @@ def test_nuts_noncentered_recovers_mu() -> None:
     err = abs(float(samples.mean()) - float(ref["mu_mean"]))
     tol = 2.0 * float(ref["mu_std"])
     assert err < tol, (
-        f"NUTS / Eight-Schools (non-centered): mu error {err:.4f} > "
-        f"{tol:.4f}"
+        f"NUTS / Eight-Schools (non-centered): mu error {err:.4f} > {tol:.4f}"
     )

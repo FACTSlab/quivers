@@ -254,9 +254,7 @@ class LatentRegistry:
                     support = morph_cm.support
                     plate_index_size = 0
 
-                unconstrained_dim = _unconstrained_event_dim(
-                    support, constrained_dim
-                )
+                unconstrained_dim = _unconstrained_event_dim(support, constrained_dim)
                 bijector = biject_to(support)
 
                 flat_length = (
@@ -341,9 +339,7 @@ class LatentRegistry:
     # Flatten / unflatten between dicts and a single vector
     # ------------------------------------------------------------------
 
-    def unflatten_unconstrained(
-        self, vec: torch.Tensor
-    ) -> dict[str, torch.Tensor]:
+    def unflatten_unconstrained(self, vec: torch.Tensor) -> dict[str, torch.Tensor]:
         """Reshape a flat unconstrained vector into per-site
         unconstrained tensors.
 
@@ -372,9 +368,7 @@ class LatentRegistry:
             out[site.name] = chunk.reshape(*vec.shape[:-1], *site.unconstrained_shape)
         return out
 
-    def flatten_unconstrained(
-        self, sites: dict[str, torch.Tensor]
-    ) -> torch.Tensor:
+    def flatten_unconstrained(self, sites: dict[str, torch.Tensor]) -> torch.Tensor:
         """Concatenate per-site unconstrained tensors into a single
         flat vector.
 
@@ -387,8 +381,7 @@ class LatentRegistry:
         for site in self._sites.values():
             if site.name not in sites:
                 raise KeyError(
-                    f"LatentRegistry.flatten_unconstrained: missing "
-                    f"site {site.name!r}"
+                    f"LatentRegistry.flatten_unconstrained: missing site {site.name!r}"
                 )
             t = sites[site.name]
             trail = len(site.unconstrained_shape)
@@ -437,17 +430,12 @@ class LatentRegistry:
         for site in self._sites.values():
             if site.name not in unconstrained:
                 raise KeyError(
-                    f"LatentRegistry.to_constrained: missing site "
-                    f"{site.name!r}"
+                    f"LatentRegistry.to_constrained: missing site {site.name!r}"
                 )
             z = unconstrained[site.name]
             v = site.bijector(z)
             log_abs_dets[site.name] = site.bijector.log_abs_det_jacobian(z, v)
-            if (
-                site.constrained_dim == 1
-                and v.dim() >= 1
-                and v.shape[-1] == 1
-            ):
+            if site.constrained_dim == 1 and v.dim() >= 1 and v.shape[-1] == 1:
                 v = v.squeeze(-1)
             constrained[site.name] = v
         return constrained, log_abs_dets
@@ -461,14 +449,10 @@ class LatentRegistry:
         for site in self._sites.values():
             if site.name not in constrained:
                 raise KeyError(
-                    f"LatentRegistry.to_unconstrained: missing site "
-                    f"{site.name!r}"
+                    f"LatentRegistry.to_unconstrained: missing site {site.name!r}"
                 )
             v = constrained[site.name]
-            if (
-                site.constrained_dim == 1
-                and v.dim() == (1 if site.is_plate else 0)
-            ):
+            if site.constrained_dim == 1 and v.dim() == (1 if site.is_plate else 0):
                 v = v.unsqueeze(-1)
             z = site.bijector.inv(v)
             log_abs_dets[site.name] = site.bijector.inv.log_abs_det_jacobian(v, z)

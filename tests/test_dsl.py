@@ -641,9 +641,7 @@ class TestCompilerContinuous:
         """Compile a continuous Dirichlet morphism."""
         from quivers.continuous.families import ConditionalDirichlet
 
-        ast = parse(
-            "object X : 3\nspace S : Simplex(4)\nkernel g : X -> S ~ Dirichlet"
-        )
+        ast = parse("object X : 3\nspace S : Simplex(4)\nkernel g : X -> S ~ Dirichlet")
         compiler = Compiler(ast)
         env = compiler.compile_env()
         assert isinstance(env["g"], ConditionalDirichlet)
@@ -663,9 +661,7 @@ class TestCompilerContinuous:
         """Compile a continuous Beta morphism."""
         from quivers.continuous.families import ConditionalBeta
 
-        ast = parse(
-            "object X : 3\nspace R2 : Euclidean(2)\nkernel b : X -> R2 ~ Beta"
-        )
+        ast = parse("object X : 3\nspace R2 : Euclidean(2)\nkernel b : X -> R2 ~ Beta")
         compiler = Compiler(ast)
         env = compiler.compile_env()
         assert isinstance(env["b"], ConditionalBeta)
@@ -828,7 +824,9 @@ class TestContinuousDSLIntegration:
             "FisherSnedecor",
         ]
         for family in unbounded_families:
-            source = f"object X : 3\nspace R : Euclidean(2)\nkernel f : X -> R ~ {family}\n"
+            source = (
+                f"object X : 3\nspace R : Euclidean(2)\nkernel f : X -> R ~ {family}\n"
+            )
             ast = parse(source)
             env = Compiler(ast).compile_env()
             assert "f" in env, f"family {family} not compiled"
@@ -841,7 +839,9 @@ class TestContinuousDSLIntegration:
     def test_multivariate_families_via_dsl(self):
         """MultivariateNormal and LowRankMVN via DSL."""
         for family in ["MultivariateNormal", "LowRankMVN"]:
-            source = f"object X : 3\nspace R : Euclidean(4)\nkernel f : X -> R ~ {family}\n"
+            source = (
+                f"object X : 3\nspace R : Euclidean(4)\nkernel f : X -> R ~ {family}\n"
+            )
             ast = parse(source)
             env = Compiler(ast).compile_env()
             assert "f" in env
@@ -2999,9 +2999,7 @@ class TestAxisRoleSurface:
         # kernel_decl, so a lookup kernel can't even parse with an axis
         # clause — this test asserts that grammar contract by parsing
         # the well-formed lookup variant and confirming axes is None.
-        m = parse(
-            "object S : 8\nkernel trans : S -> S\nexport trans\n"
-        )
+        m = parse("object S : 8\nkernel trans : S -> S\nexport trans\n")
         decls = [s for s in m.statements if isinstance(s, KernelDecl)]
         assert decls and decls[0].axes is None
 
@@ -3026,6 +3024,7 @@ class TestAxisRoleSurface:
         morphism's named factors and constructs the family with the
         correct Kronecker shape."""
         from quivers.dsl import Compiler
+
         ast = parse(
             "space SD : Euclidean(32)\nspace SK : Euclidean(64)\n"
             "kernel W : SD -> SK ~ MatrixNormal over (dom, cod)\n"

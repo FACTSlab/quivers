@@ -58,8 +58,7 @@ class AutoMixtureGuide(Guide):
         super().__init__()
         if len(components) < 2:
             raise ValueError(
-                f"AutoMixtureGuide: need at least 2 components, "
-                f"got {len(components)}"
+                f"AutoMixtureGuide: need at least 2 components, got {len(components)}"
             )
         reference = components[0]
         ref_names = tuple(reference.registry.names)
@@ -80,9 +79,7 @@ class AutoMixtureGuide(Guide):
         self.components = nn.ModuleList(components)
         self.mixture_logits = nn.Parameter(torch.zeros(len(components)))
         self._temperature: torch.Tensor
-        self.register_buffer(
-            "_temperature", torch.tensor(float(init_temperature))
-        )
+        self.register_buffer("_temperature", torch.tensor(float(init_temperature)))
 
     @property
     def num_components(self) -> int:
@@ -97,8 +94,7 @@ class AutoMixtureGuide(Guide):
         """Anneal the Gumbel-Softmax temperature."""
         if value <= 0.0:
             raise ValueError(
-                f"AutoMixtureGuide.set_temperature: must be positive, "
-                f"got {value}"
+                f"AutoMixtureGuide.set_temperature: must be positive, got {value}"
             )
         self._temperature.fill_(float(value))
 
@@ -135,9 +131,7 @@ class AutoMixtureGuide(Guide):
                 dim=0,
             )
             # Broadcast w against the stacked shape.
-            broadcast_shape = (
-                self.num_components,
-            ) + (1,) * (stacked.dim() - 1)
+            broadcast_shape = (self.num_components,) + (1,) * (stacked.dim() - 1)
             result[site_name] = (w.reshape(broadcast_shape) * stacked).sum(dim=0)
         return result
 
@@ -164,9 +158,7 @@ class AutoMixtureGuide(Guide):
         component_log_probs = torch.stack(
             [comp.log_prob(x, sites) for comp in self.components], dim=0
         )
-        return torch.logsumexp(
-            log_pi.unsqueeze(-1) + component_log_probs, dim=0
-        )
+        return torch.logsumexp(log_pi.unsqueeze(-1) + component_log_probs, dim=0)
 
     @property
     def latent_names(self) -> list[str]:

@@ -36,9 +36,7 @@ def test_posterior_mean_error_1d_returns_absolute_difference() -> None:
 def test_posterior_mean_error_multivariate() -> None:
     samples = torch.tensor([[0.0, 0.0], [2.0, 2.0]])  # mean (1.0, 1.0)
     true_mean = torch.tensor([1.0, 1.0])
-    assert math.isclose(
-        posterior_mean_error(samples, true_mean), 0.0, abs_tol=1e-6
-    )
+    assert math.isclose(posterior_mean_error(samples, true_mean), 0.0, abs_tol=1e-6)
 
 
 def test_posterior_variance_error_returns_unsigned_difference() -> None:

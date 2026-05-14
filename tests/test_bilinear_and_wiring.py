@@ -147,9 +147,7 @@ def test_einsum_wiring_ternary_against_manual_computation() -> None:
     for o in range(4):
         for p in range(2):
             for q in range(3):
-                expected[0, o] += (
-                    arg1[0, p] * arg2[0, q] * kernel[p, q, o]
-                )
+                expected[0, o] += arg1[0, p] * arg2[0, q] * kernel[p, q, o]
     assert torch.allclose(out, expected, atol=1e-5)
 
 
@@ -164,9 +162,7 @@ def test_einsum_wiring_with_boolean_quantale() -> None:
     assert tuple(out.shape) == (2, 2)
     # a @ b @ c under Boolean: a is identity-ish, b is swap, c is
     # identity-ish. Result is the swap.
-    assert torch.allclose(
-        out, torch.tensor([[0.0, 1.0], [1.0, 0.0]]), atol=1e-6
-    )
+    assert torch.allclose(out, torch.tensor([[0.0, 1.0], [1.0, 0.0]]), atol=1e-6)
 
 
 def test_einsum_wiring_input_arity() -> None:

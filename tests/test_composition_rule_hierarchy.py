@@ -86,6 +86,7 @@ def test_semigroupoid_compose_works() -> None:
 
 def test_associativity_smoke_check_rejects_bad_op() -> None:
     """A clearly-non-associative op (subtraction) trips the check."""
+
     def sub(a, b):
         return a - b
 
@@ -95,12 +96,11 @@ def test_associativity_smoke_check_rejects_bad_op() -> None:
 
 def test_associativity_smoke_check_can_be_disabled() -> None:
     """``verify_associative=False`` bypasses the check."""
+
     def sub(a, b):
         return a - b
 
-    s = CustomSemigroupoid(
-        "Sub", sub, _max_reduce, verify_associative=False
-    )
+    s = CustomSemigroupoid("Sub", sub, _max_reduce, verify_associative=False)
     assert s.name == "Sub"
 
 

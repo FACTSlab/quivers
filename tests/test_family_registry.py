@@ -181,7 +181,10 @@ def test_new_conditional_classes_rsample_and_score() -> None:
     for cls_name, support_check in [
         ("ConditionalPoisson", lambda t: (t >= 0).all() and t.dtype == torch.long),
         ("ConditionalGeometric", lambda t: (t >= 0).all() and t.dtype == torch.long),
-        ("ConditionalNegativeBinomial", lambda t: (t >= 0).all() and t.dtype == torch.long),
+        (
+            "ConditionalNegativeBinomial",
+            lambda t: (t >= 0).all() and t.dtype == torch.long,
+        ),
         ("ConditionalVonMises", lambda t: torch.isfinite(t).all()),
     ]:
         cls = getattr(families, cls_name)

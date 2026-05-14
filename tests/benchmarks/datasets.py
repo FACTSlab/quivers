@@ -64,8 +64,11 @@ def normal_normal(
         model=model,
         observations={"y": y},
         true_params={
-            "mu": true_mu, "sigma": sigma,
-            "mu0": 0.0, "tau0": 1.0, "N": N,
+            "mu": true_mu,
+            "sigma": sigma,
+            "mu0": 0.0,
+            "tau0": 1.0,
+            "N": N,
         },
     )
 
@@ -88,8 +91,13 @@ def normal_inverse_gamma(
         model=model,
         observations={"y": y},
         true_params={
-            "mu": true_mu, "sigma2": true_sigma2,
-            "mu0": 0.0, "kappa0": 1.0, "a0": 3.0, "b0": 2.0, "N": N,
+            "mu": true_mu,
+            "sigma2": true_sigma2,
+            "mu0": 0.0,
+            "kappa0": 1.0,
+            "a0": 3.0,
+            "b0": 2.0,
+            "N": N,
         },
     )
 
@@ -128,7 +136,10 @@ def bayes_linear_regression(
         model=model,
         observations={"y": y, "x_design": x_design},
         true_params={
-            "a": true_a, "b": true_b, "sigma": sigma, "N": N,
+            "a": true_a,
+            "b": true_b,
+            "sigma": sigma,
+            "N": N,
             "x_design": x_design,
         },
     )
@@ -140,9 +151,7 @@ def bayes_linear_regression(
 
 
 # Canonical Eight Schools data (Rubin 1981, Gelman et al. 2013).
-_EIGHT_SCHOOLS_Y = torch.tensor(
-    [28.0, 8.0, -3.0, 7.0, -1.0, 1.0, 18.0, 12.0]
-)
+_EIGHT_SCHOOLS_Y = torch.tensor([28.0, 8.0, -3.0, 7.0, -1.0, 1.0, 18.0, 12.0])
 
 
 def eight_schools_centered(seed: int = 0) -> BenchmarkData:
@@ -189,8 +198,11 @@ def correlated_regression(
         model=model,
         observations={"y": y, "x_design": x_design},
         true_params={
-            "a": true_a, "b": true_b, "sigma": sigma,
-            "correlation_strength": correlation_strength, "N": N,
+            "a": true_a,
+            "b": true_b,
+            "sigma": sigma,
+            "correlation_strength": correlation_strength,
+            "N": N,
             "x_design": x_design,
         },
     )
@@ -275,12 +287,19 @@ def truncated_normal_recovery(
 __all__ = [
     "BenchmarkData",
     # Tier 1
-    "beta_bernoulli", "normal_normal", "normal_inverse_gamma",
-    "gamma_exponential", "bayes_linear_regression",
+    "beta_bernoulli",
+    "normal_normal",
+    "normal_inverse_gamma",
+    "gamma_exponential",
+    "bayes_linear_regression",
     # Tier 2
-    "eight_schools_centered", "eight_schools_noncentered",
+    "eight_schools_centered",
+    "eight_schools_noncentered",
     # Tier 3
-    "correlated_regression", "neal_funnel", "ill_conditioned_mvn",
+    "correlated_regression",
+    "neal_funnel",
+    "ill_conditioned_mvn",
     # Tier 6
-    "half_normal_scale", "truncated_normal_recovery",
+    "half_normal_scale",
+    "truncated_normal_recovery",
 ]

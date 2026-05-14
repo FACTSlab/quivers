@@ -30,7 +30,10 @@ def test_predictive_with_mcmc_result_iterates_posterior_draws() -> None:
     y = torch.randn(12) + 1.0
     kernel = HMCKernel(step_size=0.1, num_steps=10, mass_matrix="identity")
     driver = MCMC(
-        kernel=kernel, num_warmup=50, num_samples=30, num_chains=2,
+        kernel=kernel,
+        num_warmup=50,
+        num_samples=30,
+        num_chains=2,
         init_strategy="zero",
     )
     result = driver.run(model, torch.zeros(1, 1), {"y": y})
@@ -50,7 +53,10 @@ def test_predictive_caps_num_samples_at_mcmc_draw_count() -> None:
     y = torch.randn(12) + 1.0
     kernel = HMCKernel(step_size=0.1, num_steps=5, mass_matrix="identity")
     driver = MCMC(
-        kernel=kernel, num_warmup=10, num_samples=15, num_chains=1,
+        kernel=kernel,
+        num_warmup=10,
+        num_samples=15,
+        num_chains=1,
         init_strategy="zero",
     )
     result = driver.run(model, torch.zeros(1, 1), {"y": y})

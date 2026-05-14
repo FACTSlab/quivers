@@ -51,9 +51,7 @@ class TestReductionParameter:
         ll = torch.randn(6, 3)
         idx = torch.tensor([0, 0, 1, 1, 2, 2])
         log_prior = torch.log(torch.ones(3) / 3)
-        out = marginalize_grouped(
-            ll, idx, log_prior, 3, reduction="sum"
-        )
+        out = marginalize_grouped(ll, idx, log_prior, 3, reduction="sum")
         grouped = torch.zeros(3, 3)
         grouped = grouped.index_add(0, idx, ll)
         expected = (log_prior + grouped).sum()
@@ -64,9 +62,7 @@ class TestReductionParameter:
         ll = torch.randn(6, 3)
         idx = torch.tensor([0, 0, 1, 1, 2, 2])
         log_prior = torch.log(torch.ones(3) / 3)
-        out = marginalize_grouped(
-            ll, idx, log_prior, 3, reduction="mean"
-        )
+        out = marginalize_grouped(ll, idx, log_prior, 3, reduction="mean")
         grouped = torch.zeros(3, 3)
         grouped = grouped.index_add(0, idx, ll)
         expected = (log_prior + grouped).mean(dim=-1).sum()
@@ -77,9 +73,7 @@ class TestReductionParameter:
         idx = torch.tensor([0, 0])
         log_prior = torch.log(torch.ones(3) / 3)
         with pytest.raises(ValueError, match="reduction"):
-            marginalize_grouped(
-                ll, idx, log_prior, 1, reduction="not_a_reduction"
-            )
+            marginalize_grouped(ll, idx, log_prior, 1, reduction="not_a_reduction")
 
 
 # ---------------------------------------------------------------------------
@@ -100,9 +94,7 @@ class TestProductFibration:
         idx = torch.tensor([0, 1, 2, 0, 1, 2])
         log_prior = torch.log(torch.ones(3) / 3)
         scalar = marginalize_grouped(ll, idx, log_prior, 3)
-        product = marginalize_grouped(
-            ll, (idx,), log_prior, (3,)
-        )
+        product = marginalize_grouped(ll, (idx,), log_prior, (3,))
         assert torch.allclose(scalar, product, atol=1e-6)
 
     def test_two_axis_product_matches_hand_rolled(self) -> None:
@@ -113,9 +105,7 @@ class TestProductFibration:
         idx_a = torch.tensor([0, 1, 2, 0, 1, 2, 0, 1, 2, 0, 1, 2])
         idx_b = torch.tensor([0, 0, 0, 1, 1, 1, 0, 0, 0, 1, 1, 1])
         log_prior = torch.log(torch.ones(K) / K)
-        out = marginalize_grouped(
-            ll, (idx_a, idx_b), log_prior, (G1, G2)
-        )
+        out = marginalize_grouped(ll, (idx_a, idx_b), log_prior, (G1, G2))
         # Hand-rolled reference: scatter-add over the product index.
         flat = idx_a * G2 + idx_b
         grouped = torch.zeros(G1 * G2, K)
@@ -137,9 +127,7 @@ class TestProductFibration:
             [[[0.7, 0.3], [0.4, 0.6]], [[0.5, 0.5], [0.1, 0.9]]]
         )
         log_prior = torch.log(prior_per_cell)
-        out = marginalize_grouped(
-            ll, (idx_a, idx_b), log_prior, (G1, G2)
-        )
+        out = marginalize_grouped(ll, (idx_a, idx_b), log_prior, (G1, G2))
         flat = idx_a * G2 + idx_b
         grouped = torch.zeros(G1 * G2, K)
         grouped = grouped.index_add(0, flat, ll)
@@ -152,12 +140,8 @@ class TestProductFibration:
         ll = torch.randn(4, 2)
         idx_a = torch.tensor([0, 0, 1, 1])
         log_prior = torch.log(torch.ones(2) / 2)
-        with pytest.raises(
-            ValueError, match="number of indices"
-        ):
-            marginalize_grouped(
-                ll, (idx_a, idx_a), log_prior, (2,)
-            )
+        with pytest.raises(ValueError, match="number of indices"):
+            marginalize_grouped(ll, (idx_a, idx_a), log_prior, (2,))
 
     def test_product_axis_out_of_range_raises(self) -> None:
         ll = torch.randn(4, 2)
@@ -165,9 +149,7 @@ class TestProductFibration:
         idx_b = torch.tensor([0, 0, 1, 1])
         log_prior = torch.log(torch.ones(2) / 2)
         with pytest.raises(ValueError, match="outside"):
-            marginalize_grouped(
-                ll, (idx_a, idx_b), log_prior, (3, 2)
-            )
+            marginalize_grouped(ll, (idx_a, idx_b), log_prior, (3, 2))
 
 
 # ---------------------------------------------------------------------------

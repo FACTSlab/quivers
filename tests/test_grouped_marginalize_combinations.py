@@ -268,9 +268,7 @@ class TestPrimitiveCombinations:
         idx_a = torch.tensor([0, 1, 0, 1, 0, 1])
         idx_b = torch.tensor([0, 0, 1, 1, 2, 2])
         prior = torch.log(torch.ones(K) / K)
-        out = marginalize_grouped(
-            ll, (idx_a, idx_b), prior, (G1, G2)
-        )
+        out = marginalize_grouped(ll, (idx_a, idx_b), prior, (G1, G2))
         # Hand-rolled reference: scatter along product idx, then
         # logsumexp over K, sum over flat group axis. Extra axes
         # pass through.
@@ -291,9 +289,7 @@ class TestPrimitiveCombinations:
         ll = torch.randn(N, K_extra, K)
         idx = torch.tensor([0, 0, 1, 1, 0])
         prior = torch.log(torch.ones(K) / K)
-        out = marginalize_grouped(
-            ll, idx, prior, G, reduction="sum"
-        )
+        out = marginalize_grouped(ll, idx, prior, G, reduction="sum")
         grouped = torch.zeros(G, K_extra, K)
         grouped = grouped.index_add(0, idx, ll)
         per_group = (prior + grouped).sum(dim=-1)  # (G, K_extra)
@@ -308,9 +304,7 @@ class TestPrimitiveCombinations:
         K_outer, K = 2, 3
         # Intermediate contribution: shape (K_outer, K).
         ll = torch.randn(K_outer, K)
-        prior = torch.log(
-            torch.tensor([[0.5, 0.3, 0.2], [0.1, 0.6, 0.3]])
-        )
+        prior = torch.log(torch.tensor([[0.5, 0.3, 0.2], [0.1, 0.6, 0.3]]))
         out = marginalize_grouped(
             ll,
             torch.zeros(0, dtype=torch.long),
@@ -334,9 +328,7 @@ class TestPrimitiveCombinations:
         prior_b = torch.log(torch.ones(K_b) / K_b)
         prior_a = torch.log(torch.ones(K_a) / K_a)
         # Innermost level uses logsumexp.
-        c_out = marginalize_grouped(
-            ll, idx_c, prior_c, G_c, reduction="logsumexp"
-        )
+        c_out = marginalize_grouped(ll, idx_c, prior_c, G_c, reduction="logsumexp")
         assert c_out.shape == (K_a, K_b)
         # Middle level uses sum.
         b_out = marginalize_grouped(
@@ -358,9 +350,7 @@ class TestPrimitiveCombinations:
         # Hand-rolled reference.
         grouped = torch.zeros(G_c, K_a, K_b, K_c)
         grouped = grouped.index_add(0, idx_c, ll)
-        per_group_c = torch.logsumexp(
-            prior_c + grouped, dim=-1
-        )  # (G_c, K_a, K_b)
+        per_group_c = torch.logsumexp(prior_c + grouped, dim=-1)  # (G_c, K_a, K_b)
         c_ref = per_group_c.sum(dim=0)  # (K_a, K_b)
         b_ref = (prior_b + c_ref).sum(dim=-1)  # (K_a,)
         a_ref = (prior_a + b_ref).mean(dim=-1)  # scalar

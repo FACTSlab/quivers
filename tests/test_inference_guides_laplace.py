@@ -172,8 +172,7 @@ def test_normal_normal_laplace_recovers_analytical_posterior() -> None:
         f"MAP recovered {map_estimate:.4f}; expected {true_mean:.4f}"
     )
     assert math.isclose(variance, true_var, rel_tol=0.15), (
-        f"Laplace variance recovered {variance:.4f}; expected "
-        f"{true_var:.4f}"
+        f"Laplace variance recovered {variance:.4f}; expected {true_var:.4f}"
     )
 
 
@@ -199,6 +198,4 @@ def test_laplace_rejects_zero_dim_model() -> None:
     model = loads(src).morphism
     # Mark every latent as observed to make the registry empty.
     with pytest.raises(ValueError, match="zero total"):
-        AutoLaplaceApproximation(
-            model, observed_names={"y", "mu"}
-        )
+        AutoLaplaceApproximation(model, observed_names={"y", "mu"})

@@ -370,10 +370,7 @@ def _flatten_product_indices(
     \\prod_i |G_i|``.
     """
     if not group_indices:
-        raise ValueError(
-            "_flatten_product_indices: need at least one fibration "
-            "tensor"
-        )
+        raise ValueError("_flatten_product_indices: need at least one fibration tensor")
     if len(group_indices) != len(group_sizes):
         raise ValueError(
             "_flatten_product_indices: number of indices "
@@ -413,9 +410,7 @@ def _flatten_product_indices(
 
 def marginalize_grouped(
     log_likelihood_per_row_per_class: (
-        torch.Tensor
-        | list[torch.Tensor]
-        | tuple[torch.Tensor, ...]
+        torch.Tensor | list[torch.Tensor] | tuple[torch.Tensor, ...]
     ),
     group_index: (
         torch.Tensor
@@ -537,8 +532,7 @@ def marginalize_grouped(
         )
     if reduction not in ("logsumexp", "sum", "mean"):
         raise ValueError(
-            "reduction must be one of 'logsumexp', 'sum', 'mean'; "
-            f"got {reduction!r}"
+            f"reduction must be one of 'logsumexp', 'sum', 'mean'; got {reduction!r}"
         )
     if log_likelihood_per_row_per_class.dim() < 1:
         raise ValueError(
@@ -614,9 +608,7 @@ def marginalize_grouped(
                 "group_index) requires num_groups to be a tuple of "
                 f"matching length; got {type(num_groups).__name__}"
             )
-        flat_index, total_groups = _flatten_product_indices(
-            group_index, num_groups
-        )
+        flat_index, total_groups = _flatten_product_indices(group_index, num_groups)
         # Flatten an (G_1, ..., G_r, K) prior to (G_1 * ... * G_r, K).
         if log_prior_per_group_per_class.dim() == 1:
             log_prior_flat: torch.Tensor = log_prior_per_group_per_class
@@ -716,8 +708,7 @@ def _marginalize_grouped_multi(
     """
     if reduction not in ("logsumexp", "sum", "mean"):
         raise ValueError(
-            "reduction must be one of 'logsumexp', 'sum', 'mean'; "
-            f"got {reduction!r}"
+            f"reduction must be one of 'logsumexp', 'sum', 'mean'; got {reduction!r}"
         )
     if not log_likelihoods:
         raise ValueError(
@@ -848,9 +839,7 @@ def _marginalize_grouped_multi(
                     f"have shape (*{num_groups}, K) or (K,); got "
                     f"{tuple(log_prior_per_group_per_class.shape)}"
                 )
-            prior_flat = log_prior_per_group_per_class.reshape(
-                total_groups, n_classes
-            )
+            prior_flat = log_prior_per_group_per_class.reshape(total_groups, n_classes)
         else:
             raise ValueError(
                 "marginalize_grouped: prior shape must be (K,) or "

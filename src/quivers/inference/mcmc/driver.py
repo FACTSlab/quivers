@@ -143,9 +143,7 @@ def _ess_1d(chains: torch.Tensor) -> torch.Tensor:
     sum_rho = torch.tensor(-1.0)
     t = 0
     while t < n_samples - 1:
-        pair = (
-            rho[t] + rho[t + 1] if t + 1 < n_samples else rho[t]
-        )
+        pair = rho[t] + rho[t + 1] if t + 1 < n_samples else rho[t]
         if pair.item() <= 0:
             break
         sum_rho = sum_rho + 2 * pair
@@ -204,17 +202,11 @@ class MCMC:
         init_strategy: InitStrategy = "prior",
     ) -> None:
         if num_warmup < 0:
-            raise ValueError(
-                f"MCMC: num_warmup must be >= 0, got {num_warmup}"
-            )
+            raise ValueError(f"MCMC: num_warmup must be >= 0, got {num_warmup}")
         if num_samples < 1:
-            raise ValueError(
-                f"MCMC: num_samples must be >= 1, got {num_samples}"
-            )
+            raise ValueError(f"MCMC: num_samples must be >= 1, got {num_samples}")
         if num_chains < 1:
-            raise ValueError(
-                f"MCMC: num_chains must be >= 1, got {num_chains}"
-            )
+            raise ValueError(f"MCMC: num_chains must be >= 1, got {num_chains}")
         self.kernel = kernel
         self.num_warmup = num_warmup
         self.num_samples = num_samples
@@ -233,8 +225,7 @@ class MCMC:
         if self.init_strategy == "guide":
             if guide is None:
                 raise ValueError(
-                    "MCMC.run: init_strategy='guide' requires a "
-                    "guide argument"
+                    "MCMC.run: init_strategy='guide' requires a guide argument"
                 )
             # Sample the guide once, pull out the unconstrained
             # values, flatten.
@@ -243,15 +234,11 @@ class MCMC:
             unc: dict[str, torch.Tensor] = {}
             for site in registry.sites.values():
                 v = constrained[site.name]
-                if site.constrained_dim == 1 and v.dim() == (
-                    1 if site.is_plate else 1
-                ):
+                if site.constrained_dim == 1 and v.dim() == (1 if site.is_plate else 1):
                     v_e = v.unsqueeze(-1)
                 else:
                     v_e = v
-                if not site.is_plate and v_e.dim() == len(
-                    site.unconstrained_shape
-                ) + 1:
+                if not site.is_plate and v_e.dim() == len(site.unconstrained_shape) + 1:
                     v_e = v_e[0]
                 z = site.bijector.inv(v_e)
                 unc[site.name] = z
@@ -273,11 +260,7 @@ class MCMC:
             if not site.is_plate:
                 z_site = z_site.unsqueeze(0)
             v = site.bijector(z_site)
-            if (
-                site.constrained_dim == 1
-                and v.dim() >= 1
-                and v.shape[-1] == 1
-            ):
+            if site.constrained_dim == 1 and v.dim() >= 1 and v.shape[-1] == 1:
                 v = v.squeeze(-1)
             out[site.name] = v
         return out
@@ -299,18 +282,14 @@ class MCMC:
             site.name: site.constrained_shape or (1,)
             for site in registry.sites.values()
         }
-        per_chain_samples: dict[str, list[torch.Tensor]] = {
-            n: [] for n in site_shapes
-        }
+        per_chain_samples: dict[str, list[torch.Tensor]] = {n: [] for n in site_shapes}
         per_chain_log_density = torch.empty(self.num_chains, self.num_samples)
         per_chain_accept = torch.empty(self.num_chains)
         per_chain_divergences = torch.empty(self.num_chains)
 
         for chain in range(self.num_chains):
             init_pos = self._initial_position(registry, guide, chain)
-            state = self.kernel.init(
-                registry, model, x, observations, init_pos
-            )
+            state = self.kernel.init(registry, model, x, observations, init_pos)
             divergence_count = 0
             # Warmup.
             if self.num_warmup > 0:
@@ -330,9 +309,7 @@ class MCMC:
                 diverged=False,
                 extras=state.extras,
             )
-            chain_samples: dict[str, list[torch.Tensor]] = {
-                n: [] for n in site_shapes
-            }
+            chain_samples: dict[str, list[torch.Tensor]] = {n: [] for n in site_shapes}
             sampling_divergences = 0
             sampling_accept = 0
             for s in range(self.num_samples):
@@ -345,8 +322,8 @@ class MCMC:
                 for n, v in draws.items():
                     chain_samples[n].append(v)
                 per_chain_log_density[chain, s] = sampling_state.log_density
-            per_chain_accept[chain] = (
-                sampling_state.accept_count / float(self.num_samples)
+            per_chain_accept[chain] = sampling_state.accept_count / float(
+                self.num_samples
             )
             per_chain_divergences[chain] = float(sampling_divergences)
             for n, draws_list in chain_samples.items():

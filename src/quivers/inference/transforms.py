@@ -188,9 +188,7 @@ class AffineCouplingTransform(TransformModule):
         x_b = (y_b - shift) * (-log_scale).exp()
         return self._join(y_a, x_b)
 
-    def log_abs_det_jacobian(
-        self, x: torch.Tensor, y: torch.Tensor
-    ) -> torch.Tensor:
+    def log_abs_det_jacobian(self, x: torch.Tensor, y: torch.Tensor) -> torch.Tensor:
         del y
         x_a, _ = self._split(x)
         log_scale, _ = self._params(x_a)
@@ -282,9 +280,7 @@ class MADE(nn.Module):
         if ordering is None:
             ordering = torch.arange(dim)
         if ordering.shape != (dim,) or ordering.dtype != torch.long:
-            raise TypeError(
-                "MADE: ordering must be a long tensor of shape (dim,)"
-            )
+            raise TypeError("MADE: ordering must be a long tensor of shape (dim,)")
         self._dim = dim
         self._n_per_dim = n_per_dim
         self.register_buffer("_ordering", ordering, persistent=True)
@@ -334,9 +330,7 @@ class MADE(nn.Module):
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         raw = self.net(x)
         # Reshape so trailing axes are (dim, n_per_dim).
-        return raw.reshape(*x.shape[:-1], self._n_per_dim, self._dim).transpose(
-            -1, -2
-        )
+        return raw.reshape(*x.shape[:-1], self._n_per_dim, self._dim).transpose(-1, -2)
 
 
 class MaskedAutoregressiveTransform(TransformModule):
@@ -390,9 +384,7 @@ class MaskedAutoregressiveTransform(TransformModule):
             x[..., i] = x_i
         return x
 
-    def log_abs_det_jacobian(
-        self, x: torch.Tensor, y: torch.Tensor
-    ) -> torch.Tensor:
+    def log_abs_det_jacobian(self, x: torch.Tensor, y: torch.Tensor) -> torch.Tensor:
         del y
         _, log_scale = self._params(x)
         return -log_scale.sum(dim=-1)
@@ -447,9 +439,7 @@ class InverseAutoregressiveTransform(TransformModule):
             x[..., i] = x_i
         return x
 
-    def log_abs_det_jacobian(
-        self, x: torch.Tensor, y: torch.Tensor
-    ) -> torch.Tensor:
+    def log_abs_det_jacobian(self, x: torch.Tensor, y: torch.Tensor) -> torch.Tensor:
         del y
         _, log_scale = self._params(x)
         return log_scale.sum(dim=-1)
@@ -535,9 +525,9 @@ def _rational_quadratic_spline(
         a = (out_inputs - input_cum_heights) * (
             input_derivatives + input_derivatives_plus_one - 2 * s
         ) + input_bin_heights * (s - input_derivatives)
-        b = input_bin_heights * input_derivatives - (
-            out_inputs - input_cum_heights
-        ) * (input_derivatives + input_derivatives_plus_one - 2 * s)
+        b = input_bin_heights * input_derivatives - (out_inputs - input_cum_heights) * (
+            input_derivatives + input_derivatives_plus_one - 2 * s
+        )
         c = -s * (out_inputs - input_cum_heights)
         disc = b**2 - 4 * a * c
         if (disc < 0).any():
@@ -549,9 +539,10 @@ def _rational_quadratic_spline(
         out_in_outputs = root * input_bin_widths + input_cum_widths
         theta = root
         theta_one_minus = theta * (1 - theta)
-        denom = s + (
-            input_derivatives + input_derivatives_plus_one - 2 * s
-        ) * theta_one_minus
+        denom = (
+            s
+            + (input_derivatives + input_derivatives_plus_one - 2 * s) * theta_one_minus
+        )
         derivative_numerator = s.pow(2) * (
             input_derivatives_plus_one * theta.pow(2)
             + 2 * s * theta_one_minus
@@ -564,9 +555,10 @@ def _rational_quadratic_spline(
         numerator = input_bin_heights * (
             s * theta.pow(2) + input_derivatives * theta_one_minus
         )
-        denom = s + (
-            input_derivatives + input_derivatives_plus_one - 2 * s
-        ) * theta_one_minus
+        denom = (
+            s
+            + (input_derivatives + input_derivatives_plus_one - 2 * s) * theta_one_minus
+        )
         out_in_outputs = input_cum_heights + numerator / denom
         derivative_numerator = s.pow(2) * (
             input_derivatives_plus_one * theta.pow(2)
@@ -701,9 +693,7 @@ class NeuralSplineCouplingTransform(TransformModule):
         x, _ = self._apply_spline(y, inverse=True)
         return x
 
-    def log_abs_det_jacobian(
-        self, x: torch.Tensor, y: torch.Tensor
-    ) -> torch.Tensor:
+    def log_abs_det_jacobian(self, x: torch.Tensor, y: torch.Tensor) -> torch.Tensor:
         del y
         _, log_det = self._apply_spline(x, inverse=False)
         return log_det
@@ -744,8 +734,7 @@ class LULinearTransform(TransformModule):
             perm = torch.arange(dim)
         if perm.shape != (dim,):
             raise ValueError(
-                f"LULinearTransform: perm shape {tuple(perm.shape)} "
-                f"!= ({dim},)"
+                f"LULinearTransform: perm shape {tuple(perm.shape)} != ({dim},)"
             )
         self.register_buffer("_perm", perm.long(), persistent=True)
         # The fixed permutation matrix's log-det is 0 (it's a
@@ -760,18 +749,13 @@ class LULinearTransform(TransformModule):
             torch.triu(torch.ones(dim, dim), diagonal=1),
             persistent=True,
         )
-        self.register_buffer(
-            "_eye", torch.eye(dim), persistent=True
-        )
+        self.register_buffer("_eye", torch.eye(dim), persistent=True)
 
     def _L(self) -> torch.Tensor:
         return self._lower * self._lower_mask + self._eye
 
     def _U(self) -> torch.Tensor:
-        return (
-            self._upper * self._upper_mask
-            + torch.diag(self._log_diag.exp())
-        )
+        return self._upper * self._upper_mask + torch.diag(self._log_diag.exp())
 
     def _call(self, x: torch.Tensor) -> torch.Tensor:
         # y = P L U x
@@ -790,9 +774,7 @@ class LULinearTransform(TransformModule):
         inv_perm[self._perm] = torch.arange(self._dim, device=self._perm.device)
         return x[..., inv_perm]
 
-    def log_abs_det_jacobian(
-        self, x: torch.Tensor, y: torch.Tensor
-    ) -> torch.Tensor:
+    def log_abs_det_jacobian(self, x: torch.Tensor, y: torch.Tensor) -> torch.Tensor:
         del x, y
         # det(P L U) = det(P) * det(L) * det(U) = ±1 * 1 * Π exp(log_diag)
         return self._log_diag.sum().expand(())
@@ -842,21 +824,15 @@ class BatchNormTransform(TransformModule):
     def eval(self) -> "BatchNormTransform":
         return self.train(False)
 
-    def _stats(
-        self, x: torch.Tensor
-    ) -> tuple[torch.Tensor, torch.Tensor]:
+    def _stats(self, x: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
         if self._training:
             # Compute over every axis except the last (event) axis.
             reduce_dims = tuple(range(x.dim() - 1))
             mean = x.mean(dim=reduce_dims)
             var = x.var(dim=reduce_dims, unbiased=False)
             with torch.no_grad():
-                self._running_mean.mul_(1 - self._momentum).add_(
-                    mean * self._momentum
-                )
-                self._running_var.mul_(1 - self._momentum).add_(
-                    var * self._momentum
-                )
+                self._running_mean.mul_(1 - self._momentum).add_(mean * self._momentum)
+                self._running_var.mul_(1 - self._momentum).add_(var * self._momentum)
             return mean, var
         return self._running_mean, self._running_var
 
@@ -873,9 +849,7 @@ class BatchNormTransform(TransformModule):
         x_hat = (y - self._beta) * (-self._gamma).exp()
         return x_hat * torch.sqrt(var + self._eps) + mean
 
-    def log_abs_det_jacobian(
-        self, x: torch.Tensor, y: torch.Tensor
-    ) -> torch.Tensor:
+    def log_abs_det_jacobian(self, x: torch.Tensor, y: torch.Tensor) -> torch.Tensor:
         del y
         _, var = self._stats(x)
         # Each coordinate contributes gamma - 0.5 * log(var + eps).

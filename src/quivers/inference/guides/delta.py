@@ -60,20 +60,14 @@ class AutoDeltaGuide(Guide):
     def _site_unconstrained(self, name: str) -> torch.Tensor:
         return getattr(self, f"unconstrained_{name}")
 
-    def _push_through_bijector(
-        self, site: LatentSite, batch: int
-    ) -> torch.Tensor:
+    def _push_through_bijector(self, site: LatentSite, batch: int) -> torch.Tensor:
         z = self._site_unconstrained(site.name)
         if site.is_plate:
             v = site.bijector(z)
         else:
             z_b = z.unsqueeze(0).expand(batch, *site.unconstrained_shape)
             v = site.bijector(z_b)
-        if (
-            site.constrained_dim == 1
-            and v.dim() >= 1
-            and v.shape[-1] == 1
-        ):
+        if site.constrained_dim == 1 and v.dim() >= 1 and v.shape[-1] == 1:
             v = v.squeeze(-1)
         return v
 

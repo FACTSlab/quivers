@@ -49,9 +49,7 @@ def test_from_data_binds_supplied_tensor() -> None:
     export h
     """
     data_tensor = torch.tensor(
-        [[0.1, 0.2, 0.3, 0.4],
-         [0.5, 0.6, 0.7, 0.8],
-         [0.9, 0.1, 0.2, 0.3]]
+        [[0.1, 0.2, 0.3, 0.4], [0.5, 0.6, 0.7, 0.8], [0.9, 0.1, 0.2, 0.3]]
     )
     m = loads(src, data={"H": data_tensor})
     assert m.morphism.tensor.shape == (3, 4)
