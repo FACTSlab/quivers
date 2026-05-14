@@ -1,8 +1,12 @@
 # Quivers
 
-A probabilistic programming language for PyTorch.
+A typed probabilistic programming language for PyTorch. First-class structured priors on weight matrices, scoped marginalization of discrete latents as a syntactic block, and compile-checked sample / score / marginalize effects on every program.
 
-Quivers lets you write Bayesian models in a small, readable DSL and fit them with stochastic variational inference (SVI), NUTS, HMC, or any of nine automatic guides. The program surface should look familiar if you have used Pyro, NumPyro, Stan, or PyMC: declare variables with `<-`, score observations with `observe`, integrate out discrete latents with `marginalize`, get a trainable PyTorch module back.
+You write Bayesian models in a small, readable DSL and fit them with stochastic variational inference (SVI), NUTS, HMC, or any of nine automatic guides. The program surface should look familiar if you have used Pyro, NumPyro, Stan, or PyMC: declare variables with `<-`, score observations with `observe`, integrate out discrete latents with `marginalize`, get a trainable PyTorch module back. Three things make it different:
+
+- A weight matrix can carry a real **matrix-valued prior** (Matrix-Normal, Wishart, LKJ, GP) via an axis-role clause that names which axes the family's joint covariance lives on. Factor analysis, PPCA, BNNs, and the like are written the way they're drawn on the board.
+- **Marginalization is a control-flow construct.** `marginalize z : K <- Categorical(p) in { ... }` runs the body once per discrete value of `z` and aggregates by `logsumexp`. Standard Rao-Blackwellization, spelled as syntax instead of a runtime flag.
+- **Effects are checked at compile time.** Every program declares a signature like `! Sample, Score, Marginal, Pure`. A `! Pure` block that tries to `observe` is rejected with a typed error before training begins.
 
 ```qvr
 object Item : 100
