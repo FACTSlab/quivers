@@ -81,13 +81,13 @@ The recognizer is a directed inverse of the generative kernel: where the prior i
 
 ```mermaid
 flowchart LR
-    "s_{t-1}" --> "trans_mlp_1"
-    "u_t" --> "trans_mlp_1"
-    "trans_mlp_1" --> "h_trans"
-    "h_trans" --> "trans_mlp_2"
-    "trans_mlp_2" --> "s_t"
-    "s_t" --> "emit_mlp_1"
-    "emit_mlp_1" --> "h_emit"
-    "h_emit" --> "emit_mlp_2"
-    "emit_mlp_2" --> "o_t"
+    s__t_1_["s_{t-1}"] --> trans_mlp_1["trans_mlp_1"]
+    u_t["u_t"] --> trans_mlp_1["trans_mlp_1"]
+    trans_mlp_1["trans_mlp_1"] --> h_trans["h_trans"]
+    h_trans["h_trans"] --> trans_mlp_2["trans_mlp_2"]
+    trans_mlp_2["trans_mlp_2"] --> s_t["s_t"]
+    s_t["s_t"] --> emit_mlp_1["emit_mlp_1"]
+    emit_mlp_1["emit_mlp_1"] --> h_emit["h_emit"]
+    h_emit["h_emit"] --> emit_mlp_2["emit_mlp_2"]
+    emit_mlp_2["emit_mlp_2"] --> o_t["o_t"]
 ```

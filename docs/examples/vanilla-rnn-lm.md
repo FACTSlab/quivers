@@ -33,11 +33,11 @@ Tokens are embedded into the 64-dimensional `Embedded` space, then `scan(cell)` 
 
 ```mermaid
 flowchart LR
-    "tok" --> "embed"
-    "embed" --> "scan(cell)"
-    "scan(cell)" --> "h_T"
-    "h_T" --> "lm_head"
-    "lm_head" --> "next_token"
+    tok["tok"] --> embed["embed"]
+    embed["embed"] --> scan_cell_["scan(cell)"]
+    scan_cell_["scan(cell)"] --> h_T["h_T"]
+    h_T["h_T"] --> lm_head["lm_head"]
+    lm_head["lm_head"] --> next_token["next_token"]
 ```
 
 ## Try it

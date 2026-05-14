@@ -70,14 +70,14 @@ The closing `kernel lm_head : Combined -> Target ~ Categorical` maps the combine
 
 ```mermaid
 flowchart LR
-    "src" --> "src_embed"
-    "tgt" --> "tgt_embed"
-    "src_embed" --> "encoder"
-    "tgt_embed" --> "decoder"
-    "encoder" --> "cross"
-    "decoder" --> "cross"
-    "cross" --> "lm_head"
-    "lm_head" --> "next_token"
+    src["src"] --> src_embed["src_embed"]
+    tgt["tgt"] --> tgt_embed["tgt_embed"]
+    src_embed["src_embed"] --> encoder["encoder"]
+    tgt_embed["tgt_embed"] --> decoder["decoder"]
+    encoder["encoder"] --> cross["cross"]
+    decoder["decoder"] --> cross["cross"]
+    cross["cross"] --> lm_head["lm_head"]
+    lm_head["lm_head"] --> next_token["next_token"]
 ```
 
 ## Try it

@@ -62,12 +62,12 @@ The model is a Kleisli morphism in the [Giry monad](https://doi.org/10.1007/BFb0
 
 ```mermaid
 flowchart LR
-    "u_1" --> "transition_cell"
-    "s_0" --> "transition_cell"
-    "transition_cell" --> "s_1"
-    "s_1" --> "emission"
-    "emission" --> "o_1"
-    "s_1" --> "transition_cell_2"
-    "u_2" --> "transition_cell_2"
-    "transition_cell_2" --> "s_2"
+    u_1["u_1"] --> transition_cell["transition_cell"]
+    s_0["s_0"] --> transition_cell["transition_cell"]
+    transition_cell["transition_cell"] --> s_1["s_1"]
+    s_1["s_1"] --> emission["emission"]
+    emission["emission"] --> o_1["o_1"]
+    s_1["s_1"] --> transition_cell_2["transition_cell_2"]
+    u_2["u_2"] --> transition_cell_2["transition_cell_2"]
+    transition_cell_2["transition_cell_2"] --> s_2["s_2"]
 ```
