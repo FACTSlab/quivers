@@ -2,26 +2,17 @@
 
 ## Overview
 
-The `.qvr` (quivers) DSL is a declarative language for specifying morphism networks. A `.qvr` file declares objects, spaces, morphisms, and their compositions, then compiles to a trainable `nn.Module` (the `Program`).
-
-The compilation pipeline is:
-
-```
-.qvr source
-  → panproto tree-sitter parser (qvr grammar)
-  → AST (didactic dx.Model nodes)
-  → Compiler + resolution lenses
-  → Program (nn.Module)
-```
-
-Parsing is delegated to [panproto](https://panproto.dev): the QVR tree-sitter grammar at `grammars/qvr/` is registered with the `panproto-grammars-all` distribution, and `quivers.dsl.parser` walks the panproto-produced parse tree, building a tree of `dx.Model` AST nodes (see [`ast_nodes`](../api/dsl/ast_nodes.md)). Resolution from syntactic `TypeExpr` / `SpaceExpr` trees to runtime `SetObject` / `ContinuousSpace` values is expressed as a `dx.Lens` family in [`resolution.py`](../api/dsl/resolution.md). Each compiled program also extracts to a panproto `Schema` via [`program_theory`](../api/dsl/program_theory.md), so diff/migrate/lens-generation tooling applies directly to `.qvr` programs.
-
-Use the high-level API:
+`.qvr` is the file format you write probabilistic programs in. A
+`.qvr` file declares some types (objects and continuous spaces),
+some morphisms (parameters, kernels, observed data), and one or
+more `program` blocks that sample, observe, and return values.
+Compilation produces a trainable [PyTorch
+`nn.Module`](https://docs.pytorch.org/docs/stable/generated/torch.nn.Module.html).
 
 ```python
 from quivers.dsl import loads, load
 
-# Compile from string
+# Compile from a string.
 prog = loads('''
     object X : 3
     object Y : 4
@@ -29,12 +20,58 @@ prog = loads('''
     export f
 ''')
 
-# Compile from file
+# Or from a file.
 prog = load("model.qvr")
 
-# Now a trainable nn.Module
+# Now a trainable nn.Module.
 optimizer = torch.optim.Adam(prog.parameters())
 ```
+
+The program-block surface looks familiar if you've used Pyro,
+NumPyro, Stan, or PyMC: `<-` is the sample sigil, `observe` scores
+data, `marginalize` integrates out a discrete latent, `let` is a
+deterministic binding, `return` names the program's output.
+
+A few features distinguish the QVR surface from those alternatives:
+
+- **First-class structured priors on weight matrices** via
+  `latent W : A -> B ~ Family(args) over <axes>` (the axis-role
+  clause).  Matrix-Normal, LKJ, GP, Horseshoe priors take the form
+  they take on paper.
+- **Marginalization as a control-flow construct.**
+  `marginalize z : K <- F(...) in { ... }` is a syntactic block,
+  not a runtime flag; the compiler emits the log-sum-exp.
+- **Compile-time effect signatures.** Every program declares
+  `! Sample`, `! Score`, `! Marginal`, `! Pure` (or a combination);
+  the compiler rejects an effectful step inside a `! Pure` block
+  before training starts.
+- **A typed categorical denotation.** Every well-typed phrase has a
+  meaning in a $\mathcal{V}$-enriched symmetric monoidal closed
+  category; the compiler is proved adequate against the denotation
+  in the [semantics chapter](../semantics/index.md).  You can
+  ignore this layer unless you want to extend the language.
+
+### Compilation pipeline
+
+```
+.qvr source
+  → tree-sitter parse via panproto-grammars-all
+  → AST nodes (didactic dx.Model)
+  → Compiler with resolution lenses
+  → Program (nn.Module) ready to train
+```
+
+The grammar at `grammars/qvr/` is registered with
+[panproto](https://panproto.dev)'s
+`panproto-grammars-all` distribution; the AST nodes are documented
+in [`ast_nodes`](../api/dsl/ast_nodes.md); resolution between
+syntactic `TypeExpr` / `SpaceExpr` trees and runtime `SetObject` /
+`ContinuousSpace` values is a `dx.Lens` family in
+[`resolution.py`](../api/dsl/resolution.md).  Each compiled program
+extracts to a panproto `Schema` via
+[`program_theory`](../api/dsl/program_theory.md), so diff,
+migrate, and lens-generation tooling applies directly to `.qvr`
+programs.
 
 ## Grammar
 
@@ -710,10 +747,10 @@ Declare N independent copies of a morphism. Each copy has independent parameters
 # creates head_0, head_1, head_2, head_3 with independent parameters
 kernel head[4] : Latent -> HeadOut ~ Normal [scale=0.1]
 
-# works with stochastic and embed too
-kernel kernel[3] : State -> Obs
-
-embed tok[2] : Token -> Hidden
+# works on every declaration kind that takes a name and a type signature:
+kernel T[3] : State -> Obs                       (* lookup-table kernel *)
+kernel emit[3] : State -> Obs ~ Normal           (* parametric kernel  *)
+embed tok[2] : Token -> Hidden                   (* finite-to-Euclidean *)
 ```
 
 ### Fan-Out (Diagonal Morphism)
@@ -820,13 +857,13 @@ The `scan` combinator implements temporal recurrence by threading hidden state `
 - **Type:** If `cell : A * H -> H`, then `scan(cell) : A -> H`. The sequence dimension is implicit in the tensor's second dimension.
 
 - **Works with both forms:**
-  - **ContinuousMorphisms:** `continuous cell : A * H -> H ~ Normal`
-  - **MonadicPrograms:** `program cell(x, h) : A * H -> H` with draw/let/return
+  - **Parametric kernels:** `kernel cell : A * H -> H ~ Normal`
+  - **MonadicPrograms:** `program cell(x, h) : A * H -> H` with bind / let / return
 
-- **Product domains:** The continuous declaration syntax now supports product types:
+- **Product domains:** The kernel declaration accepts product types:
   ```qvr
-kernel cell : InputType * HiddenType -> HiddenType ~ Normal [scale=0.1]
-```
+  kernel cell : InputType * HiddenType -> HiddenType ~ Normal [scale=0.1]
+  ```
 
 **Example: Vanilla RNN**
 ```qvr
@@ -878,7 +915,7 @@ let fg = f >=> g
 let gf = g << f    # equivalent to f >> g
 ```
 
-The backward composition operator `<<` reverses the direction of composition, and `<=>` is an alias for `>>` in Kleisli categories (used with stochastic and continuous morphisms).
+The backward composition operator `<<` reverses the direction of composition, and `>=>` is the Kleisli composition operator (composes Markov kernels in $\mathbf{Stoch}$ or $\mathbf{Kern}$).
 
 ### Type Alias
 
@@ -1121,7 +1158,7 @@ Each `let`-builtin denotes a deterministic measurable map, lifted into the Kleis
 
 ### Inline Distributions
 
-Bind and observe steps support inline distribution construction with any mix of literal and variable arguments. All 11 distribution families support arbitrary combinations:
+Bind and observe steps support inline distribution construction with any mix of literal and variable arguments. The 40+ registered families accept literal-or-variable arguments at any position:
 
 <!-- compile: false -->
 ```qvr
@@ -1142,7 +1179,7 @@ r <- TruncatedNormal(mu, sigma, 0.0, 1.0)
 z <- Normal(-1.5, 0.3)
 ```
 
-The supported inline distribution families are:
+Inline distribution families (a small but representative set; the full registry contains 40+, including matrix-valued and structured families documented in the [continuous-families guide](continuous.md)):
 
 | Family | Parameters | Codomain |
 |---|---|---|
@@ -1158,10 +1195,15 @@ The supported inline distribution families are:
 | `Gamma` | `concentration`, `rate` | PositiveReals |
 | `Dirichlet` | `concentration` | Simplex (codomain `dim` / `cardinality`) |
 | `TruncatedNormal` | `mu`, `sigma`, `low`, `high` | Euclidean (bounded) |
+| `MultivariateNormal` | `loc`, `scale_tril` | Euclidean |
+| `MatrixNormal` | `loc`, `row_scale`, `col_scale` | matrix Euclidean |
+| `LKJCholesky` | `concentration` | Cholesky-factor manifold |
+| `Wishart`, `InverseWishart` | `df`, `scale_tril` | positive-definite matrices |
+| `Horseshoe` | `scale` | Euclidean (sparse-shrinkage prior) |
 
-Every parameter position in every family accepts either a literal value or a previously-bound variable. When all arguments are literals, a fixed distribution is created; when any argument is a variable, the general `MixedInlineDistribution` mechanism handles parameter resolution at runtime.
+Every parameter position in every family accepts either a literal value or a previously-bound variable. When all arguments are literals, a fixed distribution is created; when any argument is a variable, the family is resolved at runtime against the current trace's values.
 
-For conditional distributions (learned neural-network parameterization), use the `continuous` declaration instead.
+For conditional distributions (input-conditional, learned-parameter form), use a `kernel f : A -> B ~ Family` declaration instead.
 
 ### Let (Top-Level)
 
