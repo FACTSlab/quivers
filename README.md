@@ -39,7 +39,6 @@ program regression : Item -> Item ! Sample, Score
     sigma  <- HalfNormal(1.0)
     beta_0 <- Normal(0.0, 5.0)
     beta_1 <- Normal(0.0, 2.0)
-    x      <- Normal(0.0, 1.0)
     let mu = beta_0 + beta_1 * x
     observe y <- Normal(mu, sigma)
     return y
