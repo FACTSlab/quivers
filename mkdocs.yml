@@ -123,6 +123,7 @@ nav:
     - Generative Models:
       - Overview: examples/vae.md
       - Gaussian Mixture Model: examples/mixture-model.md
+      - Tree-Structured Categorical: examples/tree-categorical.md
       - "HMM (Discrete)": examples/hmm.md
       - "HMM (Continuous)": examples/continuous-hmm.md
     - Formal Grammars:

@@ -78,9 +78,12 @@ from quivers.dsl.ast_nodes import (
     LetDecl,
     LetExprBinOp,
     LetExprCall,
+    LetExprFactor,
     LetExprIndex,
     LetExprLambda,
     LetExprList,
+    LetFactorBinder,
+    LetFactorCase,
     LetExprLiteral,
     LetExprMethodCall,
     LetExprNode,
@@ -765,6 +768,65 @@ def _walk_let_arith(t: _Tree, vid: str) -> LetExprNode:
         return LetExprLambda(
             param=t.text(param_vid),
             body=_walk_let_arith(t, body_vid),
+        )
+    if k == "let_factor":
+        # ``factor v1 : I1, ..., vn : In in <body>`` or ``factor v : I
+        # in { 0 -> e0, ... }`` — multi-axis indexed-tensor builder.
+        binder_vids = t.fields(vid, "binders")
+        if not binder_vids:
+            raise ParseError(f"let_factor missing binders at {vid}")
+        binders = []
+        for bv in binder_vids:
+            var_vid = t.field(bv, "var")
+            idx_vid = t.field(bv, "index")
+            if var_vid is None or idx_vid is None:
+                raise ParseError(f"let_factor_binder missing var or index at {bv}")
+            bline, bcol = t.line_col(bv)
+            binders.append(
+                LetFactorBinder(
+                    var=t.text(var_vid),
+                    index=_walk_type(t, idx_vid),
+                    line=bline,
+                    col=bcol,
+                )
+            )
+        case_vids = t.fields(vid, "cases")
+        body_vid = t.field(vid, "body")
+        if case_vids and body_vid is not None:
+            raise ParseError(
+                f"let_factor accepts either a pattern-match body or a "
+                f"uniform body, not both, at {vid}"
+            )
+        if case_vids:
+            cases = []
+            for cv in case_vids:
+                label_vid = t.field(cv, "label")
+                value_vid = t.field(cv, "value")
+                if label_vid is None or value_vid is None:
+                    raise ParseError(f"let_factor_case missing label or value at {cv}")
+                cline, ccol = t.line_col(cv)
+                cases.append(
+                    LetFactorCase(
+                        label=int(t.text(label_vid)),
+                        value=_walk_let_arith(t, value_vid),
+                        line=cline,
+                        col=ccol,
+                    )
+                )
+            return LetExprFactor(
+                binders=tuple(binders),
+                body=None,
+                cases=tuple(cases),
+            )
+        if body_vid is None:
+            raise ParseError(
+                f"let_factor requires either a uniform body or a "
+                f"pattern-match block at {vid}"
+            )
+        return LetExprFactor(
+            binders=tuple(binders),
+            body=_walk_let_arith(t, body_vid),
+            cases=(),
         )
     if k == "let_method_call":
         # `receiver.method(args)` — dispatched at runtime.

@@ -564,6 +564,66 @@ class LetExprLambda(LetExprNode):
     kind: Literal["let_expr_lambda"] = "let_expr_lambda"
 
 
+class LetFactorBinder(dx.Model):
+    """One ``<var> : <Index>`` binder in a multi-axis factor expression.
+
+    The variable name binds to integer index values 0, 1, ...,
+    |Index|-1 in the surrounding factor body.  The index type
+    expression resolves to a finite-set object whose cardinality
+    is the corresponding axis size of the constructed tensor.
+    """
+
+    var: str
+    index: TypeExpr
+    line: int = 0
+    col: int = 0
+
+
+class LetFactorCase(dx.Model):
+    """One ``<integer> -> <body>`` case in a factor pattern-match.
+
+    The label is the integer index this case populates; the body
+    is the value at that index.  The compiler verifies that the
+    union of labels across all cases covers ``{0, ..., |Index|-1}``
+    exactly.
+    """
+
+    label: int
+    value: LetExprNode
+    line: int = 0
+    col: int = 0
+
+
+class LetExprFactor(LetExprNode):
+    """Multi-axis factor expression: assemble an indexed tensor.
+
+    Surface forms:
+
+    ``factor v1 : I1, v2 : I2, ..., vn : In in <body>`` denotes the
+    tensor of shape ``(|I1|, ..., |In|, *body_shape)`` whose value
+    at position ``(i1, ..., in)`` is ``body[v_k := i_k]``.
+
+    ``factor v : I in { 0 -> e0, 1 -> e1, ... }`` denotes the
+    single-axis case-structured form: the body at index `k` is the
+    expression labelled `k`, and the labels must cover
+    ``{0, ..., |I|-1}`` exactly.  Multi-axis case form is not
+    accepted; the uniform body form (which can itself contain
+    conditionals on the binders) is the general construction.
+
+    Categorically the left adjoint of indexing.  Single-axis is a
+    section of the trivial bundle ``I -> body_type``; multi-axis is
+    a section over the product ``I1 x ... x In``.  The dual
+    operation is the index pullback ``arr[i1, ..., in]``
+    (:class:`LetExprIndex`); together they realize the indexed-family
+    colim / lim pair in the slice category over ``FinSet``.
+    """
+
+    binders: tuple[LetFactorBinder, ...]
+    body: LetExprNode | None = None
+    cases: tuple[LetFactorCase, ...] = ()
+    kind: Literal["let_expr_factor"] = "let_expr_factor"
+
+
 class LetExprMethodCall(LetExprNode):
     """Method call ``receiver.method(args)`` in a let expression.
 

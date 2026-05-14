@@ -19,7 +19,6 @@ test once the inference layer recognizes plate-draw sites.
 from __future__ import annotations
 
 import os
-from pathlib import Path
 
 import torch
 
@@ -293,4 +292,3 @@ class TestDSLSurface:
         """
         c = self._compile(src)
         assert "demo" in c._morphisms
-

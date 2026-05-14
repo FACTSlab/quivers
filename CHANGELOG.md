@@ -4,7 +4,13 @@ All notable changes to the quivers library are documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/), and this project adheres to [Semantic Versioning](https://semver.org/).
 
-## [0.5.0] - 2026-05-14
+## [0.6.0] - 2026-05-14
+
+### Added
+
+- **Factor expressions: `let f = factor v_1 : I_1, ..., v_n : I_n in <body>`.** A new let-expression form that assembles an indexed tensor of shape `(|I_1|, ..., |I_n|, *body_shape)` by evaluating `<body>` once per cell of the Cartesian product of binder indices. The categorical content is the left adjoint of multi-axis indexing: factor is to indexing as a (co)limit cone is to its components. A single-binder pattern-match form `factor v : I in { 0 -> e_0, 1 -> e_1, ... }` is also supported for cell-structured priors (label coverage and in-range labels are checked at compile time). Closes [#19](https://github.com/FACTSlab/quivers/issues/19).
+
+
 
 ### Headline additions
 

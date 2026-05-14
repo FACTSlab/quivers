@@ -172,6 +172,7 @@ Registering QVR upstream with Linguist is tracked at [panproto/panproto#84](http
 
 A short check that exercises every distinguishing surface feature:
 
+<!-- compile: false -->
 ```qvr
 object D : 32
 object K : 64

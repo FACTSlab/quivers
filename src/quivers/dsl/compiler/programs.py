@@ -6,6 +6,7 @@ program bodies, contractions, and let-expression compilation.
 
 from __future__ import annotations
 from collections.abc import Callable
+from itertools import product as _cartesian_product
 from typing import cast
 import torch
 from quivers.continuous.morphisms import AnySpace, ContinuousMorphism
@@ -36,7 +37,9 @@ from quivers.dsl.ast_nodes import (
     LetExprCall,
     LetExprIndex,
     LetExprLambda,
+    LetExprFactor,
     LetExprList,
+    LetFactorCase,
     LetExprLiteral,
     LetExprMethodCall,
     LetExprNode,
@@ -983,6 +986,27 @@ class _ProgramsMixin:
                 line=expr.line,
                 col=expr.col,
             )
+        if isinstance(expr, LetExprFactor):
+            # Factor binders are local; their identifiers shouldn't
+            # be alpha-renamed against the outer template's rename
+            # dict.  Body and case values are recursively renamed.
+            return LetExprFactor(
+                binders=expr.binders,
+                body=(
+                    self._rename_let_expr(expr.body, value_subst, rename)
+                    if expr.body is not None
+                    else None
+                ),
+                cases=tuple(
+                    LetFactorCase(
+                        label=c.label,
+                        value=self._rename_let_expr(c.value, value_subst, rename),
+                        line=c.line,
+                        col=c.col,
+                    )
+                    for c in expr.cases
+                ),
+            )
         return expr
 
     def _compile_morphism_call(self, expr: ExprMorphismCall):
@@ -1776,6 +1800,7 @@ class _ProgramsMixin:
                     # resolution.
                     self._validate_let_expr_vars(step.value, bound_vars, step)
                     deductions_globals = dict(getattr(self, "_deductions", {}))
+                    deductions_globals["__index_size__"] = self._resolve_index_size
                     compiled_fn = self._compile_let_expr(
                         step.value,
                         globals_=deductions_globals,
@@ -2071,6 +2096,16 @@ class _ProgramsMixin:
                 _walk(node.array, locals_set)
                 for idx in node.indices:
                     _walk(idx, locals_set)
+            elif isinstance(node, LetExprFactor):
+                # Each binder's variable is in scope only inside
+                # the factor's body / case values; the index type
+                # expression itself is a TypeExpr, not a let-expr,
+                # so we don't walk it for variable references.
+                inner = locals_set | {b.var for b in node.binders}
+                if node.body is not None:
+                    _walk(node.body, inner)
+                for case in node.cases:
+                    _walk(case.value, inner)
             # LetExprLiteral, LetExprString carry no variables.
 
         _walk(node, set())
@@ -2360,6 +2395,131 @@ class _ProgramsMixin:
                 )
 
             return _call
+        if isinstance(node, LetExprFactor):
+            # Multi-axis factor: build a finite-domain-indexed
+            # tensor by evaluating the body once per tuple of index
+            # values.  The dual of `let_index` (LetExprIndex): the
+            # left adjoint of indexing in the indexed-family
+            # category over FinSet.
+            globs = globals_ or {}
+            resolver = globs.get("__index_size__")
+            if resolver is None:
+                raise CompileError(
+                    "factor expression compiled without an index-size "
+                    "resolver in the let-expression globals; this is a "
+                    "compiler integration bug — factor expressions must "
+                    "be compiled through `_ProgramsMixin._compile_program`",
+                    0,
+                    0,
+                )
+            # Resolve each binder's index type to an integer
+            # cardinality at compile time.  Duplicate binder names
+            # within a single factor are rejected.
+            sizes: list[int] = []
+            binder_names: list[str] = []
+            for b in node.binders:
+                if b.var in binder_names:
+                    raise CompileError(
+                        f"factor binder name {b.var!r} repeated; each "
+                        f"binder must bind a distinct identifier",
+                        b.line,
+                        b.col,
+                    )
+                binder_names.append(b.var)
+                sizes.append(resolver(b.index))
+
+            if node.cases:
+                # Pattern-match form: single-binder, one body per
+                # integer label, labels must cover {0, ..., size-1}.
+                if len(node.binders) != 1:
+                    raise CompileError(
+                        f"factor pattern-match form requires exactly one "
+                        f"binder; got {len(node.binders)}",
+                        node.binders[0].line,
+                        node.binders[0].col,
+                    )
+                size = sizes[0]
+                seen_labels: dict[int, "LetFactorCase"] = {}
+                for case in node.cases:
+                    if not (0 <= case.label < size):
+                        raise CompileError(
+                            f"factor case label {case.label} out of range "
+                            f"[0, {size}); index has cardinality {size}",
+                            case.line,
+                            case.col,
+                        )
+                    if case.label in seen_labels:
+                        raise CompileError(
+                            f"factor case label {case.label} appears more than once",
+                            case.line,
+                            case.col,
+                        )
+                    seen_labels[case.label] = case
+                missing = sorted(set(range(size)) - set(seen_labels))
+                if missing:
+                    raise CompileError(
+                        f"factor pattern-match must cover every index "
+                        f"in [0, {size}); missing labels: {missing!r}",
+                        node.binders[0].line,
+                        node.binders[0].col,
+                    )
+                # Compile each case's value once.  Each compiled
+                # function takes the current env plus the bound
+                # index variable and returns a tensor; the runtime
+                # body iterates labels 0..size-1 in order.
+                case_fns = [
+                    _ProgramsMixin._compile_let_expr(
+                        seen_labels[i].value, globals_=globals_
+                    )
+                    for i in range(size)
+                ]
+                binder_var = node.binders[0].var
+
+                def _eval_pattern(env: dict) -> torch.Tensor:
+                    pieces = []
+                    for i, fn in enumerate(case_fns):
+                        extended = {**env, binder_var: torch.tensor(i)}
+                        pieces.append(cast(torch.Tensor, fn(extended)))
+                    return torch.stack(pieces, dim=0)
+
+                return _eval_pattern
+
+            # Uniform body form: a single body expression, evaluated
+            # once per tuple of index values from the Cartesian
+            # product of the binders.
+            if node.body is None:
+                raise CompileError(
+                    "factor expression has neither a uniform body nor "
+                    "a pattern-match block",
+                    node.binders[0].line,
+                    node.binders[0].col,
+                )
+            body_fn = _ProgramsMixin._compile_let_expr(node.body, globals_=globals_)
+            # Closure-capture the binder names and sizes for the
+            # runtime nested loop.
+            local_binders = tuple(binder_names)
+            local_sizes = tuple(sizes)
+
+            def _eval_uniform(env: dict) -> torch.Tensor:
+                # Build a (size_1, ..., size_n, *body_shape) tensor
+                # by evaluating body at each index tuple and
+                # reshaping.  We iterate in lexicographic order and
+                # reshape at the end so torch.stack only needs to
+                # see a flat list of body tensors.
+                flat: list[torch.Tensor] = []
+                for tup in _cartesian_product(*(range(s) for s in local_sizes)):
+                    extended = {
+                        **env,
+                        **{
+                            name: torch.tensor(val)
+                            for name, val in zip(local_binders, tup)
+                        },
+                    }
+                    flat.append(cast(torch.Tensor, body_fn(extended)))
+                stacked = torch.stack(flat, dim=0)
+                return stacked.reshape(*local_sizes, *stacked.shape[1:])
+
+            return _eval_uniform
         if isinstance(node, LetExprIndex):
             # Indexed gather along the leading axis of the array.
             # Realises the Kleisli pullback ι^* v = v ∘ ι for a finite

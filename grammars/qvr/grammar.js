@@ -1633,10 +1633,68 @@ module.exports = grammar({
       $.let_call,
       $.let_index,
       $.let_list,
+      $.let_factor,
       $.let_lambda,
       $.let_string,
       $.let_var,
       $.let_literal,
+    ),
+
+    // Multi-axis factor: build a finite-domain-indexed tensor by
+    // evaluating a body expression once per tuple of index values.
+    //
+    // Surface (uniform form):
+    //
+    //   factor v_1 : I_1, v_2 : I_2, ..., v_n : I_n in <body>
+    //
+    // denotes the tensor of shape (|I_1|, ..., |I_n|, *body_shape)
+    // whose value at (i_1, ..., i_n) is <body>[v_k := i_k].
+    //
+    // Single-axis pattern form (for cell-structured priors where
+    // each index value carries a different expression):
+    //
+    //   factor <var> : <Index> in {
+    //       <int> -> <body>,
+    //       <int> -> <body>,
+    //       ...
+    //   }
+    //
+    // The pattern form's case labels must cover {0, ..., |I|-1}
+    // exactly; the compiler rejects gaps, overlaps, or out-of-range
+    // labels.  Braces and comma separators make the pattern body's
+    // extent unambiguous to the parser.
+    //
+    // Categorically the left adjoint of indexing.  Single-axis is
+    // the section of the trivial bundle I → body_type; multi-axis
+    // is the section over the product I_1 × ... × I_n.  The dual
+    // operation is the existing index pullback `arr[i_1, ..., i_n]`
+    // ("let_index"); together they realise the indexed-family
+    // colim / lim pair in the slice category over FinSet.
+    let_factor: $ => prec.right(seq(
+      'factor',
+      commaSep1(field('binders', $.let_factor_binder)),
+      'in',
+      choice(
+        seq(
+          '{',
+          commaSep1(field('cases', $.let_factor_case)),
+          optional(','),
+          '}',
+        ),
+        field('body', $._let_arith),
+      ),
+    )),
+
+    let_factor_binder: $ => seq(
+      field('var', $.identifier),
+      ':',
+      field('index', $._type_expr),
+    ),
+
+    let_factor_case: $ => seq(
+      field('label', $.integer),
+      '->',
+      field('value', $._let_arith),
     ),
 
     // List literal in let-expressions: `[a, b, c]`. Categorically
