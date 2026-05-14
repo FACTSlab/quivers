@@ -1,6 +1,6 @@
 # Quivers
 
-A typed probabilistic programming language for PyTorch. First-class structured priors on weight matrices, scoped marginalization of discrete latents as a syntactic block, and compile-checked sample / score / marginalize effects on every program.
+A functional probabilistic programming language that compiles to PyTorch.
 
 You write Bayesian models in a small, readable DSL and fit them with stochastic variational inference (SVI), NUTS, HMC, or any of nine automatic guides. The program surface should look familiar if you have used Pyro, NumPyro, Stan, or PyMC: declare variables with `<-`, score observations with `observe`, integrate out discrete latents with `marginalize`, get a trainable PyTorch module back. Three things make it different:
 
