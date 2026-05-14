@@ -14,7 +14,7 @@ Vertex kinds enumerate the runtime *value* layer:
 |-------|--------------|
 | Discrete objects | `finset`, `product_set`, `coproduct_set`, `free_monoid`, `empty_set` |
 | Continuous spaces | `euclidean`, `simplex`, `positive_reals`, `unit_interval`, `product_space` |
-| Declarations | `object_decl`, `space_decl`, `morphism_decl`, `stochastic_morphism_decl`, `continuous_morphism_decl`, `discretize_decl`, `embed_decl`, `program_decl`, `output_decl` |
+| Declarations | `object_decl`, `space_decl`, `morphism_decl`, `kernel_decl`, `discretize_decl`, `embed_decl`, `program_decl`, `export_decl` |
 
 Each vertex carries a string label (typically the declared identifier or a synthesized key) and the kind-specific payload (cardinality, dimension, family name, …).
 
@@ -25,9 +25,9 @@ Edges encode structural relations:
 | Edge kind | Source | Target | Meaning |
 |-----------|--------|--------|---------|
 | `component` | `product_set`, `coproduct_set`, `product_space`, `free_monoid` | any vertex | Position in a finite tuple |
-| `domain` | `*_morphism_decl`, `program_decl` | object/space | Domain of the declaration |
-| `codomain` | `*_morphism_decl`, `program_decl` | object/space | Codomain of the declaration |
-| `output` | `output_decl` | program/morphism | Output expression of the program |
+| `domain` | `morphism_decl`, `kernel_decl`, `program_decl` | object/space | Domain of the declaration |
+| `codomain` | `morphism_decl`, `kernel_decl`, `program_decl` | object/space | Codomain of the declaration |
+| `export` | `export_decl` | program/morphism | Export expression of the module |
 
 The instance theory $\mathcal{T}_{\mathrm{instance}}$ is the W-type theory `ThWType`, so each instance is tree-shaped, appropriate for the strict tree of declarations in a `.qvr` module.
 
@@ -83,7 +83,7 @@ $$
 \mathrm{eval} : \mathrm{Schema}(\mathsf{QVR}) \times \Theta \to \mathbf{Kern}
 $$
 
-that takes a schema and a parameter assignment $\theta \in \Theta$ (where $\Theta$ collects the parameters of all `latent`, `stochastic`, and `continuous` declarations in the schema) and produces the corresponding kernel. The denotation $\llbracket M \rrbracket_{\mathrm{kern}}$ is recovered by
+that takes a schema and a parameter assignment $\theta \in \Theta$ (where $\Theta$ collects the parameters of all `latent` and `kernel` declarations in the schema) and produces the corresponding kernel. The denotation $\llbracket M \rrbracket_{\mathrm{kern}}$ is recovered by
 
 $$
 \llbracket M \rrbracket_{\mathrm{kern}} \;=\; \mathrm{eval}\bigl(\mathcal{S}(M),\ \theta_M\bigr),

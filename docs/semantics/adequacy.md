@@ -67,13 +67,13 @@ term-by-term equal to the categorical composition of [Morphisms §1.1](morphisms
 
 Each combinator is implemented as a tensor-level operation whose definition is the term-by-term unfolding of its denotation. The proofs are straightforward: `@` is `torch.einsum` of the appropriate shape; `marginalize` is `torch.sum` (or quantale-join) along the marginalized axes; `fan` is `torch.stack`; `stack` is `kron`; `repeat` is repeated composition; `scan` is a Python-level fold realizing the trace of [Expressions §3.4](expressions.md#34-scan).
 
-### 3.5 Stochastic morphisms
+### 3.5 Lookup-table kernels (finite-set codomain)
 
-Softmax along the codomain axis realizes the parameter map $\mathbb{R}^{|Y|} \to \Delta^{|Y| - 1}$. The composition of two stochastic morphisms is implemented as ordinary matrix multiplication, which coincides with Kleisli composition in $\mathbf{Stoch}$ ([Morphisms §2](morphisms.md#2-stochastic-morphisms)).
+A `kernel f : A -> B` declaration with finite-set codomain and no `~ Family` clause is realized as a softmax-normalized parameter tensor along the codomain axis (the canonical surjection $\mathbb{R}^{|Y|} \to \Delta^{|Y| - 1}$). Composition is ordinary matrix multiplication, which coincides with Kleisli composition in $\mathbf{Stoch}$ ([Morphisms §2](morphisms.md#2-stochastic-morphisms)).
 
-### 3.6 Continuous morphisms
+### 3.6 Parametric kernels (continuous codomain)
 
-A `continuous f : σ -> σ' ~ Family` declaration is realized as a PyTorch `Distribution` parameterized by a neural network mapping $\llbracket \sigma \rrbracket$ to $\Theta_{\mathrm{Family}}$. Sampling and density evaluation are exposed by `rsample` and `log_prob`. Composition is realized by *sampled-composition* (Monte-Carlo integration) or, for closed-form families, by the appropriate analytical convolution.
+A `kernel f : σ -> σ' ~ Family [axis_role_clause]` declaration is realized as a PyTorch `Distribution` parameterized by a small network mapping $\llbracket \sigma \rrbracket$ to $\Theta_{\mathrm{Family}}$. Sampling and density evaluation are exposed by `rsample` and `log_prob`. Composition is realized by *sampled-composition* (Monte-Carlo integration) or, for closed-form families, by the appropriate analytical convolution. The optional axis-role clause configures the family's event / batch decomposition according to the contract of [Morphisms §6](morphisms.md#6-axis-role-specifications); matrix-valued families (`MatrixNormal`, `Wishart`, `InverseWishart`, `LKJCholesky`) receive their row / column dimensions from the named axes at compile time.
 
 The equality
 
