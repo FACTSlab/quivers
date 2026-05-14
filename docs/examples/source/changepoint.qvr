@@ -20,7 +20,7 @@
 # (with k = 20) is a differentiable relaxation of the indicator
 # `1{t > tau}` that lets gradient-based variational inference
 # fit the change-point location directly. Hard change-points
-# require integer-valued tau and a per-tau marginalisation,
+# require integer-valued tau and a per-tau marginalization,
 # which is also expressible in the DSL via a discrete
 # `marginalize` over a Tau-axis.
 

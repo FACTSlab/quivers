@@ -19,7 +19,7 @@
 # The K coefficient plates are gathered through `cat_idx` so the
 # program scales to arbitrary K without rewriting the body; the
 # runtime supplies the raw Gamma-scaled component tallies and
-# the normalisation is recovered downstream.  Distinguishing
+# the normalization is recovered downstream.  Distinguishing
 # feature: per-category plate-gather makes the K-dimensional
 # simplex codomain a one-line variation on the univariate
 # regression body.

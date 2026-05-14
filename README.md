@@ -45,19 +45,19 @@ The full walkthrough is in the [tutorial](https://FACTSlab.github.io/quivers/tut
 
 The everyday PPL features you would expect, on a PyTorch backend:
 
-- **Forty distribution families** (Normal, Beta, Gamma, Dirichlet, MVN, LKJ, MatrixNormal, GP, Horseshoe, mixtures, normalising flows, and more).
+- **Forty distribution families** (Normal, Beta, Gamma, Dirichlet, MVN, LKJ, MatrixNormal, GP, Horseshoe, mixtures, normalizing flows, and more).
 - **Nine variational guides** from mean-field through full-rank multivariate normal, low-rank, mixture, IAF, neural-spline flow, and AutoDAIS.
 - **Four inference objectives** (ELBO, IWAE, Renyi, VR-IWAE) with reparameterised / score-function / sticking-the-landing / DReG gradient estimators.
 - **NUTS and HMC** with dual-averaging step-size adaptation and Welford mass-matrix adaptation, plus a `WarmupThenHMC` hybrid sampler.
-- **Marginalised discrete latents** as a first-class block (`marginalize z : K <- Categorical(p) in { ... }`), with `logsumexp` aggregation handled for you.
-- **Plates and grouped marginalisation** for hierarchical models with vectorised observations and per-row fibration into shared random effects.
+- **Marginalized discrete latents** as a first-class block (`marginalize z : K <- Categorical(p) in { ... }`), with `logsumexp` aggregation handled for you.
+- **Plates and grouped marginalization** for hierarchical models with vectorized observations and per-row fibration into shared random effects.
 - **A 36-example gallery** covering regression (Bayesian, Beta, Dirichlet, NegBin, horseshoe, ZIP), latent variable (factor analysis, PPCA, LDA, IRT, PMF, BNN, GMM, VAE), state space (HMM discrete and continuous, linear-Gaussian SSM, deep Markov, AR1, stochastic volatility, changepoint, Weibull survival), language models (RNN, LSTM, GRU, bidirectional, transformer), seq2seq with encoder/decoder, and formal grammars (PCFG, CCG, Lambek, multimodal TLG).
 
 ## What's distinctive
 
 Most PPLs let you write `observe y ~ Normal(mu, sigma)`. Quivers lets you write the same thing AND a few things ordinary PPLs do not.
 
-- **Typed scoped marginalisation.** `marginalize z : K <- Categorical(p) in { ... }` is a syntactic block whose body runs once per discrete value of `z`, with the per-value scores aggregated by `logsumexp`. This is the standard Rao-Blackwellisation trick, but spelt as a control-flow construct instead of a runtime flag.
+- **Typed scoped marginalization.** `marginalize z : K <- Categorical(p) in { ... }` is a syntactic block whose body runs once per discrete value of `z`, with the per-value scores aggregated by `logsumexp`. This is the standard Rao-Blackwellisation trick, but spelled as a control-flow construct instead of a runtime flag.
 - **Axis-role priors on weights.** A weight matrix `latent W : Euclidean(D) -> Euclidean(K)` can carry a structured prior whose covariance is genuinely matrix-valued: `~ MatrixNormal(loc, row_cov, col_cov) over (dom, cod)`. The `over <axes>` clause says which axes the family's joint covariance lives on; the rest are iid. This is the right surface for factor analysis, PPCA, Bayesian neural nets, and other "matrix of weights with prior" models.
 - **Exact-likelihood structured families.** HMMs and Kalman smoothers compose like ordinary distributions; the forward / forward-backward / smoother passes are wrapped.
 - **Compile-time effects.** Programs carry an effect signature `! Sample, Score, Marginal, Pure` that the compiler checks against the body. A `! Pure` block that contains an `observe` is rejected with a typed error before training begins.

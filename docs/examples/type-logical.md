@@ -46,7 +46,7 @@ Type-logical grammar, grounded in the non-commutative Lambek calculus, is a reso
 
 `atoms { … }` declares the constructor vocabulary. Category atoms are `S`, `NP`, `N`, `VP`, `PP`; structural constructors are `Fwd(A, B) ≡ A/B`, `Bwd(A, B) ≡ A\B`, `Tns(A, B) ≡ A⊗B`. The chart-item constructor `span(I, J, X)` packages a derivation covering tokens `[I, J)` carrying category `X`. Single-uppercase identifiers (`A`, `B`, `I`, `J`, `K`) appearing in rule patterns bind as wildcards.
 
-The rules realise the four logical core operations of the Lambek calculus:
+The rules realize the four logical core operations of the Lambek calculus:
 
 - **`right_app`**: modus ponens for forward slash: `A/B, B ⊢ A`.
 - **`left_app`**: modus ponens for backward slash: `B, A\B ⊢ A`.

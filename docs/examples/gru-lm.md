@@ -53,7 +53,7 @@ export gru_lm
 | candidate | `h_cand <- Normal(reset_hidden, 0.5)` | $\tilde h_t = \phi(W \,[x_t, r_t \odot h_{t-1}])$ |
 | update | `let h_new = z_complement * h_prev + z * h_cand` | $h_t = (1 - z_t)\,h_{t-1} + z_t \,\tilde h_t$ |
 
-The candidate is drawn from a Normal centred on the reset-gated previous state; the update-gate convex combination $(1 - z_t)\,h_{t-1} + z_t \,\tilde h_t$ interpolates between persistence and the new candidate.
+The candidate is drawn from a Normal centered on the reset-gated previous state; the update-gate convex combination $(1 - z_t)\,h_{t-1} + z_t \,\tilde h_t$ interpolates between persistence and the new candidate.
 
 ### State threading
 

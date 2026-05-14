@@ -1,8 +1,8 @@
 # 4. Mixtures and discrete latents
 
-When a model has a discrete latent variable, you have two options. Sample it (every gradient step pays a Monte Carlo penalty and you lose the score-function variance), or marginalise it out (sum over its support, get a deterministic log-likelihood, gradients flow cleanly). The right choice depends on the support size: if the discrete latent has only a handful of values per observation, marginalising is the obvious win.
+When a model has a discrete latent variable, you have two options. Sample it (every gradient step pays a Monte Carlo penalty and you lose the score-function variance), or marginalize it out (sum over its support, get a deterministic log-likelihood, gradients flow cleanly). The right choice depends on the support size: if the discrete latent has only a handful of values per observation, marginalizing is the obvious win.
 
-QVR makes marginalisation a first-class block. The body of the block runs *once per value* the discrete latent can take; the runtime collects per-value log-likelihoods and combines them under the prior with a `logsumexp`. Mathematically this is an exact integration over the discrete latent; computationally it's the categorical-prior version of the Rao-Blackwellised gradient ([Casella & Robert, 1996](https://doi.org/10.1093/biomet/83.1.81)). The same syntax handles flat mixtures, hierarchical mixtures with grouping, and HMM-shaped models with a per-row latent.
+QVR makes marginalization a first-class block. The body of the block runs *once per value* the discrete latent can take; the runtime collects per-value log-likelihoods and combines them under the prior with a `logsumexp`. Mathematically this is an exact integration over the discrete latent; computationally it's the categorical-prior version of the Rao-Blackwellised gradient ([Casella & Robert, 1996](https://doi.org/10.1093/biomet/83.1.81)). The same syntax handles flat mixtures, hierarchical mixtures with grouping, and HMM-shaped models with a per-row latent.
 
 ## A two-component Gaussian mixture
 
@@ -65,7 +65,7 @@ Each observation comes from one of two Gaussian clusters; we don't know which.
     }
     ```
 
-The `marginalize z : K <- Categorical(probs) in { ... }` block is exactly the Stan `log_sum_exp` pattern, expressed once and instantiated for every row of the response. The `! Marginal` effect annotation makes the marginalisation visible at the program signature.
+The `marginalize z : K <- Categorical(probs) in { ... }` block is exactly the Stan `log_sum_exp` pattern, expressed once and instantiated for every row of the response. The `! Marginal` effect annotation makes the marginalization visible at the program signature.
 
 ## Posterior over the discrete latent
 
@@ -95,11 +95,11 @@ resp = responsibilities(model, guide, {"y": y_data}, latent="z")  # (500, 2)
 print("posterior P(z=1 | y[:5]):", resp[:5, 1].tolist())
 ```
 
-The `responsibilities` helper takes the marginalised block's name (`z`) and returns the per-row posterior `P(z = k | y_n, θ)` averaged over posterior samples of `θ`. There is no analogous helper to install in Pyro; you build it by hand from `enumerate`-trace post-processing.
+The `responsibilities` helper takes the marginalized block's name (`z`) and returns the per-row posterior `P(z = k | y_n, θ)` averaged over posterior samples of `θ`. There is no analogous helper to install in Pyro; you build it by hand from `enumerate`-trace post-processing.
 
 ## Hierarchical mixtures with grouping
 
-Suppose each observation belongs to one of `G` groups, and the categorical mixture proportions vary by group. The marginalisation has to respect group membership: the log-likelihood over the discrete latent gets aggregated *per group*, not per row. The `marginalize` header declares the grouping plate (`over G`); each observe inside the body carries its own `via <idx>` clause naming the fibration from its response plate into the grouping plate.
+Suppose each observation belongs to one of `G` groups, and the categorical mixture proportions vary by group. The marginalization has to respect group membership: the log-likelihood over the discrete latent gets aggregated *per group*, not per row. The `marginalize` header declares the grouping plate (`over G`); each observe inside the body carries its own `via <idx>` clause naming the fibration from its response plate into the grouping plate.
 
 <!-- compile: false -->
 ```qvr
@@ -124,7 +124,7 @@ program grouped_mixture : Item -> Item ! Sample, Score, Marginal
 export grouped_mixture
 ```
 
-The `over G` clause on the header declares the grouping plate; the `via group` clause on the observe says "every row of `y` is fibred over G by `group`, and the marginalisation is per group, not per row." The block contributes
+The `over G` clause on the header declares the grouping plate; the `via group` clause on the observe says "every row of `y` is fibred over G by `group`, and the marginalization is per group, not per row." The block contributes
 
 $$
 \sum_{g \in G}\ \log\!\sum_{k=1}^{K}\exp\!\left[\log \pi_{g,k} + \sum_{n:\ \mathrm{group}(n)=g}\ \log f(y_n \mid \mu_k, \sigma_k)\right]
@@ -132,7 +132,7 @@ $$
 
 to the log-density, which is the right Kan extension along the fibration `Item -> G` and matches Stan's `target += log_mix(probs[g], ll_item[i])` accumulation. A grouped block can contain multiple observes, each with its own `via <idx>` clause, when several heterogeneous response axes share the same per-group class indicator; the per-axis log-likelihoods scatter-sum into the same `(|G|, K)` accumulator before the log-sum-exp.
 
-## When to marginalise vs sample
+## When to marginalize vs sample
 
 | Discrete support per row | Recommendation |
 |---|---|
@@ -144,7 +144,7 @@ to the log-density, which is the right Kan extension along the fibration `Item -
 ## Try this
 
 - Initialise the GMM with `K = 4` and watch what happens to the recovered `mu_k`. (Hint: mixture models have a label-switching identifiability problem, [Stephens, 2000](https://doi.org/10.1111/1467-9868.00265); the standard fix is `ordered[K] mu_k` in Stan; in QVR you'd add a `let mu_k_sorted = sort(mu_k)` constraint or use an ordered prior.)
-- Convert the grouped mixture to a `marginalize` without the `over` / `via` clauses and observe the difference: per-row marginalisation versus per-group.
+- Convert the grouped mixture to a `marginalize` without the `over` / `via` clauses and observe the difference: per-row marginalization versus per-group.
 - Combine with chapter 3's plate-draws: a hierarchical mixture where each group has its own `mu_k` drawn from a hyperprior.
 
 ## Next

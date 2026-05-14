@@ -87,7 +87,7 @@ An observe statement
 observe v <- F(args)
 ```
 
-denotes a *score* update against an externally-supplied observed value $v_{\mathrm{obs}}$. As a Kleisli arrow in the *unnormalised* Giry monad $\mathcal{G}_{\le 1}$ (sub-probability measures),
+denotes a *score* update against an externally-supplied observed value $v_{\mathrm{obs}}$. As a Kleisli arrow in the *unnormalized* Giry monad $\mathcal{G}_{\le 1}$ (sub-probability measures),
 
 $$
 \mathcal{S}\llbracket \mathsf{observe}\ v \leftarrow F(\bar a) \rrbracket : \Phi \to \mathcal{G}_{\le 1}(\Phi),
@@ -95,7 +95,7 @@ $$
 \mathcal{S}\llbracket \mathsf{observe}\ v \leftarrow F(\bar a) \rrbracket(\phi,\, B) \;=\; \mathbf{1}_B(\phi) \cdot p_F\bigl( v_{\mathrm{obs}} \,;\, \theta_F(\bar a, \phi)\bigr).
 $$
 
-The trace context is preserved, but the total mass of the resulting measure is the likelihood of $v_{\mathrm{obs}}$ at $\phi$. Normalisation and posterior inference are deferred to the inference layer (see [`quivers.inference`](../api/inference/svi.md)). The categorical setting is the *Markov category with conditioning* of [Cho & Jacobs 2019](https://doi.org/10.1017/S0960129518000488) and [Fritz 2020](https://doi.org/10.1016/j.aim.2020.107239).
+The trace context is preserved, but the total mass of the resulting measure is the likelihood of $v_{\mathrm{obs}}$ at $\phi$. Normalization and posterior inference are deferred to the inference layer (see [`quivers.inference`](../api/inference/svi.md)). The categorical setting is the *Markov category with conditioning* of [Cho & Jacobs 2019](https://doi.org/10.1017/S0960129518000488) and [Fritz 2020](https://doi.org/10.1016/j.aim.2020.107239).
 
 ### 2.3 Let
 
@@ -120,7 +120,7 @@ $$
 \;=\; \mathbf{1}_B(\phi) \cdot \mathbf{1}_C\bigl(h(\phi)\bigr),
 $$
 
-i.e.\ pushforward by $\mathrm{id}_{\Phi} \times h$ realised through the *strength* of the Giry monad.
+i.e.\ pushforward by $\mathrm{id}_{\Phi} \times h$ realized through the *strength* of the Giry monad.
 
 The arithmetic sublanguage is interpreted standardly: $\mathbb{R}$-valued and $\mathbb{N}$-valued operators denote the corresponding measurable functions on the relevant space; built-in functions (`sigmoid`, `exp`, `log`, `abs`, `softplus`) denote the corresponding total measurable maps.
 
@@ -182,7 +182,7 @@ $$
 
 For a discrete latent $C$, the projection is computed by log-sum-exp on the accumulated log-likelihood; for a measurable continuous $C$, it is fibrewise integration. After the scope closes, $c$ falls out of scope.
 
-The four bind variants, scalar, indexed, scored, marginalised, are uniformly a single underlying step with a `mode ∈ {sample, score, marginal}` tag and an optional index `A`. The scalar/plate axis is orthogonal to the full-probability/sub-probability distinction.
+The four bind variants, scalar, indexed, scored, marginalized, are uniformly a single underlying step with a `mode ∈ {sample, score, marginal}` tag and an optional index `A`. The scalar/plate axis is orthogonal to the full-probability/sub-probability distinction.
 
 ### 2.7 Indexed Gather (Let-Pullback)
 
@@ -192,7 +192,7 @@ $$
 \iota^* v \;=\; v \circ \iota \;:\; N \to \mathcal{G}(B).
 $$
 
-Interpreted as a deterministic measurable map on the accumulated context (because $v$ has already been realised as a tensor $A \to B$ in the trace), the let-step denotes the Dirac extension
+Interpreted as a deterministic measurable map on the accumulated context (because $v$ has already been realized as a tensor $A \to B$ in the trace), the let-step denotes the Dirac extension
 
 $$
 \mathcal{S}\llbracket \mathsf{let}\ w = \mathit{arr}[\mathit{idx}] \rrbracket(\phi)
@@ -216,7 +216,7 @@ $$
 \mathsf{ret}_e(\phi) \;=\; \delta_{\pi_{v_1, \dots, v_m}(\phi)},
 $$
 
-where $\pi_{v_1, \dots, v_m} : \Phi_n \to \llbracket \tau_2 \rrbracket$ projects the trace onto the named coordinates. Composing with the body chain marginalises the joint (sub-)probability measure onto those coordinates.
+where $\pi_{v_1, \dots, v_m} : \Phi_n \to \llbracket \tau_2 \rrbracket$ projects the trace onto the named coordinates. Composing with the body chain marginalizes the joint (sub-)probability measure onto those coordinates.
 
 A bare-tuple return `return (x, y)` projects the trace onto the named coordinates; the resulting product space's components are ordered by tuple position.
 
@@ -253,7 +253,7 @@ $$
 \llbracket P \rrbracket \;:\; \prod_{p_1 : P_1} \cdots \prod_{p_k : P_k} \mathbf{Kern}\bigl(\mathrm{dom}(p), \mathrm{cod}(p)\bigr),
 $$
 
-an object of the indexed family of Kleisli arrows over the parameter category. The domain and codomain may themselves mention the formal parameters, so each fibre is a kernel between possibly-different objects of $\mathbf{Kern}$.
+an object of the indexed family of Kleisli arrows over the parameter category. The domain and codomain may themselves mention the formal parameters, so each fiber is a kernel between possibly-different objects of $\mathbf{Kern}$.
 
 ### Inline expansion as substitution
 
@@ -286,4 +286,4 @@ These are valid statements about denotations of QVR programs; in particular, the
 
 ## 6. Inference and conditioning
 
-The denotation of a program is a *kernel*, not yet a posterior. Conditioning on observed data, normalisation, and approximate posterior inference are *external* operations on the denotation, supplied by the [`quivers.inference`](../api/inference/svi.md) module. The categorical apparatus is that of *Markov categories with conditionals* ([Cho & Jacobs 2019](https://doi.org/10.1017/S0960129518000488); [Fritz 2020](https://doi.org/10.1016/j.aim.2020.107239)); the implementation realises trace-based conditioning and stochastic variational inference as concrete instances of that theory.
+The denotation of a program is a *kernel*, not yet a posterior. Conditioning on observed data, normalization, and approximate posterior inference are *external* operations on the denotation, supplied by the [`quivers.inference`](../api/inference/svi.md) module. The categorical apparatus is that of *Markov categories with conditionals* ([Cho & Jacobs 2019](https://doi.org/10.1017/S0960129518000488); [Fritz 2020](https://doi.org/10.1016/j.aim.2020.107239)); the implementation realizes trace-based conditioning and stochastic variational inference as concrete instances of that theory.

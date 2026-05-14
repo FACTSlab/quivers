@@ -1461,7 +1461,7 @@ module.exports = grammar({
       optional(field('axes', $.axis_role_clause)),
     )),
 
-    // Scoped marginalisation. Introduces a coordinate `c` bound to a
+    // Scoped marginalization. Introduces a coordinate `c` bound to a
     // kernel `F(args)`, optionally indexed by `: A`; the body in `{ … }`
     // is the integration scope. At the end of the scope the coordinate
     // is pushed forward through the projection (logsumexp for discrete,
@@ -1516,7 +1516,7 @@ module.exports = grammar({
       optional(seq('over', field('over', $._type_expr))),
       // `reduction = logsumexp | sum | mean` controls the per-group
       // reduction over the class axis: `logsumexp` is the canonical
-      // mixture-marginalisation form, `sum` is the joint scoring
+      // mixture-marginalization form, `sum` is the joint scoring
       // form (used by predictive paths), `mean` is the symmetric
       // average. Defaults to `logsumexp`.
       optional(seq('reduction', '=', field('reduction', $.identifier))),

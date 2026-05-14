@@ -1,6 +1,6 @@
 # Composition Rules
 
-The quantale of [§ Quantales](quantales.md) gives the strongest setting for $\mathcal{V}$-enriched composition: it provides a tensor, a join, an identity, and the distributive law that makes $\mathcal{V}\text{-}\mathbf{Rel}$ a $\mathcal{V}$-enriched symmetric monoidal closed category. Two strictly weaker settings are useful: one drops the identity (giving a *semigroupoid*); the other drops the associativity promise entirely (giving a *bilinear form*). This page records their denotational structure and the operadic generalisation to n-ary contractions.
+The quantale of [§ Quantales](quantales.md) gives the strongest setting for $\mathcal{V}$-enriched composition: it provides a tensor, a join, an identity, and the distributive law that makes $\mathcal{V}\text{-}\mathbf{Rel}$ a $\mathcal{V}$-enriched symmetric monoidal closed category. Two strictly weaker settings are useful: one drops the identity (giving a *semigroupoid*); the other drops the associativity promise entirely (giving a *bilinear form*). This page records their denotational structure and the operadic generalization to n-ary contractions.
 
 ## 1. The hierarchy
 
@@ -12,7 +12,7 @@ $$
 
 This requires only a binary $\otimes$ and a join $\bigoplus$ over a finite axis. Neither operation is required to satisfy any algebraic law.
 
-We organise composition rules into a hierarchy of progressively stronger structures.
+We organize composition rules into a hierarchy of progressively stronger structures.
 
 **Definition (composition rule).** A *composition rule* $\mathcal{R} = (V, \otimes, \bigoplus)$ consists of a carrier set $V$, a binary operation $\otimes : V \times V \to V$, and an indexed-reduction operation $\bigoplus : V^I \to V$ for every finite index set $I$.
 
@@ -87,7 +87,7 @@ $$
 \Phi : V^{X_1} \times \cdots \times V^{X_n} \to V^Y
 $$
 
-between tensor spaces over a finite index sets $X_1, \dots, X_n, Y$, parameterised by a *wiring specification* $w$ that designates, for each axis letter $\ell$:
+between tensor spaces over a finite index sets $X_1, \dots, X_n, Y$, parameterized by a *wiring specification* $w$ that designates, for each axis letter $\ell$:
 
 - the inputs $i \in \{1, \dots, n\}$ on which $\ell$ appears (its *occurrence set*), and
 - whether $\ell$ survives to the output ($\ell \in Y$) or is contracted ($\ell \notin Y$).
@@ -112,7 +112,7 @@ The contraction algorithm reduces to four steps:
 3. *Reduce.* Apply $\bigoplus$ over the contracted axes $\mathcal{L}_c$.
 4. *Permute.* Reorder the surviving axes into the output letter order.
 
-The binary case $w = (s_1 s_2 \cdots s_k, t_1 t_2 \cdots t_l \to ?)$ recovers the standard $\mathcal{V}$-relational composition when the wiring is $w = (\text{spec}_1\, \text{spec}_2 \to \text{output})$ with a single shared letter; the operadic surface generalises this without any algebraic strengthening.
+The binary case $w = (s_1 s_2 \cdots s_k, t_1 t_2 \cdots t_l \to ?)$ recovers the standard $\mathcal{V}$-relational composition when the wiring is $w = (\text{spec}_1\, \text{spec}_2 \to \text{output})$ with a single shared letter; the operadic surface generalizes this without any algebraic strengthening.
 
 The `.qvr` surface for a contraction is
 
@@ -124,7 +124,7 @@ contraction NAME ( input_1 : A_1 -> B_1, ..., input_n : A_n -> B_n ) : DOM -> CO
 
 where `R` is a name resolving to a `CompositionRule` in scope and `SPEC` is an einsum-style flat wiring string. The declared morphism `NAME` is callable from any expression site as `NAME(arg_1, ..., arg_n)`; the call site type-checks the argument count and the per-argument numel against the contraction's signature before applying the wiring.
 
-**Categorical content.** The contraction surface is the action of a *coloured operad* whose colours are the V-Cat objects and whose operations are flat wirings. The composition rule $\mathcal{R}$ is the enriching algebra: the operad's operation $w$ is realised as the multi-input morphism above. When $w$ is a binary wiring with a single contracted letter, the operadic action reduces to the binary composition of $\mathcal{V}\text{-}\mathbf{Rel}$.
+**Categorical content.** The contraction surface is the action of a *colored operad* whose colors are the V-Cat objects and whose operations are flat wirings. The composition rule $\mathcal{R}$ is the enriching algebra: the operad's operation $w$ is realized as the multi-input morphism above. When $w$ is a binary wiring with a single contracted letter, the operadic action reduces to the binary composition of $\mathcal{V}\text{-}\mathbf{Rel}$.
 
 ## 5. First-class transformations
 
@@ -150,7 +150,7 @@ $$
 
 The seam check $\mathrm{target}(t_1) = \mathrm{source}(t_2)$ is verified at compose time; a mismatch raises a typed error before any tensor evaluation runs. Sequential composition is associative (a free monoidal product on transformation values, modulo the seam discipline), so chains of length $\ge 3$ flatten unambiguously into a single sequence of base steps.
 
-The implementation realises the composition as a flattened `TransSeq` whose `apply` method iterates the steps. Single-step transformations need no boxing; they are their own representation.
+The implementation realizes the composition as a flattened `TransSeq` whose `apply` method iterates the steps. Single-step transformations need no boxing; they are their own representation.
 
 ### 5.3 Constructors
 

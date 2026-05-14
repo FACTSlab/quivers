@@ -172,7 +172,7 @@ Supported DSL operators:
 | `>>` | composition | `f >> g` |
 | `>>>` | transformation composition | `softmax(B) >>> expectation` |
 | `@` | tensor product | `f @ g` |
-| `.marginalize(X)` | marginalise over object | `f.marginalize(X)` |
+| `.marginalize(X)` | marginalize over object | `f.marginalize(X)` |
 | `.change_base(t)` | change of base under transformation `t` | `f.change_base(softmax(B))` |
 | `identity(X)` | identity morphism | `observed id : X -> X = identity(X)` |
 

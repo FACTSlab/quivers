@@ -32,11 +32,11 @@ export filter
 
 ## Walkthrough
 
-`Driver`, `State`, and `Obs` are Euclidean spaces; `Driver` carries an optional exogenous input concatenated with the previous state at each step. The transition cell `Driver * State -> State ~ Normal` parameterises a Gaussian per-step kernel whose mean is a learned linear function of `(u_t, s_{t-1})` and whose scale is the prior `scale` hyperparameter. The emission `State -> Obs ~ Normal` is the constant-in-time observation kernel.
+`Driver`, `State`, and `Obs` are Euclidean spaces; `Driver` carries an optional exogenous input concatenated with the previous state at each step. The transition cell `Driver * State -> State ~ Normal` parameterizes a Gaussian per-step kernel whose mean is a learned linear function of `(u_t, s_{t-1})` and whose scale is the prior `scale` hyperparameter. The emission `State -> Obs ~ Normal` is the constant-in-time observation kernel.
 
 `scan(transition_cell)` threads the latent state forward across a sequence, producing the per-step filtered state of shape `(batch, seq_len, state_dim)`; composing with `emission` via `>>` produces the generative pipeline. `scan(filter_cell)` is the recognition counterpart: at each step it takes the new observation concatenated with the previous belief and returns the updated belief, exactly the Kalman filter recurrence when `filter_cell` is the closed-form posterior update.
 
-A matrix-Normal prior on the transition matrix is the natural conjugate choice when the analyst wants to separate row and column correlation structure: `~ MatrixNormal(loc, row_scale, col_scale) over (dom, cod)` puts a [Kronecker-covariance](https://en.wikipedia.org/wiki/Kronecker_product) prior on the representing tensor of a finite-state transition morphism. The Euclidean state space here uses parameter networks instead, but the same axis-role surface applies once the state factorises into named components.
+A matrix-Normal prior on the transition matrix is the natural conjugate choice when the analyst wants to separate row and column correlation structure: `~ MatrixNormal(loc, row_scale, col_scale) over (dom, cod)` puts a [Kronecker-covariance](https://en.wikipedia.org/wiki/Kronecker_product) prior on the representing tensor of a finite-state transition morphism. The Euclidean state space here uses parameter networks instead, but the same axis-role surface applies once the state factorizes into named components.
 
 ## Try it
 
@@ -58,7 +58,7 @@ The exported morphism is the `ScanMorphism` wrapper: calling `.rsample(o_seq)` t
 
 ## Categorical Perspective
 
-The model is a Kleisli morphism in the [Giry monad](https://doi.org/10.1007/BFb0092872)'s Kleisli category. `scan` realises the iterated Kleisli composition of the per-step Gaussian kernel; the [right Kan extension](https://ncatlab.org/nlab/show/Kan+extension) of the per-step cell along the time projection gives the joint over the sequence. Because every step is affine-Gaussian, the joint is itself Gaussian and the standard linear-algebra recurrences (Kalman / RTS) are the explicit formulae for the categorical pushforward.
+The model is a Kleisli morphism in the [Giry monad](https://doi.org/10.1007/BFb0092872)'s Kleisli category. `scan` realizes the iterated Kleisli composition of the per-step Gaussian kernel; the [right Kan extension](https://ncatlab.org/nlab/show/Kan+extension) of the per-step cell along the time projection gives the joint over the sequence. Because every step is affine-Gaussian, the joint is itself Gaussian and the standard linear-algebra recurrences (Kalman / RTS) are the explicit formulae for the categorical pushforward.
 
 ```mermaid
 flowchart LR

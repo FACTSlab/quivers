@@ -7,7 +7,7 @@ This guide covers two related surfaces: *transformations* (the first-class value
 A *transformation* turns a morphism in one enrichment algebra into a morphism in another. Two kinds exist:
 
 - **Quantale homomorphisms** $\varphi : \mathcal{V} \to \mathcal{W}$ act pointwise: every entry of the morphism's tensor is sent through $\varphi$.
-- **Morphism transformations** act on the whole tensor, consuming axis information; softmax row-normalisation, L1/L2 normalisation, and Bayes inversion under a prior all live here.
+- **Morphism transformations** act on the whole tensor, consuming axis information; softmax row-normalization, L1/L2 normalization, and Bayes inversion under a prior all live here.
 
 The library treats both as first-class DSL values, living in a transformation namespace disjoint from the morphism namespace. You can let-bind them, compose them with `>>>`, and pass either kind to `change_base`.
 
@@ -56,7 +56,7 @@ let g    = f.change_base(pipe)
 export g
 ```
 
-`softmax(B)` produces a transformation $\mathcal{V}_\mathrm{pf} \to \mathcal{V}_\mathrm{M}$; `expectation` is $\mathcal{V}_\mathrm{M} \to \mathcal{V}_\mathrm{pf}$; their composition round-trips and gives a row-normalised morphism back in $\mathcal{V}_\mathrm{pf}$.
+`softmax(B)` produces a transformation $\mathcal{V}_\mathrm{pf} \to \mathcal{V}_\mathrm{M}$; `expectation` is $\mathcal{V}_\mathrm{M} \to \mathcal{V}_\mathrm{pf}$; their composition round-trips and gives a row-normalized morphism back in $\mathcal{V}_\mathrm{pf}$.
 
 The `change_base` postfix accepts any expression that denotes a transformation: a bare singleton, a let-bound name, a constructor call, or a `>>>` chain.
 

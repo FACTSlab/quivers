@@ -2,7 +2,7 @@
 
 ## Overview
 
-Dirichlet regression ([Maier 2014](https://doi.org/10.32614/CRAN.package.DirichletReg)) for compositional response variables on the K-dimensional [probability simplex](https://en.wikipedia.org/wiki/Simplex). The model uses K = 3 categories and exploits the [Gamma / Dirichlet relationship](https://en.wikipedia.org/wiki/Dirichlet_distribution#Gamma_distribution): independent Gamma draws with shapes `(alpha_1, ..., alpha_K)` and unit rate normalise to a Dirichlet sample on the K-simplex.
+Dirichlet regression ([Maier 2014](https://doi.org/10.32614/CRAN.package.DirichletReg)) for compositional response variables on the K-dimensional [probability simplex](https://en.wikipedia.org/wiki/Simplex). The model uses K = 3 categories and exploits the [Gamma / Dirichlet relationship](https://en.wikipedia.org/wiki/Dirichlet_distribution#Gamma_distribution): independent Gamma draws with shapes `(alpha_1, ..., alpha_K)` and unit rate normalize to a Dirichlet sample on the K-simplex.
 
 ## QVR Source
 
@@ -28,7 +28,7 @@ export dirichlet_regression
 
 ## Walkthrough
 
-Per-category coefficient plates `beta_0 : Cat` and `beta_1 : Cat` carry one coefficient per simplex axis. The per-cell log-shape `b0 + b1 * x` is mapped through the exponential to give the positive Gamma shape `alpha`; the observed Gamma tallies normalise downstream to a [Dirichlet](https://en.wikipedia.org/wiki/Dirichlet_distribution) sample on the K-simplex. Plate-gather `beta_0[cat_idx]` selects each cell's category coefficient from the per-category plate.
+Per-category coefficient plates `beta_0 : Cat` and `beta_1 : Cat` carry one coefficient per simplex axis. The per-cell log-shape `b0 + b1 * x` is mapped through the exponential to give the positive Gamma shape `alpha`; the observed Gamma tallies normalize downstream to a [Dirichlet](https://en.wikipedia.org/wiki/Dirichlet_distribution) sample on the K-simplex. Plate-gather `beta_0[cat_idx]` selects each cell's category coefficient from the per-category plate.
 
 ## Try it
 
@@ -65,4 +65,4 @@ print("post beta_1:", guide._loc("beta_1").detach().squeeze())  # ~ [0.75, -1.06
 
 ## Categorical Perspective
 
-The model factors through the [Gamma](https://en.wikipedia.org/wiki/Gamma_distribution) / [Dirichlet](https://en.wikipedia.org/wiki/Dirichlet_distribution) representation: a K-fold tensor product of `Gamma(alpha_k, 1)` kernels, pushforward through the normalising map `t |-> t / sum t` lands on the K-simplex as the Dirichlet kernel. Working in the unnormalised Gamma layer keeps the per-category log-shapes linear in the predictor; the simplex projection is a deterministic post-composition that the runtime applies on demand.
+The model factors through the [Gamma](https://en.wikipedia.org/wiki/Gamma_distribution) / [Dirichlet](https://en.wikipedia.org/wiki/Dirichlet_distribution) representation: a K-fold tensor product of `Gamma(alpha_k, 1)` kernels, pushforward through the normalizing map `t |-> t / sum t` lands on the K-simplex as the Dirichlet kernel. Working in the unnormalized Gamma layer keeps the per-category log-shapes linear in the predictor; the simplex projection is a deterministic post-composition that the runtime applies on demand.

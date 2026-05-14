@@ -2,7 +2,7 @@
 
 ## Overview
 
-Quantifier-scope ambiguity, treated as the choice of which scope-taking lift to apply during composition. Generalised quantifiers are typed as continuations `Cont(X) = S/(S/X)`; surface and inverse scope arise from different sequent-rule applications of an applicative lift and a scope-extruding bind. The deduction itself is a `LogProb`-weighted relation; a downstream `program` block over the chart's per-derivation weights can be conditioned to learn or marginalise over which reading the parser commits to. Canonical reference: [Bumford & Charlow (2026)](https://doi.org/10.1017/9781009285377), *Effect-Driven Interpretation*.
+Quantifier-scope ambiguity, treated as the choice of which scope-taking lift to apply during composition. Generalized quantifiers are typed as continuations `Cont(X) = S/(S/X)`; surface and inverse scope arise from different sequent-rule applications of an applicative lift and a scope-extruding bind. The deduction itself is a `LogProb`-weighted relation; a downstream `program` block over the chart's per-derivation weights can be conditioned to learn or marginalize over which reading the parser commits to. Canonical reference: [Bumford & Charlow (2026)](https://doi.org/10.1017/9781009285377), *Effect-Driven Interpretation*.
 
 ## QVR Source
 
@@ -46,7 +46,7 @@ deduction QScope : Term -> Term {
 
 `atoms { ... }` declares category atoms (`S`, `NP`, `N`, `VP`, `PP`), slash constructors `Fwd`, `Bwd`, the continuation constructor `Cont`, and the chart-item constructor `span`. Pattern variables (single-uppercase identifiers) are bound at firing time.
 
-Five sequent rules realise the scope fragment:
+Five sequent rules realize the scope fragment:
 
 - **`fwd_app` / `bwd_app`**: base forward and backward application from the underlying [Lambek calculus](type-logical.md).
 - **`fwd_app_cont`**: the applicative lift of forward application under `Cont`. Two scope-taking expressions compose by pulling both continuations to the outside.
@@ -63,11 +63,11 @@ from quivers.dsl import load
 prog = load("docs/examples/source/quantifier_scope.qvr")
 ```
 
-To use the deduction inside a probabilistic program, wrap the chart's per-derivation weights in an outer [`program`](../guides/dsl.md) that draws a categorical reading variable and observes a downstream comprehension judgement; conditioning on the judgement and marginalising over the scoping yields a posterior over which reading speakers commit to. The [`MonadicProgram.marginalize`](../api/program.md) step is the categorical handle for the scoping marginal: the projection $\pi : \Phi \times R \to \Phi$ integrates out the reading coordinate $R$ via log-sum-exp on the joint log-likelihood.
+To use the deduction inside a probabilistic program, wrap the chart's per-derivation weights in an outer [`program`](../guides/dsl.md) that draws a categorical reading variable and observes a downstream comprehension judgment; conditioning on the judgment and marginalizing over the scoping yields a posterior over which reading speakers commit to. The [`MonadicProgram.marginalize`](../api/program.md) step is the categorical handle for the scoping marginal: the projection $\pi : \Phi \times R \to \Phi$ integrates out the reading coordinate $R$ via log-sum-exp on the joint log-likelihood.
 
 ## Categorical Perspective
 
-`Cont` is the continuation monad on the category of formulas: $\mathrm{Cont}(X) = S/(S/X)$ realises double negation $\neg\neg X$ in the answer-type $S$. The `pure_cont` rule is its unit $\eta : X \to \mathrm{Cont}(X)$; `fwd_app_cont` realises its applicative-functor structure; `scope_take` realises the [monadic bind](https://doi.org/10.1016/0890-5401(91)90052-4) $\mu \circ \mathrm{Cont}(f)$ in the form licensed by the [Lambek calculus](https://doi.org/10.2307/2964823) residuation laws. Surface vs inverse scope is then a choice of derivation in the rule-system multicategory; the agenda's `LogProb`-enriched chart records every choice, and downstream `marginalize` integrates them away into a single scope-marginal likelihood.
+`Cont` is the continuation monad on the category of formulas: $\mathrm{Cont}(X) = S/(S/X)$ realizes double negation $\neg\neg X$ in the answer-type $S$. The `pure_cont` rule is its unit $\eta : X \to \mathrm{Cont}(X)$; `fwd_app_cont` realizes its applicative-functor structure; `scope_take` realizes the [monadic bind](https://doi.org/10.1016/0890-5401(91)90052-4) $\mu \circ \mathrm{Cont}(f)$ in the form licensed by the [Lambek calculus](https://doi.org/10.2307/2964823) residuation laws. Surface vs inverse scope is then a choice of derivation in the rule-system multicategory; the agenda's `LogProb`-enriched chart records every choice, and downstream `marginalize` integrates them away into a single scope-marginal likelihood.
 
 ## Connections
 

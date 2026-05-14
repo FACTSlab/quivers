@@ -47,7 +47,7 @@ export transformer_lm
 let layer = fan(head) >> attn_proj >> residual_attn >> ff_up >> ff_down >> residual_ff
 ```
 
-After the multi-head attention, `attn_proj` mixes the head outputs back into `Latent`, `residual_attn` is a small-scale Bayesian shortcut that plays the role of the standard residual `+` (the prior centred near identity), and the `ff_up >> ff_down` pair is the standard 2-layer position-wise feed-forward block.
+After the multi-head attention, `attn_proj` mixes the head outputs back into `Latent`, `residual_attn` is a small-scale Bayesian shortcut that plays the role of the standard residual `+` (the prior centered near identity), and the `ff_up >> ff_down` pair is the standard 2-layer position-wise feed-forward block.
 
 ### Deep stack
 
@@ -79,4 +79,4 @@ print(modes.shape)                        # torch.Size([16, 8])
 
 ## Categorical Perspective
 
-The model denotes a Kleisli morphism $\mathrm{Token} \to \mathcal{G}(\mathrm{Token})$ in the [Giry monad](https://doi.org/10.1007/BFb0092872)'s Kleisli category, assembled by composition of replicated heads, an output projection, residual mixers, and a two-stage feed-forward block. [`stack`](../guides/dsl.md#stack-independent-multi-layer) is independent multi-layer deep composition; [`fan`](../guides/dsl.md#fan-out-diagonal-morphism) is the diagonal followed by parallel composition, the categorical realisation of multi-head attention. The Categorical head accumulates per-position log-likelihood as a sub-probability kernel.
+The model denotes a Kleisli morphism $\mathrm{Token} \to \mathcal{G}(\mathrm{Token})$ in the [Giry monad](https://doi.org/10.1007/BFb0092872)'s Kleisli category, assembled by composition of replicated heads, an output projection, residual mixers, and a two-stage feed-forward block. [`stack`](../guides/dsl.md#stack-independent-multi-layer) is independent multi-layer deep composition; [`fan`](../guides/dsl.md#fan-out-diagonal-morphism) is the diagonal followed by parallel composition, the categorical realization of multi-head attention. The Categorical head accumulates per-position log-likelihood as a sub-probability kernel.

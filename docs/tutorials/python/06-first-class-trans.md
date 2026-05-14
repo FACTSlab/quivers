@@ -3,7 +3,7 @@
 A *change-of-base* transformation turns a $\mathcal{V}$-enriched morphism into a $\mathcal{W}$-enriched one. Two flavours coexist in the library:
 
 - **Quantale homomorphisms** ([Rosenthal, 1990](https://doi.org/10.1090/conm/094)) are lax monoidal lattice maps $\varphi : \mathcal{V} \to \mathcal{W}$ that act pointwise: every entry of the morphism's tensor is sent through $\varphi$.
-- **Morphism transformations** act on the whole tensor, not entry-by-entry. Softmax row-normalisation, L1/L2 row-normalisation, Bayes inversion under a prior; all consume axis information that pointwise actions don't see.
+- **Morphism transformations** act on the whole tensor, not entry-by-entry. Softmax row-normalization, L1/L2 row-normalization, Bayes inversion under a prior; all consume axis information that pointwise actions don't see.
 
 Both inherit a common interface: a `.source` quantale, a `.target` quantale, and an `apply` that ingests a tensor (plus a morphism for shape resolution). The Python API treats them as first-class values: you let-bind them in Python, compose them with the `>>>` (call site is `compose_trans`), and pass either kind into `Morphism.change_base`.
 
@@ -97,7 +97,7 @@ g = f.change_base(pipe)
 
 ## Bayes inversion
 
-`bayes_invert(prior)` is the one constructor whose argument is a *morphism* rather than an *object*. It builds a `BayesInvert` transformation parameterised by the prior; the transformed kernel is the Bayes-inverted posterior under that prior. Domain and codomain swap.
+`bayes_invert(prior)` is the one constructor whose argument is a *morphism* rather than an *object*. It builds a `BayesInvert` transformation parameterized by the prior; the transformed kernel is the Bayes-inverted posterior under that prior. Domain and codomain swap.
 
 ```python
 import torch

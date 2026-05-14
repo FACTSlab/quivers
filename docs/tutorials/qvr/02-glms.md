@@ -1,6 +1,6 @@
-# 2. Generalised linear models
+# 2. Generalized linear models
 
-Linear regression is the corner case of a generalised linear model ([Nelder & Wedderburn, 1972](https://doi.org/10.2307/2344614)) with an identity link and a normal likelihood. Loosening either gives you a much wider family: logistic regression for binary outcomes, Poisson regression for counts, ordinal regression for graded responses. This chapter does the first two end to end in QVR, with calibration checks on the posterior predictive.
+Linear regression is the corner case of a generalized linear model ([Nelder & Wedderburn, 1972](https://doi.org/10.2307/2344614)) with an identity link and a normal likelihood. Loosening either gives you a much wider family: logistic regression for binary outcomes, Poisson regression for counts, ordinal regression for graded responses. This chapter does the first two end to end in QVR, with calibration checks on the posterior predictive.
 
 The model template is the same in every case:
 

@@ -101,7 +101,7 @@ Factor analysis is identifiable only up to a $K \times K$ orthogonal rotation of
 
 ## Categorical Perspective
 
-The factor analysis model is a Kleisli morphism $\mathsf{Item} \to \mathcal{G}(\mathsf{Item})$ in the Kleisli category of the [Giry monad](https://doi.org/10.1007/BFb0092872). The loading-matrix morphism $W : \mathsf{LatentDim} \to \mathsf{ObsDim}$ carries a [matrix-normal](https://en.wikipedia.org/wiki/Matrix_normal_distribution) prior whose Kronecker factorisation $\mathrm{vec}(W) \sim \mathcal{N}(0, V \otimes U)$ expresses the prior as the [tensor product](https://en.wikipedia.org/wiki/Tensor_product) of two univariate Gaussians on the row and column axes. The morphism-valued prior surface is the categorically natural way to express this: the matrix is treated as a first-class arrow, and its prior is a measure on the hom-object $\mathbf{Kern}(\mathsf{LatentDim}, \mathsf{ObsDim})$.
+The factor analysis model is a Kleisli morphism $\mathsf{Item} \to \mathcal{G}(\mathsf{Item})$ in the Kleisli category of the [Giry monad](https://doi.org/10.1007/BFb0092872). The loading-matrix morphism $W : \mathsf{LatentDim} \to \mathsf{ObsDim}$ carries a [matrix-normal](https://en.wikipedia.org/wiki/Matrix_normal_distribution) prior whose Kronecker factorization $\mathrm{vec}(W) \sim \mathcal{N}(0, V \otimes U)$ expresses the prior as the [tensor product](https://en.wikipedia.org/wiki/Tensor_product) of two univariate Gaussians on the row and column axes. The morphism-valued prior surface is the categorically natural way to express this: the matrix is treated as a first-class arrow, and its prior is a measure on the hom-object $\mathbf{Kern}(\mathsf{LatentDim}, \mathsf{ObsDim})$.
 
 ## See Also
 

@@ -7,7 +7,7 @@ All source files are in `docs/examples/source/`.
 
 ## Sequence Architectures
 
-Bayesian sequence models for language modelling: each example declares a tokeniser-style embed, a sequence processor, and a Categorical [`lm_head`](../api/continuous/morphisms.md) so the program's `observe` step scores the next- or masked-token target under a Categorical likelihood. Forward sampling via [`MonadicProgram.rsample`](../api/continuous/programs.md) runs the model on synthetic inputs.
+Bayesian sequence models for language modeling: each example declares a tokeniser-style embed, a sequence processor, and a Categorical [`lm_head`](../api/continuous/morphisms.md) so the program's `observe` step scores the next- or masked-token target under a Categorical likelihood. Forward sampling via [`MonadicProgram.rsample`](../api/continuous/programs.md) runs the model on synthetic inputs.
 
 The Elman SRN (Elman 1990, [doi:10.1207/s15516709cog1402_1](https://doi.org/10.1207/s15516709cog1402_1)) is the same Kleisli morphism `Embedded * Hidden -> Hidden` threaded by [`scan`](../guides/dsl.md#scan-temporal-recurrence) as the vanilla RNN example below: the "context units" of the classical SRN are exactly the `h_{t-1}` argument that `scan` passes into the cell at each step, so there is no separate Elman example.
 
@@ -44,7 +44,7 @@ export vanilla_rnn_lm
 
 A Bayesian LSTM ([Hochreiter and Schmidhuber 1997](https://doi.org/10.1162/neco.1997.9.8.1735)). The recurrent cell is a parametric [`program`](../guides/dsl.md#program) that draws the four standard gates (`i`, `f`, `o`, `g`) from `LogitNormal` and `Normal` priors, updates the cell state by `c_t = f_t * c_{t-1} + i_t * g_t`, and emits `h_t = o_t * tanh(c_t)`.
 
-**Distinguishing feature:** parametric `program` cell composed with `scan`, exercising `let` arithmetic and the `sigmoid` builtin to realise tanh as `2 * sigmoid(2x) - 1`.
+**Distinguishing feature:** parametric `program` cell composed with `scan`, exercising `let` arithmetic and the `sigmoid` builtin to realize tanh as `2 * sigmoid(2x) - 1`.
 
 ```qvr
 object Token : 256
@@ -166,7 +166,7 @@ export bidirectional_rnn_lm
 
 ### [Transformer Language Model](transformer-lm.md)
 
-A four-layer Bayesian transformer ([Vaswani et al. 2017](https://doi.org/10.48550/arXiv.1706.03762)) with four-head attention. The `kernel head[4]` declaration creates four independently-parameterised heads; `fan(head)` runs them in parallel and concatenates outputs, and `stack(layer, 4)` produces four independent transformer blocks.
+A four-layer Bayesian transformer ([Vaswani et al. 2017](https://doi.org/10.48550/arXiv.1706.03762)) with four-head attention. The `kernel head[4]` declaration creates four independently-parameterized heads; `fan(head)` runs them in parallel and concatenates outputs, and `stack(layer, 4)` produces four independent transformer blocks.
 
 **Distinguishing feature:** [`stack`](../guides/dsl.md#stack-independent-multi-layer) for independent deep copies and [`fan`](../guides/dsl.md#fan-out-diagonal-morphism) for parallel multi-head attention.
 
@@ -529,7 +529,7 @@ deduction AB : Term -> Term {
 
 ### [Event-Structure Latent-Class Model](event-structure.md)
 
-A four-class telicity × durativity latent-class model over cloze and proportion responses. Exercises indexed binds, a parametric `random_intercepts` template instantiated 8 times for crossed random intercepts on subject, verb, sense, and item, an ordinal monotone spline via `cumsum` of `HalfNormal` increments, indexed observes against a runtime `observations` dict, and scoped `marginalize` for coordinate marginalisation.
+A four-class telicity × durativity latent-class model over cloze and proportion responses. Exercises indexed binds, a parametric `random_intercepts` template instantiated 8 times for crossed random intercepts on subject, verb, sense, and item, an ordinal monotone spline via `cumsum` of `HalfNormal` increments, indexed observes against a runtime `observations` dict, and scoped `marginalize` for coordinate marginalization.
 
 **Features:** `program`, parametric templates, indexed bind `v : A <- F(args)`, `observe r : N <- F(args)`, scoped `marginalize`, `cumsum`, `HalfNormal`
 

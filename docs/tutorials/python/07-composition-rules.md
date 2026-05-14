@@ -160,7 +160,7 @@ out   = wmi.apply(
 `EinsumWiring` validates the spec at construction time:
 
 - Each input must be non-empty.
-- No input may repeat a letter (`"ii, jk -> ik"` is refused; that would be a trace / diagonal contraction, which this wiring doesn't realise).
+- No input may repeat a letter (`"ii, jk -> ik"` is refused; that would be a trace / diagonal contraction, which this wiring doesn't realize).
 - The output must not repeat a letter (`"ij, jk -> iik"` is refused).
 - Every output letter must appear in at least one input.
 

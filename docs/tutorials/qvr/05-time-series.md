@@ -18,7 +18,7 @@ object School : 8
 theta : School <- Normal(mu, tau)
 ```
 
-is the QVR analogue of NumPyro's `with plate("schools", 8): theta = sample("theta", dist.Normal(mu, tau))`. The result has shape `(8,)`; subsequent `let` arithmetic broadcasts over it. A *vectorised observe* over a plate has the same shape:
+is the QVR analogue of NumPyro's `with plate("schools", 8): theta = sample("theta", dist.Normal(mu, tau))`. The result has shape `(8,)`; subsequent `let` arithmetic broadcasts over it. A *vectorized observe* over a plate has the same shape:
 
 <!-- compile: false -->
 ```qvr
@@ -49,7 +49,7 @@ export rnn
 
 The pipeline reads as: embed each token to a 64-dim vector, fold the cell over the sequence dimension (with zero or learned initial state), project the final hidden state to a 64-dim output. The compiler infers the sequence axis from the input tensor's second dimension at evaluation time.
 
-If you've used Haskell's `mapAccumL` or NumPy's `np.cumsum`, this is the same idea generalised to a learnable cell.
+If you've used Haskell's `mapAccumL` or NumPy's `np.cumsum`, this is the same idea generalized to a learnable cell.
 
 ## A hidden Markov model
 
@@ -82,14 +82,14 @@ A few things to point out:
 
 - `init_logits : State` and `mu_emit : State` are plate-draws over the state object: one initial-logit per state, one emission mean per state.
 - `trans_logits : State * State` is a plate over a product object: a 2×2 matrix of transition logits.
-- `softmax_rows` is a `let`-arithmetic builtin that row-normalises a 2D tensor.
-- `marginalize z : Step * State <- ForwardLattice(...)` is the HMM-shaped marginalisation. `ForwardLattice` is the structured family that exposes the forward-algorithm log-likelihood (i.e. the marginal `log p(y | params)` after summing over all state sequences). The runtime contracts this against the categorical-prior and the per-step emission log-likelihoods using a forward-backward pass; gradients flow through the full forward pass.
+- `softmax_rows` is a `let`-arithmetic builtin that row-normalizes a 2D tensor.
+- `marginalize z : Step * State <- ForwardLattice(...)` is the HMM-shaped marginalization. `ForwardLattice` is the structured family that exposes the forward-algorithm log-likelihood (i.e. the marginal `log p(y | params)` after summing over all state sequences). The runtime contracts this against the categorical-prior and the per-step emission log-likelihoods using a forward-backward pass; gradients flow through the full forward pass.
 
 The Pyro analogue would be a custom `infer={"enumerate": "parallel"}` model with manual axis-shape juggling; NumPyro's `numpyro.contrib.control_flow.scan` does the per-step recursion but the discrete-state forward algorithm is still your responsibility. QVR's `ForwardLattice` family wraps the recursion for you.
 
 ## State-space (Kalman) models
 
-For continuous-state sequences, replace the discrete-state marginalisation with a Gaussian transition and a Gaussian emission. The marginal likelihood is closed-form via Kalman smoothing ([Kalman, 1960](https://doi.org/10.1115/1.3662552)):
+For continuous-state sequences, replace the discrete-state marginalization with a Gaussian transition and a Gaussian emission. The marginal likelihood is closed-form via Kalman smoothing ([Kalman, 1960](https://doi.org/10.1115/1.3662552)):
 
 <!-- compile: false -->
 ```qvr
@@ -117,9 +117,9 @@ The `KalmanSmoother` family computes the marginal likelihood of the observation 
 
 ## Try this
 
-- Convert the HMM to use a `scan` cell with explicit per-step draws (no `ForwardLattice`), then run NUTS to sample the latent state sequence. Compare runtime to the marginalised version.
+- Convert the HMM to use a `scan` cell with explicit per-step draws (no `ForwardLattice`), then run NUTS to sample the latent state sequence. Compare runtime to the marginalized version.
 - Make the HMM hierarchical: each sequence has its own transition matrix drawn from a hyperprior. (Chapter 3's plate-draw applies.)
-- Replace the Gaussian emissions with Poisson emissions for count data; the marginalised structure is identical.
+- Replace the Gaussian emissions with Poisson emissions for count data; the marginalized structure is identical.
 
 ## Next
 

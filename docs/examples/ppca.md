@@ -98,9 +98,9 @@ The PPCA covariance is $W W^\top + \sigma^2 I$, so we check both the recovered $
 
 ## Categorical Perspective
 
-PPCA is the isotropic restriction of [factor analysis](factor-analysis.md): the per-dimension noise morphism $\mathsf{ObsDim} \to \mathcal{G}(\mathsf{ObsDim})$ is a scalar-shared kernel rather than a $\mathsf{ObsDim}$-indexed plate. The loading-matrix morphism $W$ retains the same [matrix-normal](https://en.wikipedia.org/wiki/Matrix_normal_distribution) prior, expressing a prior measure on $\mathbf{Kern}(\mathsf{LatentDim}, \mathsf{ObsDim})$. Marginalising the latent factor $z$ gives the closed-form covariance $W W^\top + \sigma^2 I$, recovered as the [right Kan extension](https://ncatlab.org/nlab/show/Kan+extension) along the projection $\mathsf{Item} \times \mathsf{LatentDim} \to \mathsf{Item}$.
+PPCA is the isotropic restriction of [factor analysis](factor-analysis.md): the per-dimension noise morphism $\mathsf{ObsDim} \to \mathcal{G}(\mathsf{ObsDim})$ is a scalar-shared kernel rather than a $\mathsf{ObsDim}$-indexed plate. The loading-matrix morphism $W$ retains the same [matrix-normal](https://en.wikipedia.org/wiki/Matrix_normal_distribution) prior, expressing a prior measure on $\mathbf{Kern}(\mathsf{LatentDim}, \mathsf{ObsDim})$. Marginalizing the latent factor $z$ gives the closed-form covariance $W W^\top + \sigma^2 I$, recovered as the [right Kan extension](https://ncatlab.org/nlab/show/Kan+extension) along the projection $\mathsf{Item} \times \mathsf{LatentDim} \to \mathsf{Item}$.
 
 ## See Also
 
-- [Factor Analysis](factor-analysis.md), the free-diagonal generalisation.
+- [Factor Analysis](factor-analysis.md), the free-diagonal generalization.
 - [DSL Guide](../guides/dsl.md) for the morphism-valued prior surface and plate-bind syntax.

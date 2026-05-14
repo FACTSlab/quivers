@@ -80,4 +80,4 @@ For deductions whose semiring is commutative + idempotent + supports inverses (`
 
 ## Connections to Language Modeling
 
-Summing `chart.goal_weight()` over derivations gives the sentence's marginal log-probability under the grammar; that scalar is a perfectly ordinary log-prob and can be used as a language model in a downstream `program`. EM-style training reduces to maximising `chart.goal_weight()` on observed sentences; the analytic outside pass handles the gradient. Changing the `semiring` field (e.g., from `LogProb` to `Viterbi`) selects a different aggregation strategy without touching the rules.
+Summing `chart.goal_weight()` over derivations gives the sentence's marginal log-probability under the grammar; that scalar is a perfectly ordinary log-prob and can be used as a language model in a downstream `program`. EM-style training reduces to maximizing `chart.goal_weight()` on observed sentences; the analytic outside pass handles the gradient. Changing the `semiring` field (e.g., from `LogProb` to `Viterbi`) selects a different aggregation strategy without touching the rules.

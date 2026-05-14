@@ -79,4 +79,4 @@ CCG is the internal language of a closed monoidal category. The forward slash `X
 
 ## Semiring Selection
 
-The choice of semiring affects the parser's behaviour: `LogProb` accumulates inside log-probabilities (numerically stable, differentiable); `Viterbi` returns the highest-weight derivation; `Counting` counts distinct derivations; `Boolean` checks membership without weights. The same deduction block serves all four objectives via the `semiring` field.
+The choice of semiring affects the parser's behavior: `LogProb` accumulates inside log-probabilities (numerically stable, differentiable); `Viterbi` returns the highest-weight derivation; `Counting` counts distinct derivations; `Boolean` checks membership without weights. The same deduction block serves all four objectives via the `semiring` field.

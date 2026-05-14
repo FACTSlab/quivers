@@ -43,7 +43,7 @@ marginalize z : Topic <- Dirichlet(phi)
     }
 ```
 
-introduces the per-word topic latent $z$ with a [Dirichlet](https://en.wikipedia.org/wiki/Dirichlet_distribution) prior parameterised by the topic-shaped `phi`. The `over Doc` grouping plate fibrates each per-word observation into its document accumulator, and `via word_idx` names the per-observe fibration into the Doc plate. At the end of the scope the runtime [log-sum-exps](https://en.wikipedia.org/wiki/LogSumExp) over the $K$ topics at every word position, integrating $z$ out by pushforward along the projection $\Phi \times \mathsf{Topic} \to \Phi$.
+introduces the per-word topic latent $z$ with a [Dirichlet](https://en.wikipedia.org/wiki/Dirichlet_distribution) prior parameterized by the topic-shaped `phi`. The `over Doc` grouping plate fibrates each per-word observation into its document accumulator, and `via word_idx` names the per-observe fibration into the Doc plate. At the end of the scope the runtime [log-sum-exps](https://en.wikipedia.org/wiki/LogSumExp) over the $K$ topics at every word position, integrating $z$ out by pushforward along the projection $\Phi \times \mathsf{Topic} \to \Phi$.
 
 ## Try it
 
@@ -86,4 +86,4 @@ The discrete per-word topic $z : \mathsf{Topic}$ is integrated out by the [pushf
 ## See Also
 
 - [Bayesian Gaussian Mixture Model](mixture-model.md) for a simpler grouped `marginalize` over a discrete latent.
-- [Event-Structure Latent-Class Model](event-structure.md) for crossed random intercepts plus coordinate marginalisation.
+- [Event-Structure Latent-Class Model](event-structure.md) for crossed random intercepts plus coordinate marginalization.

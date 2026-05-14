@@ -2,7 +2,7 @@
 
 ## Overview
 
-The canonical log-volatility return model of [Kim, Shephard, and Chib (1998)](https://doi.org/10.1111/1467-937X.00050). The latent log-volatility follows an [AR(1)](https://en.wikipedia.org/wiki/Autoregressive_model) chain centred on a mean `mu` with autoregressive coefficient `phi`, and the observed return is mean-zero Normal with time-varying scale `exp(h_t / 2)`. The exponential link makes the volatility positive by construction.
+The canonical log-volatility return model of [Kim, Shephard, and Chib (1998)](https://doi.org/10.1111/1467-937X.00050). The latent log-volatility follows an [AR(1)](https://en.wikipedia.org/wiki/Autoregressive_model) chain centered on a mean `mu` with autoregressive coefficient `phi`, and the observed return is mean-zero Normal with time-varying scale `exp(h_t / 2)`. The exponential link makes the volatility positive by construction.
 
 ## QVR Source
 

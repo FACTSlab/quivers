@@ -1,6 +1,6 @@
 # Encoders
 
-`Encoder` is a `torch.nn.Module` that realises an F-algebra
+`Encoder` is a `torch.nn.Module` that realizes an F-algebra
 homomorphism `T_Σ → Vec_D` from terms over a signature to
 fixed-length vectors. The recursion is supplied by the framework;
 the analyst supplies only the per-operation parametric functions

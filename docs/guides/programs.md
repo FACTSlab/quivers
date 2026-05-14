@@ -317,7 +317,7 @@ export crossed
 
 Each `random_intercepts` call inlines an independent `sigma` and per-level plate; the observed response is the runtime tensor supplied via `observations={"response": response_tensor}`. Monotone ordinal effects are expressed as `cumsum` of `HalfNormal` increments (positive support ⇒ monotone partial sums); discrete latent classes are integrated out with a scoped `marginalize … in { … }` block.
 
-## Grouped marginalisation: fibred discrete latents
+## Grouped marginalization: fibred discrete latents
 
 A scoped `marginalize` block accepts an optional `over G` clause that declares a *grouping plate* `G`. Inside the body, every `observe` step carries its own `via <idx>` clause naming the fibration `idx : Resp_m → G` from that observe's response plate to the shared grouping plate. The body's per-axis per-row per-class log-likelihoods are scatter-summed into a single `(|G|, K)` accumulator before the log-sum-exp over the class axis:
 

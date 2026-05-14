@@ -10,7 +10,7 @@ The mental model: you pick (a) a *family* (variational, MCMC, hybrid), then (b) 
 |---|---|
 | Smooth, broadly unimodal, < 1000 latents | Variational inference. |
 | Multimodal or pathologically curved | MCMC (NUTS). |
-| Hierarchical with funnel-shaped posteriors | NUTS, or VI on the non-centred reparameterisation. |
+| Hierarchical with funnel-shaped posteriors | NUTS, or VI on the non-centered reparameterisation. |
 | High-dim (>1000 latents) and continuous | VI, unless you have a lot of compute. |
 | Mixed discrete-continuous with small discrete support | VI with a `marginalize` block (chapter 4); HMC over the continuous remainder. |
 | You don't know yet | Start with `AutoNormalGuide` + ELBO. It's cheap; the failure modes are diagnostic. |
@@ -42,7 +42,7 @@ The shipped guides:
 | `AutoDeltaGuide` | Dirac at MAP | Quick MAP; no posterior uncertainty. |
 | `AutoMultivariateNormalGuide` | Full-rank Normal (Cholesky) | Strong posterior correlations; `D ≲ 500`. |
 | `AutoLowRankMultivariateNormalGuide` | Low-rank + diagonal | Hierarchical models with localised correlations; specify `rank` (typically 5-20). |
-| `AutoLaplaceApproximation` | Gaussian centred at MAP with Hessian inverse | Post-hoc quadratic-around-MAP; cheap upgrade from `AutoDeltaGuide`. |
+| `AutoLaplaceApproximation` | Gaussian centered at MAP with Hessian inverse | Post-hoc quadratic-around-MAP; cheap upgrade from `AutoDeltaGuide`. |
 | `AutoNormalizingFlow` | Composed bijector over Normal base | Multimodal or heavy-tailed posteriors; you supply the flow stack. |
 | `AutoIAFGuide` | Inverse autoregressive flow | Flagship NF default; good general-purpose non-Gaussian guide. |
 | `AutoNeuralSplineGuide` | Rational-quadratic spline coupling | Sharper than IAF on bounded support. |
@@ -60,7 +60,7 @@ The Tier-1 through Tier-6 benchmark grid in `tests/benchmarks/` walks these agai
 | `RenyiBound(alpha, K)` | Rényi divergence bound | Interpolates ELBO (α=1) and IWAE (α=0). |
 | `VRIWAEBound(alpha, K)` | Variational Rényi-IWAE | Mass-covering vs mode-seeking knob via α; tight via K. |
 
-For most workflows, the default `ELBO()` is the right call. `IWAEBound` matters when the posterior is multimodal and the guide is flow-shaped (the importance weighting tightens the bound; coupling layers exploit it). `RenyiBound` is useful when you specifically want a mass-covering posterior (e.g. for Bayesian-optimisation acquisition functions).
+For most workflows, the default `ELBO()` is the right call. `IWAEBound` matters when the posterior is multimodal and the guide is flow-shaped (the importance weighting tightens the bound; coupling layers exploit it). `RenyiBound` is useful when you specifically want a mass-covering posterior (e.g. for Bayesian-optimization acquisition functions).
 
 ## Step 4: Which gradient estimator?
 
