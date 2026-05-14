@@ -49,8 +49,7 @@ statement      := composition_rule_decl
                 | object_decl
                 | morphism_decl
                 | space_decl
-                | continuous_decl
-                | stochastic_decl
+                | kernel_decl
                 | discretize_decl
                 | embed_decl
                 | program_decl
@@ -138,9 +137,23 @@ type_effect_apply := IDENT '(' type_expr (',' type_expr)* ')'
 primary_type   := IDENT | INT | '(' type_expr ')'
 
 morphism_decl  := ('latent' | 'observed') IDENT ':' type_expr '->' type_expr
-                  ['[' options ']'] ['=' expr]
+                  ['[' options ']']
+                  [morphism_prior]
+                  ['=' expr]
+morphism_prior := '~' IDENT '(' draw_arg (',' draw_arg)* ')'
+                  ['[' options ']']
+                  [axis_role_clause]
 options        := IDENT '=' value (',' IDENT '=' value)*
 value          := IDENT | INT | FLOAT
+
+# Axis-role clause on a distribution: ``over <axes> [iid over <axes>]``.
+# `over` names the event axes (the axes the family's joint
+# covariance lives on); the complement is iid.  Axis count must
+# match the family's declared event_rank.
+axis_role_clause
+               := 'over' axis_list ['iid' 'over' axis_list]
+axis_list      := IDENT
+                | '(' IDENT (',' IDENT)* ')'
 
 space_decl     := 'space' IDENT ':' space_expr
 space_expr     := space_product
@@ -151,10 +164,12 @@ space_arg      := IDENT '=' value | value
 
 type_decl      := 'type' IDENT '=' space_expr
 
-continuous_decl := 'continuous' IDENT ['[' INT ']'] ':' IDENT '->' IDENT
-                   '~' IDENT ['[' options ']']
-
-stochastic_decl := 'stochastic' IDENT ['[' INT ']'] ':' type_expr '->' type_expr
+# Markov-kernel declaration.  Without `~ Family`, declares a
+# finite-set lookup-table kernel; with it, a parametric kernel
+# whose family parameters come from the input by a parameter
+# network at sample time.
+kernel_decl    := 'kernel' IDENT ['[' INT ']'] ':' type_expr '->' type_expr
+                  ['~' IDENT ['[' options ']'] [axis_role_clause]]
 
 discretize_decl := 'discretize' IDENT ':' IDENT '->' INT
 
@@ -179,16 +194,20 @@ program_step   := bind_step | observe_step
                 | marginalize_step | let_step
 
 # Kleisli bind, the unique sampling step shape.
-#   v        <- F(args)              -- scalar draw
-#   v : A    <- F(args)              -- A-indexed plate
-#   (a, b)   <- F(args)              -- destructuring tuple bind
+#   v        <- F(args)                          , scalar draw
+#   v : A    <- F(args)                          , A-indexed plate
+#   (a, b)   <- F(args)                          , destructuring tuple
+#   v : A    <- F(args) over A                   , event-rank-1 family
+#   W : (R, C) <- MatrixNormal(...) over (R, C)  , matrix event
 bind_step      := var_pattern [':' type_expr] '<-' IDENT
                   ['(' draw_arg_list ')']
+                  [axis_role_clause]
 
 # Scored bind, same shape as bind_step, prefixed with `observe`.
 #   observe v        <- F(args)
 #   observe r : N    <- F(theta[N])
 #   observe r : N via idx <- F(theta[N])
+#   observe r : N <- MVN(mu, L) over N
 # Inside a grouped marginalize body the `via <idx>` clause is
 # required on every observe; it names the per-observe fibration
 # into the marginalize header's grouping plate.  `via product(...)`
@@ -198,6 +217,7 @@ observe_step   := 'observe' IDENT [':' type_expr]
                   ['via' via_spec]
                   '<-' IDENT
                   ['(' draw_arg_list ')']
+                  [axis_role_clause]
 via_spec       := IDENT | 'product' '(' IDENT (',' IDENT)* ')'
 
 # Scoped marginalization, coordinate `c` is bound to `F(args)`,
@@ -560,8 +580,8 @@ space RU : R3 * U
 
 The `kernel` keyword declares a Markov kernel `A -> B`. Two shapes:
 
-- **Without a `~` clause**: a finite-set lookup-table kernel `A -> D(B)`, realized as a learnable matrix of conditional probabilities (the case formerly written with the now-removed `stochastic` keyword).
-- **With a `~ Family [options]` clause**: a parametric continuous kernel `A -> G(B)` whose family parameters come from the input by a neural parameter network at sample time (the case formerly written with `continuous`).
+- **Without a `~` clause**: a finite-set lookup-table kernel `A -> D(B)`, realized as a learnable matrix of conditional probabilities.
+- **With a `~ Family [options] [axis_role_clause]` clause**: a parametric kernel `A -> G(B)` whose family parameters come from the input by a parameter network at sample time. The optional `axis_role_clause` configures the family's event / batch decomposition over codomain factors.
 
 <!-- compile: false -->
 ```qvr
