@@ -37,13 +37,12 @@ The lexer source lives at [`src/quivers/dsl/pygments_lexer.py`](https://github.c
 
 ## Tree-sitter (editors)
 
-The tree-sitter grammar lives at [`grammars/qvr/`](https://github.com/FACTSlab/quivers/tree/main/grammars/qvr) in the quivers repository and is vendored by the [`panproto-grammars-all`](https://github.com/panproto/panproto-grammars-all) distribution. Most editor integrations consume the grammar through one of three paths:
+The tree-sitter grammar lives at [`grammars/qvr/`](https://github.com/FACTSlab/quivers/tree/main/grammars/qvr) in the quivers repository and is vendored by the [`panproto-grammars-all`](https://pypi.org/project/panproto-grammars-all/) distribution. Most editor integrations consume the grammar through one of two paths:
 
-1. The published `tree-sitter-qvr` Node package (`npm i tree-sitter-qvr`).
-2. The vendored `parser.c` inside `panproto-grammars-all`.
-3. A direct clone of the quivers repo with a per-editor build step.
+1. The vendored `parser.c` inside `panproto-grammars-all`.
+2. A direct clone of the quivers repo with a per-editor build step against `grammars/qvr/`.
 
-The Neovim, Helix, Emacs, and Zed instructions below cover (1) and (3). The grammar uses standard tree-sitter conventions; if your editor has a `:TSInstall qvr` or equivalent command and the grammar isn't on the upstream list yet, the manual paths below also work.
+The Neovim, Helix, Emacs, and Zed instructions below cover (2). The grammar follows standard tree-sitter conventions; if your editor has a `:TSInstall qvr` or equivalent command and the grammar isn't on the upstream list yet, the manual paths below also work.
 
 ### Neovim
 
@@ -131,31 +130,31 @@ Run `M-x treesit-install-language-grammar RET qvr RET` once after Emacs starts t
 
 ### Zed
 
-Zed reads tree-sitter grammars from a per-language extension. The fastest path is the unofficial [`zed-extension-qvr`](https://github.com/FACTSlab/quivers/tree/main/grammars/qvr) seed available in the grammar directory:
+The quivers repository ships a Zed extension at
+[`editors/zed-extension-qvr/`](https://github.com/FACTSlab/quivers/tree/main/editors/zed-extension-qvr).
+Until the extension is published to Zed's public registry, install it
+locally from a checkout:
 
 ```bash
-# Clone quivers, then symlink the grammar into Zed's extensions directory.
 git clone https://github.com/FACTSlab/quivers
-ln -s "$(pwd)/quivers/grammars/qvr" ~/.config/zed/extensions/qvr
+mkdir -p ~/.config/zed/extensions
+ln -s "$(pwd)/quivers/editors/zed-extension-qvr" ~/.config/zed/extensions/qvr
 ```
 
 Reload extensions (`zed: reload extensions` from the command palette).
+The extension's manifest pins the grammar against `grammars/qvr/` in the
+same repository, so a single checkout drives both the grammar source
+and the editor packaging.
 
 ### VS Code
 
-VS Code does not have first-party tree-sitter support; two paths exist:
-
-- **The tree-sitter route**: install the [Tree-sitter Highlighter](https://marketplace.visualstudio.com/items?itemName=keith.tree-sitter-highlighter) extension and configure it with the grammar's `parser.c`. Follow the extension's `parserPath` instructions, pointing at `grammars/qvr/src/parser.c` from a quivers clone.
-- **The TextMate route**: a TextMate grammar lives in `grammars/qvr/queries/qvr.tmLanguage.json` (best-effort approximation of the tree-sitter highlights). Load it through a workspace `.vscode/settings.json`:
-
-  ```json
-  {
-    "files.associations": { "*.qvr": "qvr" },
-    "editor.tokenColorCustomizations": { "textMateRules": [] }
-  }
-  ```
-
-The TextMate file does not track every grammar revision; the tree-sitter path is preferred for accurate highlights.
+VS Code does not have first-party tree-sitter support. The supported
+route is the
+[Tree-sitter Highlighter](https://marketplace.visualstudio.com/items?itemName=keith.tree-sitter-highlighter)
+extension; configure it with the grammar's `parser.c`, following the
+extension's `parserPath` instructions and pointing at
+`grammars/qvr/src/parser.c` from a quivers clone. A first-party VS Code
+extension is not yet shipped; contributions are welcome.
 
 ## GitHub source view (Linguist)
 

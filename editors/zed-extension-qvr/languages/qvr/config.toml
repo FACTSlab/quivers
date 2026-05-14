@@ -1,0 +1,11 @@
+name = "QVR"
+grammar = "qvr"
+path_suffixes = ["qvr"]
+line_comments = ["# "]
+autoclose_before = ";:.,=}])>"
+brackets = [
+    { start = "{", end = "}", close = true, newline = true },
+    { start = "[", end = "]", close = true, newline = true },
+    { start = "(", end = ")", close = true, newline = true },
+    { start = "\"", end = "\"", close = true, newline = false, not_in = ["string", "comment"] },
+]
