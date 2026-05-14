@@ -41,6 +41,7 @@ from quivers.continuous.family_spec import (
     register as _register_family,
 )
 from quivers.continuous.spaces import (
+    CholeskyFactor,
     ContinuousSpace,
     Euclidean,
 )
@@ -2349,3 +2350,236 @@ if _HAS_GPD:
             conditional_class_override=ConditionalGeneralizedPareto,  # type: ignore[name-defined]
         )
     )
+# ---------------------------------------------------------------------------
+# LKJ correlation prior on Cholesky factors
+# ---------------------------------------------------------------------------
+
+
+class LKJCorrelationFactor(ContinuousMorphism):
+    """LKJ prior on Cholesky factors ``LKJ(K, η)`` over CholeskyFactor(K).
+
+    Density on the Cholesky factor:
+
+    .. math::
+
+        p(L) \\propto \\prod_{k=2}^{K} L_{kk}^{K - k + 2(\\eta - 1)}.
+
+    A higher concentration :math:`\\eta > 1` pulls toward the
+    identity correlation; :math:`\\eta = 1` is uniform on
+    correlations. Sampling uses the *onion method* of
+    Lewandowski-Kurowicka-Joe 2009: draw row-norm partial
+    correlations from Beta distributions and form :math:`L`
+    row-by-row.
+
+    Parameters
+    ----------
+    dim : int
+        Correlation-matrix size :math:`K \\ge 2`.
+    eta : float
+        Concentration :math:`\\eta > 0`.
+    domain : AnySpace
+        The morphism's source (parameter conditioning); typically
+        the program's input space. The LKJ prior itself does not
+        consume per-observation conditioning, so the rsample path
+        broadcasts the prior across the batch dimension.
+    """
+
+    def __init__(self, dim: int, eta: float, domain: AnySpace) -> None:
+        if dim < 2:
+            raise ValueError(f"LKJ requires dim >= 2; got {dim}")
+        if eta <= 0:
+            raise ValueError(f"LKJ requires eta > 0; got {eta}")
+        codomain = CholeskyFactor(name=f"L({dim})", dim=dim)
+        super().__init__(domain, codomain)
+        self._dim = dim
+        self._eta = float(eta)
+
+    def rsample(
+        self, x: torch.Tensor, sample_shape: torch.Size = torch.Size()
+    ) -> torch.Tensor:
+        del sample_shape
+        """Onion-method sample from the LKJ Cholesky prior.
+
+        Following Stan's reference implementation: for each row
+        :math:`i = 1 \\ldots K-1` of :math:`L` (1-indexed),
+        sample a vector :math:`y` on the unit sphere and a beta-
+        distributed radius :math:`r_i \\sim \\mathrm{Beta}(i/2,
+        \\eta + (K - i - 1)/2)` (when :math:`\\eta = 1` this reduces
+        to the uniform-on-correlations LKJ-1 case).
+        """
+        batch = x.shape[0]
+        K = self._dim
+        eta = self._eta
+        L = torch.zeros(batch, K, K, device=x.device, dtype=x.dtype)
+        L[:, 0, 0] = 1.0
+        for i in range(1, K):
+            # Beta parameters for row i (Stan's onion method).
+            alpha = eta + (K - 1 - i) / 2.0
+            beta = i / 2.0
+            r2 = torch.distributions.Beta(
+                torch.full((batch,), alpha, device=x.device, dtype=x.dtype),
+                torch.full((batch,), beta, device=x.device, dtype=x.dtype),
+            ).rsample()
+            # Sample a vector uniformly on the unit (i)-sphere.
+            u = torch.randn(batch, i, device=x.device, dtype=x.dtype)
+            u = u / torch.linalg.vector_norm(u, dim=-1, keepdim=True)
+            # row i has off-diagonal entries r * u, diagonal sqrt(1 - r^2).
+            L[:, i, :i] = torch.sqrt(r2).unsqueeze(-1) * u
+            L[:, i, i] = torch.sqrt(1.0 - r2)
+        return L.reshape(batch, K * K)
+
+    def log_prob(self, x: torch.Tensor, y: torch.Tensor) -> torch.Tensor:
+        """Log-density of the LKJ prior at the Cholesky factor ``y``.
+
+        Up to a normalizing constant that doesn't depend on
+        :math:`L`, :math:`\\log p(L) = \\sum_{k=2}^{K} (K-k+2(\\eta-1))
+        \\log L_{kk}`. The diagonal entries are extracted from the
+        flattened representation.
+        """
+        batch = y.shape[0]
+        K = self._dim
+        L = y.reshape(batch, K, K)
+        diag = torch.diagonal(L, dim1=-2, dim2=-1)  # (batch, K)
+        # Coefficients per diagonal entry (Stan's lkj_corr_cholesky_lpdf):
+        # log_jac_term[k] = (K - k + 2*(eta - 1)) * log(L_kk)  for k = 2..K
+        # Pre-K-indexed: power[0..K-1] where power[k] = (K-1-k) + 2*(eta-1).
+        # The first diagonal is fixed at 1 so log(1)=0 contributes nothing.
+        ks = torch.arange(K, device=y.device, dtype=y.dtype)
+        powers = (K - 1 - ks) + 2.0 * (self._eta - 1.0)
+        log_diag = torch.log(diag.clamp(min=1e-30))
+        return (powers * log_diag).sum(dim=-1)
+
+    def __repr__(self) -> str:
+        return f"LKJCorrelationFactor(dim={self._dim}, eta={self._eta})"
+
+
+# ---------------------------------------------------------------------------
+# Generic truncation combinator
+# ---------------------------------------------------------------------------
+
+
+class Truncated(ContinuousMorphism):
+    """Truncate a base family to an interval :math:`[a, b]`.
+
+    Categorical denotation: given a base family
+    :math:`F : \\Theta \\to \\mathcal{G}(\\mathbb{R})` and constants
+    :math:`a, b \\in \\bar{\\mathbb{R}}` with :math:`a < b`, the
+    truncated family has density
+
+    .. math::
+
+        p_{F_{|[a,b]}}(x) = \\frac{p_F(x)}{F_{\\text{cdf}}(b)
+        - F_{\\text{cdf}}(a)} \\cdot \\mathbb{1}_{[a,b]}(x)
+
+    and the morphism :math:`F_{|[a,b]} : \\Theta \\to
+    \\mathcal{G}([a,b])`. Sampling uses inverse-CDF when
+    :attr:`base` supports it; otherwise rejection sampling.
+
+    Parameters
+    ----------
+    base : ContinuousMorphism
+        The base distribution-family morphism. Must expose
+        ``log_prob`` and ``rsample`` plus an ``icdf`` method or a
+        ``base_distribution`` torch ``Distribution`` for inverse-CDF
+        sampling. Falls back to rejection sampling otherwise.
+    lower : float or None
+        Lower bound :math:`a`. ``None`` means :math:`-\\infty`.
+    upper : float or None
+        Upper bound :math:`b`. ``None`` means :math:`+\\infty`.
+    max_rejection_iterations : int
+        Cap on rejection-sampling attempts before raising.
+    """
+
+    def __init__(
+        self,
+        base: ContinuousMorphism,
+        lower: float | None = None,
+        upper: float | None = None,
+        max_rejection_iterations: int = 64,
+    ) -> None:
+        super().__init__(base.domain, base.codomain)
+        if lower is None and upper is None:
+            raise ValueError(
+                "Truncated requires at least one of lower / upper to be finite; "
+                "without truncation, use the base family directly"
+            )
+        if lower is not None and upper is not None and not (lower < upper):
+            raise ValueError(
+                f"Truncated requires lower < upper; got lower={lower}, upper={upper}"
+            )
+        self._base = base
+        self._lower = lower
+        self._upper = upper
+        self._max_iters = max_rejection_iterations
+        # Attach so the parent nn.Module tracks parameters.
+        self._base_mod = base
+
+    def _interval_logmass(self, x: torch.Tensor) -> torch.Tensor:
+        """Approximate :math:`\\log(F(b) - F(a))` via Monte-Carlo on the base.
+
+        For families with analytic CDFs (Normal, etc.) we could use
+        a closed form, but a general primitive operating across
+        every family in the registry uses 256 base samples to
+        estimate the truncation mass. This keeps the combinator
+        usable on every family without per-family special-casing.
+        """
+        with torch.no_grad():
+            samples = self._base.rsample(x.repeat(256, *([1] * (x.ndim - 1))))
+            mask = torch.ones_like(samples)
+            if self._lower is not None:
+                mask = mask * (samples >= self._lower).float()
+            if self._upper is not None:
+                mask = mask * (samples <= self._upper).float()
+            in_interval = mask.reshape(256, x.shape[0], -1).mean(dim=0)
+        return torch.log(in_interval.clamp(min=1e-30)).squeeze(-1)
+
+    def rsample(
+        self, x: torch.Tensor, sample_shape: torch.Size = torch.Size()
+    ) -> torch.Tensor:
+        del sample_shape
+        """Rejection-sample from the base until every entry is in :math:`[a,b]`."""
+        batch = x.shape[0]
+        out = self._base.rsample(x)
+        mask = self._in_bounds(out)
+        for _ in range(self._max_iters):
+            if mask.all():
+                return out
+            replacement = self._base.rsample(x)
+            out = torch.where(
+                mask.reshape(batch, *([1] * (out.ndim - 1))).expand_as(out),
+                out,
+                replacement,
+            )
+            mask = self._in_bounds(out)
+        if not mask.all():
+            raise RuntimeError(
+                f"Truncated rejection sampling failed to fill the batch in "
+                f"{self._max_iters} iterations; the truncation mass is "
+                "vanishingly small for the supplied parameters"
+            )
+        return out
+
+    def _in_bounds(self, x: torch.Tensor) -> torch.Tensor:
+        m = torch.ones(x.shape[:1], device=x.device, dtype=torch.bool)
+        if self._lower is not None:
+            m = m & (x.reshape(x.shape[0], -1) >= self._lower).all(dim=-1)
+        if self._upper is not None:
+            m = m & (x.reshape(x.shape[0], -1) <= self._upper).all(dim=-1)
+        return m
+
+    def log_prob(self, x: torch.Tensor, y: torch.Tensor) -> torch.Tensor:
+        base_lp = self._base.log_prob(x, y)
+        # Hard-zero outside the interval.
+        in_bounds = self._in_bounds(y)
+        truncation_lp = self._interval_logmass(x)
+        adjusted = base_lp - truncation_lp
+        return torch.where(
+            in_bounds,
+            adjusted,
+            torch.full_like(adjusted, float("-inf")),
+        )
+
+    def __repr__(self) -> str:
+        return f"Truncated({self._base!r}, lower={self._lower}, upper={self._upper})"
+
+

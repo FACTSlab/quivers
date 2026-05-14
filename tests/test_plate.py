@@ -33,7 +33,7 @@ os.environ.setdefault("QVR_USE_LOCAL_GRAMMAR", "1")
 
 class TestPrimitives:
     def test_cumsum(self):
-        from quivers.continuous.plate import cumsum
+        from quivers.continuous.deterministic import cumsum
 
         cm = cumsum(5)
         x = torch.tensor([[1.0, 2.0, 3.0, 4.0, 5.0]])
@@ -42,14 +42,14 @@ class TestPrimitives:
         assert torch.allclose(out, expected)
 
     def test_softmax(self):
-        from quivers.continuous.plate import softmax
+        from quivers.continuous.deterministic import softmax
 
         sm = softmax(3)
         out = sm.rsample(torch.zeros(2, 3))
         assert torch.allclose(out, torch.full((2, 3), 1.0 / 3.0))
 
     def test_lkj_sample_shape_and_diag(self):
-        from quivers.continuous.plate import LKJCorrelationFactor
+        from quivers.continuous.families import LKJCorrelationFactor
         from quivers.continuous.spaces import Euclidean
 
         K = 4
@@ -73,7 +73,7 @@ class TestPrimitives:
             assert (off <= 1.0 + 1e-4).all()
 
     def test_lkj_log_prob_finite(self):
-        from quivers.continuous.plate import LKJCorrelationFactor
+        from quivers.continuous.families import LKJCorrelationFactor
         from quivers.continuous.spaces import Euclidean
 
         lkj = LKJCorrelationFactor(dim=3, eta=2.0, domain=Euclidean(name="in", dim=1))
@@ -82,7 +82,7 @@ class TestPrimitives:
         assert torch.isfinite(lp).all()
 
     def test_truncated_in_bounds(self):
-        from quivers.continuous.plate import Truncated
+        from quivers.continuous.families import Truncated
         from quivers.continuous.spaces import Euclidean
         from quivers.continuous.families import ConditionalNormal
 
@@ -141,7 +141,7 @@ class TestPrimitives:
     def test_cholesky_quad_form_via_let(self):
         # The deterministic morphism is exposed both as a Python helper
         # and as a let-builtin; here we exercise the helper directly.
-        from quivers.continuous.plate import cholesky_quad_form
+        from quivers.continuous.deterministic import cholesky_quad_form
 
         cqf = cholesky_quad_form(3)
         # input is (cholesky_flat, scale) concatenated
