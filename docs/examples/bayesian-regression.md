@@ -3,18 +3,19 @@
 ## QVR Source
 
 ```qvr
-object Predictor : 1
-object Response : 1
+object Resp : 1
 
-program bayesian_regression : Predictor -> Response
+# The predictor `x` is exogenous data: an `(N,)` tensor supplied
+# at fit time via the observations dict alongside the response
+# `y`.  The runtime's host-data channel binds free variables in
+# `let` expressions from undeclared keys in the observations dict.
+
+program bayesian_regression : Resp -> Resp
     sigma <- HalfCauchy(2.0)
     beta_0 <- Normal(0.0, 5.0)
     beta_1 <- Normal(0.0, 2.0)
-    x <- Normal(0.0, 1.0)
-
     let mu = beta_0 + beta_1 * x
-
-    observe y <- Normal(mu, sigma)
+    observe y : Resp <- Normal(mu, sigma)
     return y
 
 export bayesian_regression

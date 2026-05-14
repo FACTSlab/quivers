@@ -17,7 +17,6 @@ program zip_regression : Resp -> Resp
     alpha_rate : Out <- Normal(0.0, 5.0)
     beta_rate : Out <- Normal(0.0, 5.0)
 
-    x : Resp <- Normal(0.0, 1.0)
     let az = alpha_zero[out_idx]
     let bz = beta_zero[out_idx]
     let ar = alpha_rate[out_idx]

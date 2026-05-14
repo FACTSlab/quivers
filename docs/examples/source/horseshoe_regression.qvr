@@ -43,7 +43,6 @@ program horseshoe_regression : Resp -> Resp
     alpha <- Normal(0.0, 5.0)
     sigma <- HalfCauchy(2.0)
 
-    x : Resp <- Normal(0.0, 1.0)
     let lam = lambda_local[coef_idx]
     let z = z_raw[coef_idx]
     let beta = tau * lam * z

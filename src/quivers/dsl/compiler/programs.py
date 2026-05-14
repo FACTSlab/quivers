@@ -2255,7 +2255,11 @@ class _ProgramsMixin:
                 for a in node.args
             ]
 
-            # Built-in tensor operations.
+            # Built-in tensor operations.  Limited to elementwise /
+            # shape-preserving primitives; contractions, reductions
+            # over named axes, and matrix products go through the
+            # typed contraction-declaration surface (see § Operadic
+            # contractions in docs/semantics/composition-rules.md).
             _TENSOR_BUILTINS = {
                 "sigmoid": lambda a: torch.sigmoid(a),
                 "exp": lambda a: torch.exp(a),
