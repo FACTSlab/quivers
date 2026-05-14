@@ -39,7 +39,6 @@ program regression : Item -> Item ! Sample, Score
     sigma  <- HalfNormal(1.0)
     beta_0 <- Normal(0.0, 5.0)
     beta_1 <- Normal(0.0, 2.0)
-    x      <- Normal(0.0, 1.0)
     let mu = beta_0 + beta_1 * x
     observe y <- Normal(mu, sigma)
     return y
@@ -58,7 +57,7 @@ guide   = AutoNormalGuide(model, observed_names={"y"})
 optim   = torch.optim.Adam(guide.parameters(), lr=1e-2)
 svi     = SVI(model, guide, optim, ELBO())
 for _ in range(2000):
-    svi.step({"x": x_data}, {"y": y_data})
+    svi.step(x_data, {"y": y_data})
 ```
 
 The full walkthrough is in the [tutorial](https://FACTSlab.github.io/quivers/tutorials/).

@@ -52,6 +52,10 @@ docs = [
     "pymdown-extensions",
     "pygments",
 ]
+data = [
+    "narwhals>=2.21",
+    "scikit-learn>=1.6",
+]
 
 [project.urls]
 Homepage = "https://github.com/FACTSlab/quivers"
