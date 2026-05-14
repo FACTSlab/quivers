@@ -133,7 +133,6 @@ nav:
       - Quantifier Scope: examples/quantifier-scope.md
     - Probabilistic Programs:
       - Overview: examples/bayesian-regression.md
-      - Event Structure Model: examples/event-structure.md
       - Montague NLI: examples/montague-nli.md
     - Latent-Variable Models:
       - Overview: examples/factor-analysis.md

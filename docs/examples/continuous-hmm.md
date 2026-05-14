@@ -46,7 +46,7 @@ The type declarations introduce two Euclidean spaces: `State` (16-d latent) and 
 - **`scan(cell)`**: Threads hidden state across a sequence by repeatedly applying `cell : A * H -> H`. For an input of shape `(batch, seq_len, input_dim)`, returns the final hidden state of shape `(batch, hidden_dim)`.
 - **Bind operator `<-`**: The unique sampling-step sigil; samples from the right-hand morphism and binds the result.
 - **`observe v <- F(args)`**: Conditions the computation on an externally-supplied value via the runtime `observations` dict. Dual of sampling.
-- **`continuous` keyword**: Marks morphisms as differentiable, enabling reparameterization for gradient-based learning.
+- **`kernel ... ~ Family` declaration**: Marks morphisms as differentiable, enabling reparameterization for gradient-based learning.
 
 ## Python Usage
 

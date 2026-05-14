@@ -258,7 +258,7 @@ export seq2seq
 
 A VAE with multi-layer encoder and decoder networks using `stack` for deep layers. The encoder maps observations through 3 hidden layers to a latent distribution; the decoder maps latent codes through 3 hidden layers back to observation space.
 
-**Features:** `embed`, `continuous`, `stack`, `>>` composition, `type`
+**Features:** `embed`, `kernel`, `stack`, `>>` composition, `type`
 
 ```qvr
 object Pixel : 784
@@ -338,7 +338,7 @@ export gmm
 
 A classic discrete HMM using stochastic morphisms (Markov kernels). `repeat(transition)` without a count creates a `RepeatMorphism` whose step count is set at runtime via `prog(n_steps=N)`.
 
-**Features:** `stochastic`, `repeat` (runtime-variable), `>>` composition, `quantale`
+**Features:** `kernel`, `repeat` (runtime-variable), `>>` composition, `quantale`
 
 ```qvr
 quantale product_fuzzy
@@ -362,7 +362,7 @@ export hmm
 
 A continuous-state hidden Markov model using `scan` for temporal recurrence. Includes both a generative direction (monadic program sampling state-observation pairs) and an inference direction (scan-based Bayesian filtering over observation sequences).
 
-**Features:** `continuous`, `program`, `scan`, `>>`, `<-`, `observe`, `type`
+**Features:** `kernel`, `program`, `scan`, `>>`, `<-`, `observe`, `type`
 
 ```qvr
 type State = Euclidean 16
@@ -526,34 +526,6 @@ deduction AB : Term -> Term {
 ---
 
 ## Probabilistic Programs
-
-### [Event-Structure Latent-Class Model](event-structure.md)
-
-A four-class telicity × durativity latent-class model over cloze and proportion responses. Exercises indexed binds, a parametric `random_intercepts` template instantiated 8 times for crossed random intercepts on subject, verb, sense, and item, an ordinal monotone spline via `cumsum` of `HalfNormal` increments, indexed observes against a runtime `observations` dict, and scoped `marginalize` for coordinate marginalization.
-
-**Features:** `program`, parametric templates, indexed bind `v : A <- F(args)`, `observe r : N <- F(args)`, scoped `marginalize`, `cumsum`, `HalfNormal`
-
-<!-- compile: false -->
-```qvr
-program random_intercepts (G : FinSet, scale : Real) : G -> 1
-    sigma <- HalfNormal(scale)
-    v : G <- Normal(0.0, sigma)
-    return v
-
-program event_structure : Item -> Item
-    intercept_cloze <- Normal(0.0, 1.0)
-    by_subj_cloze <- random_intercepts(SubjCloze, 1.0)
-    by_verb_cloze <- random_intercepts(Verb,     1.0)
-    duration_incr_cloze : Item <- HalfNormal(1.0)
-    let duration_eff_cloze = cumsum(duration_incr_cloze)
-
-    marginalize cloze_resp : RespCloze <- Bernoulli(intercept_cloze) in {
-        observe cloze_resp : RespCloze <- Bernoulli(intercept_cloze)
-    }
-    return intercept_cloze
-```
-
----
 
 ### [Bayesian Linear Regression](bayesian-regression.md)
 

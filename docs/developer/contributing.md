@@ -58,7 +58,7 @@ quivers/
 ├── src/quivers/                   # Main package
 │   ├── __init__.py
 │   ├── categorical/               # Categorical algebra
-│   ├── continuous/                # Continuous distributions (30+ families)
+│   ├── continuous/                # Continuous distributions (40+ families)
 │   ├── core/                      # Core types (didactic Models)
 │   ├── dsl/                       # QVR DSL pipeline
 │   │   ├── parser.py              # panproto-driven parser walker

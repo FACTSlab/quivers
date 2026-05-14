@@ -29,7 +29,7 @@ Plates are good for IID structure: nothing about index `j+1` depends on what hap
 
 ## `scan` for left-to-right evaluation
 
-`scan` takes a *cell* whose signature is `Input * Hidden -> Hidden` and lifts it to operate along the sequence dimension of an input tensor. The cell may be a `continuous` morphism (one-step state update under a Gaussian transition) or a `program` block (one-step update with its own random draws).
+`scan` takes a *cell* whose signature is `Input * Hidden -> Hidden` and lifts it to operate along the sequence dimension of an input tensor. The cell may be a `kernel ... ~ Family` morphism (one-step state update under a Gaussian transition) or a `program` block (one-step update with its own random draws).
 
 ```qvr
 quantale real
