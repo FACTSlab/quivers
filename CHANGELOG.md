@@ -4,7 +4,74 @@ All notable changes to the quivers library are documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/), and this project adheres to [Semantic Versioning](https://semver.org/).
 
-## [0.5.0] - 2026-05-13
+## [0.5.0] - 2026-05-14
+
+### Headline additions
+
+- **Axis-role surface on every distribution clause.** Kernel
+  declarations, latent priors, sample steps, and observe steps
+  accept an optional `over <axes> [iid over <axes>]` post-clause.
+  `over` names the **event axes** of the family; remaining axes are
+  iid (categorically a product of independent distributions).  Axis
+  names resolve against the named factors of the surrounding
+  morphism's dom/cod; `dom`/`cod` are shortcuts when that side is a
+  single unfactored object.  The axis count must match the family's
+  declared `event_rank` (0 / 1 / 2 for scalar / vector / matrix
+  families); mismatch is a compile-time error rather than a silent
+  reinterpretation, preserving the categorical distinction between
+  a dense MVN over `dim(A)*dim(B)` and a `MatrixNormal` with
+  Kronecker structure `V (X) U`.
+- **Unified `kernel` keyword.** The `continuous` and `stochastic`
+  declaration keywords are removed.  A `kernel f : A -> B`
+  declaration without a `~` clause is a finite-set lookup-table
+  kernel; with `~ Family [options] [axes]` it is a parametric kernel
+  whose family parameters come from the input by a neural parameter
+  network at sample time.
+- **Latent morphism priors.** A `latent f : A -> B ~ Family(args)
+  [options] [over <axes>]` clause puts a prior on the morphism's
+  representing tensor (factor-analysis / PPCA / BNN idiom).
+- **Four new conditional families.**
+  [`ConditionalMatrixNormal`](https://FACTSlab.github.io/quivers/api/continuous/families#quivers.continuous.families.ConditionalMatrixNormal)
+  (Kronecker covariance, event_rank 2);
+  [`ConditionalInverseWishart`](https://FACTSlab.github.io/quivers/api/continuous/families#quivers.continuous.families.ConditionalInverseWishart)
+  (conjugate covariance prior, event_rank 2);
+  [`ConditionalGaussianProcess`](https://FACTSlab.github.io/quivers/api/continuous/families#quivers.continuous.families.ConditionalGaussianProcess)
+  (RBF / Matern 5/2 / linear kernels with learnable length scale
+  and amplitude, event_rank 1); and
+  [`ConditionalHorseshoe`](https://FACTSlab.github.io/quivers/api/continuous/families#quivers.continuous.families.ConditionalHorseshoe)
+  (Carvalho-Polson-Scott global-local shrinkage with a 16-point
+  Gauss-Legendre quadrature giving the exact marginal log-prob,
+  event_rank 1).
+- **Example gallery, 36 examples.** Regression (Bayesian, beta,
+  Dirichlet, negative-binomial, horseshoe, ZIP); latent-variable
+  (factor analysis, PPCA, LDA, IRT-2PL, PMF, BNN, GMM, VAE);
+  time-series and state-space (HMM discrete, continuous HMM,
+  linear-Gaussian SSM, deep Markov, AR(1), stochastic volatility,
+  changepoint, Weibull survival); sequence architectures (vanilla
+  RNN, LSTM, GRU, bidirectional RNN, transformer; all as language
+  models; one seq2seq with encoder + decoder); formal grammars
+  (PCFG, CCG, Lambek calculus, multimodal TLG, custom rules,
+  Montague NLI, quantifier scope, event-structure latent class).
+  Each example uses at least one distinguishing quivers feature
+  (axis-role priors, marginalize, change_base, encoder block,
+  scan, deduction declarations) and runs end-to-end on synthetic
+  data.
+
+### Refactors
+
+- `src/quivers/continuous/bayesian.py` renamed to `plate.py` and
+  further split: `_DeterministicMorphism`, `cumsum`, `softmax`,
+  `cholesky_quad_form` moved to `quivers.continuous.deterministic`;
+  `CholeskyFactor` continuous space moved to
+  `quivers.continuous.spaces`; `LKJCorrelationFactor` and
+  `Truncated` moved to `quivers.continuous.families`; `plate.py`
+  now strictly holds the plate / vectorised-observe /
+  grouped-marginalize machinery.
+- `src/quivers/dsl/compiler.py` (~6300 LOC) split into a package
+  `src/quivers/dsl/compiler/` with one module per concern
+  (`_prelude`, `core`, `declarations`, `programs`, `structural`,
+  `deductions`, `resolution`, `expressions`).  Public import paths
+  unchanged.
 
 A substantive expansion of the inference layer plus the full
 implementation of scoped grouped `marginalize` blocks (issue #9),

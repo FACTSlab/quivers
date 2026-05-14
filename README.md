@@ -6,12 +6,11 @@
 [![Python 3.14+](https://img.shields.io/badge/python-3.14%2B-blue)](https://www.python.org/downloads/)
 [![License: MIT](https://img.shields.io/badge/license-MIT-green)](LICENSE)
 
-A probabilistic programming language with a categorical implementation.
+A probabilistic programming language for PyTorch.
 
-Quivers is a Python library for writing, fitting, and reasoning about probabilistic models. Models are declared in a small typed DSL whose surface looks like Pyro or NumPyro: you write a `program` block with `v <- F(args)` draws, `let` deterministic bindings, and `observe` statements. Compilation produces a trainable `nn.Module`. Inference goes through a stack of nine variational guides, four objectives, HMC, NUTS, and two hybrid samplers.
+Quivers lets you write Bayesian models in a small, readable DSL and fit them with stochastic variational inference (SVI), NUTS, HMC, or any of nine automatic guides. The program surface should look familiar if you have used Pyro, NumPyro, Stan, or PyMC: declare variables with `<-`, score observations with `observe`, integrate out discrete latents with `marginalize`, get a trainable PyTorch module back.
 
 ```qvr
-quantale real
 object Item : 100
 
 program regression : Item -> Item ! Sample, Score
@@ -29,31 +28,45 @@ export regression
 ```python
 from quivers.dsl import loads
 from quivers.inference import AutoNormalGuide, ELBO, SVI
+import torch
 
 program = loads(open("regression.qvr").read())
 model   = program.morphism
 guide   = AutoNormalGuide(model, observed_names={"y"})
-svi     = SVI(model, guide, optimizer, ELBO())
+optim   = torch.optim.Adam(guide.parameters(), lr=1e-2)
+svi     = SVI(model, guide, optim, ELBO())
 for _ in range(2000):
     svi.step({"x": x_data}, {"y": y_data})
 ```
 
-The rest is the [tutorial](https://FACTSlab.github.io/quivers/tutorials/).
+The full walkthrough is in the [tutorial](https://FACTSlab.github.io/quivers/tutorials/).
+
+## What you get
+
+The everyday PPL features you would expect, on a PyTorch backend:
+
+- **Forty distribution families** (Normal, Beta, Gamma, Dirichlet, MVN, LKJ, MatrixNormal, GP, Horseshoe, mixtures, normalising flows, and more).
+- **Nine variational guides** from mean-field through full-rank multivariate normal, low-rank, mixture, IAF, neural-spline flow, and AutoDAIS.
+- **Four inference objectives** (ELBO, IWAE, Renyi, VR-IWAE) with reparameterised / score-function / sticking-the-landing / DReG gradient estimators.
+- **NUTS and HMC** with dual-averaging step-size adaptation and Welford mass-matrix adaptation, plus a `WarmupThenHMC` hybrid sampler.
+- **Marginalised discrete latents** as a first-class block (`marginalize z : K <- Categorical(p) in { ... }`), with `logsumexp` aggregation handled for you.
+- **Plates and grouped marginalisation** for hierarchical models with vectorised observations and per-row fibration into shared random effects.
+- **A 36-example gallery** covering regression (Bayesian, Beta, Dirichlet, NegBin, horseshoe, ZIP), latent variable (factor analysis, PPCA, LDA, IRT, PMF, BNN, GMM, VAE), state space (HMM discrete and continuous, linear-Gaussian SSM, deep Markov, AR1, stochastic volatility, changepoint, Weibull survival), language models (RNN, LSTM, GRU, bidirectional, transformer), seq2seq with encoder/decoder, and formal grammars (PCFG, CCG, Lambek, multimodal TLG).
 
 ## What's distinctive
 
-Quivers does the things every PPL does: hierarchical models, GLMs, mixtures, sequence models, posterior-predictive checks. It also does a handful of things most PPLs don't:
+Most PPLs let you write `observe y ~ Normal(mu, sigma)`. Quivers lets you write the same thing AND a few things ordinary PPLs do not.
 
-- **Typed-scope marginalisation.** `marginalize z : K <- Categorical(p) in { ... }` is a first-class block whose body runs once per discrete value, with `logsumexp` aggregation under the prior. Standard Rao-Blackwellisation, but spelt as syntax instead of as a config flag.
-- **Exact-likelihood structured families.** Hidden Markov models, Kalman smoothers, and similar structured likelihoods compose like ordinary distribution families; the forward / forward-backward / smoother passes are wrapped.
-- **First-class transformations.** Change-of-base transformations (softmax, L1/L2 normalisation, Bayes inversion, quantale homomorphisms) are values: let-bindable, composable with `>>>`, passable into `change_base`.
-- **Composition rules beyond quantales.** The `CompositionRule → BilinearForm | Semigroupoid → Quantale` hierarchy supports non-associative and non-unital composition rules with full operadic n-ary contractions via einsum-style wiring.
-- **Compile-time effects.** Programs carry an effect signature `! Sample, Score, Marginal, Pure` that the compiler checks against the body. `! Pure` blocks that try to `observe` are rejected with a typed error.
-- **A categorical denotational semantics.** Every well-typed QVR phrase has a [formal denotation](https://FACTSlab.github.io/quivers/semantics/) in a $\mathcal{V}$-enriched symmetric monoidal closed category. The compiler implementation is proved adequate against the denotation.
-- **A weighted-deduction surface.** Chart algorithms (CKY, Earley, Viterbi, semi-naïve Datalog, A*, Knuth's algorithm) compose with probabilistic programs through a single agenda-engine runtime parameterised by item algebra, rules, semiring, and priority. Charts are first-class differentiable values.
-- **A structural-compression surface.** `signature { … } encoder { … } decoder { … } loss { … }` blocks form an F-algebra / F-coalgebra interface for compressing structured objects (sequences, trees, graphs, parse charts) to fixed-length vectors and decoding them back. Realises transformers, tree-LSTMs, graph-NNs, autoregressive LMs, and the vector-inside-outside parser as instances of one pattern.
+- **Typed scoped marginalisation.** `marginalize z : K <- Categorical(p) in { ... }` is a syntactic block whose body runs once per discrete value of `z`, with the per-value scores aggregated by `logsumexp`. This is the standard Rao-Blackwellisation trick, but spelt as a control-flow construct instead of a runtime flag.
+- **Axis-role priors on weights.** A weight matrix `latent W : Euclidean(D) -> Euclidean(K)` can carry a structured prior whose covariance is genuinely matrix-valued: `~ MatrixNormal(loc, row_cov, col_cov) over (dom, cod)`. The `over <axes>` clause says which axes the family's joint covariance lives on; the rest are iid. This is the right surface for factor analysis, PPCA, Bayesian neural nets, and other "matrix of weights with prior" models.
+- **Exact-likelihood structured families.** HMMs and Kalman smoothers compose like ordinary distributions; the forward / forward-backward / smoother passes are wrapped.
+- **Compile-time effects.** Programs carry an effect signature `! Sample, Score, Marginal, Pure` that the compiler checks against the body. A `! Pure` block that contains an `observe` is rejected with a typed error before training begins.
+- **Weighted deduction.** Chart algorithms (CKY, Earley, Viterbi, A*, Knuth's algorithm, semi-naive Datalog) are exposed as a `deduction { atoms ... rule ... semiring ... start ... }` block whose chart is a differentiable tensor. Drops in alongside the rest of the language.
+- **Structural compression.** A four-block pattern (`signature { ... } encoder { ... } decoder { ... } loss { ... }`) factors out transformers, tree LSTMs, graph NNs, autoregressive LMs, and the vector inside-outside parser as instances of one interface.
 
-The implementation rests on enriched category theory ([Kelly, 1982](http://www.tac.mta.ca/tac/reprints/articles/10/tr10abs.html)), the categorical foundations of probability ([Giry, 1982](https://doi.org/10.1007/BFb0092872); [Fritz, 2020](https://doi.org/10.1016/j.aim.2020.107239)), and the SVI / HMC inference substrate ([Hoffman, Blei, Wang & Paisley, 2013](https://doi.org/10.5555/2567709.2502622); [Neal, 2011](https://doi.org/10.1201/b10905-6); [Hoffman & Gelman, 2014](https://www.jmlr.org/papers/v15/hoffman14a.html)).
+## What's under the hood (optional reading)
+
+The DSL is a thin layer over a typed categorical surface in `src/quivers/`. If you want to extend the library, write a new family, prove anything about a model, or read the type errors fluently, the categorical layer is what you read. If you just want to fit models, you can ignore it. The denotational semantics ([docs](https://FACTSlab.github.io/quivers/semantics/)) gives every well-typed program a formal meaning in a $\mathcal{V}$-enriched symmetric monoidal closed category. The implementation rests on enriched category theory ([Kelly, 1982](http://www.tac.mta.ca/tac/reprints/articles/10/tr10abs.html)), the categorical foundations of probability ([Giry, 1982](https://doi.org/10.1007/BFb0092872); [Fritz, 2020](https://doi.org/10.1016/j.aim.2020.107239)), and the SVI / HMC inference substrate ([Hoffman, Blei, Wang & Paisley, 2013](https://doi.org/10.5555/2567709.2502622); [Neal, 2011](https://doi.org/10.1201/b10905-6); [Hoffman & Gelman, 2014](https://www.jmlr.org/papers/v15/hoffman14a.html)).
 
 ## Installation
 

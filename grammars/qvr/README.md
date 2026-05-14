@@ -2,9 +2,14 @@
 
 Tree-sitter grammar for [Quivers](../../) DSL files (`.qvr`).
 
-QVR is a domain-specific language for declaring categorical theories: quantales,
-objects, morphisms, continuous and stochastic spaces, monadic programs over
-them. Each `.qvr` file is a panproto-style schema plus a program over it.
+QVR is a small typed probabilistic programming language. Each `.qvr` file
+declares some types (finite sets and continuous spaces), some morphisms
+(parameters, Markov kernels, observations), and one or more `program`
+blocks that draw, observe, and return values. Compilation produces a
+trainable PyTorch module suitable for SVI or HMC. The surface looks like
+Pyro or NumPyro at the program-block level; the type-and-effect annotations
+above and the categorical machinery underneath are extras for users who
+want them.
 
 ## Layout
 
@@ -32,7 +37,7 @@ tree-sitter test        # run corpus tests
 tree-sitter parse FILE  # parse a single .qvr file
 ```
 
-The 16 example programs in `../../docs/examples/source/` parse cleanly
+The 36 example programs in `../../docs/examples/source/` parse cleanly
 (no `ERROR` nodes).
 
 ## Use as a panproto-registered grammar
