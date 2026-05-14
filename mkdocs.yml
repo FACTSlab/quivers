@@ -1,6 +1,7 @@
 site_name: Quivers
 site_description: V-enriched categorical relations as differentiable PyTorch tensors
 site_author: Aaron Steven White
+site_url: https://factslab.io/quivers/
 
 theme:
   name: terminal
