@@ -113,7 +113,7 @@ nav:
   - Examples Gallery:
     - Overview: examples/index.md
     - Sequence Architectures:
-      - Vanilla RNN LM: examples/vanilla-rnn-lm.md
+      - Overview: examples/vanilla-rnn-lm.md
       - LSTM LM: examples/lstm-lm.md
       - GRU LM: examples/gru-lm.md
       - Bidirectional RNN LM: examples/bidirectional-rnn-lm.md
@@ -136,7 +136,7 @@ nav:
       - Event Structure Model: examples/event-structure.md
       - Montague NLI: examples/montague-nli.md
     - Latent-Variable Models:
-      - Factor Analysis: examples/factor-analysis.md
+      - Overview: examples/factor-analysis.md
       - Probabilistic PCA: examples/ppca.md
       - Latent Dirichlet Allocation: examples/lda.md
       - "Item Response Theory (2PL)": examples/irt-2pl.md
