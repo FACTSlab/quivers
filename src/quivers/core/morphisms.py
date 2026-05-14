@@ -46,6 +46,30 @@ if TYPE_CHECKING:
     from quivers.categorical.functors import Functor
 
 
+def _build_quantale_homomorphism_transform(phi):
+    """Closure factory for the pointwise change-of-base transform.
+
+    Splitting the closure construction into a free function keeps
+    the per-branch local bindings clean and avoids ``reportRedeclaration``
+    warnings from the type checker when both arms of the ``isinstance``
+    in ``change_base`` define a local with the same name.
+    """
+
+    def _transform(t: torch.Tensor) -> torch.Tensor:
+        return phi.apply(t)
+
+    return _transform
+
+
+def _build_morphism_transformation_transform(phi, source):
+    """Closure factory for the shape-aware change-of-base transform."""
+
+    def _transform(t: torch.Tensor) -> torch.Tensor:
+        return phi.apply(t, source)
+
+    return _transform
+
+
 class Morphism(ABC):
     """Abstract base for morphisms between finite sets.
 
@@ -150,7 +174,7 @@ class Morphism(ABC):
             return NotImplemented
         return ProductMorphism(self, other)
 
-    def change_base(self, phi) -> "ObservedMorphism":
+    def change_base(self, phi) -> "TransformedMorphism":
         """Transport this morphism along a change-of-base functor.
 
         ``phi`` may be either a
@@ -161,12 +185,14 @@ class Morphism(ABC):
         (shape-aware: the action consumes the whole tensor plus
         the morphism for axis resolution).
 
-        The result is an :class:`ObservedMorphism` because the
-        base-changed tensor is a concrete materialised value, not
-        a learnable parameter; the original morphism's parameters
-        still live on ``self`` and gradients flow through them
-        normally (the transformation is a tensor operation that
-        autograd tracks).
+        The result is a :class:`TransformedMorphism` whose
+        :attr:`tensor` is recomputed on each access by applying
+        ``phi`` to the source's current tensor. The source's
+        learnable parameters are exposed through ``.module()`` so
+        :meth:`torch.nn.Module.parameters` walks reach them, and
+        each backward through a fresh ``.tensor`` access rebuilds
+        a graph rooted at those parameters; multi-step optimisation
+        through change-of-base is supported.
 
         Parameters
         ----------
@@ -176,21 +202,22 @@ class Morphism(ABC):
 
         Returns
         -------
-        ObservedMorphism
-            A morphism over ``phi.target`` with the transported
-            tensor. For pointwise transformations the domain and
-            codomain are preserved; for shape-aware ones (e.g.
-            ``BayesInvert``) the transformation may swap them.
+        TransformedMorphism
+            A morphism over ``phi.target`` whose tensor is the
+            transported tensor of ``self``. For pointwise
+            transformations the domain and codomain are preserved;
+            for shape-aware ones (e.g. ``BayesInvert``) the
+            transformation may swap them.
         """
         if isinstance(phi, TransSeq):
             # Apply the steps in order; each step's change_base
             # type-checks its own source against the current
             # quantale, so a malformed seam surfaces with the
             # same error a hand-written sequence would produce.
-            current: ObservedMorphism = self  # type: ignore[assignment]
+            current: Morphism = self
             for step in phi.steps:
                 current = current.change_base(step)
-            return current
+            return cast(TransformedMorphism, current)
         if not isinstance(phi, (QuantaleHomomorphism, MorphismTransformation)):
             raise TypeError(
                 f"change_base: expected QuantaleHomomorphism, "
@@ -204,21 +231,22 @@ class Morphism(ABC):
                 f"quantale {self._quantale.name!r}"
             )
         if isinstance(phi, QuantaleHomomorphism):
-            new_tensor = phi.apply(self.tensor)
+            transform = _build_quantale_homomorphism_transform(phi)
             new_domain = self._domain
             new_codomain = self._codomain
         else:
-            new_tensor = phi.apply(self.tensor, self)
+            transform = _build_morphism_transformation_transform(phi, self)
             new_domain = phi.new_domain(self)
             new_codomain = phi.new_codomain(self)
-        return ObservedMorphism(
+        return TransformedMorphism(
+            self,
+            transform,
             new_domain,
             new_codomain,
-            new_tensor,
             quantale=phi.target,
         )
 
-    def refactor(self, *, domain=None, codomain=None) -> "ObservedMorphism":
+    def refactor(self, *, domain=None, codomain=None) -> "TransformedMorphism":
         """Switch between flat and product views of this morphism.
 
         Given a morphism ``f : A -> B`` whose tensor storage has
@@ -268,10 +296,15 @@ class Morphism(ABC):
                 f"{self._codomain!r} -> {new_codomain!r}"
             )
         target_shape = tuple(new_domain.shape) + tuple(new_codomain.shape)
-        return ObservedMorphism(
+
+        def _transform(t: torch.Tensor, _shape=target_shape) -> torch.Tensor:
+            return t.reshape(_shape)
+
+        return TransformedMorphism(
+            self,
+            _transform,
             new_domain,
             new_codomain,
-            self.tensor.reshape(target_shape),
             quantale=self._quantale,
         )
 
@@ -295,7 +328,7 @@ class Morphism(ABC):
         return MarginalizedMorphism(self, sets)
 
     @property
-    def dagger(self) -> "ObservedMorphism":
+    def dagger(self) -> "TransformedMorphism":
         """Transpose / dagger of ``self : A → B``, producing a
         morphism ``B → A`` whose tensor has the domain and codomain
         axes swapped.
@@ -325,12 +358,19 @@ class Morphism(ABC):
         # Build the permutation that brings the codomain axes to
         # the front and the domain axes to the back.
         perm = tuple(range(d_ndim, d_ndim + c_ndim)) + tuple(range(d_ndim))
-        t = self.tensor.permute(perm)
-        return ObservedMorphism(
-            self._codomain, self._domain, t, quantale=self._quantale
+
+        def _transform(t: torch.Tensor, _perm=perm) -> torch.Tensor:
+            return t.permute(_perm)
+
+        return TransformedMorphism(
+            self,
+            _transform,
+            self._codomain,
+            self._domain,
+            quantale=self._quantale,
         )
 
-    def trace(self, obj: SetObject) -> "ObservedMorphism":
+    def trace(self, obj: SetObject) -> "TransformedMorphism":
         """Trace of ``self : X ⊗ A → A ⊗ Y`` along ``obj = A``,
         producing a morphism ``X → Y``.
 
@@ -379,31 +419,25 @@ class Morphism(ABC):
                 f"trace: codomain's first component {self._codomain.components[0]!r} "
                 f"!= contraction object {obj!r}"
             )
-        # Domain side: take the diagonal along the leading A axes
-        # (which appear once on the domain side and once on the
-        # codomain side in the tensor's index list). The diagonal
-        # picks the A=A part of the tensor — the categorical
-        # ``η ⊗ id`` step — then we sum (quantale-join) over A.
-        t = self.tensor
         d_ndim = len(self._domain.shape)
         a_ndim = len(obj.shape)
-        # Domain axes: 0..d_ndim-1 with A at 0..a_ndim-1.
-        # Codomain axes: d_ndim..d_ndim+c_ndim-1 with A at
-        # d_ndim..d_ndim+a_ndim-1.
-        # To trace, we want to identify the leading A axes on each
-        # side and join over them.
-        for k in range(a_ndim):
-            t = torch.diagonal(t, dim1=0, dim2=d_ndim - k)
-            # diagonal moves the contracted axis to the end; we
-            # then need to reorder so subsequent diagonals operate
-            # on the next pair.
-        # After ``a_ndim`` diagonals, the original (d_ndim + c_ndim)
-        # axis tensor is reduced to (d_ndim - a_ndim) + (c_ndim -
-        # a_ndim) + a_ndim axes; the trailing ``a_ndim`` axes are
-        # the survivors of the diagonal (one per contracted axis).
-        # Join over those trailing axes using the quantale's join.
-        trailing = tuple(range(t.dim() - a_ndim, t.dim()))
-        t = self._quantale.join(t, dim=trailing)
+        quantale = self._quantale
+
+        def _transform(
+            t: torch.Tensor, _d_ndim=d_ndim, _a_ndim=a_ndim, _q=quantale
+        ) -> torch.Tensor:
+            # Domain axes: 0..d_ndim-1 with A at 0..a_ndim-1.
+            # Codomain axes: d_ndim..d_ndim+c_ndim-1 with A at
+            # d_ndim..d_ndim+a_ndim-1.  Take diagonals pairing each
+            # A axis on the domain side with the corresponding one
+            # on the codomain side, then join along the surviving
+            # diagonal axes.
+            out = t
+            for k in range(_a_ndim):
+                out = torch.diagonal(out, dim1=0, dim2=_d_ndim - k)
+            trailing = tuple(range(out.dim() - _a_ndim, out.dim()))
+            return _q.join(out, dim=trailing)
+
         # Recover the X and Y product sets.
         x_components = tuple(self._domain.components[1:])
         y_components = tuple(self._codomain.components[1:])
@@ -415,7 +449,9 @@ class Morphism(ABC):
             new_codomain = y_components[0]
         else:
             new_codomain = ProductSet(components=y_components)
-        return ObservedMorphism(new_domain, new_codomain, t, quantale=self._quantale)
+        return TransformedMorphism(
+            self, _transform, new_domain, new_codomain, quantale=self._quantale
+        )
 
     def __repr__(self) -> str:
         cls = type(self).__name__
@@ -426,6 +462,75 @@ class _MorphismModule(nn.Module):
     """Internal nn.Module wrapper for a single morphism's parameters."""
 
     pass
+
+
+class _SourcedModule(nn.Module):
+    """Module wrapper holding a reference to a source morphism's
+    nn.Module so that :meth:`torch.nn.Module.parameters` walks reach
+    the upstream learnable parameters.
+    """
+
+    def __init__(self, source_module: nn.Module) -> None:
+        super().__init__()
+        self.source = source_module
+
+
+class TransformedMorphism(Morphism):
+    """A morphism whose tensor is a transformation of a source
+    morphism's tensor, recomputed on each :attr:`tensor` access.
+
+    The source morphism is registered as a submodule so
+    ``self.module().parameters()`` includes the source's learnable
+    parameters; the transform is applied lazily, so each backward
+    through a fresh ``.tensor`` access gets its own autograd graph
+    and multi-step optimisation propagates gradients correctly.
+
+    Parameters
+    ----------
+    source : Morphism
+        Underlying morphism whose tensor feeds the transform.
+    transform : Callable[[torch.Tensor], torch.Tensor]
+        Pure function applied to ``source.tensor`` to produce the
+        new tensor. Must depend on ``source`` only through the
+        tensor; any additional context (e.g. the source morphism
+        for shape resolution) must be captured by closure.
+    domain : SetObject
+        Target domain (may differ from ``source.domain`` for
+        shape-aware transformations like the dagger or BayesInvert).
+    codomain : SetObject
+        Target codomain.
+    quantale : Quantale or None
+        Target quantale. Defaults to the source's quantale.
+    """
+
+    def __init__(
+        self,
+        source: "Morphism",
+        transform,  # Callable[[torch.Tensor], torch.Tensor]
+        domain: SetObject,
+        codomain: SetObject,
+        quantale: Quantale | None = None,
+    ) -> None:
+        super().__init__(
+            domain,
+            codomain,
+            quantale=quantale if quantale is not None else source.quantale,
+        )
+        self._source = source
+        self._transform = transform
+        self._module = _SourcedModule(source.module())
+
+    @property
+    def source(self) -> "Morphism":
+        """The underlying morphism feeding this transform."""
+        return self._source
+
+    @property
+    def tensor(self) -> torch.Tensor:
+        return self._transform(self._source.tensor)
+
+    def module(self) -> nn.Module:
+        return self._module
 
 
 class ObservedMorphism(Morphism):
