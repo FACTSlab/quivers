@@ -57,9 +57,9 @@ statement      := composition_rule_decl
                 | type_decl
                 | export_decl
 
-# Selects the module's composition rule.  The keyword fixes the
-# required algebraic level; the optional body declares a fresh
-# rule inline (each entry is a let-expression).
+(* Selects the module's composition rule.  The keyword fixes the
+   required algebraic level; the optional body declares a fresh
+   rule inline (each entry is a let-expression). *)
 composition_rule_decl
                := ('quantale' | 'semigroupoid'
                    | 'bilinear_form' | 'composition_rule')
@@ -70,9 +70,9 @@ composition_rule_entry
                := IDENT '(' IDENT (',' IDENT)* ')' '=' let_expr
                 | IDENT '=' let_expr
 
-# Operadic n-ary contraction.  Declares a callable that
-# contracts `n` input morphisms under a named composition rule
-# using an einsum-style wiring spec.
+(* Operadic n-ary contraction.  Declares a callable that
+   contracts `n` input morphisms under a named composition rule
+   using an einsum-style wiring spec. *)
 contraction_decl
                := 'contraction' IDENT
                   '(' contraction_input (',' contraction_input)* ')'
@@ -82,9 +82,9 @@ contraction_decl
 contraction_input
                := IDENT ':' type_expr '->' type_expr
 
-# Weighted deduction system: the agenda-based framework subsumes
-# CKY, Earley, Viterbi, inside-outside, semi-naive Datalog, A*,
-# Knuth, and bidirectional MLTT proof search.
+(* Weighted deduction system: the agenda-based framework subsumes
+   CKY, Earley, Viterbi, inside-outside, semi-naive Datalog, A*,
+   Knuth, and bidirectional MLTT proof search. *)
 deduction_decl := 'deduction' IDENT ':' type_expr '->' type_expr
                   '{' deduction_field+ '}'
 deduction_field
@@ -109,10 +109,10 @@ axioms_field   := 'axioms' '=' IDENT
 signature_field := 'signature' IDENT
 encoder_field  := 'encoder' IDENT
 
-# Object declarations come in three forms:
-#   object X : 3                                    , anonymous-element FinSet
-#   object Atoms = {NP, S, VP}                      , EnumSet
-#   object Cat = FreeResiduated(Atoms, depth=4, ops=[slash]) , residuated universe
+(* Object declarations come in three forms:
+     object X : 3                                    , anonymous-element FinSet
+     object Atoms = {NP, S, VP}                      , EnumSet
+     object Cat = FreeResiduated(Atoms, depth=4, ops=[slash]) , residuated universe *)
 object_decl    := 'object' IDENT (':' type_expr | '=' object_init)
 object_init    := enum_set_literal | free_residuated_expr
 enum_set_literal := '{' IDENT (',' IDENT)* '}'
@@ -122,9 +122,9 @@ free_residuated_arg  := 'depth' '=' INT
                       | 'ops' '=' '[' IDENT (',' IDENT)* ']'
 free_monoid_expr := 'FreeMonoid' '(' IDENT ',' 'max_length' '=' INT ')'
 
-# TypeExpr is the unified pattern sublanguage. Slash and effect-typed
-# forms are legal inside any TypeExpr; the compiler enforces
-# residuated-universe constraints on slash patterns at use-site.
+(* TypeExpr is the unified pattern sublanguage. Slash and effect-typed
+   forms are legal inside any TypeExpr; the compiler enforces
+   residuated-universe constraints on slash patterns at use-site. *)
 type_expr      := type_coproduct
                 | type_slash
                 | type_product
@@ -146,10 +146,10 @@ morphism_prior := '~' IDENT '(' draw_arg (',' draw_arg)* ')'
 options        := IDENT '=' value (',' IDENT '=' value)*
 value          := IDENT | INT | FLOAT
 
-# Axis-role clause on a distribution: ``over <axes> [iid over <axes>]``.
-# `over` names the event axes (the axes the family's joint
-# covariance lives on); the complement is iid.  Axis count must
-# match the family's declared event_rank.
+(* Axis-role clause on a distribution: ``over <axes> [iid over <axes>]``.
+   `over` names the event axes (the axes the family's joint
+   covariance lives on); the complement is iid.  Axis count must
+   match the family's declared event_rank. *)
 axis_role_clause
                := 'over' axis_list ['iid' 'over' axis_list]
 axis_list      := IDENT
@@ -164,10 +164,10 @@ space_arg      := IDENT '=' value | value
 
 type_decl      := 'type' IDENT '=' space_expr
 
-# Markov-kernel declaration.  Without `~ Family`, declares a
-# finite-set lookup-table kernel; with it, a parametric kernel
-# whose family parameters come from the input by a parameter
-# network at sample time.
+(* Markov-kernel declaration.  Without `~ Family`, declares a
+   finite-set lookup-table kernel; with it, a parametric kernel
+   whose family parameters come from the input by a parameter
+   network at sample time. *)
 kernel_decl    := 'kernel' IDENT ['[' INT ']'] ':' type_expr '->' type_expr
                   ['~' IDENT ['[' options ']'] [axis_role_clause]]
 
@@ -193,26 +193,26 @@ program_body   := program_step+ return_stmt
 program_step   := bind_step | observe_step
                 | marginalize_step | let_step
 
-# Kleisli bind, the unique sampling step shape.
-#   v        <- F(args)                          , scalar draw
-#   v : A    <- F(args)                          , A-indexed plate
-#   (a, b)   <- F(args)                          , destructuring tuple
-#   v : A    <- F(args) over A                   , event-rank-1 family
-#   W : (R, C) <- MatrixNormal(...) over (R, C)  , matrix event
+(* Kleisli bind, the unique sampling step shape.
+     v        <- F(args)                          , scalar draw
+     v : A    <- F(args)                          , A-indexed plate
+     (a, b)   <- F(args)                          , destructuring tuple
+     v : A    <- F(args) over A                   , event-rank-1 family
+     W : (R, C) <- MatrixNormal(...) over (R, C)  , matrix event *)
 bind_step      := var_pattern [':' type_expr] '<-' IDENT
                   ['(' draw_arg_list ')']
                   [axis_role_clause]
 
-# Scored bind, same shape as bind_step, prefixed with `observe`.
-#   observe v        <- F(args)
-#   observe r : N    <- F(theta[N])
-#   observe r : N via idx <- F(theta[N])
-#   observe r : N <- MVN(mu, L) over N
-# Inside a grouped marginalize body the `via <idx>` clause is
-# required on every observe; it names the per-observe fibration
-# into the marginalize header's grouping plate.  `via product(...)`
-# carries a product fibration paired with an `over G * H * ...`
-# header.
+(* Scored bind, same shape as bind_step, prefixed with `observe`.
+     observe v        <- F(args)
+     observe r : N    <- F(theta[N])
+     observe r : N via idx <- F(theta[N])
+     observe r : N <- MVN(mu, L) over N
+   Inside a grouped marginalize body the `via <idx>` clause is
+   required on every observe; it names the per-observe fibration
+   into the marginalize header's grouping plate.  `via product(...)`
+   carries a product fibration paired with an `over G * H * ...`
+   header. *)
 observe_step   := 'observe' IDENT [':' type_expr]
                   ['via' via_spec]
                   '<-' IDENT
@@ -220,22 +220,22 @@ observe_step   := 'observe' IDENT [':' type_expr]
                   [axis_role_clause]
 via_spec       := IDENT | 'product' '(' IDENT (',' IDENT)* ')'
 
-# Scoped marginalization, coordinate `c` is bound to `F(args)`,
-# optionally `A`-indexed; the steps in the `{ … }` body are the
-# integration scope. At end of scope the coordinate is pushed
-# forward through projection (logsumexp for discrete, fibrewise
-# integration for continuous).
+(* Scoped marginalization, coordinate `c` is bound to `F(args)`,
+   optionally `A`-indexed; the steps in the `{ … }` body are the
+   integration scope. At end of scope the coordinate is pushed
+   forward through projection (logsumexp for discrete, fibrewise
+   integration for continuous). *)
 marginalize_step := 'marginalize' IDENT [':' type_expr] '<-' IDENT
                     ['(' draw_arg_list ')']
                     [grouping_clause]
                     ['reduction' '=' IDENT]
                     'in' '{' program_step* '}'
 
-# Optional fibred marginalization: the header declares the
-# grouping plate `G` (or product plate `G * H`).  Each observe
-# inside the body carries its own `via <idx>` clause; the runtime
-# scatter-sums per-axis log-likelihoods into the shared per-group
-# accumulator before the reduction.
+(* Optional fibred marginalization: the header declares the
+   grouping plate `G` (or product plate `G * H`).  Each observe
+   inside the body carries its own `via <idx>` clause; the runtime
+   scatter-sums per-axis log-likelihoods into the shared per-group
+   accumulator before the reduction. *)
 grouping_clause := 'over' type_expr
 
 let_step       := 'let' IDENT '=' let_expr
@@ -247,9 +247,9 @@ let_atom       := IDENT '(' let_expr (',' let_expr)* ')'
                 | IDENT | INT | FLOAT | '(' let_expr ')'
 var_pattern    := IDENT | '(' IDENT (',' IDENT)* ')'
 
-# A family argument may be a numeric literal, an identifier, or a
-# bracket-indexed family section `theta[N]` denoting a section of
-# the N-indexed family `theta : N → P`.
+(* A family argument may be a numeric literal, an identifier, or a
+   bracket-indexed family section `theta[N]` denoting a section of
+   the N-indexed family `theta : N → P`. *)
 draw_arg_list  := draw_arg (',' draw_arg)*
 draw_arg       := IDENT '[' type_expr ']'
                 | '-' (INT | FLOAT) | IDENT | INT | FLOAT
@@ -259,10 +259,10 @@ return_pattern := IDENT | '(' IDENT (',' IDENT)* ')'
 
 let_decl       := 'let' IDENT '=' expr ['where' let_decl+]
 
-# Morphism-valued expression sublanguage.  The compose family
-# tags each operator with the quantale whose composition it
-# realizes (see guides/morphisms.md).  `>>>` is transformation
-# composition, distinct from morphism composition.
+(* Morphism-valued expression sublanguage.  The compose family
+   tags each operator with the quantale whose composition it
+   realizes (see guides/morphisms.md).  `>>>` is transformation
+   composition, distinct from morphism composition. *)
 expr           := trans_compose | compose_expr
 trans_compose  := expr '>>>' expr
 compose_expr   := tensor_expr (compose_op tensor_expr)*
@@ -289,9 +289,9 @@ atom_expr      := 'identity' '(' IDENT ')'
                 | IDENT
                 | '(' expr ')'
 
-# Call shape used for contraction invocations and parametric
-# program template instantiation.  The compiler routes by what
-# the callee resolves to.
+(* Call shape used for contraction invocations and parametric
+   program template instantiation.  The compiler routes by what
+   the callee resolves to. *)
 morphism_call  := IDENT '(' IDENT (',' IDENT)* ')'
 
 scan_init      := 'init' '=' ('zeros' | 'learned')
