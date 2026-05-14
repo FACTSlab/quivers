@@ -61,18 +61,18 @@ The candidate is drawn from a Normal centered on the reset-gated previous state;
 
 ```mermaid
 flowchart LR
-    "x_t" --> "gate_z"
-    "x_t" --> "gate_r"
-    "h_prev" --> "gate_z"
-    "h_prev" --> "gate_r"
-    "gate_r" --> "reset_hidden"
-    "h_prev" --> "reset_hidden"
-    "reset_hidden" --> "h_cand"
-    "x_t" --> "h_cand"
-    "h_prev" --> "h_new"
-    "gate_z" --> "h_new"
-    "h_cand" --> "h_new"
-    "h_new" --> "scan"
+    x_t["x_t"] --> gate_z["gate_z"]
+    x_t["x_t"] --> gate_r["gate_r"]
+    h_prev["h_prev"] --> gate_z["gate_z"]
+    h_prev["h_prev"] --> gate_r["gate_r"]
+    gate_r["gate_r"] --> reset_hidden["reset_hidden"]
+    h_prev["h_prev"] --> reset_hidden["reset_hidden"]
+    reset_hidden["reset_hidden"] --> h_cand["h_cand"]
+    x_t["x_t"] --> h_cand["h_cand"]
+    h_prev["h_prev"] --> h_new["h_new"]
+    gate_z["gate_z"] --> h_new["h_new"]
+    h_cand["h_cand"] --> h_new["h_new"]
+    h_new["h_new"] --> scan["scan"]
 ```
 
 ## Try it

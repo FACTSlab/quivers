@@ -67,21 +67,21 @@ The parametric program `lstm_cell` realizes the canonical LSTM update. Each gate
 
 ```mermaid
 flowchart LR
-    "x_t" --> "gate_i"
-    "x_t" --> "gate_f"
-    "x_t" --> "gate_o"
-    "x_t" --> "cell_cand"
-    "c_prev" --> "gate_i"
-    "c_prev" --> "gate_f"
-    "c_prev" --> "gate_o"
-    "c_prev" --> "cell_cand"
-    "gate_f" --> "c_new"
-    "cell_cand" --> "c_new"
-    "gate_i" --> "c_new"
-    "c_prev" --> "c_new"
-    "c_new" --> "scan"
-    "gate_o" --> "h_new"
-    "c_new" --> "h_new"
+    x_t["x_t"] --> gate_i["gate_i"]
+    x_t["x_t"] --> gate_f["gate_f"]
+    x_t["x_t"] --> gate_o["gate_o"]
+    x_t["x_t"] --> cell_cand["cell_cand"]
+    c_prev["c_prev"] --> gate_i["gate_i"]
+    c_prev["c_prev"] --> gate_f["gate_f"]
+    c_prev["c_prev"] --> gate_o["gate_o"]
+    c_prev["c_prev"] --> cell_cand["cell_cand"]
+    gate_f["gate_f"] --> c_new["c_new"]
+    cell_cand["cell_cand"] --> c_new["c_new"]
+    gate_i["gate_i"] --> c_new["c_new"]
+    c_prev["c_prev"] --> c_new["c_new"]
+    c_new["c_new"] --> scan["scan"]
+    gate_o["gate_o"] --> h_new["h_new"]
+    c_new["c_new"] --> h_new["h_new"]
 ```
 
 ## Try it

@@ -49,13 +49,13 @@ The Categorical `lm_head : Combined -> Token` scores a masked-token target condi
 
 ```mermaid
 flowchart LR
-    "tok" --> "embed"
-    "embed" --> "fwd"
-    "embed" --> "bwd"
-    "fwd" --> "combine"
-    "bwd" --> "combine"
-    "combine" --> "lm_head"
-    "lm_head" --> "masked_token"
+    tok["tok"] --> embed["embed"]
+    embed["embed"] --> fwd["fwd"]
+    embed["embed"] --> bwd["bwd"]
+    fwd["fwd"] --> combine["combine"]
+    bwd["bwd"] --> combine["combine"]
+    combine["combine"] --> lm_head["lm_head"]
+    lm_head["lm_head"] --> masked_token["masked_token"]
 ```
 
 ## Try it
