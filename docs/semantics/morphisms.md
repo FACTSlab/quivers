@@ -157,6 +157,52 @@ denotes a *section* of a discretization: a kernel $e : \iota(\{0, \dots, n-1\}) 
 
 The pair $(d, e)$ is a *retraction* in the categorical sense; it is not generally an isomorphism (information about the within-cell distribution is lost by $d$).
 
-## 6. Equivariance and naturality
+## 6. Axis-role specifications
+
+Each registered family carries a declared *event rank* $r_F \in \mathbb{N}$.
+
+| Event rank | Family examples | Event shape |
+|---|---|---|
+| 0 | `Normal`, `Beta`, `Gamma`, `Exponential`, `Bernoulli`, … | $\mathbb{R}$ (scalar) |
+| 1 | `MultivariateNormal`, `LowRankMVN`, `Dirichlet`, `OneHotCategorical`, `LogisticNormal`, `GP`, `Horseshoe` | $\mathbb{R}^{d}$ for a single named axis |
+| 2 | `Wishart`, `InverseWishart`, `MatrixNormal`, `LKJCholesky` | $\mathbb{R}^{d_1 \times d_2}$ for two named axes |
+
+A distribution clause `~ F(args) over <axes> [iid over <axes>]` *configures* the event–batch decomposition of a $F$-valued draw. Concretely, for a morphism $f : A \to B$ whose representing tensor has shape $\prod_{i} d_i$ indexed by the named factors $\{a_1, \dots, a_m\}$ of $A$ and $\{b_1, \dots, b_n\}$ of $B$, the clause names a sub-multiset $E \subseteq \{a_i\} \cup \{b_j\}$ of cardinality $|E| = r_F$ and declares:
+
+$$
+\llbracket f \rrbracket \;\in\; F\bigl(\textstyle\prod_{e \in E} d_e\bigr)^{\prod_{i \notin E} d_i},
+$$
+
+an iid product over the *batch axes* $\{a_i\} \cup \{b_j\} \setminus E$ of an $F$-distributed draw on the *event axes* $E$. Categorically, the iid axes are the product structure of the kernel's domain, while the event axes carry the family's joint (possibly correlated) distribution.
+
+**Arity contract.**  The axis-role clause is well-typed only when $|E| = r_F$.  This preserves a critical categorical distinction: a flat $\mathrm{MVN}_{d_1 d_2}$ with dense covariance over $\mathbb{R}^{d_1 d_2}$ (event rank 1, single named axis whose dim equals $d_1 \cdot d_2$) is a different morphism from a $\mathrm{MatrixNormal}(d_1, d_2)$ with Kronecker covariance $V \otimes U$ over $\mathbb{R}^{d_1 \times d_2}$ (event rank 2, two named axes); no auto-substitution between them occurs.
+
+**Positional binding.**  For families with two distinguishable event axes (row and column for `MatrixNormal`; the two correlation indices for `LKJCholesky`), the ordering of `over (e_1, e_2)` corresponds positionally to the family's declared event-axis ordering.
+
+**Naturality.**  Refactoring a morphism's dom or cod (e.g. $B \mapsto B_1 \otimes B_2$) invalidates the axis references at type-check time rather than silently rebinding; this is the price of the surface preserving categorical structure under refactoring.
+
+The `dom` and `cod` shortcuts are legal in $E$ only when the corresponding side of the morphism is a single unfactored object; for a product-typed side, every factor must be named explicitly, since silently flattening a categorical product into an opaque single axis would erase the product structure.
+
+## 7. Latent morphism priors
+
+The discrete morphism declaration of §1 extends with a *parameter prior* via the `~ Family(args) [axis_role_clause]` clause:
+
+```
+latent f : τ₁ -> τ₂ ~ Family(args) [over <axes> [iid over <axes>]]
+```
+
+The clause declares that the representing tensor of $f$ is itself a random variable drawn from the named family at the requested axis-role configuration. Concretely, the denotation desugars to the composite
+
+$$
+\llbracket f \rrbracket \;=\; (\text{wrap as morphism}) \circ \mathrm{rsample}_{F(\mathrm{args})},
+$$
+
+where `rsample` is the reparameterized sample of the family at its declared event/batch shape, and "wrap as morphism" is the canonical identification of a tensor of shape $|\tau_1| \times |\tau_2|$ (or the equivalent under the axis specification) with a morphism $\tau_1 \to \tau_2$ in $\mathcal{V}\text{-}\mathbf{Rel}$.
+
+**Independence default.**  Without a prior clause, the morphism's representing tensor is a free parameter (a point in $V^{|\tau_1| \times |\tau_2|}$); the latent / observed distinction of §1 controls only whether the gradient flows. With a prior clause, $f$ becomes a sample site whose value is drawn afresh at each forward pass; the inference layer integrates $f$ as if it were an explicit `<-` step at the top of every enclosing program.
+
+**Composition with marginalize.**  When the prior is on a $\mathcal{V}\text{-}\mathbf{Rel}$ morphism and the surrounding program's `marginalize` block integrates over a related coordinate, the marginalization composes with the prior in the standard way: $\mathrm{marg}(\nu) = \pi_* \nu$ where $\nu$ is the joint over $(W_f, \mathrm{rest})$ and $\pi$ projects away $W_f$ if the prior is the integration target, or leaves $W_f$ in scope otherwise.
+
+## 8. Equivariance and naturality
 
 The constructions above are functorial in the chosen quantale (for the discrete stratum, [Quantales §4](quantales.md#4-functoriality-of-the-language)) and in the choice of family registry (for the stochastic and continuous strata). In particular, any uniform substitution of one family for another that preserves the parameter-map signature induces a natural transformation of denotations; this is the formal underpinning of the family-registry lookup tables in [`quivers.continuous.families`](../api/continuous/families.md) and [`quivers.stochastic.families`](../api/stochastic/families.md).

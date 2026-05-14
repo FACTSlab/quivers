@@ -184,7 +184,60 @@ For a discrete latent $C$, the projection is computed by log-sum-exp on the accu
 
 The four bind variants, scalar, indexed, scored, marginalized, are uniformly a single underlying step with a `mode ∈ {sample, score, marginal}` tag and an optional index `A`. The scalar/plate axis is orthogonal to the full-probability/sub-probability distinction.
 
-### 2.7 Indexed Gather (Let-Pullback)
+### 2.7 Grouped marginalize with multi-observe fibration
+
+The marginalize step admits a *grouping clause* that turns the body into a fibered scoring problem over a shared plate.  The surface is
+
+```
+marginalize c : K <- F(args) over G [reduction = R] in {
+    observe r_1 : N_1 via idx_1 <- F_1(...)
+    observe r_2 : N_2 via idx_2 <- F_2(...)
+    …
+}
+```
+
+with a single `over G` clause on the header (or `over G_1 * G_2 * …` for a product grouping plate) and a `via idx_m` clause on each observe naming a fibration $\iota_m : N_m \to G$ from that observe's response plate into the shared grouping plate.
+
+Categorically: the body declares a coproduct fibration $\coprod_m r_m : \coprod_m N_m \to G \times K$, and the marginalize step is the right Kan extension along $\pi_G : G \times K \to G$ followed by an aggregation $R$ over the $K$ axis:
+
+$$
+\Sigma_g \;\mathrm{aggr}_R\!\!\bigl[\log \pi(g, k) + \textstyle\sum_m \sum_{n \,:\, \iota_m(n) = g} \ell_m(n, k)\bigr],
+$$
+
+where $\ell_m(n, k) = \log p_{F_m}\bigl(r^{\mathrm{obs}}_m(n);\, \theta_m(n, k, \phi)\bigr)$ is the per-row per-class log-likelihood of observe $m$, $\pi$ is the per-group per-class prior weight, and $\mathrm{aggr}_R \in \{\mathrm{logsumexp}, \mathrm{sum}, \mathrm{mean}\}$ is the reduction selected by the optional `reduction = R` annotation (default `logsumexp`, the canonical mixture-marginalization form).
+
+The product-grouping case `over G_1 * G_2 * …` paired with `via product(idx_1, idx_2, …)` on each observe extends the right-Kan-extension target to a flat plate of cardinality $\prod_i |G_i|$; the surface arity must match.
+
+### 2.8 Effect signatures
+
+A `program` declaration may carry an *effect signature* after `!`:
+
+```
+program P (params) : τ₁ -> τ₂ ! E₁, E₂, …
+    body
+```
+
+where each $E_i$ is one of $\{\mathsf{Sample}, \mathsf{Score}, \mathsf{Marginal}, \mathsf{Pure}\}$. The signature is a *static type* over the program: a subset of an *effect algebra* $\mathcal{E}$ that the body's statements collectively produce.
+
+Each statement form contributes an effect:
+
+| Statement form | Effect produced |
+|---|---|
+| `v <- F(args)` | $\mathsf{Sample}$ |
+| `v : A <- F(args)` | $\mathsf{Sample}$ |
+| `observe v <- F(args)` | $\mathsf{Score}$ |
+| `observe r : N <- F(args)` | $\mathsf{Score}$ |
+| `marginalize c <- F(args) in { … }` | $\mathsf{Marginal}$ (plus the effects of the scope body) |
+| `let v = expr` | $\mathsf{Pure}$ |
+| `return e` | $\mathsf{Pure}$ |
+
+The compiler computes the *actual* effect set $\mathcal{E}(P)$ of the body and verifies $\mathcal{E}(P) \subseteq \mathcal{E}_{\mathrm{decl}}$. The signature $\{\mathsf{Pure}\}$ in particular rejects any sample / score / marginal statement, restricting the body to `let` (and a `marginalize` whose own scope is itself pure).
+
+Categorically, effects index the codomain monad of the program's denotation: $\mathsf{Pure}$ programs denote ordinary measurable maps $\tau_1 \to \tau_2$; $\mathsf{Sample}$ programs denote Kleisli arrows in $\mathcal{G}$; $\mathsf{Score}$ programs land in $\mathcal{G}_{\le 1}$; $\mathsf{Marginal}$ programs commute with right Kan extensions along discrete fibrations. The effect-set inclusion is therefore a soundness condition on the monad: the actual codomain monad must be a sub-monad of the declared one.
+
+The `over <model>` clause on a program header marks the program as consuming the named model's latents: the consumed coordinates appear as data parameters and the body is restricted to $\mathsf{Pure}$ (a *posterior consumer*, the deterministic Kleisli arrow $\Theta \to \tau_2$ that lifts to $\mathrm{Data} \to \mathcal{G}(\tau_2)$ by post-composition with the model's posterior kernel).
+
+### 2.9 Indexed Gather (Let-Pullback)
 
 A `let` right-hand side of the form `arr[idx]` is the *Kleisli pullback*. For a plate variable $v : A \to \mathcal{G}(B)$ bound earlier in the body, and a finite fibration $\iota : N \to A$ named in the context, the gather $\iota^* v$ is the composite
 
@@ -200,7 +253,7 @@ $$
 \delta_{(\phi,\, \phi.\mathit{arr}[\phi.\mathit{idx}])}.
 $$
 
-### 2.8 Return
+### 2.10 Return
 
 A return statement
 
@@ -269,7 +322,15 @@ $$
 \llbracket P \mathbin{>\!\!>} Q \rrbracket(x, C) \;=\; \int_Y \llbracket Q \rrbracket(y, C) \, \llbracket P \rrbracket(x, \mathrm{d}y).
 $$
 
-The DSL exposes this through `output` declarations: `output P >> Q` denotes the Kleisli composite of the two program kernels.
+The DSL exposes this through a top-level `let` binding the composition and an `export` declaration naming the composite:
+
+<!-- compile: false -->
+```qvr
+let pq = p >> q
+export pq
+```
+
+`export` is the public-binding form: any number of `export` declarations per module are allowed, each producing a separate compiled program output.
 
 ## 5. Soundness of monadic semantics
 

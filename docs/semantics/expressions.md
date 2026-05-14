@@ -1,6 +1,6 @@
 # Expressions
 
-This page gives a compositional, big-step denotational semantics for the QVR expression sublanguage. The sublanguage is the body of `let` bindings and `output` declarations: it consists of morphism-valued combinators that take morphisms (and, for the parser combinator, grammar data) and produce new morphisms.
+This page gives a compositional, big-step denotational semantics for the QVR expression sublanguage. The sublanguage is the body of `let` bindings and `export` declarations: it consists of morphism-valued combinators that take morphisms (and, for the parser combinator, grammar data) and produce new morphisms.
 
 ## 1. Syntactic class
 

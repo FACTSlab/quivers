@@ -14,7 +14,7 @@ $$
 
 We write $\bigoplus$ for the binary join and (by abuse) for arbitrary joins. We assume $\mathcal{V}$ is *commutative*: $a \otimes b = b \otimes a$.
 
-A quantale is the object of values of a $\mathcal{V}$-enriched category. The five quantales used in QVR are catalogued in [Quantales and base change](quantales.md).
+A quantale is the object of values of a $\mathcal{V}$-enriched category. The eleven built-in quantales used in QVR are cataloged in [Quantales and base change](quantales.md).
 
 ## 2. $\mathcal{V}$-enriched relations
 
@@ -57,9 +57,9 @@ QVR phrases inhabit three strata, each interpreted in a distinct ambient categor
 
 | Stratum | Source of morphism declaration | Ambient category |
 |---------|--------------------------------|-------------------|
-| Discrete $\mathcal{V}$-enriched | `latent`, `observed` | $\mathcal{V}\text{-}\mathbf{Rel}$ |
-| Stochastic | `stochastic` | $\mathbf{Stoch}$ |
-| Continuous | `continuous`, `space` | $\mathbf{Kern}$ |
+| Discrete $\mathcal{V}$-enriched | `latent`, `observed` (no `~ Family` clause) | $\mathcal{V}\text{-}\mathbf{Rel}$ |
+| Stochastic | `kernel` between finite-set types (no `~ Family` clause) | $\mathbf{Stoch}$ |
+| Continuous | `kernel ... ~ Family` (with finite or continuous dom and continuous cod); `space` | $\mathbf{Kern}$ |
 
 The three strata are not independent: the inclusion $\iota : \mathbf{FinSet} \hookrightarrow \mathbf{SBor}$ (every finite set is canonically a standard Borel space with the discrete $\sigma$-algebra) lifts to faithful embeddings $\mathbf{Stoch} \hookrightarrow \mathbf{Kern}$ and (in the Boolean quantale case) $\mathcal{V}\text{-}\mathbf{Rel} \hookrightarrow \mathbf{Stoch}$. The `discretize` and `embed` declarations denote the Giry-monad–level transition between strata; see [Morphisms §5](morphisms.md#5-stratum-transitions).
 

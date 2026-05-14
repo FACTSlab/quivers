@@ -73,7 +73,7 @@ $$
 \mathcal{V}_{\mathrm{M}} \;=\; \bigl(\Delta,\ \le,\ \star,\ \delta\bigr),
 $$
 
-with carrier the row-stochastic kernels $X \to \mathcal{P}(Y)$, tensor $\star$ the Markov-kernel composition, and unit the Dirac kernel $\delta$. Powers the `stochastic` declaration's V-Cat surface.
+with carrier the row-stochastic kernels $X \to \mathcal{P}(Y)$, tensor $\star$ the Markov-kernel composition, and unit the Dirac kernel $\delta$. Powers the V-Cat surface of `kernel` declarations between finite-set types.
 
 ### 1.9 Real quantale
 
@@ -191,6 +191,6 @@ $$
 \end{array}
 $$
 
-commutes for every well-typed phrase whose type does not involve `stochastic` or `continuous` declarations. (The stochastic and continuous strata are tied to the additive structure of $[0,1]$ as a $\sigma$-algebra of probabilities, not to the quantale; they ignore the `quantale` declaration.)
+commutes for every well-typed phrase whose type does not involve a `kernel ... ~ Family` declaration (the parametric Markov-kernel form). The stochastic and continuous strata are tied to the additive structure of $[0,1]$ as a $\sigma$-algebra of probabilities, not to the quantale; they ignore the `quantale` declaration.
 
 This commutation is the formal content of *base-change invariance*: changing the underlying truth-value algebra distributes over composition, tensor, marginalization, and every other expression-level combinator.
