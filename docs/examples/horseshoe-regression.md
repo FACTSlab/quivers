@@ -75,7 +75,7 @@ with torch.no_grad():
 print("posterior mean beta:", torch.stack(betas).mean(0))  # ~ [2.00, 0.07, -1.52, 0.02]
 ```
 
-The non-zero coefficients are recovered accurately and the zero coefficients are shrunk toward zero, matching the horseshoe's [spike-and-tail](https://doi.org/10.1093/biomet/asq017) behaviour.
+The non-zero coefficients are recovered accurately and the zero coefficients are shrunk toward zero, matching the horseshoe's [spike-and-tail](https://doi.org/10.1093/biomet/asq017) behavior.
 
 ## Categorical Perspective
 

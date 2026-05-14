@@ -29,7 +29,7 @@ The monad-side hierarchy:
 | `Foldable` / `Traversable` | `foldr`, `traverse` | distribute Applicative actions through a structure |
 | `MonadTrans` | `lift` | stack one monad on top of another |
 
-The arrow-side hierarchy (Hughes 2000, *Generalising monads to arrows*, [doi:10.1016/S0167-6423(99)00023-4](https://doi.org/10.1016/S0167-6423(99)00023-4)):
+The arrow-side hierarchy (Hughes 2000, *Generalizing monads to arrows*, [doi:10.1016/S0167-6423(99)00023-4](https://doi.org/10.1016/S0167-6423(99)00023-4)):
 
 | Class | Adds | Use |
 |-------|------|-----|
@@ -53,14 +53,14 @@ Eight stdlib effects ship in `quivers.monadic.instances`:
 | `Identity` | `Monad`, `Functor` | trivial / no-effect base case |
 | `Maybe` | `MonadPlus`, `Functor` | partiality / presupposition failure |
 | `Alternative_` | `MonadPlus`, `Foldable`, `Traversable` | Hamblin alternatives, focus, questions |
-| `Continuation(answer)` | `Monad`, `Functor` | scope-taking, generalised quantifiers |
+| `Continuation(answer)` | `Monad`, `Functor` | scope-taking, generalized quantifiers |
 | `State(state)` | `Monad`, `Functor` | dynamic anaphora, discourse referents |
 | `Reader(env)` | `Monad`, `Functor` | assignment functions, indexicality |
 | `Writer(monoid)` | `Monad`, `Functor` | supplements, nonrestrictive content |
 | `List(max_length)` | `MonadPlus`, `Foldable`, `Traversable` | bag-of-readings parsers |
 
 Each effect is a `dx.Model` carrying the relevant parameters (e.g.
-`Continuation(answer=S)` is parameterised by the answer type), and
+`Continuation(answer=S)` is parameterized by the answer type), and
 each registers against its appropriate ABC(s) via `ABC.register(...)`.
 
 ## Class-driven schema lifting
@@ -214,7 +214,7 @@ user would see if they enumerated the lifts manually.
 ## References
 
 - Bumford, D. and Charlow, S. (2026). [*Effect-Driven Interpretation: Functors for Natural Language Composition*](https://www.cambridge.org/core/elements/abs/effectdriven-interpretation/56671E539160AAA1DACF8555B82A2FE4). Cambridge Elements in Semantics. Cambridge University Press. Online ISBN 9781009285377; preprint [arXiv:2504.00316](https://arxiv.org/abs/2504.00316), draft at [simoncharlow.com/papers/cup-effects.pdf](https://simoncharlow.com/papers/cup-effects.pdf).
-- Hughes, J. (2000). [*Generalising monads to arrows*](https://doi.org/10.1016/S0167-6423(99)00023-4). Science of Computer Programming, 37(1–3), 67–111.
+- Hughes, J. (2000). [*Generalizing monads to arrows*](https://doi.org/10.1016/S0167-6423(99)00023-4). Science of Computer Programming, 37(1–3), 67–111.
 - Plotkin, G. and Power, J. (2003). [*Algebraic operations and generic effects*](https://doi.org/10.1023/A:1023064908962). Applied Categorical Structures, 11(1), 69–94.
 - Bauer, A. and Pretnar, M. (2015). [*Programming with algebraic effects and handlers*](https://doi.org/10.1016/j.jlamp.2014.02.001). Journal of Logical and Algebraic Methods in Programming, 84(1), 108–123.
 - Charlow, S. (2025). [*Static and dynamic exceptional scope*](https://doi.org/10.1093/jos/ffad012). Journal of Semantics (advance article).

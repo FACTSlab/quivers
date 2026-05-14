@@ -84,7 +84,7 @@ contraction_input
                := IDENT ':' type_expr '->' type_expr
 
 # Weighted deduction system: the agenda-based framework subsumes
-# CKY, Earley, Viterbi, inside-outside, semi-naïve Datalog, A*,
+# CKY, Earley, Viterbi, inside-outside, semi-naive Datalog, A*,
 # Knuth, and bidirectional MLTT proof search.
 deduction_decl := 'deduction' IDENT ':' type_expr '->' type_expr
                   '{' deduction_field+ '}'
@@ -200,7 +200,7 @@ observe_step   := 'observe' IDENT [':' type_expr]
                   ['(' draw_arg_list ')']
 via_spec       := IDENT | 'product' '(' IDENT (',' IDENT)* ')'
 
-# Scoped marginalisation, coordinate `c` is bound to `F(args)`,
+# Scoped marginalization, coordinate `c` is bound to `F(args)`,
 # optionally `A`-indexed; the steps in the `{ … }` body are the
 # integration scope. At end of scope the coordinate is pushed
 # forward through projection (logsumexp for discrete, fibrewise
@@ -211,7 +211,7 @@ marginalize_step := 'marginalize' IDENT [':' type_expr] '<-' IDENT
                     ['reduction' '=' IDENT]
                     'in' '{' program_step* '}'
 
-# Optional fibred marginalisation: the header declares the
+# Optional fibred marginalization: the header declares the
 # grouping plate `G` (or product plate `G * H`).  Each observe
 # inside the body carries its own `via <idx>` clause; the runtime
 # scatter-sums per-axis log-likelihoods into the shared per-group
@@ -241,7 +241,7 @@ let_decl       := 'let' IDENT '=' expr ['where' let_decl+]
 
 # Morphism-valued expression sublanguage.  The compose family
 # tags each operator with the quantale whose composition it
-# realises (see guides/morphisms.md).  `>>>` is transformation
+# realizes (see guides/morphisms.md).  `>>>` is transformation
 # composition, distinct from morphism composition.
 expr           := trans_compose | compose_expr
 trans_compose  := expr '>>>' expr
@@ -337,7 +337,7 @@ bilinear_form my_bf {
 
 ### Contraction
 
-A `contraction` block declares an operadic n-ary morphism, parameterised by an einsum-style wiring spec under a named composition rule:
+A `contraction` block declares an operadic n-ary morphism, parameterized by an einsum-style wiring spec under a named composition rule:
 
 <!-- compile: false -->
 ```qvr
@@ -485,7 +485,7 @@ object Token : 256
 latent emit : Token -> Token
 ```
 
-Doc comments are recognised on `object`, `morphism`, `alias`, and
+Doc comments are recognized on `object`, `morphism`, `alias`, and
 `program` declarations.
 
 ### Alias
@@ -560,7 +560,7 @@ space RU : R3 * U
 
 The `kernel` keyword declares a Markov kernel `A -> B`. Two shapes:
 
-- **Without a `~` clause**: a finite-set lookup-table kernel `A -> D(B)`, realised as a learnable matrix of conditional probabilities (the case formerly written with the now-removed `stochastic` keyword).
+- **Without a `~` clause**: a finite-set lookup-table kernel `A -> D(B)`, realized as a learnable matrix of conditional probabilities (the case formerly written with the now-removed `stochastic` keyword).
 - **With a `~ Family [options]` clause**: a parametric continuous kernel `A -> G(B)` whose family parameters come from the input by a neural parameter network at sample time (the case formerly written with `continuous`).
 
 <!-- compile: false -->
@@ -842,7 +842,7 @@ The `<-` operator is the unique sampling-step sigil in a `program` body:
 x <- Normal(0.0, 1.0)
 ```
 
-It introduces `x` as a random variable distributed according to the given family. The same sigil carries every sampling-step variant, scalar draws, indexed plates, scored observes, and scoped marginalisations, distinguished by the surrounding shape (see the program-block section below).
+It introduces `x` as a random variable distributed according to the given family. The same sigil carries every sampling-step variant, scalar draws, indexed plates, scored observes, and scoped marginalizations, distinguished by the surrounding shape (see the program-block section below).
 
 ### Backward Composition
 
@@ -1049,7 +1049,7 @@ The data parameter `raw_logits` names the model latent the body consumes, a per-
 
 ### Hierarchical Bayesian Models
 
-The plate-draw, vectorised-observe, parametric-program, and `marginalize` constructs compose into idiomatic hierarchical Bayesian models. The pattern below shows crossed random intercepts on two grouping factors, both reusing a single parametric template:
+The plate-draw, vectorized-observe, parametric-program, and `marginalize` constructs compose into idiomatic hierarchical Bayesian models. The pattern below shows crossed random intercepts on two grouping factors, both reusing a single parametric template:
 
 ```qvr
 object Subject : 200
@@ -1073,7 +1073,7 @@ program crossed : Resp -> Resp
 export crossed
 ```
 
-Each call to `random_intercepts` inlines a fresh `sigma` and a fresh per-level plate `v` under α-renamed names (`by_subject$sigma`, `by_subject$v`, …), so the two grouping factors share *structure* but not *latents*. Monotone ordinal-spline coefficients are expressed as `cumsum` of `HalfNormal` increments; categorical latent classes are marginalised with a scoped `marginalize … in { … }` block.
+Each call to `random_intercepts` inlines a fresh `sigma` and a fresh per-level plate `v` under α-renamed names (`by_subject$sigma`, `by_subject$v`, …), so the two grouping factors share *structure* but not *latents*. Monotone ordinal-spline coefficients are expressed as `cumsum` of `HalfNormal` increments; categorical latent classes are marginalized with a scoped `marginalize … in { … }` block.
 
 ### Let Expressions (Arithmetic)
 
@@ -1097,7 +1097,7 @@ let monotone = cumsum(increments)
 let weights = softmax(logits)
 ```
 
-Each `let`-builtin denotes a deterministic measurable map, lifted into the Kleisli category as a Dirac kernel. `cumsum` realises the partial-sum endomorphism over a plate; `softmax` is the standard simplex map; `cholesky_quad_form(L, x)` computes $x^\top L L^\top x$ for a lower-triangular Cholesky factor `L`.
+Each `let`-builtin denotes a deterministic measurable map, lifted into the Kleisli category as a Dirac kernel. `cumsum` realizes the partial-sum endomorphism over a plate; `softmax` is the standard simplex map; `cholesky_quad_form(L, x)` computes $x^\top L L^\top x$ for a lower-triangular Cholesky factor `L`.
 
 ### Inline Distributions
 

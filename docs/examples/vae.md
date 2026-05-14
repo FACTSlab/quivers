@@ -37,7 +37,7 @@ export generative
 
 ## Walkthrough
 
-The encoder begins with `embed pixel_embed : Pixel -> EncoderHidden`, a deterministic lookup mapping the discrete `Pixel` object into the continuous `EncoderHidden` space. The `stack(enc_deep, 3)` combinator creates three independently-parameterised stochastic Normal layers, distinct from `repeat(enc_deep, 3)` which would weight-tie. The final `enc_to_latent` projects to the 16-dimensional latent space at small init scale.
+The encoder begins with `embed pixel_embed : Pixel -> EncoderHidden`, a deterministic lookup mapping the discrete `Pixel` object into the continuous `EncoderHidden` space. The `stack(enc_deep, 3)` combinator creates three independently-parameterized stochastic Normal layers, distinct from `repeat(enc_deep, 3)` which would weight-tie. The final `enc_to_latent` projects to the 16-dimensional latent space at small init scale.
 
 The decoder mirrors the encoder: an initial `dec_1` lifts the latent code into the decoder hidden width, two stacked deep layers `stack(dec_deep, 2)` add depth, and `dec_to_obs` projects to the 784-dimensional observation space at tight init scale (the reconstruction should be more precise than the encoding).
 

@@ -193,4 +193,4 @@ $$
 
 commutes for every well-typed phrase whose type does not involve `stochastic` or `continuous` declarations. (The stochastic and continuous strata are tied to the additive structure of $[0,1]$ as a $\sigma$-algebra of probabilities, not to the quantale; they ignore the `quantale` declaration.)
 
-This commutation is the formal content of *base-change invariance*: changing the underlying truth-value algebra distributes over composition, tensor, marginalisation, and every other expression-level combinator.
+This commutation is the formal content of *base-change invariance*: changing the underlying truth-value algebra distributes over composition, tensor, marginalization, and every other expression-level combinator.

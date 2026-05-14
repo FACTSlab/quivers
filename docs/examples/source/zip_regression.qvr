@@ -21,7 +21,7 @@
 # relaxation of the discrete indicator gives a closed-form
 # tractable density on (0, 1) and lets SVI integrate the
 # coordinate via reparameterised sampling; the canonical
-# logsumexp marginalisation over the two integer states is the
+# logsumexp marginalization over the two integer states is the
 # limiting case as the relaxation temperature tightens.
 #
 # Distinguishing feature: scoped `marginalize` step integrating

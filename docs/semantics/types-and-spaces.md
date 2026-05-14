@@ -4,7 +4,7 @@ This page gives the denotation of the syntactic categories `TypeExpr` (finite-se
 
 ## 1. Syntactic categories
 
-We assume the following grammar fragment, whose constructors are realised one-to-one by the AST classes named in parentheses.
+We assume the following grammar fragment, whose constructors are realized one-to-one by the AST classes named in parentheses.
 
 $$
 \begin{array}{rcl}
@@ -60,7 +60,7 @@ $$
 \llbracket \mathrm{FreeMonoid}(X, n) \rrbracket \;=\; \coprod_{k = 0}^{n} \rho_{\mathrm{obj}}(X)^{k},
 $$
 
-a finite set of size $\sum_{k=0}^{n} |\rho_{\mathrm{obj}}(X)|^{k}$. The bound $n$ is supplied by the grammar's depth parameter; the unbounded free monoid $\rho_{\mathrm{obj}}(X)^{*}$ is countably infinite and is not realised as a `SetObject`.
+a finite set of size $\sum_{k=0}^{n} |\rho_{\mathrm{obj}}(X)|^{k}$. The bound $n$ is supplied by the grammar's depth parameter; the unbounded free monoid $\rho_{\mathrm{obj}}(X)^{*}$ is countably infinite and is not realized as a `SetObject`.
 
 ## 4. Denotation of spaces
 
@@ -112,7 +112,7 @@ where $\iota : \mathbf{FinSet} \hookrightarrow \mathbf{SBor}$ is the canonical i
 
 The two type-formers $\times$ and $+$ on `TypeExpr` are interpreted by the cartesian product and disjoint union in $\mathbf{FinSet}$, both of which are associative, commutative, and unital up to canonical isomorphism (with units the singleton $\mathbf{1}$ and the empty set $\emptyset$ respectively). Concretely:
 
-- The flattening converters on `ProductSet` and `CoproductSet` realise the *coherence isomorphisms* $((\tau_1 \times \tau_2) \times \tau_3) \cong (\tau_1 \times (\tau_2 \times \tau_3))$ as identities on the chosen representative.
+- The flattening converters on `ProductSet` and `CoproductSet` realize the *coherence isomorphisms* $((\tau_1 \times \tau_2) \times \tau_3) \cong (\tau_1 \times (\tau_2 \times \tau_3))$ as identities on the chosen representative.
 - Empty products denote $\mathbf{1}$ (a singleton; `EmptySet` for coproducts denotes $\emptyset$).
 - The `EmptySet` constructor in `categorical.monoidal` is the unit for $+$.
 
@@ -120,7 +120,7 @@ Mac Lane's coherence theorem guarantees that any two parses of the same `TypeExp
 
 ## 6. Resolution as a lens
 
-The map $\llbracket \cdot \rrbracket_{\mathrm{Ty}}$ is realised in code as the `forward` component of `TypeExprToSetObject(env)`, an instance of `dx.Lens[TypeExpr, SetObject, TypeExpr]`. The complement is the original `TypeExpr` AST node, so the `backward` direction recovers the unresolved syntax verbatim. Both round-trip laws hold by construction:
+The map $\llbracket \cdot \rrbracket_{\mathrm{Ty}}$ is realized in code as the `forward` component of `TypeExprToSetObject(env)`, an instance of `dx.Lens[TypeExpr, SetObject, TypeExpr]`. The complement is the original `TypeExpr` AST node, so the `backward` direction recovers the unresolved syntax verbatim. Both round-trip laws hold by construction:
 
 $$
 \mathrm{backward}(\mathrm{forward}(t)) = t,

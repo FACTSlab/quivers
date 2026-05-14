@@ -1,6 +1,6 @@
 # Weighted Deduction Systems
 
-QVR's `deduction { … }` block declares a weighted deductive system, a hyperedge of inference rules over an item algebra, paired with a semiring for weight aggregation. A single agenda-driven runtime evaluates the system; concrete parsing algorithms (CKY, Earley, Viterbi, A*, Knuth's, semi-naïve Datalog, MLTT proof search) fall out as parameter settings.
+QVR's `deduction { … }` block declares a weighted deductive system, a hyperedge of inference rules over an item algebra, paired with a semiring for weight aggregation. A single agenda-driven runtime evaluates the system; concrete parsing algorithms (CKY, Earley, Viterbi, A*, Knuth's, semi-naive Datalog, MLTT proof search) fall out as parameter settings.
 
 ## The framework
 
@@ -10,7 +10,7 @@ $$\mathcal{D} = (I, R, K, \mathrm{ax}, \mathrm{goal})$$
 
 with $I$ an *item algebra* (an abstract data type of judgments / facts / sequents), $R$ a *hypergraph* of inference rules (each a premise multiset, a conclusion, and a weight in $K$, universally quantified over pattern variables), $K$ a *quantale* / semiring for weight aggregation, $\mathrm{ax}$ an *axiom injector* producing the input's lexical / boundary items, and $\mathrm{goal} \subseteq I$ a *termination predicate*.
 
-The chart is the $K$-presheaf $C : I^{\mathrm{op}} \to K$ that is the least pre-fixed point of the rule-system functor in the $K$-enriched lattice (Tarski-Knaster). The chart is *strategy-independent*; the agenda is the operational realisation of the fixed-point computation.
+The chart is the $K$-presheaf $C : I^{\mathrm{op}} \to K$ that is the least pre-fixed point of the rule-system functor in the $K$-enriched lattice (Tarski-Knaster). The chart is *strategy-independent*; the agenda is the operational realization of the fixed-point computation.
 
 See [References](#references) below.
 
@@ -56,7 +56,7 @@ The weights are `torch.Tensor` values; autograd flows through the agenda's semir
 
 ## Strategy independence
 
-For idempotent semirings (Boolean, LogProb, Viterbi), the chart's value at any item is independent of the agenda strategy (Goodman 1999, §3). The `test_strategy_independence_idempotent` test runs the same deduction under CKY-sweep, semi-naïve FIFO, depth-first LIFO, and Earley-FIFO agendas and asserts the chart's goal-item weights agree to within `1e-5`.
+For idempotent semirings (Boolean, LogProb, Viterbi), the chart's value at any item is independent of the agenda strategy (Goodman 1999, §3). The `test_strategy_independence_idempotent` test runs the same deduction under CKY-sweep, semi-naive FIFO, depth-first LIFO, and Earley-FIFO agendas and asserts the chart's goal-item weights agree to within `1e-5`.
 
 ## Pre-registered stdlib
 
@@ -68,7 +68,7 @@ The `quivers.stochastic.stdlib` module ships ready-to-use `DeductionSystem` inst
 | `Lambek`       | sequents over patterns    | LogProb    | CKY sweep            |
 | `STLC`         | check / synth judgments   | Boolean    | depth-first          |
 | `MLTT`         | typing judgments          | Boolean    | depth-first (bounded depth) |
-| `Datalog`      | ground atoms              | Boolean    | semi-naïve FIFO      |
+| `Datalog`      | ground atoms              | Boolean    | semi-naive FIFO      |
 | `Dijkstra`     | `("dist", node)`          | Viterbi    | Knuth's              |
 | `HMM`          | `("alpha", t, state)`     | LogProb    | CKY sweep            |
 | `ViterbiHMM`   | same                      | Viterbi    | CKY sweep            |
@@ -80,7 +80,7 @@ Each is a callable: `view = Datalog(axiom_list)` returns a `ChartView`.
 
 The agenda module exposes canonical strategy factories that may be passed to the `agenda_factory=` parameter of a `DeductionSystem`:
 
-- `cky_agenda()`, `earley_agenda()`, FIFO (semi-naïve).
+- `cky_agenda()`, `earley_agenda()`, FIFO (semi-naive).
 - `viterbi_agenda(priority_fn)`: priority-queue.
 - `astar_agenda(g_plus_h)`: priority-queue with an admissible heuristic.
 - `knuth_agenda()`: best-first hyperpath search (Knuth 1977; Nederhof 2003).
@@ -89,7 +89,7 @@ The agenda module exposes canonical strategy factories that may be passed to the
 
 ## panproto integration
 
-A `DeductionDecl` compiles to a panproto schema via `QVR_DEDUCTION_PROTOCOL`. Vertex kinds: `deduction_system`, `deduction_rule`, `deduction_atom`, `deduction_premise`, `deduction_conclusion`. Schema morphisms over the protocol correspond to deduction-system specialisations.
+A `DeductionDecl` compiles to a panproto schema via `QVR_DEDUCTION_PROTOCOL`. Vertex kinds: `deduction_system`, `deduction_rule`, `deduction_atom`, `deduction_premise`, `deduction_conclusion`. Schema morphisms over the protocol correspond to deduction-system specializations.
 
 ```python
 from quivers.dsl.program_theory import extract_deduction_schema

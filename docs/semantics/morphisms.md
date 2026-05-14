@@ -17,7 +17,7 @@ $$
 \qquad \llbracket f \rrbracket \in V^{|{\llbracket \tau_1 \rrbracket}| \times |{\llbracket \tau_2 \rrbracket}|}.
 $$
 
-For `latent`, the entries are *free parameters* drawn from $V$; the realisation in PyTorch is a tensor of `requires_grad = True` parameters passed through a constraint map $\sigma : \mathbb{R} \to V$ (the sigmoid for $\mathcal{V}_{\mathrm{pf}}$, the identity for $\mathcal{V}_{\mathrm{T}}$, etc.).
+For `latent`, the entries are *free parameters* drawn from $V$; the realization in PyTorch is a tensor of `requires_grad = True` parameters passed through a constraint map $\sigma : \mathbb{R} \to V$ (the sigmoid for $\mathcal{V}_{\mathrm{pf}}$, the identity for $\mathcal{V}_{\mathrm{T}}$, etc.).
 
 For `observed g : τ₁ -> τ₂ = data`, the entries are *fixed*: $\llbracket g \rrbracket(x, y) = \mathrm{data}[x, y]$.
 
@@ -33,7 +33,7 @@ Composition $;$, tensor $\boxtimes$, and identity $1_X$ in $\mathcal{V}\text{-}\
 | `f @ g` | $\llbracket f \rrbracket \boxtimes \llbracket g \rrbracket$ | $(f \boxtimes g)((x_1, x_2), (y_1, y_2)) = f(x_1, y_1) \otimes g(x_2, y_2)$ |
 | `identity(X)` | $1_{\llbracket X \rrbracket}$ | $1_X(x, x') = \mathbf{1}$ if $x = x'$, $\bot$ otherwise |
 
-### 1.2 Marginalisation
+### 1.2 Marginalization
 
 For $f : X \otimes Y \to Z$ in $\mathcal{V}\text{-}\mathbf{Rel}$, the expression `f.marginalize(X)` denotes the $\mathcal{V}$-enriched colimit (quantale-join) of $f$ along the $X$-coordinate:
 
@@ -58,7 +58,7 @@ $$
 \quad \text{for every } x \in \llbracket \tau_1 \rrbracket.
 $$
 
-The implementation realises $\llbracket \mathrm{kern} \rrbracket$ via softmax over a parameter tensor; this is the canonical surjection $\mathbb{R}^{|Y|} \twoheadrightarrow \Delta^{|Y|-1}$ from raw logits onto the simplex.
+The implementation realizes $\llbracket \mathrm{kern} \rrbracket$ via softmax over a parameter tensor; this is the canonical surjection $\mathbb{R}^{|Y|} \twoheadrightarrow \Delta^{|Y|-1}$ from raw logits onto the simplex.
 
 Composition is the Kleisli composition for $\mathcal{G}_{\mathrm{fin}}$:
 
@@ -70,7 +70,7 @@ Note that $\mathbf{Stoch}$ is *not* a sub-category of $\mathcal{V}_{\mathrm{pf}}
 
 ### 2.1 Distribution-family morphisms
 
-Continuous distribution families *parameterised* by a finite set, declared with
+Continuous distribution families *parameterized* by a finite set, declared with
 
 ```
 kernel f : τ₁ -> σ ~ Family
@@ -108,7 +108,7 @@ $$
 (g_1; g_2)(s, C) \;=\; \int_{\llbracket \sigma_2 \rrbracket} g_2(t, C) \, g_1(s, \mathrm{d}t),
 $$
 
-realised numerically by Monte-Carlo or sampled-composition approximation in the implementation.
+realized numerically by Monte-Carlo or sampled-composition approximation in the implementation.
 
 ## 4. Tensor product across strata
 
@@ -133,7 +133,7 @@ extended uniquely (by the standard product-measure construction) to the product 
 
 The `discretize` and `embed` declarations witness the canonical functors between strata.
 
-### 5.1 Discretisation
+### 5.1 Discretization
 
 ```
 discretize d : σ -> n
@@ -153,7 +153,7 @@ i.e.\ the deterministic kernel sending each $s$ to the (unique) cell containing 
 embed e : n -> σ
 ```
 
-denotes a *section* of a discretisation: a kernel $e : \iota(\{0, \dots, n-1\}) \to \llbracket \sigma \rrbracket$ such that the composite $e ; d = \mathrm{id}$. In the implementation this is typically realised by sampling from a per-cell *embedding family* $p_{\mathrm{Family}}(\cdot \,;\, \theta_i)$.
+denotes a *section* of a discretization: a kernel $e : \iota(\{0, \dots, n-1\}) \to \llbracket \sigma \rrbracket$ such that the composite $e ; d = \mathrm{id}$. In the implementation this is typically realized by sampling from a per-cell *embedding family* $p_{\mathrm{Family}}(\cdot \,;\, \theta_i)$.
 
 The pair $(d, e)$ is a *retraction* in the categorical sense; it is not generally an isomorphism (information about the within-cell distribution is lost by $d$).
 

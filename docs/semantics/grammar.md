@@ -2,7 +2,7 @@
 
 The QVR weighted-deduction fragment is declared by the
 `deduction NAME : Domain -> Codomain { … }` block. A single block
-realises grammar-style parsers, type-theoretic proof systems,
+realizes grammar-style parsers, type-theoretic proof systems,
 Datalog-shaped fixed-point evaluations, and graph algorithms as
 parameter settings on the same agenda engine. See
 [Weighted Deduction Systems](../guides/deduction.md) for the user
@@ -116,7 +116,7 @@ predicate `w ∈ L(D)`.
 
 The chart is the least pre-fixed point of the rule-system functor
 in the `K`-enriched lattice (Tarski-Knaster). The agenda is the
-*operational realisation* of the fixed-point computation; a
+*operational realization* of the fixed-point computation; a
 strategy is a tuple `(Agenda, π, stop)` with `Agenda` a queue
 discipline (FIFO / LIFO / priority), `π` a priority function, and
 `stop` a termination predicate.
@@ -126,7 +126,7 @@ Goodman 1999 §3 (semiring parsing) establishes that for any
 value at every item is identical. The runtime picks a default
 strategy from rule arities and the semiring's algebraic properties
 (CKY-sweep for context-free + idempotent, A\* for weighted +
-idempotent + admissible heuristic, semi-naïve for Datalog-shaped,
+idempotent + admissible heuristic, semi-naive for Datalog-shaped,
 Viterbi for `(max, ⊗)`, depth-first for proof-search-shaped).
 
 ## 8. Charts as first-class differentiable values
@@ -149,7 +149,7 @@ flowing from rule-weight parameters through the agenda's
 
 ## 9. Program-fragment integration
 
-The Bayesian-modelling step kinds, effect signatures, the
+The Bayesian-modeling step kinds, effect signatures, the
 `over`-modifier, the operadic-contraction call, and the
 transformation-composition operator introduce additional
 productions in the QVR grammar. The shapes below mirror the

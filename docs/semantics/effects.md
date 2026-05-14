@@ -12,7 +12,7 @@ is a conservative extension of the residuated-grammar fragment of
 We work in the V-enriched semantic universe of
 [Setting and Notation](setting.md). For an effect-typed parser we fix:
 
-- A residuated category universe $\mathcal{C}$ realised as a finite set
+- A residuated category universe $\mathcal{C}$ realized as a finite set
   $\llbracket \mathrm{Cat} \rrbracket$ via the `FreeResiduated`
   constructor of [Types and Spaces §3](types-and-spaces.md#3-free-monoids).
 - A finite list of declared effects $T_1, \dots, T_n$ each registered
@@ -36,7 +36,7 @@ element of $\widehat{\mathcal{C}}$.
 
 Each typeclass $\mathfrak{C}$ in
 [`quivers.monadic.typeclasses`](../api/index.md#monadic-package) is
-modelled by a panproto theory $\mathrm{Th}\mathfrak{C}$ in
+modeled by a panproto theory $\mathrm{Th}\mathfrak{C}$ in
 [`quivers.monadic.theories`](../api/index.md#monadic-package); class
 extension corresponds to theory inclusion via
 $\mathrm{colimit}$. The sorts and operations of each theory are:
@@ -53,7 +53,7 @@ $\mathrm{colimit}$. The sorts and operations of each theory are:
 An effect instance $T$ that registers against $\mathfrak{C}$ corresponds
 to a panproto theory morphism $\mathrm{Th}\mathfrak{C} \to \mathrm{ThQVR}$
 whose vertex map sends $\mathrm{Carrier}$ to the runtime carrier sort
-of the residuated universe and whose operation map realises the
+of the residuated universe and whose operation map realizes the
 class operations as morphisms of $\mathcal{V}\text{-}\mathbf{Rel}$ /
 $\mathbf{Stoch}$ / $\mathbf{Kern}$.
 
@@ -114,7 +114,7 @@ Schema firings populate cells according to four rules:
    produces a fresh cell at $S(\alpha)$. In the special case
    $S = \mathrm{Identity}$, the handler eliminates the effect entirely.
 4. **Commutation firing.** When a $\mathrm{DistributiveLaw}(T, U)$ is
-   registered, the $\mathrm{swap}_{T,U}$ schema realises the natural
+   registered, the $\mathrm{swap}_{T,U}$ schema realizes the natural
    transformation $T \circ U \Rightarrow U \circ T$ on cells whose
    effect-stack ends with $T \cdot U$.
 
@@ -136,20 +136,20 @@ natural transformation through $\mathrm{Th}\mathfrak{C}_1, \dots,
 *Proof sketch.* By induction on the typeclass tower:
 
 - For $\mathfrak{C} = \mathbf{Applicative}$, the lifted schema is the
-  applicative *composition law*; the chart firing realises the
+  applicative *composition law*; the chart firing realizes the
   natural transformation
   $T(\pi_1) \otimes T(\pi_2) \Rightarrow T(\pi)$ obtained by
   postcomposing the base $r$ with $T$'s `apply`. The applicative
   laws (identity, homomorphism, interchange, composition) imply
   that successive applicative lifts compose to the same denotation
   irrespective of bracketing; the chart's left-associative scheduling
-  is therefore one valid realisation among many equivalent choices.
+  is therefore one valid realization among many equivalent choices.
 - For $\mathfrak{C} = \mathbf{Monad}$, the bind-lift is the Kleisli
   composition of the base schema; the monad laws imply
   $\mathrm{join} \circ \mathrm{fmap}(\mathrm{join}) = \mathrm{join} \circ \mathrm{join}$,
   so iterated bind-lifts compose to the iterated Kleisli of the base
   rule.
-- For $\mathfrak{C} = \mathbf{Alternative}$, the alt-lift realises
+- For $\mathfrak{C} = \mathbf{Alternative}$, the alt-lift realizes
   $T \otimes T \Rightarrow T$ via $T$'s `alt`; the alternative laws
   give the equational theory of the resulting non-deterministic
   derivation tree.
@@ -173,7 +173,7 @@ $$
 
 where $\mathrm{Tree}_{\Sigma, n}(A)$ is the set of $\Sigma$-shaped
 trees of depth $\le n$ whose leaves are values in $A$. The runtime
-realisation truncates at the `depth` parameter of the enclosing
+realization truncates at the `depth` parameter of the enclosing
 `deduction { … }` block to keep the carrier finite.
 
 A handler $H : \Sigma \to S$ is a panproto theory morphism
@@ -186,7 +186,7 @@ clause of $H$).
 ## 7. Bridges and conservativity
 
 The `kleisli` and `arrow_monad` bridges of
-[`quivers.monadic.bridges`](../api/index.md#monadic-package) realise
+[`quivers.monadic.bridges`](../api/index.md#monadic-package) realize
 the canonical theory morphisms:
 
 $$
@@ -207,7 +207,7 @@ monad is also a *monad-fix*, admitting a least-fixed-point
 operator, the `chart_fold` runtime's `loop_arr` construction agrees
 denotationally with the Kleisli-iteration of the binary step; for
 monads without `mfix`, the arrow-side trace is the well-defined
-realisation and the Kleisli side is undefined.
+realization and the Kleisli side is undefined.
 
 **Conservativity.** When the declared effects list $\bar T$ is empty,
 the joint type-and-effect dispatch of [§4](#4-joint-type-and-effect-dispatch)
@@ -220,6 +220,6 @@ extension over the bare grammar fragment.
 ## References
 
 - Bumford, D. and Charlow, S. (2026). [*Effect-Driven Interpretation: Functors for Natural Language Composition*](https://www.cambridge.org/core/elements/abs/effectdriven-interpretation/56671E539160AAA1DACF8555B82A2FE4). Cambridge Elements in Semantics. Cambridge University Press. Online ISBN 9781009285377; preprint [arXiv:2504.00316](https://arxiv.org/abs/2504.00316), draft at [simoncharlow.com/papers/cup-effects.pdf](https://simoncharlow.com/papers/cup-effects.pdf).
-- Hughes, J. (2000). [*Generalising monads to arrows*](https://doi.org/10.1016/S0167-6423(99)00023-4). Science of Computer Programming, 37(1–3), 67–111.
+- Hughes, J. (2000). [*Generalizing monads to arrows*](https://doi.org/10.1016/S0167-6423(99)00023-4). Science of Computer Programming, 37(1–3), 67–111.
 - Plotkin, G. and Power, J. (2003). [*Algebraic operations and generic effects*](https://doi.org/10.1023/A:1023064908962). Applied Categorical Structures, 11(1), 69–94.
 - Bauer, A. and Pretnar, M. (2015). [*Programming with algebraic effects and handlers*](https://doi.org/10.1016/j.jlamp.2014.02.001). Journal of Logical and Algebraic Methods in Programming, 84(1), 108–123.

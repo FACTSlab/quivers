@@ -48,7 +48,7 @@ export lstm_lm
 
 ### Cell equations
 
-The parametric program `lstm_cell` realises the canonical LSTM update. Each gate is a Bayesian Kleisli morphism `Embedded * Hidden -> Hidden`; `LogitNormal` constrains the gate activations to $(0, 1)$ in expectation. The cell candidate is a `Normal` Kleisli morphism with `scale = 0.5`. Inside the program body:
+The parametric program `lstm_cell` realizes the canonical LSTM update. Each gate is a Bayesian Kleisli morphism `Embedded * Hidden -> Hidden`; `LogitNormal` constrains the gate activations to $(0, 1)$ in expectation. The cell candidate is a `Normal` Kleisli morphism with `scale = 0.5`. Inside the program body:
 
 | Step | DSL | Meaning |
 |---|---|---|
@@ -59,11 +59,11 @@ The parametric program `lstm_cell` realises the canonical LSTM update. Each gate
 | cell update | `let c_new = f_gate * c_prev + i_gate * g_cand` | $c_t = f_t \odot c_{t-1} + i_t \odot g_t$ |
 | hidden | `let h_new = o_gate * tanh_c` | $h_t = o_t \odot \tanh(c_t)$ |
 
-`tanh` is realised from [`sigmoid`](../guides/dsl.md#indexed-gather-in-let) via the identity $\tanh(x) = 2\,\sigma(2x) - 1$.
+`tanh` is realized from [`sigmoid`](../guides/dsl.md#indexed-gather-in-let) via the identity $\tanh(x) = 2\,\sigma(2x) - 1$.
 
 ### State threading
 
-`scan(lstm_cell)` is an iterated Kleisli composition along the sequence: the threaded state is the cell state $c_t$ (the LSTM's long-range memory channel). The hidden vector $h_t$ is computed inside the cell on every step but does not need to be threaded separately, since the Categorical `lm_head` is parameterised by the terminal $c_T$ and absorbs the output-gate / $\tanh$ post-composition into its own learnt linear map.
+`scan(lstm_cell)` is an iterated Kleisli composition along the sequence: the threaded state is the cell state $c_t$ (the LSTM's long-range memory channel). The hidden vector $h_t$ is computed inside the cell on every step but does not need to be threaded separately, since the Categorical `lm_head` is parameterized by the terminal $c_T$ and absorbs the output-gate / $\tanh$ post-composition into its own learned linear map.
 
 ```mermaid
 flowchart LR

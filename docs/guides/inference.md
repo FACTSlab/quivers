@@ -10,7 +10,7 @@ flowchart TB
     L5["Layer 5: Hybrid samplers<br/>AutoDAIS, WarmupThenHMC"]
     L4["Layer 4: Guides Auto*Guide and MCMC kernels HMC, NUTS"]
     L3["Layer 3: Objectives ELBO, IWAE, Renyi, VR-IWAE<br/>times Estimators Reparam, StL, DReG, Score"]
-    L2["Layer 2: Transforms and normalising-flow primitives<br/>affine coupling, MAF, IAF, NSF, BN, LU"]
+    L2["Layer 2: Transforms and normalizing-flow primitives<br/>affine coupling, MAF, IAF, NSF, BN, LU"]
     L1["Layer 1: LatentRegistry<br/>model introspection of support, dims, plate, parent"]
     L6 --> L5 --> L4 --> L3 --> L2 --> L1
 ```
@@ -27,7 +27,7 @@ flowchart TB
     LR["LatentRegistry<br/>introspect remaining sites"]
     G["Guide<br/>variational family<br/>Auto*Guide subclass"]
     O["Objective<br/>ELBO, IWAEBound, RenyiBound, VRIWAEBound<br/>plus Estimator"]
-    S["SVI<br/>stochastic optimisation"]
+    S["SVI<br/>stochastic optimization"]
     P["Predictive<br/>sample from posterior<br/>consumes a Guide or an MCMCResult"]
     M --> T --> C --> LR --> G --> O --> S --> P
 ```
@@ -121,7 +121,7 @@ A guide $q_\phi(z | x, y)$ is a variational family approximating the posterior. 
 | [`AutoNormalGuide`](../api/inference/guide.md#quivers.inference.guides.AutoNormalGuide) | Diagonal Normal (mean-field) | Default; identifiable posterior, weak correlation |
 | [`AutoMultivariateNormalGuide`](../api/inference/guide.md#quivers.inference.guides.AutoMultivariateNormalGuide) | Full-rank Normal (Cholesky) | Strong posterior correlations; D ≲ 1000 |
 | [`AutoLowRankMultivariateNormalGuide`](../api/inference/guide.md#quivers.inference.guides.AutoLowRankMultivariateNormalGuide) | Low-rank + diagonal | Hierarchical models with localized correlations |
-| [`AutoLaplaceApproximation`](../api/inference/guide.md#quivers.inference.guides.AutoLaplaceApproximation) | Gaussian centred at MAP w/ Hessian inverse | Post-hoc; cheap quadratic-around-MAP |
+| [`AutoLaplaceApproximation`](../api/inference/guide.md#quivers.inference.guides.AutoLaplaceApproximation) | Gaussian centered at MAP w/ Hessian inverse | Post-hoc; cheap quadratic-around-MAP |
 | [`AutoNormalizingFlow`](../api/inference/guide.md#quivers.inference.guides.AutoNormalizingFlow) | Composed bijector over Normal base | Multimodal / heavy-tailed posteriors |
 | [`AutoIAFGuide`](../api/inference/guide.md#quivers.inference.guides.AutoIAFGuide) | Inverse autoregressive flow | Flagship NF default |
 | [`AutoNeuralSplineGuide`](../api/inference/guide.md#quivers.inference.guides.AutoNeuralSplineGuide) | Rational-quadratic spline coupling | Sharper than IAF for bounded support |
@@ -420,7 +420,7 @@ print(result.divergences) # divergence count per chain
 samples = result.samples  # dict[str, Tensor] of shape (chains, draws, …)
 ```
 
-`HMCKernel` and `NUTSKernel` both implement Nesterov dual-averaging step-size adaptation and Welford-online mass-matrix adaptation during warmup. The leapfrog integrator vectorises `num_chains` chains as a leading batch axis; warmup runs unvectorised (adaptation is impure), sampling runs vectorised (kernel is pure).
+`HMCKernel` and `NUTSKernel` both implement Nesterov dual-averaging step-size adaptation and Welford-online mass-matrix adaptation during warmup. The leapfrog integrator vectorizes `num_chains` chains as a leading batch axis; warmup runs unvectorised (adaptation is impure), sampling runs vectorized (kernel is pure).
 
 ## Hybrid samplers
 

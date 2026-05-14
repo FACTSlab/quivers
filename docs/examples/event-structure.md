@@ -2,7 +2,7 @@
 
 ## Overview
 
-A four-class latent-class model (telicity × durativity) over cloze and proportion responses, with crossed random intercepts on subject, verb, sense, and item, and an ordinal monotone spline for duration. The program exercises every Bayesian-modelling construct in the DSL: plate-draws, a parametric `random_intercepts` template instantiated eight times, an ordinal monotone spline via `cumsum` of `HalfNormal` increments, vectorised observes against a runtime `observations` dict, and a program-level `marginalize` step for the discrete latent class.
+A four-class latent-class model (telicity × durativity) over cloze and proportion responses, with crossed random intercepts on subject, verb, sense, and item, and an ordinal monotone spline for duration. The program exercises every Bayesian-modeling construct in the DSL: plate-draws, a parametric `random_intercepts` template instantiated eight times, an ordinal monotone spline via `cumsum` of `HalfNormal` increments, vectorized observes against a runtime `observations` dict, and a program-level `marginalize` step for the discrete latent class.
 
 ## QVR Source
 
@@ -63,11 +63,11 @@ export event_structure
 
 ### Cardinalities
 
-The cardinalities of `Verb`, `Sense`, `Item`, `SubjCloze`, `SubjProp`, `RespCloze`, and `RespProp` are fit-time-determined placeholders for the static parser; they bound the indexing sets for the plates and the vectorised observes but do not constrain the actual response tensors at runtime.
+The cardinalities of `Verb`, `Sense`, `Item`, `SubjCloze`, `SubjProp`, `RespCloze`, and `RespProp` are fit-time-determined placeholders for the static parser; they bound the indexing sets for the plates and the vectorized observes but do not constrain the actual response tensors at runtime.
 
 ### Latent classes
 
-The class prior factors through a cell parameterisation: $\mathrm{prob\_durative}$ marginalises durativity, and the two conditionals $\mathrm{prob\_telic\_given\_dur}$ and $\mathrm{prob\_telic\_given\_nodur}$ give telicity given durativity. The four cells of $\{\pm\mathrm{telic}\} \times \{\pm\mathrm{durative}\}$ are recovered as products of these factors.
+The class prior factors through a cell parameterization: $\mathrm{prob\_durative}$ marginalizes durativity, and the two conditionals $\mathrm{prob\_telic\_given\_dur}$ and $\mathrm{prob\_telic\_given\_nodur}$ give telicity given durativity. The four cells of $\{\pm\mathrm{telic}\} \times \{\pm\mathrm{durative}\}$ are recovered as products of these factors.
 
 ### Parametric random-intercepts template
 
@@ -84,7 +84,7 @@ $$
 \llbracket \mathsf{random\_intercepts} \rrbracket \;:\; \prod_{G : \mathbf{FinSet}} \prod_{\mathrm{scale} : \mathbb{R}_{>0}} \mathbf{Kern}(G, \mathbf{1}),
 $$
 
-a half-normal scale hyperprior followed by a $G$-indexed Normal-$(0, \sigma)$ plate. Each of the eight call sites, `by_subj_cloze`, `by_verb_cloze`, ..., `by_item_prop`, inlines a fresh α-renamed copy of the body, so every grouping factor contributes an independent $\sigma$ and an independent per-level plate. The eight call sites realise crossed random intercepts on the cloze and proportion sides of the experiment.
+a half-normal scale hyperprior followed by a $G$-indexed Normal-$(0, \sigma)$ plate. Each of the eight call sites, `by_subj_cloze`, `by_verb_cloze`, ..., `by_item_prop`, inlines a fresh α-renamed copy of the body, so every grouping factor contributes an independent $\sigma$ and an independent per-level plate. The eight call sites realize crossed random intercepts on the cloze and proportion sides of the experiment.
 
 A named `continuous` morphism cannot bundle a fresh scale draw per call because morphism reference is invocation, not instantiation; parametric programs *are* instantiated freshly at each call, which is the right categorical handle for prior reuse.
 
@@ -100,7 +100,7 @@ An indexed bind `v : A <- F(args)` denotes the Kleisli morphism $A \to \mathcal{
 
 ### Ordinal monotone spline
 
-The eleven duration levels carry a monotone-increasing effect via the `cumsum` parameterisation: per-level positive increments are drawn from `HalfNormal(1.0)` and accumulated into partial sums.
+The eleven duration levels carry a monotone-increasing effect via the `cumsum` parameterization: per-level positive increments are drawn from `HalfNormal(1.0)` and accumulated into partial sums.
 
 <!-- compile: false -->
 ```qvr
@@ -119,7 +119,7 @@ observe cloze_resp : RespCloze <- Bernoulli(intercept_cloze)
 
 This denotes the sub-probabilistic kernel $\Phi \to \mathcal{G}_{\le 1}(\Phi)$ with score $\prod_{n \in \mathrm{RespCloze}} p_{\mathrm{Bern}}(r_{\mathrm{obs}}(n); \theta(n, \phi))$. The response buffer $r_{\mathrm{obs}}$ is supplied at runtime via the `observations` dict, keyed by the response identifier `cloze_resp`.
 
-### Coordinate marginalisation
+### Coordinate marginalization
 
 <!-- compile: false -->
 ```qvr
@@ -169,4 +169,4 @@ $$
 \llbracket \mathsf{event\_structure} \rrbracket \;:\; \mathrm{Data} \to \mathcal{G}\bigl(\mathrm{LatentClass} \times \mathrm{Item}\bigr),
 $$
 
-assembled by Kleisli composition of its step denotations. The vectorised observes accumulate Bernoulli log-likelihoods per response into a sub-probability kernel in $\mathcal{G}_{\le 1}$; the `marginalize` steps push forward through projection on the corresponding trace coordinates. The eight calls to `random_intercepts` are eight distinct fibres of the dependent kernel $\prod_{G : \mathbf{FinSet}} \prod_{\mathrm{scale} : \mathbb{R}} \mathbf{Kern}(G, \mathbf{1})$; substitution-and-α-rename at each call site is sound by the standard substitution lemma for the body's denotation function.
+assembled by Kleisli composition of its step denotations. The vectorized observes accumulate Bernoulli log-likelihoods per response into a sub-probability kernel in $\mathcal{G}_{\le 1}$; the `marginalize` steps push forward through projection on the corresponding trace coordinates. The eight calls to `random_intercepts` are eight distinct fibers of the dependent kernel $\prod_{G : \mathbf{FinSet}} \prod_{\mathrm{scale} : \mathbb{R}} \mathbf{Kern}(G, \mathbf{1})$; substitution-and-α-rename at each call site is sound by the standard substitution lemma for the body's denotation function.

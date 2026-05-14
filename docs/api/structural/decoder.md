@@ -1,6 +1,6 @@
 # Decoders
 
-`Decoder` is a `torch.nn.Module` that realises a Kleisli
+`Decoder` is a `torch.nn.Module` that realizes a Kleisli
 coalgebra `Vec_D → Kern(T_Σ)`, given an input vector, defines
 a distribution over terms of a signature. Two operations:
 

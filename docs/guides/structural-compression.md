@@ -17,7 +17,7 @@ two categorical primitives:
   per-term `log_prob` available for observed terms).
 
 Encoder + decoder = stochastic autoencoder on `T_Σ`. The same
-interface uniformly realises transformers (sequence encoder +
+interface uniformly realizes transformers (sequence encoder +
 autoregressive decoder), tree-LSTMs (tree encoder), graph
 neural networks (message-passing graph encoder), variational
 autoencoders (encoder + decoder pair on `T_Σ` with a KL term),
@@ -293,7 +293,7 @@ objects:
 - **Observations of structured data:**
   `observe known_term <- D(some_vec)` scores under the decoder's
   log-prob.
-- **Marginalisation over structured latents:** `marginalize t :
+- **Marginalization over structured latents:** `marginalize t :
   Term <- D(v) in { observe y <- … }` integrates `t` out via the
   decoder's depth-bounded categorical recursion.
 - **Variational decoders:** `program q : Sentence -> Term ! Sample,
@@ -325,6 +325,6 @@ shapes:
   message MLP, per-vertex-kind GRU update, mean / sum / max
   readout.
 
-All shapes are realised on top of the generic `Encoder` and
+All shapes are realized on top of the generic `Encoder` and
 `Decoder` runtimes, the same algebra-homomorphism / Kleisli
 coalgebra pattern, no special-casing.

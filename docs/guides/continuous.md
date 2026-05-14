@@ -216,7 +216,7 @@ covariance.
 ```python
 from quivers.continuous.families import ConditionalInverseWishart
 
-# Conjugate prior on a d-dim covariance matrix.  Realised as the
+# Conjugate prior on a d-dim covariance matrix.  Realized as the
 # inversion of a Wishart sample with the correct symmetric-matrix
 # change-of-variables Jacobian.
 iw = ConditionalInverseWishart(domain, Euclidean(d))

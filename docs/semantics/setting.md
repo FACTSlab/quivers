@@ -76,7 +76,7 @@ Following established practice, we write $\rho[x \mapsto v]$ for the environment
 
 ## 6. Well-typedness
 
-The QVR type system is given by judgements of the form
+The QVR type system is given by judgments of the form
 
 $$
 \Gamma \vdash \phi : \tau,
@@ -84,4 +84,4 @@ $$
 
 where $\Gamma$ is a typing context analogous to $\rho$ but tracking only sorts (object / space / morphism with domain–codomain types), and $\tau$ is the assigned sort. The denotational semantics is total on well-typed phrases: the denotation function is defined exactly on the derivation trees of $\Gamma \vdash \phi : \tau$.
 
-We do not present the type system in detail here, the implementation in `quivers.dsl.compiler` is its operational realisation, and the [Adequacy](adequacy.md) theorem establishes the soundness of typing with respect to the denotation.
+We do not present the type system in detail here, the implementation in `quivers.dsl.compiler` is its operational realization, and the [Adequacy](adequacy.md) theorem establishes the soundness of typing with respect to the denotation.

@@ -1,6 +1,6 @@
 # Adequacy
 
-The implementation in `quivers.dsl.compiler.Compiler` is a *concrete realisation* of the denotational semantics. This page states and sketches a proof of the adequacy theorem connecting the two.
+The implementation in `quivers.dsl.compiler.Compiler` is a *concrete realization* of the denotational semantics. This page states and sketches a proof of the adequacy theorem connecting the two.
 
 ## 1. The compiler as a function
 
@@ -24,7 +24,7 @@ For deterministic (purely $\mathcal{V}$-enriched) modules this collapses to a Di
 
 ## 2. Statement of adequacy
 
-**Theorem (Adequacy).** Let $M$ be a well-typed QVR module and let $\theta_M$ be the parameter assignment realised in the compiled program. Then
+**Theorem (Adequacy).** Let $M$ be a well-typed QVR module and let $\theta_M$ be the parameter assignment realized in the compiled program. Then
 
 $$
 \mathcal{C}\llbracket M \rrbracket \;=\; \llbracket M \rrbracket
@@ -55,7 +55,7 @@ A `latent` declaration creates a learnable PyTorch parameter $W \in \mathbb{R}^{
 
 ### 3.3 Composition
 
-The `>>` operator in PyTorch is realised as $V$-quantale matrix multiplication (`noisy_or_contract` for $\mathcal{V}_{\mathrm{pf}}$, ordinary matrix multiplication for $\mathcal{V}_{\mathbb{B}}$ over `BoolTensor`, etc.). The composition of two tensors $(M_1, M_2)$ at indices $(x, z)$ is
+The `>>` operator in PyTorch is realized as $V$-quantale matrix multiplication (`noisy_or_contract` for $\mathcal{V}_{\mathrm{pf}}$, ordinary matrix multiplication for $\mathcal{V}_{\mathbb{B}}$ over `BoolTensor`, etc.). The composition of two tensors $(M_1, M_2)$ at indices $(x, z)$ is
 
 $$
 \bigoplus_{y} \sigma(M_1[x, y]) \otimes \sigma(M_2[y, z]),
@@ -63,17 +63,17 @@ $$
 
 term-by-term equal to the categorical composition of [Morphisms §1.1](morphisms.md#11-composition-tensor-identity).
 
-### 3.4 Tensor product, marginalisation, fan, stack, repeat, scan
+### 3.4 Tensor product, marginalization, fan, stack, repeat, scan
 
-Each combinator is implemented as a tensor-level operation whose definition is the term-by-term unfolding of its denotation. The proofs are straightforward: `@` is `torch.einsum` of the appropriate shape; `marginalize` is `torch.sum` (or quantale-join) along the marginalised axes; `fan` is `torch.stack`; `stack` is `kron`; `repeat` is repeated composition; `scan` is a Python-level fold realising the trace of [Expressions §3.4](expressions.md#34-scan).
+Each combinator is implemented as a tensor-level operation whose definition is the term-by-term unfolding of its denotation. The proofs are straightforward: `@` is `torch.einsum` of the appropriate shape; `marginalize` is `torch.sum` (or quantale-join) along the marginalized axes; `fan` is `torch.stack`; `stack` is `kron`; `repeat` is repeated composition; `scan` is a Python-level fold realizing the trace of [Expressions §3.4](expressions.md#34-scan).
 
 ### 3.5 Stochastic morphisms
 
-Softmax along the codomain axis realises the parameter map $\mathbb{R}^{|Y|} \to \Delta^{|Y| - 1}$. The composition of two stochastic morphisms is implemented as ordinary matrix multiplication, which coincides with Kleisli composition in $\mathbf{Stoch}$ ([Morphisms §2](morphisms.md#2-stochastic-morphisms)).
+Softmax along the codomain axis realizes the parameter map $\mathbb{R}^{|Y|} \to \Delta^{|Y| - 1}$. The composition of two stochastic morphisms is implemented as ordinary matrix multiplication, which coincides with Kleisli composition in $\mathbf{Stoch}$ ([Morphisms §2](morphisms.md#2-stochastic-morphisms)).
 
 ### 3.6 Continuous morphisms
 
-A `continuous f : σ -> σ' ~ Family` declaration is realised as a PyTorch `Distribution` parameterised by a neural network mapping $\llbracket \sigma \rrbracket$ to $\Theta_{\mathrm{Family}}$. Sampling and density evaluation are exposed by `rsample` and `log_prob`. Composition is realised by *sampled-composition* (Monte-Carlo integration) or, for closed-form families, by the appropriate analytical convolution.
+A `continuous f : σ -> σ' ~ Family` declaration is realized as a PyTorch `Distribution` parameterized by a neural network mapping $\llbracket \sigma \rrbracket$ to $\Theta_{\mathrm{Family}}$. Sampling and density evaluation are exposed by `rsample` and `log_prob`. Composition is realized by *sampled-composition* (Monte-Carlo integration) or, for closed-form families, by the appropriate analytical convolution.
 
 The equality
 
@@ -81,11 +81,11 @@ $$
 \int_{\llbracket \sigma' \rrbracket} g_2(t, C)\, g_1(s, \mathrm{d}t) \;=\; \mathbb{E}_{T \sim g_1(s, \cdot)}\bigl[g_2(T, C)\bigr]
 $$
 
-between the Chapman–Kolmogorov composition and its Monte-Carlo realisation holds in expectation; the `quivers` runtime uses reparameterisation to obtain unbiased gradient estimates.
+between the Chapman–Kolmogorov composition and its Monte-Carlo realization holds in expectation; the `quivers` runtime uses reparameterisation to obtain unbiased gradient estimates.
 
 ### 3.7 Programs
 
-The body-interpreter `_compile_program_body` of [`quivers.dsl.compiler`](../api/dsl/compiler.md) realises the Kleisli chain of [Programs §2](programs.md#2-statements). Each statement is interpreted as a Python operation that:
+The body-interpreter `_compile_program_body` of [`quivers.dsl.compiler`](../api/dsl/compiler.md) realizes the Kleisli chain of [Programs §2](programs.md#2-statements). Each statement is interpreted as a Python operation that:
 
 - *Draw*: calls `family.rsample(theta(context))` and appends the result to the trace;
 - *Observe*: calls `family.log_prob(value, theta(context))` and accumulates the score;
@@ -116,7 +116,7 @@ The tests are not a substitute for a fully formal proof, but they constitute a f
 
 ## 5. Limitations
 
-The adequacy theorem holds *up to floating-point precision* and *modulo the chosen Monte-Carlo seeds* for sampled compositions in $\mathbf{Kern}$. The semantic equality is between *kernels* (probability distributions); the implementation realises samples and gradient estimates of those kernels, with an error that decays with the number of Monte-Carlo samples and is irrelevant in the limit.
+The adequacy theorem holds *up to floating-point precision* and *modulo the chosen Monte-Carlo seeds* for sampled compositions in $\mathbf{Kern}$. The semantic equality is between *kernels* (probability distributions); the implementation realizes samples and gradient estimates of those kernels, with an error that decays with the number of Monte-Carlo samples and is irrelevant in the limit.
 
 The four tensor-bearing accumulators (`Presheaf`, `Weight`, `SampleSite`, `Trace`) carry mutable runtime state and are not part of the value layer; the adequacy theorem does not assign them denotations. They are scratch space for inference algorithms; their semantics is given operationally by the inference layer and is outside the scope of this document.
 

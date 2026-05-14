@@ -2,7 +2,7 @@
 
 ## Overview
 
-A bidirectional RNN used as a masked language model in the spirit of [BERT](https://doi.org/10.18653/v1/N19-1423). Two independently-parameterised recurrent cells scan the token sequence forward and backward; the [tensor product](https://ncatlab.org/nlab/show/tensor+product) `@` runs the two directional Kleisli morphisms in parallel and a `combine` morphism merges their outputs into a single 128-dimensional `Combined` representation. The Categorical `lm_head` scores the masked-token target from the bidirectional context.
+A bidirectional RNN used as a masked language model in the spirit of [BERT](https://doi.org/10.18653/v1/N19-1423). Two independently-parameterized recurrent cells scan the token sequence forward and backward; the [tensor product](https://ncatlab.org/nlab/show/tensor+product) `@` runs the two directional Kleisli morphisms in parallel and a `combine` morphism merges their outputs into a single 128-dimensional `Combined` representation. The Categorical `lm_head` scores the masked-token target from the bidirectional context.
 
 ## QVR Source
 
@@ -37,7 +37,7 @@ export bidirectional_rnn_lm
 
 ### Two independent scans
 
-`forward_path = tok_embed >> scan(fwd_cell)` and `backward_path = tok_embed >> scan(bwd_cell)` are two independent Kleisli morphisms `Token -> Hidden`. They use distinct cells with independent parameters; the runtime supplies the reversed sequence to the backward path so the same `scan` machinery realises the right-to-left pass.
+`forward_path = tok_embed >> scan(fwd_cell)` and `backward_path = tok_embed >> scan(bwd_cell)` are two independent Kleisli morphisms `Token -> Hidden`. They use distinct cells with independent parameters; the runtime supplies the reversed sequence to the backward path so the same `scan` machinery realizes the right-to-left pass.
 
 ### Parallel composition
 

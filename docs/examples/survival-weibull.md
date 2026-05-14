@@ -26,7 +26,7 @@ export survival_weibull
 
 ## Walkthrough
 
-The reparameterisation `scale = exp(-eta / k)` is the Weibull [proportional-hazards](https://en.wikipedia.org/wiki/Proportional_hazards_model) convention: positive shifts in the linear predictor `eta = alpha + beta * x` increase the hazard and shorten survival times, matching the canonical direction. The shape `k` has a Gamma prior centred at 2. The observed event times `t` are uncensored Weibull draws; right-censoring is handled at the inference layer by substituting the [Weibull survival function](https://en.wikipedia.org/wiki/Weibull_distribution#Survival_function) for the density on censored rows.
+The reparameterisation `scale = exp(-eta / k)` is the Weibull [proportional-hazards](https://en.wikipedia.org/wiki/Proportional_hazards_model) convention: positive shifts in the linear predictor `eta = alpha + beta * x` increase the hazard and shorten survival times, matching the canonical direction. The shape `k` has a Gamma prior centered at 2. The observed event times `t` are uncensored Weibull draws; right-censoring is handled at the inference layer by substituting the [Weibull survival function](https://en.wikipedia.org/wiki/Weibull_distribution#Survival_function) for the density on censored rows.
 
 ## Try it
 
@@ -49,4 +49,4 @@ for _ in range(1500):
 
 ## Categorical Perspective
 
-The model denotes a Kleisli morphism into the positive reals in the [Giry monad](https://doi.org/10.1007/BFb0092872)'s Kleisli category. The Weibull is the [exponential](https://en.wikipedia.org/wiki/Exponential_distribution) family generalisation with shape; the proportional-hazards link makes the model canonical in the [exponential family](https://en.wikipedia.org/wiki/Exponential_family) representation.
+The model denotes a Kleisli morphism into the positive reals in the [Giry monad](https://doi.org/10.1007/BFb0092872)'s Kleisli category. The Weibull is the [exponential](https://en.wikipedia.org/wiki/Exponential_distribution) family generalization with shape; the proportional-hazards link makes the model canonical in the [exponential family](https://en.wikipedia.org/wiki/Exponential_family) representation.

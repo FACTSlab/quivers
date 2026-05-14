@@ -15,7 +15,7 @@
 #   mu_shift                  -- continuous latent driving the
 #                                per-class shift of the observed
 #                                Normal
-#   cls     : Component       -- per-row component (marginalised)
+#   cls     : Component       -- per-row component (marginalized)
 #   r       : Resp            -- observed row
 #
 # The `over Item` grouping plate fibrates each response row into
@@ -39,7 +39,7 @@ program gmm : Resp -> Resp
     # log-weights.
     mu_shift <- Normal(0.0, 1.0)
 
-    # Marginalise the per-row component assignment.
+    # Marginalize the per-row component assignment.
     marginalize cls : Component <- Dirichlet(probs)
         over Item
         in {

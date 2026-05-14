@@ -4,7 +4,7 @@ The denotational semantics of the previous pages assigns each well-typed QVR mod
 
 ## 1. The protocol $\mathsf{QVR}$
 
-The constant `QVR_PROGRAM_PROTOCOL` defined in [`quivers.dsl.program_theory`](../api/dsl/program_theory.md) is a panproto protocol: a pair of generalised algebraic theories $(\mathcal{T}_{\mathrm{schema}}, \mathcal{T}_{\mathrm{instance}})$ together with vertex- and edge-kind declarations. Its content is summarised below.
+The constant `QVR_PROGRAM_PROTOCOL` defined in [`quivers.dsl.program_theory`](../api/dsl/program_theory.md) is a panproto protocol: a pair of generalized algebraic theories $(\mathcal{T}_{\mathrm{schema}}, \mathcal{T}_{\mathrm{instance}})$ together with vertex- and edge-kind declarations. Its content is summarized below.
 
 ### 1.1 Vertex kinds
 
@@ -16,7 +16,7 @@ Vertex kinds enumerate the runtime *value* layer:
 | Continuous spaces | `euclidean`, `simplex`, `positive_reals`, `unit_interval`, `product_space` |
 | Declarations | `object_decl`, `space_decl`, `morphism_decl`, `stochastic_morphism_decl`, `continuous_morphism_decl`, `discretize_decl`, `embed_decl`, `program_decl`, `output_decl` |
 
-Each vertex carries a string label (typically the declared identifier or a synthesised key) and the kind-specific payload (cardinality, dimension, family name, …).
+Each vertex carries a string label (typically the declared identifier or a synthesized key) and the kind-specific payload (cardinality, dimension, family name, …).
 
 ### 1.2 Edge kinds
 
@@ -33,7 +33,7 @@ The instance theory $\mathcal{T}_{\mathrm{instance}}$ is the W-type theory `ThWT
 
 ## 2. The extraction functor
 
-The function `extract_program_schema` in [`quivers.dsl.program_theory`](../api/dsl/program_theory.md) realises a *functor*
+The function `extract_program_schema` in [`quivers.dsl.program_theory`](../api/dsl/program_theory.md) realizes a *functor*
 
 $$
 \mathcal{S} : \mathrm{Modules}_{\mathrm{compiled}} \to \mathrm{Schema}(\mathsf{QVR}),
@@ -89,6 +89,6 @@ $$
 \llbracket M \rrbracket_{\mathrm{kern}} \;=\; \mathrm{eval}\bigl(\mathcal{S}(M),\ \theta_M\bigr),
 $$
 
-where $\theta_M$ is the parameter assignment realised in the compiled module's PyTorch state. This factorisation is the formal statement that the schema layer captures the *type structure* and the kernel layer captures the *parameter content*.
+where $\theta_M$ is the parameter assignment realized in the compiled module's PyTorch state. This factorization is the formal statement that the schema layer captures the *type structure* and the kernel layer captures the *parameter content*.
 
 The implementation does not currently expose `eval` as a stand-alone operation; it is implicit in the compiler's tensor-construction pass.

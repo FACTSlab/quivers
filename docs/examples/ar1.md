@@ -2,7 +2,7 @@
 
 ## Overview
 
-The canonical first-order [autoregressive](https://en.wikipedia.org/wiki/Autoregressive_model) model: each observation is a Normal draw centred on a linear function of the previous observation, with three free parameters (intercept, autoregressive coefficient, and noise scale). The model is the reference point for the more elaborate state-space and stochastic-volatility examples in the gallery; it shows the minimum DSL surface needed to fit a stationary linear time series.
+The canonical first-order [autoregressive](https://en.wikipedia.org/wiki/Autoregressive_model) model: each observation is a Normal draw centered on a linear function of the previous observation, with three free parameters (intercept, autoregressive coefficient, and noise scale). The model is the reference point for the more elaborate state-space and stochastic-volatility examples in the gallery; it shows the minimum DSL surface needed to fit a stationary linear time series.
 
 ## QVR Source
 

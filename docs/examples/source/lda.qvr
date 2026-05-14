@@ -11,7 +11,7 @@
 #
 #   theta : Doc        -- document-topic concentration
 #   phi   : Topic      -- topic-word concentration
-#   z     : Topic      -- per-word topic (marginalised)
+#   z     : Topic      -- per-word topic (marginalized)
 #   w     : Word       -- observed word
 #
 # The discrete per-word topic assignment z is integrated out by
@@ -40,7 +40,7 @@ program lda : Word -> Word
     # marginalize block.
     conc <- Normal(0.0, 1.0)
 
-    # Marginalise the per-word topic assignment.  The Dirichlet
+    # Marginalize the per-word topic assignment.  The Dirichlet
     # concentration is the Topic-shaped `phi` vector; the runtime
     # log-sum-exps over the K topics at every word position.
     marginalize z : Topic <- Dirichlet(phi)

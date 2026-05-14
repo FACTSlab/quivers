@@ -128,7 +128,7 @@ Top-level DSL API: `parse()`, `parse_file()`, `loads()`, `load()`, `Compiler`, `
 
 Parametric programs, `program name (G : FinSet, scale : Real, prior : Mor[A, B]) : dom -> cod`, are stored as templates on the compiler (`Compiler._program_templates`) and inlined per call site by substitution + α-renaming; the runtime `MonadicProgram` is built from the inlined step list, so distinct call sites contribute distinct factors to the parent's joint kernel.
 
-Program bodies use a single Kleisli-bind sigil `<-`. The sampling shapes are `v <- F(args)` (scalar draw), `v : A <- F(args)` (A-indexed plate), `observe v <- F(args)` (scored observation), `observe r : N <- F(args)` (N-indexed batched score), and `marginalize c : A <- F(args) in { … }` (scoped marginalisation). A program declaration carries an effect signature after `!`, drawn from `Sample`, `Score`, `Marginal`, `Pure`; the compiler verifies that the body's actual effects are a subset of the declared set. A posterior block is a `! Pure`-annotated program with an `over M` modifier consuming the latents of model `M` as data parameters.
+Program bodies use a single Kleisli-bind sigil `<-`. The sampling shapes are `v <- F(args)` (scalar draw), `v : A <- F(args)` (A-indexed plate), `observe v <- F(args)` (scored observation), `observe r : N <- F(args)` (N-indexed batched score), and `marginalize c : A <- F(args) in { … }` (scoped marginalization). A program declaration carries an effect signature after `!`, drawn from `Sample`, `Score`, `Marginal`, `Pure`; the compiler verifies that the body's actual effects are a subset of the declared set. A posterior block is a `! Pure`-annotated program with an `over M` modifier consuming the latents of model `M` as data parameters.
 
 ### `inference/`
 

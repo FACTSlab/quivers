@@ -5,10 +5,10 @@ The eight-schools dataset ([Rubin, 1981](https://doi.org/10.3102/107699860060043
 This chapter covers:
 
 - The plate-draw syntax (`v : G <- Normal(0, sigma)`) for per-group random effects.
-- Centred vs non-centred parameterisations and how to write each in QVR.
+- Centered vs non-centered parameterizations and how to write each in QVR.
 - Running NUTS with R-hat, ESS, and divergence diagnostics.
 
-## Eight schools, centred
+## Eight schools, centered
 
 $$
 \mu \sim \mathrm{Normal}(0, 5), \qquad
@@ -46,13 +46,13 @@ The eight $\theta_j$ are a per-group random effect over the group object `School
             numpyro.sample("y", dist.Normal(theta, sigma_j), obs=y)
     ```
 
-The `theta : School <- Normal(...)` line is a *plate-draw*: it samples one value per element of `School`. The plate index is the object's cardinality (8). The `observe y : School <- ...` line is a *vectorised observe* over the same index.
+The `theta : School <- Normal(...)` line is a *plate-draw*: it samples one value per element of `School`. The plate index is the object's cardinality (8). The `observe y : School <- ...` line is a *vectorized observe* over the same index.
 
-The compiler synthesises a `PlateDraw` morphism whose codomain is the product space `School ⊗ Real`; you can index into it like `theta[j]` inside subsequent `let` arithmetic.
+The compiler synthesizes a `PlateDraw` morphism whose codomain is the product space `School ⊗ Real`; you can index into it like `theta[j]` inside subsequent `let` arithmetic.
 
-## Centred fails mean-field
+## Centered fails mean-field
 
-The centred parameterisation puts `theta_j` *inside* the prior for `mu` and `tau`, which creates a funnel-shaped posterior ([Neal, 2003](https://doi.org/10.1214/aos/1056562461), §8). Mean-field VI doesn't see the funnel and collapses to a tight Gaussian around `tau ≈ 0`. To confirm:
+The centered parameterization puts `theta_j` *inside* the prior for `mu` and `tau`, which creates a funnel-shaped posterior ([Neal, 2003](https://doi.org/10.1214/aos/1056562461), §8). Mean-field VI doesn't see the funnel and collapses to a tight Gaussian around `tau ≈ 0`. To confirm:
 
 ```python
 program = loads(open("eight_schools_centred.qvr").read())
@@ -76,7 +76,7 @@ print("posterior tau:", post["tau"].mean().item(), "±", post["tau"].std().item(
 
 You'll see something like `tau ≈ 0.1 ± 0.05`: the diagnostic-textbook signature of a funnel collapse. The true posterior mean of `tau` is closer to 3.
 
-## Non-centred fixes it
+## Non-centered fixes it
 
 The standard fix is to reparameterise ([Papaspiliopoulos, Roberts & Sköld, 2007](https://doi.org/10.1214/088342307000000014)): draw $\eta_j \sim \mathrm{Normal}(0, 1)$ and define $\theta_j = \mu + \tau \cdot \eta_j$ deterministically.
 
@@ -95,11 +95,11 @@ program eight_schools_noncentred : School -> School ! Sample, Score
 export eight_schools_noncentred
 ```
 
-Re-running with the non-centred parameterisation, `AutoNormalGuide` recovers a posterior with `tau` mean around 3, competitive with NUTS on this small problem.
+Re-running with the non-centered parameterization, `AutoNormalGuide` recovers a posterior with `tau` mean around 3, competitive with NUTS on this small problem.
 
 ## NUTS
 
-For the centred parameterisation (or when you want to trust the posterior mass exactly), reach for the No-U-Turn Sampler ([Hoffman & Gelman, 2014](https://www.jmlr.org/papers/v15/hoffman14a.html)):
+For the centered parameterization (or when you want to trust the posterior mass exactly), reach for the No-U-Turn Sampler ([Hoffman & Gelman, 2014](https://www.jmlr.org/papers/v15/hoffman14a.html)):
 
 ```python
 from quivers.inference import NUTSKernel, MCMC
@@ -121,7 +121,7 @@ print(result.summary())             # per-site mean, std, R-hat, ESS
 print("divergences:", result.num_divergences)
 ```
 
-A clean run shows R-hat < 1.01 for every site (rank-normalised split-R-hat, [Vehtari, Gelman, Simpson, Carpenter & Bürkner, 2021](https://doi.org/10.1214/20-BA1221)), ESS in the thousands, and zero divergences. On the centred parameterisation you'll see a handful of divergences for `tau` near zero: the diagnostic flag that says "consider non-centred."
+A clean run shows R-hat < 1.01 for every site (rank-normalized split-R-hat, [Vehtari, Gelman, Simpson, Carpenter & Bürkner, 2021](https://doi.org/10.1214/20-BA1221)), ESS in the thousands, and zero divergences. On the centered parameterization you'll see a handful of divergences for `tau` near zero: the diagnostic flag that says "consider non-centered."
 
 ## Posterior predictive
 
@@ -139,15 +139,15 @@ print("predictive school 1:", y_hat[:, 0].mean().item(),
 ## What you've seen
 
 - **Plate-draws.** `v : G <- F(...)` declares one draw per index of object `G`, producing a vector-valued latent.
-- **Non-centred parameterisation.** A small-but-essential trick for hierarchical models; QVR doesn't automate it (yet), but writing it explicitly is two lines.
+- **Non-centered parameterization.** A small-but-essential trick for hierarchical models; QVR doesn't automate it (yet), but writing it explicitly is two lines.
 - **Diagnostics on `MCMCResult`.** R-hat, ESS, divergences are first-class fields, not strings in a log.
 
 ## Try this
 
-- Run `AutoMultivariateNormal` on the centred parameterisation. It can sometimes recover the funnel where mean-field can't.
+- Run `AutoMultivariateNormal` on the centered parameterization. It can sometimes recover the funnel where mean-field can't.
 - Change `target_accept_prob` from 0.95 to 0.8 and watch divergences appear. The trade-off is step size vs trajectory length.
 - Add a per-school covariate $x_j$ and lift the model to a varying-intercepts-and-slopes regression.
 
 ## Next
 
-[Chapter 4](04-marginalize.md) introduces the `marginalize` block: QVR's typed-scope marginalisation surface for discrete latents and mixtures.
+[Chapter 4](04-marginalize.md) introduces the `marginalize` block: QVR's typed-scope marginalization surface for discrete latents and mixtures.
