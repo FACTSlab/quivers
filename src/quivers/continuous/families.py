@@ -2037,6 +2037,379 @@ class ConditionalLKJCholesky(ContinuousMorphism):
 
 
 # ============================================================================
+# Gaussian process: covariance kernel evaluated at input locations
+# ============================================================================
+
+
+class _GPCholeskyError(RuntimeError):
+    """Raised when the jittered GP kernel matrix fails Cholesky.
+
+    The kernel matrix `K + jitter * I` should be positive definite by
+    construction; failure indicates that the chosen length scale,
+    amplitude, or input locations have produced a numerically
+    degenerate covariance (e.g. duplicate locations with near-zero
+    length scale). The error surfaces the diagnostic moments rather
+    than silently inflating the jitter, which would corrupt the
+    log-density without notice.
+    """
+
+
+_GP_KERNEL_CHOICES = ("rbf", "matern52", "linear")
+
+
+def _gp_squared_distance(x: torch.Tensor) -> torch.Tensor:
+    """Pairwise squared Euclidean distance over the last-but-one axis.
+
+    Parameters
+    ----------
+    x : torch.Tensor
+        Tensor of shape ``(..., N, D)``.
+
+    Returns
+    -------
+    torch.Tensor
+        Tensor of shape ``(..., N, N)`` whose ``[i, j]`` entry is
+        ``||x[..., i, :] - x[..., j, :]||^2``.
+    """
+    norms = (x * x).sum(dim=-1, keepdim=True)
+    cross = x @ x.transpose(-1, -2)
+    sq = norms + norms.transpose(-1, -2) - 2.0 * cross
+    return sq.clamp(min=0.0)
+
+
+class ConditionalGaussianProcess(ContinuousMorphism):
+    """Gaussian process prior with mean zero and a chosen covariance kernel.
+
+    A [Gaussian process](https://en.wikipedia.org/wiki/Gaussian_process)
+    is a Markov kernel ``X^N -> G(R^N)`` whose value at a finite set
+    of input locations ``x_1, ..., x_N`` follows a multivariate
+    Normal with covariance matrix ``K(x_i, x_j)``. Unlike the
+    parametric families that derive their distribution parameters
+    from a neural network on the input, the GP's "parameters" are
+    the input locations themselves: the kernel function evaluated
+    on the inputs produces the covariance directly.
+
+    Reference: Rasmussen & Williams (2006),
+    [Gaussian Processes for Machine Learning](http://www.gaussianprocess.org/gpml/).
+
+    Parameters
+    ----------
+    domain : SetObject or ContinuousSpace
+        Source space. Its ``dim`` is the per-location feature
+        dimensionality ``D`` of the inputs.
+    codomain : ContinuousSpace
+        Target space. Its ``dim`` is the number of input locations
+        ``N`` at which the GP is evaluated.
+    kernel : {"rbf", "matern52", "linear"}
+        Covariance kernel. ``"rbf"`` is the squared-exponential
+        kernel; ``"matern52"`` is the Matern kernel with smoothness
+        ``nu = 5/2``; ``"linear"`` is the inner-product kernel.
+    length_scale : float
+        Initial length scale of the kernel (positive; learnable).
+        Ignored by the linear kernel.
+    amplitude : float
+        Initial amplitude (positive; learnable). Multiplies the
+        kernel by ``amplitude^2``.
+    jitter : float
+        Diagonal regulariser added to ``K`` for numerical
+        positive-definiteness of the Cholesky factorisation.
+    """
+
+    def __init__(
+        self,
+        domain: AnySpace,
+        codomain: ContinuousSpace,
+        kernel: str = "rbf",
+        length_scale: float = 1.0,
+        amplitude: float = 1.0,
+        jitter: float = 1e-6,
+    ) -> None:
+        super().__init__(domain, codomain)
+        if kernel not in _GP_KERNEL_CHOICES:
+            raise ValueError(
+                f"ConditionalGaussianProcess: unknown kernel {kernel!r}; "
+                f"valid choices: {_GP_KERNEL_CHOICES}"
+            )
+        if length_scale <= 0.0:
+            raise ValueError(
+                f"ConditionalGaussianProcess: length_scale must be > 0, got {length_scale!r}"
+            )
+        if amplitude <= 0.0:
+            raise ValueError(
+                f"ConditionalGaussianProcess: amplitude must be > 0, got {amplitude!r}"
+            )
+        self._kernel = kernel
+        self._jitter = jitter
+        self._n = codomain.dim
+        self._d = getattr(domain, "dim", None)
+        # Store raw (pre-softplus) parameters so the transformed value
+        # is strictly positive and the optimiser sees unconstrained
+        # variables.
+        inv_softplus_ls = math.log(math.expm1(length_scale))
+        inv_softplus_amp = math.log(math.expm1(amplitude))
+        self._raw_length_scale = torch.nn.Parameter(
+            torch.tensor(inv_softplus_ls, dtype=torch.get_default_dtype())
+        )
+        self._raw_amplitude = torch.nn.Parameter(
+            torch.tensor(inv_softplus_amp, dtype=torch.get_default_dtype())
+        )
+
+    @property
+    def length_scale(self) -> torch.Tensor:
+        """Current (positive) length scale of the kernel."""
+        return F.softplus(self._raw_length_scale) + EPS
+
+    @property
+    def amplitude(self) -> torch.Tensor:
+        """Current (positive) amplitude of the kernel."""
+        return F.softplus(self._raw_amplitude) + EPS
+
+    def _kernel_matrix(self, x: torch.Tensor) -> torch.Tensor:
+        """Compute the kernel matrix ``K(x, x)`` of shape ``(..., N, N)``."""
+        amp2 = self.amplitude * self.amplitude
+        if self._kernel == "linear":
+            inner = x @ x.transpose(-1, -2)
+            return amp2 * inner
+        ls = self.length_scale
+        sq = _gp_squared_distance(x)
+        if self._kernel == "rbf":
+            return amp2 * torch.exp(-0.5 * sq / (ls * ls))
+        # matern52
+        r = torch.sqrt(sq + EPS)
+        sqrt5_r_over_l = math.sqrt(5.0) * r / ls
+        poly = 1.0 + sqrt5_r_over_l + (5.0 / 3.0) * sq / (ls * ls)
+        return amp2 * poly * torch.exp(-sqrt5_r_over_l)
+
+    def _jittered_cholesky(self, x: torch.Tensor) -> torch.Tensor:
+        K = self._kernel_matrix(x)
+        n = K.shape[-1]
+        eye = torch.eye(n, dtype=K.dtype, device=K.device)
+        K_j = K + self._jitter * eye
+        try:
+            return torch.linalg.cholesky(K_j)
+        except RuntimeError as exc:
+            diag_min = K_j.diagonal(dim1=-2, dim2=-1).min().item()
+            diag_max = K_j.diagonal(dim1=-2, dim2=-1).max().item()
+            raise _GPCholeskyError(
+                "ConditionalGaussianProcess: Cholesky failed on the "
+                f"jittered kernel matrix (kernel={self._kernel!r}, "
+                f"length_scale={self.length_scale.item():.6g}, "
+                f"amplitude={self.amplitude.item():.6g}, "
+                f"jitter={self._jitter:.3g}, N={n}, "
+                f"diag(K_j) in [{diag_min:.3g}, {diag_max:.3g}]). "
+                "Check for duplicate input locations or an excessively "
+                "small length scale."
+            ) from exc
+
+    def _validate_input_shape(self, x: torch.Tensor) -> torch.Tensor:
+        """Reshape ``x`` to ``(..., N, D)`` and validate dims."""
+        if x.dim() < 2:
+            raise ValueError(
+                "ConditionalGaussianProcess: input must have shape "
+                f"(..., N, D) with N={self._n}; got tensor of shape {tuple(x.shape)}"
+            )
+        if x.shape[-2] != self._n:
+            raise ValueError(
+                "ConditionalGaussianProcess: input location count "
+                f"x.shape[-2] = {x.shape[-2]} does not match codomain dim "
+                f"N = {self._n}"
+            )
+        return x
+
+    def log_prob(self, x: torch.Tensor, y: torch.Tensor) -> torch.Tensor:
+        x = self._validate_input_shape(x)
+        L = self._jittered_cholesky(x)
+        loc = torch.zeros(x.shape[:-1], dtype=x.dtype, device=x.device)
+        mvn = D.MultivariateNormal(loc, scale_tril=L)
+        return mvn.log_prob(y)
+
+    def rsample(
+        self,
+        x: torch.Tensor,
+        sample_shape: torch.Size = torch.Size(),
+    ) -> torch.Tensor:
+        x = self._validate_input_shape(x)
+        L = self._jittered_cholesky(x)
+        loc = torch.zeros(x.shape[:-1], dtype=x.dtype, device=x.device)
+        mvn = D.MultivariateNormal(loc, scale_tril=L)
+        return mvn.rsample(sample_shape)
+
+
+# ============================================================================
+# Horseshoe: global-local shrinkage prior with numerical marginal density
+# ============================================================================
+
+
+def _gauss_legendre_16(
+    device: torch.device, dtype: torch.dtype
+) -> tuple[torch.Tensor, torch.Tensor]:
+    """16-point Gauss-Legendre nodes and weights on ``[0, 1]``.
+
+    Standard nodes / weights on ``[-1, 1]`` (from Abramowitz & Stegun,
+    table 25.4) are mapped to ``[0, 1]`` via ``t = (1 + xi) / 2`` with
+    weights scaled by ``1/2``.
+    """
+    nodes_pm1 = (
+        -0.9894009349916499,
+        -0.9445750230732326,
+        -0.8656312023878318,
+        -0.7554044083550030,
+        -0.6178762444026438,
+        -0.4580167776572274,
+        -0.2816035507792589,
+        -0.0950125098376374,
+        0.0950125098376374,
+        0.2816035507792589,
+        0.4580167776572274,
+        0.6178762444026438,
+        0.7554044083550030,
+        0.8656312023878318,
+        0.9445750230732326,
+        0.9894009349916499,
+    )
+    weights_pm1 = (
+        0.0271524594117541,
+        0.0622535239386479,
+        0.0951585116824928,
+        0.1246289712555339,
+        0.1495959888165767,
+        0.1691565193950025,
+        0.1826034150449236,
+        0.1894506104550685,
+        0.1894506104550685,
+        0.1826034150449236,
+        0.1691565193950025,
+        0.1495959888165767,
+        0.1246289712555339,
+        0.0951585116824928,
+        0.0622535239386479,
+        0.0271524594117541,
+    )
+    nodes = torch.tensor(
+        [(1.0 + n) * 0.5 for n in nodes_pm1], device=device, dtype=dtype
+    )
+    weights = torch.tensor(
+        [w * 0.5 for w in weights_pm1], device=device, dtype=dtype
+    )
+    return nodes, weights
+
+
+class ConditionalHorseshoe(ContinuousMorphism):
+    """Carvalho-Polson-Scott horseshoe prior.
+
+    The [horseshoe prior](https://doi.org/10.1093/biomet/asq017) places
+    a global-local shrinkage structure on each coordinate:
+
+    .. code-block:: text
+
+       tau ~ HalfCauchy(scale)
+       lambda_d ~ HalfCauchy(1)            for d = 1, ..., D
+       beta_d | tau, lambda_d ~ Normal(0, (tau * lambda_d)^2)
+
+    The marginal density of ``beta_d`` after integrating the local
+    scale ``lambda_d`` has no closed form; this implementation uses a
+    16-point Gauss-Legendre quadrature after mapping the half-line
+    ``lambda in (0, inf)`` to ``t in (0, 1)`` via the change of
+    variables ``lambda = tan(pi * t / 2)``, whose Jacobian is
+    ``(pi / 2) * sec^2(pi * t / 2)``.
+
+    Reference: Carvalho, Polson & Scott (2010),
+    [The horseshoe estimator for sparse signals](https://doi.org/10.1093/biomet/asq017).
+
+    Parameters
+    ----------
+    domain : SetObject or ContinuousSpace
+        Source space. The prior is conditionally independent of ``x``;
+        ``x`` only carries the batch shape.
+    codomain : ContinuousSpace
+        Target space. Its ``dim`` is the coordinate count ``D``.
+    scale : float
+        Initial global shrinkage ``tau`` (positive; learnable).
+    """
+
+    def __init__(
+        self,
+        domain: AnySpace,
+        codomain: ContinuousSpace,
+        scale: float = 1.0,
+    ) -> None:
+        super().__init__(domain, codomain)
+        if scale <= 0.0:
+            raise ValueError(
+                f"ConditionalHorseshoe: scale must be > 0, got {scale!r}"
+            )
+        self._d = codomain.dim
+        inv_softplus_scale = math.log(math.expm1(scale))
+        self._raw_scale = torch.nn.Parameter(
+            torch.tensor(inv_softplus_scale, dtype=torch.get_default_dtype())
+        )
+
+    @property
+    def scale(self) -> torch.Tensor:
+        """Current (positive) global shrinkage ``tau``."""
+        return F.softplus(self._raw_scale) + EPS
+
+    def _batch_shape(self, x: torch.Tensor) -> torch.Size:
+        """Infer the batch shape from ``x``: discrete domains have
+        ``x.shape`` directly, continuous domains drop the trailing
+        feature dim."""
+        if x.dtype in (torch.long, torch.int, torch.int32, torch.int64):
+            return x.shape
+        if x.dim() == 0:
+            return torch.Size(())
+        return x.shape[:-1]
+
+    def rsample(
+        self,
+        x: torch.Tensor,
+        sample_shape: torch.Size = torch.Size(),
+    ) -> torch.Tensor:
+        batch = self._batch_shape(x)
+        shape = torch.Size(sample_shape) + batch + (self._d,)
+        tau = self.scale
+        half_cauchy_local = D.HalfCauchy(
+            torch.ones((), dtype=tau.dtype, device=tau.device)
+        )
+        lam = half_cauchy_local.rsample(shape)
+        z = torch.randn(shape, dtype=tau.dtype, device=tau.device)
+        return tau * lam * z
+
+    def log_prob(self, x: torch.Tensor, y: torch.Tensor) -> torch.Tensor:
+        tau = self.scale
+        device = y.device
+        dtype = y.dtype
+        t_nodes, t_weights = _gauss_legendre_16(device, dtype)
+        # Change of variables: lambda = tan(pi * t / 2), dlambda/dt
+        # = (pi / 2) * sec^2(pi * t / 2). Integrand:
+        #   p(beta) = int_0^inf Normal(beta; 0, (tau * lambda)^2)
+        #             * HalfCauchy(lambda; 0, 1) dlambda
+        pi = math.pi
+        half_pi_t = 0.5 * pi * t_nodes
+        lam = torch.tan(half_pi_t)
+        sec2 = 1.0 / (torch.cos(half_pi_t) ** 2)
+        jacobian = 0.5 * pi * sec2
+        # Half-Cauchy(0, 1) density on lambda: 2 / (pi * (1 + lambda^2)).
+        log_hc = math.log(2.0 / pi) - torch.log1p(lam * lam)
+        # Broadcast: y has shape (..., D); we need per-coordinate
+        # log-density. Add a quadrature axis at position 0.
+        y_expanded = y.unsqueeze(-1)  # (..., D, 1)
+        sigma = tau * lam  # (Q,)
+        # Normal log-density: -0.5 * log(2*pi) - log(sigma) - 0.5 * (y/sigma)^2
+        log_norm = (
+            -0.5 * math.log(2.0 * pi)
+            - torch.log(sigma)
+            - 0.5 * (y_expanded / sigma) ** 2
+        )  # (..., D, Q)
+        log_integrand = log_norm + log_hc + torch.log(jacobian)
+        # Sum (in log-space) weighted by quadrature weights.
+        log_weights = torch.log(t_weights)
+        log_p_per_coord = torch.logsumexp(
+            log_integrand + log_weights, dim=-1
+        )  # (..., D)
+        return log_p_per_coord.sum(dim=-1)
+
+
+# ============================================================================
 # optional: generalized Pareto (requires recent torch)
 # ============================================================================
 
@@ -2330,6 +2703,35 @@ _register_family(
         output_kind="matrix",
         docstring="Conditional LKJCholesky(matrix_dim, concentration(x)) for correlation Cholesky factors.",
         conditional_class_override=ConditionalLKJCholesky,
+    )
+)
+
+
+_register_family(
+    FamilySpec(
+        name="GP",
+        dist_class=D.MultivariateNormal,
+        params=(
+            ParamSpec(name="length_scale", transform="softplus"),
+            ParamSpec(name="amplitude", transform="softplus"),
+        ),
+        support=_constraints.real_vector,
+        output_kind="mvn",
+        docstring="Gaussian process prior with covariance kernel evaluated at the inputs.",
+        conditional_class_override=ConditionalGaussianProcess,
+    )
+)
+
+
+_register_family(
+    FamilySpec(
+        name="Horseshoe",
+        dist_class=D.Normal,  # surrogate; the marginal is numerical
+        params=(ParamSpec(name="scale", transform="softplus"),),
+        support=_constraints.real,
+        output_kind="vector",
+        docstring="Carvalho-Polson-Scott horseshoe prior with numerical marginal density.",
+        conditional_class_override=ConditionalHorseshoe,
     )
 )
 

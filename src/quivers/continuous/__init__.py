@@ -25,7 +25,8 @@ ContinuousMorphism, SampledComposition, DiscreteAsContinuous
 Parameterized families
 ----------------------
 ConditionalNormal, ConditionalLogitNormal, ConditionalBeta,
-ConditionalTruncatedNormal, ConditionalDirichlet
+ConditionalTruncatedNormal, ConditionalDirichlet,
+ConditionalGaussianProcess, ConditionalHorseshoe
 
 Boundary morphisms
 ------------------
@@ -90,6 +91,9 @@ from quivers.continuous.families import (
     ConditionalWishart,
     ConditionalInverseWishart,
     ConditionalMatrixNormal,
+    # non-parametric and shrinkage
+    ConditionalGaussianProcess,
+    ConditionalHorseshoe,
     # discrete-valued
     ConditionalBernoulli,
     ConditionalCategorical,
@@ -170,6 +174,9 @@ __all__ = [
     "ConditionalWishart",
     "ConditionalInverseWishart",
     "ConditionalMatrixNormal",
+    # families: non-parametric and shrinkage
+    "ConditionalGaussianProcess",
+    "ConditionalHorseshoe",
     # discrete-valued conditional distributions
     "ConditionalBernoulli",
     "ConditionalCategorical",

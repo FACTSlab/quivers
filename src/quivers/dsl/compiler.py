@@ -395,6 +395,8 @@ _FAMILY_EVENT_RANK: dict[str, int] = {
     "InverseWishart": 2,
     "MatrixNormal": 2,
     "LKJCholesky": 2,
+    "GP": 1,
+    "Horseshoe": 1,
 }
 
 
@@ -565,6 +567,8 @@ def _get_family_registry() -> dict[str, type]:
         ConditionalWishart,
         ConditionalInverseWishart,
         ConditionalMatrixNormal,
+        ConditionalGaussianProcess,
+        ConditionalHorseshoe,
         ConditionalBernoulli,
         ConditionalCategorical,
     )
@@ -599,6 +603,8 @@ def _get_family_registry() -> dict[str, type]:
         "Wishart": ConditionalWishart,
         "InverseWishart": ConditionalInverseWishart,
         "MatrixNormal": ConditionalMatrixNormal,
+        "GP": ConditionalGaussianProcess,
+        "Horseshoe": ConditionalHorseshoe,
         "Bernoulli": ConditionalBernoulli,
         "Categorical": ConditionalCategorical,
     }

@@ -38,6 +38,17 @@ morphism's representing tensor.
   Conjugate prior for the covariance of a multivariate normal
   ([Gelman et al. 2013](https://doi.org/10.1201/b16018) §3.6).
   Event rank 2.
+- [`ConditionalGaussianProcess`](../api/continuous/families.md#quivers.continuous.families.ConditionalGaussianProcess):
+  Gaussian-process prior with covariance kernel evaluated at the
+  input locations. Supports RBF, Matern 5/2, and linear kernels.
+  Registered as `GP` in the DSL; event rank 1
+  ([Rasmussen & Williams 2006](http://www.gaussianprocess.org/gpml/)).
+- [`ConditionalHorseshoe`](../api/continuous/families.md#quivers.continuous.families.ConditionalHorseshoe):
+  Carvalho-Polson-Scott horseshoe prior with global-local shrinkage
+  ([Carvalho, Polson & Scott 2010](https://doi.org/10.1093/biomet/asq017)).
+  The marginal density (no closed form) is computed via 16-point
+  Gauss-Legendre quadrature after a tangent change of variables on
+  the auxiliary scale. Event rank 1.
 
 ### Changed — keyword unification
 

@@ -275,6 +275,9 @@ from quivers.continuous import (
     ConditionalWishart,
     ConditionalInverseWishart,
     ConditionalMatrixNormal,
+    # families: non-parametric and shrinkage
+    ConditionalGaussianProcess,
+    ConditionalHorseshoe,
     # families — discrete-valued
     ConditionalBernoulli,
     ConditionalCategorical,
@@ -524,6 +527,9 @@ __all__ = [
     "ConditionalWishart",
     "ConditionalInverseWishart",
     "ConditionalMatrixNormal",
+    # continuous: families (non-parametric and shrinkage)
+    "ConditionalGaussianProcess",
+    "ConditionalHorseshoe",
     # continuous — families (discrete-valued)
     "ConditionalBernoulli",
     "ConditionalCategorical",
