@@ -31,7 +31,6 @@
   "type"
   "space"
   "kernel"
-  "kernel"
   "discretize"
   "embed"
   "program"
@@ -42,6 +41,7 @@
   "in"
   "for"
   "over"
+  "iid"
   "via"
   "return"
   "latent"
@@ -186,7 +186,6 @@
 (morphism_decl name: (identifier) @function)
 (let_decl      name: (identifier) @function)
 (kernel_decl name: (identifier) @function)
-(kernel_decl name: (identifier) @function)
 (discretize_decl name: (identifier) @function)
 (embed_decl    name: (identifier) @function)
 (program_decl  name: (identifier) @function)
@@ -200,6 +199,18 @@
 (space_constructor_bare  constructor: (identifier) @type.builtin)
 
 (kernel_decl family: (identifier) @type)
+
+; Latent morphism prior: `latent W ... ~ Family(args) ...`.
+; Colour the prior's family name like a kernel's family name.
+(morphism_prior family: (identifier) @type)
+
+; Axis-role clauses: `over <axes> [iid over <axes>]`.  Axes are
+; identifiers that name dom/cod factors; the reserved tokens `dom`
+; and `cod` are shortcuts.  Color the axis names so they stand out
+; from generic identifiers in the surrounding distribution clause.
+(axis_role_clause over: (identifier) @variable.parameter)
+(axis_role_clause iid_over: (identifier) @variable.parameter)
+(axis_tuple axis: (identifier) @variable.parameter)
 
 ; Deduction-block heads colour the bound name as a function /
 ; type per the surface convention (deductions are values that

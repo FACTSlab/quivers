@@ -82,6 +82,7 @@ _KEYWORD_TOKENS = {
     "Score",
     "Marginal",
     "over",
+    "iid",
     "via",
     # contraction declaration body keywords
     "wiring",
