@@ -125,6 +125,7 @@ for obj in C:
 ```
 
 Weighted colimits are the dual. Weighted limits generalize:
+
 - **Ordinary limits** (weight = terminal presheaf)
 - **Cotensor products** (weight = hom functor)
 - **Powers and copowers** (weight = constant presheaf)

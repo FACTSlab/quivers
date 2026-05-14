@@ -1,7 +1,7 @@
 # Decoders
 
 `Decoder` is a `torch.nn.Module` that realises a Kleisli
-coalgebra `Vec_D → Kern(T_Σ)` — given an input vector, defines
+coalgebra `Vec_D → Kern(T_Σ)`, given an input vector, defines
 a distribution over terms of a signature. Two operations:
 
 - `sample(vec, ctx, sort)` draws a single `Term`.
@@ -11,7 +11,7 @@ a distribution over terms of a signature. Two operations:
 The corecursion over a signature Σ:
 
 1. At each sort position, the decoder produces logits over its
-   *choice set* — every constructor and binder whose codomain is
+   *choice set*, every constructor and binder whose codomain is
    that sort, plus the built-in `BoundVar` whenever the context
    contains at least one in-scope variable of that sort.
 2. For the chosen op, the parent vector is split into per-child

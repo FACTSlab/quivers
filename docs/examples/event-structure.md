@@ -84,7 +84,7 @@ $$
 \llbracket \mathsf{random\_intercepts} \rrbracket \;:\; \prod_{G : \mathbf{FinSet}} \prod_{\mathrm{scale} : \mathbb{R}_{>0}} \mathbf{Kern}(G, \mathbf{1}),
 $$
 
-a half-normal scale hyperprior followed by a $G$-indexed Normal-$(0, \sigma)$ plate. Each of the eight call sites — `by_subj_cloze`, `by_verb_cloze`, ..., `by_item_prop` — inlines a fresh α-renamed copy of the body, so every grouping factor contributes an independent $\sigma$ and an independent per-level plate. The eight call sites realise crossed random intercepts on the cloze and proportion sides of the experiment.
+a half-normal scale hyperprior followed by a $G$-indexed Normal-$(0, \sigma)$ plate. Each of the eight call sites, `by_subj_cloze`, `by_verb_cloze`, ..., `by_item_prop`, inlines a fresh α-renamed copy of the body, so every grouping factor contributes an independent $\sigma$ and an independent per-level plate. The eight call sites realise crossed random intercepts on the cloze and proportion sides of the experiment.
 
 A named `continuous` morphism cannot bundle a fresh scale draw per call because morphism reference is invocation, not instantiation; parametric programs *are* instantiated freshly at each call, which is the right categorical handle for prior reuse.
 
@@ -130,29 +130,34 @@ marginalize cloze_resp : RespCloze <- Bernoulli(intercept_cloze) in {
 
 The scoped `marginalize c : A <- F in { … }` step introduces the coordinate `c` bound to a kernel `F`, optionally `A`-indexed, with the `{ … }` body as its integration scope. At the end of the scope, the accumulated joint measure on $\Phi \times C$ is pushed forward through the projection $\pi : \Phi \times C \to \Phi$, integrating out `c` by log-sum-exp on the accumulated log-likelihood; `c` then falls out of scope.
 
-## Python Usage
+## Try it
 
 ```python
 import torch
 from quivers.dsl import load
 from quivers.inference import AutoNormalGuide, ELBO, SVI
 
-program = load("event_structure.qvr")
-model = program.morphism  # underlying MonadicProgram
+program = load("docs/examples/source/event_structure.qvr")
+model = program.morphism
 
+# Synthetic observed cloze and proportion responses on the
+# closed-class four-cell telicity-by-durativity simplex.
+torch.manual_seed(0)
+n_cloze, n_prop = 256, 256
 observations = {
-    "cloze_resp": cloze_response_tensor,   # shape (n_cloze_resp,)
-    "prop_resp":  prop_response_tensor,    # shape (n_prop_resp,)
+    "cloze_resp": torch.randint(0, 2, (n_cloze,)).float(),
+    "prop_resp":  torch.randint(0, 2, (n_prop,)).float(),
 }
+item_input = torch.zeros((), dtype=torch.long)
 
 guide = AutoNormalGuide(model, observed_names={"cloze_resp", "prop_resp"})
-elbo  = ELBO(num_particles=1)
+elbo = ELBO(num_particles=1)
 optimizer = torch.optim.Adam(
     list(model.parameters()) + list(guide.parameters()), lr=1e-2,
 )
 svi = SVI(model, guide, optimizer, elbo)
 
-for step in range(5000):
+for step in range(200):
     loss = svi.step(item_input, observations)
 ```
 

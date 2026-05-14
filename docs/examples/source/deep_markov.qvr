@@ -1,0 +1,42 @@
+# ================================================================
+# Deep Markov Model
+# ================================================================
+#
+# The deep Markov model ([Krishnan, Shalit, and Sontag 2017]
+# (https://doi.org/10.1609/aaai.v31i1.10779)) is a state-space
+# model with nonlinear, neural-network-parameterised transition
+# and emission kernels:
+#
+#   s_t = f_theta(s_{t-1}) + Normal noise
+#   o_t = g_phi(s_t)      + Normal noise
+#
+# Both `f_theta` and `g_phi` are MLPs with Normal weight priors.
+# The combinator surface mirrors the linear-Gaussian SSM:
+# the transition takes a driver input concatenated with the
+# previous state, and the emission is a continuous morphism from
+# the state to the observation space. An inference cell
+# `q_phi(o_t, s_{t-1}) -> s_t` carries the variational
+# recognition network; scan threads it across the observation
+# sequence to recover an amortised posterior over the latent
+# state trajectory.
+
+type Driver = Euclidean 4
+type Hidden = Euclidean 32
+type State = Euclidean 8
+type Obs = Euclidean 4
+
+kernel trans_mlp_1 : Driver * State -> Hidden ~ Normal [scale=0.5]
+kernel trans_mlp_2 : Hidden -> State ~ Normal [scale=0.1]
+
+kernel emit_mlp_1 : State -> Hidden ~ Normal [scale=0.5]
+kernel emit_mlp_2 : Hidden -> Obs ~ Normal [scale=0.1]
+
+kernel infer_cell : Obs * State -> State ~ Normal [scale=0.1]
+
+let transition_cell = trans_mlp_1 >> trans_mlp_2
+let emission = emit_mlp_1 >> emit_mlp_2
+
+let generate = scan(transition_cell) >> emission
+let recognize = scan(infer_cell)
+
+export recognize

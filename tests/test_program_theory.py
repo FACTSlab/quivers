@@ -18,7 +18,7 @@ from quivers.dsl.parser import parse_file
 from quivers.dsl.program_theory import QVR_PROGRAM_PROTOCOL, extract_program_schema
 
 
-EXAMPLES_DIR = Path(__file__).parent.parent / "src/quivers/dsl/examples"
+EXAMPLES_DIR = Path(__file__).parent.parent / "docs/examples/source"
 EXAMPLE_PATHS = sorted(EXAMPLES_DIR.glob("*.qvr"))
 
 

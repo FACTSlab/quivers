@@ -29,7 +29,7 @@ Edges encode structural relations:
 | `codomain` | `*_morphism_decl`, `program_decl` | object/space | Codomain of the declaration |
 | `output` | `output_decl` | program/morphism | Output expression of the program |
 
-The instance theory $\mathcal{T}_{\mathrm{instance}}$ is the W-type theory `ThWType`, so each instance is tree-shaped — appropriate for the strict tree of declarations in a `.qvr` module.
+The instance theory $\mathcal{T}_{\mathrm{instance}}$ is the W-type theory `ThWType`, so each instance is tree-shaped, appropriate for the strict tree of declarations in a `.qvr` module.
 
 ## 2. The extraction functor
 
@@ -59,11 +59,11 @@ These are related by a *forgetful* projection: $\mathcal{S}(M)$ enumerates the *
 
 Because $\mathcal{S}(M) \in \mathrm{Schema}(\mathsf{QVR})$, every panproto operation on schemas is automatically available on `.qvr` modules:
 
-- $\mathrm{diff} : \mathrm{Schema}(\mathsf{QVR})^2 \to \mathrm{Patch}(\mathsf{QVR})$ — produce a structural diff between two modules;
-- $\mathrm{auto\_lens} : \mathrm{Schema}(\mathsf{QVR})^2 \to \mathrm{Lens}(\mathsf{QVR})$ — derive a bidirectional migration lens between two module versions;
-- $\mathrm{check} : \mathrm{Schema}(\mathsf{QVR})^2 \times \mathrm{Lens}(\mathsf{QVR}) \to \mathrm{Bool}$ — check that a candidate lens satisfies the GetPut/PutGet round-trip laws.
+- $\mathrm{diff} : \mathrm{Schema}(\mathsf{QVR})^2 \to \mathrm{Patch}(\mathsf{QVR})$: produce a structural diff between two modules;
+- $\mathrm{auto\_lens} : \mathrm{Schema}(\mathsf{QVR})^2 \to \mathrm{Lens}(\mathsf{QVR})$: derive a bidirectional migration lens between two module versions;
+- $\mathrm{check} : \mathrm{Schema}(\mathsf{QVR})^2 \times \mathrm{Lens}(\mathsf{QVR}) \to \mathrm{Bool}$: check that a candidate lens satisfies the GetPut/PutGet round-trip laws.
 
-These operate on the *shape* of a module (its declarations and the relations between them) and not on its parameter values. Numerical-content migration — e.g.\ initialising the parameters of a renamed `latent` morphism from those of the original — is a separate concern, handled by panproto's *field-transform* layer ([Field Transforms](https://panproto.dev/skills/panproto-field-transforms.html)) using `compute-field` / `coerce-type` rules.
+These operate on the *shape* of a module (its declarations and the relations between them) and not on its parameter values. Numerical-content migration, e.g.\ initialising the parameters of a renamed `latent` morphism from those of the original, is a separate concern, handled by panproto's *field-transform* layer ([Field Transforms](https://panproto.dev/skills/panproto-field-transforms.html)) using `compute-field` / `coerce-type` rules.
 
 ## 5. Naturality
 

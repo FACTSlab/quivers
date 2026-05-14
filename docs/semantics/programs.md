@@ -182,7 +182,7 @@ $$
 
 For a discrete latent $C$, the projection is computed by log-sum-exp on the accumulated log-likelihood; for a measurable continuous $C$, it is fibrewise integration. After the scope closes, $c$ falls out of scope.
 
-The four bind variants — scalar, indexed, scored, marginalised — are uniformly a single underlying step with a `mode ∈ {sample, score, marginal}` tag and an optional index `A`. The scalar/plate axis is orthogonal to the full-probability/sub-probability distinction.
+The four bind variants, scalar, indexed, scored, marginalised, are uniformly a single underlying step with a `mode ∈ {sample, score, marginal}` tag and an optional index `A`. The scalar/plate axis is orthogonal to the full-probability/sub-probability distinction.
 
 ### 2.7 Indexed Gather (Let-Pullback)
 
@@ -235,7 +235,7 @@ $$
 \llbracket P \rrbracket : \llbracket \tau_1 \rrbracket \to \mathcal{G}(\llbracket \tau_2 \rrbracket),
 $$
 
-i.e.\ a single morphism in $\mathbf{Kern}$; the $q_i$ are syntactic conveniences in the body, not additional dependent parameters. Typed parameters — covered in §3a below — extend this to dependent kernel families.
+i.e.\ a single morphism in $\mathbf{Kern}$; the $q_i$ are syntactic conveniences in the body, not additional dependent parameters. Typed parameters, covered in §3a below, extend this to dependent kernel families.
 
 ## 3a. Parametric programs
 
@@ -259,7 +259,7 @@ an object of the indexed family of Kleisli arrows over the parameter category. T
 
 A call site `v <- P(a₁, …, aₖ)` inside another program is interpreted by *substitution* on the dependent denotation: the actual arguments $a_i$ are substituted for the formal parameters $p_i$ in the body of $P$, yielding a closed Kleisli arrow which is then inlined as a sequence of statements into the caller's body. Internal latents are α-renamed under a fresh prefix $v\$$, and the return-variable is renamed to $v$ directly; the result is a well-typed sequence of caller-level Kleisli arrows.
 
-This is sound by a standard substitution lemma: because each formal parameter is bound at the top of the body and the body interprets to a Kleisli arrow built compositionally from its statements, substitution commutes with the body's denotation function $\mathcal{B}\llbracket \cdot \rrbracket$. The α-renaming step is sound because the body's denotation depends only on the multiset of bound-variable types, not on the names. Two call sites of the same template therefore contribute *distinct* factors to the caller's joint kernel — fresh latents per use — recovering the standard "plate-of-plates" semantics for hierarchical models.
+This is sound by a standard substitution lemma: because each formal parameter is bound at the top of the body and the body interprets to a Kleisli arrow built compositionally from its statements, substitution commutes with the body's denotation function $\mathcal{B}\llbracket \cdot \rrbracket$. The α-renaming step is sound because the body's denotation depends only on the multiset of bound-variable types, not on the names. Two call sites of the same template therefore contribute *distinct* factors to the caller's joint kernel, fresh latents per use, recovering the standard "plate-of-plates" semantics for hierarchical models.
 
 ## 4. Composition of programs
 
@@ -286,4 +286,4 @@ These are valid statements about denotations of QVR programs; in particular, the
 
 ## 6. Inference and conditioning
 
-The denotation of a program is a *kernel* — not yet a posterior. Conditioning on observed data, normalisation, and approximate posterior inference are *external* operations on the denotation, supplied by the [`quivers.inference`](../api/inference/svi.md) module. The categorical apparatus is that of *Markov categories with conditionals* ([Cho & Jacobs 2019](https://doi.org/10.1017/S0960129518000488); [Fritz 2020](https://doi.org/10.1016/j.aim.2020.107239)); the implementation realises trace-based conditioning and stochastic variational inference as concrete instances of that theory.
+The denotation of a program is a *kernel*, not yet a posterior. Conditioning on observed data, normalisation, and approximate posterior inference are *external* operations on the denotation, supplied by the [`quivers.inference`](../api/inference/svi.md) module. The categorical apparatus is that of *Markov categories with conditionals* ([Cho & Jacobs 2019](https://doi.org/10.1017/S0960129518000488); [Fritz 2020](https://doi.org/10.1016/j.aim.2020.107239)); the implementation realises trace-based conditioning and stochastic variational inference as concrete instances of that theory.

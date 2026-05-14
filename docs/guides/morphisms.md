@@ -12,12 +12,12 @@ For a product domain like $X \times Y$, the tensor has shape `(|X|, |Y|, |Z|)`.
 
 ```
 Morphism (abstract)
-├── ObservedMorphism    — fixed tensor, not learnable
-├── LatentMorphism      — learnable parameter with sigmoid output
-├── ComposedMorphism    — lazy composition f >> g
-├── ProductMorphism     — lazy tensor product f @ g
-├── MarginalizedMorphism — lazy marginalization (join reduction)
-└── FunctorMorphism     — lazy functor image
+├── ObservedMorphism   , fixed tensor, not learnable
+├── LatentMorphism     , learnable parameter with sigmoid output
+├── ComposedMorphism   , lazy composition f >> g
+├── ProductMorphism    , lazy tensor product f @ g
+├── MarginalizedMorphism, lazy marginalization (join reduction)
+└── FunctorMorphism    , lazy functor image
 ```
 
 ### ObservedMorphism

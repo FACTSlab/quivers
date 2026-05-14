@@ -7,7 +7,7 @@ surface at the point of use:
 - ``residuated_constraint`` — :class:`TypeSlash` patterns must
   reference a residuated universe (a previously-declared
   :class:`FreeResiduated` object) at every binding site. Schema
-  parameters typed as a residuated universe are recognised; bare
+  parameters typed as a residuated universe are recognized; bare
   :class:`TypeSlash` outside a residuated context is flagged.
 - ``effect_constraint`` — :class:`TypeEffectApply` references must
   name an effect that is part of the residuated universe's
@@ -176,7 +176,7 @@ def check_constraints(module: Module) -> list[Violation]:
                         message=(
                             f"TypeSlash {texpr.direction!r} appears outside "
                             "a residuated context; either declare a "
-                            "FreeResiduated universe and parameterise the "
+                            "FreeResiduated universe and parameterize the "
                             "schema by it, or remove the slash"
                         ),
                         line=line,
@@ -207,7 +207,7 @@ def check_constraints(module: Module) -> list[Violation]:
                     Violation(
                         code="effect_constraint",
                         message=(
-                            f"effect {texpr.effect!r} has no recognised "
+                            f"effect {texpr.effect!r} has no recognized "
                             "naming pattern; effect names must start with "
                             "an uppercase letter or contain an underscore"
                         ),

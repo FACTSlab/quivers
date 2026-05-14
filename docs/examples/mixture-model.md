@@ -2,74 +2,90 @@
 
 ## Overview
 
-A Gaussian Mixture Model assigns data points to one of $k$ Gaussian components, each with its own mean and precision, weighted by mixing proportions. This example demonstrates parametric programs, the `bind` operator (`<-`), `observe` for conditioning, `map` for iteration over data, and compositional construction of priors (exponential + softmax to get a Dirichlet).
+A finite [Gaussian mixture model](https://en.wikipedia.org/wiki/Mixture_model) assigns each observation to one of $K$ [Gaussian](https://en.wikipedia.org/wiki/Normal_distribution) components, with the per-row component drawn from a [Dirichlet](https://en.wikipedia.org/wiki/Dirichlet_distribution)-distributed mixing prior. This example demonstrates the canonical quivers idiom for finite mixtures: a scoped `marginalize` block that integrates out the discrete per-row component assignment by [log-sum-exp](https://en.wikipedia.org/wiki/LogSumExp) over the $K$ classes at every observation.
 
 ## QVR Source
 
 ```qvr
-object Unit : 1
-object Obs : 1
+object Component : 4
+object Item : 1
+object Resp : 200
 
-program gmm : Unit -> Obs
-    mu_1 <- Normal(0.0, 3.0)
-    mu_2 <- Normal(0.0, 3.0)
-    mu_3 <- Normal(0.0, 3.0)
-    mu_4 <- Normal(0.0, 3.0)
+program gmm : Resp -> Resp
+    probs : Component <- HalfNormal(1.0)
+    idx : Resp <- HalfNormal(1.0)
+    mu_shift <- Normal(0.0, 1.0)
 
-    tau_1 <- Gamma(2.0, 1.0)
-    tau_2 <- Gamma(2.0, 1.0)
-    tau_3 <- Gamma(2.0, 1.0)
-    tau_4 <- Gamma(2.0, 1.0)
-
-    let sigma_1 = 1.0 / softplus(tau_1)
-    let sigma_2 = 1.0 / softplus(tau_2)
-    let sigma_3 = 1.0 / softplus(tau_3)
-    let sigma_4 = 1.0 / softplus(tau_4)
-
-    weight_1 <- Exponential(1.0)
-    weight_2 <- Exponential(1.0)
-    weight_3 <- Exponential(1.0)
-    weight_4 <- Exponential(1.0)
-
-    let total = weight_1 + weight_2 + weight_3 + weight_4
-    let p1 = weight_1 / total
-    let p2 = weight_2 / total
-    let p3 = weight_3 / total
-
-    let mix_mu = p1 * mu_1 + p2 * mu_2 + p3 * mu_3 + (1.0 - p1 - p2 - p3) * mu_4
-    let mix_sigma = p1 * sigma_1 + p2 * sigma_2 + p3 * sigma_3 + (1.0 - p1 - p2 - p3) * sigma_4
-
-    observe x <- Normal(mix_mu, mix_sigma)
-
-    return x
+    marginalize cls : Component <- Dirichlet(probs)
+        over Item
+        in {
+            observe r : Resp via idx <- Normal(mu_shift, 1.0)
+        }
+    return probs
 
 export gmm
 ```
 
 ## Walkthrough
 
-The model fixes a four-component Gaussian mixture with priors on per-component means, scales, and mixing weights.
+The plate-bound `probs : Component` carries the Dirichlet concentration vector for the per-row component assignment. The per-row fibration `idx : Resp` names the per-observe fibration into the singleton `Item` grouping plate. The scalar `mu_shift` is a continuous latent shared across components, drawn from a Normal prior.
 
-Each `mu_k <- Normal(0.0, 3.0)` is a scalar bind of the $k$-th component mean from a wide Normal prior. Each `tau_k <- Gamma(2.0, 1.0)` draws a positive precision parameter; the `let sigma_k = 1.0 / softplus(tau_k)` deterministic step converts the precision to a standard deviation via `softplus` (ensuring positivity) and inversion.
+The scoped marginalize block
 
-The four `weight_k <- Exponential(1.0)` binds draw independent Exponential(1) values; the deterministic `let` steps normalise them to a length-four simplex `(p1, p2, p3, 1 - p1 - p2 - p3)`. This is the Gamma–Dirichlet construction of a symmetric Dirichlet(1) prior over mixing weights.
+<!-- compile: false -->
+```qvr
+marginalize cls : Component <- Dirichlet(probs)
+    over Item
+    in {
+        observe r : Resp via idx <- Normal(mu_shift, 1.0)
+    }
+```
 
-The let-bindings `mix_mu` and `mix_sigma` form a soft (weighted-mean) mixture of the component parameters. The single `observe x <- Normal(mix_mu, mix_sigma)` step scores the observation against this soft mixture, accumulating a sub-probability factor on the trace.
+introduces the per-row component latent `cls : Component` with a [Dirichlet](https://en.wikipedia.org/wiki/Dirichlet_distribution) prior on the mixing simplex. Inside the body, `observe r : Resp via idx <- Normal(mu_shift, 1.0)` scores each response under the shared Normal likelihood; the runtime accumulates one per-class log-likelihood at every row, scatter-sums into the `Item`-indexed accumulator, and [log-sum-exps](https://en.wikipedia.org/wiki/LogSumExp) over `Component`. At the end of the scope `cls` falls out of scope; the integrated marginal is the pushforward measure on $\Phi$ alone.
 
-## DSL Features
+## Try it
 
-- **Bind operator (`<-`)**: Samples from the right-hand distribution and binds the result to the left-hand variable.
-- **`observe`**: Conditions on observed data by multiplying the trace by the likelihood. Dual of sampling.
-- **`softplus`**: Deterministic positivity-preserving transformation used inside `let` steps.
-- **Arithmetic in `let`**: `+`, `-`, `*`, `/` plus built-ins compose previously bound variables into derived random variables.
-- **`export`**: Marks the program as a compiled output of the module.
+```python
+import torch
+from quivers.dsl import load
+from quivers.inference import AutoNormalGuide, ELBO, SVI
 
-## Python Usage
+torch.manual_seed(0)
 
-<!-- TODO: add working Python usage example -->
+prog = load("docs/examples/source/mixture_model.qvr")
+model = prog.morphism
+
+N, K = 200, 4
+true_probs = torch.tensor([0.4, 0.3, 0.2, 0.1])
+mus = torch.tensor([-3.0, -1.0, 1.0, 3.0])
+z_true = torch.multinomial(true_probs, N, replacement=True)
+x = mus[z_true] + 0.3 * torch.randn(N)
+
+# Per-row per-class log-likelihood under the K Normal components.
+ll = torch.distributions.Normal(mus.view(1, K), 1.0).log_prob(x.view(N, 1))
+
+obs = {
+    "probs": true_probs,
+    "idx": torch.zeros(N, dtype=torch.long),
+    "_grouped_ll_cls_0": ll,
+}
+guide = AutoNormalGuide(model, observed_names=set(obs.keys()))
+optim = torch.optim.Adam(
+    list(model.parameters()) + list(guide.parameters()), lr=2e-2,
+)
+svi = SVI(model, guide, optim, ELBO())
+for _ in range(500):
+    loss = svi.step(torch.zeros(1, 1), obs)
+print("GMM loss:", loss)
+```
+
+The grouped marginalize block exposes the per-row per-class log-likelihood slot `_grouped_ll_cls_0` directly, so a synthetic experiment supplies that tensor under known component means.
 
 ## Categorical Perspective
 
-The composition `weight_prior >> softmax` constructs a symmetric Dirichlet distribution without naming Dirichlet as a primitive. The Exponential distribution is a morphism from the terminal object to a 1-d positive space; `stack` lifts it to $k$ independent copies; and `softmax` is a natural transformation from $\mathbb{R}^k$ to the $(k{-}1)$-simplex. Composing these yields a morphism from the terminal object to the simplex, which is exactly the symmetric Dirichlet(1). This illustrates the compositional principle: distributions usually treated as primitives in other frameworks can be decomposed into simpler morphisms and transformations.
+The discrete latent `cls : Component` is integrated out by pushforward along the projection $\Phi \times \mathsf{Component} \to \Phi$. The grouped marginalize block is the right Kan extension of the per-class log-likelihood along the per-row fibration $\mathsf{Resp} \to \mathsf{Item}$ in $\mathbf{Kern}$, followed by a [log-sum-exp](https://en.wikipedia.org/wiki/LogSumExp) reduction along the `Component` axis weighted by the categorical prior implied by the Dirichlet.
 
-The bind/observe duality reflects Bayes' rule at the level of morphism composition. The sequence of `<-` binds composes priors into a joint distribution over the component parameters ($* \to \Theta$). The `observe x <- Normal(mix_mu, mix_sigma)` step conditions on data, contributing a sub-probability factor in $\mathcal{G}_{\le 1}$ whose total mass is the likelihood. Inference recovers the posterior over $\Theta$ via the factorization $p(\theta, x) = p(\theta)p(x \mid \theta) = p(x)p(\theta \mid x)$.
+## See Also
+
+- [Latent Dirichlet Allocation](lda.md), the topic-model generalisation.
+- [Event-Structure Latent-Class Model](event-structure.md) for crossed random intercepts plus coordinate marginalisation.

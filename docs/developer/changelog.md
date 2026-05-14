@@ -6,6 +6,62 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/), and this
 
 ## [Unreleased]
 
+### Added — axis-role surface for distribution clauses
+
+Every distribution clause (kernel declaration, latent parameter
+prior, sample step, observe step) accepts an optional
+`over <axes> [iid over <axes>]` post-clause.  `over` names the
+**event axes** of the family; remaining axes are iid (categorically
+a product of independent distributions).  Axis names resolve
+against the named factors of the surrounding morphism's dom/cod;
+`dom`/`cod` are shortcuts when that side is a single unfactored
+object.
+
+The axis count must match the family's declared `event_rank`
+(0 / 1 / 2 for scalar / vector / matrix families); mismatch is a
+compile-time error rather than a silent reinterpretation.  This
+preserves the categorical distinction between, e.g., a flat MVN
+over `dim(A)·dim(B)` with dense covariance and a `MatrixNormal`
+over `(A, B)` with Kronecker structure `V ⊗ U`.
+
+The latent morphism declaration accepts a `~ Family(args)
+[options] [over <axes>]` clause that puts a prior on the
+morphism's representing tensor.
+
+### Added — new families
+
+- [`ConditionalMatrixNormal`](../api/continuous/families.md#quivers.continuous.families.ConditionalMatrixNormal):
+  Matrix-Normal with Kronecker covariance `V ⊗ U`.  Event rank 2.
+  The natural prior for a weight matrix whose row and column
+  correlations factor separately.
+- [`ConditionalInverseWishart`](../api/continuous/families.md#quivers.continuous.families.ConditionalInverseWishart):
+  Conjugate prior for the covariance of a multivariate normal
+  ([Gelman et al. 2013](https://doi.org/10.1201/b16018) §3.6).
+  Event rank 2.
+- [`ConditionalGaussianProcess`](../api/continuous/families.md#quivers.continuous.families.ConditionalGaussianProcess):
+  Gaussian-process prior with covariance kernel evaluated at the
+  input locations. Supports RBF, Matern 5/2, and linear kernels.
+  Registered as `GP` in the DSL; event rank 1
+  ([Rasmussen & Williams 2006](http://www.gaussianprocess.org/gpml/)).
+- [`ConditionalHorseshoe`](../api/continuous/families.md#quivers.continuous.families.ConditionalHorseshoe):
+  Carvalho-Polson-Scott horseshoe prior with global-local shrinkage
+  ([Carvalho, Polson & Scott 2010](https://doi.org/10.1093/biomet/asq017)).
+  The marginal density (no closed form) is computed via 16-point
+  Gauss-Legendre quadrature after a tangent change of variables on
+  the auxiliary scale. Event rank 1.
+
+### Changed — keyword unification
+
+The `continuous` and `stochastic` declaration keywords are removed
+in favour of a single `kernel` keyword.  A `kernel f : A -> B`
+declaration without a `~` clause declares a finite-set lookup-table
+kernel (the case formerly written with `stochastic`); with a
+`~ Family [options] [axes]` clause it declares a parametric kernel
+whose family parameters are produced by a neural parameter network
+on the input (the case formerly written with `continuous`).  This
+collapses two keywords whose distinction was already in the type
+signature into one whose name reads as "Markov kernel" everywhere.
+
 ## [0.5.0] - 2026-05-11
 
 ### Changed (breaking, pre-1.0 clean cut)
@@ -55,26 +111,26 @@ general agenda-engine runtime (`quivers.stochastic.agenda`).
 
 ### Added
 
-- Hierarchical-Bayesian modelling primitives in `quivers.continuous.bayesian`, each carrying its categorical denotation in **Kern**:
-  - `PlateDraw(index_size, family, domain)` — finite-domain-indexed draw realised as a Kern-morphism `A → B` by the natural isomorphism `Kern(1, B^A) ≅ Kern(A, B)`; subclass of `ContinuousMorphism` so it threads through the existing `MonadicProgram` step machinery.
-  - `VectorisedObserve(family, response)` — batched-observation kernel `Φ → G_{≤1}(Φ)` with score `∏_n p_F(r_obs(n); θ(n, φ))`.
-  - `marginalize_categorical(log_probs)` — program-level pushforward through `π_{Φ\C}` realised as `log_sum_exp` over the class axis.
-  - `LKJCorrelationFactor(K, eta)` — LKJ prior on `CholeskyFactor(K)` via the Lewandowski-Kurowicka-Joe onion method; analytic `log_prob` matches Stan's `lkj_corr_cholesky_lpdf`.
-  - `Truncated(base, lower, upper)` — generic interval-truncation combinator (rejection sampling with Monte-Carlo truncation-mass estimation).
-  - `cumsum(K)`, `softmax(K)` — deterministic morphisms for monotone splines and simplex projection.
-  - `cholesky_quad_form(K)` — covariance reconstruction `Σ = diag(s) L L^T diag(s)`.
-  - `CholeskyFactor(K)` `ContinuousSpace` — manifold of K×K lower-triangular factors of correlation matrices.
+- Hierarchical-Bayesian modelling primitives in `quivers.continuous.plate`, each carrying its categorical denotation in **Kern**:
+  - `PlateDraw(index_size, family, domain)`, finite-domain-indexed draw realised as a Kern-morphism `A → B` by the natural isomorphism `Kern(1, B^A) ≅ Kern(A, B)`; subclass of `ContinuousMorphism` so it threads through the existing `MonadicProgram` step machinery.
+  - `VectorisedObserve(family, response)`, batched-observation kernel `Φ → G_{≤1}(Φ)` with score `∏_n p_F(r_obs(n); θ(n, φ))`.
+  - `marginalize_categorical(log_probs)`, program-level pushforward through `π_{Φ\C}` realised as `log_sum_exp` over the class axis.
+  - `LKJCorrelationFactor(K, eta)`, LKJ prior on `CholeskyFactor(K)` via the Lewandowski-Kurowicka-Joe onion method; analytic `log_prob` matches Stan's `lkj_corr_cholesky_lpdf`.
+  - `Truncated(base, lower, upper)`, generic interval-truncation combinator (rejection sampling with Monte-Carlo truncation-mass estimation).
+  - `cumsum(K)`, `softmax(K)`, deterministic morphisms for monotone splines and simplex projection.
+  - `cholesky_quad_form(K)`, covariance reconstruction `Σ = diag(s) L L^T diag(s)`.
+  - `CholeskyFactor(K)` `ContinuousSpace`, manifold of K×K lower-triangular factors of correlation matrices.
 - Surface syntax for hierarchical-Bayesian models in `.qvr`:
-  - `draw v : A -> K ~ Family(args)` — finite-domain-indexed plate draw.
-  - `observe r[n] ~ Family(args) for n in N` — vectorised observation.
-  - `marginalize c` — program-level discrete-latent marginalisation.
-  - `arr[idx]` — Kleisli pullback gather expression inside `let`-bodies.
-  - `posterior name (model) : domain -> codomain { steps return ... }` — deterministic post-conditioning block whose body consumes posterior latents.
-  - Parametric programs: `program name (G : FinSet, scale : Real, prior : Mor[A, B]) : dom -> cod ...` — programs polymorphic over objects, scalars, and morphisms; denote dependent kernels `Π(p:P).Kern(dom(p), cod(p))`. Instantiated at each call site `draw v ~ name(args)` by parameter substitution + α-renaming, so each call contributes fresh latent factors to the caller's joint kernel. Supports the random-effects reuse story without tying latents across call sites.
+  - `draw v : A -> K ~ Family(args)`, finite-domain-indexed plate draw.
+  - `observe r[n] ~ Family(args) for n in N`, vectorised observation.
+  - `marginalize c`, program-level discrete-latent marginalisation.
+  - `arr[idx]`, Kleisli pullback gather expression inside `let`-bodies.
+  - `posterior name (model) : domain -> codomain { steps return ... }`, deterministic post-conditioning block whose body consumes posterior latents.
+  - Parametric programs: `program name (G : FinSet, scale : Real, prior : Mor[A, B]) : dom -> cod ...`, programs polymorphic over objects, scalars, and morphisms; denote dependent kernels `Π(p:P).Kern(dom(p), cod(p))`. Instantiated at each call site `draw v ~ name(args)` by parameter substitution + α-renaming, so each call contributes fresh latent factors to the caller's joint kernel. Supports the random-effects reuse story without tying latents across call sites.
   - Let-expression builtins: `cumsum`, `softmax`, `cholesky_quad_form` join the existing `sigmoid` / `exp` / `log` / `abs` / `softplus`.
 - AST nodes in `quivers.dsl.ast_nodes`: `PlateDrawStep`, `VectorisedObserveStep`, `MarginalizeStep`, `LetExprIndex`, `PosteriorDecl`; each docstring carries the Kern denotation.
-- Stan-model port at `src/quivers/dsl/examples/event_structure.qvr` — a faithful translation of the four-class telicity × durativity latent-class model from `~/Projects/supertelicity/analysis/event-structure-induction/models/event-structure-model.stan`, demonstrating crossed random effects, ordinal monotone splines, vectorised observations, and `marginalize` over the discrete latent class.
-- `tests/test_bayesian.py` — 15 tests covering every new primitive and every new AST node's parse / compile round-trip, plus a compile-time smoke test on the Stan-model port.
+- Stan-model port at `docs/examples/source/event_structure.qvr`, a faithful translation of the four-class telicity × durativity latent-class model from `~/Projects/supertelicity/analysis/event-structure-induction/models/event-structure-model.stan`, demonstrating crossed random effects, ordinal monotone splines, vectorised observations, and `marginalize` over the discrete latent class.
+- `tests/test_bayesian.py`: 15 tests covering every new primitive and every new AST node's parse / compile round-trip, plus a compile-time smoke test on the Stan-model port.
 
 ### Changed
 
@@ -86,19 +142,19 @@ general agenda-engine runtime (`quivers.stochastic.agenda`).
 - Pattern-polymorphic `schema` declarations: `schema r[X, Y : Cat] : (X/Y) * Y -> X`. Subsumes `rule` with explicit parameter types and a unified domain/codomain shape.
 - New SetObject variants: `EnumSet(name, elements)` for named-element finite sets, `FreeResiduated(generators, depth, ops)` for residuated category universes. New surface syntax `object Atoms = {NP, S, VP}` and `object Cat = FreeResiduated(Atoms, depth=4, ops=[slash])`.
 - `FreeMonoid` surface form: `object Free = FreeMonoid(X, max_length=4)`.
-- `TypeSlash` and `TypeEffectApply` `TypeExpr` variants — residuated patterns and effect-typed types are first-class. The `CatPattern` AST family is removed (folded into `TypeExpr`).
-- `chart_fold(lex=, binary=, unary=, start=, depth=, effect_depth=, handlers=)` primitive expression — desugared form of `parser(rules=...)`. `unary=` is wired through the inside algorithm's reflexive-transitive unary-rule closure. `handlers=` post-composes effect handlers on the parser output as log-space transition morphisms.
+- `TypeSlash` and `TypeEffectApply` `TypeExpr` variants, residuated patterns and effect-typed types are first-class. The `CatPattern` AST family is removed (folded into `TypeExpr`).
+- `chart_fold(lex=, binary=, unary=, start=, depth=, effect_depth=, handlers=)` primitive expression, desugared form of `parser(rules=...)`. `unary=` is wired through the inside algorithm's reflexive-transitive unary-rule closure. `handlers=` post-composes effect handlers on the parser output as log-space transition morphisms.
 - `.curry_right` / `.curry_left` postfix combinators witnessing the residuation isomorphisms; backed by `quivers.core.morphisms.CurriedMorphism`.
 - Typeclass tower in `quivers.monadic.typeclasses`: `Functor`, `Applicative`, `Monad`, `Alternative`, `MonadPlus`, `Foldable`, `Traversable`, `MonadTrans`. Concrete monads (`FuzzyPowersetMonad`, `FreeMonoidMonad`, `GiryMonad`) subclass `Monad` directly.
 - Stdlib effect instances in `quivers.monadic.instances`: `Identity`, `Maybe`, `Alternative_`, `Continuation`, `State`, `Reader`, `Writer`, `List`. All operations (`pure`, `fmap`, `apply`, `join`, `bind`, `lift_a2`, `empty`, `alt`, `foldr`, `traverse`) are concrete V-relation realisations; function-space-dependent operations encode `[A → B]` as a finite `FinSet` of cardinality `|B|^|A|`. Monad transformers in `quivers.monadic.transformers`: `StateT`, `ReaderT`, `MaybeT`, `ContT`, `WriterT`.
 - Algebraic effects + handlers in `quivers.monadic.algebraic`: `Operation`, `EffectSignature`, `Handler`, `FreeMonad`. `FreeMonad` carrier is the bounded-depth signature-tree set realised as a flat `FinSet` with structural decomposition via `_decompose_carrier_index` / `_compose_carrier_index`; `pure`, `fmap`, `join`, `bind`, `lift_a2` satisfy the monad laws up to truncation. `Handler.run` is the post-order tree fold interpreting each leaf through `return_clause` and each operation node through `operation_clauses`. `EffectSignature.to_theory()` and `Handler.as_theory_morphism()` realise the panproto-side theory and theory morphism.
 - `quivers.monadic.bridges`: `Kleisli`, `ArrowMonad`, `CoKleisli`, `kleisli`, `arrow_monad`, `cokleisli` connecting the monad and arrow towers. `Kleisli.compose` is fmap-then-join with structural recovery of the underlying B; `Kleisli.first` is realised via the canonical monad strength `σ = (pure × id) >> lift_a2(id_{A⊗B})`; `Kleisli.app` routes through the Applicative apply. `ArrowMonad` provides `fmap/pure/apply/join/bind/lift_a2` via the underlying arrow's `arr`/`id_arr`/`app`/`compose`. `CoKleisli` is registered as `Category_`; promoting to `Arrow` requires an explicit comonad costrength supplied via `first_via_costrength(f, C, costrength)`.
-- `quivers.arrows` package — Hughes-style arrow hierarchy (`Category_`, `Arrow`, `ArrowChoice`, `ArrowApply`, `ArrowLoop`, `ArrowZero`, `ArrowPlus`) with panproto-theory mirrors. New `quivers.arrows.instances` with `VRel`, `Function`, `Stochastic` arrow instances; `loop_arr` realised via the V-quantale iterative trace (Joyal-Street-Verity 1996, §3).
-- `quivers.stochastic.effect_lifts.class_directed_lifts` — class-driven schema lifting for effect-typed parsers. `make_swap_schema` / `swap_rule_set` emit `swap_TU` schemas from registered `DistributiveLaw` instances for commutation firings.
-- `quivers.core._factories` module — concrete morphism constructors `inj`, `case`, `pi`, `pair`, `parallel`, `terminal`, `constant`, `distrib_right`, `coproduct_map`. The algebra on which the stdlib monads, arrows, and algebraic-effects layer are built.
+- `quivers.arrows` package, Hughes-style arrow hierarchy (`Category_`, `Arrow`, `ArrowChoice`, `ArrowApply`, `ArrowLoop`, `ArrowZero`, `ArrowPlus`) with panproto-theory mirrors. New `quivers.arrows.instances` with `VRel`, `Function`, `Stochastic` arrow instances; `loop_arr` realised via the V-quantale iterative trace (Joyal-Street-Verity 1996, §3).
+- `quivers.stochastic.effect_lifts.class_directed_lifts`: class-driven schema lifting for effect-typed parsers. `make_swap_schema` / `swap_rule_set` emit `swap_TU` schemas from registered `DistributiveLaw` instances for commutation firings.
+- `quivers.core._factories` module, concrete morphism constructors `inj`, `case`, `pi`, `pair`, `parallel`, `terminal`, `constant`, `distrib_right`, `coproduct_map`. The algebra on which the stdlib monads, arrows, and algebraic-effects layer are built.
 - New tree-sitter grammar at `grammars/qvr/` with regenerated parser; the unified `_type_expr` family subsumes the prior `_cat_pattern` productions.
 - Local-grammar override at `quivers.dsl._dev_grammar` (activated by `QVR_USE_LOCAL_GRAMMAR=1`) using panproto 0.47's first-class `AstParserRegistry.override_grammar()` API. Compiles the in-tree grammar and installs it into the standard registry when the upstream `panproto-grammars-all` bundle hasn't yet vendored the latest grammar source.
-- `docs/guides/effects.md` and `docs/semantics/effects.md` — user guide and formal denotational layer for the typeclass + algebraic-effects framework.
+- `docs/guides/effects.md` and `docs/semantics/effects.md`, user guide and formal denotational layer for the typeclass + algebraic-effects framework.
 - `quantifier_scope.qvr` example demonstrating Charlow-style scope-taking via `Continuation`.
 
 ### Changed
@@ -124,9 +180,9 @@ general agenda-engine runtime (`quivers.stochastic.agenda`).
 
 ### Upstream
 
-- panproto/panproto#89 closed and shipped in panproto 0.47.0 — first-class runtime grammar override via `AstParserRegistry.override_grammar()`.
-- panproto/didactic#38 closed and shipped in didactic 0.7.0 — `tuple[Model, ...]` field types accept any `dx.Model` element directly (the workaround tuple-of-`TaggedUnion`-roots is no longer needed).
-- panproto/didactic#39 closed and shipped in didactic 0.7.0 — `dx.field(opaque=True)` for fields typed at typeclass ABCs (`Monad`, `ArrowApply`, etc.); opaque fields preserve in-process identity through `with_` but drop to `None` on JSON round-trip.
+- panproto/panproto#89 closed and shipped in panproto 0.47.0, first-class runtime grammar override via `AstParserRegistry.override_grammar()`.
+- panproto/didactic#38 closed and shipped in didactic 0.7.0, `tuple[Model, ...]` field types accept any `dx.Model` element directly (the workaround tuple-of-`TaggedUnion`-roots is no longer needed).
+- panproto/didactic#39 closed and shipped in didactic 0.7.0, `dx.field(opaque=True)` for fields typed at typeclass ABCs (`Monad`, `ArrowApply`, etc.); opaque fields preserve in-process identity through `with_` but drop to `None` on JSON round-trip.
 
 ### Dependencies
 

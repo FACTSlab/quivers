@@ -1,0 +1,18 @@
+# Beta-Bernoulli conjugate model.
+#
+# Prior:        theta ~ Beta(alpha0, beta0)
+# Likelihood:   y_i  ~ Bernoulli(theta)
+#
+# The posterior is in closed form: Beta(alpha0 + sum(y), beta0 + N - sum(y)).
+# Used as a Tier-1 benchmark for the inference layer: any guide
+# whose family contains a tight Beta-shaped distribution should
+# recover the analytical posterior mean to within a small tolerance.
+
+object Obs : 50
+
+program beta_bernoulli : Obs -> Obs
+    theta <- Beta(2.0, 2.0)
+    observe y : Obs <- Bernoulli(theta)
+    return theta
+
+export beta_bernoulli

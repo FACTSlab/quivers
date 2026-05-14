@@ -1,0 +1,31 @@
+# ================================================================
+# First-Order Autoregressive Model (AR(1))
+# ================================================================
+#
+# A first-order autoregressive time series with Normal noise:
+#
+#   alpha ~ Normal(0, 5)
+#   phi   ~ Uniform(-1, 1)            stationarity constraint
+#   sigma ~ HalfCauchy(1)
+#   y_1   ~ Normal(alpha / (1 - phi), sigma / sqrt(1 - phi^2))
+#   y_t   ~ Normal(alpha + phi * y_{t-1}, sigma)    for t > 1
+#
+# Conditioning on an observed series indexed by `Step` recovers
+# the stationary posterior over (alpha, phi, sigma). The model
+# is the canonical reference point for both linear time-series
+# inference and the more elaborate state-space models in the
+# gallery.
+
+object Step : 200
+
+program ar1 : Step -> Step
+    alpha <- Normal(0.0, 5.0)
+    phi <- Uniform(-1.0, 1.0)
+    sigma <- HalfCauchy(1.0)
+
+    y_prev : Step <- Normal(0.0, 1.0)
+    let mu = alpha + phi * y_prev
+    observe y : Step <- Normal(mu, sigma)
+    return phi
+
+export ar1

@@ -1,0 +1,40 @@
+# ================================================================
+# Two-Parameter Logistic Item Response Theory
+# ================================================================
+#
+# The two-parameter logistic IRT model (Birnbaum 1968) for
+# binary responses `y_{ij}` of respondent i to item j:
+#
+#   ability_i      ~ Normal(0, 1)            standardised ability
+#   difficulty_j   ~ Normal(0, 1)
+#   discrim_j      ~ LogNormal(0, 1)         positive by construction
+#   eta_{ij}       = discrim_j * (ability_i - difficulty_j)
+#   y_{ij}         ~ Bernoulli(sigmoid(eta_{ij}))
+#
+# Each item carries its own discrimination and difficulty;
+# respondents carry an unidimensional ability. The runtime
+# observes the full response matrix indexed by `Resp`; the
+# per-row item and respondent indices are supplied at fit time
+# via the standard plate-gather idiom (`difficulty[item_idx]`,
+# `ability[resp_idx]`).
+
+object Person : 500
+object Item : 30
+object Resp : 15000
+
+program irt_2pl : Resp -> Resp
+    ability : Person <- Normal(0.0, 1.0)
+    difficulty : Item <- Normal(0.0, 1.0)
+    discrim : Item <- LogNormal(0.0, 1.0)
+
+    let theta = ability[person_idx]
+    let b = difficulty[item_idx]
+    let a = discrim[item_idx]
+
+    let eta = a * (theta - b)
+    let p = sigmoid(eta)
+
+    observe y : Resp <- Bernoulli(p)
+    return p
+
+export irt_2pl

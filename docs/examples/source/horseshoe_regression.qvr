@@ -1,0 +1,55 @@
+# ================================================================
+# Multi-Coefficient Horseshoe Regression
+# ================================================================
+#
+# A multiple regression with the horseshoe prior of
+# ([Carvalho, Polson, and Scott 2010]
+# (https://doi.org/10.1093/biomet/asq017)).  The horseshoe is a
+# global-local scale mixture of Normals: a single global scale
+# `tau` and per-coordinate local scales `lambda_p` jointly
+# define the coefficient prior
+#
+#   tau          ~ HalfCauchy(1)
+#   lambda_p     ~ HalfCauchy(1)              per coefficient p
+#   z_p          ~ Normal(0, 1)               per coefficient p
+#   beta_p       = tau * lambda_p * z_p       reparameterised draw
+#   alpha        ~ Normal(0, 5)
+#   sigma        ~ HalfCauchy(2)
+#   mu_n         = alpha + sum_p beta_p * x_{n, p}
+#   y_n          ~ Normal(mu_n, sigma)
+#
+# The horseshoe has no closed-form marginal density: the right
+# idiom in quivers is the explicit `tau * lambda * z` decomposition
+# built from existing primitives, with the per-coefficient `Coef`
+# plate sized at compile time.  The plate-draws `lambda_local`
+# and `z_raw` on `Coef`, gathered through `coef_idx`, scale
+# automatically to any P without rewriting the body.
+#
+# Distinguishing feature: explicit global-local decomposition of
+# the horseshoe via plate-draws on `Coef`, with the resulting
+# coordinate-wise scale built deterministically in `let`.
+
+object Item : 200
+object Coef : 4
+object Resp : 800
+
+program horseshoe_regression : Resp -> Resp
+    # Global-local horseshoe decomposition: half-Cauchy global,
+    # half-Cauchy per-coordinate local, standard-Normal raw draw.
+    tau <- HalfCauchy(1.0)
+    lambda_local : Coef <- HalfCauchy(1.0)
+    z_raw : Coef <- Normal(0.0, 1.0)
+
+    alpha <- Normal(0.0, 5.0)
+    sigma <- HalfCauchy(2.0)
+
+    x : Resp <- Normal(0.0, 1.0)
+    let lam = lambda_local[coef_idx]
+    let z = z_raw[coef_idx]
+    let beta = tau * lam * z
+    let mu = alpha + beta * x
+
+    observe y : Resp <- Normal(mu, sigma)
+    return tau
+
+export horseshoe_regression

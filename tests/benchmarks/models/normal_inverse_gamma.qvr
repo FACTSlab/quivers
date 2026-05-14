@@ -1,0 +1,26 @@
+# Normal-Inverse-Gamma conjugate joint model: mean and variance both unknown.
+#
+# Prior:        sigma2 ~ InverseGamma(a0, b0)            (a0 = 3, b0 = 2)
+#               mu | sigma2 ~ Normal(0, sqrt(sigma2))    (kappa0 = 1, mu0 = 0)
+# Likelihood:   y_i ~ Normal(mu, sqrt(sigma2))
+#
+# This is the textbook joint-conjugate prior on (mu, sigma2); the
+# posterior is itself a Normal-Inverse-Gamma whose updated parameters
+# (mu_N, kappa_N, a_N, b_N) are computed in
+# tests/benchmarks/references.normal_inverse_gamma_reference.
+#
+# Tier-1 stress for guides that must handle two latents simultaneously:
+# the unconstrained-Real mu and the positive sigma2 (whose bijector is
+# the exp / softplus). Mean-field still works because the conjugate
+# posterior factorises as Normal(mu | sigma2) * InverseGamma(sigma2).
+
+object Obs : 60
+
+program normal_inverse_gamma : Obs -> Obs
+    sigma2 <- InverseGamma(3.0, 2.0)
+    let sigma = sqrt(sigma2)
+    mu <- Normal(0.0, sigma)
+    observe y : Obs <- Normal(mu, sigma)
+    return mu
+
+export normal_inverse_gamma

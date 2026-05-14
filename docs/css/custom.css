@@ -59,3 +59,104 @@ pre::-webkit-scrollbar-thumb {
 pre::-webkit-scrollbar-thumb:hover {
     background: #777;
 }
+
+/* ---------------------------------------------------------------
+ * Tabbed code blocks (pymdownx.tabbed with alternate_style: true).
+ * The terminal theme has no built-in CSS for these; we provide
+ * minimal styling and rely on docs/js/tabbed.js to add the
+ * `.is-active` class to the currently-selected label / block.
+ * ------------------------------------------------------------- */
+
+.tabbed-set {
+    margin: 1em 0;
+    border: 1px solid #444;
+    border-radius: 4px;
+    overflow: hidden;
+}
+
+.tabbed-set .tabbed-labels {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0;
+    background: #1a1a1a;
+    border-bottom: 1px solid #444;
+}
+
+.tabbed-set .tabbed-labels > label {
+    padding: 0.5em 1em;
+    cursor: pointer;
+    color: #888;
+    background: transparent;
+    border-right: 1px solid #333;
+    user-select: none;
+    font-family: inherit;
+}
+
+.tabbed-set .tabbed-labels > label:hover {
+    color: #ddd;
+    background: #222;
+}
+
+.tabbed-set .tabbed-labels > label.is-active {
+    color: #fff;
+    background: #2a2a2a;
+    border-bottom: 2px solid #4af;
+}
+
+.tabbed-set .tabbed-content {
+    padding: 0;
+}
+
+.tabbed-set .tabbed-content > .tabbed-block {
+    display: none;
+    padding: 1em;
+}
+
+.tabbed-set .tabbed-content > .tabbed-block.is-active {
+    display: block;
+}
+
+/* Hide the radio inputs themselves; the labels carry the
+ * interaction (handled by tabbed.js). */
+.tabbed-set > input[type="radio"] {
+    display: none;
+}
+
+/* ---------------------------------------------------------------
+ * Source code block overflow inside collapsed details (mkdocstrings
+ * source code accordions). Long lines must scroll horizontally
+ * instead of spilling outside the dark code-block background.
+ * ------------------------------------------------------------- */
+
+details > .highlight,
+details > div.highlight,
+details > pre,
+details > div > pre {
+    overflow-x: auto;
+    max-width: 100%;
+}
+
+details > .highlight pre,
+details pre {
+    overflow-x: auto;
+    max-width: 100%;
+    white-space: pre;
+}
+
+/* ---------------------------------------------------------------
+ * MathJax inline math sizing: by default MathJax renders math
+ * at 100% of the surrounding text size, but with a serif font
+ * face that pops out visually against the terminal theme's
+ * monospace prose. We keep the serif (it's still the most
+ * readable choice for math) but trim the font-size so the
+ * baseline aligns with the surrounding monospace.
+ * ------------------------------------------------------------- */
+
+mjx-container[jax="CHTML"][display="false"] {
+    font-size: 95% !important;
+}
+
+mjx-container[jax="CHTML"][display="true"] {
+    margin: 0.6em 0 !important;
+    font-size: 105% !important;
+}

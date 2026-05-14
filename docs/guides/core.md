@@ -6,10 +6,10 @@ In quivers, all morphisms relate finite sets. The type hierarchy is:
 
 ```
 SetObject (abstract)
-├── FinSet              — atomic named set with fixed cardinality
-├── ProductSet          — Cartesian product A × B × C ...
-├── CoproductSet        — tagged union (coproduct) A + B + C ...
-└── FreeMonoid          — free monoid on generators, truncated by length
+├── FinSet             , atomic named set with fixed cardinality
+├── ProductSet         , Cartesian product A × B × C ...
+├── CoproductSet       , tagged union (coproduct) A + B + C ...
+└── FreeMonoid         , free monoid on generators, truncated by length
 ```
 
 ### FinSet
@@ -45,7 +45,7 @@ print(P.shape)     # (3, 4)
 
 C = X + Y          # CoproductSet(X, Y)
 print(C.size)      # 7
-print(C.shape)     # (7,) — flat representation
+print(C.shape)     # (7,), flat representation
 ```
 
 Products represent the Cartesian product: elements are pairs. Coproducts are tagged unions: an element belongs to exactly one component, and `CoproductSet` tracks offsets for indexing.

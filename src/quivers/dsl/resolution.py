@@ -12,7 +12,7 @@ visitor code.
 Each lens carries the resolution *environment* it needs (the object
 inventory and, for spaces, the previously-declared space inventory) on
 its own instance — that's the dependent-optics shape: the lens is
-parameterised by context that determines how each leaf vertex resolves.
+parameterized by context that determines how each leaf vertex resolves.
 The forward direction performs the value-dependent lookup; the
 complement holds the original AST node so :meth:`backward` recovers it
 verbatim. Round-trip laws hold by construction:

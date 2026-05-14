@@ -65,10 +65,20 @@ The agenda fires each rule at every chart cell (unary) or every pair of adjacent
 
 Additional combinators are spelled out as more sequent rules in the same block:
 
-- **Type-raising** (unary): `rule type_raise : span(I, J, X) |- span(I, J, Fwd(Y, Bwd(Y, X)))` — note that introducing a fresh wildcard like `Y` in the conclusion requires either an `axioms = …` source or a downstream rule that pins it down.
-- **Restricted composition**: `rule restricted_comp : span(I, K, Fwd(X, Y)), span(K, J, Fwd(Y, NP)) |- span(I, J, Fwd(X, NP))` — by replacing the third wildcard with the literal `NP` atom we constrain when the rule fires.
+- **Type-raising** (unary): `rule type_raise : span(I, J, X) |- span(I, J, Fwd(Y, Bwd(Y, X)))`, note that introducing a fresh wildcard like `Y` in the conclusion requires either an `axioms = …` source or a downstream rule that pins it down.
+- **Restricted composition**: `rule restricted_comp : span(I, K, Fwd(X, Y)), span(K, J, Fwd(Y, NP)) |- span(I, J, Fwd(X, NP))`, by replacing the third wildcard with the literal `NP` atom we constrain when the rule fires.
 
 Rule premise multiplicity is unary or binary; combinators that need three or more premises are expressed as a chain of binary rules sharing intermediate categories.
+
+## Try it
+
+```python
+from quivers.dsl import load
+
+prog = load("docs/examples/source/custom_rules.qvr")
+```
+
+Each rule in the block is fully user-declared; experimenting with new combinators is a matter of adding a `rule NAME : premises |- conclusion` line and re-loading. Conditioning a downstream `program` on the chart's per-derivation log-weights then lets [`SVI`](../api/inference/svi.md) drive a categorial-lexicon fit through the new rule set without any compiler changes.
 
 ## Categorical Perspective
 

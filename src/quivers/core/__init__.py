@@ -24,7 +24,7 @@ from quivers.core.quantales import (
     PRODUCT_FUZZY,
     BOOLEAN,
 )
-from quivers.core.extra_quantales import (
+from quivers.core.quantales import (
     LukasiewiczQuantale,
     GodelQuantale,
     TropicalQuantale,

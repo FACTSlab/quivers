@@ -6,11 +6,11 @@ Continuous morphisms act between continuous measurable spaces. quivers provides 
 
 ```
 ContinuousSpace (abstract)
-├── Euclidean          — ℝ^n with Lebesgue measure
-├── UnitInterval       — (0, 1) with Lebesgue measure
-├── Simplex            — standard n-simplex {x ∈ ℝⁿ⁺¹ : x ≥ 0, Σx = 1}
-├── PositiveReals      — (0, ∞) with Lebesgue measure
-└── ProductSpace       — product of spaces
+├── Euclidean         , ℝ^n with Lebesgue measure
+├── UnitInterval      , (0, 1) with Lebesgue measure
+├── Simplex           , standard n-simplex {x ∈ ℝⁿ⁺¹ : x ≥ 0, Σx = 1}
+├── PositiveReals     , (0, ∞) with Lebesgue measure
+└── ProductSpace      , product of spaces
 ```
 
 ### Euclidean Space
@@ -166,11 +166,141 @@ from quivers.continuous.families import (
     ConditionalLowRankMVN,
     ConditionalDirichlet,
     ConditionalWishart,
+    ConditionalInverseWishart,
+    ConditionalMatrixNormal,
+    ConditionalGaussianProcess,
+    ConditionalHorseshoe,
 )
 
 # Multivariate normal with learned mean and cov
 mvn = ConditionalMultivariateNormal(domain, Euclidean(5))
 ```
+
+`event_rank` per family controls the axis-role surface in the DSL
+(see the [DSL guide](dsl.md) on `over <axes>`):
+
+| Family | Event rank | Categorical reading |
+|---|---|---|
+| `Normal`, `Beta`, `Gamma`, `Exponential`, etc. | 0 | Scalar; every codomain axis is iid by default |
+| `MultivariateNormal`, `LowRankMVN`, `Dirichlet`, `OneHotCategorical`, `LogisticNormal`, `GP`, `Horseshoe` | 1 | Vector; one named event axis carries the joint distribution |
+| `Wishart`, `InverseWishart`, `MatrixNormal`, `LKJCholesky` | 2 | Matrix; two named event axes carry the joint distribution |
+
+The DSL surface `~ Family over <axes>` requires the axis count to
+match the family's event rank exactly; mismatch is a compile-time
+error.  In particular, a flat MVN over `dim(A)*dim(B)` (dense
+covariance, event_rank 1 with a single named axis whose dim equals
+the product) is categorically distinct from a `MatrixNormal` over
+`(A, B)` (Kronecker structure `V ⊗ U`, event_rank 2); the surface
+keeps the two distinguishable rather than auto-substituting.
+
+#### MatrixNormal: Kronecker-covariance matrix prior
+
+```python
+from quivers.continuous.families import ConditionalMatrixNormal
+
+# Matrix-valued kernel: domain -> R^(rows*cols), with samples
+# reshaped to (rows, cols) and Kronecker covariance Σ = V ⊗ U.
+mn = ConditionalMatrixNormal(domain, Euclidean(rows * cols), rows=4, cols=8)
+```
+
+The matrix-Normal `MN(M, U, V)` is the natural prior for a
+weight matrix `W : R^d → R^k` whose row and column correlations
+factor separately.  When used as a `latent` morphism prior in the
+DSL (`latent W : Euclidean(D) -> Euclidean(K) ~ MatrixNormal(loc,
+row_scale, col_scale) over (dom, cod)`), the first axis listed in
+`over` binds the row covariance and the second the column
+covariance.
+
+#### InverseWishart: conjugate covariance prior
+
+```python
+from quivers.continuous.families import ConditionalInverseWishart
+
+# Conjugate prior on a d-dim covariance matrix.  Realised as the
+# inversion of a Wishart sample with the correct symmetric-matrix
+# change-of-variables Jacobian.
+iw = ConditionalInverseWishart(domain, Euclidean(d))
+```
+
+Conjugate prior for the covariance of a multivariate normal
+([Gelman, Carlin, Stern, Dunson, Vehtari & Rubin, 2013](https://doi.org/10.1201/b16018), §3.6).
+The change-of-variables Jacobian for inverting a positive-definite
+symmetric matrix contributes a `-(d + 1) log det(Σ)` term to the
+log-density.
+
+#### Gaussian process: covariance kernel evaluated at inputs
+
+A [Gaussian process](https://en.wikipedia.org/wiki/Gaussian_process)
+on `R^D` is a Markov kernel `X^N -> G(R^N)` whose value at any
+finite collection of input locations `x_1, ..., x_N in R^D` is a
+joint multivariate Normal with covariance `K(x_i, x_j)`.
+Categorically, the family departs from the other parametric
+families: its "parameters" at each evaluation are the input
+locations themselves, not a small neural-net summary of them.
+[`ConditionalGaussianProcess`](../api/continuous/families.md#quivers.continuous.families.ConditionalGaussianProcess)
+exposes three covariance kernels (RBF, Matern 5/2, linear) with
+learnable length scale and amplitude.
+
+```python
+from quivers.continuous.families import ConditionalGaussianProcess
+from quivers.continuous.spaces import Euclidean
+import torch
+
+D, N = 2, 8
+gp = ConditionalGaussianProcess(
+    Euclidean(name="X", dim=D),
+    Euclidean(name="Y", dim=N),
+    kernel="rbf",
+    length_scale=0.5,
+    amplitude=1.0,
+)
+x = torch.randn(N, D)            # N input locations in R^D
+f = gp.rsample(x)                # one GP draw at those inputs, shape (N,)
+log_p = gp.log_prob(x, f)        # MVN(0, K(x, x) + jitter * I) density
+```
+
+The DSL registers the family as `GP` with event rank 1; one named
+axis (the input-location count `N`) carries the joint distribution.
+Reference: [Rasmussen & Williams (2006)](http://www.gaussianprocess.org/gpml/).
+
+#### Horseshoe: global-local shrinkage prior
+
+The [horseshoe prior](https://doi.org/10.1093/biomet/asq017) is a
+sparse-signal prior whose hierarchical form is
+
+```text
+tau ~ HalfCauchy(scale)
+lambda_d ~ HalfCauchy(1)            for d = 1, ..., D
+beta_d | tau, lambda_d ~ Normal(0, (tau * lambda_d)^2)
+```
+
+The marginal density of `beta_d` after integrating the local scale
+`lambda_d` has no closed form; the [Carvalho, Polson & Scott
+(2010)](https://doi.org/10.1093/biomet/asq017) bound is improper.
+[`ConditionalHorseshoe`](../api/continuous/families.md#quivers.continuous.families.ConditionalHorseshoe)
+returns the exact marginal via 16-point Gauss-Legendre quadrature
+after the change of variables `lambda = tan(pi * t / 2)` which
+maps `(0, inf)` to `(0, 1)` with Jacobian
+`(pi / 2) * sec^2(pi * t / 2)`.
+
+```python
+from quivers.continuous.families import ConditionalHorseshoe
+from quivers.continuous.spaces import Euclidean
+from quivers.core.objects import FinSet
+import torch
+
+hs = ConditionalHorseshoe(
+    FinSet(name="A", cardinality=4),
+    Euclidean(name="beta", dim=10),
+    scale=0.1,
+)
+x = torch.tensor([0, 1, 2, 3])
+beta = hs.rsample(x)             # shape (4, 10)
+log_p = hs.log_prob(x, beta)     # shape (4,), summed over coordinates
+```
+
+The DSL registers the family as `Horseshoe` with event rank 1; the
+one named axis carries the per-coordinate marginal product.
 
 ### Discrete (Categorical)
 

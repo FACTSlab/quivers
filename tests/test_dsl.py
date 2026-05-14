@@ -13,8 +13,7 @@ from quivers.dsl.ast_nodes import (
     ObjectDecl,
     MorphismDecl,
     SpaceDecl,
-    ContinuousMorphismDecl,
-    StochasticMorphismDecl,
+    KernelDecl,
     DiscretizeDecl,
     EmbedDecl,
     LetStep,
@@ -514,10 +513,10 @@ class TestParserContinuous:
     def test_continuous_decl(self):
         """Parse continuous morphism declaration."""
         mod = self._parse(
-            "object X : 3\nspace R3 : Euclidean(3)\ncontinuous f : X -> R3 ~ Normal"
+            "object X : 3\nspace R3 : Euclidean(3)\nkernel f : X -> R3 ~ Normal"
         )
         stmt = mod.statements[2]
-        assert isinstance(stmt, ContinuousMorphismDecl)
+        assert isinstance(stmt, KernelDecl)
         assert stmt.name == "f"
         assert stmt.domain.name == "X"
         assert stmt.codomain.name == "R3"
@@ -527,18 +526,18 @@ class TestParserContinuous:
     def test_continuous_decl_with_options(self):
         """Parse continuous morphism with bracket options."""
         mod = self._parse(
-            "object X : 3\nspace R3 : Euclidean(3)\ncontinuous fl : X -> R3 ~ Flow [n_layers=6, hidden_dim=32]"
+            "object X : 3\nspace R3 : Euclidean(3)\nkernel fl : X -> R3 ~ Flow [n_layers=6, hidden_dim=32]"
         )
         stmt = mod.statements[2]
-        assert isinstance(stmt, ContinuousMorphismDecl)
+        assert isinstance(stmt, KernelDecl)
         assert stmt.family == "Flow"
         assert stmt.options == {"n_layers": "6", "hidden_dim": "32"}
 
     def test_stochastic_decl(self):
         """Parse stochastic morphism declaration."""
-        mod = self._parse("object X : 3\nobject Y : 4\nstochastic s : X -> Y")
+        mod = self._parse("object X : 3\nobject Y : 4\nkernel s : X -> Y")
         stmt = mod.statements[2]
-        assert isinstance(stmt, StochasticMorphismDecl)
+        assert isinstance(stmt, KernelDecl)
         assert stmt.name == "s"
 
     def test_discretize_decl(self):
@@ -631,7 +630,7 @@ class TestCompilerContinuous:
         from quivers.continuous.families import ConditionalNormal
 
         ast = parse(
-            "object X : 5\nspace R3 : Euclidean(3)\ncontinuous f : X -> R3 ~ Normal"
+            "object X : 5\nspace R3 : Euclidean(3)\nkernel f : X -> R3 ~ Normal"
         )
         compiler = Compiler(ast)
         env = compiler.compile_env()
@@ -642,9 +641,7 @@ class TestCompilerContinuous:
         """Compile a continuous Dirichlet morphism."""
         from quivers.continuous.families import ConditionalDirichlet
 
-        ast = parse(
-            "object X : 3\nspace S : Simplex(4)\ncontinuous g : X -> S ~ Dirichlet"
-        )
+        ast = parse("object X : 3\nspace S : Simplex(4)\nkernel g : X -> S ~ Dirichlet")
         compiler = Compiler(ast)
         env = compiler.compile_env()
         assert isinstance(env["g"], ConditionalDirichlet)
@@ -654,7 +651,7 @@ class TestCompilerContinuous:
         from quivers.continuous.flows import ConditionalFlow
 
         ast = parse(
-            "object X : 5\nspace R4 : Euclidean(4)\ncontinuous fl : X -> R4 ~ Flow [n_layers=6, hidden_dim=32]"
+            "object X : 5\nspace R4 : Euclidean(4)\nkernel fl : X -> R4 ~ Flow [n_layers=6, hidden_dim=32]"
         )
         compiler = Compiler(ast)
         env = compiler.compile_env()
@@ -664,9 +661,7 @@ class TestCompilerContinuous:
         """Compile a continuous Beta morphism."""
         from quivers.continuous.families import ConditionalBeta
 
-        ast = parse(
-            "object X : 3\nspace R2 : Euclidean(2)\ncontinuous b : X -> R2 ~ Beta"
-        )
+        ast = parse("object X : 3\nspace R2 : Euclidean(2)\nkernel b : X -> R2 ~ Beta")
         compiler = Compiler(ast)
         env = compiler.compile_env()
         assert isinstance(env["b"], ConditionalBeta)
@@ -676,7 +671,7 @@ class TestCompilerContinuous:
         from quivers.continuous.families import ConditionalLaplace
 
         ast = parse(
-            "object X : 3\nspace R2 : Euclidean(2)\ncontinuous l : X -> R2 ~ Laplace"
+            "object X : 3\nspace R2 : Euclidean(2)\nkernel l : X -> R2 ~ Laplace"
         )
         compiler = Compiler(ast)
         env = compiler.compile_env()
@@ -686,7 +681,7 @@ class TestCompilerContinuous:
         """Compile a stochastic morphism."""
         from quivers.stochastic import StochasticMorphism
 
-        ast = parse("object X : 3\nobject Y : 4\nstochastic s : X -> Y")
+        ast = parse("object X : 3\nobject Y : 4\nkernel s : X -> Y")
         compiler = Compiler(ast)
         env = compiler.compile_env()
         assert isinstance(env["s"], StochasticMorphism)
@@ -713,7 +708,7 @@ class TestCompilerContinuous:
         """CompileError for unknown distribution family."""
         with pytest.raises(CompileError, match="unknown distribution family"):
             ast = parse(
-                "object X : 3\nspace R : Euclidean(2)\ncontinuous f : X -> R ~ Nonexistent\nexport f"
+                "object X : 3\nspace R : Euclidean(2)\nkernel f : X -> R ~ Nonexistent\nexport f"
             )
             Compiler(ast).compile()
 
@@ -740,7 +735,7 @@ class TestContinuousDSLIntegration:
     def test_discrete_to_continuous_pipeline(self):
         """Full pipeline: discrete -> continuous via DSL."""
         ast = parse(
-            "\n            object X : 5\n            space R3 : Euclidean(3)\n\n            continuous f : X -> R3 ~ Normal\n\n            export f\n        "
+            "\n            object X : 5\n            space R3 : Euclidean(3)\n\n            kernel f : X -> R3 ~ Normal\n\n            export f\n        "
         )
         compiler = Compiler(ast)
         prog = compiler.compile()
@@ -752,7 +747,7 @@ class TestContinuousDSLIntegration:
     def test_stochastic_then_continuous(self):
         """Stochastic >> Continuous composition via DSL."""
         ast = parse(
-            "\n            object A : 5\n            object B : 3\n            space R2 : Euclidean(2)\n\n            stochastic s : A -> B\n            continuous g : B -> R2 ~ Normal\n\n            let pipeline = s >> g\n            export pipeline\n        "
+            "\n            object A : 5\n            object B : 3\n            space R2 : Euclidean(2)\n\n            kernel s : A -> B\n            kernel g : B -> R2 ~ Normal\n\n            let pipeline = s >> g\n            export pipeline\n        "
         )
         compiler = Compiler(ast)
         env = compiler.compile_env()
@@ -761,7 +756,7 @@ class TestContinuousDSLIntegration:
     def test_embed_then_continuous(self):
         """Embed >> Continuous composition via DSL."""
         ast = parse(
-            "\n            object A : 4\n            space R2 : Euclidean(2)\n            space R1 : Euclidean(1)\n\n            embed e : A -> R2\n            continuous g : R2 -> R1 ~ Normal\n\n            let pipeline = e >> g\n            export pipeline\n        "
+            "\n            object A : 4\n            space R2 : Euclidean(2)\n            space R1 : Euclidean(1)\n\n            embed e : A -> R2\n            kernel g : R2 -> R1 ~ Normal\n\n            let pipeline = e >> g\n            export pipeline\n        "
         )
         compiler = Compiler(ast)
         env = compiler.compile_env()
@@ -770,7 +765,7 @@ class TestContinuousDSLIntegration:
     def test_continuous_rsample(self):
         """Compiled continuous morphism can rsample."""
         ast = parse(
-            "\n            object X : 5\n            space R3 : Euclidean(3)\n\n            continuous f : X -> R3 ~ Normal\n        "
+            "\n            object X : 5\n            space R3 : Euclidean(3)\n\n            kernel f : X -> R3 ~ Normal\n        "
         )
         compiler = Compiler(ast)
         env = compiler.compile_env()
@@ -782,7 +777,7 @@ class TestContinuousDSLIntegration:
     def test_continuous_log_prob(self):
         """Compiled continuous morphism can compute log_prob."""
         ast = parse(
-            "\n            object X : 3\n            space R2 : Euclidean(2)\n\n            continuous f : X -> R2 ~ Normal\n        "
+            "\n            object X : 3\n            space R2 : Euclidean(2)\n\n            kernel f : X -> R2 ~ Normal\n        "
         )
         compiler = Compiler(ast)
         env = compiler.compile_env()
@@ -796,7 +791,7 @@ class TestContinuousDSLIntegration:
     def test_flow_via_dsl(self):
         """ConditionalFlow via DSL."""
         ast = parse(
-            "\n            object X : 3\n            space R4 : Euclidean(4)\n\n            continuous fl : X -> R4 ~ Flow [n_layers=4, hidden_dim=16]\n        "
+            "\n            object X : 3\n            space R4 : Euclidean(4)\n\n            kernel fl : X -> R4 ~ Flow [n_layers=4, hidden_dim=16]\n        "
         )
         compiler = Compiler(ast)
         env = compiler.compile_env()
@@ -829,12 +824,14 @@ class TestContinuousDSLIntegration:
             "FisherSnedecor",
         ]
         for family in unbounded_families:
-            source = f"object X : 3\nspace R : Euclidean(2)\ncontinuous f : X -> R ~ {family}\n"
+            source = (
+                f"object X : 3\nspace R : Euclidean(2)\nkernel f : X -> R ~ {family}\n"
+            )
             ast = parse(source)
             env = Compiler(ast).compile_env()
             assert "f" in env, f"family {family} not compiled"
         for family in ["TruncatedNormal", "Uniform"]:
-            source = f"object X : 3\nspace R : Euclidean(2, low=0.0, high=1.0)\ncontinuous f : X -> R ~ {family}\n"
+            source = f"object X : 3\nspace R : Euclidean(2, low=0.0, high=1.0)\nkernel f : X -> R ~ {family}\n"
             ast = parse(source)
             env = Compiler(ast).compile_env()
             assert "f" in env, f"bounded family {family} not compiled"
@@ -842,7 +839,9 @@ class TestContinuousDSLIntegration:
     def test_multivariate_families_via_dsl(self):
         """MultivariateNormal and LowRankMVN via DSL."""
         for family in ["MultivariateNormal", "LowRankMVN"]:
-            source = f"object X : 3\nspace R : Euclidean(4)\ncontinuous f : X -> R ~ {family}\n"
+            source = (
+                f"object X : 3\nspace R : Euclidean(4)\nkernel f : X -> R ~ {family}\n"
+            )
             ast = parse(source)
             env = Compiler(ast).compile_env()
             assert "f" in env
@@ -850,7 +849,7 @@ class TestContinuousDSLIntegration:
     def test_dirichlet_via_dsl(self):
         """Dirichlet distribution via DSL."""
         ast = parse(
-            "\n            object X : 3\n            space S : Simplex(4)\n            continuous f : X -> S ~ Dirichlet\n        "
+            "\n            object X : 3\n            space S : Simplex(4)\n            kernel f : X -> S ~ Dirichlet\n        "
         )
         compiler = Compiler(ast)
         env = compiler.compile_env()
@@ -862,7 +861,7 @@ class TestContinuousDSLIntegration:
     def test_full_mixed_pipeline(self):
         """Full mixed pipeline: discrete -> stochastic -> continuous."""
         ast = parse(
-            "\n            object A : 5\n            object B : 3\n            space R2 : Euclidean(2)\n\n            stochastic s : A -> B\n            continuous g : B -> R2 ~ Normal\n\n            let pipeline = s >> g\n        "
+            "\n            object A : 5\n            object B : 3\n            space R2 : Euclidean(2)\n\n            kernel s : A -> B\n            kernel g : B -> R2 ~ Normal\n\n            let pipeline = s >> g\n        "
         )
         compiler = Compiler(ast)
         env = compiler.compile_env()
@@ -873,7 +872,7 @@ class TestContinuousDSLIntegration:
 
     def test_comments_in_continuous_program(self):
         """Comments and whitespace work in continuous programs."""
-        source = "\n            # continuous model\n            object X : 3  # input\n\n            space R3 : Euclidean(3)  # export space\n\n            # learnable conditional distribution\n            continuous f : X -> R3 ~ Normal\n\n            export f\n        "
+        source = "\n            # continuous model\n            object X : 3  # input\n\n            space R3 : Euclidean(3)  # export space\n\n            # learnable conditional distribution\n            kernel f : X -> R3 ~ Normal\n\n            export f\n        "
         ast = parse(source)
         compiler = Compiler(ast)
         prog = compiler.compile()
@@ -884,7 +883,7 @@ class TestParserProgram:
     def test_simple_program(self):
         """Parse a minimal program block."""
         ast = parse(
-            "\n            object X : 3\n            space R : Euclidean(2)\n            continuous f : X -> R ~ Normal\n\n            program p : X -> R\n                y <- f\n                return y\n        "
+            "\n            object X : 3\n            space R : Euclidean(2)\n            kernel f : X -> R ~ Normal\n\n            program p : X -> R\n                y <- f\n                return y\n        "
         )
         prog_stmt = ast.statements[3]
         assert isinstance(prog_stmt, ProgramDecl)
@@ -900,7 +899,7 @@ class TestParserProgram:
     def test_program_with_arg(self):
         """Parse draw step with explicit argument."""
         ast = parse(
-            "\n            object X : 3\n            space R : Euclidean(2)\n            space S : Euclidean(4)\n            continuous f : X -> R ~ Normal\n            continuous g : R -> S ~ Normal\n\n            program p : X -> S\n                y <- f\n                z <- g(y)\n                return z\n        "
+            "\n            object X : 3\n            space R : Euclidean(2)\n            space S : Euclidean(4)\n            kernel f : X -> R ~ Normal\n            kernel g : R -> S ~ Normal\n\n            program p : X -> S\n                y <- f\n                z <- g(y)\n                return z\n        "
         )
         prog_stmt = ast.statements[5]
         assert isinstance(prog_stmt, ProgramDecl)
@@ -911,7 +910,7 @@ class TestParserProgram:
     def test_program_fan_out(self):
         """Parse program with fan-out (multiple draws from input)."""
         ast = parse(
-            "\n            object X : 2\n            space B : UnitInterval(1)\n            continuous p1 : X -> B ~ LogitNormal\n            continuous p2 : X -> B ~ LogitNormal\n\n            program fan_prog : X -> B\n                a <- p1\n                b <- p2\n                return a\n        "
+            "\n            object X : 2\n            space B : UnitInterval(1)\n            kernel p1 : X -> B ~ LogitNormal\n            kernel p2 : X -> B ~ LogitNormal\n\n            program fan_prog : X -> B\n                a <- p1\n                b <- p2\n                return a\n        "
         )
         prog_stmt = ast.statements[4]
         assert isinstance(prog_stmt, ProgramDecl)
@@ -923,7 +922,7 @@ class TestParserProgram:
         """Program with no draw steps is a parse error."""
         with pytest.raises(ParseError):
             parse(
-                "\n                object X : 3\n                space R : Euclidean(2)\n                continuous f : X -> R ~ Normal\n\n                program p : X -> R\n                    return y\n            "
+                "\n                object X : 3\n                space R : Euclidean(2)\n                kernel f : X -> R ~ Normal\n\n                program p : X -> R\n                    return y\n            "
             )
 
 
@@ -931,7 +930,7 @@ class TestCompilerProgram:
     def test_simple_program_compiles(self):
         """Simple program compiles to MonadicProgram."""
         ast = parse(
-            "\n            object X : 3\n            space R : Euclidean(2)\n            continuous f : X -> R ~ Normal\n\n            program p : X -> R\n                y <- f\n                return y\n        "
+            "\n            object X : 3\n            space R : Euclidean(2)\n            kernel f : X -> R ~ Normal\n\n            program p : X -> R\n                y <- f\n                return y\n        "
         )
         env = Compiler(ast).compile_env()
         assert "p" in env
@@ -940,7 +939,7 @@ class TestCompilerProgram:
     def test_chained_draws(self):
         """Chained draws compile and produce correct export shape."""
         ast = parse(
-            "\n            object X : 3\n            space R : Euclidean(2)\n            space S : Euclidean(4)\n            continuous f : X -> R ~ Normal\n            continuous g : R -> S ~ Normal\n\n            program chain : X -> S\n                y <- f\n                z <- g(y)\n                return z\n        "
+            "\n            object X : 3\n            space R : Euclidean(2)\n            space S : Euclidean(4)\n            kernel f : X -> R ~ Normal\n            kernel g : R -> S ~ Normal\n\n            program chain : X -> S\n                y <- f\n                z <- g(y)\n                return z\n        "
         )
         env = Compiler(ast).compile_env()
         prog = env["chain"]
@@ -951,7 +950,7 @@ class TestCompilerProgram:
     def test_fan_out_independent_draws(self):
         """Fan-out: multiple draws from same input produce independent values."""
         ast = parse(
-            "\n            object X : 2\n            space B : UnitInterval(1)\n            continuous p1 : X -> B ~ LogitNormal\n            continuous p2 : X -> B ~ LogitNormal\n            continuous p3 : X -> B ~ LogitNormal\n\n            program prior : X -> B\n                x <- p1\n                y <- p2\n                z <- p3\n                return x\n        "
+            "\n            object X : 2\n            space B : UnitInterval(1)\n            kernel p1 : X -> B ~ LogitNormal\n            kernel p2 : X -> B ~ LogitNormal\n            kernel p3 : X -> B ~ LogitNormal\n\n            program prior : X -> B\n                x <- p1\n                y <- p2\n                z <- p3\n                return x\n        "
         )
         env = Compiler(ast).compile_env()
         prog = env["prior"]
@@ -962,7 +961,7 @@ class TestCompilerProgram:
     def test_parameters_visible(self):
         """All step morphism parameters are accessible from the program."""
         ast = parse(
-            "\n            object X : 2\n            space R : Euclidean(2)\n            space S : Euclidean(3)\n            continuous f : X -> R ~ Normal\n            continuous g : R -> S ~ Normal\n\n            program p : X -> S\n                y <- f\n                z <- g(y)\n                return z\n        "
+            "\n            object X : 2\n            space R : Euclidean(2)\n            space S : Euclidean(3)\n            kernel f : X -> R ~ Normal\n            kernel g : R -> S ~ Normal\n\n            program p : X -> S\n                y <- f\n                z <- g(y)\n                return z\n        "
         )
         env = Compiler(ast).compile_env()
         prog = env["p"]
@@ -972,7 +971,7 @@ class TestCompilerProgram:
     def test_gradient_flow(self):
         """Gradients flow through the monadic program."""
         ast = parse(
-            "\n            object X : 3\n            space R : Euclidean(2)\n            continuous f : X -> R ~ Normal\n\n            program p : X -> R\n                y <- f\n                return y\n        "
+            "\n            object X : 3\n            space R : Euclidean(2)\n            kernel f : X -> R ~ Normal\n\n            program p : X -> R\n                y <- f\n                return y\n        "
         )
         env = Compiler(ast).compile_env()
         prog = env["p"]
@@ -988,7 +987,7 @@ class TestCompilerProgram:
     def test_log_joint(self):
         """log_joint computes joint density given all intermediates."""
         ast = parse(
-            "\n            object X : 3\n            space R : Euclidean(2)\n            space S : Euclidean(4)\n            continuous f : X -> R ~ Normal\n            continuous g : R -> S ~ Normal\n\n            program p : X -> S\n                y <- f\n                z <- g(y)\n                return z\n        "
+            "\n            object X : 3\n            space R : Euclidean(2)\n            space S : Euclidean(4)\n            kernel f : X -> R ~ Normal\n            kernel g : R -> S ~ Normal\n\n            program p : X -> S\n                y <- f\n                z <- g(y)\n                return z\n        "
         )
         env = Compiler(ast).compile_env()
         prog = env["p"]
@@ -1002,7 +1001,7 @@ class TestCompilerProgram:
     def test_log_prob_raises(self):
         """log_prob raises NotImplementedError for monadic programs."""
         ast = parse(
-            "\n            object X : 3\n            space R : Euclidean(2)\n            continuous f : X -> R ~ Normal\n\n            program p : X -> R\n                y <- f\n                return y\n        "
+            "\n            object X : 3\n            space R : Euclidean(2)\n            kernel f : X -> R ~ Normal\n\n            program p : X -> R\n                y <- f\n                return y\n        "
         )
         env = Compiler(ast).compile_env()
         prog = env["p"]
@@ -1025,7 +1024,7 @@ class TestCompilerProgram:
         with pytest.raises(CompileError):
             Compiler(
                 parse(
-                    "\n                object X : 3\n                space R : Euclidean(2)\n                space S : Euclidean(4)\n                continuous f : X -> R ~ Normal\n                continuous g : R -> S ~ Normal\n\n                program p : X -> S\n                    y <- f\n                    z <- g(w)\n                    return z\n            "
+                    "\n                object X : 3\n                space R : Euclidean(2)\n                space S : Euclidean(4)\n                kernel f : X -> R ~ Normal\n                kernel g : R -> S ~ Normal\n\n                program p : X -> S\n                    y <- f\n                    z <- g(w)\n                    return z\n            "
                 )
             ).compile_env()
 
@@ -1034,7 +1033,7 @@ class TestCompilerProgram:
         with pytest.raises(CompileError):
             Compiler(
                 parse(
-                    "\n                object X : 3\n                space R : Euclidean(2)\n                continuous f : X -> R ~ Normal\n\n                program p : X -> R\n                    y <- f\n                    return w\n            "
+                    "\n                object X : 3\n                space R : Euclidean(2)\n                kernel f : X -> R ~ Normal\n\n                program p : X -> R\n                    y <- f\n                    return w\n            "
                 )
             ).compile_env()
 
@@ -1043,14 +1042,14 @@ class TestCompilerProgram:
         with pytest.raises(CompileError):
             Compiler(
                 parse(
-                    "\n                object X : 3\n                space R : Euclidean(2)\n                continuous f : X -> R ~ Normal\n\n                program p : X -> R\n                    y <- f\n                    y <- f\n                    return y\n            "
+                    "\n                object X : 3\n                space R : Euclidean(2)\n                kernel f : X -> R ~ Normal\n\n                program p : X -> R\n                    y <- f\n                    y <- f\n                    return y\n            "
                 )
             ).compile_env()
 
     def test_program_as_output(self):
         """Program can be used as the export expression."""
         ast = parse(
-            "\n            object X : 3\n            space R : Euclidean(2)\n            continuous f : X -> R ~ Normal\n\n            program model : X -> R\n                y <- f\n                return y\n\n            export model\n        "
+            "\n            object X : 3\n            space R : Euclidean(2)\n            kernel f : X -> R ~ Normal\n\n            program model : X -> R\n                y <- f\n                return y\n\n            export model\n        "
         )
         prog = Compiler(ast).compile()
         assert isinstance(prog, Program)
@@ -1061,7 +1060,7 @@ class TestCompilerProgram:
     def test_program_in_let_composition(self):
         """Program can be composed via let with >>."""
         ast = parse(
-            "\n            object X : 5\n            object Y : 3\n            space R : Euclidean(2)\n\n            stochastic s : X -> Y\n            continuous f : Y -> R ~ Normal\n\n            program gen : Y -> R\n                z <- f\n                return z\n\n            let pipeline = s >> gen\n        "
+            "\n            object X : 5\n            object Y : 3\n            space R : Euclidean(2)\n\n            kernel s : X -> Y\n            kernel f : Y -> R ~ Normal\n\n            program gen : Y -> R\n                z <- f\n                return z\n\n            let pipeline = s >> gen\n        "
         )
         env = Compiler(ast).compile_env()
         pipeline = env["pipeline"]
@@ -1083,7 +1082,7 @@ class TestPDSFactivityPattern:
             (let' z (LogitNormal 0 1) ...))
         """
         ast = parse(
-            "\n            object Entity : 2\n            space Belief : UnitInterval(1)\n\n            continuous prior_x : Entity -> Belief ~ LogitNormal\n            continuous prior_y : Entity -> Belief ~ LogitNormal\n            continuous prior_z : Entity -> Belief ~ LogitNormal\n\n            program factivity_prior : Entity -> Belief\n                x <- prior_x\n                y <- prior_y\n                z <- prior_z\n                return x\n        "
+            "\n            object Entity : 2\n            space Belief : UnitInterval(1)\n\n            kernel prior_x : Entity -> Belief ~ LogitNormal\n            kernel prior_y : Entity -> Belief ~ LogitNormal\n            kernel prior_z : Entity -> Belief ~ LogitNormal\n\n            program factivity_prior : Entity -> Belief\n                x <- prior_x\n                y <- prior_y\n                z <- prior_z\n                return x\n        "
         )
         env = Compiler(ast).compile_env()
         prog = env["factivity_prior"]
@@ -1102,7 +1101,7 @@ class TestPDSFactivityPattern:
                           (Truncate (Normal x sigma) 0 1)))
         """
         ast = parse(
-            "\n            object Entity : 2\n            space Belief : UnitInterval(1)\n            space Response : Euclidean(1, low=0.0, high=1.0)\n\n            continuous prior : Entity -> Belief ~ LogitNormal\n            continuous respond : Belief -> Response ~ TruncatedNormal\n\n            program model : Entity -> Response\n                x <- prior\n                r <- respond(x)\n                return r\n        "
+            "\n            object Entity : 2\n            space Belief : UnitInterval(1)\n            space Response : Euclidean(1, low=0.0, high=1.0)\n\n            kernel prior : Entity -> Belief ~ LogitNormal\n            kernel respond : Belief -> Response ~ TruncatedNormal\n\n            program model : Entity -> Response\n                x <- prior\n                r <- respond(x)\n                return r\n        "
         )
         env = Compiler(ast).compile_env()
         prog = env["model"]
@@ -1121,7 +1120,7 @@ class TestPDSFactivityPattern:
         where a continuous draw conditions a later draw.
         """
         ast = parse(
-            "\n            object Entity : 2\n            space Belief : UnitInterval(1)\n            space Response : Euclidean(1, low=0.0, high=1.0)\n\n            continuous prior : Entity -> Belief ~ LogitNormal\n            continuous transform : Belief -> Belief ~ Beta\n            continuous respond : Belief -> Response ~ TruncatedNormal\n\n            program model : Entity -> Response\n                x <- prior\n                y <- transform(x)\n                r <- respond(y)\n                return r\n        "
+            "\n            object Entity : 2\n            space Belief : UnitInterval(1)\n            space Response : Euclidean(1, low=0.0, high=1.0)\n\n            kernel prior : Entity -> Belief ~ LogitNormal\n            kernel transform : Belief -> Belief ~ Beta\n            kernel respond : Belief -> Response ~ TruncatedNormal\n\n            program model : Entity -> Response\n                x <- prior\n                y <- transform(x)\n                r <- respond(y)\n                return r\n        "
         )
         env = Compiler(ast).compile_env()
         prog = env["model"]
@@ -1136,7 +1135,7 @@ class TestPDSFactivityPattern:
         mirroring how PDS compiles to Stan.
         """
         ast = parse(
-            "\n            object Entity : 2\n            space Belief : UnitInterval(1)\n            space Response : Euclidean(1, low=0.0, high=1.0)\n\n            continuous prior : Entity -> Belief ~ LogitNormal\n            continuous respond : Belief -> Response ~ TruncatedNormal\n\n            program model : Entity -> Response\n                x <- prior\n                r <- respond(x)\n                return r\n        "
+            "\n            object Entity : 2\n            space Belief : UnitInterval(1)\n            space Response : Euclidean(1, low=0.0, high=1.0)\n\n            kernel prior : Entity -> Belief ~ LogitNormal\n            kernel respond : Belief -> Response ~ TruncatedNormal\n\n            program model : Entity -> Response\n                x <- prior\n                r <- respond(x)\n                return r\n        "
         )
         env = Compiler(ast).compile_env()
         prog = env["model"]
@@ -1149,7 +1148,7 @@ class TestPDSFactivityPattern:
 
     def test_factivity_full_pipeline_with_comments(self):
         """Full pipeline with comments, matching PDS structure."""
-        source = "\n            # === PDS factivity model ===\n            # discrete: entities, continuous: beliefs + responses\n\n            object Entity : 2           # j, b\n\n            space Belief : UnitInterval(1)  # belief strength\n            space Response : Euclidean(1, low=0.0, high=1.0)\n\n            # three LogitNormal priors (cf. PDS factivityPrior)\n            continuous prior_x : Entity -> Belief ~ LogitNormal\n            continuous prior_y : Entity -> Belief ~ LogitNormal\n            continuous prior_z : Entity -> Belief ~ LogitNormal\n\n            # response function (cf. PDS factivityRespond)\n            continuous respond : Belief -> Response ~ TruncatedNormal\n\n            # monadic program: sample priors, generate response\n            program factivity : Entity -> Response\n                x <- prior_x\n                y <- prior_y\n                z <- prior_z\n                r <- respond(x)\n                return r\n\n            export factivity\n        "
+        source = "\n            # === PDS factivity model ===\n            # discrete: entities, continuous: beliefs + responses\n\n            object Entity : 2           # j, b\n\n            space Belief : UnitInterval(1)  # belief strength\n            space Response : Euclidean(1, low=0.0, high=1.0)\n\n            # three LogitNormal priors (cf. PDS factivityPrior)\n            kernel prior_x : Entity -> Belief ~ LogitNormal\n            kernel prior_y : Entity -> Belief ~ LogitNormal\n            kernel prior_z : Entity -> Belief ~ LogitNormal\n\n            # response function (cf. PDS factivityRespond)\n            kernel respond : Belief -> Response ~ TruncatedNormal\n\n            # monadic program: sample priors, generate response\n            program factivity : Entity -> Response\n                x <- prior_x\n                y <- prior_y\n                z <- prior_z\n                r <- respond(x)\n                return r\n\n            export factivity\n        "
         prog = Compiler(parse(source)).compile()
         assert isinstance(prog, Program)
         entity = torch.tensor([0, 1])
@@ -1229,7 +1228,7 @@ class TestConditionalBernoulli:
 
     def test_bernoulli_in_dsl(self):
         """Bernoulli is accessible from DSL syntax."""
-        source = "\n            object Entity : 3\n            object Truth : 2\n            space Belief : UnitInterval(1)\n\n            continuous prior : Entity -> Belief ~ LogitNormal\n            continuous bern : Belief -> Truth ~ Bernoulli\n\n            program model : Entity -> Truth\n                x <- prior\n                b <- bern(x)\n                return b\n        "
+        source = "\n            object Entity : 3\n            object Truth : 2\n            space Belief : UnitInterval(1)\n\n            kernel prior : Entity -> Belief ~ LogitNormal\n            kernel bern : Belief -> Truth ~ Bernoulli\n\n            program model : Entity -> Truth\n                x <- prior\n                b <- bern(x)\n                return b\n        "
         env = Compiler(parse(source)).compile_env()
         prog = env["model"]
         assert isinstance(prog, MonadicProgram)
@@ -1241,7 +1240,7 @@ class TestConditionalBernoulli:
 
     def test_bernoulli_log_joint_in_program(self):
         """log_joint works with Bernoulli steps."""
-        source = "\n            object Entity : 2\n            object Truth : 2\n            space Belief : UnitInterval(1)\n\n            continuous prior : Entity -> Belief ~ LogitNormal\n            continuous bern : Belief -> Truth ~ Bernoulli\n\n            program model : Entity -> Truth\n                x <- prior\n                b <- bern(x)\n                return b\n        "
+        source = "\n            object Entity : 2\n            object Truth : 2\n            space Belief : UnitInterval(1)\n\n            kernel prior : Entity -> Belief ~ LogitNormal\n            kernel bern : Belief -> Truth ~ Bernoulli\n\n            program model : Entity -> Truth\n                x <- prior\n                b <- bern(x)\n                return b\n        "
         env = Compiler(parse(source)).compile_env()
         prog = env["model"]
         entity = torch.tensor([0, 1])
@@ -1297,7 +1296,7 @@ class TestConditionalCategorical:
 
     def test_categorical_in_dsl(self):
         """Categorical is accessible from DSL syntax."""
-        source = "\n            space Input : Euclidean(3)\n            object Label : 5\n\n            continuous classify : Input -> Label ~ Categorical\n        "
+        source = "\n            space Input : Euclidean(3)\n            object Label : 5\n\n            kernel classify : Input -> Label ~ Categorical\n        "
         env = Compiler(parse(source)).compile_env()
         morph = env["classify"]
         x = torch.randn(4, 3)
@@ -1347,7 +1346,7 @@ class TestPDSFaithfulFactivity:
 
     def test_pds_factivity_prior_structure(self):
         """The factivity prior has 6 draws: x, y, z (continuous) then b, c, d (discrete)."""
-        source = "\n            # PDS factivity prior (Grove & White 2025)\n            # three LogitNormal draws for belief strengths\n            # three Bernoulli draws for truth-value projections\n\n            object Entity : 2\n            object Truth : 2\n\n            space Belief : UnitInterval(1)\n\n            # continuous priors (content, ling, epi belief strengths)\n            continuous prior_x : Entity -> Belief ~ LogitNormal\n            continuous prior_y : Entity -> Belief ~ LogitNormal\n            continuous prior_z : Entity -> Belief ~ LogitNormal\n\n            # bernoulli draws (know, ling projection, epi projection)\n            continuous bern_b : Belief -> Truth ~ Bernoulli\n            continuous bern_c : Belief -> Truth ~ Bernoulli\n            continuous bern_d : Belief -> Truth ~ Bernoulli\n\n            # the full prior program\n            program factivityPrior : Entity -> Truth\n                x <- prior_x\n                y <- prior_y\n                z <- prior_z\n                b <- bern_b(x)\n                c <- bern_c(y)\n                d <- bern_d(z)\n                return b\n        "
+        source = "\n            # PDS factivity prior (Grove & White 2025)\n            # three LogitNormal draws for belief strengths\n            # three Bernoulli draws for truth-value projections\n\n            object Entity : 2\n            object Truth : 2\n\n            space Belief : UnitInterval(1)\n\n            # continuous priors (content, ling, epi belief strengths)\n            kernel prior_x : Entity -> Belief ~ LogitNormal\n            kernel prior_y : Entity -> Belief ~ LogitNormal\n            kernel prior_z : Entity -> Belief ~ LogitNormal\n\n            # bernoulli draws (know, ling projection, epi projection)\n            kernel bern_b : Belief -> Truth ~ Bernoulli\n            kernel bern_c : Belief -> Truth ~ Bernoulli\n            kernel bern_d : Belief -> Truth ~ Bernoulli\n\n            # the full prior program\n            program factivityPrior : Entity -> Truth\n                x <- prior_x\n                y <- prior_y\n                z <- prior_z\n                b <- bern_b(x)\n                c <- bern_c(y)\n                d <- bern_d(z)\n                return b\n        "
         env = Compiler(parse(source)).compile_env()
         prog = env["factivityPrior"]
         assert isinstance(prog, MonadicProgram)
@@ -1360,7 +1359,7 @@ class TestPDSFaithfulFactivity:
 
     def test_pds_factivity_respond(self):
         """The response function: Truncate(Normal(x, sigma), 0, 1)."""
-        source = "\n            space Belief : UnitInterval(1)\n            space Response : Euclidean(1, low=0.0, high=1.0)\n\n            # PDS: respond (\\x -> Truncate (Normal x sigma) 0 1)\n            continuous respond : Belief -> Response ~ TruncatedNormal\n        "
+        source = "\n            space Belief : UnitInterval(1)\n            space Response : Euclidean(1, low=0.0, high=1.0)\n\n            # PDS: respond (\\x -> Truncate (Normal x sigma) 0 1)\n            kernel respond : Belief -> Response ~ TruncatedNormal\n        "
         env = Compiler(parse(source)).compile_env()
         respond = env["respond"]
         x = torch.rand(8, 1)
@@ -1371,7 +1370,7 @@ class TestPDSFaithfulFactivity:
 
     def test_pds_full_factivity_model(self):
         """Full PDS factivity: prior + response in one program."""
-        source = "\n            # PDS factivity model (Grove & White 2025)\n            object Entity : 2\n            object Truth : 2\n            space Belief : UnitInterval(1)\n            space Response : Euclidean(1, low=0.0, high=1.0)\n\n            # prior components\n            continuous prior_x : Entity -> Belief ~ LogitNormal\n            continuous prior_y : Entity -> Belief ~ LogitNormal\n            continuous prior_z : Entity -> Belief ~ LogitNormal\n\n            # bernoulli draws\n            continuous bern_b : Belief -> Truth ~ Bernoulli\n            continuous bern_c : Belief -> Truth ~ Bernoulli\n            continuous bern_d : Belief -> Truth ~ Bernoulli\n\n            # response function\n            continuous respond : Belief -> Response ~ TruncatedNormal\n\n            # full model: sample priors, draw Bernoullis, produce response\n            program factivity : Entity -> Response\n                x <- prior_x\n                y <- prior_y\n                z <- prior_z\n                b <- bern_b(x)\n                c <- bern_c(y)\n                d <- bern_d(z)\n                r <- respond(x)\n                return r\n        "
+        source = "\n            # PDS factivity model (Grove & White 2025)\n            object Entity : 2\n            object Truth : 2\n            space Belief : UnitInterval(1)\n            space Response : Euclidean(1, low=0.0, high=1.0)\n\n            # prior components\n            kernel prior_x : Entity -> Belief ~ LogitNormal\n            kernel prior_y : Entity -> Belief ~ LogitNormal\n            kernel prior_z : Entity -> Belief ~ LogitNormal\n\n            # bernoulli draws\n            kernel bern_b : Belief -> Truth ~ Bernoulli\n            kernel bern_c : Belief -> Truth ~ Bernoulli\n            kernel bern_d : Belief -> Truth ~ Bernoulli\n\n            # response function\n            kernel respond : Belief -> Response ~ TruncatedNormal\n\n            # full model: sample priors, draw Bernoullis, produce response\n            program factivity : Entity -> Response\n                x <- prior_x\n                y <- prior_y\n                z <- prior_z\n                b <- bern_b(x)\n                c <- bern_c(y)\n                d <- bern_d(z)\n                r <- respond(x)\n                return r\n        "
         env = Compiler(parse(source)).compile_env()
         prog = env["factivity"]
         entity = torch.tensor([0, 1])
@@ -1382,7 +1381,7 @@ class TestPDSFaithfulFactivity:
 
     def test_pds_factivity_log_joint(self):
         """log_joint is computable when all intermediates are given."""
-        source = "\n            object Entity : 2\n            object Truth : 2\n            space Belief : UnitInterval(1)\n            space Response : Euclidean(1, low=0.0, high=1.0)\n\n            continuous prior_x : Entity -> Belief ~ LogitNormal\n            continuous prior_y : Entity -> Belief ~ LogitNormal\n            continuous prior_z : Entity -> Belief ~ LogitNormal\n            continuous bern_b : Belief -> Truth ~ Bernoulli\n            continuous bern_c : Belief -> Truth ~ Bernoulli\n            continuous bern_d : Belief -> Truth ~ Bernoulli\n            continuous respond : Belief -> Response ~ TruncatedNormal\n\n            program factivity : Entity -> Response\n                x <- prior_x\n                y <- prior_y\n                z <- prior_z\n                b <- bern_b(x)\n                c <- bern_c(y)\n                d <- bern_d(z)\n                r <- respond(x)\n                return r\n        "
+        source = "\n            object Entity : 2\n            object Truth : 2\n            space Belief : UnitInterval(1)\n            space Response : Euclidean(1, low=0.0, high=1.0)\n\n            kernel prior_x : Entity -> Belief ~ LogitNormal\n            kernel prior_y : Entity -> Belief ~ LogitNormal\n            kernel prior_z : Entity -> Belief ~ LogitNormal\n            kernel bern_b : Belief -> Truth ~ Bernoulli\n            kernel bern_c : Belief -> Truth ~ Bernoulli\n            kernel bern_d : Belief -> Truth ~ Bernoulli\n            kernel respond : Belief -> Response ~ TruncatedNormal\n\n            program factivity : Entity -> Response\n                x <- prior_x\n                y <- prior_y\n                z <- prior_z\n                b <- bern_b(x)\n                c <- bern_c(y)\n                d <- bern_d(z)\n                r <- respond(x)\n                return r\n        "
         env = Compiler(parse(source)).compile_env()
         prog = env["factivity"]
         entity = torch.tensor([0, 1])
@@ -1400,7 +1399,7 @@ class TestPDSFaithfulFactivity:
 
     def test_pds_factivity_parameters_learnable(self):
         """All morphism parameters are visible to optimizer."""
-        source = "\n            object Entity : 2\n            object Truth : 2\n            space Belief : UnitInterval(1)\n\n            continuous prior_x : Entity -> Belief ~ LogitNormal\n            continuous bern_b : Belief -> Truth ~ Bernoulli\n\n            program model : Entity -> Truth\n                x <- prior_x\n                b <- bern_b(x)\n                return b\n        "
+        source = "\n            object Entity : 2\n            object Truth : 2\n            space Belief : UnitInterval(1)\n\n            kernel prior_x : Entity -> Belief ~ LogitNormal\n            kernel bern_b : Belief -> Truth ~ Bernoulli\n\n            program model : Entity -> Truth\n                x <- prior_x\n                b <- bern_b(x)\n                return b\n        "
         env = Compiler(parse(source)).compile_env()
         prog = env["model"]
         params = list(prog.parameters())
@@ -1416,7 +1415,7 @@ class TestParserTupleFeatures:
     def test_tuple_return(self):
         """Parse return (x, y, z)."""
         ast = parse(
-            "\n            object X : 2\n            object T : 2\n            space B : UnitInterval(1)\n            continuous f : X -> B ~ LogitNormal\n            continuous g : B -> T ~ Bernoulli\n\n            program p : X -> T\n                x <- f\n                b <- g(x)\n                return (x, b)\n        "
+            "\n            object X : 2\n            object T : 2\n            space B : UnitInterval(1)\n            kernel f : X -> B ~ LogitNormal\n            kernel g : B -> T ~ Bernoulli\n\n            program p : X -> T\n                x <- f\n                b <- g(x)\n                return (x, b)\n        "
         )
         prog_stmt = ast.statements[5]
         assert isinstance(prog_stmt, ProgramDecl)
@@ -1425,7 +1424,7 @@ class TestParserTupleFeatures:
     def test_product_codomain(self):
         """Parse program with product codomain: A -> B * C."""
         ast = parse(
-            "\n            object X : 2\n            object T : 2\n            space B : UnitInterval(1)\n            continuous f : X -> B ~ LogitNormal\n            continuous g : B -> T ~ Bernoulli\n\n            program p : X -> B * T\n                x <- f\n                b <- g(x)\n                return (x, b)\n        "
+            "\n            object X : 2\n            object T : 2\n            space B : UnitInterval(1)\n            kernel f : X -> B ~ LogitNormal\n            kernel g : B -> T ~ Bernoulli\n\n            program p : X -> B * T\n                x <- f\n                b <- g(x)\n                return (x, b)\n        "
         )
         prog_stmt = ast.statements[5]
         assert isinstance(prog_stmt, ProgramDecl)
@@ -1435,7 +1434,7 @@ class TestParserTupleFeatures:
     def test_product_domain(self):
         """Parse program with product domain: A * B -> C."""
         ast = parse(
-            "\n            object T : 2\n            space B : UnitInterval(1)\n            continuous bern : B -> T ~ Bernoulli\n\n            program p : B * B -> T\n                c <- bern\n                return c\n        "
+            "\n            object T : 2\n            space B : UnitInterval(1)\n            kernel bern : B -> T ~ Bernoulli\n\n            program p : B * B -> T\n                c <- bern\n                return c\n        "
         )
         prog_stmt = ast.statements[3]
         assert isinstance(prog_stmt, ProgramDecl)
@@ -1444,7 +1443,7 @@ class TestParserTupleFeatures:
     def test_named_params(self):
         """Parse program with named parameters."""
         ast = parse(
-            "\n            object T : 2\n            space B : UnitInterval(1)\n            continuous bern : B -> T ~ Bernoulli\n\n            program p(y, z) : B * B -> T * T\n                c <- bern(y)\n                d <- bern(z)\n                return (c, d)\n        "
+            "\n            object T : 2\n            space B : UnitInterval(1)\n            kernel bern : B -> T ~ Bernoulli\n\n            program p(y, z) : B * B -> T * T\n                c <- bern(y)\n                d <- bern(z)\n                return (c, d)\n        "
         )
         prog_stmt = ast.statements[3]
         assert isinstance(prog_stmt, ProgramDecl)
@@ -1453,7 +1452,7 @@ class TestParserTupleFeatures:
     def test_destructuring_draw(self):
         """Parse a tuple destructuring bind: `[a, b] <- morphism`."""
         ast = parse(
-            "\n            object T : 2\n            space B : UnitInterval(1)\n            continuous f : T -> B ~ LogitNormal\n            continuous g : B -> T ~ Bernoulli\n\n            program sub : T -> B\n                x <- f\n                return x\n\n            program p : T -> B\n                [a] <- sub\n                return a\n        "
+            "\n            object T : 2\n            space B : UnitInterval(1)\n            kernel f : T -> B ~ LogitNormal\n            kernel g : B -> T ~ Bernoulli\n\n            program sub : T -> B\n                x <- f\n                return x\n\n            program p : T -> B\n                [a] <- sub\n                return a\n        "
         )
         prog_stmt = ast.statements[5]
         assert prog_stmt.draws[0].vars == ("a",)
@@ -1461,7 +1460,7 @@ class TestParserTupleFeatures:
     def test_multi_arg_draw(self):
         """Parse draw z ~ f(x, y)."""
         ast = parse(
-            "\n            object T : 2\n            space B : UnitInterval(1)\n            continuous f : T -> B ~ LogitNormal\n            continuous g : B -> T ~ Bernoulli\n\n            program sub(a, b) : B * B -> T\n                c <- g(a)\n                return c\n\n            program p : T -> T\n                x <- f\n                y <- f\n                z <- sub(x, y)\n                return z\n        "
+            "\n            object T : 2\n            space B : UnitInterval(1)\n            kernel f : T -> B ~ LogitNormal\n            kernel g : B -> T ~ Bernoulli\n\n            program sub(a, b) : B * B -> T\n                c <- g(a)\n                return c\n\n            program p : T -> T\n                x <- f\n                y <- f\n                z <- sub(x, y)\n                return z\n        "
         )
         prog_stmt = ast.statements[5]
         assert prog_stmt.draws[2].args == ("x", "y")
@@ -1472,7 +1471,7 @@ class TestCompilerTupleFeatures:
 
     def test_tuple_return_compiles(self):
         """Tuple-returning program compiles."""
-        source = "\n            object Entity : 2\n            space Belief : UnitInterval(1)\n            continuous f : Entity -> Belief ~ LogitNormal\n\n            program p : Entity -> Belief * Belief\n                x <- f\n                y <- f\n                return (x, y)\n        "
+        source = "\n            object Entity : 2\n            space Belief : UnitInterval(1)\n            kernel f : Entity -> Belief ~ LogitNormal\n\n            program p : Entity -> Belief * Belief\n                x <- f\n                y <- f\n                return (x, y)\n        "
         env = Compiler(parse(source)).compile_env()
         prog = env["p"]
         assert isinstance(prog, MonadicProgram)
@@ -1481,7 +1480,7 @@ class TestCompilerTupleFeatures:
 
     def test_named_params_compiles(self):
         """Named-param sub-program compiles and runs."""
-        source = "\n            object Truth : 2\n            space Belief : UnitInterval(1)\n            continuous bern : Belief -> Truth ~ Bernoulli\n\n            program sub(y, z) : Belief * Belief -> Truth * Truth\n                c <- bern(y)\n                d <- bern(z)\n                return (c, d)\n        "
+        source = "\n            object Truth : 2\n            space Belief : UnitInterval(1)\n            kernel bern : Belief -> Truth ~ Bernoulli\n\n            program sub(y, z) : Belief * Belief -> Truth * Truth\n                c <- bern(y)\n                d <- bern(z)\n                return (c, d)\n        "
         env = Compiler(parse(source)).compile_env()
         prog = env["sub"]
         assert isinstance(prog, MonadicProgram)
@@ -1489,19 +1488,19 @@ class TestCompilerTupleFeatures:
 
     def test_named_params_count_mismatch(self):
         """Error when param count doesn't match domain components."""
-        source = "\n            object Truth : 2\n            space Belief : UnitInterval(1)\n            continuous bern : Belief -> Truth ~ Bernoulli\n\n            program sub(y, z, w) : Belief * Belief -> Truth\n                c <- bern(y)\n                return c\n        "
+        source = "\n            object Truth : 2\n            space Belief : UnitInterval(1)\n            kernel bern : Belief -> Truth ~ Bernoulli\n\n            program sub(y, z, w) : Belief * Belief -> Truth\n                c <- bern(y)\n                return c\n        "
         with pytest.raises(CompileError, match="3 params"):
             Compiler(parse(source)).compile_env()
 
     def test_unbound_return_var_error(self):
         """Error when return variable is not bound."""
-        source = "\n            object Entity : 2\n            space Belief : UnitInterval(1)\n            continuous f : Entity -> Belief ~ LogitNormal\n\n            program p : Entity -> Belief * Belief\n                x <- f\n                return (x, y)\n        "
+        source = "\n            object Entity : 2\n            space Belief : UnitInterval(1)\n            kernel f : Entity -> Belief ~ LogitNormal\n\n            program p : Entity -> Belief * Belief\n                x <- f\n                return (x, y)\n        "
         with pytest.raises(CompileError, match="not bound"):
             Compiler(parse(source)).compile_env()
 
     def test_destructuring_draw_compiles(self):
         """Destructuring draw from sub-program compiles."""
-        source = "\n            object Entity : 2\n            object Truth : 2\n            space Belief : UnitInterval(1)\n\n            continuous prior : Entity -> Belief ~ LogitNormal\n            continuous bern : Belief -> Truth ~ Bernoulli\n\n            program sub(y, z) : Belief * Belief -> Truth * Truth\n                c <- bern(y)\n                d <- bern(z)\n                return (c, d)\n\n            program outer : Entity -> Truth * Truth\n                y <- prior\n                z <- prior\n                [c, d] <- sub(y, z)\n                return (c, d)\n        "
+        source = "\n            object Entity : 2\n            object Truth : 2\n            space Belief : UnitInterval(1)\n\n            kernel prior : Entity -> Belief ~ LogitNormal\n            kernel bern : Belief -> Truth ~ Bernoulli\n\n            program sub(y, z) : Belief * Belief -> Truth * Truth\n                c <- bern(y)\n                d <- bern(z)\n                return (c, d)\n\n            program outer : Entity -> Truth * Truth\n                y <- prior\n                z <- prior\n                [c, d] <- sub(y, z)\n                return (c, d)\n        "
         env = Compiler(parse(source)).compile_env()
         outer = env["outer"]
         assert isinstance(outer, MonadicProgram)
@@ -1512,7 +1511,7 @@ class TestExecutionTupleFeatures:
 
     def test_tuple_return_rsample(self):
         """Tuple-returning program rsample returns dict."""
-        source = "\n            object Entity : 2\n            space Belief : UnitInterval(1)\n            continuous f : Entity -> Belief ~ LogitNormal\n            continuous g : Entity -> Belief ~ LogitNormal\n\n            program p : Entity -> Belief * Belief\n                x <- f\n                y <- g\n                return (x, y)\n        "
+        source = "\n            object Entity : 2\n            space Belief : UnitInterval(1)\n            kernel f : Entity -> Belief ~ LogitNormal\n            kernel g : Entity -> Belief ~ LogitNormal\n\n            program p : Entity -> Belief * Belief\n                x <- f\n                y <- g\n                return (x, y)\n        "
         env = Compiler(parse(source)).compile_env()
         prog = env["p"]
         entity = torch.tensor([0, 1])
@@ -1524,7 +1523,7 @@ class TestExecutionTupleFeatures:
 
     def test_single_return_still_tensor(self):
         """Single-return program still returns a tensor (backward compat)."""
-        source = "\n            object Entity : 2\n            space Belief : UnitInterval(1)\n            continuous f : Entity -> Belief ~ LogitNormal\n\n            program p : Entity -> Belief\n                x <- f\n                return x\n        "
+        source = "\n            object Entity : 2\n            space Belief : UnitInterval(1)\n            kernel f : Entity -> Belief ~ LogitNormal\n\n            program p : Entity -> Belief\n                x <- f\n                return x\n        "
         env = Compiler(parse(source)).compile_env()
         prog = env["p"]
         entity = torch.tensor([0, 1])
@@ -1534,7 +1533,7 @@ class TestExecutionTupleFeatures:
 
     def test_named_params_rsample(self):
         """Named-param sub-program splits input correctly."""
-        source = "\n            object Truth : 2\n            space Belief : UnitInterval(1)\n            continuous bern_c : Belief -> Truth ~ Bernoulli\n            continuous bern_d : Belief -> Truth ~ Bernoulli\n\n            program sub(y, z) : Belief * Belief -> Truth * Truth\n                c <- bern_c(y)\n                d <- bern_d(z)\n                return (c, d)\n        "
+        source = "\n            object Truth : 2\n            space Belief : UnitInterval(1)\n            kernel bern_c : Belief -> Truth ~ Bernoulli\n            kernel bern_d : Belief -> Truth ~ Bernoulli\n\n            program sub(y, z) : Belief * Belief -> Truth * Truth\n                c <- bern_c(y)\n                d <- bern_d(z)\n                return (c, d)\n        "
         env = Compiler(parse(source)).compile_env()
         prog = env["sub"]
         x = torch.rand(4, 2)
@@ -1548,7 +1547,7 @@ class TestExecutionTupleFeatures:
 
     def test_multi_arg_draw(self):
         """Multi-arg draw stacks inputs for sub-program."""
-        source = "\n            object Entity : 2\n            object Truth : 2\n            space Belief : UnitInterval(1)\n\n            continuous prior : Entity -> Belief ~ LogitNormal\n            continuous bern_c : Belief -> Truth ~ Bernoulli\n            continuous bern_d : Belief -> Truth ~ Bernoulli\n\n            program sub(y, z) : Belief * Belief -> Truth * Truth\n                c <- bern_c(y)\n                d <- bern_d(z)\n                return (c, d)\n\n            program outer : Entity -> Truth * Truth\n                y <- prior\n                z <- prior\n                [c, d] <- sub(y, z)\n                return (c, d)\n        "
+        source = "\n            object Entity : 2\n            object Truth : 2\n            space Belief : UnitInterval(1)\n\n            kernel prior : Entity -> Belief ~ LogitNormal\n            kernel bern_c : Belief -> Truth ~ Bernoulli\n            kernel bern_d : Belief -> Truth ~ Bernoulli\n\n            program sub(y, z) : Belief * Belief -> Truth * Truth\n                c <- bern_c(y)\n                d <- bern_d(z)\n                return (c, d)\n\n            program outer : Entity -> Truth * Truth\n                y <- prior\n                z <- prior\n                [c, d] <- sub(y, z)\n                return (c, d)\n        "
         env = Compiler(parse(source)).compile_env()
         prog = env["outer"]
         entity = torch.tensor([0, 1])
@@ -1560,7 +1559,7 @@ class TestExecutionTupleFeatures:
 
     def test_log_joint_tuple_return(self):
         """log_joint works with tuple-returning programs."""
-        source = "\n            object Entity : 2\n            space Belief : UnitInterval(1)\n            continuous f : Entity -> Belief ~ LogitNormal\n            continuous g : Entity -> Belief ~ LogitNormal\n\n            program p : Entity -> Belief * Belief\n                x <- f\n                y <- g\n                return (x, y)\n        "
+        source = "\n            object Entity : 2\n            space Belief : UnitInterval(1)\n            kernel f : Entity -> Belief ~ LogitNormal\n            kernel g : Entity -> Belief ~ LogitNormal\n\n            program p : Entity -> Belief * Belief\n                x <- f\n                y <- g\n                return (x, y)\n        "
         env = Compiler(parse(source)).compile_env()
         prog = env["p"]
         entity = torch.tensor([0, 1])
@@ -1572,7 +1571,7 @@ class TestExecutionTupleFeatures:
 
     def test_log_joint_nested_programs(self):
         """log_joint works with nested sub-programs."""
-        source = "\n            object Entity : 2\n            object Truth : 2\n            space Belief : UnitInterval(1)\n\n            continuous prior : Entity -> Belief ~ LogitNormal\n            continuous bern_c : Belief -> Truth ~ Bernoulli\n            continuous bern_d : Belief -> Truth ~ Bernoulli\n\n            program sub(y, z) : Belief * Belief -> Truth * Truth\n                c <- bern_c(y)\n                d <- bern_d(z)\n                return (c, d)\n\n            program outer : Entity -> Truth * Truth\n                y <- prior\n                z <- prior\n                [c, d] <- sub(y, z)\n                return (c, d)\n        "
+        source = "\n            object Entity : 2\n            object Truth : 2\n            space Belief : UnitInterval(1)\n\n            kernel prior : Entity -> Belief ~ LogitNormal\n            kernel bern_c : Belief -> Truth ~ Bernoulli\n            kernel bern_d : Belief -> Truth ~ Bernoulli\n\n            program sub(y, z) : Belief * Belief -> Truth * Truth\n                c <- bern_c(y)\n                d <- bern_d(z)\n                return (c, d)\n\n            program outer : Entity -> Truth * Truth\n                y <- prior\n                z <- prior\n                [c, d] <- sub(y, z)\n                return (c, d)\n        "
         env = Compiler(parse(source)).compile_env()
         prog = env["outer"]
         entity = torch.tensor([0, 1])
@@ -1586,7 +1585,7 @@ class TestExecutionTupleFeatures:
 
     def test_pds_factivity_with_nesting(self):
         """Full PDS factivity with nested sub-programs and tuple returns."""
-        source = "\n            # PDS factivity model (Grove & White 2025)\n            # with nested sub-programs for CG and TauKnow updates\n\n            object Entity : 2\n            object Truth : 2\n            space Belief : UnitInterval(1)\n            space Response : Euclidean(1, low=0.0, high=1.0)\n\n            # prior morphisms\n            continuous prior_x : Entity -> Belief ~ LogitNormal\n            continuous prior_y : Entity -> Belief ~ LogitNormal\n            continuous prior_z : Entity -> Belief ~ LogitNormal\n\n            # bernoulli bridges (continuous -> discrete)\n            continuous bern_b : Belief -> Truth ~ Bernoulli\n            continuous bern_c : Belief -> Truth ~ Bernoulli\n            continuous bern_d : Belief -> Truth ~ Bernoulli\n\n            # response function\n            continuous respond : Belief -> Response ~ TruncatedNormal\n\n            # inner CG update sub-program\n            # corresponds to PDS: let' c (Bern y) (let' d (Bern z) ...)\n            program cg_update(y, z) : Belief * Belief -> Truth * Truth\n                c <- bern_c(y)\n                d <- bern_d(z)\n                return (c, d)\n\n            # outer factivity prior\n            # corresponds to PDS factivityPrior\n            program factivityPrior : Entity -> Truth * Truth * Truth * Response\n                x <- prior_x\n                y <- prior_y\n                z <- prior_z\n                b <- bern_b(x)\n                [c, d] <- cg_update(y, z)\n                r <- respond(x)\n                return (b, c, d, r)\n\n            export factivityPrior\n        "
+        source = "\n            # PDS factivity model (Grove & White 2025)\n            # with nested sub-programs for CG and TauKnow updates\n\n            object Entity : 2\n            object Truth : 2\n            space Belief : UnitInterval(1)\n            space Response : Euclidean(1, low=0.0, high=1.0)\n\n            # prior morphisms\n            kernel prior_x : Entity -> Belief ~ LogitNormal\n            kernel prior_y : Entity -> Belief ~ LogitNormal\n            kernel prior_z : Entity -> Belief ~ LogitNormal\n\n            # bernoulli bridges (continuous -> discrete)\n            kernel bern_b : Belief -> Truth ~ Bernoulli\n            kernel bern_c : Belief -> Truth ~ Bernoulli\n            kernel bern_d : Belief -> Truth ~ Bernoulli\n\n            # response function\n            kernel respond : Belief -> Response ~ TruncatedNormal\n\n            # inner CG update sub-program\n            # corresponds to PDS: let' c (Bern y) (let' d (Bern z) ...)\n            program cg_update(y, z) : Belief * Belief -> Truth * Truth\n                c <- bern_c(y)\n                d <- bern_d(z)\n                return (c, d)\n\n            # outer factivity prior\n            # corresponds to PDS factivityPrior\n            program factivityPrior : Entity -> Truth * Truth * Truth * Response\n                x <- prior_x\n                y <- prior_y\n                z <- prior_z\n                b <- bern_b(x)\n                [c, d] <- cg_update(y, z)\n                r <- respond(x)\n                return (b, c, d, r)\n\n            export factivityPrior\n        "
         prog = Compiler(parse(source)).compile()
         assert isinstance(prog, Program)
         entity = torch.tensor([0, 1])
@@ -1603,7 +1602,7 @@ class TestExecutionTupleFeatures:
 
     def test_pds_factivity_log_joint_nested(self):
         """log_joint with the full nested PDS factivity model."""
-        source = "\n            object Entity : 2\n            object Truth : 2\n            space Belief : UnitInterval(1)\n            space Response : Euclidean(1, low=0.0, high=1.0)\n\n            continuous prior_x : Entity -> Belief ~ LogitNormal\n            continuous prior_y : Entity -> Belief ~ LogitNormal\n            continuous prior_z : Entity -> Belief ~ LogitNormal\n            continuous bern_b : Belief -> Truth ~ Bernoulli\n            continuous bern_c : Belief -> Truth ~ Bernoulli\n            continuous bern_d : Belief -> Truth ~ Bernoulli\n            continuous respond : Belief -> Response ~ TruncatedNormal\n\n            program cg_update(y, z) : Belief * Belief -> Truth * Truth\n                c <- bern_c(y)\n                d <- bern_d(z)\n                return (c, d)\n\n            program factivityPrior : Entity -> Truth * Truth * Truth * Response\n                x <- prior_x\n                y <- prior_y\n                z <- prior_z\n                b <- bern_b(x)\n                [c, d] <- cg_update(y, z)\n                r <- respond(x)\n                return (b, c, d, r)\n        "
+        source = "\n            object Entity : 2\n            object Truth : 2\n            space Belief : UnitInterval(1)\n            space Response : Euclidean(1, low=0.0, high=1.0)\n\n            kernel prior_x : Entity -> Belief ~ LogitNormal\n            kernel prior_y : Entity -> Belief ~ LogitNormal\n            kernel prior_z : Entity -> Belief ~ LogitNormal\n            kernel bern_b : Belief -> Truth ~ Bernoulli\n            kernel bern_c : Belief -> Truth ~ Bernoulli\n            kernel bern_d : Belief -> Truth ~ Bernoulli\n            kernel respond : Belief -> Response ~ TruncatedNormal\n\n            program cg_update(y, z) : Belief * Belief -> Truth * Truth\n                c <- bern_c(y)\n                d <- bern_d(z)\n                return (c, d)\n\n            program factivityPrior : Entity -> Truth * Truth * Truth * Response\n                x <- prior_x\n                y <- prior_y\n                z <- prior_z\n                b <- bern_b(x)\n                [c, d] <- cg_update(y, z)\n                r <- respond(x)\n                return (b, c, d, r)\n        "
         env = Compiler(parse(source)).compile_env()
         prog = env["factivityPrior"]
         entity = torch.tensor([0, 1])
@@ -1665,7 +1664,7 @@ class TestParserLabeledReturns:
 
     def test_labeled_return(self):
         """Return with labels: return (a: x, b: y)."""
-        source = "\n            object Entity : 2\n            object Truth : 2\n            space Belief : UnitInterval()\n            continuous f : Entity -> Belief ~ LogitNormal\n            continuous g : Entity -> Belief ~ LogitNormal\n            program p : Entity -> Truth * Truth\n                x <- f\n                y <- g\n                return (state: x, prob: y)\n        "
+        source = "\n            object Entity : 2\n            object Truth : 2\n            space Belief : UnitInterval()\n            kernel f : Entity -> Belief ~ LogitNormal\n            kernel g : Entity -> Belief ~ LogitNormal\n            program p : Entity -> Truth * Truth\n                x <- f\n                y <- g\n                return (state: x, prob: y)\n        "
         mod = parse(source)
         prog = [s for s in mod.statements if isinstance(s, ProgramDecl)][0]
         assert prog.return_vars == ("x", "y")
@@ -1673,7 +1672,7 @@ class TestParserLabeledReturns:
 
     def test_unlabeled_return_still_works(self):
         """Regular unlabeled return (backward compat)."""
-        source = "\n            object Entity : 2\n            space Belief : UnitInterval()\n            continuous f : Entity -> Belief ~ LogitNormal\n            continuous g : Entity -> Belief ~ LogitNormal\n            program p : Entity -> Belief * Belief\n                x <- f\n                y <- g\n                return (x, y)\n        "
+        source = "\n            object Entity : 2\n            space Belief : UnitInterval()\n            kernel f : Entity -> Belief ~ LogitNormal\n            kernel g : Entity -> Belief ~ LogitNormal\n            program p : Entity -> Belief * Belief\n                x <- f\n                y <- g\n                return (x, y)\n        "
         mod = parse(source)
         prog = [s for s in mod.statements if isinstance(s, ProgramDecl)][0]
         assert prog.return_vars == ("x", "y")
@@ -1681,7 +1680,7 @@ class TestParserLabeledReturns:
 
     def test_single_return_no_labels(self):
         """Single return can't have labels."""
-        source = "\n            object Entity : 2\n            space Belief : UnitInterval()\n            continuous f : Entity -> Belief ~ LogitNormal\n            program p : Entity -> Belief\n                x <- f\n                return x\n        "
+        source = "\n            object Entity : 2\n            space Belief : UnitInterval()\n            kernel f : Entity -> Belief ~ LogitNormal\n            program p : Entity -> Belief\n                x <- f\n                return x\n        "
         mod = parse(source)
         prog = [s for s in mod.statements if isinstance(s, ProgramDecl)][0]
         assert prog.return_vars == ("x",)
@@ -1734,7 +1733,7 @@ class TestCompilerInlineDistributions:
 
     def test_inline_with_named_morphism_precedence(self):
         """Named morphism takes precedence over inline family."""
-        source = "\n            object Entity : 2\n            space Belief : UnitInterval()\n            continuous Uniform : Entity -> Belief ~ Uniform\n            program p : Entity -> Belief\n                x <- Uniform\n                return x\n        "
+        source = "\n            object Entity : 2\n            space Belief : UnitInterval()\n            kernel Uniform : Entity -> Belief ~ Uniform\n            program p : Entity -> Belief\n                x <- Uniform\n                return x\n        "
         env = Compiler(parse(source)).compile_env()
         prog = env["p"]
         entity = torch.tensor([0, 1])
@@ -1743,7 +1742,7 @@ class TestCompilerInlineDistributions:
 
     def test_float_args_not_allowed_for_named_morphism(self):
         """Float literals in args for named morphisms should error."""
-        source = "\n            object Entity : 2\n            space Belief : UnitInterval()\n            continuous f : Entity -> Belief ~ Normal\n            program p : Entity -> Belief\n                x <- f(0.0, 1.0)\n                return x\n        "
+        source = "\n            object Entity : 2\n            space Belief : UnitInterval()\n            kernel f : Entity -> Belief ~ Normal\n            program p : Entity -> Belief\n                x <- f(0.0, 1.0)\n                return x\n        "
         with pytest.raises(CompileError, match="literal argument"):
             Compiler(parse(source)).compile_env()
 
@@ -2056,20 +2055,20 @@ class TestParserCombinators:
     def test_parse_replicated_continuous(self):
         """Parse continuous with replication count."""
         ast = parse(
-            "\n            space A : Euclidean(4)\n            space B : Euclidean(2)\n            continuous head[4] : A -> B ~ Normal\n            export head_0\n        "
+            "\n            space A : Euclidean(4)\n            space B : Euclidean(2)\n            kernel head[4] : A -> B ~ Normal\n            export head_0\n        "
         )
         decl = ast.statements[2]
-        assert isinstance(decl, ContinuousMorphismDecl)
+        assert isinstance(decl, KernelDecl)
         assert decl.name == "head"
         assert decl.replicate == 4
 
     def test_parse_replicated_stochastic(self):
         """Parse stochastic with replication count."""
         ast = parse(
-            "\n            object S : 8\n            stochastic trans[3] : S -> S\n            export trans_0\n        "
+            "\n            object S : 8\n            kernel trans[3] : S -> S\n            export trans_0\n        "
         )
         decl = ast.statements[1]
-        assert isinstance(decl, StochasticMorphismDecl)
+        assert isinstance(decl, KernelDecl)
         assert decl.name == "trans"
         assert decl.replicate == 3
 
@@ -2086,7 +2085,7 @@ class TestParserCombinators:
     def test_parse_fan_expression(self):
         """Parse fan(f, g, h) expression."""
         ast = parse(
-            "\n            space A : Euclidean(4)\n            space B : Euclidean(2)\n            continuous f : A -> B ~ Normal\n            continuous g : A -> B ~ Normal\n            let fanned = fan(f, g)\n            export fanned\n        "
+            "\n            space A : Euclidean(4)\n            space B : Euclidean(2)\n            kernel f : A -> B ~ Normal\n            kernel g : A -> B ~ Normal\n            let fanned = fan(f, g)\n            export fanned\n        "
         )
         let_decl = ast.statements[4]
         assert isinstance(let_decl, LetDecl)
@@ -2096,7 +2095,7 @@ class TestParserCombinators:
     def test_parse_repeat_expression(self):
         """Parse repeat(f, 3) expression."""
         ast = parse(
-            "\n            object S : 4\n            stochastic t : S -> S\n            let chain = repeat(t, 5)\n            export chain\n        "
+            "\n            object S : 4\n            kernel t : S -> S\n            let chain = repeat(t, 5)\n            export chain\n        "
         )
         let_decl = ast.statements[2]
         assert isinstance(let_decl, LetDecl)
@@ -2106,7 +2105,7 @@ class TestParserCombinators:
     def test_parse_fan_composed(self):
         """Parse fan(...) >> combine composition."""
         ast = parse(
-            "\n            space A : Euclidean(4)\n            space B : Euclidean(2)\n            space C : Euclidean(4)\n            continuous f : A -> B ~ Normal\n            continuous g : A -> B ~ Normal\n            continuous h : C -> A ~ Normal\n            let pipeline = fan(f, g) >> h\n            export pipeline\n        "
+            "\n            space A : Euclidean(4)\n            space B : Euclidean(2)\n            space C : Euclidean(4)\n            kernel f : A -> B ~ Normal\n            kernel g : A -> B ~ Normal\n            kernel h : C -> A ~ Normal\n            let pipeline = fan(f, g) >> h\n            export pipeline\n        "
         )
         let_decl = ast.statements[6]
         assert isinstance(let_decl, LetDecl)
@@ -2119,7 +2118,7 @@ class TestCompilerCombinators:
 
     def test_replicate_continuous_creates_n_morphisms(self):
         """Replicated continuous creates N independent morphisms."""
-        source = "\n            space A : Euclidean(4)\n            space B : Euclidean(2)\n            continuous head[3] : A -> B ~ Normal\n            export head_0\n        "
+        source = "\n            space A : Euclidean(4)\n            space B : Euclidean(2)\n            kernel head[3] : A -> B ~ Normal\n            export head_0\n        "
         compiler = Compiler(parse(source))
         compiler.compile()
         morphisms = compiler.morphisms
@@ -2130,7 +2129,7 @@ class TestCompilerCombinators:
 
     def test_replicate_independent_parameters(self):
         """Each replicated morphism has independent parameters."""
-        source = "\n            space A : Euclidean(4)\n            space B : Euclidean(2)\n            continuous head[2] : A -> B ~ Normal\n            export head_0\n        "
+        source = "\n            space A : Euclidean(4)\n            space B : Euclidean(2)\n            kernel head[2] : A -> B ~ Normal\n            export head_0\n        "
         compiler = Compiler(parse(source))
         compiler.compile()
         m = compiler.morphisms
@@ -2138,7 +2137,7 @@ class TestCompilerCombinators:
 
     def test_fan_explicit_morphisms(self):
         """fan(f, g) copies input and concatenates outputs."""
-        source = "\n            space A : Euclidean(4)\n            space B : Euclidean(2)\n            continuous f : A -> B ~ Normal\n            continuous g : A -> B ~ Normal\n            let fanned = fan(f, g)\n            export fanned\n        "
+        source = "\n            space A : Euclidean(4)\n            space B : Euclidean(2)\n            kernel f : A -> B ~ Normal\n            kernel g : A -> B ~ Normal\n            let fanned = fan(f, g)\n            export fanned\n        "
         prog = Compiler(parse(source)).compile()
         morph = prog.morphism
         x = torch.randn(8, 4)
@@ -2147,7 +2146,7 @@ class TestCompilerCombinators:
 
     def test_fan_group_expansion(self):
         """fan(group_name) expands to all group members."""
-        source = "\n            space A : Euclidean(4)\n            space B : Euclidean(2)\n            continuous head[3] : A -> B ~ Normal\n            let fanned = fan(head)\n            export fanned\n        "
+        source = "\n            space A : Euclidean(4)\n            space B : Euclidean(2)\n            kernel head[3] : A -> B ~ Normal\n            let fanned = fan(head)\n            export fanned\n        "
         prog = Compiler(parse(source)).compile()
         morph = prog.morphism
         x = torch.randn(8, 4)
@@ -2156,7 +2155,7 @@ class TestCompilerCombinators:
 
     def test_fan_compose(self):
         """fan(heads) >> combine works end-to-end."""
-        source = "\n            object Token : 32\n            space Latent : Euclidean(16)\n            space Value : Euclidean(4)\n\n            embed tok_embed : Token -> Latent\n            continuous head[4] : Latent -> Value ~ Normal\n            continuous combine : Latent -> Latent ~ Normal [scale=0.1]\n\n            let multi_head = fan(head) >> combine\n            let model = tok_embed >> multi_head\n\n            export model\n        "
+        source = "\n            object Token : 32\n            space Latent : Euclidean(16)\n            space Value : Euclidean(4)\n\n            embed tok_embed : Token -> Latent\n            kernel head[4] : Latent -> Value ~ Normal\n            kernel combine : Latent -> Latent ~ Normal [scale=0.1]\n\n            let multi_head = fan(head) >> combine\n            let model = tok_embed >> multi_head\n\n            export model\n        "
         prog = Compiler(parse(source)).compile()
         morph = prog.morphism
         x = torch.randn(4, 32)
@@ -2165,14 +2164,14 @@ class TestCompilerCombinators:
 
     def test_repeat_stochastic(self):
         """repeat(transition, N) composes N times."""
-        source = "\n            object S : 4\n            stochastic t : S -> S\n            let chain = repeat(t, 3)\n            export chain\n        "
+        source = "\n            object S : 4\n            kernel t : S -> S\n            let chain = repeat(t, 3)\n            export chain\n        "
         prog = Compiler(parse(source)).compile()
         out = prog()
         assert out.shape == (4, 4)
 
     def test_repeat_continuous(self):
         """repeat works with continuous morphisms."""
-        source = "\n            space H : Euclidean(8)\n            continuous layer : H -> H ~ Normal [scale=0.1]\n            let deep = repeat(layer, 4)\n            export deep\n        "
+        source = "\n            space H : Euclidean(8)\n            kernel layer : H -> H ~ Normal [scale=0.1]\n            let deep = repeat(layer, 4)\n            export deep\n        "
         prog = Compiler(parse(source)).compile()
         morph = prog.morphism
         x = torch.randn(4, 8)
@@ -2181,21 +2180,21 @@ class TestCompilerCombinators:
 
     def test_repeat_one(self):
         """repeat(f, 1) is the same as f."""
-        source = "\n            object S : 4\n            object O : 8\n            stochastic t : S -> O\n            let one = repeat(t, 1)\n            export one\n        "
+        source = "\n            object S : 4\n            object O : 8\n            kernel t : S -> O\n            let one = repeat(t, 1)\n            export one\n        "
         prog = Compiler(parse(source)).compile()
         out = prog()
         assert out.shape == (4, 8)
 
     def test_replicate_stochastic(self):
         """Replicated stochastic creates N independent morphisms."""
-        source = "\n            object S : 4\n            stochastic layer[3] : S -> S\n            let chain = layer_0 >> layer_1 >> layer_2\n            export chain\n        "
+        source = "\n            object S : 4\n            kernel layer[3] : S -> S\n            let chain = layer_0 >> layer_1 >> layer_2\n            export chain\n        "
         prog = Compiler(parse(source)).compile()
         out = prog()
         assert out.shape == (4, 4)
 
     def test_fan_log_prob(self):
         """FanOutMorphism log_prob sums component log-probs."""
-        source = "\n            space A : Euclidean(4)\n            space B : Euclidean(2)\n            continuous f : A -> B ~ Normal\n            continuous g : A -> B ~ Normal\n            let fanned = fan(f, g)\n            export fanned\n        "
+        source = "\n            space A : Euclidean(4)\n            space B : Euclidean(2)\n            kernel f : A -> B ~ Normal\n            kernel g : A -> B ~ Normal\n            let fanned = fan(f, g)\n            export fanned\n        "
         prog = Compiler(parse(source)).compile()
         morph = prog.morphism
         x = torch.randn(8, 4)
@@ -2295,7 +2294,7 @@ class TestStackCombinator:
     def test_stack_produces_expr_stack_ast(self):
         """stack(f, 3) parses to ExprStack node."""
         ast = parse(
-            "\n            object X : 4\n            space H : Euclidean(8)\n            continuous f : H -> H ~ Normal\n            let model = stack(f, 3)\n            export model\n        "
+            "\n            object X : 4\n            space H : Euclidean(8)\n            kernel f : H -> H ~ Normal\n            let model = stack(f, 3)\n            export model\n        "
         )
         let_decl = ast.statements[3]
         assert isinstance(let_decl.expr, ExprStack)
@@ -2305,12 +2304,12 @@ class TestStackCombinator:
         """stack creates independent parameters, unlike repeat."""
         repeat_prog = Compiler(
             parse(
-                "\n            object X : 4\n            space H : Euclidean(8)\n            continuous f : H -> H ~ Normal [scale=0.1]\n            let model = repeat(f, 3)\n            export model\n        "
+                "\n            object X : 4\n            space H : Euclidean(8)\n            kernel f : H -> H ~ Normal [scale=0.1]\n            let model = repeat(f, 3)\n            export model\n        "
             )
         ).compile()
         stack_prog = Compiler(
             parse(
-                "\n            object X : 4\n            space H : Euclidean(8)\n            continuous f : H -> H ~ Normal [scale=0.1]\n            let model = stack(f, 3)\n            export model\n        "
+                "\n            object X : 4\n            space H : Euclidean(8)\n            kernel f : H -> H ~ Normal [scale=0.1]\n            let model = stack(f, 3)\n            export model\n        "
             )
         ).compile()
         repeat_params = sum((p.numel() for p in repeat_prog.parameters()))
@@ -2321,7 +2320,7 @@ class TestStackCombinator:
         """stack(f, 3) produces correct export shape."""
         prog = Compiler(
             parse(
-                "\n            object X : 4\n            space H : Euclidean(8)\n            embed e : X -> H\n            continuous f : H -> H ~ Normal [scale=0.1]\n            let model = e >> stack(f, 3)\n            export model\n        "
+                "\n            object X : 4\n            space H : Euclidean(8)\n            embed e : X -> H\n            kernel f : H -> H ~ Normal [scale=0.1]\n            let model = e >> stack(f, 3)\n            export model\n        "
             )
         ).compile()
         y = prog.rsample(torch.zeros(4, 4))
@@ -2332,7 +2331,7 @@ class TestStackCombinator:
         """stack(f, 1) is equivalent to a single fresh copy."""
         prog = Compiler(
             parse(
-                "\n            object X : 4\n            space H : Euclidean(8)\n            continuous f : H -> H ~ Normal\n            let model = stack(f, 1)\n            export model\n        "
+                "\n            object X : 4\n            space H : Euclidean(8)\n            kernel f : H -> H ~ Normal\n            let model = stack(f, 1)\n            export model\n        "
             )
         ).compile()
         y = prog.rsample(torch.zeros(2, 8))
@@ -2342,7 +2341,7 @@ class TestStackCombinator:
         """stack can be composed with >> and other combinators."""
         prog = Compiler(
             parse(
-                "\n            object X : 4\n            space H : Euclidean(8)\n            space Out : Euclidean(2)\n            embed e : X -> H\n            continuous f : H -> H ~ Normal [scale=0.1]\n            continuous g : H -> Out ~ Normal [scale=0.1]\n            let model = e >> stack(f, 4) >> g\n            export model\n        "
+                "\n            object X : 4\n            space H : Euclidean(8)\n            space Out : Euclidean(2)\n            embed e : X -> H\n            kernel f : H -> H ~ Normal [scale=0.1]\n            kernel g : H -> Out ~ Normal [scale=0.1]\n            let model = e >> stack(f, 4) >> g\n            export model\n        "
             )
         ).compile()
         y = prog.rsample(torch.zeros(3, 4))
@@ -2392,7 +2391,7 @@ class TestBackwardComposition:
         """f << g produces g >> f."""
         prog = Compiler(
             parse(
-                "\n            object A : 3\n            object B : 4\n            object C : 5\n            stochastic f : A -> B\n            stochastic g : B -> C\n            let h = g << f\n            export h\n        "
+                "\n            object A : 3\n            object B : 4\n            object C : 5\n            kernel f : A -> B\n            kernel g : B -> C\n            let h = g << f\n            export h\n        "
             )
         ).compile()
         assert prog.morphism.domain.size == 3
@@ -2402,7 +2401,7 @@ class TestBackwardComposition:
         """f << g << h produces h >> g >> f."""
         prog = Compiler(
             parse(
-                "\n            object A : 3\n            object B : 4\n            object C : 5\n            object D : 6\n            stochastic f : A -> B\n            stochastic g : B -> C\n            stochastic h : C -> D\n            let chain = h << g << f\n            export chain\n        "
+                "\n            object A : 3\n            object B : 4\n            object C : 5\n            object D : 6\n            kernel f : A -> B\n            kernel g : B -> C\n            kernel h : C -> D\n            let chain = h << g << f\n            export chain\n        "
             )
         ).compile()
         assert prog.morphism.domain.size == 3
@@ -2416,7 +2415,7 @@ class TestKleisliComposition:
         """f >=> g is equivalent to f >> g."""
         prog = Compiler(
             parse(
-                "\n            object A : 3\n            object B : 4\n            object C : 5\n            stochastic f : A -> B\n            stochastic g : B -> C\n            let h = f >=> g\n            export h\n        "
+                "\n            object A : 3\n            object B : 4\n            object C : 5\n            kernel f : A -> B\n            kernel g : B -> C\n            let h = f >=> g\n            export h\n        "
             )
         ).compile()
         assert prog.morphism.domain.size == 3
@@ -2426,7 +2425,7 @@ class TestKleisliComposition:
         """>=> and >> can be mixed in same expression."""
         prog = Compiler(
             parse(
-                "\n            object A : 3\n            object B : 4\n            object C : 5\n            object D : 6\n            stochastic f : A -> B\n            stochastic g : B -> C\n            stochastic h : C -> D\n            let chain = f >=> g >> h\n            export chain\n        "
+                "\n            object A : 3\n            object B : 4\n            object C : 5\n            object D : 6\n            kernel f : A -> B\n            kernel g : B -> C\n            kernel h : C -> D\n            let chain = f >=> g >> h\n            export chain\n        "
             )
         ).compile()
         assert prog.morphism.domain.size == 3
@@ -2440,7 +2439,7 @@ class TestTypeAlias:
         """type H = Euclidean(8) works like space H : Euclidean(8)."""
         prog = Compiler(
             parse(
-                "\n            object X : 4\n            type H = Euclidean(8)\n            embed e : X -> H\n            continuous f : H -> H ~ Normal\n            let model = e >> f\n            export model\n        "
+                "\n            object X : 4\n            type H = Euclidean(8)\n            embed e : X -> H\n            kernel f : H -> H ~ Normal\n            let model = e >> f\n            export model\n        "
             )
         ).compile()
         y = prog.rsample(torch.zeros(2, 4))
@@ -2488,7 +2487,7 @@ class TestWhereClause:
         """let x = expr where let y = expr."""
         prog = Compiler(
             parse(
-                "\n            object A : 3\n            object B : 4\n            object C : 5\n            stochastic f : A -> B\n            stochastic g : B -> C\n            let model = f >> chain\n            where\n                let chain = g\n            export model\n        "
+                "\n            object A : 3\n            object B : 4\n            object C : 5\n            kernel f : A -> B\n            kernel g : B -> C\n            let model = f >> chain\n            where\n                let chain = g\n            export model\n        "
             )
         ).compile()
         assert prog.morphism.domain.size == 3
@@ -2498,7 +2497,7 @@ class TestWhereClause:
         """where can have multiple let bindings."""
         prog = Compiler(
             parse(
-                "\n            object A : 3\n            object B : 4\n            object C : 5\n            object D : 6\n            stochastic f : A -> B\n            stochastic g : B -> C\n            stochastic h : C -> D\n            let model = first >> second\n            where\n                let first = f >> g\n                let second = h\n            export model\n        "
+                "\n            object A : 3\n            object B : 4\n            object C : 5\n            object D : 6\n            kernel f : A -> B\n            kernel g : B -> C\n            kernel h : C -> D\n            let model = first >> second\n            where\n                let first = f >> g\n                let second = h\n            export model\n        "
             )
         ).compile()
         assert prog.morphism.domain.size == 3
@@ -2508,7 +2507,7 @@ class TestWhereClause:
         """where clause with stack combinator."""
         prog = Compiler(
             parse(
-                "\n            object X : 4\n            space H : Euclidean(8)\n            space Out : Euclidean(2)\n            embed e : X -> H\n            continuous f : H -> H ~ Normal [scale=0.1]\n            continuous g : H -> Out ~ Normal [scale=0.1]\n            let model = e >> layers >> g\n            where\n                let layers = stack(f, 3)\n            export model\n        "
+                "\n            object X : 4\n            space H : Euclidean(8)\n            space Out : Euclidean(2)\n            embed e : X -> H\n            kernel f : H -> H ~ Normal [scale=0.1]\n            kernel g : H -> Out ~ Normal [scale=0.1]\n            let model = e >> layers >> g\n            where\n                let layers = stack(f, 3)\n            export model\n        "
             )
         ).compile()
         y = prog.rsample(torch.zeros(2, 4))
@@ -2522,7 +2521,7 @@ class TestScanCombinator:
     def test_scan_ast_node(self):
         """scan(expr) produces an ExprScan AST node."""
         ast = parse(
-            "\n            type A = Euclidean 4\n            type H = Euclidean 8\n            continuous cell : A * H -> H ~ Normal\n            let rnn = scan(cell)\n            export rnn\n        "
+            "\n            type A = Euclidean 4\n            type H = Euclidean 8\n            kernel cell : A * H -> H ~ Normal\n            let rnn = scan(cell)\n            export rnn\n        "
         )
         let_decl = ast.statements[3]
         assert isinstance(let_decl.expr, ExprScan)
@@ -2531,7 +2530,7 @@ class TestScanCombinator:
     def test_scan_ast_init_learned(self):
         """scan(expr, init=learned) sets init strategy."""
         ast = parse(
-            "\n            type A = Euclidean 4\n            type H = Euclidean 8\n            continuous cell : A * H -> H ~ Normal\n            let rnn = scan(cell, init=learned)\n            export rnn\n        "
+            "\n            type A = Euclidean 4\n            type H = Euclidean 8\n            kernel cell : A * H -> H ~ Normal\n            let rnn = scan(cell, init=learned)\n            export rnn\n        "
         )
         let_decl = ast.statements[3]
         assert isinstance(let_decl.expr, ExprScan)
@@ -2541,7 +2540,7 @@ class TestScanCombinator:
         """scan(cell) threads hidden state and returns correct shape."""
         prog = Compiler(
             parse(
-                "\n            type Input = Euclidean 4\n            type Hidden = Euclidean 8\n            continuous cell : Input * Hidden -> Hidden ~ Normal [scale=0.1]\n            let rnn = scan(cell)\n            export rnn\n        "
+                "\n            type Input = Euclidean 4\n            type Hidden = Euclidean 8\n            kernel cell : Input * Hidden -> Hidden ~ Normal [scale=0.1]\n            let rnn = scan(cell)\n            export rnn\n        "
             )
         ).compile()
         x = torch.randn(3, 5, 4)
@@ -2553,7 +2552,7 @@ class TestScanCombinator:
         """embed >> scan(cell) processes tokenized sequences."""
         prog = Compiler(
             parse(
-                "\n            object Token : 16\n            type Hidden = Euclidean 8\n            type Embedded = Euclidean 4\n            embed tok_embed : Token -> Embedded\n            continuous cell : Embedded * Hidden -> Hidden ~ Normal [scale=0.1]\n            let rnn = tok_embed >> scan(cell)\n            export rnn\n        "
+                "\n            object Token : 16\n            type Hidden = Euclidean 8\n            type Embedded = Euclidean 4\n            embed tok_embed : Token -> Embedded\n            kernel cell : Embedded * Hidden -> Hidden ~ Normal [scale=0.1]\n            let rnn = tok_embed >> scan(cell)\n            export rnn\n        "
             )
         ).compile()
         tokens = torch.tensor([[0, 5, 3, 1], [2, 7, 15, 0]])
@@ -2565,7 +2564,7 @@ class TestScanCombinator:
         """embed >> scan(cell) >> output_proj is a full RNN pipeline."""
         prog = Compiler(
             parse(
-                "\n            object Token : 32\n            type Embedded = Euclidean 16\n            type Hidden = Euclidean 32\n            type Output = Euclidean 8\n            embed tok_embed : Token -> Embedded\n            continuous cell : Embedded * Hidden -> Hidden ~ Normal [scale=0.1]\n            continuous output_proj : Hidden -> Output ~ Normal [scale=0.1]\n            let rnn = tok_embed >> scan(cell) >> output_proj\n            export rnn\n        "
+                "\n            object Token : 32\n            type Embedded = Euclidean 16\n            type Hidden = Euclidean 32\n            type Output = Euclidean 8\n            embed tok_embed : Token -> Embedded\n            kernel cell : Embedded * Hidden -> Hidden ~ Normal [scale=0.1]\n            kernel output_proj : Hidden -> Output ~ Normal [scale=0.1]\n            let rnn = tok_embed >> scan(cell) >> output_proj\n            export rnn\n        "
             )
         ).compile()
         tokens = torch.tensor([[5, 12, 3, 27, 0]])
@@ -2577,7 +2576,7 @@ class TestScanCombinator:
         """scan(cell, init=learned) has a learnable initial state."""
         prog = Compiler(
             parse(
-                "\n            type Input = Euclidean 4\n            type Hidden = Euclidean 8\n            continuous cell : Input * Hidden -> Hidden ~ Normal [scale=0.1]\n            let rnn = scan(cell, init=learned)\n            export rnn\n        "
+                "\n            type Input = Euclidean 4\n            type Hidden = Euclidean 8\n            kernel cell : Input * Hidden -> Hidden ~ Normal [scale=0.1]\n            let rnn = scan(cell, init=learned)\n            export rnn\n        "
             )
         ).compile()
         from quivers.continuous.scan import ScanMorphism
@@ -2593,7 +2592,7 @@ class TestScanCombinator:
         """scan handles different sequence lengths producing same export shape."""
         prog = Compiler(
             parse(
-                "\n            type Input = Euclidean 4\n            type Hidden = Euclidean 8\n            continuous cell : Input * Hidden -> Hidden ~ Normal [scale=0.1]\n            let rnn = scan(cell)\n            export rnn\n        "
+                "\n            type Input = Euclidean 4\n            type Hidden = Euclidean 8\n            kernel cell : Input * Hidden -> Hidden ~ Normal [scale=0.1]\n            let rnn = scan(cell)\n            export rnn\n        "
             )
         ).compile()
         x3 = torch.randn(1, 3, 4)
@@ -2607,7 +2606,7 @@ class TestScanCombinator:
         """scan works with a monadic program cell (e.g. GRU)."""
         prog = Compiler(
             parse(
-                "\n            object Token : 16\n            type Embedded = Euclidean 8\n            type Hidden = Euclidean 16\n\n            embed tok_embed : Token -> Embedded\n\n            continuous gate_z : Embedded * Hidden -> Hidden ~ LogitNormal\n            continuous gate_r : Embedded * Hidden -> Hidden ~ LogitNormal\n            continuous cand : Embedded * Hidden -> Hidden ~ Normal [scale=0.1]\n\n            program gru_cell(x_t, h_prev) : Embedded * Hidden -> Hidden\n                z <- gate_z(x_t, h_prev)\n                r <- gate_r(x_t, h_prev)\n                let reset_h = r * h_prev\n                h_cand <- cand(x_t, reset_h)\n                let z_c = 1.0 - z\n                let h_new = z_c * h_prev + z * h_cand\n                return h_new\n\n            let gru = tok_embed >> scan(gru_cell)\n            export gru\n        "
+                "\n            object Token : 16\n            type Embedded = Euclidean 8\n            type Hidden = Euclidean 16\n\n            embed tok_embed : Token -> Embedded\n\n            kernel gate_z : Embedded * Hidden -> Hidden ~ LogitNormal\n            kernel gate_r : Embedded * Hidden -> Hidden ~ LogitNormal\n            kernel cand : Embedded * Hidden -> Hidden ~ Normal [scale=0.1]\n\n            program gru_cell(x_t, h_prev) : Embedded * Hidden -> Hidden\n                z <- gate_z(x_t, h_prev)\n                r <- gate_r(x_t, h_prev)\n                let reset_h = r * h_prev\n                h_cand <- cand(x_t, reset_h)\n                let z_c = 1.0 - z\n                let h_new = z_c * h_prev + z * h_cand\n                return h_new\n\n            let gru = tok_embed >> scan(gru_cell)\n            export gru\n        "
             )
         ).compile()
         tokens = torch.tensor([[0, 5, 3, 1], [2, 7, 15, 0]])
@@ -2619,7 +2618,7 @@ class TestScanCombinator:
         """scan cell parameters are trainable."""
         prog = Compiler(
             parse(
-                "\n            type Input = Euclidean 4\n            type Hidden = Euclidean 8\n            continuous cell : Input * Hidden -> Hidden ~ Normal [scale=0.1]\n            let rnn = scan(cell)\n            export rnn\n        "
+                "\n            type Input = Euclidean 4\n            type Hidden = Euclidean 8\n            kernel cell : Input * Hidden -> Hidden ~ Normal [scale=0.1]\n            let rnn = scan(cell)\n            export rnn\n        "
             )
         ).compile()
         params = list(prog.parameters())
@@ -2630,7 +2629,7 @@ class TestScanCombinator:
         """scan(cell) >> stack(layer, N) composes correctly."""
         prog = Compiler(
             parse(
-                "\n            object Token : 16\n            type Embedded = Euclidean 8\n            type Hidden = Euclidean 16\n            type Output = Euclidean 4\n\n            embed tok_embed : Token -> Embedded\n            continuous cell : Embedded * Hidden -> Hidden ~ Normal [scale=0.1]\n            continuous layer : Hidden -> Hidden ~ Normal [scale=0.1]\n            continuous proj : Hidden -> Output ~ Normal [scale=0.1]\n\n            let model = tok_embed >> scan(cell) >> stack(layer, 2) >> proj\n            export model\n        "
+                "\n            object Token : 16\n            type Embedded = Euclidean 8\n            type Hidden = Euclidean 16\n            type Output = Euclidean 4\n\n            embed tok_embed : Token -> Embedded\n            kernel cell : Embedded * Hidden -> Hidden ~ Normal [scale=0.1]\n            kernel layer : Hidden -> Hidden ~ Normal [scale=0.1]\n            kernel proj : Hidden -> Output ~ Normal [scale=0.1]\n\n            let model = tok_embed >> scan(cell) >> stack(layer, 2) >> proj\n            export model\n        "
             )
         ).compile()
         tokens = torch.tensor([[0, 5, 3, 1]])
@@ -2643,7 +2642,7 @@ class TestScanCombinator:
         with pytest.raises(CompileError):
             Compiler(
                 parse(
-                    "\n                type H = Euclidean 8\n                continuous cell : H -> H ~ Normal [scale=0.1]\n                let rnn = scan(cell)\n                export rnn\n            "
+                    "\n                type H = Euclidean 8\n                kernel cell : H -> H ~ Normal [scale=0.1]\n                let rnn = scan(cell)\n                export rnn\n            "
                 )
             ).compile()
 
@@ -2704,7 +2703,7 @@ class TestParserMultiLine:
     def test_multiline_parser_morphism_rules(self):
         """parser() with morphism rules on separate lines."""
         ast = parse(
-            "\n            object N : 10\n            object T : 64\n            stochastic binary : N -> N * N\n            stochastic lexical : N -> T\n            let pcfg = parser(\n                rules=[binary, lexical],\n                start=0\n            )\n            export pcfg\n        "
+            "\n            object N : 10\n            object T : 64\n            kernel binary : N -> N * N\n            kernel lexical : N -> T\n            let pcfg = parser(\n                rules=[binary, lexical],\n                start=0\n            )\n            export pcfg\n        "
         )
         let_stmt = ast.statements[4]
         assert isinstance(let_stmt, LetDecl)
@@ -2929,4 +2928,120 @@ class TestRuleDecl:
         with pytest.raises(CompileError, match="3 premises"):
             loads(
                 "\n                rule bad(X, Y, Z) : X, Y, Z => X\n                category S\n                object Token : 10\n                let g = parser(rules=[bad], terminal=Token, start=S)\n                export g\n            "
+            )
+
+
+# ---------------------------------------------------------------------------
+# Axis-role surface validation (0.5.0)
+# ---------------------------------------------------------------------------
+
+
+class TestAxisRoleSurface:
+    """Compile-time validation of `over <axes> [iid over <axes>]` clauses.
+
+    Verifies that the axis-role surface preserves categorical distinctions:
+    the family's declared ``event_rank`` controls the legal arity of
+    ``over``; mismatch is a compile error, not a silent reinterpretation.
+    """
+
+    def test_event_rank_0_rejects_over_axes(self):
+        """A scalar family (event_rank 0) cannot carry `over <axes>`."""
+        with pytest.raises(CompileError, match="event_rank 0"):
+            loads(
+                "object D : 4\nobject K : 8\n"
+                "kernel f : D -> K ~ Normal over cod\n"
+                "export f\n"
+            )
+
+    def test_event_rank_1_requires_one_axis(self):
+        """MVN (event_rank 1) requires exactly one axis in `over`."""
+        with pytest.raises(CompileError, match="event_rank 1"):
+            loads(
+                "object D : 4\nspace R8 : Euclidean(8)\n"
+                "kernel f : D -> R8 ~ MultivariateNormal over (dom, cod)\n"
+                "export f\n"
+            )
+
+    def test_event_rank_2_requires_two_axes(self):
+        """MatrixNormal (event_rank 2) requires exactly two axes in `over`."""
+        with pytest.raises(CompileError, match="event_rank 2"):
+            loads(
+                "object D : 4\nspace R8 : Euclidean(8)\n"
+                "kernel f : D -> R8 ~ MatrixNormal over cod\n"
+                "export f\n"
+            )
+
+    def test_unknown_axis_name_rejected(self):
+        """Axis names must resolve against dom/cod factors."""
+        with pytest.raises(CompileError, match="unknown axis name"):
+            loads(
+                "object D : 4\nspace R8 : Euclidean(8)\n"
+                "kernel f : D -> R8 ~ MultivariateNormal over bogus\n"
+                "export f\n"
+            )
+
+    def test_overlap_between_over_and_iid_rejected(self):
+        """An axis cannot appear in both `over` and `iid over`."""
+        with pytest.raises(CompileError, match="both"):
+            loads(
+                "object D : 4\nspace R8 : Euclidean(8)\n"
+                "kernel f : D -> R8 ~ MultivariateNormal over cod iid over cod\n"
+                "export f\n"
+            )
+
+    def test_lookup_kernel_rejects_axis_clause(self):
+        """A finite-set lookup kernel (no `~`) cannot carry an axis clause.
+
+        The axis-role surface is meaningful only when there's a family
+        to carry an event-rank; the lookup-table form has no such family.
+        """
+        # The grammar attaches `axes` only to the `~ Family` branch of
+        # kernel_decl, so a lookup kernel can't even parse with an axis
+        # clause — this test asserts that grammar contract by parsing
+        # the well-formed lookup variant and confirming axes is None.
+        m = parse("object S : 8\nkernel trans : S -> S\nexport trans\n")
+        decls = [s for s in m.statements if isinstance(s, KernelDecl)]
+        assert decls and decls[0].axes is None
+
+    def test_parametric_kernel_accepts_well_formed_axis_clause(self):
+        """A correctly-arity-matched axis clause compiles cleanly."""
+        loads(
+            "space R8 : Euclidean(8)\nspace R4 : Euclidean(4)\n"
+            "kernel f : R8 -> R4 ~ MultivariateNormal over cod\n"
+            "export f\n"
+        )
+        m = parse(
+            "space R8 : Euclidean(8)\nspace R4 : Euclidean(4)\n"
+            "kernel f : R8 -> R4 ~ MultivariateNormal over cod\n"
+            "export f\n"
+        )
+        decls = [s for s in m.statements if isinstance(s, KernelDecl)]
+        assert decls and decls[0].axes is not None
+        assert decls[0].axes.over == ("cod",)
+
+    def test_matrix_normal_axis_shape_resolution(self):
+        """`MatrixNormal over (dom, cod)` derives rows/cols from the
+        morphism's named factors and constructs the family with the
+        correct Kronecker shape."""
+        from quivers.dsl import Compiler
+
+        ast = parse(
+            "space SD : Euclidean(32)\nspace SK : Euclidean(64)\n"
+            "kernel W : SD -> SK ~ MatrixNormal over (dom, cod)\n"
+            "export W\n"
+        )
+        c = Compiler(ast)
+        c.compile()
+        W = c._morphisms["W"]
+        assert W._rows == 32
+        assert W._cols == 64
+        assert W.event_rank == 2
+
+    def test_matrix_normal_wrong_arity_rejected_with_shape_hint(self):
+        """MatrixNormal requires exactly two over-axes."""
+        with pytest.raises(CompileError, match="event_rank 2"):
+            loads(
+                "space SD : Euclidean(32)\nspace SK : Euclidean(64)\n"
+                "kernel W : SD -> SK ~ MatrixNormal over cod\n"
+                "export W\n"
             )

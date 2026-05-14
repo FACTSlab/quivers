@@ -36,16 +36,41 @@ from quivers.dsl.program_theory import (
 from quivers.program import Program
 
 
-def loads(source: str) -> Program:
-    """Compile .qvr source text into a trainable Program."""
+def loads(
+    source: str,
+    *,
+    data: dict | None = None,
+) -> Program:
+    """Compile .qvr source text into a trainable Program.
+
+    Parameters
+    ----------
+    source : str
+        The ``.qvr`` source.
+    data : dict, optional
+        Maps string keys to tensors (or tensor-like objects) for
+        any ``from_data("KEY")`` initializers in the source. The
+        compiler looks each key up at compile time; an unknown key
+        raises :class:`CompileError`.
+    """
     ast = parse(source)
-    return Compiler(ast).compile()
+    compiler = Compiler(ast)
+    if data is not None:
+        compiler.bind_data(data)
+    return compiler.compile()
 
 
-def load(path: str | Path) -> Program:
+def load(
+    path: str | Path,
+    *,
+    data: dict | None = None,
+) -> Program:
     """Load and compile a .qvr file into a trainable Program."""
     ast = parse_file(path)
-    return Compiler(ast).compile()
+    compiler = Compiler(ast)
+    if data is not None:
+        compiler.bind_data(data)
+    return compiler.compile()
 
 
 __all__ = [

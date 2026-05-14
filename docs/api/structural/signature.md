@@ -9,7 +9,7 @@ The de-Bruijn discipline is enforced structurally: a
 `BoundVar(i)` term carries an integer index; binders push
 a fresh `ContextEntry(var_sort, embedding, type_term)` onto
 an implicit context Γ tracked by the encoder / decoder
-runtime. Binder variables may carry an annotation sort —
+runtime. Binder variables may carry an annotation sort :
 the variable's type is stored alongside its embedding in Γ.
 
 ::: quivers.structural.signature

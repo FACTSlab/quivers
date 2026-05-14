@@ -15,8 +15,13 @@
 ; Module-level declaration / statement keywords.
 [
   "quantale"
+  "semigroupoid"
+  "bilinear_form"
+  "composition_rule"
+  "contraction"
   "category"
   "rule"
+  "wiring"
   "schema"
   "object"
   "let"
@@ -25,8 +30,8 @@
   "where"
   "type"
   "space"
-  "continuous"
-  "stochastic"
+  "kernel"
+  "kernel"
   "discretize"
   "embed"
   "program"
@@ -37,6 +42,7 @@
   "in"
   "for"
   "over"
+  "via"
   "return"
   "latent"
   "observed"
@@ -145,6 +151,7 @@
 [
   "->"
   "=>"
+  ">>>"
   ">>"
   "<<"
   ">=>"
@@ -178,8 +185,8 @@
 (schema_parameter names: (identifier) @variable.parameter)
 (morphism_decl name: (identifier) @function)
 (let_decl      name: (identifier) @function)
-(continuous_decl name: (identifier) @function)
-(stochastic_decl name: (identifier) @function)
+(kernel_decl name: (identifier) @function)
+(kernel_decl name: (identifier) @function)
 (discretize_decl name: (identifier) @function)
 (embed_decl    name: (identifier) @function)
 (program_decl  name: (identifier) @function)
@@ -192,7 +199,7 @@
 (space_constructor       constructor: (identifier) @type.builtin)
 (space_constructor_bare  constructor: (identifier) @type.builtin)
 
-(continuous_decl family: (identifier) @type)
+(kernel_decl family: (identifier) @type)
 
 ; Deduction-block heads colour the bound name as a function /
 ; type per the surface convention (deductions are values that

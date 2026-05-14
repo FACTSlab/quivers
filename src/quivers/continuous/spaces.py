@@ -146,6 +146,40 @@ class PositiveReals(ContinuousSpace):
 
 
 # ---------------------------------------------------------------------------
+# CholeskyFactor
+# ---------------------------------------------------------------------------
+
+
+class CholeskyFactor(ContinuousSpace):
+    """The manifold of :math:`K \\times K` lower-triangular Cholesky factors.
+
+    Each element is a lower-triangular matrix :math:`L` whose rows
+    have unit norm: :math:`L_{ii}^2 + \\sum_{j<i} L_{ij}^2 = 1` for
+    every :math:`i`. The product :math:`L L^T` is then a
+    correlation matrix. The standard parameterization places
+    :math:`L` on a :math:`K(K-1)/2`-dimensional manifold.
+
+    Carrier represented as a flat :math:`K \\times K` array
+    (row-major); the on-manifold constraint is enforced by the
+    sampling family
+    (:class:`~quivers.continuous.families.LKJCorrelationFactor`)
+    and not by the type itself.
+    """
+
+    name: str
+    dim: int
+    kind: Literal["cholesky_factor"] = "cholesky_factor"
+
+    @property
+    def shape(self) -> tuple[int, ...]:
+        return (self.dim * self.dim,)
+
+    @property
+    def ndim(self) -> int:
+        return 1
+
+
+# ---------------------------------------------------------------------------
 # ProductSpace
 # ---------------------------------------------------------------------------
 

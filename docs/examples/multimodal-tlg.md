@@ -42,9 +42,9 @@ Multimodal type-logical grammar (Moortgat 1997) extends the Lambek calculus with
 
 `atoms { … }` declares category atoms (`S`, `NP`, `N`, `VP`, `PP`), slash constructors (`Fwd`, `Bwd`), and modal constructors (`Dia`, `Box`). Chart items are `span(I, J, X)` triples.
 
-- **`right_app` / `left_app`** — modus ponens for forward / backward slash, exactly as in the base Lambek calculus.
-- **`dia_intro`** — modal introduction: a derivation of `A` lifts to a derivation of `Dia(A)` over the same span. This is the unit of the modality's monadic structure on the category of formulas.
-- **`dia_elim`** — modal elimination: a derivation of `Dia(A)` projects back to a derivation of `A` over the same span. Combined with structural rules licensed under the modality, `dia_elim` is what permits controlled exchange / weakening / contraction within modal-marked subderivations.
+- **`right_app` / `left_app`**: modus ponens for forward / backward slash, exactly as in the base Lambek calculus.
+- **`dia_intro`**: modal introduction: a derivation of `A` lifts to a derivation of `Dia(A)` over the same span. This is the unit of the modality's monadic structure on the category of formulas.
+- **`dia_elim`**: modal elimination: a derivation of `Dia(A)` projects back to a derivation of `A` over the same span. Combined with structural rules licensed under the modality, `dia_elim` is what permits controlled exchange / weakening / contraction within modal-marked subderivations.
 
 A richer fragment would add explicit modal structural rules (modal exchange, modal contraction) and the `Box` introduction / elimination duals; both are sequent rules in the same style.
 
@@ -53,6 +53,16 @@ A richer fragment would add explicit modal structural rules (modal exchange, mod
 - **Sequent rules with arbitrary arity**: rule premises can be unary or binary; the agenda dispatches each pattern to the appropriate chart-cell shape.
 - **Modal constructors as atoms**: `Dia` and `Box` are user-declared atoms in the same vocabulary as the slash constructors. There is no built-in modal syntax.
 - **Depth bounding**: `depth 6` keeps modal nesting finite, which is essential because the category space is otherwise infinite (every `A` admits `Dia(A)`, `Dia(Dia(A))`, …).
+
+## Try it
+
+```python
+from quivers.dsl import load
+
+prog = load("docs/examples/source/multimodal_tlg.qvr")
+```
+
+Adding a `lexicon { ... }` block of learnable per-entry log-weights plus an outer `program` that observes the chart's goal weight on a corpus closes the fit loop. The modal structural-rule licensing is purely additional sequent rules: extending the modality with controlled exchange, contraction, or weakening just adds more rules to the deduction body without changing the surface.
 
 ## Categorical Perspective
 

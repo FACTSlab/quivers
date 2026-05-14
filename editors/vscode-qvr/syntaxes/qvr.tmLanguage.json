@@ -80,11 +80,11 @@
     },
     "keyword-control": {
       "name": "keyword.control.qvr",
-      "match": "\\b(observe|return|let|program|marginalize|in|for|where|export|output|alias|bundle)\\b"
+      "match": "\\b(observe|return|let|program|marginalize|in|for|where|export|output|alias|bundle|via)\\b"
     },
     "keyword-declaration": {
       "name": "keyword.declaration.qvr",
-      "match": "\\b(quantale|category|object|space|latent|observed|stochastic|continuous|discretize|embed|type|schema|rule)\\b"
+      "match": "\\b(quantale|semigroupoid|bilinear_form|composition_rule|contraction|wiring|category|object|space|latent|observed|stochastic|continuous|discretize|embed|type|schema|rule)\\b"
     },
     "keyword-structural": {
       "name": "keyword.declaration.structural.qvr",
@@ -111,9 +111,9 @@
           "match": "\\|-|⊢"
         },
         {
-          "comment": "Compose-and-flip arrows (longest-first).",
+          "comment": "Compose-and-flip arrows (longest-first; trans-compose first).",
           "name": "keyword.operator.qvr",
-          "match": ">=>|>>|<<|->|=>|<-"
+          "match": ">>>|>=>|>>|<<|->|=>|<-"
         },
         {
           "comment": "Graph undirected-edge arrow (matched before unary minus).",
@@ -137,7 +137,7 @@
     },
     "builtin-function": {
       "name": "support.function.builtin.qvr",
-      "match": "\\b(sigmoid|exp|log|abs|softplus|cumsum|softmax|log1p|sqrt|neg|length|map|filter|fold|logsumexp|logsumexp_over|cholesky_quad_form|identity|fan|repeat|stack|scan|parser|ccg|lambek|chart_fold|parse|curry_right|curry_left|FreeResiduated|FreeMonoid)\\b"
+      "match": "\\b(sigmoid|exp|log|abs|softplus|cumsum|softmax|log_softmax|softmax_rows|log1p|sqrt|neg|tanh|relu|length|map|filter|fold|logsumexp|logsumexp_over|cholesky_quad_form|sum|prod|mean|zeros|ones|identity|fan|repeat|stack|scan|parser|ccg|lambek|chart_fold|parse|curry_right|curry_left|from_data|freeze|FreeResiduated|FreeMonoid|l1_normalize|l2_normalize|bayes_invert|expectation|log_prob|max_plus|material_implication|threshold|boolean_embedding|probability_clamp|probability_to_real|counting_from_real|counting_to_real)\\b"
     },
     "builtin-type": {
       "name": "support.class.builtin.qvr",
@@ -151,7 +151,7 @@
     "quantale": {
       "comment": "Built-in quantale names.",
       "name": "support.constant.quantale.qvr",
-      "match": "\\b(product_fuzzy|boolean|lukasiewicz|godel|tropical)\\b"
+      "match": "\\b(product_fuzzy|boolean|lukasiewicz|godel|tropical|max_plus|log_prob|markov|real|probability|counting|material_impl|reichenbach|boolean_dual|dual_lukasiewicz|dual_godel)\\b"
     },
     "distribution-family": {
       "name": "support.type.distribution.qvr",

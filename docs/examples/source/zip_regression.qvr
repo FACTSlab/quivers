@@ -1,0 +1,55 @@
+# ================================================================
+# Multi-Output Zero-Inflated Poisson Regression
+# ================================================================
+#
+# A multi-output zero-inflated Poisson regression ([Lambert 1992]
+# (https://doi.org/10.2307/1269547)).  ZIP models count data with
+# an excess of structural zeros relative to a plain Poisson
+# likelihood: each cell is a two-component mixture of a point
+# mass at zero and a Poisson(rate).  Each output dimension
+# carries its own zero-inflation logits and rate coefficients:
+#
+#   alpha_zero_d, beta_zero_d ~ Normal(0, 5)
+#   alpha_rate_d, beta_rate_d ~ Normal(0, 5)
+#   pi_{n, d}                  = sigmoid(alpha_zero_d + beta_zero_d * x_n)
+#   rate_{n, d}                = exp(alpha_rate_d + beta_rate_d * x_n)
+#   z_{n, d}                   ~ ContinuousBernoulli(pi_{n, d})
+#   y_{n, d}                   ~ Poisson(rate_{n, d})    inside marginalize z
+#
+# The zero-inflation indicator `z` is integrated out by the
+# enclosing `marginalize z` block.  The continuous-Bernoulli
+# relaxation of the discrete indicator gives a closed-form
+# tractable density on (0, 1) and lets SVI integrate the
+# coordinate via reparameterised sampling; the canonical
+# logsumexp marginalisation over the two integer states is the
+# limiting case as the relaxation temperature tightens.
+#
+# Distinguishing feature: scoped `marginalize` step integrating
+# the per-cell zero-inflation indicator while the program body's
+# Poisson observe remains a vectorised plate.
+
+object Item : 200
+object Out : 2
+object Resp : 400
+
+program zip_regression : Resp -> Resp
+    alpha_zero : Out <- Normal(0.0, 5.0)
+    beta_zero : Out <- Normal(0.0, 5.0)
+    alpha_rate : Out <- Normal(0.0, 5.0)
+    beta_rate : Out <- Normal(0.0, 5.0)
+
+    x : Resp <- Normal(0.0, 1.0)
+    let az = alpha_zero[out_idx]
+    let bz = beta_zero[out_idx]
+    let ar = alpha_rate[out_idx]
+    let br = beta_rate[out_idx]
+
+    let pi_z = sigmoid(az + bz * x)
+    let rate = exp(ar + br * x)
+
+    marginalize z : Resp <- ContinuousBernoulli(pi_z) in {
+        observe y : Resp <- Poisson(rate)
+    }
+    return beta_rate
+
+export zip_regression

@@ -1,0 +1,31 @@
+# Ill-conditioned posterior with eigenvalues spread across decades.
+#
+# Five independent Normal latents at widely-varying prior scales,
+# each observed under a tight independent Gaussian likelihood. The
+# joint posterior has a diagonal covariance whose eigenvalues span
+# orders of magnitude — a stress test for HMC's mass-matrix
+# adaptation and for mean-field VI's per-dim parameter scales.
+#
+# Prior:        x_1 ~ Normal(0, 100)   x_2 ~ Normal(0, 10)
+#               x_3 ~ Normal(0, 1)     x_4 ~ Normal(0, 0.1)
+#               x_5 ~ Normal(0, 0.01)
+# Likelihood:   y_i ~ Normal(x_i, 0.1)
+#
+# Tier-3 hard-geometry stress.
+
+object Obs : 1
+
+program ill_conditioned_mvn : Obs -> Obs
+    x_1 <- Normal(0.0, 100.0)
+    x_2 <- Normal(0.0, 10.0)
+    x_3 <- Normal(0.0, 1.0)
+    x_4 <- Normal(0.0, 0.1)
+    x_5 <- Normal(0.0, 0.01)
+    observe y_1 <- Normal(x_1, 0.1)
+    observe y_2 <- Normal(x_2, 0.1)
+    observe y_3 <- Normal(x_3, 0.1)
+    observe y_4 <- Normal(x_4, 0.1)
+    observe y_5 <- Normal(x_5, 0.1)
+    return x_1
+
+export ill_conditioned_mvn

@@ -5,13 +5,13 @@ arbitrary structured objects to fixed-length vectors and decoding
 them back under a learned distribution. The interface is built on
 two categorical primitives:
 
-- A **encoder** is a Σ-algebra homomorphism `T_Σ → Vec_D` —
+- A **encoder** is a Σ-algebra homomorphism `T_Σ → Vec_D` :
   for each operation `op : s_1 × … × s_n → s` in a multi-sorted
   signature Σ, a parametric function
   `Ĉ_op : Vec_D × … × Vec_D → Vec_D`. The recursion over the term
   tree is supplied by the framework; the analyst supplies only
   the per-operation parametric functions.
-- A **decoder** is a Kleisli coalgebra `Vec_D → Kern(T_Σ)` —
+- A **decoder** is a Kleisli coalgebra `Vec_D → Kern(T_Σ)` :
   a structure choice, primitive choice, factor split, and binder
   selection together corecursively generate a `Term` (with
   per-term `log_prob` available for observed terms).
@@ -53,16 +53,16 @@ signature LF {
 
 Three sort kinds:
 
-- `object` — the principal sorts whose terms are compressed /
+- `object`: the principal sorts whose terms are compressed /
   decoded recursively.
-- `data` — opaque atoms (string / int / float / bytes / bool)
+- `data`: opaque atoms (string / int / float / bytes / bool)
   consumed by per-data-sort embedders. A data sort may declare a
   closed vocabulary inline via `vocab { … }` listing string,
   integer, and / or float literals; the decoder samples and scores
   data-sorted children from exactly these tokens.
-- `index` — de-Bruijn index slots.
+- `index`: de-Bruijn index slots.
 
-Reserved op names: `BoundVar` and `Data` — these are
+Reserved op names: `BoundVar` and `Data`, these are
 framework-built-in op tags. The compiler rejects them as
 user-declared constructor / binder names.
 
@@ -76,7 +76,7 @@ annotated by a `Type`-sorted term `ty`."
 
 The framework threads a de-Bruijn context Γ through both the
 encoder's recursion and the decoder's corecursion. Each entry
-of Γ is a triple `(var_sort, embedding, type_term)` — so the
+of Γ is a triple `(var_sort, embedding, type_term)`, so the
 **type of every bound variable is structurally tracked**, not just
 the variable's existence. `BoundVar(i)` at any object-sorted
 position reads Γ at depth `i`. The encoder's `var_init`
@@ -96,7 +96,7 @@ Strict declaration rules:
 
 An encoder declares the carrier dim per sort plus one
 parametric function per constructor / binder. Bodies are
-optional — the compiler scaffolds a 2-layer MLP per omitted op
+optional, the compiler scaffolds a 2-layer MLP per omitted op
 with the correct per-arg dim sequence.
 
 <!-- compile: cumulative -->
@@ -129,7 +129,7 @@ For binder constructors, the framework's calling convention is:
    `[annot_1, …, annot_k, scoped_1, …, scoped_m]` in declaration
    order.
 
-Multiple `var_init` declarations are allowed per encoder — one
+Multiple `var_init` declarations are allowed per encoder, one
 per `(var_sort, annot_sort)` pair the signature's binders
 introduce. Unannotated binders (those without an annotation sort)
 use a learnable nullary constant keyed by `var_sort` alone.
@@ -153,7 +153,7 @@ encoder Tfm over Seq {
 ```
 
 - `recurrent <state>` binds the named state variable to the
-  recursive child's already-computed embedding — exactly the
+  recursive child's already-computed embedding, exactly the
   standard right-fold F-algebra recursion, just with the user's
   chosen name for the running state.
 - `attention <prefix>` iteratively walks the chain of recursive
@@ -277,12 +277,12 @@ deduction Parse : Sentence -> Tree {
 
 The attention-weighted aggregation that distinguishes the
 vector-inside-outside parser from semiring parsing lives entirely
-inside the encoder's per-op function — outside the chart's
-role — so the semiring abstraction is not broken.
+inside the encoder's per-op function, outside the chart's
+role, so the semiring abstraction is not broken.
 
 ## Bayesian integration
 
-A decoder is a Kleisli arrow into a structured type — *that is*,
+A decoder is a Kleisli arrow into a structured type, *that is*,
 a distribution over terms. So everything the program / posterior
 machinery does with distributions over scalars and vectors
 extends, with no special-casing, to distributions over structured
@@ -306,25 +306,25 @@ objects:
 encoders / decoders for the three principal compressible
 shapes:
 
-- `seq_signature(name, dim)` — `Seq[A] = Nil | Cons(A, Seq)`.
-- `rnn_encoder(sig, dim)` — GRU-cell right-fold.
-- `transformer_encoder(sig, dim)` — head + tail-projection MLP.
-- `bow_encoder(sig, dim)` — order-independent sum.
-- `ar_decoder(sig, dim, vocab)` — autoregressive decoder.
+- `seq_signature(name, dim)`: `Seq[A] = Nil | Cons(A, Seq)`.
+- `rnn_encoder(sig, dim)`: GRU-cell right-fold.
+- `transformer_encoder(sig, dim)`: head + tail-projection MLP.
+- `bow_encoder(sig, dim)`: order-independent sum.
+- `ar_decoder(sig, dim, vocab)`: autoregressive decoder.
 
-- `tree_signature(name, dim)` — `Tree[L, B] = Leaf(L) | Node(B,
+- `tree_signature(name, dim)`: `Tree[L, B] = Leaf(L) | Node(B,
   Tree, Tree)`.
-- `tree_lstm_encoder(sig, dim)` — child-sum binary-tree LSTM
+- `tree_lstm_encoder(sig, dim)`: child-sum binary-tree LSTM
   (Tai et al. 2015).
-- `tree_decoder(sig, dim, leaf_vocab, label_vocab)` — top-down
+- `tree_decoder(sig, dim, leaf_vocab, label_vocab)`: top-down
   structural decoder.
 
-- `graph_signature(name, vertex_kinds, edge_kinds)` —
+- `graph_signature(name, vertex_kinds, edge_kinds)` :
   vertex / edge-kinded graph signature.
-- `gnn_encoder(sig, iterations, dim, readout)` — per-edge-kind
+- `gnn_encoder(sig, iterations, dim, readout)`: per-edge-kind
   message MLP, per-vertex-kind GRU update, mean / sum / max
   readout.
 
 All shapes are realised on top of the generic `Encoder` and
-`Decoder` runtimes — the same algebra-homomorphism / Kleisli
+`Decoder` runtimes, the same algebra-homomorphism / Kleisli
 coalgebra pattern, no special-casing.

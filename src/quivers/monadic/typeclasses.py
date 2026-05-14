@@ -104,7 +104,7 @@ class Applicative(Functor, ABC):
     def apply(self, A: SetObject, B: SetObject) -> Morphism:
         """``F(A → B) ⊗ F(A) → F(B)``.
 
-        Realised in V-Rel as a parameterised binary operation; the
+        Realised in V-Rel as a parameterized binary operation; the
         concrete construction depends on the instance and on the
         internal-hom representation of the underlying enriched
         category. The default implementation raises

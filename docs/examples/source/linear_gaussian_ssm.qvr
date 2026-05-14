@@ -1,0 +1,39 @@
+# ================================================================
+# Linear-Gaussian State-Space Model (Kalman Filter)
+# ================================================================
+#
+# The canonical linear-Gaussian state-space model whose forward
+# filter is the Kalman filter ([Kalman 1960]
+# (https://doi.org/10.1115/1.3662552)):
+#
+#   s_t = A s_{t-1} + w_t,    w_t ~ Normal(0, Q)
+#   o_t = C s_t   + v_t,      v_t ~ Normal(0, R)
+#
+# Both transitions and emissions are linear in the latent state
+# and the noise covariances are constant in time. Because both
+# the prior and the likelihood are Gaussian, the filter and the
+# smoother are closed-form (Kalman / Rauch-Tung-Striebel) and
+# the marginal data likelihood is itself Gaussian; the runtime
+# can either condition on the observed series and back-prop
+# through the per-step scan, or use the closed-form filter via
+# a downstream `bayes_invert` step.
+#
+# This example expresses the model as a Bayesian recurrent
+# network: the transition and emission are `continuous`
+# Kleisli morphisms with Normal output families, and `scan` over
+# the input sequence assembles the per-step filtered state.
+# Compare with continuous_hmm.qvr (a generic nonlinear-Normal
+# SSM) and deep_markov.qvr (the fully nonlinear deep variant).
+
+type Driver = Euclidean 2
+type State = Euclidean 4
+type Obs = Euclidean 2
+
+kernel transition_cell : Driver * State -> State ~ Normal [scale=0.1]
+kernel emission : State -> Obs ~ Normal [scale=0.1]
+kernel filter_cell : Obs * State -> State ~ Normal [scale=0.1]
+
+let generate = scan(transition_cell) >> emission
+let filter = scan(filter_cell)
+
+export filter

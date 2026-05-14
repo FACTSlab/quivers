@@ -1,7 +1,7 @@
 """Local-grammar override for the QVR tree-sitter parser.
 
 The QVR grammar lives in-tree at ``grammars/qvr/`` and will be vendored
-into ``panproto-grammars-all`` once it stabilises. In the meantime, this
+into ``panproto-grammars-all`` once it stabilizes. In the meantime, this
 module compiles ``grammars/qvr/src/parser.c`` to a shared library on
 demand, loads the resulting ``TSLanguage*`` via ``ctypes``, and installs
 it through panproto's :meth:`AstParserRegistry.override_grammar` API so

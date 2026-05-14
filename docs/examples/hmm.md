@@ -2,7 +2,7 @@
 
 ## Overview
 
-A Hidden Markov Model tracks a discrete latent state that evolves via a transition kernel and emits observations at each step. This example demonstrates the `quantale` declaration, discrete `object` spaces, the `repeat` combinator for runtime-variable sequence length, and composition of stochastic morphisms.
+A discrete-state, discrete-emission [hidden Markov model](https://en.wikipedia.org/wiki/Hidden_Markov_model) expressed as a V-enriched categorical network over finite sets. The initial-state, transition, and emission morphisms are row-stochastic matrices in the [Kleisli category](https://ncatlab.org/nlab/show/Kleisli+category) of the [Giry monad](https://doi.org/10.1007/BFb0092872); the row-wise [Dirichlet](https://en.wikipedia.org/wiki/Dirichlet_distribution) prior is set via the morphism-prior surface, and the runtime-variable `repeat` combinator threads `n_steps` transition applications before the final emission. Composition with the chosen [quantale](../api/core/quantales.md) determines whether the same morphism computes the forward marginal (product quantale) or the Viterbi path (tropical quantale).
 
 ## QVR Source
 
@@ -12,9 +12,9 @@ quantale product_fuzzy
 object State : 8
 object Obs : 16
 
-stochastic initial : State -> State
-stochastic transition : State -> State
-stochastic emission : State -> Obs
+latent initial : State -> State ~ Dirichlet(1.0) over cod iid over dom
+latent transition : State -> State ~ Dirichlet(1.0) over cod iid over dom
+latent emission : State -> Obs ~ Dirichlet(1.0) over cod iid over dom
 
 let n_step = repeat(transition) >> emission
 let hmm = initial >> n_step
@@ -24,28 +24,29 @@ export hmm
 
 ## Walkthrough
 
-`quantale product_fuzzy` sets the algebraic rule for combining probabilities during composition: the product quantale multiplies probabilities along a path, which is standard probability theory. A different quantale would change how path weights combine (see the categorical perspective below for the Viterbi example).
+`quantale product_fuzzy` selects the standard multiplicative composition of probabilities along paths; switching to the [tropical (max-plus) quantale](https://en.wikipedia.org/wiki/Tropical_semiring) reinterprets the same composed morphism as the Viterbi recurrence.
 
-`object State : 8` and `object Obs : 16` declare finite discrete spaces. The `object` keyword (as opposed to `type ... = Euclidean`) means these are finite sets, not continuous manifolds. Stochastic morphisms between objects correspond to stochastic matrices.
+`object State : 4` and `object Obs : 8` are finite discrete spaces. `latent f : A -> B ~ Dirichlet(1.0) over cod iid over dom` declares `f` as a row-stochastic matrix whose every row is an independent [symmetric Dirichlet](https://en.wikipedia.org/wiki/Dirichlet_distribution#Symmetric_case) simplex draw: the event axis sits on the codomain (each row is one simplex), and the domain axis is asserted as iid (independent rows). The axis count must match the family's event rank; `Dirichlet` has event rank 1, so a single `over` axis is required.
 
-`stochastic initial : State -> State` defines the initial state distribution. Despite having `State` as both domain and codomain, its role is to produce a distribution over starting states. `stochastic transition : State -> State` is the Markov transition kernel: given a current state, it returns a distribution over successor states. `stochastic emission : State -> Obs` maps a state to a distribution over observations.
+`let n_step = repeat(transition) >> emission` is the runtime-variable Kleisli composition `T^n >> E`; `repeat` builds an n-step matrix by repeated squaring for $O(\log n)$ matrix multiplications, with $n$ supplied via `prog(n_steps=N)`. `let hmm = initial >> n_step` prepends the initial-state distribution so the exported pipeline is `1 -> Obs`, mapping no input to an n-step marginal over the observation alphabet.
 
-`repeat(transition)` produces a morphism that applies `transition` a number of times determined at runtime (contrast with `stack`, which fixes the count at compile time). Composing with `emission` via `>>` gives `n_step`: apply transitions, then emit. `let hmm = initial >> n_step` prepends the initial distribution, yielding a complete generative model from no input to an observation sequence.
+## Try it
 
-## DSL Features
+```python
+import torch
+from quivers.dsl import load
 
-- **`quantale`**: Declares how probabilities compose. `product_fuzzy` gives standard multiplicative composition.
-- **`object` vs `type`**: `object` is a finite discrete space (stochastic matrices); `type ... = Euclidean` is continuous (density functions).
-- **`stochastic` keyword**: Marks morphisms as probabilistic but not necessarily differentiable (contrast with `continuous`).
-- **`repeat(f)`**: Runtime-variable iteration of a morphism. The repetition count is set when the model is invoked, not at compile time.
-- **Kleisli composition (`>>`)**: Chains stochastic morphisms. `initial >> repeat(transition) >> emission` is itself a stochastic morphism.
+prog = load("docs/examples/source/hmm.qvr")
+marginal_3 = prog(n_steps=3)
+marginal_10 = prog(n_steps=10)
+print("3-step Obs marginal:", marginal_3.tensor.shape)
+print("10-step Obs marginal:", marginal_10.tensor.shape)
+```
 
-## Python Usage
-
-<!-- TODO: add working Python usage example -->
+The latent matrices are torch parameters; gradient-based estimation against an observed emission histogram is a standard SVI loop using [`AutoNormalGuide`](../api/inference/guide.md). For sequence-conditional posteriors, swap `product_fuzzy` for `tropical` and read off the most-likely path.
 
 ## Categorical Perspective
 
-Swapping the quantale from `product_fuzzy` to a tropical (max-plus) semiring turns the forward algorithm into the Viterbi algorithm. Under the product quantale, composing transition matrices multiplies probabilities along paths, and summing over intermediate states computes total path probability. Under the tropical quantale, multiplication becomes addition of log-probabilities and summation becomes maximization, so the same composition structure finds the most-likely path instead. The categorical framework makes this explicit: the forward and Viterbi algorithms are the same morphism composition evaluated in different quantales.
+The forward algorithm and the Viterbi algorithm are the same composed morphism evaluated in different [quantales](https://ncatlab.org/nlab/show/quantale): under product, composition multiplies probabilities and summation marginalises; under tropical, composition adds log-probabilities and summation maximises. Quivers makes this explicit: switching `quantale` changes the V-enriched composition rule without touching the program text.
 
-The `repeat` combinator implements iterated Kleisli composition of the transition endomorphism. Because Kleisli composition is associative, the $n$-fold composition $\mathrm{transition}^n$ is well-defined regardless of grouping, and the `initial` morphism (a map from the terminal object to `State`) provides the entry point that turns the whole pipeline into a generative model producing observations with no external input.
+The row-wise Dirichlet prior is the standard conjugate prior for a categorical kernel; declaring it via `over cod iid over dom` resolves the axis-role ambiguity that distinguishes a flat Dirichlet on $|State|\cdot|State|$ entries (wrong: not row-stochastic) from $|State|$ independent simplex draws (right). The categorical reading: each row of $T$ is a fibre of the dependent kernel $\prod_{c \,:\, \mathrm{State}} \mathcal{G}(\mathrm{State})$, so the prior factors as a product of independent simplex priors.

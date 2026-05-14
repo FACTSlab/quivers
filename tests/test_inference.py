@@ -18,8 +18,8 @@ from quivers.continuous.families import ConditionalNormal
 from quivers.continuous.programs import MonadicProgram
 from quivers.inference.trace import trace
 from quivers.inference.conditioning import condition, Conditioned
-from quivers.inference.guide import AutoNormalGuide, AutoDeltaGuide
-from quivers.inference.elbo import ELBO
+from quivers.inference.guides import AutoNormalGuide, AutoDeltaGuide
+from quivers.inference.objectives import ELBO
 from quivers.inference.svi import SVI
 from quivers.inference.predictive import Predictive
 from quivers.dsl.parser import parse
@@ -458,7 +458,7 @@ class TestSVI(unittest.TestCase):
         assert svi.model is prog
         assert svi.guide is guide
         assert svi.optim is optim
-        assert svi.loss is elbo
+        assert svi.objective is elbo
 
 
 # ============================================================================
@@ -478,7 +478,7 @@ class TestPredictive(unittest.TestCase):
         pred = Predictive(prog, guide, num_samples=10)
 
         assert pred.model is prog
-        assert pred.guide is guide
+        assert pred.posterior is guide
         assert pred.num_samples == 10
 
 
