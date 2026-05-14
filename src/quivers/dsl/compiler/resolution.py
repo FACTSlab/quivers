@@ -20,8 +20,8 @@ class _ResolutionMixin:
 
     def _resolve_index_size(self, texpr: TypeExpr) -> int:
         """Resolve a TypeExpr in finite-set-object position to its
-        cardinality. 
-        
+        cardinality.
+
         Used by the let-expression factor evaluator
         to determine the axis size of each binder at compile time.
         """
