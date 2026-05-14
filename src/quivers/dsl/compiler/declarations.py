@@ -33,8 +33,6 @@ from quivers.dsl.ast_nodes import (
     RuleDecl,
     SchemaDecl,
     SpaceDecl,
-    TypeExpr,
-    TypeName,
     TypeProduct,
 )
 from quivers.dsl.compiler._prelude import (

@@ -5,7 +5,6 @@ composition, parsers, chart folds, exports, and data binding.
 """
 from __future__ import annotations
 import torch
-import torch.nn as nn
 from quivers.core.morphisms import identity as make_identity
 from quivers.core.morphisms import cap as _make_cap, cup as _make_cup
 from quivers.core.quantales import (
@@ -14,24 +13,6 @@ from quivers.core.quantales import (
     Semigroupoid,
 )
 from quivers.core.trans import TransSeq
-from quivers.core.morphism_transformations import (
-    bayes_invert as _bayes_invert,
-    l1_normalize as _l1_normalize,
-    l2_normalize as _l2_normalize,
-    softmax as _softmax,
-)
-from quivers.core.quantale_morphisms import (
-    COUNTING_FROM_REAL,
-    COUNTING_TO_REAL,
-    EXPECTATION,
-    LOG_PROB as _LOG_PROB_HOM,
-    MATERIAL_IMPLICATION,
-    MAX_PLUS as _MAX_PLUS_HOM,
-    PROBABILITY_CLAMP,
-    PROBABILITY_TO_REAL,
-    embedding as _make_embedding,
-    threshold as _make_threshold,
-)
 from quivers.dsl.ast_nodes import (
     ExportDecl,
     Expr,

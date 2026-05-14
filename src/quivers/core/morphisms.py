@@ -386,7 +386,6 @@ class Morphism(ABC):
         # ``η ⊗ id`` step — then we sum (quantale-join) over A.
         t = self.tensor
         d_ndim = len(self._domain.shape)
-        c_ndim = len(self._codomain.shape)
         a_ndim = len(obj.shape)
         # Domain axes: 0..d_ndim-1 with A at 0..a_ndim-1.
         # Codomain axes: d_ndim..d_ndim+c_ndim-1 with A at

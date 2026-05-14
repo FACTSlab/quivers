@@ -19,8 +19,6 @@ from __future__ import annotations
 import pytest
 import torch
 
-from quivers.core.morphisms import observed
-from quivers.core.objects import FinSet
 from quivers.core.quantales import (
     BOOLEAN,
     PRODUCT_FUZZY,

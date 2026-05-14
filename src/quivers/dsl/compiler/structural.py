@@ -11,7 +11,6 @@ from quivers.dsl.ast_nodes import (
     EncoderDecl,
     LossDecl,
     SignatureDecl,
-    SortVocabLiteral,
 )
 from quivers.structural.encoder import (
     Encoder,

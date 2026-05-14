@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import math
 import pytest
 import torch
 
@@ -181,7 +180,6 @@ class TestConditionalHorseshoe:
             Euclidean(name="Y", dim=1),
             scale=1.0,
         )
-        x = torch.tensor([0])
         grid = torch.linspace(-20.0, 20.0, 4001).unsqueeze(-1)
         # broadcast x against the grid: treat each grid point as a
         # separate "batch" by repeating x.

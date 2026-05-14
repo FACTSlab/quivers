@@ -22,7 +22,6 @@ from quivers.inference import (
     AutoNormalGuide,
     ELBO,
     HMCKernel,
-    NUTSKernel,
     MCMC,
     SVI,
 )

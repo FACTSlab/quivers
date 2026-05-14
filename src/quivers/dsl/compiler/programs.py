@@ -5,8 +5,11 @@ program bodies, contractions, and let-expression compilation.
 """
 from __future__ import annotations
 from collections.abc import Callable
+from typing import cast
 import torch
-from quivers.continuous.morphisms import AnySpace
+from quivers.continuous.morphisms import AnySpace, ContinuousMorphism
+from quivers.core.morphisms import Morphism
+
 from quivers.continuous.plate import marginalize_grouped
 from quivers.continuous.spaces import (
     ContinuousSpace,
@@ -47,11 +50,9 @@ from quivers.dsl.ast_nodes import (
     ProgramDecl,
     ProgramStep,
     ScalarParam,
-    TypeEffectApply,
     TypeExpr,
     TypeName,
     TypeProduct,
-    TypeSlash,
     VectorisedObserveStep,
 )
 from quivers.dsl.compiler._prelude import (
@@ -60,6 +61,28 @@ from quivers.dsl.compiler._prelude import (
     _QUANTALE_REGISTRY,
     _get_family_registry,
     _numel_shape,
+)
+
+
+# Value carried by a let-binding at compile time.  The let
+# sublanguage is a small typed lambda calculus over heterogeneous
+# values: numeric literals lift to torch tensors; identifier
+# references resolve to whatever is bound (morphisms, programs,
+# chart views, structured tuples); composite expressions return
+# tensors of derived shape; lambdas wrap functions.  The union
+# below enumerates the kinds the program-theory check admits at a
+# let position.
+type LetValue = (
+    torch.Tensor
+    | int
+    | float
+    | bool
+    | str
+    | tuple["LetValue", ...]
+    | list["LetValue"]
+    | Morphism
+    | ContinuousMorphism
+    | Callable[[dict[str, "LetValue"]], "LetValue"]
 )
 
 
@@ -2063,8 +2086,8 @@ class _ProgramsMixin:
     @staticmethod
     def _compile_let_expr(
         node: LetExprNode,
-        globals_: "dict[str, Any] | None" = None,
-    ) -> Callable[[dict[str, "Any"]], "Any"]:
+        globals_: "dict[str, LetValue] | None" = None,
+    ) -> Callable[[dict[str, "LetValue"]], "LetValue"]:
         """Compile a let expression tree into a callable.
 
         The returned callable takes an environment dict mapping
@@ -2309,7 +2332,12 @@ class _ProgramsMixin:
                     return _TENSOR_BUILTINS[func_name](args[0])
                 if func_name == "cholesky_quad_form":
                     args = [fn(env) for fn in arg_fns]
-                    L_flat, scale = args[0], args[1]
+                    # cholesky_quad_form is a tensor builtin; its
+                    # operands are guaranteed to be tensors by the
+                    # surface contract.  Narrow for the type
+                    # checker without runtime cost.
+                    L_flat = cast(torch.Tensor, args[0])
+                    scale = cast(torch.Tensor, args[1])
                     K = scale.shape[-1]
                     L = L_flat.reshape(*L_flat.shape[:-1], K, K)
                     mask = torch.tril(torch.ones(K, K, device=L.device, dtype=L.dtype))
@@ -2347,10 +2375,11 @@ class _ProgramsMixin:
             ]
 
             def _index(env: dict) -> torch.Tensor:
-                arr = arr_fn(env)
-                idx_tensors = [fn(env) for fn in idx_fns]
-                # Cast each index to a long-typed tensor; broadcast and
-                # use advanced indexing along the leading dims of arr.
+                # Indexed-gather always operates on tensor-valued
+                # arrays and tensor-valued indices; narrow for the
+                # type checker without runtime cost.
+                arr = cast(torch.Tensor, arr_fn(env))
+                idx_tensors = [cast(torch.Tensor, fn(env)) for fn in idx_fns]
                 long_idx = tuple(
                     ix.to(torch.long) if ix.dtype != torch.long else ix
                     for ix in idx_tensors

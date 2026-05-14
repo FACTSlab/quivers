@@ -11,10 +11,8 @@ based) morphisms, including stochastic (Markov kernels), boundary
 
 from __future__ import annotations
 from collections.abc import Callable
-from typing import Any  # pre-existing usages; new code should use precise types
 
 import torch
-import torch.nn as nn
 from quivers.continuous.spaces import (
     ContinuousSpace,
     Euclidean,
@@ -23,30 +21,19 @@ from quivers.continuous.spaces import (
     UnitInterval,
 )
 from quivers.continuous.morphisms import AnySpace
-from quivers.continuous.plate import marginalize_grouped
-from quivers.core.objects import SetObject, FinSet, ProductSet
 from quivers.core.quantales import (
     BOOLEAN,
-    BilinearForm,
     CompositionRule,
-    CustomBilinearForm,
-    CustomQuantale,
-    CustomSemigroupoid,
     PRODUCT_FUZZY,
-    Quantale,
-    Semigroupoid,
     material_implication,
 )
 from quivers.core.wiring import EinsumWiring
-from quivers.core.trans import TransSeq
 from quivers.core.morphism_transformations import (
     bayes_invert as _bayes_invert,
     l1_normalize as _l1_normalize,
     l2_normalize as _l2_normalize,
     softmax as _softmax,
 )
-from quivers.core.morphisms import morphism as make_latent, identity as make_identity
-from quivers.core.morphisms import cap as _make_cap, cup as _make_cup
 from quivers.core.quantale_morphisms import (
     COUNTING_FROM_REAL,
     COUNTING_TO_REAL,
@@ -61,125 +48,12 @@ from quivers.core.quantale_morphisms import (
 )
 
 
-from quivers.program import Program
-from quivers.structural.encoder import (
-    Encoder,
-    _PerOpFn,
-    make_default_op_fn,
-    make_default_var_init,
-)
-from quivers.structural.decoder import Decoder
-from quivers.stochastic import StochasticMorphism
-from quivers.stochastic.agenda import (
-    DeductionSystem,
-    InferenceRule,
-    Wildcard,
-    cky_agenda,
-    depth_first_agenda,
-    semi_naive_agenda,
-)
-from quivers.stochastic.semiring import (
-    BOOLEAN as SEMIRING_BOOLEAN,
-    COUNTING as SEMIRING_COUNTING,
-    LOG_PROB as SEMIRING_LOG_PROB,
-    VITERBI as SEMIRING_VITERBI,
-)
-from quivers.structural.losses import LossEntry, LossRegistry
-from quivers.structural.signature import (
-    Binder,
-    BinderArgSpec,
-    BinderVarSpec,
-    Constructor,
-    EdgeKind,
-    Signature,
-    Sort,
-    SortVocabEntry,
-    VertexKind,
-)
 from quivers.dsl.ast_nodes import SortVocabLiteral
 from quivers.dsl.ast_nodes import (
     AxisSpec,
-    Module,
-    MorphismPrior,
-    Statement,
-    CompositionRuleEntry,
-    ContractionDecl,
-    QuantaleDecl,
-    CategoryDecl,
-    RuleDecl,
-    ObjectDecl,
-    MorphismDecl,
-    SpaceDecl,
-    KernelDecl,
-    AliasDecl,
-    BundleDecl,
-    DiscretizeDecl,
-    EmbedDecl,
-    EnumSetLiteral,
-    FreeMonoidExpr,
-    FreeResiduatedExpr,
-    SchemaDecl,
-    BindStep,
-    EncoderDecl,
-    DecoderDecl,
-    DeductionDecl,
-    LossDecl,
-    SignatureDecl,
-    DrawStep,
-    ExportDecl,
     TypeEffectApply,
-    TypeSlash,
-    LetStep,
-    LetExprBinOp,
-    LetExprIndex,
-    LetExprLambda,
-    LetExprList,
-    LetExprMethodCall,
-    LetExprString,
-    LetExprUnaryOp,
-    LetExprCall,
-    LetExprLiteral,
-    LetExprVar,
-    LetExprNode,
-    GroupedBodyObserveStep,
-    GroupedObserveEntry,
-    GroupedLatentInitStep,
-    MarginalizeStep,
-    MorphismParam,
-    ObjectParam,
-    PlateDrawStep,
-    ProgramDecl,
-    ProgramStep,
-    ScalarParam,
-    VectorisedObserveStep,
-    LetDecl,
-    TypeExpr,
     TypeName,
     TypeProduct,
-    SpaceExpr,
-    SpaceConstructor,
-    Expr,
-    ExprIdent,
-    ExprIdentity,
-    ExprCompose,
-    ExprTensorProduct,
-    ExprChartFold,
-    ExprCurry,
-    ExprCap,
-    ExprChangeBase,
-    ExprTransCompose,
-    ExprCup,
-    ExprDagger,
-    ExprFreeze,
-    ExprFromData,
-    ExprMarginalize,
-    ExprMorphismCall,
-    ExprTrace,
-    ExprFan,
-    ExprRepeat,
-    ExprStack,
-    ExprScan,
-    ExprParser,
 )
 
 # Registry of composition rules the DSL knows about by name.
@@ -629,10 +503,6 @@ def _get_space_constructors() -> dict[
     if _SPACE_CONSTRUCTORS is not None:
         return _SPACE_CONSTRUCTORS
     from quivers.continuous.spaces import (
-        Euclidean,
-        Simplex,
-        PositiveReals,
-        UnitInterval,
         ProductSpace,
     )
 

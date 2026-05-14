@@ -23,7 +23,6 @@ from quivers.inference import (
 from tests.benchmarks.datasets import (
     bayes_linear_regression,
     beta_bernoulli,
-    correlated_regression,
     gamma_exponential,
     normal_inverse_gamma,
     normal_normal,
@@ -36,7 +35,6 @@ from tests.benchmarks.metrics import (
 from tests.benchmarks.references import (
     bayes_linear_regression_reference,
     beta_bernoulli_reference,
-    correlated_regression_reference,
     gamma_exponential_reference,
     normal_inverse_gamma_reference,
     normal_normal_reference,

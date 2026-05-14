@@ -1,5 +1,6 @@
 """Compiler mixin: deduction systems and lexicon loading."""
 from __future__ import annotations
+from collections.abc import Callable
 import torch
 import torch.nn as nn
 from quivers.core.quantales import BOOLEAN
@@ -26,6 +27,32 @@ from quivers.stochastic.semiring import (
 )
 from quivers.dsl.compiler._prelude import CompileError
 from quivers.dsl.compiler.programs import _ProgramsMixin
+
+
+# Category-side pattern carried by a lexicon entry: either a
+# wildcard variable (any identifier not declared as an atom) or a
+# nested structural pattern over atoms (the result of
+# ``_convert_pattern`` walking a TypeExpr).
+type LexiconPattern = Wildcard | tuple[str | int | "LexiconPattern", ...]
+
+# Logical-form payload attached to a lexicon entry: the result of
+# evaluating the entry's ``lf`` template under the empty
+# environment.  The let-expression evaluator can return any value
+# the program theory admits at the LF position; the concrete
+# union below enumerates the possibilities.
+type LexiconLF = (
+    torch.Tensor
+    | int
+    | float
+    | bool
+    | str
+    | tuple["LexiconLF", ...]
+    | Callable[[dict[str, "LexiconLF"]], "LexiconLF"]
+)
+
+# A lexicon entry quadruple ``(word, category_pattern, lf,
+# learnable_flag)``.
+type LexiconEntry = tuple[str, LexiconPattern, LexiconLF, bool]
 
 
 class _DeductionsMixin:
@@ -180,7 +207,7 @@ class _DeductionsMixin:
             # Lexicon-based axiom source. Build a learnable lookup
             # table keyed on the literal word string; emit one
             # axiom per matching entry per input position.
-            entries: list[tuple[str, "Any", "Any", bool]] = []
+            entries: list[LexiconEntry] = []
             for entry in decl.lexicon:
                 lf_fn = _ProgramsMixin._compile_let_expr(entry.lf, globals_=globals_)
                 # Evaluate the LF eagerly under an empty environment;
@@ -351,7 +378,7 @@ class _DeductionsMixin:
         path: str,
         learnable: bool,
         decl: "DeductionDecl",
-    ) -> list[tuple[str, "Any", "Any", bool]]:
+    ) -> list[LexiconEntry]:
         """Load a lexicon from a TSV file at compile time.
 
         Format: each row has three tab-separated columns:
@@ -381,7 +408,7 @@ class _DeductionsMixin:
                 decl.line,
                 decl.col,
             )
-        out: list[tuple[str, "Any", "Any", bool]] = []
+        out: list[LexiconEntry] = []
         with p.open("r", encoding="utf-8") as fh:
             for lineno, raw_line in enumerate(fh, start=1):
                 line = raw_line.rstrip("\n")

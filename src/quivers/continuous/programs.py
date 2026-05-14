@@ -471,7 +471,6 @@ class MonadicProgram(ContinuousMorphism):
             # morphism's tensor and contracts it against the input,
             # binding the result like a let-step.
             from quivers.core.morphisms import (
-                Morphism as _CatMorphism,
                 extract_morphism,
             )
 

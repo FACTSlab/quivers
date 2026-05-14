@@ -15,7 +15,6 @@ import pytest
 # AST nodes
 from quivers.dsl.ast_nodes import (
     CategoryDecl,
-    KernelDecl,
     DiscretizeDecl,
     DrawStep,
     EmbedDecl,

@@ -14,7 +14,6 @@ from quivers.dsl.ast_nodes import (
     MorphismDecl,
     SpaceDecl,
     KernelDecl,
-    KernelDecl,
     DiscretizeDecl,
     EmbedDecl,
     LetStep,

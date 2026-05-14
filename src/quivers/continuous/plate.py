@@ -98,16 +98,14 @@ References
 
 from __future__ import annotations
 
-from collections.abc import Callable
 from typing import cast
 
 import torch
 import torch.nn as nn
 
-from typing import Literal as _Literal
 
 from quivers.continuous.morphisms import ContinuousMorphism, AnySpace
-from quivers.continuous.spaces import ContinuousSpace, Euclidean, PositiveReals
+from quivers.continuous.spaces import Euclidean
 
 
 # ---------------------------------------------------------------------------

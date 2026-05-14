@@ -41,7 +41,6 @@ from quivers.continuous.morphisms import ContinuousMorphism, AnySpace
 from quivers.continuous.family_spec import (
     FAMILY_REGISTRY,
     FamilySpec,
-    ParamSpec,
 )
 from quivers.core._util import EPS
 

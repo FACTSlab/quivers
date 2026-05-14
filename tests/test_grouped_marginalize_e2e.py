@@ -309,7 +309,7 @@ def test_two_task_mixture_recovers_joint_proportions() -> None:
     src = _two_task_mixture_model()
     torch.manual_seed(0)
     model = loads(src).morphism
-    n_a, n_b, n_item, n_class = 8, 6, 4, 2
+    n_a, n_b, _n_item, n_class = 8, 6, 4, 2
     # Class-1 items get higher ll in their per-axis class-1 column.
     ll_a = torch.zeros(n_a, n_class)
     ll_b = torch.zeros(n_b, n_class)

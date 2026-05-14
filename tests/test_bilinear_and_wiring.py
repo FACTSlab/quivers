@@ -26,7 +26,6 @@ from quivers.core.quantales import (
 )
 from quivers.core.wiring import (
     EinsumWiring,
-    WiringRule,
     contract,
     einsum_wiring,
 )
