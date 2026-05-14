@@ -81,6 +81,7 @@ nav:
     - Installation: getting-started/installation.md
     - Quickstart: getting-started/quickstart.md
     - Architecture: getting-started/architecture.md
+    - Editor highlighting: getting-started/highlighting.md
   - Guides:
     - Overview: guides/index.md
     - Core Types & Quantales: guides/core.md
