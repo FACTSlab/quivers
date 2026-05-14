@@ -1,12 +1,30 @@
-# Quivers
+<h1 align="center">Quivers</h1>
 
-[![CI](https://github.com/FACTSlab/quivers/actions/workflows/ci.yml/badge.svg)](https://github.com/FACTSlab/quivers/actions/workflows/ci.yml)
-[![Docs](https://github.com/FACTSlab/quivers/actions/workflows/docs.yml/badge.svg)](https://FACTSlab.github.io/quivers)
-[![PyPI](https://img.shields.io/pypi/v/quivers)](https://pypi.org/project/quivers/)
-[![Python 3.14+](https://img.shields.io/badge/python-3.14%2B-blue)](https://www.python.org/downloads/)
-[![License: MIT](https://img.shields.io/badge/license-MIT-green)](LICENSE)
+<p align="center">
+  <em>A functional probabilistic programming language that compiles to PyTorch.</em>
+</p>
 
-A typed probabilistic programming language for PyTorch. First-class structured priors on weight matrices, scoped marginalization of discrete latents as a syntactic block, and compile-checked sample / score / marginalize effects on every program.
+<p align="center">
+  <a href="https://github.com/FACTSlab/quivers/actions/workflows/ci.yml"><img src="https://github.com/FACTSlab/quivers/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
+  <a href="https://FACTSlab.github.io/quivers"><img src="https://github.com/FACTSlab/quivers/actions/workflows/docs.yml/badge.svg" alt="Docs"></a>
+  <a href="https://pypi.org/project/quivers/"><img src="https://img.shields.io/pypi/v/quivers" alt="PyPI"></a>
+  <a href="https://www.python.org/downloads/"><img src="https://img.shields.io/badge/python-3.14%2B-blue" alt="Python 3.14+"></a>
+  <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-green" alt="License: MIT"></a>
+</p>
+
+<p align="center">
+  <a href="https://FACTSlab.github.io/quivers/tutorials/qvr/01-first-model/"><strong>Tutorial</strong></a>
+  ·
+  <a href="https://FACTSlab.github.io/quivers/examples/"><strong>Examples</strong></a>
+  ·
+  <a href="https://FACTSlab.github.io/quivers/guides/"><strong>Guides</strong></a>
+  ·
+  <a href="https://FACTSlab.github.io/quivers/api/"><strong>API</strong></a>
+  ·
+  <a href="https://FACTSlab.github.io/quivers/semantics/"><strong>Semantics</strong></a>
+</p>
+
+---
 
 You write Bayesian models in a small, readable DSL and fit them with stochastic variational inference (SVI), NUTS, HMC, or any of nine automatic guides. The program surface should look familiar if you have used Pyro, NumPyro, Stan, or PyMC: declare variables with `<-`, score observations with `observe`, integrate out discrete latents with `marginalize`, get a trainable PyTorch module back. Three things make it different:
 
