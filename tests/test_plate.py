@@ -3,12 +3,13 @@
 Covers:
 
 * Per-primitive unit tests for the building blocks in
-  :mod:`quivers.continuous.plate` (LKJ, Truncated, cumsum,
-  softmax, cholesky_quad_form, PlateDraw, VectorisedObserve,
-  marginalize_categorical).
-* DSL parse / compile round-trips for every new AST node.
-* End-to-end compile of the Stan-model port at
-  ``docs/examples/source/event_structure.qvr``.
+  :mod:`quivers.continuous.plate` (PlateDraw, VectorisedObserve,
+  marginalize_categorical), :mod:`quivers.continuous.deterministic`
+  (cumsum, softmax, cholesky_quad_form), and
+  :mod:`quivers.continuous.families` (LKJCorrelationFactor,
+  Truncated).
+* DSL parse / compile round-trips for the hierarchical-Bayesian
+  AST nodes.
 
 The runtime extensions are not yet wired into the SVI guide; an
 end-to-end fit on synthetic data is reserved for a follow-up
@@ -293,10 +294,3 @@ class TestDSLSurface:
         c = self._compile(src)
         assert "demo" in c._morphisms
 
-    def test_event_structure_example_compiles(self):
-        path = Path("docs/examples/source/event_structure.qvr")
-        assert path.exists(), (
-            f"event_structure.qvr is a load-bearing example and must be present: {path}"
-        )
-        c = self._compile(path.read_text())
-        assert "event_structure" in c._morphisms

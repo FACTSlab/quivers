@@ -86,7 +86,7 @@ class QvrLexer(RegexLexer):
             (
                 words(
                     (
-                        "draw", "observe", "let", "return", "where",
+                        "observe", "let", "return", "where",
                         "type", "marginalize", "in", "for", "over",
                         "via", "export",
                     ),

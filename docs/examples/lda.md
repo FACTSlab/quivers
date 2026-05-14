@@ -86,4 +86,3 @@ The discrete per-word topic $z : \mathsf{Topic}$ is integrated out by the [pushf
 ## See Also
 
 - [Bayesian Gaussian Mixture Model](mixture-model.md) for a simpler grouped `marginalize` over a discrete latent.
-- [Event-Structure Latent-Class Model](event-structure.md) for crossed random intercepts plus coordinate marginalization.

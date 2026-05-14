@@ -633,7 +633,7 @@ kernel f : X -> R3 ~ Normal
 kernel g : R3 -> R3 ~ Normal [scale=0.5]
 kernel k : X -> S3 ~ Dirichlet
 
-# 30+ families are registered; see the continuous guide.
+# 40+ families are registered; see the continuous guide.
 kernel flow : R3 -> R3 ~ Flow [n_layers=6, hidden_dim=32]
 ```
 

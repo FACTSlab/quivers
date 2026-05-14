@@ -24,7 +24,7 @@ The Python API gives you direct access to the typed categorical surface: `FinSet
 
 1. **[Your first quiver](python/01-first-quiver.md)**. `FinSet` objects, observed and latent morphisms, the `>>` composition operator, `Program`.
 2. **[Stochastic relations](python/02-stochastic-relations.md)**. Markov kernels and the FinStoch category. Conditioning, marginalization, expectation queries.
-3. **[Probabilistic programs](python/03-probabilistic-programs.md)**. `MonadicProgram` by hand: continuous spaces, conditional families, `draw` / `let` / `observe` steps, sampling, log-density.
+3. **[Probabilistic programs](python/03-probabilistic-programs.md)**. `MonadicProgram` by hand: continuous spaces, conditional families, bind (`<-`) / `let` / `observe` steps, sampling, log-density.
 4. **[Fuzzy logic factorization](python/04-fuzzy-factorization.md)**. Factorizing an observed fuzzy relation into a composition of latents, training under product-fuzzy noisy-OR composition.
 5. **[Variational inference](python/05-variational-inference.md)**. `Guide` + `Objective` + `SVI` + `Predictive`. Setting up the full inference loop end-to-end.
 6. **[First-class transformations](python/06-first-class-trans.md)**. `MorphismTransformation` and `QuantaleHomomorphism` as values: let-binding, the `>>>` composition operator, change-of-base pipelines.

@@ -88,4 +88,3 @@ The discrete latent `cls : Component` is integrated out by pushforward along the
 ## See Also
 
 - [Latent Dirichlet Allocation](lda.md), the topic-model generalization.
-- [Event-Structure Latent-Class Model](event-structure.md) for crossed random intercepts plus coordinate marginalization.
