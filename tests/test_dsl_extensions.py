@@ -269,7 +269,7 @@ class TestDocComments:
 
 
 # ---------------------------------------------------------------------------
-# FreeMonoid object initialiser
+# FreeMonoid object initializer
 # ---------------------------------------------------------------------------
 
 
@@ -536,7 +536,7 @@ class TestPygmentsLexer:
         from quivers.dsl.pygments_lexer import QvrLexer
 
         repo = Path(__file__).resolve().parents[1]
-        ex = repo / "src" / "quivers" / "dsl" / "examples" / "quantifier_scope.qvr"
+        ex = repo / "docs" / "examples" / "source" / "quantifier_scope.qvr"
         lex = QvrLexer()
         tokens = list(lex.get_tokens_unprocessed(ex.read_text()))
         for _, tok, value in tokens:
@@ -552,7 +552,7 @@ class TestGrammarSurfaceParity:
     def test_every_example_still_parses(self):
         """Every shipped example continues to parse after the surface additions."""
         repo = Path(__file__).resolve().parents[1]
-        examples = sorted((repo / "src" / "quivers" / "dsl" / "examples").glob("*.qvr"))
+        examples = sorted((repo / "docs" / "examples" / "source").glob("*.qvr"))
         assert examples, "no examples found"
         for ex in examples:
             try:

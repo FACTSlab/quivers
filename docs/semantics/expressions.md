@@ -12,16 +12,26 @@ e & ::= & x
         \;\big|\; \mathsf{identity}(\tau)
         \;\big|\; e_1 \mathbin{>\!\!>} e_2
         \;\big|\; e_1 \mathbin{@} e_2
-        \;\big|\; e.\mathsf{marginalize}(\bar X) \\
+        \;\big|\; e.\mathsf{marginalize}(\bar X)
+        \;\big|\; e.\mathsf{change\_base}(t) \\
 &  \big|\!\!\big| & \mathsf{fan}(e_1, \dots, e_n)
         \;\big|\; \mathsf{repeat}(e, n)
         \;\big|\; \mathsf{stack}(e, n)
         \;\big|\; \mathsf{scan}(e, \mathit{init}) \\
 &  \big|\!\!\big| & \mathsf{parser}(\mathit{args})
         \;\big|\; \mathsf{ccg}(\mathit{args})
-        \;\big|\; \mathsf{lambek}(\mathit{args})
+        \;\big|\; \mathsf{lambek}(\mathit{args}) \\
+&  \big|\!\!\big| & \mathit{op}(e_1, \dots, e_n) \\[1ex]
+t & ::= & \mathit{trans\_singleton}
+        \;\big|\; \mathit{trans\_ctor}(\overline{\mathit{arg}})
+        \;\big|\; t_1 \mathbin{>\!\!>\!\!>} t_2
+        \;\big|\; y
 \end{array}
 $$
+
+The first grammar covers morphism-valued expressions. The auxiliary grammar for $t$ covers *transformation-valued* expressions used inside $\mathsf{change\_base}$: bare-name singletons from the built-in catalogue ($\mathit{trans\_singleton}$), parametric constructors ($\mathit{trans\_ctor}$), sequential composition $>>>$, and let-bound transformation references $y$ in the dedicated transformation namespace.
+
+The clause $\mathit{op}(e_1, \dots, e_n)$ stands for a registered operadic contraction: $\mathit{op}$ is the name of a $\mathsf{contraction}$ declared elsewhere in the module, with its declared input arity and signature checked at the call site. See [§ Composition Rules § 4](composition-rules.md#4-operadic-contractions) for the operadic action.
 
 Each expression denotes a morphism in one of the three strata of [Morphisms](morphisms.md). We write $\llbracket e \rrbracket_{\rho}$ for the denotation under semantic environment $\rho$, and we suppress $\rho$ when only morphism-valued names are at play.
 
@@ -69,6 +79,36 @@ $$
 
 a morphism $Y \to Z$ obtained by joining the marginalised coordinates out of the input. In $\mathbf{Stoch}$ and $\mathbf{Kern}$ the join $\bigoplus$ is integration against the corresponding marginal; in $\mathcal{V}\text{-}\mathbf{Rel}$ it is the quantale join. When $k$ equals the full input arity (no remaining $Y$), the result is a morphism $\mathbf{1} \to Z$.
 
+### 2.6 Change of base
+
+For a morphism $\llbracket e \rrbracket : A \to B$ in $\mathcal{V}\text{-}\mathbf{Rel}$ and a transformation $\llbracket t \rrbracket : \mathrm{Trans}[\mathcal{V}, \mathcal{W}]$,
+
+$$
+\llbracket e.\mathsf{change\_base}(t) \rrbracket \;=\; \llbracket t \rrbracket\bigl(\llbracket e \rrbracket\bigr) \;\in\; \mathcal{W}\text{-}\mathbf{Rel}.
+$$
+
+The action of $\llbracket t \rrbracket$ is pointwise when $t$ resolves to a quantale homomorphism, and shape-aware (possibly swapping the domain and codomain, as for `bayes_invert`) when $t$ resolves to a `MorphismTransformation`. When $t$ is a sequence $t_1 \mathbin{>\!\!>\!\!>} \cdots \mathbin{>\!\!>\!\!>} t_k$, the action is the composition $\llbracket t_k \rrbracket \circ \cdots \circ \llbracket t_1 \rrbracket$.
+
+### 2.7 Sequential composition of transformations
+
+For $t_1$ with target $\mathcal{V}'$ and $t_2$ with source $\mathcal{V}'$,
+
+$$
+\llbracket t_1 \mathbin{>\!\!>\!\!>} t_2 \rrbracket(f) \;=\; \llbracket t_2 \rrbracket\bigl(\llbracket t_1 \rrbracket(f)\bigr).
+$$
+
+The well-typedness side-condition $\mathrm{target}(t_1) = \mathrm{source}(t_2)$ is checked statically; a mismatch raises a typed compile-time error with line and column of the offending expression. Chains of length $\ge 3$ flatten unambiguously: $t_1 \mathbin{>\!\!>\!\!>} (t_2 \mathbin{>\!\!>\!\!>} t_3)$ and $(t_1 \mathbin{>\!\!>\!\!>} t_2) \mathbin{>\!\!>\!\!>} t_3$ denote the same transformation. See [§ Composition Rules § 5](composition-rules.md#5-first-class-transformations) for the full development.
+
+### 2.8 Operadic contraction call
+
+For a $\mathsf{contraction}$ declaration $\mathit{op}$ with input arity $n$, declared signature $(A_i \to B_i)_{i = 1}^n$ and output signature $(A \to B)$, the call $\mathit{op}(e_1, \dots, e_n)$ has denotation
+
+$$
+\llbracket \mathit{op}(e_1, \dots, e_n) \rrbracket \;=\; \Phi_w\bigl(\llbracket e_1 \rrbracket, \dots, \llbracket e_n \rrbracket\bigr),
+$$
+
+where $\Phi_w$ is the operadic action of the contraction's wiring spec $w$ (see [§ Composition Rules § 4](composition-rules.md#4-operadic-contractions)). The call site checks that each $e_i$ has numel matching the declared $A_i \to B_i$ signature; a mismatch raises `CompileError`.
+
 ## 3. Tupling and replication
 
 ### 3.1 Fan
@@ -111,7 +151,7 @@ $$
 \llbracket \mathsf{scan}(e, \mathit{init}) \rrbracket \;=\; \mathrm{Tr}^{S}\bigl( \llbracket e \rrbracket \bigr) : X \to Y,
 $$
 
-where $\mathrm{Tr}^{S} : \mathcal{C}(X \otimes S, Y \otimes S) \to \mathcal{C}(X, Y)$ is the trace operator of the appropriate traced symmetric monoidal category $\mathcal{C}$ ([Joyal, Street & Verity 1996](https://doi.org/10.1017/S0305004100074338)) eliminating the recurrent state $S$. The annotation $\mathit{init} \in \{\mathrm{zeros}, \mathrm{learned}\}$ selects the *initialisation policy* for the trace's fixed-point evaluation — the choice of distinguished element of $S$ from which the trace's iterative computation seeds — and is part of the chosen realisation of $\mathrm{Tr}^{S}$ rather than a separate composition. Concretely:
+where $\mathrm{Tr}^{S} : \mathcal{C}(X \otimes S, Y \otimes S) \to \mathcal{C}(X, Y)$ is the trace operator of the appropriate traced symmetric monoidal category $\mathcal{C}$ ([Joyal, Street & Verity, 1996](https://doi.org/10.1017/S0305004100074338)) eliminating the recurrent state $S$. The annotation $\mathit{init} \in \{\mathrm{zeros}, \mathrm{learned}\}$ selects the *initialisation policy* for the trace's fixed-point evaluation (the choice of distinguished element of $S$ from which the trace's iterative computation seeds), and is part of the chosen realisation of $\mathrm{Tr}^{S}$ rather than a separate composition. Concretely:
 
 - In $\mathcal{V}\text{-}\mathbf{Rel}$, $\mathrm{Tr}^{S}$ is the *iterative* trace, defined by quantale-join over the orbit of $S$;
 - In $\mathbf{Stoch}$ and $\mathbf{Kern}$, $\mathrm{Tr}^{S}$ is implemented as a sequence of Markov-kernel compositions seeded by $s_0$.
@@ -155,4 +195,4 @@ Every well-typed expression denotes a morphism in a symmetric monoidal category 
 
 These are the equational theory of symmetric monoidal categories; together with the trace axioms ([Joyal, Street & Verity 1996, §3](https://doi.org/10.1017/S0305004100074338)), they constitute the equational semantics of QVR expressions.
 
-The compiler does *not* normalise expressions modulo these laws — it computes a literal AST-driven tensor expression. The laws are nevertheless valid statements about denotations, and the [Adequacy](adequacy.md) theorem confirms they are respected by the implementation up to the floating-point precision of the underlying tensor library.
+The compiler does *not* normalise expressions modulo these laws; it computes a literal AST-driven tensor expression. The laws are nevertheless valid statements about denotations, and the [Adequacy](adequacy.md) theorem confirms they are respected by the implementation up to the floating-point precision of the underlying tensor library.

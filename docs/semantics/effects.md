@@ -79,7 +79,7 @@ $$
 \;=\; \mathrm{Kleisli}(T)\bigl((X, T(Y))\bigr)
 $$
 
-— the morphism set of the Kleisli category of $T$ at $(X, Y)$. The
+: the morphism set of the Kleisli category of $T$ at $(X, Y)$. The
 two presentations agree via the
 [`kleisli` / `arrow_monad` bridges](../api/index.md#monadic-package).
 
@@ -92,7 +92,7 @@ $$
 \mathrm{Chart}[i, j] \;\in\; \mathcal{V}^{|\widehat{\mathcal{C}}|}
 $$
 
-— a $\mathcal{V}$-valued vector indexed by effect-typed categories.
+: a $\mathcal{V}$-valued vector indexed by effect-typed categories.
 Schema firings populate cells according to four rules:
 
 1. **Base firing.** A schema $r : \pi_1 \otimes \pi_2 \to \pi$ fires
@@ -203,8 +203,8 @@ $1 \otimes A \cong A$ unitor that absorbs the
 ([Hughes 2000](https://doi.org/10.1016/S0167-6423(99)00023-4), Theorem 3.1). Consequently the
 arrow-side and monad-side presentations of any effect agree on
 denotation up to the canonical isomorphism. When the underlying
-monad is also a *monad-fix* — admitting a least-fixed-point
-operator — the `chart_fold` runtime's `loop_arr` construction agrees
+monad is also a *monad-fix*, admitting a least-fixed-point
+operator, the `chart_fold` runtime's `loop_arr` construction agrees
 denotationally with the Kleisli-iteration of the binary step; for
 monads without `mfix`, the arrow-side trace is the well-defined
 realisation and the Kleisli side is undefined.

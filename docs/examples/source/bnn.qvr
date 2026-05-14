@@ -1,0 +1,59 @@
+# ================================================================
+# Bayesian Neural Network for Binary Classification
+# ================================================================
+#
+# A small Bayesian multilayer perceptron with matrix-normal
+# priors on each layer's weight matrix and a Bernoulli
+# classification head.  The architecture is two hidden layers
+#
+#   x : Input -> Hidden1 -> Hidden2 -> Label (Bernoulli head)
+#
+# Bayesian neural networks (MacKay 1992) put a prior over every
+# weight and recover a posterior via SVI or MCMC; this gives
+# calibrated predictive uncertainty in regions of input space
+# far from the training data.
+#
+# Each layer's weight tensor is declared as a latent morphism on
+# discrete FinSet objects whose cardinalities match the layer's
+# in/out width, with a matrix-normal prior placed via
+#
+#     latent W_l : H_in -> H_out
+#         ~ MatrixNormal(0.0, 1.0, 1.0) over (dom, cod)
+#
+# The Kronecker structure expresses independent row and column
+# correlation in the weight tensor, which is the natural prior
+# for a linear layer.  The continuous-space kernel layers running
+# the actual forward pass use a Normal family at small scale so
+# the surface remains differentiable end-to-end.
+
+object H_in : 4
+object H1 : 32
+object H2 : 16
+object H_out : 2
+object Item : 200
+object Label : 2
+
+type Input = Euclidean 4
+type Hidden1 = Euclidean 32
+type Hidden2 = Euclidean 16
+
+# Matrix-normal priors on the three weight tensors.
+latent W_1 : H_in -> H1 ~ MatrixNormal(0.0, 1.0, 1.0) over (dom, cod)
+latent W_2 : H1 -> H2 ~ MatrixNormal(0.0, 1.0, 1.0) over (dom, cod)
+latent W_3 : H2 -> H_out ~ MatrixNormal(0.0, 1.0, 1.0) over (dom, cod)
+
+# Continuous-space layers carrying the forward pass.  Their
+# parameter networks realise the weight tensors whose prior is
+# declared above.
+kernel layer_1 : Input -> Hidden1 ~ Normal [scale=0.5]
+kernel layer_2 : Hidden1 -> Hidden2 ~ Normal [scale=0.5]
+kernel head : Hidden2 -> Label ~ Bernoulli
+
+let backbone = layer_1 >> layer_2
+
+program bnn : Input -> Label
+    h <- backbone
+    observe y : Label <- head(h)
+    return y
+
+export bnn

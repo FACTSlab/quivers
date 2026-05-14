@@ -14,6 +14,7 @@
 // @ts-check
 
 const PREC = {
+  trans_compose: 1, // >>> (Trans composition)
   compose: 1,    // >> << >=>
   tensor:  2,    // @
   postfix: 3,    // .method(...)
@@ -62,11 +63,11 @@ module.exports = grammar({
       $.type_alias_decl,
       $.alias_decl,
       $.bundle_decl,
-      $.continuous_decl,
-      $.stochastic_decl,
+      $.kernel_decl,
       $.discretize_decl,
       $.embed_decl,
       $.program_decl,
+      $.contraction_decl,
       $.let_decl,
       $.export_decl,
       $.deduction_decl,
@@ -80,7 +81,93 @@ module.exports = grammar({
     // simple declarations
     // ---------------------------------------------------------------
 
-    quantale_decl: $ => seq('quantale', field('name', $.identifier)),
+    // Composition-rule declaration.  Four surface forms differ only
+    // in the algebraic level they advertise:
+    //
+    //   ``quantale X``         — X must be a Quantale (full structure;
+    //                            identity / dagger / cup / cap are
+    //                            available).
+    //   ``semigroupoid X``     — X is associative but lacks identity.
+    //   ``bilinear_form X``    — X is a CompositionRule with no
+    //                            associativity promise.
+    //   ``composition_rule X`` — permissive: X is any CompositionRule.
+    //
+    // Each may optionally carry a user-defined body
+    // ``{ tensor_op(a, b) = …; join(t) = …; unit = …; … }`` that
+    // declares a fresh rule inline instead of referencing a registered
+    // singleton.  The compiler enforces that the body's operations
+    // match the keyword's algebraic level.
+    quantale_decl: $ => choice(
+      seq('quantale',         field('name', $.identifier), optional($.composition_rule_block)),
+      seq('semigroupoid',     field('name', $.identifier), optional($.composition_rule_block)),
+      seq('bilinear_form',    field('name', $.identifier), optional($.composition_rule_block)),
+      seq('composition_rule', field('name', $.identifier), optional($.composition_rule_block)),
+    ),
+
+    // Body of a user-defined composition rule.  Each entry is
+    // either ``key(p1, p2, …) = body`` (a function-valued field,
+    // for tensor_op / join / negation / meet) or ``key = body``
+    // (a value-valued field, for unit / zero literals).
+    composition_rule_block: $ => seq(
+      '{',
+      repeat($.composition_rule_entry),
+      '}',
+    ),
+
+    composition_rule_entry: $ => choice(
+      seq(
+        field('key', $.identifier),
+        '(',
+        field('params', commaSep1($.identifier)),
+        ')',
+        '=',
+        field('body', $._let_arith),
+      ),
+      seq(
+        field('key', $.identifier),
+        '=',
+        field('body', $._let_arith),
+      ),
+    ),
+
+    // N-ary operadic contraction declaration.  Declares a multi-
+    // input morphism whose body is an einsum-style wiring under a
+    // named composition rule:
+    //
+    //   contraction op_apply (
+    //       arg1 : A -> B,
+    //       arg2 : A -> C,
+    //       kernel : (B * C) -> D
+    //   ) : A -> D
+    //       rule product_fuzzy
+    //       wiring "ab, ac, bcd -> ad"
+    //
+    // The declaration registers a callable named ``op_apply`` that
+    // takes the three input morphisms and contracts them under the
+    // wiring spec using the rule's tensor_op and join.
+    contraction_decl: $ => seq(
+      'contraction',
+      field('name', $.identifier),
+      '(',
+      field('inputs', commaSep1($.contraction_input)),
+      ')',
+      ':',
+      field('domain', $._type_expr),
+      '->',
+      field('codomain', $._type_expr),
+      'rule',
+      field('rule_name', $.identifier),
+      'wiring',
+      field('wiring_spec', $.string),
+    ),
+
+    contraction_input: $ => seq(
+      field('name', $.identifier),
+      ':',
+      field('input_domain', $._type_expr),
+      '->',
+      field('input_codomain', $._type_expr),
+    ),
 
     category_decl: $ => seq(
       'category',
@@ -147,7 +234,70 @@ module.exports = grammar({
       '->',
       field('codomain', $._type_expr),
       optional(field('options', $.option_block)),
+      // Optional parameter-prior clause: ``~ Family(args) [options]
+      // [over <axes> [iid over <axes>]]``.  Promotes the declared
+      // morphism from a free-parameter point estimate to a random
+      // variable whose representing tensor is drawn from the named
+      // family at the requested axis-role configuration.
+      optional(field('prior', $.morphism_prior)),
       optional(seq('=', field('init', $._expr))),
+    ),
+
+    // Prior on a latent morphism's representing tensor.  The grammar
+    // requires literal ``(args)`` because a prior is fully specified
+    // at declaration time (in contrast to ``continuous`` morphisms,
+    // whose family parameters come from the input at sample time
+    // via a parameter network).  The optional ``axis_role_clause``
+    // controls the event/batch structure of the prior; see the DSL
+    // guide for the categorical reading.
+    morphism_prior: $ => seq(
+      '~',
+      field('family', $.identifier),
+      '(',
+      field('args', commaSep1($._draw_arg)),
+      ')',
+      optional(field('options', $.option_block)),
+      optional(field('axes', $.axis_role_clause)),
+    ),
+
+    // Axis-role clause: ``over <axes> [iid over <axes>]``.
+    //
+    // ``over <axes>`` names the event axes of the surrounding
+    // distribution: the axes on which the family's joint structure
+    // (e.g. an MVN covariance, a MatrixNormal Kronecker pair, a GP
+    // kernel) lives.  Axis count must match the family's declared
+    // ``event_rank``; the positional ordering of names corresponds
+    // positionally to the family's event-axis ordering (e.g. for
+    // ``MatrixNormal`` the first axis is the row axis).
+    //
+    // ``iid over <axes>`` is an optional readability assertion that
+    // names the batch axes (the complement of ``over``).  The
+    // compiler rejects overlap or unknown names.
+    //
+    // Axis names resolve against the named factors of the
+    // surrounding morphism's dom/cod (or the type annotation on a
+    // ``<-`` or ``observe`` step).  The reserved tokens ``dom`` and
+    // ``cod`` are legal shortcuts only when the corresponding side
+    // is a single unfactored object; for a product-typed side, every
+    // factor must be named explicitly.
+    axis_role_clause: $ => seq(
+      'over',
+      field('over', $._axis_list),
+      optional(seq(
+        'iid', 'over',
+        field('iid_over', $._axis_list),
+      )),
+    ),
+
+    _axis_list: $ => choice(
+      $.identifier,
+      $.axis_tuple,
+    ),
+
+    axis_tuple: $ => seq(
+      '(',
+      commaSep1(field('axis', $.identifier)),
+      ')',
     ),
 
     let_decl: $ => prec.right(seq(
@@ -850,27 +1000,29 @@ module.exports = grammar({
     // continuous / stochastic / discretize / embed declarations
     // ---------------------------------------------------------------
 
-    continuous_decl: $ => seq(
-      'continuous',
+    // Markov-kernel declaration: ``kernel f : A -> B [~ Family
+    // [options] [axes]]``.  Without a ``~`` clause, declares a
+    // lookup-table kernel on finite sets (a categorical kernel
+    // ``A → D(B)`` realised as a learnable matrix of conditional
+    // probabilities).  With a ``~`` clause, declares a parametric
+    // kernel ``A → G(B)`` whose family's parameters are produced
+    // from the input by a parameter network at sample time.  The
+    // optional ``axis_role_clause`` configures the output family's
+    // event/batch decomposition over codomain factors.
+    kernel_decl: $ => seq(
+      'kernel',
       field('name', $.identifier),
       optional(field('replicate', $.replicate_count)),
       ':',
       field('domain', $._type_expr),
       '->',
       field('codomain', $._type_expr),
-      '~',
-      field('family', $.identifier),
-      optional(field('options', $.option_block)),
-    ),
-
-    stochastic_decl: $ => seq(
-      'stochastic',
-      field('name', $.identifier),
-      optional(field('replicate', $.replicate_count)),
-      ':',
-      field('domain', $._type_expr),
-      '->',
-      field('codomain', $._type_expr),
+      optional(seq(
+        '~',
+        field('family', $.identifier),
+        optional(field('options', $.option_block)),
+        optional(field('axes', $.axis_role_clause)),
+      )),
     ),
 
     discretize_decl: $ => seq(
@@ -908,15 +1060,72 @@ module.exports = grammar({
     // ---------------------------------------------------------------
 
     _expr: $ => choice(
+      $.trans_compose,
       $.compose_expr,
       $.tensor_expr,
       $.postfix_expr,
       $._atom_expr,
     ),
 
+    // Transformation composition.  ``t1 >>> t2`` denotes the
+    // sequential application of two :class:`MorphismTransformation`
+    // (or :class:`QuantaleHomomorphism`) values.  Distinct from
+    // ``>>`` (V-Cat morphism composition): ``>>`` composes
+    // morphisms within a quantale; ``>>>`` composes the change-of-
+    // base transformations between quantales.  Required type:
+    // ``t1.target == t2.source`` (checked at compile time).
+    trans_compose: $ => prec.left(PREC.trans_compose, seq(
+      field('left',  $._expr),
+      '>>>',
+      field('right', $._expr),
+    )),
+
+    // Composition operators. Each one carries its enrichment
+    // quantale so the V-Cat composition dispatches to that
+    // quantale's monoidal structure regardless of the operands'
+    // declared quantale. The operator set was chosen to share
+    // family resemblance with canonical operators in other
+    // languages rather than clashing with them:
+    //
+    //   >>   ProductFuzzy noisy-OR (the default; family-resembles
+    //        Haskell's ``>>`` for Kleisli sequencing).
+    //   <<   Reverse ``>>`` (Haskell ``<<``-shaped).
+    //   >=>  Kleisli composition (Haskell's ``>=>`` — direct
+    //        family match).
+    //   *>   Markov sum-product (family-resembles Haskell's
+    //        Applicative ``*>``: both sequence two operations
+    //        in a single arrow).
+    //   ~>   LogProb sum-product in log-space (family-resembles
+    //        the natural-transformation ``~>`` used in Haskell
+    //        / lens libraries).
+    //   ||>  Gödel (min / max with Heyting implication). The
+    //        ``||`` shape echoes the logical-OR symbol; Gödel's
+    //        join is max which is the fuzzy extension of OR.
+    //   ?>   Viterbi (max-plus tropical, best path). The ``?``
+    //        reads as "which choice is best" — Viterbi is the
+    //        MAP-decoding semiring.
+    //   &&>  Boolean (∧ / ∨). The ``&&`` shape echoes the
+    //        logical-AND symbol — Boolean's tensor is AND.
+    //   +>   Łukasiewicz (probabilistic sum bounded by 1). The
+    //        ``+`` evokes the "soft OR" sum operation of the
+    //        Łukasiewicz t-conorm.
+    //   $>   Real sum-product on ℝ (canonical numeric semiring;
+    //        ⊕ = +, ⊗ = ·). The ``$`` evokes "real value".
+    //   %>   Probability sum-product on [0, 1] (same operations
+    //        as $>, clamped to the unit interval). The ``%``
+    //        evokes "percentage".
+    //
+    // Cross-operator composition (mixing ``>>`` and ``*>`` in a
+    // single chain) requires an explicit ``.change_base(φ)``
+    // between the two segments — the operator carries the
+    // quantale but does not auto-convert operands.
     compose_expr: $ => prec.left(PREC.compose, seq(
       field('left',  $._expr),
-      field('op',    choice('>>', '<<', '>=>')),
+      field('op',    choice(
+        '>>', '<<', '>=>',
+        '*>', '~>', '||>', '?>', '&&>', '+>',
+        '$>', '%>',
+      )),
       field('right', $._expr),
     )),
 
@@ -939,23 +1148,71 @@ module.exports = grammar({
         field('args', commaSep1($.identifier)),
         ')',
       ),
-      // residuation-witness combinators (Phase 4): given f : X * Y -> Z
+      // residuation-witness combinators: given f : X * Y -> Z
       // where Z lives in a residuated universe, produce f.curry_right :
       // X -> Z/Y or f.curry_left : Y -> X\Z. No arguments.
       seq(field('name', choice('curry_right', 'curry_left'))),
+      // change-of-base: given f : A -> B over quantale V and a
+      // transformation φ : Trans[V, W] (a QuantaleHomomorphism
+      // or MorphismTransformation), ``f.change_base(phi)`` is
+      // the V-Cat morphism A -> B over W with tensor
+      // φ.apply(f.tensor).  The argument is any expression that
+      // evaluates to a Trans value: a bare name (registered
+      // singleton or let-bound), a constructor call
+      // ``softmax(B)`` / ``bayes_invert(prior)``, or a
+      // composition ``t1 >>> t2``.
+      seq(
+        field('name', 'change_base'),
+        '(',
+        field('arg', $._expr),
+        ')',
+      ),
+      // compact-closed surface: ``f.dagger`` for the transpose,
+      // ``f.trace(A)`` for the trace along object A.
+      seq(field('name', 'dagger')),
+      seq(
+        field('name', 'trace'),
+        '(',
+        field('args', $.identifier),
+        ')',
+      ),
+      // freeze: materialise an expression as a frozen
+      // :class:`ObservedMorphism`. The resulting morphism's
+      // parameters do not propagate gradients to the constituent
+      // morphisms; gradient flow stops at the freeze. Used to
+      // pin a learned composition as a structural input to a
+      // downstream model — equivalent to detach() on the tensor.
+      seq(field('name', 'freeze')),
     ),
 
     _atom_expr: $ => choice(
       $.expr_paren,
       $.identity_expr,
+      $.cup_expr,
+      $.cap_expr,
+      $.from_data_expr,
       $.fan_expr,
       $.repeat_expr,
       $.stack_expr,
       $.scan_expr,
       $.parser_expr,
       $.chart_fold_expr,
+      $.morphism_call,
       $.expr_ident,
     ),
+
+    // Call expression for n-ary categorical operations declared
+    // by a ``contraction`` block.  Surface form ``name(arg1, arg2,
+    // ...)`` where ``name`` resolves a registered contraction and
+    // each argument is the name of a morphism in scope.  Higher
+    // precedence than bare identifier so ``foo(bar)`` parses as a
+    // call rather than ``foo`` followed by ``(bar)``.
+    morphism_call: $ => prec(20, seq(
+      field('callee', $.identifier),
+      '(',
+      field('args', commaSep1($.identifier)),
+      ')',
+    )),
 
     expr_paren: $ => seq('(', $._expr, ')'),
 
@@ -963,6 +1220,35 @@ module.exports = grammar({
 
     identity_expr: $ => seq(
       'identity', '(', field('object', $.identifier), ')',
+    ),
+
+    // Compact-closed unit / counit. ``cup(A)`` builds the
+    // morphism ``I -> A * A`` whose tensor is the diagonal on A
+    // (every entry ``(a, a)`` carries the quantale's monoidal
+    // unit). ``cap(A)`` is the dual ``A * A -> I``. Together
+    // ``cup`` and ``cap`` provide the unit / counit of the
+    // compact-closed structure on V-Cat; the snake equations
+    // ``(ε ⊗ id) ∘ (id ⊗ η) = id`` hold by construction.
+    cup_expr: $ => seq(
+      'cup', '(', field('object', $.identifier), ')',
+    ),
+
+    cap_expr: $ => seq(
+      'cap', '(', field('object', $.identifier), ')',
+    ),
+
+    // Data-derived initialiser: ``from_data("KEY")`` resolves the
+    // string literal as a key into the runtime-supplied data
+    // dictionary at fit time, and the morphism's tensor is the
+    // looked-up value. The result is an :class:`ObservedMorphism`
+    // — the entries are structural / frozen, not learnable. Used
+    // for embeddings loaded from a file, adjacency matrices,
+    // dataset-derived priors, fixed parse structures.
+    from_data_expr: $ => seq(
+      'from_data',
+      '(',
+      field('key', $._string_literal),
+      ')',
     ),
 
     fan_expr: $ => seq(
@@ -1136,6 +1422,11 @@ module.exports = grammar({
       '<-',
       field('morphism', $.identifier),
       optional(seq('(', field('args', commaSep1($._draw_arg)), ')')),
+      // Optional axis-role clause configures the draw's event /
+      // batch decomposition over the factors of the type annotation
+      // (``: T``).  Required when the family's event_rank > 0 and
+      // ambiguous from the type alone.
+      optional(field('axes', $.axis_role_clause)),
     ))),
 
     // Scored bind — same shape as `bind_step` but prefixed with
@@ -1145,13 +1436,29 @@ module.exports = grammar({
     //
     //   observe v        <- F(args)
     //   observe r : N    <- F(theta[N])   -- N-indexed batched score
+    //   observe r : N via idx <- F(...)   -- per-observe fibration
+    //   observe r : N via product(a, b) <- F(...)
+    //
+    // Inside a grouped `marginalize` block (header carries
+    // ``over G`` or ``over G * H``), every observe step MUST
+    // carry its own ``via <idx>`` (or ``via product(...)``)
+    // clause.  The compiler scatter-adds each observe's per-row
+    // per-class log-likelihood into the same per-group
+    // accumulator before the reduction.  Outside a grouped body
+    // ``via`` on an observe is a compile-time error.
     observe_step: $ => prec.right(seq(
       'observe',
       field('var', $.identifier),
       optional(seq(':', field('index', $._type_expr))),
+      optional(seq('via', field('via', $._via_spec))),
       '<-',
       field('morphism', $.identifier),
       optional(seq('(', field('args', commaSep1($._draw_arg)), ')')),
+      // Optional axis-role clause configures the event / batch
+      // decomposition of the response tensor.  The plate axis ``:
+      // N`` (and any ``via`` fibration) is the batch; ``over <axes>``
+      // names additional event axes carried by the family.
+      optional(field('axes', $.axis_role_clause)),
     )),
 
     // Scoped marginalisation. Introduces a coordinate `c` bound to a
@@ -1159,11 +1466,33 @@ module.exports = grammar({
     // is the integration scope. At the end of the scope the coordinate
     // is pushed forward through the projection (logsumexp for discrete,
     // fibrewise integration for continuous), and `c` falls out of
-    // scope. Replaces v0.4's trailing `marginalize c` form.
+    // scope.
     //
-    //   marginalize class : Item <- Categorical(probs) in {
+    // A grouped block additionally declares a grouping plate
+    // ``over G`` (or a product plate ``over G * H``).  Inside the
+    // body, every observe step carries its own ``via <idx>``
+    // clause naming the per-observe fibration into the shared
+    // grouping plate.  The compiler scatter-adds each observe's
+    // per-row per-class log-likelihood into the same
+    // ``(|G|, K)`` accumulator before the reduction:
+    //
+    //     Σ_g logsumexp_k [ log π(g, k) +
+    //                       Σ_m Σ_{n: idx_m(n)=g} ℓ_m(n, k) ]
+    //
+    // realising the right Kan extension along the coproduct
+    // fibration ⨿_m r_m in Kern.  The single-observe case is the
+    // unary slice (M = 1).
+    //
+    //   marginalize class : K <- Categorical(probs) in {
     //       observe r : N <- Bernoulli(theta[class[N]])
     //   }
+    //
+    //   marginalize class : K <- Categorical(probs)
+    //       over G
+    //       in {
+    //           let logit = base + sign[class]
+    //           observe r : N via idx <- Bernoulli(logit)
+    //       }
     marginalize_step: $ => seq(
       'marginalize',
       field('var', $.identifier),
@@ -1171,10 +1500,44 @@ module.exports = grammar({
       '<-',
       field('morphism', $.identifier),
       optional(seq('(', field('args', commaSep1($._draw_arg)), ')')),
+      // NOTE: ``marginalize`` reserves ``over`` for the grouping
+      // plate (``over G`` / ``over G * H``).  An axis-role clause
+      // on the integration family is therefore NOT spelled with
+      // ``over`` here; if you need joint structure on a continuous
+      // integration variable, lift the draw out into a preceding
+      // ``<-`` step that carries the axis-role clause, then
+      // ``marginalize`` over its name.
+      // `over G` declares a single grouping plate; `over G * H`
+      // declares a product grouping plate whose flat cardinality is
+      // |G|·|H|. The compiler resolves the type-product into a
+      // tuple of plate cardinalities and pairs it with the
+      // co-indexed `via` fibrations declared on each observe in
+      // the body.
+      optional(seq('over', field('over', $._type_expr))),
+      // `reduction = logsumexp | sum | mean` controls the per-group
+      // reduction over the class axis: `logsumexp` is the canonical
+      // mixture-marginalisation form, `sum` is the joint scoring
+      // form (used by predictive paths), `mean` is the symmetric
+      // average. Defaults to `logsumexp`.
+      optional(seq('reduction', '=', field('reduction', $.identifier))),
       'in',
       '{',
       field('scope', repeat($._program_step)),
       '}',
+    ),
+
+    // Fibration specification: either a single identifier or a
+    // `product(...)` of identifiers naming the per-axis fibrations.
+    _via_spec: $ => choice(
+      $.identifier,
+      $.via_product,
+    ),
+
+    via_product: $ => seq(
+      'product',
+      '(',
+      commaSep1(field('axis', $.identifier)),
+      ')',
     ),
 
     let_step: $ => seq(

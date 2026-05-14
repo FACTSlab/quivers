@@ -15,7 +15,6 @@ import pytest
 # AST nodes
 from quivers.dsl.ast_nodes import (
     CategoryDecl,
-    ContinuousMorphismDecl,
     DiscretizeDecl,
     DrawStep,
     EmbedDecl,
@@ -54,7 +53,7 @@ from quivers.dsl.ast_nodes import (
     SpaceName,
     SpaceProduct,
     Statement,
-    StochasticMorphismDecl,
+    KernelDecl,
     TypeCoproduct,
     TypeEffectApply,
     TypeSlash,
@@ -191,14 +190,14 @@ _MDECL = MorphismDecl(
     options={"scale": "0.3"},
 )
 _SDECL = SpaceDecl(name="R3", space_expr=_SPACE_CTOR)
-_CMDECL = ContinuousMorphismDecl(
+_CMDECL = KernelDecl(
     name="g",
     domain=_TYPE_NAME,
     codomain=_TYPE_NAME,
     family="Normal",
     options={},
 )
-_SMDECL = StochasticMorphismDecl(name="t", domain=_TYPE_NAME, codomain=_TYPE_NAME)
+_SMDECL = KernelDecl(name="t", domain=_TYPE_NAME, codomain=_TYPE_NAME)
 _DDECL = DiscretizeDecl(name="d", space_name="R3", n_bins=10, options={})
 _EDECL = EmbedDecl(name="e", domain_name="X", codomain_name="R3")
 _PDECL = ProgramDecl(

@@ -1,0 +1,50 @@
+# ================================================================
+# Bayesian Gaussian Mixture Model
+# ================================================================
+#
+# A finite Gaussian mixture model with K components.  The
+# discrete component assignment is integrated out by a scoped
+# `marginalize` block: the body's observation depends on a
+# continuous latent shared across components, and the runtime
+# accumulates a log-sum-exp over the K components at every
+# observation row.
+#
+# Generative structure
+#
+#   probs   : Component       -- mixing weights (Dirichlet)
+#   mu_shift                  -- continuous latent driving the
+#                                per-class shift of the observed
+#                                Normal
+#   cls     : Component       -- per-row component (marginalised)
+#   r       : Resp            -- observed row
+#
+# The `over Item` grouping plate fibrates each response row into
+# the per-item accumulator; `via idx` names the per-observe
+# fibration into the Item plate.
+
+object Component : 4
+object Item : 1
+object Resp : 200
+
+program gmm : Resp -> Resp
+    # Mixing-weight concentration parameters.
+    probs : Component <- HalfNormal(1.0)
+
+    # Per-row fibration into the Item grouping plate.
+    idx : Resp <- HalfNormal(1.0)
+
+    # Continuous latent: a shared shift parameter driving the
+    # observation kernel inside the marginalize body.  SVI on a
+    # mixture model identifies this jointly with the per-class
+    # log-weights.
+    mu_shift <- Normal(0.0, 1.0)
+
+    # Marginalise the per-row component assignment.
+    marginalize cls : Component <- Dirichlet(probs)
+        over Item
+        in {
+            observe r : Resp via idx <- Normal(mu_shift, 1.0)
+        }
+    return probs
+
+export gmm

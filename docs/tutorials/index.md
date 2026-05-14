@@ -1,37 +1,54 @@
 # Tutorials
 
-The tutorials section provides guided walkthroughs of quivers' core capabilities. Each tutorial builds concrete examples from scratch, progressing from basic morphisms through stochastic relations, continuous probabilistic programs, linguistic modeling, and variational inference.
+Quivers exposes the same model through two surfaces: a `.qvr` DSL aimed at people who write probabilistic programs, and a typed Python API aimed at people who build libraries on top of the category-theoretic core. These tutorials are organised into two parallel tracks accordingly. Pick the one that matches what you're trying to do.
+
+## QVR DSL track
+
+If you have written a model in Pyro, NumPyro, Stan, or PyMC and want to do the same thing in quivers, start here. The `.qvr` syntax is the primary user-facing surface: you declare types, write a `program` block whose steps look like `v <- Normal(0, 1)` or `observe y <- Bernoulli(p)`, and fit it with SVI or NUTS. Category theory is mostly invisible; the categorical machinery is the implementation, not the API.
+
+Each chapter shows the QVR version of a familiar model alongside its Pyro / NumPyro / Stan equivalent, then explains what's different and why.
+
+1. **[Your first model](qvr/01-first-model.md)**. Linear regression. Side-by-side with PyMC. SVI fit, posterior predictive check, point summaries.
+2. **[Generalised linear models](qvr/02-glms.md)**. Logistic and Poisson regression. Link functions. Posterior calibration plots.
+3. **[Hierarchical models](qvr/03-hierarchical.md)**. Random intercepts; the eight-schools model; centred vs non-centred parameterisations; running NUTS with diagnostics.
+4. **[Mixtures and discrete latents](qvr/04-marginalize.md)**. Finite mixtures and HMM-shaped models via the `marginalize` block: QVR's typed-scope marginalisation, the feature that distinguishes it most from Pyro/NumPyro.
+5. **[Sequence models](qvr/05-time-series.md)**. Plates, `scan`, and the deduction surface for chart-shaped models. State-space models and HMMs.
+6. **[Choosing an inference algorithm](qvr/06-inference-zoo.md)**. A decision tree over the nine guides, four objectives, two MCMC kernels, and two hybrid samplers. Which combination matches which model shape.
+7. **[Under the hood: the categorical surface](qvr/07-categorical.md)**. *(Optional reading.)* What QVR is doing underneath: quantales as enrichment algebras, `>>` as enriched composition, change-of-base as a functor. Useful when you want to extend the library or read the type errors fluently.
+
+You can read the first six chapters without touching category theory. Chapter 7 is the bridge to the Python API track.
+
+## Python API track
+
+The Python API gives you direct access to the typed categorical surface: `FinSet`, `Morphism`, `Quantale`, `MonadicProgram`, the inference primitives, the structural-compression building blocks. Use this track if you are building tooling on top of quivers, extending the categorical machinery, or want to understand what the DSL compiles into.
+
+1. **[Your first quiver](python/01-first-quiver.md)**. `FinSet` objects, observed and latent morphisms, the `>>` composition operator, `Program`.
+2. **[Stochastic relations](python/02-stochastic-relations.md)**. Markov kernels and the FinStoch category. Conditioning, marginalisation, expectation queries.
+3. **[Probabilistic programs](python/03-probabilistic-programs.md)**. `MonadicProgram` by hand: continuous spaces, conditional families, `draw` / `let` / `observe` steps, sampling, log-density.
+4. **[Fuzzy logic factorisation](python/04-fuzzy-factorization.md)**. Factorising an observed fuzzy relation into a composition of latents, training under product-fuzzy noisy-OR composition.
+5. **[Variational inference](python/05-variational-inference.md)**. `Guide` + `Objective` + `SVI` + `Predictive`. Setting up the full inference loop end-to-end.
+6. **[First-class transformations](python/06-first-class-trans.md)**. `MorphismTransformation` and `QuantaleHomomorphism` as values: let-binding, the `>>>` composition operator, change-of-base pipelines.
+7. **[Composition rules beyond quantales](python/07-composition-rules.md)**. The `CompositionRule → Semigroupoid → Quantale` hierarchy, `BilinearForm`, and the operadic `EinsumWiring` surface for n-ary contractions.
 
 ## Prerequisites
 
-- Python >= 3.12, PyTorch, and quivers installed (see [Installation](../getting-started/installation.md))
-- Familiarity with basic category theory (morphisms, composition, functors)
-- Knowledge of quantales and $\mathcal{V}$-enrichment (see [Core Types & Quantales](../guides/core.md))
+For the QVR track:
 
-## Tutorials
+- Python 3.14+, PyTorch 2.0+, quivers installed ([Installation](../getting-started/installation.md)).
+- Comfort with one of the popular probabilistic-programming languages (Pyro, NumPyro, Stan, PyMC). You don't need to know category theory.
 
-### [1. Your First Quiver](first-quiver.md)
-Create a simple $\mathcal{V}$-enriched category from scratch. Define FinSet objects, construct both observed and latent morphisms, compose them with the `>>` operator, and inspect the resulting tensors. Covers the basic workflow: what a quiver is in this context (a directed graph with lattice-valued edges), and how to work with morphisms as differentiable PyTorch tensors.
+For the Python API track:
 
-### [2. Stochastic Relations](stochastic-relations.md)
-Build models in the FinStoch category: create Markov kernels (StochasticMorphisms), compose them, and apply Bayesian operations like conditioning. Learn how discretized continuous distributions (DiscretizedNormal, DiscretizedBeta) allow embedding continuous randomness into finite-set relations. Demonstrates prob, marginal_prob, and expectation operations.
+- Python and PyTorch as above.
+- Working knowledge of category theory: objects, morphisms, composition, functors. The denotational [semantics](../semantics/index.md) section assumes Kelly-level enriched category theory; the tutorials don't, but a refresher on quantales as enrichment algebras ([Core Types & Quantales](../guides/core.md)) is recommended before chapter 4.
 
-### [3. Probabilistic Programs](probabilistic-programs.md)
-Construct MonadicPrograms by hand using the Python API: define continuous spaces, create conditional distribution families (ConditionalNormal, ConditionalBernoulli), build a program with draw and let steps, sample from it, and compute log-densities. Covers destructuring and the distinction between observed and latent sites.
+## How to read
 
-### [4. Fuzzy Logic Factorization](fuzzy-factorization.md)
-Factorize an observed fuzzy relation into a composition of learnable morphisms under the product fuzzy logic quantale. Covers observed and latent morphisms, noisy-OR composition, BCE loss training, and alternative quantales.
+Each chapter:
 
-### [5. Variational Inference](variational-inference.md)
-Set up and run inference on a probabilistic program. Create a MonadicProgram, condition it on observed data, construct an AutoNormalGuide, set up ELBO and SVI, run a training loop, and use Predictive for posterior sampling. Demonstrates the full workflow from model definition to fitted inference.
+- States the model or feature in plain English first.
+- Shows complete runnable code.
+- Calls out what changed from the previous chapter.
+- Ends with a "try this" exercise and pointers to the next chapter.
 
-## How to Use These Tutorials
-
-Read them in order. Each tutorial:
-
-1. States what you will learn
-2. Walks through a complete worked example with code
-3. Explains key concepts as they arise
-4. Points to API documentation for deeper dives
-
-Run all code in an interactive Python environment. Modify examples to build intuition.
+The chapters are independent enough that you can skim or skip, but each builds on the previous one's vocabulary, so out-of-order reading is easier in the second half.

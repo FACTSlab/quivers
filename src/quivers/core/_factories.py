@@ -203,7 +203,7 @@ def pair(
             )
     target = ProductSet(components=tuple(leg.codomain for leg in legs))
     # Outer product across legs, then aggregate via the quantale's tensor_op.
-    # We compute term-by-term in a vectorised manner: each leg tensor has
+    # We compute term-by-term in a vectorized manner: each leg tensor has
     # shape (*domain.shape, *codomain_i.shape); we reshape to align the
     # codomain dimensions and use the quantale's tensor_op to combine.
     dom_ndim = domain.ndim

@@ -33,7 +33,7 @@ $$
 
 where $\llbracket M \rrbracket$ is the denotation of [Setting](setting.md), [Morphisms](morphisms.md), [Expressions](expressions.md), and [Programs](programs.md), instantiated at the parameters $\theta_M$.
 
-Equality is in $\mathbf{Kern}$ — i.e.\ as Markov kernels — and is therefore equality of measures on the $\sigma$-algebra of the codomain. In the implementation this equality holds *up to the floating-point precision* of the underlying tensor library; the test suite asserts the equality to within numerical tolerance on a representative set of modules.
+Equality is in $\mathbf{Kern}$, i.e.\ as Markov kernels, and is therefore equality of measures on the $\sigma$-algebra of the codomain. In the implementation this equality holds *up to the floating-point precision* of the underlying tensor library; the test suite asserts the equality to within numerical tolerance on a representative set of modules.
 
 ## 3. Proof sketch
 
@@ -87,10 +87,10 @@ between the Chapman–Kolmogorov composition and its Monte-Carlo realisation hol
 
 The body-interpreter `_compile_program_body` of [`quivers.dsl.compiler`](../api/dsl/compiler.md) realises the Kleisli chain of [Programs §2](programs.md#2-statements). Each statement is interpreted as a Python operation that:
 
-- *Draw* — calls `family.rsample(theta(context))` and appends the result to the trace;
-- *Observe* — calls `family.log_prob(value, theta(context))` and accumulates the score;
-- *Let* — evaluates the arithmetic expression and binds the result;
-- *Return* — projects the trace onto the named coordinates.
+- *Draw*: calls `family.rsample(theta(context))` and appends the result to the trace;
+- *Observe*: calls `family.log_prob(value, theta(context))` and accumulates the score;
+- *Let*: evaluates the arithmetic expression and binds the result;
+- *Return*: projects the trace onto the named coordinates.
 
 The categorical equations of [Programs §5](programs.md#5-soundness-of-monadic-semantics) are inherited from PyTorch's distribution / random-variable algebra, which is well-known to satisfy the Giry-monad axioms.
 

@@ -1,8 +1,9 @@
 """Stochastic Variational Inference (SVI) training loop.
 
-SVI optimizes the ELBO by taking gradient steps on the guide and
-model parameters. Each call to ``step`` performs one optimization
-step and returns the loss value.
+SVI optimizes a :class:`~quivers.inference.objectives.Objective`
+— the ELBO, IWAE, Rényi, or VR-IWAE bound — by taking gradient
+steps on the guide and model parameters. The ``objective``
+parameter accepts any :class:`Objective` subclass.
 """
 
 from __future__ import annotations
@@ -10,8 +11,8 @@ from __future__ import annotations
 import torch
 
 from quivers.continuous.programs import MonadicProgram
-from quivers.inference.guide import Guide
-from quivers.inference.elbo import ELBO
+from quivers.inference.guides import Guide
+from quivers.inference.objectives import Objective
 
 
 class SVI:
@@ -20,13 +21,14 @@ class SVI:
     Parameters
     ----------
     model : MonadicProgram
-        The generative model.
+        Generative model.
     guide : Guide
-        The variational guide.
+        Variational guide.
     optim : torch.optim.Optimizer
-        Optimizer for both model and guide parameters.
-    loss : ELBO
-        The ELBO loss module.
+        Optimiser for both model and guide parameters.
+    objective : Objective
+        Variational objective (ELBO, IWAEBound, RenyiBound,
+        VRIWAEBound, …).
     """
 
     def __init__(
@@ -34,34 +36,36 @@ class SVI:
         model: MonadicProgram,
         guide: Guide,
         optim: torch.optim.Optimizer,
-        loss: ELBO,
+        objective: Objective,
     ) -> None:
         self.model = model
         self.guide = guide
         self.optim = optim
-        self.loss = loss
+        self.objective = objective
 
     def step(
         self,
         x: torch.Tensor,
         observations: dict[str, torch.Tensor],
     ) -> float:
-        """Perform a single SVI optimization step.
+        """One SVI step.
 
         Parameters
         ----------
         x : torch.Tensor
-            Program input. Shape (batch, ...).
+            Program input. Shape ``(batch, ...)``.
         observations : dict[str, torch.Tensor]
-            Observed variable values.
+            Observed variable values + host data (the
+            non-site keys are exposed to the trace via the
+            ``condition`` machinery).
 
         Returns
         -------
         float
-            The loss value for this step.
+            Scalar loss for this step.
         """
         self.optim.zero_grad()
-        loss_val = self.loss(self.model, self.guide, x, observations)
+        loss_val = self.objective(self.model, self.guide, x, observations)
         loss_val.backward()
         self.optim.step()
         return loss_val.item()

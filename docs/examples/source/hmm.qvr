@@ -1,0 +1,24 @@
+# Discrete Hidden Markov Model
+#
+# A classic K-state HMM as a V-enriched categorical network over
+# finite sets.  Initial, transition, and emission rows carry row-wise
+# Dirichlet priors via the axis-role surface: ``over cod iid over
+# dom`` makes each row of the row-stochastic matrix an independent
+# simplex draw, which is the standard conjugate prior for a discrete
+# Markov chain.  The composed pipeline ``initial >> repeat(T) >> E``
+# uses the runtime-variable ``repeat`` combinator so the same model
+# computes n-step marginals for any horizon ``n_steps``.
+
+quantale product_fuzzy
+
+object State : 8
+object Obs : 16
+
+latent initial : State -> State ~ Dirichlet(1.0) over cod iid over dom
+latent transition : State -> State ~ Dirichlet(1.0) over cod iid over dom
+latent emission : State -> Obs ~ Dirichlet(1.0) over cod iid over dom
+
+let n_step = repeat(transition) >> emission
+let hmm = initial >> n_step
+
+export hmm

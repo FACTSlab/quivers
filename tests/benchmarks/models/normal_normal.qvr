@@ -1,0 +1,21 @@
+# Normal-Normal conjugate model with known observation variance.
+#
+# Prior:        mu ~ Normal(0, 1)
+# Likelihood:   y_i ~ Normal(mu, 1)
+#
+# Posterior (closed form):
+#   tau_N^2 = 1 / (1/tau0^2 + N/sigma^2)
+#   mu_N    = tau_N^2 * (mu0/tau0^2 + N * ybar / sigma^2)
+#
+# Tier-1 conjugate-recovery benchmark. With a Normal prior + Normal
+# likelihood + known sigma the closed-form posterior is itself
+# Gaussian, so an AutoNormalGuide should be near-exact.
+
+object Obs : 30
+
+program normal_normal : Obs -> Obs
+    mu <- Normal(0.0, 1.0)
+    observe y : Obs <- Normal(mu, 1.0)
+    return mu
+
+export normal_normal

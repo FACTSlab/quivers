@@ -34,7 +34,14 @@ import torch.nn.functional as F
 import torch.distributions as D
 from torch.distributions import constraints as _constraints
 
+from quivers.continuous.family_spec import (
+    FamilySpec,
+    ParamSpec,
+    _RAW_TRANSFORMS as _TRANSFORMS,
+    register as _register_family,
+)
 from quivers.continuous.spaces import (
+    CholeskyFactor,
     ContinuousSpace,
     Euclidean,
 )
@@ -46,32 +53,6 @@ from quivers.continuous.morphisms import (
 from quivers.core._util import EPS
 
 
-# ============================================================================
-# parameter transforms
-# ============================================================================
-
-
-def _identity(x: torch.Tensor) -> torch.Tensor:
-    return x
-
-
-def _softplus(x: torch.Tensor) -> torch.Tensor:
-    return F.softplus(x) + EPS
-
-
-def _softplus_shifted(x: torch.Tensor) -> torch.Tensor:
-    """Positive with minimum 0.1 for concentration-like params."""
-    return F.softplus(x) + 0.1
-
-
-def _exp(x: torch.Tensor) -> torch.Tensor:
-    return x.exp().clamp(min=EPS)
-
-
-def _sigmoid(x: torch.Tensor) -> torch.Tensor:
-    return torch.sigmoid(x)
-
-
 def _lower_bounded(bound: float) -> Callable:
     """Create a transform that ensures output > bound."""
 
@@ -81,14 +62,26 @@ def _lower_bounded(bound: float) -> Callable:
     return transform
 
 
-# registry of named transforms
-_TRANSFORMS: dict[str, Callable] = {
-    "id": _identity,
-    "softplus": _softplus,
-    "softplus_shifted": _softplus_shifted,
-    "exp": _exp,
-    "sigmoid": _sigmoid,
-}
+def _resolve_support(
+    dist_class: type, override: _constraints.Constraint | None
+) -> _constraints.Constraint:
+    """Look up the family's output support from the torch class, or
+    use the user-supplied override. Falls back to ``real`` when
+    neither is available."""
+    if override is not None:
+        return override
+    support = getattr(dist_class, "support", None)
+    if isinstance(support, _constraints.Constraint):
+        return support
+    return _constraints.real
+
+
+def _resolve_discrete(dist_class: type, override: bool | None) -> bool:
+    """Discrete iff the torch distribution lacks reparameterized
+    sampling (``has_rsample == False``)."""
+    if override is not None:
+        return override
+    return not bool(getattr(dist_class, "has_rsample", True))
 
 
 # ============================================================================
@@ -126,12 +119,14 @@ class _IndependentConditional(ContinuousMorphism):
         dist_class: type,
         param_specs: list[tuple[str, Callable]],
         hidden_dim: int = 64,
+        discrete: bool = False,
     ) -> None:
         super().__init__(domain, codomain)
         d = codomain.dim
         self._d = d
         self._dist_class = dist_class
         self._param_specs = param_specs
+        self._discrete = discrete
 
         # total raw parameters: one scalar per spec per codomain dim
         total_raw = len(param_specs) * d
@@ -163,7 +158,8 @@ class _IndependentConditional(ContinuousMorphism):
 
     def log_prob(self, x: torch.Tensor, y: torch.Tensor) -> torch.Tensor:
         dist = self._get_dist(x)
-        return dist.log_prob(y).sum(dim=-1)
+        y_typed = y.float() if self._discrete else y
+        return dist.log_prob(y_typed).sum(dim=-1)
 
     def rsample(
         self,
@@ -171,7 +167,14 @@ class _IndependentConditional(ContinuousMorphism):
         sample_shape: torch.Size = torch.Size(),
     ) -> torch.Tensor:
         dist = self._get_dist(x)
-        return dist.rsample(sample_shape)
+        if self._discrete:
+            return dist.sample(sample_shape).long()
+        if getattr(dist, "has_rsample", True):
+            return dist.rsample(sample_shape)
+        # Continuous but non-reparameterizable (e.g. VonMises). Fall
+        # back to ``.sample()`` — gradients won't flow through the
+        # sample but the distribution still scores log-probabilities.
+        return dist.sample(sample_shape)
 
 
 # ============================================================================
@@ -184,26 +187,44 @@ def _make_family(
     dist_class: type,
     param_specs: list[tuple[str, str]],
     doc: str,
+    *,
+    dsl_name: str | None = None,
+    support: _constraints.Constraint | None = None,
+    discrete: bool | None = None,
 ) -> type:
     """Generate a named conditional distribution class.
+
+    Each call also installs a :class:`FamilySpec` into the unified
+    catalog so the inline (fixed / mixed) call paths and the DSL
+    compiler discover the family automatically.
 
     Parameters
     ----------
     name : str
-        Class name (e.g. "ConditionalCauchy").
+        Class name (e.g. ``"ConditionalCauchy"``).
     dist_class : type
-        The torch.distributions class.
+        The :mod:`torch.distributions` class.
     param_specs : list of (str, str)
-        Parameter specifications as (name, transform_name) pairs.
+        Ordered ``(parameter_name, transform_name)`` pairs.
     doc : str
         Class docstring.
+    dsl_name : str, optional
+        DSL key. Defaults to ``name.removeprefix("Conditional")``.
+    support : Constraint, optional
+        Output support. Auto-detected from ``dist_class.support`` if
+        absent.
+    discrete : bool, optional
+        Whether the family is discrete. Auto-detected from
+        ``not dist_class.has_rsample`` if absent.
 
     Returns
     -------
     type
-        A new ContinuousMorphism subclass.
+        A new :class:`ContinuousMorphism` subclass.
     """
     resolved_specs = [(pname, _TRANSFORMS[tname]) for pname, tname in param_specs]
+    is_discrete = _resolve_discrete(dist_class, discrete)
+    out_support = _resolve_support(dist_class, support)
 
     class _Cls(_IndependentConditional):
         __doc__ = doc
@@ -220,10 +241,28 @@ def _make_family(
                 dist_class,
                 resolved_specs,
                 hidden_dim,
+                discrete=is_discrete,
             )
 
     _Cls.__name__ = name
     _Cls.__qualname__ = name
+
+    if dsl_name is None:
+        dsl_name = name.removeprefix("Conditional")
+    _register_family(
+        FamilySpec(
+            name=dsl_name,
+            dist_class=dist_class,
+            params=tuple(
+                ParamSpec(name=pname, transform=tname) for pname, tname in param_specs
+            ),
+            support=out_support,
+            discrete=is_discrete,
+            output_kind="independent",
+            docstring=doc,
+            conditional_class_override=_Cls,
+        )
+    )
     return _Cls
 
 
@@ -723,6 +762,45 @@ ConditionalFisherSnedecor = _make_family(
     "Conditional FisherSnedecor(df1(x), df2(x)). F-distribution, ratio of chi-squared.",
 )
 
+# -- discrete count distributions --------------------------------------------
+
+ConditionalPoisson = _make_family(
+    "ConditionalPoisson",
+    D.Poisson,
+    [("rate", "softplus")],
+    "Conditional Poisson(rate(x)). Discrete, non-negative integer counts.",
+)
+
+ConditionalGeometric = _make_family(
+    "ConditionalGeometric",
+    D.Geometric,
+    [("probs", "sigmoid")],
+    "Conditional Geometric(probs(x)). Number of failures before first success.",
+)
+
+ConditionalNegativeBinomial = _make_family(
+    "ConditionalNegativeBinomial",
+    D.NegativeBinomial,
+    [("total_count", "softplus_shifted"), ("probs", "sigmoid")],
+    "Conditional NegativeBinomial(total_count(x), probs(x)). "
+    "Discrete, over-dispersed count distribution.",
+)
+
+# -- circular distributions --------------------------------------------------
+
+# VonMises is continuous (angles on the real line) but torch flags it
+# ``has_rsample=False`` because reparameterized gradients are not
+# implemented. Override the discrete-detection so the conditional
+# class uses ``.sample()`` without casting to long.
+ConditionalVonMises = _make_family(
+    "ConditionalVonMises",
+    D.VonMises,
+    [("loc", "id"), ("concentration", "softplus")],
+    "Conditional VonMises(loc(x), concentration(x)). "
+    "Circular analogue of the Normal distribution.",
+    discrete=False,
+)
+
 # -- uniform distribution (special parameterization) -------------------------
 
 
@@ -1122,6 +1200,208 @@ class ConditionalWishart(ContinuousMorphism):
 
 
 # ============================================================================
+# matrix-valued: MatrixNormal (Kronecker covariance)
+# ============================================================================
+
+
+class ConditionalMatrixNormal(ContinuousMorphism):
+    """Conditional Matrix-Normal :math:`\\mathcal{MN}(M, U, V)`.
+
+    The matrix-Normal distribution on :math:`\\mathbb{R}^{n \\times p}`
+    factorises with a Kronecker-product covariance: if
+    :math:`X \\sim \\mathcal{MN}(M, U, V)` then
+    :math:`\\mathrm{vec}(X) \\sim \\mathcal{N}(\\mathrm{vec}(M), V \\otimes U)`
+    with :math:`U \\in \\mathbb{R}^{n \\times n}` the row covariance
+    and :math:`V \\in \\mathbb{R}^{p \\times p}` the column covariance.
+
+    Categorically, the Kronecker structure is the tensor product
+    of two Gaussians; it is strictly more constrained than the
+    flat :math:`np`-dim MVN that the same parameter tensor could
+    carry, so the surface keeps the two families distinct (no
+    auto-substitution).  Use this when the prior should express
+    independent row and column correlation structure.
+
+    The codomain's product factorisation supplies the row and
+    column dimensions.  The grammar surface
+    ``~ MatrixNormal(loc, row_scale, col_scale) over (dom, cod)``
+    binds the first axis listed in ``over`` to the row covariance
+    and the second to the column covariance.
+
+    Parameters
+    ----------
+    domain : AnySpace
+        Source space.
+    codomain : ContinuousSpace
+        Target space whose factorisation supplies ``(n, p)``.  Must
+        carry a product structure of two factors; the first is the
+        row axis, the second the column.
+    rows : int
+        Row dimension :math:`n`.
+    cols : int
+        Column dimension :math:`p`.
+    hidden_dim : int
+        Hidden layer width for the parameter network.
+    """
+
+    event_rank: int = 2
+
+    def __init__(
+        self,
+        domain: AnySpace,
+        codomain: ContinuousSpace,
+        rows: int,
+        cols: int,
+        hidden_dim: int = 64,
+    ) -> None:
+        super().__init__(domain, codomain)
+        self._rows = int(rows)
+        self._cols = int(cols)
+        n_loc = self._rows * self._cols
+        n_row_tril = self._rows * (self._rows + 1) // 2
+        n_col_tril = self._cols * (self._cols + 1) // 2
+        self._n_loc = n_loc
+        self._n_row_tril = n_row_tril
+        self._n_col_tril = n_col_tril
+        self.param_source = _make_source(
+            domain, n_loc + n_row_tril + n_col_tril, hidden_dim
+        )
+
+    def _build_tril(self, raw: torch.Tensor, d: int, n_tril: int) -> torch.Tensor:
+        batch_shape = raw.shape[:-1]
+        L = torch.zeros(*batch_shape, d, d, device=raw.device, dtype=raw.dtype)
+        idx = torch.tril_indices(d, d)
+        L[..., idx[0], idx[1]] = raw[..., :n_tril]
+        diag_idx = torch.arange(d)
+        L[..., diag_idx, diag_idx] = F.softplus(L[..., diag_idx, diag_idx]) + EPS
+        return L
+
+    def _get_dist(self, x: torch.Tensor) -> D.MultivariateNormal:
+        raw = self.param_source(x)
+        n, p = self._rows, self._cols
+        offset = 0
+        loc_flat = raw[..., offset : offset + self._n_loc]
+        offset += self._n_loc
+        row_raw = raw[..., offset : offset + self._n_row_tril]
+        offset += self._n_row_tril
+        col_raw = raw[..., offset : offset + self._n_col_tril]
+
+        U_chol = self._build_tril(row_raw, n, self._n_row_tril)
+        V_chol = self._build_tril(col_raw, p, self._n_col_tril)
+        # Cholesky of the Kronecker covariance Sigma = V (X) U is
+        # L_Sigma = V_chol (X) U_chol so vec(X) ~ N(vec(M), L L^T).
+        L_kron = torch.einsum("...ij,...kl->...ikjl", V_chol, U_chol).reshape(
+            *loc_flat.shape[:-1], n * p, n * p
+        )
+        return D.MultivariateNormal(loc_flat, scale_tril=L_kron)
+
+    def log_prob(self, x: torch.Tensor, y: torch.Tensor) -> torch.Tensor:
+        # y has shape (..., n*p) or (..., n, p); flatten if matrix.
+        if y.dim() >= 2 and y.shape[-2:] == (self._rows, self._cols):
+            y = y.reshape(*y.shape[:-2], self._rows * self._cols)
+        return self._get_dist(x).log_prob(y)
+
+    def rsample(
+        self,
+        x: torch.Tensor,
+        sample_shape: torch.Size = torch.Size(),
+    ) -> torch.Tensor:
+        sample_flat = self._get_dist(x).rsample(sample_shape)
+        return sample_flat.reshape(*sample_flat.shape[:-1], self._rows, self._cols)
+
+
+# ============================================================================
+# matrix-valued: InverseWishart
+# ============================================================================
+
+
+class ConditionalInverseWishart(ContinuousMorphism):
+    """Conditional Inverse-Wishart over positive-definite matrices.
+
+    Conjugate prior for the covariance of a multivariate normal.
+    Realised as a deterministic inversion of a Wishart sample so
+    autograd flows; equivalent in distribution to drawing
+    :math:`\\Sigma^{-1} \\sim \\mathcal{W}(\\nu, V^{-1})` and
+    inverting.  See Gelman et al. (2013) §3.6 for the conjugacy
+    statement.
+
+    Parameters
+    ----------
+    domain : AnySpace
+        Source space.
+    codomain : ContinuousSpace
+        Target space whose ``dim`` is the matrix size :math:`d`.
+    hidden_dim : int
+        Hidden layer width for the parameter network.
+    """
+
+    event_rank: int = 2
+
+    def __init__(
+        self,
+        domain: AnySpace,
+        codomain: ContinuousSpace,
+        hidden_dim: int = 64,
+    ) -> None:
+        super().__init__(domain, codomain)
+        d = codomain.dim
+        n_tril = d * (d + 1) // 2
+        self._d = d
+        self._n_tril = n_tril
+        self.param_source = _make_source(domain, 1 + n_tril, hidden_dim)
+
+    @property
+    def support(self) -> _constraints.Constraint:
+        return _constraints.positive_definite
+
+    def _get_wishart(self, x: torch.Tensor) -> D.Wishart:
+        raw = self.param_source(x)
+        d = self._d
+        # df must exceed d - 1.
+        df = F.softplus(raw[..., 0]) + d
+        tril_raw = raw[..., 1:]
+        batch_shape = tril_raw.shape[:-1]
+        L = torch.zeros(
+            *batch_shape, d, d, device=tril_raw.device, dtype=tril_raw.dtype
+        )
+        idx = torch.tril_indices(d, d)
+        L[..., idx[0], idx[1]] = tril_raw
+        diag_idx = torch.arange(d)
+        L[..., diag_idx, diag_idx] = F.softplus(L[..., diag_idx, diag_idx]) + EPS
+        # IW(nu, V) is the inverse of W(nu, V^-1); we parameterise
+        # the wishart with scale_tril L and invert the sample.
+        return D.Wishart(df=df, scale_tril=L)
+
+    def log_prob(self, x: torch.Tensor, y: torch.Tensor) -> torch.Tensor:
+        # y is positive-definite matrix Sigma; the wishart variate
+        # is Sigma^{-1}.  log p_IW(Sigma) = log p_W(Sigma^{-1}) +
+        # log |d Sigma^{-1} / d Sigma| where the Jacobian of matrix
+        # inversion at a d x d positive-definite matrix is
+        # (-1)^d det(Sigma)^{-(d+1)} so the log absolute Jacobian
+        # is -(d + 1) log det(Sigma).
+        d = self._d
+        y_mat = (
+            y.reshape(*y.shape[:-1], d, d)
+            if y.dim() < 2 or y.shape[-2:] != (d, d)
+            else y
+        )
+        if y_mat.shape[-2:] != (d, d):
+            y_mat = y.reshape(*y.shape[:-1], d, d)
+        y_inv = torch.linalg.inv(y_mat)
+        log_det = torch.logdet(y_mat)
+        wishart = self._get_wishart(x)
+        return wishart.log_prob(y_inv) - (d + 1) * log_det
+
+    def rsample(
+        self,
+        x: torch.Tensor,
+        sample_shape: torch.Size = torch.Size(),
+    ) -> torch.Tensor:
+        w = self._get_wishart(x).rsample(sample_shape)
+        sigma = torch.linalg.inv(w)
+        return sigma.reshape(*sigma.shape[:-2], self._d * self._d)
+
+
+# ============================================================================
 # optional: GeneralizedPareto (may not be in all torch versions)
 # ============================================================================
 
@@ -1330,6 +1610,796 @@ class ConditionalCategorical(ContinuousMorphism):
         return dist.sample(sample_shape).long()
 
 
+class ConditionalBinomial(ContinuousMorphism):
+    """Conditional Binomial(total_count, probs(x)).
+
+    The ``total_count`` (number of trials) is a fixed
+    hyperparameter set at construction time — typical for binomial
+    likelihoods where ``n`` is known per observation. Only the
+    ``probs`` parameter is learnable.
+
+    Outputs integer counts in ``{0, 1, ..., total_count}``.
+
+    Parameters
+    ----------
+    domain : SetObject or ContinuousSpace
+        Source space.
+    codomain : ContinuousSpace
+        Target space.
+    total_count : int
+        Number of Bernoulli trials per observation.
+    hidden_dim : int
+        Hidden layer width for the parameter source.
+    """
+
+    def __init__(
+        self,
+        domain: AnySpace,
+        codomain: ContinuousSpace,
+        total_count: int = 1,
+        hidden_dim: int = 64,
+    ) -> None:
+        if total_count < 1:
+            raise ValueError(
+                f"ConditionalBinomial: total_count must be >= 1, got {total_count}"
+            )
+        super().__init__(domain, codomain)
+        d = codomain.dim
+        self._d = d
+        self._total_count = int(total_count)
+        self.param_source = _make_source(domain, d, hidden_dim)
+
+    @property
+    def support(self) -> _constraints.Constraint:
+        return _constraints.integer_interval(0, self._total_count)
+
+    def _get_dist(self, x: torch.Tensor) -> D.Binomial:
+        logits = self.param_source(x)
+        return D.Binomial(total_count=self._total_count, logits=logits)
+
+    def log_prob(self, x: torch.Tensor, y: torch.Tensor) -> torch.Tensor:
+        dist = self._get_dist(x)
+        return dist.log_prob(y.float()).sum(dim=-1)
+
+    def rsample(
+        self,
+        x: torch.Tensor,
+        sample_shape: torch.Size = torch.Size(),
+    ) -> torch.Tensor:
+        dist = self._get_dist(x)
+        return dist.sample(sample_shape).long()
+
+
+class ConditionalLogisticNormal(ContinuousMorphism):
+    """Conditional LogisticNormal on the simplex.
+
+    Pushes a Normal(loc(x), scale(x)) draw through the softmax
+    transform to produce a simplex-valued sample. Multivariate
+    analogue of :class:`ConditionalLogitNormal`. Useful as an
+    alternative to :class:`ConditionalDirichlet` when the
+    underlying simplex distribution should be Gaussian in
+    logit space rather than Beta-shaped.
+
+    Parameters
+    ----------
+    domain : SetObject or ContinuousSpace
+        Source space.
+    codomain : ContinuousSpace
+        Target space; ``codomain.dim`` is the simplex dimension.
+    hidden_dim : int
+        Hidden layer width for the parameter source.
+    """
+
+    def __init__(
+        self,
+        domain: AnySpace,
+        codomain: ContinuousSpace,
+        hidden_dim: int = 64,
+    ) -> None:
+        super().__init__(domain, codomain)
+        d = codomain.dim
+        # We use a Normal in (d-1)-dim space and the
+        # StickBreakingTransform to land on the d-simplex.
+        # torch.distributions.LogisticNormal handles this.
+        self.param_source = _make_source(domain, 2 * (d - 1), hidden_dim)
+        self._d = d
+
+    @property
+    def support(self) -> _constraints.Constraint:
+        return _constraints.simplex
+
+    def _get_dist(self, x: torch.Tensor) -> D.LogisticNormal:
+        raw = self.param_source(x)
+        d_minus_1 = self._d - 1
+        loc = raw[..., :d_minus_1]
+        scale = F.softplus(raw[..., d_minus_1:]) + EPS
+        return D.LogisticNormal(loc, scale)
+
+    def log_prob(self, x: torch.Tensor, y: torch.Tensor) -> torch.Tensor:
+        dist = self._get_dist(x)
+        return dist.log_prob(y)
+
+    def rsample(
+        self,
+        x: torch.Tensor,
+        sample_shape: torch.Size = torch.Size(),
+    ) -> torch.Tensor:
+        dist = self._get_dist(x)
+        return dist.rsample(sample_shape)
+
+
+class ConditionalOneHotCategorical(ContinuousMorphism):
+    """Conditional OneHotCategorical(probs(x)).
+
+    Generalises :class:`ConditionalCategorical` to one-hot
+    encoded outputs (vector of zeros with a single one). Useful
+    as a discrete-output observation kernel where downstream
+    code wants a vector rather than an integer index.
+
+    Parameters
+    ----------
+    domain : SetObject or ContinuousSpace
+        Source space.
+    codomain : ContinuousSpace
+        Target space; ``codomain.dim`` is the number of categories.
+    hidden_dim : int
+        Hidden layer width for the parameter source.
+    """
+
+    def __init__(
+        self,
+        domain: AnySpace,
+        codomain: ContinuousSpace,
+        hidden_dim: int = 64,
+    ) -> None:
+        super().__init__(domain, codomain)
+        d = codomain.dim
+        self._d = d
+        self.param_source = _make_source(domain, d, hidden_dim)
+
+    @property
+    def support(self) -> _constraints.Constraint:
+        # torch's OneHotCategorical.support is OneHot(); the
+        # variational guide treats it as a simplex bijector target.
+        return D.OneHotCategorical.support  # type: ignore[return-value]
+
+    def _get_dist(self, x: torch.Tensor) -> D.OneHotCategorical:
+        logits = self.param_source(x)
+        return D.OneHotCategorical(logits=logits)
+
+    def log_prob(self, x: torch.Tensor, y: torch.Tensor) -> torch.Tensor:
+        dist = self._get_dist(x)
+        return dist.log_prob(y.float())
+
+    def rsample(
+        self,
+        x: torch.Tensor,
+        sample_shape: torch.Size = torch.Size(),
+    ) -> torch.Tensor:
+        dist = self._get_dist(x)
+        return dist.sample(sample_shape).float()
+
+
+class ConditionalMixture(ContinuousMorphism):
+    """K-component mixture of a conditional family.
+
+    Wraps a single conditional family class (one of the registered
+    ``ConditionalX`` types) and gives it K independent
+    parameterizations plus learnable mixture logits, producing
+
+        p(y | x) = sum_k pi_k(x) * f_k(y | x)
+
+    where each ``f_k`` is an instance of the component class and
+    ``pi`` is the softmax of ``K`` learnable logits.
+
+    Sampling is via ancestral simulation (Categorical pick + the
+    chosen component's ``rsample``). ``log_prob`` evaluates the
+    log-sum-exp of the per-component log-densities. The Categorical
+    pick is non-reparameterizable; gradient flow through the
+    weights uses the score-function path (which higher-level
+    objectives like IWAE can route through).
+
+    Parameters
+    ----------
+    domain : SetObject or ContinuousSpace
+        Source space.
+    codomain : ContinuousSpace
+        Target space; matches the component family's codomain.
+    component_class : type
+        A ``ConditionalX`` class accepting ``(domain, codomain,
+        hidden_dim)`` constructor args.
+    num_components : int
+        Number of mixture components.
+    hidden_dim : int
+        Hidden width for both the mixture-logit MLP and each
+        component's parameter source.
+    """
+
+    def __init__(
+        self,
+        domain: AnySpace,
+        codomain: ContinuousSpace,
+        component_class: type,
+        num_components: int = 4,
+        hidden_dim: int = 64,
+    ) -> None:
+        if num_components < 2:
+            raise ValueError(
+                f"ConditionalMixture: num_components must be >= 2, got {num_components}"
+            )
+        super().__init__(domain, codomain)
+        self._K = int(num_components)
+        self._components = torch.nn.ModuleList(
+            [component_class(domain, codomain, hidden_dim) for _ in range(self._K)]
+        )
+        self.mixture_logits = _make_source(domain, self._K, hidden_dim)
+
+    @property
+    def support(self):  # type: ignore[override]
+        return self._components[0].support
+
+    def _log_weights(self, x: torch.Tensor) -> torch.Tensor:
+        logits = self.mixture_logits(x)
+        return torch.log_softmax(logits, dim=-1)
+
+    def log_prob(self, x: torch.Tensor, y: torch.Tensor) -> torch.Tensor:
+        log_w = self._log_weights(x)
+        per_comp = torch.stack(
+            [comp.log_prob(x, y) for comp in self._components], dim=-1
+        )
+        return torch.logsumexp(log_w + per_comp, dim=-1)
+
+    def rsample(
+        self,
+        x: torch.Tensor,
+        sample_shape: torch.Size = torch.Size(),
+    ) -> torch.Tensor:
+        log_w = self._log_weights(x)
+        cat = D.Categorical(logits=log_w)
+        comp_idx = cat.sample(sample_shape)  # (*sample_shape, batch)
+        # Draw from every component, then gather along a new K axis.
+        comp_samples = torch.stack(
+            [comp.rsample(x, sample_shape) for comp in self._components],
+            dim=-1,
+        )
+        # ``comp_samples`` has shape ``(*sample_shape, batch, *event,
+        # K)``. Broadcast ``comp_idx`` (shape ``(*sample_shape,
+        # batch)``) to match every event axis with size 1 then 1 on
+        # the K axis, so the final gather picks one element per
+        # batch row.
+        idx = comp_idx
+        for _ in range(comp_samples.dim() - 1 - idx.dim()):
+            idx = idx.unsqueeze(-1)
+        idx = idx.unsqueeze(-1)  # K-axis broadcast dim
+        idx = idx.expand(*comp_samples.shape[:-1], 1)
+        return comp_samples.gather(-1, idx).squeeze(-1)
+
+
+class ConditionalIndependent(ContinuousMorphism):
+    """Reinterpret the trailing batch dimension of a base conditional
+    family as an event dimension.
+
+    Equivalent to wrapping the base distribution in
+    :class:`torch.distributions.Independent` with
+    ``reinterpreted_batch_ndims = 1``. Used to make per-element
+    independence explicit when a downstream guide wants to score
+    a vector-valued observation as a single event.
+
+    Parameters
+    ----------
+    base : ContinuousMorphism
+        The base conditional family. The wrapped distribution sums
+        the base's per-element log-probabilities along the last
+        axis to score a vector-valued observation.
+    """
+
+    def __init__(self, base: ContinuousMorphism) -> None:
+        super().__init__(base.domain, base.codomain)
+        self._base = base
+
+    @property
+    def support(self):  # type: ignore[override]
+        return self._base.support
+
+    def log_prob(self, x: torch.Tensor, y: torch.Tensor) -> torch.Tensor:
+        # The base's log_prob already sums along the last axis for
+        # ``_IndependentConditional``; ``Independent`` adds the
+        # explicit reinterpretation for any base.
+        lp = self._base.log_prob(x, y)
+        if lp.dim() > 1:
+            return lp.sum(dim=-1)
+        return lp
+
+    def rsample(
+        self,
+        x: torch.Tensor,
+        sample_shape: torch.Size = torch.Size(),
+    ) -> torch.Tensor:
+        return self._base.rsample(x, sample_shape)
+
+
+class ConditionalTransformed(ContinuousMorphism):
+    """A base conditional family composed with a chain of bijectors.
+
+    Equivalent to :class:`torch.distributions.TransformedDistribution`
+    lifted to ContinuousMorphism. The ``transforms`` are applied in
+    forward order to ``rsample`` outputs; ``log_prob`` includes the
+    log-determinant Jacobian correction.
+
+    Parameters
+    ----------
+    base : ContinuousMorphism
+        Base conditional family.
+    transforms : list of torch.distributions.Transform
+        Bijectors applied in forward order. Each must implement
+        ``__call__``, ``inv``, and ``log_abs_det_jacobian``.
+    """
+
+    def __init__(
+        self,
+        base: ContinuousMorphism,
+        transforms: list,
+    ) -> None:
+        super().__init__(base.domain, base.codomain)
+        self._base = base
+        self._transforms = list(transforms)
+
+    @property
+    def support(self):  # type: ignore[override]
+        # The composed support is the codomain of the final transform.
+        if self._transforms:
+            return self._transforms[-1].codomain
+        return self._base.support
+
+    def rsample(
+        self,
+        x: torch.Tensor,
+        sample_shape: torch.Size = torch.Size(),
+    ) -> torch.Tensor:
+        z = self._base.rsample(x, sample_shape)
+        for tf in self._transforms:
+            z = tf(z)
+        return z
+
+    def log_prob(self, x: torch.Tensor, y: torch.Tensor) -> torch.Tensor:
+        # Invert the transforms to recover the base sample, then
+        # accumulate the log-det-Jacobian corrections.
+        z = y
+        log_det = torch.zeros(
+            y.shape[:-1] if y.dim() > 1 else (1,),
+            device=y.device,
+            dtype=y.dtype,
+        )
+        for tf in reversed(self._transforms):
+            z_prev = tf.inv(z)
+            ldj = tf.log_abs_det_jacobian(z_prev, z)
+            if ldj.dim() > log_det.dim():
+                ldj = ldj.sum(dim=tuple(range(log_det.dim(), ldj.dim())))
+            log_det = log_det + ldj
+            z = z_prev
+        return self._base.log_prob(x, z) - log_det
+
+
+class ConditionalLKJCholesky(ContinuousMorphism):
+    """Conditional LKJCholesky(dim, concentration(x)).
+
+    Produces lower-triangular Cholesky factors of correlation
+    matrices on the LKJ distribution (Lewandowski-Kurowicka-Joe
+    2009, doi:10.1016/j.jmva.2009.04.008). The matrix dimension
+    is taken from ``codomain.dim``; only the concentration parameter
+    is learnable.
+
+    Parameters
+    ----------
+    domain : SetObject or ContinuousSpace
+        Source space.
+    codomain : ContinuousSpace
+        Target space; ``codomain.dim`` is the correlation-matrix size.
+    hidden_dim : int
+        Hidden layer width for the parameter source.
+    """
+
+    def __init__(
+        self,
+        domain: AnySpace,
+        codomain: ContinuousSpace,
+        hidden_dim: int = 64,
+    ) -> None:
+        super().__init__(domain, codomain)
+        self._matrix_dim = codomain.dim
+        self.param_source = _make_source(domain, 1, hidden_dim)
+
+    @property
+    def support(self) -> _constraints.Constraint:
+        return _constraints.corr_cholesky
+
+    def _get_dist(self, x: torch.Tensor) -> D.LKJCholesky:
+        raw = self.param_source(x)
+        concentration = F.softplus(raw.squeeze(-1)) + 0.1
+        return D.LKJCholesky(dim=self._matrix_dim, concentration=concentration)
+
+    def log_prob(self, x: torch.Tensor, y: torch.Tensor) -> torch.Tensor:
+        dist = self._get_dist(x)
+        return dist.log_prob(y)
+
+    def rsample(
+        self,
+        x: torch.Tensor,
+        sample_shape: torch.Size = torch.Size(),
+    ) -> torch.Tensor:
+        dist = self._get_dist(x)
+        return dist.sample(sample_shape)
+
+
+# ============================================================================
+# Gaussian process: covariance kernel evaluated at input locations
+# ============================================================================
+
+
+class _GPCholeskyError(RuntimeError):
+    """Raised when the jittered GP kernel matrix fails Cholesky.
+
+    The kernel matrix `K + jitter * I` should be positive definite by
+    construction; failure indicates that the chosen length scale,
+    amplitude, or input locations have produced a numerically
+    degenerate covariance (e.g. duplicate locations with near-zero
+    length scale). The error surfaces the diagnostic moments rather
+    than silently inflating the jitter, which would corrupt the
+    log-density without notice.
+    """
+
+
+_GP_KERNEL_CHOICES = ("rbf", "matern52", "linear")
+
+
+def _gp_squared_distance(x: torch.Tensor) -> torch.Tensor:
+    """Pairwise squared Euclidean distance over the last-but-one axis.
+
+    Parameters
+    ----------
+    x : torch.Tensor
+        Tensor of shape ``(..., N, D)``.
+
+    Returns
+    -------
+    torch.Tensor
+        Tensor of shape ``(..., N, N)`` whose ``[i, j]`` entry is
+        ``||x[..., i, :] - x[..., j, :]||^2``.
+    """
+    norms = (x * x).sum(dim=-1, keepdim=True)
+    cross = x @ x.transpose(-1, -2)
+    sq = norms + norms.transpose(-1, -2) - 2.0 * cross
+    return sq.clamp(min=0.0)
+
+
+class ConditionalGaussianProcess(ContinuousMorphism):
+    """Gaussian process prior with mean zero and a chosen covariance kernel.
+
+    A [Gaussian process](https://en.wikipedia.org/wiki/Gaussian_process)
+    is a Markov kernel ``X^N -> G(R^N)`` whose value at a finite set
+    of input locations ``x_1, ..., x_N`` follows a multivariate
+    Normal with covariance matrix ``K(x_i, x_j)``. Unlike the
+    parametric families that derive their distribution parameters
+    from a neural network on the input, the GP's "parameters" are
+    the input locations themselves: the kernel function evaluated
+    on the inputs produces the covariance directly.
+
+    Reference: Rasmussen & Williams (2006),
+    [Gaussian Processes for Machine Learning](http://www.gaussianprocess.org/gpml/).
+
+    Parameters
+    ----------
+    domain : SetObject or ContinuousSpace
+        Source space. Its ``dim`` is the per-location feature
+        dimensionality ``D`` of the inputs.
+    codomain : ContinuousSpace
+        Target space. Its ``dim`` is the number of input locations
+        ``N`` at which the GP is evaluated.
+    kernel : {"rbf", "matern52", "linear"}
+        Covariance kernel. ``"rbf"`` is the squared-exponential
+        kernel; ``"matern52"`` is the Matern kernel with smoothness
+        ``nu = 5/2``; ``"linear"`` is the inner-product kernel.
+    length_scale : float
+        Initial length scale of the kernel (positive; learnable).
+        Ignored by the linear kernel.
+    amplitude : float
+        Initial amplitude (positive; learnable). Multiplies the
+        kernel by ``amplitude^2``.
+    jitter : float
+        Diagonal regulariser added to ``K`` for numerical
+        positive-definiteness of the Cholesky factorisation.
+    """
+
+    def __init__(
+        self,
+        domain: AnySpace,
+        codomain: ContinuousSpace,
+        kernel: str = "rbf",
+        length_scale: float = 1.0,
+        amplitude: float = 1.0,
+        jitter: float = 1e-6,
+    ) -> None:
+        super().__init__(domain, codomain)
+        if kernel not in _GP_KERNEL_CHOICES:
+            raise ValueError(
+                f"ConditionalGaussianProcess: unknown kernel {kernel!r}; "
+                f"valid choices: {_GP_KERNEL_CHOICES}"
+            )
+        if length_scale <= 0.0:
+            raise ValueError(
+                f"ConditionalGaussianProcess: length_scale must be > 0, got {length_scale!r}"
+            )
+        if amplitude <= 0.0:
+            raise ValueError(
+                f"ConditionalGaussianProcess: amplitude must be > 0, got {amplitude!r}"
+            )
+        self._kernel = kernel
+        self._jitter = jitter
+        self._n = codomain.dim
+        self._d = getattr(domain, "dim", None)
+        # Store raw (pre-softplus) parameters so the transformed value
+        # is strictly positive and the optimiser sees unconstrained
+        # variables.
+        inv_softplus_ls = math.log(math.expm1(length_scale))
+        inv_softplus_amp = math.log(math.expm1(amplitude))
+        self._raw_length_scale = torch.nn.Parameter(
+            torch.tensor(inv_softplus_ls, dtype=torch.get_default_dtype())
+        )
+        self._raw_amplitude = torch.nn.Parameter(
+            torch.tensor(inv_softplus_amp, dtype=torch.get_default_dtype())
+        )
+
+    @property
+    def length_scale(self) -> torch.Tensor:
+        """Current (positive) length scale of the kernel."""
+        return F.softplus(self._raw_length_scale) + EPS
+
+    @property
+    def amplitude(self) -> torch.Tensor:
+        """Current (positive) amplitude of the kernel."""
+        return F.softplus(self._raw_amplitude) + EPS
+
+    def _kernel_matrix(self, x: torch.Tensor) -> torch.Tensor:
+        """Compute the kernel matrix ``K(x, x)`` of shape ``(..., N, N)``."""
+        amp2 = self.amplitude * self.amplitude
+        if self._kernel == "linear":
+            inner = x @ x.transpose(-1, -2)
+            return amp2 * inner
+        ls = self.length_scale
+        sq = _gp_squared_distance(x)
+        if self._kernel == "rbf":
+            return amp2 * torch.exp(-0.5 * sq / (ls * ls))
+        # matern52
+        r = torch.sqrt(sq + EPS)
+        sqrt5_r_over_l = math.sqrt(5.0) * r / ls
+        poly = 1.0 + sqrt5_r_over_l + (5.0 / 3.0) * sq / (ls * ls)
+        return amp2 * poly * torch.exp(-sqrt5_r_over_l)
+
+    def _jittered_cholesky(self, x: torch.Tensor) -> torch.Tensor:
+        K = self._kernel_matrix(x)
+        n = K.shape[-1]
+        eye = torch.eye(n, dtype=K.dtype, device=K.device)
+        K_j = K + self._jitter * eye
+        try:
+            return torch.linalg.cholesky(K_j)
+        except RuntimeError as exc:
+            diag_min = K_j.diagonal(dim1=-2, dim2=-1).min().item()
+            diag_max = K_j.diagonal(dim1=-2, dim2=-1).max().item()
+            raise _GPCholeskyError(
+                "ConditionalGaussianProcess: Cholesky failed on the "
+                f"jittered kernel matrix (kernel={self._kernel!r}, "
+                f"length_scale={self.length_scale.item():.6g}, "
+                f"amplitude={self.amplitude.item():.6g}, "
+                f"jitter={self._jitter:.3g}, N={n}, "
+                f"diag(K_j) in [{diag_min:.3g}, {diag_max:.3g}]). "
+                "Check for duplicate input locations or an excessively "
+                "small length scale."
+            ) from exc
+
+    def _validate_input_shape(self, x: torch.Tensor) -> torch.Tensor:
+        """Reshape ``x`` to ``(..., N, D)`` and validate dims."""
+        if x.dim() < 2:
+            raise ValueError(
+                "ConditionalGaussianProcess: input must have shape "
+                f"(..., N, D) with N={self._n}; got tensor of shape {tuple(x.shape)}"
+            )
+        if x.shape[-2] != self._n:
+            raise ValueError(
+                "ConditionalGaussianProcess: input location count "
+                f"x.shape[-2] = {x.shape[-2]} does not match codomain dim "
+                f"N = {self._n}"
+            )
+        return x
+
+    def log_prob(self, x: torch.Tensor, y: torch.Tensor) -> torch.Tensor:
+        x = self._validate_input_shape(x)
+        L = self._jittered_cholesky(x)
+        loc = torch.zeros(x.shape[:-1], dtype=x.dtype, device=x.device)
+        mvn = D.MultivariateNormal(loc, scale_tril=L)
+        return mvn.log_prob(y)
+
+    def rsample(
+        self,
+        x: torch.Tensor,
+        sample_shape: torch.Size = torch.Size(),
+    ) -> torch.Tensor:
+        x = self._validate_input_shape(x)
+        L = self._jittered_cholesky(x)
+        loc = torch.zeros(x.shape[:-1], dtype=x.dtype, device=x.device)
+        mvn = D.MultivariateNormal(loc, scale_tril=L)
+        return mvn.rsample(sample_shape)
+
+
+# ============================================================================
+# Horseshoe: global-local shrinkage prior with numerical marginal density
+# ============================================================================
+
+
+def _gauss_legendre_16(
+    device: torch.device, dtype: torch.dtype
+) -> tuple[torch.Tensor, torch.Tensor]:
+    """16-point Gauss-Legendre nodes and weights on ``[0, 1]``.
+
+    Standard nodes / weights on ``[-1, 1]`` (from Abramowitz & Stegun,
+    table 25.4) are mapped to ``[0, 1]`` via ``t = (1 + xi) / 2`` with
+    weights scaled by ``1/2``.
+    """
+    nodes_pm1 = (
+        -0.9894009349916499,
+        -0.9445750230732326,
+        -0.8656312023878318,
+        -0.7554044083550030,
+        -0.6178762444026438,
+        -0.4580167776572274,
+        -0.2816035507792589,
+        -0.0950125098376374,
+        0.0950125098376374,
+        0.2816035507792589,
+        0.4580167776572274,
+        0.6178762444026438,
+        0.7554044083550030,
+        0.8656312023878318,
+        0.9445750230732326,
+        0.9894009349916499,
+    )
+    weights_pm1 = (
+        0.0271524594117541,
+        0.0622535239386479,
+        0.0951585116824928,
+        0.1246289712555339,
+        0.1495959888165767,
+        0.1691565193950025,
+        0.1826034150449236,
+        0.1894506104550685,
+        0.1894506104550685,
+        0.1826034150449236,
+        0.1691565193950025,
+        0.1495959888165767,
+        0.1246289712555339,
+        0.0951585116824928,
+        0.0622535239386479,
+        0.0271524594117541,
+    )
+    nodes = torch.tensor(
+        [(1.0 + n) * 0.5 for n in nodes_pm1], device=device, dtype=dtype
+    )
+    weights = torch.tensor([w * 0.5 for w in weights_pm1], device=device, dtype=dtype)
+    return nodes, weights
+
+
+class ConditionalHorseshoe(ContinuousMorphism):
+    """Carvalho-Polson-Scott horseshoe prior.
+
+    The [horseshoe prior](https://doi.org/10.1093/biomet/asq017) places
+    a global-local shrinkage structure on each coordinate:
+
+    .. code-block:: text
+
+       tau ~ HalfCauchy(scale)
+       lambda_d ~ HalfCauchy(1)            for d = 1, ..., D
+       beta_d | tau, lambda_d ~ Normal(0, (tau * lambda_d)^2)
+
+    The marginal density of ``beta_d`` after integrating the local
+    scale ``lambda_d`` has no closed form; this implementation uses a
+    16-point Gauss-Legendre quadrature after mapping the half-line
+    ``lambda in (0, inf)`` to ``t in (0, 1)`` via the change of
+    variables ``lambda = tan(pi * t / 2)``, whose Jacobian is
+    ``(pi / 2) * sec^2(pi * t / 2)``.
+
+    Reference: Carvalho, Polson & Scott (2010),
+    [The horseshoe estimator for sparse signals](https://doi.org/10.1093/biomet/asq017).
+
+    Parameters
+    ----------
+    domain : SetObject or ContinuousSpace
+        Source space. The prior is conditionally independent of ``x``;
+        ``x`` only carries the batch shape.
+    codomain : ContinuousSpace
+        Target space. Its ``dim`` is the coordinate count ``D``.
+    scale : float
+        Initial global shrinkage ``tau`` (positive; learnable).
+    """
+
+    def __init__(
+        self,
+        domain: AnySpace,
+        codomain: ContinuousSpace,
+        scale: float = 1.0,
+    ) -> None:
+        super().__init__(domain, codomain)
+        if scale <= 0.0:
+            raise ValueError(f"ConditionalHorseshoe: scale must be > 0, got {scale!r}")
+        self._d = codomain.dim
+        inv_softplus_scale = math.log(math.expm1(scale))
+        self._raw_scale = torch.nn.Parameter(
+            torch.tensor(inv_softplus_scale, dtype=torch.get_default_dtype())
+        )
+
+    @property
+    def scale(self) -> torch.Tensor:
+        """Current (positive) global shrinkage ``tau``."""
+        return F.softplus(self._raw_scale) + EPS
+
+    def _batch_shape(self, x: torch.Tensor) -> torch.Size:
+        """Infer the batch shape from ``x``: discrete domains have
+        ``x.shape`` directly, continuous domains drop the trailing
+        feature dim."""
+        if x.dtype in (torch.long, torch.int, torch.int32, torch.int64):
+            return x.shape
+        if x.dim() == 0:
+            return torch.Size(())
+        return x.shape[:-1]
+
+    def rsample(
+        self,
+        x: torch.Tensor,
+        sample_shape: torch.Size = torch.Size(),
+    ) -> torch.Tensor:
+        batch = self._batch_shape(x)
+        shape = torch.Size(sample_shape) + batch + (self._d,)
+        tau = self.scale
+        half_cauchy_local = D.HalfCauchy(
+            torch.ones((), dtype=tau.dtype, device=tau.device)
+        )
+        lam = half_cauchy_local.rsample(shape)
+        z = torch.randn(shape, dtype=tau.dtype, device=tau.device)
+        return tau * lam * z
+
+    def log_prob(self, x: torch.Tensor, y: torch.Tensor) -> torch.Tensor:
+        tau = self.scale
+        device = y.device
+        dtype = y.dtype
+        t_nodes, t_weights = _gauss_legendre_16(device, dtype)
+        # Change of variables: lambda = tan(pi * t / 2), dlambda/dt
+        # = (pi / 2) * sec^2(pi * t / 2). Integrand:
+        #   p(beta) = int_0^inf Normal(beta; 0, (tau * lambda)^2)
+        #             * HalfCauchy(lambda; 0, 1) dlambda
+        pi = math.pi
+        half_pi_t = 0.5 * pi * t_nodes
+        lam = torch.tan(half_pi_t)
+        sec2 = 1.0 / (torch.cos(half_pi_t) ** 2)
+        jacobian = 0.5 * pi * sec2
+        # Half-Cauchy(0, 1) density on lambda: 2 / (pi * (1 + lambda^2)).
+        log_hc = math.log(2.0 / pi) - torch.log1p(lam * lam)
+        # Broadcast: y has shape (..., D); we need per-coordinate
+        # log-density. Add a quadrature axis at position 0.
+        y_expanded = y.unsqueeze(-1)  # (..., D, 1)
+        sigma = tau * lam  # (Q,)
+        # Normal log-density: -0.5 * log(2*pi) - log(sigma) - 0.5 * (y/sigma)^2
+        log_norm = (
+            -0.5 * math.log(2.0 * pi)
+            - torch.log(sigma)
+            - 0.5 * (y_expanded / sigma) ** 2
+        )  # (..., D, Q)
+        log_integrand = log_norm + log_hc + torch.log(jacobian)
+        # Sum (in log-space) weighted by quadrature weights.
+        log_weights = torch.log(t_weights)
+        log_p_per_coord = torch.logsumexp(
+            log_integrand + log_weights, dim=-1
+        )  # (..., D)
+        return log_p_per_coord.sum(dim=-1)
+
+
 # ============================================================================
 # optional: generalized Pareto (requires recent torch)
 # ============================================================================
@@ -1386,3 +2456,546 @@ try:
 
 except AttributeError:
     _HAS_GPD = False
+
+
+# ============================================================================
+# FamilySpec registrations for hand-written classes
+# ============================================================================
+#
+# The factory-generated families (Cauchy, Laplace, ..., VonMises) are
+# registered inside :func:`_make_family`. The hand-written specials
+# below (Normal, LogitNormal, Beta, TruncatedNormal, Dirichlet, Uniform,
+# MultivariateNormal, LowRankMVN, RelaxedBernoulli,
+# RelaxedOneHotCategorical, Wishart, Bernoulli, Categorical) require
+# explicit registration. Each :class:`FamilySpec` records the same
+# canonical info the factory-generated ones do; the
+# ``conditional_class_override`` field carries the hand-written class
+# so the unified catalog can build a ConditionalX from any DSL name.
+
+
+_register_family(
+    FamilySpec(
+        name="Normal",
+        dist_class=D.Normal,
+        params=(
+            ParamSpec(name="loc", transform="id"),
+            ParamSpec(name="scale", transform="softplus"),
+        ),
+        support=_constraints.real,
+        output_kind="independent",
+        docstring="Conditional Normal(loc(x), scale(x)).",
+        conditional_class_override=ConditionalNormal,
+    )
+)
+
+_register_family(
+    FamilySpec(
+        name="LogitNormal",
+        dist_class=D.TransformedDistribution,
+        params=(
+            ParamSpec(name="mu", transform="id"),
+            ParamSpec(name="sigma", transform="softplus"),
+        ),
+        support=_constraints.unit_interval,
+        output_kind="independent",
+        docstring="LogitNormal(mu(x), sigma(x)) — Normal pushed through sigmoid.",
+        conditional_class_override=ConditionalLogitNormal,
+    )
+)
+
+_register_family(
+    FamilySpec(
+        name="Beta",
+        dist_class=D.Beta,
+        params=(
+            ParamSpec(name="concentration1", transform="softplus_shifted"),
+            ParamSpec(name="concentration0", transform="softplus_shifted"),
+        ),
+        support=_constraints.unit_interval,
+        output_kind="independent",
+        docstring="Conditional Beta(alpha(x), beta(x)) on (0, 1).",
+        conditional_class_override=ConditionalBeta,
+    )
+)
+
+_register_family(
+    FamilySpec(
+        name="TruncatedNormal",
+        dist_class=D.Normal,  # surrogate; inline path handles truncation
+        params=(
+            ParamSpec(name="mu", transform="id"),
+            ParamSpec(name="sigma", transform="softplus"),
+        ),
+        support=_constraints.real,  # interval set per-call when bounds are literal
+        output_kind="independent",
+        docstring="TruncatedNormal(mu(x), sigma(x), low, high) — Normal truncated to [low, high].",
+        conditional_class_override=ConditionalTruncatedNormal,
+    )
+)
+
+_register_family(
+    FamilySpec(
+        name="Dirichlet",
+        dist_class=D.Dirichlet,
+        params=(
+            ParamSpec(
+                name="concentration", transform="softplus_shifted", kind="vector"
+            ),
+        ),
+        support=_constraints.simplex,
+        output_kind="vector",
+        docstring="Conditional Dirichlet(alpha(x)) on the simplex.",
+        conditional_class_override=ConditionalDirichlet,
+    )
+)
+
+_register_family(
+    FamilySpec(
+        name="Uniform",
+        dist_class=D.Uniform,
+        params=(
+            ParamSpec(name="low", transform="id"),
+            ParamSpec(name="high", transform="id"),
+        ),
+        support=_constraints.real,  # interval set per-call when bounds are literal
+        output_kind="independent",
+        docstring="Conditional Uniform(low(x), high(x)).",
+        conditional_class_override=ConditionalUniform,
+    )
+)
+
+_register_family(
+    FamilySpec(
+        name="MultivariateNormal",
+        dist_class=D.MultivariateNormal,
+        params=(
+            ParamSpec(name="loc", transform="id"),
+            ParamSpec(name="scale_tril", transform="id"),
+        ),
+        support=_constraints.real_vector,
+        output_kind="mvn",
+        docstring="Conditional MultivariateNormal(loc(x), scale_tril(x)).",
+        conditional_class_override=ConditionalMultivariateNormal,
+    )
+)
+
+_register_family(
+    FamilySpec(
+        name="LowRankMVN",
+        dist_class=D.LowRankMultivariateNormal,
+        params=(
+            ParamSpec(name="loc", transform="id"),
+            ParamSpec(name="cov_factor", transform="id"),
+            ParamSpec(name="cov_diag", transform="softplus"),
+        ),
+        support=_constraints.real_vector,
+        output_kind="mvn",
+        docstring="Conditional LowRankMVN(loc(x), W(x), D(x)) — Σ = W W^T + diag(D).",
+        conditional_class_override=ConditionalLowRankMVN,
+    )
+)
+
+_register_family(
+    FamilySpec(
+        name="RelaxedBernoulli",
+        dist_class=D.RelaxedBernoulli,
+        params=(
+            ParamSpec(name="temperature", transform="softplus"),
+            ParamSpec(name="logits", transform="id"),
+        ),
+        support=_constraints.unit_interval,
+        output_kind="independent",
+        docstring="RelaxedBernoulli(temperature, logits(x)) — Gumbel-softmax / continuous Bernoulli.",
+        conditional_class_override=ConditionalRelaxedBernoulli,
+    )
+)
+
+_register_family(
+    FamilySpec(
+        name="RelaxedOneHotCategorical",
+        dist_class=D.RelaxedOneHotCategorical,
+        params=(
+            ParamSpec(name="temperature", transform="softplus"),
+            ParamSpec(name="logits", transform="id", kind="vector"),
+        ),
+        support=_constraints.simplex,
+        output_kind="vector",
+        docstring="RelaxedOneHotCategorical(temperature, logits(x)) — Gumbel-softmax on the simplex.",
+        conditional_class_override=ConditionalRelaxedOneHotCategorical,
+    )
+)
+
+_register_family(
+    FamilySpec(
+        name="Wishart",
+        dist_class=D.Wishart,
+        params=(
+            ParamSpec(name="df", transform="softplus_shifted"),
+            ParamSpec(name="scale_tril", transform="id"),
+        ),
+        support=_constraints.positive_definite,
+        output_kind="matrix",
+        docstring="Conditional Wishart(df(x), scale_tril(x)) — positive-definite matrices.",
+        conditional_class_override=ConditionalWishart,
+    )
+)
+
+_register_family(
+    FamilySpec(
+        name="Bernoulli",
+        dist_class=D.Bernoulli,
+        params=(ParamSpec(name="probs", transform="sigmoid"),),
+        support=_constraints.boolean,
+        discrete=True,
+        output_kind="categorical",
+        docstring="Conditional Bernoulli(probs(x)).",
+        conditional_class_override=ConditionalBernoulli,
+    )
+)
+
+_register_family(
+    FamilySpec(
+        name="Categorical",
+        dist_class=D.Categorical,
+        params=(ParamSpec(name="logits", transform="id", kind="vector"),),
+        support=_constraints.nonnegative_integer,
+        discrete=True,
+        output_kind="categorical",
+        docstring="Conditional Categorical(logits(x)) over {0, ..., k-1}.",
+        conditional_class_override=ConditionalCategorical,
+    )
+)
+
+_register_family(
+    FamilySpec(
+        name="Binomial",
+        dist_class=D.Binomial,
+        params=(ParamSpec(name="probs", transform="sigmoid"),),
+        support=_constraints.nonnegative_integer,
+        discrete=True,
+        output_kind="categorical",
+        docstring="Conditional Binomial(n=total_count, probs(x)) with fixed total_count.",
+        conditional_class_override=ConditionalBinomial,
+    )
+)
+
+
+_register_family(
+    FamilySpec(
+        name="LogisticNormal",
+        dist_class=D.LogisticNormal,
+        params=(
+            ParamSpec(name="loc", transform="id"),
+            ParamSpec(name="scale", transform="softplus"),
+        ),
+        support=_constraints.simplex,
+        output_kind="vector",
+        docstring="Conditional LogisticNormal(loc(x), scale(x)) on the simplex.",
+        conditional_class_override=ConditionalLogisticNormal,
+    )
+)
+
+
+_register_family(
+    FamilySpec(
+        name="OneHotCategorical",
+        dist_class=D.OneHotCategorical,
+        params=(ParamSpec(name="logits", transform="id", kind="vector"),),
+        support=D.OneHotCategorical.support,
+        discrete=False,  # vector output, not integer-scalar
+        output_kind="vector",
+        docstring="Conditional OneHotCategorical(logits(x)) — one-hot vector output.",
+        conditional_class_override=ConditionalOneHotCategorical,
+    )
+)
+
+
+_register_family(
+    FamilySpec(
+        name="LKJCholesky",
+        dist_class=D.LKJCholesky,
+        params=(ParamSpec(name="concentration", transform="softplus_shifted"),),
+        support=_constraints.corr_cholesky,
+        output_kind="matrix",
+        docstring="Conditional LKJCholesky(matrix_dim, concentration(x)) for correlation Cholesky factors.",
+        conditional_class_override=ConditionalLKJCholesky,
+    )
+)
+
+
+_register_family(
+    FamilySpec(
+        name="GP",
+        dist_class=D.MultivariateNormal,
+        params=(
+            ParamSpec(name="length_scale", transform="softplus"),
+            ParamSpec(name="amplitude", transform="softplus"),
+        ),
+        support=_constraints.real_vector,
+        output_kind="mvn",
+        docstring="Gaussian process prior with covariance kernel evaluated at the inputs.",
+        conditional_class_override=ConditionalGaussianProcess,
+    )
+)
+
+
+_register_family(
+    FamilySpec(
+        name="Horseshoe",
+        dist_class=D.Normal,  # surrogate; the marginal is numerical
+        params=(ParamSpec(name="scale", transform="softplus"),),
+        support=_constraints.real,
+        output_kind="vector",
+        docstring="Carvalho-Polson-Scott horseshoe prior with numerical marginal density.",
+        conditional_class_override=ConditionalHorseshoe,
+    )
+)
+
+
+if _HAS_GPD:
+    _register_family(
+        FamilySpec(
+            name="GeneralizedPareto",
+            dist_class=_GPD,  # type: ignore[name-defined]
+            params=(
+                ParamSpec(name="loc", transform="id"),
+                ParamSpec(name="scale", transform="softplus"),
+                ParamSpec(name="concentration", transform="id"),
+            ),
+            support=_constraints.real,
+            output_kind="independent",
+            docstring="Conditional GeneralizedPareto(loc(x), scale(x), concentration(x)).",
+            conditional_class_override=ConditionalGeneralizedPareto,  # type: ignore[name-defined]
+        )
+    )
+# ---------------------------------------------------------------------------
+# LKJ correlation prior on Cholesky factors
+# ---------------------------------------------------------------------------
+
+
+class LKJCorrelationFactor(ContinuousMorphism):
+    """LKJ prior on Cholesky factors ``LKJ(K, η)`` over CholeskyFactor(K).
+
+    Density on the Cholesky factor:
+
+    .. math::
+
+        p(L) \\propto \\prod_{k=2}^{K} L_{kk}^{K - k + 2(\\eta - 1)}.
+
+    A higher concentration :math:`\\eta > 1` pulls toward the
+    identity correlation; :math:`\\eta = 1` is uniform on
+    correlations. Sampling uses the *onion method* of
+    Lewandowski-Kurowicka-Joe 2009: draw row-norm partial
+    correlations from Beta distributions and form :math:`L`
+    row-by-row.
+
+    Parameters
+    ----------
+    dim : int
+        Correlation-matrix size :math:`K \\ge 2`.
+    eta : float
+        Concentration :math:`\\eta > 0`.
+    domain : AnySpace
+        The morphism's source (parameter conditioning); typically
+        the program's input space. The LKJ prior itself does not
+        consume per-observation conditioning, so the rsample path
+        broadcasts the prior across the batch dimension.
+    """
+
+    def __init__(self, dim: int, eta: float, domain: AnySpace) -> None:
+        if dim < 2:
+            raise ValueError(f"LKJ requires dim >= 2; got {dim}")
+        if eta <= 0:
+            raise ValueError(f"LKJ requires eta > 0; got {eta}")
+        codomain = CholeskyFactor(name=f"L({dim})", dim=dim)
+        super().__init__(domain, codomain)
+        self._dim = dim
+        self._eta = float(eta)
+
+    def rsample(
+        self, x: torch.Tensor, sample_shape: torch.Size = torch.Size()
+    ) -> torch.Tensor:
+        del sample_shape
+        """Onion-method sample from the LKJ Cholesky prior.
+
+        Following Stan's reference implementation: for each row
+        :math:`i = 1 \\ldots K-1` of :math:`L` (1-indexed),
+        sample a vector :math:`y` on the unit sphere and a beta-
+        distributed radius :math:`r_i \\sim \\mathrm{Beta}(i/2,
+        \\eta + (K - i - 1)/2)` (when :math:`\\eta = 1` this reduces
+        to the uniform-on-correlations LKJ-1 case).
+        """
+        batch = x.shape[0]
+        K = self._dim
+        eta = self._eta
+        L = torch.zeros(batch, K, K, device=x.device, dtype=x.dtype)
+        L[:, 0, 0] = 1.0
+        for i in range(1, K):
+            # Beta parameters for row i (Stan's onion method).
+            alpha = eta + (K - 1 - i) / 2.0
+            beta = i / 2.0
+            r2 = torch.distributions.Beta(
+                torch.full((batch,), alpha, device=x.device, dtype=x.dtype),
+                torch.full((batch,), beta, device=x.device, dtype=x.dtype),
+            ).rsample()
+            # Sample a vector uniformly on the unit (i)-sphere.
+            u = torch.randn(batch, i, device=x.device, dtype=x.dtype)
+            u = u / torch.linalg.vector_norm(u, dim=-1, keepdim=True)
+            # row i has off-diagonal entries r * u, diagonal sqrt(1 - r^2).
+            L[:, i, :i] = torch.sqrt(r2).unsqueeze(-1) * u
+            L[:, i, i] = torch.sqrt(1.0 - r2)
+        return L.reshape(batch, K * K)
+
+    def log_prob(self, x: torch.Tensor, y: torch.Tensor) -> torch.Tensor:
+        """Log-density of the LKJ prior at the Cholesky factor ``y``.
+
+        Up to a normalizing constant that doesn't depend on
+        :math:`L`, :math:`\\log p(L) = \\sum_{k=2}^{K} (K-k+2(\\eta-1))
+        \\log L_{kk}`. The diagonal entries are extracted from the
+        flattened representation.
+        """
+        batch = y.shape[0]
+        K = self._dim
+        L = y.reshape(batch, K, K)
+        diag = torch.diagonal(L, dim1=-2, dim2=-1)  # (batch, K)
+        # Coefficients per diagonal entry (Stan's lkj_corr_cholesky_lpdf):
+        # log_jac_term[k] = (K - k + 2*(eta - 1)) * log(L_kk)  for k = 2..K
+        # Pre-K-indexed: power[0..K-1] where power[k] = (K-1-k) + 2*(eta-1).
+        # The first diagonal is fixed at 1 so log(1)=0 contributes nothing.
+        ks = torch.arange(K, device=y.device, dtype=y.dtype)
+        powers = (K - 1 - ks) + 2.0 * (self._eta - 1.0)
+        log_diag = torch.log(diag.clamp(min=1e-30))
+        return (powers * log_diag).sum(dim=-1)
+
+    def __repr__(self) -> str:
+        return f"LKJCorrelationFactor(dim={self._dim}, eta={self._eta})"
+
+
+# ---------------------------------------------------------------------------
+# Generic truncation combinator
+# ---------------------------------------------------------------------------
+
+
+class Truncated(ContinuousMorphism):
+    """Truncate a base family to an interval :math:`[a, b]`.
+
+    Categorical denotation: given a base family
+    :math:`F : \\Theta \\to \\mathcal{G}(\\mathbb{R})` and constants
+    :math:`a, b \\in \\bar{\\mathbb{R}}` with :math:`a < b`, the
+    truncated family has density
+
+    .. math::
+
+        p_{F_{|[a,b]}}(x) = \\frac{p_F(x)}{F_{\\text{cdf}}(b)
+        - F_{\\text{cdf}}(a)} \\cdot \\mathbb{1}_{[a,b]}(x)
+
+    and the morphism :math:`F_{|[a,b]} : \\Theta \\to
+    \\mathcal{G}([a,b])`. Sampling uses inverse-CDF when
+    :attr:`base` supports it; otherwise rejection sampling.
+
+    Parameters
+    ----------
+    base : ContinuousMorphism
+        The base distribution-family morphism. Must expose
+        ``log_prob`` and ``rsample`` plus an ``icdf`` method or a
+        ``base_distribution`` torch ``Distribution`` for inverse-CDF
+        sampling. Falls back to rejection sampling otherwise.
+    lower : float or None
+        Lower bound :math:`a`. ``None`` means :math:`-\\infty`.
+    upper : float or None
+        Upper bound :math:`b`. ``None`` means :math:`+\\infty`.
+    max_rejection_iterations : int
+        Cap on rejection-sampling attempts before raising.
+    """
+
+    def __init__(
+        self,
+        base: ContinuousMorphism,
+        lower: float | None = None,
+        upper: float | None = None,
+        max_rejection_iterations: int = 64,
+    ) -> None:
+        super().__init__(base.domain, base.codomain)
+        if lower is None and upper is None:
+            raise ValueError(
+                "Truncated requires at least one of lower / upper to be finite; "
+                "without truncation, use the base family directly"
+            )
+        if lower is not None and upper is not None and not (lower < upper):
+            raise ValueError(
+                f"Truncated requires lower < upper; got lower={lower}, upper={upper}"
+            )
+        self._base = base
+        self._lower = lower
+        self._upper = upper
+        self._max_iters = max_rejection_iterations
+        # Attach so the parent nn.Module tracks parameters.
+        self._base_mod = base
+
+    def _interval_logmass(self, x: torch.Tensor) -> torch.Tensor:
+        """Approximate :math:`\\log(F(b) - F(a))` via Monte-Carlo on the base.
+
+        For families with analytic CDFs (Normal, etc.) we could use
+        a closed form, but a general primitive operating across
+        every family in the registry uses 256 base samples to
+        estimate the truncation mass. This keeps the combinator
+        usable on every family without per-family special-casing.
+        """
+        with torch.no_grad():
+            samples = self._base.rsample(x.repeat(256, *([1] * (x.ndim - 1))))
+            mask = torch.ones_like(samples)
+            if self._lower is not None:
+                mask = mask * (samples >= self._lower).float()
+            if self._upper is not None:
+                mask = mask * (samples <= self._upper).float()
+            in_interval = mask.reshape(256, x.shape[0], -1).mean(dim=0)
+        return torch.log(in_interval.clamp(min=1e-30)).squeeze(-1)
+
+    def rsample(
+        self, x: torch.Tensor, sample_shape: torch.Size = torch.Size()
+    ) -> torch.Tensor:
+        del sample_shape
+        """Rejection-sample from the base until every entry is in :math:`[a,b]`."""
+        batch = x.shape[0]
+        out = self._base.rsample(x)
+        mask = self._in_bounds(out)
+        for _ in range(self._max_iters):
+            if mask.all():
+                return out
+            replacement = self._base.rsample(x)
+            out = torch.where(
+                mask.reshape(batch, *([1] * (out.ndim - 1))).expand_as(out),
+                out,
+                replacement,
+            )
+            mask = self._in_bounds(out)
+        if not mask.all():
+            raise RuntimeError(
+                f"Truncated rejection sampling failed to fill the batch in "
+                f"{self._max_iters} iterations; the truncation mass is "
+                "vanishingly small for the supplied parameters"
+            )
+        return out
+
+    def _in_bounds(self, x: torch.Tensor) -> torch.Tensor:
+        m = torch.ones(x.shape[:1], device=x.device, dtype=torch.bool)
+        if self._lower is not None:
+            m = m & (x.reshape(x.shape[0], -1) >= self._lower).all(dim=-1)
+        if self._upper is not None:
+            m = m & (x.reshape(x.shape[0], -1) <= self._upper).all(dim=-1)
+        return m
+
+    def log_prob(self, x: torch.Tensor, y: torch.Tensor) -> torch.Tensor:
+        base_lp = self._base.log_prob(x, y)
+        # Hard-zero outside the interval.
+        in_bounds = self._in_bounds(y)
+        truncation_lp = self._interval_logmass(x)
+        adjusted = base_lp - truncation_lp
+        return torch.where(
+            in_bounds,
+            adjusted,
+            torch.full_like(adjusted, float("-inf")),
+        )
+
+    def __repr__(self) -> str:
+        return f"Truncated({self._base!r}, lower={self._lower}, upper={self._upper})"

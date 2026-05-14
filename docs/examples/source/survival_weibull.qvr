@@ -1,0 +1,41 @@
+# ================================================================
+# Weibull Parametric Survival Regression
+# ================================================================
+#
+# A parametric accelerated-failure-time / proportional-hazards
+# survival model with a Weibull baseline ([Klein and Moeschberger
+# 2003](https://doi.org/10.1007/b97377)). Each item carries a
+# covariate `x_i` whose linear contribution scales the Weibull
+# rate; the shape parameter k governs whether the hazard is
+# decreasing (k < 1), constant (k = 1, exponential), or
+# increasing (k > 1):
+#
+#   alpha, beta ~ Normal(0, 5)
+#   k           ~ Gamma(2, 1)              shape
+#   eta_i       = alpha + beta * x_i
+#   scale_i     = exp(-eta_i / k)          Weibull scale
+#   t_i         ~ Weibull(scale_i, k)
+#
+# The reparameterisation `scale_i = exp(-eta_i / k)` is the
+# Weibull proportional-hazards convention so that increasing
+# `eta_i` increases the hazard (shorter survival times) in the
+# canonical direction. The model produces uncensored event times
+# `t_i`; right-censoring is handled at the inference layer by
+# substituting the Weibull survival function for the density on
+# the censored rows.
+
+object Item : 200
+
+program survival_weibull : Item -> Item
+    alpha <- Normal(0.0, 5.0)
+    beta <- Normal(0.0, 5.0)
+    k <- Gamma(2.0, 1.0)
+
+    x : Item <- Normal(0.0, 1.0)
+    let eta = alpha + beta * x
+    let scale = exp(-eta / k)
+
+    observe t : Item <- Weibull(scale, k)
+    return beta
+
+export survival_weibull

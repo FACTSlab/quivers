@@ -20,7 +20,7 @@ Quick start::
     output = program()           # tensor of shape (3, 2)
 """
 
-__version__ = "0.4.1"
+__version__ = "0.5.0"
 
 from quivers.core.objects import (
     SetObject,
@@ -131,13 +131,41 @@ from quivers.enriched.weighted_limits import (
     representable_weight,
     terminal_weight,
 )
-from quivers.core.extra_quantales import (
+from quivers.core.quantales import (
     LukasiewiczQuantale,
     GodelQuantale,
     TropicalQuantale,
+    MaxPlusQuantale,
+    LogProbQuantale,
+    RealQuantale,
+    ProbabilityQuantale,
+    CountingQuantale,
     LUKASIEWICZ,
     GODEL,
     TROPICAL,
+    MAX_PLUS,
+    LOG_PROB,
+    REAL,
+    PROBABILITY,
+    COUNTING,
+)
+from quivers.core.quantale_morphisms import (
+    QuantaleHomomorphism,
+    IdentityHom,
+    Embedding,
+    Expectation,
+    LogProb as LogProbHom,
+    MaxPlus as MaxPlusHom,
+    Threshold,
+    MaterialImplication,
+    EXPECTATION,
+    LOG_PROB as LOG_PROB_HOM,
+    MAX_PLUS as MAX_PLUS_HOM,
+    MATERIAL_IMPLICATION,
+    threshold,
+    embedding,
+    HOMOMORPHISM_REGISTRY,
+    lookup_homomorphism,
 )
 from quivers.enriched.yoneda import (
     Presheaf,
@@ -245,6 +273,11 @@ from quivers.continuous import (
     ConditionalRelaxedOneHotCategorical,
     # families — matrix-valued
     ConditionalWishart,
+    ConditionalInverseWishart,
+    ConditionalMatrixNormal,
+    # families: non-parametric and shrinkage
+    ConditionalGaussianProcess,
+    ConditionalHorseshoe,
     # families — discrete-valued
     ConditionalBernoulli,
     ConditionalCategorical,
@@ -289,6 +322,32 @@ __all__ = [
     "LUKASIEWICZ",
     "GODEL",
     "TROPICAL",
+    "MaxPlusQuantale",
+    "LogProbQuantale",
+    "RealQuantale",
+    "ProbabilityQuantale",
+    "CountingQuantale",
+    "MAX_PLUS",
+    "LOG_PROB",
+    "REAL",
+    "PROBABILITY",
+    "COUNTING",
+    "QuantaleHomomorphism",
+    "IdentityHom",
+    "Embedding",
+    "Expectation",
+    "LogProbHom",
+    "MaxPlusHom",
+    "Threshold",
+    "MaterialImplication",
+    "EXPECTATION",
+    "LOG_PROB_HOM",
+    "MAX_PLUS_HOM",
+    "MATERIAL_IMPLICATION",
+    "threshold",
+    "embedding",
+    "HOMOMORPHISM_REGISTRY",
+    "lookup_homomorphism",
     # morphisms
     "Morphism",
     "ObservedMorphism",
@@ -466,6 +525,11 @@ __all__ = [
     "ConditionalRelaxedOneHotCategorical",
     # continuous — families (matrix-valued)
     "ConditionalWishart",
+    "ConditionalInverseWishart",
+    "ConditionalMatrixNormal",
+    # continuous: families (non-parametric and shrinkage)
+    "ConditionalGaussianProcess",
+    "ConditionalHorseshoe",
     # continuous — families (discrete-valued)
     "ConditionalBernoulli",
     "ConditionalCategorical",

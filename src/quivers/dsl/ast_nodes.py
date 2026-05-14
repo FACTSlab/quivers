@@ -12,6 +12,60 @@ import didactic.api as dx
 
 
 # ---------------------------------------------------------------------------
+# axis-role surface: per-distribution event / batch axis specification
+# ---------------------------------------------------------------------------
+
+
+class AxisSpec(dx.Model):
+    """Axis-role specification on a distribution clause.
+
+    Surface form: ``over <axes> [iid over <axes>]``.
+
+    ``over`` names the event axes — the axes on which the family's
+    joint structure (an MVN covariance, a MatrixNormal Kronecker pair,
+    a GP kernel) lives.  The axis count must match the family's
+    declared event rank; the positional ordering corresponds
+    positionally to the family's event-axis ordering.
+
+    ``iid_over`` is an optional readability assertion naming the batch
+    axes (the complement of ``over`` in the surrounding morphism's
+    type signature).  Inconsistency with the type signature or with
+    ``over`` is a compile-time error.
+
+    Axis names resolve against the named factors of the surrounding
+    morphism's dom/cod.  The reserved tokens ``dom`` and ``cod`` are
+    legal shortcuts only when the corresponding side is a single
+    unfactored object.
+    """
+
+    over: tuple[str, ...]
+    iid_over: tuple[str, ...] = ()
+    line: int = 0
+    col: int = 0
+
+
+class MorphismPrior(dx.Model):
+    """Parameter prior on a ``latent`` morphism's representing tensor.
+
+    Surface form: ``~ Family(args) [options] [axis_role_clause]``.
+
+    Promotes the declared morphism from a free-parameter point
+    estimate to a random variable whose representing tensor is drawn
+    from the named family at the requested axis-role configuration.
+    Categorically: the morphism becomes the deterministic wrap of a
+    sample from ``family(args)``, with the family's event/batch
+    structure controlled by ``axes``.
+    """
+
+    family: str
+    args: tuple[str | float, ...] = ()
+    options: dict[str, str] = dx.field(default_factory=dict)
+    axes: AxisSpec | None = None
+    line: int = 0
+    col: int = 0
+
+
+# ---------------------------------------------------------------------------
 # type expressions (categorical objects: products and coproducts of finsets)
 # ---------------------------------------------------------------------------
 
@@ -143,11 +197,137 @@ class ExprIdentity(Expr):
     kind: Literal["expr_identity"] = "expr_identity"
 
 
-class ExprCompose(Expr):
-    """Sequential composition: ``left >> right``."""
+class ExprFromData(Expr):
+    """Data-derived initializer ``from_data("KEY")``.
+
+    The string key is resolved against the runtime data dictionary
+    at fit time; the morphism's tensor is the looked-up value.
+    The resulting morphism is :class:`ObservedMorphism` — its
+    entries are frozen / structural inputs, not learnable
+    parameters.
+    """
+
+    key: str
+    line: int = 0
+    col: int = 0
+    kind: Literal["expr_from_data"] = "expr_from_data"
+
+
+class ExprFreeze(Expr):
+    """Detach gradients: ``inner.freeze`` materialises ``inner``'s
+    tensor with ``detach()`` and wraps the result as a frozen
+    :class:`ObservedMorphism`. Used to pin a learned composition
+    as a structural input that the downstream model treats as
+    constant."""
+
+    inner: Expr
+    line: int = 0
+    col: int = 0
+    kind: Literal["expr_freeze"] = "expr_freeze"
+
+
+class ExprDagger(Expr):
+    """Compact-closed dagger / transpose of an expression."""
+
+    inner: Expr
+    line: int = 0
+    col: int = 0
+    kind: Literal["expr_dagger"] = "expr_dagger"
+
+
+class ExprTrace(Expr):
+    """Compact-closed trace of an expression along a named object."""
+
+    inner: Expr
+    object_name: str
+    line: int = 0
+    col: int = 0
+    kind: Literal["expr_trace"] = "expr_trace"
+
+
+class ExprChangeBase(Expr):
+    """Change-of-base: apply a transformation (a quantale
+    homomorphism or :class:`MorphismTransformation`) to a
+    morphism.
+
+    The transformation is a first-class value: ``phi`` is any
+    expression whose compile-time value is a
+    :class:`MorphismTransformation` or
+    :class:`QuantaleHomomorphism`.  Concretely:
+
+    * A bare identifier resolving a registered singleton
+      (``f.change_base(expectation)``) or a let-bound trans value
+      (``f.change_base(t)``).
+    * A constructor call (``f.change_base(softmax(B))``).
+    * A composition (``f.change_base(t1 >>> t2)``).
+    """
+
+    inner: Expr
+    phi: Expr
+    line: int = 0
+    col: int = 0
+    kind: Literal["expr_change_base"] = "expr_change_base"
+
+
+class ExprTransCompose(Expr):
+    """Composition of two transformations: ``t1 >>> t2`` denotes
+    sequential application — first apply ``t1``, then ``t2``.
+
+    Required: ``t1.target == t2.source`` (typed at compile time;
+    a mismatch raises :class:`CompileError`).  The result behaves
+    as a transformation with ``source = t1.source`` and
+    ``target = t2.target``.
+    """
 
     left: Expr
     right: Expr
+    line: int = 0
+    col: int = 0
+    kind: Literal["expr_trans_compose"] = "expr_trans_compose"
+
+
+class ExprCup(Expr):
+    """Compact-closed unit ``η_A : I → A ⊗ A`` for a named object."""
+
+    object_name: str
+    line: int = 0
+    col: int = 0
+    kind: Literal["expr_cup"] = "expr_cup"
+
+
+class ExprCap(Expr):
+    """Compact-closed counit ``ε_A : A ⊗ A → I`` for a named object."""
+
+    object_name: str
+    line: int = 0
+    col: int = 0
+    kind: Literal["expr_cap"] = "expr_cap"
+
+
+class ExprCompose(Expr):
+    """Quantale-typed sequential composition.
+
+    The ``op`` field selects which enrichment quantale's monoidal
+    structure to use for the V-Cat composition:
+
+    * ``">>"`` — ProductFuzzy noisy-OR (the default).
+    * ``"<<"`` — reverse ProductFuzzy.
+    * ``">=>"`` — Kleisli composition (operands' shared quantale).
+    * ``"*>"`` — Markov sum-product.
+    * ``"~>"`` — LogProb (log-space sum-product).
+    * ``"||>"`` — Gödel (lattice min/max with Heyting implication).
+    * ``"?>"`` — Viterbi (max-plus tropical, best path).
+    * ``"&&>"`` — Boolean (∧/∨).
+    * ``"+>"`` — Łukasiewicz (probabilistic sum bounded by 1).
+
+    Each operator carries its own quantale; cross-operator
+    composition in one chain requires explicit ``.change_base(φ)``
+    between segments.
+    """
+
+    left: Expr
+    right: Expr
+    op: str = ">>"
     line: int = 0
     col: int = 0
     kind: Literal["expr_compose"] = "expr_compose"
@@ -452,7 +632,7 @@ class BindStep(ProgramStep):
         single name.
     index : TypeExpr | None
         Optional index-set annotation; non-``None`` for plate /
-        vectorised / indexed-marginalize forms.
+        vectorized / indexed-marginalize forms.
     morphism : str
         Family / morphism name on the kernel-expression RHS.
     args : tuple
@@ -471,6 +651,29 @@ class BindStep(ProgramStep):
     index: TypeExpr | None = None
     mode: Literal["sample", "score", "marginal"] = "sample"
     scope: tuple[ProgramStep, ...] | None = None
+    # Axis-role clause: ``over <axes> [iid over <axes>]`` on the
+    # family invocation.  Configures the event/batch decomposition
+    # of the family over the named axes of the step's type
+    # annotation (``: T``).  Required when ``family.event_rank > 0``
+    # and ambiguous from the annotation alone; rejected at compile
+    # time on mismatch with the family's event rank.
+    axes: AxisSpec | None = None
+    # ``over G`` on the marginalize-mode bind declares the grouping
+    # plate.  ``over_obj`` is the single plate name; ``over_objs``
+    # is the tuple of plate names when the user wrote a type
+    # product (e.g. ``over G * H``).  Unused on score / sample
+    # binds.
+    over: str | None = None
+    over_objs: tuple[str, ...] | None = None
+    # ``via idx`` (single fibration) or ``via product(idx_a, idx_b)``
+    # (product fibration) on a score-mode bind inside a grouped
+    # marginalize body.  Every observe inside the body carries its
+    # own ``via`` clause naming the fibration into the shared
+    # grouping plate.  Unused on sample / marginal binds.
+    via: str | None = None
+    via_axes: tuple[str, ...] | None = None
+    # `reduction = logsumexp | sum | mean`.
+    reduction: str | None = None
     line: int = 0
     col: int = 0
     kind: Literal["bind_step"] = "bind_step"
@@ -496,7 +699,7 @@ class LetStep(ProgramStep):
 #
 # The parser emits exclusively :class:`BindStep` and :class:`LetStep` for
 # program bodies under the v0.5 unified surface. The compiler expands a
-# BindStep into one of the four specialised forms below at the entry to
+# BindStep into one of the four specialized forms below at the entry to
 # `_compile_program`, based on the bind's `mode` and `index` fields:
 #
 #   - sample, no index  -> DrawStep
@@ -564,9 +767,107 @@ class VectorisedObserveStep(ProgramStep):
     morphism: str
     args: tuple[str | float, ...] | None = None
     response_var: str = ""
+    # ``via <idx>`` clause on the originating observe surface step.
+    # Inside a grouped marginalize body this names the per-observe
+    # fibration into the shared grouping plate; the product form
+    # ``via product(...)`` populates ``fibration_axes`` instead.
+    # Outside a grouped body both fields are unused.
+    fibration_var: str | None = None
+    fibration_axes: tuple[str, ...] | None = None
     line: int = 0
     col: int = 0
-    kind: Literal["vectorised_observe_step"] = "vectorised_observe_step"
+    kind: Literal["vectorized_observe_step"] = "vectorized_observe_step"
+
+
+class GroupedLatentInitStep(ProgramStep):
+    """Internal compiler IR: initialize the latent's environment
+    slot to ``torch.arange(class_size)`` at the start of a grouped
+    marginalize block's body.
+
+    The body's downstream ``let`` and ``observe`` steps then see the
+    latent as a length-``K`` index tensor; any arithmetic involving
+    the latent broadcasts across the class axis. The terminal
+    captured observe (see :class:`GroupedBodyObserveStep`) overwrites
+    this slot with the per-(N, K) log-likelihood tensor the
+    marginalize step consumes.
+    """
+
+    latent_name: str
+    class_size: int
+    line: int = 0
+    col: int = 0
+    kind: Literal["grouped_latent_init_step"] = "grouped_latent_init_step"
+
+
+class GroupedBodyObserveStep(ProgramStep):
+    """Internal compiler IR: a captured observe inside a grouped
+    marginalize block.
+
+    The body of a grouped marginalize block ends with an observe
+    step whose per-row log-likelihood depends on the latent. Rather
+    than accumulating the scalar log-density into the program-level
+    joint (the normal observe path), this captured form:
+
+    1. Computes ``family.log_prob(theta, response)`` per row,
+       broadcasting ``theta`` across the class axis if it carries
+       one (because upstream ``let`` steps referenced the latent).
+    2. Stores the resulting ``(N, K)`` tensor at the marginalize
+       block's latent slot, where the
+       :class:`MarginalizeStep`'s runtime callable picks it up,
+       applies the prior, and reduces.
+
+    Categorically: the captured observe is the body's
+    contribution to the right Kan extension along the fibration in
+    :math:`\\mathbf{Kern}` — the per-(row, class) log-likelihood
+    tensor that the per-group accumulator scatter-adds.
+    """
+
+    response_var: str
+    morphism: str
+    args: tuple[str | float, ...] | None = None
+    index_set: TypeExpr | None = None
+    index_var: str = ""
+    latent_name: str = ""
+    # Per-observe fibration into the shared grouping plate.
+    # ``fibration_var`` carries a single-axis fibration's name;
+    # ``fibration_axes`` carries a product-fibration's tuple of
+    # axis names.  Exactly one is set inside a grouped body; the
+    # other is ``None``.
+    fibration_var: str | None = None
+    fibration_axes: tuple[str, ...] | None = None
+    # The env slot the captured-observe's (N_m, K) per-row
+    # per-class log-likelihood is written to.  Unique per observe
+    # inside a single grouped body so the surrounding
+    # MarginalizeStep can collect each axis's contribution
+    # separately and pair it with the right fibration.
+    ll_slot: str = ""
+    line: int = 0
+    col: int = 0
+    kind: Literal["grouped_body_observe_step"] = "grouped_body_observe_step"
+
+
+class GroupedObserveEntry(dx.Model):
+    """One entry in a grouped :class:`MarginalizeStep`'s
+    ``body_observes`` list: the pairing of an env slot (where
+    the captured observe writes its ``(N_m, K)`` per-row
+    per-class log-likelihood) with the fibration that carries
+    those rows into the shared grouping plate.
+
+    Exactly one of ``fibration_var`` and ``fibration_axes`` is
+    non-``None``: a single-axis fibration uses
+    ``fibration_var``; a product fibration uses
+    ``fibration_axes`` (whose arity must match the marginalize
+    header's product-plate arity).
+
+    Both ``None`` flags a nested-marginalize entry: the inner
+    block has already performed its own scatter, so the outer
+    block consumes the ``(|G|, K)`` tensor at ``ll_slot``
+    directly with no further fibration.
+    """
+
+    ll_slot: str
+    fibration_var: str | None = None
+    fibration_axes: tuple[str, ...] | None = None
 
 
 class MarginalizeStep(ProgramStep):
@@ -577,9 +878,38 @@ class MarginalizeStep(ProgramStep):
     coordinate, (2) the scope's steps, (3) this MarginalizeStep
     that pushes forward through the projection
     :math:`\\pi_{\\Phi} : \\Phi \\times C \\to \\Phi`.
+
+    When the surface block carries ``over G via idx``, the
+    reduction is fibred: the body's per-row log-density tensor
+    of shape ``(N, K)`` is scatter-added along ``via_var`` to
+    shape ``(|G|, K)``, the categorical prior ``probs_var``
+    contributes ``log probs[g, k]`` per (group, class), and the
+    final log-sum-exp over the class axis is summed over groups.
+    This denotes the right Kan extension along the fibration
+    :math:`r : \\text{Resp} \\to G` in :math:`\\mathbf{Kern}`,
+    followed by integration of the class axis under the
+    categorical prior.
     """
 
     var_name: str
+    class_size: int = 0
+    probs_var: str | None = None
+    over_obj: str | None = None
+    # Product grouping plate: a tuple of plate names whose
+    # cardinalities multiply to give the flat group cardinality.
+    # ``None`` for a single grouping plate; in that case
+    # ``over_obj`` carries the singleton name.
+    over_objs: tuple[str, ...] | None = None
+    body_ll_var: str | None = None
+    # Grouped form: ordered tuple of per-observe entries.  Each
+    # entry pairs an env slot (where the observe writes its
+    # ``(N_m, K)`` log-likelihood) with the fibration into the
+    # shared grouping plate.  See :class:`GroupedObserveEntry`
+    # for the field semantics.  ``None`` outside a grouped body.
+    body_observes: tuple[GroupedObserveEntry, ...] | None = None
+    # Per-group reduction over the class axis. ``None`` defaults
+    # to ``"logsumexp"`` at the runtime call site.
+    reduction: str | None = None
     line: int = 0
     col: int = 0
     kind: Literal["marginalize_step"] = "marginalize_step"
@@ -594,10 +924,57 @@ class Statement(dx.TaggedUnion, discriminator="kind"):
     """Sum of top-level statement kinds."""
 
 
+type CompositionLevel = Literal[
+    "quantale", "semigroupoid", "bilinear_form", "composition_rule"
+]
+"""Algebraic level the file declares for its composition rule.
+
+The four levels correspond to the
+:class:`~quivers.core.quantales.CompositionRule`-hierarchy:
+
+* ``"quantale"`` requires a full :class:`Quantale` (unit, zero,
+  meet, negate, identity, dagger, cup/cap).
+* ``"semigroupoid"`` requires a :class:`Semigroupoid`
+  (associative `tensor_op`, no identity required).
+* ``"bilinear_form"`` requires a :class:`BilinearForm`
+  (no associativity promise).
+* ``"composition_rule"`` is permissive: any
+  :class:`CompositionRule` is accepted.
+"""
+
+
+class CompositionRuleEntry(dx.Model):
+    """One entry of a composition-rule body block.
+
+    Function-valued entries (``tensor_op``, ``join``, ``negation``,
+    ``meet``) declare a lambda; value-valued entries (``unit``,
+    ``zero``) declare a numeric literal. The ``params`` tuple is
+    empty for value-valued entries.
+    """
+
+    key: str
+    params: tuple[str, ...] = ()
+    body: "LetExprNode"
+    line: int = 0
+    col: int = 0
+
+
 class QuantaleDecl(Statement):
-    """Quantale selection: ``quantale <name>``."""
+    """Composition-rule selection: ``quantale <name>``,
+    ``semigroupoid <name>``, ``bilinear_form <name>``, or
+    ``composition_rule <name>``, with an optional inline body.
+
+    Without a body the declaration looks up ``name`` in the
+    compiler's :data:`_QUANTALE_REGISTRY` and verifies the
+    registered rule matches the keyword's algebraic level. With a
+    body, the declaration *defines* a fresh composition rule
+    named ``name`` whose operations come from the supplied
+    expressions; the keyword fixes the rule's level.
+    """
 
     name: str
+    declared_level: CompositionLevel = "quantale"
+    body: tuple[CompositionRuleEntry, ...] = ()
     line: int = 0
     col: int = 0
     kind: Literal["quantale_decl"] = "quantale_decl"
@@ -737,6 +1114,11 @@ class MorphismDecl(Statement):
     codomain: TypeExpr
     init_expr: Expr | None = None
     options: dict[str, str] = dx.field(default_factory=dict)
+    # Parameter prior on the morphism's representing tensor.  Legal
+    # only on ``latent`` declarations; promotes the morphism from
+    # a free-parameter point estimate to a random morphism whose
+    # tensor is drawn from the named family.
+    prior: MorphismPrior | None = None
     docs: tuple[str, ...] = ()
     line: int = 0
     col: int = 0
@@ -798,30 +1180,30 @@ class BundleDecl(Statement):
     kind: Literal["bundle_decl"] = "bundle_decl"
 
 
-class ContinuousMorphismDecl(Statement):
-    """Continuous morphism declaration."""
+class KernelDecl(Statement):
+    """Markov-kernel declaration: ``kernel f : A -> B [~ Family ...]``.
+
+    Without a ``~`` clause, declares a lookup-table kernel on finite
+    sets — a categorical kernel :math:`A \\to D(B)` realised as a
+    learnable matrix of conditional probabilities.
+
+    With a ``~ Family [options] [axes]`` clause, declares a parametric
+    kernel :math:`A \\to G(B)` whose family's parameters are produced
+    from the input by a parameter network at sample time.  The
+    optional ``axes`` clause configures the family's event/batch
+    decomposition over codomain factors.
+    """
 
     name: str
     domain: TypeExpr
     codomain: TypeExpr
-    family: str
+    family: str | None = None
     options: dict[str, str] = dx.field(default_factory=dict)
+    axes: AxisSpec | None = None
     replicate: int | None = None
     line: int = 0
     col: int = 0
-    kind: Literal["continuous_morphism_decl"] = "continuous_morphism_decl"
-
-
-class StochasticMorphismDecl(Statement):
-    """Stochastic morphism declaration."""
-
-    name: str
-    domain: TypeExpr
-    codomain: TypeExpr
-    replicate: int | None = None
-    line: int = 0
-    col: int = 0
-    kind: Literal["stochastic_morphism_decl"] = "stochastic_morphism_decl"
+    kind: Literal["kernel_decl"] = "kernel_decl"
 
 
 class DiscretizeDecl(Statement):
@@ -913,6 +1295,64 @@ class MorphismParam(ProgramParam):
     line: int = 0
     col: int = 0
     kind: Literal["morphism_param"] = "morphism_param"
+
+
+class ExprMorphismCall(Expr):
+    """Call expression ``callee(arg1, arg2, …)`` resolving to a
+    morphism-level operation.
+
+    Used by :class:`ContractionDecl` declarations: when the user
+    writes ``let out = op_apply(arg1, arg2, kernel)``, the
+    ``op_apply`` identifier resolves to a registered contraction
+    and the arguments are looked up in the morphism scope.
+    """
+
+    callee: str
+    args: tuple[str, ...]
+    line: int = 0
+    col: int = 0
+    kind: Literal["expr_morphism_call"] = "expr_morphism_call"
+
+
+class ContractionInput(dx.Model):
+    """One input wire of a :class:`ContractionDecl` declaration."""
+
+    name: str
+    input_domain: "TypeExpr"
+    input_codomain: "TypeExpr"
+    line: int = 0
+    col: int = 0
+
+
+class ContractionDecl(Statement):
+    """Operadic n-ary contraction declaration.
+
+    Surface form::
+
+        contraction op_apply (
+            arg1 : A -> B,
+            arg2 : A -> C,
+            kernel : (B * C) -> D
+        ) : A -> D
+            rule product_fuzzy
+            wiring "ab, ac, bcd -> ad"
+
+    Declares ``op_apply`` as a multi-input morphism that takes
+    three input morphisms and produces an output morphism by
+    einsum-style contraction under the named composition rule.
+    Compiles to a callable that wraps
+    :class:`~quivers.core.wiring.EinsumWiring`.
+    """
+
+    name: str
+    inputs: tuple[ContractionInput, ...]
+    domain: "TypeExpr"
+    codomain: "TypeExpr"
+    rule_name: str
+    wiring_spec: str
+    line: int = 0
+    col: int = 0
+    kind: Literal["contraction_decl"] = "contraction_decl"
 
 
 class ProgramDecl(Statement):
@@ -1083,7 +1523,7 @@ class DeductionDecl(Statement):
     axiom-source field declares the kernel
     :math:`\\mathrm{Input} \\to \\mathrm{List}(I \\times K)` that
     produces the chart's initial items from an input value;
-    ``lexicon`` is a sugar specialisation for the
+    ``lexicon`` is a sugar specialization for the
     label-indexed-lookup case.
     """
 
@@ -1286,7 +1726,7 @@ class EncoderRule(dx.Model):
 
 
 class EncoderInitRule(dx.Model):
-    """Graph-signature initialiser: maps vertex `data` payloads to
+    """Graph-signature initializer: maps vertex `data` payloads to
     initial vertex embeddings before message passing."""
 
     kind: str

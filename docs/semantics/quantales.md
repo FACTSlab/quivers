@@ -2,7 +2,7 @@
 
 The choice of quantale $\mathcal{V}$ in a `quantale` declaration determines the truth-value semantics of every $\mathcal{V}$-relation in the program. This page records the formal definition of each built-in quantale and the base-change functors that mediate between them.
 
-## 1. The five quantales
+## 1. The eleven quantales
 
 Each quantale is determined by its underlying lattice and its monoidal product. Joins are taken pointwise on $V$; the unit $\mathbf{1}$ is the maximum element with respect to the order.
 
@@ -49,6 +49,59 @@ $$
 
 The order is reversed: smaller is "truer". The unit is $0$ (the additive identity), and the bottom of the lattice (the largest element) is $+\infty$. Composition is the *min-plus* matrix product, suitable for shortest-path semantics.
 
+### 1.6 Max-plus (Viterbi) quantale
+
+$$
+\mathcal{V}_{\mathrm{MP}} \;=\; \bigl([-\infty, 0],\ \le,\ +,\ 0\bigr),
+\qquad \bigoplus_i a_i = \max_i a_i.
+$$
+
+The max-plus / Viterbi semiring used in best-path scoring; arcweight's `MaxWeight` and the standard semiring underlying Viterbi decoding.
+
+### 1.7 Log-prob quantale
+
+$$
+\mathcal{V}_{\mathrm{LP}} \;=\; \bigl([-\infty, 0],\ \le,\ +,\ 0\bigr),
+\qquad \bigoplus_i a_i = \operatorname{logsumexp}_i a_i.
+$$
+
+The log-space analogue of the product-fuzzy / probability quantale; mirrors arcweight's `LogWeight`. Composition is numerically stable log-domain matrix multiplication.
+
+### 1.8 Markov quantale
+
+$$
+\mathcal{V}_{\mathrm{M}} \;=\; \bigl(\Delta,\ \le,\ \star,\ \delta\bigr),
+$$
+
+with carrier the row-stochastic kernels $X \to \mathcal{P}(Y)$, tensor $\star$ the Markov-kernel composition, and unit the Dirac kernel $\delta$. Powers the `stochastic` declaration's V-Cat surface.
+
+### 1.9 Real quantale
+
+$$
+\mathcal{V}_{\mathbb{R}} \;=\; \bigl(\mathbb{R},\ +,\ \cdot,\ 1\bigr),
+\qquad \bigoplus_i a_i = \sum_i a_i.
+$$
+
+The sum-product semiring on the reals; mirrors arcweight's `RealWeight`. No bottom/top: this is a semiring, not a bounded quantale, and is used for expectation-style aggregation where negative weights and unbounded magnitudes are required.
+
+### 1.10 Probability quantale
+
+$$
+\mathcal{V}_{[0, 1]} \;=\; \bigl([0, 1],\ \le,\ \cdot,\ 1\bigr),
+\qquad \bigoplus_i a_i = \min\!\bigl(1, \textstyle\sum_i a_i\bigr).
+$$
+
+Sum-product on $[0, 1]$ with explicit saturation at $1$ on aggregation; mirrors arcweight's `ProbabilityWeight`. Distinguishes from $\mathcal{V}_{\mathrm{pf}}$ in its choice of join (saturated-sum rather than noisy-OR).
+
+### 1.11 Counting quantale
+
+$$
+\mathcal{V}_{\mathbb{N}} \;=\; \bigl(\mathbb{N},\ +,\ \cdot,\ 1\bigr),
+\qquad \bigoplus_i a_i = \sum_i a_i.
+$$
+
+Sum-product on the non-negative integers; mirrors arcweight's `IntegerWeight`. Used for derivation-counting and unweighted multiplicity tracking. Negation is undefined.
+
 ## 2. Order- and structure-preservation
 
 For each quantale we record which elementary properties hold; these determine which categorical constructions transport across base change.
@@ -60,6 +113,12 @@ For each quantale we record which elementary properties hold; these determine wh
 | $\mathcal{V}_{\mathrm{L}}$ | No | Yes | No |
 | $\mathcal{V}_{\mathrm{G}}$ | Yes | Yes | No |
 | $\mathcal{V}_{\mathrm{T}}$ | No | Yes ($\mathbf{1} = 0$) | Yes |
+| $\mathcal{V}_{\mathrm{MP}}$ | Yes (join) | Yes ($\mathbf{1} = 0$) | Yes |
+| $\mathcal{V}_{\mathrm{LP}}$ | No | Yes ($\mathbf{1} = 0$) | Yes |
+| $\mathcal{V}_{\mathrm{M}}$ | No | Yes ($\mathbf{1} = \delta$) | No |
+| $\mathcal{V}_{\mathbb{R}}$ | No | Yes ($\mathbf{1} = 1$) | Yes |
+| $\mathcal{V}_{[0,1]}$ | No | Yes ($\mathbf{1} = 1$) | No |
+| $\mathcal{V}_{\mathbb{N}}$ | No | Yes ($\mathbf{1} = 1$) | Yes |
 
 A quantale is *integral* if $\mathbf{1}$ is the top element and *idempotent* if $a \otimes a = a$ for all $a$. Cancellativity means $a \otimes b = a \otimes c \Rightarrow b = c$ whenever $a \neq \bot$. Idempotent integral quantales are precisely *frames* (locales).
 
@@ -96,16 +155,21 @@ $$
 
 which acts as the identity on objects and pointwise on $\mathcal{V}$-relations. Functoriality is a direct consequence of $h$ preserving $\otimes$ and $\bigoplus$.
 
-The implementation provides two canonical base-change functors:
+The implementation ships a registry of named homomorphisms, including:
 
-- $\beta : \mathcal{V}_{\mathbb{B}} \to \mathcal{V}_{\mathrm{pf}}$, the inclusion $\{0, 1\} \hookrightarrow [0, 1]$;
-- $\theta : \mathcal{V}_{\mathrm{pf}} \to \mathcal{V}_{\mathbb{B}}$, thresholding at a chosen $\tau \in (0, 1]$.
+- $\beta : \mathcal{V}_{\mathbb{B}} \to \mathcal{V}_{\mathrm{pf}}$, the inclusion $\{0, 1\} \hookrightarrow [0, 1]$ (`Embedding`);
+- $\theta : \mathcal{V}_{\mathrm{pf}} \to \mathcal{V}_{\mathbb{B}}$, thresholding at $\tau \in (0, 1]$ (`Threshold`);
+- $a \mapsto a \cdot (1 - a)$-style implication and `MaterialImplication` between $\mathcal{V}_{\mathrm{pf}}$ and $\mathcal{V}_{\mathrm{L}}$;
+- $\mathcal{V}_{\mathrm{M}} \to \mathcal{V}_{\mathrm{pf}}$ (`Expectation`) and $\mathcal{V}_{\mathrm{pf}} \to \mathcal{V}_{\mathrm{LP}}$ (`LogProb`);
+- $\mathcal{V}_{\mathrm{LP}} \to \mathcal{V}_{\mathrm{MP}}$ collapsing log-sum-exp to max (`MaxPlus`);
+- $\mathcal{V}_{\mathbb{R}} \rightleftarrows \mathcal{V}_{[0, 1]}$ (`ProbabilityClamp` / `ProbabilityToReal`);
+- $\mathcal{V}_{\mathbb{R}} \rightleftarrows \mathcal{V}_{\mathbb{N}}$ (`CountingFromReal` / `CountingToReal`).
 
-The pair $(\beta, \theta)$ is *not* an adjoint pair in general; $\theta \circ \beta = \mathrm{id}$ but $\beta \circ \theta$ collapses real values to $\{0, 1\}$.
+`lookup_homomorphism(src, tgt)` retrieves a registered map; programs select one via the `change-of-base` block. Only $\beta \circ \theta = \mathrm{id}_{\mathcal{V}_\mathbb{B}}$ and the sub-quantale inclusions are sections; the rest are lossy lax monoidal poset functors.
 
 ## 4. Functoriality of the language
 
-The QVR language is *parametric* in $\mathcal{V}$: every syntactic construct interprets uniformly over all five quantales modulo the existence of joins, products, and units. Concretely, for any quantale $\mathcal{V}$ and base-change homomorphism $h : \mathcal{V} \to \mathcal{W}$, the diagram
+The QVR language is *parametric* in $\mathcal{V}$: every syntactic construct interprets uniformly over all eleven quantales modulo the existence of joins, products, and units. Concretely, for any quantale $\mathcal{V}$ and base-change homomorphism $h : \mathcal{V} \to \mathcal{W}$, the diagram
 
 $$
 \begin{array}{c}

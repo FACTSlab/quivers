@@ -4,7 +4,7 @@ A general framework for evaluating weighted deductive systems by
 agenda-driven semi-naïve enumeration. Subsumes CKY, Earley,
 Viterbi, A* parsing, Knuth's algorithm, semi-naïve Datalog
 evaluation, and bidirectional MLTT type-checking under one
-runtime, parameterised by an :class:`Item` algebra, a list of
+runtime, parameterized by an :class:`Item` algebra, a list of
 arity-n :class:`InferenceRule` hyperedges, a :class:`ChartSemiring`,
 an :class:`Agenda` data structure, a priority function, and a
 goal predicate.
@@ -276,7 +276,7 @@ class HashChart(Chart):
     pattern matching. Suitable for Datalog atoms, MLTT
     judgments, and any deduction whose items don't have a dense
     integer encoding. Falls back to O(|chart| · |pattern|) match
-    cost per lookup; faster specialisations should override
+    cost per lookup; faster specializations should override
     :meth:`lookup` with an indexed structure.
 
     Weights are stored as :class:`torch.Tensor` values; autograd
@@ -552,7 +552,7 @@ class LIFOAgenda(Agenda):
 
 
 class PriorityQueueAgenda(Agenda):
-    """Priority-queue agenda parameterised by a priority function.
+    """Priority-queue agenda parameterized by a priority function.
 
     Items are processed in decreasing priority order. Used by
     Knuth's algorithm (priority = current best score),
@@ -574,7 +574,7 @@ class PriorityQueueAgenda(Agenda):
         self._counter = 0  # tie-breaker for deterministic ordering
 
     def push(self, item: Item, weight: torch.Tensor) -> None:
-        # heapq is a min-heap; negate priority for max-heap behaviour.
+        # heapq is a min-heap; negate priority for max-heap behavior.
         priority = -float(self._priority_fn(item, weight))
         self._counter += 1
         heapq.heappush(self._heap, (priority, self._counter, item, weight))
@@ -909,9 +909,9 @@ def _fire(
 
 @dataclass
 class DeductionSystem:
-    """A weighted deductive system parameterised over its components.
+    """A weighted deductive system parameterized over its components.
 
-    The system is parameterised by:
+    The system is parameterized by:
 
     - An item algebra (implicit in the patterns the rules use).
     - A list of arity-n :class:`InferenceRule` hyperedges.
@@ -1016,7 +1016,7 @@ class DeductionSystem:
 
 
 # ---------------------------------------------------------------------------
-# Strategy factories — concrete parsers as agenda specialisations
+# Strategy factories — concrete parsers as agenda specializations
 # ---------------------------------------------------------------------------
 
 
