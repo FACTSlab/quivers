@@ -18,6 +18,26 @@ from quivers.dsl.compiler._prelude import (
 class _ResolutionMixin:
     """Mixin: type and space resolution methods."""
 
+    def _resolve_index_size(self, texpr: TypeExpr) -> int:
+        """Resolve a TypeExpr in finite-set-object position to its
+        cardinality. 
+        
+        Used by the let-expression factor evaluator
+        to determine the axis size of each binder at compile time.
+        """
+        obj = self._resolve_type(texpr)
+        card = getattr(obj, "cardinality", None)
+        if card is None:
+            line = getattr(texpr, "line", 0)
+            col = getattr(texpr, "col", 0)
+            raise CompileError(
+                f"factor binder's index must be a finite-set object, "
+                f"got {type(obj).__name__}",
+                line,
+                col,
+            )
+        return int(card)
+
     def _resolve_type(self, texpr: TypeExpr, bind_name: str | None = None) -> SetObject:
         """Resolve a type expression into a SetObject.
 

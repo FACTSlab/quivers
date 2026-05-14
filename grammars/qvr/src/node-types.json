@@ -795,6 +795,10 @@
             "named": true
           },
           {
+            "type": "let_factor",
+            "named": true
+          },
+          {
             "type": "let_index",
             "named": true
           },
@@ -1127,6 +1131,10 @@
             "named": true
           },
           {
+            "type": "let_factor",
+            "named": true
+          },
+          {
             "type": "let_index",
             "named": true
           },
@@ -1315,6 +1323,10 @@
             "named": true
           },
           {
+            "type": "let_factor",
+            "named": true
+          },
+          {
             "type": "let_index",
             "named": true
           },
@@ -1381,6 +1393,10 @@
             "named": true
           },
           {
+            "type": "let_factor",
+            "named": true
+          },
+          {
             "type": "let_index",
             "named": true
           },
@@ -1444,6 +1460,10 @@
           },
           {
             "type": "let_call",
+            "named": true
+          },
+          {
+            "type": "let_factor",
             "named": true
           },
           {
@@ -2119,6 +2139,10 @@
             "named": true
           },
           {
+            "type": "let_factor",
+            "named": true
+          },
+          {
             "type": "let_index",
             "named": true
           },
@@ -2198,6 +2222,10 @@
           },
           {
             "type": "let_call",
+            "named": true
+          },
+          {
+            "type": "let_factor",
             "named": true
           },
           {
@@ -2297,6 +2325,10 @@
             "named": true
           },
           {
+            "type": "let_factor",
+            "named": true
+          },
+          {
             "type": "let_index",
             "named": true
           },
@@ -2383,6 +2415,10 @@
             "named": true
           },
           {
+            "type": "let_factor",
+            "named": true
+          },
+          {
             "type": "let_index",
             "named": true
           },
@@ -2436,6 +2472,10 @@
           },
           {
             "type": "let_call",
+            "named": true
+          },
+          {
+            "type": "let_factor",
             "named": true
           },
           {
@@ -2532,6 +2572,10 @@
           },
           {
             "type": "let_call",
+            "named": true
+          },
+          {
+            "type": "let_factor",
             "named": true
           },
           {
@@ -3130,6 +3174,10 @@
             "named": true
           },
           {
+            "type": "let_factor",
+            "named": true
+          },
+          {
             "type": "let_index",
             "named": true
           },
@@ -3202,6 +3250,10 @@
             "named": true
           },
           {
+            "type": "let_factor",
+            "named": true
+          },
+          {
             "type": "let_index",
             "named": true
           },
@@ -3259,6 +3311,10 @@
           },
           {
             "type": "let_call",
+            "named": true
+          },
+          {
+            "type": "let_factor",
             "named": true
           },
           {
@@ -3412,6 +3468,202 @@
     }
   },
   {
+    "type": "let_factor",
+    "named": true,
+    "fields": {
+      "binders": {
+        "multiple": true,
+        "required": true,
+        "types": [
+          {
+            "type": "let_factor_binder",
+            "named": true
+          }
+        ]
+      },
+      "body": {
+        "multiple": false,
+        "required": false,
+        "types": [
+          {
+            "type": "let_binop",
+            "named": true
+          },
+          {
+            "type": "let_call",
+            "named": true
+          },
+          {
+            "type": "let_factor",
+            "named": true
+          },
+          {
+            "type": "let_index",
+            "named": true
+          },
+          {
+            "type": "let_lambda",
+            "named": true
+          },
+          {
+            "type": "let_list",
+            "named": true
+          },
+          {
+            "type": "let_literal",
+            "named": true
+          },
+          {
+            "type": "let_method_call",
+            "named": true
+          },
+          {
+            "type": "let_paren",
+            "named": true
+          },
+          {
+            "type": "let_string",
+            "named": true
+          },
+          {
+            "type": "let_unary",
+            "named": true
+          },
+          {
+            "type": "let_var",
+            "named": true
+          }
+        ]
+      },
+      "cases": {
+        "multiple": true,
+        "required": false,
+        "types": [
+          {
+            "type": "let_factor_case",
+            "named": true
+          }
+        ]
+      }
+    }
+  },
+  {
+    "type": "let_factor_binder",
+    "named": true,
+    "fields": {
+      "index": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "type_atom",
+            "named": true
+          },
+          {
+            "type": "type_coproduct",
+            "named": true
+          },
+          {
+            "type": "type_effect_apply",
+            "named": true
+          },
+          {
+            "type": "type_paren",
+            "named": true
+          },
+          {
+            "type": "type_product",
+            "named": true
+          },
+          {
+            "type": "type_slash",
+            "named": true
+          }
+        ]
+      },
+      "var": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "identifier",
+            "named": true
+          }
+        ]
+      }
+    }
+  },
+  {
+    "type": "let_factor_case",
+    "named": true,
+    "fields": {
+      "label": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "integer",
+            "named": true
+          }
+        ]
+      },
+      "value": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "let_binop",
+            "named": true
+          },
+          {
+            "type": "let_call",
+            "named": true
+          },
+          {
+            "type": "let_factor",
+            "named": true
+          },
+          {
+            "type": "let_index",
+            "named": true
+          },
+          {
+            "type": "let_lambda",
+            "named": true
+          },
+          {
+            "type": "let_list",
+            "named": true
+          },
+          {
+            "type": "let_literal",
+            "named": true
+          },
+          {
+            "type": "let_method_call",
+            "named": true
+          },
+          {
+            "type": "let_paren",
+            "named": true
+          },
+          {
+            "type": "let_string",
+            "named": true
+          },
+          {
+            "type": "let_unary",
+            "named": true
+          },
+          {
+            "type": "let_var",
+            "named": true
+          }
+        ]
+      }
+    }
+  },
+  {
     "type": "let_index",
     "named": true,
     "fields": {
@@ -3439,6 +3691,10 @@
           },
           {
             "type": "let_call",
+            "named": true
+          },
+          {
+            "type": "let_factor",
             "named": true
           },
           {
@@ -3495,6 +3751,10 @@
           },
           {
             "type": "let_call",
+            "named": true
+          },
+          {
+            "type": "let_factor",
             "named": true
           },
           {
@@ -3561,6 +3821,10 @@
         },
         {
           "type": "let_call",
+          "named": true
+        },
+        {
+          "type": "let_factor",
           "named": true
         },
         {
@@ -3642,6 +3906,10 @@
             "named": true
           },
           {
+            "type": "let_factor",
+            "named": true
+          },
+          {
             "type": "let_index",
             "named": true
           },
@@ -3718,6 +3986,10 @@
           "named": true
         },
         {
+          "type": "let_factor",
+          "named": true
+        },
+        {
           "type": "let_index",
           "named": true
         },
@@ -3780,6 +4052,10 @@
           },
           {
             "type": "let_call",
+            "named": true
+          },
+          {
+            "type": "let_factor",
             "named": true
           },
           {
@@ -3847,6 +4123,10 @@
         "types": [
           {
             "type": "let_call",
+            "named": true
+          },
+          {
+            "type": "let_factor",
             "named": true
           },
           {
@@ -3954,6 +4234,10 @@
           },
           {
             "type": "let_call",
+            "named": true
+          },
+          {
+            "type": "let_factor",
             "named": true
           },
           {
@@ -4094,6 +4378,10 @@
             "named": true
           },
           {
+            "type": "let_factor",
+            "named": true
+          },
+          {
             "type": "let_index",
             "named": true
           },
@@ -4151,6 +4439,10 @@
           },
           {
             "type": "let_call",
+            "named": true
+          },
+          {
+            "type": "let_factor",
             "named": true
           },
           {

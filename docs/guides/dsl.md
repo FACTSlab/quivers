@@ -281,7 +281,20 @@ let_term       := let_unary (('*' | '/') let_unary)*
 let_unary      := '-' let_atom | let_atom
 let_atom       := IDENT '(' let_expr (',' let_expr)* ')'
                 | IDENT '[' let_expr (',' let_expr)* ']'
+                | let_factor
                 | IDENT | INT | FLOAT | '(' let_expr ')'
+
+(* Multi-axis factor: assemble an indexed tensor by evaluating
+   a body once per tuple of index values.  The left adjoint of
+   indexing.  The uniform body form scales to arbitrary index
+   arity; the pattern-match form is the per-cell case-structured
+   surface for single-axis factors. *)
+let_factor     := 'factor' let_factor_binder (',' let_factor_binder)* 'in'
+                  ( let_expr
+                  | '{' let_factor_case (',' let_factor_case)* [','] '}'
+                  )
+let_factor_binder := IDENT ':' type_expr
+let_factor_case   := INT '->' let_expr
 var_pattern    := IDENT | '(' IDENT (',' IDENT)* ')'
 
 (* A family argument may be a numeric literal, an identifier, or a
@@ -1155,6 +1168,45 @@ let weights = softmax(logits)
 ```
 
 Each `let`-builtin denotes a deterministic measurable map, lifted into the Kleisli category as a Dirac kernel. `cumsum` realizes the partial-sum endomorphism over a plate; `softmax` is the standard simplex map; `cholesky_quad_form(L, x)` computes $x^\top L L^\top x$ for a lower-triangular Cholesky factor `L`.
+
+### Factor expressions: assembling indexed tensors
+
+The `factor` expression in a `let` body builds a finite-domain-indexed tensor by evaluating a body once per tuple of index values. Categorically it is the *left adjoint of indexing*: while `arr[i, j, ...]` is the elimination rule for `I_1 × ... × I_n -> body_type` (Kleisli pullback of a plate variable along a finite fibration), `factor` is the introduction rule.
+
+#### Uniform form
+
+```
+factor v_1 : I_1, v_2 : I_2, ..., v_n : I_n in <body>
+```
+
+denotes the tensor of shape `(|I_1|, ..., |I_n|, *body_shape)` whose value at position `(i_1, ..., i_n)` is `<body>` evaluated with `v_k := i_k`. The binder variables are integer-valued and visible only inside the body.
+
+<!-- compile: false -->
+```qvr
+object Verb : 40
+object Class : 4
+
+# Per-verb, per-class scoring table: shape (40, 4).
+let cell = factor v : Verb, cls : Class in coef[v, cls] * weight[cls]
+```
+
+#### Pattern-match form (single-axis)
+
+When each cell of a single-axis factor carries a structurally different expression, the case form lets you state the per-index expressions side-by-side:
+
+<!-- compile: false -->
+```qvr
+let class_probs = factor cls : Class in {
+    0 -> (1.0 - prob_dur) * (1.0 - prob_telic_nodur),
+    1 -> (1.0 - prob_dur) *        prob_telic_nodur,
+    2 ->        prob_dur  * (1.0 - prob_telic_dur),
+    3 ->        prob_dur  *        prob_telic_dur,
+}
+```
+
+The case labels must cover `{0, ..., |Index|-1}` exactly; the compiler rejects gaps, duplicates, or out-of-range labels at compile time. Braces and comma separators delimit the cases.
+
+This is the natural surface for structured categorical priors: each cell of a `Class`-shape probability vector is built from a different combination of upstream scalar latents.
 
 ### Inline Distributions
 

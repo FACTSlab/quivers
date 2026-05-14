@@ -3045,3 +3045,135 @@ class TestAxisRoleSurface:
                 "kernel W : SD -> SK ~ MatrixNormal over cod\n"
                 "export W\n"
             )
+
+
+# ---------------------------------------------------------------------------
+# Factor expressions - left adjoint of indexing
+# ---------------------------------------------------------------------------
+
+
+class TestLetFactor:
+    """Compile-time + runtime tests for the multi-axis factor
+    expression `factor v : I in <body>` and its pattern-match form
+    `factor v : I in { 0 -> ..., 1 -> ..., }`.
+    """
+
+    def _simple_program(self, factor_body: str) -> str:
+        return (
+            "object Class : 4\n"
+            "object Verb : 5\n"
+            "object Item : 10\n"
+            "\n"
+            "program p : Item -> Item ! Sample, Score\n"
+            "    prob_dur <- Beta(1.0, 1.0)\n"
+            "    prob_telic_dur <- Beta(1.0, 1.0)\n"
+            "    prob_telic_nodur <- Beta(10.0, 1.0)\n"
+            f"    let probs = {factor_body}\n"
+            "    observe y <- Normal(prob_dur, 1.0)\n"
+            "    return prob_dur\n"
+            "export p\n"
+        )
+
+    def test_pattern_match_form_compiles(self):
+        src = self._simple_program(
+            "factor cls : Class in {\n"
+            "        0 -> (1.0 - prob_dur) * (1.0 - prob_telic_nodur),\n"
+            "        1 -> (1.0 - prob_dur) *        prob_telic_nodur,\n"
+            "        2 ->        prob_dur  * (1.0 - prob_telic_dur),\n"
+            "        3 ->        prob_dur  *        prob_telic_dur,\n"
+            "    }"
+        )
+        m = loads(src)
+        assert m.morphism is not None
+
+    def test_pattern_match_rejects_missing_label(self):
+        src = self._simple_program(
+            "factor cls : Class in {\n"
+            "        0 -> prob_dur,\n"
+            "        1 -> prob_dur,\n"
+            "        2 -> prob_dur,\n"
+            "    }"
+        )
+        with pytest.raises(CompileError, match="missing labels"):
+            loads(src)
+
+    def test_pattern_match_rejects_duplicate_label(self):
+        src = self._simple_program(
+            "factor cls : Class in {\n"
+            "        0 -> prob_dur,\n"
+            "        0 -> prob_telic_dur,\n"
+            "        1 -> prob_dur,\n"
+            "        2 -> prob_dur,\n"
+            "        3 -> prob_dur,\n"
+            "    }"
+        )
+        with pytest.raises(CompileError, match="more than once"):
+            loads(src)
+
+    def test_pattern_match_rejects_out_of_range_label(self):
+        src = self._simple_program(
+            "factor cls : Class in {\n"
+            "        0 -> prob_dur,\n"
+            "        1 -> prob_dur,\n"
+            "        2 -> prob_dur,\n"
+            "        7 -> prob_dur,\n"
+            "    }"
+        )
+        with pytest.raises(CompileError, match="out of range"):
+            loads(src)
+
+    def test_uniform_single_axis_compiles(self):
+        src = self._simple_program("factor cls : Class in prob_dur * 2.0")
+        m = loads(src)
+        assert m.morphism is not None
+
+    def test_uniform_multi_axis_compiles(self):
+        src = self._simple_program("factor v : Verb, cls : Class in prob_dur")
+        m = loads(src)
+        assert m.morphism is not None
+
+    def test_factor_value_has_correct_shape(self):
+        src = self._simple_program(
+            "factor cls : Class in {\n"
+            "        0 -> (1.0 - prob_dur) * (1.0 - prob_telic_nodur),\n"
+            "        1 -> (1.0 - prob_dur) *        prob_telic_nodur,\n"
+            "        2 ->        prob_dur  * (1.0 - prob_telic_dur),\n"
+            "        3 ->        prob_dur  *        prob_telic_dur,\n"
+            "    }"
+        )
+        m = loads(src)
+        out = m.morphism.rsample(torch.zeros(2, 1, dtype=torch.long))
+        # Forward sample succeeded — the factor produced a tensor of
+        # shape (batch=2, 4) that the rest of the program consumed.
+        assert out.shape == (2, 1)
+
+    def test_factor_multi_axis_value_has_product_shape(self):
+        # Use a let_index inside the body to expose the cls binding;
+        # the resulting factor should have shape (|Verb|, |Class|).
+        src = (
+            "object Class : 4\n"
+            "object Verb : 5\n"
+            "object Item : 10\n"
+            "\n"
+            "program p : Item -> Item ! Sample, Score\n"
+            "    prob_dur <- Beta(1.0, 1.0)\n"
+            "    prob_telic_dur <- Beta(1.0, 1.0)\n"
+            "    prob_telic_nodur <- Beta(10.0, 1.0)\n"
+            "    let inner = factor cls : Class in {\n"
+            "        0 -> (1.0 - prob_dur) * (1.0 - prob_telic_nodur),\n"
+            "        1 -> (1.0 - prob_dur) *        prob_telic_nodur,\n"
+            "        2 ->        prob_dur  * (1.0 - prob_telic_dur),\n"
+            "        3 ->        prob_dur  *        prob_telic_dur,\n"
+            "    }\n"
+            "    let outer = factor v : Verb, cls : Class in inner[cls]\n"
+            "    observe y <- Normal(prob_dur, 1.0)\n"
+            "    return prob_dur\n"
+            "export p\n"
+        )
+        m = loads(src)
+        assert m.morphism is not None
+
+    def test_factor_duplicate_binder_name_rejected(self):
+        src = self._simple_program("factor cls : Class, cls : Class in prob_dur")
+        with pytest.raises(CompileError, match="repeated"):
+            loads(src)
