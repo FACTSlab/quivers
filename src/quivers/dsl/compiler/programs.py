@@ -5,6 +5,7 @@ program bodies, contractions, and let-expression compilation.
 """
 
 from __future__ import annotations
+import inspect
 from collections.abc import Callable
 from itertools import product as _cartesian_product
 from typing import cast
@@ -89,6 +90,166 @@ type LetValue = (
     | ContinuousMorphism
     | Callable[[dict[str, "LetValue"]], "LetValue"]
 )
+
+
+# ---------------------------------------------------------------------------
+# Built-in tensor primitives visible to let-expression bodies.
+# ---------------------------------------------------------------------------
+#
+# Each entry maps a function name (as users write it in source) to a
+# callable that the let-expression compiler dispatches through.
+# Categorically these are the deterministic generators of the
+# ``Smooth(R^n, R^m)`` strata embedded into our V-Cat surface as
+# pointwise / shape-preserving operations on tensors.  User-defined
+# neural-network programs compose these with ``latent`` morphisms
+# (the learnable weights) inside the existing ``program`` declaration
+# — no separate ``module`` construct is needed.
+#
+# Coverage: every standard ``torch.nn.functional`` activation and a
+# broad set of element-wise + reduction primitives from
+# ``torch``.  When the underlying torch function takes a ``dim``
+# keyword we default to ``dim=-1`` (the natural choice for per-row
+# operations in V-Cat morphisms); users wanting a different axis
+# write the contraction via the typed ``contraction`` declaration.
+_F = torch.nn.functional
+_LET_EXPR_BUILTINS: dict[str, Callable] = {
+    # torch.nn.functional activations.  The list mirrors the public
+    # surface of ``torch.nn.functional`` as of PyTorch 2.x.
+    "relu": lambda a: _F.relu(a),
+    "relu6": lambda a: _F.relu6(a),
+    "leaky_relu": lambda a, slope=0.01: _F.leaky_relu(a, negative_slope=slope),
+    "prelu": lambda a, w: _F.prelu(a, w),
+    "rrelu": lambda a, lower=1 / 8, upper=1 / 3: _F.rrelu(a, lower=lower, upper=upper),
+    "elu": lambda a, alpha=1.0: _F.elu(a, alpha=alpha),
+    "selu": lambda a: _F.selu(a),
+    "celu": lambda a, alpha=1.0: _F.celu(a, alpha=alpha),
+    "gelu": lambda a: _F.gelu(a),
+    "silu": lambda a: _F.silu(a),
+    "swish": lambda a: _F.silu(a),  # alias
+    "mish": lambda a: _F.mish(a),
+    "hardtanh": lambda a, lo=-1.0, hi=1.0: _F.hardtanh(a, min_val=lo, max_val=hi),
+    "hardshrink": lambda a, lam=0.5: _F.hardshrink(a, lambd=lam),
+    "hardsigmoid": lambda a: _F.hardsigmoid(a),
+    "hardswish": lambda a: _F.hardswish(a),
+    "softplus": lambda a, beta=1.0: _F.softplus(a, beta=beta),
+    "softshrink": lambda a, lam=0.5: _F.softshrink(a, lambd=lam),
+    "softsign": lambda a: _F.softsign(a),
+    "softmax": lambda a: _F.softmax(a, dim=-1),
+    "log_softmax": lambda a: _F.log_softmax(a, dim=-1),
+    "softmin": lambda a: _F.softmin(a, dim=-1),
+    "tanh": lambda a: torch.tanh(a),
+    "tanhshrink": lambda a: _F.tanhshrink(a),
+    "sigmoid": lambda a: torch.sigmoid(a),
+    "logsigmoid": lambda a: _F.logsigmoid(a),
+    "threshold": lambda a, t, v: _F.threshold(a, t, v),
+    "glu": lambda a: _F.glu(a, dim=-1),
+    "normalize": lambda a, p=2.0: _F.normalize(a, p=p, dim=-1),
+    # Pointwise transcendental / arithmetic operations.
+    "exp": lambda a: torch.exp(a),
+    "expm1": lambda a: torch.expm1(a),
+    "log": lambda a: torch.log(a),
+    "log1p": lambda a: torch.log1p(a),
+    "log2": lambda a: torch.log2(a),
+    "log10": lambda a: torch.log10(a),
+    "sqrt": lambda a: torch.sqrt(a),
+    "rsqrt": lambda a: torch.rsqrt(a),
+    "square": lambda a: torch.square(a),
+    "abs": lambda a: torch.abs(a),
+    "neg": lambda a: -a,
+    "sign": lambda a: torch.sign(a),
+    "reciprocal": lambda a: torch.reciprocal(a),
+    "clamp": lambda a, lo, hi: torch.clamp(a, min=lo, max=hi),
+    "sin": lambda a: torch.sin(a),
+    "cos": lambda a: torch.cos(a),
+    "tan": lambda a: torch.tan(a),
+    "asin": lambda a: torch.asin(a),
+    "acos": lambda a: torch.acos(a),
+    "atan": lambda a: torch.atan(a),
+    "sinh": lambda a: torch.sinh(a),
+    "cosh": lambda a: torch.cosh(a),
+    "asinh": lambda a: torch.asinh(a),
+    "acosh": lambda a: torch.acosh(a),
+    "atanh": lambda a: torch.atanh(a),
+    "floor": lambda a: torch.floor(a),
+    "ceil": lambda a: torch.ceil(a),
+    "round": lambda a: torch.round(a),
+    "trunc": lambda a: torch.trunc(a),
+    "erf": lambda a: torch.erf(a),
+    "erfc": lambda a: torch.erfc(a),
+    "erfinv": lambda a: torch.erfinv(a),
+    "lgamma": lambda a: torch.lgamma(a),
+    "digamma": lambda a: torch.digamma(a),
+    # Reductions along the last axis (``dim=-1``).  Reductions over a
+    # specific named axis go through the contraction surface.
+    "sum": lambda a: torch.sum(a, dim=-1),
+    "mean": lambda a: torch.mean(a, dim=-1),
+    "var": lambda a: torch.var(a, dim=-1),
+    "std": lambda a: torch.std(a, dim=-1),
+    "min": lambda a: torch.min(a, dim=-1).values,
+    "max": lambda a: torch.max(a, dim=-1).values,
+    "argmin": lambda a: torch.argmin(a, dim=-1),
+    "argmax": lambda a: torch.argmax(a, dim=-1),
+    "prod": lambda a: torch.prod(a, dim=-1),
+    "amax": lambda a: torch.amax(a, dim=-1),
+    "amin": lambda a: torch.amin(a, dim=-1),
+    "logsumexp": lambda a: torch.logsumexp(a, dim=-1),
+    "norm": lambda a, p=2.0: torch.linalg.vector_norm(a, ord=p, dim=-1),
+    # Shape-preserving but global operations on the last axis.
+    "cumsum": lambda a: torch.cumsum(a, dim=-1),
+    "cumprod": lambda a: torch.cumprod(a, dim=-1),
+    "cummax": lambda a: torch.cummax(a, dim=-1).values,
+    "cummin": lambda a: torch.cummin(a, dim=-1).values,
+    "flip": lambda a: torch.flip(a, dims=(-1,)),
+    "sort": lambda a: torch.sort(a, dim=-1).values,
+    # Stochastic / training-mode primitives.  Dropout is a no-op
+    # outside training; layer_norm needs the per-feature shape passed
+    # explicitly.
+    "dropout": lambda a, p=0.5: _F.dropout(a, p=p, training=True),
+    "alpha_dropout": lambda a, p=0.5: _F.alpha_dropout(a, p=p, training=True),
+    "layer_norm": lambda a: _F.layer_norm(a, normalized_shape=(a.shape[-1],)),
+    "rms_norm": lambda a: a
+    * torch.rsqrt(a.pow(2).mean(dim=-1, keepdim=True) + 1e-6),
+}
+
+
+def _expected_call_arity(target: object) -> int | None:
+    """Return the expected number of positional arguments for ``target``
+    when invoked from a let-expression call site, or ``None`` when the
+    arity cannot be determined statically.
+
+    Resolution rules:
+
+    * :class:`MonadicProgram` with named ``params``: arity is
+      ``len(params)`` (each param becomes one positional argument).
+    * :class:`MonadicProgram` without ``params``: arity is ``1`` (the
+      packed program input).
+    * :class:`Morphism`: arity is ``1`` (the domain tensor).
+    * Any other callable: use :func:`inspect.signature` and count
+      positional parameters without defaults; ``*args`` makes arity
+      unknowable, return ``None``.
+    """
+    from quivers.continuous.programs import MonadicProgram
+
+    if isinstance(target, MonadicProgram):
+        params = getattr(target, "_params", None)
+        return len(params) if params else 1
+    if isinstance(target, Morphism):
+        return 1
+    try:
+        sig = inspect.signature(target)  # type: ignore[arg-type]
+    except (TypeError, ValueError):
+        return None
+    positional_kinds = (
+        inspect.Parameter.POSITIONAL_ONLY,
+        inspect.Parameter.POSITIONAL_OR_KEYWORD,
+    )
+    count = 0
+    for p in sig.parameters.values():
+        if p.kind is inspect.Parameter.VAR_POSITIONAL:
+            return None
+        if p.kind in positional_kinds and p.default is inspect.Parameter.empty:
+            count += 1
+    return count
 
 
 def _flatten_type_axes(expr: TypeExpr) -> tuple[str, ...]:
@@ -2413,23 +2574,47 @@ class _ProgramsMixin:
                 for a in node.args
             ]
 
-            # Built-in tensor operations.  Limited to elementwise /
-            # shape-preserving primitives; contractions, reductions
-            # over named axes, and matrix products go through the
-            # typed contraction-declaration surface (see § Operadic
-            # contractions in docs/semantics/composition-rules.md).
-            _TENSOR_BUILTINS = {
-                "sigmoid": lambda a: torch.sigmoid(a),
-                "exp": lambda a: torch.exp(a),
-                "log": lambda a: torch.log(a),
-                "abs": lambda a: torch.abs(a),
-                "softplus": lambda a: torch.nn.functional.softplus(a),
-                "cumsum": lambda a: torch.cumsum(a, dim=-1),
-                "softmax": lambda a: torch.softmax(a, dim=-1),
-                "log1p": lambda a: torch.log1p(a),
-                "sqrt": lambda a: torch.sqrt(a),
-                "neg": lambda a: -a,
+            # Built-in tensor operations.  Covers the standard
+            # `torch.nn.functional` activation pool, common
+            # elementwise transformations, and dim=-1 reductions.
+            # Contractions, reductions over named axes, and matrix
+            # products go through the typed contraction-declaration
+            # surface (see § Operadic contractions in
+            # docs/semantics/composition-rules.md).
+            _TENSOR_BUILTINS = _LET_EXPR_BUILTINS
+
+            # Compile-time arity check for calls into a user-injected
+            # callable (program, morphism, encoder, decoder).  Builtins
+            # and constructors deliberately accept variable arity, so
+            # they are excluded from the check.
+            _globs_for_check = globals_ or {}
+            _higher_order_or_special = {
+                "length",
+                "map",
+                "filter",
+                "fold",
+                "logsumexp_over",
+                "logsumexp",
+                "parse",
+                "cholesky_quad_form",
             }
+            if (
+                func_name in _globs_for_check
+                and func_name != "__constructors__"
+                and func_name not in _TENSOR_BUILTINS
+                and func_name not in _higher_order_or_special
+                and func_name not in _globs_for_check.get(
+                    "__constructors__", frozenset()
+                )
+            ):
+                _target_for_check = _globs_for_check[func_name]
+                if callable(_target_for_check):
+                    _arity = _expected_call_arity(_target_for_check)
+                    if _arity is not None and _arity != len(arg_fns):
+                        raise CompileError(
+                            f"call to {func_name!r}: expected {_arity} "
+                            f"positional argument(s), got {len(arg_fns)}"
+                        )
 
             def _call(env: dict):
                 # Higher-order combinators come first; they consume
@@ -2540,13 +2725,39 @@ class _ProgramsMixin:
                     )
                     cov = D @ R @ D
                     return cov.reshape(*cov.shape[:-2], K * K)
-                # Constructor mode: build a tuple `(func_name, *args)`
-                # only when `func_name` is in the user-declared
-                # constructor set (passed via `globals_["__constructors__"]`).
+                # User-defined callable (program, morphism, encoder,
+                # decoder) injected via ``globals_``. A deterministic
+                # program is a Dirac Kleisli arrow embedding Smooth
+                # into Kleisli(Giry); calling it from an encoder body
+                # composes the two Smooth pieces and stays in Smooth.
+                globs_dict = globals_ or {}
+                if func_name in globs_dict and func_name != "__constructors__":
+                    target = globs_dict[func_name]
+                    if callable(target):
+                        args = [fn(env) for fn in arg_fns]
+                        try:
+                            return target(*args)
+                        except TypeError as exc:
+                            raise CompileError(
+                                f"call to {func_name!r} failed: {exc}; "
+                                f"check that argument count and types match "
+                                f"the callee's signature"
+                            ) from exc
+                        except RuntimeError as exc:
+                            # PyTorch tensor-shape errors surface as
+                            # RuntimeError; re-raise with the call site
+                            # named so the user knows which call broke.
+                            raise CompileError(
+                                f"call to {func_name!r} failed at runtime: "
+                                f"{exc}"
+                            ) from exc
+                # Constructor mode: build a tuple ``(func_name, *args)``
+                # only when ``func_name`` is in the user-declared
+                # constructor set (passed via ``globals_["__constructors__"]``).
                 # The free term algebra over named constructor symbols
-                # is thus fully under the user's control — no
-                # identifier is silently treated as a constructor.
-                constructors = (globals_ or {}).get("__constructors__", frozenset())
+                # is thus fully under the user's control: no identifier
+                # is silently treated as a constructor.
+                constructors = globs_dict.get("__constructors__", frozenset())
                 if func_name in constructors:
                     args = [fn(env) for fn in arg_fns]
                     return (func_name, *args)

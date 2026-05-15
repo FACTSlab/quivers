@@ -122,7 +122,71 @@ $$
 
 i.e.\ pushforward by $\mathrm{id}_{\Phi} \times h$ realized through the *strength* of the Giry monad.
 
-The arithmetic sublanguage is interpreted standardly: $\mathbb{R}$-valued and $\mathbb{N}$-valued operators denote the corresponding measurable functions on the relevant space; built-in functions (`sigmoid`, `exp`, `log`, `abs`, `softplus`) denote the corresponding total measurable maps.
+The arithmetic sublanguage is interpreted standardly: $\mathbb{R}$-valued and $\mathbb{N}$-valued operators denote the corresponding measurable functions on the relevant space, and built-in functions denote the corresponding total measurable maps.
+
+#### 2.3.1 Built-in primitives
+
+The let-expression call form `f(arg, ...)` resolves first against a fixed table of tensor primitives drawn from `torch.nn.functional` and `torch`. The table is exported as [`_LET_EXPR_BUILTINS`](../api/dsl/compiler.md) for introspection. Each primitive denotes the total measurable map of the same name; reductions take `dim=-1` by convention (reductions over a *named* axis go through the typed [`contraction`](../api/dsl/compiler.md) surface instead).
+
+| Category | Primitives |
+| --- | --- |
+| ReLU family | `relu`, `relu6`, `leaky_relu`, `prelu`, `rrelu`, `elu`, `selu`, `celu`, `gelu` |
+| Smooth gates | `silu` (alias `swish`), `mish`, `hardsigmoid`, `hardswish`, `hardtanh`, `hardshrink`, `softplus`, `softshrink`, `softsign` |
+| Sigmoidal | `sigmoid`, `logsigmoid`, `tanh`, `tanhshrink`, `threshold`, `glu` |
+| Probability-simplex | `softmax`, `log_softmax`, `softmin`, `normalize` |
+| Transcendentals | `exp`, `expm1`, `log`, `log1p`, `log2`, `log10`, `sqrt`, `rsqrt`, `square`, `abs`, `neg`, `sign`, `reciprocal`, `clamp` |
+| Trigonometric / hyperbolic | `sin`, `cos`, `tan`, `asin`, `acos`, `atan`, `sinh`, `cosh`, `asinh`, `acosh`, `atanh` |
+| Rounding | `floor`, `ceil`, `round`, `trunc` |
+| Special functions | `erf`, `erfc`, `erfinv`, `lgamma`, `digamma` |
+| Reductions (`dim=-1`) | `sum`, `mean`, `var`, `std`, `min`, `max`, `argmin`, `argmax`, `prod`, `amax`, `amin`, `logsumexp`, `norm` |
+| Cumulative / ordering | `cumsum`, `cumprod`, `cummax`, `cummin`, `flip`, `sort` |
+| Training-mode | `dropout`, `alpha_dropout`, `layer_norm`, `rms_norm` |
+
+<!-- compile: false -->
+```qvr
+# Illustrative: each name below is a let-expression primitive,
+# not a top-level morphism, so this block is not standalone-compilable.
+softmax(x)         # softmax over the last axis
+gelu(x)            # smooth gate
+sum(x)             # dim=-1 reduction
+```
+
+Two names overload between the table and the higher-order combinator pool: `logsumexp(a, b, c, ...)` reduces over an explicit stack of scalar/tensor arguments rather than along `dim=-1`; the variadic form wins on dispatch.
+
+#### 2.3.2 User-defined callables
+
+Calls in let bodies also resolve against the program's own [`_morphisms`](../api/dsl/compiler.md), [`_encoders`](../api/dsl/compiler.md), [`_decoders`](../api/dsl/compiler.md), [`_deductions`](../api/dsl/compiler.md), and [`_signatures`](../api/dsl/compiler.md) tables. A deterministic [`program`](programs.md) is a [Dirac](https://en.wikipedia.org/wiki/Dirac_measure) [Kleisli arrow](https://en.wikipedia.org/wiki/Kleisli_category) embedding [Smooth](https://en.wikipedia.org/wiki/Smooth_manifold) into [Kleisli](https://en.wikipedia.org/wiki/Kleisli_category)$(\mathcal{G})$; calling it from an encoder rule body composes the two Smooth pieces and stays in Smooth.
+
+```qvr
+signature Seq {
+    sorts {
+        Seq : object dim 64
+        A   : data   dim 64
+    }
+    constructors {
+        Nil  :        -> Seq
+        Cons : A, Seq -> Seq
+    }
+}
+
+encoder C over Seq {
+    dim Seq = 64
+    Nil                              |-> 0.0
+    Cons(head, tail) recurrent state |-> gelu(head + state)
+}
+```
+
+The dispatcher consults builtins, then user-defined callables, then the user-declared constructor set (for free-term algebra construction). Builtins shadow user-injected names with the same identifier.
+
+#### 2.3.3 Arity and shape checking
+
+At compile time, the let-expression compiler checks the positional arity of every user-defined callable against the call site:
+
+* a [`Morphism`](../api/core/morphisms.md) is unary (takes the domain tensor);
+* a [`MonadicProgram`](../api/continuous/programs.md) with named `params` is `len(params)`-ary, otherwise unary;
+* any other callable is introspected through [`inspect.signature`](https://docs.python.org/3/library/inspect.html#inspect.signature), counting positional parameters without defaults; `*args` makes the arity unknowable, in which case the check is skipped.
+
+Tensor-shape mismatches inside a user-defined callable surface as `RuntimeError` from PyTorch; the dispatcher wraps these (and any `TypeError`) into a [`CompileError`](../api/dsl/compiler.md) that names the call site, so the diagnostic is `call to 'L' failed: ...` rather than a bare PyTorch trace.
 
 ### 2.4 Indexed Bind (Plate)
 
