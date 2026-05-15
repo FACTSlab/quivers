@@ -1,6 +1,6 @@
 # 6. Choosing an inference algorithm
 
-Quivers ships nine variational guides ([Hoffman, Blei, Wang & Paisley, 2013](https://doi.org/10.5555/2567709.2502622) for the SVI substrate), four objectives, two MCMC kernels (HMC, [Neal, 2011](https://doi.org/10.1201/b10905-6); NUTS, [Hoffman & Gelman, 2014](https://www.jmlr.org/papers/v15/hoffman14a.html)), two hybrid samplers, and four gradient estimators. Some combinations are obviously sensible; some are obvious mistakes; most fall between, and the right call depends on the shape of your posterior. This chapter is a field guide.
+Quivers ships nine variational [guides](../../api/inference/guide.md) ([Hoffman, Blei, Wang & Paisley, 2013](https://doi.org/10.5555/2567709.2502622) for the SVI substrate), four [objectives](../../api/inference/elbo.md), two MCMC kernels (HMC, [Neal, 2011](https://doi.org/10.1201/b10905-6); NUTS, [Hoffman & Gelman, 2014](https://www.jmlr.org/papers/v15/hoffman14a.html)), two hybrid samplers, and four gradient [estimators](../../api/inference/estimators.md). Some combinations are obviously sensible; some are obvious mistakes; most fall between, and the right call depends on the shape of your posterior. This chapter is a field guide.
 
 The mental model: you pick (a) a *family* (variational, MCMC, hybrid), then (b) a *configuration* within that family, then (c) gradient-estimator and tightness knobs. The choices roughly factor; we'll walk down the tree.
 
@@ -54,7 +54,7 @@ The Tier-1 through Tier-6 benchmark grid in `tests/benchmarks/` walks these agai
 
 | Objective | Bound | When |
 |---|---|---|
-| `ELBO(num_particles=1)` | Reparameterised ELBO | Default. |
+| `ELBO(num_particles=1)` | Reparameterized ELBO | Default. |
 | `ELBO(num_particles=K)` | K-sample ELBO | Slightly tighter; rarely worth the cost. |
 | `IWAEBound(K)` | Importance-weighted bound | Tighter than ELBO for `K > 1`. |
 | `RenyiBound(alpha, K)` | Rényi divergence bound | Interpolates ELBO (α=1) and IWAE (α=0). |
@@ -66,29 +66,29 @@ For most workflows, the default `ELBO()` is the right call. `IWAEBound` matters 
 
 | Estimator | What it does | When |
 |---|---|---|
-| `Reparameterised` | Standard pathwise gradient | Default. |
+| `Reparameterized` | Standard pathwise gradient | Default. |
 | `StickingTheLanding` | Detaches variational params in `log q` | When `q → p*` and you're getting noisy gradients at convergence. |
-| `DoublyReparameterised` | DReG for IWAE | With `IWAEBound(K)` at large K. |
-| `ScoreFunction` | REINFORCE | Discrete (non-reparameterisable) latents you can't `marginalize`. |
+| `DoublyReparameterized` | DReG for IWAE | With `IWAEBound(K)` at large K. |
+| `ScoreFunction` | REINFORCE | Discrete (non-reparameterizable) latents you can't `marginalize`. |
 
-Pair `IWAEBound(K=16, estimator=DoublyReparameterised())` for the flagship "tight bound, low-variance gradients" combination.
+Pair `IWAEBound(num_particles=16, estimator=DoublyReparameterized())` for the flagship "tight bound, low-variance gradients" combination.
 
 ## Calling SVI
 
 ```python
 from quivers.inference import (
-    AutoIAFGuide, IWAEBound, DoublyReparameterised, SVI,
+    AutoIAFGuide, IWAEBound, DoublyReparameterized, SVI,
 )
 
-guide = AutoIAFGuide(model, observed_names={"y"}, num_flow_blocks=4)
-objective = IWAEBound(num_particles=16, estimator=DoublyReparameterised())
+guide = AutoIAFGuide(model, observed_names={"y"}, num_flows=4)
+objective = IWAEBound(num_particles=16, estimator=DoublyReparameterized())
 optimizer = torch.optim.Adam(
     list(model.parameters()) + list(guide.parameters()), lr=1e-3,
 )
 svi = SVI(model, guide, optimizer, objective)
 
 for step in range(5000):
-    loss = svi.step({"x": x_data}, {"y": y_data})
+    loss = svi.step(x_data, {"y": y_data})
 ```
 
 ## Calling NUTS
@@ -99,7 +99,7 @@ For the times you want unbiased posterior samples:
 from quivers.inference import NUTSKernel, MCMC
 
 kernel = NUTSKernel(
-    target_accept_prob=0.85,
+    target_accept=0.85,
     max_tree_depth=10,
     mass_matrix="diagonal",
 )
@@ -108,31 +108,35 @@ mcmc = MCMC(
     num_warmup=1000,
     num_samples=2000,
     num_chains=4,
-    initial_params="prior",
+    init_strategy="prior",
 )
-result = mcmc.run(model, {"x": x_data}, {"y": y_data})
-print(result.summary())                  # per-site mean, std, R-hat, ESS
-print("divergences:", result.num_divergences)
+result = mcmc.run(model, x_data, {"y": y_data})
+print(result.r_hat)                       # per-site split-Rhat
+print(result.ess)                         # per-site effective sample size
+print("divergences:", result.total_divergences)
 ```
 
 Diagnostics to check before trusting the run:
 
-- R-hat < 1.01 for every site (otherwise: chains haven't mixed; run longer warmup).
+- Rhat < 1.01 for every site (otherwise: chains haven't mixed; run longer warmup).
 - ESS > 100 per chain for every site (otherwise: samples are too correlated; tighten step size).
-- Divergences near zero (otherwise: posterior has curvature the integrator missed; bump `target_accept_prob` to 0.95 or reparameterise).
+- Divergences near zero (otherwise: posterior has curvature the integrator missed; bump `target_accept` to 0.95 or reparameterize).
 
 ## Hybrid samplers
 
 Two configurations sit between VI and pure MCMC:
 
-- **`WarmupThenHMC(guide, mcmc_kernel)`** trains a variational guide to convergence and uses the resulting posterior mean as the initial point for HMC chains. Useful when HMC's warmup wastes a lot of compute exploring tails the guide already knows are empty.
-- **`AutoDAIS(base, num_steps, step_size)`** wraps a base guide with `num_steps` annealed HMC trajectories. It closes the parity gap with the Pyro / NumPyro AutoDAIS on multimodal posteriors where pure VI collapses.
+- `WarmupThenHMC(guide, kernel, svi_steps, mcmc_warmup, mcmc_samples)` runs `svi_steps` of variational warm-up and then launches MCMC chains initialized from the trained guide. Useful when HMC's warmup wastes a lot of compute exploring tails the guide already knows are empty.
+- `AutoDAIS(base, model, observations, num_steps=..., init_step_size=...)` wraps a base guide with `num_steps` annealed HMC trajectories. It closes the parity gap with the Pyro / NumPyro AutoDAIS on multimodal posteriors where pure VI collapses.
 
 ```python
 from quivers.inference import AutoDAIS, ELBO
 
 base   = AutoNormalGuide(model, observed_names={"y"})
-guide  = AutoDAIS(base, num_steps=8, step_size=0.05)
+guide  = AutoDAIS(
+    base, model, observations={"y": y_data},
+    num_steps=8, init_step_size=0.05,
+)
 elbo   = ELBO()
 svi    = SVI(model, guide, optimizer, elbo)
 ```
@@ -144,11 +148,11 @@ svi    = SVI(model, guide, optimizer, elbo)
 ```python
 from quivers.inference import Predictive
 
-# Either of these works
-pred = Predictive(model, guide=guide,         num_samples=1000)
+# `posterior` accepts either a trained Guide or an MCMCResult
+pred = Predictive(model, posterior=guide,       num_samples=1000)
 pred = Predictive(model, posterior=mcmc_result, num_samples=1000)
 
-posterior_predictive = pred({"x": x_test})    # dict of (num_samples, ...) tensors
+posterior_predictive = pred(x_test)           # dict of (num_samples, ...) tensors
 ```
 
 ## Reading the benchmark grid

@@ -6,11 +6,11 @@ This is optional reading. Skip it if the DSL is doing what you need.
 
 ## The setting in one paragraph
 
-A QVR program denotes a morphism in a $\mathcal{V}$-enriched category in the sense of [Kelly (1982)](http://www.tac.mta.ca/tac/reprints/articles/10/tr10abs.html). *Enriched* means the hom-sets aren't sets, they're objects of a fixed algebra $\mathcal{V}$ called the *enrichment* or *base*. For QVR's category $\mathcal{V}\text{-}\mathbf{Rel}$ of $\mathcal{V}$-valued relations on finite sets, a morphism `f : A -> B` is concretely a tensor of shape `(|A|, |B|)` whose entries live in $\mathcal{V}$. The choice of $\mathcal{V}$ determines what those entries mean: probabilities, log-probabilities, real numbers, fuzzy truth values, Booleans, etc. Composition `f >> g` is parameterized by $\mathcal{V}$ via two operations: a binary tensor product (`a ⊗ b`) that combines entries pointwise, and a join (`⋁_i x_i`) that aggregates over the shared dimension. Different choices of $(\otimes, \bigvee)$ give different composition semantics.
+A QVR program denotes a morphism in a [$\mathcal{V}$-enriched category](https://ncatlab.org/nlab/show/enriched+category) in the sense of [Kelly (1982)](http://www.tac.mta.ca/tac/reprints/articles/10/tr10abs.html). *Enriched* means the hom-sets aren't sets, they're objects of a fixed algebra $\mathcal{V}$ called the *enrichment* or *base*. For QVR's category $\mathcal{V}\text{-}\mathbf{Rel}$ of $\mathcal{V}$-valued relations on finite sets, a morphism `f : A -> B` is concretely a tensor of shape `(|A|, |B|)` whose entries live in $\mathcal{V}$. The choice of $\mathcal{V}$ determines what those entries mean: probabilities, log-probabilities, real numbers, fuzzy truth values, Booleans, etc. Composition `f >> g` is parameterized by $\mathcal{V}$ via two operations: a binary tensor product (`a ⊗ b`) that combines entries pointwise, and a join (`⋁_i x_i`) that aggregates over the shared dimension. Different choices of $(\otimes, \bigvee)$ give different composition semantics.
 
 ## Quantales: the enrichment algebra
 
-A *quantale* is a complete lattice equipped with a monoidal product distributing over arbitrary joins. The shipped quantales:
+A [quantale](https://ncatlab.org/nlab/show/quantale) is a complete lattice equipped with a monoidal product distributing over arbitrary joins. The shipped quantales:
 
 | Name | $\otimes$ | $\bigvee$ | Identity | Reading |
 |---|---|---|---|---|
@@ -41,11 +41,12 @@ Operations like `identity(A)`, `cup(A)`, `cap(A)`, `f.dagger`, `f.trace(A)` need
 
 ## Composition operators carry the enrichment
 
-Even though `quantale product_fuzzy` sets the module's enrichment, the composition operators themselves are tagged with the enrichment they implement:
+The shipped composition operators split into two groups. `>>` and `>=>` defer to the operands' own quantale (the module-level `quantale` declaration); the typed variants pin a specific enrichment and reject operands carrying a different one:
 
 | Operator | Quantale |
 |---|---|
-| `>>` | ProductFuzzy (noisy-OR) |
+| `>>` | operands' shared quantale |
+| `>=>` | [Kleisli composition](https://en.wikipedia.org/wiki/Kleisli_category) in operands' shared quantale |
 | `*>` | Markov (sum-product, kernel composition) |
 | `~>` | LogProb (numerically stable in log-space) |
 | `||>` | Gödel (min/max) |
@@ -55,9 +56,8 @@ Even though `quantale product_fuzzy` sets the module's enrichment, the compositi
 | `$>` | Real (sum-product) |
 | `%>` | Probability |
 | `<<` | Reverse of `>>` |
-| `>=>` | Kleisli composition |
 
-So `f >> g` always composes in ProductFuzzy regardless of which `quantale` you declared. To cross enrichments, you `change_base` between segments.
+So `f >> g` composes in whatever enrichment both operands carry, and errors on a mismatch; the typed operators (`*>`, `~>`, ...) require both operands to already live in the target quantale and never auto-base-change. To cross enrichments, you [`change_base`](../../api/core/morphisms.md) between segments.
 
 ## Change of base
 
@@ -80,12 +80,12 @@ let g = f.change_base(pipeline)
 
 ## The monadic programs
 
-A `program` block compiles to a `MonadicProgram` morphism in the Kleisli category of the (discrete or continuous) Giry monad ([Giry, 1982](https://doi.org/10.1007/BFb0092872)); see [Fritz, 2020](https://doi.org/10.1016/j.aim.2020.107239) for the more recent synthetic theory of Markov categories. Each statement is a Kleisli arrow:
+A `program` block compiles to a `MonadicProgram` morphism in the [Kleisli category](https://en.wikipedia.org/wiki/Kleisli_category) of the (discrete or continuous) [Giry monad](https://ncatlab.org/nlab/show/Giry+monad) ([Giry, 1982](https://doi.org/10.1007/BFb0092872)); see [Fritz, 2020](https://doi.org/10.1016/j.aim.2020.107239) for the more recent synthetic theory of [Markov categories](https://ncatlab.org/nlab/show/Markov+category). Each statement is a Kleisli arrow:
 
 - `v <- F(args)` is monadic bind: sample from `F(args)` and extend the joint kernel.
 - `observe v <- F(args)` is conditioning: clamp `v` to the observed value and score the likelihood.
 - `let v = expr` is a pure morphism: a deterministic computation extending the joint kernel by a delta mass.
-- `marginalize v : A <- F(args) in { ... }` is the right Kan extension along the projection that integrates `v` out of the body's joint.
+- `marginalize v : A <- F(args) in { ... }` is the [right Kan extension](https://ncatlab.org/nlab/show/Kan+extension) along the projection that integrates `v` out of the body's joint.
 - `return v` is the unit-of-monad-projection: project the joint kernel onto `v`'s coordinate.
 
 This is the same Kleisli structure that Pyro, NumPyro, and Church use; the difference is that QVR's effects (`Sample`, `Score`, `Marginal`, `Pure`) are tracked as a static side-channel and checked at compile time.

@@ -1,10 +1,10 @@
 # Tutorial 1: Your First Quiver
 
-In this tutorial, you will create a simple enriched category and work with morphisms as tensors. A quiver in this context is a directed graph where edges carry values in a lattice (quantale) rather than being abstract. When the quantale is $[0, 1]$ with product t-norm and noisy-OR, morphisms are fuzzy relations: functions from pairs of objects to truth values in $[0, 1]$.
+In this tutorial, you will create a simple enriched category and work with morphisms as tensors. A quiver in this context is a directed graph where edges carry values in a lattice ([quantale](https://ncatlab.org/nlab/show/quantale)) rather than being abstract. When the quantale is $[0, 1]$ with product t-norm and noisy-OR, morphisms are fuzzy relations: functions from pairs of objects to truth values in $[0, 1]$.
 
 ## Concepts
 
-- **Objects**: finite sets (FinSet)
+- **Objects**: finite sets ([`FinSet`](../../api/core/objects.md))
 - **Morphisms**: $\mathcal{V}$-relations represented as tensors
 - **Latent morphisms**: parameters (learnable)
 - **Observed morphisms**: fixed tensors
@@ -25,9 +25,9 @@ from quivers.program import Program
 Create three finite sets: one for positions (X), one for colors (Y), and one for outcomes (Z):
 
 ```python
-X = FinSet("Position", 3)
-Y = FinSet("Color", 4)
-Z = FinSet("Outcome", 2)
+X = FinSet(name="Position", cardinality=3)
+Y = FinSet(name="Color", cardinality=4)
+Z = FinSet(name="Outcome", cardinality=2)
 
 print(X.size)   # 3
 print(Y.size)   # 4
@@ -40,13 +40,13 @@ Each object has a shape and size. These define the dimensions of the tensors rep
 
 ### Latent Morphism
 
-A latent morphism has learnable tensor entries. Create one from X to Y:
+A latent morphism has learnable tensor entries. Create one from X to Y using [`morphism`](../../api/core/morphisms.md):
 
 ```python
 f = morphism(X, Y)
-print(f.domain)     # Position
-print(f.codomain)   # Color
-print(f.tensor)     # shape [3, 4], values in (0, 1)
+print(f.domain.name)     # Position
+print(f.codomain.name)   # Color
+print(f.tensor)          # shape [3, 4], values in (0, 1)
 print(f.tensor.shape)
 ```
 
@@ -63,7 +63,7 @@ print(params[0].shape)  # torch.Size([3, 4])
 
 ### Observed Morphism
 
-An observed morphism has a fixed, non-learnable tensor. Create one from Y to Z with explicit data:
+An observed morphism has a fixed, non-learnable tensor. Create one from Y to Z with explicit data using [`observed`](../../api/core/morphisms.md):
 
 ```python
 data = torch.tensor([
@@ -93,7 +93,7 @@ Compose two morphisms using the `>>` operator. Composition applies the quantale'
 Create a third latent morphism from Z to a new object:
 
 ```python
-W = FinSet("Result", 5)
+W = FinSet(name="Result", cardinality=5)
 h = morphism(Z, W)
 ```
 
@@ -101,12 +101,12 @@ Compose f and g: X -> Y -> Z
 
 ```python
 fg = f >> g
-print(fg.domain)  # Position
-print(fg.codomain)  # Outcome
-print(fg.tensor.shape)  # [3, 2]
+print(fg.domain.name)    # Position
+print(fg.codomain.name)  # Outcome
+print(fg.tensor.shape)   # [3, 2]
 ```
 
-Composition is lazy: the tensor is not computed until evaluation. Verify this is a ComposedMorphism:
+Composition is lazy: the tensor is not computed until evaluation. Verify this is a [`ComposedMorphism`](../../api/core/morphisms.md):
 
 ```python
 from quivers.core.morphisms import ComposedMorphism
@@ -142,7 +142,7 @@ For a relation in PRODUCT_FUZZY, values should lie in $[0, 1]$.
 
 ## Working as a Differentiable Module
 
-Wrap a morphism in a `Program` to make it a differentiable `nn.Module`:
+Wrap a morphism in a [`Program`](../../api/program.md) to make it a differentiable `nn.Module`:
 
 ```python
 prog = Program(f)
@@ -180,13 +180,13 @@ The parameters of all latent morphisms in the composition will be updated.
 
 ## Quantales
 
-The examples so far use PRODUCT_FUZZY as the enrichment:
+The examples so far use [`PRODUCT_FUZZY`](../../api/core/quantales.md) as the enrichment:
 
 ```python
 print(PRODUCT_FUZZY.name)  # "ProductFuzzy"
 ```
 
-Other quantales are available (Boolean, Łukasiewicz, Gödel). The choice of quantale affects:
+Other quantales are available ([`BOOLEAN`](../../api/core/quantales.md), [`LUKASIEWICZ`](../../api/core/quantales.md), [`GODEL`](../../api/core/quantales.md)). The choice of quantale affects:
 
 1. How morphisms are initialized
 2. How they compose

@@ -60,8 +60,8 @@ torch.manual_seed(42)
 batch = torch.zeros(50, 1, dtype=torch.long)  # 50 samples
 samples = model.rsample(batch)
 
-# Extract y values (observation)
-y_observed = samples[:, 1]  # second output is y
+# Tuple returns come back as a dict keyed by variable name.
+y_observed = samples["y"]
 print(y_observed.shape)  # [50]
 print(y_observed.mean(), y_observed.std())
 ```
@@ -163,17 +163,17 @@ Define the ELBO loss and optimizer:
 ```python
 elbo = ELBO(num_particles=1)
 
-optimizer = optim.Adam(guide.parameters(), lr=0.01)
+optimizer = optim.Adam(list(model.parameters()) + list(guide.parameters()), lr=0.01)
 
-svi = SVI(conditioned_model, guide, optimizer, elbo)
+svi = SVI(model, guide, optimizer, elbo)
 ```
 
-The SVI object pairs:
+The [`SVI`](../../api/inference/svi.md) object pairs:
 
-- `model`: The generative model (conditioned on observations)
-- `guide`: The variational posterior
-- `optimizer`: Parameter updates for the guide
-- `loss`: ELBO computation
+- `model`: the generative `MonadicProgram`. Observations are supplied to each step rather than baked in via [`condition`](../../api/inference/conditioning.md).
+- `guide`: the variational posterior.
+- `optim`: optimizer over the model and guide parameters.
+- `objective`: an [`Objective`](../../api/inference/elbo.md) such as [`ELBO`](../../api/inference/elbo.md).
 
 ## Training Loop
 
@@ -197,13 +197,9 @@ for step in range(num_steps):
         batch_idx = indices[i*batch_size:(i+1)*batch_size]
         batch_obs = {"y": y_observed[batch_idx]}
 
-        # Condition on batch
-        model_batch = condition(model, batch_obs)
-
-        # Reset gradient
-        optimizer.zero_grad()
-
-        # Compute ELBO loss
+        # One SVI step: the observations dict flows through the
+        # objective at evaluation time, so the model itself does not
+        # need to be re-wrapped per batch.
         loss = svi.step(
             torch.zeros(batch_size, 1, dtype=torch.long), batch_obs
         )
@@ -291,7 +287,7 @@ The same pattern extends to complex models. For instance, with the PDS model fro
 ```python
 from quivers.dsl import loads
 
-model_pds = loads("""
+prog_pds = loads("""
 object Entity : 1
 object Truth : 2
 object Resp : 1
@@ -306,19 +302,24 @@ program factivity : Entity -> Truth * Truth * Truth * Resp
     observe response <- TruncatedNormal(theta_know, sigma, 0.0, 1.0)
     return (tau_know, cg_complement, cg_matrix, response)
 """)
+model_pds = prog_pds.morphism
 
 # Observed response judgments from a linguistic experiment
 observed_responses = torch.tensor([0.8, 0.6, 0.7, 0.9, 0.5])
 
-# Condition and infer
-model_cond = condition(model_pds, {"response": observed_responses})
+# Build a guide and an SVI loop. Observations are routed through
+# ``svi.step`` rather than wrapped into the model.
 guide_pds = AutoNormalGuide(model_pds, observed_names={"response"})
 
 elbo = ELBO(num_particles=1)
-optimizer = optim.Adam(guide_pds.parameters(), lr=0.01)
-svi = SVI(model_cond, guide_pds, optimizer, elbo)
+optimizer = optim.Adam(
+    list(model_pds.parameters()) + list(guide_pds.parameters()),
+    lr=0.01,
+)
+svi = SVI(model_pds, guide_pds, optimizer, elbo)
 
-# Run training...
+# Run training... pass {"response": observed_responses} as the
+# observations dict on each step.
 ```
 
 ## Summary

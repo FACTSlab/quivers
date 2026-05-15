@@ -1,6 +1,6 @@
 # Tutorial 4: Fuzzy Logic Factorization
 
-This tutorial demonstrates how to use quivers to factorize a fuzzy relation into a composition of learnable morphisms under the product fuzzy logic quantale. This is matrix factorization where the algebra is not standard linear algebra but probabilistic fuzzy logic: product is fuzzy AND and summation is fuzzy OR.
+This tutorial demonstrates how to use quivers to factorize a fuzzy relation into a composition of learnable morphisms under the product fuzzy logic [quantale](https://ncatlab.org/nlab/show/quantale). This is matrix factorization where the algebra is not standard linear algebra but probabilistic [fuzzy logic](https://en.wikipedia.org/wiki/Fuzzy_logic): product is fuzzy AND and summation is fuzzy OR.
 
 ## Background
 
@@ -27,14 +27,14 @@ from quivers import FinSet, morphism, observed, Program
 Define three finite sets. The latent set $Y$ has smaller cardinality than $X$ and $Z$, forcing the factorization to compress the relation through a low-dimensional bottleneck:
 
 ```python
-X = FinSet("X", 6)   # domain: 6 elements
-Y = FinSet("Y", 3)   # latent: 3 fuzzy features
-Z = FinSet("Z", 8)   # codomain: 8 elements
+X = FinSet(name="X", cardinality=6)   # domain: 6 elements
+Y = FinSet(name="Y", cardinality=3)   # latent: 3 fuzzy features
+Z = FinSet(name="Z", cardinality=8)   # codomain: 8 elements
 ```
 
 ## Observed Relation
 
-Create a synthetic fuzzy relation $R: X \to Z$ with values in $[0, 1]$. We build it from two ground-truth factors to ensure it has a low-rank fuzzy structure:
+Create a synthetic fuzzy relation $R: X \to Z$ with values in $[0, 1]$ using [`observed`](../../api/core/morphisms.md). We build it from two ground-truth factors to ensure it has a low-rank fuzzy structure:
 
 ```python
 torch.manual_seed(42)
@@ -54,20 +54,20 @@ The tensor `R_data` has shape $(6, 8)$ with entries in $[0, 1]$, representing th
 
 ## Learnable Factorization
 
-Define two **latent morphisms**, learnable $\mathcal{V}$-enriched relations whose parameters are optimized during training:
+Define two **latent morphisms** with [`morphism`](../../api/core/morphisms.md), learnable $\mathcal{V}$-enriched relations whose parameters are optimized during training:
 
 ```python
 f = morphism(X, Y)   # learnable: X -> Y
 g = morphism(Y, Z)   # learnable: Y -> Z
 ```
 
-Each latent morphism stores unconstrained real-valued parameters and applies a sigmoid to produce values in $(0, 1)$. The composition `f >> g` automatically uses the `ProductFuzzy` quantale:
+Each latent morphism stores unconstrained real-valued parameters and applies a sigmoid to produce values in $(0, 1)$. The composition `f >> g` automatically uses the [`ProductFuzzy`](../../api/core/quantales.md) quantale:
 
 ```python
 h = f >> g            # V-enriched composition: X -> Z
 ```
 
-Wrap the composition as a trainable `Program` (an `nn.Module`):
+Wrap the composition as a trainable [`Program`](../../api/program.md) (an `nn.Module`):
 
 ```python
 model = Program(h)
@@ -75,7 +75,7 @@ model = Program(h)
 
 ## Training
 
-The `Program` provides a `bce_loss` method that computes binary cross-entropy between the materialized composition and a target tensor. Since both the model output and target are fuzzy membership values in $[0, 1]$, BCE is a natural choice:
+`Program` provides a [`bce_loss`](../../api/program.md) method that computes binary cross-entropy between the materialized composition and a target tensor. Since both the model output and target are fuzzy membership values in $[0, 1]$, BCE is a natural choice:
 
 ```python
 optimizer = torch.optim.Adam(model.parameters(), lr=0.05)
@@ -133,7 +133,7 @@ The noisy-OR interpretation is natural for modeling scenarios where each latent 
 
 ## Alternative Quantales
 
-Quivers supports several other quantales that change the meaning of composition:
+Quivers ships several other [quantales](../../api/core/quantales.md) that change the meaning of composition:
 
 ```python
 from quivers import BOOLEAN, LUKASIEWICZ, GODEL, TROPICAL
@@ -141,10 +141,10 @@ from quivers import BOOLEAN, LUKASIEWICZ, GODEL, TROPICAL
 # Boolean: AND/OR (crisp relations)
 f_bool = morphism(X, Y, quantale=BOOLEAN)
 
-# Łukasiewicz: bounded sum (resource-sensitive logic)
+# Łukasiewicz: bounded sum ([resource-sensitive logic](https://en.wikipedia.org/wiki/%C5%81ukasiewicz_logic))
 f_luk = morphism(X, Y, quantale=LUKASIEWICZ)
 
-# Gödel: min/max (possibilistic, minimax composition)
+# Gödel: min/max ([possibilistic, minimax composition](https://en.wikipedia.org/wiki/G%C3%B6del%E2%80%93Dummett_logic))
 f_godel = morphism(X, Y, quantale=GODEL)
 ```
 

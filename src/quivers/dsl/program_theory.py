@@ -108,7 +108,6 @@ _OBJECT_KINDS = [
     "space_decl",
     "morphism_decl",
     "kernel_decl",
-    "kernel_decl",
     "discretize_decl",
     "embed_decl",
     "output_decl",
@@ -131,7 +130,6 @@ _DECL_KINDS = [
     "space_decl",
     "morphism_decl",
     "kernel_decl",
-    "kernel_decl",
     "discretize_decl",
     "embed_decl",
     "output_decl",
@@ -139,7 +137,6 @@ _DECL_KINDS = [
 
 _MORPHISM_DECL_KINDS = [
     "morphism_decl",
-    "kernel_decl",
     "kernel_decl",
     "discretize_decl",
     "embed_decl",

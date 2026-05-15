@@ -1,29 +1,41 @@
 # 7. Composition rules beyond quantales
 
-The default story in the categorical surface is that morphisms compose under a *quantale*: a complete lattice with a monoidal tensor that distributes over arbitrary joins. The quantale provides every piece the composition `f >> g` needs: a binary product to combine entries, a join to aggregate over the shared dimension, an identity element so `identity(A) >> f == f`, and (for compact-closed structures) a meet and a negation. Quantales are the right setting when the composition is associative, has a unit, and behaves classically.
+The default story in the categorical surface is that morphisms compose under a [quantale](https://ncatlab.org/nlab/show/quantale): a complete lattice with a monoidal tensor that distributes over arbitrary joins. The quantale provides every piece the composition `f >> g` needs: a binary product to combine entries, a join to aggregate over the shared dimension, an identity element so `identity(A) >> f == f`, and (for compact-closed structures) a meet and a negation. Quantales are the right setting when the composition is associative, has a unit, and behaves classically.
 
 Two strictly weaker settings come up regularly enough that the library gives them their own types:
 
-- **Semigroupoids**: associative composition, no identity. Reichenbach-style implication composition is the canonical example; the composition is associative but no tensor satisfies `f >> id == f` for every `f`.
-- **Bilinear forms**: a tensor contraction with neither associativity nor identity guarantees. Signed dot product, top-k truncating compositions, and attention-style softmax-then-multiply rules all sit here.
+- [Semigroupoids](https://ncatlab.org/nlab/show/semigroupoid): associative composition, no identity. Reichenbach-style implication composition is the canonical example; the composition is associative but no tensor satisfies `f >> id == f` for every `f`.
+- [Bilinear forms](https://en.wikipedia.org/wiki/Bilinear_form): a tensor contraction with neither associativity nor identity guarantees. Signed dot product, top-k truncating compositions, and attention-style softmax-then-multiply rules all sit here.
 
-This chapter walks through the `CompositionRule` hierarchy, the operadic `EinsumWiring` surface for n-ary contractions, and the user-facing DSL constructs (`semigroupoid`, `bilinear_form`, `composition_rule`, `contraction`) that surface them.
+This chapter walks through the [`CompositionRule`](../../api/core/quantales.md) hierarchy, the [operadic](https://ncatlab.org/nlab/show/operad) [`EinsumWiring`](../../api/core/quantales.md) surface for n-ary contractions, and the user-facing DSL constructs (`semigroupoid`, `bilinear_form`, `composition_rule`, `contraction`) that surface them.
 
 ## The hierarchy
 
-```
-CompositionRule  (tensor_op + join, no algebraic promises)
-    ├── BilinearForm     (still no promises; opted-out of associativity)
-    └── Semigroupoid     (associative tensor_op, no identity)
-            └── Quantale  (associative + identity + meet + negate)
+```mermaid
+classDiagram
+    class CompositionRule {
+        "tensor_op + join, no algebraic promises"
+    }
+    class BilinearForm {
+        "no promises; opted-out of associativity"
+    }
+    class Semigroupoid {
+        "associative tensor_op, no identity"
+    }
+    class Quantale {
+        "associative + identity + meet + negate"
+    }
+    CompositionRule <|-- BilinearForm
+    CompositionRule <|-- Semigroupoid
+    Semigroupoid <|-- Quantale
 ```
 
-Every level supplies `tensor_op : (Tensor, Tensor) -> Tensor` and `join : (Tensor, dim) -> Tensor`. Each subsequent level adds promises; library code that needs `unit` reaches for `Quantale`, code that only needs associativity reaches for `Semigroupoid`, code that does any n-ary contraction reaches for `CompositionRule`.
+Every level supplies `tensor_op : (Tensor, Tensor) -> Tensor` and `join : (Tensor, dim) -> Tensor`. Each subsequent level adds promises; library code that needs `unit` reaches for [`Quantale`](../../api/core/quantales.md), code that only needs associativity reaches for [`Semigroupoid`](../../api/core/quantales.md), code that does any n-ary contraction reaches for [`CompositionRule`](../../api/core/quantales.md).
 
 ```python
 from quivers.core.quantales import (
     CompositionRule, Semigroupoid, BilinearForm, Quantale,
-    PRODUCT_FUZZY, REAL, BOOLEAN, MARKOV,
+    PRODUCT_FUZZY, REAL,
     material_implication, semigroupoid, bilinear_form,
 )
 ```
@@ -103,6 +115,9 @@ assert not torch.allclose(left, right)
 The compact-closed operations require an identity element and live on `Quantale`. Trying to call them on a non-quantale rule raises `AttributeError`:
 
 ```python
+import pytest
+from quivers.core.quantales import material_implication
+
 mi = material_implication()
 with pytest.raises(AttributeError):
     mi.unit                                # not a Quantale attribute
@@ -110,7 +125,7 @@ with pytest.raises(AttributeError):
     mi.identity_tensor((3,))               # also unavailable
 ```
 
-The DSL surface raises a typed `CompileError` at parse time if you try `identity(A)`, `cup(A)`, `cap(A)`, `f.dagger`, or `f.trace(A)` inside a module declared as `semigroupoid` or `bilinear_form`. Chapter 7 of the QVR track covers the user surface.
+The DSL surface raises a typed `CompileError` at parse time if you try `identity(A)`, `cup(A)`, `cap(A)`, `f.dagger`, or `f.trace(A)` inside a module declared as `semigroupoid` or `bilinear_form`. The [QVR categorical tutorial](../qvr/07-categorical.md) covers the user surface.
 
 ## Operadic n-ary contractions
 
@@ -120,7 +135,7 @@ $$
 \mathrm{out}[s, o] = \bigoplus_{p, q}\Big(\mathrm{arg}_1[s, p] \otimes \mathrm{arg}_2[s, q] \otimes \mathrm{kernel}[p, q, o]\Big).
 $$
 
-This is an operadic operation rather than a binary composition. `EinsumWiring` provides the surface:
+This is an operadic operation rather than a binary composition. [`EinsumWiring`](../../api/core/quantales.md) provides the surface:
 
 ```python
 from quivers.core.wiring import EinsumWiring, einsum_wiring, contract

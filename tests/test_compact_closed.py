@@ -210,7 +210,7 @@ def test_dsl_change_base_to_log_prob() -> None:
     export f_log
     """
     m = loads(src)
-    assert m.morphism.quantale.name == "ProductFuzzy"  # LogProb hom's target
+    assert m.morphism.quantale.name == "LogProb"
     # All entries are <= 0 (log of sigmoid in [0, 1]).
     assert (m.morphism.tensor <= 0).all()
 
@@ -287,4 +287,4 @@ def test_dagger_round_trip_via_change_base_preserves_shape() -> None:
     log_f = f.change_base(LOG_PROB_HOM)
     log_f_dag = log_f.dagger
     assert log_f_dag.tensor.shape == (4, 3)
-    assert log_f_dag.quantale.name == "ProductFuzzy"
+    assert log_f_dag.quantale.name == "LogProb"

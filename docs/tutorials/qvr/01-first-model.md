@@ -18,16 +18,14 @@ $$
 === "QVR (`.qvr`)"
 
     ```qvr
-    quantale real
     object Item : 100
 
     program regression : Item -> Item ! Sample, Score
         sigma  <- HalfNormal(1.0)
         beta_0 <- Normal(0.0, 5.0)
         beta_1 <- Normal(0.0, 2.0)
-        x      <- Normal(0.0, 1.0)
-        let mu = beta_0 + beta_1 * x
-        observe y <- Normal(mu, sigma)
+        let mu = beta_0 + beta_1 * x_design
+        observe y : Item <- Normal(mu, sigma)
         return y
 
     export regression
@@ -64,12 +62,11 @@ Reading the QVR line by line:
 
 | Line | What it says |
 |---|---|
-| `quantale real` | The enrichment algebra for this module is `Real` (ordinary arithmetic). For pure Bayesian models you can think of this as "values are real numbers"; you'll meet other choices in chapter 4 (mixtures over a probability quantale) and chapter 7 (full enriched-category story). |
 | `object Item : 100` | Declare a finite-set index `Item` of size 100: the row dimension of the data. Domain and codomain are typed objects rather than implicit. |
 | `program regression : Item -> Item ! Sample, Score` | A `program` block is the unit of compilation. The `!`-annotation declares the algebraic effects the body uses; `Sample` is monadic draw, `Score` is conditioning. |
-| `sigma <- HalfNormal(1.0)` | Bind a random variable. Same as PyMC's `pm.HalfNormal(…)` or NumPyro's `numpyro.sample(…)`. |
-| `let mu = beta_0 + beta_1 * x` | Deterministic let. The `let`-arithmetic supports `+ - * /`, indexing, broadcasts, and a small standard library (`sum`, `prod`, `cumsum`, `logsumexp`, …). |
-| `observe y <- Normal(mu, sigma)` | Conditioned bind. The runtime sets `y` to the observed value at inference time and scores the likelihood. |
+| `sigma <- HalfNormal(1.0)` | Bind a random variable. Same as PyMC's `pm.HalfNormal(...)` or NumPyro's `numpyro.sample(...)`. |
+| `let mu = beta_0 + beta_1 * x_design` | Deterministic let. The `let`-arithmetic supports `+ - * /`, indexing, broadcasts, and a small standard library (`sum`, `prod`, `cumsum`, `logsumexp`, ...). The free name `x_design` is supplied at fit time via the observations dict (declared by `observed_names` on the guide). |
+| `observe y : Item <- Normal(mu, sigma)` | Vectorised conditioned bind, one draw per element of `Item`. The runtime sets `y` to the observed value at inference time and scores the likelihood. |
 
 If you're coming from Pyro/NumPyro/Stan, the only piece without an obvious analogue is `! Sample, Score`: the effect signature. It's a static check that the body uses only effects you declared. You can leave it off and the compiler will infer, but writing it out makes intent explicit.
 
@@ -91,16 +88,19 @@ torch.manual_seed(0)
 x_data = torch.randn(100)
 y_data = 1.5 + 2.7 * x_data + 0.3 * torch.randn(100)
 
-# Variational inference.
-guide     = AutoNormalGuide(model, observed_names={"y"})
+# Variational inference. ``x_design`` is a free name in the model body;
+# we hand it to the trace via ``observed_names`` and the observations dict.
+guide     = AutoNormalGuide(model, observed_names={"y", "x_design"})
 elbo      = ELBO(num_particles=1)
 optimizer = torch.optim.Adam(
     list(model.parameters()) + list(guide.parameters()), lr=1e-2,
 )
 svi = SVI(model, guide, optimizer, elbo)
 
+x_tensor = torch.zeros(1, 1)                  # SVI dispatch input (unused)
+observations = {"x_design": x_data, "y": y_data}
 for step in range(2000):
-    loss = svi.step({"x": x_data}, {"y": y_data})
+    loss = svi.step(x_tensor, observations)
     if step % 200 == 0:
         print(f"step {step:4d}  ELBO = {-loss:.3f}")
 ```
@@ -114,17 +114,19 @@ The default `AutoNormalGuide` is a diagonal-Gaussian variational posterior train
 ```python
 from quivers.inference import Predictive
 
-posterior = guide.sample(num_samples=1000)
-print("posterior mean β₀ =", posterior["beta_0"].mean().item())
-print("posterior mean β₁ =", posterior["beta_1"].mean().item())
-print("posterior mean σ  =", posterior["sigma"].mean().item())
+# Draw posterior samples by repeatedly calling the guide.
+posterior = {k: torch.stack([guide.rsample(x_tensor)[k] for _ in range(1000)])
+             for k in ("beta_0", "beta_1", "sigma")}
+print("posterior mean beta_0 =", posterior["beta_0"].mean().item())
+print("posterior mean beta_1 =", posterior["beta_1"].mean().item())
+print("posterior mean sigma  =", posterior["sigma"].mean().item())
 
-predictive = Predictive(model, guide=guide, num_samples=1000)
-y_pred = predictive({"x": x_data})["y"]                     # (1000, 100)
+predictive = Predictive(model, posterior=guide, num_samples=1000)
+y_pred = predictive(x_tensor, {"x_design": x_data})["y"]    # (1000, 100)
 print("predictive mean y[0] =", y_pred[:, 0].mean().item())
 ```
 
-`guide.sample(...)` returns a `dict[name, Tensor]` of posterior samples keyed by latent name; `Predictive` produces posterior-predictive draws by re-running the model with each posterior sample.
+[`Guide.rsample`](../../api/inference/guide.md) returns one `dict[name, Tensor]` posterior draw per call; [`Predictive`](../../api/inference/predictive.md) produces posterior-predictive draws by re-running the model with each posterior sample.
 
 ## What's different from Pyro/NumPyro?
 
@@ -136,8 +138,8 @@ Three things:
 
 ## Try this
 
-- Change `quantale real` to `quantale log_prob` and see what happens. *(Likelihood values stay finite for very small probabilities; sometimes useful for long sequence models.)*
-- Replace `AutoNormalGuide` with `AutoMultivariateNormalGuide` and watch the recovered correlation between `beta_0` and `beta_1`.
+- Add `quantale log_prob` at the top of the file. The enrichment changes how compositions accumulate scalars: likelihood-style values stay finite under very small probabilities; sometimes useful for long sequence models.
+- Replace [`AutoNormalGuide`](../../api/inference/guide.md) with [`AutoMultivariateNormalGuide`](../../api/inference/guide.md) and watch the recovered correlation between `beta_0` and `beta_1`.
 - Drop the `! Sample, Score` annotation, then add `! Pure` and re-run. The second case fails compilation with a typed error pointing to the `observe`.
 
 ## Next

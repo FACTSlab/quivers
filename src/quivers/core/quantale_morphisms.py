@@ -71,7 +71,6 @@ from quivers.core.quantales import (
     MARKOV,
     PROBABILITY,
     REAL,
-    TROPICAL,
 )
 from quivers.core.quantales import (
     BOOLEAN,
@@ -215,12 +214,10 @@ class LogProb(QuantaleHomomorphism):
     """
 
     def __init__(self) -> None:
-        self._source = PRODUCT_FUZZY
-        # The target is LogProbQuantale, lazily resolved so the
-        # module import order doesn't matter.
-        from quivers.core.quantales import ProductFuzzy
+        from quivers.core.quantales import LOG_PROB
 
-        self._target = ProductFuzzy()
+        self._source = PRODUCT_FUZZY
+        self._target = LOG_PROB
 
     @property
     def source(self) -> Quantale:
@@ -228,9 +225,6 @@ class LogProb(QuantaleHomomorphism):
 
     @property
     def target(self) -> Quantale:
-        # LogProb is structurally a ProductFuzzy in log-space; we
-        # don't ship a separate quantale class for it because the
-        # tensor operations are the same after the log mapping.
         return self._target
 
     def apply(self, t: torch.Tensor) -> torch.Tensor:
@@ -238,7 +232,7 @@ class LogProb(QuantaleHomomorphism):
 
 
 class MaxPlus(QuantaleHomomorphism):
-    """ProductFuzzy → Tropical via ``log``.
+    """ProductFuzzy → MaxPlus via ``log``.
 
     The max-plus tropical quantale on the reals has tensor =
     addition and join = max. A ProductFuzzy morphism transports
@@ -255,8 +249,10 @@ class MaxPlus(QuantaleHomomorphism):
     """
 
     def __init__(self) -> None:
+        from quivers.core.quantales import MAX_PLUS
+
         self._source = PRODUCT_FUZZY
-        self._target = TROPICAL
+        self._target = MAX_PLUS
 
     @property
     def source(self) -> Quantale:
@@ -465,8 +461,8 @@ COUNTING_TO_REAL = CountingToReal()
 # constructing one by hand.
 HOMOMORPHISM_REGISTRY: dict[tuple[str, str], QuantaleHomomorphism] = {
     ("Markov", "ProductFuzzy"): EXPECTATION,
-    ("ProductFuzzy", "ProductFuzzy"): LOG_PROB,
-    ("ProductFuzzy", "Tropical"): MAX_PLUS,
+    ("ProductFuzzy", "LogProb"): LOG_PROB,
+    ("ProductFuzzy", "MaxPlus"): MAX_PLUS,
     ("ProductFuzzy", "Boolean"): Threshold(0.5),
     ("ProductFuzzy", "Godel"): MATERIAL_IMPLICATION,
     ("Boolean", "ProductFuzzy"): Embedding(BOOLEAN, PRODUCT_FUZZY),

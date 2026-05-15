@@ -453,6 +453,34 @@ class TestEmittedSourceCompiles:
 # ---------------------------------------------------------------------------
 
 
+def _posterior_means(guide, n_obs: int, num_draws: int = 400):
+    """Average the guide's ``rsample`` over many draws to estimate
+    each latent site's posterior mean.
+
+    Returns a dict mapping site name → tensor whose leading batch
+    axis (coming from the program-input ``x`` of shape
+    ``(n_obs, ...)``) is averaged out, leaving the site's intrinsic
+    shape: scalar sites become 0-d tensors, plate sites become
+    1-d tensors of the plate's cardinality.
+    """
+    import torch as _torch
+
+    x = _torch.zeros(n_obs, 1)
+    sums: dict[str, _torch.Tensor] = {}
+    for _ in range(num_draws):
+        sample = guide.rsample(x)
+        for k, v in sample.items():
+            sums[k] = sums.get(k, _torch.zeros_like(v)) + v
+    out: dict[str, _torch.Tensor] = {}
+    for k, v in sums.items():
+        mean = (v / num_draws).detach()
+        # Reduce the leading batch dim if it equals n_obs.
+        if mean.dim() > 0 and mean.shape[0] == n_obs:
+            mean = mean.mean(dim=0)
+        out[k] = mean
+    return out
+
+
 class TestEndToEndFit:
     def test_intercept_only_svi(self, base_df):
         result = fit(
@@ -516,6 +544,307 @@ class TestEndToEndFit:
         assert path == out
         prog = loads(path.read_text())
         assert prog.morphism is not None
+
+
+# ---------------------------------------------------------------------------
+# Posterior recovery on synthetic data, per family
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.slow
+class TestPosteriorRecovery:
+    """Each test generates synthetic data from a known generative
+    process, fits via SVI (the fast inference path), and asserts the
+    posterior mean of each named coefficient is in the right ballpark
+    of the truth.  Tolerances are loose because SVI underestimates
+    posterior variance and N is modest, but the *sign* and
+    *order-of-magnitude* recovery is what these tests pin down.
+
+    Marked :func:`pytest.mark.slow` — these tests do real inference
+    (2000 SVI steps × N≈200 each) and take a few minutes total.
+    Run with ``pytest -m slow tests/test_formulas.py`` or
+    ``pytest --runslow tests/test_formulas.py``.
+    """
+
+    def test_gaussian_recovers_slope_and_intercept(self):
+        rng = np.random.default_rng(0)
+        N = 200
+        true_intercept = 2.0
+        true_slope = 1.5
+        true_sigma = 0.3
+        x = rng.normal(size=N)
+        y = true_intercept + true_slope * x + true_sigma * rng.normal(size=N)
+        df = pd.DataFrame({"y": y, "x": x})
+
+        result = fit(
+            "y ~ x",
+            data=df,
+            family="gaussian",
+            sampler="svi",
+            num_samples=2000,
+            seed=0,
+        )
+        means = _posterior_means(result.posterior, n_obs=N)
+        assert abs(means["intercept"].item() - true_intercept) < 0.2
+        assert abs(means["beta_x"].item() - true_slope) < 0.2
+        # `sigma` is on positive support, biject_to(positive) exposes
+        # a softplus; the post-link mean should be near the truth.
+        assert 0.1 < means["sigma"].item() < 0.6
+
+    def test_bernoulli_recovers_logit_slope(self):
+        rng = np.random.default_rng(1)
+        N = 400
+        true_intercept = 0.5
+        true_slope = -1.2
+        x = rng.normal(size=N)
+        logit = true_intercept + true_slope * x
+        probs = 1.0 / (1.0 + np.exp(-logit))
+        y = (rng.uniform(size=N) < probs).astype(int)
+        df = pd.DataFrame({"y": y, "x": x})
+
+        result = fit(
+            "y ~ x",
+            data=df,
+            family="bernoulli",
+            sampler="svi",
+            num_samples=2000,
+            seed=0,
+        )
+        means = _posterior_means(result.posterior, n_obs=N)
+        assert means["beta_x"].item() < 0  # negative slope recovered
+        assert abs(means["beta_x"].item() - true_slope) < 0.5
+
+    def test_poisson_recovers_log_slope(self):
+        rng = np.random.default_rng(2)
+        N = 300
+        true_intercept = 1.0
+        true_slope = 0.5
+        x = rng.normal(size=N)
+        rate = np.exp(true_intercept + true_slope * x)
+        y = rng.poisson(lam=rate)
+        df = pd.DataFrame({"y": y.astype(float), "x": x})
+
+        result = fit(
+            "y ~ x",
+            data=df,
+            family="poisson",
+            sampler="svi",
+            num_samples=2000,
+            seed=0,
+        )
+        means = _posterior_means(result.posterior, n_obs=N)
+        assert means["beta_x"].item() > 0  # positive slope recovered
+        assert abs(means["beta_x"].item() - true_slope) < 0.3
+
+    def test_gamma_recovers_log_slope(self):
+        rng = np.random.default_rng(3)
+        N = 300
+        true_intercept = 0.5
+        true_slope = 0.4
+        x = rng.normal(size=N)
+        mean_rate = np.exp(true_intercept + true_slope * x)
+        # Gamma with shape=2.0, scale = mean / shape.
+        y = rng.gamma(shape=2.0, scale=mean_rate / 2.0)
+        df = pd.DataFrame({"y": y, "x": x})
+
+        result = fit(
+            "y ~ x",
+            data=df,
+            family="gamma",
+            sampler="svi",
+            num_samples=2000,
+            seed=0,
+        )
+        means = _posterior_means(result.posterior, n_obs=N)
+        assert means["beta_x"].item() > 0
+        assert abs(means["beta_x"].item() - true_slope) < 0.4
+
+    def test_random_intercept_partial_pooling(self):
+        """A hierarchical random-intercepts model recovers the
+        per-group means with partial pooling toward the grand mean.
+        """
+        rng = np.random.default_rng(4)
+        n_groups = 8
+        n_per_group = 30
+        true_grand_mean = 1.0
+        true_group_sigma = 1.5
+        true_obs_sigma = 0.5
+        group_effects = rng.normal(0.0, true_group_sigma, size=n_groups)
+        groups = []
+        ys = []
+        for g_idx, g_effect in enumerate(group_effects):
+            for _ in range(n_per_group):
+                groups.append(f"g{g_idx}")
+                ys.append(true_grand_mean + g_effect + true_obs_sigma * rng.normal())
+        df = pd.DataFrame({"y": ys, "g": groups})
+
+        result = fit(
+            "y ~ 1 + (1 | g)",
+            data=df,
+            family="gaussian",
+            sampler="svi",
+            num_samples=2000,
+            seed=0,
+        )
+        means = _posterior_means(result.posterior, n_obs=len(ys))
+        # Grand mean within tolerance of the true value.
+        assert abs(means["intercept"].item() - true_grand_mean) < 0.5
+        # Per-group random effects are an 8-vector; correlation with
+        # the true effects should be strong.
+        post_group = means["alpha_g"].detach().numpy().reshape(-1)
+        assert len(post_group) == n_groups
+        corr = np.corrcoef(post_group, group_effects)[0, 1]
+        assert corr > 0.7
+
+    def test_polynomial_orthogonal_recovers_quadratic(self):
+        """For a true quadratic relationship, `poly(x, 2)` recovers
+        a nonzero quadratic coefficient."""
+        rng = np.random.default_rng(5)
+        N = 300
+        x = rng.uniform(-2.0, 2.0, size=N)
+        # True curve has both linear and quadratic content.
+        y = 0.5 * x + 1.0 * x**2 + 0.3 * rng.normal(size=N)
+        df = pd.DataFrame({"y": y, "x": x})
+
+        result = fit(
+            "y ~ poly(x, 2)",
+            data=df,
+            family="gaussian",
+            sampler="svi",
+            num_samples=2000,
+            seed=0,
+        )
+        means = _posterior_means(result.posterior, n_obs=N)
+        # The orthogonal polynomial coefficients aren't the raw
+        # quadratic ones, but BOTH should be substantially nonzero
+        # because the true function has linear + quadratic content.
+        assert abs(means["beta_poly_x_2_1"].item()) > 0.5
+        assert abs(means["beta_poly_x_2_2"].item()) > 0.5
+
+    def test_log_transform_recovers_slope(self):
+        """y ~ log(w) recovers a slope when y is generated from a
+        log-linear relationship in w."""
+        rng = np.random.default_rng(6)
+        N = 300
+        true_slope = 1.5
+        w = rng.uniform(0.5, 5.0, size=N)
+        y = 0.2 + true_slope * np.log(w) + 0.2 * rng.normal(size=N)
+        df = pd.DataFrame({"y": y, "w": w})
+
+        result = fit(
+            "y ~ log(w)",
+            data=df,
+            family="gaussian",
+            sampler="svi",
+            num_samples=2000,
+            seed=0,
+        )
+        means = _posterior_means(result.posterior, n_obs=N)
+        assert abs(means["beta_log_w"].item() - true_slope) < 0.3
+
+    def test_interaction_recovers_product_coefficient(self):
+        """y ~ x*z recovers the interaction coefficient when the
+        true generative process has a multiplicative term."""
+        rng = np.random.default_rng(7)
+        N = 400
+        x = rng.normal(size=N)
+        z = rng.normal(size=N)
+        true_interaction = 0.8
+        y = (
+            0.5
+            + 0.3 * x
+            + -0.4 * z
+            + true_interaction * x * z
+            + 0.3 * rng.normal(size=N)
+        )
+        df = pd.DataFrame({"y": y, "x": x, "z": z})
+
+        result = fit(
+            "y ~ x*z",
+            data=df,
+            family="gaussian",
+            sampler="svi",
+            num_samples=2000,
+            seed=0,
+        )
+        means = _posterior_means(result.posterior, n_obs=N)
+        assert abs(means["beta_x_z"].item() - true_interaction) < 0.3
+        assert abs(means["beta_x"].item() - 0.3) < 0.3
+        assert abs(means["beta_z"].item() - (-0.4)) < 0.3
+
+    def test_multivariate_recovers_all_slopes(self):
+        """Multi-predictor regression recovers each coefficient."""
+        rng = np.random.default_rng(8)
+        N = 400
+        x = rng.normal(size=N)
+        z = rng.normal(size=N)
+        w = rng.uniform(0.5, 4.0, size=N)
+        true_x, true_z, true_log_w = 1.0, -0.7, 0.5
+        y = (
+            0.2
+            + true_x * x
+            + true_z * z
+            + true_log_w * np.log(w)
+            + 0.3 * rng.normal(size=N)
+        )
+        df = pd.DataFrame({"y": y, "x": x, "z": z, "w": w})
+
+        result = fit(
+            "y ~ x + z + log(w)",
+            data=df,
+            family="gaussian",
+            sampler="svi",
+            num_samples=2000,
+            seed=0,
+        )
+        means = _posterior_means(result.posterior, n_obs=N)
+        assert abs(means["beta_x"].item() - true_x) < 0.2
+        assert abs(means["beta_z"].item() - true_z) < 0.2
+        assert abs(means["beta_log_w"].item() - true_log_w) < 0.2
+
+    def test_random_slope_recovers_per_group_effect(self):
+        """A random-intercepts + random-slopes model recovers both
+        per-group random effects with the right sign / magnitude."""
+        rng = np.random.default_rng(9)
+        n_groups = 6
+        n_per_group = 40
+        true_intercept = 0.5
+        true_slope_mean = 1.0
+        sigma_intercept = 1.0
+        sigma_slope = 0.6
+        sigma_obs = 0.3
+        ranef_intercept = rng.normal(0.0, sigma_intercept, size=n_groups)
+        ranef_slope = rng.normal(0.0, sigma_slope, size=n_groups)
+
+        groups, xs, ys = [], [], []
+        for g_idx in range(n_groups):
+            for _ in range(n_per_group):
+                xv = rng.normal()
+                yv = (
+                    true_intercept
+                    + ranef_intercept[g_idx]
+                    + (true_slope_mean + ranef_slope[g_idx]) * xv
+                    + sigma_obs * rng.normal()
+                )
+                groups.append(f"g{g_idx}")
+                xs.append(xv)
+                ys.append(yv)
+        df = pd.DataFrame({"y": ys, "x": xs, "g": groups})
+
+        result = fit(
+            "y ~ x + (1 + x | g)",
+            data=df,
+            family="gaussian",
+            sampler="svi",
+            num_samples=2000,
+            seed=0,
+        )
+        means = _posterior_means(result.posterior, n_obs=len(ys))
+        # Per-group random intercepts and slopes correlate with truth.
+        post_int = means["alpha_g"].detach().numpy().reshape(-1)
+        post_slope = means["beta_g_x"].detach().numpy().reshape(-1)
+        assert np.corrcoef(post_int, ranef_intercept)[0, 1] > 0.7
+        assert np.corrcoef(post_slope, ranef_slope)[0, 1] > 0.5
 
 
 # ---------------------------------------------------------------------------
