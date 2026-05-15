@@ -33,7 +33,7 @@ $$
 
 where $\llbracket M \rrbracket$ is the denotation of [Setting](setting.md), [Morphisms](morphisms.md), [Expressions](expressions.md), and [Programs](programs.md), instantiated at the parameters $\theta_M$.
 
-Equality is in $\mathbf{Kern}$, i.e.\ as Markov kernels, and is therefore equality of measures on the $\sigma$-algebra of the codomain. In the implementation this equality holds *up to the floating-point precision* of the underlying tensor library; the test suite asserts the equality to within numerical tolerance on a representative set of modules.
+Equality is in $\mathbf{Kern}$, i.e. as Markov kernels: for every input $x$ the two sides agree as probability measures on the $\sigma$-algebra of the codomain. For the deterministic (purely $\mathcal{V}$-enriched) strata this collapses to exact tensor equality up to floating-point precision; for sampled compositions in $\mathbf{Kern}$ the agreement is *in expectation*, witnessed by unbiased Monte-Carlo estimates whose error decays as the sample budget grows. The test suite asserts the deterministic equalities pointwise and the sampled equalities within numerical tolerance.
 
 ## 3. Proof sketch
 

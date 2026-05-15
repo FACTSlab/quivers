@@ -151,7 +151,6 @@ class _DeductionsMixin:
             "Boolean": SEMIRING_BOOLEAN,
             "Viterbi": SEMIRING_VITERBI,
             "Counting": SEMIRING_COUNTING,
-            "ProductFuzzy": SEMIRING_LOG_PROB,
         }
         semiring = (
             semiring_registry.get(decl.semiring, SEMIRING_LOG_PROB)

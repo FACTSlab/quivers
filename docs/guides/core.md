@@ -19,7 +19,7 @@ A `FinSet` is the most basic object:
 ```python
 from quivers.core.objects import FinSet
 
-X = FinSet("phoneme", 40)
+X = FinSet(name="phoneme", cardinality=40)
 print(X.size)   # 40
 print(X.shape)  # (40,)
 ```
@@ -36,8 +36,8 @@ print(Unit.size)  # 1
 Products and coproducts are formed with the `*` and `+` operators, which automatically flatten nesting:
 
 ```python
-X = FinSet("X", 3)
-Y = FinSet("Y", 4)
+X = FinSet(name="X", cardinality=3)
+Y = FinSet(name="Y", cardinality=4)
 
 P = X * Y          # ProductSet(X, Y)
 print(P.size)      # 12
@@ -57,8 +57,8 @@ A free monoid on a generator set $G$ (truncated by length) represents all string
 ```python
 from quivers.core.objects import FreeMonoid
 
-G = FinSet("letter", 26)
-FM = FreeMonoid(G, max_length=3)
+G = FinSet(name="letter", cardinality=26)
+FM = FreeMonoid(generators=G, max_length=3)
 
 # Components: Unit + G + G^2 + G^3
 print(FM.size)  # 1 + 26 + 676 + 17576 = 18279
@@ -187,8 +187,8 @@ Pass a quantale to a morphism to set its enrichment:
 ```python
 from quivers.core.morphisms import morphism
 
-X = FinSet("X", 3)
-Y = FinSet("Y", 4)
+X = FinSet(name="X", cardinality=3)
+Y = FinSet(name="Y", cardinality=4)
 
 # default: PRODUCT_FUZZY
 f_fuzzy = morphism(X, Y)

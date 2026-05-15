@@ -57,7 +57,6 @@ The semiring field selects the scoring quantale `K`:
 | `Viterbi` | max | + | best-derivation decoding |
 | `Boolean` | or | and | recognition |
 | `Counting` | + | × | derivation counts |
-| `ProductFuzzy` | max | × | fuzzy membership |
 
 The chart is enriched over `K`; the agenda enumerates derivations
 under `K`'s monoidal operations.

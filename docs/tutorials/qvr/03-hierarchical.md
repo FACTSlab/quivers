@@ -127,7 +127,7 @@ A clean run shows R-hat < 1.01 for every site (rank-normalized split-R-hat, [Veh
 
 ## Posterior predictive
 
-[`Predictive`](../../api/inference/predictive.md) accepts either a [`Guide`](../../api/inference/guide.md) or an [`MCMCResult`](../../api/inference/svi.md):
+[`Predictive`](../../api/inference/predictive.md) accepts either a [`Guide`](../../api/inference/guide.md) or an `MCMCResult`:
 
 ```python
 from quivers.inference import Predictive

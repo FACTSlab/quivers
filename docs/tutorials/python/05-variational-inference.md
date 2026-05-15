@@ -20,12 +20,14 @@ from quivers.core.objects import FinSet
 from quivers.continuous.spaces import Euclidean
 from quivers.continuous.families import ConditionalNormal
 from quivers.continuous.programs import MonadicProgram
-from quivers.inference.trace import trace
-from quivers.inference.conditioning import condition
-from quivers.inference.guide import AutoNormalGuide
-from quivers.inference.elbo import ELBO
-from quivers.inference.svi import SVI
-from quivers.inference.predictive import Predictive
+from quivers.inference import (
+    trace,
+    condition,
+    AutoNormalGuide,
+    ELBO,
+    SVI,
+    Predictive,
+)
 ```
 
 ## Building a Model
@@ -57,12 +59,12 @@ Generate synthetic observations from the model (as if from an experiment):
 torch.manual_seed(42)
 
 # Sample from the prior
-batch = torch.zeros(50, 1, dtype=torch.long)  # 50 samples
+batch = torch.zeros(50, dtype=torch.long)  # 50 samples
 samples = model.rsample(batch)
 
 # Tuple returns come back as a dict keyed by variable name.
 y_observed = samples["y"]
-print(y_observed.shape)  # [50]
+print(y_observed.shape)  # [50, 1]
 print(y_observed.mean(), y_observed.std())
 ```
 
@@ -74,7 +76,7 @@ A trace records the values and log-densities at each site (random variable):
 
 ```python
 # Trace the model at a single point
-x_single = torch.zeros(1, 1, dtype=torch.long)
+x_single = torch.zeros(1, dtype=torch.long)
 tr = trace(model, x_single)
 
 # Inspect sites
@@ -130,12 +132,12 @@ The `AutoNormalGuide`:
 Sample from the guide:
 
 ```python
-x = torch.zeros(4, 1, dtype=torch.long)
+x = torch.zeros(4, dtype=torch.long)
 posterior_samples = guide.rsample(x)
 print(posterior_samples)  # dict: {"z": tensor, ...}
 
 posterior_z = posterior_samples["z"]
-print(posterior_z.shape)  # [4]
+print(posterior_z.shape)  # [4, 1]
 ```
 
 Compute the guide's log-probability:
@@ -201,7 +203,7 @@ for step in range(num_steps):
         # objective at evaluation time, so the model itself does not
         # need to be re-wrapped per batch.
         loss = svi.step(
-            torch.zeros(batch_size, 1, dtype=torch.long), batch_obs
+            torch.zeros(batch_size, dtype=torch.long), batch_obs
         )
 
         batch_losses.append(loss)
@@ -240,12 +242,12 @@ After training, use the guide to make predictions on new data:
 predictive = Predictive(model, guide, num_samples=100)
 
 # Sample posterior at a new point
-x_new = torch.zeros(1, 1, dtype=torch.long)
+x_new = torch.zeros(1, dtype=torch.long)
 posterior_samples = predictive(x_new)
 
 print(posterior_samples.keys())  # dict with z and y
 z_posterior = posterior_samples["z"]
-print(z_posterior.shape)  # [100, 1] (100 posterior samples)
+print(z_posterior.shape)  # [100, 1, 1] (num_samples, batch, dim)
 ```
 
 Analyze the posterior:

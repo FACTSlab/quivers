@@ -6,7 +6,7 @@ The development is organized as follows.
 
 1. **[Setting and notation](setting.md).** The semantic universe: $\mathcal{V}$-enriched symmetric monoidal closed categories, finite sets, standard Borel spaces, and the global parameters that distinguish discrete, stochastic, and continuous fragments.
 2. **[Quantales and base change](quantales.md).** The algebraic structure underlying $\mathcal{V}$-enriched composition, the eleven built-in quantales, and the base-change functors that mediate between them.
-3. **[Composition rules](composition-rules.md).** The $\mathbf{CompositionRule} \supseteq \mathbf{Semigroupoid} \mid \mathbf{BilinearForm} \supseteq \mathbf{Quantale}$ hierarchy; user-defined inline composition rules; operadic n-ary contractions via flat wirings; first-class transformations with sequential composition.
+3. **[Composition rules](composition-rules.md).** The class hierarchy $\mathbf{CompositionRule} \supseteq \{\mathbf{BilinearForm},\ \mathbf{Semigroupoid} \supseteq \mathbf{Quantale}\}$; user-defined inline composition rules; operadic n-ary contractions via flat wirings; first-class transformations with sequential composition.
 4. **[Types and spaces](types-and-spaces.md).** The denotation of `TypeExpr` and `SpaceExpr` syntactic categories as objects in $\mathbf{FinSet}$ and $\mathbf{SBor}$ respectively.
 5. **[Morphisms](morphisms.md).** $\mathcal{V}$-relations, stochastic kernels, and continuous conditional families as the three morphism strata; their composition, tensor product, marginalization, and trace.
 6. **[Expressions](expressions.md).** Compositional semantics of expression-level combinators: `>>`, `>>>`, `@`, `.marginalize`, `.change_base`, `fan`, `repeat`, `stack`, `scan`, and the parser combinators.

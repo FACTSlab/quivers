@@ -4,7 +4,7 @@ This page fixes the semantic universe in which every QVR phrase will be interpre
 
 ## 1. Quantales as enrichment bases
 
-A *quantale* $\mathcal{V} = (V, \le, \otimes, \mathbf{1})$ is a complete lattice $(V, \le)$ equipped with an associative, monoid product $\otimes : V \times V \to V$ with unit $\mathbf{1} \in V$, such that $\otimes$ distributes over arbitrary joins on both sides:
+A *[quantale](https://en.wikipedia.org/wiki/Quantale)* $\mathcal{V} = (V, \le, \otimes, \mathbf{1})$ is a complete lattice $(V, \le)$ equipped with an associative monoid product $\otimes : V \times V \to V$ with unit $\mathbf{1} \in V$, such that $\otimes$ distributes over arbitrary joins on both sides:
 
 $$
 a \otimes \bigvee_{i \in I} b_i \;=\; \bigvee_{i \in I} (a \otimes b_i),
@@ -14,7 +14,7 @@ $$
 
 We write $\bigoplus$ for the binary join and (by abuse) for arbitrary joins. We assume $\mathcal{V}$ is *commutative*: $a \otimes b = b \otimes a$.
 
-A quantale is the object of values of a $\mathcal{V}$-enriched category. The eleven built-in quantales used in QVR are cataloged in [Quantales and base change](quantales.md).
+A quantale is the value object of a [$\mathcal{V}$-enriched category](https://ncatlab.org/nlab/show/enriched+category). The eleven built-in composition algebras used in QVR are cataloged in [Quantales and base change](quantales.md); two of them ($\mathcal{V}_{\mathrm{pf}}$, $\mathcal{V}_{\mathrm{L}}$) are strictly t-norm semirings on $[0, 1]$ for which the distributivity law above holds only laxly, and the rest are strict quantales in the sense above. The development of the present page is uniform across all eleven; the lax cases are flagged in [Quantales §2.1](quantales.md#21-a-note-on-the-product-fuzzy-and-lukasiewicz-pairs) where the distinction matters.
 
 ## 2. $\mathcal{V}$-enriched relations
 
@@ -61,7 +61,7 @@ QVR phrases inhabit three strata, each interpreted in a distinct ambient categor
 | Stochastic | `kernel` between finite-set types (no `~ Family` clause) | $\mathbf{Stoch}$ |
 | Continuous | `kernel ... ~ Family` (with finite or continuous dom and continuous cod); `space` | $\mathbf{Kern}$ |
 
-The three strata are not independent: the inclusion $\iota : \mathbf{FinSet} \hookrightarrow \mathbf{SBor}$ (every finite set is canonically a standard Borel space with the discrete $\sigma$-algebra) lifts to faithful embeddings $\mathbf{Stoch} \hookrightarrow \mathbf{Kern}$ and (in the Boolean quantale case) $\mathcal{V}\text{-}\mathbf{Rel} \hookrightarrow \mathbf{Stoch}$. The `discretize` and `embed` declarations denote the Giry-monad–level transition between strata; see [Morphisms §5](morphisms.md#5-stratum-transitions).
+The three strata are not independent: the inclusion $\iota : \mathbf{FinSet} \hookrightarrow \mathbf{SBor}$ (every finite set is canonically a standard Borel space with the discrete $\sigma$-algebra) lifts to a faithful embedding $\mathbf{Stoch} \hookrightarrow \mathbf{Kern}$, and the *functional* sub-category $\mathcal{V}_{\mathbb{B}}\text{-}\mathbf{Rel}_{\mathrm{fun}}$ of row-deterministic Boolean relations embeds into $\mathbf{Stoch}$. The `discretize` and `embed` declarations denote the Giry-monad–level transition between strata; see [Morphisms §5](morphisms.md#5-stratum-transitions).
 
 ## 5. Environments
 
@@ -70,7 +70,8 @@ A *semantic environment* $\rho$ is a partial function from identifiers to denota
 - $\rho_{\mathrm{obj}}$: finite-set objects;
 - $\rho_{\mathrm{spc}}$: standard Borel spaces;
 - $\rho_{\mathrm{mor}}$: morphisms (discrete, stochastic, or continuous);
-- $\rho_{\mathrm{cat}}$: category atoms in the grammar fragment.
+- $\rho_{\mathrm{cat}}$: category atoms in the grammar fragment;
+- $\rho_{\mathrm{rv}}$: random variables bound earlier in a `program` body, each carrying its current Kleisli arrow (see [Programs §1](programs.md#1-the-giry-monad-as-semantic-substrate)).
 
 Following established practice, we write $\rho[x \mapsto v]$ for the environment obtained by extending $\rho$ with the binding $x = v$. The denotation of a phrase $\phi$ in environment $\rho$ is written $\llbracket \phi \rrbracket_{\rho}$; we elide $\rho$ when the binding context is clear.
 

@@ -105,9 +105,9 @@ for step in range(2000):
         print(f"step {step:4d}  ELBO = {-loss:.3f}")
 ```
 
-The pattern is identical to Pyro: a `Guide` carries the variational family, an `Objective` is the loss, an `SVI` driver runs the loop.
+The pattern is identical to Pyro: a [`Guide`](../../api/inference/guide.md) carries the variational family, an [`Objective`](../../api/inference/elbo.md) is the loss, an [`SVI`](../../api/inference/svi.md) driver runs the loop.
 
-The default `AutoNormalGuide` is a diagonal-Gaussian variational posterior trained by the pathwise (reparameterised) gradient estimator of [Kingma & Welling (2014)](https://doi.org/10.48550/arXiv.1312.6114); SVI ramps that to mini-batches.
+The default [`AutoNormalGuide`](../../api/inference/guide.md) is a diagonal-Gaussian variational posterior trained by the pathwise (reparameterised) gradient estimator of [Kingma & Welling (2014)](https://doi.org/10.48550/arXiv.1312.6114); SVI ramps that to mini-batches.
 
 ## Inspect the posterior
 

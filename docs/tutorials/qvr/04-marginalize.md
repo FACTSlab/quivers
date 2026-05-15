@@ -19,9 +19,10 @@ Each observation comes from one of two Gaussian clusters; we don't know which.
         mu_k  : K <- Normal(0.0, 5.0)
         sd_k  : K <- HalfNormal(1.0)
 
-        marginalize z : K <- Categorical(probs) in {
-            observe y : Item <- Normal(mu_k[z], sd_k[z])
-        }
+        marginalize z : K <- Categorical(probs)
+            in {
+                observe y : Item <- Normal(mu_k[z], sd_k[z])
+            }
         return y
 
     export gmm

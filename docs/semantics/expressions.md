@@ -151,7 +151,7 @@ $$
 \llbracket \mathsf{scan}(e, \mathit{init}) \rrbracket \;=\; \mathrm{Tr}^{S}\bigl( \llbracket e \rrbracket \bigr) : X \to Y,
 $$
 
-where $\mathrm{Tr}^{S} : \mathcal{C}(X \otimes S, Y \otimes S) \to \mathcal{C}(X, Y)$ is the trace operator of the appropriate traced symmetric monoidal category $\mathcal{C}$ ([Joyal, Street & Verity, 1996](https://doi.org/10.1017/S0305004100074338)) eliminating the recurrent state $S$. The annotation $\mathit{init} \in \{\mathrm{zeros}, \mathrm{learned}\}$ selects the *initialisation policy* for the trace's fixed-point evaluation (the choice of distinguished element of $S$ from which the trace's iterative computation seeds), and is part of the chosen realization of $\mathrm{Tr}^{S}$ rather than a separate composition. Concretely:
+where $\mathrm{Tr}^{S} : \mathcal{C}(X \otimes S, Y \otimes S) \to \mathcal{C}(X, Y)$ is the trace operator of the appropriate [traced symmetric monoidal category](https://ncatlab.org/nlab/show/traced+monoidal+category) $\mathcal{C}$ ([Joyal, Street & Verity, 1996](https://doi.org/10.1017/S0305004100074338)) eliminating the recurrent state $S$. The trace itself is canonical; the annotation $\mathit{init} \in \{\mathrm{zeros}, \mathrm{learned}\}$ selects the *seed* used by the iterative computation that realises the trace in code — i.e. the distinguished element $s_0 \in S$ at which the fixed-point iteration begins. Concretely:
 
 - In $\mathcal{V}\text{-}\mathbf{Rel}$, $\mathrm{Tr}^{S}$ is the *iterative* trace, defined by quantale-join over the orbit of $S$;
 - In $\mathbf{Stoch}$ and $\mathbf{Kern}$, $\mathrm{Tr}^{S}$ is implemented as a sequence of Markov-kernel compositions seeded by $s_0$.

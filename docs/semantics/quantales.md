@@ -52,33 +52,34 @@ The order is reversed: smaller is "truer". The unit is $0$ (the additive identit
 ### 1.6 Max-plus (Viterbi) quantale
 
 $$
-\mathcal{V}_{\mathrm{MP}} \;=\; \bigl([-\infty, 0],\ \le,\ +,\ 0\bigr),
+\mathcal{V}_{\mathrm{MP}} \;=\; \bigl((-\infty, +\infty],\ \le,\ +,\ 0\bigr),
 \qquad \bigoplus_i a_i = \max_i a_i.
 $$
 
-The max-plus / Viterbi semiring used in best-path scoring; arcweight's `MaxWeight` and the standard semiring underlying Viterbi decoding.
+The max-plus / [Viterbi](https://en.wikipedia.org/wiki/Viterbi_algorithm) semiring used in best-path scoring; the bottom $\bot = -\infty$ is the additive zero, the unit $\mathbf{1} = 0$, and joins are pointwise max. Programs over log-probabilities live in the sub-poset $(-\infty, 0]$.
 
 ### 1.7 Log-prob quantale
 
 $$
-\mathcal{V}_{\mathrm{LP}} \;=\; \bigl([-\infty, 0],\ \le,\ +,\ 0\bigr),
+\mathcal{V}_{\mathrm{LP}} \;=\; \bigl((-\infty, +\infty],\ \le,\ +,\ 0\bigr),
 \qquad \bigoplus_i a_i = \operatorname{logsumexp}_i a_i.
 $$
 
-The log-space analogue of the product-fuzzy / probability quantale; mirrors arcweight's `LogWeight`. Composition is numerically stable log-domain matrix multiplication.
+The log-space analogue of the product-fuzzy / probability quantale. Carrier, unit, and bottom coincide with $\mathcal{V}_{\mathrm{MP}}$; the algebra differs by replacing $\max$ with $\operatorname{logsumexp}$, the smooth aggregation. Composition is numerically stable log-domain matrix multiplication. Programs over log-probabilities live in the sub-poset $(-\infty, 0]$.
 
 ### 1.8 Markov quantale
 
 $$
-\mathcal{V}_{\mathrm{M}} \;=\; \bigl(\Delta,\ \le,\ \star,\ \delta\bigr),
+\mathcal{V}_{\mathrm{M}} \;=\; \bigl(\mathbb{R}_{\ge 0},\ \le,\ \cdot,\ 1\bigr),
+\qquad \bigoplus_i a_i = \sum_i a_i.
 $$
 
-with carrier the row-stochastic kernels $X \to \mathcal{P}(Y)$, tensor $\star$ the Markov-kernel composition, and unit the Dirac kernel $\delta$. Powers the V-Cat surface of `kernel` declarations between finite-set types.
+The sum-product semiring underlying [stochastic-kernel composition](https://en.wikipedia.org/wiki/Stochastic_matrix): a $\mathcal{V}_{\mathrm{M}}$-relation is the per-entry algebra of a row-stochastic matrix, and matrix multiplication under this algebra is Kleisli composition in $\mathbf{Stoch}$. Like $\mathcal{V}_{\mathbb{R}}$ this is a semiring rather than a bounded lattice; the row-stochasticity constraint lives in the morphism layer, not in the algebra itself.
 
 ### 1.9 Real quantale
 
 $$
-\mathcal{V}_{\mathbb{R}} \;=\; \bigl(\mathbb{R},\ +,\ \cdot,\ 1\bigr),
+\mathcal{V}_{\mathbb{R}} \;=\; \bigl(\mathbb{R},\ \le,\ \cdot,\ 1\bigr),
 \qquad \bigoplus_i a_i = \sum_i a_i.
 $$
 
@@ -140,7 +141,7 @@ a \otimes (b_1 \oplus b_2) \;=\; \tfrac{1}{2}\bigl(1 - \tfrac{1}{4}\bigr) \;=\; 
 (a \otimes b_1) \oplus (a \otimes b_2) \;=\; 1 - \tfrac{9}{16} \;=\; \tfrac{7}{16}.
 $$
 
-Strict quantale-distributivity holds in the idempotent ($\mathcal{V}_{\mathbb{B}}$ and $\mathcal{V}_{\mathrm{G}}$) and tropical ($\mathcal{V}_{\mathrm{T}}$) cases. For $\mathcal{V}_{\mathrm{pf}}$ and $\mathcal{V}_{\mathrm{L}}$, the categorical apparatus of $\mathcal{V}\text{-}\mathbf{Rel}$ should be read as describing the *Bayesian noisy-OR* (resp.\ *Łukasiewicz-bounded-sum*) aggregation under the multiplicative t-norm, rather than as a strict $\mathcal{V}$-enriched category in Kelly's sense. Composition, tensor, and the equational laws of [Expressions §5](expressions.md#5-coherence-and-equational-laws) hold up to this standard caveat: equations involving $\bigoplus$-distribution over $\otimes$ are exact in the idempotent / tropical cases and approximate in the t-norm cases.
+Strict quantale-distributivity holds in the idempotent ($\mathcal{V}_{\mathbb{B}}$, $\mathcal{V}_{\mathrm{G}}$), tropical ($\mathcal{V}_{\mathrm{T}}$, $\mathcal{V}_{\mathrm{MP}}$), and log-additive ($\mathcal{V}_{\mathrm{LP}}$, $\mathcal{V}_{\mathbb{R}}$, $\mathcal{V}_{\mathbb{N}}$) cases. For $\mathcal{V}_{\mathrm{pf}}$ and $\mathcal{V}_{\mathrm{L}}$, the categorical apparatus of $\mathcal{V}\text{-}\mathbf{Rel}$ should be read as describing the *Bayesian noisy-OR* (resp. *Łukasiewicz-bounded-sum*) aggregation under the multiplicative (resp. Łukasiewicz) t-norm, rather than as a strict $\mathcal{V}$-enriched category in Kelly's sense. Composition, tensor, and the equational laws of [Expressions §5](expressions.md#5-coherence-and-equational-laws) hold up to this standard caveat: equations involving $\bigoplus$-distribution over $\otimes$ are exact in the strict cases and approximate in the t-norm cases.
 
 ## 3. Base change
 
@@ -159,9 +160,10 @@ The implementation ships a registry of named homomorphisms, including:
 
 - $\beta : \mathcal{V}_{\mathbb{B}} \to \mathcal{V}_{\mathrm{pf}}$, the inclusion $\{0, 1\} \hookrightarrow [0, 1]$ (`Embedding`);
 - $\theta : \mathcal{V}_{\mathrm{pf}} \to \mathcal{V}_{\mathbb{B}}$, thresholding at $\tau \in (0, 1]$ (`Threshold`);
-- $a \mapsto a \cdot (1 - a)$-style implication and `MaterialImplication` between $\mathcal{V}_{\mathrm{pf}}$ and $\mathcal{V}_{\mathrm{L}}$;
-- $\mathcal{V}_{\mathrm{M}} \to \mathcal{V}_{\mathrm{pf}}$ (`Expectation`) and $\mathcal{V}_{\mathrm{pf}} \to \mathcal{V}_{\mathrm{LP}}$ (`LogProb`);
-- $\mathcal{V}_{\mathrm{LP}} \to \mathcal{V}_{\mathrm{MP}}$ collapsing log-sum-exp to max (`MaxPlus`);
+- $\mathcal{V}_{\mathrm{pf}} \to \mathcal{V}_{\mathrm{G}}$ via the [material conditional](https://en.wikipedia.org/wiki/Material_conditional) $a \mapsto \min(1, 1 - a + b)$ (`MaterialImplication`);
+- $\mathcal{V}_{\mathrm{M}} \to \mathcal{V}_{\mathrm{pf}}$ (`Expectation`);
+- $\mathcal{V}_{\mathrm{pf}} \to \mathcal{V}_{\mathrm{LP}}$ via $a \mapsto \log a$ (`LogProb`);
+- $\mathcal{V}_{\mathrm{pf}} \to \mathcal{V}_{\mathrm{MP}}$ via $a \mapsto \log a$ (`MaxPlus`); the per-entry map matches `LogProb` but the target join is $\max$ rather than $\operatorname{logsumexp}$, realising Viterbi-MAP aggregation;
 - $\mathcal{V}_{\mathbb{R}} \rightleftarrows \mathcal{V}_{[0, 1]}$ (`ProbabilityClamp` / `ProbabilityToReal`);
 - $\mathcal{V}_{\mathbb{R}} \rightleftarrows \mathcal{V}_{\mathbb{N}}$ (`CountingFromReal` / `CountingToReal`).
 
