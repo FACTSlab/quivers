@@ -1,0 +1,198 @@
+# Algebras and Base Change
+
+The choice of algebra $\mathcal{V}$ in an `algebra` declaration determines the truth-value semantics of every $\mathcal{V}$-relation in the program. A QVR algebra is the structure $(V, \le, \otimes, \oplus, \mathbf{1})$ that assigns weights to V-relations; not every built-in algebra is a strict [quantale](https://ncatlab.org/nlab/show/quantale) in [Kelly's sense](https://ncatlab.org/nlab/show/enriched+category), as classified in §2. This page records the formal definition of each built-in algebra and the base-change functors that mediate between them.
+
+## 1. The eleven algebras
+
+Each algebra is determined by its underlying lattice and its monoidal product. Joins are taken pointwise on $V$; the unit $\mathbf{1}$ is the maximum element with respect to the order.
+
+### 1.1 Product fuzzy algebra
+
+$$
+\mathcal{V}_{\mathrm{pf}} \;=\; \bigl([0, 1],\ \le,\ \cdot,\ 1\bigr),
+\qquad a \otimes b = a \cdot b,
+\qquad \bigoplus_i a_i = 1 - \prod_i (1 - a_i).
+$$
+
+The join is *noisy-OR*. This is the QVR default.
+
+### 1.2 Boolean algebra
+
+$$
+\mathcal{V}_{\mathbb{B}} \;=\; \bigl(\{0, 1\},\ \le,\ \wedge,\ 1\bigr),
+\qquad \bigoplus_i a_i = \bigvee_i a_i.
+$$
+
+The classical two-element lattice; $\mathcal{V}_{\mathbb{B}}\text{-}\mathbf{Rel}$ is the category of ordinary binary relations on finite sets.
+
+### 1.3 Łukasiewicz algebra
+
+$$
+\mathcal{V}_{\mathrm{L}} \;=\; \bigl([0, 1],\ \le,\ \otimes_{\mathrm{L}},\ 1\bigr),
+\qquad a \otimes_{\mathrm{L}} b = \max(0, a + b - 1),
+\qquad \bigoplus_i a_i = \min(1, \textstyle\sum_i a_i).
+$$
+
+### 1.4 Gödel algebra
+
+$$
+\mathcal{V}_{\mathrm{G}} \;=\; \bigl([0, 1],\ \le,\ \min,\ 1\bigr),
+\qquad \bigoplus_i a_i = \max_i a_i.
+$$
+
+### 1.5 Tropical algebra
+
+$$
+\mathcal{V}_{\mathrm{T}} \;=\; \bigl([0, +\infty],\ \ge,\ +,\ 0\bigr),
+\qquad \bigoplus_i a_i = \min_i a_i.
+$$
+
+The order is reversed: smaller is "truer". The unit is $0$ (the additive identity), and the bottom of the lattice (the largest element) is $+\infty$. Composition is the *min-plus* matrix product, suitable for shortest-path semantics.
+
+### 1.6 Max-plus (Viterbi) algebra
+
+$$
+\mathcal{V}_{\mathrm{MP}} \;=\; \bigl((-\infty, +\infty],\ \le,\ +,\ 0\bigr),
+\qquad \bigoplus_i a_i = \max_i a_i.
+$$
+
+The max-plus / [Viterbi](https://en.wikipedia.org/wiki/Viterbi_algorithm) semiring used in best-path scoring; the bottom $\bot = -\infty$ is the additive zero, the unit $\mathbf{1} = 0$, and joins are pointwise max. Programs over log-probabilities live in the sub-poset $(-\infty, 0]$.
+
+### 1.7 Log-prob algebra
+
+$$
+\mathcal{V}_{\mathrm{LP}} \;=\; \bigl((-\infty, +\infty],\ \le,\ +,\ 0\bigr),
+\qquad \bigoplus_i a_i = \operatorname{logsumexp}_i a_i.
+$$
+
+The log-space analogue of the product-fuzzy / probability algebra. Carrier, unit, and bottom coincide with $\mathcal{V}_{\mathrm{MP}}$; the algebra differs by replacing $\max$ with $\operatorname{logsumexp}$, the smooth aggregation. Composition is numerically stable log-domain matrix multiplication. Programs over log-probabilities live in the sub-poset $(-\infty, 0]$.
+
+### 1.8 Markov algebra
+
+$$
+\mathcal{V}_{\mathrm{M}} \;=\; \bigl(\mathbb{R}_{\ge 0},\ \le,\ \cdot,\ 1\bigr),
+\qquad \bigoplus_i a_i = \sum_i a_i.
+$$
+
+The sum-product semiring underlying [stochastic-kernel composition](https://en.wikipedia.org/wiki/Stochastic_matrix): a $\mathcal{V}_{\mathrm{M}}$-relation is the per-entry tabulation of a row-stochastic matrix, and matrix multiplication under this algebra is Kleisli composition in $\mathbf{Stoch}$. Like $\mathcal{V}_{\mathbb{R}}$ this is a semiring rather than a bounded lattice; the row-stochasticity constraint lives in the morphism layer, not in the algebra itself.
+
+### 1.9 Real algebra
+
+$$
+\mathcal{V}_{\mathbb{R}} \;=\; \bigl(\mathbb{R},\ \le,\ \cdot,\ 1\bigr),
+\qquad \bigoplus_i a_i = \sum_i a_i.
+$$
+
+The sum-product semiring on the reals. No bottom/top: this is a semiring, not a bounded algebra, and is used for expectation-style aggregation where negative weights and unbounded magnitudes are required.
+
+### 1.10 Probability algebra
+
+$$
+\mathcal{V}_{[0, 1]} \;=\; \bigl([0, 1],\ \le,\ \cdot,\ 1\bigr),
+\qquad \bigoplus_i a_i = \min\!\bigl(1, \textstyle\sum_i a_i\bigr).
+$$
+
+Sum-product on $[0, 1]$ with explicit saturation at $1$ on aggregation. Distinguishes from $\mathcal{V}_{\mathrm{pf}}$ in its choice of join (saturated-sum rather than noisy-OR).
+
+### 1.11 Counting algebra
+
+$$
+\mathcal{V}_{\mathbb{N}} \;=\; \bigl(\mathbb{N},\ +,\ \cdot,\ 1\bigr),
+\qquad \bigoplus_i a_i = \sum_i a_i.
+$$
+
+Sum-product on the non-negative integers. Used for derivation-counting and unweighted multiplicity tracking. Negation is undefined.
+
+## 2. Order- and structure-preservation
+
+For each algebra we record which elementary properties hold; these determine which categorical constructions transport across base change.
+
+| Algebra | Idempotent? | Integral? | Cancellative? |
+|----------|-------------|-----------|---------------|
+| $\mathcal{V}_{\mathrm{pf}}$ | No | Yes ($\mathbf{1} = 1$) | No |
+| $\mathcal{V}_{\mathbb{B}}$ | Yes | Yes | No |
+| $\mathcal{V}_{\mathrm{L}}$ | No | Yes | No |
+| $\mathcal{V}_{\mathrm{G}}$ | Yes | Yes | No |
+| $\mathcal{V}_{\mathrm{T}}$ | No | Yes ($\mathbf{1} = 0$) | Yes |
+| $\mathcal{V}_{\mathrm{MP}}$ | Yes (join) | Yes ($\mathbf{1} = 0$) | Yes |
+| $\mathcal{V}_{\mathrm{LP}}$ | No | Yes ($\mathbf{1} = 0$) | Yes |
+| $\mathcal{V}_{\mathrm{M}}$ | No | Yes ($\mathbf{1} = \delta$) | No |
+| $\mathcal{V}_{\mathbb{R}}$ | No | Yes ($\mathbf{1} = 1$) | Yes |
+| $\mathcal{V}_{[0,1]}$ | No | Yes ($\mathbf{1} = 1$) | No |
+| $\mathcal{V}_{\mathbb{N}}$ | No | Yes ($\mathbf{1} = 1$) | Yes |
+
+An algebra is *integral* if $\mathbf{1}$ is the top element and *idempotent* if $a \otimes a = a$ for all $a$. Cancellativity means $a \otimes b = a \otimes c \Rightarrow b = c$ whenever $a \neq \bot$. Idempotent integral algebras are precisely [*frames*](https://ncatlab.org/nlab/show/frame) (locales), and the strict-quantale subclass (in [Kelly's sense](https://ncatlab.org/nlab/show/enriched+category)) is exactly the idempotent integral case together with its non-idempotent extensions on which the join distributes exactly over the monoidal product.
+
+### 2.1 A note on the product-fuzzy and Łukasiewicz pairs
+
+The product-fuzzy and Łukasiewicz $(\otimes, \oplus)$ pairs are *t-norm / t-conorm* pairs on $[0, 1]$, equipping the unit interval with the structure of a [*commutative residuated lattice*](https://ncatlab.org/nlab/show/residuated+lattice) (an [MV-algebra](https://ncatlab.org/nlab/show/MV-algebra) in the Łukasiewicz case). They are **not** strict quantales: the full quantale-distributivity law
+
+$$
+a \otimes \bigoplus_{i} b_i \;=\; \bigoplus_i (a \otimes b_i)
+$$
+
+fails in general for these two pairs.
+
+For example, in the product-fuzzy pair with $a = b_1 = b_2 = 1/2$:
+
+$$
+a \otimes (b_1 \oplus b_2) \;=\; \tfrac{1}{2}\bigl(1 - \tfrac{1}{4}\bigr) \;=\; \tfrac{3}{8},
+\qquad
+(a \otimes b_1) \oplus (a \otimes b_2) \;=\; 1 - \tfrac{9}{16} \;=\; \tfrac{7}{16}.
+$$
+
+Strict quantale-distributivity holds in the idempotent ($\mathcal{V}_{\mathbb{B}}$, $\mathcal{V}_{\mathrm{G}}$), tropical ($\mathcal{V}_{\mathrm{T}}$, $\mathcal{V}_{\mathrm{MP}}$), and log-additive ($\mathcal{V}_{\mathrm{LP}}$, $\mathcal{V}_{\mathbb{R}}$, $\mathcal{V}_{\mathbb{N}}$) cases; these are the algebras that are strict quantales in Kelly's sense. For $\mathcal{V}_{\mathrm{pf}}$ and $\mathcal{V}_{\mathrm{L}}$, the categorical apparatus of $\mathcal{V}\text{-}\mathbf{Rel}$ should be read as describing the *Bayesian noisy-OR* (resp. *Łukasiewicz-bounded-sum*) aggregation under the multiplicative (resp. Łukasiewicz) t-norm, rather than as a strict $\mathcal{V}$-enriched category. Composition, tensor, and the equational laws of [Expressions §5](expressions.md#5-coherence-and-equational-laws) hold up to this standard caveat: equations involving $\bigoplus$-distribution over $\otimes$ are exact in the strict cases and approximate in the t-norm cases.
+
+## 3. Base change
+
+A *algebra homomorphism* $h : \mathcal{V} \to \mathcal{W}$ is a join-preserving monoid map: $h(a \otimes_{\mathcal{V}} b) = h(a) \otimes_{\mathcal{W}} h(b)$, $h(\mathbf{1}_{\mathcal{V}}) = \mathbf{1}_{\mathcal{W}}$, and $h$ commutes with arbitrary joins.
+
+Each homomorphism induces a *base-change functor*
+
+$$
+h_* : \mathcal{V}\text{-}\mathbf{Rel} \to \mathcal{W}\text{-}\mathbf{Rel},
+\qquad (h_* r)(x, y) = h(r(x, y)),
+$$
+
+which acts as the identity on objects and pointwise on $\mathcal{V}$-relations. Functoriality is a direct consequence of $h$ preserving $\otimes$ and $\bigoplus$.
+
+The implementation ships a registry of named homomorphisms, including:
+
+- $\beta : \mathcal{V}_{\mathbb{B}} \to \mathcal{V}_{\mathrm{pf}}$, the inclusion $\{0, 1\} \hookrightarrow [0, 1]$ (`Embedding`);
+- $\theta : \mathcal{V}_{\mathrm{pf}} \to \mathcal{V}_{\mathbb{B}}$, thresholding at $\tau \in (0, 1]$ (`Threshold`);
+- $\mathcal{V}_{\mathrm{pf}} \to \mathcal{V}_{\mathrm{G}}$ via the [material conditional](https://en.wikipedia.org/wiki/Material_conditional) $a \mapsto \min(1, 1 - a + b)$ (`MaterialImplication`);
+- $\mathcal{V}_{\mathrm{M}} \to \mathcal{V}_{\mathrm{pf}}$ (`Expectation`);
+- $\mathcal{V}_{\mathrm{pf}} \to \mathcal{V}_{\mathrm{LP}}$ via $a \mapsto \log a$ (`LogProb`);
+- $\mathcal{V}_{\mathrm{pf}} \to \mathcal{V}_{\mathrm{MP}}$ via $a \mapsto \log a$ (`MaxPlus`); the per-entry map matches `LogProb` but the target join is $\max$ rather than $\operatorname{logsumexp}$, realising Viterbi-MAP aggregation;
+- $\mathcal{V}_{\mathbb{R}} \rightleftarrows \mathcal{V}_{[0, 1]}$ (`ProbabilityClamp` / `ProbabilityToReal`);
+- $\mathcal{V}_{\mathbb{R}} \rightleftarrows \mathcal{V}_{\mathbb{N}}$ (`CountingFromReal` / `CountingToReal`).
+
+`lookup_homomorphism(src, tgt)` retrieves a registered map; programs select one via the `change-of-base` block. Only $\beta \circ \theta = \mathrm{id}_{\mathcal{V}_\mathbb{B}}$ and the sub-algebra inclusions are sections; the rest are lossy lax monoidal poset functors.
+
+## 4. Functoriality of the language
+
+The QVR language is *parametric* in $\mathcal{V}$: every syntactic construct interprets uniformly over all eleven algebras modulo the existence of joins, products, and units. Concretely, for any algebra $\mathcal{V}$ and base-change homomorphism $h : \mathcal{V} \to \mathcal{W}$, the diagram
+
+$$
+\begin{array}{c}
+\text{QVR phrases} \\
+\downarrow \llbracket \cdot \rrbracket_{\mathcal{V}} \\
+\mathcal{V}\text{-}\mathbf{Rel}
+\end{array}
+\quad
+\begin{array}{c}
+\\
+\\
+\xrightarrow{\;\;h_*\;\;}
+\end{array}
+\quad
+\begin{array}{c}
+\text{QVR phrases} \\
+\downarrow \llbracket \cdot \rrbracket_{\mathcal{W}} \\
+\mathcal{W}\text{-}\mathbf{Rel}
+\end{array}
+$$
+
+commutes for every well-typed phrase whose type does not involve a `kernel ... ~ Family` declaration (the parametric Markov-kernel form). The stochastic and continuous strata are tied to the additive structure of $[0,1]$ as a $\sigma$-algebra of probabilities, not to the algebra; they ignore the `algebra` declaration.
+
+This commutation is the formal content of *base-change invariance*: changing the underlying truth-value algebra distributes over composition, tensor, marginalization, and every other expression-level combinator.

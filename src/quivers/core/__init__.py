@@ -2,8 +2,8 @@
 
 Canonical location for all core types and functions:
 - objects: SetObject, FinSet, ProductSet, CoproductSet, FreeMonoid
-- quantales: Quantale, ProductFuzzy, BooleanQuantale, and singletons
-- extra_quantales: LukasiewiczQuantale, GodelQuantale, TropicalQuantale
+- algebras: Algebra, ProductFuzzyAlgebra, BooleanAlgebra, and singletons
+- extra_algebras: LukasiewiczAlgebra, GodelAlgebra, TropicalAlgebra
 - morphisms: Morphism hierarchy and factory functions
 - tensor_ops: Tensor contraction and lifting operations
 """
@@ -17,17 +17,17 @@ from quivers.core.objects import (
     FreeMonoid,
     Unit,
 )
-from quivers.core.quantales import (
-    Quantale,
-    ProductFuzzy,
-    BooleanQuantale,
+from quivers.core.algebras import (
+    Algebra,
+    ProductFuzzyAlgebra,
+    BooleanAlgebra,
     PRODUCT_FUZZY,
     BOOLEAN,
 )
-from quivers.core.quantales import (
-    LukasiewiczQuantale,
-    GodelQuantale,
-    TropicalQuantale,
+from quivers.core.algebras import (
+    LukasiewiczAlgebra,
+    GodelAlgebra,
+    TropicalAlgebra,
     LUKASIEWICZ,
     GODEL,
     TROPICAL,
@@ -64,16 +64,16 @@ __all__ = [
     "CoproductSet",
     "FreeMonoid",
     "Unit",
-    # quantales
-    "Quantale",
-    "ProductFuzzy",
-    "BooleanQuantale",
+    # algebras
+    "Algebra",
+    "ProductFuzzyAlgebra",
+    "BooleanAlgebra",
     "PRODUCT_FUZZY",
     "BOOLEAN",
-    # extra_quantales
-    "LukasiewiczQuantale",
-    "GodelQuantale",
-    "TropicalQuantale",
+    # extra_algebras
+    "LukasiewiczAlgebra",
+    "GodelAlgebra",
+    "TropicalAlgebra",
     "LUKASIEWICZ",
     "GODEL",
     "TROPICAL",

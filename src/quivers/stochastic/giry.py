@@ -19,7 +19,7 @@ the category of finite stochastic matrices.
 
 This module provides:
 
-    GiryMonad      — the probability monad (T, η, μ) with MarkovQuantale
+    GiryMonad      — the probability monad (T, η, μ) with MarkovAlgebra
     FinStoch       — the Kleisli category of GiryMonad
 """
 
@@ -30,7 +30,7 @@ from quivers.core.morphisms import Morphism, identity
 from quivers.categorical.functors import Functor, IDENTITY
 from quivers.monadic.monads import KleisliCategory
 from quivers.monadic.typeclasses import Monad
-from quivers.stochastic.quantale import MARKOV
+from quivers.core.algebras import MARKOV
 
 
 class GiryMonad(Monad):
@@ -41,7 +41,7 @@ class GiryMonad(Monad):
     A → [0,1] that sum to 1), not as elements of a separate simplex
     object.
 
-    The Kleisli composition uses the MarkovQuantale (sum-product),
+    The Kleisli composition uses the MarkovAlgebra (sum-product),
     yielding standard matrix multiplication of stochastic matrices.
 
     This is the categorical foundation for all stochastic morphisms
@@ -73,7 +73,7 @@ class GiryMonad(Monad):
 
     def pure(self, A: SetObject) -> Morphism:
         """``η_A = δ`` — Kronecker delta (deterministic distribution)."""
-        return identity(A, quantale=MARKOV)
+        return identity(A, algebra=MARKOV)
 
     def join(self, A: SetObject) -> Morphism:
         """``μ_A`` — flatten nested distributions.
@@ -81,7 +81,7 @@ class GiryMonad(Monad):
         Since ``G(A) = A`` at the finite-set level, the flattening is
         the identity.
         """
-        return identity(A, quantale=MARKOV)
+        return identity(A, algebra=MARKOV)
 
     # Convenience aliases for the historical Eilenberg–Moore vocabulary.
     def unit(self, A: SetObject) -> Morphism:

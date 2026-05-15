@@ -290,6 +290,35 @@ def test_two_task_mixture_log_joint_returns_finite_scalar() -> None:
 
 
 @_LOCAL_GRAMMAR
+def test_log_joint_depends_on_grouped_ll_input() -> None:
+    """The marginalize block's per-group log-likelihood input must
+    actually flow into ``log_joint``.  Regression: previously the
+    compile path emitted the marginalize callable as a deterministic
+    let, so its result was bound to ``env`` but never added to
+    ``total``, making ``log_joint`` constant in the user's response
+    data.  Issue #21."""
+    src = _two_task_mixture_model()
+    model = loads(src).morphism
+    base_obs = {
+        "probs": torch.tensor([0.6, 0.4]),
+        "idx_a": torch.tensor([0, 0, 1, 1, 2, 2, 3, 3]),
+        "idx_b": torch.tensor([0, 1, 2, 3, 0, 1]),
+        "_grouped_ll_cls_0": torch.zeros(8, 2),
+        "_grouped_ll_cls_1": torch.zeros(6, 2),
+    }
+    bumped_obs = {
+        **base_obs,
+        "_grouped_ll_cls_0": torch.full((8, 2), 5.0),
+    }
+    base = model.log_joint(torch.zeros(1, 1), base_obs).item()
+    bumped = model.log_joint(torch.zeros(1, 1), bumped_obs).item()
+    assert base != bumped, (
+        "log_joint is invariant in the per-group log-likelihood input; "
+        "the marginalize result is computed but never scored."
+    )
+
+
+@_LOCAL_GRAMMAR
 def test_two_task_mixture_recovers_joint_proportions() -> None:
     """SVI on the two-task mixture model with synthetic data: the
     fit's final loss is finite and lower than the initial loss.

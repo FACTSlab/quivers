@@ -265,7 +265,7 @@ def _apply_unary_closure(
     Iteratively updates ``cell[A] ← logsumexp_B(cell[B] + log_unary[B, A])``
     and joins with the original ``cell`` until a fixed point is reached
     (or ``max_iters`` is exceeded). Convergence is guaranteed for unary
-    matrices whose absorbing spectrum is below the quantale's unit.
+    matrices whose absorbing spectrum is below the algebra's unit.
 
     Parameters
     ----------
@@ -281,7 +281,7 @@ def _apply_unary_closure(
     for _ in range(max_iters):
         # cell_unary[batch, A] = logsumexp_B(cell[batch, B] + log_unary[B, A])
         cell_unary = torch.logsumexp(cell.unsqueeze(2) + log_unary.unsqueeze(0), dim=1)
-        # Quantale-join (noisy-OR in log-space) of cell and cell_unary
+        # Algebra-join (noisy-OR in log-space) of cell and cell_unary
         # ≈ logaddexp.
         new_cell = torch.logaddexp(cell, cell_unary)
         if torch.allclose(new_cell, cell, atol=1e-6, rtol=1e-6):

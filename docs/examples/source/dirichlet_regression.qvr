@@ -32,7 +32,6 @@ program dirichlet_regression : Resp -> Resp
     beta_0 : Cat <- Normal(0.0, 2.0)
     beta_1 : Cat <- Normal(0.0, 2.0)
 
-    x : Resp <- Normal(0.0, 1.0)
     let b0 = beta_0[cat_idx]
     let b1 = beta_1[cat_idx]
     let alpha = exp(b0 + b1 * x)

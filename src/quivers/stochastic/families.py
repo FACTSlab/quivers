@@ -16,7 +16,7 @@ import torch.nn.functional as F
 from quivers.core.objects import SetObject, FinSet
 from quivers.core.morphisms import Morphism
 from quivers.core._util import EPS
-from quivers.stochastic.quantale import MARKOV
+from quivers.core.algebras import MARKOV
 
 
 class _DiscretizedModule(nn.Module):
@@ -61,7 +61,7 @@ class DiscretizedNormal(Morphism):
         low: float = 0.0,
         high: float = 1.0,
     ) -> None:
-        super().__init__(domain, codomain, quantale=MARKOV)
+        super().__init__(domain, codomain, algebra=MARKOV)
         self._low = low
         self._high = high
         n_bins = codomain.cardinality
@@ -129,7 +129,7 @@ class DiscretizedLogitNormal(Morphism):
         domain: SetObject,
         codomain: FinSet,
     ) -> None:
-        super().__init__(domain, codomain, quantale=MARKOV)
+        super().__init__(domain, codomain, algebra=MARKOV)
         n_bins = codomain.cardinality
 
         # bin centers in (0, 1), excluding endpoints
@@ -194,7 +194,7 @@ class DiscretizedBeta(Morphism):
         domain: SetObject,
         codomain: FinSet,
     ) -> None:
-        super().__init__(domain, codomain, quantale=MARKOV)
+        super().__init__(domain, codomain, algebra=MARKOV)
         n_bins = codomain.cardinality
 
         # bin centers in (0, 1)
@@ -264,7 +264,7 @@ class DiscretizedTruncatedNormal(Morphism):
         low: float = 0.0,
         high: float = 1.0,
     ) -> None:
-        super().__init__(domain, codomain, quantale=MARKOV)
+        super().__init__(domain, codomain, algebra=MARKOV)
         self._low = low
         self._high = high
         n_bins = codomain.cardinality

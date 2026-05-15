@@ -33,7 +33,7 @@ from abc import ABC, abstractmethod
 
 import torch
 
-from quivers.core.quantales import CompositionRule
+from quivers.core.algebras import CompositionRule
 
 
 class WiringRule(ABC):

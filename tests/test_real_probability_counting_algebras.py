@@ -1,33 +1,30 @@
 """Sum-product semiring family: Real, Probability, Counting.
 
-These three quantales share the categorical structure of a
+These three algebras share the categorical structure of a
 sum-product semiring (``⊕ = +``, ``⊗ = ·``) but differ in their
 underlying lattice and clamping behavior:
 
-* :class:`RealQuantale` — entries in :math:`\\mathbb{R}` with no
-  clamping. The canonical numeric semiring; closest analogue is
-  the arcweight ``RealWeight``.
-* :class:`ProbabilityQuantale` — entries in ``[0, 1]`` with clamp
+* :class:`RealAlgebra`: entries in :math:`\\mathbb{R}` with no
+  clamping. The canonical numeric semiring.
+* :class:`ProbabilityAlgebra`: entries in ``[0, 1]`` with clamp
   on every op so the unit-interval invariant is preserved.
-  Closest analogue: arcweight ``ProbabilityWeight``.
-* :class:`CountingQuantale` — entries in the non-negative
+* :class:`CountingAlgebra`: entries in the non-negative
   integers (held as float for autograd compatibility) with
-  ``+`` and ``·`` operations. Closest analogue: arcweight
-  ``IntegerWeight``.
+  ``+`` and ``·`` operations.
 
-These three are distinct from the existing ``MarkovQuantale``
-(which constrains rows to sum to 1), :class:`ProductFuzzy` (whose
-join is noisy-OR), and :class:`LogProbQuantale` (whose
+These three are distinct from the existing ``MarkovAlgebra``
+(which constrains rows to sum to 1), :class:`ProductFuzzyAlgebra` (whose
+join is noisy-OR), and :class:`LogProbAlgebra` (whose
 computation lives in log-space).
 
 The tests verify:
 
-1. Each quantale's tensor / join / meet / negate / identity-tensor
+1. Each algebra's tensor / join / meet / negate / identity-tensor
    operations satisfy their documented contract.
 2. Composition via the matching DSL operator (``$>`` for Real,
    ``%>`` for Probability) and via module-level
-   ``quantale <name>`` annotation works end-to-end.
-3. The compiler rejects operator/operand quantale mismatches
+   ``algebra <name>`` annotation works end-to-end.
+3. The compiler rejects operator/operand algebra mismatches
    with a typed error.
 """
 
@@ -38,7 +35,7 @@ import os
 import pytest
 import torch
 
-from quivers.core.quantales import (
+from quivers.core.algebras import (
     COUNTING,
     PROBABILITY,
     REAL,
@@ -54,11 +51,11 @@ _LOCAL_GRAMMAR = pytest.mark.skipif(
 
 
 # ---------------------------------------------------------------------------
-# Algebraic contract for RealQuantale
+# Algebraic contract for RealAlgebra
 # ---------------------------------------------------------------------------
 
 
-class TestRealQuantale:
+class TestRealAlgebra:
     def test_name_is_real(self) -> None:
         assert REAL.name == "Real"
 
@@ -101,11 +98,11 @@ class TestRealQuantale:
 
 
 # ---------------------------------------------------------------------------
-# Algebraic contract for ProbabilityQuantale
+# Algebraic contract for ProbabilityAlgebra
 # ---------------------------------------------------------------------------
 
 
-class TestProbabilityQuantale:
+class TestProbabilityAlgebra:
     def test_name_is_probability(self) -> None:
         assert PROBABILITY.name == "Probability"
 
@@ -139,11 +136,11 @@ class TestProbabilityQuantale:
 
 
 # ---------------------------------------------------------------------------
-# Algebraic contract for CountingQuantale
+# Algebraic contract for CountingAlgebra
 # ---------------------------------------------------------------------------
 
 
-class TestCountingQuantale:
+class TestCountingAlgebra:
     def test_name_is_counting(self) -> None:
         assert COUNTING.name == "Counting"
 
@@ -172,7 +169,7 @@ class TestCountingQuantale:
 
 
 def test_real_compose_via_rshift_uses_sum_product() -> None:
-    """``f >> g`` over two RealQuantale morphisms produces a
+    """``f >> g`` over two RealAlgebra morphisms produces a
     ComposedMorphism whose tensor is the matrix product (sum-
     product semiring on ℝ)."""
     A = FinSet(name="A", cardinality=2)
@@ -180,10 +177,10 @@ def test_real_compose_via_rshift_uses_sum_product() -> None:
     C = FinSet(name="C", cardinality=2)
     f_data = torch.tensor([[1.0, 2.0], [3.0, 4.0]])
     g_data = torch.tensor([[5.0, 6.0], [7.0, 8.0]])
-    f = ObservedMorphism(A, B, f_data, quantale=REAL)
-    g = ObservedMorphism(B, C, g_data, quantale=REAL)
+    f = ObservedMorphism(A, B, f_data, algebra=REAL)
+    g = ObservedMorphism(B, C, g_data, algebra=REAL)
     chain = f >> g
-    assert chain.quantale.name == "Real"
+    assert chain.algebra.name == "Real"
     # Materialise the chain's tensor and compare against the
     # matrix product.
     expected = f_data @ g_data
@@ -195,20 +192,20 @@ def test_probability_compose_clamps_to_unit_interval() -> None:
     B = FinSet(name="B", cardinality=2)
     C = FinSet(name="C", cardinality=2)
     f = ObservedMorphism(
-        A, B, torch.tensor([[0.5, 0.5], [0.5, 0.5]]), quantale=PROBABILITY
+        A, B, torch.tensor([[0.5, 0.5], [0.5, 0.5]]), algebra=PROBABILITY
     )
     g = ObservedMorphism(
-        B, C, torch.tensor([[0.5, 0.5], [0.5, 0.5]]), quantale=PROBABILITY
+        B, C, torch.tensor([[0.5, 0.5], [0.5, 0.5]]), algebra=PROBABILITY
     )
     chain = f >> g
-    assert chain.quantale.name == "Probability"
+    assert chain.algebra.name == "Probability"
     # Every entry must be in [0, 1].
     assert torch.all(chain.tensor >= 0.0)
     assert torch.all(chain.tensor <= 1.0)
 
 
 def test_counting_compose_counts_paths() -> None:
-    """The counting quantale composition counts the number of
+    """The counting algebra composition counts the number of
     paths from A through B to C. For two identity-1 matrices the
     result is 1 per direct path; for higher entries the path
     count scales linearly."""
@@ -217,8 +214,8 @@ def test_counting_compose_counts_paths() -> None:
     C = FinSet(name="C", cardinality=2)
     # Two "fan-out" matrices: each A maps to both B; each B maps
     # to both C. The chain has 2 paths from each A to each C.
-    f = ObservedMorphism(A, B, torch.ones(2, 2), quantale=COUNTING)
-    g = ObservedMorphism(B, C, torch.ones(2, 2), quantale=COUNTING)
+    f = ObservedMorphism(A, B, torch.ones(2, 2), algebra=COUNTING)
+    g = ObservedMorphism(B, C, torch.ones(2, 2), algebra=COUNTING)
     chain = f >> g
     expected = torch.ones(2, 2) @ torch.ones(2, 2)  # [[2, 2], [2, 2]]
     assert torch.allclose(chain.tensor, expected)
@@ -234,7 +231,7 @@ def test_dollar_gt_operator_dispatches_to_real() -> None:
     from quivers.dsl import loads
 
     src = """
-    quantale real
+    algebra real
     object A : 3
     object B : 3
     object C : 3
@@ -245,7 +242,7 @@ def test_dollar_gt_operator_dispatches_to_real() -> None:
     export chain
     """
     m = loads(src)
-    assert m.morphism.quantale.name == "Real"
+    assert m.morphism.algebra.name == "Real"
 
 
 @_LOCAL_GRAMMAR
@@ -253,7 +250,7 @@ def test_percent_gt_operator_dispatches_to_probability() -> None:
     from quivers.dsl import loads
 
     src = """
-    quantale probability
+    algebra probability
     object A : 3
     object B : 3
     object C : 3
@@ -264,18 +261,18 @@ def test_percent_gt_operator_dispatches_to_probability() -> None:
     export chain
     """
     m = loads(src)
-    assert m.morphism.quantale.name == "Probability"
+    assert m.morphism.algebra.name == "Probability"
 
 
 @_LOCAL_GRAMMAR
 def test_dollar_gt_with_non_real_operand_errors() -> None:
-    """The ``$>`` operator fixes the composition quantale to Real
-    and rejects operands declared over a different quantale."""
+    """The ``$>`` operator fixes the composition algebra to Real
+    and rejects operands declared over a different algebra."""
     from quivers.dsl import loads
     from quivers.dsl.compiler import CompileError
 
     src = """
-    quantale product_fuzzy
+    algebra product_fuzzy
     object A : 3
     object B : 3
     object C : 3
@@ -290,84 +287,84 @@ def test_dollar_gt_with_non_real_operand_errors() -> None:
 
 
 # ---------------------------------------------------------------------------
-# Module-level quantale declarations
+# Module-level algebra declarations
 # ---------------------------------------------------------------------------
 
 
 @_LOCAL_GRAMMAR
-def test_quantale_real_declaration_compiles() -> None:
+def test_algebra_real_declaration_compiles() -> None:
     from quivers.dsl import loads
 
     src = """
-    quantale real
+    algebra real
     object A : 4
     latent f : A -> A
     export f
     """
     m = loads(src)
-    assert m.morphism.quantale.name == "Real"
+    assert m.morphism.algebra.name == "Real"
 
 
 @_LOCAL_GRAMMAR
-def test_quantale_probability_declaration_compiles() -> None:
+def test_algebra_probability_declaration_compiles() -> None:
     from quivers.dsl import loads
 
     src = """
-    quantale probability
+    algebra probability
     object A : 4
     latent f : A -> A
     export f
     """
     m = loads(src)
-    assert m.morphism.quantale.name == "Probability"
+    assert m.morphism.algebra.name == "Probability"
 
 
 @_LOCAL_GRAMMAR
-def test_quantale_counting_declaration_compiles() -> None:
+def test_algebra_counting_declaration_compiles() -> None:
     from quivers.dsl import loads
 
     src = """
-    quantale counting
+    algebra counting
     object A : 4
     latent f : A -> A
     export f
     """
     m = loads(src)
-    assert m.morphism.quantale.name == "Counting"
+    assert m.morphism.algebra.name == "Counting"
 
 
 @_LOCAL_GRAMMAR
-def test_quantale_max_plus_declaration_compiles() -> None:
-    """The ``max_plus`` quantale name is now exposed at module
+def test_algebra_max_plus_declaration_compiles() -> None:
+    """The ``max_plus`` algebra name is now exposed at module
     level (previously only reachable via the ``?>`` operator)."""
     from quivers.dsl import loads
 
     src = """
-    quantale max_plus
+    algebra max_plus
     object A : 4
     latent f : A -> A
     export f
     """
     m = loads(src)
-    assert m.morphism.quantale.name == "MaxPlus"
+    assert m.morphism.algebra.name == "MaxPlus"
 
 
 @_LOCAL_GRAMMAR
-def test_quantale_log_prob_declaration_compiles() -> None:
+def test_algebra_log_prob_declaration_compiles() -> None:
     from quivers.dsl import loads
 
     src = """
-    quantale log_prob
+    algebra log_prob
     object A : 4
     latent f : A -> A
     export f
     """
     m = loads(src)
-    assert m.morphism.quantale.name == "LogProb"
+    assert m.morphism.algebra.name == "LogProb"
 
 
 # ---------------------------------------------------------------------------
-# Gradient flow through the new quantale compositions
+# Gradient flow through the new algebra compositions
 # ---------------------------------------------------------------------------
 
 
@@ -375,8 +372,8 @@ def test_real_chain_gradients_flow() -> None:
     A = FinSet(name="A", cardinality=2)
     B = FinSet(name="B", cardinality=2)
     C = FinSet(name="C", cardinality=2)
-    f = LatentMorphism(A, B, quantale=REAL)
-    g = LatentMorphism(B, C, quantale=REAL)
+    f = LatentMorphism(A, B, algebra=REAL)
+    g = LatentMorphism(B, C, algebra=REAL)
     chain = f >> g
     loss = chain.tensor.sum()
     loss.backward()
@@ -390,8 +387,8 @@ def test_probability_chain_gradients_flow() -> None:
     A = FinSet(name="A", cardinality=2)
     B = FinSet(name="B", cardinality=2)
     C = FinSet(name="C", cardinality=2)
-    f = LatentMorphism(A, B, quantale=PROBABILITY)
-    g = LatentMorphism(B, C, quantale=PROBABILITY)
+    f = LatentMorphism(A, B, algebra=PROBABILITY)
+    g = LatentMorphism(B, C, algebra=PROBABILITY)
     chain = f >> g
     loss = chain.tensor.sum()
     loss.backward()
@@ -405,8 +402,8 @@ def test_counting_chain_gradients_flow() -> None:
     A = FinSet(name="A", cardinality=2)
     B = FinSet(name="B", cardinality=2)
     C = FinSet(name="C", cardinality=2)
-    f = LatentMorphism(A, B, quantale=COUNTING)
-    g = LatentMorphism(B, C, quantale=COUNTING)
+    f = LatentMorphism(A, B, algebra=COUNTING)
+    g = LatentMorphism(B, C, algebra=COUNTING)
     chain = f >> g
     loss = chain.tensor.sum()
     loss.backward()
@@ -417,17 +414,17 @@ def test_counting_chain_gradients_flow() -> None:
 
 
 # ---------------------------------------------------------------------------
-# Cross-quantale change-of-base interactions
+# Cross-algebra change-of-base interactions
 # ---------------------------------------------------------------------------
 
 
 def test_change_base_real_to_log_prob_via_custom_homomorphism() -> None:
     """Apply ``log`` from Real to LogProb via a one-off
-    homomorphism; the result is a LogProb-quantale morphism."""
-    from quivers.core.quantales import LOG_PROB
-    from quivers.core.quantale_morphisms import QuantaleHomomorphism
+    homomorphism; the result is a LogProb-algebra morphism."""
+    from quivers.core.algebras import LOG_PROB
+    from quivers.core.algebra_morphisms import AlgebraHomomorphism
 
-    class _RealToLogProb(QuantaleHomomorphism):
+    class _RealToLogProb(AlgebraHomomorphism):
         @property
         def source(self):
             return REAL
@@ -442,19 +439,19 @@ def test_change_base_real_to_log_prob_via_custom_homomorphism() -> None:
     A = FinSet(name="A", cardinality=3)
     B = FinSet(name="B", cardinality=3)
     data = torch.tensor([[0.5, 0.5, 0.5], [0.5, 0.5, 0.5], [0.5, 0.5, 0.5]])
-    f = ObservedMorphism(A, B, data, quantale=REAL)
+    f = ObservedMorphism(A, B, data, algebra=REAL)
     g = f.change_base(_RealToLogProb())
-    assert g.quantale.name == "LogProb"
+    assert g.algebra.name == "LogProb"
     assert torch.allclose(g.tensor, torch.log(data))
 
 
 # ---------------------------------------------------------------------------
-# Quantale homomorphisms between Real / Probability / Counting
+# Algebra homomorphisms between Real / Probability / Counting
 # ---------------------------------------------------------------------------
 
 
 def test_probability_clamp_homomorphism_squeezes_into_unit_interval() -> None:
-    from quivers.core.quantale_morphisms import PROBABILITY_CLAMP
+    from quivers.core.algebra_morphisms import PROBABILITY_CLAMP
 
     t = torch.tensor([-0.5, 0.3, 0.8, 1.7])
     out = PROBABILITY_CLAMP.apply(t)
@@ -464,7 +461,7 @@ def test_probability_clamp_homomorphism_squeezes_into_unit_interval() -> None:
 
 
 def test_counting_from_real_floors_and_clamps_negative() -> None:
-    from quivers.core.quantale_morphisms import COUNTING_FROM_REAL
+    from quivers.core.algebra_morphisms import COUNTING_FROM_REAL
 
     t = torch.tensor([-1.7, 0.3, 1.7, 3.0])
     out = COUNTING_FROM_REAL.apply(t)
@@ -472,7 +469,7 @@ def test_counting_from_real_floors_and_clamps_negative() -> None:
 
 
 def test_probability_to_real_is_inclusion() -> None:
-    from quivers.core.quantale_morphisms import PROBABILITY_TO_REAL
+    from quivers.core.algebra_morphisms import PROBABILITY_TO_REAL
 
     t = torch.tensor([0.1, 0.5, 0.9])
     out = PROBABILITY_TO_REAL.apply(t)
@@ -482,7 +479,7 @@ def test_probability_to_real_is_inclusion() -> None:
 
 
 def test_counting_to_real_is_inclusion() -> None:
-    from quivers.core.quantale_morphisms import COUNTING_TO_REAL
+    from quivers.core.algebra_morphisms import COUNTING_TO_REAL
 
     t = torch.tensor([0.0, 1.0, 2.0, 5.0])
     out = COUNTING_TO_REAL.apply(t)
@@ -490,7 +487,7 @@ def test_counting_to_real_is_inclusion() -> None:
 
 
 def test_lookup_homomorphism_real_to_probability() -> None:
-    from quivers.core.quantale_morphisms import lookup_homomorphism
+    from quivers.core.algebra_morphisms import lookup_homomorphism
 
     phi = lookup_homomorphism(REAL, PROBABILITY)
     assert phi is not None
@@ -499,7 +496,7 @@ def test_lookup_homomorphism_real_to_probability() -> None:
 
 
 def test_lookup_homomorphism_real_to_counting() -> None:
-    from quivers.core.quantale_morphisms import lookup_homomorphism
+    from quivers.core.algebra_morphisms import lookup_homomorphism
 
     phi = lookup_homomorphism(REAL, COUNTING)
     assert phi is not None
@@ -507,7 +504,7 @@ def test_lookup_homomorphism_real_to_counting() -> None:
 
 
 def test_lookup_homomorphism_probability_to_real() -> None:
-    from quivers.core.quantale_morphisms import lookup_homomorphism
+    from quivers.core.algebra_morphisms import lookup_homomorphism
 
     phi = lookup_homomorphism(PROBABILITY, REAL)
     assert phi is not None
@@ -517,11 +514,11 @@ def test_change_base_real_to_probability_via_named_homomorphism() -> None:
     A = FinSet(name="A", cardinality=3)
     B = FinSet(name="B", cardinality=3)
     data = torch.tensor([[-0.5, 0.3, 1.7], [0.0, 0.5, 1.0], [2.0, -1.0, 0.9]])
-    f = ObservedMorphism(A, B, data, quantale=REAL)
-    from quivers.core.quantale_morphisms import PROBABILITY_CLAMP
+    f = ObservedMorphism(A, B, data, algebra=REAL)
+    from quivers.core.algebra_morphisms import PROBABILITY_CLAMP
 
     g = f.change_base(PROBABILITY_CLAMP)
-    assert g.quantale.name == "Probability"
+    assert g.algebra.name == "Probability"
     expected = data.clamp(min=0.0, max=1.0)
     assert torch.allclose(g.tensor, expected)
 
@@ -531,7 +528,7 @@ def test_dsl_change_base_to_probability_clamp() -> None:
     from quivers.dsl import loads
 
     src = """
-    quantale real
+    algebra real
     object A : 3
 
     latent f : A -> A
@@ -539,7 +536,7 @@ def test_dsl_change_base_to_probability_clamp() -> None:
     export g
     """
     m = loads(src)
-    assert m.morphism.quantale.name == "Probability"
+    assert m.morphism.algebra.name == "Probability"
 
 
 @_LOCAL_GRAMMAR
@@ -547,7 +544,7 @@ def test_dsl_change_base_to_counting_from_real() -> None:
     from quivers.dsl import loads
 
     src = """
-    quantale real
+    algebra real
     object A : 3
 
     latent f : A -> A
@@ -555,11 +552,11 @@ def test_dsl_change_base_to_counting_from_real() -> None:
     export g
     """
     m = loads(src)
-    assert m.morphism.quantale.name == "Counting"
+    assert m.morphism.algebra.name == "Counting"
 
 
 # ---------------------------------------------------------------------------
-# Compact-closed surface on the new quantales
+# Compact-closed surface on the new algebras
 # ---------------------------------------------------------------------------
 
 
@@ -567,11 +564,11 @@ def test_real_dagger_swaps_axes() -> None:
     A = FinSet(name="A", cardinality=3)
     B = FinSet(name="B", cardinality=4)
     data = torch.randn(3, 4)
-    f = ObservedMorphism(A, B, data, quantale=REAL)
+    f = ObservedMorphism(A, B, data, algebra=REAL)
     g = f.dagger
     assert g.domain is B
     assert g.codomain is A
-    assert g.quantale.name == "Real"
+    assert g.algebra.name == "Real"
     assert torch.allclose(g.tensor, data.t())
 
 
@@ -579,8 +576,8 @@ def test_probability_cup_returns_identity() -> None:
     from quivers.core.morphisms import cup
 
     A = FinSet(name="A", cardinality=3)
-    eta = cup(A, quantale=PROBABILITY)
-    assert eta.quantale.name == "Probability"
+    eta = cup(A, algebra=PROBABILITY)
+    assert eta.algebra.name == "Probability"
     assert torch.allclose(eta.tensor.squeeze(0), torch.eye(3))
 
 
@@ -588,6 +585,6 @@ def test_counting_cap_returns_identity() -> None:
     from quivers.core.morphisms import cap
 
     A = FinSet(name="A", cardinality=3)
-    eps = cap(A, quantale=COUNTING)
-    assert eps.quantale.name == "Counting"
+    eps = cap(A, algebra=COUNTING)
+    assert eps.algebra.name == "Counting"
     assert torch.allclose(eps.tensor.squeeze(-1), torch.eye(3))

@@ -43,7 +43,7 @@ import torch
 from quivers.core.morphisms import Morphism, observed
 from quivers.core.morphisms import identity as id_morph
 from quivers.core.objects import FinSet, ProductSet, SetObject
-from quivers.core.quantales import PRODUCT_FUZZY
+from quivers.core.algebras import PRODUCT_FUZZY
 from quivers.monadic.typeclasses import Monad
 
 
@@ -416,7 +416,7 @@ class Handler(dx.Model):
                                 bw = w * float(row[b].item())
                                 if bw > 0:
                                     cur = data[outer_flat, b].item()
-                                    # Quantale join: noisy-OR-like
+                                    # Algebra join: noisy-OR-like
                                     # aggregation across cartesian
                                     # branches.
                                     data[outer_flat, b] = max(cur, bw)

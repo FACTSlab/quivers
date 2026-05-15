@@ -9,7 +9,7 @@ Verifies:
   satisfies the disintegration equation
   ``f^{-1}_pi(a | b) * marginal_b(b) = f(b | a) * prior(a)``.
 * ``Morphism.change_base`` dispatches between
-  ``QuantaleHomomorphism`` (pointwise) and
+  ``AlgebraHomomorphism`` (pointwise) and
   ``MorphismTransformation`` (shape-aware) correctly.
 """
 
@@ -27,11 +27,11 @@ from quivers.core.morphism_transformations import (
 )
 from quivers.core.morphisms import observed
 from quivers.core.objects import FinSet
-from quivers.core.quantales import (
+from quivers.core.algebras import (
     PRODUCT_FUZZY,
     REAL,
 )
-from quivers.stochastic.quantale import MARKOV
+from quivers.core.algebras import MARKOV
 
 
 def _real_morphism(A: FinSet, B: FinSet) -> object:
@@ -43,7 +43,7 @@ def _real_morphism(A: FinSet, B: FinSet) -> object:
         ]
     )
     assert tensor.shape == (A.cardinality, B.cardinality)
-    return observed(A, B, tensor, quantale=REAL)
+    return observed(A, B, tensor, algebra=REAL)
 
 
 # ---------------------------------------------------------------------------
@@ -60,12 +60,12 @@ def test_softmax_produces_row_stochastic_kernel() -> None:
     assert (g.tensor > 0).all()
 
 
-def test_softmax_target_quantale_is_markov() -> None:
+def test_softmax_target_algebra_is_markov() -> None:
     A = FinSet(name="A", cardinality=3)
     B = FinSet(name="B", cardinality=4)
     f = _real_morphism(A, B)
     g = f.change_base(Softmax(B, source=REAL))
-    assert g.quantale is MARKOV
+    assert g.algebra is MARKOV
 
 
 # ---------------------------------------------------------------------------
@@ -90,12 +90,12 @@ def test_l2_normalize_row_norm_one() -> None:
     assert torch.allclose(norms, torch.ones(3), atol=1e-5)
 
 
-def test_l2_normalize_preserves_source_quantale() -> None:
+def test_l2_normalize_preserves_source_algebra() -> None:
     A = FinSet(name="A", cardinality=3)
     B = FinSet(name="B", cardinality=4)
     f = _real_morphism(A, B)
     g = f.change_base(L2Normalize(B, source=REAL))
-    assert type(g.quantale) is type(REAL)
+    assert type(g.algebra) is type(REAL)
 
 
 # ---------------------------------------------------------------------------
@@ -111,7 +111,7 @@ def _markov_kernel(A: FinSet) -> object:
             [0.2, 0.3, 0.5],
         ]
     )
-    return observed(A, A, k, quantale=MARKOV)
+    return observed(A, A, k, algebra=MARKOV)
 
 
 def test_bayes_invert_rows_sum_to_one() -> None:
@@ -126,7 +126,7 @@ def test_bayes_invert_swaps_domain_and_codomain() -> None:
     A = FinSet(name="A", cardinality=3)
     B = FinSet(name="B", cardinality=3)
     k = torch.eye(3)  # identity kernel; doesn't matter
-    f = observed(A, B, k, quantale=MARKOV)
+    f = observed(A, B, k, algebra=MARKOV)
     prior = torch.tensor([0.5, 0.3, 0.2])
     g = f.change_base(BayesInvert(prior))
     assert g.domain is B
@@ -169,10 +169,10 @@ def test_bayes_invert_rejects_multivariate_prior() -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_change_base_dispatches_on_quantale_homomorphism() -> None:
-    """Pointwise QuantaleHomomorphism still works through
+def test_change_base_dispatches_on_algebra_homomorphism() -> None:
+    """Pointwise AlgebraHomomorphism still works through
     change_base."""
-    from quivers.core.quantale_morphisms import EXPECTATION
+    from quivers.core.algebra_morphisms import EXPECTATION
 
     A = FinSet(name="A", cardinality=3)
     B = FinSet(name="B", cardinality=4)
@@ -184,18 +184,18 @@ def test_change_base_dispatches_on_quantale_homomorphism() -> None:
             [0.25, 0.25, 0.25, 0.25],
         ]
     )
-    f = observed(A, B, tensor, quantale=MARKOV)
+    f = observed(A, B, tensor, algebra=MARKOV)
     g = f.change_base(EXPECTATION)
-    assert g.quantale is PRODUCT_FUZZY
+    assert g.algebra is PRODUCT_FUZZY
     assert torch.allclose(g.tensor, tensor.clamp(0, 1))
 
 
 def test_change_base_rejects_wrong_source() -> None:
     A = FinSet(name="A", cardinality=3)
     B = FinSet(name="B", cardinality=4)
-    f = _real_morphism(A, B)  # quantale=REAL
+    f = _real_morphism(A, B)  # algebra=REAL
     # Softmax with source=PRODUCT_FUZZY, but f is REAL → should fail.
-    with pytest.raises(TypeError, match="quantale"):
+    with pytest.raises(TypeError, match="algebra"):
         f.change_base(Softmax(B, source=PRODUCT_FUZZY))
 
 

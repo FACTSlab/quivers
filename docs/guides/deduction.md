@@ -8,7 +8,7 @@ Categorically, a weighted deduction system is a tuple
 
 $$\mathcal{D} = (I, R, K, \mathrm{ax}, \mathrm{goal})$$
 
-with $I$ an *item algebra* (an abstract data type of judgments / facts / sequents), $R$ a *hypergraph* of inference rules (each a premise multiset, a conclusion, and a weight in $K$, universally quantified over pattern variables), $K$ a *quantale* / semiring for weight aggregation, $\mathrm{ax}$ an *axiom injector* producing the input's lexical / boundary items, and $\mathrm{goal} \subseteq I$ a *termination predicate*.
+with $I$ an *item algebra* (an abstract data type of judgments / facts / sequents), $R$ a *hypergraph* of inference rules (each a premise multiset, a conclusion, and a weight in $K$, universally quantified over pattern variables), $K$ a *algebra* / semiring for weight aggregation, $\mathrm{ax}$ an *axiom injector* producing the input's lexical / boundary items, and $\mathrm{goal} \subseteq I$ a *termination predicate*.
 
 The chart is the $K$-presheaf $C : I^{\mathrm{op}} \to K$ that is the least pre-fixed point of the rule-system functor in the $K$-enriched lattice (Tarski-Knaster). The chart is *strategy-independent*; the agenda is the operational realization of the fixed-point computation.
 

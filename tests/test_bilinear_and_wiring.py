@@ -13,14 +13,14 @@ from __future__ import annotations
 import pytest
 import torch
 
-from quivers.core.quantales import (
+from quivers.core.algebras import (
     BOOLEAN,
     PRODUCT_FUZZY,
     REAL,
     BilinearForm,
     CompositionRule,
     CustomBilinearForm,
-    Quantale,
+    Algebra,
     Semigroupoid,
     bilinear_form,
 )
@@ -39,7 +39,7 @@ from quivers.core.wiring import (
 def test_bilinear_form_is_composition_rule_not_semigroupoid() -> None:
     assert issubclass(BilinearForm, CompositionRule)
     assert not issubclass(BilinearForm, Semigroupoid)
-    assert not issubclass(BilinearForm, Quantale)
+    assert not issubclass(BilinearForm, Algebra)
 
 
 def _signed_dot(a: torch.Tensor, b: torch.Tensor) -> torch.Tensor:
@@ -62,7 +62,7 @@ def test_bilinear_form_factory_builds_instance() -> None:
     assert isinstance(bf, BilinearForm)
     assert isinstance(bf, CompositionRule)
     assert not isinstance(bf, Semigroupoid)
-    assert not isinstance(bf, Quantale)
+    assert not isinstance(bf, Algebra)
     assert bf.name == "SignedDot"
 
 
@@ -91,7 +91,7 @@ def test_bilinear_form_skips_associativity_check() -> None:
     assert bf.name == "SignedDot"
 
 
-def test_bilinear_form_lacks_quantale_operations() -> None:
+def test_bilinear_form_lacks_algebra_operations() -> None:
     bf = bilinear_form("SignedDot", _signed_dot, _sum_reduce)
     with pytest.raises(AttributeError):
         _ = bf.unit
@@ -123,7 +123,7 @@ def test_einsum_wiring_ternary_contraction() -> None:
 
     Inputs: ``arg1 : (S, P)``, ``arg2 : (S, Q)``,
     ``kernel : (P, Q, O)``. Output: ``(S, O)`` after contraction
-    of ``P, Q`` under ProductFuzzy noisy-OR.
+    of ``P, Q`` under ProductFuzzyAlgebra noisy-OR.
     """
     wiring = einsum_wiring(PRODUCT_FUZZY, "sp, sq, pqo -> so")
     torch.manual_seed(0)
@@ -151,7 +151,7 @@ def test_einsum_wiring_ternary_against_manual_computation() -> None:
     assert torch.allclose(out, expected, atol=1e-5)
 
 
-def test_einsum_wiring_with_boolean_quantale() -> None:
+def test_einsum_wiring_with_boolean_algebra() -> None:
     """Boolean (AND, OR) wiring reproduces relational composition
     on three inputs."""
     wiring = einsum_wiring(BOOLEAN, "ij, jk, kl -> il")
@@ -231,14 +231,14 @@ def test_contract_helper_works() -> None:
 
 
 # ---------------------------------------------------------------------------
-# WiringRule + non-Quantale rule integration
+# WiringRule + non-Algebra rule integration
 # ---------------------------------------------------------------------------
 
 
 def test_einsum_wiring_with_semigroupoid() -> None:
-    """An ``EinsumWiring`` works with a non-quantale composition
+    """An ``EinsumWiring`` works with a non-algebra composition
     rule (here a Semigroupoid)."""
-    from quivers.core.quantales import material_implication
+    from quivers.core.algebras import material_implication
 
     mi = material_implication()
     wiring = einsum_wiring(mi, "ij, jk -> ik")

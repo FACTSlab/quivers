@@ -13,7 +13,7 @@ Realisations:
 - :class:`VRel` — the canonical V-enriched-relation arrow. ``compose``
   is the V-Rel ``>>`` operator; ``arr`` is the identity embedding;
   ``first`` is the parallel-product factory; ``left_arr`` is the
-  coproduct functorial action; ``loop_arr`` is the V-quantale iterative
+  coproduct functorial action; ``loop_arr`` is the V-algebra iterative
   trace on the recurrent component.
 - :class:`Function` — restricts to deterministic V-relations (functions
   with point-mass tensors). Pure-functional operations.
@@ -42,7 +42,7 @@ from quivers.core._factories import (
 from quivers.core.morphisms import Morphism, observed
 from quivers.core.morphisms import identity as id_morph
 from quivers.core.objects import ProductSet, SetObject
-from quivers.core.quantales import PRODUCT_FUZZY
+from quivers.core.algebras import PRODUCT_FUZZY
 
 
 def _iter_indices(shape: tuple[int, ...]):
@@ -50,7 +50,7 @@ def _iter_indices(shape: tuple[int, ...]):
 
 
 def _trace_v_rel(f: Morphism, C: SetObject) -> Morphism:
-    """Iterative quantale trace ``Tr^C : Hom(A⊗C, B⊗C) → Hom(A, B)``.
+    """Iterative algebra trace ``Tr^C : Hom(A⊗C, B⊗C) → Hom(A, B)``.
 
     Computed as ``trace(f)(a, b) = ⨁_c f((a, c), (b, c))`` — the
     diagonal-on-C V-relation join. This is the canonical traced-
@@ -67,7 +67,7 @@ def _trace_v_rel(f: Morphism, C: SetObject) -> Morphism:
             f"trace's recurrent components must both equal {C!r}; "
             f"got domain-side {C_dom!r}, codomain-side {C_cod!r}"
         )
-    q = f.quantale
+    q = f.algebra
     # Reshape f.tensor to (*A.shape, *C.shape, *B.shape, *C.shape).
     # Then for each (a_idx, b_idx), join over the diagonal of the two
     # C axes (where the two C-coordinates are equal).
@@ -90,7 +90,7 @@ def _trace_v_rel(f: Morphism, C: SetObject) -> Morphism:
         index = a_slice + c_slice_dom + b_slice + c_slice_cod
         slab = data[index]  # shape: (*A, *B)
         result = q.join(torch.stack([result, slab], dim=0), dim=0)
-    return observed(A, B, result, quantale=q)
+    return observed(A, B, result, algebra=q)
 
 
 class VRel(dx.Model):
@@ -99,7 +99,7 @@ class VRel(dx.Model):
     Hom-sets are V-Rel morphisms; composition is the standard
     ``>>``; ``arr`` is the identity embedding (every V-Rel morphism
     is an arrow); ``first`` is the parallel pair; ``left_arr`` is
-    the coproduct functorial action; ``loop_arr`` is the V-quantale
+    the coproduct functorial action; ``loop_arr`` is the V-algebra
     iterative trace.
     """
 
@@ -163,7 +163,7 @@ class Function(dx.Model):
 
         Iterates the loop ``c_{n+1} := f.second_projection(a, c_n)``
         until ``c_{n+1} == c_n``. In V-Rel terms this coincides with
-        the quantale-iterative trace when ``f`` is function-shaped.
+        the algebra-iterative trace when ``f`` is function-shaped.
         """
         return _trace_v_rel(f, C)
 

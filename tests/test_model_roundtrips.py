@@ -45,7 +45,7 @@ from quivers.dsl.ast_nodes import (
     ExportDecl,
     ProgramDecl,
     ProgramStep,
-    QuantaleDecl,
+    AlgebraDecl,
     RuleDecl,
     SpaceConstructor,
     SpaceDecl,
@@ -173,7 +173,7 @@ _DRAW = DrawStep(vars=("x",), morphism="f", args=None)
 _LET_STEP = LetStep(name="y", value=_LE_BINOP)
 
 # AST: top-level statements
-_QDECL = QuantaleDecl(name="product_fuzzy")
+_QDECL = AlgebraDecl(name="product_fuzzy")
 _CDECL = CategoryDecl(name="S")
 _RDECL = RuleDecl(
     name="app",

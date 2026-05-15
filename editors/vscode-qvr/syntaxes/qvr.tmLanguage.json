@@ -43,7 +43,7 @@
       "include": "#semiring"
     },
     {
-      "include": "#quantale"
+      "include": "#algebra"
     },
     {
       "include": "#distribution-family"
@@ -84,7 +84,7 @@
     },
     "keyword-declaration": {
       "name": "keyword.declaration.qvr",
-      "match": "\\b(quantale|semigroupoid|bilinear_form|composition_rule|contraction|wiring|category|object|space|latent|observed|stochastic|continuous|discretize|embed|type|schema|rule)\\b"
+      "match": "\\b(algebra|semigroupoid|bilinear_form|composition_rule|contraction|wiring|category|object|space|latent|observed|stochastic|continuous|discretize|embed|type|schema|rule)\\b"
     },
     "keyword-structural": {
       "name": "keyword.declaration.structural.qvr",
@@ -146,11 +146,11 @@
     "semiring": {
       "comment": "Semiring names recognised by `deduction { semiring … }`.",
       "name": "support.constant.semiring.qvr",
-      "match": "\\b(LogProb|Boolean|Viterbi|Counting|ProductFuzzy)\\b"
+      "match": "\\b(LogProb|Boolean|Viterbi|Counting|ProductFuzzyAlgebra)\\b"
     },
-    "quantale": {
-      "comment": "Built-in quantale names.",
-      "name": "support.constant.quantale.qvr",
+    "algebra": {
+      "comment": "Built-in algebra names.",
+      "name": "support.constant.algebra.qvr",
       "match": "\\b(product_fuzzy|boolean|lukasiewicz|godel|tropical|max_plus|log_prob|markov|real|probability|counting|material_impl|reichenbach|boolean_dual|dual_lukasiewicz|dual_godel)\\b"
     },
     "distribution-family": {

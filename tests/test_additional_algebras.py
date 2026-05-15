@@ -1,18 +1,18 @@
-"""Tests for additional quantales."""
+"""Tests for additional algebras."""
 
 import torch
 import pytest
 
 from quivers.core.objects import FinSet
 from quivers.core.morphisms import observed, identity
-from quivers.core.quantales import (
+from quivers.core.algebras import (
     LUKASIEWICZ,
     GODEL,
     TROPICAL,
 )
 
 
-class TestLukasiewiczQuantale:
+class TestLukasiewiczAlgebra:
     def test_tensor_op(self):
         """Łukasiewicz t-norm: max(a + b - 1, 0)."""
         q = LUKASIEWICZ
@@ -51,22 +51,22 @@ class TestLukasiewiczQuantale:
         """id >> id = id for Łukasiewicz."""
         q = LUKASIEWICZ
         a = FinSet(name="A", cardinality=3)
-        id_a = identity(a, quantale=q)
+        id_a = identity(a, algebra=q)
         result = (id_a >> id_a).tensor
         expected = q.identity_tensor((3,))
 
         torch.testing.assert_close(result, expected, atol=1e-5, rtol=1e-5)
 
     def test_composition(self):
-        """V-enriched composition with Łukasiewicz quantale."""
+        """V-enriched composition with Łukasiewicz algebra."""
         q = LUKASIEWICZ
         a = FinSet(name="A", cardinality=2)
         b = FinSet(name="B", cardinality=2)
 
         f_data = torch.tensor([[0.8, 0.3], [0.5, 0.9]])
         g_data = torch.tensor([[0.7, 0.2], [0.4, 0.8]])
-        f = observed(a, b, f_data, quantale=q)
-        g = observed(b, b, g_data, quantale=q)
+        f = observed(a, b, f_data, algebra=q)
+        g = observed(b, b, g_data, algebra=q)
 
         result = (f >> g).tensor
         assert result.shape == (2, 2)
@@ -76,7 +76,7 @@ class TestLukasiewiczQuantale:
         assert (result <= 1.0).all()
 
 
-class TestGodelQuantale:
+class TestGodelAlgebra:
     def test_tensor_op(self):
         """Gödel t-norm: min(a, b)."""
         q = GODEL
@@ -110,7 +110,7 @@ class TestGodelQuantale:
         """id >> id = id for Gödel."""
         q = GODEL
         a = FinSet(name="A", cardinality=3)
-        id_a = identity(a, quantale=q)
+        id_a = identity(a, algebra=q)
         result = (id_a >> id_a).tensor
         expected = q.identity_tensor((3,))
 
@@ -128,8 +128,8 @@ class TestGodelQuantale:
         b = FinSet(name="B", cardinality=2)
         c = FinSet(name="C", cardinality=2)
 
-        f = observed(a, b, torch.tensor([[0.8, 0.3], [0.5, 0.9]]), quantale=q)
-        g = observed(b, c, torch.tensor([[0.7, 0.2], [0.4, 0.6]]), quantale=q)
+        f = observed(a, b, torch.tensor([[0.8, 0.3], [0.5, 0.9]]), algebra=q)
+        g = observed(b, c, torch.tensor([[0.7, 0.2], [0.4, 0.6]]), algebra=q)
 
         result = (f >> g).tensor
         expected = torch.tensor([[0.7, 0.3], [0.5, 0.6]])
@@ -137,7 +137,7 @@ class TestGodelQuantale:
         torch.testing.assert_close(result, expected, atol=1e-5, rtol=1e-5)
 
 
-class TestTropicalQuantale:
+class TestTropicalAlgebra:
     def test_tensor_op_addition(self):
         """Tropical tensor: a + b."""
         q = TROPICAL
@@ -189,8 +189,8 @@ class TestTropicalQuantale:
         # distances
         f_data = torch.tensor([[1.0, 3.0], [2.0, 1.0]])
         g_data = torch.tensor([[2.0, 4.0], [1.0, 3.0]])
-        f = observed(a, b, f_data, quantale=q)
-        g = observed(b, c, g_data, quantale=q)
+        f = observed(a, b, f_data, algebra=q)
+        g = observed(b, c, g_data, algebra=q)
 
         result = (f >> g).tensor
 
@@ -209,8 +209,8 @@ class TestTropicalQuantale:
         b = FinSet(name="B", cardinality=2)
 
         f_data = torch.tensor([[1.0, 3.0], [2.0, 1.0]])
-        f = observed(a, b, f_data, quantale=q)
-        id_a = identity(a, quantale=q)
+        f = observed(a, b, f_data, algebra=q)
+        id_a = identity(a, algebra=q)
 
         result = (id_a >> f).tensor
         torch.testing.assert_close(result, f_data, atol=1e-5, rtol=1e-5)

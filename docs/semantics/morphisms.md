@@ -1,6 +1,6 @@
 # Morphisms
 
-This page assigns denotations to the three QVR morphism strata (discrete $\mathcal{V}$-enriched, stochastic, and continuous) and to the structural transitions between them. Throughout, we fix a quantale $\mathcal{V}$ as in [Setting and notation](setting.md).
+This page assigns denotations to the three QVR morphism strata (discrete $\mathcal{V}$-enriched, stochastic, and continuous) and to the structural transitions between them. Throughout, we fix an algebra $\mathcal{V}$ as in [Setting and notation](setting.md).
 
 ## 1. Discrete $\mathcal{V}$-enriched morphisms
 
@@ -35,7 +35,7 @@ Composition $;$, tensor $\boxtimes$, and identity $1_X$ in $\mathcal{V}\text{-}\
 
 ### 1.2 Marginalization
 
-For $f : X \otimes Y \to Z$ in $\mathcal{V}\text{-}\mathbf{Rel}$, the expression `f.marginalize(X)` denotes the $\mathcal{V}$-enriched colimit (quantale-join) of $f$ along the $X$-coordinate:
+For $f : X \otimes Y \to Z$ in $\mathcal{V}\text{-}\mathbf{Rel}$, the expression `f.marginalize(X)` denotes the $\mathcal{V}$-enriched colimit (algebra-join) of $f$ along the $X$-coordinate:
 
 $$
 \llbracket f.\mathrm{marginalize}(X) \rrbracket(y, z) \;=\; \bigoplus_{x \in \llbracket X \rrbracket} \llbracket f \rrbracket\bigl((x, y), z\bigr),
@@ -119,7 +119,7 @@ The `@` combinator extends to all three strata via the canonical monoidal struct
 | Both discrete | $\mathcal{V}\text{-}\mathbf{Rel}$ |
 | Both stochastic | $\mathbf{Stoch}$ |
 | Both continuous | $\mathbf{Kern}$ |
-| Mixed | The smallest enclosing category, via the canonical embeddings $\mathcal{V}_{\mathbb{B}}\text{-}\mathbf{Rel} \hookrightarrow \mathbf{Stoch} \hookrightarrow \mathbf{Kern}$ of [Setting §4](setting.md#4-the-three-semantic-strata) |
+| Mixed | The smallest enclosing category, via the canonical embeddings $\mathcal{V}_{\mathbb{B}}\text{-}\mathbf{Rel}_{\mathrm{fun}} \hookrightarrow \mathbf{Stoch} \hookrightarrow \mathbf{Kern}$ of [Setting §4](setting.md#4-the-three-semantic-strata) |
 
 The denotation is the parallel product of kernels:
 
@@ -164,7 +164,7 @@ Each registered family carries a declared *event rank* $r_F \in \mathbb{N}$.
 | Event rank | Family examples | Event shape |
 |---|---|---|
 | 0 | `Normal`, `Beta`, `Gamma`, `Exponential`, `Bernoulli`, … | $\mathbb{R}$ (scalar) |
-| 1 | `MultivariateNormal`, `LowRankMVN`, `Dirichlet`, `OneHotCategorical`, `LogisticNormal`, `GP`, `Horseshoe` | $\mathbb{R}^{d}$ for a single named axis |
+| 1 | `MultivariateNormal`, `LowRankMVN`, `Dirichlet`, `OneHotCategorical`, `RelaxedOneHotCategorical`, `LogisticNormal`, `GP`, `Horseshoe` | $\mathbb{R}^{d}$ for a single named axis |
 | 2 | `Wishart`, `InverseWishart`, `MatrixNormal`, `LKJCholesky` | $\mathbb{R}^{d_1 \times d_2}$ for two named axes |
 
 A distribution clause `~ F(args) over <axes> [iid over <axes>]` *configures* the event–batch decomposition of a $F$-valued draw. Concretely, for a morphism $f : A \to B$ whose representing tensor has shape $\prod_{i} d_i$ indexed by the named factors $\{a_1, \dots, a_m\}$ of $A$ and $\{b_1, \dots, b_n\}$ of $B$, the clause names a sub-multiset $E \subseteq \{a_i\} \cup \{b_j\}$ of cardinality $|E| = r_F$ and declares:
@@ -205,4 +205,4 @@ where `rsample` is the reparameterized sample of the family at its declared even
 
 ## 8. Equivariance and naturality
 
-The constructions above are functorial in the chosen quantale (for the discrete stratum, [Quantales §4](quantales.md#4-functoriality-of-the-language)) and in the choice of family registry (for the stochastic and continuous strata). In particular, any uniform substitution of one family for another that preserves the parameter-map signature induces a natural transformation of denotations; this is the formal underpinning of the family-registry lookup tables in [`quivers.continuous.families`](../api/continuous/families.md) and [`quivers.stochastic.families`](../api/stochastic/families.md).
+The constructions above are functorial in the chosen algebra (for the discrete stratum, [Algebras §4](algebras.md#4-functoriality-of-the-language)) and in the choice of family registry (for the stochastic and continuous strata). In particular, any uniform substitution of one family for another that preserves the parameter-map signature induces a natural transformation of denotations; this is the formal underpinning of the family-registry lookup tables in [`quivers.continuous.families`](../api/continuous/families.md) and [`quivers.stochastic.families`](../api/stochastic/families.md).

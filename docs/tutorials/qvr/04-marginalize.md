@@ -11,18 +11,18 @@ Each observation comes from one of two Gaussian clusters; we don't know which.
 === "QVR"
 
     ```qvr
-    quantale real
     object Item : 500
     object K    : 2
 
     program gmm : Item -> Item ! Sample, Score, Marginal
-        probs <- Dirichlet(1.0, 1.0)
+        probs : K <- HalfNormal(1.0)
         mu_k  : K <- Normal(0.0, 5.0)
         sd_k  : K <- HalfNormal(1.0)
 
-        marginalize z : K <- Categorical(probs) in {
-            observe y <- Normal(mu_k[z], sd_k[z])
-        }
+        marginalize z : K <- Categorical(probs)
+            in {
+                observe y : Item <- Normal(mu_k[z], sd_k[z])
+            }
         return y
 
     export gmm
@@ -67,11 +67,13 @@ Each observation comes from one of two Gaussian clusters; we don't know which.
 
 The `marginalize z : K <- Categorical(probs) in { ... }` block is exactly the Stan `log_sum_exp` pattern, expressed once and instantiated for every row of the response. The `! Marginal` effect annotation makes the marginalization visible at the program signature.
 
-## Posterior over the discrete latent
-
-After fitting, you sometimes want to know *which cluster* an observation belongs to. Quivers exposes the per-row responsibilities at the marginalized block's location:
+## Fitting the mixture
 
 ```python
+import torch
+from quivers.dsl import loads
+from quivers.inference import AutoNormalGuide, ELBO, SVI
+
 program = loads(open("gmm.qvr").read())
 model   = program.morphism
 
@@ -87,15 +89,13 @@ optimizer = torch.optim.Adam(
     list(model.parameters()) + list(guide.parameters()), lr=1e-2,
 )
 svi = SVI(model, guide, optimizer, elbo)
+x_tensor = torch.zeros(1, 1)
+observations = {"y": y_data}
 for _ in range(3000):
-    svi.step({}, {"y": y_data})
-
-from quivers.inference import responsibilities
-resp = responsibilities(model, guide, {"y": y_data}, latent="z")  # (500, 2)
-print("posterior P(z=1 | y[:5]):", resp[:5, 1].tolist())
+    svi.step(x_tensor, observations)
 ```
 
-The `responsibilities` helper takes the marginalized block's name (`z`) and returns the per-row posterior `P(z = k | y_n, θ)` averaged over posterior samples of `θ`. There is no analogous helper to install in Pyro; you build it by hand from `enumerate`-trace post-processing.
+The `marginalize` block is integrated out exactly at every SVI step, so the gradients on `mu_k`, `sd_k`, and `probs` flow through a smooth `logsumexp`. No discrete-sampling variance contaminates the ELBO.
 
 ## Hierarchical mixtures with grouping
 
@@ -103,14 +103,13 @@ Suppose each observation belongs to one of `G` groups, and the categorical mixtu
 
 <!-- compile: false -->
 ```qvr
-quantale real
 object Item : 1000
 object G    : 20
 object K    : 3
 
 program grouped_mixture : Item -> Item ! Sample, Score, Marginal
-    group : Item <- Categorical(uniform_prior)
-    probs : G    <- Dirichlet(1.0, 1.0, 1.0)
+    group : Item <- HalfNormal(1.0)
+    probs : G    <- HalfNormal(1.0)
     mu_k  : K    <- Normal(0.0, 5.0)
     sd_k  : K    <- HalfNormal(1.0)
 

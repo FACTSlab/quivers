@@ -57,7 +57,7 @@ class ForgetfulFunctor(Functor):
 
         return FunctorMorphism(self, morph, morph.domain, morph.codomain)
 
-    def map_tensor(self, tensor: torch.Tensor, quantale: object) -> torch.Tensor:
+    def map_tensor(self, tensor: torch.Tensor, algebra: object) -> torch.Tensor:
         """Identity on tensors."""
         return tensor
 

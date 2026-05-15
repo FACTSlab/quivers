@@ -4,7 +4,7 @@ from __future__ import annotations
 from collections.abc import Callable
 import torch
 import torch.nn as nn
-from quivers.core.quantales import BOOLEAN
+from quivers.core.algebras import BOOLEAN
 from quivers.dsl.ast_nodes import (
     DeductionDecl,
     TypeEffectApply,
@@ -151,7 +151,6 @@ class _DeductionsMixin:
             "Boolean": SEMIRING_BOOLEAN,
             "Viterbi": SEMIRING_VITERBI,
             "Counting": SEMIRING_COUNTING,
-            "ProductFuzzy": SEMIRING_LOG_PROB,
         }
         semiring = (
             semiring_registry.get(decl.semiring, SEMIRING_LOG_PROB)

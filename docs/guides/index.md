@@ -4,13 +4,13 @@ This section gives feature-area introductions to the mathematical and computatio
 
 ## Reading order
 
-1. **[Core Types & Quantales](core.md).** Finite sets (the SetObject hierarchy), quantales as enrichment algebras, and the algebraic primitives that underpin all morphism composition.
-2. **[Transformations & Composition Rules](transformations.md).** First-class change-of-base transformations (`softmax(B)`, `expectation`, etc.), the `>>>` composition operator, and the `CompositionRule → Semigroupoid → Quantale` hierarchy. Also covers operadic n-ary contractions via einsum-style wiring specs.
+1. **[Core Types & Algebras](core.md).** Finite sets (the SetObject hierarchy), algebras as enrichment algebras, and the algebraic primitives that underpin all morphism composition.
+2. **[Transformations & Composition Rules](transformations.md).** First-class change-of-base transformations (`softmax(B)`, `expectation`, etc.), the `>>>` composition operator, and the `CompositionRule → Semigroupoid → Algebra` hierarchy. Also covers operadic n-ary contractions via einsum-style wiring specs.
 3. **[Morphisms & Composition](morphisms.md).** What a morphism is as a tensor in $\mathcal{V}^{|A| \times |B|}$. The morphism hierarchy, composition, tensor product, marginalization, and the compact-closed surface (`dagger`, `trace`, `cup`, `cap`).
 4. **[Categorical Structures](categorical.md).** Higher-order constructions: functors, natural transformations, adjunctions, monoidal structures, base change.
 5. **[Monads & Comonads](monadic.md).** Monadic abstractions, Kleisli / coKleisli categories, algebras, coalgebras, distributive laws.
 6. **[Enriched Category Theory](enriched.md).** Advanced structures specific to $\mathcal{V}$-enrichment: ends, coends, Kan extensions, weighted limits, profunctors, Yoneda, Day convolution, optics.
-7. **[Stochastic Morphisms](stochastic.md).** The FinStoch category: Markov kernels, conditioning, queries, the Giry monad.
+7. **[Stochastic Morphisms](stochastic.md).** The FinStoch category: Markov kernels, conditioning, queries, the Giry monad. The `stochastic` package also houses the chart-parser / weighted-deduction substrate (`deduction.py`, `agenda.py`, `semiring.py`, `inside.py`, `rules.py`, `schema.py`), surfaced separately in the [Weighted Deduction Systems](deduction.md) guide.
 8. **[Continuous Distributions](continuous.md).** ContinuousSpace and ContinuousMorphism: parameterized families, sampled composition, normalizing flows.
 9. **[Monadic Programs](programs.md).** Probabilistic programming via sequential bind (`<-`), `let`, `observe`, `marginalize`, and `return` steps; ancestral sampling; log-joint computation; parametric program templates.
 10. **[The QVR DSL](dsl.md).** Declarative specification: the `.qvr` file format, grammar, and compilation pipeline.
@@ -18,6 +18,7 @@ This section gives feature-area introductions to the mathematical and computatio
 12. **[Compositional Effects](effects.md).** Algebraic-effects framework over the residuated category universe.
 13. **[Weighted Deduction Systems](deduction.md).** Agenda-engine runtime, semirings, charts as differentiable values, the seven canonical parameters.
 14. **[Structural Compression](structural-compression.md).** `signature` / `encoder` / `decoder` / `loss` blocks; F-algebra / F-coalgebra surface for compressing structured objects.
+15. **[Analysis Pipelines](analysis.md).** Posterior-analysis pipelines that take a fit and a formula and return summaries, plots, or downstream artifacts.
 
 ## Quick navigation
 
@@ -26,3 +27,4 @@ This section gives feature-area introductions to the mathematical and computatio
 - **Building models declaratively.** The QVR DSL, Transformations & Composition Rules, Inference.
 - **Category-theoretic extension.** Categorical Structures, Monads & Comonads, Enriched Category Theory.
 - **Structured prediction and parsing.** Weighted Deduction Systems, Structural Compression.
+- **Working with fitted models.** Variational Inference, Analysis Pipelines.

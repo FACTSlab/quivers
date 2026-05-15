@@ -6,7 +6,7 @@ import pytest
 from quivers.core.objects import FinSet
 from quivers.core.morphisms import observed
 from quivers.categorical.base_change import BoolToFuzzy, FuzzyToBool
-from quivers.core.quantales import PRODUCT_FUZZY, BOOLEAN
+from quivers.core.algebras import PRODUCT_FUZZY, BOOLEAN
 
 
 class TestBoolToFuzzy:
@@ -26,10 +26,10 @@ class TestBoolToFuzzy:
         a = FinSet(name="A", cardinality=2)
         b = FinSet(name="B", cardinality=2)
         data = torch.tensor([[1.0, 0.0], [0.0, 1.0]])
-        f = observed(a, b, data, quantale=BOOLEAN)
+        f = observed(a, b, data, algebra=BOOLEAN)
 
         result = bc.apply_to_morphism(f)
-        assert result.quantale is PRODUCT_FUZZY
+        assert result.algebra is PRODUCT_FUZZY
         torch.testing.assert_close(result.tensor, data)
 
 
@@ -77,7 +77,7 @@ class TestRoundTrip:
         b = FinSet(name="B", cardinality=2)
         data = torch.tensor([[1.0, 0.0], [0.0, 1.0]])
 
-        f = observed(a, b, data, quantale=BOOLEAN)
+        f = observed(a, b, data, algebra=BOOLEAN)
 
         fuzzy_f = BoolToFuzzy().apply_to_morphism(f)
         bool_f = FuzzyToBool().apply_to_morphism(fuzzy_f)

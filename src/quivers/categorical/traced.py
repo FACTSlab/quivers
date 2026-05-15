@@ -16,8 +16,8 @@ a fixpoint computation: given f: A × U → B × U, the trace
 
 which is the join (existential) over the feedback variable.
 
-For the tropical quantale, this computes shortest-cycle distances.
-For general quantales, it may require iteration to a fixpoint.
+For the tropical algebra, this computes shortest-cycle distances.
+For general algebras, it may require iteration to a fixpoint.
 
 This module provides:
 
@@ -38,7 +38,7 @@ import torch
 
 from quivers.core.objects import SetObject, ProductSet
 from quivers.core.morphisms import Morphism, observed, identity
-from quivers.core.quantales import PRODUCT_FUZZY, Quantale
+from quivers.core.algebras import PRODUCT_FUZZY, Algebra
 from quivers.categorical.monoidal import MonoidalStructure, CartesianMonoidal
 
 
@@ -51,17 +51,17 @@ class TracedMonoidal(ABC):
     ----------
     monoidal : MonoidalStructure
         The underlying monoidal structure.
-    quantale : Quantale or None
+    algebra : Algebra or None
         The enrichment algebra.
     """
 
     def __init__(
         self,
         monoidal: MonoidalStructure,
-        quantale: Quantale | None = None,
+        algebra: Algebra | None = None,
     ) -> None:
         self._monoidal = monoidal
-        self._quantale = quantale if quantale is not None else PRODUCT_FUZZY
+        self._algebra = algebra if algebra is not None else PRODUCT_FUZZY
 
     @property
     def monoidal(self) -> MonoidalStructure:
@@ -69,9 +69,9 @@ class TracedMonoidal(ABC):
         return self._monoidal
 
     @property
-    def quantale(self) -> Quantale:
+    def algebra(self) -> Algebra:
         """The enrichment algebra."""
-        return self._quantale
+        return self._algebra
 
     @abstractmethod
     def trace(
@@ -128,7 +128,7 @@ class TracedMonoidal(ABC):
         if isinstance(self._monoidal, CartesianMonoidal):
             swap = self._monoidal.braiding(feedback, feedback)
             traced = self.trace(swap, feedback, feedback, feedback)
-            expected = identity(feedback, quantale=self._quantale).tensor
+            expected = identity(feedback, algebra=self._algebra).tensor
 
             return torch.allclose(traced.tensor, expected, atol=atol)
 
@@ -152,12 +152,12 @@ class CartesianTrace(TracedMonoidal):
 
     Parameters
     ----------
-    quantale : Quantale or None
+    algebra : Algebra or None
         The enrichment algebra.
     """
 
-    def __init__(self, quantale: Quantale | None = None) -> None:
-        q = quantale if quantale is not None else PRODUCT_FUZZY
+    def __init__(self, algebra: Algebra | None = None) -> None:
+        q = algebra if algebra is not None else PRODUCT_FUZZY
         super().__init__(CartesianMonoidal(q), q)
 
     def trace(
@@ -185,7 +185,7 @@ class CartesianTrace(TracedMonoidal):
         ObservedMorphism
             Tr^U(f): A → B.
         """
-        q = self._quantale
+        q = self._algebra
         t = morph.tensor
 
         # tensor shape: (*a.shape, *u.shape, *b.shape, *u.shape)
@@ -211,26 +211,26 @@ class CartesianTrace(TracedMonoidal):
                     stacked = torch.cat(vals)
                     result[a_idx + b_idx] = q.join(stacked, dim=0)
 
-        return observed(domain, codomain, result, quantale=q)
+        return observed(domain, codomain, result, algebra=q)
 
 
 class IterativeTrace(TracedMonoidal):
     """Trace via fixpoint iteration.
 
-    For quantales where the trace does not have a closed-form
+    For algebras where the trace does not have a closed-form
     expression, this computes the trace by iterating:
 
         x_0 = ⊥
         x_{n+1} = f(a, x_n)(b, x_n)  (schematically)
 
-    until convergence. This works for continuous quantales on
+    until convergence. This works for continuous algebras on
     complete lattices (Kleene's fixpoint theorem).
 
     Parameters
     ----------
     monoidal : MonoidalStructure
         The monoidal structure.
-    quantale : Quantale or None
+    algebra : Algebra or None
         The enrichment algebra.
     max_iter : int
         Maximum number of iterations.
@@ -241,11 +241,11 @@ class IterativeTrace(TracedMonoidal):
     def __init__(
         self,
         monoidal: MonoidalStructure,
-        quantale: Quantale | None = None,
+        algebra: Algebra | None = None,
         max_iter: int = 100,
         atol: float = 1e-6,
     ) -> None:
-        super().__init__(monoidal, quantale)
+        super().__init__(monoidal, algebra)
         self._max_iter = max_iter
         self._atol = atol
 
@@ -279,7 +279,7 @@ class IterativeTrace(TracedMonoidal):
         ObservedMorphism
             Tr^U(f): A → B.
         """
-        q = self._quantale
+        q = self._algebra
         t = morph.tensor
 
         result_shape = (*domain.shape, *codomain.shape)
@@ -308,7 +308,7 @@ class IterativeTrace(TracedMonoidal):
 
             prev = current
 
-        return observed(domain, codomain, current, quantale=q)
+        return observed(domain, codomain, current, algebra=q)
 
 
 def trace(
@@ -316,7 +316,7 @@ def trace(
     feedback: SetObject,
     domain: SetObject,
     codomain: SetObject,
-    quantale: Quantale | None = None,
+    algebra: Algebra | None = None,
 ) -> Morphism:
     """Convenience function: apply cartesian trace.
 
@@ -333,7 +333,7 @@ def trace(
         The external domain A.
     codomain : SetObject
         The external codomain B.
-    quantale : Quantale or None
+    algebra : Algebra or None
         The enrichment algebra.
 
     Returns
@@ -341,14 +341,14 @@ def trace(
     Morphism
         The traced morphism Tr^U(f): A → B.
     """
-    tracer = CartesianTrace(quantale=quantale)
+    tracer = CartesianTrace(algebra=algebra)
     return tracer.trace(morph, feedback, domain, codomain)
 
 
 def partial_trace(
     morph: Morphism,
     feedback_indices: tuple[int, ...],
-    quantale: Quantale | None = None,
+    algebra: Algebra | None = None,
 ) -> Morphism:
     """Trace over a subset of feedback wires in a product.
 
@@ -364,7 +364,7 @@ def partial_trace(
         Indices of the product components to trace over.
         These components must have matching shapes in domain
         and codomain.
-    quantale : Quantale or None
+    algebra : Algebra or None
         The enrichment algebra.
 
     Returns
@@ -372,7 +372,7 @@ def partial_trace(
     ObservedMorphism
         The partially traced morphism.
     """
-    q = quantale if quantale is not None else PRODUCT_FUZZY
+    q = algebra if algebra is not None else PRODUCT_FUZZY
     t = morph.tensor
     dom = morph.domain
     cod = morph.codomain
@@ -434,7 +434,7 @@ def partial_trace(
         t,
         contra_dims=tuple(contra_dims),
         co_dims=tuple(co_dims),
-        quantale=q,
+        algebra=q,
     )
 
     # build result objects
@@ -453,4 +453,4 @@ def partial_trace(
     else:
         ext_cod = ProductSet(components=tuple(external_cod_comps))
 
-    return observed(ext_dom, ext_cod, result, quantale=q)
+    return observed(ext_dom, ext_cod, result, algebra=q)

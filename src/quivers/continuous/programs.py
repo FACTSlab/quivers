@@ -110,6 +110,37 @@ class _LetSpec:
         self.value = value
 
 
+class _ScoreSpec:
+    """Metadata for a step whose callable contributes to log_joint.
+
+    Used for marginalize blocks: the callable computes a log-density
+    contribution (the marginal log-likelihood obtained by summing the
+    body's per-latent-value scores against the categorical prior).
+    The callable's return value is both stored in ``env[var]`` for
+    later reference and added to ``total`` in ``log_joint``. Under
+    ``rsample`` it behaves like a let binding (its result is stored;
+    nothing is scored).
+
+    Parameters
+    ----------
+    var : str
+        Variable name to bind the callable's return value to.
+    score : callable
+        ``score(env) -> torch.Tensor`` of shape ``(batch,)``: the
+        per-sample log-density contribution.
+    """
+
+    __slots__ = ("var", "score")
+
+    def __init__(
+        self,
+        var: str,
+        score: collections.abc.Callable[..., torch.Tensor],
+    ) -> None:
+        self.var = var
+        self.score = score
+
+
 class MonadicProgram(ContinuousMorphism):
     """A probabilistic program defined by monadic sequencing of draw steps.
 
@@ -161,7 +192,7 @@ class MonadicProgram(ContinuousMorphism):
         # (Sample / Score / Marginal / Pure) for introspection by
         # downstream inference / dispatch code.
         self.effect_set: frozenset[str] | None = effect_set
-        self._step_specs: list[_StepSpec | _LetSpec] = []
+        self._step_specs: list[_StepSpec | _LetSpec | _ScoreSpec] = []
 
         # compute input component dimensions for param splitting
         if params is not None and len(params) > 1:
@@ -175,19 +206,31 @@ class MonadicProgram(ContinuousMorphism):
         # register each morphism as a named submodule so parameters
         # are visible to optimizers; let bindings become _LetSpec
         for step in steps:
-            # support both 3-element (backward compat) and 4-element tuples
+            # The fourth tuple element is `is_observed` for draw steps
+            # (when morph is not None) and `is_score` for let steps
+            # (when morph is None). The two flags are mutually
+            # exclusive by the morph-None partition, so the slot is
+            # reused without ambiguity.
             if len(step) == 4:
-                var_names, morph, arg_or_value, is_observed = step
+                var_names, morph, arg_or_value, fourth_flag = step
 
             else:
                 var_names, morph, arg_or_value = step
-                is_observed = False
+                fourth_flag = False
 
             if morph is None:
-                # let binding: arg_or_value is float | str
-                self._step_specs.append(_LetSpec(var_names[0], arg_or_value))
+                # let-or-score binding: arg_or_value is float | str | callable.
+                # A True `is_score` flag (only meaningful when the value is a
+                # callable) routes the result through `total += score(env)`
+                # in `log_joint` instead of contributing 0.
+                if fourth_flag is True and callable(arg_or_value):
+                    self._step_specs.append(_ScoreSpec(var_names[0], arg_or_value))
+
+                else:
+                    self._step_specs.append(_LetSpec(var_names[0], arg_or_value))
 
             else:
+                is_observed = fourth_flag
                 key = f"_step_{var_names[0]}"
                 from quivers.core.morphisms import as_torch_module
 
@@ -442,6 +485,12 @@ class MonadicProgram(ContinuousMorphism):
                     env[pname] = chunk
 
         for i, spec in enumerate(self._step_specs):
+            if isinstance(spec, _ScoreSpec):
+                # forward path: bind the score callable's result like a
+                # let, score contribution is only meaningful for log_joint.
+                env[spec.var] = cast(torch.Tensor, spec.score(env))
+                continue
+
             if isinstance(spec, _LetSpec):
                 # deterministic binding: constant, alias, or expression
                 if isinstance(spec.value, str):
@@ -553,14 +602,14 @@ class MonadicProgram(ContinuousMorphism):
         tensor as a deterministic step.
 
         The morphism's tensor has shape ``(*dom.shape, *cod.shape)``
-        with values in the quantale's lattice. For a batched input
+        with values in the algebra's lattice. For a batched input
         ``inp`` of shape ``(batch, *dom.shape)``, the V-enriched
-        action is the quantale tensor product followed by join over
+        action is the algebra tensor product followed by join over
         the domain axes — equivalent to a matrix-vector contraction
-        when the quantale is product-fuzzy / Markov / boolean. We
-        delegate that contraction to the active quantale's
+        when the algebra is product-fuzzy / Markov / boolean. We
+        delegate that contraction to the active algebra's
         ``composition_kernel`` so a single deterministic-bind path
-        handles every supported quantale uniformly.
+        handles every supported algebra uniformly.
         """
         m_tensor = morph.tensor
         # Broadcast inp to (batch, *dom.shape). For a one-hot input
@@ -677,6 +726,16 @@ class MonadicProgram(ContinuousMorphism):
                         env[pname] = chunk
 
         for spec in self._step_specs:
+            if isinstance(spec, _ScoreSpec):
+                # Score step (e.g. compiled marginalize): the callable
+                # returns a (batch,)-shaped log-density contribution
+                # that is both bound to env (for any later step that
+                # references it) and added to the joint.
+                val = cast(torch.Tensor, spec.score(env))
+                env[spec.var] = val
+                total = total + val
+                continue
+
             if isinstance(spec, _LetSpec):
                 # deterministic binding: populate env, contribute 0
                 if spec.var not in env:
@@ -713,7 +772,7 @@ class MonadicProgram(ContinuousMorphism):
                     sub_intermediates = {}
 
                     for sub_spec in sub_morph._step_specs:
-                        if isinstance(sub_spec, _LetSpec):
+                        if isinstance(sub_spec, (_LetSpec, _ScoreSpec)):
                             continue
 
                         for sv in sub_spec.vars:
@@ -734,6 +793,10 @@ class MonadicProgram(ContinuousMorphism):
         parts = []
 
         for s in self._step_specs:
+            if isinstance(s, _ScoreSpec):
+                parts.append(f"score {s.var} = {s.score}")
+                continue
+
             if isinstance(s, _LetSpec):
                 parts.append(f"let {s.var} = {s.value}")
 

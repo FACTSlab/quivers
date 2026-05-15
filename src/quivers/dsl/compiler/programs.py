@@ -62,7 +62,7 @@ from quivers.dsl.ast_nodes import (
 from quivers.dsl.compiler._prelude import (
     CompileError,
     _CompiledContraction,
-    _QUANTALE_REGISTRY,
+    _ALGEBRA_REGISTRY,
     _get_family_registry,
     _numel_shape,
 )
@@ -1081,7 +1081,7 @@ class _ProgramsMixin:
             contraction.domain,
             contraction.codomain,
             result_tensor,
-            quantale=contraction.quantale,
+            algebra=contraction.algebra,
         )
 
     def _compile_program_template_call(self, expr: ExprMorphismCall):
@@ -1225,15 +1225,15 @@ class _ProgramsMixin:
                 decl.col,
             )
         rule_name = decl.rule_name.lower()
-        if rule_name not in _QUANTALE_REGISTRY:
+        if rule_name not in _ALGEBRA_REGISTRY:
             raise CompileError(
                 f"contraction {decl.name!r}: unknown rule "
                 f"{decl.rule_name!r}; available: "
-                f"{', '.join(sorted(_QUANTALE_REGISTRY))}",
+                f"{', '.join(sorted(_ALGEBRA_REGISTRY))}",
                 decl.line,
                 decl.col,
             )
-        rule = _QUANTALE_REGISTRY[rule_name]
+        rule = _ALGEBRA_REGISTRY[rule_name]
         try:
             wiring = EinsumWiring(rule, decl.wiring_spec)
         except ValueError as exc:
@@ -1270,7 +1270,7 @@ class _ProgramsMixin:
             domain=domain_obj,
             codomain=codomain_obj,
             input_types=input_types,
-            quantale=rule,
+            algebra=rule,
         )
 
     def _compile_program(self, decl: ProgramDecl) -> None:
@@ -1747,14 +1747,29 @@ class _ProgramsMixin:
                     # there (where the outer block's runtime
                     # callable expects to find it). Otherwise we
                     # emit a fresh ``_marg_<var>`` slot.
+                    # Outer block: emit a score step (contributes to
+                    # log_joint). Inner block (when body_ll_var
+                    # re-points at the outer's expected slot): emit a
+                    # let so the outer's callable reads the inner's
+                    # reduction from env without double-scoring.
+                    is_nested_inner = (
+                        step.body_ll_var is not None
+                        and step.body_ll_var != step.var_name
+                    )
                     marg_name = (
                         step.body_ll_var
-                        if step.body_ll_var is not None
-                        and step.body_ll_var != step.var_name
+                        if is_nested_inner
                         else f"_marg_{step.var_name}"
                     )
                     bound_vars[marg_name] = None
-                    steps.append(((marg_name,), None, _marginalize_grouped_callable))
+                    steps.append(
+                        (
+                            (marg_name,),
+                            None,
+                            _marginalize_grouped_callable,
+                            not is_nested_inner,
+                        )
+                    )
                     continue
 
                 def _marginalize_callable(
@@ -1763,14 +1778,21 @@ class _ProgramsMixin:
                     tensor = env[_v]
                     return torch.logsumexp(tensor, dim=-1)
 
+                is_nested_inner = (
+                    step.body_ll_var is not None and step.body_ll_var != step.var_name
+                )
                 marg_name = (
-                    step.body_ll_var
-                    if step.body_ll_var is not None
-                    and step.body_ll_var != step.var_name
-                    else f"_marg_{step.var_name}"
+                    step.body_ll_var if is_nested_inner else f"_marg_{step.var_name}"
                 )
                 bound_vars[marg_name] = None
-                steps.append(((marg_name,), None, _marginalize_callable))
+                steps.append(
+                    (
+                        (marg_name,),
+                        None,
+                        _marginalize_callable,
+                        not is_nested_inner,
+                    )
+                )
                 continue
             if isinstance(step, LetStep):
                 if step.name in bound_vars:
@@ -2255,7 +2277,11 @@ class _ProgramsMixin:
                 for a in node.args
             ]
 
-            # Built-in tensor operations.
+            # Built-in tensor operations.  Limited to elementwise /
+            # shape-preserving primitives; contractions, reductions
+            # over named axes, and matrix products go through the
+            # typed contraction-declaration surface (see § Operadic
+            # contractions in docs/semantics/composition-rules.md).
             _TENSOR_BUILTINS = {
                 "sigmoid": lambda a: torch.sigmoid(a),
                 "exp": lambda a: torch.exp(a),

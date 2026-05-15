@@ -33,7 +33,6 @@ program negbin_regression : Resp -> Resp
     beta_1 : Out <- Normal(0.0, 5.0)
     dispersion : Out <- Gamma(2.0, 0.5)
 
-    x : Resp <- Normal(0.0, 1.0)
     let b0 = beta_0[out_idx]
     let b1 = beta_1[out_idx]
     let disp = dispersion[out_idx]

@@ -1,6 +1,6 @@
 """First-class transformations in the DSL.
 
-A transformation (a :class:`QuantaleHomomorphism` or
+A transformation (a :class:`AlgebraHomomorphism` or
 :class:`MorphismTransformation`) is a value in the DSL: it can be
 let-bound, composed with ``>>>``, and passed to ``change_base``.
 This file exercises:
@@ -40,7 +40,7 @@ _LOCAL_GRAMMAR = pytest.mark.skipif(
 @_LOCAL_GRAMMAR
 def test_let_binds_singleton_transformation() -> None:
     src = """
-    quantale real
+    algebra real
     object A : 3
     object B : 4
     latent f : A -> B
@@ -48,18 +48,18 @@ def test_let_binds_singleton_transformation() -> None:
     let g = f.change_base(phi)
     export g
     """
-    # phi has source=Boolean, target=ProductFuzzy; f is over Real.
+    # phi has source=Boolean, target=ProductFuzzyAlgebra; f is over Real.
     # The change_base will raise at runtime because source doesn't
     # match.  Just confirm the parse + let-binding compiles up to
     # the point of trying to apply it.
-    with pytest.raises(CompileError, match="quantale"):
+    with pytest.raises(CompileError, match="algebra"):
         loads(src)
 
 
 @_LOCAL_GRAMMAR
 def test_let_binds_constructor_result() -> None:
     src = """
-    quantale product_fuzzy
+    algebra product_fuzzy
     object A : 3
     object B : 4
     latent f : A -> B
@@ -76,7 +76,7 @@ def test_let_binds_constructor_result() -> None:
 def test_let_binds_then_reuses_transformation() -> None:
     """A single trans can be applied to two different morphisms."""
     src = """
-    quantale product_fuzzy
+    algebra product_fuzzy
     object A : 3
     object B : 4
     latent f : A -> B
@@ -94,7 +94,7 @@ def test_let_binds_then_reuses_transformation() -> None:
 def test_let_trans_name_disjoint_from_morphism_name() -> None:
     """Trans and morphism namespaces are disjoint."""
     src = """
-    quantale product_fuzzy
+    algebra product_fuzzy
     object A : 3
     object B : 4
     latent f : A -> B
@@ -113,11 +113,11 @@ def test_let_trans_name_disjoint_from_morphism_name() -> None:
 
 @_LOCAL_GRAMMAR
 def test_trans_compose_chains_two_compatible_steps() -> None:
-    """``t1 >>> t2`` applies t1 then t2; the morphism's quantale
+    """``t1 >>> t2`` applies t1 then t2; the morphism's algebra
     travels from t1.source through t1.target == t2.source to
     t2.target."""
     src = """
-    quantale product_fuzzy
+    algebra product_fuzzy
     object A : 3
     object B : 4
     latent f : A -> B
@@ -126,9 +126,9 @@ def test_trans_compose_chains_two_compatible_steps() -> None:
     let g = f.change_base(pipe)
     export g
     """
-    # softmax : ProductFuzzy -> Markov ; expectation : Markov ->
-    # ProductFuzzy.  The chain takes f from ProductFuzzy through
-    # Markov and back to ProductFuzzy.
+    # softmax : ProductFuzzyAlgebra -> Markov ; expectation : Markov ->
+    # ProductFuzzyAlgebra.  The chain takes f from ProductFuzzyAlgebra through
+    # Markov and back to ProductFuzzyAlgebra.
     program = loads(src)
     assert program.morphism is not None
     tensor = program.morphism.tensor
@@ -140,7 +140,7 @@ def test_trans_compose_inline_in_change_base() -> None:
     """``f.change_base(t1 >>> t2)`` works without an intermediate
     let."""
     src = """
-    quantale product_fuzzy
+    algebra product_fuzzy
     object A : 3
     object B : 4
     latent f : A -> B
@@ -156,7 +156,7 @@ def test_trans_compose_three_steps_flattens() -> None:
     """``t1 >>> t2 >>> t3`` flattens into a single 3-step
     sequence; intermediate boundaries are typed."""
     src = """
-    quantale real
+    algebra real
     object A : 3
     object B : 4
     latent f : A -> B
@@ -172,10 +172,10 @@ def test_trans_compose_three_steps_flattens() -> None:
 @_LOCAL_GRAMMAR
 def test_trans_compose_source_target_mismatch_errors() -> None:
     """``boolean_embedding >>> expectation`` is a type error:
-    boolean_embedding's target is ProductFuzzy, but expectation
+    boolean_embedding's target is ProductFuzzyAlgebra, but expectation
     expects Markov."""
     src = """
-    quantale boolean
+    algebra boolean
     object A : 3
     object B : 4
     latent f : A -> B
@@ -195,7 +195,7 @@ def test_trans_compose_source_target_mismatch_errors() -> None:
 @_LOCAL_GRAMMAR
 def test_softmax_constructor_accepts_object() -> None:
     src = """
-    quantale product_fuzzy
+    algebra product_fuzzy
     object A : 3
     object B : 4
     latent f : A -> B
@@ -209,7 +209,7 @@ def test_softmax_constructor_accepts_object() -> None:
 @_LOCAL_GRAMMAR
 def test_constructor_args_resolve_against_object_scope() -> None:
     src = """
-    quantale real
+    algebra real
     object A : 3
     object B : 4
     object NotUsed : 2
@@ -230,7 +230,7 @@ def test_constructor_args_resolve_against_object_scope() -> None:
 @_LOCAL_GRAMMAR
 def test_bare_singleton_resolves() -> None:
     src = """
-    quantale boolean
+    algebra boolean
     object A : 3
     object B : 4
     latent f : A -> B
@@ -246,7 +246,7 @@ def test_constructor_referenced_bare_errors_helpfully() -> None:
     """Using a constructor's name without parentheses surfaces a
     pointed error."""
     src = """
-    quantale real
+    algebra real
     object A : 3
     object B : 4
     latent f : A -> B
@@ -260,7 +260,7 @@ def test_constructor_referenced_bare_errors_helpfully() -> None:
 @_LOCAL_GRAMMAR
 def test_unknown_name_in_change_base_errors() -> None:
     src = """
-    quantale real
+    algebra real
     object A : 3
     object B : 4
     latent f : A -> B
@@ -274,7 +274,7 @@ def test_unknown_name_in_change_base_errors() -> None:
 @_LOCAL_GRAMMAR
 def test_unknown_constructor_errors() -> None:
     src = """
-    quantale real
+    algebra real
     object A : 3
     object B : 4
     latent f : A -> B

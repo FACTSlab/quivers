@@ -5,7 +5,7 @@ import pytest
 from quivers.core.objects import FinSet, ProductSet
 from quivers.core.morphisms import observed
 from quivers.enriched.kan_extensions import Projection, left_kan, right_kan
-from quivers.core.quantales import BOOLEAN
+from quivers.core.algebras import BOOLEAN
 
 
 class TestProjection:
@@ -73,7 +73,7 @@ class TestLeftKan:
         assert marginalized.tensor.shape == (2, 4)
 
     def test_left_kan_boolean(self):
-        """Left Kan with Boolean quantale uses OR."""
+        """Left Kan with Boolean algebra uses OR."""
         a = FinSet(name="A", cardinality=2)
         b = FinSet(name="B", cardinality=2)
         c = FinSet(name="C", cardinality=2)
@@ -81,9 +81,9 @@ class TestLeftKan:
         f_data = torch.zeros(2, 2, 2)
         f_data[0, 0, 0] = 1.0
         f_data[0, 1, 1] = 1.0
-        f = observed(dom, c, f_data, quantale=BOOLEAN)
+        f = observed(dom, c, f_data, algebra=BOOLEAN)
         proj = Projection(dom, keep_indices=(0,))
-        result = left_kan(f, along=proj, quantale=BOOLEAN)
+        result = left_kan(f, along=proj, algebra=BOOLEAN)
         assert result.tensor[0, 0].item() == pytest.approx(1.0)
         assert result.tensor[0, 1].item() == pytest.approx(1.0)
 
@@ -98,9 +98,9 @@ class TestRightKan:
         f_data = torch.zeros(2, 2, 2)
         f_data[0, 0, 0] = 1.0
         f_data[0, 1, 1] = 1.0
-        f = observed(dom, c, f_data, quantale=BOOLEAN)
+        f = observed(dom, c, f_data, algebra=BOOLEAN)
         proj = Projection(dom, keep_indices=(0,))
-        result = right_kan(f, along=proj, quantale=BOOLEAN)
+        result = right_kan(f, along=proj, algebra=BOOLEAN)
         assert result.tensor[0, 0].item() == pytest.approx(0.0)
         assert result.tensor[0, 1].item() == pytest.approx(0.0)
 

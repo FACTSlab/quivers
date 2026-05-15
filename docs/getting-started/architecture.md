@@ -35,10 +35,10 @@ The QVR tree-sitter grammar lives at the repo root under `grammars/qvr/`; it is 
 Foundational categorical types and operations. Defines the objects and morphisms that all other modules build on.
 
 - **`objects.py`:** Categorical objects: `FinSet` (finite sets), `ProductSet`, `CoproductSet`, `FreeMonoid`, `Unit`.
-- **`quantales.py`:** Enrichment lattices: `Quantale` (abstract), `ProductFuzzy`, `BooleanQuantale`, and singletons `PRODUCT_FUZZY`, `BOOLEAN`.
+- **`algebras.py`:** Enrichment lattices: `Algebra` (abstract), `ProductFuzzyAlgebra`, `BooleanAlgebra`, and singletons `PRODUCT_FUZZY`, `BOOLEAN`.
 - **`morphisms.py`:** $\mathcal{V}$-enriched relations as tensors: `Morphism` (abstract), `ObservedMorphism` (fixed tensor data), `LatentMorphism` (learnable), `ComposedMorphism`, `ProductMorphism`, `MarginalizedMorphism`, plus factory functions `morphism()`, `observed()`, `identity()`.
 - **`tensor_ops.py`:** Tensor operations: `noisy_or_contract`, `noisy_or_reduce`, `noisy_and_reduce`, `componentwise_lift`.
-- **`extra_quantales.py`:** Additional quantales: `LukasiewiczQuantale`, `GodelQuantale`, `TropicalQuantale`.
+- **`extra_algebras.py`:** Additional algebras: `LukasiewiczAlgebra`, `GodelAlgebra`, `TropicalAlgebra`.
 
 ### `categorical/`
 
@@ -48,7 +48,7 @@ Categorical structures built from objects and morphisms.
 - **`natural_transformations.py`:** Natural transformations: `NaturalTransformation`, `ComponentwiseNT`.
 - **`adjunctions.py`:** Adjunctions and free-forgetful pairs: `Adjunction`, `ForgetfulFunctor`, `FreeForgetfulAdjunction`.
 - **`monoidal.py`:** Monoidal structures: `MonoidalStructure`, `CartesianMonoidal`, `CoproductMonoidal`, `EmptySet`, `EMPTY`.
-- **`base_change.py`:** Base change between quantales: `BaseChange`, `BoolToFuzzy`, `FuzzyToBool`.
+- **`base_change.py`:** Base change between algebras: `BaseChange`, `BoolToFuzzy`, `FuzzyToBool`.
 - **`traced.py`:** Traced monoidal categories: `TracedMonoidal`, `CartesianTrace`, `IterativeTrace`, functions `trace()`, `partial_trace()`.
 
 ### `monadic/`
@@ -94,7 +94,7 @@ Enriched category theory: the calculus of $\mathcal{V}$-valued hom-functors.
 
 Stochastic morphisms and the category **FinStoch** of Markov kernels on finite sets.
 
-- **`quantale.py`:** Markov quantale: `MarkovQuantale`, singleton `MARKOV`.
+- **`algebra.py`:** Markov algebra: `MarkovAlgebra`, singleton `MARKOV`.
 - **`morphisms.py`:** Stochastic morphisms: `StochasticMorphism`, `CategoricalMorphism`, `ConditionedMorphism`, `MixtureMorphism`, `FactoredMorphism`, `NormalizedMorphism`.
 - **`families.py`:** Discretized parameterized distributions: `DiscretizedNormal`, `DiscretizedLogitNormal`, `DiscretizedBeta`, `DiscretizedTruncatedNormal`.
 - **`transforms.py`:** Transforms on stochastic morphisms: `condition()`, `mix()`, `factor()`, `normalize()`.
@@ -191,5 +191,5 @@ This layering ensures that users can work at the level of abstraction appropriat
 - **Lazy composition**: morphism composition creates a DAG; the final tensor is materialized only on evaluation.
 - **Type safety**: categorical constraints (domain/codomain compatibility) are enforced statically in Python.
 - **Module transparency**: all morphisms expose a `.module()` method returning an `nn.Module`, enabling integration with PyTorch training loops.
-- **Quantale flexibility**: the same morphism structure works with any quantale; swapping quantales changes semantics (fuzzy, Boolean, tropical, etc.) without code duplication.
+- **Algebra flexibility**: the same morphism structure works with any algebra; swapping algebras changes semantics (fuzzy, Boolean, tropical, etc.) without code duplication.
 - **DSL pipeline as a panproto theory morphism**: parsing is delegated to panproto's tree-sitter–driven AST registry; resolution is a `dx.Lens` family; each compiled program extracts to a panproto `Schema` against `QVR_PROGRAM_PROTOCOL`. Diff/migrate/lens-generation tools work on `.qvr` programs out of the box.

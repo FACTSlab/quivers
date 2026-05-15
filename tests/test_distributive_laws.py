@@ -5,7 +5,7 @@ import pytest
 from quivers.core.objects import FinSet, FreeMonoid
 from quivers.core.morphisms import identity
 from quivers.monadic.distributive_laws import FreeMonoidPowersetLaw
-from quivers.core.quantales import PRODUCT_FUZZY
+from quivers.core.algebras import PRODUCT_FUZZY
 
 
 class TestFreeMonoidPowersetLaw:
@@ -44,4 +44,4 @@ class TestFreeMonoidPowersetLaw:
     def test_outer_inner_monads(self):
         law = FreeMonoidPowersetLaw(max_length=2)
         assert law.outer_monad.max_length == 2
-        assert law.inner_monad.quantale is PRODUCT_FUZZY
+        assert law.inner_monad.algebra is PRODUCT_FUZZY

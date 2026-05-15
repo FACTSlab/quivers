@@ -1,16 +1,16 @@
-"""Tests for ``Quantale.dual()`` and ``CustomQuantale``.
+"""Tests for ``Algebra.dual()`` and ``CustomAlgebra``.
 
 Verifies:
 
-* Every shipped quantale exposes a ``.dual()`` returning a usable
-  quantale instance.
+* Every shipped algebra exposes a ``.dual()`` returning a usable
+  algebra instance.
 * The dual swaps the roles of ``tensor_op`` and ``join`` under the
   de-Morgan involution; ``dual.dual()`` recovers the original
   semantics.
 * Named singletons ``REICHENBACH``, ``BOOLEAN_DUAL``,
   ``DUAL_LUKASIEWICZ``, ``DUAL_GODEL`` match the algebraic
   expectations.
-* :class:`CustomQuantale` accepts user-supplied operations and
+* :class:`CustomAlgebra` accepts user-supplied operations and
   catches obviously-wrong axiom violations at construction time.
 """
 
@@ -19,7 +19,7 @@ from __future__ import annotations
 import pytest
 import torch
 
-from quivers.core.quantales import (
+from quivers.core.algebras import (
     BOOLEAN,
     BOOLEAN_DUAL,
     DUAL_GODEL,
@@ -28,8 +28,8 @@ from quivers.core.quantales import (
     LUKASIEWICZ,
     PRODUCT_FUZZY,
     REICHENBACH,
-    CustomQuantale,
-    DualQuantale,
+    CustomAlgebra,
+    DualAlgebra,
 )
 
 
@@ -38,7 +38,7 @@ _SAMPLES_3_B = torch.tensor([0.4, 0.6, 0.9])
 
 
 # ---------------------------------------------------------------------------
-# Reichenbach (ProductFuzzy.dual)
+# Reichenbach (ProductFuzzyAlgebra.dual)
 # ---------------------------------------------------------------------------
 
 
@@ -60,13 +60,13 @@ def test_reichenbach_join_is_product_reduction() -> None:
 
 
 def test_reichenbach_unit_and_zero_swap() -> None:
-    """For ProductFuzzy ``(unit=1, zero=0)``; the dual swaps them."""
+    """For ProductFuzzyAlgebra ``(unit=1, zero=0)``; the dual swaps them."""
     assert REICHENBACH.unit == 0.0
     assert REICHENBACH.zero == 1.0
 
 
 def test_dual_of_dual_recovers_base() -> None:
-    """Double-dualizing returns the original base quantale."""
+    """Double-dualizing returns the original base algebra."""
     back = REICHENBACH.dual()
     assert back is PRODUCT_FUZZY
 
@@ -115,15 +115,15 @@ def test_dual_godel_tensor_op_is_max() -> None:
 
 
 # ---------------------------------------------------------------------------
-# DualQuantale generic behavior
+# DualAlgebra generic behavior
 # ---------------------------------------------------------------------------
 
 
-def test_dual_is_dual_quantale_instance() -> None:
-    """Calling ``base.dual()`` returns a ``DualQuantale`` instance."""
+def test_dual_is_dual_algebra_instance() -> None:
+    """Calling ``base.dual()`` returns a ``DualAlgebra`` instance."""
     for base in (PRODUCT_FUZZY, BOOLEAN, LUKASIEWICZ, GODEL):
         d = base.dual()
-        assert isinstance(d, DualQuantale)
+        assert isinstance(d, DualAlgebra)
         assert d.base is base
 
 
@@ -141,7 +141,7 @@ def test_dual_is_compatible_with_itself() -> None:
 
 
 # ---------------------------------------------------------------------------
-# CustomQuantale
+# CustomAlgebra
 # ---------------------------------------------------------------------------
 
 
@@ -156,10 +156,10 @@ def _bounded_sum_reduce(t: torch.Tensor, dim) -> torch.Tensor:
     return torch.minimum(s, torch.ones_like(s))
 
 
-def test_custom_quantale_round_trip() -> None:
-    """``CustomQuantale`` constructs with user-supplied callables and
+def test_custom_algebra_round_trip() -> None:
+    """``CustomAlgebra`` constructs with user-supplied callables and
     proxies them through ``tensor_op`` / ``join``."""
-    q = CustomQuantale(
+    q = CustomAlgebra(
         name="bounded_sum",
         tensor_op=_bounded_sum,
         join=_bounded_sum_reduce,
@@ -171,9 +171,9 @@ def test_custom_quantale_round_trip() -> None:
     assert torch.allclose(q.tensor_op(a, b), _bounded_sum(a, b))
 
 
-def test_custom_quantale_meet_raises_without_spec() -> None:
+def test_custom_algebra_meet_raises_without_spec() -> None:
     """``meet`` is None unless the user supplies it."""
-    q = CustomQuantale(
+    q = CustomAlgebra(
         name="bs",
         tensor_op=_bounded_sum,
         join=_bounded_sum_reduce,
@@ -184,9 +184,9 @@ def test_custom_quantale_meet_raises_without_spec() -> None:
         q.meet(_SAMPLES_3, dim=0)
 
 
-def test_custom_quantale_negate_raises_without_spec() -> None:
+def test_custom_algebra_negate_raises_without_spec() -> None:
     """``negate`` is None unless the user supplies it."""
-    q = CustomQuantale(
+    q = CustomAlgebra(
         name="bs",
         tensor_op=_bounded_sum,
         join=_bounded_sum_reduce,
@@ -197,7 +197,7 @@ def test_custom_quantale_negate_raises_without_spec() -> None:
         q.negate(_SAMPLES_3)
 
 
-def test_custom_quantale_rejects_bad_unit() -> None:
+def test_custom_algebra_rejects_bad_unit() -> None:
     """A user who passes a wrong ``unit`` value triggers the sanity
     check at construction time."""
 
@@ -205,7 +205,7 @@ def test_custom_quantale_rejects_bad_unit() -> None:
         return a * b  # product → unit should be 1.0
 
     with pytest.raises(ValueError, match="left-identity"):
-        CustomQuantale(
+        CustomAlgebra(
             name="bad",
             tensor_op=bad_op,
             join=lambda t, dim: t.sum(dim=dim),
@@ -214,10 +214,10 @@ def test_custom_quantale_rejects_bad_unit() -> None:
         )
 
 
-def test_custom_quantale_verify_off_skips_check() -> None:
+def test_custom_algebra_verify_off_skips_check() -> None:
     """Setting ``verify=False`` bypasses the construction-time
     axiom check."""
-    q = CustomQuantale(
+    q = CustomAlgebra(
         name="unchecked",
         tensor_op=lambda a, b: a * b,
         join=lambda t, dim: t.sum(dim=dim),
@@ -228,9 +228,9 @@ def test_custom_quantale_verify_off_skips_check() -> None:
     assert q.name == "unchecked"
 
 
-def test_custom_quantale_blank_name_rejected() -> None:
+def test_custom_algebra_blank_name_rejected() -> None:
     with pytest.raises(ValueError, match="non-empty"):
-        CustomQuantale(
+        CustomAlgebra(
             name="",
             tensor_op=lambda a, b: a * b,
             join=lambda t, dim: t.sum(dim=dim),
@@ -244,19 +244,19 @@ def test_custom_quantale_blank_name_rejected() -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_dsl_quantale_registry_includes_reichenbach() -> None:
-    """``quantale reichenbach`` resolves to the
-    ``ProductFuzzy.dual`` singleton via the compiler registry."""
-    from quivers.dsl.compiler import _QUANTALE_REGISTRY, _register_extra_quantales
+def test_dsl_algebra_registry_includes_reichenbach() -> None:
+    """``algebra reichenbach`` resolves to the
+    ``ProductFuzzyAlgebra.dual`` singleton via the compiler registry."""
+    from quivers.dsl.compiler import _ALGEBRA_REGISTRY, _register_extra_algebras
 
-    _register_extra_quantales()
-    assert "reichenbach" in _QUANTALE_REGISTRY
-    assert _QUANTALE_REGISTRY["reichenbach"] is REICHENBACH
+    _register_extra_algebras()
+    assert "reichenbach" in _ALGEBRA_REGISTRY
+    assert _ALGEBRA_REGISTRY["reichenbach"] is REICHENBACH
 
 
-def test_dsl_quantale_registry_includes_named_duals() -> None:
-    from quivers.dsl.compiler import _QUANTALE_REGISTRY, _register_extra_quantales
+def test_dsl_algebra_registry_includes_named_duals() -> None:
+    from quivers.dsl.compiler import _ALGEBRA_REGISTRY, _register_extra_algebras
 
-    _register_extra_quantales()
+    _register_extra_algebras()
     for key in ("reichenbach", "boolean_dual", "dual_lukasiewicz", "dual_godel"):
-        assert key in _QUANTALE_REGISTRY, f"DSL quantale registry missing {key!r}"
+        assert key in _ALGEBRA_REGISTRY, f"DSL algebra registry missing {key!r}"

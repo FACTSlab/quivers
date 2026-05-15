@@ -14,7 +14,7 @@ import torch.nn.functional as F
 
 from quivers.core.objects import SetObject
 from quivers.core.morphisms import Morphism, _MorphismModule
-from quivers.stochastic.quantale import MARKOV
+from quivers.core.algebras import MARKOV
 
 
 class StochasticMorphism(Morphism):
@@ -51,7 +51,7 @@ class StochasticMorphism(Morphism):
         codomain: SetObject,
         temperature: float = 1.0,
     ) -> None:
-        super().__init__(domain, codomain, quantale=MARKOV)
+        super().__init__(domain, codomain, algebra=MARKOV)
         self._temperature = temperature
 
         shape = self.tensor_shape

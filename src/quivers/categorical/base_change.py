@@ -1,6 +1,6 @@
 """Change of enrichment (change of base) for V-enriched categories.
 
-A lax monoidal functor F: V → W between quantales induces a
+A lax monoidal functor F: V → W between algebras induces a
 change-of-base 2-functor from V-Cat to W-Cat. This transforms
 all morphism tensors by applying F elementwise, changing the
 enrichment algebra from V to W.
@@ -19,17 +19,17 @@ from abc import ABC, abstractmethod
 import torch
 
 from quivers.core.morphisms import Morphism, ObservedMorphism, observed
-from quivers.core.quantales import (
-    Quantale,
-    ProductFuzzy,
-    BooleanQuantale,
+from quivers.core.algebras import (
+    Algebra,
+    ProductFuzzyAlgebra,
+    BooleanAlgebra,
     PRODUCT_FUZZY,
     BOOLEAN,
 )
 
 
 class BaseChange(ABC):
-    """Abstract change of enrichment from quantale V to quantale W.
+    """Abstract change of enrichment from algebra V to algebra W.
 
     Subclasses must implement source, target, and apply_to_values.
     apply_to_morphism is derived.
@@ -37,14 +37,14 @@ class BaseChange(ABC):
 
     @property
     @abstractmethod
-    def source(self) -> Quantale:
-        """The source quantale V."""
+    def source(self) -> Algebra:
+        """The source algebra V."""
         ...
 
     @property
     @abstractmethod
-    def target(self) -> Quantale:
-        """The target quantale W."""
+    def target(self) -> Algebra:
+        """The target algebra W."""
         ...
 
     @abstractmethod
@@ -67,7 +67,7 @@ class BaseChange(ABC):
         """Transform a V-morphism to a W-morphism.
 
         Applies the value-level map to the morphism's tensor and
-        returns an observed morphism with the target quantale.
+        returns an observed morphism with the target algebra.
 
         Parameters
         ----------
@@ -85,7 +85,7 @@ class BaseChange(ABC):
             morph.domain,
             morph.codomain,
             new_tensor,
-            quantale=self.target,
+            algebra=self.target,
         )
 
     def __repr__(self) -> str:
@@ -94,7 +94,7 @@ class BaseChange(ABC):
 
 
 class BoolToFuzzy(BaseChange):
-    """Inclusion of the boolean quantale into the fuzzy quantale.
+    """Inclusion of the boolean algebra into the fuzzy algebra.
 
     The identity map {0, 1} ↪ [0, 1]. Boolean-valued tensors are
     already valid fuzzy-valued tensors, so this is the identity
@@ -102,11 +102,11 @@ class BoolToFuzzy(BaseChange):
     """
 
     @property
-    def source(self) -> BooleanQuantale:
+    def source(self) -> BooleanAlgebra:
         return BOOLEAN
 
     @property
-    def target(self) -> ProductFuzzy:
+    def target(self) -> ProductFuzzyAlgebra:
         return PRODUCT_FUZZY
 
     def apply_to_values(self, tensor: torch.Tensor) -> torch.Tensor:
@@ -115,7 +115,7 @@ class BoolToFuzzy(BaseChange):
 
 
 class FuzzyToBool(BaseChange):
-    """Thresholding from the fuzzy quantale to the boolean quantale.
+    """Thresholding from the fuzzy algebra to the boolean algebra.
 
     Applies a threshold: values >= threshold become 1, others become 0.
     This is a right adjoint to BoolToFuzzy.
@@ -138,11 +138,11 @@ class FuzzyToBool(BaseChange):
         return self._threshold
 
     @property
-    def source(self) -> ProductFuzzy:
+    def source(self) -> ProductFuzzyAlgebra:
         return PRODUCT_FUZZY
 
     @property
-    def target(self) -> BooleanQuantale:
+    def target(self) -> BooleanAlgebra:
         return BOOLEAN
 
     def apply_to_values(self, tensor: torch.Tensor) -> torch.Tensor:

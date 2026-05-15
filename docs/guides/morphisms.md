@@ -2,7 +2,7 @@
 
 ## What is a Morphism?
 
-A morphism from domain $A$ to codomain $B$ in a $\mathcal{V}$-enriched category is a tensor $M \in \mathcal{V}^{|A| \times |B|}$, where $\mathcal{V}$ is the enriching quantale. Concretely, it is a multi-dimensional tensor with shape `(*A.shape, *B.shape)` and values in the lattice $\mathcal{L}$ of $\mathcal{V}$.
+A morphism from domain $A$ to codomain $B$ in a $\mathcal{V}$-enriched category is a tensor $M \in \mathcal{V}^{|A| \times |B|}$, where $\mathcal{V}$ is the enriching algebra. Concretely, it is a multi-dimensional tensor with shape `(*A.shape, *B.shape)` and values in the lattice $\mathcal{L}$ of $\mathcal{V}$.
 
 For a simple `FinSet` morphism $f: X \to Y$ with $|X| = m$ and $|Y| = n$, the tensor is an $m \times n$ matrix.
 
@@ -12,12 +12,15 @@ For a product domain like $X \times Y$, the tensor has shape `(|X|, |Y|, |Z|)`.
 
 ```
 Morphism (abstract)
-├── ObservedMorphism   , fixed tensor, not learnable
-├── LatentMorphism     , learnable parameter with sigmoid output
-├── ComposedMorphism   , lazy composition f >> g
-├── ProductMorphism    , lazy tensor product f @ g
-├── MarginalizedMorphism, lazy marginalization (join reduction)
-└── FunctorMorphism    , lazy functor image
+├── ObservedMorphism      , fixed tensor, not learnable
+├── LatentMorphism        , learnable parameter with sigmoid output
+├── ComposedMorphism      , lazy composition f >> g
+├── ProductMorphism       , lazy tensor product f @ g
+├── MarginalizedMorphism  , lazy marginalization (join reduction)
+├── TransformedMorphism   , lazy tensor transform (e.g., dagger)
+├── RepeatMorphism        , independent product f^⊗n
+├── CurriedMorphism       , currying of a tensor-product domain
+└── FunctorMorphism       , lazy functor image
 ```
 
 ### ObservedMorphism
@@ -29,8 +32,10 @@ from quivers.core.objects import FinSet
 from quivers.core.morphisms import observed
 import torch
 
-X = FinSet("X", 3)
-Y = FinSet("Y", 4)
+torch.manual_seed(0)
+
+X = FinSet(name="X", cardinality=3)
+Y = FinSet(name="Y", cardinality=4)
 data = torch.tensor([
     [0.9, 0.1, 0.0, 0.0],
     [0.2, 0.6, 0.1, 0.1],
@@ -39,7 +44,7 @@ data = torch.tensor([
 
 f = observed(X, Y, data)
 assert f.tensor.shape == (3, 4)
-assert (f.module().parameters() == [])  # no learnable params
+assert list(f.module().parameters()) == []  # no learnable params
 ```
 
 ### LatentMorphism
@@ -49,8 +54,8 @@ A learnable morphism parameterized by a weight matrix, with sigmoid output to en
 ```python
 from quivers.core.morphisms import morphism
 
-X = FinSet("X", 3)
-Y = FinSet("Y", 4)
+X = FinSet(name="X", cardinality=3)
+Y = FinSet(name="Y", cardinality=4)
 
 f = morphism(X, Y)
 print(f.tensor.shape)  # (3, 4)
@@ -71,24 +76,24 @@ Initialize with a specific scale:
 # Manual initialization of f.raw before calling f.tensor
 f = morphism(X, Y)
 with torch.no_grad():
-    f.raw.fill_(value)  # modify f.raw in place
+    f.raw.fill_(0.0)  # modify f.raw in place
 ```
 
 ## Composition: The >>  Operator
 
-Composition of two morphisms uses the quantale's operations. If $f: A \to B$ and $g: B \to C$, then $g \circ f: A \to C$ is computed as:
+Composition of two morphisms uses the algebra's operations. If $f: A \to B$ and $g: B \to C$, then $g \circ f: A \to C$ is computed as:
 
 $$(g \circ f)[a, c] = \bigvee_b f[a, b] \otimes g[b, c]$$
 
-where $\bigvee$ is the quantale's join and $\otimes$ is its tensor operation.
+where $\bigvee$ is the algebra's join and $\otimes$ is its tensor operation.
 
 ```python
 from quivers.core.objects import FinSet
 from quivers.core.morphisms import morphism
 
-X = FinSet("X", 3)
-Y = FinSet("Y", 4)
-Z = FinSet("Z", 2)
+X = FinSet(name="X", cardinality=3)
+Y = FinSet(name="Y", cardinality=4)
+Z = FinSet(name="Z", cardinality=2)
 
 f = morphism(X, Y)
 g = morphism(Y, Z)
@@ -103,21 +108,21 @@ assert h.tensor.shape == (3, 2)
 The composition is lazy: the tensor is not materialized until accessed. Chain compositions:
 
 ```python
-W = FinSet("W", 5)
+W = FinSet(name="W", cardinality=5)
 k = morphism(Z, W)
 pipeline = f >> g >> k
 assert pipeline.tensor.shape == (3, 5)
 ```
 
-Compositions must have compatible quantales:
+Compositions must have compatible algebras:
 
 ```python
-from quivers.core.quantales import BOOLEAN, GodelQuantale
+from quivers.core.algebras import BOOLEAN, GodelAlgebra
 
-f_bool = morphism(X, Y, quantale=BOOLEAN)
-g_godel = morphism(Y, Z, quantale=GodelQuantale())
+f_bool = morphism(X, Y, algebra=BOOLEAN)
+g_godel = morphism(Y, Z, algebra=GodelAlgebra())
 
-# Raises TypeError: incompatible quantales
+# Raises TypeError: incompatible algebras
 try:
     _ = f_bool >> g_godel
 except TypeError as e:
@@ -126,13 +131,13 @@ except TypeError as e:
 
 ## Tensor Product: The @ Operator
 
-The tensor (or parallel) product $f \otimes g$ combines two morphisms $f: A \to B$ and $g: C \to D$ into a morphism $f \otimes g: A \times C \to B \times D$. The tensor is the outer product via the quantale's $\otimes$:
+The tensor (or parallel) product $f \otimes g$ combines two morphisms $f: A \to B$ and $g: C \to D$ into a morphism $f \otimes g: A \times C \to B \times D$. The tensor is the outer product via the algebra's $\otimes$:
 
 ```python
-A = FinSet("A", 2)
-B = FinSet("B", 3)
-C = FinSet("C", 4)
-D = FinSet("D", 5)
+A = FinSet(name="A", cardinality=2)
+B = FinSet(name="B", cardinality=3)
+C = FinSet(name="C", cardinality=4)
+D = FinSet(name="D", cardinality=5)
 
 f = morphism(A, B)
 g = morphism(C, D)
@@ -141,7 +146,8 @@ g = morphism(C, D)
 h = f @ g
 assert h.domain == A * C
 assert h.codomain == B * D
-assert h.tensor.shape == (2, 3, 4, 5)
+# Axes are grouped as (domain..., codomain...) = (|A|, |C|, |B|, |D|)
+assert h.tensor.shape == (2, 4, 3, 5)
 ```
 
 The @ operator works even if domains or codomains already have products; ProductSet automatically flattens:
@@ -158,9 +164,9 @@ f_prod = morphism(P, Q)  # (A × B) → (C × D)
 Join-reduce the codomain over specified components:
 
 ```python
-X = FinSet("X", 3)
-Y = FinSet("Y", 4)
-Z = FinSet("Z", 5)
+X = FinSet(name="X", cardinality=3)
+Y = FinSet(name="Y", cardinality=4)
+Z = FinSet(name="Z", cardinality=5)
 
 f = morphism(X, Y * Z)  # X → Y × Z
 
@@ -170,7 +176,7 @@ assert g.domain == X
 assert g.codomain == Y
 ```
 
-The tensor is computed by applying the quantale's join operation over the codomain dimensions corresponding to $Z$.
+The tensor is computed by applying the algebra's join operation over the codomain dimensions corresponding to $Z$.
 
 ## Operations Summary
 
@@ -178,7 +184,7 @@ The tensor is computed by applying the quantale's join operation over the codoma
 |-----------|--------|-------|--------|
 | Composition | `f >> g` | $f: A \to B$, $g: B \to C$ | $g \circ f: A \to C$ |
 | Tensor | `f @ g` | $f: A \to B$, $g: C \to D$ | $f \otimes g: A \times C \to B \times D$ |
-| Marginalize | `f.marginalize(A)` | $f: X \times A \to Y$ | $f\|_X: X \to Y$ (join over $A$) |
+| Marginalize | `f.marginalize(A)` | $f: X \to Y \times A$ | $f: X \to Y$ (join over $A$ in codomain) |
 | Identity | `identity(X)` | object $X$ | $\text{id}_X: X \to X$ |
 
 ## Learning and Gradients

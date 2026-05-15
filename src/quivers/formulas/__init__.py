@@ -1,0 +1,52 @@
+"""Brms-style formula frontend over the QVR DSL.
+
+A user writes a regression formula (Wilkinson notation, extended with
+brms-style random-effect groups) and gets a fitted Bayesian model
+without hand-writing ``.qvr`` source.  The compiler emits programs
+that route through the existing QVR DSL surface:
+
+* fixed-effect linear predictors as morphism composition
+  ``X >> beta`` over ``observed`` design-matrix morphisms,
+* random-effect groups as plate-gather of per-level latent draws,
+* responses as ``observe`` sites with the family-link kernel
+  (Gaussian / Bernoulli / Categorical / Poisson / NegBin /
+  Cumulative / Beta / Gamma / Student-t / ZIP / hurdle / mixture)
+  registered in :mod:`quivers.formulas.family`.
+
+The implementation reuses [`formulae`](https://bambinos.github.io/formulae/)
+for formula parsing (the Bambi team's pure-Python parser; supports
+brms-style ``(slope | group)`` random effects, smooth terms, and
+custom contrasts) and lifts the resulting :class:`DesignMatrices`
+into a typed :class:`Formula` :class:`didactic.api.Model`.
+
+The frontend is the formula→QVR direction of a panproto lens; the
+QVR DSL is the canonical source of truth, and the formula compiler
+is a structure-preserving translation from the smaller formula
+language to the QVR DSL.  Future versions will register the
+formula schema as a panproto protocol so the get/put bidirectional
+machinery applies.
+"""
+
+from quivers.formulas.compile import FormulaToQVRModule
+from quivers.formulas.family import (
+    Family,
+    Link,
+    families,
+    links,
+)
+from quivers.formulas._fit import BayesianFit, fit, formula_to_qvr
+from quivers.formulas.formula import Formula, RandomTerm, formula_from_data
+
+__all__ = [
+    "BayesianFit",
+    "Family",
+    "Formula",
+    "FormulaToQVRModule",
+    "Link",
+    "RandomTerm",
+    "fit",
+    "families",
+    "formula_to_qvr",
+    "links",
+    "formula_from_data",
+]

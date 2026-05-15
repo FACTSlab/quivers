@@ -23,9 +23,9 @@ categories). The ``times`` operation corresponds to the tensor
 product, ``plus`` to the coproduct. Chart parsing is a functor
 from the free monoidal category (grammar) to the semiring.
 
-The connection to quantales: a quantale is a complete lattice with
+The connection to algebras: an algebra is a complete lattice with
 an associative binary operation distributing over arbitrary joins.
-The log-probability semiring is the quantale ([-∞, 0], logsumexp, +).
+The log-probability semiring is the algebra ([-∞, 0], logsumexp, +).
 """
 
 from __future__ import annotations

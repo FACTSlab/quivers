@@ -8,9 +8,9 @@ from __future__ import annotations
 import torch
 from quivers.core.morphisms import identity as make_identity
 from quivers.core.morphisms import cap as _make_cap, cup as _make_cup
-from quivers.core.quantales import (
+from quivers.core.algebras import (
     BilinearForm,
-    Quantale,
+    Algebra,
     Semigroupoid,
 )
 from quivers.core.trans import TransSeq
@@ -42,7 +42,7 @@ from quivers.dsl.ast_nodes import (
 from quivers.dsl.compiler._prelude import (
     CompileError,
     _ChartHandlerComposite,
-    _QUANTALE_REGISTRY,
+    _ALGEBRA_REGISTRY,
 )
 
 
@@ -79,20 +79,20 @@ class _ExpressionsMixin:
         """
         self._data_bindings = dict(data)
 
-    def _require_quantale(self, op_name: str, line: int, col: int) -> None:
+    def _require_algebra(self, op_name: str, line: int, col: int) -> None:
         """Raise ``CompileError`` if the module's composition rule
-        isn't a :class:`Quantale`.
+        isn't a :class:`Algebra`.
 
         Operations that need a unit, zero, dagger, or compact-closed
         structure (``identity``, ``cup``, ``cap``, ``.dagger``,
         ``.trace``) call this before constructing their result.
         The error names the operation and the active rule so the
         user can decide whether to switch the file's
-        ``quantale`` / ``semigroupoid`` / ``bilinear_form``
+        ``algebra`` / ``semigroupoid`` / ``bilinear_form``
         declaration or drop the operation.
         """
-        rule = self._quantale
-        if isinstance(rule, Quantale):
+        rule = self._algebra
+        if isinstance(rule, Algebra):
             return
         kind = (
             "semigroupoid"
@@ -104,11 +104,11 @@ class _ExpressionsMixin:
             )
         )
         raise CompileError(
-            f"{op_name}: requires a Quantale composition rule (needs "
+            f"{op_name}: requires a Algebra composition rule (needs "
             f"identity / unit / zero); the module declares {kind} "
             f"{rule.name!r}, which does not have those. Switch the "
-            f"file-level declaration to ``quantale X`` for a "
-            f"Quantale X, or drop the {op_name} operation.",
+            f"file-level declaration to ``algebra X`` for a "
+            f"Algebra X, or drop the {op_name} operation.",
             line,
             col,
         )
@@ -124,7 +124,7 @@ class _ExpressionsMixin:
         * :class:`ExprMorphismCall` — a constructor call whose
           callee names an entry of :attr:`_trans_constructors`;
           each argument is resolved against the surrounding scope
-          (objects, morphisms, quantales).
+          (objects, morphisms, algebras).
         * :class:`ExprTransCompose` — ``t1 >>> t2``; recursively
           compiles each side, flattens nested sequences, and
           type-checks each adjacent ``target == source`` boundary,
@@ -132,7 +132,7 @@ class _ExpressionsMixin:
           values, an unboxed TransSeq of length 2).
 
         Returns a value that the runtime understands: a
-        :class:`QuantaleHomomorphism`, a
+        :class:`AlgebraHomomorphism`, a
         :class:`MorphismTransformation`, or a :class:`TransSeq`.
         Raises :class:`CompileError` on any unresolved reference
         or type mismatch.
@@ -229,7 +229,7 @@ class _ExpressionsMixin:
         """Resolve a named constructor argument to its compiled
         value.  Tries the value sorts that show up in
         transformation constructors (objects, morphisms,
-        continuous morphisms, quantales) and surfaces a clear
+        continuous morphisms, algebras) and surfaces a clear
         error if the name doesn't resolve.
         """
         if name in self._objects:
@@ -241,12 +241,12 @@ class _ExpressionsMixin:
             and name in self._continuous_morphisms
         ):
             return self._continuous_morphisms[name]
-        if name in _QUANTALE_REGISTRY:
-            return _QUANTALE_REGISTRY[name]
+        if name in _ALGEBRA_REGISTRY:
+            return _ALGEBRA_REGISTRY[name]
         raise CompileError(
             f"change_base: constructor {constructor_name!r} "
             f"argument {name!r} unresolved (must name an object, "
-            f"morphism, or quantale)",
+            f"morphism, or algebra)",
             line,
             col,
         )
@@ -267,23 +267,23 @@ class _ExpressionsMixin:
         return inner_morph.change_base(phi)
 
     def _compose_with_op(self, left, right, op: str):
-        """Dispatch a composition expression to the quantale
+        """Dispatch a composition expression to the algebra
         implied by the surface operator.
 
-        Each composition operator carries an enrichment quantale.
+        Each composition operator carries an enrichment algebra.
         ``>>``, ``<<`` (already swapped to forward), and ``>=>``
-        all use the operands' shared quantale (the existing
+        all use the operands' shared algebra (the existing
         :meth:`Morphism.__rshift__` path, which raises
-        ``incompatible quantales`` if they differ).
+        ``incompatible algebras`` if they differ).
 
         The new operators (``*>``, ``~>``, ``||>``, ``?>``,
-        ``&&>``, ``+>``) each fix the composition quantale at the
+        ``&&>``, ``+>``) each fix the composition algebra at the
         operator and re-tag the operands accordingly. If the
-        operands' declared quantales already match the operator's
+        operands' declared algebras already match the operator's
         target, no base change is needed; otherwise the user must
         have applied an explicit ``.change_base(φ)`` upstream.
         """
-        from quivers.core.quantales import (
+        from quivers.core.algebras import (
             COUNTING,
             GODEL,
             LOG_PROB,
@@ -293,12 +293,12 @@ class _ExpressionsMixin:
             REAL,
         )
         from quivers.core.morphisms import ComposedMorphism, Morphism
-        from quivers.core.quantales import BOOLEAN
-        from quivers.stochastic.quantale import MARKOV
+        from quivers.core.algebras import BOOLEAN
+        from quivers.core.algebras import MARKOV
 
-        del COUNTING  # exposed via module-level `quantale counting` only
-        op_to_quantale: dict[str, object] = {
-            ">>": None,  # use operands' shared quantale
+        del COUNTING  # exposed via module-level `algebra counting` only
+        op_to_algebra: dict[str, object] = {
+            ">>": None,  # use operands' shared algebra
             ">=>": None,
             "*>": MARKOV,
             "~>": LOG_PROB,
@@ -309,18 +309,18 @@ class _ExpressionsMixin:
             "$>": REAL,
             "%>": PROBABILITY,
         }
-        if op not in op_to_quantale:
+        if op not in op_to_algebra:
             raise CompileError(f"unknown composition operator {op!r}", 0, 0)
-        target_quantale = op_to_quantale[op]
-        if target_quantale is None:
+        target_algebra = op_to_algebra[op]
+        if target_algebra is None:
             # ``>>`` and ``>=>``: fall through to the operands' own
-            # composition machinery, which uses the shared quantale
+            # composition machinery, which uses the shared algebra
             # (and errors on a mismatch as before).
             return left >> right
         # Validate both operands carry the operator's target
-        # quantale. The operator does NOT auto-base-change; the
+        # algebra. The operator does NOT auto-base-change; the
         # user must have applied ``.change_base(...)`` upstream to
-        # bring both operands to the target quantale before
+        # bring both operands to the target algebra before
         # composing.
         if not isinstance(left, Morphism) or not isinstance(right, Morphism):
             raise TypeError(
@@ -329,14 +329,14 @@ class _ExpressionsMixin:
                 f"{type(left).__name__} {op} {type(right).__name__}"
             )
         for label, m in (("left", left), ("right", right)):
-            if type(m.quantale) is not type(target_quantale):
+            if type(m.algebra) is not type(target_algebra):
                 raise TypeError(
                     f"composition operator {op!r}: {label} operand's "
-                    f"quantale is {m.quantale.name!r}, but the "
+                    f"algebra is {m.algebra.name!r}, but the "
                     f"operator dispatches to "
-                    f"{target_quantale.name!r}; apply "  # type: ignore[union-attr]
+                    f"{target_algebra.name!r}; apply "  # type: ignore[union-attr]
                     f"`.change_base(...)` first to convert "
-                    f"{label} into the operator's quantale"
+                    f"{label} into the operator's algebra"
                 )
         if left.codomain != right.domain:
             raise TypeError(
@@ -372,12 +372,12 @@ class _ExpressionsMixin:
                 raise CompileError(
                     f"undefined object {expr.object_name!r}", expr.line, expr.col
                 )
-            self._require_quantale("identity", expr.line, expr.col)
+            self._require_algebra("identity", expr.line, expr.col)
             obj = self._objects[expr.object_name]
-            return make_identity(obj, quantale=self._quantale)
+            return make_identity(obj, algebra=self._algebra)
         elif isinstance(expr, ExprDagger):
             inner = self._compile_expr(expr.inner)
-            self._require_quantale("dagger", expr.line, expr.col)
+            self._require_algebra("dagger", expr.line, expr.col)
             return inner.dagger
         elif isinstance(expr, ExprTrace):
             inner = self._compile_expr(expr.inner)
@@ -387,7 +387,7 @@ class _ExpressionsMixin:
                     expr.line,
                     expr.col,
                 )
-            self._require_quantale("trace", expr.line, expr.col)
+            self._require_algebra("trace", expr.line, expr.col)
             try:
                 return inner.trace(self._objects[expr.object_name])
             except TypeError as e:
@@ -406,8 +406,8 @@ class _ExpressionsMixin:
                     expr.line,
                     expr.col,
                 )
-            self._require_quantale("cup", expr.line, expr.col)
-            return _make_cup(self._objects[expr.object_name], quantale=self._quantale)
+            self._require_algebra("cup", expr.line, expr.col)
+            return _make_cup(self._objects[expr.object_name], algebra=self._algebra)
         elif isinstance(expr, ExprCap):
             if expr.object_name not in self._objects:
                 raise CompileError(
@@ -415,8 +415,8 @@ class _ExpressionsMixin:
                     expr.line,
                     expr.col,
                 )
-            self._require_quantale("cap", expr.line, expr.col)
-            return _make_cap(self._objects[expr.object_name], quantale=self._quantale)
+            self._require_algebra("cap", expr.line, expr.col)
+            return _make_cap(self._objects[expr.object_name], algebra=self._algebra)
         elif isinstance(expr, ExprFreeze):
             inner = self._compile_expr(expr.inner)
             # Materialise the inner morphism's tensor with detach()
@@ -439,7 +439,7 @@ class _ExpressionsMixin:
                 inner.domain,
                 inner.codomain,
                 inner.tensor.detach().clone(),
-                quantale=inner.quantale,
+                algebra=inner.algebra,
             )
             return frozen
         elif isinstance(expr, ExprFromData):
@@ -504,7 +504,7 @@ class _ExpressionsMixin:
                 cod = _FS(name=f"_data_cod_{expr.key}", cardinality=cod_size)
                 if tensor.dim() > 2:
                     tensor = tensor.reshape(tensor.shape[0], -1)
-            return _Obs(dom, cod, tensor, quantale=self._quantale)
+            return _Obs(dom, cod, tensor, algebra=self._algebra)
         elif isinstance(expr, ExprCompose):
             left = self._compile_expr(expr.left)
             right = self._compile_expr(expr.right)

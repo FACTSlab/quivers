@@ -28,27 +28,35 @@ from quivers.core.objects import FinSet
 import torch
 
 # Build program manually
+from quivers.continuous.spaces import Euclidean
+from quivers.core.objects import FinSet
+
+Unit = FinSet(name="Unit", cardinality=1)
+R1 = Euclidean(name="R1", dim=1)
+
+prior      = ConditionalNormal(Unit, R1)            # x ~ Normal(0, 1)
+likelihood = ConditionalNormal(R1, R1)              # y ~ Normal(x, 1)
+
 program = MonadicProgram(
-    domain=FinSet("input", 5),
-    codomain=FinSet("output", 3),
+    Unit,
+    R1,
+    steps=[
+        (("x",), prior, None),                      # x <- prior
+        (("y",), likelihood, ("x",)),               # y <- likelihood(x)
+    ],
+    return_vars=("y",),
 )
-
-# Register morphisms
-f = ConditionalNormal(...)
-program.add_morphism("f", f)
-
-# Add steps
-program.add_draw("x", "f", args=None)
-program.add_draw("y", "f", args=("x",))
-program.add_return("y")
 
 # Forward pass: sampling
 samples = program.rsample(
-    torch.randn(5), sample_shape=torch.Size([100])
-)  # shape (100, 3)
+    torch.zeros(4, dtype=torch.long), sample_shape=torch.Size([100])
+)  # shape (100, 4, 1)
 
 # Log joint: sum_i log p(z_i | pa(z_i)) given every bound variable
-log_joint = program.log_joint(input_data, {"x": x_val, "y": y_val})
+log_joint = program.log_joint(
+    torch.zeros(4, dtype=torch.long),
+    {"x": x_val, "y": y_val},
+)
 ```
 
 ## Bind Steps
@@ -167,20 +175,25 @@ There is no `.qvr`-level data block; the tensor sources live in Python at the ca
 
 ## Named Parameters
 
-If the domain is a product, define sub-domains:
+If the domain is a product, name the components via the `params` argument so steps can reference them by name:
 
 ```python
+A = FinSet(name="A", cardinality=3)
+B = FinSet(name="B", cardinality=4)
+Z = FinSet(name="Z", cardinality=5)
+
 program = MonadicProgram(
-    domain=FinSet("A", 3) * FinSet("B", 4),
-    codomain=FinSet("Z", 5),
+    A * B,
+    Z,
+    steps=[
+        (("x",), f, ("a", "b")),                    # x <- f(a, b)
+    ],
+    return_vars=("x",),
+    params=("a", "b"),
 )
-
-program.add_param("a", FinSet("A", 3))
-program.add_param("b", FinSet("B", 4))
-
-# Now steps can reference a, b by name
-program.add_draw("x", "f", args=("a", "b"))
 ```
+
+The program splits the product input along the feature axis at runtime and binds each slice to the corresponding name in `params`.
 
 ## Example: A Simple Model
 
@@ -194,33 +207,25 @@ from quivers.core.objects import Unit
 from quivers.continuous.spaces import Euclidean
 import torch.nn as nn
 
-# Build a linear regression model
-prior_mu = nn.Linear(1, 1)
-prior_sigma = nn.Linear(1, 1)
-likelihood_sigma = nn.Linear(1, 1)
+from quivers.core.objects import FinSet
+Unit = FinSet(name="Unit", cardinality=1)
+R1 = Euclidean(name="R1", dim=1)
+R2 = Euclidean(name="R2", dim=2)
+
+prior_mu    = ConditionalNormal(Unit, R1)
+prior_sigma = ConditionalLogitNormal(Unit, R1)
+likelihood  = ConditionalNormal(R2, R1)
 
 program = MonadicProgram(
-    domain=Unit,
-    codomain=Euclidean(1),
+    Unit,
+    R1,
+    steps=[
+        (("mu",),    prior_mu,    None),
+        (("sigma",), prior_sigma, None),
+        (("y",),     likelihood,  ("mu", "sigma")),
+    ],
+    return_vars=("y",),
 )
-
-# Prior on μ
-f_mu = ConditionalNormal(Unit, Euclidean(1))
-program.add_morphism("prior_mu", f_mu)
-
-# Prior on σ
-f_sigma = ConditionalLogitNormal(Unit, Euclidean(1))
-program.add_morphism("prior_sigma", f_sigma)
-
-# Likelihood
-f_like = ConditionalNormal(Euclidean(2), Euclidean(1))
-program.add_morphism("likelihood", f_like)
-
-# Steps
-program.add_draw("mu", "prior_mu")
-program.add_draw("sigma", "prior_sigma")
-program.add_draw("y", "likelihood", args=("mu", "sigma"))
-program.add_return("y")
 
 # Use for inference
 optimizer = torch.optim.Adam(program.parameters())
@@ -255,8 +260,8 @@ observed_y = torch.tensor([1.0, -0.5, 2.0])
 
 conditioned = condition(program, {"y": observed_y})
 
-# Forward pass on conditioned program uses the clamped value
-log_pjoint = conditioned.log_joint(x, observed_y)
+# Trace under the conditioning: observed sites are clamped to the data
+tr = conditioned.trace(x)
 ```
 
 ## Product Domains and Outputs

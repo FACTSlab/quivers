@@ -144,7 +144,7 @@ The lexer breaks source text into tokens. Each token carries type, value, line, 
 
 ```python
 class TokenType(Enum):
-    QUANTALE = auto()
+    ALGEBRA = auto()
     OBJECT = auto()
     PROGRAM = auto()
     DRAW = auto()
@@ -158,7 +158,7 @@ Keywords like `program`, `draw`, `observe`, `return` map to specific token types
 
 The recursive descent parser transforms the token stream into an Abstract Syntax Tree (AST). The grammar is documented in the module docstring:
 
-- **Statements**: quantale, object, morphism, space, continuous, stochastic, discretize, embed, program, let, output declarations
+- **Statements**: algebra, object, morphism, space, continuous, stochastic, discretize, embed, program, let, output declarations
 - **Programs**: blocks with draw/observe steps and return statements
 - **Expressions**: identity, composition (>>), tensor product (@), marginalization
 - **Types**: products (*), coproducts (+)

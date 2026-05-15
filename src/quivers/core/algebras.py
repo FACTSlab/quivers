@@ -1,17 +1,17 @@
-"""Quantales: enrichment algebras for V-enriched categories.
+"""Algebras: enrichment algebras for V-enriched categories.
 
-A commutative quantale Q = (L, ⊗, ⋁, ⋀, ¬, I, ⊥) provides the algebraic
+A commutative algebra Q = (L, ⊗, ⋁, ⋀, ¬, I, ⊥) provides the algebraic
 structure that parameterizes composition in a V-enriched category:
 
     (g ∘ f)(a, c) = ⋁_b f(a, b) ⊗ g(b, c)
 
-Different quantales yield different categories of relations:
+Different algebras yield different categories of relations:
 
-    - BooleanQuantale:  {0,1} with ∧, ∨         → Rel (crisp relations)
-    - ProductFuzzy:     [0,1] with ×, noisy-OR   → FuzzyRel (product t-norm)
+    - BooleanAlgebra:  {0,1} with ∧, ∨         → Rel (crisp relations)
+    - ProductFuzzyAlgebra:     [0,1] with ×, noisy-OR   → FuzzyRel (product t-norm)
 
 The enrichment determines composition, identity, marginalization, and
-quantification, all derived from the quantale's operations.
+quantification, all derived from the algebra's operations.
 """
 
 from __future__ import annotations
@@ -39,15 +39,15 @@ class CompositionRule(ABC):
     * :class:`Semigroupoid` — adds the assumption that ⊗ is
       associative, so composition forms a semigroupoid (a
       category without identities).
-    * :class:`Quantale` — adds identity (``unit`` / ``zero``),
-      a meet ⋀, a negation, and the full quantale-axiom
+    * :class:`Algebra` — adds identity (``unit`` / ``zero``),
+      a meet ⋀, a negation, and the full algebra-axiom
       package. This is the level at which compact-closed
       operations (``identity``, ``cup``, ``cap``, ``dagger``,
       ``trace``) become well-defined.
 
     Operations that need identity check at runtime that the
-    composition rule is at least a :class:`Quantale`; a clear
-    error is raised if a non-quantale rule is fed in.
+    composition rule is at least a :class:`Algebra`; a clear
+    error is raised if a non-algebra rule is fed in.
     """
 
     @property
@@ -111,7 +111,7 @@ class Semigroupoid(CompositionRule):
 
     Semantically a :class:`CompositionRule` with the marker
     promise of associativity. No identity, no compact-closed
-    structure, no negation — those need :class:`Quantale`.
+    structure, no negation — those need :class:`Algebra`.
 
     Material implication composition (``a ⊗ b = 1 - a + a*b``,
     ``⋁ = product``) is the canonical example: associative under
@@ -146,8 +146,8 @@ class BilinearForm(CompositionRule):
     pass
 
 
-class Quantale(Semigroupoid):
-    """Abstract commutative quantale for V-enriched categories.
+class Algebra(Semigroupoid):
+    """Abstract commutative algebra for V-enriched categories.
 
     Subclasses must implement the six primitive operations.
     Composition and identity are derived but overridable.
@@ -156,7 +156,7 @@ class Quantale(Semigroupoid):
     @property
     @abstractmethod
     def name(self) -> str:
-        """Human-readable name for this quantale."""
+        """Human-readable name for this algebra."""
         ...
 
     # -- primitive operations ------------------------------------------------
@@ -255,7 +255,7 @@ class Quantale(Semigroupoid):
 
         Computes: result[d..., c...] = ⋁_{s...} m[d..., s...] ⊗ n[s..., c...]
 
-        Override for numerical stability in specific quantales.
+        Override for numerical stability in specific algebras.
 
         Parameters
         ----------
@@ -331,30 +331,30 @@ class Quantale(Semigroupoid):
 
         return result
 
-    def is_compatible(self, other: Quantale) -> bool:
-        """Check if two quantales are compatible for composition.
+    def is_compatible(self, other: Algebra) -> bool:
+        """Check if two algebras are compatible for composition.
 
         Parameters
         ----------
-        other : Quantale
-            The other quantale.
+        other : Algebra
+            The other algebra.
 
         Returns
         -------
         bool
-            True if morphisms from these quantales can compose.
+            True if morphisms from these algebras can compose.
         """
         if type(self) is type(other):
             return True
-        # Two ``DualQuantale`` instances over the same base are
-        # compatible; ditto for any custom quantale that overrides
+        # Two ``DualAlgebra`` instances over the same base are
+        # compatible; ditto for any custom algebra that overrides
         # ``name`` to match.
         return getattr(self, "name", None) == getattr(other, "name", None)
 
-    def dual(self) -> Quantale:
-        """The dual quantale under de Morgan negation.
+    def dual(self) -> Algebra:
+        """The dual algebra under de Morgan negation.
 
-        For a commutative quantale with involution ``N`` (``negate``),
+        For a commutative algebra with involution ``N`` (``negate``),
         the dual carries
 
             tensor_op^op(a, b) = N(N(a) ⋁ N(b))
@@ -364,7 +364,7 @@ class Quantale(Semigroupoid):
 
             1^op = 0,    0^op = 1.
 
-        For ProductFuzzy this yields the role-swapped pair
+        For ProductFuzzyAlgebra this yields the role-swapped pair
         ``(⊗ = noisy-OR, ⋁ = product reduction)``, which is the
         canonical Reichenbach-flavour probabilistic-implication
         composition rule.
@@ -373,18 +373,18 @@ class Quantale(Semigroupoid):
         true involution; subclasses with non-involutive lattices
         should override.
         """
-        return DualQuantale(self)
+        return DualAlgebra(self)
 
     def __repr__(self) -> str:
         return f"{type(self).__name__}()"
 
 
-class DualQuantale(Quantale):
-    """The de-Morgan dual of an involutive commutative quantale.
+class DualAlgebra(Algebra):
+    """The de-Morgan dual of an involutive commutative algebra.
 
     For a t-norm / t-conorm pair ``(T, S)`` related by the strong
     negation ``N`` (``S(a, b) = N(T(N(a), N(b)))``), the dual
-    quantale carries the role-swapped pair:
+    algebra carries the role-swapped pair:
 
         tensor_op^op = base.join         (reducing as a binary op)
         join^op      = base.tensor_op    (reducing as a fold)
@@ -395,26 +395,26 @@ class DualQuantale(Quantale):
 
     Concretely for shipped pairs:
 
-    * ``ProductFuzzy.dual``: ⊗ = noisy-OR (``a + b - ab``),
+    * ``ProductFuzzyAlgebra.dual``: ⊗ = noisy-OR (``a + b - ab``),
       ⋁ = product (``∏ a_i``).
     * ``Lukasiewicz.dual``: ⊗ = bounded sum (``min(1, a + b)``),
       ⋁ = bounded difference / repeated Łukasiewicz t-norm.
     * ``Godel.dual``: ⊗ = max, ⋁ = min.
     * ``Boolean.dual``: ⊗ = OR, ⋁ = AND.
 
-    Returned by :meth:`Quantale.dual`. Subclasses with
-    non-involutive negation (CountingQuantale, …) should override
-    ``Quantale.dual`` to raise rather than allow dual construction
+    Returned by :meth:`Algebra.dual`. Subclasses with
+    non-involutive negation (CountingAlgebra, …) should override
+    ``Algebra.dual`` to raise rather than allow dual construction
     that breaks the de-Morgan equations.
     """
 
-    def __init__(self, base: Quantale) -> None:
+    def __init__(self, base: Algebra) -> None:
         self._base = base
         self._name = f"Dual({base.name})"
 
     @property
-    def base(self) -> Quantale:
-        """The underlying quantale this is the dual of."""
+    def base(self) -> Algebra:
+        """The underlying algebra this is the dual of."""
         return self._base
 
     @property
@@ -448,7 +448,7 @@ class DualQuantale(Quantale):
     def zero(self) -> float:
         return float(self._base.unit)
 
-    def dual(self) -> Quantale:
+    def dual(self) -> Algebra:
         """Dual of dual is the base (involution)."""
         return self._base
 
@@ -470,8 +470,8 @@ def _fold_along_dim(
 ) -> torch.Tensor:
     """Fold a binary tensor-op across one or more axes.
 
-    Used both by :class:`DualQuantale` to lift the base tensor_op
-    into a reduction, and by :class:`CustomQuantale` whose user-
+    Used both by :class:`DualAlgebra` to lift the base tensor_op
+    into a reduction, and by :class:`CustomAlgebra` whose user-
     supplied tensor_op is binary but is reduced as a join.
     """
     if isinstance(dim, int):
@@ -489,15 +489,15 @@ def _fold_along_dim(
     return t
 
 
-class CustomQuantale(Quantale):
-    """User-defined quantale built from callable operations.
+class CustomAlgebra(Algebra):
+    """User-defined algebra built from callable operations.
 
-    Construct a fresh quantale by supplying the primitive operations
-    as Python functions, rather than subclassing :class:`Quantale`
+    Construct a fresh algebra by supplying the primitive operations
+    as Python functions, rather than subclassing :class:`Algebra`
     for each variant.
 
     The constructor only stores the operations; **the user is
-    responsible for ensuring they satisfy the quantale axioms**
+    responsible for ensuring they satisfy the algebra axioms**
     (associativity, identity, distributivity of ⊗ over ⋁,
     de-Morgan duality between ⊗ and ⋁ via ``negate`` for
     involutive lattices). Basic structural axioms are
@@ -505,7 +505,7 @@ class CustomQuantale(Quantale):
     fixed sample inputs; serious deployments should write their
     own targeted unit tests.
 
-    The DSL surface ``quantale name { tensor_op(a, b) = …;
+    The DSL surface ``algebra name { tensor_op(a, b) = …;
     join(t) = …; unit = …; zero = …; }`` compiles to this class
     under the hood, with ``verify=False`` (user expressions are
     arithmetic and routinely violate one of the canned samples
@@ -526,7 +526,7 @@ class CustomQuantale(Quantale):
         verify: bool = True,
     ) -> None:
         if not name:
-            raise ValueError("CustomQuantale: name must be non-empty")
+            raise ValueError("CustomAlgebra: name must be non-empty")
         self._name = str(name)
         self._tensor_op = tensor_op
         self._join = join
@@ -550,7 +550,7 @@ class CustomQuantale(Quantale):
     def meet(self, t: torch.Tensor, dim: int | tuple[int, ...]) -> torch.Tensor:
         if self._meet is None:
             raise NotImplementedError(
-                f"CustomQuantale {self._name!r}: no meet supplied. "
+                f"CustomAlgebra {self._name!r}: no meet supplied. "
                 f"Pass meet=... to the constructor for explicit "
                 f"universal-quantifier support."
             )
@@ -559,7 +559,7 @@ class CustomQuantale(Quantale):
     def negate(self, t: torch.Tensor) -> torch.Tensor:
         if self._negate is None:
             raise NotImplementedError(
-                f"CustomQuantale {self._name!r}: no negation supplied. "
+                f"CustomAlgebra {self._name!r}: no negation supplied. "
                 f"Pass negate=... to the constructor for explicit "
                 f"complement support."
             )
@@ -574,7 +574,7 @@ class CustomQuantale(Quantale):
         return self._zero
 
     def _sanity_check(self) -> None:
-        """Cheap probabilistic checks of the quantale axioms.
+        """Cheap probabilistic checks of the algebra axioms.
 
         Verifies on a handful of fixed sample tensors:
 
@@ -585,7 +585,7 @@ class CustomQuantale(Quantale):
 
         Raises ``ValueError`` on the first failed check so the
         construction site can fix the spec rather than silently
-        ship a broken quantale.
+        ship a broken algebra.
         """
         a = torch.tensor([0.0, 0.25, 0.5, 0.75, 1.0])
         unit_t = torch.full_like(a, self._unit)
@@ -595,25 +595,25 @@ class CustomQuantale(Quantale):
         left_zero = self._tensor_op(zero_t, a)
         if not torch.allclose(left_id, a, atol=1e-5):
             raise ValueError(
-                f"CustomQuantale {self._name!r}: tensor_op fails "
+                f"CustomAlgebra {self._name!r}: tensor_op fails "
                 f"left-identity check on unit={self._unit}; "
                 f"expected {a.tolist()}, got {left_id.tolist()}"
             )
         if not torch.allclose(right_id, a, atol=1e-5):
             raise ValueError(
-                f"CustomQuantale {self._name!r}: tensor_op fails "
+                f"CustomAlgebra {self._name!r}: tensor_op fails "
                 f"right-identity check on unit={self._unit}; "
                 f"expected {a.tolist()}, got {right_id.tolist()}"
             )
         if not torch.allclose(left_zero, zero_t, atol=1e-5):
             raise ValueError(
-                f"CustomQuantale {self._name!r}: tensor_op fails "
+                f"CustomAlgebra {self._name!r}: tensor_op fails "
                 f"left-absorbing check on zero={self._zero}; "
                 f"expected {zero_t.tolist()}, got {left_zero.tolist()}"
             )
 
     def __repr__(self) -> str:
-        return f"CustomQuantale(name={self._name!r})"
+        return f"CustomAlgebra(name={self._name!r})"
 
 
 class CustomSemigroupoid(Semigroupoid):
@@ -623,9 +623,9 @@ class CustomSemigroupoid(Semigroupoid):
     Use for composition rules that are associative under their
     ``tensor_op`` but lack an identity element — Reichenbach-style
     material implication composition, weighted shortest-path on
-    a non-pointed lattice, etc. Callers who want a full quantale
+    a non-pointed lattice, etc. Callers who want a full algebra
     (with identity, dagger, compact-closed structure) should use
-    :class:`CustomQuantale` instead.
+    :class:`CustomAlgebra` instead.
 
     Parameters
     ----------
@@ -768,7 +768,7 @@ def material_implication() -> CustomSemigroupoid:
     Tensor product is the probabilistic implication
     ``a → b = 1 - a + a*b``; join is the product reduction.
     Associative but lacks an identity, so it's a semigroupoid,
-    not a quantale.
+    not an algebra.
     """
 
     def _impl(a: torch.Tensor, b: torch.Tensor) -> torch.Tensor:
@@ -793,7 +793,7 @@ def material_implication() -> CustomSemigroupoid:
     )
 
 
-class ProductFuzzy(Quantale):
+class ProductFuzzyAlgebra(Algebra):
     """[0,1] with product t-norm and probabilistic sum (noisy-OR).
 
     This is the enrichment for the Kleisli category of the fuzzy
@@ -892,7 +892,7 @@ class ProductFuzzy(Quantale):
         return -torch.expm1(sum_log)
 
 
-class BooleanQuantale(Quantale):
+class BooleanAlgebra(Algebra):
     """{0, 1} with logical AND and OR.
 
     The enrichment for the category Rel of crisp binary relations:
@@ -957,7 +957,7 @@ class BooleanQuantale(Quantale):
 # ============================================================================
 
 
-class LukasiewiczQuantale(Quantale):
+class LukasiewiczAlgebra(Algebra):
     """[0,1] with Łukasiewicz t-norm and bounded sum.
 
     The Łukasiewicz t-norm is the strongest continuous t-norm:
@@ -1002,7 +1002,7 @@ class LukasiewiczQuantale(Quantale):
         return 0.0
 
 
-class GodelQuantale(Quantale):
+class GodelAlgebra(Algebra):
     """[0,1] with Gödel (min) t-norm.
 
     ⊗ = min,   ⋁ = max,   ⋀ = min,
@@ -1050,7 +1050,7 @@ class GodelQuantale(Quantale):
 # ============================================================================
 
 
-class TropicalQuantale(Quantale):
+class TropicalAlgebra(Algebra):
     """[0, ∞] with (+, min) — Lawvere metric spaces.
 
         ⊗ = addition (distances compose),
@@ -1087,7 +1087,7 @@ class TropicalQuantale(Quantale):
 
     def negate(self, t: torch.Tensor) -> torch.Tensor:
         raise NotImplementedError(
-            "negation is not well-defined for the tropical quantale"
+            "negation is not well-defined for the tropical algebra"
         )
 
     @property
@@ -1112,10 +1112,10 @@ class TropicalQuantale(Quantale):
         return result
 
 
-class MaxPlusQuantale(Quantale):
+class MaxPlusAlgebra(Algebra):
     """Max-plus (Viterbi) semiring on (-∞, ∞].
 
-    Distinct from :class:`TropicalQuantale` (which is min-plus,
+    Distinct from :class:`TropicalAlgebra` (which is min-plus,
     suited to shortest-path aggregations): the join here is ``max``
     and the tensor is ``+``. The canonical algebra for MAP decoding
     in HMMs, CRFs, and weighted automata.
@@ -1149,7 +1149,7 @@ class MaxPlusQuantale(Quantale):
 
     def negate(self, t: torch.Tensor) -> torch.Tensor:
         raise NotImplementedError(
-            "negation is not well-defined for the max-plus quantale"
+            "negation is not well-defined for the max-plus algebra"
         )
 
     @property
@@ -1174,7 +1174,7 @@ class MaxPlusQuantale(Quantale):
         return result
 
 
-class LogProbQuantale(Quantale):
+class LogProbAlgebra(Algebra):
     """Log-space sum-product semiring on (-∞, 0].
 
     Tensor is real addition (probability multiplication in log-
@@ -1208,7 +1208,7 @@ class LogProbQuantale(Quantale):
 
     def negate(self, t: torch.Tensor) -> torch.Tensor:
         raise NotImplementedError(
-            "negation is not well-defined for the log-prob quantale"
+            "negation is not well-defined for the log-prob algebra"
         )
 
     @property
@@ -1238,13 +1238,12 @@ class LogProbQuantale(Quantale):
 # ============================================================================
 
 
-class RealQuantale(Quantale):
+class RealAlgebra(Algebra):
     """Sum-product semiring on the real numbers (ℝ, +, ·).
 
     The canonical numeric semiring: addition is the lattice join,
-    multiplication the monoidal tensor. Mirrors arcweight's
-    ``RealWeight``. Use when entries are unbounded real weights
-    with no probability interpretation.
+    multiplication the monoidal tensor. Use when entries are
+    unbounded real weights with no probability interpretation.
     """
 
     @property
@@ -1295,11 +1294,11 @@ class RealQuantale(Quantale):
         return result
 
 
-class ProbabilityQuantale(Quantale):
+class ProbabilityAlgebra(Algebra):
     """Sum-product semiring on [0, 1] with explicit clamp.
 
-    Same operations as :class:`RealQuantale` but restricted to the
-    unit interval. Mirrors arcweight's ``ProbabilityWeight``.
+    Same operations as :class:`RealAlgebra` but restricted to the
+    unit interval.
     """
 
     @property
@@ -1350,13 +1349,13 @@ class ProbabilityQuantale(Quantale):
         return result
 
 
-class CountingQuantale(Quantale):
+class CountingAlgebra(Algebra):
     """Sum-product semiring on the non-negative integers (ℕ, +, ·).
 
     Counting algebra: composition counts the number of distinct
-    paths through a structure. Mirrors arcweight's ``IntegerWeight``.
-    The underlying tensor is float-typed (PyTorch's autograd
-    requires it) but operations are integer-respecting.
+    paths through a structure. The underlying tensor is
+    float-typed (PyTorch's autograd requires it) but operations
+    are integer-respecting.
     """
 
     @property
@@ -1385,7 +1384,7 @@ class CountingQuantale(Quantale):
     def negate(self, t: torch.Tensor) -> torch.Tensor:
         raise NotImplementedError(
             "negation is not well-defined for the counting "
-            "(non-negative integer) quantale"
+            "(non-negative integer) algebra"
         )
 
     @property
@@ -1414,16 +1413,16 @@ class CountingQuantale(Quantale):
 # Module-level singletons
 # ============================================================================
 
-PRODUCT_FUZZY = ProductFuzzy()
-BOOLEAN = BooleanQuantale()
-LUKASIEWICZ = LukasiewiczQuantale()
-GODEL = GodelQuantale()
-TROPICAL = TropicalQuantale()
-MAX_PLUS = MaxPlusQuantale()
-LOG_PROB = LogProbQuantale()
-REAL = RealQuantale()
-PROBABILITY = ProbabilityQuantale()
-COUNTING = CountingQuantale()
+PRODUCT_FUZZY = ProductFuzzyAlgebra()
+BOOLEAN = BooleanAlgebra()
+LUKASIEWICZ = LukasiewiczAlgebra()
+GODEL = GodelAlgebra()
+TROPICAL = TropicalAlgebra()
+MAX_PLUS = MaxPlusAlgebra()
+LOG_PROB = LogProbAlgebra()
+REAL = RealAlgebra()
+PROBABILITY = ProbabilityAlgebra()
+COUNTING = CountingAlgebra()
 
 # Named duals — each ``base.dual()`` is the de-Morgan companion
 # that swaps ``⊗`` and ``⋁``.  ``REICHENBACH`` is the canonical
@@ -1435,15 +1434,15 @@ DUAL_GODEL = GODEL.dual()
 
 
 # ============================================================================
-# Markov sum-product quantale (Kleisli composition for stochastic kernels)
+# Markov sum-product algebra (Kleisli composition for stochastic kernels)
 # ============================================================================
 #
-# Lives here rather than in ``quivers.stochastic.quantale`` so the
+# Lives here rather than in ``quivers.core.algebras`` so the
 # core categorical layer can reference it without crossing into
 # the stochastic subpackage (which itself depends on core).
 
 
-class MarkovQuantale(Quantale):
+class MarkovAlgebra(Algebra):
     """Sum-product composition for stochastic matrices.
 
     Implements the composition rule of FinStoch:
@@ -1457,8 +1456,8 @@ class MarkovQuantale(Quantale):
         ¬ = complement (1 - p),
         I = 1.0, ⊥ = 0.0.
 
-    Not a true quantale in the lattice-theoretic sense (Σ is not
-    idempotent), but the composition formula matches the quantale
+    Not a true algebra in the lattice-theoretic sense (Σ is not
+    idempotent), but the composition formula matches the algebra
     interface and composition of row-stochastic matrices yields
     row-stochastic matrices.
     """
@@ -1498,4 +1497,4 @@ class MarkovQuantale(Quantale):
         return super().compose(m, n, n_contract)
 
 
-MARKOV = MarkovQuantale()
+MARKOV = MarkovAlgebra()

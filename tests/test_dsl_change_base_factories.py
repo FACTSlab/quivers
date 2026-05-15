@@ -7,7 +7,7 @@ values inside ``change_base``:
   object argument resolved at compile time.
 * ``f.change_base(l1_normalize(B))`` — same shape.
 * ``f.change_base(l2_normalize(B))`` — same shape, identity
-  target quantale.
+  target algebra.
 * ``f.change_base(bayes_invert(prior))`` — Tier 2: constructor
   with a morphism argument; the prior's tensor is read when the
   constructor runs to produce the :class:`BayesInvert`.
@@ -41,7 +41,7 @@ _LOCAL_GRAMMAR = pytest.mark.skipif(
 @_LOCAL_GRAMMAR
 def test_softmax_compiles() -> None:
     src = """
-    quantale product_fuzzy
+    algebra product_fuzzy
     object A : 3
     object B : 4
     latent f : A -> B
@@ -59,7 +59,7 @@ def test_softmax_compiles() -> None:
 @_LOCAL_GRAMMAR
 def test_l1_normalize_compiles() -> None:
     src = """
-    quantale real
+    algebra real
     object A : 3
     object B : 4
     latent f : A -> B
@@ -76,7 +76,7 @@ def test_l1_normalize_compiles() -> None:
 @_LOCAL_GRAMMAR
 def test_l2_normalize_compiles() -> None:
     src = """
-    quantale real
+    algebra real
     object A : 3
     object B : 4
     latent f : A -> B
@@ -97,7 +97,7 @@ def test_l2_normalize_compiles() -> None:
 @_LOCAL_GRAMMAR
 def test_bayes_invert_with_morphism_prior() -> None:
     src = """
-    quantale markov
+    algebra markov
     object Unit : 1
     object A : 3
     observed prior : Unit -> A = from_data("PRIOR")
@@ -121,7 +121,7 @@ def test_bayes_invert_with_morphism_prior() -> None:
 @_LOCAL_GRAMMAR
 def test_bare_name_homomorphism_still_resolves() -> None:
     src = """
-    quantale boolean
+    algebra boolean
     object A : 3
     object B : 4
     latent f : A -> B
@@ -140,7 +140,7 @@ def test_bare_name_homomorphism_still_resolves() -> None:
 @_LOCAL_GRAMMAR
 def test_bare_constructor_without_args_errors() -> None:
     src = """
-    quantale real
+    algebra real
     object A : 3
     object B : 4
     latent f : A -> B
@@ -154,7 +154,7 @@ def test_bare_constructor_without_args_errors() -> None:
 @_LOCAL_GRAMMAR
 def test_unknown_constructor_errors() -> None:
     src = """
-    quantale real
+    algebra real
     object A : 3
     object B : 4
     latent f : A -> B
@@ -168,7 +168,7 @@ def test_unknown_constructor_errors() -> None:
 @_LOCAL_GRAMMAR
 def test_unknown_constructor_arg_errors() -> None:
     src = """
-    quantale real
+    algebra real
     object A : 3
     object B : 4
     latent f : A -> B

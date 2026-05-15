@@ -1,8 +1,8 @@
 """quivers: V-enriched categorical relations as PyTorch tensors.
 
 Provides finite sets as categorical objects, V-enriched relations as
-morphisms (tensors with values in a quantale's lattice), and
-parameterized composition via quantale enrichment.
+morphisms (tensors with values in an algebra's lattice), and
+parameterized composition via algebra enrichment.
 
 Quick start::
 
@@ -30,10 +30,10 @@ from quivers.core.objects import (
     FreeMonoid,
     Unit,
 )
-from quivers.core.quantales import (
-    Quantale,
-    ProductFuzzy,
-    BooleanQuantale,
+from quivers.core.algebras import (
+    Algebra,
+    ProductFuzzyAlgebra,
+    BooleanAlgebra,
     PRODUCT_FUZZY,
     BOOLEAN,
 )
@@ -113,7 +113,7 @@ from quivers.monadic.comonads import (
     CofreeComonad,
 )
 from quivers.monadic.algebras import (
-    Algebra,
+    Algebra as MonadAlgebra,
     FreeAlgebra,
     ObservedAlgebra,
     Coalgebra,
@@ -131,15 +131,15 @@ from quivers.enriched.weighted_limits import (
     representable_weight,
     terminal_weight,
 )
-from quivers.core.quantales import (
-    LukasiewiczQuantale,
-    GodelQuantale,
-    TropicalQuantale,
-    MaxPlusQuantale,
-    LogProbQuantale,
-    RealQuantale,
-    ProbabilityQuantale,
-    CountingQuantale,
+from quivers.core.algebras import (
+    LukasiewiczAlgebra,
+    GodelAlgebra,
+    TropicalAlgebra,
+    MaxPlusAlgebra,
+    LogProbAlgebra,
+    RealAlgebra,
+    ProbabilityAlgebra,
+    CountingAlgebra,
     LUKASIEWICZ,
     GODEL,
     TROPICAL,
@@ -149,8 +149,8 @@ from quivers.core.quantales import (
     PROBABILITY,
     COUNTING,
 )
-from quivers.core.quantale_morphisms import (
-    QuantaleHomomorphism,
+from quivers.core.algebra_morphisms import (
+    AlgebraHomomorphism,
     IdentityHom,
     Embedding,
     Expectation,
@@ -199,7 +199,7 @@ from quivers.categorical.traced import (
 
 # stochastic (FinStoch / Markov kernels)
 from quivers.stochastic import (
-    MarkovQuantale,
+    MarkovAlgebra,
     MARKOV,
     StochasticMorphism,
     CategoricalMorphism,
@@ -309,30 +309,30 @@ __all__ = [
     "Unit",
     "EmptySet",
     "EMPTY",
-    # quantales
-    "Quantale",
-    "ProductFuzzy",
-    "BooleanQuantale",
+    # algebras
+    "Algebra",
+    "ProductFuzzyAlgebra",
+    "BooleanAlgebra",
     "PRODUCT_FUZZY",
     "BOOLEAN",
-    # extra quantales
-    "LukasiewiczQuantale",
-    "GodelQuantale",
-    "TropicalQuantale",
+    # extra algebras
+    "LukasiewiczAlgebra",
+    "GodelAlgebra",
+    "TropicalAlgebra",
     "LUKASIEWICZ",
     "GODEL",
     "TROPICAL",
-    "MaxPlusQuantale",
-    "LogProbQuantale",
-    "RealQuantale",
-    "ProbabilityQuantale",
-    "CountingQuantale",
+    "MaxPlusAlgebra",
+    "LogProbAlgebra",
+    "RealAlgebra",
+    "ProbabilityAlgebra",
+    "CountingAlgebra",
     "MAX_PLUS",
     "LOG_PROB",
     "REAL",
     "PROBABILITY",
     "COUNTING",
-    "QuantaleHomomorphism",
+    "AlgebraHomomorphism",
     "IdentityHom",
     "Embedding",
     "Expectation",
@@ -389,7 +389,7 @@ __all__ = [
     "DiagonalComonad",
     "CofreeComonad",
     # algebras and coalgebras
-    "Algebra",
+    "MonadAlgebra",
     "FreeAlgebra",
     "ObservedAlgebra",
     "Coalgebra",
@@ -454,7 +454,7 @@ __all__ = [
     "trace",
     "partial_trace",
     # stochastic
-    "MarkovQuantale",
+    "MarkovAlgebra",
     "MARKOV",
     "StochasticMorphism",
     "CategoricalMorphism",

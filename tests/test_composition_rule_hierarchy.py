@@ -3,15 +3,15 @@
 * :class:`CompositionRule` — the bare composition surface
   (``tensor_op`` + ``join``; no identity required).
 * :class:`Semigroupoid` — adds the associativity assumption.
-* :class:`Quantale` — adds identity, meet, negation, and the
+* :class:`Algebra` — adds identity, meet, negation, and the
   compact-closed structure.
 
 Verifies type-checked subclass relationships, that existing
-quantales reclassify as ``Quantale`` (i.e. also ``Semigroupoid``
+algebras reclassify as ``Algebra`` (i.e. also ``Semigroupoid``
 and ``CompositionRule``), that user-defined semigroupoids ship
 via :func:`semigroupoid` and :func:`material_implication`, and
 that operations needing identity (cup, cap, dagger, ...) reject
-non-quantale composition rules at the API boundary.
+non-algebra composition rules at the API boundary.
 """
 
 from __future__ import annotations
@@ -19,13 +19,13 @@ from __future__ import annotations
 import pytest
 import torch
 
-from quivers.core.quantales import (
+from quivers.core.algebras import (
     BOOLEAN,
     PRODUCT_FUZZY,
     REAL,
     CompositionRule,
     CustomSemigroupoid,
-    Quantale,
+    Algebra,
     Semigroupoid,
     material_implication,
     semigroupoid,
@@ -37,14 +37,14 @@ from quivers.core.quantales import (
 # ---------------------------------------------------------------------------
 
 
-def test_quantale_extends_semigroupoid_extends_composition_rule() -> None:
-    assert issubclass(Quantale, Semigroupoid)
+def test_algebra_extends_semigroupoid_extends_composition_rule() -> None:
+    assert issubclass(Algebra, Semigroupoid)
     assert issubclass(Semigroupoid, CompositionRule)
 
 
 @pytest.mark.parametrize("instance", [PRODUCT_FUZZY, BOOLEAN, REAL])
-def test_shipped_quantales_are_at_all_three_levels(instance) -> None:
-    assert isinstance(instance, Quantale)
+def test_shipped_algebras_are_at_all_three_levels(instance) -> None:
+    assert isinstance(instance, Algebra)
     assert isinstance(instance, Semigroupoid)
     assert isinstance(instance, CompositionRule)
 
@@ -71,7 +71,7 @@ def test_semigroupoid_factory_builds_custom_instance() -> None:
     s = semigroupoid("BoundedSumMax", _bounded_sum, _max_reduce)
     assert isinstance(s, Semigroupoid)
     assert isinstance(s, CompositionRule)
-    assert not isinstance(s, Quantale)
+    assert not isinstance(s, Algebra)
     assert s.name == "BoundedSumMax"
 
 
@@ -109,10 +109,10 @@ def test_associativity_smoke_check_can_be_disabled() -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_material_implication_is_semigroupoid_not_quantale() -> None:
+def test_material_implication_is_semigroupoid_not_algebra() -> None:
     mi = material_implication()
     assert isinstance(mi, Semigroupoid)
-    assert not isinstance(mi, Quantale)
+    assert not isinstance(mi, Algebra)
 
 
 def test_material_implication_compose_matches_reichenbach_formula() -> None:
@@ -138,7 +138,7 @@ def test_material_implication_compose_matches_reichenbach_formula() -> None:
 
 
 # ---------------------------------------------------------------------------
-# Semigroupoids lack the Quantale operations
+# Semigroupoids lack the Algebra operations
 # ---------------------------------------------------------------------------
 
 
@@ -167,7 +167,7 @@ def test_semigroupoid_has_no_dual() -> None:
 
 
 def test_semigroupoid_has_no_identity_tensor() -> None:
-    """``identity_tensor`` lives on Quantale because it needs
+    """``identity_tensor`` lives on Algebra because it needs
     ``unit`` / ``zero``."""
     mi = material_implication()
     with pytest.raises(AttributeError):
@@ -186,6 +186,6 @@ def test_compatible_same_kind() -> None:
 
 
 def test_compatible_across_levels() -> None:
-    """A Quantale instance is compatible with itself (degenerate
+    """A Algebra instance is compatible with itself (degenerate
     case)."""
     assert PRODUCT_FUZZY.is_compatible(PRODUCT_FUZZY)

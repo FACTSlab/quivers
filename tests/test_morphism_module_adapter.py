@@ -140,7 +140,7 @@ def test_program_binding_let_composed_chain_compiles_and_runs() -> None:
     from quivers.dsl import loads
 
     src = """
-    quantale product_fuzzy
+    algebra product_fuzzy
     object A : 4
     object B : 4
     object C : 4
@@ -174,7 +174,7 @@ def test_program_binding_let_composed_chain_has_learnable_params() -> None:
     from quivers.dsl import loads
 
     src = """
-    quantale product_fuzzy
+    algebra product_fuzzy
     object A : 4
     object B : 4
     object C : 4
@@ -210,7 +210,7 @@ def test_parametric_program_with_morphism_typed_parameter_compiles() -> None:
     from quivers.dsl import loads
 
     src = """
-    quantale product_fuzzy
+    algebra product_fuzzy
     object A : 4
     object B : 4
 
@@ -239,7 +239,7 @@ def test_fan_over_composed_morphism_compiles() -> None:
     from quivers.dsl import loads
 
     src = """
-    quantale product_fuzzy
+    algebra product_fuzzy
     object A : 4
     object B : 4
     object C : 4

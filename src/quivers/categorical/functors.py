@@ -16,7 +16,7 @@ from abc import ABC, abstractmethod
 import torch
 
 from quivers.core.objects import SetObject, FinSet, FreeMonoid
-from quivers.core.quantales import Quantale
+from quivers.core.algebras import Algebra
 from quivers.core.tensor_ops import componentwise_lift
 
 
@@ -62,7 +62,7 @@ class Functor(ABC):
         ...
 
     @abstractmethod
-    def map_tensor(self, tensor: torch.Tensor, quantale: Quantale) -> torch.Tensor:
+    def map_tensor(self, tensor: torch.Tensor, algebra: Algebra) -> torch.Tensor:
         """Apply the functor's action on the raw tensor level.
 
         This is the computational core used by FunctorMorphism.tensor.
@@ -71,7 +71,7 @@ class Functor(ABC):
         ----------
         tensor : torch.Tensor
             The inner morphism's tensor.
-        quantale : Quantale
+        algebra : Algebra
             The enrichment algebra.
 
         Returns
@@ -97,7 +97,7 @@ class IdentityFunctor(Functor):
         """Identity on morphisms: f ↦ f (wrapped as FunctorMorphism)."""
         return FunctorMorphism(self, morph, morph.domain, morph.codomain)
 
-    def map_tensor(self, tensor: torch.Tensor, quantale: Quantale) -> torch.Tensor:
+    def map_tensor(self, tensor: torch.Tensor, algebra: Algebra) -> torch.Tensor:
         """Identity on tensors."""
         return tensor
 
@@ -143,10 +143,10 @@ class ComposedFunctor(Functor):
         codomain = self.map_object(morph.codomain)
         return FunctorMorphism(self, morph, domain, codomain)
 
-    def map_tensor(self, tensor: torch.Tensor, quantale: Quantale) -> torch.Tensor:
+    def map_tensor(self, tensor: torch.Tensor, algebra: Algebra) -> torch.Tensor:
         """F's tensor action applied to G's tensor action."""
-        inner_result = self._inner.map_tensor(tensor, quantale)
-        return self._outer.map_tensor(inner_result, quantale)
+        inner_result = self._inner.map_tensor(tensor, algebra)
+        return self._outer.map_tensor(inner_result, algebra)
 
     def __repr__(self) -> str:
         return f"ComposedFunctor({self._outer!r}, {self._inner!r})"
@@ -224,7 +224,7 @@ class FreeMonoidFunctor(Functor):
 
         return FunctorMorphism(self, morph, domain, codomain)
 
-    def map_tensor(self, tensor: torch.Tensor, quantale: Quantale) -> torch.Tensor:
+    def map_tensor(self, tensor: torch.Tensor, algebra: Algebra) -> torch.Tensor:
         """Build the block-diagonal tensor for the free monoid action.
 
         For each k=0..max_length, computes componentwise_lift(f, k),
@@ -235,7 +235,7 @@ class FreeMonoidFunctor(Functor):
         ----------
         tensor : torch.Tensor
             The inner morphism's 2D tensor of shape (n_a, n_b).
-        quantale : Quantale
+        algebra : Algebra
             The enrichment algebra (passed to componentwise_lift).
 
         Returns
@@ -247,7 +247,7 @@ class FreeMonoidFunctor(Functor):
         blocks: list[torch.Tensor] = []
 
         for k in range(self._max_length + 1):
-            lifted = componentwise_lift(tensor, k, quantale=quantale)
+            lifted = componentwise_lift(tensor, k, algebra=algebra)
 
             # reshape from (n_a,)*k + (n_b,)*k to (n_a^k, n_b^k)
             rows = n_a**k if k > 0 else 1

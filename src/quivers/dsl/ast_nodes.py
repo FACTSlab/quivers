@@ -246,14 +246,14 @@ class ExprTrace(Expr):
 
 
 class ExprChangeBase(Expr):
-    """Change-of-base: apply a transformation (a quantale
+    """Change-of-base: apply a transformation (an algebra
     homomorphism or :class:`MorphismTransformation`) to a
     morphism.
 
     The transformation is a first-class value: ``phi`` is any
     expression whose compile-time value is a
     :class:`MorphismTransformation` or
-    :class:`QuantaleHomomorphism`.  Concretely:
+    :class:`AlgebraHomomorphism`.  Concretely:
 
     * A bare identifier resolving a registered singleton
       (``f.change_base(expectation)``) or a let-bound trans value
@@ -305,14 +305,14 @@ class ExprCap(Expr):
 
 
 class ExprCompose(Expr):
-    """Quantale-typed sequential composition.
+    """Algebra-typed sequential composition.
 
-    The ``op`` field selects which enrichment quantale's monoidal
+    The ``op`` field selects which enrichment algebra's monoidal
     structure to use for the V-Cat composition:
 
-    * ``">>"`` — ProductFuzzy noisy-OR (the default).
-    * ``"<<"`` — reverse ProductFuzzy.
-    * ``">=>"`` — Kleisli composition (operands' shared quantale).
+    * ``">>"`` — ProductFuzzyAlgebra noisy-OR (the default).
+    * ``"<<"`` — reverse ProductFuzzyAlgebra.
+    * ``">=>"`` — Kleisli composition (operands' shared algebra).
     * ``"*>"`` — Markov sum-product.
     * ``"~>"`` — LogProb (log-space sum-product).
     * ``"||>"`` — Gödel (lattice min/max with Heyting implication).
@@ -320,7 +320,7 @@ class ExprCompose(Expr):
     * ``"&&>"`` — Boolean (∧/∨).
     * ``"+>"`` — Łukasiewicz (probabilistic sum bounded by 1).
 
-    Each operator carries its own quantale; cross-operator
+    Each operator carries its own algebra; cross-operator
     composition in one chain requires explicit ``.change_base(φ)``
     between segments.
     """
@@ -985,14 +985,14 @@ class Statement(dx.TaggedUnion, discriminator="kind"):
 
 
 type CompositionLevel = Literal[
-    "quantale", "semigroupoid", "bilinear_form", "composition_rule"
+    "algebra", "semigroupoid", "bilinear_form", "composition_rule"
 ]
 """Algebraic level the file declares for its composition rule.
 
 The four levels correspond to the
-:class:`~quivers.core.quantales.CompositionRule`-hierarchy:
+:class:`~quivers.core.algebras.CompositionRule`-hierarchy:
 
-* ``"quantale"`` requires a full :class:`Quantale` (unit, zero,
+* ``"algebra"`` requires a full :class:`Algebra` (unit, zero,
   meet, negate, identity, dagger, cup/cap).
 * ``"semigroupoid"`` requires a :class:`Semigroupoid`
   (associative `tensor_op`, no identity required).
@@ -1019,13 +1019,13 @@ class CompositionRuleEntry(dx.Model):
     col: int = 0
 
 
-class QuantaleDecl(Statement):
-    """Composition-rule selection: ``quantale <name>``,
+class AlgebraDecl(Statement):
+    """Composition-rule selection: ``algebra <name>``,
     ``semigroupoid <name>``, ``bilinear_form <name>``, or
     ``composition_rule <name>``, with an optional inline body.
 
     Without a body the declaration looks up ``name`` in the
-    compiler's :data:`_QUANTALE_REGISTRY` and verifies the
+    compiler's :data:`_ALGEBRA_REGISTRY` and verifies the
     registered rule matches the keyword's algebraic level. With a
     body, the declaration *defines* a fresh composition rule
     named ``name`` whose operations come from the supplied
@@ -1033,11 +1033,11 @@ class QuantaleDecl(Statement):
     """
 
     name: str
-    declared_level: CompositionLevel = "quantale"
+    declared_level: CompositionLevel = "algebra"
     body: tuple[CompositionRuleEntry, ...] = ()
     line: int = 0
     col: int = 0
-    kind: Literal["quantale_decl"] = "quantale_decl"
+    kind: Literal["algebra_decl"] = "algebra_decl"
 
 
 class CategoryDecl(Statement):

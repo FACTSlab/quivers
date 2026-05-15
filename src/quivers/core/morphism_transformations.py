@@ -1,6 +1,6 @@
 """Functorial change-of-base for non-pointwise morphism transformations.
 
-A :class:`~quivers.core.quantale_morphisms.QuantaleHomomorphism`
+A :class:`~quivers.core.algebra_morphisms.AlgebraHomomorphism`
 acts pointwise on tensor entries (``log``, ``threshold``, ``max-plus
 lift``). That handles a useful but narrow class of change-of-base
 moves. The broader class — functors ``V-Cat -> W-Cat`` whose
@@ -13,12 +13,12 @@ This module ships the abstract base
 :class:`MorphismTransformation` and four concrete subclasses
 (Softmax, L1Normalize, L2Normalize, BayesInvert) that cover the
 common practical needs. ``Morphism.change_base`` accepts either a
-``QuantaleHomomorphism`` (pointwise) or a ``MorphismTransformation``
+``AlgebraHomomorphism`` (pointwise) or a ``MorphismTransformation``
 (shape-aware) and dispatches accordingly.
 
 Categorically, a ``MorphismTransformation`` is a (possibly lax)
 2-functor between V-Cat and W-Cat that need not factor through a
-quantale homomorphism on tensor entries — the action operates on
+algebra homomorphism on tensor entries — the action operates on
 whole rows / columns / matrices, and may carry parameter data
 (``BayesInvert`` carries a prior).
 """
@@ -32,11 +32,11 @@ import torch.nn.functional as F
 
 from quivers.core._util import EPS
 from quivers.core.objects import ProductSet, SetObject
-from quivers.core.quantales import (
+from quivers.core.algebras import (
     MARKOV,
     PRODUCT_FUZZY,
     REAL,
-    Quantale,
+    Algebra,
 )
 
 
@@ -46,8 +46,8 @@ class MorphismTransformation(ABC):
     Concrete subclasses act on a morphism's whole tensor (not
     entry-by-entry), optionally consuming an explicit axis
     specification or external parameters (e.g. a prior). The
-    ``source`` quantale is the domain of the action; the
-    ``target`` quantale is the resulting morphism's quantale.
+    ``source`` algebra is the domain of the action; the
+    ``target`` algebra is the resulting morphism's algebra.
 
     The base contract is:
 
@@ -60,23 +60,23 @@ class MorphismTransformation(ABC):
 
     @property
     @abstractmethod
-    def source(self) -> Quantale:
-        """The source quantale ``V``."""
+    def source(self) -> Algebra:
+        """The source algebra ``V``."""
 
     @property
     @abstractmethod
-    def target(self) -> Quantale:
-        """The target quantale ``W``."""
+    def target(self) -> Algebra:
+        """The target algebra ``W``."""
 
     @abstractmethod
     def apply(self, tensor: torch.Tensor, morphism) -> torch.Tensor:
         """Transform ``morphism.tensor`` into a tensor over the target
-        quantale.
+        algebra.
 
         Parameters
         ----------
         tensor : torch.Tensor
-            The morphism's tensor at the current quantale.
+            The morphism's tensor at the current algebra.
         morphism : Morphism
             The full morphism, exposed so the transformation can
             consult domain / codomain shape and pick the right axis.
@@ -131,7 +131,7 @@ def _decompose_object(obj) -> list:
 class Softmax(MorphismTransformation):
     """Softmax-normalize along an axis, producing a Markov-style kernel.
 
-    Maps a ``ProductFuzzy`` (or ``Real``) tensor to a row-stochastic
+    Maps a ``ProductFuzzyAlgebra`` (or ``Real``) tensor to a row-stochastic
     Markov kernel by applying ``softmax`` along the axis indexed by
     ``axis_object``. The output's entries lie in ``(0, 1)`` and
     sum to 1 along that axis.
@@ -140,15 +140,15 @@ class Softmax(MorphismTransformation):
     ----------
     axis_object : SetObject
         The object whose axis the softmax is taken over.
-    source : Quantale, optional
-        The morphism's quantale before softmax. Default
+    source : Algebra, optional
+        The morphism's algebra before softmax. Default
         ``PRODUCT_FUZZY``.
     """
 
     def __init__(
         self,
         axis_object: SetObject,
-        source: Quantale = PRODUCT_FUZZY,
+        source: Algebra = PRODUCT_FUZZY,
     ) -> None:
 
         self._axis_object = axis_object
@@ -156,11 +156,11 @@ class Softmax(MorphismTransformation):
         self._target = MARKOV
 
     @property
-    def source(self) -> Quantale:
+    def source(self) -> Algebra:
         return self._source
 
     @property
-    def target(self) -> Quantale:
+    def target(self) -> Algebra:
         return self._target
 
     @property
@@ -183,14 +183,14 @@ class L1Normalize(MorphismTransformation):
     ----------
     axis_object : SetObject
         The object whose axis is normalized.
-    source : Quantale, optional
+    source : Algebra, optional
         Default :data:`REAL`.
     """
 
     def __init__(
         self,
         axis_object: SetObject,
-        source: Quantale = REAL,
+        source: Algebra = REAL,
     ) -> None:
 
         self._axis_object = axis_object
@@ -198,11 +198,11 @@ class L1Normalize(MorphismTransformation):
         self._target = MARKOV
 
     @property
-    def source(self) -> Quantale:
+    def source(self) -> Algebra:
         return self._source
 
     @property
-    def target(self) -> Quantale:
+    def target(self) -> Algebra:
         return self._target
 
     def apply(self, tensor: torch.Tensor, morphism) -> torch.Tensor:
@@ -217,32 +217,32 @@ class L2Normalize(MorphismTransformation):
 
     Maps a real-valued tensor to one whose entries lie on the unit
     L2 sphere along the given axis. The result is still in the
-    source quantale (Real); the morphism just has its rows
+    source algebra (Real); the morphism just has its rows
     rescaled to unit length.
 
     Parameters
     ----------
     axis_object : SetObject
         The object whose axis is normalized.
-    source : Quantale, optional
+    source : Algebra, optional
         Default :data:`REAL`. The target equals the source.
     """
 
     def __init__(
         self,
         axis_object: SetObject,
-        source: Quantale = REAL,
+        source: Algebra = REAL,
     ) -> None:
         self._axis_object = axis_object
         self._source = source
         self._target = source
 
     @property
-    def source(self) -> Quantale:
+    def source(self) -> Algebra:
         return self._source
 
     @property
-    def target(self) -> Quantale:
+    def target(self) -> Algebra:
         return self._target
 
     def apply(self, tensor: torch.Tensor, morphism) -> torch.Tensor:
@@ -286,11 +286,11 @@ class BayesInvert(MorphismTransformation):
         self._target = MARKOV
 
     @property
-    def source(self) -> Quantale:
+    def source(self) -> Algebra:
         return self._source
 
     @property
-    def target(self) -> Quantale:
+    def target(self) -> Algebra:
         return self._target
 
     @property

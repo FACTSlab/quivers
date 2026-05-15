@@ -12,9 +12,10 @@ Vertex kinds enumerate the runtime *value* layer:
 
 | Group | Vertex kinds |
 |-------|--------------|
-| Discrete objects | `finset`, `product_set`, `coproduct_set`, `free_monoid`, `empty_set` |
-| Continuous spaces | `euclidean`, `simplex`, `positive_reals`, `unit_interval`, `product_space` |
-| Declarations | `object_decl`, `space_decl`, `morphism_decl`, `kernel_decl`, `discretize_decl`, `embed_decl`, `program_decl`, `export_decl` |
+| Discrete objects | `finset`, `product_set`, `coproduct_set`, `free_monoid`, `empty_set`, `enum_set`, `free_residuated` |
+| Continuous spaces | `euclidean`, `simplex`, `positive_reals`, `product_space` |
+| Declarations | `object_decl`, `space_decl`, `morphism_decl`, `kernel_decl`, `discretize_decl`, `embed_decl`, `output_decl`, `schema_decl` |
+| Module root | `program` |
 
 Each vertex carries a string label (typically the declared identifier or a synthesized key) and the kind-specific payload (cardinality, dimension, family name, …).
 
@@ -24,12 +25,15 @@ Edges encode structural relations:
 
 | Edge kind | Source | Target | Meaning |
 |-----------|--------|--------|---------|
-| `component` | `product_set`, `coproduct_set`, `product_space`, `free_monoid` | any vertex | Position in a finite tuple |
-| `domain` | `morphism_decl`, `kernel_decl`, `program_decl` | object/space | Domain of the declaration |
-| `codomain` | `morphism_decl`, `kernel_decl`, `program_decl` | object/space | Codomain of the declaration |
-| `export` | `export_decl` | program/morphism | Export expression of the module |
+| `decl` | `program` | any `*_decl` | Declaration is part of the module |
+| `binds_to` | `object_decl`, `space_decl` | object / space vertex | Declared name binds to its semantic value |
+| `component` | `product_set`, `coproduct_set`, `product_space` | object / space vertex | Position in a finite tuple |
+| `generators` | `free_monoid`, `free_residuated` | `finset`, `enum_set` | Underlying alphabet |
+| `domain` | morphism / kernel / discretize / embed `_decl` | object / space vertex | Domain of the declaration |
+| `codomain` | morphism / kernel / discretize / embed `_decl` | object / space vertex | Codomain of the declaration |
+| `output` | `program` | `output_decl` | The module's public export |
 
-The instance theory $\mathcal{T}_{\mathrm{instance}}$ is the W-type theory `ThWType`, so each instance is tree-shaped, appropriate for the strict tree of declarations in a `.qvr` module.
+The schema and instance theories of $\mathsf{QVR}$ are panproto's `ThBratSchema` and `ThBratInstance` (the shape-graph theories used by the brat protocol family); the QVR protocol reuses them and specialises via the kind enumerations and edge rules above.
 
 ## 2. The extraction functor
 

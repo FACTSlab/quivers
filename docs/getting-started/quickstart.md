@@ -4,7 +4,7 @@ This guide walks through the core concepts of quivers with concrete examples: cr
 
 ## 1. Basic Morphisms
 
-A **morphism** is a $\mathcal{V}$-enriched relation: a function from a pair of objects to a quantale (lattice of truth values). In quivers, morphisms are tensors.
+A **morphism** is a $\mathcal{V}$-enriched relation: a function from a pair of objects to an algebra (lattice of truth values). In quivers, morphisms are tensors.
 
 Create finite sets:
 
@@ -12,8 +12,8 @@ Create finite sets:
 from quivers import FinSet, morphism, observed
 import torch
 
-X = FinSet("X", 3)
-Y = FinSet("Y", 4)
+X = FinSet(name="X", cardinality=3)
+Y = FinSet(name="Y", cardinality=4)
 ```
 
 Create a **latent** (learnable) morphism from X to Y. Its tensor entries are parameters:
@@ -49,7 +49,7 @@ print(len(params))  # 1 parameter matrix
 Compose morphisms with the `>>` operator. The domain of the second must match the codomain of the first:
 
 ```python
-Z = FinSet("Z", 2)
+Z = FinSet(name="Z", cardinality=2)
 h = morphism(Y, Z)
 
 # Compose f: X -> Y and h: Y -> Z to get X -> Z
@@ -89,34 +89,33 @@ for epoch in range(10):
 
 ## 4. Monadic Programs (Continuous)
 
-For probabilistic computations with continuous and discrete variables, use **monadic programs**:
+For probabilistic computations with continuous and discrete variables, use [**monadic programs**](../api/continuous/programs.md). A program is a tuple `(domain, codomain, steps, return_vars)` where each step binds a sample, observation, or let-expression into a named variable; the final `return_vars` names the variables returned in the program's output tuple.
 
 ```python
-from quivers import (
-    Euclidean, ConditionalNormal, MonadicProgram
-)
+from quivers import FinSet
+from quivers.continuous.spaces import Euclidean
+from quivers.continuous.families import ConditionalNormal
+from quivers.continuous.programs import MonadicProgram
 import torch
 
-# Define spaces
-X = FinSet("X", 3)
-R = Euclidean("position", 2)
+# Define spaces.
+X = FinSet(name="context", cardinality=3)
+R = Euclidean(name="response", dim=2)
 
-# Create a conditional distribution: X -> Normal on R
-mu_net = torch.nn.Linear(3, 2)
-sigma_net = torch.nn.Sequential(
-    torch.nn.Linear(3, 2),
-    torch.nn.Softplus()
+# Conditional normal family: each input x ∈ X yields a 2D normal on R.
+family = ConditionalNormal(X, R, hidden_dim=16)
+
+# A one-step program: bind y ∼ family(x), return y.
+program = MonadicProgram(
+    domain=X,
+    codomain=R,
+    steps=[(("y",), family, None)],
+    return_vars=("y",),
 )
 
-family = ConditionalNormal(mu_net, sigma_net)
-
-# Create a monadic program (probabilistic computation)
-prog = MonadicProgram(family)
-
-# Sample from the program
-x = torch.randn(1, 3)  # batch of inputs
-sample = prog.rsample(x)  # reparameterized sample
-log_p = prog.log_prob(x, sample)  # log probability
+x = torch.tensor([0, 1, 2])
+output = program.rsample(x)        # reparameterized samples, shape (3, 2)
+log_p = program.log_prob(x, output)  # log probability under the program
 ```
 
 ## 5. The DSL
@@ -124,7 +123,7 @@ log_p = prog.log_prob(x, sample)  # log probability
 Write categorical programs declaratively in `.qvr` files:
 
 ```qvr
-quantale product_fuzzy
+algebra product_fuzzy
 object X : 3
 object Y : 4
 object Z : 2
@@ -150,7 +149,7 @@ Or use `loads` for inline strings:
 from quivers.dsl import loads
 
 source = """
-quantale product_fuzzy
+algebra product_fuzzy
 object X : 3
 object Y : 4
 object Z : 2
@@ -176,7 +175,7 @@ Supported DSL operators:
 | `.change_base(t)` | change of base under transformation `t` | `f.change_base(softmax(B))` |
 | `identity(X)` | identity morphism | `observed id : X -> X = identity(X)` |
 
-The DSL also has surface for monadic probabilistic programs (`program ... ! Sample, Score`), composition rules at four algebraic levels (`quantale`, `semigroupoid`, `bilinear_form`, `composition_rule`), and operadic contractions (`contraction op (...) rule R wiring "..."`). The [QVR tutorial](../tutorials/qvr/01-first-model.md) walks the full surface.
+The DSL also has surface for monadic probabilistic programs (`program ... ! Sample, Score`), composition rules at four algebraic levels (`algebra`, `semigroupoid`, `bilinear_form`, `composition_rule`), and operadic contractions (`contraction op (...) rule R wiring "..."`). The [QVR tutorial](../tutorials/qvr/01-first-model.md) walks the full surface.
 
 ## 6. Stochastic Morphisms
 
@@ -189,8 +188,8 @@ from quivers import (
 )
 import torch
 
-X = FinSet("X", 3)
-Y = FinSet("Y", 4)
+X = FinSet(name="X", cardinality=3)
+Y = FinSet(name="Y", cardinality=4)
 
 # Create a stochastic morphism (Markov kernel)
 kern = stochastic(X, Y)
@@ -218,8 +217,8 @@ monad = FuzzyPowersetMonad()
 # Work in its Kleisli category
 kleisli = KleisliCategory(monad)
 
-X = FinSet("X", 3)
-Y = FinSet("Y", 4)
+X = FinSet(name="X", cardinality=3)
+Y = FinSet(name="Y", cardinality=4)
 
 f = morphism(X, Y)
 g = morphism(Y, X)

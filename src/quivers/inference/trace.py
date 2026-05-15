@@ -19,7 +19,7 @@ import torch
 from typing import cast
 
 from quivers.continuous.morphisms import ContinuousMorphism
-from quivers.continuous.programs import MonadicProgram, _LetSpec
+from quivers.continuous.programs import MonadicProgram, _LetSpec, _ScoreSpec
 
 
 @dataclass
@@ -158,7 +158,7 @@ def trace(
     # fixed factoring.
     _declared: set[str] = set()
     for _spec in program._step_specs:
-        if isinstance(_spec, _LetSpec):
+        if isinstance(_spec, (_LetSpec, _ScoreSpec)):
             _declared.add(_spec.var)
         else:
             _declared.update(_spec.vars)
@@ -167,6 +167,22 @@ def trace(
             env[_key] = _val
 
     for spec in program._step_specs:
+        if isinstance(spec, _ScoreSpec):
+            # Score step (compiled marginalize): the callable returns
+            # a (batch,)-shaped log-density contribution that is both
+            # bound to env and accumulated into the trace's joint.
+            val = cast(torch.Tensor, spec.score(env))
+            env[spec.var] = val
+            total_lp = total_lp + val
+            tr.sites[spec.var] = SampleSite(
+                name=spec.var,
+                morphism=None,
+                value=val,
+                log_prob=val,
+                is_deterministic=True,
+            )
+            continue
+
         if isinstance(spec, _LetSpec):
             # deterministic binding
             if isinstance(spec.value, str):
@@ -250,7 +266,7 @@ def trace(
                 sub_intermediates = {}
 
                 for sub_spec in sub_morph._step_specs:
-                    if isinstance(sub_spec, _LetSpec):
+                    if isinstance(sub_spec, (_LetSpec, _ScoreSpec)):
                         continue
 
                     for sv in sub_spec.vars:

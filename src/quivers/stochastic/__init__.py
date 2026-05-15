@@ -13,7 +13,6 @@ to finite sets, where:
 
 Submodules
 ----------
-quantale : MarkovQuantale enrichment algebra
 morphisms : StochasticMorphism, CategoricalMorphism
 families : Discretized distribution families
 transforms : condition, mix, factor, normalize
@@ -29,7 +28,7 @@ categories : Category types including atoms, slashes, products, unit, modals
 
 from __future__ import annotations
 
-from quivers.stochastic.quantale import MarkovQuantale, MARKOV
+from quivers.core.algebras import MarkovAlgebra, MARKOV
 from quivers.stochastic.morphisms import (
     StochasticMorphism,
     CategoricalMorphism,
@@ -150,7 +149,7 @@ from quivers.stochastic.ccg import CCGParser
 from quivers.stochastic.lambek import LambekParser
 
 __all__ = [
-    "MarkovQuantale",
+    "MarkovAlgebra",
     "MARKOV",
     "StochasticMorphism",
     "CategoricalMorphism",

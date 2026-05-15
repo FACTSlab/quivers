@@ -6,7 +6,7 @@ from quivers.dsl import loads, load, parse, ParseError, CompileError
 from quivers.dsl.compiler import Compiler
 from quivers.dsl.ast_nodes import (
     Module,
-    QuantaleDecl,
+    AlgebraDecl,
     CategoryDecl,
     RuleDecl,
     TypeSlash,
@@ -41,7 +41,7 @@ from quivers.dsl.ast_nodes import (
 )
 from quivers.continuous.programs import MonadicProgram
 from quivers.core.objects import FinSet
-from quivers.core.quantales import BOOLEAN
+from quivers.core.algebras import BOOLEAN
 from quivers.program import Program
 
 
@@ -49,12 +49,12 @@ class TestParser:
     def _parse(self, source: str) -> Module:
         return parse(source)
 
-    def test_quantale_decl(self):
-        """Parse a quantale declaration."""
-        mod = self._parse("quantale boolean")
+    def test_algebra_decl(self):
+        """Parse an algebra declaration."""
+        mod = self._parse("algebra boolean")
         assert len(mod.statements) == 1
         stmt = mod.statements[0]
-        assert isinstance(stmt, QuantaleDecl)
+        assert isinstance(stmt, AlgebraDecl)
         assert stmt.name == "boolean"
 
     def test_object_decl_int(self):
@@ -221,19 +221,19 @@ class TestCompiler:
         )
         assert prog().shape == torch.Size([3, 3])
 
-    def test_quantale_boolean(self):
-        """Compile with boolean quantale."""
+    def test_algebra_boolean(self):
+        """Compile with boolean algebra."""
         prog = loads(
-            "\n            quantale boolean\n            object X : 2\n            observed h : X -> X = identity(X)\n            export h\n        "
+            "\n            algebra boolean\n            object X : 2\n            observed h : X -> X = identity(X)\n            export h\n        "
         )
         out = prog()
         expected = torch.eye(2)
         torch.testing.assert_close(out, expected)
 
-    def test_quantale_godel(self):
-        """Compile with Godel quantale."""
+    def test_algebra_godel(self):
+        """Compile with Godel algebra."""
         prog = loads(
-            "\n            quantale godel\n            object X : 2\n            observed h : X -> X = identity(X)\n            export h\n        "
+            "\n            algebra godel\n            object X : 2\n            observed h : X -> X = identity(X)\n            export h\n        "
         )
         out = prog()
         expected = torch.eye(2)
@@ -312,11 +312,11 @@ class TestCompiler:
                 "\n                object X : 3\n                object X : 4\n                latent f : X -> X\n                export f\n            "
             )
 
-    def test_unknown_quantale_error(self):
-        """CompileError for unknown quantale name."""
-        with pytest.raises(CompileError, match="unknown quantale"):
+    def test_unknown_algebra_error(self):
+        """CompileError for unknown algebra name."""
+        with pytest.raises(CompileError, match="unknown algebra"):
             loads(
-                "\n                quantale nonexistent\n                object X : 3\n                latent f : X -> X\n                export f\n            "
+                "\n                algebra nonexistent\n                object X : 3\n                latent f : X -> X\n                export f\n            "
             )
 
     def test_observed_without_init_error(self):
@@ -393,18 +393,18 @@ class TestCompileEnv:
         env = compiler.compile_env()
         assert "f" in env
 
-    def test_compile_env_quantale(self):
-        """compile_env includes the active quantale."""
-        ast = parse("quantale boolean\nobject X : 2")
+    def test_compile_env_algebra(self):
+        """compile_env includes the active algebra."""
+        ast = parse("algebra boolean\nobject X : 2")
         compiler = Compiler(ast)
         env = compiler.compile_env()
-        assert env["__quantale__"] is BOOLEAN
+        assert env["__algebra__"] is BOOLEAN
 
 
 class TestIntegration:
     def test_full_pipeline(self):
         """End-to-end: parse, compile, forward, backward."""
-        source = "\n            # a simple category\n            quantale product_fuzzy\n\n            object Phoneme : 40\n            object Feature : 12\n            object Word : 100\n\n            # learnable morphisms\n            latent encode : Phoneme -> Feature\n            latent decode : Feature -> Word\n\n            # composition\n            let model = encode >> decode\n\n            export model\n        "
+        source = "\n            # a simple category\n            algebra product_fuzzy\n\n            object Phoneme : 40\n            object Feature : 12\n            object Word : 100\n\n            # learnable morphisms\n            latent encode : Phoneme -> Feature\n            latent decode : Feature -> Word\n\n            # composition\n            let model = encode >> decode\n\n            export model\n        "
         prog = loads(source)
         out = prog()
         assert out.shape == torch.Size([40, 100])

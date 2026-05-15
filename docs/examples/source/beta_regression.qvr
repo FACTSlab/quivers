@@ -32,7 +32,6 @@ program beta_regression : Resp -> Resp
     beta_1 : Out <- Normal(0.0, 5.0)
     phi : Out <- HalfCauchy(2.5)
 
-    x : Resp <- Normal(0.0, 1.0)
     let b0 = beta_0[out_idx]
     let b1 = beta_1[out_idx]
     let p = phi[out_idx]

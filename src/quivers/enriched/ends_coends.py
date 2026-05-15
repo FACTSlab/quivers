@@ -16,14 +16,14 @@ from typing import TYPE_CHECKING
 import torch
 
 if TYPE_CHECKING:
-    from quivers.core.quantales import Quantale
+    from quivers.core.algebras import Algebra
 
 
 def coend(
     tensor: torch.Tensor,
     contra_dims: tuple[int, ...],
     co_dims: tuple[int, ...],
-    quantale: Quantale | None = None,
+    algebra: Algebra | None = None,
 ) -> torch.Tensor:
     """Compute coend ∫^X F(X,X) via diagonal extraction and join.
 
@@ -42,7 +42,7 @@ def coend(
     co_dims : tuple[int, ...]
         Dimension indices for the covariant occurrences of X.
         Must be same length as contra_dims, with matching sizes.
-    quantale : Quantale or None
+    algebra : Algebra or None
         The enrichment algebra. Defaults to PRODUCT_FUZZY.
 
     Returns
@@ -50,10 +50,10 @@ def coend(
     torch.Tensor
         Result with matched dimension pairs removed via join.
     """
-    from quivers.core.quantales import PRODUCT_FUZZY
+    from quivers.core.algebras import PRODUCT_FUZZY
 
-    if quantale is None:
-        quantale = PRODUCT_FUZZY
+    if algebra is None:
+        algebra = PRODUCT_FUZZY
 
     if len(contra_dims) != len(co_dims):
         raise ValueError(
@@ -64,14 +64,14 @@ def coend(
     if len(contra_dims) == 0:
         return tensor
 
-    return _trace_and_reduce(tensor, contra_dims, co_dims, quantale.join)
+    return _trace_and_reduce(tensor, contra_dims, co_dims, algebra.join)
 
 
 def end(
     tensor: torch.Tensor,
     contra_dims: tuple[int, ...],
     co_dims: tuple[int, ...],
-    quantale: Quantale | None = None,
+    algebra: Algebra | None = None,
 ) -> torch.Tensor:
     """Compute end ∫_X F(X,X) via diagonal extraction and meet.
 
@@ -86,7 +86,7 @@ def end(
         Dimension indices for contravariant occurrences.
     co_dims : tuple[int, ...]
         Dimension indices for covariant occurrences.
-    quantale : Quantale or None
+    algebra : Algebra or None
         The enrichment algebra. Defaults to PRODUCT_FUZZY.
 
     Returns
@@ -94,10 +94,10 @@ def end(
     torch.Tensor
         Result with matched dimension pairs removed via meet.
     """
-    from quivers.core.quantales import PRODUCT_FUZZY
+    from quivers.core.algebras import PRODUCT_FUZZY
 
-    if quantale is None:
-        quantale = PRODUCT_FUZZY
+    if algebra is None:
+        algebra = PRODUCT_FUZZY
 
     if len(contra_dims) != len(co_dims):
         raise ValueError(
@@ -108,7 +108,7 @@ def end(
     if len(contra_dims) == 0:
         return tensor
 
-    return _trace_and_reduce(tensor, contra_dims, co_dims, quantale.meet)
+    return _trace_and_reduce(tensor, contra_dims, co_dims, algebra.meet)
 
 
 def _trace_and_reduce(
@@ -128,7 +128,7 @@ def _trace_and_reduce(
     co_dims : tuple[int, ...]
         Covariant dimension indices.
     reduce_fn : callable
-        Reduction function (quantale.join or quantale.meet) taking
+        Reduction function (algebra.join or algebra.meet) taking
         (tensor, dim) arguments.
 
     Returns

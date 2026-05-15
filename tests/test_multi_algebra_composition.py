@@ -1,17 +1,17 @@
-"""Multi-quantale composition and change-of-base for V-Cat
+"""Multi-algebra composition and change-of-base for V-Cat
 morphisms.
 
 A morphism in :mod:`quivers.core.morphisms` carries an enrichment
-quantale. Composing two morphisms over the same quantale uses
-that quantale's monoidal structure; composing across quantales
-requires a quantale homomorphism (a lax monoidal poset functor)
+algebra. Composing two morphisms over the same algebra uses
+that algebra's monoidal structure; composing across algebras
+requires an algebra homomorphism (a lax monoidal poset functor)
 applied via :meth:`Morphism.change_base`.
 
-The DSL exposes one composition operator per canonical quantale:
+The DSL exposes one composition operator per canonical algebra:
 
-* ``>>`` — ProductFuzzy noisy-OR (default).
+* ``>>`` — ProductFuzzyAlgebra noisy-OR (default).
 * ``<<`` — reverse ``>>``.
-* ``>=>`` — Kleisli, in the operands' shared quantale.
+* ``>=>`` — Kleisli, in the operands' shared algebra.
 * ``*>`` — Markov sum-product.
 * ``~>`` — LogProb (log-space sum-product).
 * ``||>`` — Gödel (lattice min/max + Heyting implication).
@@ -19,8 +19,8 @@ The DSL exposes one composition operator per canonical quantale:
 * ``&&>`` — Boolean (∧/∨).
 * ``+>`` — Łukasiewicz (probabilistic sum bounded by 1).
 
-Each operator carries its quantale; the operands' declared
-quantales must already match the operator's target (the operator
+Each operator carries its algebra; the operands' declared
+algebras must already match the operator's target (the operator
 does not auto-base-change). Cross-operator chains require an
 explicit ``.change_base(φ)`` between segments.
 
@@ -28,12 +28,12 @@ This module verifies:
 
 1. The Python-level ``change_base`` adapter: applying each
    canonical homomorphism to a morphism's tensor produces a new
-   morphism over the target quantale with the expected
+   morphism over the target algebra with the expected
    per-entry mapping.
-2. Composition over each non-default quantale (Markov, LogProb,
+2. Composition over each non-default algebra (Markov, LogProb,
    Gödel, Viterbi, Boolean, Łukasiewicz) produces a
-   :class:`ComposedMorphism` over the right quantale.
-3. The DSL composition operators dispatch to the right quantale
+   :class:`ComposedMorphism` over the right algebra.
+3. The DSL composition operators dispatch to the right algebra
    and raise a typed error on mismatched operands.
 """
 
@@ -44,7 +44,7 @@ import os
 import pytest
 import torch
 
-from quivers.core.quantales import (
+from quivers.core.algebras import (
     GODEL,
     LOG_PROB,
     LUKASIEWICZ,
@@ -57,7 +57,7 @@ from quivers.core.morphisms import (
     ObservedMorphism,
 )
 from quivers.core.objects import FinSet
-from quivers.core.quantale_morphisms import (
+from quivers.core.algebra_morphisms import (
     IdentityHom,
     LOG_PROB as LOG_PROB_HOM,
     MATERIAL_IMPLICATION,
@@ -67,8 +67,8 @@ from quivers.core.quantale_morphisms import (
     lookup_homomorphism,
     threshold,
 )
-from quivers.core.quantales import BOOLEAN, PRODUCT_FUZZY
-from quivers.stochastic.quantale import MARKOV
+from quivers.core.algebras import BOOLEAN, PRODUCT_FUZZY
+from quivers.core.algebras import MARKOV
 
 
 _LOCAL_GRAMMAR = pytest.mark.skipif(
@@ -87,7 +87,7 @@ def test_change_base_identity_preserves_tensor() -> None:
     B = FinSet(name="B", cardinality=3)
     f = LatentMorphism(A, B)
     g = f.change_base(IdentityHom(PRODUCT_FUZZY))
-    assert g.quantale.name == "ProductFuzzy"
+    assert g.algebra.name == "ProductFuzzy"
     assert torch.allclose(g.tensor, f.tensor)
 
 
@@ -109,7 +109,7 @@ def test_change_base_to_boolean_via_threshold() -> None:
     g = f.change_base(threshold(0.5))
     expected = (data > 0.5).to(dtype=torch.float32)
     assert torch.allclose(g.tensor, expected)
-    assert g.quantale.name == "Boolean"
+    assert g.algebra.name == "Boolean"
 
 
 def test_change_base_to_godel_via_material_implication() -> None:
@@ -118,7 +118,7 @@ def test_change_base_to_godel_via_material_implication() -> None:
     data = torch.tensor([[0.4, 0.6], [0.7, 0.3]])
     f = ObservedMorphism(A, B, data)
     g = f.change_base(MATERIAL_IMPLICATION)
-    assert g.quantale.name == "Godel"
+    assert g.algebra.name == "Godel"
     # Material implication clamps to [0, 1] but otherwise preserves
     # entry values; the carry-through is exact for inputs already
     # in [0, 1].
@@ -135,14 +135,14 @@ def test_change_base_to_max_plus_via_log() -> None:
     assert torch.allclose(g.tensor, expected)
 
 
-def test_change_base_rejects_wrong_source_quantale() -> None:
-    """A homomorphism's source must match the morphism's quantale;
-    applying ``LOG_PROB_HOM`` (which expects ``ProductFuzzy``) to
+def test_change_base_rejects_wrong_source_algebra() -> None:
+    """A homomorphism's source must match the morphism's algebra;
+    applying ``LOG_PROB_HOM`` (which expects ``ProductFuzzyAlgebra``) to
     a morphism declared over Markov raises a clear error."""
     A = FinSet(name="A", cardinality=2)
     B = FinSet(name="B", cardinality=2)
     data = torch.tensor([[0.5, 0.5], [0.5, 0.5]])
-    f = ObservedMorphism(A, B, data, quantale=MARKOV)
+    f = ObservedMorphism(A, B, data, algebra=MARKOV)
     with pytest.raises(TypeError, match="does not match"):
         f.change_base(LOG_PROB_HOM)
 
@@ -150,14 +150,14 @@ def test_change_base_rejects_wrong_source_quantale() -> None:
 def test_change_base_rejects_non_homomorphism() -> None:
     A = FinSet(name="A", cardinality=2)
     f = LatentMorphism(A, A)
-    with pytest.raises(TypeError, match="QuantaleHomomorphism"):
+    with pytest.raises(TypeError, match="AlgebraHomomorphism"):
         f.change_base("not a homomorphism")
 
 
 def test_change_base_chain_through_two_homomorphisms() -> None:
     """Chaining ``change_base`` calls realises composition of
-    quantale homomorphisms. Going ProductFuzzy → Boolean (via
-    threshold) → ProductFuzzy (via embedding) recovers a Boolean-
+    algebra homomorphisms. Going ProductFuzzyAlgebra → Boolean (via
+    threshold) → ProductFuzzyAlgebra (via embedding) recovers a Boolean-
     valued tensor embedded back in [0, 1]."""
     A = FinSet(name="A", cardinality=2)
     data = torch.tensor([[0.3, 0.7], [0.6, 0.4]])
@@ -165,7 +165,7 @@ def test_change_base_chain_through_two_homomorphisms() -> None:
     g = f.change_base(threshold(0.5)).change_base(embedding(BOOLEAN, PRODUCT_FUZZY))
     expected = (data > 0.5).to(dtype=torch.float32)
     assert torch.allclose(g.tensor, expected)
-    assert g.quantale.name == "ProductFuzzy"
+    assert g.algebra.name == "ProductFuzzy"
 
 
 def test_change_base_preserves_gradients_to_morphism_parameters() -> None:
@@ -192,7 +192,7 @@ def test_default_compose_uses_product_fuzzy() -> None:
     from quivers.dsl import loads
 
     src = """
-    quantale product_fuzzy
+    algebra product_fuzzy
     object A : 3
     object B : 3
     object C : 3
@@ -203,18 +203,18 @@ def test_default_compose_uses_product_fuzzy() -> None:
     """
     m = loads(src)
     assert m.morphism is not None
-    assert m.morphism.quantale.name == "ProductFuzzy"
+    assert m.morphism.algebra.name == "ProductFuzzy"
 
 
 @_LOCAL_GRAMMAR
-def test_cross_quantale_compose_without_change_base_errors() -> None:
-    """An operator that fixes its quantale rejects operands whose
-    declared quantale differs without an explicit base change."""
+def test_cross_algebra_compose_without_change_base_errors() -> None:
+    """An operator that fixes its algebra rejects operands whose
+    declared algebra differs without an explicit base change."""
     from quivers.dsl import loads
     from quivers.dsl.compiler import CompileError
 
     src = """
-    quantale product_fuzzy
+    algebra product_fuzzy
     object A : 3
     object B : 3
     object C : 3
@@ -228,7 +228,7 @@ def test_cross_quantale_compose_without_change_base_errors() -> None:
 
 
 # ---------------------------------------------------------------------------
-# Each new operator dispatches to the right quantale
+# Each new operator dispatches to the right algebra
 # ---------------------------------------------------------------------------
 
 
@@ -236,8 +236,8 @@ def _markov_chain(A_size: int, B_size: int, C_size: int) -> tuple:
     A = FinSet(name="A", cardinality=A_size)
     B = FinSet(name="B", cardinality=B_size)
     C = FinSet(name="C", cardinality=C_size)
-    f = LatentMorphism(A, B, quantale=MARKOV)
-    g = LatentMorphism(B, C, quantale=MARKOV)
+    f = LatentMorphism(A, B, algebra=MARKOV)
+    g = LatentMorphism(B, C, algebra=MARKOV)
     return A, B, C, f, g
 
 
@@ -245,7 +245,7 @@ def test_markov_compose_produces_markov_composed_morphism() -> None:
     A, B, C, f, g = _markov_chain(3, 3, 3)
     chain = f >> g
     assert isinstance(chain, ComposedMorphism)
-    assert chain.quantale.name == "Markov"
+    assert chain.algebra.name == "Markov"
     assert chain.domain is A
     assert chain.codomain is C
 
@@ -254,63 +254,63 @@ def test_log_prob_compose_produces_log_prob_composed_morphism() -> None:
     A = FinSet(name="A", cardinality=2)
     B = FinSet(name="B", cardinality=2)
     C = FinSet(name="C", cardinality=2)
-    f = LatentMorphism(A, B, quantale=LOG_PROB)
-    g = LatentMorphism(B, C, quantale=LOG_PROB)
+    f = LatentMorphism(A, B, algebra=LOG_PROB)
+    g = LatentMorphism(B, C, algebra=LOG_PROB)
     chain = f >> g
-    assert chain.quantale.name == "LogProb"
+    assert chain.algebra.name == "LogProb"
 
 
 def test_godel_compose_produces_godel_composed_morphism() -> None:
     A = FinSet(name="A", cardinality=2)
     B = FinSet(name="B", cardinality=2)
     C = FinSet(name="C", cardinality=2)
-    f = LatentMorphism(A, B, quantale=GODEL)
-    g = LatentMorphism(B, C, quantale=GODEL)
+    f = LatentMorphism(A, B, algebra=GODEL)
+    g = LatentMorphism(B, C, algebra=GODEL)
     chain = f >> g
-    assert chain.quantale.name == "Godel"
+    assert chain.algebra.name == "Godel"
 
 
 def test_viterbi_compose_produces_max_plus_composed_morphism() -> None:
     A = FinSet(name="A", cardinality=2)
     B = FinSet(name="B", cardinality=2)
     C = FinSet(name="C", cardinality=2)
-    f = LatentMorphism(A, B, quantale=MAX_PLUS)
-    g = LatentMorphism(B, C, quantale=MAX_PLUS)
+    f = LatentMorphism(A, B, algebra=MAX_PLUS)
+    g = LatentMorphism(B, C, algebra=MAX_PLUS)
     chain = f >> g
-    assert chain.quantale.name == "MaxPlus"
+    assert chain.algebra.name == "MaxPlus"
 
 
 def test_boolean_compose_produces_boolean_composed_morphism() -> None:
     A = FinSet(name="A", cardinality=2)
     B = FinSet(name="B", cardinality=2)
     C = FinSet(name="C", cardinality=2)
-    f = LatentMorphism(A, B, quantale=BOOLEAN)
-    g = LatentMorphism(B, C, quantale=BOOLEAN)
+    f = LatentMorphism(A, B, algebra=BOOLEAN)
+    g = LatentMorphism(B, C, algebra=BOOLEAN)
     chain = f >> g
-    assert chain.quantale.name == "Boolean"
+    assert chain.algebra.name == "Boolean"
 
 
 def test_lukasiewicz_compose_produces_lukasiewicz_composed_morphism() -> None:
     A = FinSet(name="A", cardinality=2)
     B = FinSet(name="B", cardinality=2)
     C = FinSet(name="C", cardinality=2)
-    f = LatentMorphism(A, B, quantale=LUKASIEWICZ)
-    g = LatentMorphism(B, C, quantale=LUKASIEWICZ)
+    f = LatentMorphism(A, B, algebra=LUKASIEWICZ)
+    g = LatentMorphism(B, C, algebra=LUKASIEWICZ)
     chain = f >> g
-    assert chain.quantale.name == "Lukasiewicz"
+    assert chain.algebra.name == "Lukasiewicz"
 
 
 def test_tropical_min_plus_compose() -> None:
-    """The existing shortest-path Tropical quantale also composes;
+    """The existing shortest-path Tropical algebra also composes;
     no dedicated operator but the existing ``>>`` works once both
     operands are declared over it."""
     A = FinSet(name="A", cardinality=2)
     B = FinSet(name="B", cardinality=2)
     C = FinSet(name="C", cardinality=2)
-    f = LatentMorphism(A, B, quantale=TROPICAL)
-    g = LatentMorphism(B, C, quantale=TROPICAL)
+    f = LatentMorphism(A, B, algebra=TROPICAL)
+    g = LatentMorphism(B, C, algebra=TROPICAL)
     chain = f >> g
-    assert chain.quantale.name == "Tropical"
+    assert chain.algebra.name == "Tropical"
 
 
 # ---------------------------------------------------------------------------
@@ -325,7 +325,7 @@ def test_homomorphism_registry_returns_expectation_for_markov_to_pf() -> None:
     assert phi.target.name == "ProductFuzzy"
 
 
-def test_homomorphism_registry_returns_identity_for_same_quantale() -> None:
+def test_homomorphism_registry_returns_identity_for_same_algebra() -> None:
     phi = lookup_homomorphism(PRODUCT_FUZZY, PRODUCT_FUZZY)
     assert phi is not None
     assert isinstance(phi, IdentityHom)
@@ -334,14 +334,14 @@ def test_homomorphism_registry_returns_identity_for_same_quantale() -> None:
 def test_homomorphism_registry_returns_none_for_unknown_pair() -> None:
     """Unknown pairs return None so the caller can decide whether
     to raise or to construct a custom homomorphism."""
-    from quivers.core.quantales import ProductFuzzy
+    from quivers.core.algebras import ProductFuzzyAlgebra
 
-    class _BogusQuantale(ProductFuzzy):
+    class _BogusAlgebra(ProductFuzzyAlgebra):
         @property
         def name(self):
             return "BogusUnregistered"
 
-    phi = lookup_homomorphism(_BogusQuantale(), PRODUCT_FUZZY)
+    phi = lookup_homomorphism(_BogusAlgebra(), PRODUCT_FUZZY)
     assert phi is None
 
 
@@ -357,17 +357,17 @@ def test_threshold_homomorphism_rejects_invalid_tau() -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_change_base_then_compose_in_target_quantale() -> None:
-    """Bring a ProductFuzzy morphism into the Markov quantale via
+def test_change_base_then_compose_in_target_algebra() -> None:
+    """Bring a ProductFuzzyAlgebra morphism into the Markov algebra via
     a custom homomorphism, then compose with a Markov-native
     morphism."""
     A = FinSet(name="A", cardinality=2)
     B = FinSet(name="B", cardinality=2)
     C = FinSet(name="C", cardinality=2)
-    # Construct a "noop" homomorphism from ProductFuzzy to Markov.
-    from quivers.core.quantale_morphisms import QuantaleHomomorphism
+    # Construct a "noop" homomorphism from ProductFuzzyAlgebra to Markov.
+    from quivers.core.algebra_morphisms import AlgebraHomomorphism
 
-    class ProductToMarkov(QuantaleHomomorphism):
+    class ProductToMarkov(AlgebraHomomorphism):
         @property
         def source(self):
             return PRODUCT_FUZZY
@@ -382,7 +382,7 @@ def test_change_base_then_compose_in_target_quantale() -> None:
 
     f_pf = LatentMorphism(A, B)
     f_markov = f_pf.change_base(ProductToMarkov())
-    assert f_markov.quantale.name == "Markov"
-    g_markov = LatentMorphism(B, C, quantale=MARKOV)
+    assert f_markov.algebra.name == "Markov"
+    g_markov = LatentMorphism(B, C, algebra=MARKOV)
     chain = f_markov >> g_markov
-    assert chain.quantale.name == "Markov"
+    assert chain.algebra.name == "Markov"

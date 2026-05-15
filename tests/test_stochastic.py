@@ -32,9 +32,9 @@ def _assert_row_stochastic(t: torch.Tensor, n_dom_dims: int, atol: float = 1e-05
     torch.testing.assert_close(row_sums, torch.ones_like(row_sums), atol=atol, rtol=0.0)
 
 
-class TestMarkovQuantale:
+class TestMarkovAlgebra:
     def test_name(self):
-        """Quantale reports its name."""
+        """Algebra reports its name."""
         assert MARKOV.name == "Markov"
 
     def test_tensor_op(self):
@@ -488,7 +488,7 @@ class TestExpectation:
         FinSet(name="A", cardinality=1)
         B = FinSet(name="B", cardinality=3)
         data = torch.tensor([[1.0 / 3, 1.0 / 3, 1.0 / 3]])
-        f = observed(FinSet(name="A", cardinality=1), B, data, quantale=MARKOV)
+        f = observed(FinSet(name="A", cardinality=1), B, data, algebra=MARKOV)
         values = torch.tensor([1.0, 2.0, 3.0])
         result = expectation(f, values)
         torch.testing.assert_close(result, torch.tensor([2.0]), atol=1e-05, rtol=0.0)
@@ -519,8 +519,8 @@ class TestGiryMonad:
         C = FinSet(name="C", cardinality=2)
         f_data = torch.tensor([[0.7, 0.3], [0.4, 0.6]])
         g_data = torch.tensor([[0.8, 0.2], [0.1, 0.9]])
-        f = observed(A, B, f_data, quantale=MARKOV)
-        g = observed(B, C, g_data, quantale=MARKOV)
+        f = observed(A, B, f_data, algebra=MARKOV)
+        g = observed(B, C, g_data, algebra=MARKOV)
         h = G.kleisli_compose(f, g)
         expected = f_data @ g_data
         torch.testing.assert_close(h.tensor, expected, atol=1e-05, rtol=0.0)
@@ -531,7 +531,7 @@ class TestGiryMonad:
         A = FinSet(name="A", cardinality=2)
         B = FinSet(name="B", cardinality=3)
         f_data = torch.tensor([[0.5, 0.3, 0.2], [0.1, 0.8, 0.1]])
-        f = observed(A, B, f_data, quantale=MARKOV)
+        f = observed(A, B, f_data, algebra=MARKOV)
         eta = G.unit(A)
         result = G.kleisli_compose(eta, f)
         torch.testing.assert_close(result.tensor, f_data, atol=1e-05, rtol=0.0)
@@ -542,7 +542,7 @@ class TestGiryMonad:
         A = FinSet(name="A", cardinality=2)
         B = FinSet(name="B", cardinality=3)
         f_data = torch.tensor([[0.5, 0.3, 0.2], [0.1, 0.8, 0.1]])
-        f = observed(A, B, f_data, quantale=MARKOV)
+        f = observed(A, B, f_data, algebra=MARKOV)
         eta = G.unit(B)
         result = G.kleisli_compose(f, eta)
         torch.testing.assert_close(result.tensor, f_data, atol=1e-05, rtol=0.0)
@@ -557,9 +557,9 @@ class TestGiryMonad:
         f_data = torch.tensor([[0.6, 0.4], [0.3, 0.7]])
         g_data = torch.tensor([[0.5, 0.5], [0.2, 0.8]])
         h_data = torch.tensor([[0.9, 0.1], [0.1, 0.9]])
-        f = observed(A, B, f_data, quantale=MARKOV)
-        g = observed(B, C, g_data, quantale=MARKOV)
-        h = observed(C, D, h_data, quantale=MARKOV)
+        f = observed(A, B, f_data, algebra=MARKOV)
+        g = observed(B, C, g_data, algebra=MARKOV)
+        h = observed(C, D, h_data, algebra=MARKOV)
         fg_h = G.kleisli_compose(G.kleisli_compose(f, g), h)
         f_gh = G.kleisli_compose(f, G.kleisli_compose(g, h))
         torch.testing.assert_close(fg_h.tensor, f_gh.tensor, atol=1e-05, rtol=0.0)
@@ -581,8 +581,8 @@ class TestFinStoch:
         C = FinSet(name="C", cardinality=2)
         f_data = torch.tensor([[0.7, 0.3], [0.4, 0.6]])
         g_data = torch.tensor([[0.8, 0.2], [0.1, 0.9]])
-        f = observed(A, B, f_data, quantale=MARKOV)
-        g = observed(B, C, g_data, quantale=MARKOV)
+        f = observed(A, B, f_data, algebra=MARKOV)
+        g = observed(B, C, g_data, algebra=MARKOV)
         h = cat.compose(f, g)
         expected = f_data @ g_data
         torch.testing.assert_close(h.tensor, expected, atol=1e-05, rtol=0.0)
@@ -650,12 +650,12 @@ class TestStochasticIntegration:
             conditioned.tensor, factored_normalized.tensor, atol=1e-05, rtol=0.0
         )
 
-    def test_dsl_with_markov_quantale(self):
-        """DSL supports the markov quantale."""
+    def test_dsl_with_markov_algebra(self):
+        """DSL supports the markov algebra."""
         from quivers.dsl import loads
 
         prog = loads(
-            "\n            quantale markov\n            object X : 3\n            observed h : X -> X = identity(X)\n            export h\n        "
+            "\n            algebra markov\n            object X : 3\n            observed h : X -> X = identity(X)\n            export h\n        "
         )
         expected = torch.eye(3)
         torch.testing.assert_close(prog(), expected)

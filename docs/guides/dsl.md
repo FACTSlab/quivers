@@ -98,7 +98,7 @@ statement      := composition_rule_decl
    required algebraic level; the optional body declares a fresh
    rule inline (each entry is a let-expression). *)
 composition_rule_decl
-               := ('quantale' | 'semigroupoid'
+               := ('algebra' | 'semigroupoid'
                    | 'bilinear_form' | 'composition_rule')
                   IDENT [composition_rule_block]
 composition_rule_block
@@ -135,7 +135,7 @@ sequent_rule   := 'rule' IDENT ':' term_pattern (',' term_pattern)*
                   ('|-' | '⊢') term_pattern
 term_pattern   := IDENT | IDENT '(' term_pattern (',' term_pattern)* ')'
 semiring_field := 'semiring' ('LogProb' | 'Viterbi' | 'Boolean'
-                              | 'Counting' | 'ProductFuzzy')
+                              | 'Counting' | 'ProductFuzzyAlgebra')
 start_field    := 'start' IDENT
 depth_field    := 'depth' INT
 lexicon_block  := 'lexicon' '{' lexicon_entry+ '}'
@@ -310,7 +310,7 @@ return_pattern := IDENT | '(' IDENT (',' IDENT)* ')'
 let_decl       := 'let' IDENT '=' expr ['where' let_decl+]
 
 (* Morphism-valued expression sublanguage.  The compose family
-   tags each operator with the quantale whose composition it
+   tags each operator with the algebra whose composition it
    realizes (see guides/morphisms.md).  `>>>` is transformation
    composition, distinct from morphism composition. *)
 expr           := trans_compose | compose_expr
@@ -351,26 +351,26 @@ export_decl    := 'export' expr
 
 ## Declarations
 
-### Quantale
+### Algebra
 
-Choose the enriching quantale (optional, defaults to `product_fuzzy`):
+Choose the enriching algebra (optional, defaults to `product_fuzzy`):
 
 <!-- compile: false -->
 ```qvr
-quantale product_fuzzy
-quantale boolean
-quantale lukasiewicz
-quantale godel
-quantale tropical
-quantale max_plus
-quantale log_prob
-quantale markov
-quantale real
-quantale probability
-quantale counting
+algebra product_fuzzy
+algebra boolean
+algebra lukasiewicz
+algebra godel
+algebra tropical
+algebra max_plus
+algebra log_prob
+algebra markov
+algebra real
+algebra probability
+algebra counting
 ```
 
-The keyword `quantale` resolves a name against the built-in composition-rule registry and verifies the registered rule is at the `Quantale` level. Three weaker levels are also surface-declarable:
+The keyword `algebra` resolves a name against the built-in composition-rule registry and verifies the registered rule is at the `Algebra` level. Three weaker levels are also surface-declarable:
 
 <!-- compile: false -->
 ```qvr
@@ -379,13 +379,13 @@ bilinear_form some_bf
 composition_rule any_rule
 ```
 
-A `semigroupoid` rule promises associativity but not an identity; `bilinear_form` promises neither; `composition_rule` is permissive and accepts any rule in the registry. Operations that need the identity element (`identity(A)`, `f.dagger`, `f.trace(A)`, `cup(A)`, `cap(A)`) compile only under `quantale`. See [Composition Rules](../semantics/composition-rules.md) for the algebraic hierarchy and the operadic contraction surface.
+A `semigroupoid` rule promises associativity but not an identity; `bilinear_form` promises neither; `composition_rule` is permissive and accepts any rule in the registry. Operations that need the identity element (`identity(A)`, `f.dagger`, `f.trace(A)`, `cup(A)`, `cap(A)`) compile only under `algebra`. See [Composition Rules](../semantics/composition-rules.md) for the algebraic hierarchy and the operadic contraction surface.
 
 A composition rule can also be defined inline via a body block. Each entry is a `let`-expression:
 
 <!-- compile: false -->
 ```qvr
-quantale my_godel {
+algebra my_godel {
     tensor_op(a, b) = a * b
     join(t) = sum(t)
     unit = 1.0
@@ -403,7 +403,7 @@ bilinear_form my_bf {
 }
 ```
 
-`quantale` bodies require `tensor_op`, `join`, `unit`, `zero` (with optional `negation` and `meet`); `semigroupoid` and `bilinear_form` bodies require only `tensor_op` and `join`. The compiler verifies the entry set against the keyword's algebraic level.
+`algebra` bodies require `tensor_op`, `join`, `unit`, `zero` (with optional `negation` and `meet`); `semigroupoid` and `bilinear_form` bodies require only `tensor_op` and `join`. The compiler verifies the entry set against the keyword's algebraic level.
 
 ### Contraction
 
@@ -461,7 +461,7 @@ deduction CCG : Term -> Term {
   are comma-separated; arity is arbitrary (unary rules fire on a
   single chart cell, binary on a pair of adjacent cells, etc.).
 - **`semiring`** selects the scoring algebra: `LogProb`,
-  `Viterbi`, `Boolean`, `Counting`, or `ProductFuzzy`.
+  `Viterbi`, `Boolean`, `Counting`, or `ProductFuzzyAlgebra`.
 - **`start`** declares the goal-item predicate (the start atom).
 - **`depth`** bounds derivation depth so the agenda terminates on
   any finite input.
@@ -582,10 +582,10 @@ Three surface forms:
 
 ```qvr
 # 1. anonymous-element FinSet of given cardinality, or a TypeExpr
-object X : 3          # FinSet("X", 3)
+object X : 3          # FinSet(name="X", cardinality=3)
 object Y : 4
-object XY : X * Y     # ProductSet(X, Y)
-object Sum : X + Y    # CoproductSet(X, Y)
+object XY : X * Y     # ProductSet(components=(X, Y))
+object Sum : X + Y    # CoproductSet(components=(X, Y))
 object Free = FreeMonoid(X, max_length=2)  # FreeMonoid(generators=X, max_length=2)
 
 # 2. FreeMonoid, bounded Kleene closure over a FinSet of generators.
@@ -1416,7 +1416,7 @@ latent f : X -> X
 ## Tips
 
 1. **Always declare objects before using them** in morphisms.
-2. **Quantale must come first** (if specified).
+2. **Algebra must come first** (if specified).
 3. **Use let to name complex compositions** for clarity.
 4. **Programs are the main output**: use them for inference (see inference guide).
 5. **Type errors in composition** happen at compile time, not runtime.

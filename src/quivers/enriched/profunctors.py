@@ -23,7 +23,7 @@ import torch
 
 from quivers.core.objects import SetObject
 from quivers.core.morphisms import Morphism, ObservedMorphism, observed
-from quivers.core.quantales import PRODUCT_FUZZY, Quantale
+from quivers.core.algebras import PRODUCT_FUZZY, Algebra
 
 
 class Profunctor:
@@ -40,7 +40,7 @@ class Profunctor:
         The covariant (codomain/target) object B.
     tensor : torch.Tensor
         The profunctor's tensor of shape (*A.shape, *B.shape).
-    quantale : Quantale or None
+    algebra : Algebra or None
         The enrichment algebra. Defaults to PRODUCT_FUZZY.
     """
 
@@ -49,12 +49,12 @@ class Profunctor:
         contra: SetObject,
         co: SetObject,
         tensor: torch.Tensor,
-        quantale: Quantale | None = None,
+        algebra: Algebra | None = None,
     ) -> None:
         self._contra = contra
         self._co = co
         self._tensor = tensor
-        self._quantale = quantale if quantale is not None else PRODUCT_FUZZY
+        self._algebra = algebra if algebra is not None else PRODUCT_FUZZY
 
         expected_shape = (*contra.shape, *co.shape)
 
@@ -80,9 +80,9 @@ class Profunctor:
         return self._tensor
 
     @property
-    def quantale(self) -> Quantale:
+    def algebra(self) -> Algebra:
         """The enrichment algebra."""
-        return self._quantale
+        return self._algebra
 
     @classmethod
     def from_morphism(cls, morph: Morphism) -> Profunctor:
@@ -102,7 +102,7 @@ class Profunctor:
             contra=morph.domain,
             co=morph.codomain,
             tensor=morph.tensor,
-            quantale=morph.quantale,
+            algebra=morph.algebra,
         )
 
     def compose(self, other: Profunctor) -> Profunctor:
@@ -111,7 +111,7 @@ class Profunctor:
         (R ; S)(a, c) = ∫^b R(a, b) ⊗ S(b, c)
 
         This is equivalent to V-enriched composition via the
-        quantale's compose method.
+        algebra's compose method.
 
         Parameters
         ----------
@@ -129,15 +129,15 @@ class Profunctor:
                 f"!= S's contravariant object {other._contra!r}"
             )
 
-        # use quantale.compose which is exactly the coend formula
+        # use algebra.compose which is exactly the coend formula
         n_contract = self._co.ndim
-        result_tensor = self._quantale.compose(self._tensor, other._tensor, n_contract)
+        result_tensor = self._algebra.compose(self._tensor, other._tensor, n_contract)
 
         return Profunctor(
             contra=self._contra,
             co=other._co,
             tensor=result_tensor,
-            quantale=self._quantale,
+            algebra=self._algebra,
         )
 
     def to_morphism(self) -> ObservedMorphism:
@@ -152,7 +152,7 @@ class Profunctor:
             self._contra,
             self._co,
             self._tensor,
-            quantale=self._quantale,
+            algebra=self._algebra,
         )
 
     def __repr__(self) -> str:

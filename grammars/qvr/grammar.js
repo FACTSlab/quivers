@@ -4,9 +4,9 @@
  * @license MIT
  *
  * QVR is a domain-specific language for declaring categorical theories:
- * quantales, objects, morphisms, continuous and stochastic spaces, and
+ * algebras, objects, morphisms, continuous and stochastic spaces, and
  * monadic programs over them. Each .qvr file defines a schema in the
- * sense of panproto: vertices for quantales/objects/spaces, edges for
+ * sense of panproto: vertices for algebras/objects/spaces, edges for
  * morphisms and dependencies, and a program over that schema.
  */
 
@@ -53,7 +53,7 @@ module.exports = grammar({
     source_file: $ => repeat($._statement),
 
     _statement: $ => choice(
-      $.quantale_decl,
+      $.algebra_decl,
       $.category_decl,
       $.rule_decl,
       $.schema_decl,
@@ -84,7 +84,7 @@ module.exports = grammar({
     // Composition-rule declaration.  Four surface forms differ only
     // in the algebraic level they advertise:
     //
-    //   ``quantale X``         — X must be a Quantale (full structure;
+    //   ``algebra X``         — X must be a Algebra (full structure;
     //                            identity / dagger / cup / cap are
     //                            available).
     //   ``semigroupoid X``     — X is associative but lacks identity.
@@ -97,8 +97,8 @@ module.exports = grammar({
     // declares a fresh rule inline instead of referencing a registered
     // singleton.  The compiler enforces that the body's operations
     // match the keyword's algebraic level.
-    quantale_decl: $ => choice(
-      seq('quantale',         field('name', $.identifier), optional($.composition_rule_block)),
+    algebra_decl: $ => choice(
+      seq('algebra',         field('name', $.identifier), optional($.composition_rule_block)),
       seq('semigroupoid',     field('name', $.identifier), optional($.composition_rule_block)),
       seq('bilinear_form',    field('name', $.identifier), optional($.composition_rule_block)),
       seq('composition_rule', field('name', $.identifier), optional($.composition_rule_block)),
@@ -323,7 +323,7 @@ module.exports = grammar({
     //       atoms { NP, S, VP }
     //       rule fwd_app  : X/Y, Y       |- X
     //       rule bwd_app  : Y, Y\X       |- X
-    //       semiring  ProductFuzzy
+    //       semiring  ProductFuzzyAlgebra
     //       start     S
     //       depth     4
     //   }
@@ -1069,10 +1069,10 @@ module.exports = grammar({
 
     // Transformation composition.  ``t1 >>> t2`` denotes the
     // sequential application of two :class:`MorphismTransformation`
-    // (or :class:`QuantaleHomomorphism`) values.  Distinct from
+    // (or :class:`AlgebraHomomorphism`) values.  Distinct from
     // ``>>`` (V-Cat morphism composition): ``>>`` composes
-    // morphisms within a quantale; ``>>>`` composes the change-of-
-    // base transformations between quantales.  Required type:
+    // morphisms within an algebra; ``>>>`` composes the change-of-
+    // base transformations between algebras.  Required type:
     // ``t1.target == t2.source`` (checked at compile time).
     trans_compose: $ => prec.left(PREC.trans_compose, seq(
       field('left',  $._expr),
@@ -1081,13 +1081,13 @@ module.exports = grammar({
     )),
 
     // Composition operators. Each one carries its enrichment
-    // quantale so the V-Cat composition dispatches to that
-    // quantale's monoidal structure regardless of the operands'
-    // declared quantale. The operator set was chosen to share
+    // algebra so the V-Cat composition dispatches to that
+    // algebra's monoidal structure regardless of the operands'
+    // declared algebra. The operator set was chosen to share
     // family resemblance with canonical operators in other
     // languages rather than clashing with them:
     //
-    //   >>   ProductFuzzy noisy-OR (the default; family-resembles
+    //   >>   ProductFuzzyAlgebra noisy-OR (the default; family-resembles
     //        Haskell's ``>>`` for Kleisli sequencing).
     //   <<   Reverse ``>>`` (Haskell ``<<``-shaped).
     //   >=>  Kleisli composition (Haskell's ``>=>`` — direct
@@ -1118,7 +1118,7 @@ module.exports = grammar({
     // Cross-operator composition (mixing ``>>`` and ``*>`` in a
     // single chain) requires an explicit ``.change_base(φ)``
     // between the two segments — the operator carries the
-    // quantale but does not auto-convert operands.
+    // algebra but does not auto-convert operands.
     compose_expr: $ => prec.left(PREC.compose, seq(
       field('left',  $._expr),
       field('op',    choice(
@@ -1152,8 +1152,8 @@ module.exports = grammar({
       // where Z lives in a residuated universe, produce f.curry_right :
       // X -> Z/Y or f.curry_left : Y -> X\Z. No arguments.
       seq(field('name', choice('curry_right', 'curry_left'))),
-      // change-of-base: given f : A -> B over quantale V and a
-      // transformation φ : Trans[V, W] (a QuantaleHomomorphism
+      // change-of-base: given f : A -> B over algebra V and a
+      // transformation φ : Trans[V, W] (a AlgebraHomomorphism
       // or MorphismTransformation), ``f.change_base(phi)`` is
       // the V-Cat morphism A -> B over W with tensor
       // φ.apply(f.tensor).  The argument is any expression that
@@ -1224,7 +1224,7 @@ module.exports = grammar({
 
     // Compact-closed unit / counit. ``cup(A)`` builds the
     // morphism ``I -> A * A`` whose tensor is the diagonal on A
-    // (every entry ``(a, a)`` carries the quantale's monoidal
+    // (every entry ``(a, a)`` carries the algebra's monoidal
     // unit). ``cap(A)`` is the dual ``A * A -> I``. Together
     // ``cup`` and ``cap`` provide the unit / counit of the
     // compact-closed structure on V-Cat; the snake equations

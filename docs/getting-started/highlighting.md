@@ -119,7 +119,7 @@ With [tree-sitter-langs](https://github.com/emacs-tree-sitter/tree-sitter-langs)
                     "observe" "return" "over" "via" "iid" "in"
                     "discretize" "embed" "deduction" "atoms" "rule"
                     "semiring" "start" "depth" "lexicon"
-                    "contraction" "quantale" "semigroupoid"
+                    "contraction" "algebra" "semigroupoid"
                     "bilinear_form" "composition_rule"]
                    @font-lock-keyword-face)))
     (treesit-major-mode-setup)))

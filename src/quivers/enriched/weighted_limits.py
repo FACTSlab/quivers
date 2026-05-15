@@ -38,7 +38,7 @@ import torch
 
 from quivers.core.objects import SetObject, FinSet
 from quivers.core.morphisms import Morphism
-from quivers.core.quantales import PRODUCT_FUZZY, Quantale
+from quivers.core.algebras import PRODUCT_FUZZY, Algebra
 
 
 @dataclass
@@ -46,7 +46,7 @@ class Weight:
     """A V-valued presheaf on a finite indexing category.
 
     Represents a weight functor W: J → V where J is a finite set of
-    indices, and W assigns a V-value (scalar in the quantale's lattice)
+    indices, and W assigns a V-value (scalar in the algebra's lattice)
     to each index.
 
     Holds a ``torch.Tensor`` of values; not a value type.
@@ -54,21 +54,21 @@ class Weight:
     Parameters
     ----------
     values : torch.Tensor
-        A 1D tensor of shape (|J|,) with values in L (the quantale's
+        A 1D tensor of shape (|J|,) with values in L (the algebra's
         lattice). W(j) = values[j].
-    quantale : Quantale or None
+    algebra : Algebra or None
         The enrichment algebra. Defaults to PRODUCT_FUZZY.
     """
 
     values: torch.Tensor
-    quantale: Quantale | None = None
+    algebra: Algebra | None = None
 
     def __post_init__(self) -> None:
         if self.values.ndim != 1:
             raise ValueError(f"weight values must be 1D, got shape {self.values.shape}")
 
-        if self.quantale is None:
-            self.quantale = PRODUCT_FUZZY
+        if self.algebra is None:
+            self.algebra = PRODUCT_FUZZY
 
     @property
     def size(self) -> int:
@@ -104,7 +104,7 @@ class Diagram(dx.Model):
 def weighted_limit(
     weight: Weight,
     diagram: Diagram,
-    quantale: Quantale | None = None,
+    algebra: Algebra | None = None,
 ) -> torch.Tensor:
     """Compute the weighted limit {W, D} for a discrete diagram.
 
@@ -113,11 +113,11 @@ def weighted_limit(
 
         {W, D} = ∫_j [W(j), D(j)] = ⋀_j [W(j), D(j)]
 
-    where [w, x] is the internal hom in the quantale (residuation):
+    where [w, x] is the internal hom in the algebra (residuation):
 
         [w, x] = sup{v : w ⊗ v ≤ x}
 
-    For the product-fuzzy quantale, [w, x] = min(1, x/w) when w > 0,
+    For the product-fuzzy algebra, [w, x] = min(1, x/w) when w > 0,
     and the unit when w = 0.
 
     For discrete diagrams with objects A_0, ..., A_{n-1}, this
@@ -130,7 +130,7 @@ def weighted_limit(
         The weight W with values W(j) for each j.
     diagram : Diagram
         The diagram of objects.
-    quantale : Quantale or None
+    algebra : Algebra or None
         The enrichment algebra. Defaults to PRODUCT_FUZZY.
 
     Returns
@@ -139,7 +139,7 @@ def weighted_limit(
         The weighted limit tensor. For discrete diagrams, shape is
         the meet of identity tensors scaled by the weights.
     """
-    q = quantale if quantale is not None else PRODUCT_FUZZY
+    q = algebra if algebra is not None else PRODUCT_FUZZY
 
     if weight.size != diagram.size:
         raise ValueError(f"weight size {weight.size} != diagram size {diagram.size}")
@@ -193,7 +193,7 @@ def weighted_limit(
 def weighted_colimit(
     weight: Weight,
     diagram: Diagram,
-    quantale: Quantale | None = None,
+    algebra: Algebra | None = None,
 ) -> torch.Tensor:
     """Compute the weighted colimit W ⊗_J D for a discrete diagram.
 
@@ -210,7 +210,7 @@ def weighted_colimit(
         The weight W with values W(j) for each j.
     diagram : Diagram
         The diagram of objects.
-    quantale : Quantale or None
+    algebra : Algebra or None
         The enrichment algebra. Defaults to PRODUCT_FUZZY.
 
     Returns
@@ -218,7 +218,7 @@ def weighted_colimit(
     torch.Tensor
         The weighted colimit tensor.
     """
-    q = quantale if quantale is not None else PRODUCT_FUZZY
+    q = algebra if algebra is not None else PRODUCT_FUZZY
 
     if weight.size != diagram.size:
         raise ValueError(f"weight size {weight.size} != diagram size {diagram.size}")
@@ -261,7 +261,7 @@ def weighted_colimit(
 def weighted_limit_morphisms(
     weight: Weight,
     morphisms: Sequence[Morphism],
-    quantale: Quantale | None = None,
+    algebra: Algebra | None = None,
 ) -> torch.Tensor:
     """Compute a weighted limit from a family of morphisms.
 
@@ -279,7 +279,7 @@ def weighted_limit_morphisms(
         The weight W.
     morphisms : Sequence[Morphism]
         The morphisms f_j comprising the cone.
-    quantale : Quantale or None
+    algebra : Algebra or None
         The enrichment algebra. Defaults to PRODUCT_FUZZY.
 
     Returns
@@ -287,7 +287,7 @@ def weighted_limit_morphisms(
     torch.Tensor
         The weighted limit tensor.
     """
-    q = quantale if quantale is not None else PRODUCT_FUZZY
+    q = algebra if algebra is not None else PRODUCT_FUZZY
 
     if weight.size != len(morphisms):
         raise ValueError(
@@ -316,7 +316,7 @@ def weighted_limit_morphisms(
 def weighted_colimit_morphisms(
     weight: Weight,
     morphisms: Sequence[Morphism],
-    quantale: Quantale | None = None,
+    algebra: Algebra | None = None,
 ) -> torch.Tensor:
     """Compute a weighted colimit from a family of morphisms.
 
@@ -331,7 +331,7 @@ def weighted_colimit_morphisms(
         The weight W.
     morphisms : Sequence[Morphism]
         The morphisms f_j comprising the cocone.
-    quantale : Quantale or None
+    algebra : Algebra or None
         The enrichment algebra. Defaults to PRODUCT_FUZZY.
 
     Returns
@@ -339,7 +339,7 @@ def weighted_colimit_morphisms(
     torch.Tensor
         The weighted colimit tensor.
     """
-    q = quantale if quantale is not None else PRODUCT_FUZZY
+    q = algebra if algebra is not None else PRODUCT_FUZZY
 
     if weight.size != len(morphisms):
         raise ValueError(
@@ -366,7 +366,7 @@ def weighted_colimit_morphisms(
 def representable_weight(
     index_set: FinSet,
     represented_at: int,
-    quantale: Quantale | None = None,
+    algebra: Algebra | None = None,
 ) -> Weight:
     """Create a representable weight (Yoneda-style).
 
@@ -380,7 +380,7 @@ def representable_weight(
         The indexing set J.
     represented_at : int
         The representing index k.
-    quantale : Quantale or None
+    algebra : Algebra or None
         The enrichment algebra. Defaults to PRODUCT_FUZZY.
 
     Returns
@@ -388,17 +388,17 @@ def representable_weight(
     Weight
         The representable weight at k.
     """
-    q = quantale if quantale is not None else PRODUCT_FUZZY
+    q = algebra if algebra is not None else PRODUCT_FUZZY
 
     values = torch.full((index_set.cardinality,), q.zero)
     values[represented_at] = q.unit
 
-    return Weight(values=values, quantale=q)
+    return Weight(values=values, algebra=q)
 
 
 def terminal_weight(
     index_set: FinSet,
-    quantale: Quantale | None = None,
+    algebra: Algebra | None = None,
 ) -> Weight:
     """Create the terminal (constant unit) weight.
 
@@ -409,7 +409,7 @@ def terminal_weight(
     ----------
     index_set : FinSet
         The indexing set J.
-    quantale : Quantale or None
+    algebra : Algebra or None
         The enrichment algebra. Defaults to PRODUCT_FUZZY.
 
     Returns
@@ -417,23 +417,23 @@ def terminal_weight(
     Weight
         The terminal weight.
     """
-    q = quantale if quantale is not None else PRODUCT_FUZZY
+    q = algebra if algebra is not None else PRODUCT_FUZZY
     values = torch.full((index_set.cardinality,), q.unit)
 
-    return Weight(values=values, quantale=q)
+    return Weight(values=values, algebra=q)
 
 
 def _internal_hom_scalar(
     w: torch.Tensor | float,
     x: torch.Tensor,
-    quantale: Quantale,
+    algebra: Algebra,
 ) -> torch.Tensor:
     """Compute the internal hom [w, x] for a scalar weight w.
 
-    For the product-fuzzy quantale: [w, x] = min(1, x/w) when w > 0,
+    For the product-fuzzy algebra: [w, x] = min(1, x/w) when w > 0,
         and 1 when w = 0.
-    For the boolean quantale: [w, x] = ¬w ∨ x = max(1-w, x).
-    For general quantales: use residuation [w, x] = ¬(w ⊗ ¬x) as
+    For the boolean algebra: [w, x] = ¬w ∨ x = max(1-w, x).
+    For general algebras: use residuation [w, x] = ¬(w ⊗ ¬x) as
         a default approximation.
 
     Parameters
@@ -442,7 +442,7 @@ def _internal_hom_scalar(
         The weight value (scalar in L).
     x : torch.Tensor
         The tensor to compute the hom into.
-    quantale : Quantale
+    algebra : Algebra
         The enrichment algebra.
 
     Returns
@@ -450,11 +450,11 @@ def _internal_hom_scalar(
     torch.Tensor
         The internal hom tensor [w, x].
     """
-    from quivers.core.quantales import ProductFuzzy, BooleanQuantale
+    from quivers.core.algebras import ProductFuzzyAlgebra, BooleanAlgebra
 
     w_t = torch.as_tensor(w, dtype=x.dtype)
 
-    if isinstance(quantale, ProductFuzzy):
+    if isinstance(algebra, ProductFuzzyAlgebra):
         # [w, x] = min(1, x / w) for w > 0, else 1
         safe_w = w_t.clamp(min=1e-7)
         result = (x / safe_w).clamp(max=1.0)
@@ -462,10 +462,10 @@ def _internal_hom_scalar(
         # where w ≈ 0, return unit
         return torch.where(w_t < 1e-7, torch.ones_like(x), result)
 
-    elif isinstance(quantale, BooleanQuantale):
+    elif isinstance(algebra, BooleanAlgebra):
         # [w, x] = ¬w ∨ x = max(1 - w, x)
         return torch.max(1.0 - w_t, x)
 
     else:
         # general fallback: ¬(w ⊗ ¬x)
-        return quantale.negate(quantale.tensor_op(w_t, quantale.negate(x)))
+        return algebra.negate(algebra.tensor_op(w_t, algebra.negate(x)))

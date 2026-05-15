@@ -14,21 +14,21 @@ Each chapter shows the QVR version of a familiar model alongside its Pyro / NumP
 4. **[Mixtures and discrete latents](qvr/04-marginalize.md)**. Finite mixtures and HMM-shaped models via the `marginalize` block: QVR's typed-scope marginalization, the feature that distinguishes it most from Pyro/NumPyro.
 5. **[Sequence models](qvr/05-time-series.md)**. Plates, `scan`, and the deduction surface for chart-shaped models. State-space models and HMMs.
 6. **[Choosing an inference algorithm](qvr/06-inference-zoo.md)**. A decision tree over the nine guides, four objectives, two MCMC kernels, and two hybrid samplers. Which combination matches which model shape.
-7. **[Under the hood: the categorical surface](qvr/07-categorical.md)**. *(Optional reading.)* What QVR is doing underneath: quantales as enrichment algebras, `>>` as enriched composition, change-of-base as a functor. Useful when you want to extend the library or read the type errors fluently.
+7. **[Under the hood: the categorical surface](qvr/07-categorical.md)**. *(Optional reading.)* What QVR is doing underneath: algebras as enrichment algebras, `>>` as enriched composition, change-of-base as a functor. Useful when you want to extend the library or read the type errors fluently.
 
 You can read the first six chapters without touching category theory. Chapter 7 is the bridge to the Python API track.
 
 ## Python API track
 
-The Python API gives you direct access to the typed categorical surface: `FinSet`, `Morphism`, `Quantale`, `MonadicProgram`, the inference primitives, the structural-compression building blocks. Use this track if you are building tooling on top of quivers, extending the categorical machinery, or want to understand what the DSL compiles into.
+The Python API gives you direct access to the typed categorical surface: `FinSet`, `Morphism`, `Algebra`, `MonadicProgram`, the inference primitives, the structural-compression building blocks. Use this track if you are building tooling on top of quivers, extending the categorical machinery, or want to understand what the DSL compiles into.
 
 1. **[Your first quiver](python/01-first-quiver.md)**. `FinSet` objects, observed and latent morphisms, the `>>` composition operator, `Program`.
 2. **[Stochastic relations](python/02-stochastic-relations.md)**. Markov kernels and the FinStoch category. Conditioning, marginalization, expectation queries.
 3. **[Probabilistic programs](python/03-probabilistic-programs.md)**. `MonadicProgram` by hand: continuous spaces, conditional families, bind (`<-`) / `let` / `observe` steps, sampling, log-density.
 4. **[Fuzzy logic factorization](python/04-fuzzy-factorization.md)**. Factorizing an observed fuzzy relation into a composition of latents, training under product-fuzzy noisy-OR composition.
 5. **[Variational inference](python/05-variational-inference.md)**. `Guide` + `Objective` + `SVI` + `Predictive`. Setting up the full inference loop end-to-end.
-6. **[First-class transformations](python/06-first-class-trans.md)**. `MorphismTransformation` and `QuantaleHomomorphism` as values: let-binding, the `>>>` composition operator, change-of-base pipelines.
-7. **[Composition rules beyond quantales](python/07-composition-rules.md)**. The `CompositionRule → Semigroupoid → Quantale` hierarchy, `BilinearForm`, and the operadic `EinsumWiring` surface for n-ary contractions.
+6. **[First-class transformations](python/06-first-class-trans.md)**. `MorphismTransformation` and `AlgebraHomomorphism` as values: let-binding, the `>>>` composition operator, change-of-base pipelines.
+7. **[Composition rules beyond algebras](python/07-composition-rules.md)**. The `CompositionRule → Semigroupoid → Algebra` hierarchy, `BilinearForm`, and the operadic `EinsumWiring` surface for n-ary contractions.
 
 ## Prerequisites
 
@@ -40,7 +40,7 @@ For the QVR track:
 For the Python API track:
 
 - Python and PyTorch as above.
-- Working knowledge of category theory: objects, morphisms, composition, functors. The denotational [semantics](../semantics/index.md) section assumes Kelly-level enriched category theory; the tutorials don't, but a refresher on quantales as enrichment algebras ([Core Types & Quantales](../guides/core.md)) is recommended before chapter 4.
+- Working knowledge of category theory: objects, morphisms, composition, functors. The denotational [semantics](../semantics/index.md) section assumes Kelly-level enriched category theory; the tutorials don't, but a refresher on algebras as enrichment algebras ([Core Types & Algebras](../guides/core.md)) is recommended before chapter 4.
 
 ## How to read
 

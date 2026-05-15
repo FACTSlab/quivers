@@ -5,7 +5,7 @@ import pytest
 from quivers.core.objects import FinSet, FreeMonoid
 from quivers.core.morphisms import morphism, observed, FunctorMorphism
 from quivers.categorical.functors import FreeMonoidFunctor
-from quivers.core.quantales import BOOLEAN
+from quivers.core.algebras import BOOLEAN
 
 
 class TestFreeMonoidFunctorObject:
@@ -126,17 +126,17 @@ class TestGradientFlowThroughFunctor:
             assert ip.data_ptr() == fp.data_ptr()
 
 
-class TestQuantaleRespected:
-    """FreeMonoidFunctor should use the morphism's quantale."""
+class TestAlgebraRespected:
+    """FreeMonoidFunctor should use the morphism's algebra."""
 
     def test_boolean_functor(self):
         fm = FreeMonoidFunctor(max_length=1)
         a = FinSet(name="A", cardinality=2)
         b = FinSet(name="B", cardinality=2)
         f_data = torch.tensor([[1.0, 0.0], [0.0, 1.0]])
-        f = observed(a, b, f_data, quantale=BOOLEAN)
+        f = observed(a, b, f_data, algebra=BOOLEAN)
         result = fm.map_morphism(f)
-        assert result.quantale is BOOLEAN
+        assert result.algebra is BOOLEAN
         t = result.tensor
         assert t[0, 0].item() == pytest.approx(1.0, abs=1e-06)
         torch.testing.assert_close(t[1:3, 1:3], f_data, atol=1e-06, rtol=1e-06)

@@ -45,7 +45,7 @@ class QvrLexer(RegexLexer):
             (
                 words(
                     (
-                        "quantale",
+                        "algebra",
                         "semigroupoid",
                         "bilinear_form",
                         "composition_rule",
@@ -104,7 +104,7 @@ class QvrLexer(RegexLexer):
                 Keyword.Type,
             ),
 
-            # quantale names (built-in catalogue)
+            # algebra names (built-in catalogue)
             (
                 words(
                     (
