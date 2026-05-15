@@ -4,7 +4,7 @@ This guide walks through the core concepts of quivers with concrete examples: cr
 
 ## 1. Basic Morphisms
 
-A **morphism** is a $\mathcal{V}$-enriched relation: a function from a pair of objects to a quantale (lattice of truth values). In quivers, morphisms are tensors.
+A **morphism** is a $\mathcal{V}$-enriched relation: a function from a pair of objects to an algebra (lattice of truth values). In quivers, morphisms are tensors.
 
 Create finite sets:
 
@@ -124,7 +124,7 @@ log_p = prog.log_prob(x, sample)  # log probability
 Write categorical programs declaratively in `.qvr` files:
 
 ```qvr
-quantale product_fuzzy
+algebra product_fuzzy
 object X : 3
 object Y : 4
 object Z : 2
@@ -150,7 +150,7 @@ Or use `loads` for inline strings:
 from quivers.dsl import loads
 
 source = """
-quantale product_fuzzy
+algebra product_fuzzy
 object X : 3
 object Y : 4
 object Z : 2
@@ -176,7 +176,7 @@ Supported DSL operators:
 | `.change_base(t)` | change of base under transformation `t` | `f.change_base(softmax(B))` |
 | `identity(X)` | identity morphism | `observed id : X -> X = identity(X)` |
 
-The DSL also has surface for monadic probabilistic programs (`program ... ! Sample, Score`), composition rules at four algebraic levels (`quantale`, `semigroupoid`, `bilinear_form`, `composition_rule`), and operadic contractions (`contraction op (...) rule R wiring "..."`). The [QVR tutorial](../tutorials/qvr/01-first-model.md) walks the full surface.
+The DSL also has surface for monadic probabilistic programs (`program ... ! Sample, Score`), composition rules at four algebraic levels (`algebra`, `semigroupoid`, `bilinear_form`, `composition_rule`), and operadic contractions (`contraction op (...) rule R wiring "..."`). The [QVR tutorial](../tutorials/qvr/01-first-model.md) walks the full surface.
 
 ## 6. Stochastic Morphisms
 

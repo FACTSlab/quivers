@@ -4,11 +4,11 @@ This section documents the public API of the quivers library, organized by funct
 
 ## Core Package
 
-The `core` package provides the fundamental categorical and quantale structures that underpin all other modules.
+The `core` package provides the fundamental categorical and algebraic structures that underpin all other modules.
 
 - **Objects**: Finite sets, products, coproducts, and free monoids
-- **Quantales**: Ordered algebraic structures for morphism composition
-- **Extra Quantales**: Specialized quantale implementations
+- **Algebras**: Enrichment algebras for $\mathcal{V}$-enriched composition (the eleven built-in cases plus duals and user-defined extensions)
+- **Algebra Morphisms**: Homomorphisms between algebras, used for base-change
 - **Morphisms**: Base morphism classes and composition operations
 - **Tensor Operations**: Vectorized operations on tensors
 - **Utilities**: Helper functions for core functionality
@@ -61,7 +61,6 @@ The `enriched` package extends category theory with enrichment and advanced cons
 
 The `stochastic` package provides stochastic morphisms and probability distributions.
 
-- **Quantale**: The [0,1] quantale for probability
 - **Morphisms**: Stochastic relations and kernels
 - **Families**: Parametric families of distributions
 - **Transforms**: Operations on stochastic morphisms

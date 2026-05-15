@@ -1,6 +1,6 @@
 # Tutorial 1: Your First Quiver
 
-In this tutorial, you will create a simple enriched category and work with morphisms as tensors. A quiver in this context is a directed graph where edges carry values in a lattice ([quantale](https://ncatlab.org/nlab/show/quantale)) rather than being abstract. When the quantale is $[0, 1]$ with product t-norm and noisy-OR, morphisms are fuzzy relations: functions from pairs of objects to truth values in $[0, 1]$.
+In this tutorial, you will create a simple enriched category and work with morphisms as tensors. A quiver in this context is a directed graph where edges carry values in a lattice ([algebra](https://ncatlab.org/nlab/show/algebra)) rather than being abstract. When the algebra is $[0, 1]$ with product t-norm and noisy-OR, morphisms are fuzzy relations: functions from pairs of objects to truth values in $[0, 1]$.
 
 ## Concepts
 
@@ -8,7 +8,7 @@ In this tutorial, you will create a simple enriched category and work with morph
 - **Morphisms**: $\mathcal{V}$-relations represented as tensors
 - **Latent morphisms**: parameters (learnable)
 - **Observed morphisms**: fixed tensors
-- **Composition**: tensor contraction according to the quantale's operations
+- **Composition**: tensor contraction according to the algebra's operations
 
 ## Setup
 
@@ -16,7 +16,7 @@ In this tutorial, you will create a simple enriched category and work with morph
 import torch
 from quivers.core.objects import FinSet
 from quivers.core.morphisms import morphism, observed
-from quivers.core.quantales import PRODUCT_FUZZY
+from quivers.core.algebras import PRODUCT_FUZZY
 from quivers.program import Program
 ```
 
@@ -88,7 +88,7 @@ print(len(params_g))  # 0
 
 ## Composition
 
-Compose two morphisms using the `>>` operator. Composition applies the quantale's operations: the tensor product $\otimes$ (multiplication) and the join $\bigvee$ (noisy-OR).
+Compose two morphisms using the `>>` operator. Composition applies the algebra's operations: the tensor product $\otimes$ (multiplication) and the join $\bigvee$ (noisy-OR).
 
 Create a third latent morphism from Z to a new object:
 
@@ -120,7 +120,7 @@ fgh = fg >> h
 print(fgh.tensor.shape)  # [3, 5]
 ```
 
-The composition operation uses the quantale's tensor product (here, pointwise multiplication) and join (noisy-OR):
+The composition operation uses the algebra's tensor product (here, pointwise multiplication) and join (noisy-OR):
 
 $$
 (g \circ f)(x, z) = \bigvee_y f(x, y) \otimes g(y, z)
@@ -178,15 +178,15 @@ for epoch in range(5):
 
 The parameters of all latent morphisms in the composition will be updated.
 
-## Quantales
+## Algebras
 
-The examples so far use [`PRODUCT_FUZZY`](../../api/core/quantales.md) as the enrichment:
+The examples so far use [`PRODUCT_FUZZY`](../../api/core/algebras.md) as the enrichment:
 
 ```python
 print(PRODUCT_FUZZY.name)  # "ProductFuzzy"
 ```
 
-Other quantales are available ([`BOOLEAN`](../../api/core/quantales.md), [`LUKASIEWICZ`](../../api/core/quantales.md), [`GODEL`](../../api/core/quantales.md)). The choice of quantale affects:
+Other algebras are available ([`BOOLEAN`](../../api/core/algebras.md), [`LUKASIEWICZ`](../../api/core/algebras.md), [`GODEL`](../../api/core/algebras.md)). The choice of algebra affects:
 
 1. How morphisms are initialized
 2. How they compose
@@ -203,6 +203,6 @@ You have:
 - Composed morphisms with `>>`
 - Inspected tensor shapes and values
 - Wrapped morphisms as differentiable modules
-- Learned that composition uses the quantale's operations (tensor product and join)
+- Learned that composition uses the algebra's operations (tensor product and join)
 
 Next, explore how these ideas extend to stochastic morphisms (Markov kernels) in [Tutorial 2](02-stochastic-relations.md).

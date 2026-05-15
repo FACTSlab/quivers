@@ -46,7 +46,7 @@ class TestComposedFunctor:
         fm = FreeMonoidFunctor(max_length=1)
         composed = ComposedFunctor(IDENTITY, fm)
         t = torch.rand(2, 3)
-        from quivers.core.quantales import PRODUCT_FUZZY
+        from quivers.core.algebras import PRODUCT_FUZZY
 
         result = composed.map_tensor(t, PRODUCT_FUZZY)
         expected = fm.map_tensor(t, PRODUCT_FUZZY)

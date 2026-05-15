@@ -37,7 +37,7 @@ import torch
 
 from quivers.core.objects import SetObject
 from quivers.core.morphisms import Morphism, observed, identity
-from quivers.core.quantales import PRODUCT_FUZZY, Quantale
+from quivers.core.algebras import PRODUCT_FUZZY, Algebra
 from quivers.monadic.typeclasses import Monad
 
 
@@ -170,7 +170,7 @@ class ObservedAlgebra(Algebra):
         The carrier object A.
     structure_tensor : torch.Tensor
         The tensor for α: T(A) → A.
-    quantale : Quantale or None
+    algebra : Algebra or None
         The enrichment algebra. Defaults to PRODUCT_FUZZY.
     """
 
@@ -179,12 +179,12 @@ class ObservedAlgebra(Algebra):
         monad: Monad,
         carrier: SetObject,
         structure_tensor: torch.Tensor,
-        quantale: Quantale | None = None,
+        algebra: Algebra | None = None,
     ) -> None:
         super().__init__(monad, carrier)
-        q = quantale if quantale is not None else PRODUCT_FUZZY
+        q = algebra if algebra is not None else PRODUCT_FUZZY
         ta = monad.endofunctor.map_object(carrier)
-        self._morphism = observed(ta, carrier, structure_tensor, quantale=q)
+        self._morphism = observed(ta, carrier, structure_tensor, algebra=q)
 
     def structure_map(self) -> Morphism:
         """The stored structure map α: T(A) → A."""
@@ -320,7 +320,7 @@ class ObservedCoalgebra(Coalgebra):
         The carrier object A.
     structure_tensor : torch.Tensor
         The tensor for γ: A → W(A).
-    quantale : Quantale or None
+    algebra : Algebra or None
         The enrichment algebra. Defaults to PRODUCT_FUZZY.
     """
 
@@ -329,12 +329,12 @@ class ObservedCoalgebra(Coalgebra):
         comonad: object,
         carrier: SetObject,
         structure_tensor: torch.Tensor,
-        quantale: Quantale | None = None,
+        algebra: Algebra | None = None,
     ) -> None:
         super().__init__(comonad, carrier)
-        q = quantale if quantale is not None else PRODUCT_FUZZY
+        q = algebra if algebra is not None else PRODUCT_FUZZY
         wa = comonad.endofunctor.map_object(carrier)  # type: ignore[union-attr]
-        self._morphism = observed(carrier, wa, structure_tensor, quantale=q)
+        self._morphism = observed(carrier, wa, structure_tensor, algebra=q)
 
     def structure_map(self) -> Morphism:
         """The stored structure map γ: A → W(A)."""

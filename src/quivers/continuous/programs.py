@@ -553,14 +553,14 @@ class MonadicProgram(ContinuousMorphism):
         tensor as a deterministic step.
 
         The morphism's tensor has shape ``(*dom.shape, *cod.shape)``
-        with values in the quantale's lattice. For a batched input
+        with values in the algebra's lattice. For a batched input
         ``inp`` of shape ``(batch, *dom.shape)``, the V-enriched
-        action is the quantale tensor product followed by join over
+        action is the algebra tensor product followed by join over
         the domain axes — equivalent to a matrix-vector contraction
-        when the quantale is product-fuzzy / Markov / boolean. We
-        delegate that contraction to the active quantale's
+        when the algebra is product-fuzzy / Markov / boolean. We
+        delegate that contraction to the active algebra's
         ``composition_kernel`` so a single deterministic-bind path
-        handles every supported quantale uniformly.
+        handles every supported algebra uniformly.
         """
         m_tensor = morph.tensor
         # Broadcast inp to (batch, *dom.shape). For a one-hot input

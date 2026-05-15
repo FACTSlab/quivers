@@ -4,7 +4,7 @@ import torch
 import pytest
 from quivers.core.objects import FinSet, ProductSet
 from quivers.core.morphisms import observed, identity
-from quivers.core.quantales import BOOLEAN
+from quivers.core.algebras import BOOLEAN
 from quivers.categorical.monoidal import CartesianMonoidal
 from quivers.categorical.traced import (
     CartesianTrace,
@@ -98,12 +98,12 @@ class TestPartialTrace:
 
 class TestBooleanTrace:
     def test_boolean_trace(self):
-        """Trace should work with boolean quantale."""
+        """Trace should work with boolean algebra."""
         a = FinSet(name="A", cardinality=2)
         u = FinSet(name="U", cardinality=2)
         au = ProductSet(components=(a, u))
-        id_au = identity(au, quantale=BOOLEAN)
-        tracer = CartesianTrace(quantale=BOOLEAN)
+        id_au = identity(au, algebra=BOOLEAN)
+        tracer = CartesianTrace(algebra=BOOLEAN)
         result = tracer.trace(id_au, u, a, a)
-        expected = identity(a, quantale=BOOLEAN).tensor
+        expected = identity(a, algebra=BOOLEAN).tensor
         torch.testing.assert_close(result.tensor, expected, atol=1e-05, rtol=1e-05)

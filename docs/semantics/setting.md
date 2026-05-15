@@ -2,9 +2,9 @@
 
 This page fixes the semantic universe in which every QVR phrase will be interpreted.
 
-## 1. Quantales as enrichment bases
+## 1. Algebras as enrichment bases
 
-A *[quantale](https://en.wikipedia.org/wiki/Quantale)* $\mathcal{V} = (V, \le, \otimes, \mathbf{1})$ is a complete lattice $(V, \le)$ equipped with an associative monoid product $\otimes : V \times V \to V$ with unit $\mathbf{1} \in V$, such that $\otimes$ distributes over arbitrary joins on both sides:
+A *QVR algebra* $\mathcal{V} = (V, \le, \otimes, \oplus, \mathbf{1})$ is a partially-ordered carrier set $V$ equipped with an associative, commutative monoid product $\otimes : V \times V \to V$ (unit $\mathbf{1}$) and a join operation $\oplus$ used for marginalization. The strongest case is a [*strict quantale*](https://ncatlab.org/nlab/show/quantale) in [Kelly's sense](https://ncatlab.org/nlab/show/enriched+category): $V$ is a complete lattice, $\oplus$ is the arbitrary-join $\bigvee$, and $\otimes$ distributes over arbitrary joins on both sides:
 
 $$
 a \otimes \bigvee_{i \in I} b_i \;=\; \bigvee_{i \in I} (a \otimes b_i),
@@ -12,9 +12,9 @@ a \otimes \bigvee_{i \in I} b_i \;=\; \bigvee_{i \in I} (a \otimes b_i),
 \Bigl(\bigvee_{i \in I} a_i\Bigr) \otimes b \;=\; \bigvee_{i \in I} (a_i \otimes b).
 $$
 
-We write $\bigoplus$ for the binary join and (by abuse) for arbitrary joins. We assume $\mathcal{V}$ is *commutative*: $a \otimes b = b \otimes a$.
+We write $\bigoplus$ for the join (binary or indexed) throughout. We assume $\mathcal{V}$ is commutative: $a \otimes b = b \otimes a$.
 
-A quantale is the value object of a [$\mathcal{V}$-enriched category](https://ncatlab.org/nlab/show/enriched+category). The eleven built-in composition algebras used in QVR are cataloged in [Quantales and base change](quantales.md); two of them ($\mathcal{V}_{\mathrm{pf}}$, $\mathcal{V}_{\mathrm{L}}$) are strictly t-norm semirings on $[0, 1]$ for which the distributivity law above holds only laxly, and the rest are strict quantales in the sense above. The development of the present page is uniform across all eleven; the lax cases are flagged in [Quantales §2.1](quantales.md#21-a-note-on-the-product-fuzzy-and-lukasiewicz-pairs) where the distinction matters.
+Strict quantales are the value objects of [$\mathcal{V}$-enriched categories](https://ncatlab.org/nlab/show/enriched+category) in Kelly's sense. The eleven built-in algebras used in QVR are cataloged in [Algebras and base change](algebras.md); not all of them are strict quantales. The idempotent ($\mathcal{V}_{\mathbb{B}}$, $\mathcal{V}_{\mathrm{G}}$), tropical/Viterbi ($\mathcal{V}_{\mathrm{T}}$, $\mathcal{V}_{\mathrm{MP}}$), and log-additive ($\mathcal{V}_{\mathrm{LP}}$, $\mathcal{V}_{\mathbb{R}}$, $\mathcal{V}_{\mathbb{N}}$) cases satisfy the strict quantale-distributivity law exactly. The t-norm pairs $\mathcal{V}_{\mathrm{pf}}$ and $\mathcal{V}_{\mathrm{L}}$ are [commutative residuated lattices](https://ncatlab.org/nlab/show/residuated+lattice) for which the law holds only laxly; the saturated-sum probability algebra $\mathcal{V}_{[0,1]}$ has its own caveat at the saturation boundary. The development of the present page is uniform across all eleven; the lax cases are flagged in [Algebras §2.1](algebras.md#21-a-note-on-the-product-fuzzy-and-lukasiewicz-pairs) where the distinction matters.
 
 ## 2. $\mathcal{V}$-enriched relations
 

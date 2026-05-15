@@ -5,7 +5,7 @@ import pytest
 from quivers.core.objects import FinSet, FreeMonoid
 from quivers.core.morphisms import observed
 from quivers.monadic.monads import FuzzyPowersetMonad, FreeMonoidMonad, KleisliCategory
-from quivers.core.quantales import BOOLEAN
+from quivers.core.algebras import BOOLEAN
 
 
 class TestFuzzyPowersetMonad:
@@ -37,14 +37,14 @@ class TestFuzzyPowersetMonad:
         torch.testing.assert_close(kleisli.tensor, rshift, atol=1e-05, rtol=1e-05)
 
     def test_boolean_kleisli(self):
-        m = FuzzyPowersetMonad(quantale=BOOLEAN)
+        m = FuzzyPowersetMonad(algebra=BOOLEAN)
         a = FinSet(name="A", cardinality=2)
         b = FinSet(name="B", cardinality=2)
         c = FinSet(name="C", cardinality=2)
         f_data = torch.tensor([[1.0, 0.0], [0.0, 1.0]])
         g_data = torch.tensor([[0.0, 1.0], [1.0, 0.0]])
-        f = observed(a, b, f_data, quantale=BOOLEAN)
-        g = observed(b, c, g_data, quantale=BOOLEAN)
+        f = observed(a, b, f_data, algebra=BOOLEAN)
+        g = observed(b, c, g_data, algebra=BOOLEAN)
         result = m.kleisli_compose(f, g)
         torch.testing.assert_close(result.tensor, g_data, atol=1e-05, rtol=1e-05)
 

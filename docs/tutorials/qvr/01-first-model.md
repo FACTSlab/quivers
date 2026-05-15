@@ -138,7 +138,7 @@ Three things:
 
 ## Try this
 
-- Add `quantale log_prob` at the top of the file. The enrichment changes how compositions accumulate scalars: likelihood-style values stay finite under very small probabilities; sometimes useful for long sequence models.
+- Add `algebra log_prob` at the top of the file. The enrichment changes how compositions accumulate scalars: likelihood-style values stay finite under very small probabilities; sometimes useful for long sequence models.
 - Replace [`AutoNormalGuide`](../../api/inference/guide.md) with [`AutoMultivariateNormalGuide`](../../api/inference/guide.md) and watch the recovered correlation between `beta_0` and `beta_1`.
 - Drop the `! Sample, Score` annotation, then add `! Pure` and re-run. The second case fails compilation with a typed error pointing to the `observe`.
 

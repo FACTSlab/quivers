@@ -3,17 +3,17 @@ operadic contraction surface.
 
 Covers four surface forms:
 
-* ``quantale X`` / ``semigroupoid X`` / ``bilinear_form X`` /
+* ``algebra X`` / ``semigroupoid X`` / ``bilinear_form X`` /
   ``composition_rule X`` — keyword + level matching.
 * Inline-bodied composition-rule declarations:
-  ``quantale name { tensor_op(a, b) = …; join(t) = …; unit = …; zero = …; }``.
+  ``algebra name { tensor_op(a, b) = …; join(t) = …; unit = …; zero = …; }``.
 * ``contraction name (inputs) : domain -> codomain rule X wiring "spec"``.
 * ``let z = op(arg1, arg2, …)`` invoking a contraction or a
   parametric program template.
 
-Also confirms that Quantale-only operations (``identity``,
+Also confirms that Algebra-only operations (``identity``,
 ``dagger``, ``trace``, ``cup``, ``cap``) raise a typed
-``CompileError`` when the active rule is not a Quantale.
+``CompileError`` when the active rule is not a Algebra.
 """
 
 from __future__ import annotations
@@ -23,10 +23,10 @@ import os
 import pytest
 import torch
 
-from quivers.core.quantales import (
+from quivers.core.algebras import (
     BilinearForm,
     CompositionRule,
-    Quantale,
+    Algebra,
     Semigroupoid,
 )
 from quivers.dsl import loads
@@ -45,16 +45,16 @@ _LOCAL_GRAMMAR = pytest.mark.skipif(
 
 
 @_LOCAL_GRAMMAR
-def test_quantale_keyword_resolves_quantale() -> None:
+def test_algebra_keyword_resolves_algebra() -> None:
     src = """
-    quantale product_fuzzy
+    algebra product_fuzzy
     object A : 2
     object B : 2
     observed h : A -> B = from_data("H")
     export h
     """
     m = loads(src, data={"H": torch.zeros(2, 2)})
-    assert isinstance(m.morphism.quantale, Quantale)
+    assert isinstance(m.morphism.algebra, Algebra)
 
 
 @_LOCAL_GRAMMAR
@@ -68,15 +68,15 @@ def test_semigroupoid_keyword_resolves_material_implication() -> None:
     export h
     """
     m = loads(src, data={"H": torch.zeros(2, 2)})
-    assert isinstance(m.morphism.quantale, Semigroupoid)
-    assert not isinstance(m.morphism.quantale, Quantale)
+    assert isinstance(m.morphism.algebra, Semigroupoid)
+    assert not isinstance(m.morphism.algebra, Algebra)
 
 
 @_LOCAL_GRAMMAR
-def test_quantale_keyword_rejects_semigroupoid() -> None:
-    """Declaring ``quantale material_impl`` is a level mismatch."""
+def test_algebra_keyword_rejects_semigroupoid() -> None:
+    """Declaring ``algebra material_impl`` is a level mismatch."""
     src = """
-    quantale material_impl
+    algebra material_impl
     object A : 2
     export A
     """
@@ -94,17 +94,17 @@ def test_composition_rule_keyword_accepts_any_rule() -> None:
     export h
     """
     m = loads(src, data={"H": torch.zeros(2, 2)})
-    assert isinstance(m.morphism.quantale, CompositionRule)
+    assert isinstance(m.morphism.algebra, CompositionRule)
 
 
 @_LOCAL_GRAMMAR
 def test_unknown_rule_name_errors() -> None:
     src = """
-    quantale not_a_real_quantale
+    algebra not_a_real_algebra
     object A : 2
     export A
     """
-    with pytest.raises(CompileError, match="unknown quantale"):
+    with pytest.raises(CompileError, match="unknown algebra"):
         loads(src)
 
 
@@ -114,10 +114,10 @@ def test_unknown_rule_name_errors() -> None:
 
 
 @_LOCAL_GRAMMAR
-def test_inline_quantale_body_builds_custom_rule() -> None:
-    """Define a Goedel-like quantale inline."""
+def test_inline_algebra_body_builds_custom_rule() -> None:
+    """Define a Goedel-like algebra inline."""
     src = """
-    quantale my_godel {
+    algebra my_godel {
         tensor_op(a, b) = a * b
         join(t) = sum(t)
         unit = 1.0
@@ -129,8 +129,8 @@ def test_inline_quantale_body_builds_custom_rule() -> None:
     export h
     """
     m = loads(src, data={"H": torch.zeros(3, 3)})
-    rule = m.morphism.quantale
-    assert isinstance(rule, Quantale)
+    rule = m.morphism.algebra
+    assert isinstance(rule, Algebra)
     assert rule.name == "my_godel"
     assert rule.unit == 1.0
     assert rule.zero == 0.0
@@ -139,7 +139,7 @@ def test_inline_quantale_body_builds_custom_rule() -> None:
 @_LOCAL_GRAMMAR
 def test_inline_body_missing_required_entry_errors() -> None:
     src = """
-    quantale broken {
+    algebra broken {
         tensor_op(a, b) = a * b
         join(t) = sum(t)
     }
@@ -163,9 +163,9 @@ def test_inline_semigroupoid_body() -> None:
     export h
     """
     m = loads(src, data={"H": torch.zeros(2, 2)})
-    rule = m.morphism.quantale
+    rule = m.morphism.algebra
     assert isinstance(rule, Semigroupoid)
-    assert not isinstance(rule, Quantale)
+    assert not isinstance(rule, Algebra)
     assert rule.name == "my_semi"
 
 
@@ -182,7 +182,7 @@ def test_inline_bilinear_form_body() -> None:
     export h
     """
     m = loads(src, data={"H": torch.zeros(2, 2)})
-    rule = m.morphism.quantale
+    rule = m.morphism.algebra
     assert isinstance(rule, BilinearForm)
     assert not isinstance(rule, Semigroupoid)
 
@@ -190,7 +190,7 @@ def test_inline_bilinear_form_body() -> None:
 @_LOCAL_GRAMMAR
 def test_inline_body_duplicate_entry_errors() -> None:
     src = """
-    quantale dup {
+    algebra dup {
         tensor_op(a, b) = a * b
         tensor_op(a, b) = a + b
         join(t) = sum(t)
@@ -205,11 +205,11 @@ def test_inline_body_duplicate_entry_errors() -> None:
 
 
 # ---------------------------------------------------------------------------
-# Compile-time refusal of Quantale-only operations
+# Compile-time refusal of Algebra-only operations
 # ---------------------------------------------------------------------------
 
 
-_NON_QUANTALE_HEADER = """
+_NON_ALGEBRA_HEADER = """
 semigroupoid material_impl
 object A : 3
 object B : 3
@@ -228,9 +228,9 @@ latent f : A -> B
         ("cap(A)", "cap"),
     ],
 )
-def test_quantale_only_ops_rejected_under_semigroupoid(expr: str, op_name: str) -> None:
+def test_algebra_only_ops_rejected_under_semigroupoid(expr: str, op_name: str) -> None:
     src = (
-        _NON_QUANTALE_HEADER
+        _NON_ALGEBRA_HEADER
         + f"""
     let x = {expr}
     export x
@@ -241,11 +241,11 @@ def test_quantale_only_ops_rejected_under_semigroupoid(expr: str, op_name: str) 
 
 
 @_LOCAL_GRAMMAR
-def test_quantale_ops_accepted_under_quantale() -> None:
+def test_algebra_ops_accepted_under_algebra() -> None:
     """The same operations compile cleanly when the rule is a
-    Quantale."""
+    Algebra."""
     src = """
-    quantale product_fuzzy
+    algebra product_fuzzy
     object A : 3
     object B : 3
     latent f : A -> B
@@ -269,7 +269,7 @@ def test_binary_contraction_matches_composition() -> None:
     """A binary contraction with the ``ij, jk -> ik`` wiring spec
     reproduces normal composition under the same rule."""
     src = """
-    quantale product_fuzzy
+    algebra product_fuzzy
     object A : 3
     object B : 3
     object C : 3
@@ -292,7 +292,7 @@ def test_binary_contraction_matches_composition() -> None:
     g = torch.rand(3, 3)
     m = loads(src, data={"F": f, "G": g})
     # Compare to normal composition.
-    from quivers.core.quantales import PRODUCT_FUZZY
+    from quivers.core.algebras import PRODUCT_FUZZY
 
     expected = PRODUCT_FUZZY.compose(f, g, n_contract=1)
     assert torch.allclose(m.morphism.tensor, expected, atol=1e-6)
@@ -304,7 +304,7 @@ def test_ternary_contraction_via_dsl() -> None:
     and a kernel under a shared reduction; the surviving axes
     define the output."""
     src = """
-    quantale product_fuzzy
+    algebra product_fuzzy
     object S : 4
     object P : 3
     object Q : 5
@@ -337,7 +337,7 @@ def test_contraction_with_input_shape_mismatch_errors() -> None:
     """Numel-level check on each input argument's domain/codomain
     pair against the contraction's declared input typing."""
     src = """
-    quantale product_fuzzy
+    algebra product_fuzzy
     object S : 4
     object P : 3
     object Q : 5
@@ -398,7 +398,7 @@ def test_contraction_with_semigroupoid_rule() -> None:
 @_LOCAL_GRAMMAR
 def test_contraction_arity_mismatch_errors() -> None:
     src = """
-    quantale product_fuzzy
+    algebra product_fuzzy
     object A : 2
     object B : 2
 
@@ -417,7 +417,7 @@ def test_contraction_arity_mismatch_errors() -> None:
 @_LOCAL_GRAMMAR
 def test_contraction_unknown_rule_errors() -> None:
     src = """
-    quantale product_fuzzy
+    algebra product_fuzzy
     object A : 2
     object B : 2
 
@@ -436,7 +436,7 @@ def test_contraction_unknown_rule_errors() -> None:
 @_LOCAL_GRAMMAR
 def test_contraction_call_wrong_argument_count_errors() -> None:
     src = """
-    quantale product_fuzzy
+    algebra product_fuzzy
     object A : 2
     object B : 2
 
@@ -460,7 +460,7 @@ def test_contraction_call_wrong_argument_count_errors() -> None:
 @_LOCAL_GRAMMAR
 def test_contraction_invocation_argument_not_a_morphism_errors() -> None:
     src = """
-    quantale product_fuzzy
+    algebra product_fuzzy
     object A : 2
     object B : 2
 
@@ -491,7 +491,7 @@ def test_parametric_template_call_from_let() -> None:
     program by substituting ``f`` for the formal ``k`` and
     compiles it to a runtime morphism."""
     src = """
-    quantale product_fuzzy
+    algebra product_fuzzy
     object A : 3
     object B : 3
 
@@ -511,7 +511,7 @@ def test_parametric_template_call_from_let() -> None:
 @_LOCAL_GRAMMAR
 def test_parametric_template_call_wrong_arity_errors() -> None:
     src = """
-    quantale product_fuzzy
+    algebra product_fuzzy
     object A : 2
     object B : 2
 
@@ -531,7 +531,7 @@ def test_parametric_template_call_wrong_arity_errors() -> None:
 @_LOCAL_GRAMMAR
 def test_parametric_template_call_undefined_morphism_errors() -> None:
     src = """
-    quantale product_fuzzy
+    algebra product_fuzzy
     object A : 2
     object B : 2
 
@@ -549,7 +549,7 @@ def test_parametric_template_call_undefined_morphism_errors() -> None:
 @_LOCAL_GRAMMAR
 def test_morphism_call_undefined_callee_errors() -> None:
     src = """
-    quantale product_fuzzy
+    algebra product_fuzzy
     object A : 2
     object B : 2
 

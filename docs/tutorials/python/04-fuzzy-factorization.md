@@ -1,10 +1,10 @@
 # Tutorial 4: Fuzzy Logic Factorization
 
-This tutorial demonstrates how to use quivers to factorize a fuzzy relation into a composition of learnable morphisms under the product fuzzy logic [quantale](https://ncatlab.org/nlab/show/quantale). This is matrix factorization where the algebra is not standard linear algebra but probabilistic [fuzzy logic](https://en.wikipedia.org/wiki/Fuzzy_logic): product is fuzzy AND and summation is fuzzy OR.
+This tutorial demonstrates how to use quivers to factorize a fuzzy relation into a composition of learnable morphisms under the product fuzzy logic [algebra](https://ncatlab.org/nlab/show/algebra). This is matrix factorization where the algebra is not standard linear algebra but probabilistic [fuzzy logic](https://en.wikipedia.org/wiki/Fuzzy_logic): product is fuzzy AND and summation is fuzzy OR.
 
 ## Background
 
-In standard matrix factorization, we approximate a matrix $R \approx F \cdot G$ using real-valued multiplication and addition. In **fuzzy logic factorization**, we replace these with operations from a quantale:
+In standard matrix factorization, we approximate a matrix $R \approx F \cdot G$ using real-valued multiplication and addition. In **fuzzy logic factorization**, we replace these with operations from an algebra:
 
 - **Fuzzy AND** (product t-norm): $a \otimes b = a \cdot b$
 - **Fuzzy OR** (probabilistic sum / noisy-OR): $\bigvee_i x_i = 1 - \prod_i (1 - x_i)$
@@ -61,7 +61,7 @@ f = morphism(X, Y)   # learnable: X -> Y
 g = morphism(Y, Z)   # learnable: Y -> Z
 ```
 
-Each latent morphism stores unconstrained real-valued parameters and applies a sigmoid to produce values in $(0, 1)$. The composition `f >> g` automatically uses the [`ProductFuzzy`](../../api/core/quantales.md) quantale:
+Each latent morphism stores unconstrained real-valued parameters and applies a sigmoid to produce values in $(0, 1)$. The composition `f >> g` automatically uses the [`ProductFuzzyAlgebra`](../../api/core/algebras.md) algebra:
 
 ```python
 h = f >> g            # V-enriched composition: X -> Z
@@ -131,24 +131,24 @@ The noisy-OR interpretation is natural for modeling scenarios where each latent 
 - **Recommendation**: a user likes an item if any latent preference dimension matches
 - **Feature detection**: a sample belongs to a category if any diagnostic feature is present
 
-## Alternative Quantales
+## Alternative Algebras
 
-Quivers ships several other [quantales](../../api/core/quantales.md) that change the meaning of composition:
+Quivers ships several other [algebras](../../api/core/algebras.md) that change the meaning of composition:
 
 ```python
 from quivers import BOOLEAN, LUKASIEWICZ, GODEL, TROPICAL
 
 # Boolean: AND/OR (crisp relations)
-f_bool = morphism(X, Y, quantale=BOOLEAN)
+f_bool = morphism(X, Y, algebra=BOOLEAN)
 
 # Łukasiewicz: bounded sum ([resource-sensitive logic](https://en.wikipedia.org/wiki/%C5%81ukasiewicz_logic))
-f_luk = morphism(X, Y, quantale=LUKASIEWICZ)
+f_luk = morphism(X, Y, algebra=LUKASIEWICZ)
 
 # Gödel: min/max ([possibilistic, minimax composition](https://en.wikipedia.org/wiki/G%C3%B6del%E2%80%93Dummett_logic))
-f_godel = morphism(X, Y, quantale=GODEL)
+f_godel = morphism(X, Y, algebra=GODEL)
 ```
 
-Each quantale gives the same code structure (`morphism`, `>>`, `Program`) but a different algebraic semantics for composition.
+Each algebra gives the same code structure (`morphism`, `>>`, `Program`) but a different algebraic semantics for composition.
 
 ## Summary
 
@@ -156,7 +156,7 @@ In this tutorial you:
 
 - Defined an observed fuzzy relation as an `ObservedMorphism`
 - Factorized it into two learnable `LatentMorphism` instances
-- Composed them with `>>` using the product fuzzy logic quantale
+- Composed them with `>>` using the product fuzzy logic algebra
 - Trained the factorization with BCE loss via `Program`
 - Inspected the learned fuzzy features
 

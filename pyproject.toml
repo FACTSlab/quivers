@@ -16,7 +16,7 @@ keywords = [
     "pytorch",
     "tensor",
     "probabilistic-programming",
-    "quantale",
+    "algebra",
 ]
 classifiers = [
     "Development Status :: 3 - Alpha",

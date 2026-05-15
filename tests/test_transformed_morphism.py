@@ -21,8 +21,8 @@ from quivers.core.morphisms import (
     identity,
 )
 from quivers.core.objects import FinSet, ProductSet
-from quivers.core.quantale_morphisms import MATERIAL_IMPLICATION
-from quivers.core.quantales import MARKOV
+from quivers.core.algebra_morphisms import MATERIAL_IMPLICATION
+from quivers.core.algebras import MARKOV
 
 
 class TestChangeBaseAutograd:
@@ -69,7 +69,7 @@ class TestDaggerAutograd:
     def test_returns_transformed_morphism(self):
         A = FinSet(name="A", cardinality=3)
         B = FinSet(name="B", cardinality=4)
-        f = LatentMorphism(A, B, quantale=MARKOV)
+        f = LatentMorphism(A, B, algebra=MARKOV)
         g = f.dagger
         assert isinstance(g, TransformedMorphism)
         assert g.domain == B
@@ -78,7 +78,7 @@ class TestDaggerAutograd:
     def test_multi_step_backward(self):
         A = FinSet(name="A", cardinality=3)
         B = FinSet(name="B", cardinality=4)
-        f = LatentMorphism(A, B, quantale=MARKOV)
+        f = LatentMorphism(A, B, algebra=MARKOV)
         g = f.dagger
         g.tensor.sum().backward()
         f.raw.grad = None
@@ -88,7 +88,7 @@ class TestDaggerAutograd:
     def test_adam_moves_source(self):
         A = FinSet(name="A", cardinality=3)
         B = FinSet(name="B", cardinality=4)
-        f = LatentMorphism(A, B, quantale=MARKOV)
+        f = LatentMorphism(A, B, algebra=MARKOV)
         g = f.dagger
         initial = f.raw.detach().clone()
         opt = torch.optim.Adam(g.module().parameters(), lr=0.1)

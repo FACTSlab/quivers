@@ -4,7 +4,7 @@ The :class:`Monad` typeclass itself lives in
 :mod:`quivers.monadic.typeclasses`; this module provides two concrete
 monad instances together with the :class:`KleisliCategory` adapter.
 
-- :class:`FuzzyPowersetMonad` — the powerset monad over a quantale,
+- :class:`FuzzyPowersetMonad` — the powerset monad over an algebra,
   whose Kleisli category is the V-enriched relation category.
 - :class:`FreeMonoidMonad` — the free monoid monad on a finite alphabet,
   truncated to a maximum length.
@@ -26,12 +26,12 @@ from quivers.categorical.functors import (
 )
 from quivers.core.morphisms import Morphism, identity, observed
 from quivers.core.objects import FinSet, FreeMonoid, SetObject
-from quivers.core.quantales import PRODUCT_FUZZY, Quantale
+from quivers.core.algebras import PRODUCT_FUZZY, Algebra
 from quivers.monadic.typeclasses import Monad
 
 
 class FuzzyPowersetMonad(Monad):
-    """The fuzzy powerset monad with a given quantale.
+    """The fuzzy powerset monad with a given algebra.
 
     At the set level, ``T(A) = A`` because fuzzy subsets are
     represented as membership-function tensors, not as elements of a
@@ -42,17 +42,17 @@ class FuzzyPowersetMonad(Monad):
 
     Parameters
     ----------
-    quantale : Quantale or None
+    algebra : Algebra or None
         The enrichment algebra. Defaults to PRODUCT_FUZZY.
     """
 
-    def __init__(self, quantale: Quantale | None = None) -> None:
-        self._quantale = quantale if quantale is not None else PRODUCT_FUZZY
+    def __init__(self, algebra: Algebra | None = None) -> None:
+        self._algebra = algebra if algebra is not None else PRODUCT_FUZZY
 
     @property
-    def quantale(self) -> Quantale:
+    def algebra(self) -> Algebra:
         """The enrichment algebra."""
-        return self._quantale
+        return self._algebra
 
     @property
     def endofunctor(self) -> Functor:
@@ -67,10 +67,10 @@ class FuzzyPowersetMonad(Monad):
         return f
 
     def pure(self, A: SetObject) -> Morphism:
-        return identity(A, quantale=self._quantale)
+        return identity(A, algebra=self._algebra)
 
     def join(self, A: SetObject) -> Morphism:
-        return identity(A, quantale=self._quantale)
+        return identity(A, algebra=self._algebra)
 
     # Eilenberg–Moore vocabulary aliases.
     def unit(self, A: SetObject) -> Morphism:
@@ -86,7 +86,7 @@ class FuzzyPowersetMonad(Monad):
         return f >> g
 
     def __repr__(self) -> str:
-        return f"FuzzyPowersetMonad({self._quantale!r})"
+        return f"FuzzyPowersetMonad({self._algebra!r})"
 
 
 class FreeMonoidMonad(Monad):
@@ -103,23 +103,23 @@ class FreeMonoidMonad(Monad):
     ----------
     max_length : int
         Maximum word length (inclusive). Defaults to 4.
-    quantale : Quantale or None
+    algebra : Algebra or None
         The enrichment algebra. Defaults to PRODUCT_FUZZY.
     """
 
-    def __init__(self, max_length: int = 4, quantale: Quantale | None = None) -> None:
+    def __init__(self, max_length: int = 4, algebra: Algebra | None = None) -> None:
         if max_length < 1:
             raise ValueError(f"max_length must be >= 1, got {max_length}")
         self._max_length = max_length
-        self._quantale = quantale if quantale is not None else PRODUCT_FUZZY
+        self._algebra = algebra if algebra is not None else PRODUCT_FUZZY
 
     @property
     def max_length(self) -> int:
         return self._max_length
 
     @property
-    def quantale(self) -> Quantale:
-        return self._quantale
+    def algebra(self) -> Algebra:
+        return self._algebra
 
     @property
     def endofunctor(self) -> Functor:
@@ -157,7 +157,7 @@ class FreeMonoidMonad(Monad):
         data = torch.zeros((n, total))
         for i in range(n):
             data[i, start + i] = 1.0
-        return observed(A, ta, data, quantale=self._quantale)
+        return observed(A, ta, data, algebra=self._algebra)
 
     def join(self, A: SetObject) -> Morphism:
         """``μ_A : (A*)* → A*`` — flatten nested words by concatenation.
@@ -196,7 +196,7 @@ class FreeMonoidMonad(Monad):
                 continue
             flat = ta.encode(tuple(concatenated))  # type: ignore[attr-defined]
             data[k, flat] = 1.0
-        return observed(tta, ta, data, quantale=self._quantale)
+        return observed(tta, ta, data, algebra=self._algebra)
 
     def unit(self, A: SetObject) -> Morphism:
         """Alias for :meth:`pure`."""
@@ -209,7 +209,7 @@ class FreeMonoidMonad(Monad):
     def __repr__(self) -> str:
         return (
             f"FreeMonoidMonad(max_length={self._max_length}, "
-            f"quantale={self._quantale!r})"
+            f"algebra={self._algebra!r})"
         )
 
 

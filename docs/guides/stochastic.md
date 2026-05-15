@@ -31,9 +31,9 @@ h = f >> g
 assert (h.tensor.sum(dim=-1) - 1.0).abs().max() < 1e-5
 ```
 
-## MarkovQuantale
+## MarkovAlgebra
 
-The enrichment for FinStoch uses the Markov quantale:
+The enrichment for FinStoch uses the Markov algebra:
 
 $$
 \begin{align}
@@ -52,7 +52,7 @@ $$(g \circ f)[a, c] = \sum_b f[a, b] \cdot g[b, c]$$
 which is standard matrix multiplication.
 
 ```python
-from quivers.stochastic.quantale import MARKOV
+from quivers.stochastic.algebra import MARKOV
 
 assert MARKOV.name == "Markov"
 

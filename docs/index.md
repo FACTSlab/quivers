@@ -84,7 +84,7 @@ Most PPLs let you write `observe y ~ Normal(mu, sigma)`. Quivers lets you write 
 - **Axis-role priors on weights.** A weight matrix `latent W : Euclidean(D) -> Euclidean(K)` can carry a structured prior whose covariance is genuinely matrix-valued: `~ MatrixNormal(loc, row_cov, col_cov) over (dom, cod)`. The `over <axes>` clause says which axes the family's joint covariance lives on; the rest are iid. This is the right surface for factor analysis, PPCA, Bayesian neural nets, and other "matrix of weights with prior" models.
 - **Exact-likelihood structured families.** HMMs and Kalman smoothers compose like ordinary distributions; the forward, forward-backward, and smoother passes are wrapped.
 - **Compile-time effects.** Programs carry an effect signature `! Sample, Score, Marginal, Pure` that the compiler checks against the body. A `! Pure` block that contains an `observe` is rejected with a typed error before training begins.
-- **First-class transformations.** Softmax row-normalization, L1 / L2 row-normalization, Bayes inversion, and the quantale homomorphisms ([Rosenthal, 1990](https://doi.org/10.1090/conm/094)) that translate between composition semirings are values: let-bindable, composable with `>>>`, passable into `change_base`.
+- **First-class transformations.** Softmax row-normalization, L1 / L2 row-normalization, Bayes inversion, and the algebra homomorphisms ([Rosenthal, 1990](https://doi.org/10.1090/conm/094)) that translate between composition semirings are values: let-bindable, composable with `>>>`, passable into `change_base`.
 - **Weighted deduction.** Chart algorithms (CKY, Earley, Viterbi, A\*, Knuth's algorithm, semi-naive Datalog) are exposed as a `deduction { atoms ... rule ... semiring ... start ... }` block whose chart is a differentiable tensor. Drops in alongside the rest of the language.
 - **Structural compression.** A four-block pattern (`signature { ... } encoder { ... } decoder { ... } loss { ... }`) factors out transformers, tree LSTMs, graph NNs, autoregressive LMs, variational autoencoders ([Kingma & Welling, 2014](https://doi.org/10.48550/arXiv.1312.6114)), and the vector inside-outside parser ([Le & Zuidema, 2014](https://doi.org/10.3115/v1/D14-1081)) as instances of one interface.
 
@@ -107,7 +107,7 @@ flowchart TB
     L8 --> L7 --> L6 --> L5 --> L4 --> L3 --> L2 --> L1
 ```
 
-The central abstraction is a *morphism between finite sets*, parameterized by a *quantale* (a complete lattice with a monoidal product distributing over joins). A morphism `f : A -> B` is a PyTorch tensor of shape `(|A|, |B|)` whose entries take values in the quantale; composition `f >> g` contracts along the shared dimension under the quantale's tensor product and join. Different quantales give different composition semantics: Boolean composes by AND / OR (relational composition), ProductFuzzy by multiplication / noisy-OR, Real by sum-product, Markov by row-stochastic kernel composition, and so on.
+The central abstraction is a *morphism between finite sets*, parameterized by a *algebra* (a complete lattice with a monoidal product distributing over joins). A morphism `f : A -> B` is a PyTorch tensor of shape `(|A|, |B|)` whose entries take values in the algebra; composition `f >> g` contracts along the shared dimension under the algebra's tensor product and join. Different algebras give different composition semantics: Boolean composes by AND / OR (relational composition), ProductFuzzyAlgebra by multiplication / noisy-OR, Real by sum-product, Markov by row-stochastic kernel composition, and so on.
 
 The composition surface is a small hierarchy:
 
@@ -116,7 +116,7 @@ flowchart TB
     CR["CompositionRule"]
     BF["BilinearForm<br/>no associativity promise"]
     SG["Semigroupoid<br/>associative tensor, no identity"]
-    Q["Quantale<br/>associative tensor with identity, plus meet and negate"]
+    Q["Algebra<br/>associative tensor with identity, plus meet and negate"]
     CR --> BF
     CR --> SG
     SG --> Q

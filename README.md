@@ -123,7 +123,7 @@ Then:
 
 ```text
 src/quivers/
-├── core/           objects, quantales, morphisms, tensor ops, wiring
+├── core/           objects, algebras, morphisms, tensor ops, wiring
 ├── categorical/    functors, natural transformations, adjunctions, monoidal, traced
 ├── monadic/        monads, comonads, algebras, distributive laws
 ├── enriched/       ends/coends, Kan extensions, profunctors, Yoneda, Day, optics

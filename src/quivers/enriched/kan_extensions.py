@@ -28,7 +28,7 @@ from abc import ABC, abstractmethod
 import torch
 from quivers.core.objects import SetObject, ProductSet, CoproductSet
 from quivers.core.morphisms import Morphism, ObservedMorphism, observed
-from quivers.core.quantales import PRODUCT_FUZZY, Quantale
+from quivers.core.algebras import PRODUCT_FUZZY, Algebra
 
 
 class ObjectMap(ABC):
@@ -197,7 +197,7 @@ class Inclusion(ObjectMap):
 
 
 def left_kan(
-    morph: Morphism, along: ObjectMap, quantale: Quantale | None = None
+    morph: Morphism, along: ObjectMap, algebra: Algebra | None = None
 ) -> ObservedMorphism:
     """Left Kan extension of a morphism along an object map.
 
@@ -209,7 +209,7 @@ def left_kan(
         The morphism R: A → B.
     along : ObjectMap
         The map p: A → A'.
-    quantale : Quantale or None
+    algebra : Algebra or None
         The enrichment algebra. Defaults to PRODUCT_FUZZY.
 
     Returns
@@ -217,7 +217,7 @@ def left_kan(
     ObservedMorphism
         The left Kan extension Lan_p(R): A' → B.
     """
-    q = quantale if quantale is not None else PRODUCT_FUZZY
+    q = algebra if algebra is not None else PRODUCT_FUZZY
     target = along.target
     codomain = morph.codomain
     result_shape = (*target.shape, *codomain.shape)
@@ -230,11 +230,11 @@ def left_kan(
         slices = torch.stack([source_tensor[src_idx] for src_idx in fiber])
         joined = q.join(slices, dim=0)
         result[tgt_idx] = joined
-    return observed(target, codomain, result, quantale=q)
+    return observed(target, codomain, result, algebra=q)
 
 
 def right_kan(
-    morph: Morphism, along: ObjectMap, quantale: Quantale | None = None
+    morph: Morphism, along: ObjectMap, algebra: Algebra | None = None
 ) -> ObservedMorphism:
     """Right Kan extension of a morphism along an object map.
 
@@ -246,7 +246,7 @@ def right_kan(
         The morphism R: A → B.
     along : ObjectMap
         The map p: A → A'.
-    quantale : Quantale or None
+    algebra : Algebra or None
         The enrichment algebra. Defaults to PRODUCT_FUZZY.
 
     Returns
@@ -254,7 +254,7 @@ def right_kan(
     ObservedMorphism
         The right Kan extension Ran_p(R): A' → B.
     """
-    q = quantale if quantale is not None else PRODUCT_FUZZY
+    q = algebra if algebra is not None else PRODUCT_FUZZY
     target = along.target
     codomain = morph.codomain
     result_shape = (*target.shape, *codomain.shape)
@@ -267,4 +267,4 @@ def right_kan(
         slices = torch.stack([source_tensor[src_idx] for src_idx in fiber])
         met = q.meet(slices, dim=0)
         result[tgt_idx] = met
-    return observed(target, codomain, result, quantale=q)
+    return observed(target, codomain, result, algebra=q)

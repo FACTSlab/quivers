@@ -33,7 +33,7 @@ import torch
 
 from quivers.core.objects import SetObject
 from quivers.core.morphisms import Morphism
-from quivers.core.quantales import PRODUCT_FUZZY, Quantale
+from quivers.core.algebras import PRODUCT_FUZZY, Algebra
 from quivers.enriched.profunctors import Profunctor
 
 
@@ -56,17 +56,17 @@ class Presheaf:
         Maps object index → V-tensor. The tensor at index i
         represents F(objects[i]), a V-valued "set" of shape
         (*objects[i].shape,).
-    quantale : Quantale or None
+    algebra : Algebra or None
         The enrichment algebra. Defaults to PRODUCT_FUZZY.
     """
 
     objects: Sequence[SetObject]
     values: dict[int, torch.Tensor]
-    quantale: Quantale | None = None
+    algebra: Algebra | None = None
 
     def __post_init__(self) -> None:
-        if self.quantale is None:
-            self.quantale = PRODUCT_FUZZY
+        if self.algebra is None:
+            self.algebra = PRODUCT_FUZZY
 
     def evaluate(self, index: int) -> torch.Tensor:
         """Evaluate the presheaf at object index.
@@ -91,7 +91,7 @@ class Presheaf:
 
 def representable_profunctor(
     obj: SetObject,
-    quantale: Quantale | None = None,
+    algebra: Algebra | None = None,
 ) -> Profunctor:
     """The representable profunctor C(-, A) as a self-profunctor.
 
@@ -105,7 +105,7 @@ def representable_profunctor(
     ----------
     obj : SetObject
         The representing object A.
-    quantale : Quantale or None
+    algebra : Algebra or None
         The enrichment algebra. Defaults to PRODUCT_FUZZY.
 
     Returns
@@ -113,15 +113,15 @@ def representable_profunctor(
     Profunctor
         The representable profunctor y(A) = C(-, A).
     """
-    q = quantale if quantale is not None else PRODUCT_FUZZY
+    q = algebra if algebra is not None else PRODUCT_FUZZY
     id_tensor = q.identity_tensor(obj.shape)
 
-    return Profunctor(contra=obj, co=obj, tensor=id_tensor, quantale=q)
+    return Profunctor(contra=obj, co=obj, tensor=id_tensor, algebra=q)
 
 
 def corepresentable_profunctor(
     obj: SetObject,
-    quantale: Quantale | None = None,
+    algebra: Algebra | None = None,
 ) -> Profunctor:
     """The corepresentable profunctor C(A, -) as a self-profunctor.
 
@@ -131,7 +131,7 @@ def corepresentable_profunctor(
     ----------
     obj : SetObject
         The corepresenting object A.
-    quantale : Quantale or None
+    algebra : Algebra or None
         The enrichment algebra. Defaults to PRODUCT_FUZZY.
 
     Returns
@@ -139,10 +139,10 @@ def corepresentable_profunctor(
     Profunctor
         The corepresentable profunctor C(A, -).
     """
-    q = quantale if quantale is not None else PRODUCT_FUZZY
+    q = algebra if algebra is not None else PRODUCT_FUZZY
     id_tensor = q.identity_tensor(obj.shape)
 
-    return Profunctor(contra=obj, co=obj, tensor=id_tensor, quantale=q)
+    return Profunctor(contra=obj, co=obj, tensor=id_tensor, algebra=q)
 
 
 def yoneda_embedding(
@@ -174,7 +174,7 @@ def yoneda_lemma(
     presheaf: Presheaf,
     obj_index: int,
     hom_tensors: Sequence[torch.Tensor],
-    quantale: Quantale | None = None,
+    algebra: Algebra | None = None,
 ) -> torch.Tensor:
     """Compute the Yoneda lemma: ∫_X [C(X, A), F(X)] ≅ F(A).
 
@@ -193,7 +193,7 @@ def yoneda_lemma(
     hom_tensors : Sequence[torch.Tensor]
         For each object X_i in the presheaf, the hom tensor
         C(X_i, A) of shape (*X_i.shape, *A.shape).
-    quantale : Quantale or None
+    algebra : Algebra or None
         The enrichment algebra. Defaults to PRODUCT_FUZZY.
 
     Returns
@@ -201,7 +201,7 @@ def yoneda_lemma(
     torch.Tensor
         The Yoneda end, which should be ≅ F(A).
     """
-    q = quantale if quantale is not None else PRODUCT_FUZZY
+    q = algebra if algebra is not None else PRODUCT_FUZZY
 
     if len(hom_tensors) != presheaf.size:
         raise ValueError(
@@ -255,7 +255,7 @@ def yoneda_lemma(
 
 def yoneda_density(
     morph: Morphism,
-    quantale: Quantale | None = None,
+    algebra: Algebra | None = None,
 ) -> torch.Tensor:
     """Verify Yoneda density: f ≅ ∫^X C(A, X) ⊗ f(X, -).
 
@@ -271,7 +271,7 @@ def yoneda_density(
     ----------
     morph : Morphism
         The morphism f: A → B.
-    quantale : Quantale or None
+    algebra : Algebra or None
         The enrichment algebra. Defaults to PRODUCT_FUZZY.
 
     Returns
@@ -279,7 +279,7 @@ def yoneda_density(
     torch.Tensor
         The coend result, which should equal morph.tensor.
     """
-    q = quantale if quantale is not None else PRODUCT_FUZZY
+    q = algebra if algebra is not None else PRODUCT_FUZZY
     id_a = q.identity_tensor(morph.domain.shape)
 
     # coend is just composition with identity = f itself

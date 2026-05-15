@@ -1,6 +1,6 @@
 # 7. Under the hood: the categorical surface
 
-You can use QVR productively without category theory; the previous six chapters demonstrate that. But the library was built on a specific categorical foundation, and at some point you'll see a type error like `Source quantale 'ProductFuzzy' does not match this morphism's quantale 'Real'` or a method called `change_base` and want to know what's going on. This chapter is a tour of the categorical machinery, oriented towards the four constructs that surface in the type system: *objects*, *morphisms*, *quantales*, and *change-of-base*.
+You can use QVR productively without category theory; the previous six chapters demonstrate that. But the library was built on a specific categorical foundation, and at some point you'll see a type error like `Source algebra 'ProductFuzzyAlgebra' does not match this morphism's algebra 'Real'` or a method called `change_base` and want to know what's going on. This chapter is a tour of the categorical machinery, oriented towards the four constructs that surface in the type system: *objects*, *morphisms*, *algebras*, and *change-of-base*.
 
 This is optional reading. Skip it if the DSL is doing what you need.
 
@@ -8,14 +8,14 @@ This is optional reading. Skip it if the DSL is doing what you need.
 
 A QVR program denotes a morphism in a [$\mathcal{V}$-enriched category](https://ncatlab.org/nlab/show/enriched+category) in the sense of [Kelly (1982)](http://www.tac.mta.ca/tac/reprints/articles/10/tr10abs.html). *Enriched* means the hom-sets aren't sets, they're objects of a fixed algebra $\mathcal{V}$ called the *enrichment* or *base*. For QVR's category $\mathcal{V}\text{-}\mathbf{Rel}$ of $\mathcal{V}$-valued relations on finite sets, a morphism `f : A -> B` is concretely a tensor of shape `(|A|, |B|)` whose entries live in $\mathcal{V}$. The choice of $\mathcal{V}$ determines what those entries mean: probabilities, log-probabilities, real numbers, fuzzy truth values, Booleans, etc. Composition `f >> g` is parameterized by $\mathcal{V}$ via two operations: a binary tensor product (`a ⊗ b`) that combines entries pointwise, and a join (`⋁_i x_i`) that aggregates over the shared dimension. Different choices of $(\otimes, \bigvee)$ give different composition semantics.
 
-## Quantales: the enrichment algebra
+## Algebras: the enrichment algebra
 
-A [quantale](https://ncatlab.org/nlab/show/quantale) is a complete lattice equipped with a monoidal product distributing over arbitrary joins. The shipped quantales:
+A [algebra](https://ncatlab.org/nlab/show/algebra) is a complete lattice equipped with a monoidal product distributing over arbitrary joins. The shipped algebras:
 
 | Name | $\otimes$ | $\bigvee$ | Identity | Reading |
 |---|---|---|---|---|
 | `Boolean` | AND | OR | true | Classical relations. |
-| `ProductFuzzy` | $a \cdot b$ | $1 - \prod(1-x_i)$ | 1 | Fuzzy "probabilistic AND / noisy-OR". |
+| `ProductFuzzyAlgebra` | $a \cdot b$ | $1 - \prod(1-x_i)$ | 1 | Fuzzy "probabilistic AND / noisy-OR". |
 | `Lukasiewicz` | $\max(0, a+b-1)$ | $\min(1, \sum x_i)$ | 1 | Probabilistic-sum t-conorm. |
 | `Godel` | $\min(a, b)$ | $\max_i x_i$ | 1 | Min-max fuzzy logic. |
 | `Tropical` | $a + b$ | $\min_i x_i$ | 0 | Shortest-path cost algebra. |
@@ -26,27 +26,27 @@ A [quantale](https://ncatlab.org/nlab/show/quantale) is a complete lattice equip
 | `Probability` | $a \cdot b$ | $\sum_i x_i$ (clamped to [0,1]) | 1 | Bounded sum-product. |
 | `Counting` | $a \cdot b$ | $\sum_i x_i$ | 1 | Nonnegative-integer counting. |
 
-`quantale product_fuzzy` at the top of a `.qvr` file sets the enrichment for the module. Every `f >> g` composition uses the corresponding $(\otimes, \bigvee)$.
+`algebra product_fuzzy` at the top of a `.qvr` file sets the enrichment for the module. Every `f >> g` composition uses the corresponding $(\otimes, \bigvee)$.
 
-The hierarchy in `quivers.core.quantales` is:
+The hierarchy in `quivers.core.algebras` is:
 
 ```
 CompositionRule
     ├── BilinearForm     (no associativity promise)
     └── Semigroupoid     (associative ⊗, no identity)
-            └── Quantale  (associative ⊗ with identity, plus meet/negate)
+            └── Algebra  (associative ⊗ with identity, plus meet/negate)
 ```
 
-Operations like `identity(A)`, `cup(A)`, `cap(A)`, `f.dagger`, `f.trace(A)` need the identity element and the compact-closed structure: they live on `Quantale`. If your module declares `semigroupoid material_impl` (Reichenbach-style implication composition, which is associative but lacks an identity), the compiler rejects `identity(A)` with a typed error pointing at the rule's level. Chapter 4 of the Python API track has the full story.
+Operations like `identity(A)`, `cup(A)`, `cap(A)`, `f.dagger`, `f.trace(A)` need the identity element and the compact-closed structure: they live on `Algebra`. If your module declares `semigroupoid material_impl` (Reichenbach-style implication composition, which is associative but lacks an identity), the compiler rejects `identity(A)` with a typed error pointing at the rule's level. Chapter 4 of the Python API track has the full story.
 
 ## Composition operators carry the enrichment
 
-The shipped composition operators split into two groups. `>>` and `>=>` defer to the operands' own quantale (the module-level `quantale` declaration); the typed variants pin a specific enrichment and reject operands carrying a different one:
+The shipped composition operators split into two groups. `>>` and `>=>` defer to the operands' own algebra (the module-level `algebra` declaration); the typed variants pin a specific enrichment and reject operands carrying a different one:
 
-| Operator | Quantale |
+| Operator | Algebra |
 |---|---|
-| `>>` | operands' shared quantale |
-| `>=>` | [Kleisli composition](https://en.wikipedia.org/wiki/Kleisli_category) in operands' shared quantale |
+| `>>` | operands' shared algebra |
+| `>=>` | [Kleisli composition](https://en.wikipedia.org/wiki/Kleisli_category) in operands' shared algebra |
 | `*>` | Markov (sum-product, kernel composition) |
 | `~>` | LogProb (numerically stable in log-space) |
 | `||>` | Gödel (min/max) |
@@ -57,16 +57,16 @@ The shipped composition operators split into two groups. `>>` and `>=>` defer to
 | `%>` | Probability |
 | `<<` | Reverse of `>>` |
 
-So `f >> g` composes in whatever enrichment both operands carry, and errors on a mismatch; the typed operators (`*>`, `~>`, ...) require both operands to already live in the target quantale and never auto-base-change. To cross enrichments, you [`change_base`](../../api/core/morphisms.md) between segments.
+So `f >> g` composes in whatever enrichment both operands carry, and errors on a mismatch; the typed operators (`*>`, `~>`, ...) require both operands to already live in the target algebra and never auto-base-change. To cross enrichments, you [`change_base`](../../api/core/morphisms.md) between segments.
 
 ## Change of base
 
-A *quantale homomorphism* $\varphi : \mathcal{V} \to \mathcal{W}$ is a lax monoidal lattice functor: it preserves the order, is lax with respect to $\otimes$ and $\bigvee$, and takes $\mathcal{V}$'s unit to $\mathcal{W}$'s. Functorially it extends to a base-change functor $\mathcal{V}\text{-}\mathbf{Rel} \to \mathcal{W}\text{-}\mathbf{Rel}$ that takes an $\mathcal{V}$-valued morphism to a $\mathcal{W}$-valued morphism by applying $\varphi$ entrywise. `f.change_base(phi)` is the surface for this.
+A *algebra homomorphism* $\varphi : \mathcal{V} \to \mathcal{W}$ is a lax monoidal lattice functor: it preserves the order, is lax with respect to $\otimes$ and $\bigvee$, and takes $\mathcal{V}$'s unit to $\mathcal{W}$'s. Functorially it extends to a base-change functor $\mathcal{V}\text{-}\mathbf{Rel} \to \mathcal{W}\text{-}\mathbf{Rel}$ that takes an $\mathcal{V}$-valued morphism to a $\mathcal{W}$-valued morphism by applying $\varphi$ entrywise. `f.change_base(phi)` is the surface for this.
 
 The DSL exposes a catalog of named homomorphisms (`expectation`, `log_prob`, `max_plus`, `material_implication`, `threshold`, `boolean_embedding`, ...) and a small set of *constructors* parameterized by an object or morphism (`softmax(B)`, `l1_normalize(B)`, `l2_normalize(B)`, `bayes_invert(prior)`). Each of these is a first-class transformation value: you can let-bind them, compose them with `>>>`, pass them through `change_base`. The Python API track chapter 6 walks through the full surface; here's the short version:
 
 ```qvr
-quantale product_fuzzy
+algebra product_fuzzy
 object A : 3
 object B : 4
 latent f : A -> B
@@ -76,7 +76,7 @@ let pipeline = s >>> expectation
 let g = f.change_base(pipeline)
 ```
 
-`softmax(B)` builds a `MorphismTransformation` with `source = ProductFuzzy, target = Markov`; `expectation` is a `QuantaleHomomorphism` with `source = Markov, target = ProductFuzzy`. The composition `s >>> expectation` round-trips back to ProductFuzzy and gives you a morphism whose rows are normalized on the way out.
+`softmax(B)` builds a `MorphismTransformation` with `source = ProductFuzzyAlgebra, target = Markov`; `expectation` is a `AlgebraHomomorphism` with `source = Markov, target = ProductFuzzyAlgebra`. The composition `s >>> expectation` round-trips back to ProductFuzzyAlgebra and gives you a morphism whose rows are normalized on the way out.
 
 ## The monadic programs
 

@@ -55,7 +55,7 @@ If you've used Haskell's `mapAccumL` or NumPy's `np.cumsum`, this is the same id
 HMMs ([Rabiner, 1989](https://doi.org/10.1109/5.18626)) factor as an initial distribution, a row-stochastic transition kernel, and a row-stochastic emission kernel. In QVR's enriched setting they compose directly with `>>`. Here's the canonical K-state HMM with categorical emissions, lifted from `docs/examples/source/hmm.qvr`:
 
 ```qvr
-quantale product_fuzzy
+algebra product_fuzzy
 
 object State : 8
 object Obs : 16
@@ -75,7 +75,7 @@ Two points to call out:
 - Every kernel is a row-stochastic matrix with a row-wise [Dirichlet](https://en.wikipedia.org/wiki/Dirichlet_distribution) prior. The axis-role surface `~ Dirichlet(1.0) over cod iid over dom` says each row of the matrix is an independent simplex draw, indexed by the domain object: the conjugate prior for a discrete Markov chain.
 - `repeat(transition)` is the runtime-variable repetition combinator: at evaluation time it folds the transition kernel against itself for the requested number of steps. The same model produces n-step marginals for any horizon.
 
-The Pyro analogue uses `infer={"enumerate": "parallel"}` and walks the chain with axis-shape juggling. NumPyro's `numpyro.contrib.control_flow.scan` does the per-step recursion explicitly. QVR's compositional surface treats the chain as a single morphism: the runtime contracts initial, transition, and emission in the quantale's tensor-and-join structure.
+The Pyro analogue uses `infer={"enumerate": "parallel"}` and walks the chain with axis-shape juggling. NumPyro's `numpyro.contrib.control_flow.scan` does the per-step recursion explicitly. QVR's compositional surface treats the chain as a single morphism: the runtime contracts initial, transition, and emission in the algebra's tensor-and-join structure.
 
 ## State-space models
 

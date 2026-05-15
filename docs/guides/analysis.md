@@ -129,8 +129,8 @@ itself a frozen `dx.Model`, with `.formula`, `.family`, `.program`
 ### Inspect or dump the generated QVR
 
 ```python
-print(fit.qvr_source)                    # canonical .qvr source
-fit.dump_qvr("acceptability.qvr")        # write to disk
+print(result.qvr_source)                    # canonical .qvr source
+result.dump_qvr("acceptability.qvr")        # write to disk
 
 # Or compile the formula without fitting:
 from quivers.formulas import formula_to_qvr

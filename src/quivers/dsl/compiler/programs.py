@@ -62,7 +62,7 @@ from quivers.dsl.ast_nodes import (
 from quivers.dsl.compiler._prelude import (
     CompileError,
     _CompiledContraction,
-    _QUANTALE_REGISTRY,
+    _ALGEBRA_REGISTRY,
     _get_family_registry,
     _numel_shape,
 )
@@ -1081,7 +1081,7 @@ class _ProgramsMixin:
             contraction.domain,
             contraction.codomain,
             result_tensor,
-            quantale=contraction.quantale,
+            algebra=contraction.algebra,
         )
 
     def _compile_program_template_call(self, expr: ExprMorphismCall):
@@ -1225,15 +1225,15 @@ class _ProgramsMixin:
                 decl.col,
             )
         rule_name = decl.rule_name.lower()
-        if rule_name not in _QUANTALE_REGISTRY:
+        if rule_name not in _ALGEBRA_REGISTRY:
             raise CompileError(
                 f"contraction {decl.name!r}: unknown rule "
                 f"{decl.rule_name!r}; available: "
-                f"{', '.join(sorted(_QUANTALE_REGISTRY))}",
+                f"{', '.join(sorted(_ALGEBRA_REGISTRY))}",
                 decl.line,
                 decl.col,
             )
-        rule = _QUANTALE_REGISTRY[rule_name]
+        rule = _ALGEBRA_REGISTRY[rule_name]
         try:
             wiring = EinsumWiring(rule, decl.wiring_spec)
         except ValueError as exc:
@@ -1270,7 +1270,7 @@ class _ProgramsMixin:
             domain=domain_obj,
             codomain=codomain_obj,
             input_types=input_types,
-            quantale=rule,
+            algebra=rule,
         )
 
     def _compile_program(self, decl: ProgramDecl) -> None:

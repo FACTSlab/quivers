@@ -165,7 +165,7 @@ natural transformation through $\mathrm{Th}\mathfrak{C}_1, \dots,
   derivation tree.
 
 The chart algorithm (CKY) is the standard inside-score recurrence and
-is sound for arbitrary $\mathcal{V}$-quantale-valued semirings (see
+is sound for arbitrary $\mathcal{V}$-algebra-valued semirings (see
 [Grammar Fragment §7](grammar.md#7-strategy-independence)).
 $\square$
 

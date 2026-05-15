@@ -1,95 +1,205 @@
-"""Tests for algebras and coalgebras."""
+"""Tests for algebra operations."""
 
 import torch
-from quivers.core.objects import FinSet, FreeMonoid
-from quivers.core.morphisms import identity
-from quivers.monadic.monads import FuzzyPowersetMonad, FreeMonoidMonad
-from quivers.monadic.comonads import DiagonalComonad
-from quivers.monadic.algebras import (
-    FreeAlgebra,
-    ObservedAlgebra,
-    CofreeCoalgebra,
-    EilenbergMooreCategory,
+import pytest
+
+from quivers.core.algebras import (
+    ProductFuzzyAlgebra,
+    BooleanAlgebra,
+    PRODUCT_FUZZY,
+    BOOLEAN,
 )
 
 
-class TestFreeAlgebra:
-    def test_fuzzy_powerset_free_algebra(self):
-        """Free algebra for FuzzyPowerset has carrier A and μ = id."""
-        m = FuzzyPowersetMonad()
-        a = FinSet(name="A", cardinality=3)
-        alg = FreeAlgebra(m, a)
-        assert alg.carrier == a
-        alpha = alg.structure_map()
-        torch.testing.assert_close(alpha.tensor, torch.eye(3))
+class TestProductFuzzyAlgebra:
+    def test_tensor_op_is_product(self):
+        q = ProductFuzzyAlgebra()
+        a = torch.tensor([0.3, 0.5, 0.8])
+        b = torch.tensor([0.4, 0.6, 0.2])
+        result = q.tensor_op(a, b)
+        expected = a * b
+        torch.testing.assert_close(result, expected)
 
-    def test_free_algebra_unit_law(self):
-        """α ∘ η_A = id for free algebra."""
-        m = FuzzyPowersetMonad()
-        a = FinSet(name="A", cardinality=3)
-        alg = FreeAlgebra(m, a)
-        assert alg.verify_unit_law()
+    def test_join_is_noisy_or(self):
+        q = ProductFuzzyAlgebra()
+        t = torch.tensor([[0.5, 0.3], [0.8, 0.1]])
+        result = q.join(t, dim=1)
 
-    def test_free_algebra_associativity(self):
-        """α ∘ μ = α ∘ T(α) for free algebra."""
-        m = FuzzyPowersetMonad()
-        a = FinSet(name="A", cardinality=3)
-        alg = FreeAlgebra(m, a)
-        assert alg.verify_associativity()
+        # 1 - (1-0.5)(1-0.3) = 0.65
+        # 1 - (1-0.8)(1-0.1) = 0.82
+        expected = torch.tensor([0.65, 0.82])
+        torch.testing.assert_close(result, expected, atol=1e-5, rtol=1e-5)
 
-    def test_free_monoid_free_algebra(self):
-        """Free algebra for FreeMonoid has carrier A*."""
-        m = FreeMonoidMonad(max_length=1)
-        a = FinSet(name="A", cardinality=2)
-        alg = FreeAlgebra(m, a)
-        fm = FreeMonoid(generators=a, max_length=1)
-        assert alg.carrier.size == fm.size
+    def test_meet_is_product(self):
+        q = ProductFuzzyAlgebra()
+        t = torch.tensor([0.5, 0.3])
+        result = q.meet(t, dim=0)
+        expected = torch.tensor(0.15)
+        torch.testing.assert_close(result, expected, atol=1e-5, rtol=1e-5)
+
+    def test_negate_is_complement(self):
+        q = ProductFuzzyAlgebra()
+        t = torch.tensor([0.3, 0.7])
+        result = q.negate(t)
+        expected = torch.tensor([0.7, 0.3])
+        torch.testing.assert_close(result, expected)
+
+    def test_unit_and_zero(self):
+        q = ProductFuzzyAlgebra()
+        assert q.unit == 1.0
+        assert q.zero == 0.0
+
+    def test_compose_matches_noisy_or_contract(self):
+        """ProductFuzzyAlgebra.compose should match noisy_or_contract exactly."""
+        from quivers.core.tensor_ops import noisy_or_contract
+
+        torch.manual_seed(42)
+        m = torch.rand(3, 4)
+        n = torch.rand(4, 5)
+
+        q = ProductFuzzyAlgebra()
+        result_q = q.compose(m, n, n_contract=1)
+        result_legacy = noisy_or_contract(m, n, n_contract=1)
+
+        torch.testing.assert_close(result_q, result_legacy, atol=1e-6, rtol=1e-6)
+
+    def test_compose_higher_order(self):
+        """Compose over multi-dimensional shared set."""
+        q = ProductFuzzyAlgebra()
+        m = torch.rand(3, 4, 5)
+        n = torch.rand(4, 5, 2)
+        result = q.compose(m, n, n_contract=2)
+        assert result.shape == (3, 2)
+
+    def test_compose_shape_mismatch_raises(self):
+        q = ProductFuzzyAlgebra()
+
+        with pytest.raises(ValueError, match="shared dimensions"):
+            q.compose(torch.rand(3, 4), torch.rand(5, 2), n_contract=1)
+
+    def test_name(self):
+        assert ProductFuzzyAlgebra().name == "ProductFuzzy"
+
+    def test_singleton(self):
+        assert isinstance(PRODUCT_FUZZY, ProductFuzzyAlgebra)
 
 
-class TestObservedAlgebra:
-    def test_identity_algebra(self):
-        """The identity morphism is an algebra for FuzzyPowerset."""
-        m = FuzzyPowersetMonad()
-        a = FinSet(name="A", cardinality=3)
-        alg = ObservedAlgebra(m, a, torch.eye(3))
-        assert alg.verify_unit_law()
-        assert alg.verify_associativity()
+class TestBooleanAlgebra:
+    def test_tensor_op_is_and(self):
+        q = BooleanAlgebra()
+        a = torch.tensor([1.0, 0.0, 1.0, 0.0])
+        b = torch.tensor([1.0, 1.0, 0.0, 0.0])
+        result = q.tensor_op(a, b)
+        expected = torch.tensor([1.0, 0.0, 0.0, 0.0])
+        torch.testing.assert_close(result, expected)
+
+    def test_join_is_or(self):
+        q = BooleanAlgebra()
+        t = torch.tensor([[0.0, 0.0], [1.0, 0.0], [0.0, 1.0], [1.0, 1.0]])
+        result = q.join(t, dim=1)
+        expected = torch.tensor([0.0, 1.0, 1.0, 1.0])
+        torch.testing.assert_close(result, expected)
+
+    def test_meet_is_and(self):
+        q = BooleanAlgebra()
+        t = torch.tensor([[1.0, 1.0], [1.0, 0.0], [0.0, 1.0]])
+        result = q.meet(t, dim=1)
+        expected = torch.tensor([1.0, 0.0, 0.0])
+        torch.testing.assert_close(result, expected)
+
+    def test_negate_is_not(self):
+        q = BooleanAlgebra()
+        t = torch.tensor([0.0, 1.0])
+        result = q.negate(t)
+        expected = torch.tensor([1.0, 0.0])
+        torch.testing.assert_close(result, expected)
+
+    def test_compose_boolean_matmul(self):
+        """Boolean composition should match boolean matrix multiply."""
+        q = BooleanAlgebra()
+        m = torch.tensor([[1.0, 0.0], [0.0, 1.0], [1.0, 1.0]])
+        n = torch.tensor([[1.0, 0.0, 1.0], [0.0, 1.0, 0.0]])
+
+        result = q.compose(m, n, n_contract=1)
+
+        expected = torch.tensor(
+            [
+                [1.0, 0.0, 1.0],
+                [0.0, 1.0, 0.0],
+                [1.0, 1.0, 1.0],
+            ]
+        )
+
+        torch.testing.assert_close(result, expected, atol=1e-5, rtol=1e-5)
+
+    def test_name(self):
+        assert BooleanAlgebra().name == "Boolean"
+
+    def test_singleton(self):
+        assert isinstance(BOOLEAN, BooleanAlgebra)
 
 
-class TestCofreeCoalgebra:
-    def test_cofree_coalgebra_structure(self):
-        """Cofree coalgebra has carrier W(A) and γ = δ_A."""
-        from quivers.core.objects import ProductSet
+class TestIdentityTensor:
+    def test_1d_identity(self):
+        q = ProductFuzzyAlgebra()
+        identity = q.identity_tensor((3,))
+        assert identity.shape == (3, 3)
+        torch.testing.assert_close(identity, torch.eye(3))
 
-        w = DiagonalComonad()
-        a = FinSet(name="A", cardinality=2)
-        coalg = CofreeCoalgebra(w, a)
-        expected_carrier = ProductSet(components=(a, a))
-        assert coalg.carrier.shape == expected_carrier.shape
+    def test_multi_dim_identity(self):
+        q = ProductFuzzyAlgebra()
+        identity = q.identity_tensor((2, 3))
+        assert identity.shape == (2, 3, 2, 3)
 
-    def test_cofree_coalgebra_counit_law(self):
-        """ε ∘ γ = id for cofree coalgebra."""
-        w = DiagonalComonad()
-        a = FinSet(name="A", cardinality=2)
-        coalg = CofreeCoalgebra(w, a)
-        assert coalg.verify_counit_law()
+        # diagonal entries should be unit (1.0)
+        for i in range(2):
+            for j in range(3):
+                assert identity[i, j, i, j].item() == 1.0
+
+        # off-diagonal should be zero
+        for i1 in range(2):
+            for j1 in range(3):
+                for i2 in range(2):
+                    for j2 in range(3):
+                        if (i1, j1) != (i2, j2):
+                            assert identity[i1, j1, i2, j2].item() == 0.0
+
+    def test_boolean_identity(self):
+        q = BooleanAlgebra()
+        identity = q.identity_tensor((4,))
+        torch.testing.assert_close(identity, torch.eye(4))
 
 
-class TestEilenbergMooreCategory:
-    def test_free_algebra_creation(self):
-        """EM category can create free algebras."""
-        m = FuzzyPowersetMonad()
-        em = EilenbergMooreCategory(m)
-        a = FinSet(name="A", cardinality=3)
-        alg = em.free_algebra(a)
-        assert alg.carrier == a
-        assert alg.verify_unit_law()
+class TestCompatibility:
+    def test_same_type_compatible(self):
+        assert PRODUCT_FUZZY.is_compatible(ProductFuzzyAlgebra())
+        assert BOOLEAN.is_compatible(BooleanAlgebra())
 
-    def test_identity_is_homomorphism(self):
-        """The identity morphism should be an algebra homomorphism."""
-        m = FuzzyPowersetMonad()
-        em = EilenbergMooreCategory(m)
-        a = FinSet(name="A", cardinality=3)
-        alg = em.free_algebra(a)
-        id_a = identity(a)
-        assert em.is_homomorphism(id_a, alg, alg)
+    def test_different_type_incompatible(self):
+        assert not PRODUCT_FUZZY.is_compatible(BOOLEAN)
+        assert not BOOLEAN.is_compatible(PRODUCT_FUZZY)
+
+
+class TestDeMorgan:
+    """Verify algebra-level De Morgan duality."""
+
+    def test_product_fuzzy_de_morgan(self):
+        """¬(⋁ x_i) = ⋀ (¬x_i) in ProductFuzzyAlgebra."""
+        q = ProductFuzzyAlgebra()
+        torch.manual_seed(42)
+        x = torch.rand(8)
+
+        lhs = q.negate(q.join(x, dim=0))
+        rhs = q.meet(q.negate(x), dim=0)
+
+        torch.testing.assert_close(lhs, rhs, atol=1e-5, rtol=1e-5)
+
+    def test_boolean_de_morgan(self):
+        """¬(⋁ x_i) = ⋀ (¬x_i) in BooleanAlgebra."""
+        q = BooleanAlgebra()
+        x = torch.tensor([1.0, 0.0, 1.0, 0.0])
+
+        lhs = q.negate(q.join(x, dim=0))
+        rhs = q.meet(q.negate(x), dim=0)
+
+        torch.testing.assert_close(lhs, rhs, atol=1e-5, rtol=1e-5)

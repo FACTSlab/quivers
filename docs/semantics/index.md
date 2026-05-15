@@ -1,12 +1,12 @@
 # Denotational Semantics of the QVR DSL
 
-This section gives a formal denotational semantics for the QVR domain-specific language. Each well-typed phrase $\phi$ is assigned a unique mathematical denotation $\llbracket \phi \rrbracket$ in a fixed semantic universe, parameterized by a choice of quantale $\mathcal{V}$.
+This section gives a formal denotational semantics for the QVR domain-specific language. Each well-typed phrase $\phi$ is assigned a unique mathematical denotation $\llbracket \phi \rrbracket$ in a fixed semantic universe, parameterized by a choice of algebra $\mathcal{V}$.
 
 The development is organized as follows.
 
 1. **[Setting and notation](setting.md).** The semantic universe: $\mathcal{V}$-enriched symmetric monoidal closed categories, finite sets, standard Borel spaces, and the global parameters that distinguish discrete, stochastic, and continuous fragments.
-2. **[Quantales and base change](quantales.md).** The algebraic structure underlying $\mathcal{V}$-enriched composition, the eleven built-in quantales, and the base-change functors that mediate between them.
-3. **[Composition rules](composition-rules.md).** The class hierarchy $\mathbf{CompositionRule} \supseteq \{\mathbf{BilinearForm},\ \mathbf{Semigroupoid} \supseteq \mathbf{Quantale}\}$; user-defined inline composition rules; operadic n-ary contractions via flat wirings; first-class transformations with sequential composition.
+2. **[Algebras and base change](algebras.md).** The algebraic structure underlying $\mathcal{V}$-enriched composition, the eleven built-in algebras, and the base-change functors that mediate between them.
+3. **[Composition rules](composition-rules.md).** The class hierarchy $\mathbf{CompositionRule} \supseteq \{\mathbf{BilinearForm},\ \mathbf{Semigroupoid} \supseteq \mathbf{Algebra}\}$; user-defined inline composition rules; operadic n-ary contractions via flat wirings; first-class transformations with sequential composition.
 4. **[Types and spaces](types-and-spaces.md).** The denotation of `TypeExpr` and `SpaceExpr` syntactic categories as objects in $\mathbf{FinSet}$ and $\mathbf{SBor}$ respectively.
 5. **[Morphisms](morphisms.md).** $\mathcal{V}$-relations, stochastic kernels, and continuous conditional families as the three morphism strata; their composition, tensor product, marginalization, and trace.
 6. **[Expressions](expressions.md).** Compositional semantics of expression-level combinators: `>>`, `>>>`, `@`, `.marginalize`, `.change_base`, `fan`, `repeat`, `stack`, `scan`, and the parser combinators.
@@ -22,9 +22,9 @@ Throughout, we use the following conventions.
 
 | Symbol | Meaning |
 |--------|---------|
-| $\mathcal{V}$ | A complete commutative quantale. |
+| $\mathcal{V}$ | A QVR algebra (see [Algebras §1](algebras.md)). |
 | $\otimes,\ \mathbf{1}$ | Monoidal product and unit of $\mathcal{V}$. |
-| $\bigoplus$ | Quantale join (the costructure used to marginalize). |
+| $\bigoplus$ | The join of $\mathcal{V}$ (the costructure used to marginalize). |
 | $\mathbf{FinSet}$ | The category of finite sets. |
 | $\mathbf{SBor}$ | The category of standard Borel spaces with measurable maps. |
 | $\mathcal{V}\text{-}\mathbf{Rel}$ | The $\mathcal{V}$-enriched category of $\mathcal{V}$-relations on finite sets. |

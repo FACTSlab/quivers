@@ -24,12 +24,12 @@ This module provides concrete optic types:
 
 These are V-enriched optics: ``forward()`` and ``backward()`` return
 :class:`Morphism` (tensor-shaped fuzzy relations) and ``backward()``
-joins over the complement axis using the quantale's join. This is a
+joins over the complement axis using the algebra's join. This is a
 distinct abstraction from ``didactic.Lens`` (instance-level, with an
 explicit complement value) and from ``didactic.DependentLens`` (schema-
 level, wrapping ``panproto.ProtolensChain``). ``didactic`` 0.6.0 has
 no V-enriched lens flavour, so this module stays on its own
-implementation pending a future ``dx.QuantaleLens`` or equivalent.
+implementation pending a future ``dx.AlgebraLens`` or equivalent.
 """
 
 from __future__ import annotations
@@ -41,7 +41,7 @@ import torch
 
 from quivers.core.objects import SetObject, ProductSet, CoproductSet
 from quivers.core.morphisms import Morphism, observed, identity
-from quivers.core.quantales import PRODUCT_FUZZY, Quantale
+from quivers.core.algebras import PRODUCT_FUZZY, Algebra
 from quivers.enriched.profunctors import Profunctor
 
 
@@ -65,7 +65,7 @@ class Optic(ABC):
         The source part A.
     focus_target : SetObject
         The target part B.
-    quantale : Quantale or None
+    algebra : Algebra or None
         The enrichment algebra.
     """
 
@@ -75,13 +75,13 @@ class Optic(ABC):
         target: SetObject,
         focus_source: SetObject,
         focus_target: SetObject,
-        quantale: Quantale | None = None,
+        algebra: Algebra | None = None,
     ) -> None:
         self._source = source
         self._target = target
         self._focus_source = focus_source
         self._focus_target = focus_target
-        self._quantale = quantale if quantale is not None else PRODUCT_FUZZY
+        self._algebra = algebra if algebra is not None else PRODUCT_FUZZY
 
     @property
     def source(self) -> SetObject:
@@ -104,9 +104,9 @@ class Optic(ABC):
         return self._focus_target
 
     @property
-    def quantale(self) -> Quantale:
+    def algebra(self) -> Algebra:
         """The enrichment algebra."""
-        return self._quantale
+        return self._algebra
 
     @abstractmethod
     def forward(self) -> Morphism:
@@ -146,13 +146,13 @@ class Optic(ABC):
 
         # the profunctor view depends on the optic type,
         # but generally it's fwd >> bwd or a similar composition
-        tensor = self._quantale.compose(fwd.tensor, bwd.tensor, self._focus_source.ndim)
+        tensor = self._algebra.compose(fwd.tensor, bwd.tensor, self._focus_source.ndim)
 
         return Profunctor(
             contra=self._source,
             co=self._target,
             tensor=tensor,
-            quantale=self._quantale,
+            algebra=self._algebra,
         )
 
     def __repr__(self) -> str:
@@ -180,7 +180,7 @@ class Lens(Optic):
         The whole product S = A × C.
     focus_index : int
         Index of the focus component A in the product.
-    quantale : Quantale or None
+    algebra : Algebra or None
         The enrichment algebra.
     """
 
@@ -188,7 +188,7 @@ class Lens(Optic):
         self,
         whole: ProductSet,
         focus_index: int,
-        quantale: Quantale | None = None,
+        algebra: Algebra | None = None,
     ) -> None:
         if not isinstance(whole, ProductSet):
             raise TypeError(f"Lens requires ProductSet, got {type(whole).__name__}")
@@ -204,7 +204,7 @@ class Lens(Optic):
             target=whole,
             focus_source=focus,
             focus_target=focus,
-            quantale=quantale,
+            algebra=algebra,
         )
         self._focus_index = focus_index
 
@@ -221,7 +221,7 @@ class Lens(Optic):
         ObservedMorphism
             The projection morphism.
         """
-        q = self._quantale
+        q = self._algebra
         whole = self._source
         focus = self._focus_source
 
@@ -242,7 +242,7 @@ class Lens(Optic):
             focus_idx = idx[offset : offset + focus.ndim]
             data[idx + focus_idx] = q.unit
 
-        return observed(whole, focus, data, quantale=q)
+        return observed(whole, focus, data, algebra=q)
 
     def backward(self) -> Morphism:
         """put: A → S (embed focus back, averaging over complement).
@@ -256,7 +256,7 @@ class Lens(Optic):
         ObservedMorphism
             The embedding morphism.
         """
-        q = self._quantale
+        q = self._algebra
         whole = self._source
         focus = self._focus_source
 
@@ -289,7 +289,7 @@ class Lens(Optic):
                 if w_focus == focus_idx:
                     data[focus_idx + whole_idx] = q.unit
 
-        return observed(focus, whole, data, quantale=q)
+        return observed(focus, whole, data, algebra=q)
 
 
 class Prism(Optic):
@@ -306,7 +306,7 @@ class Prism(Optic):
         The whole coproduct S = A + C.
     focus_index : int
         Index of the focus component A in the coproduct.
-    quantale : Quantale or None
+    algebra : Algebra or None
         The enrichment algebra.
     """
 
@@ -314,7 +314,7 @@ class Prism(Optic):
         self,
         whole: CoproductSet,
         focus_index: int,
-        quantale: Quantale | None = None,
+        algebra: Algebra | None = None,
     ) -> None:
         if not isinstance(whole, CoproductSet):
             raise TypeError(f"Prism requires CoproductSet, got {type(whole).__name__}")
@@ -330,7 +330,7 @@ class Prism(Optic):
             target=whole,
             focus_source=focus,
             focus_target=focus,
-            quantale=quantale,
+            algebra=algebra,
         )
         self._focus_index = focus_index
 
@@ -347,7 +347,7 @@ class Prism(Optic):
         ObservedMorphism
             The matching morphism.
         """
-        q = self._quantale
+        q = self._algebra
         whole = self._source
         focus = self._focus_source
 
@@ -359,7 +359,7 @@ class Prism(Optic):
         for i in range(focus.size):
             data[start + i, i] = q.unit
 
-        return observed(whole, focus, data, quantale=q)
+        return observed(whole, focus, data, algebra=q)
 
     def backward(self) -> Morphism:
         """build: A → S (inject focus into the coproduct).
@@ -369,7 +369,7 @@ class Prism(Optic):
         ObservedMorphism
             The injection morphism.
         """
-        q = self._quantale
+        q = self._algebra
         whole = self._source
         focus = self._focus_source
 
@@ -381,7 +381,7 @@ class Prism(Optic):
         for i in range(focus.size):
             data[i, start + i] = q.unit
 
-        return observed(focus, whole, data, quantale=q)
+        return observed(focus, whole, data, algebra=q)
 
 
 class Adapter(Optic):
@@ -397,7 +397,7 @@ class Adapter(Optic):
         The forward isomorphism S → A.
     to_morph : Morphism
         The backward isomorphism B → T.
-    quantale : Quantale or None
+    algebra : Algebra or None
         The enrichment algebra.
     """
 
@@ -405,14 +405,14 @@ class Adapter(Optic):
         self,
         from_morph: Morphism,
         to_morph: Morphism,
-        quantale: Quantale | None = None,
+        algebra: Algebra | None = None,
     ) -> None:
         super().__init__(
             source=from_morph.domain,
             target=to_morph.codomain,
             focus_source=from_morph.codomain,
             focus_target=to_morph.domain,
-            quantale=quantale,
+            algebra=algebra,
         )
         self._from_morph = from_morph
         self._to_morph = to_morph
@@ -448,14 +448,14 @@ class Adapter(Optic):
 
         # fwd >> bwd ≈ id_S
         roundtrip_s = (fwd >> bwd).tensor
-        id_s = identity(self._source, quantale=self._quantale).tensor
+        id_s = identity(self._source, algebra=self._algebra).tensor
 
         if not torch.allclose(roundtrip_s, id_s, atol=atol):
             return False
 
         # bwd >> fwd ≈ id_A
         roundtrip_a = (bwd >> fwd).tensor
-        id_a = identity(self._focus_source, quantale=self._quantale).tensor
+        id_a = identity(self._focus_source, algebra=self._algebra).tensor
 
         return torch.allclose(roundtrip_a, id_a, atol=atol)
 
@@ -481,7 +481,7 @@ class Grate(Optic):
         The coindex I.
     cotraverse_tensor : torch.Tensor
         The tensor for (I → A) → S.
-    quantale : Quantale or None
+    algebra : Algebra or None
         The enrichment algebra.
     """
 
@@ -491,14 +491,14 @@ class Grate(Optic):
         focus: SetObject,
         index: SetObject,
         cotraverse_tensor: torch.Tensor,
-        quantale: Quantale | None = None,
+        algebra: Algebra | None = None,
     ) -> None:
         super().__init__(
             source=source,
             target=source,
             focus_source=focus,
             focus_target=focus,
-            quantale=quantale,
+            algebra=algebra,
         )
         self._index = index
         self._cotraverse_tensor = cotraverse_tensor
@@ -513,7 +513,7 @@ class Grate(Optic):
 
         Produces S → A by marginalizing over the index.
         """
-        q = self._quantale
+        q = self._algebra
         source = self._source
         focus = self._focus_source
 
@@ -523,20 +523,20 @@ class Grate(Optic):
 
         # if source and focus match, return identity
         if source.shape == focus.shape:
-            return observed(source, focus, data, quantale=q)
+            return observed(source, focus, data, algebra=q)
 
         # otherwise, use marginalization
-        return observed(source, focus, self._cotraverse_tensor, quantale=q)
+        return observed(source, focus, self._cotraverse_tensor, algebra=q)
 
     def backward(self) -> Morphism:
         """Rebuild whole from focus via cotraverse."""
-        q = self._quantale
+        q = self._algebra
         focus = self._focus_target
         source = self._target
 
         if source.shape == focus.shape:
             data = q.identity_tensor(source.shape)
-            return observed(focus, source, data, quantale=q)
+            return observed(focus, source, data, algebra=q)
 
         # transpose the cotraverse
         n_src = len(source.shape)
@@ -547,7 +547,7 @@ class Grate(Optic):
             focus,
             source,
             self._cotraverse_tensor.permute(*perm),
-            quantale=q,
+            algebra=q,
         )
 
 
@@ -578,5 +578,5 @@ def compose_optics(outer: Optic, inner: Optic) -> Optic:
     return Adapter(
         from_morph=fwd,
         to_morph=bwd,
-        quantale=outer.quantale,
+        algebra=outer.algebra,
     )

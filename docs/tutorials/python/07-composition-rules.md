@@ -1,13 +1,13 @@
-# 7. Composition rules beyond quantales
+# 7. Composition rules beyond algebras
 
-The default story in the categorical surface is that morphisms compose under a [quantale](https://ncatlab.org/nlab/show/quantale): a complete lattice with a monoidal tensor that distributes over arbitrary joins. The quantale provides every piece the composition `f >> g` needs: a binary product to combine entries, a join to aggregate over the shared dimension, an identity element so `identity(A) >> f == f`, and (for compact-closed structures) a meet and a negation. Quantales are the right setting when the composition is associative, has a unit, and behaves classically.
+The default story in the categorical surface is that morphisms compose under a [algebra](https://ncatlab.org/nlab/show/algebra): a complete lattice with a monoidal tensor that distributes over arbitrary joins. The algebra provides every piece the composition `f >> g` needs: a binary product to combine entries, a join to aggregate over the shared dimension, an identity element so `identity(A) >> f == f`, and (for compact-closed structures) a meet and a negation. Algebras are the right setting when the composition is associative, has a unit, and behaves classically.
 
 Two strictly weaker settings come up regularly enough that the library gives them their own types:
 
 - [Semigroupoids](https://ncatlab.org/nlab/show/semigroupoid): associative composition, no identity. Reichenbach-style implication composition is the canonical example; the composition is associative but no tensor satisfies `f >> id == f` for every `f`.
 - [Bilinear forms](https://en.wikipedia.org/wiki/Bilinear_form): a tensor contraction with neither associativity nor identity guarantees. Signed dot product, top-k truncating compositions, and attention-style softmax-then-multiply rules all sit here.
 
-This chapter walks through the [`CompositionRule`](../../api/core/quantales.md) hierarchy, the [operadic](https://ncatlab.org/nlab/show/operad) [`EinsumWiring`](../../api/core/quantales.md) surface for n-ary contractions, and the user-facing DSL constructs (`semigroupoid`, `bilinear_form`, `composition_rule`, `contraction`) that surface them.
+This chapter walks through the [`CompositionRule`](../../api/core/algebras.md) hierarchy, the [operadic](https://ncatlab.org/nlab/show/operad) [`EinsumWiring`](../../api/core/algebras.md) surface for n-ary contractions, and the user-facing DSL constructs (`semigroupoid`, `bilinear_form`, `composition_rule`, `contraction`) that surface them.
 
 ## The hierarchy
 
@@ -22,33 +22,33 @@ classDiagram
     class Semigroupoid {
         "associative tensor_op, no identity"
     }
-    class Quantale {
+    class Algebra {
         "associative + identity + meet + negate"
     }
     CompositionRule <|-- BilinearForm
     CompositionRule <|-- Semigroupoid
-    Semigroupoid <|-- Quantale
+    Semigroupoid <|-- Algebra
 ```
 
-Every level supplies `tensor_op : (Tensor, Tensor) -> Tensor` and `join : (Tensor, dim) -> Tensor`. Each subsequent level adds promises; library code that needs `unit` reaches for [`Quantale`](../../api/core/quantales.md), code that only needs associativity reaches for [`Semigroupoid`](../../api/core/quantales.md), code that does any n-ary contraction reaches for [`CompositionRule`](../../api/core/quantales.md).
+Every level supplies `tensor_op : (Tensor, Tensor) -> Tensor` and `join : (Tensor, dim) -> Tensor`. Each subsequent level adds promises; library code that needs `unit` reaches for [`Algebra`](../../api/core/algebras.md), code that only needs associativity reaches for [`Semigroupoid`](../../api/core/algebras.md), code that does any n-ary contraction reaches for [`CompositionRule`](../../api/core/algebras.md).
 
 ```python
-from quivers.core.quantales import (
-    CompositionRule, Semigroupoid, BilinearForm, Quantale,
+from quivers.core.algebras import (
+    CompositionRule, Semigroupoid, BilinearForm, Algebra,
     PRODUCT_FUZZY, REAL,
     material_implication, semigroupoid, bilinear_form,
 )
 ```
 
-All the shipped quantales are subclasses of `Quantale` (and therefore of `Semigroupoid` and `CompositionRule`).
+All the shipped algebras are subclasses of `Algebra` (and therefore of `Semigroupoid` and `CompositionRule`).
 
 ## Building a semigroupoid
 
-`material_implication()` returns a `CustomSemigroupoid` whose `tensor_op` is `a ⊗ b = 1 - a + a * b` (Reichenbach implication) and whose `join` is a product reduction. This composition is associative but has no identity, so the V-Cat operations `identity(A)`, `f.dagger`, `f.trace(A)`, `cup(A)`, `cap(A)` are unavailable: they live on `Quantale`.
+`material_implication()` returns a `CustomSemigroupoid` whose `tensor_op` is `a ⊗ b = 1 - a + a * b` (Reichenbach implication) and whose `join` is a product reduction. This composition is associative but has no identity, so the V-Cat operations `identity(A)`, `f.dagger`, `f.trace(A)`, `cup(A)`, `cap(A)` are unavailable: they live on `Algebra`.
 
 ```python
 import torch
-from quivers.core.quantales import material_implication
+from quivers.core.algebras import material_implication
 
 mi = material_implication()
 print(type(mi).__mro__)        # (CustomSemigroupoid, Semigroupoid, CompositionRule, ABC, object)
@@ -66,7 +66,7 @@ print(out.shape)               # torch.Size([1, 2])
 You can build your own semigroupoid by supplying any associative `tensor_op` and a reduction `join`:
 
 ```python
-from quivers.core.quantales import semigroupoid
+from quivers.core.algebras import semigroupoid
 
 def bounded_sum(a, b):
     return (a + b).clamp(max=1.0)
@@ -89,7 +89,7 @@ The factory runs an associativity smoke check at construction time on a fixed ps
 A `BilinearForm` is a `CompositionRule` that *opts out* of the associativity promise: the type system records the absence. Use it for compositions like signed-dot, attention-style rules, or top-k truncating contractions whose composition order matters.
 
 ```python
-from quivers.core.quantales import bilinear_form
+from quivers.core.algebras import bilinear_form
 
 def signed_dot(a, b):
     return 0.5 * (a + b)            # not associative
@@ -110,17 +110,17 @@ assert not torch.allclose(left, right)
 
 `bilinear_form(...)` runs no smoke check (it's honest about its non-associativity).
 
-## Quantale-only operations on non-quantale rules
+## Algebra-only operations on non-algebra rules
 
-The compact-closed operations require an identity element and live on `Quantale`. Trying to call them on a non-quantale rule raises `AttributeError`:
+The compact-closed operations require an identity element and live on `Algebra`. Trying to call them on a non-algebra rule raises `AttributeError`:
 
 ```python
 import pytest
-from quivers.core.quantales import material_implication
+from quivers.core.algebras import material_implication
 
 mi = material_implication()
 with pytest.raises(AttributeError):
-    mi.unit                                # not a Quantale attribute
+    mi.unit                                # not a Algebra attribute
 with pytest.raises(AttributeError):
     mi.identity_tensor((3,))               # also unavailable
 ```
@@ -129,20 +129,20 @@ The DSL surface raises a typed `CompileError` at parse time if you try `identity
 
 ## Operadic n-ary contractions
 
-Quantale composition is binary by construction: `f >> g` contracts two morphisms along a single shared dimension. Many practical tensor networks contract three or more inputs at a shared reduction:
+Algebra composition is binary by construction: `f >> g` contracts two morphisms along a single shared dimension. Many practical tensor networks contract three or more inputs at a shared reduction:
 
 $$
 \mathrm{out}[s, o] = \bigoplus_{p, q}\Big(\mathrm{arg}_1[s, p] \otimes \mathrm{arg}_2[s, q] \otimes \mathrm{kernel}[p, q, o]\Big).
 $$
 
-This is an operadic operation rather than a binary composition. [`EinsumWiring`](../../api/core/quantales.md) provides the surface:
+This is an operadic operation rather than a binary composition. [`EinsumWiring`](../../api/core/algebras.md) provides the surface:
 
 ```python
 from quivers.core.wiring import EinsumWiring, einsum_wiring, contract
 
 wiring = einsum_wiring(PRODUCT_FUZZY, "sp, sq, pqo -> so")
 print(wiring.input_arity)       # 3
-print(wiring.composition_rule)  # ProductFuzzy()
+print(wiring.composition_rule)  # ProductFuzzyAlgebra()
 
 torch.manual_seed(0)
 arg1   = torch.rand(4, 3)
@@ -159,7 +159,7 @@ The wiring spec uses einsum syntax: each comma-separated input lists its axis le
 3. Reduce the contracted axes under the rule's `join`.
 4. Permute the surviving axes into the output's letter order.
 
-`EinsumWiring` works against any `CompositionRule` instance, including non-quantale rules:
+`EinsumWiring` works against any `CompositionRule` instance, including non-algebra rules:
 
 ```python
 mi    = material_implication()
@@ -187,7 +187,7 @@ The user surface mirrors the Python API. Inside `.qvr` files:
 
 <!-- compile: false -->
 ```qvr
-quantale my_godel {
+algebra my_godel {
     tensor_op(a, b) = a * b
     join(t) = sum(t)
     unit = 1.0

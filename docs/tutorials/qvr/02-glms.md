@@ -121,7 +121,7 @@ Three observations from this chapter you may have already noticed:
 
 1. **No `pyro.plate` / `numpyro.plate` wrapping.** Plates are inferred from object cardinalities and the domain/codomain typing. If you need an explicit indexed family (say a per-group intercept), chapter 3 introduces the plate-draw syntax (`v : G <- Normal(0, sigma)`).
 2. **`let` is not sampling.** PyMC `pm.Deterministic`, NumPyro `numpyro.deterministic`, Pyro `pyro.deterministic`: every PPL has a different name for "this is a function of random variables, not itself random." QVR uses `let`. The compiler tracks the dependency for autograd.
-3. **One module, one program.** Each `.qvr` file declares zero or more objects, optional `quantale`, and zero or more programs. To fit several models, write several files (or several program blocks in one file; `loads` returns the one tagged with `export`).
+3. **One module, one program.** Each `.qvr` file declares zero or more objects, optional `algebra`, and zero or more programs. To fit several models, write several files (or several program blocks in one file; `loads` returns the one tagged with `export`).
 
 ## Try this
 

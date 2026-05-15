@@ -1,12 +1,12 @@
-"""Quantale homomorphisms and change-of-base for V-enriched
+"""Algebra homomorphisms and change-of-base for V-enriched
 morphisms.
 
 A morphism in :mod:`quivers.core.morphisms` is V-enriched: its
-codomain is :math:`\\mathrm{Hom}_V(A, B)` for the active quantale
-``V``. Two morphisms over different quantales (``V`` and ``W``)
+codomain is :math:`\\mathrm{Hom}_V(A, B)` for the active algebra
+``V``. Two morphisms over different algebras (``V`` and ``W``)
 do not directly compose — :meth:`Morphism.__rshift__` raises
-``incompatible quantales``. The standard categorical way to
-bridge them is a **quantale homomorphism** (a lax monoidal poset
+``incompatible algebras``. The standard categorical way to
+bridge them is a **algebra homomorphism** (a lax monoidal poset
 functor) :math:`\\varphi : V \\to W` mediating the change of
 base. There is then a 2-functor
 :math:`(-) \\otimes_\\varphi W : V\\text{-}\\mathbf{Cat} \\to W\\text{-}\\mathbf{Cat}`
@@ -15,36 +15,36 @@ on morphisms.
 
 This module ships:
 
-* :class:`QuantaleHomomorphism` — the abstract base. A homomorphism
-  carries a source quantale, a target quantale, and a function
+* :class:`AlgebraHomomorphism` — the abstract base. A homomorphism
+  carries a source algebra, a target algebra, and a function
   ``apply(t : Tensor) -> Tensor`` that maps a tensor whose entries
   live in the source's lattice to a tensor whose entries live in
   the target's lattice. Subclasses implement ``apply`` for a
   specific pair.
 
-* :class:`Embedding` — the inclusion of a sub-quantale into a
-  super-quantale (e.g. ``Boolean ↪ ProductFuzzy``).
+* :class:`Embedding` — the inclusion of a sub-algebra into a
+  super-algebra (e.g. ``Boolean ↪ ProductFuzzyAlgebra``).
 
-* :class:`Expectation` — Markov-to-ProductFuzzy (``softmax`` ↦
+* :class:`Expectation` — Markov-to-ProductFuzzyAlgebra (``softmax`` ↦
   fuzzy membership).
 
-* :class:`LogProb` — ProductFuzzy-to-LogProb (``log(p)``).
+* :class:`LogProb` — ProductFuzzyAlgebra-to-LogProb (``log(p)``).
 
-* :class:`MaxPlus` — ProductFuzzy-to-Viterbi (max-plus tropical
+* :class:`MaxPlus` — ProductFuzzyAlgebra-to-Viterbi (max-plus tropical
   lift).
 
-* :class:`Threshold` — ProductFuzzy-to-Boolean (discretize at a
+* :class:`Threshold` — ProductFuzzyAlgebra-to-Boolean (discretize at a
   threshold).
 
-* :class:`MaterialImplication` — ProductFuzzy-to-Godel (Heyting
+* :class:`MaterialImplication` — ProductFuzzyAlgebra-to-Godel (Heyting
   implication semantics).
 
-* :class:`IdentityHom` — a no-op homomorphism from a quantale to
+* :class:`IdentityHom` — a no-op homomorphism from an algebra to
   itself, useful as the unit of homomorphism composition.
 
 * A registry :data:`HOMOMORPHISM_REGISTRY` keyed by ``(source.name,
   target.name)`` so the compiler / user code can look up the
-  canonical homomorphism between two quantales.
+  canonical homomorphism between two algebras.
 
 The categorical denotation of ``f.change_base(φ)`` for
 ``f : A → B`` in V is the V-Cat morphism
@@ -65,22 +65,22 @@ from abc import ABC, abstractmethod
 
 import torch
 
-from quivers.core.quantales import (
+from quivers.core.algebras import (
     COUNTING,
     GODEL,
     MARKOV,
     PROBABILITY,
     REAL,
 )
-from quivers.core.quantales import (
+from quivers.core.algebras import (
     BOOLEAN,
     PRODUCT_FUZZY,
-    Quantale,
+    Algebra,
 )
 
 
-class QuantaleHomomorphism(ABC):
-    """A lax monoidal poset functor between two quantales.
+class AlgebraHomomorphism(ABC):
+    """A lax monoidal poset functor between two algebras.
 
     Concretely, a homomorphism :math:`\\varphi : V \\to W`
     satisfies:
@@ -98,13 +98,13 @@ class QuantaleHomomorphism(ABC):
 
     @property
     @abstractmethod
-    def source(self) -> Quantale:
-        """The source quantale ``V``."""
+    def source(self) -> Algebra:
+        """The source algebra ``V``."""
 
     @property
     @abstractmethod
-    def target(self) -> Quantale:
-        """The target quantale ``W``."""
+    def target(self) -> Algebra:
+        """The target algebra ``W``."""
 
     @abstractmethod
     def apply(self, t: torch.Tensor) -> torch.Tensor:
@@ -122,50 +122,50 @@ class QuantaleHomomorphism(ABC):
         return f"{type(self).__name__}({self.source.name} -> {self.target.name})"
 
 
-class IdentityHom(QuantaleHomomorphism):
+class IdentityHom(AlgebraHomomorphism):
     """The identity homomorphism ``id_V : V → V``.
 
     Useful as the unit of composition; ``f.change_base(IdentityHom(V))``
     leaves the morphism in V unchanged.
     """
 
-    def __init__(self, q: Quantale) -> None:
+    def __init__(self, q: Algebra) -> None:
         self._q = q
 
     @property
-    def source(self) -> Quantale:
+    def source(self) -> Algebra:
         return self._q
 
     @property
-    def target(self) -> Quantale:
+    def target(self) -> Algebra:
         return self._q
 
     def apply(self, t: torch.Tensor) -> torch.Tensor:
         return t
 
 
-class Embedding(QuantaleHomomorphism):
-    """The inclusion of a sub-quantale into a super-quantale.
+class Embedding(AlgebraHomomorphism):
+    """The inclusion of a sub-algebra into a super-algebra.
 
-    The canonical example is ``Boolean ↪ ProductFuzzy``: a
+    The canonical example is ``Boolean ↪ ProductFuzzyAlgebra``: a
     boolean tensor with entries in ``{0, 1}`` embeds as a
     product-fuzzy tensor with entries in ``[0, 1]`` whose support
     is the boolean's truth assignment.
 
-    Embeddings preserve every quantale operation up to the
+    Embeddings preserve every algebra operation up to the
     embedding inclusion; they are *strict* homomorphisms.
     """
 
-    def __init__(self, source: Quantale, target: Quantale) -> None:
+    def __init__(self, source: Algebra, target: Algebra) -> None:
         self._source = source
         self._target = target
 
     @property
-    def source(self) -> Quantale:
+    def source(self) -> Algebra:
         return self._source
 
     @property
-    def target(self) -> Quantale:
+    def target(self) -> Algebra:
         return self._target
 
     def apply(self, t: torch.Tensor) -> torch.Tensor:
@@ -174,13 +174,13 @@ class Embedding(QuantaleHomomorphism):
         return t.to(dtype=torch.float32) if t.dtype == torch.bool else t
 
 
-class Expectation(QuantaleHomomorphism):
-    """Markov → ProductFuzzy via ``softmax`` to fuzzy membership.
+class Expectation(AlgebraHomomorphism):
+    """Markov → ProductFuzzyAlgebra via ``softmax`` to fuzzy membership.
 
     A Markov kernel ``k : A → B`` has rows that sum to 1 (a
     probability distribution over B per a∈A). Reading the
     per-entry probability as a *fuzzy membership* of (a, b)
-    in the relation gives a ``ProductFuzzy`` morphism.
+    in the relation gives a ``ProductFuzzyAlgebra`` morphism.
 
     Categorically this is the change of base induced by the
     ``Δ`` natural transformation that erases the normalisation
@@ -193,19 +193,19 @@ class Expectation(QuantaleHomomorphism):
         self._target = PRODUCT_FUZZY
 
     @property
-    def source(self) -> Quantale:
+    def source(self) -> Algebra:
         return self._source
 
     @property
-    def target(self) -> Quantale:
+    def target(self) -> Algebra:
         return self._target
 
     def apply(self, t: torch.Tensor) -> torch.Tensor:
         return t.clamp(min=0.0, max=1.0)
 
 
-class LogProb(QuantaleHomomorphism):
-    """ProductFuzzy → LogProb via ``log``.
+class LogProb(AlgebraHomomorphism):
+    """ProductFuzzyAlgebra → LogProb via ``log``.
 
     Maps entries in (0, 1] to (-∞, 0]; pairs naturally with
     log-space computation. Entries that are exactly 0 in the
@@ -214,34 +214,34 @@ class LogProb(QuantaleHomomorphism):
     """
 
     def __init__(self) -> None:
-        from quivers.core.quantales import LOG_PROB
+        from quivers.core.algebras import LOG_PROB
 
         self._source = PRODUCT_FUZZY
         self._target = LOG_PROB
 
     @property
-    def source(self) -> Quantale:
+    def source(self) -> Algebra:
         return self._source
 
     @property
-    def target(self) -> Quantale:
+    def target(self) -> Algebra:
         return self._target
 
     def apply(self, t: torch.Tensor) -> torch.Tensor:
         return torch.log(t.clamp(min=1e-30))
 
 
-class MaxPlus(QuantaleHomomorphism):
-    """ProductFuzzy → MaxPlus via ``log``.
+class MaxPlus(AlgebraHomomorphism):
+    """ProductFuzzyAlgebra → MaxPlus via ``log``.
 
-    The max-plus tropical quantale on the reals has tensor =
-    addition and join = max. A ProductFuzzy morphism transports
+    The max-plus tropical algebra on the reals has tensor =
+    addition and join = max. A ProductFuzzyAlgebra morphism transports
     via ``log`` so the product t-norm becomes addition in
     log-space; subsequent joins (which were noisy-OR in
-    ProductFuzzy) get replaced by max in Viterbi-style
+    ProductFuzzyAlgebra) get replaced by max in Viterbi-style
     Viterbi-MAP aggregations.
 
-    The two ProductFuzzy → log-target homomorphisms are different
+    The two ProductFuzzyAlgebra → log-target homomorphisms are different
     *category-theoretically* — :class:`LogProb` carries the join
     structure to logsumexp, :class:`MaxPlus` carries it to
     max-plus — even though they share the same per-entry mapping
@@ -249,25 +249,25 @@ class MaxPlus(QuantaleHomomorphism):
     """
 
     def __init__(self) -> None:
-        from quivers.core.quantales import MAX_PLUS
+        from quivers.core.algebras import MAX_PLUS
 
         self._source = PRODUCT_FUZZY
         self._target = MAX_PLUS
 
     @property
-    def source(self) -> Quantale:
+    def source(self) -> Algebra:
         return self._source
 
     @property
-    def target(self) -> Quantale:
+    def target(self) -> Algebra:
         return self._target
 
     def apply(self, t: torch.Tensor) -> torch.Tensor:
         return torch.log(t.clamp(min=1e-30))
 
 
-class Threshold(QuantaleHomomorphism):
-    """ProductFuzzy → Boolean via thresholding.
+class Threshold(AlgebraHomomorphism):
+    """ProductFuzzyAlgebra → Boolean via thresholding.
 
     Entries above ``tau`` map to True; entries at or below
     ``tau`` map to False. This is a *lax* homomorphism: it
@@ -293,27 +293,27 @@ class Threshold(QuantaleHomomorphism):
         return self._tau
 
     @property
-    def source(self) -> Quantale:
+    def source(self) -> Algebra:
         return self._source
 
     @property
-    def target(self) -> Quantale:
+    def target(self) -> Algebra:
         return self._target
 
     def apply(self, t: torch.Tensor) -> torch.Tensor:
         return (t > self._tau).to(dtype=torch.float32)
 
 
-class MaterialImplication(QuantaleHomomorphism):
-    """ProductFuzzy → Godel via ``a * b + (1 - a)`` reading.
+class MaterialImplication(AlgebraHomomorphism):
+    """ProductFuzzyAlgebra → Godel via ``a * b + (1 - a)`` reading.
 
-    Reads each ProductFuzzy entry ``p`` as a probability that
+    Reads each ProductFuzzyAlgebra entry ``p`` as a probability that
     the implication ``p → q`` holds — the Heyting-implication-
-    style transport that respects the Godel quantale's monoid.
+    style transport that respects the Godel algebra's monoid.
 
     The mapping is `entry ↦ entry`-preserving on the entry value
     but changes the *composition* semantics downstream: subsequent
-    `>>` in the Godel quantale uses min / Godel-implication, not
+    `>>` in the Godel algebra uses min / Godel-implication, not
     product / noisy-OR.
     """
 
@@ -322,11 +322,11 @@ class MaterialImplication(QuantaleHomomorphism):
         self._target = GODEL
 
     @property
-    def source(self) -> Quantale:
+    def source(self) -> Algebra:
         return self._source
 
     @property
-    def target(self) -> Quantale:
+    def target(self) -> Algebra:
         return self._target
 
     def apply(self, t: torch.Tensor) -> torch.Tensor:
@@ -348,13 +348,13 @@ def threshold(tau: float = 0.5) -> Threshold:
     return Threshold(tau)
 
 
-def embedding(source: Quantale, target: Quantale) -> Embedding:
+def embedding(source: Algebra, target: Algebra) -> Embedding:
     """Build an :class:`Embedding` homomorphism (sub → super
-    quantale inclusion)."""
+    algebra inclusion)."""
     return Embedding(source, target)
 
 
-class ProbabilityClamp(QuantaleHomomorphism):
+class ProbabilityClamp(AlgebraHomomorphism):
     """Real → Probability via clamping to the unit interval.
 
     Coerces a real-valued tensor into a probability tensor by
@@ -368,18 +368,18 @@ class ProbabilityClamp(QuantaleHomomorphism):
         self._target = PROBABILITY
 
     @property
-    def source(self) -> Quantale:
+    def source(self) -> Algebra:
         return self._source
 
     @property
-    def target(self) -> Quantale:
+    def target(self) -> Algebra:
         return self._target
 
     def apply(self, t: torch.Tensor) -> torch.Tensor:
         return t.clamp(min=0.0, max=1.0)
 
 
-class CountingFromReal(QuantaleHomomorphism):
+class CountingFromReal(AlgebraHomomorphism):
     """Real → Counting via floor-and-clamp-to-non-negative.
 
     Coerces a real-valued tensor into a non-negative integer
@@ -392,19 +392,19 @@ class CountingFromReal(QuantaleHomomorphism):
         self._target = COUNTING
 
     @property
-    def source(self) -> Quantale:
+    def source(self) -> Algebra:
         return self._source
 
     @property
-    def target(self) -> Quantale:
+    def target(self) -> Algebra:
         return self._target
 
     def apply(self, t: torch.Tensor) -> torch.Tensor:
         return t.clamp(min=0.0).floor()
 
 
-class ProbabilityToReal(QuantaleHomomorphism):
-    """Probability → Real (sub-quantale inclusion).
+class ProbabilityToReal(AlgebraHomomorphism):
+    """Probability → Real (sub-algebra inclusion).
 
     Entries already lie in ``[0, 1] ⊂ ℝ``; the inclusion is
     strict (preserves every operation).
@@ -415,19 +415,19 @@ class ProbabilityToReal(QuantaleHomomorphism):
         self._target = REAL
 
     @property
-    def source(self) -> Quantale:
+    def source(self) -> Algebra:
         return self._source
 
     @property
-    def target(self) -> Quantale:
+    def target(self) -> Algebra:
         return self._target
 
     def apply(self, t: torch.Tensor) -> torch.Tensor:
         return t
 
 
-class CountingToReal(QuantaleHomomorphism):
-    """Counting → Real (sub-quantale inclusion).
+class CountingToReal(AlgebraHomomorphism):
+    """Counting → Real (sub-algebra inclusion).
 
     Non-negative integers embed canonically in the reals; this
     is the strict inclusion homomorphism.
@@ -438,11 +438,11 @@ class CountingToReal(QuantaleHomomorphism):
         self._target = REAL
 
     @property
-    def source(self) -> Quantale:
+    def source(self) -> Algebra:
         return self._source
 
     @property
-    def target(self) -> Quantale:
+    def target(self) -> Algebra:
         return self._target
 
     def apply(self, t: torch.Tensor) -> torch.Tensor:
@@ -457,9 +457,9 @@ COUNTING_TO_REAL = CountingToReal()
 
 # Registry of canonical homomorphisms keyed by
 # ``(source.name, target.name)``. The compiler / user code can
-# look up the standard bridge between two quantales rather than
+# look up the standard bridge between two algebras rather than
 # constructing one by hand.
-HOMOMORPHISM_REGISTRY: dict[tuple[str, str], QuantaleHomomorphism] = {
+HOMOMORPHISM_REGISTRY: dict[tuple[str, str], AlgebraHomomorphism] = {
     ("Markov", "ProductFuzzy"): EXPECTATION,
     ("ProductFuzzy", "LogProb"): LOG_PROB,
     ("ProductFuzzy", "MaxPlus"): MAX_PLUS,
@@ -474,8 +474,8 @@ HOMOMORPHISM_REGISTRY: dict[tuple[str, str], QuantaleHomomorphism] = {
 
 
 def lookup_homomorphism(
-    source: Quantale, target: Quantale
-) -> QuantaleHomomorphism | None:
+    source: Algebra, target: Algebra
+) -> AlgebraHomomorphism | None:
     """Return the registered homomorphism ``source → target`` or
     ``None`` if no canonical bridge is known.
 
@@ -488,7 +488,7 @@ def lookup_homomorphism(
 
 
 __all__ = [
-    "QuantaleHomomorphism",
+    "AlgebraHomomorphism",
     "IdentityHom",
     "Embedding",
     "Expectation",

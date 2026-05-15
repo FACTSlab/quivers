@@ -24,7 +24,7 @@ import torch
 from quivers.core._util import clamp_probs
 
 if TYPE_CHECKING:
-    from quivers.core.quantales import Quantale
+    from quivers.core.algebras import Algebra
 
 
 def noisy_or_contract(
@@ -167,7 +167,7 @@ def noisy_and_reduce(
 def componentwise_lift(
     f: torch.Tensor,
     k: int,
-    quantale: Quantale | None = None,
+    algebra: Algebra | None = None,
 ) -> torch.Tensor:
     """Lift a morphism tensor to the k-fold componentwise product.
 
@@ -177,8 +177,8 @@ def componentwise_lift(
 
         f^k[a1, ..., ak, b1, ..., bk] = ⊗_i f[ai, bi]
 
-    The tensor product ⊗ is determined by the quantale (defaults to
-    ProductFuzzy, where ⊗ = ordinary multiplication).
+    The tensor product ⊗ is determined by the algebra (defaults to
+    ProductFuzzyAlgebra, where ⊗ = ordinary multiplication).
 
     Categorically, this is the monoidal functor action: the free monoid
     on objects sends A to A* = 1 + A + A×A + ..., and on morphisms sends
@@ -190,8 +190,8 @@ def componentwise_lift(
         Morphism tensor of shape (|A|, |B|) — a 2D fuzzy relation.
     k : int
         String length (number of components). Must be >= 0.
-    quantale : Quantale or None
-        The quantale whose tensor_op is used for the componentwise
+    algebra : Algebra or None
+        The algebra whose tensor_op is used for the componentwise
         product. If None, defaults to PRODUCT_FUZZY.
 
     Returns
@@ -199,19 +199,19 @@ def componentwise_lift(
     torch.Tensor
         Lifted tensor of shape (|A|,)*k + (|B|,)*k.
         For k=0, returns a tensor of shape (1, 1) filled with the
-        quantale's unit value.
+        algebra's unit value.
         For k=1, returns f unchanged.
     """
-    from quivers.core.quantales import PRODUCT_FUZZY
+    from quivers.core.algebras import PRODUCT_FUZZY
 
-    if quantale is None:
-        quantale = PRODUCT_FUZZY
+    if algebra is None:
+        algebra = PRODUCT_FUZZY
 
     if k < 0:
         raise ValueError(f"k must be >= 0, got {k}")
 
     if k == 0:
-        return torch.full((1, 1), quantale.unit, device=f.device, dtype=f.dtype)
+        return torch.full((1, 1), algebra.unit, device=f.device, dtype=f.dtype)
 
     if k == 1:
         return f
@@ -225,10 +225,10 @@ def componentwise_lift(
 
         # result: (*a_dims, *b_dims), f: (a, b)
         # target: (*a_dims, a, *b_dims, b)
-        # step 1: outer product via quantale tensor_op
+        # step 1: outer product via algebra tensor_op
         shape_r = list(result.shape) + [1, 1]
         shape_f = [1] * (2 * n_a) + list(f.shape)
-        outer = quantale.tensor_op(result.reshape(shape_r), f.reshape(shape_f))
+        outer = algebra.tensor_op(result.reshape(shape_r), f.reshape(shape_f))
 
         # step 2: permute [a1..an, b1..bn, a_{n+1}, b_{n+1}]
         #       to       [a1..an, a_{n+1}, b1..bn, b_{n+1}]

@@ -4,7 +4,7 @@ import torch
 
 from quivers.core.objects import FinSet
 from quivers.core.morphisms import morphism, observed, identity
-from quivers.core.quantales import BOOLEAN
+from quivers.core.algebras import BOOLEAN
 
 
 class TestIdentityMorphism:
@@ -23,9 +23,9 @@ class TestIdentityMorphism:
 
     def test_boolean_identity(self):
         x = FinSet(name="X", cardinality=3)
-        idx = identity(x, quantale=BOOLEAN)
+        idx = identity(x, algebra=BOOLEAN)
 
-        assert idx.quantale is BOOLEAN
+        assert idx.algebra is BOOLEAN
         torch.testing.assert_close(idx.tensor, torch.eye(3))
 
 
@@ -76,7 +76,7 @@ class TestIdentityLaws:
         torch.testing.assert_close(right_id.tensor, f.tensor, atol=1e-5, rtol=1e-5)
 
     def test_boolean_identity_laws(self):
-        """Identity laws hold in the Boolean quantale."""
+        """Identity laws hold in the Boolean algebra."""
         x = FinSet(name="X", cardinality=3)
         y = FinSet(name="Y", cardinality=2)
 
@@ -88,9 +88,9 @@ class TestIdentityLaws:
             ]
         )
 
-        f = observed(x, y, f_data, quantale=BOOLEAN)
-        idx_x = identity(x, quantale=BOOLEAN)
-        idx_y = identity(y, quantale=BOOLEAN)
+        f = observed(x, y, f_data, algebra=BOOLEAN)
+        idx_x = identity(x, algebra=BOOLEAN)
+        idx_y = identity(y, algebra=BOOLEAN)
 
         left_id = idx_x >> f
         right_id = f >> idx_y

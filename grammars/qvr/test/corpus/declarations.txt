@@ -1,14 +1,14 @@
 ==================
-quantale and atoms
+algebra and atoms
 ==================
 
-quantale product_fuzzy
+algebra product_fuzzy
 category S, NP, N, VP
 
 ---
 
 (source_file
-  (quantale_decl name: (identifier))
+  (algebra_decl name: (identifier))
   (category_decl
     names: (identifier)
     names: (identifier)

@@ -50,11 +50,11 @@ The fuzzy powerset monad on the V-enriched category of finite sets:
 ```python
 from quivers.monadic.monads import FuzzyPowersetMonad
 from quivers.core.objects import FinSet
-from quivers.core.quantales import PRODUCT_FUZZY
+from quivers.core.algebras import PRODUCT_FUZZY
 
 X = FinSet(name="X", cardinality=3)
 
-monad = FuzzyPowersetMonad(quantale=PRODUCT_FUZZY)
+monad = FuzzyPowersetMonad(algebra=PRODUCT_FUZZY)
 
 # At the set level, T(X) = X
 TX = monad.fmap_obj(X)
@@ -64,7 +64,7 @@ assert TX == X
 eta_X = monad.unit(X)
 ```
 
-The Kleisli category of the fuzzy powerset monad is the V-enriched relation category; composition uses the quantale's join (noisy-OR for `PRODUCT_FUZZY`).
+The Kleisli category of the fuzzy powerset monad is the V-enriched relation category; composition uses the algebra's join (noisy-OR for `PRODUCT_FUZZY`).
 
 ## Free Monoid Monad
 

@@ -4,7 +4,7 @@ In this tutorial, you will work with the [FinStoch](https://ncatlab.org/nlab/sho
 
 ## Concepts
 
-- **Markov Quantale**: the quantale where the tensor product is multiplication and the join is summation
+- **Markov Algebra**: the algebra where the tensor product is multiplication and the join is summation
 - **[`StochasticMorphism`](../../api/stochastic/morphisms.md)**: a morphism in FinStoch whose rows are probability distributions (each row sums to 1)
 - **Discretized families**: continuous distributions discretized into finite bins
 - **Conditioning**: updating a kernel given evidence
@@ -31,7 +31,7 @@ from quivers.program import Program
 
 ## Creating Stochastic Morphisms
 
-The FinStoch category uses the Markov quantale: composition is Markov kernel composition (matrix multiplication), and the join is summation.
+The FinStoch category uses the Markov algebra: composition is Markov kernel composition (matrix multiplication), and the join is summation.
 
 Create two finite sets:
 

@@ -8,7 +8,7 @@ In quivers, [`Functor`](../api/categorical/functors.md) is an abstract base clas
 
 - `map_object(obj)`: the object map $F_\text{obj}: \text{Ob}(\mathcal{C}) \to \text{Ob}(\mathcal{D})$
 - `map_morphism(morph)`: the morphism map, returning a [`FunctorMorphism`](../api/core/morphisms.md)
-- `map_tensor(tensor, quantale)`: the tensor-level action
+- `map_tensor(tensor, algebra)`: the tensor-level action
 
 Concrete subclasses ship with the library:
 
@@ -156,18 +156,18 @@ The unit here is the initial object (empty set), exposed as `EMPTY` from `quiver
 
 ## Base Change
 
-Change the enriching quantale without changing the structure of morphisms. [`BaseChange`](../api/categorical/base_change.md) is an ABC; concrete instances are `BoolToFuzzy` and `FuzzyToBool`:
+Change the enriching algebra without changing the structure of morphisms. [`BaseChange`](../api/categorical/base_change.md) is an ABC; concrete instances are `BoolToFuzzy` and `FuzzyToBool`:
 
 ```python
 from quivers.categorical.base_change import BoolToFuzzy, FuzzyToBool
-from quivers.core.quantales import BOOLEAN, PRODUCT_FUZZY
+from quivers.core.algebras import BOOLEAN, PRODUCT_FUZZY
 
 # fuzzy → boolean via thresholding
-fuzzy_morph = morphism(X, Y, quantale=PRODUCT_FUZZY)
+fuzzy_morph = morphism(X, Y, algebra=PRODUCT_FUZZY)
 to_bool = FuzzyToBool(threshold=0.5)
 bool_morph = to_bool.apply_to_morphism(fuzzy_morph)
 
-assert bool_morph.quantale == BOOLEAN
+assert bool_morph.algebra == BOOLEAN
 assert bool_morph.domain == fuzzy_morph.domain
 assert bool_morph.codomain == fuzzy_morph.codomain
 

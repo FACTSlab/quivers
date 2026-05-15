@@ -1,6 +1,6 @@
 # Morphisms
 
-This page assigns denotations to the three QVR morphism strata (discrete $\mathcal{V}$-enriched, stochastic, and continuous) and to the structural transitions between them. Throughout, we fix a quantale $\mathcal{V}$ as in [Setting and notation](setting.md).
+This page assigns denotations to the three QVR morphism strata (discrete $\mathcal{V}$-enriched, stochastic, and continuous) and to the structural transitions between them. Throughout, we fix an algebra $\mathcal{V}$ as in [Setting and notation](setting.md).
 
 ## 1. Discrete $\mathcal{V}$-enriched morphisms
 
@@ -35,7 +35,7 @@ Composition $;$, tensor $\boxtimes$, and identity $1_X$ in $\mathcal{V}\text{-}\
 
 ### 1.2 Marginalization
 
-For $f : X \otimes Y \to Z$ in $\mathcal{V}\text{-}\mathbf{Rel}$, the expression `f.marginalize(X)` denotes the $\mathcal{V}$-enriched colimit (quantale-join) of $f$ along the $X$-coordinate:
+For $f : X \otimes Y \to Z$ in $\mathcal{V}\text{-}\mathbf{Rel}$, the expression `f.marginalize(X)` denotes the $\mathcal{V}$-enriched colimit (algebra-join) of $f$ along the $X$-coordinate:
 
 $$
 \llbracket f.\mathrm{marginalize}(X) \rrbracket(y, z) \;=\; \bigoplus_{x \in \llbracket X \rrbracket} \llbracket f \rrbracket\bigl((x, y), z\bigr),
@@ -205,4 +205,4 @@ where `rsample` is the reparameterized sample of the family at its declared even
 
 ## 8. Equivariance and naturality
 
-The constructions above are functorial in the chosen quantale (for the discrete stratum, [Quantales §4](quantales.md#4-functoriality-of-the-language)) and in the choice of family registry (for the stochastic and continuous strata). In particular, any uniform substitution of one family for another that preserves the parameter-map signature induces a natural transformation of denotations; this is the formal underpinning of the family-registry lookup tables in [`quivers.continuous.families`](../api/continuous/families.md) and [`quivers.stochastic.families`](../api/stochastic/families.md).
+The constructions above are functorial in the chosen algebra (for the discrete stratum, [Algebras §4](algebras.md#4-functoriality-of-the-language)) and in the choice of family registry (for the stochastic and continuous strata). In particular, any uniform substitution of one family for another that preserves the parameter-map signature induces a natural transformation of denotations; this is the formal underpinning of the family-registry lookup tables in [`quivers.continuous.families`](../api/continuous/families.md) and [`quivers.stochastic.families`](../api/stochastic/families.md).

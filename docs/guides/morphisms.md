@@ -2,7 +2,7 @@
 
 ## What is a Morphism?
 
-A morphism from domain $A$ to codomain $B$ in a $\mathcal{V}$-enriched category is a tensor $M \in \mathcal{V}^{|A| \times |B|}$, where $\mathcal{V}$ is the enriching quantale. Concretely, it is a multi-dimensional tensor with shape `(*A.shape, *B.shape)` and values in the lattice $\mathcal{L}$ of $\mathcal{V}$.
+A morphism from domain $A$ to codomain $B$ in a $\mathcal{V}$-enriched category is a tensor $M \in \mathcal{V}^{|A| \times |B|}$, where $\mathcal{V}$ is the enriching algebra. Concretely, it is a multi-dimensional tensor with shape `(*A.shape, *B.shape)` and values in the lattice $\mathcal{L}$ of $\mathcal{V}$.
 
 For a simple `FinSet` morphism $f: X \to Y$ with $|X| = m$ and $|Y| = n$, the tensor is an $m \times n$ matrix.
 
@@ -81,11 +81,11 @@ with torch.no_grad():
 
 ## Composition: The >>  Operator
 
-Composition of two morphisms uses the quantale's operations. If $f: A \to B$ and $g: B \to C$, then $g \circ f: A \to C$ is computed as:
+Composition of two morphisms uses the algebra's operations. If $f: A \to B$ and $g: B \to C$, then $g \circ f: A \to C$ is computed as:
 
 $$(g \circ f)[a, c] = \bigvee_b f[a, b] \otimes g[b, c]$$
 
-where $\bigvee$ is the quantale's join and $\otimes$ is its tensor operation.
+where $\bigvee$ is the algebra's join and $\otimes$ is its tensor operation.
 
 ```python
 from quivers.core.objects import FinSet
@@ -114,15 +114,15 @@ pipeline = f >> g >> k
 assert pipeline.tensor.shape == (3, 5)
 ```
 
-Compositions must have compatible quantales:
+Compositions must have compatible algebras:
 
 ```python
-from quivers.core.quantales import BOOLEAN, GodelQuantale
+from quivers.core.algebras import BOOLEAN, GodelAlgebra
 
-f_bool = morphism(X, Y, quantale=BOOLEAN)
-g_godel = morphism(Y, Z, quantale=GodelQuantale())
+f_bool = morphism(X, Y, algebra=BOOLEAN)
+g_godel = morphism(Y, Z, algebra=GodelAlgebra())
 
-# Raises TypeError: incompatible quantales
+# Raises TypeError: incompatible algebras
 try:
     _ = f_bool >> g_godel
 except TypeError as e:
@@ -131,7 +131,7 @@ except TypeError as e:
 
 ## Tensor Product: The @ Operator
 
-The tensor (or parallel) product $f \otimes g$ combines two morphisms $f: A \to B$ and $g: C \to D$ into a morphism $f \otimes g: A \times C \to B \times D$. The tensor is the outer product via the quantale's $\otimes$:
+The tensor (or parallel) product $f \otimes g$ combines two morphisms $f: A \to B$ and $g: C \to D$ into a morphism $f \otimes g: A \times C \to B \times D$. The tensor is the outer product via the algebra's $\otimes$:
 
 ```python
 A = FinSet(name="A", cardinality=2)
@@ -176,7 +176,7 @@ assert g.domain == X
 assert g.codomain == Y
 ```
 
-The tensor is computed by applying the quantale's join operation over the codomain dimensions corresponding to $Z$.
+The tensor is computed by applying the algebra's join operation over the codomain dimensions corresponding to $Z$.
 
 ## Operations Summary
 

@@ -85,7 +85,7 @@ nav:
     - Editor highlighting: getting-started/highlighting.md
   - Guides:
     - Overview: guides/index.md
-    - Core Types & Quantales: guides/core.md
+    - Core Types & Algebras: guides/core.md
     - Transformations & Composition Rules: guides/transformations.md
     - Morphisms & Composition: guides/morphisms.md
     - Categorical Structures: guides/categorical.md
@@ -103,7 +103,7 @@ nav:
   - Denotational Semantics:
     - Overview: semantics/index.md
     - Setting and Notation: semantics/setting.md
-    - Quantales and Base Change: semantics/quantales.md
+    - Algebras and Base Change: semantics/algebras.md
     - Composition Rules: semantics/composition-rules.md
     - Types and Spaces: semantics/types-and-spaces.md
     - Morphisms: semantics/morphisms.md
@@ -153,7 +153,7 @@ nav:
     - Overview: api/index.md
     - Core:
       - Overview: api/core/objects.md
-      - Quantales: api/core/quantales.md
+      - Algebras: api/core/algebras.md
       - Morphisms: api/core/morphisms.md
       - Tensor Operations: api/core/tensor_ops.md
       - Utilities: api/core/util.md
@@ -189,7 +189,6 @@ nav:
       - Optics: api/enriched/optics.md
     - Stochastic:
       - Overview: api/stochastic/effect_lifts.md
-      - Quantale: api/stochastic/quantale.md
       - Morphisms: api/stochastic/morphisms.md
       - Families: api/stochastic/families.md
       - Transforms: api/stochastic/transforms.md

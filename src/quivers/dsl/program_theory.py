@@ -191,7 +191,7 @@ _CONSTRAINT_SORTS = [
     "morphism_kind",
     "replicate",
     "n_bins",
-    "quantale",
+    "algebra",
 ]
 
 QVR_PROGRAM_PROTOCOL: panproto.Protocol = panproto.define_protocol(
@@ -366,8 +366,8 @@ def extract_program_schema(compiler: "Compiler") -> panproto.Schema:
     writer = _SchemaWriter(builder)
 
     builder.vertex("program", "program")
-    if compiler._quantale is not None:
-        builder.constraint("program", "quantale", type(compiler._quantale).__name__)
+    if compiler._algebra is not None:
+        builder.constraint("program", "algebra", type(compiler._algebra).__name__)
 
     # object decls
     for name, obj in compiler._objects.items():

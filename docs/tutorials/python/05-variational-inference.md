@@ -340,7 +340,7 @@ This workflow applies to any quivers probabilistic program, from simple Gaussian
 
 ## Next
 
-[Tutorial 6](06-first-class-trans.md) covers first-class transformations: `MorphismTransformation` and `QuantaleHomomorphism` as values, the `>>>` composition operator, and change-of-base pipelines.
+[Tutorial 6](06-first-class-trans.md) covers first-class transformations: `MorphismTransformation` and `AlgebraHomomorphism` as values, the `>>>` composition operator, and change-of-base pipelines.
 
 ## Further Reading
 

@@ -6,6 +6,28 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/), and this
 
 ## [0.6.0] - 2026-05-14
 
+### Changed
+
+- **BREAKING: `quantale` → `algebra` across DSL, Python API, and docs.** The `quantale` keyword and every `Quantale`-named symbol overclaimed the algebraic structure: seven of the eleven built-in cases fail strict quantale-distributivity in [Kelly's sense](https://ncatlab.org/nlab/show/enriched+category). The new term *algebra* names the structure $(V, \otimes, \oplus, \mathbf{1})$ honestly; the subclass that does satisfy the strict laws keeps the name *strict quantale* and is identified inline in [Algebras §2](docs/semantics/algebras.md#2-order--and-structure-preservation). Migration:
+
+  | Old | New |
+  |-----|-----|
+  | `quantale X` (DSL keyword) | `algebra X` |
+  | `Quantale` (abstract base) | `Algebra` |
+  | `BooleanQuantale`, `LukasiewiczQuantale`, `GodelQuantale`, `TropicalQuantale`, `MaxPlusQuantale`, `LogProbQuantale`, `RealQuantale`, `ProbabilityQuantale`, `CountingQuantale`, `MarkovQuantale` | `BooleanAlgebra`, `LukasiewiczAlgebra`, `GodelAlgebra`, `TropicalAlgebra`, `MaxPlusAlgebra`, `LogProbAlgebra`, `RealAlgebra`, `ProbabilityAlgebra`, `CountingAlgebra`, `MarkovAlgebra` |
+  | `ProductFuzzy` | `ProductFuzzyAlgebra` |
+  | `DualQuantale`, `CustomQuantale`, `QuantaleFromCallables` | `DualAlgebra`, `CustomAlgebra`, `AlgebraFromCallables` |
+  | `QuantaleHomomorphism` | `AlgebraHomomorphism` |
+  | `Algebra.compatible_quantales()` | `Algebra.compatible_algebras()` |
+  | `_QUANTALE_REGISTRY`, `_register_extra_quantales` | `_ALGEBRA_REGISTRY`, `_register_extra_algebras` |
+  | compiler env binding `__quantale__` | `__algebra__` |
+  | `QuantaleDecl` AST node | `AlgebraDecl` |
+  | `quivers.core.quantales` module | `quivers.core.algebras` |
+  | `quivers.core.quantale_morphisms` module | `quivers.core.algebra_morphisms` |
+  | `quivers.stochastic.quantale` re-export | **deleted**; import `MarkovAlgebra`, `MARKOV` from `quivers.core.algebras` |
+
+  Singletons (`PRODUCT_FUZZY`, `BOOLEAN`, `LUKASIEWICZ`, `GODEL`, `TROPICAL`, `MAX_PLUS`, `LOG_PROB`, `REAL`, `PROBABILITY`, `COUNTING`, `MARKOV`, `REICHENBACH`, `MATERIAL_IMPLICATION`) keep their names. Registry key strings (`"product_fuzzy"`, `"boolean"`, ...) keep their names.
+
 ### Added
 
 - **Factor expressions: `let f = factor v_1 : I_1, ..., v_n : I_n in <body>`.** A new let-expression form that assembles an indexed tensor of shape `(|I_1|, ..., |I_n|, *body_shape)` by evaluating `<body>` once per cell of the Cartesian product of binder indices. The categorical content is the left adjoint of multi-axis indexing: factor is to indexing as a (co)limit cone is to its components. A single-binder pattern-match form `factor v : I in { 0 -> e_0, 1 -> e_1, ... }` is also supported for cell-structured priors (label coverage and in-range labels are checked at compile time). Closes [#19](https://github.com/FACTSlab/quivers/issues/19).
@@ -84,17 +106,17 @@ implementation of scoped grouped `marginalize` blocks (issue #9),
 a unified distribution family registry with every torch.distributions
 family exposed inline, the Tier-1 through Tier-6 benchmark grid
 emitting `docs/developer/inference-benchmarks.md`, and the
-categorical refinements from issues #15-#17 (quantale duality,
+categorical refinements from issues #15-#17 (algebra duality,
 shape-aware change-of-base, storage-level shape compatibility).
 Pre-1.0 clean break: no backwards-compatibility shims; user code
 that relied on the `SVI(loss=...)` keyword should switch to
 `SVI(objective=...)`, `Predictive(guide=...)` should use the
 positional `posterior` argument, and imports from
-`quivers.core.extra_quantales` move to `quivers.core.quantales`.
+`quivers.core.extra_algebras` move to `quivers.core.algebras`.
 
-### Added: quantale duality and user-defined quantales
+### Added: algebra duality and user-defined algebras
 
-- **`Quantale.dual()`** returns a `DualQuantale` whose
+- **`Algebra.dual()`** returns a `DualAlgebra` whose
   `tensor_op` and `join` swap roles under the de-Morgan
   involution. `ProductFuzzy.dual` gives the canonical
   Reichenbach-flavor probabilistic-implication composition
@@ -103,11 +125,11 @@ positional `posterior` argument, and imports from
   t-conorm pair; `Godel.dual` gives `(max, min)`.
 - **Named singletons** `REICHENBACH`, `BOOLEAN_DUAL`,
   `DUAL_LUKASIEWICZ`, `DUAL_GODEL` exported from
-  `quivers.core.quantales` and registered with the DSL quantale
-  catalog so users can write `quantale reichenbach`.
-- **`CustomQuantale`** accepts user-supplied `tensor_op` / `join`
+  `quivers.core.algebras` and registered with the DSL algebra
+  catalog so users can write `algebra reichenbach`.
+- **`CustomAlgebra`** accepts user-supplied `tensor_op` / `join`
   / `unit` / `zero` / `negate` callables for arbitrary
-  user-defined quantales, with construction-time sanity checks
+  user-defined algebras, with construction-time sanity checks
   on the identity / absorbing axioms.
 
 ### Added: functorial change-of-base
@@ -115,18 +137,18 @@ positional `posterior` argument, and imports from
 - **`MorphismTransformation` ABC** in
   `quivers.core.morphism_transformations`: shape-aware
   change-of-base for transformations that don't factor pointwise
-  through a quantale homomorphism. Concrete subclasses:
+  through a algebra homomorphism. Concrete subclasses:
   `Softmax(axis_object)`, `L1Normalize(axis_object)`,
   `L2Normalize(axis_object)`, `BayesInvert(prior)`.
 - **`Morphism.change_base`** now dispatches on either a
-  `QuantaleHomomorphism` (pointwise) or a `MorphismTransformation`
+  `AlgebraHomomorphism` (pointwise) or a `MorphismTransformation`
   (shape-aware). The latter may swap the morphism's domain and
   codomain (used by `BayesInvert`).
 
 ### Added: first-class transformations in the DSL
 
 - **Trans values** are now full DSL values: a transformation (a
-  `QuantaleHomomorphism` or `MorphismTransformation`) can be
+  `AlgebraHomomorphism` or `MorphismTransformation`) can be
   let-bound, composed with `>>>`, and passed to `change_base`.
   The transformation namespace is disjoint from the morphism
   namespace; let-binding routes based on the RHS shape.
@@ -201,7 +223,7 @@ likelihoods that motivated the work).
   the composition-rule hierarchy).
 - New denotational-semantics page,
   `docs/semantics/composition-rules.md`, formalizing the
-  `CompositionRule → Semigroupoid → Quantale` hierarchy,
+  `CompositionRule → Semigroupoid → Algebra` hierarchy,
   operadic n-ary contractions via flat wirings, and the sort
   `Trans[V, W]` for first-class transformations.
 - New conceptual guide `docs/guides/transformations.md` covering
@@ -243,12 +265,12 @@ likelihoods that motivated the work).
 
 ### Changed: module consolidation
 
-- `quivers.core.extra_quantales` is **deleted**. All its classes
+- `quivers.core.extra_algebras` is **deleted**. All its classes
   (Lukasiewicz, Godel, Tropical, MaxPlus, LogProb, Real,
   Probability, Counting) and singletons now live in
-  `quivers.core.quantales` alongside ProductFuzzy and Boolean.
+  `quivers.core.algebras` alongside ProductFuzzy and Boolean.
   Internal imports updated; user code that imported from
-  `extra_quantales` must update to import from `quantales`.
+  `extra_algebras` must update to import from `algebras`.
 
 ### Added: distribution-family wrappers
 
@@ -429,27 +451,27 @@ likelihoods that motivated the work).
   `_morphism` for runtime recovery; `MonadicProgram.rsample`
   detects V-Cat steps and computes them as deterministic tensor
   applications.
-- **Multi-quantale composition** with one operator per quantale.
+- **Multi-algebra composition** with one operator per algebra.
   `>>` (ProductFuzzy default), `<<` (reverse), `>=>` (Kleisli),
   `*>` (Markov sum-product), `~>` (LogProb log-space),
   `||>` (Gödel min/max + Heyting), `?>` (Viterbi max-plus),
   `&&>` (Boolean), `+>` (Łukasiewicz), `$>` (Real sum-product),
   `%>` (Probability sum-product). Each operator carries its
-  quantale; cross-operator chains require explicit
-  `.change_base(φ)`. Five new quantale classes:
-  `MaxPlusQuantale` (Viterbi / MAP), `LogProbQuantale`
-  (log-space sum-product), `RealQuantale` (sum-product on ℝ),
-  `ProbabilityQuantale` (sum-product on [0, 1]), `CountingQuantale`
+  algebra; cross-operator chains require explicit
+  `.change_base(φ)`. Five new algebra classes:
+  `MaxPlusAlgebra` (Viterbi / MAP), `LogProbAlgebra`
+  (log-space sum-product), `RealAlgebra` (sum-product on ℝ),
+  `ProbabilityAlgebra` (sum-product on [0, 1]), `CountingAlgebra`
   (sum-product on non-negative integers). The last three mirror
   the corresponding arcweight weight-set semirings (`RealWeight`,
   `ProbabilityWeight`, `IntegerWeight`) and round out the
-  built-in quantale catalog to eleven distinct algebras.
-- **Quantale homomorphisms** (`quivers.core.quantale_morphisms`)
+  built-in algebra catalog to eleven distinct algebras.
+- **Algebra homomorphisms** (`quivers.core.algebra_morphisms`)
   for change-of-base: `Expectation`, `LogProb`, `MaxPlus`,
   `Threshold`, `MaterialImplication`, `Embedding`, `IdentityHom`,
   `ProbabilityClamp` (Real → Probability), `CountingFromReal`
   (Real → Counting via floor), `ProbabilityToReal` and
-  `CountingToReal` (sub-quantale inclusions). Module-level
+  `CountingToReal` (sub-algebra inclusions). Module-level
   singletons (`EXPECTATION`, `LOG_PROB_HOM`, `MAX_PLUS_HOM`,
   `MATERIAL_IMPLICATION`, `PROBABILITY_CLAMP`,
   `COUNTING_FROM_REAL`, `PROBABILITY_TO_REAL`,
@@ -466,8 +488,8 @@ likelihoods that motivated the work).
 - **Compact-closed surface** on V-Cat morphisms: `f.dagger`
   (transpose), `f.trace(A)` (categorical trace), `cup(A)` and
   `cap(A)` (unit / counit). Each operation is well-defined for
-  every quantale; the semantic interpretation depends on the
-  active quantale (ProductFuzzy: tensor transpose; Markov:
+  every algebra; the semantic interpretation depends on the
+  active algebra (ProductFuzzy: tensor transpose; Markov:
   Bayes inversion; Viterbi: max-plus reversal; Boolean:
   relational converse).
 - **Data-derived and expression-derived initialisers** for
