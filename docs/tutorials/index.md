@@ -29,6 +29,7 @@ The Python API gives you direct access to the typed categorical surface: `FinSet
 5. **[Variational inference](python/05-variational-inference.md)**. `Guide` + `Objective` + `SVI` + `Predictive`. Setting up the full inference loop end-to-end.
 6. **[First-class transformations](python/06-first-class-trans.md)**. `MorphismTransformation` and `AlgebraHomomorphism` as values: let-binding, the `>>>` composition operator, change-of-base pipelines.
 7. **[Composition rules beyond algebras](python/07-composition-rules.md)**. The `CompositionRule → Semigroupoid → Algebra` hierarchy, `BilinearForm`, and the operadic `EinsumWiring` surface for n-ary contractions.
+8. **[Analysis pipelines](python/08-analysis-pipelines.md)**. Formula → fit → diagnostics in one line: brms-style `fit("y ~ x + (1|g)", data=df, ...)`, the emitted `.qvr` source, SVI on a hierarchical model, NUTS + PSIS-LOO model comparison, ArviZ `DataTree` posterior-predictive checks.
 
 ## Prerequisites
 
