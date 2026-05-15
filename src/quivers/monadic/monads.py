@@ -208,8 +208,7 @@ class FreeMonoidMonad(Monad):
 
     def __repr__(self) -> str:
         return (
-            f"FreeMonoidMonad(max_length={self._max_length}, "
-            f"algebra={self._algebra!r})"
+            f"FreeMonoidMonad(max_length={self._max_length}, algebra={self._algebra!r})"
         )
 
 

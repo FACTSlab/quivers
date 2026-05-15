@@ -473,9 +473,7 @@ HOMOMORPHISM_REGISTRY: dict[tuple[str, str], AlgebraHomomorphism] = {
 }
 
 
-def lookup_homomorphism(
-    source: Algebra, target: Algebra
-) -> AlgebraHomomorphism | None:
+def lookup_homomorphism(source: Algebra, target: Algebra) -> AlgebraHomomorphism | None:
     """Return the registered homomorphism ``source → target`` or
     ``None`` if no canonical bridge is known.
 
