@@ -10,45 +10,45 @@ that the existing :class:`quivers.dsl.compiler.Compiler` consumes
 directly, identical in shape to one produced by
 :func:`quivers.dsl.parser.parse`.
 
-Emitted structure (one named scalar coefficient per fixed-effect
-term, matching the brms / lme4 canonical layout):
+Emitted structure (one named scalar coefficient per design-matrix
+*column*, matching the brms / lme4 canonical layout in which
+``poly(x, 2)`` produces two coefficients ``poly(x, 2)_1`` and
+``poly(x, 2)_2``):
 
 * One ``object Resp : N`` declaration per response plate.
 * One ``object G : K`` declaration per random-effect grouping
   factor (with ``K`` levels).
-* For each fixed term ``t``: one scalar latent draw inside the
-  program body, ``beta_t <- Normal(0, fixed_prior)``.  The
-  per-row covariate column for ``t`` flows in as a free variable
-  via the host-data channel (``observations[t]``).
+* For each fixed-design column ``c``: one scalar latent draw
+  inside the program body, ``beta_c <- Normal(0, fixed_prior)``.
+  The per-row covariate values for ``c`` flow in as a free
+  variable via the host-data channel (``observations[c]``).
 * For each random-effect group ``(slope | g)``: a
   :class:`HalfNormal` scale latent plus a per-level plate draw,
   with the per-row contribution as a plate-gather
   ``alpha_g[g_idx]`` (or ``beta_g_slope[g_idx] * slope`` for a
-  random slope).
+  random slope).  Multiple random slopes per group are emitted
+  as independent random-effect terms (the uncorrelated /
+  ``(... || g)`` semantics in lme4).
 * One ``observe`` step closes the program with the family's
   observation kernel applied to the inverse-link of the linear
   predictor.
 
-Carrying the formula in the complement gives the lens the exact
-information panproto's :meth:`backward` needs to satisfy the
-GetPut law ``backward(*forward(f)) == f``.  PutGet is the trivial
-identity on ``(module, complement)`` pairs.
+The lens satisfies the GetPut law trivially (forward returns
+``(module, formula)``; backward returns the complement); PutGet
+is the identity on ``(module, complement)`` pairs.
 """
 
 from __future__ import annotations
 
-from typing import Mapping
+from typing import Literal, Mapping
 
 import didactic.api as dx
 import torch
-
-from typing import Literal
 
 from quivers.dsl.ast_nodes import (
     BindStep,
     ExportDecl,
     ExprIdent,
-    LetDecl,
     LetExprBinOp,
     LetExprCall,
     LetExprIndex,
@@ -57,22 +57,21 @@ from quivers.dsl.ast_nodes import (
     LetExprVar,
     LetStep,
     Module,
-    MorphismDecl,
     ObjectDecl,
     ProgramDecl,
     ProgramStep,
-    SpaceDecl,
+    Statement,
     TypeName,
 )
 from quivers.formulas.family import Family
-from quivers.formulas.formula import Formula
+from quivers.formulas.formula import Formula, _qvr_name
 
 
 def _parse_prior_call(text: str) -> tuple[str, tuple[str | float, ...]]:
-    """Split a brms-style prior string ``"Family(arg, arg, ...)"`` into
-    its family name and a tuple of argument tokens.  Numeric tokens
-    become floats; identifier tokens stay as strings (so they can
-    refer to other latents in the emitted program).
+    """Split a brms-style prior template ``"Family(arg, arg, ...)"``
+    into its family name and a tuple of argument tokens.  Numeric
+    tokens become floats; identifier tokens stay as strings so they
+    can refer to other latents in the emitted program.
     """
     text = text.strip()
     if "(" not in text or not text.endswith(")"):
@@ -156,8 +155,8 @@ class FormulaToQVRModule(dx.Lens[Formula, Module, Formula]):
     family : Family
         Response family from :data:`quivers.formulas.families`.
     fixed_prior : str
-        Default prior for fixed-effect coefficients.  Surface form
-        ``"Family(arg, arg, ...)"``; numeric args become floats,
+        Default prior for fixed-effect coefficients, in the surface
+        form ``"Family(arg, arg, ...)"``; numeric args become floats,
         identifier args stay as variable references in the emitted
         program.
     random_scale_prior : str
@@ -168,8 +167,8 @@ class FormulaToQVRModule(dx.Lens[Formula, Module, Formula]):
 
     Notes
     -----
-    Forward returns ``(module, formula)`` so the complement carries
-    the original formula verbatim; backward returns the complement.
+    Forward returns ``(module, formula)``; backward returns the
+    complement so :meth:`backward(*forward(f)) == f`.
     """
 
     def __init__(
@@ -191,43 +190,35 @@ class FormulaToQVRModule(dx.Lens[Formula, Module, Formula]):
     def backward(self, target: Module, complement: Formula, /) -> Formula:
         return complement
 
-    def constant_data(self, formula: Formula) -> dict[str, torch.Tensor]:
-        """Empty: the term-by-term layout consumes per-column tensors
-        through the inference-time observations dict (host-data
-        channel), not the compile-time ``data=`` kwarg.
-        """
-        return {}
-
     def fixed_column_observations(self, formula: Formula) -> dict[str, torch.Tensor]:
         """Per-column free-variable bindings for the host-data
-        channel.  One entry per non-intercept fixed term, shape
+        channel.  One entry per non-intercept fixed column, shape
         ``(N,)``.
         """
         obs: dict[str, torch.Tensor] = {}
-        col_index = {name: i for i, name in enumerate(formula.fixed_term_names)}
-        for name in formula.fixed_term_names:
-            if name == "Intercept":
+        for col in formula.fixed_columns:
+            if col.is_intercept:
                 continue
-            col = formula.fixed_design[:, col_index[name]]
-            obs[_qvr_name(name)] = torch.as_tensor(col, dtype=torch.float32)
+            obs[col.qvr_name] = torch.as_tensor(col.data.copy(), dtype=torch.float32)
         return obs
 
     def _build_module(self, formula: Formula) -> Module:
-        statements: list[
-            ObjectDecl | SpaceDecl | MorphismDecl | LetDecl | ProgramDecl | ExportDecl
-        ] = []
-        n_obs = int(formula.fixed_design.shape[0])
-        statements.append(ObjectDecl(name="Resp", type_expr=TypeName(name=str(n_obs))))
+        statements: list[Statement] = []
+        n_obs = formula.response_values.shape[0]
+        statements.append(
+            ObjectDecl(name="Resp", type_expr=TypeName(name=str(int(n_obs))))
+        )
         seen_groups: set[str] = set()
         for term in formula.random_terms:
             group = term.group
-            if group in seen_groups:
+            qgroup = _qvr_name(group)
+            if qgroup in seen_groups:
                 continue
-            seen_groups.add(group)
+            seen_groups.add(qgroup)
             levels = formula.group_levels[group]
             statements.append(
                 ObjectDecl(
-                    name=_qvr_name(group),
+                    name=qgroup,
                     type_expr=TypeName(name=str(len(levels))),
                 )
             )
@@ -235,45 +226,46 @@ class FormulaToQVRModule(dx.Lens[Formula, Module, Formula]):
         program_steps: list[ProgramStep] = []
         linear_terms: list[LetExprNode] = []
 
-        # Fixed effects: one scalar latent per term + a let computing
-        # its per-row contribution.  Each non-intercept term's column
-        # flows in via the host-data channel as a free variable named
-        # `qvr_name(term)`.
-        for term in formula.fixed_term_names:
-            qname = _qvr_name(term)
-            beta_name = f"beta_{qname}" if term != "Intercept" else "intercept"
+        # Fixed effects: one scalar latent per design-matrix column.
+        for col in formula.fixed_columns:
+            beta_name = "intercept" if col.is_intercept else f"beta_{col.qvr_name}"
             prior_text = self._user_priors.get(beta_name, self._fixed_prior)
             family_name, args = _parse_prior_call(prior_text)
-            program_steps.append(_draw(beta_name, family_name, args, mode="sample"))
-            if term == "Intercept":
+            program_steps.append(_draw(beta_name, family_name, args))
+            if col.is_intercept:
                 linear_terms.append(_var(beta_name))
             else:
                 contrib_name = f"{beta_name}_per_row"
                 program_steps.append(
-                    _let(contrib_name, _mul(_var(beta_name), _var(qname)))
+                    _let(contrib_name, _mul(_var(beta_name), _var(col.qvr_name)))
                 )
                 linear_terms.append(_var(contrib_name))
 
-        # Random effects.
+        # Random effects.  Each (slope | g) entry emits its own scale
+        # latent + per-level plate draw + per-row gather; multiple
+        # slopes per group are independent (uncorrelated; matches
+        # lme4's `(... || g)` semantics).
         for term in formula.random_terms:
             group = term.group
             qgroup = _qvr_name(group)
             slope = term.slope
-            sigma_var = f"sigma_{qgroup}_{slope}"
-            sigma_prior = self._user_priors.get(sigma_var, self._random_scale_prior)
-            sf_family, sf_args = _parse_prior_call(sigma_prior)
-            program_steps.append(_draw(sigma_var, sf_family, sf_args, mode="sample"))
+            qslope = _qvr_name(slope)
+            sigma_var = f"sigma_{qgroup}_{qslope}"
+            sigma_prior_text = self._user_priors.get(
+                sigma_var, self._random_scale_prior
+            )
+            sf_family, sf_args = _parse_prior_call(sigma_prior_text)
+            program_steps.append(_draw(sigma_var, sf_family, sf_args))
             if slope == "Intercept":
                 latent_var = f"alpha_{qgroup}"
             else:
-                latent_var = f"beta_{qgroup}_{slope}"
+                latent_var = f"beta_{qgroup}_{qslope}"
             program_steps.append(
                 _draw(
                     latent_var,
                     "Normal",
                     (0.0, sigma_var),
                     index=TypeName(name=qgroup),
-                    mode="sample",
                 )
             )
             contrib_name = f"{latent_var}_per_row"
@@ -282,18 +274,15 @@ class FormulaToQVRModule(dx.Lens[Formula, Module, Formula]):
             if slope == "Intercept":
                 program_steps.append(_let(contrib_name, gather))
             else:
-                program_steps.append(
-                    _let(contrib_name, _mul(gather, _var(_qvr_name(slope))))
-                )
+                program_steps.append(_let(contrib_name, _mul(gather, _var(qslope))))
             linear_terms.append(_var(contrib_name))
 
-        # Auxiliary family parameters (sigma, disp, phi, nu, ...).
+        # Auxiliary family parameters.
         for aux in self._family.aux_params:
             prior = self._user_priors.get(aux.name, aux.prior)
             family_name, args = _parse_prior_call(prior)
-            program_steps.append(_draw(aux.name, family_name, args, mode="sample"))
+            program_steps.append(_draw(aux.name, family_name, args))
 
-        # Linear predictor + inverse link.
         if not linear_terms:
             eta_expr: LetExprNode = LetExprLiteral(value=0.0)
         else:
@@ -302,7 +291,6 @@ class FormulaToQVRModule(dx.Lens[Formula, Module, Formula]):
         mu_expr = _apply_link(_var("eta"), self._family.location_link.name)
         program_steps.append(_let("mu", mu_expr))
 
-        # Response observation step.
         obs_args: tuple[str | float, ...] = ("mu",) + tuple(
             self._family.extra_observe_args
         )
@@ -327,11 +315,3 @@ class FormulaToQVRModule(dx.Lens[Formula, Module, Formula]):
         statements.append(program_decl)
         statements.append(ExportDecl(expr=ExprIdent(name="model")))
         return Module(statements=tuple(statements))
-
-
-def _qvr_name(raw: str) -> str:
-    """Normalize a column / term name into a legal QVR identifier."""
-    cleaned = "".join(c if c.isalnum() or c == "_" else "_" for c in raw)
-    if not cleaned or cleaned[0].isdigit():
-        cleaned = "_" + cleaned
-    return cleaned

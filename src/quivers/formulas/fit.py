@@ -26,7 +26,7 @@ from quivers.dsl import Compiler
 from quivers.dsl.emit import module_to_source
 from quivers.formulas.compile import FormulaToQVRModule
 from quivers.formulas.family import Family, families
-from quivers.formulas.formula import Formula, parse_formula
+from quivers.formulas.formula import Formula, _qvr_name, formula_from_data
 from quivers.inference.guides.base import Guide
 from quivers.inference.mcmc.driver import MCMCResult
 
@@ -93,7 +93,7 @@ def bayes_fit(
     """Compile a brms-style formula, fit it, and return the result.
 
     See :mod:`quivers.formulas` for surface details.  This entry
-    point composes :func:`parse_formula`, :class:`FormulaToQVRModule`,
+    point composes :func:`formula_from_data`, :class:`FormulaToQVRModule`,
     :class:`Compiler`, and the inference layer in one call.
     """
     if isinstance(family, str):
@@ -105,7 +105,7 @@ def bayes_fit(
     else:
         family_obj = family
 
-    parsed = parse_formula(formula, data)
+    parsed = formula_from_data(formula, data)
     lens = FormulaToQVRModule(
         family_obj,
         fixed_prior=fixed_prior,
@@ -130,7 +130,9 @@ def bayes_fit(
         parsed.response_values.copy(), dtype=torch.float32
     ).reshape(-1)
     for group, codes in parsed.group_indices.items():
-        observations[f"{group}_idx"] = torch.as_tensor(list(codes), dtype=torch.long)
+        observations[f"{_qvr_name(group)}_idx"] = torch.as_tensor(
+            list(codes), dtype=torch.long
+        )
 
     torch.manual_seed(seed)
     if sampler == "svi":
@@ -179,7 +181,7 @@ def formula_to_qvr(
         family_obj = families[family]
     else:
         family_obj = family
-    parsed = parse_formula(formula, data)
+    parsed = formula_from_data(formula, data)
     lens = FormulaToQVRModule(
         family_obj,
         fixed_prior=fixed_prior,
