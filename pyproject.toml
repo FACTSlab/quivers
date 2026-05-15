@@ -44,6 +44,8 @@ dev = [
     "ruff",
     "pyright",
     "numpy",
+    "pandas",
+    "polars",
 ]
 docs = [
     "mkdocs",
