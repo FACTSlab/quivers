@@ -5,6 +5,7 @@ program bodies, contractions, and let-expression compilation.
 """
 
 from __future__ import annotations
+import inspect
 from collections.abc import Callable
 from itertools import product as _cartesian_product
 from typing import cast
@@ -25,6 +26,7 @@ from quivers.core.wiring import EinsumWiring
 from quivers.dsl.ast_nodes import (
     BindStep,
     ContractionDecl,
+    ContractionInput,
     DrawStep,
     ExprIdent,
     ExprMorphismCall,
@@ -88,6 +90,279 @@ type LetValue = (
     | ContinuousMorphism
     | Callable[[dict[str, "LetValue"]], "LetValue"]
 )
+
+
+# ---------------------------------------------------------------------------
+# Built-in tensor primitives visible to let-expression bodies.
+# ---------------------------------------------------------------------------
+#
+# Each entry maps a function name (as users write it in source) to a
+# callable that the let-expression compiler dispatches through.
+# Categorically these are the deterministic generators of the
+# ``Smooth(R^n, R^m)`` strata embedded into our V-Cat surface as
+# pointwise / shape-preserving operations on tensors.  User-defined
+# neural-network programs compose these with ``latent`` morphisms
+# (the learnable weights) inside the existing ``program`` declaration
+# — no separate ``module`` construct is needed.
+#
+# Coverage: every standard ``torch.nn.functional`` activation and a
+# broad set of element-wise + reduction primitives from
+# ``torch``.  When the underlying torch function takes a ``dim``
+# keyword we default to ``dim=-1`` (the natural choice for per-row
+# operations in V-Cat morphisms); users wanting a different axis
+# write the contraction via the typed ``contraction`` declaration.
+_F = torch.nn.functional
+_LET_EXPR_BUILTINS: dict[str, Callable] = {
+    # torch.nn.functional activations.  The list mirrors the public
+    # surface of ``torch.nn.functional`` as of PyTorch 2.x.
+    "relu": lambda a: _F.relu(a),
+    "relu6": lambda a: _F.relu6(a),
+    "leaky_relu": lambda a, slope=0.01: _F.leaky_relu(a, negative_slope=slope),
+    "prelu": lambda a, w: _F.prelu(a, w),
+    "rrelu": lambda a, lower=1 / 8, upper=1 / 3: _F.rrelu(a, lower=lower, upper=upper),
+    "elu": lambda a, alpha=1.0: _F.elu(a, alpha=alpha),
+    "selu": lambda a: _F.selu(a),
+    "celu": lambda a, alpha=1.0: _F.celu(a, alpha=alpha),
+    "gelu": lambda a: _F.gelu(a),
+    "silu": lambda a: _F.silu(a),
+    "swish": lambda a: _F.silu(a),  # alias
+    "mish": lambda a: _F.mish(a),
+    "hardtanh": lambda a, lo=-1.0, hi=1.0: _F.hardtanh(a, min_val=lo, max_val=hi),
+    "hardshrink": lambda a, lam=0.5: _F.hardshrink(a, lambd=lam),
+    "hardsigmoid": lambda a: _F.hardsigmoid(a),
+    "hardswish": lambda a: _F.hardswish(a),
+    "softplus": lambda a, beta=1.0: _F.softplus(a, beta=beta),
+    "softshrink": lambda a, lam=0.5: _F.softshrink(a, lambd=lam),
+    "softsign": lambda a: _F.softsign(a),
+    "softmax": lambda a: _F.softmax(a, dim=-1),
+    "log_softmax": lambda a: _F.log_softmax(a, dim=-1),
+    "softmin": lambda a: _F.softmin(a, dim=-1),
+    "tanh": lambda a: torch.tanh(a),
+    "tanhshrink": lambda a: _F.tanhshrink(a),
+    "sigmoid": lambda a: torch.sigmoid(a),
+    "logsigmoid": lambda a: _F.logsigmoid(a),
+    "threshold": lambda a, t, v: _F.threshold(a, t, v),
+    "glu": lambda a: _F.glu(a, dim=-1),
+    "normalize": lambda a, p=2.0: _F.normalize(a, p=p, dim=-1),
+    # Pointwise transcendental / arithmetic operations.
+    "exp": lambda a: torch.exp(a),
+    "expm1": lambda a: torch.expm1(a),
+    "log": lambda a: torch.log(a),
+    "log1p": lambda a: torch.log1p(a),
+    "log2": lambda a: torch.log2(a),
+    "log10": lambda a: torch.log10(a),
+    "sqrt": lambda a: torch.sqrt(a),
+    "rsqrt": lambda a: torch.rsqrt(a),
+    "square": lambda a: torch.square(a),
+    "abs": lambda a: torch.abs(a),
+    "neg": lambda a: -a,
+    "sign": lambda a: torch.sign(a),
+    "reciprocal": lambda a: torch.reciprocal(a),
+    "clamp": lambda a, lo, hi: torch.clamp(a, min=lo, max=hi),
+    "sin": lambda a: torch.sin(a),
+    "cos": lambda a: torch.cos(a),
+    "tan": lambda a: torch.tan(a),
+    "asin": lambda a: torch.asin(a),
+    "acos": lambda a: torch.acos(a),
+    "atan": lambda a: torch.atan(a),
+    "sinh": lambda a: torch.sinh(a),
+    "cosh": lambda a: torch.cosh(a),
+    "asinh": lambda a: torch.asinh(a),
+    "acosh": lambda a: torch.acosh(a),
+    "atanh": lambda a: torch.atanh(a),
+    "floor": lambda a: torch.floor(a),
+    "ceil": lambda a: torch.ceil(a),
+    "round": lambda a: torch.round(a),
+    "trunc": lambda a: torch.trunc(a),
+    "erf": lambda a: torch.erf(a),
+    "erfc": lambda a: torch.erfc(a),
+    "erfinv": lambda a: torch.erfinv(a),
+    "lgamma": lambda a: torch.lgamma(a),
+    "digamma": lambda a: torch.digamma(a),
+    # Reductions along the last axis (``dim=-1``).  Reductions over a
+    # specific named axis go through the contraction surface.
+    "sum": lambda a: torch.sum(a, dim=-1),
+    "mean": lambda a: torch.mean(a, dim=-1),
+    "var": lambda a: torch.var(a, dim=-1),
+    "std": lambda a: torch.std(a, dim=-1),
+    "min": lambda a: torch.min(a, dim=-1).values,
+    "max": lambda a: torch.max(a, dim=-1).values,
+    "argmin": lambda a: torch.argmin(a, dim=-1),
+    "argmax": lambda a: torch.argmax(a, dim=-1),
+    "prod": lambda a: torch.prod(a, dim=-1),
+    "amax": lambda a: torch.amax(a, dim=-1),
+    "amin": lambda a: torch.amin(a, dim=-1),
+    "logsumexp": lambda a: torch.logsumexp(a, dim=-1),
+    "norm": lambda a, p=2.0: torch.linalg.vector_norm(a, ord=p, dim=-1),
+    # Shape-preserving but global operations on the last axis.
+    "cumsum": lambda a: torch.cumsum(a, dim=-1),
+    "cumprod": lambda a: torch.cumprod(a, dim=-1),
+    "cummax": lambda a: torch.cummax(a, dim=-1).values,
+    "cummin": lambda a: torch.cummin(a, dim=-1).values,
+    "flip": lambda a: torch.flip(a, dims=(-1,)),
+    "sort": lambda a: torch.sort(a, dim=-1).values,
+    # Stochastic / training-mode primitives.  Dropout is a no-op
+    # outside training; layer_norm needs the per-feature shape passed
+    # explicitly.
+    "dropout": lambda a, p=0.5: _F.dropout(a, p=p, training=True),
+    "alpha_dropout": lambda a, p=0.5: _F.alpha_dropout(a, p=p, training=True),
+    "layer_norm": lambda a: _F.layer_norm(a, normalized_shape=(a.shape[-1],)),
+    "rms_norm": lambda a: a * torch.rsqrt(a.pow(2).mean(dim=-1, keepdim=True) + 1e-6),
+}
+
+
+def _expected_call_arity(target: object) -> int | None:
+    """Return the expected number of positional arguments for ``target``
+    when invoked from a let-expression call site, or ``None`` when the
+    arity cannot be determined statically.
+
+    Resolution rules:
+
+    * :class:`MonadicProgram` with named ``params``: arity is
+      ``len(params)`` (each param becomes one positional argument).
+    * :class:`MonadicProgram` without ``params``: arity is ``1`` (the
+      packed program input).
+    * :class:`Morphism`: arity is ``1`` (the domain tensor).
+    * Any other callable: use :func:`inspect.signature` and count
+      positional parameters without defaults; ``*args`` makes arity
+      unknowable, return ``None``.
+    """
+    from quivers.continuous.programs import MonadicProgram
+
+    if isinstance(target, MonadicProgram):
+        params = getattr(target, "_params", None)
+        return len(params) if params else 1
+    if isinstance(target, Morphism):
+        return 1
+    try:
+        sig = inspect.signature(target)  # type: ignore[arg-type]
+    except TypeError, ValueError:
+        return None
+    positional_kinds = (
+        inspect.Parameter.POSITIONAL_ONLY,
+        inspect.Parameter.POSITIONAL_OR_KEYWORD,
+    )
+    count = 0
+    for p in sig.parameters.values():
+        if p.kind is inspect.Parameter.VAR_POSITIONAL:
+            return None
+        if p.kind in positional_kinds and p.default is inspect.Parameter.empty:
+            count += 1
+    return count
+
+
+def _flatten_type_axes(expr: TypeExpr) -> tuple[str, ...]:
+    """Flatten a :class:`TypeExpr` into the ordered sequence of axis
+    type names it denotes.
+
+    ``A`` is one axis ``A``.  ``(A * B)`` is two axes ``(A, B)``;
+    nested products flatten left-to-right.  Coproducts and other
+    non-product TypeExprs are not supported here; the inferred-
+    wiring path raises a :class:`ValueError` and points the user at
+    the explicit ``wiring`` clause.
+    """
+    if isinstance(expr, TypeName):
+        return (expr.name,)
+    if isinstance(expr, TypeProduct):
+        out: list[str] = []
+        for component in expr.components:
+            out.extend(_flatten_type_axes(component))
+        return tuple(out)
+    raise ValueError(
+        f"contraction signature contains a non-product / non-named axis "
+        f"type {type(expr).__name__}; the type-driven wiring inference "
+        "only handles named axes and products of named axes. Pass an "
+        'explicit ``wiring "..."`` clause.'
+    )
+
+
+def _infer_wiring_from_signature(
+    *,
+    inputs: tuple[ContractionInput, ...],
+    output_domain: TypeExpr,
+    output_codomain: TypeExpr,
+    shared_axes: tuple[str, ...],
+) -> str:
+    """Build an einsum-style wiring spec from the contraction's
+    typed signature.
+
+    Each input's axis sequence is the flattening of its
+    ``input_domain -> input_codomain``.  The output's axis sequence
+    is the flattening of ``output_domain -> output_codomain``.
+
+    The inference rule:
+
+    * Every axis name that appears in the output sequence is a
+      *kept* axis (propagates from inputs to output).
+    * Every axis name that appears in two or more input sequences
+      but not in the output is a *contracted* axis (joined via the
+      rule).
+    * Every axis name that appears in exactly one input sequence
+      and not in the output is *anomalous*: it would need to be
+      summed out by the rule but no other input shares it.  We
+      report that as an inference failure and direct the user to
+      the explicit ``wiring`` clause.
+    * Axes named in ``shared_axes`` are forced to propagate (kept)
+      even if the default rule would have contracted them; this is
+      the disambiguator for element-wise contractions where the
+      same axis appears in two inputs and the output.
+
+    The output spec is the standard numpy / torch einsum form:
+    one letter per *distinct* axis name, joined with commas across
+    inputs, then ``->``, then the kept axes' letters in the
+    output's declared order.
+    """
+    input_axes = [
+        _flatten_type_axes(inp.input_domain) + _flatten_type_axes(inp.input_codomain)
+        for inp in inputs
+    ]
+    output_seq = _flatten_type_axes(output_domain) + _flatten_type_axes(output_codomain)
+    shared = set(shared_axes)
+    # An axis is kept iff it appears in the output OR was named in
+    # the ``share`` clause.  Anything else that appears in ≥ 2 inputs
+    # is contracted.
+    kept: set[str] = set(output_seq) | shared
+    appearances: dict[str, int] = {}
+    for axes in input_axes:
+        seen_in_this = set()
+        for axis in axes:
+            if axis in seen_in_this:
+                continue
+            seen_in_this.add(axis)
+            appearances[axis] = appearances.get(axis, 0) + 1
+    # An anomalous axis appears in exactly one input and is not in
+    # the output / share list: there is nothing to contract it
+    # against and nothing to project it to.
+    anomalous = [axis for axis, n in appearances.items() if n == 1 and axis not in kept]
+    if anomalous:
+        raise ValueError(
+            f"axes {sorted(anomalous)} appear in exactly one input and not in the "
+            "output; the type-driven rule cannot decide what to do with them. "
+            "Add them to the contraction's output type, list them in a "
+            "``share`` clause, or pass an explicit ``wiring`` spec"
+        )
+    # Assign single letters to axes.  Standard einsum lower-case
+    # alphabet; we keep insertion order so the generated string is
+    # deterministic given the signature.
+    letters_pool = "abcdefghijklmnopqrstuvwxyz"
+    axis_to_letter: dict[str, str] = {}
+    for axes in input_axes:
+        for axis in axes:
+            if axis in axis_to_letter:
+                continue
+            if len(axis_to_letter) >= len(letters_pool):
+                raise ValueError(
+                    "contraction has more distinct axis names than einsum "
+                    "letters available; pass an explicit ``wiring`` spec"
+                )
+            axis_to_letter[axis] = letters_pool[len(axis_to_letter)]
+    # Output axes preserve the declared order on the output type
+    # (which is the order the user wrote them in source).
+    output_letters = "".join(axis_to_letter[axis] for axis in output_seq)
+    input_letter_groups = [
+        "".join(axis_to_letter[axis] for axis in axes) for axes in input_axes
+    ]
+    return f"{', '.join(input_letter_groups)} -> {output_letters}"
 
 
 class _ProgramsMixin:
@@ -1234,12 +1509,33 @@ class _ProgramsMixin:
                 decl.col,
             )
         rule = _ALGEBRA_REGISTRY[rule_name]
+        if decl.wiring_spec:
+            # Explicit einsum escape hatch (still supported for
+            # contractions the type-driven rule can't express:
+            # diagonal extraction, reorderings, etc.).
+            wiring_spec = decl.wiring_spec
+        else:
+            try:
+                wiring_spec = _infer_wiring_from_signature(
+                    inputs=decl.inputs,
+                    output_domain=decl.domain,
+                    output_codomain=decl.codomain,
+                    shared_axes=decl.shared_axes,
+                )
+            except ValueError as exc:
+                raise CompileError(
+                    f"contraction {decl.name!r}: cannot infer wiring "
+                    f"from typed signature: {exc}. Pass an explicit "
+                    f'``wiring "..."`` clause or a ``share`` clause to '
+                    f"disambiguate.",
+                    decl.line,
+                    decl.col,
+                ) from exc
         try:
-            wiring = EinsumWiring(rule, decl.wiring_spec)
+            wiring = EinsumWiring(rule, wiring_spec)
         except ValueError as exc:
             raise CompileError(
-                f"contraction {decl.name!r}: invalid wiring "
-                f"{decl.wiring_spec!r}: {exc}",
+                f"contraction {decl.name!r}: invalid wiring {wiring_spec!r}: {exc}",
                 decl.line,
                 decl.col,
             ) from exc
@@ -2277,23 +2573,46 @@ class _ProgramsMixin:
                 for a in node.args
             ]
 
-            # Built-in tensor operations.  Limited to elementwise /
-            # shape-preserving primitives; contractions, reductions
-            # over named axes, and matrix products go through the
-            # typed contraction-declaration surface (see § Operadic
-            # contractions in docs/semantics/composition-rules.md).
-            _TENSOR_BUILTINS = {
-                "sigmoid": lambda a: torch.sigmoid(a),
-                "exp": lambda a: torch.exp(a),
-                "log": lambda a: torch.log(a),
-                "abs": lambda a: torch.abs(a),
-                "softplus": lambda a: torch.nn.functional.softplus(a),
-                "cumsum": lambda a: torch.cumsum(a, dim=-1),
-                "softmax": lambda a: torch.softmax(a, dim=-1),
-                "log1p": lambda a: torch.log1p(a),
-                "sqrt": lambda a: torch.sqrt(a),
-                "neg": lambda a: -a,
+            # Built-in tensor operations.  Covers the standard
+            # `torch.nn.functional` activation pool, common
+            # elementwise transformations, and dim=-1 reductions.
+            # Contractions, reductions over named axes, and matrix
+            # products go through the typed contraction-declaration
+            # surface (see § Operadic contractions in
+            # docs/semantics/composition-rules.md).
+            _TENSOR_BUILTINS = _LET_EXPR_BUILTINS
+
+            # Compile-time arity check for calls into a user-injected
+            # callable (program, morphism, encoder, decoder).  Builtins
+            # and constructors deliberately accept variable arity, so
+            # they are excluded from the check.
+            _globs_for_check = globals_ or {}
+            _higher_order_or_special = {
+                "length",
+                "map",
+                "filter",
+                "fold",
+                "logsumexp_over",
+                "logsumexp",
+                "parse",
+                "cholesky_quad_form",
             }
+            if (
+                func_name in _globs_for_check
+                and func_name != "__constructors__"
+                and func_name not in _TENSOR_BUILTINS
+                and func_name not in _higher_order_or_special
+                and func_name
+                not in _globs_for_check.get("__constructors__", frozenset())
+            ):
+                _target_for_check = _globs_for_check[func_name]
+                if callable(_target_for_check):
+                    _arity = _expected_call_arity(_target_for_check)
+                    if _arity is not None and _arity != len(arg_fns):
+                        raise CompileError(
+                            f"call to {func_name!r}: expected {_arity} "
+                            f"positional argument(s), got {len(arg_fns)}"
+                        )
 
             def _call(env: dict):
                 # Higher-order combinators come first; they consume
@@ -2404,13 +2723,38 @@ class _ProgramsMixin:
                     )
                     cov = D @ R @ D
                     return cov.reshape(*cov.shape[:-2], K * K)
-                # Constructor mode: build a tuple `(func_name, *args)`
-                # only when `func_name` is in the user-declared
-                # constructor set (passed via `globals_["__constructors__"]`).
+                # User-defined callable (program, morphism, encoder,
+                # decoder) injected via ``globals_``. A deterministic
+                # program is a Dirac Kleisli arrow embedding Smooth
+                # into Kleisli(Giry); calling it from an encoder body
+                # composes the two Smooth pieces and stays in Smooth.
+                globs_dict = globals_ or {}
+                if func_name in globs_dict and func_name != "__constructors__":
+                    target = globs_dict[func_name]
+                    if callable(target):
+                        args = [fn(env) for fn in arg_fns]
+                        try:
+                            return target(*args)
+                        except TypeError as exc:
+                            raise CompileError(
+                                f"call to {func_name!r} failed: {exc}; "
+                                f"check that argument count and types match "
+                                f"the callee's signature"
+                            ) from exc
+                        except RuntimeError as exc:
+                            # PyTorch tensor-shape errors surface as
+                            # RuntimeError; re-raise with the call site
+                            # named so the user knows which call broke.
+                            raise CompileError(
+                                f"call to {func_name!r} failed at runtime: {exc}"
+                            ) from exc
+                # Constructor mode: build a tuple ``(func_name, *args)``
+                # only when ``func_name`` is in the user-declared
+                # constructor set (passed via ``globals_["__constructors__"]``).
                 # The free term algebra over named constructor symbols
-                # is thus fully under the user's control — no
-                # identifier is silently treated as a constructor.
-                constructors = (globals_ or {}).get("__constructors__", frozenset())
+                # is thus fully under the user's control: no identifier
+                # is silently treated as a constructor.
+                constructors = globs_dict.get("__constructors__", frozenset())
                 if func_name in constructors:
                     args = [fn(env) for fn in arg_fns]
                     return (func_name, *args)

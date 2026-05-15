@@ -38,6 +38,73 @@ from quivers.dsl.compiler._prelude import (
 )
 
 
+_ENCODER_FACTORY_REGISTRY: dict[str, str] = {
+    # Encoder factory name (as users write it in ``using
+    # <factory>``) → import path ``module:attribute`` resolved at
+    # compile time. Keeping the dispatch table out of the
+    # ``quivers.structural.shapes`` namespace lets the DSL key on
+    # short identifiers (``rnn_encoder``) without leaking the
+    # factory module's full import path into source.
+    "rnn_encoder": "quivers.structural.shapes.seq:rnn_encoder",
+    "transformer_encoder": "quivers.structural.shapes.seq:transformer_encoder",
+    "bow_encoder": "quivers.structural.shapes.seq:bow_encoder",
+    "tree_lstm_encoder": "quivers.structural.shapes.tree:tree_lstm_encoder",
+    "gnn_encoder": "quivers.structural.shapes.graph:gnn_encoder",
+}
+
+
+def _build_encoder_from_factory(decl: "EncoderDecl", sig) -> "Encoder":
+    """Invoke a shipped encoder factory by name.
+
+    Looks up ``decl.factory`` in :data:`_ENCODER_FACTORY_REGISTRY`,
+    imports the registered builder, and calls it with
+    ``sig=<signature>`` plus any ``[k=v]`` overrides on the
+    declaration coerced to int / float / str.
+
+    Raises :class:`CompileError` for unknown factory names or for
+    builder kwargs the factory doesn't accept.
+    """
+    import importlib
+    import inspect
+
+    factory_name = decl.factory
+    if factory_name not in _ENCODER_FACTORY_REGISTRY:
+        raise CompileError(
+            f"encoder {decl.name!r}: unknown factory {factory_name!r}; "
+            f"available: {', '.join(sorted(_ENCODER_FACTORY_REGISTRY))}",
+            decl.line,
+            decl.col,
+        )
+    import_path = _ENCODER_FACTORY_REGISTRY[factory_name]
+    module_name, _, attr = import_path.partition(":")
+    module = importlib.import_module(module_name)
+    factory = getattr(module, attr)
+
+    signature_obj = inspect.signature(factory)
+    kwargs: dict = {}
+    if "sig" in signature_obj.parameters:
+        kwargs["sig"] = sig
+    for key, raw in dict(decl.factory_options).items():
+        if key not in signature_obj.parameters:
+            raise CompileError(
+                f"encoder {decl.name!r}: factory {factory_name!r} does not "
+                f"accept option {key!r}; signature is "
+                f"{', '.join(sorted(signature_obj.parameters))}",
+                decl.line,
+                decl.col,
+            )
+        # Best-effort coercion: integer-like → int, float-like →
+        # float, otherwise leave as the source identifier string.
+        try:
+            kwargs[key] = int(raw)
+        except ValueError:
+            try:
+                kwargs[key] = float(raw)
+            except ValueError:
+                kwargs[key] = raw
+    return factory(**kwargs)
+
+
 class _StructuralMixin:
     """Mixin: structural artifact compilation methods."""
 
@@ -294,6 +361,11 @@ class _StructuralMixin:
                 decl.col,
             )
         sig = self._signatures[decl.signature]
+
+        if decl.factory:
+            encoder = _build_encoder_from_factory(decl, sig)
+            self._encoders[decl.name] = encoder
+            return
 
         # Per-sort dim resolution.
         overrides: dict[str, int] = {sd.sort: sd.dim for sd in decl.dims}
