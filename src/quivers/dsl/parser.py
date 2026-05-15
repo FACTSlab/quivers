@@ -1576,13 +1576,11 @@ def _walk_contraction_decl(t: _Tree, vid: str, line: int, col: int) -> Contracti
     domain_vid = t.field(vid, "domain")
     codomain_vid = t.field(vid, "codomain")
     rule_vid = t.field(vid, "rule_name")
-    wiring_vid = t.field(vid, "wiring_spec")
     if (
         name_vid is None
         or domain_vid is None
         or codomain_vid is None
         or rule_vid is None
-        or wiring_vid is None
     ):
         raise ParseError(f"contraction_decl missing required field at {vid}")
     inputs: list[ContractionInput] = []
@@ -1602,12 +1600,33 @@ def _walk_contraction_decl(t: _Tree, vid: str, line: int, col: int) -> Contracti
                 col=inp_col,
             )
         )
-    # Strip surrounding quotes from the wiring spec string literal.
-    wiring_raw = t.text(wiring_vid)
-    if len(wiring_raw) >= 2 and wiring_raw[0] == '"' and wiring_raw[-1] == '"':
-        wiring_text = wiring_raw[1:-1]
-    else:
-        wiring_text = wiring_raw
+    # The optional wiring clause is one of two mutually-exclusive
+    # forms: an einsum string literal (under
+    # ``contraction_wiring_einsum``), or a ``share`` axis list
+    # (under ``contraction_wiring_share``). The grammar emits at most
+    # one as a child of the contraction_decl; both default to the
+    # empty values when absent, leaving the type-driven inference
+    # path to take over at compile time.
+    wiring_text = ""
+    shared_axes: list[str] = []
+    wiring_vid = t.field(vid, "wiring")
+    if wiring_vid is not None:
+        wiring_kind = t.kind(wiring_vid)
+        if wiring_kind == "contraction_wiring_einsum":
+            spec_vid = t.field(wiring_vid, "wiring_spec")
+            if spec_vid is not None:
+                wiring_raw = t.text(spec_vid)
+                if (
+                    len(wiring_raw) >= 2
+                    and wiring_raw[0] == '"'
+                    and wiring_raw[-1] == '"'
+                ):
+                    wiring_text = wiring_raw[1:-1]
+                else:
+                    wiring_text = wiring_raw
+        elif wiring_kind == "contraction_wiring_share":
+            for axis_vid in t.fields(wiring_vid, "shared_axes"):
+                shared_axes.append(t.text(axis_vid))
     return ContractionDecl(
         name=t.text(name_vid),
         inputs=tuple(inputs),
@@ -1615,6 +1634,7 @@ def _walk_contraction_decl(t: _Tree, vid: str, line: int, col: int) -> Contracti
         codomain=_walk_type(t, codomain_vid),
         rule_name=t.text(rule_vid),
         wiring_spec=wiring_text,
+        shared_axes=tuple(shared_axes),
         line=line,
         col=col,
     )
@@ -2121,6 +2141,23 @@ def _walk_encoder_decl(t: _Tree, vid: str, line: int, col: int) -> EncoderDecl:
                 )
             )
 
+    # Optional factory clause. ``using <factory> [k=v, ...]`` is an
+    # alternative to the per-rule body; the parser emits a
+    # ``factory`` field plus an optional ``factory_options`` block.
+    factory = ""
+    factory_options: dict[str, str] = {}
+    factory_vid = t.field(vid, "factory")
+    if factory_vid is not None:
+        factory = t.text(factory_vid)
+    fo_vid = t.field(vid, "factory_options")
+    if fo_vid is not None:
+        for entry_vid in t.positional(fo_vid):
+            if t.kind(entry_vid) != "option_entry":
+                continue
+            k = t.text(t.field(entry_vid, "key"))
+            v = t.text(t.field(entry_vid, "value"))
+            factory_options[k] = v
+
     return EncoderDecl(
         name=name,
         signature=signature,
@@ -2133,6 +2170,8 @@ def _walk_encoder_decl(t: _Tree, vid: str, line: int, col: int) -> EncoderDecl:
         iterations=iterations,
         readout=readout,
         var_inits=tuple(var_inits),
+        factory=factory,
+        factory_options=factory_options,
         line=line,
         col=col,
     )

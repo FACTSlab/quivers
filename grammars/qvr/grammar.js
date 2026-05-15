@@ -131,8 +131,11 @@ module.exports = grammar({
     ),
 
     // N-ary operadic contraction declaration.  Declares a multi-
-    // input morphism whose body is an einsum-style wiring under a
-    // named composition rule:
+    // input morphism that contracts under a named composition rule.
+    // The typed signature determines the einsum implicitly: each
+    // axis that appears in the output propagates; each axis that
+    // appears in two or more inputs but not in the output is
+    // contracted via the rule's join.  Surface form:
     //
     //   contraction op_apply (
     //       arg1 : A -> B,
@@ -140,11 +143,19 @@ module.exports = grammar({
     //       kernel : (B * C) -> D
     //   ) : A -> D
     //       rule product_fuzzy
-    //       wiring "ab, ac, bcd -> ad"
     //
-    // The declaration registers a callable named ``op_apply`` that
-    // takes the three input morphisms and contracts them under the
-    // wiring spec using the rule's tensor_op and join.
+    // The optional wiring clause has three mutually-exclusive forms.
+    // Most contractions need none of them:
+    //
+    //   * ``share T1, T2, ...`` keeps the listed axes element-wise
+    //     even when they appear in multiple inputs.  Used when the
+    //     default "contract any non-output axis shared across
+    //     inputs" rule would over-reduce.
+    //   * ``wiring "<einsum>"`` is the explicit escape hatch.
+    //     Numpy / torch einsum string; one letter per axis in
+    //     input order, comma-separated, arrow, output letters.
+    //     Use when the type-driven inference cannot express the
+    //     contraction (e.g. diagonal extraction, reorderings).
     contraction_decl: $ => seq(
       'contraction',
       field('name', $.identifier),
@@ -157,8 +168,20 @@ module.exports = grammar({
       field('codomain', $._type_expr),
       'rule',
       field('rule_name', $.identifier),
+      optional(field('wiring', choice(
+        $.contraction_wiring_einsum,
+        $.contraction_wiring_share,
+      ))),
+    ),
+
+    contraction_wiring_einsum: $ => seq(
       'wiring',
       field('wiring_spec', $.string),
+    ),
+
+    contraction_wiring_share: $ => seq(
+      'share',
+      field('shared_axes', commaSep1($.identifier)),
     ),
 
     contraction_input: $ => seq(
@@ -618,24 +641,40 @@ module.exports = grammar({
     // Encoder declaration: an algebra homomorphism T_Σ -> Vec_D
     // realised by per-constructor parametric functions.
 
+    // An encoder is either explicit (the ``{ ... }`` body lists
+    // per-constructor rules, hyperparameters, and readout) or
+    // factory-backed (``using <name>`` picks a builder from the
+    // shipped ``quivers.structural.shapes`` registry — rnn,
+    // transformer, bow, tree-lstm, gnn, etc.).  The factory form
+    // takes optional ``[k=v, ...]`` arguments forwarded to the
+    // builder.
     encoder_decl: $ => seq(
       'encoder',
       field('name', $.identifier),
       'over',
       field('signature', $.identifier),
       optional(seq('[', field('sig_args', commaSep1($.identifier)), ']')),
-      '{',
-      repeat(choice(
-        $.encoder_dim,
-        $.encoder_iterations,
-        $.encoder_readout,
-        $.encoder_op_rule,
-        $.encoder_message_rule,
-        $.encoder_update_rule,
-        $.encoder_init_rule,
-        $.encoder_var_init,
-      )),
-      '}',
+      choice(
+        seq(
+          '{',
+          repeat(choice(
+            $.encoder_dim,
+            $.encoder_iterations,
+            $.encoder_readout,
+            $.encoder_op_rule,
+            $.encoder_message_rule,
+            $.encoder_update_rule,
+            $.encoder_init_rule,
+            $.encoder_var_init,
+          )),
+          '}',
+        ),
+        seq(
+          'using',
+          field('factory', $.identifier),
+          optional(field('factory_options', $.option_block)),
+        ),
+      ),
     ),
 
     encoder_dim: $ => seq(
