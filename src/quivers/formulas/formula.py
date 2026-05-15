@@ -143,6 +143,79 @@ class Formula(dx.Model):
     )
 
 
+class FormulaData(dx.Model):
+    """The complement of a :class:`Formula` under the
+    :class:`~quivers.formulas.compile.FormulaToQVRModule` lens.
+
+    The emitted QVR :class:`~quivers.dsl.ast_nodes.Module` carries
+    the structural skeleton of the formula (which columns there are,
+    keyed by their QVR-legal identifier; whether each is an
+    intercept; the random-effect group / slope pairs; the family;
+    the response identifier in its QVR-legal form). It does *not*
+    carry:
+
+    * the per-row data arrays (those flow through the host-data
+      channel at fit time);
+    * the per-column / per-group / response *original* names (the
+      lens uses :func:`_qvr_name` to normalize identifiers, which
+      replaces non-alphanumeric characters with underscores and is
+      therefore lossy);
+    * the per-column ``term`` label (presentation, ungrouped from
+      the lens forward output);
+    * the original formula string (presentation: the lens emits a
+      canonical AST that does not record user whitespace or
+      operator-precedence choices).
+
+    Those fields travel in the complement. ``backward(module,
+    complement)`` decodes the structural fields from the Module and
+    fuses them with this carrier to reproduce the original
+    :class:`Formula` verbatim.
+
+    Attributes
+    ----------
+    formula : str
+        Original formula string.
+    response_name : str
+        Original (pre-:func:`_qvr_name`) response column name.
+    response_values : np.ndarray
+        Response column values, shape ``(N,)``.
+    fixed_column_names : Mapping[str, tuple[str, str]]
+        Per-column ``(term, name)`` keyed by ``FixedColumn.qvr_name``.
+        Lets the decoder recover :attr:`FixedColumn.term` and
+        :attr:`FixedColumn.name` from the qvr-name surfaced in the
+        Module's latent declarations.
+    fixed_column_data : Mapping[str, np.ndarray]
+        Per-row predictor values, keyed by ``FixedColumn.qvr_name``.
+    group_original_names : Mapping[str, str]
+        Per-group ``qvr_name → original group name``.
+    group_levels : Mapping[str, tuple[str, ...]]
+        Canonical per-group level ordering. Needed to populate
+        :attr:`Formula.group_levels` from the integer-coded
+        ``object G : K`` declarations the Module records.
+    group_indices : Mapping[str, tuple[int, ...]]
+        Per-row integer codes for each grouping factor.
+    """
+
+    formula: str = ""
+    response_name: str = ""
+    response_values: np.ndarray = dx.field(opaque=True)
+    fixed_column_names: Mapping[str, tuple[str, str]] = dx.field(
+        default_factory=dict, opaque=True
+    )
+    fixed_column_data: Mapping[str, np.ndarray] = dx.field(
+        default_factory=dict, opaque=True
+    )
+    group_original_names: Mapping[str, str] = dx.field(
+        default_factory=dict, opaque=True
+    )
+    group_levels: Mapping[str, tuple[str, ...]] = dx.field(
+        default_factory=dict, opaque=True
+    )
+    group_indices: Mapping[str, tuple[int, ...]] = dx.field(
+        default_factory=dict, opaque=True
+    )
+
+
 def _qvr_name(raw: str) -> str:
     """Normalize a label into a legal QVR identifier."""
     cleaned = "".join(c if c.isalnum() or c == "_" else "_" for c in raw)
