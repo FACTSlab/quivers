@@ -1,4 +1,4 @@
-"""User-facing :func:`bayes_fit` entry point and the
+"""User-facing :func:`fit` entry point and the
 :class:`BayesianFit` result wrapper.
 
 The compilation path is fully AST-driven: the formula lens emits a
@@ -76,7 +76,7 @@ class BayesianFit(dx.Model):
         return out
 
 
-def bayes_fit(
+def fit(
     formula: str,
     *,
     data: IntoDataFrame,
@@ -99,7 +99,7 @@ def bayes_fit(
     if isinstance(family, str):
         if family not in families:
             raise ValueError(
-                f"bayes_fit: unknown family {family!r}; choices are {sorted(families)}"
+                f"fit: unknown family {family!r}; choices are {sorted(families)}"
             )
         family_obj = families[family]
     else:
@@ -118,7 +118,7 @@ def bayes_fit(
     morphism = program_runtime.morphism
     if not isinstance(morphism, MonadicProgram):
         raise TypeError(
-            f"bayes_fit: compiled morphism has type "
+            f"fit: compiled morphism has type "
             f"{type(morphism).__name__}, expected MonadicProgram"
         )
     program = morphism

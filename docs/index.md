@@ -11,13 +11,15 @@ You write Bayesian models in a small, readable DSL and fit them with stochastic 
 ```qvr
 object Item : 100
 
+# Predictor `x` flows in as exogenous data via the observations
+# dict; free variables in `let` expressions resolve from the
+# conditioning data at trace time (host-data channel).
 program regression : Item -> Item ! Sample, Score
     sigma  <- HalfNormal(1.0)
     beta_0 <- Normal(0.0, 5.0)
     beta_1 <- Normal(0.0, 2.0)
-    x      <- Normal(0.0, 1.0)
     let mu = beta_0 + beta_1 * x
-    observe y <- Normal(mu, sigma)
+    observe y : Item <- Normal(mu, sigma)
     return y
 
 export regression
@@ -34,7 +36,22 @@ guide   = AutoNormalGuide(model, observed_names={"y"})
 optim   = torch.optim.Adam(guide.parameters(), lr=1e-2)
 svi     = SVI(model, guide, optim, ELBO())
 for _ in range(2000):
-    svi.step({"x": x_data}, {"y": y_data})
+    svi.step(torch.zeros(100, 1), {"x": x_data, "y": y_data})
+```
+
+For users coming from brms / lme4 / Stan, the same regression also
+expresses through a [brms-style formula frontend](guides/analysis.md):
+
+```python
+from quivers.formulas import fit
+
+result = fit(
+    "y ~ x + (1 | g)",
+    data=df,                  # pandas or polars
+    family="gaussian",
+    sampler="nuts",
+)
+result.dump_qvr("regression.qvr")   # inspect the emitted QVR program
 ```
 
 ## What you get
@@ -48,6 +65,7 @@ The everyday PPL features you would expect, on a PyTorch backend:
 - **Marginalized discrete latents** as a first-class block (`marginalize z : K <- Categorical(p) in { ... }`), with `logsumexp` aggregation handled for you.
 - **Plates and grouped marginalization** for hierarchical models with vectorized observations and per-row fibration into shared random effects.
 - **A 36-example gallery** covering regression (Bayesian, beta, Dirichlet, NegBin, horseshoe, ZIP), latent-variable (factor analysis, PPCA, LDA, IRT, PMF, BNN, GMM, VAE), state space (HMM discrete and continuous, linear-Gaussian SSM, deep Markov, AR1, stochastic volatility, changepoint, Weibull survival), language models (RNN, LSTM, GRU, bidirectional, transformer), seq2seq with encoder and decoder, and formal grammars (PCFG, CCG, Lambek, multimodal TLG).
+- **Analysis-pipeline surface**: a brms-style [formula frontend](guides/analysis.md) (`fit("y ~ x + (1 | g)", data=df, family="gaussian")`) that compiles formulas to typed AST programs via a `dx.Lens`, a `DatasetSchema` bridge from pandas / polars dataframes to QVR object cardinalities and observations, and an [ArviZ DataTree adapter](api/diagnostics/index.md) for `compare`, `loo`, and posterior-predictive checks. Orthogonal polynomials by default (matches R's `stats::poly`); R-style transforms (`log`, `exp`, `sqrt`, etc.) preloaded into the formula evaluation namespace.
 
 ## Where to start
 

@@ -45,7 +45,7 @@ from quivers.dsl.ast_nodes import Module
 from quivers.dsl.emit import module_to_source
 from quivers.formulas import (
     FormulaToQVRModule,
-    bayes_fit,
+    fit,
     families,
     formula_from_data,
     formula_to_qvr,
@@ -455,7 +455,7 @@ class TestEmittedSourceCompiles:
 
 class TestEndToEndFit:
     def test_intercept_only_svi(self, base_df):
-        fit = bayes_fit(
+        result = fit(
             "y ~ 1",
             data=base_df,
             family="gaussian",
@@ -463,11 +463,11 @@ class TestEndToEndFit:
             num_samples=100,
             seed=0,
         )
-        assert fit.posterior is not None
-        assert "intercept" in fit.qvr_source
+        assert result.posterior is not None
+        assert "intercept" in result.qvr_source
 
     def test_random_intercept_svi(self, base_df):
-        fit = bayes_fit(
+        result = fit(
             "y ~ x + (1 | g)",
             data=base_df,
             family="gaussian",
@@ -475,10 +475,10 @@ class TestEndToEndFit:
             num_samples=100,
             seed=0,
         )
-        assert fit.posterior is not None
+        assert result.posterior is not None
 
     def test_poly_svi(self, base_df):
-        fit = bayes_fit(
+        result = fit(
             "y ~ poly(x, 2)",
             data=base_df,
             family="gaussian",
@@ -486,13 +486,13 @@ class TestEndToEndFit:
             num_samples=100,
             seed=0,
         )
-        assert fit.posterior is not None
-        src = fit.qvr_source
+        assert result.posterior is not None
+        src = result.qvr_source
         assert "beta_poly_x_2_1" in src
         assert "beta_poly_x_2_2" in src
 
     def test_log_transform_svi(self, base_df):
-        fit = bayes_fit(
+        result = fit(
             "y ~ log(w)",
             data=base_df,
             family="gaussian",
@@ -500,10 +500,10 @@ class TestEndToEndFit:
             num_samples=100,
             seed=0,
         )
-        assert fit.posterior is not None
+        assert result.posterior is not None
 
     def test_dump_qvr_writes_compilable_source(self, base_df, tmp_path):
-        fit = bayes_fit(
+        result = fit(
             "y ~ x + (1 | g)",
             data=base_df,
             family="gaussian",
@@ -512,7 +512,7 @@ class TestEndToEndFit:
             seed=0,
         )
         out = tmp_path / "fit.qvr"
-        path = fit.dump_qvr(out)
+        path = result.dump_qvr(out)
         assert path == out
         prog = loads(path.read_text())
         assert prog.morphism is not None

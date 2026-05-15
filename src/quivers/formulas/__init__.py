@@ -34,7 +34,7 @@ from quivers.formulas.family import (
     families,
     links,
 )
-from quivers.formulas.fit import BayesianFit, bayes_fit, formula_to_qvr
+from quivers.formulas._fit import BayesianFit, fit, formula_to_qvr
 from quivers.formulas.formula import Formula, RandomTerm, formula_from_data
 
 __all__ = [
@@ -44,7 +44,7 @@ __all__ = [
     "FormulaToQVRModule",
     "Link",
     "RandomTerm",
-    "bayes_fit",
+    "fit",
     "families",
     "formula_to_qvr",
     "links",
