@@ -173,7 +173,7 @@ formula in the test suite.
 
 `fit(..., family=...)` accepts a string name or a
 [`Family`](../api/formulas/family.md#quivers.formulas.family.Family) value.
-v0.7.0 ships the ten brms-canonical families:
+The ten brms-canonical families:
 
 | Family | Link (inverse) | Auxiliary parameters |
 |---|---|---|

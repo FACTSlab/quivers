@@ -134,6 +134,54 @@ per `(var_sort, annot_sort)` pair the signature's binders
 introduce. Unannotated binders (those without an annotation sort)
 use a learnable nullary constant keyed by `var_sort` alone.
 
+### Primitives and user-defined callables in rule bodies
+
+Rule bodies are let-expressions over a fixed pool of tensor
+primitives (every `torch.nn.functional` activation, the simplex
+maps, pointwise transcendentals, `dim=-1` reductions, layer-norm,
+dropout; see the [let-expression primitive reference](../semantics/programs.md#231-built-in-primitives))
+plus any callable declared at the module level. Top-level
+`morphism`, `program`, `encoder`, `decoder`, and `deduction`
+declarations are visible by name inside encoder bodies and may be
+called as `f(arg, ...)`. The dispatcher resolves builtins first,
+then user globals, then user-declared constructors; arity is
+checked at compile time, and shape errors inside a user callable
+are reported with the call site named.
+
+<!-- compile: false -->
+```qvr
+program embed : Pixel -> Latent
+    let h = relu(layer_norm(W1 * x))
+    return h
+
+encoder C over LF {
+    dim Term = 64
+    App(f, x) |-> gelu(embed(f) + embed(x))
+}
+```
+
+### Factory form
+
+For encoders that fit one of the standard architectures, the
+explicit `{ ... }` body can be replaced by a factory invocation:
+
+<!-- compile: false -->
+```qvr
+encoder rnn_enc over seq using rnn_encoder [dim=128]
+encoder tfm_enc over seq using transformer_encoder [dim=256, heads=8]
+encoder bow_enc over seq using bow_encoder
+encoder tree    over lf  using tree_lstm_encoder
+encoder graph   over mol using gnn_encoder
+```
+
+Factories live in `quivers.structural.shapes` (see the [encoder API page](../api/structural/encoder.md));
+the registry mapping factory name to import path is
+`quivers.dsl.compiler.structural._ENCODER_FACTORY_REGISTRY`.
+Bracketed kwargs are forwarded to the factory and validated
+against its signature. The two forms (explicit body and factory)
+are mutually exclusive on a single declaration but coexist in the
+same module.
+
 ### Sequence-shaped sugar
 
 For sequence signatures (`Seq[A] = Nil | Cons(A, Seq)`), two
