@@ -47,7 +47,7 @@ from quivers.dsl._dev_grammar import _build_shared_lib, _grammar_dir
 
 _KEYWORD_TOKENS = {
     # module-level declaration keywords
-    "quantale",
+    "algebra",
     "semigroupoid",
     "bilinear_form",
     "composition_rule",
@@ -187,7 +187,7 @@ _BUILTIN_TYPE_TOKENS = {
     "Mor",
 }
 
-_QUANTALE_NAMES = {
+_ALGEBRA_NAMES = {
     "product_fuzzy",
     "boolean",
     "lukasiewicz",
@@ -251,7 +251,7 @@ def _node_kind_to_pygments_token(
             return Name.Builtin
         if text in _BUILTIN_TYPE_TOKENS:
             return Name.Class
-        if text in _QUANTALE_NAMES:
+        if text in _ALGEBRA_NAMES:
             return String.Symbol
         if parent_kind in {
             "type_atom",

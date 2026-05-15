@@ -1,6 +1,6 @@
 """Compiler mixin: declaration-level statements.
 
-Handles quantale, category, rule, schema, alias, bundle, object,
+Handles algebra, category, rule, schema, alias, bundle, object,
 morphism, space, kernel, discretize, and embed declarations.
 """
 
@@ -8,13 +8,13 @@ from __future__ import annotations
 from collections.abc import Callable
 import torch
 from quivers.core.objects import FinSet
-from quivers.core.quantales import (
+from quivers.core.algebras import (
     BilinearForm,
     CompositionRule,
     CustomBilinearForm,
-    CustomQuantale,
+    CustomAlgebra,
     CustomSemigroupoid,
-    Quantale,
+    Algebra,
     Semigroupoid,
 )
 from quivers.core.morphisms import morphism as make_latent
@@ -30,7 +30,7 @@ from quivers.dsl.ast_nodes import (
     KernelDecl,
     MorphismDecl,
     ObjectDecl,
-    QuantaleDecl,
+    AlgebraDecl,
     RuleDecl,
     SchemaDecl,
     SpaceDecl,
@@ -38,7 +38,7 @@ from quivers.dsl.ast_nodes import (
 )
 from quivers.dsl.compiler._prelude import (
     CompileError,
-    _QUANTALE_REGISTRY,
+    _ALGEBRA_REGISTRY,
     _available_axes_for,
     _get_family_registry,
     _shape_size,
@@ -51,12 +51,12 @@ from quivers.dsl.compiler.programs import _ProgramsMixin
 class _DeclarationsMixin:
     """Mixin: declaration-level compilation methods."""
 
-    def _compile_quantale(self, decl: QuantaleDecl) -> None:
+    def _compile_algebra(self, decl: AlgebraDecl) -> None:
         """Set the active composition rule for this module.
 
         Four surface forms (distinguished by ``decl.declared_level``):
 
-        * ``quantale X`` — X must be a Quantale.
+        * ``algebra X`` — X must be a Algebra.
         * ``semigroupoid X`` — X must be a Semigroupoid.
         * ``bilinear_form X`` — X must be a BilinearForm.
         * ``composition_rule X`` — X must be any CompositionRule.
@@ -69,7 +69,7 @@ class _DeclarationsMixin:
         * **With body** — ``decl.body`` is a list of entries
           defining the rule's operations from scratch. The
           compiler evaluates each entry's expression and builds
-          a fresh ``CustomQuantale``, ``CustomSemigroupoid``, or
+          a fresh ``CustomAlgebra``, ``CustomSemigroupoid``, or
           ``CustomBilinearForm`` of the declared level, then
           registers it under the supplied name.
         """
@@ -78,27 +78,27 @@ class _DeclarationsMixin:
             rule = self._build_custom_composition_rule(decl)
         else:
             name = decl.name.lower()
-            if name not in _QUANTALE_REGISTRY:
+            if name not in _ALGEBRA_REGISTRY:
                 raise CompileError(
                     f"unknown {level} {decl.name!r}; available: "
-                    f"{', '.join(sorted(_QUANTALE_REGISTRY))}",
+                    f"{', '.join(sorted(_ALGEBRA_REGISTRY))}",
                     decl.line,
                     decl.col,
                 )
-            rule = _QUANTALE_REGISTRY[name]
+            rule = _ALGEBRA_REGISTRY[name]
         self._verify_composition_rule_level(rule, decl, level)
-        self._quantale = rule  # type: ignore[assignment]
+        self._algebra = rule  # type: ignore[assignment]
 
     def _verify_composition_rule_level(
         self,
         rule: "CompositionRule",
-        decl: QuantaleDecl,
+        decl: AlgebraDecl,
         level: str,
     ) -> None:
         """Confirm ``rule`` satisfies the algebraic level declared
         by the keyword."""
         required = {
-            "quantale": Quantale,
+            "algebra": Algebra,
             "semigroupoid": Semigroupoid,
             "bilinear_form": BilinearForm,
             "composition_rule": CompositionRule,
@@ -106,8 +106,8 @@ class _DeclarationsMixin:
         required_class = required.get(level, CompositionRule)
         if not isinstance(rule, required_class):
             actual = (
-                "Quantale"
-                if isinstance(rule, Quantale)
+                "Algebra"
+                if isinstance(rule, Algebra)
                 else "Semigroupoid"
                 if isinstance(rule, Semigroupoid)
                 else "BilinearForm"
@@ -123,9 +123,9 @@ class _DeclarationsMixin:
                 decl.col,
             )
 
-    def _build_custom_composition_rule(self, decl: QuantaleDecl) -> "CompositionRule":
+    def _build_custom_composition_rule(self, decl: AlgebraDecl) -> "CompositionRule":
         """Build a fresh CompositionRule instance from a
-        ``quantale name { … }`` body, dispatching on the declared
+        ``algebra name { … }`` body, dispatching on the declared
         level."""
         entries: dict[str, "CompositionRuleEntry"] = {}
         for entry in decl.body:
@@ -139,7 +139,7 @@ class _DeclarationsMixin:
             entries[entry.key] = entry
         level = decl.declared_level
         required_keys = {
-            "quantale": {"tensor_op", "join", "unit", "zero"},
+            "algebra": {"tensor_op", "join", "unit", "zero"},
             "semigroupoid": {"tensor_op", "join"},
             "bilinear_form": {"tensor_op", "join"},
             "composition_rule": {"tensor_op", "join"},
@@ -178,12 +178,12 @@ class _DeclarationsMixin:
                 decl.col,
             )
         join_wrapped = _wrap_join_dim(join)
-        if level == "quantale":
+        if level == "algebra":
             unit = compiled["unit"]
             zero = compiled["zero"]
             if callable(unit) or callable(zero):
                 raise CompileError(
-                    f"quantale {decl.name!r}: ``unit`` and ``zero`` "
+                    f"algebra {decl.name!r}: ``unit`` and ``zero`` "
                     f"must be value entries (no parens)",
                     decl.line,
                     decl.col,
@@ -191,12 +191,12 @@ class _DeclarationsMixin:
             negate_fn = compiled.get("negation")
             if negate_fn is not None and not callable(negate_fn):
                 raise CompileError(
-                    f"quantale {decl.name!r}: ``negation`` must be "
+                    f"algebra {decl.name!r}: ``negation`` must be "
                     f"a function entry like ``negation(a) = …``",
                     decl.line,
                     decl.col,
                 )
-            return CustomQuantale(
+            return CustomAlgebra(
                 name=decl.name,
                 tensor_op=tensor_op,
                 join=join_wrapped,
@@ -228,7 +228,7 @@ class _DeclarationsMixin:
     def _compile_composition_rule_entry(
         self,
         entry: "CompositionRuleEntry",
-        decl: QuantaleDecl,
+        decl: AlgebraDecl,
     ) -> "Callable[..., torch.Tensor] | float":
         """Compile one ``key(params) = body`` or ``key = body``
         entry to a Python callable (when ``entry.params`` is
@@ -549,7 +549,7 @@ class _DeclarationsMixin:
         if decl.morphism_kind == "latent":
             scale = float(decl.options.get("scale", "0.5"))
             morph = make_latent(
-                domain, codomain, init_scale=scale, quantale=self._quantale
+                domain, codomain, init_scale=scale, algebra=self._algebra
             )
         elif decl.morphism_kind == "observed":
             if decl.init_expr is not None:
@@ -595,7 +595,7 @@ class _DeclarationsMixin:
                             domain,
                             codomain,
                             reshaped,
-                            quantale=morph.quantale,
+                            algebra=morph.algebra,
                         )
                     else:
                         raise CompileError(

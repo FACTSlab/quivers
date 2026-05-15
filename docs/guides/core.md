@@ -1,4 +1,4 @@
-# Core Types & Quantales
+# Core Types & Algebras
 
 ## Objects: Finite Sets
 
@@ -19,7 +19,7 @@ A `FinSet` is the most basic object:
 ```python
 from quivers.core.objects import FinSet
 
-X = FinSet("phoneme", 40)
+X = FinSet(name="phoneme", cardinality=40)
 print(X.size)   # 40
 print(X.shape)  # (40,)
 ```
@@ -36,8 +36,8 @@ print(Unit.size)  # 1
 Products and coproducts are formed with the `*` and `+` operators, which automatically flatten nesting:
 
 ```python
-X = FinSet("X", 3)
-Y = FinSet("Y", 4)
+X = FinSet(name="X", cardinality=3)
+Y = FinSet(name="Y", cardinality=4)
 
 P = X * Y          # ProductSet(X, Y)
 print(P.size)      # 12
@@ -57,8 +57,8 @@ A free monoid on a generator set $G$ (truncated by length) represents all string
 ```python
 from quivers.core.objects import FreeMonoid
 
-G = FinSet("letter", 26)
-FM = FreeMonoid(G, max_length=3)
+G = FinSet(name="letter", cardinality=26)
+FM = FreeMonoid(generators=G, max_length=3)
 
 # Components: Unit + G + G^2 + G^3
 print(FM.size)  # 1 + 26 + 676 + 17576 = 18279
@@ -68,9 +68,9 @@ idx = FM.encode((0, 1, 2))    # first three letters
 word = FM.decode(idx)          # back to tuple
 ```
 
-## Quantales: Enrichment Algebras
+## Algebras: Enrichment Algebras
 
-A quantale $(\mathcal{L}, \otimes, \bigvee, \bigwedge, \neg, I, \perp)$ is a complete lattice with a monoidal operation. It defines the algebra in which morphism values live and how morphisms compose.
+An [`Algebra`](../api/core/algebras.md) $(\mathcal{L}, \otimes, \bigvee, \bigwedge, \neg, I, \perp)$ is a carrier set with a monoidal product, a join, a meet, and a negation. It defines the structure in which morphism values live and how morphisms compose. The strict-quantale subclass (idempotent, tropical, log-additive cases) additionally satisfies $\bigvee$-distributivity over $\otimes$; see [Algebras §2](../semantics/algebras.md#2-order--and-structure-preservation).
 
 The six primitive operations:
 
@@ -81,13 +81,13 @@ The six primitive operations:
 - $I$ (unit): identity for $\otimes$
 - $\perp$ (zero): identity for $\bigvee$ (bottom element)
 
-Composition in a $\mathcal{V}$-enriched category uses the quantale's operations:
+Composition in a $\mathcal{V}$-enriched category uses the algebra's operations:
 
 $$
 (g \circ f)(a, c) = \bigvee_b f(a, b) \otimes g(b, c)
 $$
 
-### ProductFuzzy
+### ProductFuzzyAlgebra
 
 The enrichment for fuzzy relations with product t-norm:
 
@@ -104,7 +104,7 @@ $$
 
 This is the default enrichment in quivers, suitable for probabilistic reasoning and soft constraints.
 
-### BooleanQuantale
+### BooleanAlgebra
 
 Crisp binary relations:
 
@@ -119,7 +119,7 @@ I &= 1, \quad \perp = 0
 \end{align}
 $$
 
-### LukasiewiczQuantale
+### LukasiewiczAlgebra
 
 Łukasiewicz t-norm (strongest continuous t-norm):
 
@@ -134,7 +134,7 @@ $$
 
 Useful for resource-sensitive reasoning where evidence can "cancel out."
 
-### GodelQuantale
+### GodelAlgebra
 
 Gödel (min) t-norm (weakest continuous t-norm):
 
@@ -149,7 +149,7 @@ $$
 
 Composition computes minimax paths (the "best worst-case").
 
-### TropicalQuantale
+### TropicalAlgebra
 
 The tropical semiring enrichment for generalized metric spaces:
 
@@ -165,37 +165,37 @@ $$
 
 The identity tensor has $0$ on the diagonal and $\infty$ elsewhere. Composition computes shortest paths via $(g \circ f)(a, c) = \inf_b [f(a, b) + g(b, c)]$.
 
-## Creating and Using Quantales
+## Creating and Using Algebras
 
 ```python
-from quivers.core.quantales import (
+from quivers.core.algebras import (
     PRODUCT_FUZZY, BOOLEAN,
-    LukasiewiczQuantale, GodelQuantale, TropicalQuantale
+    LukasiewiczAlgebra, GodelAlgebra, TropicalAlgebra
 )
 
 # Use singletons
 qnt = PRODUCT_FUZZY
 
-# Or instantiate custom quantales
-luka = LukasiewiczQuantale()
-godel = GodelQuantale()
-tropical = TropicalQuantale()
+# Or instantiate custom algebras
+luka = LukasiewiczAlgebra()
+godel = GodelAlgebra()
+tropical = TropicalAlgebra()
 ```
 
-Pass a quantale to a morphism to set its enrichment:
+Pass an algebra to a morphism to set its enrichment:
 
 ```python
 from quivers.core.morphisms import morphism
 
-X = FinSet("X", 3)
-Y = FinSet("Y", 4)
+X = FinSet(name="X", cardinality=3)
+Y = FinSet(name="Y", cardinality=4)
 
 # default: PRODUCT_FUZZY
 f_fuzzy = morphism(X, Y)
 
-# explicit quantale
-f_bool = morphism(X, Y, quantale=BOOLEAN)
-f_godel = morphism(X, Y, quantale=GodelQuantale())
+# explicit algebra
+f_bool = morphism(X, Y, algebra=BOOLEAN)
+f_godel = morphism(X, Y, algebra=GodelAlgebra())
 ```
 
-Once set, all operations on the morphism (composition, marginalization, etc.) use that quantale's operations.
+Once set, all operations on the morphism (composition, marginalization, etc.) use that algebra's operations.

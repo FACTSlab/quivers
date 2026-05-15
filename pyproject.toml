@@ -4,8 +4,8 @@ build-backend = "hatchling.build"
 
 [project]
 name = "quivers"
-version = "0.6.0"
-description = "Computational category theory as differentiable tensor programs"
+version = "0.7.0"
+description = "A functional probabilistic programming language that compiles to PyTorch."
 readme = "README.md"
 license = {text = "MIT"}
 requires-python = ">=3.14"
@@ -16,7 +16,7 @@ keywords = [
     "pytorch",
     "tensor",
     "probabilistic-programming",
-    "quantale",
+    "algebra",
 ]
 classifiers = [
     "Development Status :: 3 - Alpha",
@@ -44,6 +44,9 @@ dev = [
     "ruff",
     "pyright",
     "numpy",
+    "pandas",
+    "polars",
+    "pyarrow",
 ]
 docs = [
     "mkdocs",
@@ -51,6 +54,23 @@ docs = [
     "mkdocs-terminal",
     "pymdown-extensions",
     "pygments",
+]
+data = [
+    "narwhals>=2.21",
+    "scikit-learn>=1.6",
+]
+diagnostics = [
+    "arviz>=0.17",
+    "xarray>=2025.1",
+    "netcdf4>=1.7",
+]
+formulas = [
+    "narwhals>=2.21",
+    "scikit-learn>=1.6",
+    "arviz>=0.17",
+    "xarray>=2025.1",
+    "netcdf4>=1.7",
+    "formulae>=0.6",
 ]
 
 [project.urls]
@@ -73,6 +93,14 @@ ignore = ["E741"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+# Recovery / benchmark tests are gated behind the `slow` marker; the
+# default invocation (`pytest tests/`) skips them so the everyday
+# turnaround stays under a minute.  Run them explicitly with
+# `pytest -m slow tests/` or `pytest --runslow tests/`.
+markers = [
+    "slow: deselected by default; run with `-m slow` or `--runslow`.",
+]
+addopts = "-m 'not slow'"
 
 [tool.pyright]
 include = ["src/quivers"]

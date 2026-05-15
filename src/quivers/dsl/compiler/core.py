@@ -1,7 +1,7 @@
 """Compiler: transform a quivers DSL AST into a trainable Program."""
 
 from __future__ import annotations
-from quivers.core.quantales import PRODUCT_FUZZY, Quantale
+from quivers.core.algebras import PRODUCT_FUZZY, Algebra
 from quivers.core.objects import SetObject
 from quivers.program import Program
 from quivers.dsl.ast_nodes import (
@@ -23,7 +23,7 @@ from quivers.dsl.ast_nodes import (
     MorphismDecl,
     ObjectDecl,
     ProgramDecl,
-    QuantaleDecl,
+    AlgebraDecl,
     RuleDecl,
     SchemaDecl,
     SignatureDecl,
@@ -36,7 +36,7 @@ from quivers.dsl.compiler._prelude import (
     _CompiledContraction,
     _build_default_trans_constructors,
     _build_default_trans_singletons,
-    _register_extra_quantales,
+    _register_extra_algebras,
 )
 from quivers.dsl.compiler.declarations import _DeclarationsMixin
 from quivers.dsl.compiler.programs import _ProgramsMixin
@@ -73,7 +73,7 @@ class Compiler(
 
     def __init__(self, module: Module) -> None:
         self._module = module
-        self._quantale: Quantale = PRODUCT_FUZZY
+        self._algebra: Algebra = PRODUCT_FUZZY
         self._categories: list[str] = []
         self._rules: dict = {}
         self._bundles: dict[str, tuple[str, ...]] = {}
@@ -133,9 +133,9 @@ class Compiler(
         return dict(self._morphisms)
 
     @property
-    def quantale(self) -> Quantale:
-        """The active quantale."""
-        return self._quantale
+    def algebra(self) -> Algebra:
+        """The active algebra."""
+        return self._algebra
 
     def compile(self) -> Program:
         """Compile the module into a trainable Program.
@@ -150,7 +150,7 @@ class Compiler(
         CompileError
             On semantic errors (undefined names, type mismatches, etc.).
         """
-        _register_extra_quantales()
+        _register_extra_algebras()
         for stmt in self._module.statements:
             self._compile_statement(stmt)
         if self._output_expr is None:
@@ -188,13 +188,13 @@ class Compiler(
         Returns
         -------
         dict
-            Combined environment of objects, spaces, morphisms, and the quantale.
+            Combined environment of objects, spaces, morphisms, and the algebra.
         """
-        _register_extra_quantales()
+        _register_extra_algebras()
         for stmt in self._module.statements:
             self._compile_statement(stmt)
         env: dict = {}
-        env["__quantale__"] = self._quantale
+        env["__algebra__"] = self._algebra
         for name, obj in self._objects.items():
             env[name] = obj
         for name, space in self._spaces.items():
@@ -207,8 +207,8 @@ class Compiler(
 
     def _compile_statement(self, stmt: Statement) -> None:
         """Dispatch to the appropriate statement compiler."""
-        if isinstance(stmt, QuantaleDecl):
-            self._compile_quantale(stmt)
+        if isinstance(stmt, AlgebraDecl):
+            self._compile_algebra(stmt)
         elif isinstance(stmt, CategoryDecl):
             self._compile_category(stmt)
         elif isinstance(stmt, RuleDecl):

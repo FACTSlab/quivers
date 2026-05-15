@@ -11,13 +11,15 @@ You write Bayesian models in a small, readable DSL and fit them with stochastic 
 ```qvr
 object Item : 100
 
+# Predictor `x` flows in as exogenous data via the observations
+# dict; free variables in `let` expressions resolve from the
+# conditioning data at trace time (host-data channel).
 program regression : Item -> Item ! Sample, Score
     sigma  <- HalfNormal(1.0)
     beta_0 <- Normal(0.0, 5.0)
     beta_1 <- Normal(0.0, 2.0)
-    x      <- Normal(0.0, 1.0)
     let mu = beta_0 + beta_1 * x
-    observe y <- Normal(mu, sigma)
+    observe y : Item <- Normal(mu, sigma)
     return y
 
 export regression
@@ -34,7 +36,22 @@ guide   = AutoNormalGuide(model, observed_names={"y"})
 optim   = torch.optim.Adam(guide.parameters(), lr=1e-2)
 svi     = SVI(model, guide, optim, ELBO())
 for _ in range(2000):
-    svi.step({"x": x_data}, {"y": y_data})
+    svi.step(torch.zeros(100, 1), {"x": x_data, "y": y_data})
+```
+
+For users coming from brms / lme4 / Stan, the same regression also
+expresses through a [brms-style formula frontend](guides/analysis.md):
+
+```python
+from quivers.formulas import fit
+
+result = fit(
+    "y ~ x + (1 | g)",
+    data=df,                  # pandas or polars
+    family="gaussian",
+    sampler="nuts",
+)
+result.dump_qvr("regression.qvr")   # inspect the emitted QVR program
 ```
 
 ## What you get
@@ -48,6 +65,7 @@ The everyday PPL features you would expect, on a PyTorch backend:
 - **Marginalized discrete latents** as a first-class block (`marginalize z : K <- Categorical(p) in { ... }`), with `logsumexp` aggregation handled for you.
 - **Plates and grouped marginalization** for hierarchical models with vectorized observations and per-row fibration into shared random effects.
 - **A 36-example gallery** covering regression (Bayesian, beta, Dirichlet, NegBin, horseshoe, ZIP), latent-variable (factor analysis, PPCA, LDA, IRT, PMF, BNN, GMM, VAE), state space (HMM discrete and continuous, linear-Gaussian SSM, deep Markov, AR1, stochastic volatility, changepoint, Weibull survival), language models (RNN, LSTM, GRU, bidirectional, transformer), seq2seq with encoder and decoder, and formal grammars (PCFG, CCG, Lambek, multimodal TLG).
+- **Analysis-pipeline surface**: a brms-style [formula frontend](guides/analysis.md) (`fit("y ~ x + (1 | g)", data=df, family="gaussian")`) that compiles formulas to typed AST programs via a `dx.Lens`, a `DatasetSchema` bridge from pandas / polars dataframes to QVR object cardinalities and observations, and an [ArviZ DataTree adapter](api/diagnostics/index.md) for `compare`, `loo`, and posterior-predictive checks. Orthogonal polynomials by default (matches R's `stats::poly`); R-style transforms (`log`, `exp`, `sqrt`, etc.) preloaded into the formula evaluation namespace.
 
 ## Where to start
 
@@ -66,7 +84,7 @@ Most PPLs let you write `observe y ~ Normal(mu, sigma)`. Quivers lets you write 
 - **Axis-role priors on weights.** A weight matrix `latent W : Euclidean(D) -> Euclidean(K)` can carry a structured prior whose covariance is genuinely matrix-valued: `~ MatrixNormal(loc, row_cov, col_cov) over (dom, cod)`. The `over <axes>` clause says which axes the family's joint covariance lives on; the rest are iid. This is the right surface for factor analysis, PPCA, Bayesian neural nets, and other "matrix of weights with prior" models.
 - **Exact-likelihood structured families.** HMMs and Kalman smoothers compose like ordinary distributions; the forward, forward-backward, and smoother passes are wrapped.
 - **Compile-time effects.** Programs carry an effect signature `! Sample, Score, Marginal, Pure` that the compiler checks against the body. A `! Pure` block that contains an `observe` is rejected with a typed error before training begins.
-- **First-class transformations.** Softmax row-normalization, L1 / L2 row-normalization, Bayes inversion, and the quantale homomorphisms ([Rosenthal, 1990](https://doi.org/10.1090/conm/094)) that translate between composition semirings are values: let-bindable, composable with `>>>`, passable into `change_base`.
+- **First-class transformations.** Softmax row-normalization, L1 / L2 row-normalization, Bayes inversion, and the algebra homomorphisms ([Rosenthal, 1990](https://doi.org/10.1090/conm/094)) that translate between composition semirings are values: let-bindable, composable with `>>>`, passable into `change_base`.
 - **Weighted deduction.** Chart algorithms (CKY, Earley, Viterbi, A\*, Knuth's algorithm, semi-naive Datalog) are exposed as a `deduction { atoms ... rule ... semiring ... start ... }` block whose chart is a differentiable tensor. Drops in alongside the rest of the language.
 - **Structural compression.** A four-block pattern (`signature { ... } encoder { ... } decoder { ... } loss { ... }`) factors out transformers, tree LSTMs, graph NNs, autoregressive LMs, variational autoencoders ([Kingma & Welling, 2014](https://doi.org/10.48550/arXiv.1312.6114)), and the vector inside-outside parser ([Le & Zuidema, 2014](https://doi.org/10.3115/v1/D14-1081)) as instances of one interface.
 
@@ -89,7 +107,7 @@ flowchart TB
     L8 --> L7 --> L6 --> L5 --> L4 --> L3 --> L2 --> L1
 ```
 
-The central abstraction is a *morphism between finite sets*, parameterized by a *quantale* (a complete lattice with a monoidal product distributing over joins). A morphism `f : A -> B` is a PyTorch tensor of shape `(|A|, |B|)` whose entries take values in the quantale; composition `f >> g` contracts along the shared dimension under the quantale's tensor product and join. Different quantales give different composition semantics: Boolean composes by AND / OR (relational composition), ProductFuzzy by multiplication / noisy-OR, Real by sum-product, Markov by row-stochastic kernel composition, and so on.
+The central abstraction is a *morphism between finite sets*, parameterized by a *algebra* (a complete lattice with a monoidal product distributing over joins). A morphism `f : A -> B` is a PyTorch tensor of shape `(|A|, |B|)` whose entries take values in the algebra; composition `f >> g` contracts along the shared dimension under the algebra's tensor product and join. Different algebras give different composition semantics: Boolean composes by AND / OR (relational composition), ProductFuzzyAlgebra by multiplication / noisy-OR, Real by sum-product, Markov by row-stochastic kernel composition, and so on.
 
 The composition surface is a small hierarchy:
 
@@ -98,7 +116,7 @@ flowchart TB
     CR["CompositionRule"]
     BF["BilinearForm<br/>no associativity promise"]
     SG["Semigroupoid<br/>associative tensor, no identity"]
-    Q["Quantale<br/>associative tensor with identity, plus meet and negate"]
+    Q["Algebra<br/>associative tensor with identity, plus meet and negate"]
     CR --> BF
     CR --> SG
     SG --> Q

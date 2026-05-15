@@ -1,10 +1,10 @@
 """First-class transformation composition.
 
 A *transformation* in quivers is either a
-:class:`~quivers.core.quantale_morphisms.QuantaleHomomorphism`
+:class:`~quivers.core.algebra_morphisms.AlgebraHomomorphism`
 (pointwise, lax monoidal) or a
 :class:`~quivers.core.morphism_transformations.MorphismTransformation`
-(shape-aware).  Both expose a ``source`` and ``target`` quantale
+(shape-aware).  Both expose a ``source`` and ``target`` algebra
 and an ``apply`` that consumes a morphism's tensor.
 
 This module gives them a *composition* operation: ``compose_trans(t1, t2, ...)``
@@ -23,12 +23,12 @@ that ``compose_trans(softmax(B), EXPECTATION)`` builds here.
 from __future__ import annotations
 
 from quivers.core.morphism_transformations import MorphismTransformation
-from quivers.core.quantale_morphisms import QuantaleHomomorphism
+from quivers.core.algebra_morphisms import AlgebraHomomorphism
 
 
-type TransValue = QuantaleHomomorphism | MorphismTransformation
+type TransValue = AlgebraHomomorphism | MorphismTransformation
 """A single base transformation: either a
-:class:`QuantaleHomomorphism` (pointwise) or a
+:class:`AlgebraHomomorphism` (pointwise) or a
 :class:`MorphismTransformation` (shape-aware)."""
 
 
@@ -93,7 +93,7 @@ def compose_trans(*steps: TransValue | TransSeq) -> TransSeq:
     """Compose two or more transformations into a single sequence.
 
     Each argument is either a base transformation (a
-    ``QuantaleHomomorphism`` or ``MorphismTransformation``) or
+    ``AlgebraHomomorphism`` or ``MorphismTransformation``) or
     another :class:`TransSeq` whose steps are inlined.  The
     resulting sequence is flat; nested compositions never appear
     in :attr:`TransSeq.steps`.
@@ -114,7 +114,7 @@ def compose_trans(*steps: TransValue | TransSeq) -> TransSeq:
     ValueError
         If fewer than two steps are supplied.
     TypeError
-        If two adjacent steps' target / source quantales differ.
+        If two adjacent steps' target / source algebras differ.
     """
     if len(steps) < 2:
         raise ValueError("compose_trans: requires at least two transformations")

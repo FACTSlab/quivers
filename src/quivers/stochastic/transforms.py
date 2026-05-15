@@ -43,7 +43,7 @@ class ConditionedMorphism(Morphism):
     """
 
     def __init__(self, inner: Morphism, evidence: torch.Tensor) -> None:
-        super().__init__(inner.domain, inner.codomain, quantale=inner._quantale)
+        super().__init__(inner.domain, inner.codomain, algebra=inner._algebra)
         self._inner = inner
         self._evidence = evidence
 
@@ -152,7 +152,7 @@ class MixtureMorphism(Morphism):
                 f"{right.domain!r} -> {right.codomain!r}"
             )
 
-        super().__init__(left.domain, left.codomain, quantale=left._quantale)
+        super().__init__(left.domain, left.codomain, algebra=left._algebra)
         self._left = left
         self._right = right
 
@@ -244,7 +244,7 @@ class FactoredMorphism(Morphism):
     """
 
     def __init__(self, inner: Morphism, weights: torch.Tensor) -> None:
-        super().__init__(inner.domain, inner.codomain, quantale=inner._quantale)
+        super().__init__(inner.domain, inner.codomain, algebra=inner._algebra)
         self._inner = inner
         self._weights = weights
 
@@ -312,7 +312,7 @@ class NormalizedMorphism(Morphism):
     """
 
     def __init__(self, inner: Morphism) -> None:
-        super().__init__(inner.domain, inner.codomain, quantale=inner._quantale)
+        super().__init__(inner.domain, inner.codomain, algebra=inner._algebra)
         self._inner = inner
 
     @property

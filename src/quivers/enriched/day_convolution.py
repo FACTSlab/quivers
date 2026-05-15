@@ -27,7 +27,7 @@ from collections.abc import Sequence
 import torch
 
 from quivers.core.objects import SetObject
-from quivers.core.quantales import PRODUCT_FUZZY, Quantale
+from quivers.core.algebras import PRODUCT_FUZZY, Algebra
 from quivers.categorical.monoidal import MonoidalStructure
 from quivers.enriched.profunctors import Profunctor
 
@@ -38,7 +38,7 @@ def day_convolution(
     objects: Sequence[SetObject],
     monoidal: MonoidalStructure,
     product_table: dict[tuple[int, int], tuple[int, torch.Tensor]] | None = None,
-    quantale: Quantale | None = None,
+    algebra: Algebra | None = None,
 ) -> torch.Tensor:
     """Compute the Day convolution (F ⊛ G)(C) for each object C.
 
@@ -68,7 +68,7 @@ def day_convolution(
         (k, hom_tensor) where objects[i] ⊗ objects[j] ≅ objects[k]
         and hom_tensor is C(objects[k], objects[i] ⊗ objects[j]).
         If None, uses identity hom (discrete category).
-    quantale : Quantale or None
+    algebra : Algebra or None
         The enrichment algebra. Defaults to PRODUCT_FUZZY.
 
     Returns
@@ -76,7 +76,7 @@ def day_convolution(
     torch.Tensor
         1D tensor of shape (n,) with (F ⊛ G)(objects[i]) at index i.
     """
-    q = quantale if quantale is not None else PRODUCT_FUZZY
+    q = algebra if algebra is not None else PRODUCT_FUZZY
     n = len(objects)
 
     if f_values.shape != (n,) or g_values.shape != (n,):
@@ -136,7 +136,7 @@ def day_convolution(
 def day_unit(
     objects: Sequence[SetObject],
     unit_index: int,
-    quantale: Quantale | None = None,
+    algebra: Algebra | None = None,
 ) -> torch.Tensor:
     """Create the unit presheaf for Day convolution.
 
@@ -149,7 +149,7 @@ def day_unit(
         The objects of the finite category.
     unit_index : int
         The index of the monoidal unit in the objects list.
-    quantale : Quantale or None
+    algebra : Algebra or None
         The enrichment algebra. Defaults to PRODUCT_FUZZY.
 
     Returns
@@ -157,7 +157,7 @@ def day_unit(
     torch.Tensor
         1D tensor of shape (n,) representing the unit presheaf.
     """
-    q = quantale if quantale is not None else PRODUCT_FUZZY
+    q = algebra if algebra is not None else PRODUCT_FUZZY
     n = len(objects)
     result = torch.full((n,), q.zero)
     result[unit_index] = q.unit
@@ -169,7 +169,7 @@ def day_convolution_profunctors(
     p: Profunctor,
     q_prof: Profunctor,
     monoidal: MonoidalStructure,
-    quantale: Quantale | None = None,
+    algebra: Algebra | None = None,
 ) -> Profunctor:
     """Day convolution of two profunctors.
 
@@ -193,7 +193,7 @@ def day_convolution_profunctors(
         Right profunctor Q: C ↛ D.
     monoidal : MonoidalStructure
         The monoidal structure providing ⊗.
-    quantale : Quantale or None
+    algebra : Algebra or None
         The enrichment algebra. Defaults to PRODUCT_FUZZY.
 
     Returns
@@ -201,7 +201,7 @@ def day_convolution_profunctors(
     Profunctor
         The Day convolution P ⊛ Q: A⊗C ↛ B⊗D.
     """
-    qnt = quantale if quantale is not None else PRODUCT_FUZZY
+    qnt = algebra if algebra is not None else PRODUCT_FUZZY
 
     contra = monoidal.product(p.contra, q_prof.contra)
     co = monoidal.product(p.co, q_prof.co)
@@ -234,4 +234,4 @@ def day_convolution_profunctors(
     perm = a_dims + c_dims + b_dims + d_dims
     result = outer.permute(*perm)
 
-    return Profunctor(contra=contra, co=co, tensor=result, quantale=qnt)
+    return Profunctor(contra=contra, co=co, tensor=result, algebra=qnt)

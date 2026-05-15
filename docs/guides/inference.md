@@ -76,8 +76,8 @@ observations = {
 # Create conditioned model
 conditioned = condition(model, observations)
 
-# Forward pass uses clamped values
-log_pjoint = conditioned.log_joint(x, y_obs)
+# Trace the conditioned model: observed sites are clamped to the data
+tr = conditioned.trace(x)
 ```
 
 The conditioned model is a `Conditioned` instance that wraps the original model and enforces observation constraints.
@@ -188,15 +188,15 @@ Each accepts an `estimator=` strategy:
 
 | Estimator | What it does |
 |---|---|
-| `Reparameterised` | Standard pathwise gradient (default) |
+| `Reparameterized` | Standard pathwise gradient (default) |
 | `StickingTheLanding` | Detaches variational params in `log_q` (Roeder et al. 2017); variance → 0 as $q \to p^*$ |
-| `DoublyReparameterised` | DReG for IWAE (Tucker et al. 2019); kills the K-growing score term |
-| `ScoreFunction` | REINFORCE; for non-reparameterisable sites |
+| `DoublyReparameterized` | DReG for IWAE (Tucker et al. 2019); kills the K-growing score term |
+| `ScoreFunction` | REINFORCE; for non-reparameterizable sites |
 
 ```python
-from quivers.inference import IWAEBound, DoublyReparameterised
+from quivers.inference import IWAEBound, DoublyReparameterized
 
-iwae = IWAEBound(num_particles=16, estimator=DoublyReparameterised())
+iwae = IWAEBound(num_particles=16, estimator=DoublyReparameterized())
 loss = iwae(model, guide, x, observations)
 ```
 
@@ -280,8 +280,8 @@ $$p(y_\text{new} | x_\text{new}, \text{observations}) = \int p(y_\text{new} | z,
 from quivers.inference import Predictive
 
 predictive = Predictive(
-    model=conditioned,
-    guide=guide,
+    model=conditioned.model,
+    posterior=guide,
     num_samples=1000,
 )
 
@@ -307,7 +307,7 @@ The predictive:
 from quivers.continuous.programs import MonadicProgram
 from quivers.continuous.families import ConditionalNormal
 from quivers.continuous.spaces import Euclidean
-from quivers.core.objects import Unit
+from quivers.core.objects import FinSet
 from quivers.inference import (
     condition, AutoNormalGuide, ELBO, SVI, Predictive
 )
@@ -315,43 +315,38 @@ import torch
 import torch.optim as optim
 
 # Model: y = w·x + noise
+Unit = FinSet(name="Unit", cardinality=1)
+R1 = Euclidean(name="R1", dim=1)
+
+prior_w    = ConditionalNormal(Unit, R1)
+likelihood = ConditionalNormal(R1, R1)
+
 program = MonadicProgram(
-    domain=Euclidean(1),
-    codomain=Euclidean(1),
+    R1,
+    R1,
+    steps=[
+        (("w",), prior_w, None),
+        (("y",), likelihood, ("w",)),
+    ],
+    return_vars=("y",),
 )
-
-# Prior on weight
-prior_w = ConditionalNormal(Unit, Euclidean(1))
-program.add_morphism("prior_w", prior_w)
-
-# Likelihood
-likelihood = ConditionalNormal(Euclidean(1), Euclidean(1))
-program.add_morphism("likelihood", likelihood)
-
-# Steps
-program.add_draw("w", "prior_w")
-program.add_draw("y", "likelihood", args=("w",))
-program.add_return("y")
 
 # Observed data
 x_obs = torch.randn(100, 1)
 y_obs = 2.0 * x_obs + torch.randn(100, 1) * 0.1
+observations = {"y": y_obs}
 
-# Condition on observations
-conditioned = condition(program, {"y": y_obs})
-
-# Variational guide
-guide = AutoNormalGuide(conditioned, observed_names={"y"})
+# Variational guide built against the unconditioned program
+guide = AutoNormalGuide(program, observed_names={"y"})
 elbo  = ELBO(num_particles=10)
 
 # Optimization
 optimizer = optim.Adam(
-    list(conditioned.parameters()) + list(guide.parameters()),
+    list(program.parameters()) + list(guide.parameters()),
     lr=1e-2,
 )
-svi = SVI(conditioned, guide, optimizer, elbo)
+svi = SVI(program, guide, optimizer, elbo)
 
-observations = {"y": y_obs}
 for epoch in range(100):
     loss = svi.step(x_obs, observations)
     if epoch % 10 == 0:
@@ -359,7 +354,7 @@ for epoch in range(100):
 
 # Posterior predictive on new data
 x_new = torch.linspace(-3, 3, 50).view(-1, 1)
-predictive = Predictive(model=conditioned, guide=guide, num_samples=500)
+predictive = Predictive(model=program, posterior=guide, num_samples=500)
 samples = predictive(x_new)
 y_pred = samples["y"]
 
@@ -402,7 +397,7 @@ When variational families underfit, fall back to gradient-based MCMC. The kernel
 from quivers.inference import NUTSKernel, MCMC
 
 kernel = NUTSKernel(
-    target_accept_prob=0.8,
+    target_accept=0.8,
     max_tree_depth=10,
     mass_matrix="diagonal",
 )
@@ -414,10 +409,10 @@ mcmc = MCMC(
 )
 result = mcmc.run(model, x, observations)
 
-print(result.r_hat)       # per-site split R-hat (Vehtari et al. 2021)
-print(result.ess)         # effective sample size
-print(result.divergences) # divergence count per chain
-samples = result.samples  # dict[str, Tensor] of shape (chains, draws, …)
+print(result.r_hat)             # per-site split R-hat (Vehtari et al. 2021)
+print(result.ess)               # effective sample size
+print(result.divergence_counts) # per-chain divergence count; result.total_divergences sums them
+samples = result.samples        # dict[str, Tensor] of shape (chains, draws, …)
 ```
 
 `HMCKernel` and `NUTSKernel` both implement Nesterov dual-averaging step-size adaptation and Welford-online mass-matrix adaptation during warmup. The leapfrog integrator vectorizes `num_chains` chains as a leading batch axis; warmup runs unvectorised (adaptation is impure), sampling runs vectorized (kernel is pure).
@@ -432,7 +427,14 @@ Differentiable annealed importance sampling (Geffner-Domke 2021, Zhang et al. 20
 from quivers.inference import AutoNormalGuide, AutoDAIS
 
 base = AutoNormalGuide(model, observed_names={"y"})
-guide = AutoDAIS(base, num_steps=8, step_size=0.05, base_temperature=1.0)
+guide = AutoDAIS(
+    base,
+    model=model,
+    observations=observations,
+    num_steps=8,
+    init_step_size=0.05,
+    init_temperature=0.1,
+)
 # Plug into SVI exactly like any other guide.
 ```
 
@@ -445,11 +447,12 @@ from quivers.inference import AutoMultivariateNormalGuide, NUTSKernel, WarmupThe
 
 sampler = WarmupThenHMC(
     guide=AutoMultivariateNormalGuide(model, observed_names={"y"}),
+    kernel=NUTSKernel(),
     svi_steps=1000,
-    mcmc_kernel=NUTSKernel(),
+    mcmc_warmup=500,
     mcmc_samples=2000,
 )
-result = sampler.run(model, x, observations)
+svi_losses, result = sampler.run(model, x, observations)
 ```
 
 ## Predictive with MCMC
@@ -459,7 +462,7 @@ result = sampler.run(model, x, observations)
 ```python
 from quivers.inference import Predictive
 
-predictive = Predictive(model=conditioned, posterior=result, num_samples=500)
+predictive = Predictive(model=conditioned.model, posterior=result, num_samples=500)
 samples = predictive(x_new)
 ```
 

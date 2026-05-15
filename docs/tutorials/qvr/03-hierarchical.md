@@ -22,7 +22,6 @@ The eight $\theta_j$ are a per-group random effect over the group object `School
 === "QVR"
 
     ```qvr
-    quantale real
     object School : 8
 
     program eight_schools_centred : School -> School ! Sample, Score
@@ -61,17 +60,19 @@ model   = program.morphism
 sigma_j = torch.tensor([15., 10., 16., 11., 9., 11., 10., 18.])
 y_obs   = torch.tensor([28., 8., -3., 7., -1., 1., 18., 12.])
 
-guide = AutoNormalGuide(model, observed_names={"y"})
+guide = AutoNormalGuide(model, observed_names={"y", "sigma_j"})
 elbo  = ELBO(num_particles=1)
 optimizer = torch.optim.Adam(
     list(model.parameters()) + list(guide.parameters()), lr=1e-2,
 )
 svi = SVI(model, guide, optimizer, elbo)
+x_tensor = torch.zeros(1, 1)
+observations = {"sigma_j": sigma_j, "y": y_obs}
 for _ in range(3000):
-    svi.step({"sigma_j": sigma_j}, {"y": y_obs})
+    svi.step(x_tensor, observations)
 
-post = guide.sample(num_samples=1000)
-print("posterior tau:", post["tau"].mean().item(), "±", post["tau"].std().item())
+post = torch.stack([guide.rsample(x_tensor)["tau"] for _ in range(1000)])
+print("posterior tau:", post.mean().item(), "+/-", post.std().item())
 ```
 
 You'll see something like `tau ≈ 0.1 ± 0.05`: the diagnostic-textbook signature of a funnel collapse. The true posterior mean of `tau` is closer to 3.
@@ -81,7 +82,6 @@ You'll see something like `tau ≈ 0.1 ± 0.05`: the diagnostic-textbook signatu
 The standard fix is to reparameterise ([Papaspiliopoulos, Roberts & Sköld, 2007](https://doi.org/10.1214/088342307000000014)): draw $\eta_j \sim \mathrm{Normal}(0, 1)$ and define $\theta_j = \mu + \tau \cdot \eta_j$ deterministically.
 
 ```qvr
-quantale real
 object School : 8
 
 program eight_schools_noncentred : School -> School ! Sample, Score
@@ -105,7 +105,7 @@ For the centered parameterization (or when you want to trust the posterior mass 
 from quivers.inference import NUTSKernel, MCMC
 
 kernel = NUTSKernel(
-    target_accept_prob=0.95,         # high target → smaller step → fewer divergences
+    target_accept=0.95,              # high target -> smaller step -> fewer divergences
     max_tree_depth=10,
 )
 mcmc = MCMC(
@@ -113,27 +113,29 @@ mcmc = MCMC(
     num_warmup=1000,
     num_samples=2000,
     num_chains=4,
-    initial_params="prior",
+    init_strategy="prior",
 )
 
-result = mcmc.run(model, {"sigma_j": sigma_j}, {"y": y_obs})
-print(result.summary())             # per-site mean, std, R-hat, ESS
-print("divergences:", result.num_divergences)
+result = mcmc.run(model, x_tensor, {"sigma_j": sigma_j, "y": y_obs})
+print("posterior mean tau:", result.samples["tau"].mean().item())
+print("R-hat tau:", result.r_hat["tau"].item())
+print("ESS tau:", result.ess["tau"].item())
+print("divergences:", result.total_divergences)
 ```
 
 A clean run shows R-hat < 1.01 for every site (rank-normalized split-R-hat, [Vehtari, Gelman, Simpson, Carpenter & Bürkner, 2021](https://doi.org/10.1214/20-BA1221)), ESS in the thousands, and zero divergences. On the centered parameterization you'll see a handful of divergences for `tau` near zero: the diagnostic flag that says "consider non-centered."
 
 ## Posterior predictive
 
-`Predictive` accepts either a `Guide` or an `MCMCResult`:
+[`Predictive`](../../api/inference/predictive.md) accepts either a [`Guide`](../../api/inference/guide.md) or an `MCMCResult`:
 
 ```python
 from quivers.inference import Predictive
 
 pred = Predictive(model, posterior=result, num_samples=500)
-y_hat = pred({"sigma_j": sigma_j})["y"]            # (500, 8)
+y_hat = pred(x_tensor, {"sigma_j": sigma_j})["y"]  # (500, 8)
 print("predictive school 1:", y_hat[:, 0].mean().item(),
-      "±", y_hat[:, 0].std().item())
+      "+/-", y_hat[:, 0].std().item())
 ```
 
 ## What you've seen
@@ -145,7 +147,7 @@ print("predictive school 1:", y_hat[:, 0].mean().item(),
 ## Try this
 
 - Run `AutoMultivariateNormal` on the centered parameterization. It can sometimes recover the funnel where mean-field can't.
-- Change `target_accept_prob` from 0.95 to 0.8 and watch divergences appear. The trade-off is step size vs trajectory length.
+- Change `target_accept` from 0.95 to 0.8 and watch divergences appear. The trade-off is step size vs trajectory length.
 - Add a per-school covariate $x_j$ and lift the model to a varying-intercepts-and-slopes regression.
 
 ## Next

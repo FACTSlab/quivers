@@ -18,8 +18,8 @@ ContinuousSpace (abstract)
 ```python
 from quivers.continuous.spaces import Euclidean
 
-R3 = Euclidean(3)       # ℝ³
-R2_bounded = Euclidean(2, low=0.0, high=1.0)  # [0,1]²
+R3 = Euclidean(name="R3", dim=3)                                  # ℝ³
+R2_bounded = Euclidean(name="R2", dim=2, low=0.0, high=1.0)        # [0,1]²
 ```
 
 ### Unit Interval
@@ -27,7 +27,7 @@ R2_bounded = Euclidean(2, low=0.0, high=1.0)  # [0,1]²
 ```python
 from quivers.continuous.spaces import UnitInterval
 
-U = UnitInterval()      # (0, 1)
+U = UnitInterval(name="U")     # (0, 1); pass dim=k for [0, 1]^k
 ```
 
 ### Simplex
@@ -35,7 +35,7 @@ U = UnitInterval()      # (0, 1)
 ```python
 from quivers.continuous.spaces import Simplex
 
-S3 = Simplex(3)         # 2-simplex in ℝ³ (3 categories with Σ = 1)
+S3 = Simplex(name="S3", dim=3)   # 2-simplex in ℝ³ (3 categories with Σ = 1)
 ```
 
 ### PositiveReals
@@ -43,7 +43,7 @@ S3 = Simplex(3)         # 2-simplex in ℝ³ (3 categories with Σ = 1)
 ```python
 from quivers.continuous.spaces import PositiveReals
 
-P2 = PositiveReals(2)   # (0, ∞)²
+P2 = PositiveReals(name="P2", dim=2)   # (0, ∞)²
 ```
 
 ### ProductSpace
@@ -51,9 +51,9 @@ P2 = PositiveReals(2)   # (0, ∞)²
 ```python
 from quivers.continuous.spaces import ProductSpace, Euclidean, UnitInterval
 
-R3 = Euclidean(3)
-U = UnitInterval()
-P = ProductSpace(R3, U)  # ℝ³ × (0, 1)
+R3 = Euclidean(name="R3", dim=3)
+U = UnitInterval(name="U")
+P = ProductSpace(components=(R3, U))   # ℝ³ × (0, 1); also R3 * U
 ```
 
 ## ContinuousMorphism
@@ -73,8 +73,10 @@ class MyMorphism(ContinuousMorphism):
         """Log density log p(y | x)"""
         raise NotImplementedError()
 
-    def rsample(self, x: torch.Tensor, n_samples: int = 1) -> torch.Tensor:
-        """Generate samples: return shape (..., n_samples, |Y|)"""
+    def rsample(
+        self, x: torch.Tensor, sample_shape: torch.Size = torch.Size()
+    ) -> torch.Tensor:
+        """Reparameterized samples; shape (*sample_shape, batch, codomain.dim)."""
         raise NotImplementedError()
 ```
 
@@ -99,20 +101,20 @@ from quivers.core.objects import FinSet
 import torch
 
 # Input: finite set X
-X = FinSet("X", 5)
-domain = Euclidean(5)  # or FinSet
-codomain = Euclidean(3)
+X = FinSet(name="X", cardinality=5)
+domain = Euclidean(name="X", dim=5)        # or FinSet
+codomain = Euclidean(name="Y", dim=3)
 
 # Conditional normal: learns linear maps μ(x), log_σ(x)
 normal = ConditionalNormal(domain, codomain)
 
 # Sample from p(y | x)
-x = torch.randn(5)
-samples = normal.rsample(x, n_samples=100)  # shape (100, 3)
+x = torch.randn(8, 5)                              # batch of 8 inputs
+samples = normal.rsample(x, sample_shape=torch.Size((100,)))  # (100, 8, 3)
 
 # Log probability
-y = torch.randn(3)
-log_p = normal.log_prob(x, y)  # scalar or batch
+y = torch.randn(8, 3)
+log_p = normal.log_prob(x, y)  # shape (8,)
 ```
 
 ### Loc-Scale Families
@@ -173,7 +175,7 @@ from quivers.continuous.families import (
 )
 
 # Multivariate normal with learned mean and cov
-mvn = ConditionalMultivariateNormal(domain, Euclidean(5))
+mvn = ConditionalMultivariateNormal(domain, Euclidean(name="Y", dim=5))
 ```
 
 `event_rank` per family controls the axis-role surface in the DSL
@@ -200,7 +202,9 @@ from quivers.continuous.families import ConditionalMatrixNormal
 
 # Matrix-valued kernel: domain -> R^(rows*cols), with samples
 # reshaped to (rows, cols) and Kronecker covariance Σ = V ⊗ U.
-mn = ConditionalMatrixNormal(domain, Euclidean(rows * cols), rows=4, cols=8)
+mn = ConditionalMatrixNormal(
+    domain, Euclidean(name="W", dim=4 * 8), rows=4, cols=8
+)
 ```
 
 The matrix-Normal `MN(M, U, V)` is the natural prior for a
@@ -219,7 +223,8 @@ from quivers.continuous.families import ConditionalInverseWishart
 # Conjugate prior on a d-dim covariance matrix.  Realized as the
 # inversion of a Wishart sample with the correct symmetric-matrix
 # change-of-variables Jacobian.
-iw = ConditionalInverseWishart(domain, Euclidean(d))
+d = 4
+iw = ConditionalInverseWishart(domain, Euclidean(name="Sigma", dim=d * d))
 ```
 
 Conjugate prior for the covariance of a multivariate normal
@@ -321,16 +326,19 @@ When composing continuous morphisms, the intermediate is continuous. The result 
 from quivers.continuous.morphisms import SampledComposition
 
 # f: X → Y (continuous), g: Y → Z (continuous)
-f = ConditionalNormal(Euclidean(3), Euclidean(4))
-g = ConditionalNormal(Euclidean(4), Euclidean(5))
+X = Euclidean(name="X", dim=3)
+Y = Euclidean(name="Y", dim=4)
+Z = Euclidean(name="Z", dim=5)
+f = ConditionalNormal(X, Y)
+g = ConditionalNormal(Y, Z)
 
 # Composition: (g ∘ f)(x) samples from g(f(x))
 composed = f >> g
 assert isinstance(composed, SampledComposition)
 
 # rsample: sample from intermediate
-x = torch.randn(3)
-z_samples = composed.rsample(x, n_samples=50)  # (50, 5)
+x = torch.randn(2, 3)
+z_samples = composed.rsample(x, sample_shape=torch.Size((50,)))  # (50, 2, 5)
 ```
 
 When an intermediate is discrete (a FinSet), composition uses exact marginalization:
@@ -344,14 +352,15 @@ Tensor product of continuous morphisms:
 ```python
 from quivers.continuous.morphisms import ProductContinuousMorphism
 
-f = ConditionalNormal(Euclidean(3), Euclidean(2))
-g = ConditionalBeta(Euclidean(3), UnitInterval())
+X = Euclidean(name="X", dim=3)
+f = ConditionalNormal(X, Euclidean(name="Y1", dim=2))
+g = ConditionalBeta(X, UnitInterval(name="Y2"))
 
 # Product: (f @ g)(x) ~ p(y₁, y₂ | x) = p(y₁ | x) · p(y₂ | x)
 fg = f @ g
 
 # Domain and codomain are products
-assert fg.domain == f.domain * g.domain  # Euclidean(3) × Euclidean(3)
+assert fg.domain == f.domain * g.domain   # X × X
 assert fg.codomain == f.codomain * g.codomain  # ℝ² × (0,1)
 ```
 
@@ -364,16 +373,16 @@ from quivers.continuous.boundaries import Embed
 from quivers.core.morphisms import morphism
 from quivers.core.objects import FinSet
 
-X = FinSet("X", 4)
-Y = FinSet("Y", 5)
+X = FinSet(name="X", cardinality=4)
+Y = FinSet(name="Y", cardinality=5)
 discrete_f = morphism(X, Y)
 
 # Treat X and Y as uniform distributions
-Y_continuous = Euclidean(5)
-embedded_f = Embed(discrete_f, target_space=Y_continuous)
+Y_continuous = Euclidean(name="Y", dim=5)
+embedded_f = Embed(domain=X, codomain=Y_continuous)
 
 # Now can compose with continuous morphisms
-y_cont = torch.randn(5)
+y_cont = torch.randn(4, 5)
 log_p = embedded_f.log_prob(torch.arange(4), y_cont)
 ```
 
@@ -384,8 +393,8 @@ Discretize a continuous space into a finite set:
 ```python
 from quivers.continuous.boundaries import Discretize
 
-# Discretize [0, 1] into 20 bins
-U = UnitInterval()
+# Discretize a bounded interval into 20 bins (Discretize requires bounded Euclidean)
+U = Euclidean(name="U", dim=1, low=0.0, high=1.0)
 discretized = Discretize(U, n_bins=20)
 
 # Maps continuous values to bin indices (as a FinSet of size 20)
@@ -423,8 +432,8 @@ A full normalizing flow conditioned on input:
 ```python
 from quivers.continuous.flows import ConditionalFlow
 
-domain = Euclidean(5)
-codomain = Euclidean(4)
+domain = Euclidean(name="X", dim=5)
+codomain = Euclidean(name="Y", dim=4)
 
 flow = ConditionalFlow(
     domain=domain,
@@ -434,8 +443,8 @@ flow = ConditionalFlow(
 )
 
 # Sample
-x = torch.randn(5)
-y_samples = flow.rsample(x, n_samples=50)
+x = torch.randn(8, 5)
+y_samples = flow.rsample(x, sample_shape=torch.Size((50,)))
 
 # Log probability
 y = torch.randn(4)
@@ -448,15 +457,12 @@ Continuous and discrete morphisms integrate transparently via the `>>` and `@` o
 
 ```python
 # Discrete → Continuous
-discrete_f = StochasticMorphism(X, Y)  # X → Y (finite)
-cont_g = ConditionalNormal(Euclidean(|Y|), Euclidean(3))
+discrete_f = morphism(X, Y)  # X → Y (finite)
+cont_g = ConditionalNormal(Euclidean(name="YE", dim=Y.size), Euclidean(name="Z", dim=3))
 
-composed = discrete_f >> cont_g  # marginalizes exactly over Y
+composed = discrete_f >> cont_g  # exact marginalization over Y
 
-# Continuous → Discrete
-cont_h = ConditionalNormal(Euclidean(3), Euclidean(4))
-discrete_k = StochasticMorphism(FinSet("4", 4), FinSet("5", 5))
-
-# Composition via sampling: sample from h, then k
-composed2 = cont_h >> discrete_k
+# Continuous → Discrete: not directly composable here because sampling
+# a continuous output would need a back-embedding into a finite set;
+# use Discretize to materialize a FinSet target first.
 ```

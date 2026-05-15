@@ -1,282 +1,200 @@
 # Enriched Category Theory
 
-## Ends and Coends
+The `quivers.enriched` package implements constructions specific to $\mathcal{V}$-enriched categories: ends and coends, weighted limits, profunctors, Yoneda, Kan extensions, Day convolution, and optics. Every operation is parameterized by an algebra $\mathcal{V}$ (defaulting to [`PRODUCT_FUZZY`](../api/core/algebras.md)); the implementation contracts and joins/meets against the algebra's primitive operations.
 
-An end $\int_X F(X, X)$ is a generalized intersection: the limit over the diagonal. Dually, a coend $\int^X F(X, Y)$ is a generalized union: the colimit over the diagonal.
+## Ends and coends
 
-Formally, an end is an object $E$ equipped with projections $\pi_X: E \to F(X, X)$ such that for all $f: X \to Y$, the diagram
+An [end](https://ncatlab.org/nlab/show/end) $\int_X F(X, X)$ is the equalizer of the components of a wedge over the diagonal of a bifunctor $F : \mathcal{C}^{\mathrm{op}} \times \mathcal{C} \to \mathcal{V}$. Dually, a [coend](https://ncatlab.org/nlab/show/coend) $\int^X F(X, X)$ is the coequalizer. In the finite tensor representation used by quivers, an end is computed by restricting a tensor to its diagonal in matched contravariant/covariant axes and reducing with the algebra's meet ($\bigwedge$); a coend reduces with the join ($\bigvee$).
 
-$$
-E \xrightarrow{\pi_X} F(X, X) \xrightarrow{F(f, \text{id})} F(Y, X) \\
-E \xrightarrow{\pi_Y} F(Y, Y) \xrightarrow{F(\text{id}, f)} F(Y, X)
-$$
-
-commutes (naturality in the diagonals).
-
-In quivers:
+The functions [`end`](../api/enriched/ends_coends.md) and [`coend`](../api/enriched/ends_coends.md) consume a tensor representing $F$ and the index tuples of its contravariant / covariant occurrences:
 
 ```python
+import torch
 from quivers.enriched.ends_coends import end, coend
-from quivers.core.objects import FinSet
-from quivers.core.morphisms import morphism
+from quivers.core.algebras import PRODUCT_FUZZY
 
-# A diagram F: C^op × C → Set
-# For finite sets, we compute the end as an intersection of fibers
+# F: C^op × C → V with C of size 3, so F is shape (3, 3).
+F = torch.tensor([
+    [0.9, 0.4, 0.1],
+    [0.5, 0.8, 0.2],
+    [0.3, 0.6, 0.7],
+])
 
-X = FinSet("X", 3)
-Y = FinSet("Y", 4)
+# Coend ∫^X F(X, X) joins along the diagonal pair (axis 0, axis 1).
+ce = coend(F, contra_dims=(0,), co_dims=(1,), algebra=PRODUCT_FUZZY)
 
-# Functor F(A, B) that takes two objects and returns a morphism
-def F(A, B):
-    return morphism(A, B)
-
-# End: ∫_Z F(Z, Z)
-e = end({X, Y}, F)
-
-# Coend: ∫^Z F(Z, Z) (geometric realization / coequalizer)
-ce = coend({X, Y}, F)
+# End ∫_X F(X, X) meets along the same diagonal.
+e = end(F, contra_dims=(0,), co_dims=(1,), algebra=PRODUCT_FUZZY)
 ```
 
-### Yoneda Lemma (via Ends)
+## Yoneda
 
-The Yoneda lemma states:
-
-$$
-[\mathcal{C}^\text{op}, \mathcal{V}] (y_A, F) \cong F(A)
-$$
-
-where $y_A$ is the representable presheaf and $F$ is any presheaf. This is an isomorphism of natural transformations and elements.
-
-```python
-from quivers.enriched.yoneda import yoneda_lemma
-
-# Compute Yoneda isomorphism
-A = FinSet("A", 3)
-F = ...  # presheaf
-
-# Naturals from representable to F correspond to elements of F(A)
-iso = yoneda_lemma(A, F)
-assert iso.shape == F(A).shape
-```
-
-## Kan Extensions
-
-A Kan extension is a universal way to extend a functor $F: \mathcal{A} \to \mathcal{B}$ along an inclusion $i: \mathcal{A} \to \mathcal{C}$.
-
-The left Kan extension $\text{Lan}_i F: \mathcal{C} \to \mathcal{B}$ is the initial such extension. The right Kan extension $\text{Ran}_i F$ is terminal.
-
-Left Kan extension is computed via a colimit:
-
-$$
-\text{Lan}_i F(C) = \text{colim}_{(A, f: C \to i(A))} F(A)
-$$
-
-In quivers:
-
-```python
-from quivers.enriched.kan_extensions import left_kan, right_kan, Projection, Inclusion
-
-# Define the inclusion i: A → C
-A = [FinSet("A", 2), FinSet("B", 3)]
-C = [A[0], A[1], FinSet("C", 4)]
-
-inclusion = Inclusion(A, C)
-
-# Define functor F: A → D
-def F(obj):
-    return morphism(obj, FinSet("target", 5))
-
-# Left Kan extension: extends F along inclusion
-left_ext = left_kan(F, inclusion)
-
-# Right Kan extension
-right_ext = right_kan(F, inclusion)
-
-# Query the extension
-ext_C = left_ext(C[2])  # Value at new object
-```
-
-## Weighted Limits and Colimits
-
-A weighted limit is a limit parameterized by a weight object (a presheaf or profunctor). If $W: \mathcal{C}^\text{op} \to \mathcal{V}$ is a weight and $F: \mathcal{C} \to \mathcal{D}$ is a diagram, the weighted limit $\{W, F\}$ is defined by the universal property:
-
-$$
-[\mathcal{D}](X, \{W, F\}) \cong [\mathcal{C}^\text{op}, \mathcal{V}](W, [\mathcal{D}](X, F(-)))
-$$
-
-```python
-from quivers.enriched.weighted_limits import (
-    weighted_limit, Weight, Diagram, representable_weight
-)
-
-# Weight: W: C^op → V
-W = representable_weight(C, X)  # representable by object X
-
-# Diagram: F: C → D
-F = Diagram({obj: morphism(obj, D) for obj in C})
-
-# Weighted limit
-limit = weighted_limit(W, F)
-
-# Projections to diagram objects
-for obj in C:
-    proj = limit.projection(obj)
-    assert proj.codomain == F[obj].codomain
-```
-
-Weighted colimits are the dual. Weighted limits generalize:
-
-- **Ordinary limits** (weight = terminal presheaf)
-- **Cotensor products** (weight = hom functor)
-- **Powers and copowers** (weight = constant presheaf)
-
-## Profunctors
-
-A profunctor (or distributor) $P: \mathcal{A} \nrightarrow \mathcal{B}$ is a $\mathcal{V}$-valued bimodule, i.e., a functor $P: \mathcal{B}^\text{op} \times \mathcal{A} \to \mathcal{V}$.
-
-```python
-from quivers.enriched.profunctors import Profunctor
-
-# Profunctor P: A ↛ B
-# For objects a ∈ A, b ∈ B, provides a value P(b, a) ∈ V
-
-class MyProfileunctor(Profunctor):
-    def __call__(self, b, a):
-        """P(b, a) ∈ V"""
-        pass
-
-# Composition of profunctors (Kleisli category of *-)
-# (Q ∘ P)(c, a) = ∫^b P(b, a) ⊗ Q(c, b)
-```
-
-Morphisms in $\mathcal{C}$ embed as hom-profunctors: $\hom_\mathcal{C}(-,-): \mathcal{C}^\text{op} \times \mathcal{C} \to \mathcal{V}$.
-
-## Yoneda Embedding and Representability
-
-The Yoneda embedding $y: \mathcal{C} \to [\mathcal{C}^\text{op}, \mathcal{V}]$ sends an object $A$ to the representable presheaf $y_A = \hom(-,A)$.
-
-A presheaf $F$ is representable if $F \cong y_A$ for some object $A$.
+For a $\mathcal{V}$-presheaf $F : \mathcal{C}^{\mathrm{op}} \to \mathcal{V}$ and an object $A \in \mathcal{C}$, the [Yoneda lemma](https://ncatlab.org/nlab/show/Yoneda+lemma) asserts $[\mathcal{C}^{\mathrm{op}}, \mathcal{V}](y_A, F) \cong F(A)$, where $y_A = \mathcal{C}(-, A)$ is the representable presheaf at $A$. [`yoneda_lemma`](../api/enriched/yoneda.md) computes the left side as an end and the test suite verifies the isomorphism numerically:
 
 ```python
 from quivers.enriched.yoneda import (
-    yoneda_embedding, representable_profunctor, verify_yoneda_fully_faithful
+    yoneda_lemma, yoneda_embedding, verify_yoneda_fully_faithful,
+)
+from quivers.enriched.profunctors import Presheaf
+from quivers.core.objects import FinSet
+
+X1 = FinSet(name="X1", cardinality=2)
+X2 = FinSet(name="X2", cardinality=3)
+
+# Presheaf F: C^op → V; values at each object.
+F = Presheaf(
+    objects=(X1, X2),
+    values=(torch.tensor([0.6, 0.2]), torch.tensor([0.1, 0.5, 0.9])),
 )
 
-# Yoneda embedding of an object
-A = FinSet("A", 3)
-presheaf = yoneda_embedding(A)
-
-# Check that yoneda_embedding is fully faithful
-is_ff = verify_yoneda_fully_faithful(C)
-assert is_ff
+hom_tensors = [...]  # hom_tensors[i] = C(X_i, A) for A = objects[obj_index]
+fa = yoneda_lemma(presheaf=F, obj_index=0, hom_tensors=hom_tensors)
 ```
 
-## Day Convolution
-
-The Day convolution $F *_\otimes G$ on presheaves (with monoidal codomain) is defined by:
-
-$$(F *_\otimes G)(X) = \int^{Y, Z} F(Y) \otimes G(Z) \otimes \hom(X, Y \otimes Z)$$
-
-Day convolution lifts the monoidal structure from the base category to presheaves.
+The [Yoneda embedding](../api/enriched/yoneda.md) $y : \mathcal{C} \to [\mathcal{C}^{\mathrm{op}}, \mathcal{V}]$ sends a morphism $f : A \to B$ to the profunctor view $y(f)$. [`yoneda_embedding`](../api/enriched/yoneda.md) takes a `Morphism` and returns a [`Profunctor`](../api/enriched/profunctors.md):
 
 ```python
-from quivers.enriched.day_convolution import (
-    day_convolution, day_unit, day_convolution_profunctors
+y_f = yoneda_embedding(f)  # f : Morphism
+```
+
+[`verify_yoneda_fully_faithful`](../api/enriched/yoneda.md) checks that the embedding preserves composition by comparing $y(g) \circ y(f)$ to $y(g \circ f)$ pointwise:
+
+```python
+is_ff = verify_yoneda_fully_faithful(f, g, atol=1e-5)
+```
+
+## Kan extensions
+
+[Left and right Kan extensions](https://ncatlab.org/nlab/show/Kan+extension) extend a morphism along an [`ObjectMap`](../api/enriched/kan_extensions.md) between objects. `quivers.enriched.kan_extensions` provides two concrete `ObjectMap` subclasses, [`Projection`](../api/enriched/kan_extensions.md) (the canonical $A_1 + \ldots + A_n \to A_k$) and [`Inclusion`](../api/enriched/kan_extensions.md) (the canonical $A_k \hookrightarrow A_1 + \ldots + A_n$):
+
+```python
+from quivers.enriched.kan_extensions import Inclusion, left_kan, right_kan
+from quivers.core.objects import FinSet, CoproductSet
+from quivers.core.morphisms import observed
+
+A0 = FinSet(name="A0", cardinality=2)
+A1 = FinSet(name="A1", cardinality=3)
+S = CoproductSet(components=(A0, A1))
+
+iota = Inclusion(coproduct=S, component_index=0)  # A0 ↪ A0 + A1
+
+B = FinSet(name="B", cardinality=4)
+R = observed(A0, B, torch.rand(2, 4))  # R: A0 → B
+
+LanR = left_kan(R, along=iota)         # Lan_iota R: S → B
+RanR = right_kan(R, along=iota)        # Ran_iota R: S → B
+```
+
+[`left_kan`](../api/enriched/kan_extensions.md) computes $(\mathrm{Lan}_p R)(a', b) = \bigvee\{R(a, b) : p(a) = a'\}$ (the algebra join over the fiber); [`right_kan`](../api/enriched/kan_extensions.md) is the meet-dual.
+
+## Weighted limits
+
+A [weighted limit](https://ncatlab.org/nlab/show/weighted+limit) $\{W, D\}$ pairs a [`Weight`](../api/enriched/weighted_limits.md) $W$ (a presheaf valued in $\mathcal{V}$) with a [`Diagram`](../api/enriched/weighted_limits.md) $D$ (a tuple of objects, possibly extended to a true functor in richer settings). For discrete diagrams the value is a meet over the residuated internal-hom of $W$ and $D$:
+
+```python
+from quivers.enriched.weighted_limits import (
+    Diagram, Weight, weighted_limit, representable_weight,
 )
+from quivers.core.objects import FinSet
 
-# Presheaves F, G on a monoidal category
-F = ...  # presheaf
-G = ...  # presheaf
+J = FinSet(name="J", cardinality=3)
 
-# Day convolution
-FG = day_convolution(F, G)
+# Representable weight at index k = 0 (Yoneda-style).
+W = representable_weight(index_set=J, represented_at=0)
 
-# The unit object for Day convolution
-unit = day_unit()
+# Discrete diagram of objects.
+A = FinSet(name="A", cardinality=2)
+B = FinSet(name="B", cardinality=4)
+C = FinSet(name="C", cardinality=3)
+D = Diagram(objects=(A, B, C))
+
+limit_tensor = weighted_limit(W, D)  # torch.Tensor
+```
+
+[`weighted_limit`](../api/enriched/weighted_limits.md) returns a `torch.Tensor`; the shape is the product of the diagram-object shapes joined under the weight.
+
+## Profunctors
+
+A [profunctor](https://ncatlab.org/nlab/show/profunctor) (or distributor) $P : \mathcal{A} \nrightarrow \mathcal{B}$ is a $\mathcal{V}$-valued bimodule, represented in quivers as a [`Profunctor`](../api/enriched/profunctors.md) wrapping a tensor of shape `(*contra.shape, *co.shape)`:
+
+```python
+from quivers.enriched.profunctors import Profunctor
+from quivers.core.objects import FinSet
+
+A = FinSet(name="A", cardinality=3)
+B = FinSet(name="B", cardinality=4)
+data = torch.rand(3, 4)
+P = Profunctor(contra=A, co=B, tensor=data)
+```
+
+A morphism in $\mathcal{V}\text{-}\mathbf{Rel}$ embeds as a profunctor via `Profunctor.from_morphism(f)`. Composition of profunctors uses the coend formula $(Q \circ P)(c, a) = \int^b P(b, a) \otimes Q(c, b)$ and is provided as `Profunctor.compose`.
+
+## Day convolution
+
+[Day convolution](https://ncatlab.org/nlab/show/Day+convolution) lifts the monoidal structure of a base category to its presheaves. For a finite discrete category and presheaf values $F, G$, [`day_convolution`](../api/enriched/day_convolution.md) computes
+
+$$
+(F \circledast G)(C) \;=\; \bigvee_{A, B : A \otimes B = C} F(A) \otimes G(B).
+$$
+
+```python
+from quivers.enriched.day_convolution import day_convolution, day_unit
+from quivers.core.objects import FinSet
+from quivers.categorical.monoidal import MonoidalStructure
+
+objects = (FinSet(name="A", cardinality=2), FinSet(name="B", cardinality=3))
+monoidal = MonoidalStructure(...)  # see api/categorical/monoidal.md
+
+f_values = torch.tensor([0.6, 0.4])
+g_values = torch.tensor([0.5, 0.7, 0.2])
+
+FG = day_convolution(f_values, g_values, objects=objects, monoidal=monoidal)
+unit = day_unit(objects=objects, monoidal=monoidal)
 ```
 
 ## Optics
 
-An optic $p: (S, T) \to (A, B)$ is a pair of morphisms satisfying:
+Optics are bidirectional morphisms that decompose into a forward `get` / `match` and a backward `put` / `build`. The package provides four kinds, all subclassing [`Optic`](../api/enriched/optics.md):
 
-$$
-p = (s_p, t_p): \exists C, . \; (S \to C \to A) \times (B \to C \to T)
-$$
-
-Optics compose, and they generalize lenses, prisms, adapters, and other bidirectional morphisms.
-
-### Lens
-
-A lens focuses on a component of a product:
+- [`Lens`](../api/enriched/optics.md) on a [`ProductSet`](../api/core/objects.md) focuses on one component.
+- [`Prism`](../api/enriched/optics.md) on a [`CoproductSet`](../api/core/objects.md) focuses on one case.
+- [`Adapter`](../api/enriched/optics.md) is an isomorphism optic given by a `from` / `to` pair of morphisms.
+- [`Grate`](../api/enriched/optics.md) cotraverses through a coindexing object.
 
 ```python
-from quivers.enriched.optics import Lens
-
-# Lens: (S, T) → (A, B)
-# A lens picks out a part A of a whole S and shows how to update
-# the whole T given a new value B.
-
-S = FinSet("S", 3)
-A = FinSet("A", 2)
-
-# Lens: focuses on first component of a product
-lens = Lens.get_set(
-    get=morphism(S * A, A),  # project A from S
-    set=morphism(S * A, S),  # update S with new A
+from quivers.enriched.optics import (
+    Lens, Prism, Adapter, Grate, compose_optics,
 )
+from quivers.core.objects import FinSet, ProductSet, CoproductSet
+from quivers.core.morphisms import observed
+
+A = FinSet(name="A", cardinality=2)
+C = FinSet(name="C", cardinality=3)
+
+# Lens on a product S = A × C, focusing on A (index 0).
+S = ProductSet(components=(A, C))
+lens = Lens(whole=S, focus_index=0)
+
+# Prism on a coproduct T = A + C, focusing on A.
+T = CoproductSet(components=(A, C))
+prism = Prism(whole=T, focus_index=0)
+
+# Adapter is an isomorphism A ↔ A' specified by two morphisms.
+A_prime = FinSet(name="A_prime", cardinality=2)
+fwd = observed(A, A_prime, torch.eye(2))
+bwd = observed(A_prime, A, torch.eye(2))
+adapter = Adapter(from_morph=fwd, to_morph=bwd)
+
+# Grate from S through coindex I to focus A.
+I = FinSet(name="I", cardinality=2)
+cotraverse = torch.zeros(6, 2)  # (|S|, |A|)
+grate = Grate(source=S, focus=A, index=I, cotraverse_tensor=cotraverse)
 ```
 
-### Prism
-
-A prism focuses on a case of a coproduct:
+Optics are composed via [`compose_optics`](../api/enriched/optics.md):
 
 ```python
-from quivers.enriched.optics import Prism
-
-# Prism: (S, T) → (A, B)
-# A prism tries to match a case and extract the value
-
-S = FinSet("S", 5)  # sum type
-A = FinSet("A", 2)  # matched case
-
-prism = Prism.match_build(
-    match=morphism(S, A),        # extract case
-    build=morphism(A, S),        # rebuild
-)
+combined = compose_optics(outer=lens, inner=adapter)
 ```
 
-### Adapter
-
-An adapter is a bijection between types:
-
-```python
-from quivers.enriched.optics import Adapter
-
-# Adapter: isomorphism between S and A
-fwd = morphism(S, A)
-rev = morphism(A, S)
-
-adapter = Adapter(fwd, rev)
-```
-
-### Grate
-
-A grate distributes an update function:
-
-```python
-from quivers.enriched.optics import Grate
-
-# Grate: entire structure is "writable"
-grate = Grate(morphism(...), ...)
-```
-
-Optics compose with the `∘` operator:
-
-```python
-from quivers.enriched.optics import compose_optics
-
-p1 = lens  # S ↔ A
-p2 = prism  # A ↔ C
-
-composed = compose_optics(p1, p2)  # S ↔ C
-```
+Each optic exposes `.forward()` and `.backward()` returning `Morphism`s (typically `ObservedMorphism`); the laws (`backward(forward(s)) = s` etc.) are verified pointwise inside the test suite.

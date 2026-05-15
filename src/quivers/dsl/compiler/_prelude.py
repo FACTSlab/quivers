@@ -21,7 +21,7 @@ from quivers.continuous.spaces import (
     UnitInterval,
 )
 from quivers.continuous.morphisms import AnySpace
-from quivers.core.quantales import (
+from quivers.core.algebras import (
     BOOLEAN,
     CompositionRule,
     PRODUCT_FUZZY,
@@ -34,7 +34,7 @@ from quivers.core.morphism_transformations import (
     l2_normalize as _l2_normalize,
     softmax as _softmax,
 )
-from quivers.core.quantale_morphisms import (
+from quivers.core.algebra_morphisms import (
     COUNTING_FROM_REAL,
     COUNTING_TO_REAL,
     EXPECTATION,
@@ -58,13 +58,13 @@ from quivers.dsl.ast_nodes import (
 
 # Registry of composition rules the DSL knows about by name.
 # Each entry maps a user-facing keyword (the right-hand side of
-# ``quantale X``, ``semigroupoid X``, ``bilinear_form X``,
+# ``algebra X``, ``semigroupoid X``, ``bilinear_form X``,
 # ``composition_rule X``) to its concrete rule instance.  The
 # type is widened to ``CompositionRule`` (the common parent of
-# ``Quantale``, ``Semigroupoid``, and ``BilinearForm``) so
-# user-defined non-quantale composition rules can be registered
+# ``Algebra``, ``Semigroupoid``, and ``BilinearForm``) so
+# user-defined non-algebra composition rules can be registered
 # alongside the shipped ones.
-_QUANTALE_REGISTRY: dict[str, "CompositionRule"] = {
+_ALGEBRA_REGISTRY: dict[str, "CompositionRule"] = {
     "product_fuzzy": PRODUCT_FUZZY,
     "boolean": BOOLEAN,
 }
@@ -85,7 +85,7 @@ class _CompiledContraction:
     panproto sort.
     """
 
-    __slots__ = ("name", "wiring", "domain", "codomain", "input_types", "quantale")
+    __slots__ = ("name", "wiring", "domain", "codomain", "input_types", "algebra")
 
     def __init__(
         self,
@@ -94,14 +94,14 @@ class _CompiledContraction:
         domain: "AnySpace",
         codomain: "AnySpace",
         input_types: tuple[tuple[str, "AnySpace", "AnySpace"], ...],
-        quantale: "CompositionRule",
+        algebra: "CompositionRule",
     ) -> None:
         self.name = name
         self.wiring = wiring
         self.domain = domain
         self.codomain = codomain
         self.input_types = input_types
-        self.quantale = quantale
+        self.algebra = algebra
 
 
 def _numel_shape(shape) -> int:
@@ -154,7 +154,7 @@ def _build_default_trans_singletons() -> dict:
     """Built-in transformation singletons available as bare-name
     references in the DSL.
 
-    Each value is a :class:`QuantaleHomomorphism` or
+    Each value is a :class:`AlgebraHomomorphism` or
     :class:`MorphismTransformation` (collectively, a ``Trans``
     value).  Bare-name lookup produces the singleton:
 
@@ -192,9 +192,9 @@ def _build_default_trans_constructors() -> dict:
     }
 
 
-def _register_extra_quantales() -> None:
-    """Lazily register every shipped quantale into the
-    ``quantale <name>`` resolution table the DSL uses at module
+def _register_extra_algebras() -> None:
+    """Lazily register every shipped algebra into the
+    ``algebra <name>`` resolution table the DSL uses at module
     top.
 
     The registration is idempotent and short-circuits when the
@@ -203,9 +203,9 @@ def _register_extra_quantales() -> None:
     optional dependencies (e.g. the stochastic module pulls in
     ``torch.distributions`` heavily).
     """
-    if "lukasiewicz" not in _QUANTALE_REGISTRY:
+    if "lukasiewicz" not in _ALGEBRA_REGISTRY:
         try:
-            from quivers.core.quantales import (
+            from quivers.core.algebras import (
                 COUNTING,
                 DUAL_GODEL,
                 DUAL_LUKASIEWICZ,
@@ -217,32 +217,32 @@ def _register_extra_quantales() -> None:
                 REAL,
                 TROPICAL,
             )
-            from quivers.core.quantales import BOOLEAN_DUAL, REICHENBACH
+            from quivers.core.algebras import BOOLEAN_DUAL, REICHENBACH
 
-            _QUANTALE_REGISTRY["lukasiewicz"] = LUKASIEWICZ
-            _QUANTALE_REGISTRY["godel"] = GODEL
-            _QUANTALE_REGISTRY["tropical"] = TROPICAL
-            _QUANTALE_REGISTRY["max_plus"] = MAX_PLUS
-            _QUANTALE_REGISTRY["log_prob"] = LOG_PROB
-            _QUANTALE_REGISTRY["real"] = REAL
-            _QUANTALE_REGISTRY["probability"] = PROBABILITY
-            _QUANTALE_REGISTRY["counting"] = COUNTING
-            # Built-in non-quantale composition rules.
-            _QUANTALE_REGISTRY["material_impl"] = material_implication()
+            _ALGEBRA_REGISTRY["lukasiewicz"] = LUKASIEWICZ
+            _ALGEBRA_REGISTRY["godel"] = GODEL
+            _ALGEBRA_REGISTRY["tropical"] = TROPICAL
+            _ALGEBRA_REGISTRY["max_plus"] = MAX_PLUS
+            _ALGEBRA_REGISTRY["log_prob"] = LOG_PROB
+            _ALGEBRA_REGISTRY["real"] = REAL
+            _ALGEBRA_REGISTRY["probability"] = PROBABILITY
+            _ALGEBRA_REGISTRY["counting"] = COUNTING
+            # Built-in non-algebra composition rules.
+            _ALGEBRA_REGISTRY["material_impl"] = material_implication()
             # Named de-Morgan duals — each is the corresponding
             # ``X.dual()`` exposed under a DSL-friendly name so a
-            # user can write ``quantale reichenbach``.
-            _QUANTALE_REGISTRY["reichenbach"] = REICHENBACH
-            _QUANTALE_REGISTRY["boolean_dual"] = BOOLEAN_DUAL
-            _QUANTALE_REGISTRY["dual_lukasiewicz"] = DUAL_LUKASIEWICZ
-            _QUANTALE_REGISTRY["dual_godel"] = DUAL_GODEL
+            # user can write ``algebra reichenbach``.
+            _ALGEBRA_REGISTRY["reichenbach"] = REICHENBACH
+            _ALGEBRA_REGISTRY["boolean_dual"] = BOOLEAN_DUAL
+            _ALGEBRA_REGISTRY["dual_lukasiewicz"] = DUAL_LUKASIEWICZ
+            _ALGEBRA_REGISTRY["dual_godel"] = DUAL_GODEL
         except ImportError:
             pass
-    if "markov" not in _QUANTALE_REGISTRY:
+    if "markov" not in _ALGEBRA_REGISTRY:
         try:
             from quivers.stochastic import MARKOV
 
-            _QUANTALE_REGISTRY["markov"] = MARKOV
+            _ALGEBRA_REGISTRY["markov"] = MARKOV
         except ImportError:
             pass
 

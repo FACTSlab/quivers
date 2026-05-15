@@ -100,7 +100,7 @@ from quivers.dsl.ast_nodes import (
     ProgramParam,
     ProgramStep,
     ScalarParam,
-    QuantaleDecl,
+    AlgebraDecl,
     RuleDecl,
     SchemaDecl,
     SpaceConstructor,
@@ -469,7 +469,7 @@ def _walk_expr(t: _Tree, vid: str) -> Expr:
                 return ExprFreeze(inner=_walk_expr(t, inner_vid), line=line, col=col)
             if method_name == "change_base":
                 # The argument is any expression that evaluates to
-                # a transformation (a QuantaleHomomorphism or
+                # a transformation (a AlgebraHomomorphism or
                 # MorphismTransformation): a bare identifier
                 # (registered singleton or let-bound trans), a
                 # constructor call ``softmax(B)`` /
@@ -1136,15 +1136,15 @@ def _walk_statement(t: _Tree, vid: str) -> Statement | list[Statement]:
     k = t.kind(vid)
     line, col = t.line_col(vid)
 
-    if k == "quantale_decl":
+    if k == "algebra_decl":
         nv = t.field(vid, "name")
         # Tree-sitter doesn't emit a named child for the literal
         # keyword token, so the ``level`` field doesn't appear in
         # the parse tree.  Recover the keyword by reading the
         # leading word from the declaration's source range.
         decl_text = t.text(vid).lstrip()
-        level: str = "quantale"
-        for kw in ("composition_rule", "bilinear_form", "semigroupoid", "quantale"):
+        level: str = "algebra"
+        for kw in ("composition_rule", "bilinear_form", "semigroupoid", "algebra"):
             if decl_text.startswith(kw):
                 level = kw
                 break
@@ -1155,7 +1155,7 @@ def _walk_statement(t: _Tree, vid: str) -> Statement | list[Statement]:
                     if t.kind(entry_vid) != "composition_rule_entry":
                         continue
                     body_entries.append(_walk_composition_rule_entry(t, entry_vid))
-        return QuantaleDecl(
+        return AlgebraDecl(
             name=_required_text(t, nv, vid, "name"),
             declared_level=level,
             body=tuple(body_entries),
@@ -1719,7 +1719,7 @@ def _required_text(
 ) -> str:
     """Return the text of a required-by-grammar field, raising if missing.
 
-    Several Statement variants — quantale, object, morphism, space, etc. —
+    Several Statement variants — algebra, object, morphism, space, etc. —
     declare an identifier ``name`` field. Tree-sitter guarantees the
     field exists on a successful parse, so a ``None`` here means the
     parse was corrupted (an ``ERROR`` node leaked through, or the

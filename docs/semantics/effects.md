@@ -12,9 +12,15 @@ is a conservative extension of the residuated-grammar fragment of
 We work in the V-enriched semantic universe of
 [Setting and Notation](setting.md). For an effect-typed parser we fix:
 
-- A residuated category universe $\mathcal{C}$ realized as a finite set
-  $\llbracket \mathrm{Cat} \rrbracket$ via the `FreeResiduated`
-  constructor of [Types and Spaces §3](types-and-spaces.md#3-free-monoids).
+- A residuated category universe $\mathcal{C}$ realized as a finite
+  set $\llbracket \mathrm{Cat} \rrbracket$. The carrier is built by
+  the `FreeResiduated(generators, depth, ops)` object class: starting
+  from a finite alphabet of atomic categories, it freely closes the
+  carrier under the constructors `ops` (which include the residuation
+  slashes $/$ and $\backslash$, the monoidal product $\otimes$, and
+  the diamond modality $\diamondsuit$) up to a finite `depth` bound,
+  yielding a finite-set object whose elements are the well-formed
+  category expressions of bounded complexity.
 - A finite list of declared effects $T_1, \dots, T_n$ each registered
   against one or more of the typeclass ABCs in
   $\mathbf{Functor}, \mathbf{Applicative}, \mathbf{Monad},
@@ -60,27 +66,31 @@ $\mathbf{Stoch}$ / $\mathbf{Kern}$.
 ## 3. Effect-typed schema denotations
 
 A `SchemaDecl` whose domain or codomain mentions a `TypeEffectApply`
-node $T(X)$ denotes a *natural transformation* between the relevant
-hom-functors of $\widehat{\mathcal{C}}$:
+node $T(X)$ is *parametric* in its free pattern variables. For each
+choice of instantiation $X, Y \in \mathcal{C}$ the schema denotes a
+morphism
 
 $$
-\llbracket r[X, Y : \mathrm{Cat}] : T(X/Y) \otimes T(Y) \to T(X) \rrbracket
-\;:\; T \otimes T \;\Rightarrow\; T \quad \text{in } [\widehat{\mathcal{C}}, \widehat{\mathcal{C}}]
+\llbracket r \rrbracket_{X, Y}
+\;:\; T(X/Y) \otimes T(Y) \;\to\; T(X)
+\quad \text{in } \widehat{\mathcal{C}};
 $$
 
-(an applicative-style lifted application). The naturality square is
-the applicative *composition law*; it holds by construction when $T$
-inhabits $\mathbf{Applicative}$.
+the family $\bigl(\llbracket r \rrbracket_{X, Y}\bigr)_{X, Y}$ is a
+natural transformation of bifunctors (an applicative-style lifted
+application). The naturality square is the applicative
+*composition law*; it holds by construction when $T$ inhabits
+$\mathbf{Applicative}$.
 
 For Monad-typed schemas the denotation is the *Kleisli composition*:
 
 $$
-\llbracket \mathrm{bind}_T[X, Y : \mathrm{Cat}] : T(X) \otimes (X \backslash T(Y)) \to T(Y) \rrbracket
-\;=\; \mathrm{Kleisli}(T)\bigl((X, T(Y))\bigr)
+\llbracket \mathrm{bind}_T \rrbracket_{X, Y}
+\;:\; T(X) \otimes (X \backslash T(Y)) \;\to\; T(Y),
 $$
 
-: the morphism set of the Kleisli category of $T$ at $(X, Y)$. The
-two presentations agree via the
+a morphism in the Kleisli category $\mathrm{Kl}(T)$ realising the
+canonical bind. The two presentations agree via the
 [`kleisli` / `arrow_monad` bridges](../api/index.md#monadic-package).
 
 ## 4. Joint type-and-effect dispatch
@@ -155,7 +165,7 @@ natural transformation through $\mathrm{Th}\mathfrak{C}_1, \dots,
   derivation tree.
 
 The chart algorithm (CKY) is the standard inside-score recurrence and
-is sound for arbitrary $\mathcal{V}$-quantale-valued semirings (see
+is sound for arbitrary $\mathcal{V}$-algebra-valued semirings (see
 [Grammar Fragment §7](grammar.md#7-strategy-independence)).
 $\square$
 

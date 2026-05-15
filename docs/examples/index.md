@@ -338,10 +338,10 @@ export gmm
 
 A classic discrete HMM using stochastic morphisms (Markov kernels). `repeat(transition)` without a count creates a `RepeatMorphism` whose step count is set at runtime via `prog(n_steps=N)`.
 
-**Features:** `kernel`, `repeat` (runtime-variable), `>>` composition, `quantale`
+**Features:** `kernel`, `repeat` (runtime-variable), `>>` composition, `algebra`
 
 ```qvr
-quantale product_fuzzy
+algebra product_fuzzy
 
 object State : 8
 object Obs : 16

@@ -18,7 +18,7 @@ import torch
 
 from quivers.core.objects import SetObject, FinSet, FreeMonoid
 from quivers.core.morphisms import Morphism, observed
-from quivers.core.quantales import PRODUCT_FUZZY, Quantale
+from quivers.core.algebras import PRODUCT_FUZZY, Algebra
 from quivers.core.tensor_ops import componentwise_lift
 from quivers.monadic.monads import FuzzyPowersetMonad, FreeMonoidMonad
 from quivers.monadic.typeclasses import Monad
@@ -76,18 +76,18 @@ class FreeMonoidPowersetLaw(DistributiveLaw):
     ----------
     max_length : int
         Maximum string length for the free monoid.
-    quantale : Quantale or None
+    algebra : Algebra or None
         The enrichment algebra. Defaults to PRODUCT_FUZZY.
     """
 
     def __init__(
         self,
         max_length: int,
-        quantale: Quantale | None = None,
+        algebra: Algebra | None = None,
     ) -> None:
         self._max_length = max_length
-        self._quantale = quantale if quantale is not None else PRODUCT_FUZZY
-        self._powerset = FuzzyPowersetMonad(quantale=self._quantale)
+        self._algebra = algebra if algebra is not None else PRODUCT_FUZZY
+        self._powerset = FuzzyPowersetMonad(algebra=self._algebra)
         self._free_monoid = FreeMonoidMonad(max_length)
 
     @property
@@ -137,11 +137,11 @@ class FreeMonoidPowersetLaw(DistributiveLaw):
         blocks: list[torch.Tensor] = []
 
         for k in range(self._max_length + 1):
-            lifted = componentwise_lift(id_tensor, k, quantale=self._quantale)
+            lifted = componentwise_lift(id_tensor, k, algebra=self._algebra)
             rows = n**k if k > 0 else 1
             cols = n**k if k > 0 else 1
             blocks.append(lifted.reshape(rows, cols))
 
         data = torch.block_diag(*blocks)
 
-        return observed(fm, fm, data, quantale=self._quantale)
+        return observed(fm, fm, data, algebra=self._algebra)

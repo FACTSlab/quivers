@@ -6,9 +6,9 @@ arrow bridge depends on: coproduct injections / case eliminators,
 product projections / pairings, distributivity, terminal / initial
 maps, and parallel pair morphisms over arbitrary :class:`SetObject`
 shapes. Tensors are constructed with the unit / zero of a given
-quantale so the constructions work uniformly across
-:class:`ProductFuzzy`, :class:`BooleanQuantale`, and the other
-quantales registered in :mod:`quivers.core.quantales`.
+algebra so the constructions work uniformly across
+:class:`ProductFuzzyAlgebra`, :class:`BooleanAlgebra`, and the other
+algebras registered in :mod:`quivers.core.algebras`.
 
 These constructors are the alphabet from which the stdlib monad,
 arrow, and comonad instances are built. Each returns an
@@ -29,11 +29,11 @@ from quivers.core.objects import (
     SetObject,
     Unit,
 )
-from quivers.core.quantales import PRODUCT_FUZZY, Quantale
+from quivers.core.algebras import PRODUCT_FUZZY, Algebra
 
 
-def _q(quantale: Quantale | None) -> Quantale:
-    return quantale if quantale is not None else PRODUCT_FUZZY
+def _q(algebra: Algebra | None) -> Algebra:
+    return algebra if algebra is not None else PRODUCT_FUZZY
 
 
 def _flat_offsets(components: tuple[SetObject, ...]) -> tuple[int, ...]:
@@ -54,7 +54,7 @@ def _flat_indices(obj: SetObject) -> list[tuple[int, ...]]:
 def inj(
     components: tuple[SetObject, ...],
     index: int,
-    quantale: Quantale | None = None,
+    algebra: Algebra | None = None,
 ) -> ObservedMorphism:
     """Coproduct injection ``ι_i : A_i → A_0 + ... + A_n``.
 
@@ -67,12 +67,12 @@ def inj(
         The coproduct's components in declared order.
     index
         Which component this injection embeds (``0 <= index < len(components)``).
-    quantale
+    algebra
         Enrichment algebra.
     """
     if not 0 <= index < len(components):
         raise ValueError(f"injection index {index} out of range [0, {len(components)})")
-    q = _q(quantale)
+    q = _q(algebra)
     source = components[index]
     target = CoproductSet(components=components)
     offsets = _flat_offsets(components)
@@ -90,14 +90,14 @@ def inj(
         idx.reverse()
         tup = tuple(idx)
         data[tup + (base + local_flat,)] = q.unit
-    return observed(source, target, data, quantale=q)
+    return observed(source, target, data, algebra=q)
 
 
 def case(
     components: tuple[SetObject, ...],
     branches: tuple[Morphism, ...],
     target: SetObject,
-    quantale: Quantale | None = None,
+    algebra: Algebra | None = None,
 ) -> ObservedMorphism:
     """Coproduct case eliminator ``[f_0, ..., f_n] : ⨿_i A_i → B``.
 
@@ -116,14 +116,14 @@ def case(
         ``f_i : A_i → target``.
     target
         Common codomain.
-    quantale
-        Enrichment algebra (must match each branch's quantale).
+    algebra
+        Enrichment algebra (must match each branch's algebra).
     """
     if len(branches) != len(components):
         raise ValueError(
             f"case eliminator needs {len(components)} branches; got {len(branches)}"
         )
-    q = _q(quantale)
+    q = _q(algebra)
     source = CoproductSet(components=components)
     data = torch.full((source.size, *target.shape), q.zero)
     offsets = _flat_offsets(components)
@@ -142,13 +142,13 @@ def case(
         branch_t = branch.tensor.reshape(comp.size, *target.shape)
         base = offsets[i]
         data[base : base + comp.size] = branch_t
-    return observed(source, target, data, quantale=q)
+    return observed(source, target, data, algebra=q)
 
 
 def pi(
     components: tuple[SetObject, ...],
     index: int,
-    quantale: Quantale | None = None,
+    algebra: Algebra | None = None,
 ) -> ObservedMorphism:
     """Product projection ``π_i : A_0 × ... × A_n → A_i``.
 
@@ -159,7 +159,7 @@ def pi(
         raise ValueError(
             f"projection index {index} out of range [0, {len(components)})"
         )
-    q = _q(quantale)
+    q = _q(algebra)
     source = ProductSet(components=components)
     target = components[index]
     # Cumulative offsets within the flat-product shape so we can pick
@@ -177,24 +177,24 @@ def pi(
     for src in src_index_iter:
         tgt = src[start : start + width]
         data[src + tgt] = q.unit
-    return observed(source, target, data, quantale=q)
+    return observed(source, target, data, algebra=q)
 
 
 def pair(
     legs: tuple[Morphism, ...],
-    quantale: Quantale | None = None,
+    algebra: Algebra | None = None,
 ) -> ObservedMorphism:
     """Universal product pairing ``⟨f_0, ..., f_n⟩ : A → B_0 × ... × B_n``.
 
     Given morphisms ``f_i : A → B_i`` that share a domain, returns the
     morphism into the product whose ``(a, b_0, ..., b_n)`` entry is
-    ``⊗_i f_i(a, b_i)`` (the V-quantale tensor product of the per-leg
+    ``⊗_i f_i(a, b_i)`` (the V-algebra tensor product of the per-leg
     entries). Concretely realised by an outer-product across legs of
     the leg tensors.
     """
     if not legs:
         raise ValueError("pair requires at least one leg")
-    q = _q(quantale)
+    q = _q(algebra)
     domain = legs[0].domain
     for i, leg in enumerate(legs):
         if leg.domain != domain:
@@ -202,10 +202,10 @@ def pair(
                 f"pair leg {i} has domain {leg.domain!r}; expected {domain!r}"
             )
     target = ProductSet(components=tuple(leg.codomain for leg in legs))
-    # Outer product across legs, then aggregate via the quantale's tensor_op.
+    # Outer product across legs, then aggregate via the algebra's tensor_op.
     # We compute term-by-term in a vectorized manner: each leg tensor has
     # shape (*domain.shape, *codomain_i.shape); we reshape to align the
-    # codomain dimensions and use the quantale's tensor_op to combine.
+    # codomain dimensions and use the algebra's tensor_op to combine.
     dom_ndim = domain.ndim
     result_t = legs[0].tensor
     for leg in legs[1:]:
@@ -220,24 +220,24 @@ def pair(
             *leg.codomain.shape,
         )
         result_t = q.tensor_op(result_view, leg_view)
-    return observed(domain, target, result_t, quantale=q)
+    return observed(domain, target, result_t, algebra=q)
 
 
-def terminal(domain: SetObject, quantale: Quantale | None = None) -> ObservedMorphism:
+def terminal(domain: SetObject, algebra: Algebra | None = None) -> ObservedMorphism:
     """The unique morphism ``! : A → 1`` into the terminal object.
 
     Sends every ``a ∈ A`` to the single element of :data:`Unit`.
     """
-    q = _q(quantale)
+    q = _q(algebra)
     data = torch.full((*domain.shape, 1), q.unit)
-    return observed(domain, Unit, data, quantale=q)
+    return observed(domain, Unit, data, algebra=q)
 
 
 def constant(
     domain: SetObject,
     codomain: SetObject,
     target_index: int,
-    quantale: Quantale | None = None,
+    algebra: Algebra | None = None,
 ) -> ObservedMorphism:
     """Constant morphism ``const_b : A → B`` selecting element ``b ∈ B``.
 
@@ -248,7 +248,7 @@ def constant(
         raise ValueError(
             f"target_index {target_index} out of range [0, {codomain.size})"
         )
-    q = _q(quantale)
+    q = _q(algebra)
     # Decode target_index back to multi-index over codomain.
     rem = target_index
     tgt_idx: list[int] = []
@@ -260,13 +260,13 @@ def constant(
     data = torch.full((*domain.shape, *codomain.shape), q.zero)
     for src in itertools.product(*(range(s) for s in domain.shape)):
         data[src + tgt] = q.unit
-    return observed(domain, codomain, data, quantale=q)
+    return observed(domain, codomain, data, algebra=q)
 
 
 def distrib_right(
     a: SetObject,
     bs: tuple[SetObject, ...],
-    quantale: Quantale | None = None,
+    algebra: Algebra | None = None,
 ) -> ObservedMorphism:
     """Distributivity ``A × (B_0 + ... + B_n) → (A × B_0) + ... + (A × B_n)``.
 
@@ -275,7 +275,7 @@ def distrib_right(
     category. The tensor identifies ``(a, ι_i(b_i))`` with
     ``ι_i((a, b_i))``.
     """
-    q = _q(quantale)
+    q = _q(algebra)
     coprod = CoproductSet(components=bs)
     source = ProductSet(components=(a, coprod))
     summands = tuple(ProductSet(components=(a, b)) for b in bs)
@@ -307,20 +307,20 @@ def distrib_right(
                 # (target.size,) — a single flat dimension.
                 _ = a_size, b_size
                 data[src_idx + (target_base + local_a * b_size + local_b,)] = q.unit
-    return observed(source, target, data, quantale=q)
+    return observed(source, target, data, algebra=q)
 
 
 def parallel(
     f: Morphism,
     g: Morphism,
-    quantale: Quantale | None = None,
+    algebra: Algebra | None = None,
 ) -> ObservedMorphism:
     """Parallel pair ``f ⊗ g : A × C → B × D`` of two morphisms.
 
-    The tensor is the V-quantale outer product of ``f`` and ``g``:
+    The tensor is the V-algebra outer product of ``f`` and ``g``:
     ``(f ⊗ g)((a, c), (b, d)) = f(a, b) ⊗ g(c, d)``.
     """
-    q = _q(quantale)
+    q = _q(algebra)
     domain = ProductSet(components=(f.domain, g.domain))
     codomain = ProductSet(components=(f.codomain, g.codomain))
     # Build the outer product via reshaping for broadcast under tensor_op.
@@ -344,12 +344,12 @@ def parallel(
         *g.codomain.shape,
     )
     data = q.tensor_op(f_t, g_t)
-    return observed(domain, codomain, data, quantale=q)
+    return observed(domain, codomain, data, algebra=q)
 
 
 def coproduct_map(
     branches: tuple[Morphism, ...],
-    quantale: Quantale | None = None,
+    algebra: Algebra | None = None,
 ) -> ObservedMorphism:
     """Coproduct functorial action ``f_0 + ... + f_n : ⨿_i A_i → ⨿_i B_i``.
 
@@ -358,7 +358,7 @@ def coproduct_map(
     """
     if not branches:
         raise ValueError("coproduct_map requires at least one branch")
-    q = _q(quantale)
+    q = _q(algebra)
     src_components = tuple(b.domain for b in branches)
     tgt_components = tuple(b.codomain for b in branches)
     source = CoproductSet(components=src_components)
@@ -374,21 +374,21 @@ def coproduct_map(
         sa = src_offsets[i]
         sb = tgt_offsets[i]
         data[sa : sa + a.size, sb : sb + b.size] = flat
-    return observed(source, target, data, quantale=q)
+    return observed(source, target, data, algebra=q)
 
 
 def identity_morphism(
-    obj: SetObject, quantale: Quantale | None = None
+    obj: SetObject, algebra: Algebra | None = None
 ) -> ObservedMorphism:
     """Identity morphism on ``obj``. Re-export of :func:`core.morphisms.identity`."""
-    return identity(obj, quantale=quantale)
+    return identity(obj, algebra=algebra)
 
 
 def reshape_to(
     source: SetObject,
     target: SetObject,
     inner: Morphism,
-    quantale: Quantale | None = None,
+    algebra: Algebra | None = None,
 ) -> ObservedMorphism:
     """Re-stamp ``inner``'s tensor onto ``source → target`` shapes.
 
@@ -398,7 +398,7 @@ def reshape_to(
     (e.g. ``ProductSet(A, B)`` vs. a single ``FinSet(|A|·|B|)``) without
     rebuilding the morphism.
     """
-    q = _q(quantale)
+    q = _q(algebra)
     if source.size != inner.domain.size:
         raise ValueError(
             f"reshape_to: source size {source.size} != inner domain size {inner.domain.size}"
@@ -408,7 +408,7 @@ def reshape_to(
             f"reshape_to: target size {target.size} != inner codomain size {inner.codomain.size}"
         )
     data = inner.tensor.reshape(*source.shape, *target.shape)
-    return observed(source, target, data, quantale=q)
+    return observed(source, target, data, algebra=q)
 
 
 __all__ = [

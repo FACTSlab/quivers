@@ -1,12 +1,12 @@
 """Compact-closed surface on V-Cat morphisms.
 
-V-Cat is compact-closed for any commutative quantale V: every
+V-Cat is compact-closed for any commutative algebra V: every
 object has a self-dual, and the categorical unit / counit (cup /
 cap) satisfy the snake equations. This module exposes the
 compact-closed operations on the morphism API:
 
 * ``f.dagger`` — transpose of a morphism (axis-swap of the
-  tensor; semantic depends on the quantale).
+  tensor; semantic depends on the algebra).
 * ``f.trace(A)`` — contraction along an object A; the categorical
   trace ``(ε_A ⊗ id) ∘ (id ⊗ f) ∘ (η_A ⊗ id)``.
 * ``cup(A)`` — unit morphism ``I → A ⊗ A`` (diagonal).
@@ -16,7 +16,7 @@ This module tests the categorical contract end-to-end:
 
 1. The dagger of a morphism's tensor is the axis-swap.
 2. Double-dagger is identity (``(f^†)^† = f``).
-3. ``cup`` and ``cap`` carry the quantale's identity tensor.
+3. ``cup`` and ``cap`` carry the algebra's identity tensor.
 4. The snake equation: ``(cap ⊗ id) ∘ (id ⊗ cup) = id`` for the
    simplest finite-set case.
 5. Trace over a single-axis domain agrees with the join over the
@@ -82,15 +82,15 @@ def test_double_dagger_is_identity_on_tensor() -> None:
     assert f_dd.codomain is B
 
 
-def test_dagger_preserves_quantale() -> None:
-    from quivers.stochastic.quantale import MARKOV
+def test_dagger_preserves_algebra() -> None:
+    from quivers.core.algebras import MARKOV
 
     A = FinSet(name="A", cardinality=2)
     B = FinSet(name="B", cardinality=2)
     data = torch.tensor([[0.5, 0.5], [0.5, 0.5]])
-    f = ObservedMorphism(A, B, data, quantale=MARKOV)
+    f = ObservedMorphism(A, B, data, algebra=MARKOV)
     g = f.dagger
-    assert g.quantale.name == "Markov"
+    assert g.algebra.name == "Markov"
 
 
 def test_dagger_preserves_gradients() -> None:
@@ -148,7 +148,7 @@ def test_dsl_dagger_method_call() -> None:
     from quivers.dsl import loads
 
     src = """
-    quantale product_fuzzy
+    algebra product_fuzzy
     object A : 3
     object B : 4
 
@@ -166,7 +166,7 @@ def test_dsl_cup_returns_diagonal() -> None:
     from quivers.dsl import loads
 
     src = """
-    quantale product_fuzzy
+    algebra product_fuzzy
     object A : 3
 
     let eta = cup(A)
@@ -184,7 +184,7 @@ def test_dsl_cap_returns_codiagonal() -> None:
     from quivers.dsl import loads
 
     src = """
-    quantale product_fuzzy
+    algebra product_fuzzy
     object A : 3
 
     let eps = cap(A)
@@ -202,7 +202,7 @@ def test_dsl_change_base_to_log_prob() -> None:
     from quivers.dsl import loads
 
     src = """
-    quantale product_fuzzy
+    algebra product_fuzzy
     object A : 3
 
     latent f : A -> A
@@ -210,7 +210,7 @@ def test_dsl_change_base_to_log_prob() -> None:
     export f_log
     """
     m = loads(src)
-    assert m.morphism.quantale.name == "ProductFuzzy"  # LogProb hom's target
+    assert m.morphism.algebra.name == "LogProb"
     # All entries are <= 0 (log of sigmoid in [0, 1]).
     assert (m.morphism.tensor <= 0).all()
 
@@ -221,7 +221,7 @@ def test_dsl_change_base_unknown_homomorphism_errors() -> None:
     from quivers.dsl.compiler import CompileError
 
     src = """
-    quantale product_fuzzy
+    algebra product_fuzzy
     object A : 3
     latent f : A -> A
     let g = f.change_base(not_a_real_homomorphism)
@@ -236,14 +236,14 @@ def test_dsl_change_base_to_boolean() -> None:
     from quivers.dsl import loads
 
     src = """
-    quantale product_fuzzy
+    algebra product_fuzzy
     object A : 3
     latent f : A -> A
     let g = f.change_base(threshold)
     export g
     """
     m = loads(src)
-    assert m.morphism.quantale.name == "Boolean"
+    assert m.morphism.algebra.name == "Boolean"
     # Boolean tensor entries are 0/1 only.
     t = m.morphism.tensor
     assert torch.all((t == 0.0) | (t == 1.0))
@@ -255,7 +255,7 @@ def test_dsl_dagger_chained_with_compose() -> None:
     from quivers.dsl import loads
 
     src = """
-    quantale product_fuzzy
+    algebra product_fuzzy
     object A : 3
     object B : 3
     object Latent : 4
@@ -272,14 +272,14 @@ def test_dsl_dagger_chained_with_compose() -> None:
 
 
 # ---------------------------------------------------------------------------
-# Cross-quantale dagger
+# Cross-algebra dagger
 # ---------------------------------------------------------------------------
 
 
 def test_dagger_round_trip_via_change_base_preserves_shape() -> None:
     """``f.change_base(phi).dagger`` produces the right shape and
-    quantale for the chained transformation."""
-    from quivers.core.quantale_morphisms import LOG_PROB as LOG_PROB_HOM
+    algebra for the chained transformation."""
+    from quivers.core.algebra_morphisms import LOG_PROB as LOG_PROB_HOM
 
     A = FinSet(name="A", cardinality=3)
     B = FinSet(name="B", cardinality=4)
@@ -287,4 +287,4 @@ def test_dagger_round_trip_via_change_base_preserves_shape() -> None:
     log_f = f.change_base(LOG_PROB_HOM)
     log_f_dag = log_f.dagger
     assert log_f_dag.tensor.shape == (4, 3)
-    assert log_f_dag.quantale.name == "ProductFuzzy"
+    assert log_f_dag.algebra.name == "LogProb"

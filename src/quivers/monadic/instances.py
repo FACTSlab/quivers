@@ -10,7 +10,7 @@ The constructions live in :mod:`quivers.core._factories` (coproduct
 injections / case eliminators, product projections / pairings,
 parallel pairs, distributivity, terminal maps). Each operation is
 built as a concrete :class:`ObservedMorphism` over the appropriate
-SetObject; composition uses the underlying quantale through the
+SetObject; composition uses the underlying algebra through the
 ``>>`` operator and the factory helpers compose seamlessly.
 
 Continuation, State, Reader, and Writer carry an extra typed
@@ -49,7 +49,7 @@ from quivers.core.objects import (
     SetObject,
     Unit,
 )
-from quivers.core.quantales import PRODUCT_FUZZY, Quantale
+from quivers.core.algebras import PRODUCT_FUZZY, Algebra
 from quivers.monadic.typeclasses import (
     Alternative,
     Foldable,
@@ -93,7 +93,7 @@ def _decode_function(
 
 
 def _evaluation_morphism(
-    domain: SetObject, codomain: SetObject, quantale: Quantale | None = None
+    domain: SetObject, codomain: SetObject, algebra: Algebra | None = None
 ) -> Morphism:
     """The evaluation morphism ``ev : [A → B] × A → B``.
 
@@ -101,7 +101,7 @@ def _evaluation_morphism(
     whose tensor entry at ``(f_flat, a_flat, b_flat)`` is unit iff
     ``decode(f_flat)[a_flat] == b_flat``.
     """
-    q = quantale if quantale is not None else PRODUCT_FUZZY
+    q = algebra if algebra is not None else PRODUCT_FUZZY
     fn_space = _function_space(domain, codomain)
     source = ProductSet(components=(fn_space, domain))
     a_size = domain.size
@@ -113,7 +113,7 @@ def _evaluation_morphism(
             data[f_flat, a_flat, outputs[a_flat]] = q.unit
     # Reshape from (|[A→B]|, |A|, |B|) to (*source.shape, *B.shape).
     data = data.reshape(*source.shape, *codomain.shape)
-    return observed(source, codomain, data, quantale=q)
+    return observed(source, codomain, data, algebra=q)
 
 
 # ---------------------------------------------------------------------------
@@ -335,13 +335,13 @@ def reshape_unit_to_nothing(nothing: FinSet) -> Morphism:
 
 
 class Alternative_(dx.Model):
-    """The Hamblin alternative monad on the V-quantale.
+    """The Hamblin alternative monad on the V-algebra.
 
     The type-level action over ``A`` is again ``A``: alternatives are
     encoded as V-weighted multisets in the V-relation tensor, not in
     the carrier set. Pure injects a value as a singleton (the identity
     relation); join is the V-relation composition with the noisy-OR
-    aggregation supplied by the underlying quantale.
+    aggregation supplied by the underlying algebra.
     """
 
     name: str = "Alternative"
@@ -357,7 +357,7 @@ class Alternative_(dx.Model):
 
     def apply(self, A: SetObject, B: SetObject) -> Morphism:
         # apply : Alt([A → B]) ⊗ Alt(A) → Alt(B). At the V-Rel level,
-        # this is the evaluation morphism with the V-quantale's natural
+        # this is the evaluation morphism with the V-algebra's natural
         # aggregation over alternatives (already baked into compose).
         return _evaluation_morphism(A, B)
 
@@ -372,7 +372,7 @@ class Alternative_(dx.Model):
     ) -> Morphism:
         # For Alt, lift_a2(f) is just f itself viewed as a morphism
         # A ⊗ B → C; aggregation across alternatives happens in the
-        # quantale's compose.
+        # algebra's compose.
         return f
 
     def empty(self, A: SetObject) -> Morphism:
@@ -383,11 +383,11 @@ class Alternative_(dx.Model):
 
     def alt(self, A: SetObject) -> Morphism:
         # alt : A ⊗ A → A picks an alternative from either side,
-        # realised as the V-quantale join of the two projections.
+        # realised as the V-algebra join of the two projections.
         source = ProductSet(components=(A, A))
-        # Project to either side and let the quantale join aggregate.
+        # Project to either side and let the algebra join aggregate.
         # Implementation: data[a, a', b] = unit iff b == a OR b == a'.
-        # The join over alternatives is the quantale join across the
+        # The join over alternatives is the algebra join across the
         # input pair.
         data = torch.full((A.size, A.size, A.size), PRODUCT_FUZZY.zero)
         for a in range(A.size):
@@ -1374,7 +1374,7 @@ class List(dx.Model):
                         # we encode cons as the morphism that maps
                         # (b, rest_word) to b ⨾ rest_word. The G-side
                         # join over the two applicative-actions is the
-                        # quantale's tensor of their weights.
+                        # algebra's tensor of their weights.
                         # Decode g_lb_flat's "value" component into a word.
                         # For Identity / list-shaped G, the value coincides
                         # with g_lb_flat; otherwise we route through the

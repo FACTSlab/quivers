@@ -57,7 +57,7 @@ guide   = AutoNormalGuide(model, observed_names={"y"})
 optim   = torch.optim.Adam(guide.parameters(), lr=1e-2)
 svi     = SVI(model, guide, optim, ELBO())
 for _ in range(2000):
-    svi.step({"x": x_data}, {"y": y_data})
+    svi.step(x_data, {"y": y_data})
 ```
 
 The full walkthrough is in the [tutorial](https://FACTSlab.github.io/quivers/tutorials/).
@@ -123,7 +123,7 @@ Then:
 
 ```text
 src/quivers/
-├── core/           objects, quantales, morphisms, tensor ops, wiring
+├── core/           objects, algebras, morphisms, tensor ops, wiring
 ├── categorical/    functors, natural transformations, adjunctions, monoidal, traced
 ├── monadic/        monads, comonads, algebras, distributive laws
 ├── enriched/       ends/coends, Kan extensions, profunctors, Yoneda, Day, optics

@@ -1,6 +1,6 @@
 # Composition Rules
 
-The quantale of [§ Quantales](quantales.md) gives the strongest setting for $\mathcal{V}$-enriched composition: it provides a tensor, a join, an identity, and the distributive law that makes $\mathcal{V}\text{-}\mathbf{Rel}$ a $\mathcal{V}$-enriched symmetric monoidal closed category. Two strictly weaker settings are useful: one drops the identity (giving a *semigroupoid*); the other drops the associativity promise entirely (giving a *bilinear form*). This page records their denotational structure and the operadic generalization to n-ary contractions.
+An algebra (in the sense of [§ Algebras](algebras.md)) gives the strongest setting for $\mathcal{V}$-enriched composition: it provides a tensor, a join, an identity, and (in the strict-quantale case) the distributive law that makes $\mathcal{V}\text{-}\mathbf{Rel}$ a $\mathcal{V}$-enriched symmetric monoidal closed category. Two strictly weaker settings are useful: one drops the identity (giving a *semigroupoid*); the other drops the associativity promise entirely (giving a *bilinear form*). This page records their denotational structure and the operadic generalization to n-ary contractions.
 
 ## 1. The hierarchy
 
@@ -18,21 +18,23 @@ We organize composition rules into a hierarchy of progressively stronger structu
 
 **Definition (bilinear form).** A *bilinear form* is a composition rule. The name records that no associativity or unit law is promised: the surface caller is responsible for fixing an association order when chaining compositions.
 
-**Definition (semigroupoid).** A *semigroupoid* is a composition rule whose tensor satisfies $\otimes(a, \otimes(b, c)) = \otimes(\otimes(a, b), c)$.
+**Definition (semigroupoid).** A *[semigroupoid](https://en.wikipedia.org/wiki/Semigroupoid)* is a composition rule whose inner tensor is associative, $a \otimes (b \otimes c) = (a \otimes b) \otimes c$. The associativity of $\otimes$ is precisely what makes the induced composition operation $\mathbin{>\!>}$ associative as a partial operation on hom-objects.
 
-**Definition (quantale).** A *quantale* is a semigroupoid additionally equipped with an identity element $\mathbf{1} \in V$ for $\otimes$, a meet $\bigwedge$ paired with the join under a complete-lattice structure, and the distributive law $a \otimes \bigoplus_i b_i = \bigoplus_i (a \otimes b_i)$.
+**Definition (algebra).** A *algebra* is a semigroupoid additionally equipped with an identity element $\mathbf{1} \in V$ for $\otimes$, a meet $\bigwedge$ paired with the join under a complete-lattice structure, and the distributive law $a \otimes \bigoplus_i b_i = \bigoplus_i (a \otimes b_i)$.
 
-The implementation reflects this hierarchy as a class lattice:
+The implementation reflects this hierarchy as a class lattice in which `BilinearForm` and `Semigroupoid` are siblings under `CompositionRule` and `Algebra` extends `Semigroupoid`:
 
-$$
-\mathbf{CompositionRule} \quad \supseteq \quad
-\begin{cases}
-\mathbf{BilinearForm} \\
-\mathbf{Semigroupoid} \quad \supseteq \quad \mathbf{Quantale}
-\end{cases}
-$$
-
-`BilinearForm` and `Semigroupoid` are siblings under `CompositionRule`; `Quantale` extends `Semigroupoid`. The eleven shipped quantales of [§ Quantales](quantales.md#1-the-eleven-quantales) are at the strongest level.
+```mermaid
+graph TD
+  CR["CompositionRule"]
+  BF["BilinearForm"]
+  SG["Semigroupoid"]
+  Q["Algebra"]
+  CR --> BF
+  CR --> SG
+  SG --> Q
+```
+ The eleven shipped algebras of [§ Algebras](algebras.md#1-the-eleven-algebras) are at the strongest level.
 
 ## 2. The denotation of `>>` at each level
 
@@ -48,16 +50,16 @@ This denotation does not require associativity, an identity, or distributivity: 
 |---|---|
 | `BilinearForm` | None beyond well-definedness. |
 | `Semigroupoid` | Associativity: $f \mathbin{>\!>} (g \mathbin{>\!>} h) = (f \mathbin{>\!>} g) \mathbin{>\!>} h$. |
-| `Quantale` | Associativity, identity ($\mathrm{id}_A \mathbin{>\!>} f = f = f \mathbin{>\!>} \mathrm{id}_B$), and distributivity. |
+| `Algebra` | Associativity, identity ($\mathrm{id}_A \mathbin{>\!>} f = f = f \mathbin{>\!>} \mathrm{id}_B$), and distributivity. |
 
-The compact-closed operations of $\mathcal{V}\text{-}\mathbf{Rel}$ (`identity(A)`, `cup(A)`, `cap(A)`, `f.dagger`, `f.trace(A)`) require both an identity element and the meet / negation pair; their denotations consequently exist only at the `Quantale` level. The compiler enforces this statically: in a module declared as `semigroupoid X` or `bilinear_form X` or `composition_rule X`, the operations above raise a typed `CompileError`.
+The compact-closed operations of $\mathcal{V}\text{-}\mathbf{Rel}$ (`identity(A)`, `cup(A)`, `cap(A)`, `f.dagger`, `f.trace(A)`) require both an identity element and the meet / negation pair; their denotations consequently exist only at the `Algebra` level. The compiler enforces this statically: in a module declared as `semigroupoid X` or `bilinear_form X` or `composition_rule X`, the operations above raise a typed `CompileError`.
 
 ## 3. User-defined composition rules
 
 The `.qvr` surface admits the declaration of a fresh composition rule via an inline body:
 
 ```
-quantale       NAME { tensor_op(a, b) = E_⊗ ; join(t) = E_⋁ ; unit = E_1 ; zero = E_0 ; [negation(a) = E_¬ ;] [meet(t) = E_⋀ ;] }
+algebra       NAME { tensor_op(a, b) = E_⊗ ; join(t) = E_⋁ ; unit = E_1 ; zero = E_0 ; [negation(a) = E_¬ ;] [meet(t) = E_⋀ ;] }
 semigroupoid   NAME { tensor_op(a, b) = E_⊗ ; join(t) = E_⋁ }
 bilinear_form  NAME { tensor_op(a, b) = E_⊗ ; join(t) = E_⋁ }
 composition_rule NAME { tensor_op(a, b) = E_⊗ ; join(t) = E_⋁ }
@@ -69,15 +71,15 @@ $$
 \llbracket \text{NAME} \rrbracket \;=\; \bigl(V_{\mathrm{tensor}},\ \otimes,\ \bigoplus,\ [\mathbf{1},\ \bot,\ \neg,\ \bigwedge]\bigr),
 $$
 
-where $\otimes$ and $\bigoplus$ are interpreted by the body expressions $E_\otimes$ and $E_\bigvee$ under the standard let-arithmetic semantics, and the bracketed components are present only at the `quantale` level.
+where $\otimes$ and $\bigoplus$ are interpreted by the body expressions $E_\otimes$ and $E_\bigvee$ under the standard let-arithmetic semantics, and the bracketed components are present only at the `algebra` level.
 
 The keyword choice fixes the *declared level* of the named rule. The compiler verifies that:
 
-1. Every entry required for the declared level is present (`tensor_op` and `join` everywhere; additionally `unit` and `zero` for `quantale`).
+1. Every entry required for the declared level is present (`tensor_op` and `join` everywhere; additionally `unit` and `zero` for `algebra`).
 2. Function-valued entries are written in the function form `key(params) = body`; value-valued entries are written in the bare form `key = literal`.
-3. The implementation class chosen at compile time matches the declared level (`CustomQuantale`, `CustomSemigroupoid`, `CustomBilinearForm`).
+3. The implementation class chosen at compile time matches the declared level (`CustomAlgebra`, `CustomSemigroupoid`, `CustomBilinearForm`).
 
-The well-typedness of the declaration is independent of any algebraic law; whether the user-supplied operations actually satisfy the laws their level promises is the user's responsibility. For `CustomSemigroupoid` the constructor performs an associativity smoke check on a fixed pseudo-random sample at build time; for `CustomQuantale` the constructor checks the identity and absorbing laws against a small set of canned values. Neither check is exhaustive.
+The well-typedness of the declaration is independent of any algebraic law; whether the user-supplied operations actually satisfy the laws their level promises is the user's responsibility. For `CustomSemigroupoid` the constructor performs an associativity smoke check on a fixed pseudo-random sample at build time; for `CustomAlgebra` the constructor checks the identity and absorbing laws against a small set of canned values. Neither check is exhaustive.
 
 ## 4. Operadic contractions
 
@@ -128,7 +130,7 @@ where `R` is a name resolving to a `CompositionRule` in scope and `SPEC` is an e
 
 ## 5. First-class transformations
 
-A *transformation* is either a [quantale homomorphism](quantales.md#3-base-change) $\varphi : \mathcal{V} \to \mathcal{W}$ (pointwise lax monoidal map) or a *morphism transformation* $\psi$ (shape-aware action that may consult axis information). Both expose a *source* and a *target* quantale and an action on tensors. The DSL surface treats transformations as values in a dedicated *transformation namespace* (disjoint from the morphism namespace) that can be let-bound, composed, and passed to `change_base`.
+A *transformation* is either a [algebra homomorphism](algebras.md#3-base-change) $\varphi : \mathcal{V} \to \mathcal{W}$ (pointwise lax monoidal map) or a *morphism transformation* $\psi$ (shape-aware action that may consult axis information). Both expose a *source* and a *target* algebra and an action on tensors. The DSL surface treats transformations as values in a dedicated *transformation namespace* (disjoint from the morphism namespace) that can be let-bound, composed, and passed to `change_base`.
 
 ### 5.1 The transformation sort
 
@@ -138,7 +140,7 @@ $$
 t \;:\; \mathrm{Trans}[\mathcal{V},\, \mathcal{W}],
 $$
 
-read as "$t$ is a transformation from $\mathcal{V}$-enriched morphisms to $\mathcal{W}$-enriched morphisms". The source and target are concrete quantale instances; the sort is a tagged pair under the implementation.
+read as "$t$ is a transformation from $\mathcal{V}$-enriched morphisms to $\mathcal{W}$-enriched morphisms". The source and target are concrete algebra instances; the sort is a tagged pair under the implementation.
 
 ### 5.2 Composition
 
@@ -163,7 +165,7 @@ The library ships singleton transformations (no arguments) and parametric constr
 | `l2_normalize(B)` | object $B$ | $\mathcal{V}_{\mathbb{R}}$ | $\mathcal{V}_{\mathbb{R}}$ |
 | `bayes_invert(p)` | morphism $p$ | $\mathcal{V}_{\mathrm{M}}$ | $\mathcal{V}_{\mathrm{M}}$ |
 
-The named singletons of [§ Quantales § 3](quantales.md#3-base-change) (`expectation`, `log_prob`, `material_implication`, `threshold`, ...) are zero-ary transformation references. Surface form $t = \text{NAME}$ for singletons; $t = \text{NAME}(\text{arg})$ for constructors.
+The named singletons of [§ Algebras § 3](algebras.md#3-base-change) (`expectation`, `log_prob`, `material_implication`, `threshold`, ...) are zero-ary transformation references. Surface form $t = \text{NAME}$ for singletons; $t = \text{NAME}(\text{arg})$ for constructors.
 
 ### 5.4 The `change_base` denotation
 
@@ -176,24 +178,24 @@ $$
 \;\in\; \mathrm{target}(t)\text{-}\mathbf{Rel}.
 $$
 
-When $t$ is a `TransSeq` of base steps $(t_1, \dots, t_k)$, the denotation unfolds as $\llbracket t_k \rrbracket \circ \cdots \circ \llbracket t_1 \rrbracket$ applied to $\llbracket f \rrbracket$. The intermediate morphisms live in the intermediate quantales; only the final morphism is observable.
+When $t$ is a `TransSeq` of base steps $(t_1, \dots, t_k)$, the denotation unfolds as $\llbracket t_k \rrbracket \circ \cdots \circ \llbracket t_1 \rrbracket$ applied to $\llbracket f \rrbracket$. The intermediate morphisms live in the intermediate algebras; only the final morphism is observable.
 
 ### 5.5 Well-typedness conditions
 
 The type-checker verifies, at compose time and at change-of-base call time:
 
-- $\mathrm{source}(t_1)$ in `compose_trans(t_1, t_2, \dots)` matches $\mathrm{target}(t_0)$ for each adjacent pair (where the seam check is by quantale class identity, not name).
-- $f.\mathrm{change\_base}(t)$ requires $\mathrm{source}(t) = \mathrm{quantale}(f)$.
+- $\mathrm{source}(t_1)$ in `compose_trans(t_1, t_2, \dots)` matches $\mathrm{target}(t_0)$ for each adjacent pair (where the seam check is by algebra class identity, not name).
+- $f.\mathrm{change\_base}(t)$ requires $\mathrm{source}(t) = \mathrm{algebra}(f)$.
 
-A mismatch surfaces as a typed compile-time error naming the two clashing quantales. Inside a `program` block the same surface produces a `CompileError` with line / column of the offending expression.
+A mismatch surfaces as a typed compile-time error naming the two clashing algebras. Inside a `program` block the same surface produces a `CompileError` with line / column of the offending expression.
 
 ## 6. Relation to the rest of the language
 
 The composition-rule hierarchy and the operadic contraction surface are stratified additions: they extend the language conservatively over the [§ Setting](setting.md). Concretely:
 
-- A module declared as `quantale X` denotes a morphism in $X\text{-}\mathbf{Rel}$ exactly as in [§ Morphisms](morphisms.md). The new strata add no new morphisms at this level.
+- A module declared as `algebra X` denotes a morphism in $X\text{-}\mathbf{Rel}$ exactly as in [§ Morphisms](morphisms.md). The new strata add no new morphisms at this level.
 - A module declared as `semigroupoid X` or `bilinear_form X` or `composition_rule X` denotes a morphism in the corresponding weaker enriched category, with the compact-closed surface restricted as described in § 2 above.
 - The operadic contraction operation `op_apply(a_1, ..., a_n)` denotes the wiring's action on the supplied morphisms; the result lives in the same enriched category and is composable with the rest of the program under `>>` (subject to the surrounding rule's algebraic guarantees).
-- First-class transformations refine the existing [§ Quantales § 3](quantales.md#3-base-change) base-change surface: every named singleton there is now a let-bindable value, every parametric constructor produces a let-bindable value, and `>>>` composes them.
+- First-class transformations refine the existing [§ Algebras § 3](algebras.md#3-base-change) base-change surface: every named singleton there is now a let-bindable value, every parametric constructor produces a let-bindable value, and `>>>` composes them.
 
-The conservativity claim is the formal content of the implementation's class hierarchy: removing a `semigroupoid` or `bilinear_form` declaration and replacing it with `quantale` of the same name (when the named rule is in fact at quantale level) gives a strictly stronger module that admits every operation the original did, plus the compact-closed surface.
+The conservativity claim is the formal content of the implementation's class hierarchy: removing a `semigroupoid` or `bilinear_form` declaration and replacing it with `algebra` of the same name (when the named rule is in fact at algebra level) gives a strictly stronger module that admits every operation the original did, plus the compact-closed surface.

@@ -41,7 +41,7 @@ def test_from_data_binds_supplied_tensor() -> None:
     """``observed f : A -> B = from_data("KEY")`` binds the
     supplied tensor as the morphism's data buffer."""
     src = """
-    quantale product_fuzzy
+    algebra product_fuzzy
     object A : 3
     object B : 4
 
@@ -63,7 +63,7 @@ def test_from_data_unknown_key_errors() -> None:
     from quivers.dsl.compiler import CompileError
 
     src = """
-    quantale product_fuzzy
+    algebra product_fuzzy
     object A : 2
     object B : 2
     observed h : A -> B = from_data("MISSING_KEY")
@@ -78,7 +78,7 @@ def test_from_data_without_data_dict_errors() -> None:
     from quivers.dsl.compiler import CompileError
 
     src = """
-    quantale product_fuzzy
+    algebra product_fuzzy
     object A : 2
     object B : 2
     observed h : A -> B = from_data("KEY")
@@ -95,7 +95,7 @@ def test_from_data_shape_mismatch_with_declared_types_errors() -> None:
     from quivers.dsl.compiler import CompileError
 
     src = """
-    quantale product_fuzzy
+    algebra product_fuzzy
     object A : 3
     object B : 4
     observed h : A -> B = from_data("H")
@@ -111,7 +111,7 @@ def test_from_data_does_not_register_parameters() -> None:
     """A ``from_data``-initialized morphism is structural / frozen;
     its tensor is a buffer, not an ``nn.Parameter``."""
     src = """
-    quantale product_fuzzy
+    algebra product_fuzzy
     object A : 2
     object B : 2
     observed h : A -> B = from_data("H")
@@ -132,7 +132,7 @@ def test_freeze_materialises_composition_tensor() -> None:
     """``(f >> g).freeze`` produces an :class:`ObservedMorphism`
     whose tensor equals the composition's materialised tensor."""
     src = """
-    quantale product_fuzzy
+    algebra product_fuzzy
     object A : 2
     object B : 2
     object C : 2
@@ -156,7 +156,7 @@ def test_freeze_materialises_composition_tensor() -> None:
 def test_freeze_detaches_gradients() -> None:
     """Gradients do not propagate through a freeze boundary."""
     src = """
-    quantale product_fuzzy
+    algebra product_fuzzy
     object A : 2
     object B : 2
     latent f : A -> B
@@ -184,7 +184,7 @@ def test_expression_initializer_propagates_parameters() -> None:
     parameters are reachable via the alias. Without the
     ``.freeze`` modifier the binding does NOT detach."""
     src = """
-    quantale product_fuzzy
+    algebra product_fuzzy
     object A : 3
     object B : 3
     latent f : A -> B
@@ -208,7 +208,7 @@ def test_latent_morphism_accepts_scale_option() -> None:
     hyperparameter-dependent init for ``latent`` morphisms; this
     is a regression test for the surface."""
     src = """
-    quantale product_fuzzy
+    algebra product_fuzzy
     object A : 5
     object B : 5
     latent f : A -> B [scale=0.01]
@@ -236,7 +236,7 @@ def test_from_data_composed_with_latent_yields_learnable_chain() -> None:
     one yields a chain whose only learnable parameters come from
     the learnable side."""
     src = """
-    quantale product_fuzzy
+    algebra product_fuzzy
     object A : 3
     object B : 4
     object C : 5

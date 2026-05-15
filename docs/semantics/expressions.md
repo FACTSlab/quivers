@@ -77,7 +77,7 @@ $$
 \llbracket e.\mathsf{marginalize}(X_1, \dots, X_k) \rrbracket(y, z) \;=\; \bigoplus_{x_1, \dots, x_k} \llbracket e \rrbracket\bigl((x_1, \dots, x_k, y), z\bigr),
 $$
 
-a morphism $Y \to Z$ obtained by joining the marginalized coordinates out of the input. In $\mathbf{Stoch}$ and $\mathbf{Kern}$ the join $\bigoplus$ is integration against the corresponding marginal; in $\mathcal{V}\text{-}\mathbf{Rel}$ it is the quantale join. When $k$ equals the full input arity (no remaining $Y$), the result is a morphism $\mathbf{1} \to Z$.
+a morphism $Y \to Z$ obtained by joining the marginalized coordinates out of the input. In $\mathbf{Stoch}$ and $\mathbf{Kern}$ the join $\bigoplus$ is integration against the corresponding marginal; in $\mathcal{V}\text{-}\mathbf{Rel}$ it is the algebra join. When $k$ equals the full input arity (no remaining $Y$), the result is a morphism $\mathbf{1} \to Z$.
 
 ### 2.6 Change of base
 
@@ -87,7 +87,7 @@ $$
 \llbracket e.\mathsf{change\_base}(t) \rrbracket \;=\; \llbracket t \rrbracket\bigl(\llbracket e \rrbracket\bigr) \;\in\; \mathcal{W}\text{-}\mathbf{Rel}.
 $$
 
-The action of $\llbracket t \rrbracket$ is pointwise when $t$ resolves to a quantale homomorphism, and shape-aware (possibly swapping the domain and codomain, as for `bayes_invert`) when $t$ resolves to a `MorphismTransformation`. When $t$ is a sequence $t_1 \mathbin{>\!\!>\!\!>} \cdots \mathbin{>\!\!>\!\!>} t_k$, the action is the composition $\llbracket t_k \rrbracket \circ \cdots \circ \llbracket t_1 \rrbracket$.
+The action of $\llbracket t \rrbracket$ is pointwise when $t$ resolves to an algebra homomorphism, and shape-aware (possibly swapping the domain and codomain, as for `bayes_invert`) when $t$ resolves to a `MorphismTransformation`. When $t$ is a sequence $t_1 \mathbin{>\!\!>\!\!>} \cdots \mathbin{>\!\!>\!\!>} t_k$, the action is the composition $\llbracket t_k \rrbracket \circ \cdots \circ \llbracket t_1 \rrbracket$.
 
 ### 2.7 Sequential composition of transformations
 
@@ -151,9 +151,9 @@ $$
 \llbracket \mathsf{scan}(e, \mathit{init}) \rrbracket \;=\; \mathrm{Tr}^{S}\bigl( \llbracket e \rrbracket \bigr) : X \to Y,
 $$
 
-where $\mathrm{Tr}^{S} : \mathcal{C}(X \otimes S, Y \otimes S) \to \mathcal{C}(X, Y)$ is the trace operator of the appropriate traced symmetric monoidal category $\mathcal{C}$ ([Joyal, Street & Verity, 1996](https://doi.org/10.1017/S0305004100074338)) eliminating the recurrent state $S$. The annotation $\mathit{init} \in \{\mathrm{zeros}, \mathrm{learned}\}$ selects the *initialisation policy* for the trace's fixed-point evaluation (the choice of distinguished element of $S$ from which the trace's iterative computation seeds), and is part of the chosen realization of $\mathrm{Tr}^{S}$ rather than a separate composition. Concretely:
+where $\mathrm{Tr}^{S} : \mathcal{C}(X \otimes S, Y \otimes S) \to \mathcal{C}(X, Y)$ is the trace operator of the appropriate [traced symmetric monoidal category](https://ncatlab.org/nlab/show/traced+monoidal+category) $\mathcal{C}$ ([Joyal, Street & Verity, 1996](https://doi.org/10.1017/S0305004100074338)) eliminating the recurrent state $S$. The trace itself is canonical; the annotation $\mathit{init} \in \{\mathrm{zeros}, \mathrm{learned}\}$ selects the *seed* used by the iterative computation that realises the trace in code — i.e. the distinguished element $s_0 \in S$ at which the fixed-point iteration begins. Concretely:
 
-- In $\mathcal{V}\text{-}\mathbf{Rel}$, $\mathrm{Tr}^{S}$ is the *iterative* trace, defined by quantale-join over the orbit of $S$;
+- In $\mathcal{V}\text{-}\mathbf{Rel}$, $\mathrm{Tr}^{S}$ is the *iterative* trace, defined by algebra-join over the orbit of $S$;
 - In $\mathbf{Stoch}$ and $\mathbf{Kern}$, $\mathrm{Tr}^{S}$ is implemented as a sequence of Markov-kernel compositions seeded by $s_0$.
 
 ## 4. Parser combinators

@@ -49,7 +49,7 @@ rule by substitution along a pattern morphism into the chart.
 
 ## 3. Semiring
 
-The semiring field selects the scoring quantale `K`:
+The semiring field selects the scoring algebra `K`:
 
 | Field value | $\oplus$ (plus) | $\otimes$ (times) | Use |
 |-------------|-----------------|--------------------|-----|
@@ -57,7 +57,6 @@ The semiring field selects the scoring quantale `K`:
 | `Viterbi` | max | + | best-derivation decoding |
 | `Boolean` | or | and | recognition |
 | `Counting` | + | × | derivation counts |
-| `ProductFuzzy` | max | × | fuzzy membership |
 
 The chart is enriched over `K`; the agenda enumerates derivations
 under `K`'s monoidal operations.
@@ -201,7 +200,7 @@ program_decl        := 'program' IDENT [ '(' param_list ')' ]
 # declared algebraic level; the optional body declares a fresh
 # rule inline.
 composition_rule_decl
-                    := ('quantale' | 'semigroupoid'
+                    := ('algebra' | 'semigroupoid'
                         | 'bilinear_form' | 'composition_rule')
                        IDENT [ composition_rule_block ]
 
@@ -236,7 +235,7 @@ morphism_call       := IDENT '(' IDENT (',' IDENT)* ')'
 
 A `program_decl` is *parametric* iff its parameter list contains any `typed_program_param`; the walker dispatches parametric programs to the call-site inliner rather than to the runtime program compiler. A program declared with `! effect_set` has its body checked against the declared capability set: the actual effects of the body must form a subset of `effect_set`, and `! Pure` rejects any `bind_step` / `observe_step` / `marginalize_step`. A program declared with `over M` is a posterior block consuming the latents of model `M`; the consumed latents appear as data parameters in the program's parameter list.
 
-A `composition_rule_decl` selects the module's underlying composition rule. With no body, the keyword resolves the named rule from the built-in catalogue and verifies it matches the declared algebraic level (`Quantale`, `Semigroupoid`, `BilinearForm`, or any `CompositionRule`). With a body, the entries declare the rule's operations inline; the keyword fixes the algebraic level, and the compiler verifies that the required entries (`tensor_op`, `join`, plus `unit`, `zero` for `quantale`) are present. See [Composition Rules](composition-rules.md) for the formal denotation.
+A `composition_rule_decl` selects the module's underlying composition rule. With no body, the keyword resolves the named rule from the built-in catalogue and verifies it matches the declared algebraic level (`Algebra`, `Semigroupoid`, `BilinearForm`, or any `CompositionRule`). With a body, the entries declare the rule's operations inline; the keyword fixes the algebraic level, and the compiler verifies that the required entries (`tensor_op`, `join`, plus `unit`, `zero` for `algebra`) are present. See [Composition Rules](composition-rules.md) for the formal denotation.
 
 A `contraction_decl` declares an n-ary operadic morphism whose action contracts its input morphisms under the named composition rule using the wiring spec. Call sites `IDENT(arg_1, …, arg_n)` route through `morphism_call`; the compiler resolves `IDENT` against the contraction registry, the parametric-program template table, and the morphism scope in that order. See [Expressions § 2.8](expressions.md#28-operadic-contraction-call) for the call-site denotation.
 

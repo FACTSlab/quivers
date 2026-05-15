@@ -51,7 +51,7 @@ from torch.distributions.transforms import Transform
 
 from quivers.continuous.plate import PlateDraw
 from quivers.continuous.morphisms import ContinuousMorphism
-from quivers.continuous.programs import MonadicProgram, _LetSpec
+from quivers.continuous.programs import MonadicProgram, _LetSpec, _ScoreSpec
 from quivers.continuous.spaces import ContinuousSpace
 
 
@@ -221,7 +221,7 @@ class LatentRegistry:
         flat_cursor = 0
 
         for spec_idx, spec in enumerate(model._step_specs):
-            if isinstance(spec, _LetSpec):
+            if isinstance(spec, (_LetSpec, _ScoreSpec)):
                 continue
             for var in spec.vars:
                 if var in observed:

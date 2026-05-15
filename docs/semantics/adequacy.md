@@ -33,7 +33,7 @@ $$
 
 where $\llbracket M \rrbracket$ is the denotation of [Setting](setting.md), [Morphisms](morphisms.md), [Expressions](expressions.md), and [Programs](programs.md), instantiated at the parameters $\theta_M$.
 
-Equality is in $\mathbf{Kern}$, i.e.\ as Markov kernels, and is therefore equality of measures on the $\sigma$-algebra of the codomain. In the implementation this equality holds *up to the floating-point precision* of the underlying tensor library; the test suite asserts the equality to within numerical tolerance on a representative set of modules.
+Equality is in $\mathbf{Kern}$, i.e. as Markov kernels: for every input $x$ the two sides agree as probability measures on the $\sigma$-algebra of the codomain. For the deterministic (purely $\mathcal{V}$-enriched) strata this collapses to exact tensor equality up to floating-point precision; for sampled compositions in $\mathbf{Kern}$ the agreement is *in expectation*, witnessed by unbiased Monte-Carlo estimates whose error decays as the sample budget grows. The test suite asserts the deterministic equalities pointwise and the sampled equalities within numerical tolerance.
 
 ## 3. Proof sketch
 
@@ -55,7 +55,7 @@ A `latent` declaration creates a learnable PyTorch parameter $W \in \mathbb{R}^{
 
 ### 3.3 Composition
 
-The `>>` operator in PyTorch is realized as $V$-quantale matrix multiplication (`noisy_or_contract` for $\mathcal{V}_{\mathrm{pf}}$, ordinary matrix multiplication for $\mathcal{V}_{\mathbb{B}}$ over `BoolTensor`, etc.). The composition of two tensors $(M_1, M_2)$ at indices $(x, z)$ is
+The `>>` operator in PyTorch is realized as $V$-algebra matrix multiplication (`noisy_or_contract` for $\mathcal{V}_{\mathrm{pf}}$, ordinary matrix multiplication for $\mathcal{V}_{\mathbb{B}}$ over `BoolTensor`, etc.). The composition of two tensors $(M_1, M_2)$ at indices $(x, z)$ is
 
 $$
 \bigoplus_{y} \sigma(M_1[x, y]) \otimes \sigma(M_2[y, z]),
@@ -65,7 +65,7 @@ term-by-term equal to the categorical composition of [Morphisms §1.1](morphisms
 
 ### 3.4 Tensor product, marginalization, fan, stack, repeat, scan
 
-Each combinator is implemented as a tensor-level operation whose definition is the term-by-term unfolding of its denotation. The proofs are straightforward: `@` is `torch.einsum` of the appropriate shape; `marginalize` is `torch.sum` (or quantale-join) along the marginalized axes; `fan` is `torch.stack`; `stack` is `kron`; `repeat` is repeated composition; `scan` is a Python-level fold realizing the trace of [Expressions §3.4](expressions.md#34-scan).
+Each combinator is implemented as a tensor-level operation whose definition is the term-by-term unfolding of its denotation. The proofs are straightforward: `@` is `torch.einsum` of the appropriate shape; `marginalize` is `torch.sum` (or algebra-join) along the marginalized axes; `fan` is `torch.stack`; `stack` is `kron`; `repeat` is repeated composition; `scan` is a Python-level fold realizing the trace of [Expressions §3.4](expressions.md#34-scan).
 
 ### 3.5 Lookup-table kernels (finite-set codomain)
 

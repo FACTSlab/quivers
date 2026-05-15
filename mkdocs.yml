@@ -85,7 +85,7 @@ nav:
     - Editor highlighting: getting-started/highlighting.md
   - Guides:
     - Overview: guides/index.md
-    - Core Types & Quantales: guides/core.md
+    - Core Types & Algebras: guides/core.md
     - Transformations & Composition Rules: guides/transformations.md
     - Morphisms & Composition: guides/morphisms.md
     - Categorical Structures: guides/categorical.md
@@ -99,10 +99,11 @@ nav:
     - Variational Inference: guides/inference.md
     - Weighted Deduction Systems: guides/deduction.md
     - Structural Compression: guides/structural-compression.md
+    - Analysis Pipelines: guides/analysis.md
   - Denotational Semantics:
     - Overview: semantics/index.md
     - Setting and Notation: semantics/setting.md
-    - Quantales and Base Change: semantics/quantales.md
+    - Algebras and Base Change: semantics/algebras.md
     - Composition Rules: semantics/composition-rules.md
     - Types and Spaces: semantics/types-and-spaces.md
     - Morphisms: semantics/morphisms.md
@@ -152,7 +153,7 @@ nav:
     - Overview: api/index.md
     - Core:
       - Overview: api/core/objects.md
-      - Quantales: api/core/quantales.md
+      - Algebras: api/core/algebras.md
       - Morphisms: api/core/morphisms.md
       - Tensor Operations: api/core/tensor_ops.md
       - Utilities: api/core/util.md
@@ -188,7 +189,6 @@ nav:
       - Optics: api/enriched/optics.md
     - Stochastic:
       - Overview: api/stochastic/effect_lifts.md
-      - Quantale: api/stochastic/quantale.md
       - Morphisms: api/stochastic/morphisms.md
       - Families: api/stochastic/families.md
       - Transforms: api/stochastic/transforms.md
@@ -212,6 +212,7 @@ nav:
       - AST Nodes: api/dsl/ast_nodes.md
       - Compiler: api/dsl/compiler.md
       - Resolution Lenses: api/dsl/resolution.md
+      - AST → Source Emit: api/dsl/emit.md
       - Constraint Solver: api/dsl/constraints.md
       - Program Theory: api/dsl/program_theory.md
     - Structural:
@@ -228,6 +229,21 @@ nav:
       - Estimators: api/inference/estimators.md
       - SVI: api/inference/svi.md
       - Predictive: api/inference/predictive.md
+    - Data:
+      - Overview: api/data/index.md
+      - Dataset Schema: api/data/schema.md
+      - Column Encoding: api/data/encoding.md
+    - Diagnostics:
+      - Overview: api/diagnostics/index.md
+      - ArviZ DataTree Adapter: api/diagnostics/arviz_io.md
+      - Model Comparison: api/diagnostics/comparison.md
+      - Predictive Checks: api/diagnostics/predictive_checks.md
+    - Formulas:
+      - Overview: api/formulas/index.md
+      - Parsed Formula IR: api/formulas/formula.md
+      - Formula → Module Lens: api/formulas/compile.md
+      - Families & Links: api/formulas/family.md
+      - Fit Entry Point: api/formulas/fit.md
     - Program: api/program.md
   - Developer Guide:
     - Overview: developer/contributing.md

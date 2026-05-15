@@ -1,8 +1,8 @@
 """Morphism hierarchy: V-enriched relations between finite sets.
 
 A morphism from domain D to codomain C is represented as a tensor of
-shape (*D.shape, *C.shape) with entries in the lattice L of a quantale.
-Composition uses the quantale's operations (join over tensor product).
+shape (*D.shape, *C.shape) with entries in the lattice L of an algebra.
+Composition uses the algebra's operations (join over tensor product).
 
 The hierarchy:
 
@@ -38,19 +38,43 @@ import torch
 import torch.nn as nn
 from quivers.core.morphism_transformations import MorphismTransformation
 from quivers.core.objects import SetObject, ProductSet
-from quivers.core.quantale_morphisms import QuantaleHomomorphism
-from quivers.core.quantales import PRODUCT_FUZZY, Quantale
+from quivers.core.algebra_morphisms import AlgebraHomomorphism
+from quivers.core.algebras import PRODUCT_FUZZY, Algebra
 from quivers.core.trans import TransSeq
 
 if TYPE_CHECKING:
     from quivers.categorical.functors import Functor
 
 
+def _build_algebra_homomorphism_transform(phi):
+    """Closure factory for the pointwise change-of-base transform.
+
+    Splitting the closure construction into a free function keeps
+    the per-branch local bindings clean and avoids ``reportRedeclaration``
+    warnings from the type checker when both arms of the ``isinstance``
+    in ``change_base`` define a local with the same name.
+    """
+
+    def _transform(t: torch.Tensor) -> torch.Tensor:
+        return phi.apply(t)
+
+    return _transform
+
+
+def _build_morphism_transformation_transform(phi, source):
+    """Closure factory for the shape-aware change-of-base transform."""
+
+    def _transform(t: torch.Tensor) -> torch.Tensor:
+        return phi.apply(t, source)
+
+    return _transform
+
+
 class Morphism(ABC):
     """Abstract base for morphisms between finite sets.
 
     Subclasses must implement ``tensor`` (returns the materialized
-    tensor with values in the quantale's lattice) and ``module``
+    tensor with values in the algebra's lattice) and ``module``
     (returns the nn.Module tree for parameter collection).
 
     Parameters
@@ -59,16 +83,16 @@ class Morphism(ABC):
         Source object.
     codomain : SetObject
         Target object.
-    quantale : Quantale or None
+    algebra : Algebra or None
         The enrichment algebra. Defaults to PRODUCT_FUZZY.
     """
 
     def __init__(
-        self, domain: SetObject, codomain: SetObject, quantale: Quantale | None = None
+        self, domain: SetObject, codomain: SetObject, algebra: Algebra | None = None
     ) -> None:
         self._domain = domain
         self._codomain = codomain
-        self._quantale = quantale if quantale is not None else PRODUCT_FUZZY
+        self._algebra = algebra if algebra is not None else PRODUCT_FUZZY
 
     @property
     def domain(self) -> SetObject:
@@ -81,9 +105,9 @@ class Morphism(ABC):
         return self._codomain
 
     @property
-    def quantale(self) -> Quantale:
+    def algebra(self) -> Algebra:
         """The enrichment algebra for this morphism."""
-        return self._quantale
+        return self._algebra
 
     @property
     def tensor_shape(self) -> tuple[int, ...]:
@@ -105,7 +129,7 @@ class Morphism(ABC):
         """V-enriched composition: self >> other.
 
         Composes self: A -> B with other: B -> C to yield
-        a morphism A -> C, contracting over B using the quantale.
+        a morphism A -> C, contracting over B using the algebra.
 
         Parameters
         ----------
@@ -123,9 +147,9 @@ class Morphism(ABC):
             raise TypeError(
                 f"cannot compose: codomain {self.codomain!r} != domain {other.domain!r}"
             )
-        if not self._quantale.is_compatible(other._quantale):
+        if not self._algebra.is_compatible(other._algebra):
             raise TypeError(
-                f"incompatible quantales: {self._quantale!r} and {other._quantale!r}"
+                f"incompatible algebras: {self._algebra!r} and {other._algebra!r}"
             )
         return ComposedMorphism(self, other)
 
@@ -134,7 +158,7 @@ class Morphism(ABC):
 
         Given self: A -> B and other: C -> D, produces
         a morphism A×C -> B×D whose tensor is the outer product
-        via the quantale's tensor_op.
+        via the algebra's tensor_op.
 
         Parameters
         ----------
@@ -150,75 +174,79 @@ class Morphism(ABC):
             return NotImplemented
         return ProductMorphism(self, other)
 
-    def change_base(self, phi) -> "ObservedMorphism":
+    def change_base(self, phi) -> "TransformedMorphism":
         """Transport this morphism along a change-of-base functor.
 
         ``phi`` may be either a
-        :class:`~quivers.core.quantale_morphisms.QuantaleHomomorphism`
+        :class:`~quivers.core.algebra_morphisms.AlgebraHomomorphism`
         (pointwise: the action factors entry-by-entry through
         ``phi.apply``) or a
         :class:`~quivers.core.morphism_transformations.MorphismTransformation`
         (shape-aware: the action consumes the whole tensor plus
         the morphism for axis resolution).
 
-        The result is an :class:`ObservedMorphism` because the
-        base-changed tensor is a concrete materialised value, not
-        a learnable parameter; the original morphism's parameters
-        still live on ``self`` and gradients flow through them
-        normally (the transformation is a tensor operation that
-        autograd tracks).
+        The result is a :class:`TransformedMorphism` whose
+        :attr:`tensor` is recomputed on each access by applying
+        ``phi`` to the source's current tensor. The source's
+        learnable parameters are exposed through ``.module()`` so
+        :meth:`torch.nn.Module.parameters` walks reach them, and
+        each backward through a fresh ``.tensor`` access rebuilds
+        a graph rooted at those parameters; multi-step optimisation
+        through change-of-base is supported.
 
         Parameters
         ----------
-        phi : QuantaleHomomorphism or MorphismTransformation
+        phi : AlgebraHomomorphism or MorphismTransformation
             The change-of-base functor. Its ``source`` must match
-            ``self.quantale``.
+            ``self.algebra``.
 
         Returns
         -------
-        ObservedMorphism
-            A morphism over ``phi.target`` with the transported
-            tensor. For pointwise transformations the domain and
-            codomain are preserved; for shape-aware ones (e.g.
-            ``BayesInvert``) the transformation may swap them.
+        TransformedMorphism
+            A morphism over ``phi.target`` whose tensor is the
+            transported tensor of ``self``. For pointwise
+            transformations the domain and codomain are preserved;
+            for shape-aware ones (e.g. ``BayesInvert``) the
+            transformation may swap them.
         """
         if isinstance(phi, TransSeq):
             # Apply the steps in order; each step's change_base
             # type-checks its own source against the current
-            # quantale, so a malformed seam surfaces with the
+            # algebra, so a malformed seam surfaces with the
             # same error a hand-written sequence would produce.
-            current: ObservedMorphism = self  # type: ignore[assignment]
+            current: Morphism = self
             for step in phi.steps:
                 current = current.change_base(step)
-            return current
-        if not isinstance(phi, (QuantaleHomomorphism, MorphismTransformation)):
+            return cast(TransformedMorphism, current)
+        if not isinstance(phi, (AlgebraHomomorphism, MorphismTransformation)):
             raise TypeError(
-                f"change_base: expected QuantaleHomomorphism, "
+                f"change_base: expected AlgebraHomomorphism, "
                 f"MorphismTransformation, or TransSeq; got "
                 f"{type(phi).__name__}"
             )
-        if type(phi.source) is not type(self._quantale):
+        if type(phi.source) is not type(self._algebra):
             raise TypeError(
-                f"change_base: source quantale "
+                f"change_base: source algebra "
                 f"{phi.source.name!r} does not match this morphism's "
-                f"quantale {self._quantale.name!r}"
+                f"algebra {self._algebra.name!r}"
             )
-        if isinstance(phi, QuantaleHomomorphism):
-            new_tensor = phi.apply(self.tensor)
+        if isinstance(phi, AlgebraHomomorphism):
+            transform = _build_algebra_homomorphism_transform(phi)
             new_domain = self._domain
             new_codomain = self._codomain
         else:
-            new_tensor = phi.apply(self.tensor, self)
+            transform = _build_morphism_transformation_transform(phi, self)
             new_domain = phi.new_domain(self)
             new_codomain = phi.new_codomain(self)
-        return ObservedMorphism(
+        return TransformedMorphism(
+            self,
+            transform,
             new_domain,
             new_codomain,
-            new_tensor,
-            quantale=phi.target,
+            algebra=phi.target,
         )
 
-    def refactor(self, *, domain=None, codomain=None) -> "ObservedMorphism":
+    def refactor(self, *, domain=None, codomain=None) -> "TransformedMorphism":
         """Switch between flat and product views of this morphism.
 
         Given a morphism ``f : A -> B`` whose tensor storage has
@@ -268,11 +296,16 @@ class Morphism(ABC):
                 f"{self._codomain!r} -> {new_codomain!r}"
             )
         target_shape = tuple(new_domain.shape) + tuple(new_codomain.shape)
-        return ObservedMorphism(
+
+        def _transform(t: torch.Tensor, _shape=target_shape) -> torch.Tensor:
+            return t.reshape(_shape)
+
+        return TransformedMorphism(
+            self,
+            _transform,
             new_domain,
             new_codomain,
-            self.tensor.reshape(target_shape),
-            quantale=self._quantale,
+            algebra=self._algebra,
         )
 
     def marginalize(self, *sets: SetObject) -> MarginalizedMorphism:
@@ -280,7 +313,7 @@ class Morphism(ABC):
 
         The codomain must be a ProductSet containing the sets to
         marginalize over. The result has a codomain with those
-        components removed. Uses the quantale's join operation.
+        components removed. Uses the algebra's join operation.
 
         Parameters
         ----------
@@ -295,15 +328,15 @@ class Morphism(ABC):
         return MarginalizedMorphism(self, sets)
 
     @property
-    def dagger(self) -> "ObservedMorphism":
+    def dagger(self) -> "TransformedMorphism":
         """Transpose / dagger of ``self : A → B``, producing a
         morphism ``B → A`` whose tensor has the domain and codomain
         axes swapped.
 
         The compact-closed structure of V-Cat means every object is
         self-dual (``A^* = A``), so the dagger is well-defined for
-        every quantale. The semantic interpretation depends on the
-        quantale: ProductFuzzy gives the tensor transpose, Markov
+        every algebra. The semantic interpretation depends on the
+        algebra: ProductFuzzyAlgebra gives the tensor transpose, Markov
         the Bayes-uniform-prior inversion, Viterbi the max-plus
         reversal, Boolean the relational converse.
 
@@ -325,18 +358,25 @@ class Morphism(ABC):
         # Build the permutation that brings the codomain axes to
         # the front and the domain axes to the back.
         perm = tuple(range(d_ndim, d_ndim + c_ndim)) + tuple(range(d_ndim))
-        t = self.tensor.permute(perm)
-        return ObservedMorphism(
-            self._codomain, self._domain, t, quantale=self._quantale
+
+        def _transform(t: torch.Tensor, _perm=perm) -> torch.Tensor:
+            return t.permute(_perm)
+
+        return TransformedMorphism(
+            self,
+            _transform,
+            self._codomain,
+            self._domain,
+            algebra=self._algebra,
         )
 
-    def trace(self, obj: SetObject) -> "ObservedMorphism":
+    def trace(self, obj: SetObject) -> "TransformedMorphism":
         """Trace of ``self : X ⊗ A → A ⊗ Y`` along ``obj = A``,
         producing a morphism ``X → Y``.
 
         Concretely the trace contracts the A axis on the domain
-        side with the A axis on the codomain side via the quantale's
-        ``tensor_op`` and then joins (``self._quantale.join``) over
+        side with the A axis on the codomain side via the algebra's
+        ``tensor_op`` and then joins (``self._algebra.join``) over
         the contracted axis. This is the categorical trace
         ``tr_A(f) : X → Y = (ε_A ⊗ id_Y) ∘ (id_A ⊗ f) ∘ (η_A ⊗ id_X)``.
 
@@ -379,31 +419,25 @@ class Morphism(ABC):
                 f"trace: codomain's first component {self._codomain.components[0]!r} "
                 f"!= contraction object {obj!r}"
             )
-        # Domain side: take the diagonal along the leading A axes
-        # (which appear once on the domain side and once on the
-        # codomain side in the tensor's index list). The diagonal
-        # picks the A=A part of the tensor — the categorical
-        # ``η ⊗ id`` step — then we sum (quantale-join) over A.
-        t = self.tensor
         d_ndim = len(self._domain.shape)
         a_ndim = len(obj.shape)
-        # Domain axes: 0..d_ndim-1 with A at 0..a_ndim-1.
-        # Codomain axes: d_ndim..d_ndim+c_ndim-1 with A at
-        # d_ndim..d_ndim+a_ndim-1.
-        # To trace, we want to identify the leading A axes on each
-        # side and join over them.
-        for k in range(a_ndim):
-            t = torch.diagonal(t, dim1=0, dim2=d_ndim - k)
-            # diagonal moves the contracted axis to the end; we
-            # then need to reorder so subsequent diagonals operate
-            # on the next pair.
-        # After ``a_ndim`` diagonals, the original (d_ndim + c_ndim)
-        # axis tensor is reduced to (d_ndim - a_ndim) + (c_ndim -
-        # a_ndim) + a_ndim axes; the trailing ``a_ndim`` axes are
-        # the survivors of the diagonal (one per contracted axis).
-        # Join over those trailing axes using the quantale's join.
-        trailing = tuple(range(t.dim() - a_ndim, t.dim()))
-        t = self._quantale.join(t, dim=trailing)
+        algebra = self._algebra
+
+        def _transform(
+            t: torch.Tensor, _d_ndim=d_ndim, _a_ndim=a_ndim, _q=algebra
+        ) -> torch.Tensor:
+            # Domain axes: 0..d_ndim-1 with A at 0..a_ndim-1.
+            # Codomain axes: d_ndim..d_ndim+c_ndim-1 with A at
+            # d_ndim..d_ndim+a_ndim-1.  Take diagonals pairing each
+            # A axis on the domain side with the corresponding one
+            # on the codomain side, then join along the surviving
+            # diagonal axes.
+            out = t
+            for k in range(_a_ndim):
+                out = torch.diagonal(out, dim1=0, dim2=_d_ndim - k)
+            trailing = tuple(range(out.dim() - _a_ndim, out.dim()))
+            return _q.join(out, dim=trailing)
+
         # Recover the X and Y product sets.
         x_components = tuple(self._domain.components[1:])
         y_components = tuple(self._codomain.components[1:])
@@ -415,7 +449,9 @@ class Morphism(ABC):
             new_codomain = y_components[0]
         else:
             new_codomain = ProductSet(components=y_components)
-        return ObservedMorphism(new_domain, new_codomain, t, quantale=self._quantale)
+        return TransformedMorphism(
+            self, _transform, new_domain, new_codomain, algebra=self._algebra
+        )
 
     def __repr__(self) -> str:
         cls = type(self).__name__
@@ -426,6 +462,75 @@ class _MorphismModule(nn.Module):
     """Internal nn.Module wrapper for a single morphism's parameters."""
 
     pass
+
+
+class _SourcedModule(nn.Module):
+    """Module wrapper holding a reference to a source morphism's
+    nn.Module so that :meth:`torch.nn.Module.parameters` walks reach
+    the upstream learnable parameters.
+    """
+
+    def __init__(self, source_module: nn.Module) -> None:
+        super().__init__()
+        self.source = source_module
+
+
+class TransformedMorphism(Morphism):
+    """A morphism whose tensor is a transformation of a source
+    morphism's tensor, recomputed on each :attr:`tensor` access.
+
+    The source morphism is registered as a submodule so
+    ``self.module().parameters()`` includes the source's learnable
+    parameters; the transform is applied lazily, so each backward
+    through a fresh ``.tensor`` access gets its own autograd graph
+    and multi-step optimisation propagates gradients correctly.
+
+    Parameters
+    ----------
+    source : Morphism
+        Underlying morphism whose tensor feeds the transform.
+    transform : Callable[[torch.Tensor], torch.Tensor]
+        Pure function applied to ``source.tensor`` to produce the
+        new tensor. Must depend on ``source`` only through the
+        tensor; any additional context (e.g. the source morphism
+        for shape resolution) must be captured by closure.
+    domain : SetObject
+        Target domain (may differ from ``source.domain`` for
+        shape-aware transformations like the dagger or BayesInvert).
+    codomain : SetObject
+        Target codomain.
+    algebra : Algebra or None
+        Target algebra. Defaults to the source's algebra.
+    """
+
+    def __init__(
+        self,
+        source: "Morphism",
+        transform,  # Callable[[torch.Tensor], torch.Tensor]
+        domain: SetObject,
+        codomain: SetObject,
+        algebra: Algebra | None = None,
+    ) -> None:
+        super().__init__(
+            domain,
+            codomain,
+            algebra=algebra if algebra is not None else source.algebra,
+        )
+        self._source = source
+        self._transform = transform
+        self._module = _SourcedModule(source.module())
+
+    @property
+    def source(self) -> "Morphism":
+        """The underlying morphism feeding this transform."""
+        return self._source
+
+    @property
+    def tensor(self) -> torch.Tensor:
+        return self._transform(self._source.tensor)
+
+    def module(self) -> nn.Module:
+        return self._module
 
 
 class ObservedMorphism(Morphism):
@@ -439,7 +544,7 @@ class ObservedMorphism(Morphism):
         Target object.
     data : torch.Tensor
         Fixed tensor of shape (*domain.shape, *codomain.shape).
-    quantale : Quantale or None
+    algebra : Algebra or None
         The enrichment algebra. Defaults to PRODUCT_FUZZY.
     """
 
@@ -448,9 +553,9 @@ class ObservedMorphism(Morphism):
         domain: SetObject,
         codomain: SetObject,
         data: torch.Tensor,
-        quantale: Quantale | None = None,
+        algebra: Algebra | None = None,
     ) -> None:
-        super().__init__(domain, codomain, quantale=quantale)
+        super().__init__(domain, codomain, algebra=algebra)
         expected = self.tensor_shape
         if data.shape != expected:
             raise ValueError(
@@ -483,7 +588,7 @@ class LatentMorphism(Morphism):
         Standard deviation of the normal initialization for the
         unconstrained parameters. Default 0.5 (sigmoid maps this
         to roughly uniform over [0.3, 0.7]).
-    quantale : Quantale or None
+    algebra : Algebra or None
         The enrichment algebra. Defaults to PRODUCT_FUZZY.
     """
 
@@ -492,9 +597,9 @@ class LatentMorphism(Morphism):
         domain: SetObject,
         codomain: SetObject,
         init_scale: float = 0.5,
-        quantale: Quantale | None = None,
+        algebra: Algebra | None = None,
     ) -> None:
-        super().__init__(domain, codomain, quantale=quantale)
+        super().__init__(domain, codomain, algebra=algebra)
         shape = self.tensor_shape
         self._module = _MorphismModule()
         raw = nn.Parameter(torch.randn(shape) * init_scale)
@@ -527,7 +632,7 @@ class ComposedMorphism(Morphism):
     """V-enriched composition of two morphisms.
 
     Given left: A -> B and right: B -> C, produces A -> C
-    by contracting over B using the quantale's compose method.
+    by contracting over B using the algebra's compose method.
 
     Parameters
     ----------
@@ -539,7 +644,7 @@ class ComposedMorphism(Morphism):
 
     def __init__(self, left: Morphism, right: Morphism) -> None:
         n_contract = left.codomain.ndim
-        super().__init__(left.domain, right.codomain, quantale=left._quantale)
+        super().__init__(left.domain, right.codomain, algebra=left._algebra)
         self._left = left
         self._right = right
         self._n_contract = n_contract
@@ -556,7 +661,7 @@ class ComposedMorphism(Morphism):
 
     @property
     def tensor(self) -> torch.Tensor:
-        return self._quantale.compose(
+        return self._algebra.compose(
             self._left.tensor, self._right.tensor, self._n_contract
         )
 
@@ -578,7 +683,7 @@ class ProductMorphism(Morphism):
 
     Given left: A -> B and right: C -> D, produces
     A×C -> B×D. The tensor is the outer product of the
-    two component tensors via the quantale's tensor_op.
+    two component tensors via the algebra's tensor_op.
 
     Parameters
     ----------
@@ -591,7 +696,7 @@ class ProductMorphism(Morphism):
     def __init__(self, left: Morphism, right: Morphism) -> None:
         domain = ProductSet(components=(left.domain, right.domain))
         codomain = ProductSet(components=(left.codomain, right.codomain))
-        super().__init__(domain, codomain, quantale=left._quantale)
+        super().__init__(domain, codomain, algebra=left._algebra)
         self._left = left
         self._right = right
 
@@ -603,7 +708,7 @@ class ProductMorphism(Morphism):
         n_r = rt.ndim
         lt_expanded = lt.reshape(*lt.shape, *[1] * n_r)
         rt_expanded = rt.reshape(*[1] * n_l, *rt.shape)
-        outer = self._quantale.tensor_op(lt_expanded, rt_expanded)
+        outer = self._algebra.tensor_op(lt_expanded, rt_expanded)
         n_dom_l = self._left.domain.ndim
         n_cod_l = self._left.codomain.ndim
         n_dom_r = self._right.domain.ndim
@@ -627,7 +732,7 @@ class _MarginalizedModule(nn.Module):
 
 
 class MarginalizedMorphism(Morphism):
-    """Morphism with codomain dimensions marginalized via the quantale's join.
+    """Morphism with codomain dimensions marginalized via the algebra's join.
 
     Given an inner morphism A -> B × C and a set B to marginalize,
     produces A -> C by join-reduction over B's dimensions.
@@ -670,13 +775,13 @@ class MarginalizedMorphism(Morphism):
             new_codomain = remaining_components[0]
         else:
             new_codomain = ProductSet(components=tuple(remaining_components))
-        super().__init__(inner.domain, new_codomain, quantale=inner._quantale)
+        super().__init__(inner.domain, new_codomain, algebra=inner._algebra)
         self._inner = inner
         self._dims_to_reduce = tuple(dims_to_reduce)
 
     @property
     def tensor(self) -> torch.Tensor:
-        return self._quantale.join(self._inner.tensor, dim=self._dims_to_reduce)
+        return self._algebra.join(self._inner.tensor, dim=self._dims_to_reduce)
 
     def module(self) -> nn.Module:
         return _MarginalizedModule(self._inner.module())
@@ -704,7 +809,7 @@ class FunctorMorphism(Morphism):
     def __init__(
         self, functor: Functor, inner: Morphism, domain: SetObject, codomain: SetObject
     ) -> None:
-        super().__init__(domain, codomain, quantale=inner._quantale)
+        super().__init__(domain, codomain, algebra=inner._algebra)
         self._functor = functor
         self._inner = inner
 
@@ -715,7 +820,7 @@ class FunctorMorphism(Morphism):
 
     @property
     def tensor(self) -> torch.Tensor:
-        return self._functor.map_tensor(self._inner.tensor, self._quantale)
+        return self._functor.map_tensor(self._inner.tensor, self._algebra)
 
     def module(self) -> nn.Module:
         return self._inner.module()
@@ -734,10 +839,10 @@ class RepeatMorphism(Morphism):
 
     Wraps an endomorphism f : X -> X and computes f^n at runtime,
     where n can be changed between calls. Uses repeated squaring
-    for O(log n) quantale compositions.
+    for O(log n) algebra compositions.
 
-    For an endomorphism T : S -> S under a quantale, ``T^n`` is the
-    n-fold Kleisli composition. Under the product_fuzzy quantale
+    For an endomorphism T : S -> S under an algebra, ``T^n`` is the
+    n-fold Kleisli composition. Under the product_fuzzy algebra
     with stochastic matrices, this is standard matrix power.
 
     Parameters
@@ -771,7 +876,7 @@ class RepeatMorphism(Morphism):
             )
         if n < 1:
             raise ValueError(f"n must be >= 1, got {n}")
-        super().__init__(inner.domain, inner.codomain, quantale=inner._quantale)
+        super().__init__(inner.domain, inner.codomain, algebra=inner._algebra)
         self._inner = inner
         self._n = n
         self._n_contract = inner.codomain.ndim
@@ -812,8 +917,8 @@ class RepeatMorphism(Morphism):
                 if result is None:
                     result = base
                 else:
-                    result = self._quantale.compose(result, base, self._n_contract)
-            base = self._quantale.compose(base, base, self._n_contract)
+                    result = self._algebra.compose(result, base, self._n_contract)
+            base = self._algebra.compose(base, base, self._n_contract)
             n //= 2
         assert result is not None
         return result
@@ -905,7 +1010,7 @@ class CurriedMorphism(Morphism):
             new_codomain = inner.codomain  # underlying type unchanged
             self._slash_category = cat
 
-        super().__init__(new_domain, new_codomain, quantale=inner._quantale)
+        super().__init__(new_domain, new_codomain, algebra=inner._algebra)
         self._inner = inner
         self._direction = direction
 
@@ -934,7 +1039,7 @@ def morphism(
     domain: SetObject,
     codomain: SetObject,
     init_scale: float = 0.5,
-    quantale: Quantale | None = None,
+    algebra: Algebra | None = None,
 ) -> LatentMorphism:
     """Create a latent (learnable) morphism.
 
@@ -946,7 +1051,7 @@ def morphism(
         Target object.
     init_scale : float
         Initialization scale for unconstrained parameters.
-    quantale : Quantale or None
+    algebra : Algebra or None
         The enrichment algebra. Defaults to PRODUCT_FUZZY.
 
     Returns
@@ -954,14 +1059,14 @@ def morphism(
     LatentMorphism
         A learnable morphism.
     """
-    return LatentMorphism(domain, codomain, init_scale=init_scale, quantale=quantale)
+    return LatentMorphism(domain, codomain, init_scale=init_scale, algebra=algebra)
 
 
 def observed(
     domain: SetObject,
     codomain: SetObject,
     data: torch.Tensor,
-    quantale: Quantale | None = None,
+    algebra: Algebra | None = None,
 ) -> ObservedMorphism:
     """Create an observed (fixed) morphism.
 
@@ -973,7 +1078,7 @@ def observed(
         Target object.
     data : torch.Tensor
         Fixed tensor.
-    quantale : Quantale or None
+    algebra : Algebra or None
         The enrichment algebra. Defaults to PRODUCT_FUZZY.
 
     Returns
@@ -981,10 +1086,10 @@ def observed(
     ObservedMorphism
         A fixed morphism.
     """
-    return ObservedMorphism(domain, codomain, data, quantale=quantale)
+    return ObservedMorphism(domain, codomain, data, algebra=algebra)
 
 
-def identity(obj: SetObject, quantale: Quantale | None = None) -> ObservedMorphism:
+def identity(obj: SetObject, algebra: Algebra | None = None) -> ObservedMorphism:
     """Create the identity morphism on an object.
 
     Returns an observed morphism obj -> obj whose tensor is the
@@ -994,7 +1099,7 @@ def identity(obj: SetObject, quantale: Quantale | None = None) -> ObservedMorphi
     ----------
     obj : SetObject
         The object to create an identity for.
-    quantale : Quantale or None
+    algebra : Algebra or None
         The enrichment algebra. Defaults to PRODUCT_FUZZY.
 
     Returns
@@ -1002,9 +1107,9 @@ def identity(obj: SetObject, quantale: Quantale | None = None) -> ObservedMorphi
     ObservedMorphism
         The identity morphism.
     """
-    q = quantale if quantale is not None else PRODUCT_FUZZY
+    q = algebra if algebra is not None else PRODUCT_FUZZY
     data = q.identity_tensor(obj.shape)
-    return ObservedMorphism(obj, obj, data, quantale=q)
+    return ObservedMorphism(obj, obj, data, algebra=q)
 
 
 def as_torch_module(m: object) -> nn.Module:
@@ -1082,11 +1187,11 @@ def extract_morphism(module: nn.Module) -> Morphism | None:
     return getattr(module, "_morphism", None)
 
 
-def cup(obj: SetObject, quantale: Quantale | None = None) -> ObservedMorphism:
+def cup(obj: SetObject, algebra: Algebra | None = None) -> ObservedMorphism:
     """The compact-closed unit ``η_A : I → A ⊗ A``.
 
     For finite-set objects with their natural product, ``η_A`` is
-    the *diagonal*: every entry ``(a, a)`` carries the quantale's
+    the *diagonal*: every entry ``(a, a)`` carries the algebra's
     monoidal unit and the off-diagonal entries carry the join unit
     (``zero``). The Kronecker-like tensor produced is the identity
     morphism's tensor reshaped from ``(*A.shape, *A.shape)`` to
@@ -1100,11 +1205,11 @@ def cup(obj: SetObject, quantale: Quantale | None = None) -> ObservedMorphism:
     Parameters
     ----------
     obj : SetObject
-        The object whose dual is being introduced. Every quantale
+        The object whose dual is being introduced. Every algebra
         ships an identity tensor; this morphism reshapes it as a
         Kleisli arrow from the singleton domain.
-    quantale : Quantale, optional
-        Override the default (ProductFuzzy) quantale.
+    algebra : Algebra, optional
+        Override the default (ProductFuzzyAlgebra) algebra.
 
     Returns
     -------
@@ -1114,16 +1219,16 @@ def cup(obj: SetObject, quantale: Quantale | None = None) -> ObservedMorphism:
     """
     from quivers.core.objects import FinSet, ProductSet
 
-    q = quantale if quantale is not None else PRODUCT_FUZZY
+    q = algebra if algebra is not None else PRODUCT_FUZZY
     diag = q.identity_tensor(obj.shape)
     # Wrap in a leading singleton axis so the morphism's domain is
     # the unit object I (the singleton finite set).
     I = FinSet(name="1", cardinality=1)
     cod = ProductSet(components=(obj, obj))
-    return ObservedMorphism(I, cod, diag.unsqueeze(0), quantale=q)
+    return ObservedMorphism(I, cod, diag.unsqueeze(0), algebra=q)
 
 
-def cap(obj: SetObject, quantale: Quantale | None = None) -> ObservedMorphism:
+def cap(obj: SetObject, algebra: Algebra | None = None) -> ObservedMorphism:
     """The compact-closed counit ``ε_A : A ⊗ A → I``.
 
     The dual of :func:`cup`. The tensor is the diagonal flattened
@@ -1132,8 +1237,8 @@ def cap(obj: SetObject, quantale: Quantale | None = None) -> ObservedMorphism:
     """
     from quivers.core.objects import FinSet, ProductSet
 
-    q = quantale if quantale is not None else PRODUCT_FUZZY
+    q = algebra if algebra is not None else PRODUCT_FUZZY
     diag = q.identity_tensor(obj.shape)
     I = FinSet(name="1", cardinality=1)
     dom = ProductSet(components=(obj, obj))
-    return ObservedMorphism(dom, I, diag.unsqueeze(-1), quantale=q)
+    return ObservedMorphism(dom, I, diag.unsqueeze(-1), algebra=q)

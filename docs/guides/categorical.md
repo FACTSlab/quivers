@@ -4,46 +4,38 @@
 
 A functor $F: \mathcal{C} \to \mathcal{D}$ between $\mathcal{V}$-enriched categories maps objects to objects and morphisms to morphisms, preserving composition and identity.
 
-In quivers, a `Functor` is defined by:
+In quivers, [`Functor`](../api/categorical/functors.md) is an abstract base class with three abstract methods:
 
-- An object map $F_\text{obj}: \text{Ob}(\mathcal{C}) \to \text{Ob}(\mathcal{D})$
-- A morphism map preserving composition: $F(g \circ f) = F(g) \circ F(f)$
+- `map_object(obj)`: the object map $F_\text{obj}: \text{Ob}(\mathcal{C}) \to \text{Ob}(\mathcal{D})$
+- `map_morphism(morph)`: the morphism map, returning a [`FunctorMorphism`](../api/core/morphisms.md)
+- `map_tensor(tensor, algebra)`: the tensor-level action
+
+Concrete subclasses ship with the library:
 
 ```python
-from quivers.categorical.functors import Functor
+from quivers.categorical.functors import IdentityFunctor, ComposedFunctor, FreeMonoidFunctor
 from quivers.core.objects import FinSet
-from quivers.core.morphisms import morphism, identity
+from quivers.core.morphisms import morphism
 
-# Define a functor by providing object and morphism maps
-X = FinSet("X", 3)
-Y = FinSet("Y", 4)
-Z = FinSet("Z", 2)
+X = FinSet(name="X", cardinality=3)
+Y = FinSet(name="Y", cardinality=4)
 
-# Object map: X -> X, Y -> Z
-def obj_map(obj):
-    if obj == X:
-        return X
-    elif obj == Y:
-        return Z
-    else:
-        raise ValueError(f"unknown object {obj}")
+# Identity endofunctor
+I = IdentityFunctor()
+assert I.map_object(X) == X
 
-# Morphism map: given f: A -> B, return F(f): F(A) -> F(B)
-def morph_map(morph):
-    if morph.domain == X and morph.codomain == Y:
-        return morphism(X, Z)  # F(f)
-    elif morph == identity(X):
-        return identity(X)
-    else:
-        raise NotImplementedError()
+# Free monoid functor on FinSet
+F = FreeMonoidFunctor(max_length=3)
+FX = F.map_object(X)            # FreeMonoid(generators=X, max_length=3)
 
-F = Functor(obj_map, morph_map)
-
-# Apply to objects and morphisms
 f = morphism(X, Y)
-Ff = F(f)
-assert Ff.domain == X and Ff.codomain == Z
+Ff = F.map_morphism(f)          # FunctorMorphism with domain F(X), codomain F(Y)
+
+# Composition of functors
+FF = ComposedFunctor(F, F)      # F ∘ F applied as outer ∘ inner
 ```
+
+To define your own functor, subclass `Functor` and implement the three abstract methods.
 
 ## Natural Transformations
 
@@ -57,47 +49,52 @@ F(Y) \xrightarrow{\alpha_Y} & G(Y)
 \end{array}
 $$
 
-In code:
+[`NaturalTransformation`](../api/categorical/natural_transformations.md) is an ABC; use [`ComponentwiseNT`](../api/categorical/natural_transformations.md) to construct one from a callable that produces each component:
 
 ```python
-from quivers.categorical.natural_transformations import NaturalTransformation
+from quivers.categorical.functors import IdentityFunctor, FreeMonoidFunctor
+from quivers.categorical.natural_transformations import ComponentwiseNT
+from quivers.categorical.adjunctions import FreeForgetfulAdjunction
 
-# Define the component morphisms
-alpha_X = morphism(F(X), G(X))
-alpha_Y = morphism(F(Y), G(Y))
+F = IdentityFunctor()
+G = FreeMonoidFunctor(max_length=3)
 
-components = {X: alpha_X, Y: alpha_Y}
+# unit η: Id ⇒ Free (length-1 embedding) reuses the adjunction's unit
+adj = FreeForgetfulAdjunction(max_length=3)
+eta = ComponentwiseNT(F, G, adj.unit_component)
 
-# Create the natural transformation
-alpha = NaturalTransformation(F, G, components)
-
-# Verify naturality (composition commutes)
+# verify naturality on a chosen morphism
 f = morphism(X, Y)
-# G(f) ∘ α_X == α_Y ∘ F(f)
-assert alpha.is_natural(f)
+assert eta.verify_naturality(f)
 ```
 
 ## Adjunctions
 
 An adjunction $F \dashv G$ is a pair of functors with morphisms $\eta: \text{id}_\mathcal{C} \Rightarrow GF$ (unit) and $\varepsilon: FG \Rightarrow \text{id}_\mathcal{D}$ (counit) satisfying triangle identities.
 
-A classical example: the free-forgetful adjunction. `FreeMonoidFunctor` constructs free monoids, and `ForgetfulFunctor` forgets structure:
+The free-forgetful adjunction $\text{Free} \dashv \text{Forget}$ is shipped as [`FreeForgetfulAdjunction`](../api/categorical/adjunctions.md):
 
 ```python
-from quivers.categorical.adjunctions import FreeMonoidAdjunction
+from quivers.categorical.adjunctions import FreeForgetfulAdjunction
 from quivers.core.objects import FinSet, FreeMonoid
 
-G = FinSet("generators", 5)
+A = FinSet(name="A", cardinality=5)
+adjunction = FreeForgetfulAdjunction(max_length=3)
 
-# Free monoid monad: T(X) = Free Monoid on X
-# Forgetful: F.Alg -> Set forgets the monoid structure
+# Left and right functors
+F = adjunction.left        # FreeMonoidFunctor
+U = adjunction.right       # ForgetfulFunctor
 
-adjunction = FreeMonoidAdjunction(G, max_length=3)
+# Monad image T(A) = U(F(A)) is the free monoid on A
+T_A = U.map_object(F.map_object(A))
+assert isinstance(T_A, FreeMonoid)
 
-# The monad T = GF acts on sets:
-# T(X) = Free(X, max_length=3)
-T_X = adjunction.monad(X)
-assert isinstance(T_X, FreeMonoid)
+# Unit and counit components
+eta_A = adjunction.unit_component(A)        # A → A*
+eps_A = adjunction.counit_component(A)      # A* → A
+
+# Triangle identities
+assert adjunction.verify_triangle_right(A)
 ```
 
 ## Monoidal Structures
@@ -110,27 +107,33 @@ A monoidal category $(\mathcal{C}, \otimes, I)$ has:
 
 ### Cartesian Monoidal
 
-The standard monoidal structure on finite sets:
+The standard monoidal structure on finite sets. [`CartesianMonoidal`](../api/categorical/monoidal.md) exposes the object-level `product`, the `unit` (terminal object), and the coherence morphisms `associator`, `left_unitor`, `right_unitor`, `braiding`:
 
 ```python
 from quivers.categorical.monoidal import CartesianMonoidal
+from quivers.core.objects import FinSet, Unit
 
 monoidal = CartesianMonoidal()
 
-X = FinSet("X", 3)
-Y = FinSet("Y", 4)
+X = FinSet(name="X", cardinality=3)
+Y = FinSet(name="Y", cardinality=4)
 
-# The tensor is Cartesian product
-XY = monoidal.tensor(X, Y)
+# product on objects
+XY = monoidal.product(X, Y)
 assert XY == X * Y
 assert monoidal.unit == Unit
 
-# Lifts to morphisms
+# coherence morphisms
+swap = monoidal.braiding(X, Y)              # X × Y → Y × X
+assoc = monoidal.associator(X, Y, X)        # (X×Y)×X → X×(Y×X)
+```
+
+Morphism-level tensor product is provided directly on `Morphism` via the `@` operator:
+
+```python
 f = morphism(X, Y)
 g = morphism(X, Y)
-
-fg = monoidal.tensor(f, g)
-assert fg == f @ g
+fg = f @ g                                   # ProductMorphism: X×X → Y×Y
 ```
 
 ### Coproduct Monoidal
@@ -142,31 +145,35 @@ from quivers.categorical.monoidal import CoproductMonoidal
 
 monoidal = CoproductMonoidal()
 
-X = FinSet("X", 3)
-Y = FinSet("Y", 4)
+X = FinSet(name="X", cardinality=3)
+Y = FinSet(name="Y", cardinality=4)
 
-# The tensor is coproduct
-XY = monoidal.tensor(X, Y)
+XY = monoidal.product(X, Y)
 assert XY == X + Y
 ```
 
+The unit here is the initial object (empty set), exposed as `EMPTY` from `quivers.categorical.monoidal`.
+
 ## Base Change
 
-Change the enriching quantale without changing morphisms themselves. `BaseChange` provides:
+Change the enriching algebra without changing the structure of morphisms. [`BaseChange`](../api/categorical/base_change.md) is an ABC; concrete instances are `BoolToFuzzy` and `FuzzyToBool`:
 
 ```python
-from quivers.categorical.base_change import BaseChange
-from quivers.core.quantales import BOOLEAN, PRODUCT_FUZZY
+from quivers.categorical.base_change import BoolToFuzzy, FuzzyToBool
+from quivers.core.algebras import BOOLEAN, PRODUCT_FUZZY
 
-# Change from fuzzy to boolean
-fuzzy_morph = morphism(X, Y, quantale=PRODUCT_FUZZY)
-bool_morph = BaseChange.bool_from_fuzzy(fuzzy_morph)
+# fuzzy → boolean via thresholding
+fuzzy_morph = morphism(X, Y, algebra=PRODUCT_FUZZY)
+to_bool = FuzzyToBool(threshold=0.5)
+bool_morph = to_bool.apply_to_morphism(fuzzy_morph)
 
-assert fuzzy_morph.codomain == bool_morph.codomain
-assert bool_morph.quantale == BOOLEAN
+assert bool_morph.algebra == BOOLEAN
+assert bool_morph.domain == fuzzy_morph.domain
+assert bool_morph.codomain == fuzzy_morph.codomain
 
-# Change from boolean to fuzzy (with scaling)
-bool_to_fuzzy = BaseChange.fuzzy_from_bool(bool_morph, scale=0.5)
+# boolean → fuzzy via inclusion
+to_fuzzy = BoolToFuzzy()
+fuzzy_again = to_fuzzy.apply_to_morphism(bool_morph)
 ```
 
 ## Traced Monoidal Structure
@@ -177,25 +184,25 @@ $$
 \text{tr}^X_{Y,Z}: \mathcal{C}(Y \otimes X, Z \otimes X) \to \mathcal{C}(Y, Z)
 $$
 
-This is useful for feedback and recursive definitions:
+This is useful for feedback and recursive definitions. The free function [`trace`](../api/categorical/traced.md) wraps a [`CartesianTrace`](../api/categorical/traced.md):
 
 ```python
-from quivers.categorical.traced import trace_morphism
+from quivers.categorical.traced import trace
 
-X = FinSet("X", 2)
-Y = FinSet("Y", 3)
-Z = FinSet("Z", 4)
+X = FinSet(name="X", cardinality=2)
+Y = FinSet(name="Y", cardinality=3)
+Z = FinSet(name="Z", cardinality=4)
 
-# f: (Y ⊗ X) → (Z ⊗ X)
+# f: (Y × X) → (Z × X)
 f = morphism(Y * X, Z * X)
 
-# Remove the feedback loop (trace over X)
-traced_f = trace_morphism(f, X)
+# Trace over X: returns A → B with the feedback loop closed
+traced_f = trace(f, feedback=X, domain=Y, codomain=Z)
 assert traced_f.domain == Y
 assert traced_f.codomain == Z
 ```
 
-The trace contracts the last components, leaving the first components as the domain and codomain.
+The trace contracts the matching $X$ wire, leaving the external domain $Y$ and codomain $Z$.
 
 ## Summary
 
@@ -205,5 +212,5 @@ The trace contracts the last components, leaving the first components as the dom
 | Natural Transform | Family of morphisms | `α: F ⇒ G` |
 | Adjunction | Inverse functors up to natural isos | `F ⊣ G` |
 | Monoidal | Product with coherence | `(C, ⊗, I)` |
-| Base Change | Enrichment transformation | `BaseChange.foo_from_bar()` |
-| Traced | Feedback/iteration | `trace(f, X)` |
+| Base Change | Enrichment transformation | `FuzzyToBool().apply_to_morphism(f)` |
+| Traced | Feedback/iteration | `trace(f, feedback=X, domain=Y, codomain=Z)` |
