@@ -189,14 +189,14 @@ sigma_g_Intercept    (true 0.60): 0.273 ± 0.014
 sigma                (true 0.40): 0.375 ± 0.028
 ```
 
-Non-centered emission means SVI gives recognisable recovery for the fixed effects on a model this small; the group-level scale is still under-shrunk because mean-field VI generically under-estimates posterior variance, but the funnel that wrecks centered hierarchical models is gone. For tighter posterior estimates on variance components, switch to `method="nuts"`; for a different variational family, pass `guide=AutoMultivariateNormalGuide` (or any other [auto-guide](../../api/inference/index.md#auto-guides)).
+Non-centered emission means SVI gives recognisable recovery for the fixed effects on a model this small; the group-level scale is still under-shrunk because mean-field VI generically under-estimates posterior variance, but the funnel that wrecks centered hierarchical models is gone. For tighter posterior estimates on variance components, switch to `method="nuts"`; for a different variational family, pass `guide=AutoMultivariateNormalGuide` (or any other [auto-guide](../../api/inference/guide.md)).
 
 ### Knobs: `method`, `guide`, `reparameterize`
 
 Three orthogonal choices control the inference path:
 
 - **`method="nuts" | "hmc" | "svi"`**. The default `"nuts"` is the right call for serious analysis of any model with random effects: it samples the joint posterior with the No-U-Turn extension to HMC, gets variance components right, and produces the `MCMCResult` that PSIS-LOO and posterior-predictive checks consume below. `"svi"` is the fast option for prototyping or for large models where NUTS chains would be too expensive; it fits a [`Guide`](../../api/inference/guide.md) by optimization instead of sampling.
-- **`guide=Cls`** (SVI only). Defaults to [`AutoNormalGuide`](../../api/inference/guides/normal.md) (mean-field diagonal Normal). Other choices: [`AutoMultivariateNormalGuide`](../../api/inference/guides/multivariate_normal.md) for a full-rank Cholesky; [`AutoLowRankMultivariateNormalGuide`](../../api/inference/guides/multivariate_normal.md) for `O(D·rank)` memory on high-dimensional models; [`AutoLaplaceApproximation`](../../api/inference/guides/laplace.md) for a Gaussian fit at the MAP; [`AutoIAFGuide`](../../api/inference/guides/flow.md) for an inverse-autoregressive normalizing flow. Pass the class, not an instance: `fit(..., guide=AutoMultivariateNormalGuide)`.
+- **`guide=Cls`** (SVI only). Defaults to [`AutoNormalGuide`](../../api/inference/guide.md) (mean-field diagonal Normal). Other choices: [`AutoMultivariateNormalGuide`](../../api/inference/guide.md) for a full-rank Cholesky; [`AutoLowRankMultivariateNormalGuide`](../../api/inference/guide.md) for `O(D·rank)` memory on high-dimensional models; [`AutoLaplaceApproximation`](../../api/inference/guide.md) for a Gaussian fit at the MAP; [`AutoIAFGuide`](../../api/inference/guide.md) for an inverse-autoregressive normalizing flow. Pass the class, not an instance: `fit(..., guide=AutoMultivariateNormalGuide)`.
 - **`reparameterize="noncentered" | "centered"`**. Controls how random-effect terms are emitted. The default `"noncentered"` matches Stan / brms expert practice; `"centered"` matches the textbook density. Mathematically identical posteriors, very different sampling geometry.
 
 ## Model comparison with PSIS-LOO
