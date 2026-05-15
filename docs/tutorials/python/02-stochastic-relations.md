@@ -73,7 +73,7 @@ data = torch.tensor([
     [0.5, 0.5],
     [0.2, 0.8],
 ])
-kern_obs = observed(Y, Z, data)
+kern_obs = observed(Y, Z, data, algebra=MARKOV)
 ```
 
 Verify the data is valid:

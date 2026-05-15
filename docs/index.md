@@ -49,7 +49,7 @@ result = fit(
     "y ~ x + (1 | g)",
     data=df,                  # pandas or polars
     family="gaussian",
-    sampler="nuts",
+    method="nuts",
 )
 result.dump_qvr("regression.qvr")   # inspect the emitted QVR program
 ```

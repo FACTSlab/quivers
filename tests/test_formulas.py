@@ -538,7 +538,7 @@ class TestEndToEndFit:
             "y ~ 1",
             data=base_df,
             family="gaussian",
-            sampler="svi",
+            method="svi",
             num_samples=100,
             seed=0,
         )
@@ -550,7 +550,7 @@ class TestEndToEndFit:
             "y ~ x + (1 | g)",
             data=base_df,
             family="gaussian",
-            sampler="svi",
+            method="svi",
             num_samples=100,
             seed=0,
         )
@@ -561,7 +561,7 @@ class TestEndToEndFit:
             "y ~ poly(x, 2)",
             data=base_df,
             family="gaussian",
-            sampler="svi",
+            method="svi",
             num_samples=100,
             seed=0,
         )
@@ -575,7 +575,7 @@ class TestEndToEndFit:
             "y ~ log(w)",
             data=base_df,
             family="gaussian",
-            sampler="svi",
+            method="svi",
             num_samples=100,
             seed=0,
         )
@@ -586,7 +586,7 @@ class TestEndToEndFit:
             "y ~ x + (1 | g)",
             data=base_df,
             family="gaussian",
-            sampler="svi",
+            method="svi",
             num_samples=20,
             seed=0,
         )
@@ -631,7 +631,7 @@ class TestPosteriorRecovery:
             "y ~ x",
             data=df,
             family="gaussian",
-            sampler="svi",
+            method="svi",
             num_samples=2000,
             seed=0,
         )
@@ -657,7 +657,7 @@ class TestPosteriorRecovery:
             "y ~ x",
             data=df,
             family="bernoulli",
-            sampler="svi",
+            method="svi",
             num_samples=2000,
             seed=0,
         )
@@ -679,7 +679,7 @@ class TestPosteriorRecovery:
             "y ~ x",
             data=df,
             family="poisson",
-            sampler="svi",
+            method="svi",
             num_samples=2000,
             seed=0,
         )
@@ -702,7 +702,7 @@ class TestPosteriorRecovery:
             "y ~ x",
             data=df,
             family="gamma",
-            sampler="svi",
+            method="svi",
             num_samples=2000,
             seed=0,
         )
@@ -733,7 +733,7 @@ class TestPosteriorRecovery:
             "y ~ 1 + (1 | g)",
             data=df,
             family="gaussian",
-            sampler="svi",
+            method="svi",
             num_samples=2000,
             seed=0,
         )
@@ -761,7 +761,7 @@ class TestPosteriorRecovery:
             "y ~ poly(x, 2)",
             data=df,
             family="gaussian",
-            sampler="svi",
+            method="svi",
             num_samples=2000,
             seed=0,
         )
@@ -786,7 +786,7 @@ class TestPosteriorRecovery:
             "y ~ log(w)",
             data=df,
             family="gaussian",
-            sampler="svi",
+            method="svi",
             num_samples=2000,
             seed=0,
         )
@@ -814,7 +814,7 @@ class TestPosteriorRecovery:
             "y ~ x*z",
             data=df,
             family="gaussian",
-            sampler="svi",
+            method="svi",
             num_samples=2000,
             seed=0,
         )
@@ -844,7 +844,7 @@ class TestPosteriorRecovery:
             "y ~ x + z + log(w)",
             data=df,
             family="gaussian",
-            sampler="svi",
+            method="svi",
             num_samples=2000,
             seed=0,
         )
@@ -886,7 +886,7 @@ class TestPosteriorRecovery:
             "y ~ x + (1 + x | g)",
             data=df,
             family="gaussian",
-            sampler="svi",
+            method="svi",
             num_samples=2000,
             seed=0,
         )
