@@ -25,6 +25,7 @@ from quivers.core.wiring import EinsumWiring
 from quivers.dsl.ast_nodes import (
     BindStep,
     ContractionDecl,
+    ContractionInput,
     DrawStep,
     ExprIdent,
     ExprMorphismCall,
@@ -88,6 +89,120 @@ type LetValue = (
     | ContinuousMorphism
     | Callable[[dict[str, "LetValue"]], "LetValue"]
 )
+
+
+def _flatten_type_axes(expr: TypeExpr) -> tuple[str, ...]:
+    """Flatten a :class:`TypeExpr` into the ordered sequence of axis
+    type names it denotes.
+
+    ``A`` is one axis ``A``.  ``(A * B)`` is two axes ``(A, B)``;
+    nested products flatten left-to-right.  Coproducts and other
+    non-product TypeExprs are not supported here; the inferred-
+    wiring path raises a :class:`ValueError` and points the user at
+    the explicit ``wiring`` clause.
+    """
+    if isinstance(expr, TypeName):
+        return (expr.name,)
+    if isinstance(expr, TypeProduct):
+        out: list[str] = []
+        for component in expr.components:
+            out.extend(_flatten_type_axes(component))
+        return tuple(out)
+    raise ValueError(
+        f"contraction signature contains a non-product / non-named axis "
+        f"type {type(expr).__name__}; the type-driven wiring inference "
+        "only handles named axes and products of named axes. Pass an "
+        'explicit ``wiring "..."`` clause.'
+    )
+
+
+def _infer_wiring_from_signature(
+    *,
+    inputs: tuple[ContractionInput, ...],
+    output_domain: TypeExpr,
+    output_codomain: TypeExpr,
+    shared_axes: tuple[str, ...],
+) -> str:
+    """Build an einsum-style wiring spec from the contraction's
+    typed signature.
+
+    Each input's axis sequence is the flattening of its
+    ``input_domain -> input_codomain``.  The output's axis sequence
+    is the flattening of ``output_domain -> output_codomain``.
+
+    The inference rule:
+
+    * Every axis name that appears in the output sequence is a
+      *kept* axis (propagates from inputs to output).
+    * Every axis name that appears in two or more input sequences
+      but not in the output is a *contracted* axis (joined via the
+      rule).
+    * Every axis name that appears in exactly one input sequence
+      and not in the output is *anomalous*: it would need to be
+      summed out by the rule but no other input shares it.  We
+      report that as an inference failure and direct the user to
+      the explicit ``wiring`` clause.
+    * Axes named in ``shared_axes`` are forced to propagate (kept)
+      even if the default rule would have contracted them; this is
+      the disambiguator for element-wise contractions where the
+      same axis appears in two inputs and the output.
+
+    The output spec is the standard numpy / torch einsum form:
+    one letter per *distinct* axis name, joined with commas across
+    inputs, then ``->``, then the kept axes' letters in the
+    output's declared order.
+    """
+    input_axes = [
+        _flatten_type_axes(inp.input_domain) + _flatten_type_axes(inp.input_codomain)
+        for inp in inputs
+    ]
+    output_seq = _flatten_type_axes(output_domain) + _flatten_type_axes(output_codomain)
+    shared = set(shared_axes)
+    # An axis is kept iff it appears in the output OR was named in
+    # the ``share`` clause.  Anything else that appears in ≥ 2 inputs
+    # is contracted.
+    kept: set[str] = set(output_seq) | shared
+    appearances: dict[str, int] = {}
+    for axes in input_axes:
+        seen_in_this = set()
+        for axis in axes:
+            if axis in seen_in_this:
+                continue
+            seen_in_this.add(axis)
+            appearances[axis] = appearances.get(axis, 0) + 1
+    # An anomalous axis appears in exactly one input and is not in
+    # the output / share list: there is nothing to contract it
+    # against and nothing to project it to.
+    anomalous = [axis for axis, n in appearances.items() if n == 1 and axis not in kept]
+    if anomalous:
+        raise ValueError(
+            f"axes {sorted(anomalous)} appear in exactly one input and not in the "
+            "output; the type-driven rule cannot decide what to do with them. "
+            "Add them to the contraction's output type, list them in a "
+            "``share`` clause, or pass an explicit ``wiring`` spec"
+        )
+    # Assign single letters to axes.  Standard einsum lower-case
+    # alphabet; we keep insertion order so the generated string is
+    # deterministic given the signature.
+    letters_pool = "abcdefghijklmnopqrstuvwxyz"
+    axis_to_letter: dict[str, str] = {}
+    for axes in input_axes:
+        for axis in axes:
+            if axis in axis_to_letter:
+                continue
+            if len(axis_to_letter) >= len(letters_pool):
+                raise ValueError(
+                    "contraction has more distinct axis names than einsum "
+                    "letters available; pass an explicit ``wiring`` spec"
+                )
+            axis_to_letter[axis] = letters_pool[len(axis_to_letter)]
+    # Output axes preserve the declared order on the output type
+    # (which is the order the user wrote them in source).
+    output_letters = "".join(axis_to_letter[axis] for axis in output_seq)
+    input_letter_groups = [
+        "".join(axis_to_letter[axis] for axis in axes) for axes in input_axes
+    ]
+    return f"{', '.join(input_letter_groups)} -> {output_letters}"
 
 
 class _ProgramsMixin:
@@ -1234,12 +1349,33 @@ class _ProgramsMixin:
                 decl.col,
             )
         rule = _ALGEBRA_REGISTRY[rule_name]
+        if decl.wiring_spec:
+            # Explicit einsum escape hatch (still supported for
+            # contractions the type-driven rule can't express:
+            # diagonal extraction, reorderings, etc.).
+            wiring_spec = decl.wiring_spec
+        else:
+            try:
+                wiring_spec = _infer_wiring_from_signature(
+                    inputs=decl.inputs,
+                    output_domain=decl.domain,
+                    output_codomain=decl.codomain,
+                    shared_axes=decl.shared_axes,
+                )
+            except ValueError as exc:
+                raise CompileError(
+                    f"contraction {decl.name!r}: cannot infer wiring "
+                    f"from typed signature: {exc}. Pass an explicit "
+                    f'``wiring "..."`` clause or a ``share`` clause to '
+                    f"disambiguate.",
+                    decl.line,
+                    decl.col,
+                ) from exc
         try:
-            wiring = EinsumWiring(rule, decl.wiring_spec)
+            wiring = EinsumWiring(rule, wiring_spec)
         except ValueError as exc:
             raise CompileError(
-                f"contraction {decl.name!r}: invalid wiring "
-                f"{decl.wiring_spec!r}: {exc}",
+                f"contraction {decl.name!r}: invalid wiring {wiring_spec!r}: {exc}",
                 decl.line,
                 decl.col,
             ) from exc

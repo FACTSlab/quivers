@@ -220,9 +220,7 @@ def _object_cardinality(decl: ObjectDecl) -> int | None:
         return None
 
 
-def _bind_step_size(
-    step: BindStep, cardinalities: dict[str, int]
-) -> int | None:
+def _bind_step_size(step: BindStep, cardinalities: dict[str, int]) -> int | None:
     """Best-effort cardinality of the value bound by a :class:`BindStep`.
 
     For plate steps (``: T``), this is the cardinality of the plate

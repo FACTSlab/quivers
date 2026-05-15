@@ -1026,12 +1026,16 @@
           }
         ]
       },
-      "wiring_spec": {
+      "wiring": {
         "multiple": false,
-        "required": true,
+        "required": false,
         "types": [
           {
-            "type": "string",
+            "type": "contraction_wiring_einsum",
+            "named": true
+          },
+          {
+            "type": "contraction_wiring_share",
             "named": true
           }
         ]
@@ -1106,6 +1110,42 @@
         "multiple": false,
         "required": true,
         "types": [
+          {
+            "type": "identifier",
+            "named": true
+          }
+        ]
+      }
+    }
+  },
+  {
+    "type": "contraction_wiring_einsum",
+    "named": true,
+    "fields": {
+      "wiring_spec": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "string",
+            "named": true
+          }
+        ]
+      }
+    }
+  },
+  {
+    "type": "contraction_wiring_share",
+    "named": true,
+    "fields": {
+      "shared_axes": {
+        "multiple": true,
+        "required": true,
+        "types": [
+          {
+            "type": ",",
+            "named": false
+          },
           {
             "type": "identifier",
             "named": true
@@ -8054,6 +8094,10 @@
   },
   {
     "type": "semiring",
+    "named": false
+  },
+  {
+    "type": "share",
     "named": false
   },
   {

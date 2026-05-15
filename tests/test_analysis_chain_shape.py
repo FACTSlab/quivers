@@ -19,7 +19,6 @@ from __future__ import annotations
 
 import math
 
-import pytest
 import torch
 import torch.nn as nn
 
@@ -141,9 +140,7 @@ class TestInitSpec:
         assert math.isclose(spec.mean, math.log(2.0) / 4.0, rel_tol=1e-9)
 
     def test_lukasiewicz_mid_saturation(self):
-        spec = _algebra_init_spec(
-            LukasiewiczAlgebra(), depth=5, intermediate_size=1
-        )
+        spec = _algebra_init_spec(LukasiewiczAlgebra(), depth=5, intermediate_size=1)
         assert spec.distribution == "uniform"
         assert math.isclose(spec.mean, 1.0 / 5.0, rel_tol=1e-9)
 
@@ -186,9 +183,7 @@ class TestInitSpec:
         assert math.isclose(spec.std, 1.0 / 3.0, rel_tol=1e-9)
 
     def test_probability_p_eq_inv_k(self):
-        spec = _algebra_init_spec(
-            ProbabilityAlgebra(), depth=5, intermediate_size=1
-        )
+        spec = _algebra_init_spec(ProbabilityAlgebra(), depth=5, intermediate_size=1)
         assert spec.distribution == "uniform"
         assert math.isclose(spec.mean, 0.2, rel_tol=1e-9)
 
@@ -240,27 +235,21 @@ export model
 class TestApplyInitSpec:
     def test_normal_sampling_overwrites(self):
         p = nn.Parameter(torch.zeros(64))
-        spec = _algebra_init_spec(
-            LogProbAlgebra(), depth=2, intermediate_size=1
-        )
+        spec = _algebra_init_spec(LogProbAlgebra(), depth=2, intermediate_size=1)
         apply_init_spec(p, spec)
         # Empirical mean should be close to the recipe's mean.
         assert abs(p.mean().item() - spec.mean) < 0.2
 
     def test_uniform_sampling_in_bounds(self):
         p = nn.Parameter(torch.zeros(64))
-        spec = _algebra_init_spec(
-            ProductFuzzyAlgebra(), depth=4, intermediate_size=1
-        )
+        spec = _algebra_init_spec(ProductFuzzyAlgebra(), depth=4, intermediate_size=1)
         apply_init_spec(p, spec)
         assert (p >= spec.lower).all()
         assert (p <= spec.upper).all()
 
     def test_constant_fills(self):
         p = nn.Parameter(torch.zeros(8))
-        spec = _algebra_init_spec(
-            BooleanAlgebra(), depth=4, intermediate_size=1
-        )
+        spec = _algebra_init_spec(BooleanAlgebra(), depth=4, intermediate_size=1)
         apply_init_spec(p, spec)
         assert (p == 0.5).all()
 

@@ -30,7 +30,7 @@ from __future__ import annotations
 
 import didactic.api as dx
 
-from quivers.analysis.chain_shape import ChainShape, StepShape
+from quivers.analysis.chain_shape import ChainShape
 from quivers.analysis.init_spec import InitSpec, _algebra_init_spec
 from quivers.dsl.ast_nodes import Module
 
@@ -66,11 +66,7 @@ class SaturationWarning(dx.Model):
     def message(self) -> str:
         """One-line human-readable diagnosis suitable for surfacing
         at ``qvr check`` / Compiler warning level."""
-        loc = (
-            f"line {self.source_line}"
-            if self.source_line
-            else "(unknown source)"
-        )
+        loc = f"line {self.source_line}" if self.source_line else "(unknown source)"
         spec = self.init_spec
         if spec is None:
             return (

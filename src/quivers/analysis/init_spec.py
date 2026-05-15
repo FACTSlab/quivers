@@ -43,7 +43,7 @@ import didactic.api as dx
 import torch
 import torch.nn as nn
 
-from quivers.analysis.chain_shape import ChainShape, StepShape
+from quivers.analysis.chain_shape import ChainShape
 from quivers.core.algebras import (
     Algebra,
     BooleanAlgebra,
@@ -155,8 +155,7 @@ def _algebra_init_spec(
             lower=float("-inf"),
             upper=0.0,
             rationale=(
-                f"log-prob centred at -ln(k) = {loc:.4g} for k={effective} "
-                "steps"
+                f"log-prob centred at -ln(k) = {loc:.4g} for k={effective} steps"
             ),
         )
     if isinstance(algebra, MarkovAlgebra):
@@ -198,7 +197,9 @@ def _algebra_init_spec(
             mean=p,
             std=p / 2.0,
             lower=max(0.0, p / 2.0),
-            upper=min(1.0, 3.0 * p / 2.0) if isinstance(algebra, ProbabilityAlgebra) else 3.0 * p / 2.0,
+            upper=min(1.0, 3.0 * p / 2.0)
+            if isinstance(algebra, ProbabilityAlgebra)
+            else 3.0 * p / 2.0,
             rationale=(
                 f"{type(algebra).__name__} sum-product semiring: "
                 f"p ≈ 1/k = {p:.4g} keeps the k-step product at order 1"
@@ -238,9 +239,7 @@ def recommend_init(module: Module) -> dict[str, InitSpec]:
     return out
 
 
-def apply_init_spec(
-    parameter: nn.Parameter | torch.Tensor, spec: InitSpec
-) -> None:
+def apply_init_spec(parameter: nn.Parameter | torch.Tensor, spec: InitSpec) -> None:
     """Materialise an :class:`InitSpec` onto a learnable tensor.
 
     Delegates to ``torch.nn.init`` for ``normal`` / ``uniform`` and

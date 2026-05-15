@@ -1387,7 +1387,7 @@ class ContractionInput(dx.Model):
 class ContractionDecl(Statement):
     """Operadic n-ary contraction declaration.
 
-    Surface form::
+    Surface form (type-driven, inferred wiring)::
 
         contraction op_apply (
             arg1 : A -> B,
@@ -1395,11 +1395,26 @@ class ContractionDecl(Statement):
             kernel : (B * C) -> D
         ) : A -> D
             rule product_fuzzy
-            wiring "ab, ac, bcd -> ad"
 
-    Declares ``op_apply`` as a multi-input morphism that takes
-    three input morphisms and produces an output morphism by
-    einsum-style contraction under the named composition rule.
+    The typed signature determines the einsum implicitly: each axis
+    in the output (here ``A`` and ``D``) propagates; each axis that
+    appears in ≥ 2 inputs but not in the output (``B``, ``C``) is
+    contracted via the rule's join.
+
+    Two opt-in disambiguators handle cases the inference cannot
+    derive from the signature alone:
+
+    * ``share T1, T2, ...`` keeps the listed axes element-wise
+      (broadcast / propagated) even when they appear in multiple
+      inputs.  Stored on :attr:`shared_axes`.
+    * ``wiring "<einsum>"`` is the explicit escape hatch.  Stored
+      verbatim on :attr:`wiring_spec`.
+
+    Exactly zero or one of those clauses appears in source.  The
+    compiler dispatches: ``wiring_spec`` non-empty → use it
+    verbatim; otherwise build the einsum from the typed signature
+    plus ``shared_axes``.
+
     Compiles to a callable that wraps
     :class:`~quivers.core.wiring.EinsumWiring`.
     """
@@ -1409,7 +1424,8 @@ class ContractionDecl(Statement):
     domain: "TypeExpr"
     codomain: "TypeExpr"
     rule_name: str
-    wiring_spec: str
+    wiring_spec: str = ""
+    shared_axes: tuple[str, ...] = ()
     line: int = 0
     col: int = 0
     kind: Literal["contraction_decl"] = "contraction_decl"
