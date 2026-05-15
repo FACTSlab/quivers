@@ -27,6 +27,14 @@ from quivers.dsl.emit import module_to_source
 from quivers.formulas.compile import FormulaToQVRModule
 from quivers.formulas.family import Family, families
 from quivers.formulas.formula import Formula, _qvr_name, formula_from_data
+from quivers.inference import (
+    ELBO,
+    HMCKernel,
+    MCMC,
+    NUTSKernel,
+    SVI,
+    AutoNormalGuide,
+)
 from quivers.inference.guides.base import Guide
 from quivers.inference.mcmc.driver import MCMCResult
 
@@ -59,11 +67,12 @@ class BayesianFit(dx.Model):
     observations: Mapping[str, torch.Tensor] = dx.field(
         default_factory=dict, opaque=True
     )
+    reparameterize: Literal["centered", "noncentered"] = "noncentered"
 
     @property
     def qvr_source(self) -> str:
         """Lazily emit the AST-equivalent ``.qvr`` source for display."""
-        lens = FormulaToQVRModule(self.family)
+        lens = FormulaToQVRModule(self.family, reparameterize=self.reparameterize)
         module, _ = lens.forward(self.formula)
         return module_to_source(module)
 
@@ -81,13 +90,15 @@ def fit(
     *,
     data: IntoDataFrame,
     family: str | Family = "gaussian",
-    sampler: Literal["nuts", "hmc", "svi"] = "nuts",
+    method: Literal["nuts", "hmc", "svi"] = "nuts",
     num_warmup: int = 500,
     num_samples: int = 1000,
     num_chains: int = 4,
     fixed_prior: str = "Normal(0.0, 5.0)",
     random_scale_prior: str = "HalfNormal(1.0)",
     priors: Mapping[str, str] | None = None,
+    guide: type | None = None,
+    reparameterize: Literal["centered", "noncentered"] = "noncentered",
     seed: int = 0,
 ) -> BayesianFit:
     """Compile a brms-style formula, fit it, and return the result.
@@ -135,13 +146,13 @@ def fit(
         )
 
     torch.manual_seed(seed)
-    if sampler == "svi":
-        posterior = _fit_svi(program, observations, num_samples)
+    if method == "svi":
+        posterior = _fit_svi(program, observations, num_samples, guide_cls=guide)
     else:
         posterior = _fit_mcmc(
             program,
             observations,
-            sampler=sampler,
+            sampler=method,
             num_warmup=num_warmup,
             num_samples=num_samples,
             num_chains=num_chains,
@@ -153,6 +164,7 @@ def fit(
         program=program,
         posterior=posterior,
         observations=observations,
+        reparameterize=reparameterize,
     )
 
 
@@ -164,6 +176,7 @@ def formula_to_qvr(
     fixed_prior: str = "Normal(0.0, 5.0)",
     random_scale_prior: str = "HalfNormal(1.0)",
     priors: Mapping[str, str] | None = None,
+    reparameterize: Literal["centered", "noncentered"] = "noncentered",
     path: str | Path | None = None,
 ) -> str:
     """Emit ``.qvr`` source for a brms-style formula without fitting.
@@ -187,6 +200,7 @@ def formula_to_qvr(
         fixed_prior=fixed_prior,
         random_scale_prior=random_scale_prior,
         user_priors=priors,
+        reparameterize=reparameterize,
     )
     module, _ = lens.forward(parsed)
     source = module_to_source(module)
@@ -197,8 +211,6 @@ def formula_to_qvr(
 
 def _fit_mcmc(program, observations, *, sampler, num_warmup, num_samples, num_chains):
     """Run NUTS / HMC on the compiled program."""
-    from quivers.inference import MCMC, HMCKernel, NUTSKernel
-
     kernel = NUTSKernel() if sampler == "nuts" else HMCKernel()
     mcmc = MCMC(
         kernel=kernel,
@@ -211,11 +223,20 @@ def _fit_mcmc(program, observations, *, sampler, num_warmup, num_samples, num_ch
     return mcmc.run(program, x, observations)
 
 
-def _fit_svi(program, observations, num_steps):
-    """Run a quick SVI fit with the default AutoNormalGuide + ELBO."""
-    from quivers.inference import ELBO, SVI, AutoNormalGuide
+def _fit_svi(program, observations, num_steps, *, guide_cls=None):
+    """Run an SVI fit + ELBO.
 
-    guide = AutoNormalGuide(program, observed_names=set(observations.keys()))
+    Default guide is :class:`AutoNormalGuide`: a mean-field
+    diagonal-Normal that scales well across model shapes. Mean-field
+    is known to underestimate posterior variance components in
+    hierarchical / mixed-effects models; for serious analysis of
+    those models, use ``method="nuts"``. Users can swap in any other
+    ``Guide`` class via ``fit(..., guide=SomeGuide)``; the class is
+    constructed with ``(program, observed_names=...)``.
+    """
+    if guide_cls is None:
+        guide_cls = AutoNormalGuide
+    guide = guide_cls(program, observed_names=set(observations.keys()))
     optimizer = torch.optim.Adam(
         list(program.parameters()) + list(guide.parameters()),
         lr=1e-2,

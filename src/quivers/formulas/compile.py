@@ -268,6 +268,9 @@ def _decode_module(module: Module) -> dict:
                 continue
         else:
             # Indexed plate draw: this is the random-effect latent.
+            # Centered emission:    `alpha_<g>` or `beta_<g>_<slope>`
+            # Non-centered emission: `z_<g>_<slope>`, the unit-scale
+            # standard-Normal that the let-expression scales by sigma.
             # `alpha_<g>` ↔ intercept slope; `beta_<g>_<slope>` ↔
             # named slope.
             if not isinstance(step.index, TypeName):
@@ -281,6 +284,15 @@ def _decode_module(module: Module) -> dict:
                 if var.startswith(prefix):
                     slope_qvr = var.removeprefix(prefix)
                     random_terms_qvr.append((qgroup, slope_qvr))
+            elif var.startswith("z_"):
+                # Non-centered form: `z_<qgroup>_<slope>`.
+                prefix = f"z_{qgroup}_"
+                if var.startswith(prefix):
+                    slope_qvr = var.removeprefix(prefix)
+                    if slope_qvr == "Intercept":
+                        random_terms_qvr.append((qgroup, "Intercept"))
+                    else:
+                        random_terms_qvr.append((qgroup, slope_qvr))
 
     return {
         "n_obs": n_obs,
@@ -335,11 +347,18 @@ class FormulaToQVRModule(dx.Lens[Formula, Module, FormulaData]):
         fixed_prior: str = "Normal(0.0, 5.0)",
         random_scale_prior: str = "HalfNormal(1.0)",
         user_priors: Mapping[str, str] | None = None,
+        reparameterize: Literal["centered", "noncentered"] = "noncentered",
     ) -> None:
         self._family = family
         self._fixed_prior = fixed_prior
         self._random_scale_prior = random_scale_prior
         self._user_priors: Mapping[str, str] = dict(user_priors or {})
+        if reparameterize not in ("centered", "noncentered"):
+            raise ValueError(
+                f"FormulaToQVRModule: reparameterize must be 'centered' "
+                f"or 'noncentered', got {reparameterize!r}"
+            )
+        self._reparameterize = reparameterize
 
     def forward(self, formula: Formula, /) -> tuple[Module, FormulaData]:
         module = self._build_module(formula)
@@ -478,6 +497,21 @@ class FormulaToQVRModule(dx.Lens[Formula, Module, FormulaData]):
         # latent + per-level plate draw + per-row gather; multiple
         # slopes per group are independent (uncorrelated; matches
         # lme4's `(... || g)` semantics).
+        #
+        # Reparameterisation:
+        # * Centered ("centered"): ``alpha_g : g <- Normal(0, sigma_g)``
+        #   directly. Easy to read; suffers Neal's funnel under HMC /
+        #   NUTS and under-shrinks variance components under VI.
+        # * Non-centered ("noncentered", default): emit
+        #     z_g_<slope> : g <- Normal(0, 1)
+        #     let alpha_g = sigma_g * z_g_<slope>
+        #   The per-level draws sit in unit space; ``sigma_g`` scales
+        #   the (deterministic) ``alpha_g`` afterwards. Mathematically
+        #   identical to centered, but eliminates the funnel and lets
+        #   HMC / NUTS sample variance components reliably.  Standard
+        #   practice in Stan / brms when divergences appear; we make
+        #   it the default so the formula path matches expert advice
+        #   out of the box.
         for term in formula.random_terms:
             group = term.group
             qgroup = _qvr_name(group)
@@ -493,21 +527,49 @@ class FormulaToQVRModule(dx.Lens[Formula, Module, FormulaData]):
                 latent_var = f"alpha_{qgroup}"
             else:
                 latent_var = f"beta_{qgroup}_{qslope}"
-            program_steps.append(
-                _draw(
-                    latent_var,
-                    "Normal",
-                    (0.0, sigma_var),
-                    index=TypeName(name=qgroup),
-                )
-            )
             contrib_name = f"{latent_var}_per_row"
             idx_name = f"{qgroup}_idx"
-            gather = LetExprIndex(array=_var(latent_var), indices=(_var(idx_name),))
-            if slope == "Intercept":
-                program_steps.append(_let(contrib_name, gather))
+            if self._reparameterize == "centered":
+                program_steps.append(
+                    _draw(
+                        latent_var,
+                        "Normal",
+                        (0.0, sigma_var),
+                        index=TypeName(name=qgroup),
+                    )
+                )
+                per_level_expr: LetExprNode = LetExprIndex(
+                    array=_var(latent_var), indices=(_var(idx_name),)
+                )
             else:
-                program_steps.append(_let(contrib_name, _mul(gather, _var(qslope))))
+                # Non-centered: emit a standard-Normal plate draw and
+                # fold sigma into the per-row contribution after the
+                # index gather, where shapes are ``(N,)`` on both
+                # sides. Materialising the intermediate ``alpha_g =
+                # sigma * z_g`` would mismatch shapes because the
+                # runtime broadcasts scalar latents (``sigma``) along
+                # the program batch ``(N,)`` while plate draws keep
+                # their ``(K,)`` shape, and ``(N,) * (K,)`` is not a
+                # broadcastable pair.
+                z_var = f"z_{qgroup}_{qslope}"
+                program_steps.append(
+                    _draw(
+                        z_var,
+                        "Normal",
+                        (0.0, 1.0),
+                        index=TypeName(name=qgroup),
+                    )
+                )
+                z_gather: LetExprNode = LetExprIndex(
+                    array=_var(z_var), indices=(_var(idx_name),)
+                )
+                per_level_expr = _mul(_var(sigma_var), z_gather)
+            if slope == "Intercept":
+                program_steps.append(_let(contrib_name, per_level_expr))
+            else:
+                program_steps.append(
+                    _let(contrib_name, _mul(per_level_expr, _var(qslope)))
+                )
             linear_terms.append(_var(contrib_name))
 
         # Auxiliary family parameters.

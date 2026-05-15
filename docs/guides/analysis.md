@@ -109,7 +109,7 @@ result = fit(
     "acceptability ~ verb + frame + log(rt) + (1 + verb | subject)",
     data=df,                       # pandas or polars
     family="bernoulli",            # auto-derives the logit link
-    sampler="nuts",
+    method="nuts",
     num_warmup=500,
     num_samples=1000,
     num_chains=4,
@@ -322,7 +322,7 @@ fit_full = fit(
     "response ~ poly(rt, 2) + verb + (1 + verb | subject)",
     data=df,
     family="bernoulli",
-    sampler="nuts",
+    method="nuts",
     num_warmup=500, num_samples=1000, num_chains=4,
     priors={"sigma_subject_Intercept": "HalfCauchy(0.5)"},
     seed=0,
@@ -331,7 +331,7 @@ fit_full = fit(
 # Compare against a simpler null model.
 fit_null = fit(
     "response ~ verb + (1 | subject)",
-    data=df, family="bernoulli", sampler="nuts",
+    data=df, family="bernoulli", method="nuts",
     num_warmup=500, num_samples=1000, num_chains=4, seed=0,
 )
 

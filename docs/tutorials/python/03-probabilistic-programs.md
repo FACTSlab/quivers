@@ -229,7 +229,7 @@ target = torch.randn(32, 1)
 for epoch in range(10):
     optimizer.zero_grad()
     output = prog.rsample(batch)
-    loss = ((output - target) ** 2).mean()
+    loss = ((output["y"] - target) ** 2).mean()
     loss.backward()
     optimizer.step()
 ```

@@ -226,9 +226,11 @@ let combined = op_apply(arg1_morph, arg2_morph, kernel_morph)
 
 `contraction NAME ( ... ) : DOM -> COD rule R wiring "SPEC"` declares a named n-ary operadic morphism; the resulting `NAME` is callable from any expression site that accepts a morphism. Each call site type-checks argument count and per-argument numel against the contraction's declared signature, and runs the `EinsumWiring` against the supplied morphism tensors.
 
-## You're done
+## Next
 
-The Python-API track ends here. From this point:
+[Tutorial 8](08-analysis-pipelines.md) walks through the analysis-pipeline surface: one-line brms-style `fit("y ~ x + (1|g)", data=df, ...)` regression, the QVR program it compiles to, NUTS sampling, PSIS-LOO model comparison, and ArviZ posterior-predictive checks.
+
+## Further reading
 
 - Use the [QVR tutorial](../qvr/01-first-model.md) if you want to write models in the DSL.
 - Read the [guides](../../guides/index.md) for feature-area-specific deep dives.
