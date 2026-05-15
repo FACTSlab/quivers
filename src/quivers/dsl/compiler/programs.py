@@ -1747,18 +1747,28 @@ class _ProgramsMixin:
                     # there (where the outer block's runtime
                     # callable expects to find it). Otherwise we
                     # emit a fresh ``_marg_<var>`` slot.
+                    # Outer block: emit a score step (contributes to
+                    # log_joint). Inner block (when body_ll_var
+                    # re-points at the outer's expected slot): emit a
+                    # let so the outer's callable reads the inner's
+                    # reduction from env without double-scoring.
+                    is_nested_inner = (
+                        step.body_ll_var is not None
+                        and step.body_ll_var != step.var_name
+                    )
                     marg_name = (
                         step.body_ll_var
-                        if step.body_ll_var is not None
-                        and step.body_ll_var != step.var_name
+                        if is_nested_inner
                         else f"_marg_{step.var_name}"
                     )
                     bound_vars[marg_name] = None
-                    # 4-tuple with True flag = score step: the callable
-                    # returns a log-density contribution that gets added
-                    # to log_joint (not just bound to env).
                     steps.append(
-                        ((marg_name,), None, _marginalize_grouped_callable, True)
+                        (
+                            (marg_name,),
+                            None,
+                            _marginalize_grouped_callable,
+                            not is_nested_inner,
+                        )
                     )
                     continue
 
@@ -1768,14 +1778,24 @@ class _ProgramsMixin:
                     tensor = env[_v]
                     return torch.logsumexp(tensor, dim=-1)
 
+                is_nested_inner = (
+                    step.body_ll_var is not None
+                    and step.body_ll_var != step.var_name
+                )
                 marg_name = (
                     step.body_ll_var
-                    if step.body_ll_var is not None
-                    and step.body_ll_var != step.var_name
+                    if is_nested_inner
                     else f"_marg_{step.var_name}"
                 )
                 bound_vars[marg_name] = None
-                steps.append(((marg_name,), None, _marginalize_callable, True))
+                steps.append(
+                    (
+                        (marg_name,),
+                        None,
+                        _marginalize_callable,
+                        not is_nested_inner,
+                    )
+                )
                 continue
             if isinstance(step, LetStep):
                 if step.name in bound_vars:
