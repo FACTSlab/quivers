@@ -13,25 +13,7 @@ $$
 \mu \circ \mu T = \mu \circ T \mu, \quad \mu \circ \eta T = \text{id}, \quad \mu \circ T \eta = \text{id}
 $$
 
-The `Monad` abstract class defines this interface:
-
-```python
-from quivers.monadic.monads import Monad
-from quivers.core.objects import FinSet
-
-class MyMonad(Monad):
-    def unit(self, obj):
-        """η: obj → T(obj)"""
-        raise NotImplementedError()
-
-    def multiply(self, obj):
-        """μ: T(T(obj)) → T(obj)"""
-        raise NotImplementedError()
-
-    def map(self, f):
-        """Functor action: f → T(f)"""
-        raise NotImplementedError()
-```
+[`Monad`](../api/monadic/typeclasses.md) (in `quivers.monadic.typeclasses`) is an abstract base class. Concrete implementations must provide `endofunctor`, `fmap_obj`, `fmap`, `pure`, and `join`; the Eilenberg-Moore aliases `unit` / `multiply` are usually exposed too.
 
 ## Kleisli Category
 
@@ -41,48 +23,52 @@ Every monad $T$ induces a Kleisli category $\mathcal{C}_T$ where:
 - Morphisms $X \rightsquigarrow Y$ are morphisms $X \to T(Y)$ in $\mathcal{C}$
 - Composition is Kleisli composition: $(g \circ_T f)(x) = \mu(T(g)(f(x)))$
 
-In quivers:
+In quivers, [`KleisliCategory`](../api/monadic/monads.md) wraps any `Monad` and exposes `identity` and `compose`:
 
 ```python
-from quivers.monadic.monads import KleisliCategory
+from quivers.monadic.monads import KleisliCategory, FuzzyPowersetMonad
+from quivers.core.morphisms import morphism
+from quivers.core.objects import FinSet
 
-kleisli = KleisliCategory(monad=my_monad)
+monad = FuzzyPowersetMonad()
+kleisli = KleisliCategory(monad)
 
-# Kleisli morphisms: f: A ⇝ B is really A → T(B)
-f = kleisli.morphism_from_data(X, Y, tensor_data)
+X = FinSet(name="X", cardinality=3)
+Y = FinSet(name="Y", cardinality=4)
+Z = FinSet(name="Z", cardinality=2)
 
-# Kleisli composition
-g = kleisli.morphism_from_data(Y, Z, tensor_data)
-h = kleisli.compose(f, g)  # properly flattens via μ
+f = morphism(X, Y)              # interpreted as Kleisli arrow X ⇝ Y
+g = morphism(Y, Z)
+
+h = kleisli.compose(f, g)       # X ⇝ Z via μ ∘ T(g) ∘ f
 ```
 
 ## Fuzzy Powerset Monad
 
-The fuzzy powerset monad on the category of finite sets with the product fuzzy quantale:
+The fuzzy powerset monad on the V-enriched category of finite sets:
 
 ```python
 from quivers.monadic.monads import FuzzyPowersetMonad
 from quivers.core.objects import FinSet
 from quivers.core.quantales import PRODUCT_FUZZY
 
-X = FinSet("X", 3)
+X = FinSet(name="X", cardinality=3)
 
-monad = FuzzyPowersetMonad()
+monad = FuzzyPowersetMonad(quantale=PRODUCT_FUZZY)
 
-# T(X) = X (objects unchanged)
-TX = monad.unit(X)
+# At the set level, T(X) = X
+TX = monad.fmap_obj(X)
 assert TX == X
 
-# But the enrichment becomes fuzzy (PRODUCT_FUZZY)
-# A morphism A → B in the Kleisli category is really A → T(B) = A → B
-# with composition via noisy-OR (join in PRODUCT_FUZZY)
+# η_X : X → T(X) is the identity morphism with PRODUCT_FUZZY enrichment
+eta_X = monad.unit(X)
 ```
 
-The Kleisli category of the fuzzy powerset monad is equivalent to the category of fuzzy relations, where composition uses the noisy-OR join.
+The Kleisli category of the fuzzy powerset monad is the V-enriched relation category; composition uses the quantale's join (noisy-OR for `PRODUCT_FUZZY`).
 
 ## Free Monoid Monad
 
-The free monoid monad on the category of finite sets:
+The free monoid monad on finite sets, truncated to a maximum word length:
 
 ```python
 from quivers.monadic.monads import FreeMonoidMonad
@@ -90,10 +76,10 @@ from quivers.core.objects import FinSet, FreeMonoid
 
 monad = FreeMonoidMonad(max_length=3)
 
-X = FinSet("X", 5)
+X = FinSet(name="X", cardinality=5)
 
-# T(X) = Free Monoid on X, truncated to max_length
-TX = monad.map(X)
+# T(X) = FreeMonoid(generators=X, max_length=3)
+TX = monad.fmap_obj(X)
 assert isinstance(TX, FreeMonoid)
 assert TX.generators == X
 assert TX.max_length == 3
@@ -103,25 +89,10 @@ assert TX.max_length == 3
 
 A comonad $W: \mathcal{C} \to \mathcal{C}$ is a dual monad with:
 
-- **Extract** $\varepsilon: W \Rightarrow \text{id}$ (projection from comonad)
-- **Duplicate** $\delta: W \Rightarrow W \circ W$ (coflatmap / extend)
+- **Counit** $\varepsilon: W \Rightarrow \text{id}$ (projection from comonad)
+- **Comultiply** $\delta: W \Rightarrow W \circ W$ (extend / duplicate)
 
-```python
-from quivers.monadic.comonads import Comonad
-
-class MyComonad(Comonad):
-    def extract(self, obj):
-        """ε: W(obj) → obj"""
-        raise NotImplementedError()
-
-    def duplicate(self, obj):
-        """δ: W(obj) → W(W(obj))"""
-        raise NotImplementedError()
-
-    def comap(self, f):
-        """Functor action: f → W(f)"""
-        raise NotImplementedError()
-```
+[`Comonad`](../api/monadic/comonads.md) is an ABC; subclasses provide `endofunctor`, `counit(obj)`, and `comultiply(obj)`.
 
 ## CoKleisli Category
 
@@ -129,119 +100,102 @@ The coKleisli category $\mathcal{C}^W$ has:
 
 - Objects as in $\mathcal{C}$
 - Morphisms $X \rightleftharpoons Y$ are morphisms $W(X) \to Y$ in $\mathcal{C}$
-- Composition: $(g \circ^W f) = \text{extend}(g, f)$
+- Composition $f \,=\!\!>\!\!>\, g = g \circ W(f) \circ \delta$
 
 ```python
-from quivers.monadic.comonads import CoKleisliCategory
+from quivers.monadic.comonads import CoKleisliCategory, DiagonalComonad
 
-cokleisli = CoKleisliCategory(comonad=my_comonad)
-
-f = cokleisli.morphism_from_data(X, Y, tensor_data)
-g = cokleisli.morphism_from_data(Y, Z, tensor_data)
-h = cokleisli.compose(f, g)
+comonad = DiagonalComonad()
+cokleisli = CoKleisliCategory(comonad)
 ```
 
 ## Diagonal Comonad
 
-The diagonal (or duplication) comonad duplicates its input:
+The diagonal comonad $W(A) = A \times A$ has the first projection as counit and the diagonal-on-pairs as comultiplication:
 
 ```python
 from quivers.monadic.comonads import DiagonalComonad
+from quivers.core.objects import FinSet
 
-X = FinSet("X", 3)
-
+X = FinSet(name="X", cardinality=3)
 comonad = DiagonalComonad()
 
-# W(X) = X × X (duplication)
-WX = comonad.map(X)
+# Endofunctor action: W(X) = X × X
+WX = comonad.endofunctor.map_object(X)
 assert WX == X * X
 
-# extract projects back to X (first or second component)
-# duplicate sends X × X to (X × X) × (X × X)
+# Counit ε_X : X × X → X (first projection)
+eps = comonad.counit(X)
+
+# Comultiplication δ_X : X × X → (X × X) × (X × X)
+delta = comonad.comultiply(X)
 ```
 
 ## Cofree Comonad
 
-The cofree comonad generated by an endofunctor $F$:
+The cofree comonad on a store object:
 
 ```python
 from quivers.monadic.comonads import CofreeComonad
+from quivers.core.objects import FinSet
 
-# Cofree monad of functor F
-cofree = CofreeComonad(functor=F)
-
-# W(X) = X + F(X) + F²(X) + ...
+store = FinSet(name="S", cardinality=4)
+comonad = CofreeComonad(store=store)
 ```
 
 ## Algebras and Coalgebras
 
-An algebra for a monad $T$ is a morphism $a: T(X) \to X$ satisfying:
+A $T$-algebra is a pair $(A, \alpha: T(A) \to A)$ satisfying:
 
 $$
-a \circ \eta_X = \text{id}_X, \quad a \circ \mu_X = a \circ T(a)
+\alpha \circ \eta_A = \text{id}_A, \quad \alpha \circ \mu_A = \alpha \circ T(\alpha)
 $$
-
-A coalgebra for a comonad $W$ is a morphism $c: X \to W(X)$ satisfying the dual laws.
 
 ```python
-from quivers.monadic.algebras import Algebra, Coalgebra
+from quivers.monadic.algebras import FreeAlgebra, ObservedAlgebra
+import torch
 
-# T-algebra: action that respects monad structure
-algebra = Algebra(monad=T, carrier=X, action=a)
+# Free algebra: carrier is T(A), structure map is μ_A
+free_alg = FreeAlgebra(monad, X)
+assert free_alg.carrier == monad.fmap_obj(X)
 
-# W-coalgebra: structure that respects comonad
-coalgebra = Coalgebra(comonad=W, carrier=X, structure=c)
+# Verify the algebra laws
+assert free_alg.verify_unit_law()
+assert free_alg.verify_associativity()
 
-# Algebra homomorphism: f: (X, a) → (Y, b) such that b ∘ T(f) = f ∘ a
-hom = algebra.homomorphism_to(other_algebra)
+# Algebra from an explicit structure tensor α : T(A) → A
+TA = monad.fmap_obj(X)
+alpha_tensor = torch.eye(TA.size, X.size)[: TA.size, : X.size]  # any tensor of shape (TA.size, X.size)
+explicit_alg = ObservedAlgebra(monad, X, alpha_tensor)
 ```
+
+A $W$-coalgebra is the dual notion $(A, \gamma: A \to W(A))$.
 
 ## Eilenberg-Moore Category
 
-The Eilenberg-Moore category $\mathcal{C}^T$ of a monad $T$ has:
-
-- Objects: $T$-algebras $(X, a: T(X) \to X)$
-- Morphisms: algebra homomorphisms
-
-The forgetful functor $U: \mathcal{C}^T \to \mathcal{C}$ forgets the algebra structure, and the free functor $F: \mathcal{C} \to \mathcal{C}^T$ sends $X$ to $(T(X), \mu_X)$ (the monad itself is an algebra).
+The Eilenberg-Moore category of $T$ has $T$-algebras as objects and algebra homomorphisms as morphisms:
 
 ```python
 from quivers.monadic.algebras import EilenbergMooreCategory
 
-em = EilenbergMooreCategory(monad=T)
+em = EilenbergMooreCategory(monad)
 
 # Free algebra on X
-free_alg = em.free(X)
-assert free_alg.carrier == T.map(X)
-assert free_alg.action == T.multiply(X)
+free_alg = em.free_algebra(X)
 
-# Algebra from explicit action
-explicit_alg = em.algebra(X, a)
-
-# Homomorphism between algebras
-hom = em.homomorphism(alg1, alg2)
+# Check whether a base morphism f : A → B is a homomorphism between two algebras
+f = morphism(X, X)
+is_hom = em.is_homomorphism(f, free_alg, free_alg)
 ```
 
 ## Distributive Laws
 
-A distributive law $\lambda: T \circ S \Rightarrow S \circ T$ between endofunctors $T$ and $S$ allows lifting one monad through another.
-
-```python
-from quivers.monadic.distributive_laws import DistributiveLaw
-
-# Distributive law: T ∘ S ⇒ S ∘ T
-dlaws = DistributiveLaw(T, S, components)
-
-# Lift monad T through monad S
-lifted_T = dlaws.lift(T)
-```
-
-The `FreeMonoidPowersetLaw` distributes the free monoid monad over the fuzzy powerset monad:
+A distributive law $\lambda: T \circ S \Rightarrow S \circ T$ between monads allows lifting one through the other:
 
 ```python
 from quivers.monadic.distributive_laws import FreeMonoidPowersetLaw
 
-law = FreeMonoidPowersetLaw(monad_T=free_monoid, monad_S=fuzzy_powerset)
-
-# Use to compose programs that involve both monads
+law = FreeMonoidPowersetLaw(max_length=3)
 ```
+
+The lifted monad combines word-formation with fuzzy aggregation; see [`distributive_laws`](../api/monadic/distributive_laws.md) for the precise construction.

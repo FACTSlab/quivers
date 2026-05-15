@@ -16,8 +16,8 @@ from quivers.stochastic import StochasticMorphism, FinStoch
 from quivers.core.objects import FinSet
 import torch
 
-X = FinSet("X", 3)
-Y = FinSet("Y", 4)
+X = FinSet(name="X", cardinality=3)
+Y = FinSet(name="Y", cardinality=4)
 
 # Create a stochastic morphism (Markov kernel)
 f = StochasticMorphism(X, Y)
@@ -26,7 +26,7 @@ f = StochasticMorphism(X, Y)
 assert (f.tensor.sum(dim=-1) - 1.0).abs().max() < 1e-5
 
 # Composition preserves row-stochasticity
-g = StochasticMorphism(Y, FinSet("Z", 5))
+g = StochasticMorphism(Y, FinSet(name="Z", cardinality=5))
 h = f >> g
 assert (h.tensor.sum(dim=-1) - 1.0).abs().max() < 1e-5
 ```
@@ -73,8 +73,8 @@ A stochastic morphism is a learnable Markov kernel parameterized by an unconstra
 from quivers.stochastic import StochasticMorphism
 from quivers.core.objects import FinSet
 
-X = FinSet("X", 4)
-Y = FinSet("Y", 6)
+X = FinSet(name="X", cardinality=4)
+Y = FinSet(name="Y", cardinality=6)
 
 f = StochasticMorphism(X, Y)
 
@@ -104,7 +104,7 @@ from quivers.stochastic.families import (
 )
 from quivers.core.objects import FinSet
 
-X = FinSet("X", 10)
+X = FinSet(name="X", cardinality=10)
 
 # Discretized normal on 20 bins
 normal = DiscretizedNormal(X, n_bins=20)
@@ -125,22 +125,20 @@ $$p(x | \text{obs}) \propto p(x, \text{obs}) = \sum_y p(x, y) \cdot \mathbb{1}_{
 
 ```python
 from quivers.stochastic import condition, ConditionedMorphism
-from quivers.core.morphisms import observed
 
-X = FinSet("X", 3)
-Y = FinSet("Y", 4)
+X = FinSet(name="X", cardinality=3)
+Y = FinSet(name="Y", cardinality=4)
 
-# Joint distribution
-joint = StochasticMorphism(X * Y, X + Y)
+# Prior: X → Y
+prior = StochasticMorphism(X, Y)
 
-# Observation: Y = 1 (one-hot vector)
-obs = torch.zeros(4)
-obs[1] = 1.0
+# Evidence: a likelihood vector over Y (e.g., a soft observation "Y is unlikely to be 1")
+evidence = torch.tensor([1.0, 0.0, 1.0, 1.0])
 
-# Conditioned on obs
-conditioned = condition(joint, Y, obs)
-assert isinstance(conditioned, ConditionedMorphism)
-assert (conditioned.tensor.sum(dim=-1) - 1.0).abs().max() < 1e-5
+# Posterior: f|e(a, b) ∝ f(a, b) · e(b), row-renormalized
+posterior = condition(prior, evidence)
+assert isinstance(posterior, ConditionedMorphism)
+assert (posterior.tensor.sum(dim=-1) - 1.0).abs().max() < 1e-5
 ```
 
 ## Mixture Morphisms
@@ -153,30 +151,30 @@ from quivers.stochastic import mix, MixtureMorphism
 f = StochasticMorphism(X, Y)
 g = StochasticMorphism(X, Y)
 
-# Mix with weight 0.3
-mixture = mix(f, g, weight=0.3)
+# Mixture with a learnable weight (sigmoid of init_logit=0.0, so initial weight 0.5)
+mixture = mix(f, g, learnable=True, init_logit=0.0)
 assert isinstance(mixture, MixtureMorphism)
 
-# Tensor is 0.3 * f + 0.7 * g
-expected = 0.3 * f.tensor + 0.7 * g.tensor
+# Initial tensor is 0.5 * f + 0.5 * g
+expected = 0.5 * f.tensor + 0.5 * g.tensor
 assert torch.allclose(mixture.tensor, expected)
 ```
 
 ## Factored Morphisms
 
-Pointwise multiplication (element-wise product):
+Pointwise reweighting by a non-negative weight vector over the codomain:
 
 ```python
 from quivers.stochastic import factor, FactoredMorphism
 
 f = StochasticMorphism(X, Y)
-g = StochasticMorphism(X, Y)
+weights = torch.tensor([1.0, 0.5, 2.0, 1.0, 0.0, 1.0])  # over Y (|Y|=6)
 
-# Pointwise product (likelihood reweighting)
-factored = factor(f, g)
+# factor(f, w)(a, b) = f(a, b) · w(b)
+factored = factor(f, weights)
 assert isinstance(factored, FactoredMorphism)
 
-# Note: result may not be stochastic; use normalize() after
+# Note: result is unnormalized; use normalize() after
 ```
 
 ## Normalization
@@ -186,8 +184,9 @@ Renormalize rows to sum to 1:
 ```python
 from quivers.stochastic import normalize, NormalizedMorphism
 
-unnormalized = ...  # some tensor that doesn't sum to 1
-normalized = normalize(unnormalized)
+# `factored` is a morphism whose tensor need not be row-stochastic
+normalized = normalize(factored)
+assert isinstance(normalized, NormalizedMorphism)
 assert (normalized.tensor.sum(dim=-1) - 1.0).abs().max() < 1e-5
 ```
 
@@ -200,16 +199,16 @@ from quivers.stochastic import prob, marginal_prob, expectation
 
 f = StochasticMorphism(X, Y)
 
-# Query: P(x=0, y=2)
-p = prob(f, domain_idx=0, codomain_idx=2)
-assert 0 <= p <= 1
+# Query: P(y=2 | x=0)
+p = prob(f, torch.tensor([0]), torch.tensor([2]))   # shape (1,)
+assert (0 <= p).all() and (p <= 1).all()
 
-# Marginalize domain and query codomain
-# If f: X × Z → Y, marginalize over X
-marginal = marginal_prob(f, domain_component=X)
+# Marginal P(y) under a uniform prior over X
+m = marginal_prob(f, torch.tensor([0, 1, 2, 3, 4, 5]))  # |Y|=6
 
-# Expectation of codomain index under morphism
-expect = expectation(f, domain_idx=1)
+# Expectation of a real-valued function over the codomain, per domain element
+values = torch.arange(6, dtype=torch.float)
+expect = expectation(f, values)                      # shape (|X|,)
 ```
 
 ## The Giry Monad and FinStoch
@@ -225,17 +224,18 @@ from quivers.stochastic.giry import GiryMonad, FinStoch
 
 giry = GiryMonad()
 
-# Unit: embed element into point mass
-X = FinSet("X", 3)
-unit_X = giry.unit(X)  # FinSet("X", 3) → FinSet("X", 3)
+# Unit η_X: X → X is the Kronecker delta (each element to its point mass)
+X = FinSet(name="X", cardinality=3)
+unit_X = giry.unit(X)
 
-# Map (lift functor)
-f = morphism(X, Y)
-mapped = giry.map(f)
+# Kleisli composition of two stochastic morphisms via the monad
+f = StochasticMorphism(X, Y)
+g = StochasticMorphism(Y, FinSet(name="Z", cardinality=2))
+h = giry.kleisli_compose(f, g)
 
-# FinStoch category
+# FinStoch is the Kleisli category of the Giry monad
 fs = FinStoch()
-kernel = fs.morphism(X, Y)  # stochastic morphism
+h2 = fs.compose(f, g)
 ```
 
 Stochastic morphisms are composed exactly as in FinStoch (matrix multiplication), not via Kleisli composition. They form a category in their own right.
