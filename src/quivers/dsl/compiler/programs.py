@@ -1754,7 +1754,12 @@ class _ProgramsMixin:
                         else f"_marg_{step.var_name}"
                     )
                     bound_vars[marg_name] = None
-                    steps.append(((marg_name,), None, _marginalize_grouped_callable))
+                    # 4-tuple with True flag = score step: the callable
+                    # returns a log-density contribution that gets added
+                    # to log_joint (not just bound to env).
+                    steps.append(
+                        ((marg_name,), None, _marginalize_grouped_callable, True)
+                    )
                     continue
 
                 def _marginalize_callable(
@@ -1770,7 +1775,7 @@ class _ProgramsMixin:
                     else f"_marg_{step.var_name}"
                 )
                 bound_vars[marg_name] = None
-                steps.append(((marg_name,), None, _marginalize_callable))
+                steps.append(((marg_name,), None, _marginalize_callable, True))
                 continue
             if isinstance(step, LetStep):
                 if step.name in bound_vars:

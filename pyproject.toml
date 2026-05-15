@@ -46,6 +46,7 @@ dev = [
     "numpy",
     "pandas",
     "polars",
+    "pyarrow",
 ]
 docs = [
     "mkdocs",
