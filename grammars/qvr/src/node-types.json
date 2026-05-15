@@ -2078,6 +2078,26 @@
     "type": "encoder_decl",
     "named": true,
     "fields": {
+      "factory": {
+        "multiple": false,
+        "required": false,
+        "types": [
+          {
+            "type": "identifier",
+            "named": true
+          }
+        ]
+      },
+      "factory_options": {
+        "multiple": false,
+        "required": false,
+        "types": [
+          {
+            "type": "option_block",
+            "named": true
+          }
+        ]
+      },
       "name": {
         "multiple": false,
         "required": true,
@@ -8146,6 +8166,10 @@
   },
   {
     "type": "update",
+    "named": false
+  },
+  {
+    "type": "using",
     "named": false
   },
   {

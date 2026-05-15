@@ -1840,7 +1840,10 @@ class EncoderDecl(Statement):
     """An algebra homomorphism from an inductive or graph signature
     to a fixed-dimension vector carrier.
 
-    Surface form::
+    Two surface forms.
+
+    *Explicit*: list per-constructor rules, dims, iterations, and
+    readout in a ``{ ... }`` body::
 
         encoder C over Sig {
             dim Term = 64
@@ -1853,6 +1856,20 @@ class EncoderDecl(Statement):
             update[V](s, m)  |-> gru_update(s, m)
             readout          |-> mean_pool
         }
+
+    *Factory-backed*: invoke a builder from the
+    :mod:`quivers.structural.shapes` registry (``rnn_encoder``,
+    ``transformer_encoder``, ``bow_encoder``, ``tree_lstm_encoder``,
+    ``gnn_encoder``, ...) with optional ``[k=v]`` overrides::
+
+        encoder C over Sig using rnn_encoder
+        encoder C over Sig using transformer_encoder [dim=128]
+        encoder C over Sig using gnn_encoder [iterations=4, dim=64]
+
+    The two forms are mutually exclusive: a declaration that sets
+    :attr:`factory` to a non-empty string leaves every per-rule
+    field at its default; the explicit form leaves :attr:`factory`
+    empty and populates the per-rule tuples.
     """
 
     name: str
@@ -1866,6 +1883,8 @@ class EncoderDecl(Statement):
     iterations: int | None = None
     readout: "LetExprNode | None" = None
     var_inits: tuple[EncoderVarInit, ...] = ()
+    factory: str = ""
+    factory_options: dict[str, str] = dx.field(default_factory=dict)
     line: int = 0
     col: int = 0
     kind: Literal["encoder_decl"] = "encoder_decl"

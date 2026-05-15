@@ -302,3 +302,59 @@ def test_stepshape_is_a_dx_model():
     )
     assert s.name == "x"
     assert s.kind == "latent"
+
+
+class TestInitAutoDSL:
+    """End-to-end checks that the ``[init=auto]`` annotation on
+    latent declarations dispatches into the analysis package's
+    saturation-free recipe and overrides the default
+    ``randn(...) * scale`` init.
+    """
+
+    def test_product_fuzzy_latent_lands_at_recipe(self):
+        src = """
+algebra product_fuzzy
+object A : 8
+object B : 4
+latent f : A -> B [init=auto]
+export f
+"""
+        from quivers.dsl import loads
+
+        prog = loads(src)
+        m = prog.morphism
+        raw_mean = float(m.raw.detach().mean())
+        value_mean = float(m.tensor.detach().mean())
+        # Through LatentMorphism's sigmoid bijector the raw should
+        # land near logit(ln 2 / 8) ≈ -2.5.
+        assert -3.3 < raw_mean < -1.7
+        assert 0.04 < value_mean < 0.14
+
+    def test_init_default_without_annotation_is_centered(self):
+        src = """
+algebra product_fuzzy
+object A : 8
+object B : 4
+latent f : A -> B
+export f
+"""
+        from quivers.dsl import loads
+
+        prog = loads(src)
+        raw_mean = float(prog.morphism.raw.detach().mean())
+        # randn * 0.5 → mean very close to 0.
+        assert abs(raw_mean) < 0.6
+
+    def test_init_auto_idempotent_algebra_constant(self):
+        src = """
+algebra boolean
+object A : 4
+object B : 4
+latent f : A -> B [init=auto]
+export f
+"""
+        from quivers.dsl import loads
+
+        prog = loads(src)
+        raw = prog.morphism.raw.detach()
+        assert torch.allclose(raw, torch.zeros_like(raw), atol=1e-5)

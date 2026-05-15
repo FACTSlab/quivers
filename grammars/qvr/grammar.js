@@ -641,24 +641,40 @@ module.exports = grammar({
     // Encoder declaration: an algebra homomorphism T_Σ -> Vec_D
     // realised by per-constructor parametric functions.
 
+    // An encoder is either explicit (the ``{ ... }`` body lists
+    // per-constructor rules, hyperparameters, and readout) or
+    // factory-backed (``using <name>`` picks a builder from the
+    // shipped ``quivers.structural.shapes`` registry — rnn,
+    // transformer, bow, tree-lstm, gnn, etc.).  The factory form
+    // takes optional ``[k=v, ...]`` arguments forwarded to the
+    // builder.
     encoder_decl: $ => seq(
       'encoder',
       field('name', $.identifier),
       'over',
       field('signature', $.identifier),
       optional(seq('[', field('sig_args', commaSep1($.identifier)), ']')),
-      '{',
-      repeat(choice(
-        $.encoder_dim,
-        $.encoder_iterations,
-        $.encoder_readout,
-        $.encoder_op_rule,
-        $.encoder_message_rule,
-        $.encoder_update_rule,
-        $.encoder_init_rule,
-        $.encoder_var_init,
-      )),
-      '}',
+      choice(
+        seq(
+          '{',
+          repeat(choice(
+            $.encoder_dim,
+            $.encoder_iterations,
+            $.encoder_readout,
+            $.encoder_op_rule,
+            $.encoder_message_rule,
+            $.encoder_update_rule,
+            $.encoder_init_rule,
+            $.encoder_var_init,
+          )),
+          '}',
+        ),
+        seq(
+          'using',
+          field('factory', $.identifier),
+          optional(field('factory_options', $.option_block)),
+        ),
+      ),
     ),
 
     encoder_dim: $ => seq(

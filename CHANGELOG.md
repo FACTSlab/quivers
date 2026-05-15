@@ -4,6 +4,18 @@ All notable changes to the quivers library are documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/), and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.9.0] - 2026-05-15
+
+### Added
+
+- **DSL `[init=auto]` annotation on latent declarations.** `latent f : A -> B [init=auto]` overrides the default `randn * scale` init with the algebra's saturation-free recipe. Through `LatentMorphism`'s sigmoid bijector (for ProductFuzzy / Boolean / Gödel / Łukasiewicz / Probability) the raw parameter is set via `logit(value)`; for other algebras the recipe is applied to the raw parameter directly. The annotation rides on the existing `option_block` grammar; no new keywords.
+- **Encoder factory form: `encoder NAME over SIG using FACTORY [k=v, ...]`.** An alternative to the explicit `{ ... }` body that invokes a shipped builder from `quivers.structural.shapes` (`rnn_encoder`, `transformer_encoder`, `bow_encoder`, `tree_lstm_encoder`, `gnn_encoder`) with optional kwarg overrides. The two forms are mutually exclusive on one declaration and can coexist in the same module. The registry mapping factory name → import path lives in `quivers.dsl.compiler.structural._ENCODER_FACTORY_REGISTRY`.
+- **`quivers.analysis` package** — algebra-guided training tooling. See `notes/algebra-guided-training-tooling.md` for the broader roadmap.
+  - [`ChainShape.from_module(module)`](https://FACTSlab.github.io/quivers/api/analysis/chain_shape) walks a compiled QVR `Module` and produces a per-step record (`StepShape`) with bound variable name, source line / col, chain depth (1-indexed at the first stochastic bind), governing algebra, and inferred intermediate axis size.
+  - [`Algebra.init_spec(depth, intermediate_size) -> InitSpec`](https://FACTSlab.github.io/quivers/api/analysis/init_spec) returns the closed-form saturation-free init recipe per algebra (product-fuzzy `p ≈ ln(2)/k`, Łukasiewicz `p ≈ 1/k`, log-prob `-ln k`, Markov logits at 0, tropical/max-plus/real `1/√k`, Boolean/Gödel idempotent at 1/2, probability/counting `1/k`). [`recommend_init`](https://FACTSlab.github.io/quivers/api/analysis/init_spec) maps every latent in a module to its `InitSpec`; [`apply_init_spec`](https://FACTSlab.github.io/quivers/api/analysis/init_spec) materialises the recipe onto a learnable tensor via `torch.nn.init`.
+  - [`saturation_warnings(module)`](https://FACTSlab.github.io/quivers/api/analysis/saturation) returns source-keyed `SaturationWarning` diagnoses for every latent whose recipe differs materially (> 20% in location or scale) from a default `Normal(0, 1)`.
+- **Type-driven contraction wiring.** `contraction NAME(args) : DOM -> COD` blocks no longer require a hand-written einsum string. The compiler infers the einsum from the typed signature: axes that appear in the output propagate; axes that appear in ≥ 2 inputs but not the output get contracted via the rule's join; axes that appear in exactly one input but not the output are flagged with a source-keyed error pointing at the disambiguators. Two opt-in clauses for the cases inference can't derive: `share T1, T2, ...` keeps the listed axes element-wise even when shared across inputs; `wiring "<einsum>"` remains as the explicit escape hatch (diagonal extraction, reorderings, etc.).
+
 ## [0.8.0] - 2026-05-15
 
 ### Changed

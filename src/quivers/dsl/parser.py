@@ -2141,6 +2141,23 @@ def _walk_encoder_decl(t: _Tree, vid: str, line: int, col: int) -> EncoderDecl:
                 )
             )
 
+    # Optional factory clause. ``using <factory> [k=v, ...]`` is an
+    # alternative to the per-rule body; the parser emits a
+    # ``factory`` field plus an optional ``factory_options`` block.
+    factory = ""
+    factory_options: dict[str, str] = {}
+    factory_vid = t.field(vid, "factory")
+    if factory_vid is not None:
+        factory = t.text(factory_vid)
+    fo_vid = t.field(vid, "factory_options")
+    if fo_vid is not None:
+        for entry_vid in t.positional(fo_vid):
+            if t.kind(entry_vid) != "option_entry":
+                continue
+            k = t.text(t.field(entry_vid, "key"))
+            v = t.text(t.field(entry_vid, "value"))
+            factory_options[k] = v
+
     return EncoderDecl(
         name=name,
         signature=signature,
@@ -2153,6 +2170,8 @@ def _walk_encoder_decl(t: _Tree, vid: str, line: int, col: int) -> EncoderDecl:
         iterations=iterations,
         readout=readout,
         var_inits=tuple(var_inits),
+        factory=factory,
+        factory_options=factory_options,
         line=line,
         col=col,
     )

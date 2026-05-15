@@ -5,16 +5,23 @@ morphism, space, kernel, discretize, and embed declarations.
 """
 
 from __future__ import annotations
+import math
 from collections.abc import Callable
 import torch
+from quivers.analysis.init_spec import _algebra_init_spec
 from quivers.core.objects import FinSet
 from quivers.core.algebras import (
     BilinearForm,
+    BooleanAlgebra,
     CompositionRule,
     CustomBilinearForm,
     CustomAlgebra,
     CustomSemigroupoid,
     Algebra,
+    GodelAlgebra,
+    LukasiewiczAlgebra,
+    ProbabilityAlgebra,
+    ProductFuzzyAlgebra,
     Semigroupoid,
 )
 from quivers.core.morphisms import morphism as make_latent
@@ -46,6 +53,68 @@ from quivers.dsl.compiler._prelude import (
     _wrap_join_dim,
 )
 from quivers.dsl.compiler.programs import _ProgramsMixin
+
+
+def _apply_auto_init(morph, domain, codomain, algebra) -> None:
+    """Apply the algebra's saturation-free init recipe to a freshly
+    constructed :class:`LatentMorphism`.
+
+    The recipe is computed at depth 1 (a top-level latent declaration
+    is, in isolation, a one-step morphism; downstream composition is
+    out of scope for the static recipe) with the larger of the
+    morphism's resolved domain / codomain numel as the intermediate
+    axis size. The recipe is in value space; the raw parameter feeds
+    through :class:`LatentMorphism`'s sigmoid bijector, so for the
+    sigmoid case we invert via ``logit`` before sampling; for
+    algebras whose latent representation does not pass through a
+    bijector (Markov, log-prob, real, max-plus, tropical) the
+    recipe is applied to the raw parameter directly.
+    """
+
+    def _numel(obj) -> int:
+        shape = getattr(obj, "shape", ())
+        n = 1
+        for s in shape:
+            n *= int(s)
+        return max(1, n)
+
+    intermediate_size = max(_numel(domain), _numel(codomain))
+    spec = _algebra_init_spec(algebra, depth=1, intermediate_size=intermediate_size)
+
+    raw = morph.raw
+    is_sigmoid_bijected = isinstance(
+        algebra,
+        (
+            ProductFuzzyAlgebra,
+            BooleanAlgebra,
+            GodelAlgebra,
+            LukasiewiczAlgebra,
+            ProbabilityAlgebra,
+        ),
+    )
+
+    def _logit(p: float) -> float:
+        p = max(min(p, 1.0 - 1e-6), 1e-6)
+        return math.log(p / (1.0 - p))
+
+    with torch.no_grad():
+        if spec.distribution == "constant":
+            target = _logit(spec.mean) if is_sigmoid_bijected else spec.mean
+            raw.data.fill_(target)
+        elif spec.distribution == "uniform":
+            if is_sigmoid_bijected:
+                lo = _logit(spec.lower)
+                hi = _logit(spec.upper)
+            else:
+                lo = spec.lower
+                hi = spec.upper
+            raw.data.uniform_(lo, hi)
+        else:  # normal
+            if is_sigmoid_bijected:
+                mean = _logit(spec.mean)
+            else:
+                mean = spec.mean
+            raw.data.normal_(mean=mean, std=max(spec.std, 1e-6))
 
 
 class _DeclarationsMixin:
@@ -551,6 +620,8 @@ class _DeclarationsMixin:
             morph = make_latent(
                 domain, codomain, init_scale=scale, algebra=self._algebra
             )
+            if decl.options.get("init") == "auto":
+                _apply_auto_init(morph, domain, codomain, self._algebra)
         elif decl.morphism_kind == "observed":
             if decl.init_expr is not None:
                 morph = self._compile_expr(decl.init_expr)
