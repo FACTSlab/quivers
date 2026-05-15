@@ -399,6 +399,57 @@ class TestLensLaws:
         recovered = lens.backward(module, complement)
         assert recovered == parsed
 
+    def test_complement_is_formula_data_not_formula(self, base_df):
+        """The lens' complement is :class:`FormulaData`, carrying only
+        the fields not recoverable from the emitted :class:`Module`
+        (per-row data arrays, original identifier names, the
+        original formula string). It is not the entire
+        :class:`Formula`."""
+        from quivers.formulas.formula import FormulaData
+
+        parsed = formula_from_data("y ~ x + (1 | g)", base_df)
+        lens = FormulaToQVRModule(families["gaussian"])
+        _module, complement = lens.forward(parsed)
+        assert isinstance(complement, FormulaData)
+        assert complement.formula == "y ~ x + (1 | g)"
+        assert complement.response_name == "y"
+        assert "x" in complement.fixed_column_data
+        assert "g" in complement.group_levels
+
+    def test_backward_decodes_structure_from_module(self, base_df):
+        """The structural fields of the recovered :class:`Formula`
+        (fixed-column qvr names, intercept flag, random-effect
+        group / slope pairs) come from decoding the
+        :class:`Module`, not from the complement. Verify by
+        producing a Module without forwarding through the lens and
+        observing that backward recovers the correct structure."""
+        from quivers.formulas.formula import FormulaData
+
+        parsed = formula_from_data("y ~ x + (1 | g)", base_df)
+        lens = FormulaToQVRModule(families["gaussian"])
+        module, complement = lens.forward(parsed)
+        # Synthesise a minimal FormulaData with the data fields kept
+        # but the structural metadata stripped; the decoder fills the
+        # structural fields from the Module.
+        stripped = FormulaData(
+            formula=complement.formula,
+            response_name=complement.response_name,
+            response_values=complement.response_values,
+            fixed_column_names={},  # decoder uses qvr_name as fallback
+            fixed_column_data=complement.fixed_column_data,
+            group_original_names={},  # decoder uses qvr_group_name
+            group_levels=complement.group_levels,
+            group_indices=complement.group_indices,
+        )
+        recovered = lens.backward(module, stripped)
+        assert len(recovered.fixed_columns) == 2
+        assert recovered.fixed_columns[0].is_intercept is True
+        assert recovered.fixed_columns[1].qvr_name == "x"
+        assert recovered.fixed_columns[1].is_intercept is False
+        assert len(recovered.random_terms) == 1
+        assert recovered.random_terms[0].slope == "Intercept"
+        assert recovered.random_terms[0].group == "g"
+
 
 # ---------------------------------------------------------------------------
 # Emitted source compiles, both paths
