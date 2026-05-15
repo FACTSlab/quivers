@@ -4,6 +4,12 @@ All notable changes to the quivers library are documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/), and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.7.1] - 2026-05-15
+
+### Changed
+
+- **`FormulaToQVRModule` complement is `FormulaData`, not `Formula`.** The lens was declared as `Lens[Formula, Module, Formula]` — the lazy function-lens idiom in which the entire source rides as complement and `backward` is `const`. The honest setup is `Lens[Formula, Module, FormulaData]`: the structural fields of the formula (which columns exist, intercept flag, random-effect group / slope structure, family choice, response identifier) are recoverable from the emitted `Module` via a new `_decode_module` walker, and only the un-decodable fields ride in the complement (per-row data arrays, original pre-[`_qvr_name`](https://FACTSlab.github.io/quivers/api/formulas/formula) identifier names, `term` / `name` presentation labels, the original formula string). `backward(module, complement)` now performs a real decode + fuse pass. GetPut holds for every formula. New public symbol: [`FormulaData`](https://FACTSlab.github.io/quivers/api/formulas/formula#quivers.formulas.formula.FormulaData) in `quivers.formulas.formula`.
+
 ## [0.7.0] - 2026-05-15
 
 ### Changed
