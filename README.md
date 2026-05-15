@@ -99,6 +99,10 @@ Requirements: Python 3.14+, PyTorch 2.0+, didactic 0.6.0+, panproto 0.45.0+, pan
 
 See [CONTRIBUTING.md](CONTRIBUTING.md). Issues and pull requests welcome at [github.com/FACTSlab/quivers](https://github.com/FACTSlab/quivers).
 
+## Acknowledgments
+
+This project was developed by [Aaron Steven White](https://aaronstevenwhite.io/) at the University of Rochester with support from the National Science Foundation (NSF-BCS-2237175 *CAREER: Logical Form Induction*, NSF-BCS-2040831 *Computational Modeling of the Internal Structure of Events*). It was architected and implemented with the assistance of Claude Code.
+
 ## License
 
 MIT. See [LICENSE](LICENSE).
