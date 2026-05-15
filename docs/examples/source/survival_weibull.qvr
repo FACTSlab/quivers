@@ -31,7 +31,6 @@ program survival_weibull : Item -> Item
     beta <- Normal(0.0, 5.0)
     k <- Gamma(2.0, 1.0)
 
-    x : Item <- Normal(0.0, 1.0)
     let eta = alpha + beta * x
     let scale = exp(-eta / k)
 

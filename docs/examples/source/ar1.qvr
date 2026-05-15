@@ -23,7 +23,6 @@ program ar1 : Step -> Step
     phi <- Uniform(-1.0, 1.0)
     sigma <- HalfCauchy(1.0)
 
-    y_prev : Step <- Normal(0.0, 1.0)
     let mu = alpha + phi * y_prev
     observe y : Step <- Normal(mu, sigma)
     return phi

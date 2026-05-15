@@ -81,4 +81,5 @@ kernel decoder : State -> Obs ~ Normal [scale=0.1]
 
 let filter_and_reconstruct = scan(inference_cell) >> decoder
 
+export generative_step
 export filter_and_reconstruct

@@ -2,105 +2,86 @@
 
 ## Overview
 
-[Probabilistic PCA](https://en.wikipedia.org/wiki/Probabilistic_principal_component_analysis) ([Tipping & Bishop 1999](https://doi.org/10.1111/1467-9868.00196)) is the isotropic-noise special case of [factor analysis](factor-analysis.md): a single scalar $\sigma$ controls the observation noise on every output dimension, in contrast to the free diagonal of factor analysis. The generative model is
+[Probabilistic PCA](https://en.wikipedia.org/wiki/Probabilistic_principal_component_analysis) ([Tipping & Bishop 1999](https://doi.org/10.1111/1467-9868.00196)) factors a data matrix through a low-rank loading matrix $W$ acting on a per-item latent code $z$:
 
 $$
-z \sim \mathcal{N}(0, I_K), \quad y \mid z \sim \mathcal{N}(W z + b, \sigma^2 I_D).
+z_i \sim \mathcal{N}(0, I_K), \quad y_i \mid z_i \sim \mathcal{N}(W z_i, \sigma^2 I_D).
 $$
 
-The model is identifiable up to a $K \times K$ orthogonal rotation of $W$; the maximum-likelihood $W$ recovers the leading-$K$ [principal components](https://en.wikipedia.org/wiki/Principal_component_analysis) scaled by $\sqrt{\lambda_k - \sigma^2}$ where $\lambda_k$ are the data covariance eigenvalues. The loading matrix is again declared as a morphism-valued latent with a [matrix-normal](https://en.wikipedia.org/wiki/Matrix_normal_distribution) prior.
+The model is identifiable up to a $K \times K$ orthogonal rotation of $W$; the maximum-likelihood $W$ recovers the leading-$K$ [principal components](https://en.wikipedia.org/wiki/Principal_component_analysis) scaled by $\sqrt{\lambda_k - \sigma^2}$, where $\lambda_k$ are the data covariance eigenvalues. PPCA differs from [factor analysis](factor-analysis.md) only in the observation noise: PPCA uses a single isotropic scalar $\sigma$, factor analysis a free diagonal $\psi$.
+
+In quivers, the loading matrix is a [`LatentMorphism`](../api/core/morphisms.md) $W : \mathsf{LatentDim} \to \mathsf{ObsDim}$ carrying a [matrix-normal](https://en.wikipedia.org/wiki/Matrix_normal_distribution) prior, and the per-item latent code is itself a learnable morphism $Z : \mathsf{Item} \to \mathsf{LatentDim}$. The model mean is the composition $Z \mathbin{>>} W$, evaluated under `algebra real` as the canonical PPCA matmul.
 
 ## QVR Source
 
 ```qvr
+algebra real
+
 object LatentDim : 2
 object ObsDim : 3
 object Item : 200
 
+latent Z : Item -> LatentDim
 latent W : LatentDim -> ObsDim ~ MatrixNormal(0.0, 1.0, 1.0) over (dom, cod)
 
-program ppca : Item -> Item
-    sigma <- HalfCauchy(1.0)
-
-    z_1 : Item <- Normal(0.0, 1.0)
-    z_2 : Item <- Normal(0.0, 1.0)
-
-    b_1 <- Normal(0.0, 1.0)
-    b_2 <- Normal(0.0, 1.0)
-    b_3 <- Normal(0.0, 1.0)
-
-    w_1_1 <- Normal(0.0, 1.0)
-    w_1_2 <- Normal(0.0, 1.0)
-    w_2_1 <- Normal(0.0, 1.0)
-    w_2_2 <- Normal(0.0, 1.0)
-    w_3_1 <- Normal(0.0, 1.0)
-    w_3_2 <- Normal(0.0, 1.0)
-
-    let mu_1 = b_1 + w_1_1 * z_1 + w_1_2 * z_2
-    let mu_2 = b_2 + w_2_1 * z_1 + w_2_2 * z_2
-    let mu_3 = b_3 + w_3_1 * z_1 + w_3_2 * z_2
-
-    observe y_1 : Item <- Normal(mu_1, sigma)
-    observe y_2 : Item <- Normal(mu_2, sigma)
-    observe y_3 : Item <- Normal(mu_3, sigma)
-    return sigma
+let ppca = Z >> W
 
 export ppca
 ```
 
 ## Walkthrough
 
-The PPCA constraint is encoded by reusing a single scalar `sigma <- HalfCauchy(1.0)` across all three observation kernels, in contrast to the per-dimension `psi_d` of factor analysis. Everything else mirrors the factor analysis surface: the morphism-valued declaration
+The two latent declarations introduce the per-item code and the loading matrix as first-class arrows. The composition `Z >> W` is real-algebra matmul: under `algebra real` the `(i, d)` entry of the resulting `Item x ObsDim` tensor is exactly $\sum_k Z_{i,k} W_{k,d}$, the PPCA model mean.
+
+The matrix-normal prior
 
 <!-- compile: false -->
 ```qvr
 latent W : LatentDim -> ObsDim ~ MatrixNormal(0.0, 1.0, 1.0) over (dom, cod)
 ```
 
-places a [matrix-normal](https://en.wikipedia.org/wiki/Matrix_normal_distribution) prior on the loading matrix with the dom / cod axes bound positionally to the row and column covariance arguments. Per-item latent factors are declared as `Item`-indexed plates; the linear predictor is assembled entrywise in `let` steps; and the three `observe y_d : Item <- Normal(mu_d, sigma)` steps share the same isotropic scale.
+places a [`MatrixNormal`](../api/continuous/families.md#quivers.continuous.families.ConditionalMatrixNormal) prior on the loading matrix with the dom and cod axes bound positionally to the row and column covariance arguments. The [Kronecker structure](https://en.wikipedia.org/wiki/Kronecker_product) $V \otimes U$ expresses independent row and column correlation in the loadings.
+
+The PPCA / factor analysis distinction lives in the choice of downstream observation kernel applied to the matmul mean: a single shared scalar `sigma` for PPCA, a free diagonal `psi_d` for factor analysis. The morphism surface itself (the `Z >> W` matmul) is shared.
 
 ## Try it
 
 ```python
 import torch
 from quivers.dsl import load
-from quivers.inference import AutoNormalGuide, ELBO, SVI
 
 torch.manual_seed(0)
 
 prog = load("docs/examples/source/ppca.qvr")
 model = prog.morphism
 
+# The model tensor materialises `Z @ W`: the per-item, per-dim
+# PPCA mean. Train it as a deterministic low-rank fit to a
+# data matrix Y by gradient descent.
 N, D, K = 200, 3, 2
-W_true = torch.randn(D, K) * 0.7
-z = torch.randn(N, K)
-y_true = z @ W_true.T + 0.1 * torch.randn(N, D)
-obs = {f"y_{d + 1}": y_true[:, d] for d in range(D)}
+W_true = torch.randn(K, D)
+Z_true = torch.randn(N, K)
+Y = Z_true @ W_true + 0.1 * torch.randn(N, D)
 
-guide = AutoNormalGuide(model, observed_names=set(obs.keys()))
-optim = torch.optim.Adam(
-    list(model.parameters()) + list(guide.parameters()), lr=3e-2,
-)
-svi = SVI(model, guide, optim, ELBO())
-for _ in range(1500):
-    loss = svi.step(torch.zeros(N, 1), obs)
+opt = torch.optim.Adam(prog.parameters(), lr=5e-2)
+for _ in range(500):
+    opt.zero_grad()
+    loss = (model.tensor - Y).pow(2).mean()
+    loss.backward()
+    opt.step()
 
-W_fit = torch.tensor([
-    [guide._loc(f"w_{d + 1}_{k + 1}").item() for k in range(K)]
-    for d in range(D)
-])
-print("fitted W Wt:", W_fit @ W_fit.T)
-print("true   W Wt:", W_true @ W_true.T)
-print("fitted sigma:", guide._loc("sigma").exp().item())
+print("residual MSE:", (model.tensor - Y).pow(2).mean().item())
 ```
 
-The PPCA covariance is $W W^\top + \sigma^2 I$, so we check both the recovered $W W^\top$ (up to rotation) and the recovered isotropic scale.
+The mean-squared residual approaches the irreducible noise floor; the recovered factorisation `Z @ W` matches the data up to the $K \times K$ rotation invariance.
 
 ## Categorical Perspective
 
-PPCA is the isotropic restriction of [factor analysis](factor-analysis.md): the per-dimension noise morphism $\mathsf{ObsDim} \to \mathcal{G}(\mathsf{ObsDim})$ is a scalar-shared kernel rather than a $\mathsf{ObsDim}$-indexed plate. The loading-matrix morphism $W$ retains the same [matrix-normal](https://en.wikipedia.org/wiki/Matrix_normal_distribution) prior, expressing a prior measure on $\mathbf{Kern}(\mathsf{LatentDim}, \mathsf{ObsDim})$. Marginalizing the latent factor $z$ gives the closed-form covariance $W W^\top + \sigma^2 I$, recovered as the [right Kan extension](https://ncatlab.org/nlab/show/Kan+extension) along the projection $\mathsf{Item} \times \mathsf{LatentDim} \to \mathsf{Item}$.
+PPCA is a pair of arrows in a real-algebra category: the per-item code $Z : \mathsf{Item} \to \mathsf{LatentDim}$ and the loading $W : \mathsf{LatentDim} \to \mathsf{ObsDim}$. Their composition $Z \mathbin{>>} W$ is the [`LatentMorphism`](../api/core/morphisms.md) $\mathsf{Item} \to \mathsf{ObsDim}$ whose tensor is the model mean. Marginalising the latent factor under an isotropic noise kernel recovers the closed-form covariance $W^\top W + \sigma^2 I$ on the observation side.
+
+The morphism-valued [`MatrixNormal`](../api/continuous/families.md#quivers.continuous.families.ConditionalMatrixNormal) prior on $W$ is a measure on the hom-object $\mathbf{Kern}(\mathsf{LatentDim}, \mathsf{ObsDim})$, treating the loading as a first-class arrow rather than a flat vector of entries.
 
 ## See Also
 
-- [Factor Analysis](factor-analysis.md), the free-diagonal generalization.
-- [DSL Guide](../guides/dsl.md) for the morphism-valued prior surface and plate-bind syntax.
+- [Factor Analysis](factor-analysis.md), the free-diagonal generalisation.
+- [DSL Guide](../guides/dsl.md) for the morphism-valued prior surface.

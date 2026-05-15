@@ -2,48 +2,58 @@
 # Bayesian Gaussian Mixture Model
 # ================================================================
 #
-# A finite Gaussian mixture model with K components.  The
-# discrete component assignment is integrated out by a scoped
-# `marginalize` block: the body's observation depends on a
-# continuous latent shared across components, and the runtime
-# accumulates a log-sum-exp over the K components at every
-# observation row.
+# A finite Gaussian mixture model with K components.  Per-component
+# means and scales are continuous latents on the Component plate;
+# the per-row component assignment is a discrete latent integrated
+# out by a scoped `marginalize` block under the canonical
+# log-sum-exp aggregation over the K classes.
 #
 # Generative structure
 #
-#   probs   : Component       -- mixing weights (Dirichlet)
-#   mu_shift                  -- continuous latent driving the
-#                                per-class shift of the observed
-#                                Normal
+#   probs   : Component       -- mixing weights (Dirichlet prior)
+#   mu      : Component       -- per-component means (Normal prior)
+#   sigma   : Component       -- per-component scales (HalfNormal prior)
 #   cls     : Component       -- per-row component (marginalized)
-#   r       : Resp            -- observed row
+#   r       : Resp            -- observed row, conditional on `cls`
 #
-# The `over Item` grouping plate fibrates each response row into
-# the per-item accumulator; `via idx` names the per-observe
-# fibration into the Item plate.
+# Per-row likelihood:
+#
+#   p(r_n) = sum_k probs[k] * Normal(r_n; mu[k], sigma[k]).
+#
+# The `over Item` grouping plate fibrates each response row into a
+# per-item accumulator; `via idx` names the per-observe fibration
+# from `Resp` into the `Item` plate.  Inside the body, `factor`
+# expressions build per-(Resp, Component) parameter tensors by
+# gathering `mu[k]` and `sigma[k]` for every row, so the body's
+# likelihood genuinely depends on the marginalized variable.
 
 object Component : 4
-object Item : 1
+object Item : 8
 object Resp : 200
 
 program gmm : Resp -> Resp
-    # Mixing-weight concentration parameters.
+    # Mixing-weight concentration parameters (the Dirichlet prior
+    # on the simplex is taken inside the marginalize header).
     probs : Component <- HalfNormal(1.0)
+
+    # Per-component emission parameters.  Each row's likelihood
+    # conditional on cls = k is Normal(mu[k], sigma[k]).
+    mu : Component <- Normal(0.0, 5.0)
+    sigma : Component <- HalfNormal(1.0)
 
     # Per-row fibration into the Item grouping plate.
     idx : Resp <- HalfNormal(1.0)
 
-    # Continuous latent: a shared shift parameter driving the
-    # observation kernel inside the marginalize body.  SVI on a
-    # mixture model identifies this jointly with the per-class
-    # log-weights.
-    mu_shift <- Normal(0.0, 1.0)
-
-    # Marginalize the per-row component assignment.
+    # Marginalize the per-row component assignment.  The body
+    # references the marginalized variable `cls` by gathering
+    # `mu[cls]` and `sigma[cls]` at every row, producing a
+    # genuinely per-class log-likelihood.
     marginalize cls : Component <- Dirichlet(probs)
         over Item
         in {
-            observe r : Resp via idx <- Normal(mu_shift, 1.0)
+            let mu_nk = factor n : Resp, k : Component in mu[k]
+            let sigma_nk = factor n : Resp, k : Component in sigma[k]
+            observe r : Resp via idx <- Normal(mu_nk, sigma_nk)
         }
     return probs
 

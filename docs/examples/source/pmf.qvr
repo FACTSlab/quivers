@@ -4,55 +4,39 @@
 #
 # The user-item latent-factor recommender model (Salakhutdinov &
 # Mnih 2007): every user and every item has a K-dimensional
-# latent vector, the expected rating is their inner product, and
-# observed ratings are Normal noise around that inner product.
-# K = 2 keeps the example small.
-#
-# The two factor matrices appear as morphisms
+# latent vector, and the expected rating is their inner product.
+# In categorical form, the two factor matrices are morphisms
 #
 #     U : LatentDim -> User
 #     V : LatentDim -> Movie
 #
-# with matrix-normal priors via the morphism-valued surface.  The
-# observed rating model is the composed bilinear form
-# r = U(z)^T V(z) + noise; in the program body we materialise the
-# per-rating row gather of the two factor matrices and write the
-# inner product elementwise.
+# and the bilinear score is the composite User -> Movie obtained
+# by transposing U and contracting along LatentDim:
+#
+#     pmf = U.dagger >> V : User -> Movie.
+#
+# The (u, m) entry of the resulting tensor is exactly the inner
+# product sum_k U[k, u] * V[k, m]: the canonical PMF rating
+# mean. Each factor matrix carries a matrix-normal prior on its
+# (LatentDim, side) tensor, with row covariance on LatentDim and
+# column covariance on the user / movie plate; the Kronecker
+# structure is the original PMF paper's prior.
+#
+# Working under `algebra real` makes the composition a
+# real-valued matmul. K = 2 keeps the example small.
+
+algebra real
 
 object LatentDim : 2
 object User : 1000
 object Movie : 500
-object Rating : 100000
 
-# Two morphism factors with matrix-normal priors.  Each factor
-# matrix lives on (LatentDim, side) with the row axis being the
-# K-dim latent and the column axis being the user / movie plate.
+# Two morphism factors with matrix-normal priors.
 latent U : LatentDim -> User ~ MatrixNormal(0.0, 1.0, 1.0) over (dom, cod)
 latent V : LatentDim -> Movie ~ MatrixNormal(0.0, 1.0, 1.0) over (dom, cod)
 
-program pmf : Rating -> Rating
-    # Per-side scale hyperpriors.
-    sigma_user <- HalfCauchy(1.0)
-    sigma_item <- HalfCauchy(1.0)
-    sigma_obs <- HalfCauchy(1.0)
-
-    # Per-user and per-item factor entries: u_k indexed by User,
-    # v_k indexed by Movie.  The morphism-valued priors above
-    # declare the joint Kronecker structure; here we sample
-    # entrywise so the bilinear inner product reads cleanly.
-    u_1 : User <- Normal(0.0, sigma_user)
-    u_2 : User <- Normal(0.0, sigma_user)
-    v_1 : Movie <- Normal(0.0, sigma_item)
-    v_2 : Movie <- Normal(0.0, sigma_item)
-
-    # Per-rating row gather of the user and item factors.
-    let user_factor_1 = u_1[user_idx]
-    let user_factor_2 = u_2[user_idx]
-    let item_factor_1 = v_1[movie_idx]
-    let item_factor_2 = v_2[movie_idx]
-
-    let mu = user_factor_1 * item_factor_1 + user_factor_2 * item_factor_2
-    observe r : Rating <- Normal(mu, sigma_obs)
-    return sigma_obs
+# Bilinear score as composition: transpose U, contract on
+# LatentDim, recover the (User, Movie) rating-mean matrix.
+let pmf = U.dagger >> V
 
 export pmf

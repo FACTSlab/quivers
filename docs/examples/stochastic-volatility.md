@@ -14,7 +14,6 @@ program stochastic_volatility : Step -> Step
     phi <- Uniform(-1.0, 1.0)
     sigma_h <- HalfCauchy(2.5)
 
-    h_prev : Step <- Normal(mu, 1.0)
     let h_mean = mu + phi * (h_prev - mu)
     h : Step <- Normal(h_mean, sigma_h)
 
@@ -27,7 +26,7 @@ export stochastic_volatility
 
 ## Walkthrough
 
-`mu`, `phi`, and `sigma_h` are the AR(1) hyperparameters of the log-volatility chain; `phi` is constrained to the [stationarity interval](https://en.wikipedia.org/wiki/Stationary_process) `(-1, 1)`. The `h_prev` plate carries the lagged log-volatility, the `h` plate carries the current latent log-volatility, and `exp(0.5 * h)` is the standard SV link to the per-step return scale. The observed returns are mean-zero Normal scaled by the time-varying volatility.
+`mu`, `phi`, and `sigma_h` are the AR(1) hyperparameters of the log-volatility chain; `phi` is constrained to the [stationarity interval](https://en.wikipedia.org/wiki/Stationary_process) `(-1, 1)`. The identifier `h_prev` is exogenous host-data: it is never declared inside the program, so the runtime resolves it from the observations dict at trace time, where the caller supplies the lagged latent log-volatility. The current-step `h` is a latent draw with mean `mu + phi * (h_prev - mu)` realising the AR(1) recursion, and `exp(0.5 * h)` is the standard SV link to the per-step return scale. The observed returns are mean-zero Normal scaled by the time-varying volatility.
 
 ## Try it
 
@@ -40,11 +39,12 @@ prog = load("docs/examples/source/stochastic_volatility.qvr")
 model = prog.morphism
 
 returns = torch.randn(200) * 0.5
+h_prev = torch.cat([torch.zeros(1), torch.randn(199) * 0.3])
 guide = AutoNormalGuide(model, observed_names={"r"})
 optim = torch.optim.Adam(list(model.parameters()) + list(guide.parameters()), lr=5e-3)
 svi = SVI(model, guide, optim, ELBO())
 for _ in range(3000):
-    svi.step(torch.zeros(200, 1), {"r": returns})
+    svi.step(torch.zeros(200, 1), {"r": returns, "h_prev": h_prev})
 ```
 
 ## Categorical Perspective

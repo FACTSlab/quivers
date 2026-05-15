@@ -117,7 +117,7 @@ nav:
     - Overview: examples/index.md
     - Bayesian Linear Regression: examples/bayesian-regression.md
     - Beta Regression: examples/beta-regression.md
-    - Dirichlet Regression: examples/dirichlet-regression.md
+    - Gamma Regression: examples/gamma-regression.md
     - Horseshoe Regression: examples/horseshoe-regression.md
     - Negative Binomial Regression: examples/negbin-regression.md
     - Zero-Inflated Poisson Regression: examples/zip-regression.md

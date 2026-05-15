@@ -2,24 +2,31 @@
 
 ## Overview
 
-A finite [Gaussian mixture model](https://en.wikipedia.org/wiki/Mixture_model) assigns each observation to one of $K$ [Gaussian](https://en.wikipedia.org/wiki/Normal_distribution) components, with the per-row component drawn from a [Dirichlet](https://en.wikipedia.org/wiki/Dirichlet_distribution)-distributed mixing prior. This example demonstrates the canonical quivers idiom for finite mixtures: a scoped `marginalize` block that integrates out the discrete per-row component assignment by [log-sum-exp](https://en.wikipedia.org/wiki/LogSumExp) over the $K$ classes at every observation.
+A finite [Gaussian mixture model](https://en.wikipedia.org/wiki/Mixture_model) assigns each observation to one of $K$ [Gaussian](https://en.wikipedia.org/wiki/Normal_distribution) components, with the per-row component drawn from a [Dirichlet](https://en.wikipedia.org/wiki/Dirichlet_distribution)-distributed mixing prior. This example demonstrates the canonical quivers idiom for finite mixtures: per-component means and scales are continuous latents on the `Component` plate, and the discrete per-row component assignment is integrated out by a scoped `marginalize` block whose body genuinely depends on the marginalized variable, yielding the canonical [log-sum-exp](https://en.wikipedia.org/wiki/LogSumExp) over $K$ classes at every observation:
+
+$$
+p(r_n) \;=\; \sum_{k=1}^{K} \mathrm{probs}[k] \; \mathcal{N}\!\bigl(r_n;\, \mu[k],\, \sigma[k]\bigr).
+$$
 
 ## QVR Source
 
 ```qvr
 object Component : 4
-object Item : 1
+object Item : 8
 object Resp : 200
 
 program gmm : Resp -> Resp
     probs : Component <- HalfNormal(1.0)
+    mu : Component <- Normal(0.0, 5.0)
+    sigma : Component <- HalfNormal(1.0)
     idx : Resp <- HalfNormal(1.0)
-    mu_shift <- Normal(0.0, 1.0)
 
     marginalize cls : Component <- Dirichlet(probs)
         over Item
         in {
-            observe r : Resp via idx <- Normal(mu_shift, 1.0)
+            let mu_nk = factor n : Resp, k : Component in mu[k]
+            let sigma_nk = factor n : Resp, k : Component in sigma[k]
+            observe r : Resp via idx <- Normal(mu_nk, sigma_nk)
         }
     return probs
 
@@ -28,7 +35,7 @@ export gmm
 
 ## Walkthrough
 
-The plate-bound `probs : Component` carries the Dirichlet concentration vector for the per-row component assignment. The per-row fibration `idx : Resp` names the per-observe fibration into the singleton `Item` grouping plate. The scalar `mu_shift` is a continuous latent shared across components, drawn from a Normal prior.
+The plate-bound `probs : Component` carries the mixing weights; the marginalize header takes a Dirichlet prior on the simplex with `probs` as the concentration. The per-component emission parameters `mu : Component` and `sigma : Component` are continuous latents on the `Component` plate: each `mu[k]` is the centre of the $k$-th Gaussian and each `sigma[k]` its scale. The per-row fibration `idx : Resp` names the per-observe fibration from `Resp` into the `Item` grouping plate.
 
 The scoped marginalize block
 
@@ -37,11 +44,13 @@ The scoped marginalize block
 marginalize cls : Component <- Dirichlet(probs)
     over Item
     in {
-        observe r : Resp via idx <- Normal(mu_shift, 1.0)
+        let mu_nk = factor n : Resp, k : Component in mu[k]
+        let sigma_nk = factor n : Resp, k : Component in sigma[k]
+        observe r : Resp via idx <- Normal(mu_nk, sigma_nk)
     }
 ```
 
-introduces the per-row component latent `cls : Component` with a [Dirichlet](https://en.wikipedia.org/wiki/Dirichlet_distribution) prior on the mixing simplex. Inside the body, `observe r : Resp via idx <- Normal(mu_shift, 1.0)` scores each response under the shared Normal likelihood; the runtime accumulates one per-class log-likelihood at every row, scatter-sums into the `Item`-indexed accumulator, and [log-sum-exps](https://en.wikipedia.org/wiki/LogSumExp) over `Component`. At the end of the scope `cls` falls out of scope; the integrated marginal is the pushforward measure on $\Phi$ alone.
+introduces the per-row component latent `cls : Component` under a [Dirichlet](https://en.wikipedia.org/wiki/Dirichlet_distribution) prior on the mixing simplex. Inside the body, the two `factor` expressions build per-(`Resp`, `Component`) parameter tensors by gathering `mu[k]` and `sigma[k]` for every row, so the observation `Normal(mu_nk, sigma_nk)` genuinely depends on the marginalized variable: each row's per-class log-likelihood reads off the $k$-th component's mean and scale. The runtime scatter-sums each row's contribution into the `Item`-indexed accumulator and [log-sum-exps](https://en.wikipedia.org/wiki/LogSumExp) over `Component`, integrating `cls` out by pushforward along the projection $\Phi \times \mathsf{Component} \to \Phi$. At the end of the scope `cls` falls out of scope.
 
 ## Try it
 
@@ -79,11 +88,11 @@ for _ in range(500):
 print("GMM loss:", loss)
 ```
 
-The grouped marginalize block exposes the per-row per-class log-likelihood slot `_grouped_ll_cls_0` directly, so a synthetic experiment supplies that tensor under known component means.
+The grouped marginalize block exposes the per-row per-class log-likelihood slot `_grouped_ll_cls_0` directly, so a synthetic experiment can supply that tensor under known component means and recover the mixing weights through SVI.
 
 ## Categorical Perspective
 
-The discrete latent `cls : Component` is integrated out by pushforward along the projection $\Phi \times \mathsf{Component} \to \Phi$. The grouped marginalize block is the right Kan extension of the per-class log-likelihood along the per-row fibration $\mathsf{Resp} \to \mathsf{Item}$ in $\mathbf{Kern}$, followed by a [log-sum-exp](https://en.wikipedia.org/wiki/LogSumExp) reduction along the `Component` axis weighted by the categorical prior implied by the Dirichlet.
+The discrete latent `cls : Component` is integrated out by [pushforward](https://en.wikipedia.org/wiki/Pushforward_measure) along the projection $\Phi \times \mathsf{Component} \to \Phi$. The grouped marginalize block is the [right Kan extension](https://ncatlab.org/nlab/show/Kan+extension) of the per-class log-likelihood along the per-row fibration $\mathsf{Resp} \to \mathsf{Item}$ in $\mathbf{Kern}$, followed by a [log-sum-exp](https://en.wikipedia.org/wiki/LogSumExp) reduction along the `Component` axis weighted by the categorical prior implied by the Dirichlet.
 
 ## See Also
 

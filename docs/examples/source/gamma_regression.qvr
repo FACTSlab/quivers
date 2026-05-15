@@ -1,0 +1,43 @@
+# ================================================================
+# Gamma Regression for Component Totals
+# ================================================================
+#
+# A Bayesian regression for non-negative component totals, fit
+# with a Gamma likelihood and a per-category log-rate predictor.
+# This is the unnormalized layer of a Dirichlet regression
+# ([Maier 2014](https://doi.org/10.32614/CRAN.package.DirichletReg)):
+# independent Gamma draws with shapes `(alpha_1, ..., alpha_K)`
+# and unit rate normalize to a sample on the K-simplex, but here
+# the observed quantity is the raw Gamma tally, not its simplex
+# projection.  The model uses K = 3 categories; each category's
+# log-shape is a linear function of the predictor:
+#
+#   beta_0_k, beta_1_k ~ Normal(0, 2)        for k in 1..K
+#   alpha_{n, k}       = exp(beta_0_k + beta_1_k * x_n)
+#   tally_{n, k}       ~ Gamma(alpha_{n, k}, 1)
+#
+# The K coefficient plates are gathered through `cat_idx` so the
+# program scales to arbitrary K without rewriting the body.  The
+# Resp object is the flattened (Item, Cat) index; per-row simplex
+# normalization is a deterministic post-composition handled
+# downstream when the user wants a Dirichlet response.
+# Distinguishing feature: per-category plate-gather makes the
+# K-dimensional codomain a one-line variation on the univariate
+# regression body.
+
+object Item : 200
+object Cat : 3
+object Resp : 600
+
+program gamma_regression : Resp -> Resp
+    beta_0 : Cat <- Normal(0.0, 2.0)
+    beta_1 : Cat <- Normal(0.0, 2.0)
+
+    let b0 = beta_0[cat_idx]
+    let b1 = beta_1[cat_idx]
+    let alpha = exp(b0 + b1 * x)
+
+    observe tally : Resp <- Gamma(alpha, 1.0)
+    return beta_1
+
+export gamma_regression

@@ -24,7 +24,6 @@ program stochastic_volatility : Step -> Step
     phi <- Uniform(-1.0, 1.0)
     sigma_h <- HalfCauchy(2.5)
 
-    h_prev : Step <- Normal(mu, 1.0)
     let h_mean = mu + phi * (h_prev - mu)
     h : Step <- Normal(h_mean, sigma_h)
 

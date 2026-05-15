@@ -31,7 +31,6 @@ program changepoint : Step -> Step
     rate_before <- Gamma(2.0, 1.0)
     rate_after <- Gamma(2.0, 1.0)
 
-    t : Step <- Normal(0.0, 1.0)
     let s = sigmoid(20.0 * (t - tau))
     let rate = (1.0 - s) * rate_before + s * rate_after
 

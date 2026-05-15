@@ -2,7 +2,7 @@
 
 ## Overview
 
-A Bayesian [LSTM](https://doi.org/10.1162/neco.1997.9.8.1735) language model. The recurrent cell is a parametric [`program`](../guides/dsl.md#program) that draws the four standard gates (`i`, `f`, `o`, `g`) from [`LogitNormal`](../api/continuous/families.md) and [`Normal`](../api/continuous/families.md) priors, applies the canonical cell update `c_t = f_t * c_{t-1} + i_t * g_t`, and emits `h_t = o_t * tanh(c_t)`. The per-position cell state is projected onto the vocabulary by a Categorical `lm_head` so the program's `observe` step scores the next-token target end to end.
+A Bayesian [LSTM](https://doi.org/10.1162/neco.1997.9.8.1735) language model. The recurrent cell is a parametric [`program`](../guides/dsl.md#program) that draws the four standard gates (`i`, `f`, `o`, `g`) from [`LogitNormal`](../api/continuous/families.md) and [`Normal`](../api/continuous/families.md) priors, computes the canonical cell update `c_t = f_t * h_{t-1} + i_t * g_t`, and emits the per-step hidden output `h_t = o_t * tanh(c_t)`. The per-position hidden output is projected onto the vocabulary by a Categorical `lm_head` so the program's `observe` step scores the next-token target end to end.
 
 ## QVR Source
 
@@ -20,19 +20,19 @@ kernel gate_o : Embedded * Hidden -> Hidden ~ LogitNormal
 kernel cell_cand : Embedded * Hidden -> Hidden ~ Normal [scale=0.5]
 kernel lm_head : Hidden -> Token ~ Categorical
 
-program lstm_cell(x_t, c_prev) : Embedded * Hidden -> Hidden
-    i_gate <- gate_i(x_t, c_prev)
-    f_gate <- gate_f(x_t, c_prev)
-    o_gate <- gate_o(x_t, c_prev)
-    g_cand <- cell_cand(x_t, c_prev)
+program lstm_cell(x_t, h_prev) : Embedded * Hidden -> Hidden
+    i_gate <- gate_i(x_t, h_prev)
+    f_gate <- gate_f(x_t, h_prev)
+    o_gate <- gate_o(x_t, h_prev)
+    g_cand <- cell_cand(x_t, h_prev)
 
-    let c_new = f_gate * c_prev + i_gate * g_cand
+    let c_new = f_gate * h_prev + i_gate * g_cand
     let two_c = 2.0 * c_new
     let sig_2c = sigmoid(two_c)
     let tanh_c = 2.0 * sig_2c - 1.0
     let h_new = o_gate * tanh_c
 
-    return c_new
+    return h_new
 
 let backbone = tok_embed >> scan(lstm_cell)
 
@@ -52,18 +52,18 @@ The parametric program `lstm_cell` realizes the canonical LSTM update. Each gate
 
 | Step | DSL | Meaning |
 |---|---|---|
-| input gate | `i_gate <- gate_i(x_t, c_prev)` | $i_t = \sigma(W_i [x_t, c_{t-1}])$ |
-| forget gate | `f_gate <- gate_f(x_t, c_prev)` | $f_t = \sigma(W_f [x_t, c_{t-1}])$ |
-| output gate | `o_gate <- gate_o(x_t, c_prev)` | $o_t = \sigma(W_o [x_t, c_{t-1}])$ |
-| candidate | `g_cand <- cell_cand(x_t, c_prev)` | $g_t = \phi(W_g [x_t, c_{t-1}])$ |
-| cell update | `let c_new = f_gate * c_prev + i_gate * g_cand` | $c_t = f_t \odot c_{t-1} + i_t \odot g_t$ |
+| input gate | `i_gate <- gate_i(x_t, h_prev)` | $i_t = \sigma(W_i [x_t, h_{t-1}])$ |
+| forget gate | `f_gate <- gate_f(x_t, h_prev)` | $f_t = \sigma(W_f [x_t, h_{t-1}])$ |
+| output gate | `o_gate <- gate_o(x_t, h_prev)` | $o_t = \sigma(W_o [x_t, h_{t-1}])$ |
+| candidate | `g_cand <- cell_cand(x_t, h_prev)` | $g_t = \phi(W_g [x_t, h_{t-1}])$ |
+| cell update | `let c_new = f_gate * h_prev + i_gate * g_cand` | $c_t = f_t \odot h_{t-1} + i_t \odot g_t$ |
 | hidden | `let h_new = o_gate * tanh_c` | $h_t = o_t \odot \tanh(c_t)$ |
 
 `tanh` is realized from [`sigmoid`](../guides/dsl.md#indexed-gather-in-let) via the identity $\tanh(x) = 2\,\sigma(2x) - 1$.
 
 ### State threading
 
-`scan(lstm_cell)` is an iterated Kleisli composition along the sequence: the threaded state is the cell state $c_t$ (the LSTM's long-range memory channel). The hidden vector $h_t$ is computed inside the cell on every step but does not need to be threaded separately, since the Categorical `lm_head` is parameterized by the terminal $c_T$ and absorbs the output-gate / $\tanh$ post-composition into its own learned linear map.
+`scan(lstm_cell)` is an iterated Kleisli composition along the sequence: the threaded state is the per-step hidden output $h_t$, which the Categorical `lm_head` reads at the terminal position to score the next token. The cell-state vector $c_t$ is computed inside the cell at every step from the threaded $h_{t-1}$ and used immediately to form $h_t$ via the output-gate / $\tanh$ post-composition. Because `scan` threads a single codomain, this presentation folds the canonical LSTM's separate $c$-channel into the local cell body: the long-term cell-state memory channel that a two-state LSTM exposes is not propagated across time steps here, and the recurrence reduces to $h_t = o_t \odot \tanh(f_t \odot h_{t-1} + i_t \odot g_t)$.
 
 ```mermaid
 flowchart LR
@@ -71,17 +71,17 @@ flowchart LR
     x_t["x_t"] --> gate_f["gate_f"]
     x_t["x_t"] --> gate_o["gate_o"]
     x_t["x_t"] --> cell_cand["cell_cand"]
-    c_prev["c_prev"] --> gate_i["gate_i"]
-    c_prev["c_prev"] --> gate_f["gate_f"]
-    c_prev["c_prev"] --> gate_o["gate_o"]
-    c_prev["c_prev"] --> cell_cand["cell_cand"]
+    h_prev["h_prev"] --> gate_i["gate_i"]
+    h_prev["h_prev"] --> gate_f["gate_f"]
+    h_prev["h_prev"] --> gate_o["gate_o"]
+    h_prev["h_prev"] --> cell_cand["cell_cand"]
     gate_f["gate_f"] --> c_new["c_new"]
     cell_cand["cell_cand"] --> c_new["c_new"]
     gate_i["gate_i"] --> c_new["c_new"]
-    c_prev["c_prev"] --> c_new["c_new"]
-    c_new["c_new"] --> scan["scan"]
+    h_prev["h_prev"] --> c_new["c_new"]
     gate_o["gate_o"] --> h_new["h_new"]
     c_new["c_new"] --> h_new["h_new"]
+    h_new["h_new"] --> scan["scan"]
 ```
 
 ## Try it
