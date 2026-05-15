@@ -1779,13 +1779,10 @@ class _ProgramsMixin:
                     return torch.logsumexp(tensor, dim=-1)
 
                 is_nested_inner = (
-                    step.body_ll_var is not None
-                    and step.body_ll_var != step.var_name
+                    step.body_ll_var is not None and step.body_ll_var != step.var_name
                 )
                 marg_name = (
-                    step.body_ll_var
-                    if is_nested_inner
-                    else f"_marg_{step.var_name}"
+                    step.body_ll_var if is_nested_inner else f"_marg_{step.var_name}"
                 )
                 bound_vars[marg_name] = None
                 steps.append(
