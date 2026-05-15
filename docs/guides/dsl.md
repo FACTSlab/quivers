@@ -407,7 +407,7 @@ bilinear_form my_bf {
 
 ### Contraction
 
-A `contraction` block declares an operadic n-ary morphism, parameterized by an einsum-style wiring spec under a named composition rule:
+A `contraction` block declares an operadic n-ary morphism under a named composition rule. The compiler infers the einsum wiring from the typed signature: axes in the output propagate, axes shared across $\ge 2$ inputs but absent from the output get contracted via the rule's join, and axes appearing in exactly one input but absent from the output are flagged as an error with a source-keyed hint.
 
 <!-- compile: false -->
 ```qvr
@@ -417,10 +417,24 @@ contraction op_apply (
     kernel : B -> D
 ) : A -> D
     rule product_fuzzy
-    wiring "sp, sq, pqd -> sd"
 ```
 
-The declared `op_apply` is callable from any expression site as `op_apply(arg1_morph, arg2_morph, kernel_morph)`. Each call checks argument count and per-argument shape (by numel) against the declared signature, then runs the einsum-style contraction under the named rule. See [Composition Rules § 4](../semantics/composition-rules.md#4-operadic-contractions) for the operadic action.
+Two opt-in clauses cover cases inference cannot derive on its own:
+
+- `share T1, T2, ...` keeps the listed axes element-wise even when they are shared across inputs (rather than contracted).
+- `wiring "<einsum>"` is the explicit escape hatch for unusual contractions (diagonal extraction, axis reorderings, etc.) where the inference rules do not apply.
+
+<!-- compile: false -->
+```qvr
+contraction broadcast_add (
+    f : A -> B,
+    g : A -> B
+) : A -> B
+    rule real
+    share B
+```
+
+The declared name is callable from any expression site as `op_apply(arg1_morph, arg2_morph, kernel_morph)`. Each call checks argument count and per-argument shape (by numel) against the declared signature, then runs the contraction under the named rule. See [Composition Rules § 4](../semantics/composition-rules.md#4-operadic-contractions) for the operadic action.
 
 ### Deduction
 
@@ -731,6 +745,15 @@ latent W : Euclidean(D) -> Euclidean(K)
 latent W : Euclidean(D) -> Euclidean(K)
     ~ MatrixNormal(0.0, 1.0, 1.0) over (dom, cod)
 ```
+
+The `[init=auto]` option overrides the default `randn * scale` init with the active algebra's saturation-free recipe, derived from `Algebra.init_spec(depth, intermediate_size)`. For ProductFuzzy, Boolean, Gödel, Łukasiewicz, and Probability the recipe is applied through [`LatentMorphism`](../api/core/morphisms.md)'s sigmoid bijector (the raw parameter is set via `logit(value)`); for the other algebras the recipe is applied to the raw parameter directly.
+
+<!-- compile: false -->
+```qvr
+latent W : Euclidean(D) -> Euclidean(K) [init=auto]
+```
+
+See `quivers.analysis` for the per-algebra recipes (`Algebra.init_spec`, `recommend_init`, `apply_init_spec`) and the `saturation_warnings` diagnostic.
 
 ### Discretize
 
@@ -1268,6 +1291,43 @@ let par = f @ g
 let marg = fg.marginalize(Y)
 let composed = f >> g >> h
 ```
+
+### Signature, Encoder, Decoder, Loss
+
+The structural-compression surface gives transformers, tree LSTMs, GNNs, RNNs, autoregressive language models, and the vector inside-outside parser as instances of one interface. A `signature { ... }` block declares sorts and constructors over a free term algebra. An `encoder { ... }` block declares a per-constructor parametric function realizing the F-algebra homomorphism from terms to vectors. A `decoder { ... }` block declares the dual Kleisli arrow from vectors back to terms. A `loss { ... }` block attaches a training objective at any site in the graph.
+
+<!-- compile: false -->
+```qvr
+signature Seq {
+    sorts { Seq : object dim 64, A : data dim 64 }
+    constructors { Nil : -> Seq, Cons : A, Seq -> Seq }
+}
+
+encoder C over Seq {
+    dim Seq = 64
+    Nil                              |-> 0.0
+    Cons(head, tail) recurrent state |-> gelu(layer_norm(head + state))
+}
+
+decoder D over Seq depth 16 { body |-> recursive }
+
+loss reconstruction weight 1.0 on encoder C { -D(C(input)).log_prob(input) }
+```
+
+Encoder rule bodies are let-expressions over the [let-expression primitive table](../semantics/programs.md#231-built-in-primitives) (every `torch.nn.functional` activation, the simplex maps, pointwise transcendentals, `dim=-1` reductions, layer-norm, dropout) plus any callable declared at module scope (programs, morphisms, encoders, decoders, deductions). Arity is checked at compile time.
+
+For encoders that fit one of the standard architectures, the explicit `{ ... }` body can be replaced by a factory invocation:
+
+<!-- compile: false -->
+```qvr
+encoder rnn_enc over seq using rnn_encoder [dim=128]
+encoder tfm_enc over seq using transformer_encoder [dim=256, heads=8]
+encoder bow_enc over seq using bow_encoder
+encoder tree    over lf  using tree_lstm_encoder
+encoder graph   over mol using gnn_encoder
+```
+
+Factories live in `quivers.structural.shapes`; bracketed kwargs are forwarded and validated against the factory signature. See the [structural-compression guide](structural-compression.md) for the full surface (sequence-shaped sugar `recurrent` / `attention`, graph message-passing, binder de-Bruijn threading, sort-conditional `var_init` declarations, loss attachment kinds).
 
 ### Export
 
