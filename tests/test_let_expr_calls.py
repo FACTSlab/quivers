@@ -154,9 +154,7 @@ class TestBuiltinPrimitives:
         x = torch.randn(8, 16) * 5 + 7
         fn = _compile(_call("layer_norm", _var("x")))
         out = fn({"x": x})
-        torch.testing.assert_close(
-            out.mean(dim=-1), torch.zeros(8), atol=1e-5, rtol=0
-        )
+        torch.testing.assert_close(out.mean(dim=-1), torch.zeros(8), atol=1e-5, rtol=0)
 
     def test_rms_norm_preserves_shape(self):
         x = torch.randn(4, 8)
@@ -580,9 +578,7 @@ class TestDispatchOrdering:
         # ``MyCtor`` not in globals or builtins but in the constructor
         # set: should build a term tuple.
         node = _call("MyCtor", _lit(1.0), _lit(2.0))
-        compiled = _compile(
-            node, globals_={"__constructors__": frozenset({"MyCtor"})}
-        )
+        compiled = _compile(node, globals_={"__constructors__": frozenset({"MyCtor"})})
         out = compiled({})
         assert out[0] == "MyCtor"
         assert len(out) == 3
@@ -616,7 +612,12 @@ class TestDeepNestingAndBroadcasting:
         env = {k: torch.tensor(1.0) for k in "abcdef"}
         out = compiled(env)
         expected = (
-            1 + 1 + 1 + 1 + torch.relu(torch.tensor(1.0)) + torch.sigmoid(torch.tensor(1.0))
+            1
+            + 1
+            + 1
+            + 1
+            + torch.relu(torch.tensor(1.0))
+            + torch.sigmoid(torch.tensor(1.0))
         )
         torch.testing.assert_close(out, expected)
 

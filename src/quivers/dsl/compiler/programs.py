@@ -207,8 +207,7 @@ _LET_EXPR_BUILTINS: dict[str, Callable] = {
     "dropout": lambda a, p=0.5: _F.dropout(a, p=p, training=True),
     "alpha_dropout": lambda a, p=0.5: _F.alpha_dropout(a, p=p, training=True),
     "layer_norm": lambda a: _F.layer_norm(a, normalized_shape=(a.shape[-1],)),
-    "rms_norm": lambda a: a
-    * torch.rsqrt(a.pow(2).mean(dim=-1, keepdim=True) + 1e-6),
+    "rms_norm": lambda a: a * torch.rsqrt(a.pow(2).mean(dim=-1, keepdim=True) + 1e-6),
 }
 
 
@@ -237,7 +236,7 @@ def _expected_call_arity(target: object) -> int | None:
         return 1
     try:
         sig = inspect.signature(target)  # type: ignore[arg-type]
-    except (TypeError, ValueError):
+    except TypeError, ValueError:
         return None
     positional_kinds = (
         inspect.Parameter.POSITIONAL_ONLY,
@@ -2603,9 +2602,8 @@ class _ProgramsMixin:
                 and func_name != "__constructors__"
                 and func_name not in _TENSOR_BUILTINS
                 and func_name not in _higher_order_or_special
-                and func_name not in _globs_for_check.get(
-                    "__constructors__", frozenset()
-                )
+                and func_name
+                not in _globs_for_check.get("__constructors__", frozenset())
             ):
                 _target_for_check = _globs_for_check[func_name]
                 if callable(_target_for_check):
@@ -2748,8 +2746,7 @@ class _ProgramsMixin:
                             # RuntimeError; re-raise with the call site
                             # named so the user knows which call broke.
                             raise CompileError(
-                                f"call to {func_name!r} failed at runtime: "
-                                f"{exc}"
+                                f"call to {func_name!r} failed at runtime: {exc}"
                             ) from exc
                 # Constructor mode: build a tuple ``(func_name, *args)``
                 # only when ``func_name`` is in the user-declared
