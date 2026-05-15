@@ -37,7 +37,7 @@ import torch
 
 from quivers.core.objects import SetObject
 from quivers.core.morphisms import Morphism, observed, identity
-from quivers.core.algebras import PRODUCT_FUZZY, Algebra
+from quivers.core.algebras import PRODUCT_FUZZY, Algebra as VAlgebra
 from quivers.monadic.typeclasses import Monad
 
 
@@ -179,7 +179,7 @@ class ObservedAlgebra(Algebra):
         monad: Monad,
         carrier: SetObject,
         structure_tensor: torch.Tensor,
-        algebra: Algebra | None = None,
+        algebra: VAlgebra | None = None,
     ) -> None:
         super().__init__(monad, carrier)
         q = algebra if algebra is not None else PRODUCT_FUZZY
@@ -329,7 +329,7 @@ class ObservedCoalgebra(Coalgebra):
         comonad: object,
         carrier: SetObject,
         structure_tensor: torch.Tensor,
-        algebra: Algebra | None = None,
+        algebra: VAlgebra | None = None,
     ) -> None:
         super().__init__(comonad, carrier)
         q = algebra if algebra is not None else PRODUCT_FUZZY
@@ -380,8 +380,8 @@ class EilenbergMooreCategory:
     def is_homomorphism(
         self,
         f: Morphism,
-        source_alg: Algebra,
-        target_alg: Algebra,
+        source_alg: VAlgebra,
+        target_alg: VAlgebra,
         atol: float = 1e-5,
     ) -> bool:
         """Check if f: A → B is an algebra homomorphism.

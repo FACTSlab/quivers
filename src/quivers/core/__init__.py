@@ -66,7 +66,7 @@ __all__ = [
     "Unit",
     # algebras
     "Algebra",
-    "ProductFuzzy",
+    "ProductFuzzyAlgebra",
     "BooleanAlgebra",
     "PRODUCT_FUZZY",
     "BOOLEAN",

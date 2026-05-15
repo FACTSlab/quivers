@@ -25,6 +25,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/), and this
   | `quivers.core.quantales` module | `quivers.core.algebras` |
   | `quivers.core.quantale_morphisms` module | `quivers.core.algebra_morphisms` |
   | `quivers.stochastic.quantale` re-export | **deleted**; import `MarkovAlgebra`, `MARKOV` from `quivers.core.algebras` |
+  | `quivers.Algebra` (Eilenberg-Moore monad algebra) | `quivers.MonadAlgebra` (the public re-export; inside `quivers.monadic.algebras` the class is still named `Algebra`) |
 
   Singletons (`PRODUCT_FUZZY`, `BOOLEAN`, `LUKASIEWICZ`, `GODEL`, `TROPICAL`, `MAX_PLUS`, `LOG_PROB`, `REAL`, `PROBABILITY`, `COUNTING`, `MARKOV`, `REICHENBACH`, `MATERIAL_IMPLICATION`) keep their names. Registry key strings (`"product_fuzzy"`, `"boolean"`, ...) keep their names.
 

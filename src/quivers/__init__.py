@@ -113,7 +113,7 @@ from quivers.monadic.comonads import (
     CofreeComonad,
 )
 from quivers.monadic.algebras import (
-    Algebra,
+    Algebra as MonadAlgebra,
     FreeAlgebra,
     ObservedAlgebra,
     Coalgebra,
@@ -311,7 +311,7 @@ __all__ = [
     "EMPTY",
     # algebras
     "Algebra",
-    "ProductFuzzy",
+    "ProductFuzzyAlgebra",
     "BooleanAlgebra",
     "PRODUCT_FUZZY",
     "BOOLEAN",
@@ -389,7 +389,7 @@ __all__ = [
     "DiagonalComonad",
     "CofreeComonad",
     # algebras and coalgebras
-    "Algebra",
+    "MonadAlgebra",
     "FreeAlgebra",
     "ObservedAlgebra",
     "Coalgebra",
