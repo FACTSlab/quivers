@@ -4,7 +4,7 @@ All notable changes to the quivers library are documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/), and this project adheres to [Semantic Versioning](https://semver.org/).
 
-## [0.6.0] - 2026-05-14
+## [Unreleased]
 
 ### Changed
 
@@ -28,11 +28,26 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/), and this
 
   Singletons (`PRODUCT_FUZZY`, `BOOLEAN`, `LUKASIEWICZ`, `GODEL`, `TROPICAL`, `MAX_PLUS`, `LOG_PROB`, `REAL`, `PROBABILITY`, `COUNTING`, `MARKOV`, `REICHENBACH`, `MATERIAL_IMPLICATION`) keep their names. Registry key strings (`"product_fuzzy"`, `"boolean"`, ...) keep their names.
 
+### Added: analysis pipelines (formula → fit → diagnostics)
+
+- **`quivers.formulas`: brms-style formula frontend.** A typed AST lens compiles `y ~ x + (1 | g)` formulas through the existing QVR DSL without touching source strings: the lens emits a [`quivers.dsl.ast_nodes.Module`](https://FACTSlab.github.io/quivers/api/dsl/ast_nodes) directly and the existing Compiler consumes it. R / brms behaviour is faithful: orthogonal polynomials by default (`poly(x, k)` matches `stats::poly`), one coefficient per design-matrix column (`poly(x, 2)` produces `beta_poly_x_2_1` / `beta_poly_x_2_2`), R-style numeric transforms wired in (`log`, `exp`, `sqrt`, ...), and the family registry (`gaussian`, `bernoulli`, `binomial`, `categorical`, `poisson`, `negative_binomial`, `gamma`, `beta`, `student_t`, `cumulative`) drives the inverse-link + observe step. One-line entry is `fit("y ~ x + (1|g)", data=df, family=, sampler=, ...)` returning a [`BayesianFit`](https://FACTSlab.github.io/quivers/api/formulas/fit) `dx.Model`; `formula_to_qvr` emits the same module as canonical `.qvr` source. Gated behind the `formulas` extra.
+- **`quivers.data`: DataFrame schema bridge.** [`DatasetSchema`](https://FACTSlab.github.io/quivers/api/data/schema) turns a pandas / polars / Narwhals-compatible dataframe into the object cardinalities, observations dict, and plate-index codes a QVR program needs. `compose(qvr_body, schema)` prepends inferred `object X : N` declarations to a user-written program body so the user only writes the program body. Four missing-data policies: `raise`, `drop`, `impute`, `mask`. Gated behind the `data` extra.
+- **`quivers.diagnostics`: ArviZ adapter.** Glue layer between quivers' inference records and the ArviZ 1.x `xarray.DataTree` surface. [`to_datatree`](https://FACTSlab.github.io/quivers/api/diagnostics/arviz_io) wraps quivers' per-site sample tensors, log-densities, acceptance rates, and divergences into the canonical ArviZ groups (consumable by `plot_trace`, `plot_forest`, `plot_ppc`, `loo`, `compare`, `hdi`, ...). [`compare`](https://FACTSlab.github.io/quivers/api/diagnostics/comparison) delegates to ArviZ's PSIS-LOO ranking ([Yao et al. 2018](https://doi.org/10.1214/17-BA1091)). [`posterior_predictive_check`](https://FACTSlab.github.io/quivers/api/diagnostics/predictive_checks) computes the canonical posterior-predictive p-value for a user-chosen test statistic. Gated behind the `diagnostics` extra.
+- **`quivers.dsl.emit`: AST → `.qvr` source serializer.** [`module_to_source`](https://FACTSlab.github.io/quivers/api/dsl/emit) walks a `Module` AST and produces canonical `.qvr` source; the round-trip `loads(module_to_source(m)) == m` is exercised on every formula in the test suite.
+- **`TransformedMorphism`.** `Morphism.change_base`, `.dagger`, `.trace`, and `.refactor` now return a [`TransformedMorphism`](https://FACTSlab.github.io/quivers/api/core/morphism_transformations) whose `.tensor` is recomputed from the source morphism's tensor on every access, keeping autograd graphs alive across transforms.
+- **Posterior-recovery test marker.** Ten end-to-end recovery tests under `tests/test_formulas.py::TestPosteriorRecovery` fit synthetic data with known true coefficients (Gaussian / Bernoulli / Poisson / Gamma, hierarchical random intercepts, multi-predictor regression, log transforms, polynomial terms, interactions, random slopes); marked `@pytest.mark.slow` and deselected by default (`pytest --runslow tests/` to include).
+
+### Changed: regression examples
+
+- Drop the spurious `x : Resp <- Normal(0, 1)` declarations from every regression example (`bayesian_regression`, `beta_regression`, `dirichlet_regression`, `horseshoe_regression`, `negbin_regression`, `zip_regression`): predictors are exogenous data and flow through the host-data channel as free variables in `let` expressions, not as latent draws. Gallery markdown explainers updated to match.
+
+## [0.6.0] - 2026-05-14
+
 ### Added
 
 - **Factor expressions: `let f = factor v_1 : I_1, ..., v_n : I_n in <body>`.** A new let-expression form that assembles an indexed tensor of shape `(|I_1|, ..., |I_n|, *body_shape)` by evaluating `<body>` once per cell of the Cartesian product of binder indices. The categorical content is the left adjoint of multi-axis indexing: factor is to indexing as a (co)limit cone is to its components. A single-binder pattern-match form `factor v : I in { 0 -> e_0, 1 -> e_1, ... }` is also supported for cell-structured priors (label coverage and in-range labels are checked at compile time). Closes [#19](https://github.com/FACTSlab/quivers/issues/19).
 
-
+## [0.5.0] - 2026-05-13
 
 ### Headline additions
 
