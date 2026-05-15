@@ -347,9 +347,13 @@ class MonadicProgram(ContinuousMorphism):
     def _stack_tensors(parts: list[torch.Tensor]) -> torch.Tensor:
         """Stack tensors along feature dimension.
 
-        Handles both 1D (discrete, shape (batch,)) and 2D
-        (continuous, shape (batch, d)) tensors by unsqueezing
-        1D tensors before concatenation.
+        Handles 1D (discrete, shape ``(batch,)``) and 2D (continuous,
+        shape ``(batch, d)``) tensors by unsqueezing 1D tensors before
+        concatenation, and broadcasts scalar / size-1 leading dims
+        against the maximum batch size present in the input list.
+        The size-1 broadcast covers the hierarchical-model case where
+        a scalar latent (e.g. ``sigma``) is concatenated with a
+        per-row tensor (e.g. ``mu``) ahead of an indexed observe.
 
         Parameters
         ----------
@@ -362,15 +366,27 @@ class MonadicProgram(ContinuousMorphism):
             Concatenated tensor along dim=-1.
         """
         expanded = []
-
         for p in parts:
             if p.dim() == 1:
                 expanded.append(p.unsqueeze(-1).float())
-
             else:
                 expanded.append(p.float())
 
-        return torch.cat(expanded, dim=-1)
+        batch = max(t.shape[0] for t in expanded)
+        broadcast = []
+        for t in expanded:
+            if t.shape[0] == batch:
+                broadcast.append(t)
+            elif t.shape[0] == 1:
+                broadcast.append(t.expand(batch, *t.shape[1:]))
+            else:
+                raise RuntimeError(
+                    f"_stack_tensors: incompatible batch sizes "
+                    f"{[t.shape[0] for t in expanded]}; expected each to be "
+                    f"1 (scalar) or {batch} (per-row)"
+                )
+
+        return torch.cat(broadcast, dim=-1)
 
     def _bind_result(
         self,

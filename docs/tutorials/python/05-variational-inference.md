@@ -153,7 +153,8 @@ Programs that use indexed observes (`observe r : N <- F(args)`) read their respo
 
 ```python
 observations = {"y": y_observed}            # shape matches the program's N
-loss = svi.step(domain_input, observations)
+# Once SVI is set up (next section), pass observations into svi.step:
+#     loss = svi.step(domain_input, observations)
 ```
 
 There is no `.qvr`-level data block; observation tensors live in Python at the call site.

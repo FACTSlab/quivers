@@ -40,20 +40,20 @@ y = 1.0 + 2.0 * x + 0.5 * np.random.randn(N)
 df = pd.DataFrame({"y": y, "x": x})
 ```
 
-Fit `y ~ x` under a Gaussian family. SVI is the fastest sampler and is enough for a quick sanity check:
+Fit `y ~ x` under a Gaussian family. SVI is the fastest inference method (it fits a variational [`Guide`](../../api/inference/guide.md) by optimization rather than running an MCMC chain) and is enough for a quick sanity check:
 
 ```python
 result = fit(
     "y ~ x",
     data=df,
     family="gaussian",
-    sampler="svi",
+    method="svi",
     num_samples=2000,    # under SVI, num_samples is the number of optimisation steps
     seed=0,
 )
 ```
 
-`result` is a [`BayesianFit`](../../api/formulas/fit.md) — a frozen `dx.Model` with these load-bearing fields:
+`result` is a [`BayesianFit`](../../api/formulas/fit.md): a frozen `dx.Model` with these load-bearing fields:
 
 | Field         | What it holds                                                                 |
 |---------------|--------------------------------------------------------------------------------|
@@ -68,7 +68,7 @@ Inspect the QVR program the formula compiled to:
 print(result.qvr_source)
 ```
 
-```text
+```qvr
 object Resp : 200
 program model : Resp -> Resp
     intercept <- Normal(0.0, 5.0)
@@ -109,7 +109,7 @@ intercept (true 1.0): 0.927 ± 0.036
 beta_x    (true 2.0): 2.023 ± 0.030
 ```
 
-SVI's posterior is biased toward the prior under small `num_samples`; bumping to `num_samples=4000` or switching to `sampler="nuts"` tightens recovery further.
+SVI's posterior is biased toward the prior under small `num_samples`; bumping to `num_samples=4000` or switching to `method="nuts"` tightens recovery further.
 
 ## Random effects: hierarchical model under SVI
 
@@ -135,14 +135,14 @@ result = fit(
     "y ~ x + (1 | g)",
     data=df,
     family="gaussian",
-    sampler="svi",
+    method="svi",
     num_samples=4000,
     seed=0,
 )
 print(result.qvr_source)
 ```
 
-```text
+```qvr
 object Resp : 96
 object g : 8
 program model : Resp -> Resp
@@ -150,8 +150,8 @@ program model : Resp -> Resp
     beta_x <- Normal(0.0, 5.0)
     let beta_x_per_row = (beta_x * x)
     sigma_g_Intercept <- HalfNormal(1.0)
-    alpha_g : g <- Normal(0.0, sigma_g_Intercept)
-    let alpha_g_per_row = alpha_g[g_idx]
+    z_g_Intercept : g <- Normal(0.0, 1.0)
+    let alpha_g_per_row = (sigma_g_Intercept * z_g_Intercept[g_idx])
     sigma <- HalfCauchy(2.0)
     let eta = ((intercept + beta_x_per_row) + alpha_g_per_row)
     let mu = eta
@@ -161,7 +161,7 @@ program model : Resp -> Resp
 export model
 ```
 
-The random-intercept structure expands to three additions: a `HalfNormal` scale latent `sigma_g_Intercept`, an `alpha_g` plate draw of size `|g|`, and a per-row gather `alpha_g[g_idx]` that flows into the linear predictor.
+The random-intercept structure expands to a `HalfNormal` scale latent `sigma_g_Intercept`, a *standard-Normal* plate draw `z_g_Intercept` of size `|g|`, and a per-row contribution `sigma_g_Intercept * z_g_Intercept[g_idx]`. This is the non-centered parameterization: `alpha_g[i] = sigma * z[i]` is computed deterministically rather than drawn as `alpha_g[i] ~ Normal(0, sigma)`. Non-centered is the default because it eliminates Neal's funnel and gives HMC / NUTS a well-conditioned geometry for sampling variance components; flip to the textbook form with `fit(..., reparameterize="centered")` when you want it.
 
 Recovery:
 
@@ -183,13 +183,21 @@ for name, true in [
 ```
 
 ```text
-intercept            (true 1.50): 0.811 ± 0.034
+intercept            (true 1.50): 1.748 ± 0.035
 beta_x               (true 0.70): 0.620 ± 0.038
-sigma_g_Intercept    (true 0.60): 0.083 ± 0.076
+sigma_g_Intercept    (true 0.60): 0.273 ± 0.014
 sigma                (true 0.40): 0.375 ± 0.028
 ```
 
-The variational mean-field guide under-shrinks the group-level variance (`sigma_g_Intercept` is recovered as 0.08, not 0.6), which in turn biases the fixed-effect intercept downward. This is the well-documented limitation of `AutoNormalGuide` on plate-typed sites. For honest recovery of hierarchical variance components, use NUTS — see the model-comparison section below for the NUTS path.
+Non-centered emission means SVI gives recognisable recovery for the fixed effects on a model this small; the group-level scale is still under-shrunk because mean-field VI generically under-estimates posterior variance, but the funnel that wrecks centered hierarchical models is gone. For tighter posterior estimates on variance components, switch to `method="nuts"`; for a different variational family, pass `guide=AutoMultivariateNormalGuide` (or any other [auto-guide](../../api/inference/index.md#auto-guides)).
+
+### Knobs: `method`, `guide`, `reparameterize`
+
+Three orthogonal choices control the inference path:
+
+- **`method="nuts" | "hmc" | "svi"`**. The default `"nuts"` is the right call for serious analysis of any model with random effects: it samples the joint posterior with the No-U-Turn extension to HMC, gets variance components right, and produces the `MCMCResult` that PSIS-LOO and posterior-predictive checks consume below. `"svi"` is the fast option for prototyping or for large models where NUTS chains would be too expensive; it fits a [`Guide`](../../api/inference/guide.md) by optimization instead of sampling.
+- **`guide=Cls`** (SVI only). Defaults to [`AutoNormalGuide`](../../api/inference/guides/normal.md) (mean-field diagonal Normal). Other choices: [`AutoMultivariateNormalGuide`](../../api/inference/guides/multivariate_normal.md) for a full-rank Cholesky; [`AutoLowRankMultivariateNormalGuide`](../../api/inference/guides/multivariate_normal.md) for `O(D·rank)` memory on high-dimensional models; [`AutoLaplaceApproximation`](../../api/inference/guides/laplace.md) for a Gaussian fit at the MAP; [`AutoIAFGuide`](../../api/inference/guides/flow.md) for an inverse-autoregressive normalizing flow. Pass the class, not an instance: `fit(..., guide=AutoMultivariateNormalGuide)`.
+- **`reparameterize="noncentered" | "centered"`**. Controls how random-effect terms are emitted. The default `"noncentered"` matches Stan / brms expert practice; `"centered"` matches the textbook density. Mathematically identical posteriors, very different sampling geometry.
 
 ## Model comparison with PSIS-LOO
 
@@ -206,11 +214,11 @@ y = np.random.binomial(1, 1 / (1 + np.exp(-logit))).astype(float)
 df = pd.DataFrame({"y": y, "x": x})
 
 res_with_x = fit(
-    "y ~ x", data=df, family="bernoulli", sampler="nuts",
+    "y ~ x", data=df, family="bernoulli", method="nuts",
     num_warmup=100, num_samples=200, num_chains=2, seed=0,
 )
 res_intercept = fit(
-    "y ~ 1", data=df, family="bernoulli", sampler="nuts",
+    "y ~ 1", data=df, family="bernoulli", method="nuts",
     num_warmup=100, num_samples=200, num_chains=2, seed=0,
 )
 ```
@@ -260,7 +268,7 @@ with_x             0 -43.0  0.0        0.0    0.98  4.4  0.0    False
 intercept_only     1 -50.0  0.0       -6.0    0.02  3.3  3.4    False
 ```
 
-The predictor model wins decisively — `with_x` gets 0.98 of the stacking weight and the elpd difference (6.0) is multiple standard errors clear of zero.
+The predictor model wins decisively: `with_x` gets 0.98 of the stacking weight and the elpd difference (6.0) is multiple standard errors clear of zero.
 
 ## Posterior-predictive checks
 
@@ -289,7 +297,7 @@ predictive mean: 0.312
 ppp (mean):    0.557
 ```
 
-A posterior-predictive p-value near 0.5 says the observed mean is in the bulk of the replicated distribution — exactly what we want when the model is well-calibrated for that test statistic. Values near 0 or 1 indicate the statistic is poorly captured.
+A posterior-predictive p-value near 0.5 says the observed mean is in the bulk of the replicated distribution, exactly what we want when the model is well-calibrated for that test statistic. Values near 0 or 1 indicate the statistic is poorly captured.
 
 Built-in statistics: `mean`, `median`, `sd`, `var`, `min`, `max`, `q05`, `q95`. The `by=` argument splits the calculation along a named dim (e.g. `by="Verb"` for a per-category check); for arbitrary statistics, pass a callable.
 
@@ -304,7 +312,7 @@ for col in result.formula.fixed_columns:
     print(f"  {col.qvr_name}: term={col.term!r}, is_intercept={col.is_intercept}")
 ```
 
-The lens behind the scenes (`FormulaToQVRModule`) is a typed [`dx.Lens`](https://github.com/aaronstevenwhite/didactic) whose forward emits `(Module, FormulaData)`. `FormulaData` is the strict subset of the formula that isn't encoded in the QVR program — the per-row data arrays, the original (pre-`_qvr_name`) identifier names, presentation labels, the formula string itself. Calling `lens.backward(module, complement)` decodes the structural skeleton out of the Module and fuses it with the complement to reproduce the original `Formula` byte-for-byte. See the [formulas API reference](../../api/formulas/compile.md) for the full lens signature.
+The lens behind the scenes (`FormulaToQVRModule`) is a typed [`dx.Lens`](https://github.com/aaronstevenwhite/didactic) whose forward emits `(Module, FormulaData)`. `FormulaData` is the strict subset of the formula that isn't encoded in the QVR program: the per-row data arrays, the original (pre-`_qvr_name`) identifier names, presentation labels, the formula string itself. Calling `lens.backward(module, complement)` decodes the structural skeleton out of the Module and fuses it with the complement to reproduce the original `Formula` byte-for-byte. See the [formulas API reference](../../api/formulas/compile.md) for the full lens signature.
 
 ## Summary
 
