@@ -14,7 +14,6 @@ program survival_weibull : Item -> Item
     beta <- Normal(0.0, 5.0)
     k <- Gamma(2.0, 1.0)
 
-    x : Item <- Normal(0.0, 1.0)
     let eta = alpha + beta * x
     let scale = exp(-eta / k)
 
@@ -26,7 +25,7 @@ export survival_weibull
 
 ## Walkthrough
 
-The reparameterisation `scale = exp(-eta / k)` is the Weibull [proportional-hazards](https://en.wikipedia.org/wiki/Proportional_hazards_model) convention: positive shifts in the linear predictor `eta = alpha + beta * x` increase the hazard and shorten survival times, matching the canonical direction. The shape `k` has a Gamma prior centered at 2. The observed event times `t` are uncensored Weibull draws; right-censoring is handled at the inference layer by substituting the [Weibull survival function](https://en.wikipedia.org/wiki/Weibull_distribution#Survival_function) for the density on censored rows.
+The identifier `x` is the exogenous covariate: it is never declared inside the program, so the runtime resolves it from the observations dict at trace time, where the caller supplies the per-item predictor. The reparameterisation `scale = exp(-eta / k)` is the Weibull [proportional-hazards](https://en.wikipedia.org/wiki/Proportional_hazards_model) convention: positive shifts in the linear predictor `eta = alpha + beta * x` increase the hazard and shorten survival times, matching the canonical direction. The shape `k` has a Gamma prior centered at 2. The observed event times `t` are uncensored Weibull draws; right-censoring is handled at the inference layer by substituting the [Weibull survival function](https://en.wikipedia.org/wiki/Weibull_distribution#Survival_function) for the density on censored rows.
 
 ## Try it
 
@@ -40,7 +39,7 @@ model = prog.morphism
 
 x = torch.randn(200)
 t = torch.distributions.Weibull(1.0, 1.5).sample((200,))
-guide = AutoNormalGuide(model, observed_names={"x", "t"})
+guide = AutoNormalGuide(model, observed_names={"t"})
 optim = torch.optim.Adam(list(model.parameters()) + list(guide.parameters()), lr=1e-2)
 svi = SVI(model, guide, optim, ELBO())
 for _ in range(1500):

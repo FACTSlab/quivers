@@ -2,60 +2,44 @@
 # Probabilistic Principal Component Analysis
 # ================================================================
 #
-# Probabilistic PCA (Tipping & Bishop 1999) is the isotropic-
-# noise special case of factor analysis: a single scalar `sigma`
-# controls the observation noise on every output dimension,
-# whereas factor analysis allows a free diagonal.  The model
-# writes the K-dimensional latent representation through a
-# learned linear projection `W` and adds a single scalar
-# isotropic noise to each output coordinate.
+# Probabilistic PCA (Tipping & Bishop 1999) factors a data matrix
+# Y : Item -> ObsDim through a low-rank loading matrix
+# W : LatentDim -> ObsDim and a per-item latent code
+# Z : Item -> LatentDim, so the model mean is the composition
 #
-# The loading matrix is a morphism W : LatentDim -> ObsDim with a
-# matrix-normal prior placed via the morphism-valued surface
+#     ppca = Z >> W : Item -> ObsDim.
+#
+# The loading matrix carries a matrix-normal prior via the
+# morphism-valued surface
 #
 #     latent W : LatentDim -> ObsDim
 #         ~ MatrixNormal(0.0, 1.0, 1.0) over (dom, cod)
 #
-# The model is identifiable up to a K x K orthogonal rotation of
-# W; the maximum-likelihood `W` recovers the leading-K principal
-# components scaled by sqrt(lambda_k - sigma^2).
+# whose Kronecker covariance V (x) U expresses independent row
+# and column correlation. The per-item latent Z is a plain
+# learnable matrix; in classical PPCA its rows are standard
+# normal, recoverable here as a unit-scale init on Z.
+#
+# Working under `algebra real` makes the composition `Z >> W` a
+# real-valued matmul: the (Item, ObsDim) entry of the model
+# tensor is sum_k Z[i, k] * W[k, d], exactly the canonical PPCA
+# mean. The model is identifiable up to a K x K orthogonal
+# rotation of W; the maximum-likelihood W recovers the leading-K
+# principal components scaled by sqrt(lambda_k - sigma^2).
+
+algebra real
 
 object LatentDim : 2
 object ObsDim : 3
 object Item : 200
 
-# Loading matrix as a morphism with a matrix-normal prior.
+# Per-item latent code, K = 2 dimensions per Item.
+latent Z : Item -> LatentDim
+
+# Loading matrix with a matrix-normal prior.
 latent W : LatentDim -> ObsDim ~ MatrixNormal(0.0, 1.0, 1.0) over (dom, cod)
 
-program ppca : Item -> Item
-    # Scalar isotropic observation noise (the PPCA constraint).
-    sigma <- HalfCauchy(1.0)
-
-    # Per-item latent factor on the K = 2 latent dimensions.
-    z_1 : Item <- Normal(0.0, 1.0)
-    z_2 : Item <- Normal(0.0, 1.0)
-
-    # Per-dimension intercepts.
-    b_1 <- Normal(0.0, 1.0)
-    b_2 <- Normal(0.0, 1.0)
-    b_3 <- Normal(0.0, 1.0)
-
-    # Loading entries: w_d_k is the (d, k) entry of W.
-    w_1_1 <- Normal(0.0, 1.0)
-    w_1_2 <- Normal(0.0, 1.0)
-    w_2_1 <- Normal(0.0, 1.0)
-    w_2_2 <- Normal(0.0, 1.0)
-    w_3_1 <- Normal(0.0, 1.0)
-    w_3_2 <- Normal(0.0, 1.0)
-
-    let mu_1 = b_1 + w_1_1 * z_1 + w_1_2 * z_2
-    let mu_2 = b_2 + w_2_1 * z_1 + w_2_2 * z_2
-    let mu_3 = b_3 + w_3_1 * z_1 + w_3_2 * z_2
-
-    # Isotropic noise: the same `sigma` on every dimension.
-    observe y_1 : Item <- Normal(mu_1, sigma)
-    observe y_2 : Item <- Normal(mu_2, sigma)
-    observe y_3 : Item <- Normal(mu_3, sigma)
-    return sigma
+# PPCA mean as composition: Z @ W under real-algebra matmul.
+let ppca = Z >> W
 
 export ppca

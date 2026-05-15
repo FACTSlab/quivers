@@ -66,7 +66,7 @@ for _ in range(2000):
 
 ability_fit = guide._loc("ability").detach()
 print("ability corr:", torch.corrcoef(
-    torch.stack([ability_fit, ability_true])
+    torch.stack([ability_fit.squeeze(-1), ability_true])
 )[0, 1].item())
 ```
 

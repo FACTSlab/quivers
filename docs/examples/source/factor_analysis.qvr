@@ -2,74 +2,51 @@
 # Factor Analysis
 # ================================================================
 #
-# Classical factor analysis (Spearman 1904, Bartholomew, Knott,
-# and Moustaki 2011): a D-dimensional observation is a linear-
-# Gaussian transformation of a K-dimensional latent factor `z`
-# plus a *free diagonal* idiosyncratic noise (one psi per
-# dimension).  The free diagonal noise distinguishes factor
-# analysis from probabilistic PCA (Tipping & Bishop 1999, the
-# isotropic-noise special case).
+# Classical factor analysis (Spearman 1904; Bartholomew, Knott,
+# and Moustaki 2011) decomposes a D-dimensional observation as a
+# linear-Gaussian transformation of a K-dimensional latent
+# factor. The model mean factors through a learnable loading
+# matrix W : LatentDim -> ObsDim and a per-item latent code
+# Z : Item -> LatentDim, giving the composition
 #
-# The loading matrix is a morphism W : LatentDim -> ObsDim with
-# a matrix-normal prior placed via the morphism-valued surface
+#     factor_analysis = Z >> W : Item -> ObsDim.
+#
+# The loading matrix carries a matrix-normal prior via the
+# morphism-valued surface
 #
 #     latent W : LatentDim -> ObsDim
 #         ~ MatrixNormal(0.0, 1.0, 1.0) over (dom, cod)
 #
 # The two axes under `over (dom, cod)` bind positionally to the
-# matrix-normal family's event axes: the first (LatentDim) is the
-# row axis carrying the row-covariance argument; the second
+# matrix-normal family's event axes: the first (LatentDim) is
+# the row axis carrying the row-covariance argument, the second
 # (ObsDim) is the column axis carrying the column-covariance
-# argument.  The Kronecker structure of the matrix-normal
+# argument. The Kronecker structure V (x) U of the matrix normal
 # expresses independent row and column correlation in the
-# loadings, which is the natural prior for a low-rank factor
+# loadings, the natural prior for a low-rank factor
 # decomposition.
 #
-# Per-item latent factors and per-dimension intercepts / noise
-# scales enter the program body in the standard plate-bind /
-# observe shape.
+# The distinction from PPCA lives downstream of the composition:
+# factor analysis pairs `Z >> W` with a *free diagonal* noise
+# (one psi per ObsDim coordinate), whereas PPCA collapses that
+# diagonal to a single isotropic scalar. Both choices are
+# downstream observation kernels rather than features of the
+# matrix-valued mean expressed here.
+
+algebra real
 
 object LatentDim : 2
 object ObsDim : 3
 object Item : 200
 
-# Loading matrix as a morphism with a matrix-normal prior.
+# Per-item latent factor, K = 2 dimensions per Item.
+latent Z : Item -> LatentDim
+
+# Loading matrix with a matrix-normal prior.
 latent W : LatentDim -> ObsDim ~ MatrixNormal(0.0, 1.0, 1.0) over (dom, cod)
 
-program factor_analysis : Item -> Item
-    # Per-dimension idiosyncratic scale (free diagonal).
-    psi_1 <- HalfCauchy(1.0)
-    psi_2 <- HalfCauchy(1.0)
-    psi_3 <- HalfCauchy(1.0)
-
-    # Per-item latent factor: an Item-indexed plate on the
-    # K = 2 latent dimensions.
-    z_1 : Item <- Normal(0.0, 1.0)
-    z_2 : Item <- Normal(0.0, 1.0)
-
-    # Per-dimension intercepts.
-    b_1 <- Normal(0.0, 1.0)
-    b_2 <- Normal(0.0, 1.0)
-    b_3 <- Normal(0.0, 1.0)
-
-    # Loading entries: w_d_k is the (d, k) entry of W.  Drawn
-    # from the broadcast-Normal prior; the Kronecker structure
-    # of W's matrix-normal prior is declared by the top-level
-    # latent W morphism above.
-    w_1_1 <- Normal(0.0, 1.0)
-    w_1_2 <- Normal(0.0, 1.0)
-    w_2_1 <- Normal(0.0, 1.0)
-    w_2_2 <- Normal(0.0, 1.0)
-    w_3_1 <- Normal(0.0, 1.0)
-    w_3_2 <- Normal(0.0, 1.0)
-
-    let mu_1 = b_1 + w_1_1 * z_1 + w_1_2 * z_2
-    let mu_2 = b_2 + w_2_1 * z_1 + w_2_2 * z_2
-    let mu_3 = b_3 + w_3_1 * z_1 + w_3_2 * z_2
-
-    observe y_1 : Item <- Normal(mu_1, psi_1)
-    observe y_2 : Item <- Normal(mu_2, psi_2)
-    observe y_3 : Item <- Normal(mu_3, psi_3)
-    return psi_1
+# Factor analysis mean as composition: Z @ W under real-algebra
+# matmul.
+let factor_analysis = Z >> W
 
 export factor_analysis

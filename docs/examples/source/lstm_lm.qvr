@@ -19,8 +19,14 @@
 # with stochastic weights drawn from the indicated prior. tanh is
 # realised from sigmoid via the identity 2*sigmoid(2x) - 1.
 #
-# scan threads the cell state c_t across the sequence; the
-# Categorical lm_head reads c_T and scores the next-token target.
+# scan threads the per-step output h_t across the sequence; the
+# Categorical lm_head reads h_T and scores the next-token target.
+# In the canonical LSTM the cell state c_t is a separate channel
+# from the hidden output h_t, but the scan combinator threads a
+# single hidden codomain so this presentation folds the c-channel
+# into h-and-readout: c_new is computed locally inside the cell
+# from h_prev (the threaded state), used to form h_new, and is
+# not propagated as a separate long-term memory channel.
 
 object Token : 256
 
@@ -35,19 +41,19 @@ kernel gate_o : Embedded * Hidden -> Hidden ~ LogitNormal
 kernel cell_cand : Embedded * Hidden -> Hidden ~ Normal [scale=0.5]
 kernel lm_head : Hidden -> Token ~ Categorical
 
-program lstm_cell(x_t, c_prev) : Embedded * Hidden -> Hidden
-    i_gate <- gate_i(x_t, c_prev)
-    f_gate <- gate_f(x_t, c_prev)
-    o_gate <- gate_o(x_t, c_prev)
-    g_cand <- cell_cand(x_t, c_prev)
+program lstm_cell(x_t, h_prev) : Embedded * Hidden -> Hidden
+    i_gate <- gate_i(x_t, h_prev)
+    f_gate <- gate_f(x_t, h_prev)
+    o_gate <- gate_o(x_t, h_prev)
+    g_cand <- cell_cand(x_t, h_prev)
 
-    let c_new = f_gate * c_prev + i_gate * g_cand
+    let c_new = f_gate * h_prev + i_gate * g_cand
     let two_c = 2.0 * c_new
     let sig_2c = sigmoid(two_c)
     let tanh_c = 2.0 * sig_2c - 1.0
     let h_new = o_gate * tanh_c
 
-    return c_new
+    return h_new
 
 let backbone = tok_embed >> scan(lstm_cell)
 

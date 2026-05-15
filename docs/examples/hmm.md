@@ -39,8 +39,8 @@ from quivers.dsl import load
 prog = load("docs/examples/source/hmm.qvr")
 marginal_3 = prog(n_steps=3)
 marginal_10 = prog(n_steps=10)
-print("3-step Obs marginal:", marginal_3.tensor.shape)
-print("10-step Obs marginal:", marginal_10.tensor.shape)
+print("3-step Obs marginal:", marginal_3.shape)
+print("10-step Obs marginal:", marginal_10.shape)
 ```
 
 The latent matrices are torch parameters; gradient-based estimation against an observed emission histogram is a standard SVI loop using [`AutoNormalGuide`](../api/inference/guide.md). For sequence-conditional posteriors, swap `product_fuzzy` for `tropical` and read off the most-likely path.

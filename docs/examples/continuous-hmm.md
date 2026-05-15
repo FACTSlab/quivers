@@ -26,6 +26,7 @@ kernel decoder : State -> Obs ~ Normal [scale=0.1]
 
 let filter_and_reconstruct = scan(inference_cell) >> decoder
 
+export generative_step
 export filter_and_reconstruct
 ```
 
@@ -33,9 +34,9 @@ export filter_and_reconstruct
 
 The type declarations introduce two Euclidean spaces: `State` (16-d latent) and `Obs` (8-d observed).
 
-`continuous transition : State -> State ~ Normal [scale=0.1]` evolves the latent state by one time step, and `continuous emission : State -> Obs ~ Normal [scale=0.1]` projects a state to an observation. Both are differentiable Normal-conditional morphisms.
+`kernel transition : State -> State ~ Normal [scale=0.1]` evolves the latent state by one time step, and `kernel emission : State -> Obs ~ Normal [scale=0.1]` projects a state to an observation. Both are differentiable Normal-conditional morphisms.
 
-`generative_step` is a one-step monadic program: bind a new state from `transition`, score the observation `o <- emission(s_new)` against the runtime observations dict, and return the new state. To unroll over time, this program is composed with itself via `repeat` or threaded through `scan`.
+`generative_step` is a one-step monadic program: bind a new state from `transition`, score the observation `o <- emission(s_new)` against the runtime observations dict, and return the new state. The program is exported alongside the inference pipeline so the file ships both directions over the same kernels. To unroll over time, this program is composed with itself via `repeat` or threaded through `scan`.
 
 `inference_cell : Obs * State -> State ~ Normal [scale=0.1]` is a recurrent cell that incorporates a new observation into the running state estimate. `let filter = scan(inference_cell)` constructs a temporal-recurrence morphism that threads state across a sequence of observations: for an input of shape `(batch, seq_len, obs_dim)`, it returns the final state estimate of shape `(batch, state_dim)`.
 

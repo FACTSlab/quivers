@@ -14,7 +14,6 @@ program ar1 : Step -> Step
     phi <- Uniform(-1.0, 1.0)
     sigma <- HalfCauchy(1.0)
 
-    y_prev : Step <- Normal(0.0, 1.0)
     let mu = alpha + phi * y_prev
     observe y : Step <- Normal(mu, sigma)
     return phi
@@ -24,7 +23,7 @@ export ar1
 
 ## Walkthrough
 
-`alpha` is the intercept of the AR(1) recurrence, `phi` is the autoregressive coefficient constrained to the [stationarity interval](https://en.wikipedia.org/wiki/Stationary_process) `(-1, 1)` via a `Uniform` prior, and `sigma` is the per-step Normal scale with a [half-Cauchy](https://en.wikipedia.org/wiki/Cauchy_distribution#Related_distributions) prior. The plate-draw `y_prev : Step <- Normal(0.0, 1.0)` declares the lagged-observation tensor at the `Step` axis; the runtime supplies the actual lagged series at fit time. The mean `mu = alpha + phi * y_prev` is then the per-step recurrence and the observed series `y` is Normal noise around it.
+`alpha` is the intercept of the AR(1) recurrence, `phi` is the autoregressive coefficient constrained to the [stationarity interval](https://en.wikipedia.org/wiki/Stationary_process) `(-1, 1)` via a `Uniform` prior, and `sigma` is the per-step Normal scale with a [half-Cauchy](https://en.wikipedia.org/wiki/Cauchy_distribution#Related_distributions) prior. The identifier `y_prev` is exogenous host-data: it is never declared inside the program, so the runtime resolves it from the observations dict at trace time, where the caller supplies the lagged response series. The mean `mu = alpha + phi * y_prev` is then the per-step recurrence and the observed series `y` is Normal noise around it.
 
 ## Try it
 
@@ -39,7 +38,7 @@ model = prog.morphism
 y_obs = torch.randn(200)
 y_lag = torch.cat([torch.zeros(1), y_obs[:-1]])
 
-guide = AutoNormalGuide(model, observed_names={"y", "y_prev"})
+guide = AutoNormalGuide(model, observed_names={"y"})
 optim = torch.optim.Adam(list(model.parameters()) + list(guide.parameters()), lr=1e-2)
 svi = SVI(model, guide, optim, ELBO())
 for _ in range(2000):

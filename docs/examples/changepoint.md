@@ -14,7 +14,6 @@ program changepoint : Step -> Step
     rate_before <- Gamma(2.0, 1.0)
     rate_after <- Gamma(2.0, 1.0)
 
-    t : Step <- Normal(0.0, 1.0)
     let s = sigmoid(20.0 * (t - tau))
     let rate = (1.0 - s) * rate_before + s * rate_after
 
@@ -24,7 +23,7 @@ program changepoint : Step -> Step
 
 ## Walkthrough
 
-`tau` is the change-point time with a uniform prior on the observation window. `rate_before` and `rate_after` are Gamma-prior intensities, each centered on a prior mean of 2 events per period. The per-step plate `t : Step` carries the time stamps; at fit time the runtime supplies the actual time vector via the `t` observation. The soft indicator $s = \sigma(20 (t - \tau))$ with steepness 20 gives a sharp but differentiable switch; the per-step rate is the convex combination of the two regime rates, and the observation `y : Step <- Poisson(rate)` is the per-step Poisson likelihood.
+`tau` is the change-point time with a uniform prior on the observation window. `rate_before` and `rate_after` are Gamma-prior intensities, each centered on a prior mean of 2 events per period. The identifier `t` is exogenous host-data: it is never declared inside the program, so the runtime resolves it from the observations dict at trace time, where the caller supplies the per-step time vector. The soft indicator $s = \sigma(20 (t - \tau))$ with steepness 20 gives a sharp but differentiable switch; the per-step rate is the convex combination of the two regime rates, and the observation `y : Step <- Poisson(rate)` is the per-step Poisson likelihood.
 
 For a strict hard change-point with integer-valued `tau`, replace the soft indicator with a `marginalize tau_idx : Tau <- Categorical(uniform) in { ... }` block: the runtime then log-sum-exps the per-step likelihood over the `Tau` axis, realizing the exact Bayesian change-point posterior at the cost of a $|Tau|$-fold widening of the inner loop.
 
@@ -48,7 +47,7 @@ y = torch.cat([
 ])
 t_vec = torch.arange(T, dtype=torch.float32)
 
-guide = AutoNormalGuide(model, observed_names={"y", "t"})
+guide = AutoNormalGuide(model, observed_names={"y"})
 optim = torch.optim.Adam(list(model.parameters()) + list(guide.parameters()), lr=1e-2)
 svi = SVI(model, guide, optim, ELBO())
 for _ in range(1500):
