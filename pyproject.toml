@@ -61,6 +61,14 @@ diagnostics = [
     "xarray>=2025.1",
     "netcdf4>=1.7",
 ]
+formulas = [
+    "narwhals>=2.21",
+    "scikit-learn>=1.6",
+    "arviz>=0.17",
+    "xarray>=2025.1",
+    "netcdf4>=1.7",
+    "formulae>=0.6",
+]
 
 [project.urls]
 Homepage = "https://github.com/FACTSlab/quivers"
