@@ -4,6 +4,23 @@ All notable changes to the quivers library are documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/), and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.8.0] - 2026-05-15
+
+### Changed
+
+- **BREAKING: `fit(..., sampler=...)` renamed to `fit(..., method=...)`.** SVI is not a sampler (it fits a variational `Guide` by optimization); the parameter selects an inference algorithm. The literal values (`"nuts"`, `"hmc"`, `"svi"`) are unchanged. Update call sites `sampler="..."` → `method="..."`.
+- **BREAKING: random-effect terms emitted in non-centered form by default.** `(slope | g)` formulae now compile to a standard-Normal plate draw `z_g_<slope> : g <- Normal(0, 1)` plus a deterministic `let alpha_g_per_row = sigma_g * z_g_<slope>[g_idx]`, rather than the textbook centered `alpha_g : g <- Normal(0, sigma_g)`. Same posterior mathematically; the funnel that wrecks centered hierarchical sampling under HMC / NUTS and under-shrinks variance components under VI is gone. Pass `fit(..., reparameterize="centered")` to recover the previous behaviour.
+
+### Added
+
+- **`fit(..., guide=...)`** exposes guide selection for SVI (previously hard-coded to [`AutoNormalGuide`](https://FACTSlab.github.io/quivers/api/inference/guides/normal)). Accepts any [`Guide`](https://FACTSlab.github.io/quivers/api/inference/guides/base) subclass: `AutoMultivariateNormalGuide`, `AutoLowRankMultivariateNormalGuide`, `AutoLaplaceApproximation`, `AutoIAFGuide`, etc. The class is constructed internally with `(program, observed_names=...)`.
+- **`fit(..., reparameterize=...)`** controls the parameterization of random effects. `"noncentered"` (default; recommended by Stan / brms) or `"centered"`. `formula_to_qvr` takes the same parameter; `BayesianFit.reparameterize` records the choice so `qvr_source` echoes the actual emitted form.
+- **[Tutorial 8: Analysis pipelines](https://FACTSlab.github.io/quivers/tutorials/python/08-analysis-pipelines).** Step-by-step walkthrough of the formula → fit → diagnostics surface on synthetic data: Gaussian SVI fit, hierarchical SVI, NUTS Bernoulli + PSIS-LOO model comparison, ArviZ posterior-predictive checks, the lens round-trip. Every Python block verified end-to-end against the running runtime.
+
+### Fixed
+
+- **NUTS / HMC on hierarchical formula models** no longer dies with `Sizes of tensors must match except in dimension 1`. `MonadicProgram._stack_tensors` broadcasts size-1 leading dims against the maximum batch in the input list, so a scalar latent (`sigma`) and a per-row tensor (`mu`) can be concatenated ahead of an indexed observe.
+
 ## [0.7.1] - 2026-05-15
 
 ### Changed
