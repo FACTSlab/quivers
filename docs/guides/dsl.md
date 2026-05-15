@@ -582,10 +582,10 @@ Three surface forms:
 
 ```qvr
 # 1. anonymous-element FinSet of given cardinality, or a TypeExpr
-object X : 3          # FinSet("X", 3)
+object X : 3          # FinSet(name="X", cardinality=3)
 object Y : 4
-object XY : X * Y     # ProductSet(X, Y)
-object Sum : X + Y    # CoproductSet(X, Y)
+object XY : X * Y     # ProductSet(components=(X, Y))
+object Sum : X + Y    # CoproductSet(components=(X, Y))
 object Free = FreeMonoid(X, max_length=2)  # FreeMonoid(generators=X, max_length=2)
 
 # 2. FreeMonoid, bounded Kleene closure over a FinSet of generators.

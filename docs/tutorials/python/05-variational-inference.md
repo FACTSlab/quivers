@@ -35,8 +35,8 @@ from quivers.inference import (
 Create a simple generative model: latent variable z drives observation y.
 
 ```python
-Unit = FinSet("Unit", 1)
-R = Euclidean("real", 1)
+Unit = FinSet(name="Unit", cardinality=1)
+R = Euclidean(name="real", dim=1)
 
 prior = ConditionalNormal(Unit, R)
 likelihood = ConditionalNormal(R, R)

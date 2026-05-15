@@ -310,13 +310,13 @@ shapes:
 - `rnn_encoder(sig, dim)`: GRU-cell right-fold.
 - `transformer_encoder(sig, dim)`: head + tail-projection MLP.
 - `bow_encoder(sig, dim)`: order-independent sum.
-- `ar_decoder(sig, dim, vocab)`: autoregressive decoder.
+- `ar_decoder(sig, dim, vocab, depth)`: autoregressive decoder; `depth` caps the unfolded structure size.
 
 - `tree_signature(name, dim)`: `Tree[L, B] = Leaf(L) | Node(B,
   Tree, Tree)`.
 - `tree_lstm_encoder(sig, dim)`: child-sum binary-tree LSTM
   (Tai et al. 2015).
-- `tree_decoder(sig, dim, leaf_vocab, label_vocab)`: top-down
+- `tree_decoder(sig, dim, leaf_vocab, label_vocab, depth)`: top-down
   structural decoder.
 
 - `graph_signature(name, vertex_kinds, edge_kinds)` :

@@ -49,8 +49,8 @@ import torch
 from quivers import FinSet, observed
 from quivers.core.morphism_transformations import softmax
 
-A = FinSet("A", 3)
-B = FinSet("B", 4)
+A = FinSet(name="A", cardinality=3)
+B = FinSet(name="B", cardinality=4)
 f = observed(A, B, torch.rand(3, 4))      # ProductFuzzyAlgebra-enriched
 
 phi = softmax(B)
@@ -104,8 +104,8 @@ import torch
 from quivers import FinSet, observed, MARKOV
 from quivers.core.morphism_transformations import bayes_invert
 
-Unit = FinSet("Unit", 1)
-A    = FinSet("A", 3)
+Unit = FinSet(name="Unit", cardinality=1)
+A    = FinSet(name="A", cardinality=3)
 
 prior_tensor = torch.tensor([[0.5, 0.3, 0.2]])
 prior        = observed(Unit, A, prior_tensor, algebra=MARKOV)
