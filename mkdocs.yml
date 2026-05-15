@@ -115,36 +115,42 @@ nav:
     - Adequacy: semantics/adequacy.md
   - Examples Gallery:
     - Overview: examples/index.md
-    - Sequence Architectures:
-      - Overview: examples/vanilla-rnn-lm.md
-      - LSTM LM: examples/lstm-lm.md
-      - GRU LM: examples/gru-lm.md
-      - Bidirectional RNN LM: examples/bidirectional-rnn-lm.md
-      - Transformer LM: examples/transformer-lm.md
-      - Seq2Seq: examples/seq2seq.md
-    - Generative Models:
-      - Overview: examples/vae.md
-      - Gaussian Mixture Model: examples/mixture-model.md
-      - Tree-Structured Categorical: examples/tree-categorical.md
-      - "HMM (Discrete)": examples/hmm.md
-      - "HMM (Continuous)": examples/continuous-hmm.md
-    - Formal Grammars:
-      - Overview: examples/pcfg.md
-      - CCG: examples/ccg.md
-      - Lambek Calculus: examples/type-logical.md
-      - Multimodal TLG: examples/multimodal-tlg.md
-      - Custom Rules: examples/custom-rules.md
-      - Quantifier Scope: examples/quantifier-scope.md
-    - Probabilistic Programs:
-      - Overview: examples/bayesian-regression.md
-      - Montague NLI: examples/montague-nli.md
-    - Latent-Variable Models:
-      - Overview: examples/factor-analysis.md
-      - Probabilistic PCA: examples/ppca.md
-      - Latent Dirichlet Allocation: examples/lda.md
-      - "Item Response Theory (2PL)": examples/irt-2pl.md
-      - Probabilistic Matrix Factorization: examples/pmf.md
-      - Bayesian Neural Network: examples/bnn.md
+    - Bayesian Linear Regression: examples/bayesian-regression.md
+    - Beta Regression: examples/beta-regression.md
+    - Dirichlet Regression: examples/dirichlet-regression.md
+    - Horseshoe Regression: examples/horseshoe-regression.md
+    - Negative Binomial Regression: examples/negbin-regression.md
+    - Zero-Inflated Poisson Regression: examples/zip-regression.md
+    - Factor Analysis: examples/factor-analysis.md
+    - Probabilistic PCA: examples/ppca.md
+    - Latent Dirichlet Allocation: examples/lda.md
+    - "Item Response Theory (2PL)": examples/irt-2pl.md
+    - Probabilistic Matrix Factorization: examples/pmf.md
+    - Bayesian Neural Network: examples/bnn.md
+    - Gaussian Mixture Model: examples/mixture-model.md
+    - Variational Autoencoder: examples/vae.md
+    - "Hidden Markov Model (Discrete)": examples/hmm.md
+    - "Hidden Markov Model (Continuous)": examples/continuous-hmm.md
+    - Linear-Gaussian SSM: examples/linear-gaussian-ssm.md
+    - Deep Markov Model: examples/deep-markov.md
+    - AR(1): examples/ar1.md
+    - Stochastic Volatility: examples/stochastic-volatility.md
+    - Changepoint Model: examples/changepoint.md
+    - Weibull Survival: examples/survival-weibull.md
+    - Vanilla RNN LM: examples/vanilla-rnn-lm.md
+    - LSTM LM: examples/lstm-lm.md
+    - GRU LM: examples/gru-lm.md
+    - Bidirectional RNN LM: examples/bidirectional-rnn-lm.md
+    - Transformer LM: examples/transformer-lm.md
+    - Sequence-to-Sequence: examples/seq2seq.md
+    - PCFG: examples/pcfg.md
+    - CCG: examples/ccg.md
+    - "Type-Logical Grammar (Lambek)": examples/type-logical.md
+    - Multimodal TLG: examples/multimodal-tlg.md
+    - Custom Sequent Rules: examples/custom-rules.md
+    - Quantifier Scope: examples/quantifier-scope.md
+    - Tree-Structured Categorical: examples/tree-categorical.md
+    - Montague NLI: examples/montague-nli.md
   - Tutorials:
     - Overview: tutorials/index.md
     - QVR DSL: tutorials/qvr/01-first-model.md
