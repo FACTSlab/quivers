@@ -131,15 +131,29 @@ Workflow surface around inference.
 
 ## Quick navigation
 
-- **Probabilistic programming.** Core, Stochastic, Monadic
-  Programs, Inference Foundations, SVI.
-- **Hybrid discrete-continuous models.** Continuous Spaces,
-  Continuous Families, Monadic Programs, Inference.
-- **Building models declaratively.** DSL Overview, DSL
-  Declarations, DSL Programs, Transformations, Inference.
-- **Category-theoretic extension.** Categorical Structures, Monads
-  & Comonads, Enriched Category Theory.
-- **Structured prediction and parsing.** Weighted Deduction
-  Systems, Structural Compression (Signatures, Decoders).
-- **Working with fitted models.** Inference Foundations, SVI,
-  MCMC, Analysis (Data, Fitting).
+- **Probabilistic programming.** [Core](core.md), [Stochastic](stochastic.md),
+  [Monadic Programs](programs.md),
+  [Inference Foundations](inference-foundations.md), [SVI](inference-svi.md).
+- **Hybrid discrete-continuous models.**
+  [Continuous Spaces](continuous-spaces.md),
+  [Continuous Families](continuous-families.md),
+  [Monadic Programs](programs.md),
+  [Inference](inference-foundations.md).
+- **Building models declaratively.** [DSL Overview](dsl-overview.md),
+  [DSL Declarations](dsl-declarations.md),
+  [DSL Programs](dsl-programs-and-lets.md),
+  [Transformations](transformations.md),
+  [Inference](inference-foundations.md).
+- **Category-theoretic extension.**
+  [Categorical Structures](categorical.md),
+  [Monads & Comonads](monadic.md),
+  [Enriched Category Theory](enriched.md).
+- **Structured prediction and parsing.**
+  [Weighted Deduction Systems](deduction.md),
+  [Structural Compression: Signatures](structural-compression-signatures-and-encoders.md),
+  [Structural Compression: Decoders](structural-compression-decoders-and-losses.md).
+- **Working with fitted models.**
+  [Inference Foundations](inference-foundations.md),
+  [SVI](inference-svi.md), [MCMC](inference-mcmc.md),
+  [Analysis: Data](analysis-data-and-formulas.md),
+  [Analysis: Fitting](analysis-fitting-and-diagnostics.md).
