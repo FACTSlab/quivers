@@ -24,7 +24,7 @@ flowchart TD
     start(["Posterior shape"]) --> id{"Identifiable,<br/>weak correlation?"}
     id -- yes --> normal["AutoNormalGuide<br/>default"]
     id -- no  --> corr{"Strong correlations?"}
-    corr -- yes --> dim{"D less than 500?"}
+    corr -- yes --> dim{"Cholesky fits in memory?"}
     dim -- yes --> mvn["AutoMultivariateNormalGuide"]
     dim -- no  --> lr["AutoLowRankMultivariateNormalGuide"]
     corr -- no  --> multi{"Multimodal?"}
@@ -40,7 +40,7 @@ The shipped guides:
 |---|---|---|
 | `AutoNormalGuide` | Diagonal Normal | Default. Cheap, scales, often good enough. |
 | `AutoDeltaGuide` | Dirac at MAP | Quick MAP; no posterior uncertainty. |
-| `AutoMultivariateNormalGuide` | Full-rank Normal (Cholesky) | Strong posterior correlations; `D ≲ 500`. |
+| `AutoMultivariateNormalGuide` | Full-rank Normal (Cholesky) | Strong posterior correlations and total latent dimension small enough for a dense Cholesky to fit in memory. Memory and per-step cost both scale as $O(D^2)$. |
 | `AutoLowRankMultivariateNormalGuide` | Low-rank + diagonal | Hierarchical models with localised correlations; specify `rank` (typically 5-20). |
 | `AutoLaplaceApproximation` | Gaussian centered at MAP with Hessian inverse | Post-hoc quadratic-around-MAP; cheap upgrade from `AutoDeltaGuide`. |
 | `AutoNormalizingFlow` | Composed bijector over Normal base | Multimodal or heavy-tailed posteriors; you supply the flow stack. |
@@ -71,10 +71,11 @@ For most workflows, the default `ELBO()` is the right call. `IWAEBound` matters 
 | `DoublyReparameterized` | DReG for IWAE | With `IWAEBound(K)` at large K. |
 | `ScoreFunction` | REINFORCE | Discrete (non-reparameterizable) latents you can't `marginalize`. |
 
-Pair `IWAEBound(num_particles=16, estimator=DoublyReparameterized())` for the flagship "tight bound, low-variance gradients" combination.
+Pair `IWAEBound(num_particles=16, estimator=DoublyReparameterized())` for the flagship "tight bound, low-variance gradients" combination. `K` (the `num_particles`) trades wall-clock for tightness: $K = 1$ recovers the ELBO; the bound is monotonically tighter in $K$ but with diminishing returns past $K = 32$. Memory scales linearly in $K$ so for large models you'll want $K \in [4, 16]$.
 
 ## Calling SVI
 
+<!-- python: skip -->
 ```python
 from quivers.inference import (
     AutoIAFGuide, IWAEBound, DoublyReparameterized, SVI,
@@ -95,6 +96,7 @@ for step in range(5000):
 
 For the times you want unbiased posterior samples:
 
+<!-- python: skip -->
 ```python
 from quivers.inference import NUTSKernel, MCMC
 
@@ -129,6 +131,7 @@ Two configurations sit between VI and pure MCMC:
 - `WarmupThenHMC(guide, kernel, svi_steps, mcmc_warmup, mcmc_samples)` runs `svi_steps` of variational warm-up and then launches MCMC chains initialized from the trained guide. Useful when HMC's warmup wastes a lot of compute exploring tails the guide already knows are empty.
 - `AutoDAIS(base, model, observations, num_steps=..., init_step_size=...)` wraps a base guide with `num_steps` annealed HMC trajectories. It closes the parity gap with the Pyro / NumPyro AutoDAIS on multimodal posteriors where pure VI collapses.
 
+<!-- python: skip -->
 ```python
 from quivers.inference import AutoDAIS, ELBO
 
@@ -145,6 +148,7 @@ svi    = SVI(model, guide, optimizer, elbo)
 
 `Predictive` is the same regardless of which inference you ran:
 
+<!-- python: skip -->
 ```python
 from quivers.inference import Predictive
 

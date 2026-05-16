@@ -84,4 +84,4 @@ in the real algebra, whose tensor is the dense score matrix $U^\top V$. The morp
 ## See Also
 
 - [Factor Analysis](factor-analysis.md) for a single-side morphism-valued loading.
-- [DSL Guide](../guides/dsl.md) for the morphism-valued prior surface and the [`.dagger`](../api/core/morphisms.md) transpose.
+- [DSL Guide](../guides/dsl-overview.md) for the morphism-valued prior surface and the [`.dagger`](../api/core/morphisms.md) transpose.

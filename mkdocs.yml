@@ -52,6 +52,7 @@ markdown_extensions:
 
 hooks:
   - docs/hooks/register_qvr_lexer.py
+  - docs/hooks/sync_changelog.py
 
 plugins:
   - search
@@ -85,21 +86,37 @@ nav:
     - Editor highlighting: getting-started/highlighting.md
   - Guides:
     - Overview: guides/index.md
-    - Core Types & Algebras: guides/core.md
-    - Transformations & Composition Rules: guides/transformations.md
-    - Morphisms & Composition: guides/morphisms.md
-    - Categorical Structures: guides/categorical.md
-    - Monads & Comonads: guides/monadic.md
-    - Enriched Category Theory: guides/enriched.md
-    - Stochastic Morphisms: guides/stochastic.md
-    - Continuous Distributions: guides/continuous.md
-    - Monadic Programs: guides/programs.md
-    - The QVR DSL: guides/dsl.md
-    - Compositional Effects: guides/effects.md
-    - Variational Inference: guides/inference.md
-    - Weighted Deduction Systems: guides/deduction.md
-    - Structural Compression: guides/structural-compression.md
-    - Analysis Pipelines: guides/analysis.md
+    - Foundations:
+      - Core Types & Algebras: guides/core.md
+      - Transformations & Composition Rules: guides/transformations.md
+      - Morphisms & Composition: guides/morphisms.md
+    - DSL:
+      - Overview: guides/dsl-overview.md
+      - Declarations: guides/dsl-declarations.md
+      - Programs and Let-Expressions: guides/dsl-programs-and-lets.md
+      - Contractions: guides/dsl-contractions.md
+    - Probabilistic Programming:
+      - Monadic Programs: guides/programs.md
+      - Hierarchical Programs: guides/programs-hierarchical.md
+      - Continuous Spaces and Morphisms: guides/continuous-spaces.md
+      - Continuous Families: guides/continuous-families.md
+      - Stochastic Morphisms: guides/stochastic.md
+    - Inference:
+      - Foundations: guides/inference-foundations.md
+      - "Guides, Objectives, and SVI": guides/inference-svi.md
+      - MCMC and Hybrid Samplers: guides/inference-mcmc.md
+    - Categorical Structures:
+      - Categorical Structures: guides/categorical.md
+      - Monads & Comonads: guides/monadic.md
+      - Enriched Category Theory: guides/enriched.md
+      - Compositional Effects: guides/effects.md
+    - Structured Prediction:
+      - Weighted Deduction Systems: guides/deduction.md
+      - Signatures and Encoders: guides/structural-compression-signatures-and-encoders.md
+      - Decoders and Losses: guides/structural-compression-decoders-and-losses.md
+    - Analysis:
+      - Data and Formulas: guides/analysis-data-and-formulas.md
+      - Fitting and Diagnostics: guides/analysis-fitting-and-diagnostics.md
   - Denotational Semantics:
     - Overview: semantics/index.md
     - Setting and Notation: semantics/setting.md
@@ -153,8 +170,25 @@ nav:
     - Montague NLI: examples/montague-nli.md
   - Tutorials:
     - Overview: tutorials/index.md
-    - QVR DSL: tutorials/qvr/01-first-model.md
-    - Python API: tutorials/python/01-first-quiver.md
+  - QVR DSL tutorials:
+    - 1. Your first model: tutorials/qvr/01-first-model.md
+    - 2. Generalized linear models: tutorials/qvr/02-glms.md
+    - 3. Hierarchical models: tutorials/qvr/03-hierarchical.md
+    - 4. Mixtures and discrete latents: tutorials/qvr/04-marginalize.md
+    - 5. Sequence models: tutorials/qvr/05-time-series.md
+    - 6. Choosing an inference algorithm: tutorials/qvr/06-inference-zoo.md
+    - "7. Under the hood: the categorical surface": tutorials/qvr/07-categorical.md
+    - 8. Diagnostics and model comparison: tutorials/qvr/08-diagnostics-and-comparison.md
+  - Python API tutorials:
+    - 1. Your first quiver: tutorials/python/01-first-quiver.md
+    - 2. Stochastic relations: tutorials/python/02-stochastic-relations.md
+    - 3. Probabilistic programs: tutorials/python/03-probabilistic-programs.md
+    - 4. Fuzzy logic factorization: tutorials/python/04-fuzzy-factorization.md
+    - 5. Variational inference: tutorials/python/05-variational-inference.md
+    - 6. First-class transformations: tutorials/python/06-first-class-trans.md
+    - 7. Composition rules: tutorials/python/07-composition-rules.md
+    - 8. Analysis pipelines: tutorials/python/08-analysis-pipelines.md
+    - 9. Debugging quivers programs: tutorials/python/09-debugging.md
   - API Reference:
     - Overview: api/index.md
     - Core:

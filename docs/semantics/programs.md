@@ -79,6 +79,16 @@ $$
 
 where $\theta_F$ is the family's parameter map (which may depend on previously-bound variables in $\phi$). In short: keep the current trace $\phi$ and append a fresh sample from $F$ conditioned on it. The induced action on measures over $\Phi$ is $\mu_{\Phi \times \mathsf{cod}(F)} \circ \mathcal{G}\bigl(\mathcal{S}\llbracket \mathsf{bind} \rrbracket\bigr)$.
 
+#### 2.1.1 Destructuring bind
+
+The bind statement admits a *tuple pattern* on the left-hand side:
+
+```
+(v_1, …, v_m) <- F(args)
+```
+
+with denotation identical to the scalar bind above except that the codomain $\llbracket \mathsf{cod}(F) \rrbracket = K_1 \times \cdots \times K_m$ must be an $m$-fold product and the trace is extended with $m$ named coordinates rather than a single one. Subsequent statements may reference each $v_i$ as if it had been bound separately by $v_i \leftarrow \pi_i \circ F(\bar a)$. The two forms have the same denotation when the family's codomain is a product type; the destructuring form gives the components names.
+
 ### 2.2 Observe
 
 An observe statement
@@ -394,7 +404,14 @@ let pq = p >> q
 export pq
 ```
 
-`export` is the public-binding form: any number of `export` declarations per module are allowed, each producing a separate compiled program output.
+`export` is the public-binding form: any number of `export` declarations per module are allowed, each producing a separate compiled program output. A top-level `let N = e [where N_1 = e_1 ...]` declaration is the corresponding *private* binding: it extends the morphism environment with $N \mapsto \llbracket e \rrbracket_\rho$, but $N$ is not part of the module's compiled output unless additionally `export`ed. The optional `where` clause is processed *before* the outer expression and contributes its bindings ($N_1 \mapsto \llbracket e_1 \rrbracket$, …) to the same module-level environment; despite the surface nesting, the `where` clause is not a local scope; its names persist globally after the let-declaration completes. Formally, for a module $M$ with $\mathrm{export}\ E_1, \dots, \mathrm{export}\ E_k$ declarations,
+
+$$
+\llbracket M \rrbracket_{\mathrm{exports}} \;=\; \bigl(\llbracket E_1 \rrbracket,\, \dots,\, \llbracket E_k \rrbracket\bigr),
+$$
+
+a tuple of compiled morphisms / posteriors / deductions. The expression $E_i$ may be any value-level expression: a top-level morphism name, a program name, a deduction name, an encoder / decoder name, or a let-bound composite. The denotation of each export is the denotation of the underlying expression; `export` itself is a marker for the module-output protocol, not a categorical operation.
+
 
 ## 5. Soundness of monadic semantics
 

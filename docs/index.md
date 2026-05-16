@@ -48,7 +48,7 @@ for _ in range(2000):
     svi.step(torch.zeros(100, 1), {"x": x_data, "y": y_data})
 ```
 
-The same regression also expresses through a [brms-style formula frontend](guides/analysis.md):
+The same regression also expresses through a [brms-style formula frontend](guides/analysis-data-and-formulas.md):
 
 ```python
 from quivers.formulas import fit

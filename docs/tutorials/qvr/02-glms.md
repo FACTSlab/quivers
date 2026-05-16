@@ -32,6 +32,7 @@ Binary response, sigmoid link, Bernoulli likelihood.
 
 === "PyMC"
 
+    <!-- python: skip -->
     ```python
     with pm.Model() as model:
         beta_0 = pm.Normal("beta_0", 0.0, 5.0)
@@ -42,6 +43,7 @@ Binary response, sigmoid link, Bernoulli likelihood.
 
 === "NumPyro"
 
+    <!-- python: skip -->
     ```python
     def logistic(x, y=None):
         beta_0 = numpyro.sample("beta_0", dist.Normal(0.0, 5.0))
@@ -50,10 +52,45 @@ Binary response, sigmoid link, Bernoulli likelihood.
         numpyro.sample("y", dist.Bernoulli(logits=logit), obs=y)
     ```
 
-QVR's let-arithmetic exposes `sigmoid`, `softmax`, `log_softmax`, `exp`, `log`, `tanh`, `relu`, and a handful of others as builtins so you can name the inverse link explicitly. Fitting is the same as chapter 1:
+QVR's let-arithmetic exposes the standard nonlinearities so you can name the inverse link explicitly. The full builtin set:
+
+| Builtin | Domain | Codomain | Use |
+|---|---|---|---|
+| `sigmoid(x)` | $\mathbb{R}$ | $(0, 1)$ | logistic inverse link |
+| `softmax(x)` | $\mathbb{R}^K$ | simplex on $K$ | categorical inverse link |
+| `log_softmax(x)` | $\mathbb{R}^K$ | log-simplex | numerically stable categorical link |
+| `exp(x)` | $\mathbb{R}$ | $\mathbb{R}_{>0}$ | log inverse link (Poisson, Gamma) |
+| `log(x)` | $\mathbb{R}_{>0}$ | $\mathbb{R}$ | forward log link |
+| `softplus(x)` | $\mathbb{R}$ | $\mathbb{R}_{>0}$ | positive output without the exp blowup |
+| `tanh(x)` | $\mathbb{R}$ | $(-1, 1)$ | bounded nonlinearity |
+| `relu(x)` | $\mathbb{R}$ | $\mathbb{R}_{\ge 0}$ | rectified linear |
+| `clamp(x, lo, hi)` | $\mathbb{R}$ | $[\text{lo}, \text{hi}]$ | constrain |
+| `sum(x)`, `prod(x)`, `cumsum(x)`, `logsumexp(x)` | tensor | scalar / tensor | reductions over an axis |
+
+(A *link function* is the deterministic map $g$ in $g(\theta_i) = \beta^\top x_i$. We compose with its inverse $g^{-1}$ to turn the linear predictor into the natural parameter of the response family.)
+
+Fitting is the same as chapter 1:
 
 ```python
-program = loads(open("logistic.qvr").read())
+import torch
+from quivers.dsl import loads
+from quivers.inference import AutoNormalGuide, ELBO, SVI
+
+LOGISTIC_SRC = """
+object Item : 200
+
+program logistic : Item -> Item ! Sample, Score
+    beta_0 <- Normal(0.0, 5.0)
+    beta_1 <- Normal(0.0, 2.0)
+    let logit = beta_0 + beta_1 * x_design
+    let p     = sigmoid(logit)
+    observe y : Item <- Bernoulli(p)
+    return y
+
+export logistic
+"""
+
+program = loads(LOGISTIC_SRC)
 model   = program.morphism
 
 torch.manual_seed(0)
@@ -69,7 +106,7 @@ optimizer = torch.optim.Adam(
 svi = SVI(model, guide, optimizer, elbo)
 x_tensor = torch.zeros(1, 1)
 observations = {"x_design": x_data, "y": y_data}
-for step in range(3000):
+for step in range(50):                          # bump to ~3000 for real fits
     svi.step(x_tensor, observations)
 ```
 
@@ -84,15 +121,20 @@ pred  = Predictive(model, posterior=guide, num_samples=500)
 y_hat = pred(x_tensor, {"x_design": x_data})["y"]    # (500, 200)
 p_hat = y_hat.float().mean(dim=0)                    # (200,)
 
-# Bin and check empirical frequency.
+# Bin and check empirical frequency with a 95% Wilson-style band.
+from scipy.stats import binom
 bins = torch.linspace(0, 1, 11)
 for lo, hi in zip(bins[:-1], bins[1:]):
     mask = (p_hat >= lo) & (p_hat < hi)
-    if mask.sum() > 0:
-        empirical = y_data[mask].float().mean().item()
-        midpoint  = (lo + hi).item() / 2
-        print(f"  [{lo:.1f}, {hi:.1f})  n={int(mask.sum()):3d}"
-              f"  predicted={midpoint:.2f}  observed={empirical:.2f}")
+    n = int(mask.sum())
+    if n == 0:
+        continue
+    empirical = y_data[mask].float().mean().item()
+    midpoint  = (lo + hi).item() / 2
+    band_lo, band_hi = binom.interval(0.95, n, midpoint)
+    in_band = "ok" if band_lo / n <= empirical <= band_hi / n else "miss"
+    print(f"  [{lo:.1f}, {hi:.1f})  n={n:3d}  predicted={midpoint:.2f}"
+          f"  observed={empirical:.2f}  [{band_lo/n:.2f}, {band_hi/n:.2f}]  {in_band}")
 ```
 
 ## Poisson regression
@@ -114,6 +156,14 @@ export poisson_reg
 ```
 
 The fit code is identical to the logistic case; only the model file changes. The `Predictive` machinery handles the count-valued likelihood with no special configuration.
+
+## Common mistakes
+
+Most "why does this fail at runtime" questions trace to one of three slips:
+
+1. **`observed_names` mismatch.** If the body references `x_design` but you pass `observed_names={"y"}`, the guide's trace has an unbound free name. The compiler reports it as a free-name error at `loads` time only when the name is also free in the program signature. Otherwise the failure is delayed to the first `svi.step`. Rule of thumb: every name that appears in the body but isn't introduced by `<-`, `let`, or `marginalize` belongs in `observed_names`.
+2. **Shape mismatch in host data.** If `x_design` has shape `(200,)` but the object `Item` was declared `: 100`, the per-row broadcast over `Item` fails with a torch shape error. The compiler doesn't know `x_design`'s runtime shape, so this one surfaces at the first forward pass. Sanity-check tensor lengths against object cardinalities.
+3. **Re-using an `<-` name on the LHS of `let`.** Once a name is bound by a sample step, you can't reassign it. To name a deterministic transform, pick a fresh name (`let mu = beta_0 + beta_1 * x`, not `let beta_0 = beta_0 + 1`).
 
 ## What the QVR surface gives you here
 

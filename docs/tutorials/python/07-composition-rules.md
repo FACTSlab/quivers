@@ -2,6 +2,15 @@
 
 The default story in the categorical surface is that morphisms compose under a [algebra](https://ncatlab.org/nlab/show/algebra): a complete lattice with a monoidal tensor that distributes over arbitrary joins. The algebra provides every piece the composition `f >> g` needs: a binary product to combine entries, a join to aggregate over the shared dimension, an identity element so `identity(A) >> f == f`, and (for compact-closed structures) a meet and a negation. Algebras are the right setting when the composition is associative, has a unit, and behaves classically.
 
+## Why weaker rules at all?
+
+Most probabilistic models live happily inside one algebra: Markov for probability kernels, LogProb for numerical stability, ProductFuzzy for fuzzy logic. The reason quivers ships weaker rules is that two important construct families don't satisfy the full algebra contract and would otherwise be unrepresentable in the type system:
+
+1. **Fuzzy-logic implication.** Reichenbach's implication, $a \to b = 1 - a + a \cdot b$, is associative under sequential composition but has no element $e$ such that $e \to b = b$ for every $b$. The composition is a [semigroupoid](https://ncatlab.org/nlab/show/semigroupoid). If you model entailment chains under Reichenbach implication and want the type system to flag that `identity(A) >> f` is meaningless, semigroupoids are the right level.
+2. **Tensor-network contractions and attention.** A signed dot product `<u, v> = sum_i u_i * v_i` is neither associative as a composition (the product nests but the inner contractions don't commute with rebracketing) nor identity-bearing. Attention scores in transformer-style models behave the same way: softmax-then-multiply is a perfectly good per-row operation but is not an algebra. These live at the [bilinear form](https://en.wikipedia.org/wiki/Bilinear_form) level.
+
+The takeaway: pick the weakest level that your construct satisfies. Library code that needs `identity` or `dagger` reaches for `Algebra`; code that only needs associative composition uses `Semigroupoid`; code that does an arbitrary n-ary tensor contraction uses `CompositionRule`. The compiler rejects calls that require a level above what your rule provides.
+
 Two strictly weaker settings come up regularly enough that the library gives them their own types:
 
 - [Semigroupoids](https://ncatlab.org/nlab/show/semigroupoid): associative composition, no identity. Reichenbach-style implication composition is the canonical example; the composition is associative but no tensor satisfies `f >> id == f` for every `f`.
@@ -129,13 +138,15 @@ The DSL surface raises a typed `CompileError` at parse time if you try `identity
 
 ## Operadic n-ary contractions
 
-Algebra composition is binary by construction: `f >> g` contracts two morphisms along a single shared dimension. Many practical tensor networks contract three or more inputs at a shared reduction:
+For ordinary binary composition you do not need `EinsumWiring`. The default is `f >> g`: the algebra's `tensor_op` combines entries, the algebra's `join` reduces the shared index, and the compiler chooses the axes from the morphisms' typed signatures. That covers Markov-kernel composition, fuzzy-logic composition, sum-product contraction, and the rest of the standard repertoire without your having to spell anything out.
+
+Reach for `EinsumWiring` only when you need *n-ary* contractions with more than one reduction axis: contracting three or more inputs at once with a shared reduction set. The canonical example is
 
 $$
 \mathrm{out}[s, o] = \bigoplus_{p, q}\Big(\mathrm{arg}_1[s, p] \otimes \mathrm{arg}_2[s, q] \otimes \mathrm{kernel}[p, q, o]\Big).
 $$
 
-This is an operadic operation rather than a binary composition. [`EinsumWiring`](../../api/core/algebras.md) provides the surface:
+This is an operadic operation, not a binary composition. [`EinsumWiring`](../../api/core/algebras.md) provides the surface:
 
 ```python
 from quivers.core.wiring import EinsumWiring, einsum_wiring, contract
@@ -152,7 +163,7 @@ out    = wiring.apply(arg1, arg2, kernel)
 print(out.shape)                # torch.Size([4, 2])
 ```
 
-The wiring spec uses einsum syntax: each comma-separated input lists its axis letters, the arrow's right-hand side names the surviving output letters, and any letter appearing in an input but not in the output is contracted under the rule's `join`. The fold-then-reduce semantics:
+The wiring spec uses einsum syntax: each comma-separated input lists its axis letters, the arrow's right-hand side names the surviving output letters, and any letter appearing in an input but not in the output is contracted under the rule's `join`. If you've used `torch.einsum`, the syntax is the same; the only difference is that `torch.einsum` hardcodes multiply-and-sum, while `EinsumWiring` parameterises both operations: the `tensor_op` replaces multiply, and `join` replaces sum. So `torch.einsum("sp, sq, pqo -> so", a, b, c)` is the special case of `einsum_wiring(REAL, "sp, sq, pqo -> so").apply(a, b, c)`. For the standard binary case, you would still write `f >> g`, never `einsum_wiring(rule, "ab, bc -> ac").apply(f.tensor, g.tensor)`; the latter only earns its keep when arity is three or more. The fold-then-reduce semantics:
 
 1. Broadcast each input to the universe of axis letters (singleton dims for missing letters).
 2. Fold all inputs left-to-right under the rule's `tensor_op`.

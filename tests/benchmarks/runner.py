@@ -120,6 +120,10 @@ class ProblemSpec:
     metric_name: str
     tolerance: float
     metric_fn: Callable[[torch.Tensor, dict], float]
+    math: str = ""
+    """Markdown / LaTeX block describing the generative model, the
+    reference posterior, and the metric. Rendered verbatim into the
+    'Problem details' section of the report."""
     capture: bool = False
     """A capture problem expects the metric to *exceed* the tolerance
     (used for documented-failure cases like
@@ -140,11 +144,164 @@ def _correlation_error_2d(ref_key: str = "correlation") -> Callable:
     return fn
 
 
+_BETA_BERNOULLI_MATH = r"""**Model.** Conjugate Beta prior on a Bernoulli rate:
+
+$$
+\theta \sim \mathrm{Beta}(2, 2), \qquad
+y_i \mid \theta \sim \mathrm{Bernoulli}(\theta), \quad i = 1, \dots, 50.
+$$
+
+**Data.** $N = 50$ Bernoulli draws at $\theta^\star = 0.7$.
+
+**Reference.** Conjugacy gives $\theta \mid y \sim \mathrm{Beta}\bigl(\alpha_0 + \sum_i y_i,\ \beta_0 + N - \sum_i y_i\bigr)$ with closed-form mean $\alpha / (\alpha + \beta)$."""
+
+_NORMAL_NORMAL_MATH = r"""**Model.** Conjugate Normal prior on a Normal mean with known variance:
+
+$$
+\mu \sim \mathcal{N}(0, 1), \qquad
+y_i \mid \mu \sim \mathcal{N}(\mu, 1), \quad i = 1, \dots, 30.
+$$
+
+**Data.** $N = 30$ Normal draws at $\mu^\star = 1.5$, $\sigma = 1$.
+
+**Reference.** Posterior precision $\tau_N = \tau_0 + N / \sigma^2$ gives a Normal posterior with mean $(\tau_0 \mu_0 + N \bar{y} / \sigma^2) / \tau_N$."""
+
+_NIG_MATH = r"""**Model.** Joint conjugate prior on unknown mean *and* variance:
+
+$$
+\sigma^2 \sim \mathrm{InverseGamma}(3, 2), \qquad
+\mu \mid \sigma^2 \sim \mathcal{N}(0, \sigma), \qquad
+y_i \mid \mu, \sigma^2 \sim \mathcal{N}(\mu, \sigma), \quad i = 1, \dots, 60.
+$$
+
+**Data.** $N = 60$ Normal draws at $\mu^\star = 0.3$, $\sigma^{2\star} = 1.5$.
+
+**Reference.** NIG posterior updates (Murphy 2007 §5) give marginal mean $\mu_N = (\kappa_0 \mu_0 + N \bar{y}) / (\kappa_0 + N)$.
+
+Stress test for guides handling two latents with mixed supports: the unconstrained $\mu$ and the positive $\sigma^2$ (whose bijector is $\exp$ / softplus)."""
+
+_GAMMA_EXP_MATH = r"""**Model.** Conjugate Gamma prior on an Exponential rate:
+
+$$
+r \sim \mathrm{Gamma}(2, 1), \qquad
+y_i \mid r \sim \mathrm{Exponential}(r), \quad i = 1, \dots, 80.
+$$
+
+**Data.** $N = 80$ Exponential draws at $r^\star = 2$.
+
+**Reference.** $r \mid y \sim \mathrm{Gamma}\bigl(a_0 + N,\ b_0 + \sum_i y_i\bigr)$, with mean $a / b$."""
+
+_BLR_MATH = r"""**Model.** Two-parameter linear regression with iid standard-Normal design and known observation noise:
+
+$$
+a, b \sim \mathcal{N}(0, 1), \qquad
+x_i \sim \mathcal{N}(0, 1), \qquad
+y_i \mid a, b \sim \mathcal{N}(a + b x_i, \sigma), \quad i = 1, \dots, 60,
+$$
+
+with $\sigma = 0.3$, $a^\star = 0.7$, $b^\star = -0.5$.
+
+**Reference.** Closed-form Gaussian posterior with precision $I + X^\top X / \sigma^2$ and mean $\Sigma X^\top y / \sigma^2$."""
+
+_8S_CENTERED_MATH = r"""**Model.**
+
+$$
+\mu \sim \mathcal{N}(0, 10), \qquad
+\tau \sim \mathrm{HalfCauchy}(5), \qquad
+\theta_j \mid \mu, \tau \sim \mathcal{N}(\mu, \tau), \qquad
+y_j \mid \theta_j \sim \mathcal{N}(\theta_j, 12),
+$$
+
+for $j = 1, \dots, 8$ on the canonical Rubin (1981) effect sizes $y = (28, 8, -3, 7, -1, 1, 18, 12)$.
+
+**Reference.** Cached NUTS moments (4 chains, 5000 post-warmup draws): $\mathbb{E}[\mu] \approx 5.4$, posterior standard deviation $\approx 4$.
+
+Tolerance is set at three reference standard deviations: a loose target reflecting how hard the funnel geometry is for VI."""
+
+_8S_NONCENTERED_MATH = r"""**Model.** Same priors as the centered model, with the group-level draws reparameterised:
+
+$$
+\eta_j \sim \mathcal{N}(0, 1), \qquad
+\theta_j = \mu + \tau \eta_j,
+$$
+
+decoupling $\tau$ from $\theta_j$ and eliminating the funnel in the prior.
+
+**Reference.** Same cached NUTS moments as the centered model.
+
+Tolerance is tightened to two reference standard deviations: the reparam should pay off."""
+
+_CORR_REG_MATH = r"""**Model.** Linear regression as in Tier 1, but with a near-constant design:
+
+$$
+a, b \sim \mathcal{N}(0, 1), \qquad
+x_i = \rho + (1 - \rho) z_i, \quad z_i \sim \mathcal{N}(0, 1), \qquad
+y_i \mid a, b \sim \mathcal{N}(a + b x_i, 0.5),
+$$
+
+with $\rho = 0.95$ and $N = 50$.
+
+**Reference.** Closed-form Gaussian posterior with off-diagonal correlation $\rho \approx 0.95+$.
+
+The mean-field guide ignores this correlation; the first-moment metric below still passes (the documented underfit lives in the second moment)."""
+
+_NEAL_MATH = r"""**Model.** Neal's funnel:
+
+$$
+v \sim \mathcal{N}(0, 3), \qquad
+x_i \mid v \sim \mathcal{N}(0, e^{v / 2}), \quad i = 1, \dots, 9.
+$$
+
+**Data.** Condition on $x_i = 0$ (inference target is $p(v \mid x = 0)$).
+
+**Reference.** The log-likelihood is linear in $v$: $\log p(x_i = 0 \mid v) = -\tfrac{1}{2}\log(2\pi) - v / 2$, so the conditional posterior is Gaussian with mean $-9 N / 2 = -40.5$ and variance $9$ at $N = 9$. The *joint* posterior over $(v, x)$ remains funnel-shaped; only the conditional given $x = 0$ is tractable.
+
+**Capture semantics.** All five algorithms under-estimate the magnitude of $v$. PASS means the metric *exceeds* the tolerance, confirming the documented underfit."""
+
+_ILL_COND_MATH = r"""**Model.** Five-dimensional product Gaussian with five orders of magnitude of prior scale and a fixed observation noise:
+
+$$
+x_d \sim \mathcal{N}(0, \sigma_d^{\text{prior}}), \qquad
+y_d \mid x_d \sim \mathcal{N}(x_d, 0.1), \qquad d = 1, \dots, 5,
+$$
+
+with $\sigma^{\text{prior}} = (100, 10, 1, 0.1, 0.01)$.
+
+**Reference.** Per-dimension Gaussian: $x_d \mid y_d \sim \mathcal{N}\bigl(y_d / (1 + (0.1 / \sigma_d)^2),\ (1 / \sigma_d^2 + 1 / 0.01)^{-1}\bigr)$.
+
+Tracks the middle scale $x_3$, where the diagonal mass matrix is roughly correct but the gradient signal is dwarfed by the larger-scale dimensions."""
+
+_HALFNORMAL_MATH = r"""**Model.**
+
+$$
+\sigma \sim \mathrm{HalfNormal}(2), \qquad
+y_i \mid \sigma \sim \mathcal{N}(0, \sigma), \quad i = 1, \dots, 80.
+$$
+
+**Reference.** No conjugate form. Integrate
+
+$$
+p(\sigma \mid y) \propto \exp(-\sigma^2 / 8) \cdot \sigma^{-N} \cdot \exp\bigl(-\tfrac{1}{2 \sigma^2} \sum_i y_i^2\bigr)
+$$
+
+on a 4096-point grid in $[0.05, 6]$ for the reference moments."""
+
+_TRUNC_NORMAL_MATH = r"""**Model.**
+
+$$
+\mu \sim \mathrm{Uniform}(0, 1), \qquad
+y_i \mid \mu \sim \mathrm{TruncatedNormal}(\mu, 0.2, 0, 1), \quad i = 1, \dots, 60.
+$$
+
+**Reference.** Evaluate the truncated-Normal log-likelihood on a 4096-point $\mu$-grid in $(0, 1)$ with stable log-CDF differences for the truncation constant; normalise for the posterior moments."""
+
+
 PROBLEMS: dict[str, ProblemSpec] = {
-    # Tier 1 — conjugate
+    # Tier 1, conjugate
     "beta_bernoulli": ProblemSpec(
         label="Beta-Bernoulli",
         description="theta ~ Beta(2, 2), y_i ~ Bernoulli(theta), N=50",
+        math=_BETA_BERNOULLI_MATH,
         data_factory=beta_bernoulli,
         reference_factory=beta_bernoulli_reference,
         observed_names={"y"},
@@ -156,6 +313,7 @@ PROBLEMS: dict[str, ProblemSpec] = {
     "normal_normal": ProblemSpec(
         label="Normal-Normal",
         description="mu ~ N(0,1), y_i ~ N(mu, 1), N=30",
+        math=_NORMAL_NORMAL_MATH,
         data_factory=normal_normal,
         reference_factory=normal_normal_reference,
         observed_names={"y"},
@@ -167,6 +325,7 @@ PROBLEMS: dict[str, ProblemSpec] = {
     "normal_inverse_gamma": ProblemSpec(
         label="Normal-Inverse-Gamma",
         description="joint mu, sigma2 unknown; conjugate NIG posterior",
+        math=_NIG_MATH,
         data_factory=normal_inverse_gamma,
         reference_factory=normal_inverse_gamma_reference,
         observed_names={"y"},
@@ -178,6 +337,7 @@ PROBLEMS: dict[str, ProblemSpec] = {
     "gamma_exponential": ProblemSpec(
         label="Gamma-Exponential",
         description="rate ~ Gamma(2, 1), y_i ~ Exponential(rate), N=80",
+        math=_GAMMA_EXP_MATH,
         data_factory=gamma_exponential,
         reference_factory=gamma_exponential_reference,
         observed_names={"y"},
@@ -189,6 +349,7 @@ PROBLEMS: dict[str, ProblemSpec] = {
     "bayes_linear_regression": ProblemSpec(
         label="Bayesian linear regression",
         description="well-conditioned design, sigma=0.3, N=60",
+        math=_BLR_MATH,
         data_factory=bayes_linear_regression,
         reference_factory=bayes_linear_regression_reference,
         observed_names={"y", "x_design"},
@@ -197,10 +358,11 @@ PROBLEMS: dict[str, ProblemSpec] = {
         tolerance=0.1,
         metric_fn=_mean_error_against_ref_key("a_mean"),
     ),
-    # Tier 2 — hierarchical
+    # Tier 2, hierarchical
     "eight_schools_centered": ProblemSpec(
         label="Eight Schools (centered)",
         description="mu, tau, theta_j; canonical hierarchical funnel",
+        math=_8S_CENTERED_MATH,
         data_factory=eight_schools_centered,
         reference_factory=lambda _: eight_schools_reference(),
         observed_names={"y"},
@@ -212,6 +374,7 @@ PROBLEMS: dict[str, ProblemSpec] = {
     "eight_schools_noncentered": ProblemSpec(
         label="Eight Schools (non-centered)",
         description="non-centered reparam removes funnel",
+        math=_8S_NONCENTERED_MATH,
         data_factory=eight_schools_noncentered,
         reference_factory=lambda _: eight_schools_reference(),
         observed_names={"y"},
@@ -220,10 +383,11 @@ PROBLEMS: dict[str, ProblemSpec] = {
         tolerance=2.0 * float(eight_schools_reference()["mu_std"]),
         metric_fn=_mean_error_against_ref_key("mu_mean"),
     ),
-    # Tier 3 — hard geometry
+    # Tier 3, hard geometry
     "correlated_regression": ProblemSpec(
         label="Correlated regression",
         description="near-collinear design produces rho ~ 0.95+",
+        math=_CORR_REG_MATH,
         data_factory=correlated_regression,
         reference_factory=correlated_regression_reference,
         observed_names={"y", "x_design"},
@@ -235,6 +399,7 @@ PROBLEMS: dict[str, ProblemSpec] = {
     "neal_funnel_mean_field_capture": ProblemSpec(
         label="Neal's funnel (under-estimation capture)",
         description="capture: every algorithm under-estimates v's posterior magnitude",
+        math=_NEAL_MATH,
         data_factory=neal_funnel,
         reference_factory=neal_funnel_reference,
         observed_names={"x"},
@@ -247,6 +412,7 @@ PROBLEMS: dict[str, ProblemSpec] = {
     "ill_conditioned_mvn": ProblemSpec(
         label="Ill-conditioned product Gaussian",
         description="5 dims with prior scales 10^[0..-4]",
+        math=_ILL_COND_MATH,
         data_factory=ill_conditioned_mvn,
         reference_factory=ill_conditioned_mvn_reference,
         observed_names={f"y_{i + 1}" for i in range(5)},
@@ -255,10 +421,11 @@ PROBLEMS: dict[str, ProblemSpec] = {
         tolerance=0.3,
         metric_fn=lambda s, ref: float(abs(s.mean() - ref["mean"][2])),
     ),
-    # Tier 6 — constrained-support
+    # Tier 6, constrained-support
     "half_normal_scale": ProblemSpec(
         label="HalfNormal scale",
         description="sigma > 0; quadrature reference",
+        math=_HALFNORMAL_MATH,
         data_factory=half_normal_scale,
         reference_factory=half_normal_scale_reference,
         observed_names={"y"},
@@ -270,6 +437,7 @@ PROBLEMS: dict[str, ProblemSpec] = {
     "truncated_normal_recovery": ProblemSpec(
         label="TruncatedNormal recovery",
         description="mu in (0,1); quadrature reference",
+        math=_TRUNC_NORMAL_MATH,
         data_factory=truncated_normal_recovery,
         reference_factory=truncated_normal_recovery_reference,
         observed_names={"y"},
@@ -281,10 +449,24 @@ PROBLEMS: dict[str, ProblemSpec] = {
 }
 
 
-TIERS = [
-    (
-        "Tier 1 — Conjugate",
-        [
+@dataclass
+class TierGroup:
+    """Tier title, narrative description, and member problems."""
+
+    title: str
+    description: str
+    problems: list[str]
+
+
+TIERS: list[TierGroup] = [
+    TierGroup(
+        title="Tier 1: conjugate posteriors",
+        description=(
+            "Five textbook problems with closed-form posteriors. They "
+            "establish a floor: every algorithm should match the analytical "
+            "moment to within a tight tolerance."
+        ),
+        problems=[
             "beta_bernoulli",
             "normal_normal",
             "normal_inverse_gamma",
@@ -292,29 +474,68 @@ TIERS = [
             "bayes_linear_regression",
         ],
     ),
-    (
-        "Tier 2 — Hierarchical",
-        [
+    TierGroup(
+        title="Tier 2: hierarchical posteriors",
+        description=(
+            "The Eight Schools problem (Rubin 1981) in both parameterisations. "
+            "Tests how each algorithm handles the funnel geometry that arises "
+            "when a group-level scale tau shrinks toward zero."
+        ),
+        problems=[
             "eight_schools_centered",
             "eight_schools_noncentered",
         ],
     ),
-    (
-        "Tier 3 — Hard geometry",
-        [
+    TierGroup(
+        title="Tier 3: hard posterior geometry",
+        description=(
+            "Problems chosen to expose specific failure modes of mean-field "
+            "VI and of HMC under poor preconditioning."
+        ),
+        problems=[
             "correlated_regression",
             "neal_funnel_mean_field_capture",
             "ill_conditioned_mvn",
         ],
     ),
-    (
-        "Tier 6 — Constrained support",
-        [
+    TierGroup(
+        title="Tier 6: constrained-support stress",
+        description=(
+            "Latents on a half-line or in a bounded interval. References "
+            "come from dense-grid quadrature; variational guides must "
+            "traverse a non-linear bijector to reach the constrained scale."
+        ),
+        problems=[
             "half_normal_scale",
             "truncated_normal_recovery",
         ],
     ),
 ]
+
+
+# Human-readable algorithm descriptions for the report preface.
+ALGORITHM_DESCRIPTIONS: dict[str, tuple[str, str]] = {
+    "AutoNormal": (
+        "Mean-field SVI, factorised diagonal Normal in unconstrained space",
+        "Adam, lr=0.05, 800 steps (1500 for positive-support sites), 1500 posterior draws",
+    ),
+    "AutoMVN": (
+        "Full-covariance SVI, single MVN in unconstrained space",
+        "Adam, lr=0.05, 800 steps (1500 for positive-support sites), `init_scale=0.3`, 1500 draws",
+    ),
+    "AutoLaplace": (
+        "MAP plus a Gaussian centred at the mode with Hessian covariance",
+        "Adam, lr=0.05, 500 steps, 1500 draws",
+    ),
+    "HMC": (
+        "Hamiltonian Monte Carlo with fixed integrator length",
+        "`step_size=0.1` (adapted), `num_steps=10`, diagonal mass matrix (adapted), 200 warmup, 400 samples, 2 chains",
+    ),
+    "NUTS": (
+        "No-U-Turn HMC",
+        "`target_accept=0.8`, `max_tree_depth=8`, diagonal mass matrix, 200 warmup, 400 samples, 2 chains",
+    ),
+}
 
 
 # ---------------------------------------------------------------------------
@@ -539,6 +760,27 @@ def _status_glyph(s: str) -> str:
     }.get(s, s)
 
 
+def _accuracy_cell(res: CellResult | None) -> str:
+    if res is None:
+        return "n/a"
+    if res.status in ("PASS", "FAIL"):
+        if math.isnan(res.metric_value):
+            return _status_glyph(res.status)
+        return (
+            f"{_status_glyph(res.status)} "
+            f"`{res.metric_value:.3g} / {res.tolerance:.3g}`"
+        )
+    if res.status == "ERROR":
+        return f"ERROR `{res.error_message[:60]}`"
+    return res.status
+
+
+def _throughput_cell(res: CellResult | None) -> str:
+    if res is None or res.samples_per_sec <= 0.0:
+        return "n/a"
+    return f"{res.samples_per_sec:.1f}"
+
+
 def emit_markdown(
     results: dict[tuple[str, str], CellResult],
     algorithms: list[str],
@@ -549,75 +791,156 @@ def emit_markdown(
     lines: list[str] = []
     lines.append("# Inference benchmark results")
     lines.append("")
-    lines.append("Algorithm × problem grid for the quivers inference layer.")
     lines.append(
-        "Generated by ``tests/benchmarks/runner.py`` against the "
-        "seeded synthetic suite in ``tests/benchmarks/``."
+        "This page reports how each posterior inference algorithm shipped in "
+        "[`quivers.inference`](../api/inference.md) recovers known posterior "
+        "moments on a deterministic suite of synthetic problems. The grid is "
+        "regenerated by `tests/benchmarks/runner.py` from the seeded data "
+        "factories and analytical references in `tests/benchmarks/`."
     )
     lines.append("")
-    lines.append("## Reading the table")
+
+    lines.append("## What the suite tests")
+    lines.append("")
+    lines.append("Every benchmark is an `(algorithm, problem)` cell. A *problem* fixes:")
     lines.append("")
     lines.append(
-        "- **PASS** — recovered posterior moment matches the reference within the listed tolerance."
+        "1. A generative model written in QVR and loaded from `tests/benchmarks/models/*.qvr`."
     )
     lines.append(
-        "- **FAIL** — the algorithm runs but the recovered moment is outside tolerance; see the `metric` column for the diagnostic."
+        "2. A deterministic data generator (fixed `torch.manual_seed`) that "
+        "produces the observations the model is conditioned on."
     )
     lines.append(
-        "- **ERROR** — the algorithm raised during execution (e.g. NaN gradient, support-boundary explosion)."
+        "3. A *reference posterior* moment for one latent site, computed "
+        "analytically (conjugate problems), by quadrature on a dense grid "
+        "(constrained-support problems), or by a long cached NUTS run (Eight Schools)."
     )
     lines.append(
-        "- Problems marked *capture* document expected failure modes: PASS means the metric exceeds the tolerance, confirming the known underfit."
+        r"4. A scalar metric (almost always $|\mathbb{E}_q[\cdot] - \mathbb{E}_{\text{ref}}[\cdot]|$) and a tolerance."
     )
     lines.append("")
     lines.append(
-        "Throughput is iterations per second for SVI guides, posterior draws per second for MCMC kernels."
+        "A *cell* runs the algorithm on the problem, draws posterior samples "
+        "for the target site, and compares the recovered moment against the reference."
     )
     lines.append("")
-    for tier_name, problem_keys in TIERS:
-        lines.append(f"## {tier_name}")
+    lines.append(
+        "Throughput is reported as SVI iterations per second for the variational "
+        "guides and as posterior draws per second (summed across chains) for the MCMC kernels."
+    )
+    lines.append("")
+
+    lines.append("## Cell statuses")
+    lines.append("")
+    lines.append("- **PASS**: recovered moment is within tolerance of the reference.")
+    lines.append("- **FAIL**: algorithm runs cleanly but the moment is outside tolerance.")
+    lines.append(
+        "- **ERROR**: algorithm raised during execution (NaN gradient, "
+        "support-boundary explosion, divergent trajectory, etc.)."
+    )
+    lines.append(
+        "- *capture* problems invert the convention: PASS means the metric "
+        "*exceeds* the tolerance, confirming a documented failure mode."
+    )
+    lines.append("")
+    lines.append(
+        "Determinism: every cell calls `torch.manual_seed(0)` before constructing "
+        "the problem, so the same `(algorithm, problem)` pair reproduces across runs "
+        "given fixed PyTorch and NumPy versions."
+    )
+    lines.append("")
+
+    lines.append("## Algorithms")
+    lines.append("")
+    lines.append(
+        "All algorithms are evaluated on every problem. Hyperparameters are "
+        "uniform across problems so that the grid measures the algorithms, "
+        "not a per-problem tuning effort."
+    )
+    lines.append("")
+    lines.append("| Algorithm | Family | Key hyperparameters |")
+    lines.append("|---|---|---|")
+    for alg_name in algorithms:
+        if alg_name in ALGORITHM_DESCRIPTIONS:
+            family, hp = ALGORITHM_DESCRIPTIONS[alg_name]
+            lines.append(f"| `{alg_name}` | {family} | {hp} |")
+        else:
+            lines.append(f"| `{alg_name}` | (no description) | (no description) |")
+    lines.append("")
+    lines.append(
+        "Variational guides operate in unconstrained space via the bijector "
+        "attached to each latent's support, so positive-support and "
+        "bounded-support sites are exercised through `exp` / `softplus` / "
+        "`sigmoid` transforms rather than through constrained Gaussian families."
+    )
+    lines.append("")
+
+    for tier in TIERS:
+        lines.append(f"## {tier.title}")
         lines.append("")
-        # Header.
+        lines.append(tier.description)
+        lines.append("")
+        for prob_key in tier.problems:
+            prob = PROBLEMS[prob_key]
+            heading = f"### {prob.label}"
+            if prob.capture:
+                heading += " *(capture)*"
+            lines.append(heading)
+            lines.append("")
+            if prob.math:
+                lines.append(prob.math)
+                lines.append("")
+            lines.append(
+                f"**Metric.** `{prob.metric_name}`, tolerance `{prob.tolerance:.4g}`."
+            )
+            lines.append("")
+
+        lines.append("### Results")
+        lines.append("")
+        lines.append("Posterior accuracy (metric / tolerance):")
+        lines.append("")
         header = "| Problem | " + " | ".join(algorithms) + " |"
         sep = "|---|" + "|".join(["---"] * len(algorithms)) + "|"
         lines.append(header)
         lines.append(sep)
-        for prob_key in problem_keys:
+        for prob_key in tier.problems:
             prob = PROBLEMS[prob_key]
-            row_label = prob.label
-            if prob.capture:
-                row_label += " *(capture)*"
-            cells = [row_label]
+            label = prob.label + (" *(capture)*" if prob.capture else "")
+            cells = [label]
             for alg_name in algorithms:
-                res = results.get((alg_name, prob_key))
-                if res is None:
-                    cells.append("—")
-                    continue
-                if res.status in ("PASS", "FAIL"):
-                    if math.isnan(res.metric_value):
-                        body = _status_glyph(res.status)
-                    else:
-                        body = (
-                            f"{_status_glyph(res.status)}<br>"
-                            f"`{res.metric_value:.3g} / {res.tolerance:.3g}`"
-                            f"<br>{res.samples_per_sec:.1f}/s"
-                        )
-                elif res.status == "ERROR":
-                    body = f"ERROR<br>`{res.error_message[:60]}`"
-                else:
-                    body = res.status
-                cells.append(body)
+                cells.append(_accuracy_cell(results.get((alg_name, prob_key))))
             lines.append("| " + " | ".join(cells) + " |")
         lines.append("")
-        # Per-problem descriptions.
-        lines.append("### Problem details")
+
+        lines.append("Throughput (iters/s for SVI, draws/s for MCMC):")
         lines.append("")
-        for prob_key in problem_keys:
+        thr_sep = "|---|" + "|".join(["---:"] * len(algorithms)) + "|"
+        lines.append(header)
+        lines.append(thr_sep)
+        for prob_key in tier.problems:
             prob = PROBLEMS[prob_key]
-            lines.append(
-                f"- **{prob.label}** — {prob.description}. Metric: `{prob.metric_name}`, tolerance: `{prob.tolerance:.4g}`."
-            )
+            label = prob.label + (" *(capture)*" if prob.capture else "")
+            cells = [label]
+            for alg_name in algorithms:
+                cells.append(_throughput_cell(results.get((alg_name, prob_key))))
+            lines.append("| " + " | ".join(cells) + " |")
         lines.append("")
+
+    lines.append("## Reproducing the grid")
+    lines.append("")
+    lines.append("```bash")
+    lines.append("QVR_USE_LOCAL_GRAMMAR=1 python -m tests.benchmarks.runner")
+    lines.append("```")
+    lines.append("")
+    lines.append(
+        "The runner accepts `--algorithms` and `--problems` flags for partial "
+        "runs and writes the regenerated table back to this file by default. "
+        "See `tests/benchmarks/runner.py` for the cell definitions and "
+        "`tests/benchmarks/references.py` for the reference posteriors."
+    )
+    lines.append("")
+
     out_path.parent.mkdir(parents=True, exist_ok=True)
     out_path.write_text("\n".join(lines) + "\n")
 

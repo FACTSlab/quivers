@@ -99,7 +99,124 @@ $$
 
 The well-typedness side-condition $\mathrm{target}(t_1) = \mathrm{source}(t_2)$ is checked statically; a mismatch raises a typed compile-time error with line and column of the offending expression. Chains of length $\ge 3$ flatten unambiguously: $t_1 \mathbin{>\!\!>\!\!>} (t_2 \mathbin{>\!\!>\!\!>} t_3)$ and $(t_1 \mathbin{>\!\!>\!\!>} t_2) \mathbin{>\!\!>\!\!>} t_3$ denote the same transformation. See [§ Composition Rules § 5](composition-rules.md#5-first-class-transformations) for the full development.
 
-### 2.8 Operadic contraction call
+### 2.8 The eleven composition operators
+
+The composition combinator $>\!\!>$ of §2.3 is one of an *eleven-operator family*. The operators fall into two groups by dispatch rule:
+
+- **Algebra-polymorphic.** $>\!\!>$, $<\!\!<$, and $>\!\!=\!\!>$ use the *operands' shared algebra*: whichever algebra the surrounding module declared (via the `algebra X` directive, [Composition Rules §3](composition-rules.md#3-user-defined-composition-rules)) supplies $\otimes$ and $\bigoplus$. A composition under one of these operators raises a typed error if the two operands disagree on their algebra. The three operators differ only in surface ergonomics: $<\!\!<$ swaps operand order ($g \mathbin{<\!\!<} f = f \mathbin{>\!\!>} g$), and $>\!\!=\!\!>$ is the Haskell-style "Kleisli arrow" surface alias for $>\!\!>$ (it does not dispatch to a different algebra).
+- **Algebra-tagged.** The remaining eight operators each fix a target algebra and require both operands to already inhabit it; the compiler raises if either operand's declared algebra differs. These are the surface for spelling cross-algebra composition without an explicit `change_base` chain.
+
+| Operator | Dispatch | Algebra $\mathcal{V}$ | Composition |
+|---|---|---|---|
+| `>>` | polymorphic | module's declared algebra | $\bigoplus_y f \otimes g$ in that algebra |
+| `<<` | polymorphic | module's declared algebra | $g \mathbin{<\!\!<} f \;=\; f \mathbin{>\!\!>} g$ |
+| `>=>` | polymorphic | module's declared algebra | same denotation as $>\!\!>$ |
+| `*>` | tagged | $\mathcal{V}_{\mathrm{M}}$ | Markov sum-product on $\mathbb{R}_{\ge 0}$ |
+| `~>` | tagged | $\mathcal{V}_{\mathrm{LP}}$ | log-domain sum-product (logsumexp / $+$) |
+| `\|\|>` | tagged | $\mathcal{V}_{\mathrm{G}}$ | Gödel (max / min) |
+| `?>` | tagged | $\mathcal{V}_{\mathrm{MP}}$ | Viterbi max-plus (max / $+$) |
+| `&&>` | tagged | $\mathcal{V}_{\mathbb{B}}$ | Boolean ($\vee$ / $\wedge$) |
+| `+>` | tagged | $\mathcal{V}_{\mathrm{L}}$ | Łukasiewicz (bounded sum / $\otimes_{\mathrm{L}}$) |
+| `$>` | tagged | $\mathcal{V}_{\mathbb{R}}$ | real sum-product |
+| `%>` | tagged | $\mathcal{V}_{[0,1]}$ | saturated probability sum-product |
+
+For every operator $\circ$ with effective algebra $\mathcal{V} = (V, \otimes, \bigoplus)$,
+
+$$
+\llbracket f \mathbin{\circ} g \rrbracket(x, z) \;=\; \bigoplus_{y}\ \llbracket f \rrbracket(x, y) \otimes \llbracket g \rrbracket(y, z),
+$$
+
+with the algebra-polymorphic operators sourcing $(\otimes, \bigoplus)$ from the module's declared algebra and the algebra-tagged operators sourcing them from the operator's fixed target. The reverse operator $\mathbin{<\!\!<}$ satisfies $\llbracket g \mathbin{<\!\!<} f \rrbracket = \llbracket f \mathbin{>\!\!>} g \rrbracket$ by definition; the parser swaps the operands and stores the forward form. Mixing tagged operators in a chain (e.g. `f *> g ~> h`) requires an explicit `change_base` between segments because the tagged operators do *not* auto-convert their operands.
+
+### 2.9 Compact-closed structure
+
+When the surrounding composition rule is at the `algebra` level ([Composition Rules §1](composition-rules.md#1-the-hierarchy)), supplying an identity element $\mathbf{1}$, an absorbing zero $\bot$ (so that $a \otimes \bot = \bot$), and strict distributivity of $\otimes$ over $\bigoplus$, the category $\mathcal{V}\text{-}\mathbf{Rel}$ is *compact closed* with every object self-dual. Four expressions expose this structure; the compiler rejects them outside an `algebra`-level module ([Composition Rules §2](composition-rules.md#2-the-denotation-of--at-each-level)).
+
+#### Cup (unit)
+
+$$
+\llbracket \mathsf{cup}(A) \rrbracket \;:\; \mathbf{1} \to A \otimes A,
+\qquad
+\llbracket \mathsf{cup}(A) \rrbracket\bigl((),\, (a, a')\bigr) \;=\; \begin{cases} \mathbf{1} & a = a',\\ \bot & a \neq a'.\end{cases}
+$$
+
+#### Cap (counit)
+
+$$
+\llbracket \mathsf{cap}(A) \rrbracket \;:\; A \otimes A \to \mathbf{1},
+\qquad
+\llbracket \mathsf{cap}(A) \rrbracket\bigl((a, a'),\, ()\bigr) \;=\; \begin{cases} \mathbf{1} & a = a',\\ \bot & a \neq a'.\end{cases}
+$$
+
+The pair $(\mathsf{cup}(A),\,\mathsf{cap}(A))$ are the unit / counit of the self-duality $A \dashv A$ in $\mathcal{V}\text{-}\mathbf{Rel}$. The snake equations
+
+$$
+(\mathsf{cap}(A) \boxtimes \mathrm{id}_A) \circ (\mathrm{id}_A \boxtimes \mathsf{cup}(A)) \;=\; \mathrm{id}_A,
+\qquad
+(\mathrm{id}_A \boxtimes \mathsf{cap}(A)) \circ (\mathsf{cup}(A) \boxtimes \mathrm{id}_A) \;=\; \mathrm{id}_A,
+$$
+
+hold by direct verification on entries: $\bigoplus_a \delta(x, a) \otimes \delta(a, y) = \delta(x, y)$, using absorption of $\bot$ to collapse the off-diagonal terms.
+
+#### Dagger
+
+For $f : A \to B$ in $\mathcal{V}\text{-}\mathbf{Rel}$, the postfix $f.\mathsf{dagger}$ is the *transposed* relation
+
+$$
+\llbracket f.\mathsf{dagger} \rrbracket(b, a) \;=\; \llbracket f \rrbracket(a, b).
+$$
+
+The map $(\cdot)^\dagger$ is an involutive identity-on-objects functor $\mathcal{V}\text{-}\mathbf{Rel}^{\mathrm{op}} \to \mathcal{V}\text{-}\mathbf{Rel}$ and equips the category with [dagger-compact](https://ncatlab.org/nlab/show/dagger-compact+category) structure when paired with cup/cap.
+
+#### Trace
+
+For $f : A \otimes X \to A \otimes Y$, the postfix $f.\mathsf{trace}(A)$ is the *partial trace* along $A$:
+
+$$
+\llbracket f.\mathsf{trace}(A) \rrbracket(x, y) \;=\; \bigoplus_{a \in \llbracket A \rrbracket}\ \llbracket f \rrbracket\bigl((a, x),\,(a, y)\bigr).
+$$
+
+Equivalently, in the compact-closed structure,
+
+$$
+f.\mathsf{trace}(A) \;=\; (\mathsf{cap}(A) \boxtimes \mathrm{id}_Y) \circ (\mathrm{id}_A \boxtimes f) \circ (\mathsf{cup}(A) \boxtimes \mathrm{id}_X),
+$$
+
+up to the canonical reassociation of $A \otimes (A \otimes X) \cong (A \otimes A) \otimes X$. This is the trace operation of [Joyal, Street & Verity (1996)](https://doi.org/10.1017/S0305004100074338) instantiated at the compact-closed structure; the trace axioms (yanking, sliding, vanishing) follow from the snake equations.
+
+### 2.10 Residuation witnesses
+
+For $f : X \otimes Y \to Z$ in $\mathcal{V}\text{-}\mathbf{Rel}$ where $Z$ is an object of a residuated universe ([Schemas §3.1](schemas.md#31-residuation-slashes)) and under QVR's biclosed slash convention (the lexical-left operand of each slash is the *result*),
+
+$$
+\llbracket f.\mathsf{curry\_right} \rrbracket \;:\; X \to Z / Y,
+\qquad
+\llbracket f.\mathsf{curry\_left} \rrbracket \;:\; Y \to Z \backslash X,
+$$
+
+are the two adjunction witnesses of the right / left residuation. Concretely, $\mathsf{curry\_right}(f)$ is the unique $\mathcal{V}$-relation $X \to (Z / Y)$ whose right-residual evaluation against an element of $Y$ recovers $f$, and dually $\mathsf{curry\_left}(f) : Y \to Z \backslash X$ witnesses the left-residual adjunction $\mathcal{C}(X \otimes Y, Z) \cong \mathcal{C}(Y, Z \backslash X)$. The well-typedness of the postfix requires the codomain to inhabit a residuated category; the compiler rejects either form when the surrounding type universe does not declare the residuation slashes.
+
+### 2.11 Freeze
+
+The postfix $f.\mathsf{freeze}$ has the same denotation as $f$:
+
+$$
+\llbracket f.\mathsf{freeze} \rrbracket \;=\; \llbracket f \rrbracket.
+$$
+
+It is an operational marker, not a categorical operation: the resulting morphism is materialised as an `ObservedMorphism` and gradient flow through its parameters is severed (equivalent to `Tensor.detach()` on the entries). The categorical denotation is unchanged.
+
+### 2.12 From-data
+
+The expression $\mathsf{from\_data}(\text{"K"})$ denotes the $\mathcal{V}$-relation whose tensor is the runtime data dictionary's value at key `"K"`, resolved at fit time:
+
+$$
+\llbracket \mathsf{from\_data}(\text{"K"}) \rrbracket \;=\; \rho_{\mathrm{data}}(\text{"K"}),
+$$
+
+with the well-typedness requiring the surrounding type-annotation to match the tensor's shape. The resulting morphism is an `ObservedMorphism`: structural / frozen, not learnable.
+
+### 2.13 Operadic contraction call
 
 For a $\mathsf{contraction}$ declaration $\mathit{op}$ with input arity $n$, declared signature $(A_i \to B_i)_{i = 1}^n$ and output signature $(A \to B)$, the call $\mathit{op}(e_1, \dots, e_n)$ has denotation
 
@@ -151,14 +268,14 @@ $$
 \llbracket \mathsf{scan}(e, \mathit{init}) \rrbracket \;=\; \mathrm{Tr}^{S}\bigl( \llbracket e \rrbracket \bigr) : X \to Y,
 $$
 
-where $\mathrm{Tr}^{S} : \mathcal{C}(X \otimes S, Y \otimes S) \to \mathcal{C}(X, Y)$ is the trace operator of the appropriate [traced symmetric monoidal category](https://ncatlab.org/nlab/show/traced+monoidal+category) $\mathcal{C}$ ([Joyal, Street & Verity, 1996](https://doi.org/10.1017/S0305004100074338)) eliminating the recurrent state $S$. The trace itself is canonical; the annotation $\mathit{init} \in \{\mathrm{zeros}, \mathrm{learned}\}$ selects the *seed* used by the iterative computation that realises the trace in code — i.e. the distinguished element $s_0 \in S$ at which the fixed-point iteration begins. Concretely:
+where $\mathrm{Tr}^{S} : \mathcal{C}(X \otimes S, Y \otimes S) \to \mathcal{C}(X, Y)$ is the trace operator of the appropriate [traced symmetric monoidal category](https://ncatlab.org/nlab/show/traced+monoidal+category) $\mathcal{C}$ ([Joyal, Street & Verity, 1996](https://doi.org/10.1017/S0305004100074338)) eliminating the recurrent state $S$. The trace itself is canonical; the annotation $\mathit{init} \in \{\mathrm{zeros}, \mathrm{learned}\}$ selects the *seed* used by the iterative computation that realises the trace in code, i.e. the distinguished element $s_0 \in S$ at which the fixed-point iteration begins. Concretely:
 
 - In $\mathcal{V}\text{-}\mathbf{Rel}$, $\mathrm{Tr}^{S}$ is the *iterative* trace, defined by algebra-join over the orbit of $S$;
 - In $\mathbf{Stoch}$ and $\mathbf{Kern}$, $\mathrm{Tr}^{S}$ is implemented as a sequence of Markov-kernel compositions seeded by $s_0$.
 
 ## 4. Parser combinators
 
-The combinators $\mathsf{parser}$, $\mathsf{ccg}$, $\mathsf{lambek}$ denote chart parsers. We give the semantics in full generality for $\mathsf{parser}$; the others are syntactic sugar fixing particular rule systems.
+The combinators $\mathsf{parser}$, $\mathsf{ccg}$, $\mathsf{lambek}$, $\mathsf{chart\_fold}$ all denote chart-parser kernels. We give the semantics in full generality for $\mathsf{parser}$; the others are surface variations sharing the same denotational core.
 
 Let
 
@@ -168,7 +285,7 @@ $$
 
 with $R$ a tuple of rule names, $C$ a tuple of atomic category names, $s$ the start symbol, $d$ the parse depth, and $K$ the category constructors permitted (slash, product, …).
 
-Let $\mathcal{C}_{C, K}$ be the free residuated–monoidal category on the atoms $C$ closed under the constructors $K$ ([Grammar fragment](grammar.md)). Let $\Sigma_R$ be the rule system: a finite signature of unary and binary inference rules over $\mathcal{C}_{C, K}$.
+Let $\mathcal{C}_{C, K}$ be the free residuated–monoidal category on the atoms $C$ closed under the constructors $K$. Concretely, $\mathcal{C}_{C, K}$ is the item algebra (in the sense of [Weighted Deduction Fragment §1](grammar.md#1-item-algebra)) whose atoms are the category names $C$ and whose constructor symbols are the residuation slashes, the monoidal product, and the diamond modality drawn from $K$. Let $\Sigma_R$ be the rule system: a finite signature of unary and binary inference rules over $\mathcal{C}_{C, K}$, realized as hyperedges in the multicategory of items.
 
 Then
 
@@ -179,6 +296,25 @@ $$
 is the chart-parser kernel: for an input string $w \in \mathrm{Token}^{*}$ of length $\le d$, it is the (semiring-weighted) sum over all $\Sigma_R$-derivations of the sequent $w \vdash s$.
 
 In the $\mathcal{V}_{\mathrm{pf}}$-semiring this is the inside-algorithm probability $P(w \mid \mathit{rules})$; in the Boolean semiring it is the membership predicate $w \in L(\Sigma_R, s)$. The denotation is independent of the parsing algorithm and depends only on the rule system.
+
+### 4.1 Chart-fold
+
+The desugared primitive $\mathsf{chart\_fold}$ exposes the chart-parser kernel through *morphism-valued* arguments, in contrast to $\mathsf{parser}$'s by-name rule-list interface:
+
+$$
+\mathit{args}\;=\;\bigl(\mathit{lex} = \ell,\ \mathit{binary} = B,\ \mathit{unary} = U,\ \mathit{start} = s,\ \mathit{depth} = d,\ \mathit{effect\_depth} = e\bigr).
+$$
+
+Here $\ell$ is a morphism $\mathrm{Token} \to \mathrm{Cat}$ (the axiom injector); $B$ is a morphism $\mathrm{Cat} \otimes \mathrm{Cat} \to \mathrm{Cat}$ representing the union of all binary rule schemas; $U$ is an optional morphism $\mathrm{Cat} \to \mathrm{Cat}$ representing the union of all unary rule schemas; $s$ is the start category; $d$ is the maximum category-nesting depth; $e$ is the effect-stack depth (default 0). The denotation is the inside-algorithm chart kernel
+
+$$
+\llbracket \mathsf{chart\_fold}(\mathit{args}) \rrbracket
+\;:\;\mathrm{Token}^{*} \to \mathbf{1},
+$$
+
+with the same inside-score recurrence as $\mathsf{parser}$ ([Weighted Deduction Fragment §6](grammar.md#6-chart-denotation)). When $e = 0$ the denotation reduces to the bare-residuated case of [Effects §7](effects.md#7-bridges-and-conservativity); for $e > 0$ each chart cell carries a stack of effects of length $\le e$ ([Effects §1](effects.md#1-setting)) and the joint type-and-effect dispatch of [Effects §4](effects.md#4-joint-type-and-effect-dispatch) governs firings.
+
+$\mathsf{parser}$, $\mathsf{ccg}$, and $\mathsf{lambek}$ are surface sugar over the same chart-kernel denotation: they take a *list of rule names* (resolved through the morphism / schema / bundle environments, with bundles spliced via [Schemas §7](schemas.md#7-bundles)) and assemble the corresponding $B$ and $U$ morphisms before constructing the inside-algorithm chart. $\mathsf{ccg}$ supplies the CCG combinator bundle as a default, $\mathsf{lambek}$ supplies the residuation-only bundle, and $\mathsf{parser}$ accepts an arbitrary rule list.
 
 ## 5. Coherence and equational laws
 

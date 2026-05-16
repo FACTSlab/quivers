@@ -2,6 +2,29 @@
 
 We'll write Bayesian linear regression in QVR end-to-end: define the model, generate some synthetic data, fit it with variational inference, and inspect the posterior. By the end of the chapter you'll have run a complete QVR workflow, and you'll know where to look for the analogues of every step you're used to from another PPL.
 
+If you're coming from Stan, PyMC, NumPyro, or Pyro, the punchline is: QVR puts a typed signature on each model, runs a compiler pass before any tensor evaluation, and exposes the same SVI / NUTS surface you already know. The categorical machinery underneath the DSL stays invisible until chapter 7.
+
+## Prerequisites
+
+```bash
+pip install quivers
+```
+
+A 30-second smoke check (paste into a Python REPL):
+
+```python
+from quivers.dsl import loads
+
+src = """
+object A : 3
+latent f : A -> A
+export f
+"""
+print(type(loads(src)).__name__)   # Program
+```
+
+If that prints `Program` without an error, you're set.
+
 ## The model
 
 We model `n` real-valued observations $y_i$ as a noisy linear function of a scalar predictor $x_i$:
@@ -33,6 +56,7 @@ $$
 
 === "PyMC"
 
+    <!-- python: skip -->
     ```python
     import pymc as pm
 
@@ -46,6 +70,7 @@ $$
 
 === "NumPyro"
 
+    <!-- python: skip -->
     ```python
     import numpyro
     import numpyro.distributions as dist
@@ -68,7 +93,29 @@ Reading the QVR line by line:
 | `let mu = beta_0 + beta_1 * x_design` | Deterministic let. The `let`-arithmetic supports `+ - * /`, indexing, broadcasts, and a small standard library (`sum`, `prod`, `cumsum`, `logsumexp`, ...). The free name `x_design` is supplied at fit time via the observations dict (declared by `observed_names` on the guide). |
 | `observe y : Item <- Normal(mu, sigma)` | Vectorised conditioned bind, one draw per element of `Item`. The runtime sets `y` to the observed value at inference time and scores the likelihood. |
 
-If you're coming from Pyro/NumPyro/Stan, the only piece without an obvious analogue is `! Sample, Score`: the effect signature. It's a static check that the body uses only effects you declared. You can leave it off and the compiler will infer, but writing it out makes intent explicit.
+If you're coming from Pyro/NumPyro/Stan, the only piece without an obvious analogue is `! Sample, Score`: the *effect signature*. It's a static check that the body uses only effects you declared. You can leave it off and the compiler will infer, but writing it out makes intent explicit.
+
+### What the effect signature buys you
+
+QVR tracks four effects on every program block:
+
+| Effect | Meaning | Triggered by |
+|---|---|---|
+| `Pure` | no random draws, no conditioning | `let` only |
+| `Sample` | draws latents | `v <- F(...)` |
+| `Score` | conditions on observations | `observe v <- F(...)` |
+| `Marginal` | sums over a discrete latent | `marginalize z : K <- ... in { ... }` |
+
+The signature is a static promise. If you declare `! Pure` and the body contains `<-`, the compiler rejects the program at `loads` time with a typed error pointing at the offending line. Pyro and NumPyro discover the same mistake only when they call the model on real data, possibly inside an inner training loop. The QVR signature catches it in the same pass that catches a typo in an object name.
+
+### The observations-dict contract
+
+Notice the free name `x_design` on line 27: it isn't declared anywhere in the model. QVR calls these *host-data* names. At fit time they have to come from somewhere, and that somewhere is the observations dict you pass through SVI or NUTS. The contract has two parts:
+
+1. The guide needs to know which names will be *supplied externally* (not sampled), via [`AutoNormalGuide`](../../api/inference/guide.md)'s `observed_names` argument. Both observed responses (`y`) and host-data covariates (`x_design`) go here.
+2. Every SVI step and every MCMC run takes an `observations` dict that supplies tensors for exactly those names.
+
+If `observed_names` is missing a name the body references, the compiler reports an unbound free name. If the `observations` dict at runtime is missing a name from `observed_names`, the runtime raises a `KeyError` at the first step. Both errors point at the offending site and stop the run before any gradient is computed.
 
 ## Compile and fit
 
@@ -79,8 +126,21 @@ import torch
 from quivers.dsl import loads
 from quivers.inference import AutoNormalGuide, ELBO, SVI
 
-src = open("regression.qvr").read()
-program = loads(src)
+REGRESSION_SRC = """
+object Item : 100
+
+program regression : Item -> Item ! Sample, Score
+    sigma  <- HalfNormal(1.0)
+    beta_0 <- Normal(0.0, 5.0)
+    beta_1 <- Normal(0.0, 2.0)
+    let mu = beta_0 + beta_1 * x_design
+    observe y : Item <- Normal(mu, sigma)
+    return y
+
+export regression
+"""
+
+program = loads(REGRESSION_SRC)
 model   = program.morphism                   # the compiled MonadicProgram
 
 # Synthetic data.
@@ -99,10 +159,8 @@ svi = SVI(model, guide, optimizer, elbo)
 
 x_tensor = torch.zeros(1, 1)                  # SVI dispatch input (unused)
 observations = {"x_design": x_data, "y": y_data}
-for step in range(2000):
+for step in range(50):                        # bump to ~2000 for real fits
     loss = svi.step(x_tensor, observations)
-    if step % 200 == 0:
-        print(f"step {step:4d}  ELBO = {-loss:.3f}")
 ```
 
 The pattern is identical to Pyro: a [`Guide`](../../api/inference/guide.md) carries the variational family, an [`Objective`](../../api/inference/elbo.md) is the loss, an [`SVI`](../../api/inference/svi.md) driver runs the loop.
@@ -111,22 +169,20 @@ The default [`AutoNormalGuide`](../../api/inference/guide.md) is a diagonal-Gaus
 
 ## Inspect the posterior
 
+[`Predictive`](../../api/inference/predictive.md) is the single entry point for posterior inspection. It accepts either a trained [`Guide`](../../api/inference/guide.md) or an `MCMCResult` and returns a dict of `(num_samples, ...)` tensors for every latent and every observed response:
+
 ```python
 from quivers.inference import Predictive
 
-# Draw posterior samples by repeatedly calling the guide.
-posterior = {k: torch.stack([guide.rsample(x_tensor)[k] for _ in range(1000)])
-             for k in ("beta_0", "beta_1", "sigma")}
-print("posterior mean beta_0 =", posterior["beta_0"].mean().item())
-print("posterior mean beta_1 =", posterior["beta_1"].mean().item())
-print("posterior mean sigma  =", posterior["sigma"].mean().item())
-
 predictive = Predictive(model, posterior=guide, num_samples=1000)
-y_pred = predictive(x_tensor, {"x_design": x_data})["y"]    # (1000, 100)
-print("predictive mean y[0] =", y_pred[:, 0].mean().item())
+draws = predictive(x_tensor, {"x_design": x_data})
+print("posterior mean beta_0 =", draws["beta_0"].mean().item())
+print("posterior mean beta_1 =", draws["beta_1"].mean().item())
+print("posterior mean sigma  =", draws["sigma"].mean().item())
+print("predictive mean y[0] =", draws["y"][:, 0].mean().item())   # (1000, 100)
 ```
 
-[`Guide.rsample`](../../api/inference/guide.md) returns one `dict[name, Tensor]` posterior draw per call; [`Predictive`](../../api/inference/predictive.md) produces posterior-predictive draws by re-running the model with each posterior sample.
+Prefer this over a `for _ in range(N): guide.rsample(...)` loop. `Predictive` batches the draws, threads the same host-data dict through every replicate, and produces posterior-predictive samples in the same call.
 
 ## What's different from Pyro/NumPyro?
 

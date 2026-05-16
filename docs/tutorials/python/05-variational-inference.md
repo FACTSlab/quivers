@@ -2,6 +2,32 @@
 
 In this tutorial, you will fit a probabilistic program to observed data using variational inference. You will set up a model, condition it on observations, create a variational guide, define an ELBO loss, run a training loop with SVI, and use Predictive for posterior sampling.
 
+The pipeline:
+
+```mermaid
+sequenceDiagram
+    participant User
+    participant trace as trace(model, ...)
+    participant condition as condition(model, obs)
+    participant guide as Guide
+    participant svi as SVI
+    participant pred as Predictive
+
+    User->>trace: model + inputs
+    trace-->>User: Trace (values, log-densities per site)
+    User->>condition: observations dict
+    condition-->>User: conditioned model
+    User->>guide: AutoNormalGuide(model, observed_names)
+    loop fit
+        User->>svi: svi.step(x, observations)
+        svi->>guide: rsample
+        guide-->>svi: posterior draw
+        svi-->>User: ELBO loss
+    end
+    User->>pred: Predictive(model, posterior=guide)
+    pred-->>User: posterior + predictive draws
+```
+
 ## Concepts
 
 - **Trace**: Record of a program execution with sample sites and log-densities
@@ -182,6 +208,7 @@ The [`SVI`](../../api/inference/svi.md) object pairs:
 
 Run inference to optimize the guide's parameters:
 
+<!-- python: skip -->
 ```python
 num_steps = 1000
 losses = []
@@ -238,6 +265,7 @@ Minimizing ELBO maximizes the evidence log-likelihood and keeps the guide regula
 
 After training, use the guide to make predictions on new data:
 
+<!-- python: skip -->
 ```python
 # Create a Predictive: posterior samples from the guide
 predictive = Predictive(model, guide, num_samples=100)
@@ -253,6 +281,7 @@ print(z_posterior.shape)  # [100, 1, 1] (num_samples, batch, dim)
 
 Analyze the posterior:
 
+<!-- python: skip -->
 ```python
 # Posterior mean and std
 z_mean = z_posterior.mean(dim=0)
@@ -269,6 +298,7 @@ print(f"95% CI: [{z_quantile_lower.item():.3f}, {z_quantile_upper.item():.3f}]")
 
 Compare the learned guide to the true posterior. Sample from both:
 
+<!-- python: skip -->
 ```python
 # True posterior: z conditioned on observed y
 tr_true = conditioned_model.trace(x_new)
@@ -287,6 +317,7 @@ Visualize: plot the true posterior density vs. the guide's density (if tractable
 
 The same pattern extends to complex models. For instance, with the PDS model from Tutorial 4:
 
+<!-- python: skip -->
 ```python
 from quivers.dsl import loads
 
@@ -345,6 +376,6 @@ This workflow applies to any quivers probabilistic program, from simple Gaussian
 
 ## Further Reading
 
-- **[Inference Guide](../../guides/inference.md):** Detailed documentation of trace, conditioning, guides, ELBO, and SVI
-- **[Continuous Morphisms](../../guides/continuous.md):** More on distributions and spaces
-- **[DSL Guide](../../guides/dsl.md):** Writing models in `.qvr` syntax
+- **[Inference Guide](../../guides/inference-foundations.md):** Detailed documentation of trace, conditioning, guides, ELBO, and SVI
+- **[Continuous Morphisms](../../guides/continuous-spaces.md):** More on distributions and spaces
+- **[DSL Guide](../../guides/dsl-overview.md):** Writing models in `.qvr` syntax

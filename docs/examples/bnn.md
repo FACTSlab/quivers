@@ -44,7 +44,7 @@ latent W_3 : H2 -> H_out ~ MatrixNormal(0.0, 1.0, 1.0) over (dom, cod)
 
 place [`MatrixNormal`](../api/continuous/families.md#quivers.continuous.families.ConditionalMatrixNormal) priors on each per-layer weight tensor. The two axes under `over (dom, cod)` bind positionally to the family's event axes: the input-side cardinality is the row axis and the output-side cardinality is the column axis, so the Kronecker covariance expresses independent row and column correlation in the weight matrix.
 
-The per-item input is itself a learnable morphism `X : Item -> H_in`; in a real workload `X` would be set from data via [`from_data`](../guides/dsl.md). The composition `X >> W_1 >> W_2 >> W_3` is the full forward pass, materialising an `Item x H_out` score tensor under real-algebra matmul.
+The per-item input is itself a learnable morphism `X : Item -> H_in`; in a real workload `X` would be set from data via [`from_data`](../guides/dsl-overview.md). The composition `X >> W_1 >> W_2 >> W_3` is the full forward pass, materialising an `Item x H_out` score tensor under real-algebra matmul.
 
 ### Limitation
 
@@ -91,4 +91,4 @@ in the real algebra. SVI's mean-field variational guide places an independent No
 ## See Also
 
 - [Bayesian Linear Regression](bayesian-regression.md) for the single-layer linear special case.
-- [DSL Guide](../guides/dsl.md) for the morphism-valued prior surface and stochastic-kernel composition.
+- [DSL Guide](../guides/dsl-overview.md) for the morphism-valued prior surface and stochastic-kernel composition.

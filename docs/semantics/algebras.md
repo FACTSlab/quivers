@@ -113,7 +113,7 @@ For each algebra we record which elementary properties hold; these determine whi
 | $\mathcal{V}_{\mathbb{B}}$ | Yes | Yes | No |
 | $\mathcal{V}_{\mathrm{L}}$ | No | Yes | No |
 | $\mathcal{V}_{\mathrm{G}}$ | Yes | Yes | No |
-| $\mathcal{V}_{\mathrm{T}}$ | No | Yes ($\mathbf{1} = 0$) | Yes |
+| $\mathcal{V}_{\mathrm{T}}$ | Yes (join) | Yes ($\mathbf{1} = 0$) | Yes |
 | $\mathcal{V}_{\mathrm{MP}}$ | Yes (join) | Yes ($\mathbf{1} = 0$) | Yes |
 | $\mathcal{V}_{\mathrm{LP}}$ | No | Yes ($\mathbf{1} = 0$) | Yes |
 | $\mathcal{V}_{\mathrm{M}}$ | No | Yes ($\mathbf{1} = \delta$) | No |
@@ -141,7 +141,7 @@ a \otimes (b_1 \oplus b_2) \;=\; \tfrac{1}{2}\bigl(1 - \tfrac{1}{4}\bigr) \;=\; 
 (a \otimes b_1) \oplus (a \otimes b_2) \;=\; 1 - \tfrac{9}{16} \;=\; \tfrac{7}{16}.
 $$
 
-Strict quantale-distributivity holds in the idempotent ($\mathcal{V}_{\mathbb{B}}$, $\mathcal{V}_{\mathrm{G}}$), tropical ($\mathcal{V}_{\mathrm{T}}$, $\mathcal{V}_{\mathrm{MP}}$), and log-additive ($\mathcal{V}_{\mathrm{LP}}$, $\mathcal{V}_{\mathbb{R}}$, $\mathcal{V}_{\mathbb{N}}$) cases; these are the algebras that are strict quantales in Kelly's sense. For $\mathcal{V}_{\mathrm{pf}}$ and $\mathcal{V}_{\mathrm{L}}$, the categorical apparatus of $\mathcal{V}\text{-}\mathbf{Rel}$ should be read as describing the *Bayesian noisy-OR* (resp. *Łukasiewicz-bounded-sum*) aggregation under the multiplicative (resp. Łukasiewicz) t-norm, rather than as a strict $\mathcal{V}$-enriched category. Composition, tensor, and the equational laws of [Expressions §5](expressions.md#5-coherence-and-equational-laws) hold up to this standard caveat: equations involving $\bigoplus$-distribution over $\otimes$ are exact in the strict cases and approximate in the t-norm cases.
+Strict distributivity of $\otimes$ over $\bigoplus$ holds in the idempotent ($\mathcal{V}_{\mathbb{B}}$, $\mathcal{V}_{\mathrm{G}}$), tropical ($\mathcal{V}_{\mathrm{T}}$, $\mathcal{V}_{\mathrm{MP}}$), log-additive ($\mathcal{V}_{\mathrm{LP}}$), and sum-product ($\mathcal{V}_{\mathrm{M}}$, $\mathcal{V}_{\mathbb{R}}$, $\mathcal{V}_{\mathbb{N}}$) cases. The idempotent integral ones ($\mathcal{V}_{\mathbb{B}}$, $\mathcal{V}_{\mathrm{G}}$) are strict quantales in Kelly's sense; the others satisfy the distributive law as semirings, with the saturated probability algebra $\mathcal{V}_{[0,1]}$ failing strictness only at the saturation boundary. For $\mathcal{V}_{\mathrm{pf}}$ and $\mathcal{V}_{\mathrm{L}}$, the categorical apparatus of $\mathcal{V}\text{-}\mathbf{Rel}$ should be read as describing the *Bayesian noisy-OR* (resp. *Łukasiewicz-bounded-sum*) aggregation under the multiplicative (resp. Łukasiewicz) t-norm, rather than as a strict $\mathcal{V}$-enriched category. Composition, tensor, and the equational laws of [Expressions §5](expressions.md#5-coherence-and-equational-laws) hold up to this standard caveat: equations involving $\bigoplus$-distribution over $\otimes$ are exact in the strict cases and approximate in the t-norm cases.
 
 ## 3. Base change
 

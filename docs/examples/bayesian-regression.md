@@ -92,4 +92,4 @@ For multi-dimensional regression, add predictor variables and coefficients. For 
 
 ## See Also
 
-- [DSL Guide: Hierarchical Bayesian Models](../guides/dsl.md#hierarchical-bayesian-models) for the plate-draw, parametric-template, and `marginalize` constructs.
+- [DSL Guide: Hierarchical Bayesian Models](../guides/programs-hierarchical.md#hierarchical-models-with-parametric-templates) for the plate-draw, parametric-template, and `marginalize` constructs.

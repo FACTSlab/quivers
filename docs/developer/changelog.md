@@ -4,114 +4,1014 @@ All notable changes to the quivers library are documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/), and this project adheres to [Semantic Versioning](https://semver.org/).
 
-## [Unreleased]
+## [0.9.0] - 2026-05-15
 
-### Added — axis-role surface for distribution clauses
+### Added
 
-Every distribution clause (kernel declaration, latent parameter
-prior, sample step, observe step) accepts an optional
-`over <axes> [iid over <axes>]` post-clause.  `over` names the
-**event axes** of the family; remaining axes are iid (categorically
-a product of independent distributions).  Axis names resolve
-against the named factors of the surrounding morphism's dom/cod;
-`dom`/`cod` are shortcuts when that side is a single unfactored
-object.
+- **Comprehensive PyTorch primitive surface for let-expression bodies.** The let-expression compiler now resolves 86 named primitives drawn from `torch.nn.functional` and `torch`: every standard activation (`relu`, `gelu`, `silu`/`swish`, `mish`, `elu`, `selu`, `leaky_relu`, `prelu`, `rrelu`, `hardtanh`, `hardshrink`, `softplus`, `softshrink`, `softsign`, `hardsigmoid`, `hardswish`, `sigmoid`, `logsigmoid`, `tanh`, `tanhshrink`, `threshold`, `glu`), simplex maps (`softmax`, `log_softmax`, `softmin`, `normalize`), pointwise transcendentals (`exp`, `expm1`, `log`, `log1p`, `log2`, `log10`, `sqrt`, `rsqrt`, `square`, `abs`, `neg`, `sign`, `reciprocal`, `clamp`), trig / hyperbolic (`sin`, `cos`, `tan`, `asin`, `acos`, `atan`, `sinh`, `cosh`, `asinh`, `acosh`, `atanh`), rounding (`floor`, `ceil`, `round`, `trunc`), special functions (`erf`, `erfc`, `erfinv`, `lgamma`, `digamma`), `dim=-1` reductions (`sum`, `mean`, `var`, `std`, `min`, `max`, `argmin`, `argmax`, `prod`, `amax`, `amin`, `logsumexp`, `norm`), cumulative / ordering ops (`cumsum`, `cumprod`, `cummax`, `cummin`, `flip`, `sort`), and training-mode primitives (`dropout`, `alpha_dropout`, `layer_norm`, `rms_norm`). Reductions take `dim=-1` by convention; reductions over a named axis go through the typed `contraction` surface.
+- **User-defined programs callable from encoder bodies.** Encoder / decoder / loss rule bodies (and any let-expression context) can now invoke top-level `program` declarations, `let`-bound morphisms, `encoder`s, `decoder`s, and `deduction`s by name. The call form `f(arg, ...)` resolves first against the primitive table, then against the structural-globals dict, then against the user-declared constructor set. A deterministic program is a Dirac Kleisli arrow embedding Smooth into Kleisli(Giry); calling it from an encoder body composes the two Smooth pieces and stays in Smooth.
+- **Compile-time arity checking on let-expression calls.** For user-defined callables (`Morphism`, `MonadicProgram`, plain Python callables) the compiler verifies the positional argument count at compile time and raises `CompileError("call to 'f': expected N positional argument(s), got M")`. Variadic callables (`*args`) skip the check. `Morphism` is unary; `MonadicProgram` arity equals `len(params)` when present, else 1.
+- **Runtime tensor-shape errors wrapped at call sites.** A `RuntimeError` or `TypeError` raised inside a user-defined callable surfaces as `CompileError("call to 'f' failed: ...")`, so shape mismatches name the call site instead of producing a bare PyTorch trace.
+- **DSL `[init=auto]` annotation on latent declarations.** `latent f : A -> B [init=auto]` overrides the default `randn * scale` init with the algebra's saturation-free recipe. Through `LatentMorphism`'s sigmoid bijector (for ProductFuzzy / Boolean / Gödel / Łukasiewicz / Probability) the raw parameter is set via `logit(value)`; for other algebras the recipe is applied to the raw parameter directly. The annotation rides on the existing `option_block` grammar; no new keywords.
+- **Encoder factory form: `encoder NAME over SIG using FACTORY [k=v, ...]`.** An alternative to the explicit `{ ... }` body that invokes a shipped builder from `quivers.structural.shapes` (`rnn_encoder`, `transformer_encoder`, `bow_encoder`, `tree_lstm_encoder`, `gnn_encoder`) with optional kwarg overrides. The two forms are mutually exclusive on one declaration and can coexist in the same module. The registry mapping factory name → import path lives in `quivers.dsl.compiler.structural._ENCODER_FACTORY_REGISTRY`.
+- **`quivers.analysis` package** — algebra-guided training tooling. See `notes/algebra-guided-training-tooling.md` for the broader roadmap.
+  - [`ChainShape.from_module(module)`](https://FACTSlab.github.io/quivers/api/analysis/chain_shape) walks a compiled QVR `Module` and produces a per-step record (`StepShape`) with bound variable name, source line / col, chain depth (1-indexed at the first stochastic bind), governing algebra, and inferred intermediate axis size.
+  - [`Algebra.init_spec(depth, intermediate_size) -> InitSpec`](https://FACTSlab.github.io/quivers/api/analysis/init_spec) returns the closed-form saturation-free init recipe per algebra (product-fuzzy `p ≈ ln(2)/k`, Łukasiewicz `p ≈ 1/k`, log-prob `-ln k`, Markov logits at 0, tropical/max-plus/real `1/√k`, Boolean/Gödel idempotent at 1/2, probability/counting `1/k`). [`recommend_init`](https://FACTSlab.github.io/quivers/api/analysis/init_spec) maps every latent in a module to its `InitSpec`; [`apply_init_spec`](https://FACTSlab.github.io/quivers/api/analysis/init_spec) materialises the recipe onto a learnable tensor via `torch.nn.init`.
+  - [`saturation_warnings(module)`](https://FACTSlab.github.io/quivers/api/analysis/saturation) returns source-keyed `SaturationWarning` diagnoses for every latent whose recipe differs materially (> 20% in location or scale) from a default `Normal(0, 1)`.
+- **Type-driven contraction wiring.** `contraction NAME(args) : DOM -> COD` blocks no longer require a hand-written einsum string. The compiler infers the einsum from the typed signature: axes that appear in the output propagate; axes that appear in ≥ 2 inputs but not the output get contracted via the rule's join; axes that appear in exactly one input but not the output are flagged with a source-keyed error pointing at the disambiguators. Two opt-in clauses for the cases inference can't derive: `share T1, T2, ...` keeps the listed axes element-wise even when shared across inputs; `wiring "<einsum>"` remains as the explicit escape hatch (diagonal extraction, reorderings, etc.).
 
-The axis count must match the family's declared `event_rank`
-(0 / 1 / 2 for scalar / vector / matrix families); mismatch is a
-compile-time error rather than a silent reinterpretation.  This
-preserves the categorical distinction between, e.g., a flat MVN
-over `dim(A)·dim(B)` with dense covariance and a `MatrixNormal`
-over `(A, B)` with Kronecker structure `V ⊗ U`.
+## [0.8.0] - 2026-05-15
 
-The latent morphism declaration accepts a `~ Family(args)
-[options] [over <axes>]` clause that puts a prior on the
-morphism's representing tensor.
+### Changed
 
-### Added — new families
+- **BREAKING: `fit(..., sampler=...)` renamed to `fit(..., method=...)`.** SVI is not a sampler (it fits a variational `Guide` by optimization); the parameter selects an inference algorithm. The literal values (`"nuts"`, `"hmc"`, `"svi"`) are unchanged. Update call sites `sampler="..."` → `method="..."`.
+- **BREAKING: random-effect terms emitted in non-centered form by default.** `(slope | g)` formulae now compile to a standard-Normal plate draw `z_g_<slope> : g <- Normal(0, 1)` plus a deterministic `let alpha_g_per_row = sigma_g * z_g_<slope>[g_idx]`, rather than the textbook centered `alpha_g : g <- Normal(0, sigma_g)`. Same posterior mathematically; the funnel that wrecks centered hierarchical sampling under HMC / NUTS and under-shrinks variance components under VI is gone. Pass `fit(..., reparameterize="centered")` to recover the previous behaviour.
 
-- [`ConditionalMatrixNormal`](../api/continuous/families.md#quivers.continuous.families.ConditionalMatrixNormal):
-  Matrix-Normal with Kronecker covariance `V ⊗ U`.  Event rank 2.
-  The natural prior for a weight matrix whose row and column
-  correlations factor separately.
-- [`ConditionalInverseWishart`](../api/continuous/families.md#quivers.continuous.families.ConditionalInverseWishart):
-  Conjugate prior for the covariance of a multivariate normal
-  ([Gelman et al. 2013](https://doi.org/10.1201/b16018) §3.6).
-  Event rank 2.
-- [`ConditionalGaussianProcess`](../api/continuous/families.md#quivers.continuous.families.ConditionalGaussianProcess):
-  Gaussian-process prior with covariance kernel evaluated at the
-  input locations. Supports RBF, Matern 5/2, and linear kernels.
-  Registered as `GP` in the DSL; event rank 1
-  ([Rasmussen & Williams 2006](http://www.gaussianprocess.org/gpml/)).
-- [`ConditionalHorseshoe`](../api/continuous/families.md#quivers.continuous.families.ConditionalHorseshoe):
-  Carvalho-Polson-Scott horseshoe prior with global-local shrinkage
-  ([Carvalho, Polson & Scott 2010](https://doi.org/10.1093/biomet/asq017)).
-  The marginal density (no closed form) is computed via 16-point
-  Gauss-Legendre quadrature after a tangent change of variables on
-  the auxiliary scale. Event rank 1.
+### Added
 
-### Changed — keyword unification
+- **`fit(..., guide=...)`** exposes guide selection for SVI (previously hard-coded to [`AutoNormalGuide`](https://FACTSlab.github.io/quivers/api/inference/guides/normal)). Accepts any [`Guide`](https://FACTSlab.github.io/quivers/api/inference/guides/base) subclass: `AutoMultivariateNormalGuide`, `AutoLowRankMultivariateNormalGuide`, `AutoLaplaceApproximation`, `AutoIAFGuide`, etc. The class is constructed internally with `(program, observed_names=...)`.
+- **`fit(..., reparameterize=...)`** controls the parameterization of random effects. `"noncentered"` (default; recommended by Stan / brms) or `"centered"`. `formula_to_qvr` takes the same parameter; `BayesianFit.reparameterize` records the choice so `qvr_source` echoes the actual emitted form.
+- **[Tutorial 8: Analysis pipelines](https://FACTSlab.github.io/quivers/tutorials/python/08-analysis-pipelines).** Step-by-step walkthrough of the formula → fit → diagnostics surface on synthetic data: Gaussian SVI fit, hierarchical SVI, NUTS Bernoulli + PSIS-LOO model comparison, ArviZ posterior-predictive checks, the lens round-trip. Every Python block verified end-to-end against the running runtime.
 
-The `continuous` and `stochastic` declaration keywords are removed
-in favor of a single `kernel` keyword.  A `kernel f : A -> B`
-declaration without a `~` clause declares a finite-set lookup-table
-kernel (the case formerly written with `stochastic`); with a
-`~ Family [options] [axes]` clause it declares a parametric kernel
-whose family parameters are produced by a neural parameter network
-on the input (the case formerly written with `continuous`).  This
-collapses two keywords whose distinction was already in the type
-signature into one whose name reads as "Markov kernel" everywhere.
+### Fixed
 
-## [0.5.0] - 2026-05-11
+- **NUTS / HMC on hierarchical formula models** no longer dies with `Sizes of tensors must match except in dimension 1`. `MonadicProgram._stack_tensors` broadcasts size-1 leading dims against the maximum batch in the input list, so a scalar latent (`sigma`) and a per-row tensor (`mu`) can be concatenated ahead of an indexed observe.
+
+## [0.7.1] - 2026-05-15
+
+### Changed
+
+- **`FormulaToQVRModule` complement is `FormulaData`, not `Formula`.** The lens was declared as `Lens[Formula, Module, Formula]` — the lazy function-lens idiom in which the entire source rides as complement and `backward` is `const`. The honest setup is `Lens[Formula, Module, FormulaData]`: the structural fields of the formula (which columns exist, intercept flag, random-effect group / slope structure, family choice, response identifier) are recoverable from the emitted `Module` via a new `_decode_module` walker, and only the un-decodable fields ride in the complement (per-row data arrays, original pre-[`_qvr_name`](https://FACTSlab.github.io/quivers/api/formulas/formula) identifier names, `term` / `name` presentation labels, the original formula string). `backward(module, complement)` now performs a real decode + fuse pass. GetPut holds for every formula. New public symbol: [`FormulaData`](https://FACTSlab.github.io/quivers/api/formulas/formula#quivers.formulas.formula.FormulaData) in `quivers.formulas.formula`.
+
+## [0.7.0] - 2026-05-15
+
+### Changed
+
+- **BREAKING: `quantale` → `algebra` across DSL, Python API, and docs.** The `quantale` keyword and every `Quantale`-named symbol overclaimed the algebraic structure: seven of the eleven built-in cases fail strict quantale-distributivity in [Kelly's sense](https://ncatlab.org/nlab/show/enriched+category). The new term *algebra* names the structure $(V, \otimes, \oplus, \mathbf{1})$ honestly; the subclass that does satisfy the strict laws keeps the name *strict quantale* and is identified inline in [Algebras §2](docs/semantics/algebras.md#2-order--and-structure-preservation). Migration:
+
+  | Old | New |
+  |-----|-----|
+  | `quantale X` (DSL keyword) | `algebra X` |
+  | `Quantale` (abstract base) | `Algebra` |
+  | `BooleanQuantale`, `LukasiewiczQuantale`, `GodelQuantale`, `TropicalQuantale`, `MaxPlusQuantale`, `LogProbQuantale`, `RealQuantale`, `ProbabilityQuantale`, `CountingQuantale`, `MarkovQuantale` | `BooleanAlgebra`, `LukasiewiczAlgebra`, `GodelAlgebra`, `TropicalAlgebra`, `MaxPlusAlgebra`, `LogProbAlgebra`, `RealAlgebra`, `ProbabilityAlgebra`, `CountingAlgebra`, `MarkovAlgebra` |
+  | `ProductFuzzy` | `ProductFuzzyAlgebra` |
+  | `DualQuantale`, `CustomQuantale`, `QuantaleFromCallables` | `DualAlgebra`, `CustomAlgebra`, `AlgebraFromCallables` |
+  | `QuantaleHomomorphism` | `AlgebraHomomorphism` |
+  | `Algebra.compatible_quantales()` | `Algebra.compatible_algebras()` |
+  | `_QUANTALE_REGISTRY`, `_register_extra_quantales` | `_ALGEBRA_REGISTRY`, `_register_extra_algebras` |
+  | compiler env binding `__quantale__` | `__algebra__` |
+  | `QuantaleDecl` AST node | `AlgebraDecl` |
+  | `quivers.core.quantales` module | `quivers.core.algebras` |
+  | `quivers.core.quantale_morphisms` module | `quivers.core.algebra_morphisms` |
+  | `quivers.stochastic.quantale` re-export | **deleted**; import `MarkovAlgebra`, `MARKOV` from `quivers.core.algebras` |
+  | `quivers.Algebra` (Eilenberg-Moore monad algebra) | `quivers.MonadAlgebra` (the public re-export; inside `quivers.monadic.algebras` the class is still named `Algebra`) |
+
+  Singletons (`PRODUCT_FUZZY`, `BOOLEAN`, `LUKASIEWICZ`, `GODEL`, `TROPICAL`, `MAX_PLUS`, `LOG_PROB`, `REAL`, `PROBABILITY`, `COUNTING`, `MARKOV`, `REICHENBACH`, `MATERIAL_IMPLICATION`) keep their names. Registry key strings (`"product_fuzzy"`, `"boolean"`, ...) keep their names.
+
+### Added: analysis pipelines (formula → fit → diagnostics)
+
+- **`quivers.formulas`: brms-style formula frontend.** A typed AST lens compiles `y ~ x + (1 | g)` formulas through the existing QVR DSL without touching source strings: the lens emits a [`quivers.dsl.ast_nodes.Module`](https://FACTSlab.github.io/quivers/api/dsl/ast_nodes) directly and the existing Compiler consumes it. R / brms behaviour is faithful: orthogonal polynomials by default (`poly(x, k)` matches `stats::poly`), one coefficient per design-matrix column (`poly(x, 2)` produces `beta_poly_x_2_1` / `beta_poly_x_2_2`), R-style numeric transforms wired in (`log`, `exp`, `sqrt`, ...), and the family registry (`gaussian`, `bernoulli`, `binomial`, `categorical`, `poisson`, `negative_binomial`, `gamma`, `beta`, `student_t`, `cumulative`) drives the inverse-link + observe step. One-line entry is `fit("y ~ x + (1|g)", data=df, family=, sampler=, ...)` returning a [`BayesianFit`](https://FACTSlab.github.io/quivers/api/formulas/fit) `dx.Model`; `formula_to_qvr` emits the same module as canonical `.qvr` source. Gated behind the `formulas` extra.
+- **`quivers.data`: DataFrame schema bridge.** [`DatasetSchema`](https://FACTSlab.github.io/quivers/api/data/schema) turns a pandas / polars / Narwhals-compatible dataframe into the object cardinalities, observations dict, and plate-index codes a QVR program needs. `compose(qvr_body, schema)` prepends inferred `object X : N` declarations to a user-written program body so the user only writes the program body. Four missing-data policies: `raise`, `drop`, `impute`, `mask`. Gated behind the `data` extra.
+- **`quivers.diagnostics`: ArviZ adapter.** Glue layer between quivers' inference records and the ArviZ 1.x `xarray.DataTree` surface. [`to_datatree`](https://FACTSlab.github.io/quivers/api/diagnostics/arviz_io) wraps quivers' per-site sample tensors, log-densities, acceptance rates, and divergences into the canonical ArviZ groups (consumable by `plot_trace`, `plot_forest`, `plot_ppc`, `loo`, `compare`, `hdi`, ...). [`compare`](https://FACTSlab.github.io/quivers/api/diagnostics/comparison) delegates to ArviZ's PSIS-LOO ranking ([Yao et al. 2018](https://doi.org/10.1214/17-BA1091)). [`posterior_predictive_check`](https://FACTSlab.github.io/quivers/api/diagnostics/predictive_checks) computes the canonical posterior-predictive p-value for a user-chosen test statistic. Gated behind the `diagnostics` extra.
+- **`quivers.dsl.emit`: AST → `.qvr` source serializer.** [`module_to_source`](https://FACTSlab.github.io/quivers/api/dsl/emit) walks a `Module` AST and produces canonical `.qvr` source; the round-trip `loads(module_to_source(m)) == m` is exercised on every formula in the test suite.
+- **`TransformedMorphism`.** `Morphism.change_base`, `.dagger`, `.trace`, and `.refactor` now return a [`TransformedMorphism`](https://FACTSlab.github.io/quivers/api/core/morphism_transformations) whose `.tensor` is recomputed from the source morphism's tensor on every access, keeping autograd graphs alive across transforms.
+- **Posterior-recovery test marker.** Ten end-to-end recovery tests under `tests/test_formulas.py::TestPosteriorRecovery` fit synthetic data with known true coefficients (Gaussian / Bernoulli / Poisson / Gamma, hierarchical random intercepts, multi-predictor regression, log transforms, polynomial terms, interactions, random slopes); marked `@pytest.mark.slow` and deselected by default (`pytest --runslow tests/` to include).
+
+### Changed: regression examples
+
+- Drop the spurious `x : Resp <- Normal(0, 1)` declarations from every regression example (`bayesian_regression`, `beta_regression`, `dirichlet_regression`, `horseshoe_regression`, `negbin_regression`, `zip_regression`): predictors are exogenous data and flow through the host-data channel as free variables in `let` expressions, not as latent draws. Gallery markdown explainers updated to match.
+
+## [0.6.0] - 2026-05-14
+
+### Added
+
+- **Factor expressions: `let f = factor v_1 : I_1, ..., v_n : I_n in <body>`.** A new let-expression form that assembles an indexed tensor of shape `(|I_1|, ..., |I_n|, *body_shape)` by evaluating `<body>` once per cell of the Cartesian product of binder indices. The categorical content is the left adjoint of multi-axis indexing: factor is to indexing as a (co)limit cone is to its components. A single-binder pattern-match form `factor v : I in { 0 -> e_0, 1 -> e_1, ... }` is also supported for cell-structured priors (label coverage and in-range labels are checked at compile time). Closes [#19](https://github.com/FACTSlab/quivers/issues/19).
+
+## [0.5.0] - 2026-05-13
+
+### Headline additions
+
+- **Axis-role surface on every distribution clause.** Kernel
+  declarations, latent priors, sample steps, and observe steps
+  accept an optional `over <axes> [iid over <axes>]` post-clause.
+  `over` names the **event axes** of the family; remaining axes are
+  iid (categorically a product of independent distributions).  Axis
+  names resolve against the named factors of the surrounding
+  morphism's dom/cod; `dom`/`cod` are shortcuts when that side is a
+  single unfactored object.  The axis count must match the family's
+  declared `event_rank` (0 / 1 / 2 for scalar / vector / matrix
+  families); mismatch is a compile-time error rather than a silent
+  reinterpretation, preserving the categorical distinction between
+  a dense MVN over `dim(A)*dim(B)` and a `MatrixNormal` with
+  Kronecker structure `V (X) U`.
+- **Unified `kernel` keyword.** The `continuous` and `stochastic`
+  declaration keywords are removed.  A `kernel f : A -> B`
+  declaration without a `~` clause is a finite-set lookup-table
+  kernel; with `~ Family [options] [axes]` it is a parametric kernel
+  whose family parameters come from the input by a neural parameter
+  network at sample time.
+- **Latent morphism priors.** A `latent f : A -> B ~ Family(args)
+  [options] [over <axes>]` clause puts a prior on the morphism's
+  representing tensor (factor-analysis / PPCA / BNN idiom).
+- **Four new conditional families.**
+  [`ConditionalMatrixNormal`](https://FACTSlab.github.io/quivers/api/continuous/families#quivers.continuous.families.ConditionalMatrixNormal)
+  (Kronecker covariance, event_rank 2);
+  [`ConditionalInverseWishart`](https://FACTSlab.github.io/quivers/api/continuous/families#quivers.continuous.families.ConditionalInverseWishart)
+  (conjugate covariance prior, event_rank 2);
+  [`ConditionalGaussianProcess`](https://FACTSlab.github.io/quivers/api/continuous/families#quivers.continuous.families.ConditionalGaussianProcess)
+  (RBF / Matern 5/2 / linear kernels with learnable length scale
+  and amplitude, event_rank 1); and
+  [`ConditionalHorseshoe`](https://FACTSlab.github.io/quivers/api/continuous/families#quivers.continuous.families.ConditionalHorseshoe)
+  (Carvalho-Polson-Scott global-local shrinkage with a 16-point
+  Gauss-Legendre quadrature giving the exact marginal log-prob,
+  event_rank 1).
+- **Example gallery, 36 examples.** Regression (Bayesian, beta,
+  Dirichlet, negative-binomial, horseshoe, ZIP); latent-variable
+  (factor analysis, PPCA, LDA, IRT-2PL, PMF, BNN, GMM, VAE);
+  time-series and state-space (HMM discrete, continuous HMM,
+  linear-Gaussian SSM, deep Markov, AR(1), stochastic volatility,
+  changepoint, Weibull survival); sequence architectures (vanilla
+  RNN, LSTM, GRU, bidirectional RNN, transformer; all as language
+  models; one seq2seq with encoder + decoder); formal grammars
+  (PCFG, CCG, Lambek calculus, multimodal TLG, custom rules,
+  Montague NLI, quantifier scope, event-structure latent class).
+  Each example uses at least one distinguishing quivers feature
+  (axis-role priors, marginalize, change_base, encoder block,
+  scan, deduction declarations) and runs end-to-end on synthetic
+  data.
+
+### Refactors
+
+- `src/quivers/continuous/bayesian.py` renamed to `plate.py` and
+  further split: `_DeterministicMorphism`, `cumsum`, `softmax`,
+  `cholesky_quad_form` moved to `quivers.continuous.deterministic`;
+  `CholeskyFactor` continuous space moved to
+  `quivers.continuous.spaces`; `LKJCorrelationFactor` and
+  `Truncated` moved to `quivers.continuous.families`; `plate.py`
+  now strictly holds the plate / vectorized-observe /
+  grouped-marginalize machinery.
+- `src/quivers/dsl/compiler.py` (~6300 LOC) split into a package
+  `src/quivers/dsl/compiler/` with one module per concern
+  (`_prelude`, `core`, `declarations`, `programs`, `structural`,
+  `deductions`, `resolution`, `expressions`).  Public import paths
+  unchanged.
+
+A substantive expansion of the inference layer plus the full
+implementation of scoped grouped `marginalize` blocks (issue #9),
+a unified distribution family registry with every torch.distributions
+family exposed inline, the Tier-1 through Tier-6 benchmark grid
+emitting `docs/developer/inference-benchmarks.md`, and the
+categorical refinements from issues #15-#17 (algebra duality,
+shape-aware change-of-base, storage-level shape compatibility).
+Pre-1.0 clean break: no backwards-compatibility shims; user code
+that relied on the `SVI(loss=...)` keyword should switch to
+`SVI(objective=...)`, `Predictive(guide=...)` should use the
+positional `posterior` argument, and imports from
+`quivers.core.extra_algebras` move to `quivers.core.algebras`.
+
+### Added: algebra duality and user-defined algebras
+
+- **`Algebra.dual()`** returns a `DualAlgebra` whose
+  `tensor_op` and `join` swap roles under the de-Morgan
+  involution. `ProductFuzzy.dual` gives the canonical
+  Reichenbach-flavor probabilistic-implication composition
+  (`⊗ = noisy-OR`, `⋁ = product reduction`); `Boolean.dual`
+  gives `(OR, AND)`; `Lukasiewicz.dual` gives the bounded-sum
+  t-conorm pair; `Godel.dual` gives `(max, min)`.
+- **Named singletons** `REICHENBACH`, `BOOLEAN_DUAL`,
+  `DUAL_LUKASIEWICZ`, `DUAL_GODEL` exported from
+  `quivers.core.algebras` and registered with the DSL algebra
+  catalog so users can write `algebra reichenbach`.
+- **`CustomAlgebra`** accepts user-supplied `tensor_op` / `join`
+  / `unit` / `zero` / `negate` callables for arbitrary
+  user-defined algebras, with construction-time sanity checks
+  on the identity / absorbing axioms.
+
+### Added: functorial change-of-base
+
+- **`MorphismTransformation` ABC** in
+  `quivers.core.morphism_transformations`: shape-aware
+  change-of-base for transformations that don't factor pointwise
+  through a algebra homomorphism. Concrete subclasses:
+  `Softmax(axis_object)`, `L1Normalize(axis_object)`,
+  `L2Normalize(axis_object)`, `BayesInvert(prior)`.
+- **`Morphism.change_base`** now dispatches on either a
+  `AlgebraHomomorphism` (pointwise) or a `MorphismTransformation`
+  (shape-aware). The latter may swap the morphism's domain and
+  codomain (used by `BayesInvert`).
+
+### Added: first-class transformations in the DSL
+
+- **Trans values** are now full DSL values: a transformation (a
+  `AlgebraHomomorphism` or `MorphismTransformation`) can be
+  let-bound, composed with `>>>`, and passed to `change_base`.
+  The transformation namespace is disjoint from the morphism
+  namespace; let-binding routes based on the RHS shape.
+- **Constructors** are bare-verb names (`softmax(B)`,
+  `l1_normalize(B)`, `l2_normalize(B)`, `bayes_invert(prior)`).
+  The Python-side factory names in
+  `quivers.core.morphism_transformations` follow the same
+  spelling, `softmax`, `l1_normalize`, `l2_normalize`,
+  `bayes_invert`, replacing the previous `*_over` suffixes.
+- **Singletons** (`expectation`, `log_prob`, `material_implication`,
+  `boolean_embedding`, `probability_clamp`, `probability_to_real`,
+  `counting_from_real`, `counting_to_real`, `threshold`, `max_plus`)
+  resolve by bare name, both directly inside `change_base` and as
+  let-bindings (`let phi = expectation`).
+- **`t1 >>> t2`** composes two transformations; nested chains
+  flatten and each adjacent `target` / `source` boundary is
+  type-checked at compile time. Inline or via let:
+  ```
+  let phi = softmax(B) >>> expectation
+  let g = f.change_base(phi)
+  ```
+
+  Pre-1.0 clean break: the previous mini-surface
+  `change_base(softmax_over(B))` is removed. Users on 0.4.x
+  rename `softmax_over` → `softmax`, `l1_normalize_over` →
+  `l1_normalize`, `l2_normalize_over` → `l2_normalize` (DSL and
+  Python API both).
+
+### Added: multi-observe grouped `marginalize` blocks
+
+A grouped `marginalize` block now supports multiple `observe`
+steps in the same body, each carrying its own `via <idx>` clause.
+The runtime scatter-sums each observe's `(N_m, K)` per-row
+per-class log-likelihood into the same `(|G|, K)` accumulator
+before the log-sum-exp; categorically the right Kan extension
+along the coproduct fibration $\coprod_m r_m : \coprod_m
+\mathrm{Resp}_m \to G$. The single-observe case is the unary
+slice; the multi-observe case unblocks hierarchical-Bayes
+models where multiple heterogeneous response axes share a
+per-group class indicator (the canonical pattern in the Stan
+likelihoods that motivated the work).
+
+- Surface change: the `via <idx>` clause moves from the
+  `marginalize` header to each `observe` step. The marginalize
+  header now declares only the grouping plate (`over G` or
+  `over G * H`); each observe inside the body carries its own
+  `via <idx>` (or `via product(idx_a, idx_b)`) clause. A
+  grouped body whose observe lacks a `via` is rejected at
+  compile time with a typed error.
+- Runtime: `quivers.continuous.bayesian.marginalize_grouped`
+  accepts either a single `(N, K)` log-likelihood tensor and
+  fibration (single-observe path) or a parallel list of
+  `(N_m, K)` tensors and fibrations (multi-observe path).
+- Pre-1.0 clean break: the previous `marginalize ... over G via
+  idx in { ... }` header form is removed. Users on 0.4.x with
+  a grouped marginalize block move the `via <idx>` clause from
+  the header onto the observe inside the body; a single
+  per-block fibration becomes a single observe carrying that
+  fibration. Multi-block patterns where two marginalize blocks
+  shared a class prior collapse to a single block with two
+  observes (per the canonical pattern in the issue that
+  motivated this).
+- `src/quivers/dsl/examples/event_structure.qvr` updated to the
+  single-block-with-two-observes form.
+
+### Added: documentation overhaul
+
+- Two-track tutorial structure: a new **QVR DSL track** (seven
+  chapters, model development to inference, side-by-side with
+  PyMC / NumPyro / Stan) and a refreshed **Python API track**
+  (two new chapters covering first-class transformations and
+  the composition-rule hierarchy).
+- New denotational-semantics page,
+  `docs/semantics/composition-rules.md`, formalizing the
+  `CompositionRule → Semigroupoid → Algebra` hierarchy,
+  operadic n-ary contractions via flat wirings, and the sort
+  `Trans[V, W]` for first-class transformations.
+- New conceptual guide `docs/guides/transformations.md` covering
+  the transformation surface and the composition-rule hierarchy
+  end-to-end.
+- Updated `docs/semantics/grammar.md` and `docs/guides/dsl.md`
+  EBNF productions to reflect 0.5.0 surface: `>>>`, `change_base`,
+  composition-rule keywords, contraction declarations, grouped
+  `marginalize`, the full compose-operator family.
+- `README.md` and `docs/index.md` rewritten with separate
+  framings (probabilistic-programming user vs library
+  developer); architecture and inference-stack diagrams render
+  in Mermaid.
+- New module `quivers.core.trans` exposing the `TransSeq` class
+  and `compose_trans` function as the Python-side surface for
+  the DSL's `>>>` operator; `Morphism.change_base` accepts
+  `TransSeq` natively.
+- QVR syntax highlighting refreshed across all three rendering
+  surfaces: the Pygments lexer
+  (`src/quivers/dsl/pygments_lexer.py`), the tree-sitter
+  highlights query (`grammars/qvr/queries/highlights.scm`), and
+  the VSCode TextMate grammar
+  (`editors/vscode-qvr/syntaxes/qvr.tmLanguage.json`).
+- Restored the MkDocs hook
+  `docs/hooks/register_qvr_lexer.py` and wired it through
+  `mkdocs.yml`; Mermaid rendering enabled via `pymdownx.superfences`
+  custom-fence classifier plus a `mermaid-init.js` themer.
+
+### Added: shape compatibility under product / factored codomains
+
+- **Storage-level init check**: `observed f : A -> B = from_data("KEY")`
+  now matches the init tensor against the declared codomain on
+  *numel* rather than per-axis shape. A flat init whose total
+  cardinality matches a declared product codomain is accepted
+  and reshaped to the factored layout.
+- **`Morphism.refactor(domain=..., codomain=...)`** exposes the
+  reshape as a user-facing method: switch a morphism's view
+  between flat and product factorings of isomorphic objects.
+
+### Changed: module consolidation
+
+- `quivers.core.extra_algebras` is **deleted**. All its classes
+  (Lukasiewicz, Godel, Tropical, MaxPlus, LogProb, Real,
+  Probability, Counting) and singletons now live in
+  `quivers.core.algebras` alongside ProductFuzzy and Boolean.
+  Internal imports updated; user code that imported from
+  `extra_algebras` must update to import from `algebras`.
+
+### Added: distribution-family wrappers
+
+- **`ConditionalMixture`** wraps a `ConditionalX` family in a
+  K-component mixture with learnable mixture logits.
+- **`ConditionalIndependent`** reinterprets a base distribution's
+  trailing batch dim as an event dim (analogue of
+  `torch.distributions.Independent`).
+- **`ConditionalTransformed`** pushes a base through a chain of
+  bijectors, applying the log-det-Jacobian correction in `log_prob`.
+
+### Fixed: HMC at constrained-support boundaries
+
+- HMC's potential function now catches `torch.distributions`'
+  support-validation errors and returns `-inf`; the kernel reads
+  non-finite log-densities as divergent transitions and rejects
+  them in the Metropolis step. Eliminates the prior ERROR cells
+  in the benchmark matrix at the Gamma / InverseGamma /
+  HalfNormal support boundaries.
+
+### Changed: codebase-wide American spelling
+
+- All British spellings (centered / normalize / parameterize /
+  optimize / reparameterise / recognize / factorize / initialise
+  / specialize / organize / minimize / maximize / discretize and
+  their derived forms) converted to American spellings.
+  `eight_schools_centred.qvr` renamed to `eight_schools_centered.qvr`
+  with the program names updated to match.
+
+### Added: unified distribution family registry
+
+- **`FamilySpec` and `ParamSpec`** in
+  `quivers.continuous.family_spec`, a single source of truth per
+  family. Both the conditional path
+  (`_IndependentConditional` and the hand-written `ConditionalX`
+  classes) and the inline path (`FixedDistribution` /
+  `MixedInlineDistribution`) read from the same record. Replaces
+  the previous duplication between `families.py` and `inline.py`.
+- **Inline coverage for 11 previously registry-only families**:
+  Cauchy, Laplace, Gumbel, StudentT, Chi2, InverseGamma, Weibull,
+  Pareto, Kumaraswamy, ContinuousBernoulli, FisherSnedecor. Every
+  family declared via `_make_family` now auto-registers its
+  fixed-inline factory, mixed-inline builder, and support
+  constraint from the spec.
+- **New families**: ConditionalPoisson, ConditionalGeometric,
+  ConditionalNegativeBinomial, ConditionalVonMises plus their
+  inline factories. Brings the registry to 34 distinct
+  distribution families.
+- **`_IndependentConditional` is shape- and discreteness-aware**:
+  continuous-reparameterised, continuous-non-reparameterised
+  (VonMises), and discrete (Poisson / Geometric / Bernoulli /
+  Categorical) all share the same generic conditional class via
+  a `discrete` flag plus a fall-back to `.sample()` when the
+  underlying distribution lacks `rsample`.
+
+### Added: benchmark suite expansion
+
+- **Tier 1 conjugate**: normal_inverse_gamma (joint mean / variance
+  recovery), gamma_exponential, bayes_linear_regression
+  (well-conditioned).
+- **Tier 2 hierarchical**: eight_schools_centred and
+  eight_schools_noncentred (Rubin 1981 / Gelman et al. 2013) with
+  cached NUTS-derived posterior moments.
+- **Tier 3 hard geometry**: neal_funnel (scale-of-scale dependency,
+  Neal 2003), ill_conditioned_mvn (per-dim posteriors with
+  eigenvalues across four decades).
+- **Tier 6 constrained support**: half_normal_scale (positive
+  support), truncated_normal_recovery (unit interval).
+- **Metrics extension**: gaussian_kl (closed-form KL between two
+  Gaussians), wasserstein_2_1d (sorted-quantile W₂),
+  total_variation_grid (TV against a quadrature-supplied
+  density), split_r_hat and effective_sample_size (Vehtari et al.
+  2021).
+- **Runner** (`tests/benchmarks/runner.py`) drives an algorithm ×
+  problem grid across AutoNormalGuide, AutoMultivariateNormalGuide,
+  AutoLaplaceApproximation, HMCKernel, NUTSKernel and emits
+  `docs/developer/inference-benchmarks.md`. Capture problems
+  document expected failure modes (mean-field underfit on
+  correlated MVN / funnel posteriors).
+
+### Added: earlier 0.5.0 work
+
+
+### Added: inference layer
+
+- **`LatentRegistry`**: per-site introspection helper that every
+  guide and MCMC kernel consumes. Walks the model's `_step_specs`
+  once at construction and exposes per-site (support, dims, plate
+  vs scalar, bijector, flat-vector offsets) plus flatten /
+  unflatten between site dicts and a single flat unconstrained
+  vector.
+- **Transforms / flows**: `TransformModule` cooperative base
+  inheriting both `torch.distributions.transforms.Transform` and
+  `torch.nn.Module`. Primitives: `AffineCouplingTransform` (RealNVP),
+  `MaskedAutoregressiveTransform` (MAF), `InverseAutoregressiveTransform`
+  (IAF), `NeuralSplineCouplingTransform` (NSF rational-quadratic
+  spline coupling), `LULinearTransform` (Glow), `BatchNormTransform`,
+  plus `MADE` and helper masks.
+- **Variational objectives**: `Objective` ABC and four
+  implementations: `ELBO`, `IWAEBound` (Burda-Grosse-Salakhutdinov
+  2016), `RenyiBound` (Li-Turner 2016), `VRIWAEBound`
+  (Daudel-Douc-Roueff 2023). Each accepts a pluggable
+  `GradientEstimator` strategy: `Reparameterised` (default),
+  `StickingTheLanding` (Roeder-Wu-Duvenaud 2017),
+  `DoublyReparameterised` (Tucker-Lawson-Gu-Maddison 2019; default
+  for IWAE), `ScoreFunction`.
+- **Guide zoo**: `AutoMultivariateNormalGuide` (full-rank Cholesky
+  Gaussian), `AutoLowRankMultivariateNormalGuide` (Σ = W W^T +
+  diag(σ²) via Woodbury), `AutoNormalizingFlow` (user-supplied
+  transform stack), `AutoIAFGuide` (preconfigured IAF stack with
+  reverse permutations), `AutoNeuralSplineGuide` (NSF coupling
+  stack), `AutoLaplaceApproximation` (two-phase: SVI MAP then
+  Hessian-derived Gaussian), `AutoMixtureGuide` (Gumbel-Softmax
+  mixture of component guides).
+- **MCMC**: `HMCKernel` and `NUTSKernel` operating on the flat
+  unconstrained latent vector via the `LatentRegistry`. Both
+  support identity / diagonal / dense mass matrices, Nesterov
+  dual-averaging step-size adaptation (Hoffman-Gelman 2014 Alg 6),
+  and Welford-online mass-matrix adaptation. `MCMC` driver orchestrates
+  parallel chains with warmup-then-sample phases and produces
+  `MCMCResult` carrying per-site posterior draws + split-R̂ + ESS
+  diagnostics.
+- **Hybrid samplers**: `AutoDAIS` (differentiable annealed
+  importance sampling guide; Geffner-Domke 2021 / Zhang et al.
+  2021) and `WarmupThenHMC` (SVI warmup then MCMC seeded from the
+  guide's posterior mean).
+- **`Predictive`** now accepts either a `Guide` or an `MCMCResult`
+  as its posterior; the MCMC overload iterates the recorded
+  posterior draws.
+
+### Added: issue #9: scoped grouped `marginalize` blocks
+
+- **`marginalize <v> : K <- F(probs) over G via idx in { ... }`**
+  with the full feature surface from issue #9:
+  - **Arbitrary nesting** of grouped marginalize blocks. The
+    runtime distinguishes the innermost level (which has a row
+    axis and a fibration to scatter along) from outer levels
+    (which consume already-reduced contributions broadcast over
+    the surviving outer class axes), so a stack of N blocks
+    composes to the correct hierarchical log-mixture. Tested at
+    depths 3-7.
+  - **Product fibrations** via `via product(idx_a, idx_b, ...)`
+    paired with `over G * H` product grouping plates.
+  - **`reduction = logsumexp | sum | mean`** per block.
+  - **Continuous latents in scope** inside the body; the compiler
+    binds the latent name to `torch.arange(K)` so let-arithmetic
+    referencing the latent broadcasts across the class axis.
+  - **Body vectorization**: the body's terminal `observe` step is
+    captured by the compiler (`GroupedBodyObserveStep` IR) and its
+    per-row per-class log-likelihood is stored at the latent's
+    environment slot for the marginalize callable to consume. No
+    user-side `let` boilerplate.
+- `quivers.continuous.bayesian.marginalize_grouped` generalized
+  to accept multi-axis broadcast inputs, product fibrations, and
+  the three reduction modes.
+- `dsl/examples/event_structure.qvr` now uses real `observe`
+  steps inside the grouped blocks.
+
+### Added: synthetic benchmark suite
+
+- `tests/benchmarks/` with Tier-1 conjugate (Beta-Bernoulli,
+  Normal-Normal) and Tier-3 hard-geometry (correlated MVN)
+  benchmarks. Models live in `tests/benchmarks/models/*.qvr` as
+  canonical didactic models; dataset / reference modules are plain
+  functions returning `(model, observations, true_params)`. The
+  Tier-3 suite includes a capture test for the mean-field failure
+  mode on a correlated posterior.
+
+### Added: V-Cat categorical surface
+
+- **Backend-agnostic morphism → `nn.Module` adapter**
+  (`quivers.core.morphisms.as_torch_module`). Every binding site
+  that calls `add_module` (`MonadicProgram` step list,
+  `FanOutMorphism`, parametric programs) funnels through the
+  adapter so non-Module morphisms (`LatentMorphism`,
+  `ComposedMorphism`, `ProductMorphism`, …) bind without crashing.
+  The wrapper attaches the original categorical morphism on
+  `_morphism` for runtime recovery; `MonadicProgram.rsample`
+  detects V-Cat steps and computes them as deterministic tensor
+  applications.
+- **Multi-algebra composition** with one operator per algebra.
+  `>>` (ProductFuzzy default), `<<` (reverse), `>=>` (Kleisli),
+  `*>` (Markov sum-product), `~>` (LogProb log-space),
+  `||>` (Gödel min/max + Heyting), `?>` (Viterbi max-plus),
+  `&&>` (Boolean), `+>` (Łukasiewicz), `$>` (Real sum-product),
+  `%>` (Probability sum-product). Each operator carries its
+  algebra; cross-operator chains require explicit
+  `.change_base(φ)`. Five new algebra classes:
+  `MaxPlusAlgebra` (Viterbi / MAP), `LogProbAlgebra`
+  (log-space sum-product), `RealAlgebra` (sum-product on ℝ),
+  `ProbabilityAlgebra` (sum-product on [0, 1]), `CountingAlgebra`
+  (sum-product on non-negative integers). The last three mirror
+  the corresponding arcweight weight-set semirings (`RealWeight`,
+  `ProbabilityWeight`, `IntegerWeight`) and round out the
+  built-in algebra catalog to eleven distinct algebras.
+- **Algebra homomorphisms** (`quivers.core.algebra_morphisms`)
+  for change-of-base: `Expectation`, `LogProb`, `MaxPlus`,
+  `Threshold`, `MaterialImplication`, `Embedding`, `IdentityHom`,
+  `ProbabilityClamp` (Real → Probability), `CountingFromReal`
+  (Real → Counting via floor), `ProbabilityToReal` and
+  `CountingToReal` (sub-algebra inclusions). Module-level
+  singletons (`EXPECTATION`, `LOG_PROB_HOM`, `MAX_PLUS_HOM`,
+  `MATERIAL_IMPLICATION`, `PROBABILITY_CLAMP`,
+  `COUNTING_FROM_REAL`, `PROBABILITY_TO_REAL`,
+  `COUNTING_TO_REAL`); factory helpers `threshold(tau)` /
+  `embedding(src, tgt)`; a `HOMOMORPHISM_REGISTRY` keyed by
+  `(source.name, target.name)`; and `lookup_homomorphism()`.
+  Morphisms expose `.change_base(phi)` to apply a homomorphism;
+  the DSL surface is `f.change_base(name)` with the catalog
+  wired into the compiler (`expectation`, `log_prob`,
+  `max_plus`, `material_implication`, `threshold`,
+  `boolean_embedding`, `probability_clamp`,
+  `probability_to_real`, `counting_from_real`,
+  `counting_to_real`).
+- **Compact-closed surface** on V-Cat morphisms: `f.dagger`
+  (transpose), `f.trace(A)` (categorical trace), `cup(A)` and
+  `cap(A)` (unit / counit). Each operation is well-defined for
+  every algebra; the semantic interpretation depends on the
+  active algebra (ProductFuzzy: tensor transpose; Markov:
+  Bayes inversion; Viterbi: max-plus reversal; Boolean:
+  relational converse).
+- **Data-derived and expression-derived initialisers** for
+  morphism declarations. `observed f : A -> B = from_data("KEY")`
+  binds the morphism's tensor from a runtime-supplied data
+  dictionary (passed via the `data=` keyword on
+  `quivers.dsl.loads` / `load`, or `Compiler.bind_data(...)`).
+  `inner.freeze` is a postfix that materialises an expression's
+  tensor with `.detach().clone()` and wraps the result as a
+  parameter-free `ObservedMorphism`. Expression-derived
+  initialisers without `.freeze` propagate gradient lineage; the
+  declaration's type-check accepts shape-compatible inits and
+  re-tags them with the user-declared domain / codomain.
+
+### Changed
+
+- **`SVI`** takes an `objective: Objective` instead of `loss: ELBO`.
+- **`Predictive`** takes a positional `posterior: Guide | MCMCResult`
+  instead of a `guide:` keyword.
+- The variational machinery moved off `PlateDraw` (`kl_to_prior`
+  removed; the deeper migration of `_mean`/`_log_scale` happens
+  in v0.5.0 alongside the rest of the refactor).
+- `MonadicProgram` binding sites no longer crash on V-Cat
+  morphisms; the runtime applies them as deterministic tensor
+  steps.
+- `FanOutMorphism` accepts both ContinuousMorphism and V-Cat
+  morphism components; non-continuous components are wrapped in
+  `DiscreteAsContinuous` so the fan-out loop dispatches uniformly.
+
+### Removed
+
+- `PlateDraw.kl_to_prior` (no callers; the Guide hierarchy owns
+  variational distributions now).
+- `quivers.inference.elbo` (re-exported from
+  `quivers.inference.objectives` as `ELBO`).
+
+## [0.4.1] - 2026-05-12
+
+Three connected bug fixes that unblock hierarchical-Bayesian
+workflows under the 0.4 surface. No grammar or parser changes;
+panproto does not need to revendor `panproto-grammars-all` for this
+release.
+
+### Fixed
+
+- **Variational guides respect constrained supports.**
+  `quivers.inference.AutoNormalGuide` and
+  `quivers.inference.AutoDeltaGuide` previously sampled in
+  unconstrained real space for every latent and fed the result
+  into the prior's `log_prob`, which raised
+  `ValueError: Expected value to be within the support of the
+  distribution` for any constrained family (`HalfNormal`, `Beta`,
+  `Uniform`, `Exponential`, `Gamma`, `LogNormal`, `LogitNormal`,
+  `HalfCauchy`, `Dirichlet`, …). Every `ContinuousMorphism` now
+  exposes a `support: Constraint` property; the inline
+  distributions (`FixedDistribution`, `MixedInlineDistribution`,
+  `DirectBernoulli`, `DirectTruncatedNormal`) and the
+  family-conditional distributions in `quivers.continuous.families`
+  override it with the correct constraint. The auto-guides sample
+  `z ~ Normal(loc, scale)` in unconstrained space, push through
+  `biject_to(support)` to land on the constrained side, and
+  evaluate `log_prob` with the Jacobian correction
+  (`log N(z) + log|det J_{T^{-1}}(v)|`). The simplex case routes
+  through `StickBreakingTransform` and accounts for the d ↔ d-1
+  dimension reduction. This is the same construction Pyro's
+  `AutoNormal` uses.
+
+- **`condition(model, data)` exposes host data to `let`-expression
+  gather, and plate latents are batch-invariant.** Keys in the
+  conditioning data dict that do not match a declared sample /
+  observe site are pre-populated into the trace environment as
+  deterministic values, visible to `let`-expression evaluation.
+  Free variables in `let` expressions (variables not bound by any
+  sample / observe / let / lambda step) are no longer rejected at
+  compile time; the runtime resolves them against the
+  conditioning data dict. Together with the batch-invariant plate
+  semantics below, this unlocks the canonical crossed-random-
+  effects idiom:
+  ```
+  program p : Resp -> Resp
+      by_subj : Subj <- Normal(0.0, 1.0)
+      let mu = sigmoid(by_subj[subj_idx])
+      observe r : Resp <- Bernoulli(mu)
+      return mu
+
+  cond = condition(p.morphism, {"subj_idx": idx, "r": y})
+  ```
+  Plate draws (`v : A <- F(args)`) are now batch-invariant: the
+  latent is a single shared tensor of shape `(|A|, *B.shape)` :
+  the standard Pyro / NumPyro semantic, instead of being
+  replicated against the program input's leading batch axis. The
+  gather `by_subj[subj_idx]` along the plate axis then produces a
+  per-row predictor of shape `(N_resp,)` that broadcasts cleanly
+  against an observed `Resp`-plate kernel. Scalar-per-row plates
+  (`Normal`, `HalfNormal`, …) drop the trailing length-1 axis so
+  the latent has the natural `(|A|,)` shape. Both
+  :class:`AutoNormalGuide` and :class:`AutoDeltaGuide` were
+  updated to advertize the same shape on the variational side:
+  plate latents are stored as `(|A|, unconstrained_dim)` parameter
+  tensors and sampled batch-invariant so ELBO substitution into
+  the model's log-joint env aligns shape-by-shape with the
+  model's :class:`PlateDraw` output. (Without this, the SVI step
+  ran into an `IndexError` from the plate-axis gather even though
+  `cond.trace(...)` on the same model succeeded.)
+
+- **Inline `Dirichlet` accepted as a prior with scalar or vector
+  concentration.** `pc <- Dirichlet(α)` and
+  `pc <- Dirichlet([α_1, …, α_K])` both compile. For scalar `α`,
+  the simplex dimension is inferred from the program's declared
+  codomain (`dim` for a `ContinuousSpace`, `cardinality` for a
+  `SetObject`, or 2 as a minimum); for a per-component vector,
+  the simplex dimension is the number of literals. The
+  `make_fixed_dirichlet` factory accepts both single-element
+  sequences (treated as symmetric) and per-component sequences.
+  Previous behavior was to raise
+  `distribution family 'Dirichlet' is not supported as an inline
+  distribution; declare it as a continuous morphism instead`, or
+  to crash on the vector form with
+  `TypeError: make_fixed_dirichlet() takes 2 positional arguments
+  but 4 were given`.
+
+### Internal
+
+- `ContinuousMorphism.support` defaults to `constraints.real`;
+  every constrained-output subclass overrides it. Variational
+  guides consume this through
+  `torch.distributions.constraint_registry.biject_to`.
+- `_FAMILY_SUPPORTS` in `quivers.continuous.inline` maps each
+  inline family to its support, applied by
+  `make_inline_distribution` when constructing a
+  `MixedInlineDistribution`. `Uniform` and `TruncatedNormal`
+  specialize to the actual interval when both bounds are literal.
+- `trace()` pre-populates `env` with the non-site keys of the
+  observations dict before the program's steps run.
+- `_validate_let_expr_vars` treats unbound names as deferred host
+  references; the eval-time evaluator raises a clear `KeyError` if
+  the value is missing.
+- `PlateDraw.rsample` is batch-invariant: returns
+  `(|A|, *B.shape)` regardless of the program input's batch axis;
+  scalar-per-row plates squeeze the trailing length-1 dimension.
+  `PlateDraw.log_prob` accepts either the natural plate-latent
+  shape or the legacy flat `(batch, |A| · prod(B))` shape for
+  back-compat.
+- `_VECTOR_PARAM_FAMILIES` in `quivers.continuous.inline` lists
+  the inline families whose all-literal factory takes a single
+  vector argument rather than splatting positional floats; the
+  parser's flattened literal sequence is re-bundled into a list
+  before the factory call. Currently `{"Dirichlet"}`; the
+  mechanism is ready for `MultivariateNormal`, `Wishart`, and
+  `LKJCorrelationFactor` as those land.
+- `make_fixed_dirichlet` treats a single-element concentration
+  sequence as a scalar (symmetric Dirichlet), broadcast to the
+  codomain's simplex dimension; multi-element sequences must
+  match the codomain dimension exactly.
+
+### Tests
+
+`tests/test_inference_constrained.py` (21 cases): every supported
+constrained family under both auto-guides, host-data passing
+through `condition`, the end-to-end Bernoulli hierarchical-
+regression observation kernel that exercises the plate-gather →
+observe-plate composition, an SVI-step regression that verifies
+the guide / model plate shapes align and the ELBO descends with
+``loc_by_subj`` driven negative by all-zero responses, and inline
+Dirichlet with both scalar and vector concentrations.
+
+## [0.4.0] - 2026-05-12
+
+This release lands three deeply-interconnected bodies of work in a
+single minor bump, all motivated by the goal of making quivers a
+unified surface for probabilistic, weighted-deductive, and
+neural-symbolic programs:
+
+1. **DSL surface homogenization**, one Kleisli-bind sigil `<-`,
+   type-annotated indexed binds, scoped `marginalize`, and
+   `!`-prefixed effect signatures.
+2. **Agenda-based weighted-deduction framework**, a single
+   engine subsuming CKY, Earley, Viterbi, inside-outside,
+   semi-naive Datalog, A\* parsing, Knuth's algorithm, and MLTT
+   proof search, declared via `deduction { … }` blocks with
+   first-class differentiable charts.
+3. **Hierarchical-Bayesian + arrow / algebraic-effects substrate**
+  , plate draws, vectorized observations, marginalization,
+   LKJ priors, Cholesky factor spaces, the Hughes arrow tower
+   (`Arrow`, `ArrowChoice`, `ArrowApply`, `ArrowLoop`,
+   `ArrowZero`, `ArrowPlus`), stdlib monads / monad transformers,
+   algebraic effects + handlers via `FreeMonad`.
+4. **Structural compression: signatures, encoders, decoders,
+   losses**, a uniform algebraic interface for compressing
+   arbitrary structured objects (sequences, trees, graphs, charts,
+   typed lambda terms) to fixed-length vectors and decoding them
+   back under a learned distribution. Realizes transformers,
+   tree-LSTMs, graph-NNs, autoregressive LMs, VAEs, and
+   vector-inside-outside parsers as instances of one F-algebra /
+   F-coalgebra pattern.
 
 ### Changed (breaking, pre-1.0 clean cut)
 
 Surface DSL homogenization. The program-block surface is reorganized
 around a single Kleisli-bind sigil `<-`, type-annotated indexing on
 the binder, scoped marginalization, and `!`-prefixed effect
-signatures. See `CHANGELOG.md` for the full migration table.
+signatures. The categorical denotation is unchanged; only the surface
+forms shift to a Haskell-PPL aesthetic.
 
-Headline changes:
+- **`draw v ~ F(args)` → `v <- F(args)`**: the `draw` keyword is
+  retired in favor of the unique Kleisli-bind sigil `<-`. The
+  surface-arrow alternative (the v0.4 do-notation `v <- F` form) is
+  unified with the new sigil; there is now one and only one way to
+  introduce a random variable.
+- **`draw v : A -> K ~ F(args)` → `v : A <- F(args)`**: indexed
+  (plate) binds use a type annotation on the binder rather than a
+  separate keyword family. The per-fiber codomain is taken from the
+  family; the `: A` annotation declares the index set.
+- **`observe v ~ F(args)` → `observe v <- F(args)`**: scored binds
+  retain the `observe` prefix; the rest of the line matches the
+  Kleisli-bind shape.
+- **`observe r[n] ~ F(args) for n in N` → `observe r : N <- F(args)`** :
+  the vectorized-observe `for n in N` shape collapses into the
+  type-annotated form. Bracket-indexed family arguments `theta[N]`
+  annotate that an argument is a section of an N-indexed family.
+- **`marginalize c` (trailing) → `marginalize c : A <- F(args) in { … }`** :
+  marginalization is always scoped; the integration target and the
+  scope are visible at the binding site. The categorical pushforward
+  becomes visually local to its binding.
+- **`posterior name (model) [params] : dom -> cod` → `program name (params) : dom -> cod ! Pure over model`** :
+  posterior blocks are encoded as `program` declarations with a
+  `! Pure` effect signature and an `over model` modifier. The
+  parser routes such programs to the posterior registry and the
+  compiler enforces the determinism constraint.
+- **`!` effect signature on programs**: `program P : X -> Y ! Sample, Score`
+  declares the body's capability set. Effects: `Sample`,
+  `Score`, `Marginal`, `Pure`. The compiler verifies the body's
+  actual effects are a subset of the declared set (or rejects
+  any effect when `Pure` is declared).
+- **`output X` → `export X`**: module-level exports replace
+  `output`; multiple `export` declarations per module are allowed.
+- **Drop labeled-tuple return form**: the v0.4 `return (a: x, b: y)`
+  form was purely syntactic rebinding without semantic effect; it
+  is removed as dead surface.
 
-- `draw v ~ F` → `v <- F`. The `draw` keyword is retired; `<-` is
-  the unique Kleisli-bind sigil.
-- `draw v : A -> K ~ F` → `v : A <- F`. Indexed (plate) binds use
-  a type annotation on the binder.
-- `observe r[n] ~ F for n in N` → `observe r : N <- F`. The
-  `for n in N` form is dropped; vectorized observes use the same
-  type-annotation shape as plates.
-- `marginalize c` → `marginalize c : A <- F in { … }`. Always
-  scoped; the integration target is visible at the binding site.
-- `posterior P (M) [v]` → `program P(v) : … ! Pure over M`.
-- `!` effect signature on programs: `Sample`, `Score`,
-  `Marginal`, `Pure`. The compiler verifies actual vs. declared
-  effects.
-- `output` → `export` (multiple per module allowed).
-- Labeled-tuple return form dropped.
+### Internal
+
+- `BindStep` unifies the four old step shapes (`DrawStep`,
+  `PlateDrawStep`, `VectorisedObserveStep`, `MarginalizeStep`) at
+  the AST level; the old shapes remain as compiler-internal IR
+  consumed by the runtime step-builder. The parser emits only
+  `BindStep` and `LetStep`; the compiler's `_expand_bind_steps`
+  pass translates to the internal IR.
+- `ProgramDecl` gains `effects: frozenset[str] | None` and
+  `over_model: str | None` fields.
+- `MonadicProgram` gains an `effect_set: frozenset[str] | None`
+  field for introspection by downstream inference / dispatch code.
+- `ExportDecl` replaces `OutputDecl`. The first declared export
+  is the module's primary output; subsequent exports are
+  accessible as additional module bindings.
+- The DSL's `<-` arrow now binds with `prec.right`, eliminating
+  the previous GLR ambiguity between draw-args and following
+  steps.
+
+### Migration guide
+
+For most programs the mechanical translation is:
+
+| pre-0.4                                      | 0.4                                                 |
+|----------------------------------------------|-----------------------------------------------------|
+| `draw v ~ F(args)`                           | `v <- F(args)`                                      |
+| `draw v : A -> K ~ F(args)`                  | `v : A <- F(args)`                                  |
+| `observe v ~ F(args)`                        | `observe v <- F(args)`                              |
+| `observe r[n] ~ F(args) for n in N`          | `observe r : N <- F(args)`                          |
+| `marginalize c`                              | `marginalize c <- F(args) in { … }`                 |
+| `posterior P (M) [v] : … ` body              | `program P(v) : … ! Pure over M ` body              |
+| `output E`                                   | `export E`                                          |
+
+### Tests
+
+- All example `.qvr` files migrated to the 0.4 surface.
+- Tree-sitter corpus covers the new surface shapes (20/20 parses).
 
 ### Agenda-based weighted-deduction framework
 
-Also in v0.5: a declarative `deduction { … }` block backed by a
-general agenda-engine runtime (`quivers.stochastic.agenda`).
+0.4 also lands the full agenda-engine substrate
+underneath a declarative `deduction { … }` block. The framework
+subsumes CKY, Earley, Viterbi, inside-outside, semi-naive Datalog
+evaluation, A* parsing, Knuth's algorithm, depth-first MLTT
+proof search, and edit-distance dynamic programming as parameter
+settings on a single engine.
 
-- One engine, seven parameters subsumes CKY, Earley, Viterbi,
-  semi-naive Datalog, A* parsing, Knuth's algorithm, depth-first
-  MLTT proof search.
-- Charts as first-class differentiable values:
-  `view.weight(item)`, `view.enumerate(pattern)`,
-  `view.goal_weight()` return torch tensors with autograd.
-- Pre-registered stdlib deductions in `quivers.stochastic.stdlib`:
-  CCG, Lambek, STLC, MLTT, Datalog, Dijkstra, HMM, ViterbiHMM,
-  EditDistance.
-- panproto integration: `QVR_DEDUCTION_PROTOCOL` +
-  `extract_deduction_schema(compiler)` makes deductions
-  first-class schemas.
+- **Surface form**:
+  ```qvr
+  deduction CG : Atom -> Atom {
+      atoms { NP, S, VP }
+      rule fwd_app : X/Y, Y |- X
+      rule bwd_app : Y, Y\X |- X
+      semiring  LogProb
+      start  S
+      depth  4
+  }
+  ```
+  Single-uppercase-letter pattern names (`X`, `Y`) bind as
+  wildcards; non-wildcard atoms match literally. The block
+  declares the seven irreducible parameters of an agenda-based
+  deduction (item algebra via atoms, rule set, semiring, axiom
+  source, goal predicate, start symbol, depth bound). Concrete
+  parsing strategies are selected by the compiler from these
+  parameters.
 
-## [0.4.0] - 2026-05-11
+- **Charts as first-class differentiable values**: each
+  deduction's runtime view exposes
+  `chart.weight(item)`, `chart.enumerate(pattern)`,
+  `chart.derivations(item)`, `chart.goal_weight()`, all returning
+  `torch.Tensor` values whose gradients flow back through the
+  agenda's semiring operations to any `requires_grad=True`
+  axiom / rule weight, enabling end-to-end gradient-based
+  learning over deduction systems (the Goodman 1999 semiring
+  framework lifted to PyTorch tensors).
+
+- **Pre-registered stdlib deductions**
+  (`quivers.stochastic.stdlib`): `CCG`, `Lambek`, `STLC`,
+  `MLTT`, `Datalog`, `Dijkstra`, `HMM`, `ViterbiHMM`,
+  `EditDistance`. Users import and run them directly:
+  ```python
+  from quivers.stochastic.stdlib import Datalog
+  view = Datalog(edge_axioms)
+  reaches = view.enumerate(("reach", source, Wildcard("Y")))
+  ```
+
+- **Agenda strategies**: `cky_agenda()`, `earley_agenda()`,
+  `viterbi_agenda(priority_fn)`, `astar_agenda(g_plus_h)`,
+  `knuth_agenda()`, `depth_first_agenda()`,
+  `semi_naive_agenda()`. Strategy independence
+  (Goodman 1999 §3) is verified in `test_agenda.py`: under
+  idempotent semirings, chart values agree across all
+  strategies.
+
+- **panproto integration**: `QVR_DEDUCTION_PROTOCOL` and
+  `extract_deduction_schema(compiler)` make deduction systems
+  first-class panproto schemas. Schema morphisms over the
+  protocol correspond to deduction-system specializations
+  (e.g., CCG ⊂ Lambek ⊂ MultimodalLambek).
+
+### Structural compression: signatures, encoders, decoders, losses
+
+The release lands a uniform algebraic interface for compressing
+arbitrary structured objects to fixed-length vectors and decoding
+them back under a learned distribution. Categorically: every
+constructor algebra a user declares is the initial Σ-algebra `T_Σ`
+of a multi-sorted signature; a **encoder** is a Σ-algebra
+homomorphism `T_Σ → Vec_D`, and a **decoder** is a Kleisli
+coalgebra `Vec_D → Kern(T_Σ)`. The recursion / corecursion is
+supplied by the framework; the analyst supplies only the
+per-operation parametric functions. This single abstraction
+subsumes RNN / transformer / tree-LSTM / graph-NN encoders,
+autoregressive LM and variational decoders, and the proposal's
+vector inside-outside parser (the chart's item signature is Σ, the
+parser's `combine` / `split^L,R` are the per-operation encoder
+functions, the attention-weighted aggregation lives entirely
+inside the encoder, outside the chart's role, so the
+semiring abstraction is not broken).
+
+- **Signature blocks** declare sorts, constructors, binders, and
+  (for graph signatures) vertex / edge kinds:
+  ```qvr
+  signature LF {
+      sorts {
+          Term : object dim 64
+          Type : object dim 32
+          Name : data   dim 32 vocab { "dog", "cat", "every" }
+      }
+      constructors {
+          Const : Name      -> Term
+          App   : Term, Term -> Term
+      }
+      binders {
+          Lam : binds (x : Term : ty : Type) in (body : Term) -> Term
+      }
+  }
+  ```
+  Three sort kinds: `object` (recursively decoded), `data`
+  (opaque raw values; data sorts may declare a closed vocabulary
+  via `vocab { … }` of string / integer / float literals),
+  `index` (de-Bruijn slots). The reserved `BoundVar` op is a
+  built-in de-Bruijn reference; binders thread a typed context Γ
+  carrying `(var_sort, embedding, type_term)` per scope entry.
+  Binder variables may carry an annotation sort via
+  `binds (x : Term : ty : Type)`, the variable's type is
+  structurally tracked through the de-Bruijn context.
+- **Encoder blocks** declare an F-algebra homomorphism
+  `T_Σ → Vec_D`. Per-constructor bodies are user-supplied or
+  scaffolded as 2-layer MLPs by the compiler with correct
+  per-arg dimensions. Sequence sugar, `Cons(head, tail) recurrent
+  state |-> body` for left-folds and `Cons(head, tail) attention
+  prefix |-> body` for iterative outside-in walks that thread a
+  running prefix list, handles RNN / transformer-shaped
+  encoders uniformly. Graph signatures use a
+  `message_passing`-shaped body (`init[V]`, `message[E]`,
+  `update[V]`, `readout`, `iterations N`).
+- **Decoder blocks** are Kleisli coalgebras `Vec_D → Kern(T_Σ)`
+  with `sample(vec) -> Term` and `log_prob(term, vec) -> Tensor`.
+  Per-sort `structure` / `primitive` / `factor` / `binder_select`
+  heads are scaffolded as learnable neural networks; the
+  corecursion (structure choice, factor split, recursive descent
+  with extended Γ at binders, BoundVar fallback to in-scope
+  variables, depth-bounded termination) is supplied by the
+  framework. No silent type coercion or sentinel value: an
+  observed term whose shape doesn't match the canonical form
+  raises with a typed diagnostic.
+- **`var_init` per (var_sort, annot_sort) pair**: multiple
+  `var_init Term from Type as ty |-> body` declarations per
+  encoder, one per pair of sorts the signature's binders
+  introduce; the compiler scaffolds defaults for omitted pairs.
+- **Stdlib shapes** (`quivers.structural.shapes`): `Seq[A]` with
+  `rnn_encoder`, `transformer_encoder`, `bow_encoder`,
+  `ar_decoder`; `Tree[L, B]` with `tree_lstm_encoder` and
+  `tree_decoder`; `Graph[V, E]` with `graph_signature` and
+  `gnn_encoder` (per-edge-kind message MLP, per-vertex-kind
+  GRU update, mean / sum / max readout).
+- **Deduction integration**: a `deduction` block may declare an
+  item `signature` and attach a `encoder`; the chart's
+  `embedding(item)` query returns a differentiable vector
+  computed by the attached encoder's algebra-homomorphism
+  recursion over the chart-item term.
+- **Loss attachments** (`loss <name> [weight ...] [on <site>] { body }`):
+  attachable at `global`, `program <name>`, `deduction <name>`,
+  `encoder <name>`, `decoder <name>`, `rule <name> in <D>`,
+  and `chart of <D>` sites. Rule-attached losses fire on every
+  rule application during chart construction (the agenda's
+  `_fire` path invokes a registered `rule_callback` with the
+  full antecedent list); chart-attached losses fire once on the
+  completed chart. `LossRegistry.evaluate_on(kind, target, env)`
+  returns the weighted partial sum for a given attachment site;
+  `ChartView.attached_loss` exposes the accumulated rule + chart
+  losses fired during a deduction's run.
+- **Optional `export`**: a module with only signatures /
+  encoders / decoders / losses (no top-level morphism) now
+  compiles into a `Program(None)` container; the artifacts are
+  reachable through `prog.signatures` / `prog.encoders` /
+  `prog.decoders` / `prog.losses`. The previous `no export
+  declaration found` hard error is replaced by a precise
+  diagnostic on `forward()`.
+- **Strict declaration discipline**: every sort referenced in a
+  constructor's domain or a binder's variables / scoped
+  arguments / codomain must be declared in the signature's
+  `sorts { … }` block, no silent auto-registration. Every sort
+  with no inline `dim` must have its dim supplied by every
+  encoder / decoder over the signature. Reserved op names
+  (`BoundVar`, `Data`) are rejected as user-declared constructors
+  or binders. `vocab` clauses are only valid on `data` sorts;
+  duplicate vocabulary entries are rejected.
+- **Public surface**: `quivers.structural` exports `Signature`,
+  `Sort`, `Constructor`, `Binder`, `BinderVarSpec`,
+  `BinderArgSpec`, `VertexKind`, `EdgeKind`, `Term`, `Context`,
+  `EMPTY_CONTEXT`, `DataLeaf`, `Encoder`, `Decoder`,
+  `LossEntry`, `LossRegistry`, `bound_var`, `make_term`.
+  `quivers.structural.shapes` exports the canonical sequence /
+  tree / graph factories.
+- **27 new tests** in `tests/test_structural.py` cover every
+  surface form, every strict-rule diagnostic, the typed-binder
+  discipline, end-to-end compression and decoding for sequences /
+  trees / graphs, rule-attached and chart-attached loss firing,
+  per-pair `var_init` overrides, recurrent / attention modes, and
+  the data-sort vocabulary pipeline.
+
+### Hierarchical-Bayesian primitives and arrow / effects tower
 
 ### Added
 
-- Hierarchical-Bayesian modeling primitives in `quivers.continuous.plate`, each carrying its categorical denotation in **Kern**:
+- Hierarchical-Bayesian modeling primitives in `quivers.continuous.bayesian`, each carrying its categorical denotation in **Kern**:
   - `PlateDraw(index_size, family, domain)`, finite-domain-indexed draw realized as a Kern-morphism `A → B` by the natural isomorphism `Kern(1, B^A) ≅ Kern(A, B)`; subclass of `ContinuousMorphism` so it threads through the existing `MonadicProgram` step machinery.
   - `VectorisedObserve(family, response)`, batched-observation kernel `Φ → G_{≤1}(Φ)` with score `∏_n p_F(r_obs(n); θ(n, φ))`.
   - `marginalize_categorical(log_probs)`, program-level pushforward through `π_{Φ\C}` realized as `log_sum_exp` over the class axis.
@@ -129,7 +1029,7 @@ general agenda-engine runtime (`quivers.stochastic.agenda`).
   - Parametric programs: `program name (G : FinSet, scale : Real, prior : Mor[A, B]) : dom -> cod ...`, programs polymorphic over objects, scalars, and morphisms; denote dependent kernels `Π(p:P).Kern(dom(p), cod(p))`. Instantiated at each call site `draw v ~ name(args)` by parameter substitution + α-renaming, so each call contributes fresh latent factors to the caller's joint kernel. Supports the random-effects reuse story without tying latents across call sites.
   - Let-expression builtins: `cumsum`, `softmax`, `cholesky_quad_form` join the existing `sigmoid` / `exp` / `log` / `abs` / `softplus`.
 - AST nodes in `quivers.dsl.ast_nodes`: `PlateDrawStep`, `VectorisedObserveStep`, `MarginalizeStep`, `LetExprIndex`, `PosteriorDecl`; each docstring carries the Kern denotation.
-- Stan-model port at `docs/examples/source/event_structure.qvr`, a faithful translation of the four-class telicity × durativity latent-class model from `~/Projects/supertelicity/analysis/event-structure-induction/models/event-structure-model.stan`, demonstrating crossed random effects, ordinal monotone splines, vectorized observations, and `marginalize` over the discrete latent class.
+- Stan-model port at `src/quivers/dsl/examples/event_structure.qvr`, a faithful translation of the four-class telicity × durativity latent-class model from `~/Projects/supertelicity/analysis/event-structure-induction/models/event-structure-model.stan`, demonstrating crossed random effects, ordinal monotone splines, vectorized observations, and `marginalize` over the discrete latent class.
 - `tests/test_bayesian.py`: 15 tests covering every new primitive and every new AST node's parse / compile round-trip, plus a compile-time smoke test on the Stan-model port.
 
 ### Changed
@@ -149,7 +1049,7 @@ general agenda-engine runtime (`quivers.stochastic.agenda`).
 - Stdlib effect instances in `quivers.monadic.instances`: `Identity`, `Maybe`, `Alternative_`, `Continuation`, `State`, `Reader`, `Writer`, `List`. All operations (`pure`, `fmap`, `apply`, `join`, `bind`, `lift_a2`, `empty`, `alt`, `foldr`, `traverse`) are concrete V-relation realizations; function-space-dependent operations encode `[A → B]` as a finite `FinSet` of cardinality `|B|^|A|`. Monad transformers in `quivers.monadic.transformers`: `StateT`, `ReaderT`, `MaybeT`, `ContT`, `WriterT`.
 - Algebraic effects + handlers in `quivers.monadic.algebraic`: `Operation`, `EffectSignature`, `Handler`, `FreeMonad`. `FreeMonad` carrier is the bounded-depth signature-tree set realized as a flat `FinSet` with structural decomposition via `_decompose_carrier_index` / `_compose_carrier_index`; `pure`, `fmap`, `join`, `bind`, `lift_a2` satisfy the monad laws up to truncation. `Handler.run` is the post-order tree fold interpreting each leaf through `return_clause` and each operation node through `operation_clauses`. `EffectSignature.to_theory()` and `Handler.as_theory_morphism()` realize the panproto-side theory and theory morphism.
 - `quivers.monadic.bridges`: `Kleisli`, `ArrowMonad`, `CoKleisli`, `kleisli`, `arrow_monad`, `cokleisli` connecting the monad and arrow towers. `Kleisli.compose` is fmap-then-join with structural recovery of the underlying B; `Kleisli.first` is realized via the canonical monad strength `σ = (pure × id) >> lift_a2(id_{A⊗B})`; `Kleisli.app` routes through the Applicative apply. `ArrowMonad` provides `fmap/pure/apply/join/bind/lift_a2` via the underlying arrow's `arr`/`id_arr`/`app`/`compose`. `CoKleisli` is registered as `Category_`; promoting to `Arrow` requires an explicit comonad costrength supplied via `first_via_costrength(f, C, costrength)`.
-- `quivers.arrows` package, Hughes-style arrow hierarchy (`Category_`, `Arrow`, `ArrowChoice`, `ArrowApply`, `ArrowLoop`, `ArrowZero`, `ArrowPlus`) with panproto-theory mirrors. New `quivers.arrows.instances` with `VRel`, `Function`, `Stochastic` arrow instances; `loop_arr` realized via the V-algebra iterative trace (Joyal-Street-Verity 1996, §3).
+- `quivers.arrows` package, Hughes-style arrow hierarchy (`Category_`, `Arrow`, `ArrowChoice`, `ArrowApply`, `ArrowLoop`, `ArrowZero`, `ArrowPlus`) with panproto-theory mirrors. New `quivers.arrows.instances` with `VRel`, `Function`, `Stochastic` arrow instances; `loop_arr` realized via the V-quantale iterative trace (Joyal-Street-Verity 1996, §3).
 - `quivers.stochastic.effect_lifts.class_directed_lifts`: class-driven schema lifting for effect-typed parsers. `make_swap_schema` / `swap_rule_set` emit `swap_TU` schemas from registered `DistributiveLaw` instances for commutation firings.
 - `quivers.core._factories` module, concrete morphism constructors `inj`, `case`, `pi`, `pair`, `parallel`, `terminal`, `constant`, `distrib_right`, `coproduct_map`. The algebra on which the stdlib monads, arrows, and algebraic-effects layer are built.
 - New tree-sitter grammar at `grammars/qvr/` with regenerated parser; the unified `_type_expr` family subsumes the prior `_cat_pattern` productions.
@@ -189,6 +1089,204 @@ general agenda-engine runtime (`quivers.stochastic.agenda`).
 - `panproto >= 0.47.0` (was `>= 0.45.0`).
 - `panproto-grammars-all >= 0.47.0` (was `>= 0.45.0`).
 - `didactic >= 0.7.1` (was `>= 0.6.0`).
+
+## [0.3.0] - 2026-04-12
+
+This release provides effects integration: a typeclass +
+algebraic-effects substrate underneath the DSL, joint type-and-effect
+schema lifting in the chart parser, and a substantially expanded
+surface for categorial grammars driven by it.
+
+### Surface
+
+- **Unified type-expression family.** The categorial-pattern
+  sublanguage (`CatPattern`, `CatPatternSlash`, `CatPatternProduct`)
+  is folded into `TypeExpr`. Slash patterns (`X/Y`, `X\Y`) parse as
+  `TypeSlash`; effect-typed applications (`T(X)`, `Cont_S(NP)`) parse
+  as `TypeEffectApply`. Rule and schema premises / conclusions are
+  typed at `TypeExpr` uniformly.
+- **`schema` declarations.** Pattern-polymorphic morphism schemas
+  with explicit parameter types and a unified domain / codomain
+  shape: `schema forward_app[X, Y : Cat] : (X/Y) * Y -> X`. Arity is
+  derived from the domain shape, a 2-component `TypeProduct`
+  produces a binary chart-rule, otherwise unary.
+- **`EnumSet` and `FreeResiduated` object initializers.**
+  `object Atoms = {NP, S, VP}` declares an `EnumSet`;
+  `object Cat = FreeResiduated(Atoms, depth=2, ops=[slash])` declares
+  the residuated category universe over an `EnumSet` of generators,
+  closed under the listed connectives up to a bounded nesting depth.
+- **`FreeMonoid` object surface.** `object Strings = FreeMonoid(X, max_length=4)`
+  parses, walks, and compiles to a runtime `FreeMonoid` carrier.
+- **`chart_fold(...)` primitive.** `chart_fold(lex=…, binary=…,
+  unary=…, start=…, depth=…, effect_depth=…)` exposes the inside
+  algorithm as a first-class morphism expression. Accepts unary
+  binaries via the reflexive-transitive closure of unary chart cells.
+- **Residuation-witness combinators.** `.curry_right` and
+  `.curry_left` postfix methods realize the right / left
+  residuation isomorphism on a binary morphism. Forward / backward
+  application become *theorems* derivable from identity + curry
+  once joint type-and-effect dispatch fires.
+- **`alias` declarations.** Object-shaped aliases (`alias Pair = X *
+  Y`) bind a resolved `SetObject` in the compiler environment;
+  residuated aliases (`alias VP = S \ NP`) are stored for syntactic
+  substitution at schema-pattern use sites. Duplicate-declaration
+  and shadowing diagnostics included.
+- **`bundle` declarations.** `bundle CCG = [forward_app,
+  backward_app, harmonic_composition]` names a tuple of rule
+  references that `parser(rules=…)` and `chart_fold(binary=…)`
+  splice into the rule list. Bundles can reference other bundles;
+  the expander detects cycles.
+- **Doc comments.** Lines starting with `##` attach to the next
+  declaration that carries a docs field (`object`, `morphism`,
+  `schema`, `program`, `alias`, `bundle`). Plain `#` line comments
+  continue to be dropped at parse time.
+
+### Categorial-effects substrate
+
+- **Typeclass tower** (`quivers.monadic.typeclasses`). `Functor` /
+  `Applicative` / `Monad` / `Alternative` / `MonadPlus` /
+  `Foldable` / `Traversable` / `MonadTrans`. Each ABC documents its
+  laws; the runtime law-check scaffold lives in `laws.py`.
+- **Arrow tower** (`quivers.arrows`). `Category_` / `Arrow` /
+  `ArrowChoice` / `ArrowApply` / `ArrowLoop` / `ArrowZero` /
+  `ArrowPlus` (Hughes 2000 §3). `ArrowApply` is bridged to `Monad`;
+  `ArrowLoop` is the denotational target of `chart_fold`'s loop.
+- **Stdlib effect instances** (`quivers.monadic.instances`).
+  `Identity`, `Maybe`, `Alternative_` (Hamblin powerset),
+  `Continuation(answer)`, `State(state)`, `Reader(env)`,
+  `Writer(monoid)`, `List(max_length)`. Each is a `dx.Model`
+  registered against its appropriate ABC via `ABC.register(...)`,
+  with concrete V-relation realizations of `pure` / `fmap` /
+  `apply` / `join` / `bind` / `lift_a2`.
+- **Monad transformers** (`quivers.monadic.transformers`).
+  `StateT(state)`, `ReaderT(env)`, `MaybeT`, `ContT(answer)`,
+  `WriterT(monoid)`.
+- **Algebraic effects + handlers** (`quivers.monadic.algebraic`).
+  `Operation`, `EffectSignature`, `Handler`, `FreeMonad(signature)`
+  with a bounded-depth flat-FinSet carrier that preserves the
+  recursive leaf-vs-operation structure. `Handler.run` is a
+  post-order tree fold; a handler is a panproto theory morphism
+  from `sig.to_theory()` into the target monad's theory.
+- **Bridges** (`quivers.monadic.bridges`). `Kleisli(monad)` wraps a
+  `Monad` as `Arrow` / `ArrowApply` with concrete strength and app;
+  `ArrowMonad(arrow)` wraps an `ArrowApply` as a `Monad`. The
+  Joyal–Street–Verity iterative trace realizes `loop_arr`.
+
+### Chart parser
+
+- **Class-directed lifts** (`quivers.stochastic.effect_lifts.class_directed_lifts`).
+  Given a base `SchemaDecl` and an effect, returns the tuple of
+  lifted schemas keyed by the effect's typeclass interface:
+  `Applicative` → `pure_T` / `apply_T`; `Monad` → adds `bind_T`
+  (Charlow's scope-extruding lift); `Alternative` → adds `alt_T`;
+  `MonadPlus` is their union. Dispatch is on the typeclass, never
+  the effect's identity, so adding a new effect or a new typeclass
+  extends the lifting machinery automatically.
+- **`lift_rule_set(base, effects)`** applies the dispatch matrix
+  pairwise across a rule-set and an effect-stack, returning the
+  union of base + lifted schemas; consumed uniformly by the
+  chart-fold runtime.
+- **`chart_fold` end-to-end.** The compiler path drops the previous
+  `effect_depth > 0` guard, composes handlers as log-space
+  transitions on the parser output, and emits `swap_TU` schemas
+  from registered `DistributiveLaw` instances.
+
+### Tooling
+
+- **`qvr check` CLI** (`quivers.cli.{__init__,check}`). Parse +
+  constraint-solver + compile pipeline over a list of `.qvr` files;
+  structured JSON output via `--json`; exit codes `0` / `1` / `2`
+  for clean / error / usage. Registered as the `qvr` console script.
+- **Constraint solver** (`quivers.dsl.constraints.check_constraints`).
+  Walks the parsed AST and reports `residuated_constraint`,
+  `effect_constraint`, and `bundle_unknown_member` violations
+  without invoking the full compiler. Surfaced via `qvr check`.
+- **Pygments lexer** (`quivers.dsl.pygments_lexer`). Driven by the
+  in-tree tree-sitter parser via the `_dev_grammar` shim, so the
+  highlighter always reflects the authoritative grammar.
+- **Highlight queries** (`grammars/qvr/queries/highlights.scm`)
+  refreshed for `schema_decl`, `type_slash`, `type_effect_apply`,
+  `chart_fold`, `curry_right` / `curry_left`, `EnumSet` /
+  `FreeResiduated` / `FreeMonoid`, `alias_decl`, `bundle_decl`.
+- **GitHub linguist** (`.gitattributes`). `.qvr` classified as
+  detectable; tree-sitter generated artefacts marked vendored /
+  generated.
+
+### Examples + documentation
+
+- **`quantifier_scope.qvr`**: Charlow-style scope-taking grammar
+  using the `Continuation` effect, exercising the new surface
+  (`EnumSet`, `FreeResiduated`, `schema`, `Cont_S(X)`) end-to-end.
+- **`docs/guides/effects.md`**: typeclass + algebraic-effects
+  framework: monad and arrow towers, stdlib effect instances,
+  class-driven schema lifting, joint type-and-effect dispatch,
+  bridges between the two towers.
+- **`docs/semantics/effects.md`**: denotational layer: panproto-
+  theory mirrors of each typeclass, effect-typed schema
+  denotations as natural transformations, joint type-and-effect
+  chart dispatch, lifting-adequacy theorem, conservativity over
+  the bare-grammar fragment.
+- **`docs/getting-started/architecture.md`**: `quivers/arrows/`
+  section added; `quivers/monadic/` rewritten to cover the
+  typeclass spine, transformers, algebraic effects, bridges,
+  theories, laws.
+- **mkdocstrings stubs** for every new public module:
+  `quivers.monadic.{typeclasses,instances,transformers,algebraic,bridges,theories,laws}`,
+  `quivers.arrows.{typeclasses,theories}`,
+  `quivers.stochastic.effect_lifts`.
+
+### Internal
+
+- **Program theory** (`quivers.dsl.program_theory`). Vertex kinds
+  extended with `enum_set`, `free_residuated`, `schema_decl`.
+  `write_set_object` branches for `EnumSet` (name + element
+  constraints) and `FreeResiduated` (depth + op constraints +
+  `generators` edge to an `enum_set`).
+- **Local-grammar override** (`quivers.dsl._dev_grammar`). Adopts
+  panproto 0.47's first-class `AstParserRegistry.override_grammar`
+  API, replacing the previous ctypes-pinned-buffer shim. Activated
+  by `QVR_USE_LOCAL_GRAMMAR=1` until `panproto-grammars-all` vendors
+  the new QVR grammar.
+- **`quivers.core._factories`**: the concrete morphism alphabet
+  (coproduct injection / case eliminator, product projection /
+  pairing, parallel pair, distributivity, terminal, constant,
+  coproduct functorial action) on which the typeclass realizations
+  are built.
+- **Legacy `Monad` ABC removed.** `quivers.monadic.monads` no
+  longer ships a parallel `Monad`; `FuzzyPowersetMonad`,
+  `FreeMonoidMonad`, and `GiryMonad` subclass the typeclass `Monad`
+  directly. The Eilenberg–Moore aliases (`unit`, `multiply`,
+  `kleisli_compose`) are kept as convenience methods.
+  `FreeMonoidMonad.join` now does the full word-concatenation
+  tensor with truncation beyond `max_length`.
+
+### Dependencies
+
+- `panproto >= 0.47.0` (was `>= 0.45.0`).
+- `panproto-grammars-all >= 0.47.0` (was `>= 0.45.0`).
+- `didactic >= 0.7.0` (was `>= 0.6.0`).
+
+### Tests
+
+- 986 tests pass under `QVR_USE_LOCAL_GRAMMAR=1`. New surface
+  coverage: 32 cases in `tests/test_dsl_extensions.py` (aliases,
+  bundles, doc comments, FreeMonoid surface, constraint solver,
+  `qvr check` CLI, highlight-query parity, Pygments lexer
+  round-trips, grammar-shape parity across every example).
+- Monad unit laws hold on `Identity`, `Maybe`, `Alternative_`,
+  `State`, `Reader`, `Writer`; `FreeMonad` left / right unit laws
+  hold up to truncation; trace yanking and identity verified on
+  `VRel`.
+
+### Key citations
+
+- Charlow, S. (2025). [*Static and dynamic exceptional scope*](https://doi.org/10.1093/jos/ffad012). Journal of Semantics (advance article).
+- Bumford, D. and Charlow, S. (forthcoming, 2026). [*Effect-Driven Interpretation: Functors for Natural Language Composition*](https://www.cambridge.org/core/elements/abs/effectdriven-interpretation/56671E539160AAA1DACF8555B82A2FE4). Elements in Semantics, Cambridge University Press. Online ISBN 9781009285377; preprint [arXiv:2504.00316](https://arxiv.org/abs/2504.00316).
+- Hughes, J. (2000). [*Generalizing monads to arrows*](https://doi.org/10.1016/S0167-6423(99)00023-4). Science of Computer Programming 37(1–3):67–111.
+- Bauer, A. and Pretnar, M. (2015). [*Programming with algebraic effects and handlers*](https://doi.org/10.1016/j.jlamp.2014.02.001). Journal of Logical and Algebraic Methods in Programming 84(1):108–123.
+- Plotkin, G. and Power, J. (2003). [*Algebraic operations and generic effects*](https://doi.org/10.1023/A:1023064908962). Applied Categorical Structures 11(1):69–94.
+- Joyal, A., Street, R., and Verity, D. (1996). [*Traced monoidal categories*](https://doi.org/10.1017/S0305004100074338). Mathematical Proceedings of the Cambridge Philosophical Society 119(3):447–468.
+- McBride, C. and Paterson, R. (2008). [*Applicative programming with effects*](https://doi.org/10.1017/S0956796807006326). Journal of Functional Programming 18(1):1–13.
 
 ## [0.2.0] - 2026-05-06
 

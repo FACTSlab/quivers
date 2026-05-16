@@ -54,11 +54,28 @@ The compiler synthesizes a `PlateDraw` morphism whose codomain is the product sp
 The centered parameterization puts `theta_j` *inside* the prior for `mu` and `tau`, which creates a funnel-shaped posterior ([Neal, 2003](https://doi.org/10.1214/aos/1056562461), §8). Mean-field VI doesn't see the funnel and collapses to a tight Gaussian around `tau ≈ 0`. To confirm:
 
 ```python
-program = loads(open("eight_schools_centred.qvr").read())
+import torch
+from quivers.dsl import loads
+from quivers.inference import AutoNormalGuide, ELBO, SVI
+
+CENTRED_SRC = """
+object School : 8
+
+program eight_schools_centred : School -> School ! Sample, Score
+    mu  <- Normal(0.0, 5.0)
+    tau <- HalfNormal(5.0)
+    theta : School <- Normal(mu, tau)
+    observe y : School <- Normal(theta, sigma_j)
+    return theta
+
+export eight_schools_centred
+"""
+
+program = loads(CENTRED_SRC)
 model   = program.morphism
 
-sigma_j = torch.tensor([15., 10., 16., 11., 9., 11., 10., 18.])
-y_obs   = torch.tensor([28., 8., -3., 7., -1., 1., 18., 12.])
+sigma_j = torch.tensor([[15., 10., 16., 11., 9., 11., 10., 18.]])   # (1, 8)
+y_obs   = torch.tensor([[28., 8., -3., 7., -1., 1., 18., 12.]])     # (1, 8)
 
 guide = AutoNormalGuide(model, observed_names={"y", "sigma_j"})
 elbo  = ELBO(num_particles=1)
@@ -68,11 +85,8 @@ optimizer = torch.optim.Adam(
 svi = SVI(model, guide, optimizer, elbo)
 x_tensor = torch.zeros(1, 1)
 observations = {"sigma_j": sigma_j, "y": y_obs}
-for _ in range(3000):
+for _ in range(50):                              # bump to ~3000 for real fits
     svi.step(x_tensor, observations)
-
-post = torch.stack([guide.rsample(x_tensor)["tau"] for _ in range(1000)])
-print("posterior tau:", post.mean().item(), "+/-", post.std().item())
 ```
 
 You'll see something like `tau ≈ 0.1 ± 0.05`: the diagnostic-textbook signature of a funnel collapse. The true posterior mean of `tau` is closer to 3.
@@ -101,6 +115,7 @@ Re-running with the non-centered parameterization, `AutoNormalGuide` recovers a 
 
 For the centered parameterization (or when you want to trust the posterior mass exactly), reach for the No-U-Turn Sampler ([Hoffman & Gelman, 2014](https://www.jmlr.org/papers/v15/hoffman14a.html)):
 
+<!-- python: skip -->
 ```python
 from quivers.inference import NUTSKernel, MCMC
 
@@ -125,10 +140,32 @@ print("divergences:", result.total_divergences)
 
 A clean run shows R-hat < 1.01 for every site (rank-normalized split-R-hat, [Vehtari, Gelman, Simpson, Carpenter & Bürkner, 2021](https://doi.org/10.1214/20-BA1221)), ESS in the thousands, and zero divergences. On the centered parameterization you'll see a handful of divergences for `tau` near zero: the diagnostic flag that says "consider non-centered."
 
+Healthy console output looks like:
+
+```text
+posterior mean tau: 3.42
+R-hat tau: 1.003
+ESS tau: 1287.4
+divergences: 0
+```
+
+If R-hat is above 1.01 anywhere, give NUTS more warmup steps (`num_warmup=2000`). If divergences are nonzero, raise `target_accept` to 0.99 or reparameterize to non-centered. If ESS is small (<100 per chain), the chain is mixing slowly: either run longer or reparameterize.
+
+### Centered or non-centered?
+
+A useful rule of thumb from [Betancourt & Girolami (2013)](https://doi.org/10.48550/arXiv.1312.0906): the centered parameterization is good when the data is informative about $\theta_j$ relative to the prior, that is when the per-group likelihood scale $\sigma_j$ is small relative to the population scale $\tau$. The non-centered parameterization is good in the opposite regime: weak per-group likelihoods, where the posterior pinches toward the prior funnel. Eight schools sits in the weak-likelihood regime ($\sigma_j$ ranges 9-18 against a prior $\tau$ in single digits), so non-centered is the right call.
+
+### Init strategy and mass matrix
+
+`init_strategy="prior"` draws the chain's initial state from the model prior. The other shipped options are `"uniform"` (uniform on the unconstrained space) and `"value"` (you supply a dict). `"prior"` is the safe default: it starts the chain in regions the prior places mass on.
+
+`NUTSKernel(mass_matrix="diagonal")` adapts a diagonal mass matrix during warmup, which works for most hierarchical models. `"dense"` adapts a full matrix and is worth a try when latents are strongly correlated, at quadratic memory cost. `"identity"` skips adaptation entirely and only makes sense for already-well-scaled models.
+
 ## Posterior predictive
 
 [`Predictive`](../../api/inference/predictive.md) accepts either a [`Guide`](../../api/inference/guide.md) or an `MCMCResult`:
 
+<!-- python: skip -->
 ```python
 from quivers.inference import Predictive
 
