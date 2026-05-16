@@ -47,7 +47,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/), and this
 
 ### Changed
 
-- **BREAKING: `quantale` → `algebra` across DSL, Python API, and docs.** The `quantale` keyword and every `Quantale`-named symbol overclaimed the algebraic structure: seven of the eleven built-in cases fail strict quantale-distributivity in [Kelly's sense](https://ncatlab.org/nlab/show/enriched+category). The new term *algebra* names the structure $(V, \otimes, \oplus, \mathbf{1})$ honestly; the subclass that does satisfy the strict laws keeps the name *strict quantale* and is identified inline in [Algebras §2](docs/semantics/algebras.md#2-order--and-structure-preservation). Migration:
+- **BREAKING: `quantale` → `algebra` across DSL, Python API, and docs.** The `quantale` keyword and every `Quantale`-named symbol overclaimed the algebraic structure: seven of the eleven built-in cases fail strict quantale-distributivity in [Kelly's sense](https://ncatlab.org/nlab/show/enriched+category). The new term *algebra* names the structure $(V, \otimes, \oplus, \mathbf{1})$ honestly; the subclass that does satisfy the strict laws keeps the name *strict quantale* and is identified inline in [Algebras §2](../semantics/algebras.md#2-order--and-structure-preservation). Migration:
 
   | Old | New |
   |-----|-----|
