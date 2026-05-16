@@ -86,37 +86,30 @@ nav:
     - Editor highlighting: getting-started/highlighting.md
   - Guides:
     - Overview: guides/index.md
-    - Foundations:
-      - Core Types & Algebras: guides/core.md
-      - Transformations & Composition Rules: guides/transformations.md
-      - Morphisms & Composition: guides/morphisms.md
-    - DSL:
-      - Overview: guides/dsl-overview.md
-      - Declarations: guides/dsl-declarations.md
-      - Programs and Let-Expressions: guides/dsl-programs-and-lets.md
-      - Contractions: guides/dsl-contractions.md
-    - Probabilistic Programming:
-      - Monadic Programs: guides/programs.md
-      - Hierarchical Programs: guides/programs-hierarchical.md
-      - Continuous Spaces and Morphisms: guides/continuous-spaces.md
-      - Continuous Families: guides/continuous-families.md
-      - Stochastic Morphisms: guides/stochastic.md
-    - Inference:
-      - Foundations: guides/inference-foundations.md
-      - "Guides, Objectives, and SVI": guides/inference-svi.md
-      - MCMC and Hybrid Samplers: guides/inference-mcmc.md
-    - Categorical Structures:
-      - Categorical Structures: guides/categorical.md
-      - Monads & Comonads: guides/monadic.md
-      - Enriched Category Theory: guides/enriched.md
-      - Compositional Effects: guides/effects.md
-    - Structured Prediction:
-      - Weighted Deduction Systems: guides/deduction.md
-      - Signatures and Encoders: guides/structural-compression-signatures-and-encoders.md
-      - Decoders and Losses: guides/structural-compression-decoders-and-losses.md
-    - Analysis:
-      - Data and Formulas: guides/analysis-data-and-formulas.md
-      - Fitting and Diagnostics: guides/analysis-fitting-and-diagnostics.md
+    - Core Types & Algebras: guides/core.md
+    - Transformations & Composition Rules: guides/transformations.md
+    - Morphisms & Composition: guides/morphisms.md
+    - DSL Overview: guides/dsl-overview.md
+    - DSL Declarations: guides/dsl-declarations.md
+    - DSL Programs and Let-Expressions: guides/dsl-programs-and-lets.md
+    - DSL Contractions: guides/dsl-contractions.md
+    - Monadic Programs: guides/programs.md
+    - Hierarchical Programs: guides/programs-hierarchical.md
+    - Continuous Spaces and Morphisms: guides/continuous-spaces.md
+    - Continuous Families: guides/continuous-families.md
+    - Stochastic Morphisms: guides/stochastic.md
+    - Inference Foundations: guides/inference-foundations.md
+    - "Inference: Guides, Objectives, and SVI": guides/inference-svi.md
+    - Inference MCMC and Hybrid Samplers: guides/inference-mcmc.md
+    - Categorical Structures: guides/categorical.md
+    - Monads & Comonads: guides/monadic.md
+    - Enriched Category Theory: guides/enriched.md
+    - Compositional Effects: guides/effects.md
+    - Weighted Deduction Systems: guides/deduction.md
+    - "Structural Compression: Signatures and Encoders": guides/structural-compression-signatures-and-encoders.md
+    - "Structural Compression: Decoders and Losses": guides/structural-compression-decoders-and-losses.md
+    - "Analysis: Data and Formulas": guides/analysis-data-and-formulas.md
+    - "Analysis: Fitting and Diagnostics": guides/analysis-fitting-and-diagnostics.md
   - Denotational Semantics:
     - Overview: semantics/index.md
     - Setting and Notation: semantics/setting.md
