@@ -69,7 +69,7 @@ def _dedent_fence_body(indent: str, body: str) -> str:
     out_lines: list[str] = []
     for line in body.splitlines(keepends=True):
         if line.startswith(indent):
-            out_lines.append(line[len(indent):])
+            out_lines.append(line[len(indent) :])
         elif line.strip() == "":
             out_lines.append(line)
         else:
@@ -77,9 +77,9 @@ def _dedent_fence_body(indent: str, body: str) -> str:
             # alone so the compiler reports an accurate column.
             out_lines.append(line)
     return "".join(out_lines)
-_QVR_MARKER_RE = re.compile(
-    r"<!--\s*compile:\s*(false|standalone|cumulative)\s*-->"
-)
+
+
+_QVR_MARKER_RE = re.compile(r"<!--\s*compile:\s*(false|standalone|cumulative)\s*-->")
 _PY_MARKER_RE = re.compile(r"<!--\s*python:\s*(skip|run)\s*-->")
 
 
@@ -168,9 +168,7 @@ _PY_NAMESPACES: dict[str, dict] = {}
     _PY_BLOCKS,
     ids=[f"{p}:pyblk{i}:{m}" for p, i, m, _ in _PY_BLOCKS],
 )
-def test_python_doc_block(
-    path: str, index: int, mode: str, source: str
-) -> None:
+def test_python_doc_block(path: str, index: int, mode: str, source: str) -> None:
     if mode == "skip":
         pytest.skip("block marked python: skip")
     ns = _PY_NAMESPACES.setdefault(path, {"__name__": "__doc_block__"})
