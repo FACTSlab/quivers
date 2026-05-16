@@ -15,8 +15,9 @@ Each chapter shows the QVR version of a familiar model alongside its Pyro / NumP
 5. **[Sequence models](qvr/05-time-series.md)**. Plates, `scan`, and the deduction surface for chart-shaped models. State-space models and HMMs.
 6. **[Choosing an inference algorithm](qvr/06-inference-zoo.md)**. A decision tree over the nine guides, four objectives, two MCMC kernels, and two hybrid samplers. Which combination matches which model shape.
 7. **[Under the hood: the categorical surface](qvr/07-categorical.md)**. *(Optional reading.)* What QVR is doing underneath: algebras as enrichment algebras, `>>` as enriched composition, change-of-base as a functor. Useful when you want to extend the library or read the type errors fluently.
+8. **[Diagnostics and model comparison](qvr/08-diagnostics-and-comparison.md)**. ArviZ end-to-end: `to_datatree`, convergence diagnostics, posterior-predictive checks, PSIS-LOO model comparison.
 
-You can read the first six chapters without touching category theory. Chapter 7 is the bridge to the Python API track.
+You can read the first six chapters without touching category theory. Chapter 7 is the bridge to the Python API track; chapter 8 covers the Bayesian-analysis workflow once a fit is in hand.
 
 ## Python API track
 
@@ -30,6 +31,7 @@ The Python API gives you direct access to the typed categorical surface: `FinSet
 6. **[First-class transformations](python/06-first-class-trans.md)**. `MorphismTransformation` and `AlgebraHomomorphism` as values: let-binding, the `>>>` composition operator, change-of-base pipelines.
 7. **[Composition rules beyond algebras](python/07-composition-rules.md)**. The `CompositionRule → Semigroupoid → Algebra` hierarchy, `BilinearForm`, and the operadic `EinsumWiring` surface for n-ary contractions.
 8. **[Analysis pipelines](python/08-analysis-pipelines.md)**. Formula → fit → diagnostics in one line: brms-style `fit("y ~ x + (1|g)", data=df, ...)`, the emitted `.qvr` source, SVI on a hierarchical model, NUTS + PSIS-LOO model comparison, ArviZ `DataTree` posterior-predictive checks.
+9. **[Debugging quivers programs](python/09-debugging.md)**. Reading `CompileError`, inspecting a compiled `Program`, tracing intermediate values, watching SVI gradients, and using NUTS diagnostics to find the root cause of a misbehaving fit.
 
 ## Prerequisites
 

@@ -1,0 +1,131 @@
+# 9. Debugging quivers programs
+
+When a fit doesn't converge or a compile fails, you need to know what to look at. This chapter walks the tools for inspecting a quivers program: reading `CompileError` messages, dumping a compiled `Program`, tracing intermediate tensors, and watching per-site log-densities during SVI.
+
+## Reading `CompileError`
+
+Every DSL compile failure raises a [`CompileError`](../../api/dsl/compiler.md) with a `line` and `col` field pointing at the offending source position. Common error categories:
+
+```python
+from quivers.dsl import loads
+from quivers.dsl.compiler._prelude import CompileError
+
+src = """
+object A : 3
+program p : A -> A ! Pure
+    x <- Normal(0, 1)        # Sample used in a Pure body
+    return x
+
+export p
+"""
+try:
+    loads(src)
+except CompileError as e:
+    print(f"line {e.line}, col {e.col}: {e.args[0]}")
+```
+
+The five error classes you'll see most often:
+
+| Category | Example trigger | Where to look |
+|---|---|---|
+| Effect mismatch | `! Pure` body contains `<-` or `observe` | Loosen the effect tag or remove the offending step |
+| Free-name error | A name in the body is neither bound, declared, nor in host-data scope | Add to `observed_names` or to a `<-` / `let` |
+| Algebra mismatch | Typed composition `*>` / `~>` operands have a different algebra | Use `>>` (auto) or insert a `change_base` |
+| Shape mismatch | Tensor argument has the wrong cardinality for an object | Check object declarations against the data |
+| Unknown identifier | A family name (`Norma`, typo) isn't in the prelude | Check the [family catalogue](../../api/continuous/families.md) |
+
+## Inspecting a compiled `Program`
+
+`loads` returns a [`Program`](../../api/program.md), which is a `torch.nn.Module` wrapping a [`MonadicProgram`](../../api/continuous/programs.md). Both are inspectable:
+
+<!-- python: skip -->
+```python
+program = loads(src)                # the regression from chapter 1
+print(program)                      # repr shows steps and types
+print(program.morphism.steps)       # list of compiled step records
+print(program.morphism.dom, "->", program.morphism.cod)
+for name, p in program.named_parameters():
+    print(name, p.shape)
+```
+
+Each step has a `name`, an `inputs` tuple (names it depends on), and a `family` or `transform` it dispatches to. Reading this list is the fastest way to see what the compiler actually built.
+
+## Tracing intermediate values
+
+[`trace`](../../api/inference/trace.md) runs the program forward once and records the value and log-density at every sample site:
+
+<!-- python: skip -->
+```python
+from quivers.inference import trace
+
+x = torch.zeros(1, 1)
+observations = {"x_design": x_data, "y": y_data}
+tr = trace(program.morphism, x, observations)
+
+for name, site in tr.sites.items():
+    print(f"{name:12s} value.shape={tuple(site.value.shape)} "
+          f"log_density={site.log_density.item():.2f}")
+```
+
+If a log-density comes back `nan` or `-inf`, you have a numerical failure at that site. The usual causes:
+
+- A scale parameter that drifted to zero (`HalfNormal` posterior collapsing).
+- A `let` that produces invalid arguments to the next family (negative variance, out-of-simplex probabilities).
+- An observation that's outside the support of the likelihood (a negative count under `Poisson`, for instance).
+
+`trace` is the right place to confirm which.
+
+## Watching SVI training
+
+During the SVI loop, print per-step ELBO and gradient norms:
+
+<!-- python: skip -->
+```python
+for step in range(2000):
+    loss = svi.step(x_tensor, observations)
+    if step % 100 == 0:
+        total_grad = sum(
+            p.grad.norm().item() ** 2
+            for p in guide.parameters() if p.grad is not None
+        ) ** 0.5
+        print(f"step {step:4d}  ELBO={-loss:.3f}  grad_norm={total_grad:.3f}")
+```
+
+A healthy SVI run shows ELBO climbing monotonically (with noise) and grad_norm decreasing toward a small positive value. Failure modes:
+
+- ELBO climbing then plateauing well below the prior's log-density: the guide can't cover the posterior. Try a richer guide ([`AutoMultivariateNormalGuide`](../../api/inference/guide.md), [`AutoIAFGuide`](../../api/inference/guide.md)).
+- ELBO going to `nan`: a sample-site log-density blew up. Drop in a `trace` call at the same step and find the offending site.
+- ELBO oscillating with grad_norm growing: learning rate too large. Halve it.
+
+## NUTS diagnostics that point at root causes
+
+[`MCMCResult`](../../api/inference/predictive.md) carries three first-class diagnostic fields:
+
+- `result.r_hat[site]`: rank-normalised split-R-hat per site.
+- `result.ess[site]`: bulk effective sample size per site.
+- `result.total_divergences`: integer count of divergent transitions across all chains.
+
+The mapping from observation to fix:
+
+| Symptom | Likely cause | Fix |
+|---|---|---|
+| R-hat > 1.01 on one site | Chain hasn't mixed | More warmup, longer chains |
+| ESS < 100 on one site | Highly correlated samples | More samples, or richer step adaptation |
+| Divergences > 0 | Integrator missed posterior curvature | Raise `target_accept` to 0.99, or reparameterise |
+| All chains stuck at init | Initial point in a bad region | Switch `init_strategy` to `"prior"` or supply a `"value"` dict |
+
+The full diagnostic semantics live in the [inference guide](../../guides/inference-foundations.md).
+
+## A debugging recipe
+
+When a fit is misbehaving, follow this order:
+
+1. Run `trace(model, inputs, observations)` and confirm no site returns a `nan` or `-inf` log-density.
+2. Print `program.morphism.steps` and verify the compiled steps match what you wrote.
+3. Run a short SVI for 100 steps with prints every 10 steps; the ELBO trajectory tells you whether the guide can fit at all.
+4. If SVI looks reasonable but the posterior means are off, switch to NUTS and check `result.r_hat` and `result.total_divergences`.
+5. If NUTS reports divergences on a hierarchical model, reparameterise centered to non-centered ([QVR chapter 3](../qvr/03-hierarchical.md)).
+
+## Next
+
+Continue to the [examples gallery](../../examples/index.md) for fully-worked models, or jump back to the [QVR DSL track](../qvr/01-first-model.md) and the chapter that matches the model shape you're working on.

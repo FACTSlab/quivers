@@ -4,6 +4,29 @@ You can use QVR productively without category theory; the previous six chapters 
 
 This is optional reading. Skip it if the DSL is doing what you need.
 
+## Why have types and algebras at all?
+
+A typed signature like `program f : A -> B ! Sample` exists so the compiler can reject programs that don't make sense before they hit a tensor. Two examples:
+
+```text
+# A program declared ! Pure, but the body contains `observe`:
+program p : Item -> Item ! Pure
+    observe y : Item <- Normal(0, 1)
+    return y
+# CompileError: line 2, col 4: program declared ! Pure
+#               but uses Score effect on `observe y`
+```
+
+```text
+# An algebra mismatch under typed composition:
+algebra product_fuzzy
+let pipeline = f *> g    # *> demands Markov, but module is product_fuzzy
+# CompileError: typed composition *> requires both operands
+#               in algebra Markov; got ProductFuzzyAlgebra
+```
+
+Without the effect and algebra tags, the same programs would either run and silently produce nonsense, or fail somewhere deep in a tensor evaluation with a stack trace pointing at the wrong place. The category-theoretic reading below is *why* those tags compose cleanly; the practical payoff is the error messages.
+
 ## The setting in one paragraph
 
 A QVR program denotes a morphism in a [$\mathcal{V}$-enriched category](https://ncatlab.org/nlab/show/enriched+category) in the sense of [Kelly (1982)](http://www.tac.mta.ca/tac/reprints/articles/10/tr10abs.html). *Enriched* means the hom-sets aren't sets, they're objects of a fixed algebra $\mathcal{V}$ called the *enrichment* or *base*. For QVR's category $\mathcal{V}\text{-}\mathbf{Rel}$ of $\mathcal{V}$-valued relations on finite sets, a morphism `f : A -> B` is concretely a tensor of shape `(|A|, |B|)` whose entries live in $\mathcal{V}$. The choice of $\mathcal{V}$ determines what those entries mean: probabilities, log-probabilities, real numbers, fuzzy truth values, Booleans, etc. Composition `f >> g` is parameterized by $\mathcal{V}$ via two operations: a binary tensor product (`a ⊗ b`) that combines entries pointwise, and a join (`⋁_i x_i`) that aggregates over the shared dimension. Different choices of $(\otimes, \bigvee)$ give different composition semantics.
@@ -107,5 +130,5 @@ The guides under `guides/` cover individual feature areas at the level of "what'
 If you've read all seven chapters, you can write models in QVR, fit them with any of the shipped inference algorithms, marginalize discrete latents, build hierarchical and sequence-shaped models, and read the categorical machinery underneath when you need to. Suggested next stops:
 
 - The [examples gallery](../../examples/index.md) for end-to-end model code (Bayesian regression, mixture models, VAE, transformer, vanilla RNN).
-- The [DSL reference guide](../../guides/dsl.md) for the full surface of `.qvr` syntax.
+- The [DSL reference guide](../../guides/dsl-overview.md) for the full surface of `.qvr` syntax.
 - The [inference benchmark report](../../developer/inference-benchmarks.md) for the empirical truth-table of which algorithm fits which problem.

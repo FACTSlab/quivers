@@ -7,6 +7,14 @@ A *change-of-base* transformation turns a $\mathcal{V}$-enriched morphism into a
 
 Both inherit a common interface: a `.source` algebra, a `.target` algebra, and an `apply` that ingests a tensor (plus a morphism for shape resolution). The Python API treats them as first-class values: you bind them to local names, compose them by calling [`compose_trans`](../../api/core/algebras.md) (the DSL surface spells this as `>>>`), and pass either kind into [`Morphism.change_base`](../../api/core/morphisms.md).
 
+### Why a typed transformation surface?
+
+In a PyTorch program you'd write `softmax(logits, dim=-1)` whenever you needed to normalise. That's fine for a one-shot call, but it has no record of *which algebra the result lives in* once normalised. If you then compose with another morphism that lives in a fuzzy algebra, nothing flags the mismatch and the result is mathematically incoherent (you've sum-product-composed a row-stochastic tensor with a noisy-OR one).
+
+A [`MorphismTransformation`](../../api/core/morphisms.md) is a typed function on morphisms: `softmax(B)` doesn't just normalise a tensor, it announces "I take a ProductFuzzyAlgebra morphism in, I emit a Markov morphism out". The compiler can then verify downstream compositions. Concretely, applying `softmax(B)` to any row-stochastic-shape morphism `f` returns a new morphism `f.change_base(softmax(B))` whose algebra tag is `Markov`. Subsequent `*>` composition (which demands Markov) accepts it; subsequent `>>` in a fuzzy module rejects it.
+
+This is the same idea as PyMC's `pm.Deterministic` wrapping a transformation so that the trace knows about it, but lifted to the algebra layer: the tag isn't just "deterministic", it's "lives in algebra W now".
+
 ## The catalog
 
 ```python

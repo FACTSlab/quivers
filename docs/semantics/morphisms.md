@@ -129,6 +129,30 @@ $$
 
 extended uniquely (by the standard product-measure construction) to the product $\sigma$-algebra.
 
+## 4a. Replicated kernels and option blocks
+
+### 4a.1 Replication
+
+A `kernel f[n] : A -> B [~ Family ...]` declaration (note the bracketed integer after the kernel name) introduces $n$ *independently-parameterised* kernels sharing one declared signature, registered in the environment under synthesised names $f\_0, f\_1, \dots, f\_{n-1}$ along with a *group binding* $f \mapsto (f\_0, \dots, f\_{n-1})$. Denotationally,
+
+$$
+\llbracket f\_i \rrbracket \;:\; \llbracket A \rrbracket \to \llbracket B \rrbracket \quad (i = 0, \dots, n-1),
+$$
+
+each a separate morphism in the appropriate stratum with its own learnable parameters. The bare identifier $f$ is *not* itself a morphism; it is a group reference accepted by expressions that admit splicing (notably $\mathsf{fan}$, [Expressions §3.1](expressions.md#31-fan)), where it expands to the comma-separated list of its members. Outside a splice site, referring to $f$ alone is a compile-time error.
+
+The same form is admitted on `embed` declarations with the same group semantics.
+
+### 4a.2 Option blocks
+
+A morphism / kernel / discretize declaration may carry a bracketed *option block*
+
+$$
+\bigl[\,k_1 = v_1,\ \dots,\ k_m = v_m\,\bigr]
+$$
+
+after the codomain, listing family- or boundary-specific keyword overrides. The option block is denotationally inert at the categorical level: its sole effect is to override default values of the family's parameter map (`bins` for `discretize`, distribution-specific clipping bounds for kernels, etc.). Two declarations with identical signatures and different option blocks denote *different* morphisms whose tensors are computed from differently-configured parameter networks but are otherwise of the same categorical shape.
+
 ## 5. Stratum transitions
 
 The `discretize` and `embed` declarations witness the canonical functors between strata.

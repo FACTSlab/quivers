@@ -2,7 +2,7 @@
 
 ## Overview
 
-A Bayesian [LSTM](https://doi.org/10.1162/neco.1997.9.8.1735) language model. The recurrent cell is a parametric [`program`](../guides/dsl.md#program) that draws the four standard gates (`i`, `f`, `o`, `g`) from [`LogitNormal`](../api/continuous/families.md) and [`Normal`](../api/continuous/families.md) priors, computes the canonical cell update `c_t = f_t * h_{t-1} + i_t * g_t`, and emits the per-step hidden output `h_t = o_t * tanh(c_t)`. The per-position hidden output is projected onto the vocabulary by a Categorical `lm_head` so the program's `observe` step scores the next-token target end to end.
+A Bayesian [LSTM](https://doi.org/10.1162/neco.1997.9.8.1735) language model. The recurrent cell is a parametric [`program`](../guides/dsl-programs-and-lets.md#program-declarations) that draws the four standard gates (`i`, `f`, `o`, `g`) from [`LogitNormal`](../api/continuous/families.md) and [`Normal`](../api/continuous/families.md) priors, computes the canonical cell update `c_t = f_t * h_{t-1} + i_t * g_t`, and emits the per-step hidden output `h_t = o_t * tanh(c_t)`. The per-position hidden output is projected onto the vocabulary by a Categorical `lm_head` so the program's `observe` step scores the next-token target end to end.
 
 ## QVR Source
 
@@ -59,7 +59,7 @@ The parametric program `lstm_cell` realizes the canonical LSTM update. Each gate
 | cell update | `let c_new = f_gate * h_prev + i_gate * g_cand` | $c_t = f_t \odot h_{t-1} + i_t \odot g_t$ |
 | hidden | `let h_new = o_gate * tanh_c` | $h_t = o_t \odot \tanh(c_t)$ |
 
-`tanh` is realized from [`sigmoid`](../guides/dsl.md#indexed-gather-in-let) via the identity $\tanh(x) = 2\,\sigma(2x) - 1$.
+`tanh` is realized from [`sigmoid`](../guides/dsl-programs-and-lets.md#indexed-gather-in-let) via the identity $\tanh(x) = 2\,\sigma(2x) - 1$.
 
 ### State threading
 

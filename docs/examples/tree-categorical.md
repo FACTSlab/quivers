@@ -4,7 +4,7 @@
 
 A finite-class model in which the $K$-way class-probability vector is *not* drawn from a flat [Dirichlet](https://en.wikipedia.org/wiki/Dirichlet_distribution) but assembled from a binary decision tree. Each leaf class is a structurally different product of internal-node [Bernoulli](https://en.wikipedia.org/wiki/Bernoulli_distribution) probabilities, and the per-verb / per-class score table is the rank-2 tensor produced by evaluating a joint-additive body once per cell of the Cartesian product `Verb × Class`.
 
-This example is the canonical demonstration of the [`factor`](../guides/dsl.md#factor-expressions-assembling-indexed-tensors) expression, the [left adjoint](https://ncatlab.org/nlab/show/adjoint+functor) of indexing. Both surface forms appear in the same program: the pattern-match form builds the tree-shaped leaf-log-probability vector with a `{ ... }` case table, and the multi-binder uniform form builds the rank-2 score tensor by evaluating its body once per cell.
+This example is the canonical demonstration of the [`factor`](../guides/dsl-programs-and-lets.md#factor-expressions-assembling-indexed-tensors) expression, the [left adjoint](https://ncatlab.org/nlab/show/adjoint+functor) of indexing. Both surface forms appear in the same program: the pattern-match form builds the tree-shaped leaf-log-probability vector with a `{ ... }` case table, and the multi-binder uniform form builds the rank-2 score tensor by evaluating its body once per cell.
 
 ## QVR Source
 
@@ -65,7 +65,7 @@ let cell_score = factor v : Verb, cls : Class in
     delta[v] + mu[cls] + leaf_log[cls]
 ```
 
-The multi-binder form `factor v_1 : I_1, ..., v_n : I_n in <body>` is the [left adjoint of multi-axis indexing](../guides/dsl.md#factor-expressions-assembling-indexed-tensors). Its denotation is the tensor of shape `(|I_1|, ..., |I_n|, *body_shape)` whose `(i_1, ..., i_n)`-th cell is the body evaluated with each binder `v_k := i_k`.
+The multi-binder form `factor v_1 : I_1, ..., v_n : I_n in <body>` is the [left adjoint of multi-axis indexing](../guides/dsl-programs-and-lets.md#factor-expressions-assembling-indexed-tensors). Its denotation is the tensor of shape `(|I_1|, ..., |I_n|, *body_shape)` whose `(i_1, ..., i_n)`-th cell is the body evaluated with each binder `v_k := i_k`.
 
 Here the body indexes into three previously-bound objects: the `Verb`-plate `delta`, the `Class`-plate `mu`, and the pattern-match factor `leaf_log` produced two steps earlier. Each `(v, cls)` cell evaluates to a different scalar; the resulting tensor lives on `Verb × Class` and carries the joint per-verb / per-class log-score.
 
@@ -111,5 +111,5 @@ In the multi-binder case, the indexing functor is `I_1 × ... × I_n → A` and 
 
 ## See Also
 
-- [DSL Guide: Factor expressions](../guides/dsl.md#factor-expressions-assembling-indexed-tensors)
+- [DSL Guide: Factor expressions](../guides/dsl-programs-and-lets.md#factor-expressions-assembling-indexed-tensors)
 - [Mixture Model](mixture-model.md), the exchangeable counterpart: a flat Dirichlet over `Component` rather than a tree-shaped construction.

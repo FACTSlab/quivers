@@ -1,6 +1,17 @@
 # Tutorial 3: Probabilistic Programs
 
-In this tutorial, you will construct probabilistic programs that mix discrete and continuous random variables. You will build [`MonadicProgram`](../../api/continuous/programs.md) instances by hand using the Python API, create conditional distribution families, and sample from programs. The probabilistic-programming surface here is the [Kleisli category](https://ncatlab.org/nlab/show/Kleisli+category) of the [Giry monad](https://ncatlab.org/nlab/show/Giry+monad), restricted to the hybrid discrete/continuous fragment quivers supports.
+In this tutorial, you will construct probabilistic programs that mix discrete and continuous random variables. You will build [`MonadicProgram`](../../api/continuous/programs.md) instances by hand using the Python API, create conditional distribution families, and sample from programs.
+
+For a Stan/PyMC reader: a [`MonadicProgram`](../../api/continuous/programs.md) is the Python-API analogue of the QVR DSL's `program` block. You construct it as a list of steps (`bind`, `let`, `observe`, `marginalize`), each step typed by the space its result lives in. The runtime gives you `sample`, `rsample`, and `log_density`, mirroring the methods you'd reach for in `torch.distributions`. The categorical surface ([Kleisli category](https://ncatlab.org/nlab/show/Kleisli+category) of the [Giry monad](https://ncatlab.org/nlab/show/Giry+monad), restricted to the hybrid discrete/continuous fragment) is invisible until you want to build new constructs on top.
+
+### The two kinds of step in one sentence
+
+- `v <- F(args)` is a *bind*: it draws `v` from `F(args)` and threads it forward. Use this when `v` is a random variable.
+- `let v = expr` is a *let*: it computes `v` deterministically from earlier variables. Use this when `v` is a function of random variables but not itself random.
+
+### Host-data channel
+
+The third source of names is *host data*: tensors supplied at runtime through the observations dict. They look like free variables in your program body and resolve at trace time from `observations["name"]`. There's no `<-` and no `let`; you just reference the name. Host data is how you pass design matrices, group indices, or any covariate that varies per fit run without rewriting the model. Every `bind` or `let` step that mentions a name not introduced by an earlier `<-`, `let`, or program input is referencing host data.
 
 ## Concepts
 

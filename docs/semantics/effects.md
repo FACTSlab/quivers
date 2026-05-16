@@ -4,8 +4,8 @@ QVR layers monadic / applicative effects over the residuated category
 universe through two parallel typeclass towers (monads and arrows)
 plus a class-driven schema-lifting machinery. This page assigns
 formal denotations to the surface constructs and proves the layering
-is a conservative extension of the residuated-grammar fragment of
-[Grammar Fragment](grammar.md).
+is a conservative extension of the bare deduction fragment of
+[Weighted Deduction Fragment](grammar.md).
 
 ## 1. Setting
 
@@ -166,7 +166,7 @@ natural transformation through $\mathrm{Th}\mathfrak{C}_1, \dots,
 
 The chart algorithm (CKY) is the standard inside-score recurrence and
 is sound for arbitrary $\mathcal{V}$-algebra-valued semirings (see
-[Grammar Fragment §7](grammar.md#7-strategy-independence)).
+[Weighted Deduction Fragment §7](grammar.md#7-strategy-independence)).
 $\square$
 
 ## 6. Free-monad denotation
@@ -222,7 +222,7 @@ realization and the Kleisli side is undefined.
 **Conservativity.** When the declared effects list $\bar T$ is empty,
 the joint type-and-effect dispatch of [§4](#4-joint-type-and-effect-dispatch)
 collapses to the classical residuated-grammar dispatch of
-[Grammar Fragment §6](grammar.md#6-chart-denotation), and
+[Weighted Deduction Fragment §6](grammar.md#6-chart-denotation), and
 the inside score is the standard Lambek / CCG / multimodal-TLG
 chart-parser denotation. The effects framework is therefore a strict
 extension over the bare grammar fragment.

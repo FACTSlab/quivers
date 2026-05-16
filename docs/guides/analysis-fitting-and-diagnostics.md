@@ -1,0 +1,369 @@
+# Analysis: Fitting and Diagnostics
+
+This page covers the back-half of the analysis stack: the one-line
+`fit(...)` entry point, the
+[ArviZ](https://python.arviz.org/)-based diagnostics adapter,
+algebra-guided initialization and saturation diagnostics, and
+autograd-safe morphism transforms. The data and formula surface
+lives in [Data and Formulas](analysis-data-and-formulas.md).
+
+## One-line fit
+
+```python
+from quivers.formulas import fit
+
+result = fit(
+    "acceptability ~ verb + frame + log(rt) + (1 + verb | subject)",
+    data=df,                       # pandas or polars
+    family="bernoulli",            # auto-derives the logit link
+    method="nuts",
+    num_warmup=500,
+    num_samples=1000,
+    num_chains=4,
+    seed=0,
+)
+```
+
+The returned [`BayesianFit`](../api/formulas/fit.md) is itself a
+frozen [`dx.Model`](https://didactic.dev/api/Model), with
+`.formula`, `.family`, `.program` (the compiled
+[`MonadicProgram`](../api/continuous/programs.md)), `.posterior`
+(either an [`MCMCResult`](../api/inference/predictive.md) or a
+[`Guide`](../api/inference/guide.md)), and `.observations` (the
+inference-time observations dict).
+
+```python
+print(result.qvr_source)                    # canonical .qvr source
+result.dump_qvr("acceptability.qvr")        # write to disk
+```
+
+### Prior overrides
+
+```python
+result = fit(
+    "y ~ x + (1 | g)",
+    data=df,
+    family="gaussian",
+    priors={
+        "intercept": "Normal(0.0, 10.0)",
+        "beta_x": "Normal(0.0, 1.0)",
+        "sigma_g_Intercept": "HalfCauchy(0.5)",
+    },
+)
+```
+
+Prior keys reference the latent name as it appears in the emitted
+QVR source; use `formula_to_qvr` to inspect names upfront.
+
+## Diagnostics: `quivers.diagnostics`
+
+The [diagnostics adapter](../api/diagnostics/index.md) is glue
+between quivers' inference records and
+[ArviZ 1.x](https://python.arviz.org/), the canonical
+posterior-analysis library. ArviZ 1.x replaced the legacy
+`InferenceData` container with
+[`xarray.DataTree`](https://docs.xarray.dev/en/stable/generated/xarray.DataTree.html);
+the adapter targets that surface directly.
+
+```python
+import arviz as az
+from quivers.diagnostics import (
+    to_datatree, compare, posterior_predictive_check,
+)
+
+idata_a = to_datatree(
+    fit_a.posterior,
+    observed_data={"y": y_obs},
+    posterior_predictive={"y": pp_a},
+    log_likelihood={"y": ll_a},
+    coords={"Verb": ["eat", "drink", "run"]},
+    dims={"beta": ["Verb"]},
+)
+idata_b = to_datatree(fit_b.posterior, ...)
+
+# PSIS-LOO ranked comparison + stacking weights.
+print(compare({"a": idata_a, "b": idata_b}))
+
+# Posterior-predictive p-value on a chosen test statistic.
+result = posterior_predictive_check(
+    idata_a, observed_name="y", statistic="mean", by="Verb"
+)
+print(result["ppp"])
+
+# Forest plot, trace plot, energy plot, etc. all consume the DataTree.
+az.plot_forest(idata_a, var_names=["beta_x"])
+```
+
+[`to_datatree`](../api/diagnostics/arviz_io.md#quivers.diagnostics.arviz_io.to_datatree)
+populates the canonical ArviZ groups (`posterior`, `sample_stats`,
+`posterior_predictive`, `log_likelihood`, `observed_data`,
+`constant_data`) from the `(num_chains, num_samples, *site_shape)`
+tensors that
+[`MCMCResult`](../api/inference/predictive.md) already produces.
+[`compare`](../api/diagnostics/comparison.md#quivers.diagnostics.comparison.compare)
+delegates to
+[`arviz.compare`](https://python.arviz.org/en/stable/api/generated/arviz.compare.html)
+with stacking weights
+([Yao et al. 2018](https://doi.org/10.1214/17-BA1091)).
+[`posterior_predictive_check`](../api/diagnostics/predictive_checks.md#quivers.diagnostics.predictive_checks.posterior_predictive_check)
+computes the canonical
+[posterior-predictive p-value](https://en.wikipedia.org/wiki/Posterior_predictive_p-value)
+for a user-chosen
+[test statistic](../api/diagnostics/predictive_checks.md),
+optionally grouped by a named dim.
+
+No information-criterion math is reimplemented here; every
+analytics primitive comes from ArviZ.
+
+## Algebra-guided training tooling
+
+The [`quivers.analysis`](../api/diagnostics/index.md) subpackage
+collects static-analysis passes that read a compiled QVR program
+and return structured data the user can act on: chain shapes,
+algebra-specific init recipes, and saturation warnings. None of
+the passes here rewrite the program; they only derive metadata,
+diagnostics, or sampler / init parameters that respect the source
+as the canonical specification.
+
+### ChainShape
+
+[`ChainShape.from_module(module)`](../api/diagnostics/index.md) walks
+a compiled `Module`, returning per-step `StepShape` records that
+tag each `let` / `latent` step with:
+
+- the bound variable name,
+- the source location (file, line, column from the tree-sitter
+  parse),
+- the chain depth (how many composition steps deep this step is),
+- the governing algebra (read from the surrounding `algebra ...`
+  declaration),
+- the inferred intermediate axis size after the step's contraction
+  / activation.
+
+```python
+from quivers.dsl import parse
+from quivers.analysis import ChainShape
+
+module = parse(source)
+shape = ChainShape.from_module(module)
+
+for step in shape.steps:
+    print(f"{step.name} @ {step.source.line}:{step.source.col} "
+          f"depth={step.depth} dim={step.intermediate_size}")
+```
+
+This is the foundation downstream tooling reads off: init-recipe
+selection, saturation diagnostics, and layer-width sanity checks
+all consume `ChainShape`.
+
+### Algebra.init_spec
+
+Each algebra exposes a saturation-free init recipe via
+[`Algebra.init_spec(depth, intermediate_size) -> InitSpec`](../api/core/algebras.md).
+The recipes target the algebra's neutral element: a `K`-way product
+under `ProductFuzzy` should start near $p \approx \ln(2) / k$ so
+the partial product stays near $1/2$; Boolean / Gödel weights start
+at $1/2$; probabilistic kernels start at $1 / k$ for a $k$-way
+output; Real algebras use the conventional Kaiming-style scale.
+
+```python
+from quivers.core.algebras import ProductFuzzyAlgebra
+# Importing the analysis package monkey-patches Algebra.init_spec on.
+import quivers.analysis  # noqa: F401
+
+algebra = ProductFuzzyAlgebra()
+spec = algebra.init_spec(depth=6, intermediate_size=1)
+# InitSpec(distribution='uniform', mean=0.1155, std=0.0578, ...)
+# noisy-OR over k=6 cells lands at 1/2 when each cell is p ≈ ln(2)/6.
+```
+
+The `[init=auto]` annotation on a latent declaration consumes this
+spec at compile time; see the
+[DSL declarations guide](dsl-declarations.md#init-recipes-initauto)
+for the surface syntax.
+
+### recommend_init and apply_init_spec
+
+Given a program,
+[`recommend_init(module)`](../api/diagnostics/index.md) produces a
+per-latent `InitSpec` by composing `ChainShape` with each
+algebra's `init_spec`.
+[`apply_init_spec(tensor, spec)`](../api/diagnostics/index.md)
+materializes the spec onto a single learnable tensor, with
+[`torch.nn.init`](https://docs.pytorch.org/docs/stable/nn.init.html)
+integration for the standard distributions.
+
+```python
+from quivers.dsl import parse, loads
+from quivers.analysis import recommend_init, apply_init_spec
+
+module = parse(source)
+program = loads(source)
+
+specs = recommend_init(module)
+for name, param in program.named_parameters():
+    if name in specs:
+        apply_init_spec(param, specs[name])
+```
+
+The full pipeline is what `[init=auto]` does at compile time;
+calling `recommend_init` post-hoc lets you swap in algebra-guided
+init on a program that was originally compiled with the default
+random init.
+
+### saturation_warnings
+
+[`saturation_warnings(module)`](../api/diagnostics/index.md) returns
+source-keyed warnings about latents that, under the recommended
+init, would saturate the surrounding algebra's value range. For
+ProductFuzzy / Boolean / Gödel a saturation flag fires when the
+expected partial product after the chain falls outside `[0.1, 0.9]`
+at draw zero (the model would start in a corner of the truth
+algebra and recover slowly); for probability-kernel chains the flag
+fires when the implied per-class log-prob deviates more than $0.2$
+nats from $-\log K$.
+
+```python
+from quivers.dsl import parse
+from quivers.analysis import saturation_warnings
+
+module = parse(source)
+for warning in saturation_warnings(module):
+    print(f"{warning.site}:{warning.line} {warning.message}")
+```
+
+Use these warnings as a static-analysis pass during model
+development: a model that fits but trains slowly often turns out
+to be saturated under its default init.
+
+## Module-to-source: `quivers.dsl.emit`
+
+[`module_to_source`](../api/dsl/emit.md) walks a
+[`Module`](../api/dsl/ast_nodes.md) AST and produces canonical
+`.qvr` source. The printer covers the subset of statement / step /
+expression variants the formula frontend builds (object / morphism
+/ let / program / export declarations, plus let-arithmetic and
+program-step nodes); other AST variants raise `NotImplementedError`
+rather than guessing a serialisation. The emit is one-way and
+semantic: the emitted source, re-parsed by
+[`quivers.dsl.loads`](../api/dsl/parser.md), produces a `Module`
+that compiles to the same program as the original AST.
+
+## Autograd-safe morphism transforms
+
+Operations that derive a morphism from another (`change_base`,
+[`.dagger`](../api/core/morphisms.md#quivers.core.morphisms.Morphism.dagger),
+[`.trace`](../api/core/morphisms.md#quivers.core.morphisms.Morphism.trace),
+[`.refactor`](../api/core/morphisms.md#quivers.core.morphisms.Morphism.refactor))
+return a
+[`TransformedMorphism`](../api/core/morphisms.md#quivers.core.morphisms.TransformedMorphism)
+whose `.tensor` is recomputed from the source's tensor on each
+access, and whose `.module()` registers the source as a submodule
+so `.parameters()` walks reach the upstream learnable parameters.
+Every backward through a fresh `.tensor` access gets its own
+autograd graph, so multi-step optimisation propagates gradients
+through the V-Cat surface correctly.
+
+[`ObservedMorphism`](../api/core/morphisms.md#quivers.core.morphisms.ObservedMorphism)
+is the wrapper for genuinely frozen data tensors (the
+`from_data(...)` path); it does not double as the wrapper for
+derived-from-source morphisms. The categorical distinction "this
+morphism is a tensor function of another morphism" earns the
+separate
+[`TransformedMorphism`](../api/core/morphisms.md#quivers.core.morphisms.TransformedMorphism)
+class.
+
+### Multi-step optimization pattern
+
+The pattern below trains a latent `W` and uses
+`W.change_base(...).dagger` in the loss; both passes through the
+optimizer see the gradient flowing back through `W`'s underlying
+parameter.
+
+```python
+import torch
+from quivers.dsl import loads
+from quivers.core.algebras import ProductFuzzyAlgebra, BooleanAlgebra
+
+program = loads('''
+algebra product_fuzzy
+object X : 8
+object Y : 8
+latent W : X -> Y [init=auto]
+export W
+''')
+W = program.morphism
+
+opt = torch.optim.Adam(program.parameters(), lr=1e-2)
+for step in range(100):
+    opt.zero_grad()
+    # Recomputed each access: fresh autograd graph.
+    rebased = W.change_base(BooleanAlgebra())
+    loss = (rebased.dagger.tensor - target).pow(2).sum()
+    loss.backward()
+    opt.step()
+```
+
+## End-to-end example
+
+```python
+import pandas as pd
+from quivers.formulas import fit
+from quivers.diagnostics import (
+    to_datatree, compare, posterior_predictive_check,
+)
+from quivers.analysis import saturation_warnings
+
+df = pd.read_csv("acceptability.csv")
+
+# Fit a hierarchical logistic model with a polynomial predictor.
+fit_full = fit(
+    "response ~ poly(rt, 2) + verb + (1 + verb | subject)",
+    data=df,
+    family="bernoulli",
+    method="nuts",
+    num_warmup=500, num_samples=1000, num_chains=4,
+    priors={"sigma_subject_Intercept": "HalfCauchy(0.5)"},
+    seed=0,
+)
+
+# Check init saturation on the emitted QVR source.
+from quivers.dsl import parse
+for warning in saturation_warnings(parse(fit_full.qvr_source)):
+    print(warning)
+
+# Compare against a simpler null model.
+fit_null = fit(
+    "response ~ verb + (1 | subject)",
+    data=df, family="bernoulli", method="nuts",
+    num_warmup=500, num_samples=1000, num_chains=4, seed=0,
+)
+
+idata_full = to_datatree(fit_full.posterior, ...)
+idata_null = to_datatree(fit_null.posterior, ...)
+print(compare({"full": idata_full, "null": idata_null}))
+
+# Per-verb posterior-predictive p-value (PPP) on the response rate.
+print(posterior_predictive_check(
+    idata_full, observed_name="response", statistic="mean", by="verb",
+))
+
+# Inspect / save the emitted QVR.
+fit_full.dump_qvr("acceptability_model.qvr")
+```
+
+The same workflow drops down to the QVR DSL whenever the formula
+language is too restrictive: `formula_to_qvr(...)` emits the
+program, the user edits the source, and feeds it back through
+[`quivers.dsl.loads`](../api/dsl/parser.md).
+
+## See also
+
+- [Data and Formulas](analysis-data-and-formulas.md): the front-half
+  of the analysis stack.
+- [Variational Inference: SVI](inference-svi.md) and
+  [MCMC](inference-mcmc.md): the inference drivers `fit(...)`
+  wraps.
+- [DSL Declarations](dsl-declarations.md#init-recipes-initauto):
+  the surface `[init=auto]` annotation that consumes
+  `Algebra.init_spec` at compile time.

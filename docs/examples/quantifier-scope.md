@@ -63,7 +63,7 @@ from quivers.dsl import load
 prog = load("docs/examples/source/quantifier_scope.qvr")
 ```
 
-To use the deduction inside a probabilistic program, wrap the chart's per-derivation weights in an outer [`program`](../guides/dsl.md) that draws a categorical reading variable and observes a downstream comprehension judgment; conditioning on the judgment and marginalizing over the scoping yields a posterior over which reading speakers commit to. The [`MonadicProgram.marginalize`](../api/program.md) step is the categorical handle for the scoping marginal: the projection $\pi : \Phi \times R \to \Phi$ integrates out the reading coordinate $R$ via log-sum-exp on the joint log-likelihood.
+To use the deduction inside a probabilistic program, wrap the chart's per-derivation weights in an outer [`program`](../guides/dsl-overview.md) that draws a categorical reading variable and observes a downstream comprehension judgment; conditioning on the judgment and marginalizing over the scoping yields a posterior over which reading speakers commit to. The [`MonadicProgram.marginalize`](../api/program.md) step is the categorical handle for the scoping marginal: the projection $\pi : \Phi \times R \to \Phi$ integrates out the reading coordinate $R$ via log-sum-exp on the joint log-likelihood.
 
 ## Categorical Perspective
 

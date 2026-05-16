@@ -237,7 +237,7 @@ A `program_decl` is *parametric* iff its parameter list contains any `typed_prog
 
 A `composition_rule_decl` selects the module's underlying composition rule. With no body, the keyword resolves the named rule from the built-in catalogue and verifies it matches the declared algebraic level (`Algebra`, `Semigroupoid`, `BilinearForm`, or any `CompositionRule`). With a body, the entries declare the rule's operations inline; the keyword fixes the algebraic level, and the compiler verifies that the required entries (`tensor_op`, `join`, plus `unit`, `zero` for `algebra`) are present. See [Composition Rules](composition-rules.md) for the formal denotation.
 
-A `contraction_decl` declares an n-ary operadic morphism whose action contracts its input morphisms under the named composition rule using the wiring spec. Call sites `IDENT(arg_1, …, arg_n)` route through `morphism_call`; the compiler resolves `IDENT` against the contraction registry, the parametric-program template table, and the morphism scope in that order. See [Expressions § 2.8](expressions.md#28-operadic-contraction-call) for the call-site denotation.
+A `contraction_decl` declares an n-ary operadic morphism whose action contracts its input morphisms under the named composition rule using the wiring spec. Call sites `IDENT(arg_1, …, arg_n)` route through `morphism_call`; the compiler resolves `IDENT` against the contraction registry, the parametric-program template table, and the morphism scope in that order. See [Expressions § 2.13](expressions.md#213-operadic-contraction-call) for the call-site denotation.
 
 ## References
 

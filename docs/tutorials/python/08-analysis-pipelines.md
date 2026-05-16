@@ -327,6 +327,6 @@ You have:
 
 ## Next
 
-- The [Analysis Pipelines guide](../../guides/analysis.md) is the reference for the whole `quivers.formulas` / `quivers.data` / `quivers.diagnostics` surface, including the full prior-override syntax and the [`DatasetSchema`](../../api/data/schema.md) bridge from dataframes to QVR programs without writing a formula.
+- The [Analysis Pipelines guide](../../guides/analysis-data-and-formulas.md) is the reference for the whole `quivers.formulas` / `quivers.data` / `quivers.diagnostics` surface, including the full prior-override syntax and the [`DatasetSchema`](../../api/data/schema.md) bridge from dataframes to QVR programs without writing a formula.
 - The [Variational Inference tutorial](05-variational-inference.md) shows the lower-level path: building a `MonadicProgram` by hand, tracing, and running SVI without the formula surface.
-- The [DSL guide](../../guides/dsl.md) is the right place to go if you want to write or hand-edit `.qvr` programs directly.
+- The [DSL guide](../../guides/dsl-overview.md) is the right place to go if you want to write or hand-edit `.qvr` programs directly.

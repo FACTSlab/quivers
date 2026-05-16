@@ -2,7 +2,7 @@
 
 ## Overview
 
-A single transformer-style encoder-decoder ([Sutskever, Vinyals, and Le 2014](https://doi.org/10.48550/arXiv.1409.3215); [Vaswani et al. 2017](https://doi.org/10.48550/arXiv.1706.03762)) combining both halves in one example. The encoder is a stacked self-attention + feed-forward backbone on the source vocabulary; the decoder is a parallel stacked backbone on the target vocabulary; a `cross` Bayesian morphism merges the two latent streams into a single `Combined` representation, and a Categorical `lm_head` scores the next target token. Composing the encoder and decoder via [`@`](../guides/dsl.md) and following with `cross >> lm_head` gives a Kleisli morphism $\mathrm{Source} \times \mathrm{Target} \to \mathcal{G}(\mathrm{Target})$.
+A single transformer-style encoder-decoder ([Sutskever, Vinyals, and Le 2014](https://doi.org/10.48550/arXiv.1409.3215); [Vaswani et al. 2017](https://doi.org/10.48550/arXiv.1706.03762)) combining both halves in one example. The encoder is a stacked self-attention + feed-forward backbone on the source vocabulary; the decoder is a parallel stacked backbone on the target vocabulary; a `cross` Bayesian morphism merges the two latent streams into a single `Combined` representation, and a Categorical `lm_head` scores the next target token. Composing the encoder and decoder via [`@`](../guides/dsl-overview.md) and following with `cross >> lm_head` gives a Kleisli morphism $\mathrm{Source} \times \mathrm{Target} \to \mathcal{G}(\mathrm{Target})$.
 
 ## QVR Source
 
@@ -54,7 +54,7 @@ export seq2seq
 
 ### Encoder
 
-`src_embed >> stack(enc_block, 4)` is the non-autoregressive encoder: source tokens are embedded into the 64-dimensional `Latent` space and run through four independent stacked self-attention + feed-forward blocks. Each block uses four-head fan via `fan(enc_head)`, an `enc_attn_proj` recombination, two small residual Bayesian morphisms, and a two-stage feed-forward sub-block. [`stack`](../guides/dsl.md#stack-independent-multi-layer) gives each layer its own parameters.
+`src_embed >> stack(enc_block, 4)` is the non-autoregressive encoder: source tokens are embedded into the 64-dimensional `Latent` space and run through four independent stacked self-attention + feed-forward blocks. Each block uses four-head fan via `fan(enc_head)`, an `enc_attn_proj` recombination, two small residual Bayesian morphisms, and a two-stage feed-forward sub-block. [`stack`](../guides/dsl-declarations.md#stack-independent-multi-layer) gives each layer its own parameters.
 
 ### Decoder
 
