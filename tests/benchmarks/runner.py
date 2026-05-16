@@ -802,7 +802,9 @@ def emit_markdown(
 
     lines.append("## What the suite tests")
     lines.append("")
-    lines.append("Every benchmark is an `(algorithm, problem)` cell. A *problem* fixes:")
+    lines.append(
+        "Every benchmark is an `(algorithm, problem)` cell. A *problem* fixes:"
+    )
     lines.append("")
     lines.append(
         "1. A generative model written in QVR and loaded from `tests/benchmarks/models/*.qvr`."
@@ -834,7 +836,9 @@ def emit_markdown(
     lines.append("## Cell statuses")
     lines.append("")
     lines.append("- **PASS**: recovered moment is within tolerance of the reference.")
-    lines.append("- **FAIL**: algorithm runs cleanly but the moment is outside tolerance.")
+    lines.append(
+        "- **FAIL**: algorithm runs cleanly but the moment is outside tolerance."
+    )
     lines.append(
         "- **ERROR**: algorithm raised during execution (NaN gradient, "
         "support-boundary explosion, divergent trajectory, etc.)."
