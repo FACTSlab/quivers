@@ -257,6 +257,8 @@ class _NeuralSource(nn.Module):
         torch.Tensor
             Parameter vectors. Shape (batch, param_dim).
         """
+        if x.dim() == 1:
+            x = x.unsqueeze(-1)
         return self.net(x)
 
 

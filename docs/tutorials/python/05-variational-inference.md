@@ -89,7 +89,9 @@ batch = torch.zeros(50, dtype=torch.long)  # 50 samples
 samples = model.rsample(batch)
 
 # Tuple returns come back as a dict keyed by variable name.
-y_observed = samples["y"]
+# Detach so the simulated observations don't carry a grad history
+# back into the model parameters during SVI.
+y_observed = samples["y"].detach()
 print(y_observed.shape)  # [50, 1]
 print(y_observed.mean(), y_observed.std())
 ```
@@ -208,9 +210,8 @@ The [`SVI`](../../api/inference/svi.md) object pairs:
 
 Run inference to optimize the guide's parameters:
 
-<!-- python: skip -->
 ```python
-num_steps = 1000
+num_steps = 50
 losses = []
 
 # Prepare observed data
@@ -239,15 +240,8 @@ for step in range(num_steps):
     epoch_loss = sum(batch_losses) / len(batch_losses)
     losses.append(epoch_loss)
 
-    if step % 100 == 0:
+    if step % 10 == 0:
         print(f"Step {step}: Loss {epoch_loss:.4f}")
-
-# Plot loss curve (optional)
-import matplotlib.pyplot as plt
-plt.plot(losses)
-plt.xlabel("Step")
-plt.ylabel("ELBO Loss")
-plt.show()
 ```
 
 The ELBO loss combines:
@@ -265,7 +259,6 @@ Minimizing ELBO maximizes the evidence log-likelihood and keeps the guide regula
 
 After training, use the guide to make predictions on new data:
 
-<!-- python: skip -->
 ```python
 # Create a Predictive: posterior samples from the guide
 predictive = Predictive(model, guide, num_samples=100)
@@ -281,7 +274,6 @@ print(z_posterior.shape)  # [100, 1, 1] (num_samples, batch, dim)
 
 Analyze the posterior:
 
-<!-- python: skip -->
 ```python
 # Posterior mean and std
 z_mean = z_posterior.mean(dim=0)
@@ -298,7 +290,6 @@ print(f"95% CI: [{z_quantile_lower.item():.3f}, {z_quantile_upper.item():.3f}]")
 
 Compare the learned guide to the true posterior. Sample from both:
 
-<!-- python: skip -->
 ```python
 # True posterior: z conditioned on observed y
 tr_true = conditioned_model.trace(x_new)
