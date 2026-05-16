@@ -337,11 +337,44 @@ class MonadicProgram(ContinuousMorphism):
             return x
 
         if len(spec.args) == 1:
-            return env[spec.args[0]]
+            return self._promote_rank(env[spec.args[0]])
 
         # multiple args: stack along feature dimension
         parts = [env[a] for a in spec.args]
         return self._stack_tensors(parts)
+
+    @staticmethod
+    def _promote_rank(t: torch.Tensor) -> torch.Tensor:
+        """Promote a rank-1 continuous tensor to ``(batch, 1)``.
+
+        Integer tensors (which feed ``nn.Embedding`` lookups in
+        ``_LookupSource``) are returned unchanged so discrete program
+        inputs continue to index correctly.
+
+        Parameters
+        ----------
+        t : torch.Tensor
+            Tensor to promote.
+
+        Returns
+        -------
+        torch.Tensor
+            ``t.unsqueeze(-1)`` if ``t`` is a 1-D floating-point tensor,
+            otherwise ``t`` unchanged.
+        """
+        if t.dtype in (
+            torch.long,
+            torch.int8,
+            torch.int16,
+            torch.int32,
+            torch.int64,
+            torch.uint8,
+            torch.bool,
+        ):
+            return t
+        if t.dim() == 1:
+            return t.unsqueeze(-1)
+        return t
 
     @staticmethod
     def _stack_tensors(parts: list[torch.Tensor]) -> torch.Tensor:

@@ -4,6 +4,12 @@ All notable changes to the quivers library are documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/), and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.9.1] - 2026-05-16
+
+### Fixed
+
+- **`MonadicProgram.log_joint` rank-promotes upstream continuous values for single-arg steps.** When a draw step's `args` was a single name, `_resolve_input` returned the env tensor verbatim, so a 1-D continuous draw (the shape `Guide.rsample` emits for a 1-D `Euclidean` codomain) fed `nn.Linear` as a `(B,)` row vector and crashed the downstream `_NeuralSource` matmul with `mat1 and mat2 shapes cannot be multiplied (1xB and 1xH)`. Single-arg continuous inputs are now promoted to `(B, 1)` via the same rule `_stack_tensors` already applied for the multi-arg branch, with integer-dtype inputs (which feed `nn.Embedding` lookups) left untouched. `_NeuralSource.forward` also unsqueezes a stray rank-1 input as a belt-and-braces guard against custom `ContinuousMorphism`s regressing the same way. Affects every shipped `Conditional*` family sitting downstream of a 1-D continuous step; surfaced by direct `MonadicProgram(steps=[...])` users on the first batched `svi.step`.
+
 ## [0.9.0] - 2026-05-15
 
 ### Added
