@@ -16,13 +16,25 @@ Layout
     | Diagnostics                                       |
     +---------------------------------------------------+
 
-Key bindings:
+Key bindings (chosen to work uniformly on macOS, Linux, and Windows):
 
-- ``f5`` (or ``f2``) evaluate the current buffer
-- ``ctrl+l`` clear the eval log
-- ``ctrl+r`` reload the loaded file
-- ``ctrl+d`` / ``ctrl+q`` quit
-- ``f1`` help
+- ``ctrl+g``  evaluate the current buffer (semantic: "go"; not bound by
+  Textual's TextArea, not reserved by any default OS shortcut, not
+  blocked by terminal XON/XOFF)
+- ``ctrl+o``  evaluate (alternate; same reasoning)
+- ``f8``      evaluate (for users who enabled "F1, F2 as standard
+  function keys" in System Settings; F5 is reserved by macOS Dictation,
+  F3/F4 by Mission Control/Launchpad, F11 by Show Desktop)
+- ``ctrl+l``  clear the eval log
+- ``ctrl+r``  reload the loaded file
+- ``ctrl+q``  quit
+- ``f1``      help
+
+Ctrl+Enter / Alt+Enter / Cmd+Enter are deliberately NOT used because
+macOS Terminal.app and the default iTerm2 profile drop them at the
+emulator layer before the TTY ever receives them. They can be enabled
+per-emulator (iTerm2: send ``\\x1b[13;5u``; Windows Terminal: same),
+in which case the hidden ctrl+enter / ctrl+j fallbacks below will fire.
 
 The widgets all draw from a single :class:`ReplSession` instance.
 Highlighting is driven by :mod:`quivers.cli.repl_highlight`, so the
@@ -59,25 +71,32 @@ def run_tui(session: "ReplSession") -> int:
         """
 
         BINDINGS = [
-            # Eval bindings, chosen to work cross-platform:
-            #   - F5: universal "run" key on every OS; the only caveat
-            #     is the macOS laptop Fn-row default (System Settings
-            #     -> Keyboard -> "Use F1, F2 as standard function keys"
-            #     toggles it, otherwise hold Fn).
-            #   - ctrl+e: no-Fn alternative; not captured by terminals
-            #     (ctrl+s / ctrl+q ARE captured by XON/XOFF on Linux,
-            #     so we deliberately avoid those).
-            #   - ctrl+enter / ctrl+j: kept for terminals that pass
-            #     them through (gnome-terminal, Windows Terminal,
-            #     iTerm2 with the right profile).
-            Binding("f5", "submit", "Eval", show=True),
-            Binding("ctrl+e", "submit", "Eval", show=True),
-            Binding("ctrl+enter", "submit", "Eval", show=False),
-            Binding("ctrl+j", "submit", "Eval", show=False),
+            # Eval. priority=True makes the app-level binding fire
+            # even when the TextArea would otherwise consume the key
+            # for its own editor action. ctrl+g and ctrl+o are
+            # uniquely free across:
+            #   * Textual's TextArea (verified against its BINDINGS
+            #     table -- a/b/c/d/e/f/k/u/v/w/x/y/z are TextArea ops)
+            #   * macOS system shortcuts (no global capture)
+            #   * Linux/Windows terminals
+            #   * Terminal driver flow control (XON/XOFF claims s/q;
+            #     g/o are unaffected)
+            Binding("ctrl+g", "submit", "Eval", show=True, priority=True),
+            Binding("ctrl+o", "submit", "Eval", show=True, priority=True),
+            # F8 reaches us only when the user has set "Use F1, F2 as
+            # standard function keys" in System Settings (or is on a
+            # keyboard without the Fn row). F5 is reserved by macOS
+            # Dictation; F3/F4/F11 by Mission Control/Launchpad/Show
+            # Desktop. F8 is unclaimed on every OS we target.
+            Binding("f8", "submit", "Eval", show=True, priority=True),
+            # Hidden fallbacks for terminals configured to forward
+            # Ctrl+Enter (modifyOtherKeys / CSI-u): iTerm2 with a
+            # custom keymap, Windows Terminal, Kitty, Wezterm, etc.
+            Binding("ctrl+enter", "submit", "Eval", show=False, priority=True),
+            Binding("ctrl+j", "submit", "Eval", show=False, priority=True),
             Binding("ctrl+l", "clear", "Clear", show=True),
             Binding("ctrl+r", "reload", "Reload", show=True),
-            Binding("ctrl+d", "quit", "Quit", show=True),
-            Binding("ctrl+q", "quit", "Quit", show=False),
+            Binding("ctrl+q", "quit", "Quit", show=True),
             Binding("f1", "help", "Help", show=True),
         ]
 
