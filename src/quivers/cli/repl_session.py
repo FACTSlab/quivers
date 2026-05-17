@@ -235,7 +235,7 @@ class ReplSession:
                 )
             if bare in self._compiler.spaces:
                 return _resp(
-                    f"{bare} :: {self._compiler.spaces[bare]!r}",
+                    f"{bare} :: {_pretty_object(self._compiler.spaces[bare])}",
                     body_kind="text",
                 )
 
@@ -748,14 +748,52 @@ def _violation_to_diag(v: Violation) -> Diagnostic:
 
 
 def _pretty_object(obj: Any) -> str:
-    # SetObject has a __repr__ already; the human form usually carries
-    # the cardinality and constructor type.
-    return repr(obj)
+    """Render a SetObject / ContinuousSpace in QVR-shaped notation.
+
+    Examples:
+        FinSet(name='X', cardinality=3)            -> "X"
+        FinSet(name='', cardinality=3)              -> "FinSet(3)"
+        ProductSet(components=(A, B))               -> "A * B"
+        CoproductSet(components=(A, B))             -> "A + B"
+        FreeMonoid(name='Words', alphabet=A)        -> "Words"
+        EnumSet(name='Tags', members=('NP','S'))    -> "Tags"
+        FreeResiduated(name='Cat', ...)             -> "Cat"
+        ContinuousSpace subtypes                    -> their `name`
+    """
+    kind = type(obj).__name__
+    name = getattr(obj, "name", "") or ""
+    if kind in ("ProductSet", "ProductSpace"):
+        comps = getattr(obj, "components", ())
+        if comps:
+            return " * ".join(_pretty_object(c) for c in comps)
+    if kind == "CoproductSet":
+        comps = getattr(obj, "components", ())
+        if comps:
+            return " + ".join(_pretty_object(c) for c in comps)
+    if kind == "FinSet":
+        if name:
+            return name
+        cardinality = getattr(obj, "cardinality", None)
+        return f"FinSet({cardinality})" if cardinality is not None else "FinSet"
+    if name:
+        # The discrete-to-continuous embedding wraps a FinSet inside
+        # an `Euclidean(name="idx(FinSet(name='Source', ...))", ...)`.
+        # Strip the wrapper so users see the original object name.
+        if name.startswith("idx(FinSet(name='") and "'" in name[len("idx(FinSet(name='") :]:
+            inner = name[len("idx(FinSet(name='") :]
+            return inner.split("'", 1)[0]
+        return name
+    # ContinuousSpace constructors keep their constructor + args
+    # readable via repr, but we want to avoid raw didactic output.
+    constructor = getattr(obj, "constructor", None)
+    if constructor is not None:
+        args = getattr(obj, "args", ()) or ()
+        return f"{constructor}({', '.join(str(a) for a in args)})"
+    return kind
 
 
 def _pretty_runtime_value(value: Any) -> str:
-    klass = type(value).__name__
-    return f"{klass}({value!r})"
+    return _pretty_object(value)
 
 
 def _pretty_morphism(m: Any) -> str:
