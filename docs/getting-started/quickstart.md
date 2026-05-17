@@ -228,8 +228,71 @@ comp = kleisli.compose(f, g)
 print(comp.tensor.shape)  # [3, 3]
 ```
 
+## 8. Interactive exploration
+
+`pip install 'quivers[repl,lsp]'` adds two interactive surfaces over
+the same elaborator the library uses internally.
+
+### The REPL
+
+```bash
+qvr repl docs/examples/source/seq2seq.qvr
+```
+
+A four-pane Textual TUI: input editor (top-left), output log (mid-left),
+environment browser (right, click any leaf to `:info` it), watches and
+diagnostics strips at the bottom (auto-hidden when empty), plus a
+status bar showing the loaded file, active algebra, and binding
+counts.
+
+GHCi-shaped meta-commands:
+
+```
+qvr> :type seq2seq
+latent seq2seq : Source * Target -> Target
+
+qvr> :info backbone
+let backbone = encoder @ tgt_embed >> cross
+-- declared at docs/examples/source/seq2seq.qvr:58:0
+
+qvr> :watch backbone           # pinned re-eval after every recompile
+qvr> :save my_edits.qvr        # write the live module to disk
+```
+
+`Ctrl-G` (or `Ctrl-O`, `F8`) evaluates; `Tab` cycles completions;
+`Ctrl-P` opens a fuzzy command palette; the loaded file auto-reloads
+on save. The full reference is in
+[Interactive surface](../guides/repl-and-lsp.md).
+
+### The language server
+
+```bash
+pip install 'quivers[lsp]'    # provides `qvr-lsp` on your PATH
+```
+
+The
+[`vscode-qvr`](https://github.com/FACTSlab/quivers/tree/main/editors/vscode-qvr)
+and
+[`zed-extension-qvr`](https://github.com/FACTSlab/quivers/tree/main/editors/zed-extension-qvr)
+extensions auto-discover it. Capabilities: hover (QVR declaration plus
+collapsible AST), go-to-definition, references, document symbols,
+semantic highlighting, completion, formatting, live diagnostics. The
+same `STYLE_TABLE` drives the REPL and the LSP so the colours never
+disagree.
+
+### The Jupyter kernel
+
+```bash
+qvr-kernel install --user
+jupyter console --kernel quivers
+```
+
+Cell semantics match the REPL: leading-`:` lines run meta-commands,
+other lines append statements to the live module.
+
 ## Next Steps
 
+- **[Interactive surface](../guides/repl-and-lsp.md):** REPL, language server, and Jupyter kernel reference.
 - **[Architecture](architecture.md):** learn the package structure and design principles.
 - **[API Reference](../api/index.md):** detailed documentation of all classes and functions.
 - **Guides:** core types, morphisms, categorical structures, stochastic and continuous morphisms, the DSL, and variational inference.
