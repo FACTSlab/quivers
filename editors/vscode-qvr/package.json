@@ -1,8 +1,8 @@
 {
   "name": "vscode-qvr",
-  "displayName": "QVR Syntax Highlighting",
-  "description": "Syntax highlighting for the Quivers QVR probabilistic programming language",
-  "version": "0.4.0",
+  "displayName": "QVR Language Support",
+  "description": "Syntax highlighting and LSP support for the Quivers QVR probabilistic programming language",
+  "version": "0.5.0",
   "publisher": "quivers",
   "repository": {
     "type": "git",
@@ -13,6 +13,10 @@
   },
   "categories": [
     "Programming Languages"
+  ],
+  "main": "./out/extension.js",
+  "activationEvents": [
+    "onLanguage:qvr"
   ],
   "contributes": {
     "languages": [
@@ -34,6 +38,41 @@
         "scopeName": "source.qvr",
         "path": "./syntaxes/qvr.tmLanguage.json"
       }
-    ]
+    ],
+    "configuration": {
+      "title": "QVR",
+      "properties": {
+        "qvr.lsp.path": {
+          "type": "string",
+          "default": "qvr-lsp",
+          "description": "Path to the qvr-lsp executable (falls back to `qvr lsp` if unset)."
+        },
+        "qvr.lsp.enabled": {
+          "type": "boolean",
+          "default": true,
+          "description": "Enable the QVR language server."
+        },
+        "qvr.lsp.args": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": [],
+          "description": "Extra arguments passed to the qvr-lsp executable."
+        }
+      }
+    }
+  },
+  "scripts": {
+    "compile": "tsc -p ./",
+    "watch": "tsc -watch -p ./"
+  },
+  "dependencies": {
+    "vscode-languageclient": "^9.0.1"
+  },
+  "devDependencies": {
+    "@types/node": "^20.0.0",
+    "@types/vscode": "^1.75.0",
+    "typescript": "^5.2.0"
   }
 }

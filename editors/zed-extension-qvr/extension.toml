@@ -10,3 +10,9 @@ repository = "https://github.com/FACTSlab/quivers"
 repository = "https://github.com/FACTSlab/quivers"
 commit = "main"
 path = "grammars/qvr"
+
+[language_servers.qvr-lsp]
+name = "QVR Language Server"
+languages = ["qvr"]
+binary.path = "qvr-lsp"
+binary.arguments = []
