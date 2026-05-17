@@ -18,9 +18,9 @@ Layout
 
 Key bindings:
 
-- ``ctrl+enter`` evaluate
-- ``ctrl+l`` clear output
-- ``ctrl+r`` reload
+- ``f5`` (or ``f2``) evaluate the current buffer
+- ``ctrl+l`` clear the eval log
+- ``ctrl+r`` reload the loaded file
 - ``ctrl+d`` / ``ctrl+q`` quit
 - ``f1`` help
 
@@ -59,7 +59,20 @@ def run_tui(session: "ReplSession") -> int:
         """
 
         BINDINGS = [
-            Binding("ctrl+enter", "submit", "Eval", show=True),
+            # Eval bindings, chosen to work cross-platform:
+            #   - F5: universal "run" key on every OS; the only caveat
+            #     is the macOS laptop Fn-row default (System Settings
+            #     -> Keyboard -> "Use F1, F2 as standard function keys"
+            #     toggles it, otherwise hold Fn).
+            #   - ctrl+e: no-Fn alternative; not captured by terminals
+            #     (ctrl+s / ctrl+q ARE captured by XON/XOFF on Linux,
+            #     so we deliberately avoid those).
+            #   - ctrl+enter / ctrl+j: kept for terminals that pass
+            #     them through (gnome-terminal, Windows Terminal,
+            #     iTerm2 with the right profile).
+            Binding("f5", "submit", "Eval", show=True),
+            Binding("ctrl+e", "submit", "Eval", show=True),
+            Binding("ctrl+enter", "submit", "Eval", show=False),
             Binding("ctrl+j", "submit", "Eval", show=False),
             Binding("ctrl+l", "clear", "Clear", show=True),
             Binding("ctrl+r", "reload", "Reload", show=True),
