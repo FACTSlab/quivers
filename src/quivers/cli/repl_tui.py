@@ -128,6 +128,19 @@ def run_tui(session: "ReplSession") -> int:
         def action_help(self) -> None:
             self._render(self.session.help(""))
 
+        def on_tree_node_selected(self, event) -> None:  # type: ignore[no-untyped-def]
+            """Clicking a leaf in the env browser runs `:info NAME`.
+
+            Branch nodes (`objects`, `spaces`, `morphisms`, `rules` and
+            the file-path root) have no associated name in the env, so
+            ignore them.
+            """
+            node = event.node
+            if not node.is_root and not node.allow_expand:
+                name = str(node.label)
+                self._log(f"> :info {name}")
+                self._render(self.session.info(name))
+
         # --- helpers ----------------------------------------------------
 
         def _log(self, message: str) -> None:
