@@ -252,8 +252,8 @@ qvr> :type seq2seq
 latent seq2seq : Source * Target -> Target
 
 qvr> :info backbone
-let backbone = encoder @ tgt_embed >> cross
--- declared at docs/examples/source/seq2seq.qvr:58:0
+let backbone = (encoder @ decoder) >> cross
+-- declared at docs/examples/source/seq2seq.qvr:59:0
 
 qvr> :watch backbone           # pinned re-eval after every recompile
 qvr> :save my_edits.qvr        # write the live module to disk

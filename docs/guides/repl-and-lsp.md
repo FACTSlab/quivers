@@ -45,7 +45,7 @@ After install:
 qvr repl                                              # blank session
 qvr repl docs/examples/source/seq2seq.qvr             # load on startup
 qvr repl --plain                                      # single-line prompt_toolkit mode
-qvr repl --plain < session.qvrrepl                    # non-TTY scripted mode
+qvr repl --plain < commands.txt                       # non-TTY scripted mode
 ```
 
 When stdin is a TTY and Textual is importable, the four-pane TUI
@@ -139,8 +139,9 @@ is cleared on success.
 
 ### Meta-commands
 
-GHCi-shaped, leading `:`. Any prefix that uniquely identifies a
-command works, plus the explicit short aliases listed.
+GHCi-shaped, leading `:`. The dispatcher is exact-match: use one of
+the full names below or the explicit short alias in the second
+column.
 
 | Command | Short | What it does |
 | --- | --- | --- |
@@ -157,9 +158,9 @@ command works, plus the explicit short aliases listed.
 | `:save [FILE]` | `:s` | Write the live module to FILE (or back to the loaded path) via [`module_to_source`](../api/dsl/emit.md) |
 | `:watch EXPR` | `:w` | Pin EXPR for re-eval on every recompile; result appears in the Watches strip |
 | `:unwatch [EXPR]` | — | Remove one watch, or clear all when no argument is given |
-| `:set k=v` | — | Toggle session options (`highlight`, `unicode`, `paranoid`, `autoload_on_save`, `theme`) |
+| `:set k=v` | — | Toggle session options (`highlight`, `unicode`, `show_axes`, `paranoid`, `autoload_on_save`, `theme`) |
 | `:help [CMD]` | `:h` | Without arg: full command list. With one: detailed help for CMD |
-| `:quit` | `:q` | Exit the REPL |
+| `:quit` | `:q` / `:exit` | Exit the REPL |
 
 A bare line (no leading `:`) is evaluated as **either** appended
 statements (parsed, compiled into the live module, env updated)
@@ -347,8 +348,8 @@ every meta-command works identically; the only differences are:
 - No env tree, no watches panel, no command palette, no click
   handlers.
 
-This is the mode CI uses for scripted runs: pipe `.qvrrepl` files
-(plain lists of meta-commands and bare statements) on stdin.
+This is the mode CI uses for scripted runs: pipe a plain text file
+of meta-commands and bare statements (one per line) on stdin.
 
 ## The Jupyter kernel
 
