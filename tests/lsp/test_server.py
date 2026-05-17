@@ -172,3 +172,41 @@ def test_document_name_at_position() -> None:
 def test_document_name_at_position_out_of_range() -> None:
     doc = _doc()
     assert doc.name_at_position(999, 0) is None
+
+
+def test_pretty_ast_indents_one_field_per_line() -> None:
+    from quivers.lsp.server import _pretty_ast
+
+    doc = _doc()
+    decl = doc.find_decl("f")
+    assert decl is not None
+    out = _pretty_ast(decl)
+    # Multi-line shape (vs. single-line repr).
+    assert "\n" in out
+    # Every leading field starts on its own indented line.
+    assert "    name='f'" in out
+    assert "    domain=" in out
+    assert "    codomain=" in out
+    # Empty `docs=()` and the AST discriminator field are stripped to
+    # cut noise. (MorphismDecl has its own `morphism_kind` field,
+    # which is legitimate -- we only strip the synthetic `kind=`
+    # tagged-union discriminator.)
+    assert "docs=" not in out
+    assert "kind='morphism_decl'" not in out
+
+
+def test_pretty_ast_handles_nested_tuple() -> None:
+    from quivers.lsp.server import _pretty_ast
+
+    src = (
+        "space A : Euclidean(2)\n"
+        "space B : Euclidean(3)\n"
+        "kernel k : A * B -> B ~ Normal\n"
+    )
+    doc = DocumentState(uri="file:///nested.qvr")
+    doc.update(source=src, version=1)
+    decl = doc.find_decl("k")
+    out = _pretty_ast(decl)
+    # Components tuple expands across lines.
+    assert "components=(" in out
+    assert "TypeName(" in out

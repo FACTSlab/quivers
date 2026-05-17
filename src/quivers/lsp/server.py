@@ -357,7 +357,7 @@ def _render_hover(doc: DocumentState, name: str) -> str | None:
             ).rstrip()
         except NotImplementedError:
             qvr = f"-- (no QVR rendering available for {type(decl).__name__})"
-    python_repr = repr(decl)
+    python_repr = _pretty_ast(decl)
     docs = getattr(decl, "docs", ())
 
     parts: list[str] = []
@@ -373,6 +373,72 @@ def _render_hover(doc: DocumentState, name: str) -> str | None:
         "</details>"
     )
     return "\n\n".join(parts)
+
+
+def _pretty_ast(decl) -> str:  # type: ignore[no-untyped-def]
+    """Pretty-print a didactic AST node, one field per line.
+
+    Plain ``repr()`` puts the whole struct on one line; for deeply
+    nested QVR declarations (kernels with product domains, programs
+    with chains of binds) that produces a single ~200-column blob
+    that hover panes truncate. Walk the dataclass tree manually so
+    every field gets its own indented line, matching Python's
+    standard ``pprint`` shape but preserving the keyword=value
+    syntax that didactic uses.
+    """
+    return _ast_lines(decl, indent=0)
+
+
+def _ast_lines(value, indent: int) -> str:  # type: ignore[no-untyped-def]
+    """Recursive renderer used by :func:`_pretty_ast`."""
+    pad = "    " * indent
+    next_pad = "    " * (indent + 1)
+    # didactic models expose __field_specs__; treat them as records.
+    field_specs = getattr(type(value), "__field_specs__", None)
+    if field_specs is not None:
+        class_name = type(value).__name__
+        fields = []
+        for fname in field_specs:
+            attr = getattr(value, fname, None)
+            # Skip empty-tuple `docs` and the synthetic `kind`
+            # discriminator that didactic stamps on every tagged
+            # union; both add noise without information.
+            if fname == "kind":
+                continue
+            if fname == "docs" and not attr:
+                continue
+            if attr is None:
+                rendered = "None"
+            else:
+                rendered = _ast_lines(attr, indent + 1)
+            fields.append(f"{next_pad}{fname}={rendered}")
+        if not fields:
+            return f"{class_name}()"
+        body = ",\n".join(fields)
+        return f"{class_name}(\n{body},\n{pad})"
+    if isinstance(value, tuple):
+        if not value:
+            return "()"
+        items = ",\n".join(
+            f"{next_pad}{_ast_lines(v, indent + 1)}" for v in value
+        )
+        return f"(\n{items},\n{pad})"
+    if isinstance(value, list):
+        if not value:
+            return "[]"
+        items = ",\n".join(
+            f"{next_pad}{_ast_lines(v, indent + 1)}" for v in value
+        )
+        return f"[\n{items},\n{pad}]"
+    if isinstance(value, dict):
+        if not value:
+            return "{}"
+        items = ",\n".join(
+            f"{next_pad}{k!r}: {_ast_lines(v, indent + 1)}"
+            for k, v in value.items()
+        )
+        return f"{{\n{items},\n{pad}}}"
+    return repr(value)
 
 
 def _slice_source(doc: DocumentState, decl) -> str | None:  # type: ignore[no-untyped-def]
