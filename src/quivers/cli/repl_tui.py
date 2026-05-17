@@ -162,6 +162,7 @@ def run_tui(session: "ReplSession") -> int:
                 if self.session.loaded_path is not None
                 else "<module>"
             )
+            tree.root.expand()
             objects = tree.root.add("objects", expand=True)
             for name in sorted(compiler.objects):
                 objects.add_leaf(name)
