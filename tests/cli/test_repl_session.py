@@ -158,3 +158,217 @@ def test_quit_returns_sentinel() -> None:
     s = ReplSession()
     r = s.dispatch(":quit")
     assert r.body == "__quit__"
+
+
+def test_doc_no_comment() -> None:
+    s = _populated()
+    r = s.dispatch(":doc f")
+    # f has no doc comment in the test source.
+    assert r.ok
+    assert "no doc comment" in r.body
+
+
+def test_browse_unknown_namespace() -> None:
+    s = _populated()
+    r = s.dispatch(":browse bogus")
+    assert not r.ok
+
+
+def test_info_python_flag_returns_repr() -> None:
+    s = _populated()
+    r = s.dispatch(":info f --python")
+    assert r.ok
+    # The didactic repr always contains the dataclass name.
+    assert "MorphismDecl" in r.body
+
+
+def test_info_default_returns_qvr() -> None:
+    s = _populated()
+    r = s.dispatch(":info f")
+    assert r.ok
+    assert "latent f : X -> Y" in r.body
+    # No raw didactic struct in the default rendering.
+    assert "MorphismDecl(" not in r.body
+
+
+def test_env_kinds_classifies_bindings() -> None:
+    s = _populated()
+    kinds = s.env_kinds()
+    assert kinds["X"] == "type"
+    assert kinds["Y"] == "type"
+    assert kinds["f"] == "function"
+    # Unknown names are absent.
+    assert "Z" not in kinds
+
+
+def test_save_writes_module(tmp_path: Path) -> None:
+    s = ReplSession()
+    src = tmp_path / "in.qvr"
+    src.write_text(SOURCE)
+    s.dispatch(f":load {src}")
+    out = tmp_path / "out.qvr"
+    r = s.dispatch(f":save {out}")
+    assert r.ok, r.diagnostics
+    written = out.read_text()
+    assert "object X : 3" in written
+    assert "latent f : X -> Y" in written
+
+
+def test_save_without_arg_writes_to_loaded_path(tmp_path: Path) -> None:
+    s = ReplSession()
+    src = tmp_path / "live.qvr"
+    src.write_text(SOURCE)
+    s.dispatch(f":load {src}")
+    r = s.dispatch(":save")
+    assert r.ok
+    assert src.read_text().count("object X") == 1
+
+
+def test_save_without_loaded_file_errors() -> None:
+    s = ReplSession()
+    r = s.dispatch(":save")
+    assert not r.ok
+
+
+def test_watch_pins_expression() -> None:
+    s = _populated()
+    r = s.dispatch(":watch X")
+    assert r.ok
+    assert "watch X" in r.body
+    results = s.watch_results()
+    assert "X" in results
+    assert "object X" in results["X"]
+
+
+def test_watch_persists_through_module_edits() -> None:
+    s = _populated()
+    s.dispatch(":watch f")
+    # Append another statement and confirm watch still resolves.
+    s.dispatch("object Z : 5")
+    results = s.watch_results()
+    assert "f" in results
+    assert " -> " in results["f"]
+
+
+def test_unwatch_removes_pin() -> None:
+    s = _populated()
+    s.dispatch(":watch X")
+    r = s.dispatch(":unwatch X")
+    assert r.ok
+    assert "X" not in s.watch_results()
+
+
+def test_unwatch_empty_clears_all() -> None:
+    s = _populated()
+    s.dispatch(":watch X")
+    s.dispatch(":watch Y")
+    r = s.dispatch(":unwatch")
+    assert r.ok
+    assert s.watch_results() == {}
+
+
+def test_unwatch_unknown_errors() -> None:
+    s = _populated()
+    r = s.dispatch(":unwatch nope")
+    assert not r.ok
+
+
+def test_kind_handles_literal() -> None:
+    s = _populated()
+    # Integer literals are still legal type expressions in the grammar
+    # (an object's cardinality, e.g. `object X : 3`). The kind path
+    # should return the canonical variant name without erroring.
+    r = s.dispatch(":kind 42")
+    assert r.ok
+    assert "TypeName" in r.body
+
+
+def test_doc_unknown_name() -> None:
+    s = _populated()
+    r = s.dispatch(":doc missing")
+    assert not r.ok
+
+
+def test_dump_unknown_name() -> None:
+    s = _populated()
+    r = s.dispatch(":dump missing")
+    assert not r.ok
+
+
+def test_dump_json_is_valid_json() -> None:
+    import json
+
+    s = _populated()
+    r = s.dispatch(":dump f --json")
+    # Output starts with a `{` and parses as JSON.
+    parsed = json.loads(r.body)
+    assert parsed["name"] == "f"
+
+
+def test_autoreload_only_when_stale(tmp_path: Path) -> None:
+    s = ReplSession()
+    src = tmp_path / "w.qvr"
+    src.write_text(SOURCE)
+    s.dispatch(f":load {src}")
+    # First call should be a no-op: mtime hasn't moved.
+    assert s.autoreload_if_stale() is None
+    # Advance mtime and add a binding; expect reload to fire.
+    src.write_text(SOURCE + "object Z : 2\n")
+    import os
+    import time
+
+    future = time.time() + 5
+    os.utime(src, (future, future))
+    r = s.autoreload_if_stale()
+    assert r is not None
+    assert "Z" in s.env
+
+
+def test_bare_expression_falls_through_to_type() -> None:
+    s = _populated()
+    # `X` alone isn't a statement form the grammar accepts, but the
+    # session's _eval_source falls back to :type.
+    r = s.dispatch("X")
+    assert r.ok
+    assert r.body.startswith("object X")
+
+
+def test_bare_statement_extends_module() -> None:
+    s = _populated()
+    s.dispatch("object Z : 7")
+    assert "Z" in s.env
+    assert any(
+        getattr(stmt, "name", None) == "Z" for stmt in s.module.statements
+    )
+
+
+def test_set_invalid_form() -> None:
+    s = ReplSession()
+    r = s.dispatch(":set highlight")
+    assert not r.ok
+
+
+def test_help_unknown_command() -> None:
+    s = ReplSession()
+    r = s.dispatch(":help nope")
+    assert not r.ok
+
+
+def test_help_known_command_renders_detail() -> None:
+    s = ReplSession()
+    r = s.dispatch(":help load")
+    assert r.ok
+    assert "Parse" in r.body or "parse" in r.body
+
+
+def test_type_unknown_name() -> None:
+    s = _populated()
+    r = s.dispatch(":type definitely_missing")
+    assert not r.ok
+
+
+def test_short_aliases_work() -> None:
+    s = _populated()
+    assert s.dispatch(":t X").body == s.dispatch(":type X").body
+    assert s.dispatch(":i f").body == s.dispatch(":info f").body
+    assert s.dispatch(":b").body == s.dispatch(":browse").body

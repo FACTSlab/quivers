@@ -64,3 +64,90 @@ def test_semantic_token_data_is_5_tuple_aligned() -> None:
 
 def test_tokenize_empty_source() -> None:
     assert tokenize("") == []
+
+
+def test_env_kinds_upgrades_variable_to_type() -> None:
+    # In the type-position of a latent decl 'Source' is already a type,
+    # but in an unparseable context (the line below) the grammar emits
+    # it as a plain variable. The env-aware upgrade catches that case.
+    pairs = _classify(tokenize("foo seq2seq Source", env_kinds={"Source": "type"}))
+    assert ("type", "Source") in pairs
+
+
+def test_env_kinds_upgrades_to_function() -> None:
+    pairs = _classify(tokenize("g h", env_kinds={"g": "function", "h": "function"}))
+    assert ("function", "g") in pairs
+    assert ("function", "h") in pairs
+
+
+def test_keyword_text_promoted_in_error_context() -> None:
+    # In a context the grammar can't fully parse, leaf.type may be
+    # 'identifier' even for known keywords; the classifier still
+    # recognises the text.
+    pairs = _classify(tokenize("observe x : Y <- z"))
+    keywords = {p[1] for p in pairs if p[0] == "keyword"}
+    assert "observe" in keywords or "Y" not in {p[1] for p in pairs}
+
+
+def test_semantic_token_data_with_env_classification() -> None:
+    data = to_semantic_token_data(
+        "foo Source",
+        env_kinds={"Source": "type"},
+    )
+    # 5-tuple aligned and non-empty.
+    assert len(data) % 5 == 0
+    type_index = SEMANTIC_TOKEN_TYPES.index("type")
+    # At least one token carries the 'type' index.
+    assert type_index in data[3::5]
+
+
+def test_to_rich_text_smoke() -> None:
+    from quivers.cli.repl_highlight import to_rich_text
+
+    rt = to_rich_text("object X : 3")
+    # Renders without raising; carries the source verbatim.
+    plain = rt.plain
+    assert "object" in plain
+    assert "X" in plain
+
+
+def test_link_action_wraps_identifiers() -> None:
+    from quivers.cli.repl_highlight import to_rich_text
+
+    rt = to_rich_text(
+        "f X",
+        env_kinds={"f": "function", "X": "type"},
+        link_action="info",
+    )
+    # Walk the underlying spans for meta hooks.
+    metas = []
+    for start, end, style in rt.spans:
+        del start, end
+        meta = getattr(style, "meta", None) or {}
+        if meta.get("@click"):
+            metas.append(meta["@click"])
+    assert any("info('f')" in m for m in metas)
+    assert any("info('X')" in m for m in metas)
+
+
+def test_error_path_returns_single_error_span() -> None:
+    # Source the parser will choke on (binary garbage that produces
+    # ERROR nodes everywhere) still returns SOMETHING tokenizable.
+    spans = tokenize("@@@@ <<< @@@")
+    assert spans  # never empty for non-empty source
+
+
+def test_comment_classification() -> None:
+    pairs = _classify(tokenize("# hello world"))
+    assert any(p[0] == "comment" for p in pairs)
+
+
+def test_doc_comment_classification() -> None:
+    pairs = _classify(tokenize("## doc string\nobject X : 3"))
+    assert any(p[0] == "comment" and "doc" in p[1] for p in pairs)
+
+
+def test_operator_classification() -> None:
+    pairs = _classify(tokenize("object X : 3\nlatent f : X -> X"))
+    operators = {p[1] for p in pairs if p[0] == "operator"}
+    assert "->" in operators

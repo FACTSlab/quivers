@@ -272,9 +272,14 @@ def _env_kinds_for(doc: DocumentState) -> dict[str, str]:
 
 
 def _publish(ls: LanguageServer, doc: DocumentState) -> None:
-    ls.publish_diagnostics(
-        doc.uri,
-        [_to_lsp_diag(d, doc) for d in doc.diagnostics],
+    # pygls 2.x renamed `publish_diagnostics` to follow the LSP
+    # method name with snake_case prefix; the 1.x name no longer
+    # exists.
+    ls.text_document_publish_diagnostics(
+        lsp.PublishDiagnosticsParams(
+            uri=doc.uri,
+            diagnostics=[_to_lsp_diag(d, doc) for d in doc.diagnostics],
+        )
     )
 
 
