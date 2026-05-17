@@ -82,6 +82,7 @@ class ReplSession:
 
     def __init__(self) -> None:
         self._loaded_path: Path | None = None
+        self._loaded_source: str = ""
         self._module: Module = Module(statements=())
         self._compiler: Compiler | None = None
         self._env: dict[str, Any] = {}
@@ -143,6 +144,7 @@ class ReplSession:
                 Diagnostic(message=str(e), severity="error", code="parse"),
             )
             return _resp("", self._last_diags)
+        self._loaded_source = source.decode("utf-8", errors="replace")
         return self._install_module(module, source_path=p)
 
     def reload(self) -> ReplResponse:
@@ -301,7 +303,7 @@ class ReplSession:
 
     # ----- :info / :doc -------------------------------------------------
 
-    def info(self, name: str) -> ReplResponse:
+    def info(self, name: str, *, python: bool = False) -> ReplResponse:
         decl = self._find_decl(name)
         if decl is None:
             if name in self._env:
@@ -318,13 +320,58 @@ class ReplSession:
             if self._loaded_path is not None and line
             else type(decl).__name__
         )
-        rendered = _render_decl(decl)
+        if python:
+            rendered = repr(decl)
+            body_kind: Literal["text", "qvr", "json", "markdown"] = "text"
+        else:
+            rendered = self._render_decl_qvr(decl)
+            body_kind = "qvr"
         docs = getattr(decl, "docs", ())
-        doc_block = "\n".join(f"  -- {d}" for d in docs)
-        body = f"{rendered}\n  -- declared at {loc}"
+        doc_block = "\n".join(f"-- {d}" for d in docs)
+        body = f"{rendered}\n-- declared at {loc}"
         if doc_block:
             body = f"{doc_block}\n{body}"
-        return _resp(body, body_kind="qvr")
+        return _resp(body, body_kind=body_kind)
+
+    def _render_decl_qvr(self, decl: Statement) -> str:
+        """Return the declaration as QVR source.
+
+        Order of preference:
+        1. Verbatim slice of the original source between this decl's
+           start byte and the next decl's start byte (preserves comments
+           and formatting).
+        2. ``quivers.dsl.emit.module_to_source`` (canonical re-emission).
+        3. ``repr(decl)`` as a last-ditch fallback for variants neither
+           the slicer nor the emitter handles.
+        """
+        sliced = self._slice_source_for(decl)
+        if sliced is not None:
+            return sliced.rstrip() + "\n"
+        return _render_decl(decl)
+
+    def _slice_source_for(self, decl: Statement) -> str | None:
+        """Return the original source lines that produced ``decl``."""
+        if not self._loaded_source:
+            return None
+        start_line = getattr(decl, "line", 0)
+        if not start_line:
+            return None
+        lines = self._loaded_source.splitlines()
+        if start_line - 1 >= len(lines):
+            return None
+        # Find the next declaration's start line; everything between
+        # `start_line` and that line belongs to this declaration.
+        end_line = len(lines) + 1
+        for other in self._module.statements:
+            if other is decl:
+                continue
+            other_line = getattr(other, "line", 0)
+            if other_line > start_line and other_line < end_line:
+                end_line = other_line
+        # Walk forward past trailing blank lines so the slice is tight.
+        while end_line - 1 > start_line and not lines[end_line - 2].strip():
+            end_line -= 1
+        return "\n".join(lines[start_line - 1 : end_line - 1])
 
     def doc(self, name: str) -> ReplResponse:
         decl = self._find_decl(name)
@@ -543,9 +590,11 @@ def _cmd_kind(s: ReplSession, arg: str) -> ReplResponse:
 
 
 def _cmd_info(s: ReplSession, arg: str) -> ReplResponse:
-    if not arg:
-        return _err("usage: :info <NAME>")
-    return s.info(arg)
+    parts = arg.split()
+    if not parts:
+        return _err("usage: :info <NAME> [--python]")
+    name = parts[0]
+    return s.info(name, python="--python" in parts[1:])
 
 
 def _cmd_doc(s: ReplSession, arg: str) -> ReplResponse:
@@ -622,7 +671,7 @@ _HELP_SUMMARIES = {
     "reload": "re-run :load on the last file, diffing the env",
     "type EXPR": "infer and print the type of EXPR",
     "kind TYPE": "report the AST kind of a type expression",
-    "info NAME": "show the declaration and source location of NAME",
+    "info NAME": "show the declaration and source location of NAME (--python for AST repr)",
     "doc NAME": "render the doc comment attached to NAME",
     "browse [NS]": "list bound names, optionally per namespace",
     "dump NAME": "show the AST node for NAME (add --json for didactic dump)",
@@ -642,8 +691,9 @@ _HELP: dict[str, str] = {
     "domain -> codomain signature.",
     "kind": "Show the AST kind (didactic discriminator) of a type expression and "
     "enumerate the sibling variants.",
-    "info": "Show NAME's declaration as canonical .qvr source, plus the source "
-    "location and any leading doc comment.",
+    "info": "Show NAME's declaration as verbatim .qvr source (sliced from the "
+    "loaded file), plus the source location and any leading doc comment. "
+    "Pass --python to see the didactic AST `repr()` instead.",
     "doc": "Render only the doc comment for NAME, useful for piping.",
     "browse": "List every bound name grouped by namespace. Pass a namespace name "
     "(objects/spaces/morphisms/rules) to restrict the listing.",

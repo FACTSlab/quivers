@@ -150,7 +150,20 @@ def run_tui(session: "ReplSession") -> int:
             log: RichLog = self.query_one("#output", RichLog)
             if response.body:
                 if response.body_kind == "qvr":
-                    log.write(to_rich_text(response.body))
+                    # Highlight QVR bodies line-by-line; comment-only
+                    # lines (starting with `--`, the REPL's own
+                    # annotation marker, or `##` / `#` doc / line
+                    # comments from the source) pass through dimmed.
+                    for line in response.body.splitlines() or [""]:
+                        stripped = line.lstrip()
+                        if stripped.startswith("--") and not stripped.startswith(
+                            "->"
+                        ):
+                            from rich.text import Text
+
+                            log.write(Text(line, style="italic dim"))
+                        else:
+                            log.write(to_rich_text(line))
                 else:
                     log.write(response.body)
             diag_panel: Static = self.query_one("#diagnostics", Static)
