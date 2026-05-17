@@ -322,22 +322,60 @@ def _apply_partial(
 
 
 def _render_hover(doc: DocumentState, name: str) -> str | None:
+    """Hover Markdown: QVR declaration first, didactic AST stacked below.
+
+    The QVR pane is sliced from the original source so it preserves
+    user formatting and never raises on statement variants the
+    canonical emitter doesn't cover. The Python AST pane appears under
+    a collapsed ``<details>`` so it does not crowd the hover; clicking
+    "Show AST" expands the didactic ``repr()``.
+    """
     decl = doc.find_decl(name)
     if decl is None:
         if name in doc.env:
             return f"```\n{name} :: {type(doc.env[name]).__name__}\n```"
         return None
-    try:
-        rendered = module_to_source(
-            type(doc.module)(statements=(decl,))
-        ).rstrip()
-    except NotImplementedError:
-        rendered = repr(decl)
+    qvr = _slice_source(doc, decl)
+    if qvr is None:
+        try:
+            qvr = module_to_source(
+                type(doc.module)(statements=(decl,))
+            ).rstrip()
+        except NotImplementedError:
+            qvr = f"-- (no QVR rendering available for {type(decl).__name__})"
+    python_repr = repr(decl)
     docs = getattr(decl, "docs", ())
-    body = f"```qvr\n{rendered}\n```"
+
+    parts: list[str] = []
     if docs:
-        body = "\n".join(docs) + "\n\n" + body
-    return body
+        parts.append("\n".join(docs))
+    parts.append(f"```qvr\n{qvr}\n```")
+    parts.append(
+        "<details><summary>AST (didactic)</summary>\n\n"
+        f"```python\n{python_repr}\n```\n\n"
+        "</details>"
+    )
+    return "\n\n".join(parts)
+
+
+def _slice_source(doc: DocumentState, decl) -> str | None:  # type: ignore[no-untyped-def]
+    """Return the original source lines that produced ``decl``."""
+    start_line = getattr(decl, "line", 0)
+    if not start_line:
+        return None
+    lines = doc.source.splitlines()
+    if start_line - 1 >= len(lines):
+        return None
+    end_line = len(lines) + 1
+    for other in doc.module.statements:
+        if other is decl:
+            continue
+        other_line = getattr(other, "line", 0)
+        if other_line > start_line and other_line < end_line:
+            end_line = other_line
+    while end_line - 1 > start_line and not lines[end_line - 2].strip():
+        end_line -= 1
+    return "\n".join(lines[start_line - 1 : end_line - 1])
 
 
 def _find_references(doc: DocumentState, name: str):  # type: ignore[no-untyped-def]

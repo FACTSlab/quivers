@@ -75,6 +75,10 @@ class SessionOptions:
     show_axes: bool = True
     paranoid: bool = False
     autoload_on_save: bool = True
+    # Rich syntax theme for QVR bodies rendered via :info, :dump, etc.
+    # Common values: "ansi_dark", "ansi_light", "monokai", "nord",
+    # "solarized-dark", "solarized-light", "github-dark".
+    theme: str = "ansi_dark"
 
 
 class ReplSession:
@@ -91,6 +95,10 @@ class ReplSession:
         # Track when the loaded file was last read so :reload can be
         # auto-fired on a modified mtime.
         self._loaded_mtime: float | None = None
+        # Pinned `:watch EXPR` re-evaluations. The TUI renders these in
+        # a dedicated panel; each install + reload re-runs every entry.
+        self._watches: list[str] = []
+        self._watch_results: dict[str, str] = {}
 
     # ----- introspection ------------------------------------------------
 
@@ -110,6 +118,10 @@ class ReplSession:
     @property
     def diagnostics(self) -> tuple[Diagnostic, ...]:
         return self._last_diags
+
+    def watch_results(self) -> dict[str, str]:
+        """Return the current ``expr -> rendered`` map for pinned watches."""
+        return dict(self._watch_results)
 
     def env_kinds(self) -> dict[str, str]:
         """Return a name -> semantic-token-type map for the live env.
@@ -213,6 +225,7 @@ class ReplSession:
                 self._loaded_mtime = source_path.stat().st_mtime
             except OSError:
                 self._loaded_mtime = None
+        self._refresh_watches()
         body = (
             f"loaded {source_path}: "
             f"{_env_counts(env)}"
@@ -527,6 +540,66 @@ class ReplSession:
             lines.append(step)
         return _resp("\n".join(lines))
 
+    # ----- :save / :watch / :unwatch -----------------------------------
+
+    def save(self, path: str = "") -> ReplResponse:
+        """Write the live module back to a ``.qvr`` file."""
+        from quivers.dsl.emit import module_to_source
+
+        target = Path(path).expanduser() if path else self._loaded_path
+        if target is None:
+            return _err("usage: :save <FILE> (no file currently loaded)")
+        try:
+            source = module_to_source(self._module)
+        except NotImplementedError as e:
+            return _err(
+                f"cannot emit: {e}. (the canonical emitter does not yet "
+                "support every statement variant; edit the source file "
+                "directly instead)"
+            )
+        try:
+            target.write_text(source, encoding="utf-8")
+        except OSError as e:
+            return _err(f"write failed: {e}")
+        return _resp(f"saved {target}")
+
+    def watch(self, expr: str) -> ReplResponse:
+        """Pin an expression for re-evaluation on every recompile."""
+        expr = expr.strip()
+        if not expr:
+            return _err("usage: :watch <EXPR>")
+        if expr not in self._watches:
+            self._watches.append(expr)
+        self._refresh_watches()
+        rendered = self._watch_results.get(expr, "(unresolved)")
+        return _resp(f"watch {expr} => {rendered}", body_kind="qvr")
+
+    def unwatch(self, expr: str) -> ReplResponse:
+        """Remove a previously-pinned watch expression."""
+        expr = expr.strip()
+        if not expr:
+            # No argument: clear every watch.
+            self._watches.clear()
+            self._watch_results.clear()
+            return _resp("cleared all watches")
+        if expr not in self._watches:
+            return _err(f"not watching: {expr}")
+        self._watches.remove(expr)
+        self._watch_results.pop(expr, None)
+        return _resp(f"unwatched {expr}")
+
+    def _refresh_watches(self) -> None:
+        """Re-evaluate every pinned watch against the current env."""
+        self._watch_results = {}
+        for expr in self._watches:
+            try:
+                response = self.type_of(expr)
+                self._watch_results[expr] = (
+                    response.body if response.ok else "(error)"
+                )
+            except Exception:
+                self._watch_results[expr] = "(error)"
+
     # ----- :set ---------------------------------------------------------
 
     def set_option(self, raw: str) -> ReplResponse:
@@ -670,6 +743,18 @@ def _cmd_trace(s: ReplSession, arg: str) -> ReplResponse:
     return s.trace(arg)
 
 
+def _cmd_save(s: ReplSession, arg: str) -> ReplResponse:
+    return s.save(arg)
+
+
+def _cmd_watch(s: ReplSession, arg: str) -> ReplResponse:
+    return s.watch(arg)
+
+
+def _cmd_unwatch(s: ReplSession, arg: str) -> ReplResponse:
+    return s.unwatch(arg)
+
+
 def _cmd_set(s: ReplSession, arg: str) -> ReplResponse:
     return s.set_option(arg)
 
@@ -700,6 +785,11 @@ _META_COMMANDS = {
     "dump": _cmd_dump,
     "edit": _cmd_edit,
     "trace": _cmd_trace,
+    "save": _cmd_save,
+    "s": _cmd_save,
+    "watch": _cmd_watch,
+    "w": _cmd_watch,
+    "unwatch": _cmd_unwatch,
     "set": _cmd_set,
     "help": _cmd_help,
     "h": _cmd_help,
@@ -720,7 +810,10 @@ _HELP_SUMMARIES = {
     "dump NAME": "show the AST node for NAME (add --json for didactic dump)",
     "edit NAME": "open $EDITOR on NAME's source, splice back on save",
     "trace EXPR": "step through elaboration of a morphism expression",
-    "set k=v": "toggle session options (highlight, unicode, paranoid, ...)",
+    "save FILE": "write the live module back to FILE via the canonical emitter",
+    "watch EXPR": "pin EXPR for re-eval after every recompile (watch panel)",
+    "unwatch EXPR": "remove EXPR from the watch list (no arg clears all)",
+    "set k=v": "toggle session options (highlight, unicode, theme, ...)",
     "help [CMD]": "list commands or detail one",
     "quit": "exit the REPL",
 }

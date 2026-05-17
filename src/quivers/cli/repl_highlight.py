@@ -292,19 +292,42 @@ def _byte_to_line_col(source: bytes, byte_offset: int) -> tuple[int, int]:
 
 
 def to_rich_text(
-    source: str, *, env_kinds: dict[str, str] | None = None
+    source: str,
+    *,
+    env_kinds: dict[str, str] | None = None,
+    link_action: str | None = None,
 ) -> Any:
     """Build a :class:`rich.text.Text` from the highlighted source.
 
     Imported lazily so importing :mod:`quivers.cli.repl_highlight` does
     not pull rich in for callers that just want raw spans.
+
+    If ``link_action`` is set (e.g. ``"info"``), identifiers that the
+    grammar or env classified as something meaningful (type / function
+    / namespace / variable when the name is in env_kinds) are wrapped
+    as Rich console links pointing to ``"<link_action>:<name>"``. The
+    TUI's RichLog ``on_click`` translator then runs ``:link_action
+    <name>`` when the user clicks.
     """
+    from rich.style import Style
     from rich.text import Text
 
     out = Text()
+    interesting = {"type", "function", "namespace"}
     for span in tokenize(source, env_kinds=env_kinds):
-        style = STYLE_TABLE.get(span.token, "")
-        out.append(span.text, style=style)
+        style_str = STYLE_TABLE.get(span.token, "")
+        if (
+            link_action
+            and span.token in interesting
+            and span.text.replace("_", "").isalnum()
+            and not span.text[0].isdigit()
+        ):
+            style = Style.parse(style_str) + Style(
+                meta={"@click": f"{link_action}('{span.text}')"}
+            )
+            out.append(span.text, style=style)
+        else:
+            out.append(span.text, style=style_str)
     return out
 
 
