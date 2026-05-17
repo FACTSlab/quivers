@@ -31,8 +31,8 @@ classifiers = [
 dependencies = [
     "torch>=2.0",
     "didactic>=0.7.1",
-    "panproto>=0.47.0",
-    "panproto-grammars-all>=0.47.0",
+    "panproto>=0.47.3",
+    "panproto-grammars-all>=0.47.3",
     "pygments>=2.10",
     "tree-sitter>=0.21",
 ]
@@ -72,6 +72,17 @@ formulas = [
     "netcdf4>=1.7",
     "formulae>=0.6",
 ]
+repl = [
+    "textual>=0.83",
+    "prompt_toolkit>=3.0",
+    "rich>=13.7",
+    "ipykernel>=6.29",
+    "jupyter_client>=8.6",
+]
+lsp = [
+    "pygls>=2.0",
+    "lsprotocol>=2024.0.0",
+]
 
 [project.urls]
 Homepage = "https://github.com/FACTSlab/quivers"
@@ -84,6 +95,8 @@ qvr = "quivers.dsl.pygments_lexer:QvrLexer"
 
 [project.scripts]
 qvr = "quivers.cli:main"
+qvr-lsp = "quivers.cli.lsp:_entry"
+qvr-kernel = "quivers.kernel.install:_entry"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/quivers"]

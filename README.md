@@ -28,7 +28,7 @@
 
 Quivers is a functional probabilistic programming language for PyTorch. The surface will look familiar if you have used Pyro, NumPyro, Stan, or PyMC. But it has a few distinguishing features:
 
-- **Programs are typed compositional values.** A program has a domain, codomain, algebra, and effect signature (`! Sample, Score, Marginal, Pure`), checked at compile time. Programs compose with `>>`, parallel-compose with `@`, transport across algebras with `change_base`, and marginalize discrete latents with `marginalize z : K <- ... in { ... }`.
+- **Programs are first-class composable typed values.** A program has a domain, codomain, algebra, and effect signature (`! Sample, Score, Marginal, Pure`), checked at compile time. Programs compose with `>>`, parallel-compose with `@`, change base across algebras with `change_base`, and marginalize discrete latents with `marginalize z : K <- ... in { ... }`.
 - **Shared substrate for inference, deduction, and structural compression.** A CKY parser in a `deduction { atoms ... rule ... }` block, a transformer-as-encoder over a `signature { ... }` block, and a Bayesian regression all compile to the same underlying semantics, with the same composition operators, and can therefore compose with each other.
 - **Algebra-parametric semantics.** Programs can be parameterized by eleven built-in or user-defined algebras. Homomorphisms between algebras are values you can transport models along, with the laws checked at compile time.
 
@@ -38,6 +38,7 @@ It also has some features you are used to from other PPLs:
 - **An analysis toolkit.** Static introspection of compiled programs (per-step algebra, chain depth, intermediate shape, source mapping); algebra-aware, saturation-free initialization recipes that adapt to whichever value algebra a program is parameterized over; compile-time diagnostics flagging latents whose default initialization would saturate the active algebra.
 - **Diagnostics and model comparison.** ArviZ ecosystem integration: posteriors from any inference method (NUTS, HMC, or SVI) export to ArviZ for trace plots, rank plots, ESS, and $\hat R$. PSIS-LOO (Pareto-smoothed importance-sampling leave-one-out cross-validation) for ranking competing models; posterior-predictive checks against user-defined test statistics; LOO-PIT for calibration.
 - **A mixed-effect model API.** A [brms-style formula frontend](https://FACTSlab.github.io/quivers/guides/analysis) for mixed-effect regression compiles formulas to typed QVR programs through a bidirectional lens, with pandas / polars dataframes as the input surface and R-canonical conventions (orthogonal polynomials, R-style transforms in the formula evaluation namespace) as defaults. The emitted QVR is inspectable, so a formula-fitted model is a starting point you can hand-edit rather than a closed black box.
+- **Interactive tooling out of the box.** [`qvr repl`](https://FACTSlab.github.io/quivers/guides/repl-and-lsp) is a GHCi-style four-pane Textual TUI with live syntax highlighting, env browser, file-watcher auto-reload, command palette, and meta-commands (`:type`, `:info`, `:browse`, `:edit`, `:save`, `:watch`, …). [`qvr-lsp`](https://FACTSlab.github.io/quivers/guides/repl-and-lsp) is a full LSP 3.17 language server (hover, definition, references, document symbols, semantic tokens, completion, formatting, live diagnostics) that VS Code, Cursor, Zed, and Neovim consume out of the box. A Jupyter kernel (`qvr-kernel install`) drives the same elaborator from notebooks.
 
 ## Quick start
 
@@ -97,7 +98,27 @@ cd quivers
 pip install -e ".[dev]"
 ```
 
-Requirements: Python 3.14+, PyTorch 2.0+, didactic 0.6.0+, panproto 0.45.0+, panproto-grammars-all 0.45.0+.
+Requirements: Python 3.14+, PyTorch 2.0+, didactic 0.7.1+, panproto 0.47.3+, panproto-grammars-all 0.47.3+.
+
+Optional extras:
+
+```bash
+pip install 'quivers[repl]'    # Textual TUI, prompt_toolkit, rich, ipykernel
+pip install 'quivers[lsp]'     # pygls language server
+pip install 'quivers[repl,lsp]'  # both
+```
+
+After installing `[repl]` you can drop into the interactive type explorer:
+
+```bash
+qvr repl path/to/model.qvr
+```
+
+After installing `[lsp]` you have `qvr-lsp` on your PATH; the
+[`vscode-qvr`](https://github.com/FACTSlab/quivers/tree/main/editors/vscode-qvr)
+and
+[`zed-extension-qvr`](https://github.com/FACTSlab/quivers/tree/main/editors/zed-extension-qvr)
+extensions auto-discover it.
 
 ## Contributing
 

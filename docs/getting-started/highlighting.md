@@ -146,15 +146,37 @@ The extension's manifest pins the grammar against `grammars/qvr/` in the
 same repository, so a single checkout drives both the grammar source
 and the editor packaging.
 
-### VS Code
+### VS Code / Cursor
 
-VS Code does not have first-party tree-sitter support. The supported
-route is the
-[Tree-sitter Highlighter](https://marketplace.visualstudio.com/items?itemName=keith.tree-sitter-highlighter)
-extension; configure it with the grammar's `parser.c`, following the
-extension's `parserPath` instructions and pointing at
-`grammars/qvr/src/parser.c` from a quivers clone. A first-party VS Code
-extension is not yet shipped; contributions are welcome.
+The repository ships a first-party VS Code extension at
+[`editors/vscode-qvr/`](https://github.com/FACTSlab/quivers/tree/main/editors/vscode-qvr).
+It provides:
+
+- a TextMate grammar for the initial render,
+- a [`vscode-languageclient`](https://github.com/microsoft/vscode-languageclient-node)
+  bridge to [`qvr-lsp`](../guides/repl-and-lsp.md) for hover,
+  go-to-definition, semantic tokens, document symbols, completion,
+  formatting, and live diagnostics.
+
+Install the packaged extension into VS Code (or Cursor):
+
+```bash
+cd editors/vscode-qvr
+npm install
+npx tsc -p .
+npx @vscode/vsce package --allow-missing-repository --no-yarn
+code --install-extension vscode-qvr-*.vsix
+# or: cursor --install-extension vscode-qvr-*.vsix
+```
+
+The extension auto-discovers `qvr-lsp` in (1) the `qvr.lsp.path`
+setting (with `${workspaceFolder}` expansion), (2)
+`<workspace>/.venv/bin/qvr-lsp`, (3) `$VIRTUAL_ENV/bin/qvr-lsp`, or
+(4) plain `qvr-lsp` on `$PATH`. Install the LSP extra with
+`pip install 'quivers[lsp]'`.
+
+The full configuration surface and the launch resolution order live in
+the [Interactive guide](../guides/repl-and-lsp.md#vs-code-cursor).
 
 ## GitHub source view (Linguist)
 

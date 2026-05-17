@@ -4,7 +4,15 @@ All notable changes to the quivers library are documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/), and this project adheres to [Semantic Versioning](https://semver.org/).
 
-## [0.9.1] - 2026-05-16
+## [Unreleased]
+
+### Added
+
+- **`qvr repl` — GHCi-style interactive type explorer.** Live-highlighted REPL with four-pane [Textual](https://textual.textualize.io/) TUI (input editor, eval log, environment browser, diagnostics) and a [prompt_toolkit](https://python-prompt-toolkit.readthedocs.io/) fallback for non-TTY use. GHCi-shaped meta-commands: `:load`, `:reload`, `:type`, `:kind`, `:info`, `:doc`, `:browse`, `:dump`, `:edit`, `:trace`, `:set`, `:help`, `:quit`. Bare lines are evaluated as either appended statements (compiled into the live module) or expressions (passed through `:type`). Highlighting drives directly off the tree-sitter QVR grammar via a shared `STYLE_TABLE`; adding a keyword to `grammars/qvr/grammar.js` paints it everywhere. Install with `pip install 'quivers[repl]'`.
+- **Jupyter kernel.** `qvr-kernel install` registers a `quivers` kernelspec whose cell evaluator is the same `ReplSession` driving the REPL, so notebook cells, the Textual TUI, and the plain prompt behave identically. Hover (`Shift-Tab`) routes through `:info`.
+- **`qvr-lsp` — Language Server.** [pygls](https://github.com/openlawlibrary/pygls)-backed LSP 3.17 server speaking the same elaborator as the REPL. Capabilities: incremental sync, `publishDiagnostics`, `semanticTokens/full`, `hover`, `definition`, `references`, `documentSymbol`, `completion`, and `formatting`. The `vscode-qvr` extension and the Zed `qvr` extension both spawn it automatically. Install with `pip install 'quivers[lsp]'`.
+
+
 
 ### Fixed
 

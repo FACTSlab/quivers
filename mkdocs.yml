@@ -110,6 +110,7 @@ nav:
     - "Structural Compression: Decoders and Losses": guides/structural-compression-decoders-and-losses.md
     - "Analysis: Data and Formulas": guides/analysis-data-and-formulas.md
     - "Analysis: Fitting and Diagnostics": guides/analysis-fitting-and-diagnostics.md
+    - "Interactive: REPL and Language Server": guides/repl-and-lsp.md
   - Denotational Semantics:
     - Overview: semantics/index.md
     - Setting and Notation: semantics/setting.md
