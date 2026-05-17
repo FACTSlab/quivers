@@ -226,16 +226,19 @@ class ReplSession:
             if bare in self._compiler.morphisms:
                 m = self._compiler.morphisms[bare]
                 return _resp(
-                    f"{bare} :: {_pretty_morphism(m)}", body_kind="qvr"
+                    self._type_line_for_morphism(bare, m),
+                    body_kind="qvr",
                 )
             if bare in self._compiler.objects:
+                obj = self._compiler.objects[bare]
                 return _resp(
-                    f"{bare} :: {_pretty_object(self._compiler.objects[bare])}",
+                    f"object {bare} : {_pretty_object(obj)}",
                     body_kind="qvr",
                 )
             if bare in self._compiler.spaces:
+                sp = self._compiler.spaces[bare]
                 return _resp(
-                    f"{bare} :: {_pretty_object(self._compiler.spaces[bare])}",
+                    f"space {bare} : {_pretty_object(sp)}",
                     body_kind="qvr",
                 )
 
@@ -280,9 +283,36 @@ class ReplSession:
         if morph is None:
             return _err("expression did not resolve to a morphism")
         return _resp(
-            f"{expr_source} :: {_pretty_morphism(morph)}",
+            self._type_line_for_morphism(expr_source, morph),
             body_kind="qvr",
         )
+
+    def _type_line_for_morphism(self, name: str, morph: Any) -> str:
+        """Render a morphism's signature in valid-QVR notation.
+
+        Mirroring the source's own declaration keyword (``latent`` /
+        ``observed`` / ``program`` / etc.) lets the QVR tree-sitter
+        grammar classify the domain/codomain identifiers as types so
+        the TUI's tokenizer paints them in the type colour. Falling
+        back to ``latent`` is safe: it produces a valid morphism decl
+        the grammar can parse for highlighting purposes only.
+        """
+        decl = self._find_decl(name)
+        keyword = "latent"
+        if decl is not None:
+            kind = type(decl).__name__
+            if kind == "ProgramDecl":
+                keyword = "program"
+            elif kind == "MorphismDecl":
+                keyword = getattr(decl, "morphism_kind", "latent") or "latent"
+            elif kind == "KernelDecl":
+                keyword = "kernel"
+            # let / embed / discretize bindings don't have a ``KEYWORD
+            # NAME : TYPE`` source form, but `latent NAME : TYPE` is a
+            # valid morphism signature the grammar parses, which is
+            # what matters for highlighting. The :info command shows
+            # the binding's true declaration form.
+        return f"{keyword} {name} : {_pretty_morphism(morph)}"
 
     def kind_of(self, expr_source: str) -> ReplResponse:
         try:
