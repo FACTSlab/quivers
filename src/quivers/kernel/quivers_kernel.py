@@ -36,7 +36,7 @@ class QuiversKernel(Kernel):
 
     def __init__(self, **kwargs: Any) -> None:
         super().__init__(**kwargs)
-        self.session = ReplSession()
+        self.repl = ReplSession()
 
     def do_execute(
         self,
@@ -51,7 +51,7 @@ class QuiversKernel(Kernel):
         del store_history, user_expressions, allow_stdin, cell_id
         had_error = False
         for raw_line in _split_cell(code):
-            response = self.session.dispatch(raw_line)
+            response = self.repl.dispatch(raw_line)
             if response.body == "__quit__":
                 self.do_shutdown(False)
                 break
@@ -84,7 +84,7 @@ class QuiversKernel(Kernel):
         from quivers.cli.repl_complete import all_completions
 
         prefix = _prefix_at(code, cursor_pos)
-        completions = all_completions(self.session, prefix)
+        completions = all_completions(self.repl, prefix)
         return {
             "matches": [c.text for c in completions],
             "cursor_start": cursor_pos - len(prefix),
@@ -100,7 +100,7 @@ class QuiversKernel(Kernel):
         word = _word_at(code, cursor_pos)
         if not word:
             return {"status": "ok", "found": False, "data": {}, "metadata": {}}
-        response = self.session.info(word)
+        response = self.repl.info(word)
         if not response.ok:
             return {"status": "ok", "found": False, "data": {}, "metadata": {}}
         return {

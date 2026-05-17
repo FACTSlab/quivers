@@ -22,7 +22,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from pygls.server import LanguageServer
+from pygls.lsp.server import LanguageServer
 from lsprotocol import types as lsp
 
 from quivers.cli.repl_complete import all_completions
