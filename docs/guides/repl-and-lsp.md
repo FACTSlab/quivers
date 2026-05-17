@@ -484,6 +484,7 @@ Optional doc comment lines if the decl had `## doc` blocks above it.
 
 **QVR source**
 
+<!-- compile: false -->
 ```qvr
 latent f : Alpha -> Beta
 ```
