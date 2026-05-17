@@ -476,16 +476,22 @@ Every capability advertised by `qvr-lsp`:
 
 ### Hover format
 
-A typical hover renders as:
+A hover always shows two visually-separated panes:
 
 ````markdown
-## Optional doc comment lines if the decl had `## doc` blocks above it.
+Optional doc comment lines if the decl had `## doc` blocks above it.
+
+**QVR source**
 
 ```qvr
 latent f : Alpha -> Beta
 ```
 
-<details><summary>AST (didactic)</summary>
+---
+
+**AST (didactic)**
+
+<details><summary><i>click to expand</i></summary>
 
 ```python
 MorphismDecl(morphism_kind='latent', name='f', domain=TypeName(...), ...)
@@ -494,11 +500,12 @@ MorphismDecl(morphism_kind='latent', name='f', domain=TypeName(...), ...)
 </details>
 ````
 
-The QVR block is sliced from the original source so user formatting
-and comments are preserved verbatim. The Python block is the
-didactic `repr()`, hidden by default in the collapsed `<details>`
-section so it only takes space when you click "AST (didactic)" to
-expand it.
+- The QVR block is sliced from the original source so user formatting
+  and comments survive verbatim.
+- A horizontal rule draws the divider between the panes.
+- The Python AST is the didactic `repr()`, hidden by default in the
+  collapsed `<details>` element so it only takes vertical space when
+  you click "click to expand".
 
 ## Architecture
 

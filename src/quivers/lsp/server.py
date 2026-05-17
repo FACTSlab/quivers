@@ -327,13 +327,22 @@ def _apply_partial(
 
 
 def _render_hover(doc: DocumentState, name: str) -> str | None:
-    """Hover Markdown: QVR declaration first, didactic AST stacked below.
+    """Hover Markdown: QVR declaration on top, didactic AST below.
 
-    The QVR pane is sliced from the original source so it preserves
-    user formatting and never raises on statement variants the
-    canonical emitter doesn't cover. The Python AST pane appears under
-    a collapsed ``<details>`` so it does not crowd the hover; clicking
-    "Show AST" expands the didactic ``repr()``.
+    The two panes are visually separated:
+
+      1. A bolded **QVR source** header.
+      2. The verbatim source slice inside a fenced ```qvr block.
+      3. A horizontal rule (``---``) drawing the divider.
+      4. A bolded **AST (didactic)** header.
+      5. The didactic ``repr()`` inside a fenced ```python block,
+         collapsed behind ``<details>`` so it only takes vertical
+         space when the user clicks to expand it.
+
+    The QVR slice is taken from the original source so user
+    formatting and comments survive verbatim; the canonical emitter
+    is the fallback for slices we can't compute (statements appended
+    in the REPL with no source range).
     """
     decl = doc.find_decl(name)
     if decl is None:
@@ -354,9 +363,12 @@ def _render_hover(doc: DocumentState, name: str) -> str | None:
     parts: list[str] = []
     if docs:
         parts.append("\n".join(docs))
+    parts.append("**QVR source**")
     parts.append(f"```qvr\n{qvr}\n```")
+    parts.append("---")
+    parts.append("**AST (didactic)**")
     parts.append(
-        "<details><summary>AST (didactic)</summary>\n\n"
+        "<details><summary><i>click to expand</i></summary>\n\n"
         f"```python\n{python_repr}\n```\n\n"
         "</details>"
     )

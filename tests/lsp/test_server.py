@@ -80,11 +80,16 @@ def test_render_hover_stacks_qvr_and_ast() -> None:
     assert decl is not None
     hover = _render_hover(doc, "f")
     assert hover is not None
+    # QVR section: bold header, fenced qvr block, verbatim source.
+    assert "**QVR source**" in hover
     assert "```qvr" in hover
     assert "latent f : Alpha -> Beta" in hover
+    # Divider between the two panes.
+    assert "\n---\n" in hover or hover.split("**AST")[0].rstrip().endswith("---")
+    # AST section: bold header, collapsed fenced python block.
+    assert "**AST (didactic)**" in hover
     assert "<details>" in hover
     assert "```python" in hover
-    # didactic AST repr always contains the dataclass name.
     assert "MorphismDecl" in hover
 
 
