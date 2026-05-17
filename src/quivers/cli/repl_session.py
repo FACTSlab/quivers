@@ -297,22 +297,15 @@ class ReplSession:
         back to ``latent`` is safe: it produces a valid morphism decl
         the grammar can parse for highlighting purposes only.
         """
-        decl = self._find_decl(name)
-        keyword = "latent"
-        if decl is not None:
-            kind = type(decl).__name__
-            if kind == "ProgramDecl":
-                keyword = "program"
-            elif kind == "MorphismDecl":
-                keyword = getattr(decl, "morphism_kind", "latent") or "latent"
-            elif kind == "KernelDecl":
-                keyword = "kernel"
-            # let / embed / discretize bindings don't have a ``KEYWORD
-            # NAME : TYPE`` source form, but `latent NAME : TYPE` is a
-            # valid morphism signature the grammar parses, which is
-            # what matters for highlighting. The :info command shows
-            # the binding's true declaration form.
-        return f"{keyword} {name} : {_pretty_morphism(morph)}"
+        # `latent NAME : DOM -> COD` is the only universally-valid
+        # morphism signature in the QVR grammar: `program` requires a
+        # block body, `embed` / `discretize` / `let` use `=` rather
+        # than `: ... ->`. Falling through to `latent` for highlighting
+        # purposes keeps the grammar happy so domain AND codomain
+        # identifiers both classify as types. The binding's true
+        # declaration kind is shown by :info.
+        del self  # unused; kept on the instance for signature symmetry
+        return f"latent {name} : {_pretty_morphism(morph)}"
 
     def kind_of(self, expr_source: str) -> ReplResponse:
         try:
