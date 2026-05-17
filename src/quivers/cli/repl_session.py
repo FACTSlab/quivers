@@ -226,17 +226,17 @@ class ReplSession:
             if bare in self._compiler.morphisms:
                 m = self._compiler.morphisms[bare]
                 return _resp(
-                    f"{bare} :: {_pretty_morphism(m)}", body_kind="text"
+                    f"{bare} :: {_pretty_morphism(m)}", body_kind="qvr"
                 )
             if bare in self._compiler.objects:
                 return _resp(
                     f"{bare} :: {_pretty_object(self._compiler.objects[bare])}",
-                    body_kind="text",
+                    body_kind="qvr",
                 )
             if bare in self._compiler.spaces:
                 return _resp(
                     f"{bare} :: {_pretty_object(self._compiler.spaces[bare])}",
-                    body_kind="text",
+                    body_kind="qvr",
                 )
 
         probe = self._scratch_compiler()
@@ -253,7 +253,7 @@ class ReplSession:
                     obj = probe._resolve_type(stmt.type_expr)
                     return _resp(
                         f"{expr_source} :: {_pretty_object(obj)}",
-                        body_kind="text",
+                        body_kind="qvr",
                     )
                 except CompileError as e:
                     return _err(f"type error: {e}")
@@ -281,7 +281,7 @@ class ReplSession:
             return _err("expression did not resolve to a morphism")
         return _resp(
             f"{expr_source} :: {_pretty_morphism(morph)}",
-            body_kind="text",
+            body_kind="qvr",
         )
 
     def kind_of(self, expr_source: str) -> ReplResponse:
@@ -298,7 +298,7 @@ class ReplSession:
         )
         return _resp(
             f"{expr_source} : {klass}\n  TypeExpr variants: {', '.join(variants)}",
-            body_kind="text",
+            body_kind="qvr",
         )
 
     # ----- :info / :doc -------------------------------------------------
