@@ -48,7 +48,9 @@ def test_type_of_object() -> None:
     s = _populated()
     r = s.dispatch(":type X")
     assert r.ok, r.diagnostics
-    assert "X ::" in r.body
+    # :type renders the binding as its source-form QVR declaration so
+    # the grammar can classify identifiers in type position.
+    assert r.body.startswith("object X")
 
 
 def test_type_of_morphism() -> None:
@@ -56,6 +58,9 @@ def test_type_of_morphism() -> None:
     r = s.dispatch(":type f")
     assert r.ok, r.diagnostics
     assert " -> " in r.body
+    # Morphism signatures lead with the declaration kind keyword so
+    # the QVR grammar can colour the domain/codomain as types.
+    assert r.body.split()[0] in {"latent", "observed", "program", "kernel"}
 
 
 def test_kind_reports_ast_variant() -> None:
