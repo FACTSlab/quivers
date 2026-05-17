@@ -108,13 +108,25 @@ class Span:
 # ---------------------------------------------------------------------------
 
 
-def tokenize(source: str | bytes) -> list[Span]:
+def tokenize(
+    source: str | bytes,
+    *,
+    env_kinds: dict[str, str] | None = None,
+) -> list[Span]:
     """Return the styled span list for ``source``.
 
     Drives directly on the tree-sitter parse so that anonymous tokens
     (keywords, punctuation) are preserved — panproto's Schema view
     strips those, so we go to tree-sitter for highlighting and keep
     panproto for parsing into the didactic AST.
+
+    ``env_kinds`` enables semantic highlighting: a mapping from name
+    to one of ``"type"``, ``"function"``, ``"namespace"`` (or any
+    SEMANTIC_TOKEN_TYPES value). Identifiers the grammar leaves as
+    ``"variable"`` are upgraded to their env-known kind, so a name
+    looks the same across the input pane, ``:type``, ``:info``, and
+    any other surface — regardless of whether the surrounding context
+    parses as a valid declaration.
 
     Failure path: if the parser raises, the entire source is returned
     as a single ``error`` span. Callers can downgrade to a no-highlight
@@ -169,6 +181,15 @@ def tokenize(source: str | bytes) -> list[Span]:
             )
         text = src_bytes[sb:eb].decode("utf-8", errors="replace")
         token = _classify(leaf.type, text, parent_kind)
+        # Semantic upgrade: if the grammar produced a generic
+        # "variable" classification but the env knows this name as a
+        # type/function/namespace, paint it the env colour. This is
+        # the seam that gives consistent highlighting across all REPL
+        # output surfaces.
+        if env_kinds and token == "variable":
+            env_kind = env_kinds.get(text)
+            if env_kind:
+                token = env_kind
         spans.append(
             _position(Span(start=sb, end=eb, token=token, text=text), src_bytes)
         )
@@ -199,6 +220,12 @@ def _classify(kind: str, text: str, parent_kind: str | None) -> str:
     if kind == "string":
         return "string"
     if kind == "identifier":
+        # When a tree-sitter parse error puts a known keyword in the
+        # 'identifier' bucket (because the surrounding production
+        # didn't match), the text still tells us what the user wrote.
+        # Treat that as a keyword so output stays self-consistent.
+        if text in _KEYWORD_TOKENS:
+            return "keyword"
         if text in _BUILTIN_FUNCTION_TOKENS:
             return "function"
         if text in _BUILTIN_TYPE_TOKENS:
@@ -264,7 +291,9 @@ def _byte_to_line_col(source: bytes, byte_offset: int) -> tuple[int, int]:
 # ---------------------------------------------------------------------------
 
 
-def to_rich_text(source: str) -> Any:
+def to_rich_text(
+    source: str, *, env_kinds: dict[str, str] | None = None
+) -> Any:
     """Build a :class:`rich.text.Text` from the highlighted source.
 
     Imported lazily so importing :mod:`quivers.cli.repl_highlight` does
@@ -273,7 +302,7 @@ def to_rich_text(source: str) -> Any:
     from rich.text import Text
 
     out = Text()
-    for span in tokenize(source):
+    for span in tokenize(source, env_kinds=env_kinds):
         style = STYLE_TABLE.get(span.token, "")
         out.append(span.text, style=style)
     return out
@@ -327,7 +356,9 @@ def to_semantic_token_legend() -> tuple[tuple[str, ...], tuple[str, ...]]:
     return SEMANTIC_TOKEN_TYPES, SEMANTIC_TOKEN_MODIFIERS
 
 
-def to_semantic_token_data(source: str) -> list[int]:
+def to_semantic_token_data(
+    source: str, *, env_kinds: dict[str, str] | None = None
+) -> list[int]:
     """Encode ``source`` as the LSP SemanticTokens 5-tuple stream.
 
     The stream is delta-encoded as ``[deltaLine, deltaStart, length,
@@ -339,7 +370,7 @@ def to_semantic_token_data(source: str) -> list[int]:
     out: list[int] = []
     prev_line = 0
     prev_col = 0
-    for span in tokenize(source):
+    for span in tokenize(source, env_kinds=env_kinds):
         if span.token in ("variable",) and not span.text.strip():
             # Pure whitespace at the start of the buffer; skip.
             continue

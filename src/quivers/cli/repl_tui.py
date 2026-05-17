@@ -186,6 +186,7 @@ def run_tui(session: "ReplSession") -> int:
                     # lines (starting with `--`, the REPL's own
                     # annotation marker, or `##` / `#` doc / line
                     # comments from the source) pass through dimmed.
+                    env_kinds = self.session.env_kinds()
                     for line in response.body.splitlines() or [""]:
                         stripped = line.lstrip()
                         if stripped.startswith("--") and not stripped.startswith(
@@ -195,7 +196,7 @@ def run_tui(session: "ReplSession") -> int:
 
                             log.write(Text(line, style="italic dim"))
                         else:
-                            log.write(to_rich_text(line))
+                            log.write(to_rich_text(line, env_kinds=env_kinds))
                 else:
                     log.write(response.body)
             diag_panel: Static = self.query_one("#diagnostics", Static)

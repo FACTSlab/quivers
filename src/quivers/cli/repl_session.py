@@ -111,6 +111,26 @@ class ReplSession:
     def diagnostics(self) -> tuple[Diagnostic, ...]:
         return self._last_diags
 
+    def env_kinds(self) -> dict[str, str]:
+        """Return a name -> semantic-token-type map for the live env.
+
+        Frontends pass this to the highlighter so an identifier renders
+        in its env-known colour everywhere it appears, regardless of
+        whether the surrounding grammar context parses cleanly.
+        """
+        if self._compiler is None:
+            return {}
+        kinds: dict[str, str] = {}
+        for name in self._compiler.objects:
+            kinds[name] = "type"
+        for name in self._compiler.spaces:
+            kinds[name] = "type"
+        for name in self._compiler.morphisms:
+            kinds[name] = "function"
+        for name in self._compiler.rules:
+            kinds[name] = "namespace"
+        return kinds
+
     # ----- entry points -------------------------------------------------
 
     def dispatch(self, line: str) -> ReplResponse:

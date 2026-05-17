@@ -98,7 +98,10 @@ def build_server() -> LanguageServer:
         _ls: LanguageServer, params: lsp.SemanticTokensParams
     ) -> lsp.SemanticTokens:
         doc = docs.get(params.text_document.uri)
-        data = to_semantic_token_data(doc.source) if doc else []
+        if doc is None:
+            return lsp.SemanticTokens(data=[])
+        env_kinds = _env_kinds_for(doc)
+        data = to_semantic_token_data(doc.source, env_kinds=env_kinds)
         return lsp.SemanticTokens(data=data)
 
     # ----- hover --------------------------------------------------------
@@ -249,6 +252,23 @@ def build_server() -> LanguageServer:
 # ---------------------------------------------------------------------------
 # helpers
 # ---------------------------------------------------------------------------
+
+
+def _env_kinds_for(doc: DocumentState) -> dict[str, str]:
+    """Build the name -> semantic-token-type map from a document's env."""
+    compiler = doc.compiler
+    if compiler is None:
+        return {}
+    kinds: dict[str, str] = {}
+    for name in getattr(compiler, "objects", {}):
+        kinds[name] = "type"
+    for name in getattr(compiler, "spaces", {}):
+        kinds[name] = "type"
+    for name in getattr(compiler, "morphisms", {}):
+        kinds[name] = "function"
+    for name in getattr(compiler, "rules", {}):
+        kinds[name] = "namespace"
+    return kinds
 
 
 def _publish(ls: LanguageServer, doc: DocumentState) -> None:
