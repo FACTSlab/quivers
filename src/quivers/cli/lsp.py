@@ -31,6 +31,15 @@ def _entry() -> int:
     """Console-script entry point for ``qvr-lsp``."""
     parser = argparse.ArgumentParser(prog="qvr-lsp")
     parser.add_argument("--tcp", type=int, default=None, metavar="PORT")
+    # `vscode-languageclient` invokes the server as `qvr-lsp --stdio`
+    # by default; the flag is redundant for us (stdio is the default
+    # when --tcp is absent), but accept and ignore it so the
+    # invocation does not error out.
+    parser.add_argument(
+        "--stdio",
+        action="store_true",
+        help="run over stdio (the default; accepted for compatibility).",
+    )
     args = parser.parse_args()
     return main(args)
 
