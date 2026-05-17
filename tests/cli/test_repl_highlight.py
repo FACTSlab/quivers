@@ -8,6 +8,8 @@ prompt_toolkit lexer, and the LSP semantic-tokens encoder all consume.
 
 from __future__ import annotations
 
+import pytest
+
 from quivers.cli.repl_highlight import (
     SEMANTIC_TOKEN_MODIFIERS,
     SEMANTIC_TOKEN_TYPES,
@@ -102,6 +104,7 @@ def test_semantic_token_data_with_env_classification() -> None:
 
 
 def test_to_rich_text_smoke() -> None:
+    pytest.importorskip("rich")
     from quivers.cli.repl_highlight import to_rich_text
 
     rt = to_rich_text("object X : 3")
@@ -112,6 +115,7 @@ def test_to_rich_text_smoke() -> None:
 
 
 def test_link_action_wraps_identifiers() -> None:
+    pytest.importorskip("rich")
     from quivers.cli.repl_highlight import to_rich_text
 
     rt = to_rich_text(

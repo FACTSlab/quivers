@@ -58,7 +58,9 @@ def build_server() -> LanguageServer:
         _publish(ls, doc)
 
     @server.feature(lsp.TEXT_DOCUMENT_DID_CHANGE)
-    def _did_change(ls: LanguageServer, params: lsp.DidChangeTextDocumentParams) -> None:
+    def _did_change(
+        ls: LanguageServer, params: lsp.DidChangeTextDocumentParams
+    ) -> None:
         uri = params.text_document.uri
         doc = docs.get(uri)
         if doc is None:
@@ -107,9 +109,7 @@ def build_server() -> LanguageServer:
     # ----- hover --------------------------------------------------------
 
     @server.feature(lsp.TEXT_DOCUMENT_HOVER)
-    def _hover(
-        _ls: LanguageServer, params: lsp.HoverParams
-    ) -> lsp.Hover | None:
+    def _hover(_ls: LanguageServer, params: lsp.HoverParams) -> lsp.Hover | None:
         doc = docs.get(params.text_document.uri)
         if doc is None or doc.compiler is None:
             return None
@@ -310,9 +310,7 @@ def _to_lsp_diag(d: Diagnostic, doc: DocumentState) -> lsp.Diagnostic:
     )
 
 
-def _apply_partial(
-    source: str, change: Any
-) -> str:
+def _apply_partial(source: str, change: Any) -> str:
     """Apply one incremental change to ``source``."""
     rng = change.range
     lines = source.split("\n")
@@ -352,9 +350,7 @@ def _render_hover(doc: DocumentState, name: str) -> str | None:
     qvr = _slice_source(doc, decl)
     if qvr is None:
         try:
-            qvr = module_to_source(
-                type(doc.module)(statements=(decl,))
-            ).rstrip()
+            qvr = module_to_source(type(doc.module)(statements=(decl,))).rstrip()
         except NotImplementedError:
             qvr = f"-- (no QVR rendering available for {type(decl).__name__})"
     python_repr = _pretty_ast(decl)
@@ -419,23 +415,18 @@ def _ast_lines(value, indent: int) -> str:  # type: ignore[no-untyped-def]
     if isinstance(value, tuple):
         if not value:
             return "()"
-        items = ",\n".join(
-            f"{next_pad}{_ast_lines(v, indent + 1)}" for v in value
-        )
+        items = ",\n".join(f"{next_pad}{_ast_lines(v, indent + 1)}" for v in value)
         return f"(\n{items},\n{pad})"
     if isinstance(value, list):
         if not value:
             return "[]"
-        items = ",\n".join(
-            f"{next_pad}{_ast_lines(v, indent + 1)}" for v in value
-        )
+        items = ",\n".join(f"{next_pad}{_ast_lines(v, indent + 1)}" for v in value)
         return f"[\n{items},\n{pad}]"
     if isinstance(value, dict):
         if not value:
             return "{}"
         items = ",\n".join(
-            f"{next_pad}{k!r}: {_ast_lines(v, indent + 1)}"
-            for k, v in value.items()
+            f"{next_pad}{k!r}: {_ast_lines(v, indent + 1)}" for k, v in value.items()
         )
         return f"{{\n{items},\n{pad}}}"
     return repr(value)
@@ -471,11 +462,8 @@ def _find_references(doc: DocumentState, name: str):  # type: ignore[no-untyped-
                 break
             # Word-boundary check.
             left_ok = idx == 0 or not (line[idx - 1].isalnum() or line[idx - 1] == "_")
-            right_ok = (
-                idx + len(name) == len(line)
-                or not (
-                    line[idx + len(name)].isalnum() or line[idx + len(name)] == "_"
-                )
+            right_ok = idx + len(name) == len(line) or not (
+                line[idx + len(name)].isalnum() or line[idx + len(name)] == "_"
             )
             if left_ok and right_ok:
                 yield lsp.Location(

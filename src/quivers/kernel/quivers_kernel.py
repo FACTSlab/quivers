@@ -94,7 +94,11 @@ class QuiversKernel(Kernel):
         }
 
     def do_inspect(
-        self, code: str, cursor_pos: int, detail_level: int = 0, omit_sections: Any = None
+        self,
+        code: str,
+        cursor_pos: int,
+        detail_level: int = 0,
+        omit_sections: Any = None,
     ) -> dict[str, Any]:
         del detail_level, omit_sections
         word = _word_at(code, cursor_pos)

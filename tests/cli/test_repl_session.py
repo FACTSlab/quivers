@@ -337,9 +337,7 @@ def test_bare_statement_extends_module() -> None:
     s = _populated()
     s.dispatch("object Z : 7")
     assert "Z" in s.env
-    assert any(
-        getattr(stmt, "name", None) == "Z" for stmt in s.module.statements
-    )
+    assert any(getattr(stmt, "name", None) == "Z" for stmt in s.module.statements)
 
 
 def test_set_invalid_form() -> None:

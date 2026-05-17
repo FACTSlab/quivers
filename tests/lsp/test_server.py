@@ -110,9 +110,7 @@ def test_slice_source_returns_original_lines() -> None:
 def test_to_lsp_diag_maps_severity_and_range() -> None:
     from quivers.cli.repl_session import Diagnostic
 
-    diag = Diagnostic(
-        message="oops", severity="error", line=4, col=2, code="compile"
-    )
+    diag = Diagnostic(message="oops", severity="error", line=4, col=2, code="compile")
     out = _to_lsp_diag(diag, _doc())
     assert out.range.start.line == 3  # 1-indexed -> 0-indexed
     assert out.range.start.character == 2

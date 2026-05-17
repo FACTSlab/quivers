@@ -48,9 +48,11 @@ if TYPE_CHECKING:
     from quivers.cli.repl_session import ReplSession
 
 
-_HISTORY_PATH = Path(
-    os.environ.get("XDG_CONFIG_HOME") or str(Path.home() / ".config")
-) / "quivers" / "history"
+_HISTORY_PATH = (
+    Path(os.environ.get("XDG_CONFIG_HOME") or str(Path.home() / ".config"))
+    / "quivers"
+    / "history"
+)
 
 
 def run_tui(session: "ReplSession") -> int:
@@ -312,14 +314,11 @@ def run_tui(session: "ReplSession") -> int:
             line = input_widget.document.get_line(cursor_row)
             prefix = _word_prefix(line, cursor_col)
             anchor = (cursor_row, cursor_col)
-            if (
-                self._completion_anchor == anchor
-                and self._completion_cycle
-            ):
+            if self._completion_anchor == anchor and self._completion_cycle:
                 # Cycle: rotate through the existing candidate list.
-                self._completion_idx = (
-                    self._completion_idx + 1
-                ) % len(self._completion_cycle)
+                self._completion_idx = (self._completion_idx + 1) % len(
+                    self._completion_cycle
+                )
                 self._apply_completion(input_widget, prefix)
                 return
             # Build a fresh candidate list at this cursor position.
@@ -411,9 +410,7 @@ def run_tui(session: "ReplSession") -> int:
                     env_kinds = self.session.env_kinds()
                     for line in response.body.splitlines() or [""]:
                         stripped = line.lstrip()
-                        if stripped.startswith("--") and not stripped.startswith(
-                            "->"
-                        ):
+                        if stripped.startswith("--") and not stripped.startswith("->"):
                             log.write(_decorate_comment_line(line))
                         else:
                             log.write(
@@ -446,11 +443,7 @@ def run_tui(session: "ReplSession") -> int:
                 # Move the input cursor to the first diagnostic with a
                 # known location so the user sees where to look.
                 first_loc = next(
-                    (
-                        d
-                        for d in diagnostics
-                        if d.line > 0 and d.severity == "error"
-                    ),
+                    (d for d in diagnostics if d.line > 0 and d.severity == "error"),
                     None,
                 )
                 if first_loc is not None:

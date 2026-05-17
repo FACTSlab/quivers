@@ -58,14 +58,16 @@ def run_plain(session: "ReplSession") -> int:
             lexer=PygmentsLexer(QvrLexer),
             multiline=False,
         )
-        getline = lambda: ps.prompt()
+
+        def getline() -> str:
+            return ps.prompt()
     except ImportError:
-        getline = _bare_input
+        getline = _bare_input  # type: ignore[assignment]
 
     while True:
         try:
             line = getline()
-        except (EOFError, KeyboardInterrupt):
+        except EOFError, KeyboardInterrupt:
             sys.stdout.write("\n")
             return 0
         if line is None:
@@ -110,7 +112,9 @@ def _render(response: "ReplResponse") -> None:
                 console.print(response.body)
                 del to_rich_text
         for d in response.diagnostics:
-            console.print(_format_diag(d), style="red" if d.severity == "error" else "yellow")
+            console.print(
+                _format_diag(d), style="red" if d.severity == "error" else "yellow"
+            )
     except ImportError:
         if response.body:
             sys.stdout.write(response.body + "\n")

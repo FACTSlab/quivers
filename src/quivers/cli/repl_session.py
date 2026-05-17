@@ -227,8 +227,7 @@ class ReplSession:
                 self._loaded_mtime = None
         self._refresh_watches()
         body = (
-            f"loaded {source_path}: "
-            f"{_env_counts(env)}"
+            f"loaded {source_path}: {_env_counts(env)}"
             if source_path is not None
             else f"installed module: {_env_counts(env)}"
         )
@@ -349,9 +348,7 @@ class ReplSession:
             return _err("expected a type expression")
         texpr: TypeExpr = mod.statements[0].type_expr
         klass = type(texpr).__name__
-        variants = sorted(
-            cls.__name__ for cls in TypeExpr.__variants__.values()
-        )
+        variants = sorted(cls.__name__ for cls in TypeExpr.__variants__.values())
         return _resp(
             f"{expr_source} : {klass}\n  TypeExpr variants: {', '.join(variants)}",
             body_kind="qvr",
@@ -594,9 +591,7 @@ class ReplSession:
         for expr in self._watches:
             try:
                 response = self.type_of(expr)
-                self._watch_results[expr] = (
-                    response.body if response.ok else "(error)"
-                )
+                self._watch_results[expr] = response.body if response.ok else "(error)"
             except Exception:
                 self._watch_results[expr] = "(error)"
 
@@ -857,9 +852,7 @@ def _resp(
     *,
     body_kind: Literal["text", "qvr", "json", "markdown"] = "text",
 ) -> ReplResponse:
-    return ReplResponse(
-        body=body, diagnostics=tuple(diagnostics), body_kind=body_kind
-    )
+    return ReplResponse(body=body, diagnostics=tuple(diagnostics), body_kind=body_kind)
 
 
 def _err(message: str) -> ReplResponse:
@@ -915,7 +908,10 @@ def _pretty_object(obj: Any) -> str:
         # The discrete-to-continuous embedding wraps a FinSet inside
         # an `Euclidean(name="idx(FinSet(name='Source', ...))", ...)`.
         # Strip the wrapper so users see the original object name.
-        if name.startswith("idx(FinSet(name='") and "'" in name[len("idx(FinSet(name='") :]:
+        if (
+            name.startswith("idx(FinSet(name='")
+            and "'" in name[len("idx(FinSet(name='") :]
+        ):
             inner = name[len("idx(FinSet(name='") :]
             return inner.split("'", 1)[0]
         return name
