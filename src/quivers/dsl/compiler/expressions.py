@@ -9,10 +9,13 @@ import torch
 from quivers.core.morphisms import identity as make_identity
 from quivers.core.morphisms import cap as _make_cap, cup as _make_cup
 from quivers.core.algebras import (
-    BilinearForm,
     Algebra,
+    BilinearForm,
+    CompositionRule,
     Semigroupoid,
 )
+from quivers.core.objects import SetObject
+from quivers.continuous.spaces import ContinuousSpace
 from quivers.core.trans import TransSeq
 from quivers.dsl.ast_nodes import (
     ExportDecl,
@@ -54,10 +57,18 @@ class _ExpressionsMixin:
     mixin method.
     """
 
+    _algebra: CompositionRule
     _morphisms: dict
+    _objects: dict[str, SetObject]
+    _spaces: dict[str, ContinuousSpace]
     _transformations: dict
-    _output_expr: object
-    _exports: list
+    _trans_singletons: dict
+    _trans_constructors: dict
+    _output_expr: Expr | None
+    _exports: list[Expr]
+    _contractions: dict
+    _rules: dict
+    _bundles: dict
 
     def _compile_export(self, decl: ExportDecl) -> None:
         """Record an exported expression.
