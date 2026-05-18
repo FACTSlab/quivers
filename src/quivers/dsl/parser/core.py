@@ -56,12 +56,12 @@ def _attach_docs(stmt: Statement, docs: tuple[str, ...]) -> Statement:
     unchanged. didactic Models are immutable; :meth:`Model.with_` is
     the field-replacement constructor.
     """
-    # `docs` is a declared field on a fixed subset of Statement
-    # variants (ObjectDecl, MorphismDecl, SchemaDecl, ProgramDecl,
-    # AliasDecl, BundleDecl). Probe via the class's field-spec
-    # registry rather than instance __getattr__, since dx.Model's
-    # attribute fall-through raises AttributeError on undeclared
-    # field accesses.
+    # `docs` is a declared field on every Statement variant that
+    # accepts a leading doc comment (TypeDecl, MorphismDecl,
+    # SchemaDecl, ProgramDecl, BundleDecl, ...). Probe via the
+    # class's field-spec registry rather than instance __getattr__,
+    # since dx.Model's attribute fall-through raises AttributeError
+    # on undeclared field accesses.
     fields = getattr(type(stmt), "__field_specs__", None)
     if fields is None or "docs" not in fields:
         return stmt

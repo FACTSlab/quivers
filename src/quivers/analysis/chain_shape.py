@@ -137,11 +137,12 @@ class ChainShape(dx.Model):
         :class:`Module` AST.
 
         Walks the module's statement list, captures the algebra
-        name from any top-level :class:`AlgebraDecl`, captures every
-        ``object`` cardinality, then walks the unique
-        :class:`ProgramDecl`'s steps in source order. ``marginalize``
-        bodies are walked recursively; their inner steps are
-        recorded after the enclosing ``marginalize`` step.
+        name from any top-level :class:`CompositionDecl`, captures
+        every :class:`TypeDecl`'s numeric cardinality, then walks
+        the unique :class:`ProgramDecl`'s steps in source order.
+        :class:`MarginalizeStep` bodies are walked recursively;
+        their inner steps are recorded after the enclosing
+        :class:`MarginalizeStep`.
         """
         algebra_name = "product_fuzzy"
         cardinalities: dict[str, int] = {}

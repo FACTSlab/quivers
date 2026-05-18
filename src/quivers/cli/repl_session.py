@@ -244,10 +244,11 @@ class ReplSession:
     def type_of(self, expr_source: str) -> ReplResponse:
         """Resolve `expr_source` as a TypeExpr or morphism and print its type.
 
-        Strategy: try to parse `alias __probe__ = <expr_source>` so the
+        Strategy: try to parse `type __probe__ : <expr_source>` so the
         existing parser handles whatever surface form the user typed.
-        If that succeeds, walk the resulting AliasDecl's type_expr
-        through the compiler's resolution mixin.
+        If that succeeds, walk the resulting :class:`TypeDecl`'s
+        :class:`TypeFromExpr` initializer through the compiler's
+        resolution mixin.
 
         Failing that, try parsing `let __probe__ = <expr_source>` to
         catch let-expression syntax, then `output <expr_source>` so
