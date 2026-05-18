@@ -1031,6 +1031,7 @@ module.exports = grammar({
       $.type_constructor_kwarg,
       $.integer,
       $.float,
+      $.identifier,
     ),
 
     type_constructor_kwarg: $ => seq(

@@ -41,6 +41,12 @@ from typing import Iterable
 
 import panproto
 
+from quivers.cli.migration_table import (
+    MigrationLookupError,
+    apply_rewrites,
+    composite_rewrites,
+)
+
 
 _VCS_PATH = (
     Path(__file__).resolve().parents[3] / "grammars" / "qvr" / "vcs"
@@ -199,28 +205,30 @@ def _scan_file_for_removed_rules(
 
 def main(args: argparse.Namespace) -> int:
     """Entry point invoked by :mod:`quivers.cli`'s top-level
-    dispatcher. Takes a parsed ``argparse.Namespace`` from the
-    ``migrate`` subparser and returns a process exit code.
+    dispatcher.
 
-    The command resolves the FROM and TO refs against the in-tree
-    grammar VCS, computes the set of grammar rules added / removed
-    along the chain, and scans every input ``.qvr`` for surface
-    constructs that disappear at TO. Files that only reference
-    rules present at both endpoints round-trip cleanly through
-    the current panproto qvr grammar (parse + emit); files that
-    use rules removed at TO are flagged so the user knows which
-    constructs need hand-rewriting (until panproto's data-migrate
-    path supports custom protocols, automated rewrites of removed
-    constructs require either a hand-authored Migration or the
-    forthcoming Schema-to-Schema lift API).
+    Validates the FROM and TO refs against the in-tree grammar VCS
+    (so a typo in a tag name fails fast), then composites the
+    rewrite chain from :mod:`quivers.cli.migration_table` between
+    those two revisions and applies it to each input ``.qvr`` file.
+
+    Returns 0 when every file migrated cleanly; 1 when at least
+    one file was blocked or unchanged where a change was expected;
+    2 on invalid command-line input (unknown ref, missing file).
     """
     try:
         repo = _open_vcs()
-        from_id = _resolve_commit(repo, args.from_ref)
-        to_id = _resolve_commit(repo, args.to_ref)
-        chain = _chain_commits(repo, from_id, to_id)
+        # Resolve refs to validate they exist in the VCS chain; the
+        # commit ids themselves are not needed for text rewriting,
+        # but failing fast on a typo is the right user experience.
+        _resolve_commit(repo, args.from_ref)
+        _resolve_commit(repo, args.to_ref)
         inputs = _walk_inputs(args.paths)
+        rewrites = composite_rewrites(args.from_ref, args.to_ref)
     except MigrateError as exc:
+        print(f"qvr migrate: {exc}", file=sys.stderr)
+        return 2
+    except MigrationLookupError as exc:
         print(f"qvr migrate: {exc}", file=sys.stderr)
         return 2
 
@@ -228,50 +236,44 @@ def main(args: argparse.Namespace) -> int:
         print("qvr migrate: no .qvr files to migrate", file=sys.stderr)
         return 2
 
-    removed, added = _chain_rule_delta(repo, chain)
-    out_root = Path(args.output) if args.output is not None else None
-
-    if not removed and not added:
+    if not rewrites:
         print(
             f"qvr migrate: {args.from_ref} == {args.to_ref}, "
-            "no grammar rules to migrate",
+            "identity migration",
         )
         return 0
 
     print(
         f"qvr migrate: {args.from_ref} -> {args.to_ref}: "
-        f"{len(removed)} removed rule(s), {len(added)} added rule(s)",
+        f"composing {len(rewrites)} rewrite(s)",
     )
 
-    any_blocked = False
+    out_root = Path(args.output) if args.output is not None else None
+    changed = 0
     for src_path in inputs:
-        try:
-            uses_removed = _scan_file_for_removed_rules(src_path, removed)
-        except panproto.PanprotoError as exc:
-            print(
-                f"qvr migrate: {src_path}: parse failed against "
-                f"current grammar: {exc}",
-                file=sys.stderr,
-            )
-            any_blocked = True
+        source = src_path.read_text()
+        migrated = apply_rewrites(source, rewrites)
+        if migrated == source:
             continue
-        if uses_removed:
-            any_blocked = True
-            label = ", ".join(sorted(uses_removed))
-            prefix = "would block" if args.dry_run else "blocked"
-            print(
-                f"{prefix} {src_path}: uses rules removed at "
-                f"{args.to_ref}: {label}",
-            )
-            continue
-        if out_root is not None and not args.dry_run:
-            target = out_root / src_path.name
-            target.parent.mkdir(parents=True, exist_ok=True)
-            target.write_bytes(src_path.read_bytes())
+        changed += 1
         prefix = "would migrate" if args.dry_run else "migrated"
         print(f"{prefix} {src_path}")
+        if args.dry_run:
+            continue
+        target = (
+            (out_root / src_path.name)
+            if out_root is not None
+            else src_path
+        )
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text(migrated)
 
-    return 1 if any_blocked else 0
+    if changed == 0:
+        print(
+            f"qvr migrate: {len(inputs)} file(s) already at "
+            f"{args.to_ref}",
+        )
+    return 0
 
 
 __all__ = ["MigrateError", "main"]

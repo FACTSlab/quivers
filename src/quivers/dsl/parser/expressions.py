@@ -132,7 +132,7 @@ def _walk_type(t: _Tree, vid: str) -> TypeExpr:
             col=col,
         )
     if k == "discrete_constructor":
-        ctor = _required_text(t, t.field(vid, "constructor"), vid, "constructor")
+        ctor = _constructor_name(t, vid)
         args, kwargs = _walk_constructor_args(t, vid)
         return DiscreteConstructor(
             constructor=ctor,  # type: ignore[arg-type]
@@ -142,7 +142,7 @@ def _walk_type(t: _Tree, vid: str) -> TypeExpr:
             col=col,
         )
     if k == "continuous_constructor":
-        ctor = _required_text(t, t.field(vid, "constructor"), vid, "constructor")
+        ctor = _constructor_name(t, vid)
         if ctor not in _CONTINUOUS_CTORS:
             raise ParseError(f"unknown continuous constructor {ctor!r} at {vid}")
         args, kwargs = _walk_constructor_args(t, vid)
@@ -154,6 +154,27 @@ def _walk_type(t: _Tree, vid: str) -> TypeExpr:
             col=col,
         )
     raise ParseError(f"unexpected type-expression kind: {k}")
+
+def _constructor_name(t: _Tree, vid: str) -> str:
+    """Return the constructor name from a discrete/continuous
+    constructor vertex.
+
+    Tree-sitter stores ``field('constructor', choice('Real',
+    'Simplex', ...))`` as a string constant on the parent vertex
+    (the literal-string alternatives don't materialise as their
+    own child vertices). The panproto schema lifts that constant
+    onto the vertex as ``field:constructor``; we read it back
+    from there rather than chasing a child reference that does
+    not exist.
+    """
+    name = t.consts(vid).get("field:constructor")
+    if name is None:
+        raise ParseError(
+            f"constructor vertex at {vid} is missing the "
+            "``field:constructor`` constant (malformed parse)",
+        )
+    return name
+
 
 def _walk_constructor_args(
     t: _Tree, vid: str
@@ -505,10 +526,13 @@ def _walk_let_arith(t: _Tree, vid: str) -> LetExprNode:
     if k == "let_binop":
         left_vid = t.field(vid, "left")
         right_vid = t.field(vid, "right")
-        op_vid = t.field(vid, "op")
-        if left_vid is None or right_vid is None or op_vid is None:
+        if left_vid is None or right_vid is None:
             raise ParseError(f"let_binop missing field at {vid}")
-        op = t.text(op_vid)
+        op = t.consts(vid).get("field:op")
+        if op is None:
+            raise ParseError(
+                f"let_binop at {vid} missing field:op constant"
+            )
         if op not in ("+", "-", "*", "/"):
             raise ParseError(f"unexpected let_binop op {op!r} at {vid}")
         return LetExprBinOp(
