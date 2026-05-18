@@ -26,6 +26,11 @@ from quivers.stochastic.semiring import (
     LOG_PROB as SEMIRING_LOG_PROB,
     VITERBI as SEMIRING_VITERBI,
 )
+from quivers.dsl.compiler._options import (
+    get_option_flag,
+    get_option_int,
+    get_option_name,
+)
 from quivers.dsl.compiler._prelude import CompileError
 from quivers.dsl.compiler.programs import _ProgramsMixin
 
@@ -152,9 +157,12 @@ class _DeductionsMixin:
             "Viterbi": SEMIRING_VITERBI,
             "Counting": SEMIRING_COUNTING,
         }
+        semiring_name = get_option_name(
+            decl.options, "semiring", line=decl.line, col=decl.col,
+        )
         semiring = (
-            semiring_registry.get(decl.semiring, SEMIRING_LOG_PROB)
-            if decl.semiring is not None
+            semiring_registry.get(semiring_name, SEMIRING_LOG_PROB)
+            if semiring_name is not None
             else SEMIRING_LOG_PROB
         )
 
@@ -182,11 +190,14 @@ class _DeductionsMixin:
         #      for the label-indexed-lookup case).
         #   3. Identity — input itself is the axiom list.
 
-        if decl.axioms_source is not None:
+        axioms_source = get_option_name(
+            decl.options, "axioms", line=decl.line, col=decl.col,
+        )
+        if axioms_source is not None:
             # General axiom source — look up the named morphism and
             # invoke it on the input at call time. The morphism may
             # be any callable.
-            src_name = decl.axioms_source
+            src_name = axioms_source
             if src_name not in self._morphisms:
                 raise CompileError(
                     f"deduction {decl.name!r}: axioms source "
@@ -226,14 +237,16 @@ class _DeductionsMixin:
                         entry.word,
                         _convert_pattern(entry.category),
                         lf_value,
-                        entry.learnable,
+                        get_option_flag(entry.options, "learnable"),
                     )
                 )
             # File-loaded lexicon: TSV with `word\tcategory\tlf` rows.
             if decl.lexicon_from_file is not None:
                 file_entries = self._load_lexicon_tsv(
                     decl.lexicon_from_file,
-                    decl.lexicon_from_file_learnable,
+                    get_option_flag(
+                        decl.lexicon_from_file_options, "learnable",
+                    ),
                     decl,
                 )
                 entries.extend(file_entries)
@@ -292,7 +305,9 @@ class _DeductionsMixin:
         # Goal: items matching the start symbol's atom form for
         # top-level spans. Users override by composing the parse
         # result with their own predicate.
-        start = decl.start
+        start = get_option_name(
+            decl.options, "start", line=decl.line, col=decl.col,
+        )
 
         def _goal(item) -> bool:
             if start is None:
@@ -351,26 +366,32 @@ class _DeductionsMixin:
         # chart-query operations (`chart.embedding(pattern)`) consult
         # this attached encoder to compute on-demand item
         # embeddings.
-        if decl.item_signature is not None:
+        item_signature = get_option_name(
+            decl.options, "signature", line=decl.line, col=decl.col,
+        )
+        if item_signature is not None:
             sigs = getattr(self, "_signatures", {})
-            if decl.item_signature not in sigs:
+            if item_signature not in sigs:
                 raise CompileError(
                     f"deduction {decl.name!r}: unknown item signature "
-                    f"{decl.item_signature!r}",
+                    f"{item_signature!r}",
                     decl.line,
                     decl.col,
                 )
-            system._item_signature = sigs[decl.item_signature]  # type: ignore[attr-defined]
-        if decl.item_encoder is not None:
+            system._item_signature = sigs[item_signature]  # type: ignore[attr-defined]
+        item_encoder = get_option_name(
+            decl.options, "encoder", line=decl.line, col=decl.col,
+        )
+        if item_encoder is not None:
             comps = getattr(self, "_encoders", {})
-            if decl.item_encoder not in comps:
+            if item_encoder not in comps:
                 raise CompileError(
                     f"deduction {decl.name!r}: unknown item encoder "
-                    f"{decl.item_encoder!r}",
+                    f"{item_encoder!r}",
                     decl.line,
                     decl.col,
                 )
-            system._item_encoder = comps[decl.item_encoder]  # type: ignore[attr-defined]
+            system._item_encoder = comps[item_encoder]  # type: ignore[attr-defined]
         self._deductions[decl.name] = system
 
     def _load_lexicon_tsv(
