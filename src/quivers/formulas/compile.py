@@ -56,7 +56,6 @@ import numpy as np
 import torch
 
 from quivers.dsl.ast_nodes import (
-    BindStep,
     ExportDecl,
     ExprIdent,
     LetExprBinOp,
@@ -67,10 +66,13 @@ from quivers.dsl.ast_nodes import (
     LetExprVar,
     LetStep,
     Module,
-    ObjectDecl,
+    ObserveStep,
     ProgramDecl,
     ProgramStep,
+    SampleStep,
     Statement,
+    TypeDecl,
+    TypeFromExpr,
     TypeName,
 )
 from quivers.formulas.family import Family
@@ -115,13 +117,20 @@ def _draw(
     *,
     index: TypeName | None = None,
     mode: Literal["sample", "score", "marginal"] = "sample",
-) -> BindStep:
-    return BindStep(
-        vars=(var,),
-        morphism=family,
-        args=args,
-        index=index,
-        mode=mode,
+) -> SampleStep | ObserveStep:
+    """Build a surface program step for a draw of ``var`` from ``family``.
+
+    ``mode="sample"`` / ``"marginal"`` map to :class:`SampleStep`;
+    ``mode="score"`` maps to :class:`ObserveStep`. Marginalisation
+    of formula draws is not currently emitted by the formula
+    compiler, so the marginal mode collapses to sample here.
+    """
+    if mode == "score":
+        return ObserveStep(
+            var=var, morphism=family, args=args, index=index,
+        )
+    return SampleStep(
+        vars=(var,), morphism=family, args=args, index=index,
     )
 
 
@@ -191,8 +200,11 @@ def _decode_module(module: Module) -> dict:
     group_cardinalities: dict[str, int] = {}
     program: ProgramDecl | None = None
     for stmt in module.statements:
-        if isinstance(stmt, ObjectDecl):
-            type_expr = stmt.type_expr
+        if isinstance(stmt, TypeDecl):
+            init = stmt.init
+            if not isinstance(init, TypeFromExpr):
+                continue
+            type_expr = init.expr
             if not isinstance(type_expr, TypeName):
                 continue
             try:
@@ -216,17 +228,17 @@ def _decode_module(module: Module) -> dict:
     # Walk the program steps in emission order. The lens emits, per
     # the layout in `_build_module`, the following pattern:
     #
-    #   * One BindStep per fixed coefficient (`intercept` or
+    #   * One SampleStep per fixed coefficient (`intercept` or
     #     `beta_<qvr_name>`).
     #   * For non-intercepts, a LetStep `<beta_name>_per_row =
-    #     beta_name * <qvr_name>` immediately after the BindStep.
-    #   * One BindStep `sigma_<g>_<slope>` per random-effect entry,
+    #     beta_name * <qvr_name>` immediately after the SampleStep.
+    #   * One SampleStep `sigma_<g>_<slope>` per random-effect entry,
     #     followed by the plate draw (`alpha_<g>` or
     #     `beta_<g>_<slope>`) and a LetStep `<latent_var>_per_row`.
-    #   * Aux-family BindSteps (one per aux param).
+    #   * Aux-family SampleSteps (one per aux param).
     #   * `let eta = ...`, `let mu = ...`.
-    #   * A final BindStep with `mode="score"` and `index="Resp"`
-    #     bearing the response qvr_name and the observe-family.
+    #   * A final ObserveStep indexed by `Resp` bearing the response
+    #     qvr_name and the observe-family.
     fixed_qvr_names: list[tuple[str, bool]] = []
     random_terms_qvr: list[tuple[str, str]] = []
     response_qvr_name: str = ""
@@ -237,11 +249,12 @@ def _decode_module(module: Module) -> dict:
         if isinstance(step, LetStep):
             seen_letnames.add(step.name)
             continue
-        if not isinstance(step, BindStep):
+        if isinstance(step, ObserveStep):
+            if step.index is not None:
+                response_qvr_name = step.var
+                observe_family = step.morphism
             continue
-        if step.mode == "score" and step.index is not None:
-            response_qvr_name = step.vars[0]
-            observe_family = step.morphism
+        if not isinstance(step, SampleStep):
             continue
         if len(step.vars) != 1:
             continue
@@ -458,7 +471,10 @@ class FormulaToQVRModule(dx.Lens[Formula, Module, FormulaData]):
         statements: list[Statement] = []
         n_obs = formula.response_values.shape[0]
         statements.append(
-            ObjectDecl(name="Resp", type_expr=TypeName(name=str(int(n_obs))))
+            TypeDecl(
+                name="Resp",
+                init=TypeFromExpr(expr=TypeName(name=str(int(n_obs)))),
+            )
         )
         seen_groups: set[str] = set()
         for term in formula.random_terms:
@@ -469,9 +485,11 @@ class FormulaToQVRModule(dx.Lens[Formula, Module, FormulaData]):
             seen_groups.add(qgroup)
             levels = formula.group_levels[group]
             statements.append(
-                ObjectDecl(
+                TypeDecl(
                     name=qgroup,
-                    type_expr=TypeName(name=str(len(levels))),
+                    init=TypeFromExpr(
+                        expr=TypeName(name=str(len(levels))),
+                    ),
                 )
             )
 
