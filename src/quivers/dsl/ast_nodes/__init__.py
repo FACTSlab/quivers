@@ -7,8 +7,8 @@ their sum's root and pin ``kind`` to a ``Literal[...]`` value.
 
 This package's submodules group the node families:
 
-* :mod:`._shared` for shared helpers (``AxisSpec``, ``MorphismPrior``,
-  ``CompositionLevel``)
+* :mod:`._shared` for shared helpers (``AxisSpec``,
+  ``CompositionLevel``, the option-value tagged union)
 * :mod:`.types` for type expressions
 * :mod:`.let_expressions` for let-arith expressions
 * :mod:`.expressions` for value (morphism) expressions
@@ -24,7 +24,6 @@ import X`` keeps working.
 from quivers.dsl.ast_nodes._shared import (
     AxisSpec,
     CompositionLevel,
-    MorphismPrior,
 )
 from quivers.dsl.ast_nodes.declarations import (
     BundleDecl,
@@ -229,7 +228,6 @@ __all__ = [
     "MorphismDecl",
     "MorphismInitFamily",
     "MorphismParam",
-    "MorphismPrior",
     "MorphismRole",
     "ObjectParam",
     "ObserveStep",

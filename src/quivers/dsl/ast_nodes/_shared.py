@@ -35,32 +35,12 @@ class AxisSpec(dx.Model):
     line: int = 0
     col: int = 0
 
-class MorphismPrior(dx.Model):
-    """Parameter prior on a ``latent`` morphism's representing tensor.
-
-    Surface form: ``~ Family(args) [options] [axis_role_clause]``.
-
-    Promotes the declared morphism from a free-parameter point
-    estimate to a random variable whose representing tensor is drawn
-    from the named family at the requested axis-role configuration.
-    Categorically: the morphism becomes the deterministic wrap of a
-    sample from ``family(args)``, with the family's event/batch
-    structure controlled by ``axes``.
-    """
-
-    family: str
-    args: tuple[str | float, ...] = ()
-    options: dict[str, str] = dx.field(default_factory=dict)
-    axes: AxisSpec | None = None
-    line: int = 0
-    col: int = 0
-
 # ---------------------------------------------------------------------------
-# composition-level type alias used by AlgebraDecl
+# composition-level type alias used by CompositionDecl
 # ---------------------------------------------------------------------------
 
 type CompositionLevel = Literal[
-    "algebra", "semigroupoid", "bilinear_form", "composition_rule"
+    "algebra", "semigroupoid", "bilinear_form", "rule"
 ]
 """Algebraic level the file declares for its composition rule.
 
@@ -145,7 +125,6 @@ class OptionEntry(dx.Model):
 __all__ = [
     "AxisSpec",
     "CompositionLevel",
-    "MorphismPrior",
     "OptionCall",
     "OptionEntry",
     "OptionFlag",
