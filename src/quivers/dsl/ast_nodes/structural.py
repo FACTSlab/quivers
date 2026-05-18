@@ -11,6 +11,7 @@ from typing import Literal
 
 import didactic.api as dx
 
+from quivers.dsl.ast_nodes._shared import OptionEntry
 from quivers.dsl.ast_nodes.let_expressions import LetExprNode
 
 
@@ -30,17 +31,15 @@ class SortVocabLiteral(dx.Model):
 class SortDecl(dx.Model):
     """One sort within a signature.
 
-    `kind` is one of ``"object"``, ``"index"``, ``"data"``. The dim
-    is optional at the signature level; if absent, every encoder /
-    decoder over this signature must supply it. ``vocab`` is the
-    closed-vocabulary literal sequence for data sorts (empty for
-    object / index sorts).
+    `kind` is one of ``"object"``, ``"index"``, ``"data"``. The
+    surface 0.11.0 form moves ``dim`` and ``vocab`` into the unified
+    option block: ``s : data [dim=16, vocab=["a", "b"]]``. The
+    compiler reads them back out of ``options`` at elaboration time.
     """
 
     name: str
     kind: Literal["object", "index", "data"]
-    dim: int | None = None
-    vocab: tuple[SortVocabLiteral, ...] = ()
+    options: tuple[OptionEntry, ...] = ()
     line: int = 0
     col: int = 0
 
@@ -95,11 +94,15 @@ class BinderDecl(dx.Model):
 
 
 class VertexKindDecl(dx.Model):
-    """A vertex kind in a graph-shaped signature."""
+    """A vertex kind in a graph-shaped signature.
+
+    Like :class:`SortDecl`, the 0.11.0 surface threads ``dim`` and any
+    other modifier through the unified option block.
+    """
 
     name: str
     kind: Literal["object", "index", "data"]
-    dim: int | None = None
+    options: tuple[OptionEntry, ...] = ()
     line: int = 0
     col: int = 0
 
