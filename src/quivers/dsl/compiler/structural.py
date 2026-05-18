@@ -212,7 +212,23 @@ def _build_encoder_from_factory(decl: "EncoderDecl", sig) -> "Encoder":
 
 
 class _StructuralMixin:
-    """Mixin: structural artifact compilation methods."""
+    """Mixin: structural artifact compilation methods.
+
+    The compiler base supplies every environment slot below; the
+    annotations let the type checker verify each access from a
+    mixin method.
+    """
+
+    _morphisms: dict
+    _signatures: dict
+    _encoders: dict
+    _decoders: dict
+    _deductions: dict
+    _loss_registry: "LossRegistry"
+
+    def _compile_let_expr(self, body, globals_: dict) -> Callable:
+        """Provided by :class:`_ProgramsMixin`."""
+        raise NotImplementedError
 
     def _compile_signature(self, decl: SignatureDecl) -> None:
         """Register a signature declaration.

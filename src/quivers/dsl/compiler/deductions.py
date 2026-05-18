@@ -62,7 +62,21 @@ type LexiconEntry = tuple[str, LexiconPattern, LexiconLF, bool]
 
 
 class _DeductionsMixin:
-    """Mixin: deduction-block compilation methods."""
+    """Mixin: deduction-block compilation methods.
+
+    The compiler base supplies every environment slot below; the
+    annotations let the type checker verify each access from a
+    mixin method.
+    """
+
+    _morphisms: dict
+    _deductions: dict
+    _signatures: dict
+    _encoders: dict
+
+    def _lex_globals_for_structural(self) -> dict:
+        """Provided by :class:`_StructuralMixin`."""
+        raise NotImplementedError
 
     def _compile_deduction(self, decl: DeductionDecl) -> None:
         """Compile a ``deduction { … }`` block into an agenda-engine
