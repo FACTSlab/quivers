@@ -1,7 +1,4 @@
-"""Program-block step AST nodes (0.11.0 leading-keyword surface).
-
-Move #10 requires every program step to carry a leading keyword:
-``sample``, ``observe``, ``marginalize``, ``let``, ``return``. The
+"""Program-block step AST nodes (). The
 parser emits one AST class per surface step keyword. The internal
 IR forms (``DrawStep``, ``PlateDrawStep``, ``VectorisedObserveStep``,
 ``GroupedLatentInitStep``, ``GroupedBodyObserveStep``,
@@ -36,15 +33,12 @@ from quivers.dsl.ast_nodes._shared import AxisSpec, OptionEntry
 from quivers.dsl.ast_nodes.let_expressions import LetExprNode
 from quivers.dsl.ast_nodes.types import TypeExpr
 
-
 class ProgramStep(dx.TaggedUnion, discriminator="kind"):
     """Sum of program-block step node kinds."""
 
-
 # ---------------------------------------------------------------------------
-# Surface program steps (move #10)
+# Surface program steps
 # ---------------------------------------------------------------------------
-
 
 class SampleStep(ProgramStep):
     """``sample vars[: index] <- morphism(args) [options]``.
@@ -69,7 +63,6 @@ class SampleStep(ProgramStep):
     col: int = 0
     kind: Literal["sample_step"] = "sample_step"
 
-
 class ObserveStep(ProgramStep):
     """``observe var[: index] <- morphism(args) [options]``.
 
@@ -89,7 +82,6 @@ class ObserveStep(ProgramStep):
     line: int = 0
     col: int = 0
     kind: Literal["observe_step"] = "observe_step"
-
 
 class MarginalizeStep(ProgramStep):
     """``marginalize var[: index] <- morphism(args) [options] : scope``.
@@ -116,7 +108,6 @@ class MarginalizeStep(ProgramStep):
     col: int = 0
     kind: Literal["marginalize_step"] = "marginalize_step"
 
-
 class LetStep(ProgramStep):
     """``let name = value`` deterministic step.
 
@@ -129,7 +120,6 @@ class LetStep(ProgramStep):
     line: int = 0
     col: int = 0
     kind: Literal["let_step"] = "let_step"
-
 
 class ReturnStep(ProgramStep):
     """``return v`` or ``return (a, b)`` or ``return (a: x, b: y)`` step.
@@ -144,11 +134,9 @@ class ReturnStep(ProgramStep):
     col: int = 0
     kind: Literal["return_step"] = "return_step"
 
-
 # ---------------------------------------------------------------------------
 # Compiler-only IR (synthesized from surface steps at compile time)
 # ---------------------------------------------------------------------------
-
 
 class BindStep(ProgramStep):
     """Internal compiler IR: a unified Kleisli bind.
@@ -174,7 +162,6 @@ class BindStep(ProgramStep):
     col: int = 0
     kind: Literal["bind_step"] = "bind_step"
 
-
 class DrawStep(ProgramStep):
     """Internal compiler IR: a scalar sample or score step.
 
@@ -190,7 +177,6 @@ class DrawStep(ProgramStep):
     line: int = 0
     col: int = 0
     kind: Literal["draw_step"] = "draw_step"
-
 
 class PlateDrawStep(ProgramStep):
     """Internal compiler IR: an A-indexed sample step.
@@ -208,7 +194,6 @@ class PlateDrawStep(ProgramStep):
     line: int = 0
     col: int = 0
     kind: Literal["plate_draw_step"] = "plate_draw_step"
-
 
 class VectorisedObserveStep(ProgramStep):
     """Internal compiler IR: an A-indexed score step.
@@ -230,7 +215,6 @@ class VectorisedObserveStep(ProgramStep):
     col: int = 0
     kind: Literal["vectorized_observe_step"] = "vectorized_observe_step"
 
-
 class GroupedLatentInitStep(ProgramStep):
     """Internal compiler IR: initialise the latent's env slot to
     ``torch.arange(class_size)`` at the start of a grouped
@@ -242,7 +226,6 @@ class GroupedLatentInitStep(ProgramStep):
     line: int = 0
     col: int = 0
     kind: Literal["grouped_latent_init_step"] = "grouped_latent_init_step"
-
 
 class GroupedBodyObserveStep(ProgramStep):
     """Internal compiler IR: a captured observe inside a grouped
@@ -262,7 +245,6 @@ class GroupedBodyObserveStep(ProgramStep):
     col: int = 0
     kind: Literal["grouped_body_observe_step"] = "grouped_body_observe_step"
 
-
 class GroupedObserveEntry(dx.Model):
     """One entry in a grouped MarginalizeStep's ``body_observes`` list.
 
@@ -274,7 +256,6 @@ class GroupedObserveEntry(dx.Model):
     ll_slot: str
     fibration_var: str | None = None
     fibration_axes: tuple[str, ...] | None = None
-
 
 __all__ = [
     "BindStep",

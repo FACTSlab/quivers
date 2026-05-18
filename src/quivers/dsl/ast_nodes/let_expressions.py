@@ -6,10 +6,8 @@ import didactic.api as dx
 
 from quivers.dsl.ast_nodes.types import TypeExpr
 
-
 class LetExprNode(dx.TaggedUnion, discriminator="kind"):
     """Sum of let-step arithmetic expression nodes."""
-
 
 class LetExprBinOp(LetExprNode):
     """Binary arithmetic operation in a let expression."""
@@ -19,13 +17,11 @@ class LetExprBinOp(LetExprNode):
     right: LetExprNode
     kind: Literal["let_expr_binop"] = "let_expr_binop"
 
-
 class LetExprUnaryOp(LetExprNode):
     """Unary negation in a let expression."""
 
     operand: LetExprNode
     kind: Literal["let_expr_unary"] = "let_expr_unary"
-
 
 class LetExprCall(LetExprNode):
     """Built-in function call in a let expression."""
@@ -34,20 +30,17 @@ class LetExprCall(LetExprNode):
     args: tuple[LetExprNode, ...]
     kind: Literal["let_expr_call"] = "let_expr_call"
 
-
 class LetExprLiteral(LetExprNode):
     """Numeric literal in a let expression."""
 
     value: float
     kind: Literal["let_expr_literal"] = "let_expr_literal"
 
-
 class LetExprVar(LetExprNode):
     """Variable reference in a let expression."""
 
     name: str
     kind: Literal["let_expr_var"] = "let_expr_var"
-
 
 class LetExprIndex(LetExprNode):
     """Indexed access into a finite-domain-indexed family ``a[i]``.
@@ -72,7 +65,6 @@ class LetExprIndex(LetExprNode):
     indices: tuple[LetExprNode, ...]
     kind: Literal["let_expr_index"] = "let_expr_index"
 
-
 class LetExprString(LetExprNode):
     """String literal in a let expression.
 
@@ -85,7 +77,6 @@ class LetExprString(LetExprNode):
     value: str
     kind: Literal["let_expr_string"] = "let_expr_string"
 
-
 class LetExprList(LetExprNode):
     """List literal in a let expression: ``[a, b, c]``.
 
@@ -96,7 +87,6 @@ class LetExprList(LetExprNode):
 
     items: tuple[LetExprNode, ...]
     kind: Literal["let_expr_list"] = "let_expr_list"
-
 
 class LetExprLambda(LetExprNode):
     """Lambda expression ``param -> body`` in a let expression.
@@ -110,7 +100,6 @@ class LetExprLambda(LetExprNode):
     param: str
     body: LetExprNode
     kind: Literal["let_expr_lambda"] = "let_expr_lambda"
-
 
 class LetFactorBinder(dx.Model):
     """One ``<var> : <Index>`` binder in a multi-axis factor expression.
@@ -126,7 +115,6 @@ class LetFactorBinder(dx.Model):
     line: int = 0
     col: int = 0
 
-
 class LetFactorCase(dx.Model):
     """One ``<integer> -> <body>`` case in a factor pattern-match.
 
@@ -140,7 +128,6 @@ class LetFactorCase(dx.Model):
     value: LetExprNode
     line: int = 0
     col: int = 0
-
 
 class LetExprFactor(LetExprNode):
     """Multi-axis factor expression: assemble an indexed tensor.
@@ -171,7 +158,6 @@ class LetExprFactor(LetExprNode):
     cases: tuple[LetFactorCase, ...] = ()
     kind: Literal["let_expr_factor"] = "let_expr_factor"
 
-
 class LetExprMethodCall(LetExprNode):
     """Method call ``receiver.method(args)`` in a let expression.
 
@@ -187,7 +173,6 @@ class LetExprMethodCall(LetExprNode):
     method: str
     args: tuple[LetExprNode, ...]
     kind: Literal["let_expr_method_call"] = "let_expr_method_call"
-
 
 __all__ = [
     "LetExprNode",

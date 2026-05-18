@@ -1,8 +1,7 @@
 """Walkers for type expressions, morphism expressions, and let-arith
-expressions (0.11.0 homogenized surface).
+expressions ().
 
-The 0.10.0 separate ``_walk_space`` is gone; the unified
-``_walk_type`` handles every type expression, including
+The ``_walk_type`` handles every type expression, including
 discrete_constructor (``FinSet(N)``) and continuous_constructor
 (``Real(64)``, ``Simplex(K)``, ...).
 """
@@ -60,11 +59,9 @@ from quivers.dsl.ast_nodes import (
 from quivers.dsl.parser._helpers import _required_text
 from quivers.dsl.parser._registry import ParseError, _Tree
 
-
 # ---------------------------------------------------------------------------
 # type expressions
 # ---------------------------------------------------------------------------
-
 
 _CONTINUOUS_CTORS = frozenset({
     "Real",
@@ -79,7 +76,6 @@ _CONTINUOUS_CTORS = frozenset({
     "LowerTriangular",
     "Diagonal",
 })
-
 
 def _walk_type(t: _Tree, vid: str) -> TypeExpr:
     """Walk a tree-sitter type-expr vertex into the unified TypeExpr AST."""
@@ -159,7 +155,6 @@ def _walk_type(t: _Tree, vid: str) -> TypeExpr:
         )
     raise ParseError(f"unexpected type-expression kind: {k}")
 
-
 def _walk_constructor_args(
     t: _Tree, vid: str
 ) -> tuple[list[str], dict[str, str]]:
@@ -176,7 +171,6 @@ def _walk_constructor_args(
         elif ak in ("integer", "float"):
             args.append(t.text(arg_vid))
     return args, kwargs
-
 
 def _flatten_type(t: _Tree, vid: str, op_kind: str) -> list[TypeExpr]:
     """Flatten a left-associative binary type operator into a tuple."""
@@ -195,11 +189,9 @@ def _flatten_type(t: _Tree, vid: str, op_kind: str) -> list[TypeExpr]:
         out.append(_walk_type(t, right_vid))
     return out
 
-
 # ---------------------------------------------------------------------------
 # morphism expressions
 # ---------------------------------------------------------------------------
-
 
 def _walk_expr(t: _Tree, vid: str) -> Expr:
     """Walk a tree-sitter expr vertex into the Expr AST family."""
@@ -375,10 +367,8 @@ def _walk_expr(t: _Tree, vid: str) -> Expr:
         raise ParseError(f"unknown postfix method {method_name!r} at {vid}")
     raise ParseError(f"unexpected expression kind: {k}")
 
-
 def _err_expr(t: _Tree, vid: str, field: str) -> Expr:
     raise ParseError(f"expression node {vid} missing {field}")
-
 
 def _op_between(t: _Tree, left_vid: str | None, right_vid: str | None) -> str:
     """Recover the compose operator string between two operand spans."""
@@ -389,7 +379,6 @@ def _op_between(t: _Tree, left_vid: str | None, right_vid: str | None) -> str:
     if le is None or rs is None:
         return ">>"
     return t.source[int(le) : int(rs)].decode("utf-8").strip()
-
 
 def _walk_parser_expr(t: _Tree, vid: str, line: int, col: int) -> ExprParser:
     keyword_vid = t.field(vid, "keyword")
@@ -433,7 +422,6 @@ def _walk_parser_expr(t: _Tree, vid: str, line: int, col: int) -> ExprParser:
         line=line,
         col=col,
     )
-
 
 def _walk_chart_fold_expr(
     t: _Tree, vid: str, line: int, col: int
@@ -480,17 +468,14 @@ def _walk_chart_fold_expr(
         col=col,
     )
 
-
 def _ident_list_to_tuple(t: _Tree, vid: str) -> tuple[str, ...]:
     if t.kind(vid) == "ident_list":
         return tuple(t.text(c) for c in t.positional(vid))
     return (t.text(vid),)
 
-
 # ---------------------------------------------------------------------------
 # let-arithmetic
 # ---------------------------------------------------------------------------
-
 
 def _walk_let_arith(t: _Tree, vid: str) -> LetExprNode:
     """Walk a let-arithmetic vertex into the LetExprNode AST family."""
@@ -595,10 +580,8 @@ def _walk_let_arith(t: _Tree, vid: str) -> LetExprNode:
         return LetExprFactor(binders=binders, body=body, cases=cases)
     raise ParseError(f"unexpected let-expression kind: {k}")
 
-
 def _err_type(t: _Tree, vid: str, field: str) -> TypeExpr:
     raise ParseError(f"let-factor binder at {vid} missing {field}")
-
 
 def _err_let(t: _Tree, vid: str, field: str) -> LetExprNode:
     raise ParseError(f"let-factor case at {vid} missing {field}")

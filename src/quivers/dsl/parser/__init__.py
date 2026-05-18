@@ -27,5 +27,4 @@ import X`` keeps working unchanged.
 from quivers.dsl.parser.core import parse, parse_file
 from quivers.dsl.parser._registry import ParseError
 
-
 __all__ = ["ParseError", "parse", "parse_file"]

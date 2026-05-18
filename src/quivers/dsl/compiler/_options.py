@@ -1,6 +1,6 @@
-"""Typed accessors for the 0.11.0 unified option block.
+"""Typed accessors for the unified option block.
 
-Every declaration in the 0.11.0 surface carries options as a
+Every declaration in the surface carries options as a
 ``tuple[OptionEntry, ...]``. Each entry's value lives in the
 :class:`OptionValue` tagged union (flag / name / number / string /
 list / call). The compiler frequently asks ``what is the value of
@@ -33,7 +33,6 @@ from quivers.dsl.ast_nodes import (
 )
 from quivers.dsl.compiler._prelude import CompileError
 
-
 def find_option(
     options: tuple[OptionEntry, ...], key: str
 ) -> OptionEntry | None:
@@ -47,18 +46,15 @@ def find_option(
             return entry
     return None
 
-
 def has_option(options: tuple[OptionEntry, ...], key: str) -> bool:
     """Whether ``key`` appears in ``options`` (any value, including flag)."""
     return find_option(options, key) is not None
-
 
 def _at(line: int, col: int, entry: OptionEntry | None) -> tuple[int, int]:
     """Pick the most precise (line, col) we have for an option error."""
     if entry is not None:
         return entry.line, entry.col
     return line, col
-
 
 def get_option_flag(options: tuple[OptionEntry, ...], key: str) -> bool:
     """Whether ``[key]`` appears as a bare flag (OptionFlag value).
@@ -68,7 +64,6 @@ def get_option_flag(options: tuple[OptionEntry, ...], key: str) -> bool:
     """
     entry = find_option(options, key)
     return entry is not None and isinstance(entry.value, OptionFlag)
-
 
 def get_option_name(
     options: tuple[OptionEntry, ...],
@@ -96,7 +91,6 @@ def get_option_name(
         )
     return entry.value.value
 
-
 def get_option_string(
     options: tuple[OptionEntry, ...],
     key: str,
@@ -118,7 +112,6 @@ def get_option_string(
             cl,
         )
     return entry.value.value
-
 
 def get_option_int(
     options: tuple[OptionEntry, ...],
@@ -153,7 +146,6 @@ def get_option_int(
         )
     return int(value)
 
-
 def get_option_float(
     options: tuple[OptionEntry, ...],
     key: str,
@@ -175,7 +167,6 @@ def get_option_float(
             cl,
         )
     return entry.value.value
-
 
 def get_option_name_list(
     options: tuple[OptionEntry, ...],
@@ -219,7 +210,6 @@ def get_option_name_list(
         cl,
     )
 
-
 def get_option_call(
     options: tuple[OptionEntry, ...],
     key: str,
@@ -241,7 +231,6 @@ def get_option_call(
         )
     return entry.value
 
-
 def get_option_value(
     options: tuple[OptionEntry, ...], key: str
 ) -> OptionValue | None:
@@ -253,7 +242,6 @@ def get_option_value(
     """
     entry = find_option(options, key)
     return entry.value if entry is not None else None
-
 
 __all__ = [
     "find_option",

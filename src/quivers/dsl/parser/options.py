@@ -1,4 +1,4 @@
-"""Walker for the unified ``[k=v, ...]`` option block (move #5).
+"""Walker for the unified ``[k=v, ...]`` option block.
 
 Produces tuples of :class:`OptionEntry` from the tree-sitter
 ``option_block`` vertex. The :class:`OptionValue` tagged union covers
@@ -26,7 +26,6 @@ from quivers.dsl.ast_nodes import (
 )
 from quivers.dsl.parser._registry import ParseError, _Tree
 
-
 def _walk_option_block(t: _Tree, vid: str) -> tuple[OptionEntry, ...]:
     """Walk an ``option_block`` vertex into a tuple of OptionEntry."""
     if t.kind(vid) != "option_block":
@@ -37,7 +36,6 @@ def _walk_option_block(t: _Tree, vid: str) -> tuple[OptionEntry, ...]:
             continue
         entries.append(_walk_option_entry(t, entry_vid))
     return tuple(entries)
-
 
 def _walk_option_entry(t: _Tree, vid: str) -> OptionEntry:
     key_vid = t.field(vid, "key")
@@ -54,7 +52,6 @@ def _walk_option_entry(t: _Tree, vid: str) -> OptionEntry:
         line=line,
         col=col,
     )
-
 
 def _walk_option_value(t: _Tree, vid: str) -> OptionValue:
     """Map a tree-sitter option-value vertex to the OptionValue union."""
@@ -85,6 +82,5 @@ def _walk_option_value(t: _Tree, vid: str) -> OptionValue:
             args=tuple(_walk_option_value(t, av) for av in args_vids),
         )
     raise ParseError(f"unexpected option value kind: {k}")
-
 
 __all__ = ["_walk_option_block", "_walk_option_entry", "_walk_option_value"]

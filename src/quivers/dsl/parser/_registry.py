@@ -6,17 +6,14 @@ import warnings
 
 import panproto
 
-
 class ParseError(Exception):
     """Raised when the .qvr source fails to parse or wrap into AST nodes."""
-
 
 # ---------------------------------------------------------------------------
 # panproto registry singleton
 # ---------------------------------------------------------------------------
 
 _REGISTRY: panproto.AstParserRegistry | None = None
-
 
 def _registry() -> panproto.AstParserRegistry:
     global _REGISTRY
@@ -36,11 +33,9 @@ def _registry() -> panproto.AstParserRegistry:
             )
     return _REGISTRY
 
-
 # ---------------------------------------------------------------------------
 # tree-walking helpers
 # ---------------------------------------------------------------------------
-
 
 class _Tree:
     """Indexed view of a parsed panproto schema."""

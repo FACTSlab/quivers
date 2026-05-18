@@ -40,7 +40,6 @@ from quivers.dsl.compiler.deductions import _DeductionsMixin
 from quivers.dsl.compiler.resolution import _ResolutionMixin
 from quivers.dsl.compiler.expressions import _ExpressionsMixin
 
-
 class Compiler(
     _DeclarationsMixin,
     _ProgramsMixin,

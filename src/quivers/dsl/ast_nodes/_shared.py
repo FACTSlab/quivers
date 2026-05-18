@@ -4,11 +4,9 @@ from typing import Literal
 
 import didactic.api as dx
 
-
 # ---------------------------------------------------------------------------
 # axis-role surface: per-distribution event / batch axis specification
 # ---------------------------------------------------------------------------
-
 
 class AxisSpec(dx.Model):
     """Axis-role specification on a distribution clause.
@@ -37,7 +35,6 @@ class AxisSpec(dx.Model):
     line: int = 0
     col: int = 0
 
-
 class MorphismPrior(dx.Model):
     """Parameter prior on a ``latent`` morphism's representing tensor.
 
@@ -58,11 +55,9 @@ class MorphismPrior(dx.Model):
     line: int = 0
     col: int = 0
 
-
 # ---------------------------------------------------------------------------
 # composition-level type alias used by AlgebraDecl
 # ---------------------------------------------------------------------------
-
 
 type CompositionLevel = Literal[
     "algebra", "semigroupoid", "bilinear_form", "composition_rule"
@@ -82,11 +77,9 @@ The four levels correspond to the
   :class:`CompositionRule` is accepted.
 """
 
-
 # ---------------------------------------------------------------------------
-# Option block (move #5): one ``[k=v, ...]`` syntax for every declaration
+# Option block: one ``[k=v, ...]`` syntax for every declaration
 # ---------------------------------------------------------------------------
-
 
 class OptionValue(dx.TaggedUnion, discriminator="kind"):
     """Value inhabiting one entry of an option block.
@@ -101,12 +94,10 @@ class OptionValue(dx.TaggedUnion, discriminator="kind"):
     * ``via=product(a, b)`` -> :class:`OptionCall`
     """
 
-
 class OptionFlag(OptionValue):
     """A bare key with no value (e.g. ``[learnable]``)."""
 
     kind: Literal["option_flag"] = "option_flag"
-
 
 class OptionName(OptionValue):
     """A key bound to a bare identifier (e.g. ``role=latent``)."""
@@ -114,13 +105,11 @@ class OptionName(OptionValue):
     value: str
     kind: Literal["option_name"] = "option_name"
 
-
 class OptionNumber(OptionValue):
     """A key bound to a numeric literal (e.g. ``depth=8``, ``scale=0.1``)."""
 
     value: float
     kind: Literal["option_number"] = "option_number"
-
 
 class OptionString(OptionValue):
     """A key bound to a string literal (e.g. ``path="lex.tsv"``)."""
@@ -128,13 +117,11 @@ class OptionString(OptionValue):
     value: str
     kind: Literal["option_string"] = "option_string"
 
-
 class OptionList(OptionValue):
     """A key bound to a list of identifiers / numbers / strings."""
 
     items: tuple[OptionValue, ...] = ()
     kind: Literal["option_list"] = "option_list"
-
 
 class OptionCall(OptionValue):
     """A key bound to a function-call value (e.g. ``via=product(a, b)``)."""
@@ -142,7 +129,6 @@ class OptionCall(OptionValue):
     func: str
     args: tuple[OptionValue, ...] = ()
     kind: Literal["option_call"] = "option_call"
-
 
 class OptionEntry(dx.Model):
     """One ``key=value`` (or bare ``key``) entry in an option block.
@@ -155,7 +141,6 @@ class OptionEntry(dx.Model):
     value: OptionValue = dx.field(default_factory=OptionFlag)
     line: int = 0
     col: int = 0
-
 
 __all__ = [
     "AxisSpec",

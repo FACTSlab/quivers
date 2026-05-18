@@ -1,4 +1,4 @@
-"""AST node definitions for the quivers DSL (0.11.0 homogenized surface).
+"""AST node definitions for the quivers DSL ().
 
 The AST is a direct representation of the parsed ``.qvr`` source. Each
 node carries source-location info for error reporting. Recursive sums
@@ -151,7 +151,6 @@ from quivers.dsl.ast_nodes.types import (
     TypeProduct,
     TypeSlash,
 )
-
 
 __all__ = [
     "AxisSpec",

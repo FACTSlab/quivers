@@ -1,5 +1,4 @@
-"""Walkers for program-block steps and program parameters
-(0.11.0 leading-keyword surface, move #10).
+"""Walkers for program-block steps and program parameters.
 """
 
 from __future__ import annotations
@@ -23,11 +22,9 @@ from quivers.dsl.parser._registry import ParseError, _Tree
 from quivers.dsl.parser.expressions import _walk_let_arith, _walk_type
 from quivers.dsl.parser.options import _walk_option_block
 
-
 # ---------------------------------------------------------------------------
 # program step dispatch
 # ---------------------------------------------------------------------------
-
 
 def _walk_program_step(t: _Tree, vid: str) -> ProgramStep:
     k = t.kind(vid)
@@ -42,7 +39,6 @@ def _walk_program_step(t: _Tree, vid: str) -> ProgramStep:
     if k == "return_step":
         return _walk_return_step(t, vid)
     raise ParseError(f"unexpected program step kind: {k}")
-
 
 def _walk_sample_step(t: _Tree, vid: str) -> SampleStep:
     line, col = t.line_col(vid)
@@ -69,7 +65,6 @@ def _walk_sample_step(t: _Tree, vid: str) -> SampleStep:
         col=col,
     )
 
-
 def _walk_observe_step(t: _Tree, vid: str) -> ObserveStep:
     line, col = t.line_col(vid)
     var_vid = t.field(vid, "var")
@@ -91,7 +86,6 @@ def _walk_observe_step(t: _Tree, vid: str) -> ObserveStep:
         line=line,
         col=col,
     )
-
 
 def _walk_marginalize_step(t: _Tree, vid: str) -> MarginalizeStep:
     line, col = t.line_col(vid)
@@ -119,7 +113,6 @@ def _walk_marginalize_step(t: _Tree, vid: str) -> MarginalizeStep:
         col=col,
     )
 
-
 def _walk_let_step(t: _Tree, vid: str) -> LetStep:
     line, col = t.line_col(vid)
     name_vid = t.field(vid, "name")
@@ -133,7 +126,6 @@ def _walk_let_step(t: _Tree, vid: str) -> LetStep:
         col=col,
     )
 
-
 def _walk_return_step(t: _Tree, vid: str) -> ReturnStep:
     line, col = t.line_col(vid)
     return_vid = t.field(vid, "return")
@@ -142,11 +134,9 @@ def _walk_return_step(t: _Tree, vid: str) -> ReturnStep:
     vars_t, labels = _walk_return_pattern(t, return_vid)
     return ReturnStep(vars=vars_t, labels=labels, line=line, col=col)
 
-
 # ---------------------------------------------------------------------------
 # patterns
 # ---------------------------------------------------------------------------
-
 
 def _walk_var_pattern(t: _Tree, vid: str) -> tuple[str, ...]:
     k = t.kind(vid)
@@ -157,7 +147,6 @@ def _walk_var_pattern(t: _Tree, vid: str) -> tuple[str, ...]:
             t.text(c) for c in t.positional(vid) if t.kind(c) == "identifier"
         )
     raise ParseError(f"unexpected var pattern kind: {k}")
-
 
 def _walk_return_pattern(
     t: _Tree, vid: str
@@ -188,11 +177,9 @@ def _walk_return_pattern(
         return (tuple(names), tuple(labels))
     raise ParseError(f"unexpected return pattern kind: {k}")
 
-
 # ---------------------------------------------------------------------------
 # program params (parametric programs)
 # ---------------------------------------------------------------------------
-
 
 def _walk_program_param(t: _Tree, vid: str) -> ProgramParam:
     k = t.kind(vid)
@@ -249,7 +236,6 @@ def _walk_program_param(t: _Tree, vid: str) -> ProgramParam:
             )
         raise ParseError(f"unexpected param kind: {kk}")
     raise ParseError(f"unexpected _program_param kind: {k}")
-
 
 __all__ = [
     "_walk_let_step",
