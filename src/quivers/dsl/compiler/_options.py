@@ -166,6 +166,24 @@ def get_option_int(
         )
     return int(value)
 
+@overload
+def get_option_float(
+    options: tuple[OptionEntry, ...],
+    key: str,
+    *,
+    line: int = ...,
+    col: int = ...,
+    default: float,
+) -> float: ...
+@overload
+def get_option_float(
+    options: tuple[OptionEntry, ...],
+    key: str,
+    *,
+    line: int = ...,
+    col: int = ...,
+    default: None = ...,
+) -> float | None: ...
 def get_option_float(
     options: tuple[OptionEntry, ...],
     key: str,
