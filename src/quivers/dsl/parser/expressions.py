@@ -20,6 +20,7 @@ from quivers.dsl.ast_nodes import (
     ExprIdent,
     ExprIdentity,
     ExprMarginalize,
+    ExprMorphismCall,
     ExprParser,
     ExprRepeat,
     ExprScan,
