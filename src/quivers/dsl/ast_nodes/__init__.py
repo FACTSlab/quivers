@@ -1,24 +1,24 @@
-"""AST node definitions for the quivers DSL.
+"""AST node definitions for the quivers DSL (0.11.0 homogenized surface).
 
-The AST is a direct representation of the parsed `.qvr` source. Each
+The AST is a direct representation of the parsed ``.qvr`` source. Each
 node carries source-location info for error reporting. Recursive sums
 use ``dx.TaggedUnion`` with a ``kind`` discriminator: variants subclass
 their sum's root and pin ``kind`` to a ``Literal[...]`` value.
 
 This package's submodules group the node families:
 
-* :mod:`._shared` for shared helpers (``AxisSpec``, ``MorphismPrior``)
+* :mod:`._shared` for shared helpers (``AxisSpec``, ``MorphismPrior``,
+  ``CompositionLevel``)
 * :mod:`.types` for type expressions
-* :mod:`.spaces` for space expressions
-* :mod:`.let_expressions` for let-step arithmetic expressions
+* :mod:`.let_expressions` for let-arith expressions
 * :mod:`.expressions` for value (morphism) expressions
 * :mod:`.program_steps` for monadic program steps
 * :mod:`.structural` for structural-compression helpers
-* :mod:`.declarations` for top-level statements
+* :mod:`.declarations` for top-level statements (sixteen variants)
 * :mod:`.module` for the file-level :class:`Module` container
 
 Every public class is re-exported here so ``from quivers.dsl.ast_nodes
-import X`` keeps working unchanged.
+import X`` keeps working.
 """
 
 from quivers.dsl.ast_nodes._shared import (
@@ -27,42 +27,47 @@ from quivers.dsl.ast_nodes._shared import (
     MorphismPrior,
 )
 from quivers.dsl.ast_nodes.declarations import (
-    AliasDecl,
-    AlgebraDecl,
     BundleDecl,
     CategoryDecl,
+    CompositionDecl,
     CompositionRuleEntry,
     ContractionDecl,
     ContractionInput,
     DecoderDecl,
     DeductionDecl,
-    DiscretizeDecl,
-    EmbedDecl,
     EncoderDecl,
-    EnumSetLiteral,
     ExportDecl,
-    FreeMonoidExpr,
-    FreeResiduatedExpr,
-    KernelDecl,
     LetDecl,
     LexiconEntry,
-    LossAttachment,
     LossDecl,
     MorphismDecl,
+    MorphismInitFamily,
     MorphismParam,
-    ObjectDecl,
-    ObjectInitializer,
+    MorphismRole,
     ObjectParam,
+    OptionCall,
+    OptionEntry,
+    OptionFlag,
+    OptionList,
+    OptionName,
+    OptionNumber,
+    OptionString,
+    OptionValue,
     ProgramDecl,
     ProgramParam,
     RuleDecl,
     ScalarParam,
     SchemaDecl,
+    SchemaParameter,
     SequentRule,
     SignatureDecl,
-    SpaceDecl,
     Statement,
-    TypeAliasDecl,
+    TypeDecl,
+    TypeEnumSet,
+    TypeFreeMonoid,
+    TypeFreeResiduated,
+    TypeFromExpr,
+    TypeInitializer,
 )
 from quivers.dsl.ast_nodes.expressions import (
     Expr,
@@ -113,15 +118,12 @@ from quivers.dsl.ast_nodes.program_steps import (
     GroupedObserveEntry,
     LetStep,
     MarginalizeStep,
+    ObserveStep,
     PlateDrawStep,
     ProgramStep,
+    ReturnStep,
+    SampleStep,
     VectorisedObserveStep,
-)
-from quivers.dsl.ast_nodes.spaces import (
-    SpaceConstructor,
-    SpaceExpr,
-    SpaceName,
-    SpaceProduct,
 )
 from quivers.dsl.ast_nodes.structural import (
     BinderArg,
@@ -140,6 +142,8 @@ from quivers.dsl.ast_nodes.structural import (
     VertexKindDecl,
 )
 from quivers.dsl.ast_nodes.types import (
+    ContinuousConstructor,
+    DiscreteConstructor,
     TypeCoproduct,
     TypeEffectApply,
     TypeExpr,
@@ -150,8 +154,6 @@ from quivers.dsl.ast_nodes.types import (
 
 
 __all__ = [
-    "AliasDecl",
-    "AlgebraDecl",
     "AxisSpec",
     "BinderArg",
     "BinderDecl",
@@ -159,24 +161,24 @@ __all__ = [
     "BindStep",
     "BundleDecl",
     "CategoryDecl",
+    "CompositionDecl",
     "CompositionLevel",
     "CompositionRuleEntry",
     "ConstructorDecl",
+    "ContinuousConstructor",
     "ContractionDecl",
     "ContractionInput",
     "DecoderDecl",
     "DeductionDecl",
-    "DiscretizeDecl",
+    "DiscreteConstructor",
     "DrawStep",
     "EdgeKindDecl",
-    "EmbedDecl",
     "EncoderDecl",
     "EncoderInitRule",
     "EncoderMessageRule",
     "EncoderRule",
     "EncoderUpdateRule",
     "EncoderVarInit",
-    "EnumSetLiteral",
     "ExportDecl",
     "Expr",
     "ExprCap",
@@ -200,12 +202,9 @@ __all__ = [
     "ExprTensorProduct",
     "ExprTrace",
     "ExprTransCompose",
-    "FreeMonoidExpr",
-    "FreeResiduatedExpr",
     "GroupedBodyObserveStep",
     "GroupedLatentInitStep",
     "GroupedObserveEntry",
-    "KernelDecl",
     "LetDecl",
     "LetExprBinOp",
     "LetExprCall",
@@ -223,38 +222,49 @@ __all__ = [
     "LetFactorCase",
     "LetStep",
     "LexiconEntry",
-    "LossAttachment",
     "LossDecl",
     "MarginalizeStep",
     "Module",
     "MorphismDecl",
+    "MorphismInitFamily",
     "MorphismParam",
     "MorphismPrior",
-    "ObjectDecl",
-    "ObjectInitializer",
+    "MorphismRole",
     "ObjectParam",
+    "ObserveStep",
+    "OptionCall",
+    "OptionEntry",
+    "OptionFlag",
+    "OptionList",
+    "OptionName",
+    "OptionNumber",
+    "OptionString",
+    "OptionValue",
     "PlateDrawStep",
     "ProgramDecl",
     "ProgramParam",
     "ProgramStep",
+    "ReturnStep",
     "RuleDecl",
+    "SampleStep",
     "ScalarParam",
     "SchemaDecl",
+    "SchemaParameter",
     "SequentRule",
     "SignatureDecl",
     "SortDecl",
     "SortDim",
     "SortVocabLiteral",
-    "SpaceConstructor",
-    "SpaceDecl",
-    "SpaceExpr",
-    "SpaceName",
-    "SpaceProduct",
     "Statement",
-    "TypeAliasDecl",
     "TypeCoproduct",
+    "TypeDecl",
     "TypeEffectApply",
+    "TypeEnumSet",
     "TypeExpr",
+    "TypeFreeMonoid",
+    "TypeFreeResiduated",
+    "TypeFromExpr",
+    "TypeInitializer",
     "TypeName",
     "TypeProduct",
     "TypeSlash",

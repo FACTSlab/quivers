@@ -83,4 +83,90 @@ The four levels correspond to the
 """
 
 
-__all__ = ["AxisSpec", "MorphismPrior", "CompositionLevel"]
+# ---------------------------------------------------------------------------
+# Option block (move #5): one ``[k=v, ...]`` syntax for every declaration
+# ---------------------------------------------------------------------------
+
+
+class OptionValue(dx.TaggedUnion, discriminator="kind"):
+    """Value inhabiting one entry of an option block.
+
+    Surface shapes:
+
+    * Bare flag ``[role]`` -> :class:`OptionFlag` (no value)
+    * ``role=latent`` -> :class:`OptionName` (identifier)
+    * ``depth=8`` / ``scale=0.1`` -> :class:`OptionNumber`
+    * ``path="lex.tsv"`` -> :class:`OptionString`
+    * ``over=[a, b]`` -> :class:`OptionList`
+    * ``via=product(a, b)`` -> :class:`OptionCall`
+    """
+
+
+class OptionFlag(OptionValue):
+    """A bare key with no value (e.g. ``[learnable]``)."""
+
+    kind: Literal["option_flag"] = "option_flag"
+
+
+class OptionName(OptionValue):
+    """A key bound to a bare identifier (e.g. ``role=latent``)."""
+
+    value: str
+    kind: Literal["option_name"] = "option_name"
+
+
+class OptionNumber(OptionValue):
+    """A key bound to a numeric literal (e.g. ``depth=8``, ``scale=0.1``)."""
+
+    value: float
+    kind: Literal["option_number"] = "option_number"
+
+
+class OptionString(OptionValue):
+    """A key bound to a string literal (e.g. ``path="lex.tsv"``)."""
+
+    value: str
+    kind: Literal["option_string"] = "option_string"
+
+
+class OptionList(OptionValue):
+    """A key bound to a list of identifiers / numbers / strings."""
+
+    items: tuple[OptionValue, ...] = ()
+    kind: Literal["option_list"] = "option_list"
+
+
+class OptionCall(OptionValue):
+    """A key bound to a function-call value (e.g. ``via=product(a, b)``)."""
+
+    func: str
+    args: tuple[OptionValue, ...] = ()
+    kind: Literal["option_call"] = "option_call"
+
+
+class OptionEntry(dx.Model):
+    """One ``key=value`` (or bare ``key``) entry in an option block.
+
+    The list-of-entries layout (rather than a dict) preserves source
+    order; downstream code typically realises a dict on first use.
+    """
+
+    key: str
+    value: OptionValue = dx.field(default_factory=OptionFlag)
+    line: int = 0
+    col: int = 0
+
+
+__all__ = [
+    "AxisSpec",
+    "CompositionLevel",
+    "MorphismPrior",
+    "OptionCall",
+    "OptionEntry",
+    "OptionFlag",
+    "OptionList",
+    "OptionName",
+    "OptionNumber",
+    "OptionString",
+    "OptionValue",
+]
