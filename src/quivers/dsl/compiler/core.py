@@ -5,30 +5,25 @@ from quivers.core.algebras import PRODUCT_FUZZY, Algebra
 from quivers.core.objects import SetObject
 from quivers.program import Program
 from quivers.dsl.ast_nodes import (
-    AliasDecl,
     BundleDecl,
     CategoryDecl,
+    CompositionDecl,
     ContractionDecl,
     DecoderDecl,
     DeductionDecl,
-    DiscretizeDecl,
-    EmbedDecl,
     EncoderDecl,
     ExportDecl,
     Expr,
-    KernelDecl,
     LetDecl,
     LossDecl,
     Module,
     MorphismDecl,
-    ObjectDecl,
     ProgramDecl,
-    AlgebraDecl,
     RuleDecl,
     SchemaDecl,
     SignatureDecl,
-    SpaceDecl,
     Statement,
+    TypeDecl,
     TypeExpr,
 )
 from quivers.dsl.compiler._prelude import (
@@ -207,30 +202,20 @@ class Compiler(
 
     def _compile_statement(self, stmt: Statement) -> None:
         """Dispatch to the appropriate statement compiler."""
-        if isinstance(stmt, AlgebraDecl):
-            self._compile_algebra(stmt)
+        if isinstance(stmt, CompositionDecl):
+            self._compile_composition(stmt)
         elif isinstance(stmt, CategoryDecl):
             self._compile_category(stmt)
         elif isinstance(stmt, RuleDecl):
             self._compile_rule(stmt)
         elif isinstance(stmt, SchemaDecl):
             self._compile_schema(stmt)
-        elif isinstance(stmt, AliasDecl):
-            self._compile_alias(stmt)
+        elif isinstance(stmt, TypeDecl):
+            self._compile_type(stmt)
         elif isinstance(stmt, BundleDecl):
             self._compile_bundle(stmt)
-        elif isinstance(stmt, ObjectDecl):
-            self._compile_object(stmt)
         elif isinstance(stmt, MorphismDecl):
             self._compile_morphism(stmt)
-        elif isinstance(stmt, SpaceDecl):
-            self._compile_space(stmt)
-        elif isinstance(stmt, KernelDecl):
-            self._compile_kernel(stmt)
-        elif isinstance(stmt, DiscretizeDecl):
-            self._compile_discretize(stmt)
-        elif isinstance(stmt, EmbedDecl):
-            self._compile_embed(stmt)
         elif isinstance(stmt, ProgramDecl):
             self._compile_program(stmt)
         elif isinstance(stmt, ContractionDecl):
