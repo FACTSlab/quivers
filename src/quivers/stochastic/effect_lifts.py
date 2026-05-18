@@ -44,6 +44,7 @@ from typing import TYPE_CHECKING
 
 from quivers.dsl.ast_nodes import (
     SchemaDecl,
+    SchemaParameter,
     TypeEffectApply,
     TypeName,
     TypeProduct,
@@ -88,8 +89,12 @@ def _make_pure_schema(effect: object, base_schema: SchemaDecl) -> SchemaDecl:
     eff_name = _effect_name(effect)
     return SchemaDecl(
         name=f"pure_{eff_name}_{base_schema.name}",
-        parameter_names=(("X",),),
-        parameter_types=(TypeName(name="Cat"),),
+        parameters=(
+            SchemaParameter(
+                names=("X",),
+                type_expr=TypeName(name="Cat"),
+            ),
+        ),
         domain=TypeName(name="X"),
         codomain=_wrap_with_effect(TypeName(name="X"), eff_name),
     )
@@ -107,8 +112,12 @@ def _make_apply_schema(effect: object, base_schema: SchemaDecl) -> SchemaDecl:
     eff_name = _effect_name(effect)
     return SchemaDecl(
         name=f"apply_{eff_name}_{base_schema.name}",
-        parameter_names=(("X", "Y"),),
-        parameter_types=(TypeName(name="Cat"),),
+        parameters=(
+            SchemaParameter(
+                names=("X", "Y",),
+                type_expr=TypeName(name="Cat"),
+            ),
+        ),
         domain=TypeProduct(
             components=(
                 _wrap_with_effect(
@@ -137,8 +146,12 @@ def _make_bind_schema(effect: object, base_schema: SchemaDecl) -> SchemaDecl:
     eff_name = _effect_name(effect)
     return SchemaDecl(
         name=f"bind_{eff_name}_{base_schema.name}",
-        parameter_names=(("X", "Y"),),
-        parameter_types=(TypeName(name="Cat"),),
+        parameters=(
+            SchemaParameter(
+                names=("X", "Y",),
+                type_expr=TypeName(name="Cat"),
+            ),
+        ),
         domain=TypeProduct(
             components=(
                 _wrap_with_effect(TypeName(name="X"), eff_name),
@@ -168,8 +181,12 @@ def _make_alt_schema(effect: object, base_schema: SchemaDecl) -> SchemaDecl:
     eff_name = _effect_name(effect)
     return SchemaDecl(
         name=f"alt_{eff_name}_{base_schema.name}",
-        parameter_names=(("X",),),
-        parameter_types=(TypeName(name="Cat"),),
+        parameters=(
+            SchemaParameter(
+                names=("X",),
+                type_expr=TypeName(name="Cat"),
+            ),
+        ),
         domain=TypeProduct(
             components=(
                 _wrap_with_effect(TypeName(name="X"), eff_name),
@@ -291,8 +308,12 @@ def make_swap_schema(
     base_name = base_schema.name if base_schema is not None else "swap"
     return SchemaDecl(
         name=f"swap_{outer}_{inner}_{base_name}",
-        parameter_names=(("X",),),
-        parameter_types=(TypeName(name="Cat"),),
+        parameters=(
+            SchemaParameter(
+                names=("X",),
+                type_expr=TypeName(name="Cat"),
+            ),
+        ),
         domain=_wrap_with_effect(_wrap_with_effect(TypeName(name="X"), inner), outer),
         codomain=_wrap_with_effect(_wrap_with_effect(TypeName(name="X"), outer), inner),
     )
