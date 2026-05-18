@@ -33,13 +33,17 @@ import didactic.api as dx
 
 from quivers.core.algebras import Algebra
 from quivers.dsl.ast_nodes import (
-    AlgebraDecl,
-    BindStep,
+    CompositionDecl,
     LetStep,
+    MarginalizeStep,
     Module,
-    ObjectDecl,
+    ObserveStep,
     ProgramDecl,
     ProgramStep,
+    SampleStep,
+    TypeDecl,
+    TypeExpr,
+    TypeFromExpr,
     TypeName,
 )
 from quivers.dsl.compiler._prelude import _ALGEBRA_REGISTRY
@@ -143,10 +147,10 @@ class ChainShape(dx.Model):
         cardinalities: dict[str, int] = {}
         program: ProgramDecl | None = None
         for stmt in module.statements:
-            if isinstance(stmt, AlgebraDecl):
+            if isinstance(stmt, CompositionDecl):
                 algebra_name = stmt.name
-            elif isinstance(stmt, ObjectDecl):
-                cardinality = _object_cardinality(stmt)
+            elif isinstance(stmt, TypeDecl):
+                cardinality = _type_decl_cardinality(stmt)
                 if cardinality is not None:
                     cardinalities[stmt.name] = cardinality
             elif isinstance(stmt, ProgramDecl) and program is None:
@@ -155,33 +159,54 @@ class ChainShape(dx.Model):
         steps: list[StepShape] = []
         depth = 0
 
-        def walk(program_steps: tuple[ProgramStep, ...]) -> None:
+        def record(
+            name: str,
+            kind: StepKind,
+            line: int,
+            col: int,
+            intermediate: int | None,
+        ) -> None:
             nonlocal depth
+            depth += 1
+            steps.append(
+                StepShape(
+                    name=name,
+                    kind=kind,
+                    source_line=line,
+                    source_col=col,
+                    depth=depth,
+                    algebra_name=algebra_name,
+                    intermediate_size=intermediate,
+                )
+            )
+
+        def walk(program_steps: tuple[ProgramStep, ...]) -> None:
             for step in program_steps:
-                if isinstance(step, BindStep):
-                    if step.mode == "sample":
-                        depth += 1
-                        kind: StepKind = "latent"
-                    elif step.mode == "score":
-                        depth += 1
-                        kind = "observe"
-                    else:
-                        depth += 1
-                        kind = "marginalize"
-                    intermediate = _bind_step_size(step, cardinalities)
-                    steps.append(
-                        StepShape(
-                            name=step.vars[0] if step.vars else "",
-                            kind=kind,
-                            source_line=step.line,
-                            source_col=step.col,
-                            depth=depth,
-                            algebra_name=algebra_name,
-                            intermediate_size=intermediate,
-                        )
+                if isinstance(step, SampleStep):
+                    record(
+                        step.vars[0] if step.vars else "",
+                        "latent",
+                        step.line,
+                        step.col,
+                        _index_size(step.index, cardinalities),
                     )
-                    if step.scope is not None:
-                        walk(step.scope)
+                elif isinstance(step, ObserveStep):
+                    record(
+                        step.var,
+                        "observe",
+                        step.line,
+                        step.col,
+                        _index_size(step.index, cardinalities),
+                    )
+                elif isinstance(step, MarginalizeStep):
+                    record(
+                        step.var,
+                        "marginalize",
+                        step.line,
+                        step.col,
+                        _index_size(step.index, cardinalities),
+                    )
+                    walk(step.scope)
                 elif isinstance(step, LetStep):
                     steps.append(
                         StepShape(
@@ -205,36 +230,39 @@ class ChainShape(dx.Model):
         )
 
 
-def _object_cardinality(decl: ObjectDecl) -> int | None:
-    """Read a numeric cardinality off an ``object X : N`` decl.
+def _type_decl_cardinality(decl: TypeDecl) -> int | None:
+    """Read a numeric cardinality off a ``type X : N`` decl.
 
-    Returns ``None`` for the non-numeric type forms (product,
-    coproduct, free monoid, type aliases).
+    Returns ``None`` for non-numeric type forms (products, coproducts,
+    free monoids, residuated patterns, continuous spaces).
     """
-    type_expr = decl.type_expr
-    if not isinstance(type_expr, TypeName):
+    init = decl.init
+    if not isinstance(init, TypeFromExpr):
+        return None
+    expr = init.expr
+    if not isinstance(expr, TypeName):
         return None
     try:
-        return int(type_expr.name)
+        return int(expr.name)
     except ValueError:
         return None
 
 
-def _bind_step_size(step: BindStep, cardinalities: dict[str, int]) -> int | None:
-    """Best-effort cardinality of the value bound by a :class:`BindStep`.
+def _index_size(
+    index: TypeExpr | None, cardinalities: dict[str, int],
+) -> int | None:
+    """Best-effort cardinality of a step's plate index.
 
-    For plate steps (``: T``), this is the cardinality of the plate
-    type ``T`` when ``T`` is a numeric or registered object. For
-    unindexed scalar binds (no ``: T``), the value is scalar; we
-    return ``1``. Returns ``None`` when the plate type is a
-    non-numeric TypeExpr (product / coproduct / free monoid) since
-    its cardinality may not be known until runtime.
+    Returns ``1`` for unindexed scalar steps (no ``: T``), the integer
+    cardinality when the index is a numeric literal or registered
+    named object, and ``None`` for product / coproduct / free-monoid
+    indices whose runtime size is opaque to the static analyser.
     """
-    if step.index is None:
+    if index is None:
         return 1
-    if isinstance(step.index, TypeName):
+    if isinstance(index, TypeName):
         try:
-            return int(step.index.name)
+            return int(index.name)
         except ValueError:
-            return cardinalities.get(step.index.name)
+            return cardinalities.get(index.name)
     return None

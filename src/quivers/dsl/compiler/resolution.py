@@ -1,29 +1,55 @@
-"""Compiler mixin: type and space resolution."""
+"""Compiler mixin: unified type resolution.
+
+A single :meth:`_resolve_any_space` walks any :class:`TypeExpr` to
+either a :class:`SetObject` (discrete) or a :class:`ContinuousSpace`
+(continuous). The legacy ``_resolve_type`` and ``_resolve_space``
+forwarders are preserved as type-narrowing wrappers so callers that
+already know they want a discrete object can continue to demand
+one without re-encoding the constraint in every call site.
+"""
 
 from __future__ import annotations
-from quivers.core.objects import FinSet, SetObject
+
+from quivers.continuous.spaces import ContinuousSpace
+from quivers.core.objects import FinSet, ProductSet, SetObject
 from quivers.dsl.ast_nodes import (
-    SpaceConstructor,
-    SpaceExpr,
+    ContinuousConstructor,
+    DiscreteConstructor,
+    TypeCoproduct,
+    TypeEffectApply,
     TypeExpr,
     TypeName,
     TypeProduct,
+    TypeSlash,
 )
-from quivers.dsl.compiler._prelude import (
-    CompileError,
-    _get_space_constructors,
-)
+from quivers.dsl.compiler._prelude import CompileError
+
+
+_CONTINUOUS_FACTORIES: dict[str, str] = {
+    "Real": "Real",
+    "Simplex": "Simplex",
+    "Sphere": "Sphere",
+    "Ball": "Ball",
+    "CholeskyFactor": "CholeskyFactor",
+    "Covariance": "Covariance",
+    "Correlation": "Correlation",
+    "Orthogonal": "Orthogonal",
+    "Stiefel": "Stiefel",
+    "LowerTriangular": "LowerTriangular",
+    "Diagonal": "Diagonal",
+}
 
 
 class _ResolutionMixin:
-    """Mixin: type and space resolution methods."""
+    """Mixin: unified resolution of type expressions."""
 
     def _resolve_index_size(self, texpr: TypeExpr) -> int:
-        """Resolve a TypeExpr in finite-set-object position to its
-        cardinality.
+        """Resolve a type expression in index position to a cardinality.
 
-        Used by the let-expression factor evaluator
-        to determine the axis size of each binder at compile time.
+        Used by the let-expression factor evaluator to determine the
+        axis size of each binder at compile time. Any resolved
+        :class:`SetObject` exposes its cardinality directly; a
+        :class:`ContinuousSpace` is illegal in this position.
         """
         obj = self._resolve_type(texpr)
         card = getattr(obj, "cardinality", None)
@@ -31,26 +57,23 @@ class _ResolutionMixin:
             line = getattr(texpr, "line", 0)
             col = getattr(texpr, "col", 0)
             raise CompileError(
-                f"factor binder's index must be a finite-set object, "
-                f"got {type(obj).__name__}",
+                f"index must be a finite-set object, got "
+                f"{type(obj).__name__}",
                 line,
                 col,
             )
         return int(card)
 
-    def _resolve_type(self, texpr: TypeExpr, bind_name: str | None = None) -> SetObject:
-        """Resolve a type expression into a SetObject.
+    def _resolve_type(
+        self, texpr: TypeExpr, bind_name: str | None = None,
+    ) -> SetObject:
+        """Resolve a type expression that must denote a discrete object.
 
-        Delegates to :class:`~quivers.dsl.resolution.TypeExprToSetObject`,
-        a :class:`didactic.api.Lens` parameterized by the current object
-        environment. Integer-literal :class:`TypeName` nodes that aren't
-        in the environment use ``bind_name`` (falling back to
-        ``"_<value>"``) as the synthesized :class:`FinSet` name; this
-        thin wrapper is kept so the literal-naming policy stays in
-        compiler control.
+        Calls :meth:`_resolve_any_space` and rejects continuous-space
+        results. ``bind_name`` is consulted when the type is an
+        anonymous integer literal so the synthesised :class:`FinSet`
+        carries the declaration's name.
         """
-        from quivers.dsl.resolution import TypeExprToSetObject
-
         if (
             isinstance(texpr, TypeName)
             and texpr.name.isdigit()
@@ -58,80 +81,164 @@ class _ResolutionMixin:
             and bind_name is not None
         ):
             return FinSet(name=bind_name, cardinality=int(texpr.name))
-
-        try:
-            resolved, _ = TypeExprToSetObject(self._objects).forward(texpr)
-        except KeyError as e:
-            line = getattr(texpr, "line", 0)
-            col = getattr(texpr, "col", 0)
-            raise CompileError(str(e).strip("'\""), line, col) from e
-        return resolved
-
-    def _resolve_any_space(self, texpr: TypeExpr):
-        """Resolve a type expression to either a SetObject or ContinuousSpace.
-
-        Continuous morphism domains/codomains can be either discrete
-        objects, continuous spaces, or product types.
-
-        Parameters
-        ----------
-        texpr : TypeExpr
-            The type expression to resolve (TypeName, TypeProduct, etc.).
-
-        Returns
-        -------
-        SetObject or ContinuousSpace
-            The resolved domain/codomain.
-        """
-        if isinstance(texpr, TypeProduct):
-            from quivers.core.objects import ProductSet
-            from quivers.continuous.spaces import ContinuousSpace, ProductSpace
-
-            components = [self._resolve_any_space(c) for c in texpr.components]
-            if any((isinstance(c, ContinuousSpace) for c in components)):
-                return ProductSpace(components=tuple(components))
-            return ProductSet(components=tuple(components))
-        if not isinstance(texpr, TypeName):
+        obj = self._resolve_any_space(texpr)
+        if isinstance(obj, ContinuousSpace):
             raise CompileError(
-                f"unsupported type expression in domain/codomain: {type(texpr).__name__}",
+                f"expected a discrete object here, got continuous "
+                f"space {type(obj).__name__}",
                 getattr(texpr, "line", 0),
                 getattr(texpr, "col", 0),
             )
+        return obj
+
+    def _resolve_any_space(self, texpr: TypeExpr):
+        """Resolve a type expression to a SetObject or ContinuousSpace.
+
+        Dispatches on the :class:`TypeExpr` variant. Product types
+        mix discrete and continuous components: a product whose
+        every factor is discrete becomes a :class:`ProductSet`; any
+        continuous component lifts the whole product into a
+        :class:`ProductSpace`.
+        """
+        if isinstance(texpr, TypeName):
+            return self._resolve_type_name(texpr)
+        if isinstance(texpr, DiscreteConstructor):
+            return self._resolve_discrete_constructor(texpr)
+        if isinstance(texpr, ContinuousConstructor):
+            return self._resolve_continuous_constructor(texpr)
+        if isinstance(texpr, TypeProduct):
+            components = [self._resolve_any_space(c) for c in texpr.components]
+            if any(isinstance(c, ContinuousSpace) for c in components):
+                from quivers.continuous.spaces import ProductSpace
+                return ProductSpace(components=tuple(components))
+            return ProductSet(components=tuple(components))
+        if isinstance(texpr, TypeCoproduct):
+            from quivers.core.objects import CoproductSet
+            components = [
+                self._resolve_any_space(c) for c in texpr.components
+            ]
+            if any(isinstance(c, ContinuousSpace) for c in components):
+                raise CompileError(
+                    "coproduct of continuous spaces is not supported",
+                    getattr(texpr, "line", 0),
+                    getattr(texpr, "col", 0),
+                )
+            return CoproductSet(components=tuple(components))
+        if isinstance(texpr, (TypeSlash, TypeEffectApply)):
+            raise CompileError(
+                f"{type(texpr).__name__}: residuated / effect-typed "
+                f"expressions do not resolve to a concrete object or "
+                f"space outside a schema pattern context",
+                getattr(texpr, "line", 0),
+                getattr(texpr, "col", 0),
+            )
+        raise CompileError(
+            f"unsupported type expression: {type(texpr).__name__}",
+            getattr(texpr, "line", 0),
+            getattr(texpr, "col", 0),
+        )
+
+    # -----------------------------------------------------------------
+    # specialised resolvers
+    # -----------------------------------------------------------------
+
+    def _resolve_type_name(self, texpr: TypeName) -> SetObject:
         name = texpr.name
+        if name.isdigit():
+            return FinSet(name=f"_{name}", cardinality=int(name))
         if name in self._objects:
             return self._objects[name]
         if name in self._spaces:
             return self._spaces[name]
-        raise CompileError(f"undefined object or space {name!r}", texpr.line, texpr.col)
+        raise CompileError(
+            f"undefined object or space {name!r}", texpr.line, texpr.col,
+        )
 
-    def _resolve_space(self, sexpr: SpaceExpr, bind_name: str | None = None):
-        """Resolve a space expression into a ContinuousSpace.
+    def _resolve_discrete_constructor(
+        self, texpr: DiscreteConstructor,
+    ) -> SetObject:
+        if texpr.constructor != "FinSet":
+            raise CompileError(
+                f"unknown discrete constructor {texpr.constructor!r}",
+                texpr.line,
+                texpr.col,
+            )
+        if len(texpr.args) != 1:
+            raise CompileError(
+                f"FinSet(N) takes exactly one argument; got "
+                f"{len(texpr.args)}",
+                texpr.line,
+                texpr.col,
+            )
+        arg = texpr.args[0]
+        if arg.isdigit():
+            return FinSet(name=f"_FinSet_{arg}", cardinality=int(arg))
+        if arg in self._objects:
+            return self._objects[arg]
+        raise CompileError(
+            f"FinSet({arg!r}): argument must be an integer literal or "
+            f"a previously-declared object name",
+            texpr.line,
+            texpr.col,
+        )
 
-        Delegates to :class:`~quivers.dsl.resolution.SpaceExprToContinuousSpace`,
-        a :class:`didactic.api.Lens` parameterized by both the space and
-        object environments (a bare identifier may resolve to either).
-        """
-        from quivers.dsl.resolution import SpaceExprToContinuousSpace
-
-        if isinstance(sexpr, SpaceConstructor):
-            constructors = _get_space_constructors()
-            cname = sexpr.constructor
-            if cname not in constructors:
-                raise CompileError(
-                    f"unknown space constructor {cname!r}; available: "
-                    f"{', '.join(sorted(constructors))}",
-                    sexpr.line,
-                    sexpr.col,
-                )
-
+    def _resolve_continuous_constructor(self, texpr: ContinuousConstructor):
+        from quivers.continuous import spaces as _spaces_mod
+        ctor_name = texpr.constructor
+        cls = getattr(_spaces_mod, _CONTINUOUS_FACTORIES[ctor_name], None)
+        if cls is None:
+            raise CompileError(
+                f"continuous constructor {ctor_name!r} is not "
+                f"available in quivers.continuous.spaces",
+                texpr.line,
+                texpr.col,
+            )
+        positional: list[int] = []
+        for arg in texpr.args:
+            positional.append(self._eval_size_arg(arg, texpr))
+        kwargs: dict[str, float | int] = {}
+        for key, val in texpr.kwargs.items():
+            kwargs[key] = self._eval_scalar_kwarg(val, texpr)
         try:
-            resolved, _ = SpaceExprToContinuousSpace(
-                env_spaces=self._spaces,
-                env_objects=self._objects,
-                name=bind_name or "_anon",
-            ).forward(sexpr)
-        except (KeyError, ValueError) as e:
-            line = getattr(sexpr, "line", 0)
-            col = getattr(sexpr, "col", 0)
-            raise CompileError(str(e).strip("'\""), line, col) from e
-        return resolved
+            return cls(*positional, **kwargs)
+        except TypeError as exc:
+            raise CompileError(
+                f"{ctor_name}: invalid arguments "
+                f"({positional!r}, {kwargs!r}): {exc}",
+                texpr.line,
+                texpr.col,
+            ) from exc
+
+    def _eval_size_arg(self, arg: str, texpr) -> int:
+        if arg.isdigit():
+            return int(arg)
+        if arg in self._objects:
+            card = getattr(self._objects[arg], "cardinality", None)
+            if card is None:
+                raise CompileError(
+                    f"object {arg!r} has no cardinality",
+                    texpr.line,
+                    texpr.col,
+                )
+            return int(card)
+        raise CompileError(
+            f"size argument {arg!r}: not an integer literal or a "
+            f"previously-declared finite object",
+            texpr.line,
+            texpr.col,
+        )
+
+    def _eval_scalar_kwarg(self, val: str, texpr) -> float | int:
+        try:
+            if any(ch in val for ch in ".eE"):
+                return float(val)
+            return int(val)
+        except ValueError as exc:
+            raise CompileError(
+                f"keyword argument {val!r}: not a numeric literal",
+                texpr.line,
+                texpr.col,
+            ) from exc
+
+
+__all__ = ["_ResolutionMixin"]
