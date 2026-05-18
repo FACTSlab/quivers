@@ -138,6 +138,50 @@ class ReturnStep(ProgramStep):
 # Compiler-only IR (synthesized from surface steps at compile time)
 # ---------------------------------------------------------------------------
 
+
+class GroupedObserveEntry(dx.Model):
+    """One entry in a :class:`GroupedMarginalizeStep`'s
+    ``body_observes`` list.
+
+    Pairs an env slot (where the captured observe writes its
+    ``(N_m, K)`` log-likelihood) with the fibration that carries
+    those rows into the shared grouping plate.
+    """
+
+    ll_slot: str
+    fibration_var: str | None = None
+    fibration_axes: tuple[str, ...] | None = None
+    line: int = 0
+    col: int = 0
+
+
+class GroupedMarginalizeStep(ProgramStep):
+    """Internal compiler IR: a marginalisation pushforward.
+
+    The compiler lowers a surface :class:`MarginalizeStep` into this
+    shape after expanding the scope. ``class_size`` is the resolved
+    cardinality of the latent index; ``probs_var`` names the env
+    slot holding the family's probability tensor; ``over_obj`` /
+    ``over_objs`` carry the grouping object (single or product);
+    ``body_ll_var`` names the env slot that the grouped observe
+    pushed its (N_m, K) log-likelihood into; ``body_observes`` lists
+    the (ll_slot, fibration) entries that the runtime callable
+    consumes for grouped pushforward.
+    """
+
+    var_name: str
+    class_size: int
+    probs_var: str
+    over_obj: str | None = None
+    over_objs: tuple[str, ...] | None = None
+    body_ll_var: str = ""
+    body_observes: tuple[GroupedObserveEntry, ...] | None = None
+    reduction: str | None = None
+    line: int = 0
+    col: int = 0
+    kind: Literal["grouped_marginalize_step"] = "grouped_marginalize_step"
+
+
 class BindStep(ProgramStep):
     """Internal compiler IR: a unified Kleisli bind.
 
@@ -245,23 +289,13 @@ class GroupedBodyObserveStep(ProgramStep):
     col: int = 0
     kind: Literal["grouped_body_observe_step"] = "grouped_body_observe_step"
 
-class GroupedObserveEntry(dx.Model):
-    """One entry in a grouped MarginalizeStep's ``body_observes`` list.
-
-    Pairs an env slot (where the captured observe writes its
-    ``(N_m, K)`` log-likelihood) with the fibration that carries
-    those rows into the shared grouping plate.
-    """
-
-    ll_slot: str
-    fibration_var: str | None = None
-    fibration_axes: tuple[str, ...] | None = None
 
 __all__ = [
     "BindStep",
     "DrawStep",
     "GroupedBodyObserveStep",
     "GroupedLatentInitStep",
+    "GroupedMarginalizeStep",
     "GroupedObserveEntry",
     "LetStep",
     "MarginalizeStep",

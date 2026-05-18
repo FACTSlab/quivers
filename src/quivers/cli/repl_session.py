@@ -53,16 +53,15 @@ class Diagnostic(dx.Model):
 class ReplResponse(dx.Model):
     """A single command's result, ready for any frontend to render.
 
-    ``body`` is the primary payload, which a frontend can render as
-    plain text. ``rich_body`` is an optional rich-renderable (table,
-    syntax block, tree) the TUI and notebook frontends use for nicer
-    presentation. ``diagnostics`` carry structured errors/warnings;
-    ``body_kind`` lets a frontend pick a code style for ``body`` when
-    relevant.
+    ``body`` is the primary payload, which a frontend renders by
+    pairing it with ``body_kind`` (``text`` / ``qvr`` / ``json`` /
+    ``markdown``); each frontend is responsible for choosing the
+    concrete renderer (Rich syntax block, prompt_toolkit ANSI, etc.)
+    from ``body_kind``. ``diagnostics`` carry structured errors and
+    warnings.
     """
 
     body: str = ""
-    rich_body: Any | None = None
     diagnostics: tuple[Diagnostic, ...] = ()
     body_kind: Literal["text", "qvr", "json", "markdown"] = "text"
 

@@ -43,7 +43,7 @@ from quivers.dsl.emit import module_to_source
 from quivers.lsp.document import DocumentState
 
 SERVER_NAME = "qvr-lsp"
-SERVER_VERSION = "0.1.0"
+SERVER_VERSION = "0.2.0"
 
 
 def build_server() -> LanguageServer:
@@ -251,6 +251,26 @@ def build_server() -> LanguageServer:
                 new_text=canonical,
             )
         ]
+
+    # The pygls feature decorator registers each handler with the
+    # server, but the resulting name is never referenced from this
+    # function's local scope, so the linter flags it as unused. The
+    # tuple below names every handler explicitly to make the lifetime
+    # contract legible to a reader and to the type checker.
+    _registered_handlers = (
+        _did_open,
+        _did_change,
+        _did_save,
+        _did_close,
+        _semantic_tokens,
+        _hover,
+        _definition,
+        _references,
+        _symbols,
+        _completion,
+        _formatting,
+    )
+    del _registered_handlers
 
     return server
 

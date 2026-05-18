@@ -49,7 +49,7 @@ from quivers.dsl.ast_nodes import (
     LetExprUnaryOp,
     LetExprVar,
     LetStep,
-    MarginalizeStep,
+    GroupedMarginalizeStep,
     MorphismParam,
     ObjectParam,
     PlateDrawStep,
@@ -60,6 +60,13 @@ from quivers.dsl.ast_nodes import (
     TypeName,
     TypeProduct,
     VectorisedObserveStep,
+)
+from quivers.dsl.compiler._options import (
+    get_option_name,
+    get_option_name_list,
+    get_option_string,
+    get_program_effects,
+    get_program_over_model,
 )
 from quivers.dsl.compiler._prelude import (
     CompileError,
@@ -373,14 +380,14 @@ class _ProgramsMixin:
     ) -> tuple[ProgramStep, ...]:
         """Translate v0.5 :class:`BindStep` IR into the compiler's
         internal step-IR (:class:`DrawStep`, :class:`PlateDrawStep`,
-        :class:`VectorisedObserveStep`, :class:`MarginalizeStep`).
+        :class:`VectorisedObserveStep`, :class:`GroupedMarginalizeStep`).
 
         The expansion is purely a syntactic refinement: each
         BindStep dispatches on its ``mode`` and ``index`` fields
         to one of the four internal step shapes. Marginalize binds
         additionally inline a synthesized sample step for the
         coordinate, followed by the scope's recursively-expanded
-        steps, followed by a :class:`MarginalizeStep` reduction.
+        steps, followed by a :class:`GroupedMarginalizeStep` reduction.
 
         ``LetStep`` passes through unchanged. The expansion
         preserves the Kleisli-arrow denotation of the program body
@@ -602,7 +609,7 @@ class _ProgramsMixin:
                 # VectorisedObserveStep in the expanded body as a
                 # GroupedBodyObserveStep that writes its per-row
                 # per-class log-likelihood to a dedicated env slot.
-                # The surrounding MarginalizeStep's runtime callable
+                # The surrounding GroupedMarginalizeStep's runtime callable
                 # collects each slot, pairs it with that observe's
                 # `via <idx>` fibration, and scatter-sums each
                 # contribution into the shared `(|G|, K)`
@@ -655,7 +662,7 @@ class _ProgramsMixin:
                         # Nested case: a grouped marginalize block whose
                         # body's only contribution to the per-group
                         # accumulator is an inner grouped block.  The
-                        # inner block's MarginalizeStep produces the
+                        # inner block's GroupedMarginalizeStep produces the
                         # (N_outer, K_outer) tensor the outer block
                         # consumes.  Re-point the inner's
                         # ``body_ll_var`` at the outer latent so the
@@ -667,7 +674,7 @@ class _ProgramsMixin:
                         # performed its own scatter-add).
                         nested_marg_idx: int | None = None
                         for j in range(len(expanded_scope) - 1, -1, -1):
-                            if isinstance(expanded_scope[j], MarginalizeStep):
+                            if isinstance(expanded_scope[j], GroupedMarginalizeStep):
                                 nested_marg_idx = j
                                 break
                         if nested_marg_idx is None:
@@ -682,8 +689,8 @@ class _ProgramsMixin:
                                 step.col,
                             )
                         inner_marg = expanded_scope[nested_marg_idx]
-                        assert isinstance(inner_marg, MarginalizeStep)
-                        expanded_scope[nested_marg_idx] = MarginalizeStep(
+                        assert isinstance(inner_marg, GroupedMarginalizeStep)
+                        expanded_scope[nested_marg_idx] = GroupedMarginalizeStep(
                             var_name=inner_marg.var_name,
                             class_size=inner_marg.class_size,
                             probs_var=inner_marg.probs_var,
@@ -698,7 +705,7 @@ class _ProgramsMixin:
                         body_observes.append(GroupedObserveEntry(ll_slot=latent_name))
                 out.extend(expanded_scope)
                 # Pushforward reduction. When grouped, the
-                # MarginalizeStep carries the list of per-observe
+                # GroupedMarginalizeStep carries the list of per-observe
                 # (ll_slot, fibration) entries the runtime callable
                 # consumes; the legacy single-fibration fields are
                 # gone.
@@ -713,7 +720,7 @@ class _ProgramsMixin:
                     else None
                 )
                 out.append(
-                    MarginalizeStep(
+                    GroupedMarginalizeStep(
                         var_name=step.vars[0],
                         class_size=class_size,
                         probs_var=probs_var,
@@ -746,16 +753,18 @@ class _ProgramsMixin:
           contribute ``Sample``.
         * ``DrawStep`` / ``VectorisedObserveStep`` with score-bind
           shape contribute ``Score``.
-        * ``MarginalizeStep`` contributes ``Marginal``.
+        * ``GroupedMarginalizeStep`` contributes ``Marginal``.
         * ``LetStep`` contributes nothing (purely deterministic).
 
-        If the declaration includes ``! effects``, the actual set
-        must be a subset of the declared set. A declared
-        ``Pure`` rejects any of {Sample, Score, Marginal}.
+        If the declaration carries an ``effects=[...]`` option, the
+        actual effect set must be a subset of the declared set. A
+        declared ``Pure`` rejects any of {Sample, Score, Marginal}.
         """
-        if decl.effects is None:
-            return  # unannotated → no verification
-        declared = decl.effects
+        declared = get_program_effects(
+            decl.options, line=decl.line, col=decl.col,
+        )
+        if declared is None:
+            return
         actual: set[str] = set()
         for step in steps:
             if isinstance(step, (DrawStep, PlateDrawStep)):
@@ -765,7 +774,7 @@ class _ProgramsMixin:
                     actual.add("Sample")
             elif isinstance(step, VectorisedObserveStep):
                 actual.add("Score")
-            elif isinstance(step, MarginalizeStep):
+            elif isinstance(step, GroupedMarginalizeStep):
                 actual.add("Marginal")
             # LetStep contributes nothing.
         if "Pure" in declared and actual:
@@ -999,7 +1008,7 @@ class _ProgramsMixin:
                     out.add(step.index_var)
                     if step.response_var:
                         out.add(step.response_var)
-                elif isinstance(step, MarginalizeStep):
+                elif isinstance(step, GroupedMarginalizeStep):
                     out.add(step.var_name)
                     if step.body_ll_var is not None:
                         out.add(step.body_ll_var)
@@ -1124,7 +1133,7 @@ class _ProgramsMixin:
                 line=step.line,
                 col=step.col,
             )
-        if isinstance(step, MarginalizeStep):
+        if isinstance(step, GroupedMarginalizeStep):
             renamed_probs = (
                 rename.get(step.probs_var, step.probs_var)
                 if step.probs_var is not None
@@ -1153,7 +1162,7 @@ class _ProgramsMixin:
                     )
                     for entry in step.body_observes
                 )
-            return MarginalizeStep(
+            return GroupedMarginalizeStep(
                 var_name=rename.get(step.var_name, step.var_name),
                 class_size=step.class_size,
                 probs_var=renamed_probs,
@@ -1212,17 +1221,16 @@ class _ProgramsMixin:
         if isinstance(expr, LetExprBinOp):
             return LetExprBinOp(
                 op=expr.op,
-                lhs=self._rename_let_expr(expr.lhs, value_subst, rename),
-                rhs=self._rename_let_expr(expr.rhs, value_subst, rename),
-                line=expr.line,
-                col=expr.col,
+                left=self._rename_let_expr(expr.left, value_subst, rename),
+                right=self._rename_let_expr(
+                    expr.right, value_subst, rename,
+                ),
             )
         if isinstance(expr, LetExprUnaryOp):
             return LetExprUnaryOp(
-                op=expr.op,
-                operand=self._rename_let_expr(expr.operand, value_subst, rename),
-                line=expr.line,
-                col=expr.col,
+                operand=self._rename_let_expr(
+                    expr.operand, value_subst, rename,
+                ),
             )
         if isinstance(expr, LetExprCall):
             new_callee = value_subst.get(expr.callee, expr.callee)
@@ -1466,8 +1474,7 @@ class _ProgramsMixin:
             draws=substituted_body,
             return_vars=tmpl.return_vars,
             return_labels=tmpl.return_labels,
-            effects=tmpl.effects,
-            over_model=None,
+            options=tmpl.options,
             type_params=None,
             docs=(),
             line=expr.line,
@@ -1499,28 +1506,44 @@ class _ProgramsMixin:
                 decl.line,
                 decl.col,
             )
-        rule_name = decl.rule_name.lower()
+        declared_rule = get_option_name(
+            decl.options, "rule", line=decl.line, col=decl.col,
+        )
+        if declared_rule is None:
+            raise CompileError(
+                f"contraction {decl.name!r}: required option "
+                f"``rule=<NAME>`` is missing",
+                decl.line,
+                decl.col,
+            )
+        rule_name = declared_rule.lower()
         if rule_name not in _ALGEBRA_REGISTRY:
             raise CompileError(
                 f"contraction {decl.name!r}: unknown rule "
-                f"{decl.rule_name!r}; available: "
+                f"{declared_rule!r}; available: "
                 f"{', '.join(sorted(_ALGEBRA_REGISTRY))}",
                 decl.line,
                 decl.col,
             )
         rule = _ALGEBRA_REGISTRY[rule_name]
-        if decl.wiring_spec:
+        wiring_text = get_option_string(
+            decl.options, "wiring", line=decl.line, col=decl.col,
+        )
+        shared_axes = get_option_name_list(
+            decl.options, "share", line=decl.line, col=decl.col,
+        )
+        if wiring_text:
             # Explicit einsum escape hatch (still supported for
             # contractions the type-driven rule can't express:
             # diagonal extraction, reorderings, etc.).
-            wiring_spec = decl.wiring_spec
+            wiring_spec = wiring_text
         else:
             try:
                 wiring_spec = _infer_wiring_from_signature(
                     inputs=decl.inputs,
                     output_domain=decl.domain,
                     output_codomain=decl.codomain,
-                    shared_axes=decl.shared_axes,
+                    shared_axes=shared_axes,
                 )
             except ValueError as exc:
                 raise CompileError(
@@ -1641,7 +1664,7 @@ class _ProgramsMixin:
                 bound_vars[decl.params[0]] = domain
         # First, expand the v0.5 unified surface (BindStep) into the
         # internal IR (DrawStep / PlateDrawStep / VectorisedObserveStep /
-        # MarginalizeStep) that the rest of the compiler consumes.
+        # GroupedMarginalizeStep) that the rest of the compiler consumes.
         # The expansion translates each BindStep based on its mode +
         # index annotation, and inlines marginalize scopes.
         ir_draws = self._expand_bind_steps(decl.draws)
@@ -1735,7 +1758,7 @@ class _ProgramsMixin:
                 # any (K,)-shaped parameters across the class axis,
                 # and store the resulting (N, K) tensor at this
                 # observe's dedicated env slot.  The surrounding
-                # MarginalizeStep collects each slot, pairs it with
+                # GroupedMarginalizeStep collects each slot, pairs it with
                 # the observe's fibration, and scatter-sums each
                 # contribution into the shared (|G|, K) accumulator.
                 idx_space = self._resolve_any_space(step.index_set)
@@ -1848,7 +1871,7 @@ class _ProgramsMixin:
                     bound_vars[step.response_var] = family.codomain
                 steps.append(((step.response_var,), vec_obs, step_args, True))
                 continue
-            if isinstance(step, MarginalizeStep):
+            if isinstance(step, GroupedMarginalizeStep):
                 # marginalize v — pushforward G(π_{Φ\\C}). Realised as a
                 # deterministic let-step that applies log-sum-exp across
                 # the class axis of the named variable's per-class score
@@ -2180,17 +2203,22 @@ class _ProgramsMixin:
             decl.return_vars,
             params=decl.params,
             return_labels=decl.return_labels,
-            effect_set=decl.effects,
+            effect_set=get_program_effects(
+                decl.options, line=decl.line, col=decl.col,
+            ),
         )
-        # Posterior-block routing: `over M` programs go to the
+        # Posterior-block routing: `[over=M]` programs go to the
         # posterior registry rather than the morphism registry.
-        if decl.over_model is not None:
+        over_model = get_program_over_model(
+            decl.options, line=decl.line, col=decl.col,
+        )
+        if over_model is not None:
             if not hasattr(self, "_posteriors"):
                 self._posteriors = {}
-            if decl.over_model not in self._morphisms:
+            if over_model not in self._morphisms:
                 raise CompileError(
-                    f"posterior block 'over {decl.over_model}' references "
-                    f"undefined model {decl.over_model!r}",
+                    f"posterior block '[over={over_model}]' references "
+                    f"undefined model {over_model!r}",
                     decl.line,
                     decl.col,
                 )

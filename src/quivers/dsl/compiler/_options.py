@@ -21,6 +21,8 @@ The rules are deliberate:
 
 from __future__ import annotations
 
+from typing import overload
+
 from quivers.dsl.ast_nodes import (
     OptionCall,
     OptionEntry,
@@ -113,6 +115,24 @@ def get_option_string(
         )
     return entry.value.value
 
+@overload
+def get_option_int(
+    options: tuple[OptionEntry, ...],
+    key: str,
+    *,
+    line: int = ...,
+    col: int = ...,
+    default: int,
+) -> int: ...
+@overload
+def get_option_int(
+    options: tuple[OptionEntry, ...],
+    key: str,
+    *,
+    line: int = ...,
+    col: int = ...,
+    default: None = ...,
+) -> int | None: ...
 def get_option_int(
     options: tuple[OptionEntry, ...],
     key: str,
@@ -231,6 +251,33 @@ def get_option_call(
         )
     return entry.value
 
+def get_program_effects(
+    options: tuple[OptionEntry, ...], *, line: int = 0, col: int = 0,
+) -> frozenset[str] | None:
+    """Decode the ``effects`` option of a program declaration.
+
+    Two shapes are accepted, matching the surface forms ``[effects=Pure]``
+    and ``[effects=[Sample, Score]]``. Absence returns ``None`` so the
+    compiler can distinguish ``no annotation`` from ``empty set``.
+    """
+    if not has_option(options, "effects"):
+        return None
+    names = get_option_name_list(options, "effects", line=line, col=col)
+    return frozenset(names)
+
+
+def get_program_over_model(
+    options: tuple[OptionEntry, ...], *, line: int = 0, col: int = 0,
+) -> str | None:
+    """Decode the ``over`` option of a program declaration.
+
+    The surface form ``[over=<name>]`` marks a posterior block whose
+    body is run against the named generative model; absence means
+    the program is a vanilla generative program.
+    """
+    return get_option_name(options, "over", line=line, col=col)
+
+
 def get_option_value(
     options: tuple[OptionEntry, ...], key: str
 ) -> OptionValue | None:
@@ -253,5 +300,7 @@ __all__ = [
     "get_option_name_list",
     "get_option_string",
     "get_option_value",
+    "get_program_effects",
+    "get_program_over_model",
     "has_option",
 ]
