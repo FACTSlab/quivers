@@ -2,7 +2,7 @@
 
 This document tracks the 12 homogenization moves from the design pass.
 Every change is a clean breaking change; no backward-compat shims. The
-target release is **1.0.0**, cut from this branch.
+target release is **0.11.0**, cut from this branch.
 
 ## Sequencing principle
 
@@ -98,12 +98,13 @@ clear minimum panproto version once the upstream lands.
 | Tests | `tests/*.py`, `tests/data/*.qvr` | every inline QVR source |
 | TUI auto-indent | `src/quivers/cli/repl_tui.py` | extend trigger list |
 
-## Sequencing as PRs
+## Sequencing — one PR
 
-The change is too large for one PR. Splitting into four lets each one
-ship, fix CI, and limit blast radius:
+Per user direction, the entire homogenization ships as one PR off
+this branch. Internal commit ordering follows the layer cascade
+below so each step can be reviewed in `git log`:
 
-### PR 1 — surface change foundation (the grammar)
+### Step 1 — surface change foundation (the grammar)
 
 - Rewrite `grammars/qvr/grammar.js` end-to-end against moves 1–12.
 - Regenerate `parser.c`, `grammar.json`, `node-types.json`.
@@ -115,7 +116,7 @@ ship, fix CI, and limit blast radius:
   until PR 2. Land PR 1 first so the grammar work is reviewable in
   isolation.
 
-### PR 2 — AST + parser + compiler + emitter
+### Step 2 — AST + parser + compiler + emitter
 
 - Collapse `ast_nodes.py` to the new declaration set.
 - Rewrite `parser.py` walkers against the new tree-sitter node types.
@@ -128,7 +129,7 @@ ship, fix CI, and limit blast radius:
   `tests/test_inference.py`, …) green against the new surface, using
   hand-converted minimal QVR fragments. Doc-block tests stay broken.
 
-### PR 3 — examples + docs
+### Step 3 — examples + docs
 
 - Hand-rewrite every `docs/examples/source/*.qvr` (36 files).
 - Update every `docs/examples/*.md` page accordingly.
@@ -140,14 +141,14 @@ ship, fix CI, and limit blast radius:
 - `tests/test_doc_blocks.py` becomes the acceptance gate for this
   PR.
 
-### PR 4 — REPL/LSP/Jupyter polish + final cleanup
+### Step 4 — REPL/LSP/Jupyter polish + final cleanup
 
 - Extend the TUI's auto-indent trigger list and bracket-pairing for
   the new keywords.
 - Verify LSP semantic tokens use the new keyword set.
 - Update `editors/vscode-qvr/syntaxes/qvr.tmLanguage.json` and
   `editors/zed-extension-qvr` highlight queries.
-- Bump version to **1.0.0**, write the changelog entry, cut the
+- Bump version to **0.11.0**, write the changelog entry, cut the
   release.
 
 ## What I'm asking before I start
@@ -162,8 +163,7 @@ grammar.js end-to-end:
    keyword on every stochastic step instead of bare `<-`).
 2. **Confirm the four-PR sequencing.** Or do you want it as one
    merged drop?
-3. **Confirm the 1.0.0 bump.** A change of this scope should not ship
-   as 0.11.0.
+3. Version: **0.11.0** (pre-1.0 breaking changes go into minor).
 
 Once sign-off lands, I start with PR 1 (grammar rewrite). The grammar
 work is the longest single chunk — probably 4–6 hours by itself —
