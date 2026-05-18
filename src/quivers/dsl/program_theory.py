@@ -435,11 +435,10 @@ def _classify_morphism_kind(morphism: object) -> str:
     """Classify a runtime morphism into the program-theory vertex kind.
 
     The compiler's ``_morphisms`` env holds primitive morphisms produced
-    by every kind of morphism declaration (``MorphismDecl``,
-    ``KernelDecl``, ``KernelDecl``,
-    ``DiscretizeDecl``, ``EmbedDecl``). Classification routes through
-    ``isinstance`` rather than module/class name string-matching so the
-    boundaries are explicit.
+    by every :class:`MorphismDecl` lowering (one per role: latent,
+    observed, kernel, embed, discretize, let). Classification routes
+    through ``isinstance`` rather than module/class name string-matching
+    so the boundaries are explicit.
     """
     # Imports are local because these modules form a long dependency
     # chain; importing at module top level would deepen the import graph

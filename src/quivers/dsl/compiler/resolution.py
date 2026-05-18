@@ -10,8 +10,9 @@ one without re-encoding the constraint in every call site.
 
 from __future__ import annotations
 
-from quivers.continuous.spaces import ContinuousSpace
-from quivers.core.objects import FinSet, ProductSet, SetObject
+from quivers.continuous import spaces as continuous_spaces
+from quivers.continuous.spaces import ContinuousSpace, ProductSpace
+from quivers.core.objects import CoproductSet, FinSet, ProductSet, SetObject
 from quivers.dsl.ast_nodes import (
     ContinuousConstructor,
     DiscreteConstructor,
@@ -41,7 +42,15 @@ _CONTINUOUS_FACTORIES: dict[str, str] = {
 
 
 class _ResolutionMixin:
-    """Mixin: unified resolution of type expressions."""
+    """Mixin: unified resolution of type expressions.
+
+    The compiler base provides ``_objects`` and ``_spaces``; the
+    annotations below pin them so the type checker can verify every
+    access from a mixin method.
+    """
+
+    _objects: dict[str, SetObject]
+    _spaces: dict[str, ContinuousSpace]
 
     def _resolve_index_size(self, texpr: TypeExpr) -> int:
         """Resolve a type expression in index position to a cardinality.
@@ -107,13 +116,13 @@ class _ResolutionMixin:
         if isinstance(texpr, ContinuousConstructor):
             return self._resolve_continuous_constructor(texpr)
         if isinstance(texpr, TypeProduct):
-            components = [self._resolve_any_space(c) for c in texpr.components]
+            components = [
+                self._resolve_any_space(c) for c in texpr.components
+            ]
             if any(isinstance(c, ContinuousSpace) for c in components):
-                from quivers.continuous.spaces import ProductSpace
                 return ProductSpace(components=tuple(components))
             return ProductSet(components=tuple(components))
         if isinstance(texpr, TypeCoproduct):
-            from quivers.core.objects import CoproductSet
             components = [
                 self._resolve_any_space(c) for c in texpr.components
             ]
@@ -142,7 +151,9 @@ class _ResolutionMixin:
     # specialised resolvers
     # -----------------------------------------------------------------
 
-    def _resolve_type_name(self, texpr: TypeName) -> SetObject:
+    def _resolve_type_name(
+        self, texpr: TypeName,
+    ) -> SetObject | ContinuousSpace:
         name = texpr.name
         if name.isdigit():
             return FinSet(name=f"_{name}", cardinality=int(name))
@@ -183,9 +194,10 @@ class _ResolutionMixin:
         )
 
     def _resolve_continuous_constructor(self, texpr: ContinuousConstructor):
-        from quivers.continuous import spaces as _spaces_mod
         ctor_name = texpr.constructor
-        cls = getattr(_spaces_mod, _CONTINUOUS_FACTORIES[ctor_name], None)
+        cls = getattr(
+            continuous_spaces, _CONTINUOUS_FACTORIES[ctor_name], None,
+        )
         if cls is None:
             raise CompileError(
                 f"continuous constructor {ctor_name!r} is not "

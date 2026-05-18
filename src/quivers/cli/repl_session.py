@@ -15,12 +15,16 @@ import os
 import subprocess
 import tempfile
 from collections.abc import Iterable
-from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Literal
 
+import didactic.api as dx
+
 from quivers.dsl import Compiler, CompileError, ParseError, parse
 from quivers.dsl.ast_nodes import (
+    ExprCompose,
+    ExprIdent,
+    ExprTensorProduct,
     Module,
     Statement,
     TypeDecl,
@@ -28,13 +32,13 @@ from quivers.dsl.ast_nodes import (
     TypeFromExpr,
 )
 from quivers.dsl.constraints import Violation, check_constraints
+from quivers.dsl.emit import module_to_source
 
 
 Severity = Literal["error", "warning", "info", "ok"]
 
 
-@dataclass(frozen=True)
-class Diagnostic:
+class Diagnostic(dx.Model):
     """One structured diagnostic surfaced by the REPL or LSP."""
 
     message: str
@@ -46,15 +50,15 @@ class Diagnostic:
     code: str = ""
 
 
-@dataclass(frozen=True)
-class ReplResponse:
+class ReplResponse(dx.Model):
     """A single command's result, ready for any frontend to render.
 
-    `body` is the primary payload, which a frontend can render as plain
-    text. `rich_body` is an optional rich-renderable (table, syntax block,
-    tree) the TUI and notebook frontends use for nicer presentation.
-    `diagnostics` carry structured errors/warnings; `body_kind` lets a
-    frontend pick a code style for `body` when relevant.
+    ``body`` is the primary payload, which a frontend can render as
+    plain text. ``rich_body`` is an optional rich-renderable (table,
+    syntax block, tree) the TUI and notebook frontends use for nicer
+    presentation. ``diagnostics`` carry structured errors/warnings;
+    ``body_kind`` lets a frontend pick a code style for ``body`` when
+    relevant.
     """
 
     body: str = ""
@@ -67,18 +71,20 @@ class ReplResponse:
         return not any(d.severity == "error" for d in self.diagnostics)
 
 
-@dataclass
-class SessionOptions:
-    """User-tunable knobs exposed via ``:set``."""
+class SessionOptions(dx.Model):
+    """User-tunable knobs exposed via ``:set``.
+
+    ``theme`` selects a Rich syntax theme for QVR bodies rendered
+    via ``:info`` / ``:dump`` etc. Common values: ``ansi_dark``,
+    ``ansi_light``, ``monokai``, ``nord``, ``solarized-dark``,
+    ``solarized-light``, ``github-dark``.
+    """
 
     highlight: bool = True
     unicode: bool = True
     show_axes: bool = True
     paranoid: bool = False
     autoload_on_save: bool = True
-    # Rich syntax theme for QVR bodies rendered via :info, :dump, etc.
-    # Common values: "ansi_dark", "ansi_light", "monokai", "nord",
-    # "solarized-dark", "solarized-light", "github-dark".
     theme: str = "ansi_dark"
 
 
@@ -543,8 +549,6 @@ class ReplSession:
 
     def save(self, path: str = "") -> ReplResponse:
         """Write the live module back to a ``.qvr`` file."""
-        from quivers.dsl.emit import module_to_source
-
         target = Path(path).expanduser() if path else self._loaded_path
         if target is None:
             return _err("usage: :save <FILE> (no file currently loaded)")
@@ -945,8 +949,6 @@ def _render_decl(decl: Statement) -> str:
     and raises NotImplementedError otherwise; we catch and fall back so
     :info / :edit never crash on a rare variant.
     """
-    from quivers.dsl.emit import module_to_source
-
     try:
         return module_to_source(Module(statements=(decl,))).rstrip("\n")
     except NotImplementedError:
@@ -976,12 +978,6 @@ def _replace_decl_by_name(
 
 def _trace_expr(compiler: Compiler, expr: Any) -> list[str]:
     """Yield human-readable lines describing each elaboration step."""
-    from quivers.dsl.ast_nodes import (
-        ExprCompose,
-        ExprIdent,
-        ExprTensorProduct,
-    )
-
     out: list[str] = []
     seen: set[int] = set()
 

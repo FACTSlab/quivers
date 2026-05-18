@@ -77,6 +77,10 @@ def _build_shared_lib(grammar_dir: Path) -> Path:
         return out
 
     cc = os.environ.get("CC", "cc")
+    scanner = grammar_dir / "src" / "scanner.c"
+    sources = [str(src)]
+    if scanner.is_file():
+        sources.append(str(scanner))
     cmd = [
         cc,
         "-shared",
@@ -84,7 +88,7 @@ def _build_shared_lib(grammar_dir: Path) -> Path:
         "-O2",
         "-I",
         str(grammar_dir / "src"),
-        str(src),
+        *sources,
         "-o",
         str(out),
     ]

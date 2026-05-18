@@ -29,9 +29,17 @@ from quivers.core.algebras import (
     ProductFuzzyAlgebra,
     Semigroupoid,
 )
-from quivers.core.morphisms import morphism as make_latent
-from quivers.core.objects import FinSet
+from quivers.continuous.boundaries import Discretize, Embed
+from quivers.continuous.flows import ConditionalFlow
+from quivers.continuous.spaces import ContinuousSpace
+from quivers.core.morphisms import (
+    ObservedMorphism,
+    morphism as make_latent,
+)
+from quivers.core.objects import EnumSet, FinSet, FreeMonoid, FreeResiduated
 from quivers.dsl.ast_nodes import (
+    AxisSpec,
+    BundleDecl,
     CategoryDecl,
     CompositionDecl,
     CompositionRuleEntry,
@@ -63,6 +71,11 @@ from quivers.dsl.compiler._prelude import (
 )
 from quivers.dsl.compiler.programs import _ProgramsMixin
 from quivers.stochastic import StochasticMorphism
+from quivers.stochastic.schema import (
+    SCHEMA_REGISTRY,
+    PatternBinarySchema,
+    PatternUnarySchema,
+)
 
 
 _VALID_ROLES: frozenset[str] = frozenset(
@@ -340,12 +353,6 @@ class _DeclarationsMixin:
 
     def _compile_rule(self, decl: RuleDecl) -> None:
         """Compile an inference rule into a pattern schema."""
-        from quivers.stochastic.schema import (
-            PatternBinarySchema,
-            PatternUnarySchema,
-            SCHEMA_REGISTRY,
-        )
-
         if decl.name in self._rules:
             raise CompileError(
                 f"rule {decl.name!r} already declared",
@@ -387,12 +394,6 @@ class _DeclarationsMixin:
 
     def _compile_schema(self, decl: SchemaDecl) -> None:
         """Compile a pattern-polymorphic schema declaration."""
-        from quivers.stochastic.schema import (
-            PatternBinarySchema,
-            PatternUnarySchema,
-            SCHEMA_REGISTRY,
-        )
-
         if decl.name in self._rules:
             raise CompileError(
                 f"schema {decl.name!r} already declared",
@@ -434,10 +435,8 @@ class _DeclarationsMixin:
     # bundle
     # ------------------------------------------------------------------
 
-    def _compile_bundle(self, decl) -> None:
+    def _compile_bundle(self, decl: BundleDecl) -> None:
         """Register a rule bundle for later expansion at use site."""
-        from quivers.stochastic.schema import SCHEMA_REGISTRY
-
         if decl.name in self._bundles:
             raise CompileError(
                 f"bundle {decl.name!r} already declared",
@@ -471,9 +470,6 @@ class _DeclarationsMixin:
           :class:`ContinuousSpace`, bound under ``decl.name`` in the
           appropriate environment.
         """
-        from quivers.continuous.spaces import ContinuousSpace
-        from quivers.core.objects import EnumSet, FreeMonoid, FreeResiduated
-
         if decl.name in self._objects or decl.name in self._spaces:
             raise CompileError(
                 f"type {decl.name!r} already declared",
@@ -712,10 +708,11 @@ class _DeclarationsMixin:
         decl_d = _numel(domain.shape)
         decl_c = _numel(codomain.shape)
         if init_d == decl_d and init_c == decl_c:
-            from quivers.core.morphisms import ObservedMorphism as _Obs
             target_shape = tuple(domain.shape) + tuple(codomain.shape)
             reshaped = morph.tensor.reshape(target_shape)
-            return _Obs(domain, codomain, reshaped, algebra=morph.algebra)
+            return ObservedMorphism(
+                domain, codomain, reshaped, algebra=morph.algebra,
+            )
         raise CompileError(
             f"morphism {decl.name!r} init expression has type "
             f"{morph.domain!r} -> {morph.codomain!r} (numel {init_d} "
@@ -750,7 +747,6 @@ class _DeclarationsMixin:
     def _compile_embed_role(
         self, decl: MorphismDecl, names: list[str],
     ) -> None:
-        from quivers.continuous.boundaries import Embed
         domain = self._resolve_type(decl.domain)
         if not isinstance(domain, FinSet):
             raise CompileError(
@@ -760,7 +756,6 @@ class _DeclarationsMixin:
                 decl.col,
             )
         codomain = self._resolve_any_space(decl.codomain)
-        from quivers.continuous.spaces import ContinuousSpace
         if not isinstance(codomain, ContinuousSpace):
             raise CompileError(
                 f"embed morphism {decl.name!r}: codomain must be a "
@@ -774,8 +769,6 @@ class _DeclarationsMixin:
     def _compile_discretize_role(
         self, decl: MorphismDecl, names: list[str],
     ) -> None:
-        from quivers.continuous.boundaries import Discretize
-        from quivers.continuous.spaces import ContinuousSpace
         space = self._resolve_any_space(decl.domain)
         if not isinstance(space, ContinuousSpace):
             raise CompileError(
@@ -826,8 +819,9 @@ class _DeclarationsMixin:
         )
         if not over and not iid:
             return
-        from quivers.dsl.ast_nodes import AxisSpec
-        axes_spec = AxisSpec(over=over, iid_over=iid, line=decl.line, col=decl.col)
+        axes_spec = AxisSpec(
+            over=over, iid_over=iid, line=decl.line, col=decl.col,
+        )
         _validate_axis_spec(
             axes_spec,
             family,
@@ -840,7 +834,6 @@ class _DeclarationsMixin:
         self, domain, codomain, family_name: str, decl: MorphismDecl,
     ):
         if family_name == "Flow":
-            from quivers.continuous.flows import ConditionalFlow
             n_layers = get_option_int(
                 decl.options,
                 "n_layers",

@@ -33,12 +33,12 @@ from quivers.cli.repl_highlight import (
 )
 from quivers.cli.repl_session import Diagnostic, ReplSession
 from quivers.dsl.ast_nodes import (
+    ContinuousConstructor,
     MorphismDecl,
     TypeDecl,
     TypeFromExpr,
     TypeInitializer,
 )
-from quivers.continuous.spaces import ContinuousSpace
 from quivers.dsl.emit import module_to_source
 from quivers.lsp.document import DocumentState
 
@@ -502,10 +502,10 @@ def _symbol_kind(stmt: Any) -> lsp.SymbolKind:
     """
     if isinstance(stmt, TypeDecl):
         init: TypeInitializer = stmt.init
-        if isinstance(init, TypeFromExpr):
-            from quivers.dsl.ast_nodes import ContinuousConstructor
-            if isinstance(init.expr, ContinuousConstructor):
-                return lsp.SymbolKind.Struct
+        if isinstance(init, TypeFromExpr) and isinstance(
+            init.expr, ContinuousConstructor,
+        ):
+            return lsp.SymbolKind.Struct
         return lsp.SymbolKind.Class
     if isinstance(stmt, MorphismDecl):
         return lsp.SymbolKind.Function

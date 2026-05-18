@@ -9,7 +9,7 @@ documentSymbol, completion) read from a coherent snapshot.
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+import re
 from typing import Any
 
 from quivers.cli.repl_session import Diagnostic
@@ -18,15 +18,30 @@ from quivers.dsl.ast_nodes import Module
 from quivers.dsl.constraints import check_constraints
 
 
-@dataclass
 class DocumentState:
+    """Per-document mutable cache for the language server.
+
+    Each LSP document open by an editor has one of these. ``update``
+    re-parses and re-elaborates in place; the resulting snapshot is
+    what subsequent hover / definition / diagnostic capabilities read.
+    """
+
     uri: str
-    version: int = 0
-    source: str = ""
-    module: Module = field(default_factory=lambda: Module(statements=()))
-    compiler: Compiler | None = None
-    env: dict[str, Any] = field(default_factory=dict)
-    diagnostics: list[Diagnostic] = field(default_factory=list)
+    version: int
+    source: str
+    module: Module
+    compiler: Compiler | None
+    env: dict[str, Any]
+    diagnostics: list[Diagnostic]
+
+    def __init__(self, uri: str) -> None:
+        self.uri = uri
+        self.version = 0
+        self.source = ""
+        self.module = Module(statements=())
+        self.compiler = None
+        self.env = {}
+        self.diagnostics = []
 
     def update(self, *, source: str, version: int) -> None:
         """Re-parse + re-elaborate after a text change."""
@@ -105,8 +120,6 @@ def _is_ident_char(c: str) -> bool:
 
 def _extract_line(msg: str) -> int:
     """Best-effort line extraction from a panproto ParseError message."""
-    import re
-
     m = re.search(r"line\s+(\d+)", msg)
     if m:
         return int(m.group(1))
