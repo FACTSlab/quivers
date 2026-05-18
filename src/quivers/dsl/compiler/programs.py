@@ -11,6 +11,7 @@ from itertools import product as _cartesian_product
 from typing import cast
 import torch
 from quivers.continuous.morphisms import AnySpace, ContinuousMorphism
+from quivers.core.algebras import CompositionRule
 from quivers.core.morphisms import Morphism
 
 from quivers.continuous.plate import marginalize_grouped
@@ -28,6 +29,7 @@ from quivers.dsl.ast_nodes import (
     ContractionDecl,
     ContractionInput,
     DrawStep,
+    Expr,
     ExprIdent,
     ExprMorphismCall,
     ExprTransCompose,
@@ -373,14 +375,50 @@ def _infer_wiring_from_signature(
 
 
 class _ProgramsMixin:
-    """Mixin: program / contraction / let compilation methods."""
+    """Mixin: program / contraction / let compilation methods.
+
+    The compiler base supplies every environment slot below; the
+    annotations let the type checker verify each access from a
+    mixin method.
+    """
+
+    _algebra: CompositionRule
+    _morphisms: dict
+    _objects: dict[str, SetObject]
+    _spaces: dict[str, ContinuousSpace]
+    _output_expr: Expr | None
+    _groups: dict[str, list[str]]
+    _program_templates: dict[str, ProgramDecl]
+    _contractions: dict
+    _transformations: dict
+    _trans_singletons: dict
+    _trans_constructors: dict
+
+    def _resolve_type(
+        self,
+        texpr: TypeExpr,
+        bind_name: str | None = None,
+    ) -> SetObject:
+        """Provided by :class:`_ResolutionMixin`."""
+        raise NotImplementedError
+
+    def _resolve_any_space(
+        self, texpr: TypeExpr,
+    ) -> SetObject | ContinuousSpace:
+        """Provided by :class:`_ResolutionMixin`."""
+        raise NotImplementedError
+
+    def _resolve_index_size(self, texpr: TypeExpr) -> int:
+        """Provided by :class:`_ResolutionMixin`."""
+        raise NotImplementedError
 
     def _expand_bind_steps(
         self, steps: tuple[ProgramStep, ...]
     ) -> tuple[ProgramStep, ...]:
-        """Translate v0.5 :class:`BindStep` IR into the compiler's
-        internal step-IR (:class:`DrawStep`, :class:`PlateDrawStep`,
-        :class:`VectorisedObserveStep`, :class:`GroupedMarginalizeStep`).
+        """Translate the surface :class:`BindStep` IR into the
+        compiler's internal step-IR (:class:`DrawStep`,
+        :class:`PlateDrawStep`, :class:`VectorisedObserveStep`,
+        :class:`GroupedMarginalizeStep`).
 
         The expansion is purely a syntactic refinement: each
         BindStep dispatches on its ``mode`` and ``index`` fields
