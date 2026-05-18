@@ -1211,10 +1211,10 @@ class _ProgramsMixin:
             if expr.name in value_subst:
                 val = value_subst[expr.name]
                 if isinstance(val, str):
-                    return LetExprVar(name=val, line=expr.line, col=expr.col)
-                return LetExprLiteral(value=float(val), line=expr.line, col=expr.col)
+                    return LetExprVar(name=val)
+                return LetExprLiteral(value=float(val))
             if expr.name in rename:
-                return LetExprVar(name=rename[expr.name], line=expr.line, col=expr.col)
+                return LetExprVar(name=rename[expr.name])
             return expr
         if isinstance(expr, LetExprLiteral):
             return expr
@@ -1233,21 +1233,20 @@ class _ProgramsMixin:
                 ),
             )
         if isinstance(expr, LetExprCall):
-            new_callee = value_subst.get(expr.callee, expr.callee)
-            if not isinstance(new_callee, str):
+            new_func = value_subst.get(expr.func, expr.func)
+            if not isinstance(new_func, str):
                 raise CompileError(
-                    f"let-expression callee {expr.callee!r} substituted to "
-                    f"non-string value {new_callee!r}",
-                    expr.line,
-                    expr.col,
+                    f"let-expression callee {expr.func!r} substituted to "
+                    f"non-string value {new_func!r}",
+                    0,
+                    0,
                 )
             return LetExprCall(
-                callee=new_callee,
+                func=new_func,
                 args=tuple(
-                    self._rename_let_expr(a, value_subst, rename) for a in expr.args
+                    self._rename_let_expr(a, value_subst, rename)
+                    for a in expr.args
                 ),
-                line=expr.line,
-                col=expr.col,
             )
         if isinstance(expr, LetExprIndex):
             new_arr = value_subst.get(expr.array, expr.array)
