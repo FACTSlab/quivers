@@ -36,7 +36,13 @@ from quivers.core.morphisms import (
     ObservedMorphism,
     morphism as make_latent,
 )
-from quivers.core.objects import EnumSet, FinSet, FreeMonoid, FreeResiduated
+from quivers.core.objects import (
+    EnumSet,
+    FinSet,
+    FreeMonoid,
+    FreeResiduated,
+    SetObject,
+)
 from quivers.dsl.ast_nodes import (
     AxisSpec,
     BundleDecl,
@@ -48,6 +54,7 @@ from quivers.dsl.ast_nodes import (
     SchemaDecl,
     TypeDecl,
     TypeEnumSet,
+    TypeExpr,
     TypeFreeMonoid,
     TypeFreeResiduated,
     TypeFromExpr,
@@ -143,7 +150,23 @@ def _apply_auto_init(morph, domain, codomain, algebra) -> None:
 
 
 class _DeclarationsMixin:
-    """Mixin: declaration-level compilation methods."""
+    """Mixin: declaration-level compilation methods.
+
+    The compiler base supplies every environment slot below; the
+    annotations let the type checker verify each access from a
+    mixin method.
+    """
+
+    _algebra: CompositionRule
+    _categories: list[str]
+    _rules: dict
+    _bundles: dict[str, tuple[str, ...]]
+    _aliases: dict[str, TypeExpr]
+    _alias_names: set[str]
+    _objects: dict[str, SetObject]
+    _spaces: dict[str, ContinuousSpace]
+    _morphisms: dict
+    _groups: dict[str, list[str]]
 
     # ------------------------------------------------------------------
     # composition
