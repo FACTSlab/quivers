@@ -102,7 +102,7 @@ class _DeductionsMixin:
         program bodies, producing a :class:`ChartView`.
         """
         if not hasattr(self, "_deductions"):
-            self._deductions: dict[str, "DeductionSystem"] = {}
+            self._deductions = {}
 
         globals_ = dict(getattr(self, "_deductions", {}))
         # The deduction's declared atomic + complex constructor
