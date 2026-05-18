@@ -32,7 +32,13 @@ from quivers.cli.repl_highlight import (
     to_semantic_token_data,
 )
 from quivers.cli.repl_session import Diagnostic, ReplSession
-from quivers.dsl.ast_nodes import MorphismDecl, ObjectDecl, SpaceDecl
+from quivers.dsl.ast_nodes import (
+    MorphismDecl,
+    TypeDecl,
+    TypeFromExpr,
+    TypeInitializer,
+)
+from quivers.continuous.spaces import ContinuousSpace
 from quivers.dsl.emit import module_to_source
 from quivers.lsp.document import DocumentState
 
@@ -488,10 +494,19 @@ def _prefix_at(source: str, line: int, character: int) -> str:
 
 
 def _symbol_kind(stmt: Any) -> lsp.SymbolKind:
-    if isinstance(stmt, ObjectDecl):
+    """Classify a top-level decl as a Class / Struct / Function symbol.
+
+    For a :class:`TypeDecl`, peek at the initializer's inner expression
+    to distinguish discrete objects (``Class``) from continuous spaces
+    (``Struct``). Unwrapped or aliased forms default to ``Class``.
+    """
+    if isinstance(stmt, TypeDecl):
+        init: TypeInitializer = stmt.init
+        if isinstance(init, TypeFromExpr):
+            from quivers.dsl.ast_nodes import ContinuousConstructor
+            if isinstance(init.expr, ContinuousConstructor):
+                return lsp.SymbolKind.Struct
         return lsp.SymbolKind.Class
-    if isinstance(stmt, SpaceDecl):
-        return lsp.SymbolKind.Struct
     if isinstance(stmt, MorphismDecl):
         return lsp.SymbolKind.Function
     return lsp.SymbolKind.Variable

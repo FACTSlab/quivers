@@ -21,10 +21,11 @@ from typing import Any, Literal
 
 from quivers.dsl import Compiler, CompileError, ParseError, parse
 from quivers.dsl.ast_nodes import (
-    AliasDecl,
     Module,
     Statement,
+    TypeDecl,
     TypeExpr,
+    TypeFromExpr,
 )
 from quivers.dsl.constraints import Violation, check_constraints
 
@@ -276,16 +277,19 @@ class ReplSession:
 
         probe = self._scratch_compiler()
 
-        # Path 1: type-level
+        # Path 1: type-level. Probe via a ``type __probe__ : <expr>``
+        # declaration, then re-resolve the inner expression through
+        # the scratch compiler so identifiers in scope land on the
+        # right object/space.
         try:
-            mod = parse(f"alias __probe__ = {expr_source}", file_path="<type>")
+            mod = parse(f"type __probe__ : {expr_source}", file_path="<type>")
         except ParseError:
             mod = None
         if mod is not None and mod.statements:
             stmt = mod.statements[0]
-            if isinstance(stmt, AliasDecl):
+            if isinstance(stmt, TypeDecl) and isinstance(stmt.init, TypeFromExpr):
                 try:
-                    obj = probe._resolve_type(stmt.type_expr)
+                    obj = probe._resolve_any_space(stmt.init.expr)
                     return _resp(
                         f"{expr_source} :: {_pretty_object(obj)}",
                         body_kind="qvr",
@@ -322,31 +326,29 @@ class ReplSession:
     def _type_line_for_morphism(self, name: str, morph: Any) -> str:
         """Render a morphism's signature in valid-QVR notation.
 
-        Mirroring the source's own declaration keyword (``latent`` /
-        ``observed`` / ``program`` / etc.) lets the QVR tree-sitter
-        grammar classify the domain/codomain identifiers as types so
-        the TUI's tokenizer paints them in the type colour. Falling
-        back to ``latent`` is safe: it produces a valid morphism decl
-        the grammar can parse for highlighting purposes only.
+        The unified ``morphism NAME : DOM -> COD [role=latent]`` form
+        is the only signature line that round-trips cleanly through
+        the QVR grammar without a body block, so the TUI's tokenizer
+        sees the dom and cod identifiers as type positions. The
+        binding's true role is surfaced by ``:info``.
         """
-        # `latent NAME : DOM -> COD` is the only universally-valid
-        # morphism signature in the QVR grammar: `program` requires a
-        # block body, `embed` / `discretize` / `let` use `=` rather
-        # than `: ... ->`. Falling through to `latent` for highlighting
-        # purposes keeps the grammar happy so domain AND codomain
-        # identifiers both classify as types. The binding's true
-        # declaration kind is shown by :info.
-        del self  # unused; kept on the instance for signature symmetry
-        return f"latent {name} : {_pretty_morphism(morph)}"
+        del self
+        return f"morphism {name} : {_pretty_morphism(morph)} [role=latent]"
 
     def kind_of(self, expr_source: str) -> ReplResponse:
         try:
-            mod = parse(f"alias __probe__ = {expr_source}", file_path="<kind>")
+            mod = parse(
+                f"type __probe__ : {expr_source}", file_path="<kind>"
+            )
         except ParseError as e:
             return _err(f"parse error: {e}")
-        if not mod.statements or not isinstance(mod.statements[0], AliasDecl):
+        if (
+            not mod.statements
+            or not isinstance(mod.statements[0], TypeDecl)
+            or not isinstance(mod.statements[0].init, TypeFromExpr)
+        ):
             return _err("expected a type expression")
-        texpr: TypeExpr = mod.statements[0].type_expr
+        texpr: TypeExpr = mod.statements[0].init.expr
         klass = type(texpr).__name__
         variants = sorted(cls.__name__ for cls in TypeExpr.__variants__.values())
         return _resp(
