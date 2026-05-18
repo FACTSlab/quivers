@@ -1,4 +1,3 @@
-\
 """Parse-time registry singleton, ParseError, and the _Tree view."""
 
 from __future__ import annotations

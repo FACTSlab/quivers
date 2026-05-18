@@ -1,4 +1,3 @@
-\
 """Walkers for type expressions, space expressions, morphism expressions,
 and let-arithmetic expressions."""
 

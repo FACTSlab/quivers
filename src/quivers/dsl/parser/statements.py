@@ -1,4 +1,3 @@
-\
 """Top-level statement dispatcher and every per-declaration walker."""
 
 from __future__ import annotations

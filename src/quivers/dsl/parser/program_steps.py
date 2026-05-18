@@ -1,4 +1,3 @@
-\
 """Walkers for program-block steps and program parameters."""
 
 from __future__ import annotations
@@ -14,8 +13,10 @@ from quivers.dsl.ast_nodes import (
     ProgramStep,
     ScalarParam,
     TypeExpr,
+    TypeName,
+    TypeProduct,
 )
-from quivers.dsl.parser._helpers import _required_text, _walk_options
+from quivers.dsl.parser._helpers import _required_text, _walk_draw_arg, _walk_options
 from quivers.dsl.parser._registry import ParseError, _Tree
 from quivers.dsl.parser.axes import _walk_axis_role_clause
 from quivers.dsl.parser.expressions import _walk_let_arith, _walk_type
@@ -208,30 +209,6 @@ def _walk_program_param(t: _Tree, vid: str) -> ProgramParam:
         )
     raise ParseError(f"unexpected program-param kind: {kk}")
 
-
-def _walk_draw_arg(t: _Tree, vid: str) -> str | float:
-    """Walk a family-argument into its compiler representation.
-
-    Identifiers and numeric literals are walked into their natural
-    Python values. A ``bracket_index_arg`` (e.g., ``theta[N]``) is
-    encoded as the string ``"theta[N]"`` — the compiler detects
-    the bracket and unpacks the section's name and index set when
-    resolving the argument at draw / observe time.
-    """
-    k = t.kind(vid)
-    if k == "identifier":
-        return t.text(vid)
-    if k == "signed_number":
-        return float(t.text(vid))
-    if k in ("integer", "float"):
-        return float(t.text(vid))
-    if k == "bracket_index_arg":
-        nv = t.field(vid, "name")
-        iv = t.field(vid, "index")
-        if nv is None or iv is None:
-            raise ParseError(f"bracket_index_arg malformed at {vid}")
-        return f"{t.text(nv)}[{t.text(iv)}]"
-    raise ParseError(f"unexpected draw arg kind: {k}")
 
 
 # -- top-level statements --

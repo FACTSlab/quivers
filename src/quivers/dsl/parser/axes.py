@@ -1,11 +1,10 @@
-\
 """Walkers for axis-role clauses and morphism priors."""
 
 from __future__ import annotations
 
 from quivers.dsl.ast_nodes import AxisSpec, MorphismPrior
 from quivers.dsl.parser._registry import _Tree
-from quivers.dsl.parser._helpers import _walk_options
+from quivers.dsl.parser._helpers import _required_text, _walk_draw_arg, _walk_options
 
 
 def _walk_axis_role_clause(t: _Tree, vid: str) -> AxisSpec:

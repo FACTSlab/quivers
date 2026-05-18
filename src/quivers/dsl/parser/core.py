@@ -1,4 +1,3 @@
-\
 """Top-level parse entry points and doc-comment attachment."""
 
 from __future__ import annotations
