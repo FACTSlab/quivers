@@ -47,23 +47,33 @@ from quivers.dsl.compiler._prelude import (
 
 
 class _ExpressionsMixin:
-    """Mixin: expression compilation methods."""
+    """Mixin: expression compilation methods.
+
+    The compiler base supplies every environment slot below; the
+    annotations let the type checker verify each access from a
+    mixin method.
+    """
+
+    _morphisms: dict
+    _transformations: dict
+    _output_expr: object
+    _exports: list
 
     def _compile_export(self, decl: ExportDecl) -> None:
         """Record an exported expression.
 
-        Replaces v0.4's single-output model: a module may declare
-        any number of ``export`` statements, each selecting a
-        top-level binding for the module's public surface. The
-        compiled output runner picks the first export; further
-        exports become additional accessible morphisms on the
-        compiled object.
+        A module may declare any number of ``export`` statements,
+        each selecting a top-level binding for the module's public
+        surface. The compiled output runner picks the first export;
+        further exports become additional accessible morphisms on
+        the compiled object.
         """
         if not hasattr(self, "_exports"):
             self._exports = []
         self._exports.append(decl.expr)
-        # Maintain backwards compatibility with internal helpers
-        # that consult `_output_expr`: the first export wins.
+        # The first export wins for the legacy single-output entry
+        # point that downstream helpers (``compile_env``,
+        # ``Program(root_morphism)``) consult.
         if self._output_expr is None:
             self._output_expr = decl.expr
 
