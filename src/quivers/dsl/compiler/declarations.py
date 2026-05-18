@@ -58,7 +58,6 @@ from quivers.dsl.compiler._options import (
     get_option_int,
     get_option_name,
     get_option_name_list,
-    has_option,
 )
 from quivers.dsl.compiler._prelude import (
     _ALGEBRA_REGISTRY,

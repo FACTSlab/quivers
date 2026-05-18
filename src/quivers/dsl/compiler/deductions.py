@@ -28,7 +28,6 @@ from quivers.stochastic.semiring import (
 )
 from quivers.dsl.compiler._options import (
     get_option_flag,
-    get_option_int,
     get_option_name,
 )
 from quivers.dsl.compiler._prelude import CompileError

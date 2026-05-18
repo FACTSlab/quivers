@@ -23,7 +23,6 @@ from quivers.dsl.ast_nodes import (
 )
 from quivers.dsl.compiler._options import (
     get_option_call,
-    get_option_float,
     get_option_int,
     get_option_name,
     get_option_value,
