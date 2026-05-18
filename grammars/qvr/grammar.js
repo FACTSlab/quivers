@@ -72,7 +72,7 @@ module.exports = grammar({
     // top level
     // -----------------------------------------------------------------
 
-    source_file: $ => repeat($._top),
+    source_file: $ => seq(repeat($._top), $._eof),
 
     /* Allow blank lines between top-level statements: the scanner
      * emits a NEWLINE for each, and we tolerate them here. */

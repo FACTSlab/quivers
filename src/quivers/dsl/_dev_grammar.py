@@ -116,8 +116,22 @@ def registry() -> object:
     lib_path = _build_shared_lib(grammar_dir)
 
     lib = ctypes.CDLL(str(lib_path))
+    # ``tree_sitter_qvr`` returns a ``const TSLanguage *`` (the
+    # tree-sitter language definition struct generated at build
+    # time). panproto's ``override_grammar`` takes this struct's
+    # address as ``language_ptr`` and transmutes it directly into
+    # a ``tree_sitter::Language``, so we declare the C return type
+    # explicitly as ``c_void_p`` (without this ctypes defaults to
+    # int / c_int, which truncates the 64-bit pointer to 32 bits
+    # on 64-bit platforms and yields nonsense to tree-sitter).
+    lib.tree_sitter_qvr.argtypes = []
     lib.tree_sitter_qvr.restype = ctypes.c_void_p
     language_ptr = lib.tree_sitter_qvr()
+    if not language_ptr:
+        raise RuntimeError(
+            "tree_sitter_qvr() returned NULL; the locally-built "
+            "parser dylib is malformed."
+        )
 
     grammar_json = (grammar_dir / "src" / "grammar.json").read_bytes()
     node_types = (grammar_dir / "src" / "node-types.json").read_bytes()

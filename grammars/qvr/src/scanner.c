@@ -39,13 +39,35 @@ bool tree_sitter_qvr_external_scanner_scan(
 ) {
     Scanner *scanner = (Scanner *)payload;
 
-    /* EOF token: emit once at end of input so the outer grammar can
-     * close any still-open blocks. */
-    if (lexer->eof(lexer) && valid_symbols[EOF_TOKEN]) {
-        lexer->result_symbol = EOF_TOKEN;
-        return true;
+    /* At true end of input we must make progress on every call or
+     * tree-sitter re-enters the scanner forever. Drain still-open
+     * blocks with DEDENTs first, then commit to EOF_TOKEN when it is
+     * a valid alternative (the outer ``source_file`` rule consumes
+     * it). Only if the parser explicitly does not accept EOF here
+     * do we fall back to a final NEWLINE; EOF_TOKEN being preferred
+     * over NEWLINE at end-of-input is what breaks the zero-width
+     * NEWLINE re-emission loop. */
+    if (lexer->eof(lexer)) {
+        if (valid_symbols[DEDENT] && scanner->indents.size > 1) {
+            array_pop(&scanner->indents);
+            lexer->result_symbol = DEDENT;
+            return true;
+        }
+        if (valid_symbols[EOF_TOKEN]) {
+            lexer->result_symbol = EOF_TOKEN;
+            return true;
+        }
+        if (valid_symbols[NEWLINE]) {
+            lexer->result_symbol = NEWLINE;
+            return true;
+        }
+        return false;
     }
 
+    /* Mark the start of the token: if we end up emitting a NEWLINE /
+     * INDENT / DEDENT we will move ``mark_end`` forward past the
+     * whitespace we consume so tree-sitter sees the token as
+     * spanning those bytes. */
     lexer->mark_end(lexer);
 
     bool found_end_of_line = false;
@@ -92,6 +114,14 @@ bool tree_sitter_qvr_external_scanner_scan(
     }
 
     if (found_end_of_line) {
+        /* Tree-sitter only consumes the bytes between the original
+         * position and ``mark_end``. Advance ``mark_end`` past the
+         * whitespace we just skipped so the emitted token actually
+         * spans the newline; otherwise tree-sitter treats it as a
+         * zero-width token and re-enters the scanner at the same
+         * position, producing an infinite loop. */
+        lexer->mark_end(lexer);
+
         if (scanner->indents.size > 0) {
             uint16_t current_indent_length = *array_back(&scanner->indents);
 
