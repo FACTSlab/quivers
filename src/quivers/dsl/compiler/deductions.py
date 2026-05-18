@@ -33,6 +33,7 @@ from quivers.dsl.compiler._options import (
 )
 from quivers.dsl.compiler._prelude import CompileError
 from quivers.dsl.compiler.programs import _ProgramsMixin
+from quivers.dsl.parser import parse as _parse_qvr
 
 
 # Category-side pattern carried by a lexicon entry: either a
@@ -455,18 +456,19 @@ class _DeductionsMixin:
                 # otherwise it's a bare identifier. Building the
                 # corresponding pattern directly:
                 if "(" in lf_text:
-                    # Parse the LF text as a let-arith expression
-                    # by wrapping it in a tiny synthetic program.
-                    from quivers.dsl.parser import parse as _parse
-
+                    # Parse the LF text as a let-arith expression by
+                    # wrapping it in a synthetic program whose body
+                    # contains a single let step bound to the LF.
                     syn_src = (
-                        "object _DummyObj : 1\n"
-                        "program _dummy_prog : _DummyObj -> _DummyObj\n"
-                        f"    _x <- _f\n"
+                        "type _DummyObj : 1\n"
+                        "morphism _f : _DummyObj -> _DummyObj "
+                        "[role=latent]\n"
+                        "program _dummy_prog : _DummyObj -> _DummyObj:\n"
+                        "    sample _x : _DummyObj <- _f\n"
                         f"    let _lex_lf = {lf_text}\n"
                         "    return _x\n"
                     )
-                    syn_mod = _parse(syn_src)
+                    syn_mod = _parse_qvr(syn_src.encode(), "<lex-lf>")
                     # The third statement is the program; its
                     # second step's value carries the parsed LF.
                     prog = next(

@@ -42,6 +42,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
+from quivers.arrows.typeclasses import ArrowApply, ArrowLoop
 from quivers.dsl.ast_nodes import (
     SchemaDecl,
     SchemaParameter,
@@ -50,6 +51,8 @@ from quivers.dsl.ast_nodes import (
     TypeProduct,
     TypeSlash,
 )
+from quivers.monadic.distributive_laws import DistributiveLaw
+from quivers.monadic.typeclasses import Alternative, Applicative, Monad
 
 
 if TYPE_CHECKING:
@@ -114,7 +117,7 @@ def _make_apply_schema(effect: object, base_schema: SchemaDecl) -> SchemaDecl:
         name=f"apply_{eff_name}_{base_schema.name}",
         parameters=(
             SchemaParameter(
-                names=("X", "Y",),
+                names=("X", "Y"),
                 type_expr=TypeName(name="Cat"),
             ),
         ),
@@ -148,7 +151,7 @@ def _make_bind_schema(effect: object, base_schema: SchemaDecl) -> SchemaDecl:
         name=f"bind_{eff_name}_{base_schema.name}",
         parameters=(
             SchemaParameter(
-                names=("X", "Y",),
+                names=("X", "Y"),
                 type_expr=TypeName(name="Cat"),
             ),
         ),
@@ -239,16 +242,6 @@ def class_directed_lifts(
         (Applicative) through strongest (MonadPlus + ArrowApply +
         ArrowLoop).
     """
-    from quivers.arrows.typeclasses import (
-        ArrowApply,
-        ArrowLoop,
-    )
-    from quivers.monadic.typeclasses import (
-        Alternative,
-        Applicative,
-        Monad,
-    )
-
     lifts: list[SchemaDecl] = []
 
     if isinstance(effect, Applicative):
@@ -293,8 +286,6 @@ def make_swap_schema(
     The schema is consumed by the chart's *commutation firing* rule
     of [Effects §4.4](../../semantics/effects.md#4-joint-type-and-effect-dispatch).
     """
-    from quivers.monadic.distributive_laws import DistributiveLaw
-
     if not isinstance(distributive_law, DistributiveLaw):
         raise TypeError(
             "make_swap_schema requires a DistributiveLaw instance; "
