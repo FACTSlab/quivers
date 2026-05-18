@@ -104,7 +104,22 @@ Per user direction, the entire homogenization ships as one PR off
 this branch. Internal commit ordering follows the layer cascade
 below so each step can be reviewed in `git log`:
 
-### Step 1 — surface change foundation (the grammar)
+### Step 0 — refactor foundation (DONE this session)
+
+Done in commits `9eaa1a2` and `9dead28`:
+
+- Factor `src/quivers/dsl/ast_nodes.py` (1968 lines) into an
+  `ast_nodes/` package with eight topic-keyed submodules. All public
+  names re-exported by `__init__.py`.
+- Factor `src/quivers/dsl/parser.py` (2282 lines) into a `parser/`
+  package with seven topic-keyed submodules. Same re-export pattern.
+- 98 cli/lsp/kernel tests still green; full suite passes when each
+  module is invoked individually.
+
+This refactor makes the next steps tractable by giving every layer
+a per-topic file to edit rather than one monolithic file.
+
+### Step 1 — surface-change foundation (the grammar)
 
 - Rewrite `grammars/qvr/grammar.js` end-to-end against moves 1–12.
 - Regenerate `parser.c`, `grammar.json`, `node-types.json`.
@@ -113,43 +128,82 @@ below so each step can be reviewed in `git log`:
 - Update the in-tree `_dev_grammar.py` build/cache invalidation.
 - Re-enable `QVR_USE_LOCAL_GRAMMAR=1` in CI and in dev workflow.
 - All other code still references the old AST; tests stay broken
-  until PR 2. Land PR 1 first so the grammar work is reviewable in
+  until Step 2. Land Step 1 first so the grammar work is reviewable in
   isolation.
+- Move #1 (indented blocks) likely requires writing an external
+  scanner (`scanner.c`) so tree-sitter can emit INDENT / DEDENT
+  tokens; without that the moves that drop braces won't parse
+  cleanly. Budget this as its own sub-step.
 
 ### Step 2 — AST + parser + compiler + emitter
 
-- Collapse `ast_nodes.py` to the new declaration set.
-- Rewrite `parser.py` walkers against the new tree-sitter node types.
+- Collapse `ast_nodes/declarations.py` to the new declaration set
+  (move #4 morphism keyword, move #3 composition keyword, move #8
+  type unification).
+- Rewrite `parser/statements.py` and `parser/expressions.py` walkers
+  against the new tree-sitter node types.
 - Rewrite `compiler/_compile_statement` dispatch and every
   per-statement handler.
 - Rewrite `emit.py` to round-trip the new AST.
 - Update `constraints.py`.
-- The Python tests will be massively broken; the goal of PR 2 is to
+- The Python tests will be massively broken; the goal of Step 2 is to
   get the library + library tests (`tests/test_compose.py`,
-  `tests/test_inference.py`, …) green against the new surface, using
-  hand-converted minimal QVR fragments. Doc-block tests stay broken.
+  `tests/test_inference.py`, ...) green against the new surface,
+  using hand-converted minimal QVR fragments. Doc-block tests stay
+  broken until Step 4.
 
-### Step 3 — examples + docs
+### Step 3 — REPL / LSP / Jupyter / editor extensions
 
-- Hand-rewrite every `docs/examples/source/*.qvr` (36 files).
-- Update every `docs/examples/*.md` page accordingly.
-- Walk every `docs/guides/*.md` and `docs/tutorials/**/*.md` for
-  ` ```qvr ` blocks; rewrite each.
-- Update `README.md`, `docs/index.md`,
-  `docs/getting-started/quickstart.md` hero examples.
-- Update `regression.qvr`.
-- `tests/test_doc_blocks.py` becomes the acceptance gate for this
-  PR.
-
-### Step 4 — REPL/LSP/Jupyter polish + final cleanup
+These cannot be migrated automatically; they need hand updates
+because the changes are to behaviour, not to syntax.
 
 - Extend the TUI's auto-indent trigger list and bracket-pairing for
   the new keywords.
-- Verify LSP semantic tokens use the new keyword set.
+- Update LSP semantic-tokens token-type mapping to the new keyword
+  set.
 - Update `editors/vscode-qvr/syntaxes/qvr.tmLanguage.json` and
   `editors/zed-extension-qvr` highlight queries.
+
+### Step 4 — panproto VCS setup + migration tooling + batch file migration
+
+This is the substitute for hand-editing every `.qvr` file and every
+fenced QVR code block in `docs/`. The VCS chain becomes the
+permanent migration record. See
+`[[qvr-migration-via-panproto-vcs]]` in memory for the rationale.
+
+1. Initialize a panproto VCS at `grammars/qvr/vcs/`. Commit the
+   directory.
+2. For every release that changed the QVR grammar starting from the
+   first release with a grammar, in release order, map that
+   release's grammar to a panproto schema language and commit it to
+   the VCS. We have no pre-0.10.0 `.qvr` files to migrate, but we
+   still record the historical grammars for posterity and so the
+   migration chain is complete.
+3. Map the new 0.11.0 grammar to a panproto schema; commit it.
+4. Build a `qvr migrate --from V1 --to V2` CLI on top of panproto's
+   Python bindings (or drop to Rust at `~/Projects/phrom/crates/` if
+   the Python bindings lack the batch / fence-aware operations we
+   need).
+5. Run the migration over every `.qvr` file in
+   `docs/examples/source/`, every fenced ` ```qvr ` block in `docs/`,
+   `regression.qvr`, and any `tests/data/*.qvr`. Verify each migrated
+   file parses + compiles + (for examples) still runs.
+6. Wire the migration tool into CI: every `.qvr` file and every
+   fenced QVR doc block must parse against the head-of-tree grammar
+   (or migrate cleanly to it) on every PR.
+
+### Step 5 — release
+
 - Bump version to **0.11.0**, write the changelog entry, cut the
   release.
+
+## Resumption point
+
+End of this session: Step 0 done; Step 1 not started. The grammar
+rewrite is the long-pole next chunk. Begin by drafting a clean
+`grammar.js` covering all 12 moves, then iterate via
+`tree-sitter generate` against a representative migrated `.qvr` file
+until the parse tree matches.
 
 ## What I'm asking before I start
 
