@@ -43,12 +43,14 @@ from quivers.core.objects import (
     FreeResiduated,
     SetObject,
 )
+from quivers.core.morphisms import Morphism
 from quivers.dsl.ast_nodes import (
     AxisSpec,
     BundleDecl,
     CategoryDecl,
     CompositionDecl,
     CompositionRuleEntry,
+    Expr,
     MorphismDecl,
     RuleDecl,
     SchemaDecl,
@@ -167,6 +169,22 @@ class _DeclarationsMixin:
     _spaces: dict[str, ContinuousSpace]
     _morphisms: dict
     _groups: dict[str, list[str]]
+
+    def _resolve_type(
+        self, texpr: TypeExpr, bind_name: str | None = None,
+    ) -> SetObject:
+        """Provided by :class:`_ResolutionMixin`."""
+        raise NotImplementedError
+
+    def _resolve_any_space(
+        self, texpr: TypeExpr,
+    ) -> SetObject | ContinuousSpace:
+        """Provided by :class:`_ResolutionMixin`."""
+        raise NotImplementedError
+
+    def _compile_expr(self, expr: Expr) -> Morphism:
+        """Provided by :class:`_ExpressionsMixin`."""
+        raise NotImplementedError
 
     # ------------------------------------------------------------------
     # composition
