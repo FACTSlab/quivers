@@ -16,12 +16,17 @@ from quivers.dsl.ast_nodes import (
     DecoderDecl,
     EncoderDecl,
     LossDecl,
+    OptionEntry,
+    OptionFlag,
+    OptionList,
     OptionName,
     OptionNumber,
     OptionString,
     SignatureDecl,
+    SortVocabLiteral,
 )
 from quivers.dsl.compiler._options import (
+    find_option,
     get_option_call,
     get_option_int,
     get_option_name,
@@ -53,6 +58,58 @@ from quivers.dsl.compiler._prelude import (
 )
 
 
+def _decode_vocab_option(
+    sig_name: str,
+    sort_name: str,
+    options: tuple[OptionEntry, ...],
+    line: int,
+    col: int,
+) -> tuple[SortVocabLiteral, ...]:
+    """Read the ``vocab=[...]`` option of a sort declaration.
+
+    Items may be string, integer, or float literals. Identifier
+    items are rejected: a vocabulary entry is a data value, not a
+    name. Returns an empty tuple when the option is absent.
+    """
+    entry = find_option(options, "vocab")
+    if entry is None:
+        return ()
+    v = entry.value
+    if not isinstance(v, OptionList):
+        raise CompileError(
+            f"signature {sig_name!r}: sort {sort_name!r}: vocab option "
+            f"must be a list, got {type(v).__name__}",
+            line,
+            col,
+        )
+    lits: list[SortVocabLiteral] = []
+    for item in v.items:
+        if isinstance(item, OptionString):
+            # ``OptionString.value`` carries the unescaped Python str;
+            # _decode_vocab_literal expects the surface-with-quotes
+            # form, so re-quote via ``repr`` of an str (single-quoted)
+            # then convert to a double-quoted literal.
+            text = '"' + item.value.replace('\\', '\\\\').replace('"', '\\"') + '"'
+            lits.append(SortVocabLiteral(kind="string", text=text))
+        elif isinstance(item, OptionNumber):
+            value = item.value
+            if value.is_integer():
+                lits.append(
+                    SortVocabLiteral(kind="integer", text=str(int(value)))
+                )
+            else:
+                lits.append(SortVocabLiteral(kind="float", text=repr(value)))
+        else:
+            raise CompileError(
+                f"signature {sig_name!r}: sort {sort_name!r}: vocab entries "
+                f"must be string, integer, or float literals; got "
+                f"{type(item).__name__}",
+                line,
+                col,
+            )
+    return tuple(lits)
+
+
 _ENCODER_FACTORY_REGISTRY: dict[str, str] = {
     # Encoder factory name (as users write it in ``using
     # <factory>``) → import path ``module:attribute`` resolved at
@@ -73,7 +130,7 @@ def _decode_loss_attachment(
 ) -> tuple[str, str | None, str | None]:
     """Decode the ``on=...`` option of a loss declaration into the
     triple ``(attachment_kind, target, rule_deduction)`` that
-    :class:`LossEntry` consumes.
+    `LossEntry` consumes.
 
     Surface forms accepted:
 
@@ -146,13 +203,13 @@ def _build_encoder_from_factory(decl: "EncoderDecl", sig) -> "Encoder":
     """Invoke a shipped encoder factory by name.
 
     Reads ``options["factory"]`` to pick a builder from
-    :data:`_ENCODER_FACTORY_REGISTRY`, then passes every other
+    `_ENCODER_FACTORY_REGISTRY`, then passes every other
     option entry as a keyword argument decoded through the
-    :class:`OptionValue` tagged union (identifier -> ``str``,
+    `OptionValue` tagged union (identifier -> ``str``,
     number -> ``int`` / ``float`` per the option's natural value,
     string literal -> ``str``).
 
-    Raises :class:`CompileError` for unknown factory names or for
+    Raises `CompileError` for unknown factory names or for
     builder kwargs the factory doesn't accept.
     """
     factory_name = get_option_name(
@@ -227,13 +284,13 @@ class _StructuralMixin:
     _loss_registry: "LossRegistry"
 
     def _compile_let_expr(self, body, globals_: dict) -> Callable:
-        """Provided by :class:`_ProgramsMixin`."""
+        """Provided by `_ProgramsMixin`."""
         raise NotImplementedError
 
     def _compile_signature(self, decl: SignatureDecl) -> None:
         """Register a signature declaration.
 
-        Builds a runtime :class:`quivers.structural.Signature` from
+        Builds a runtime [`quivers.structural.Signature`][quivers.structural.Signature] from
         the AST node, stashes it on ``self._signatures`` keyed by
         name. Performs sort coverage, codomain validity, and binder
         sort-consistency checks.
@@ -257,7 +314,13 @@ class _StructuralMixin:
                     s.line,
                     s.col,
                 )
-            if s.vocab and s.kind != "data":
+            s_dim = get_option_int(
+                s.options, "dim", line=s.line, col=s.col, default=None,
+            )
+            s_vocab_lits = _decode_vocab_option(
+                decl.name, s.name, s.options, s.line, s.col,
+            )
+            if s_vocab_lits and s.kind != "data":
                 raise CompileError(
                     f"signature {decl.name!r}: vocab clause is only valid "
                     f"on `data` sorts; sort {s.name!r} has kind {s.kind!r}",
@@ -266,7 +329,7 @@ class _StructuralMixin:
                 )
             vocab_entries: list[SortVocabEntry] = []
             seen_vals: set = set()
-            for lit in s.vocab:
+            for lit in s_vocab_lits:
                 value = _decode_vocab_literal(decl.name, s.name, lit)
                 if value in seen_vals:
                     raise CompileError(
@@ -280,7 +343,7 @@ class _StructuralMixin:
             sorts[s.name] = Sort(
                 name=s.name,
                 kind=s.kind,
-                dim=s.dim,
+                dim=s_dim,
                 vocab=tuple(vocab_entries),
             )
 
@@ -293,7 +356,10 @@ class _StructuralMixin:
                     v.line,
                     v.col,
                 )
-            vertex_kinds[v.name] = VertexKind(name=v.name, kind=v.kind, dim=v.dim)
+            v_dim = get_option_int(
+                v.options, "dim", line=v.line, col=v.col, default=None,
+            )
+            vertex_kinds[v.name] = VertexKind(name=v.name, kind=v.kind, dim=v_dim)
         edge_kinds: dict[str, EdgeKind] = {}
         for e in decl.edge_kinds:
             if e.name in edge_kinds:
@@ -1008,7 +1074,7 @@ class _StructuralMixin:
 
         Reads ``weight=<expr>`` and the ``on=<attachment>`` options
         out of the unified option block. ``on`` is a call-shaped
-        :class:`OptionValue`: ``program(NAME)`` / ``deduction(NAME)``
+        `OptionValue`: ``program(NAME)`` / ``deduction(NAME)``
         / ``encoder(NAME)`` / ``decoder(NAME)`` /
         ``rule(NAME, in=DEDUCTION)`` / ``chart(of=DEDUCTION)``. A
         bare ``[global]`` flag selects a module-level attachment.
@@ -1019,15 +1085,19 @@ class _StructuralMixin:
         globs = self._lex_globals_for_structural()
         body_fn = self._compile_let_expr(decl.body, globals_=globs)
         weight_value = get_option_value(decl.options, "weight")
-        weight_fn = None
+        weight_fn: Callable[[dict[str, object]], object] | None = None
         if weight_value is not None:
-            raise CompileError(
-                f"loss {decl.name!r}: ``weight`` must be a let-arithmetic "
-                "expression; surface representation pending unified "
-                "option block support for expressions.",
-                decl.line,
-                decl.col,
-            )
+            if not isinstance(weight_value, OptionNumber):
+                raise CompileError(
+                    f"loss {decl.name!r}: ``weight`` must be a numeric "
+                    f"literal, got {type(weight_value).__name__}",
+                    decl.line,
+                    decl.col,
+                )
+            _w = float(weight_value.value)
+
+            def weight_fn(_env: dict[str, object], _w: float = _w) -> float:
+                return _w
         attachment = _decode_loss_attachment(decl)
         self._loss_registry.add(
             LossEntry(

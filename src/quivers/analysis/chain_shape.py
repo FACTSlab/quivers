@@ -1,6 +1,6 @@
 """ChainShape: per-step metadata derived from a compiled QVR program.
 
-A :class:`ChainShape` walks a :class:`quivers.dsl.ast_nodes.Module`
+A `ChainShape` walks a [`quivers.dsl.ast_nodes.Module`][quivers.dsl.ast_nodes.Module]
 AST once and records, for every ``let`` / ``latent`` / ``observe`` /
 ``marginalize`` step inside the module's program block:
 
@@ -34,6 +34,7 @@ import didactic.api as dx
 from quivers.core.algebras import Algebra
 from quivers.dsl.ast_nodes import (
     CompositionDecl,
+    DiscreteConstructor,
     LetStep,
     MarginalizeStep,
     Module,
@@ -41,8 +42,8 @@ from quivers.dsl.ast_nodes import (
     ProgramDecl,
     ProgramStep,
     SampleStep,
-    TypeDecl,
-    TypeExpr,
+    ObjectDecl,
+    ObjectExpr,
     TypeFromExpr,
     TypeName,
 )
@@ -52,7 +53,7 @@ StepKind = Literal["latent", "observe", "marginalize", "let"]
 
 
 class StepShape(dx.Model):
-    """Per-step metadata derived by :class:`ChainShape`.
+    """Per-step metadata derived by `ChainShape`.
 
     Attributes
     ----------
@@ -86,7 +87,7 @@ class StepShape(dx.Model):
 
 
 class ChainShape(dx.Model):
-    """Sequence of :class:`StepShape` records for a program.
+    """Sequence of `StepShape` records for a program.
 
     Attributes
     ----------
@@ -115,7 +116,7 @@ class ChainShape(dx.Model):
 
     @property
     def algebra(self) -> Algebra | None:
-        """Resolve :attr:`algebra_name` against the algebra
+        """Resolve `algebra_name` against the algebra
         registry. Returns ``None`` if the name is unknown (e.g. a
         user-defined inline composition rule not registered)."""
         rule = _ALGEBRA_REGISTRY.get(self.algebra_name)
@@ -133,16 +134,16 @@ class ChainShape(dx.Model):
 
     @classmethod
     def from_module(cls, module: Module) -> "ChainShape":
-        """Build a :class:`ChainShape` from a compiled
-        :class:`Module` AST.
+        """Build a `ChainShape` from a compiled
+        `Module` AST.
 
         Walks the module's statement list, captures the algebra
-        name from any top-level :class:`CompositionDecl`, captures
-        every :class:`TypeDecl`'s numeric cardinality, then walks
-        the unique :class:`ProgramDecl`'s steps in source order.
-        :class:`MarginalizeStep` bodies are walked recursively;
+        name from any top-level `CompositionDecl`, captures
+        every `ObjectDecl`'s numeric cardinality, then walks
+        the unique `ProgramDecl`'s steps in source order.
+        `MarginalizeStep` bodies are walked recursively;
         their inner steps are recorded after the enclosing
-        :class:`MarginalizeStep`.
+        `MarginalizeStep`.
         """
         algebra_name = "product_fuzzy"
         cardinalities: dict[str, int] = {}
@@ -150,7 +151,7 @@ class ChainShape(dx.Model):
         for stmt in module.statements:
             if isinstance(stmt, CompositionDecl):
                 algebra_name = stmt.name
-            elif isinstance(stmt, TypeDecl):
+            elif isinstance(stmt, ObjectDecl):
                 cardinality = _type_decl_cardinality(stmt)
                 if cardinality is not None:
                     cardinalities[stmt.name] = cardinality
@@ -231,26 +232,33 @@ class ChainShape(dx.Model):
         )
 
 
-def _type_decl_cardinality(decl: TypeDecl) -> int | None:
-    """Read a numeric cardinality off a ``type X : N`` decl.
+def _type_decl_cardinality(decl: ObjectDecl) -> int | None:
+    """Read a numeric cardinality off an ``object X : FinSet N`` decl.
 
-    Returns ``None`` for non-numeric type forms (products, coproducts,
-    free monoids, residuated patterns, continuous spaces).
+    Returns ``None`` for non-numeric initialisers (continuous
+    spaces, free monoids, residuated patterns, enum sets).
     """
     init = decl.init
     if not isinstance(init, TypeFromExpr):
         return None
     expr = init.expr
-    if not isinstance(expr, TypeName):
-        return None
-    try:
-        return int(expr.name)
-    except ValueError:
-        return None
+    if isinstance(expr, DiscreteConstructor):
+        if expr.constructor != "FinSet" or len(expr.args) != 1:
+            return None
+        try:
+            return int(expr.args[0])
+        except ValueError:
+            return None
+    if isinstance(expr, TypeName):
+        try:
+            return int(expr.name)
+        except ValueError:
+            return None
+    return None
 
 
 def _index_size(
-    index: TypeExpr | None, cardinalities: dict[str, int],
+    index: ObjectExpr | None, cardinalities: dict[str, int],
 ) -> int | None:
     """Best-effort cardinality of a step's plate index.
 
