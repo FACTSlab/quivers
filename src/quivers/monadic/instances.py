@@ -1,15 +1,15 @@
 """Stdlib effect instances for the typeclass hierarchy.
 
-Each effect is a :class:`dx.Model` carrying any effect parameters
+Each effect is a `dx.Model` carrying any effect parameters
 (e.g. ``Continuation(answer)``) plus a concrete V-relation realisation
 of every typeclass operation it satisfies. Effects compose with
 arbitrary user-defined effects through the class-driven lifting
-machinery in :mod:`quivers.stochastic.effect_lifts`.
+machinery in [`quivers.stochastic.effect_lifts`][quivers.stochastic.effect_lifts].
 
-The constructions live in :mod:`quivers.core._factories` (coproduct
+The constructions live in `quivers.core._factories` (coproduct
 injections / case eliminators, product projections / pairings,
 parallel pairs, distributivity, terminal maps). Each operation is
-built as a concrete :class:`ObservedMorphism` over the appropriate
+built as a concrete `ObservedMorphism` over the appropriate
 SetObject; composition uses the underlying algebra through the
 ``>>`` operator and the factory helpers compose seamlessly.
 
@@ -17,7 +17,7 @@ Continuation, State, Reader, and Writer carry an extra typed
 parameter (the answer/state/environment/monoid). Their operations
 are realised through the standard V-Rel encodings: products for
 State/Writer, the function-space ``B^A`` (encoded as a finite
-:class:`FinSet`) for Reader/Continuation. Function-space cardinality
+`FinSet`) for Reader/Continuation. Function-space cardinality
 grows as ``|B|^|A|``, so large-cardinality instances should be
 applied at small carriers (typical in compositional-semantics
 applications).
@@ -66,12 +66,12 @@ from quivers.monadic.typeclasses import (
 
 
 def _function_space(domain: SetObject, codomain: SetObject) -> FinSet:
-    """Encode ``[A → B]`` as a :class:`FinSet` of cardinality ``|B|^|A|``.
+    """Encode ``[A → B]`` as a `FinSet` of cardinality ``|B|^|A|``.
 
     Each element is a *total function* ``A → B``, indexed by the
     flat enumeration of all such functions in row-major order over
     inputs. The bijection ``flat ↔ tuple-of-outputs`` is computed
-    by :func:`_decode_function`.
+    by `_decode_function`.
     """
     card = codomain.size**domain.size
     return FinSet(
@@ -97,7 +97,7 @@ def _evaluation_morphism(
 ) -> Morphism:
     """The evaluation morphism ``ev : [A → B] × A → B``.
 
-    Sends ``(f, a)`` to ``f(a)``. Realised as an :class:`ObservedMorphism`
+    Sends ``(f, a)`` to ``f(a)``. Realised as an `ObservedMorphism`
     whose tensor entry at ``(f_flat, a_flat, b_flat)`` is unit iff
     ``decode(f_flat)[a_flat] == b_flat``.
     """
@@ -455,8 +455,8 @@ class Continuation(dx.Model):
     ``Cont_ρ(A) = [A → ρ] → ρ`` realised as a finite SetObject of
     cardinality ``|ρ|^(|ρ|^|A|)``. For small ``A`` and ``ρ`` this is
     tractable; for larger carriers, use the algebraic-effect handler
-    of :mod:`quivers.monadic.algebraic` with the
-    :data:`ContinuationSignature` (see ``ContSignature`` in this
+    of [`quivers.monadic.algebraic`][quivers.monadic.algebraic] with the
+    `ContinuationSignature` (see ``ContSignature`` in this
     module).
     """
 
@@ -930,16 +930,16 @@ class Writer(dx.Model):
     """The writer monad over a chosen accumulator.
 
     The accumulator type ``M`` is a SetObject equipped with a
-    user-supplied :attr:`monoid_op` of type ``M × M → M`` and a
-    :attr:`unit_index` (the flat index of the monoid unit in ``M``).
+    user-supplied `monoid_op` of type ``M × M → M`` and a
+    `unit_index` (the flat index of the monoid unit in ``M``).
     For the default values, the implementation provides the *free
     commutative monoid* structure on ``M`` realised as element-wise
-    pairing; bind concatenates the accumulator side via :attr:`monoid_op`.
+    pairing; bind concatenates the accumulator side via `monoid_op`.
 
     The monoid operation defaults to the discrete-projection-to-first
     (the "max" of two elements under the standard order on the flat
     indices) — a valid monoid structure when one is not supplied;
-    users wanting a different monoid pass an :class:`ObservedMorphism`
+    users wanting a different monoid pass an `ObservedMorphism`
     of the right shape.
     """
 
@@ -949,7 +949,7 @@ class Writer(dx.Model):
     name: str = "Writer"
 
     def _op_lookup(self) -> dict[tuple[int, int], int]:
-        """Decode :attr:`monoid_op_tensor` into a lookup map.
+        """Decode `monoid_op_tensor` into a lookup map.
 
         When not supplied, defaults to ``max`` of flat indices, which
         is the standard order-monoid on a totally ordered finite set.
@@ -1059,7 +1059,7 @@ class List(dx.Model):
     """The list monad over a bounded length.
 
     ``List(A) = ∐_{k=0}^{max_length} A^k`` realised as a
-    :class:`FreeMonoid`. Operations: ``pure`` builds a singleton;
+    `FreeMonoid`. Operations: ``pure`` builds a singleton;
     ``join`` concatenates two lists; ``alt`` is concatenation; the
     monad-plus structure pairs the empty list as ``empty``.
     """
@@ -1070,7 +1070,7 @@ class List(dx.Model):
     def fmap_obj(self, A: SetObject) -> SetObject:
         """``List(A) = A*_{≤max_length}``.
 
-        When ``A`` is not a :class:`FinSet` (e.g. when computing
+        When ``A`` is not a `FinSet` (e.g. when computing
         ``List(List(B))``), re-encode it as a flat FinSet of equivalent
         cardinality. The bijection is given by the row-major flat
         enumeration of A's underlying state space, so all subsequent

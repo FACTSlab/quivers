@@ -64,7 +64,12 @@ Composition is **lazy**: it builds a computation graph. The final tensor is only
 Wrap a morphism as a differentiable `nn.Module` with `Program`:
 
 ```python
-from quivers import Program
+from quivers import FinSet, morphism, Program
+
+X = FinSet(name="X", cardinality=3)
+Y = FinSet(name="Y", cardinality=4)
+Z = FinSet(name="Z", cardinality=2)
+composed = morphism(X, Y) >> morphism(Y, Z)
 
 program = Program(composed)
 output = program()
@@ -115,7 +120,6 @@ program = MonadicProgram(
 
 x = torch.tensor([0, 1, 2])
 output = program.rsample(x)        # reparameterized samples, shape (3, 2)
-log_p = program.log_prob(x, output)  # log probability under the program
 ```
 
 ## 5. The DSL
@@ -123,13 +127,12 @@ log_p = program.log_prob(x, output)  # log probability under the program
 Write categorical programs declaratively in `.qvr` files:
 
 ```qvr
-algebra product_fuzzy
-object X : 3
-object Y : 4
-object Z : 2
-
-latent f : X -> Y
-latent g : Y -> Z
+composition product_fuzzy as algebra
+object X : FinSet 3
+object Y : FinSet 4
+object Z : FinSet 2
+morphism f : X -> Y [role=latent]
+morphism g : Y -> Z [role=latent]
 let composed = f >> g
 export composed
 ```
@@ -139,8 +142,7 @@ Load and run:
 ```python
 from quivers.dsl import load
 
-prog = load("program.qvr")
-output = prog()
+prog = load("docs/examples/source/bayesian_regression.qvr")
 ```
 
 Or use `loads` for inline strings:
@@ -149,12 +151,12 @@ Or use `loads` for inline strings:
 from quivers.dsl import loads
 
 source = """
-algebra product_fuzzy
-object X : 3
-object Y : 4
-object Z : 2
-latent f : X -> Y
-latent g : Y -> Z
+composition product_fuzzy as algebra
+object X : FinSet 3
+object Y : FinSet 4
+object Z : FinSet 2
+morphism f : X -> Y [role=latent]
+morphism g : Y -> Z [role=latent]
 let composed = f >> g
 export composed
 """
@@ -208,7 +210,7 @@ Work with more abstract categorical structures:
 
 ```python
 from quivers import (
-    FuzzyPowersetMonad, KleisliCategory, FinSet
+    FuzzyPowersetMonad, KleisliCategory, FinSet, morphism,
 )
 
 # Create a monad
@@ -249,7 +251,7 @@ GHCi-shaped meta-commands:
 
 ```
 qvr> :type seq2seq
-latent seq2seq : Source * Target -> Target
+morphism seq2seq : Source * Target -> Target [role=latent]
 
 qvr> :info backbone
 let backbone = (encoder @ decoder) >> cross

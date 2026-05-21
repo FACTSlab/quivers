@@ -2,8 +2,8 @@
 three principal compressible shapes — sequences, trees, graphs.
 
 The stdlib shapes are defined directly in Python on top of the
-generic :class:`~quivers.structural.Encoder` and
-:class:`~quivers.structural.Decoder` runtimes so users can both
+generic [`quivers.structural.Encoder`][quivers.structural.Encoder] and
+[`quivers.structural.Decoder`][quivers.structural.Decoder] runtimes so users can both
 import them as objects and inspect them. QVR's surface form for
 declaring these is unchanged — users write ``signature``,
 ``encoder``, ``decoder`` blocks; the shapes module provides

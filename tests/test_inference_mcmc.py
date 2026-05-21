@@ -103,9 +103,9 @@ def test_find_reasonable_step_size_returns_finite_positive() -> None:
 def _normal_normal_model():
     """y_i ~ N(mu, 1) with mu ~ N(0, 1). Posterior: N(N*y_bar/(N+1), 1/(N+1))."""
     return loads(
-        "object Obs : 20\n"
+        "object Obs : FinSet 20\n"
         "program p : Obs -> Obs\n"
-        "    mu <- Normal(0.0, 1.0)\n"
+        "    sample mu <- Normal(0.0, 1.0)\n"
         "    observe y : Obs <- Normal(mu, 1.0)\n"
         "    return mu\n"
         "export p\n"

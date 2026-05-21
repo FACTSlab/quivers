@@ -34,6 +34,7 @@ Surface coverage:
 """
 
 from __future__ import annotations
+import textwrap
 
 import numpy as np
 import pandas as pd
@@ -129,7 +130,7 @@ def _round_trip(formula: str, data, family: str = "gaussian"):
     """
     prog_ast, module, _, parsed = _compile_via_ast(formula, data, family)
     src = module_to_source(module)
-    prog_src = loads(src)
+    prog_src = loads(textwrap.dedent(src))
     return prog_ast, prog_src, src, parsed
 
 

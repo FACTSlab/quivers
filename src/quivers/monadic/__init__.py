@@ -1,7 +1,7 @@
 """Monadic structures: typeclass hierarchy, instances, transformers,
 algebraic effects, comonads, algebras, and distributive laws.
 
-The :class:`Monad` ABC lives in :mod:`typeclasses`. Concrete monad
+The `Monad` ABC lives in `typeclasses`. Concrete monad
 implementations (``FuzzyPowersetMonad``, ``FreeMonoidMonad``,
 ``GiryMonad``, etc.) subclass it directly and provide the
 ``fmap_obj`` / ``fmap`` / ``pure`` / ``apply`` / ``join`` operations.

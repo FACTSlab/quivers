@@ -55,7 +55,7 @@ Products represent the Cartesian product: elements are pairs. Coproducts are tag
 A free monoid on a generator set $G$ (truncated by length) represents all strings of length 0 through $n$:
 
 ```python
-from quivers.core.objects import FreeMonoid
+from quivers.core.objects import FinSet, FreeMonoid
 
 G = FinSet(name="letter", cardinality=26)
 FM = FreeMonoid(generators=G, max_length=3)
@@ -70,7 +70,7 @@ word = FM.decode(idx)          # back to tuple
 
 ## Algebras: Enrichment Algebras
 
-An [`Algebra`](../api/core/algebras.md) $(\mathcal{L}, \otimes, \bigvee, \bigwedge, \neg, I, \perp)$ is a carrier set with a monoidal product, a join, a meet, and a negation. It defines the structure in which morphism values live and how morphisms compose. The strict-quantale subclass (idempotent, tropical, log-additive cases) additionally satisfies $\bigvee$-distributivity over $\otimes$; see [Algebras §2](../semantics/algebras.md#2-order--and-structure-preservation).
+An [`Algebra`](../api/core/algebras.md) $(\mathcal{L}, \otimes, \bigvee, \bigwedge, \neg, I, \perp)$ is a carrier set with a monoidal product, a join, a meet, and a negation. It defines the structure in which morphism values live and how morphisms compose. The strict-quantale subclass (idempotent, tropical, log-additive cases) additionally satisfies $\bigvee$-distributivity over $\otimes$; see [Algebras §2](../semantics/algebras.md#2-order-and-structure-preservation).
 
 The six primitive operations:
 
@@ -185,7 +185,9 @@ tropical = TropicalAlgebra()
 Pass an algebra to a morphism to set its enrichment:
 
 ```python
+from quivers.core.objects import FinSet
 from quivers.core.morphisms import morphism
+from quivers.core.algebras import BOOLEAN, GodelAlgebra
 
 X = FinSet(name="X", cardinality=3)
 Y = FinSet(name="Y", cardinality=4)

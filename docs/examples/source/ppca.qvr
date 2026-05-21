@@ -1,45 +1,34 @@
-# ================================================================
 # Probabilistic Principal Component Analysis
-# ================================================================
 #
-# Probabilistic PCA (Tipping & Bishop 1999) factors a data matrix
-# Y : Item -> ObsDim through a low-rank loading matrix
-# W : LatentDim -> ObsDim and a per-item latent code
-# Z : Item -> LatentDim, so the model mean is the composition
+# Probabilistic PCA factors a data matrix through a low-rank
+# loading matrix and a per-item latent code, so the model mean
+# is a morphism composition under algebra real.
 #
-#     ppca = Z >> W : Item -> ObsDim.
+# Structural form:
 #
-# The loading matrix carries a matrix-normal prior via the
-# morphism-valued surface
+#   Z     : Item      -> LatentDim       per-item latent code
+#   W     : LatentDim -> ObsDim          matrix-normal loadings
+#   ppca  = Z >> W                       low-rank linear mean
 #
-#     latent W : LatentDim -> ObsDim
-#         ~ MatrixNormal(0.0, 1.0, 1.0) over (dom, cod)
+# The loading matrix carries a matrix-normal prior whose
+# Kronecker covariance V (x) U expresses independent row and
+# column correlation. The model is identifiable up to a K x K
+# orthogonal rotation of W; the maximum-likelihood W recovers
+# the leading-K principal components scaled by sqrt(lambda_k -
+# sigma^2).
 #
-# whose Kronecker covariance V (x) U expresses independent row
-# and column correlation. The per-item latent Z is a plain
-# learnable matrix; in classical PPCA its rows are standard
-# normal, recoverable here as a unit-scale init on Z.
-#
-# Working under `algebra real` makes the composition `Z >> W` a
-# real-valued matmul: the (Item, ObsDim) entry of the model
-# tensor is sum_k Z[i, k] * W[k, d], exactly the canonical PPCA
-# mean. The model is identifiable up to a K x K orthogonal
-# rotation of W; the maximum-likelihood W recovers the leading-K
-# principal components scaled by sqrt(lambda_k - sigma^2).
+# Reference: [Tipping and Bishop 1999](https://doi.org/10.1111/1467-9868.00196).
 
-algebra real
+composition real as algebra
 
-object LatentDim : 2
-object ObsDim : 3
-object Item : 200
+object LatentDim : FinSet 2
+object ObsDim : FinSet 5
+object Item : FinSet 64
 
-# Per-item latent code, K = 2 dimensions per Item.
-latent Z : Item -> LatentDim
+morphism Z : Item -> LatentDim [role=latent]
 
-# Loading matrix with a matrix-normal prior.
-latent W : LatentDim -> ObsDim ~ MatrixNormal(0.0, 1.0, 1.0) over (dom, cod)
+morphism W : LatentDim -> ObsDim [role=latent]
 
-# PPCA mean as composition: Z @ W under real-algebra matmul.
 let ppca = Z >> W
 
 export ppca

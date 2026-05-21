@@ -7,22 +7,23 @@ A continuous state-space model extends the HMM to continuous latent states and o
 ## QVR Source
 
 ```qvr
-type State = Euclidean 16
-type Obs = Euclidean 8
+object State : Real 16
+object Obs : Real 8
 
-kernel transition : State -> State ~ Normal [scale=0.1]
-kernel emission : State -> Obs ~ Normal [scale=0.1]
+morphism transition : State -> State [role=kernel, scale=0.1] ~ Normal
+morphism emission : State -> Obs [role=kernel, scale=0.1] ~ Normal
 
 program generative_step : State -> State
-    s_new <- transition
+    sample s_new <- transition
+
     observe o <- emission(s_new)
     return s_new
 
-kernel inference_cell : Obs * State -> State ~ Normal [scale=0.1]
+morphism inference_cell : Obs * State -> State [role=kernel, scale=0.1] ~ Normal
 
 let filter = scan(inference_cell)
 
-kernel decoder : State -> Obs ~ Normal [scale=0.1]
+morphism decoder : State -> Obs [role=kernel, scale=0.1] ~ Normal
 
 let filter_and_reconstruct = scan(inference_cell) >> decoder
 
@@ -32,29 +33,100 @@ export filter_and_reconstruct
 
 ## Walkthrough
 
-The type declarations introduce two Euclidean spaces: `State` (16-d latent) and `Obs` (8-d observed).
+`object State : Real 16` and `object Obs : Real 8` introduce the two Euclidean spaces: a 16-dimensional latent and an 8-dimensional observation.
 
-`kernel transition : State -> State ~ Normal [scale=0.1]` evolves the latent state by one time step, and `kernel emission : State -> Obs ~ Normal [scale=0.1]` projects a state to an observation. Both are differentiable Normal-conditional morphisms.
+`morphism transition : State -> State [role=kernel, scale=0.1] ~ Normal` evolves the latent state by one time step under a Normal kernel whose mean is a learned linear function of the previous state and whose prior scale is 0.1. `morphism emission : State -> Obs [role=kernel, scale=0.1] ~ Normal` projects a state to an observation under the same kernel family.
 
-`generative_step` is a one-step monadic program: bind a new state from `transition`, score the observation `o <- emission(s_new)` against the runtime observations dict, and return the new state. The program is exported alongside the inference pipeline so the file ships both directions over the same kernels. To unroll over time, this program is composed with itself via `repeat` or threaded through `scan`.
+`program generative_step : State -> State` is a one-step monadic program: `sample s_new <- transition` draws the new latent state from the transition kernel, `observe o <- emission(s_new)` scores an observation against the emission kernel, and `return s_new` projects the program's joint kernel onto the new state. To unroll over time, this single-step program is composed with itself via `repeat` or threaded through `scan`.
 
-`inference_cell : Obs * State -> State ~ Normal [scale=0.1]` is a recurrent cell that incorporates a new observation into the running state estimate. `let filter = scan(inference_cell)` constructs a temporal-recurrence morphism that threads state across a sequence of observations: for an input of shape `(batch, seq_len, obs_dim)`, it returns the final state estimate of shape `(batch, state_dim)`.
+`morphism inference_cell : Obs * State -> State [role=kernel, scale=0.1] ~ Normal` is a recurrent cell that incorporates a new observation into the running state estimate. `let filter = scan(inference_cell)` constructs a temporal-recurrence morphism that threads state across a sequence of observations.
 
-`decoder : State -> Obs ~ Normal [scale=0.1]` decodes a state back to observation space; composing `scan(inference_cell) >> decoder` produces `filter_and_reconstruct`, the exported pipeline that filters then reconstructs.
+`morphism decoder : State -> Obs [role=kernel, scale=0.1] ~ Normal` decodes a state back to observation space; `let filter_and_reconstruct = scan(inference_cell) >> decoder` composes the scan with the decoder so the exported pipeline filters and reconstructs in one composite.
 
-## DSL Features
+## Try it
 
-- **`scan(cell)`**: Threads hidden state across a sequence by repeatedly applying `cell : A * H -> H`. For an input of shape `(batch, seq_len, input_dim)`, returns the final hidden state of shape `(batch, hidden_dim)`.
-- **Bind operator `<-`**: The unique sampling-step sigil; samples from the right-hand morphism and binds the result.
-- **`observe v <- F(args)`**: Conditions the computation on an externally-supplied value via the runtime `observations` dict. Dual of sampling.
-- **`kernel ... ~ Family` declaration**: Marks morphisms as differentiable, enabling reparameterization for gradient-based learning.
+> The SVI step counts and NUTS warmup, sample, and chain budgets in the snippets below are illustrative: each block is sized to run in tens of seconds and demonstrate the API surface. Production fits typically need 10x to 100x more SVI steps, longer NUTS warmup, and multiple chains to actually converge to the data-generating parameters.
 
-## Python Usage
 
-<!-- TODO: add working Python usage example -->
+### Generating synthetic data
+
+Pick ground-truth linear dynamics for the latent state and a random emission matrix, then forward-sample a trajectory of latent states and observations of length `T`. The single-step program `generative_step : State -> State` reads the previous state as input; the per-step pair `(s_new, o)` is supplied as the observation dict.
+
+```python
+import torch
+from quivers.dsl import load
+
+torch.manual_seed(0)
+prog = load("docs/examples/source/continuous_hmm.qvr")
+model = prog.morphism
+
+T = 32
+state_dim = 16
+obs_dim = 8
+A = 0.9 * torch.eye(state_dim)
+C = 0.3 * torch.randn(obs_dim, state_dim)
+s = torch.zeros(T + 1, state_dim)
+o = torch.zeros(T, obs_dim)
+for t in range(T):
+    s[t + 1] = s[t] @ A.T + 0.1 * torch.randn(state_dim)
+    o[t] = s[t + 1] @ C.T + 0.1 * torch.randn(obs_dim)
+state_prev = s[:T]
+sites = {"s_new": s[1:T + 1], "o": o}
+```
+
+### SVI fit
+
+The exported program is a single-step [`MonadicProgram`](../api/monadic/monads.md) with no explicit priors on the kernel parameter networks; [`bayesian_lift_parameters`](../api/inference/lifts.md#quivers.inference.lifts.bayesian_lift_parameters) lifts each leaf parameter into a unit-Normal sample site so [`AutoNormalGuide`](../api/inference/guide.md#quivers.inference.guides.AutoNormalGuide) can build a mean-field surrogate. With both `s_new` and `o` observed, the ELBO is the parameter-marginal log-likelihood of the full trajectory.
+
+```python
+from quivers.inference import bayesian_lift_parameters
+from quivers.inference import AutoNormalGuide, ELBO, SVI
+
+torch.manual_seed(1)
+prog = load("docs/examples/source/continuous_hmm.qvr")
+inner = prog.morphism
+model, x_lift, obs_lift = bayesian_lift_parameters(
+    inner, state_prev, sites, prior_scale=1.0,
+)
+
+guide = AutoNormalGuide(model, observed_names={"s_new", "o"})
+optim = torch.optim.Adam(
+    list(model.parameters()) + list(guide.parameters()), lr=1e-2,
+)
+svi = SVI(model, guide, optim, ELBO())
+
+loss0 = svi.step(x_lift, obs_lift)
+losses = [svi.step(x_lift, obs_lift) for _ in range(300)]
+loss_final = sum(losses[-20:]) / 20.0
+oracle_ll = inner.log_joint(state_prev, sites).sum().item()
+print(f"initial ELBO loss: {loss0:.1f}")
+print(f"final ELBO loss:   {loss_final:.1f}")
+print(f"oracle -log p:     {-oracle_ll:.1f}")
+```
+
+### NUTS posterior
+
+The lifted model exposes one Normal sample site per leaf parameter; [`NUTSKernel`](../api/inference/mcmc.md#quivers.inference.mcmc.NUTSKernel) samples them directly under small warmup and sample budgets.
+
+```python
+from quivers.inference import MCMC, NUTSKernel
+
+torch.manual_seed(2)
+prog = load("docs/examples/source/continuous_hmm.qvr")
+model, x_lift, obs_lift = bayesian_lift_parameters(
+    prog.morphism, state_prev, sites, prior_scale=1.0,
+)
+
+kernel = NUTSKernel(step_size=0.05, max_tree_depth=3, target_accept=0.8)
+mc = MCMC(kernel, num_warmup=15, num_samples=15, num_chains=1)
+result = mc.run(model, x_lift, obs_lift)
+
+print("acceptance:", float(result.acceptance_rates.mean()))
+print("divergences:", int(result.divergence_counts.sum()))
+```
 
 ## Categorical Perspective
 
 The `scan` combinator implements Kleisli composition threaded through time. Given a step morphism $f : S \to S$ in the Kleisli category (where $S$ carries both state and noise), `scan` produces the $n$-fold composition $f^n$ while collecting all intermediate results. Because Kleisli composition is associative, the computation decomposes into local single-step updates, which is why online/streaming inference works: each filtering step depends only on the previous belief and the current observation, not on the full history.
 
-The generative and filtering programs apply the same underlying morphisms (`state_transition`, `observation_function`) but differ in direction. The generative process composes $* \to S$ (initial state) with the step morphism to produce states and observations. The filtering process takes observations as input and uses `observe` to invert the observation morphism, recovering a posterior over states. This inversion is Bayes' rule expressed as conditioning in the Kleisli category, and the `scan` combinator threads it through the full sequence.
+The generative program `generative_step` and the filtering pipeline `filter_and_reconstruct` are built from the same underlying kernels but run in opposite directions: the generative path threads the `transition` and `emission` morphisms forward to produce states and observations, while the filtering path threads `inference_cell` over the observed sequence and uses `observe` to invert the observation morphism. The inversion is Bayes' rule expressed as conditioning in the Kleisli category, and the `scan` combinator threads it through the full sequence.

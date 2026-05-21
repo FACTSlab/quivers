@@ -52,6 +52,7 @@ A trace records all stochastic operations in a program. Each sample
 point is a
 [`SampleSite`](../api/inference/trace.md#quivers.inference.trace.SampleSite).
 
+<!-- python: skip -->
 ```python
 from quivers.inference import trace, Trace, SampleSite
 
@@ -80,6 +81,7 @@ The
 [`condition()`](../api/inference/conditioning.md#quivers.inference.conditioning.condition)
 function clamps observations, fixing certain variables:
 
+<!-- python: skip -->
 ```python
 from quivers.inference import condition, Conditioned
 
@@ -111,17 +113,18 @@ environment as deterministic values, visible to `let`-expression
 evaluation. This is the canonical hook for per-row covariate or
 index arrays used in hierarchical regression:
 
+<!-- python: skip -->
 ```python
 import torch
 from quivers.dsl import loads
 from quivers.inference import condition
 
 model = loads('''
-object Subj : 4
-object Resp : 12
+object Subj : FinSet 4
+object Resp : FinSet 12
 
 program p : Resp -> Resp
-    by_subj : Subj <- Normal(0.0, 1.0)
+    sample by_subj : Subj <- Normal(0.0, 1.0)
     let mu = by_subj[subj_idx]
     observe r : Resp <- Normal(mu, 1.0)
     return r
@@ -147,6 +150,7 @@ missing the runtime raises a clear `KeyError`.
 
 Enable tracing to inspect sites and log probabilities:
 
+<!-- python: skip -->
 ```python
 from quivers.inference import trace
 

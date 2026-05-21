@@ -1,53 +1,40 @@
-# ================================================================
 # Bayesian Linear Network for Per-Item Classification Scores
-# ================================================================
 #
-# A linear Bayesian network with three weight matrices, expressed
-# entirely as a morphism composition in the real algebra:
+# A linear Bayesian network with three weight matrices expressed
+# entirely as a morphism composition under algebra real. The
+# per-item input morphism X : Item -> H_in carries the data;
+# the final composite scores each Item under H_out output
+# channels.
 #
-#     bnn = X >> W_1 >> W_2 >> W_3 : Item -> H_out.
+# Structural form:
+#
+#   X    : Item -> H_in              per-item input
+#   W_1  : H_in -> H1                matrix-normal weight
+#   W_2  : H1   -> H2                matrix-normal weight
+#   W_3  : H2   -> H_out             matrix-normal weight
+#   bnn  = X >> W_1 >> W_2 >> W_3    composed linear chain
 #
 # Each weight tensor is a learnable morphism whose prior is a
 # matrix-normal over its (in, out) Kronecker covariance, the
-# natural prior for a linear layer (MacKay 1992). The per-item
-# input morphism X : Item -> H_in carries the data; the final
-# composite scores each Item under H_out output channels.
-#
-# Each per-layer declaration
-#
-#     latent W_l : H_in_l -> H_out_l
-#         ~ MatrixNormal(0.0, 1.0, 1.0) over (dom, cod)
-#
-# binds row and column axes positionally to the matrix-normal
-# family's event axes.
-#
-# Limitation. QVR's morphism composition under `algebra real` is
-# strictly linear: there is no pointwise nonlinearity between
-# composed weight matrices, and no stochastic observation kernel
-# on top of the discrete codomain H_out. The model surface
-# expressed here is therefore a Bayesian *linear* network, with
-# matrix-normal priors on every layer's tensor. A deep nonlinear
-# MLP with Bayesian weights is not currently expressible as a
-# pure latent-morphism composition; the closest categorical form
-# is the per-layer matrix factor expressed here.
+# natural prior for a linear layer. Composition under algebra
+# real is strictly linear: there is no pointwise nonlinearity
+# between composed weight matrices, so the surface expressed
+# here is a Bayesian linear network rather than a deep MLP.
 
-algebra real
+composition real as algebra
 
-object Item : 200
-object H_in : 4
-object H1 : 32
-object H2 : 16
-object H_out : 2
+object Item : FinSet 200
+object H_in : FinSet 4
+object H1 : FinSet 32
+object H2 : FinSet 16
+object H_out : FinSet 2
 
-# Per-item input matrix.
-latent X : Item -> H_in
+morphism X : Item -> H_in [role=latent]
 
-# Matrix-normal priors on the three weight tensors.
-latent W_1 : H_in -> H1 ~ MatrixNormal(0.0, 1.0, 1.0) over (dom, cod)
-latent W_2 : H1 -> H2 ~ MatrixNormal(0.0, 1.0, 1.0) over (dom, cod)
-latent W_3 : H2 -> H_out ~ MatrixNormal(0.0, 1.0, 1.0) over (dom, cod)
+morphism W_1 : H_in -> H1 [role=latent]
+morphism W_2 : H1 -> H2 [role=latent]
+morphism W_3 : H2 -> H_out [role=latent]
 
-# Per-item output scores as the composed linear chain.
 let bnn = X >> W_1 >> W_2 >> W_3
 
 export bnn

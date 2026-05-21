@@ -15,14 +15,11 @@
 # geometry over (mu, tau, theta) is preserved.
 #
 # Tier-2 hierarchical-Bayes stress for mean-field VI.
-
-object School : 8
-
+object School : FinSet 8
 program eight_schools_centered : School -> School
-    mu <- Normal(0.0, 10.0)
-    tau <- HalfCauchy(5.0)
-    theta : School <- Normal(mu, tau)
+    sample mu <- Normal(0.0, 10.0)
+    sample tau <- HalfCauchy(5.0)
+    sample theta : School <- Normal(mu, tau)
     observe y : School <- Normal(theta, 12.0)
     return theta
-
 export eight_schools_centered

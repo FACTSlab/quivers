@@ -1,35 +1,31 @@
-# ================================================================
 # Bayesian Change-Point Detection
-# ================================================================
 #
 # A canonical Bayesian change-point model with a single switch
-# in the rate of a Poisson series ([Carlin, Gelfand, and Smith
-# 1992](https://doi.org/10.2307/2347570)). The classical
-# application is the coal-mining disaster series of British
-# coal mines: the rate of accidents per year drops at an
-# unknown change-point tau.
+# in the rate of a Poisson series. The classical application is
+# the coal-mining disaster series: the rate of accidents per
+# year drops at an unknown change-point tau.
 #
-#   tau          ~ Uniform(0, T)        change-point time
-#   rate_before  ~ Gamma(2, 1)          rate before tau
-#   rate_after   ~ Gamma(2, 1)          rate after tau
-#   s            = sigmoid(20 * (t - tau))    soft indicator
-#   rate_t       = (1 - s) * rate_before + s * rate_after
-#   y_t          ~ Poisson(rate_t)
+# Generative structure:
 #
-# The soft-indicator parameterisation `s = sigmoid(k * (t - tau))`
-# (with k = 20) is a differentiable relaxation of the indicator
-# `1{t > tau}` that lets gradient-based variational inference
-# fit the change-point location directly. Hard change-points
-# require integer-valued tau and a per-tau marginalization,
-# which is also expressible in the DSL via a discrete
-# `marginalize` over a Tau-axis.
+#   tau          ~ Uniform(0, T)                  change-point time
+#   rate_before  ~ Gamma(2, 1)                    rate before tau
+#   rate_after   ~ Gamma(2, 1)                    rate after tau
+#   y_t          ~ Poisson(rate_t)                rate_t = soft switch
+#
+# The soft-indicator parameterisation s = sigmoid(20 * (t - tau))
+# is a differentiable relaxation of 1{t > tau} that lets
+# gradient-based variational inference fit the change-point
+# location directly. Hard change-points require integer-valued
+# tau and a per-tau marginalize over a Tau-axis.
+#
+# Reference: [Carlin, Gelfand, and Smith 1992](https://doi.org/10.2307/2347570).
 
-object Step : 100
+object Step : FinSet 100
 
 program changepoint : Step -> Step
-    tau <- Uniform(0.0, 100.0)
-    rate_before <- Gamma(2.0, 1.0)
-    rate_after <- Gamma(2.0, 1.0)
+    sample tau <- Uniform(0.0, 100.0)
+    sample rate_before <- Gamma(2.0, 1.0)
+    sample rate_after <- Gamma(2.0, 1.0)
 
     let s = sigmoid(20.0 * (t - tau))
     let rate = (1.0 - s) * rate_before + s * rate_after

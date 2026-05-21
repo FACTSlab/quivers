@@ -1,8 +1,8 @@
 """Pygments lexer for the QVR domain-specific language.
 
 The lexer drives on the in-tree tree-sitter parser (loaded via the
-:mod:`quivers.dsl._dev_grammar` shim) so it always reflects the
-authoritative grammar — there is no regex approximation. When the
+[`quivers.dsl._dev_grammar`][quivers.dsl._dev_grammar] shim) so it always reflects the
+authoritative grammar; there is no regex approximation. When the
 shared library cannot be built, lexer construction raises with a
 typed diagnostic so the failure is visible at the rendering site
 rather than silently producing a degraded highlight.
@@ -38,193 +38,50 @@ from pygments.token import (
 )
 
 from quivers.dsl._dev_grammar import _build_shared_lib, _grammar_dir
+from quivers.dsl._grammar_introspection import (
+    BUILTIN_FUNCTIONS as _GRAMMAR_BUILTIN_FUNCTIONS,
+    BUILTIN_TYPES as _GRAMMAR_BUILTIN_TYPES,
+    KEYWORDS as _GRAMMAR_KEYWORDS,
+    OPERATORS as _GRAMMAR_OPERATORS,
+)
 
 
 # ---------------------------------------------------------------------------
-# tree-sitter node-kind → Pygments token mapping
+# tree-sitter node-kind => Pygments token mapping
 # ---------------------------------------------------------------------------
+#
+# The keyword / operator / builtin sets below are derived from the
+# authoritative grammar JSON (see ``_grammar_introspection``) so a grammar
+# edit propagates here automatically. The only hand-curated set is
+# `_EFFECT_TOKENS`: effects ride as identifier values inside
+# ``[effects=[...]]`` option blocks rather than as grammar literals, so
+# the grammar walker has no way to surface them.
 
+_EFFECT_TOKENS = frozenset({"Pure", "Sample", "Score", "Marginal"})
 
-_KEYWORD_TOKENS = {
-    # module-level declaration keywords
-    "algebra",
-    "semigroupoid",
-    "bilinear_form",
-    "composition_rule",
-    "contraction",
-    "category",
-    "rule",
-    "schema",
-    "object",
-    "alias",
-    "bundle",
-    "let",
-    "output",
-    "export",
-    "where",
-    "type",
-    "space",
-    "kernel",
-    "discretize",
-    "embed",
-    "program",
-    "latent",
-    "observed",
-    # program-block step keywords
-    "observe",
-    "return",
-    "marginalize",
-    "in",
-    "for",
-    # effect signature keywords
-    "Pure",
-    "Sample",
-    "Score",
-    "Marginal",
-    "over",
-    "iid",
-    "via",
-    # contraction declaration body keywords
-    "wiring",
-    # deduction blocks
-    "deduction",
-    "atoms",
-    "semiring",
-    "start",
-    "depth",
-    "lexicon",
-    "from",
-    "with",
-    "axioms",
-    "learnable",
-    "signature",
-    "compressor",
-    # structural-compression blocks
-    "sorts",
-    "constructors",
-    "binders",
-    "vertex_kinds",
-    "edge_kinds",
-    "binds",
-    "dim",
-    "vocab",
-    "encoder",
-    "decoder",
-    "loss",
-    "weight",
-    "on",
-    "of",
-    "chart",
-    # encoder body shapes / slots
-    "iterations",
-    "readout",
-    "init",
-    "message",
-    "update",
-    "var_init",
-    "as",
-    "recurrent",
-    "attention",
-    # decoder body slots
-    "structure",
-    "primitive",
-    "factor",
-    "binder_select",
-    "body",
-    "recursive",
-    # sort-kind tokens
-    "data",
-    "index",
-}
+# Algebra / semiring identifiers carried by option-block values (e.g.
+# ``[semiring=LogProb]``) and the composition-level head. These too live
+# in option-entry value position, so they don't surface as grammar
+# literals; the registry below mirrors the runtime registry.
+_ALGEBRA_NAMES = frozenset(
+    {
+        "product_fuzzy",
+        "boolean",
+        "lukasiewicz",
+        "godel",
+        "tropical",
+        "LogProb",
+        "Boolean",
+        "Viterbi",
+        "Counting",
+        "ProductFuzzy",
+    }
+)
 
-_BUILTIN_FUNCTION_TOKENS = {
-    # morphism combinators
-    "identity",
-    "fan",
-    "repeat",
-    "stack",
-    "scan",
-    "parser",
-    "ccg",
-    "lambek",
-    "chart_fold",
-    "parse",
-    "curry_right",
-    "curry_left",
-    # object constructors
-    "FreeResiduated",
-    "FreeMonoid",
-    # let-expression builtins
-    "sigmoid",
-    "exp",
-    "log",
-    "abs",
-    "softplus",
-    "cumsum",
-    "softmax",
-    "log1p",
-    "sqrt",
-    "neg",
-    "length",
-    "map",
-    "filter",
-    "fold",
-    "logsumexp",
-    "logsumexp_over",
-    "cholesky_quad_form",
-}
-
-_BUILTIN_TYPE_TOKENS = {
-    "Euclidean",
-    "Simplex",
-    "PositiveReals",
-    "UnitInterval",
-    "ProductSpace",
-    "CholeskyFactor",
-    # program-parameter type tags
-    "FinSet",
-    "Real",
-    "Mor",
-}
-
-_ALGEBRA_NAMES = {
-    "product_fuzzy",
-    "boolean",
-    "lukasiewicz",
-    "godel",
-    "tropical",
-    # semiring names used by `deduction { semiring … }`
-    "LogProb",
-    "Boolean",
-    "Viterbi",
-    "Counting",
-    "ProductFuzzy",
-}
-
-_OPERATOR_TOKENS = {
-    "->",
-    "=>",
-    "<-",
-    ">>",
-    "<<",
-    ">=>",
-    "~",
-    "@",
-    "*",
-    "+",
-    "/",
-    "\\",
-    "=",
-    # deduction-rule sequent arrow
-    "|-",
-    "⊢",
-    # encoder / decoder body arrow
-    "|->",
-    # effect signature marker
-    "!",
-    # graph undirected-edge arrow
-    "--",
-}
+_KEYWORD_TOKENS = _GRAMMAR_KEYWORDS
+_BUILTIN_FUNCTION_TOKENS = _GRAMMAR_BUILTIN_FUNCTIONS
+_BUILTIN_TYPE_TOKENS = _GRAMMAR_BUILTIN_TYPES
+_OPERATOR_TOKENS = _GRAMMAR_OPERATORS | {"!"}
 
 
 def _node_kind_to_pygments_token(
@@ -235,6 +92,10 @@ def _node_kind_to_pygments_token(
         return Comment.Doc
     if kind == "line_comment":
         return Comment.Single
+    if kind == "block_comment":
+        return Comment.Multiline
+    if kind in {"pragma_outer", "pragma_inner"}:
+        return Name.Decorator
     if kind == "integer":
         return Number.Integer
     if kind == "float":
@@ -251,14 +112,15 @@ def _node_kind_to_pygments_token(
             return Name.Builtin
         if text in _BUILTIN_TYPE_TOKENS:
             return Name.Class
+        if text in _EFFECT_TOKENS:
+            return Keyword
         if text in _ALGEBRA_NAMES:
             return String.Symbol
         if parent_kind in {
-            "type_atom",
-            "type_effect_apply",
-            "space_atom",
-            "space_constructor",
-            "space_constructor_bare",
+            "object_atom",
+            "object_effect_apply",
+            "discrete_constructor",
+            "continuous_constructor",
             "sort_decl",
             "constructor_decl",
             "binder_decl",
@@ -266,8 +128,11 @@ def _node_kind_to_pygments_token(
             "binder_arg_decl",
             "vertex_kind_decl",
             "edge_kind_decl",
+            "morphism_init_family",
         }:
             return Name.Class
+        if parent_kind in {"pragma_entry", "pragma_outer", "pragma_inner"}:
+            return Name.Decorator
         if parent_kind == "schema_parameter":
             return Name.Variable
         if parent_kind in {"enum_set_literal"}:
@@ -279,6 +144,12 @@ def _node_kind_to_pygments_token(
         return Punctuation
     if kind in _KEYWORD_TOKENS:
         return Keyword
+    # Anonymous tokens (constructors / builtin function heads) come
+    # through with the literal text as their node kind.
+    if kind in _BUILTIN_TYPE_TOKENS:
+        return Name.Class
+    if kind in _BUILTIN_FUNCTION_TOKENS:
+        return Name.Builtin
     return Text
 
 
@@ -329,7 +200,7 @@ class QvrLexer(Lexer):
 
     The lexer is a thin walker over the in-tree tree-sitter parse;
     the grammar is the single source of truth. There is no regex
-    approximation — when the shared library can't be built, the
+    approximation: when the shared library can't be built, the
     lexer raises a typed exception so the failure is visible at
     the rendering site rather than silently emitting a degraded
     highlight.

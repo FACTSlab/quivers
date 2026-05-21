@@ -25,6 +25,7 @@ Together these tests close the verification gap between the
 """
 
 from __future__ import annotations
+import textwrap
 
 import os
 
@@ -55,19 +56,18 @@ def _two_class_mixture_model() -> str:
     the data-generating distribution; the marginalize block
     integrates the discrete class out and SVI fits ``mu_shift``."""
     return """
-    object Item : 4
-    object Resp : 8
-    object Class : 2
+    composition log_prob as algebra
+
+    object Item : FinSet 4
+    object Resp : FinSet 8
+    object Class : FinSet 2
 
     program two_class_mix : Resp -> Resp
-        probs : Class <- HalfNormal(1.0)
-        idx : Resp <- HalfNormal(1.0)
-        mu_shift <- Normal(0.0, 1.0)
-        marginalize cls : Class <- Dirichlet(probs)
-            over Item
-            in {
-                observe r : Resp via idx <- Normal(mu_shift, 1.0)
-            }
+        sample probs : Class <- HalfNormal(1.0)
+        sample idx : Resp <- HalfNormal(1.0)
+        sample mu_shift <- Normal(0.0, 1.0)
+        marginalize cls : Class <- Dirichlet(probs) [over=Item]
+            observe r : Resp <- Normal(mu_shift, 1.0) [via=idx]
         return mu_shift
     export two_class_mix
     """
@@ -78,7 +78,7 @@ def test_grouped_marginalize_model_compiles_with_continuous_latent() -> None:
     """The body of a grouped block may reference continuous latents
     declared in the enclosing program scope."""
     src = _two_class_mixture_model()
-    m = loads(src)
+    m = loads(textwrap.dedent(src))
     assert m.morphism is not None
 
 
@@ -88,7 +88,7 @@ def test_grouped_marginalize_log_joint_returns_finite_scalar() -> None:
     with continuous latents conditioned via the observations dict
     returns a finite scalar."""
     src = _two_class_mixture_model()
-    model = loads(src).morphism
+    model = loads(textwrap.dedent(src)).morphism
     obs = {
         "probs": torch.tensor([0.6, 0.4]),
         "idx": torch.tensor([0, 0, 1, 1, 2, 2, 3, 3]),
@@ -112,7 +112,7 @@ def test_svi_runs_on_grouped_marginalize_model() -> None:
     flow back through the marginalize callable into the guide's
     variational parameters."""
     src = _two_class_mixture_model()
-    model = loads(src).morphism
+    model = loads(textwrap.dedent(src)).morphism
     guide = AutoNormalGuide(model, observed_names={"probs", "idx", "_grouped_ll_cls_0"})
     obs = {
         "probs": torch.tensor([0.6, 0.4]),
@@ -136,7 +136,7 @@ def test_svi_gradients_flow_into_continuous_latent_guide_params() -> None:
     mu_shift variational parameters must be non-zero and finite —
     proving the marginalize block doesn't break the autograd chain."""
     src = _two_class_mixture_model()
-    model = loads(src).morphism
+    model = loads(textwrap.dedent(src)).morphism
     guide = AutoNormalGuide(model, observed_names={"probs", "idx", "_grouped_ll_cls_0"})
     obs = {
         "probs": torch.tensor([0.6, 0.4]),
@@ -170,24 +170,23 @@ def test_grouped_marginalize_recovers_mixture_proportions() -> None:
     direction of the recovery (more populous component gets larger
     weight) should be unambiguous."""
     src = """
-    object Item : 1
-    object Resp : 40
-    object Class : 2
+    composition log_prob as algebra
+
+    object Item : FinSet 1
+    object Resp : FinSet 40
+    object Class : FinSet 2
 
     program recovery : Resp -> Resp
-        probs : Class <- HalfNormal(1.0)
-        idx : Resp <- HalfNormal(1.0)
-        mu_shift <- Normal(0.0, 1.0)
-        marginalize cls : Class <- Dirichlet(probs)
-            over Item
-            in {
-                observe r : Resp via idx <- Normal(mu_shift, 1.0)
-            }
+        sample probs : Class <- HalfNormal(1.0)
+        sample idx : Resp <- HalfNormal(1.0)
+        sample mu_shift <- Normal(0.0, 1.0)
+        marginalize cls : Class <- Dirichlet(probs) [over=Item]
+            observe r : Resp <- Normal(mu_shift, 1.0) [via=idx]
         return probs
     export recovery
     """
     torch.manual_seed(0)
-    model = loads(src).morphism
+    model = loads(textwrap.dedent(src)).morphism
     # Generate synthetic data: 30 row-likelihoods from class 0,
     # 10 from class 1. Class 0 likelihood is higher in row k=0,
     # class 1 in row k=1.
@@ -236,21 +235,20 @@ def _two_task_mixture_model() -> str:
     the per-item class.
     """
     return """
-    object Item : 4
-    object RespA : 8
-    object RespB : 6
-    object Class : 2
+    composition log_prob as algebra
+
+    object Item : FinSet 4
+    object RespA : FinSet 8
+    object RespB : FinSet 6
+    object Class : FinSet 2
 
     program two_task_mix : Item -> Item
-        probs : Class <- HalfNormal(1.0)
-        idx_a : RespA <- HalfNormal(1.0)
-        idx_b : RespB <- HalfNormal(1.0)
-        marginalize cls : Class <- Dirichlet(probs)
-            over Item
-            in {
-                observe r_a : RespA via idx_a <- HalfNormal(1.0)
-                observe r_b : RespB via idx_b <- HalfNormal(1.0)
-            }
+        sample probs : Class <- HalfNormal(1.0)
+        sample idx_a : RespA <- HalfNormal(1.0)
+        sample idx_b : RespB <- HalfNormal(1.0)
+        marginalize cls : Class <- Dirichlet(probs) [over=Item]
+            observe r_a : RespA <- HalfNormal(1.0) [via=idx_a]
+            observe r_b : RespB <- HalfNormal(1.0) [via=idx_b]
         return probs
     export two_task_mix
     """
@@ -261,7 +259,7 @@ def test_two_task_mixture_compiles() -> None:
     """A single grouped marginalize block with two observe steps,
     each carrying its own ``via`` clause, compiles cleanly."""
     src = _two_task_mixture_model()
-    m = loads(src)
+    m = loads(textwrap.dedent(src))
     assert m.morphism is not None
 
 
@@ -273,7 +271,7 @@ def test_two_task_mixture_log_joint_returns_finite_scalar() -> None:
     multi-axis scatter-sum into the shared per-group accumulator
     before the reduction."""
     src = _two_task_mixture_model()
-    model = loads(src).morphism
+    model = loads(textwrap.dedent(src)).morphism
     obs = {
         "probs": torch.tensor([0.6, 0.4]),
         "idx_a": torch.tensor([0, 0, 1, 1, 2, 2, 3, 3]),
@@ -296,9 +294,9 @@ def test_log_joint_depends_on_grouped_ll_input() -> None:
     compile path emitted the marginalize callable as a deterministic
     let, so its result was bound to ``env`` but never added to
     ``total``, making ``log_joint`` constant in the user's response
-    data.  Issue #21."""
+    data."""
     src = _two_task_mixture_model()
-    model = loads(src).morphism
+    model = loads(textwrap.dedent(src)).morphism
     base_obs = {
         "probs": torch.tensor([0.6, 0.4]),
         "idx_a": torch.tensor([0, 0, 1, 1, 2, 2, 3, 3]),
@@ -331,7 +329,7 @@ def test_two_task_mixture_recovers_joint_proportions() -> None:
     data and few SVI steps."""
     src = _two_task_mixture_model()
     torch.manual_seed(0)
-    model = loads(src).morphism
+    model = loads(textwrap.dedent(src)).morphism
     n_a, n_b, _n_item, n_class = 8, 6, 4, 2
     # Class-1 items get higher ll in their per-axis class-1 column.
     ll_a = torch.zeros(n_a, n_class)

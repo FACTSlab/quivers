@@ -4,14 +4,33 @@ Handles signature, encoder, decoder, and loss declarations.
 """
 
 from __future__ import annotations
+
+import importlib
+import inspect
 from collections.abc import Callable
+
 import torch
 import torch.nn as nn
+
 from quivers.dsl.ast_nodes import (
     DecoderDecl,
     EncoderDecl,
     LossDecl,
+    OptionEntry,
+    OptionList,
+    OptionName,
+    OptionNumber,
+    OptionString,
     SignatureDecl,
+    SortVocabLiteral,
+)
+from quivers.dsl.compiler._options import (
+    find_option,
+    get_option_call,
+    get_option_int,
+    get_option_name,
+    get_option_value,
+    has_option,
 )
 from quivers.structural.encoder import (
     Encoder,
@@ -38,6 +57,56 @@ from quivers.dsl.compiler._prelude import (
 )
 
 
+def _decode_vocab_option(
+    sig_name: str,
+    sort_name: str,
+    options: tuple[OptionEntry, ...],
+    line: int,
+    col: int,
+) -> tuple[SortVocabLiteral, ...]:
+    """Read the ``vocab=[...]`` option of a sort declaration.
+
+    Items may be string, integer, or float literals. Identifier
+    items are rejected: a vocabulary entry is a data value, not a
+    name. Returns an empty tuple when the option is absent.
+    """
+    entry = find_option(options, "vocab")
+    if entry is None:
+        return ()
+    v = entry.value
+    if not isinstance(v, OptionList):
+        raise CompileError(
+            f"signature {sig_name!r}: sort {sort_name!r}: vocab option "
+            f"must be a list, got {type(v).__name__}",
+            line,
+            col,
+        )
+    lits: list[SortVocabLiteral] = []
+    for item in v.items:
+        if isinstance(item, OptionString):
+            # ``OptionString.value`` carries the unescaped Python str;
+            # _decode_vocab_literal expects the surface-with-quotes
+            # form, so re-quote via ``repr`` of an str (single-quoted)
+            # then convert to a double-quoted literal.
+            text = '"' + item.value.replace("\\", "\\\\").replace('"', '\\"') + '"'
+            lits.append(SortVocabLiteral(kind="string", text=text))
+        elif isinstance(item, OptionNumber):
+            value = item.value
+            if value.is_integer():
+                lits.append(SortVocabLiteral(kind="integer", text=str(int(value))))
+            else:
+                lits.append(SortVocabLiteral(kind="float", text=repr(value)))
+        else:
+            raise CompileError(
+                f"signature {sig_name!r}: sort {sort_name!r}: vocab entries "
+                f"must be string, integer, or float literals; got "
+                f"{type(item).__name__}",
+                line,
+                col,
+            )
+    return tuple(lits)
+
+
 _ENCODER_FACTORY_REGISTRY: dict[str, str] = {
     # Encoder factory name (as users write it in ``using
     # <factory>``) → import path ``module:attribute`` resolved at
@@ -53,21 +122,107 @@ _ENCODER_FACTORY_REGISTRY: dict[str, str] = {
 }
 
 
+def _decode_loss_attachment(
+    decl: "LossDecl",
+) -> tuple[str, str | None, str | None]:
+    """Decode the ``on=...`` option of a loss declaration into the
+    triple ``(attachment_kind, target, rule_deduction)`` that
+    `LossEntry` consumes.
+
+    Surface forms accepted:
+
+    * ``[global]`` or unspecified: module-level attachment.
+    * ``[on=program(NAME)]`` / ``deduction(NAME)`` / ``encoder(NAME)``
+      / ``decoder(NAME)``: ``attachment_kind`` is the call's
+      function name; ``target`` is the call's single identifier
+      argument; ``rule_deduction`` is None.
+    * ``[on=rule(NAME, in=DEDUCTION)]``: rule attachment;
+      ``target`` is the rule name, ``rule_deduction`` is the
+      enclosing deduction.
+    * ``[on=chart(of=DEDUCTION)]``: chart attachment; ``target``
+      is the deduction name.
+    """
+    call = get_option_call(
+        decl.options,
+        "on",
+        line=decl.line,
+        col=decl.col,
+    )
+    if call is None:
+        return ("global", None, None)
+    name = call.func
+    if name in ("program", "deduction", "encoder", "decoder"):
+        if len(call.args) != 1 or not isinstance(call.args[0], OptionName):
+            raise CompileError(
+                f"loss {decl.name!r}: ``on={name}(...)`` takes a "
+                "single identifier argument",
+                decl.line,
+                decl.col,
+            )
+        return (name, call.args[0].value, None)
+    if name == "rule":
+        target: str | None = None
+        rule_ded: str | None = None
+        for arg in call.args:
+            if isinstance(arg, OptionName) and target is None:
+                target = arg.value
+        # `in=<deduction>` is encoded as a second OptionCall arg
+        # of an OptionName when the parser flattens kwargs. The
+        # parser surface ``rule(NAME, in=DED)`` is currently the
+        # only kwarg shape; we read both positional names and pick
+        # them off.
+        if len(call.args) >= 2 and isinstance(call.args[1], OptionName):
+            rule_ded = call.args[1].value
+        if target is None or rule_ded is None:
+            raise CompileError(
+                f"loss {decl.name!r}: ``on=rule(NAME, in=DED)`` "
+                "requires both the rule name and the enclosing "
+                "deduction",
+                decl.line,
+                decl.col,
+            )
+        return ("rule", target, rule_ded)
+    if name == "chart":
+        if len(call.args) != 1 or not isinstance(call.args[0], OptionName):
+            raise CompileError(
+                f"loss {decl.name!r}: ``on=chart(of=DED)`` takes a "
+                "single identifier argument",
+                decl.line,
+                decl.col,
+            )
+        return ("chart", call.args[0].value, None)
+    raise CompileError(
+        f"loss {decl.name!r}: unknown attachment kind {name!r} in ``on=...``",
+        decl.line,
+        decl.col,
+    )
+
+
 def _build_encoder_from_factory(decl: "EncoderDecl", sig) -> "Encoder":
     """Invoke a shipped encoder factory by name.
 
-    Looks up ``decl.factory`` in :data:`_ENCODER_FACTORY_REGISTRY`,
-    imports the registered builder, and calls it with
-    ``sig=<signature>`` plus any ``[k=v]`` overrides on the
-    declaration coerced to int / float / str.
+    Reads ``options["factory"]`` to pick a builder from
+    `_ENCODER_FACTORY_REGISTRY`, then passes every other
+    option entry as a keyword argument decoded through the
+    `OptionValue` tagged union (identifier -> ``str``,
+    number -> ``int`` / ``float`` per the option's natural value,
+    string literal -> ``str``).
 
-    Raises :class:`CompileError` for unknown factory names or for
+    Raises `CompileError` for unknown factory names or for
     builder kwargs the factory doesn't accept.
     """
-    import importlib
-    import inspect
-
-    factory_name = decl.factory
+    factory_name = get_option_name(
+        decl.options,
+        "factory",
+        line=decl.line,
+        col=decl.col,
+    )
+    if factory_name is None:
+        raise CompileError(
+            f"encoder {decl.name!r}: missing required option ``factory=<name>``",
+            decl.line,
+            decl.col,
+        )
     if factory_name not in _ENCODER_FACTORY_REGISTRY:
         raise CompileError(
             f"encoder {decl.name!r}: unknown factory {factory_name!r}; "
@@ -84,7 +239,10 @@ def _build_encoder_from_factory(decl: "EncoderDecl", sig) -> "Encoder":
     kwargs: dict = {}
     if "sig" in signature_obj.parameters:
         kwargs["sig"] = sig
-    for key, raw in dict(decl.factory_options).items():
+    for entry in decl.options:
+        if entry.key == "factory":
+            continue
+        key = entry.key
         if key not in signature_obj.parameters:
             raise CompileError(
                 f"encoder {decl.name!r}: factory {factory_name!r} does not "
@@ -93,25 +251,47 @@ def _build_encoder_from_factory(decl: "EncoderDecl", sig) -> "Encoder":
                 decl.line,
                 decl.col,
             )
-        # Best-effort coercion: integer-like → int, float-like →
-        # float, otherwise leave as the source identifier string.
-        try:
-            kwargs[key] = int(raw)
-        except ValueError:
-            try:
-                kwargs[key] = float(raw)
-            except ValueError:
-                kwargs[key] = raw
+        value = entry.value
+        if isinstance(value, OptionName):
+            kwargs[key] = value.value
+        elif isinstance(value, OptionNumber):
+            raw = value.value
+            kwargs[key] = int(raw) if raw.is_integer() else raw
+        elif isinstance(value, OptionString):
+            kwargs[key] = value.value
+        else:
+            raise CompileError(
+                f"encoder {decl.name!r}: factory option {key!r} has "
+                f"unsupported value shape {type(value).__name__}",
+                decl.line,
+                decl.col,
+            )
     return factory(**kwargs)
 
 
 class _StructuralMixin:
-    """Mixin: structural artifact compilation methods."""
+    """Mixin: structural artifact compilation methods.
+
+    The compiler base supplies every environment slot below; the
+    annotations let the type checker verify each access from a
+    mixin method.
+    """
+
+    _morphisms: dict
+    _signatures: dict
+    _encoders: dict
+    _decoders: dict
+    _deductions: dict
+    _loss_registry: "LossRegistry"
+
+    def _compile_let_expr(self, body, globals_: dict) -> Callable:
+        """Provided by `_ProgramsMixin`."""
+        raise NotImplementedError
 
     def _compile_signature(self, decl: SignatureDecl) -> None:
         """Register a signature declaration.
 
-        Builds a runtime :class:`quivers.structural.Signature` from
+        Builds a runtime [`quivers.structural.Signature`][quivers.structural.Signature] from
         the AST node, stashes it on ``self._signatures`` keyed by
         name. Performs sort coverage, codomain validity, and binder
         sort-consistency checks.
@@ -135,7 +315,21 @@ class _StructuralMixin:
                     s.line,
                     s.col,
                 )
-            if s.vocab and s.kind != "data":
+            s_dim = get_option_int(
+                s.options,
+                "dim",
+                line=s.line,
+                col=s.col,
+                default=None,
+            )
+            s_vocab_lits = _decode_vocab_option(
+                decl.name,
+                s.name,
+                s.options,
+                s.line,
+                s.col,
+            )
+            if s_vocab_lits and s.kind != "data":
                 raise CompileError(
                     f"signature {decl.name!r}: vocab clause is only valid "
                     f"on `data` sorts; sort {s.name!r} has kind {s.kind!r}",
@@ -144,7 +338,7 @@ class _StructuralMixin:
                 )
             vocab_entries: list[SortVocabEntry] = []
             seen_vals: set = set()
-            for lit in s.vocab:
+            for lit in s_vocab_lits:
                 value = _decode_vocab_literal(decl.name, s.name, lit)
                 if value in seen_vals:
                     raise CompileError(
@@ -158,7 +352,7 @@ class _StructuralMixin:
             sorts[s.name] = Sort(
                 name=s.name,
                 kind=s.kind,
-                dim=s.dim,
+                dim=s_dim,
                 vocab=tuple(vocab_entries),
             )
 
@@ -171,7 +365,14 @@ class _StructuralMixin:
                     v.line,
                     v.col,
                 )
-            vertex_kinds[v.name] = VertexKind(name=v.name, kind=v.kind, dim=v.dim)
+            v_dim = get_option_int(
+                v.options,
+                "dim",
+                line=v.line,
+                col=v.col,
+                default=None,
+            )
+            vertex_kinds[v.name] = VertexKind(name=v.name, kind=v.kind, dim=v_dim)
         edge_kinds: dict[str, EdgeKind] = {}
         for e in decl.edge_kinds:
             if e.name in edge_kinds:
@@ -362,7 +563,7 @@ class _StructuralMixin:
             )
         sig = self._signatures[decl.signature]
 
-        if decl.factory:
+        if has_option(decl.options, "factory"):
             encoder = _build_encoder_from_factory(decl, sig)
             self._encoders[decl.name] = encoder
             return
@@ -858,7 +1059,13 @@ class _StructuralMixin:
             name=decl.name,
             signature=sig,
             sort_dims=sort_dims,
-            depth=decl.depth,
+            depth=get_option_int(
+                decl.options,
+                "depth",
+                line=decl.line,
+                col=decl.col,
+                default=8,
+            ),
             structure_fns=structure_fns,
             primitive_fns=primitive_fns,
             factor_fns=factor_fns,
@@ -876,24 +1083,44 @@ class _StructuralMixin:
         self._morphisms[decl.name] = dec
 
     def _compile_loss(self, decl: LossDecl) -> None:
-        """Compile a loss declaration into a registry entry."""
+        """Compile a loss declaration into a registry entry.
+
+        Reads ``weight=<expr>`` and the ``on=<attachment>`` options
+        out of the unified option block. ``on`` is a call-shaped
+        `OptionValue`: ``program(NAME)`` / ``deduction(NAME)``
+        / ``encoder(NAME)`` / ``decoder(NAME)`` /
+        ``rule(NAME, in=DEDUCTION)`` / ``chart(of=DEDUCTION)``. A
+        bare ``[global]`` flag selects a module-level attachment.
+        """
         if not hasattr(self, "_loss_registry"):
             self._loss_registry = LossRegistry()
 
         globs = self._lex_globals_for_structural()
         body_fn = self._compile_let_expr(decl.body, globals_=globs)
-        weight_fn = None
-        if decl.weight is not None:
-            weight_fn = self._compile_let_expr(decl.weight, globals_=globs)
-        att = decl.attachment
+        weight_value = get_option_value(decl.options, "weight")
+        weight_fn: Callable[[dict[str, object]], object] | None = None
+        if weight_value is not None:
+            if not isinstance(weight_value, OptionNumber):
+                raise CompileError(
+                    f"loss {decl.name!r}: ``weight`` must be a numeric "
+                    f"literal, got {type(weight_value).__name__}",
+                    decl.line,
+                    decl.col,
+                )
+            _w = float(weight_value.value)
+
+            def weight_fn(_env: dict[str, object], _w: float = _w) -> float:
+                return _w
+
+        attachment = _decode_loss_attachment(decl)
         self._loss_registry.add(
             LossEntry(
                 name=decl.name,
                 body=body_fn,
                 weight=weight_fn,
-                attachment_kind=att.attachment_kind,
-                target=att.target,
-                rule_deduction=att.rule_deduction,
+                attachment_kind=attachment[0],
+                target=attachment[1],
+                rule_deduction=attachment[2],
             )
         )
 

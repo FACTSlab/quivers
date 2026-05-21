@@ -34,10 +34,10 @@ from quivers.lsp.server import (  # noqa: E402
 
 
 SAMPLE = """\
-## A small demo module.
-object Alpha : 3
-object Beta : 4
-latent f : Alpha -> Beta
+#! A small demo module.
+object Alpha : FinSet 3
+object Beta : FinSet 4
+morphism f : Alpha -> Beta [role=latent]
 """
 
 
@@ -83,7 +83,7 @@ def test_render_hover_stacks_qvr_and_ast() -> None:
     # QVR section: bold header, fenced qvr block, verbatim source.
     assert "**QVR source**" in hover
     assert "```qvr" in hover
-    assert "latent f : Alpha -> Beta" in hover
+    assert "morphism f : Alpha -> Beta" in hover
     # Divider between the two panes.
     assert "\n---\n" in hover or hover.split("**AST")[0].rstrip().endswith("---")
     # AST section: bold header, collapsed fenced python block.
@@ -104,7 +104,7 @@ def test_slice_source_returns_original_lines() -> None:
     assert decl is not None
     sliced = _slice_source(doc, decl)
     assert sliced is not None
-    assert "object Alpha : 3" in sliced
+    assert "object Alpha : FinSet 3" in sliced
 
 
 def test_to_lsp_diag_maps_severity_and_range() -> None:
@@ -158,13 +158,13 @@ def test_document_find_decl() -> None:
 def test_document_name_at_position() -> None:
     doc = _doc()
     # Source layout (0-indexed lines):
-    #   0: '## A small demo module.'
-    #   1: 'object Alpha : 3'
-    #   2: 'object Beta : 4'
-    #   3: 'latent f : Alpha -> Beta'
+    #   0: '#! A small demo module.'
+    #   1: 'object Alpha : FinSet 3'
+    #   2: 'object Beta : FinSet 4'
+    #   3: 'morphism f : Alpha -> Beta [role=latent]'
     assert doc.name_at_position(1, 9) == "Alpha"
-    assert doc.name_at_position(3, 7) == "f"
-    assert doc.name_at_position(3, 12) == "Alpha"
+    assert doc.name_at_position(3, 9) == "f"
+    assert doc.name_at_position(3, 14) == "Alpha"
 
 
 def test_document_name_at_position_out_of_range() -> None:
@@ -197,9 +197,9 @@ def test_pretty_ast_handles_nested_tuple() -> None:
     from quivers.lsp.server import _pretty_ast
 
     src = (
-        "space A : Euclidean(2)\n"
-        "space B : Euclidean(3)\n"
-        "kernel k : A * B -> B ~ Normal\n"
+        "object A : Real 2\n"
+        "object B : Real 3\n"
+        "morphism k : A * B -> B [role=kernel] ~ Normal()\n"
     )
     doc = DocumentState(uri="file:///nested.qvr")
     doc.update(source=src, version=1)

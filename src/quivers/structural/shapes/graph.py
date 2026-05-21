@@ -1,7 +1,7 @@
 """Graph-shaped signatures and canonical encoder.
 
 A graph signature is declared with vertex kinds and edge kinds; the
-canonical :class:`GNN` encoder runs ``iterations`` rounds of
+canonical `GNN` encoder runs ``iterations`` rounds of
 message passing with per-edge-kind message functions and
 per-vertex-kind update functions.
 """

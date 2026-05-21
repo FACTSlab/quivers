@@ -17,8 +17,8 @@ during training so the choice is reparameterized) and then samples
     \\log q(z) = \\mathrm{logsumexp}_k\\bigl(
         \\log \\pi_k + \\log q_k(z)\\bigr).
 
-The component guides may be of any :class:`Guide` subclass. The
-canonical use case is to wrap several :class:`AutoNormalGuide`
+The component guides may be of any `Guide` subclass. The
+canonical use case is to wrap several `AutoNormalGuide`
 instances to recover a multimodal posterior that no single
 unimodal guide can capture.
 
@@ -43,7 +43,7 @@ class AutoMixtureGuide(Guide):
     ----------
     components : list[Guide]
         Component guides. All components must share the same
-        :class:`LatentRegistry` (i.e. be built against the same
+        `LatentRegistry` (i.e. be built against the same
         model + observed-name set).
     init_temperature : float
         Initial Gumbel-Softmax temperature. Default ``1.0``;
@@ -111,10 +111,10 @@ class AutoMixtureGuide(Guide):
         :math:`v^{(k)}` is component ``k``'s constrained-space
         sample. Because the constrained-space sites' supports are
         not in general convex (e.g. a Cholesky factor on
-        :data:`torch.distributions.constraints.corr_cholesky`), the
+        `torch.distributions.constraints.corr_cholesky`), the
         soft mixture can drift outside any single component's
         support during training; the categorical-pick fallback in
-        :meth:`hard_rsample` returns a single component's sample
+        `hard_rsample` returns a single component's sample
         for use at inference time.
         """
         gumbel_logits = (

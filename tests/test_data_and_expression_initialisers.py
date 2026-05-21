@@ -21,6 +21,7 @@ import os
 
 import pytest
 import torch
+import textwrap
 
 from quivers.dsl import loads
 
@@ -41,21 +42,21 @@ def test_from_data_binds_supplied_tensor() -> None:
     """``observed f : A -> B = from_data("KEY")`` binds the
     supplied tensor as the morphism's data buffer."""
     src = """
-    algebra product_fuzzy
-    object A : 3
-    object B : 4
+    composition product_fuzzy as algebra
+    object A : FinSet 3
+    object B : FinSet 4
 
-    observed h : A -> B = from_data("H")
+    morphism h : A -> B [role=observed] ~ from_data("H")
     export h
     """
     data_tensor = torch.tensor(
         [[0.1, 0.2, 0.3, 0.4], [0.5, 0.6, 0.7, 0.8], [0.9, 0.1, 0.2, 0.3]]
     )
-    m = loads(src, data={"H": data_tensor})
+    m = loads(textwrap.dedent(src), data={"H": data_tensor})
     assert m.morphism.tensor.shape == (3, 4)
     assert torch.allclose(m.morphism.tensor, data_tensor)
-    assert m.morphism.domain.name == "A"
-    assert m.morphism.codomain.name == "B"
+    assert m.morphism.domain.cardinality == 3
+    assert m.morphism.codomain.cardinality == 4
 
 
 @_LOCAL_GRAMMAR
@@ -63,14 +64,14 @@ def test_from_data_unknown_key_errors() -> None:
     from quivers.dsl.compiler import CompileError
 
     src = """
-    algebra product_fuzzy
-    object A : 2
-    object B : 2
-    observed h : A -> B = from_data("MISSING_KEY")
+    composition product_fuzzy as algebra
+    object A : FinSet 2
+    object B : FinSet 2
+    morphism h : A -> B [role=observed] ~ from_data("MISSING_KEY")
     export h
     """
     with pytest.raises(CompileError, match="unknown data key"):
-        loads(src, data={"OTHER_KEY": torch.zeros(2, 2)})
+        loads(textwrap.dedent(src), data={"OTHER_KEY": torch.zeros(2, 2)})
 
 
 @_LOCAL_GRAMMAR
@@ -78,14 +79,14 @@ def test_from_data_without_data_dict_errors() -> None:
     from quivers.dsl.compiler import CompileError
 
     src = """
-    algebra product_fuzzy
-    object A : 2
-    object B : 2
-    observed h : A -> B = from_data("KEY")
+    composition product_fuzzy as algebra
+    object A : FinSet 2
+    object B : FinSet 2
+    morphism h : A -> B [role=observed] ~ from_data("KEY")
     export h
     """
     with pytest.raises(CompileError, match="unknown data key"):
-        loads(src)
+        loads(textwrap.dedent(src))
 
 
 @_LOCAL_GRAMMAR
@@ -95,15 +96,15 @@ def test_from_data_shape_mismatch_with_declared_types_errors() -> None:
     from quivers.dsl.compiler import CompileError
 
     src = """
-    algebra product_fuzzy
-    object A : 3
-    object B : 4
-    observed h : A -> B = from_data("H")
+    composition product_fuzzy as algebra
+    object A : FinSet 3
+    object B : FinSet 4
+    morphism h : A -> B [role=observed] ~ from_data("H")
     export h
     """
     # Wrong shape: (2, 4) instead of (3, 4).
     with pytest.raises(CompileError):
-        loads(src, data={"H": torch.zeros(2, 4)})
+        loads(textwrap.dedent(src), data={"H": torch.zeros(2, 4)})
 
 
 @_LOCAL_GRAMMAR
@@ -111,13 +112,13 @@ def test_from_data_does_not_register_parameters() -> None:
     """A ``from_data``-initialized morphism is structural / frozen;
     its tensor is a buffer, not an ``nn.Parameter``."""
     src = """
-    algebra product_fuzzy
-    object A : 2
-    object B : 2
-    observed h : A -> B = from_data("H")
+    composition product_fuzzy as algebra
+    object A : FinSet 2
+    object B : FinSet 2
+    morphism h : A -> B [role=observed] ~ from_data("H")
     export h
     """
-    m = loads(src, data={"H": torch.tensor([[0.1, 0.2], [0.3, 0.4]])})
+    m = loads(textwrap.dedent(src), data={"H": torch.tensor([[0.1, 0.2], [0.3, 0.4]])})
     params = list(m.parameters())
     assert len(params) == 0
 
@@ -132,19 +133,19 @@ def test_freeze_materialises_composition_tensor() -> None:
     """``(f >> g).freeze`` produces an :class:`ObservedMorphism`
     whose tensor equals the composition's materialised tensor."""
     src = """
-    algebra product_fuzzy
-    object A : 2
-    object B : 2
-    object C : 2
+    composition product_fuzzy as algebra
+    object A : FinSet 2
+    object B : FinSet 2
+    object C : FinSet 2
 
-    latent f : A -> B
-    latent g : B -> C
+    morphism f : A -> B [role=latent]
+    morphism g : B -> C [role=latent]
 
     let chain = f >> g
     let frozen = chain.freeze
     export frozen
     """
-    m = loads(src)
+    m = loads(textwrap.dedent(src))
     # Frozen morphism has no learnable parameters.
     params = list(m.parameters())
     assert len(params) == 0
@@ -156,14 +157,14 @@ def test_freeze_materialises_composition_tensor() -> None:
 def test_freeze_detaches_gradients() -> None:
     """Gradients do not propagate through a freeze boundary."""
     src = """
-    algebra product_fuzzy
-    object A : 2
-    object B : 2
-    latent f : A -> B
+    composition product_fuzzy as algebra
+    object A : FinSet 2
+    object B : FinSet 2
+    morphism f : A -> B [role=latent]
     let frozen = f.freeze
     export frozen
     """
-    m = loads(src)
+    m = loads(textwrap.dedent(src))
     loss = m.morphism.tensor.sum()
     # ``frozen`` carries a detached tensor; ``loss.backward()``
     # has no grad-requiring leaves, so the call raises rather
@@ -184,14 +185,14 @@ def test_expression_initializer_propagates_parameters() -> None:
     parameters are reachable via the alias. Without the
     ``.freeze`` modifier the binding does NOT detach."""
     src = """
-    algebra product_fuzzy
-    object A : 3
-    object B : 3
-    latent f : A -> B
-    observed h : A -> B = f
+    composition product_fuzzy as algebra
+    object A : FinSet 3
+    object B : FinSet 3
+    morphism f : A -> B [role=latent]
+    morphism h : A -> B [role=observed] ~ f
     export h
     """
-    m = loads(src)
+    m = loads(textwrap.dedent(src))
     # ``h`` is bound to ``f``'s underlying LatentMorphism; its
     # tensor has gradient lineage.
     assert m.morphism.tensor.requires_grad
@@ -208,13 +209,13 @@ def test_latent_morphism_accepts_scale_option() -> None:
     hyperparameter-dependent init for ``latent`` morphisms; this
     is a regression test for the surface."""
     src = """
-    algebra product_fuzzy
-    object A : 5
-    object B : 5
-    latent f : A -> B [scale=0.01]
+    composition product_fuzzy as algebra
+    object A : FinSet 5
+    object B : FinSet 5
+    morphism f : A -> B [role=latent, scale=0.01]
     export f
     """
-    m = loads(src)
+    m = loads(textwrap.dedent(src))
     # With a tiny scale the raw parameter starts near zero, so
     # sigmoid(raw) starts near 0.5.
     t = m.morphism.tensor
@@ -236,18 +237,18 @@ def test_from_data_composed_with_latent_yields_learnable_chain() -> None:
     one yields a chain whose only learnable parameters come from
     the learnable side."""
     src = """
-    algebra product_fuzzy
-    object A : 3
-    object B : 4
-    object C : 5
+    composition product_fuzzy as algebra
+    object A : FinSet 3
+    object B : FinSet 4
+    object C : FinSet 5
 
-    observed h : A -> B = from_data("H")
-    latent g : B -> C
+    morphism h : A -> B [role=observed] ~ from_data("H")
+    morphism g : B -> C [role=latent]
     let chain = h >> g
     export chain
     """
     H = torch.rand(3, 4)
-    m = loads(src, data={"H": H})
+    m = loads(textwrap.dedent(src), data={"H": H})
     # The chain's parameters come exclusively from ``g`` (since
     # ``h`` is a frozen data-derived morphism).
     params = list(m.parameters())

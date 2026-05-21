@@ -1,22 +1,22 @@
 """Single source of truth for every parametric distribution family
 the quivers stack supports.
 
-A :class:`FamilySpec` carries everything the three call paths need:
+A `FamilySpec` carries everything the three call paths need:
 
 * the **conditional** path
-  (:class:`quivers.continuous.families._IndependentConditional`)
+  ([`quivers.continuous.families._IndependentConditional`][quivers.continuous.families._IndependentConditional])
   consumes ``params`` to know how to transform unbounded MLP outputs
-  and how to instantiate a :mod:`torch.distributions` object;
+  and how to instantiate a `torch.distributions` object;
 * the **fixed inline** path
-  (:class:`quivers.continuous.inline.FixedDistribution`) consumes
+  ([`quivers.continuous.inline.FixedDistribution`][quivers.continuous.inline.FixedDistribution]) consumes
   ``params`` and ``support`` to construct a distribution from
   literal compile-time floats;
 * the **mixed inline** path
-  (:class:`quivers.continuous.inline.MixedInlineDistribution`)
+  ([`quivers.continuous.inline.MixedInlineDistribution`][quivers.continuous.inline.MixedInlineDistribution])
   consumes the same spec to build a distribution whose parameters
   are stacked runtime tensors.
 
-Every family registers itself exactly once via :func:`register`; the
+Every family registers itself exactly once via `register`; the
 inline and conditional generators read from the same record. This
 is the architectural seam that keeps the family catalog from
 duplicating itself across three modules.
@@ -136,8 +136,8 @@ def _validate_transform(name: str) -> str:
 class ParamSpec(dx.Model):
     """Spec for a single parameter of a distribution family.
 
-    A :class:`didactic.api.Model` so the schema-aware tooling that
-    consumes :data:`FAMILY_REGISTRY` (didactic-driven serialization,
+    A `didactic.api.Model` so the schema-aware tooling that
+    consumes `FAMILY_REGISTRY` (didactic-driven serialization,
     panproto schema export, …) sees the parameter list as typed
     data rather than as opaque tuples.
 
@@ -148,7 +148,7 @@ class ParamSpec(dx.Model):
         ``Distribution`` constructor.
     transform : str
         Name of the raw-output transform applied on the conditional
-        path (one of the keys of :data:`_RAW_TRANSFORMS`).  Also
+        path (one of the keys of `_RAW_TRANSFORMS`).  Also
         determines the safety clamp on the inline path.
     kind : ParamKind
         Per-parameter shape contract on the inline call side.
@@ -189,20 +189,20 @@ class FamilySpec:
     """Single source of truth for a distribution family.
 
     Implemented as a plain ``@dataclass(frozen=True)`` rather than
-    a :class:`didactic.api.Model` because several fields are
+    a `didactic.api.Model` because several fields are
     Python callables (``fixed_factory_override``,
     ``mixed_builder_override``) or class objects
     (``conditional_class_override``) that don't translate to a
-    panproto sort. :class:`ParamSpec` is a ``dx.Model`` since its
+    panproto sort. `ParamSpec` is a ``dx.Model`` since its
     fields are all primitive types.
 
     Used by:
 
-    * :class:`quivers.continuous.families._IndependentConditional`
+    * [`quivers.continuous.families._IndependentConditional`][quivers.continuous.families._IndependentConditional]
       and the standalone ``ConditionalX`` classes for the
       learnable-parameter path;
-    * :class:`quivers.continuous.inline.FixedDistribution` and
-      :class:`quivers.continuous.inline.MixedInlineDistribution`
+    * [`quivers.continuous.inline.FixedDistribution`][quivers.continuous.inline.FixedDistribution] and
+      [`quivers.continuous.inline.MixedInlineDistribution`][quivers.continuous.inline.MixedInlineDistribution]
       for the DSL inline call surface.
     """
 
@@ -210,7 +210,7 @@ class FamilySpec:
     """DSL key. Programs reference this name in ``<- F(args)`` lines."""
 
     dist_class: type
-    """The underlying :mod:`torch.distributions` class."""
+    """The underlying `torch.distributions` class."""
 
     params: tuple[ParamSpec, ...]
     """Ordered parameter specs, matching the dist's positional / keyword API."""
@@ -253,7 +253,7 @@ FAMILY_REGISTRY: dict[str, FamilySpec] = {}
 
 
 def register(spec: FamilySpec) -> FamilySpec:
-    """Register a :class:`FamilySpec` under its name; idempotent on
+    """Register a `FamilySpec` under its name; idempotent on
     re-registration of the same name to support hot-reload during
     development.
     """

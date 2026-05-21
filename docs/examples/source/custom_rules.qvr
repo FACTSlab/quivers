@@ -1,51 +1,30 @@
-# ================================================================
-# Custom Rules: user-declared sequent rules of inference
-# ================================================================
+# Custom Rules
 #
-# Every rule in a `deduction { … }` block is a sequent declared
-# in the DSL itself; there are no built-in named rule schemas.
-# Pattern variables are single-uppercase identifiers (`X`, `Y`,
-# `Z`, `I`, `J`, `K`); every other identifier appearing in a
-# rule pattern must be listed in the `atoms { … }` block.
+# An AB grammar (Ajdukiewicz-Bar-Hillel) plus harmonic
+# composition, illustrating that every rule in a deduction block
+# is a sequent declared in the DSL itself; there are no built-in
+# named rule schemas.
 #
-# This example defines an AB grammar (Ajdukiewicz-Bar-Hillel)
-# plus harmonic composition over chart-spans `span(I, J, X)`.
-# `Fwd(X, Y)` is the forward-slash constructor `X/Y`; `Bwd(X, Y)`
-# is the backward-slash constructor `X\Y`.
+# Deduction:
+#
+#   fwd_app   : X/Y, Y    |- X        forward application
+#   bwd_app   : Y,   X\Y  |- X        backward application
+#   fwd_comp  : X/Y, Y/Z  |- X/Z      forward composition
+#   bwd_comp  : Y\Z, X\Y  |- X\Z      backward composition
+#
+# Pattern variables are single-uppercase identifiers (X, Y, Z,
+# I, J, K); every other identifier appearing in a rule pattern
+# must be listed in the atoms block.
 
-object Term : 16
+object Term : FinSet 16
 
-deduction AB : Term -> Term {
-    atoms {
-        # Category atoms.
-        S, NP, N, VP, PP,
-        # Slash constructors.
-        Fwd, Bwd,
-        # Chart-item constructor.
-        span
-    }
-
-    # Forward application.
-    rule fwd_app
-        : span(I, K, Fwd(X, Y)), span(K, J, Y)
-        |- span(I, J, X)
-
-    # Backward application.
-    rule bwd_app
-        : span(I, K, Y), span(K, J, Bwd(X, Y))
-        |- span(I, J, X)
-
-    # Forward composition.
-    rule fwd_comp
-        : span(I, K, Fwd(X, Y)), span(K, J, Fwd(Y, Z))
-        |- span(I, J, Fwd(X, Z))
-
-    # Backward composition.
-    rule bwd_comp
-        : span(I, K, Bwd(Y, Z)), span(K, J, Bwd(X, Y))
-        |- span(I, J, Bwd(X, Z))
-
-    semiring  LogProb
-    start     S
-    depth     6
-}
+deduction AB : Term -> Term [semiring=LogProb, start=S, depth=6]
+    atoms S, NP, N, VP, PP, Fwd, Bwd, span, the, dog, runs
+    rule fwd_app : span(I, K, Fwd(X, Y)), span(K, J, Y) |- span(I, J, X) #[learnable]
+    rule bwd_app : span(I, K, Y), span(K, J, Bwd(X, Y)) |- span(I, J, X) #[learnable]
+    rule fwd_comp : span(I, K, Fwd(X, Y)), span(K, J, Fwd(Y, Z)) |- span(I, J, Fwd(X, Z)) #[learnable]
+    rule bwd_comp : span(I, K, Bwd(Y, Z)), span(K, J, Bwd(X, Y)) |- span(I, J, Bwd(X, Z)) #[learnable]
+    lexicon
+        "the" : Fwd(NP, N) = the #[learnable]
+        "dog" : N = dog #[learnable]
+        "runs" : Bwd(S, NP) = runs #[learnable]

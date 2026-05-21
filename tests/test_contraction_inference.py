@@ -14,14 +14,16 @@ through the compiler.
 """
 
 from __future__ import annotations
+import textwrap
 
 import pytest
 
+from quivers.dsl import loads
 from quivers.dsl.ast_nodes import (
     ContractionInput,
-    TypeCoproduct,
+    ObjectCoproduct,
+    ObjectProduct,
     TypeName,
-    TypeProduct,
 )
 from quivers.dsl.compiler.programs import (
     _flatten_type_axes,
@@ -37,7 +39,7 @@ def _inp(
     def to_type(t: str | tuple[str, ...]):
         if isinstance(t, str):
             return TypeName(name=t)
-        return TypeProduct(components=tuple(TypeName(name=n) for n in t))
+        return ObjectProduct(components=tuple(TypeName(name=n) for n in t))
 
     return ContractionInput(
         name=name,
@@ -51,17 +53,17 @@ class TestFlattenTypeAxes:
         assert _flatten_type_axes(TypeName(name="A")) == ("A",)
 
     def test_product(self):
-        expr = TypeProduct(components=(TypeName(name="A"), TypeName(name="B")))
+        expr = ObjectProduct(components=(TypeName(name="A"), TypeName(name="B")))
         assert _flatten_type_axes(expr) == ("A", "B")
 
     def test_nested_product_flattens(self):
         # (A * (B * C)) flattens to (A, B, C).
-        inner = TypeProduct(components=(TypeName(name="B"), TypeName(name="C")))
-        outer = TypeProduct(components=(TypeName(name="A"), inner))
+        inner = ObjectProduct(components=(TypeName(name="B"), TypeName(name="C")))
+        outer = ObjectProduct(components=(TypeName(name="A"), inner))
         assert _flatten_type_axes(outer) == ("A", "B", "C")
 
     def test_coproduct_rejected(self):
-        expr = TypeCoproduct(components=(TypeName(name="A"), TypeName(name="B")))
+        expr = ObjectCoproduct(components=(TypeName(name="A"), TypeName(name="B")))
         with pytest.raises(ValueError, match="non-product / non-named"):
             _flatten_type_axes(expr)
 
@@ -138,7 +140,7 @@ class TestProductTypes:
         inputs = (_inp("f", ("A", "B"), "C"),)
         spec = _infer_wiring_from_signature(
             inputs=inputs,
-            output_domain=TypeProduct(
+            output_domain=ObjectProduct(
                 components=(TypeName(name="A"), TypeName(name="B"))
             ),
             output_codomain=TypeName(name="C"),
@@ -152,7 +154,7 @@ class TestProductTypes:
         spec = _infer_wiring_from_signature(
             inputs=inputs,
             output_domain=TypeName(name="A"),
-            output_codomain=TypeProduct(
+            output_codomain=ObjectProduct(
                 components=(TypeName(name="B"), TypeName(name="C"))
             ),
             shared_axes=(),
@@ -197,7 +199,7 @@ class TestShareClause:
         # With share B: B propagates. Output should include B.
         shared = _infer_wiring_from_signature(
             inputs=inputs,
-            output_domain=TypeProduct(
+            output_domain=ObjectProduct(
                 components=(TypeName(name="A"), TypeName(name="C"))
             ),
             output_codomain=TypeName(name="B"),
@@ -311,10 +313,10 @@ class TestComplexCases:
 
     def test_deeply_nested_product_in_signature(self):
         # ((A * B) * (C * D)) -> E flattens to (A, B, C, D, E).
-        nested = TypeProduct(
+        nested = ObjectProduct(
             components=(
-                TypeProduct(components=(TypeName(name="A"), TypeName(name="B"))),
-                TypeProduct(components=(TypeName(name="C"), TypeName(name="D"))),
+                ObjectProduct(components=(TypeName(name="A"), TypeName(name="B"))),
+                ObjectProduct(components=(TypeName(name="C"), TypeName(name="D"))),
             )
         )
         inputs = (
@@ -340,14 +342,14 @@ class TestComplexCases:
         #   output : (Batch * Head * Seq) -> Dim
         # Contracts Seq2 and Dim. Mimics a softmax-free dot-prod
         # attention as a pure-categorical contraction.
-        bhs = TypeProduct(
+        bhs = ObjectProduct(
             components=(
                 TypeName(name="Batch"),
                 TypeName(name="Head"),
                 TypeName(name="Seq"),
             )
         )
-        bhs2 = TypeProduct(
+        bhs2 = ObjectProduct(
             components=(
                 TypeName(name="Batch"),
                 TypeName(name="Head"),
@@ -399,7 +401,7 @@ class TestComplexCases:
         # must then list them; we put them after A and before D.
         spec_share = _infer_wiring_from_signature(
             inputs=inputs,
-            output_domain=TypeProduct(
+            output_domain=ObjectProduct(
                 components=(
                     TypeName(name="A"),
                     TypeName(name="B"),
@@ -422,7 +424,7 @@ class TestComplexCases:
         )
         spec = _infer_wiring_from_signature(
             inputs=inputs,
-            output_domain=TypeProduct(
+            output_domain=ObjectProduct(
                 components=(TypeName(name="Z"), TypeName(name="X"))
             ),
             output_codomain=TypeName(name="Y"),
@@ -462,8 +464,8 @@ class TestComplexCases:
         # anomalous since each axis appears in exactly one input).
         spec = _infer_wiring_from_signature(
             inputs=inputs,
-            output_domain=TypeProduct(components=output_seq[:13]),
-            output_codomain=TypeProduct(components=output_seq[13:]),
+            output_domain=ObjectProduct(components=output_seq[:13]),
+            output_codomain=ObjectProduct(components=output_seq[13:]),
             shared_axes=(),
         )
         # Each input contributes two letters; output is all 26.
@@ -500,10 +502,10 @@ class TestLetterPool:
         with pytest.raises(ValueError, match="distinct axis names"):
             _infer_wiring_from_signature(
                 inputs=inputs,
-                output_domain=TypeProduct(
+                output_domain=ObjectProduct(
                     components=tuple(TypeName(name=n) for n in names[:14])
                 ),
-                output_codomain=TypeProduct(
+                output_codomain=ObjectProduct(
                     components=tuple(TypeName(name=n) for n in names[14:])
                 ),
                 shared_axes=(),
@@ -518,22 +520,21 @@ class TestEndToEndCompilation:
     @pytest.fixture
     def src_inferred(self):
         return """
-algebra product_fuzzy
+composition product_fuzzy as algebra
 
-object A : 3
-object B : 4
-object C : 5
-object D : 2
+object A : FinSet 3
+object B : FinSet 4
+object C : FinSet 5
+object D : FinSet 2
 
 contraction op_apply (
     arg1 : A -> B,
     arg2 : A -> C,
     kernel : (B * C) -> D
-) : A -> D
-    rule product_fuzzy
+) : A -> D [rule=product_fuzzy]
 
 program p : A -> A
-    x <- Normal(0.0, 1.0)
+    sample x <- Normal(0.0, 1.0)
     observe r : A <- Normal(x, 0.1)
     return r
 
@@ -543,23 +544,21 @@ export p
     @pytest.fixture
     def src_explicit_wiring(self):
         return """
-algebra product_fuzzy
+composition product_fuzzy as algebra
 
-object A : 3
-object B : 4
-object C : 5
-object D : 2
+object A : FinSet 3
+object B : FinSet 4
+object C : FinSet 5
+object D : FinSet 2
 
 contraction op_apply (
     arg1 : A -> B,
     arg2 : A -> C,
     kernel : (B * C) -> D
-) : A -> D
-    rule product_fuzzy
-    wiring "ab, ac, bcd -> ad"
+) : A -> D [rule=product_fuzzy, wiring="ab, ac, bcd -> ad"]
 
 program p : A -> A
-    x <- Normal(0.0, 1.0)
+    sample x <- Normal(0.0, 1.0)
     observe r : A <- Normal(x, 0.1)
     return r
 
@@ -567,40 +566,35 @@ export p
 """
 
     def test_inferred_compiles(self, src_inferred):
-        from quivers.dsl import loads
 
         prog = loads(src_inferred)
         assert prog is not None
 
     def test_explicit_wiring_still_compiles(self, src_explicit_wiring):
-        from quivers.dsl import loads
 
         prog = loads(src_explicit_wiring)
         assert prog is not None
 
     def test_share_clause_compiles(self):
         src = """
-algebra product_fuzzy
+composition product_fuzzy as algebra
 
-object A : 3
-object B : 4
-object C : 5
+object A : FinSet 3
+object B : FinSet 4
+object C : FinSet 5
 
 contraction shared_b (
     f : A -> B,
     g : C -> B
-) : (A * C) -> B
-    rule product_fuzzy
-    share B
+) : (A * C) -> B [rule=product_fuzzy, share=[B]]
 
 program p : A -> A
-    x <- Normal(0.0, 1.0)
+    sample x <- Normal(0.0, 1.0)
     observe r : A <- Normal(x, 0.1)
     return r
 
 export p
 """
-        from quivers.dsl import loads
 
-        prog = loads(src)
+        prog = loads(textwrap.dedent(src))
         assert prog is not None

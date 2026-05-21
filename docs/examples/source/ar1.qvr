@@ -1,29 +1,30 @@
-# ================================================================
-# First-Order Autoregressive Model (AR(1))
-# ================================================================
+# First-Order Autoregressive Model
 #
-# A first-order autoregressive time series with Normal noise:
+# A first-order autoregressive time series with Normal noise.
+# Conditioning on an observed series indexed by Step recovers
+# the stationary posterior over (alpha, phi, sigma); this is
+# the canonical reference point for the more elaborate
+# state-space models in the gallery.
 #
-#   alpha ~ Normal(0, 5)
-#   phi   ~ Uniform(-1, 1)            stationarity constraint
-#   sigma ~ HalfCauchy(1)
-#   y_1   ~ Normal(alpha / (1 - phi), sigma / sqrt(1 - phi^2))
-#   y_t   ~ Normal(alpha + phi * y_{t-1}, sigma)    for t > 1
+# Generative structure:
 #
-# Conditioning on an observed series indexed by `Step` recovers
-# the stationary posterior over (alpha, phi, sigma). The model
-# is the canonical reference point for both linear time-series
-# inference and the more elaborate state-space models in the
-# gallery.
+#   alpha  ~ Normal(0, 5)
+#   phi    ~ Uniform(-1, 1)                       stationarity constraint
+#   sigma  ~ HalfCauchy(1)
+#   y_t    ~ Normal(alpha + phi * y_{t-1}, sigma) per-step observation
+#
+# The Uniform(-1, 1) prior on phi enforces a stationary chain;
+# the marginal stationary variance is sigma^2 / (1 - phi^2).
 
-object Step : 200
+object Step : FinSet 200
 
 program ar1 : Step -> Step
-    alpha <- Normal(0.0, 5.0)
-    phi <- Uniform(-1.0, 1.0)
-    sigma <- HalfCauchy(1.0)
+    sample alpha <- Normal(0.0, 5.0)
+    sample phi <- Uniform(-1.0, 1.0)
+    sample sigma <- HalfCauchy(1.0)
 
     let mu = alpha + phi * y_prev
+
     observe y : Step <- Normal(mu, sigma)
     return phi
 

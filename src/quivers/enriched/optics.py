@@ -23,7 +23,7 @@ This module provides concrete optic types:
     compose_optics() — compose two optics sequentially
 
 These are V-enriched optics: ``forward()`` and ``backward()`` return
-:class:`Morphism` (tensor-shaped fuzzy relations) and ``backward()``
+`Morphism` (tensor-shaped fuzzy relations) and ``backward()``
 joins over the complement axis using the algebra's join. This is a
 distinct abstraction from ``didactic.Lens`` (instance-level, with an
 explicit complement value) and from ``didactic.DependentLens`` (schema-

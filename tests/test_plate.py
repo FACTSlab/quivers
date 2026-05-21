@@ -172,10 +172,10 @@ class TestDSLSurface:
 
     def test_plate_draw_step_parses_and_compiles(self):
         src = """
-        object Subj : 5
+        object Subj : FinSet 5
 
         program demo : Subj -> Subj
-            coefs : Subj <- Normal(0.0, 1.0)
+            sample coefs : Subj <- Normal(0.0, 1.0)
             let z = coefs
             return z
 
@@ -203,10 +203,10 @@ class TestDSLSurface:
 
     def test_vectorized_observe(self):
         src = """
-        object Resp : 20
+        object Resp : FinSet 20
 
         program demo : Resp -> Resp
-            mu : Resp <- Normal(0.0, 1.0)
+            sample mu : Resp <- Normal(0.0, 1.0)
             observe r : Resp <- Normal(0.0, 1.0)
             return mu
 
@@ -217,14 +217,14 @@ class TestDSLSurface:
 
     def test_marginalize_step(self):
         src = """
-        object Item : 5
-        type R = Euclidean 1
+        object Item : FinSet 5
+        object Cls : FinSet 3
 
-        program demo : Item -> R ! Sample, Marginal
-            marginalize class_probs : Item <- Normal(0.0, 1.0) in {
-                z <- Normal(0.0, 1.0)
-            }
-            return z
+        program demo : Item -> Item
+            sample probs : Cls <- Dirichlet(1.0) [over=Cls]
+            marginalize cls : Cls <- Categorical(probs) [over=Item, reduction=logsumexp]
+                observe y : Item <- Categorical(probs) [via=item_idx]
+            return probs
 
         export demo
         """
@@ -236,17 +236,17 @@ class TestDSLSurface:
         # Two call sites with different actuals must produce *fresh*
         # latent factors in the caller's joint kernel (not shared).
         src = """
-        object SubjCloze : 7
-        object Verb : 3
+        object SubjCloze : FinSet 7
+        object Verb : FinSet 3
 
-        program random_intercepts (G : FinSet, scale : Real) : G -> 1
-            sigma <- HalfNormal(scale)
-            v : G <- Normal(0.0, sigma)
+        program random_intercepts(G : FinSet, scale : Real) : G -> Real 1
+            sample sigma <- HalfNormal(scale)
+            sample v : G <- Normal(0.0, sigma)
             return v
 
         program demo : SubjCloze -> SubjCloze
-            by_subj <- random_intercepts(SubjCloze, 1.0)
-            by_verb <- random_intercepts(Verb, 1.0)
+            sample by_subj <- random_intercepts(SubjCloze, 1.0)
+            sample by_verb <- random_intercepts(Verb, 1.0)
             return by_subj
 
         export demo
@@ -275,17 +275,17 @@ class TestDSLSurface:
         # references the kernel by the parameter name; the call site
         # supplies a declared continuous morphism.
         src = """
-        object Subj : 5
-        type UnitSpace = Euclidean 1
+        object Subj : FinSet 5
+        object UnitSpace : Real 1
 
-        kernel my_prior : Subj -> UnitSpace ~ Normal [loc=0.0, scale=1.0]
+        morphism my_prior : Subj -> UnitSpace [role=kernel] ~ Normal(0.0, 1.0)
 
-        program with_prior (G : FinSet, prior : Mor[Subj, UnitSpace]) : G -> 1
-            v : G <- prior
+        program with_prior(G : FinSet, prior : Mor[Subj, UnitSpace]) : G -> Real 1
+            sample v : G <- prior
             return v
 
         program demo : Subj -> Subj
-            by_subj <- with_prior(Subj, my_prior)
+            sample by_subj <- with_prior(Subj, my_prior)
             return by_subj
 
         export demo

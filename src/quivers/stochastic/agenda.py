@@ -4,9 +4,9 @@ A general framework for evaluating weighted deductive systems by
 agenda-driven semi-naïve enumeration. Subsumes CKY, Earley,
 Viterbi, A* parsing, Knuth's algorithm, semi-naïve Datalog
 evaluation, and bidirectional MLTT type-checking under one
-runtime, parameterized by an :class:`Item` algebra, a list of
-arity-n :class:`InferenceRule` hyperedges, a :class:`ChartSemiring`,
-an :class:`Agenda` data structure, a priority function, and a
+runtime, parameterized by an `Item` algebra, a list of
+arity-n `InferenceRule` hyperedges, a `ChartSemiring`,
+an `Agenda` data structure, a priority function, and a
 goal predicate.
 
 Categorical denotation: the chart is the least pre-fixed point of
@@ -81,7 +81,7 @@ Item = tuple[Any, ...]
 The constructor name disambiguates item shapes; the remaining
 slots are the item's payload. Arguments may be other items
 (structural), strings (atoms), integers (positions / cardinals),
-or :class:`Wildcard` placeholders in patterns.
+or `Wildcard` placeholders in patterns.
 """
 
 
@@ -110,7 +110,7 @@ def make_wildcard(name: str) -> Wildcard:
 
 
 Pattern = tuple[Any, ...]
-"""A pattern is an item-shaped tuple that may contain :class:`Wildcard`
+"""A pattern is an item-shaped tuple that may contain `Wildcard`
 positions. A pattern matches an item if (a) the constructor name
 matches, (b) the arities match, (c) each non-wildcard slot is
 structurally equal to the corresponding item slot, and (d) all
@@ -158,9 +158,9 @@ def instantiate(pattern: Pattern, bindings: Bindings) -> Item:
     """Substitute wildcards in a pattern with their bound values.
 
     Returns a concrete item with no wildcards. Raises
-    :class:`KeyError` if a wildcard in the pattern has no binding.
+    `KeyError` if a wildcard in the pattern has no binding.
 
-    The pattern may be a bare :class:`Wildcard` (treated as "the
+    The pattern may be a bare `Wildcard` (treated as "the
     entire item is the wildcard"), a structural tuple, or a leaf
     value (returned unchanged). Recursion runs over tuple
     children.
@@ -277,9 +277,9 @@ class HashChart(Chart):
     judgments, and any deduction whose items don't have a dense
     integer encoding. Falls back to O(|chart| · |pattern|) match
     cost per lookup; faster specializations should override
-    :meth:`lookup` with an indexed structure.
+    `lookup` with an indexed structure.
 
-    Weights are stored as :class:`torch.Tensor` values; autograd
+    Weights are stored as `torch.Tensor` values; autograd
     flows through ``insert_or_aggregate``'s
     ``semiring.plus(torch.stack([…]))`` reduction, so the chart's
     final values carry gradients with respect to any
@@ -287,8 +287,9 @@ class HashChart(Chart):
     the agenda.
     """
 
-    def __init__(self) -> None:
+    def __init__(self, tolerance: float = 0.0) -> None:
         self._store: dict[Item, torch.Tensor] = {}
+        self._tolerance: float = float(tolerance)
 
     def lookup(self, pattern: Pattern) -> Iterable[tuple[Item, torch.Tensor]]:
         for item, w in self._store.items():
@@ -302,16 +303,38 @@ class HashChart(Chart):
         weight: torch.Tensor,
         semiring: ChartSemiring,
     ) -> bool:
+        """Aggregate ``weight`` into the chart at ``item``.
+
+        For non-idempotent semirings (LogProb, Counting, Inside)
+        with cyclic rule graphs, every re-derivation of an item via
+        a new path increases its weight via `semiring.plus`,
+        even when the item itself is already in the chart. With an
+        unconstrained cycle weight, this sequence is unbounded:
+        either the cycle is contractive (cycle log-weight :math:`<
+        0`), in which case the chart's weight converges to a
+        finite Kleene-star limit; or the cycle is non-contractive
+        (:math:`\\ge 0`), in which case the chart total is :math:`+
+        \\infty` and the model is mathematically ill-posed.
+
+        We make this distinction observable by terminating the
+        agenda when the per-item update falls below
+        `_tolerance`. The default tolerance ``0.0`` recovers
+        the original strict-equality semantics; positive
+        tolerances expose convergent cyclic fixed points while
+        still routing divergent systems through the agenda's
+        ``max_iterations`` safety net.
+        """
         if item not in self._store:
             self._store[item] = weight
             return True
         existing = self._store[item]
-        # Aggregate via the semiring's plus (logsumexp for log-prob,
-        # max for Viterbi, OR for boolean, +/- for inside).
-        # We stack and reduce along the new leading dim.
         stacked = torch.stack([existing, weight])
         merged = semiring.plus(stacked, dim=0)
-        changed = not torch.equal(merged, existing)
+        if self._tolerance > 0.0:
+            delta = (merged.detach() - existing.detach()).abs().max()
+            changed = bool(float(delta) > self._tolerance)
+        else:
+            changed = not torch.equal(merged, existing)
         self._store[item] = merged
         return changed
 
@@ -330,18 +353,18 @@ class HashChart(Chart):
 class ChartView:
     """A first-class, differentiable view onto a chart.
 
-    Wraps a :class:`Chart` produced by an agenda run and exposes
+    Wraps a `Chart` produced by an agenda run and exposes
     the user-facing presheaf-evaluation operations:
 
-    * :meth:`weight` — query the aggregated weight at a single
-      ground item; returns a differentiable :class:`torch.Tensor`.
-    * :meth:`enumerate` — enumerate items matching a pattern with
+    * `weight` — query the aggregated weight at a single
+      ground item; returns a differentiable `torch.Tensor`.
+    * `enumerate` — enumerate items matching a pattern with
       their weights.
-    * :meth:`derivations` — extract the derivation forest at an
+    * `derivations` — extract the derivation forest at an
       item (under the derivation semiring; for the basic
       Boolean / LOG_PROB / Viterbi semirings, returns the
       flat list of matched derivations as a placeholder).
-    * :meth:`goal_weight` — return the weight at the goal items
+    * `goal_weight` — return the weight at the goal items
       identified at run time.
 
     Categorically, the chart is the K-presheaf
@@ -375,8 +398,8 @@ class ChartView:
     def weight(self, item: Item) -> torch.Tensor:
         """Return the aggregated weight at a concrete ``item``.
 
-        Raises :class:`KeyError` if the item was never derived.
-        Returns a differentiable :class:`torch.Tensor`.
+        Raises `KeyError` if the item was never derived.
+        Returns a differentiable `torch.Tensor`.
         """
         w = self._result.chart.get(item)
         if w is None:
@@ -405,7 +428,7 @@ class ChartView:
     def enumerate(self, pattern: Pattern) -> list[tuple[Item, torch.Tensor]]:
         """Enumerate (item, weight) pairs matching ``pattern``.
 
-        Wildcards in ``pattern`` (instances of :class:`Wildcard`)
+        Wildcards in ``pattern`` (instances of `Wildcard`)
         match any slot value. The returned weights are
         differentiable.
         """
@@ -415,10 +438,10 @@ class ChartView:
         """Return the vector embedding of ``item`` under the deduction's
         attached encoder.
 
-        Requires the originating :class:`DeductionSystem` to carry an
+        Requires the originating `DeductionSystem` to carry an
         ``_item_encoder`` attribute (set by the DSL compiler when
         the deduction's body declares ``encoder C``). Items are
-        converted to :class:`quivers.structural.Term` form on the fly.
+        converted to [`quivers.structural.Term`][quivers.structural.Term] form on the fly.
         """
         encoder = getattr(self._result, "encoder", None)
         if encoder is None:
@@ -672,7 +695,7 @@ def run_agenda(
     max_iterations : int, optional
         Safety bound on agenda steps; raises if exceeded.
     chart : Chart, optional
-        Initial chart (defaults to empty :class:`HashChart`).
+        Initial chart (defaults to empty `HashChart`).
     """
     semiring = semiring or LOG_PROB
     agenda = agenda or FIFOAgenda()
@@ -914,8 +937,8 @@ class DeductionSystem:
     The system is parameterized by:
 
     - An item algebra (implicit in the patterns the rules use).
-    - A list of arity-n :class:`InferenceRule` hyperedges.
-    - A :class:`ChartSemiring` for weight aggregation.
+    - A list of arity-n `InferenceRule` hyperedges.
+    - A `ChartSemiring` for weight aggregation.
     - An axiom injector ``In -> [(Item, Weight)]`` producing the
       input's lexical / boundary items.
     - A goal predicate ``Item -> bool`` selecting the result items.
@@ -937,6 +960,7 @@ class DeductionSystem:
     agenda_factory: Callable[[], Agenda] = FIFOAgenda
     chart_factory: Callable[[], Chart] = HashChart
     max_iterations: int = 100_000
+    tolerance: float = 0.0
 
     def run(self, input_value: Any) -> AgendaResult:
         """Run the deduction system on an input value."""
@@ -968,6 +992,15 @@ class DeductionSystem:
             )
             rule_loss_acc.append(val)
 
+        # If the user supplied a positive ``tolerance``, propagate
+        # it to the chart so its aggregation step terminates on
+        # convergence. The default chart_factory is ``HashChart``,
+        # whose constructor accepts the tolerance; user-supplied
+        # alternative chart factories can ignore the argument.
+        try:
+            chart_inst = self.chart_factory(tolerance=self.tolerance)
+        except TypeError:
+            chart_inst = self.chart_factory()
         result = run_agenda(
             axioms=axioms,
             rules=self.rules,
@@ -975,7 +1008,7 @@ class DeductionSystem:
             agenda=self.agenda_factory(),
             goal=self.goal,
             max_iterations=self.max_iterations,
-            chart=self.chart_factory(),
+            chart=chart_inst,
             rule_callback=(_rule_callback if registry is not None else None),
         )
         # Propagate any attached item-encoder to the result.
@@ -1005,7 +1038,7 @@ class DeductionSystem:
         return result
 
     def __call__(self, input_value: Any) -> ChartView:
-        """Run the deduction and return a :class:`ChartView`.
+        """Run the deduction and return a `ChartView`.
 
         Convenience for the user-facing presheaf-evaluation API:
         the chart's weights are differentiable tensors, and the
@@ -1013,6 +1046,37 @@ class DeductionSystem:
         and ``goal_weight`` methods for downstream programs.
         """
         return ChartView(self.run(input_value))
+
+    def parameters(self, recurse: bool = True) -> Iterable[torch.nn.Parameter]:
+        """Yield every learnable parameter owned by this system.
+
+        Walks the optional ``_axiom_module`` (lexicon log-weights)
+        and ``_rule_module`` (per-rule, per-binding log-weights)
+        submodules attached by the compiler. The ``recurse`` flag
+        is the standard `torch.nn.Module.parameters` signature
+        so user code can pass a ``DeductionSystem`` anywhere a
+        ``nn.Module`` parameter iterator is expected.
+        """
+        for attr in ("_axiom_module", "_rule_module"):
+            mod = getattr(self, attr, None)
+            if mod is not None and hasattr(mod, "parameters"):
+                yield from mod.parameters(recurse=recurse)
+
+    def named_parameters(
+        self,
+        prefix: str = "",
+        recurse: bool = True,
+    ) -> Iterable[tuple[str, torch.nn.Parameter]]:
+        """Yield ``(name, parameter)`` pairs over all learnable parameters."""
+        for attr in ("_axiom_module", "_rule_module"):
+            mod = getattr(self, attr, None)
+            if mod is not None and hasattr(mod, "named_parameters"):
+                sub_prefix = f"{prefix}.{attr}" if prefix else attr
+                for n, p in mod.named_parameters(
+                    prefix=sub_prefix,
+                    recurse=recurse,
+                ):
+                    yield n, p
 
 
 # ---------------------------------------------------------------------------

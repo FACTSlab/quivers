@@ -62,6 +62,8 @@ samples = program.rsample(
 )  # shape (100, 4, 1)
 
 # Log joint: sum_i log p(z_i | pa(z_i)) given every bound variable
+x_val = torch.randn(4, 1)
+y_val = torch.randn(4, 1)
 log_joint = program.log_joint(
     torch.zeros(4, dtype=torch.long),
     {"x": x_val, "y": y_val},
@@ -327,12 +329,11 @@ parser translates:
 
 <!-- compile: false -->
 ```qvr
-object X : 3
-object Y : 4
-
+object X : FinSet 3
+object Y : FinSet 4
 program my_prog : X -> Y
-    mu <- LogitNormal(0, 1)
-    x <- Normal(mu, 1)
+    sample mu <- LogitNormal(0, 1)
+    sample x <- Normal(mu, 1)
     return x
 
 export my_prog

@@ -16,12 +16,11 @@ Binary response, sigmoid link, Bernoulli likelihood.
 
 === "QVR"
 
-    ```qvr
-    object Item : 200
-
-    program logistic : Item -> Item ! Sample, Score
-        beta_0 <- Normal(0.0, 5.0)
-        beta_1 <- Normal(0.0, 2.0)
+    ```text
+    object Item : FinSet 200
+    program logistic : Item -> Item [effects=[Sample, Score]]
+        sample beta_0 <- Normal(0.0, 5.0)
+        sample beta_1 <- Normal(0.0, 2.0)
         let logit = beta_0 + beta_1 * x_design
         let p     = sigmoid(logit)
         observe y : Item <- Bernoulli(p)
@@ -77,11 +76,11 @@ from quivers.dsl import loads
 from quivers.inference import AutoNormalGuide, ELBO, SVI
 
 LOGISTIC_SRC = """
-object Item : 200
+object Item : FinSet 200
 
-program logistic : Item -> Item ! Sample, Score
-    beta_0 <- Normal(0.0, 5.0)
-    beta_1 <- Normal(0.0, 2.0)
+program logistic : Item -> Item
+    sample beta_0 <- Normal(0.0, 5.0)
+    sample beta_1 <- Normal(0.0, 2.0)
     let logit = beta_0 + beta_1 * x_design
     let p     = sigmoid(logit)
     observe y : Item <- Bernoulli(p)
@@ -115,14 +114,15 @@ for step in range(50):                          # bump to ~3000 for real fits
 A logistic regression is well-calibrated if, of all observations where the model predicts $p = 0.7$, roughly 70% actually have $y = 1$.
 
 ```python
-from quivers.inference import Predictive
+from scipy.stats import binom
 
-pred  = Predictive(model, posterior=guide, num_samples=500)
-y_hat = pred(x_tensor, {"x_design": x_data})["y"]    # (500, 200)
-p_hat = y_hat.float().mean(dim=0)                    # (200,)
+# Average the success probability across guide draws of (beta_0, beta_1).
+draws = [guide.rsample(x_tensor) for _ in range(500)]
+b0 = torch.stack([d["beta_0"] for d in draws]).reshape(-1)   # (500,)
+b1 = torch.stack([d["beta_1"] for d in draws]).reshape(-1)   # (500,)
+p_hat = torch.sigmoid(b0[:, None] + b1[:, None] * x_data).mean(dim=0)  # (200,)
 
 # Bin and check empirical frequency with a 95% Wilson-style band.
-from scipy.stats import binom
 bins = torch.linspace(0, 1, 11)
 for lo, hi in zip(bins[:-1], bins[1:]):
     mask = (p_hat >= lo) & (p_hat < hi)
@@ -142,11 +142,10 @@ for lo, hi in zip(bins[:-1], bins[1:]):
 Count response, log link, Poisson likelihood.
 
 ```qvr
-object Item : 150
-
-program poisson_reg : Item -> Item ! Sample, Score
-    beta_0 <- Normal(0.0, 5.0)
-    beta_1 <- Normal(0.0, 2.0)
+object Item : FinSet 150
+program poisson_reg : Item -> Item [effects=[Sample, Score]]
+    sample beta_0 <- Normal(0.0, 5.0)
+    sample beta_1 <- Normal(0.0, 2.0)
     let log_rate = beta_0 + beta_1 * x_design
     let rate     = exp(log_rate)
     observe y : Item <- Poisson(rate)

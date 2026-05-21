@@ -1,4 +1,4 @@
-"""Model comparison via :func:`arviz.compare`.
+"""Model comparison via `arviz.compare`.
 
 Thin wrapper around the canonical ArviZ entry point with quivers-
 typed inputs.  No information-criterion math lives here; ArviZ's
@@ -25,18 +25,18 @@ def compare(
 ) -> object:
     """Rank candidate models by expected log predictive density.
 
-    Delegates to :func:`arviz.compare`, which computes PSIS-LOO
-    via :func:`arviz.loo` on each fit's ``log_likelihood`` group
-    and combines the resulting :class:`~arviz.stats.ELPDData` records
+    Delegates to `arviz.compare`, which computes PSIS-LOO
+    via `arviz.loo` on each fit's ``log_likelihood`` group
+    and combines the resulting `arviz.stats.ELPDData` records
     into a ranked comparison table.
 
     Parameters
     ----------
     fits : Mapping[str, xr.DataTree]
         Per-model fit, each a DataTree produced by
-        :func:`~quivers.diagnostics.to_datatree`.  Every fit must
+        [`quivers.diagnostics.to_datatree`][quivers.diagnostics.to_datatree].  Every fit must
         carry a ``log_likelihood`` group; without it
-        :func:`arviz.loo` cannot compute elpd.
+        `arviz.loo` cannot compute elpd.
     method : "stacking", "BB-pseudo-BMA", or "pseudo-BMA"
         Stacking weight estimator.  Default ``"stacking"`` follows
         [Yao, Vehtari, Simpson, Gelman 2018](https://doi.org/10.1214/17-BA1091).

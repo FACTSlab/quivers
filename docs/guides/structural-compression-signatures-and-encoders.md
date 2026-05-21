@@ -43,21 +43,17 @@ graph-shaped) algebra.
 
 <!-- compile: false -->
 ```qvr
-signature LF {
-    sorts {
-        Term : object dim 64
-        Type : object dim 32
-        Name : data   dim 32 vocab { "dog", "cat", "every", "some" }
-    }
-    constructors {
-        Const : Name      -> Term
-        App   : Term, Term -> Term
-    }
-    binders {
+signature LF
+    sorts
+        Term : object [dim=64]
+        Type : object [dim=32]
+        Name : data [dim=32, vocab=["dog", "cat", "every", "some"]]
+    constructors
+        Const : Name -> Term
+        App : Term, Term -> Term
+    binders
         Lam : binds (x : Term : ty : Type) in (body : Term) -> Term
         All : binds (x : Term : ty : Type) in (body : Term) -> Term
-    }
-}
 ```
 
 Three sort kinds:
@@ -111,18 +107,17 @@ per-arg dim sequence.
 
 <!-- compile: false -->
 ```qvr
-encoder C over LF {
+encoder C : LF
     dim Term = 64
     dim Type = 32
 
-    Const(n)         |-> name_embed
-    App(f, x)        |-> mlp_app([f, x])
+    Const(n) |-> name_embed
+    App(f, x) |-> mlp_app([f, x])
 
-    Lam(ty, body)    |-> mlp_lam([ty, body])
-    All(ty, body)    |-> mlp_all([ty, body])
+    Lam(ty, body) |-> mlp_lam([ty, body])
+    All(ty, body) |-> mlp_all([ty, body])
 
     var_init Term from Type as ty |-> mlp_typed_var(ty)
-}
 ```
 
 For binder constructors, the framework's calling convention is:
@@ -188,10 +183,9 @@ program embed : Pixel -> Latent
     let h = relu(layer_norm(W1 * x))
     return h
 
-encoder C over LF {
+encoder C : LF
     dim Term = 64
     App(f, x) |-> gelu(embed(f) + embed(x))
-}
 ```
 
 ### Factory form
@@ -201,11 +195,11 @@ explicit `{ ... }` body can be replaced by a factory invocation:
 
 <!-- compile: false -->
 ```qvr
-encoder rnn_enc over seq using rnn_encoder [dim=128]
-encoder tfm_enc over seq using transformer_encoder [dim=256, heads=8]
-encoder bow_enc over seq using bow_encoder
-encoder tree    over lf  using tree_lstm_encoder
-encoder graph   over mol using gnn_encoder
+encoder rnn_enc : seq [factory=rnn_encoder, dim=128]
+encoder tfm_enc : seq [factory=transformer_encoder, dim=256, heads=8]
+encoder bow_enc : seq [factory=bow_encoder]
+encoder tree : lf [factory=tree_lstm_encoder]
+encoder graph : mol [factory=gnn_encoder]
 ```
 
 Factories live in `quivers.structural.shapes` (see the [encoder API
@@ -239,15 +233,13 @@ body shapes are available:
 
 <!-- compile: false -->
 ```qvr
-encoder RNN over Seq {
-    Nil                              |-> 0.0
+encoder RNN : Seq
+    Nil |-> 0.0
     Cons(head, tail) recurrent state |-> gru_step(head, state)
-}
 
-encoder Tfm over Seq {
-    Nil                               |-> 0.0
+encoder Tfm : Seq
+    Nil |-> 0.0
     Cons(head, tail) attention prefix |-> tfm_step(head, prefix)
-}
 ```
 
 - `recurrent <state>` binds the named state variable to the
@@ -268,22 +260,24 @@ typed endpoints), and the encoder body uses message-passing:
 
 <!-- compile: false -->
 ```qvr
-signature Mol {
-    vertex_kinds { Atom : data dim 32, Bond : data dim 32 }
-    edge_kinds   { bonded : Atom -- Atom, in_bond : Atom -> Bond }
-}
+signature Mol
+    vertex_kinds
+        Atom : data [dim=32]
+        Bond : data [dim=32]
+    edge_kinds
+        bonded : Atom -- Atom
+        in_bond : Atom -> Bond
 
-encoder GNN over Mol {
+encoder GNN : Mol
     iterations 4
 
-    init Atom(a)               |-> atom_embed[a]
-    init Bond(b)               |-> bond_embed[b]
-    message[bonded](src, tgt)  |-> mlp_msg([src, tgt])
+    init Atom(a) |-> atom_embed[a]
+    init Bond(b) |-> bond_embed[b]
+    message[bonded](src, tgt) |-> mlp_msg([src, tgt])
     message[in_bond](src, tgt) |-> mlp_in([src, tgt])
-    update[Atom](self, msgs)   |-> gru_update_atom(self, mean(msgs))
-    update[Bond](self, msgs)   |-> gru_update_bond(self, mean(msgs))
-    readout                    |-> mean_pool
-}
+    update[Atom](self, msgs) |-> gru_update_atom(self, mean(msgs))
+    update[Bond](self, msgs) |-> gru_update_bond(self, mean(msgs))
+    readout |-> mean_pool
 ```
 
 Undirected edges (`Atom -- Atom`) emit messages in both directions;

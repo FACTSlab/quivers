@@ -1,25 +1,25 @@
-"""Bidirectional :class:`didactic.api.Lens` from :class:`Formula` to a
-QVR :class:`~quivers.dsl.ast_nodes.Module` AST.
+"""Bidirectional `didactic.api.Lens` from `Formula` to a
+QVR [`quivers.dsl.ast_nodes.Module`][quivers.dsl.ast_nodes.Module] AST.
 
 The compilation from a formula to a QVR program is a panproto-style
-*lens* whose complement is the strict subset of :class:`Formula`
+*lens* whose complement is the strict subset of `Formula`
 fields that are not recoverable from the emitted
-:class:`Module` — packaged as :class:`FormulaData`. The forward
+`Module` — packaged as `FormulaData`. The forward
 direction produces ``(module, formula_data)`` where the structural
 fields of the formula (which columns exist, intercept flag, random
 effect group / slope structure, response identifier) are encoded as
 QVR latent / let / observe shape and the un-encodable fields (per-row
-data, original identifier names lost to :func:`_qvr_name`'s
+data, original identifier names lost to `_qvr_name`'s
 non-alphanumeric → underscore substitution, the ``term`` / ``name``
 presentation labels, the original formula string) ride in
-:class:`FormulaData`. The backward direction recovers the structure
-by calling :func:`_decode_module` on the target and fuses it with the
+`FormulaData`. The backward direction recovers the structure
+by calling `_decode_module` on the target and fuses it with the
 complement.
 
-The lens never touches strings — the target is a :class:`Module`
-that the existing :class:`quivers.dsl.compiler.Compiler` consumes
+The lens never touches strings — the target is a `Module`
+that the existing [`quivers.dsl.compiler.Compiler`][quivers.dsl.compiler.Compiler] consumes
 directly, identical in shape to one produced by
-:func:`quivers.dsl.parser.parse`.
+[`quivers.dsl.parser.parse`][quivers.dsl.parser.parse].
 
 Emitted structure (one named scalar coefficient per design-matrix
 *column*, matching the brms / lme4 canonical layout in which
@@ -34,7 +34,7 @@ Emitted structure (one named scalar coefficient per design-matrix
   The per-row covariate values for ``c`` flow in as a free
   variable via the host-data channel (``observations[c]``).
 * For each random-effect group ``(slope | g)``: a
-  :class:`HalfNormal` scale latent plus a per-level plate draw,
+  `HalfNormal` scale latent plus a per-level plate draw,
   with the per-row contribution as a plate-gather
   ``alpha_g[g_idx]`` (or ``beta_g_slope[g_idx] * slope`` for a
   random slope).  Multiple random slopes per group are emitted
@@ -44,7 +44,7 @@ Emitted structure (one named scalar coefficient per design-matrix
   observation kernel applied to the inverse-link of the linear
   predictor.
 
-GetPut holds for every :class:`Formula` ``f``: ``backward(*forward(f)) == f``.
+GetPut holds for every `Formula` ``f``: ``backward(*forward(f)) == f``.
 """
 
 from __future__ import annotations
@@ -56,7 +56,6 @@ import numpy as np
 import torch
 
 from quivers.dsl.ast_nodes import (
-    BindStep,
     ExportDecl,
     ExprIdent,
     LetExprBinOp,
@@ -66,11 +65,15 @@ from quivers.dsl.ast_nodes import (
     LetExprNode,
     LetExprVar,
     LetStep,
+    DiscreteConstructor,
     Module,
-    ObjectDecl,
+    ObserveStep,
     ProgramDecl,
     ProgramStep,
+    SampleStep,
     Statement,
+    ObjectDecl,
+    TypeFromExpr,
     TypeName,
 )
 from quivers.formulas.family import Family
@@ -115,13 +118,26 @@ def _draw(
     *,
     index: TypeName | None = None,
     mode: Literal["sample", "score", "marginal"] = "sample",
-) -> BindStep:
-    return BindStep(
+) -> SampleStep | ObserveStep:
+    """Build a surface program step for a draw of ``var`` from ``family``.
+
+    ``mode="sample"`` / ``"marginal"`` map to `SampleStep`;
+    ``mode="score"`` maps to `ObserveStep`. Marginalisation
+    of formula draws is not currently emitted by the formula
+    compiler, so the marginal mode collapses to sample here.
+    """
+    if mode == "score":
+        return ObserveStep(
+            var=var,
+            morphism=family,
+            args=args,
+            index=index,
+        )
+    return SampleStep(
         vars=(var,),
         morphism=family,
         args=args,
         index=index,
-        mode=mode,
     )
 
 
@@ -164,11 +180,11 @@ def _apply_link(eta: LetExprNode, link_name: str) -> LetExprNode:
 
 
 def _decode_module(module: Module) -> dict:
-    """Recover the structural part of a :class:`Formula` from the
-    emitted :class:`Module`.
+    """Recover the structural part of a `Formula` from the
+    emitted `Module`.
 
     Returns a dict carrying the fields the lens forward can deterministically
-    produce from a :class:`Formula`:
+    produce from a `Formula`:
 
     * ``n_obs`` — the ``Resp`` cardinality.
     * ``group_cardinalities`` — ``{qvr_group_name: K}`` for each
@@ -184,7 +200,7 @@ def _decode_module(module: Module) -> dict:
     * ``observe_family`` — the family name on the observe step.
 
     The decoder is intentionally narrow: it knows the canonical
-    emission shape of :class:`FormulaToQVRModule` and recognises that
+    emission shape of `FormulaToQVRModule` and recognises that
     shape only. It is not a general QVR parser.
     """
     n_obs: int | None = None
@@ -192,12 +208,23 @@ def _decode_module(module: Module) -> dict:
     program: ProgramDecl | None = None
     for stmt in module.statements:
         if isinstance(stmt, ObjectDecl):
-            type_expr = stmt.type_expr
-            if not isinstance(type_expr, TypeName):
+            init = stmt.init
+            if not isinstance(init, TypeFromExpr):
                 continue
-            try:
-                cardinality = int(type_expr.name)
-            except ValueError:
+            type_expr = init.expr
+            cardinality: int | None = None
+            if isinstance(type_expr, DiscreteConstructor):
+                if type_expr.constructor == "FinSet" and len(type_expr.args) == 1:
+                    try:
+                        cardinality = int(type_expr.args[0])
+                    except ValueError:
+                        cardinality = None
+            elif isinstance(type_expr, TypeName):
+                try:
+                    cardinality = int(type_expr.name)
+                except ValueError:
+                    cardinality = None
+            if cardinality is None:
                 continue
             if stmt.name == "Resp":
                 n_obs = cardinality
@@ -216,17 +243,17 @@ def _decode_module(module: Module) -> dict:
     # Walk the program steps in emission order. The lens emits, per
     # the layout in `_build_module`, the following pattern:
     #
-    #   * One BindStep per fixed coefficient (`intercept` or
+    #   * One SampleStep per fixed coefficient (`intercept` or
     #     `beta_<qvr_name>`).
     #   * For non-intercepts, a LetStep `<beta_name>_per_row =
-    #     beta_name * <qvr_name>` immediately after the BindStep.
-    #   * One BindStep `sigma_<g>_<slope>` per random-effect entry,
+    #     beta_name * <qvr_name>` immediately after the SampleStep.
+    #   * One SampleStep `sigma_<g>_<slope>` per random-effect entry,
     #     followed by the plate draw (`alpha_<g>` or
     #     `beta_<g>_<slope>`) and a LetStep `<latent_var>_per_row`.
-    #   * Aux-family BindSteps (one per aux param).
+    #   * Aux-family SampleSteps (one per aux param).
     #   * `let eta = ...`, `let mu = ...`.
-    #   * A final BindStep with `mode="score"` and `index="Resp"`
-    #     bearing the response qvr_name and the observe-family.
+    #   * A final ObserveStep indexed by `Resp` bearing the response
+    #     qvr_name and the observe-family.
     fixed_qvr_names: list[tuple[str, bool]] = []
     random_terms_qvr: list[tuple[str, str]] = []
     response_qvr_name: str = ""
@@ -237,11 +264,12 @@ def _decode_module(module: Module) -> dict:
         if isinstance(step, LetStep):
             seen_letnames.add(step.name)
             continue
-        if not isinstance(step, BindStep):
+        if isinstance(step, ObserveStep):
+            if step.index is not None:
+                response_qvr_name = step.var
+                observe_family = step.morphism
             continue
-        if step.mode == "score" and step.index is not None:
-            response_qvr_name = step.vars[0]
-            observe_family = step.morphism
+        if not isinstance(step, SampleStep):
             continue
         if len(step.vars) != 1:
             continue
@@ -305,22 +333,22 @@ def _decode_module(module: Module) -> dict:
 
 
 class FormulaToQVRModule(dx.Lens[Formula, Module, FormulaData]):
-    """Translate a :class:`Formula` to a QVR :class:`Module` AST.
+    """Translate a `Formula` to a QVR `Module` AST.
 
-    A typed :class:`didactic.api.Lens` whose complement is a
-    :class:`FormulaData` carrier: just the fields of the source
-    :class:`Formula` that are *not* recoverable from the emitted
-    :class:`Module`. The per-row data arrays, the original (pre-
-    :func:`_qvr_name`) identifiers, the per-column ``term`` / ``name``
+    A typed `didactic.api.Lens` whose complement is a
+    `FormulaData` carrier: just the fields of the source
+    `Formula` that are *not* recoverable from the emitted
+    `Module`. The per-row data arrays, the original (pre-
+    `_qvr_name`) identifiers, the per-column ``term`` / ``name``
     presentation labels, and the original formula string travel in
     the complement; everything else (which columns there are, the
     intercept / random-term structure, the family choice) is decoded
-    back out of the Module by :func:`_decode_module`.
+    back out of the Module by `_decode_module`.
 
     Parameters
     ----------
     family : Family
-        Response family from :data:`quivers.formulas.families`.
+        Response family from `quivers.formulas.families`.
     fixed_prior : str
         Default prior for fixed-effect coefficients, in the surface
         form ``"Family(arg, arg, ...)"``; numeric args become floats,
@@ -334,10 +362,10 @@ class FormulaToQVRModule(dx.Lens[Formula, Module, FormulaData]):
 
     Notes
     -----
-    GetPut: :meth:`backward` ``(forward(f))`` ``=`` ``f`` for every
-    :class:`Formula` ``f``. PutGet holds on pairs ``(t, c)`` for
-    which ``t`` is in the image of :meth:`forward` and ``c`` is the
-    corresponding :class:`FormulaData`.
+    GetPut: `backward` ``(forward(f))`` ``=`` ``f`` for every
+    `Formula` ``f``. PutGet holds on pairs ``(t, c)`` for
+    which ``t`` is in the image of `forward` and ``c`` is the
+    corresponding `FormulaData`.
     """
 
     def __init__(
@@ -458,7 +486,15 @@ class FormulaToQVRModule(dx.Lens[Formula, Module, FormulaData]):
         statements: list[Statement] = []
         n_obs = formula.response_values.shape[0]
         statements.append(
-            ObjectDecl(name="Resp", type_expr=TypeName(name=str(int(n_obs))))
+            ObjectDecl(
+                name="Resp",
+                init=TypeFromExpr(
+                    expr=DiscreteConstructor(
+                        constructor="FinSet",
+                        args=(str(int(n_obs)),),
+                    )
+                ),
+            )
         )
         seen_groups: set[str] = set()
         for term in formula.random_terms:
@@ -471,7 +507,12 @@ class FormulaToQVRModule(dx.Lens[Formula, Module, FormulaData]):
             statements.append(
                 ObjectDecl(
                     name=qgroup,
-                    type_expr=TypeName(name=str(len(levels))),
+                    init=TypeFromExpr(
+                        expr=DiscreteConstructor(
+                            constructor="FinSet",
+                            args=(str(len(levels)),),
+                        )
+                    ),
                 )
             )
 

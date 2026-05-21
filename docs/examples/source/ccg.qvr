@@ -1,74 +1,37 @@
-# ================================================================
-# Weighted Combinatory Categorial Grammar (CCG)
-# ================================================================
+# Weighted Combinatory Categorial Grammar
 #
 # A learnable weighted CCG parser declared as an agenda-based
-# weighted deduction over chart items. CCG's structural rules
-# are:
-#
-#   - Forward / backward application      (evaluation)
-#   - Forward / backward composition      (harmonic_composition)
-#   - Forward / backward crossed comp.    (crossed_composition)
-#
-# Each is one sequent rule below. `Fwd(X, Y)` constructs the
-# forward-slash category `X/Y`; `Bwd(X, Y)` constructs the
-# backward-slash category `X\Y`. The compiler treats every
-# identifier listed in `atoms { … }` as a nullary or parametric
-# constructor; single-uppercase identifiers (`X`, `Y`, `Z`, `I`,
-# `J`, `K`) bind as pattern variables.
-#
-# Chart items are `span(I, J, X)` triples covering tokens
-# `[I, J)` with category `X`. The semiring is `LogProb` for
+# weighted deduction over chart items. Categories carry slash
+# constructors Fwd(X, Y) = X/Y and Bwd(X, Y) = X\Y; chart items
+# are span(I, J, X) triples; the semiring is LogProb for
 # differentiable inside scores.
 #
-# Categorical perspective: CCG is the internal language of a
-# closed monoidal category. The slashes are internal homs;
-# application is the counit of the hom-tensor adjunction;
-# composition is composition of internal hom morphisms.
+# Deduction:
+#
+#   fwd_app    : X/Y, Y       |- X           forward application
+#   bwd_app    : Y,   X\Y     |- X           backward application
+#   fwd_comp   : X/Y, Y/Z     |- X/Z         forward composition
+#   bwd_comp   : Y\Z, X\Y     |- X\Z         backward composition
+#   fwd_xcomp  : X/Y, Y\Z     |- X\Z         forward crossed composition
+#   bwd_xcomp  : Y/Z, X\Y     |- X/Z         backward crossed composition
+#
+# CCG is the internal language of a closed monoidal category:
+# the slashes are internal homs, application is the counit of
+# the hom-tensor adjunction, and composition is composition of
+# internal hom morphisms.
 
-object Term : 16
+object Term : FinSet 16
 
-deduction CCG : Term -> Term {
-    atoms {
-        # Category atoms.
-        NP, S, N, VP, PP,
-        # Slash constructors.
-        Fwd, Bwd,
-        # Chart-item constructor.
-        span
-    }
-
-    # Forward application: X/Y, Y => X
-    rule fwd_app
-        : span(I, K, Fwd(X, Y)), span(K, J, Y)
-        |- span(I, J, X)
-
-    # Backward application: Y, X\Y => X
-    rule bwd_app
-        : span(I, K, Y), span(K, J, Bwd(X, Y))
-        |- span(I, J, X)
-
-    # Forward composition: X/Y, Y/Z => X/Z
-    rule fwd_comp
-        : span(I, K, Fwd(X, Y)), span(K, J, Fwd(Y, Z))
-        |- span(I, J, Fwd(X, Z))
-
-    # Backward composition: Y\Z, X\Y => X\Z
-    rule bwd_comp
-        : span(I, K, Bwd(Y, Z)), span(K, J, Bwd(X, Y))
-        |- span(I, J, Bwd(X, Z))
-
-    # Forward crossed composition: X/Y, Y\Z => X\Z
-    rule fwd_xcomp
-        : span(I, K, Fwd(X, Y)), span(K, J, Bwd(Y, Z))
-        |- span(I, J, Bwd(X, Z))
-
-    # Backward crossed composition: Y/Z, X\Y => X/Z
-    rule bwd_xcomp
-        : span(I, K, Fwd(Y, Z)), span(K, J, Bwd(X, Y))
-        |- span(I, J, Fwd(X, Z))
-
-    semiring  LogProb
-    start     S
-    depth     6
-}
+deduction CCG : Term -> Term [semiring=LogProb, start=S, depth=6]
+    atoms NP, S, N, VP, PP, Fwd, Bwd, span, the, cat, sleeps, barks
+    rule fwd_app : span(I, K, Fwd(X, Y)), span(K, J, Y) |- span(I, J, X) #[learnable]
+    rule bwd_app : span(I, K, Y), span(K, J, Bwd(X, Y)) |- span(I, J, X) #[learnable]
+    rule fwd_comp : span(I, K, Fwd(X, Y)), span(K, J, Fwd(Y, Z)) |- span(I, J, Fwd(X, Z)) #[learnable]
+    rule bwd_comp : span(I, K, Bwd(Y, Z)), span(K, J, Bwd(X, Y)) |- span(I, J, Bwd(X, Z)) #[learnable]
+    rule fwd_xcomp : span(I, K, Fwd(X, Y)), span(K, J, Bwd(Y, Z)) |- span(I, J, Bwd(X, Z)) #[learnable]
+    rule bwd_xcomp : span(I, K, Fwd(Y, Z)), span(K, J, Bwd(X, Y)) |- span(I, J, Fwd(X, Z)) #[learnable]
+    lexicon
+        "the" : Fwd(NP, N) = the #[learnable]
+        "cat" : N = cat #[learnable]
+        "sleeps" : Bwd(S, NP) = sleeps #[learnable]
+        "barks" : Bwd(S, NP) = barks #[learnable]

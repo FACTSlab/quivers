@@ -152,8 +152,13 @@ $$
 $$
 
 ```python
-from quivers.monadic.algebras import FreeAlgebra, ObservedAlgebra
 import torch
+from quivers.monadic.algebras import FreeAlgebra, ObservedAlgebra
+from quivers.monadic.monads import FuzzyPowersetMonad
+from quivers.core.objects import FinSet
+
+monad = FuzzyPowersetMonad()
+X = FinSet(name="X", cardinality=3)
 
 # Free algebra: carrier is T(A), structure map is μ_A
 free_alg = FreeAlgebra(monad, X)
@@ -165,7 +170,7 @@ assert free_alg.verify_associativity()
 
 # Algebra from an explicit structure tensor α : T(A) → A
 TA = monad.fmap_obj(X)
-alpha_tensor = torch.eye(TA.size, X.size)[: TA.size, : X.size]  # any tensor of shape (TA.size, X.size)
+alpha_tensor = torch.eye(TA.size, X.size)[: TA.size, : X.size]
 explicit_alg = ObservedAlgebra(monad, X, alpha_tensor)
 ```
 
@@ -177,7 +182,12 @@ The Eilenberg-Moore category of $T$ has $T$-algebras as objects and algebra homo
 
 ```python
 from quivers.monadic.algebras import EilenbergMooreCategory
+from quivers.monadic.monads import FuzzyPowersetMonad
+from quivers.core.morphisms import morphism
+from quivers.core.objects import FinSet
 
+monad = FuzzyPowersetMonad()
+X = FinSet(name="X", cardinality=3)
 em = EilenbergMooreCategory(monad)
 
 # Free algebra on X

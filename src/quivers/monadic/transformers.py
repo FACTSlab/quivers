@@ -1,21 +1,21 @@
 """Monad transformers: stack monadic effects.
 
-A :class:`MonadTrans` instance ``T`` provides a :meth:`lift`
+A `MonadTrans` instance ``T`` provides a `lift`
 embedding an inner-monad Kleisli arrow into the transformer.
 Stacking ``T(m)`` for a base monad ``m`` produces a new monad
 whose effects combine ``T``'s and ``m``'s.
 
 Currently shipped transformers:
 
-- :class:`StateT(state)` — adds state-threading to any inner monad.
-- :class:`ReaderT(env)` — adds reader-effect to any inner monad.
-- :class:`MaybeT` — adds presupposition-failure to any inner monad.
-- :class:`ContT(answer)` — adds continuation-passing to any inner monad.
-- :class:`WriterT(monoid)` — adds accumulator side-channel to any
+- `StateT(state)` — adds state-threading to any inner monad.
+- `ReaderT(env)` — adds reader-effect to any inner monad.
+- `MaybeT` — adds presupposition-failure to any inner monad.
+- `ContT(answer)` — adds continuation-passing to any inner monad.
+- `WriterT(monoid)` — adds accumulator side-channel to any
   inner monad.
 
-Each transformer is itself a :class:`Monad` instance once applied to
-a base monad; the transformer's :meth:`lift` is a :class:`MonadTrans`
+Each transformer is itself a `Monad` instance once applied to
+a base monad; the transformer's `lift` is a `MonadTrans`
 operation.
 """
 
@@ -31,7 +31,7 @@ from quivers.monadic.typeclasses import Monad, MonadTrans
 class _TransBase(dx.Model):
     """Common base for transformers; lift signature placeholder.
 
-    Concrete transformer subclasses provide :meth:`lift` and the
+    Concrete transformer subclasses provide `lift` and the
     lifted monadic operations on the stacked monad.
     """
 

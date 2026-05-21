@@ -47,14 +47,14 @@ pip install quivers
 ```
 
 ```qvr
-object Item : 100
+object Item : FinSet 100
 
-program regression : Item -> Item ! Sample, Score
-    sigma  <- HalfNormal(1.0)
-    beta_0 <- Normal(0.0, 5.0)
-    beta_1 <- Normal(0.0, 2.0)
+program regression : Item -> Item [effects=[Sample, Score]]
+    sample sigma  <- HalfNormal(1.0)
+    sample beta_0 <- Normal(0.0, 5.0)
+    sample beta_1 <- Normal(0.0, 2.0)
     let mu = beta_0 + beta_1 * x
-    observe y <- Normal(mu, sigma)
+    observe y : Item <- Normal(mu, sigma)
     return y
 
 export regression

@@ -52,7 +52,8 @@ $$(g \circ f)[a, c] = \sum_b f[a, b] \cdot g[b, c]$$
 which is standard matrix multiplication.
 
 ```python
-from quivers.stochastic.algebra import MARKOV
+import torch
+from quivers.stochastic import MARKOV
 
 assert MARKOV.name == "Markov"
 
@@ -106,15 +107,17 @@ from quivers.core.objects import FinSet
 
 X = FinSet(name="X", cardinality=10)
 
-# Discretized normal on 20 bins
-normal = DiscretizedNormal(X, n_bins=20)
+# Discretized normal: the codomain `FinSet` cardinality is the bin count.
+Bins20 = FinSet(name="Bins20", cardinality=20)
+normal = DiscretizedNormal(X, Bins20, low=0.0, high=1.0)
 
 # Input-conditioned parameters via learned linear maps
 # μ, σ computed from input
 tensor = normal.tensor  # (10, 20) stochastic matrix
 
 # Discretized beta on (0, 1)
-beta = DiscretizedBeta(X, n_bins=15, low=0.0, high=1.0)
+Bins15 = FinSet(name="Bins15", cardinality=15)
+beta = DiscretizedBeta(X, Bins15)
 ```
 
 ## Conditioning and Bayesian Updates
@@ -124,7 +127,9 @@ Bayesian conditioning via Bayes' rule. Given a joint distribution $p(x, y)$ and 
 $$p(x | \text{obs}) \propto p(x, \text{obs}) = \sum_y p(x, y) \cdot \mathbb{1}_{\text{obs}}(y)$$
 
 ```python
-from quivers.stochastic import condition, ConditionedMorphism
+import torch
+from quivers.core.objects import FinSet
+from quivers.stochastic import StochasticMorphism, condition, ConditionedMorphism
 
 X = FinSet(name="X", cardinality=3)
 Y = FinSet(name="Y", cardinality=4)
@@ -146,8 +151,12 @@ assert (posterior.tensor.sum(dim=-1) - 1.0).abs().max() < 1e-5
 Convex combination of stochastic morphisms:
 
 ```python
-from quivers.stochastic import mix, MixtureMorphism
+import torch
+from quivers.core.objects import FinSet
+from quivers.stochastic import StochasticMorphism, mix, MixtureMorphism
 
+X = FinSet(name="X", cardinality=4)
+Y = FinSet(name="Y", cardinality=6)
 f = StochasticMorphism(X, Y)
 g = StochasticMorphism(X, Y)
 
@@ -165,8 +174,12 @@ assert torch.allclose(mixture.tensor, expected)
 Pointwise reweighting by a non-negative weight vector over the codomain:
 
 ```python
-from quivers.stochastic import factor, FactoredMorphism
+import torch
+from quivers.core.objects import FinSet
+from quivers.stochastic import StochasticMorphism, factor, FactoredMorphism
 
+X = FinSet(name="X", cardinality=4)
+Y = FinSet(name="Y", cardinality=6)
 f = StochasticMorphism(X, Y)
 weights = torch.tensor([1.0, 0.5, 2.0, 1.0, 0.0, 1.0])  # over Y (|Y|=6)
 
@@ -182,7 +195,14 @@ assert isinstance(factored, FactoredMorphism)
 Renormalize rows to sum to 1:
 
 ```python
-from quivers.stochastic import normalize, NormalizedMorphism
+import torch
+from quivers.core.objects import FinSet
+from quivers.stochastic import StochasticMorphism, factor, normalize, NormalizedMorphism
+
+X = FinSet(name="X", cardinality=4)
+Y = FinSet(name="Y", cardinality=6)
+weights = torch.tensor([1.0, 0.5, 2.0, 1.0, 0.0, 1.0])
+factored = factor(StochasticMorphism(X, Y), weights)
 
 # `factored` is a morphism whose tensor need not be row-stochastic
 normalized = normalize(factored)
@@ -195,8 +215,12 @@ assert (normalized.tensor.sum(dim=-1) - 1.0).abs().max() < 1e-5
 Extract probabilities from stochastic morphisms:
 
 ```python
-from quivers.stochastic import prob, marginal_prob, expectation
+import torch
+from quivers.core.objects import FinSet
+from quivers.stochastic import StochasticMorphism, prob, marginal_prob, expectation
 
+X = FinSet(name="X", cardinality=4)
+Y = FinSet(name="Y", cardinality=6)
 f = StochasticMorphism(X, Y)
 
 # Query: P(y=2 | x=0)
@@ -220,12 +244,15 @@ $$\mathcal{G}(X) = \{\text{probability distributions on } X\}$$
 The Kleisli category of $\mathcal{G}$ restricted to finite sets **is** FinStoch.
 
 ```python
+from quivers.core.objects import FinSet
+from quivers.stochastic import StochasticMorphism
 from quivers.stochastic.giry import GiryMonad, FinStoch
 
 giry = GiryMonad()
 
 # Unit η_X: X → X is the Kronecker delta (each element to its point mass)
 X = FinSet(name="X", cardinality=3)
+Y = FinSet(name="Y", cardinality=4)
 unit_X = giry.unit(X)
 
 # Kleisli composition of two stochastic morphisms via the monad

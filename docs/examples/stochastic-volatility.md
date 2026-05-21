@@ -7,17 +7,19 @@ The canonical log-volatility return model of [Kim, Shephard, and Chib (1998)](ht
 ## QVR Source
 
 ```qvr
-object Step : 200
+object Step : FinSet 200
 
 program stochastic_volatility : Step -> Step
-    mu <- Normal(0.0, 10.0)
-    phi <- Uniform(-1.0, 1.0)
-    sigma_h <- HalfCauchy(2.5)
+    sample mu <- Normal(0.0, 10.0)
+    sample phi <- Uniform(-1.0, 1.0)
+    sample sigma_h <- HalfCauchy(2.5)
 
     let h_mean = mu + phi * (h_prev - mu)
-    h : Step <- Normal(h_mean, sigma_h)
+
+    sample h : Step <- Normal(h_mean, sigma_h)
 
     let scale = exp(0.5 * h)
+
     observe r : Step <- Normal(0.0, scale)
     return phi
 
@@ -30,22 +32,82 @@ export stochastic_volatility
 
 ## Try it
 
+> The SVI step counts and NUTS warmup, sample, and chain budgets in the snippets below are illustrative: each block is sized to run in tens of seconds and demonstrate the API surface. Production fits typically need 10x to 100x more SVI steps, longer NUTS warmup, and multiple chains to actually converge to the data-generating parameters.
+
+
+### Generating synthetic data
+
+Pick ground-truth log-volatility dynamics, simulate the AR(1) chain `h_t`, then draw mean-zero Normal returns whose scale is `exp(h_t / 2)`. The lagged log-volatility `h_prev` is the host-data the program reads from the observations dict.
+
 ```python
 import torch
 from quivers.dsl import load
-from quivers.inference import AutoNormalGuide, ELBO, SVI
 
+torch.manual_seed(0)
 prog = load("docs/examples/source/stochastic_volatility.qvr")
 model = prog.morphism
 
-returns = torch.randn(200) * 0.5
-h_prev = torch.cat([torch.zeros(1), torch.randn(199) * 0.3])
-guide = AutoNormalGuide(model, observed_names={"r"})
-optim = torch.optim.Adam(list(model.parameters()) + list(guide.parameters()), lr=5e-3)
-svi = SVI(model, guide, optim, ELBO())
-for _ in range(3000):
-    svi.step(torch.zeros(200, 1), {"r": returns, "h_prev": h_prev})
+T = 200
+mu_true, phi_true, sigma_h_true = 0.0, 0.95, 0.25
+h = torch.zeros(T)
+h[0] = mu_true
+for t in range(1, T):
+    h[t] = mu_true + phi_true * (h[t - 1] - mu_true) + sigma_h_true * torch.randn(())
+h_prev = torch.cat([torch.zeros(1), h[:-1]])
+returns = torch.exp(0.5 * h) * torch.randn(T)
+x_in = torch.zeros(T, 1)
+observations = {"r": returns, "h_prev": h_prev}
 ```
+
+### SVI fit
+
+Re-initialise the program and fit the AR(1) hyperparameters by maximising the ELBO. The negative ELBO drops over the run; the oracle log-likelihood at the true `(mu, phi, sigma_h, h)` is reported for reference.
+
+```python
+import torch.distributions as D
+from quivers.inference import AutoNormalGuide, ELBO, SVI
+
+torch.manual_seed(0)
+prog = load("docs/examples/source/stochastic_volatility.qvr")
+model = prog.morphism
+
+guide = AutoNormalGuide(model, observed_names={"r"})
+optim = torch.optim.Adam(
+    list(model.parameters()) + list(guide.parameters()), lr=5e-2,
+)
+svi = SVI(model, guide, optim, ELBO())
+
+loss0 = svi.step(x_in, observations)
+losses = [svi.step(x_in, observations) for _ in range(400)]
+loss_final = sum(losses[-20:]) / 20.0
+oracle_ll = D.Normal(0.0, torch.exp(0.5 * h)).log_prob(returns).sum().item()
+print(f"initial ELBO loss: {loss0:.1f}")
+print(f"final ELBO loss:   {loss_final:.1f}")
+print(f"oracle -log p(r):  {-oracle_ll:.1f}")
+```
+
+### NUTS posterior
+
+The program declares explicit `sample` sites for `mu`, `phi`, `sigma_h`, and the latent log-volatility plate `h`, so [`NUTSKernel`](../api/inference/mcmc.md#quivers.inference.mcmc.NUTSKernel) samples them directly under small warmup and sample budgets.
+
+```python
+from quivers.inference import MCMC, NUTSKernel
+
+torch.manual_seed(0)
+prog = load("docs/examples/source/stochastic_volatility.qvr")
+model = prog.morphism
+
+kernel = NUTSKernel(step_size=0.05, max_tree_depth=3, target_accept=0.8)
+mc = MCMC(kernel, num_warmup=15, num_samples=15, num_chains=1)
+result = mc.run(model, x_in, observations)
+
+print("acceptance:", float(result.acceptance_rates.mean()))
+print("divergences:", int(result.divergence_counts.sum()))
+print(f"mu posterior mean:      {result.samples['mu'].mean().item():.3f}")
+print(f"phi posterior mean:     {result.samples['phi'].mean().item():.3f}")
+print(f"sigma_h posterior mean: {result.samples['sigma_h'].mean().item():.3f}")
+```
+
 
 ## Categorical Perspective
 

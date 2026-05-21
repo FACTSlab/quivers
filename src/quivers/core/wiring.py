@@ -1,6 +1,6 @@
 """Operadic n-ary tensor contractions for V-enriched categories.
 
-A :class:`CompositionRule` defines **binary** composition:
+A `CompositionRule` defines **binary** composition:
 ``(f >> g)[i, k] = ⋁_j f[i, j] ⊗ g[j, k]``. That covers the
 2-cells of a 2-category. Useful but narrow — many models combine
 three or more tensors at a shared reduction (e.g. two argument
@@ -16,15 +16,15 @@ under a fixed tensor_op and join. The general framework is
 **operads** / **wiring diagrams** (Spivak 2014); this module
 exposes a Python surface for them.
 
-The unifying construct is :class:`WiringRule`: an n-ary
+The unifying construct is `WiringRule`: an n-ary
 generalization of binary composition that pairs a
-:class:`CompositionRule` (supplying ``tensor_op`` and ``join``)
+`CompositionRule` (supplying ``tensor_op`` and ``join``)
 with an einsum-style wiring spec naming which input axes are
 contracted vs preserved.
 
 Categorically a ``WiringRule`` is a single operation of a
 colored operad whose colors are the V-Cat object types; the
-:class:`CompositionRule` supplies the operad's enriching algebra.
+`CompositionRule` supplies the operad's enriching algebra.
 """
 
 from __future__ import annotations
@@ -38,7 +38,7 @@ from quivers.core.algebras import CompositionRule
 
 class WiringRule(ABC):
     """An n-ary morphism contraction under a fixed
-    :class:`CompositionRule`.
+    `CompositionRule`.
 
     Generalizes binary composition ``>>`` to arbitrary-arity
     tensor networks. A ``WiringRule`` carries:
@@ -49,7 +49,7 @@ class WiringRule(ABC):
       inputs participate in which contractions, and which axes
       survive to the output.
 
-    Subclasses implement :meth:`apply` to perform the contraction
+    Subclasses implement `apply` to perform the contraction
     given a list of input tensors.
     """
 
@@ -260,7 +260,7 @@ class EinsumWiring(WiringRule):
 
 
 def einsum_wiring(composition_rule: CompositionRule, spec: str) -> EinsumWiring:
-    """Convenience constructor for :class:`EinsumWiring`."""
+    """Convenience constructor for `EinsumWiring`."""
     return EinsumWiring(composition_rule, spec)
 
 
@@ -268,9 +268,9 @@ def contract(
     rule: WiringRule,
     *tensors: torch.Tensor,
 ) -> torch.Tensor:
-    """Apply a :class:`WiringRule` to a sequence of input tensors.
+    """Apply a `WiringRule` to a sequence of input tensors.
 
-    Thin wrapper around :meth:`WiringRule.apply` for call-site
+    Thin wrapper around `WiringRule.apply` for call-site
     readability::
 
         result = contract(my_rule, arg1, arg2, kernel)

@@ -1,23 +1,23 @@
 """Standard arrow instances for the typeclass tower.
 
-Implements the arrow interfaces of :mod:`quivers.arrows.typeclasses`
+Implements the arrow interfaces of [`quivers.arrows.typeclasses`][quivers.arrows.typeclasses]
 against the V-enriched category of finite sets. Each instance carries
 no per-instance state — every operation is a stateless construction
-on the underlying :class:`Morphism` algebra. The instances register
+on the underlying `Morphism` algebra. The instances register
 themselves against the relevant ABCs (``Arrow``, ``ArrowChoice``,
-``ArrowApply``, ``ArrowLoop``) so :func:`isinstance` works
+``ArrowApply``, ``ArrowLoop``) so `isinstance` works
 transparently for the chart-parser's arrow-side dispatch.
 
 Realisations:
 
-- :class:`VRel` — the canonical V-enriched-relation arrow. ``compose``
+- `VRel` — the canonical V-enriched-relation arrow. ``compose``
   is the V-Rel ``>>`` operator; ``arr`` is the identity embedding;
   ``first`` is the parallel-product factory; ``left_arr`` is the
   coproduct functorial action; ``loop_arr`` is the V-algebra iterative
   trace on the recurrent component.
-- :class:`Function` — restricts to deterministic V-relations (functions
+- `Function` — restricts to deterministic V-relations (functions
   with point-mass tensors). Pure-functional operations.
-- :class:`Stochastic` — Stochastic-matrix arrows where ``first``,
+- `Stochastic` — Stochastic-matrix arrows where ``first``,
   ``left_arr``, and ``loop_arr`` are the corresponding row-stochastic
   realisations.
 """
@@ -133,7 +133,7 @@ ArrowLoop.register(VRel)
 class Function(dx.Model):
     """Deterministic V-relation arrow (point-mass tensors only).
 
-    Restricts :class:`VRel` to morphisms whose tensors are 0/1-valued
+    Restricts `VRel` to morphisms whose tensors are 0/1-valued
     (function graphs). All operations preserve determinism — composition
     of deterministic relations is deterministic; ``first`` and
     ``left_arr`` are the standard functorial actions; ``loop_arr`` is
@@ -183,7 +183,7 @@ ArrowApply.register(Function)
 class Stochastic(dx.Model):
     """Stochastic-matrix arrows.
 
-    Each arrow is a :class:`Morphism` whose tensor rows are
+    Each arrow is a `Morphism` whose tensor rows are
     probability distributions. Operations preserve row-stochasticity:
     composition is matrix multiplication; ``first`` and ``left_arr``
     are the tensor-product / coproduct-product lifts; ``loop_arr`` is

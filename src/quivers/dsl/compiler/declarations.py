@@ -1,51 +1,75 @@
 """Compiler mixin: declaration-level statements.
 
-Handles algebra, category, rule, schema, alias, bundle, object,
-morphism, space, kernel, discretize, and embed declarations.
+Handles the consolidated Statement family: composition, category,
+rule, schema, bundle, type, morphism. The mixin dispatches on the
+`TypeInitializer` variant inside a `ObjectDecl` and on
+the ``role`` option inside a `MorphismDecl` to pick the
+runtime construction.
 """
 
 from __future__ import annotations
+
 import math
 from collections.abc import Callable
+
 import torch
+
 from quivers.analysis.init_spec import _algebra_init_spec
-from quivers.core.objects import FinSet
 from quivers.core.algebras import (
+    Algebra,
     BilinearForm,
     BooleanAlgebra,
     CompositionRule,
-    CustomBilinearForm,
     CustomAlgebra,
+    CustomBilinearForm,
     CustomSemigroupoid,
-    Algebra,
     GodelAlgebra,
     LukasiewiczAlgebra,
     ProbabilityAlgebra,
     ProductFuzzyAlgebra,
     Semigroupoid,
 )
-from quivers.core.morphisms import morphism as make_latent
-from quivers.stochastic import StochasticMorphism
+from quivers.continuous.boundaries import Discretize, Embed
+from quivers.continuous.flows import ConditionalFlow
+from quivers.continuous.spaces import ContinuousSpace
+from quivers.core.morphisms import (
+    ObservedMorphism,
+    morphism as make_latent,
+)
+from quivers.core.objects import (
+    EnumSet,
+    FinSet,
+    FreeMonoid,
+    FreeResiduated,
+    SetObject,
+)
 from quivers.dsl.ast_nodes import (
+    AxisSpec,
+    BundleDecl,
     CategoryDecl,
+    CompositionDecl,
     CompositionRuleEntry,
-    DiscretizeDecl,
-    EmbedDecl,
-    EnumSetLiteral,
-    FreeMonoidExpr,
-    FreeResiduatedExpr,
-    KernelDecl,
+    ExprIdent,
     MorphismDecl,
-    ObjectDecl,
-    AlgebraDecl,
     RuleDecl,
     SchemaDecl,
-    SpaceDecl,
-    TypeProduct,
+    ObjectDecl,
+    TypeEnumSet,
+    ObjectExpr,
+    TypeFreeMonoid,
+    TypeFreeResiduated,
+    TypeFromExpr,
+    ObjectProduct,
+)
+from quivers.dsl.compiler._options import (
+    get_option_float,
+    get_option_int,
+    get_option_name,
+    get_option_name_list,
 )
 from quivers.dsl.compiler._prelude import (
-    CompileError,
     _ALGEBRA_REGISTRY,
+    CompileError,
     _available_axes_for,
     _get_family_registry,
     _shape_size,
@@ -53,22 +77,33 @@ from quivers.dsl.compiler._prelude import (
     _wrap_join_dim,
 )
 from quivers.dsl.compiler.programs import _ProgramsMixin
+from quivers.stochastic import StochasticMorphism
+from quivers.stochastic.schema import (
+    SCHEMA_REGISTRY,
+    PatternBinarySchema,
+    PatternUnarySchema,
+)
+
+
+_VALID_ROLES: frozenset[str] = frozenset(
+    {"latent", "observed", "kernel", "embed", "discretize", "let"}
+)
 
 
 def _apply_auto_init(morph, domain, codomain, algebra) -> None:
     """Apply the algebra's saturation-free init recipe to a freshly
-    constructed :class:`LatentMorphism`.
+    constructed `LatentMorphism`.
 
     The recipe is computed at depth 1 (a top-level latent declaration
     is, in isolation, a one-step morphism; downstream composition is
     out of scope for the static recipe) with the larger of the
     morphism's resolved domain / codomain numel as the intermediate
     axis size. The recipe is in value space; the raw parameter feeds
-    through :class:`LatentMorphism`'s sigmoid bijector, so for the
+    through `LatentMorphism`'s sigmoid bijector, so for the
     sigmoid case we invert via ``logit`` before sampling; for
     algebras whose latent representation does not pass through a
-    bijector (Markov, log-prob, real, max-plus, tropical) the
-    recipe is applied to the raw parameter directly.
+    bijector (Markov, log-prob, real, max-plus, tropical) the recipe
+    is applied to the raw parameter directly.
     """
 
     def _numel(obj) -> int:
@@ -79,8 +114,11 @@ def _apply_auto_init(morph, domain, codomain, algebra) -> None:
         return max(1, n)
 
     intermediate_size = max(_numel(domain), _numel(codomain))
-    spec = _algebra_init_spec(algebra, depth=1, intermediate_size=intermediate_size)
-
+    spec = _algebra_init_spec(
+        algebra,
+        depth=1,
+        intermediate_size=intermediate_size,
+    )
     raw = morph.raw
     is_sigmoid_bijected = isinstance(
         algebra,
@@ -109,68 +147,80 @@ def _apply_auto_init(morph, domain, codomain, algebra) -> None:
                 lo = spec.lower
                 hi = spec.upper
             raw.data.uniform_(lo, hi)
-        else:  # normal
-            if is_sigmoid_bijected:
-                mean = _logit(spec.mean)
-            else:
-                mean = spec.mean
+        else:
+            mean = _logit(spec.mean) if is_sigmoid_bijected else spec.mean
             raw.data.normal_(mean=mean, std=max(spec.std, 1e-6))
 
 
 class _DeclarationsMixin:
-    """Mixin: declaration-level compilation methods."""
+    """Mixin: declaration-level compilation methods.
 
-    def _compile_algebra(self, decl: AlgebraDecl) -> None:
-        """Set the active composition rule for this module.
+    The compiler base supplies every environment slot below; the
+    annotations let the type checker verify each access from a
+    mixin method.
+    """
 
-        Four surface forms (distinguished by ``decl.declared_level``):
+    _algebra: CompositionRule
+    _categories: list[str]
+    _rules: dict
+    _bundles: dict[str, tuple[str, ...]]
+    _aliases: dict[str, ObjectExpr]
+    _alias_names: set[str]
+    _objects: dict[str, SetObject]
+    _spaces: dict[str, ContinuousSpace]
+    _morphisms: dict
+    _groups: dict[str, list[str]]
 
-        * ``algebra X`` — X must be a Algebra.
-        * ``semigroupoid X`` — X must be a Semigroupoid.
-        * ``bilinear_form X`` — X must be a BilinearForm.
-        * ``composition_rule X`` — X must be any CompositionRule.
+    # ``_resolve_type``, ``_resolve_any_space``, ``_compile_expr``
+    # come from `_ResolutionMixin` and
+    # `_ExpressionsMixin` via the ``Compiler`` MRO.
 
-        Two body forms:
+    # ------------------------------------------------------------------
+    # composition
+    # ------------------------------------------------------------------
 
-        * **No body** — ``X`` names a registered rule in the
-          composition-rule registry; the compiler verifies it
-          matches the declared level.
-        * **With body** — ``decl.body`` is a list of entries
-          defining the rule's operations from scratch. The
-          compiler evaluates each entry's expression and builds
-          a fresh ``CustomAlgebra``, ``CustomSemigroupoid``, or
-          ``CustomBilinearForm`` of the declared level, then
-          registers it under the supplied name.
+    def _compile_composition(self, decl: CompositionDecl) -> None:
+        """Install ``decl`` as the active composition rule for this module.
+
+        ``decl.level`` advertises the algebraic level at which the rule
+        is offered (``algebra`` / ``semigroupoid`` / ``bilinear_form``
+        / ``rule``). Two body forms:
+
+        * empty body: ``decl.name`` references a rule in the registry;
+          the compiler confirms its concrete type matches the
+          declared level.
+        * non-empty body: ``decl.body`` defines the rule's operations
+          inline; the compiler synthesises a ``CustomAlgebra`` /
+          ``CustomSemigroupoid`` / ``CustomBilinearForm`` of the
+          declared level.
         """
-        level = decl.declared_level
+        level = decl.level or "rule"
         if decl.body:
-            rule = self._build_custom_composition_rule(decl)
+            rule = self._build_custom_composition_rule(decl, level)
         else:
-            name = decl.name.lower()
-            if name not in _ALGEBRA_REGISTRY:
+            key = decl.name.lower()
+            if key not in _ALGEBRA_REGISTRY:
                 raise CompileError(
                     f"unknown {level} {decl.name!r}; available: "
                     f"{', '.join(sorted(_ALGEBRA_REGISTRY))}",
                     decl.line,
                     decl.col,
                 )
-            rule = _ALGEBRA_REGISTRY[name]
+            rule = _ALGEBRA_REGISTRY[key]
         self._verify_composition_rule_level(rule, decl, level)
         self._algebra = rule  # type: ignore[assignment]
 
     def _verify_composition_rule_level(
         self,
         rule: "CompositionRule",
-        decl: AlgebraDecl,
+        decl: CompositionDecl,
         level: str,
     ) -> None:
-        """Confirm ``rule`` satisfies the algebraic level declared
-        by the keyword."""
         required = {
             "algebra": Algebra,
             "semigroupoid": Semigroupoid,
             "bilinear_form": BilinearForm,
-            "composition_rule": CompositionRule,
+            "rule": CompositionRule,
         }
         required_class = required.get(level, CompositionRule)
         if not isinstance(rule, required_class):
@@ -184,64 +234,57 @@ class _DeclarationsMixin:
                 else "CompositionRule"
             )
             raise CompileError(
-                f"{level} {decl.name!r}: registered rule is a "
-                f"{actual}, which is not at level {level!r}. "
-                f"Either declare it with the matching keyword or "
-                f"register a rule at the right level.",
+                f"composition {decl.name!r}: registered rule is a "
+                f"{actual}, which is not at level {level!r}. Declare "
+                f"with the matching `at <level>` clause or register a "
+                f"rule at the right level.",
                 decl.line,
                 decl.col,
             )
 
-    def _build_custom_composition_rule(self, decl: AlgebraDecl) -> "CompositionRule":
-        """Build a fresh CompositionRule instance from a
-        ``algebra name { … }`` body, dispatching on the declared
-        level."""
-        entries: dict[str, "CompositionRuleEntry"] = {}
+    def _build_custom_composition_rule(
+        self,
+        decl: CompositionDecl,
+        level: str,
+    ) -> "CompositionRule":
+        entries: dict[str, CompositionRuleEntry] = {}
         for entry in decl.body:
             if entry.key in entries:
                 raise CompileError(
-                    f"{decl.declared_level} {decl.name!r}: duplicate "
-                    f"entry {entry.key!r}",
+                    f"composition {decl.name!r}: duplicate entry {entry.key!r}",
                     entry.line,
                     entry.col,
                 )
             entries[entry.key] = entry
-        level = decl.declared_level
         required_keys = {
             "algebra": {"tensor_op", "join", "unit", "zero"},
             "semigroupoid": {"tensor_op", "join"},
             "bilinear_form": {"tensor_op", "join"},
-            "composition_rule": {"tensor_op", "join"},
+            "rule": {"tensor_op", "join"},
         }[level]
         missing = required_keys - set(entries)
         if missing:
             raise CompileError(
-                f"{level} {decl.name!r}: missing required entries {sorted(missing)}",
+                f"composition {decl.name!r}: missing required entries "
+                f"{sorted(missing)}",
                 decl.line,
                 decl.col,
             )
-        # Compile each entry to a Python callable (function-valued
-        # entry like ``tensor_op(a, b) = …``) or a numeric value
-        # (literal-valued entry like ``unit = 1.0``). The union of
-        # callable and float is the natural type here; we keep
-        # them separate downstream so the level builders type-check
-        # each slot precisely.
         compiled: dict[str, "Callable[..., torch.Tensor] | float"] = {}
         for key, entry in entries.items():
             compiled[key] = self._compile_composition_rule_entry(entry, decl)
-        # Build the concrete rule at the declared level.
         tensor_op = compiled["tensor_op"]
         join = compiled["join"]
         if not callable(tensor_op):
             raise CompileError(
-                f"{level} {decl.name!r}: ``tensor_op`` must be a "
+                f"composition {decl.name!r}: ``tensor_op`` must be a "
                 f"function entry like ``tensor_op(a, b) = …``",
                 decl.line,
                 decl.col,
             )
         if not callable(join):
             raise CompileError(
-                f"{level} {decl.name!r}: ``join`` must be a "
+                f"composition {decl.name!r}: ``join`` must be a "
                 f"function entry like ``join(t) = …``",
                 decl.line,
                 decl.col,
@@ -252,7 +295,7 @@ class _DeclarationsMixin:
             zero = compiled["zero"]
             if callable(unit) or callable(zero):
                 raise CompileError(
-                    f"algebra {decl.name!r}: ``unit`` and ``zero`` "
+                    f"composition {decl.name!r}: ``unit`` and ``zero`` "
                     f"must be value entries (no parens)",
                     decl.line,
                     decl.col,
@@ -260,7 +303,7 @@ class _DeclarationsMixin:
             negate_fn = compiled.get("negation")
             if negate_fn is not None and not callable(negate_fn):
                 raise CompileError(
-                    f"algebra {decl.name!r}: ``negation`` must be "
+                    f"composition {decl.name!r}: ``negation`` must be "
                     f"a function entry like ``negation(a) = …``",
                     decl.line,
                     decl.col,
@@ -281,13 +324,6 @@ class _DeclarationsMixin:
                 join=join_wrapped,
                 verify_associative=False,
             )
-        # ``bilinear_form`` and ``composition_rule`` both build a
-        # CustomBilinearForm: ``bilinear_form`` is the weakest
-        # named level (no associativity promise), and
-        # ``composition_rule`` is the permissive surface that
-        # admits any rule, for which BilinearForm is the right
-        # default since it makes no claim beyond the
-        # CompositionRule interface.
         return CustomBilinearForm(
             name=decl.name,
             tensor_op=tensor_op,
@@ -296,21 +332,17 @@ class _DeclarationsMixin:
 
     def _compile_composition_rule_entry(
         self,
-        entry: "CompositionRuleEntry",
-        decl: AlgebraDecl,
+        entry: CompositionRuleEntry,
+        decl: CompositionDecl,
     ) -> "Callable[..., torch.Tensor] | float":
-        """Compile one ``key(params) = body`` or ``key = body``
-        entry to a Python callable (when ``entry.params`` is
-        non-empty) or to its evaluated numeric value (when
-        ``entry.params`` is empty)."""
         body_fn = _ProgramsMixin._compile_let_expr(entry.body)
         if not entry.params:
             try:
                 return body_fn({})
             except Exception as exc:
                 raise CompileError(
-                    f"{decl.declared_level} {decl.name!r}: value "
-                    f"entry {entry.key!r} could not be evaluated: {exc}",
+                    f"composition {decl.name!r}: value entry "
+                    f"{entry.key!r} could not be evaluated: {exc}",
                     entry.line,
                     entry.col,
                 ) from exc
@@ -327,39 +359,42 @@ class _DeclarationsMixin:
 
         return _callable
 
-    def _compile_category(self, decl: CategoryDecl) -> None:
-        """Register a category atom declaration.
+    # ------------------------------------------------------------------
+    # category
+    # ------------------------------------------------------------------
 
-        Category atoms are generators for a free categorical structure,
-        distinct from finite set objects.  They are used by the parser
-        compiler to build a ``CategorySystem``.
+    def _compile_category(self, decl: CategoryDecl) -> None:
+        """Register one or more category-atom generators.
+
+        ``decl.names`` is a tuple to accommodate the comma-separated
+        surface form ``category A, B, C``; each name is appended to
+        the running category list.
         """
-        if decl.name in self._categories:
-            raise CompileError(
-                f"category {decl.name!r} already declared", decl.line, decl.col
-            )
-        self._categories.append(decl.name)
+        for name in decl.names:
+            if name in self._categories:
+                raise CompileError(
+                    f"category {name!r} already declared",
+                    decl.line,
+                    decl.col,
+                )
+            self._categories.append(name)
+
+    # ------------------------------------------------------------------
+    # rule / schema
+    # ------------------------------------------------------------------
 
     def _compile_rule(self, decl: RuleDecl) -> None:
-        """Compile a rule-of-inference declaration into a RuleSchema.
-
-        Creates a ``PatternBinarySchema`` (2 premises) or
-        ``PatternUnarySchema`` (1 premise) and registers it by name
-        so it can be resolved in ``parser(rules=[...])``.
-        """
-        from quivers.stochastic.schema import (
-            PatternBinarySchema,
-            PatternUnarySchema,
-            SCHEMA_REGISTRY,
-        )
-
+        """Compile an inference rule into a pattern schema."""
         if decl.name in self._rules:
             raise CompileError(
-                f"rule {decl.name!r} already declared", decl.line, decl.col
+                f"rule {decl.name!r} already declared",
+                decl.line,
+                decl.col,
             )
         if decl.name in SCHEMA_REGISTRY:
             raise CompileError(
-                f"rule {decl.name!r} shadows a built-in schema; choose a different name",
+                f"rule {decl.name!r} shadows a built-in schema; "
+                f"choose a different name",
                 decl.line,
                 decl.col,
             )
@@ -382,30 +417,15 @@ class _DeclarationsMixin:
             )
         else:
             raise CompileError(
-                f"rule {decl.name!r} has {n_premises} premises; only unary (1) and binary (2) rules are supported",
+                f"rule {decl.name!r} has {n_premises} premises; only "
+                f"unary (1) and binary (2) rules are supported",
                 decl.line,
                 decl.col,
             )
         self._rules[decl.name] = schema
 
     def _compile_schema(self, decl: SchemaDecl) -> None:
-        """Compile a pattern-polymorphic schema declaration.
-
-        Creates a ``PatternBinarySchema`` when the declared domain is a
-        :class:`TypeProduct` with two components, otherwise a
-        ``PatternUnarySchema``. Pattern variables are the union of the
-        ``names`` lists across all :class:`SchemaParameter` entries; the
-        parameter type-expression is consulted only for well-formedness
-        (it must reference a residuated universe in scope; the
-        type-checker does not yet enforce this — the chart-parser
-        catches mismatches at firing time).
-        """
-        from quivers.stochastic.schema import (
-            PatternBinarySchema,
-            PatternUnarySchema,
-            SCHEMA_REGISTRY,
-        )
-
+        """Compile a pattern-polymorphic schema declaration."""
         if decl.name in self._rules:
             raise CompileError(
                 f"schema {decl.name!r} already declared",
@@ -414,20 +434,15 @@ class _DeclarationsMixin:
             )
         if decl.name in SCHEMA_REGISTRY:
             raise CompileError(
-                f"schema {decl.name!r} shadows a built-in schema; choose a different name",
+                f"schema {decl.name!r} shadows a built-in schema; "
+                f"choose a different name",
                 decl.line,
                 decl.col,
             )
-
         variables: frozenset[str] = frozenset(
-            n for group in decl.parameter_names for n in group
+            n for group in decl.parameters for n in group.names
         )
-
-        # Decide arity from the domain shape:
-        #  - top-level TypeProduct with exactly 2 components → binary
-        #  - any other shape (TypeName, TypeSlash, TypeEffectApply,
-        #    or a non-binary TypeProduct) → unary
-        if isinstance(decl.domain, TypeProduct) and len(decl.domain.components) == 2:
+        if isinstance(decl.domain, ObjectProduct) and len(decl.domain.components) == 2:
             left, right = decl.domain.components
             schema = PatternBinarySchema(
                 left_pattern=left,
@@ -443,58 +458,14 @@ class _DeclarationsMixin:
                 variables=variables,
                 name=decl.name,
             )
-
         self._rules[decl.name] = schema
 
-    def _compile_alias(self, decl) -> None:
-        """Compile an ``alias Foo = ...`` type-level alias.
+    # ------------------------------------------------------------------
+    # bundle
+    # ------------------------------------------------------------------
 
-        Two cases:
-
-        - The right-hand side resolves cleanly as a :class:`SetObject`
-          (TypeName / TypeProduct / TypeCoproduct over named objects).
-          The alias binds to that SetObject in :attr:`self._objects`,
-          so ``Foo`` is usable wherever an ordinary object reference
-          is — `latent f : Foo -> Bar`, `parser(rules=..., terminal=Foo)`
-          etc.
-        - The right-hand side is a residuated pattern (TypeSlash /
-          TypeEffectApply) or otherwise fails SetObject resolution.
-          The alias is recorded in :attr:`self._aliases` for textual
-          substitution at use site (inside schema patterns).
-        """
-        if decl.name in self._alias_names:
-            raise CompileError(
-                f"alias {decl.name!r} already declared",
-                decl.line,
-                decl.col,
-            )
-        if decl.name in self._objects:
-            raise CompileError(
-                f"alias {decl.name!r} shadows an existing object",
-                decl.line,
-                decl.col,
-            )
-        self._alias_names.add(decl.name)
-        try:
-            resolved = self._resolve_type(decl.type_expr, decl.name)
-        except TypeError, KeyError:
-            # Residuated / effect-typed RHS: record as a syntactic
-            # alias for substitution at schema-pattern use site.
-            self._aliases[decl.name] = decl.type_expr
-            return
-        self._objects[decl.name] = resolved
-
-    def _compile_bundle(self, decl) -> None:
-        """Compile a ``bundle CCG = [r1, r2, ...]`` rule bundle.
-
-        Each entry must resolve at compile time as either a previously-
-        declared rule / schema or as a built-in entry of
-        :data:`SCHEMA_REGISTRY`. The bundle is recorded under its name
-        in ``self._bundles`` so ``parser(rules=CCG)`` and
-        ``chart_fold(binary=CCG)`` can splice its members.
-        """
-        from quivers.stochastic.schema import SCHEMA_REGISTRY
-
+    def _compile_bundle(self, decl: BundleDecl) -> None:
+        """Register a rule bundle for later expansion at use site."""
         if decl.name in self._bundles:
             raise CompileError(
                 f"bundle {decl.name!r} already declared",
@@ -507,375 +478,537 @@ class _DeclarationsMixin:
                 decl.line,
                 decl.col,
             )
-        # Member references are resolved lazily at use-site (in the
-        # parser-rules expander) so that bundles can forward-reference
-        # other bundles. Cycles surface as ``cycle through ...`` errors
-        # at expansion time.
         self._bundles[decl.name] = tuple(decl.rules)
 
-    def _compile_object(self, decl: ObjectDecl) -> None:
-        """Compile an object declaration into the environment.
+    # ------------------------------------------------------------------
+    # type
+    # ------------------------------------------------------------------
 
-        Three surface forms are recognized:
+    def _compile_type(self, decl: ObjectDecl) -> None:
+        """Compile a ``type NAME : VALUE`` declaration.
 
-        - ``object X : <type_expr>`` — resolves via the
-          :class:`TypeExprToSetObject` lens.
-        - ``object Atoms = {NP, S, VP}`` — constructs an
-          :class:`EnumSet`.
-        - ``object Cat = FreeResiduated(Atoms, depth=, ops=[...])`` —
-          constructs a :class:`FreeResiduated` over a previously-declared
-          :class:`EnumSet`.
+        The init's tagged-union variant picks the construction:
+
+        * `TypeEnumSet` -> `EnumSet`
+        * `TypeFreeResiduated` -> `FreeResiduated`
+        * `TypeFreeMonoid` -> `FreeMonoid`
+        * `TypeFromExpr` -> the inner type expression is
+          resolved via the unified resolver; the resulting object is
+          either a `SetObject` (discrete) or a
+          `ContinuousSpace`, bound under ``decl.name`` in the
+          appropriate environment.
         """
-        from quivers.core.objects import EnumSet, FreeResiduated
-
-        if decl.name in self._objects:
+        if decl.name in self._objects or decl.name in self._spaces:
             raise CompileError(
-                f"object {decl.name!r} already declared", decl.line, decl.col
-            )
-
-        if decl.type_expr is not None:
-            obj = self._resolve_type(decl.type_expr, decl.name)
-            self._objects[decl.name] = obj
-            return
-
-        if decl.init is None:
-            raise CompileError(
-                f"object {decl.name!r} has no type or initializer",
+                f"type {decl.name!r} already declared",
                 decl.line,
                 decl.col,
             )
-
-        if isinstance(decl.init, EnumSetLiteral):
+        init = decl.init
+        if isinstance(init, TypeEnumSet):
             self._objects[decl.name] = EnumSet(
-                name=decl.name, elements=decl.init.elements
+                name=decl.name,
+                elements=init.elements,
             )
             return
-
-        if isinstance(decl.init, FreeMonoidExpr):
-            from quivers.core.objects import FinSet, FreeMonoid
-
-            gen = self._objects.get(decl.init.generators)
+        if isinstance(init, TypeFreeMonoid):
+            gen = self._objects.get(init.generators)
             if not isinstance(gen, FinSet):
                 raise CompileError(
-                    f"FreeMonoid generators {decl.init.generators!r} must "
+                    f"FreeMonoid generators {init.generators!r} must "
                     f"reference a previously-declared FinSet (got "
                     f"{type(gen).__name__ if gen else 'undefined'})",
                     decl.line,
                     decl.col,
                 )
             self._objects[decl.name] = FreeMonoid(
-                generators=gen, max_length=decl.init.max_length
+                generators=gen,
+                max_length=init.max_length,
             )
             return
-
-        if isinstance(decl.init, FreeResiduatedExpr):
-            gen = self._objects.get(decl.init.generators)
+        if isinstance(init, TypeFreeResiduated):
+            gen = self._objects.get(init.generators)
             if not isinstance(gen, EnumSet):
                 raise CompileError(
-                    f"FreeResiduated generators {decl.init.generators!r} must "
-                    f"reference a previously-declared EnumSet (got "
+                    f"FreeResiduated generators {init.generators!r} "
+                    f"must reference a previously-declared EnumSet "
+                    f"(got "
                     f"{type(gen).__name__ if gen else 'undefined'})",
                     decl.line,
                     decl.col,
                 )
             self._objects[decl.name] = FreeResiduated(
                 generators=gen,
-                depth=decl.init.depth,
-                ops=decl.init.ops,
+                depth=init.depth,
+                ops=init.ops,
             )
             return
-
+        if isinstance(init, TypeFromExpr):
+            expr = init.expr
+            try:
+                resolved = self._resolve_any_space(expr)
+            except CompileError:
+                # Residuated patterns and effect-typed RHS do not
+                # resolve to a concrete object/space; record the
+                # alias for use-site substitution inside schema
+                # patterns.
+                if decl.name in self._alias_names:
+                    raise CompileError(
+                        f"alias {decl.name!r} already declared",
+                        decl.line,
+                        decl.col,
+                    )
+                self._alias_names.add(decl.name)
+                self._aliases[decl.name] = expr
+                return
+            if isinstance(resolved, ContinuousSpace):
+                self._spaces[decl.name] = resolved
+            else:
+                self._objects[decl.name] = resolved
+            return
         raise CompileError(
-            f"unrecognized object initializer for {decl.name!r}",
+            f"unrecognized type initializer for {decl.name!r}: {type(init).__name__}",
             decl.line,
             decl.col,
         )
 
+    # ------------------------------------------------------------------
+    # morphism
+    # ------------------------------------------------------------------
+
     def _compile_morphism(self, decl: MorphismDecl) -> None:
-        """Compile a morphism declaration into the environment."""
-        if decl.name in self._morphisms:
-            raise CompileError(
-                f"morphism {decl.name!r} already declared", decl.line, decl.col
-            )
-        if decl.prior is not None:
-            if decl.morphism_kind != "latent":
-                raise CompileError(
-                    f"morphism prior `~ Family(...)` is legal only on "
-                    f"`latent` declarations; got {decl.morphism_kind!r}",
-                    decl.line,
-                    decl.col,
-                )
-            if decl.prior.axes is not None:
-                _validate_axis_spec(
-                    decl.prior.axes,
-                    decl.prior.family,
-                    _available_axes_for(decl.domain, decl.codomain),
-                    decl.line,
-                    decl.col,
-                )
-        domain = self._resolve_type(decl.domain)
-        codomain = self._resolve_type(decl.codomain)
-        if decl.morphism_kind == "latent":
-            scale = float(decl.options.get("scale", "0.5"))
-            morph = make_latent(
-                domain, codomain, init_scale=scale, algebra=self._algebra
-            )
-            if decl.options.get("init") == "auto":
-                _apply_auto_init(morph, domain, codomain, self._algebra)
-        elif decl.morphism_kind == "observed":
-            if decl.init_expr is not None:
-                morph = self._compile_expr(decl.init_expr)
-                # The init expression's domain/codomain may be
-                # anonymous (e.g. ``from_data(...)`` synthesizes
-                # them from the tensor shape). Accept a shape
-                # match and rebind to the user-declared types so
-                # downstream code sees the correct named objects.
-                #
-                # Compatibility is checked at the storage level
-                # rather than the type level: a flat init tensor
-                # whose total numel matches the declared product
-                # codomain's numel is accepted, then reshaped to
-                # the declared factored shape. This is the
-                # categorical view that ``B = B1 * B2 * ... * Bk``
-                # and ``B'`` of cardinality ``|B1| * ... * |Bk|``
-                # are isomorphic objects; the tensor storage is
-                # the same up to reshape.
-                if morph.domain != domain or morph.codomain != codomain:
+        """Compile a ``morphism NAME : DOM -> COD [options] [~ init]``.
 
-                    def _numel(shape):
-                        n = 1
-                        for s in shape:
-                            n *= int(s)
-                        return n
+        Required option ``role`` picks the runtime construction:
 
-                    init_d = _numel(morph.domain.shape)
-                    init_c = _numel(morph.codomain.shape)
-                    decl_d = _numel(domain.shape)
-                    decl_c = _numel(codomain.shape)
-                    if init_d == decl_d and init_c == decl_c:
-                        from quivers.core.morphisms import (
-                            ObservedMorphism as _Obs,
-                        )
-
-                        # Reshape the tensor to match the declared
-                        # factored shape. ``Tensor.reshape`` is a
-                        # no-op when the storage already matches.
-                        target_shape = tuple(domain.shape) + tuple(codomain.shape)
-                        reshaped = morph.tensor.reshape(target_shape)
-                        morph = _Obs(
-                            domain,
-                            codomain,
-                            reshaped,
-                            algebra=morph.algebra,
-                        )
-                    else:
-                        raise CompileError(
-                            f"morphism {decl.name!r} init expression has "
-                            f"type {morph.domain!r} -> {morph.codomain!r} "
-                            f"(numel {init_d} -> {init_c}), expected "
-                            f"{domain!r} -> {codomain!r} "
-                            f"(numel {decl_d} -> {decl_c})",
-                            decl.line,
-                            decl.col,
-                        )
-            else:
-                raise CompileError(
-                    f"observed morphism {decl.name!r} requires an initializer (e.g. = identity({decl.domain}))",
-                    decl.line,
-                    decl.col,
-                )
-        else:
-            raise CompileError(
-                f"unknown morphism kind {decl.morphism_kind!r}", decl.line, decl.col
-            )
-        self._morphisms[decl.name] = morph
-
-    def _compile_space(self, decl: SpaceDecl) -> None:
-        """Compile a space declaration into the space environment."""
-        if decl.name in self._spaces:
-            raise CompileError(
-                f"space {decl.name!r} already declared", decl.line, decl.col
-            )
-        space = self._resolve_space(decl.space_expr, decl.name)
-        self._spaces[decl.name] = space
-
-    def _compile_kernel(self, decl: KernelDecl) -> None:
-        """Compile a Markov-kernel declaration ``kernel f : A -> B [~ F ...]``.
-
-        Without a ``~`` clause the declaration is a lookup-table
-        kernel on finite sets, realised as a
-        :class:`quivers.stochastic.StochasticMorphism`.  With a ``~``
-        clause it is a parametric kernel whose family parameters are
-        produced from the input by a parameter network at sample
-        time; the ``decl.axes`` clause configures the family's
-        event/batch decomposition over codomain factors.  Replicate
-        counts produce N independent copies named ``name_0`` through
-        ``name_{N-1}`` with the base name registered as a group.
+        * ``role=latent``  : learnable algebraic morphism on finite
+          sets, optionally re-initialised by the algebra's auto
+          recipe when ``init=auto`` is present.
+        * ``role=observed``: fixed structural morphism whose tensor
+          comes from the ``~ <expr>`` initializer; the expression's
+          domain/codomain may be anonymous and rebinds to the
+          declared types when their numel matches.
+        * ``role=kernel``  : Markov kernel. Without ``~ Family``, a
+          lookup-table `StochasticMorphism` on finite sets;
+          with ``~ Family(...)``, a parametric continuous kernel.
+        * ``role=embed``   : `Embed` boundary, finite-set to
+          continuous space.
+        * ``role=discretize``: `Discretize` boundary,
+          continuous space to finite set; ``[bins=N]`` is required.
+        * ``role=let``     : deterministic morphism whose value is
+          ``~ <expr>`` (composition pipeline, contraction call,
+          transformation invocation, etc.).
         """
         if decl.name in self._morphisms:
             raise CompileError(
-                f"morphism {decl.name!r} already declared", decl.line, decl.col
-            )
-        count = decl.replicate if decl.replicate is not None else 1
-        names = (
-            [f"{decl.name}_{i}" for i in range(count)]
-            if decl.replicate is not None
-            else [decl.name]
-        )
-        if decl.axes is not None:
-            if decl.family is None:
-                raise CompileError(
-                    "axis-role clause requires a `~ Family` clause on the "
-                    "kernel declaration; lookup-table kernels do not carry "
-                    "a parametric family.",
-                    decl.line,
-                    decl.col,
-                )
-            _validate_axis_spec(
-                decl.axes,
-                decl.family,
-                _available_axes_for(decl.domain, decl.codomain),
+                f"morphism {decl.name!r} already declared",
                 decl.line,
                 decl.col,
             )
-        if decl.family is None:
+        role = get_option_name(
+            decl.options,
+            "role",
+            line=decl.line,
+            col=decl.col,
+        )
+        if role is None:
+            raise CompileError(
+                f"morphism {decl.name!r}: required option ``role`` is "
+                f"missing; expected one of "
+                f"{sorted(_VALID_ROLES)}",
+                decl.line,
+                decl.col,
+            )
+        if role not in _VALID_ROLES:
+            raise CompileError(
+                f"morphism {decl.name!r}: unknown role {role!r}; "
+                f"expected one of {sorted(_VALID_ROLES)}",
+                decl.line,
+                decl.col,
+            )
+        replicate = get_option_int(
+            decl.options,
+            "replicate",
+            line=decl.line,
+            col=decl.col,
+        )
+        count = 1 if replicate is None else int(replicate)
+        names = (
+            [f"{decl.name}_{i}" for i in range(count)]
+            if replicate is not None
+            else [decl.name]
+        )
+        if role == "latent":
+            self._compile_latent_role(decl, names)
+        elif role == "observed":
+            self._compile_observed_role(decl, names)
+        elif role == "kernel":
+            self._compile_kernel_role(decl, names)
+        elif role == "embed":
+            self._compile_embed_role(decl, names)
+        elif role == "discretize":
+            self._compile_discretize_role(decl, names)
+        else:
+            self._compile_let_role(decl, names)
+        if replicate is not None:
+            self._groups[decl.name] = names
+
+    # role-specific lowerings ------------------------------------------
+
+    def _compile_latent_role(
+        self,
+        decl: MorphismDecl,
+        names: list[str],
+    ) -> None:
+        if decl.init_expr is not None:
+            raise CompileError(
+                f"latent morphism {decl.name!r}: ``~ <expression>`` "
+                f"init is reserved for ``role=let`` and ``role="
+                f"observed``; latent priors take a ``~ Family(...)`` "
+                f"form instead",
+                decl.line,
+                decl.col,
+            )
+        if decl.init_family is not None:
+            self._validate_family_axes(decl, decl.init_family.family)
+        domain = self._resolve_type(decl.domain)
+        codomain = self._resolve_type(decl.codomain)
+        scale = get_option_float(
+            decl.options,
+            "scale",
+            line=decl.line,
+            col=decl.col,
+            default=0.5,
+        )
+        init_mode = get_option_name(
+            decl.options,
+            "init",
+            line=decl.line,
+            col=decl.col,
+        )
+        for name in names:
+            morph = make_latent(
+                domain,
+                codomain,
+                init_scale=float(scale),
+                algebra=self._algebra,
+            )
+            if init_mode == "auto":
+                _apply_auto_init(morph, domain, codomain, self._algebra)
+            self._morphisms[name] = morph
+
+    def _compile_observed_role(
+        self,
+        decl: MorphismDecl,
+        names: list[str],
+    ) -> None:
+        if decl.init_expr is None and decl.init_family is None:
+            raise CompileError(
+                f"observed morphism {decl.name!r} requires an "
+                f"initializer (e.g. ``~ identity({decl.domain})``)",
+                decl.line,
+                decl.col,
+            )
+        if decl.init_family is not None:
+            raise CompileError(
+                f"observed morphism {decl.name!r}: ``~ Family(...)`` "
+                f"is a stochastic-kernel prior; use ``role=kernel`` "
+                f"or supply a deterministic ``~ <expression>`` "
+                f"initializer instead",
+                decl.line,
+                decl.col,
+            )
+        domain = self._resolve_type(decl.domain)
+        codomain = self._resolve_type(decl.codomain)
+        for name in names:
+            morph = self._compile_expr(decl.init_expr)
+            morph = self._coerce_observed_shape(morph, domain, codomain, decl)
+            self._morphisms[name] = morph
+
+    def _coerce_observed_shape(
+        self,
+        morph,
+        domain,
+        codomain,
+        decl: MorphismDecl,
+    ):
+        """Rebind ``morph``'s declared domain/codomain when its
+        underlying tensor's numel matches the declared types.
+
+        Categorically, ``B = B1 * ... * Bk`` and a flat ``B'`` whose
+        cardinality is ``|B1| * ... * |Bk|`` are isomorphic objects;
+        the storage is identical up to reshape. The compiler accepts
+        an init expression whose anonymous shape matches that
+        invariant and rebinds the morphism to the declared factored
+        shape.
+        """
+        if morph.domain == domain and morph.codomain == codomain:
+            return morph
+
+        def _numel(shape) -> int:
+            n = 1
+            for s in shape:
+                n *= int(s)
+            return n
+
+        init_d = _numel(morph.domain.shape)
+        init_c = _numel(morph.codomain.shape)
+        decl_d = _numel(domain.shape)
+        decl_c = _numel(codomain.shape)
+        if init_d == decl_d and init_c == decl_c:
+            target_shape = tuple(domain.shape) + tuple(codomain.shape)
+            reshaped = morph.tensor.reshape(target_shape)
+            return ObservedMorphism(
+                domain,
+                codomain,
+                reshaped,
+                algebra=morph.algebra,
+            )
+        raise CompileError(
+            f"morphism {decl.name!r} init expression has type "
+            f"{morph.domain!r} -> {morph.codomain!r} (numel {init_d} "
+            f"-> {init_c}), expected {domain!r} -> {codomain!r} "
+            f"(numel {decl_d} -> {decl_c})",
+            decl.line,
+            decl.col,
+        )
+
+    def _compile_kernel_role(
+        self,
+        decl: MorphismDecl,
+        names: list[str],
+    ) -> None:
+        family = decl.init_family.family if decl.init_family is not None else None
+        # ``~ Normal`` (bare identifier, no parens) parses as
+        # ``init_expr`` rather than ``init_family``. If the bare
+        # initializer names a registered family, promote it.
+        if (
+            family is None
+            and decl.init_expr is not None
+            and isinstance(decl.init_expr, ExprIdent)
+            and decl.init_expr.name in _get_family_registry()
+        ):
+            family = decl.init_expr.name
+        if family is not None:
+            self._validate_family_axes(decl, family)
+        if family is None:
             domain = self._resolve_type(decl.domain)
             codomain = self._resolve_type(decl.codomain)
             for name in names:
                 self._morphisms[name] = StochasticMorphism(domain, codomain)
-        else:
-            domain = self._resolve_any_space(decl.domain)
-            codomain = self._resolve_any_space(decl.codomain)
-            for name in names:
-                morph = self._make_continuous_morphism(
-                    domain, codomain, decl.family, decl.options, decl
-                )
-                self._morphisms[name] = morph
-        if decl.replicate is not None:
-            self._groups[decl.name] = names
+            return
+        domain = self._resolve_any_space(decl.domain)
+        codomain = self._resolve_any_space(decl.codomain)
+        for name in names:
+            morph = self._make_continuous_morphism(
+                domain,
+                codomain,
+                family,
+                decl,
+            )
+            self._morphisms[name] = morph
+
+    def _compile_embed_role(
+        self,
+        decl: MorphismDecl,
+        names: list[str],
+    ) -> None:
+        domain = self._resolve_type(decl.domain)
+        if not isinstance(domain, FinSet):
+            raise CompileError(
+                f"embed morphism {decl.name!r}: domain must be a "
+                f"FinSet, got {type(domain).__name__}",
+                decl.line,
+                decl.col,
+            )
+        codomain = self._resolve_any_space(decl.codomain)
+        if not isinstance(codomain, ContinuousSpace):
+            raise CompileError(
+                f"embed morphism {decl.name!r}: codomain must be a "
+                f"ContinuousSpace, got {type(codomain).__name__}",
+                decl.line,
+                decl.col,
+            )
+        for name in names:
+            self._morphisms[name] = Embed(domain, codomain)
+
+    def _compile_discretize_role(
+        self,
+        decl: MorphismDecl,
+        names: list[str],
+    ) -> None:
+        space = self._resolve_any_space(decl.domain)
+        if not isinstance(space, ContinuousSpace):
+            raise CompileError(
+                f"discretize morphism {decl.name!r}: domain must be a "
+                f"ContinuousSpace, got {type(space).__name__}",
+                decl.line,
+                decl.col,
+            )
+        bins = get_option_int(
+            decl.options,
+            "bins",
+            line=decl.line,
+            col=decl.col,
+        )
+        if bins is None:
+            raise CompileError(
+                f"discretize morphism {decl.name!r}: required option "
+                f"``bins`` is missing",
+                decl.line,
+                decl.col,
+            )
+        for name in names:
+            self._morphisms[name] = Discretize(space, n_bins=bins)
+
+    def _compile_let_role(
+        self,
+        decl: MorphismDecl,
+        names: list[str],
+    ) -> None:
+        if decl.init_expr is None:
+            raise CompileError(
+                f"let morphism {decl.name!r}: ``role=let`` requires an "
+                f"``~ <expression>`` initializer",
+                decl.line,
+                decl.col,
+            )
+        morph = self._compile_expr(decl.init_expr)
+        for name in names:
+            self._morphisms[name] = morph
+
+    # family-construction plumbing ------------------------------------
+
+    def _validate_family_axes(
+        self,
+        decl: MorphismDecl,
+        family: str,
+    ) -> None:
+        """Check the option block's ``over``/``iid`` axis lists against
+        the family's declared event/batch decomposition."""
+        over = get_option_name_list(
+            decl.options,
+            "over",
+            line=decl.line,
+            col=decl.col,
+        )
+        iid = get_option_name_list(
+            decl.options,
+            "iid",
+            line=decl.line,
+            col=decl.col,
+        )
+        if not over and not iid:
+            return
+        axes_spec = AxisSpec(
+            over=over,
+            iid_over=iid,
+            line=decl.line,
+            col=decl.col,
+        )
+        _validate_axis_spec(
+            axes_spec,
+            family,
+            _available_axes_for(decl.domain, decl.codomain),
+            decl.line,
+            decl.col,
+        )
 
     def _make_continuous_morphism(
-        self, domain, codomain, family_name: str, options: dict[str, str], decl
+        self,
+        domain,
+        codomain,
+        family_name: str,
+        decl: MorphismDecl,
     ):
-        """Create a single continuous morphism from a family name."""
         if family_name == "Flow":
-            from quivers.continuous.flows import ConditionalFlow
-
-            n_layers = int(options.get("n_layers", "4"))
-            hidden_dim = int(options.get("hidden_dim", "64"))
+            n_layers = get_option_int(
+                decl.options,
+                "n_layers",
+                line=decl.line,
+                col=decl.col,
+                default=4,
+            )
+            hidden_dim = get_option_int(
+                decl.options,
+                "hidden_dim",
+                line=decl.line,
+                col=decl.col,
+                default=64,
+            )
             return ConditionalFlow(
-                domain, codomain, n_layers=n_layers, hidden_dim=hidden_dim
+                domain,
+                codomain,
+                n_layers=int(n_layers),
+                hidden_dim=int(hidden_dim),
             )
         registry = _get_family_registry()
         if family_name not in registry:
             raise CompileError(
-                f"unknown distribution family {family_name!r}; available: {', '.join(sorted(registry))}",
+                f"unknown distribution family {family_name!r}; "
+                f"available: {', '.join(sorted(registry))}",
                 decl.line,
                 decl.col,
             )
         cls = registry[family_name]
-        hidden_dim = int(options.get("hidden_dim", "64"))
-        kwargs: dict = {"hidden_dim": hidden_dim}
-        if "rank" in options:
-            kwargs["rank"] = int(options["rank"])
-        if "temperature" in options:
-            kwargs["temperature"] = float(options["temperature"])
-        # For event_rank-2 matrix families (MatrixNormal) the
-        # constructor needs explicit row/column dims, which come
-        # from the axis-role clause's named factors.  When the
-        # user wrote ``~ MatrixNormal over (X, Y)``, X resolves
-        # to the rows axis and Y to the cols axis (positional
-        # ordering corresponds positionally to the family's
-        # declared event-axis ordering: rows first, cols second).
-        axes = getattr(decl, "axes", None)
-        if family_name == "MatrixNormal" and axes is not None:
-            if len(axes.over) != 2:
+        hidden_dim = get_option_int(
+            decl.options,
+            "hidden_dim",
+            line=decl.line,
+            col=decl.col,
+            default=64,
+        )
+        kwargs: dict = {"hidden_dim": int(hidden_dim)}
+        rank = get_option_int(
+            decl.options,
+            "rank",
+            line=decl.line,
+            col=decl.col,
+        )
+        if rank is not None:
+            kwargs["rank"] = int(rank)
+        temperature = get_option_float(
+            decl.options,
+            "temperature",
+            line=decl.line,
+            col=decl.col,
+        )
+        if temperature is not None:
+            kwargs["temperature"] = float(temperature)
+        over = get_option_name_list(
+            decl.options,
+            "over",
+            line=decl.line,
+            col=decl.col,
+        )
+        if family_name == "MatrixNormal" and over:
+            if len(over) != 2:
                 raise CompileError(
-                    f"MatrixNormal requires `over (rows_axis, cols_axis)`; "
-                    f"got over={axes.over!r}",
+                    f"MatrixNormal requires ``over=[rows_axis, "
+                    f"cols_axis]``; got over={list(over)!r}",
                     decl.line,
                     decl.col,
                 )
-            rows_axis, cols_axis = axes.over
+            rows_axis, cols_axis = over
             kwargs["rows"] = self._axis_dim(decl, rows_axis)
             kwargs["cols"] = self._axis_dim(decl, cols_axis)
         return cls(domain, codomain, **kwargs)
 
-    def _axis_dim(self, decl, axis_name: str) -> int:
-        """Resolve an axis name to its dimension.
-
-        ``axis_name`` is either a declared factor name of the
-        morphism's dom or cod, or the reserved shortcut ``dom`` /
-        ``cod``.  Returns the cardinality / dim of the resolved
-        object or space.
-        """
-        # The dom/cod shortcuts resolve to the morphism's dom/cod
-        # objects directly.
+    def _axis_dim(self, decl: MorphismDecl, axis_name: str) -> int:
         if axis_name == "dom":
-            obj = self._resolve_any_space(decl.domain)
-            return _shape_size(obj)
+            return _shape_size(self._resolve_any_space(decl.domain))
         if axis_name == "cod":
-            obj = self._resolve_any_space(decl.codomain)
-            return _shape_size(obj)
-        # Otherwise the axis is a named factor of dom or cod.  For
-        # an unfactored side whose argument carries the same name
-        # (``Euclidean(D)`` with object D in scope) the axis name
-        # is the object's name; resolve it directly.
+            return _shape_size(self._resolve_any_space(decl.codomain))
         if axis_name in self._objects:
             return int(self._objects[axis_name].cardinality)
         if axis_name in self._spaces:
             return _shape_size(self._spaces[axis_name])
         raise CompileError(
-            f"axis-role clause: cannot resolve axis name {axis_name!r} to a "
-            f"dimension; not a declared object/space, and not a `dom`/`cod` "
-            f"shortcut",
+            f"axis {axis_name!r}: not a declared object/space and "
+            f"not a ``dom``/``cod`` shortcut",
             decl.line,
             decl.col,
         )
 
-    def _compile_discretize(self, decl: DiscretizeDecl) -> None:
-        """Compile a discretize boundary morphism."""
-        if decl.name in self._morphisms:
-            raise CompileError(
-                f"morphism {decl.name!r} already declared", decl.line, decl.col
-            )
-        if decl.space_name not in self._spaces:
-            raise CompileError(
-                f"undefined space {decl.space_name!r}", decl.line, decl.col
-            )
-        from quivers.continuous.boundaries import Discretize
 
-        space = self._spaces[decl.space_name]
-        morph = Discretize(space, n_bins=decl.n_bins)
-        self._morphisms[decl.name] = morph
-
-    def _compile_embed(self, decl: EmbedDecl) -> None:
-        """Compile an embed boundary morphism."""
-        if decl.name in self._morphisms:
-            raise CompileError(
-                f"morphism {decl.name!r} already declared", decl.line, decl.col
-            )
-        if decl.domain_name not in self._objects:
-            raise CompileError(
-                f"undefined object {decl.domain_name!r}", decl.line, decl.col
-            )
-        if decl.codomain_name not in self._spaces:
-            raise CompileError(
-                f"undefined space {decl.codomain_name!r}", decl.line, decl.col
-            )
-        from quivers.continuous.boundaries import Embed
-
-        domain = self._objects[decl.domain_name]
-        codomain = self._spaces[decl.codomain_name]
-        count = decl.replicate if decl.replicate is not None else 1
-        names = (
-            [f"{decl.name}_{i}" for i in range(count)]
-            if decl.replicate is not None
-            else [decl.name]
-        )
-        for name in names:
-            assert isinstance(domain, FinSet)
-            morph = Embed(domain, codomain)
-            self._morphisms[name] = morph
-        if decl.replicate is not None:
-            self._groups[decl.name] = names
+__all__ = ["_DeclarationsMixin", "_apply_auto_init"]

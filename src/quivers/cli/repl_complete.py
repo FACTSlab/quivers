@@ -2,12 +2,12 @@
 
 Completions merge three sources:
 
-1. Env names from the active :class:`quivers.cli.repl_session.ReplSession`
+1. Env names from the active [`quivers.cli.repl_session.ReplSession`][quivers.cli.repl_session.ReplSession]
    (objects, spaces, morphisms, rules).
 2. Keywords pulled live from the QVR Pygments lexer's keyword and
    builtin tables, so adding a new grammar keyword automatically lights
    it up.
-3. Meta-command names from :mod:`quivers.cli.repl_session`.
+3. Meta-command names from [`quivers.cli.repl_session`][quivers.cli.repl_session].
 
 Each completion carries an optional one-line documentation string;
 prompt_toolkit and the LSP both expose this to the user.

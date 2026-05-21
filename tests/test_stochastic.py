@@ -655,7 +655,10 @@ class TestStochasticIntegration:
         from quivers.dsl import loads
 
         prog = loads(
-            "\n            algebra markov\n            object X : 3\n            observed h : X -> X = identity(X)\n            export h\n        "
+            "composition markov as algebra\n"
+            "object X : FinSet 3\n"
+            "morphism h : X -> X [role=observed] ~ identity(X)\n"
+            "export h\n"
         )
         expected = torch.eye(3)
         torch.testing.assert_close(prog(), expected)

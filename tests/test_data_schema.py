@@ -53,7 +53,10 @@ class TestDatasetSchemaPandas:
         )
         decls = schema.declarations()
         # Sorted alphabetically by object name.
-        assert decls == "object Item : 3\nobject Subject : 3\nobject Verb : 3\n"
+        assert (
+            decls
+            == "object Item : FinSet 3\nobject Subject : FinSet 3\nobject Verb : FinSet 3\n"
+        )
 
     def test_observations_dict_categorical(self, df_pandas):
         schema = DatasetSchema(
@@ -159,7 +162,7 @@ class TestCompose:
         )
         body = """
 program demo : Verb -> Verb
-    mu <- Normal(0.0, 1.0)
+    sample mu : Verb <- Normal(0.0, 1.0)
     return mu
 
 export demo
@@ -175,10 +178,10 @@ export demo
         # prelude does not override it.
         schema = DatasetSchema(df=df_pandas, objects={"verb": "Verb"})
         body = """
-object Verb : 99
+object Verb : FinSet 99
 
 program demo : Verb -> Verb
-    mu <- Normal(0.0, 1.0)
+    sample mu : Verb <- Normal(0.0, 1.0)
     return mu
 
 export demo

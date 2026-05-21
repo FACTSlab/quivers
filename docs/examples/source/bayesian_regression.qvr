@@ -1,29 +1,31 @@
 # Bayesian Linear Regression
 #
 # A two-parameter linear model with a HalfCauchy prior on the
-# noise scale and Normal priors on the regression coefficients:
-#
-#   sigma  ~ HalfCauchy(2.0)
-#   beta_0 ~ Normal(0.0, 5.0)        intercept
-#   beta_1 ~ Normal(0.0, 2.0)        slope
-#   mu     = beta_0 + beta_1 * x
-#   y      ~ Normal(mu, sigma)
-#
+# noise scale and Normal priors on the regression coefficients.
 # Exercises the core sample / let / observe pattern that every
 # richer model in the gallery composes from.
+#
+# Generative structure:
+#
+#   sigma   ~ HalfCauchy(2)              noise scale
+#   beta_0  ~ Normal(0, 5)               intercept
+#   beta_1  ~ Normal(0, 2)               slope
+#   y_n     ~ Normal(beta_0 + beta_1 * x_n, sigma)
+#
+# The predictor x is exogenous data: an (N,) tensor supplied at
+# fit time via the observations dict alongside the response y.
+# The runtime's host-data channel binds free variables in let
+# expressions from undeclared keys in the observations dict.
 
-object Resp : 1
-
-# The predictor `x` is exogenous data: an `(N,)` tensor supplied
-# at fit time via the observations dict alongside the response
-# `y`.  The runtime's host-data channel binds free variables in
-# `let` expressions from undeclared keys in the observations dict.
+object Resp : FinSet 1
 
 program bayesian_regression : Resp -> Resp
-    sigma <- HalfCauchy(2.0)
-    beta_0 <- Normal(0.0, 5.0)
-    beta_1 <- Normal(0.0, 2.0)
+    sample sigma <- HalfCauchy(2.0)
+    sample beta_0 <- Normal(0.0, 5.0)
+    sample beta_1 <- Normal(0.0, 2.0)
+
     let mu = beta_0 + beta_1 * x
+
     observe y : Resp <- Normal(mu, sigma)
     return y
 

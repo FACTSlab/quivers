@@ -9,6 +9,7 @@ lives in [Data and Formulas](analysis-data-and-formulas.md).
 
 ## One-line fit
 
+<!-- python: skip -->
 ```python
 from quivers.formulas import fit
 
@@ -65,6 +66,7 @@ posterior-analysis library. ArviZ 1.x replaced the legacy
 [`xarray.DataTree`](https://docs.xarray.dev/en/stable/generated/xarray.DataTree.html);
 the adapter targets that surface directly.
 
+<!-- python: skip -->
 ```python
 import arviz as az
 from quivers.diagnostics import (
@@ -140,6 +142,7 @@ tag each `let` / `latent` step with:
 - the inferred intermediate axis size after the step's contraction
   / activation.
 
+<!-- python: skip -->
 ```python
 from quivers.dsl import parse
 from quivers.analysis import ChainShape
@@ -166,6 +169,7 @@ the partial product stays near $1/2$; Boolean / Gödel weights start
 at $1/2$; probabilistic kernels start at $1 / k$ for a $k$-way
 output; Real algebras use the conventional Kaiming-style scale.
 
+<!-- python: skip -->
 ```python
 from quivers.core.algebras import ProductFuzzyAlgebra
 # Importing the analysis package monkey-patches Algebra.init_spec on.
@@ -193,6 +197,7 @@ materializes the spec onto a single learnable tensor, with
 [`torch.nn.init`](https://docs.pytorch.org/docs/stable/nn.init.html)
 integration for the standard distributions.
 
+<!-- python: skip -->
 ```python
 from quivers.dsl import parse, loads
 from quivers.analysis import recommend_init, apply_init_spec
@@ -223,6 +228,7 @@ algebra and recover slowly); for probability-kernel chains the flag
 fires when the implied per-class log-prob deviates more than $0.2$
 nats from $-\log K$.
 
+<!-- python: skip -->
 ```python
 from quivers.dsl import parse
 from quivers.analysis import saturation_warnings
@@ -280,16 +286,17 @@ The pattern below trains a latent `W` and uses
 optimizer see the gradient flowing back through `W`'s underlying
 parameter.
 
+<!-- python: skip -->
 ```python
 import torch
 from quivers.dsl import loads
 from quivers.core.algebras import ProductFuzzyAlgebra, BooleanAlgebra
 
 program = loads('''
-algebra product_fuzzy
-object X : 8
-object Y : 8
-latent W : X -> Y [init=auto]
+composition product_fuzzy as algebra
+object X : FinSet 8
+object Y : FinSet 8
+morphism W : X -> Y [role=latent] [init=auto]
 export W
 ''')
 W = program.morphism
@@ -306,6 +313,7 @@ for step in range(100):
 
 ## End-to-end example
 
+<!-- python: skip -->
 ```python
 import pandas as pd
 from quivers.formulas import fit

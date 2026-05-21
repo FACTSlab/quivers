@@ -128,10 +128,10 @@ print(g.tensor.sum(dim=-1))      # rows of g sum to 1 (Markov)
 Inside `.qvr` files, the same machinery is the `change_base(t)` postfix and the `>>>` operator:
 
 ```qvr
-algebra product_fuzzy
-object A : 3
-object B : 4
-latent f : A -> B
+composition product_fuzzy as algebra
+object A : FinSet 3
+object B : FinSet 4
+morphism f : A -> B [role=latent]
 
 let s    = softmax(B)
 let pipe = s >>> expectation

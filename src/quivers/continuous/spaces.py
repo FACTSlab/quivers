@@ -1,17 +1,17 @@
 """Continuous measurable spaces for the hybrid architecture.
 
 Continuous space objects serve as domains and codomains for continuous
-morphisms. They complement :mod:`quivers.core.objects` (FinSet etc.) used
+morphisms. They complement [`quivers.core.objects`][quivers.core.objects] (FinSet etc.) used
 by discrete morphisms.
 
 The space family is a sum type:
 
-- :class:`Euclidean` — :math:`\\mathbb{R}^d` with optional bounds
-- :class:`Simplex` — probability simplex over ``d`` components
-- :class:`PositiveReals` — :math:`(0, \\infty)^d`
-- :class:`ProductSpace` — cartesian product of continuous spaces
+- `Euclidean` — :math:`\\mathbb{R}^d` with optional bounds
+- `Simplex` — probability simplex over ``d`` components
+- `PositiveReals` — :math:`(0, \\infty)^d`
+- `ProductSpace` — cartesian product of continuous spaces
 
-:func:`UnitInterval` is a convenience factory for ``[0, 1]^d``.
+`UnitInterval` is a convenience factory for ``[0, 1]^d``.
 """
 
 from typing import Literal
@@ -31,8 +31,8 @@ class ContinuousSpace(dx.TaggedUnion, discriminator="kind"):
     """Continuous measurable space (Euclidean, Simplex, PositiveReals, Product).
 
     Variants expose ``name: str`` and ``dim: int`` either as fields (the
-    atomic variants) or as derived properties (:class:`ProductSpace`),
-    plus a :meth:`contains` predicate over the support.
+    atomic variants) or as derived properties (`ProductSpace`),
+    plus a `contains` predicate over the support.
     """
 
     @property
@@ -162,7 +162,7 @@ class CholeskyFactor(ContinuousSpace):
     Carrier represented as a flat :math:`K \\times K` array
     (row-major); the on-manifold constraint is enforced by the
     sampling family
-    (:class:`~quivers.continuous.families.LKJCorrelationFactor`)
+    ([`quivers.continuous.families.LKJCorrelationFactor`][quivers.continuous.families.LKJCorrelationFactor])
     and not by the type itself.
     """
 
@@ -204,8 +204,8 @@ def _component_name(c: "ContinuousSpace | SetObject") -> str:
 def _component_dim(c: "ContinuousSpace | SetObject") -> int:
     """Return the event-shape width of a product component.
 
-    ContinuousSpace components contribute :attr:`dim`; SetObject
-    components contribute the length of their tensor :attr:`shape`
+    ContinuousSpace components contribute `dim`; SetObject
+    components contribute the length of their tensor `shape`
     (1 for FinSet, len(components) for ProductSet, 1 for CoproductSet).
     """
     return c.dim if isinstance(c, ContinuousSpace) else len(c.shape)
@@ -222,12 +222,12 @@ def _product_dim(components: tuple["ContinuousSpace | SetObject", ...]) -> int:
 class ProductSpace(ContinuousSpace):
     """Cartesian product of continuous spaces (and discrete objects).
 
-    Components may be a mix of :class:`ContinuousSpace` variants and
-    :class:`~quivers.core.objects.SetObject` variants — programs whose
+    Components may be a mix of `ContinuousSpace` variants and
+    [`quivers.core.objects.SetObject`][quivers.core.objects.SetObject] variants — programs whose
     domain or codomain combines discrete and continuous variables produce
     such a ProductSpace at compile time. Nested products are flattened
-    on construction; :attr:`name` and :attr:`dim` are derived from
-    :attr:`components` (for SetObject components, :attr:`dim` falls back
+    on construction; `name` and `dim` are derived from
+    `components` (for SetObject components, `dim` falls back
     to ``len(component.shape)``).
     """
 
@@ -264,3 +264,320 @@ class ProductSpace(ContinuousSpace):
     def __str__(self) -> str:
         inner = " × ".join(str(s) for s in self.components)
         return f"({inner})"
+
+
+# ---------------------------------------------------------------------------
+# Sphere
+# ---------------------------------------------------------------------------
+
+
+class Sphere(ContinuousSpace):
+    r"""The unit sphere :math:`S^{N-1} = \{x \in \mathbb{R}^N : \|x\|_2 = 1\}`.
+
+    Ambient dimension is ``dim = N``; the manifold dimension is ``N - 1``.
+    Carrier represented as an ``(N,)`` tensor; the unit-norm constraint
+    is enforced by the sampling family (e.g. von Mises-Fisher),
+    not by the type itself.
+    """
+
+    name: str
+    dim: int
+    kind: Literal["sphere"] = "sphere"
+
+    def contains(self, x: torch.Tensor) -> torch.Tensor:
+        norm = torch.linalg.vector_norm(x, dim=-1)
+        return (norm - 1.0).abs() < 1e-5
+
+    def sample_uniform(self, n: int) -> torch.Tensor:
+        # Standard construction: normalized isotropic Gaussian.
+        z = torch.randn(n, self.dim)
+        return z / torch.linalg.vector_norm(z, dim=-1, keepdim=True)
+
+    def __str__(self) -> str:
+        return f"Sphere({self.name!r}, {self.dim})"
+
+
+# ---------------------------------------------------------------------------
+# Ball
+# ---------------------------------------------------------------------------
+
+
+class Ball(ContinuousSpace):
+    r"""The closed ball :math:`\{x \in \mathbb{R}^N : \|x\|_2 \le r\}`.
+
+    Carrier represented as an ``(N,)`` tensor. The ``radius`` field
+    fixes ``r``; the default ``r = 1`` produces the unit ball.
+    """
+
+    name: str
+    dim: int
+    radius: float = 1.0
+    kind: Literal["ball"] = "ball"
+
+    def contains(self, x: torch.Tensor) -> torch.Tensor:
+        return torch.linalg.vector_norm(x, dim=-1) <= self.radius
+
+    def sample_uniform(self, n: int) -> torch.Tensor:
+        # Uniform in the ball: sample direction from sphere, radius
+        # from radius * U^{1/N} so volume is preserved.
+        z = torch.randn(n, self.dim)
+        direction = z / torch.linalg.vector_norm(z, dim=-1, keepdim=True)
+        u = torch.rand(n, 1)
+        r = self.radius * u.pow(1.0 / self.dim)
+        return direction * r
+
+    def __str__(self) -> str:
+        return f"Ball({self.name!r}, {self.dim}, radius={self.radius})"
+
+
+# ---------------------------------------------------------------------------
+# Covariance (symmetric positive-definite)
+# ---------------------------------------------------------------------------
+
+
+class Covariance(ContinuousSpace):
+    r"""The cone of :math:`D \times D` symmetric positive-definite matrices.
+
+    Used as the codomain of Wishart-shaped families. Carrier
+    represented as a flat ``(D*D,)`` tensor (row-major); the
+    positivity constraint is enforced by the sampling family.
+    """
+
+    name: str
+    dim: int
+    kind: Literal["covariance"] = "covariance"
+
+    @property
+    def shape(self) -> tuple[int, ...]:
+        return (self.dim * self.dim,)
+
+    @property
+    def ndim(self) -> int:
+        return 1
+
+    def contains(self, x: torch.Tensor) -> torch.Tensor:
+        d = self.dim
+        m = x.reshape(*x.shape[:-1], d, d)
+        symmetric = (m - m.transpose(-1, -2)).abs().amax(dim=(-1, -2)) < 1e-5
+        # All eigenvalues strictly positive (within float tolerance).
+        eigvals = torch.linalg.eigvalsh(0.5 * (m + m.transpose(-1, -2)))
+        positive = (eigvals > -1e-7).all(dim=-1)
+        return symmetric & positive
+
+    def __str__(self) -> str:
+        return f"Covariance({self.name!r}, {self.dim})"
+
+
+# ---------------------------------------------------------------------------
+# Correlation (symmetric positive-definite with unit diagonal)
+# ---------------------------------------------------------------------------
+
+
+class Correlation(ContinuousSpace):
+    r"""The manifold of :math:`D \times D` correlation matrices.
+
+    A correlation matrix is symmetric positive-definite with unit
+    diagonal: :math:`R_{ii} = 1` and :math:`R \succ 0`. Used as the
+    codomain of LKJ correlation priors. Carrier represented as a
+    flat ``(D*D,)`` tensor.
+    """
+
+    name: str
+    dim: int
+    kind: Literal["correlation"] = "correlation"
+
+    @property
+    def shape(self) -> tuple[int, ...]:
+        return (self.dim * self.dim,)
+
+    @property
+    def ndim(self) -> int:
+        return 1
+
+    def contains(self, x: torch.Tensor) -> torch.Tensor:
+        d = self.dim
+        m = x.reshape(*x.shape[:-1], d, d)
+        symmetric = (m - m.transpose(-1, -2)).abs().amax(dim=(-1, -2)) < 1e-5
+        diagonal_one = (torch.diagonal(m, dim1=-2, dim2=-1) - 1.0).abs().amax(
+            dim=-1
+        ) < 1e-5
+        eigvals = torch.linalg.eigvalsh(0.5 * (m + m.transpose(-1, -2)))
+        positive = (eigvals > -1e-7).all(dim=-1)
+        return symmetric & diagonal_one & positive
+
+    def __str__(self) -> str:
+        return f"Correlation({self.name!r}, {self.dim})"
+
+
+# ---------------------------------------------------------------------------
+# Orthogonal
+# ---------------------------------------------------------------------------
+
+
+class Orthogonal(ContinuousSpace):
+    r"""The orthogonal group :math:`O(D) = \{Q \in \mathbb{R}^{D \times D} : Q^T Q = I\}`.
+
+    Carrier represented as a flat ``(D*D,)`` tensor. The orthogonality
+    constraint is enforced by the sampling family; ``sample_uniform``
+    produces Haar-distributed elements via QR decomposition of a
+    standard Gaussian (the Mezzadri construction).
+    """
+
+    name: str
+    dim: int
+    kind: Literal["orthogonal"] = "orthogonal"
+
+    @property
+    def shape(self) -> tuple[int, ...]:
+        return (self.dim * self.dim,)
+
+    @property
+    def ndim(self) -> int:
+        return 1
+
+    def contains(self, x: torch.Tensor) -> torch.Tensor:
+        d = self.dim
+        m = x.reshape(*x.shape[:-1], d, d)
+        eye = torch.eye(d, device=x.device, dtype=x.dtype)
+        gram = m.transpose(-1, -2) @ m
+        return (gram - eye).abs().amax(dim=(-1, -2)) < 1e-5
+
+    def sample_uniform(self, n: int) -> torch.Tensor:
+        # Mezzadri's algorithm: take QR of a standard Gaussian, then
+        # fix the sign of each column of Q by the sign of the
+        # corresponding diagonal entry of R. The result is Haar.
+        z = torch.randn(n, self.dim, self.dim)
+        q, r = torch.linalg.qr(z)
+        d = torch.sign(torch.diagonal(r, dim1=-2, dim2=-1))
+        # Avoid zeros (probability zero in the Gaussian, but tolerate).
+        d = torch.where(d == 0, torch.ones_like(d), d)
+        q = q * d.unsqueeze(-2)
+        return q.reshape(n, self.dim * self.dim)
+
+    def __str__(self) -> str:
+        return f"Orthogonal({self.name!r}, {self.dim})"
+
+
+# ---------------------------------------------------------------------------
+# Stiefel
+# ---------------------------------------------------------------------------
+
+
+class Stiefel(ContinuousSpace):
+    r"""The Stiefel manifold :math:`V_K(\mathbb{R}^N) = \{X \in \mathbb{R}^{N \times K} : X^T X = I_K\}`.
+
+    Generalises `Orthogonal` to rectangular orthonormal-column
+    matrices. ``rows`` is :math:`N`, ``cols`` is :math:`K`; require
+    :math:`K \le N`. The base `dim` field is :math:`N`, kept
+    for the standard ``event_shape = (dim,)`` contract; the actual
+    carrier is flat with shape ``(N*K,)``.
+    """
+
+    name: str
+    rows: int
+    cols: int
+    kind: Literal["stiefel"] = "stiefel"
+
+    @property
+    def dim(self) -> int:
+        return self.rows
+
+    @property
+    def shape(self) -> tuple[int, ...]:
+        return (self.rows * self.cols,)
+
+    @property
+    def ndim(self) -> int:
+        return 1
+
+    def contains(self, x: torch.Tensor) -> torch.Tensor:
+        m = x.reshape(*x.shape[:-1], self.rows, self.cols)
+        eye = torch.eye(self.cols, device=x.device, dtype=x.dtype)
+        gram = m.transpose(-1, -2) @ m
+        return (gram - eye).abs().amax(dim=(-1, -2)) < 1e-5
+
+    def sample_uniform(self, n: int) -> torch.Tensor:
+        # Haar-on-Stiefel via thin QR of a standard Gaussian (Mezzadri
+        # again, restricted to the first K columns).
+        if self.cols > self.rows:
+            raise ValueError(f"Stiefel cols={self.cols} must be <= rows={self.rows}")
+        z = torch.randn(n, self.rows, self.cols)
+        q, r = torch.linalg.qr(z)
+        d = torch.sign(torch.diagonal(r, dim1=-2, dim2=-1))
+        d = torch.where(d == 0, torch.ones_like(d), d)
+        q = q * d.unsqueeze(-2)
+        return q.reshape(n, self.rows * self.cols)
+
+    def __str__(self) -> str:
+        return f"Stiefel({self.name!r}, {self.rows}, {self.cols})"
+
+
+# ---------------------------------------------------------------------------
+# LowerTriangular
+# ---------------------------------------------------------------------------
+
+
+class LowerTriangular(ContinuousSpace):
+    r"""The space of :math:`D \times D` lower-triangular matrices.
+
+    The carrier holds a flat ``(D*D,)`` tensor; the structural zero
+    constraint on the strictly upper-triangular entries is enforced
+    by the sampling family / parameterization. Used as a
+    parameterization carrier for Cholesky-style decompositions
+    when no diagonal-sign constraint is required.
+    """
+
+    name: str
+    dim: int
+    kind: Literal["lower_triangular"] = "lower_triangular"
+
+    @property
+    def shape(self) -> tuple[int, ...]:
+        return (self.dim * self.dim,)
+
+    @property
+    def ndim(self) -> int:
+        return 1
+
+    def contains(self, x: torch.Tensor) -> torch.Tensor:
+        d = self.dim
+        m = x.reshape(*x.shape[:-1], d, d)
+        mask = torch.triu(torch.ones(d, d, device=x.device, dtype=torch.bool), 1)
+        return (m * mask).abs().amax(dim=(-1, -2)) < 1e-7
+
+    def __str__(self) -> str:
+        return f"LowerTriangular({self.name!r}, {self.dim})"
+
+
+# ---------------------------------------------------------------------------
+# Diagonal
+# ---------------------------------------------------------------------------
+
+
+class Diagonal(ContinuousSpace):
+    r"""The space of :math:`D \times D` diagonal matrices.
+
+    Identified with :math:`\mathbb{R}^D` via the natural diagonal
+    embedding; the carrier holds a flat ``(D,)`` tensor of diagonal
+    entries. Used as the codomain of independent-variance
+    parameterizations where each component carries its own scalar
+    variance.
+    """
+
+    name: str
+    dim: int
+    kind: Literal["diagonal"] = "diagonal"
+
+    def contains(self, x: torch.Tensor) -> torch.Tensor:
+        # The (D,)-shaped carrier always satisfies the diagonality
+        # constraint by construction; there's nothing to check on
+        # the off-diagonals because there are none in the carrier.
+        return torch.ones(x.shape[:-1], dtype=torch.bool, device=x.device)
+
+    def sample_uniform(self, n: int) -> torch.Tensor:
+        # No canonical "uniform" on the unbounded line; bail with a
+        # clear error so users opt in to a specific prior family.
+        raise NotImplementedError("Diagonal has no uniform measure on unbounded ℝ^D")
+
+    def __str__(self) -> str:
+        return f"Diagonal({self.name!r}, {self.dim})"

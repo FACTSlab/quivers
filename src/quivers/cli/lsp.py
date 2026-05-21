@@ -8,10 +8,17 @@ clients that prefer socket transport.
 from __future__ import annotations
 
 import argparse
+import os
 import sys
 
 
 def main(args: argparse.Namespace) -> int:
+    # The in-tree grammar is the source of truth on every branch where
+    # ``grammars/qvr/src/parser.c`` is present. Force the local-grammar
+    # override on so the LSP never parses through a stale bundled
+    # grammar; editors launch the server with no env, so the override
+    # has to be set here, before any quivers.dsl import.
+    os.environ.setdefault("QVR_USE_LOCAL_GRAMMAR", "1")
     try:
         from quivers.lsp import build_server
     except ImportError as e:
@@ -31,10 +38,6 @@ def _entry() -> int:
     """Console-script entry point for ``qvr-lsp``."""
     parser = argparse.ArgumentParser(prog="qvr-lsp")
     parser.add_argument("--tcp", type=int, default=None, metavar="PORT")
-    # `vscode-languageclient` invokes the server as `qvr-lsp --stdio`
-    # by default; the flag is redundant for us (stdio is the default
-    # when --tcp is absent), but accept and ignore it so the
-    # invocation does not error out.
     parser.add_argument(
         "--stdio",
         action="store_true",

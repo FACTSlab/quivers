@@ -16,13 +16,13 @@ Both transitions and emissions are linear in the latent state and the noise cova
 ## QVR Source
 
 ```qvr
-type Driver = Euclidean 2
-type State = Euclidean 4
-type Obs = Euclidean 2
+object Driver : Real 2
+object State : Real 4
+object Obs : Real 2
 
-kernel transition_cell : Driver * State -> State ~ Normal [scale=0.1]
-kernel emission : State -> Obs ~ Normal [scale=0.1]
-kernel filter_cell : Obs * State -> State ~ Normal [scale=0.1]
+morphism transition_cell : Driver * State -> State [role=kernel, scale=0.1] ~ Normal
+morphism emission : State -> Obs [role=kernel, scale=0.1] ~ Normal
+morphism filter_cell : Obs * State -> State [role=kernel, scale=0.1] ~ Normal
 
 let generate = scan(transition_cell) >> emission
 let filter = scan(filter_cell)
@@ -40,21 +40,87 @@ A matrix-Normal prior on the transition matrix is the natural conjugate choice w
 
 ## Try it
 
+> The SVI step counts and NUTS warmup, sample, and chain budgets in the snippets below are illustrative: each block is sized to run in tens of seconds and demonstrate the API surface. Production fits typically need 10x to 100x more SVI steps, longer NUTS warmup, and multiple chains to actually converge to the data-generating parameters.
+
+
+### Generating synthetic data
+
+Pick concrete ground-truth dynamics `(A, B, C)` with isotropic process and observation noise, then forward-sample a single trajectory of latent states and observations. The driver inputs `u_t` are independent Normal draws; the per-step recurrence is the standard LGSSM kalman setup.
+
 ```python
 import torch
 from quivers.dsl import load
 
 torch.manual_seed(0)
 prog = load("docs/examples/source/linear_gaussian_ssm.qvr")
-filter = prog.morphism
+model = prog.morphism
 
-batch, seq_len, obs_dim = 4, 20, 2
-o_seq = torch.randn(batch, seq_len, obs_dim) * 0.5
-final_state = filter.rsample(o_seq)
-print("filtered state shape:", final_state.shape)
+T = 32
+A = 0.9 * torch.eye(4)
+B = 0.1 * torch.randn(4, 2)
+C = torch.randn(2, 4)
+Q_scale, R_scale = 0.1, 0.1
+
+u = torch.randn(T, 2)
+s = torch.zeros(T + 1, 4)
+o = torch.zeros(T, 2)
+for t in range(T):
+    s[t + 1] = s[t] @ A.T + u[t] @ B.T + Q_scale * torch.randn(4)
+    o[t] = s[t + 1] @ C.T + R_scale * torch.randn(2)
+o_seq = o.unsqueeze(0)
+state_seq = s[1:].unsqueeze(0)
 ```
 
-The exported morphism is the `ScanMorphism` wrapper: calling `.rsample(o_seq)` threads `filter_cell` across the sequence and returns the final filtered state. For end-to-end Bayesian inference against an observed series, wrap the generative pipeline in `condition(...)` and fit by SVI; for the closed-form Kalman path, push the wrapped morphism through a `bayes_invert` block.
+### SVI fit
+
+The exported morphism is a [`ScanMorphism`](../api/continuous/scan.md) whose parameter-network weights are `[role=kernel]` parameters without explicit `sample` priors; [`bayesian_lift_parameters`](../api/inference/lifts.md#quivers.inference.lifts.bayesian_lift_parameters) lifts each leaf parameter into a unit-Normal sample site so the standard guide-plus-ELBO machinery applies uniformly. The thin `DictWrap` adapter exposes `log_joint(x, obs_dict)` over the scan's positional state-trajectory argument.
+
+```python
+from quivers.inference import AutoNormalGuide, ELBO, SVI, bayesian_lift_parameters
+
+torch.manual_seed(1)
+prog = load("docs/examples/source/linear_gaussian_ssm.qvr")
+inner = prog.morphism
+model, x_lift, obs_lift = bayesian_lift_parameters(
+    inner, o_seq, {"h": state_seq}, prior_scale=1.0,
+)
+
+guide = AutoNormalGuide(model, observed_names={"h"})
+optim = torch.optim.Adam(
+    list(model.parameters()) + list(guide.parameters()), lr=1e-2,
+)
+svi = SVI(model, guide, optim, ELBO())
+
+loss0 = svi.step(x_lift, obs_lift)
+losses = [svi.step(x_lift, obs_lift) for _ in range(300)]
+loss_final = sum(losses[-20:]) / 20.0
+oracle_ll = inner.log_joint(o_seq, state_seq).item()
+print(f"initial ELBO loss: {loss0:.1f}")
+print(f"final ELBO loss:   {loss_final:.1f}")
+print(f"oracle -log p(h):  {-oracle_ll:.1f}")
+```
+
+### NUTS posterior
+
+The lifted model is a [`MonadicProgram`](../api/monadic/monads.md) with one Normal sample site per leaf parameter; [`NUTSKernel`](../api/inference/mcmc.md#quivers.inference.mcmc.NUTSKernel) samples them directly. Small budgets keep the snippet inside tens of seconds while still producing a usable posterior summary.
+
+```python
+from quivers.inference import MCMC, NUTSKernel, bayesian_lift_parameters
+
+torch.manual_seed(2)
+prog = load("docs/examples/source/linear_gaussian_ssm.qvr")
+model, x_lift, obs_lift = bayesian_lift_parameters(
+    prog.morphism, o_seq, {"h": state_seq}, prior_scale=1.0,
+)
+
+kernel = NUTSKernel(step_size=0.05, max_tree_depth=3, target_accept=0.8)
+mc = MCMC(kernel, num_warmup=15, num_samples=15, num_chains=1)
+result = mc.run(model, x_lift, obs_lift)
+
+print("acceptance:", float(result.acceptance_rates.mean()))
+print("divergences:", int(result.divergence_counts.sum()))
+```
+
 
 ## Categorical Perspective
 

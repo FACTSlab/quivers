@@ -1,8 +1,8 @@
 """Program Theory: a panproto protocol for the resolved (post-compilation) DSL.
 
-The :data:`QVR_PROGRAM_PROTOCOL` protocol describes the static structure of
+The `QVR_PROGRAM_PROTOCOL` protocol describes the static structure of
 a compiled `.qvr` program — every object, space, morphism, and output the
-program declares — as a panproto :class:`~panproto.Schema`. This sits one
+program declares — as a panproto `panproto.Schema`. This sits one
 layer above the syntactic ``qvr`` protocol from
 ``panproto-grammars-all``: the syntactic protocol carries the AST as
 parsed, this protocol carries the AST after the resolution layer
@@ -14,7 +14,7 @@ Once two programs share this protocol, panproto's structural diff,
 auto-lens-generation, and breaking-change detection apply to compiled
 programs as a whole. Two `.qvr` files that compile to structurally
 equivalent programs produce equal Schemas; two that diverge surface
-their divergence through :func:`panproto.diff_schemas`.
+their divergence through `panproto.diff_schemas`.
 
 Vertex kinds
 ------------
@@ -23,10 +23,10 @@ Top-level container:
     ``program``
         the root vertex; one per compiled module.
 
-Discrete objects (mirrors :mod:`quivers.core.objects`):
+Discrete objects (mirrors [`quivers.core.objects`][quivers.core.objects]):
     ``finset`` ``product_set`` ``coproduct_set`` ``free_monoid`` ``empty_set``
 
-Continuous spaces (mirrors :mod:`quivers.continuous.spaces`):
+Continuous spaces (mirrors [`quivers.continuous.spaces`][quivers.continuous.spaces]):
     ``euclidean`` ``simplex`` ``positive_reals`` ``product_space``
 
 Top-level declarations:
@@ -342,20 +342,20 @@ class _SchemaWriter:
 
 
 def extract_program_schema(compiler: "Compiler") -> panproto.Schema:
-    """Produce a :class:`panproto.Schema` for a compiled program.
+    """Produce a `panproto.Schema` for a compiled program.
 
     Walks the compiler's resolved environment (objects, spaces, morphisms)
     and emits a graph of vertices and edges in the
-    :data:`QVR_PROGRAM_PROTOCOL` protocol. The returned schema validates
-    against that protocol and is suitable for :func:`panproto.diff_schemas`,
-    :func:`panproto.auto_generate_lens`, and the rest of panproto's
+    `QVR_PROGRAM_PROTOCOL` protocol. The returned schema validates
+    against that protocol and is suitable for `panproto.diff_schemas`,
+    `panproto.auto_generate_lens`, and the rest of panproto's
     schema-level operations.
 
     Parameters
     ----------
     compiler
-        A :class:`~quivers.dsl.compiler.Compiler` after :meth:`compile_env`
-        (or :meth:`compile`) has populated the resolved environments.
+        A [`quivers.dsl.compiler.Compiler`][quivers.dsl.compiler.Compiler] after `compile_env`
+        (or `compile`) has populated the resolved environments.
 
     Returns
     -------
@@ -435,11 +435,10 @@ def _classify_morphism_kind(morphism: object) -> str:
     """Classify a runtime morphism into the program-theory vertex kind.
 
     The compiler's ``_morphisms`` env holds primitive morphisms produced
-    by every kind of morphism declaration (``MorphismDecl``,
-    ``KernelDecl``, ``KernelDecl``,
-    ``DiscretizeDecl``, ``EmbedDecl``). Classification routes through
-    ``isinstance`` rather than module/class name string-matching so the
-    boundaries are explicit.
+    by every `MorphismDecl` lowering (one per role: latent,
+    observed, kernel, embed, discretize, let). Classification routes
+    through ``isinstance`` rather than module/class name string-matching
+    so the boundaries are explicit.
     """
     # Imports are local because these modules form a long dependency
     # chain; importing at module top level would deepen the import graph
@@ -537,16 +536,16 @@ correspond to specializations of deduction systems
 
 
 def extract_deduction_schema(compiler: "Compiler") -> panproto.Schema:
-    """Produce a :class:`panproto.Schema` for the compiler's
+    """Produce a `panproto.Schema` for the compiler's
     deduction-system environment.
 
     Walks the compiler's ``_deductions`` registry and emits one
     panproto vertex per deduction system, one per rule, one per
     atom, and per-premise / per-conclusion pattern vertices. The
     returned schema validates against
-    :data:`QVR_DEDUCTION_PROTOCOL` and is suitable for
-    :func:`panproto.diff_schemas` and
-    :func:`panproto.auto_generate_lens` operations over deduction
+    `QVR_DEDUCTION_PROTOCOL` and is suitable for
+    `panproto.diff_schemas` and
+    `panproto.auto_generate_lens` operations over deduction
     systems.
     """
     builder = QVR_DEDUCTION_PROTOCOL.schema()

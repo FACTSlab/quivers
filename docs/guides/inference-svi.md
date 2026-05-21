@@ -54,6 +54,7 @@ is always inside the prior's support, so `prior.log_prob(v_i)`
 evaluates without raising `Expected value to be within the support
 of ...`.
 
+<!-- python: skip -->
 ```python
 from quivers.inference import AutoNormalGuide
 
@@ -81,6 +82,7 @@ $$q_\phi(z_i \mid x, y) = \delta_{T_i(\zeta_i)}(z_i)$$
 where $\zeta_i$ is the learnable unconstrained point and $T_i$ the
 same per-site bijector as `AutoNormalGuide`.
 
+<!-- python: skip -->
 ```python
 from quivers.inference import AutoDeltaGuide
 
@@ -116,6 +118,7 @@ Each accepts an `estimator=` strategy:
 | [`DoublyReparameterized`](../api/inference/estimators.md#quivers.inference.estimators.DoublyReparameterized) | DReG for IWAE ([Tucker et al. 2019](https://doi.org/10.48550/arXiv.1810.04152)); kills the K-growing score term |
 | [`ScoreFunction`](../api/inference/estimators.md#quivers.inference.estimators.ScoreFunction) | REINFORCE; for non-reparameterizable sites |
 
+<!-- python: skip -->
 ```python
 from quivers.inference import IWAEBound, DoublyReparameterized
 
@@ -148,6 +151,7 @@ via the `observations` kwarg, alongside the domain input.
 
 The `ELBO` class computes:
 
+<!-- python: skip -->
 ```python
 from quivers.inference import ELBO
 
@@ -178,6 +182,7 @@ The
 [`SVI`](../api/inference/svi.md#quivers.inference.svi.SVI) training
 loop optimizes both model and guide parameters:
 
+<!-- python: skip -->
 ```python
 from quivers.inference import ELBO, SVI
 import torch.optim as optim
@@ -212,6 +217,7 @@ After training, sample from the posterior predictive:
 
 $$p(y_\text{new} \mid x_\text{new}, \text{observations}) = \int p(y_\text{new} \mid z, x_\text{new}) \, p(z \mid x, y_\text{obs}) \, dz$$
 
+<!-- python: skip -->
 ```python
 from quivers.inference import Predictive
 
@@ -240,6 +246,7 @@ The [`Predictive`](../api/inference/predictive.md) driver:
 
 ## Full example: Bayesian linear regression
 
+<!-- python: skip -->
 ```python
 from quivers.continuous.programs import MonadicProgram
 from quivers.continuous.families import ConditionalNormal
@@ -307,6 +314,7 @@ print(f"Posterior mean of w: {y_mean[0, 0]:.2f} +/- {y_std[0, 0]:.2f}")
 Implement a custom guide by subclassing
 [`Guide`](../api/inference/guide.md#quivers.inference.guides.Guide):
 
+<!-- python: skip -->
 ```python
 from quivers.inference.guides import Guide
 

@@ -1,12 +1,12 @@
 """Pre-registered library of weighted deduction systems.
 
-Ships agenda-engine :class:`DeductionSystem` instances for the
+Ships agenda-engine `DeductionSystem` instances for the
 canonical algorithmic specializations enumerated in the
 semiring-parsing / agenda-driven-deduction literature
 (Shieber-Schabes-Pereira 1995; Goodman 1999; Klein-Manning 2001;
 Nederhof 2003; Eisner-Blatz 2007; Vieira et al. on Dyna).
 
-Each entry is a :class:`DeductionSystem` constructed from the
+Each entry is a `DeductionSystem` constructed from the
 seven irreducible parameters (item algebra, rule set, semiring,
 axiom injector, goal predicate, agenda factory, chart factory)
 of the underlying agenda engine. Users invoke them as

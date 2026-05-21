@@ -14,6 +14,7 @@ MCMC. The kernel runs on the registry's unconstrained vector;
 gradients flow through
 [`torch.autograd.grad`](https://docs.pytorch.org/docs/stable/generated/torch.autograd.grad.html).
 
+<!-- python: skip -->
 ```python
 from quivers.inference import NUTSKernel, MCMC
 
@@ -63,6 +64,7 @@ base and target. The base mean / scale, the step size, and the
 inverse temperatures are jointly trained via SVI. Closes the parity
 gap with NumPyro / Pyro `AutoDAIS`.
 
+<!-- python: skip -->
 ```python
 from quivers.inference import AutoNormalGuide, AutoDAIS
 
@@ -86,6 +88,7 @@ cold-start
 HMC](https://doi.org/10.48550/arXiv.2108.03782) on hierarchical models with
 skewed prior support.
 
+<!-- python: skip -->
 ```python
 from quivers.inference import (
     AutoMultivariateNormalGuide, NUTSKernel, WarmupThenHMC
@@ -109,6 +112,7 @@ svi_losses, result = sampler.run(model, x, observations)
 `MCMCResult`, it iterates over posterior samples instead of calling
 `guide.rsample`.
 
+<!-- python: skip -->
 ```python
 from quivers.inference import Predictive
 

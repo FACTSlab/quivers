@@ -1,14 +1,14 @@
 """Mean-field Normal variational guide.
 
-:class:`AutoNormalGuide` factorizes the variational posterior as
+`AutoNormalGuide` factorizes the variational posterior as
 a product of independent Normals — one per latent site in
 unconstrained space — and pushes each through the site's
 constrained-support bijector. This is the smallest and fastest
 guide quivers ships; it works well when posterior correlations
 are weak (a deliberately wide class of problems) and serves as
 the warm-start for richer guides
-(:class:`~quivers.inference.guides.multivariate_normal.AutoMultivariateNormal`,
-:class:`~quivers.inference.guides.flow.AutoIAFGuide`, …).
+([`quivers.inference.guides.multivariate_normal.AutoMultivariateNormal`][quivers.inference.guides.multivariate_normal.AutoMultivariateNormal],
+[`quivers.inference.guides.flow.AutoIAFGuide`][quivers.inference.guides.flow.AutoIAFGuide], …).
 
 The construction follows Pyro's ``AutoNormal``:
 
@@ -31,12 +31,12 @@ Log-density is the change-of-variables identity:
         + \\log\\bigl|\\det J_{T_i^{-1}}(v_i)\\bigr|
     \\Bigr].
 
-Plate latents (:class:`~quivers.continuous.plate.PlateDraw`)
+Plate latents ([`quivers.continuous.plate.PlateDraw`][quivers.continuous.plate.PlateDraw])
 are stored as ``(|A|, d_i)`` parameter tensors and sampled batch-
 invariantly: the latent vector is a global model parameter shared
 across every row of an observed plate, not replicated against the
 program input's leading batch axis. This matches the model-side
-:meth:`PlateDraw.rsample` convention and is the standard Pyro /
+`PlateDraw.rsample` convention and is the standard Pyro /
 NumPyro plate semantic.
 """
 
@@ -150,7 +150,7 @@ class AutoNormalGuide(Guide):
             log q(v) = log Normal(z; loc, scale) + log|det J_{T^{-1}}(v)|
 
         where ``z = bijector.inv(v)``. The plate / scalar shape
-        dispatch matches :meth:`rsample`'s convention.
+        dispatch matches `rsample`'s convention.
         """
         batch = x.shape[0]
         total = torch.zeros(batch, device=x.device)

@@ -22,15 +22,15 @@ Learning Algorithms*, ch. 27; Tierney-Kadane 1986,
 Usage pattern
 =============
 
-:class:`AutoLaplaceApproximation` is a two-phase guide:
+`AutoLaplaceApproximation` is a two-phase guide:
 
-1. **MAP phase.** Until :meth:`fit_hessian` is called the guide
-   behaves like :class:`AutoDeltaGuide` — variational parameters
+1. **MAP phase.** Until `fit_hessian` is called the guide
+   behaves like `AutoDeltaGuide` — variational parameters
    are a single unconstrained-space point estimate, and SVI with
    this guide does MAP optimisation.
-2. **Hessian phase.** Once :meth:`fit_hessian` is invoked the
+2. **Hessian phase.** Once `fit_hessian` is invoked the
    Hessian of ``-log p(z, y)`` at the current MAP is computed
-   via :func:`torch.autograd.functional.hessian`, inverted via
+   via `torch.autograd.functional.hessian`, inverted via
    Cholesky decomposition with a small jitter, and the guide
    thereafter samples from
    :math:`\\mathcal{N}(z^\\star, H^{-1})` and reports the
@@ -116,7 +116,7 @@ class AutoLaplaceApproximation(Guide):
         inverse Hessian as the posterior scale_tril.
 
         Call this after MAP optimisation has converged. Subsequent
-        :meth:`rsample` / :meth:`log_prob` calls sample from
+        `rsample` / `log_prob` calls sample from
         :math:`\\mathcal{N}(z^\\star, H^{-1})`.
         """
 
@@ -189,8 +189,8 @@ class AutoLaplaceApproximation(Guide):
     ) -> torch.Tensor:
         """Log-density at the supplied constrained sites.
 
-        Returns zero before :meth:`fit_hessian` (MAP-phase delta
-        convention); after :meth:`fit_hessian` returns the Gaussian
+        Returns zero before `fit_hessian` (MAP-phase delta
+        convention); after `fit_hessian` returns the Gaussian
         log-density plus the per-site bijector Jacobian correction.
         """
         batch = x.shape[0]
@@ -227,7 +227,7 @@ class AutoLaplaceApproximation(Guide):
 
     @property
     def hessian_fitted(self) -> bool:
-        """Whether :meth:`fit_hessian` has been called."""
+        """Whether `fit_hessian` has been called."""
         return bool(self._hessian_fitted)
 
 

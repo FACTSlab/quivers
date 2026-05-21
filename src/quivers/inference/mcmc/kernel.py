@@ -1,16 +1,16 @@
 """MCMC kernel abstract base + shared state container.
 
-Every MCMC kernel under :mod:`quivers.inference.mcmc` follows the
-same contract: an :meth:`init` method that produces a starting
-:class:`KernelState` from a :class:`LatentRegistry` and an
-optional initial flat unconstrained position, and a :meth:`step`
+Every MCMC kernel under [`quivers.inference.mcmc`][quivers.inference.mcmc] follows the
+same contract: an `init` method that produces a starting
+`KernelState` from a `LatentRegistry` and an
+optional initial flat unconstrained position, and a `step`
 method that consumes the current state plus the model + data and
 returns the next state.
 
 All kernels operate on the *flat unconstrained* latent vector
 provided by the registry. The model's log-joint is evaluated by
 unflattening, pushing through per-site bijectors (with the
-Jacobian correction), and calling :meth:`MonadicProgram.log_joint`
+Jacobian correction), and calling `MonadicProgram.log_joint`
 on the constrained sites. The Jacobian-corrected scalar is the
 *unconstrained-space* log-density that the kernel walks; this is
 the standard NumPyro / Pyro pattern, and it is what makes
@@ -48,7 +48,7 @@ class KernelState:
         same shape as ``position``. Cached so leapfrog re-uses the
         last-evaluated gradient at the proposal endpoint.
     step_count : int
-        Number of :meth:`step` calls so far (counts both warmup
+        Number of `step` calls so far (counts both warmup
         and post-warmup steps).
     accept_count : int
         Number of proposals accepted across the chain. Useful for
@@ -111,7 +111,7 @@ class PotentialFn:
 
         Trajectories that wander to the edge of a constrained
         support can produce values that fall outside
-        :mod:`torch.distributions`' validation envelope (e.g. exact
+        `torch.distributions`' validation envelope (e.g. exact
         zeros against a strictly-positive support after a long
         leapfrog stride). Rather than letting the resulting
         ``ValueError`` propagate and kill the chain, this method
@@ -179,10 +179,10 @@ class MCMCKernel(ABC):
     """Abstract Markov kernel on the flat unconstrained latent
     vector.
 
-    Concrete subclasses implement :meth:`init` and :meth:`step`.
+    Concrete subclasses implement `init` and `step`.
     Adaptation phases (warmup) typically mutate kernel-internal
     state (step size, mass matrix) and freeze it for the sampling
-    phase; the kernel's :attr:`is_adapting` flag tracks that.
+    phase; the kernel's `is_adapting` flag tracks that.
     """
 
     is_adapting: bool = False
@@ -196,9 +196,9 @@ class MCMCKernel(ABC):
         observations: dict[str, torch.Tensor],
         initial_position: torch.Tensor,
     ) -> KernelState:
-        """Build the starting :class:`KernelState` from the supplied
+        """Build the starting `KernelState` from the supplied
         initial flat unconstrained vector. The initial gradient is
-        evaluated here so :meth:`step` can re-use it."""
+        evaluated here so `step` can re-use it."""
 
     @abstractmethod
     def step(
@@ -207,7 +207,7 @@ class MCMCKernel(ABC):
         potential: PotentialFn,
     ) -> KernelState:
         """Advance the chain one Metropolis step. The potential
-        function is constructed once per :meth:`MCMC.run` and
+        function is constructed once per `MCMC.run` and
         re-used across every step / chain."""
 
     def start_adaptation(self) -> None:

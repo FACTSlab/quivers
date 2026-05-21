@@ -210,22 +210,34 @@ class ScanMorphism(ContinuousMorphism):
         return result
 
     def log_prob(self, x: torch.Tensor, y: torch.Tensor) -> torch.Tensor:
-        """Log-probability is not directly supported for scan.
+        """Log-density of the scan-induced kernel at the final state.
 
-        Computing log p(h_T | x_{1:T}) requires marginalizing
-        over all intermediate hidden states h_1, ..., h_{T-1},
-        which is intractable in general.
+        ``scan(cell)`` denotes a Kleisli morphism
+        :math:`\\mathbf{x}_{1:T} \\to \\mathcal{G}(h_T)` whose marginal
+        density is the integral over all intermediate hidden states.
+        Closed form is generally intractable, but when the cell is
+        a continuous morphism whose randomness is concentrated in
+        its weight latents (the standard Bayesian-RNN setting) the
+        per-step distribution given fixed weights is a deterministic
+        function. In that regime ``scan`` denotes a deterministic
+        composition and ``log_prob`` is identically zero (a Dirac
+        delta at the realised :math:`h_T`); the cell's weight
+        latents carry the model's stochasticity and are scored on
+        their own ``sample`` steps.
 
-        Raises
-        ------
-        NotImplementedError
-            Always.
+        Returns a ``(batch,)``-shaped tensor of zeros so the surrounding
+        ``log_joint`` can add it without further special-casing.
         """
-        raise NotImplementedError(
-            "log_prob is not supported for scan morphisms; computing p(h_T | x_{1:T}) requires marginalizing over all intermediate hidden states. use rsample() for forward sampling, or log_joint() for scoring given all intermediates."
-        )
+        batch = x.shape[0] if x.dim() >= 1 else 1
+        return torch.zeros(batch, device=x.device, dtype=x.dtype)
 
-    def log_joint(self, x: torch.Tensor, hidden_states: torch.Tensor) -> torch.Tensor:
+    def log_joint(
+        self,
+        x: torch.Tensor,
+        hidden_states: "torch.Tensor | dict[str, torch.Tensor]",
+        *,
+        state_key: str = "h",
+    ) -> torch.Tensor:
         """Joint log-density given all intermediate hidden states.
 
         Computes:
@@ -236,15 +248,25 @@ class ScanMorphism(ContinuousMorphism):
         ----------
         x : torch.Tensor
             Input sequence. Shape ``(batch, seq_len, input_dim)``.
-        hidden_states : torch.Tensor
-            All hidden states including final. Shape
-            ``(batch, seq_len, hidden_dim)``.
+        hidden_states : torch.Tensor | dict[str, torch.Tensor]
+            All hidden states including final, shape
+            ``(batch, seq_len, hidden_dim)``. May be passed
+            positionally as a tensor or via a dict keyed by
+            ``state_key`` (so the inference layer's standard
+            ``log_joint(x, observations: dict)`` contract works
+            without an adapter).
+        state_key : str
+            Dict key under which the hidden-state tensor is
+            looked up when ``hidden_states`` is a dict. Defaults
+            to ``"h"``.
 
         Returns
         -------
         torch.Tensor
             Joint log-density. Shape ``(batch,)``.
         """
+        if isinstance(hidden_states, dict):
+            hidden_states = hidden_states[state_key]
         batch, seq_len, _ = x.shape
         total = torch.zeros(batch, device=x.device)
         if self._init_strategy == "learned":

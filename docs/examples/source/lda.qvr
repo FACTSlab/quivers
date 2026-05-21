@@ -1,75 +1,41 @@
-# ================================================================
-# Latent Dirichlet Allocation (Gaussian-LDA relaxation)
-# ================================================================
+# Latent Dirichlet Allocation
 #
-# The classical topic model (Blei, Ng & Jordan 2003) draws each
-# word's topic from the document-topic mixture, then draws the
-# word itself from the topic-vocabulary mixture.  The per-word
-# topic assignment is integrated out, yielding a per-word marginal
+# The Blei, Ng & Jordan (2003) topic model. Each document draws
+# a topic mixture from a Dirichlet prior; each topic draws a
+# word distribution from a Dirichlet prior; each word in a
+# document draws a topic from its document's mixture, then a
+# word from the chosen topic's distribution.
 #
-#   p(w | theta_d, phi) = sum_k theta_d[k] * phi_k[w].
+# Generative structure:
 #
-# Both the topic assignment and the word are discrete and the
-# canonical observation family is categorical over the vocabulary.
-# QVR's inline distribution surface admits per-dimension
-# independent families (Normal, Gamma, HalfNormal, ...) but not
-# Categorical, which produces a categorical-output kind.  This
-# example therefore realises a *Gaussian-LDA* relaxation
-# (Das, Zaheer & Dyer 2015): each word is replaced by a learned
-# word embedding, each topic by a learned topic embedding, and
-# the per-word emission is a Normal whose mean is the topic
-# embedding selected by the per-word topic latent.  The discrete
-# topic assignment is still integrated out, so the marginalize
-# block's mathematical role is unchanged; only the emission
-# family changes from Categorical to Normal.
+#   theta_d  ~ Dirichlet(alpha)            per-document topic mixture
+#   phi_k    ~ Dirichlet(beta)             per-topic word distribution
+#   z_{d,n}  ~ Categorical(theta_d)        per-word topic assignment
+#   w_{d,n}  ~ Categorical(phi_{z_{d,n}})  per-word observed token
 #
-# Generative structure
+# The per-word topic z_{d,n} is integrated out of the per-word
+# likelihood. The closed-form marginal is
 #
-#   theta : Doc                  -- document-topic concentration
-#   phi   : Topic                -- per-topic embedding mean
-#   psi   : Topic                -- per-topic embedding scale
-#   z     : Topic                -- per-word topic (marginalized)
-#   w     : Word                 -- observed word embedding,
-#                                   conditional on z
+#   p(w_{d,n} | theta_d, phi) = sum_k theta_d[k] * phi[k, w_{d,n}],
 #
-# Per-word marginal:
+# which the `marginalize` block computes via logsumexp over the
+# K topic atoms.
 #
-#   p(w_{d,n}) = sum_k theta_d[k] * Normal(w_{d,n}; phi[k], psi[k]).
+# Reference: [Blei, Ng & Jordan 2003](https://doi.org/10.1162/jmlr.2003.3.4-5.993).
 
-object Doc : 50
-object Topic : 8
-object Word : 1000
+composition log_prob as algebra
 
-program lda : Word -> Word
-    # Document-topic and topic-embedding concentrations.
-    # Dirichlet concentration on the Topic simplex.  The classical
-    # LDA has one theta_d per document; this Gaussian-LDA
-    # relaxation shares a single Topic-shaped concentration across
-    # the corpus and integrates topic assignment per word.
-    theta : Topic <- HalfNormal(1.0)
+object Doc : FinSet 20
+object Topic : FinSet 3
+object Word : FinSet 200
 
-    # Per-topic emission parameters: the topic embedding mean and
-    # scale.  The word likelihood conditional on z = k is
-    # Normal(phi[k], psi[k]).
-    phi : Topic <- Normal(0.0, 5.0)
-    psi : Topic <- HalfNormal(1.0)
+program lda(alpha : Real, beta : Real) : Word -> Word
+    sample theta : Doc <- Dirichlet(alpha) [over=Topic, iid_over=Doc]
+    sample phi : Topic <- Dirichlet(beta) [over=Word, iid_over=Topic]
 
-    # Per-word fibration into the Doc grouping plate (a per-word
-    # document index supplied at runtime via the observations
-    # dict).
-    word_idx : Word <- HalfNormal(1.0)
+    marginalize z : Topic <- Categorical(theta) [over=Doc, reduction=logsumexp]
+        observe w : Word <- Categorical(phi[z]) [via=word_idx]
 
-    # Marginalize the per-word topic assignment.  The body
-    # references the marginalized variable `z` by gathering
-    # `phi[z]` and `psi[z]` at every word position, so the body's
-    # per-word likelihood genuinely depends on the topic.
-    marginalize z : Topic <- Dirichlet(theta)
-        over Doc
-        in {
-            let phi_nk = factor n : Word, k : Topic in phi[k]
-            let psi_nk = factor n : Word, k : Topic in psi[k]
-            observe w : Word via word_idx <- Normal(phi_nk, psi_nk)
-        }
     return theta
 
 export lda

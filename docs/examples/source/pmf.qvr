@@ -1,42 +1,32 @@
-# ================================================================
 # Probabilistic Matrix Factorization
-# ================================================================
 #
-# The user-item latent-factor recommender model (Salakhutdinov &
-# Mnih 2007): every user and every item has a K-dimensional
-# latent vector, and the expected rating is their inner product.
-# In categorical form, the two factor matrices are morphisms
+# A user-item latent-factor recommender model. Every user and
+# every item carries a K-dimensional latent vector, and the
+# expected rating is their inner product. In categorical form,
+# the two factor matrices are morphisms and the bilinear score
+# is the composite User -> Movie obtained by transposing U and
+# contracting along LatentDim.
 #
-#     U : LatentDim -> User
-#     V : LatentDim -> Movie
+# Structural form:
 #
-# and the bilinear score is the composite User -> Movie obtained
-# by transposing U and contracting along LatentDim:
+#   U     : LatentDim -> User            user latent factors
+#   V     : LatentDim -> Movie           movie latent factors
+#   pmf   = U.dagger >> V                bilinear rating score
 #
-#     pmf = U.dagger >> V : User -> Movie.
-#
-# The (u, m) entry of the resulting tensor is exactly the inner
-# product sum_k U[k, u] * V[k, m]: the canonical PMF rating
-# mean. Each factor matrix carries a matrix-normal prior on its
-# (LatentDim, side) tensor, with row covariance on LatentDim and
-# column covariance on the user / movie plate; the Kronecker
-# structure is the original PMF paper's prior.
-#
-# Working under `algebra real` makes the composition a
-# real-valued matmul. K = 2 keeps the example small.
+# The (u, m) entry of the resulting tensor is sum_k U[k, u] *
+# V[k, m], the canonical PMF rating mean. Each factor matrix
+# carries a matrix-normal prior with row covariance on LatentDim
+# and column covariance on the user or movie plate.
 
-algebra real
+composition real as algebra
 
-object LatentDim : 2
-object User : 1000
-object Movie : 500
+object LatentDim : FinSet 2
+object User : FinSet 8
+object Movie : FinSet 8
 
-# Two morphism factors with matrix-normal priors.
-latent U : LatentDim -> User ~ MatrixNormal(0.0, 1.0, 1.0) over (dom, cod)
-latent V : LatentDim -> Movie ~ MatrixNormal(0.0, 1.0, 1.0) over (dom, cod)
+morphism U : LatentDim -> User [role=latent]
+morphism V : LatentDim -> Movie [role=latent]
 
-# Bilinear score as composition: transpose U, contract on
-# LatentDim, recover the (User, Movie) rating-mean matrix.
 let pmf = U.dagger >> V
 
 export pmf

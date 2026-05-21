@@ -2,11 +2,11 @@
 
 Following Plotkin & Power and Bauer & Pretnar, exposes a free-monad-
 over-signature construction so any user-defined effect signature
-induces a :class:`Monad` instance automatically. Handlers translate
+induces a `Monad` instance automatically. Handlers translate
 a free-monad computation into a target monad's effects.
 
 The free-monad carrier ``Free_Σ^{≤d}(A)`` is realised as a flat
-:class:`FinSet` whose flat-index layout is:
+`FinSet` whose flat-index layout is:
 
 - Indices ``[0, |A|)`` represent leaf nodes ``leaf(a)``.
 - For each operation ``op_i`` (in declared order), a contiguous block
@@ -15,7 +15,7 @@ The free-monad carrier ``Free_Σ^{≤d}(A)`` is realised as a flat
   parameter and ``k`` is a deterministic continuation
   ``op_i.result → Free^{d-1}(A)``.
 
-The flat-FinSet representation avoids the :class:`CoproductSet`
+The flat-FinSet representation avoids the `CoproductSet`
 auto-flattening collision that would otherwise dissolve the
 recursive leaf-vs-operation distinction when ``A`` is itself a
 coproduct. Structural decomposition is recovered from
@@ -69,8 +69,8 @@ class EffectSignature(dx.Model):
     """A signature of effect operations.
 
     Realisable both as a Python value (a tuple of operations) and as
-    a :class:`panproto.Theory` whose sorts are :class:`SetObject` and
-    whose operations are the listed :class:`Operation` instances.
+    a `panproto.Theory` whose sorts are `SetObject` and
+    whose operations are the listed `Operation` instances.
 
     Attributes
     ----------
@@ -90,7 +90,7 @@ class EffectSignature(dx.Model):
         -------
         panproto.Theory
             The theory whose single sort is ``Carrier``, whose
-            operations are one per :attr:`operations` entry with
+            operations are one per `operations` entry with
             input ``parameter * (result -> Carrier)`` and output
             ``Carrier``, and whose equations are the three monad
             laws (left/right unit, associativity).
@@ -144,11 +144,11 @@ def _carrier_size(signature: EffectSignature, leaf_size: int, depth: int) -> int
 def _tree_carrier(
     signature: EffectSignature, leaf_type: SetObject, depth: int
 ) -> SetObject:
-    """The bounded-depth free-monad carrier as a flat :class:`FinSet`.
+    """The bounded-depth free-monad carrier as a flat `FinSet`.
 
     The carrier's flat-index layout is structural: leaves first, then
     one contiguous block per operation. The decomposition is
-    reconstructed by :func:`_decompose_carrier_index`.
+    reconstructed by `_decompose_carrier_index`.
     """
     if depth < 0:
         raise ValueError(f"depth must be >= 0, got {depth}")
@@ -208,7 +208,7 @@ def _compose_carrier_index(
     p_idx: int,
     cont_flat: int,
 ) -> int:
-    """Inverse of :func:`_decompose_carrier_index`."""
+    """Inverse of `_decompose_carrier_index`."""
     if kind == "leaf":
         return p_idx
     if depth == 0 or not signature.operations:
@@ -238,7 +238,7 @@ def _decode_continuation(flat: int, sub_size: int, result_size: int) -> tuple[in
 
 
 def _encode_continuation(outputs: tuple[int, ...], sub_size: int) -> int:
-    """Inverse of :func:`_decode_continuation`."""
+    """Inverse of `_decode_continuation`."""
     flat = 0
     for v in outputs:
         flat = flat * sub_size + v
@@ -255,9 +255,9 @@ class Handler(dx.Model):
 
     A handler supplies a clause for each operation in its signature
     plus a return-clause that lifts plain values into the target
-    monad. :meth:`run` folds a bounded-depth signature tree by
-    interpreting each leaf through :attr:`return_clause` and each
-    operation node through :attr:`operation_clauses`.
+    monad. `run` folds a bounded-depth signature tree by
+    interpreting each leaf through `return_clause` and each
+    operation node through `operation_clauses`.
 
     Operation-clause shape: for an operation ``op`` whose result feeds
     a continuation ``k : op.result → target(B)``, the clause has
@@ -276,9 +276,9 @@ class Handler(dx.Model):
     return_clause : Morphism
         ``A → target(A)``: lifts plain values into the target monad.
     operation_clauses : dict[str, Morphism]
-        For each :attr:`signature.operations` entry, a morphism
+        For each `signature.operations` entry, a morphism
         ``parameter × [result → target(B)] → target(B)`` (encoded
-        with the function-space :class:`FinSet`).
+        with the function-space `FinSet`).
     """
 
     signature: EffectSignature
@@ -332,7 +332,7 @@ class Handler(dx.Model):
         Returns a morphism ``Free_Σ^{≤depth}(A) → target(A)``.
 
         The construction proceeds by induction on the tree depth:
-        leaves are routed through :attr:`return_clause`; each
+        leaves are routed through `return_clause`; each
         operation node is decomposed into its parameter and
         continuation components, the continuation is recursively
         interpreted into the target monad, and the result is fed
@@ -638,7 +638,7 @@ class FreeMonad(dx.Model):
     def apply(self, A: SetObject, B: SetObject) -> Morphism:
         """``apply : Free^d([A → B]) ⊗ Free^d(A) → Free^d(B)``.
 
-        Derived from :meth:`lift_a2` and the function-space evaluator.
+        Derived from `lift_a2` and the function-space evaluator.
         """
         from quivers.monadic.instances import _evaluation_morphism, _function_space
 

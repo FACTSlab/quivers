@@ -45,10 +45,10 @@ Both forms can be let-bound and composed with `>>>`. Composition checks the seam
 
 <!-- compile: false -->
 ```qvr
-algebra product_fuzzy
-object A : 3
-object B : 4
-latent f : A -> B
+composition product_fuzzy as algebra
+object A : FinSet 3
+object B : FinSet 4
+morphism f : A -> B [role=latent]
 
 let s    = softmax(B)
 let pipe = s >>> expectation
@@ -64,6 +64,7 @@ The `change_base` postfix accepts any expression that denotes a transformation: 
 
 The same surface is exposed in the Python core at `quivers.core.trans`:
 
+<!-- python: skip -->
 ```python
 from quivers.core.trans import compose_trans
 from quivers.core.morphism_transformations import softmax
@@ -86,14 +87,14 @@ CompositionRule
             └── Algebra  associative + identity + meet + negate
 ```
 
-The four `.qvr` keywords select the level:
+The four `.qvr` level keywords select the level:
 
-| Keyword | Required level | Available operations |
+| Declaration | Required level | Available operations |
 |---|---|---|
-| `algebra X` | `Algebra` | `>>`, `@`, `identity(A)`, `f.dagger`, `f.trace(A)`, `cup(A)`, `cap(A)`, all compact-closed surface |
-| `semigroupoid X` | `Semigroupoid` | `>>`, `@`, no identity / compact-closed surface |
-| `bilinear_form X` | `BilinearForm` | `>>`, `@`, no associativity guarantee |
-| `composition_rule X` | `CompositionRule` | permissive; accepts any rule |
+| `composition X as algebra` | `Algebra` | `>>`, `@`, `identity(A)`, `f.dagger`, `f.trace(A)`, `cup(A)`, `cap(A)`, all compact-closed surface |
+| `composition X as semigroupoid` | `Semigroupoid` | `>>`, `@`, no identity / compact-closed surface |
+| `composition X as bilinear_form` | `BilinearForm` | `>>`, `@`, no associativity guarantee |
+| `composition X as rule` | `CompositionRule` | permissive; accepts any rule |
 
 A typed `CompileError` flags every Algebra-only operation used inside a non-Algebra module. The diagnostic names the operation and the offending rule's level.
 
@@ -103,22 +104,19 @@ A composition rule can be defined inline. The body is a sequence of entries whos
 
 <!-- compile: false -->
 ```qvr
-algebra my_godel {
+composition my_godel as algebra
     tensor_op(a, b) = a * b
     join(t) = sum(t)
     unit = 1.0
     zero = 0.0
-}
 
-semigroupoid my_semi {
+composition my_semi as semigroupoid
     tensor_op(a, b) = (1 - a + a * b)
     join(t) = prod(t)
-}
 
-bilinear_form signed_dot {
+composition signed_dot as bilinear_form
     tensor_op(a, b) = (a + b) * 0.5
     join(t) = sum(t)
-}
 ```
 
 Required entries per level:
@@ -137,11 +135,11 @@ The shipped `material_implication` rule is a `CustomSemigroupoid` with tensor $a
 
 <!-- compile: false -->
 ```qvr
-semigroupoid material_impl
-object A : 3
-object B : 3
-latent f : A -> B
-latent g : B -> B
+composition material_impl as semigroupoid
+object A : FinSet 3
+object B : FinSet 3
+morphism f : A -> B [role=latent]
+morphism g : B -> B [role=latent]
 let composed = f >> g
 export composed
 ```
@@ -192,6 +190,7 @@ A spec violating any of these constraints raises `CompileError` at the declarati
 
 `quivers.core.wiring` exposes the same surface:
 
+<!-- python: skip -->
 ```python
 from quivers.core.wiring import einsum_wiring, contract
 
@@ -201,6 +200,7 @@ out    = contract(wiring, arg1, arg2, kernel)
 
 `EinsumWiring` works against any `CompositionRule` instance, not just algebras:
 
+<!-- python: skip -->
 ```python
 from quivers.core.algebras import material_implication
 

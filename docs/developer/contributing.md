@@ -168,6 +168,7 @@ The QVR DSL processes `.qvr` files through these stages:
 
 Each syntax construct is a `dx.Model`. Recursive sums (`TypeExpr`, `SpaceExpr`, `Expr`, `LetExprNode`, `ProgramStep`, `Statement`) are `dx.TaggedUnion` roots:
 
+<!-- python: skip -->
 ```python
 import didactic.api as dx
 from typing import Literal

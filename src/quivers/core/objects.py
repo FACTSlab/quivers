@@ -1,8 +1,8 @@
 """Categorical objects: finite sets, products, coproducts, and free monoids.
 
-The set-object family is a sum type with four variants — :class:`FinSet`,
-:class:`ProductSet`, :class:`CoproductSet`, :class:`FreeMonoid` — discriminated
-by ``kind``. ``SetObject`` is the :class:`dx.TaggedUnion` root that gathers
+The set-object family is a sum type with four variants — `FinSet`,
+`ProductSet`, `CoproductSet`, `FreeMonoid` — discriminated
+by ``kind``. ``SetObject`` is the `dx.TaggedUnion` root that gathers
 them; ``X * Y`` and ``X + Y`` work on any pair of variants.
 """
 
@@ -14,7 +14,7 @@ import didactic.api as dx
 class SetObject(dx.TaggedUnion, discriminator="kind"):
     """The category of finite sets, product sets, and coproduct sets.
 
-    Variants share two derived properties (:attr:`size`, :attr:`shape`) and
+    Variants share two derived properties (`size`, `shape`) and
     the ``*`` / ``+`` operators for product and coproduct construction.
     """
 
@@ -135,7 +135,7 @@ class CoproductSet(SetObject):
 
     The flat cardinality is the sum of component cardinalities; the shape is
     a single dimension of that total size with offsets recoverable from
-    :attr:`offsets`.
+    `offsets`.
     """
 
     components: tuple[SetObject, ...] = dx.field(
@@ -196,7 +196,7 @@ class FreeMonoid(SetObject):
     Represents all tuples (strings) from elements of ``generators`` with
     length 0 through ``max_length``. Internally a coproduct
     ``Unit + G + G×G + ... + G^max_length``; obtain it via
-    :meth:`as_coproduct`.
+    `as_coproduct`.
 
     Attributes
     ----------
@@ -283,8 +283,8 @@ class FreeMonoid(SetObject):
 class EnumSet(SetObject):
     """A finite set whose elements have explicit names.
 
-    Unlike :class:`FinSet`, whose elements are anonymous integers
-    ``0..cardinality-1``, an :class:`EnumSet` carries a tuple of element
+    Unlike `FinSet`, whose elements are anonymous integers
+    ``0..cardinality-1``, an `EnumSet` carries a tuple of element
     names; the cardinality is ``len(elements)``. Names must be unique.
 
     Used for declaring atom collections (e.g. categorial-grammar atoms
@@ -342,7 +342,7 @@ class FreeResiduated(SetObject):
     (``/``, ``\\``, ``*``, optional ``◇`` / ``□``) up to a bounded
     nesting depth. The runtime carrier is a finite enumeration of all
     admissible category strings produced by
-    :func:`quivers.stochastic.categories.CategorySystem.from_generators`.
+    [`quivers.stochastic.categories.CategorySystem.from_generators`][quivers.stochastic.categories.CategorySystem.from_generators].
 
     Attributes
     ----------
@@ -369,7 +369,7 @@ class FreeResiduated(SetObject):
     )
 
     def system(self) -> object:
-        """Return the underlying :class:`CategorySystem`.
+        """Return the underlying `CategorySystem`.
 
         The system is constructed on each call (cheap for small depths;
         callers expecting to use it multiple times should hold a

@@ -15,9 +15,9 @@ from quivers.cli.repl_session import ReplSession
 
 
 SOURCE = """\
-object X : 3
-object Y : 4
-latent f : X -> Y
+object X : FinSet 3
+object Y : FinSet 4
+morphism f : X -> Y [role=latent]
 """
 
 
@@ -60,7 +60,7 @@ def test_type_of_morphism() -> None:
     assert " -> " in r.body
     # Morphism signatures lead with the declaration kind keyword so
     # the QVR grammar can colour the domain/codomain as types.
-    assert r.body.split()[0] in {"latent", "observed", "program", "kernel"}
+    assert r.body.split()[0] in {"morphism", "program"}
 
 
 def test_kind_reports_ast_variant() -> None:
@@ -68,7 +68,7 @@ def test_kind_reports_ast_variant() -> None:
     r = s.dispatch(":kind X")
     assert r.ok, r.diagnostics
     assert "TypeName" in r.body
-    assert "TypeProduct" in r.body  # variant enumeration
+    assert "ObjectProduct" in r.body  # variant enumeration
 
 
 def test_browse_lists_namespaces() -> None:
@@ -91,7 +91,7 @@ def test_info_includes_signature() -> None:
     s = _populated()
     r = s.dispatch(":info f")
     assert r.ok
-    assert "latent f" in r.body
+    assert "morphism f" in r.body
     assert "X -> Y" in r.body
 
 
@@ -133,7 +133,7 @@ def test_load_and_reload(tmp_path: Path) -> None:
     assert "loaded" in r.body
     assert "X" in s.env and "Y" in s.env
     # Mutate the file: drop Y and reload, expect a removal diff.
-    path.write_text("object X : 3\nlatent g : X -> X\n")
+    path.write_text("object X : FinSet 3\nmorphism g : X -> X [role=latent]\n")
     r2 = s.dispatch(":reload")
     assert r2.ok, r2.diagnostics
     assert "removed:" in r2.body and "Y" in r2.body
@@ -186,7 +186,7 @@ def test_info_default_returns_qvr() -> None:
     s = _populated()
     r = s.dispatch(":info f")
     assert r.ok
-    assert "latent f : X -> Y" in r.body
+    assert "morphism f : X -> Y" in r.body
     # No raw didactic struct in the default rendering.
     assert "MorphismDecl(" not in r.body
 
@@ -210,8 +210,8 @@ def test_save_writes_module(tmp_path: Path) -> None:
     r = s.dispatch(f":save {out}")
     assert r.ok, r.diagnostics
     written = out.read_text()
-    assert "object X : 3" in written
-    assert "latent f : X -> Y" in written
+    assert "object X : FinSet 3" in written
+    assert "morphism f : X -> Y" in written
 
 
 def test_save_without_arg_writes_to_loaded_path(tmp_path: Path) -> None:
@@ -244,7 +244,7 @@ def test_watch_persists_through_module_edits() -> None:
     s = _populated()
     s.dispatch(":watch f")
     # Append another statement and confirm watch still resolves.
-    s.dispatch("object Z : 5")
+    s.dispatch("object Z : FinSet 5")
     results = s.watch_results()
     assert "f" in results
     assert " -> " in results["f"]
@@ -273,14 +273,14 @@ def test_unwatch_unknown_errors() -> None:
     assert not r.ok
 
 
-def test_kind_handles_literal() -> None:
+def test_kind_handles_constructor() -> None:
     s = _populated()
-    # Integer literals are still legal type expressions in the grammar
-    # (an object's cardinality, e.g. `object X : 3`). The kind path
-    # should return the canonical variant name without erroring.
-    r = s.dispatch(":kind 42")
+    # Constructor-style sized objects are a primary type-expression
+    # shape in the grammar (e.g. ``FinSet 3``). The kind path should
+    # return the canonical variant name without erroring.
+    r = s.dispatch(":kind FinSet 3")
     assert r.ok
-    assert "TypeName" in r.body
+    assert "DiscreteConstructor" in r.body
 
 
 def test_doc_unknown_name() -> None:
@@ -313,7 +313,7 @@ def test_autoreload_only_when_stale(tmp_path: Path) -> None:
     # First call should be a no-op: mtime hasn't moved.
     assert s.autoreload_if_stale() is None
     # Advance mtime and add a binding; expect reload to fire.
-    src.write_text(SOURCE + "object Z : 2\n")
+    src.write_text(SOURCE + "object Z : FinSet 2\n")
     import os
     import time
 
@@ -335,7 +335,7 @@ def test_bare_expression_falls_through_to_type() -> None:
 
 def test_bare_statement_extends_module() -> None:
     s = _populated()
-    s.dispatch("object Z : 7")
+    s.dispatch("object Z : FinSet 7")
     assert "Z" in s.env
     assert any(getattr(stmt, "name", None) == "Z" for stmt in s.module.statements)
 

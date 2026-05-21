@@ -3,7 +3,7 @@
 ``qvr kernel install`` writes a ``kernel.json`` whose argv is
 ``["python", "-m", "quivers.kernel", "_run_f", "{connection_file}"]``;
 ``qvr kernel run`` and the harness entry point invoke
-:class:`QuiversKernel` through ipykernel's bootstrap.
+`QuiversKernel` through ipykernel's bootstrap.
 """
 
 from __future__ import annotations

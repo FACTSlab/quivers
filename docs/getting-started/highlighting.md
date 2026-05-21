@@ -196,16 +196,14 @@ A short check that exercises every distinguishing surface feature:
 
 <!-- compile: false -->
 ```qvr
-object D : 32
-object K : 64
-space SD : Euclidean(32)
-space SK : Euclidean(64)
+object D : FinSet 32
+object K : FinSet 64
+object SD : Real 32
+object SK : Real 64
 
-latent W : SD -> SK ~ MatrixNormal(0.0, 1.0, 1.0) over (dom, cod)
-
-kernel softmax_link : SK -> SK ~ Normal [scale=0.1]
-
-program regression : SD -> SK ! Sample, Score
+morphism W : SD -> SK [role=latent] ~ MatrixNormal(0.0, 1.0, 1.0) over (dom, cod)
+morphism softmax_link : SK -> SK [role=kernel] ~ Normal [scale=0.1]
+program regression : SD -> SK [effects=[Sample, Score]]
     let z = W >> softmax_link
     observe y : K <- Normal(z, 0.5)
     return y

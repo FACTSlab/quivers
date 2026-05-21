@@ -1,86 +1,48 @@
-# ================================================================
 # Tree-Structured Categorical Prior
-# ================================================================
 #
 # A finite-class model whose K-way class-probability vector is
-# *not* drawn from a flat Dirichlet but assembled from a binary
-# decision tree.  Each leaf class is a structurally different
+# assembled from a binary decision tree rather than drawn from a
+# flat Dirichlet. Each leaf class is a structurally different
 # product of internal-node Bernoulli probabilities, and the
-# per-verb / per-class score table is the rank-2 tensor produced
-# by evaluating a joint-additive body once per cell of the
-# Cartesian product `Verb x Class`.
-#
-# This example exhibits both forms of the `factor` expression
-# (Layer 2 of the let-expression sublanguage), categorically the
-# left adjoint of indexing:
-#
-#   * Pattern-match factor builds the tree-shaped probability
-#     vector with a `{ ... }` case table over the index `Class`.
-#     The compiler enforces label coverage of `{0, ..., |Class|-1}`
-#     exactly and rejects gaps, duplicates, or out-of-range
-#     labels at compile time.
-#
-#   * Multi-binder uniform factor builds the rank-2 score tensor
-#     by evaluating its body once per `(Verb, Class)` cell.  The
-#     body indexes into both the pattern-match factor `leaf_log`
-#     and two scalar plates (`delta : Verb`, `mu : Class`); the
-#     binder variables are integer-valued and visible only inside
-#     the body.
+# per-verb / per-class score table is a rank-2 tensor built by a
+# multi-binder factor body over the Cartesian product Verb x
+# Class.
 #
 # Generative structure:
 #
-#   p_root, p_left, p_right ~ Beta(1, 1)              -- tree
-#   leaf_log[k]             = sum of internal log-probs reaching k
-#   sigma_v                 ~ HalfNormal(1)
-#   delta : Verb            ~ Normal(0, sigma_v)
-#   mu : Class              ~ Normal(0, 1)
-#   cell_score[v, k]        = delta[v] + mu[k] + leaf_log[k]
-#   y                       ~ Normal(cell_score[0, 0], 0.5)
+#   p_root         ~ Beta(1, 1)                    root split
+#   p_left         ~ Beta(1, 1)                    left subtree split
+#   p_right        ~ Beta(1, 1)                    right subtree split
+#   sigma_v        ~ HalfNormal(1)                 per-verb scale
+#   delta_v        ~ Normal(0, sigma_v)            per-verb effect
+#   mu_k           ~ Normal(0, 1)                  per-class effect
+#   y              ~ Normal(cell_score[0, 0], 0.5)
 #
-# A real downstream consumer of `cell_score` would gather rows
-# of the table by a per-row verb index supplied via the
-# observations dict and feed the gathered row into a downstream
-# observation kernel; the literal-index observation here keeps
-# the example self-contained.
+# Two forms of the factor expression appear: a pattern-match
+# factor builds the tree-shaped leaf log-probability vector with
+# a case table over Class (compiler-enforced label coverage of
+# {0, ..., K-1}), and a multi-binder uniform factor builds the
+# rank-2 score tensor by evaluating its body once per (Verb,
+# Class) cell.
 
-object Verb : 12
-object Class : 4
-object Resp : 200
+object Verb : FinSet 12
+object Class : FinSet 4
+object Resp : FinSet 200
 
 program tree_categorical : Resp -> Resp
-    # ---- tree-internal Bernoulli probabilities ----
-    p_root  <- Beta(1.0, 1.0)
-    p_left  <- Beta(1.0, 1.0)
-    p_right <- Beta(1.0, 1.0)
+    sample p_root <- Beta(1.0, 1.0)
+    sample p_left <- Beta(1.0, 1.0)
+    sample p_right <- Beta(1.0, 1.0)
 
-    # Pattern-match factor: log-probabilities at the leaves of a
-    # binary decision tree.  The case labels cover `{0,1,2,3}`
-    # exactly; the compiler rejects gaps and duplicates.
-    let leaf_log = factor cls : Class in {
-        0 -> log(1.0 - p_root) + log(1.0 - p_left),
-        1 -> log(1.0 - p_root) + log(p_left),
-        2 -> log(p_root)       + log(1.0 - p_right),
-        3 -> log(p_root)       + log(p_right),
-    }
+    let leaf_log = factor cls : Class in { 0 -> log(1.0 - p_root) + log(1.0 - p_left), 1 -> log(1.0 - p_root) + log(p_left), 2 -> log(p_root)       + log(1.0 - p_right), 3 -> log(p_root)       + log(p_right), }
 
-    # ---- per-verb and per-class continuous effects ----
-    sigma_v <- HalfNormal(1.0)
-    delta : Verb  <- Normal(0.0, sigma_v)
-    mu    : Class <- Normal(0.0, 1.0)
+    sample sigma_v <- HalfNormal(1.0)
+    sample delta : Verb <- Normal(0.0, sigma_v)
+    sample mu : Class <- Normal(0.0, 1.0)
 
-    # Multi-binder uniform factor: rank-2 `(Verb, Class)` score
-    # tensor.  The body is evaluated once per cell, combining
-    # three scalar contributions: the per-verb random effect,
-    # the per-class main effect, and the tree-shaped leaf
-    # log-probability.  The binders `v` and `cls` are visible
-    # only inside the body.
-    let cell_score = factor v : Verb, cls : Class in
-        delta[v] + mu[cls] + leaf_log[cls]
-
-    # Self-contained observation on a single cell of the score
-    # table.  Downstream consumers gather row slices via a
-    # per-row verb index from the observations dict.
+    let cell_score = factor v : Verb, cls : Class in delta[v] + mu[cls] + leaf_log[cls]
     let cell0 = cell_score[0, 0]
+
     observe y : Resp <- Normal(cell0, 0.5)
     return delta
 

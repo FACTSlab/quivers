@@ -9,7 +9,7 @@ For each input file:
    ``code="parse"`` diagnostic.
 2. ``Compiler(module).compile()`` is invoked; ``CompileError``
    produces a ``code="compile"`` diagnostic.
-3. The constraint solver in :mod:`quivers.dsl.constraints` walks the
+3. The constraint solver in [`quivers.dsl.constraints`][quivers.dsl.constraints] walks the
    parsed AST for residuated-universe and effect-typed-application
    well-formedness violations; each emits a ``code="residuated_constraint"``
    or ``code="effect_constraint"`` diagnostic.

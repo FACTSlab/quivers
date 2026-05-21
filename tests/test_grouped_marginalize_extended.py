@@ -9,6 +9,7 @@ semantic regressions, not just runtime-primitive regressions.
 """
 
 from __future__ import annotations
+import textwrap
 
 import os
 
@@ -171,39 +172,31 @@ class TestNestedMarginalize:
         from quivers.dsl import loads
 
         src = """
-        object G_outer : 2
-        object G_middle : 2
-        object G_inner : 2
-        object Resp : 8
-        object K_outer : 2
-        object K_middle : 2
-        object K_inner : 2
+        composition log_prob as algebra
+
+        object G_outer : FinSet 2
+        object G_middle : FinSet 2
+        object G_inner : FinSet 2
+        object Resp : FinSet 8
+        object K_outer : FinSet 2
+        object K_middle : FinSet 2
+        object K_inner : FinSet 2
 
         program triple : Resp -> Resp
-            probs_a : K_outer <- HalfNormal(1.0)
-            probs_b : K_middle <- HalfNormal(1.0)
-            probs_c : K_inner <- HalfNormal(1.0)
-            idx_a : Resp <- HalfNormal(1.0)
-            idx_b : Resp <- HalfNormal(1.0)
-            idx_c : Resp <- HalfNormal(1.0)
-            marginalize outer : K_outer <- Dirichlet(probs_a)
-                over G_outer
-
-                in {
-                    marginalize middle : K_middle <- Dirichlet(probs_b)
-                        over G_middle
-                        in {
-                            marginalize inner : K_inner <- Dirichlet(probs_c)
-                                over G_inner
-                                in {
-                                    observe r : Resp via idx_a <- HalfNormal(1.0)
-                                }
-                        }
-                }
+            sample probs_a : K_outer <- HalfNormal(1.0)
+            sample probs_b : K_middle <- HalfNormal(1.0)
+            sample probs_c : K_inner <- HalfNormal(1.0)
+            sample idx_a : Resp <- HalfNormal(1.0)
+            sample idx_b : Resp <- HalfNormal(1.0)
+            sample idx_c : Resp <- HalfNormal(1.0)
+            marginalize outer : K_outer <- Dirichlet(probs_a) [over=G_outer]
+                marginalize middle : K_middle <- Dirichlet(probs_b) [over=G_middle]
+                    marginalize inner : K_inner <- Dirichlet(probs_c) [over=G_inner]
+                        observe r : Resp <- HalfNormal(1.0) [via=idx_a]
             return probs_a
         export triple
         """
-        m = loads(src)
+        m = loads(textwrap.dedent(src))
         assert m.morphism is not None
 
     def test_three_level_nested_blocks_run_log_joint(self) -> None:
@@ -216,39 +209,31 @@ class TestNestedMarginalize:
         from quivers.dsl import loads
 
         src = """
-        object G_outer : 2
-        object G_middle : 2
-        object G_inner : 2
-        object Resp : 8
-        object K_outer : 2
-        object K_middle : 2
-        object K_inner : 2
+        composition log_prob as algebra
+
+        object G_outer : FinSet 2
+        object G_middle : FinSet 2
+        object G_inner : FinSet 2
+        object Resp : FinSet 8
+        object K_outer : FinSet 2
+        object K_middle : FinSet 2
+        object K_inner : FinSet 2
 
         program triple : Resp -> Resp
-            probs_a : K_outer <- HalfNormal(1.0)
-            probs_b : K_middle <- HalfNormal(1.0)
-            probs_c : K_inner <- HalfNormal(1.0)
-            idx_a : Resp <- HalfNormal(1.0)
-            idx_b : Resp <- HalfNormal(1.0)
-            idx_c : Resp <- HalfNormal(1.0)
-            marginalize outer : K_outer <- Dirichlet(probs_a)
-                over G_outer
-
-                in {
-                    marginalize middle : K_middle <- Dirichlet(probs_b)
-                        over G_middle
-                        in {
-                            marginalize inner : K_inner <- Dirichlet(probs_c)
-                                over G_inner
-                                in {
-                                    observe r : Resp via idx_a <- HalfNormal(1.0)
-                                }
-                        }
-                }
+            sample probs_a : K_outer <- HalfNormal(1.0)
+            sample probs_b : K_middle <- HalfNormal(1.0)
+            sample probs_c : K_inner <- HalfNormal(1.0)
+            sample idx_a : Resp <- HalfNormal(1.0)
+            sample idx_b : Resp <- HalfNormal(1.0)
+            sample idx_c : Resp <- HalfNormal(1.0)
+            marginalize outer : K_outer <- Dirichlet(probs_a) [over=G_outer]
+                marginalize middle : K_middle <- Dirichlet(probs_b) [over=G_middle]
+                    marginalize inner : K_inner <- Dirichlet(probs_c) [over=G_inner]
+                        observe r : Resp <- HalfNormal(1.0) [via=idx_a]
             return probs_a
         export triple
         """
-        model = loads(src).morphism
+        model = loads(textwrap.dedent(src)).morphism
         torch.manual_seed(0)
         obs = {
             "probs_a": torch.tensor([0.5, 0.5]),
@@ -266,31 +251,26 @@ class TestNestedMarginalize:
         from quivers.dsl import loads
 
         src = """
-        object G1 : 2
-        object G2 : 3
-        object Resp : 6
-        object K1 : 2
-        object K2 : 3
+        composition log_prob as algebra
+
+        object G1 : FinSet 2
+        object G2 : FinSet 3
+        object Resp : FinSet 6
+        object K1 : FinSet 2
+        object K2 : FinSet 3
 
         program demo : Resp -> Resp
-            probs_outer : K1 <- HalfNormal(1.0)
-            probs_inner : K2 <- HalfNormal(1.0)
-            outer_idx : Resp <- HalfNormal(1.0)
-            inner_idx : Resp <- HalfNormal(1.0)
-            marginalize outer : K1 <- Dirichlet(probs_outer)
-                over G1
-
-                in {
-                    marginalize inner : K2 <- Dirichlet(probs_inner)
-                        over G2
-                        in {
-                            observe r : Resp via outer_idx <- HalfNormal(1.0)
-                        }
-                }
+            sample probs_outer : K1 <- HalfNormal(1.0)
+            sample probs_inner : K2 <- HalfNormal(1.0)
+            sample outer_idx : Resp <- HalfNormal(1.0)
+            sample inner_idx : Resp <- HalfNormal(1.0)
+            marginalize outer : K1 <- Dirichlet(probs_outer) [over=G1]
+                marginalize inner : K2 <- Dirichlet(probs_inner) [over=G2]
+                    observe r : Resp <- HalfNormal(1.0) [via=outer_idx]
             return probs_outer
         export demo
         """
-        m = loads(src)
+        m = loads(textwrap.dedent(src))
         assert m.morphism is not None
 
 
@@ -308,25 +288,23 @@ class TestProductFibrationSurface:
         from quivers.dsl import loads
 
         src = """
-        object Item : 3
-        object Subj : 2
-        object Resp : 6
-        object Class : 4
+        composition log_prob as algebra
+
+        object Item : FinSet 3
+        object Subj : FinSet 2
+        object Resp : FinSet 6
+        object Class : FinSet 4
 
         program demo : Resp -> Resp
-            probs : Class <- HalfNormal(1.0)
-            item_idx : Resp <- HalfNormal(1.0)
-            subj_idx : Resp <- HalfNormal(1.0)
-            marginalize cls : Class <- Dirichlet(probs)
-                over Item * Subj
-
-                in {
-                    observe r : Resp via product(item_idx, subj_idx) <- HalfNormal(1.0)
-                }
+            sample probs : Class <- HalfNormal(1.0)
+            sample item_idx : Resp <- HalfNormal(1.0)
+            sample subj_idx : Resp <- HalfNormal(1.0)
+            marginalize cls : Class <- Dirichlet(probs) [over=[Item, Subj]]
+                observe r : Resp <- HalfNormal(1.0) [via=[item_idx, subj_idx]]
             return probs
         export demo
         """
-        m = loads(src)
+        m = loads(textwrap.dedent(src))
         assert m.morphism is not None
 
     def test_arity_mismatch_errors(self) -> None:
@@ -334,25 +312,23 @@ class TestProductFibrationSurface:
         from quivers.dsl.compiler import CompileError
 
         src = """
-        object Item : 3
-        object Subj : 2
-        object Resp : 6
-        object Class : 4
+        composition log_prob as algebra
+
+        object Item : FinSet 3
+        object Subj : FinSet 2
+        object Resp : FinSet 6
+        object Class : FinSet 4
 
         program demo : Resp -> Resp
-            probs : Class <- HalfNormal(1.0)
-            item_idx : Resp <- HalfNormal(1.0)
-            marginalize cls : Class <- Dirichlet(probs)
-                over Item * Subj
-
-                in {
-                    observe r : Resp via item_idx <- HalfNormal(1.0)
-                }
+            sample probs : Class <- HalfNormal(1.0)
+            sample item_idx : Resp <- HalfNormal(1.0)
+            marginalize cls : Class <- Dirichlet(probs) [over=[Item, Subj]]
+                observe r : Resp <- HalfNormal(1.0) [via=item_idx]
             return probs
         export demo
         """
         with pytest.raises(CompileError, match="arity"):
-            loads(src)
+            loads(textwrap.dedent(src))
 
 
 # ---------------------------------------------------------------------------
@@ -369,22 +345,21 @@ class TestReductionSurface:
         from quivers.dsl import loads
 
         src = """
-        object Item : 3
-        object Resp : 6
-        object Class : 4
+        composition log_prob as algebra
+
+        object Item : FinSet 3
+        object Resp : FinSet 6
+        object Class : FinSet 4
 
         program demo : Resp -> Resp
-            probs : Class <- HalfNormal(1.0)
-            idx : Resp <- HalfNormal(1.0)
-            marginalize cls : Class <- Dirichlet(probs)
-                over Item reduction = sum
-                in {
-                    observe r : Resp via idx <- HalfNormal(1.0)
-                }
+            sample probs : Class <- HalfNormal(1.0)
+            sample idx : Resp <- HalfNormal(1.0)
+            marginalize cls : Class <- Dirichlet(probs) [over=Item, reduction=sum]
+                observe r : Resp <- HalfNormal(1.0) [via=idx]
             return probs
         export demo
         """
-        m = loads(src)
+        m = loads(textwrap.dedent(src))
         assert m.morphism is not None
 
     def test_unknown_reduction_errors(self) -> None:
@@ -392,23 +367,22 @@ class TestReductionSurface:
         from quivers.dsl.compiler import CompileError
 
         src = """
-        object Item : 3
-        object Resp : 6
-        object Class : 4
+        composition log_prob as algebra
+
+        object Item : FinSet 3
+        object Resp : FinSet 6
+        object Class : FinSet 4
 
         program demo : Resp -> Resp
-            probs : Class <- HalfNormal(1.0)
-            idx : Resp <- HalfNormal(1.0)
-            marginalize cls : Class <- Dirichlet(probs)
-                over Item reduction = bogus
-                in {
-                    observe r : Resp via idx <- HalfNormal(1.0)
-                }
+            sample probs : Class <- HalfNormal(1.0)
+            sample idx : Resp <- HalfNormal(1.0)
+            marginalize cls : Class <- Dirichlet(probs) [over=Item, reduction=bogus]
+                observe r : Resp <- HalfNormal(1.0) [via=idx]
             return probs
         export demo
         """
         with pytest.raises(CompileError, match="unknown reduction"):
-            loads(src)
+            loads(textwrap.dedent(src))
 
 
 # ---------------------------------------------------------------------------
@@ -429,23 +403,21 @@ class TestSurfaceCompileErrors:
         from quivers.dsl.compiler import CompileError
 
         src = """
-        object Item : 3
-        object Resp : 6
-        object Class : 2
+        composition log_prob as algebra
+
+        object Item : FinSet 3
+        object Resp : FinSet 6
+        object Class : FinSet 2
 
         program demo : Resp -> Resp
-            idx : Resp <- HalfNormal(1.0)
-            marginalize cls : Class <- Dirichlet(1.0)
-                over Item
-
-                in {
-                    observe r : Resp via idx <- HalfNormal(1.0)
-                }
+            sample idx : Resp <- HalfNormal(1.0)
+            marginalize cls : Class <- Dirichlet(1.0) [over=Item]
+                observe r : Resp <- HalfNormal(1.0) [via=idx]
             return idx
         export demo
         """
         with pytest.raises(CompileError, match="named probs"):
-            loads(src)
+            loads(textwrap.dedent(src))
 
     def test_body_without_observe_errors(self) -> None:
         """The body must end with an observe step (or a nested
@@ -455,24 +427,22 @@ class TestSurfaceCompileErrors:
         from quivers.dsl.compiler import CompileError
 
         src = """
-        object Item : 3
-        object Resp : 6
-        object Class : 2
+        composition log_prob as algebra
+
+        object Item : FinSet 3
+        object Resp : FinSet 6
+        object Class : FinSet 2
 
         program demo : Resp -> Resp
-            probs : Class <- HalfNormal(1.0)
-            idx : Resp <- HalfNormal(1.0)
-            marginalize cls : Class <- Dirichlet(probs)
-                over Item
-
-                in {
-                    other : Resp <- HalfNormal(1.0)
-                }
+            sample probs : Class <- HalfNormal(1.0)
+            sample idx : Resp <- HalfNormal(1.0)
+            marginalize cls : Class <- Dirichlet(probs) [over=Item]
+                sample other : Resp <- HalfNormal(1.0)
             return probs
         export demo
         """
         with pytest.raises(CompileError, match="observe"):
-            loads(src)
+            loads(textwrap.dedent(src))
 
 
 @_LOCAL_GRAMMAR
@@ -482,25 +452,23 @@ def test_three_axis_product_fibration_dsl_compiles() -> None:
     from quivers.dsl import loads
 
     src = """
-    object A : 2
-    object B : 2
-    object C : 2
-    object Resp : 8
-    object K : 2
+    composition log_prob as algebra
+
+    object A : FinSet 2
+    object B : FinSet 2
+    object C : FinSet 2
+    object Resp : FinSet 8
+    object K : FinSet 2
 
     program triple_prod : Resp -> Resp
-        probs : K <- HalfNormal(1.0)
-        idx_a : Resp <- HalfNormal(1.0)
-        idx_b : Resp <- HalfNormal(1.0)
-        idx_c : Resp <- HalfNormal(1.0)
-        marginalize cls : K <- Dirichlet(probs)
-            over A * B * C
-
-            in {
-                observe r : Resp via product(idx_a, idx_b, idx_c) <- HalfNormal(1.0)
-            }
+        sample probs : K <- HalfNormal(1.0)
+        sample idx_a : Resp <- HalfNormal(1.0)
+        sample idx_b : Resp <- HalfNormal(1.0)
+        sample idx_c : Resp <- HalfNormal(1.0)
+        marginalize cls : K <- Dirichlet(probs) [over=[A, B, C]]
+            observe r : Resp <- HalfNormal(1.0) [via=[idx_a, idx_b, idx_c]]
         return probs
     export triple_prod
     """
-    m = loads(src)
+    m = loads(textwrap.dedent(src))
     assert m.morphism is not None

@@ -4,12 +4,12 @@ The QVR grammar lives in-tree at ``grammars/qvr/`` and will be vendored
 into ``panproto-grammars-all`` once it stabilizes. In the meantime, this
 module compiles ``grammars/qvr/src/parser.c`` to a shared library on
 demand, loads the resulting ``TSLanguage*`` via ``ctypes``, and installs
-it through panproto's :meth:`AstParserRegistry.override_grammar` API so
+it through panproto's `AstParserRegistry.override_grammar` API so
 the standard registry serves the in-tree grammar in place of whatever
 ``panproto-grammars-all`` currently ships for ``qvr``.
 
 Activation: set the environment variable ``QVR_USE_LOCAL_GRAMMAR=1``
-before importing :mod:`quivers.dsl.parser`. With the variable unset,
+before importing [`quivers.dsl.parser`][quivers.dsl.parser]. With the variable unset,
 the standard panproto registry is used.
 
 The build step requires a working C compiler in ``$PATH``; cached at
@@ -77,6 +77,10 @@ def _build_shared_lib(grammar_dir: Path) -> Path:
         return out
 
     cc = os.environ.get("CC", "cc")
+    scanner = grammar_dir / "src" / "scanner.c"
+    sources = [str(src)]
+    if scanner.is_file():
+        sources.append(str(scanner))
     cmd = [
         cc,
         "-shared",
@@ -84,7 +88,7 @@ def _build_shared_lib(grammar_dir: Path) -> Path:
         "-O2",
         "-I",
         str(grammar_dir / "src"),
-        str(src),
+        *sources,
         "-o",
         str(out),
     ]
@@ -99,10 +103,10 @@ _LIB_KEEPALIVE: ctypes.CDLL | None = None
 def registry() -> object:
     """Return a panproto registry whose ``qvr`` grammar is the local build.
 
-    The standard :func:`panproto.AstParserRegistry` constructor populates
+    The standard `panproto.AstParserRegistry` constructor populates
     the registry with everything ``panproto-grammars-all`` and other
     installed companion packages contribute, then
-    :meth:`override_grammar` swaps in the locally-compiled QVR grammar.
+    `override_grammar` swaps in the locally-compiled QVR grammar.
     """
     global _REGISTRY, _LIB_KEEPALIVE
     if _REGISTRY is not None:
@@ -112,8 +116,22 @@ def registry() -> object:
     lib_path = _build_shared_lib(grammar_dir)
 
     lib = ctypes.CDLL(str(lib_path))
+    # ``tree_sitter_qvr`` returns a ``const TSLanguage *`` (the
+    # tree-sitter language definition struct generated at build
+    # time). panproto's ``override_grammar`` takes this struct's
+    # address as ``language_ptr`` and transmutes it directly into
+    # a ``tree_sitter::Language``, so we declare the C return type
+    # explicitly as ``c_void_p`` (without this ctypes defaults to
+    # int / c_int, which truncates the 64-bit pointer to 32 bits
+    # on 64-bit platforms and yields nonsense to tree-sitter).
+    lib.tree_sitter_qvr.argtypes = []
     lib.tree_sitter_qvr.restype = ctypes.c_void_p
     language_ptr = lib.tree_sitter_qvr()
+    if not language_ptr:
+        raise RuntimeError(
+            "tree_sitter_qvr() returned NULL; the locally-built "
+            "parser dylib is malformed."
+        )
 
     grammar_json = (grammar_dir / "src" / "grammar.json").read_bytes()
     node_types = (grammar_dir / "src" / "node-types.json").read_bytes()

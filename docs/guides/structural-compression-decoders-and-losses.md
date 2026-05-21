@@ -19,7 +19,8 @@ the framework.
 
 <!-- compile: false -->
 ```qvr
-decoder D over LF depth 8 { body |-> recursive }
+decoder D over LF [depth=8]
+    body |-> recursive
 ```
 
 The two runtime operations:
@@ -39,21 +40,17 @@ training graph:
 
 <!-- compile: false -->
 ```qvr
-loss reconstruction weight 1.0 on encoder C {
+loss reconstruction [weight=1.0, on="encoder C"]
     -D(C(input)).log_prob(input)
-}
 
-loss type_coherence weight 0.1 on rule combine in Parse {
+loss type_coherence [weight=0.1, on="rule combine in Parse"]
     cross_entropy(parent_type_dist, combined_children_type_dist)
-}
 
-loss completed weight 0.01 on chart of Parse {
+loss completed [weight=0.01, on="chart of Parse"]
     -chart.goal_weight()
-}
 
-loss nli weight 1.0 on program nli_predict {
+loss nli [weight=1.0, on="program nli_predict"]
     bce_with_logits(predicted_logit, true_label)
-}
 ```
 
 Attachment kinds: `global` (no `on` clause), `program <name>`,
@@ -77,26 +74,17 @@ algebra-homomorphism recursion over the chart-item term.
 
 <!-- compile: false -->
 ```qvr
-signature ChartItem {
-    sorts {
-        Item : object dim 128
-        Idx  : data   dim 8
-        Type : object dim 32
-    }
-    constructors {
+signature ChartItem
+    sorts
+        Item : object [dim=128]
+        Idx : data [dim=8]
+        Type : object [dim=32]
+    constructors
         span : Idx, Idx, Type -> Item
-    }
-}
 
-deduction Parse : Sentence -> Tree {
-    atoms { S, NP, span }
-    rule combine
-        : span(i, k, Fwd(X, Y)), span(k, j, X)
-        |- span(i, j, Y)
-    semiring  LogProb
-    signature ChartItem
-    encoder InsideC
-}
+deduction Parse : Sentence -> Tree [semiring=LogProb, signature=ChartItem, encoder=InsideC]
+    atoms S, NP, span
+    rule combine : span(i, k, Fwd(X, Y)), span(k, j, X) |- span(i, j, Y)
 ```
 
 The attention-weighted aggregation that distinguishes the
@@ -117,10 +105,11 @@ special-casing, to distributions over structured objects:
   `observe known_term <- D(some_vec)` scores under the decoder's
   log-prob.
 - **Marginalization over structured latents.**
-  `marginalize t : Term <- D(v) in { observe y <- ... }` integrates
-  `t` out via the decoder's depth-bounded categorical recursion.
+  `marginalize t : Term <- D(v)` with an indented body
+  `observe y <- ...` integrates `t` out via the decoder's
+  depth-bounded categorical recursion.
 - **Variational decoders.**
-  `program q : Sentence -> Term ! Sample, Score over generative`
+  `program q : Sentence -> Term`
   defines a variational decoder over LFs given a sentence.
 
 ## Stdlib decoders

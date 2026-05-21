@@ -51,9 +51,9 @@ from quivers.core.algebra_morphisms import (
 from quivers.dsl.ast_nodes import SortVocabLiteral
 from quivers.dsl.ast_nodes import (
     AxisSpec,
-    TypeEffectApply,
+    ObjectEffectApply,
     TypeName,
-    TypeProduct,
+    ObjectProduct,
 )
 
 # Registry of composition rules the DSL knows about by name.
@@ -71,17 +71,17 @@ _ALGEBRA_REGISTRY: dict[str, "CompositionRule"] = {
 
 
 class _CompiledContraction:
-    """Compiled form of a :class:`ContractionDecl`.
+    """Compiled form of a `ContractionDecl`.
 
     Stores the einsum wiring object, the declared output domain
     and codomain (so the compiler can re-tag the result morphism
     after the contraction), the expected input morphism types
     (for shape validation), and the active composition rule.
 
-    A plain class (not a :class:`didactic.api.Model`) because the
-    fields are opaque runtime objects — :class:`EinsumWiring`,
-    :class:`SetObject` / :class:`ContinuousSpace`,
-    :class:`CompositionRule` instances — that don't translate to a
+    A plain class (not a `didactic.api.Model`) because the
+    fields are opaque runtime objects — `EinsumWiring`,
+    `SetObject` / `ContinuousSpace`,
+    `CompositionRule` instances — that don't translate to a
     panproto sort.
     """
 
@@ -116,7 +116,7 @@ def _numel_shape(shape) -> int:
 def _wrap_join_dim(user_join):
     """Wrap a user-supplied ``join`` function so it accepts the
     ``(tensor, dim)`` calling convention expected by the
-    :class:`CompositionRule` interface.
+    `CompositionRule` interface.
 
     User-defined ``join(t) = expr`` bodies see ``t`` as a tensor
     and reduce over its last axes via let-expression builtins
@@ -154,8 +154,8 @@ def _build_default_trans_singletons() -> dict:
     """Built-in transformation singletons available as bare-name
     references in the DSL.
 
-    Each value is a :class:`AlgebraHomomorphism` or
-    :class:`MorphismTransformation` (collectively, a ``Trans``
+    Each value is a `AlgebraHomomorphism` or
+    `MorphismTransformation` (collectively, a ``Trans``
     value).  Bare-name lookup produces the singleton:
 
         let phi = expectation
@@ -178,10 +178,10 @@ def _build_default_trans_singletons() -> dict:
 def _build_default_trans_constructors() -> dict:
     """Built-in transformation constructors — callables that
     accept compile-time arguments (objects, morphisms) resolved
-    from the DSL scope and return a :class:`MorphismTransformation`.
+    from the DSL scope and return a `MorphismTransformation`.
 
     Surface form ``softmax(B)`` / ``bayes_invert(prior)`` parses
-    as :class:`ExprMorphismCall` and dispatches here when the
+    as `ExprMorphismCall` and dispatches here when the
     callee resolves into this dict.
     """
     return {
@@ -198,7 +198,7 @@ def _register_extra_algebras() -> None:
     top.
 
     The registration is idempotent and short-circuits when the
-    table is already populated. Catching :class:`ImportError`
+    table is already populated. Catching `ImportError`
     keeps the compiler usable for users who don't have the
     optional dependencies (e.g. the stochastic module pulls in
     ``torch.distributions`` heavily).
@@ -302,7 +302,7 @@ def _shape_size(obj) -> int:
 
 
 def _type_factor_names(texpr) -> tuple[bool, tuple[str, ...]]:
-    """Extract the axis names from a TypeExpr.
+    """Extract the axis names from a ObjectExpr.
 
     Returns ``(is_singleton, names)`` where ``is_singleton`` is True
     when the type is a single unfactored object (the ``dom``/``cod``
@@ -319,14 +319,14 @@ def _type_factor_names(texpr) -> tuple[bool, tuple[str, ...]]:
     """
     if isinstance(texpr, TypeName):
         return True, (texpr.name,)
-    if isinstance(texpr, TypeEffectApply):
+    if isinstance(texpr, ObjectEffectApply):
         # e.g. Euclidean(D): axis name is the argument's name when
         # it's itself a TypeName.
         args = getattr(texpr, "args", None)
         if args and len(args) == 1 and isinstance(args[0], TypeName):
             return True, (args[0].name,)
         return True, ()
-    if isinstance(texpr, TypeProduct):
+    if isinstance(texpr, ObjectProduct):
         names = []
         for c in texpr.components:
             _, sub = _type_factor_names(c)
