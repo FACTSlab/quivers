@@ -44,6 +44,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/), and this
 - **Compiler structural pass** (`quivers.dsl.compiler.structural._compile_signature`) reads `dim` and `vocab` from each sort and vertex-kind's `options` block (the homogenized surface) rather than from removed direct attributes. `_compile_loss` accepts numeric-literal `weight = N` in the loss option block.
 - **`docs/developer/homogenization-plan.md` removed.** Internal design-tracking doc with phase counts and version anchors; not appropriate for shipped documentation.
 
+### Editor packages
+
+- **VS Code extension `editors/vscode-qvr` bumped to 0.6.0.** Syntax highlighting refreshed for the homogenized grammar (the unified declaration keywords, the option-block surface, the new pragma markers, the `composition NAME as <level>` keyword, the `sample` / `observe` / `score` / `marginalize` / `binders` program-step keywords). Tracks the new shared `STYLE_TABLE` so VS Code, the REPL TUI, the Pygments lexer, and the LSP semantic-tokens legend all paint the same source the same colour.
+- **Zed extension `editors/zed-extension-qvr` bumped to 0.2.0.** Tree-sitter `highlights.scm` regenerated from the homogenized grammar via the shared `grammars/qvr/queries/_generate.py` script, so the Zed mirror tracks the canonical highlights file automatically.
+
 ## [0.10.0] - 2026-05-17
 
 ### Added
