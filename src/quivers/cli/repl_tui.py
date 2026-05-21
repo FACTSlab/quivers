@@ -703,11 +703,22 @@ def _children_for_rule(name, rule):  # type: ignore[no-untyped-def]
 
 
 def _children_for_program(name, tmpl):  # type: ignore[no-untyped-def]
-    params = getattr(tmpl, "params", None) or ()
     param_strs = []
-    for p in params:
-        pname = p if isinstance(p, str) else getattr(p, "name", "?")
-        param_strs.append(str(pname))
+    for n in getattr(tmpl, "params", None) or ():
+        param_strs.append(str(n))
+    for p in getattr(tmpl, "type_params", None) or ():
+        pname = getattr(p, "name", "?")
+        kind = type(p).__name__
+        if kind == "ScalarParam":
+            param_strs.append(f"{pname} : {getattr(p, 'scalar_kind', '?')}")
+        elif kind == "ObjectParam":
+            param_strs.append(f"{pname} : {getattr(p, 'universe', '?')}")
+        elif kind == "MorphismParam":
+            dom = _pretty(getattr(p, "domain", None))
+            cod = _pretty(getattr(p, "codomain", None))
+            param_strs.append(f"{pname} : Mor[{dom}, {cod}]")
+        else:
+            param_strs.append(str(pname))
     dom = _pretty(getattr(tmpl, "domain", None))
     cod = _pretty(getattr(tmpl, "codomain", None))
     head = f"{name}"
