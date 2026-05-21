@@ -50,7 +50,7 @@ def test_shipped_algebras_are_at_all_three_levels(instance) -> None:
 
 
 # ---------------------------------------------------------------------------
-# CustomSemigroupoid / semigroupoid factory
+# CustomSemigroupoid / composition factory as semigroupoid
 # ---------------------------------------------------------------------------
 
 

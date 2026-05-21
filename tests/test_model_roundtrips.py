@@ -10,14 +10,21 @@ For TaggedUnion variants the round-trip goes through the union root's
 dispatch; flat :class:`dx.Model` subclasses validate against themselves.
 """
 
+from __future__ import annotations
+
+from typing import TypeVar
+
 import pytest
 
 # AST nodes
 from quivers.dsl.ast_nodes import (
+    BindStep,
     CategoryDecl,
-    DiscretizeDecl,
+    CompositionDecl,
+    ContinuousConstructor,
+    DiscreteConstructor,
     DrawStep,
-    EmbedDecl,
+    ExportDecl,
     Expr,
     ExprChartFold,
     ExprCompose,
@@ -41,25 +48,18 @@ from quivers.dsl.ast_nodes import (
     LetStep,
     Module,
     MorphismDecl,
+    ObjectCoproduct,
     ObjectDecl,
-    ExportDecl,
+    ObjectEffectApply,
+    ObjectExpr,
+    ObjectProduct,
+    ObjectSlash,
     ProgramDecl,
     ProgramStep,
-    AlgebraDecl,
     RuleDecl,
-    SpaceConstructor,
-    SpaceDecl,
-    SpaceExpr,
-    SpaceName,
-    SpaceProduct,
     Statement,
-    KernelDecl,
-    TypeCoproduct,
-    TypeEffectApply,
-    TypeSlash,
-    TypeExpr,
+    TypeFromExpr,
     TypeName,
-    TypeProduct,
 )
 
 # stochastic Category union
@@ -116,23 +116,24 @@ from quivers.monadic.bridges import ArrowMonad, Kleisli
 # ---------------------------------------------------------------------------
 
 
-# AST: type expressions
+# AST: object / type expressions
 _TYPE_NAME = TypeName(name="State")
-_TYPE_PRODUCT = TypeProduct(components=(TypeName(name="A"), TypeName(name="B")))
-_TYPE_COPRODUCT = TypeCoproduct(components=(_TYPE_NAME, TypeName(name="X")))
-
-# AST: residuated patterns (now part of TypeExpr)
-_TYPE_SLASH = TypeSlash(
+_TYPE_PRODUCT = ObjectProduct(
+    components=(TypeName(name="A"), TypeName(name="B"))
+)
+_TYPE_COPRODUCT = ObjectCoproduct(
+    components=(_TYPE_NAME, TypeName(name="X"))
+)
+_TYPE_SLASH = ObjectSlash(
     result=TypeName(name="X"), argument=TypeName(name="Y"), direction="/"
 )
-_TYPE_EFFECT_APPLY = TypeEffectApply(effect="Cont_S", args=(TypeName(name="NP"),))
-
-# AST: space expressions
-_SPACE_NAME = SpaceName(name="R3")
-_SPACE_CTOR = SpaceConstructor(
-    constructor="Euclidean", args=("3",), kwargs={"low": "0.0", "high": "1.0"}
+_TYPE_EFFECT_APPLY = ObjectEffectApply(
+    effect="Cont_S", args=(TypeName(name="NP"),)
 )
-_SPACE_PRODUCT = SpaceProduct(components=(_SPACE_NAME, _SPACE_CTOR))
+_DISCRETE_CTOR = DiscreteConstructor(constructor="FinSet", args=("3",))
+_CONTINUOUS_CTOR = ContinuousConstructor(
+    constructor="Real", args=("3",), kwargs={"low": "0.0", "high": "1.0"}
+)
 
 # AST: value expressions
 _E_IDENT = ExprIdent(name="f")
@@ -170,36 +171,24 @@ _LE_CALL = LetExprCall(func="log", args=(_LE_VAR,))
 
 # AST: program steps
 _DRAW = DrawStep(vars=("x",), morphism="f", args=None)
+_BIND = BindStep(vars=("y",), morphism="g", args=("x",))
 _LET_STEP = LetStep(name="y", value=_LE_BINOP)
 
 # AST: top-level statements
-_QDECL = AlgebraDecl(name="product_fuzzy")
-_CDECL = CategoryDecl(name="S")
+_COMPDECL = CompositionDecl(name="product_fuzzy", level="algebra")
+_CDECL = CategoryDecl(names=("S",))
 _RDECL = RuleDecl(
     name="app",
     variables=("X", "Y"),
     premises=(_TYPE_SLASH, TypeName(name="Y")),
     conclusion=TypeName(name="X"),
 )
-_ODECL = ObjectDecl(name="State", type_expr=_TYPE_NAME)
+_ODECL = ObjectDecl(name="State", init=TypeFromExpr(expr=_TYPE_NAME))
 _MDECL = MorphismDecl(
-    morphism_kind="latent",
     name="f",
     domain=_TYPE_NAME,
     codomain=_TYPE_NAME,
-    options={"scale": "0.3"},
 )
-_SDECL = SpaceDecl(name="R3", space_expr=_SPACE_CTOR)
-_CMDECL = KernelDecl(
-    name="g",
-    domain=_TYPE_NAME,
-    codomain=_TYPE_NAME,
-    family="Normal",
-    options={},
-)
-_SMDECL = KernelDecl(name="t", domain=_TYPE_NAME, codomain=_TYPE_NAME)
-_DDECL = DiscretizeDecl(name="d", space_name="R3", n_bins=10, options={})
-_EDECL = EmbedDecl(name="e", domain_name="X", codomain_name="R3")
 _PDECL = ProgramDecl(
     name="p",
     params=None,
@@ -211,7 +200,7 @@ _PDECL = ProgramDecl(
 _LDECL = LetDecl(name="h", expr=_E_IDENT)
 _OUTDECL = ExportDecl(expr=_E_IDENT)
 
-_MODULE = Module(statements=(_QDECL, _ODECL, _MDECL, _OUTDECL))
+_MODULE = Module(statements=(_COMPDECL, _ODECL, _MDECL, _OUTDECL))
 
 # stochastic categories
 _CAT_ATOM = AtomicCategory(name="S")
@@ -256,24 +245,18 @@ _DIAGRAM = Diagram(objects=(_FINSET, FinSet(name="B", cardinality=2)))
 
 # ---------------------------------------------------------------------------
 # (root, instance) pairs for parametrization
-#
-# For TaggedUnion variants, the *root* is the class with model_validate_json;
-# the instance must round-trip via the root for discriminator dispatch.
-# Flat Models use themselves as the root.
 # ---------------------------------------------------------------------------
 
 
 CASES: list[tuple[type, object]] = [
-    # AST: type expressions
-    (TypeExpr, _TYPE_NAME),
-    (TypeExpr, _TYPE_PRODUCT),
-    (TypeExpr, _TYPE_COPRODUCT),
-    (TypeExpr, _TYPE_SLASH),
-    (TypeExpr, _TYPE_EFFECT_APPLY),
-    # AST: space expressions
-    (SpaceExpr, _SPACE_NAME),
-    (SpaceExpr, _SPACE_CTOR),
-    (SpaceExpr, _SPACE_PRODUCT),
+    # AST: object / type expressions
+    (ObjectExpr, _TYPE_NAME),
+    (ObjectExpr, _TYPE_PRODUCT),
+    (ObjectExpr, _TYPE_COPRODUCT),
+    (ObjectExpr, _TYPE_SLASH),
+    (ObjectExpr, _TYPE_EFFECT_APPLY),
+    (ObjectExpr, _DISCRETE_CTOR),
+    (ObjectExpr, _CONTINUOUS_CTOR),
     # AST: value expressions
     (Expr, _E_IDENT),
     (Expr, _E_IDENTITY),
@@ -295,18 +278,14 @@ CASES: list[tuple[type, object]] = [
     (LetExprNode, _LE_CALL),
     # AST: program steps
     (ProgramStep, _DRAW),
+    (ProgramStep, _BIND),
     (ProgramStep, _LET_STEP),
     # AST: top-level statements
-    (Statement, _QDECL),
+    (Statement, _COMPDECL),
     (Statement, _CDECL),
     (Statement, _RDECL),
     (Statement, _ODECL),
     (Statement, _MDECL),
-    (Statement, _SDECL),
-    (Statement, _CMDECL),
-    (Statement, _SMDECL),
-    (Statement, _DDECL),
-    (Statement, _EDECL),
     (Statement, _PDECL),
     (Statement, _LDECL),
     (Statement, _OUTDECL),
@@ -357,6 +336,9 @@ _EFFECT_SIG = EffectSignature(name="IO", operations=(_OP_GET, _OP_PUT))
 _FREE_MONAD = FreeMonad(signature=_EFFECT_SIG)
 
 
+T = TypeVar("T")
+
+
 @pytest.mark.parametrize(
     "root,instance",
     [
@@ -367,11 +349,7 @@ _FREE_MONAD = FreeMonad(signature=_EFFECT_SIG)
     ids=["Operation", "EffectSignature-tuple-of-Operation", "FreeMonad"],
 )
 def test_algebraic_full_roundtrip(root: type, instance: object) -> None:
-    """Operation, EffectSignature, and FreeMonad survive full JSON round-trips.
-
-    Exercises panproto/didactic#38: ``tuple[Operation, ...]`` field on
-    ``EffectSignature`` requires bare-``dx.Model`` element classification.
-    """
+    """Operation, EffectSignature, and FreeMonad survive full JSON round-trips."""
     raw = instance.model_dump_json()  # type: ignore[attr-defined]
     parsed = root.model_validate_json(raw)  # type: ignore[attr-defined]
     assert parsed == instance
@@ -382,12 +360,7 @@ class _RuntimeMonad:
 
 
 def test_handler_opaque_fields_do_not_serialise() -> None:
-    """``Handler`` round-trips its ``signature`` but drops opaque fields.
-
-    Exercises panproto/didactic#39: typeclass-ABC fields use
-    ``dx.field(opaque=True)`` and are explicitly documented as not
-    round-tripping through JSON.
-    """
+    """``Handler`` round-trips its ``signature`` but drops opaque fields."""
     monad = _RuntimeMonad()
     h = Handler(
         signature=_EFFECT_SIG,
@@ -395,12 +368,10 @@ def test_handler_opaque_fields_do_not_serialise() -> None:
         return_clause="ret-morphism",
         operation_clauses={"get": "gc"},
     )
-    # In-process: opaque fields are identity-preserved.
     assert h.target is monad
     assert h.return_clause == "ret-morphism"
     assert h.operation_clauses == {"get": "gc"}
 
-    # JSON round-trip: signature survives, opaque fields drop to their default.
     restored = Handler.model_validate_json(h.model_dump_json())
     assert restored.signature == _EFFECT_SIG
     assert restored.target is None

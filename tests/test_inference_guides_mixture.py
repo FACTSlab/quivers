@@ -31,11 +31,11 @@ from quivers.inference.guides.mixture import AutoMixtureGuide
 
 def _hierarchical_model():
     return loads(
-        "object Subj : 4\n"
-        "object Resp : 12\n"
+        "object Subj : FinSet 4\n"
+        "object Resp : FinSet 12\n"
         "program p : Resp -> Resp\n"
-        "    sigma <- HalfNormal(1.0)\n"
-        "    by_subj : Subj <- Normal(0.0, sigma)\n"
+        "    sample sigma <- HalfNormal(1.0)\n"
+        "    sample by_subj : Subj <- Normal(0.0, sigma)\n"
         "    let mu = sigmoid(by_subj[subj_idx])\n"
         "    observe r : Resp <- Bernoulli(mu)\n"
         "    return mu\n"

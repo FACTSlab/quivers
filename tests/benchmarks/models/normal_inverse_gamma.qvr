@@ -13,14 +13,11 @@
 # the unconstrained-Real mu and the positive sigma2 (whose bijector is
 # the exp / softplus). Mean-field still works because the conjugate
 # posterior factorises as Normal(mu | sigma2) * InverseGamma(sigma2).
-
-object Obs : 60
-
+object Obs : FinSet 60
 program normal_inverse_gamma : Obs -> Obs
-    sigma2 <- InverseGamma(3.0, 2.0)
+    sample sigma2 <- InverseGamma(3.0, 2.0)
     let sigma = sqrt(sigma2)
-    mu <- Normal(0.0, sigma)
+    sample mu <- Normal(0.0, sigma)
     observe y : Obs <- Normal(mu, sigma)
     return mu
-
 export normal_inverse_gamma

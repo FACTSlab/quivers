@@ -14,6 +14,7 @@ covariance must match the analytical posterior precision.
 """
 
 from __future__ import annotations
+import textwrap
 
 import math
 
@@ -30,11 +31,11 @@ from quivers.inference.guides.laplace import AutoLaplaceApproximation
 
 def _hierarchical_model():
     return loads(
-        "object Subj : 4\n"
-        "object Resp : 12\n"
+        "object Subj : FinSet 4\n"
+        "object Resp : FinSet 12\n"
         "program p : Resp -> Resp\n"
-        "    sigma <- HalfNormal(1.0)\n"
-        "    by_subj : Subj <- Normal(0.0, sigma)\n"
+        "    sample sigma <- HalfNormal(1.0)\n"
+        "    sample by_subj : Subj <- Normal(0.0, sigma)\n"
         "    let mu = sigmoid(by_subj[subj_idx])\n"
         "    observe r : Resp <- Bernoulli(mu)\n"
         "    return mu\n"
@@ -46,9 +47,9 @@ def _normal_normal_model():
     """y_i ~ N(mu, 1) with mu ~ N(0, 1). Conjugate; posterior is
     N(N*y_bar / (N + 1), 1 / (N + 1))."""
     return loads(
-        "object Obs : 10\n"
+        "object Obs : FinSet 10\n"
         "program p : Obs -> Obs\n"
-        "    mu <- Normal(0.0, 1.0)\n"
+        "    sample mu <- Normal(0.0, 1.0)\n"
         "    observe y : Obs <- Normal(mu, 1.0)\n"
         "    return mu\n"
         "export p\n"
@@ -188,14 +189,14 @@ def test_laplace_rejects_zero_dim_model() -> None:
 
     # A "model" with only observed sites — i.e. no latents.
     src = (
-        "object Obs : 4\n"
+        "object Obs : FinSet 4\n"
         "program p : Obs -> Obs\n"
-        "    mu <- Normal(0.0, 1.0)\n"
+        "    sample mu <- Normal(0.0, 1.0)\n"
         "    observe y : Obs <- Normal(mu, 1.0)\n"
         "    return mu\n"
         "export p\n"
     )
-    model = loads(src).morphism
+    model = loads(textwrap.dedent(src)).morphism
     # Mark every latent as observed to make the registry empty.
     with pytest.raises(ValueError, match="zero total"):
         AutoLaplaceApproximation(model, observed_names={"y", "mu"})

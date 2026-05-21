@@ -26,9 +26,9 @@ from quivers.kernel.quivers_kernel import (  # noqa: E402
 
 
 SOURCE = """\
-object X : 3
-object Y : 4
-latent f : X -> Y
+object X : FinSet 3
+object Y : FinSet 4
+morphism f : X -> Y [role=latent]
 """
 
 

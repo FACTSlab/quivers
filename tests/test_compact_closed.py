@@ -32,6 +32,7 @@ import os
 
 import pytest
 import torch
+import textwrap
 
 from quivers.core.morphisms import (
     LatentMorphism,
@@ -148,15 +149,15 @@ def test_dsl_dagger_method_call() -> None:
     from quivers.dsl import loads
 
     src = """
-    algebra product_fuzzy
-    object A : 3
-    object B : 4
+    composition product_fuzzy as algebra
+    object A : FinSet 3
+    object B : FinSet 4
 
-    latent f : A -> B
+    morphism f : A -> B [role=latent]
     let f_dag = f.dagger
     export f_dag
     """
-    m = loads(src)
+    m = loads(textwrap.dedent(src))
     assert m.morphism is not None
     assert m.morphism.tensor.shape == (4, 3)
 
@@ -166,13 +167,13 @@ def test_dsl_cup_returns_diagonal() -> None:
     from quivers.dsl import loads
 
     src = """
-    algebra product_fuzzy
-    object A : 3
+    composition product_fuzzy as algebra
+    object A : FinSet 3
 
     let eta = cup(A)
     export eta
     """
-    m = loads(src)
+    m = loads(textwrap.dedent(src))
     t = m.morphism.tensor
     assert t.shape == (1, 3, 3)
     expected = torch.eye(3)
@@ -184,13 +185,13 @@ def test_dsl_cap_returns_codiagonal() -> None:
     from quivers.dsl import loads
 
     src = """
-    algebra product_fuzzy
-    object A : 3
+    composition product_fuzzy as algebra
+    object A : FinSet 3
 
     let eps = cap(A)
     export eps
     """
-    m = loads(src)
+    m = loads(textwrap.dedent(src))
     t = m.morphism.tensor
     assert t.shape == (3, 3, 1)
     expected = torch.eye(3)
@@ -202,14 +203,14 @@ def test_dsl_change_base_to_log_prob() -> None:
     from quivers.dsl import loads
 
     src = """
-    algebra product_fuzzy
-    object A : 3
+    composition product_fuzzy as algebra
+    object A : FinSet 3
 
-    latent f : A -> A
+    morphism f : A -> A [role=latent]
     let f_log = f.change_base(log_prob)
     export f_log
     """
-    m = loads(src)
+    m = loads(textwrap.dedent(src))
     assert m.morphism.algebra.name == "LogProb"
     # All entries are <= 0 (log of sigmoid in [0, 1]).
     assert (m.morphism.tensor <= 0).all()
@@ -221,14 +222,14 @@ def test_dsl_change_base_unknown_homomorphism_errors() -> None:
     from quivers.dsl.compiler import CompileError
 
     src = """
-    algebra product_fuzzy
-    object A : 3
-    latent f : A -> A
+    composition product_fuzzy as algebra
+    object A : FinSet 3
+    morphism f : A -> A [role=latent]
     let g = f.change_base(not_a_real_homomorphism)
     export g
     """
     with pytest.raises(CompileError, match="undefined transformation"):
-        loads(src)
+        loads(textwrap.dedent(src))
 
 
 @_LOCAL_GRAMMAR
@@ -236,13 +237,13 @@ def test_dsl_change_base_to_boolean() -> None:
     from quivers.dsl import loads
 
     src = """
-    algebra product_fuzzy
-    object A : 3
-    latent f : A -> A
+    composition product_fuzzy as algebra
+    object A : FinSet 3
+    morphism f : A -> A [role=latent]
     let g = f.change_base(threshold)
     export g
     """
-    m = loads(src)
+    m = loads(textwrap.dedent(src))
     assert m.morphism.algebra.name == "Boolean"
     # Boolean tensor entries are 0/1 only.
     t = m.morphism.tensor
@@ -255,20 +256,23 @@ def test_dsl_dagger_chained_with_compose() -> None:
     from quivers.dsl import loads
 
     src = """
-    algebra product_fuzzy
-    object A : 3
-    object B : 3
-    object Latent : 4
+    composition product_fuzzy as algebra
+    object A : FinSet 3
+    object B : FinSet 3
+    object Latent : FinSet 4
 
-    latent emb_a : A -> Latent
-    latent emb_b : B -> Latent
+    morphism emb_a : A -> Latent [role=latent]
+    morphism emb_b : B -> Latent [role=latent]
 
     let score = emb_a >> emb_b.dagger
     export score
     """
-    m = loads(src)
-    assert m.morphism.domain.name == "A"
-    assert m.morphism.codomain.name == "B"
+    m = loads(textwrap.dedent(src))
+    # The composed score has the same domain / codomain
+    # cardinalities as the original ``emb_a : A -> Latent`` and
+    # ``emb_b : B -> Latent`` factors: ``A`` (3) and ``B`` (3).
+    assert m.morphism.domain.cardinality == 3
+    assert m.morphism.codomain.cardinality == 3
 
 
 # ---------------------------------------------------------------------------

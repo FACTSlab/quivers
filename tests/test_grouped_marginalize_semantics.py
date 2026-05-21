@@ -16,6 +16,7 @@ just the validation surface. They verify:
 """
 
 from __future__ import annotations
+import textwrap
 
 import os
 
@@ -48,41 +49,33 @@ def test_three_level_nested_gradient_flows_to_continuous_latent() -> None:
     from quivers.dsl import loads
 
     src = """
-    object G1 : 2
-    object G2 : 2
-    object G3 : 2
-    object Resp : 6
-    object K1 : 2
-    object K2 : 2
-    object K3 : 2
+    composition log_prob as algebra
+
+    object G1 : FinSet 2
+    object G2 : FinSet 2
+    object G3 : FinSet 2
+    object Resp : FinSet 6
+    object K1 : FinSet 2
+    object K2 : FinSet 2
+    object K3 : FinSet 2
 
     program nested : Resp -> Resp
-        mu_shift <- Normal(0.0, 1.0)
-        probs_1 : K1 <- HalfNormal(1.0)
-        probs_2 : K2 <- HalfNormal(1.0)
-        probs_3 : K3 <- HalfNormal(1.0)
-        idx_1 : Resp <- HalfNormal(1.0)
-        idx_2 : Resp <- HalfNormal(1.0)
-        idx_3 : Resp <- HalfNormal(1.0)
-        marginalize a : K1 <- Dirichlet(probs_1)
-            over G1
-
-            in {
-                marginalize b : K2 <- Dirichlet(probs_2)
-                    over G2
-                    in {
-                        marginalize c : K3 <- Dirichlet(probs_3)
-                            over G3
-                            in {
-                                observe r : Resp via idx_1 <- Normal(mu_shift, 1.0)
-                            }
-                    }
-            }
+        sample mu_shift <- Normal(0.0, 1.0)
+        sample probs_1 : K1 <- HalfNormal(1.0)
+        sample probs_2 : K2 <- HalfNormal(1.0)
+        sample probs_3 : K3 <- HalfNormal(1.0)
+        sample idx_1 : Resp <- HalfNormal(1.0)
+        sample idx_2 : Resp <- HalfNormal(1.0)
+        sample idx_3 : Resp <- HalfNormal(1.0)
+        marginalize a : K1 <- Dirichlet(probs_1) [over=G1]
+            marginalize b : K2 <- Dirichlet(probs_2) [over=G2]
+                marginalize c : K3 <- Dirichlet(probs_3) [over=G3]
+                    observe r : Resp <- Normal(mu_shift, 1.0) [via=idx_1]
         return mu_shift
     export nested
     """
     torch.manual_seed(0)
-    model = loads(src).morphism
+    model = loads(textwrap.dedent(src)).morphism
     mu = torch.tensor([0.5], requires_grad=True)
     obs = {
         "mu_shift": mu,
@@ -118,22 +111,21 @@ def test_body_with_multiple_lets_using_latent() -> None:
     from quivers.dsl import loads
 
     src = """
-    object Item : 2
-    object Resp : 4
-    object Class : 3
+    composition log_prob as algebra
+
+    object Item : FinSet 2
+    object Resp : FinSet 4
+    object Class : FinSet 3
 
     program bodylet : Resp -> Resp
-        probs : Class <- HalfNormal(1.0)
-        idx : Resp <- HalfNormal(1.0)
-        marginalize cls : Class <- Dirichlet(probs)
-            over Item
-            in {
-                observe r : Resp via idx <- HalfNormal(1.0)
-            }
+        sample probs : Class <- HalfNormal(1.0)
+        sample idx : Resp <- HalfNormal(1.0)
+        marginalize cls : Class <- Dirichlet(probs) [over=Item]
+            observe r : Resp <- HalfNormal(1.0) [via=idx]
         return probs
     export bodylet
     """
-    model = loads(src).morphism
+    model = loads(textwrap.dedent(src)).morphism
     # Supply the captured-observe's per-(N, K) log-likelihood
     # directly via its dedicated slot.  The body's HalfNormal
     # observe is class-independent on its own; the test

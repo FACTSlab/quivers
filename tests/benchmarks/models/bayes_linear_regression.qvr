@@ -11,14 +11,11 @@
 #
 # Tier-1 conjugate-recovery benchmark for joint posterior recovery
 # with a clean (no-correlation-pathology) two-parameter geometry.
-
-object Obs : 60
-
+object Obs : FinSet 60
 program bayes_linear_regression : Obs -> Obs
-    a <- Normal(0.0, 1.0)
-    b <- Normal(0.0, 1.0)
+    sample a <- Normal(0.0, 1.0)
+    sample b <- Normal(0.0, 1.0)
     let mu = a + b * x_design
     observe y : Obs <- Normal(mu, 0.3)
     return mu
-
 export bayes_linear_regression

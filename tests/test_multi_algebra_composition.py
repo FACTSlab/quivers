@@ -2,7 +2,7 @@
 morphisms.
 
 A morphism in :mod:`quivers.core.morphisms` carries an enrichment
-algebra. Composing two morphisms over the same algebra uses
+algebra. Composing two morphisms over the same composition uses as algebra
 that algebra's monoidal structure; composing across algebras
 requires an algebra homomorphism (a lax monoidal poset functor)
 applied via :meth:`Morphism.change_base`.
@@ -38,6 +38,7 @@ This module verifies:
 """
 
 from __future__ import annotations
+import textwrap
 
 import os
 
@@ -192,16 +193,16 @@ def test_default_compose_uses_product_fuzzy() -> None:
     from quivers.dsl import loads
 
     src = """
-    algebra product_fuzzy
-    object A : 3
-    object B : 3
-    object C : 3
-    latent f : A -> B
-    latent g : B -> C
+    composition product_fuzzy as algebra
+    object A : FinSet 3
+    object B : FinSet 3
+    object C : FinSet 3
+    morphism f : A -> B [role=latent]
+    morphism g : B -> C [role=latent]
     let chain = f >> g
     export chain
     """
-    m = loads(src)
+    m = loads(textwrap.dedent(src))
     assert m.morphism is not None
     assert m.morphism.algebra.name == "ProductFuzzy"
 
@@ -214,17 +215,17 @@ def test_cross_algebra_compose_without_change_base_errors() -> None:
     from quivers.dsl.compiler import CompileError
 
     src = """
-    algebra product_fuzzy
-    object A : 3
-    object B : 3
-    object C : 3
-    latent f : A -> B
-    latent g : B -> C
+    composition product_fuzzy as algebra
+    object A : FinSet 3
+    object B : FinSet 3
+    object C : FinSet 3
+    morphism f : A -> B [role=latent]
+    morphism g : B -> C [role=latent]
     let chain = f *> g
     export chain
     """
     with pytest.raises(CompileError, match="dispatches to"):
-        loads(src)
+        loads(textwrap.dedent(src))
 
 
 # ---------------------------------------------------------------------------
@@ -358,7 +359,7 @@ def test_threshold_homomorphism_rejects_invalid_tau() -> None:
 
 
 def test_change_base_then_compose_in_target_algebra() -> None:
-    """Bring a ProductFuzzyAlgebra morphism into the Markov algebra via
+    """Bring a ProductFuzzyAlgebra morphism into the Markov composition via as algebra
     a custom homomorphism, then compose with a Markov-native
     morphism."""
     A = FinSet(name="A", cardinality=2)

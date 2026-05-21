@@ -15,9 +15,9 @@ from quivers.inference import (
 
 def _normal_normal_model():
     return loads(
-        "object Obs : 12\n"
+        "object Obs : FinSet 12\n"
         "program p : Obs -> Obs\n"
-        "    mu <- Normal(0.0, 1.0)\n"
+        "    sample mu <- Normal(0.0, 1.0)\n"
         "    observe y : Obs <- Normal(mu, 1.0)\n"
         "    return mu\n"
         "export p\n"

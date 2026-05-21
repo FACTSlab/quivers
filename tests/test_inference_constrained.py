@@ -19,6 +19,7 @@ passing, and inline Dirichlet priors.
 """
 
 from __future__ import annotations
+import textwrap
 
 import pytest
 import torch
@@ -54,13 +55,13 @@ def test_autonormal_guide_samples_in_support(dist_spec: str, predicate) -> None:
     without ``ValueError: Expected value … to be within the support``.
     """
     src = (
-        "object N : 4\n"
+        "object N : FinSet 4\n"
         "program p : N -> N\n"
-        f"    v <- {dist_spec}\n"
+        f"    sample v <- {dist_spec}\n"
         "    return v\n"
         "export p\n"
     )
-    prog = loads(src)
+    prog = loads(textwrap.dedent(src))
     guide = AutoNormalGuide(prog.morphism, observed_names=set())
     samples = guide.rsample(torch.zeros(8, 1))
     assert predicate(samples["v"]), (
@@ -85,13 +86,13 @@ def test_autodelta_guide_samples_in_support(dist_spec: str, predicate) -> None:
     through the support bijector so it lies inside the prior's
     support at all times during optimisation."""
     src = (
-        "object N : 4\n"
+        "object N : FinSet 4\n"
         "program p : N -> N\n"
-        f"    v <- {dist_spec}\n"
+        f"    sample v <- {dist_spec}\n"
         "    return v\n"
         "export p\n"
     )
-    prog = loads(src)
+    prog = loads(textwrap.dedent(src))
     guide = AutoDeltaGuide(prog.morphism, observed_names=set())
     samples = guide.rsample(torch.zeros(8, 1))
     assert predicate(samples["v"])
@@ -103,9 +104,9 @@ def test_autonormal_gradient_flows_through_bijector() -> None:
     flow back to the guide's loc/log_scale parameters via the
     Jacobian correction."""
     prog = loads(
-        "object N : 1\n"
+        "object N : FinSet 1\n"
         "program p : N -> N\n"
-        "    sigma <- HalfNormal(1.0)\n"
+        "    sample sigma <- HalfNormal(1.0)\n"
         "    return sigma\n"
         "export p\n"
     )
@@ -129,11 +130,11 @@ def test_condition_data_dict_visible_to_let_expression() -> None:
     value to ``let``-expression evaluation. This unlocks per-row
     covariate / index passing for hierarchical regression."""
     prog = loads(
-        "object Subj : 4\n"
-        "object Resp : 12\n"
+        "object Subj : FinSet 4\n"
+        "object Resp : FinSet 12\n"
         "\n"
         "program p : Resp -> Resp\n"
-        "    by_subj : Subj <- Normal(0.0, 1.0)\n"
+        "    sample by_subj : Subj <- Normal(0.0, 1.0)\n"
         "    let mu = by_subj[subj_idx]\n"
         "    return mu\n"
         "export p\n"
@@ -164,11 +165,11 @@ def test_hierarchical_regression_svi_step_runs() -> None:
     crossed-random-effects target use case."""
     torch.manual_seed(0)
     prog = loads(
-        "object Subj : 4\n"
-        "object Resp : 12\n"
+        "object Subj : FinSet 4\n"
+        "object Resp : FinSet 12\n"
         "\n"
         "program p : Resp -> Resp\n"
-        "    by_subj : Subj <- Normal(0.0, 1.0)\n"
+        "    sample by_subj : Subj <- Normal(0.0, 1.0)\n"
         "    let mu = sigmoid(by_subj[subj_idx])\n"
         "    observe r : Resp <- Bernoulli(mu)\n"
         "    return mu\n"
@@ -211,11 +212,11 @@ def test_hierarchical_regression_observation_kernel_composes() -> None:
     observation kernel) and the clamped observation's log_prob must
     be finite and (response_plate,)-shaped."""
     prog = loads(
-        "object Subj : 4\n"
-        "object Resp : 12\n"
+        "object Subj : FinSet 4\n"
+        "object Resp : FinSet 12\n"
         "\n"
         "program p : Resp -> Resp\n"
-        "    by_subj : Subj <- Normal(0.0, 1.0)\n"
+        "    sample by_subj : Subj <- Normal(0.0, 1.0)\n"
         "    let mu = sigmoid(by_subj[subj_idx])\n"
         "    observe r : Resp <- Bernoulli(mu)\n"
         "    return mu\n"
@@ -238,11 +239,11 @@ def test_condition_data_dict_alongside_observations() -> None:
     the trace clamps observed sample sites and exposes the rest as
     pre-populated environment entries."""
     prog = loads(
-        "object Subj : 3\n"
-        "object Resp : 6\n"
+        "object Subj : FinSet 3\n"
+        "object Resp : FinSet 6\n"
         "\n"
         "program p : Resp -> Resp\n"
-        "    by_subj : Subj <- Normal(0.0, 1.0)\n"
+        "    sample by_subj : Subj <- Normal(0.0, 1.0)\n"
         "    let mu = by_subj[subj_idx]\n"
         "    observe r : Resp <- Normal(mu, 1.0)\n"
         "    return r\n"
@@ -270,9 +271,9 @@ def test_inline_dirichlet_scalar_concentration() -> None:
     """``Dirichlet(alpha)`` with a scalar concentration is a symmetric
     Dirichlet on the simplex of the declared codomain's dimension."""
     prog = loads(
-        "object Cat : 3\n"
+        "object Cat : FinSet 3\n"
         "program p : Cat -> Cat\n"
-        "    pc <- Dirichlet(1.0)\n"
+        "    sample pc <- Dirichlet(1.0)\n"
         "    return pc\n"
         "export p\n"
     )
@@ -293,9 +294,9 @@ def test_inline_dirichlet_vector_concentration() -> None:
     literal-count rather than from the program's declared
     codomain."""
     prog = loads(
-        "object Item : 8\n"
+        "object Item : FinSet 8\n"
         "program p : Item -> Item\n"
-        "    pc : Item <- Dirichlet([1.0, 2.0, 3.0])\n"
+        "    sample pc : Item <- Dirichlet(1.0, 2.0, 3.0)\n"
         "    return pc\n"
         "export p\n"
     )
@@ -311,9 +312,9 @@ def test_inline_dirichlet_under_autonormal_guide() -> None:
     ``biject_to(simplex) = StickBreakingTransform()``; guide samples
     lie on the simplex and ``log_prob`` evaluates."""
     prog = loads(
-        "object Cat : 4\n"
+        "object Cat : FinSet 4\n"
         "program p : Cat -> Cat\n"
-        "    pc <- Dirichlet(2.0)\n"
+        "    sample pc <- Dirichlet(2.0)\n"
         "    return pc\n"
         "export p\n"
     )
@@ -334,9 +335,9 @@ def test_inline_dirichlet_score_under_prior() -> None:
     value to be within the support`` failure that motivated the
     constrained-support guide fix."""
     prog = loads(
-        "object Cat : 3\n"
+        "object Cat : FinSet 3\n"
         "program p : Cat -> Cat\n"
-        "    pc <- Dirichlet(1.0)\n"
+        "    sample pc <- Dirichlet(1.0)\n"
         "    return pc\n"
         "export p\n"
     )

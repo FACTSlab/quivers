@@ -10,13 +10,10 @@
 # mean-field VI cannot capture the scale-of-scale dependency.
 # Neal 2003, doi:10.1214/aos/1056562461. Tier-3 hard-geometry
 # stress.
-
-object Latent : 9
-
+object Latent : FinSet 9
 program neal_funnel : Latent -> Latent
-    v <- Normal(0.0, 3.0)
+    sample v <- Normal(0.0, 3.0)
     let sigma = exp(0.5 * v)
-    x : Latent <- Normal(0.0, sigma)
+    sample x : Latent <- Normal(0.0, sigma)
     return v
-
 export neal_funnel

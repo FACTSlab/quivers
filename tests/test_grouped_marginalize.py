@@ -14,6 +14,7 @@ over groups. Concretely::
 """
 
 from __future__ import annotations
+import textwrap
 
 import os
 
@@ -201,7 +202,7 @@ def _compile(src: str):
     from quivers.dsl.compiler import Compiler
     from quivers.dsl.parser import parse
 
-    m = parse(src)
+    m = parse(textwrap.dedent(src))
     c = Compiler(m)
     c.compile()
     return c
@@ -213,19 +214,17 @@ class TestGroupedMarginalizeSurface:
 
     def test_grouped_block_compiles(self):
         src = """
-        object Item : 4
-        object Resp : 10
-        object Class : 3
+        composition log_prob as algebra
+
+        object Item : FinSet 4
+        object Resp : FinSet 10
+        object Class : FinSet 3
 
         program demo : Item -> Item
-            probs : Class <- HalfNormal(1.0)
-            idx : Resp <- HalfNormal(1.0)
-            marginalize cls : Class <- Dirichlet(probs)
-                over Item
-
-                in {
-                    observe r : Resp via idx <- HalfNormal(1.0)
-                }
+            sample probs : Class <- HalfNormal(1.0)
+            sample idx : Resp <- HalfNormal(1.0)
+            marginalize cls : Class <- Dirichlet(probs) [over=Item, reduction=logsumexp]
+                observe r : Resp <- HalfNormal(1.0) [via=idx]
             return probs
 
         export demo
@@ -237,17 +236,16 @@ class TestGroupedMarginalizeSurface:
         from quivers.dsl.compiler import CompileError
 
         src = """
-        object Item : 4
-        object Resp : 10
-        object Class : 3
+        composition log_prob as algebra
+
+        object Item : FinSet 4
+        object Resp : FinSet 10
+        object Class : FinSet 3
 
         program demo : Item -> Item
-            probs : Class <- HalfNormal(1.0)
-            marginalize class : Class <- Dirichlet(probs)
-                over Item
-                in {
-                    observe r : Resp <- HalfNormal(1.0)
-                }
+            sample probs : Class <- HalfNormal(1.0)
+            marginalize cls : Class <- Dirichlet(probs) [over=Item]
+                observe r : Resp <- HalfNormal(1.0)
             return probs
 
         export demo
@@ -259,19 +257,17 @@ class TestGroupedMarginalizeSurface:
         from quivers.dsl.compiler import CompileError
 
         src = """
-        object Item : 4
-        object Resp : 10
-        object Class : 3
+        composition log_prob as algebra
+
+        object Item : FinSet 4
+        object Resp : FinSet 10
+        object Class : FinSet 3
 
         program demo : Item -> Item
-            probs : Class <- HalfNormal(1.0)
-            idx : Resp <- HalfNormal(1.0)
-            marginalize class <- Dirichlet(probs)
-                over Item
-
-                in {
-                    class : Resp <- HalfNormal(1.0)
-                }
+            sample probs : Class <- HalfNormal(1.0)
+            sample idx : Resp <- HalfNormal(1.0)
+            marginalize cls <- Dirichlet(probs) [over=Item]
+                sample inner : Resp <- HalfNormal(1.0)
             return probs
 
         export demo
@@ -283,19 +279,17 @@ class TestGroupedMarginalizeSurface:
         from quivers.dsl.compiler import CompileError
 
         src = """
-        object Item : 4
-        object Resp : 10
-        object Class : 3
+        composition log_prob as algebra
+
+        object Item : FinSet 4
+        object Resp : FinSet 10
+        object Class : FinSet 3
 
         program demo : Item -> Item
-            probs : Class <- HalfNormal(1.0)
-            idx : Resp <- HalfNormal(1.0)
-            marginalize class : Class <- Dirichlet(probs)
-                over NotAnObject
-
-                in {
-                    class : Resp <- HalfNormal(1.0)
-                }
+            sample probs : Class <- HalfNormal(1.0)
+            sample idx : Resp <- HalfNormal(1.0)
+            marginalize cls : Class <- Dirichlet(probs) [over=NotAnObject]
+                sample inner : Resp <- HalfNormal(1.0)
             return probs
 
         export demo
@@ -304,16 +298,19 @@ class TestGroupedMarginalizeSurface:
             _compile(src)
 
     def test_ungrouped_still_compiles(self):
-        """The ungrouped surface still parses and compiles unchanged."""
+        """An ungrouped marginalize (no ``over=`` option) still parses
+        and compiles unchanged."""
         src = """
-        object Item : 5
-        type R = Euclidean 1
+        composition log_prob as algebra
 
-        program demo : Item -> R ! Sample, Marginal
-            marginalize class_probs : Item <- Normal(0.0, 1.0) in {
-                z <- Normal(0.0, 1.0)
-            }
-            return z
+        object Item : FinSet 5
+        object Class : FinSet 3
+
+        program demo : Item -> Item
+            sample probs : Class <- HalfNormal(1.0)
+            marginalize cls : Class <- Categorical(probs)
+                sample z : Item <- Normal(0.0, 1.0)
+            return probs
 
         export demo
         """

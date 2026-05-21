@@ -27,6 +27,7 @@ behavior of binding sites it unblocks:
 """
 
 from __future__ import annotations
+import textwrap
 
 import os
 
@@ -140,23 +141,23 @@ def test_program_binding_let_composed_chain_compiles_and_runs() -> None:
     from quivers.dsl import loads
 
     src = """
-    algebra product_fuzzy
-    object A : 4
-    object B : 4
-    object C : 4
+    composition product_fuzzy as algebra
+    object A : FinSet 4
+    object B : FinSet 4
+    object C : FinSet 4
 
-    latent f : A -> B
-    latent g : B -> C
+    morphism f : A -> B [role=latent]
+    morphism g : B -> C [role=latent]
 
     let h = f >> g
 
     program p : A -> C
-        out <- h
+        sample out <- h
         return out
 
     export p
     """
-    m = loads(src)
+    m = loads(textwrap.dedent(src))
     assert m.morphism is not None
     # End-to-end run: input is a long tensor of A-indices; the
     # program's V-Cat step applies h.tensor[idx] to produce a
@@ -174,23 +175,23 @@ def test_program_binding_let_composed_chain_has_learnable_params() -> None:
     from quivers.dsl import loads
 
     src = """
-    algebra product_fuzzy
-    object A : 4
-    object B : 4
-    object C : 4
+    composition product_fuzzy as algebra
+    object A : FinSet 4
+    object B : FinSet 4
+    object C : FinSet 4
 
-    latent f : A -> B
-    latent g : B -> C
+    morphism f : A -> B [role=latent]
+    morphism g : B -> C [role=latent]
 
     let h = f >> g
 
     program p : A -> C
-        out <- h
+        sample out <- h
         return out
 
     export p
     """
-    m = loads(src)
+    m = loads(textwrap.dedent(src))
     n_params = sum(1 for _ in m.morphism.parameters())
     # f and g each contribute one parameter tensor.
     assert n_params == 2
@@ -210,20 +211,20 @@ def test_parametric_program_with_morphism_typed_parameter_compiles() -> None:
     from quivers.dsl import loads
 
     src = """
-    algebra product_fuzzy
-    object A : 4
-    object B : 4
+    composition product_fuzzy as algebra
+    object A : FinSet 4
+    object B : FinSet 4
 
-    latent f : A -> B
+    morphism f : A -> B [role=latent]
 
-    program p (k : Mor[A, B]) : A -> B
-        out <- k
+    program p(k : Mor[A, B]) : A -> B
+        sample out <- k
         return out
 
     let applied = p(f)
     export applied
     """
-    m = loads(src)
+    m = loads(textwrap.dedent(src))
     assert m.morphism is not None
 
 
@@ -239,17 +240,17 @@ def test_fan_over_composed_morphism_compiles() -> None:
     from quivers.dsl import loads
 
     src = """
-    algebra product_fuzzy
-    object A : 4
-    object B : 4
-    object C : 4
+    composition product_fuzzy as algebra
+    object A : FinSet 4
+    object B : FinSet 4
+    object C : FinSet 4
 
-    latent f : A -> B
-    latent g : B -> C
+    morphism f : A -> B [role=latent]
+    morphism g : B -> C [role=latent]
 
     let chain = f >> g
     let split = fan(chain, chain)
     export split
     """
-    m = loads(src)
+    m = loads(textwrap.dedent(src))
     assert m.morphism is not None

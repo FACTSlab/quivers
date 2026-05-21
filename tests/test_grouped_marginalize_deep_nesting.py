@@ -14,6 +14,7 @@ construction is correct.
 """
 
 from __future__ import annotations
+import textwrap
 
 import os
 from textwrap import dedent
@@ -39,36 +40,32 @@ def _build_nested_program(num_levels: int, n_resp: int = 8) -> str:
     ``probs_i``. The innermost body observes a single Resp-plate
     likelihood; outer levels share the same body.
     """
-    decls = ["object Resp : %d" % n_resp]
+    decls = ["composition log_prob as algebra", "", f"object Resp : FinSet {n_resp}"]
     for i in range(num_levels):
-        decls.append(f"object G_{i} : 2")
-        decls.append(f"object K_{i} : 2")
+        decls.append(f"object G_{i} : FinSet 2")
+        decls.append(f"object K_{i} : FinSet 2")
     obj_decls = "\n        ".join(decls)
     prog_lines = [f"program nested_{num_levels} : Resp -> Resp"]
     for i in range(num_levels):
-        prog_lines.append(f"    probs_{i} : K_{i} <- HalfNormal(1.0)")
+        prog_lines.append(f"    sample probs_{i} : K_{i} <- HalfNormal(1.0)")
     # Only the innermost block has a fibration into a response
     # plate; outer levels consume the inner block's already-
-    # scattered tensor with identity fibration.  See
-    # docs/guides/programs.md for the multi-level nesting
-    # semantics.
-    prog_lines.append("    idx_inner : Resp <- HalfNormal(1.0)")
+    # scattered tensor with identity fibration.
+    prog_lines.append("    sample idx_inner : Resp <- HalfNormal(1.0)")
     indent = "    "
-    open_blocks: list[str] = []
+    nested: list[str] = []
     for i in range(num_levels):
         pad = indent * (i + 1)
-        open_blocks.append(f"{pad}marginalize lat_{i} : K_{i} <- Dirichlet(probs_{i})")
-        open_blocks.append(f"{pad}    over G_{i}")
-        open_blocks.append(f"{pad}    in {{")
+        nested.append(
+            f"{pad}marginalize lat_{i} : K_{i} <- Dirichlet(probs_{i}) [over=G_{i}]"
+        )
     # Innermost body: a single observe step carrying the
     # fibration to its response plate.
     inner_pad = indent * (num_levels + 1)
-    open_blocks.append(f"{inner_pad}observe r : Resp via idx_inner <- HalfNormal(1.0)")
-    # Close blocks in reverse.
-    for i in range(num_levels - 1, -1, -1):
-        pad = indent * (i + 1)
-        open_blocks.append(f"{pad}}}")
-    prog_lines.extend(open_blocks)
+    nested.append(
+        f"{inner_pad}observe r : Resp <- HalfNormal(1.0) [via=idx_inner]"
+    )
+    prog_lines.extend(nested)
     prog_lines.append("    return probs_0")
     body = "\n        ".join(prog_lines)
     return dedent(
@@ -102,7 +99,7 @@ def test_deep_nested_marginalize_compiles(num_levels: int) -> None:
     from quivers.dsl import loads
 
     src = _build_nested_program(num_levels)
-    m = loads(src)
+    m = loads(textwrap.dedent(src))
     assert m.morphism is not None
 
 
@@ -114,7 +111,7 @@ def test_deep_nested_marginalize_log_joint_finite(num_levels: int) -> None:
     from quivers.dsl import loads
 
     src = _build_nested_program(num_levels)
-    model = loads(src).morphism
+    model = loads(textwrap.dedent(src)).morphism
     obs = _make_obs(num_levels)
     out = model.log_joint(torch.zeros(1, 1), obs)
     assert torch.isfinite(out).all()

@@ -24,11 +24,12 @@ The tests verify:
 2. Composition via the matching DSL operator (``$>`` for Real,
    ``%>`` for Probability) and via module-level
    ``algebra <name>`` annotation works end-to-end.
-3. The compiler rejects operator/operand algebra mismatches
+3. The compiler rejects operator/operand composition mismatches as algebra
    with a typed error.
 """
 
 from __future__ import annotations
+import textwrap
 
 import os
 
@@ -231,17 +232,17 @@ def test_dollar_gt_operator_dispatches_to_real() -> None:
     from quivers.dsl import loads
 
     src = """
-    algebra real
-    object A : 3
-    object B : 3
-    object C : 3
+    composition real as algebra
+    object A : FinSet 3
+    object B : FinSet 3
+    object C : FinSet 3
 
-    latent f : A -> B
-    latent g : B -> C
+    morphism f : A -> B [role=latent]
+    morphism g : B -> C [role=latent]
     let chain = f $> g
     export chain
     """
-    m = loads(src)
+    m = loads(textwrap.dedent(src))
     assert m.morphism.algebra.name == "Real"
 
 
@@ -250,17 +251,17 @@ def test_percent_gt_operator_dispatches_to_probability() -> None:
     from quivers.dsl import loads
 
     src = """
-    algebra probability
-    object A : 3
-    object B : 3
-    object C : 3
+    composition probability as algebra
+    object A : FinSet 3
+    object B : FinSet 3
+    object C : FinSet 3
 
-    latent f : A -> B
-    latent g : B -> C
+    morphism f : A -> B [role=latent]
+    morphism g : B -> C [role=latent]
     let chain = f %> g
     export chain
     """
-    m = loads(src)
+    m = loads(textwrap.dedent(src))
     assert m.morphism.algebra.name == "Probability"
 
 
@@ -272,22 +273,22 @@ def test_dollar_gt_with_non_real_operand_errors() -> None:
     from quivers.dsl.compiler import CompileError
 
     src = """
-    algebra product_fuzzy
-    object A : 3
-    object B : 3
-    object C : 3
+    composition product_fuzzy as algebra
+    object A : FinSet 3
+    object B : FinSet 3
+    object C : FinSet 3
 
-    latent f : A -> B
-    latent g : B -> C
+    morphism f : A -> B [role=latent]
+    morphism g : B -> C [role=latent]
     let chain = f $> g
     export chain
     """
     with pytest.raises(CompileError, match="dispatches to"):
-        loads(src)
+        loads(textwrap.dedent(src))
 
 
 # ---------------------------------------------------------------------------
-# Module-level algebra declarations
+# Module-level composition declarations as algebra
 # ---------------------------------------------------------------------------
 
 
@@ -296,12 +297,12 @@ def test_algebra_real_declaration_compiles() -> None:
     from quivers.dsl import loads
 
     src = """
-    algebra real
-    object A : 4
-    latent f : A -> A
+    composition real as algebra
+    object A : FinSet 4
+    morphism f : A -> A [role=latent]
     export f
     """
-    m = loads(src)
+    m = loads(textwrap.dedent(src))
     assert m.morphism.algebra.name == "Real"
 
 
@@ -310,12 +311,12 @@ def test_algebra_probability_declaration_compiles() -> None:
     from quivers.dsl import loads
 
     src = """
-    algebra probability
-    object A : 4
-    latent f : A -> A
+    composition probability as algebra
+    object A : FinSet 4
+    morphism f : A -> A [role=latent]
     export f
     """
-    m = loads(src)
+    m = loads(textwrap.dedent(src))
     assert m.morphism.algebra.name == "Probability"
 
 
@@ -324,12 +325,12 @@ def test_algebra_counting_declaration_compiles() -> None:
     from quivers.dsl import loads
 
     src = """
-    algebra counting
-    object A : 4
-    latent f : A -> A
+    composition counting as algebra
+    object A : FinSet 4
+    morphism f : A -> A [role=latent]
     export f
     """
-    m = loads(src)
+    m = loads(textwrap.dedent(src))
     assert m.morphism.algebra.name == "Counting"
 
 
@@ -340,12 +341,12 @@ def test_algebra_max_plus_declaration_compiles() -> None:
     from quivers.dsl import loads
 
     src = """
-    algebra max_plus
-    object A : 4
-    latent f : A -> A
+    composition max_plus as algebra
+    object A : FinSet 4
+    morphism f : A -> A [role=latent]
     export f
     """
-    m = loads(src)
+    m = loads(textwrap.dedent(src))
     assert m.morphism.algebra.name == "MaxPlus"
 
 
@@ -354,17 +355,17 @@ def test_algebra_log_prob_declaration_compiles() -> None:
     from quivers.dsl import loads
 
     src = """
-    algebra log_prob
-    object A : 4
-    latent f : A -> A
+    composition log_prob as algebra
+    object A : FinSet 4
+    morphism f : A -> A [role=latent]
     export f
     """
-    m = loads(src)
+    m = loads(textwrap.dedent(src))
     assert m.morphism.algebra.name == "LogProb"
 
 
 # ---------------------------------------------------------------------------
-# Gradient flow through the new algebra compositions
+# Gradient flow through the new composition compositions as algebra
 # ---------------------------------------------------------------------------
 
 
@@ -528,14 +529,14 @@ def test_dsl_change_base_to_probability_clamp() -> None:
     from quivers.dsl import loads
 
     src = """
-    algebra real
-    object A : 3
+    composition real as algebra
+    object A : FinSet 3
 
-    latent f : A -> A
+    morphism f : A -> A [role=latent]
     let g = f.change_base(probability_clamp)
     export g
     """
-    m = loads(src)
+    m = loads(textwrap.dedent(src))
     assert m.morphism.algebra.name == "Probability"
 
 
@@ -544,14 +545,14 @@ def test_dsl_change_base_to_counting_from_real() -> None:
     from quivers.dsl import loads
 
     src = """
-    algebra real
-    object A : 3
+    composition real as algebra
+    object A : FinSet 3
 
-    latent f : A -> A
+    morphism f : A -> A [role=latent]
     let g = f.change_base(counting_from_real)
     export g
     """
-    m = loads(src)
+    m = loads(textwrap.dedent(src))
     assert m.morphism.algebra.name == "Counting"
 
 
