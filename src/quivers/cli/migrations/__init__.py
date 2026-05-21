@@ -216,9 +216,22 @@ def _identity(source: bytes) -> bytes:
     return source
 
 
+def _resolve_ref(ref: str) -> str:
+    """Normalize a user-facing revision string against `CHAIN`.
+
+    ``"HEAD"`` resolves to the working-tree grammar, identified with
+    the last entry of `CHAIN`; every other value must already be a
+    member of `CHAIN`."""
+    if ref == "HEAD":
+        return CHAIN[-1]
+    return ref
+
+
 def _chain_slice(from_ref: str, to_ref: str) -> list[tuple[str, str]]:
     """Return the ordered list of adjacent ``(src, dst)`` pairs that
     walk `CHAIN` from ``from_ref`` to ``to_ref``."""
+    from_ref = _resolve_ref(from_ref)
+    to_ref = _resolve_ref(to_ref)
     if from_ref not in CHAIN:
         raise MigrationError(
             f"unknown source revision {from_ref!r}; known: {CHAIN}",

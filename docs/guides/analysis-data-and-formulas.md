@@ -57,7 +57,7 @@ schema = DatasetSchema(
     observations={"response": "y"},
 )
 
-print(schema.declarations())          # object Verb : 17 / object Subject : 50
+print(schema.declarations())          # object Verb : FinSet 17 / object Subject : FinSet 50
 print(schema.cardinalities)           # {"Verb": 17, "Subject": 50}
 obs = schema.observations_dict()      # {"verb_idx": tensor, "subj_idx": tensor, ...}
 ```

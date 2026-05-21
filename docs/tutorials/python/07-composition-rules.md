@@ -123,14 +123,13 @@ assert not torch.allclose(left, right)
 
 The compact-closed operations require an identity element and live on `Algebra`. Trying to call them on a non-algebra rule raises `AttributeError`:
 
-<!-- python: skip -->
 ```python
 import pytest
 from quivers.core.algebras import material_implication
 
 mi = material_implication()
 with pytest.raises(AttributeError):
-    mi.unit                                # not a Algebra attribute
+    mi.unit                                # not an Algebra attribute
 with pytest.raises(AttributeError):
     mi.identity_tensor((3,))               # also unavailable
 ```

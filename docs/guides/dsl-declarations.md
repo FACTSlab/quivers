@@ -117,15 +117,16 @@ morphism h : X -> X = identity(X) [role=observed]
 
 ### Latent morphism prior
 
-A `latent` morphism declaration accepts a
-`~ Family(args) [options] [axis_role_clause]` clause that puts a
-prior on its representing tensor. The literal `(args)` carry the
-prior's hyperparameters at declaration time (in contrast to
-`kernel`'s `~ Family` clause, whose parameters come from a neural
-network at sample time). The compiler desugars the prior into a
-fresh sample site whose value is the tensor representing the
-morphism, making the morphism a deterministic wrap of that random
-tensor.
+A `latent` morphism declaration accepts a trailing
+`~ Family(args)` clause that puts a prior on its representing
+tensor. The literal `(args)` carry the prior's hyperparameters at
+declaration time (in contrast to `kernel`'s `~ Family` clause,
+whose parameters come from a neural network at sample time). The
+axis-role configuration (`over=`, `iid_over=`) and any other
+modifiers live in the morphism's option block, before the `~`. The
+compiler desugars the prior into a fresh sample site whose value
+is the tensor representing the morphism, making the morphism a
+deterministic wrap of that random tensor.
 
 <!-- compile: false -->
 ```qvr
@@ -133,8 +134,8 @@ tensor.
 morphism W : Real D -> Real K [role=latent]
 
 # The same morphism with a Matrix-Normal prior on its tensor.
-morphism W : Real D -> Real K [role=latent]
-    ~ MatrixNormal(0.0, 1.0, 1.0) over (dom, cod)
+morphism W : Real D -> Real K [role=latent, over=[dom, cod]]
+    ~ MatrixNormal(0.0, 1.0, 1.0)
 ```
 
 The [axis-role clause](dsl-programs-and-lets.md#axis-role-clause-over-and-iid-over)
@@ -188,41 +189,25 @@ Spaces resolve to subclasses of
 [continuous spaces guide](continuous-spaces.md) for the full
 hierarchy and constraints.
 
-### Type alias
+### Named composites
 
-Declare a space alias using `type` (alternative to `space`):
+`object` is the only top-level type-introduction keyword: discrete
+sets, continuous spaces, and any composite (products, coproducts,
+residuated patterns) all enter the environment as `object`
+declarations whose RHS is an object expression.
 
 ```qvr
-# the `space` and `type` forms below are interchangeable
-object HiddenSpace : Real 64
-
-object Hidden : Real 64     # ML-style, parens optional
-
-# product types built from previously-declared spaces
+object Hidden : Real 64
 object Output : Real 32
 object Combined : Hidden * Output
+
+# Residuated / Lambek-style patterns are object expressions too.
+object Sentence : S \ NP
 ```
 
-The `type` keyword provides a more concise, ML-style syntax for
-declaring named spaces. Parentheses around arguments are optional.
-
-### Alias (type-level)
-
-`alias` declarations bind a short name to a type-level expression:
-
-<!-- compile: false -->
-```qvr
-#! A short alias for the cartesian product of inputs.
-alias Pair = X * Y
-
-#! A residuated pattern reused across schemas.
-alias Sentence = S \ NP
-```
-
-Object-shaped aliases are interchangeable with the underlying
-object. Residuated patterns are stored as syntactic aliases and
-substituted at schema use-sites; they cannot stand on their own as
-morphism domains.
+A declared object can be referenced by name in any subsequent
+declaration; the compiler substitutes it wherever the name appears
+in a domain or codomain position.
 
 ## Kernel
 
@@ -267,8 +252,11 @@ Convert a continuous space to a finite set via binning:
 
 <!-- compile: false -->
 ```qvr
-morphism d : U -> 20      # discretize UnitInterval into 20 bins [role=discretize]
-morphism d2 : R3 -> 100   # discretize R^3 into 100 bins [role=discretize]
+# Discretize a UnitInterval `U` into 20 bins.
+morphism d : U -> FinSet 20 [role=discretize, bins=20]
+
+# Discretize an R^3 box into 100 bins.
+morphism d2 : R3 -> FinSet 100 [role=discretize, bins=100]
 ```
 
 The runtime realization is
@@ -281,7 +269,8 @@ Embed a discrete object into a continuous space:
 
 <!-- compile: false -->
 ```qvr
-morphism e : X -> R3   # treat X as uniform on R^3 [role=embed]
+# Embed a finite-set value into R^3 (treated as uniform).
+morphism e : X -> R3 [role=embed]
 ```
 
 The runtime realization is

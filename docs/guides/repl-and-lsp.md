@@ -553,10 +553,10 @@ Toggle session options. The options table:
 | --- | --- | --- |
 | `highlight` | `true` | Apply syntax highlighting to output |
 | `unicode` | `true` | Use Unicode glyphs (×, →, ⊗, ⊘) in pretty-prints |
-| `show_axes` | `false` | When printing morphisms, annotate each axis with its name |
+| `show_axes` | `true` | When printing morphisms, annotate each axis with its name |
 | `paranoid` | `false` | Re-run constraint checks after every recompile |
 | `autoload_on_save` | `true` | Re-load the file when its mtime advances |
-| `theme` | `one-dark` | Highlight theme (currently `one-dark` only) |
+| `theme` | `ansi_dark` | Rich/Pygments syntax theme; see the [Themes](#themes) section below for the full list |
 
 ```
 > :set show_axes=true
@@ -961,7 +961,7 @@ Every capability advertised by `qvr-lsp`:
 A hover always shows two visually-separated panes:
 
 ````markdown
-Optional doc comment lines if the decl had `## doc` blocks above it.
+Optional doc comment lines if the decl had `#!` doc-comment lines above it.
 
 **QVR source**
 

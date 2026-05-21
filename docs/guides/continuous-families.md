@@ -168,11 +168,11 @@ The
 [matrix-Normal](https://en.wikipedia.org/wiki/Matrix_normal_distribution)
 `MN(M, U, V)` is the natural prior for a weight matrix $W :
 \mathbb{R}^d \to \mathbb{R}^k$ whose row and column correlations
-factor separately. When used as a `latent` morphism prior in the
-DSL (`latent W : Euclidean(D) -> Euclidean(K) ~ MatrixNormal(loc,
-row_scale, col_scale) over (dom, cod)`), the first axis listed in
-`over` binds the row covariance and the second the column
-covariance.
+factor separately. When used as a latent-morphism prior in the
+DSL — `morphism W : Euclidean(D) -> Euclidean(K) [role=latent,
+over=[dom, cod]] ~ MatrixNormal(loc, row_scale, col_scale)` — the
+first axis listed in `over` binds the row covariance and the
+second the column covariance.
 
 ### InverseWishart: conjugate covariance prior
 

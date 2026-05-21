@@ -210,11 +210,11 @@ Each registered family carries a declared *event rank* $r_F \in \mathbb{N}$.
 
 | Event rank | Family names | Event shape |
 |---|---|---|
-| 0 | `Normal`, `LogitNormal`, `Beta`, `TruncatedNormal`, `Uniform`, `Bernoulli`, `RelaxedBernoulli`, `Binomial`, `Categorical`, `OneHotCategorical`, `GeneralizedPareto`; inline-only: `HalfCauchy`, `HalfNormal`, `LogNormal`, `Exponential`, `Gamma` | $\mathbb{R}$ (scalar) |
+| 0 | `Normal`, `LogitNormal`, `Beta`, `TruncatedNormal`, `Uniform`, `Bernoulli`, `RelaxedBernoulli`, `Binomial`, `Categorical`, `OneHotCategorical`, `GeneralizedPareto`, `HalfCauchy`, `HalfNormal`, `LogNormal`, `Exponential`, `Gamma` | $\mathbb{R}$ (scalar) |
 | 1 | `MultivariateNormal`, `LowRankMVN`, `Dirichlet`, `LogisticNormal`, `RelaxedOneHotCategorical`, `GP`, `Horseshoe` | $\mathbb{R}^{d}$ for a single named axis |
 | 2 | `Wishart`, `LKJCholesky` | $\mathbb{R}^{d_1 \times d_2}$ for two named axes |
 
-The first group splits into *fully-parametric* families (`_register_family` in [`quivers.continuous.families`](../api/continuous/families.md)) and *inline-only* families (`_FAMILY_BUILDERS` in [`quivers.continuous.inline`](../api/continuous/inline.md)). Inline-only families are usable in `sample x <- Family(args)` site forms inside program bodies but cannot be the `~ Family(...)` initialiser of a `[role=kernel]` or `[role=latent]` morphism declaration. Both groups go through the same family-registry lookup at sample-time, so the parameter map, support, and `log_prob` semantics are uniform.
+Every family in the table is installed in the unified family catalog by [`_register_family`](../api/continuous/families.md) (directly for the bespoke families, via [`_make_family`](../api/continuous/families.md) for the auto-generated wrappers around `torch.distributions`). Each is therefore equally usable as a conditional morphism (`[role=kernel]` / `[role=latent]` with a `~ Family(args)` initialiser) and as an inline draw site (`sample x <- Family(args)`). The parameter map, support, and `log_prob` semantics are uniform across the two call paths.
 
 A distribution clause `~ F(args) over <axes> [iid over <axes>]` *configures* the event–batch decomposition of a $F$-valued draw. Concretely, for a morphism $f : A \to B$ whose representing tensor has shape $\prod_{i} d_i$ indexed by the named factors $\{a_1, \dots, a_m\}$ of $A$ and $\{b_1, \dots, b_n\}$ of $B$, the clause names a sub-multiset $E \subseteq \{a_i\} \cup \{b_j\}$ of cardinality $|E| = r_F$ and declares:
 

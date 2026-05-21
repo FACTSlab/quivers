@@ -114,13 +114,14 @@ With [tree-sitter-langs](https://github.com/emacs-tree-sitter/tree-sitter-langs)
                  '((comment) @font-lock-comment-face)
                  :language 'qvr
                  :feature 'keyword
-                 '(["kernel" "latent" "observed" "program" "object"
-                    "space" "type" "let" "export" "marginalize"
-                    "observe" "return" "over" "via" "iid" "in"
-                    "discretize" "embed" "deduction" "atoms" "rule"
-                    "semiring" "start" "depth" "lexicon"
-                    "contraction" "algebra" "semigroupoid"
-                    "bilinear_form" "composition_rule"]
+                 '(["morphism" "object" "program"
+                    "composition" "category" "contraction" "bundle"
+                    "deduction" "atoms" "start" "depth"
+                    "lexicon" "let" "in" "sample" "observe"
+                    "marginalize" "return" "factor" "score"
+                    "export" "as" "over"
+                    "algebra" "semigroupoid" "bilinear_form"
+                    "rule"]
                    @font-lock-keyword-face)))
     (treesit-major-mode-setup)))
 (add-to-list 'auto-mode-alist '("\\.qvr\\'" . qvr-mode))
@@ -201,9 +202,9 @@ object K : FinSet 64
 object SD : Real 32
 object SK : Real 64
 
-morphism W : SD -> SK [role=latent] ~ MatrixNormal(0.0, 1.0, 1.0) over (dom, cod)
-morphism softmax_link : SK -> SK [role=kernel] ~ Normal [scale=0.1]
-program regression : SD -> SK [effects=[Sample, Score]]
+morphism W : SD -> SK [role=latent, over=[dom, cod]] ~ MatrixNormal(0.0, 1.0)
+morphism softmax_link : SK -> SK [role=kernel, scale=0.1] ~ Normal
+program regression : SD -> SK [effects = [Sample, Score]]
     let z = W >> softmax_link
     observe y : K <- Normal(z, 0.5)
     return y
@@ -211,6 +212,6 @@ program regression : SD -> SK [effects=[Sample, Score]]
 export regression
 ```
 
-When the highlighting is wired up, keywords (`object`, `space`, `latent`, `kernel`, `program`, `let`, `observe`, `return`, `export`), the `~`, `over`, and `<-` punctuation tokens, the family identifiers (`MatrixNormal`, `Normal`), and the comments (none here, but `#`-prefixed lines outside `program` bodies) all carry distinct colors.
+When the highlighting is wired up, keywords (`object`, `morphism`, `program`, `let`, `observe`, `return`, `export`), the option-block keys and the family-init sigil (`role=`, `over=`, `effects=`, `~`), the `<-` Kleisli-bind punctuation, the family identifiers (`MatrixNormal`, `Normal`), and the comments (none here, but `#`-prefixed lines anywhere in the file) all carry distinct colors.
 
 If a token is unhighlighted (rendered as default-foreground text), the corresponding rule in the editor's highlight query is the place to look; the canonical reference is [`grammars/qvr/queries/highlights.scm`](https://github.com/FACTSlab/quivers/blob/main/grammars/qvr/queries/highlights.scm).

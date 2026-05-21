@@ -38,14 +38,33 @@ The five error classes you'll see most often:
 
 `loads` returns a [`Program`](../../api/program.md), which is a `torch.nn.Module` wrapping a [`MonadicProgram`](../../api/continuous/programs.md). Both are inspectable:
 
-<!-- python: skip -->
 ```python
-program = loads(src)                # the regression from chapter 1
-print(program)                      # repr shows steps and types
-print(program.morphism.steps)       # list of compiled step records
-print(program.morphism.dom, "->", program.morphism.cod)
+import torch
+
+REGRESSION_SRC = """
+object Item : FinSet 100
+
+program regression : Item -> Item
+    sample sigma  <- HalfNormal(1.0)
+    sample beta_0 <- Normal(0.0, 5.0)
+    sample beta_1 <- Normal(0.0, 2.0)
+    let mu = beta_0 + beta_1 * x_design
+    observe y : Item <- Normal(mu, sigma)
+    return y
+
+export regression
+"""
+
+program = loads(REGRESSION_SRC)
+print(type(program).__name__)        # Program
+print(program.morphism._step_specs)  # list of compiled step records
+print(program.morphism.domain, "->", program.morphism.codomain)
 for name, p in program.named_parameters():
     print(name, p.shape)
+
+torch.manual_seed(0)
+x_data = torch.randn(100)
+y_data = 1.5 + 2.7 * x_data + 0.3 * torch.randn(100)
 ```
 
 Each step has a `name`, an `inputs` tuple (names it depends on), and a `family` or `transform` it dispatches to. Reading this list is the fastest way to see what the compiler actually built.
@@ -54,7 +73,6 @@ Each step has a `name`, an `inputs` tuple (names it depends on), and a `family` 
 
 [`trace`](../../api/inference/trace.md) runs the program forward once and records the value and log-density at every sample site:
 
-<!-- python: skip -->
 ```python
 from quivers.inference import trace
 
@@ -64,7 +82,7 @@ tr = trace(program.morphism, x, observations)
 
 for name, site in tr.sites.items():
     print(f"{name:12s} value.shape={tuple(site.value.shape)} "
-          f"log_density={site.log_density.item():.2f}")
+          f"log_prob={site.log_prob.sum().item():.2f}")
 ```
 
 If a log-density comes back `nan` or `-inf`, you have a numerical failure at that site. The usual causes:
@@ -79,11 +97,21 @@ If a log-density comes back `nan` or `-inf`, you have a numerical failure at tha
 
 During the SVI loop, print per-step ELBO and gradient norms:
 
-<!-- python: skip -->
 ```python
-for step in range(2000):
+from quivers.inference import AutoNormalGuide, ELBO, SVI
+
+model = program.morphism
+guide = AutoNormalGuide(model, observed_names={"y", "x_design"})
+elbo = ELBO(num_particles=1)
+optimizer = torch.optim.Adam(
+    list(model.parameters()) + list(guide.parameters()), lr=1e-2,
+)
+svi = SVI(model, guide, optimizer, elbo)
+x_tensor = torch.zeros(1, 1)
+
+for step in range(20):                # bump to ~2000 for a real fit
     loss = svi.step(x_tensor, observations)
-    if step % 100 == 0:
+    if step % 5 == 0:
         total_grad = sum(
             p.grad.norm().item() ** 2
             for p in guide.parameters() if p.grad is not None
@@ -121,7 +149,7 @@ The full diagnostic semantics live in the [inference guide](../../guides/inferen
 When a fit is misbehaving, follow this order:
 
 1. Run `trace(model, inputs, observations)` and confirm no site returns a `nan` or `-inf` log-density.
-2. Print `program.morphism.steps` and verify the compiled steps match what you wrote.
+2. Print `program.morphism._step_specs` and verify the compiled steps match what you wrote.
 3. Run a short SVI for 100 steps with prints every 10 steps; the ELBO trajectory tells you whether the guide can fit at all.
 4. If SVI looks reasonable but the posterior means are off, switch to NUTS and check `result.r_hat` and `result.total_divergences`.
 5. If NUTS reports divergences on a hierarchical model, reparameterise centered to non-centered ([QVR chapter 3](../qvr/03-hierarchical.md)).

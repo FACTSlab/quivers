@@ -15,10 +15,19 @@ quivers provides a hierarchy of standard spaces:
 ```
 ContinuousSpace (abstract)
 ├── Euclidean         R^n with Lebesgue measure
-├── UnitInterval      (0, 1) with Lebesgue measure
-├── Simplex           standard n-simplex {x in R^(n+1) : x >= 0, sum x = 1}
+├── UnitInterval      (0, 1) with Lebesgue measure (defined via Euclidean)
+├── Simplex           {x in R^dim : x >= 0, sum x = 1}
 ├── PositiveReals     (0, inf) with Lebesgue measure
-└── ProductSpace      product of spaces
+├── CholeskyFactor    K x K lower-triangular Cholesky factors with unit-norm rows
+├── ProductSpace      Cartesian product of spaces (and discrete objects)
+├── Sphere            unit sphere S^{N-1} in R^N
+├── Ball              closed ball of radius r in R^N
+├── Covariance        cone of D x D symmetric positive-definite matrices
+├── Correlation       D x D correlation matrices (unit diagonal, PD)
+├── Orthogonal        orthogonal group O(D)
+├── Stiefel           Stiefel manifold V_K(R^N) of N x K orthonormal-column matrices
+├── LowerTriangular   D x D lower-triangular matrices
+└── Diagonal          D x D diagonal matrices (identified with R^D)
 ```
 
 ### Euclidean space
@@ -150,9 +159,9 @@ assert fg.codomain == f.codomain * g.codomain  # R^2 x (0,1)
 
 ## Discrete / continuous boundary
 
-### DiscreteAsContinuous: embed a discrete morphism
+### Embed: embed a discrete domain into a continuous codomain
 
-Embed a discrete morphism (finite set) as continuous:
+Embed a finite-set value into a continuous space:
 
 ```python
 import torch

@@ -196,7 +196,7 @@ explicit `{ ... }` body can be replaced by a factory invocation:
 <!-- compile: false -->
 ```qvr
 encoder rnn_enc : seq [factory=rnn_encoder, dim=128]
-encoder tfm_enc : seq [factory=transformer_encoder, dim=256, heads=8]
+encoder tfm_enc : seq [factory=transformer_encoder, dim=256]
 encoder bow_enc : seq [factory=bow_encoder]
 encoder tree : lf [factory=tree_lstm_encoder]
 encoder graph : mol [factory=gnn_encoder]
@@ -216,7 +216,7 @@ The factory signatures and what they produce:
 | Factory | Signature | What it builds |
 |---|---|---|
 | `rnn_encoder(sig, dim)` | sequence signature | GRU-cell right-fold over the chain |
-| `transformer_encoder(sig, dim, heads)` | sequence signature | Multi-head self-attention with a head + tail-projection MLP |
+| `transformer_encoder(sig, dim)` | sequence signature | Per-`Cons` head + tail-projection MLP over their concatenation |
 | `bow_encoder(sig, dim)` | sequence signature | Order-independent sum over chain elements |
 | `tree_lstm_encoder(sig, dim)` | tree signature | Child-sum binary-tree LSTM ([Tai et al. 2015](https://doi.org/10.48550/arXiv.1503.00075)) |
 | `gnn_encoder(sig, iterations, dim, readout)` | graph signature | Per-edge-kind message MLP, per-vertex-kind GRU update, mean / sum / max readout |

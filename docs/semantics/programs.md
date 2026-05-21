@@ -351,7 +351,7 @@ $$
 
 where $h : \Phi \to \mathbb{R}$ is the measurable map denoted by `expr` (which must denote a scalar log-density). The trace context is extended with the named coordinate, and the total mass of the resulting sub-probability measure is multiplied by $\exp(h(\phi))$.
 
-Score is the Kleisli pendant of [observe](#22-observe), with the log-density supplied directly by an expression rather than via a family's `log_prob` against an externally-supplied observed value. The canonical use is to lift an arbitrary differentiable tensor expression (typically a deduction's chart goal weight, see [Weighted Deduction Fragment §10](grammar.md#10-chart-access-from-program-bodies)) into the program's log-joint. In particular, with $\mathit{expr} = \mathit{chart}.\mathsf{goal\_weight}()$ the program's log-joint matches the sentence's inside log-marginal under the referenced deduction.
+Score is the Kleisli pendant of [observe](#22-observe), with the log-density supplied directly by an expression rather than via a family's `log_prob` against an externally-supplied observed value. The canonical use is to lift an arbitrary differentiable tensor expression (typically a deduction's chart goal weight, see [Weighted Deduction Fragment §9](grammar.md#9-chart-access-from-program-bodies)) into the program's log-joint. In particular, with $\mathit{expr} = \mathit{chart}.\mathsf{goal\_weight}()$ the program's log-joint matches the sentence's inside log-marginal under the referenced deduction.
 
 The effect contributed by a score step is $\mathsf{Score}$ (the same as `observe`), and the soundness condition $\mathcal{E}(P) \subseteq \mathcal{E}_{\mathrm{decl}}$ in [§2.8](#28-effect-signatures) applies unchanged.
 

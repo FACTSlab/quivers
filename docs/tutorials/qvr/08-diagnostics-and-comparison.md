@@ -6,33 +6,53 @@ Fitting a model is half the workflow. The other half is asking whether the fit c
 
 ArviZ's lingua franca is an [`xarray.DataTree`](https://docs.xarray.dev/en/stable/generated/xarray.DataTree.html) with named groups: `posterior`, `sample_stats`, `posterior_predictive`, `log_likelihood`, `observed_data`, `constant_data`. [`to_datatree`](../../api/diagnostics/index.md) converts an [`MCMCResult`](../../api/inference/predictive.md) into that tree. Once you have the tree, every ArviZ entry point works out of the box.
 
-<!-- python: skip -->
 ```python
 import torch
 from quivers.dsl import loads
 from quivers.inference import NUTSKernel, MCMC, Predictive
 from quivers.diagnostics import to_datatree
 
-program = loads(open("regression.qvr").read())
-model   = program.morphism
+REGRESSION_SRC = """
+object Item : FinSet 100
+
+program regression : Item -> Item
+    sample sigma  <- HalfNormal(1.0)
+    sample beta_0 <- Normal(0.0, 5.0)
+    sample beta_1 <- Normal(0.0, 2.0)
+    let mu = beta_0 + beta_1 * x_design
+    observe y : Item <- Normal(mu, sigma)
+    return y
+
+export regression
+"""
+
+program = loads(REGRESSION_SRC)
+model = program.morphism
 
 torch.manual_seed(0)
 x_data = torch.randn(100)
 y_data = 1.5 + 2.7 * x_data + 0.3 * torch.randn(100)
 
 kernel = NUTSKernel(target_accept=0.9)
-mcmc   = MCMC(kernel, num_warmup=500, num_samples=1000, num_chains=4)
+# Small budget for documentation; bump warmup/samples for real fits.
+mcmc = MCMC(kernel, num_warmup=50, num_samples=100, num_chains=2)
 result = mcmc.run(model, torch.zeros(1, 1),
                   {"x_design": x_data, "y": y_data})
 
-# Posterior-predictive draws conditional on the fit.
-predictive = Predictive(model, posterior=result, num_samples=1000)
+# Posterior-predictive draws conditional on the fit. Reshape
+# ``(num_samples, plate)`` into ``(num_chains, num_samples_per_chain,
+# plate)`` for the ArviZ convention.
+n_chains, n_per_chain = result.num_chains, result.num_samples
+predictive = Predictive(
+    model, posterior=result, num_samples=n_chains * n_per_chain,
+)
 ppc = predictive(torch.zeros(1, 1), {"x_design": x_data})
+pp_y = ppc["y"].reshape(n_chains, n_per_chain, 100)
 
 tree = to_datatree(
     result,
     observed_data={"y": y_data},
-    posterior_predictive={"y": ppc["y"]},
+    posterior_predictive={"y": pp_y},
     constant_data={"x_design": x_data},
     coords={"Item": list(range(100))},
     dims={"y": ["Item"]},
@@ -43,7 +63,6 @@ The `coords` and `dims` arguments are optional but useful: they let ArviZ label 
 
 ## Convergence diagnostics
 
-<!-- python: skip -->
 ```python
 import arviz as az
 
@@ -78,12 +97,11 @@ az.plot_ppc(tree, var_names=["y"], num_pp_samples=200)
 
 For numeric statistics, quivers ships [`posterior_predictive_check`](../../api/diagnostics/index.md) for a quick scalar comparison:
 
-<!-- python: skip -->
 ```python
 from quivers.diagnostics import posterior_predictive_check
 
 result_dict = posterior_predictive_check(
-    tree, var_name="y", statistic="mean",
+    tree, observed_name="y", statistic="mean",
 )
 print(result_dict)            # observed, posterior mean, p-value
 ```
