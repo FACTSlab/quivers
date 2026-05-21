@@ -19,17 +19,16 @@ the template's body, so call sites contribute distinct latents.
 
 <!-- compile: false -->
 ```qvr
-object Subject : 200
-object Verb : 100
-object Resp : 5000
-
+object Subject : FinSet 200
+object Verb : FinSet 100
+object Resp : FinSet 5000
 program random_intercepts (G : FinSet, scale : Real) : G -> 1
-    sigma <- HalfNormal(scale)
-    v : G <- Normal(0.0, sigma)
+    sample sigma <- HalfNormal(scale)
+    sample v : G <- Normal(0.0, sigma)
     return v
 
 program crossed : Resp -> Resp
-    intercept <- Normal(0.0, 1.0)
+    sample intercept <- Normal(0.0, 1.0)
 
     by_subject <- random_intercepts(Subject, 1.0)
     by_verb    <- random_intercepts(Verb,    1.0)
@@ -46,7 +45,7 @@ supplied via `observations={"response": response_tensor}`. Monotone
 ordinal effects are expressed as `cumsum` of `HalfNormal`
 increments (positive support implies monotone partial sums);
 discrete latent classes are integrated out with a scoped
-`marginalize ... in { ... }` block.
+`marginalize ...` step followed by an indented body.
 
 The plate-draw, vectorized-observe, parametric-program, and
 `marginalize` constructs compose into the standard hierarchical
@@ -68,13 +67,10 @@ log-likelihoods are scatter-summed into a single $(|G|, K)$
 accumulator before the log-sum-exp over the class axis:
 
 ```
-marginalize class : K <- Categorical(probs)
-    over G
-    in {
-        observe r_a : Resp_a via idx_a <- F_a(...)
-        observe r_b : Resp_b via idx_b <- F_b(...)
-        ...
-    }
+marginalize class : K <- Categorical(probs) [over=G]
+    observe r_a : Resp_a <- F_a(...) [via=idx_a]
+    observe r_b : Resp_b <- F_b(...) [via=idx_b]
+    ...
 ```
 
 The block contributes
@@ -130,11 +126,12 @@ the formal denotation and
 
 ## End-to-end fit
 
+<!-- python: skip -->
 ```python
 from quivers.dsl import load
 from quivers.inference import ELBO, AutoNormalGuide, SVI
 
-program = load("crossed.qvr")
+program = load("docs/examples/source/crossed.qvr")
 model = program.morphism  # underlying MonadicProgram
 observations = {"response": response_tensor}
 

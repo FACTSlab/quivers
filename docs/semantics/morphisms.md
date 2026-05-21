@@ -2,12 +2,35 @@
 
 This page assigns denotations to the three QVR morphism strata (discrete $\mathcal{V}$-enriched, stochastic, and continuous) and to the structural transitions between them. Throughout, we fix an algebra $\mathcal{V}$ as in [Setting and notation](setting.md).
 
+## 0. The unified `morphism` declaration
+
+Every morphism, kernel, latent, observed, embed, and discretize binding ships through a single declaration form
+
+```
+morphism f : DOM -> COD [k = v, ...] [~ INIT]
+```
+
+with the *role* selected by the option block:
+
+| `role=...` | Stratum                                    | Initialiser admitted | Default initialiser |
+|------------|--------------------------------------------|----------------------|----------------------|
+| `latent`   | learnable parameter on the source category | `~ Family(...)`      | Normal prior on raw logits |
+| `kernel`   | parameter-driven distribution-family kernel | `~ Family(...)`      | family-specific      |
+| `observed` | fixed-data morphism                         | `~ expr`             | required             |
+| `embed`    | section of a discretization                 | `~ Family(...)` (sample-from-cell) | family-specific |
+| `discretize` | quotient kernel                           | `~ expr` (partition) | uniform-quantile     |
+| `let`      | deterministic morphism (alias for `~ expr`) | `~ expr`             | required             |
+
+Other option-block keys carry per-role configuration: `scale` (initial parameter scale for `latent` and `kernel`), `init` (named initialisation regime), `bins` (`discretize`), `replicate=N` (allocate $N$ independently-parameterised copies under names `f_0, …, f_{N-1}` with a group binding $f$), and the axis-role keys (`over`, `iid`) consumed by the family-prior surface of §6.
+
+The remainder of this page uses the legacy keyword form (`latent`, `kernel`, `embed`) when illustrating individual strata; every snippet desugars to the unified form by `morphism f : … [role=KIND, …]`.
+
 ## 1. Discrete $\mathcal{V}$-enriched morphisms
 
 A discrete morphism declaration
 
 ```
-latent f : τ₁ -> τ₂
+morphism f : τ₁ -> τ₂ [role=latent]
 ```
 
 denotes a morphism of $\mathcal{V}\text{-}\mathbf{Rel}$:
@@ -185,11 +208,13 @@ The pair $(d, e)$ is a *retraction* in the categorical sense; it is not generall
 
 Each registered family carries a declared *event rank* $r_F \in \mathbb{N}$.
 
-| Event rank | Family examples | Event shape |
+| Event rank | Family names | Event shape |
 |---|---|---|
-| 0 | `Normal`, `Beta`, `Gamma`, `Exponential`, `Bernoulli`, … | $\mathbb{R}$ (scalar) |
-| 1 | `MultivariateNormal`, `LowRankMVN`, `Dirichlet`, `OneHotCategorical`, `RelaxedOneHotCategorical`, `LogisticNormal`, `GP`, `Horseshoe` | $\mathbb{R}^{d}$ for a single named axis |
-| 2 | `Wishart`, `InverseWishart`, `MatrixNormal`, `LKJCholesky` | $\mathbb{R}^{d_1 \times d_2}$ for two named axes |
+| 0 | `Normal`, `LogitNormal`, `Beta`, `TruncatedNormal`, `Uniform`, `Bernoulli`, `RelaxedBernoulli`, `Binomial`, `Categorical`, `OneHotCategorical`, `GeneralizedPareto`; inline-only: `HalfCauchy`, `HalfNormal`, `LogNormal`, `Exponential`, `Gamma` | $\mathbb{R}$ (scalar) |
+| 1 | `MultivariateNormal`, `LowRankMVN`, `Dirichlet`, `LogisticNormal`, `RelaxedOneHotCategorical`, `GP`, `Horseshoe` | $\mathbb{R}^{d}$ for a single named axis |
+| 2 | `Wishart`, `LKJCholesky` | $\mathbb{R}^{d_1 \times d_2}$ for two named axes |
+
+The first group splits into *fully-parametric* families (`_register_family` in [`quivers.continuous.families`](../api/continuous/families.md)) and *inline-only* families (`_FAMILY_BUILDERS` in [`quivers.continuous.inline`](../api/continuous/inline.md)). Inline-only families are usable in `sample x <- Family(args)` site forms inside program bodies but cannot be the `~ Family(...)` initialiser of a `[role=kernel]` or `[role=latent]` morphism declaration. Both groups go through the same family-registry lookup at sample-time, so the parameter map, support, and `log_prob` semantics are uniform.
 
 A distribution clause `~ F(args) over <axes> [iid over <axes>]` *configures* the event–batch decomposition of a $F$-valued draw. Concretely, for a morphism $f : A \to B$ whose representing tensor has shape $\prod_{i} d_i$ indexed by the named factors $\{a_1, \dots, a_m\}$ of $A$ and $\{b_1, \dots, b_n\}$ of $B$, the clause names a sub-multiset $E \subseteq \{a_i\} \cup \{b_j\}$ of cardinality $|E| = r_F$ and declares:
 
@@ -212,7 +237,7 @@ The `dom` and `cod` shortcuts are legal in $E$ only when the corresponding side 
 The discrete morphism declaration of §1 extends with a *parameter prior* via the `~ Family(args) [axis_role_clause]` clause:
 
 ```
-latent f : τ₁ -> τ₂ ~ Family(args) [over <axes> [iid over <axes>]]
+morphism f : τ₁ -> τ₂ [role=latent] ~ Family(args) [over <axes> [iid over <axes>]]
 ```
 
 The clause declares that the representing tensor of $f$ is itself a random variable drawn from the named family at the requested axis-role configuration. Concretely, the denotation desugars to the composite

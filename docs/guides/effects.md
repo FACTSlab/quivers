@@ -81,7 +81,13 @@ Each lift is a real `SchemaDecl` and feeds into the existing
 consumes lifted and base schemas uniformly.
 
 ```python
-from quivers.dsl.ast_nodes import SchemaDecl, TypeName, TypeProduct, TypeSlash
+from quivers.dsl.ast_nodes import (
+    SchemaDecl,
+    SchemaParameter,
+    TypeName,
+    ObjectProduct,
+    ObjectSlash,
+)
 from quivers.monadic.instances import Continuation, Alternative_
 from quivers.stochastic.effect_lifts import class_directed_lifts
 from quivers.core.objects import FinSet
@@ -90,20 +96,21 @@ S = FinSet(name="S", cardinality=2)
 
 forward_app = SchemaDecl(
     name="forward_app",
-    parameter_names=(("X", "Y"),),
-    parameter_types=(TypeName(name="Cat"),),
-    domain=TypeProduct(components=(
-        TypeSlash(result=TypeName(name="X"), argument=TypeName(name="Y"), direction="/"),
+    parameters=(
+        SchemaParameter(names=("X", "Y"), type_expr=TypeName(name="Cat")),
+    ),
+    domain=ObjectProduct(components=(
+        ObjectSlash(result=TypeName(name="X"), argument=TypeName(name="Y"), direction="/"),
         TypeName(name="Y"),
     )),
     codomain=TypeName(name="X"),
 )
 
 cont_lifts = class_directed_lifts(forward_app, Continuation(answer=S))
-# -> 3 lifts: pure_Continuation, apply_Continuation, bind_Continuation
+# 3 lifts: pure_Continuation, apply_Continuation, bind_Continuation
 
 alt_lifts = class_directed_lifts(forward_app, Alternative_())
-# -> 4 lifts: pure_Alternative, apply_Alternative, bind_Alternative, alt_Alternative
+# 4 lifts: pure_Alternative, apply_Alternative, bind_Alternative, alt_Alternative
 ```
 
 ## Algebraic effects + handlers
@@ -122,7 +129,7 @@ construction:
   Equivalently: a panproto theory morphism from
   `signature.to_theory()` into the target monad's theory.
 
-Handlers compose with a `deduction { … }` block to produce parsers
+Handlers compose with a `deduction` block to produce parsers
 that interpret their effect-typed denotation through registered
 handlers, ending in an effect-pure target.
 
@@ -165,15 +172,10 @@ the joint search space.
 The example file `docs/examples/source/quantifier_scope.qvr`
 illustrates a Bumford & Charlow-style scope-taking grammar:
 
-```qvr
-object Term : 16
-
-deduction QScope : Term -> Term {
-    atoms {
-        S, NP, N, VP, PP,
-        Fwd, Bwd, Cont,
-        span
-    }
+```text
+object Term : FinSet 16
+deduction QScope : Term -> Term [semiring=LogProb, start=S, depth=6]
+    atoms S, NP, N, VP, PP, Fwd, Bwd, Cont, span
 
     # Base forward / backward application.
     rule fwd_app
@@ -199,11 +201,6 @@ deduction QScope : Term -> Term {
     rule scope_take
         : span(I, K, Cont(A)), span(K, J, Bwd(B, A))
         |- span(I, J, Cont(B))
-
-    semiring  LogProb
-    start     S
-    depth     6
-}
 ```
 
 In production code, the lifted schemas (`apply_Cont_fwd`,

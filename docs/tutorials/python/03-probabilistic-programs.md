@@ -22,8 +22,8 @@ The third source of names is *host data*: tensors supplied at runtime through th
 - **Let step**: Deterministic transformation of prior variables
 - **Indexed bind (plate)**: An indexed plate of independent draws (`v : A <- F(args)`)
 - **Indexed observe**: A batched-likelihood step reading from a runtime `observations` dict (`observe r : N <- F(args)`)
-- **Scoped marginalize**: Log-sum-exp pushforward over a latent coordinate (`marginalize c : A <- F(args) in { … }`)
-- **Effect signature**: A program's capability set declared after `!` (subset of `{Sample, Score, Marginal, Pure}`); the compiler verifies actual body effects are a subset
+- **Scoped marginalize**: Log-sum-exp pushforward over a latent coordinate (`marginalize c : A <- F(args)` followed by an indented body)
+- **Effect signature**: A program's capability set declared in the option block as `[effects=[Sample, Score, Marginal, Pure]]`; the compiler verifies actual body effects are a subset
 - **Parametric program**: A typed-parameter template inlined per call site as fresh latents
 - **Log-probability**: The log of the joint density
 

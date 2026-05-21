@@ -10,19 +10,16 @@ Each observation comes from one of two Gaussian clusters; we don't know which.
 
 === "QVR"
 
-    ```qvr
-    object Item : 500
-    object K    : 2
-
-    program gmm : Item -> Item ! Sample, Score, Marginal
-        probs : K <- HalfNormal(1.0)
-        mu_k  : K <- Normal(0.0, 5.0)
-        sd_k  : K <- HalfNormal(1.0)
+    ```text
+    object Item : FinSet 500
+    object K : FinSet 2
+    program gmm : Item -> Item [effects=[Sample, Score, Marginal]]
+        sample probs : K <- HalfNormal(1.0)
+        sample mu_k  : K <- Normal(0.0, 5.0)
+        sample sd_k  : K <- HalfNormal(1.0)
 
         marginalize z : K <- Dirichlet(probs)
-            in {
-                observe y : Item <- Normal(mu_k[z], sd_k[z])
-            }
+            observe y : Item <- Normal(mu_k[z], sd_k[z])
         return y
 
     export gmm
@@ -66,9 +63,9 @@ Each observation comes from one of two Gaussian clusters; we don't know which.
     }
     ```
 
-The `marginalize z : K <- Categorical(probs) in { ... }` block is exactly the Stan `log_sum_exp` pattern, expressed once and instantiated for every row of the response. The `! Marginal` effect annotation makes the marginalization visible at the program signature.
+The `marginalize z : K <- Categorical(probs)` block, with its body of observe steps indented underneath, is exactly the Stan `log_sum_exp` pattern, expressed once and instantiated for every row of the response. The `effects=[Marginal]` entry in the option block makes the marginalization visible at the program signature.
 
-## Fitting the mixture
+#! Fitting the mixture
 
 (See [`docs/examples/source/mixture_model.qvr`](../../examples/source/mixture_model.qvr) for the full end-to-end version with grouped marginalisation and the `factor` patterns needed to drive the body. The snippet below shows the shape of the fit; for a running version copy from the example.)
 
@@ -79,18 +76,16 @@ from quivers.dsl import loads
 from quivers.inference import AutoNormalGuide, ELBO, SVI
 
 GMM_SRC = """
-object Item : 500
+object Item : FinSet 500
 object K    : 2
 
-program gmm : Item -> Item ! Sample, Score, Marginal
-    probs : K <- HalfNormal(1.0)
-    mu_k  : K <- Normal(0.0, 5.0)
-    sd_k  : K <- HalfNormal(1.0)
+program gmm : Item -> Item
+    sample probs : K <- HalfNormal(1.0)
+    sample mu_k  : K <- Normal(0.0, 5.0)
+    sample sd_k  : K <- HalfNormal(1.0)
 
     marginalize z : K <- Dirichlet(probs)
-        in {
-            observe y : Item <- Normal(mu_k[z], sd_k[z])
-        }
+        observe y : Item <- Normal(mu_k[z], sd_k[z])
     return y
 
 export gmm
@@ -123,34 +118,30 @@ The `marginalize` block is integrated out exactly at every SVI step, so the grad
 
 Suppose each observation belongs to one of `G` groups, and the categorical mixture proportions vary by group. The marginalization has to respect group membership: the log-likelihood over the discrete latent gets aggregated *per group*, not per row. The `marginalize` header declares the grouping plate (`over G`); each observe inside the body carries its own `via <idx>` clause naming the fibration from its response plate into the grouping plate.
 
-```qvr
-object Item : 1000
-object G    : 20
-object K    : 3
+```text
+object Item : FinSet 1000
+object G : FinSet 20
+object K : FinSet 3
+program grouped_mixture : Item -> Item [effects=[Sample, Score, Marginal]]
+    sample group : Item <- HalfNormal(1.0)
+    sample probs : G    <- HalfNormal(1.0)
+    sample mu_k  : K    <- Normal(0.0, 5.0)
+    sample sd_k  : K    <- HalfNormal(1.0)
 
-program grouped_mixture : Item -> Item ! Sample, Score, Marginal
-    group : Item <- HalfNormal(1.0)
-    probs : G    <- HalfNormal(1.0)
-    mu_k  : K    <- Normal(0.0, 5.0)
-    sd_k  : K    <- HalfNormal(1.0)
-
-    marginalize z : K <- Categorical(probs)
-        over G
-        in {
-            observe y : Item via group <- Normal(mu_k[z], sd_k[z])
-        }
+    marginalize z : K <- Categorical(probs) [over=G]
+        observe y : Item <- Normal(mu_k[z], sd_k[z]) [via=group]
     return y
 
 export grouped_mixture
 ```
 
-The `over G` clause on the header declares the grouping plate; the `via group` clause on the observe says "every row of `y` is fibred over G by `group`, and the marginalization is per group, not per row." The `group : Item <- HalfNormal(1.0)` line names a per-row fibration into `G`: today the DSL doesn't have a dedicated fibration declaration, so the canonical idiom is to declare it as if it were a per-row latent and then supply the integer indices through the observations dict at fit time (cf. `docs/examples/source/mixture_model.qvr`). The block contributes
+The `[over=G]` entry on the marginalize step's option block declares the grouping plate; the `[via=group]` entry on each observe says "every row of `y` is fibred over `G` by `group`, and the marginalization is per group, not per row." The `group : Item <- HalfNormal(1.0)` line names a per-row fibration into `G`: today the DSL doesn't have a dedicated fibration declaration, so the canonical idiom is to declare it as if it were a per-row latent and then supply the integer indices through the observations dict at fit time (cf. `docs/examples/source/mixture_model.qvr`). The block contributes
 
 $$
 \sum_{g \in G}\ \log\!\sum_{k=1}^{K}\exp\!\left[\log \pi_{g,k} + \sum_{n:\ \mathrm{group}(n)=g}\ \log f(y_n \mid \mu_k, \sigma_k)\right]
 $$
 
-to the log-density, which is the right Kan extension along the fibration `Item -> G` and matches Stan's `target += log_mix(probs[g], ll_item[i])` accumulation. A grouped block can contain multiple observes, each with its own `via <idx>` clause, when several heterogeneous response axes share the same per-group class indicator; the per-axis log-likelihoods scatter-sum into the same `(|G|, K)` accumulator before the log-sum-exp.
+to the log-density, which is the right Kan extension along the fibration `Item -> G` and matches Stan's `target += log_mix(probs[g], ll_item[i])` accumulation. A grouped block can contain multiple observes, each with its own `[via=<idx>]` entry, when several heterogeneous response axes share the same per-group class indicator; the per-axis log-likelihoods scatter-sum into the same `(|G|, K)` accumulator before the log-sum-exp.
 
 ## When to marginalize vs sample
 

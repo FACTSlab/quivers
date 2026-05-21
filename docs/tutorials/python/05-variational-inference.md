@@ -165,7 +165,7 @@ posterior_samples = guide.rsample(x)
 print(posterior_samples)  # dict: {"z": tensor, ...}
 
 posterior_z = posterior_samples["z"]
-print(posterior_z.shape)  # [4, 1]
+print(posterior_z.shape)  # [4]
 ```
 
 Compute the guide's log-probability:
@@ -211,7 +211,7 @@ The [`SVI`](../../api/inference/svi.md) object pairs:
 Run inference to optimize the guide's parameters:
 
 ```python
-num_steps = 50
+num_steps = 5
 losses = []
 
 # Prepare observed data
@@ -269,7 +269,7 @@ posterior_samples = predictive(x_new)
 
 print(posterior_samples.keys())  # dict with z and y
 z_posterior = posterior_samples["z"]
-print(z_posterior.shape)  # [100, 1, 1] (num_samples, batch, dim)
+print(z_posterior.shape)  # [100, 1] (num_samples, batch)
 ```
 
 Analyze the posterior:
@@ -313,17 +313,17 @@ The same pattern extends to complex models. For instance, with the PDS model fro
 from quivers.dsl import loads
 
 prog_pds = loads("""
-object Entity : 1
-object Truth : 2
-object Resp : 1
+object Entity : FinSet 1
+object Truth : FinSet 2
+object Resp : FinSet 1
 
 program factivity : Entity -> Truth * Truth * Truth * Resp
-    theta_know <- LogitNormal(0.0, 1.0)
-    theta_cg <- LogitNormal(0.0, 1.0)
+    sample theta_know <- LogitNormal(0.0, 1.0)
+    sample theta_cg <- LogitNormal(0.0, 1.0)
     let cg_complement = 1
-    tau_know <- Bernoulli(theta_know)
-    cg_matrix <- Bernoulli(theta_cg)
-    sigma <- Uniform(0.0, 1.0)
+    sample tau_know <- Bernoulli(theta_know)
+    sample cg_matrix <- Bernoulli(theta_cg)
+    sample sigma <- Uniform(0.0, 1.0)
     observe response <- TruncatedNormal(theta_know, sigma, 0.0, 1.0)
     return (tau_know, cg_complement, cg_matrix, response)
 """)

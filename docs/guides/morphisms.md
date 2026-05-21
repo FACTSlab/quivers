@@ -52,6 +52,7 @@ assert list(f.module().parameters()) == []  # no learnable params
 A learnable morphism parameterized by a weight matrix, with sigmoid output to ensure values in $(0, 1)$. Construct with `morphism()`:
 
 ```python
+from quivers.core.objects import FinSet
 from quivers.core.morphisms import morphism
 
 X = FinSet(name="X", cardinality=3)
@@ -117,7 +118,13 @@ assert pipeline.tensor.shape == (3, 5)
 Compositions must have compatible algebras:
 
 ```python
+from quivers.core.objects import FinSet
+from quivers.core.morphisms import morphism
 from quivers.core.algebras import BOOLEAN, GodelAlgebra
+
+X = FinSet(name="X", cardinality=3)
+Y = FinSet(name="Y", cardinality=4)
+Z = FinSet(name="Z", cardinality=2)
 
 f_bool = morphism(X, Y, algebra=BOOLEAN)
 g_godel = morphism(Y, Z, algebra=GodelAlgebra())
@@ -133,6 +140,7 @@ except TypeError as e:
 
 The tensor (or parallel) product $f \otimes g$ combines two morphisms $f: A \to B$ and $g: C \to D$ into a morphism $f \otimes g: A \times C \to B \times D$. The tensor is the outer product via the algebra's $\otimes$:
 
+<!-- python: skip -->
 ```python
 A = FinSet(name="A", cardinality=2)
 B = FinSet(name="B", cardinality=3)

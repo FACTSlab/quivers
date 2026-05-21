@@ -68,13 +68,13 @@ Inspect the QVR program the formula compiled to:
 print(result.qvr_source)
 ```
 
-```qvr
-object Resp : 200
+```text
+object Resp : FinSet 200
 program model : Resp -> Resp
-    intercept <- Normal(0.0, 5.0)
-    beta_x <- Normal(0.0, 5.0)
+    sample intercept <- Normal(0.0, 5.0)
+    sample beta_x <- Normal(0.0, 5.0)
     let beta_x_per_row = (beta_x * x)
-    sigma <- HalfCauchy(2.0)
+    sample sigma <- HalfCauchy(2.0)
     let eta = (intercept + beta_x_per_row)
     let mu = eta
     observe y : Resp <- Normal(mu, sigma)
@@ -142,17 +142,17 @@ result = fit(
 print(result.qvr_source)
 ```
 
-```qvr
-object Resp : 96
-object g : 8
+```text
+object Resp : FinSet 96
+object g : FinSet 8
 program model : Resp -> Resp
-    intercept <- Normal(0.0, 5.0)
-    beta_x <- Normal(0.0, 5.0)
+    sample intercept <- Normal(0.0, 5.0)
+    sample beta_x <- Normal(0.0, 5.0)
     let beta_x_per_row = (beta_x * x)
-    sigma_g_Intercept <- HalfNormal(1.0)
-    z_g_Intercept : g <- Normal(0.0, 1.0)
+    sample sigma_g_Intercept <- HalfNormal(1.0)
+    sample z_g_Intercept : g <- Normal(0.0, 1.0)
     let alpha_g_per_row = (sigma_g_Intercept * z_g_Intercept[g_idx])
-    sigma <- HalfCauchy(2.0)
+    sample sigma <- HalfCauchy(2.0)
     let eta = ((intercept + beta_x_per_row) + alpha_g_per_row)
     let mu = eta
     observe y : Resp <- Normal(mu, sigma)

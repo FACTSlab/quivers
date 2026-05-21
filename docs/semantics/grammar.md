@@ -11,7 +11,7 @@ guide; this page gives the formal denotation.
 ## 1. Item algebra
 
 A `deduction` block fixes a single item algebra `I` via the
-`atoms { … }` field. The atoms are the closed set of nullary and
+`atoms NAME, NAME, ...` clause. The atoms are the closed set of nullary and
 parametric constructor symbols; an item `i ∈ I` is a constructor
 application `c(a_1, …, a_n)` with `c` an atom and `a_1, …, a_n`
 arbitrary nested items. Concretely, `I` is the free algebra over
@@ -38,14 +38,91 @@ $$
 
 over substitutions `[\bar X / \bar\pi]` for the rule's free pattern
 variables. The hyperedge carries a log-weight `β_r ∈ K` for the
-declared semiring `K` (zero by default, learnable per axiom-source
-entry).
+declared semiring `K`.
 
 The collection of all rules forms a rule system
 `Σ : I^{op} × I → K-Vect` assigning to each pair `(i, i')` the
 `K`-module spanned by `Σ`-derivations `i ⊢ i'`. Rules are
 hyperedges in the multicategory of items; the agenda fires each
 rule by substitution along a pattern morphism into the chart.
+
+### 2.1 Learnable rule weights (`#[learnable]`)
+
+A rule may carry a trailing pragma `#[learnable]`:
+
+```
+rule r : π_1, …, π_m |- π #[learnable]
+```
+
+Rather than the default constant log-weight $\beta_r$, the rule's
+contribution is a *bindings-keyed* family of learnable
+parameters: at each firing the matcher produces a binding map
+$\sigma : \mathrm{Vars}(r) \to I$ assigning each free pattern
+variable to a ground item, and the conclusion's weight becomes
+
+$$
+\beta_r(\sigma) \;=\; \otimes_{\ell=1}^{m} \alpha[\sigma(\pi_\ell)] \;\otimes\; \theta_{r, \sigma},
+$$
+
+where $\theta_{r, \sigma} \in K$ is a learnable scalar
+parameter allocated lazily on the first observation of the
+binding tuple $\sigma$ (one parameter per distinct $\sigma$
+observed at run time, keyed by a canonical string form of
+$\sigma$). The parameters live on a per-deduction `nn.Module`
+side-table that participates in the model's `.parameters()`.
+
+Two specialisations of the surface deserve explicit names:
+
+* When the rule's conclusion contains no free wildcards (every
+  binding has a unique ground value), $\theta_{r, \sigma}$
+  reduces to a single global rule weight $\theta_r$, recovering
+  the PCFG-style per-production weight.
+* When the rule's conclusion is wildcarded (e.g. `branch : ... |-
+  span(I, J, A)` with $A$ free), each distinct ground value of
+  the wildcard pulls a distinct parameter from the dictionary,
+  recovering the *partial-application weight* of [§2.2](#22-parent-rule-specialisation-parent).
+
+### 2.2 Parent rule specialisation (`parent=`)
+
+A rule may declare a *parent* via the `parent=` option in its
+pragma:
+
+```
+rule r' : π'_1, …, π'_m |- π' #[learnable, parent=r]
+```
+
+The conclusion weight then composes additively in the log semiring
+with the parent's bindings-keyed weight on the *same* bindings:
+
+$$
+\beta_{r'}(\sigma) \;=\; \otimes_\ell \alpha[\sigma(\pi'_\ell)]
+\;\otimes\; \theta_{r', \sigma}
+\;\otimes\; \theta_{r, \sigma}.
+$$
+
+The parent chain is acyclic and terminates at a non-parented
+rule. This recovers a *hierarchical* / *back-off* parametrisation
+in which the specialisation contributes a correction term over
+the parent's bindings-keyed weight without retraining the parent
+from scratch.
+
+### 2.3 Bounded rule weights (`bounded`)
+
+A learnable rule whose pragma additionally lists `bounded` is
+reparameterised to keep its surface log-weight non-positive:
+
+$$
+\theta_{r, \sigma} \;=\; -\mathrm{softplus}(\mathit{raw}_{r,\sigma}),
+$$
+
+so $\theta_{r, \sigma} \le 0$ for every binding. This is the
+correct parameterisation when the rule appears in a closed cycle
+of the deduction graph and the semiring is non-idempotent
+(`LogProb`, `Counting`, `Inside`): the cycle's accumulated
+log-weight is then bounded above by zero, the Kleene-star series
+$\sum_{n \ge 0} (\bigotimes^n \theta_{r, \sigma})$ converges, and
+the chart's fixed point is finite (see [§7](#7-strategy-independence)
+on convergence vs. divergence detection).
 
 ## 3. Semiring
 
@@ -61,28 +138,114 @@ The semiring field selects the scoring algebra `K`:
 The chart is enriched over `K`; the agenda enumerates derivations
 under `K`'s monoidal operations.
 
+## 3a. Binders and alpha-renaming
+
+A deduction may declare a `binders` block listing constructor
+names whose first argument is a *bound variable*:
+
+```
+deduction D : … {
+    atoms NP, S, Bwd, App, Var, bark
+    binders Lam
+    …
+}
+```
+
+For every $c \in \mathsf{binders}(D)$, an item of the form
+$c(x, t)$ denotes the same equivalence class as $c(y,
+t[x := y])$ for any fresh $y$. The lexicon-LF compiler enforces
+this *structurally* by alpha-renaming every binder application
+at construction time:
+
+$$
+c(x, t) \;\longmapsto\; c(\mathsf{fresh}, t[x := \mathsf{fresh}]),
+$$
+
+with $\mathsf{fresh}$ drawn from a per-deduction fresh-symbol
+pool. Two lexicon entries that both write `Lam(x, body)` in
+source therefore produce chart items with *distinct* canonical
+bound names, so the chart's structural identity on item tuples
+coincides with alpha-equivalence on the source terms.
+
+The compiler additionally collects every bound variable name
+appearing in any lexicon LF and extends the constructor set
+$\mathsf{atoms}(D)$ with those names for the duration of LF
+compilation, so the user need not duplicate them in `atoms`.
+References to a bound name inside a binder body resolve through
+the alpha-renamed canonical symbol.
+
+The compiler exposes capture-avoiding substitution as a
+[`let`-expression builtin](#103-let-expression-builtins) `subst(t,
+v, w)`: because every binder has been alpha-renamed to a unique
+canonical symbol at compile time, naive structural substitution
+is already capture-avoiding.
+
+## 3b. Item shape and pattern arity
+
+Span axioms emitted by an indented `lexicon` body carry the
+lexical category in their fourth slot and (when any rule
+references an LF binding, or the deduction declares a
+`binders` block) the logical form in their fifth slot:
+
+$$
+\mathsf{item} \;=\; (\mathsf{span}, i, j, \mathit{cat}) \quad\text{or}\quad
+(\mathsf{span}, i, j, \mathit{cat}, \mathit{lf}).
+$$
+
+The compiler detects whether the deduction *uses LFs* by
+scanning rule patterns for any 4-arity `span(I, J, C, F)`
+expression, and turns the LF slot on or off uniformly per
+deduction. Patterns of the shorter form `span(I, J, C)` are
+auto-extended at compile time with a fresh LF wildcard so both
+surface forms match the same chart shape; this preserves
+backwards compatibility for LF-free deductions while enabling
+the LF-binding surface where needed.
+
 ## 4. Axiom injector
 
 A deduction needs an *axiom injector*
 `ax : Input → List(I × K)` producing the initial chart from an
 input. The block admits three surface forms:
 
-- `lexicon { "word" : Cat = lf @ learnable, … }`: label-indexed
+- `lexicon` block with `"word" : Cat = lf #[learnable]` entries: label-indexed
   lookup table inline.
 - `lexicon from "path.tsv" with learnable`: same shape loaded
   from a TSV.
 - `axioms = some_kernel_morphism`: a declared Kleisli morphism
   `Input → List(I × K)`.
 
-## 5. Goal and depth
+## 5. Goal, depth, and convergence
 
 `start s` declares the start atom; the goal predicate is
 "there exists a derivation whose conclusion is `c(s, …)` for
 some configured wrapper constructor (e.g. a `span(0, n, s)` over
 the full input range)."
 
-`depth d` bounds the maximum derivation depth so the agenda
-terminates on any finite input.
+`depth d` bounds the maximum *constructor-tree depth* of the
+conclusion category of any rule firing. The compiler installs a
+uniform side-condition on every rule that rejects firings whose
+conclusion category exceeds depth $d$ in the constructor tree
+(counting every wrapping $(c, a_1, \dots, a_n)$ tuple whose head
+is a category constructor as one unit of depth). This bounds the
+chart's category-constructor tower for rule systems with growing
+unary intro / elim cycles (modal, continuation, residuation),
+without privileging any particular category constructor.
+
+`tolerance ε` controls convergence detection in the chart's
+weight aggregation. For non-idempotent semirings with cyclic
+rule graphs, each re-derivation of an item along a new path
+increases its weight via `semiring.plus`, even when the item is
+already in the chart; with bounded cycle weight (e.g. every
+cycle's bounded total log-weight $\le 0$ via [§2.3 `bounded`](#23-bounded-rule-weights-bounded)),
+the sequence of updates converges to a Kleene-star limit, and
+the chart terminates re-firings on an item once successive
+updates fall below $\varepsilon$. With a divergent cycle the
+agenda hits `max_iterations` instead (the correct rejection of
+an ill-posed model). Setting $\varepsilon = 0$ recovers strict
+structural equality and the default acyclic-friendly semantics.
+
+`max_iterations N` caps the number of agenda pops; the agenda
+raises on exceeding it. Default is $10^5$.
 
 ## 6. Chart denotation
 
@@ -146,6 +309,99 @@ flowing from rule-weight parameters through the agenda's
   second agenda pass that propagates outside weights from the
   goal back to all items.
 
+## 10. Chart access from program bodies
+
+A `program` body may invoke a compiled deduction $D$ by name
+through the `parse` builtin:
+
+```
+let chart = parse(D, sentence)
+```
+
+The right-hand side denotes a *chart-view* object whose API
+exposes the chart's K-presheaf as differentiable measurable maps
+on the surrounding trace context:
+
+| Method | Denotation |
+|---|---|
+| `chart.weight(item)` | $\alpha[i]$ at the ground item $i$ (raises if absent). |
+| `chart.try_weight(item, default)` | $\alpha[i]$ or `default` or the semiring's zero. |
+| `chart.enumerate(pattern)` | the indexed family $\{(i, \alpha[i]) \mid \pi \sim i\}$ for items matching pattern $\pi$. |
+| `chart.goal_weight()` | $\bigoplus_{i \in \mathrm{goal}} \alpha[i]$, the deduction's inside-marginal. |
+| `chart.embedding(item)` | the vector embedding of an item under the attached encoder, if any. |
+| `chart.attached_loss` | the cumulative loss declared on attached `loss` blocks. |
+| `chart.semiring` | the chart's underlying semiring $K$. |
+
+Each of these returns a `torch.Tensor` carrying gradients
+through the deduction's learnable parameters (lexicon log-weights
+and the rule-weight side-table from [§2.1](#21-learnable-rule-weights-learnable)).
+
+The natural lift into the program's log-joint is via a
+[`score` step](programs.md#27a-score-factor):
+
+```
+let chart = parse(D, sentence)
+score log_Z = chart.goal_weight()
+```
+
+The body's denotation extends the program's log-joint by the
+inside log-marginal of the input under the deduction's current
+parameters: SVI and NUTS over the program's parameter set then
+descend to the deduction's parameters automatically.
+
+### 10.1 Composing deductions
+
+The let-expression builtin `compose(D_1, D_2)` builds a deduction
+system whose axiom injector chains $D_1$'s goal items into
+$D_2$'s axiom set:
+
+$$
+\mathsf{ax}_{D_1 \mathbin{\mathrm{c}} D_2}(\mathit{inp})
+\;=\;
+\mathsf{goal}\_\mathsf{items}\bigl(D_1(\mathit{inp})\bigr)
+\;\cup\;
+\mathsf{ax}_{D_2}(\mathit{inp}).
+$$
+
+The result's semiring, agenda, and goal are inherited from
+$D_2$; the parameters of *both* factors appear in the composed
+system's `.parameters()` via cross-attachment of the
+`_axiom_module` / `_rule_module` side-tables. A composed
+deduction is therefore directly usable inside `parse(..., …)`
+calls without any further wrapper.
+
+The composition is associative up to chart equality of the
+intermediate goal-item set, and identity-on-the-right under the
+trivial deduction with no rules.
+
+### 10.2 Forward sampling
+
+The [`quivers.deduction.sample_corpus`](../api/stochastic/deduction/sample.md#quivers.stochastic.deduction.sample.sample_corpus)
+helper realises exact forward sampling from a deduction's
+distribution over yields: it enumerates the deduction's surface
+vocabulary to a chosen length, evaluates $\alpha[\mathsf{goal}]$
+for every candidate yield, and draws categorically from the
+softmax of the resulting log-weights.
+
+### 10.3 Let-expression builtins
+
+The let-expression compiler ships three deduction-related
+builtins, all callable from inside a `program` or lexicon LF
+body:
+
+| Builtin | Signature | Denotation |
+|---|---|---|
+| `parse(D, x)` | `(DeductionSystem, Input) -> ChartView` | invoke $D$ on input $x$. |
+| `compose(D_1, D_2)` | `(DeductionSystem, DeductionSystem) -> DeductionSystem` | as in [§10.1](#101-composing-deductions). |
+| `subst(t, v, w)` | `(Term, Term, Term) -> Term` | structural substitution; capture-avoiding under the [`binders` invariant](#3a-binders-and-alpha-renaming). |
+
+`subst(t, v, w)` walks $t$ replacing every subterm structurally
+equal to $v$ with $w$. Because every binder application has
+been alpha-renamed to a fresh canonical symbol at lexicon-LF
+compile time, naive structural substitution is already
+capture-avoiding: no two distinct bound variables share a
+canonical name in any reachable term.
+
 ## 9. Program-fragment integration
 
 The Bayesian-modeling step kinds, effect signatures, the
@@ -157,6 +413,56 @@ given in [Programs](programs.md), [Expressions](expressions.md),
 and [Composition Rules](composition-rules.md).
 
 ```ebnf
+# The unified option block is the same production every declaration
+# kind (morphism, kernel, contraction, deduction, lexicon-from-file,
+# pragma) reads. Values are bare identifiers (flags), identifiers
+# (named options), numeric / string literals, comma-separated lists,
+# or single function-call expressions.
+option_block        := '[' option_entry (',' option_entry)* ']'
+option_entry        := IDENT [ '=' option_value ]
+option_value        := IDENT
+                     | INT | FLOAT | STRING
+                     | '[' option_value (',' option_value)* ']'
+                     | IDENT '(' option_value (',' option_value)* ')'
+
+# Outer / inner pragmas. The outer form decorates the next
+# declaration; the inner form decorates the enclosing module.
+pragma_outer        := '#['  pragma_entry (',' pragma_entry)* ']'
+pragma_inner        := '#!['  pragma_entry (',' pragma_entry)* ']'
+pragma_entry        := IDENT [ '=' option_value ]
+
+deduction_decl      := 'deduction' IDENT ':' type_expr '->' type_expr
+                       [ option_block ]
+                       deduction_body_entry*
+
+deduction_body_entry
+                    := deduction_atoms
+                     | deduction_binders
+                     | deduction_rule
+                     | deduction_lexicon
+                     | deduction_lexicon_from_file
+
+deduction_atoms     := 'atoms' IDENT (',' IDENT)*
+deduction_binders   := 'binders' IDENT (',' IDENT)*
+
+deduction_rule      := 'rule' IDENT ':' premise_list ('|-' | '⊢')
+                       conclusion [ rule_pragma ]
+rule_pragma         := '#[' rule_pragma_entry (',' rule_pragma_entry)* ']'
+rule_pragma_entry   := 'learnable'
+                     | 'bounded'
+                     | 'parent' '=' IDENT
+
+# Deduction-level options recognised by the agenda compiler;
+# extend the standard ``[k=v, ...]`` option list.
+deduction_option    := 'semiring'   '=' IDENT
+                     | 'start'      '=' IDENT
+                     | 'depth'      '=' INT
+                     | 'tolerance'  '=' NUMBER
+                     | 'max_iterations' '=' INT
+                     | 'axioms'     '=' IDENT
+                     | 'signature'  '=' IDENT
+                     | 'encoder'    '=' IDENT
+
 typed_program_param := IDENT ':' param_kind
 param_kind          := object_kind | scalar_kind | morphism_kind
 object_kind         := 'FinSet' | 'Space' | 'Object'
@@ -170,42 +476,49 @@ bind_step           := var_pattern [ ':' type_expr ] '<-' IDENT
                        [ '(' draw_arg_list ')' ]
 
 observe_step        := 'observe' IDENT [ ':' type_expr ]
-                       [ 'via' via_spec ]
                        '<-' IDENT [ '(' draw_arg_list ')' ]
-via_spec            := IDENT
-                     | 'product' '(' IDENT (',' IDENT)* ')'
+                       [ option_block ]
+# Option-block entries recognised on observe steps include
+# ``via = idx`` (a fibration into a marginalize grouping plate)
+# and any family-specific keyword overrides.
+
+score_step          := 'score' IDENT '=' let_arith
 
 marginalize_step    := 'marginalize' IDENT [ ':' type_expr ] '<-' IDENT
                        [ '(' draw_arg_list ')' ]
-                       [ grouping_clause ]
-                       [ 'reduction' '=' IDENT ]
-                       'in' '{' program_step* '}'
-
-# Header declares the grouping plate.  Each observe inside the
-# body carries its own `via <idx>` clause naming the per-axis
-# fibration into the shared plate; the runtime scatter-sums each
-# per-(N_m, K) log-likelihood into the same `(|G|, K)`
-# accumulator before the reduction.
-grouping_clause     := 'over' type_expr
+                       [ option_block ]
+                       NEWLINE INDENT program_step+ DEDENT
+# Option-block entries on marginalize steps include
+# ``over = G`` (or ``over = product(G_1, …)`` / ``over = [G_1, …]``
+# for a product grouping plate) and ``reduction = R`` selecting
+# the aggregation (R ∈ {logsumexp, sum, mean}, default logsumexp).
+# Each observe step inside the body carries its own
+# ``via = idx`` option naming the fibration into the shared plate;
+# the runtime scatter-sums each per-(N_m, K) log-likelihood into
+# the same (|G|, K) accumulator before the reduction.
 
 let_index           := IDENT '[' let_arith (',' let_arith)* ']'
 
 program_decl        := 'program' IDENT [ '(' param_list ')' ]
                        ':' type_expr '->' type_expr
-                       [ '!' effect_set ]
-                       [ 'over' IDENT ]
-                       program_step* 'return' return_pattern
+                       [ option_block ]
+                       NEWLINE INDENT program_step* return_step DEDENT
+# Option-block entries on program declarations include
+# ``effects = [E_1, ..., E_n]`` (the declared effect signature; each
+# E_i is one of {Sample, Score, Marginal, Pure}) and
+# ``over = M`` (posterior consumer over model M's latents).
 
-# Top-level composition-rule selection. Four keywords name the
-# declared algebraic level; the optional body declares a fresh
+# Top-level composition-rule selection. The single `composition`
+# keyword takes an optional `as LEVEL` clause naming the declared
+# algebraic level; the optional indented body declares a fresh
 # rule inline.
-composition_rule_decl
-                    := ('algebra' | 'semigroupoid'
-                        | 'bilinear_form' | 'composition_rule')
-                       IDENT [ composition_rule_block ]
+composition_decl    := 'composition' IDENT
+                       [ 'as' composition_level ]
+                       [ NEWLINE INDENT composition_rule_entry+ DEDENT ]
 
-composition_rule_block
-                    := '{' composition_rule_entry* '}'
+composition_level   := 'algebra' | 'semigroupoid'
+                     | 'bilinear_form' | 'rule'
+
 composition_rule_entry
                     := IDENT '(' IDENT (',' IDENT)* ')' '=' let_expr
                      | IDENT '=' let_expr
@@ -235,7 +548,7 @@ morphism_call       := IDENT '(' IDENT (',' IDENT)* ')'
 
 A `program_decl` is *parametric* iff its parameter list contains any `typed_program_param`; the walker dispatches parametric programs to the call-site inliner rather than to the runtime program compiler. A program declared with `! effect_set` has its body checked against the declared capability set: the actual effects of the body must form a subset of `effect_set`, and `! Pure` rejects any `bind_step` / `observe_step` / `marginalize_step`. A program declared with `over M` is a posterior block consuming the latents of model `M`; the consumed latents appear as data parameters in the program's parameter list.
 
-A `composition_rule_decl` selects the module's underlying composition rule. With no body, the keyword resolves the named rule from the built-in catalogue and verifies it matches the declared algebraic level (`Algebra`, `Semigroupoid`, `BilinearForm`, or any `CompositionRule`). With a body, the entries declare the rule's operations inline; the keyword fixes the algebraic level, and the compiler verifies that the required entries (`tensor_op`, `join`, plus `unit`, `zero` for `algebra`) are present. See [Composition Rules](composition-rules.md) for the formal denotation.
+A `composition_decl` selects the module's underlying composition rule. With no body and no `as` clause, the keyword resolves the named rule from the built-in catalogue and registers it. With an `as LEVEL` clause but no body, the resolved built-in rule is verified to match the declared algebraic level (`algebra`, `semigroupoid`, `bilinear_form`, or `rule`, the last covering any `CompositionRule`). With a body, the entries declare the rule's operations inline; the `as LEVEL` clause fixes the algebraic level, and the compiler verifies that the required entries (`tensor_op`, `join`, plus `unit`, `zero` for `algebra`) are present. See [Composition Rules](composition-rules.md) for the formal denotation.
 
 A `contraction_decl` declares an n-ary operadic morphism whose action contracts its input morphisms under the named composition rule using the wiring spec. Call sites `IDENT(arg_1, …, arg_n)` route through `morphism_call`; the compiler resolves `IDENT` against the contraction registry, the parametric-program template table, and the morphism scope in that order. See [Expressions § 2.13](expressions.md#213-operadic-contraction-call) for the call-site denotation.
 

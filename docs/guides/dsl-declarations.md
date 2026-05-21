@@ -12,17 +12,17 @@ Choose the enriching algebra (optional, defaults to `product_fuzzy`):
 
 <!-- compile: false -->
 ```qvr
-algebra product_fuzzy
-algebra boolean
-algebra lukasiewicz
-algebra godel
-algebra tropical
-algebra max_plus
-algebra log_prob
-algebra markov
-algebra real
-algebra probability
-algebra counting
+composition product_fuzzy as algebra
+composition boolean as algebra
+composition lukasiewicz as algebra
+composition godel as algebra
+composition tropical as algebra
+composition max_plus as algebra
+composition log_prob as algebra
+composition markov as algebra
+composition real as algebra
+composition probability as algebra
+composition counting as algebra
 ```
 
 The keyword `algebra` resolves a name against the built-in
@@ -32,15 +32,15 @@ are also surface-declarable:
 
 <!-- compile: false -->
 ```qvr
-semigroupoid material_impl
-bilinear_form some_bf
-composition_rule any_rule
+composition material_impl as semigroupoid
+composition some_bf as bilinear_form
+composition any_rule as rule
 ```
 
-A [semigroupoid](https://ncatlab.org/nlab/show/semigroupoid) rule
+A [semigroupoid](https://ncatlab.org/nlab/show/semigroupoid) level
 promises associativity but not an identity; `bilinear_form` promises
-neither; `composition_rule` is permissive and accepts any rule in
-the registry. Operations that need the identity element
+neither; `rule` is permissive and accepts any rule in the registry.
+Operations that need the identity element
 ([`identity(A)`](../api/core/morphisms.md#quivers.core.morphisms.identity),
 [`f.dagger`](../api/core/morphisms.md#quivers.core.morphisms.Morphism.dagger),
 [`f.trace(A)`](../api/core/morphisms.md#quivers.core.morphisms.Morphism.trace),
@@ -50,33 +50,30 @@ compile only under `algebra`. See [Composition
 Rules](../semantics/composition-rules.md) for the algebraic
 hierarchy and the operadic contraction surface.
 
-A composition rule can also be defined inline via a body block.
-Each entry is a `let`-expression:
+A composition rule can also be defined inline via an indented body,
+with each entry a `let`-expression:
 
 <!-- compile: false -->
 ```qvr
-algebra my_godel {
+composition my_godel as algebra
     tensor_op(a, b) = a * b
-    join(t) = sum(t)
-    unit = 1.0
-    zero = 0.0
-}
+    join(t)         = sum(t)
+    unit            = 1.0
+    zero            = 0.0
 
-semigroupoid my_semi {
+composition my_semi as semigroupoid
     tensor_op(a, b) = a * b
-    join(t) = sum(t)
-}
+    join(t)         = sum(t)
 
-bilinear_form my_bf {
+composition my_bf as bilinear_form
     tensor_op(a, b) = (a + b) * 0.5
-    join(t) = sum(t)
-}
+    join(t)         = sum(t)
 ```
 
 `algebra` bodies require `tensor_op`, `join`, `unit`, `zero` (with
 optional `negation` and `meet`); `semigroupoid` and `bilinear_form`
 bodies require only `tensor_op` and `join`. The compiler verifies
-the entry set against the keyword's algebraic level.
+the entry set against the declared level.
 
 ## Object
 
@@ -85,8 +82,8 @@ Three surface forms:
 <!-- compile: false -->
 ```qvr
 # 1. anonymous-element FinSet of given cardinality, or a TypeExpr
-object X : 3          # FinSet(name="X", cardinality=3)
-object Y : 4
+object X : FinSet 3          # FinSet [name="X", cardinality=3]
+object Y : FinSet 4
 object XY : X * Y     # ProductSet(components=(X, Y))
 object Sum : X + Y    # CoproductSet(components=(X, Y))
 
@@ -109,13 +106,13 @@ Declare a learnable or fixed morphism:
 <!-- compile: false -->
 ```qvr
 # Latent (learnable)
-latent f : X -> Y
+morphism f : X -> Y [role=latent]
 
 # With init scale
-latent g : Y -> Z [scale=0.3]
+morphism g : Y -> Z [role=latent, scale=0.3]
 
 # Observed (fixed)
-observed h : X -> X = identity(X)
+morphism h : X -> X = identity(X) [role=observed]
 ```
 
 ### Latent morphism prior
@@ -133,10 +130,10 @@ tensor.
 <!-- compile: false -->
 ```qvr
 # Free-parameter morphism (point estimate; MLE / MAP target).
-latent W : Euclidean(D) -> Euclidean(K)
+morphism W : Real D -> Real K [role=latent]
 
 # The same morphism with a Matrix-Normal prior on its tensor.
-latent W : Euclidean(D) -> Euclidean(K)
+morphism W : Real D -> Real K [role=latent]
     ~ MatrixNormal(0.0, 1.0, 1.0) over (dom, cod)
 ```
 
@@ -157,7 +154,7 @@ directly.
 
 <!-- compile: false -->
 ```qvr
-latent W : Euclidean(D) -> Euclidean(K) [init=auto]
+morphism W : Real D -> Real K [role=latent, init=auto]
 ```
 
 The per-algebra recipes ensure that a fresh model with `[init=auto]`
@@ -176,14 +173,14 @@ Declare a continuous space:
 
 <!-- compile: false -->
 ```qvr
-space R3 : Euclidean(3)
-space R2_bounded : Euclidean(2, low=0.0, high=1.0)
-space U : UnitInterval
-space P2 : PositiveReals(2)
-space S3 : Simplex(3)
+object R3 : Real 3
+object R2_bounded : Real 2 [low=0.0, high=1.0]
+object U : UnitInterval
+object P2 : PositiveReals(2)
+object S3 : Simplex 3
 
 # Product space
-space RU : R3 * U
+object RU : R3 * U
 ```
 
 Spaces resolve to subclasses of
@@ -197,13 +194,13 @@ Declare a space alias using `type` (alternative to `space`):
 
 ```qvr
 # the `space` and `type` forms below are interchangeable
-space HiddenSpace : Euclidean(64)
+object HiddenSpace : Real 64
 
-type Hidden = Euclidean 64     # ML-style, parens optional
+object Hidden : Real 64     # ML-style, parens optional
 
 # product types built from previously-declared spaces
-type Output   = Euclidean 32
-type Combined = Hidden * Output
+object Output : Real 32
+object Combined : Hidden * Output
 ```
 
 The `type` keyword provides a more concise, ML-style syntax for
@@ -215,10 +212,10 @@ declaring named spaces. Parentheses around arguments are optional.
 
 <!-- compile: false -->
 ```qvr
-## A short alias for the cartesian product of inputs.
+#! A short alias for the cartesian product of inputs.
 alias Pair = X * Y
 
-## A residuated pattern reused across schemas.
+#! A residuated pattern reused across schemas.
 alias Sentence = S \ NP
 ```
 
@@ -246,18 +243,16 @@ Two shapes:
 <!-- compile: false -->
 ```qvr
 # Lookup-table kernel on finite sets.
-kernel s : X -> Y
-kernel cat : X -> Y * Z
+morphism s : X -> Y [role=kernel]
+morphism cat : X -> Y * Z [role=kernel]
 
 # Parametric kernel: input-conditional Normal on R^3.
-kernel f : X -> R3 ~ Normal
-
+morphism f : X -> R3 [role=kernel] ~ Normal
 # Family options control the parameter network.
-kernel g : R3 -> R3 ~ Normal [scale=0.5]
-kernel k : X -> S3 ~ Dirichlet
-
+morphism g : R3 -> R3 [role=kernel] ~ Normal [scale=0.5]
+morphism k : X -> S3 [role=kernel] ~ Dirichlet
 # 30+ families are registered; see the families guide.
-kernel flow : R3 -> R3 ~ Flow [n_layers=6, hidden_dim=32]
+morphism flow : R3 -> R3 [role=kernel] ~ Flow [n_layers=6, hidden_dim=32]
 ```
 
 The `kernel` keyword unifies the discrete (finite-set lookup) and
@@ -272,8 +267,8 @@ Convert a continuous space to a finite set via binning:
 
 <!-- compile: false -->
 ```qvr
-discretize d : U -> 20      # discretize UnitInterval into 20 bins
-discretize d2 : R3 -> 100   # discretize R^3 into 100 bins
+morphism d : U -> 20      # discretize UnitInterval into 20 bins [role=discretize]
+morphism d2 : R3 -> 100   # discretize R^3 into 100 bins [role=discretize]
 ```
 
 The runtime realization is
@@ -286,7 +281,7 @@ Embed a discrete object into a continuous space:
 
 <!-- compile: false -->
 ```qvr
-embed e : X -> R3   # treat X as uniform on R^3
+morphism e : X -> R3   # treat X as uniform on R^3 [role=embed]
 ```
 
 The runtime realization is
@@ -294,8 +289,8 @@ The runtime realization is
 
 ## Deduction
 
-A `deduction NAME : Domain -> Codomain { ... }` block declares an
-agenda-based weighted deduction. See the
+A `deduction NAME : Domain -> Codomain [options]` declaration with
+an indented body declares an agenda-based weighted deduction. See the
 [weighted deduction systems guide](deduction.md) for the framework
 and the [semiring layer](../api/stochastic/semiring.md) for the
 scoring algebra. The seven irreducible parameters of an
@@ -305,12 +300,8 @@ fields in the block:
 
 <!-- compile: false -->
 ```qvr
-deduction CCG : Term -> Term {
-    atoms {
-        NP, S, N, VP, PP,
-        Fwd, Bwd,
-        span
-    }
+deduction CCG : Term -> Term [semiring=LogProb, start=S, depth=6]
+    atoms NP, S, N, VP, PP, Fwd, Bwd, span
 
     rule fwd_app
         : span(I, K, Fwd(X, Y)), span(K, J, Y)
@@ -319,25 +310,25 @@ deduction CCG : Term -> Term {
     rule bwd_app
         : span(I, K, Y), span(K, J, Bwd(X, Y))
         |- span(I, J, X)
-
-    semiring  LogProb
-    start     S
-    depth     6
-}
 ```
 
-- **`atoms { ... }`** declares the closed constructor universe.
+- **`atoms NAME, NAME, ...`** declares the closed constructor universe.
   Every identifier appearing in a rule pattern must be either an
   atom or a single-uppercase wildcard variable (`X`, `Y`, `Z`,
   `I`, `J`, `K`, ...).
 - **`rule NAME : premises |- conclusion`** is a sequent. Premises
   are comma-separated; arity is arbitrary (unary rules fire on a
-  single chart cell, binary on a pair of adjacent cells, etc.).
-- **`semiring`** selects the scoring algebra: `LogProb`,
-  `Viterbi`, `Boolean`, `Counting`, or `ProductFuzzyAlgebra`.
-- **`start`** declares the goal-item predicate (the start atom).
-- **`depth`** bounds derivation depth so the agenda terminates on
-  any finite input.
+  single chart cell, binary on a pair of adjacent cells, etc.). A
+  trailing `#[learnable]` pragma marks the rule's weight as
+  bindings-keyed and learnable.
+- **`semiring=...`** in the option block selects the scoring
+  algebra: `LogProb`, `Viterbi`, `Boolean`, `Counting`.
+- **`start=...`** declares the goal-item predicate (the start atom).
+- **`depth=...`** bounds the conclusion-category constructor depth
+  so the agenda terminates on cyclic rule graphs.
+- **`tolerance=...`** (optional) enables Kleene-star convergence
+  detection in the chart's aggregation, paired with rule-level
+  `#[learnable, bounded]` for contractive-cycle log-weights.
 
 Pattern variables are single uppercase identifiers; every other
 identifier in a rule pattern must be listed in `atoms`. A variable
@@ -357,32 +348,27 @@ initial weighted chart items. The block admits three forms:
 
 <!-- compile: false -->
 ```qvr
-deduction PCFG : Term -> Term {
-    atoms { S, NP, VP, Det, N, V, the, cat, sleeps, span, leaf }
-    rule branch : span(I, K, B), span(K, J, C) |- span(I, J, A)
-    rule anchor : leaf(I, T)                    |- span(I, J, A)
+deduction PCFG : Term -> Term [semiring=LogProb, start=S]
+    atoms S, NP, VP, Det, N, V, the, cat, sleeps, span, leaf
+    rule branch : span(I, K, B), span(K, J, C) |- span(I, J, A) #[learnable]
+    rule anchor : leaf(I, T)                    |- span(I, J, A) #[learnable]
 
     # Inline lexicon: label-indexed lookup.
-    lexicon {
-        "the"    : Det = the    @ learnable
-        "cat"    : N   = cat    @ learnable
-        "sleeps" : V   = sleeps @ learnable
-    }
-
-    semiring LogProb
-    start    S
-}
+    lexicon
+        "the"    : Det = the    #[learnable]
+        "cat"    : N   = cat    #[learnable]
+        "sleeps" : V   = sleeps #[learnable]
 ```
 
 The three alternatives:
 
 | Form | Use when |
 |------|----------|
-| `lexicon { "word" : Cat = lf @ learnable ... }` | label-indexed lookup table inline in the block |
-| `lexicon from "path.tsv" with learnable` | label-indexed lookup loaded from a TSV at compile time |
-| `axioms = some_morphism` | general kernel `Input -> List(Item × K)` defined as a declared morphism |
+| `lexicon` block with `"word" : Cat = lf #[learnable]` entries | label-indexed lookup table inline in the body |
+| `lexicon from "path.tsv" [learnable]` | label-indexed lookup loaded from a TSV at compile time |
+| `[axioms=some_morphism]` in the deduction's option block | general kernel `Input -> List(Item × K)` defined as a declared morphism |
 
-Marking a lexicon entry `@ learnable` allocates an
+Marking a lexicon entry `#[learnable]` allocates an
 [`nn.Parameter`](https://docs.pytorch.org/docs/stable/generated/torch.nn.Parameter.html)
 log-weight initialised to `0.0`.
 
@@ -395,8 +381,8 @@ a `chart` value:
 
 <!-- compile: false -->
 ```qvr
-program parse_score : Sentence -> Real ! Sample, Score
-    chart <- CCG(input)
+program parse_score : Sentence -> Real [effects=[Sample, Score]]
+    sample chart <- CCG(input)
     let w = chart.goal_weight()
     observe valid <- Bernoulli(sigmoid(w))
     return w
@@ -423,12 +409,12 @@ referenced by [`fan`](#fan-out-diagonal-morphism):
 <!-- compile: false -->
 ```qvr
 # creates head_0, head_1, head_2, head_3 with independent parameters
-kernel head[4] : Latent -> HeadOut ~ Normal [scale=0.1]
+morphism head : Latent -> HeadOut [role=kernel, replicate=4, scale=0.1] ~ Normal
 
-# works on every declaration kind that takes a name and a type signature:
-kernel T[3] : State -> Obs                       # lookup-table kernel
-kernel emit[3] : State -> Obs ~ Normal           # parametric kernel
-embed tok[2] : Token -> Hidden                   # finite-to-Euclidean
+# works on every morphism whose role permits replication:
+morphism T    : State -> Obs [role=kernel, replicate=3]               # lookup-table kernel
+morphism emit : State -> Obs [role=kernel, replicate=3] ~ Normal      # parametric kernel
+morphism tok  : Token -> Hidden [role=embed, replicate=2]              # finite-to-Real
 ```
 
 ## Combinators on morphisms
@@ -449,13 +435,12 @@ declaration:
 let parallel = fan(f, g, h)
 
 # group expansion: fan(head) expands to fan(head_0, head_1, head_2, head_3)
-kernel head[4] : Latent -> HeadOut ~ Normal [scale=0.1]
+morphism head : Latent -> HeadOut [role=kernel, replicate=4, scale=0.1] ~ Normal
 
 let multi_head = fan(head)
 
 # commonly followed by a projection to recombine
-kernel proj : Combined -> Latent ~ Normal [scale=0.1]
-
+morphism proj : Combined -> Latent [role=kernel] ~ Normal [scale=0.1]
 let attention = fan(head) >> proj
 ```
 
@@ -490,8 +475,8 @@ repeated squaring for $O(\log n)$ compositions:
 
 <!-- compile: false -->
 ```qvr
-kernel transition : State -> State
-kernel emission : State -> Obs
+morphism transition : State -> State [role=kernel]
+morphism emission : State -> Obs [role=kernel]
 
 # runtime-variable: no count specified
 let n_step = repeat(transition) >> emission
@@ -534,8 +519,7 @@ Thread hidden state across a sequence using a recurrent cell:
 <!-- compile: false -->
 ```qvr
 # Basic syntax: cell has product domain A * H -> H
-kernel cell : Embedded * Hidden -> Hidden ~ Normal [scale=0.1]
-
+morphism cell : Embedded * Hidden -> Hidden [role=kernel] ~ Normal [scale=0.1]
 let rnn = tok_embed >> scan(cell) >> output_proj
 
 # With learned initial state (default is zeros)
@@ -566,16 +550,15 @@ hidden state `H` across a sequence:
 
 <!-- compile: false -->
 ```qvr
-object Token : 256
-type Embedded = Euclidean 64
-type Hidden = Euclidean 128
-type Output = Euclidean 64
+object Token : FinSet 256
+object Embedded : Real 64
+object Hidden : Real 128
+object Output : Real 64
 
-embed tok_embed : Token -> Embedded
+morphism tok_embed : Token -> Embedded [role=embed]
 
-kernel cell : Embedded * Hidden -> Hidden ~ Normal [scale=0.1]
-kernel output_proj : Hidden -> Output ~ Normal [scale=0.1]
-
+morphism cell : Embedded * Hidden -> Hidden [role=kernel] ~ Normal [scale=0.1]
+morphism output_proj : Hidden -> Output [role=kernel] ~ Normal [scale=0.1]
 let rnn = tok_embed >> scan(cell) >> output_proj
 
 export rnn
@@ -627,11 +610,10 @@ domain to factor as a non-trivial product.
 
 <!-- compile: false -->
 ```qvr
-object X : 3
-object Y : 4
-object Z : 5
-
-latent f : X * Y -> Z
+object X : FinSet 3
+object Y : FinSet 4
+object Z : FinSet 5
+morphism f : X * Y -> Z [role=latent]
 let g = f.curry_right    # g : X -> Z/Y
 export g
 ```

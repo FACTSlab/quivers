@@ -37,6 +37,7 @@ polars, or any other
 [Narwhals](https://narwhals-dev.github.io/narwhals/)-compatible
 dataframe.
 
+<!-- python: skip -->
 ```python
 import pandas as pd
 from quivers.data import DatasetSchema, compose
@@ -104,6 +105,7 @@ brms-style parser), then lifted into a typed `Formula` record.
 
 ### Inspect or dump the generated QVR
 
+<!-- python: skip -->
 ```python
 from quivers.formulas import formula_to_qvr
 

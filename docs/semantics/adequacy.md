@@ -90,9 +90,57 @@ The body-interpreter `_compile_program_body` of [`quivers.dsl.compiler`](../api/
 - *Draw*: calls `family.rsample(theta(context))` and appends the result to the trace;
 - *Observe*: calls `family.log_prob(value, theta(context))` and accumulates the score;
 - *Let*: evaluates the arithmetic expression and binds the result;
+- *Score*: evaluates the let-expression to a scalar tensor, binds the result to the named coordinate, AND adds the same scalar to the accumulated log-score (the runtime tag is `_ScoreSpec`, distinct from `_LetSpec` for ordinary let bindings; see [Programs §2.7a](programs.md#27a-score-factor));
 - *Return*: projects the trace onto the named coordinates.
 
 The categorical equations of [Programs §5](programs.md#5-soundness-of-monadic-semantics) are inherited from PyTorch's distribution / random-variable algebra, which is well-known to satisfy the Giry-monad axioms.
+
+### 3.7a Deduction systems and chart-access let-expressions
+
+The body-interpreter resolves three deduction-related let-expression builtins through the [`compose_deductions`, `parse`, `subst`] dispatch table on `_ProgramsMixin`:
+
+- *parse(D, x)*: runs the registered `DeductionSystem` $D$ on $x$ to the agenda's fixed point, wrapping the resulting `Chart` in a `ChartView`. The view's method-call surface ([Expressions §4.2](expressions.md#42-deduction-system-call-sites)) realizes presheaf evaluation against the chart's $K$-valued tensor entries; gradients flow through the entries' `requires_grad` via the agenda's semiring operations, matching the differentiable-chart denotation of [Weighted Deduction Fragment §8](grammar.md#8-charts-as-first-class-differentiable-values).
+- *compose($D_1, D_2$)*: synthesises a new `DeductionSystem` whose `axiom_injector` chains $D_1$'s `goal_items` into $D_2$'s axioms; the composed system carries cross-attached `_axiom_module` / `_rule_module` references so `composed.parameters()` walks both factors' learnable weights ([Weighted Deduction Fragment §10.1](grammar.md#101-composing-deductions)).
+- *subst($t, v, w$)*: performs a structural-equality walk over $t$, replacing each subterm equal to $v$ with $w$. Capture-avoidance is guaranteed at the call site by the compile-time alpha-renaming invariant of the lexicon-LF compiler ([Weighted Deduction Fragment §3a](grammar.md#3a-binders-and-alpha-renaming)).
+
+Adequacy for the deduction-fitting surface follows from the agenda's strategy-independence theorem (Goodman 1999) applied to the bindings-keyed rule-weight parameters: each rule firing on bindings $\sigma$ contributes $\theta_{r, \sigma}$ from a per-deduction `nn.ParameterDict` allocated lazily at run time, and the differentiable-chart equations of §8 propagate the gradient back to $\theta_{r, \sigma}$ through the standard semiring-times / semiring-plus operations.
+
+### 3.7b Bayesian lifts of parameter-bearing artefacts
+
+The four lift constructors of [`quivers.inference.lifts`](../api/inference/lifts.md)
+realise [Programs §7](programs.md#7-bayesian-lifts). Adequacy
+at this stratum is the claim that the lifted [`MonadicProgram`](../api/continuous/programs.md#quivers.continuous.programs.MonadicProgram)
+realises its stated log-density.
+
+* [`bayesian_lift_parameters`](../api/inference/lifts.md#quivers.inference.lifts.bayesian_lift_parameters) (Programs §7.1): the
+  total log-density assembled by the inference layer is
+  $\sum_{i} \log \mathcal{N}(\theta_{i}; 0, \sigma_{\theta}^{2}) + \sum_{j} \log \mathcal{N}(\mathbf{z}_{j}; 0, \sigma_{z}^{2}) + S(\theta, \mathbf{z})$
+  with $S$ the score step. The score step's subtraction of the
+  placeholder log-priors cancels the second term *pointwise*
+  (not merely in expectation), so the lifted log-density
+  realises $\log p(\theta) + \log p_{\mathrm{inner}}(\mathbf{z}, y \mid x, \theta)$ exactly. The
+  parameter-substitution context manager
+  ([`_swap_named_parameters`](../api/inference/lifts.md)) preserves the
+  inner module's autograd graph through the override tensors,
+  so $\nabla_{(\theta, \mathbf{z})} \log p_{\mathrm{lift}}$ on
+  the lift agrees with the analytic gradient of the target on
+  the unconstrained latent state.
+* [`lift_to_bayesian_program`](../api/inference/lifts.md#quivers.inference.lifts.lift_to_bayesian_program) and [`lift_from_log_prob`](../api/inference/lifts.md#quivers.inference.lifts.lift_from_log_prob)
+  (Programs §7.2–§7.3): adequacy reduces by construction to
+  §7.1, since both wrap their input in a synthetic `log_joint`
+  before delegating to [`bayesian_lift_parameters`](../api/inference/lifts.md#quivers.inference.lifts.bayesian_lift_parameters).
+* [`monte_carlo_log_joint`](../api/inference/lifts.md#quivers.inference.lifts.monte_carlo_log_joint) (Programs §7.4): the
+  wrapper realises a single-sample MC estimator
+  $\widetilde{\ell}(x, y; \theta) = \log p_{\mathrm{inner}}(y \mid \mathbf{z}_{*}, x, \theta)$,
+  $\mathbf{z}_{*} \sim q$. By Jensen's inequality, the
+  estimator is downward-biased relative to the marginal
+  log-likelihood; the wrapper is therefore an *unsound*
+  denotation for any MCMC sampler that demands a deterministic
+  per-evaluation energy (NUTS / HMC). For SVI it is a valid
+  reparameterised stochastic gradient estimator of the
+  marginal log-likelihood's expected gradient. Adequacy at
+  this stratum is the conjunction of these two clauses,
+  documented at the call site.
 
 ### 3.8 Schema extraction
 

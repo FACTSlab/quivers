@@ -123,6 +123,7 @@ assert not torch.allclose(left, right)
 
 The compact-closed operations require an identity element and live on `Algebra`. Trying to call them on a non-algebra rule raises `AttributeError`:
 
+<!-- python: skip -->
 ```python
 import pytest
 from quivers.core.algebras import material_implication
@@ -198,27 +199,24 @@ The user surface mirrors the Python API. Inside `.qvr` files:
 
 <!-- compile: false -->
 ```qvr
-algebra my_godel {
+composition my_godel as algebra
     tensor_op(a, b) = a * b
-    join(t) = sum(t)
-    unit = 1.0
-    zero = 0.0
-}
+    join(t)         = sum(t)
+    unit            = 1.0
+    zero            = 0.0
 
-semigroupoid my_semi {
+composition my_semi as semigroupoid
     tensor_op(a, b) = a * b
-    join(t) = sum(t)
-}
+    join(t)         = sum(t)
 
-bilinear_form my_bf {
+composition my_bf as bilinear_form
     tensor_op(a, b) = (a + b) * 0.5
-    join(t) = sum(t)
-}
+    join(t)         = sum(t)
 
-composition_rule any_rule_name
+composition any_rule_name as rule
 ```
 
-The keyword selects the level. The optional `{ ... }` body declares the rule's operations inline; without a body, the keyword resolves the named rule from the built-in catalog (`product_fuzzy`, `material_impl`, etc.) and verifies it matches the declared level.
+The `as <level>` clause selects the algebraic level (`algebra`, `semigroupoid`, `bilinear_form`, `rule`). The optional indented body declares the rule's operations inline; without a body, the declaration resolves the named rule from the built-in catalog (`product_fuzzy`, `material_impl`, etc.) and verifies it matches the declared level.
 
 Operadic contractions:
 
