@@ -4,6 +4,31 @@ All notable changes to the quivers library are documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/), and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.12.0] - 2026-05-21
+
+### Added
+
+- **`::` scope paths everywhere a binding name is taken.** `:info`, `:type`, `:doc`, `:browse`, `:plate`, `:graph`, `:where`, `:effects`, `:shape` all accept a `::`-separated scope path. The leftmost segment is a top-level binding; each subsequent segment looks up a named child in that binding's scope. Coverage across every container kind: `program` (typed parameters + sample / observe / let / marginalize / return steps; recursing into nested marginalize bodies), `deduction` (rules / atoms / lexicon entries), `signature` (sorts / constructors / binders / vertex_kinds / edge_kinds), `encoder` (op_rules / init_rules / message_rules / update_rules / var_inits), `decoder` (per-constructor heads), `bundle` (member rule names), `contraction` (input parameter names). Examples: `lda::theta` resolves to the sample site inside the lda program; `lda::z::w` to the observe site inside the lda program's marginalize block; `LF::Term` to the Term sort inside the LF signature; `CCG::fwd_app` to the forward-application rule inside the CCG deduction.
+- **`quivers.analysis.scope` module.** New `ScopedRef` value type, `resolve_scoped_path(compiler, path)` resolver, `scope_children(ref)` view, `find_all_references(compiler, name)` reverse lookup. Foundation for every scope-aware REPL feature.
+- **Env-tree click navigation on every nested node.** Each env-tree node now carries its full `::` path on `node.data`. Clicking any node (top-level binding, program step, deduction rule, signature sort, bundle member) fires `:info PATH` against that exact binding. Previously only top-level bindings were clickable; nested children either did nothing or raised "undefined morphism" errors when the click handler tried to dispatch against the rich signature label.
+- **Scope-aware tab completion.** `lda::` completes against the lda program's children; `lda::z::` completes against the marginalize block's inner scope; a bare-name prefix like `thet` surfaces every scoped descendant whose final segment matches (`lda::theta`).
+- **`quivers.analysis.plate_graph` module.** Extractor that walks a compiled QVR program and builds a `PlateGraph` capturing nodes (latent / observed / marginalized / deterministic), plates (with nested parents), and dependency edges. The grouping plate of a marginalize block propagates correctly to nested observes via the `[over=G]` axis; the `[via=idx]` fibration index is correctly treated as a routing label rather than an additional plate. Handles nested marginalize blocks recursively.
+- **`:plate PROGRAM` meta-command** with five output formats: default Rich table (kind / variable / family / plates / parents), `--mermaid` (Mermaid `graph TD` source with `subgraph` clusters per plate), `--dot` (Graphviz DOT with `cluster_*` subgraphs), `--tikz` (LaTeX TikZ + bayesnet snippet), `--daft` (Python script using the `daft` library), and `--open` (renders via daft or graphviz to a temp PNG and launches the system default viewer; falls back to Mermaid source if no renderer is installed).
+- **`:graph PROGRAM` meta-command.** Vertical step-flow view of a program: one row per sample / observe / let / marginalize / return step with its dependency parents on the side. No 2D edge routing in the in-TUI view so the output is robust on any terminal width. Same `--mermaid` / `--dot` / `--open` flags as `:plate`.
+- **`:where NAME` meta-command.** Lists every scope path in the loaded module whose final segment is `NAME`, sorted by depth. Useful for finding cross-references between programs, deductions, and other declarations.
+- **`:effects PROGRAM` meta-command.** Prints the program's declared `[effects=[...]]` set alongside the effect set inferred from the body (Sample / Score / Marginal / Pure based on the step kinds present). Flags leak (body uses effects not declared) and unused (declared but not used) divergences.
+- **`:shape PROGRAM` meta-command.** Pretty-prints the program's [`ChainShape`](https://FACTSlab.github.io/quivers/api/analysis/chain_shape): per-step depth, kind, intermediate axis size, source location. Useful for auditing chain depth before fitting.
+- **Modal `:help` dialog.** Promotes `:help` from "write to the output log" to a proper Textual `ModalScreen` overlay with its own focus, ESC-to-close, and a live filter input. Lists every meta-command grouped by category (loading / inspection / program exploration / live editing / control) plus the full keybinding table. The TUI's `F1` binding pushes the same modal.
+
+### Changed
+
+- **TUI env-tree builder unified.** Replaced the 12 per-kind `_children_for_*` builders with a single uniform walker that consults `scope_children()`. Each node's display label comes from a single per-kind type-line renderer; each node's `data` is its full scope path. Result: every container kind expands to its declared children in a single layered tree without duplicate per-kind logic.
+- **`Compiler.compile_env()` returns every populated bucket.** Adds `programs`, `deductions`, `signatures`, `encoders`, `decoders`, `losses`, `bundles`, `contractions`, `transformations` to the union, so consumers that walk the env dict see every declared atom.
+
+### Fixed
+
+- **`Compiler.losses` and `compile_env()` called `reg.entries()` (parentheses).** `LossRegistry.entries` is a plain list attribute, not a method. The misplaced call broke every module that declared a `loss`. The accessors now read the attribute directly.
+
 ## [0.11.5] - 2026-05-21
 
 ### Fixed

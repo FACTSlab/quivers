@@ -31,6 +31,12 @@ from quivers.dsl.ast_nodes import (
     ObjectExpr,
     TypeFromExpr,
 )
+from quivers.analysis.scope import (
+    SCOPE_SEPARATOR,
+    ScopedRef,
+    resolve_scoped_path,
+    scope_children,
+)
 from quivers.dsl.constraints import Violation, check_constraints
 from quivers.dsl.emit import module_to_source
 
@@ -275,6 +281,14 @@ class ReplSession:
         if not self._compiler:
             return _err("no environment loaded; use :load <FILE> first")
 
+        # Scope-path form: ``lda::theta``, ``LF::sorts::Term``, etc.
+        # Resolves through the scope walker rather than the parser.
+        if SCOPE_SEPARATOR in expr_source:
+            ref = resolve_scoped_path(self._compiler, expr_source.strip())
+            if ref is None:
+                return _err(f"unknown path: {expr_source}")
+            return _resp(self._type_line_for_ref(ref), body_kind="qvr")
+
         # Fast path: bare identifier resolves directly out of the env.
         # GHCi-shaped :type queries are dominated by name lookups, so we
         # handle them without round-tripping through the parser.
@@ -436,6 +450,117 @@ class ReplSession:
             head += f" : {_pretty_object(dom)} -> {_pretty_object(cod)}"
         return head
 
+    def _type_line_for_ref(self, ref: ScopedRef) -> str:
+        """Render a single-line type signature for any scoped binding.
+
+        Dispatches on ``ref.kind`` so a sample-site shows its
+        ``sample NAME : INDEX <- FAMILY(args) [opts]`` line, a
+        deduction rule shows its ``RULE : LHS |- RHS``, a sort
+        shows ``sort NAME : kind [dim=...]``, and so on.
+        """
+        node = ref.node
+        kind = ref.kind
+        if kind == "program":
+            return self._type_line_for_program(ref.name, node)
+        if kind == "morphism":
+            return self._type_line_for_morphism(ref.name, node)
+        if kind == "object":
+            return f"object {ref.name} : {_pretty_object(node)}"
+        if kind == "space":
+            return f"space {ref.name} : {_pretty_object(node)}"
+        if kind == "deduction":
+            dom = getattr(node, "domain", None)
+            cod = getattr(node, "codomain", None)
+            if dom is not None and cod is not None:
+                return (
+                    f"deduction {ref.name} : "
+                    f"{_pretty_object(dom)} -> {_pretty_object(cod)}"
+                )
+            return f"deduction {ref.name}"
+        if kind == "signature":
+            return f"signature {ref.name}"
+        if kind == "encoder":
+            sig = getattr(node, "signature", "?")
+            return f"encoder {ref.name} : {sig}"
+        if kind == "decoder":
+            sig = getattr(node, "signature", "?")
+            return f"decoder {ref.name} : {sig}"
+        if kind == "loss":
+            return f"loss {ref.name}"
+        if kind == "bundle":
+            members = (
+                getattr(node, "rules", ()) or node if isinstance(node, tuple) else ()
+            )
+            return f"bundle {ref.name} = {' | '.join(members)}"
+        if kind == "rule":
+            return f"rule {ref.name}"
+        if kind == "contraction":
+            return f"contraction {ref.name}"
+        if kind == "param":
+            sk = getattr(node, "scalar_kind", None)
+            universe = getattr(node, "universe", None)
+            if sk is not None:
+                return f"param {ref.name} : {sk}"
+            if universe is not None:
+                return f"param {ref.name} : {universe}"
+            return f"param {ref.name}"
+        if kind == "sample-site":
+            return _render_sample_line(node)
+        if kind == "observe-site":
+            return _render_observe_line(node)
+        if kind == "marginalize-site":
+            return _render_marginalize_line(node)
+        if kind == "let-site":
+            return f"let {ref.name} = …"
+        if kind == "score-site":
+            return f"score {ref.name} = …"
+        if kind == "return-site":
+            members = node if isinstance(node, tuple) else (str(node),)
+            return f"return {', '.join(members)}"
+        if kind == "deduction-rule":
+            premises = getattr(node, "premises", ()) or ()
+            conclusion = getattr(node, "conclusion", None)
+            prem_str = ", ".join(_pat_str(p) for p in premises)
+            return f"rule {ref.name} : {prem_str} |- {_pat_str(conclusion)}"
+        if kind == "atom":
+            return f"atom {ref.name}"
+        if kind == "lexicon-entry":
+            return f'lexicon "{ref.name}"'
+        if kind == "sort":
+            sk = getattr(node, "kind", "?")
+            dim = getattr(node, "dim", None)
+            tail = f" [dim={dim}]" if dim else ""
+            return f"sort {ref.name} : {sk}{tail}"
+        if kind == "constructor":
+            args = getattr(node, "args", ()) or ()
+            ret = getattr(node, "return_sort", None) or getattr(node, "result", "?")
+            return (
+                f"constructor {ref.name} : {', '.join(str(a) for a in args)} -> {ret}"
+            )
+        if kind == "binder":
+            return f"binder {ref.name}"
+        if kind in ("vertex-kind", "edge-kind"):
+            return f"{kind.replace('-', ' ')} {ref.name}"
+        if kind in (
+            "op-rule",
+            "init-rule",
+            "message-rule",
+            "update-rule",
+            "var-init",
+            "decoder-head",
+        ):
+            return f"{kind.replace('-', ' ')} {ref.name}"
+        if kind == "composition":
+            level = getattr(node, "level", None) or getattr(node, "rule", "?")
+            return f"composition {ref.name} as {level}"
+        if kind == "composition-entry":
+            return f"composition entry {ref.name}"
+        if kind == "bundle-member":
+            return f"bundle member {ref.name}"
+        if kind == "category":
+            return f"category {ref.name}"
+        return f"{kind} {ref.name}"
+
     def kind_of(self, expr_source: str) -> ReplResponse:
         try:
             mod = parse(f"object __probe__ : {expr_source}", file_path="<kind>")
@@ -458,6 +583,17 @@ class ReplSession:
     # ----- :info / :doc -------------------------------------------------
 
     def info(self, name: str, *, python: bool = False) -> ReplResponse:
+        # Scope-path form: ``lda::theta``, ``CCG::fwd_app``,
+        # ``LF::sorts::Term``, etc. Resolves via the scope walker
+        # rather than the module-level decl finder.
+        if SCOPE_SEPARATOR in name:
+            if self._compiler is None:
+                return _err("no environment loaded; use :load <FILE> first")
+            ref = resolve_scoped_path(self._compiler, name)
+            if ref is None:
+                return _err(f"unknown path: {name}")
+            return self._info_for_scoped_ref(ref, python=python)
+
         decl = self._find_decl(name)
         if decl is None:
             if name in self._env:
@@ -485,6 +621,47 @@ class ReplSession:
         body = f"{rendered}\n-- declared at {loc}"
         if doc_block:
             body = f"{doc_block}\n{body}"
+        return _resp(body, body_kind=body_kind)
+
+    def _info_for_scoped_ref(
+        self, ref: ScopedRef, *, python: bool = False
+    ) -> ReplResponse:
+        """Render an ``:info`` body for a scoped binding.
+
+        For sub-scoped nodes (a sample / observe / marginalize
+        step, a deduction rule, a sort, ...) the rendered body is
+        the step's type line plus a source-location footer pointing
+        at the enclosing declaration. For top-level scoped refs
+        (``lda``, ``CCG``, ``Doc``) the body falls through to the
+        same renderer ``:info`` uses for module-level decls.
+        """
+        node = ref.node
+        if ref.parent_kind is None:
+            # Top-level scoped ref: delegate to the existing
+            # declaration-level renderer so verbatim source slicing
+            # + doc-comment harvesting work the same way.
+            return self.info(ref.name, python=python)
+        line = getattr(node, "line", 0)
+        col = getattr(node, "col", 0)
+        if python:
+            rendered = repr(node)
+            body_kind: Literal["text", "qvr", "json", "markdown"] = "text"
+        else:
+            rendered = self._type_line_for_ref(ref)
+            body_kind = "qvr"
+        loc = (
+            f"{self._loaded_path}:{line}:{col}"
+            if self._loaded_path is not None and line
+            else type(node).__name__
+        )
+        scope_chain = ref.path.rsplit(SCOPE_SEPARATOR, 1)[0]
+        footer = f"-- {ref.kind} inside {scope_chain} at {loc}"
+        docs = getattr(node, "docs", ())
+        if docs:
+            doc_block = "\n".join(f"-- {d}" for d in docs)
+            body = f"{doc_block}\n{rendered}\n{footer}"
+        else:
+            body = f"{rendered}\n{footer}"
         return _resp(body, body_kind=body_kind)
 
     def _render_decl_qvr(self, decl: Statement) -> str:
@@ -528,6 +705,16 @@ class ReplSession:
         return "\n".join(lines[start_line - 1 : end_line - 1])
 
     def doc(self, name: str) -> ReplResponse:
+        if SCOPE_SEPARATOR in name:
+            if self._compiler is None:
+                return _err("no environment loaded; use :load <FILE> first")
+            ref = resolve_scoped_path(self._compiler, name)
+            if ref is None:
+                return _err(f"unknown path: {name}")
+            docs = getattr(ref.node, "docs", ())
+            if not docs:
+                return _resp(f"{name}: (no doc comment)")
+            return _resp("\n".join(docs), body_kind="markdown")
         decl = self._find_decl(name)
         if decl is None:
             return _err(f"unknown name: {name}")
@@ -538,7 +725,260 @@ class ReplSession:
 
     # ----- :browse ------------------------------------------------------
 
+    # ----- :plate / :graph / :where / :effects / :shape -----------------
+
+    def plate(self, name: str, *, fmt: str = "table") -> ReplResponse:
+        """Render the plate diagram for ``name`` (a program).
+
+        ``fmt`` selects the output format: ``"table"`` (default,
+        in-TUI Rich table; also has a plain-text fallback),
+        ``"mermaid"``, ``"dot"``, ``"tikz"``, ``"daft"``, or
+        ``"open"`` (render via daft or graphviz, save to a temp
+        PNG, and open with the system default opener).
+        """
+        from quivers.analysis.plate_graph import build_plate_graph
+        from quivers.analysis.plate_render import (
+            render_daft,
+            render_dot,
+            render_mermaid,
+            render_table_plain,
+            render_tikz,
+        )
+
+        if self._compiler is None:
+            return _err("no environment loaded; use :load <FILE> first")
+        graph = build_plate_graph(self._compiler, name)
+        if graph is None:
+            return _err(f"no program named {name!r} in the loaded module")
+        if fmt == "mermaid":
+            return _resp(render_mermaid(graph), body_kind="markdown")
+        if fmt == "dot":
+            return _resp(render_dot(graph))
+        if fmt == "tikz":
+            return _resp(render_tikz(graph))
+        if fmt == "daft":
+            return _resp(render_daft(graph))
+        if fmt == "open":
+            return self._plate_open(graph)
+        # Default: plain-text table (TUI also accepts this and
+        # wraps it through the Rich highlighter for colour).
+        return _resp(render_table_plain(graph))
+
+    def _plate_open(self, graph):  # type: ignore[no-untyped-def]
+        """Render the plate graph to a temp PNG and open it.
+
+        Strategy:
+        1. If ``daft`` is importable, build the figure in-process
+           and save to a temp file.
+        2. Otherwise, if the ``dot`` binary is on PATH, pipe the
+           DOT source through it to produce a PNG.
+        3. Failing both, return Mermaid source with a hint to
+           paste it into mermaid.live.
+
+        After saving, opens the file with the system default app
+        (``open`` / ``xdg-open`` / ``start``).
+        """
+        from quivers.analysis.plate_render import (
+            render_daft,
+            render_dot,
+            render_mermaid,
+        )
+
+        # Path 1: in-process daft.
+        try:
+            import importlib
+
+            daft = importlib.import_module("daft")
+        except ImportError:
+            daft = None
+        if daft is not None:
+            script = render_daft(graph)
+            # daft scripts produce a ``build_pgm()`` factory; exec
+            # in a fresh namespace and call it.
+            ns: dict[str, object] = {}
+            try:
+                exec(script, ns)  # noqa: S102
+                pgm = ns["build_pgm"]()  # type: ignore[operator]
+                tmp_path = self._temp_png()
+                pgm.render()
+                pgm.savefig(str(tmp_path))
+                self._open_file(tmp_path)
+                return _resp(
+                    f"opened plate diagram at {tmp_path}",
+                )
+            except Exception as exc:
+                # Fall through to the next backend on any failure.
+                _ = exc
+
+        # Path 2: dot binary.
+        if _has_command("dot"):
+            try:
+                tmp_path = self._temp_png()
+                _run_dot(render_dot(graph), tmp_path)
+                self._open_file(tmp_path)
+                return _resp(f"opened plate diagram at {tmp_path}")
+            except Exception as exc:
+                _ = exc
+
+        # Path 3: Mermaid source with a hint.
+        return _resp(
+            "no plate-diagram renderer found (install ``daft`` or "
+            "``graphviz``). Falling back to Mermaid source:\n\n"
+            + render_mermaid(graph),
+            body_kind="markdown",
+        )
+
+    def _temp_png(self) -> Path:
+        return Path(tempfile.gettempdir()) / f"qvr_plate_{os.getpid()}.png"
+
+    def _open_file(self, path: Path) -> None:
+        import sys
+
+        if sys.platform == "darwin":
+            subprocess.run(["open", str(path)], check=False)
+        elif sys.platform.startswith("linux"):
+            subprocess.run(["xdg-open", str(path)], check=False)
+        elif sys.platform == "win32":
+            os.startfile(str(path))  # type: ignore[attr-defined]
+
+    def graph(self, name: str, *, fmt: str = "table") -> ReplResponse:
+        """Render a step-flow view of ``name`` (a program).
+
+        The step-flow view lists the program's body steps one per
+        row with their dependency parents on the side, plus an
+        indented sub-block for any marginalize body. Same ``fmt``
+        flags as ``:plate``.
+        """
+        from quivers.analysis.plate_graph import build_plate_graph
+        from quivers.analysis.plate_render import (
+            render_dot,
+            render_mermaid,
+        )
+
+        if self._compiler is None:
+            return _err("no environment loaded; use :load <FILE> first")
+        graph = build_plate_graph(self._compiler, name)
+        if graph is None:
+            return _err(f"no program named {name!r} in the loaded module")
+        # The graph and plate diagrams share a model; ``:graph``
+        # uses a step-oriented rendering vs ``:plate``'s
+        # variable-oriented one.
+        if fmt == "mermaid":
+            return _resp(render_mermaid(graph), body_kind="markdown")
+        if fmt == "dot":
+            return _resp(render_dot(graph))
+        if fmt == "open":
+            return self._plate_open(graph)
+        return _resp(_render_step_flow(graph))
+
+    def where(self, name: str) -> ReplResponse:
+        """List every scope path whose final segment is ``name``."""
+        from quivers.analysis.scope import find_all_references
+
+        if self._compiler is None:
+            return _err("no environment loaded; use :load <FILE> first")
+        refs = find_all_references(self._compiler, name)
+        if not refs:
+            return _err(f"no references to {name!r}")
+        lines = [f"references to {name!r}:"]
+        for ref in refs:
+            lines.append(f"  {ref.kind:14} {ref.path}")
+        return _resp("\n".join(lines))
+
+    def effects(self, name: str) -> ReplResponse:
+        """Compare declared and inferred effect sets for a program."""
+        from quivers.analysis.plate_graph import build_plate_graph
+
+        if self._compiler is None:
+            return _err("no environment loaded; use :load <FILE> first")
+        graph = build_plate_graph(self._compiler, name)
+        if graph is None:
+            return _err(f"no program named {name!r} in the loaded module")
+        declared = _declared_effects_for_program(self._compiler, name)
+        inferred = _inferred_effects_from_graph(graph)
+        lines = [
+            f"program {name}:",
+            f"  declared : {{{', '.join(sorted(declared)) or '(none)'}}}",
+            f"  inferred : {{{', '.join(sorted(inferred))}}}",
+        ]
+        leak = inferred - (declared or inferred)
+        missing = declared - inferred if declared else set()
+        if declared and leak:
+            lines.append(
+                f"  ! leak    : {{{', '.join(sorted(leak))}}}"
+                " (body uses effects not declared)"
+            )
+        if declared and missing:
+            lines.append(
+                f"  ! unused  : {{{', '.join(sorted(missing))}}}"
+                " (declared but not used)"
+            )
+        if not declared:
+            lines.append("  (no [effects=[...]] declared)")
+        return _resp("\n".join(lines))
+
+    def shape(self, name: str) -> ReplResponse:
+        """Render the ``ChainShape`` of the named program."""
+        from quivers.analysis.chain_shape import ChainShape
+
+        if self._compiler is None:
+            return _err("no environment loaded; use :load <FILE> first")
+        try:
+            shape_obj = ChainShape.from_module(self._module)
+        except Exception as exc:
+            return _err(f"chain shape: {exc}")
+        # ChainShape walks the module's first program decl
+        # automatically; ``name`` is used only to disambiguate
+        # output. Stay graceful when the module has multiple
+        # programs and only one matches.
+        steps = list(shape_obj.steps)
+        if not steps:
+            return _err(f"no program steps in module for {name!r}")
+        lines = [
+            f"chain shape ({shape_obj.algebra_name}):",
+            "  #  depth  kind         name        size",
+            "  -  -----  -----------  ----------  ----",
+        ]
+        for i, step in enumerate(steps, start=1):
+            size = (
+                str(step.intermediate_size)
+                if step.intermediate_size is not None
+                else "?"
+            )
+            lines.append(
+                f"  {i:<3d} {step.depth:<5d}  {step.kind:<11s}  "
+                f"{step.name:<10s}  {size:<4s}"
+            )
+        return _resp("\n".join(lines))
+
+    def _browse_scope(self, ref: ScopedRef) -> ReplResponse:
+        """Render ``:browse PATH`` for a scoped binding.
+
+        Lists the binding's own type line then enumerates its
+        children one per line. Children are addressable themselves
+        via ``PATH::CHILD`` so the user can navigate deeper.
+        """
+        children = scope_children(ref)
+        head = self._type_line_for_ref(ref)
+        if not children:
+            return _resp(f"{head}\n(no inner scope)")
+        lines = [head]
+        for cname, cref in children.items():
+            lines.append(f"  {self._type_line_for_ref(cref)}")
+        return _resp("\n".join(lines))
+
     def browse(self, namespace: str = "") -> ReplResponse:
+        # Scoped browse: ``:browse lda`` shows the program's
+        # children; ``:browse lda::z`` shows the marginalize's
+        # inner scope. Falls through to the module-level view
+        # below when ``namespace`` is empty or doesn't resolve.
+        if namespace and self._compiler is not None:
+            target = namespace.strip()
+            if SCOPE_SEPARATOR in target or target.isidentifier():
+                ref = resolve_scoped_path(self._compiler, target)
+                if ref is not None:
+                    return self._browse_scope(ref)
+
         from quivers.cli.repl_tui import (
             _children_for_bundle,
             _children_for_contraction,
@@ -866,6 +1306,200 @@ def _cmd_doc(s: ReplSession, arg: str) -> ReplResponse:
     return s.doc(arg)
 
 
+def _cmd_plate(s: ReplSession, arg: str) -> ReplResponse:
+    """``:plate PROGRAM [--mermaid|--dot|--tikz|--daft|--open]``.
+
+    Render the plate diagram for ``PROGRAM``. Default is an
+    in-TUI Rich table; flags emit alternate formats.
+    """
+    parts = arg.strip().split()
+    if not parts:
+        return _err("usage: :plate PROGRAM [--mermaid|--dot|--tikz|--daft|--open]")
+    fmt = "table"
+    program = ""
+    for tok in parts:
+        if tok in ("--mermaid", "--dot", "--tikz", "--daft", "--open"):
+            fmt = tok[2:]
+        elif tok.startswith("--"):
+            return _err(f"unknown flag: {tok}")
+        else:
+            if program:
+                return _err("usage: :plate PROGRAM [--FLAG]")
+            program = tok
+    if not program:
+        return _err("usage: :plate PROGRAM [--FLAG]")
+    return s.plate(program, fmt=fmt)
+
+
+def _cmd_graph(s: ReplSession, arg: str) -> ReplResponse:
+    """``:graph PROGRAM [--mermaid|--dot|--open]``."""
+    parts = arg.strip().split()
+    if not parts:
+        return _err("usage: :graph PROGRAM [--mermaid|--dot|--open]")
+    fmt = "table"
+    program = ""
+    for tok in parts:
+        if tok in ("--mermaid", "--dot", "--open"):
+            fmt = tok[2:]
+        elif tok.startswith("--"):
+            return _err(f"unknown flag: {tok}")
+        else:
+            if program:
+                return _err("usage: :graph PROGRAM [--FLAG]")
+            program = tok
+    if not program:
+        return _err("usage: :graph PROGRAM [--FLAG]")
+    return s.graph(program, fmt=fmt)
+
+
+def _cmd_where(s: ReplSession, arg: str) -> ReplResponse:
+    name = arg.strip()
+    if not name:
+        return _err("usage: :where NAME")
+    return s.where(name)
+
+
+def _cmd_effects(s: ReplSession, arg: str) -> ReplResponse:
+    name = arg.strip()
+    if not name:
+        return _err("usage: :effects PROGRAM")
+    return s.effects(name)
+
+
+def _cmd_shape(s: ReplSession, arg: str) -> ReplResponse:
+    name = arg.strip()
+    if not name:
+        return _err("usage: :shape PROGRAM")
+    return s.shape(name)
+
+
+def _declared_effects_for_program(compiler, name: str) -> set[str]:  # type: ignore[no-untyped-def]
+    """Read the ``[effects=[...]]`` option block of a program."""
+    decl = None
+    programs = getattr(compiler, "programs", {}) or {}
+    decl = programs.get(name)
+    if decl is None:
+        module = getattr(compiler, "_module", None)
+        for stmt in getattr(module, "statements", ()) or ():
+            if (
+                type(stmt).__name__ == "ProgramDecl"
+                and getattr(stmt, "name", None) == name
+            ):
+                decl = stmt
+                break
+    if decl is None:
+        return set()
+    out: set[str] = set()
+    for opt in getattr(decl, "options", ()) or ():
+        if getattr(opt, "key", None) != "effects":
+            continue
+        value = getattr(opt, "value", None)
+        items = getattr(value, "items", None)
+        if items is None:
+            inner = getattr(value, "value", None)
+            if isinstance(inner, str):
+                out.add(inner)
+            continue
+        for item in items:
+            v = getattr(item, "value", None)
+            if isinstance(v, str):
+                out.add(v)
+    return out
+
+
+def _inferred_effects_from_graph(graph) -> set[str]:  # type: ignore[no-untyped-def]
+    inferred: set[str] = set()
+    for n in graph.nodes:
+        if n.kind == "latent":
+            inferred.add("Sample")
+        elif n.kind == "observed":
+            inferred.add("Score")
+        elif n.kind == "marginalized":
+            inferred.add("Marginal")
+    if not inferred:
+        inferred.add("Pure")
+    return inferred
+
+
+def _render_step_flow(graph) -> str:  # type: ignore[no-untyped-def]
+    """Render a vertical step-flow table for ``:graph``.
+
+    One row per step with columns: # / kind / step expression /
+    parents. Differs from ``:plate``'s variable-oriented view in
+    that the step expression carries the family + args + options,
+    so the user can see the full source-level form for each step.
+    """
+    parents_by_dst: dict[str, list[str]] = {}
+    for e in graph.edges:
+        parents_by_dst.setdefault(e.dst, []).append(e.src)
+
+    cols = ("#", "kind", "step", "parents")
+    rows: list[tuple[str, ...]] = []
+    for i, node in enumerate(graph.nodes, start=1):
+        rows.append(
+            (
+                str(i),
+                node.kind,
+                _step_text(node),
+                ", ".join(parents_by_dst.get(node.name, ())) or "-",
+            )
+        )
+    widths = [len(c) for c in cols]
+    for row in rows:
+        for i, cell in enumerate(row):
+            widths[i] = max(widths[i], len(cell))
+
+    def _fmt(cells: tuple[str, ...]) -> str:
+        return "  ".join(c.ljust(widths[i]) for i, c in enumerate(cells))
+
+    out_lines = [
+        f"program {graph.program_name}: {graph.domain} -> {graph.codomain}",
+        "",
+        _fmt(cols),
+        "  ".join("-" * w for w in widths),
+    ]
+    out_lines.extend(_fmt(row) for row in rows)
+    return "\n".join(out_lines)
+
+
+def _step_text(node) -> str:  # type: ignore[no-untyped-def]
+    if node.kind == "latent":
+        plates = " : " + " x ".join(node.plates) if node.plates else ""
+        fam = f"{node.family}({', '.join(node.args)})" if node.family else "?"
+        return f"sample {node.name}{plates} <- {fam}"
+    if node.kind == "observed":
+        plates = " : " + " x ".join(node.plates) if node.plates else ""
+        fam = f"{node.family}({', '.join(node.args)})" if node.family else "?"
+        return f"observe {node.name}{plates} <- {fam}"
+    if node.kind == "marginalized":
+        plates = " : " + " x ".join(node.plates) if node.plates else ""
+        fam = f"{node.family}({', '.join(node.args)})" if node.family else "?"
+        return f"marginalize {node.name}{plates} <- {fam}"
+    if node.kind == "deterministic":
+        return f"let {node.name} = …"
+    return node.name
+
+
+def _has_command(name: str) -> bool:
+    import shutil
+
+    return shutil.which(name) is not None
+
+
+def _run_dot(dot_source: str, out_png: Path) -> None:
+    """Pipe DOT source through ``dot -Tpng`` to ``out_png``.
+
+    Raises ``RuntimeError`` if ``dot`` exits non-zero.
+    """
+    proc = subprocess.run(
+        ["dot", "-Tpng", "-o", str(out_png)],
+        input=dot_source.encode("utf-8"),
+        capture_output=True,
+    )
+    if proc.returncode != 0:
+        raise RuntimeError(proc.stderr.decode("utf-8", errors="replace"))
+
+
 def _cmd_browse(s: ReplSession, arg: str) -> ReplResponse:
     return s.browse(arg)
 
@@ -910,6 +1544,69 @@ def _cmd_help(s: ReplSession, arg: str) -> ReplResponse:
     return s.help(arg)
 
 
+HELP_CATEGORIES: tuple[tuple[str, tuple[tuple[str, str], ...]], ...] = (
+    (
+        "loading",
+        (
+            (":load FILE", "parse + elaborate; rebind the session env"),
+            (":reload", "re-run :load on the last file; diff added / removed names"),
+            (":save FILE", "write the live module to disk via module_to_source"),
+        ),
+    ),
+    (
+        "inspection",
+        (
+            (":type EXPR", "print EXPR's resolved type (accepts a::b::c paths)"),
+            (":kind T", "print T's AST variant + sibling TypeExpr variants"),
+            (":info NAME", "show NAME's declaration source + location"),
+            (":doc NAME", "render the doc-comment above NAME's declaration"),
+            (":browse [NS]", "list every binding in NS (or the module's scopes)"),
+            (":dump NAME [--json]", "model_dump of NAME's AST node"),
+        ),
+    ),
+    (
+        "program exploration",
+        (
+            (":graph PROGRAM [--mermaid|--dot|--open]", "vertical step-flow diagram"),
+            (":plate PROGRAM [--mermaid|--dot|--tikz|--daft|--open]", "plate notation"),
+            (":where NAME", "list every scope path that mentions NAME"),
+            (":effects PROGRAM", "declared vs inferred effect set"),
+            (":shape PROGRAM", "per-step ChainShape (depth, intermediate sizes)"),
+            (":trace EXPR", "step elaboration; surface each intermediate object/space"),
+        ),
+    ),
+    (
+        "live editing",
+        (
+            (":edit NAME", "open $EDITOR on NAME's decl; splice back on save"),
+            (":watch EXPR", "pin EXPR; re-evaluate after every recompile"),
+            (":unwatch [EXPR]", "remove EXPR (or all) from the watch list"),
+            (":set KEY=VALUE", "toggle session options"),
+        ),
+    ),
+    (
+        "control",
+        (
+            (":help", "show this dialog (Esc closes)"),
+            (":quit", "exit the REPL"),
+        ),
+    ),
+)
+
+
+KEY_BINDINGS: tuple[tuple[str, str], ...] = (
+    ("Ctrl-G / Ctrl-O / F8", "evaluate the current buffer"),
+    ("Ctrl-Up / Ctrl-Down", "previous / next input from history"),
+    ("Tab", "complete the identifier under the cursor"),
+    ("Ctrl-P", "command palette"),
+    ("Ctrl-L", "clear the output log"),
+    ("Ctrl-R", "reload the last file"),
+    ("Ctrl-Q", "quit"),
+    ("F1", "open the help dialog"),
+    ("Esc", "dismiss a modal overlay"),
+)
+
+
 def _cmd_quit(s: ReplSession, arg: str) -> ReplResponse:
     del s, arg
     return _resp("__quit__")
@@ -929,6 +1626,13 @@ _META_COMMANDS = {
     "doc": _cmd_doc,
     "browse": _cmd_browse,
     "b": _cmd_browse,
+    "plate": _cmd_plate,
+    "p": _cmd_plate,
+    "graph": _cmd_graph,
+    "g": _cmd_graph,
+    "where": _cmd_where,
+    "effects": _cmd_effects,
+    "shape": _cmd_shape,
     "dump": _cmd_dump,
     "edit": _cmd_edit,
     "trace": _cmd_trace,
@@ -1103,6 +1807,68 @@ def _render_decl(decl: Statement) -> str:
 
 def _extend_module(base: Module, additions: Iterable[Statement]) -> Module:
     return Module(statements=tuple(base.statements) + tuple(additions))
+
+
+# ---------------------------------------------------------------------------
+# Scoped-step pretty printers (used by ``:type lda::theta``-style queries)
+# ---------------------------------------------------------------------------
+
+
+def _call_str(step: Any) -> str:
+    head = getattr(step, "morphism", "?") or "?"
+    args = getattr(step, "args", None)
+    if not args:
+        return str(head)
+    return f"{head}({', '.join(str(a) for a in args)})"
+
+
+def _index_suffix(idx: Any) -> str:
+    if idx is None:
+        return ""
+    name = getattr(idx, "name", None) or repr(idx)
+    return f" : {name}"
+
+
+def _options_suffix(step: Any) -> str:
+    """Render an option block ``[k=v, ...]`` for a step, or empty
+    when the step has no options."""
+    options = getattr(step, "options", ()) or ()
+    if not options:
+        return ""
+    parts: list[str] = []
+    for opt in options:
+        key = getattr(opt, "key", "?")
+        value = getattr(opt, "value", None)
+        v = getattr(value, "value", None)
+        parts.append(f"{key}={v if v is not None else value}")
+    return f" [{', '.join(parts)}]"
+
+
+def _render_sample_line(step: Any) -> str:
+    vars_ = getattr(step, "vars", ()) or ()
+    var = vars_[0] if vars_ else "?"
+    idx = _index_suffix(getattr(step, "index", None))
+    return f"sample {var}{idx} <- {_call_str(step)}{_options_suffix(step)}"
+
+
+def _render_observe_line(step: Any) -> str:
+    var = getattr(step, "var", "?")
+    idx = _index_suffix(getattr(step, "index", None))
+    return f"observe {var}{idx} <- {_call_str(step)}{_options_suffix(step)}"
+
+
+def _render_marginalize_line(step: Any) -> str:
+    var = getattr(step, "var", "?")
+    idx = _index_suffix(getattr(step, "index", None))
+    return f"marginalize {var}{idx} <- {_call_str(step)}{_options_suffix(step)}"
+
+
+def _pat_str(pat: Any) -> str:
+    if pat is None:
+        return "?"
+    if isinstance(pat, tuple):
+        return "(" + ", ".join(_pat_str(p) for p in pat) + ")"
+    return str(pat)
 
 
 def _replace_decl_by_name(

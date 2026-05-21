@@ -355,3 +355,162 @@ def test_tui_module_exports_resolve_click_target():
     from quivers.cli import repl_tui
 
     assert callable(repl_tui.resolve_click_target)
+
+
+# ---------------------------------------------------------------------------
+# Scope-tree population
+# ---------------------------------------------------------------------------
+
+
+class _FakeTreeNode:
+    """In-memory Textual ``TreeNode`` stand-in for assertions."""
+
+    def __init__(self, label, *, data=None, is_root=False):
+        self.label = label
+        self.data = data
+        self.is_root = is_root
+        self.children: list[_FakeTreeNode] = []
+
+    def add(self, label, *, data=None, expand=False):
+        child = _FakeTreeNode(label, data=data)
+        self.children.append(child)
+        return child
+
+    def add_leaf(self, label, *, data=None):
+        return self.add(label, data=data)
+
+
+def _build_fake_tree(session):  # type: ignore[no-untyped-def]
+    """Run the scope-tree walker against a fake root and return
+    the populated tree."""
+    from quivers.cli.repl_tui import _populate_scope_tree
+
+    root = _FakeTreeNode("<root>", is_root=True)
+    _populate_scope_tree(root, session, lambda _n: True, filter_text="")
+    return root
+
+
+def _walk_paths(node, depth=0):  # type: ignore[no-untyped-def]
+    """Yield (depth, label, data) for every node depth-first."""
+    yield depth, str(node.label), node.data
+    for child in node.children:
+        yield from _walk_paths(child, depth + 1)
+
+
+def test_scope_tree_top_level_carries_bare_path(lda_session):
+    root = _build_fake_tree(lda_session)
+    entries = list(_walk_paths(root))
+    # The lda program must appear with data=='lda'
+    program_nodes = [e for e in entries if e[2] == "lda"]
+    assert program_nodes, [e for e in entries if isinstance(e[2], str)]
+
+
+def test_scope_tree_nested_steps_carry_scope_paths(lda_session):
+    root = _build_fake_tree(lda_session)
+    entries = list(_walk_paths(root))
+    paths = {e[2] for e in entries if isinstance(e[2], str)}
+    # Every program step + the marginalize's body observe + return.
+    assert {"lda::theta", "lda::phi", "lda::z", "lda::z::w", "lda::return"} <= paths
+
+
+def test_scope_tree_deduction_rules_carry_paths():
+    s = ReplSession()
+    s.load_file("docs/examples/source/ccg.qvr")
+    root = _build_fake_tree(s)
+    entries = list(_walk_paths(root))
+    paths = {e[2] for e in entries if isinstance(e[2], str)}
+    assert "CCG" in paths
+    assert "CCG::fwd_app" in paths
+    assert "CCG::bwd_app" in paths
+
+
+def test_scope_tree_category_headings_have_no_data(lda_session):
+    """Category nodes (objects / programs / ...) must not be
+    clickable — their ``data`` is ``None``."""
+    root = _build_fake_tree(lda_session)
+    # Direct children of root are category headings.
+    for child in root.children:
+        assert child.data is None, (child.label, child.data)
+
+
+def test_resolve_click_target_accepts_scoped_paths():
+    """The click handler must accept ``::``-paths (the new env-tree
+    leaf format), not just bare identifiers."""
+    from quivers.cli.repl_tui import resolve_click_target
+
+    leaf = _FakeNode(data="lda::z::w", label="observe w : Word <- ...")
+    assert resolve_click_target(leaf) == "lda::z::w"
+
+
+def test_resolve_click_target_rejects_path_with_invalid_segment():
+    from quivers.cli.repl_tui import resolve_click_target
+
+    leaf = _FakeNode(data="lda::not an ident", label="...")
+    assert resolve_click_target(leaf) is None
+
+
+# ---------------------------------------------------------------------------
+# Scope-aware completion
+# ---------------------------------------------------------------------------
+
+
+def test_completion_bare_prefix_picks_up_scoped_descendants(lda_session):
+    """Typing a bare-name prefix like ``thet`` should surface
+    ``lda::theta`` so users discover scoped bindings without
+    typing the prefix."""
+    from quivers.cli.repl_complete import all_completions
+
+    cs = all_completions(lda_session, "thet")
+    texts = {c.text for c in cs}
+    assert "lda::theta" in texts, texts
+
+
+def test_completion_scope_path_lists_children(lda_session):
+    """``lda::`` lists every child of the lda program's scope:
+    params, sample / observe / marginalize sites, return."""
+    from quivers.cli.repl_complete import all_completions
+
+    cs = all_completions(lda_session, "lda::")
+    texts = {c.text for c in cs}
+    assert "lda::alpha" in texts
+    assert "lda::theta" in texts
+    assert "lda::z" in texts
+    assert "lda::return" in texts
+
+
+def test_completion_scope_path_partial_segment(lda_session):
+    """``lda::th`` lists ``lda::theta`` (and not unrelated paths)."""
+    from quivers.cli.repl_complete import all_completions
+
+    cs = all_completions(lda_session, "lda::th")
+    texts = {c.text for c in cs if c.kind == "env"}
+    assert "lda::theta" in texts
+    assert "lda::phi" not in texts
+
+
+def test_completion_deep_scope_path(lda_session):
+    """``lda::z::`` lists the marginalize block's inner scope."""
+    from quivers.cli.repl_complete import all_completions
+
+    cs = all_completions(lda_session, "lda::z::")
+    texts = {c.text for c in cs}
+    assert "lda::z::w" in texts
+
+
+def test_completion_emits_kind_detail_for_scoped(lda_session):
+    """Each scoped completion's ``detail`` is the descendant's
+    ScopeKind so the prompt_toolkit / LSP frontend can colour or
+    label appropriately."""
+    from quivers.cli.repl_complete import all_completions
+
+    cs = [c for c in all_completions(lda_session, "lda::") if c.text == "lda::theta"]
+    assert cs
+    assert cs[0].detail == "sample-site"
+
+
+def test_completion_unresolvable_scope_prefix_returns_empty(lda_session):
+    """``nonexistent::foo`` resolves to nothing."""
+    from quivers.cli.repl_complete import all_completions
+
+    cs = [c for c in all_completions(lda_session, "nonexistent::") if c.kind == "env"]
+    assert cs == []

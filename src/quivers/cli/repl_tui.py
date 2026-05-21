@@ -62,6 +62,7 @@ def run_tui(session: "ReplSession") -> int:
     from textual.binding import Binding
     from textual.command import Hit, Hits, Provider
     from textual.containers import Horizontal, Vertical
+    from textual.screen import ModalScreen
     from textual.widgets import (
         Footer,
         Input,
@@ -115,6 +116,109 @@ def run_tui(session: "ReplSession") -> int:
             app.run_meta_command(command)
 
         return _run
+
+    class _HelpScreen(ModalScreen):
+        """Modal overlay listing every meta-command + key binding.
+
+        Pushed by ``action_help`` (``F1`` or ``:help``). Dismissed
+        with ``Esc`` or by pressing the close button. The filter
+        input narrows the visible commands live as the user types.
+        """
+
+        BINDINGS = [
+            Binding("escape", "dismiss", "Close", show=True, priority=True),
+        ]
+
+        CSS = """
+        _HelpScreen {
+            align: center middle;
+        }
+        _HelpScreen > #help-frame {
+            background: $panel;
+            border: thick $primary;
+            padding: 1 2;
+            width: 90%;
+            max-width: 100;
+            height: 80%;
+        }
+        _HelpScreen #help-title {
+            text-style: bold;
+            color: $accent;
+            padding-bottom: 1;
+        }
+        _HelpScreen #help-filter {
+            border: tall $primary;
+            margin-bottom: 1;
+        }
+        _HelpScreen #help-body {
+            height: 1fr;
+        }
+        """
+
+        def __init__(self) -> None:
+            super().__init__()
+            self._filter = ""
+
+        def compose(self) -> ComposeResult:
+            from quivers.cli.repl_session import HELP_CATEGORIES, KEY_BINDINGS
+
+            self._HELP_CATEGORIES = HELP_CATEGORIES
+            self._KEY_BINDINGS = KEY_BINDINGS
+            with Vertical(id="help-frame"):
+                yield Static("qvr repl — help (Esc to close)", id="help-title")
+                yield Input(placeholder="filter… (substring match)", id="help-filter")
+                yield RichLog(id="help-body", highlight=False, markup=False)
+
+        def on_mount(self) -> None:
+            self._render_help_body()
+            try:
+                self.query_one("#help-filter", Input).focus()
+            except Exception:
+                pass
+
+        def on_input_changed(self, event) -> None:  # type: ignore[no-untyped-def]
+            if event.input.id == "help-filter":
+                self._filter = event.value.strip().lower()
+                self._render_help_body()
+
+        def _render_help_body(self) -> None:
+            log = self.query_one("#help-body", RichLog)
+            log.clear()
+            needle = self._filter
+
+            def matches(*fields: str) -> bool:
+                if not needle:
+                    return True
+                return any(needle in f.lower() for f in fields)
+
+            for cat, entries in self._HELP_CATEGORIES:
+                visible = [
+                    (cmd, summary) for cmd, summary in entries if matches(cmd, summary)
+                ]
+                if not visible:
+                    continue
+                log.write(Text(cat, style="bold cyan"))
+                for cmd, summary in visible:
+                    line = Text()
+                    line.append("  ")
+                    line.append(cmd, style="bold")
+                    line.append("  ")
+                    line.append(summary, style="dim")
+                    log.write(line)
+                log.write(Text(""))
+            kb_visible = [(k, d) for k, d in self._KEY_BINDINGS if matches(k, d)]
+            if kb_visible:
+                log.write(Text("keybindings", style="bold cyan"))
+                for k, d in kb_visible:
+                    line = Text()
+                    line.append("  ")
+                    line.append(k, style="bold")
+                    line.append("  ")
+                    line.append(d, style="dim")
+                    log.write(line)
+
+        def action_dismiss(self) -> None:
+            self.app.pop_screen()
 
     class _QvrTextArea(TextArea):
         """TextArea with brace-balancing and auto-indent on Enter.
@@ -263,7 +367,7 @@ def run_tui(session: "ReplSession") -> int:
             self._refresh_watches()
 
         def action_help(self) -> None:
-            self._render(self.session.help(""))
+            self.push_screen(_HelpScreen())
 
         def action_info(self, name: str) -> None:
             """Click handler for identifiers rendered with @click=info."""
@@ -548,35 +652,13 @@ def run_tui(session: "ReplSession") -> int:
             def keep(name: str) -> bool:
                 return not needle or needle in name.lower()
 
-            for ns_name, mapping, builder in (
-                ("objects", compiler.objects, _children_for_object),
-                ("spaces", compiler.spaces, _children_for_space),
-                ("morphisms", compiler.morphisms, _children_for_morphism),
-                ("rules", compiler.rules, _children_for_rule),
-                ("programs", compiler.programs, _children_for_program),
-                ("deductions", compiler.deductions, _children_for_deduction),
-                ("signatures", compiler.signatures, _children_for_signature),
-                ("encoders", compiler.encoders, _children_for_encoder),
-                ("decoders", compiler.decoders, _children_for_decoder),
-                ("losses", compiler.losses, _children_for_loss),
-                ("bundles", compiler.bundles, _children_for_bundle),
-                ("contractions", compiler.contractions, _children_for_contraction),
-            ):
-                names = [n for n in sorted(mapping) if keep(n)]
-                if not names:
-                    continue
-                ns_node = tree.root.add(ns_name, expand=True)
-                for name in names:
-                    head, children = builder(name, mapping[name])
-                    # Attach the bare binding name as ``node.data``
-                    # so the click handler dispatches ``:info NAME``
-                    # against the binding, not against the rich
-                    # signature label.
-                    if children:
-                        sub = ns_node.add(head, data=name, expand=False)
-                        _populate_children(sub, children)
-                    else:
-                        ns_node.add_leaf(head, data=name)
+            # Walk the scope graph uniformly: for each top-level
+            # bucket, add a category heading, then recursively expand
+            # each binding's scope_children. Every node carries the
+            # binding's full ``::`` path on ``data`` so the click
+            # handler resolves through the same scope walker the
+            # meta-commands use.
+            _populate_scope_tree(tree.root, self.session, keep, filter_text=needle)
 
     app = QvrRepl(session)
     app.run()
@@ -654,21 +736,105 @@ def _append_history(line: str) -> None:
 
 
 def resolve_click_target(node):  # type: ignore[no-untyped-def]
-    """Return the binding name to dispatch ``:info`` against, or
+    """Return the ``::``-path to dispatch ``:info`` against, or
     ``None`` if the node is not bound to a single declaration.
 
-    Each env-tree node that corresponds to a top-level declaration
-    carries the binding's bare name on ``node.data`` (set at build
-    time in ``_refresh_env``). Category nodes (``objects``,
-    ``morphisms``, ...) and nested step / rule / sort children carry
-    ``data=None`` and produce no dispatch.
+    Each env-tree node that corresponds to a binding (top-level
+    or scoped) carries its full ``::``-separated scope path on
+    ``node.data`` (set at build time by ``_populate_scope_tree``).
+    Category headings (``objects``, ``programs``, ...) carry
+    ``data=None`` and produce no dispatch. Paths may contain any
+    number of ``::`` segments; the click handler routes the whole
+    string through the session's scope-aware ``info()``, which in
+    turn resolves it via ``resolve_scoped_path``.
     """
     if getattr(node, "is_root", False):
         return None
-    name = getattr(node, "data", None)
-    if not isinstance(name, str) or not name.isidentifier():
+    path = getattr(node, "data", None)
+    if not isinstance(path, str) or not path:
         return None
-    return name
+    # Require every segment to be a valid identifier; rejects
+    # spurious data such as a rich label that got into ``data``.
+    from quivers.analysis.scope import SCOPE_SEPARATOR
+
+    segments = path.split(SCOPE_SEPARATOR)
+    if not all(s.isidentifier() for s in segments):
+        return None
+    return path
+
+
+# ---------------------------------------------------------------------------
+# Env-tree population via the scope walker
+# ---------------------------------------------------------------------------
+
+
+# Display labels per top-level kind, in the order categories appear
+# in the tree. Each entry is (category heading, compiler accessor
+# attribute, the ScopeKind to tag the resulting refs with).
+_TREE_CATEGORIES: tuple[tuple[str, str, str], ...] = (
+    ("objects", "objects", "object"),
+    ("spaces", "spaces", "space"),
+    ("morphisms", "morphisms", "morphism"),
+    ("rules", "rules", "rule"),
+    ("programs", "programs", "program"),
+    ("deductions", "deductions", "deduction"),
+    ("signatures", "signatures", "signature"),
+    ("encoders", "encoders", "encoder"),
+    ("decoders", "decoders", "decoder"),
+    ("losses", "losses", "loss"),
+    ("bundles", "bundles", "bundle"),
+    ("contractions", "contractions", "contraction"),
+)
+
+
+def _populate_scope_tree(root, session, keep, *, filter_text):  # type: ignore[no-untyped-def]
+    """Populate a Textual ``Tree`` from the session's compiler env.
+
+    Walks the scope graph: each top-level binding is added under
+    its category heading; each binding's ``scope_children`` are
+    recursively added as nested nodes. Every binding node carries
+    its full ``::`` path on ``node.data`` so the click handler
+    dispatches the right scope-aware lookup.
+    """
+    from quivers.analysis.scope import ScopedRef
+    from quivers.cli.repl_session import ReplSession
+
+    assert isinstance(session, ReplSession)
+    compiler = session._compiler  # noqa: SLF001
+    if compiler is None:
+        return
+    for heading, attr, kind in _TREE_CATEGORIES:
+        mapping = getattr(compiler, attr, None) or {}
+        names = [n for n in sorted(mapping) if keep(n)]
+        if not names:
+            continue
+        cat_node = root.add(heading, expand=True)
+        for name in names:
+            ref = ScopedRef(
+                name=name,
+                kind=kind,  # type: ignore[arg-type]
+                path=name,
+                parent_kind=None,
+                node=mapping[name],
+            )
+            _add_ref_node(cat_node, session, ref)
+
+
+def _add_ref_node(parent, session, ref):  # type: ignore[no-untyped-def]
+    """Add a tree node for ``ref`` under ``parent``; recursively
+    expand its scope_children as nested nodes. The node's display
+    label is the scope-aware type line; the node's ``data`` is the
+    full path so the click handler can resolve it."""
+    from quivers.analysis.scope import scope_children
+
+    label = session._type_line_for_ref(ref)  # noqa: SLF001
+    children = scope_children(ref)
+    if not children:
+        parent.add_leaf(label, data=ref.path)
+        return
+    node = parent.add(label, data=ref.path, expand=False)
+    for child in children.values():
+        _add_ref_node(node, session, child)
 
 
 # ---------------------------------------------------------------------------

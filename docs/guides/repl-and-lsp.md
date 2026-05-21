@@ -151,7 +151,12 @@ column.
 | `:kind T` | `:k` | Print T's AST variant and enumerate the sibling TypeExpr variants |
 | `:info NAME` | `:i` | Show NAME's declaration verbatim from the source, plus its location and doc comment. Pass `--python` for the didactic AST `repr()` instead |
 | `:doc NAME` | — | Render only the doc comment(s) for NAME |
-| `:browse [NS]` | `:b` | List every binding, optionally filtered by namespace (`objects`/`spaces`/`morphisms`/`rules`) |
+| `:browse [PATH]` | `:b` | List every binding, optionally filtered by a top-level namespace (`objects`/`spaces`/`morphisms`/`rules`/...) or by a `::`-separated scope path (`lda`, `lda::z`, `CCG::fwd_app`). Paths show that binding's inner scope. |
+| `:plate PROGRAM` | `:p` | Render PROGRAM's plate diagram. Default is a Rich table; flags `--mermaid` / `--dot` / `--tikz` / `--daft` emit alternative formats; `--open` renders to PNG via daft or graphviz and opens with the system viewer. |
+| `:graph PROGRAM` | `:g` | Vertical step-flow view of PROGRAM (one row per sample / observe / let / marginalize / return step with its dependency parents). Same `--mermaid` / `--dot` / `--open` flags as `:plate`. |
+| `:where NAME` | — | List every scope path whose final segment is NAME (top-level and nested). Useful for finding every site a binding is referenced. |
+| `:effects PROGRAM` | — | Compare PROGRAM's declared `[effects=[...]]` set against the effect set the compiler infers from the body. |
+| `:shape PROGRAM` | — | Pretty-print PROGRAM's `ChainShape`: per-step depth, kind, intermediate axis size, source location. |
 | `:dump NAME [--json]` | — | Pretty-print NAME's AST node (`--json` for didactic's `model_dump_json`) |
 | `:edit NAME` | — | Open `$EDITOR` on NAME's source, splice the edited text back into the module, recompile |
 | `:trace EXPR` | — | Step through elaboration of a morphism expression, surfacing each intermediate domain/codomain |
@@ -166,6 +171,74 @@ A bare line (no leading `:`) is evaluated as **either** appended
 statements (parsed, compiled into the live module, env updated)
 **or**, if parsing as statements fails, treated as an expression and
 piped through `:type`.
+
+### Scope paths (`::`)
+
+Every meta-command that takes a binding name accepts a
+`::`-separated scope path. The leftmost segment is a top-level
+declaration; each subsequent segment looks up a named child in
+that declaration's scope. Examples on the LDA gallery example:
+
+```
+> :type lda::theta
+sample theta : Doc <- Dirichlet(alpha) [over=Topic, iid_over=Doc]
+
+> :type lda::z::w
+observe w : Word <- Categorical(phi[z]) [via=word_idx]
+
+> :browse lda::z
+marginalize z : Topic <- Categorical(theta) [over=Doc, reduction=logsumexp]
+  observe w : Word <- Categorical(phi[z]) [via=word_idx]
+
+> :where theta
+references to 'theta':
+  sample-site    lda::theta
+```
+
+What each container kind exposes as named children:
+
+| Container | Children |
+|---|---|
+| `program` | typed parameters + body steps (sample / observe / let / marginalize / score / return) |
+| `marginalize` | the same set of program-step kinds, nested inside the marginalize block |
+| `deduction` | rules + atoms + lexicon entries |
+| `signature` | sorts + constructors + binders + vertex_kinds + edge_kinds |
+| `encoder` (inline body) | op_rules + init_rules + message_rules + update_rules + var_inits |
+| `decoder` | per-constructor heads |
+| `bundle` | member rule names |
+| `contraction` | declared input parameter names |
+| `object` / `space` / `morphism` / `rule` / `loss` / `category` | none (leaf) |
+
+The env tree on the right side of the TUI carries each binding's
+full `::` path on its node data; clicking any node — top-level or
+nested — fires `:info PATH` against that exact binding. Tab
+completion completes `lda::` to the program's children, `lda::z::`
+to the inner marginalize's children, and so on. A bare-name
+prefix like `thet` also surfaces scoped descendants (`lda::theta`)
+so users discover nested bindings without typing the prefix.
+
+### Program exploration
+
+Five commands work together for understanding a program's
+structure:
+
+* `:graph PROGRAM` — vertical step-flow view (one row per program
+  step with its dependency parents). The TUI default; pair with
+  `--mermaid` / `--dot` / `--open` for external formats.
+* `:plate PROGRAM` — plate-notation diagram of the program's
+  random variables. Default is a Rich table with one row per
+  variable + the plates it inhabits + its dependency parents. Flags
+  `--mermaid`, `--dot`, `--tikz`, `--daft` emit alternate sources;
+  `--open` renders to PNG via daft or graphviz and launches the
+  system viewer.
+* `:where NAME` — every scope path that references NAME (including
+  cross-references between programs and rules).
+* `:effects PROGRAM` — declared `[effects=[...]]` set vs the set
+  the compiler infers from the body. Catches `[effects=[Pure]]`
+  programs that accidentally contain a sample.
+* `:shape PROGRAM` — per-step `ChainShape`: step kind, chain
+  depth, intermediate axis size, source location. Useful for
+  auditing chain depth before fitting.
 
 ### Key bindings
 
