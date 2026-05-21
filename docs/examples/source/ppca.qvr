@@ -2,7 +2,7 @@
 #
 # Probabilistic PCA factors a data matrix through a low-rank
 # loading matrix and a per-item latent code, so the model mean
-# is a morphism composition under algebra real.
+# is a morphism composition under the real algebra.
 #
 # Structural form:
 #

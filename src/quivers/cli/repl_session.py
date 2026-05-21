@@ -118,7 +118,9 @@ class ReplSession:
 
     @property
     def env(self) -> dict[str, Any]:
-        """Live environment dict (objects + spaces + morphisms + rules)."""
+        """Live environment dict (every declared atom: objects, spaces,
+        morphisms, rules, programs, deductions, signatures, encoders,
+        decoders, losses, bundles, contractions)."""
         return dict(self._env)
 
     @property
@@ -147,6 +149,22 @@ class ReplSession:
             kinds[name] = "function"
         for name in self._compiler.rules:
             kinds[name] = "namespace"
+        for name in self._compiler.programs:
+            kinds[name] = "function"
+        for name in self._compiler.deductions:
+            kinds[name] = "namespace"
+        for name in self._compiler.signatures:
+            kinds[name] = "type"
+        for name in self._compiler.encoders:
+            kinds[name] = "function"
+        for name in self._compiler.decoders:
+            kinds[name] = "function"
+        for name in self._compiler.losses:
+            kinds[name] = "function"
+        for name in self._compiler.bundles:
+            kinds[name] = "namespace"
+        for name in self._compiler.contractions:
+            kinds[name] = "function"
         return kinds
 
     # ----- entry points -------------------------------------------------
@@ -280,6 +298,36 @@ class ReplSession:
                     f"space {bare} : {_pretty_object(sp)}",
                     body_kind="qvr",
                 )
+            if bare in self._compiler.programs:
+                tmpl = self._compiler.programs[bare]
+                return _resp(
+                    self._type_line_for_program(bare, tmpl),
+                    body_kind="qvr",
+                )
+            if bare in self._compiler.deductions:
+                ded = self._compiler.deductions[bare]
+                dom = getattr(ded, "domain", None)
+                cod = getattr(ded, "codomain", None)
+                if dom is not None and cod is not None:
+                    return _resp(
+                        f"deduction {bare} : {_pretty_object(dom)} -> {_pretty_object(cod)}",
+                        body_kind="qvr",
+                    )
+                return _resp(f"deduction {bare}", body_kind="qvr")
+            if bare in self._compiler.signatures:
+                return _resp(f"signature {bare}", body_kind="qvr")
+            if bare in self._compiler.encoders:
+                return _resp(f"encoder {bare}", body_kind="qvr")
+            if bare in self._compiler.decoders:
+                return _resp(f"decoder {bare}", body_kind="qvr")
+            if bare in self._compiler.losses:
+                return _resp(f"loss {bare}", body_kind="qvr")
+            if bare in self._compiler.bundles:
+                members = self._compiler.bundles[bare]
+                return _resp(
+                    f"bundle {bare} = {' | '.join(members)}",
+                    body_kind="qvr",
+                )
 
         probe = self._scratch_compiler()
 
@@ -340,6 +388,32 @@ class ReplSession:
         """
         del self
         return f"morphism {name} : {_pretty_morphism(morph)} [role=latent]"
+
+    def _type_line_for_program(self, name: str, tmpl: Any) -> str:
+        """Render a program template's signature.
+
+        Programs carry a ``params`` list (``(alpha : Real, beta : Real)``)
+        plus a ``(domain, codomain)`` arrow. Reconstructs the surface
+        ``program NAME(params) : DOM -> COD`` line.
+        """
+        del self
+        params = getattr(tmpl, "params", ()) or ()
+        param_strs: list[str] = []
+        for p in params:
+            pname = getattr(p, "name", "?")
+            ptype = getattr(p, "type", None) or getattr(p, "annotation", None)
+            if ptype is None:
+                param_strs.append(str(pname))
+            else:
+                param_strs.append(f"{pname} : {_pretty_object(ptype)}")
+        head = f"program {name}"
+        if param_strs:
+            head += f"({', '.join(param_strs)})"
+        dom = getattr(tmpl, "domain", None)
+        cod = getattr(tmpl, "codomain", None)
+        if dom is not None and cod is not None:
+            head += f" : {_pretty_object(dom)} -> {_pretty_object(cod)}"
+        return head
 
     def kind_of(self, expr_source: str) -> ReplResponse:
         try:
@@ -444,31 +518,84 @@ class ReplSession:
     # ----- :browse ------------------------------------------------------
 
     def browse(self, namespace: str = "") -> ReplResponse:
-        groups: dict[str, list[str]] = {
+        from quivers.cli.repl_tui import (
+            _children_for_bundle,
+            _children_for_contraction,
+            _children_for_decoder,
+            _children_for_deduction,
+            _children_for_encoder,
+            _children_for_loss,
+            _children_for_morphism,
+            _children_for_object,
+            _children_for_program,
+            _children_for_rule,
+            _children_for_signature,
+            _children_for_space,
+        )
+
+        groups: dict[str, list[tuple[str, object]]] = {
             "objects": [],
             "spaces": [],
             "morphisms": [],
             "rules": [],
+            "programs": [],
+            "deductions": [],
+            "signatures": [],
+            "encoders": [],
+            "decoders": [],
+            "losses": [],
+            "bundles": [],
+            "contractions": [],
         }
         compiler = self._compiler
         if compiler is None:
             return _err("no environment loaded; use :load <FILE> first")
-        groups["objects"] = sorted(compiler.objects)
-        groups["spaces"] = sorted(compiler.spaces)
-        groups["morphisms"] = sorted(compiler.morphisms)
-        groups["rules"] = sorted(compiler.rules)
+        sources: tuple[tuple[str, dict, object], ...] = (
+            ("objects", compiler.objects, _children_for_object),
+            ("spaces", compiler.spaces, _children_for_space),
+            ("morphisms", compiler.morphisms, _children_for_morphism),
+            ("rules", compiler.rules, _children_for_rule),
+            ("programs", compiler.programs, _children_for_program),
+            ("deductions", compiler.deductions, _children_for_deduction),
+            ("signatures", compiler.signatures, _children_for_signature),
+            ("encoders", compiler.encoders, _children_for_encoder),
+            ("decoders", compiler.decoders, _children_for_decoder),
+            ("losses", compiler.losses, _children_for_loss),
+            ("bundles", compiler.bundles, _children_for_bundle),
+            ("contractions", compiler.contractions, _children_for_contraction),
+        )
+        for ns, mapping, builder in sources:
+            entries: list[tuple[str, object]] = []
+            for name in sorted(mapping):
+                head, children = builder(name, mapping[name])
+                entries.append((head, children))
+            groups[ns] = entries
         if namespace:
             ns = namespace.rstrip("s") + "s"
             if ns not in groups:
                 return _err(f"unknown namespace: {namespace}")
             groups = {ns: groups[ns]}
         lines: list[str] = []
-        for ns, names in groups.items():
-            if not names:
+
+        def _walk(label: str, children: object, depth: int) -> None:
+            indent = "  " * depth
+            lines.append(f"{indent}{label}")
+            if not children:
+                return
+            assert isinstance(children, list)
+            for child in children:
+                if isinstance(child, str):
+                    lines.append(f"{indent}  {child}")
+                else:
+                    sub_label, sub_children = child
+                    _walk(sub_label, sub_children, depth + 1)
+
+        for ns, entries in groups.items():
+            if not entries:
                 continue
             lines.append(f"{ns}:")
-            for n in names:
-                lines.append(f"  {n}")
+            for head, children in entries:
+                _walk(head, children, 1)
         if not lines:
             return _resp("(empty environment)")
         return _resp("\n".join(lines))

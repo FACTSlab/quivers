@@ -42,7 +42,7 @@ Multimodal type-logical grammar (Moortgat 1997) extends the Lambek calculus with
 
 ## Walkthrough
 
-`atoms { … }` declares category atoms (`S`, `NP`, `N`, `VP`, `PP`), slash constructors (`Fwd`, `Bwd`), and modal constructors (`Dia`, `Box`). Chart items are `span(I, J, X)` triples.
+`atoms NAME, NAME, …` declares category atoms (`S`, `NP`, `N`, `VP`, `PP`), slash constructors (`Fwd`, `Bwd`), and modal constructors (`Dia`, `Box`). Chart items are `span(I, J, X)` triples.
 
 - **`right_app` / `left_app`**: modus ponens for forward / backward slash, exactly as in the base Lambek calculus.
 - **`dia_intro`**: modal introduction: a derivation of `A` lifts to a derivation of `Dia(A)` over the same span. This is the unit of the modality's monadic structure on the category of formulas.
