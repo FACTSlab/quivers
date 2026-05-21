@@ -20,8 +20,8 @@ Terminology
 
 Architecture
 ------------
-Each family is described once by a :class:`FamilySpec` in
-:mod:`quivers.continuous.family_spec`. The factories and builders
+Each family is described once by a `FamilySpec` in
+`quivers.continuous.family_spec`. The factories and builders
 below dispatch on the registered spec rather than maintaining
 per-family hard-coded functions; specials (truncated, Dirichlet,
 uniform, transformed) override the generic dispatch by setting
@@ -266,15 +266,45 @@ class MixedInlineDistribution(ContinuousMorphism):
         Returns
         -------
         torch.Tensor
-            Log-probabilities. Shape ``(batch,)``.
+            Log-probabilities. Shape matches the broadcast of the
+            distribution's batch shape with ``y``'s shape, with any
+            event dimension summed out.
         """
         params = self._resolve_params(x)
         dist = self._dist_builder(params)
-        lp = dist.log_prob(
-            y.float() if self._discrete else y.squeeze(-1) if y.dim() > 1 else y
-        )
-        if lp.dim() > 1:
-            return lp.sum(dim=-1)
+        # For discrete distributions over an integer support,
+        # categorical-valued samples must remain integer-typed so
+        # PyTorch's ``IntegerInterval`` validator accepts them;
+        # only Bernoulli / Boolean families historically took a
+        # float-valued sample, but the integer family suite
+        # (Categorical, Binomial, Geometric, NegativeBinomial,
+        # Poisson) refuses floats. Cast only when the validator's
+        # support is a continuous constraint.
+        if self._discrete and y.dtype.is_floating_point:
+            sup = self._support
+            if isinstance(sup, _constraints._Boolean):
+                y_in = y.float()
+            else:
+                y_in = y.long()
+        else:
+            y_in = y
+        # Reconcile y's shape with the distribution's expected
+        # event shape: append a trailing singleton if the
+        # distribution carries an event dim that y lacks; drop a
+        # trailing singleton from y when the distribution is scalar
+        # and y carries an extra unit dim from upstream reshapes.
+        event_dim = len(dist.event_shape)
+        batch_dim = len(dist.batch_shape)
+        target_dim = event_dim + batch_dim
+        if not self._discrete:
+            while y_in.dim() < target_dim:
+                y_in = y_in.unsqueeze(-1)
+            while y_in.dim() > target_dim and y_in.shape[-1] == 1:
+                y_in = y_in.squeeze(-1)
+        lp = dist.log_prob(y_in)
+        # Sum out any explicit event axes that the distribution
+        # already accounts for; PyTorch returns ``log_prob`` of
+        # shape ``batch_shape`` so no extra reduction is needed.
         return lp
 
 
@@ -858,7 +888,7 @@ _FIXED_FACTORIES: dict[str, tuple[tuple[str, ...], Callable]] = {
 }
 
 # Per-family support constraints for inline distributions. Used when
-# constructing a :class:`MixedInlineDistribution` (which has at least one
+# constructing a `MixedInlineDistribution` (which has at least one
 # variable-bound parameter) so the resulting morphism advertises the
 # correct constrained support to variational guides.
 _FAMILY_SUPPORTS: dict[str, _constraints.Constraint] = {
@@ -892,6 +922,8 @@ def get_inline_param_names(family: str) -> tuple[str, ...] | None:
     """
     if family in _FIXED_FACTORIES:
         return _FIXED_FACTORIES[family][0]
+    if family in _FAMILY_BUILDERS:
+        return _FAMILY_BUILDERS[family][0]
     if family == "TruncatedNormal":
         return ("mu", "sigma", "low", "high")
     return None
@@ -919,7 +951,16 @@ def _truncated_normal_builder(params: list[torch.Tensor]) -> D.Distribution:
     high = float(high_t.flatten()[0])
 
     class _TruncNorm:
-        """Minimal truncated-normal distribution interface."""
+        """Minimal truncated-normal distribution interface.
+
+        Exposes the same ``event_shape`` and ``batch_shape``
+        attributes the generic `torch.distributions` interface
+        carries, so callers walking the family registry's
+        ``log_prob`` path treat it uniformly with stock families.
+        """
+
+        event_shape: torch.Size = torch.Size()
+        batch_shape: torch.Size = mu.shape
 
         def rsample(self, sample_shape: torch.Size = torch.Size()) -> torch.Tensor:
             normal = D.Normal(0, 1)
@@ -1110,7 +1151,7 @@ def make_inline_distribution(
     )
     # TruncatedNormal / Uniform encode bounded supports via two literal
     # arguments; if both bounds are literal we can specialize the
-    # constraint to the matching :class:`interval`. Otherwise we fall
+    # constraint to the matching `interval`. Otherwise we fall
     # back to ``real`` (the closest correct guide-side approximation).
     if family in ("TruncatedNormal", "Uniform"):
         lit_args: list[float] = []
@@ -1172,14 +1213,14 @@ def _infer_domain(
 
 
 # ---------------------------------------------------------------------------
-# Auto-generated inline support from :data:`FAMILY_REGISTRY`.
+# Auto-generated inline support from `FAMILY_REGISTRY`.
 #
 # For every registered family with ``output_kind == "independent"``
 # that isn't already in the hand-written dicts, build a generic
-# :class:`FixedDistribution` factory and a matching mixed-mode
+# `FixedDistribution` factory and a matching mixed-mode
 # builder.  This is the architectural seam that closes the gap
 # between the conditional path and the inline path: a family
-# declared once via :func:`quivers.continuous.family_spec.register`
+# declared once via [`quivers.continuous.family_spec.register`][quivers.continuous.family_spec.register]
 # automatically becomes usable in DSL ``F(args)`` syntax.
 # ---------------------------------------------------------------------------
 
@@ -1192,7 +1233,7 @@ def _build_generic_fixed_factory(spec: FamilySpec) -> Callable:
     where ``d = getattr(codomain, "dim", 1)`` and clamps the value
     by the per-parameter inline clamp before passing it to the
     underlying torch distribution.  Discrete families have their
-    output cast to ``long`` by :class:`FixedDistribution`.
+    output cast to ``long`` by `FixedDistribution`.
     """
 
     def factory(*all_args) -> FixedDistribution:
@@ -1253,25 +1294,36 @@ def _build_generic_mixed_builder(spec: FamilySpec) -> Callable:
 
 def _auto_register_inline(spec: FamilySpec) -> None:
     """Populate the inline dicts for ``spec`` unless a hand-written
-    entry is already present (the hand-written entries declared
-    above take precedence over the auto-generated ones).
+    entry is already present.
 
-    Skips families whose output is not per-dimension independent —
-    Dirichlet, Multivariate, OneHot, Wishart, etc. need special
-    construction logic that the generic factory can't synthesize.
+    Output-kind handling:
+
+    * ``independent`` families register both a fixed factory (all
+      literal scalar args broadcast to ``(batch, dim)``) and a mixed
+      builder.
+    * ``categorical`` / ``vector`` / ``mvn`` / ``matrix`` families
+      register only the mixed builder. Their parameters are vector-
+      or matrix-shaped, so the literal-broadcast path doesn't make
+      sense; calling ``F(args)`` with at least one variable argument
+      goes through the mixed path, which forwards the resolved
+      parameter tensor straight to the underlying torch distribution
+      constructor.
     """
     if spec.name in _FIXED_FACTORIES or spec.name in _FAMILY_BUILDERS:
         return  # hand-written entry takes precedence
-    if spec.output_kind != "independent":
-        return  # specials must be hand-written
-    factory = _build_generic_fixed_factory(spec)
+    if spec.output_kind not in {
+        "independent", "categorical", "vector", "mvn", "matrix",
+    }:
+        return
+    if spec.output_kind == "independent":
+        factory = _build_generic_fixed_factory(spec)
+        _FIXED_FACTORIES[spec.name] = (spec.param_names, factory)
     builder = _build_generic_mixed_builder(spec)
-    _FIXED_FACTORIES[spec.name] = (spec.param_names, factory)
     _FAMILY_BUILDERS[spec.name] = (spec.param_names, builder, spec.discrete)
     _FAMILY_SUPPORTS[spec.name] = spec.support
 
 
-# Ensure :mod:`quivers.continuous.families` has registered every
+# Ensure [`quivers.continuous.families`][quivers.continuous.families] has registered every
 # family before we walk the registry. Imported here rather than at
 # module top to break the import cycle (families.py imports inline
 # indirectly via the DSL compiler).
@@ -1283,8 +1335,8 @@ for _spec in FAMILY_REGISTRY.values():
 
 def reload_inline_registry() -> None:
     """Refresh the inline dicts from
-    :data:`quivers.continuous.family_spec.FAMILY_REGISTRY`. Useful
-    when new families are registered after :mod:`inline` has
+    `quivers.continuous.family_spec.FAMILY_REGISTRY`. Useful
+    when new families are registered after `inline` has
     imported (test plugins, downstream extensions)."""
     for spec in FAMILY_REGISTRY.values():
         _auto_register_inline(spec)
