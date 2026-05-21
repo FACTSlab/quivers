@@ -64,15 +64,24 @@ _OPERATOR_EXTRAS = frozenset(
 
 
 def _grammar_json_path() -> Path:
+    # Prefer the package-local copy under
+    # ``quivers/dsl/_grammar_data/grammar.json`` (shipped with the
+    # wheel). Fall back to the canonical in-tree path
+    # ``grammars/qvr/src/grammar.json`` when running from a source
+    # checkout that hasn't synced the package copy yet.
     here = Path(__file__).resolve()
+    packaged = here.parent / "_grammar_data" / "grammar.json"
+    if packaged.is_file():
+        return packaged
     for parent in here.parents:
         candidate = parent / "grammars" / "qvr" / "src" / "grammar.json"
         if candidate.is_file():
             return candidate
     raise FileNotFoundError(
-        "grammars/qvr/src/grammar.json not found above "
-        f"{here}; programmatic keyword derivation requires the in-tree "
-        "grammar JSON shipped with the quivers repository."
+        "grammar.json not found at "
+        f"{packaged} or under any parent of {here}; "
+        "programmatic keyword derivation requires the grammar JSON "
+        "shipped with the quivers package."
     )
 
 
