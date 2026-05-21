@@ -342,11 +342,11 @@ def run_tui(session: "ReplSession") -> int:
         # --- env / status / watches ------------------------------------
 
         def on_tree_node_selected(self, event) -> None:  # type: ignore[no-untyped-def]
-            node = event.node
-            if not node.is_root and not node.allow_expand:
-                name = str(node.label)
-                self._log(Text(f"> :info {name}", style="bold cyan"))
-                self._render(self.session.info(name))
+            name = resolve_click_target(event.node)
+            if name is None:
+                return
+            self._log(Text(f"> :info {name}", style="bold cyan"))
+            self._render(self.session.info(name))
 
         def on_input_changed(self, event) -> None:  # type: ignore[no-untyped-def]
             if event.input.id == "env-filter":
@@ -568,11 +568,15 @@ def run_tui(session: "ReplSession") -> int:
                 ns_node = tree.root.add(ns_name, expand=True)
                 for name in names:
                     head, children = builder(name, mapping[name])
+                    # Attach the bare binding name as ``node.data``
+                    # so the click handler dispatches ``:info NAME``
+                    # against the binding, not against the rich
+                    # signature label.
                     if children:
-                        sub = ns_node.add(head, expand=False)
+                        sub = ns_node.add(head, data=name, expand=False)
                         _populate_children(sub, children)
                     else:
-                        ns_node.add_leaf(head)
+                        ns_node.add_leaf(head, data=name)
 
     app = QvrRepl(session)
     app.run()
@@ -641,6 +645,30 @@ def _append_history(line: str) -> None:
             f.write(line + "\n")
     except OSError:
         pass
+
+
+# ---------------------------------------------------------------------------
+# Click-handler logic (extracted so the unit suite can drive it
+# without needing a full Textual App).
+# ---------------------------------------------------------------------------
+
+
+def resolve_click_target(node):  # type: ignore[no-untyped-def]
+    """Return the binding name to dispatch ``:info`` against, or
+    ``None`` if the node is not bound to a single declaration.
+
+    Each env-tree node that corresponds to a top-level declaration
+    carries the binding's bare name on ``node.data`` (set at build
+    time in ``_refresh_env``). Category nodes (``objects``,
+    ``morphisms``, ...) and nested step / rule / sort children carry
+    ``data=None`` and produce no dispatch.
+    """
+    if getattr(node, "is_root", False):
+        return None
+    name = getattr(node, "data", None)
+    if not isinstance(name, str) or not name.isidentifier():
+        return None
+    return name
 
 
 # ---------------------------------------------------------------------------
@@ -726,7 +754,14 @@ def _children_for_program(name, tmpl):  # type: ignore[no-untyped-def]
         head += f"({', '.join(param_strs)})"
     head += f" : {dom} -> {cod}"
     steps = getattr(tmpl, "draws", ()) or ()
-    return head, [_step_node(step) for step in steps]
+    children = [_step_node(step) for step in steps]
+    # The terminating ``return vars`` step is stored separately on
+    # ``return_vars`` rather than inside ``draws``; append it so the
+    # tree shows the full program body.
+    ret_vars = getattr(tmpl, "return_vars", ()) or ()
+    if ret_vars:
+        children.append((f"return {', '.join(ret_vars)}", []))
+    return head, children
 
 
 def _step_node(step):  # type: ignore[no-untyped-def]

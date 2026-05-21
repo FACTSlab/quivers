@@ -71,18 +71,24 @@ SEMANTIC_TOKEN_MODIFIERS: tuple[str, ...] = (
 # the prompt_toolkit lexer, and the Jupyter kernel pick up the same
 # colours.
 STYLE_TABLE: dict[str, str] = {
-    "comment": "italic dim",
-    "keyword": "bold magenta",
-    "operator": "cyan",
-    "punctuation": "dim",
-    "string": "green",
-    "number": "yellow",
-    "variable": "default",
-    "type": "bold blue",
-    "function": "bold cyan",
-    "namespace": "bold yellow",
-    "decorator": "magenta",
-    "error": "bold red underline",
+    # Explicit truecolor hex codes (One-Dark inspired) instead of
+    # palette-indexed names. Terminals with customised 16-colour
+    # palettes were collapsing "magenta" / "blue" / "cyan" / "default"
+    # into the same accent hue (most often red-orange), which made
+    # every token look the same colour. Truecolor sidesteps the
+    # palette entirely.
+    "comment": "italic #5c6370",
+    "keyword": "bold #c678dd",
+    "operator": "#56b6c2",
+    "punctuation": "#7f848e",
+    "string": "#98c379",
+    "number": "#d19a66",
+    "variable": "#abb2bf",
+    "type": "bold #61afef",
+    "function": "bold #e5c07b",
+    "namespace": "bold #e06c75",
+    "decorator": "#c678dd",
+    "error": "bold #e06c75 underline",
 }
 
 
