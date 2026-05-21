@@ -4,6 +4,17 @@ All notable changes to the quivers library are documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/), and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.11.5] - 2026-05-21
+
+### Fixed
+
+- **`qvr repl` rendered every token in the same colour on customised terminal palettes.** The `STYLE_TABLE` used palette-indexed colour names (`"bold magenta"`, `"bold blue"`, `"bold cyan"`, `"default"`). Terminals whose palettes mapped those four into the same warm hue (common in custom themes) collapsed every span into a single colour, so `:info`'s body looked uniformly red. Switched the table to truecolor `#RRGGBB` codes (One-Dark inspired) so palette mapping does not apply and the keyword / type / operator / variable distinctions remain visible regardless of the user's terminal theme.
+- **Clicking a program / deduction / signature / encoder / decoder node in the env tree raised a "compile error: undefined morphism" or did nothing at all.** The click handler read the node's display label (`lda(alpha : Real, beta : Real) : Word -> Word`) and dispatched `:info` against that whole string. After 0.11.3 added nested-children expansion, expandable nodes also stopped firing the handler entirely because of an `allow_expand` gate. The handler now reads the bare binding name from a dedicated `node.data` slot populated at tree-build time, and the `allow_expand` gate is gone, so a click on any named declaration fires `:info NAME` correctly.
+
+### Added
+
+- **Comprehensive TUI regression suite at `tests/cli/test_repl_tui.py`.** 20 tests covering: click-target resolution under every node shape (root / category heading / named binding / nested step / non-identifier data); the `STYLE_TABLE` truecolor invariant; each per-kind nested-children builder; the rendered ANSI for a real `:info` body (truecolor codes only, distinct codes per token class, keyword / type colour distinct); the full `:type` and `:browse` signature lines including typed parameter lists; the completion engine surfacing program names with the correct kind detail; and the TUI module's import-cleanliness on a minimal install.
+
 ## [0.11.4] - 2026-05-21
 
 ### Fixed
