@@ -5,7 +5,7 @@ server. Both share the same parser
 ([panproto](https://github.com/panproto/panproto) tree-sitter), the
 same elaborator
 ([`quivers.dsl.Compiler`](../api/dsl/compiler.md)), and the same highlight
-table — so the colour you see in the TUI matches the colour your
+table, so the colour you see in the TUI matches the colour your
 editor shows over LSP, which matches what gets emitted as Jupyter
 output. One source of truth, four surfaces.
 
@@ -14,28 +14,75 @@ overview see [Quickstart](../getting-started/quickstart.md).
 
 ## Installation
 
+quivers requires **Python 3.14 or newer**. The Textual TUI and the
+language server are optional extras; the base install gives you the
+library plus the `qvr check` subcommand.
+
+### With `pip`
+
 ```bash
 pip install 'quivers[repl,lsp]'
 ```
 
-The `repl` extra brings in [Textual](https://textual.textualize.io/),
-[prompt_toolkit](https://python-prompt-toolkit.readthedocs.io/),
-[rich](https://rich.readthedocs.io/), and an
-[ipykernel](https://ipykernel.readthedocs.io/)-based Jupyter kernel.
-The `lsp` extra brings in
-[pygls](https://github.com/openlawlibrary/pygls) and `lsprotocol`.
+### With `uv` as a global tool
 
-Both are optional: `pip install quivers` alone gives you the library
-and `qvr check`, nothing else.
+```bash
+uv tool install --python 3.14 'quivers[repl,lsp]'
+```
 
-After install:
+`uv tool install` puts the `qvr`, `qvr-lsp`, and `qvr-kernel`
+console scripts on your PATH in a managed virtual environment so
+the install does not collide with any project venv.
+
+### From a local checkout (editable)
+
+```bash
+uv tool install --reinstall --python 3.14 --editable \
+    /path/to/quivers --with 'quivers[repl,lsp]'
+```
+
+The `--editable` flag points the install at the working tree so
+local changes take effect immediately. The trailing `--with`
+re-adds the optional extras (uv strips them otherwise).
+
+### What the extras bring in
+
+| Extra | Pulls in |
+| --- | --- |
+| `[repl]` | [Textual](https://textual.textualize.io/), [prompt_toolkit](https://python-prompt-toolkit.readthedocs.io/), [rich](https://rich.readthedocs.io/), [ipykernel](https://ipykernel.readthedocs.io/) |
+| `[lsp]` | [pygls](https://github.com/openlawlibrary/pygls), `lsprotocol` |
+
+Optional renderers that ``:plate --open`` will pick up if they are
+on PATH but are not installed automatically:
+
+| Optional dependency | What it does for the REPL |
+| --- | --- |
+| [`daft`](https://docs.daft-pgm.org/) (via `pip install daft`) | Renders ``:plate PROGRAM --open`` to a publication-quality PNG via matplotlib |
+| [Graphviz](https://graphviz.org/) (the ``dot`` binary) | Renders ``:plate`` / ``:graph`` ``--open`` to PNG via ``dot -Tpng`` |
+| LaTeX with ``tikz-network`` / ``bayesnet`` | Compiles the ``--tikz`` output |
+
+If neither `daft` nor `dot` is available, `:plate --open` falls
+back to printing Mermaid source with a note suggesting
+mermaid.live.
+
+### Verifying the install
+
+```bash
+qvr --version
+qvr check docs/examples/source/lda.qvr      # batch-validate one or more files
+qvr repl --help                              # confirm the TUI is reachable
+```
+
+### After install
 
 | Command | What it does |
 | --- | --- |
-| `qvr repl` | Textual TUI (or prompt_toolkit fallback) |
-| `qvr lsp` / `qvr-lsp` | Language Server over stdio |
-| `qvr kernel install --user` / `qvr-kernel install --user` | Register a Jupyter kernelspec |
-| `qvr check FILE...` | Batch parse + compile (the default subcommand) |
+| `qvr repl` | Textual TUI (or prompt_toolkit fallback if stdin is not a TTY) |
+| `qvr repl --plain` | Force the single-line prompt_toolkit frontend |
+| `qvr repl FILE.qvr` | Load FILE on startup, then drop to the prompt |
+| `qvr lsp` / `qvr-lsp` | Run the Language Server over stdio (use this in editor config) |
+| `qvr kernel install --user` / `qvr-kernel install --user` | Register a Jupyter kernelspec named `quivers` |
+| `qvr check FILE...` | Batch parse + compile; non-zero exit code on any error |
 
 ## The REPL
 
@@ -91,16 +138,16 @@ It refreshes after every evaluation, reload, or watch update.
 
 The right-hand `Tree` widget groups bindings by namespace:
 
-- `objects` — every `object` and `alias` declaration
-- `spaces` — every `space` and `type` declaration
-- `morphisms` — `latent`, `observed`, `kernel`, `embed`, `program`, `let`
-- `rules` — `rule` declarations
+- `objects`, every `object` and `alias` declaration
+- `spaces`, every `space` and `type` declaration
+- `morphisms`, `latent`, `observed`, `kernel`, `embed`, `program`, `let`
+- `rules`, `rule` declarations
 
 The root node auto-expands on every refresh; each namespace expands
 its leaves. Click a leaf (or arrow-key to it and press Enter) to fire
 `:info NAME` in the output log.
 
-Above the tree is a one-line **filter input** — type any substring
+Above the tree is a one-line **filter input**. Type any substring
 and the tree fuzzy-collapses to the bindings whose names contain it.
 Clear the filter to bring everything back.
 
@@ -117,7 +164,7 @@ colour even when the surrounding line wasn't a parseable QVR
 declaration; the same identifier always reads the same way.
 
 Identifiers rendered as type / function / namespace are also
-**clickable links** — clicking any name fires `:info NAME`. The
+**clickable links**. Clicking any name fires `:info NAME`. The
 `-- declared at PATH:LINE:COL` footer underneath each `:info` body
 is also clickable; it opens that file at that line in `$EDITOR`
 (falling back to `$VISUAL`, then `vi`).
@@ -150,20 +197,20 @@ column.
 | `:type EXPR` | `:t` | Print EXPR's resolved type as canonical QVR (`morphism f : A -> B [role=latent]`, `object X : FinSet 3`, `object Z : Real 64`) |
 | `:kind T` | `:k` | Print T's AST variant and enumerate the sibling TypeExpr variants |
 | `:info NAME` | `:i` | Show NAME's declaration verbatim from the source, plus its location and doc comment. Pass `--python` for the didactic AST `repr()` instead |
-| `:doc NAME` | — | Render only the doc comment(s) for NAME |
+| `:doc NAME` |  | Render only the doc comment(s) for NAME |
 | `:browse [PATH]` | `:b` | List every binding, optionally filtered by a top-level namespace (`objects`/`spaces`/`morphisms`/`rules`/...) or by a `::`-separated scope path (`lda`, `lda::z`, `CCG::fwd_app`). Paths show that binding's inner scope. |
 | `:plate PROGRAM` | `:p` | Render PROGRAM's plate diagram. Default is a Rich table; flags `--mermaid` / `--dot` / `--tikz` / `--daft` emit alternative formats; `--open` renders to PNG via daft or graphviz and opens with the system viewer. |
 | `:graph PROGRAM` | `:g` | Vertical step-flow view of PROGRAM (one row per sample / observe / let / marginalize / return step with its dependency parents). Same `--mermaid` / `--dot` / `--open` flags as `:plate`. |
-| `:where NAME` | — | List every scope path whose final segment is NAME (top-level and nested). Useful for finding every site a binding is referenced. |
-| `:effects PROGRAM` | — | Compare PROGRAM's declared `[effects=[...]]` set against the effect set the compiler infers from the body. |
-| `:shape PROGRAM` | — | Pretty-print PROGRAM's `ChainShape`: per-step depth, kind, intermediate axis size, source location. |
-| `:dump NAME [--json]` | — | Pretty-print NAME's AST node (`--json` for didactic's `model_dump_json`) |
-| `:edit NAME` | — | Open `$EDITOR` on NAME's source, splice the edited text back into the module, recompile |
-| `:trace EXPR` | — | Step through elaboration of a morphism expression, surfacing each intermediate domain/codomain |
+| `:where NAME` |  | List every scope path whose final segment is NAME (top-level and nested). Useful for finding every site a binding is referenced. |
+| `:effects PROGRAM` |  | Compare PROGRAM's declared `[effects=[...]]` set against the effect set the compiler infers from the body. |
+| `:shape PROGRAM` |  | Pretty-print PROGRAM's `ChainShape`: per-step depth, kind, intermediate axis size, source location. |
+| `:dump NAME [--json]` |  | Pretty-print NAME's AST node (`--json` for didactic's `model_dump_json`) |
+| `:edit NAME` |  | Open `$EDITOR` on NAME's source, splice the edited text back into the module, recompile |
+| `:trace EXPR` |  | Step through elaboration of a morphism expression, surfacing each intermediate domain/codomain |
 | `:save [FILE]` | `:s` | Write the live module to FILE (or back to the loaded path) via [`module_to_source`](../api/dsl/emit.md) |
 | `:watch EXPR` | `:w` | Pin EXPR for re-eval on every recompile; result appears in the Watches strip |
-| `:unwatch [EXPR]` | — | Remove one watch, or clear all when no argument is given |
-| `:set k=v` | — | Toggle session options (`highlight`, `unicode`, `show_axes`, `paranoid`, `autoload_on_save`, `theme`) |
+| `:unwatch [EXPR]` |  | Remove one watch, or clear all when no argument is given |
+| `:set k=v` |  | Toggle session options (`highlight`, `unicode`, `show_axes`, `paranoid`, `autoload_on_save`, `theme`) |
 | `:help [CMD]` | `:h` | Without arg: full command list. With one: detailed help for CMD |
 | `:quit` | `:q` / `:exit` | Exit the REPL |
 
@@ -171,6 +218,367 @@ A bare line (no leading `:`) is evaluated as **either** appended
 statements (parsed, compiled into the live module, env updated)
 **or**, if parsing as statements fails, treated as an expression and
 piped through `:type`.
+
+### Command reference
+
+Every meta-command in full, with concrete usage examples on the
+[LDA gallery example](../examples/lda.md). Load it first:
+
+```
+qvr repl docs/examples/source/lda.qvr
+```
+
+#### `:load FILE` / `:l FILE`
+
+Parse and elaborate `FILE`, rebinding the session environment to
+the result. Replaces any previously loaded module. Diagnostics
+(parse errors, constraint violations, compile errors) populate
+the bottom strip and move the cursor selection to the first error
+location.
+
+```
+> :load docs/examples/source/hmm.qvr
+loaded hmm.qvr (3 obj  1 prog)
+> :l docs/examples/source/lda.qvr
+loaded lda.qvr (3 obj  1 prog)
+```
+
+#### `:reload` / `:r`
+
+Re-execute `:load` against the file that was loaded most recently,
+then print the diff (added / removed / changed bindings). Triggers
+automatically every second when the source file's mtime advances,
+so saving in `$EDITOR` updates the live env without leaving the
+REPL.
+
+```
+> :reload
+reloaded lda.qvr
+  + morphism foo : Word -> Word
+  - sample tau
+```
+
+#### `:type EXPR` / `:t EXPR`
+
+Print `EXPR`'s resolved type as a single QVR-shaped line. Accepts
+either a bare identifier, a `::` scope path, or a general
+expression that the parser can elaborate.
+
+```
+> :type lda
+program lda(alpha : Real, beta : Real) : Word -> Word
+
+> :type lda::theta
+sample theta : Doc <- Dirichlet(alpha) [over=Topic, iid_over=Doc]
+
+> :type lda::z::w
+observe w : Word <- Categorical(phi[z]) [via=word_idx]
+
+> :type Doc
+object Doc : FinSet 20
+```
+
+#### `:kind T` / `:k T`
+
+Print `T`'s AST variant class plus the sibling variants of the
+same tagged union. Useful for understanding the AST shape under
+the surface syntax.
+
+```
+> :kind FinSet 20
+DiscreteConstructor
+  siblings: ObjectAtom, ObjectProduct, ObjectCoproduct,
+            ObjectSlash, ObjectEffectApply, ObjectParen,
+            ContinuousConstructor, TypeName, ...
+```
+
+#### `:info NAME [--python]` / `:i NAME`
+
+Show NAME's declaration verbatim from the source (with the
+doc comment if any), plus the source location. With `--python`,
+prints the didactic AST `repr()` instead.
+
+```
+> :info lda
+program lda(alpha : Real, beta : Real) : Word -> Word
+    sample theta : Doc <- Dirichlet(alpha) [over=Topic, iid_over=Doc]
+    sample phi : Topic <- Dirichlet(beta) [over=Word, iid_over=Topic]
+    marginalize z : Topic <- Categorical(theta) [over=Doc, reduction=logsumexp]
+        observe w : Word <- Categorical(phi[z]) [via=word_idx]
+    return theta
+-- declared at docs/examples/source/lda.qvr:32:0
+
+> :info lda::theta
+sample theta : Doc <- Dirichlet(alpha) [over=Topic, iid_over=Doc]
+-- sample-site inside lda at docs/examples/source/lda.qvr:33:4
+```
+
+#### `:doc NAME`
+
+Render only the doc comment for NAME (lines prefixed with `#!` in
+the source). Returns "(no doc comment)" when none exists. Works
+with scoped paths as well.
+
+```
+> :doc lda
+(no doc comment)
+```
+
+#### `:browse [PATH]` / `:b [PATH]`
+
+Without an argument, lists every binding in the module grouped by
+top-level kind (objects / spaces / morphisms / rules / programs /
+deductions / signatures / encoders / decoders / losses / bundles
+/ contractions). With a `::`-path argument, lists the binding's
+inner scope.
+
+```
+> :browse
+objects:
+  Doc : FinSet 20
+  Topic : FinSet 3
+  Word : FinSet 200
+programs:
+  lda(alpha : Real, beta : Real) : Word -> Word
+
+> :browse lda
+program lda(alpha : Real, beta : Real) : Word -> Word
+  param alpha : Real
+  param beta : Real
+  sample theta : Doc <- Dirichlet(alpha) [over=Topic, iid_over=Doc]
+  sample phi : Topic <- Dirichlet(beta) [over=Word, iid_over=Topic]
+  marginalize z : Topic <- Categorical(theta) [over=Doc, reduction=logsumexp]
+  return theta
+
+> :browse lda::z
+marginalize z : Topic <- Categorical(theta) [over=Doc, reduction=logsumexp]
+  observe w : Word <- Categorical(phi[z]) [via=word_idx]
+```
+
+#### `:plate PROGRAM [--mermaid|--dot|--tikz|--daft|--open]` / `:p PROGRAM`
+
+Render PROGRAM's plate-notation diagram. Default is a Rich table
+listing every variable with its kind, family, plate stack, and
+dependency parents. Flags emit alternate sources or open a
+rendered image.
+
+```
+> :plate lda
+plate graph of lda  (Word -> Word)
+
+#  kind            variable  family       plates      parents
+-  --------------  --------  -----------  ----------  -------
+1  ○ latent        theta     Dirichlet    Doc         alpha
+2  ○ latent        phi       Dirichlet    Topic       beta
+3  ⊘ marginalized  z         Categorical  Topic       theta
+4  ● observed      w         Categorical  Doc x Word  phi, z
+
+plates:
+  Doc [20]
+  Topic [3]
+  Word [200] parent=Doc
+```
+
+| Flag | Output |
+| --- | --- |
+| (default) | Rich table in the TUI; plain ASCII in `--plain` mode |
+| `--mermaid` | Mermaid `graph TD` source. Paste into mermaid.live or a markdown file |
+| `--dot` | Graphviz DOT source. Pipe through `dot -Tpng > plate.png` |
+| `--tikz` | LaTeX TikZ + `tikz-network` snippet. Drop into a LaTeX document |
+| `--daft` | Python script using the [`daft`](https://docs.daft-pgm.org/) library. Run it to produce SVG / PNG / PDF |
+| `--open` | Render to a temp PNG via daft or `dot`, open with the system default viewer. Falls back to printing Mermaid source if no renderer is installed |
+
+Badges in the table view:
+
+| Badge | Kind |
+| --- | --- |
+| `○` | latent (unobserved sample) |
+| `●` | observed (clamped at runtime) |
+| `⊘` | marginalized (integrated out by an enclosing marginalize block) |
+| `·` | deterministic (a `let` binding) |
+
+#### `:graph PROGRAM [--mermaid|--dot|--open]` / `:g PROGRAM`
+
+Vertical step-flow view of PROGRAM. One row per program step
+(sample / observe / let / marginalize / return) with its
+dependency parents on the side. Differs from `:plate` in that
+the rows are *steps* (program-source order) rather than
+*variables* (which a `let` can introduce mid-stream).
+
+```
+> :graph lda
+program lda: Word -> Word
+
+#  kind          step                                           parents
+-  ------------  ---------------------------------------------  -------
+1  latent        sample theta : Doc <- Dirichlet(alpha)         alpha
+2  latent        sample phi : Topic <- Dirichlet(beta)          beta
+3  marginalized  marginalize z : Topic <- Categorical(theta)    theta
+4  observed      observe w : Doc x Word <- Categorical(phi, z)  phi, z
+```
+
+Same `--mermaid` / `--dot` / `--open` flags as `:plate`.
+
+#### `:where NAME`
+
+List every scope path in the loaded module whose final segment
+is `NAME`, sorted by depth (top-level first). Useful for finding
+every site a binding is referenced.
+
+```
+> :where theta
+references to 'theta':
+  sample-site    lda::theta
+
+> :where Doc
+references to 'Doc':
+  object         Doc
+```
+
+#### `:effects PROGRAM`
+
+Compare PROGRAM's declared `[effects=[...]]` option block against
+the effect set the compiler infers from the body's step kinds
+(`Sample` from sample-sites, `Score` from observes, `Marginal`
+from marginalize blocks, `Pure` otherwise).
+
+```
+> :effects lda
+program lda:
+  declared : {(none)}
+  inferred : {Marginal, Sample, Score}
+  (no [effects=[...]] declared)
+```
+
+If the program declares `[effects=[Pure]]` but the body contains
+a sample site, the output flags a `! leak` line. If it declares
+`[effects=[Sample, Score]]` but the body never observes, the
+output flags an `! unused` line.
+
+#### `:shape PROGRAM`
+
+Pretty-print PROGRAM's `ChainShape`: per-step depth, kind,
+intermediate axis size, source location. Useful for auditing
+chain depth before fitting.
+
+```
+> :shape lda
+chain shape (log_prob):
+  #  depth  kind         name        size
+  -  -----  -----------  ----------  ----
+  1   1      latent       theta       20
+  2   2      latent       phi         3
+  3   3      marginalize  z           3
+  4   4      observe      w           200
+```
+
+#### `:dump NAME [--json]`
+
+Print NAME's AST node. Default is Python `repr()`; `--json` emits
+the didactic `model_dump_json(indent=2)` so the structure is
+machine-readable.
+
+```
+> :dump lda::theta
+SampleStep(vars=('theta',), morphism='Dirichlet', args=('alpha',), …)
+```
+
+#### `:edit NAME`
+
+Open `$EDITOR` on NAME's source slice, then splice the edited
+text back into the module and recompile. Saves the resulting
+source via [`module_to_source`](../api/dsl/emit.md). When the
+edit doesn't parse, the original declaration is retained and the
+parse error appears in the diagnostics strip.
+
+```
+> :edit lda
+   (vim opens on the lda program; on quit, the new lda compiles
+   and the env is rebound)
+```
+
+#### `:trace EXPR`
+
+Step through elaboration of `EXPR` as a morphism expression. For
+each intermediate sub-expression, surfaces the inferred
+domain / codomain. Useful for understanding why a composition
+fails to type-check.
+
+```
+> :trace f >> g
+f : A -> B
+g : B -> C
+(f >> g) : A -> C
+```
+
+#### `:save [FILE]` / `:s [FILE]`
+
+Write the live module to `FILE` (or back to the loaded path if
+no argument) via
+[`module_to_source`](../api/dsl/emit.md). Captures any
+`:edit`-driven changes and any statements typed at the prompt.
+
+```
+> :save my_edits.qvr
+saved my_edits.qvr
+```
+
+#### `:watch EXPR` / `:w EXPR`
+
+Pin `EXPR` to the Watches strip. The pinned expression is
+re-evaluated after every recompile, so each `:reload` (or every
+edit on disk under the file watcher) updates the displayed
+value. The strip is hidden when no watches are pinned.
+
+```
+> :watch lda::theta
+> :watch sigmoid(0.5)
+```
+
+#### `:unwatch [EXPR]`
+
+Remove one watch (when `EXPR` matches an existing one) or all
+watches (when called with no argument).
+
+```
+> :unwatch lda::theta
+> :unwatch
+```
+
+#### `:set KEY=VALUE`
+
+Toggle session options. The options table:
+
+| Key | Default | What it does |
+| --- | --- | --- |
+| `highlight` | `true` | Apply syntax highlighting to output |
+| `unicode` | `true` | Use Unicode glyphs (×, →, ⊗, ⊘) in pretty-prints |
+| `show_axes` | `false` | When printing morphisms, annotate each axis with its name |
+| `paranoid` | `false` | Re-run constraint checks after every recompile |
+| `autoload_on_save` | `true` | Re-load the file when its mtime advances |
+| `theme` | `one-dark` | Highlight theme (currently `one-dark` only) |
+
+```
+> :set show_axes=true
+> :set paranoid=true
+```
+
+#### `:help [CMD]` / `:h`
+
+In the TUI, opens the modal help dialog (also bound to `F1`) with
+the full command list grouped by category and a live filter
+input. In `--plain` mode, prints the help text to stdout. With an
+argument, prints detailed help for one command.
+
+```
+> :help plate
+:plate PROGRAM [--mermaid|--dot|--tikz|--daft|--open]
+  Render PROGRAM's plate-notation diagram. …
+```
+
+#### `:quit` / `:q` / `:exit`
+
+Exit the REPL. The Textual binding `Ctrl-Q` does the same.
 
 ### Scope paths (`::`)
 
@@ -210,8 +618,8 @@ What each container kind exposes as named children:
 | `object` / `space` / `morphism` / `rule` / `loss` / `category` | none (leaf) |
 
 The env tree on the right side of the TUI carries each binding's
-full `::` path on its node data; clicking any node — top-level or
-nested — fires `:info PATH` against that exact binding. Tab
+full `::` path on its node data; clicking any node, top-level or
+nested, fires `:info PATH` against that exact binding. Tab
 completion completes `lda::` to the program's children, `lda::z::`
 to the inner marginalize's children, and so on. A bare-name
 prefix like `thet` also surfaces scoped descendants (`lda::theta`)
@@ -222,27 +630,27 @@ so users discover nested bindings without typing the prefix.
 Five commands work together for understanding a program's
 structure:
 
-* `:graph PROGRAM` — vertical step-flow view (one row per program
+* `:graph PROGRAM`, vertical step-flow view (one row per program
   step with its dependency parents). The TUI default; pair with
   `--mermaid` / `--dot` / `--open` for external formats.
-* `:plate PROGRAM` — plate-notation diagram of the program's
+* `:plate PROGRAM`, plate-notation diagram of the program's
   random variables. Default is a Rich table with one row per
   variable + the plates it inhabits + its dependency parents. Flags
   `--mermaid`, `--dot`, `--tikz`, `--daft` emit alternate sources;
   `--open` renders to PNG via daft or graphviz and launches the
   system viewer.
-* `:where NAME` — every scope path that references NAME (including
+* `:where NAME`, every scope path that references NAME (including
   cross-references between programs and rules).
-* `:effects PROGRAM` — declared `[effects=[...]]` set vs the set
+* `:effects PROGRAM`, declared `[effects=[...]]` set vs the set
   the compiler infers from the body. Catches `[effects=[Pure]]`
   programs that accidentally contain a sample.
-* `:shape PROGRAM` — per-step `ChainShape`: step kind, chain
+* `:shape PROGRAM`, per-step `ChainShape`: step kind, chain
   depth, intermediate axis size, source location. Useful for
   auditing chain depth before fitting.
 
 ### Key bindings
 
-Selected for cross-platform reliability — every binding here reaches
+Selected for cross-platform reliability, every binding here reaches
 the application on macOS, Linux, and Windows without per-terminal
 configuration.
 
@@ -336,7 +744,7 @@ The option is on by default and controlled by
 
 ### Watches
 
-`:watch EXPR` pins EXPR for re-evaluation after every recompile —
+`:watch EXPR` pins EXPR for re-evaluation after every recompile ,
 every `:load`, `:reload`, bare-line statement, or autoreload. The
 result appears in a dedicated **Watches** strip (auto-hidden when
 empty) above the diagnostics strip. Format: `watch EXPR => result`,
@@ -610,16 +1018,16 @@ All four surfaces fan out from one class:
 
 Components shared across all surfaces:
 
-- [`quivers.cli.repl_session`](https://github.com/FACTSlab/quivers/blob/main/src/quivers/cli/repl_session.py) — `ReplSession`, the meta-command dispatcher, the live env, the watch list.
-- [`quivers.cli.repl_complete`](https://github.com/FACTSlab/quivers/blob/main/src/quivers/cli/repl_complete.py) — `all_completions(session, prefix)`; fans out to env, grammar, paths.
-- [`quivers.cli.repl_highlight`](https://github.com/FACTSlab/quivers/blob/main/src/quivers/cli/repl_highlight.py) — `tokenize`, `STYLE_TABLE`, `to_rich_text`, `to_semantic_token_data`; one classifier feeds every renderer.
+- [`quivers.cli.repl_session`](https://github.com/FACTSlab/quivers/blob/main/src/quivers/cli/repl_session.py), `ReplSession`, the meta-command dispatcher, the live env, the watch list.
+- [`quivers.cli.repl_complete`](https://github.com/FACTSlab/quivers/blob/main/src/quivers/cli/repl_complete.py), `all_completions(session, prefix)`; fans out to env, grammar, paths.
+- [`quivers.cli.repl_highlight`](https://github.com/FACTSlab/quivers/blob/main/src/quivers/cli/repl_highlight.py), `tokenize`, `STYLE_TABLE`, `to_rich_text`, `to_semantic_token_data`; one classifier feeds every renderer.
 
 Each frontend is a thin adapter:
 
-- [`quivers.cli.repl_tui`](https://github.com/FACTSlab/quivers/blob/main/src/quivers/cli/repl_tui.py) — Textual app.
-- [`quivers.cli.repl_prompt`](https://github.com/FACTSlab/quivers/blob/main/src/quivers/cli/repl_prompt.py) — prompt_toolkit single-line frontend.
-- [`quivers.kernel.quivers_kernel`](https://github.com/FACTSlab/quivers/blob/main/src/quivers/kernel/quivers_kernel.py) — ipykernel adapter.
-- [`quivers.lsp.server`](https://github.com/FACTSlab/quivers/blob/main/src/quivers/lsp/server.py) — pygls server.
+- [`quivers.cli.repl_tui`](https://github.com/FACTSlab/quivers/blob/main/src/quivers/cli/repl_tui.py). Textual app.
+- [`quivers.cli.repl_prompt`](https://github.com/FACTSlab/quivers/blob/main/src/quivers/cli/repl_prompt.py), prompt_toolkit single-line frontend.
+- [`quivers.kernel.quivers_kernel`](https://github.com/FACTSlab/quivers/blob/main/src/quivers/kernel/quivers_kernel.py), ipykernel adapter.
+- [`quivers.lsp.server`](https://github.com/FACTSlab/quivers/blob/main/src/quivers/lsp/server.py), pygls server.
 
 This is the seam that keeps the four surfaces in sync: anywhere a
 user sees `Source`, it's classified by the same call and rendered
