@@ -4,6 +4,46 @@ All notable changes to the quivers library are documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/), and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.11.0] - 2026-05-20
+
+### Added
+
+- **Homogenized DSL surface.** Every declaration follows the unified `KIND NAME : SIGNATURE [k = v, ...] [~ INIT] [BODY]` skeleton: `morphism`, `object`, `composition`, `program`, `deduction`, `signature`, `encoder`, `decoder`, `loss`, `category`, `bundle`, `schema`, `rule`, `let`, `export`. Per-role morphism keywords (`latent`, `kernel`, `observed`, `embed`, `discretize`) collapse into `morphism X : ... [role=ROLE]`. Brace-bodied declarations (`algebra X { ... }`, `deduction X : ... { ... }`, `signature X { sorts { ... } }`, `marginalize ... in { ... }`, `atoms { ... }`, `lexicon { ... }`) become indented bodies under the unified header. Effect signatures live in the option block as `[effects = [Sample, Score, Marginal, Pure]]` rather than `! E1, E2, ...`. Observation fibrations are `[via = idx]` and grouping plates are `[over = G, reduction = R]` in the option block instead of keyword clauses. Morphism replication is `[replicate = N]`. The pragma surface is `#[k = v, ...]` (outer, decorates the next declaration) and `#![k = v, ...]` (inner, decorates the enclosing module); per-line rule and lexicon pragmas (`#[learnable]`, `#[bounded]`, `parent = ...`) replace the legacy `@ learnable` marker.
+- **`composition NAME as <level>` keyword.** A single surface for algebraic composition rules (algebra / semigroupoid / bilinear_form / rule), with either a registry lookup (`composition product_fuzzy as algebra`) or an indented inline body (`composition my_godel as algebra` followed by `tensor_op(a, b) = ...`).
+- **`ContinuousSpace` family registry.** Eleven continuous-space constructors (`Real`, `Simplex`, `PositiveReals`, `UnitInterval`, `Sphere`, `Ball`, `Covariance`, `Correlation`, `CholeskyFactor`, `Orthogonal`, `Stiefel`, `LowerTriangular`, `Diagonal`) ship as `ContinuousSpace` subclasses dispatched by the homogenized `DiscreteConstructor` / `ContinuousConstructor` AST nodes. Discrete and continuous space initialisers share the same `object X : <init>` surface.
+- **`quivers.inference.lifts` module.** Four general-purpose Bayesian-lift helpers:
+  - [`bayesian_lift_parameters`](https://FACTSlab.github.io/quivers/api/inference/lifts) lifts every learnable `nn.Parameter` into a Normal-prior sample site, returning a [`MonadicProgram`](https://FACTSlab.github.io/quivers/api/continuous/programs) that SVI and NUTS consume uniformly. The new `additional_latents` argument lifts intermediate program latents as joint NUTS variables via an exact placeholder-cancellation construction; the lifted log-density equals `log p(theta) + log p_inner(z, y | x, theta)` pointwise, with no Monte-Carlo noise across leapfrog steps. The module docstring includes a methodological-notes section justifying the Normal-prior choice (maximum entropy on R^n; equivalence to L2 regularization; computational fit with NUTS) and the placeholder-cancellation theorem with proof.
+  - [`lift_to_bayesian_program`](https://FACTSlab.github.io/quivers/api/inference/lifts) lifts a parameter-only morphism plus any `torch.distributions.Distribution` observation family into a Bayesian program, with a user-supplied `location_fn` so the same lift works for `rsample(x)`-style, `tensor`-attribute, and `prog(x)`-forward shapes.
+  - [`lift_from_log_prob`](https://FACTSlab.github.io/quivers/api/inference/lifts) lifts a parameter-only model whose forward is already a `log_prob(x, y)` function (the VAE / encoder-decoder pattern).
+  - [`monte_carlo_log_joint`](https://FACTSlab.github.io/quivers/api/inference/lifts) wraps a program so its `log_joint` MC-draws named intermediate `sample` sites and returns the conditional data likelihood, with the prior-cancellation correction applied automatically. Documented honestly as a single-sample MC estimator valid for SVI as a stochastic gradient estimator; the function's docstring notes that for rigorous NUTS the joint lift via `additional_latents` is the correct route.
+- **`quivers.stochastic.deduction` package.** Reorganised the deduction-system surface from the previous flat `quivers.deduction_fit` module into a coherent package with one canonical import path. Subpackages: `primitives` (the abstract `Axiom`, `Deduction`, `Goal`, `Schedule`, `DeductiveSystem` building blocks), `fit` (point-estimate gradient fitting via `adam_fit_deduction`), `bayes` (posterior wrapping via `nuts_program_from_deduction`), `sample` (exact length-conditional forward sampling via `sample_corpus`). The model type `DeductionSystem` is re-exported from the package root alongside the operations and `bayesian_lift_parameters` (re-exported from `quivers.inference.lifts`).
+- **`ScanMorphism.log_joint` accepts a dict signature.** The recurrent-cell scan morphism's `log_joint` now accepts the hidden-state trajectory either positionally as a tensor or via a `{state_key: tensor}` dict (default `state_key = "h"`), so the standard inference contract `log_joint(x, observations: dict)` works without an adapter at the call site.
+- **`qvr migrate` subcommand.** Forward-migrates user `.qvr` source files across the QVR grammar release chain (v0.2.0 through HEAD). The CLI composes the adjacent-pair hop migrators in `quivers.cli.migrations` automatically; `--from VER` and `--to VER` pin the boundary, `--dry-run` reports without writing, `--output DIR` writes migrated copies. `--check` mode validates the migration chain against the panproto VCS schema diff and reports any rule removed in an adjacent grammar revision that the corresponding hop migrator has no converter for.
+- **In-tree panproto VCS for the grammar.** `grammars/qvr/vcs/.panproto/` holds a content-addressed schema chain with one tagged commit per grammar release (`v0.2.0` through `v0.11.0`). `grammars/qvr/vcs/build_schemas.py` walks tagged grammar revisions, builds a `panproto.Schema` keyed by rule name, and commits each as a tagged VCS commit. The migration system uses these commits to derive coverage reports and detect uncovered removed-rule gaps in any adjacent-pair migrator.
+- **Comprehensive `## Try it` sections in every example doc.** All 28 gallery examples (regressions, latent-variable models, state-space and time-series, language models, encoder-decoder, weighted deductions) ship a verified three-block runnable Try-it section: synthetic-data generation under known true parameters, an SVI fit, and a Bayesian posterior block. Every block executes in CI via `test_gallery_try_it_blocks_execute`. Illustrative-budget caveat at the top of each section explicitly notes the SVI / NUTS budgets are sized for tens-of-seconds CI runs, not production convergence.
+- **Example walkthrough alignment.** All 28 example docs' `## Overview` and `## Walkthrough` prose audited against the actual `.qvr` source; the 13 docs with prose-vs-source drift (most severely `pcfg.md` and `montague-nli.md`, whose embedded `## QVR Source` blocks described entirely different models than the actual source) were rewritten in place.
+- **Examples gallery index restructured** as a flat grouped list of one-line example descriptions linking to each gallery doc.
+- **API reference structure expanded.** New pages for `api/inference/lifts`, `api/inference/mcmc`, `api/inference/elbo`, `api/continuous/scan`, `api/continuous/inline`, `api/stochastic/agenda`, `api/stochastic/deduction` (+ four subpages: `primitives`, `fit`, `bayes`, `sample`). The `qvr migrate`, `qvr repl`, and `qvr lsp` subcommands are documented in `api/cli.md`.
+- **Denotational semantics extensions.** `docs/semantics/programs.md` gains a §7 "Bayesian lifts" with five propositions and proofs (placeholder-cancellation for the parameter lift, the observation-family lift, the log-prob lift, the single-sample MC bias bound via Jensen, the CRF-vs-PCFG distinction for `nuts_program_from_deduction`). `docs/semantics/adequacy.md` gains a §3.7b on adequacy of the lift theorems. `docs/semantics/types-and-spaces.md` §1 and §4 cover all 13 `ContinuousSpace` variants with set-builder denotations. `docs/semantics/grammar.md` rewrites `composition_rule_decl` EBNF to match the unified surface. `docs/semantics/expressions.md` §3.4 notes the dict-signature route on `ScanMorphism.log_joint`.
+- **`qvr migrate` documentation.** `docs/guides/migration.md` covers the `--from` / `--to` / `--dry-run` / `--output` / `--check` flag set with worked examples.
+
+### Changed
+
+- **`quivers.deduction_fit` module removed.** Imports move to `quivers.stochastic.deduction` (or `quivers.inference.lifts` for `bayesian_lift_parameters`). Pre-1.0 clean break, no compat shim. The 20+ docs and tests that referenced the old path are updated.
+- **Docstring cross-references converted to mkdocstrings autorefs.** All 1103 Sphinx-style `:func:`X`` / `:class:`X`` / `:mod:`X`` / `:meth:`X`` / `:attr:`X`` / `:data:`X`` / `:exc:`X`` role markers in source docstrings (132 files) are now either mkdocstrings autorefs (for internal symbols the docs build resolves) or plain inline code (for external / unresolved references). Sphinx role markers no longer render as ugly grey code spans in the API docs.
+- **DSL surface drift across the entire test and doc corpus.** Every fixture, every embedded source string, every walkthrough prose reference is on the current homogenized surface. `mkdocs build --strict` produces zero warnings; `pytest tests/` reports 2009 passing, 140 skipped, zero failing.
+
+### Fixed
+
+- **Grammar parser-recovery bugs.** `encoder_decl` and `composition_decl` previously used `optional(body), $._newline`, which let the trailing `$._newline` swallow the next top-level statement after an indented body. Replaced with `choice(body, $._newline)` so the `$._dedent` properly terminates and the following statement parses. `parser.c`, `grammar.json`, and `node-types.json` regenerated.
+- **`ScanMorphism.log_joint` dict-vs-positional adapter** unified into the morphism itself so call sites no longer need a `DictWrap` shim.
+- **`_TruncNorm` distribution shim** in `quivers.continuous.inline` now carries `event_shape` and `batch_shape` attributes so the generic family-`log_prob` path treats it uniformly with stock `torch.distributions` families.
+- **Formula compiler** (`quivers.formulas.compile`) emits `object Resp : FinSet N` via the homogenized `DiscreteConstructor` initialiser and accepts both old and new shapes on the reverse-pass decoder.
+- **Dataset schema** (`quivers.data.schema`) emits `object X : FinSet N` in the prelude returned from `DatasetSchema.declarations_qvr` and the `compose` wrapper.
+- **Compiler template-locals walker** (`quivers.dsl.compiler.programs._collect_template_local_names`) now walks the surface `SampleStep` / `ObserveStep` / `MarginalizeStep` nodes (was only walking the legacy `BindStep` IR), so locally-bound names in parametric program templates are correctly captured during alpha-renaming.
+- **Compiler structural pass** (`quivers.dsl.compiler.structural._compile_signature`) reads `dim` and `vocab` from each sort and vertex-kind's `options` block (the homogenized surface) rather than from removed direct attributes. `_compile_loss` accepts numeric-literal `weight = N` in the loss option block.
+- **`docs/developer/homogenization-plan.md` removed.** Internal design-tracking doc with phase counts and version anchors; not appropriate for shipped documentation.
+
 ## [0.10.0] - 2026-05-17
 
 ### Added
@@ -79,7 +119,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/), and this
 
 ### Changed
 
-- **BREAKING: `quantale` → `algebra` across DSL, Python API, and docs.** The `quantale` keyword and every `Quantale`-named symbol overclaimed the algebraic structure: seven of the eleven built-in cases fail strict quantale-distributivity in [Kelly's sense](https://ncatlab.org/nlab/show/enriched+category). The new term *algebra* names the structure $(V, \otimes, \oplus, \mathbf{1})$ honestly; the subclass that does satisfy the strict laws keeps the name *strict quantale* and is identified inline in [Algebras §2](../semantics/algebras.md#2-order--and-structure-preservation). Migration:
+- **BREAKING: `quantale` → `algebra` across DSL, Python API, and docs.** The `quantale` keyword and every `Quantale`-named symbol overclaimed the algebraic structure: seven of the eleven built-in cases fail strict quantale-distributivity in [Kelly's sense](https://ncatlab.org/nlab/show/enriched+category). The new term *algebra* names the structure $(V, \otimes, \oplus, \mathbf{1})$ honestly; the subclass that does satisfy the strict laws keeps the name *strict quantale* and is identified inline in [Algebras §2](../semantics/algebras.md#2-order-and-structure-preservation). Migration:
 
   | Old | New |
   |-----|-----|
@@ -866,14 +906,10 @@ settings on a single engine.
 
 - **Surface form**:
   ```qvr
-  deduction CG : Atom -> Atom {
-      atoms { NP, S, VP }
+  deduction CG : Atom -> Atom [semiring=LogProb, start=S, depth=4]
+      atoms NP, S, VP
       rule fwd_app : X/Y, Y |- X
       rule bwd_app : Y, Y\X |- X
-      semiring  LogProb
-      start  S
-      depth  4
-  }
   ```
   Single-uppercase-letter pattern names (`X`, `Y`) bind as
   wildcards; non-wildcard atoms match literally. The block
@@ -938,21 +974,18 @@ semiring abstraction is not broken).
 
 - **Signature blocks** declare sorts, constructors, binders, and
   (for graph signatures) vertex / edge kinds:
+  <!-- compile: false -->
   ```qvr
-  signature LF {
-      sorts {
-          Term : object dim 64
-          Type : object dim 32
-          Name : data   dim 32 vocab { "dog", "cat", "every" }
-      }
-      constructors {
+  signature LF
+      sorts
+          Term : object [dim=64]
+          Type : object [dim=32]
+          Name : data   [dim=32, vocab=["dog", "cat", "every"]]
+      constructors
           Const : Name      -> Term
           App   : Term, Term -> Term
-      }
-      binders {
+      binders
           Lam : binds (x : Term : ty : Type) in (body : Term) -> Term
-      }
-  }
   ```
   Three sort kinds: `object` (recursively decoded), `data`
   (opaque raw values; data sorts may declare a closed vocabulary
