@@ -1,33 +1,33 @@
-# ================================================================
 # Bayesian Vanilla RNN Language Model
-# ================================================================
 #
-# A standard vanilla RNN used as a causal language model. Each
-# time step computes
+# A standard vanilla RNN used as a causal language model. The
+# cell f is a Bayesian Kleisli morphism with stochastic weights
+# drawn from a Normal prior; scan threads hidden state across
+# the input sequence; the per-position hidden state is projected
+# onto the Token vocabulary by a Categorical lm_head.
 #
-#   h_t = f(x_t, h_{t-1})
+# Generative structure:
 #
-# where f is a Bayesian Kleisli morphism with stochastic weights
-# drawn from a Normal prior. The scan combinator threads hidden
-# state across the input sequence; the per-position hidden state
-# is then projected onto the Token vocabulary by a Categorical
-# lm_head, and the next-token target is observed under that
-# Categorical likelihood.
+#   h_t      ~ Normal(cell(x_t, h_{t-1}), 0.1)    recurrent update
+#   next_t   ~ Categorical(lm_head(h_t))          next-token target
+#
+# This is the simplest sequence model in the gallery and the
+# baseline against which gru_lm.qvr and lstm_lm.qvr add gating
+# structure.
 
-object Token : 256
+object Token : FinSet 256
+object Embedded : Real 64
+object Hidden : Real 128
 
-type Embedded = Euclidean 64
-type Hidden = Euclidean 128
-
-embed tok_embed : Token -> Embedded
-
-kernel cell : Embedded * Hidden -> Hidden ~ Normal [scale=0.1]
-kernel lm_head : Hidden -> Token ~ Categorical
+morphism tok_embed : Token -> Embedded [role=embed]
+morphism cell : Embedded * Hidden -> Hidden [role=kernel, scale=0.1] ~ Normal
+morphism lm_head : Hidden -> Token [role=kernel] ~ Categorical
 
 let backbone = tok_embed >> scan(cell)
 
 program vanilla_rnn_lm : Token -> Token
-    h <- backbone
+    sample h <- backbone
+
     observe next_token : Token <- lm_head(h)
     return next_token
 

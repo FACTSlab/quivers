@@ -1,42 +1,36 @@
-# ================================================================
 # Multi-Output Negative Binomial Regression
-# ================================================================
 #
 # A multi-output negative-binomial regression for overdispersed
 # count data, using the mean / dispersion parameterisation that
 # follows the log link convention shared with Poisson regression.
 # Each output dimension carries its own coefficients and
 # dispersion; the response is the standard NB2 form, with
-# per-cell variance `mu + mu^2 / dispersion`, recovering Poisson
+# per-cell variance mu + mu^2 / dispersion, recovering Poisson
 # in the limit of infinite dispersion.
 #
-#   beta_0_d, beta_1_d ~ Normal(0, 5)        for d in 1..D
-#   dispersion_d       ~ Gamma(2, 0.5)
-#   eta_{n, d}         = beta_0_d + beta_1_d * x_n
-#   mu_{n, d}          = exp(eta_{n, d})
-#   probs_{n, d}       = dispersion_d / (dispersion_d + mu_{n, d})
-#   y_{n, d}           ~ NegativeBinomial(dispersion_d, probs_{n, d})
+# Generative structure:
+#
+#   beta_0_d      ~ Normal(0, 5)                  per-output intercept
+#   beta_1_d      ~ Normal(0, 5)                  per-output slope
+#   dispersion_d  ~ Gamma(2, 0.5)                 per-output dispersion
+#   y_{n,d}       ~ NegativeBinomial(dispersion, dispersion / (dispersion + mu))
 #
 # The Gamma prior on the dispersion encodes a soft preference
 # for finite overdispersion; per-output coefficients permit
 # heterogeneous count regimes across the response axis.
-# Distinguishing feature: per-output `dispersion` plate gathered
-# through `out_idx` so each response dimension carries its own
-# overdispersion parameter without rewriting the model body.
 
-object Item : 200
-object Out : 3
-object Resp : 600
+object Item : FinSet 200
+object Out : FinSet 3
+object Resp : FinSet 600
 
 program negbin_regression : Resp -> Resp
-    beta_0 : Out <- Normal(0.0, 5.0)
-    beta_1 : Out <- Normal(0.0, 5.0)
-    dispersion : Out <- Gamma(2.0, 0.5)
+    sample beta_0 : Out <- Normal(0.0, 5.0)
+    sample beta_1 : Out <- Normal(0.0, 5.0)
+    sample dispersion : Out <- Gamma(2.0, 0.5)
 
     let b0 = beta_0[out_idx]
     let b1 = beta_1[out_idx]
     let disp = dispersion[out_idx]
-
     let eta = b0 + b1 * x
     let mu = exp(eta)
     let probs = disp / (disp + mu)

@@ -1,37 +1,33 @@
-# ================================================================
-# Linear-Gaussian State-Space Model (Kalman Filter)
-# ================================================================
+# Linear-Gaussian State-Space Model
 #
 # The canonical linear-Gaussian state-space model whose forward
-# filter is the Kalman filter ([Kalman 1960]
-# (https://doi.org/10.1115/1.3662552)):
-#
-#   s_t = A s_{t-1} + w_t,    w_t ~ Normal(0, Q)
-#   o_t = C s_t   + v_t,      v_t ~ Normal(0, R)
-#
-# Both transitions and emissions are linear in the latent state
-# and the noise covariances are constant in time. Because both
-# the prior and the likelihood are Gaussian, the filter and the
-# smoother are closed-form (Kalman / Rauch-Tung-Striebel) and
-# the marginal data likelihood is itself Gaussian; the runtime
-# can either condition on the observed series and back-prop
-# through the per-step scan, or use the closed-form filter via
-# a downstream `bayes_invert` step.
-#
-# This example expresses the model as a Bayesian recurrent
-# network: the transition and emission are `continuous`
-# Kleisli morphisms with Normal output families, and `scan` over
+# filter is the Kalman filter. The transition and emission are
+# Kleisli morphisms with Normal output families, and scan over
 # the input sequence assembles the per-step filtered state.
-# Compare with continuous_hmm.qvr (a generic nonlinear-Normal
-# SSM) and deep_markov.qvr (the fully nonlinear deep variant).
+#
+# Generative structure:
+#
+#   s_t  ~ Normal(transition_cell(driver, s_{t-1}), Q)
+#   o_t  ~ Normal(emission(s_t), R)
+#   s_t  ~ Normal(filter_cell(o_t, s_{t-1}), R)
+#
+# Because both the prior and the likelihood are Gaussian, the
+# filter and the smoother are closed-form (Kalman /
+# Rauch-Tung-Striebel) and the marginal data likelihood is
+# itself Gaussian; the runtime can either condition on the
+# observed series and back-prop through the per-step scan, or
+# use the closed-form filter via a downstream bayes_invert
+# step.
+#
+# Reference: [Kalman 1960](https://doi.org/10.1115/1.3662552).
 
-type Driver = Euclidean 2
-type State = Euclidean 4
-type Obs = Euclidean 2
+object Driver : Real 2
+object State : Real 4
+object Obs : Real 2
 
-kernel transition_cell : Driver * State -> State ~ Normal [scale=0.1]
-kernel emission : State -> Obs ~ Normal [scale=0.1]
-kernel filter_cell : Obs * State -> State ~ Normal [scale=0.1]
+morphism transition_cell : Driver * State -> State [role=kernel, scale=0.1] ~ Normal
+morphism emission : State -> Obs [role=kernel, scale=0.1] ~ Normal
+morphism filter_cell : Obs * State -> State [role=kernel, scale=0.1] ~ Normal
 
 let generate = scan(transition_cell) >> emission
 let filter = scan(filter_cell)

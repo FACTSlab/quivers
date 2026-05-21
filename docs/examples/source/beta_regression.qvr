@@ -1,41 +1,36 @@
-# ================================================================
 # Multi-Output Beta Regression
-# ================================================================
 #
 # A multi-output beta regression for response variables on the
-# open unit interval ([Ferrari and Cribari-Neto 2004]
-# (https://doi.org/10.1080/0266476042000214501)).  Each output
-# dimension `d` carries its own logit-link coefficients and
-# precision; the per-cell mean is mapped through the sigmoid to
-# the unit interval, and the Beta likelihood is parameterised in
-# its mean / precision form.
+# open unit interval. Each output dimension carries its own
+# logit-link coefficients and precision; the per-cell mean is
+# mapped through the sigmoid, and the Beta likelihood is
+# parameterised in its mean / precision form.
 #
-#   beta_0_d, beta_1_d ~ Normal(0, 5)
-#   phi_d              ~ HalfCauchy(2.5)
-#   eta_{n, d}         = beta_0_d + beta_1_d * x_n
-#   mu_{n, d}          = sigmoid(eta_{n, d})
-#   y_{n, d}           ~ Beta(mu_{n, d} * phi_d, (1 - mu_{n, d}) * phi_d)
+# Generative structure:
 #
-# The mean / precision parameterisation gives mean `mu` and
-# variance `mu * (1 - mu) / (1 + phi)`; per-output precision
-# `phi_d` permits heterogeneous dispersion across the response
-# axis.  Distinguishing feature: per-output plate-gather across
-# the `Out` axis to share a single underlying program across all
-# response dimensions.
+#   beta_0_d ~ Normal(0, 5)                       per-output intercept
+#   beta_1_d ~ Normal(0, 5)                       per-output slope
+#   phi_d    ~ HalfCauchy(2.5)                    per-output precision
+#   y_{n,d}  ~ Beta(mu * phi_d, (1 - mu) * phi_d) mu = sigmoid(eta)
+#
+# The mean / precision parameterisation gives mean mu and
+# variance mu * (1 - mu) / (1 + phi); per-output precision
+# permits heterogeneous dispersion across the response axis.
+#
+# Reference: [Ferrari and Cribari-Neto 2004](https://doi.org/10.1080/0266476042000214501).
 
-object Item : 200
-object Out : 3
-object Resp : 600
+object Item : FinSet 200
+object Out : FinSet 3
+object Resp : FinSet 600
 
 program beta_regression : Resp -> Resp
-    beta_0 : Out <- Normal(0.0, 5.0)
-    beta_1 : Out <- Normal(0.0, 5.0)
-    phi : Out <- HalfCauchy(2.5)
+    sample beta_0 : Out <- Normal(0.0, 5.0)
+    sample beta_1 : Out <- Normal(0.0, 5.0)
+    sample phi : Out <- HalfCauchy(2.5)
 
     let b0 = beta_0[out_idx]
     let b1 = beta_1[out_idx]
     let p = phi[out_idx]
-
     let eta = b0 + b1 * x
     let mu = sigmoid(eta)
     let alpha = mu * p

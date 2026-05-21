@@ -1,60 +1,42 @@
-# ================================================================
 # Bayesian Gaussian Mixture Model
-# ================================================================
 #
-# A finite Gaussian mixture model with K components.  Per-component
+# A finite Gaussian mixture model with K components. Per-component
 # means and scales are continuous latents on the Component plate;
 # the per-row component assignment is a discrete latent integrated
 # out by a scoped `marginalize` block under the canonical
-# log-sum-exp aggregation over the K classes.
+# logsumexp aggregation over the K classes.
 #
-# Generative structure
+# Generative structure:
 #
-#   probs   : Component       -- mixing weights (Dirichlet prior)
-#   mu      : Component       -- per-component means (Normal prior)
-#   sigma   : Component       -- per-component scales (HalfNormal prior)
-#   cls     : Component       -- per-row component (marginalized)
-#   r       : Resp            -- observed row, conditional on `cls`
+#   probs    ~ Dirichlet(alpha)                  Component-simplex mixing weights
+#   mu_k     ~ Normal(0, 5)                      per-component mean
+#   sigma_k  ~ HalfNormal(1)                     per-component scale
+#   cls_n    ~ Categorical(probs)                per-row class assignment
+#   r_n      ~ Normal(mu[cls_n], sigma[cls_n])   observed row
 #
-# Per-row likelihood:
+# Per-row marginal likelihood (closed form via logsumexp):
 #
 #   p(r_n) = sum_k probs[k] * Normal(r_n; mu[k], sigma[k]).
 #
-# The `over Item` grouping plate fibrates each response row into a
-# per-item accumulator; `via idx` names the per-observe fibration
-# from `Resp` into the `Item` plate.  Inside the body, `factor`
-# expressions build per-(Resp, Component) parameter tensors by
-# gathering `mu[k]` and `sigma[k]` for every row, so the body's
-# likelihood genuinely depends on the marginalized variable.
+# The `[over=Item]` plate routes each per-row draw through its
+# item-group accumulator; `[via=idx]` names the per-observe
+# fibration from `Resp` into the `Item` plate.
 
-object Component : 4
-object Item : 8
-object Resp : 200
+composition log_prob as algebra
 
-program gmm : Resp -> Resp
-    # Mixing-weight concentration parameters (the Dirichlet prior
-    # on the simplex is taken inside the marginalize header).
-    probs : Component <- HalfNormal(1.0)
+object Component : FinSet 3
+object Item : FinSet 8
+object Resp : FinSet 100
 
-    # Per-component emission parameters.  Each row's likelihood
-    # conditional on cls = k is Normal(mu[k], sigma[k]).
-    mu : Component <- Normal(0.0, 5.0)
-    sigma : Component <- HalfNormal(1.0)
+program gmm(alpha : Real) : Resp -> Resp
+    sample probs <- Dirichlet(alpha) [over=Component]
+    sample mu : Component <- Normal(0.0, 5.0)
+    sample sigma : Component <- HalfNormal(1.0)
+    sample idx : Resp <- HalfNormal(1.0)
 
-    # Per-row fibration into the Item grouping plate.
-    idx : Resp <- HalfNormal(1.0)
+    marginalize cls : Component <- Categorical(probs) [over=Item, reduction=logsumexp]
+        observe r : Resp <- Normal(mu[cls], sigma[cls]) [via=idx]
 
-    # Marginalize the per-row component assignment.  The body
-    # references the marginalized variable `cls` by gathering
-    # `mu[cls]` and `sigma[cls]` at every row, producing a
-    # genuinely per-class log-likelihood.
-    marginalize cls : Component <- Dirichlet(probs)
-        over Item
-        in {
-            let mu_nk = factor n : Resp, k : Component in mu[k]
-            let sigma_nk = factor n : Resp, k : Component in sigma[k]
-            observe r : Resp via idx <- Normal(mu_nk, sigma_nk)
-        }
     return probs
 
 export gmm

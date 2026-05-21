@@ -1,64 +1,55 @@
-# ================================================================
 # Bayesian LSTM Language Model
-# ================================================================
 #
-# A canonical LSTM cell ([Hochreiter and Schmidhuber 1997]
-# (https://doi.org/10.1162/neco.1997.9.8.1735)) wrapped in scan
-# and used as a causal language model.
-#
-# The canonical LSTM equations are
-#
-#   i_t = sigma(W_i [x_t, c_{t-1}])    input gate
-#   f_t = sigma(W_f [x_t, c_{t-1}])    forget gate
-#   o_t = sigma(W_o [x_t, c_{t-1}])    output gate
-#   g_t = phi   (W_g [x_t, c_{t-1}])   cell candidate
-#   c_t = f_t * c_{t-1} + i_t * g_t    cell update
-#   h_t = o_t * tanh(c_t)              hidden state
-#
-# All four gates and the candidate are Bayesian Kleisli morphisms
-# with stochastic weights drawn from the indicated prior. tanh is
+# A canonical LSTM cell wrapped in scan and used as a causal
+# language model. All four gates and the cell candidate are
+# Bayesian Kleisli morphisms with stochastic weights; tanh is
 # realised from sigmoid via the identity 2*sigmoid(2x) - 1.
 #
-# scan threads the per-step output h_t across the sequence; the
-# Categorical lm_head reads h_T and scores the next-token target.
+# Generative structure:
+#
+#   i_t      ~ LogitNormal(gate_i(x_t, h_{t-1}))  input gate
+#   f_t      ~ LogitNormal(gate_f(x_t, h_{t-1}))  forget gate
+#   o_t      ~ LogitNormal(gate_o(x_t, h_{t-1}))  output gate
+#   g_t      ~ Normal(cell_cand(x_t, h_{t-1}))    cell candidate
+#   h_t      = o_t * tanh(f_t * h_{t-1} + i_t * g_t)
+#   next_t   ~ Categorical(lm_head(h_t))          next-token target
+#
 # In the canonical LSTM the cell state c_t is a separate channel
-# from the hidden output h_t, but the scan combinator threads a
-# single hidden codomain so this presentation folds the c-channel
-# into h-and-readout: c_new is computed locally inside the cell
-# from h_prev (the threaded state), used to form h_new, and is
-# not propagated as a separate long-term memory channel.
+# from h_t, but scan threads a single hidden codomain, so this
+# presentation folds the c-channel into h-and-readout: c_new is
+# computed locally inside the cell and used to form h_new.
+#
+# Reference: [Hochreiter and Schmidhuber 1997](https://doi.org/10.1162/neco.1997.9.8.1735).
 
-object Token : 256
+object Token : FinSet 256
+object Embedded : Real 64
+object Hidden : Real 128
 
-type Embedded = Euclidean 64
-type Hidden = Euclidean 128
-
-embed tok_embed : Token -> Embedded
-
-kernel gate_i : Embedded * Hidden -> Hidden ~ LogitNormal
-kernel gate_f : Embedded * Hidden -> Hidden ~ LogitNormal
-kernel gate_o : Embedded * Hidden -> Hidden ~ LogitNormal
-kernel cell_cand : Embedded * Hidden -> Hidden ~ Normal [scale=0.5]
-kernel lm_head : Hidden -> Token ~ Categorical
+morphism tok_embed : Token -> Embedded [role=embed]
+morphism gate_i : Embedded * Hidden -> Hidden [role=kernel] ~ LogitNormal
+morphism gate_f : Embedded * Hidden -> Hidden [role=kernel] ~ LogitNormal
+morphism gate_o : Embedded * Hidden -> Hidden [role=kernel] ~ LogitNormal
+morphism cell_cand : Embedded * Hidden -> Hidden [role=kernel, scale=0.5] ~ Normal
+morphism lm_head : Hidden -> Token [role=kernel] ~ Categorical
 
 program lstm_cell(x_t, h_prev) : Embedded * Hidden -> Hidden
-    i_gate <- gate_i(x_t, h_prev)
-    f_gate <- gate_f(x_t, h_prev)
-    o_gate <- gate_o(x_t, h_prev)
-    g_cand <- cell_cand(x_t, h_prev)
+    sample i_gate <- gate_i(x_t, h_prev)
+    sample f_gate <- gate_f(x_t, h_prev)
+    sample o_gate <- gate_o(x_t, h_prev)
+    sample g_cand <- cell_cand(x_t, h_prev)
 
     let c_new = f_gate * h_prev + i_gate * g_cand
     let two_c = 2.0 * c_new
     let sig_2c = sigmoid(two_c)
     let tanh_c = 2.0 * sig_2c - 1.0
     let h_new = o_gate * tanh_c
-
     return h_new
 
 let backbone = tok_embed >> scan(lstm_cell)
 
 program lstm_lm : Token -> Token
-    h <- backbone
+    sample h <- backbone
+
     observe next_token : Token <- lm_head(h)
     return next_token
 

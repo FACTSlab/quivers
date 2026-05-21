@@ -3,18 +3,15 @@
 ## QVR Source
 
 ```qvr
-object Resp : 1
-
-# The predictor `x` is exogenous data: an `(N,)` tensor supplied
-# at fit time via the observations dict alongside the response
-# `y`.  The runtime's host-data channel binds free variables in
-# `let` expressions from undeclared keys in the observations dict.
+object Resp : FinSet 1
 
 program bayesian_regression : Resp -> Resp
-    sigma <- HalfCauchy(2.0)
-    beta_0 <- Normal(0.0, 5.0)
-    beta_1 <- Normal(0.0, 2.0)
+    sample sigma <- HalfCauchy(2.0)
+    sample beta_0 <- Normal(0.0, 5.0)
+    sample beta_1 <- Normal(0.0, 2.0)
+
     let mu = beta_0 + beta_1 * x
+
     observe y : Resp <- Normal(mu, sigma)
     return y
 
@@ -23,25 +20,23 @@ export bayesian_regression
 
 ## Overview
 
-Bayesian linear regression models $y = \beta_0 + \beta_1 x + \varepsilon$ with prior distributions on the parameters and conditions on observed data via the `observe` statement. This example demonstrates the `program` declaration, the `<-` bind operator (probabilistic sampling), deterministic `let` bindings, distribution constructors, and the `observe` conditioning statement.
+[Bayesian linear regression](https://en.wikipedia.org/wiki/Bayesian_linear_regression) places priors on the coefficients of a linear model and conditions on observed responses:
+
+$$
+\sigma \sim \mathrm{HalfCauchy}(2),\quad \beta_0 \sim \mathcal{N}(0, 5),\quad \beta_1 \sim \mathcal{N}(0, 2),\quad y_n \mid x_n \sim \mathcal{N}(\beta_0 + \beta_1\,x_n,\ \sigma).
+$$
+
+The predictor $x$ is exogenous host data supplied alongside the response at fit time; the runtime binds free identifiers in `let` expressions from undeclared keys in the observations dict.
 
 ## Walkthrough
 
-`object Predictor : 1` and `object Response : 1` specify the input and output spaces, each 1-dimensional.
+`object Resp : FinSet 1` declares the response object: a single scalar per row of the `Resp` plate. The program signature `program bayesian_regression : Resp -> Resp` is a [Kleisli morphism](https://ncatlab.org/nlab/show/Kleisli+category) in the probability monad that scores observed responses under the model's joint kernel.
 
-`program bayesian_regression : Predictor -> Response` declares a probabilistic program that takes a predictor value and produces a response value.
+The three `sample` lines draw the prior parameters as global scalars: `sample sigma <- HalfCauchy(2.0)` puts a heavy-tailed positive prior on the noise scale, and `sample beta_0 <- Normal(0.0, 5.0)`, `sample beta_1 <- Normal(0.0, 2.0)` give the intercept and slope independent Gaussian priors with a wider spread on the intercept than on the slope.
 
-`sigma <- HalfCauchy(2.0)` samples the noise standard deviation from a Half-Cauchy prior with scale 2.0. The `<-` operator is the bind of the probability monad: it declares `sigma` as a random variable drawn from the given distribution. The Half-Cauchy is a heavy-tailed prior suitable for positive-valued scale parameters.
+`let mu = beta_0 + beta_1 * x` builds the linear predictor. `x` is not declared as a sample site or a program parameter; it is a free identifier resolved at run time from the host-data channel (the `observations` dict).
 
-`beta_0 <- Normal(0.0, 5.0)` and `beta_1 <- Normal(0.0, 2.0)` sample the intercept and slope from Gaussian priors. The wider prior on `beta_0` reflects weaker assumptions about the intercept; the tighter prior on `beta_1` encodes a mild expectation of moderate slope.
-
-`x <- Normal(0.0, 1.0)` samples a predictor value. In inference mode, observed predictor values would replace this; in generative mode, this produces synthetic data.
-
-`let mu = beta_0 + beta_1 * x` computes the linear predictor deterministically. The `let` keyword signals a non-random computation; `mu` inherits its randomness from its inputs rather than being sampled independently.
-
-`observe y <- Normal(mu, sigma)` conditions the model on the observed response. During inference, this multiplies the posterior probability by the likelihood of the observed $y$ under $\mathrm{Normal}(\mu, \sigma)$, implementing Bayesian updating.
-
-`return y` specifies the program's output. `export bayesian_regression` exports it.
+`observe y : Resp <- Normal(mu, sigma)` scores the observed response under the Gaussian likelihood, accumulating $\log p(y \mid \mu, \sigma)$ into the program's score effect. `return y` projects the program's joint kernel onto the response site, and `export bayesian_regression` makes the program addressable from the loader.
 
 ## DSL Features
 
@@ -53,27 +48,77 @@ Bayesian linear regression models $y = \beta_0 + \beta_1 x + \varepsilon$ with p
 - **`return`**: Designates the program's output value.
 - **Arithmetic on random variables**: `+`, `-`, `*`, `/` are supported directly.
 
-## Python Usage
+## Try it
+
+> The SVI step counts and NUTS warmup, sample, and chain budgets in the snippets below are illustrative: each block is sized to run in tens of seconds and demonstrate the API surface. Production fits typically need 10x to 100x more SVI steps, longer NUTS warmup, and multiple chains to actually converge to the data-generating parameters.
+
+
+### Generating synthetic data
 
 ```python
 import torch
 from quivers.dsl import load
+
+torch.manual_seed(0)
+prog = load("docs/examples/source/bayesian_regression.qvr")
+model = prog.morphism
+
+N = 64
+true_sigma = 0.5
+true_beta_0 = 1.5
+true_beta_1 = 2.0
+
+x = torch.randn(N)
+y = torch.distributions.Normal(true_beta_0 + true_beta_1 * x, true_sigma).sample()
+observations = {"x": x, "y": y}
+x_in = torch.zeros(N, 1)
+```
+
+### SVI fit
+
+```python
 from quivers.inference import AutoNormalGuide, ELBO, SVI
 
-program = load("bayesian_regression.qvr")
-model = program.morphism  # underlying MonadicProgram
-
-observations = {"y": y_observed}        # shape (n,)
-
-guide = AutoNormalGuide(model, observed_names={"y"})
-elbo  = ELBO(num_particles=1)
-optimizer = torch.optim.Adam(
-    list(model.parameters()) + list(guide.parameters()), lr=1e-2,
+oracle_nll = float(
+    -torch.distributions.Normal(true_beta_0 + true_beta_1 * x, true_sigma)
+    .log_prob(y)
+    .mean()
 )
-svi = SVI(model, guide, optimizer, elbo)
 
-for step in range(2000):
-    loss = svi.step(x_observed, observations)
+torch.manual_seed(1)
+guide = AutoNormalGuide(model, observed_names={"x", "y"})
+optim = torch.optim.Adam(
+    list(model.parameters()) + list(guide.parameters()), lr=5e-2,
+)
+svi = SVI(model, guide, optim, ELBO(num_particles=1))
+
+losses = []
+for _ in range(300):
+    losses.append(svi.step(x_in, observations))
+
+print(f"initial loss: {losses[0]:.2f}")
+print(f"final loss:   {losses[-1]:.2f}")
+print(f"oracle NLL:   {oracle_nll:.2f}")
+```
+
+### NUTS posterior
+
+```python
+from quivers.inference import MCMC, NUTSKernel
+
+N_mcmc = 32
+x_mcmc = x[:N_mcmc]
+y_mcmc = y[:N_mcmc]
+obs_mcmc = {"x": x_mcmc, "y": y_mcmc}
+x_in_mcmc = torch.zeros(N_mcmc, 1)
+
+torch.manual_seed(2)
+kernel = NUTSKernel(step_size=0.05, max_tree_depth=3, target_accept=0.8)
+mc = MCMC(kernel, num_warmup=20, num_samples=20, num_chains=1)
+result = mc.run(model, x_in_mcmc, obs_mcmc)
+
+print(f"acceptance:  {float(result.acceptance_rates.mean()):.2f}")
+print(f"divergences: {int(result.divergence_counts.sum())}")
 ```
 
 ## Categorical Perspective

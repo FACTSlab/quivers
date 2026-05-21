@@ -16,22 +16,19 @@ The transition and emission means are MLPs; per-step Normal noise gives a tracta
 ## QVR Source
 
 ```qvr
-type Driver = Euclidean 4
-type Hidden = Euclidean 32
-type State = Euclidean 8
-type Obs = Euclidean 4
+object Driver : Real 4
+object Hidden : Real 32
+object State : Real 8
+object Obs : Real 4
 
-kernel trans_mlp_1 : Driver * State -> Hidden ~ Normal [scale=0.5]
-kernel trans_mlp_2 : Hidden -> State ~ Normal [scale=0.1]
-
-kernel emit_mlp_1 : State -> Hidden ~ Normal [scale=0.5]
-kernel emit_mlp_2 : Hidden -> Obs ~ Normal [scale=0.1]
-
-kernel infer_cell : Obs * State -> State ~ Normal [scale=0.1]
+morphism trans_mlp_1 : Driver * State -> Hidden [role=kernel, scale=0.5] ~ Normal
+morphism trans_mlp_2 : Hidden -> State [role=kernel, scale=0.1] ~ Normal
+morphism emit_mlp_1 : State -> Hidden [role=kernel, scale=0.5] ~ Normal
+morphism emit_mlp_2 : Hidden -> Obs [role=kernel, scale=0.1] ~ Normal
+morphism infer_cell : Obs * State -> State [role=kernel, scale=0.1] ~ Normal
 
 let transition_cell = trans_mlp_1 >> trans_mlp_2
 let emission = emit_mlp_1 >> emit_mlp_2
-
 let generate = scan(transition_cell) >> emission
 let recognize = scan(infer_cell)
 
@@ -46,6 +43,13 @@ The transition stack `trans_mlp_1 >> trans_mlp_2` is a two-layer MLP that maps `
 
 ## Try it
 
+> The SVI step counts and NUTS warmup, sample, and chain budgets in the snippets below are illustrative: each block is sized to run in tens of seconds and demonstrate the API surface. Production fits typically need 10x to 100x more SVI steps, longer NUTS warmup, and multiple chains to actually converge to the data-generating parameters.
+
+
+### Generating synthetic data
+
+Pick concrete ground-truth nonlinear dynamics (tanh recurrence on the latent, tanh decoder to observations) and forward-sample a single trajectory of length `T`. The latent dimension matches `State = Real 8`; the observation dimension matches `Obs = Real 4`.
+
 ```python
 import torch
 from quivers.dsl import load
@@ -54,24 +58,69 @@ torch.manual_seed(0)
 prog = load("docs/examples/source/deep_markov.qvr")
 recognize = prog.morphism
 
-batch, seq_len, obs_dim = 4, 16, 4
-o_seq = torch.randn(batch, seq_len, obs_dim)
-final_state = recognize.rsample(o_seq)
-print("recognized state shape:", final_state.shape)
-
-# Smoke-train the recognizer to align with the generative prior; in
-# a full setup, ``condition`` the generative pipeline on ``o_seq``
-# and fit by SVI with the recognizer as the amortized guide.
-loss_fn = torch.nn.MSELoss()
-optim = torch.optim.Adam(recognize.parameters(), lr=1e-3)
-for _ in range(50):
-    optim.zero_grad()
-    h = recognize.rsample(o_seq)
-    loss = loss_fn(h, torch.zeros_like(h))
-    loss.backward()
-    optim.step()
-print("smoke-train final loss:", float(loss))
+T = 32
+state_dim, obs_dim = 8, 4
+W_s = 0.5 * torch.randn(state_dim, state_dim)
+W_o = 0.3 * torch.randn(obs_dim, state_dim)
+s = torch.zeros(T + 1, state_dim)
+o = torch.zeros(T, obs_dim)
+for t in range(T):
+    s[t + 1] = torch.tanh(s[t] @ W_s.T) + 0.1 * torch.randn(state_dim)
+    o[t] = torch.tanh(s[t + 1] @ W_o.T) + 0.1 * torch.randn(obs_dim)
+o_seq = o.unsqueeze(0)
+state_seq = s[1:].unsqueeze(0)
 ```
+
+### SVI fit
+
+The exported `recognize` is a [`ScanMorphism`](../api/continuous/scan.md) whose MLP weights are `[role=kernel]` parameters without explicit priors; [`bayesian_lift_parameters`](../api/inference/lifts.md#quivers.inference.lifts.bayesian_lift_parameters) lifts each leaf into a unit-Normal sample site so [`AutoNormalGuide`](../api/inference/guide.md#quivers.inference.guides.AutoNormalGuide) can build a mean-field surrogate. The thin `DictWrap` adapter exposes `log_joint(x, obs_dict)` over the scan's positional state-trajectory argument.
+
+```python
+from quivers.inference import AutoNormalGuide, ELBO, SVI, bayesian_lift_parameters
+
+torch.manual_seed(1)
+prog = load("docs/examples/source/deep_markov.qvr")
+inner = prog.morphism
+model, x_lift, obs_lift = bayesian_lift_parameters(
+    inner, o_seq, {"h": state_seq}, prior_scale=1.0,
+)
+
+guide = AutoNormalGuide(model, observed_names={"h"})
+optim = torch.optim.Adam(
+    list(model.parameters()) + list(guide.parameters()), lr=1e-2,
+)
+svi = SVI(model, guide, optim, ELBO())
+
+loss0 = svi.step(x_lift, obs_lift)
+losses = [svi.step(x_lift, obs_lift) for _ in range(300)]
+loss_final = sum(losses[-20:]) / 20.0
+oracle_ll = inner.log_joint(o_seq, state_seq).item()
+print(f"initial ELBO loss: {loss0:.1f}")
+print(f"final ELBO loss:   {loss_final:.1f}")
+print(f"oracle -log p(h):  {-oracle_ll:.1f}")
+```
+
+### NUTS posterior
+
+The lifted model carries one Normal sample site per leaf parameter; [`NUTSKernel`](../api/inference/mcmc.md#quivers.inference.mcmc.NUTSKernel) samples them directly.
+
+```python
+from quivers.inference import MCMC, NUTSKernel, bayesian_lift_parameters
+
+torch.manual_seed(2)
+prog = load("docs/examples/source/deep_markov.qvr")
+model, x_lift, obs_lift = bayesian_lift_parameters(
+    prog.morphism, o_seq, {"h": state_seq}, prior_scale=1.0,
+)
+
+kernel = NUTSKernel(step_size=0.05, max_tree_depth=3, target_accept=0.8)
+mc = MCMC(kernel, num_warmup=15, num_samples=15, num_chains=1)
+result = mc.run(model, x_lift, obs_lift)
+
+print("acceptance:", float(result.acceptance_rates.mean()))
+print("divergences:", int(result.divergence_counts.sum()))
+```
+
 
 ## Categorical Perspective
 

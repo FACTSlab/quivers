@@ -1,53 +1,47 @@
-# ================================================================
 # Variational Autoencoder
-# ================================================================
 #
-# A VAE (Kingma & Welling 2014) with multi-layer encoder and
-# decoder networks, expressed as a morphism network using `stack`
-# for deep layers and explicit Kleisli composition (`>>`) to wire
-# encoder and decoder into generative and reconstruction paths.
+# A VAE with multi-layer encoder and decoder networks, expressed
+# as a morphism network using stack for deep layers and explicit
+# Kleisli composition (>>) to wire encoder and decoder into
+# generative and reconstruction paths.
 #
-# Encoder:     pixel_embed >> stack(enc_deep, 3) >> enc_to_latent
-# Decoder:     dec_1       >> stack(dec_deep, 2) >> dec_to_obs
-# Generative:  prior   >> decoder         -- ancestral sampling
-# Reconstruct: encoder >> decoder         -- posterior predictive
+# Structural form:
 #
-# In the categorical framework the encoder is a Kleisli morphism
-# for the Giry monad mapping observations to a distribution over
-# latent codes; the decoder is the Kleisli morphism from the
-# latent space back to the observation space.  The ELBO
-# decomposes categorically into a reconstruction term (the
-# faithfulness of `encoder >> decoder`) and a KL term (the
-# distance from the prior in the enriched hom-space).
+#   encoder     = pixel_embed >> stack(enc_deep, 1) >> enc_to_latent
+#   decoder     = dec_1       >> stack(dec_deep, 1) >> dec_to_obs
+#   generative  = prior   >> decoder              ancestral sampling
+#   reconstruct = encoder >> decoder              posterior predictive
+#
+# The encoder is a Kleisli morphism for the Giry monad mapping
+# observations to a distribution over latent codes; the decoder
+# is the Kleisli morphism from the latent space back to
+# observation space. The ELBO decomposes categorically into a
+# reconstruction term (faithfulness of encoder >> decoder) and a
+# KL term (distance from the prior in the enriched hom-space).
+#
+# Reference: [Kingma and Welling 2014](https://doi.org/10.48550/arXiv.1312.6114).
 
-object Pixel : 784
+object Pixel : FinSet 8
+object Latent : Real 4
+object EncoderHidden : Real 16
+object DecoderHidden : Real 16
+object ObsSpace : Real 8
+object UnitSpace : Real 1
 
-type Latent = Euclidean 16
-type EncoderHidden = Euclidean 256
-type DecoderHidden = Euclidean 256
-type ObsSpace = Euclidean 784
-type UnitSpace = Euclidean 1
+morphism pixel_embed : Pixel -> EncoderHidden [role=embed]
+morphism enc_deep : EncoderHidden -> EncoderHidden [role=kernel] ~ Normal
+morphism enc_to_latent : EncoderHidden -> Latent [role=kernel, scale=0.5] ~ Normal
 
-# Encoder: discrete pixel index -> Euclidean embedding -> three
-# stacked hidden layers -> latent distribution.
-embed pixel_embed : Pixel -> EncoderHidden
-kernel enc_deep : EncoderHidden -> EncoderHidden ~ Normal
-kernel enc_to_latent : EncoderHidden -> Latent ~ Normal [scale=0.5]
+let encoder = pixel_embed >> stack(enc_deep, 1) >> enc_to_latent
 
-let encoder = pixel_embed >> stack(enc_deep, 3) >> enc_to_latent
+morphism prior : UnitSpace -> Latent [role=kernel] ~ Normal
 
-# Standard normal prior over the latent space.
-kernel prior : UnitSpace -> Latent ~ Normal
+morphism dec_1 : Latent -> DecoderHidden [role=kernel] ~ Normal
+morphism dec_deep : DecoderHidden -> DecoderHidden [role=kernel] ~ Normal
+morphism dec_to_obs : DecoderHidden -> ObsSpace [role=kernel, scale=0.1] ~ Normal
 
-# Decoder: latent code -> three hidden layers -> reconstruction.
-kernel dec_1 : Latent -> DecoderHidden ~ Normal
-kernel dec_deep : DecoderHidden -> DecoderHidden ~ Normal
-kernel dec_to_obs : DecoderHidden -> ObsSpace ~ Normal [scale=0.1]
+let decoder = dec_1 >> stack(dec_deep, 1) >> dec_to_obs
 
-let decoder = dec_1 >> stack(dec_deep, 2) >> dec_to_obs
-
-# Two execution paths: generative (prior-sampled) and
-# reconstruction (encoder-conditioned).
 let generative = prior >> decoder
 let reconstruct = encoder >> decoder
 
