@@ -168,7 +168,7 @@ class Compiler(
         reg = getattr(self, "_loss_registry", None)
         if reg is None:
             return {}
-        return {entry.name: entry for entry in reg.entries()}
+        return {entry.name: entry for entry in reg.entries}
 
     @property
     def bundles(self) -> dict[str, tuple[str, ...]]:
@@ -282,7 +282,7 @@ class Compiler(
             env[name] = dec
         reg = getattr(self, "_loss_registry", None)
         if reg is not None:
-            for entry in reg.entries():
+            for entry in reg.entries:
                 env[entry.name] = entry
         for name, bundle in self._bundles.items():
             env[name] = bundle
