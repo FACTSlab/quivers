@@ -1,0 +1,1 @@
+"""Package-local copy of grammar.json so _grammar_introspection can resolve it from any install location. Synced from grammars/qvr/src/grammar.json by tools/sync_grammar_data.py + the prebuild hook."""
