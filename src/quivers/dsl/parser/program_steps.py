@@ -19,6 +19,7 @@ from quivers.dsl.ast_nodes import (
     ReturnStep,
     SampleStep,
     ScalarParam,
+    ScoreStep,
 )
 from quivers.dsl.parser._helpers import _walk_draw_arg
 from quivers.dsl.parser._registry import ParseError, _Tree
@@ -222,8 +223,7 @@ def _walk_let_step(t: _Tree, vid: str) -> LetStep:
         col=col,
     )
 
-def _walk_score_step(t: _Tree, vid: str) -> "ScoreStep":
-    from quivers.dsl.ast_nodes import ScoreStep
+def _walk_score_step(t: _Tree, vid: str) -> ScoreStep:
     line, col = t.line_col(vid)
     name_vid = t.field(vid, "name")
     value_vid = t.field(vid, "value")

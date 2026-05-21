@@ -26,7 +26,6 @@ from quivers.inference.predictive import Predictive
 from quivers.dsl.parser import parse
 from quivers.dsl.compiler import Compiler
 from quivers.dsl.ast_nodes import (
-    BindStep,
     LetStep,
     LetExprBinOp,
     LetExprCall,

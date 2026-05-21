@@ -25,6 +25,7 @@ import torch
 from quivers.dsl.parser import parse
 from quivers.dsl.compiler import Compiler
 from quivers.stochastic.deduction import (
+    DeductionSystem,
     adam_fit_deduction,
     nuts_program_from_deduction,
     sample_corpus,
@@ -46,7 +47,7 @@ deduction AB : Term -> Term [semiring=LogProb, start=S, depth=6]
 """
 
 
-def _load_ab() -> "DeductionSystem":  # type: ignore[name-defined]
+def _load_ab() -> DeductionSystem:
     mod = parse(_AB_SOURCE.encode("utf-8"))
     prog = Compiler(mod).compile()
     return prog.deductions["AB"]
@@ -138,12 +139,8 @@ def test_nuts_program_is_well_shaped():
     ded = _load_ab()
     corpus = [["the", "dog", "runs"]] * 4
     model, x, obs = nuts_program_from_deduction(ded, corpus)
-    n_sample_sites = sum(
-        1 for s in model._step_specs
-        if getattr(s, "morphism_name", "") and not getattr(s, "is_observed", False)
-    )
-    # Pretty fragile to count via spec; instead count the registered
-    # morphisms ending in ``log_w__``.
+    # Count the registered morphisms whose bound name starts with
+    # ``log_w__`` (the per-parameter Normal-prior sample sites).
     n_log_w_steps = sum(
         1 for s in model._step_specs
         if getattr(s, "vars", None) and s.vars[0].startswith("log_w__")
@@ -210,7 +207,6 @@ def test_compose_chains_deduction_systems():
     d2 = prog.deductions["D2"]
     # ``compose`` is a let-expression builtin; we invoke it
     # directly from the runtime to exercise the wiring.
-    from quivers.dsl.compiler.programs import _ProgramsMixin
     # Synthesise the function by building the AST programmatically
     # is overkill; here we just check the runtime side: the
     # builtin's implementation is reachable via subst/compose in

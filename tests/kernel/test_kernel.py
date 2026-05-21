@@ -57,10 +57,13 @@ def _kernel():  # type: ignore[no-untyped-def]
 
 
 def test_split_cell_groups_blank_separated_blocks() -> None:
-    cell = "object X : 3\nobject Y : 4\n\nlatent f : X -> Y\n"
+    cell = (
+        "object X : FinSet 3\nobject Y : FinSet 4\n"
+        "\nmorphism f : X -> Y [role=latent]\n"
+    )
     out = _split_cell(cell)
-    assert "object X : 3\nobject Y : 4" in out
-    assert "latent f : X -> Y" in out
+    assert "object X : FinSet 3\nobject Y : FinSet 4" in out
+    assert "morphism f : X -> Y [role=latent]" in out
 
 
 def test_split_cell_meta_lines_isolated() -> None:
@@ -156,7 +159,7 @@ def test_do_inspect_returns_decl_info() -> None:
     assert out["status"] == "ok"
     assert out["found"] is True
     rendered = out["data"]["text/plain"]
-    assert "latent f : X -> Y" in rendered
+    assert "morphism f : X -> Y [role=latent]" in rendered
 
 
 def test_do_inspect_unknown_name_not_found() -> None:

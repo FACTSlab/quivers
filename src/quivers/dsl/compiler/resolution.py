@@ -229,7 +229,7 @@ class _ResolutionMixin:
                     **kwargs,
                 )
             raise CompileError(
-                f"Real takes at least one dimension argument; got 0",
+                "Real takes at least one dimension argument; got 0",
                 texpr.line,
                 texpr.col,
             )

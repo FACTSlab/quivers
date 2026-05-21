@@ -155,7 +155,6 @@ def test_bayesian_lift_with_additional_latents_cancels_placeholder():
     torch.manual_seed(0)
     model = _LinearLikelihood()
     x = torch.tensor([[1.0]])
-    obs = {"y": torch.tensor([2.0])}
     # Treat y as a "latent" of shape (1,) lifted into NUTS, and put
     # nothing in observations. Manually inject a latent value through
     # the env and verify the lifted log-density equals the inner's
@@ -201,10 +200,6 @@ def test_monte_carlo_log_joint_draws_step_site():
     """A two-step program with a Normal sample site ``h`` and an
     observed ``y``: the wrapper MC-draws ``h`` and the resulting
     log_joint accepts only ``{"y": ...}``."""
-    from quivers.continuous.programs import MonadicProgram
-    from quivers.continuous.inline import FixedDistribution
-    from quivers.continuous.spaces import Euclidean
-    from quivers.core.objects import Unit
 
     def _prior(b, device):
         return D.Normal(

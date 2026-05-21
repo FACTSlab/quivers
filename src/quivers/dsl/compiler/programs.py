@@ -7,6 +7,7 @@ program bodies, contractions, and let-expression compilation.
 from __future__ import annotations
 import inspect
 from collections.abc import Callable
+from dataclasses import replace as _dc_replace
 from itertools import product as _cartesian_product
 from typing import cast
 import torch
@@ -3082,16 +3083,19 @@ class _ProgramsMixin:
                             "compose() takes exactly two arguments: "
                             "deduction systems D1 and D2"
                         )
+                    from quivers.stochastic.agenda import DeductionSystem
+
                     d1 = arg_fns[0](env)
                     d2 = arg_fns[1](env)
-                    if not (hasattr(d1, "axiom_injector") and hasattr(d2, "axiom_injector")):
+                    if not (
+                        isinstance(d1, DeductionSystem)
+                        and isinstance(d2, DeductionSystem)
+                    ):
                         raise CompileError(
                             f"compose(): both arguments must be "
                             f"DeductionSystem instances; got "
                             f"{type(d1).__name__}, {type(d2).__name__}"
                         )
-                    from quivers.stochastic.agenda import DeductionSystem as _DSys
-                    from dataclasses import replace as _dc_replace
 
                     def _composed_injector(inp, _d1=d1, _d2=d2):
                         # Run D1 to fixed point; lift each of its

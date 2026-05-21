@@ -43,14 +43,12 @@ from quivers.core.objects import (
     FreeResiduated,
     SetObject,
 )
-from quivers.core.morphisms import Morphism
 from quivers.dsl.ast_nodes import (
     AxisSpec,
     BundleDecl,
     CategoryDecl,
     CompositionDecl,
     CompositionRuleEntry,
-    Expr,
     ExprIdent,
     MorphismDecl,
     RuleDecl,

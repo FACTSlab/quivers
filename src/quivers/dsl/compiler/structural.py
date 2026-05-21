@@ -17,7 +17,6 @@ from quivers.dsl.ast_nodes import (
     EncoderDecl,
     LossDecl,
     OptionEntry,
-    OptionFlag,
     OptionList,
     OptionName,
     OptionNumber,

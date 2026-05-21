@@ -29,12 +29,7 @@ directly; no adapter classes, no per-family helpers.
 from __future__ import annotations
 
 import contextlib
-from collections.abc import Callable, Iterator
-from collections.abc import Mapping
-
-# Distribution constructors accept these scalar / tensor argument
-# kinds. Listed here so callers don't need to know the union shape.
-type DistributionArg = torch.Tensor | float | int
+from collections.abc import Callable, Iterator, Mapping
 
 import torch
 import torch.distributions as D
@@ -45,6 +40,11 @@ from quivers.continuous.inline import FixedDistribution
 from quivers.continuous.programs import MonadicProgram
 from quivers.continuous.spaces import Euclidean
 from quivers.core.objects import Unit
+
+
+# Distribution constructors accept these scalar / tensor argument
+# kinds. Listed here so callers don't need to know the union shape.
+type DistributionArg = torch.Tensor | float | int
 
 
 __all__ = [

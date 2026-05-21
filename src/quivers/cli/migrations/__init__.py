@@ -53,6 +53,21 @@ from quivers.cli.migrations._vcs import (
     diff_coverage,
 )
 
+__all__ = [
+    "BlameReport",
+    "DiffCoverageReport",
+    "CHAIN",
+    "MIGRATORS",
+    "COVERAGE",
+    "MigrationError",
+    "blame_kind",
+    "check_chain_coverage",
+    "commit_id_for",
+    "compose_migration",
+    "diff_coverage",
+    "vcs_coverage_report",
+]
+
 
 _Migrator = Callable[[bytes], bytes]
 

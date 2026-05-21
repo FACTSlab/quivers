@@ -47,6 +47,7 @@ from __future__ import annotations
 import os
 os.environ.setdefault("QVR_USE_LOCAL_GRAMMAR", "1")
 
+import re
 from pathlib import Path
 
 import pytest
@@ -212,9 +213,7 @@ def _run_deduction_only(stem: str, prog) -> None:
 # ---------------------------------------------------------------------------
 
 
-import re as _re
-
-_TRY_IT_RE = _re.compile(r"```python\n(.*?)\n```", _re.DOTALL)
+_TRY_IT_RE = re.compile(r"```python\n(.*?)\n```", re.DOTALL)
 _SKIP_MARKER = "<!-- pytest: skip -->"
 
 
@@ -227,7 +226,7 @@ def _extract_try_it_blocks(md_text):
     if try_it_pos < 0:
         return out
     tail = md_text[try_it_pos:]
-    nxt = _re.search(r"\n## [^\n]", tail)
+    nxt = re.search(r"\n## [^\n]", tail)
     body = tail[: nxt.start()] if nxt else tail
     for m in _TRY_IT_RE.finditer(body):
         start = m.start()
