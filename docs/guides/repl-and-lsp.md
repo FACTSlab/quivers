@@ -367,10 +367,10 @@ In [1]: :load model.qvr
 loaded model.qvr: 17 binding(s)
 
 In [2]: :type backbone
-latent backbone : Source * Target -> Combined
+morphism backbone : Source * Target -> Combined [role=latent]
 
 In [3]: object Extra : 8
-        latent g : Extra -> Combined
+        morphism g : Extra -> Combined [role=latent]
 installed module: 19 binding(s)
 ```
 
@@ -486,7 +486,7 @@ Optional doc comment lines if the decl had `## doc` blocks above it.
 
 <!-- compile: false -->
 ```qvr
-latent f : Alpha -> Beta
+morphism f : Alpha -> Beta [role=latent]
 ```
 
 ---
@@ -495,6 +495,7 @@ latent f : Alpha -> Beta
 
 <details><summary><i>click to expand</i></summary>
 
+<!-- python: skip -->
 ```python
 MorphismDecl(morphism_kind='latent', name='f', domain=TypeName(...), ...)
 ```

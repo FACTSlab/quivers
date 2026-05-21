@@ -130,7 +130,7 @@ with the algebra-polymorphic operators sourcing $(\otimes, \bigoplus)$ from the 
 
 ### 2.9 Compact-closed structure
 
-When the surrounding composition rule is at the `algebra` level ([Composition Rules §1](composition-rules.md#1-the-hierarchy)), supplying an identity element $\mathbf{1}$, an absorbing zero $\bot$ (so that $a \otimes \bot = \bot$), and strict distributivity of $\otimes$ over $\bigoplus$, the category $\mathcal{V}\text{-}\mathbf{Rel}$ is *compact closed* with every object self-dual. Four expressions expose this structure; the compiler rejects them outside an `algebra`-level module ([Composition Rules §2](composition-rules.md#2-the-denotation-of--at-each-level)).
+When the surrounding composition rule is at the `algebra` level ([Composition Rules §1](composition-rules.md#1-the-hierarchy)), supplying an identity element $\mathbf{1}$, an absorbing zero $\bot$ (so that $a \otimes \bot = \bot$), and strict distributivity of $\otimes$ over $\bigoplus$, the category $\mathcal{V}\text{-}\mathbf{Rel}$ is *compact closed* with every object self-dual. Four expressions expose this structure; the compiler rejects them outside an `algebra`-level module ([Composition Rules §2](composition-rules.md#2-the-denotation-of-at-each-level)).
 
 #### Cup (unit)
 
@@ -273,6 +273,8 @@ where $\mathrm{Tr}^{S} : \mathcal{C}(X \otimes S, Y \otimes S) \to \mathcal{C}(X
 - In $\mathcal{V}\text{-}\mathbf{Rel}$, $\mathrm{Tr}^{S}$ is the *iterative* trace, defined by algebra-join over the orbit of $S$;
 - In $\mathbf{Stoch}$ and $\mathbf{Kern}$, $\mathrm{Tr}^{S}$ is implemented as a sequence of Markov-kernel compositions seeded by $s_0$.
 
+The runtime artefact [`ScanMorphism`](../api/continuous/scan.md) exposes a `log_joint(x, hidden_states)` method whose second argument is the full state trajectory of shape $(\mathrm{batch}, \mathrm{seq\_len}, \dim S)$. The argument accepts either a positional tensor of that shape or a dict $\{k \mapsto \mathrm{tensor}\}$ keyed by `state_key` (default `"h"`); both forms denote the same Kleisli arrow with log-density $\sum_{t} \log p(h_{t} \mid x_{t}, h_{t-1})$. The dict form is a transparent re-keying so that the inference layer's standard `log_joint(x, observations: dict)` contract dispatches without an adapter.
+
 ## 4. Parser combinators
 
 The combinators $\mathsf{parser}$, $\mathsf{ccg}$, $\mathsf{lambek}$, $\mathsf{chart\_fold}$ all denote chart-parser kernels. We give the semantics in full generality for $\mathsf{parser}$; the others are surface variations sharing the same denotational core.
@@ -315,6 +317,55 @@ $$
 with the same inside-score recurrence as $\mathsf{parser}$ ([Weighted Deduction Fragment §6](grammar.md#6-chart-denotation)). When $e = 0$ the denotation reduces to the bare-residuated case of [Effects §7](effects.md#7-bridges-and-conservativity); for $e > 0$ each chart cell carries a stack of effects of length $\le e$ ([Effects §1](effects.md#1-setting)) and the joint type-and-effect dispatch of [Effects §4](effects.md#4-joint-type-and-effect-dispatch) governs firings.
 
 $\mathsf{parser}$, $\mathsf{ccg}$, and $\mathsf{lambek}$ are surface sugar over the same chart-kernel denotation: they take a *list of rule names* (resolved through the morphism / schema / bundle environments, with bundles spliced via [Schemas §7](schemas.md#7-bundles)) and assemble the corresponding $B$ and $U$ morphisms before constructing the inside-algorithm chart. $\mathsf{ccg}$ supplies the CCG combinator bundle as a default, $\mathsf{lambek}$ supplies the residuation-only bundle, and $\mathsf{parser}$ accepts an arbitrary rule list.
+
+### 4.2 Deduction-system call sites
+
+Three let-expression builtins target the agenda-driven deduction
+fragment introduced by `deduction NAME : … {}` blocks
+([Weighted Deduction Fragment §10.3](grammar.md#103-let-expression-builtins)):
+
+$$
+\begin{aligned}
+\llbracket \mathsf{parse}(D, x) \rrbracket   &\;:\;
+   D \in \mathbf{DeductionSystem},\ x \in \mathrm{Input}_{D}
+   \;\longmapsto\; \mathsf{ChartView}_{D}(x), \\
+\llbracket \mathsf{compose}(D_1, D_2) \rrbracket &\;:\;
+   D_1, D_2 \in \mathbf{DeductionSystem}
+   \;\longmapsto\; D_1 \mathbin{\mathrm{c}} D_2, \\
+\llbracket \mathsf{subst}(t, v, w) \rrbracket  &\;:\;
+   t, v, w \in I
+   \;\longmapsto\; t[v := w].
+\end{aligned}
+$$
+
+The chart view $\mathsf{ChartView}_{D}(x)$ exposes the deduction
+$D$'s K-presheaf on the input $x$; its method-call surface
+$\mathit{chart}.m(\mathit{args})$ denotes the corresponding
+presheaf evaluation:
+
+| Postfix expression | Denotation |
+|---|---|
+| $\mathit{chart}.\mathsf{weight}(i)$ | $\alpha[i] \in K$ at the ground item $i$. |
+| $\mathit{chart}.\mathsf{try\_weight}(i, d)$ | $\alpha[i]$ or $d$ or $0_K$ if $i \notin \mathrm{dom}\,\alpha$. |
+| $\mathit{chart}.\mathsf{enumerate}(\pi)$ | $\{(i, \alpha[i]) \mid \pi \sim i\}$. |
+| $\mathit{chart}.\mathsf{goal\_weight}()$ | $\bigoplus_{i \in \mathrm{goal}} \alpha[i]$. |
+| $\mathit{chart}.\mathsf{attached\_loss}$ | the cumulative attached-loss scalar. |
+| $\mathit{chart}.\mathsf{semiring}$ | the chart's semiring $K$. |
+
+Composition $D_1 \mathbin{\mathrm{c}} D_2$ ([Weighted Deduction
+Fragment §10.1](grammar.md#101-composing-deductions)) realises an
+axiom-injector chaining: $D_1$'s goal items appear as $D_2$'s
+axioms, with the resulting system inheriting $D_2$'s semiring,
+agenda, and goal predicate. The composition's `.parameters()`
+walks both factors' submodule side-tables, so a single fit
+optimises the joint parameter set.
+
+Substitution $t[v := w]$ ([Weighted Deduction Fragment §10.3](grammar.md#103-let-expression-builtins))
+is structural: it walks $t$ replacing every subterm equal to $v$
+under tuple-structural equality with $w$. Capture-avoidance is
+automatic under the compile-time alpha-renaming invariant of the
+[`binders` block](grammar.md#3a-binders-and-alpha-renaming), since
+every bound variable is canonicalised to a fresh unique symbol.
 
 ## 5. Coherence and equational laws
 

@@ -7,10 +7,14 @@ import torch.nn as nn
 from quivers.core.algebras import BOOLEAN
 from quivers.dsl.ast_nodes import (
     DeductionDecl,
-    TypeEffectApply,
+    LexiconCategoryFixed,
+    LexiconCategoryRestricted,
+    LexiconCategoryWildcard,
+    LexiconEntry as _LexiconEntryAst,
+    ObjectEffectApply,
+    ObjectProduct,
+    ObjectSlash,
     TypeName,
-    TypeProduct,
-    TypeSlash,
 )
 from quivers.stochastic.agenda import (
     DeductionSystem,
@@ -26,14 +30,22 @@ from quivers.stochastic.semiring import (
     LOG_PROB as SEMIRING_LOG_PROB,
     VITERBI as SEMIRING_VITERBI,
 )
+from quivers.dsl.compiler._options import (
+    find_option,
+    get_option_flag,
+    get_option_float,
+    get_option_int,
+    get_option_name,
+)
 from quivers.dsl.compiler._prelude import CompileError
 from quivers.dsl.compiler.programs import _ProgramsMixin
+from quivers.dsl.parser import parse as _parse_qvr
 
 
 # Category-side pattern carried by a lexicon entry: either a
 # wildcard variable (any identifier not declared as an atom) or a
 # nested structural pattern over atoms (the result of
-# ``_convert_pattern`` walking a TypeExpr).
+# ``_convert_pattern`` walking a ObjectExpr).
 type LexiconPattern = Wildcard | tuple[str | int | "LexiconPattern", ...]
 
 # Logical-form payload attached to a lexicon entry: the result of
@@ -56,15 +68,258 @@ type LexiconLF = (
 type LexiconEntry = tuple[str, LexiconPattern, LexiconLF, bool]
 
 
+def _candidate_atoms(
+    entry: _LexiconEntryAst,
+    decl: DeductionDecl,
+    atoms_set: set[str],
+) -> tuple[str, ...]:
+    """Return the atoms over which a lexicon entry's latent category
+    distribution ranges.
+
+    * `LexiconCategoryFixed`     -> empty tuple (caller emits
+      a single axiom with the fixed category instead of expanding).
+    * `LexiconCategoryWildcard`  -> every atom on the
+      enclosing deduction.
+    * `LexiconCategoryRestricted`-> the listed atoms; each
+      atom must appear in the deduction's atom set or compilation
+      raises.
+    """
+    if isinstance(entry.category, LexiconCategoryFixed):
+        return ()
+    if isinstance(entry.category, LexiconCategoryWildcard):
+        return tuple(decl.atoms)
+    if isinstance(entry.category, LexiconCategoryRestricted):
+        unknown = [a for a in entry.category.atoms if a not in atoms_set]
+        if unknown:
+            raise CompileError(
+                f"deduction {decl.name!r}: lexicon entry for "
+                f"{entry.word!r} restricts category to "
+                f"{list(entry.category.atoms)!r}, but the atom(s) "
+                f"{unknown!r} are not declared on the deduction",
+                entry.line,
+                entry.col,
+            )
+        return tuple(entry.category.atoms)
+    raise CompileError(
+        f"deduction {decl.name!r}: lexicon entry for {entry.word!r} "
+        f"has an unknown category kind {type(entry.category).__name__!r}",
+        entry.line,
+        entry.col,
+    )
+
+
+def _category_depth(value) -> int:
+    """Constructor-tree depth of a chart category or item.
+
+    Atoms count as depth 0; the tagged pair ``("atom", "S")``
+    counts as depth 0 (a leaf category); a wrapping tuple
+    ``(<ctor>, <args>...)`` whose head is a non-``"atom"``,
+    non-``"span"`` constructor counts as
+    :math:`1 + \\max_i \\text{depth}(\\text{args}_i)`. Used to gate
+    rules that would otherwise rewrite ``A`` into ``Dia(A)`` or
+    ``Cont(A)`` ad infinitum.
+    """
+    if not isinstance(value, tuple):
+        return 0
+    if not value:
+        return 0
+    head = value[0]
+    if head == "atom":
+        return 0
+    if head == "span":
+        # span(I, J, C, ...): depth of the surrounding span is the
+        # depth of its category subterm, ignoring positional
+        # indices.
+        sub = value[3] if len(value) > 3 else None
+        return _category_depth(sub) if sub is not None else 0
+    # Generic structural constructor: count one and recurse.
+    return 1 + max(
+        (_category_depth(v) for v in value[1:]),
+        default=0,
+    )
+
+
+def _install_depth_guard(rule, depth_n: int) -> None:
+    """Wrap ``rule.side_condition`` with a category-depth guard.
+
+    The guard rejects firings whose *conclusion category* would
+    have constructor depth strictly greater than ``depth_n`` after
+    pattern instantiation. Composes with any pre-existing side
+    condition the rule already carries (``AND``).
+    """
+    from quivers.stochastic.agenda import instantiate as _instantiate
+
+    existing = rule.side_condition
+    conclusion_pattern = rule.conclusion
+
+    def _depth_ok(bindings, _exist=existing, _pat=conclusion_pattern, _n=depth_n):
+        if _exist is not None and not _exist(bindings):
+            return False
+        try:
+            instantiated = _instantiate(_pat, bindings)
+        except KeyError:
+            return True  # let the engine handle the missing binding downstream
+        return _category_depth(instantiated) <= _n
+
+    # InferenceRule is @dataclass(frozen=True); we mutate via
+    # object.__setattr__ to install the new side condition.
+    object.__setattr__(rule, "side_condition", _depth_ok)
+
+
+def _bindings_key(bindings: dict) -> str:
+    """Stable string key over a binding map.
+
+    `nn.ParameterDict` keys must be valid Python identifiers (no
+    dots, no spaces) under PyTorch's parameter-name validator; we
+    therefore canonicalise the binding map to a sorted, JSON-flavoured
+    string and replace structural punctuation with underscore
+    sequences. The function is total over any hashable, JSON-stable
+    binding values the runtime emits (atoms as `("atom", "S")`,
+    slashed categories as nested tuples, integer indices, …).
+    """
+
+    def encode(v) -> str:
+        if isinstance(v, tuple):
+            return "T" + "_".join(encode(x) for x in v) + "E"
+        if isinstance(v, str):
+            return "S" + v.replace("_", "__")
+        if isinstance(v, int):
+            return f"I{v}"
+        if isinstance(v, float):
+            return f"F{v}"
+        return "Q" + repr(v).replace(" ", "")
+
+    items = sorted(bindings.items(), key=lambda kv: kv[0])
+    return "_".join(f"{k}_{encode(v)}" for k, v in items) or "BASE"
+
+
+def _make_rule_weight_fn(
+    *,
+    rule_name: str,
+    param_dict: "nn.ParameterDict",
+    rule_parent: dict,
+    rule_param_dicts: dict,
+    is_learnable: bool,
+    bounded: bool = False,
+) -> Callable:
+    """Build the `weight_fn` for a learnable / parented rule.
+
+    Semantics:
+
+    * The rule's conclusion weight is
+      ``semiring.times(*premise_weights, rule_log_weight)`` where
+      ``rule_log_weight`` is allocated lazily, one ``nn.Parameter`` per
+      distinct binding tuple keyed by `_bindings_key`.
+    * If the rule declares ``parent=other``, the parent's
+      ``rule_log_weight`` (under the same bindings) is added: the
+      total rule contribution is ``self_w + parent_w`` under any
+      semiring whose `times` corresponds to addition in the log
+      semiring (LogProb / Viterbi); for non-additive semirings we
+      fall back to two `semiring.times` calls, which is the
+      semiring-product analog.
+    * If the rule has only a parent and no own learnable parameter
+      (the user declared `parent=other` without `learnable`), the
+      rule contributes only the parent's weight.
+    """
+
+    def _rule_log_weight(
+        bindings: dict,
+        own_dict: nn.ParameterDict,
+        own_learnable: bool,
+        rule_nm: str,
+    ) -> torch.Tensor:
+        if not own_learnable:
+            # No own parameter to add; identity in the additive log
+            # semiring (and in LogProb specifically).
+            return torch.tensor(0.0)
+        key = _bindings_key(bindings)
+        existing = own_dict.get(key)
+        if existing is None:
+            # ``bounded=True`` parameterizes the rule weight as
+            # ``-softplus(raw_param)``: the surface log-weight is
+            # always non-positive, so any closed cycle through this
+            # rule has total log-weight :math:`< 0` and the LogProb
+            # chart's Kleene-star series converges. The standard
+            # interpretation: the per-firing contribution is bounded
+            # above by 1, i.e. a sub-stochastic rate. Initialise
+            # ``raw_param`` to a value whose softplus gives a mildly
+            # negative log-weight (``-softplus(0)`` = ``-log(2)``).
+            init = torch.zeros(())
+            new_p = nn.Parameter(init)
+            own_dict[key] = new_p
+            return -torch.nn.functional.softplus(new_p) if bounded else new_p
+        return -torch.nn.functional.softplus(existing) if bounded else existing
+
+    def weight_fn(bindings, premise_weights, semiring):
+        # 1. Premise product (the default semiring-parsing aggregation).
+        if not premise_weights:
+            base = torch.tensor(
+                float(semiring.one) if hasattr(semiring.one, "__float__") else 0.0,
+                dtype=torch.get_default_dtype(),
+            )
+        else:
+            base = premise_weights[0]
+            for w in premise_weights[1:]:
+                base = semiring.times(base, w)
+        # 2. Own contribution.
+        own_w = _rule_log_weight(
+            bindings,
+            param_dict,
+            is_learnable,
+            rule_name,
+        )
+        total = semiring.times(base, own_w)
+        # 3. Parent chain (additive composition in the LogProb / Viterbi
+        # log semirings; semiring-product for general K).
+        cur = rule_name
+        seen = {cur}
+        while cur in rule_parent:
+            parent = rule_parent[cur]
+            if parent in seen:
+                raise CompileError(
+                    f"rule {rule_name!r}: parent chain cycles at {parent!r}",
+                )
+            seen.add(parent)
+            parent_dict = rule_param_dicts.get(parent)
+            if parent_dict is not None:
+                # Parents may themselves be learnable; pick up their
+                # weight on the same bindings.
+                pw = _rule_log_weight(
+                    bindings,
+                    parent_dict,
+                    True,
+                    parent,
+                )
+                total = semiring.times(total, pw)
+            cur = parent
+        return total
+
+    return weight_fn
+
+
 class _DeductionsMixin:
-    """Mixin: deduction-block compilation methods."""
+    """Mixin: deduction-block compilation methods.
+
+    The compiler base supplies every environment slot below; the
+    annotations let the type checker verify each access from a
+    mixin method.
+    """
+
+    _morphisms: dict
+    _deductions: dict
+    _signatures: dict
+    _encoders: dict
+
+    def _lex_globals_for_structural(self) -> dict:
+        """Provided by `_StructuralMixin`."""
+        raise NotImplementedError
 
     def _compile_deduction(self, decl: DeductionDecl) -> None:
         """Compile a ``deduction { … }`` block into an agenda-engine
-        :class:`DeductionSystem` and register it under ``decl.name``.
+        `DeductionSystem` and register it under ``decl.name``.
 
         Translates the declarative sequent-style rules into the
-        runtime's :class:`InferenceRule` form (with single-uppercase
+        runtime's `InferenceRule` form (with single-uppercase
         identifiers treated as wildcard variables). Resolves the
         semiring by name. Wires the axiom source — one of:
 
@@ -80,10 +335,10 @@ class _DeductionsMixin:
           call time (identity axiom-injector).
 
         The result is callable as ``parse(NAME, input)`` from
-        program bodies, producing a :class:`ChartView`.
+        program bodies, producing a `ChartView`.
         """
         if not hasattr(self, "_deductions"):
-            self._deductions: dict[str, "DeductionSystem"] = {}
+            self._deductions = {}
 
         globals_ = dict(getattr(self, "_deductions", {}))
         # The deduction's declared atomic + complex constructor
@@ -101,7 +356,7 @@ class _DeductionsMixin:
                 decl.col,
             )
 
-        # Pattern-conversion: TypeExpr -> agenda-engine Pattern.
+        # Pattern-conversion: ObjectExpr -> agenda-engine Pattern.
         # The conversion is fully general; users may use any
         # type-expression shape and the runtime pattern-matcher
         # walks it structurally. Identifiers that match a declared
@@ -124,19 +379,19 @@ class _DeductionsMixin:
                 if name.isdigit():
                     return ("literal", int(name))
                 return Wildcard(name)
-            if isinstance(texpr, TypeProduct):
+            if isinstance(texpr, ObjectProduct):
                 return (
                     "product",
                     tuple(_convert_pattern(c) for c in texpr.components),
                 )
-            if isinstance(texpr, TypeSlash):
+            if isinstance(texpr, ObjectSlash):
                 # Categorial-grammar slash types: X/Y, X\Y.
                 return (
                     texpr.direction,
                     _convert_pattern(texpr.result),
                     _convert_pattern(texpr.argument),
                 )
-            if isinstance(texpr, TypeEffectApply):
+            if isinstance(texpr, ObjectEffectApply):
                 # T(X) = ("effect_apply", T_name, *X_args). The
                 # constructor's args are recursively converted; this
                 # encodes any structured term — proof witnesses, LF
@@ -146,31 +401,127 @@ class _DeductionsMixin:
             # Fallback: a structural-equality probe.
             return ("atom", repr(texpr))
 
+        # Detect whether this deduction's item algebra carries an
+        # LF slot. The signal: any rule pattern of the form
+        # ``span(I, J, C, F)`` (i.e. a 4-arity ``span(...)`` type
+        # expression) or any non-empty ``binders`` block. When
+        # ``_uses_lf`` is True, span items are 5-tuples and the
+        # short ``span(I, J, C)`` rule pattern is auto-extended
+        # with a fresh LF wildcard; when False, span items are
+        # 4-tuples and the surface is untouched.
+        def _span_arity(texpr) -> int:
+            if isinstance(texpr, ObjectEffectApply) and texpr.effect == "span":
+                return len(texpr.args)
+            return 0
+
+        _uses_lf = (
+            bool(decl.binders)
+            or any(_span_arity(p) >= 4 for sr in decl.rules for p in sr.premises)
+            or any(_span_arity(sr.conclusion) >= 4 for sr in decl.rules)
+        )
+
+        _lf_wildcard_counter = {"n": 0}
+
+        def _normalise_span(pat):
+            if not _uses_lf:
+                return pat
+            if isinstance(pat, tuple) and pat and pat[0] == "span":
+                children = tuple(_normalise_span(c) for c in pat[1:])
+                if len(children) == 3:
+                    _lf_wildcard_counter["n"] += 1
+                    fresh = Wildcard(f"_lf_{_lf_wildcard_counter['n']}")
+                    return ("span", *children, fresh)
+                return ("span", *children)
+            if isinstance(pat, tuple):
+                return tuple(_normalise_span(c) for c in pat)
+            return pat
+
         semiring_registry = {
             "LogProb": SEMIRING_LOG_PROB,
             "Boolean": SEMIRING_BOOLEAN,
             "Viterbi": SEMIRING_VITERBI,
             "Counting": SEMIRING_COUNTING,
         }
+        semiring_name = get_option_name(
+            decl.options,
+            "semiring",
+            line=decl.line,
+            col=decl.col,
+        )
         semiring = (
-            semiring_registry.get(decl.semiring, SEMIRING_LOG_PROB)
-            if decl.semiring is not None
+            semiring_registry.get(semiring_name, SEMIRING_LOG_PROB)
+            if semiring_name is not None
             else SEMIRING_LOG_PROB
         )
 
         inference_rules: list = []
-        # The application rule and other generic combinators
-        # carry no learnable weight by default; users may wrap
-        # the deduction with a `weight_fn` that consults
-        # rule-weight parameters.
+        # Each rule may carry a ``#[learnable]`` pragma. A learnable
+        # rule allocates one log-weight per distinct binding tuple
+        # observed at run time, owned by a per-deduction
+        # ``_rule_module`` so the parameters appear in
+        # ``model.parameters()`` automatically. The conclusion weight
+        # is the semiring product of the premise weights and the
+        # bindings-keyed rule parameter; with no learnable pragma a
+        # rule reduces to the standard semiring-parsing default
+        # (semiring product of premise weights only).
+        rule_module = nn.Module()
+        rule_param_dicts: dict[str, nn.ParameterDict] = {}
+        # ``parent`` pragmas form a directed graph from a
+        # specialisation to its parent rule; we resolve weight
+        # composition by chaining lookups at run time.
+        rule_parent: dict[str, str] = {}
+        rule_names_declared = {sr.name for sr in decl.rules}
         for sr in decl.rules:
-            premises = tuple(_convert_pattern(p) for p in sr.premises)
-            conclusion = _convert_pattern(sr.conclusion)
+            premises = tuple(_normalise_span(_convert_pattern(p)) for p in sr.premises)
+            conclusion = _normalise_span(_convert_pattern(sr.conclusion))
+            is_learnable = get_option_flag(sr.options, "learnable")
+            parent_entry = find_option(sr.options, "parent")
+            parent_name: str | None = None
+            if parent_entry is not None:
+                from quivers.dsl.ast_nodes._shared import (
+                    OptionName as _OptionName,
+                )
+
+                if not isinstance(parent_entry.value, _OptionName):
+                    raise CompileError(
+                        f"deduction {decl.name!r}: rule {sr.name!r}: "
+                        f"`parent=` must name another rule "
+                        f"(identifier), got {parent_entry.value!r}",
+                        sr.line,
+                        sr.col,
+                    )
+                parent_name = parent_entry.value.value
+                if parent_name not in rule_names_declared:
+                    raise CompileError(
+                        f"deduction {decl.name!r}: rule {sr.name!r}: "
+                        f"`parent={parent_name}` references unknown rule",
+                        sr.line,
+                        sr.col,
+                    )
+                rule_parent[sr.name] = parent_name
+            weight_fn: Callable | None = None
+            bounded_flag = get_option_flag(sr.options, "bounded")
+            if is_learnable or parent_name is not None:
+                param_dict = nn.ParameterDict()
+                rule_param_dicts[sr.name] = param_dict
+                rule_module.add_module(
+                    f"rule_{sr.name}",
+                    param_dict,
+                )
+                weight_fn = _make_rule_weight_fn(
+                    rule_name=sr.name,
+                    param_dict=param_dict,
+                    rule_parent=rule_parent,
+                    rule_param_dicts=rule_param_dicts,
+                    is_learnable=is_learnable,
+                    bounded=bounded_flag,
+                )
             inference_rules.append(
                 InferenceRule(
                     name=sr.name,
                     premises=premises,
                     conclusion=conclusion,
+                    weight_fn=weight_fn,
                 )
             )
 
@@ -182,11 +533,17 @@ class _DeductionsMixin:
         #      for the label-indexed-lookup case).
         #   3. Identity — input itself is the axiom list.
 
-        if decl.axioms_source is not None:
+        axioms_source = get_option_name(
+            decl.options,
+            "axioms",
+            line=decl.line,
+            col=decl.col,
+        )
+        if axioms_source is not None:
             # General axiom source — look up the named morphism and
             # invoke it on the input at call time. The morphism may
             # be any callable.
-            src_name = decl.axioms_source
+            src_name = axioms_source
             if src_name not in self._morphisms:
                 raise CompileError(
                     f"deduction {decl.name!r}: axioms source "
@@ -206,14 +563,121 @@ class _DeductionsMixin:
         elif decl.lexicon or decl.lexicon_from_file is not None:
             # Lexicon-based axiom source. Build a learnable lookup
             # table keyed on the literal word string; emit one
-            # axiom per matching entry per input position.
+            # axiom per matching (entry, candidate-category) pair
+            # per input position. Wildcard ``*`` and restricted
+            # ``{A, B, C}`` category positions expand to one axiom
+            # per atom in the candidate set, each carrying its own
+            # learnable weight; the Categorical distribution over
+            # the entry's possible categories is the softmax over
+            # these per-atom weights at fit time.
             entries: list[LexiconEntry] = []
+            binders_set = frozenset(decl.binders)
+
+            # Pre-pass: walk every lexicon entry's LF AST and collect
+            # the names of variables bound by any declared binder
+            # constructor. These names are then treated as
+            # constructor-valued during let-expression compilation
+            # (so ``Lam(x, App(bark, Var(x)))`` accepts ``x`` as a
+            # bound name without requiring the user to list it in
+            # ``atoms``). The subsequent alpha-renaming pass
+            # (``_normalise_binders``) replaces every such name with
+            # a fresh canonical symbol.
+            from quivers.dsl.ast_nodes import (
+                LetExprCall as _LetCall,
+                LetExprVar as _LetVar,
+                LetExprBinOp as _LetBinOp,
+                LetExprList as _LetList,
+                LetExprIndex as _LetIndex,
+                LetExprLambda as _LetLambda,
+            )
+
+            def _collect_bound_vars(node, acc: set[str]) -> None:
+                if isinstance(node, _LetCall):
+                    if node.func in binders_set and node.args:
+                        first = node.args[0]
+                        if isinstance(first, _LetVar):
+                            acc.add(first.name)
+                    for a in node.args:
+                        _collect_bound_vars(a, acc)
+                elif isinstance(node, _LetBinOp):
+                    _collect_bound_vars(node.left, acc)
+                    _collect_bound_vars(node.right, acc)
+                elif isinstance(node, _LetList):
+                    for it in node.items:
+                        _collect_bound_vars(it, acc)
+                elif isinstance(node, _LetIndex):
+                    _collect_bound_vars(node.array, acc)
+                    for idx in node.indices:
+                        _collect_bound_vars(idx, acc)
+                elif isinstance(node, _LetLambda):
+                    _collect_bound_vars(node.body, acc)
+
+            bound_var_names: set[str] = set()
+            for entry in decl.lexicon:
+                _collect_bound_vars(entry.lf, bound_var_names)
+            # Extend the constructor set so the LF compiler accepts
+            # binder constructors AND references to bound variables.
+            # Binder constructors are first-class data constructors
+            # (they appear as the head of LF subterms); the bound
+            # variable names are constructor-like only inside their
+            # scope, but at compile time we expand the set
+            # uniformly and rely on the alpha-renaming pass to
+            # disambiguate scopes.
+            globals_["__constructors__"] = (
+                frozenset(decl.atoms)
+                | frozenset(decl.binders)
+                | frozenset(bound_var_names)
+            )
+            # The LF compiler treats binder-applied terms specially:
+            # the first argument of any constructor listed in
+            # ``binders`` is the bound variable. We alpha-rename it
+            # to a fresh canonical symbol per term construction so
+            # the chart's structural identity collapses
+            # alpha-equivalent terms. Implementation lives in
+            # `_normalise_binders` below; the lexicon LF value
+            # is the post-normalised tree.
+            fresh_counter = {"n": 0}
+
+            def _fresh() -> str:
+                fresh_counter["n"] += 1
+                return f"#v{fresh_counter['n']}"
+
+            def _normalise_binders(term, env: dict):
+                # Apply alpha-renaming of bound variables to fresh
+                # canonical symbols. ``env`` maps original
+                # variable names to their canonical replacements;
+                # references to bound variables are substituted.
+                if isinstance(term, tuple) and term:
+                    head = term[0]
+                    if head in binders_set and len(term) >= 3:
+                        var_term = term[1]
+                        if not (isinstance(var_term, tuple) and var_term):
+                            # Malformed binder; pass through.
+                            return tuple(_normalise_binders(x, env) for x in term)
+                        var_name = var_term[0]
+                        canonical = _fresh()
+                        new_env = dict(env)
+                        new_env[var_name] = canonical
+                        body_norm = tuple(
+                            _normalise_binders(x, new_env) for x in term[2:]
+                        )
+                        return (head, (canonical,), *body_norm)
+                    # Reference to a bound variable: substitute.
+                    if len(term) == 1 and isinstance(head, str) and head in env:
+                        return (env[head],)
+                    return tuple(_normalise_binders(x, env) for x in term)
+                return term
+
             for entry in decl.lexicon:
                 lf_fn = _ProgramsMixin._compile_let_expr(entry.lf, globals_=globals_)
                 # Evaluate the LF eagerly under an empty environment;
                 # LF templates in lexicons must be closed expressions.
                 try:
-                    lf_value = lf_fn({})
+                    raw_lf_value = lf_fn({})
+                    lf_value = _normalise_binders(raw_lf_value, {})
+                    # Keep the original symbol for compatibility with
+                    # consumers that didn't opt in to binders; the
+                    # rewriter is a no-op when ``binders`` is empty.
                 except CompileError as e:
                     raise CompileError(
                         f"deduction {decl.name!r}: lexicon entry for "
@@ -221,19 +685,50 @@ class _DeductionsMixin:
                         entry.line,
                         entry.col,
                     ) from e
-                entries.append(
-                    (
-                        entry.word,
-                        _convert_pattern(entry.category),
-                        lf_value,
-                        entry.learnable,
-                    )
+                # Determine the candidate atom set for this entry.
+                # Fixed categories produce a single entry; wildcard
+                # expands to every atom declared on the deduction;
+                # restricted expands to the listed atoms (after
+                # validating each appears in the deduction's atom set).
+                candidate_atoms = _candidate_atoms(entry, decl, atoms_set)
+                fixed_category = (
+                    _convert_pattern(entry.category.category)
+                    if isinstance(entry.category, LexiconCategoryFixed)
+                    else None
                 )
+                learnable_flag = get_option_flag(entry.options, "learnable")
+                if fixed_category is not None:
+                    entries.append(
+                        (
+                            entry.word,
+                            fixed_category,
+                            lf_value,
+                            learnable_flag,
+                        )
+                    )
+                else:
+                    # Wildcard / restricted: expand to one axiom per
+                    # candidate atom. Force learnable=True since the
+                    # point of the wildcard is to learn the
+                    # distribution; the user's [learnable] flag
+                    # additionally controls the LF body's parameters.
+                    for atom in candidate_atoms:
+                        entries.append(
+                            (
+                                entry.word,
+                                ("atom", atom),
+                                lf_value,
+                                True,
+                            )
+                        )
             # File-loaded lexicon: TSV with `word\tcategory\tlf` rows.
             if decl.lexicon_from_file is not None:
                 file_entries = self._load_lexicon_tsv(
                     decl.lexicon_from_file,
-                    decl.lexicon_from_file_learnable,
+                    get_option_flag(
+                        decl.lexicon_from_file_options,
+                        "learnable",
+                    ),
                     decl,
                 )
                 entries.extend(file_entries)
@@ -251,12 +746,18 @@ class _DeductionsMixin:
                 else:
                     param_list.append(None)
             # Capture the axiom-injector as a closure over the
-            # entries + parameter list.
+            # entries + parameter list. The LF side-table is
+            # keyed by emitted item; consumers can recover the
+            # logical form for any chart span by looking it up.
             entries_local = tuple(entries)
             params_local = tuple(param_list)
+            _lf_table: dict = {}
 
             def _axiom_injector(
-                input_value, _entries=entries_local, _params=params_local
+                input_value,
+                _entries=entries_local,
+                _params=params_local,
+                _lf_table=_lf_table,
             ):
                 # `input_value` may be a list/tuple of token strings,
                 # OR a list of `(token, position)` pairs. We accept
@@ -274,11 +775,19 @@ class _DeductionsMixin:
                             weight_tensor = weight_param
                         else:
                             weight_tensor = torch.tensor(0.0)
-                        # Emit a span axiom carrying the lexical
-                        # category and LF; positions cover the
-                        # single token at [pos, pos+1).
-                        item = ("span", pos, pos + 1, cat_pat, lf_val)
+                        # Span items: 4-tuple ``("span", i, j,
+                        # cat)`` when no rule references an LF
+                        # slot; 5-tuple ``("span", i, j, cat, lf)``
+                        # when at least one rule or the
+                        # ``binders`` block makes the LF visible.
+                        # The shape is fixed per deduction and
+                        # detected once at compile time below.
+                        if _uses_lf:
+                            item = ("span", pos, pos + 1, cat_pat, lf_val)
+                        else:
+                            item = ("span", pos, pos + 1, cat_pat)
                         out.append((item, weight_tensor))
+                        _lf_table[item] = lf_val
                 return out
         else:
             # Identity injector — input is already a list of axioms.
@@ -292,7 +801,12 @@ class _DeductionsMixin:
         # Goal: items matching the start symbol's atom form for
         # top-level spans. Users override by composing the parse
         # result with their own predicate.
-        start = decl.start
+        start = get_option_name(
+            decl.options,
+            "start",
+            line=decl.line,
+            col=decl.col,
+        )
 
         def _goal(item) -> bool:
             if start is None:
@@ -334,43 +848,126 @@ class _DeductionsMixin:
         else:
             agenda_factory = cky_agenda
 
+        # Optional category-depth bound on the conclusion of every
+        # rule. Rules like ``dia_intro : span(I, J, A) |- span(I,
+        # J, Dia(A))`` add a constructor layer per firing and would
+        # otherwise grow chart categories without bound. We attach
+        # a uniform `InferenceRule.side_condition` to every
+        # rule that gates firings on the *conclusion category's*
+        # constructor-tree depth: items whose depth would exceed
+        # the user-supplied ``depth=N`` option are dropped. The
+        # measure counts every wrapping ``(<ctor>, ...)`` tuple
+        # whose head is a category constructor as one unit of depth.
+        depth_bound = get_option_int(
+            decl.options,
+            "depth",
+            line=decl.line,
+            col=decl.col,
+        )
+        if depth_bound is not None:
+            depth_n = int(depth_bound)
+            for r in inference_rules:
+                _install_depth_guard(r, depth_n)
+
+        # ``tolerance=epsilon`` option exposes Kleene-star
+        # convergence semantics for non-idempotent semirings with
+        # cyclic rule graphs: when set, the chart's
+        # `insert_or_aggregate` terminates re-firings on an
+        # item once successive weight updates fall below ``epsilon``.
+        # Convergent cycles (cycle log-weight :math:`< 0`) reach a
+        # finite fixed point under this rule; divergent cycles
+        # (cycle log-weight :math:`\\ge 0`) fail the agenda's
+        # ``max_iterations`` safety net, which is the correct
+        # rejection of an ill-posed model.
+        tolerance_opt = get_option_float(
+            decl.options,
+            "tolerance",
+            line=decl.line,
+            col=decl.col,
+        )
+        tol = float(tolerance_opt) if tolerance_opt is not None else 0.0
+        # Compile-time analysis: a deduction whose rule graph
+        # contains a strict cycle on a non-idempotent semiring
+        # (LogProb / Counting / Inside) needs a positive tolerance
+        # to terminate (or it diverges). We do not infer this
+        # automatically — that would mask divergent models. Instead
+        # the user opts in via ``tolerance=...``; without it the
+        # chart insists on exact equality and either terminates
+        # immediately (acyclic) or fails the safety net (cyclic
+        # without tolerance), preserving the standard
+        # semiring-parsing semantics.
+        max_iters_opt = get_option_int(
+            decl.options,
+            "max_iterations",
+            line=decl.line,
+            col=decl.col,
+        )
         system = DeductionSystem(
             rules=tuple(inference_rules),
             semiring=semiring,
             axiom_injector=_axiom_injector,
             goal=_goal,
             agenda_factory=agenda_factory,
-            max_iterations=10_000,
+            max_iterations=(
+                int(max_iters_opt) if max_iters_opt is not None else 100_000
+            ),
+            tolerance=tol,
         )
         # Stash the axiom-module on the system so Programs that
         # reach it (via `parse(NAME, …)`) can include its
         # parameters in their optimizer.
         if axiom_module is not None:
             system._axiom_module = axiom_module  # type: ignore[attr-defined]
+        # Stash the rule-weight module so its parameters appear in
+        # ``model.parameters()`` of any Program that references
+        # this deduction. Empty if no rule declared `#[learnable]`.
+        if any(len(d) > 0 or True for d in rule_param_dicts.values()):
+            system._rule_module = rule_module  # type: ignore[attr-defined]
+            # Register as a real submodule so PyTorch's parameter
+            # walker picks up the (lazily allocated) parameters.
+            try:
+                system.add_module("_rule_module", rule_module)
+            except Exception:
+                # ``DeductionSystem`` may not subclass nn.Module in
+                # exotic configurations; in that case the attribute
+                # alone is sufficient because the caller composes
+                # it explicitly.
+                pass
         # Attach a signature / encoder pairing, if declared. The
         # chart-query operations (`chart.embedding(pattern)`) consult
         # this attached encoder to compute on-demand item
         # embeddings.
-        if decl.item_signature is not None:
+        item_signature = get_option_name(
+            decl.options,
+            "signature",
+            line=decl.line,
+            col=decl.col,
+        )
+        if item_signature is not None:
             sigs = getattr(self, "_signatures", {})
-            if decl.item_signature not in sigs:
+            if item_signature not in sigs:
                 raise CompileError(
                     f"deduction {decl.name!r}: unknown item signature "
-                    f"{decl.item_signature!r}",
+                    f"{item_signature!r}",
                     decl.line,
                     decl.col,
                 )
-            system._item_signature = sigs[decl.item_signature]  # type: ignore[attr-defined]
-        if decl.item_encoder is not None:
+            system._item_signature = sigs[item_signature]  # type: ignore[attr-defined]
+        item_encoder = get_option_name(
+            decl.options,
+            "encoder",
+            line=decl.line,
+            col=decl.col,
+        )
+        if item_encoder is not None:
             comps = getattr(self, "_encoders", {})
-            if decl.item_encoder not in comps:
+            if item_encoder not in comps:
                 raise CompileError(
-                    f"deduction {decl.name!r}: unknown item encoder "
-                    f"{decl.item_encoder!r}",
+                    f"deduction {decl.name!r}: unknown item encoder {item_encoder!r}",
                     decl.line,
                     decl.col,
                 )
-            system._item_encoder = comps[decl.item_encoder]  # type: ignore[attr-defined]
+            system._item_encoder = comps[item_encoder]  # type: ignore[attr-defined]
         self._deductions[decl.name] = system
 
     def _load_lexicon_tsv(
@@ -434,18 +1031,19 @@ class _DeductionsMixin:
                 # otherwise it's a bare identifier. Building the
                 # corresponding pattern directly:
                 if "(" in lf_text:
-                    # Parse the LF text as a let-arith expression
-                    # by wrapping it in a tiny synthetic program.
-                    from quivers.dsl.parser import parse as _parse
-
+                    # Parse the LF text as a let-arith expression by
+                    # wrapping it in a synthetic program whose body
+                    # contains a single let step bound to the LF.
                     syn_src = (
-                        "object _DummyObj : 1\n"
-                        "program _dummy_prog : _DummyObj -> _DummyObj\n"
-                        f"    _x <- _f\n"
+                        "type _DummyObj : 1\n"
+                        "morphism _f : _DummyObj -> _DummyObj "
+                        "[role=latent]\n"
+                        "program _dummy_prog : _DummyObj -> _DummyObj:\n"
+                        "    sample _x : _DummyObj <- _f\n"
                         f"    let _lex_lf = {lf_text}\n"
                         "    return _x\n"
                     )
-                    syn_mod = _parse(syn_src)
+                    syn_mod = _parse_qvr(syn_src.encode(), "<lex-lf>")
                     # The third statement is the program; its
                     # second step's value carries the parsed LF.
                     prog = next(

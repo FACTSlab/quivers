@@ -1,6 +1,6 @@
 """Posterior-predictive checks (PPCs) and calibration diagnostics.
 
-ArviZ ships :func:`arviz.plot_ppc`, :func:`arviz.loo_pit`, and a
+ArviZ ships `arviz.plot_ppc`, `arviz.loo_pit`, and a
 broad family of PPC visualisations.  This module exposes a small
 typed surface that delegates to those, and adds a registry of
 common test statistics that map cleanly onto quivers' plate-and-
@@ -42,13 +42,13 @@ def posterior_predictive_check(
     Parameters
     ----------
     idata : xr.DataTree
-        Fit produced by :func:`~quivers.diagnostics.to_datatree`,
+        Fit produced by [`quivers.diagnostics.to_datatree`][quivers.diagnostics.to_datatree],
         with both ``observed_data`` and ``posterior_predictive``
         groups populated.
     observed_name : str
         Name of the observed site (must appear in both groups).
     statistic : str or callable
-        Either a key into :data:`STATISTICS` or a user-supplied
+        Either a key into `STATISTICS` or a user-supplied
         ``Callable[[np.ndarray], float]``.
     by : str, optional
         If given, computes the statistic per group along the named
@@ -127,8 +127,8 @@ def loo_pit(
 ):
     """Leave-one-out probability-integral-transform calibration.
 
-    Delegates to :func:`arviz.loo_pit`.  Returns the PIT values; the
-    canonical use is :func:`arviz.plot_loo_pit` for the calibration
+    Delegates to `arviz.loo_pit`.  Returns the PIT values; the
+    canonical use is `arviz.plot_loo_pit` for the calibration
     diagnostic plot.
     """
     return az.loo_pit(idata, y=observed_name)

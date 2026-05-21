@@ -32,10 +32,10 @@ e = end(F, contra_dims=(0,), co_dims=(1,), algebra=PRODUCT_FUZZY)
 For a $\mathcal{V}$-presheaf $F : \mathcal{C}^{\mathrm{op}} \to \mathcal{V}$ and an object $A \in \mathcal{C}$, the [Yoneda lemma](https://ncatlab.org/nlab/show/Yoneda+lemma) asserts $[\mathcal{C}^{\mathrm{op}}, \mathcal{V}](y_A, F) \cong F(A)$, where $y_A = \mathcal{C}(-, A)$ is the representable presheaf at $A$. [`yoneda_lemma`](../api/enriched/yoneda.md) computes the left side as an end and the test suite verifies the isomorphism numerically:
 
 ```python
+import torch
 from quivers.enriched.yoneda import (
-    yoneda_lemma, yoneda_embedding, verify_yoneda_fully_faithful,
+    yoneda_lemma, yoneda_embedding, verify_yoneda_fully_faithful, Presheaf,
 )
-from quivers.enriched.profunctors import Presheaf
 from quivers.core.objects import FinSet
 
 X1 = FinSet(name="X1", cardinality=2)
@@ -47,7 +47,10 @@ F = Presheaf(
     values=(torch.tensor([0.6, 0.2]), torch.tensor([0.1, 0.5, 0.9])),
 )
 
-hom_tensors = [...]  # hom_tensors[i] = C(X_i, A) for A = objects[obj_index]
+hom_tensors = [
+    torch.eye(2),                    # C(X1, X1)
+    torch.zeros(3, 2),               # C(X2, X1)
+]
 fa = yoneda_lemma(presheaf=F, obj_index=0, hom_tensors=hom_tensors)
 ```
 
@@ -68,6 +71,7 @@ is_ff = verify_yoneda_fully_faithful(f, g, atol=1e-5)
 [Left and right Kan extensions](https://ncatlab.org/nlab/show/Kan+extension) extend a morphism along an [`ObjectMap`](../api/enriched/kan_extensions.md) between objects. `quivers.enriched.kan_extensions` provides two concrete `ObjectMap` subclasses, [`Projection`](../api/enriched/kan_extensions.md) (the canonical $A_1 + \ldots + A_n \to A_k$) and [`Inclusion`](../api/enriched/kan_extensions.md) (the canonical $A_k \hookrightarrow A_1 + \ldots + A_n$):
 
 ```python
+import torch
 from quivers.enriched.kan_extensions import Inclusion, left_kan, right_kan
 from quivers.core.objects import FinSet, CoproductSet
 from quivers.core.morphisms import observed
@@ -118,6 +122,7 @@ limit_tensor = weighted_limit(W, D)  # torch.Tensor
 A [profunctor](https://ncatlab.org/nlab/show/profunctor) (or distributor) $P : \mathcal{A} \nrightarrow \mathcal{B}$ is a $\mathcal{V}$-valued bimodule, represented in quivers as a [`Profunctor`](../api/enriched/profunctors.md) wrapping a tensor of shape `(*contra.shape, *co.shape)`:
 
 ```python
+import torch
 from quivers.enriched.profunctors import Profunctor
 from quivers.core.objects import FinSet
 
@@ -138,18 +143,20 @@ $$
 $$
 
 ```python
+import torch
 from quivers.enriched.day_convolution import day_convolution, day_unit
 from quivers.core.objects import FinSet
-from quivers.categorical.monoidal import MonoidalStructure
+from quivers.categorical.monoidal import CartesianMonoidal
 
 objects = (FinSet(name="A", cardinality=2), FinSet(name="B", cardinality=3))
-monoidal = MonoidalStructure(...)  # see api/categorical/monoidal.md
+monoidal = CartesianMonoidal()
 
+# F and G are presheaves indexed by `objects`, one value per object.
 f_values = torch.tensor([0.6, 0.4])
-g_values = torch.tensor([0.5, 0.7, 0.2])
+g_values = torch.tensor([0.5, 0.7])
 
 FG = day_convolution(f_values, g_values, objects=objects, monoidal=monoidal)
-unit = day_unit(objects=objects, monoidal=monoidal)
+unit = day_unit(objects=objects, unit_index=0)
 ```
 
 ## Optics
@@ -162,6 +169,7 @@ Optics are bidirectional morphisms that decompose into a forward `get` / `match`
 - [`Grate`](../api/enriched/optics.md) cotraverses through a coindexing object.
 
 ```python
+import torch
 from quivers.enriched.optics import (
     Lens, Prism, Adapter, Grate, compose_optics,
 )

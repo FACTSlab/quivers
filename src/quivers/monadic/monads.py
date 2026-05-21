@@ -1,19 +1,19 @@
 """Concrete monad instances on V-enriched FinSet.
 
-The :class:`Monad` typeclass itself lives in
-:mod:`quivers.monadic.typeclasses`; this module provides two concrete
-monad instances together with the :class:`KleisliCategory` adapter.
+The `Monad` typeclass itself lives in
+[`quivers.monadic.typeclasses`][quivers.monadic.typeclasses]; this module provides two concrete
+monad instances together with the `KleisliCategory` adapter.
 
-- :class:`FuzzyPowersetMonad` — the powerset monad over an algebra,
+- `FuzzyPowersetMonad` — the powerset monad over an algebra,
   whose Kleisli category is the V-enriched relation category.
-- :class:`FreeMonoidMonad` — the free monoid monad on a finite alphabet,
+- `FreeMonoidMonad` — the free monoid monad on a finite alphabet,
   truncated to a maximum length.
-- :class:`KleisliCategory` — wraps any :class:`Monad` instance for
+- `KleisliCategory` — wraps any `Monad` instance for
   composition.
 
-Both concrete monads subclass :class:`Monad` and implement the
+Both concrete monads subclass `Monad` and implement the
 required ``fmap_obj`` / ``fmap`` / ``pure`` / ``join`` operations.
-``apply`` is inherited from :class:`Applicative` and raises when the
+``apply`` is inherited from `Applicative` and raises when the
 internal-hom construction is not supplied per-instance.
 """
 
@@ -74,11 +74,11 @@ class FuzzyPowersetMonad(Monad):
 
     # Eilenberg–Moore vocabulary aliases.
     def unit(self, A: SetObject) -> Morphism:
-        """``η_A : A → T(A)``; alias for :meth:`pure`."""
+        """``η_A : A → T(A)``; alias for `pure`."""
         return self.pure(A)
 
     def multiply(self, A: SetObject) -> Morphism:
-        """``μ_A : T(T(A)) → T(A)``; alias for :meth:`join`."""
+        """``μ_A : T(T(A)) → T(A)``; alias for `join`."""
         return self.join(A)
 
     def kleisli_compose(self, f: Morphism, g: Morphism) -> Morphism:
@@ -163,7 +163,7 @@ class FreeMonoidMonad(Monad):
         """``μ_A : (A*)* → A*`` — flatten nested words by concatenation.
 
         The flattened-result indexing follows the canonical word-encoding
-        of :class:`FreeMonoid`; flattenings whose total length exceeds
+        of `FreeMonoid`; flattenings whose total length exceeds
         ``max_length`` are dropped.
         """
         import torch
@@ -199,11 +199,11 @@ class FreeMonoidMonad(Monad):
         return observed(tta, ta, data, algebra=self._algebra)
 
     def unit(self, A: SetObject) -> Morphism:
-        """Alias for :meth:`pure`."""
+        """Alias for `pure`."""
         return self.pure(A)
 
     def multiply(self, A: SetObject) -> Morphism:
-        """Alias for :meth:`join`."""
+        """Alias for `join`."""
         return self.join(A)
 
     def __repr__(self) -> str:
@@ -218,7 +218,7 @@ class KleisliCategory:
     Objects are the same as the base category. Morphisms ``A → B`` in
     the Kleisli category are morphisms ``A → T(B)`` in the base
     category. Composition uses the underlying monad's
-    :meth:`Monad.join`, falling through to a closed-form
+    `Monad.join`, falling through to a closed-form
     ``kleisli_compose`` method on the monad when available.
 
     Parameters

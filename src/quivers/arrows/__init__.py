@@ -16,10 +16,10 @@ Each typeclass is an ABC declaring the operations an arrow instance
 must provide; default derivations are supplied where Hughes admits
 them. Concrete instances (``Function``, ``VRel``, ``Stochastic``,
 ``Kleisli(M)``, ``Cokleisli(W)``, ``LinearMap``) live alongside in
-:mod:`quivers.arrows.instances`.
+`quivers.arrows.instances`.
 
 Bridges between the monad and arrow hierarchies live in
-:mod:`quivers.monadic.bridges`: every Monad gives a Kleisli arrow,
+[`quivers.monadic.bridges`][quivers.monadic.bridges]: every Monad gives a Kleisli arrow,
 every ArrowApply gives a Monad. The two presentations of effectful
 computation are interchangeable through these conversions.
 

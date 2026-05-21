@@ -14,7 +14,7 @@ A *plate-draw* binds one value per index of a finite-set object:
 
 <!-- compile: false -->
 ```qvr
-object School : 8
+object School : FinSet 8
 theta : School <- Normal(mu, tau)
 ```
 
@@ -31,17 +31,16 @@ Plates are good for IID structure: nothing about index `j+1` depends on what hap
 
 `scan` takes a *cell* whose signature is `Input * Hidden -> Hidden` and lifts it to operate along the sequence dimension of an input tensor. The `*` in `Input * Hidden -> Hidden` is "the cell takes two inputs in parallel (an input vector and the previous hidden state) and returns one". That's all you need to read it; the categorical reading (binary product in a monoidal category) is in chapter 7. The cell may be a `kernel ... ~ Family` morphism (one-step state update under a Gaussian transition) or a `program` block (one-step update with its own random draws).
 
-```qvr
-object Token : 256
-type Embedded = Euclidean 64
-type Hidden   = Euclidean 128
-type Output   = Euclidean 64
+```text
+object Token : FinSet 256
+object Embedded : Real 64
+object Hidden : Real 128
+object Output : Real 64
 
-embed tok_embed : Token -> Embedded
+morphism tok_embed : Token -> Embedded [role=embed]
 
-kernel cell        : Embedded * Hidden -> Hidden ~ Normal [scale=0.1]
-kernel output_proj : Hidden -> Output            ~ Normal [scale=0.1]
-
+morphism cell : Embedded * Hidden -> Hidden [role=kernel] ~ Normal [scale=0.1]
+morphism output_proj : Hidden -> Output [role=kernel]            ~ Normal [scale=0.1]
 let rnn = tok_embed >> scan(cell) >> output_proj
 export rnn
 ```
@@ -55,15 +54,12 @@ If you've used Haskell's `mapAccumL` or NumPy's `np.cumsum`, this is the same id
 HMMs ([Rabiner, 1989](https://doi.org/10.1109/5.18626)) factor as an initial distribution, a row-stochastic transition kernel, and a row-stochastic emission kernel. In QVR's enriched setting they compose directly with `>>`. Here's the canonical K-state HMM with categorical emissions, lifted from `docs/examples/source/hmm.qvr`:
 
 ```qvr
-algebra product_fuzzy
-
-object State : 8
-object Obs : 16
-
-latent initial    : State -> State ~ Dirichlet(1.0) over cod iid over dom
-latent transition : State -> State ~ Dirichlet(1.0) over cod iid over dom
-latent emission   : State -> Obs   ~ Dirichlet(1.0) over cod iid over dom
-
+composition product_fuzzy as algebra
+object State : FinSet 8
+object Obs : FinSet 16
+morphism initial : State -> State [role=latent] ~ Dirichlet(1.0) over cod iid over dom
+morphism transition : State -> State [role=latent] ~ Dirichlet(1.0) over cod iid over dom
+morphism emission : State -> Obs [role=latent]   ~ Dirichlet(1.0) over cod iid over dom
 let n_step = repeat(transition) >> emission
 let hmm    = initial >> n_step
 
@@ -100,15 +96,14 @@ The Pyro analogue uses `infer={"enumerate": "parallel"}` and walks the chain wit
 
 For continuous-state sequences, the per-step transition is a Gaussian kernel and so is the emission. The canonical linear-Gaussian SSM whose forward filter is the Kalman filter ([Kalman, 1960](https://doi.org/10.1115/1.3662552)) appears in `docs/examples/source/linear_gaussian_ssm.qvr`:
 
-```qvr
-type Driver = Euclidean 2
-type State  = Euclidean 4
-type Obs    = Euclidean 2
+```text
+object Driver : Real 2
+object State : Real 4
+object Obs : Real 2
 
-kernel transition_cell : Driver * State -> State ~ Normal [scale=0.1]
-kernel emission        : State -> Obs           ~ Normal [scale=0.1]
-kernel filter_cell     : Obs * State -> State   ~ Normal [scale=0.1]
-
+morphism transition_cell : Driver * State -> State [role=kernel] ~ Normal [scale=0.1]
+morphism emission : State -> Obs [role=kernel]           ~ Normal [scale=0.1]
+morphism filter_cell : Obs * State -> State [role=kernel]   ~ Normal [scale=0.1]
 let generate = scan(transition_cell) >> emission
 let filter   = scan(filter_cell)
 

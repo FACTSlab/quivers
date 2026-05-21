@@ -10,12 +10,9 @@
 # The posterior moments are computed in references.py via numerical
 # integration. Tier-6 constrained-support benchmark: every sample
 # must lie in (0, ∞); the guide-side bijector is exp / softplus.
-
-object Obs : 80
-
+object Obs : FinSet 80
 program half_normal_scale : Obs -> Obs
-    sigma <- HalfNormal(2.0)
+    sample sigma <- HalfNormal(2.0)
     observe y : Obs <- Normal(0.0, sigma)
     return sigma
-
 export half_normal_scale

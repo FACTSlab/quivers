@@ -1,59 +1,28 @@
-# ================================================================
-# Probabilistic Context-Free Grammar (PCFG)
-# ================================================================
+# Probabilistic Context-Free Grammar
 #
-# A PCFG is an agenda-based weighted deduction over CKY chart
-# items `span(I, J, N)` (token range `[I, J)` with nonterminal
-# `N`) under the `LogProb` semiring. Two rule families:
-#
-#   - binary branching: span(I, K, B), span(K, J, C) |- span(I, J, A)
-#       weighted by the (A → B C) production probability.
-#   - lexical anchor:   leaf(I, T)                   |- span(I, I+1, A)
-#       weighted by the (A → T) emission probability.
-#
-# A concrete PCFG instantiates the deduction with a finite set
-# of nonterminal / preterminal / terminal atoms and a lexicon
-# of `(A, B, C)` and `(A, T)` weights. The fragment below
-# illustrates a 3-nonterminal grammar; production weights are
-# learnable per lexicon entry.
+# A PCFG as an agenda-based weighted deduction over CKY chart
+# items ``span(I, J, N)`` (token range ``[I, J)`` with
+# nonterminal ``N``) under the LogProb semiring. Each production
+# is a specific ``rule`` (no free wildcards on the conclusion):
+# the chart fires only the productions the grammar licenses, the
+# weights are bindings-keyed under ``#[learnable]``, and the
+# chart's goal weight at ``span(0, n, S)`` is the corpus inside
+# log-probability.
 
-object Term : 16
+object Term : FinSet 16
 
-deduction PCFG : Term -> Term {
-    atoms {
-        # Nonterminals.
-        S, NP, VP,
-        # Preterminals (POS tags).
-        Det, N, V,
-        # Terminals appearing in the lexicon.
-        the, a, cat, dog, sleeps, runs,
-        # Chart-item / leaf constructors.
-        span, leaf
-    }
-
-    # Binary branching: any (A → B C) production fires if its
-    # children's spans abut. The pattern variables `A`, `B`, `C`
-    # range over nonterminals; concrete branchings are licensed
-    # by the lexicon entries below.
-    rule branch
-        : span(I, K, B), span(K, J, C)
-        |- span(I, J, A)
-
-    # Lexical anchor for a single token.
-    rule anchor
-        : leaf(I, T)
-        |- span(I, J, A)
-
-    lexicon {
-        "the"     : Det = the     @ learnable
-        "a"       : Det = a       @ learnable
-        "cat"     : N   = cat     @ learnable
-        "dog"     : N   = dog     @ learnable
-        "sleeps"  : V   = sleeps  @ learnable
-        "runs"    : V   = runs    @ learnable
-    }
-
-    semiring  LogProb
-    start     S
-    depth     6
-}
+deduction PCFG : Term -> Term [semiring=LogProb, start=S, depth=4]
+    atoms S, NP, VP, Det, N, V, span, the, a, cat, dog, sleeps, runs
+    # Concrete binary productions. Each ``#[learnable]`` allocates
+    # one log-weight per firing binding tuple; with no free
+    # wildcards in the conclusion, there is one weight per rule.
+    rule s_np_vp : span(I, K, NP), span(K, J, VP) |- span(I, J, S) #[learnable]
+    rule np_det_n : span(I, K, Det), span(K, J, N) |- span(I, J, NP) #[learnable]
+    rule vp_v : span(I, J, V) |- span(I, J, VP) #[learnable]
+    lexicon
+        "the"    : Det = the     #[learnable]
+        "a"      : Det = a       #[learnable]
+        "cat"    : N   = cat     #[learnable]
+        "dog"    : N   = dog     #[learnable]
+        "sleeps" : V   = sleeps  #[learnable]
+        "runs"   : V   = runs    #[learnable]

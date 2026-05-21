@@ -3,7 +3,7 @@
 DAIS sits between variational inference and MCMC: it runs a short
 chain of HMC-like leapfrog steps along an annealing path between
 a tractable base distribution :math:`q_0` (typically
-:class:`AutoNormalGuide`) and the target posterior. The
+`AutoNormalGuide`) and the target posterior. The
 trajectory's per-step parameters — step size, base mean / scale,
 and the inverse-temperature schedule — are *all variational
 parameters* trained by SVI. Concretely, every leapfrog operation
@@ -17,7 +17,7 @@ evidence (Geffner-Domke 2021,
 `doi:10.48550/arXiv.2107.10859
 <https://doi.org/10.48550/arXiv.2107.10859>`_) that strictly
 dominates the base guide's ELBO for ``num_steps >= 1``. Combined
-with multimodal base guides (:class:`AutoMixtureGuide`) it
+with multimodal base guides (`AutoMixtureGuide`) it
 recovers multimodal posteriors that plain VI misses.
 
 The implementation tracks the auxiliary "extended-target" form: a
@@ -47,8 +47,8 @@ class AutoDAIS(Guide):
     base : Guide
         Base variational guide (the bridge's start). Must be built
         against the same model + observed-name set the DAIS guide
-        is for. :class:`AutoNormalGuide` or
-        :class:`AutoMultivariateNormalGuide` are the canonical
+        is for. `AutoNormalGuide` or
+        `AutoMultivariateNormalGuide` are the canonical
         choices.
     model : MonadicProgram
         Generative model. Required because DAIS needs the target
@@ -301,7 +301,7 @@ class AutoDAIS(Guide):
         differentiable lower-bound estimator instead substitutes
         :math:`\\log \\pi(z) - \\mathrm{log\\_weight}` for
         :math:`\\log q(z)` in the ELBO, so when this guide is used
-        with an :class:`ELBO` objective the per-step ELBO is the
+        with an `ELBO` objective the per-step ELBO is the
         DAIS lower bound. We return that quantity here.
         """
         del sites  # The DAIS log-density is path-dependent, not

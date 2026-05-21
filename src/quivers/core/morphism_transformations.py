@@ -1,6 +1,6 @@
 """Functorial change-of-base for non-pointwise morphism transformations.
 
-A :class:`~quivers.core.algebra_morphisms.AlgebraHomomorphism`
+A `quivers.core.algebra_morphisms.AlgebraHomomorphism`
 acts pointwise on tensor entries (``log``, ``threshold``, ``max-plus
 lift``). That handles a useful but narrow class of change-of-base
 moves. The broader class — functors ``V-Cat -> W-Cat`` whose
@@ -10,7 +10,7 @@ Bayes-inversion under a prior, L1 / L2 / spectral row
 normalizations, top-k truncation, and Sinkhorn balancing.
 
 This module ships the abstract base
-:class:`MorphismTransformation` and four concrete subclasses
+`MorphismTransformation` and four concrete subclasses
 (Softmax, L1Normalize, L2Normalize, BayesInvert) that cover the
 common practical needs. ``Morphism.change_base`` accepts either a
 ``AlgebraHomomorphism`` (pointwise) or a ``MorphismTransformation``
@@ -184,7 +184,7 @@ class L1Normalize(MorphismTransformation):
     axis_object : SetObject
         The object whose axis is normalized.
     source : Algebra, optional
-        Default :data:`REAL`.
+        Default `REAL`.
     """
 
     def __init__(
@@ -225,7 +225,7 @@ class L2Normalize(MorphismTransformation):
     axis_object : SetObject
         The object whose axis is normalized.
     source : Algebra, optional
-        Default :data:`REAL`. The target equals the source.
+        Default `REAL`. The target equals the source.
     """
 
     def __init__(
@@ -329,7 +329,7 @@ class BayesInvert(MorphismTransformation):
 #
 # Each factory accepts compile-time values resolved from the DSL's
 # surrounding scope (objects, morphisms) and returns a fully-
-# constructed :class:`MorphismTransformation`. The compiler's
+# constructed `MorphismTransformation`. The compiler's
 # transformation catalog binds them so the user can write
 # ``f.change_base(softmax(B))`` / ``f.change_base(bayes_invert(prior))``
 # in pure QVR.
@@ -337,28 +337,28 @@ class BayesInvert(MorphismTransformation):
 
 
 def softmax(axis_object: SetObject) -> Softmax:
-    """Build a :class:`Softmax` transformation along ``axis_object``."""
+    """Build a `Softmax` transformation along ``axis_object``."""
     return Softmax(axis_object)
 
 
 def l1_normalize(axis_object: SetObject) -> L1Normalize:
-    """Build an :class:`L1Normalize` transformation along ``axis_object``."""
+    """Build an `L1Normalize` transformation along ``axis_object``."""
     return L1Normalize(axis_object)
 
 
 def l2_normalize(axis_object: SetObject) -> L2Normalize:
-    """Build an :class:`L2Normalize` transformation along ``axis_object``."""
+    """Build an `L2Normalize` transformation along ``axis_object``."""
     return L2Normalize(axis_object)
 
 
 def bayes_invert(prior) -> BayesInvert:
-    """Build a :class:`BayesInvert` transformation from a prior.
+    """Build a `BayesInvert` transformation from a prior.
 
-    ``prior`` may be a 1-D :class:`torch.Tensor` (used directly)
+    ``prior`` may be a 1-D `torch.Tensor` (used directly)
     or any object that exposes a ``.tensor`` attribute (the
     morphism convention used throughout the V-Cat layer). Duck
     typing on ``.tensor`` avoids a circular import between
-    :mod:`quivers.core.morphisms` and this module. The morphism
+    [`quivers.core.morphisms`][quivers.core.morphisms] and this module. The morphism
     form is what the DSL feeds in when the user writes
     ``change_base(bayes_invert(prior_morph))``.
     """

@@ -12,7 +12,7 @@ Five abstract primitives for weighted deductive parsing (Shieber, Schabes & Pere
 - **`Schedule`:** Evaluation strategy (CKY bottom-up, Earley, agenda-based).
 - **`DeductiveSystem`:** Ties axiom, deductions, goal, schedule, and semiring into a single `nn.Module`.
 
-::: quivers.stochastic.deduction
+For the full surface, see [`api/stochastic/deduction`](deduction.md). The primitives themselves are documented at [`api/stochastic/deduction/primitives`](deduction/primitives.md).
 
 ## Rule Schemas
 

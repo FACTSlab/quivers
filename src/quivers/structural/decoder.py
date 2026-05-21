@@ -1,17 +1,17 @@
 """Decoder runtime: Kleisli coalgebras Vec_D -> Kern(T_Σ).
 
-A :class:`Decoder` is a ``torch.nn.Module`` exposing two operations:
+A `Decoder` is a ``torch.nn.Module`` exposing two operations:
 
-* :meth:`sample` — draws a single :class:`Term` from the
+* `sample` — draws a single `Term` from the
   distribution induced by an input vector.
-* :meth:`log_prob` — scores an observed term under the same
+* `log_prob` — scores an observed term under the same
   distribution.
 
 The corecursion structure over a signature Σ is:
 
 1. At each sort position, the decoder produces logits over its
    *choice set* — every constructor and binder whose codomain is
-   that sort, plus the built-in :data:`BOUND_VAR_OP` whenever the
+   that sort, plus the built-in `BOUND_VAR_OP` whenever the
    context Γ contains at least one in-scope variable of that sort.
 2. For the chosen op, the parent vector is split into per-child
    sub-vectors by the per-(sort, arity) ``factor`` function, and
@@ -19,7 +19,7 @@ The corecursion structure over a signature Σ is:
    form used by the encoder.
 3. Data-sorted children are sampled from a closed vocabulary via
    the per-sort ``primitive`` head; index-sorted children are
-   sampled via :meth:`binder_select` over the in-scope variables.
+   sampled via `binder_select` over the in-scope variables.
 4. Binder ops extend Γ before recursing on their scoped arguments,
    exactly mirroring the encoder.
 
@@ -63,7 +63,7 @@ class Decoder(nn.Module):
 
     name : str
         Identifier used in diagnostics.
-    signature : :class:`Signature`
+    signature : `Signature`
         The Σ whose terms this decoder generates.
     sort_dims : dict[str, int]
         Per-sort embedding dimension.
@@ -83,7 +83,7 @@ class Decoder(nn.Module):
     binder_select_fn : callable
         ``(parent_vec, list_of_var_embeddings) -> Tensor`` of
         logits over the in-scope variables of a sort, used by
-        :data:`BOUND_VAR_OP` and by index-sorted child positions.
+        `BOUND_VAR_OP` and by index-sorted child positions.
     data_vocab : dict[str, list]
         Per-data-sort closed vocabulary aligned with the column
         order of the corresponding ``primitive_fns`` output.

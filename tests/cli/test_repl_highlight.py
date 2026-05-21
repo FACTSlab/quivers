@@ -20,7 +20,7 @@ from quivers.cli.repl_highlight import (
 )
 
 
-SAMPLE = "object X : 3\nlatent f : X -> X\n# comment\n"
+SAMPLE = "object X : FinSet 3\nmorphism f : X -> X [role=latent]\n# comment\n"
 
 
 def _classify(spans: list[Span]) -> list[tuple[str, str]]:
@@ -31,7 +31,7 @@ def test_tokenize_classifies_keywords_and_punctuation() -> None:
     pairs = _classify(tokenize(SAMPLE))
     # Order matters: this is a structural snapshot of the grammar.
     assert ("keyword", "object") in pairs
-    assert ("keyword", "latent") in pairs
+    assert ("keyword", "morphism") in pairs
     assert ("punctuation", ":") in pairs
     assert ("operator", "->") in pairs
     assert ("number", "3") in pairs
@@ -39,8 +39,8 @@ def test_tokenize_classifies_keywords_and_punctuation() -> None:
 
 
 def test_tokenize_identifies_types_and_variables() -> None:
-    # In `object X : 3`, X appears as the declared identifier (variable).
-    # In `latent f : X -> X`, the two X tokens sit inside type_atoms
+    # In `object X : FinSet 3`, X appears as the declared identifier (variable).
+    # In `morphism f : X -> X [role=latent]`, the two X tokens sit inside type_atoms
     # and must surface as `type` so the LSP semantic-tokens stream
     # paints them with the type colour.
     pairs = _classify(tokenize(SAMPLE))
@@ -107,7 +107,7 @@ def test_to_rich_text_smoke() -> None:
     pytest.importorskip("rich")
     from quivers.cli.repl_highlight import to_rich_text
 
-    rt = to_rich_text("object X : 3")
+    rt = to_rich_text("object X : FinSet 3")
     # Renders without raising; carries the source verbatim.
     plain = rt.plain
     assert "object" in plain
@@ -147,11 +147,13 @@ def test_comment_classification() -> None:
 
 
 def test_doc_comment_classification() -> None:
-    pairs = _classify(tokenize("## doc string\nobject X : 3"))
+    pairs = _classify(tokenize("#! doc string\nobject X : FinSet 3"))
     assert any(p[0] == "comment" and "doc" in p[1] for p in pairs)
 
 
 def test_operator_classification() -> None:
-    pairs = _classify(tokenize("object X : 3\nlatent f : X -> X"))
+    pairs = _classify(
+        tokenize("object X : FinSet 3\nmorphism f : X -> X [role=latent]")
+    )
     operators = {p[1] for p in pairs if p[0] == "operator"}
     assert "->" in operators

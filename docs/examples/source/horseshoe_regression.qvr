@@ -1,47 +1,37 @@
-# ================================================================
 # Multi-Coefficient Horseshoe Regression
-# ================================================================
 #
-# A multiple regression with the horseshoe prior of
-# ([Carvalho, Polson, and Scott 2010]
-# (https://doi.org/10.1093/biomet/asq017)).  The horseshoe is a
-# global-local scale mixture of Normals: a single global scale
-# `tau` and per-coordinate local scales `lambda_p` jointly
-# define the coefficient prior
+# A multiple regression with the horseshoe prior: a global-local
+# scale mixture of Normals in which a single global scale tau
+# and per-coordinate local scales jointly define the coefficient
+# prior. The per-coefficient Coef plate is sized at compile
+# time.
 #
-#   tau          ~ HalfCauchy(1)
-#   lambda_p     ~ HalfCauchy(1)              per coefficient p
-#   z_p          ~ Normal(0, 1)               per coefficient p
-#   beta_p       = tau * lambda_p * z_p       reparameterised draw
-#   alpha        ~ Normal(0, 5)
-#   sigma        ~ HalfCauchy(2)
-#   mu_n         = alpha + sum_p beta_p * x_{n, p}
-#   y_n          ~ Normal(mu_n, sigma)
+# Generative structure:
+#
+#   tau        ~ HalfCauchy(1)                    global scale
+#   lambda_p   ~ HalfCauchy(1)                    per-coordinate scale
+#   z_p        ~ Normal(0, 1)                     standard-Normal raw
+#   alpha      ~ Normal(0, 5)                     intercept
+#   sigma      ~ HalfCauchy(2)                    noise scale
+#   y_n        ~ Normal(alpha + (tau * lambda * z) * x_n, sigma)
 #
 # The horseshoe has no closed-form marginal density: the right
-# idiom in quivers is the explicit `tau * lambda * z` decomposition
-# built from existing primitives, with the per-coefficient `Coef`
-# plate sized at compile time.  The plate-draws `lambda_local`
-# and `z_raw` on `Coef`, gathered through `coef_idx`, scale
-# automatically to any P without rewriting the body.
+# idiom is the explicit tau * lambda * z decomposition built
+# from existing primitives, with plate-draws on Coef gathered
+# through coef_idx so the body scales to any P unchanged.
 #
-# Distinguishing feature: explicit global-local decomposition of
-# the horseshoe via plate-draws on `Coef`, with the resulting
-# coordinate-wise scale built deterministically in `let`.
+# Reference: [Carvalho, Polson, and Scott 2010](https://doi.org/10.1093/biomet/asq017).
 
-object Item : 200
-object Coef : 4
-object Resp : 800
+object Item : FinSet 200
+object Coef : FinSet 4
+object Resp : FinSet 800
 
 program horseshoe_regression : Resp -> Resp
-    # Global-local horseshoe decomposition: half-Cauchy global,
-    # half-Cauchy per-coordinate local, standard-Normal raw draw.
-    tau <- HalfCauchy(1.0)
-    lambda_local : Coef <- HalfCauchy(1.0)
-    z_raw : Coef <- Normal(0.0, 1.0)
-
-    alpha <- Normal(0.0, 5.0)
-    sigma <- HalfCauchy(2.0)
+    sample tau <- HalfCauchy(1.0)
+    sample lambda_local : Coef <- HalfCauchy(1.0)
+    sample z_raw : Coef <- Normal(0.0, 1.0)
+    sample alpha <- Normal(0.0, 5.0)
+    sample sigma <- HalfCauchy(2.0)
 
     let lam = lambda_local[coef_idx]
     let z = z_raw[coef_idx]

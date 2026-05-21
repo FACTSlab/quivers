@@ -1,0 +1,58 @@
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Distribution / packaging
+dist/
+build/
+*.egg-info/
+*.egg
+
+# Virtual environments
+.venv/
+venv/
+env/
+
+# Testing
+.pytest_cache/
+pytest-cache-files-*/
+.coverage
+htmlcov/
+
+# Type checking / linting
+.mypy_cache/
+.ruff_cache/
+
+# Documentation build
+site/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Local development notes (not committed)
+notes/
+.claude/
+.gitignore
+
+# node
+node_modules/
+
+# Editor build artifacts
+editors/vscode-qvr/out/
+editors/vscode-qvr/node_modules/
+editors/vscode-qvr/package-lock.json
+editors/vscode-qvr/*.vsix
+
+# Tree-sitter build artifacts (local-grammar override)
+grammars/qvr/parser.dylib
+grammars/qvr/parser.so
+grammars/qvr/parser.dll

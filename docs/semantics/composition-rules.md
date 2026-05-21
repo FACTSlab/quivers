@@ -56,14 +56,31 @@ The compact-closed operations of $\mathcal{V}\text{-}\mathbf{Rel}$ (`identity(A)
 
 ## 3. User-defined composition rules
 
-The `.qvr` surface admits the declaration of a fresh composition rule via an inline body:
+The `.qvr` surface admits the declaration of a fresh composition rule via the unified `composition` keyword, the level chosen by an `as` clause, and the rule body supplied as an indented block of entries:
 
 ```
-algebra       NAME { tensor_op(a, b) = E_⊗ ; join(t) = E_⋁ ; unit = E_1 ; zero = E_0 ; [negation(a) = E_¬ ;] [meet(t) = E_⋀ ;] }
-semigroupoid   NAME { tensor_op(a, b) = E_⊗ ; join(t) = E_⋁ }
-bilinear_form  NAME { tensor_op(a, b) = E_⊗ ; join(t) = E_⋁ }
-composition_rule NAME { tensor_op(a, b) = E_⊗ ; join(t) = E_⋁ }
+composition NAME as algebra
+    tensor_op(a, b) = E_⊗
+    join(t)         = E_⋁
+    unit            = E_1
+    zero            = E_0
+    negation(a)     = E_¬     # optional
+    meet(t)         = E_⋀     # optional
+
+composition NAME as semigroupoid
+    tensor_op(a, b) = E_⊗
+    join(t)         = E_⋁
+
+composition NAME as bilinear_form
+    tensor_op(a, b) = E_⊗
+    join(t)         = E_⋁
+
+composition NAME as rule
+    tensor_op(a, b) = E_⊗
+    join(t)         = E_⋁
 ```
+
+The `composition` keyword is a top-level *selector* / *definer* statement: with no body and no `as` clause it resolves the named rule from the built-in catalogue and registers it as the module's composition rule; with an `as` clause but no body it resolves a built-in rule and verifies it matches the declared algebraic level; with a body it declares the rule's operations inline as shown above. There is no per-level keyword variant: `algebra X`, `semigroupoid X`, `bilinear_form X`, `composition_rule X` all desugar to the unified `composition X as <level>` form.
 
 Each entry's RHS is a let-expression (the same fragment used in `let v = expr` lines elsewhere in the surface, [§ Expressions](expressions.md)). The declaration's denotation is the named composition rule
 

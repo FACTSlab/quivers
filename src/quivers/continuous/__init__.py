@@ -38,12 +38,21 @@ ConditionalFlow, AffineCouplingLayer
 """
 
 from quivers.continuous.spaces import (
+    Ball,
+    CholeskyFactor,
     ContinuousSpace,
+    Correlation,
+    Covariance,
+    Diagonal,
     Euclidean,
-    UnitInterval,
-    Simplex,
+    LowerTriangular,
+    Orthogonal,
     PositiveReals,
     ProductSpace,
+    Simplex,
+    Sphere,
+    Stiefel,
+    UnitInterval,
 )
 from quivers.continuous.morphisms import (
     AnySpace,
@@ -124,12 +133,21 @@ except ImportError:
 
 __all__ = [
     # spaces
+    "Ball",
+    "CholeskyFactor",
     "ContinuousSpace",
+    "Correlation",
+    "Covariance",
+    "Diagonal",
     "Euclidean",
-    "UnitInterval",
-    "Simplex",
+    "LowerTriangular",
+    "Orthogonal",
     "PositiveReals",
     "ProductSpace",
+    "Simplex",
+    "Sphere",
+    "Stiefel",
+    "UnitInterval",
     # morphisms
     "AnySpace",
     "ContinuousMorphism",

@@ -1,9 +1,9 @@
 """ipykernel Kernel subclass for QVR.
 
-A thin adapter over :class:`quivers.cli.repl_session.ReplSession`.
+A thin adapter over [`quivers.cli.repl_session.ReplSession`][quivers.cli.repl_session.ReplSession].
 Cells with a leading ``:`` are routed through the same meta-command
 dispatcher the REPL uses; bare cells are sent through
-:meth:`ReplSession.dispatch` and evaluated as either a statement
+`ReplSession.dispatch` and evaluated as either a statement
 block or an expression.
 
 Highlighting is delegated to the front end via the standard

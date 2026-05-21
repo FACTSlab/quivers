@@ -11,6 +11,7 @@ observed-site filtering, support-driven dim handling for
 """
 
 from __future__ import annotations
+import textwrap
 
 import torch
 
@@ -20,11 +21,11 @@ from quivers.inference.registry import LatentRegistry, LatentSite
 
 def _hierarchical_model():
     return loads(
-        "object Subj : 4\n"
-        "object Resp : 12\n"
+        "object Subj : FinSet 4\n"
+        "object Resp : FinSet 12\n"
         "program p : Resp -> Resp\n"
-        "    sigma <- HalfNormal(1.0)\n"
-        "    by_subj : Subj <- Normal(0.0, sigma)\n"
+        "    sample sigma <- HalfNormal(1.0)\n"
+        "    sample by_subj : Subj <- Normal(0.0, sigma)\n"
         "    let mu = sigmoid(by_subj[subj_idx])\n"
         "    observe r : Resp <- Bernoulli(mu)\n"
         "    return mu\n"
@@ -34,9 +35,9 @@ def _hierarchical_model():
 
 def _dirichlet_model():
     return loads(
-        "object Cat : 4\n"
+        "object Cat : FinSet 4\n"
         "program p : Cat -> Cat\n"
-        "    pc <- Dirichlet(1.0)\n"
+        "    sample pc <- Dirichlet(1.0)\n"
         "    return pc\n"
         "export p\n"
     ).morphism
@@ -173,17 +174,17 @@ def test_registry_iter_yields_sites_in_declaration_order() -> None:
     from quivers.inference.registry import LatentRegistry, LatentSite
 
     src = (
-        "object Subj : 3\n"
-        "object Resp : 6\n"
+        "object Subj : FinSet 3\n"
+        "object Resp : FinSet 6\n"
         "program p : Resp -> Resp\n"
-        "    sigma <- HalfNormal(1.0)\n"
-        "    by_subj : Subj <- Normal(0.0, sigma)\n"
+        "    sample sigma <- HalfNormal(1.0)\n"
+        "    sample by_subj : Subj <- Normal(0.0, sigma)\n"
         "    let mu = sigmoid(by_subj[subj_idx])\n"
         "    observe r : Resp <- Bernoulli(mu)\n"
         "    return mu\n"
         "export p\n"
     )
-    model = loads(src).morphism
+    model = loads(textwrap.dedent(src)).morphism
     reg = LatentRegistry.from_model(model, observed_names={"r"})
     sites = list(reg)
     names = [s.name for s in sites]
@@ -196,17 +197,17 @@ def test_registry_contains_and_getitem() -> None:
     from quivers.inference.registry import LatentRegistry
 
     src = (
-        "object Subj : 3\n"
-        "object Resp : 6\n"
+        "object Subj : FinSet 3\n"
+        "object Resp : FinSet 6\n"
         "program p : Resp -> Resp\n"
-        "    sigma <- HalfNormal(1.0)\n"
-        "    by_subj : Subj <- Normal(0.0, sigma)\n"
+        "    sample sigma <- HalfNormal(1.0)\n"
+        "    sample by_subj : Subj <- Normal(0.0, sigma)\n"
         "    let mu = sigmoid(by_subj[subj_idx])\n"
         "    observe r : Resp <- Bernoulli(mu)\n"
         "    return mu\n"
         "export p\n"
     )
-    model = loads(src).morphism
+    model = loads(textwrap.dedent(src)).morphism
     reg = LatentRegistry.from_model(model, observed_names={"r"})
     assert "sigma" in reg
     assert "by_subj" in reg
@@ -220,15 +221,16 @@ def test_registry_len_matches_total_latents() -> None:
     from quivers.inference.registry import LatentRegistry
 
     src = (
-        "object Resp : 4\n"
+        "object Resp : FinSet 4\n"
         "program p : Resp -> Resp\n"
-        "    a <- Normal(0.0, 1.0)\n"
-        "    b <- Normal(0.0, 1.0)\n"
-        "    observe r : Resp <- Normal(a + b, 1.0)\n"
+        "    sample a <- Normal(0.0, 1.0)\n"
+        "    sample b <- Normal(0.0, 1.0)\n"
+        "    let m = a + b\n"
+        "    observe r : Resp <- Normal(m, 1.0)\n"
         "    return a\n"
         "export p\n"
     )
-    model = loads(src).morphism
+    model = loads(textwrap.dedent(src)).morphism
     reg = LatentRegistry.from_model(model, observed_names={"r"})
     assert len(reg) == 2
 
@@ -238,14 +240,14 @@ def test_registry_observed_names_returns_frozenset() -> None:
     from quivers.inference.registry import LatentRegistry
 
     src = (
-        "object Resp : 4\n"
+        "object Resp : FinSet 4\n"
         "program p : Resp -> Resp\n"
-        "    mu <- Normal(0.0, 1.0)\n"
+        "    sample mu <- Normal(0.0, 1.0)\n"
         "    observe r : Resp <- Normal(mu, 1.0)\n"
         "    return mu\n"
         "export p\n"
     )
-    model = loads(src).morphism
+    model = loads(textwrap.dedent(src)).morphism
     reg = LatentRegistry.from_model(model, observed_names={"r"})
     assert reg.observed_names == frozenset({"r"})
 
@@ -255,13 +257,13 @@ def test_registry_model_property_returns_construction_model() -> None:
     from quivers.inference.registry import LatentRegistry
 
     src = (
-        "object Resp : 4\n"
+        "object Resp : FinSet 4\n"
         "program p : Resp -> Resp\n"
-        "    mu <- Normal(0.0, 1.0)\n"
+        "    sample mu <- Normal(0.0, 1.0)\n"
         "    observe r : Resp <- Normal(mu, 1.0)\n"
         "    return mu\n"
         "export p\n"
     )
-    model = loads(src).morphism
+    model = loads(textwrap.dedent(src)).morphism
     reg = LatentRegistry.from_model(model, observed_names={"r"})
     assert reg.model is model

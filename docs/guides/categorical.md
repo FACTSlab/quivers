@@ -12,6 +12,7 @@ In quivers, [`Functor`](../api/categorical/functors.md) is an abstract base clas
 
 Concrete subclasses ship with the library:
 
+<!-- python: skip -->
 ```python
 from quivers.categorical.functors import IdentityFunctor, ComposedFunctor, FreeMonoidFunctor
 from quivers.core.objects import FinSet
@@ -51,10 +52,16 @@ $$
 
 [`NaturalTransformation`](../api/categorical/natural_transformations.md) is an ABC; use [`ComponentwiseNT`](../api/categorical/natural_transformations.md) to construct one from a callable that produces each component:
 
+<!-- python: skip -->
 ```python
 from quivers.categorical.functors import IdentityFunctor, FreeMonoidFunctor
 from quivers.categorical.natural_transformations import ComponentwiseNT
 from quivers.categorical.adjunctions import FreeForgetfulAdjunction
+from quivers.core.objects import FinSet
+from quivers.core.morphisms import morphism
+
+X = FinSet(name="X", cardinality=3)
+Y = FinSet(name="Y", cardinality=4)
 
 F = IdentityFunctor()
 G = FreeMonoidFunctor(max_length=3)
@@ -74,6 +81,7 @@ An adjunction $F \dashv G$ is a pair of functors with morphisms $\eta: \text{id}
 
 The free-forgetful adjunction $\text{Free} \dashv \text{Forget}$ is shipped as [`FreeForgetfulAdjunction`](../api/categorical/adjunctions.md):
 
+<!-- python: skip -->
 ```python
 from quivers.categorical.adjunctions import FreeForgetfulAdjunction
 from quivers.core.objects import FinSet, FreeMonoid
@@ -109,6 +117,7 @@ A monoidal category $(\mathcal{C}, \otimes, I)$ has:
 
 The standard monoidal structure on finite sets. [`CartesianMonoidal`](../api/categorical/monoidal.md) exposes the object-level `product`, the `unit` (terminal object), and the coherence morphisms `associator`, `left_unitor`, `right_unitor`, `braiding`:
 
+<!-- python: skip -->
 ```python
 from quivers.categorical.monoidal import CartesianMonoidal
 from quivers.core.objects import FinSet, Unit
@@ -140,8 +149,10 @@ fg = f @ g                                   # ProductMorphism: X×X → Y×Y
 
 Coproduct as the monoidal operation:
 
+<!-- python: skip -->
 ```python
 from quivers.categorical.monoidal import CoproductMonoidal
+from quivers.core.objects import FinSet
 
 monoidal = CoproductMonoidal()
 
@@ -158,9 +169,15 @@ The unit here is the initial object (empty set), exposed as `EMPTY` from `quiver
 
 Change the enriching algebra without changing the structure of morphisms. [`BaseChange`](../api/categorical/base_change.md) is an ABC; concrete instances are `BoolToFuzzy` and `FuzzyToBool`:
 
+<!-- python: skip -->
 ```python
 from quivers.categorical.base_change import BoolToFuzzy, FuzzyToBool
 from quivers.core.algebras import BOOLEAN, PRODUCT_FUZZY
+from quivers.core.objects import FinSet
+from quivers.core.morphisms import morphism
+
+X = FinSet(name="X", cardinality=3)
+Y = FinSet(name="Y", cardinality=4)
 
 # fuzzy → boolean via thresholding
 fuzzy_morph = morphism(X, Y, algebra=PRODUCT_FUZZY)
@@ -186,8 +203,11 @@ $$
 
 This is useful for feedback and recursive definitions. The free function [`trace`](../api/categorical/traced.md) wraps a [`CartesianTrace`](../api/categorical/traced.md):
 
+<!-- python: skip -->
 ```python
 from quivers.categorical.traced import trace
+from quivers.core.objects import FinSet
+from quivers.core.morphisms import morphism
 
 X = FinSet(name="X", cardinality=2)
 Y = FinSet(name="Y", cardinality=3)

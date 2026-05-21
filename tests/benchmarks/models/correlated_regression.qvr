@@ -9,14 +9,11 @@
 # off-diagonal correlation. AutoNormalGuide (mean-field) collapses
 # the off-diagonal to zero; AutoMultivariateNormalGuide and HMC
 # recover it. Used as the Tier-3 algorithm-separation benchmark.
-
-object Obs : 50
-
+object Obs : FinSet 50
 program correlated_regression : Obs -> Obs
-    a <- Normal(0.0, 1.0)
-    b <- Normal(0.0, 1.0)
+    sample a <- Normal(0.0, 1.0)
+    sample b <- Normal(0.0, 1.0)
     let mu = a + b * x_design
     observe y : Obs <- Normal(mu, 0.5)
     return mu
-
 export correlated_regression

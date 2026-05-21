@@ -4,11 +4,11 @@ Each public function takes a typeclass instance and a small set of
 representative inputs, then asserts the relevant law(s) hold to within
 numerical tolerance. The law-suite is exercised by
 ``tests/test_typeclasses.py`` against every stdlib instance in
-:mod:`quivers.monadic.instances` and against any user-defined
+[`quivers.monadic.instances`][quivers.monadic.instances] and against any user-defined
 instance the test author cares to register.
 
 The laws are *also* registered declaratively as equations in the
-panproto theories of :mod:`quivers.monadic.theories`; the dual
+panproto theories of [`quivers.monadic.theories`][quivers.monadic.theories]; the dual
 encoding (Python predicate + panproto equation) is intentional, so
 that:
 
@@ -41,7 +41,7 @@ _TOL = 1e-5
 
 
 def _close(t1: torch.Tensor, t2: torch.Tensor) -> bool:
-    """Tensor approximate equality within :data:`_TOL`."""
+    """Tensor approximate equality within `_TOL`."""
     if t1.shape != t2.shape:
         return False
     return bool(torch.allclose(t1, t2, atol=_TOL, rtol=_TOL))
@@ -57,7 +57,7 @@ def check_functor_laws(
     - identity:    ``F(id_A) = id_{F(A)}``
     - composition: ``F(g ∘ f) = F(g) ∘ F(f)``
 
-    Raises :exc:`AssertionError` on violation.
+    Raises `AssertionError` on violation.
     """
     from quivers.core.morphisms import identity as id_
 
@@ -86,7 +86,7 @@ def check_applicative_laws(
     morphism on a concrete value (here ``x_A``); the laws are asserted
     on the evaluated tensor.
 
-    Raises :exc:`AssertionError` on violation.
+    Raises `AssertionError` on violation.
     """
     # Identity law: apply(pure(id), v) = v
     pure_id_A = inst.pure(A).tensor  # η_A : A → F(A)
@@ -116,7 +116,7 @@ def check_monad_laws(
     - right unit:    ``join_A ∘ F(pure_A) = id_{F(A)}``
     - associativity: ``join ∘ F(join) = join ∘ join_{F(F(A))}``
 
-    Raises :exc:`AssertionError` on violation. Implementation is
+    Raises `AssertionError` on violation. Implementation is
     instance-specific because ``join`` and ``pure`` interact with the
     instance's particular endofunctor; the default body is a guarded
     no-op pending per-instance overrides.
@@ -141,7 +141,7 @@ def check_alternative_laws(
     - identity:      ``alt(empty, x) = x = alt(x, empty)``
     - associativity: ``alt(alt(x, y), z) = alt(x, alt(y, z))``
 
-    Raises :exc:`AssertionError` on violation.
+    Raises `AssertionError` on violation.
     """
     _ = (inst, A, x, y)
 

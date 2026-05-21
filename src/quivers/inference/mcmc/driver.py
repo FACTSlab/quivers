@@ -1,6 +1,6 @@
 """MCMC orchestrator: chains, warmup, and posterior diagnostics.
 
-The :class:`MCMC` driver wraps a :class:`MCMCKernel` and applies
+The `MCMC` driver wraps a `MCMCKernel` and applies
 it to a model: it builds the registry, draws an initial position
 (from the prior, an existing guide, or a user-supplied dict),
 runs ``num_warmup`` adaptation steps with
@@ -10,10 +10,10 @@ post-warmup samples per chain.
 
 Chains are run sequentially within a process. For parallel chains
 across a real multi-core / multi-GPU workload, wrap an
-:class:`MCMC` instance in a :class:`torch.multiprocessing` pool —
+`MCMC` instance in a `torch.multiprocessing` pool —
 the driver is stateless across runs.
 
-The result is an :class:`MCMCResult` carrying per-site posterior
+The result is an `MCMCResult` carrying per-site posterior
 draws (already pushed through the constraint bijectors so they
 sit in the model's natural support) plus split-:math:`\\hat R`
 (Vehtari et al. 2021, `doi:10.1214/20-BA1221
@@ -64,7 +64,7 @@ class MCMCResult:
         site's shape (one scalar per coordinate).
     ess : dict[str, torch.Tensor]
         Per-site effective sample size. Same shape convention as
-        :attr:`r_hat`.
+        `r_hat`.
     num_warmup : int
     num_samples : int
     """
@@ -180,7 +180,7 @@ class MCMC:
     Parameters
     ----------
     kernel : MCMCKernel
-        Markov kernel (e.g. :class:`HMCKernel`, :class:`NUTSKernel`).
+        Markov kernel (e.g. `HMCKernel`, `NUTSKernel`).
     num_warmup : int
         Number of adaptation steps. The kernel's adaptation
         machinery (dual averaging, Welford covariance) runs over

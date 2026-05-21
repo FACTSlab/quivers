@@ -13,14 +13,15 @@ The free diagonal $\psi$ distinguishes factor analysis from [probabilistic PCA](
 ## QVR Source
 
 ```qvr
-algebra real
+composition real as algebra
 
-object LatentDim : 2
-object ObsDim : 3
-object Item : 200
+object LatentDim : FinSet 2
+object ObsDim : FinSet 5
+object Item : FinSet 64
 
-latent Z : Item -> LatentDim
-latent W : LatentDim -> ObsDim ~ MatrixNormal(0.0, 1.0, 1.0) over (dom, cod)
+morphism Z : Item -> LatentDim [role=latent]
+
+morphism W : LatentDim -> ObsDim [role=latent]
 
 let factor_analysis = Z >> W
 
@@ -35,7 +36,7 @@ The top-level morphism prior
 
 <!-- compile: false -->
 ```qvr
-latent W : LatentDim -> ObsDim ~ MatrixNormal(0.0, 1.0, 1.0) over (dom, cod)
+morphism W : LatentDim -> ObsDim [role=latent] ~ MatrixNormal(0.0, 1.0, 1.0) over (dom, cod)
 ```
 
 places a [`MatrixNormal`](../api/continuous/families.md#quivers.continuous.families.ConditionalMatrixNormal) prior on the loading matrix. The two axes named under `over (dom, cod)` bind positionally to the family's event axes: `LatentDim` is the row axis carrying the row-covariance argument, `ObsDim` is the column axis carrying the column-covariance argument. The [Kronecker covariance](https://en.wikipedia.org/wiki/Kronecker_product) structure expresses independent row and column correlation in the loadings, the natural prior for a low-rank factor decomposition.
@@ -44,36 +45,73 @@ The distinction between factor analysis and PPCA appears in the observation nois
 
 ## Try it
 
+> The SVI step counts and NUTS warmup, sample, and chain budgets in the snippets below are illustrative: each block is sized to run in tens of seconds and demonstrate the API surface. Production fits typically need 10x to 100x more SVI steps, longer NUTS warmup, and multiple chains to actually converge to the data-generating parameters.
+
+
+### Generating synthetic data
+
 ```python
 import torch
+import torch.distributions as D
 from quivers.dsl import load
 
 torch.manual_seed(0)
-
 prog = load("docs/examples/source/factor_analysis.qvr")
-model = prog.morphism
+fa   = prog.morphism
 
-# Fit the deterministic low-rank composition Z @ W to a data
-# matrix Y. Recovery is up to the rotation invariance of factor
-# analysis, so we check W Wt rather than W itself.
-N, D, K = 200, 3, 2
-W_true = torch.randn(K, D)
-Z_true = torch.randn(N, K)
-Y = Z_true @ W_true + 0.1 * torch.randn(N, D)
-
-opt = torch.optim.Adam(prog.parameters(), lr=5e-2)
-for _ in range(500):
-    opt.zero_grad()
-    loss = (model.tensor - Y).pow(2).mean()
-    loss.backward()
-    opt.step()
-
-W_fit = model.right.tensor
-print("W^T W (fit):", W_fit.T @ W_fit)
-print("W^T W (true):", W_true.T @ W_true)
+N, K, Dn = 64, 2, 5
+W_true   = torch.randn(K, Dn)
+Z_true   = torch.randn(N, K)
+psi_true = 0.3
+Y        = Z_true @ W_true + psi_true * torch.randn(N, Dn)
 ```
 
-Factor analysis is identifiable only up to a $K \times K$ orthogonal rotation of $W$, so the rotation-invariant covariance $W^\top W$ is the correct recovery target rather than $W$ itself.
+### SVI fit
+
+```python
+from quivers.inference import (
+    AutoNormalGuide, ELBO, SVI, lift_to_bayesian_program,
+)
+
+model, x_in, observations = lift_to_bayesian_program(
+    prog,
+    location_fn=lambda _: prog.morphism.tensor,
+    parameter_prior_scale=1.0,
+    observation_family=D.Normal,
+    observation_kwargs={"scale": 0.3},
+    target_key="Y",
+    x=torch.zeros(N, 1),
+    observations={"Y": Y},
+)
+
+torch.manual_seed(1)
+guide = AutoNormalGuide(model, observed_names={"Y"})
+optim = torch.optim.Adam(
+    list(model.parameters()) + list(guide.parameters()), lr=5e-2,
+)
+svi = SVI(model, guide, optim, ELBO(num_particles=1))
+
+losses = [svi.step(x_in, observations) for _ in range(200)]
+print(f"initial loss: {losses[0]:.2f}")
+print(f"final loss:   {losses[-1]:.2f}")
+```
+
+Factor analysis is identifiable only up to a $K \times K$ orthogonal rotation of $W$, so the rotation-invariant covariance $W^\top W$ is the natural recovery target rather than $W$ itself.
+
+### NUTS posterior
+
+```python
+from quivers.inference import MCMC, NUTSKernel
+
+torch.manual_seed(2)
+kernel = NUTSKernel(step_size=0.05, max_tree_depth=3, target_accept=0.8)
+mc     = MCMC(kernel, num_warmup=15, num_samples=15, num_chains=1)
+result = mc.run(model, x_in, observations)
+
+print(f"acceptance:  {float(result.acceptance_rates.mean()):.2f}")
+print(f"divergences: {int(result.divergence_counts.sum())}")
+```
+
 
 ## Categorical Perspective
 

@@ -10,13 +10,16 @@
       "include": "#comment-doc"
     },
     {
+      "include": "#pragma"
+    },
+    {
+      "include": "#block-comment"
+    },
+    {
       "include": "#comment"
     },
     {
       "include": "#string"
-    },
-    {
-      "include": "#keyword-effect"
     },
     {
       "include": "#keyword-control"
@@ -25,10 +28,16 @@
       "include": "#keyword-declaration"
     },
     {
+      "include": "#keyword-composition-level"
+    },
+    {
       "include": "#keyword-structural"
     },
     {
       "include": "#keyword-deduction"
+    },
+    {
+      "include": "#keyword-parser"
     },
     {
       "include": "#keyword-operator"
@@ -61,11 +70,29 @@
   "repository": {
     "comment-doc": {
       "name": "comment.block.documentation.qvr",
-      "match": "##.*$"
+      "match": "#!\\s.*$"
+    },
+    "pragma": {
+      "name": "meta.attribute.qvr",
+      "begin": "#!?\\[",
+      "end": "\\]",
+      "patterns": [
+        { "include": "#string" },
+        { "include": "#numeric-literal" },
+        {
+          "name": "entity.name.tag.qvr",
+          "match": "\\b[A-Za-z_][A-Za-z0-9_]*\\b"
+        }
+      ]
     },
     "comment": {
       "name": "comment.line.number-sign.qvr",
-      "match": "#.*$"
+      "match": "#(?![!\\[{]).*$"
+    },
+    "block-comment": {
+      "name": "comment.block.qvr",
+      "begin": "#\\{",
+      "end": "\\}#"
     },
     "string": {
       "name": "string.quoted.double.qvr",
@@ -80,23 +107,27 @@
     },
     "keyword-control": {
       "name": "keyword.control.qvr",
-      "match": "\\b(observe|return|let|program|marginalize|in|for|where|export|output|alias|bundle|via)\\b"
+      "match": "\\b(sample|observe|marginalize|score|return|let|where|in|from|as|over|export)\\b"
     },
     "keyword-declaration": {
       "name": "keyword.declaration.qvr",
-      "match": "\\b(algebra|semigroupoid|bilinear_form|composition_rule|contraction|wiring|category|object|space|latent|observed|stochastic|continuous|discretize|embed|type|schema|rule)\\b"
+      "match": "\\b(composition|contraction|category|object|morphism|schema|rule|bundle|program|deduction|signature|encoder|decoder|loss)\\b"
+    },
+    "keyword-composition-level": {
+      "name": "storage.modifier.qvr",
+      "match": "\\b(algebra|semigroupoid|bilinear_form)\\b"
     },
     "keyword-structural": {
       "name": "keyword.declaration.structural.qvr",
-      "match": "\\b(signature|encoder|decoder|loss|sorts|constructors|binders|vertex_kinds|edge_kinds|binds|dim|vocab|weight|on|of|chart|iterations|readout|init|message|update|var_init|as|recurrent|attention|structure|primitive|factor|binder_select|body|recursive|data|index)\\b"
+      "match": "\\b(sorts|constructors|binders|vertex_kinds|edge_kinds|binds|dim|iterations|readout|init|message|update|var_init|recurrent|attention|structure|primitive|factor|binder_select|body|recursive|data|index)\\b"
     },
     "keyword-deduction": {
       "name": "keyword.declaration.deduction.qvr",
-      "match": "\\b(deduction|atoms|semiring|start|depth|lexicon|from|with|axioms|learnable|compressor)\\b"
+      "match": "\\b(atoms|lexicon)\\b"
     },
-    "keyword-effect": {
-      "name": "keyword.other.effect.qvr",
-      "match": "\\b(Pure|Sample|Score|Marginal|over)\\b"
+    "keyword-parser": {
+      "name": "keyword.other.parser.qvr",
+      "match": "\\b(rules|categories|terminal|start|depth|effect_depth|lex|binary|unary|ops|max_length)\\b"
     },
     "keyword-operator": {
       "patterns": [
@@ -137,11 +168,11 @@
     },
     "builtin-function": {
       "name": "support.function.builtin.qvr",
-      "match": "\\b(sigmoid|exp|log|abs|softplus|cumsum|softmax|log_softmax|softmax_rows|log1p|sqrt|neg|tanh|relu|length|map|filter|fold|logsumexp|logsumexp_over|cholesky_quad_form|sum|prod|mean|zeros|ones|identity|fan|repeat|stack|scan|parser|ccg|lambek|chart_fold|parse|curry_right|curry_left|from_data|freeze|FreeResiduated|FreeMonoid|l1_normalize|l2_normalize|bayes_invert|expectation|log_prob|max_plus|material_implication|threshold|boolean_embedding|probability_clamp|probability_to_real|counting_from_real|counting_to_real)\\b"
+      "match": "\\b(identity|cup|cap|fan|repeat|stack|scan|parser|ccg|lambek|chart_fold|from_data|freeze|dagger|trace|change_base|curry_left|curry_right|FreeResiduated|FreeMonoid)\\b"
     },
     "builtin-type": {
       "name": "support.class.builtin.qvr",
-      "match": "\\b(Euclidean|Simplex|PositiveReals|UnitInterval|ProductSpace|CholeskyFactor|FinSet|Real|Mor)\\b"
+      "match": "\\b(FinSet|Real|Simplex|Sphere|Ball|CholeskyFactor|Covariance|Correlation|Orthogonal|Stiefel|LowerTriangular|Diagonal|Mor|Space|Object|Nat)\\b"
     },
     "semiring": {
       "comment": "Semiring names recognised by `deduction { semiring … }`.",

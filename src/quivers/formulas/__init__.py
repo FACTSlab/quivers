@@ -11,13 +11,13 @@ that route through the existing QVR DSL surface:
 * responses as ``observe`` sites with the family-link kernel
   (Gaussian / Bernoulli / Categorical / Poisson / NegBin /
   Cumulative / Beta / Gamma / Student-t / ZIP / hurdle / mixture)
-  registered in :mod:`quivers.formulas.family`.
+  registered in [`quivers.formulas.family`][quivers.formulas.family].
 
 The implementation reuses [`formulae`](https://bambinos.github.io/formulae/)
 for formula parsing (the Bambi team's pure-Python parser; supports
 brms-style ``(slope | group)`` random effects, smooth terms, and
-custom contrasts) and lifts the resulting :class:`DesignMatrices`
-into a typed :class:`Formula` :class:`didactic.api.Model`.
+custom contrasts) and lifts the resulting `DesignMatrices`
+into a typed `Formula` `didactic.api.Model`.
 
 The frontend is the formula→QVR direction of a panproto lens; the
 QVR DSL is the canonical source of truth, and the formula compiler

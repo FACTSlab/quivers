@@ -1,18 +1,18 @@
 """Variational guide abstract base.
 
-A :class:`Guide` is a parameterized distribution
+A `Guide` is a parameterized distribution
 :math:`q_\\phi(z \\mid x)` over a model's latent variables. The
 ABC fixes a uniform contract:
 
-* :meth:`Guide.rsample` returns a dict ``{site_name: tensor}``
+* `Guide.rsample` returns a dict ``{site_name: tensor}``
   whose per-site shapes match the model's trace-side convention
   (plate latents at ``(|A|, *B.shape)``, scalar latents at
   ``(batch, *B.shape)`` or ``(batch,)`` for scalar event shape).
-* :meth:`Guide.log_prob` evaluates the variational density of a
+* `Guide.log_prob` evaluates the variational density of a
   per-site dict and returns a ``(batch,)``-shaped tensor.
 
-Every concrete subclass under :mod:`quivers.inference.guides` is
-constructed against a :class:`~quivers.inference.registry.LatentRegistry`
+Every concrete subclass under [`quivers.inference.guides`][quivers.inference.guides] is
+constructed against a `quivers.inference.registry.LatentRegistry`
 — no per-guide model walk. New guides supply the *variational
 family's structure* (Normal vs MVN vs flow), not its
 introspection.
@@ -32,9 +32,9 @@ from quivers.inference.registry import LatentRegistry
 class Guide(nn.Module, ABC):
     """Abstract variational guide.
 
-    Subclasses MUST implement :meth:`rsample` and :meth:`log_prob`
-    and expose :attr:`latent_names`. They MAY override
-    :attr:`registry` if they construct their registry lazily, but
+    Subclasses MUST implement `rsample` and `log_prob`
+    and expose `latent_names`. They MAY override
+    `registry` if they construct their registry lazily, but
     the default implementation expects ``self._registry`` to be
     set in ``__init__``.
     """
@@ -48,14 +48,14 @@ class Guide(nn.Module, ABC):
         observed_names: set[str] | frozenset[str],
     ) -> LatentRegistry:
         """Convenience wrapper around
-        :meth:`LatentRegistry.from_model` so guide constructors
+        `LatentRegistry.from_model` so guide constructors
         can do ``self._registry = self.build_registry(model, obs)``
         without an extra import."""
         return LatentRegistry.from_model(model, observed_names)
 
     @property
     def registry(self) -> LatentRegistry:
-        """The :class:`LatentRegistry` this guide was built
+        """The `LatentRegistry` this guide was built
         against."""
         return self._registry
 

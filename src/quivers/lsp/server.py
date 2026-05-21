@@ -12,7 +12,7 @@ Capabilities (LSP 3.17):
 - ``textDocument/completion``
 - ``textDocument/formatting``
 
-The server holds per-URI :class:`DocumentState` and re-analyses on
+The server holds per-URI `DocumentState` and re-analyses on
 every change. All token classification, completion, and rendering
 logic is shared with the REPL so the in-editor experience matches the
 TUI exactly.
@@ -32,16 +32,22 @@ from quivers.cli.repl_highlight import (
     to_semantic_token_data,
 )
 from quivers.cli.repl_session import Diagnostic, ReplSession
-from quivers.dsl.ast_nodes import MorphismDecl, ObjectDecl, SpaceDecl
+from quivers.dsl.ast_nodes import (
+    ContinuousConstructor,
+    MorphismDecl,
+    ObjectDecl,
+    TypeFromExpr,
+    TypeInitializer,
+)
 from quivers.dsl.emit import module_to_source
 from quivers.lsp.document import DocumentState
 
 SERVER_NAME = "qvr-lsp"
-SERVER_VERSION = "0.1.0"
+SERVER_VERSION = "0.2.0"
 
 
 def build_server() -> LanguageServer:
-    """Return a configured :class:`pygls.server.LanguageServer`."""
+    """Return a configured `pygls.server.LanguageServer`."""
     server = LanguageServer(name=SERVER_NAME, version=SERVER_VERSION)
     docs: dict[str, DocumentState] = {}
 
@@ -246,6 +252,26 @@ def build_server() -> LanguageServer:
             )
         ]
 
+    # The pygls feature decorator registers each handler with the
+    # server, but the resulting name is never referenced from this
+    # function's local scope, so the linter flags it as unused. The
+    # tuple below names every handler explicitly to make the lifetime
+    # contract legible to a reader and to the type checker.
+    _registered_handlers = (
+        _did_open,
+        _did_change,
+        _did_save,
+        _did_close,
+        _semantic_tokens,
+        _hover,
+        _definition,
+        _references,
+        _symbols,
+        _completion,
+        _formatting,
+    )
+    del _registered_handlers
+
     return server
 
 
@@ -386,7 +412,7 @@ def _pretty_ast(decl) -> str:  # type: ignore[no-untyped-def]
 
 
 def _ast_lines(value, indent: int) -> str:  # type: ignore[no-untyped-def]
-    """Recursive renderer used by :func:`_pretty_ast`."""
+    """Recursive renderer used by `_pretty_ast`."""
     pad = "    " * indent
     next_pad = "    " * (indent + 1)
     # didactic models expose __field_specs__; treat them as records.
@@ -488,10 +514,20 @@ def _prefix_at(source: str, line: int, character: int) -> str:
 
 
 def _symbol_kind(stmt: Any) -> lsp.SymbolKind:
+    """Classify a top-level decl as a Class / Struct / Function symbol.
+
+    For a `ObjectDecl`, peek at the initializer's inner expression
+    to distinguish discrete objects (``Class``) from continuous spaces
+    (``Struct``). Unwrapped or aliased forms default to ``Class``.
+    """
     if isinstance(stmt, ObjectDecl):
+        init: TypeInitializer = stmt.init
+        if isinstance(init, TypeFromExpr) and isinstance(
+            init.expr,
+            ContinuousConstructor,
+        ):
+            return lsp.SymbolKind.Struct
         return lsp.SymbolKind.Class
-    if isinstance(stmt, SpaceDecl):
-        return lsp.SymbolKind.Struct
     if isinstance(stmt, MorphismDecl):
         return lsp.SymbolKind.Function
     return lsp.SymbolKind.Variable

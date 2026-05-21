@@ -1,32 +1,32 @@
 """Gradient estimators for variational objectives.
 
-A :class:`GradientEstimator` is the strategy that takes (latent
+A `GradientEstimator` is the strategy that takes (latent
 samples, model log-density, guide log-density) and returns a
 scalar loss whose ``backward()`` produces the chosen gradient
 estimator. Different strategies trade variance against
 applicability:
 
-* :class:`Reparameterized` — pathwise gradient (the standard SVI
+* `Reparameterized` — pathwise gradient (the standard SVI
   reparameterization trick). Lowest variance for reparameterizable
   families; requires ``rsample``.
-* :class:`StickingTheLanding` — detaches the variational-parameter
+* `StickingTheLanding` — detaches the variational-parameter
   dependence in :math:`\\log q_\\phi(z)` so the gradient variance
   asymptotically vanishes as :math:`q \\to p^*`
   (Roeder-Wu-Duvenaud 2017,
   `doi:10.48550/arXiv.1703.09194 <https://doi.org/10.48550/arXiv.1703.09194>`_).
-* :class:`DoublyReparameterized` — the DReG estimator for IWAE
+* `DoublyReparameterized` — the DReG estimator for IWAE
   (Tucker-Lawson-Gu-Maddison 2019,
   `doi:10.48550/arXiv.1810.04152 <https://doi.org/10.48550/arXiv.1810.04152>`_).
   Removes the score-function term whose variance grows with the
   particle count :math:`K`.
-* :class:`ScoreFunction` — REINFORCE / black-box VI. The
+* `ScoreFunction` — REINFORCE / black-box VI. The
   fallback for non-reparameterizable sites (discrete latents,
   reject-sampled families). Highest variance; pair with a
   baseline whenever possible.
 
-Estimators are *strategies* held by :class:`Objective`
+Estimators are *strategies* held by `Objective`
 implementations; they don't store any state themselves and
-operate on tensors only. The :class:`Reparameterized` instance
+operate on tensors only. The `Reparameterized` instance
 is a singleton — every objective defaults to it.
 """
 
@@ -41,7 +41,7 @@ class GradientEstimator(ABC):
     """Strategy for computing :math:`\\nabla_\\phi \\mathcal{L}` from
     samples + densities.
 
-    Subclasses implement :meth:`negative_objective`: given the
+    Subclasses implement `negative_objective`: given the
     per-particle ``log_p`` and ``log_q`` tensors (and any
     estimator-specific auxiliary data), return the *negated*
     objective whose ``backward()`` produces the desired gradient

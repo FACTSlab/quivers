@@ -7,12 +7,9 @@
 # Used as a Tier-1 benchmark for the inference layer: any guide
 # whose family contains a tight Beta-shaped distribution should
 # recover the analytical posterior mean to within a small tolerance.
-
-object Obs : 50
-
+object Obs : FinSet 50
 program beta_bernoulli : Obs -> Obs
-    theta <- Beta(2.0, 2.0)
+    sample theta <- Beta(2.0, 2.0)
     observe y : Obs <- Bernoulli(theta)
     return theta
-
 export beta_bernoulli

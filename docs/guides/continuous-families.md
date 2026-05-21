@@ -62,6 +62,7 @@ from quivers.continuous.families import (
 For $\mathbb{R}_{>0}$ output:
 
 ```python
+import torch
 from quivers.continuous.families import (
     ConditionalExponential,
     ConditionalGamma,
@@ -71,6 +72,11 @@ from quivers.continuous.families import (
     ConditionalHalfCauchy,
     ConditionalHalfNormal,
 )
+from quivers.continuous.spaces import Euclidean
+
+domain = Euclidean(name="X", dim=5)
+codomain = Euclidean(name="Y", dim=3)
+x = torch.randn(8, 5)
 
 gamma = ConditionalGamma(domain, codomain)
 samples = gamma.rsample(x)  # positive
@@ -102,6 +108,9 @@ from quivers.continuous.families import (
     ConditionalGaussianProcess,
     ConditionalHorseshoe,
 )
+from quivers.continuous.spaces import Euclidean
+
+domain = Euclidean(name="X", dim=5)
 
 # Multivariate normal with learned mean and cov
 mvn = ConditionalMultivariateNormal(domain, Euclidean(name="Y", dim=5))
@@ -144,6 +153,9 @@ auto-substituting.
 
 ```python
 from quivers.continuous.families import ConditionalMatrixNormal
+from quivers.continuous.spaces import Euclidean
+
+domain = Euclidean(name="X", dim=5)
 
 # Matrix-valued kernel: domain -> R^(rows*cols), with samples
 # reshaped to (rows, cols) and Kronecker covariance Sigma = V (x) U.
@@ -166,6 +178,9 @@ covariance.
 
 ```python
 from quivers.continuous.families import ConditionalInverseWishart
+from quivers.continuous.spaces import Euclidean
+
+domain = Euclidean(name="X", dim=5)
 
 # Conjugate prior on a d-dim covariance matrix.  Realized as the
 # inversion of a Wishart sample with the correct symmetric-matrix
@@ -184,6 +199,10 @@ the log-density.
 
 ```python
 from quivers.continuous.families import ConditionalLKJCholesky
+from quivers.continuous.spaces import Euclidean
+
+domain = Euclidean(name="X", dim=5)
+d = 4
 
 lkj = ConditionalLKJCholesky(
     domain, Euclidean(name="L", dim=d),
@@ -201,6 +220,10 @@ correlation matrices).
 
 ```python
 from quivers.continuous.families import ConditionalWishart
+from quivers.continuous.spaces import Euclidean
+
+domain = Euclidean(name="X", dim=5)
+d = 4
 
 wishart = ConditionalWishart(
     domain, Euclidean(name="Sigma", dim=d),
@@ -271,7 +294,10 @@ maps $(0, \infty)$ to $(0, 1)$ with Jacobian
 $(\pi / 2) \sec^2(\pi t / 2)$.
 
 ```python
+import torch
 from quivers.continuous.families import ConditionalHorseshoe
+from quivers.continuous.spaces import Euclidean
+from quivers.core.objects import FinSet
 
 hs = ConditionalHorseshoe(
     FinSet(name="A", cardinality=4),

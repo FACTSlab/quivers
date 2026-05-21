@@ -7,6 +7,7 @@ Tests all the new features we've built:
 """
 
 from __future__ import annotations
+import textwrap
 
 import unittest
 
@@ -24,7 +25,13 @@ from quivers.inference.svi import SVI
 from quivers.inference.predictive import Predictive
 from quivers.dsl.parser import parse
 from quivers.dsl.compiler import Compiler
-from quivers.dsl.ast_nodes import BindStep, LetStep, LetExprBinOp, LetExprCall
+from quivers.dsl.ast_nodes import (
+    LetStep,
+    LetExprBinOp,
+    LetExprCall,
+    SampleStep,
+    ObserveStep,
+)
 
 
 # ============================================================================
@@ -97,12 +104,12 @@ def _create_program_with_observe() -> MonadicProgram:
 
 def parse_dsl(src: str):
     """Parse DSL source code and return the AST."""
-    return parse(src)
+    return parse(textwrap.dedent(src))
 
 
 def compile_dsl(src: str) -> dict:
     """Compile DSL source code and return the compiled environment."""
-    ast = parse(src)
+    ast = parse(textwrap.dedent(src))
     return Compiler(ast).compile_env()
 
 
@@ -494,7 +501,7 @@ class TestDSLObserve(unittest.TestCase):
         """Parser produces a BindStep with mode='score' for observe."""
         src = """
 program test : Unit -> R1
-    x <- prior
+    sample x <- prior
     observe y <- likelihood(x)
     return y
 """
@@ -508,16 +515,15 @@ program test : Unit -> R1
                 break
 
         assert prog_decl is not None
-        # second step should be a score-mode BindStep
+        # second step is the surface ObserveStep
         observe_step = prog_decl.draws[1]
-        assert isinstance(observe_step, BindStep)
-        assert observe_step.mode == "score"
+        assert isinstance(observe_step, ObserveStep)
 
     def test_parse_observe_with_args(self):
         """Parser handles observe with arguments."""
         src = """
 program test : Unit -> R1
-    x <- prior
+    sample x <- prior
     observe y <- likelihood(x)
     return y
 """
@@ -530,7 +536,7 @@ program test : Unit -> R1
                 break
 
         observe_step = prog_decl.draws[1]
-        assert observe_step.mode == "score"
+        assert isinstance(observe_step, ObserveStep)
         assert observe_step.args is not None
         assert "x" in observe_step.args
 
@@ -538,7 +544,7 @@ program test : Unit -> R1
         """Parse distinguishes sample-mode and score-mode binds."""
         src = """
 program test : Unit -> R1
-    x <- prior
+    sample x <- prior
     observe y <- likelihood(x)
     return y
 """
@@ -553,8 +559,8 @@ program test : Unit -> R1
         draw_step = prog_decl.draws[0]
         observe_step = prog_decl.draws[1]
 
-        assert draw_step.mode == "sample"
-        assert observe_step.mode == "score"
+        assert isinstance(draw_step, SampleStep)
+        assert isinstance(observe_step, ObserveStep)
 
 
 # ============================================================================
@@ -569,7 +575,7 @@ class TestExpressionLetBindings(unittest.TestCase):
         """Parser handles let z = x * 0.5."""
         src = """
 program test : Unit -> R1
-    x <- prior
+    sample x <- prior
     let z = x * 0.5
     return z
 """
@@ -591,8 +597,8 @@ program test : Unit -> R1
         """Parser handles let z = x + y."""
         src = """
 program test : Unit -> R1
-    x <- prior
-    y <- prior
+    sample x <- prior
+    sample y <- prior
     let z = x + y
     return z
 """
@@ -613,7 +619,7 @@ program test : Unit -> R1
         """Parser handles let z = sigmoid(x)."""
         src = """
 program test : Unit -> R1
-    x <- prior
+    sample x <- prior
     let z = sigmoid(x)
     return z
 """
@@ -634,7 +640,7 @@ program test : Unit -> R1
         """Parser handles let z = sigmoid(x) * 0.5 + 0.25."""
         src = """
 program test : Unit -> R1
-    x <- prior
+    sample x <- prior
     let z = sigmoid(x) * 0.5 + 0.25
     return z
 """
@@ -667,11 +673,11 @@ class TestDSLObserveExecution(unittest.TestCase):
 space Unit : 1
 space R1 : Euclidean(1)
 
-latent prior : Unit -> R1
-latent likelihood : R1 -> R1
+morphism prior : Unit -> R1 [role=latent]
+morphism likelihood : R1 -> R1 [role=latent]
 
 program test : Unit -> R1
-    x <- prior
+    sample x <- prior
     observe y <- likelihood(x)
     return y
 """

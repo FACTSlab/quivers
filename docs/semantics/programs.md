@@ -167,7 +167,7 @@ Two names overload between the table and the higher-order combinator pool: `logs
 
 Calls in let bodies also resolve against the program's own [`_morphisms`](../api/dsl/compiler.md), [`_encoders`](../api/dsl/compiler.md), [`_decoders`](../api/dsl/compiler.md), [`_deductions`](../api/dsl/compiler.md), and [`_signatures`](../api/dsl/compiler.md) tables. A deterministic [`program`](programs.md) is a [Dirac](https://en.wikipedia.org/wiki/Dirac_measure) [Kleisli arrow](https://en.wikipedia.org/wiki/Kleisli_category) embedding [Smooth](https://en.wikipedia.org/wiki/Smooth_manifold) into [Kleisli](https://en.wikipedia.org/wiki/Kleisli_category)$(\mathcal{G})$; calling it from an encoder rule body composes the two Smooth pieces and stays in Smooth.
 
-```qvr
+```text
 signature Seq {
     sorts {
         Seq : object dim 64
@@ -225,7 +225,7 @@ with density $\prod_{a \in A} p_F\bigl(v(a) \,;\, \theta_F(\bar a, \phi)\bigr)$ 
 An indexed-observe statement
 
 ```
-observe r : N <- F(args)
+observe r : N <- F(args) [via = idx]
 ```
 
 denotes a sub-probabilistic Kleisli arrow in $\mathcal{G}_{\le 1}$,
@@ -238,12 +238,18 @@ $$
 
 Bracket-indexed family arguments `theta[N]` in $\bar a$ pick out the $N$-section of a previously-bound plate variable. The response buffer $r_{\mathrm{obs}} : N \to \llbracket \mathsf{cod}(F) \rrbracket$ is supplied externally by the inference layer; the trace context is preserved and the total mass of the resulting measure is the batched likelihood.
 
+The optional `via = idx` entry in the unified option block names a fibration into a grouping plate ([§2.7](#27-grouped-marginalize-with-multi-observe-fibration)); the bare-statement form omits it.
+
 ### 2.6 Marginalize
 
 A scoped marginalize statement
 
 ```
-marginalize c : A <- F(args) in { s₁; …; sₖ }
+marginalize c : A <- F(args)
+    s₁
+    s₂
+    ⋮
+    sₖ
 ```
 
 introduces the coordinate $c$ bound to $F(\bar a)$, optionally $A$-indexed, with $s_1; \ldots; s_k$ as its integration scope. After interpreting the scope body, the accumulated (sub-)probability measure on $\Phi \times C$ is pushed forward through the projection $\pi_{\Phi} : \Phi \times C \to \Phi$:
@@ -260,17 +266,16 @@ The four bind variants, scalar, indexed, scored, marginalized, are uniformly a s
 
 ### 2.7 Grouped marginalize with multi-observe fibration
 
-The marginalize step admits a *grouping clause* that turns the body into a fibered scoring problem over a shared plate.  The surface is
+The marginalize step admits a *grouping clause* that turns the body into a fibered scoring problem over a shared plate. The clause lives in the marginalize step's option block, alongside an optional reduction selector; the body's observe steps each carry their own `via = idx` fibration in their option blocks:
 
 ```
-marginalize c : K <- F(args) over G [reduction = R] in {
-    observe r_1 : N_1 via idx_1 <- F_1(...)
-    observe r_2 : N_2 via idx_2 <- F_2(...)
-    …
-}
+marginalize c : K <- F(args) [over = G, reduction = R]
+    observe r_1 : N_1 <- F_1(...) [via = idx_1]
+    observe r_2 : N_2 <- F_2(...) [via = idx_2]
+    ⋮
 ```
 
-with a single `over G` clause on the header (or `over G_1 * G_2 * …` for a product grouping plate) and a `via idx_m` clause on each observe naming a fibration $\iota_m : N_m \to G$ from that observe's response plate into the shared grouping plate.
+with a single `over = G` entry on the marginalize step (or `over = product(G_1, G_2, …)` / `over = [G_1, G_2, …]` for a product grouping plate) and a `via = idx_m` entry on each observe naming a fibration $\iota_m : N_m \to G$ from that observe's response plate into the shared grouping plate.
 
 Categorically: the body declares a coproduct fibration $\coprod_m r_m : \coprod_m N_m \to G \times K$, and the marginalize step is the right Kan extension along $\pi_G : G \times K \to G$ followed by an aggregation $R$ over the $K$ axis:
 
@@ -284,10 +289,10 @@ The product-grouping case `over G_1 * G_2 * …` paired with `via product(idx_1,
 
 ### 2.8 Effect signatures
 
-A `program` declaration may carry an *effect signature* after `!`:
+A `program` declaration may carry an *effect signature* via the `effects` entry of its option block:
 
 ```
-program P (params) : τ₁ -> τ₂ ! E₁, E₂, …
+program P (params) : τ₁ -> τ₂ [effects = [E₁, E₂, …]]
     body
 ```
 
@@ -303,13 +308,14 @@ Each statement form contributes an effect:
 | `observe r : N <- F(args)` | $\mathsf{Score}$ |
 | `marginalize c <- F(args) in { … }` | $\mathsf{Marginal}$ (plus the effects of the scope body) |
 | `let v = expr` | $\mathsf{Pure}$ |
+| `score v = expr` | $\mathsf{Score}$ |
 | `return e` | $\mathsf{Pure}$ |
 
 The compiler computes the *actual* effect set $\mathcal{E}(P)$ of the body and verifies $\mathcal{E}(P) \subseteq \mathcal{E}_{\mathrm{decl}}$. The signature $\{\mathsf{Pure}\}$ in particular rejects any sample / score / marginal statement, restricting the body to `let` (and a `marginalize` whose own scope is itself pure).
 
 Categorically, effects index the codomain monad of the program's denotation: $\mathsf{Pure}$ programs denote ordinary measurable maps $\tau_1 \to \tau_2$; $\mathsf{Sample}$ programs denote Kleisli arrows in $\mathcal{G}$; $\mathsf{Score}$ programs land in $\mathcal{G}_{\le 1}$; $\mathsf{Marginal}$ programs commute with right Kan extensions along discrete fibrations. The effect-set inclusion is therefore a soundness condition on the monad: the actual codomain monad must be a sub-monad of the declared one.
 
-The `over <model>` clause on a program header marks the program as consuming the named model's latents: the consumed coordinates appear as data parameters and the body is restricted to $\mathsf{Pure}$ (a *posterior consumer*, the deterministic Kleisli arrow $\Theta \to \tau_2$ that lifts to $\mathrm{Data} \to \mathcal{G}(\tau_2)$ by post-composition with the model's posterior kernel).
+The `over = <model>` entry in a program's option block marks the program as consuming the named model's latents: the consumed coordinates appear as data parameters and the body is restricted to $\mathsf{Pure}$ (a *posterior consumer*, the deterministic Kleisli arrow $\Theta \to \tau_2$ that lifts to $\mathrm{Data} \to \mathcal{G}(\tau_2)$ by post-composition with the model's posterior kernel).
 
 ### 2.9 Indexed Gather (Let-Pullback)
 
@@ -326,6 +332,28 @@ $$
 \;=\;
 \delta_{(\phi,\, \phi.\mathit{arr}[\phi.\mathit{idx}])}.
 $$
+
+### 2.7a Score (factor)
+
+A score statement
+
+```
+score v = expr
+```
+
+denotes a Kleisli arrow that simultaneously (i) binds the value of `expr` to a fresh name `v` in the program trace, and (ii) adds that value to the program's running log-joint. As a sub-probabilistic Kleisli arrow in $\mathcal{G}_{\le 1}$,
+
+$$
+\mathcal{S}\llbracket \mathsf{score}\ v = \mathit{expr} \rrbracket : \Phi \to \mathcal{G}_{\le 1}(\Phi \times T),
+\qquad
+\mathcal{S}\llbracket \mathsf{score}\ v = \mathit{expr} \rrbracket(\phi,\, B \times C) \;=\; \mathbf{1}_B(\phi) \cdot \mathbf{1}_C\bigl(h(\phi)\bigr) \cdot \exp\bigl(h(\phi)\bigr),
+$$
+
+where $h : \Phi \to \mathbb{R}$ is the measurable map denoted by `expr` (which must denote a scalar log-density). The trace context is extended with the named coordinate, and the total mass of the resulting sub-probability measure is multiplied by $\exp(h(\phi))$.
+
+Score is the Kleisli pendant of [observe](#22-observe), with the log-density supplied directly by an expression rather than via a family's `log_prob` against an externally-supplied observed value. The canonical use is to lift an arbitrary differentiable tensor expression (typically a deduction's chart goal weight, see [Weighted Deduction Fragment §10](grammar.md#10-chart-access-from-program-bodies)) into the program's log-joint. In particular, with $\mathit{expr} = \mathit{chart}.\mathsf{goal\_weight}()$ the program's log-joint matches the sentence's inside log-marginal under the referenced deduction.
+
+The effect contributed by a score step is $\mathsf{Score}$ (the same as `observe`), and the soundness condition $\mathcal{E}(P) \subseteq \mathcal{E}_{\mathrm{decl}}$ in [§2.8](#28-effect-signatures) applies unchanged.
 
 ### 2.10 Return
 
@@ -429,3 +457,293 @@ These are valid statements about denotations of QVR programs; in particular, the
 ## 6. Inference and conditioning
 
 The denotation of a program is a *kernel*, not yet a posterior. Conditioning on observed data, normalization, and approximate posterior inference are *external* operations on the denotation, supplied by the [`quivers.inference`](../api/inference/svi.md) module. The categorical apparatus is that of *Markov categories with conditionals* ([Cho & Jacobs 2019](https://doi.org/10.1017/S0960129518000488); [Fritz 2020](https://doi.org/10.1016/j.aim.2020.107239)); the implementation realizes trace-based conditioning and stochastic variational inference as concrete instances of that theory.
+
+## 7. Bayesian lifts
+
+A `program` whose body lacks explicit `sample` priors on its
+learnable parameters still has a well-defined kernel denotation
+(it is a parameterised Kleisli arrow, with the parameters held
+fixed). To pass such a program to the SVI / NUTS layer, which
+operates on programs with explicit priors, the
+[`quivers.inference.lifts`](../api/inference/lifts.md) module exposes four lifts. Each lifts a
+parameter-bearing artefact into a [`MonadicProgram`](../api/continuous/programs.md#quivers.continuous.programs.MonadicProgram) of the standard
+sample-then-score shape and admits a precise semantic statement.
+
+Throughout this section let
+$\theta \in \mathbb{R}^{D}$ denote the inner artefact's
+learnable parameters (the flattened, concatenated tensor running
+over [`nn.Parameter`](https://docs.pytorch.org/docs/stable/generated/torch.nn.Parameter.html) leaves), let $\sigma_{\theta} > 0$ be a fixed
+prior scale, and let $\mathbf{z}$ name an optional collection of
+intermediate latents lifted into the program by the caller.
+
+### 7.1 Parameter-only Bayesian lift
+
+[`bayesian_lift_parameters`](../api/inference/lifts.md#quivers.inference.lifts.bayesian_lift_parameters) takes a parameter-bearing
+[`nn.Module`](https://docs.pytorch.org/docs/stable/generated/torch.nn.Module.html) `inner_model` exposing
+$\log p_{\mathrm{inner}}(\mathbf{z}, y \mid x, \theta)$ via a
+`log_joint(x, observations)` method, plus an optional
+`additional_latents` map naming intermediate latents
+$\mathbf{z}$ together with their shapes. It returns a lifted
+program whose log-joint equals
+
+$$
+\log \pi_{\mathrm{lift}}(\theta, \mathbf{z})
+\;=\;
+\log \mathcal{N}(\theta;\, 0,\, \sigma_{\theta}^{2} I_{D})
+\;+\;
+\log p_{\mathrm{inner}}(\mathbf{z}, y \mid x, \theta).
+$$
+
+**Proposition (parameter lift, exactness of placeholder cancellation).**
+Let $\sigma_{z} > 0$ be the placeholder scale supplied via
+`latent_placeholder_scale`. The lifted program declares one
+sample site $\theta_{i} \sim \mathcal{N}(0, \sigma_{\theta}^{2})$
+per parameter and one sample site
+$\mathbf{z}_{j} \sim \mathcal{N}(0, \sigma_{z}^{2} I)$ per
+declared additional latent. Its score step computes
+
+$$
+S(\theta, \mathbf{z})
+\;=\;
+\log p_{\mathrm{inner}}(\mathbf{z}, y \mid x, \theta)
+\;-\;
+\sum_{j} \log \mathcal{N}\bigl(\mathbf{z}_{j};\, 0,\, \sigma_{z}^{2} I\bigr).
+$$
+
+The total log-density assembled by the inference layer (sum of
+all sample-site log-priors plus the score step) is
+
+$$
+\log \pi_{\mathrm{lift}}(\theta, \mathbf{z})
+\;=\;
+\underbrace{\log \mathcal{N}(\theta; 0, \sigma_{\theta}^{2} I_{D})}_{\text{parameter prior}}
+\;+\;
+\underbrace{\sum_{j} \log \mathcal{N}(\mathbf{z}_{j}; 0, \sigma_{z}^{2} I)}_{\text{placeholder priors}}
+\;+\;
+S(\theta, \mathbf{z}),
+$$
+
+which by inspection cancels the placeholder priors and leaves
+$\log \mathcal{N}(\theta; 0, \sigma_{\theta}^{2} I_{D}) + \log p_{\mathrm{inner}}(\mathbf{z}, y \mid x, \theta)$ pointwise.
+
+*Proof.* The score step subtracts exactly the sum of placeholder
+log-priors that the sample-site declarations add, so the algebra
+is an identity. Gradient flow back to $\theta$ is realised by
+the [`_swap_named_parameters`](../api/inference/lifts.md) context manager, which
+temporarily writes the override tensor into the parent module's
+`_parameters` dict so that downstream attribute reads return the
+override; because the override is a non-Parameter tensor with
+its own autograd graph, gradients propagate back through it to
+the surrounding NUTS / SVI latents. $\square$
+
+**Corollary (target distribution).** Under the bijection
+$\theta \mapsto \theta$, $\mathbf{z} \mapsto \mathbf{z}$
+([`NUTS`](../api/inference/mcmc.md) operates on the unconstrained
+$\mathbb{R}^{D + \sum_{j} \dim \mathbf{z}_{j}}$),
+
+$$
+\pi_{\mathrm{lift}}(\theta, \mathbf{z})
+\;\propto\;
+p(\theta) \, p_{\mathrm{inner}}(\mathbf{z}, y \mid x, \theta),
+$$
+
+the [Bayesian posterior](https://en.wikipedia.org/wiki/Posterior_probability)
+$p(\theta, \mathbf{z} \mid x, y)$ under the
+$\mathcal{N}(0, \sigma_{\theta}^{2} I)$ prior on $\theta$. The
+placeholder scale $\sigma_{z}$ is denotationally irrelevant (it
+cancels exactly) and operationally affects only NUTS
+mass-matrix adaptation during warmup.
+
+### 7.2 Deterministic-morphism lift via an observation family
+
+[`lift_to_bayesian_program`](../api/inference/lifts.md#quivers.inference.lifts.lift_to_bayesian_program) takes a parameter-bearing
+deterministic [`nn.Module`](https://docs.pytorch.org/docs/stable/generated/torch.nn.Module.html), a
+location-extraction callable
+$\mu : \mathcal{X} \to \mathcal{M}$, an observation family
+$\mathcal{F} \subset \mathbf{Dist}$ (any
+[`torch.distributions.Distribution`](https://docs.pytorch.org/docs/stable/distributions.html) subclass), and a key
+$k$ naming the observed coordinate in the observations dict.
+The lift composes (i) the parameter-only Bayesian lift of §7.1
+against (ii) a synthetic `log_joint` that scores the data under
+$\mathcal{F}\bigl(\mu(x);\, \boldsymbol{\eta}\bigr)$ at the
+observed value $y = \mathrm{observations}[k]$, where
+$\boldsymbol{\eta}$ collects the family's remaining parameters
+(scale, concentration, total_count, etc.) from the caller's
+`observation_kwargs`.
+
+**Proposition (observation-family lift).** The lifted program's
+log-joint equals
+
+$$
+\log \pi_{\mathrm{lift}}(\theta)
+\;=\;
+\log \mathcal{N}(\theta;\, 0,\, \sigma_{\theta}^{2} I_{D})
+\;+\;
+\log p_{\mathcal{F}}\bigl(y \,\big|\, \mu(x;\, \theta),\, \boldsymbol{\eta}\bigr),
+$$
+
+i.e. the [Bayesian posterior](https://en.wikipedia.org/wiki/Posterior_probability)
+of $\theta$ under the chosen
+likelihood, modulo the
+$\theta$-independent normaliser of $\mathcal{F}$.
+
+*Proof.* The lift is implemented as a delegating wrapper whose
+`log_joint(x, obs)` returns $\log p_{\mathcal{F}}(y \mid \mu(x), \boldsymbol{\eta})$ (reduced over event axes), then
+delegates to [`bayesian_lift_parameters`](../api/inference/lifts.md#quivers.inference.lifts.bayesian_lift_parameters) without additional latents.
+By §7.1, the lifted log-density equals
+$\log p(\theta) + \log p_{\mathrm{wrapper}}(y \mid x, \theta)$,
+and the wrapper's `log_joint` is exactly the family's
+log-density. $\square$
+
+### 7.3 Direct log-prob lift
+
+[`lift_from_log_prob`](../api/inference/lifts.md#quivers.inference.lifts.lift_from_log_prob) is the variant of §7.2 for
+modules that already expose
+$\log p_{\mathrm{inner}}(y \mid x, \theta)$ directly (without
+going through a family / location split). Given a
+parameter-bearing module and a callable
+$\ell : \mathcal{X} \times \mathcal{Y} \to \mathbb{R}$ that
+returns the conditional log-density, the lift produces a program
+whose log-joint equals
+
+$$
+\log \pi_{\mathrm{lift}}(\theta)
+\;=\;
+\log \mathcal{N}(\theta;\, 0,\, \sigma_{\theta}^{2} I_{D})
+\;+\;
+\ell(x, y;\, \theta).
+$$
+
+The proof is the §7.1 argument with the wrapper's `log_joint`
+defined as $\ell$ directly. The lift exists so callers that have
+already written a `log_prob`-style method (a [`SampledComposition`](../api/continuous/morphisms.md)
+over a Normal kernel, an encoder-decoder composition with a
+closed-form ELBO term, etc.) do not have to repackage it through
+a family interface.
+
+### 7.4 Monte-Carlo conditional-likelihood wrapper
+
+[`monte_carlo_log_joint`](../api/inference/lifts.md#quivers.inference.lifts.monte_carlo_log_joint) wraps a `MonadicProgram` whose
+body contains one or more named intermediate `sample` steps
+$\mathbf{z}$ that the caller does not want to enumerate as
+NUTS latents. The wrapper's `log_joint(x, observations)`
+forward-draws each $\mathbf{z}_{j}$ from its declared family at
+$x$, merges the draw into the observations dict, calls the
+inner's `log_joint`, and subtracts the drawn latents' prior
+contributions so the residual is the *conditional* data
+likelihood.
+
+**Definition.** Let
+$q_{j}(\mathbf{z}_{j} \mid x, \theta) = p_{\mathrm{inner}}(\mathbf{z}_{j} \mid x, \theta)$ denote the
+sample-step family of the inner program at site $j$. The
+wrapper realises the random map
+
+$$
+\widetilde{\ell}(x, y;\, \theta)
+\;=\;
+\log p_{\mathrm{inner}}\bigl(y \,\big|\, \mathbf{z}_{*},\, x,\, \theta\bigr),
+\qquad
+\mathbf{z}_{j*} \sim q_{j}(\cdot \mid x, \theta).
+$$
+
+**Proposition (single-sample MC bias).** The wrapper's output is
+a single-sample [Monte Carlo](https://en.wikipedia.org/wiki/Monte_Carlo_method) estimator of the conditional
+log-likelihood, *not* of the marginal log-likelihood
+$\log p_{\mathrm{inner}}(y \mid x, \theta) = \log \mathbb{E}_{\mathbf{z} \sim q}[p_{\mathrm{inner}}(y \mid \mathbf{z}, x, \theta)]$. By [Jensen's inequality](https://en.wikipedia.org/wiki/Jensen%27s_inequality)
+applied to the concave logarithm,
+
+$$
+\mathbb{E}_{\mathbf{z}_{*} \sim q}\bigl[\widetilde{\ell}(x, y;\, \theta)\bigr]
+\;\le\;
+\log p_{\mathrm{inner}}(y \mid x, \theta),
+$$
+
+with equality only when $p_{\mathrm{inner}}(y \mid \mathbf{z}, x, \theta)$ is constant in $\mathbf{z}$. The
+wrapper's output is therefore biased downward as an estimator
+of the marginal log-likelihood.
+
+*Proof.* Jensen applied pointwise in $(x, y, \theta)$ to the
+random variable $p_{\mathrm{inner}}(y \mid \mathbf{z}, x, \theta)$ under $q$:
+$\log \mathbb{E}_{\mathbf{z}}[p(y \mid \mathbf{z})] \ge \mathbb{E}_{\mathbf{z}}[\log p(y \mid \mathbf{z})]$. $\square$
+
+**Soundness for SVI; unsoundness for NUTS.** The reparameterised
+families ([`Normal`](https://docs.pytorch.org/docs/stable/distributions.html#normal), [`MultivariateNormal`](https://docs.pytorch.org/docs/stable/distributions.html#multivariatenormal),
+[`LowRankMultivariateNormal`](https://docs.pytorch.org/docs/stable/distributions.html#lowrankmultivariatenormal), etc.) yield a pathwise-
+differentiable $\mathbf{z}_{*}(\xi; x, \theta)$ in an auxiliary
+noise $\xi$. For SVI, the [unbiased gradient identity](https://doi.org/10.1561/2200000076)
+$\nabla_{\theta} \mathbb{E}_{\mathbf{z}}[\log p(y \mid \mathbf{z}, \theta)] = \mathbb{E}_{\xi}[\nabla_{\theta} \log p(y \mid \mathbf{z}_{*}(\xi; \theta), \theta)]$
+holds, and a single MC draw at each SVI step is an unbiased
+stochastic gradient of the wrapper's expected objective; under
+standard step-size assumptions [SGD on this estimator](https://doi.org/10.1214/aoms/1177729586) converges to a stationary point
+of $\theta \mapsto \mathbb{E}_{\mathbf{z}}[\log p(y \mid \mathbf{z}, \theta)]$, a lower bound on the marginal log-likelihood by Jensen.
+
+For NUTS, the wrapper is unsuitable: re-drawing
+$\mathbf{z}_{*}$ on every leapfrog evaluation makes the
+Hamiltonian energy stochastic, breaks the [symplectic
+integrator's energy-preservation guarantee](https://en.wikipedia.org/wiki/Symplectic_integrator), and biases the
+chain away from the intended target. The rigorous route for
+NUTS is to enrol $\mathbf{z}$ as an additional NUTS latent via
+[`bayesian_lift_parameters`](../api/inference/lifts.md#quivers.inference.lifts.bayesian_lift_parameters)
+with `additional_latents={'<name>': <shape>}` (§7.1), so that
+$(\theta, \mathbf{z})$ are jointly sampled from the exact
+posterior under a deterministic per-evaluation log-density.
+
+### 7.5 Bayesian lift for weighted deduction systems
+
+[`nuts_program_from_deduction`](../api/stochastic/deduction/bayes.md#quivers.stochastic.deduction.bayes.nuts_program_from_deduction) is the
+deduction-system specialisation of §7.1. Given a
+[`DeductionSystem`](../api/stochastic/deduction.md#quivers.stochastic.deduction.DeductionSystem)
+$D$ with learnable log-weights $\mathbf{w} \in \mathbb{R}^{D}$
+and a corpus $\{s_{n}\}_{n=1}^{N}$, the lift produces a program
+whose log-joint equals
+
+$$
+\log \pi(\mathbf{w})
+\;=\;
+-\frac{1}{2 \sigma^{2}} \lVert \mathbf{w} \rVert_{2}^{2}
+\;+\;
+\sum_{n = 1}^{N} \log Z(s_{n};\, \mathbf{w}),
+$$
+
+where $Z(s_{n}; \mathbf{w})$ is the chart's goal weight (the
+sentence's inside log-partition under $D$). Whether this joint
+*is* the Bayesian posterior $p(\mathbf{w} \mid \{s_{n}\})$
+depends on the modelling reading:
+
+* **Undirected / globally normalised** (CRF / log-linear /
+  energy-based [Lafferty et al. 2001](https://repository.upenn.edu/cis_papers/159/)). Here
+  $p(s_{n} \mid \mathbf{w}) = Z(s_{n}; \mathbf{w}) / \sum_{s'} Z(s'; \mathbf{w})$, and the sentence-level normaliser
+  $\sum_{s'} Z(s'; \mathbf{w})$ is a constant in $\mathbf{w}$
+  only when the deduction is a [partition function](https://en.wikipedia.org/wiki/Partition_function_(mathematics))
+  closed under the
+  algebra's join. In the undirected setting that $\mathbf{w}$-
+  dependent normaliser is precisely what $\sum_{n} \log Z$
+  captures; $\pi(\mathbf{w})$ is then the posterior up to a
+  $\mathbf{w}$-independent constant.
+
+* **Directed / locally normalised PCFG** ([Booth & Thompson 1973](https://doi.org/10.1109/TC.1973.223746)).
+  The per-rule weights are constrained to a local simplex
+  (each non-terminal's expansions sum to $1$), and the true
+  per-sentence likelihood is
+  $Z(s; \mathbf{w}) / \sum_{s'} Z(s'; \mathbf{w})$ with the
+  global normaliser intractable. Treating $\mathbf{w}$ as a
+  free unconstrained vector and adding $\sum_{n} \log Z(s_{n}; \mathbf{w})$ to a Gaussian prior produces a
+  *pseudo-posterior* (a [composite likelihood](https://en.wikipedia.org/wiki/Composite_likelihood) in the sense
+  of [Varin, Reid & Firth 2011](https://www.jstor.org/stable/24309261)) that differs
+  from the true posterior by a factor of
+  $\bigl(\sum_{s'} Z(s'; \mathbf{w})\bigr)^{-N}$ that the lift
+  does not include. The pseudo-posterior is consistent with
+  the score function's gradient direction but has wider
+  posterior credible regions than the true posterior. Users
+  committed to the directed reading should constrain the rule
+  weights to local simplices via a [Dirichlet](https://en.wikipedia.org/wiki/Dirichlet_distribution) +
+  [softmax](https://en.wikipedia.org/wiki/Softmax_function) surface (written explicitly in a
+  `program` block) instead of using the free-parameter Normal
+  lift this function provides.
+
+The denotational claim of §7.1 (that the lifted program's
+log-density equals the parameter prior plus the wrapped
+log-joint, pointwise and with exact placeholder cancellation)
+applies unchanged to [`nuts_program_from_deduction`](../api/stochastic/deduction/bayes.md#quivers.stochastic.deduction.bayes.nuts_program_from_deduction);
+the choice of reading enters only when interpreting that
+log-density as a posterior.

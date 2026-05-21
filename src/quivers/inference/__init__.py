@@ -2,7 +2,7 @@
 
 This module provides the inference layer for quivers: execution
 tracing, conditioning on observations, the
-:class:`~quivers.inference.registry.LatentRegistry` introspection
+`quivers.inference.registry.LatentRegistry` introspection
 helper, automatic variational guide construction, variational
 objectives, optimisation drivers, and posterior-predictive
 sampling. MCMC and hybrid samplers land here as the relevant
@@ -12,7 +12,7 @@ Submodules
 ----------
 trace : Execution trace and sample site recording.
 conditioning : Observation marking and ``condition()`` factory.
-registry : :class:`LatentRegistry`, the per-site introspection
+registry : `LatentRegistry`, the per-site introspection
     helper every guide and MCMC kernel consumes.
 guides : Variational guide families (mean-field, full-rank /
     low-rank Gaussian, normalizing-flow, structured, mixture,
@@ -66,6 +66,12 @@ from quivers.inference.svi import SVI
 from quivers.inference.predictive import Predictive
 from quivers.inference.dais import AutoDAIS
 from quivers.inference.warmup import WarmupThenHMC
+from quivers.inference.lifts import (
+    bayesian_lift_parameters,
+    lift_to_bayesian_program,
+    lift_from_log_prob,
+    monte_carlo_log_joint,
+)
 
 __all__ = [
     "Trace",
@@ -104,4 +110,8 @@ __all__ = [
     "ScoreFunction",
     "SVI",
     "Predictive",
+    "bayesian_lift_parameters",
+    "lift_to_bayesian_program",
+    "lift_from_log_prob",
+    "monte_carlo_log_joint",
 ]

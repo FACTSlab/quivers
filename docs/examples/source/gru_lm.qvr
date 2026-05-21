@@ -1,54 +1,50 @@
-# ================================================================
 # Bayesian GRU Language Model
-# ================================================================
 #
-# A standard GRU cell ([Cho et al. 2014]
-# (https://doi.org/10.3115/v1/D14-1179)) wrapped in scan for
-# temporal recurrence and used as a causal language model.
+# A standard GRU cell wrapped in scan for temporal recurrence
+# and used as a causal language model. Gate activations are
+# drawn from LogitNormal priors; the candidate is drawn from a
+# Normal centred on the reset-gated previous state.
 #
-# Standard GRU equations:
-#   z_t = sigma(W_z [x_t, h_{t-1}])      update gate
-#   r_t = sigma(W_r [x_t, h_{t-1}])      reset gate
-#   h~_t = tanh(W [x_t, r_t * h_{t-1}])  candidate
-#   h_t = (1 - z_t) * h_{t-1} + z_t * h~_t
+# Generative structure:
 #
-# Gate activations are drawn from LogitNormal priors. The
-# candidate is drawn from a Normal centred on the reset-gated
-# previous state. The final GRU update interpolates between
-# h_prev and h_cand using the update gate z. The scan combinator
-# threads hidden state across the sequence; the final per-position
-# hidden state is projected onto the Token vocabulary by a
-# Categorical lm_head, and the next-token target is observed
-# under that Categorical likelihood.
+#   z_t      ~ LogitNormal(gate_z(x_t, h_{t-1}))  update gate
+#   r_t      ~ LogitNormal(gate_r(x_t, h_{t-1}))  reset gate
+#   h_cand   ~ Normal(r_t * h_{t-1}, 0.5)         candidate state
+#   h_t      = (1 - z_t) * h_{t-1} + z_t * h_cand GRU update
+#   next_t   ~ Categorical(lm_head(h_t))          next-token target
+#
+# scan threads hidden state across the sequence; the
+# per-position hidden state is projected onto the Token
+# vocabulary by a Categorical lm_head.
+#
+# Reference: [Cho et al. 2014](https://doi.org/10.3115/v1/D14-1179).
 
-object Token : 256
+object Token : FinSet 256
+object Embedded : Real 64
+object Hidden : Real 128
 
-type Embedded = Euclidean 64
-type Hidden = Euclidean 128
-
-embed tok_embed : Token -> Embedded
-
-kernel gate_z : Embedded * Hidden -> Hidden ~ LogitNormal
-kernel gate_r : Embedded * Hidden -> Hidden ~ LogitNormal
-kernel lm_head : Hidden -> Token ~ Categorical
+morphism tok_embed : Token -> Embedded [role=embed]
+morphism gate_z : Embedded * Hidden -> Hidden [role=kernel] ~ LogitNormal
+morphism gate_r : Embedded * Hidden -> Hidden [role=kernel] ~ LogitNormal
+morphism lm_head : Hidden -> Token [role=kernel] ~ Categorical
 
 program gru_cell(x_t, h_prev) : Embedded * Hidden -> Hidden
-    z <- gate_z(x_t, h_prev)
-    r <- gate_r(x_t, h_prev)
+    sample z <- gate_z(x_t, h_prev)
+    sample r <- gate_r(x_t, h_prev)
 
     let reset_hidden = r * h_prev
 
-    h_cand <- Normal(reset_hidden, 0.5)
+    sample h_cand <- Normal(reset_hidden, 0.5)
 
     let z_complement = 1.0 - z
     let h_new = z_complement * h_prev + z * h_cand
-
     return h_new
 
 let backbone = tok_embed >> scan(gru_cell)
 
 program gru_lm : Token -> Token
-    h <- backbone
+    sample h <- backbone
+
     observe next_token : Token <- lm_head(h)
     return next_token
 

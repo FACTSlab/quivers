@@ -7,20 +7,19 @@ The simplest recurrent language model in the gallery: a single Bayesian [Kleisli
 ## QVR Source
 
 ```qvr
-object Token : 256
+object Token : FinSet 256
+object Embedded : Real 64
+object Hidden : Real 128
 
-type Embedded = Euclidean 64
-type Hidden = Euclidean 128
-
-embed tok_embed : Token -> Embedded
-
-kernel cell : Embedded * Hidden -> Hidden ~ Normal [scale=0.1]
-kernel lm_head : Hidden -> Token ~ Categorical
+morphism tok_embed : Token -> Embedded [role=embed]
+morphism cell : Embedded * Hidden -> Hidden [role=kernel, scale=0.1] ~ Normal
+morphism lm_head : Hidden -> Token [role=kernel] ~ Categorical
 
 let backbone = tok_embed >> scan(cell)
 
 program vanilla_rnn_lm : Token -> Token
-    h <- backbone
+    sample h <- backbone
+
     observe next_token : Token <- lm_head(h)
     return next_token
 
@@ -42,26 +41,107 @@ flowchart LR
 
 ## Try it
 
-The recurrent backbone forward-samples through [`MonadicProgram.rsample`](../api/continuous/programs.md). Each call draws fresh weights from the priors and returns the predicted next token at the end of the input window.
+> The SVI step counts and NUTS warmup, sample, and chain budgets in the snippets below are illustrative: each block is sized to run in tens of seconds and demonstrate the API surface. Production fits typically need 10x to 100x more SVI steps, longer NUTS warmup, and multiple chains to actually converge to the data-generating parameters.
+
+
+### Generating synthetic data
+
+Initialise the model's stochastic-weight parameters under a fixed seed (these stand in for the ground-truth generative weights), then forward-sample a corpus of token sequences by drawing random prompts and reading off the next-token target through [`rsample`](../api/continuous/programs.md). The corpus is a `(batch, seq_len)` int64 prompt tensor paired with a `(batch,)` next-token target.
 
 ```python
 import torch
 from quivers.dsl import load
 
+torch.manual_seed(0)
 prog = load("docs/examples/source/vanilla_rnn_lm.qvr")
 model = prog.morphism
 
-torch.manual_seed(0)
-inputs = torch.randint(0, 256, (32, 16))   # batch=32, seq_len=16
+# Fix the model's stochastic weights to a chosen draw, then
+# forward-sample next-token targets for a corpus of random prompts.
+for _, p in model.named_parameters():
+    p.data.copy_(torch.randn_like(p) * 0.3)
 
-next_tokens = model.rsample(inputs)
-print(next_tokens.shape)                   # torch.Size([32])
-
-# Posterior-predictive ensemble: average over weight samples
-samples = torch.stack([model.rsample(inputs) for _ in range(64)])
-modes = samples.mode(dim=0).values
-print(modes.shape)                         # torch.Size([32])
+batch, seq_len, vocab = 4, 8, 256
+prompts = torch.randint(0, vocab, (batch, seq_len))
+targets = model.rsample(prompts)
+print("prompts:", prompts.shape, prompts.dtype)
+print("targets:", targets.shape, targets.dtype)
 ```
+
+### SVI fit
+
+Re-initialise the parameters and recover next-token weights from the synthetic corpus with [`AutoNormalGuide`](../api/inference/guide.md) + [`ELBO`](../api/inference/elbo.md) + [`SVI`](../api/inference/svi.md). The loss is the negative ELBO under a Categorical likelihood on the `next_token` site.
+
+```python
+import torch
+from quivers.dsl import load
+from quivers.inference import AutoNormalGuide, ELBO, SVI
+
+torch.manual_seed(0)
+prog = load("docs/examples/source/vanilla_rnn_lm.qvr")
+model = prog.morphism
+
+# Regenerate the synthetic corpus under the same seed used for
+# data generation.
+for _, p in model.named_parameters():
+    p.data.copy_(torch.randn_like(p) * 0.3)
+batch, seq_len, vocab = 4, 8, 256
+prompts = torch.randint(0, vocab, (batch, seq_len))
+targets = model.rsample(prompts)
+observations = {"next_token": targets}
+
+# Fresh weights for fitting.
+torch.manual_seed(1)
+for _, p in model.named_parameters():
+    p.data.copy_(torch.randn_like(p) * 0.3)
+
+guide = AutoNormalGuide(model, observed_names={"next_token"})
+optim = torch.optim.Adam(
+    list(model.parameters()) + list(guide.parameters()), lr=5e-2,
+)
+svi = SVI(model, guide, optim, ELBO(num_particles=1))
+
+losses = [svi.step(prompts, observations)]
+for _ in range(30):
+    losses.append(svi.step(prompts, observations))
+
+print(f"initial loss: {losses[0]:.2f}")
+print(f"final loss:   {losses[-1]:.2f}")
+```
+
+### NUTS posterior
+
+The proper Bayesian model has both the parameters $\theta$ and the per-token hidden state $h$ as latents: $p(\theta, h \mid x, y) \propto p(\theta) \, p(h \mid x, \theta) \, p(y \mid h, \theta)$. [`bayesian_lift_parameters`](../api/inference/lifts.md#quivers.inference.lifts.bayesian_lift_parameters) declares Normal priors on every learnable parameter and accepts an `additional_latents` mapping that lifts the intermediate `sample h` site as a NUTS variable with a placeholder Normal prior; the score step substitutes both into the inner program and cancels the placeholder, leaving the lifted log-density equal to the true joint $\log p(\theta) + \log p_{\text{inner}}(h, y \mid x, \theta)$. The log-density is deterministic given the full $(\theta, h)$ state, so the chain targets the exact posterior with no MC noise across leapfrog steps.
+
+```python
+import torch
+from quivers.dsl import load
+from quivers.inference import MCMC, NUTSKernel, bayesian_lift_parameters
+
+torch.manual_seed(0)
+prog = load("docs/examples/source/vanilla_rnn_lm.qvr")
+model = prog.morphism
+for _, p in model.named_parameters():
+    p.data.copy_(torch.randn_like(p) * 0.3)
+batch, seq_len, vocab = 4, 8, 256
+prompts = torch.randint(0, vocab, (batch, seq_len))
+targets = model.rsample(prompts)
+observations = {"next_token": targets}
+
+h_shape = tuple(model._step_h.rsample(prompts).shape)
+lifted, lx, lobs = bayesian_lift_parameters(
+    model, prompts, observations,
+    prior_scale=1.0,
+    additional_latents={"h": h_shape},
+)
+kernel = NUTSKernel(step_size=0.005, max_tree_depth=3, target_accept=0.8)
+mc     = MCMC(kernel, num_warmup=10, num_samples=10, num_chains=1)
+result = mc.run(lifted, lx, lobs)
+
+print(f"acceptance:  {float(result.acceptance_rates.mean()):.2f}")
+print(f"divergences: {int(result.divergence_counts.sum())}")
+```
+
 
 ## Categorical Perspective
 

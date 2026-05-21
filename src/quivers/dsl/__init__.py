@@ -4,7 +4,7 @@ The DSL provides a declarative syntax for specifying V-enriched
 categorical morphism networks that compile to ``quivers.Program``
 instances (``nn.Module`` subclasses). Parsing is delegated to panproto
 via the ``qvr`` tree-sitter grammar; the AST is a tree of
-:mod:`quivers.dsl.ast_nodes` didactic Models.
+[`quivers.dsl.ast_nodes`][quivers.dsl.ast_nodes] didactic Models.
 
 Quick start
 -----------
@@ -51,7 +51,7 @@ def loads(
         Maps string keys to tensors (or tensor-like objects) for
         any ``from_data("KEY")`` initializers in the source. The
         compiler looks each key up at compile time; an unknown key
-        raises :class:`CompileError`.
+        raises `CompileError`.
     """
     ast = parse(source)
     compiler = Compiler(ast)

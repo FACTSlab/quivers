@@ -14,6 +14,7 @@ Covers:
 """
 
 from __future__ import annotations
+import textwrap
 
 import os
 
@@ -465,17 +466,19 @@ class TestEncoderBodyEndToEnd:
         # learnable embedding (dim 4) plus the broadcast recurrent
         # state.
         src = """
-        signature Seq {
-            sorts { Seq : object dim 4, A : data dim 4 }
-            constructors { Nil : -> Seq, Cons : A, Seq -> Seq }
-        }
-        encoder C over Seq {
+        signature Seq:
+            sorts:
+                Seq : object [dim=4]
+                A : data [dim=4]
+            constructors:
+                Nil  :        -> Seq
+                Cons : A, Seq -> Seq
+        encoder C : Seq:
             dim Seq = 4
             Nil                              |-> 0.0
             Cons(head, tail) recurrent state |-> relu(head + state)
-        }
         """
-        prog = loads(src)
+        prog = loads(textwrap.dedent(src))
         from quivers.structural import make_term
 
         C = prog.encoders["C"]
@@ -486,17 +489,19 @@ class TestEncoderBodyEndToEnd:
 
     def test_chained_activations_in_rule_body(self):
         src = """
-        signature Seq {
-            sorts { Seq : object dim 4, A : data dim 4 }
-            constructors { Nil : -> Seq, Cons : A, Seq -> Seq }
-        }
-        encoder C over Seq {
+        signature Seq:
+            sorts:
+                Seq : object [dim=4]
+                A : data [dim=4]
+            constructors:
+                Nil  :        -> Seq
+                Cons : A, Seq -> Seq
+        encoder C : Seq:
             dim Seq = 4
             Nil                              |-> 0.0
             Cons(head, tail) recurrent state |-> tanh(sigmoid(relu(head + state)))
-        }
         """
-        prog = loads(src)
+        prog = loads(textwrap.dedent(src))
         from quivers.structural import make_term
 
         C = prog.encoders["C"]
@@ -506,17 +511,19 @@ class TestEncoderBodyEndToEnd:
 
     def test_layer_norm_in_recurrent_body(self):
         src = """
-        signature Seq {
-            sorts { Seq : object dim 8, A : data dim 8 }
-            constructors { Nil : -> Seq, Cons : A, Seq -> Seq }
-        }
-        encoder C over Seq {
+        signature Seq:
+            sorts:
+                Seq : object [dim=8]
+                A : data [dim=8]
+            constructors:
+                Nil  :        -> Seq
+                Cons : A, Seq -> Seq
+        encoder C : Seq:
             dim Seq = 8
             Nil                              |-> 0.0
             Cons(head, tail) recurrent state |-> layer_norm(head + state)
-        }
         """
-        prog = loads(src)
+        prog = loads(textwrap.dedent(src))
         from quivers.structural import make_term
 
         C = prog.encoders["C"]
@@ -526,17 +533,19 @@ class TestEncoderBodyEndToEnd:
 
     def test_softmax_then_sum_in_body(self):
         src = """
-        signature Seq {
-            sorts { Seq : object dim 8, A : data dim 8 }
-            constructors { Nil : -> Seq, Cons : A, Seq -> Seq }
-        }
-        encoder C over Seq {
+        signature Seq:
+            sorts:
+                Seq : object [dim=8]
+                A : data [dim=8]
+            constructors:
+                Nil  :        -> Seq
+                Cons : A, Seq -> Seq
+        encoder C : Seq:
             dim Seq = 8
             Nil                              |-> 0.0
             Cons(head, tail) recurrent state |-> softmax(head + state)
-        }
         """
-        prog = loads(src)
+        prog = loads(textwrap.dedent(src))
         from quivers.structural import make_term
 
         C = prog.encoders["C"]

@@ -32,8 +32,8 @@ Key bindings (chosen to work uniformly on macOS, Linux, and Windows):
 - ``ctrl+q``      quit
 - ``f1``          help
 
-The widgets all draw from a single :class:`ReplSession` instance.
-Highlighting is driven by :mod:`quivers.cli.repl_highlight`, so the
+The widgets all draw from a single `ReplSession` instance.
+Highlighting is driven by [`quivers.cli.repl_highlight`][quivers.cli.repl_highlight], so the
 TUI tracks the live grammar and the live env.
 """
 

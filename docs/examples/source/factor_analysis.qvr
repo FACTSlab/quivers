@@ -1,52 +1,36 @@
-# ================================================================
 # Factor Analysis
-# ================================================================
 #
-# Classical factor analysis (Spearman 1904; Bartholomew, Knott,
-# and Moustaki 2011) decomposes a D-dimensional observation as a
-# linear-Gaussian transformation of a K-dimensional latent
-# factor. The model mean factors through a learnable loading
-# matrix W : LatentDim -> ObsDim and a per-item latent code
-# Z : Item -> LatentDim, giving the composition
+# Classical factor analysis decomposes a D-dimensional
+# observation as a linear-Gaussian transformation of a
+# K-dimensional latent factor. The model mean factors through a
+# learnable loading matrix and a per-item latent code, expressed
+# here as a morphism composition under algebra real.
 #
-#     factor_analysis = Z >> W : Item -> ObsDim.
+# Structural form:
 #
-# The loading matrix carries a matrix-normal prior via the
-# morphism-valued surface
+#   Z     : Item      -> LatentDim       per-item latent code
+#   W     : LatentDim -> ObsDim          matrix-normal loadings
+#   model = Z >> W                       linear-Gaussian mean
 #
-#     latent W : LatentDim -> ObsDim
-#         ~ MatrixNormal(0.0, 1.0, 1.0) over (dom, cod)
-#
-# The two axes under `over (dom, cod)` bind positionally to the
-# matrix-normal family's event axes: the first (LatentDim) is
-# the row axis carrying the row-covariance argument, the second
-# (ObsDim) is the column axis carrying the column-covariance
-# argument. The Kronecker structure V (x) U of the matrix normal
-# expresses independent row and column correlation in the
-# loadings, the natural prior for a low-rank factor
-# decomposition.
-#
-# The distinction from PPCA lives downstream of the composition:
-# factor analysis pairs `Z >> W` with a *free diagonal* noise
-# (one psi per ObsDim coordinate), whereas PPCA collapses that
-# diagonal to a single isotropic scalar. Both choices are
-# downstream observation kernels rather than features of the
-# matrix-valued mean expressed here.
+# The loading matrix carries a matrix-normal prior whose
+# Kronecker covariance V (x) U expresses independent row and
+# column correlation, the natural prior for a low-rank factor
+# decomposition. Factor analysis pairs Z >> W with a free
+# diagonal noise (one psi per ObsDim coordinate), whereas PPCA
+# collapses that diagonal to a single isotropic scalar; both
+# choices are downstream observation kernels rather than
+# features of the matrix-valued mean expressed here.
 
-algebra real
+composition real as algebra
 
-object LatentDim : 2
-object ObsDim : 3
-object Item : 200
+object LatentDim : FinSet 2
+object ObsDim : FinSet 5
+object Item : FinSet 64
 
-# Per-item latent factor, K = 2 dimensions per Item.
-latent Z : Item -> LatentDim
+morphism Z : Item -> LatentDim [role=latent]
 
-# Loading matrix with a matrix-normal prior.
-latent W : LatentDim -> ObsDim ~ MatrixNormal(0.0, 1.0, 1.0) over (dom, cod)
+morphism W : LatentDim -> ObsDim [role=latent]
 
-# Factor analysis mean as composition: Z @ W under real-algebra
-# matmul.
 let factor_analysis = Z >> W
 
 export factor_analysis

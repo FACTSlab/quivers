@@ -3,8 +3,8 @@
 Source-keyed warnings flagged at the user's latents when the
 ``ChainShape`` shows the step would land at the saturation boundary
 of its governing algebra under any reasonable random init. The
-diagnoses are surfaced as :class:`SaturationWarning` objects with
-:attr:`source_line` / :attr:`source_col` so the user can locate the
+diagnoses are surfaced as `SaturationWarning` objects with
+`source_line` / `source_col` so the user can locate the
 problem in their ``.qvr`` source.
 
 The check is conservative: it flags *only* configurations that are
@@ -21,8 +21,8 @@ it catches today:
    intermediate axis is large; the recipe is ``p ≈ 1 / k`` and the
    warning fires when no init is declared.
 
-The downstream :func:`apply_init_spec` path consumes the same
-:class:`ChainShape`, so once the user applies the recommendation
+The downstream `apply_init_spec` path consumes the same
+`ChainShape`, so once the user applies the recommendation
 the warning goes away.
 """
 
@@ -96,7 +96,7 @@ def saturation_warnings(module: Module) -> tuple[SaturationWarning, ...]:
     Suppressing warnings: declare the latent with an explicit init
     via the DSL surface (when available) or apply the recommended
     init programmatically via
-    :func:`quivers.analysis.init_spec.apply_init_spec`.
+    [`quivers.analysis.init_spec.apply_init_spec`][quivers.analysis.init_spec.apply_init_spec].
     """
     shape = ChainShape.from_module(module)
     algebra = shape.algebra

@@ -16,6 +16,7 @@ Coverage:
 """
 
 from __future__ import annotations
+import textwrap
 
 import math
 
@@ -48,13 +49,13 @@ from quivers.dsl.parser import parse
 
 
 SIMPLE_PROGRAM = """
-algebra product_fuzzy
+composition product_fuzzy as algebra
 
-object A : 4
-object B : 4
+object A : FinSet 4
+object B : FinSet 4
 
 program model : A -> A
-    sigma <- HalfNormal(1.0)
+    sample sigma <- HalfNormal(1.0)
     let y = (sigma + 0.5)
     observe r : A <- Normal(y, sigma)
     return r
@@ -64,15 +65,15 @@ export model
 
 
 DEEP_PROGRAM = """
-algebra product_fuzzy
+composition product_fuzzy as algebra
 
-object A : 8
+object A : FinSet 8
 
 program model : A -> A
-    a <- Normal(0.0, 1.0)
-    b <- Normal(0.0, 1.0)
-    c <- Normal(0.0, 1.0)
-    d <- Normal(0.0, 1.0)
+    sample a <- Normal(0.0, 1.0)
+    sample b <- Normal(0.0, 1.0)
+    sample c <- Normal(0.0, 1.0)
+    sample d <- Normal(0.0, 1.0)
     observe r : A <- Normal(d, 0.1)
     return r
 
@@ -114,10 +115,10 @@ class TestChainShape:
 
     def test_default_algebra_when_unspecified(self):
         program_no_algebra = """
-object A : 2
+object A : FinSet 2
 
 program model : A -> A
-    x <- Normal(0.0, 1.0)
+    sample x <- Normal(0.0, 1.0)
     observe r : A <- Normal(x, 0.1)
     return r
 
@@ -215,10 +216,10 @@ class TestRecommendInit:
 
     def test_recommendation_empty_when_no_algebra(self):
         prog_no_algebra_keyword = """
-object A : 2
+object A : FinSet 2
 
 program model : A -> A
-    x <- Normal(0.0, 1.0)
+    sample x <- Normal(0.0, 1.0)
     observe r : A <- Normal(x, 0.1)
     return r
 
@@ -275,12 +276,12 @@ class TestSaturationWarnings:
 
     def test_shallow_chain_does_not_warn(self):
         program = """
-algebra real
+composition real as algebra
 
-object A : 4
+object A : FinSet 4
 
 program model : A -> A
-    x <- Normal(0.0, 1.0)
+    sample x <- Normal(0.0, 1.0)
     observe r : A <- Normal(x, 0.1)
     return r
 
@@ -313,15 +314,15 @@ class TestInitAutoDSL:
 
     def test_product_fuzzy_latent_lands_at_recipe(self):
         src = """
-algebra product_fuzzy
-object A : 8
-object B : 4
-latent f : A -> B [init=auto]
+composition product_fuzzy as algebra
+object A : FinSet 8
+object B : FinSet 4
+morphism f : A -> B [role=latent, init=auto]
 export f
 """
         from quivers.dsl import loads
 
-        prog = loads(src)
+        prog = loads(textwrap.dedent(src))
         m = prog.morphism
         raw_mean = float(m.raw.detach().mean())
         value_mean = float(m.tensor.detach().mean())
@@ -332,29 +333,29 @@ export f
 
     def test_init_default_without_annotation_is_centered(self):
         src = """
-algebra product_fuzzy
-object A : 8
-object B : 4
-latent f : A -> B
+composition product_fuzzy as algebra
+object A : FinSet 8
+object B : FinSet 4
+morphism f : A -> B [role=latent]
 export f
 """
         from quivers.dsl import loads
 
-        prog = loads(src)
+        prog = loads(textwrap.dedent(src))
         raw_mean = float(prog.morphism.raw.detach().mean())
         # randn * 0.5 → mean very close to 0.
         assert abs(raw_mean) < 0.6
 
     def test_init_auto_idempotent_algebra_constant(self):
         src = """
-algebra boolean
-object A : 4
-object B : 4
-latent f : A -> B [init=auto]
+composition boolean as algebra
+object A : FinSet 4
+object B : FinSet 4
+morphism f : A -> B [role=latent, init=auto]
 export f
 """
         from quivers.dsl import loads
 
-        prog = loads(src)
+        prog = loads(textwrap.dedent(src))
         raw = prog.morphism.raw.detach()
         assert torch.allclose(raw, torch.zeros_like(raw), atol=1e-5)

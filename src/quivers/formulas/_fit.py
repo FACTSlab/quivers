@@ -1,14 +1,14 @@
-"""User-facing :func:`fit` entry point and the
-:class:`BayesianFit` result wrapper.
+"""User-facing `fit` entry point and the
+`BayesianFit` result wrapper.
 
 The compilation path is fully AST-driven: the formula lens emits a
-:class:`~quivers.dsl.ast_nodes.Module`, the existing
-:class:`quivers.dsl.compiler.Compiler` consumes it directly (no
+[`quivers.dsl.ast_nodes.Module`][quivers.dsl.ast_nodes.Module], the existing
+[`quivers.dsl.compiler.Compiler`][quivers.dsl.compiler.Compiler] consumes it directly (no
 source-string round-trip), and inference runs on the resulting
-:class:`~quivers.continuous.programs.MonadicProgram`.  Source text
+[`quivers.continuous.programs.MonadicProgram`][quivers.continuous.programs.MonadicProgram].  Source text
 is generated only when the user requests it via
-:func:`formula_to_qvr` or :meth:`BayesianFit.dump_qvr`, in which
-case :func:`quivers.dsl.emit.module_to_source` walks the same AST
+`formula_to_qvr` or `BayesianFit.dump_qvr`, in which
+case [`quivers.dsl.emit.module_to_source`][quivers.dsl.emit.module_to_source] walks the same AST
 to produce canonical ``.qvr`` source.
 """
 
@@ -53,8 +53,8 @@ class BayesianFit(dx.Model):
     program : MonadicProgram
         The compiled program.
     posterior : MCMCResult or Guide
-        :class:`~quivers.inference.MCMCResult` from NUTS / HMC, or
-        a :class:`~quivers.inference.guides.base.Guide` from SVI.
+        [`quivers.inference.MCMCResult`][quivers.inference.MCMCResult] from NUTS / HMC, or
+        a [`quivers.inference.guides.base.Guide`][quivers.inference.guides.base.Guide] from SVI.
     observations : Mapping[str, torch.Tensor]
         Inference-time observations dict (response + per-column
         covariates + per-group plate indices).
@@ -78,7 +78,7 @@ class BayesianFit(dx.Model):
 
     def dump_qvr(self, path: str | Path) -> Path:
         """Write the AST-equivalent ``.qvr`` source to ``path`` and
-        return the resulting :class:`Path`.
+        return the resulting `Path`.
         """
         out = Path(path)
         out.write_text(self.qvr_source)
@@ -103,9 +103,9 @@ def fit(
 ) -> BayesianFit:
     """Compile a brms-style formula, fit it, and return the result.
 
-    See :mod:`quivers.formulas` for surface details.  This entry
-    point composes :func:`formula_from_data`, :class:`FormulaToQVRModule`,
-    :class:`Compiler`, and the inference layer in one call.
+    See [`quivers.formulas`][quivers.formulas] for surface details.  This entry
+    point composes `formula_from_data`, `FormulaToQVRModule`,
+    `Compiler`, and the inference layer in one call.
     """
     if isinstance(family, str):
         if family not in families:
@@ -181,8 +181,8 @@ def formula_to_qvr(
 ) -> str:
     """Emit ``.qvr`` source for a brms-style formula without fitting.
 
-    Builds the formula AST → QVR Module via :class:`FormulaToQVRModule`,
-    then serialises the module via :func:`quivers.dsl.emit.module_to_source`.
+    Builds the formula AST → QVR Module via `FormulaToQVRModule`,
+    then serialises the module via [`quivers.dsl.emit.module_to_source`][quivers.dsl.emit.module_to_source].
     Optionally writes the result to ``path``.
     """
     if isinstance(family, str):
@@ -226,7 +226,7 @@ def _fit_mcmc(program, observations, *, sampler, num_warmup, num_samples, num_ch
 def _fit_svi(program, observations, num_steps, *, guide_cls=None):
     """Run an SVI fit + ELBO.
 
-    Default guide is :class:`AutoNormalGuide`: a mean-field
+    Default guide is `AutoNormalGuide`: a mean-field
     diagonal-Normal that scales well across model shapes. Mean-field
     is known to underestimate posterior variance components in
     hierarchical / mixed-effects models; for serious analysis of

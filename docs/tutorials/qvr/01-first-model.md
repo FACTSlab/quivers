@@ -16,8 +16,8 @@ A 30-second smoke check (paste into a Python REPL):
 from quivers.dsl import loads
 
 src = """
-object A : 3
-latent f : A -> A
+object A : FinSet 3
+morphism f : A -> A [role=latent]
 export f
 """
 print(type(loads(src)).__name__)   # Program
@@ -41,12 +41,12 @@ $$
 === "QVR (`.qvr`)"
 
     ```qvr
-    object Item : 100
+    object Item : FinSet 100
 
-    program regression : Item -> Item ! Sample, Score
-        sigma  <- HalfNormal(1.0)
-        beta_0 <- Normal(0.0, 5.0)
-        beta_1 <- Normal(0.0, 2.0)
+    program regression : Item -> Item
+        sample sigma  <- HalfNormal(1.0)
+        sample beta_0 <- Normal(0.0, 5.0)
+        sample beta_1 <- Normal(0.0, 2.0)
         let mu = beta_0 + beta_1 * x_design
         observe y : Item <- Normal(mu, sigma)
         return y
@@ -87,13 +87,13 @@ Reading the QVR line by line:
 
 | Line | What it says |
 |---|---|
-| `object Item : 100` | Declare a finite-set index `Item` of size 100: the row dimension of the data. Domain and codomain are typed objects rather than implicit. |
-| `program regression : Item -> Item ! Sample, Score` | A `program` block is the unit of compilation. The `!`-annotation declares the algebraic effects the body uses; `Sample` is monadic draw, `Score` is conditioning. |
-| `sigma <- HalfNormal(1.0)` | Bind a random variable. Same as PyMC's `pm.HalfNormal(...)` or NumPyro's `numpyro.sample(...)`. |
-| `let mu = beta_0 + beta_1 * x_design` | Deterministic let. The `let`-arithmetic supports `+ - * /`, indexing, broadcasts, and a small standard library (`sum`, `prod`, `cumsum`, `logsumexp`, ...). The free name `x_design` is supplied at fit time via the observations dict (declared by `observed_names` on the guide). |
+| `object Item : FinSet 100` | Declare a finite-set index `Item` of size 100: the row dimension of the data. Domain and codomain are typed objects rather than implicit. |
+| `program regression : Item -> Item` | A `program` block is the unit of compilation. The effect set is inferred from the body; you can pin it explicitly with `[effects=[Sample, Score]]` if you want a static check that the body uses only those effects. |
+| `sample sigma <- HalfNormal(1.0)` | Draw a random variable. Same as PyMC's `pm.HalfNormal(...)` or NumPyro's `numpyro.sample(...)`. |
+| `let mu = beta_0 + beta_1 * x_design` | Deterministic let. The let-arithmetic supports `+ - * /`, indexing, broadcasts, and a small standard library (`sum`, `prod`, `cumsum`, `logsumexp`, ...). The free name `x_design` is supplied at fit time via the observations dict (declared by `observed_names` on the guide). |
 | `observe y : Item <- Normal(mu, sigma)` | Vectorised conditioned bind, one draw per element of `Item`. The runtime sets `y` to the observed value at inference time and scores the likelihood. |
 
-If you're coming from Pyro/NumPyro/Stan, the only piece without an obvious analogue is `! Sample, Score`: the *effect signature*. It's a static check that the body uses only effects you declared. You can leave it off and the compiler will infer, but writing it out makes intent explicit.
+If you're coming from Pyro/NumPyro/Stan, the only feature without an obvious analogue is the optional `[effects=[...]]` clause: an *effect signature*. By default the compiler infers which effects (`Sample`, `Score`, `Marginal`) the body uses. Pinning the set explicitly turns it into a static promise. If you write `[effects=[Pure]]` and the body contains a `sample` step, the compiler rejects the program at `loads` time.
 
 ### What the effect signature buys you
 
@@ -102,11 +102,11 @@ QVR tracks four effects on every program block:
 | Effect | Meaning | Triggered by |
 |---|---|---|
 | `Pure` | no random draws, no conditioning | `let` only |
-| `Sample` | draws latents | `v <- F(...)` |
+| `Sample` | draws latents | `sample v <- F(...)` |
 | `Score` | conditions on observations | `observe v <- F(...)` |
-| `Marginal` | sums over a discrete latent | `marginalize z : K <- ... in { ... }` |
+| `Marginal` | sums over a discrete latent | `marginalize z : K <- ...` followed by an indented body |
 
-The signature is a static promise. If you declare `! Pure` and the body contains `<-`, the compiler rejects the program at `loads` time with a typed error pointing at the offending line. Pyro and NumPyro discover the same mistake only when they call the model on real data, possibly inside an inner training loop. The QVR signature catches it in the same pass that catches a typo in an object name.
+The signature is a static promise. If you declare `[effects=[Pure]]` and the body contains a `sample` or `observe` step, the compiler rejects the program at `loads` time with a typed error pointing at the offending line. Pyro and NumPyro discover the same mistake only when they call the model on real data, possibly inside an inner training loop. QVR catches it in the same pass that catches a typo in an object name.
 
 ### The observations-dict contract
 
@@ -117,7 +117,7 @@ Notice the free name `x_design` on line 27: it isn't declared anywhere in the mo
 
 If `observed_names` is missing a name the body references, the compiler reports an unbound free name. If the `observations` dict at runtime is missing a name from `observed_names`, the runtime raises a `KeyError` at the first step. Both errors point at the offending site and stop the run before any gradient is computed.
 
-## Compile and fit
+#! Compile and fit
 
 QVR programs compile to `nn.Module`. You can train them with the inference stack quivers ships (built around stochastic variational inference, [Hoffman, Blei, Wang & Paisley, 2013](https://doi.org/10.5555/2567709.2502622)), or with any PyTorch optimizer if you want to drop to raw gradients.
 
@@ -127,12 +127,12 @@ from quivers.dsl import loads
 from quivers.inference import AutoNormalGuide, ELBO, SVI
 
 REGRESSION_SRC = """
-object Item : 100
+object Item : FinSet 100
 
-program regression : Item -> Item ! Sample, Score
-    sigma  <- HalfNormal(1.0)
-    beta_0 <- Normal(0.0, 5.0)
-    beta_1 <- Normal(0.0, 2.0)
+program regression : Item -> Item
+    sample sigma  <- HalfNormal(1.0)
+    sample beta_0 <- Normal(0.0, 5.0)
+    sample beta_1 <- Normal(0.0, 2.0)
     let mu = beta_0 + beta_1 * x_design
     observe y : Item <- Normal(mu, sigma)
     return y
@@ -190,13 +190,13 @@ Three things:
 
 1. **Types on the outside, names on the inside.** Every program has a typed signature `dom -> cod`; latents in the body are scoped to that signature. In Pyro/NumPyro, names live in a global trace and types are implicit.
 2. **Compile, then fit.** `loads` runs the QVR compiler before training: malformed models, type mismatches, undefined references, or shape inconsistencies surface as `CompileError` with line/column information *before* any tensor evaluation runs. Pyro/NumPyro discover most of these only when you call the model.
-3. **Effects on the signature.** `! Sample, Score, Marginal, Pure` is a static promise about what the body does. It's optional but lets the compiler reject programs that, say, try to `observe` inside a `Pure` block.
+3. **Effects in the option block.** The `effects = [Sample, Score, Marginal, Pure]` entry on a program declaration is a static promise about what the body does. It's optional but lets the compiler reject programs that, say, try to `observe` inside a `Pure` block.
 
 ## Try this
 
 - Add `algebra log_prob` at the top of the file. The enrichment changes how compositions accumulate scalars: likelihood-style values stay finite under very small probabilities; sometimes useful for long sequence models.
 - Replace [`AutoNormalGuide`](../../api/inference/guide.md) with [`AutoMultivariateNormalGuide`](../../api/inference/guide.md) and watch the recovered correlation between `beta_0` and `beta_1`.
-- Drop the `! Sample, Score` annotation, then add `! Pure` and re-run. The second case fails compilation with a typed error pointing to the `observe`.
+- Drop the `[effects=[Sample, Score]]` annotation, then add `[effects=[Pure]]` and re-run. The second case fails compilation with a typed error pointing to the `observe`.
 
 ## Next
 

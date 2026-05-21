@@ -35,18 +35,18 @@ class CompositionRule(ABC):
 
     The hierarchy below this class is:
 
-    * :class:`CompositionRule` — the bare composition surface.
-    * :class:`Semigroupoid` — adds the assumption that ⊗ is
+    * `CompositionRule` — the bare composition surface.
+    * `Semigroupoid` — adds the assumption that ⊗ is
       associative, so composition forms a semigroupoid (a
       category without identities).
-    * :class:`Algebra` — adds identity (``unit`` / ``zero``),
+    * `Algebra` — adds identity (``unit`` / ``zero``),
       a meet ⋀, a negation, and the full algebra-axiom
       package. This is the level at which compact-closed
       operations (``identity``, ``cup``, ``cap``, ``dagger``,
       ``trace``) become well-defined.
 
     Operations that need identity check at runtime that the
-    composition rule is at least a :class:`Algebra`; a clear
+    composition rule is at least a `Algebra`; a clear
     error is raised if a non-algebra rule is fed in.
     """
 
@@ -109,9 +109,9 @@ class CompositionRule(ABC):
 class Semigroupoid(CompositionRule):
     """A composition rule whose ``tensor_op`` is associative.
 
-    Semantically a :class:`CompositionRule` with the marker
+    Semantically a `CompositionRule` with the marker
     promise of associativity. No identity, no compact-closed
-    structure, no negation — those need :class:`Algebra`.
+    structure, no negation — those need `Algebra`.
 
     Material implication composition (``a ⊗ b = 1 - a + a*b``,
     ``⋁ = product``) is the canonical example: associative under
@@ -136,8 +136,8 @@ class BilinearForm(CompositionRule):
     (early truncation isn't commutative with later contractions),
     and attention-style softmax-then-multiply rules.
 
-    Sibling of :class:`Semigroupoid` under
-    :class:`CompositionRule`: ``BilinearForm`` *opts out* of the
+    Sibling of `Semigroupoid` under
+    `CompositionRule`: ``BilinearForm`` *opts out* of the
     associativity promise that ``Semigroupoid`` carries; a rule
     that's actually associative should be declared as
     ``Semigroupoid`` instead.
@@ -369,7 +369,7 @@ class Algebra(Semigroupoid):
         canonical Reichenbach-flavour probabilistic-implication
         composition rule.
 
-        The default implementation requires :meth:`negate` to be a
+        The default implementation requires `negate` to be a
         true involution; subclasses with non-involutive lattices
         should override.
         """
@@ -402,7 +402,7 @@ class DualAlgebra(Algebra):
     * ``Godel.dual``: ⊗ = max, ⋁ = min.
     * ``Boolean.dual``: ⊗ = OR, ⋁ = AND.
 
-    Returned by :meth:`Algebra.dual`. Subclasses with
+    Returned by `Algebra.dual`. Subclasses with
     non-involutive negation (CountingAlgebra, …) should override
     ``Algebra.dual`` to raise rather than allow dual construction
     that breaks the de-Morgan equations.
@@ -470,8 +470,8 @@ def _fold_along_dim(
 ) -> torch.Tensor:
     """Fold a binary tensor-op across one or more axes.
 
-    Used both by :class:`DualAlgebra` to lift the base tensor_op
-    into a reduction, and by :class:`CustomAlgebra` whose user-
+    Used both by `DualAlgebra` to lift the base tensor_op
+    into a reduction, and by `CustomAlgebra` whose user-
     supplied tensor_op is binary but is reduced as a join.
     """
     if isinstance(dim, int):
@@ -493,7 +493,7 @@ class CustomAlgebra(Algebra):
     """User-defined algebra built from callable operations.
 
     Construct a fresh algebra by supplying the primitive operations
-    as Python functions, rather than subclassing :class:`Algebra`
+    as Python functions, rather than subclassing `Algebra`
     for each variant.
 
     The constructor only stores the operations; **the user is
@@ -509,7 +509,7 @@ class CustomAlgebra(Algebra):
     join(t) = …; unit = …; zero = …; }`` compiles to this class
     under the hood, with ``verify=False`` (user expressions are
     arithmetic and routinely violate one of the canned samples
-    used by :meth:`_sanity_check`).
+    used by `_sanity_check`).
     """
 
     def __init__(
@@ -617,7 +617,7 @@ class CustomAlgebra(Algebra):
 
 
 class CustomSemigroupoid(Semigroupoid):
-    """User-defined :class:`Semigroupoid` built from callable
+    """User-defined `Semigroupoid` built from callable
     operations.
 
     Use for composition rules that are associative under their
@@ -625,7 +625,7 @@ class CustomSemigroupoid(Semigroupoid):
     material implication composition, weighted shortest-path on
     a non-pointed lattice, etc. Callers who want a full algebra
     (with identity, dagger, compact-closed structure) should use
-    :class:`CustomAlgebra` instead.
+    `CustomAlgebra` instead.
 
     Parameters
     ----------
@@ -697,14 +697,14 @@ def semigroupoid(
     *,
     verify_associative: bool = True,
 ) -> CustomSemigroupoid:
-    """Convenience constructor for :class:`CustomSemigroupoid`."""
+    """Convenience constructor for `CustomSemigroupoid`."""
     return CustomSemigroupoid(
         name, tensor_op, join, verify_associative=verify_associative
     )
 
 
 class CustomBilinearForm(BilinearForm):
-    """User-defined :class:`BilinearForm` built from callable
+    """User-defined `BilinearForm` built from callable
     operations.
 
     Use for composition rules whose ``tensor_op`` is **not**
@@ -758,7 +758,7 @@ def bilinear_form(
     tensor_op: Callable[[torch.Tensor, torch.Tensor], torch.Tensor],
     join: Callable[[torch.Tensor, int | tuple[int, ...]], torch.Tensor],
 ) -> CustomBilinearForm:
-    """Convenience constructor for :class:`CustomBilinearForm`."""
+    """Convenience constructor for `CustomBilinearForm`."""
     return CustomBilinearForm(name, tensor_op, join)
 
 
@@ -1115,7 +1115,7 @@ class TropicalAlgebra(Algebra):
 class MaxPlusAlgebra(Algebra):
     """Max-plus (Viterbi) semiring on (-∞, ∞].
 
-    Distinct from :class:`TropicalAlgebra` (which is min-plus,
+    Distinct from `TropicalAlgebra` (which is min-plus,
     suited to shortest-path aggregations): the join here is ``max``
     and the tensor is ``+``. The canonical algebra for MAP decoding
     in HMMs, CRFs, and weighted automata.
@@ -1178,7 +1178,7 @@ class LogProbAlgebra(Algebra):
     """Log-space sum-product semiring on (-∞, 0].
 
     Tensor is real addition (probability multiplication in log-
-    space) and join is :func:`torch.logsumexp` (probability
+    space) and join is `torch.logsumexp` (probability
     summation in log-space). Pairs naturally with float32
     numerics for hierarchical-Bayes log-likelihood pipelines.
 
@@ -1297,7 +1297,7 @@ class RealAlgebra(Algebra):
 class ProbabilityAlgebra(Algebra):
     """Sum-product semiring on [0, 1] with explicit clamp.
 
-    Same operations as :class:`RealAlgebra` but restricted to the
+    Same operations as `RealAlgebra` but restricted to the
     unit interval.
     """
 

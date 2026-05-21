@@ -8,22 +8,23 @@ Compilation produces a trainable [PyTorch
 `nn.Module`](https://docs.pytorch.org/docs/stable/generated/torch.nn.Module.html).
 
 ```python
-from quivers.dsl import loads, load
+import torch
+from quivers.dsl import loads
 
-# Compile from a string.
-prog = loads('''
-    object X : 3
-    object Y : 4
-    latent f : X -> Y
-    export f
-''')
+prog = loads("""
+composition product_fuzzy as algebra
 
-# Or from a file.
-prog = load("model.qvr")
+object X : FinSet 3
+object Y : FinSet 4
 
-# Now a trainable nn.Module.
+morphism f : X -> Y [role=latent]
+export f
+""")
+
 optimizer = torch.optim.Adam(prog.parameters())
 ```
+
+`load("model.qvr")` reads the same surface from a file path.
 
 The program-block surface looks familiar if you've used Pyro,
 NumPyro, Stan, or PyMC: `<-` is the sample sigil, `observe` scores
@@ -33,19 +34,23 @@ deterministic binding, `return` names the program's output.
 A few features distinguish the QVR surface from those alternatives:
 
 - **First-class structured priors on weight matrices** via
-  `latent W : A -> B ~ Family(args) over <axes>` (the axis-role
-  clause). [Matrix-Normal](https://en.wikipedia.org/wiki/Matrix_normal_distribution),
+  `morphism W : A -> B [role=latent] ~ Family(args)` with an
+  `[over=..., iid_over=...]` axis-role clause on each `sample` /
+  `observe` / `marginalize` step.
+  [Matrix-Normal](https://en.wikipedia.org/wiki/Matrix_normal_distribution),
   [LKJ](https://doi.org/10.1016/j.jmva.2009.04.008),
   [Gaussian-process](https://en.wikipedia.org/wiki/Gaussian_process),
   and [Horseshoe](https://doi.org/10.1093/biomet/asq017) priors take
   the form they take on paper.
 - **Marginalization as a control-flow construct.**
-  `marginalize z : K <- F(...) in { ... }` is a syntactic block,
-  not a runtime flag; the compiler emits the
+  `marginalize z : K <- F(...)` followed by an indented body is a
+  syntactic block, not a runtime flag; the compiler emits the
   [log-sum-exp](https://en.wikipedia.org/wiki/LogSumExp).
-- **Compile-time effect signatures.** Every program declares
-  `! Sample`, `! Score`, `! Marginal`, `! Pure` (or a combination);
-  the compiler rejects an effectful step inside a `! Pure` block
+- **Compile-time effect signatures.** Every program declares its
+  effect row in the option block:
+  `program p(...) : A -> B [effects=[Sample, Score]]`. Allowed
+  effects are `Pure`, `Sample`, `Score`, `Marginal`; the compiler
+  rejects an effectful step inside a `[effects=[Pure]]` block
   before training starts.
 - **A typed categorical denotation.** Every well-typed phrase has a
   meaning in a $\mathcal{V}$-enriched [symmetric monoidal closed
@@ -103,7 +108,7 @@ The [`Compiler`](../api/dsl/compiler.md) transforms the AST to a
 ```python
 from quivers.dsl import Compiler, parse
 
-source = "object X : 3\nlatent f : X -> X\nexport f"
+source = "object X : FinSet 3\nmorphism f : X -> X [role=latent]\nexport f"
 ast = parse(source)
 compiler = Compiler(ast)
 program = compiler.compile()
@@ -117,6 +122,7 @@ panproto `Schema` over `QVR_PROGRAM_PROTOCOL`:
 ```python
 from quivers.dsl import parse, Compiler, extract_program_schema
 
+source = "object X : FinSet 3\nmorphism f : X -> X [role=latent]\nexport f"
 ast = parse(source)
 compiler = Compiler(ast)
 compiler.compile()
@@ -245,12 +251,12 @@ gives the productions a categorical denotation.
 
 Lines starting with `#` are ignored:
 
-```qvr
+```text
 # This is a comment
-object X : 3  # inline comment
+object X : FinSet 3  # inline comment
 
 # Define morphisms
-latent f : X -> X
+morphism f : X -> X [role=latent]
 ```
 
 ### Doc comments
@@ -261,11 +267,10 @@ the panproto schema, and tooling (`qvr check --json`, future LSP
 hover). Plain `#` line comments are dropped at parse time.
 
 ```qvr
-## The terminal vocabulary; cardinality 256 is one byte.
-object Token : 256
-
-## Latent token-to-category embedding learned during training.
-latent emit : Token -> Token
+#! The terminal vocabulary; cardinality 256 is one byte.
+object Token : FinSet 256
+#! Latent token-to-category embedding learned during training.
+morphism emit : Token -> Token [role=latent]
 ```
 
 Doc comments are recognized on `object`, `morphism`, `alias`, and
@@ -285,6 +290,7 @@ The DSL provides two error types:
 ```python
 from quivers.dsl import loads, ParseError, CompileError
 
+bad_source = "object X : FinSet 3\nmorphism f : X -> Y [role=latent]\nexport f"
 try:
     prog = loads(bad_source)
 except ParseError as e:

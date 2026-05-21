@@ -1,33 +1,35 @@
-# ================================================================
 # Stochastic Volatility Model
-# ================================================================
 #
-# The canonical log-volatility model ([Kim, Shephard, and Chib
-# 1998](https://doi.org/10.1111/1467-937X.00050)):
+# The canonical log-volatility model: returns are mean-zero
+# Normal with a time-varying scale set by a latent log-volatility
+# that itself follows an AR(1) chain. The runtime conditions on
+# the observed return series indexed by Step and recovers a
+# posterior over (mu, phi, sigma_h) along with the latent
+# volatility plate.
 #
-#   mu     ~ Normal(0, 10)
-#   phi    ~ Uniform(-1, 1)
-#   sigma_h ~ HalfCauchy(2.5)
-#   h_t    ~ Normal(mu + phi * (h_{t-1} - mu), sigma_h)
-#   r_t    ~ Normal(0, exp(h_t / 2))
+# Generative structure:
 #
-# Returns r_t are mean-zero Normal with time-varying scale set by
-# the latent log-volatility h_t, which itself follows an AR(1)
-# chain centred on mu. The runtime conditions on the observed
-# return series indexed by `Step` and recovers a posterior over
-# (mu, phi, sigma_h) along with the latent volatility plate.
+#   mu       ~ Normal(0, 10)                      log-vol mean
+#   phi      ~ Uniform(-1, 1)                     AR(1) coefficient
+#   sigma_h  ~ HalfCauchy(2.5)                    log-vol noise
+#   h_t      ~ Normal(mu + phi * (h_{t-1} - mu), sigma_h)
+#   r_t      ~ Normal(0, exp(h_t / 2))            observed return
+#
+# Reference: [Kim, Shephard, and Chib 1998](https://doi.org/10.1111/1467-937X.00050).
 
-object Step : 200
+object Step : FinSet 200
 
 program stochastic_volatility : Step -> Step
-    mu <- Normal(0.0, 10.0)
-    phi <- Uniform(-1.0, 1.0)
-    sigma_h <- HalfCauchy(2.5)
+    sample mu <- Normal(0.0, 10.0)
+    sample phi <- Uniform(-1.0, 1.0)
+    sample sigma_h <- HalfCauchy(2.5)
 
     let h_mean = mu + phi * (h_prev - mu)
-    h : Step <- Normal(h_mean, sigma_h)
+
+    sample h : Step <- Normal(h_mean, sigma_h)
 
     let scale = exp(0.5 * h)
+
     observe r : Step <- Normal(0.0, scale)
     return phi
 

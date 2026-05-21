@@ -1,9 +1,9 @@
 """Stochastic Variational Inference (SVI) training loop.
 
-SVI optimizes a :class:`~quivers.inference.objectives.Objective`
+SVI optimizes a [`quivers.inference.objectives.Objective`][quivers.inference.objectives.Objective]
 — the ELBO, IWAE, Rényi, or VR-IWAE bound — by taking gradient
 steps on the guide and model parameters. The ``objective``
-parameter accepts any :class:`Objective` subclass.
+parameter accepts any `Objective` subclass.
 """
 
 from __future__ import annotations

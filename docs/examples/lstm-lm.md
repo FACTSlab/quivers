@@ -7,37 +7,35 @@ A Bayesian [LSTM](https://doi.org/10.1162/neco.1997.9.8.1735) language model. Th
 ## QVR Source
 
 ```qvr
-object Token : 256
+object Token : FinSet 256
+object Embedded : Real 64
+object Hidden : Real 128
 
-type Embedded = Euclidean 64
-type Hidden = Euclidean 128
-
-embed tok_embed : Token -> Embedded
-
-kernel gate_i : Embedded * Hidden -> Hidden ~ LogitNormal
-kernel gate_f : Embedded * Hidden -> Hidden ~ LogitNormal
-kernel gate_o : Embedded * Hidden -> Hidden ~ LogitNormal
-kernel cell_cand : Embedded * Hidden -> Hidden ~ Normal [scale=0.5]
-kernel lm_head : Hidden -> Token ~ Categorical
+morphism tok_embed : Token -> Embedded [role=embed]
+morphism gate_i : Embedded * Hidden -> Hidden [role=kernel] ~ LogitNormal
+morphism gate_f : Embedded * Hidden -> Hidden [role=kernel] ~ LogitNormal
+morphism gate_o : Embedded * Hidden -> Hidden [role=kernel] ~ LogitNormal
+morphism cell_cand : Embedded * Hidden -> Hidden [role=kernel, scale=0.5] ~ Normal
+morphism lm_head : Hidden -> Token [role=kernel] ~ Categorical
 
 program lstm_cell(x_t, h_prev) : Embedded * Hidden -> Hidden
-    i_gate <- gate_i(x_t, h_prev)
-    f_gate <- gate_f(x_t, h_prev)
-    o_gate <- gate_o(x_t, h_prev)
-    g_cand <- cell_cand(x_t, h_prev)
+    sample i_gate <- gate_i(x_t, h_prev)
+    sample f_gate <- gate_f(x_t, h_prev)
+    sample o_gate <- gate_o(x_t, h_prev)
+    sample g_cand <- cell_cand(x_t, h_prev)
 
     let c_new = f_gate * h_prev + i_gate * g_cand
     let two_c = 2.0 * c_new
     let sig_2c = sigmoid(two_c)
     let tanh_c = 2.0 * sig_2c - 1.0
     let h_new = o_gate * tanh_c
-
     return h_new
 
 let backbone = tok_embed >> scan(lstm_cell)
 
 program lstm_lm : Token -> Token
-    h <- backbone
+    sample h <- backbone
+
     observe next_token : Token <- lm_head(h)
     return next_token
 
@@ -86,23 +84,102 @@ flowchart LR
 
 ## Try it
 
+> The SVI step counts and NUTS warmup, sample, and chain budgets in the snippets below are illustrative: each block is sized to run in tens of seconds and demonstrate the API surface. Production fits typically need 10x to 100x more SVI steps, longer NUTS warmup, and multiple chains to actually converge to the data-generating parameters.
+
+
+### Generating synthetic data
+
+Initialise the model's stochastic-weight parameters under a fixed seed (these stand in for the ground-truth generative weights), then forward-sample a corpus of token sequences by drawing random prompts and reading off the next-token target through [`rsample`](../api/continuous/programs.md). The corpus is a `(batch, seq_len)` int64 prompt tensor paired with a `(batch,)` next-token target.
+
 ```python
 import torch
 from quivers.dsl import load
 
+torch.manual_seed(0)
 prog = load("docs/examples/source/lstm_lm.qvr")
 model = prog.morphism
 
-torch.manual_seed(0)
-inputs = torch.randint(0, 256, (32, 16))
+for _, p in model.named_parameters():
+    p.data.copy_(torch.randn_like(p) * 0.3)
 
-next_tokens = model.rsample(inputs)
-print(next_tokens.shape)                  # torch.Size([32])
-
-samples = torch.stack([model.rsample(inputs) for _ in range(64)])
-modes = samples.mode(dim=0).values
-print(modes.shape)                        # torch.Size([32])
+batch, seq_len, vocab = 4, 8, 256
+prompts = torch.randint(0, vocab, (batch, seq_len))
+targets = model.rsample(prompts)
+print("prompts:", prompts.shape, prompts.dtype)
+print("targets:", targets.shape, targets.dtype)
 ```
+
+### SVI fit
+
+Re-initialise the parameters and recover next-token weights from the synthetic corpus with [`AutoNormalGuide`](../api/inference/guide.md) + [`ELBO`](../api/inference/elbo.md) + [`SVI`](../api/inference/svi.md). The loss is the negative ELBO under a Categorical likelihood on the `next_token` site.
+
+```python
+import torch
+from quivers.dsl import load
+from quivers.inference import AutoNormalGuide, ELBO, SVI
+
+torch.manual_seed(0)
+prog = load("docs/examples/source/lstm_lm.qvr")
+model = prog.morphism
+
+for _, p in model.named_parameters():
+    p.data.copy_(torch.randn_like(p) * 0.3)
+batch, seq_len, vocab = 4, 8, 256
+prompts = torch.randint(0, vocab, (batch, seq_len))
+targets = model.rsample(prompts)
+observations = {"next_token": targets}
+
+torch.manual_seed(1)
+for _, p in model.named_parameters():
+    p.data.copy_(torch.randn_like(p) * 0.3)
+
+guide = AutoNormalGuide(model, observed_names={"next_token"})
+optim = torch.optim.Adam(
+    list(model.parameters()) + list(guide.parameters()), lr=5e-2,
+)
+svi = SVI(model, guide, optim, ELBO(num_particles=1))
+
+losses = [svi.step(prompts, observations)]
+for _ in range(30):
+    losses.append(svi.step(prompts, observations))
+
+print(f"initial loss: {losses[0]:.2f}")
+print(f"final loss:   {losses[-1]:.2f}")
+```
+
+### NUTS posterior
+
+The LSTM's four gates and cell candidate are `[role=kernel]` Bayesian morphisms whose weights live as `nn.Parameter`s inside the program. [`bayesian_lift_parameters`](../api/inference/lifts.md#quivers.inference.lifts.bayesian_lift_parameters) lifts those parameters into Normal-prior sample sites so [`NUTSKernel`](../api/inference/mcmc.md#quivers.inference.mcmc.NUTSKernel) has a continuous unconstrained state space. The likelihood scores the next-token target via the Categorical [`lm_head`](../api/continuous/families.md) applied to a forward sample of the hidden state.
+
+```python
+import torch
+from quivers.dsl import load
+from quivers.inference import MCMC, NUTSKernel, bayesian_lift_parameters
+
+torch.manual_seed(0)
+prog = load("docs/examples/source/lstm_lm.qvr")
+model = prog.morphism
+for _, p in model.named_parameters():
+    p.data.copy_(torch.randn_like(p) * 0.3)
+batch, seq_len, vocab = 4, 8, 256
+prompts = torch.randint(0, vocab, (batch, seq_len))
+targets = model.rsample(prompts)
+observations = {"next_token": targets}
+
+h_shape = tuple(model._step_h.rsample(prompts).shape)
+lifted, lx, lobs = bayesian_lift_parameters(
+    model, prompts, observations,
+    prior_scale=1.0,
+    additional_latents={"h": h_shape},
+)
+kernel = NUTSKernel(step_size=0.005, max_tree_depth=3, target_accept=0.8)
+mc     = MCMC(kernel, num_warmup=10, num_samples=10, num_chains=1)
+result = mc.run(lifted, lx, lobs)
+
+print(f"acceptance:  {float(result.acceptance_rates.mean()):.2f}")
+print(f"divergences: {int(result.divergence_counts.sum())}")
+```
+
 
 ## Categorical Perspective
 

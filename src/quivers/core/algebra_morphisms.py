@@ -1,10 +1,10 @@
 """Algebra homomorphisms and change-of-base for V-enriched
 morphisms.
 
-A morphism in :mod:`quivers.core.morphisms` is V-enriched: its
+A morphism in [`quivers.core.morphisms`][quivers.core.morphisms] is V-enriched: its
 codomain is :math:`\\mathrm{Hom}_V(A, B)` for the active algebra
 ``V``. Two morphisms over different algebras (``V`` and ``W``)
-do not directly compose — :meth:`Morphism.__rshift__` raises
+do not directly compose — `Morphism.__rshift__` raises
 ``incompatible algebras``. The standard categorical way to
 bridge them is a **algebra homomorphism** (a lax monoidal poset
 functor) :math:`\\varphi : V \\to W` mediating the change of
@@ -15,34 +15,34 @@ on morphisms.
 
 This module ships:
 
-* :class:`AlgebraHomomorphism` — the abstract base. A homomorphism
+* `AlgebraHomomorphism` — the abstract base. A homomorphism
   carries a source algebra, a target algebra, and a function
   ``apply(t : Tensor) -> Tensor`` that maps a tensor whose entries
   live in the source's lattice to a tensor whose entries live in
   the target's lattice. Subclasses implement ``apply`` for a
   specific pair.
 
-* :class:`Embedding` — the inclusion of a sub-algebra into a
+* `Embedding` — the inclusion of a sub-algebra into a
   super-algebra (e.g. ``Boolean ↪ ProductFuzzyAlgebra``).
 
-* :class:`Expectation` — Markov-to-ProductFuzzyAlgebra (``softmax`` ↦
+* `Expectation` — Markov-to-ProductFuzzyAlgebra (``softmax`` ↦
   fuzzy membership).
 
-* :class:`LogProb` — ProductFuzzyAlgebra-to-LogProb (``log(p)``).
+* `LogProb` — ProductFuzzyAlgebra-to-LogProb (``log(p)``).
 
-* :class:`MaxPlus` — ProductFuzzyAlgebra-to-Viterbi (max-plus tropical
+* `MaxPlus` — ProductFuzzyAlgebra-to-Viterbi (max-plus tropical
   lift).
 
-* :class:`Threshold` — ProductFuzzyAlgebra-to-Boolean (discretize at a
+* `Threshold` — ProductFuzzyAlgebra-to-Boolean (discretize at a
   threshold).
 
-* :class:`MaterialImplication` — ProductFuzzyAlgebra-to-Godel (Heyting
+* `MaterialImplication` — ProductFuzzyAlgebra-to-Godel (Heyting
   implication semantics).
 
-* :class:`IdentityHom` — a no-op homomorphism from an algebra to
+* `IdentityHom` — a no-op homomorphism from an algebra to
   itself, useful as the unit of homomorphism composition.
 
-* A registry :data:`HOMOMORPHISM_REGISTRY` keyed by ``(source.name,
+* A registry `HOMOMORPHISM_REGISTRY` keyed by ``(source.name,
   target.name)`` so the compiler / user code can look up the
   canonical homomorphism between two algebras.
 
@@ -53,7 +53,7 @@ The categorical denotation of ``f.change_base(φ)`` for
 proceeds in W using W's tensor / join operations.
 
 This module is intentionally backend-agnostic: every homomorphism's
-``apply`` operates on a :class:`torch.Tensor` without touching
+``apply`` operates on a `torch.Tensor` without touching
 PyTorch's autograd or module infrastructure, so a future numpy /
 JAX backend can replace the runtime without touching the
 categorical hierarchy.
@@ -242,8 +242,8 @@ class MaxPlus(AlgebraHomomorphism):
     Viterbi-MAP aggregations.
 
     The two ProductFuzzyAlgebra → log-target homomorphisms are different
-    *category-theoretically* — :class:`LogProb` carries the join
-    structure to logsumexp, :class:`MaxPlus` carries it to
+    *category-theoretically* — `LogProb` carries the join
+    structure to logsumexp, `MaxPlus` carries it to
     max-plus — even though they share the same per-entry mapping
     ``log``.
     """
@@ -343,13 +343,13 @@ MATERIAL_IMPLICATION = MaterialImplication()
 
 
 def threshold(tau: float = 0.5) -> Threshold:
-    """Build a :class:`Threshold` homomorphism at the given
+    """Build a `Threshold` homomorphism at the given
     threshold value."""
     return Threshold(tau)
 
 
 def embedding(source: Algebra, target: Algebra) -> Embedding:
-    """Build an :class:`Embedding` homomorphism (sub → super
+    """Build an `Embedding` homomorphism (sub → super
     algebra inclusion)."""
     return Embedding(source, target)
 
@@ -384,7 +384,7 @@ class CountingFromReal(AlgebraHomomorphism):
 
     Coerces a real-valued tensor into a non-negative integer
     counting tensor by flooring and clamping at zero.
-    Information-destroying; inverse is :class:`CountingToReal`.
+    Information-destroying; inverse is `CountingToReal`.
     """
 
     def __init__(self) -> None:

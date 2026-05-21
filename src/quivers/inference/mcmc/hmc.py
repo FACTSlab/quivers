@@ -15,10 +15,10 @@ makes the chain reversible. The two kernels in this module share
 the leapfrog primitive and step-size/mass adaptation but differ
 in trajectory selection:
 
-* :class:`HMCKernel` runs a fixed number of leapfrog steps per
+* `HMCKernel` runs a fixed number of leapfrog steps per
   proposal (Neal 2011, `doi:10.1201/b10905-7
   <https://doi.org/10.1201/b10905-7>`_).
-* :class:`NUTSKernel` builds a tree of leapfrog steps and uses
+* `NUTSKernel` builds a tree of leapfrog steps and uses
   the No-U-Turn termination criterion to set the trajectory
   length adaptively (Hoffman-Gelman 2014,
   `doi:10.48550/arXiv.1111.4246
@@ -28,9 +28,9 @@ in trajectory selection:
   <https://doi.org/10.48550/arXiv.1701.02434>`_).
 
 Both kernels operate on the flat unconstrained vector supplied by
-the :class:`~quivers.inference.registry.LatentRegistry`. The
-gradient is computed via :func:`torch.autograd.grad` against the
-:class:`~quivers.inference.mcmc.kernel.PotentialFn`.
+the `quivers.inference.registry.LatentRegistry`. The
+gradient is computed via `torch.autograd.grad` against the
+[`quivers.inference.mcmc.kernel.PotentialFn`][quivers.inference.mcmc.kernel.PotentialFn].
 """
 
 from __future__ import annotations
@@ -189,7 +189,7 @@ class HMCKernel(MCMCKernel):
     ----------
     step_size : float
         Leapfrog step size. Adapted during warmup when
-        :attr:`adapt_step_size` is true.
+        `adapt_step_size` is true.
     num_steps : int
         Leapfrog steps per proposal.
     mass_matrix : {"identity", "diagonal", "dense"}

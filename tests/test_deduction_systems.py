@@ -14,6 +14,8 @@ import os
 
 os.environ.setdefault("QVR_USE_LOCAL_GRAMMAR", "1")
 
+import textwrap
+
 import torch
 
 from quivers.dsl.compiler import Compiler
@@ -87,19 +89,13 @@ class TestDeductionDSL:
         return c
 
     def test_deduction_block_compiles(self):
-        src = """
-        object Atom : 4
-        deduction MyD : Atom -> Atom {
-            atoms { NP, S, VP }
+        src = textwrap.dedent("""
+        object Atom : FinSet 4
+
+        deduction MyD : Atom -> Atom [semiring=LogProb, start=S, depth=4]
+            atoms NP, S, VP
             rule combine : NP, VP |- S
-            semiring  LogProb
-            start  S
-            depth  4
-        }
-        object Dummy : 1
-        latent dummy : Dummy -> Dummy
-        export dummy
-        """
+        """)
         c = self._compile(src)
         assert "MyD" in c._deductions
         sys = c._deductions["MyD"]
@@ -107,19 +103,14 @@ class TestDeductionDSL:
         assert sys.rules[0].name == "combine"
 
     def test_multi_rule_block(self):
-        src = """
-        object Atom : 4
-        deduction CG2 : Atom -> Atom {
-            atoms { NP, S, VP }
+        src = textwrap.dedent("""
+        object Atom : FinSet 4
+
+        deduction CG2 : Atom -> Atom [semiring=Boolean, start=S]
+            atoms NP, S, VP
             rule fwd : NP, VP |- S
             rule bwd : VP, NP |- S
-            semiring  Boolean
-            start  S
-        }
-        object Dummy : 1
-        latent dummy : Dummy -> Dummy
-        export dummy
-        """
+        """)
         c = self._compile(src)
         sys = c._deductions["CG2"]
         names = {r.name for r in sys.rules}
@@ -133,24 +124,18 @@ class TestDeductionDSL:
 
 class TestPanprotoIntegration:
     def test_extract_deduction_schema(self):
-        src = """
-        object Atom : 4
-        deduction D1 : Atom -> Atom {
-            atoms { NP, S }
+        src = textwrap.dedent("""
+        object Atom : FinSet 4
+
+        deduction D1 : Atom -> Atom [semiring=LogProb, start=S]
+            atoms NP, S
             rule r1 : NP, NP |- S
-            semiring  LogProb
-            start  S
-        }
-        deduction D2 : Atom -> Atom {
-            atoms { VP }
+
+        deduction D2 : Atom -> Atom [semiring=Boolean]
+            atoms VP
             rule r2 : VP |- VP
-            semiring  Boolean
-        }
-        object Dummy : 1
-        latent dummy : Dummy -> Dummy
-        export dummy
-        """
-        m = parse(src)
+        """)
+        m = parse(textwrap.dedent(src))
         c = Compiler(m)
         c.compile()
         schema = extract_deduction_schema(c)

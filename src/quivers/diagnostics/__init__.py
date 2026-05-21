@@ -1,7 +1,7 @@
 """Adapter to the ArviZ Bayesian-analysis ecosystem.
 
-Quivers' inference layer produces :class:`~quivers.inference.MCMCResult`
-records and :class:`~quivers.inference.guides.base.Guide` fits.  The
+Quivers' inference layer produces [`quivers.inference.MCMCResult`][quivers.inference.MCMCResult]
+records and [`quivers.inference.guides.base.Guide`][quivers.inference.guides.base.Guide] fits.  The
 canonical 2026 Bayesian-analysis library is [ArviZ](https://python.arviz.org/),
 whose
 [`xarray.DataTree`](https://docs.xarray.dev/en/stable/generated/xarray.DataTree.html)-based
@@ -10,8 +10,8 @@ posterior-predictive, model-comparison, and calibration tooling.
 
 The functions in this subpackage convert quivers fits into ArviZ
 DataTrees and wrap the canonical ArviZ entry points
-(:func:`arviz.compare`, :func:`arviz.loo`, :func:`arviz.hdi`,
-:func:`arviz.plot_ppc`) with shape-aware, quivers-typed signatures.
+(`arviz.compare`, `arviz.loo`, `arviz.hdi`,
+`arviz.plot_ppc`) with shape-aware, quivers-typed signatures.
 No posterior-analysis primitives are reimplemented here; ArviZ owns
 the analytics.
 """

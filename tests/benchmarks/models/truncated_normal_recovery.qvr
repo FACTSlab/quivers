@@ -8,12 +8,9 @@
 # moderate. Tier-6 stress for guides whose bijector must respect
 # the unit-interval support (sigmoid for mu) and whose likelihood
 # evaluation must use the correct truncated log-density.
-
-object Obs : 60
-
+object Obs : FinSet 60
 program truncated_normal_recovery : Obs -> Obs
-    mu <- Uniform(0.0, 1.0)
+    sample mu <- Uniform(0.0, 1.0)
     observe y : Obs <- TruncatedNormal(mu, 0.2, 0.0, 1.0)
     return mu
-
 export truncated_normal_recovery

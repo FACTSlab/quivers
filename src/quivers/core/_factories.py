@@ -4,15 +4,15 @@ Provides explicit V-relation tensors for the standard categorical
 structure that every typeclass instance, free-monad construction, and
 arrow bridge depends on: coproduct injections / case eliminators,
 product projections / pairings, distributivity, terminal / initial
-maps, and parallel pair morphisms over arbitrary :class:`SetObject`
+maps, and parallel pair morphisms over arbitrary `SetObject`
 shapes. Tensors are constructed with the unit / zero of a given
 algebra so the constructions work uniformly across
-:class:`ProductFuzzyAlgebra`, :class:`BooleanAlgebra`, and the other
-algebras registered in :mod:`quivers.core.algebras`.
+`ProductFuzzyAlgebra`, `BooleanAlgebra`, and the other
+algebras registered in [`quivers.core.algebras`][quivers.core.algebras].
 
 These constructors are the alphabet from which the stdlib monad,
 arrow, and comonad instances are built. Each returns an
-:class:`ObservedMorphism` whose tensor is deterministic and whose
+`ObservedMorphism` whose tensor is deterministic and whose
 entries are the categorical structure maps.
 """
 
@@ -226,7 +226,7 @@ def pair(
 def terminal(domain: SetObject, algebra: Algebra | None = None) -> ObservedMorphism:
     """The unique morphism ``! : A → 1`` into the terminal object.
 
-    Sends every ``a ∈ A`` to the single element of :data:`Unit`.
+    Sends every ``a ∈ A`` to the single element of `Unit`.
     """
     q = _q(algebra)
     data = torch.full((*domain.shape, 1), q.unit)
@@ -380,7 +380,7 @@ def coproduct_map(
 def identity_morphism(
     obj: SetObject, algebra: Algebra | None = None
 ) -> ObservedMorphism:
-    """Identity morphism on ``obj``. Re-export of :func:`core.morphisms.identity`."""
+    """Identity morphism on ``obj``. Re-export of `core.morphisms.identity`."""
     return identity(obj, algebra=algebra)
 
 

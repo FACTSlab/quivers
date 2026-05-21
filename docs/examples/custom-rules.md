@@ -3,35 +3,36 @@
 ## QVR Source
 
 ```qvr
-object Term : 16
+# Custom Rules
+#
+# An AB grammar (Ajdukiewicz-Bar-Hillel) plus harmonic
+# composition, illustrating that every rule in a deduction block
+# is a sequent declared in the DSL itself; there are no built-in
+# named rule schemas.
+#
+# Deduction:
+#
+#   fwd_app   : X/Y, Y    |- X        forward application
+#   bwd_app   : Y,   X\Y  |- X        backward application
+#   fwd_comp  : X/Y, Y/Z  |- X/Z      forward composition
+#   bwd_comp  : Y\Z, X\Y  |- X\Z      backward composition
+#
+# Pattern variables are single-uppercase identifiers (X, Y, Z,
+# I, J, K); every other identifier appearing in a rule pattern
+# must be listed in the atoms block.
 
-deduction AB : Term -> Term {
-    atoms {
-        S, NP, N, VP, PP,
-        Fwd, Bwd,
-        span
-    }
+object Term : FinSet 16
 
-    rule fwd_app
-        : span(I, K, Fwd(X, Y)), span(K, J, Y)
-        |- span(I, J, X)
-
-    rule bwd_app
-        : span(I, K, Y), span(K, J, Bwd(X, Y))
-        |- span(I, J, X)
-
-    rule fwd_comp
-        : span(I, K, Fwd(X, Y)), span(K, J, Fwd(Y, Z))
-        |- span(I, J, Fwd(X, Z))
-
-    rule bwd_comp
-        : span(I, K, Bwd(Y, Z)), span(K, J, Bwd(X, Y))
-        |- span(I, J, Bwd(X, Z))
-
-    semiring  LogProb
-    start     S
-    depth     6
-}
+deduction AB : Term -> Term [semiring=LogProb, start=S, depth=6]
+    atoms S, NP, N, VP, PP, Fwd, Bwd, span, the, dog, runs
+    rule fwd_app : span(I, K, Fwd(X, Y)), span(K, J, Y) |- span(I, J, X) #[learnable]
+    rule bwd_app : span(I, K, Y), span(K, J, Bwd(X, Y)) |- span(I, J, X) #[learnable]
+    rule fwd_comp : span(I, K, Fwd(X, Y)), span(K, J, Fwd(Y, Z)) |- span(I, J, Fwd(X, Z)) #[learnable]
+    rule bwd_comp : span(I, K, Bwd(Y, Z)), span(K, J, Bwd(X, Y)) |- span(I, J, Bwd(X, Z)) #[learnable]
+    lexicon
+        "the" : Fwd(NP, N) = the #[learnable]
+        "dog" : N = dog #[learnable]
+        "runs" : Bwd(S, NP) = runs #[learnable]
 ```
 
 ## Overview
@@ -72,13 +73,90 @@ Rule premise multiplicity is unary or binary; combinators that need three or mor
 
 ## Try it
 
-```python
-from quivers.dsl import load
+Every `#[learnable]` lexicon entry and every `#[learnable]` rule
+exposes a real `nn.Parameter` on the compiled
+[`DeductionSystem`](../api/stochastic/agenda.md#quivers.stochastic.agenda.DeductionSystem). The
+system is callable: `ded(sentence)` returns a
+[`ChartView`](../api/stochastic/agenda.md#quivers.stochastic.agenda.ChartView) whose
+`goal_weight()` is the differentiable log-marginal
+$\log Z(s; \mathbf{w}) = \log \sum_d \exp \langle \mathbf{w}, \phi(d) \rangle$
+summed over every derivation $d$ that the start symbol licenses for
+the input. Fitting the lexicon and rule weights together is then a
+regression-style problem: minimise $-\sum_n \log Z(s_n)$ over a
+corpus of sentences. The
+[`quivers.stochastic.deduction`](../api/stochastic/deduction.md) module ships the
+two standard surfaces.
 
+### MAP fit (Adam on rule & lexicon weights)
+
+```python
+import torch
+from quivers.dsl import load
+from quivers.stochastic.deduction import adam_fit_deduction, sample_corpus
+
+torch.manual_seed(0)
 prog = load("docs/examples/source/custom_rules.qvr")
+ded  = prog.deductions["AB"]
+
+corpus = [["the", "dog", "runs"]] * 4
+
+history = adam_fit_deduction(
+    ded, corpus, steps=300, lr=5e-2, prior_scale=1.0,
+)
+print(f"loss: {history[0]:.2f} → {history[-1]:.2f}")  # strictly decreasing
+
+# Forward-sample under the fitted parameters and check the
+# dominant length-3 yield recovers the training corpus.
+draws = sample_corpus(ded, length=3, n_samples=32, seed=0)
+print("dominant yield:", max(set(map(tuple, draws)), key=draws.count))
+# → ("the dog runs",)
 ```
 
-Each rule in the block is fully user-declared; experimenting with new combinators is a matter of adding a `rule NAME : premises |- conclusion` line and re-loading. Conditioning a downstream `program` on the chart's per-derivation log-weights then lets [`SVI`](../api/inference/svi.md) drive a categorial-lexicon fit through the new rule set without any compiler changes.
+`adam_fit_deduction` maximises the corpus log-marginal under an
+optional Normal prior on the parameters; `prior_scale=1.0` gives MAP
+under a unit Normal. `sample_corpus` enumerates yields of the chosen
+length and draws from the categorical defined by their chart weights; exact forward sampling because the chart marginalises the
+derivation forest.
+
+### NUTS (full Bayesian posterior)
+
+```python
+import torch
+from quivers.dsl import load
+from quivers.inference import MCMC, NUTSKernel
+from quivers.stochastic.deduction import nuts_program_from_deduction
+
+torch.manual_seed(0)
+prog = load("docs/examples/source/custom_rules.qvr")
+ded  = prog.deductions["AB"]
+
+corpus = [["the", "dog", "runs"]] * 4
+
+model, x, observations = nuts_program_from_deduction(
+    ded, corpus, prior_scale=1.0,
+)
+
+kernel = NUTSKernel(step_size=0.1, max_tree_depth=4, target_accept=0.8)
+mc     = MCMC(kernel, num_warmup=50, num_samples=50, num_chains=2)
+result = mc.run(model, x, observations)
+
+print("acceptance:", float(result.acceptance_rates.mean()))
+print("divergences:", int(result.divergence_counts.sum()))
+posterior_means = {
+    name: float(samples.mean()) for name, samples in result.samples.items()
+}
+print("posterior mean log-weights:", posterior_means)
+```
+
+`nuts_program_from_deduction` lifts every learnable parameter of the
+deduction into a [`Normal(0, σ)`](../api/continuous/families.md) sample
+site and adds the corpus log-marginal $\log Z$ to the joint via a
+[`score`](../api/program.md) step. The standard
+[`NUTSKernel`](../api/inference/mcmc.md#quivers.inference.mcmc.NUTSKernel) drives the
+posterior $p(\mathbf{w} \mid s_1, \ldots, s_N) \propto p(\mathbf{w})
+\cdot \prod_n Z(s_n; \mathbf{w})$. The same Bayesian object
+[`bayesian_regression`](bayesian-regression.md) fits, with the chart
+total in place of the Gaussian likelihood.
 
 ## Categorical Perspective
 

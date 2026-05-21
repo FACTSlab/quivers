@@ -1,6 +1,6 @@
 # Weighted Deduction Systems
 
-QVR's `deduction { … }` block declares a weighted deductive system, a hyperedge of inference rules over an item algebra, paired with a semiring for weight aggregation. A single agenda-driven runtime evaluates the system; concrete parsing algorithms (CKY, Earley, Viterbi, A*, Knuth's, semi-naive Datalog, MLTT proof search) fall out as parameter settings.
+QVR's `deduction` block declares a weighted deductive system, a hyperedge of inference rules over an item algebra, paired with a semiring for weight aggregation. A single agenda-driven runtime evaluates the system; concrete parsing algorithms (CKY, Earley, Viterbi, A*, Knuth's, semi-naive Datalog, MLTT proof search) fall out as parameter settings.
 
 ## The framework
 
@@ -16,23 +16,17 @@ See [References](#references) below.
 
 ## Surface
 
-```qvr
-object Atom : 4
-
-deduction CG : Atom -> Atom {
-    atoms { NP, S, VP }
+```text
+object Atom : FinSet 4
+deduction CG : Atom -> Atom [semiring=LogProb, start=S, depth=4]
+    atoms NP, S, VP
 
     rule fwd_app   : X/Y, Y     |- X
     rule bwd_app   : Y, Y\X     |- X
     rule harm_comp : X/Y, Y/Z   |- X/Z
-
-    semiring  LogProb
-    start     S
-    depth     4
-}
 ```
 
-The body declares the seven canonical parameters as named fields. Single-uppercase-letter identifiers in rule patterns (`X`, `Y`, `Z`) bind as wildcards; non-wildcard names match literally. The block compiles to a `DeductionSystem` registered under the declared name (here `CG`).
+The unified option block carries the deduction-level configuration (semiring, start symbol, depth bound, optional `tolerance` for convergent-cycle LogProb, optional `max_iterations` cap). The indented body declares the atom set and rules; single-uppercase-letter identifiers in rule patterns (`X`, `Y`, `Z`) bind as wildcards, and non-wildcard names match literally. The declaration compiles to a `DeductionSystem` registered under the declared name (here `CG`).
 
 ## Charts as first-class differentiable values
 
@@ -92,11 +86,14 @@ The agenda module exposes canonical strategy factories that may be passed to the
 A `DeductionDecl` compiles to a panproto schema via `QVR_DEDUCTION_PROTOCOL`. Vertex kinds: `deduction_system`, `deduction_rule`, `deduction_atom`, `deduction_premise`, `deduction_conclusion`. Schema morphisms over the protocol correspond to deduction-system specializations.
 
 ```python
+from quivers.dsl import Compiler
+from quivers.dsl.parser import parse_file
 from quivers.dsl.program_theory import extract_deduction_schema
 
+compiler = Compiler(parse_file("docs/examples/source/ccg.qvr"))
+compiler.compile()
 schema = extract_deduction_schema(compiler)
-# Now schema is a panproto.Schema, usable with
-# panproto.diff_schemas, panproto.auto_generate_lens, etc.
+# schema is a panproto.Schema, usable with diff / lens-generation tooling.
 ```
 
 ## References

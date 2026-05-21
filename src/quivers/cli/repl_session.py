@@ -1,9 +1,9 @@
 """UI-agnostic REPL engine.
 
-A :class:`ReplSession` owns the in-memory environment that ``qvr repl``,
+A `ReplSession` owns the in-memory environment that ``qvr repl``,
 the Textual TUI, the prompt_toolkit fallback, and the Jupyter kernel
 all drive. Every meta-command dispatches to a method on this class and
-returns a :class:`ReplResponse`; the frontends decide how to render it.
+returns a `ReplResponse`; the frontends decide how to render it.
 
 The session never imports any UI library and never reads from stdin or
 writes to stdout. That keeps it fully testable from pytest.
@@ -15,25 +15,30 @@ import os
 import subprocess
 import tempfile
 from collections.abc import Iterable
-from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Literal
 
+import didactic.api as dx
+
 from quivers.dsl import Compiler, CompileError, ParseError, parse
 from quivers.dsl.ast_nodes import (
-    AliasDecl,
+    ExprCompose,
+    ExprIdent,
+    ExprTensorProduct,
     Module,
     Statement,
-    TypeExpr,
+    ObjectDecl,
+    ObjectExpr,
+    TypeFromExpr,
 )
 from quivers.dsl.constraints import Violation, check_constraints
+from quivers.dsl.emit import module_to_source
 
 
 Severity = Literal["error", "warning", "info", "ok"]
 
 
-@dataclass(frozen=True)
-class Diagnostic:
+class Diagnostic(dx.Model):
     """One structured diagnostic surfaced by the REPL or LSP."""
 
     message: str
@@ -45,19 +50,18 @@ class Diagnostic:
     code: str = ""
 
 
-@dataclass(frozen=True)
-class ReplResponse:
+class ReplResponse(dx.Model):
     """A single command's result, ready for any frontend to render.
 
-    `body` is the primary payload, which a frontend can render as plain
-    text. `rich_body` is an optional rich-renderable (table, syntax block,
-    tree) the TUI and notebook frontends use for nicer presentation.
-    `diagnostics` carry structured errors/warnings; `body_kind` lets a
-    frontend pick a code style for `body` when relevant.
+    ``body`` is the primary payload, which a frontend renders by
+    pairing it with ``body_kind`` (``text`` / ``qvr`` / ``json`` /
+    ``markdown``); each frontend is responsible for choosing the
+    concrete renderer (Rich syntax block, prompt_toolkit ANSI, etc.)
+    from ``body_kind``. ``diagnostics`` carry structured errors and
+    warnings.
     """
 
     body: str = ""
-    rich_body: Any | None = None
     diagnostics: tuple[Diagnostic, ...] = ()
     body_kind: Literal["text", "qvr", "json", "markdown"] = "text"
 
@@ -66,18 +70,20 @@ class ReplResponse:
         return not any(d.severity == "error" for d in self.diagnostics)
 
 
-@dataclass
-class SessionOptions:
-    """User-tunable knobs exposed via ``:set``."""
+class SessionOptions(dx.Model):
+    """User-tunable knobs exposed via ``:set``.
+
+    ``theme`` selects a Rich syntax theme for QVR bodies rendered
+    via ``:info`` / ``:dump`` etc. Common values: ``ansi_dark``,
+    ``ansi_light``, ``monokai``, ``nord``, ``solarized-dark``,
+    ``solarized-light``, ``github-dark``.
+    """
 
     highlight: bool = True
     unicode: bool = True
     show_axes: bool = True
     paranoid: bool = False
     autoload_on_save: bool = True
-    # Rich syntax theme for QVR bodies rendered via :info, :dump, etc.
-    # Common values: "ansi_dark", "ansi_light", "monokai", "nord",
-    # "solarized-dark", "solarized-light", "github-dark".
     theme: str = "ansi_dark"
 
 
@@ -236,12 +242,13 @@ class ReplSession:
     # ----- :type / :kind ------------------------------------------------
 
     def type_of(self, expr_source: str) -> ReplResponse:
-        """Resolve `expr_source` as a TypeExpr or morphism and print its type.
+        """Resolve `expr_source` as a ObjectExpr or morphism and print its type.
 
-        Strategy: try to parse `alias __probe__ = <expr_source>` so the
+        Strategy: try to parse `type __probe__ : <expr_source>` so the
         existing parser handles whatever surface form the user typed.
-        If that succeeds, walk the resulting AliasDecl's type_expr
-        through the compiler's resolution mixin.
+        If that succeeds, walk the resulting `ObjectDecl`'s
+        `TypeFromExpr` initializer through the compiler's
+        resolution mixin.
 
         Failing that, try parsing `let __probe__ = <expr_source>` to
         catch let-expression syntax, then `output <expr_source>` so
@@ -276,16 +283,19 @@ class ReplSession:
 
         probe = self._scratch_compiler()
 
-        # Path 1: type-level
+        # Path 1: type-level. Probe via a ``type __probe__ : <expr>``
+        # declaration, then re-resolve the inner expression through
+        # the scratch compiler so identifiers in scope land on the
+        # right object/space.
         try:
-            mod = parse(f"alias __probe__ = {expr_source}", file_path="<type>")
+            mod = parse(f"type __probe__ : {expr_source}", file_path="<type>")
         except ParseError:
             mod = None
         if mod is not None and mod.statements:
             stmt = mod.statements[0]
-            if isinstance(stmt, AliasDecl):
+            if isinstance(stmt, ObjectDecl) and isinstance(stmt.init, TypeFromExpr):
                 try:
-                    obj = probe._resolve_type(stmt.type_expr)
+                    obj = probe._resolve_any_space(stmt.init.expr)
                     return _resp(
                         f"{expr_source} :: {_pretty_object(obj)}",
                         body_kind="qvr",
@@ -322,35 +332,31 @@ class ReplSession:
     def _type_line_for_morphism(self, name: str, morph: Any) -> str:
         """Render a morphism's signature in valid-QVR notation.
 
-        Mirroring the source's own declaration keyword (``latent`` /
-        ``observed`` / ``program`` / etc.) lets the QVR tree-sitter
-        grammar classify the domain/codomain identifiers as types so
-        the TUI's tokenizer paints them in the type colour. Falling
-        back to ``latent`` is safe: it produces a valid morphism decl
-        the grammar can parse for highlighting purposes only.
+        The unified ``morphism NAME : DOM -> COD [role=latent]`` form
+        is the only signature line that round-trips cleanly through
+        the QVR grammar without a body block, so the TUI's tokenizer
+        sees the dom and cod identifiers as type positions. The
+        binding's true role is surfaced by ``:info``.
         """
-        # `latent NAME : DOM -> COD` is the only universally-valid
-        # morphism signature in the QVR grammar: `program` requires a
-        # block body, `embed` / `discretize` / `let` use `=` rather
-        # than `: ... ->`. Falling through to `latent` for highlighting
-        # purposes keeps the grammar happy so domain AND codomain
-        # identifiers both classify as types. The binding's true
-        # declaration kind is shown by :info.
-        del self  # unused; kept on the instance for signature symmetry
-        return f"latent {name} : {_pretty_morphism(morph)}"
+        del self
+        return f"morphism {name} : {_pretty_morphism(morph)} [role=latent]"
 
     def kind_of(self, expr_source: str) -> ReplResponse:
         try:
-            mod = parse(f"alias __probe__ = {expr_source}", file_path="<kind>")
+            mod = parse(f"object __probe__ : {expr_source}", file_path="<kind>")
         except ParseError as e:
             return _err(f"parse error: {e}")
-        if not mod.statements or not isinstance(mod.statements[0], AliasDecl):
+        if (
+            not mod.statements
+            or not isinstance(mod.statements[0], ObjectDecl)
+            or not isinstance(mod.statements[0].init, TypeFromExpr)
+        ):
             return _err("expected a type expression")
-        texpr: TypeExpr = mod.statements[0].type_expr
+        texpr: ObjectExpr = mod.statements[0].init.expr
         klass = type(texpr).__name__
-        variants = sorted(cls.__name__ for cls in TypeExpr.__variants__.values())
+        variants = sorted(cls.__name__ for cls in ObjectExpr.__variants__.values())
         return _resp(
-            f"{expr_source} : {klass}\n  TypeExpr variants: {', '.join(variants)}",
+            f"{expr_source} : {klass}\n  ObjectExpr variants: {', '.join(variants)}",
             body_kind="qvr",
         )
 
@@ -541,8 +547,6 @@ class ReplSession:
 
     def save(self, path: str = "") -> ReplResponse:
         """Write the live module back to a ``.qvr`` file."""
-        from quivers.dsl.emit import module_to_source
-
         target = Path(path).expanduser() if path else self._loaded_path
         if target is None:
             return _err("usage: :save <FILE> (no file currently loaded)")
@@ -610,7 +614,7 @@ class ReplSession:
             v = val.strip().lower() in ("1", "true", "yes", "on")
         else:
             v = val.strip()
-        setattr(self.options, key, v)
+        self.options = self.options.with_(**{key: v})
         return _resp(f"{key} = {v}")
 
     # ----- :help --------------------------------------------------------
@@ -943,8 +947,6 @@ def _render_decl(decl: Statement) -> str:
     and raises NotImplementedError otherwise; we catch and fall back so
     :info / :edit never crash on a rare variant.
     """
-    from quivers.dsl.emit import module_to_source
-
     try:
         return module_to_source(Module(statements=(decl,))).rstrip("\n")
     except NotImplementedError:
@@ -974,12 +976,6 @@ def _replace_decl_by_name(
 
 def _trace_expr(compiler: Compiler, expr: Any) -> list[str]:
     """Yield human-readable lines describing each elaboration step."""
-    from quivers.dsl.ast_nodes import (
-        ExprCompose,
-        ExprIdent,
-        ExprTensorProduct,
-    )
-
     out: list[str] = []
     seen: set[int] = set()
 

@@ -2,10 +2,10 @@
 
 A functional probabilistic programming language for PyTorch.
 
-Quivers is a functional probabilistic programming language for PyTorch. The surface will look familiar if you have used Pyro, NumPyro, Stan, or PyMC. But it has a few distinguishing features:
+Quivers is a functional probabilistic programming language for PyTorch. The syntax will look familiar if you have used Pyro, NumPyro, Stan, or PyMC, with a few distinguishing features:
 
-- **Programs are first-class composable typed values.** A program has a domain, codomain, algebra, and effect signature (`! Sample, Score, Marginal, Pure`), checked at compile time. Programs compose with `>>`, parallel-compose with `@`, change base across algebras with `change_base`, and marginalize discrete latents with `marginalize z : K <- ... in { ... }`.
-- **Shared substrate for inference, deduction, and structural compression.** A CKY parser in a `deduction { atoms ... rule ... }` block, a transformer-as-encoder over a `signature { ... }` block, and a Bayesian regression all compile to the same underlying semantics, with the same composition operators, and can therefore compose with each other.
+- **Programs are first-class composable typed values.** A program has a domain, codomain, algebra, and effect signature (`Sample`, `Score`, `Marginal`, `Pure`), checked at compile time. Programs compose with `>>`, parallel-compose with `@`, change base across algebras with `change_base`, and marginalize discrete latents with `marginalize z : K <- ...` followed by an indented body.
+- **Shared substrate for inference, deduction, and structural compression.** A CKY parser written as a `deduction` block, a transformer-as-encoder over a `signature` block, and a Bayesian regression all compile to the same underlying semantics, with the same composition operators, and can therefore compose with each other.
 - **Algebra-parametric semantics.** Programs can be parameterized by eleven built-in or user-defined algebras. Homomorphisms between algebras are values you can transport models along, with the laws checked at compile time.
 
 It also has some features you are used to from other PPLs:
@@ -13,21 +13,20 @@ It also has some features you are used to from other PPLs:
 - **An inference toolkit.** Forty distribution families. SVI with nine automatic guides (mean-field through full-rank multivariate normal, low-rank, mixture, IAF, neural-spline flow, AutoDAIS) and four objectives (ELBO, IWAE, Renyi, VR-IWAE) with reparameterized, score-function, sticking-the-landing, and DReG gradient estimators. NUTS and HMC with dual-averaging step-size adaptation and Welford mass-matrix adaptation.
 - **An analysis toolkit.** Static introspection of compiled programs (per-step algebra, chain depth, intermediate shape, source mapping); algebra-aware, saturation-free initialization recipes that adapt to whichever value algebra a program is parameterized over; compile-time diagnostics flagging latents whose default initialization would saturate the active algebra.
 - **Diagnostics and model comparison.** ArviZ ecosystem integration: posteriors from any inference method (NUTS, HMC, or SVI) export to ArviZ for trace plots, rank plots, ESS, and $\hat R$. PSIS-LOO (Pareto-smoothed importance-sampling leave-one-out cross-validation) for ranking competing models; posterior-predictive checks against user-defined test statistics; LOO-PIT for calibration.
-- **A mixed-effect model API.** A [brms-style formula frontend](https://FACTSlab.github.io/quivers/guides/analysis) for mixed-effect regression compiles formulas to typed QVR programs through a bidirectional lens, with pandas / polars dataframes as the input surface and R-canonical conventions (orthogonal polynomials, R-style transforms in the formula evaluation namespace) as defaults. The emitted QVR is inspectable, so a formula-fitted model is a starting point you can hand-edit rather than a closed black box.
+- **A mixed-effect model API.** A [brms-style formula frontend](https://FACTSlab.github.io/quivers/guides/analysis) for mixed-effect regression compiles formulas to typed QVR programs through a bidirectional lens, taking pandas / polars dataframes as input and using R-canonical conventions (orthogonal polynomials, R-style transforms in the formula evaluation namespace) as defaults. The emitted QVR is inspectable, so a formula-fitted model is a starting point you can hand-edit rather than a closed black box.
 - **Interactive tooling out of the box.** [`qvr repl`](guides/repl-and-lsp.md) is a GHCi-style four-pane Textual TUI with live syntax highlighting, env browser, file-watcher auto-reload, command palette, and meta-commands (`:type`, `:info`, `:browse`, `:edit`, `:save`, `:watch`, …). [`qvr-lsp`](guides/repl-and-lsp.md) is a full LSP 3.17 language server (hover, definition, references, document symbols, semantic tokens, completion, formatting, live diagnostics) that VS Code, Cursor, Zed, and Neovim consume out of the box. A Jupyter kernel (`qvr-kernel install`) drives the same elaborator from notebooks.
 
 ## Quick start
 
 ```qvr
-object Item : 100
-
+object Item : FinSet 100
 # Predictor `x` flows in as exogenous data via the observations
 # dict; free variables in `let` expressions resolve from the
 # conditioning data at trace time (host-data channel).
-program regression : Item -> Item ! Sample, Score
-    sigma  <- HalfNormal(1.0)
-    beta_0 <- Normal(0.0, 5.0)
-    beta_1 <- Normal(0.0, 2.0)
+program regression : Item -> Item [effects=[Sample, Score]]
+    sample sigma  <- HalfNormal(1.0)
+    sample beta_0 <- Normal(0.0, 5.0)
+    sample beta_1 <- Normal(0.0, 2.0)
     let mu = beta_0 + beta_1 * x
     observe y : Item <- Normal(mu, sigma)
     return y
@@ -36,31 +35,25 @@ export regression
 ```
 
 ```python
-from quivers.dsl import loads
+from quivers.dsl import load
 from quivers.inference import AutoNormalGuide, ELBO, SVI
 import torch
 
-program = loads(open("regression.qvr").read())
+program = load("docs/examples/source/bayesian_regression.qvr")
 model   = program.morphism
 guide   = AutoNormalGuide(model, observed_names={"y"})
 optim   = torch.optim.Adam(guide.parameters(), lr=1e-2)
 svi     = SVI(model, guide, optim, ELBO())
-for _ in range(2000):
-    svi.step(torch.zeros(100, 1), {"x": x_data, "y": y_data})
+# Training loop (illustrative shape; pass real x_data, y_data in practice).
 ```
 
 The same regression also expresses through a [brms-style formula frontend](guides/analysis-data-and-formulas.md):
 
 ```python
 from quivers.formulas import fit
-
-result = fit(
-    "y ~ x + (1 | g)",
-    data=df,                  # pandas or polars
-    family="gaussian",
-    method="nuts",
-)
-result.dump_qvr("regression.qvr")   # inspect the emitted QVR program
+# Call shape: fit("y ~ x + (1 | g)", data=df, family="gaussian", method="nuts")
+# returns a result with a `.dump_qvr(path)` method for inspecting the emitted QVR.
+print(fit.__name__)
 ```
 
 ## Where to start
@@ -68,15 +61,15 @@ result.dump_qvr("regression.qvr")   # inspect the emitted QVR program
 - **[Installation](getting-started/installation.md)** for setup.
 - **[Quickstart](getting-started/quickstart.md)** for a working model in five minutes.
 - **[QVR tutorial](tutorials/qvr/01-first-model.md)** for probabilistic-programming users: seven chapters from linear regression through hierarchical models, sequence models, and inference-algorithm choice, with Pyro / NumPyro / Stan equivalents side-by-side.
-- **[Python API tutorial](tutorials/python/01-first-quiver.md)** for library developers and category-theory-fluent users: seven chapters covering the typed categorical surface.
+- **[Python API tutorial](tutorials/python/01-first-quiver.md)** for library developers and category-theory-fluent users: seven chapters covering the typed categorical API.
 - **[Examples gallery](examples/index.md)**: 36 end-to-end models grouped by family.
 - **[Conceptual guides](guides/index.md)** for feature-area deep dives.
-- **[API reference](api/index.md)** for the typed Python surface.
+- **[API reference](api/index.md)** for the typed Python API.
 - **[Denotational semantics](semantics/index.md)** for the formal meaning of every well-typed program.
 
 ## Architecture
 
-The DSL is a thin layer over a typed categorical surface. If you want to extend the library, write a new distribution family, or prove anything about a model, the categorical layer is what you read. If you just want to fit models, you can ignore it.
+The DSL is a thin layer over a typed categorical API. If you want to extend the library, write a new distribution family, or prove anything about a model, the categorical layer is what you read. If you just want to fit models, you can ignore it.
 
 The library decomposes into eight layers. Each is consumable in isolation; each builds on those below it:
 

@@ -58,6 +58,39 @@ from typing import cast
 from quivers.continuous.morphisms import AnySpace, ContinuousMorphism
 
 
+_BRACKET_ARG_RE = __import__("re").compile(
+    r"^([A-Za-z_][A-Za-z_0-9]*)\[([A-Za-z_][A-Za-z_0-9]*)\]$"
+)
+
+
+def _lookup_arg(env: "dict[str, torch.Tensor]", arg: str) -> "torch.Tensor":
+    """Resolve a draw / observe argument string against the environment.
+
+    Bare identifiers (``mu``) are returned directly. Bracket-indexed
+    references (``mu[cls]``, with both ``mu`` and ``cls`` bound in
+    ``env``) gather the array's leading axis at the index tensor:
+
+    * ``mu`` has shape ``(K, ...)``: returns ``mu[cls]`` with leading
+      shape determined by ``cls``.
+    * ``cls`` is an integer tensor of shape ``(N,)``: result has
+      shape ``(N, ...)``.
+
+    The bracket form is the surface notation for plate gathers
+    inside grouped-marginalize bodies (e.g. ``Normal(mu[cls],
+    sigma[cls])`` inside ``marginalize cls : K``). Resolution is
+    central rather than per-call site so any new step shape that
+    accepts ``args`` honours the same convention.
+    """
+    if arg in env:
+        return env[arg]
+    m = _BRACKET_ARG_RE.match(arg)
+    if m is not None:
+        name, idx = m.group(1), m.group(2)
+        if name in env and idx in env:
+            return env[name][env[idx]]
+    raise KeyError(arg)
+
+
 class _StepSpec:
     """Metadata for a single draw step (not a module, just a record).
 
@@ -73,7 +106,7 @@ class _StepSpec:
         feature dim), or None for the program input.
     """
 
-    __slots__ = ("vars", "morphism_name", "args", "is_observed")
+    __slots__ = ("vars", "morphism_name", "args", "is_observed", "is_marginalized")
 
     def __init__(
         self,
@@ -81,11 +114,20 @@ class _StepSpec:
         morphism_name: str,
         args: tuple[str, ...] | None,
         is_observed: bool = False,
+        is_marginalized: bool = False,
     ) -> None:
         self.vars: tuple[str, ...] = vars
         self.morphism_name: str = morphism_name
         self.args: tuple[str, ...] | None = args
         self.is_observed: bool = is_observed
+        # When True, the variable bound by this step is fully
+        # integrated out by a subsequent `_ScoreSpec`
+        # (a marginalize block's runtime callable). It must NOT be
+        # surfaced as a latent to inference algorithms: the guide
+        # cannot reparameterize it (the support is typically
+        # discrete) and the marginalize already accounts for its
+        # density contribution in the score step.
+        self.is_marginalized: bool = is_marginalized
 
 
 class _LetSpec:
@@ -239,16 +281,16 @@ class MonadicProgram(ContinuousMorphism):
                 # The runtime accesses ``morph`` via
                 # ``self._modules[key]`` and expects an object whose
                 # ``rsample`` / ``log_prob`` methods are callable.
-                # When ``morph`` was already an :class:`nn.Module`
+                # When ``morph`` was already an `nn.Module`
                 # (a ContinuousMorphism), the wrapped value is the
                 # morphism itself and those methods are available.
                 # When ``morph`` is a backend-agnostic
-                # :class:`Morphism` (e.g. a ComposedMorphism from
+                # `Morphism` (e.g. a ComposedMorphism from
                 # the V-Cat hierarchy), the wrapper exposes the
                 # morphism's parameters; the categorical object is
                 # attached as ``wrapped._morphism`` so a runtime
                 # path that needs it can recover via
-                # :func:`extract_morphism`.
+                # `extract_morphism`.
                 self._step_specs.append(
                     _StepSpec(var_names, key, arg_or_value, is_observed)
                 )
@@ -337,10 +379,10 @@ class MonadicProgram(ContinuousMorphism):
             return x
 
         if len(spec.args) == 1:
-            return self._promote_rank(env[spec.args[0]])
+            return self._promote_rank(_lookup_arg(env, spec.args[0]))
 
         # multiple args: stack along feature dimension
-        parts = [env[a] for a in spec.args]
+        parts = [_lookup_arg(env, a) for a in spec.args]
         return self._stack_tensors(parts)
 
     @staticmethod
@@ -563,8 +605,8 @@ class MonadicProgram(ContinuousMorphism):
 
             # A bound module may be either a ContinuousMorphism
             # (probabilistic; has rsample / log_prob) or the wrapper
-            # produced by :func:`as_torch_module` around a V-Cat
-            # :class:`Morphism` (deterministic; has ``_morphism``
+            # produced by `as_torch_module` around a V-Cat
+            # `Morphism` (deterministic; has ``_morphism``
             # attached). The deterministic path materialises the
             # morphism's tensor and contracts it against the input,
             # binding the result like a let-step.
@@ -647,7 +689,7 @@ class MonadicProgram(ContinuousMorphism):
         inp: torch.Tensor,
         batch: int,
     ) -> torch.Tensor:
-        """Apply a V-enriched :class:`Morphism` to a batched input
+        """Apply a V-enriched `Morphism` to a batched input
         tensor as a deterministic step.
 
         The morphism's tensor has shape ``(*dom.shape, *cod.shape)``

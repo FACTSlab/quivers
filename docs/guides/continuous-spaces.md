@@ -100,6 +100,8 @@ When composing continuous morphisms, the intermediate is
 continuous. The result is computed via ancestral sampling:
 
 ```python
+import torch
+from quivers.continuous.spaces import Euclidean
 from quivers.continuous.morphisms import SampledComposition
 from quivers.continuous.families import ConditionalNormal
 
@@ -130,6 +132,7 @@ $$p(z \mid x) = \sum_y p(y \mid x) \, p(z \mid y)$$
 Tensor product of continuous morphisms:
 
 ```python
+from quivers.continuous.spaces import Euclidean, UnitInterval
 from quivers.continuous.morphisms import ProductContinuousMorphism
 from quivers.continuous.families import ConditionalNormal, ConditionalBeta
 
@@ -152,6 +155,8 @@ assert fg.codomain == f.codomain * g.codomain  # R^2 x (0,1)
 Embed a discrete morphism (finite set) as continuous:
 
 ```python
+import torch
+from quivers.continuous.spaces import Euclidean
 from quivers.continuous.boundaries import Embed
 from quivers.core.morphisms import morphism
 from quivers.core.objects import FinSet
@@ -174,6 +179,8 @@ log_p = embedded_f.log_prob(torch.arange(4), y_cont)
 Discretize a continuous space into a finite set:
 
 ```python
+import torch
+from quivers.continuous.spaces import Euclidean
 from quivers.continuous.boundaries import Discretize
 
 # Discretize a bounded interval into 20 bins
@@ -181,9 +188,9 @@ from quivers.continuous.boundaries import Discretize
 U = Euclidean(name="U", dim=1, low=0.0, high=1.0)
 discretized = Discretize(U, n_bins=20)
 
-# Maps continuous values to bin indices (as a FinSet of size 20)
-sample = torch.tensor(0.35)
-bin_idx = discretized(sample)  # integer in [0, 19]
+# Discretize bins the continuous domain into the codomain FinSet.
+assert discretized.domain == U
+assert discretized.codomain.cardinality == 20
 ```
 
 ### Integration with discrete morphisms
@@ -221,6 +228,7 @@ input and applies an invertible affine transformation to each
 partition:
 
 ```python
+import torch
 from quivers.continuous.flows import AffineCouplingLayer
 from quivers.continuous.spaces import Euclidean
 
@@ -242,7 +250,9 @@ z_back, log_det_inv = layer.inverse(x, z_out)
 A full normalizing flow conditioned on input:
 
 ```python
+import torch
 from quivers.continuous.flows import ConditionalFlow
+from quivers.continuous.spaces import Euclidean
 
 domain = Euclidean(name="X", dim=5)
 codomain = Euclidean(name="Y", dim=4)
@@ -259,7 +269,7 @@ x = torch.randn(8, 5)
 y_samples = flow.rsample(x, sample_shape=torch.Size((50,)))
 
 # Log probability
-y = torch.randn(4)
+y = torch.randn(8, 4)
 log_p = flow.log_prob(x, y)
 ```
 

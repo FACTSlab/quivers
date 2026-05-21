@@ -1,23 +1,23 @@
 """Latent-site registry: the canonical introspection surface that
 every variational guide and MCMC kernel consumes.
 
-A :class:`LatentRegistry` is built once from a
-:class:`~quivers.continuous.programs.MonadicProgram` and a set of
+A `LatentRegistry` is built once from a
+[`quivers.continuous.programs.MonadicProgram`][quivers.continuous.programs.MonadicProgram] and a set of
 observed site names. It walks the model's ``_step_specs`` linear IR
 exactly once, classifies each latent into "plate" vs "scalar",
 records the prior support and per-site dimensionality, builds the
-matching :class:`torch.distributions.transforms.Transform` via
-:func:`torch.distributions.constraint_registry.biject_to`, and
+matching `torch.distributions.transforms.Transform` via
+`torch.distributions.constraint_registry.biject_to`, and
 caches a *fused* flatten / unflatten pipeline so a single
 unconstrained vector can be turned into a fully constrained site
 dict (and back) in one pass.
 
 The registry is the only place in the inference layer that knows
-about :class:`~quivers.continuous.plate.PlateDraw`, the layout
+about [`quivers.continuous.plate.PlateDraw`][quivers.continuous.plate.PlateDraw], the layout
 of ``MonadicProgram._step_specs``, or the per-site
 constraint-to-bijector mapping. Every downstream component —
-:class:`~quivers.inference.guides.base.Guide`,
-:class:`~quivers.inference.mcmc.kernel.MCMCKernel`, the
+[`quivers.inference.guides.base.Guide`][quivers.inference.guides.base.Guide],
+[`quivers.inference.mcmc.kernel.MCMCKernel`][quivers.inference.mcmc.kernel.MCMCKernel], the
 flow-based / structured / mixture guides — receives a fully
 populated registry and operates against its flat-vector and
 per-site dict APIs.
@@ -29,7 +29,7 @@ Each latent site corresponds to a draw in the model's Kleisli
 arrow ``Γ → 𝒢(τ)``. The site's prior is a parameterized family
 ``F : Θ → 𝒢(B)`` with a support constraint
 ``C ⊆ B``. The bijector ``T : ℝ^d → C`` is the
-:func:`biject_to` lift of ``C``; its log-determinant gives the
+`biject_to` lift of ``C``; its log-determinant gives the
 change-of-variables term in any pushforward density.
 
 For a plate ``v : A → B`` the latent lives in ``C^|A|``; the
@@ -63,18 +63,18 @@ def _unconstrained_event_dim(
 
     The two cases that change dim:
 
-    * :data:`torch.distributions.constraints.simplex` — the
+    * `torch.distributions.constraints.simplex` — the
       stick-breaking bijector maps :math:`(d-1)`-dimensional
       unconstrained space onto the :math:`(d-1)`-simplex embedded
       in :math:`\\mathbb{R}^d`.
-    * :data:`torch.distributions.constraints.corr_cholesky` — the
+    * `torch.distributions.constraints.corr_cholesky` — the
       correlation-Cholesky bijector maps :math:`d(d-1)/2` real
       coordinates onto the lower-triangular Cholesky factor of a
       :math:`d \\times d` correlation matrix.
 
     Every other supported constraint is dim-preserving (the
-    bijector is :class:`torch.distributions.transforms.AffineTransform`,
-    :class:`SigmoidTransform`, :class:`ExpTransform`, or a composition
+    bijector is `torch.distributions.transforms.AffineTransform`,
+    `SigmoidTransform`, `ExpTransform`, or a composition
     thereof).
     """
     if support is _constraints.simplex:
@@ -108,7 +108,7 @@ class LatentSite:
         on a 5-simplex, ``4``; otherwise equals ``constrained_dim``).
     is_plate : bool
         Whether this site is a plate draw
-        (:class:`~quivers.continuous.plate.PlateDraw`).
+        ([`quivers.continuous.plate.PlateDraw`][quivers.continuous.plate.PlateDraw]).
     plate_index_size : int
         ``|A|`` for a plate site, ``0`` otherwise.
     spec_index : int
@@ -159,19 +159,19 @@ class LatentRegistry:
     """The complete introspection result for one (model,
     observed-set) pair.
 
-    Constructed once via :meth:`from_model`; immutable thereafter.
+    Constructed once via `from_model`; immutable thereafter.
     Provides:
 
     * Iteration over latent sites in declaration order
-      (:attr:`sites`, :attr:`plate_sites`, :attr:`scalar_sites`).
+      (`sites`, `plate_sites`, `scalar_sites`).
     * Total unconstrained dimensionality
-      (:attr:`total_unconstrained_dim`) — the dim of the flat
+      (`total_unconstrained_dim`) — the dim of the flat
       vector HMC and full-rank Gaussian guides operate on.
     * Round-tripping between a flat unconstrained vector and a
       dict of constrained per-site tensors
-      (:meth:`unflatten_unconstrained`, :meth:`flatten_constrained`).
+      (`unflatten_unconstrained`, `flatten_constrained`).
     * Bijector forward / inverse with Jacobian accumulation
-      (:meth:`to_constrained`, :meth:`to_unconstrained`).
+      (`to_constrained`, `to_unconstrained`).
 
     All operations are vectorized — no per-site Python loops on
     the hot path beyond the construction-time setup.
@@ -291,7 +291,7 @@ class LatentRegistry:
 
     @property
     def plate_sites(self) -> dict[str, LatentSite]:
-        """The subset of sites that are :class:`PlateDraw`-shaped."""
+        """The subset of sites that are `PlateDraw`-shaped."""
         return {n: s for n, s in self._sites.items() if s.is_plate}
 
     @property
@@ -372,7 +372,7 @@ class LatentRegistry:
         """Concatenate per-site unconstrained tensors into a single
         flat vector.
 
-        Inverse of :meth:`unflatten_unconstrained` (up to leading
+        Inverse of `unflatten_unconstrained` (up to leading
         batch axes). The trailing batch axes of every site tensor
         must agree.
         """
@@ -415,7 +415,7 @@ class LatentRegistry:
         -------
         constrained : dict[str, torch.Tensor]
             Per-site constrained values shaped according to
-            :attr:`LatentSite.constrained_shape`. The trailing
+            `LatentSite.constrained_shape`. The trailing
             length-1 event axis of a scalar site is squeezed off
             to match the trace-side shape convention.
         log_abs_dets : dict[str, torch.Tensor]
@@ -443,7 +443,7 @@ class LatentRegistry:
     def to_unconstrained(
         self, constrained: dict[str, torch.Tensor]
     ) -> tuple[dict[str, torch.Tensor], dict[str, torch.Tensor]]:
-        """Inverse of :meth:`to_constrained`."""
+        """Inverse of `to_constrained`."""
         unconstrained: dict[str, torch.Tensor] = {}
         log_abs_dets: dict[str, torch.Tensor] = {}
         for site in self._sites.values():

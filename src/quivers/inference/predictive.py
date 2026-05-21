@@ -1,7 +1,7 @@
 """Posterior predictive sampling.
 
 Given a trained posterior representation — either a variational
-guide or an MCMC chain — :class:`Predictive` repeatedly samples
+guide or an MCMC chain — `Predictive` repeatedly samples
 latents from the posterior and traces the model forward to produce
 posterior predictive draws of every site.
 """
@@ -19,8 +19,8 @@ from quivers.inference.trace import trace
 class Predictive:
     """Posterior predictive sampler.
 
-    Accepts either a trained :class:`Guide` (variational
-    posterior) or an :class:`MCMCResult` (Monte Carlo posterior).
+    Accepts either a trained `Guide` (variational
+    posterior) or an `MCMCResult` (Monte Carlo posterior).
     Variational case: draws ``num_samples`` fresh guide samples.
     MCMC case: iterates over the recorded posterior draws (one
     forward trace per draw, up to ``num_samples`` if specified).

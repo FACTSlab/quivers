@@ -21,13 +21,12 @@ The eight $\theta_j$ are a per-group random effect over the group object `School
 
 === "QVR"
 
-    ```qvr
-    object School : 8
-
-    program eight_schools_centred : School -> School ! Sample, Score
-        mu  <- Normal(0.0, 5.0)
-        tau <- HalfNormal(5.0)
-        theta : School <- Normal(mu, tau)
+    ```text
+    object School : FinSet 8
+    program eight_schools_centred : School -> School [effects=[Sample, Score]]
+        sample mu  <- Normal(0.0, 5.0)
+        sample tau <- HalfNormal(5.0)
+        sample theta : School <- Normal(mu, tau)
         observe y : School <- Normal(theta, sigma_j)
         return theta
 
@@ -49,7 +48,7 @@ The `theta : School <- Normal(...)` line is a *plate-draw*: it samples one value
 
 The compiler synthesizes a `PlateDraw` morphism whose codomain is the product space `School ⊗ Real`; you can index into it like `theta[j]` inside subsequent `let` arithmetic.
 
-## Centered fails mean-field
+#! Centered fails mean-field
 
 The centered parameterization puts `theta_j` *inside* the prior for `mu` and `tau`, which creates a funnel-shaped posterior ([Neal, 2003](https://doi.org/10.1214/aos/1056562461), §8). Mean-field VI doesn't see the funnel and collapses to a tight Gaussian around `tau ≈ 0`. To confirm:
 
@@ -59,12 +58,12 @@ from quivers.dsl import loads
 from quivers.inference import AutoNormalGuide, ELBO, SVI
 
 CENTRED_SRC = """
-object School : 8
+object School : FinSet 8
 
-program eight_schools_centred : School -> School ! Sample, Score
-    mu  <- Normal(0.0, 5.0)
-    tau <- HalfNormal(5.0)
-    theta : School <- Normal(mu, tau)
+program eight_schools_centred : School -> School
+    sample mu  <- Normal(0.0, 5.0)
+    sample tau <- HalfNormal(5.0)
+    sample theta : School <- Normal(mu, tau)
     observe y : School <- Normal(theta, sigma_j)
     return theta
 
@@ -96,12 +95,11 @@ You'll see something like `tau ≈ 0.1 ± 0.05`: the diagnostic-textbook signatu
 The standard fix is to reparameterise ([Papaspiliopoulos, Roberts & Sköld, 2007](https://doi.org/10.1214/088342307000000014)): draw $\eta_j \sim \mathrm{Normal}(0, 1)$ and define $\theta_j = \mu + \tau \cdot \eta_j$ deterministically.
 
 ```qvr
-object School : 8
-
-program eight_schools_noncentred : School -> School ! Sample, Score
-    mu  <- Normal(0.0, 5.0)
-    tau <- HalfNormal(5.0)
-    eta : School <- Normal(0.0, 1.0)
+object School : FinSet 8
+program eight_schools_noncentred : School -> School [effects=[Sample, Score]]
+    sample mu  <- Normal(0.0, 5.0)
+    sample tau <- HalfNormal(5.0)
+    sample eta : School <- Normal(0.0, 1.0)
     let theta = mu + tau * eta
     observe y : School <- Normal(theta, sigma_j)
     return theta

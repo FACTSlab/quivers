@@ -83,10 +83,10 @@ class ContinuousMorphism(nn.Module, ABC):
     @property
     def support(self) -> _constraints.Constraint:
         """The support constraint of the distribution this morphism samples
-        from, in the form of a :class:`torch.distributions.constraints.Constraint`.
+        from, in the form of a `torch.distributions.constraints.Constraint`.
 
-        Used by variational guides (:class:`quivers.inference.AutoNormalGuide`,
-        :class:`quivers.inference.AutoDeltaGuide`) to determine the
+        Used by variational guides ([`quivers.inference.AutoNormalGuide`][quivers.inference.AutoNormalGuide],
+        [`quivers.inference.AutoDeltaGuide`][quivers.inference.AutoDeltaGuide]) to determine the
         correct bijector that maps an unconstrained variational
         approximation back to the constrained support of the prior, so
         that samples used to evaluate the prior's ``log_prob`` lie inside
@@ -97,7 +97,7 @@ class ContinuousMorphism(nn.Module, ABC):
         (``HalfNormal``, ``Beta``, ``Uniform``, ``Dirichlet``,
         ``LogitNormal``, ``Wishart``, …) should override this property
         to return the appropriate constraint. The default is
-        :data:`torch.distributions.constraints.real`, which is correct
+        `torch.distributions.constraints.real`, which is correct
         for unconstrained families like ``Normal`` and discrete
         codomains (where the guide skips the site anyway).
         """
@@ -491,10 +491,14 @@ class ProductContinuousMorphism(ContinuousMorphism):
         d = self._left_dom_dim
         x_left = x[..., :d]
         x_right = x[..., d:]
-        if _is_discrete(self.left.domain):
+        if _is_discrete(self.left.domain) and x_left.dim() > 1:
             x_left = x_left.squeeze(-1).long()
-        if _is_discrete(self.right.domain):
+        elif _is_discrete(self.left.domain):
+            x_left = x_left.long()
+        if _is_discrete(self.right.domain) and x_right.dim() > 1:
             x_right = x_right.squeeze(-1).long()
+        elif _is_discrete(self.right.domain):
+            x_right = x_right.long()
         return (x_left, x_right)
 
 

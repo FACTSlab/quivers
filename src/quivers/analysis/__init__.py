@@ -2,8 +2,8 @@
 
 This package collects the static-analysis / metadata-derivation /
 numerics-preserving-recomputation passes that read off a compiled
-QVR program (a :class:`quivers.dsl.ast_nodes.Module` AST or its
-runtime :class:`quivers.continuous.programs.MonadicProgram`) and
+QVR program (a [`quivers.dsl.ast_nodes.Module`][quivers.dsl.ast_nodes.Module] AST or its
+runtime [`quivers.continuous.programs.MonadicProgram`][quivers.continuous.programs.MonadicProgram]) and
 return structured data the user can act on. None of the passes here
 rewrite the program; they only derive metadata, diagnostics, or
 sampler / init parameters that respect the source as the canonical
@@ -11,17 +11,17 @@ specification.
 
 The pieces:
 
-* :class:`ChainShape` (:mod:`quivers.analysis.chain_shape`): walks
+* `ChainShape` ([`quivers.analysis.chain_shape`][quivers.analysis.chain_shape]): walks
   a program's let / latent steps and tags each one with its
   source location, governing algebra, and intermediate
   dimensionality. The foundation downstream tooling reads off.
-* :func:`recommend_init` (:mod:`quivers.analysis.init_spec`): given
-  a program, produces a per-latent :class:`InitSpec` from each
+* `recommend_init` ([`quivers.analysis.init_spec`][quivers.analysis.init_spec]): given
+  a program, produces a per-latent `InitSpec` from each
   algebra's saturation-free init recipe. Pair with
-  :func:`apply_init_spec` to materialise the initial values onto
+  `apply_init_spec` to materialise the initial values onto
   the program's learnable parameters.
-* :func:`saturation_warnings`
-  (:mod:`quivers.analysis.saturation`): given a program, returns
+* `saturation_warnings`
+  ([`quivers.analysis.saturation`][quivers.analysis.saturation]): given a program, returns
   source-keyed warnings about latents that, under the
   recommended init, would saturate the surrounding algebra's
   value range.

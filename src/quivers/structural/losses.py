@@ -51,7 +51,7 @@ class LossEntry:
         Computes a scalar multiplier given the same environment, or
         ``None`` for an implicit weight of 1.
     attachment_kind : str
-        Where this loss fires (see :data:`AttachmentKind`).
+        Where this loss fires (see `AttachmentKind`).
     target : str | None
         Name of the attachment target (program / deduction /
         encoder / decoder / chart / rule).

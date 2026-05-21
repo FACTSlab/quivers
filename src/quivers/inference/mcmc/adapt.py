@@ -2,12 +2,12 @@
 
 Two primitives:
 
-* :class:`DualAveraging` — Nesterov's dual averaging for adapting
+* `DualAveraging` — Nesterov's dual averaging for adapting
   the step size to a target Metropolis acceptance probability
   (Hoffman-Gelman 2014, Algorithm 6,
   `doi:10.48550/arXiv.1111.4246
   <https://doi.org/10.48550/arXiv.1111.4246>`_).
-* :class:`WelfordCovariance` — Welford-style online accumulator
+* `WelfordCovariance` — Welford-style online accumulator
   for the empirical covariance of the warmup samples; both the
   diagonal and dense forms are exposed because HMC mass matrices
   are typically one of those two shapes.

@@ -1,19 +1,19 @@
 """MCMC kernels and driver.
 
 Public surface (also re-exported from
-:mod:`quivers.inference`):
+`quivers.inference`):
 
-* :class:`MCMCKernel` — ABC for Markov kernels on the flat
+* `MCMCKernel` — ABC for Markov kernels on the flat
   unconstrained latent vector.
-* :class:`HMCKernel` — Hamiltonian Monte Carlo with leapfrog
+* `HMCKernel` — Hamiltonian Monte Carlo with leapfrog
   integration, dual-averaging step-size adaptation, and Welford
   mass-matrix adaptation.
-* :class:`NUTSKernel` — No-U-Turn Sampler with multinomial
+* `NUTSKernel` — No-U-Turn Sampler with multinomial
   sampling.
-* :class:`MCMC` — Chain orchestrator with warmup, parallel
+* `MCMC` — Chain orchestrator with warmup, parallel
   chains, and posterior diagnostics
   (split-:math:`\\hat R`, effective sample size).
-* :class:`MCMCResult` — Posterior samples + per-chain
+* `MCMCResult` — Posterior samples + per-chain
   diagnostics.
 """
 

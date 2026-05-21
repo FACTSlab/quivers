@@ -3,7 +3,7 @@
 Each abstract typeclass declares the operations an arrow instance
 must provide. Concrete instances (``Function``, ``VRel``,
 ``Stochastic``, ``Kleisli(M)``, ``Cokleisli(W)``, ``LinearMap``) live
-in :mod:`quivers.arrows.instances`.
+in `quivers.arrows.instances`.
 
 References
 ----------
@@ -24,8 +24,8 @@ class Category_(ABC):
     """A category of computations.
 
     Provides identity at every object plus binary composition. The
-    underscore disambiguates from :class:`quivers.dsl.ast_nodes.CategoryDecl`
-    and :class:`quivers.stochastic.categories.Category` which use the same
+    underscore disambiguates from [`quivers.dsl.ast_nodes.CategoryDecl`][quivers.dsl.ast_nodes.CategoryDecl]
+    and [`quivers.stochastic.categories.Category`][quivers.stochastic.categories.Category] which use the same
     word in different senses.
 
     Laws:
@@ -49,10 +49,10 @@ class Arrow(Category_, ABC):
 
     Adds:
 
-    - :meth:`arr` — lift a pure morphism into the arrow.
-    - :meth:`first` — apply on the left of a pair, threading a context.
+    - `arr` — lift a pure morphism into the arrow.
+    - `first` — apply on the left of a pair, threading a context.
 
-    Defaults derivable from these and :meth:`compose`:
+    Defaults derivable from these and `compose`:
     ``second f = swap >>> first f >>> swap``;
     ``f *** g = first f >>> second g`` (the parallel-product combinator);
     ``f &&& g = arr (\\x. (x, x)) >>> (f *** g)``.
@@ -74,7 +74,7 @@ class ArrowChoice(Arrow, ABC):
 
     Adds:
 
-    - :meth:`left_arr` — apply on the left of a coproduct.
+    - `left_arr` — apply on the left of a coproduct.
 
     Derived: ``right_arr``, ``+++``, ``|||``.
     """
@@ -88,8 +88,8 @@ class ArrowApply(Arrow, ABC):
     """An arrow that can apply arrow-valued data: ``app``.
 
     ``ArrowApply`` instances are equivalent in expressive power to
-    :class:`quivers.monadic.typeclasses.Monad`; the bridges in
-    :mod:`quivers.monadic.bridges` realise the conversion in both
+    [`quivers.monadic.typeclasses.Monad`][quivers.monadic.typeclasses.Monad]; the bridges in
+    [`quivers.monadic.bridges`][quivers.monadic.bridges] realise the conversion in both
     directions.
     """
 
@@ -108,14 +108,14 @@ class ArrowLoop(Arrow, ABC):
     Encodes traced symmetric monoidal structure on the arrow category.
 
     For an arrow ``f : (A ⊗ C) ⇝ (B ⊗ C)``, ``loop(f) : A ⇝ B``
-    closes the loop on ``C``. In :class:`Function`, this is the
-    least-fixed-point operator; in :class:`VRel`, it is the iterative
-    trace; in :class:`Stochastic` and :class:`Kern`, it is the
+    closes the loop on ``C``. In `Function`, this is the
+    least-fixed-point operator; in `VRel`, it is the iterative
+    trace; in `Stochastic` and `Kern`, it is the
     cartesian / sampled trace.
 
     The chart-fold parser combinator of
-    :class:`quivers.dsl.ast_nodes.ExprChartFold` is denotationally
-    an :meth:`loop_arr` invocation on the appropriate arrow.
+    [`quivers.dsl.ast_nodes.ExprChartFold`][quivers.dsl.ast_nodes.ExprChartFold] is denotationally
+    an `loop_arr` invocation on the appropriate arrow.
     """
 
     @abstractmethod

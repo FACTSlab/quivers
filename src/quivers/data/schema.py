@@ -1,6 +1,6 @@
 """Dataframe-to-QVR schema bridge.
 
-:class:`DatasetSchema` is the single point that turns "I have a
+`DatasetSchema` is the single point that turns "I have a
 dataframe" into "I have the object cardinalities, the observations
 dict, and the plate-index tensors a QVR program needs." It accepts
 pandas, polars, or any other
@@ -13,11 +13,11 @@ dataframe and emits the two artefacts inference consumes:
   cached so plate indices are reproducible across reruns.
 
 * An ``observations`` dict mapping observe-site / plate-index names
-  to :class:`torch.Tensor` values, ready to hand into
-  :class:`quivers.inference.MCMC.run` or
-  :class:`quivers.inference.SVI.step`.
+  to `torch.Tensor` values, ready to hand into
+  `quivers.inference.MCMC.run` or
+  `quivers.inference.SVI.step`.
 
-The companion :func:`compose` wraps :func:`quivers.dsl.loads` so a
+The companion `compose` wraps `quivers.dsl.loads` so a
 user can write a ``.qvr`` body without spelling out
 ``object Verb : 40`` when ``40`` came from a dataframe column anyway.
 """
@@ -70,7 +70,7 @@ class DatasetSchema(dx.Model):
         bind the column's values to (as a ``FloatTensor``).
     missing_policy : MissingPolicy
         Policy applied to every column with nulls. Default
-        :attr:`~quivers.data.encoding.MissingPolicy.RAISE`.
+        `quivers.data.encoding.MissingPolicy.RAISE`.
     """
 
     df: IntoDataFrame = dx.field(opaque=True)
@@ -148,13 +148,13 @@ class DatasetSchema(dx.Model):
     def declarations(self) -> str:
         """Emit a ``.qvr`` declaration prelude.
 
-        Lines are ``object <Name> : <cardinality>``, sorted by name
-        for reproducibility.  Suitable for prepending to a user's
-        ``.qvr`` source via :func:`compose`.
+        Lines are ``object <Name> : FinSet <cardinality>``, sorted
+        by name for reproducibility. Suitable for prepending to a
+        user's ``.qvr`` source via `compose`.
         """
         sorted_objs = sorted(self.objects.items(), key=lambda kv: kv[1])
         lines = [
-            f"object {obj_name} : {self.cardinalities[obj_name]}"
+            f"object {obj_name} : FinSet {self.cardinalities[obj_name]}"
             for _, obj_name in sorted_objs
         ]
         return "\n".join(lines) + ("\n" if lines else "")
@@ -165,7 +165,7 @@ class DatasetSchema(dx.Model):
         Contains entries for every observation, plate-index, and
         covariate column.  Categorical observations and plate
         indices use the canonical ordering returned by
-        :meth:`categories`; numeric observations and covariates
+        `categories`; numeric observations and covariates
         become ``FloatTensor``.
         """
         result: dict[str, torch.Tensor] = {}
@@ -213,7 +213,7 @@ def compose(qvr_body: str, schema: DatasetSchema, **kwargs):
     """Compile a ``.qvr`` body against a dataset schema.
 
     Prepends the schema's ``object`` declarations to ``qvr_body``,
-    then calls :func:`quivers.dsl.loads`.  The user writes only the
+    then calls `quivers.dsl.loads`.  The user writes only the
     program body (latents, kernels, observations, return); object
     cardinalities inferred from the dataframe are slotted in
     automatically.  If the body re-declares an object that appears
@@ -227,7 +227,7 @@ def compose(qvr_body: str, schema: DatasetSchema, **kwargs):
     schema : DatasetSchema
         Dataframe schema providing cardinalities.
     **kwargs
-        Forwarded to :func:`quivers.dsl.loads` (e.g. ``data=...`` for
+        Forwarded to `quivers.dsl.loads` (e.g. ``data=...`` for
         ``from_data`` lookups).
     """
     body_declares: set[str] = set()
@@ -241,7 +241,9 @@ def compose(qvr_body: str, schema: DatasetSchema, **kwargs):
     for _, obj_name in sorted(schema.objects.items(), key=lambda kv: kv[1]):
         if obj_name in body_declares:
             continue
-        prelude_lines.append(f"object {obj_name} : {schema.cardinalities[obj_name]}")
+        prelude_lines.append(
+            f"object {obj_name} : FinSet {schema.cardinalities[obj_name]}"
+        )
     prelude = "\n".join(prelude_lines)
     if prelude:
         prelude += "\n\n"

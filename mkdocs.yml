@@ -111,6 +111,7 @@ nav:
     - "Analysis: Data and Formulas": guides/analysis-data-and-formulas.md
     - "Analysis: Fitting and Diagnostics": guides/analysis-fitting-and-diagnostics.md
     - "Interactive: REPL and Language Server": guides/repl-and-lsp.md
+    - Migrating .qvr Source Between Grammar Revisions: guides/migration.md
   - Denotational Semantics:
     - Overview: semantics/index.md
     - Setting and Notation: semantics/setting.md
@@ -121,6 +122,8 @@ nav:
     - Expressions: semantics/expressions.md
     - Programs: semantics/programs.md
     - Grammar Fragment: semantics/grammar.md
+    - Schemas and Bundles: semantics/schemas.md
+    - Structural Compression: semantics/structural.md
     - Compositional Effects: semantics/effects.md
     - The Program Theory: semantics/program-theory.md
     - Adequacy: semantics/adequacy.md
@@ -162,6 +165,7 @@ nav:
     - Quantifier Scope: examples/quantifier-scope.md
     - Tree-Structured Categorical: examples/tree-categorical.md
     - Montague NLI: examples/montague-nli.md
+    - PMCFG (WH-movement): examples/pmcfg.md
   - Tutorials:
     - Overview: tutorials/index.md
   - QVR DSL tutorials:
@@ -234,11 +238,20 @@ nav:
       - Chart Semirings: api/stochastic/semiring.md
       - Chart Parsers: api/stochastic/parsers.md
       - Inside Algorithm: api/stochastic/inside.md
+      - Agenda: api/stochastic/agenda.md
+      - Deduction Systems:
+        - Overview: api/stochastic/deduction.md
+        - Primitives: api/stochastic/deduction/primitives.md
+        - Fit (MAP / MLE): api/stochastic/deduction/fit.md
+        - Bayes (NUTS wrap): api/stochastic/deduction/bayes.md
+        - Sample (forward generation): api/stochastic/deduction/sample.md
     - Continuous:
       - Overview: api/continuous/spaces.md
       - Morphisms: api/continuous/morphisms.md
       - Families: api/continuous/families.md
+      - Inline Builders: api/continuous/inline.md
       - Programs: api/continuous/programs.md
+      - Scan: api/continuous/scan.md
       - Boundaries: api/continuous/boundaries.md
       - Flows: api/continuous/flows.md
     - DSL:
@@ -259,9 +272,11 @@ nav:
       - Overview: api/inference/trace.md
       - Conditioning: api/inference/conditioning.md
       - Guides: api/inference/guide.md
-      - Objectives: api/inference/elbo.md
+      - Objectives (ELBO, IWAE, Rényi): api/inference/elbo.md
       - Estimators: api/inference/estimators.md
       - SVI: api/inference/svi.md
+      - MCMC (HMC / NUTS): api/inference/mcmc.md
+      - Bayesian Lifts: api/inference/lifts.md
       - Predictive: api/inference/predictive.md
     - Data:
       - Overview: api/data/index.md

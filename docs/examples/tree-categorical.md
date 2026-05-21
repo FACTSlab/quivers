@@ -9,30 +9,24 @@ This example is the canonical demonstration of the [`factor`](../guides/dsl-prog
 ## QVR Source
 
 ```qvr
-object Verb : 12
-object Class : 4
-object Resp : 200
+object Verb : FinSet 12
+object Class : FinSet 4
+object Resp : FinSet 200
 
 program tree_categorical : Resp -> Resp
-    p_root  <- Beta(1.0, 1.0)
-    p_left  <- Beta(1.0, 1.0)
-    p_right <- Beta(1.0, 1.0)
+    sample p_root <- Beta(1.0, 1.0)
+    sample p_left <- Beta(1.0, 1.0)
+    sample p_right <- Beta(1.0, 1.0)
 
-    let leaf_log = factor cls : Class in {
-        0 -> log(1.0 - p_root) + log(1.0 - p_left),
-        1 -> log(1.0 - p_root) + log(p_left),
-        2 -> log(p_root)       + log(1.0 - p_right),
-        3 -> log(p_root)       + log(p_right),
-    }
+    let leaf_log = factor cls : Class in { 0 -> log(1.0 - p_root) + log(1.0 - p_left), 1 -> log(1.0 - p_root) + log(p_left), 2 -> log(p_root)       + log(1.0 - p_right), 3 -> log(p_root)       + log(p_right), }
 
-    sigma_v <- HalfNormal(1.0)
-    delta : Verb  <- Normal(0.0, sigma_v)
-    mu    : Class <- Normal(0.0, 1.0)
+    sample sigma_v <- HalfNormal(1.0)
+    sample delta : Verb <- Normal(0.0, sigma_v)
+    sample mu : Class <- Normal(0.0, 1.0)
 
-    let cell_score = factor v : Verb, cls : Class in
-        delta[v] + mu[cls] + leaf_log[cls]
-
+    let cell_score = factor v : Verb, cls : Class in delta[v] + mu[cls] + leaf_log[cls]
     let cell0 = cell_score[0, 0]
+
     observe y : Resp <- Normal(cell0, 0.5)
     return delta
 
@@ -79,29 +73,115 @@ This is why no other example in the gallery uses `factor`: existing models all u
 
 ## Try it
 
+> The SVI step counts and NUTS warmup, sample, and chain budgets in the snippets below are illustrative: each block is sized to run in tens of seconds and demonstrate the API surface. Production fits typically need 10x to 100x more SVI steps, longer NUTS warmup, and multiple chains to actually converge to the data-generating parameters.
+
+
+### Generating synthetic data
+
+Pick true values for the depth-3 tree splits and the per-verb / per-class effects, clamp them via the `true_latents` dict, and read the resulting `y` draw out of an execution [`trace`](../api/inference/trace.md). The input `x` carries one row per tree in the synthetic corpus; the cell-score Normal observation is shared across the corpus.
+
+```python
+import torch
+from quivers.dsl import load
+from quivers.inference.trace import trace as run_trace
+
+torch.manual_seed(0)
+prog = load("docs/examples/source/tree_categorical.qvr")
+model = prog.morphism
+
+N_TREES = 10
+true_latents = {
+    "p_root":  torch.tensor([[0.7]]),
+    "p_left":  torch.tensor([[0.3]]),
+    "p_right": torch.tensor([[0.6]]),
+    "sigma_v": torch.tensor([[0.5]]),
+    "delta":   0.5 * torch.randn(12),
+    "mu":      torch.tensor([0.0, 0.5, -0.5, 1.0]),
+}
+x = torch.zeros(N_TREES, 1, dtype=torch.long)
+tr = run_trace(model, x, true_latents)
+y_obs = tr.sites["y"].value.detach().reshape(1, -1)
+print("y batch shape:", tuple(y_obs.shape))
+```
+
+### SVI fit
+
+Re-initialise from the prior, then maximise the [`ELBO`](../api/inference/elbo.md#quivers.inference.objectives.ELBO) against the synthetic responses with an [`AutoNormalGuide`](../api/inference/guide.md#quivers.inference.guides.AutoNormalGuide) on the latent sites and [`SVI`](../api/inference/svi.md#svi) over [`Adam`](https://pytorch.org/docs/stable/generated/torch.optim.Adam.html). Print the initial and final loss to confirm the guide is moving toward the posterior.
+
 ```python
 import torch
 from quivers.dsl import load
 from quivers.inference import AutoNormalGuide, ELBO, SVI
+from quivers.inference.trace import trace as run_trace
 
 torch.manual_seed(0)
-
 prog = load("docs/examples/source/tree_categorical.qvr")
 model = prog.morphism
 
-N = 200
-y = torch.randn(N) * 0.5
-obs = {"y": y.unsqueeze(0)}
+N_TREES = 10
+true_latents = {
+    "p_root":  torch.tensor([[0.7]]),
+    "p_left":  torch.tensor([[0.3]]),
+    "p_right": torch.tensor([[0.6]]),
+    "sigma_v": torch.tensor([[0.5]]),
+    "delta":   0.5 * torch.randn(12),
+    "mu":      torch.tensor([0.0, 0.5, -0.5, 1.0]),
+}
+x = torch.zeros(N_TREES, 1, dtype=torch.long)
+y_obs = run_trace(model, x, true_latents).sites["y"].value.detach().reshape(1, -1)
+obs = {"y": y_obs}
 
+torch.manual_seed(1)
+prog = load("docs/examples/source/tree_categorical.qvr")
+model = prog.morphism
 guide = AutoNormalGuide(model, observed_names=set(obs.keys()))
 optim = torch.optim.Adam(
     list(model.parameters()) + list(guide.parameters()), lr=2e-2,
 )
 svi = SVI(model, guide, optim, ELBO())
-for _ in range(200):
-    loss = svi.step(torch.zeros(1, 1, dtype=torch.long), obs)
-print("Tree-categorical loss:", loss)
+svi_x = torch.zeros(1, 1, dtype=torch.long)
+loss0 = svi.step(svi_x, obs)
+for _ in range(100):
+    loss = svi.step(svi_x, obs)
+print(f"ELBO loss: {loss0:.2f} -> {loss:.2f}")
 ```
+
+### NUTS posterior
+
+The tree-categorical program declares explicit `sample` priors for every latent (the three Beta splits, `sigma_v`, the per-verb `delta`, the per-class `mu`), so [`NUTSKernel`](../api/inference/mcmc.md#quivers.inference.mcmc.NUTSKernel) targets them directly without a parameter lift. For parameter-only models, the analogous step would route through [`bayesian_lift_parameters`](../api/inference/lifts.md#quivers.inference.lifts.bayesian_lift_parameters).
+
+```python
+import torch
+from quivers.dsl import load
+from quivers.inference import MCMC, NUTSKernel
+from quivers.inference.trace import trace as run_trace
+
+torch.manual_seed(0)
+prog = load("docs/examples/source/tree_categorical.qvr")
+model = prog.morphism
+
+N_TREES = 10
+true_latents = {
+    "p_root":  torch.tensor([[0.7]]),
+    "p_left":  torch.tensor([[0.3]]),
+    "p_right": torch.tensor([[0.6]]),
+    "sigma_v": torch.tensor([[0.5]]),
+    "delta":   0.5 * torch.randn(12),
+    "mu":      torch.tensor([0.0, 0.5, -0.5, 1.0]),
+}
+x = torch.zeros(N_TREES, 1, dtype=torch.long)
+y_obs = run_trace(model, x, true_latents).sites["y"].value.detach().reshape(1, -1)
+obs = {"y": y_obs}
+
+torch.manual_seed(2)
+kernel = NUTSKernel(step_size=0.05, max_tree_depth=3, target_accept=0.8)
+mc     = MCMC(kernel, num_warmup=10, num_samples=10, num_chains=1)
+result = mc.run(model, torch.zeros(1, 1, dtype=torch.long), obs)
+
+print("acceptance:", float(result.acceptance_rates.mean()))
+print("divergences:", int(result.divergence_counts.sum()))
+```
+
 
 ## Categorical Perspective
 

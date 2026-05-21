@@ -1,6 +1,6 @@
 """Command-line entry points for quivers.
 
-The :func:`main` function is registered as the ``qvr`` console script
+The `main` function is registered as the ``qvr`` console script
 in ``pyproject.toml``.
 
 Subcommands:
@@ -8,6 +8,10 @@ Subcommands:
 - ``qvr check FILES...`` — parse + compile every supplied ``.qvr``
   file, emitting structured diagnostics. Exits 0 on full success,
   non-zero when any file produces an error.
+- ``qvr migrate --from VER --to VER PATHS...`` — lower ``.qvr``
+  source files from one tagged grammar revision to another, via
+  panproto migrations composed from the in-tree
+  ``grammars/qvr/vcs`` chain.
 
 Output format: human-readable by default, structured JSON when
 ``--json`` is supplied. Each diagnostic carries:
@@ -69,6 +73,50 @@ def main() -> int:
         help="Bind to TCP port instead of stdio.",
     )
 
+    migrate = sub.add_parser(
+        "migrate",
+        help="Migrate .qvr source files between tagged grammar revisions.",
+    )
+    migrate.add_argument(
+        "--from",
+        dest="from_ref",
+        default=None,
+        help="Source grammar revision (git tag or commit id). "
+        "Defaults to the most recent tagged release on the chain.",
+    )
+    migrate.add_argument(
+        "--to",
+        dest="to_ref",
+        default=None,
+        help="Target grammar revision. Defaults to the upcoming "
+        "release (last entry on the chain).",
+    )
+    migrate.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="Report what would change without writing output.",
+    )
+    migrate.add_argument(
+        "--output",
+        default=None,
+        help="Write migrated files under this directory rather than "
+        "overwriting in place.",
+    )
+    migrate.add_argument(
+        "--check",
+        action="store_true",
+        help="Validate the migration chain against the panproto "
+        "VCS schema diff: report any rule removed in an adjacent "
+        "grammar revision that the corresponding hop migrator has "
+        "no converter for. Non-zero exit when any pair has "
+        "uncovered removals. Does not migrate any files.",
+    )
+    migrate.add_argument(
+        "paths",
+        nargs="*",
+        help=".qvr files or directories to migrate.",
+    )
+
     kernel = sub.add_parser(
         "kernel",
         help="Jupyter kernel: install kernelspec or run a kernel.",
@@ -107,6 +155,10 @@ def main() -> int:
         from quivers.cli.lsp import main as lsp_main
 
         return lsp_main(args)
+    if args.cmd == "migrate":
+        from quivers.cli.migrate import main as migrate_main
+
+        return migrate_main(args)
     if args.cmd == "kernel":
         from quivers.kernel.install import main as kernel_main
 

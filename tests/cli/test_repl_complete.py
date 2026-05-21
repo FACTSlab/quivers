@@ -21,9 +21,9 @@ from quivers.cli.repl_session import ReplSession
 
 
 SOURCE = """\
-object Alpha : 3
-object Beta : 4
-latent f : Alpha -> Beta
+object Alpha : FinSet 3
+object Beta : FinSet 4
+morphism f : Alpha -> Beta [role=latent]
 """
 
 
@@ -68,22 +68,21 @@ def test_env_completions_carry_namespace_detail() -> None:
 
 
 def test_keyword_completions() -> None:
-    cs = all_completions(_session(), "lat")
+    cs = all_completions(_session(), "morp")
     texts = {c.text for c in cs}
-    assert "latent" in texts
+    assert "morphism" in texts
 
 
 def test_builtin_function_completion() -> None:
-    cs = all_completions(_session(), "soft")
+    cs = all_completions(_session(), "char")
     texts = {c.text for c in cs}
-    assert "softmax" in texts
-    assert "softplus" in texts
+    assert "chart_fold" in texts
 
 
 def test_builtin_type_completion() -> None:
-    cs = all_completions(_session(), "Eu")
+    cs = all_completions(_session(), "Fin")
     texts = {c.text for c in cs}
-    assert "Euclidean" in texts
+    assert "FinSet" in texts
 
 
 def test_path_completion_for_load(tmp_path: Path) -> None:

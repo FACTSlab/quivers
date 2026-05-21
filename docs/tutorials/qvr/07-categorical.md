@@ -6,20 +6,20 @@ This is optional reading. Skip it if the DSL is doing what you need.
 
 ## Why have types and algebras at all?
 
-A typed signature like `program f : A -> B ! Sample` exists so the compiler can reject programs that don't make sense before they hit a tensor. Two examples:
+A typed signature like `program f : A -> B` exists so the compiler can reject programs that don't make sense before they hit a tensor. Two examples:
 
 ```text
-# A program declared ! Pure, but the body contains `observe`:
-program p : Item -> Item ! Pure
+# A program declared with effects=[Pure], but the body contains `observe`:
+program p : Item -> Item [effects=[Pure]]
     observe y : Item <- Normal(0, 1)
     return y
-# CompileError: line 2, col 4: program declared ! Pure
+# CompileError: line 2, col 4: program declared effects=[Pure]
 #               but uses Score effect on `observe y`
 ```
 
 ```text
 # An algebra mismatch under typed composition:
-algebra product_fuzzy
+composition product_fuzzy as algebra
 let pipeline = f *> g    # *> demands Markov, but module is product_fuzzy
 # CompileError: typed composition *> requires both operands
 #               in algebra Markov; got ProductFuzzyAlgebra
@@ -89,10 +89,10 @@ A *algebra homomorphism* $\varphi : \mathcal{V} \to \mathcal{W}$ is a lax monoid
 The DSL exposes a catalog of named homomorphisms (`expectation`, `log_prob`, `max_plus`, `material_implication`, `threshold`, `boolean_embedding`, ...) and a small set of *constructors* parameterized by an object or morphism (`softmax(B)`, `l1_normalize(B)`, `l2_normalize(B)`, `bayes_invert(prior)`). Each of these is a first-class transformation value: you can let-bind them, compose them with `>>>`, pass them through `change_base`. The Python API track chapter 6 walks through the full surface; here's the short version:
 
 ```qvr
-algebra product_fuzzy
-object A : 3
-object B : 4
-latent f : A -> B
+composition product_fuzzy as algebra
+object A : FinSet 3
+object B : FinSet 4
+morphism f : A -> B [role=latent]
 
 let s = softmax(B)
 let pipeline = s >>> expectation
@@ -108,7 +108,7 @@ A `program` block compiles to a `MonadicProgram` morphism in the [Kleisli catego
 - `v <- F(args)` is monadic bind: sample from `F(args)` and extend the joint kernel.
 - `observe v <- F(args)` is conditioning: clamp `v` to the observed value and score the likelihood.
 - `let v = expr` is a pure morphism: a deterministic computation extending the joint kernel by a delta mass.
-- `marginalize v : A <- F(args) in { ... }` is the [right Kan extension](https://ncatlab.org/nlab/show/Kan+extension) along the projection that integrates `v` out of the body's joint.
+- `marginalize v : A <- F(args)` followed by an indented body is the [right Kan extension](https://ncatlab.org/nlab/show/Kan+extension) along the projection that integrates `v` out of the body's joint.
 - `return v` is the unit-of-monad-projection: project the joint kernel onto `v`'s coordinate.
 
 This is the same Kleisli structure that Pyro, NumPyro, and Church use; the difference is that QVR's effects (`Sample`, `Score`, `Marginal`, `Pure`) are tracked as a static side-channel and checked at compile time.

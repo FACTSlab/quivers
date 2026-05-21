@@ -9,10 +9,13 @@ import torch
 from quivers.core.morphisms import identity as make_identity
 from quivers.core.morphisms import cap as _make_cap, cup as _make_cup
 from quivers.core.algebras import (
-    BilinearForm,
     Algebra,
+    BilinearForm,
+    CompositionRule,
     Semigroupoid,
 )
+from quivers.core.objects import SetObject
+from quivers.continuous.spaces import ContinuousSpace
 from quivers.core.trans import TransSeq
 from quivers.dsl.ast_nodes import (
     ExportDecl,
@@ -47,23 +50,41 @@ from quivers.dsl.compiler._prelude import (
 
 
 class _ExpressionsMixin:
-    """Mixin: expression compilation methods."""
+    """Mixin: expression compilation methods.
+
+    The compiler base supplies every environment slot below; the
+    annotations let the type checker verify each access from a
+    mixin method.
+    """
+
+    _algebra: CompositionRule
+    _morphisms: dict
+    _objects: dict[str, SetObject]
+    _spaces: dict[str, ContinuousSpace]
+    _transformations: dict
+    _trans_singletons: dict
+    _trans_constructors: dict
+    _output_expr: Expr | None
+    _exports: list[Expr]
+    _contractions: dict
+    _rules: dict
+    _bundles: dict
 
     def _compile_export(self, decl: ExportDecl) -> None:
         """Record an exported expression.
 
-        Replaces v0.4's single-output model: a module may declare
-        any number of ``export`` statements, each selecting a
-        top-level binding for the module's public surface. The
-        compiled output runner picks the first export; further
-        exports become additional accessible morphisms on the
-        compiled object.
+        A module may declare any number of ``export`` statements,
+        each selecting a top-level binding for the module's public
+        surface. The compiled output runner picks the first export;
+        further exports become additional accessible morphisms on
+        the compiled object.
         """
         if not hasattr(self, "_exports"):
             self._exports = []
         self._exports.append(decl.expr)
-        # Maintain backwards compatibility with internal helpers
-        # that consult `_output_expr`: the first export wins.
+        # The first export wins for the legacy single-output entry
+        # point that downstream helpers (``compile_env``,
+        # ``Program(root_morphism)``) consult.
         if self._output_expr is None:
             self._output_expr = decl.expr
 
@@ -75,13 +96,13 @@ class _ExpressionsMixin:
         object) that supplies the morphism tensor for any
         ``from_data("KEY")`` expression that references it. The
         bindings are consulted at compile time; supply them BEFORE
-        calling :meth:`compile`.
+        calling `compile`.
         """
         self._data_bindings = dict(data)
 
     def _require_algebra(self, op_name: str, line: int, col: int) -> None:
         """Raise ``CompileError`` if the module's composition rule
-        isn't a :class:`Algebra`.
+        isn't a `Algebra`.
 
         Operations that need a unit, zero, dagger, or compact-closed
         structure (``identity``, ``cup``, ``cap``, ``.dagger``,
@@ -118,23 +139,23 @@ class _ExpressionsMixin:
 
         Recognised expression shapes:
 
-        * :class:`ExprIdent` — a bare name resolved against
-          :attr:`_transformations` (user let-bindings) and then
-          :attr:`_trans_singletons` (built-in singletons).
-        * :class:`ExprMorphismCall` — a constructor call whose
-          callee names an entry of :attr:`_trans_constructors`;
+        * `ExprIdent` — a bare name resolved against
+          `_transformations` (user let-bindings) and then
+          `_trans_singletons` (built-in singletons).
+        * `ExprMorphismCall` — a constructor call whose
+          callee names an entry of `_trans_constructors`;
           each argument is resolved against the surrounding scope
           (objects, morphisms, algebras).
-        * :class:`ExprTransCompose` — ``t1 >>> t2``; recursively
+        * `ExprTransCompose` — ``t1 >>> t2``; recursively
           compiles each side, flattens nested sequences, and
           type-checks each adjacent ``target == source`` boundary,
-          returning a :class:`TransSeq` (or, for two single-step
+          returning a `TransSeq` (or, for two single-step
           values, an unboxed TransSeq of length 2).
 
         Returns a value that the runtime understands: a
-        :class:`AlgebraHomomorphism`, a
-        :class:`MorphismTransformation`, or a :class:`TransSeq`.
-        Raises :class:`CompileError` on any unresolved reference
+        `AlgebraHomomorphism`, a
+        `MorphismTransformation`, or a `TransSeq`.
+        Raises `CompileError` on any unresolved reference
         or type mismatch.
         """
         if isinstance(expr, ExprIdent):
@@ -253,7 +274,7 @@ class _ExpressionsMixin:
 
     def _apply_trans(self, inner_morph, phi):
         """Apply a transformation value (a singleton, constructor
-        result, or :class:`TransSeq`) to a morphism via the
+        result, or `TransSeq`) to a morphism via the
         morphism's own ``change_base``.
 
         Sequences are unfolded into iterated change_base calls;
@@ -273,7 +294,7 @@ class _ExpressionsMixin:
         Each composition operator carries an enrichment algebra.
         ``>>``, ``<<`` (already swapped to forward), and ``>=>``
         all use the operands' shared algebra (the existing
-        :meth:`Morphism.__rshift__` path, which raises
+        `Morphism.__rshift__` path, which raises
         ``incompatible algebras`` if they differ).
 
         The new operators (``*>``, ``~>``, ``||>``, ``?>``,
@@ -454,7 +475,7 @@ class _ExpressionsMixin:
             #
             # The data dictionary is stored on the Compiler under
             # ``self._data_bindings``; users supply it via
-            # :meth:`Compiler.bind_data` BEFORE calling compile()
+            # `Compiler.bind_data` BEFORE calling compile()
             # (or via the high-level ``loads()`` ``data=`` kwarg).
             data_dict = getattr(self, "_data_bindings", None)
             if data_dict is None or expr.key not in data_dict:
@@ -724,18 +745,18 @@ class _ExpressionsMixin:
         Effect-typed chart cells (``effect_depth`` > 0) extend the
         category universe to ``Cat × EffectStack_{≤d}`` via the
         class-driven lifting machinery in
-        :mod:`quivers.stochastic.effect_lifts`; the caller is expected
+        [`quivers.stochastic.effect_lifts`][quivers.stochastic.effect_lifts]; the caller is expected
         to have constructed ``binary`` (and any ``unary``) over this
         enlarged universe, typically via
-        :func:`quivers.stochastic.effect_lifts.lift_rule_set` over the
-        declared :class:`EffectDecl` instances in scope. The
+        [`quivers.stochastic.effect_lifts.lift_rule_set`][quivers.stochastic.effect_lifts.lift_rule_set] over the
+        declared `EffectDecl` instances in scope. The
         ``effect_depth`` integer flows through to the parser as the
         depth bound used for any depth-truncating reductions over
         intermediate cells.
 
         Handler firings (``handlers=`` argument) are applied as a
         post-composition step on the parser's denotation: the final
-        chart cell is routed through each handler's :meth:`run`
+        chart cell is routed through each handler's `run`
         morphism in declared order, reducing the effect stack as the
         handlers compose.
         """

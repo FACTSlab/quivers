@@ -7,27 +7,26 @@ A [variational autoencoder](https://en.wikipedia.org/wiki/Variational_autoencode
 ## QVR Source
 
 ```qvr
-object Pixel : 784
+object Pixel : FinSet 8
+object Latent : Real 4
+object EncoderHidden : Real 16
+object DecoderHidden : Real 16
+object ObsSpace : Real 8
+object UnitSpace : Real 1
 
-type Latent = Euclidean 16
-type EncoderHidden = Euclidean 256
-type DecoderHidden = Euclidean 256
-type ObsSpace = Euclidean 784
-type UnitSpace = Euclidean 1
+morphism pixel_embed : Pixel -> EncoderHidden [role=embed]
+morphism enc_deep : EncoderHidden -> EncoderHidden [role=kernel] ~ Normal
+morphism enc_to_latent : EncoderHidden -> Latent [role=kernel, scale=0.5] ~ Normal
 
-embed pixel_embed : Pixel -> EncoderHidden
-kernel enc_deep : EncoderHidden -> EncoderHidden ~ Normal
-kernel enc_to_latent : EncoderHidden -> Latent ~ Normal [scale=0.5]
+let encoder = pixel_embed >> stack(enc_deep, 1) >> enc_to_latent
 
-let encoder = pixel_embed >> stack(enc_deep, 3) >> enc_to_latent
+morphism prior : UnitSpace -> Latent [role=kernel] ~ Normal
 
-kernel prior : UnitSpace -> Latent ~ Normal
+morphism dec_1 : Latent -> DecoderHidden [role=kernel] ~ Normal
+morphism dec_deep : DecoderHidden -> DecoderHidden [role=kernel] ~ Normal
+morphism dec_to_obs : DecoderHidden -> ObsSpace [role=kernel, scale=0.1] ~ Normal
 
-kernel dec_1 : Latent -> DecoderHidden ~ Normal
-kernel dec_deep : DecoderHidden -> DecoderHidden ~ Normal
-kernel dec_to_obs : DecoderHidden -> ObsSpace ~ Normal [scale=0.1]
-
-let decoder = dec_1 >> stack(dec_deep, 2) >> dec_to_obs
+let decoder = dec_1 >> stack(dec_deep, 1) >> dec_to_obs
 
 let generative = prior >> decoder
 let reconstruct = encoder >> decoder
@@ -37,9 +36,9 @@ export generative
 
 ## Walkthrough
 
-The encoder begins with `embed pixel_embed : Pixel -> EncoderHidden`, a deterministic lookup mapping the discrete `Pixel` object into the continuous `EncoderHidden` space. The `stack(enc_deep, 3)` combinator creates three independently-parameterized stochastic Normal layers, distinct from `repeat(enc_deep, 3)` which would weight-tie. The final `enc_to_latent` projects to the 16-dimensional latent space at small init scale.
+The encoder begins with `morphism pixel_embed : Pixel -> EncoderHidden [role=embed]`, a deterministic embedding lookup mapping the discrete `Pixel` object into the continuous `EncoderHidden` space. The `stack(enc_deep, 1)` combinator inserts one independently-parameterized stochastic Normal hidden layer, distinct from `repeat(enc_deep, 1)` which would weight-tie. The final `enc_to_latent` projects to the latent space at small init scale.
 
-The decoder mirrors the encoder: an initial `dec_1` lifts the latent code into the decoder hidden width, two stacked deep layers `stack(dec_deep, 2)` add depth, and `dec_to_obs` projects to the 784-dimensional observation space at tight init scale (the reconstruction should be more precise than the encoding).
+The decoder mirrors the encoder: an initial `dec_1` lifts the latent code into the decoder hidden width, one stacked deep layer `stack(dec_deep, 1)` adds depth, and `dec_to_obs` projects to the observation space at tight init scale (the reconstruction should be more precise than the encoding).
 
 The two top-level compositions
 
@@ -53,22 +52,74 @@ express the VAE's two execution paths as explicit [Kleisli composition](https://
 
 ## Try it
 
+> The SVI step counts and NUTS warmup, sample, and chain budgets in the snippets below are illustrative: each block is sized to run in tens of seconds and demonstrate the API surface. Production fits typically need 10x to 100x more SVI steps, longer NUTS warmup, and multiple chains to actually converge to the data-generating parameters.
+
+
+### Generating synthetic data
+
 ```python
 import torch
 from quivers.dsl import load
 
 torch.manual_seed(0)
-
 prog = load("docs/examples/source/vae.qvr")
 generative = prog.morphism
 
-B = 4
-unit = torch.zeros(B, 1)
-sample = generative.rsample(unit)
-print("sample shape:", sample.shape)
+N = 32
+unit = torch.zeros(N, 1)
+with torch.no_grad():
+    Y = generative.rsample(unit).detach()
+print("Y shape:", Y.shape)
+
 ```
 
-The exported `generative` composition is a [Kleisli](https://en.wikipedia.org/wiki/Kleisli_category) morphism `UnitSpace -> ObsSpace`; `rsample` runs the full prior-then-decoder ancestral path. Replacing `generative` with the named composition `reconstruct` from the source threads observed pixels through the encoder and back through the decoder for ELBO-style reconstruction training.
+The exported `generative` composition is a [Kleisli](https://en.wikipedia.org/wiki/Kleisli_category) morphism `UnitSpace -> ObsSpace`; `rsample` runs the full prior-then-decoder ancestral path so the synthetic batch comes from the model itself at its current (random) parameter values, then lift the entire parameter vector into a Bayesian model for SVI and NUTS.
+
+### SVI fit
+
+```python
+from quivers.inference import (
+    AutoNormalGuide, ELBO, SVI, lift_from_log_prob,
+)
+
+model, x_in, observations = lift_from_log_prob(
+    prog,
+    log_prob_fn=prog.morphism.log_prob,
+    parameter_prior_scale=1.0,
+    target_key="Y",
+    x=unit,
+    observations={"Y": Y},
+)
+
+torch.manual_seed(1)
+guide = AutoNormalGuide(model, observed_names={"Y"})
+optim = torch.optim.Adam(
+    list(model.parameters()) + list(guide.parameters()), lr=1e-2,
+)
+svi = SVI(model, guide, optim, ELBO(num_particles=1))
+
+losses = [svi.step(x_in, observations) for _ in range(50)]
+print(f"initial loss: {losses[0]:.2f}")
+print(f"final loss:   {losses[-1]:.2f}")
+```
+
+### NUTS posterior
+
+```python
+from quivers.inference import MCMC, NUTSKernel
+
+torch.manual_seed(2)
+# The lifted parameter vector is high-dimensional, so a small
+# step size and shallow tree keep one full chain inside a
+# documentation-friendly budget.
+kernel = NUTSKernel(step_size=0.005, max_tree_depth=3, target_accept=0.8)
+mc     = MCMC(kernel, num_warmup=5, num_samples=5, num_chains=1)
+result = mc.run(model, x_in, observations)
+
+print(f"acceptance:  {float(result.acceptance_rates.mean()):.2f}")
+print(f"divergences: {int(result.divergence_counts.sum())}")
+```
+
 
 ## Categorical Perspective
 

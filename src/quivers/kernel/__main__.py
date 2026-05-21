@@ -1,6 +1,6 @@
 """``python -m quivers.kernel`` entry point.
 
-Dispatches to :func:`quivers.kernel.install.main` so the kernelspec
+Dispatches to [`quivers.kernel.install.main`][quivers.kernel.install.main] so the kernelspec
 ``argv`` invocation route works for ``install``, ``run``, and the
 internal ``_run_f`` variant Jupyter passes with a connection file.
 """

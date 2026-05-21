@@ -7,12 +7,9 @@
 # posterior is Gamma(a0 + N, b0 + sum(y)). Tier-1 stress for guides
 # that handle a positive-support latent: the bijector for Gamma is
 # exp / softplus.
-
-object Obs : 80
-
+object Obs : FinSet 80
 program gamma_exponential : Obs -> Obs
-    rate <- Gamma(2.0, 1.0)
+    sample rate <- Gamma(2.0, 1.0)
     observe y : Obs <- Exponential(rate)
     return rate
-
 export gamma_exponential

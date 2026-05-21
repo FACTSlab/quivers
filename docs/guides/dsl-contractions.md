@@ -132,13 +132,13 @@ weight matrix and a target embedding:
 
 <!-- compile: false -->
 ```qvr
-object Item : 1024
-type Embed = Euclidean 64
-type Score = Euclidean 1
+object Item : FinSet 1024
+object Embed : Real 64
+object Score : Real 1
 
-latent E : Item -> Embed
-latent W : Embed -> Embed
-latent T : Item -> Embed
+morphism E : Item -> Embed [role=latent]
+morphism W : Embed -> Embed [role=latent]
+morphism T : Item -> Embed [role=latent]
 
 # Score = sum_d sum_e E[i, d] * W[d, e] * T[i, e]
 # Two shared axes: d (between E and W) and e (between W and T)

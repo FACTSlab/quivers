@@ -18,7 +18,7 @@ $$
 \end{array}
 $$
 
-Here $n \in \mathbb{N}$ is an integer literal, $X$ ranges over object names, $S$ over space names, $T$ over declared effect identifiers, and $C \in \{\mathrm{Euclidean}, \mathrm{Simplex}, \mathrm{PositiveReals}, \mathrm{UnitInterval}\}$ over constructor names. The notation $C(\bar a; \bar k)$ stands for a constructor invocation with positional arguments $\bar a$ and keyword arguments $\bar k$. The two slash directions (`/` and `\`) and the effect-apply form are residuated / effect-extended formers whose denotations live in a residuated-monoidal universe ([Schemas §3](schemas.md#3-residuated-type-formers)); they have no denotation in the bare $\mathbf{FinSet}$ stratum, and well-typedness restricts them to expressions whose every named atom resolves in a residuated universe such as `FreeResiduated`.
+Here $n \in \mathbb{N}$ is an integer literal, $X$ ranges over object names, $S$ over space names, $T$ over declared effect identifiers, and $C \in \{\mathrm{Euclidean}, \mathrm{Simplex}, \mathrm{PositiveReals}, \mathrm{UnitInterval}, \mathrm{Sphere}, \mathrm{Ball}, \mathrm{CholeskyFactor}, \mathrm{Covariance}, \mathrm{Correlation}, \mathrm{Orthogonal}, \mathrm{Stiefel}, \mathrm{LowerTriangular}, \mathrm{Diagonal}\}$ over constructor names. The notation $C(\bar a; \bar k)$ stands for a constructor invocation with positional arguments $\bar a$ and keyword arguments $\bar k$. The two slash directions (`/` and `\`) and the effect-apply form are residuated / effect-extended formers whose denotations live in a residuated-monoidal universe ([Schemas §3](schemas.md#3-residuated-type-formers)); they have no denotation in the bare $\mathbf{FinSet}$ stratum, and well-typedness restricts them to expressions whose every named atom resolves in a residuated universe such as `FreeResiduated`.
 
 ## 2. Denotation of types
 
@@ -66,7 +66,23 @@ The cartesian product $\times$ in $\mathbf{FinSet}$ is associative and commutati
 
 ## 2a. Object initializers
 
-The surface form `object X = …` admits three *initializer* shapes that bind $X$ to a concrete finite-set object built from explicit data rather than from a syntactic `TypeExpr`. Each is interpreted at the value layer and contributes its denotation directly to $\rho_{\mathrm{obj}}(X)$.
+The surface form
+
+```
+object X : value
+```
+
+admits five *initializer* shapes for the right-hand side `value`, each binding $X$ to a concrete object of $\mathbf{FinSet}$ or $\mathbf{SBor}$ built from explicit data rather than from a syntactic `TypeExpr`. Each is interpreted at the value layer and contributes its denotation directly to $\rho_{\mathrm{obj}}(X)$ (or $\rho_{\mathrm{spc}}(X)$ for the continuous-space initialiser):
+
+| Initialiser | Denotation |
+|---|---|
+| `FinSet n` | a finite set of cardinality $n$ |
+| `Real d` (or any other [`ContinuousSpace`](#4-denotation-of-spaces) family invocation) | a standard Borel space of the named family at the supplied parameters |
+| `{e_1, …, e_n}` | the enum set on the named labels (§2a.1) |
+| `FreeMonoid(X, max_length = n)` | the bounded Kleene closure (§2a.2) |
+| `FreeResiduated(G, depth = d, ops = O)` | the depth-bounded free residuated category over $G$ (§2a.3) |
+
+The five initialisers share a single declaration form: there is no `space X : …` keyword variant. Whether $X$ lands in $\mathbf{FinSet}$ or $\mathbf{SBor}$ is decided by the family invoked on the right-hand side; the surrounding `object` keyword is uniform.
 
 ### 2a.1 Enum sets
 
@@ -107,6 +123,46 @@ a finite set of size $\sum_{k=0}^{n} |\rho_{\mathrm{obj}}(X)|^{k}$. The bound $n
 
 ## 4. Denotation of spaces
 
+The continuous-space sublanguage is the family-registry surface
+`Real d`, `Simplex d`, `PositiveReals d`, `UnitInterval d`, plus
+the matrix-manifold and submanifold variants below, combined
+under product via `*`. Each of these is a *family invocation*
+against the [`ContinuousSpace`](../api/continuous/spaces.md) family registry:
+
+| Surface | Family identifier | Carrier | Parameters |
+|---|---|---|---|
+| `Real d`              | [`Euclidean`](../api/continuous/spaces.md#quivers.continuous.spaces.Euclidean) | $\mathbb{R}^d$ | dimension $d$, optional `low=` / `high=` bounds |
+| `Simplex d`           | [`Simplex`](../api/continuous/spaces.md#quivers.continuous.spaces.Simplex) | $\Delta^{d-1}$ | dimension $d$ |
+| `PositiveReals d`     | [`PositiveReals`](../api/continuous/spaces.md#quivers.continuous.spaces.PositiveReals) | $(0, +\infty)^d$ | dimension $d$ |
+| `UnitInterval d`      | [`UnitInterval`](../api/continuous/spaces.md#quivers.continuous.spaces.UnitInterval) | $[0,1]^d$ | dimension $d$ |
+| `Sphere d`            | [`Sphere`](../api/continuous/spaces.md#quivers.continuous.spaces.Sphere) | $S^{d-1} \subset \mathbb{R}^d$ | ambient dimension $d$ |
+| `Ball d [radius = r]` | [`Ball`](../api/continuous/spaces.md#quivers.continuous.spaces.Ball) | $\{x \in \mathbb{R}^d : \lVert x \rVert_2 \le r\}$ | ambient dim $d$, radius $r$ |
+| `CholeskyFactor d`    | [`CholeskyFactor`](../api/continuous/spaces.md#quivers.continuous.spaces.CholeskyFactor) | unit-row-norm lower-triangular $d \times d$ | $d$ |
+| `Covariance d`        | [`Covariance`](../api/continuous/spaces.md#quivers.continuous.spaces.Covariance) | $\mathrm{Sym}^+_d$ (SPD cone) | $d$ |
+| `Correlation d`       | [`Correlation`](../api/continuous/spaces.md#quivers.continuous.spaces.Correlation) | SPD with unit diagonal | $d$ |
+| `Orthogonal d`        | [`Orthogonal`](../api/continuous/spaces.md#quivers.continuous.spaces.Orthogonal) | $O(d) \subset \mathbb{R}^{d \times d}$ | $d$ |
+| `Stiefel(rows, cols)` | [`Stiefel`](../api/continuous/spaces.md#quivers.continuous.spaces.Stiefel) | $V_K(\mathbb{R}^N)$ with $K \le N$ | rows $N$, cols $K$ |
+| `LowerTriangular d`   | [`LowerTriangular`](../api/continuous/spaces.md#quivers.continuous.spaces.LowerTriangular) | $d \times d$ lower-triangular | $d$ |
+| `Diagonal d`          | [`Diagonal`](../api/continuous/spaces.md#quivers.continuous.spaces.Diagonal) | $\mathbb{R}^d$ via diagonal embedding | $d$ |
+
+The surface `Real d` is shorthand for `Euclidean(d)`; both desugar
+through the same family-registry lookup. New continuous-space
+families register through the same registry without surface
+keyword changes: a fresh entry adds the constructor name to the
+`SpaceConstructor` AST node's accepted set, and the surface
+`Family d [args]` denotes `Family(d, **args)` against the
+registry.
+
+For the matrix-manifold variants (`CholeskyFactor`, `Covariance`,
+`Correlation`, `Orthogonal`, `Stiefel`, `LowerTriangular`) the
+carrier is a flat $d \times d$ (or $N \times K$) tensor laid out
+row-major; the on-manifold predicate is enforced by the sampling
+family that targets the space, not by the type. The membership
+check [`ContinuousSpace.contains`](../api/continuous/spaces.md#quivers.continuous.spaces.ContinuousSpace) returns a per-batch boolean
+mask testing the manifold equations up to a fixed numerical
+tolerance (symmetric and SPD for [`Covariance`](../api/continuous/spaces.md#quivers.continuous.spaces.Covariance);
+orthogonal columns for [`Stiefel`](../api/continuous/spaces.md#quivers.continuous.spaces.Stiefel), etc.).
+
 Space denotation is a function
 
 $$
@@ -131,10 +187,44 @@ $$
 \\[2pt]
 \llbracket \mathrm{UnitInterval}(d) \rrbracket
 & = & [0, 1]^{d}
+\\[2pt]
+\llbracket \mathrm{Sphere}(d) \rrbracket
+& = & S^{d-1} \;=\; \bigl\{ x \in \mathbb{R}^{d} : \lVert x \rVert_2 = 1 \bigr\}
+\\[2pt]
+\llbracket \mathrm{Ball}(d; \mathrm{radius} = r) \rrbracket
+& = & \bigl\{ x \in \mathbb{R}^{d} : \lVert x \rVert_2 \le r \bigr\}
+\\[2pt]
+\llbracket \mathrm{Covariance}(d) \rrbracket
+& = & \mathrm{Sym}^{+}_{d} \;=\; \bigl\{ M \in \mathbb{R}^{d \times d} : M = M^{\top},\ M \succ 0 \bigr\}
+\\[2pt]
+\llbracket \mathrm{Correlation}(d) \rrbracket
+& = & \bigl\{ R \in \mathrm{Sym}^{+}_{d} : R_{ii} = 1 \text{ for all } i \bigr\}
+\\[2pt]
+\llbracket \mathrm{CholeskyFactor}(d) \rrbracket
+& = & \bigl\{ L \in \mathbb{R}^{d \times d} : L_{ij} = 0 \text{ if } j > i,\ \textstyle\sum_{j \le i} L_{ij}^{2} = 1 \bigr\}
+\\[2pt]
+\llbracket \mathrm{Orthogonal}(d) \rrbracket
+& = & O(d) \;=\; \bigl\{ Q \in \mathbb{R}^{d \times d} : Q^{\top} Q = I_{d} \bigr\}
+\\[2pt]
+\llbracket \mathrm{Stiefel}(N, K) \rrbracket
+& = & V_{K}(\mathbb{R}^{N}) \;=\; \bigl\{ X \in \mathbb{R}^{N \times K} : X^{\top} X = I_{K} \bigr\}
+\\[2pt]
+\llbracket \mathrm{LowerTriangular}(d) \rrbracket
+& = & \bigl\{ L \in \mathbb{R}^{d \times d} : L_{ij} = 0 \text{ if } j > i \bigr\}
+\\[2pt]
+\llbracket \mathrm{Diagonal}(d) \rrbracket
+& = & \mathbb{R}^{d}
+\quad \text{(diagonal embedding into } \mathbb{R}^{d \times d}\text{)}
 \end{array}
 $$
 
-each carrying its standard Borel $\sigma$-algebra. The remaining cases are:
+each carrying its standard Borel $\sigma$-algebra (inherited as a
+Borel submanifold of the ambient $\mathbb{R}^{d}$ or $\mathbb{R}^{d \times d}$). The matrix carriers ([`CholeskyFactor`](../api/continuous/spaces.md#quivers.continuous.spaces.CholeskyFactor),
+[`Covariance`](../api/continuous/spaces.md#quivers.continuous.spaces.Covariance), [`Correlation`](../api/continuous/spaces.md#quivers.continuous.spaces.Correlation),
+[`Orthogonal`](../api/continuous/spaces.md#quivers.continuous.spaces.Orthogonal), [`Stiefel`](../api/continuous/spaces.md#quivers.continuous.spaces.Stiefel),
+[`LowerTriangular`](../api/continuous/spaces.md#quivers.continuous.spaces.LowerTriangular)) are stored as flat
+row-major tensors; the manifold equations cut out a [smooth submanifold](https://en.wikipedia.org/wiki/Submanifold) of the ambient Euclidean space and the
+Borel structure descends. The remaining cases are:
 
 $$
 \begin{array}{rcl}

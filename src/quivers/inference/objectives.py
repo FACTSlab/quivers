@@ -1,17 +1,17 @@
 """Variational objectives.
 
-An :class:`Objective` is a torch.nn.Module-callable that, given
+An `Objective` is a torch.nn.Module-callable that, given
 (model, guide, x, observations), returns a scalar loss whose
 ``backward()`` produces a gradient on the model and guide
-parameters. The most common objective is :class:`ELBO`; tighter
-multi-sample bounds (:class:`IWAEBound`,
-:class:`RenyiBound`, :class:`VRIWAEBound`) trade compute for
+parameters. The most common objective is `ELBO`; tighter
+multi-sample bounds (`IWAEBound`,
+`RenyiBound`, `VRIWAEBound`) trade compute for
 bound-tightness.
 
-Every objective accepts a :class:`~quivers.inference.estimators.GradientEstimator`
+Every objective accepts a [`quivers.inference.estimators.GradientEstimator`][quivers.inference.estimators.GradientEstimator]
 strategy that decides how the per-particle log-density tensors
 are turned into a scalar loss whose gradient is the chosen
-estimator. The default is :class:`~quivers.inference.estimators.Reparameterized`.
+estimator. The default is [`quivers.inference.estimators.Reparameterized`][quivers.inference.estimators.Reparameterized].
 
 Particles are a leading torch axis throughout — no Python loop
 over the Monte Carlo dimension. This is critical for performance
@@ -47,7 +47,7 @@ from quivers.inference.guides import Guide
 class Objective(nn.Module, ABC):
     """Base class for variational objectives.
 
-    Subclasses implement :meth:`forward` to return a scalar loss
+    Subclasses implement `forward` to return a scalar loss
     (negated objective). The ``estimator`` attribute is the
     gradient-estimation strategy applied to the per-particle
     log-densities.
@@ -137,7 +137,7 @@ class ELBO(Objective):
         \\mathcal{L}_{\\mathrm{ELBO}}
             = \\mathbb{E}_{q_\\phi(z)} \\bigl[ \\log p(z, y) - \\log q_\\phi(z) \\bigr].
 
-    Returns the *negated* ELBO so :meth:`Objective.forward` can be
+    Returns the *negated* ELBO so `Objective.forward` can be
     plugged into a minimizer. ``num_particles`` averages independent
     Monte-Carlo estimates; ``num_particles == 1`` is the standard
     reparameterization-trick ELBO.
@@ -147,7 +147,7 @@ class ELBO(Objective):
     num_particles : int
         Number of independent guide samples per step. Default ``1``.
     estimator : GradientEstimator, optional
-        Gradient-estimator strategy. Default :class:`Reparameterized`.
+        Gradient-estimator strategy. Default `Reparameterized`.
     """
 
     def __init__(
@@ -199,7 +199,7 @@ class IWAEBound(Objective):
     a tighter lower bound on :math:`\\log p(y)` than the ELBO.
     Approaches the marginal likelihood as :math:`K \\to \\infty`.
 
-    The default estimator is :class:`DoublyReparameterized`
+    The default estimator is `DoublyReparameterized`
     because the naive reparameterized gradient's signal-to-noise
     ratio for the inference network collapses as :math:`K` grows
     (Tucker-Lawson-Gu-Maddison 2019).
@@ -337,8 +337,8 @@ class RenyiBound(Objective):
 class VRIWAEBound(Objective):
     """Variational Rényi-IWAE bound (Daudel-Douc-Roueff 2023).
 
-    Unifies :class:`ELBO`, :class:`IWAEBound`, and
-    :class:`RenyiBound` into a single bound parameterized by
+    Unifies `ELBO`, `IWAEBound`, and
+    `RenyiBound` into a single bound parameterized by
     ``alpha`` and ``num_particles``:
 
     .. math::

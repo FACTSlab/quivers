@@ -1,7 +1,7 @@
 """Encoder runtime: F-algebra homomorphisms T_Σ -> Vec_D.
 
-A :class:`Encoder` is a ``torch.nn.Module`` that, given a closed
-:class:`Term` over a signature, returns its vector embedding. The
+A `Encoder` is a ``torch.nn.Module`` that, given a closed
+`Term` over a signature, returns its vector embedding. The
 recursion structure is supplied by the framework (algebra
 homomorphism); per-operation parametric functions are supplied by
 the user (declared in a ``encoder { … }`` DSL block) or by the
@@ -13,7 +13,7 @@ Canonical term form
 A term over Σ has exactly one of three argument shapes at each
 position, determined by the codomain sort's kind:
 
-* **object** — the argument is a :class:`Term` whose ``op`` is a
+* **object** — the argument is a `Term` whose ``op`` is a
   constructor of Σ, a binder of Σ, or the reserved built-in
   ``"BoundVar"``.
 * **data** — the argument is a raw Python value (string, int,
@@ -28,7 +28,7 @@ The reserved ``"BoundVar"`` op is the built-in de-Bruijn reference:
 ``Term("BoundVar", (i,))`` at an object position reads the i-th
 in-scope variable's embedding from Γ.
 
-Binders thread a :class:`Context` of in-scope variables: each entry
+Binders thread a `Context` of in-scope variables: each entry
 records the variable's sort, its embedding, and the type term
 captured at binding. Compressing a binder constructor:
 
@@ -39,7 +39,7 @@ captured at binding. Compressing a binder constructor:
 3. Pushes the new entries onto Γ and recurses on the ``scoped``
    arguments under the extended context.
 
-Graph-shaped signatures are compressed by :meth:`forward_graph`:
+Graph-shaped signatures are compressed by `forward_graph`:
 per-vertex-kind ``init`` seeds initial embeddings, finitely many
 ``message_passing`` rounds alternate per-edge-kind ``message`` and
 per-vertex-kind ``update`` functions, and a ``readout`` reduces
@@ -167,13 +167,13 @@ class Encoder(nn.Module):
 
     name : str
         Identifier used in diagnostics.
-    signature : :class:`Signature`
+    signature : `Signature`
         The Σ whose terms this encoder consumes.
     sort_dims : dict[str, int]
         Per-sort embedding dimension.
-    op_fns : dict[str, :class:`_PerOpFn`]
+    op_fns : dict[str, `_PerOpFn`]
         One entry per constructor and binder of Σ. The
-        :class:`Compiler` scaffolds defaults for omitted ops.
+        `Compiler` scaffolds defaults for omitted ops.
     var_init : callable
         ``(type_embedding) -> variable_embedding``. Called at every
         binder to mint a fresh variable embedding for each
@@ -184,7 +184,7 @@ class Encoder(nn.Module):
     For graph-shaped signatures, additionally:
 
     iterations : int
-        Number of message-passing rounds in :meth:`forward_graph`.
+        Number of message-passing rounds in `forward_graph`.
     init_fns : dict[str, callable]
         Per-vertex-kind initial embedders.
     message_fns : dict[str, callable]

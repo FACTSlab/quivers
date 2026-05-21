@@ -1,17 +1,17 @@
 """First-class transformation composition.
 
 A *transformation* in quivers is either a
-:class:`~quivers.core.algebra_morphisms.AlgebraHomomorphism`
+`quivers.core.algebra_morphisms.AlgebraHomomorphism`
 (pointwise, lax monoidal) or a
-:class:`~quivers.core.morphism_transformations.MorphismTransformation`
+`quivers.core.morphism_transformations.MorphismTransformation`
 (shape-aware).  Both expose a ``source`` and ``target`` algebra
 and an ``apply`` that consumes a morphism's tensor.
 
 This module gives them a *composition* operation: ``compose_trans(t1, t2, ...)``
-returns a :class:`TransSeq` value that applies the steps in order
-when handed to :meth:`Morphism.change_base`.  Adjacent ``target``
+returns a `TransSeq` value that applies the steps in order
+when handed to `Morphism.change_base`.  Adjacent ``target``
 and ``source`` are type-checked at compose time.  Nested
-:class:`TransSeq` are flattened so the resulting steps tuple is
+`TransSeq` are flattened so the resulting steps tuple is
 always a single flat sequence of base transformations.
 
 This is the Python-side surface for the DSL's ``t1 >>> t2``
@@ -28,22 +28,22 @@ from quivers.core.algebra_morphisms import AlgebraHomomorphism
 
 type TransValue = AlgebraHomomorphism | MorphismTransformation
 """A single base transformation: either a
-:class:`AlgebraHomomorphism` (pointwise) or a
-:class:`MorphismTransformation` (shape-aware)."""
+`AlgebraHomomorphism` (pointwise) or a
+`MorphismTransformation` (shape-aware)."""
 
 
 class TransSeq:
     """Sequence of transformations applied left-to-right.
 
-    Constructed by :func:`compose_trans`; consumed by
-    :meth:`Morphism.change_base`.  Each adjacent ``target`` /
-    ``source`` boundary in :attr:`steps` is verified at
-    construction time, so :meth:`apply` does not have to
+    Constructed by `compose_trans`; consumed by
+    `Morphism.change_base`.  Each adjacent ``target`` /
+    ``source`` boundary in `steps` is verified at
+    construction time, so `apply` does not have to
     revalidate.
 
     A ``TransSeq`` itself exposes the same ``source`` / ``target``
     / ``name`` interface as a single transformation, so it can be
-    fed into further :func:`compose_trans` calls and the nesting
+    fed into further `compose_trans` calls and the nesting
     is flattened.
     """
 
@@ -94,9 +94,9 @@ def compose_trans(*steps: TransValue | TransSeq) -> TransSeq:
 
     Each argument is either a base transformation (a
     ``AlgebraHomomorphism`` or ``MorphismTransformation``) or
-    another :class:`TransSeq` whose steps are inlined.  The
+    another `TransSeq` whose steps are inlined.  The
     resulting sequence is flat; nested compositions never appear
-    in :attr:`TransSeq.steps`.
+    in `TransSeq.steps`.
 
     Parameters
     ----------

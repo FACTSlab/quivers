@@ -10,12 +10,9 @@
 # Tier-1 conjugate-recovery benchmark. With a Normal prior + Normal
 # likelihood + known sigma the closed-form posterior is itself
 # Gaussian, so an AutoNormalGuide should be near-exact.
-
-object Obs : 30
-
+object Obs : FinSet 30
 program normal_normal : Obs -> Obs
-    mu <- Normal(0.0, 1.0)
+    sample mu <- Normal(0.0, 1.0)
     observe y : Obs <- Normal(mu, 1.0)
     return mu
-
 export normal_normal

@@ -13,15 +13,12 @@
 # Standard fix for the centered-parameterization funnel pathology
 # (Betancourt-Girolami 2015). VI / MCMC both converge faster here
 # than on the centered form.
-
-object School : 8
-
+object School : FinSet 8
 program eight_schools_noncentered : School -> School
-    mu <- Normal(0.0, 10.0)
-    tau <- HalfCauchy(5.0)
-    eta : School <- Normal(0.0, 1.0)
+    sample mu <- Normal(0.0, 10.0)
+    sample tau <- HalfCauchy(5.0)
+    sample eta : School <- Normal(0.0, 1.0)
     let theta = mu + tau * eta
     observe y : School <- Normal(theta, 12.0)
     return theta
-
 export eight_schools_noncentered

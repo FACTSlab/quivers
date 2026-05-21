@@ -2,23 +2,23 @@
 
 The pipeline:
 
-1. Re-parse the buffer via panproto's cached :class:`ParseEmitLens`
+1. Re-parse the buffer via panproto's cached `ParseEmitLens`
    (sub-millisecond on edits after warm-up).
 2. Walk the resulting schema's leaf vertices in source order.
 3. Map each ``(vertex.kind, parent.kind, literal_text)`` triple to a
-   semantic token type, via a single :data:`STYLE_TABLE`.
-4. Emit a list of :class:`Span` records carrying ``(byte_start,
+   semantic token type, via a single `STYLE_TABLE`.
+4. Emit a list of `Span` records carrying ``(byte_start,
    byte_end, token, text)``.
 
-Frontends consume :class:`Span` lists in two flavours:
+Frontends consume `Span` lists in two flavours:
 
-- Textual / Rich pull a ``rich.text.Text`` via :func:`to_rich_text`.
+- Textual / Rich pull a ``rich.text.Text`` via `to_rich_text`.
 - prompt_toolkit consumes ``(Pygments token, text)`` pairs via
-  :func:`to_pygments_pairs`.
+  `to_pygments_pairs`.
 - The LSP encodes spans into the SemanticTokens delta stream via
-  :func:`to_semantic_token_legend` and :func:`to_semantic_token_data`.
+  `to_semantic_token_legend` and `to_semantic_token_data`.
 
-The same :data:`STYLE_TABLE` drives Rich styling and the LSP legend so
+The same `STYLE_TABLE` drives Rich styling and the LSP legend so
 themes never drift across surfaces.
 """
 
@@ -215,10 +215,16 @@ def _classify(kind: str, text: str, parent_kind: str | None) -> str:
         return "comment"
     if kind == "line_comment":
         return "comment"
+    if kind == "block_comment":
+        return "comment"
+    if kind in {"pragma_outer", "pragma_inner"}:
+        return "decorator"
     if kind == "integer" or kind == "float" or kind == "signed_number":
         return "number"
     if kind == "string":
         return "string"
+    if kind == "composition_level":
+        return "keyword"
     if kind == "identifier":
         # When a tree-sitter parse error puts a known keyword in the
         # 'identifier' bucket (because the surrounding production
@@ -233,11 +239,10 @@ def _classify(kind: str, text: str, parent_kind: str | None) -> str:
         if text in _ALGEBRA_NAMES:
             return "namespace"
         if parent_kind in {
-            "type_atom",
-            "type_effect_apply",
-            "space_atom",
-            "space_constructor",
-            "space_constructor_bare",
+            "object_atom",
+            "object_effect_apply",
+            "discrete_constructor",
+            "continuous_constructor",
             "sort_decl",
             "constructor_decl",
             "binder_decl",
@@ -245,15 +250,27 @@ def _classify(kind: str, text: str, parent_kind: str | None) -> str:
             "binder_arg_decl",
             "vertex_kind_decl",
             "edge_kind_decl",
+            "morphism_init_family",
         }:
             return "type"
+        if parent_kind in {"pragma_entry", "pragma_outer", "pragma_inner"}:
+            return "decorator"
         return "variable"
-    if kind in _OPERATOR_TOKENS:
-        return "operator"
     if kind in _PUNCT:
         return "punctuation"
+    if kind in _OPERATOR_TOKENS:
+        return "operator"
     if kind in _KEYWORD_TOKENS:
         return "keyword"
+    # Anonymous string tokens (constructors / builtin function heads)
+    # surface with the literal as their node kind. Match against the
+    # builtin sets so e.g. `FinSet`, `Real`, `Simplex` get the type
+    # colour and `parser` / `chart_fold` / `identity` get the function
+    # colour.
+    if kind in _BUILTIN_TYPE_TOKENS:
+        return "type"
+    if kind in _BUILTIN_FUNCTION_TOKENS:
+        return "function"
     return "variable"
 
 
@@ -297,9 +314,9 @@ def to_rich_text(
     env_kinds: dict[str, str] | None = None,
     link_action: str | None = None,
 ) -> Any:
-    """Build a :class:`rich.text.Text` from the highlighted source.
+    """Build a `rich.text.Text` from the highlighted source.
 
-    Imported lazily so importing :mod:`quivers.cli.repl_highlight` does
+    Imported lazily so importing [`quivers.cli.repl_highlight`][quivers.cli.repl_highlight] does
     not pull rich in for callers that just want raw spans.
 
     If ``link_action`` is set (e.g. ``"info"``), identifiers that the

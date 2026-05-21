@@ -24,16 +24,16 @@ composite $\Gamma \to \mathcal{G}(\tau_2)$ in
 <!-- compile: false -->
 ```qvr
 program my_prog : X -> Y
-    mu <- LogitNormal(0.0, 1.0)
-    x <- Normal(mu, 1.0)
+    sample mu <- LogitNormal(0.0, 1.0)
+    sample x <- Normal(mu, 1.0)
 
     return x
 
 program with_params(a, b) : (X * Z) -> Y
     let w = a
 
-    x <- f(w)
-    y <- g(x, b)
+    sample x <- f(w)
+    sample y <- g(x, b)
     return y
 ```
 
@@ -44,19 +44,19 @@ contract (`rsample`, `log_joint`, the `observations` dict).
 
 ### Effect signatures
 
-A program declaration may carry an effect signature after `!`, a
-comma-separated subset of `{Sample, Score, Marginal, Pure}`. The
-compiler verifies that the body's actual effects are a subset of
-the declared set; `! Pure` rejects any sample, score, or marginal
-binds.
+A program declaration may carry an `effects = [...]` entry in its
+option block listing a subset of `{Sample, Score, Marginal, Pure}`.
+The compiler verifies that the body's actual effects are a subset
+of the declared set; `effects=[Pure]` rejects any sample, score, or
+marginal binds.
 
 <!-- compile: false -->
 ```qvr
-program prior : Unit -> Y ! Sample
-    mu <- Normal(0.0, 1.0)
+program prior : Unit -> Y [effects=[Sample]]
+    sample mu <- Normal(0.0, 1.0)
     return mu
 
-program deterministic : X -> X ! Pure
+program deterministic : X -> X [effects=[Pure]]
     let y = x
     return y
 ```
@@ -90,8 +90,7 @@ $\mathbf{Kern}(\mathbf{1}, K^A) \cong \mathbf{Kern}(A, K)$.
 
 <!-- compile: false -->
 ```qvr
-object Item : 1000
-
+object Item : FinSet 1000
 duration_incr : Item <- HalfNormal(1.0)
 by_subject    : Subject <- Normal(0.0, sigma)
 ```
@@ -115,20 +114,20 @@ observe cloze_resp : RespCloze <- Bernoulli(intercept_cloze)
 
 ### Scoped marginalize
 
-`marginalize c : A <- F(args) in { ... }` introduces a coordinate
-`c` bound to a kernel `F(args)`, optionally `A`-indexed, with the
-`{ ... }` block as its integration scope. At the end of the scope
-the coordinate is pushed forward through the projection $\pi :
-\Phi \times C \to \Phi$, integrating it out by
+`marginalize c : A <- F(args)` followed by an indented body
+introduces a coordinate `c` bound to a kernel `F(args)`,
+optionally `A`-indexed, with the indented block as its
+integration scope. At the end of the scope the coordinate is
+pushed forward through the projection $\pi : \Phi \times C \to
+\Phi$, integrating it out by
 [log-sum-exp](https://en.wikipedia.org/wiki/LogSumExp) on the
 log-likelihood (discrete) or fibrewise integration (continuous);
 `c` then falls out of scope.
 
 <!-- compile: false -->
 ```qvr
-marginalize class : Item <- Categorical(class_logits) in {
+marginalize class : Item <- Categorical(class_logits)
     observe r : N <- Bernoulli(theta[class[N]])
-}
 ```
 
 The grouped form with `over G` and per-observe `via <idx>` clauses
@@ -190,8 +189,8 @@ fresh latents per use, no inadvertent tying.
 # a per-level Normal(0, sigma) plate, polymorphic over the grouping
 # object G and the half-normal hyperparameter scale.
 program random_intercepts (G : FinSet, scale : Real) : G -> 1
-    sigma <- HalfNormal(scale)
-    v : G <- Normal(0.0, sigma)
+    sample sigma <- HalfNormal(scale)
+    sample v : G <- Normal(0.0, sigma)
     return v
 ```
 
@@ -201,13 +200,14 @@ marginalization over discrete classes) live in the
 
 ### Posterior blocks
 
-A `program name(latents) : domain -> codomain ! Pure over model`
+A `program name(latents) : domain -> codomain`
 declaration denotes a deterministic post-conditioning kernel. The
-`over model` modifier marks the program as consuming the named
-model's latents; the consumed latents appear as data parameters in
-the parameter list. The `! Pure` effect signature rejects any
-sample, score, or marginal binds; the body is restricted to `let`
-(and `marginalize` over its own scope). Categorically it is a
+`over = model` entry in its option block marks the program as
+consuming the named model's latents; the consumed latents appear
+as data parameters in the parameter list. The
+`effects=[Pure]` signature rejects any sample, score, or
+marginal binds; the body is restricted to `let` (and `marginalize`
+over its own scope). Categorically it is a
 [`Kern`](../api/stochastic/categories.md)-morphism $\text{Latents}
 \to \tau_{\mathrm{out}}$ that lifts to $\text{Data} \to
 \mathcal{G}(\tau_{\mathrm{out}})$ by post-composition with the
@@ -215,13 +215,13 @@ model's posterior kernel $q(\theta \mid \mathrm{data})$.
 
 <!-- compile: false -->
 ```qvr
-type Logits4 = Euclidean 4
+object Logits4 : Real 4
 
 program scored : Item -> Logits4
-    raw_logits <- Normal(0.0, 1.0)
+    sample raw_logits <- Normal(0.0, 1.0)
     return raw_logits
 
-program class_probs(raw_logits) : Item -> Logits4 ! Pure over scored
+program class_probs(raw_logits) : Item -> Logits4 [effects=[Pure over scored]]
     let probs = softmax(raw_logits)
     return probs
 ```
@@ -298,17 +298,15 @@ rebinding.
 <!-- compile: false -->
 ```qvr
 # Vector prior: 5-dim MVN over the codomain axis.
-mu : Euclidean(5) <- MVN(zeros, L) over cod
+mu : Real 5 <- MVN(zeros, L) over cod
 
 # Matrix prior on a morphism: Kronecker MatrixNormal.
-latent W : Euclidean(32) -> Euclidean(64)
+morphism W : Real 32 -> Real 64 [role=latent]
     ~ MatrixNormal(loc, row_scale, col_scale) over (dom, cod)
-
 # Per-row Dirichlet on a transition kernel: each row is a K-dim
 # simplex independently, rows are iid.
-latent T : Euclidean(K) -> Euclidean(K)
+morphism T : Real K -> Real K [role=latent]
     ~ Dirichlet(alpha) over cod iid over dom
-
 # MVN response per observation row.
 observe y : N <- MVN(mu_hat, scale_tril) over cod
 ```
@@ -400,9 +398,8 @@ visible only inside the body.
 
 <!-- compile: false -->
 ```qvr
-object Verb : 40
-object Class : 4
-
+object Verb : FinSet 40
+object Class : FinSet 4
 # Per-verb, per-class scoring table: shape (40, 4).
 let cell = factor v : Verb, cls : Class in coef[v, cls] * weight[cls]
 ```
@@ -495,11 +492,10 @@ declaration instead.
 
 <!-- compile: false -->
 ```qvr
-object X : 3
-object Y : 4
-
-latent f : X -> Y
-latent g : Y -> Y
+object X : FinSet 3
+object Y : FinSet 4
+morphism f : X -> Y [role=latent]
+morphism g : Y -> Y [role=latent]
 
 let fg = f >> g
 
@@ -510,14 +506,12 @@ export fg
 
 <!-- compile: false -->
 ```qvr
-object Cond : 2
+object Cond : FinSet 2
+object Latent : Real 3
+object Obs : Real 5
 
-space Latent : Euclidean(3)
-space Obs : Euclidean(5)
-
-kernel prior : Cond -> Latent ~ Normal
-kernel likelihood : Latent -> Obs ~ Normal [scale=0.1]
-
+morphism prior : Cond -> Latent [role=kernel] ~ Normal
+morphism likelihood : Latent -> Obs [role=kernel] ~ Normal [scale=0.1]
 let posterior = prior >> likelihood
 
 export posterior
@@ -527,13 +521,12 @@ export posterior
 
 <!-- compile: false -->
 ```qvr
-object Data : 1
-
-space Y : Euclidean(2)
+object Data : FinSet 1
+object Y : Real 2
 
 program regression : Data -> Y
-    theta <- LogitNormal(0.0, 1.0)
-    y <- Normal(theta, 0.5)
+    sample theta <- LogitNormal(0.0, 1.0)
+    sample y <- Normal(theta, 0.5)
 
     observe _ <- Normal(y, 0.1)
 
@@ -544,18 +537,18 @@ program regression : Data -> Y
 
 <!-- compile: false -->
 ```qvr
-object D : 1
-type In  = Euclidean 8
-type Out = Euclidean 4
+object D : FinSet 1
+object In : Real 8
+object Out : Real 4
 
 # Default: weights initialised from a small-scale randn.
-latent W_default : In -> Out [scale=0.1]
+morphism W_default : In -> Out [role=latent, scale=0.1]
 
 # Algebra-guided: init pulled from Algebra.init_spec, applied
 # through the active algebra's bijector.  Under product_fuzzy
 # (the default), the raw parameter is set to logit(ln(2) / depth);
 # samples land near the algebra's neutral element on draw zero.
-latent W_auto : In -> Out [init=auto]
+morphism W_auto : In -> Out [role=latent, init=auto]
 
 export W_auto
 ```

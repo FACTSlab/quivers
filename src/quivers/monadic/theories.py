@@ -1,23 +1,23 @@
 """Panproto theories mirroring the typeclass hierarchy.
 
-For each typeclass in :mod:`quivers.monadic.typeclasses`, this module
-declares a corresponding :class:`panproto.Theory`:
+For each typeclass in [`quivers.monadic.typeclasses`][quivers.monadic.typeclasses], this module
+declares a corresponding `panproto.Theory`:
 
-- :data:`ThFunctor` — sorts: ``Carrier``, ``Hom``; operation: ``fmap``
+- `ThFunctor` — sorts: ``Carrier``, ``Hom``; operation: ``fmap``
   with the two functor laws as equations.
-- :data:`ThApplicative` — extends :data:`ThFunctor` with ``pure`` and
+- `ThApplicative` — extends `ThFunctor` with ``pure`` and
   ``apply`` and the four applicative laws.
-- :data:`ThMonad` — extends :data:`ThApplicative` with ``join`` (or
+- `ThMonad` — extends `ThApplicative` with ``join`` (or
   equivalently ``bind``) and the three monad laws.
-- :data:`ThAlternative`, :data:`ThMonadPlus`, :data:`ThMonadTrans`,
-  :data:`ThTraversable` — likewise.
+- `ThAlternative`, `ThMonadPlus`, `ThMonadTrans`,
+  `ThTraversable` — likewise.
 
-Class extension is realised as theory inclusion via :func:`panproto.colimit`.
-Each typeclass instance in :mod:`quivers.monadic.instances` emits a
+Class extension is realised as theory inclusion via `panproto.colimit`.
+Each typeclass instance in [`quivers.monadic.instances`][quivers.monadic.instances] emits a
 panproto theory morphism whose existence panproto can verify (the
 operations are present, the equations hold).
 
-The arrow tower in :mod:`quivers.arrows.theories` mirrors this
+The arrow tower in [`quivers.arrows.theories`][quivers.arrows.theories] mirrors this
 construction for the Hughes-style arrow typeclasses.
 
 Implementation note

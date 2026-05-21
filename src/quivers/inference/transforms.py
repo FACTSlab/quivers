@@ -2,43 +2,43 @@
 
 This module collects the differentiable bijections quivers's
 variational guides chain through. Every primitive is a subclass
-of :class:`torch.distributions.transforms.Transform`, so they
-compose under :class:`~torch.distributions.transforms.ComposeTransform`,
-plug into :func:`torch.distributions.transforms.biject_to`-style
+of `torch.distributions.transforms.Transform`, so they
+compose under `torch.distributions.transforms.ComposeTransform`,
+plug into `torch.distributions.transforms.biject_to`-style
 pipelines, and interop cleanly with
-:class:`~torch.distributions.transformed_distribution.TransformedDistribution`.
+`torch.distributions.transformed_distribution.TransformedDistribution`.
 
 Coverage
 ========
 
-* :class:`AffineCouplingTransform` — RealNVP coupling layer
+* `AffineCouplingTransform` — RealNVP coupling layer
   (Dinh, Sohl-Dickstein, Bengio 2017,
   `doi:10.48550/arXiv.1605.08803 <https://doi.org/10.48550/arXiv.1605.08803>`_).
   Splits the input into two halves, scales / shifts one half
   conditional on the other.
-* :class:`MaskedAutoregressiveTransform` — MAF
+* `MaskedAutoregressiveTransform` — MAF
   (Papamakarios, Pavlakou, Murray 2017,
   `doi:10.48550/arXiv.1705.07057 <https://doi.org/10.48550/arXiv.1705.07057>`_).
   Forward pass is parallel (single masked MLP call); inverse is
   sequential (per-coordinate). The mass-density form used by
   variational inference.
-* :class:`InverseAutoregressiveTransform` — IAF
+* `InverseAutoregressiveTransform` — IAF
   (Kingma, Salimans, Jozefowicz et al. 2016,
   `doi:10.48550/arXiv.1606.04934 <https://doi.org/10.48550/arXiv.1606.04934>`_).
   The dual of MAF — sampling is parallel, density evaluation is
   sequential. Preferred when you sample more often than score
   (which is true for variational guides).
-* :class:`NeuralSplineCouplingTransform` — monotone rational-quadratic
+* `NeuralSplineCouplingTransform` — monotone rational-quadratic
   spline coupling (Durkan, Bekasov, Murray, Papamakarios 2019,
   `doi:10.48550/arXiv.1906.04032 <https://doi.org/10.48550/arXiv.1906.04032>`_).
   Strictly more expressive than affine coupling at the same
   parameter budget.
-* :class:`LULinearTransform` — LU-decomposed linear permutation
+* `LULinearTransform` — LU-decomposed linear permutation
   (Kingma, Dhariwal 2018 Glow,
   `doi:10.48550/arXiv.1807.03039 <https://doi.org/10.48550/arXiv.1807.03039>`_).
   Cheap learnable invertible linear layer; the standard inter-
   coupling-layer mixer.
-* :class:`BatchNormTransform` — running-statistics-based BN as a
+* `BatchNormTransform` — running-statistics-based BN as a
   normalizing-flow transform (Dinh, Sohl-Dickstein, Bengio 2017,
   same paper as RealNVP).
 
@@ -63,15 +63,15 @@ _EPS = 1e-6
 
 class TransformModule(Transform, nn.Module):
     """Cooperative base for transforms that also need to register
-    :class:`torch.nn.Parameter` and :func:`torch.nn.Module.register_buffer`
+    `torch.nn.Parameter` and `torch.nn.Module.register_buffer`
     attributes.
 
-    :class:`torch.distributions.transforms.Transform` is not a
-    :class:`torch.nn.Module`, so subclassing both is required for
+    `torch.distributions.transforms.Transform` is not a
+    `torch.nn.Module`, so subclassing both is required for
     any flow primitive that holds learnable parameters or buffers
     (every primitive in this module). The cooperative base calls
-    both ``__init__``\\ s in MRO order — :class:`nn.Module` first
-    so attribute storage is set up before :class:`Transform`
+    both ``__init__``\\ s in MRO order — `nn.Module` first
+    so attribute storage is set up before `Transform`
     populates the cache-size machinery.
     """
 
@@ -111,7 +111,7 @@ class AffineCouplingTransform(TransformModule):
     net : torch.nn.Module
         Module mapping ``x_a`` of shape ``(..., dim_a)`` to
         ``(log_scale_b, shift_b)`` of shape ``(..., 2 * dim_b)``.
-        The factory :func:`make_coupling_mlp` builds a sensible
+        The factory `make_coupling_mlp` builds a sensible
         default.
     mask : torch.Tensor
         Boolean mask of shape ``(dim,)``: ``True`` entries form
@@ -204,8 +204,8 @@ def make_coupling_mlp(
     activation: type[nn.Module] = nn.ReLU,
 ) -> nn.Module:
     """Build an MLP for use as the ``net`` argument of
-    :class:`AffineCouplingTransform` or
-    :class:`NeuralSplineCouplingTransform`.
+    `AffineCouplingTransform` or
+    `NeuralSplineCouplingTransform`.
 
     The output layer is initialized to zero so the transform
     starts as the identity, which is a standard normalizing-flow
@@ -230,7 +230,7 @@ def make_coupling_mlp(
 class _MaskedLinear(nn.Linear):
     """Linear layer with a fixed binary mask applied to its weight.
 
-    Used inside :class:`MADE` to enforce the autoregressive
+    Used inside `MADE` to enforce the autoregressive
     structure: output unit ``j`` depends only on inputs with
     "degree" strictly less than ``j``'s degree (or ≤ for the
     final output layer).
@@ -393,7 +393,7 @@ class MaskedAutoregressiveTransform(TransformModule):
 class InverseAutoregressiveTransform(TransformModule):
     """Inverse Autoregressive Flow (IAF) layer.
 
-    Dual of :class:`MaskedAutoregressiveTransform`: sampling
+    Dual of `MaskedAutoregressiveTransform`: sampling
     (forward) is parallel, density (inverse) is sequential. The
     preferred direction for variational guides because we sample
     more often than we score.
@@ -579,7 +579,7 @@ class NeuralSplineCouplingTransform(TransformModule):
     """Monotone rational-quadratic spline coupling
     (Durkan-Bekasov-Murray-Papamakarios 2019).
 
-    Same coupling structure as :class:`AffineCouplingTransform`,
+    Same coupling structure as `AffineCouplingTransform`,
     but the per-coordinate transform on ``x_b`` is a monotone
     rational-quadratic spline rather than an affine map. The
     network outputs ``(unnormalized_widths, unnormalized_heights,
@@ -593,7 +593,7 @@ class NeuralSplineCouplingTransform(TransformModule):
     net : torch.nn.Module
         Maps ``x_a`` of shape ``(..., n_a)`` to spline parameters
         of shape ``(..., n_b * (3 * num_bins - 1))``.
-        :func:`make_coupling_mlp` produces a sensible default with
+        `make_coupling_mlp` produces a sensible default with
         ``n_out = n_b * (3 * num_bins - 1)``.
     mask : torch.Tensor
         Boolean mask of shape ``(dim,)``.
@@ -791,8 +791,8 @@ class BatchNormTransform(TransformModule):
 
     In ``training`` mode uses the batch statistics; in
     ``eval`` mode uses the cached running statistics. This module
-    is an :class:`torch.nn.Module` to register the running buffers,
-    and a :class:`torch.distributions.transforms.Transform` so it
+    is an `torch.nn.Module` to register the running buffers,
+    and a `torch.distributions.transforms.Transform` so it
     composes with the rest of the flow stack.
     """
 

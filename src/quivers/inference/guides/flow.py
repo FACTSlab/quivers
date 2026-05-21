@@ -23,21 +23,21 @@ per-site bijectors map :math:`z_K` to constrained per-site
 tensors, adding their own change-of-variables term.
 
 The flow stack runs on the flat ``(D,)`` vector produced by
-:meth:`LatentRegistry.unflatten_unconstrained`'s inverse; per-site
+`LatentRegistry.unflatten_unconstrained`'s inverse; per-site
 shape contortions live in the registry, not in the flow. This is
 the standard Pyro / NumPyro convention.
 
 This module ships three concrete guides:
 
-* :class:`AutoNormalizingFlow` — user-supplied list of
-  :class:`~quivers.inference.transforms.TransformModule`
+* `AutoNormalizingFlow` — user-supplied list of
+  [`quivers.inference.transforms.TransformModule`][quivers.inference.transforms.TransformModule]
   instances. Use this when you want a custom architecture.
-* :class:`AutoIAFGuide` — preconfigured stack of
-  :class:`~quivers.inference.transforms.InverseAutoregressiveTransform`
+* `AutoIAFGuide` — preconfigured stack of
+  [`quivers.inference.transforms.InverseAutoregressiveTransform`][quivers.inference.transforms.InverseAutoregressiveTransform]
   layers separated by reverse permutations. The default flow
   guide for variational inference (Pyro's flagship NF guide).
-* :class:`AutoNeuralSplineGuide` — preconfigured stack of
-  :class:`~quivers.inference.transforms.NeuralSplineCouplingTransform`
+* `AutoNeuralSplineGuide` — preconfigured stack of
+  [`quivers.inference.transforms.NeuralSplineCouplingTransform`][quivers.inference.transforms.NeuralSplineCouplingTransform]
   layers with alternating coupling masks. Sharper than IAF for
   posteriors with sharp modes or near-bounded support.
 """
@@ -71,7 +71,7 @@ class AutoNormalizingFlow(Guide):
         Variable names treated as observations.
     transforms : list[TransformModule]
         Flow stack applied to the standard-Normal base. Each
-        :class:`TransformModule` must accept a
+        `TransformModule` must accept a
         ``(..., D)``-shaped tensor where ``D`` is the registry's
         total unconstrained dimension.
     """
@@ -227,7 +227,7 @@ class AutoIAFGuide(AutoNormalizingFlow):
 
     Default normalizing-flow guide for variational inference
     (Kingma-Salimans-Jozefowicz et al. 2016). Stack of
-    :class:`InverseAutoregressiveTransform` layers, each separated
+    `InverseAutoregressiveTransform` layers, each separated
     by a reverse permutation so successive layers have different
     autoregressive orderings.
 
@@ -289,7 +289,7 @@ class AutoNeuralSplineGuide(AutoNormalizingFlow):
     """Neural-spline-flow guide (Durkan-Bekasov-Murray-Papamakarios 2019).
 
     Stack of monotone rational-quadratic spline coupling layers
-    (:class:`NeuralSplineCouplingTransform`) with alternating
+    (`NeuralSplineCouplingTransform`) with alternating
     half-masks. Sharper than IAF for posteriors with bounded
     support or sharp modes; comparable runtime.
 

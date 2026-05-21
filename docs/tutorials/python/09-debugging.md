@@ -11,9 +11,9 @@ from quivers.dsl import loads
 from quivers.dsl.compiler._prelude import CompileError
 
 src = """
-object A : 3
-program p : A -> A ! Pure
-    x <- Normal(0, 1)        # Sample used in a Pure body
+object A : FinSet 3
+program p : A -> A
+    sample x <- Normal(0, 1)        # Sample used in a Pure body
     return x
 
 export p
@@ -28,7 +28,7 @@ The five error classes you'll see most often:
 
 | Category | Example trigger | Where to look |
 |---|---|---|
-| Effect mismatch | `! Pure` body contains `<-` or `observe` | Loosen the effect tag or remove the offending step |
+| Effect mismatch | `[effects=[Pure]]` body contains `<-` or `observe` | Loosen the effect tag or remove the offending step |
 | Free-name error | A name in the body is neither bound, declared, nor in host-data scope | Add to `observed_names` or to a `<-` / `let` |
 | Algebra mismatch | Typed composition `*>` / `~>` operands have a different algebra | Use `>>` (auto) or insert a `change_base` |
 | Shape mismatch | Tensor argument has the wrong cardinality for an object | Check object declarations against the data |
