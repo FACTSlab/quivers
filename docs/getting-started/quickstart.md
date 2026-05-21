@@ -21,7 +21,7 @@ Create a **latent** (learnable) morphism from X to Y. Its tensor entries are par
 ```python
 f = morphism(X, Y)
 print(f.tensor.shape)  # torch.Size([3, 4])
-print(f.domain, f.codomain)  # X -> Y
+print(f.domain.name, "->", f.codomain.name)  # X -> Y
 ```
 
 Create an **observed** (fixed) morphism with a fixed tensor:
@@ -195,8 +195,8 @@ Y = FinSet(name="Y", cardinality=4)
 
 # Create a stochastic morphism (Markov kernel)
 kern = stochastic(X, Y)
-print(kern.tensor.shape)  # [3, 4], columns sum to 1
-print(kern.tensor.sum(dim=1))  # all 1.0
+print(kern.tensor.shape)  # [3, 4], rows sum to 1
+print(kern.tensor.sum(dim=-1))  # all 1.0
 
 # Condition on an observation
 obs_data = torch.tensor([0.1, 0.8, 0.05, 0.05])  # P(Y)

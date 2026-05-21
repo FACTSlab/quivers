@@ -91,8 +91,8 @@ $\mathbf{Kern}(\mathbf{1}, K^A) \cong \mathbf{Kern}(A, K)$.
 <!-- compile: false -->
 ```qvr
 object Item : FinSet 1000
-duration_incr : Item <- HalfNormal(1.0)
-by_subject    : Subject <- Normal(0.0, sigma)
+sample duration_incr : Item <- HalfNormal(1.0)
+sample by_subject    : Subject <- Normal(0.0, sigma)
 ```
 
 ### Indexed observe
@@ -130,8 +130,8 @@ marginalize class : Item <- Categorical(class_logits)
     observe r : N <- Bernoulli(theta[class[N]])
 ```
 
-The grouped form with `over G` and per-observe `via <idx>` clauses
-is the fibred marginalization construct; see
+The grouped form with `[over=G]` and per-observe `[via=<idx>]`
+options is the fibred marginalization construct; see
 [hierarchical programs](programs-hierarchical.md#grouped-marginalization-fibred-discrete-latents).
 
 ### Indexed gather in `let`
@@ -221,7 +221,7 @@ program scored : Item -> Logits4
     sample raw_logits <- Normal(0.0, 1.0)
     return raw_logits
 
-program class_probs(raw_logits) : Item -> Logits4 [effects=[Pure over scored]]
+program class_probs(raw_logits) : Item -> Logits4 [effects=[Pure], over=scored]
     let probs = softmax(raw_logits)
     return probs
 ```
@@ -230,17 +230,19 @@ The data parameter `raw_logits` names the model latent the body
 consumes; the runtime supplies a per-sample snapshot of the model's
 trace.
 
-## Axis-role clause: `over` and `iid over`
+## Axis-role clause: `over` and `iid_over`
 
-Every distribution clause (kernel declarations, latent parameter
-priors, bind steps, observe steps) accepts an optional
-**axis-role clause** of the form:
+Every distribution-bearing form (kernel and latent-prior morphism
+declarations, `sample` / `observe` / `marginalize` steps) accepts
+two option-block keys that configure how the family's axes
+decompose: `over` and `iid_over`. Both live inside the bracketed
+option block, before any trailing `~ Family(...)` initializer:
 
 ```
-~ Family [options] over <axes> [iid over <axes>]
+... [..., over=<axes>, iid_over=<axes>] ~ Family(args)
 ```
 
-`over <axes>` names the **event axes**: the axes on which the
+`over=<axes>` names the **event axes**: the axes on which the
 family's joint structure lives. The axis count must match the
 family's declared `event_rank` (0 for scalar families like Normal /
 Beta / Gamma; 1 for vector families like
@@ -252,14 +254,16 @@ or
 2 for matrix families like
 [`MatrixNormal`](../api/continuous/families.md#quivers.continuous.families.ConditionalMatrixNormal),
 [`Wishart`](../api/continuous/families.md#quivers.continuous.families.ConditionalWishart),
-[`LKJCholesky`](../api/continuous/families.md#quivers.continuous.families.ConditionalLKJCholesky)).
-The positional ordering of `over` axes corresponds positionally to
-the family's declared event-axis ordering (for asymmetric families
-like `MatrixNormal`, the first axis is the row axis, the second
-the column axis). The full event-rank table lives in
+[`InverseWishart`](../api/continuous/families.md#quivers.continuous.families.ConditionalInverseWishart)).
+A single axis is written bare (`over=A`); multiple axes use a
+bracketed list (`over=[A, B]`). The positional ordering of `over`
+axes corresponds positionally to the family's declared event-axis
+ordering (for asymmetric families like `MatrixNormal`, the first
+axis is the row axis, the second the column axis). The full
+event-rank table lives in
 [continuous families](continuous-families.md#event-rank-and-the-axis-role-surface).
 
-`iid over <axes>` is an optional readability assertion naming the
+`iid_over=<axes>` is an optional readability assertion naming the
 batch axes (the complement of `over`). Any axis not in `over` is
 batched by default, which categorically is a product of independent
 distributions on that axis.
@@ -285,30 +289,32 @@ rebinding.
 **Compile-time errors.** Two diagnostics fire here:
 
 - *"axis count does not match family event_rank"*: the family
-  declares event_rank `k` but the `over` clause names `j ≠ k`
-  axes. Common when migrating from a flat
+  declares event_rank `k` but `over` lists `j ≠ k` axes. Common
+  when migrating from a flat
   [`MultivariateNormal`](../api/continuous/families.md#quivers.continuous.families.ConditionalMultivariateNormal)
   (event_rank 1) to a matrix
   [`MatrixNormal`](../api/continuous/families.md#quivers.continuous.families.ConditionalMatrixNormal)
   (event_rank 2).
-- *"axis `A` not in domain / codomain"*: an `over` name is not a
+- *"unknown axis name(s) `A` in `over`"*: an `over` name is not a
   factor of the morphism's dom or cod. Resolve by renaming, or by
   using `dom` / `cod` if the side is a single unfactored object.
 
 <!-- compile: false -->
 ```qvr
 # Vector prior: 5-dim MVN over the codomain axis.
-mu : Real 5 <- MVN(zeros, L) over cod
+sample mu : Real 5 <- MVN(zeros, L) [over=cod]
 
 # Matrix prior on a morphism: Kronecker MatrixNormal.
-morphism W : Real 32 -> Real 64 [role=latent]
-    ~ MatrixNormal(loc, row_scale, col_scale) over (dom, cod)
+morphism W : Real 32 -> Real 64 [role=latent, over=[dom, cod]]
+    ~ MatrixNormal(loc, row_scale, col_scale)
+
 # Per-row Dirichlet on a transition kernel: each row is a K-dim
 # simplex independently, rows are iid.
-morphism T : Real K -> Real K [role=latent]
-    ~ Dirichlet(alpha) over cod iid over dom
+morphism T : Real K -> Real K [role=latent, over=cod, iid_over=dom]
+    ~ Dirichlet(alpha)
+
 # MVN response per observation row.
-observe y : N <- MVN(mu_hat, scale_tril) over cod
+observe y : N <- MVN(mu_hat, scale_tril) [over=cod]
 ```
 
 ## Let expressions (arithmetic and primitives)

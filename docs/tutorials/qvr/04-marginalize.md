@@ -18,7 +18,7 @@ Each observation comes from one of two Gaussian clusters; we don't know which.
         sample mu_k  : K <- Normal(0.0, 5.0)
         sample sd_k  : K <- HalfNormal(1.0)
 
-        marginalize z : K <- Dirichlet(probs)
+        marginalize z : K <- Categorical(probs)
             observe y : Item <- Normal(mu_k[z], sd_k[z])
         return y
 
@@ -77,14 +77,14 @@ from quivers.inference import AutoNormalGuide, ELBO, SVI
 
 GMM_SRC = """
 object Item : FinSet 500
-object K    : 2
+object K    : FinSet 2
 
 program gmm : Item -> Item
     sample probs : K <- HalfNormal(1.0)
     sample mu_k  : K <- Normal(0.0, 5.0)
     sample sd_k  : K <- HalfNormal(1.0)
 
-    marginalize z : K <- Dirichlet(probs)
+    marginalize z : K <- Categorical(probs)
         observe y : Item <- Normal(mu_k[z], sd_k[z])
     return y
 

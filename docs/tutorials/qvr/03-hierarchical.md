@@ -113,7 +113,6 @@ Re-running with the non-centered parameterization, `AutoNormalGuide` recovers a 
 
 For the centered parameterization (or when you want to trust the posterior mass exactly), reach for the No-U-Turn Sampler ([Hoffman & Gelman, 2014](https://www.jmlr.org/papers/v15/hoffman14a.html)):
 
-<!-- python: skip -->
 ```python
 from quivers.inference import NUTSKernel, MCMC
 
@@ -121,11 +120,12 @@ kernel = NUTSKernel(
     target_accept=0.95,              # high target -> smaller step -> fewer divergences
     max_tree_depth=10,
 )
+# Small budget for documentation; bump warmup/samples for real fits.
 mcmc = MCMC(
     kernel,
-    num_warmup=1000,
-    num_samples=2000,
-    num_chains=4,
+    num_warmup=50,
+    num_samples=100,
+    num_chains=2,
     init_strategy="prior",
 )
 
@@ -163,14 +163,13 @@ A useful rule of thumb from [Betancourt & Girolami (2013)](https://doi.org/10.48
 
 [`Predictive`](../../api/inference/predictive.md) accepts either a [`Guide`](../../api/inference/guide.md) or an `MCMCResult`:
 
-<!-- python: skip -->
 ```python
 from quivers.inference import Predictive
 
-pred = Predictive(model, posterior=result, num_samples=500)
-y_hat = pred(x_tensor, {"sigma_j": sigma_j})["y"]  # (500, 8)
-print("predictive school 1:", y_hat[:, 0].mean().item(),
-      "+/-", y_hat[:, 0].std().item())
+pred = Predictive(model, posterior=result, num_samples=100)
+y_hat = pred(x_tensor, {"sigma_j": sigma_j})["y"]  # (100, ..., 8)
+print("predictive school 1:", y_hat[..., 0].mean().item(),
+      "+/-", y_hat[..., 0].std().item())
 ```
 
 ## What you've seen

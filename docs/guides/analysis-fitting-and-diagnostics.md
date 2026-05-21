@@ -131,15 +131,20 @@ as the canonical specification.
 
 [`ChainShape.from_module(module)`](../api/diagnostics/index.md) walks
 a compiled `Module`, returning per-step `StepShape` records that
-tag each `let` / `latent` step with:
+tag every program step (`latent`, `observe`, `marginalize`, or
+`let`) with:
 
-- the bound variable name,
-- the source location (file, line, column from the tree-sitter
-  parse),
-- the chain depth (how many composition steps deep this step is),
-- the governing algebra (read from the surrounding `algebra ...`
-  declaration),
-- the inferred intermediate axis size after the step's contraction
+- the bound variable name (`name`),
+- the step `kind`,
+- the source position (`source_line`, `source_col` from the
+  tree-sitter parse),
+- the chain `depth`: the 1-indexed position of the step among
+  stochastic binds (`latent` / `observe` / `marginalize`). `let`
+  steps inherit the depth of the most recent stochastic
+  predecessor; a `let` before any stochastic step has depth `0`,
+- the governing `algebra_name` (read from the surrounding
+  `composition <name> as <algebra>` declaration),
+- the inferred `intermediate_size` after the step's contraction
   / activation.
 
 <!-- python: skip -->
@@ -151,7 +156,7 @@ module = parse(source)
 shape = ChainShape.from_module(module)
 
 for step in shape.steps:
-    print(f"{step.name} @ {step.source.line}:{step.source.col} "
+    print(f"{step.name} @ {step.source_line}:{step.source_col} "
           f"depth={step.depth} dim={step.intermediate_size}")
 ```
 
@@ -235,7 +240,8 @@ from quivers.analysis import saturation_warnings
 
 module = parse(source)
 for warning in saturation_warnings(module):
-    print(f"{warning.site}:{warning.line} {warning.message}")
+    print(f"{warning.name} @ {warning.source_line}:{warning.source_col} "
+          f"{warning.message()}")
 ```
 
 Use these warnings as a static-analysis pass during model

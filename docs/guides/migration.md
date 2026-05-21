@@ -76,9 +76,9 @@ the migration chain without migrating any files:
 qvr migrate --check
 ```
 
-`--from` defaults to the most recent released revision on the chain.
-`--to` defaults to the next release (the working-tree grammar, which
-becomes `v0.11.0` when tagged).
+`--from` defaults to the most recent released revision on the chain
+(the penultimate entry of `CHAIN`). `--to` defaults to `HEAD`, the
+working-tree grammar.
 
 ## What survives migration
 

@@ -316,13 +316,13 @@ $$
 
 with the same inside-score recurrence as $\mathsf{parser}$ ([Weighted Deduction Fragment §6](grammar.md#6-chart-denotation)). When $e = 0$ the denotation reduces to the bare-residuated case of [Effects §7](effects.md#7-bridges-and-conservativity); for $e > 0$ each chart cell carries a stack of effects of length $\le e$ ([Effects §1](effects.md#1-setting)) and the joint type-and-effect dispatch of [Effects §4](effects.md#4-joint-type-and-effect-dispatch) governs firings.
 
-$\mathsf{parser}$, $\mathsf{ccg}$, and $\mathsf{lambek}$ are surface sugar over the same chart-kernel denotation: they take a *list of rule names* (resolved through the morphism / schema / bundle environments, with bundles spliced via [Schemas §7](schemas.md#7-bundles)) and assemble the corresponding $B$ and $U$ morphisms before constructing the inside-algorithm chart. $\mathsf{ccg}$ supplies the CCG combinator bundle as a default, $\mathsf{lambek}$ supplies the residuation-only bundle, and $\mathsf{parser}$ accepts an arbitrary rule list.
+$\mathsf{parser}$, $\mathsf{ccg}$, and $\mathsf{lambek}$ are interchangeable surface keywords for the same expression form: each takes a *list of rule names* (resolved through the morphism / schema / bundle environments, with bundles spliced via [Schemas §7](schemas.md#7-bundles)) and assembles the corresponding $B$ and $U$ morphisms before constructing the inside-algorithm chart. The keyword choice is cosmetic; the standard CCG and Lambek combinator sets are addressed by naming the appropriate bundles in the rule list.
 
 ### 4.2 Deduction-system call sites
 
 Three let-expression builtins target the agenda-driven deduction
 fragment introduced by `deduction NAME : … {}` blocks
-([Weighted Deduction Fragment §10.3](grammar.md#103-let-expression-builtins)):
+([Weighted Deduction Fragment §9.3](grammar.md#93-let-expression-builtins)):
 
 $$
 \begin{aligned}
@@ -353,14 +353,14 @@ presheaf evaluation:
 | $\mathit{chart}.\mathsf{semiring}$ | the chart's semiring $K$. |
 
 Composition $D_1 \mathbin{\mathrm{c}} D_2$ ([Weighted Deduction
-Fragment §10.1](grammar.md#101-composing-deductions)) realises an
+Fragment §9.1](grammar.md#91-composing-deductions)) realises an
 axiom-injector chaining: $D_1$'s goal items appear as $D_2$'s
 axioms, with the resulting system inheriting $D_2$'s semiring,
 agenda, and goal predicate. The composition's `.parameters()`
 walks both factors' submodule side-tables, so a single fit
 optimises the joint parameter set.
 
-Substitution $t[v := w]$ ([Weighted Deduction Fragment §10.3](grammar.md#103-let-expression-builtins))
+Substitution $t[v := w]$ ([Weighted Deduction Fragment §9.3](grammar.md#93-let-expression-builtins))
 is structural: it walks $t$ replacing every subterm equal to $v$
 under tuple-structural equality with $w$. Capture-avoidance is
 automatic under the compile-time alpha-renaming invariant of the

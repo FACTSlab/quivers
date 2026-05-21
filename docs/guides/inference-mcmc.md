@@ -3,7 +3,7 @@
 This page covers gradient-based MCMC (HMC, NUTS), the hybrid
 samplers that combine a variational warm-up with HMC chains, and
 posterior predictive sampling from an
-[`MCMCResult`](../api/inference/predictive.md). The variational
+[`MCMCResult`](../api/inference/mcmc.md). The variational
 families and ELBO objectives live in
 [the SVI guide](inference-svi.md).
 
@@ -39,19 +39,20 @@ samples = result.samples        # dict[str, Tensor] of shape (chains, draws, ...
 ```
 
 Both
-[`HMCKernel`](../api/inference/predictive.md) and
-[`NUTSKernel`](../api/inference/predictive.md) implement
+[`HMCKernel`](../api/inference/mcmc.md) and
+[`NUTSKernel`](../api/inference/mcmc.md) implement
 [Nesterov dual-averaging](https://doi.org/10.48550/arXiv.1111.4246)
 step-size adaptation and Welford-online mass-matrix adaptation
 during warmup. The leapfrog integrator vectorizes `num_chains`
 chains as a leading batch axis; warmup runs unvectorised
 (adaptation is impure), sampling runs vectorized (kernel is pure).
 
-The [`MCMCResult`](../api/inference/predictive.md) exposes the full
-suite of [posterior diagnostics from Vehtari et al.
-(2021)](https://doi.org/10.1214/20-BA1221): split `R̂`, bulk and
-tail effective sample sizes, energy diagnostic (`E-BFMI`), and
-per-chain divergence counts.
+The [`MCMCResult`](../api/inference/mcmc.md) exposes per-site
+[split `R̂` and effective sample size (Vehtari et al.
+2021)](https://doi.org/10.1214/20-BA1221) via `r_hat` and `ess`,
+per-chain divergence counts via `divergence_counts` (with
+`total_divergences` summing across chains), and posterior log
+densities per draw via `log_densities`.
 
 ## Hybrid samplers
 
@@ -108,7 +109,7 @@ svi_losses, result = sampler.run(model, x, observations)
 
 [`Predictive`](../api/inference/predictive.md) consumes either a
 [`Guide`](../api/inference/guide.md) or an
-[`MCMCResult`](../api/inference/predictive.md). With an
+[`MCMCResult`](../api/inference/mcmc.md). With an
 `MCMCResult`, it iterates over posterior samples instead of calling
 `guide.rsample`.
 

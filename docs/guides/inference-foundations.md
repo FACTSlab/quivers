@@ -71,9 +71,11 @@ for name, site in sites.items():
 A `SampleSite` records:
 
 - `name`: identifier of the sample
-- `value`: sampled value
-- `log_prob`: log probability of the sample
-- `morphism`: the generating distribution
+- `morphism`: the generating distribution (`None` for `let` bindings)
+- `value`: sampled or observed value
+- `log_prob`: log-density of the value under the morphism, shape `(batch,)` (zero for `let` bindings)
+- `is_observed`: whether the site was clamped to an observed value
+- `is_deterministic`: whether the site is a deterministic `let` binding
 
 ## Conditioning on observations
 

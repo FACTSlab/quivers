@@ -147,97 +147,156 @@ tree-sitter grammar is the source of truth.
 ```ebnf
 module         := statement*
 
-statement      := composition_rule_decl
-                | contraction_decl
-                | deduction_decl
+statement      := composition_decl
+                | category_decl
+                | rule_decl
+                | schema_decl
                 | object_decl
                 | morphism_decl
-                | space_decl
-                | kernel_decl
-                | discretize_decl
-                | embed_decl
+                | bundle_decl
                 | program_decl
+                | contraction_decl
                 | let_decl
-                | type_decl
                 | export_decl
+                | deduction_decl
+                | signature_decl
+                | encoder_decl
+                | decoder_decl
+                | loss_decl
+                | pragma_outer
+                | pragma_inner
 
-(* Selects the module's composition rule. The keyword fixes the
-   required algebraic level; the optional body declares a fresh
-   rule inline (each entry is a let-expression). *)
-composition_rule_decl
-               := ('algebra' | 'semigroupoid'
-                   | 'bilinear_form' | 'composition_rule')
-                  IDENT [composition_rule_block]
-composition_rule_block
-               := '{' composition_rule_entry* '}'
+(* Selects the module's composition rule. The `as` clause fixes the
+   algebraic level the surrounding morphisms must live in; the
+   optional indented body declares a fresh rule inline (each entry
+   is a let-expression). *)
+composition_decl
+               := 'composition' IDENT
+                  ['as' composition_level]
+                  [composition_rule_block]
+composition_level
+               := 'algebra' | 'semigroupoid' | 'bilinear_form' | 'rule'
 composition_rule_entry
-               := IDENT '(' IDENT (',' IDENT)* ')' '=' let_expr
-                | IDENT '=' let_expr
+               := IDENT ['(' IDENT (',' IDENT)* ')'] '=' let_expr
 
-(* Operadic n-ary contraction. Declares a callable that
-   contracts `n` input morphisms under a named composition rule
-   using an einsum-style wiring spec. *)
+(* Objects. The RHS is one of: an enum literal `{a, b, c}`,
+   `FreeResiduated(...)`, `FreeMonoid(...)`, or any object
+   expression (e.g. `FinSet N`, `Real n`, `Euclidean(...)`,
+   products, coproducts, etc.). *)
+object_decl    := 'object' IDENT ':' object_value
+object_value   := enum_set_literal
+                | free_residuated_expr
+                | free_monoid_expr
+                | object_expr
+
+(* Morphisms. The role keyword (`latent` / `observed` / `kernel` /
+   `embed` / `discretize`) and every other modifier live in the
+   bracketed option block. An optional `~ Family(args)` initializer
+   attaches a distribution family; without it the morphism is bare
+   structural data. *)
+morphism_decl  := 'morphism' IDENT ':' object_expr '->' object_expr
+                  option_block
+                  ['~' morphism_init]
+morphism_init  := morphism_init_family | expr
+morphism_init_family
+               := IDENT '(' [draw_arg (',' draw_arg)*] ')'
+
+(* Option block. Keys depend on the surrounding form. For
+   morphisms / sample / observe / marginalize, the recognised keys
+   include `role`, `effects`, `over`, `iid_over`, `via`, `init`,
+   `reduction`. `[]` is the empty option block. *)
+option_block   := '[' [option_entry (',' option_entry)*] ']'
+option_entry   := IDENT '=' option_value
+option_value   := IDENT | string | integer | float | option_list
+option_list    := '[' [option_value (',' option_value)*] ']'
+
+(* Operadic n-ary contraction. Inputs are named morphisms; the
+   `wiring` / `share` / `rule` options live in the option block. *)
 contraction_decl
                := 'contraction' IDENT
                   '(' contraction_input (',' contraction_input)* ')'
-                  ':' type_expr '->' type_expr
-                  'rule' IDENT
-                  ['share' axis_list]
-                  ['wiring' STRING]
+                  ':' object_expr '->' object_expr
+                  option_block
 contraction_input
-               := IDENT ':' type_expr '->' type_expr
+               := IDENT ':' object_expr '->' object_expr
+
+(* Bundle: a named tuple of rule references. *)
+bundle_decl    := 'bundle' IDENT '=' '[' IDENT (',' IDENT)* ']'
+
+(* Top-level production-style rule. *)
+rule_decl      := 'rule' IDENT '(' IDENT (',' IDENT)* ')'
+                  ':' object_expr (',' object_expr)*
+                  '=>' object_expr
+
+(* Schema: a parameterised morphism shape. *)
+schema_decl    := 'schema' IDENT '(' schema_parameter (',' schema_parameter)* ')'
+                  ':' object_expr '->' object_expr
+schema_parameter
+               := IDENT (',' IDENT)* ':' object_expr
 
 (* Weighted deduction system: the agenda-based framework subsumes
    CKY, Earley, Viterbi, inside-outside, semi-naive Datalog, A*,
    Knuth, and bidirectional MLTT proof search. *)
-deduction_decl := 'deduction' IDENT ':' type_expr '->' type_expr
-                  '{' deduction_field+ '}'
+deduction_decl := 'deduction' IDENT ':' object_expr '->' object_expr
+                  [option_block] INDENT deduction_body_entry+ DEDENT
+deduction_body_entry
+               := deduction_atoms | deduction_binders | deduction_rule
+                | deduction_lexicon | deduction_lexicon_from_file
 
-object_decl    := 'object' IDENT (':' type_expr | '=' object_init)
+(* Signature / encoder / decoder / loss for structural compression. *)
+signature_decl := 'signature' IDENT ['(' IDENT (',' IDENT)* ')']
+                  INDENT signature_body_entry+ DEDENT
 
-morphism_decl  := ('latent' | 'observed') IDENT ':' type_expr '->' type_expr
-                  ['[' options ']']
-                  [morphism_prior]
-                  ['=' expr]
-morphism_prior := '~' IDENT '(' draw_arg (',' draw_arg)* ')'
-                  ['[' options ']']
-                  [axis_role_clause]
+encoder_decl   := 'encoder' IDENT ':' IDENT
+                  ['(' IDENT (',' IDENT)* ')']
+                  [option_block]
+                  [INDENT encoder_body_entry+ DEDENT]
 
-(* Axis-role clause on a distribution: `over <axes> [iid over <axes>]`.
-   `over` names the event axes (the axes the family's joint
-   structure lives on); the complement is iid. Axis count must
-   match the family's declared event_rank. *)
-axis_role_clause
-               := 'over' axis_list ['iid' 'over' axis_list]
-axis_list      := IDENT
-                | '(' IDENT (',' IDENT)* ')'
+decoder_decl   := 'decoder' IDENT 'over' IDENT
+                  ['(' IDENT (',' IDENT)* ')']
+                  [option_block]
+                  INDENT decoder_body_entry+ DEDENT
 
-space_decl     := 'space' IDENT ':' space_expr
+loss_decl      := 'loss' IDENT [option_block]
+                  INDENT loss_body_entry+ DEDENT
 
-type_decl      := 'type' IDENT '=' space_expr
+(* Program. The option block holds `effects`, `over`, etc. The
+   body is an indented sequence of steps, terminated by a required
+   `return`. *)
+program_decl   := 'program' IDENT ['(' program_param (',' program_param)* ')']
+                  ':' object_expr '->' object_expr
+                  [option_block]
+                  INDENT program_step* return_step DEDENT
+program_param  := IDENT | (IDENT ':' param_kind)
+param_kind     := 'FinSet' | 'Space' | 'Object'
+                | 'Real' | 'Nat'
+                | 'Mor' '[' object_expr ',' object_expr ']'
+program_step   := sample_step | observe_step | marginalize_step
+                | let_step | score_step
 
-(* Markov-kernel declaration. Without `~ Family`, declares a
-   finite-set lookup-table kernel; with it, a parametric kernel
-   whose family parameters come from the input by a parameter
-   network at sample time. *)
-kernel_decl    := 'kernel' IDENT ['[' INT ']'] ':' type_expr '->' type_expr
-                  ['~' IDENT ['[' options ']'] [axis_role_clause]]
+sample_step    := 'sample' var_pattern [':' object_expr]
+                  '<-' IDENT ['(' draw_arg (',' draw_arg)* ')']
+                  [option_block]
+observe_step   := 'observe' IDENT [':' object_expr]
+                  '<-' IDENT ['(' draw_arg (',' draw_arg)* ')']
+                  [option_block]
+marginalize_step
+               := 'marginalize' IDENT [':' object_expr]
+                  '<-' IDENT ['(' draw_arg (',' draw_arg)* ')']
+                  [option_block]
+                  INDENT program_step+ DEDENT
+let_step       := 'let' IDENT '=' let_arith
+score_step     := 'score' IDENT '=' let_arith
+return_step    := 'return' return_pattern
 
-discretize_decl := 'discretize' IDENT ':' IDENT '->' INT
-embed_decl      := 'embed' IDENT ['[' INT ']'] ':' IDENT '->' IDENT
-
-program_decl   := 'program' IDENT ['(' param_list ')'] ':'
-                   type_expr '->' type_expr
-                   ['!' effect_set]
-                   ['over' IDENT]
-                   program_body
-
-program_body   := program_step+ return_stmt
-program_step   := bind_step | observe_step
-                | marginalize_step | let_step
-
-let_decl       := 'let' IDENT '=' expr ['where' let_decl+]
+let_decl       := 'let' IDENT '=' expr ['where' INDENT let_decl+ DEDENT]
 export_decl    := 'export' expr
+
+(* Pragmas. `#[...]` attaches to the next declaration; `#![...]`
+   attaches to the enclosing module. *)
+pragma_outer   := '#[' pragma_entry (',' pragma_entry)* ']'
+pragma_inner   := '#![' pragma_entry (',' pragma_entry)* ']'
+pragma_entry   := IDENT ['=' option_value]
 ```
 
 Each declaration form is detailed in its own page:
@@ -261,9 +320,9 @@ morphism f : X -> X [role=latent]
 
 ### Doc comments
 
-Lines starting with `##` are *doc comments*: they're attached to the
-declaration that immediately follows and surface through the AST,
-the panproto schema, and tooling (`qvr check --json`, future LSP
+Lines starting with `#!` are *doc comments*: they're attached to
+the declaration that immediately follows and surface through the
+AST, the panproto schema, and tooling (`qvr check --json`, LSP
 hover). Plain `#` line comments are dropped at parse time.
 
 ```qvr
@@ -273,8 +332,10 @@ object Token : FinSet 256
 morphism emit : Token -> Token [role=latent]
 ```
 
-Doc comments are recognized on `object`, `morphism`, `alias`, and
-`program` declarations.
+Doc comments are recognized on every declaration that carries a
+`docs:` field, including `object`, `morphism`, `composition`,
+`bundle`, `contraction`, `schema`, `program`, `deduction`,
+`signature`, `encoder`, `decoder`, `loss`, `let`, and `export`.
 
 ## Error handling
 

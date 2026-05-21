@@ -33,10 +33,11 @@ Writing programs in the typed `.qvr` language.
 
 4. [DSL Overview](dsl-overview.md). File format, grammar, doc
    comments, compilation pipeline, error handling.
-5. [DSL Declarations](dsl-declarations.md). `algebra`, `object`,
-   `morphism`, `space`, `kernel`, `discretize`, `embed`, `type`,
-   `alias`, replicated declarations, fan / repeat / stack / scan /
-   curry combinators, `export`.
+5. [DSL Declarations](dsl-declarations.md). `composition`,
+   `object`, `morphism` (with the `[role=...]` option block
+   selecting `latent` / `observed` / `kernel` / `embed` /
+   `discretize`), `bundle`, the fan / repeat / stack / scan /
+   curry combinators, and `export`.
 6. [DSL Programs and Let-Expressions](dsl-programs-and-lets.md).
    `program` blocks, bind / observe / marginalize / let steps, the
    axis-role clause, factor expressions, the let-expression

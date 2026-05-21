@@ -309,7 +309,7 @@ flowing from rule-weight parameters through the agenda's
   second agenda pass that propagates outside weights from the
   goal back to all items.
 
-## 10. Chart access from program bodies
+## 9. Chart access from program bodies
 
 A `program` body may invoke a compiled deduction $D$ by name
 through the `parse` builtin:
@@ -349,7 +349,7 @@ inside log-marginal of the input under the deduction's current
 parameters: SVI and NUTS over the program's parameter set then
 descend to the deduction's parameters automatically.
 
-### 10.1 Composing deductions
+### 9.1 Composing deductions
 
 The let-expression builtin `compose(D_1, D_2)` builds a deduction
 system whose axiom injector chains $D_1$'s goal items into
@@ -374,7 +374,7 @@ The composition is associative up to chart equality of the
 intermediate goal-item set, and identity-on-the-right under the
 trivial deduction with no rules.
 
-### 10.2 Forward sampling
+### 9.2 Forward sampling
 
 The [`quivers.deduction.sample_corpus`](../api/stochastic/deduction/sample.md#quivers.stochastic.deduction.sample.sample_corpus)
 helper realises exact forward sampling from a deduction's
@@ -383,7 +383,7 @@ vocabulary to a chosen length, evaluates $\alpha[\mathsf{goal}]$
 for every candidate yield, and draws categorically from the
 softmax of the resulting log-weights.
 
-### 10.3 Let-expression builtins
+### 9.3 Let-expression builtins
 
 The let-expression compiler ships three deduction-related
 builtins, all callable from inside a `program` or lexicon LF
@@ -392,7 +392,7 @@ body:
 | Builtin | Signature | Denotation |
 |---|---|---|
 | `parse(D, x)` | `(DeductionSystem, Input) -> ChartView` | invoke $D$ on input $x$. |
-| `compose(D_1, D_2)` | `(DeductionSystem, DeductionSystem) -> DeductionSystem` | as in [§10.1](#101-composing-deductions). |
+| `compose(D_1, D_2)` | `(DeductionSystem, DeductionSystem) -> DeductionSystem` | as in [§9.1](#91-composing-deductions). |
 | `subst(t, v, w)` | `(Term, Term, Term) -> Term` | structural substitution; capture-avoiding under the [`binders` invariant](#3a-binders-and-alpha-renaming). |
 
 `subst(t, v, w)` walks $t$ replacing every subterm structurally
@@ -402,7 +402,7 @@ compile time, naive structural substitution is already
 capture-avoiding: no two distinct bound variables share a
 canonical name in any reachable term.
 
-## 9. Program-fragment integration
+## 10. Program-fragment integration
 
 The Bayesian-modeling step kinds, effect signatures, the
 `over`-modifier, the operadic-contraction call, and the

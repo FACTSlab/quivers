@@ -41,13 +41,13 @@ The proof proceeds by structural induction on the module $M$. We outline the ind
 
 ### 3.1 Types and spaces
 
-For every `TypeExpr` $\tau$ and every well-formed environment $\rho_{\mathrm{obj}}$, the lens `TypeExprToSetObject(env)` satisfies
+For every `TypeExpr` $\tau$ and every well-formed environment $\rho_{\mathrm{obj}}$, the compiler's `_resolve_type(τ)` satisfies
 
 $$
-\mathrm{forward}(\tau) \;=\; \llbracket \tau \rrbracket_{\rho_{\mathrm{obj}}}
+\mathtt{\_resolve\_type}(\tau) \;=\; \llbracket \tau \rrbracket_{\rho_{\mathrm{obj}}}
 $$
 
-by definition: the recursion in `_resolve` is term-by-term equal to the recursion in [Types §2](types-and-spaces.md#2-denotation-of-types). The $\mathrm{backward}$ direction recovers the original AST verbatim, so the GetPut and PutGet laws hold by construction. The same argument applies to `SpaceExprToContinuousSpace`.
+by definition: the recursion in `_ResolutionMixin._resolve_any_space` is term-by-term equal to the recursion in [Types §2](types-and-spaces.md#2-denotation-of-types). The same recursion discharges the continuous case at every `ContinuousConstructor` node, so [Spaces §4](types-and-spaces.md#4-denotation-of-spaces) holds by the same argument.
 
 ### 3.2 Discrete morphisms
 
@@ -100,7 +100,7 @@ The categorical equations of [Programs §5](programs.md#5-soundness-of-monadic-s
 The body-interpreter resolves three deduction-related let-expression builtins through the [`compose_deductions`, `parse`, `subst`] dispatch table on `_ProgramsMixin`:
 
 - *parse(D, x)*: runs the registered `DeductionSystem` $D$ on $x$ to the agenda's fixed point, wrapping the resulting `Chart` in a `ChartView`. The view's method-call surface ([Expressions §4.2](expressions.md#42-deduction-system-call-sites)) realizes presheaf evaluation against the chart's $K$-valued tensor entries; gradients flow through the entries' `requires_grad` via the agenda's semiring operations, matching the differentiable-chart denotation of [Weighted Deduction Fragment §8](grammar.md#8-charts-as-first-class-differentiable-values).
-- *compose($D_1, D_2$)*: synthesises a new `DeductionSystem` whose `axiom_injector` chains $D_1$'s `goal_items` into $D_2$'s axioms; the composed system carries cross-attached `_axiom_module` / `_rule_module` references so `composed.parameters()` walks both factors' learnable weights ([Weighted Deduction Fragment §10.1](grammar.md#101-composing-deductions)).
+- *compose($D_1, D_2$)*: synthesises a new `DeductionSystem` whose `axiom_injector` chains $D_1$'s `goal_items` into $D_2$'s axioms; the composed system carries cross-attached `_axiom_module` / `_rule_module` references so `composed.parameters()` walks both factors' learnable weights ([Weighted Deduction Fragment §9.1](grammar.md#91-composing-deductions)).
 - *subst($t, v, w$)*: performs a structural-equality walk over $t$, replacing each subterm equal to $v$ with $w$. Capture-avoidance is guaranteed at the call site by the compile-time alpha-renaming invariant of the lexicon-LF compiler ([Weighted Deduction Fragment §3a](grammar.md#3a-binders-and-alpha-renaming)).
 
 Adequacy for the deduction-fitting surface follows from the agenda's strategy-independence theorem (Goodman 1999) applied to the bindings-keyed rule-weight parameters: each rule firing on bindings $\sigma$ contributes $\theta_{r, \sigma}$ from a per-deduction `nn.ParameterDict` allocated lazily at run time, and the differentiable-chart equations of §8 propagate the gradient back to $\theta_{r, \sigma}$ through the standard semiring-times / semiring-plus operations.
