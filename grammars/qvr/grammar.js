@@ -9,7 +9,7 @@
  *      external scanner; tree-sitter-python style).
  *   2. ``KEYWORD NAME[(params)] : SIG [options] [body]`` is the
  *      single declaration header shape.
- *   3. ``composition NAME at LEVEL`` replaces algebra /
+ *   3. ``composition NAME as LEVEL`` replaces algebra /
  *      semigroupoid / bilinear_form / composition_rule.
  *   4. ``morphism NAME : DOM -> COD [role=...]`` replaces latent /
  *      observed / kernel / embed / discretize.
@@ -35,10 +35,10 @@ const PREC = {
   compose: 1,
   tensor: 2,
   postfix: 3,
-  type_coproduct: 1,
-  type_slash: 2,
-  type_product: 3,
-  type_apply: 4,
+  object_coproduct: 1,
+  object_slash: 2,
+  object_product: 3,
+  object_apply: 4,
   let_add: 1,
   let_mul: 2,
   let_unary: 3,
@@ -52,7 +52,11 @@ module.exports = grammar({
    * by the external scanner. Doc comments and line comments are
    * extras so the parser can ignore them between tokens, but the
    * scanner suppresses comment lines from INDENT/DEDENT tracking. */
-  extras: $ => [/[ \t]+/, $.doc_comment, $.line_comment],
+  extras: $ => [
+    /[ \t]+/,
+    $.line_comment,
+    $.block_comment,
+  ],
 
   externals: $ => [
     $._newline,
@@ -65,6 +69,11 @@ module.exports = grammar({
 
   conflicts: $ => [
     [$._let_atom, $.let_index],
+    /* ``Real 64 [low=0.0]`` vs ``Real 64`` followed by a parent
+     * rule's option_block (e.g. morphism_decl). GLR enumerates
+     * both attachments and picks the one whose parent rule
+     * accepts the parse. */
+    [$.continuous_constructor],
   ],
 
   rules: {
@@ -83,7 +92,7 @@ module.exports = grammar({
       $.category_decl,
       $.rule_decl,
       $.schema_decl,
-      $.type_decl,
+      $.object_decl,
       $.morphism_decl,
       $.bundle_decl,
       $.program_decl,
@@ -95,6 +104,33 @@ module.exports = grammar({
       $.encoder_decl,
       $.decoder_decl,
       $.loss_decl,
+      $.pragma_outer,
+      $.pragma_inner,
+    ),
+
+    // -----------------------------------------------------------------
+    // pragmas: ``#[ k = v, ... ]`` outer, ``#![ k = v, ... ]`` inner.
+    // Top-level statements; the compiler decides attachment (next
+    // decl vs. module-level).
+    // -----------------------------------------------------------------
+
+    pragma_outer: $ => seq(
+      '#[',
+      field('entries', commaSep1($.pragma_entry)),
+      ']',
+      $._newline,
+    ),
+
+    pragma_inner: $ => seq(
+      '#![',
+      field('entries', commaSep1($.pragma_entry)),
+      ']',
+      $._newline,
+    ),
+
+    pragma_entry: $ => seq(
+      field('key', $.identifier),
+      optional(seq('=', field('value', $._option_value))),
     ),
 
     // -----------------------------------------------------------------
@@ -105,15 +141,16 @@ module.exports = grammar({
       optional(field('docs', $.doc_comment_group)),
       'composition',
       field('name', $.identifier),
-      optional(seq('at', field('level', $.composition_level))),
-      optional(seq(
-        ':',
+      optional(seq('as', field('level', $.composition_level))),
+      choice(
+        seq(
+          $._newline,
+          $._indent,
+          repeat1(choice($.composition_rule_entry, $._newline)),
+          $._dedent,
+        ),
         $._newline,
-        $._indent,
-        repeat($.composition_rule_entry),
-        $._dedent,
-      )),
-      $._newline,
+      ),
     ),
 
     composition_level: $ => choice(
@@ -126,9 +163,7 @@ module.exports = grammar({
     composition_rule_entry: $ => seq(
       field('key', $.identifier),
       optional(seq(
-        '(',
-        field('params', commaSep1($.identifier)),
-        ')',
+        bracketedList($, '(', field('params', $.identifier), ')'),
       )),
       '=',
       field('body', $._let_arith),
@@ -150,26 +185,24 @@ module.exports = grammar({
     // type (move #8)
     // -----------------------------------------------------------------
 
-    type_decl: $ => seq(
+    object_decl: $ => seq(
       optional(field('docs', $.doc_comment_group)),
-      'type',
+      'object',
       field('name', $.identifier),
       ':',
-      field('value', $._type_value),
+      field('value', $._object_value),
       $._newline,
     ),
 
-    _type_value: $ => choice(
+    _object_value: $ => choice(
       $.enum_set_literal,
       $.free_residuated_expr,
       $.free_monoid_expr,
-      $._type_expr,
+      $._object_expr,
     ),
 
     enum_set_literal: $ => seq(
-      '{',
-      field('elements', commaSep1($.identifier)),
-      '}',
+      bracketedList($, '{', field('elements', $.identifier), '}'),
     ),
 
     free_residuated_expr: $ => seq(
@@ -203,9 +236,9 @@ module.exports = grammar({
       'morphism',
       field('name', $.identifier),
       ':',
-      field('domain', $._type_expr),
+      field('domain', $._object_expr),
       '->',
-      field('codomain', $._type_expr),
+      field('codomain', $._object_expr),
       field('options', $.option_block),
       optional(seq('~', field('init', $._morphism_init))),
       $._newline,
@@ -246,13 +279,11 @@ module.exports = grammar({
       optional(field('docs', $.doc_comment_group)),
       'contraction',
       field('name', $.identifier),
-      '(',
-      field('inputs', commaSep1($.contraction_input)),
-      ')',
+      bracketedList($, '(', field('inputs', $.contraction_input), ')'),
       ':',
-      field('domain', $._type_expr),
+      field('domain', $._object_expr),
       '->',
-      field('codomain', $._type_expr),
+      field('codomain', $._object_expr),
       field('options', $.option_block),
       $._newline,
     ),
@@ -260,9 +291,9 @@ module.exports = grammar({
     contraction_input: $ => seq(
       field('name', $.identifier),
       ':',
-      field('input_domain', $._type_expr),
+      field('input_domain', $._object_expr),
       '->',
-      field('input_codomain', $._type_expr),
+      field('input_codomain', $._object_expr),
     ),
 
     // -----------------------------------------------------------------
@@ -273,13 +304,11 @@ module.exports = grammar({
       optional(field('docs', $.doc_comment_group)),
       'rule',
       field('name', $.identifier),
-      '(',
-      field('variables', commaSep1($.identifier)),
-      ')',
+      bracketedList($, '(', field('variables', $.identifier), ')'),
       ':',
-      field('premises', commaSep1($._type_expr)),
+      field('premises', commaSep1($._object_expr)),
       '=>',
-      field('conclusion', $._type_expr),
+      field('conclusion', $._object_expr),
       $._newline,
     ),
 
@@ -291,20 +320,18 @@ module.exports = grammar({
       optional(field('docs', $.doc_comment_group)),
       'schema',
       field('name', $.identifier),
-      '(',
-      field('parameters', commaSep1($.schema_parameter)),
-      ')',
+      bracketedList($, '(', field('parameters', $.schema_parameter), ')'),
       ':',
-      field('domain', $._type_expr),
+      field('domain', $._object_expr),
       '->',
-      field('codomain', $._type_expr),
+      field('codomain', $._object_expr),
       $._newline,
     ),
 
     schema_parameter: $ => seq(
       field('names', commaSep1($.identifier)),
       ':',
-      field('type', $._type_expr),
+      field('type', $._object_expr),
     ),
 
     // -----------------------------------------------------------------
@@ -318,11 +345,9 @@ module.exports = grammar({
       '=',
       field('value', $._expr),
       optional(seq(
-        'where',
-        ':',
-        $._newline,
+        'where',        $._newline,
         $._indent,
-        repeat1($.let_decl),
+        repeat1(choice($.let_decl, $._newline)),
         $._dedent,
       )),
       $._newline,
@@ -344,20 +369,18 @@ module.exports = grammar({
       'deduction',
       field('name', $.identifier),
       ':',
-      field('domain', $._type_expr),
+      field('domain', $._object_expr),
       '->',
-      field('codomain', $._type_expr),
-      optional(field('options', $.option_block)),
-      ':',
-      $._newline,
+      field('codomain', $._object_expr),
+      optional(field('options', $.option_block)),      $._newline,
       $._indent,
-      repeat($._deduction_body_entry),
+      repeat1(choice($._deduction_body_entry, $._newline)),
       $._dedent,
-      $._newline,
     ),
 
     _deduction_body_entry: $ => choice(
       $.deduction_atoms,
+      $.deduction_binders,
       $.deduction_rule,
       $.deduction_lexicon,
       $.deduction_lexicon_from_file,
@@ -369,34 +392,63 @@ module.exports = grammar({
       $._newline,
     ),
 
+    // ``binders`` declares constructors whose first argument is
+    // a bound variable. The compiler treats binder applications
+    // specially: the variable position is alpha-renamed to a
+    // fresh canonical symbol per term construction so the chart
+    // identifies alpha-equivalent terms, and pattern-matching on
+    // a binder's bound variable correctly threads the renaming
+    // through the rule's bindings.
+    deduction_binders: $ => seq(
+      'binders',
+      field('binders', commaSep1($.identifier)),
+      $._newline,
+    ),
+
     deduction_rule: $ => seq(
       'rule',
       field('name', $.identifier),
       ':',
-      field('premises', commaSep1($._type_expr)),
+      field('premises', commaSep1($._object_expr)),
       choice('|-', '⊢'),
-      field('conclusion', $._type_expr),
+      field('conclusion', $._object_expr),
+      optional(field('pragma', $.lexicon_pragma)),
       $._newline,
     ),
 
     deduction_lexicon: $ => seq(
-      'lexicon',
-      ':',
-      $._newline,
+      'lexicon',      $._newline,
       $._indent,
-      repeat($.lexicon_entry),
+      repeat1(choice($.lexicon_entry, $._newline)),
       $._dedent,
-      $._newline,
     ),
 
     lexicon_entry: $ => seq(
       field('word', $.string),
       ':',
-      field('category', $._type_expr),
+      field('category', $._lexicon_category),
       '=',
       field('lf', $._let_arith),
-      optional(field('options', $.option_block)),
+      optional(field('pragma', $.lexicon_pragma)),
       $._newline,
+    ),
+
+    // Inline pragma form used as a trailing attribute on lexicon
+    // entries. Distinct from ``pragma_outer`` only in that it does
+    // not terminate with a newline (the enclosing lexicon_entry
+    // owns the trailing newline). ``#`` opens the comment / pragma
+    // family, so no let-arith expression can extend past the lf
+    // into this position; the surface is unambiguous.
+    lexicon_pragma: $ => seq(
+      '#[',
+      field('entries', commaSep1($.pragma_entry)),
+      ']',
+    ),
+
+    _lexicon_category: $ => choice(
+      '*',
+      $.enum_set_literal,
+      $._object_expr,
     ),
 
     deduction_lexicon_from_file: $ => seq(
@@ -415,13 +467,10 @@ module.exports = grammar({
       optional(field('docs', $.doc_comment_group)),
       'signature',
       field('name', $.identifier),
-      optional(seq('(', field('params', commaSep1($.identifier)), ')')),
-      ':',
-      $._newline,
+      optional(bracketedList($, '(', field('params', $.identifier), ')')),      $._newline,
       $._indent,
-      repeat($._signature_body_entry),
+      repeat1(choice($._signature_body_entry, $._newline)),
       $._dedent,
-      $._newline,
     ),
 
     _signature_body_entry: $ => choice(
@@ -433,13 +482,10 @@ module.exports = grammar({
     ),
 
     signature_sorts: $ => seq(
-      'sorts',
-      ':',
-      $._newline,
+      'sorts',      $._newline,
       $._indent,
-      repeat($.sort_decl),
+      repeat1(choice($.sort_decl, $._newline)),
       $._dedent,
-      $._newline,
     ),
 
     sort_decl: $ => seq(
@@ -455,13 +501,10 @@ module.exports = grammar({
     vocab_literal: $ => choice($.string, $.integer, $.float),
 
     signature_constructors: $ => seq(
-      'constructors',
-      ':',
-      $._newline,
+      'constructors',      $._newline,
       $._indent,
-      repeat($.constructor_decl),
+      repeat1(choice($.constructor_decl, $._newline)),
       $._dedent,
-      $._newline,
     ),
 
     constructor_decl: $ => seq(
@@ -476,26 +519,19 @@ module.exports = grammar({
     _sig_sort: $ => prec(1, $.identifier),
 
     signature_binders: $ => seq(
-      'binders',
-      ':',
-      $._newline,
+      'binders',      $._newline,
       $._indent,
-      repeat($.binder_decl),
+      repeat1(choice($.binder_decl, $._newline)),
       $._dedent,
-      $._newline,
     ),
 
     binder_decl: $ => seq(
       field('name', $.identifier),
       ':',
       'binds',
-      '(',
-      field('binds', commaSep1($.binder_var_decl)),
-      ')',
+      bracketedList($, '(', field('binds', $.binder_var_decl), ')'),
       'in',
-      '(',
-      field('scoped', commaSep1($.binder_arg_decl)),
-      ')',
+      bracketedList($, '(', field('scoped', $.binder_arg_decl), ')'),
       '->',
       field('codomain', $._sig_sort),
       $._newline,
@@ -520,13 +556,10 @@ module.exports = grammar({
     ),
 
     signature_vertex_kinds: $ => seq(
-      'vertex_kinds',
-      ':',
-      $._newline,
+      'vertex_kinds',      $._newline,
       $._indent,
-      repeat($.vertex_kind_decl),
+      repeat1(choice($.vertex_kind_decl, $._newline)),
       $._dedent,
-      $._newline,
     ),
 
     vertex_kind_decl: $ => seq(
@@ -538,13 +571,10 @@ module.exports = grammar({
     ),
 
     signature_edge_kinds: $ => seq(
-      'edge_kinds',
-      ':',
-      $._newline,
+      'edge_kinds',      $._newline,
       $._indent,
-      repeat($.edge_kind_decl),
+      repeat1(choice($.edge_kind_decl, $._newline)),
       $._dedent,
-      $._newline,
     ),
 
     edge_kind_decl: $ => seq(
@@ -569,19 +599,18 @@ module.exports = grammar({
       ':',
       field('signature', $.identifier),
       optional(seq(
-        '(',
-        field('sig_args', commaSep1($.identifier)),
-        ')',
+        bracketedList($, '(', field('sig_args', $.identifier), ')'),
       )),
       optional(field('options', $.option_block)),
-      optional(seq(
-        ':',
+      choice(
+        seq(
+          $._newline,
+          $._indent,
+          repeat1(choice($._encoder_body_entry, $._newline)),
+          $._dedent,
+        ),
         $._newline,
-        $._indent,
-        repeat($._encoder_body_entry),
-        $._dedent,
-      )),
-      $._newline,
+      ),
     ),
 
     _encoder_body_entry: $ => choice(
@@ -688,14 +717,11 @@ module.exports = grammar({
       field('name', $.identifier),
       'over',
       field('signature', $.identifier),
-      optional(seq('(', field('sig_args', commaSep1($.identifier)), ')')),
-      optional(field('options', $.option_block)),
-      ':',
-      $._newline,
+      optional(bracketedList($, '(', field('sig_args', $.identifier), ')')),
+      optional(field('options', $.option_block)),      $._newline,
       $._indent,
-      repeat($._decoder_body_entry),
+      repeat1(choice($._decoder_body_entry, $._newline)),
       $._dedent,
-      $._newline,
     ),
 
     _decoder_body_entry: $ => choice(
@@ -766,14 +792,11 @@ module.exports = grammar({
       optional(field('docs', $.doc_comment_group)),
       'loss',
       field('name', $.identifier),
-      optional(field('options', $.option_block)),
-      ':',
-      $._newline,
+      optional(field('options', $.option_block)),      $._newline,
       $._indent,
       field('body', $._let_arith),
       $._newline,
       $._dedent,
-      $._newline,
     ),
 
     // -----------------------------------------------------------------
@@ -784,19 +807,17 @@ module.exports = grammar({
       optional(field('docs', $.doc_comment_group)),
       'program',
       field('name', $.identifier),
-      optional(seq('(', field('params', commaSep1($._program_param)), ')')),
+      optional(bracketedList($, '(', field('params', $._program_param), ')')),
       ':',
-      field('domain', $._type_expr),
+      field('domain', $._object_expr),
       '->',
-      field('codomain', $._type_expr),
+      field('codomain', $._object_expr),
       optional(field('options', $.option_block)),
-      ':',
       $._newline,
       $._indent,
-      field('steps', repeat($._program_step)),
+      repeat(choice(field('steps', $._program_step), $._newline)),
       $.return_step,
       $._dedent,
-      $._newline,
     ),
 
     _program_param: $ => choice(
@@ -822,9 +843,9 @@ module.exports = grammar({
     morphism_kind: $ => seq(
       'Mor',
       '[',
-      field('domain', $._type_expr),
+      field('domain', $._object_expr),
       ',',
-      field('codomain', $._type_expr),
+      field('codomain', $._object_expr),
       ']',
     ),
 
@@ -833,15 +854,16 @@ module.exports = grammar({
       $.observe_step,
       $.marginalize_step,
       $.let_step,
+      $.score_step,
     ),
 
     sample_step: $ => seq(
       'sample',
       field('vars', $._var_pattern),
-      optional(seq(':', field('index', $._type_expr))),
+      optional(seq(':', field('index', $._object_expr))),
       '<-',
       field('morphism', $.identifier),
-      optional(seq('(', field('args', commaSep1($._draw_arg)), ')')),
+      optional(bracketedList($, '(', field('args', $._draw_arg), ')')),
       optional(field('options', $.option_block)),
       $._newline,
     ),
@@ -849,10 +871,10 @@ module.exports = grammar({
     observe_step: $ => seq(
       'observe',
       field('var', $.identifier),
-      optional(seq(':', field('index', $._type_expr))),
+      optional(seq(':', field('index', $._object_expr))),
       '<-',
       field('morphism', $.identifier),
-      optional(seq('(', field('args', commaSep1($._draw_arg)), ')')),
+      optional(bracketedList($, '(', field('args', $._draw_arg), ')')),
       optional(field('options', $.option_block)),
       $._newline,
     ),
@@ -860,21 +882,31 @@ module.exports = grammar({
     marginalize_step: $ => seq(
       'marginalize',
       field('var', $.identifier),
-      optional(seq(':', field('index', $._type_expr))),
+      optional(seq(':', field('index', $._object_expr))),
       '<-',
       field('morphism', $.identifier),
-      optional(seq('(', field('args', commaSep1($._draw_arg)), ')')),
+      optional(bracketedList($, '(', field('args', $._draw_arg), ')')),
       optional(field('options', $.option_block)),
-      ':',
       $._newline,
       $._indent,
-      field('scope', repeat($._program_step)),
+      repeat1(choice(field('scope', $._program_step), $._newline)),
       $._dedent,
-      $._newline,
     ),
 
     let_step: $ => seq(
       'let',
+      field('name', $.identifier),
+      '=',
+      field('value', $._let_arith),
+      $._newline,
+    ),
+
+    // Score / factor step: ``score NAME = EXPR``. The value of
+    // ``EXPR`` is added to the program's ``log_joint`` (the
+    // deduction analog of an ``observe`` whose log-density comes
+    // from a chart goal weight or any other tensor expression).
+    score_step: $ => seq(
+      'score',
       field('name', $.identifier),
       '=',
       field('value', $._let_arith),
@@ -896,7 +928,7 @@ module.exports = grammar({
     bracket_index_arg: $ => prec(1, seq(
       field('name', $.identifier),
       '[',
-      field('index', $._type_expr),
+      field('index', $._object_expr),
       ']',
     )),
 
@@ -939,43 +971,41 @@ module.exports = grammar({
     // type expressions
     // -----------------------------------------------------------------
 
-    _type_expr: $ => choice(
-      $.type_coproduct,
-      $.type_slash,
-      $.type_product,
+    _object_expr: $ => choice(
+      $.object_coproduct,
+      $.object_slash,
+      $.object_product,
       $.discrete_constructor,
       $.continuous_constructor,
-      $.type_effect_apply,
-      $.type_atom,
-      $.type_paren,
+      $.object_effect_apply,
+      $.object_atom,
+      $.object_paren,
     ),
 
-    type_atom: $ => choice($.identifier, $.integer),
-    type_paren: $ => seq('(', $._type_expr, ')'),
+    object_atom: $ => $.identifier,
+    object_paren: $ => seq('(', $._object_expr, ')'),
 
-    type_product: $ => prec.left(PREC.type_product, seq(
-      field('left', $._type_expr),
+    object_product: $ => prec.left(PREC.object_product, seq(
+      field('left', $._object_expr),
       '*',
-      field('right', $._type_expr),
+      field('right', $._object_expr),
     )),
 
-    type_coproduct: $ => prec.left(PREC.type_coproduct, seq(
-      field('left', $._type_expr),
+    object_coproduct: $ => prec.left(PREC.object_coproduct, seq(
+      field('left', $._object_expr),
       '+',
-      field('right', $._type_expr),
+      field('right', $._object_expr),
     )),
 
-    type_slash: $ => prec.left(PREC.type_slash, seq(
-      field('result', $._type_expr),
+    object_slash: $ => prec.left(PREC.object_slash, seq(
+      field('result', $._object_expr),
       field('direction', choice('/', '\\')),
-      field('argument', $._type_expr),
+      field('argument', $._object_expr),
     )),
 
-    type_effect_apply: $ => prec(PREC.type_apply, seq(
+    object_effect_apply: $ => prec(PREC.object_apply, seq(
       field('effect', $.identifier),
-      '(',
-      field('args', commaSep1($._type_expr)),
-      ')',
+      bracketedList($, '(', field('args', $._object_expr), ')'),
     )),
 
     /* Constructor calls for sized types. The grammar keeps a single
@@ -983,14 +1013,17 @@ module.exports = grammar({
      * code dispatches on the parse-tree node, not on the
      * constructor name string. Operators that combine discrete and
      * continuous (``FinSet(N) * Euclidean(D)`` is a legitimate
-     * mixed product) remain in the unified ``_type_expr`` family;
+     * mixed product) remain in the unified ``_object_expr`` family;
      * categorical validity is a type-checking concern handled by
      * the compiler, not the grammar. */
-    discrete_constructor: $ => prec(PREC.type_apply, seq(
+    /* FinSet uses the space-separated mathematical form
+     * ``FinSet N`` where N is the cardinality (an integer literal
+     * or a bound identifier). Matches standard category-theory
+     * notation: ``FinSet`` is the category and ``FinSet N`` is the
+     * canonical n-element object. */
+    discrete_constructor: $ => prec(PREC.object_apply, seq(
       field('constructor', 'FinSet'),
-      '(',
-      optional(field('args', commaSep1($._type_constructor_arg))),
-      ')',
+      field('cardinality', choice($.integer, $.identifier)),
     )),
 
     /* Continuous-space constructors:
@@ -1008,7 +1041,16 @@ module.exports = grammar({
      * constructor. The historical PositiveReals and UnitInterval
      * special-cases are subsumed by ``Real(N, low=...)`` and
      * ``Real(N, low=..., high=...)`` respectively. */
-    continuous_constructor: $ => prec(PREC.type_apply, seq(
+    /* Continuous-space constructors take Haskell-style space-
+     * separated positional args, mirroring ``FinSet N``:
+     *
+     *   Real 64            -- one-dim real vector space
+     *   Real 28 28         -- 2D tensor space
+     *   Simplex 10         -- the (K-1)-simplex
+     *   Sphere 2           -- the 2-sphere
+     *   CholeskyFactor 4   -- lower-triangular w/ positive diagonal
+     */
+    continuous_constructor: $ => prec(PREC.object_apply, seq(
       field('constructor', choice(
         'Real',
         'Simplex',
@@ -1022,22 +1064,19 @@ module.exports = grammar({
         'LowerTriangular',
         'Diagonal',
       )),
-      '(',
-      optional(field('args', commaSep1($._type_constructor_arg))),
-      ')',
+      repeat1(field('args', $._object_constructor_arg)),
+      optional(field('options', $.option_block)),
     )),
 
-    _type_constructor_arg: $ => choice(
-      $.type_constructor_kwarg,
+    /* Constructor positional arguments are space-separated (Haskell-
+     * application style): ``Real 28 28``, ``Simplex 10``,
+     * ``CholeskyFactor 4``. Keyword arguments move to the trailing
+     * option block: ``Real 64 [low=0.0, high=1.0]``.
+     */
+    _object_constructor_arg: $ => choice(
       $.integer,
       $.float,
       $.identifier,
-    ),
-
-    type_constructor_kwarg: $ => seq(
-      field('key', $.identifier),
-      '=',
-      field('value', $._numeric_literal),
     ),
 
     _numeric_literal: $ => choice($.integer, $.float),
@@ -1046,11 +1085,7 @@ module.exports = grammar({
     // option block (move #5)
     // -----------------------------------------------------------------
 
-    option_block: $ => seq(
-      '[',
-      commaSep1($.option_entry),
-      ']',
-    ),
+    option_block: $ => bracketedList($, '[', $.option_entry, ']'),
 
     option_entry: $ => seq(
       field('key', $.identifier),
@@ -1126,9 +1161,7 @@ module.exports = grammar({
     method_call: $ => choice(
       seq(
         field('name', 'marginalize'),
-        '(',
-        field('args', commaSep1($.identifier)),
-        ')',
+        bracketedList($, '(', field('args', $.identifier), ')'),
       ),
       seq(field('name', choice('curry_right', 'curry_left'))),
       seq(
@@ -1165,9 +1198,7 @@ module.exports = grammar({
 
     morphism_call: $ => prec(20, seq(
       field('callee', $.identifier),
-      '(',
-      field('args', commaSep1($.identifier)),
-      ')',
+      bracketedList($, '(', field('args', $.identifier), ')'),
     )),
 
     expr_paren: $ => seq('(', $._expr, ')'),
@@ -1260,12 +1291,7 @@ module.exports = grammar({
       commaSep1(field('binders', $.let_factor_binder)),
       'in',
       choice(
-        seq(
-          '{',
-          commaSep1(field('cases', $.let_factor_case)),
-          optional(','),
-          '}',
-        ),
+        bracketedList($, '{', field('cases', $.let_factor_case), '}'),
         field('body', $._let_arith),
       ),
     )),
@@ -1273,7 +1299,7 @@ module.exports = grammar({
     let_factor_binder: $ => seq(
       field('var', $.identifier),
       ':',
-      field('index', $._type_expr),
+      field('index', $._object_expr),
     ),
 
     let_factor_case: $ => seq(
@@ -1282,10 +1308,9 @@ module.exports = grammar({
       field('value', $._let_arith),
     ),
 
-    let_list: $ => seq(
-      '[',
-      optional(seq(commaSep1($._let_arith), optional(','))),
-      ']',
+    let_list: $ => choice(
+      seq('[', ']'),
+      bracketedList($, '[', $._let_arith, ']'),
     ),
 
     let_string: $ => $._string_literal,
@@ -1307,9 +1332,7 @@ module.exports = grammar({
 
     let_index: $ => prec.left(seq(
       field('array', $.let_var),
-      '[',
-      field('indices', commaSep1($._let_arith)),
-      ']',
+      bracketedList($, '[', field('indices', $._let_arith), ']'),
     )),
 
     let_paren: $ => seq('(', $._let_arith, ')'),
@@ -1345,14 +1368,52 @@ module.exports = grammar({
     // doc-comment groups
     // -----------------------------------------------------------------
 
-    doc_comment_group: $ => repeat1($.doc_comment),
+    doc_comment_group: $ => repeat1(seq($.doc_comment, $._newline)),
 
     // -----------------------------------------------------------------
     // tokens
     // -----------------------------------------------------------------
 
-    doc_comment: _ => token(prec(1, seq('##', /[^\n]*/))),
-    line_comment: _ => token(seq('#', /[^\n]*/)),
+    /* The ``#`` family.
+     *
+     *   ``# ...``         line comment    -- end-of-line text, no semantics
+     *   ``#! ...``        doc comment     -- attaches to next decl as ``docs``
+     *   ``#{ ... }#``     block comment   -- multi-line, non-nesting
+     *   ``#[ k = v ]``    outer pragma    -- compiler directive on next decl
+     *   ``#![ k = v ]``   inner pragma    -- compiler directive on the module
+     *
+     * The lexer disambiguates by the second character after ``#``:
+     * ``!`` opens doc_comment or inner_pragma; ``{`` opens block_comment;
+     * ``[`` opens outer_pragma; everything else (including EOL) is a plain
+     * line_comment. The pragma forms are STRUCTURAL rules at the parser
+     * level, not lexer tokens; the lexer just yields the opening ``#[``
+     * or ``#![`` as a literal so the parser can drive the entry list.
+     */
+    /* Doc comment ``#! ...``. Must NOT match ``#![``, which opens
+     * an inner pragma. We require the body to start with a char
+     * other than ``[`` (and non-newline); empty-body doc comments
+     * (``#!\n``) are intentionally unsupported because they convey
+     * nothing and would clash with the pragma opener.
+     */
+    doc_comment: _ => token(prec(2, seq(
+      '#!',
+      /[^\[\n][^\n]*/,
+    ))),
+    block_comment: _ => token(prec(2, seq(
+      '#{',
+      /[^}]*(?:}[^#][^}]*)*/,
+      '}#',
+    ))),
+    /* Line comments must NOT swallow ``#!``/``#[``/``#![``/``#{``
+     * prefixes that introduce one of the richer comment / pragma
+     * shapes. The second-character exclusion set is the precise
+     * difference. The empty-body case ``#`` followed by EOL is
+     * handled via the leading ``choice('', ...)``.
+     */
+    line_comment: _ => token(seq(
+      '#',
+      choice('', seq(/[^!\[{\n]/, /[^\n]*/)),
+    )),
 
     identifier: _ => /[A-Za-z_][A-Za-z0-9_]*/,
     integer: _ => /[0-9]+/,
@@ -1378,4 +1439,45 @@ module.exports = grammar({
  */
 function commaSep1(rule) {
   return seq(rule, repeat(seq(',', rule)));
+}
+
+function commaSep(rule) {
+  return optional(commaSep1(rule));
+}
+
+/* Bracketed comma-separated list with two forms:
+ *
+ *   Inline:     ``[ a, b, c ]``      -- single line, no newlines.
+ *   Multi-line: ``[\n  a,\n  b,\n]`` -- newline immediately after
+ *                                       ``open`` opts into the
+ *                                       multi-line form, which then
+ *                                       allows newlines (and line
+ *                                       / doc / block comments,
+ *                                       which are extras) between
+ *                                       elements and a trailing
+ *                                       comma.
+ *
+ * The first-token-after-``open`` disambiguates the two forms
+ * deterministically: NEWLINE picks multi-line, anything else
+ * picks inline.
+ *
+ * @param {GrammarSymbols<any>} $
+ * @param {RuleOrLiteral} open
+ * @param {RuleOrLiteral} item
+ * @param {RuleOrLiteral} close
+ * @returns {ChoiceRule}
+ */
+function bracketedList($, open, item, close) {
+  return choice(
+    seq(open, commaSep1(item), optional(','), close),
+    seq(
+      open,
+      $._newline,
+      repeat($._newline),
+      item,
+      repeat(seq(',', repeat1($._newline), item)),
+      optional(seq(',', repeat($._newline))),
+      close,
+    ),
+  );
 }

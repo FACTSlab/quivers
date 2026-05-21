@@ -34,10 +34,6 @@
         "required": true,
         "types": [
           {
-            "type": ",",
-            "named": false
-          },
-          {
             "type": "binder_var_decl",
             "named": true
           }
@@ -67,10 +63,6 @@
         "multiple": true,
         "required": true,
         "types": [
-          {
-            "type": ",",
-            "named": false
-          },
           {
             "type": "binder_arg_decl",
             "named": true
@@ -142,27 +134,27 @@
             "named": true
           },
           {
-            "type": "type_atom",
+            "type": "object_atom",
             "named": true
           },
           {
-            "type": "type_coproduct",
+            "type": "object_coproduct",
             "named": true
           },
           {
-            "type": "type_effect_apply",
+            "type": "object_effect_apply",
             "named": true
           },
           {
-            "type": "type_paren",
+            "type": "object_paren",
             "named": true
           },
           {
-            "type": "type_product",
+            "type": "object_product",
             "named": true
           },
           {
-            "type": "type_slash",
+            "type": "object_slash",
             "named": true
           }
         ]
@@ -727,10 +719,6 @@
         "required": false,
         "types": [
           {
-            "type": ",",
-            "named": false
-          },
-          {
             "type": "identifier",
             "named": true
           }
@@ -784,12 +772,8 @@
     "fields": {
       "args": {
         "multiple": true,
-        "required": false,
+        "required": true,
         "types": [
-          {
-            "type": ",",
-            "named": false
-          },
           {
             "type": "float",
             "named": true
@@ -800,10 +784,6 @@
           },
           {
             "type": "integer",
-            "named": true
-          },
-          {
-            "type": "type_constructor_kwarg",
             "named": true
           }
         ]
@@ -857,6 +837,16 @@
             "named": false
           }
         ]
+      },
+      "options": {
+        "multiple": false,
+        "required": false,
+        "types": [
+          {
+            "type": "option_block",
+            "named": true
+          }
+        ]
       }
     }
   },
@@ -877,27 +867,27 @@
             "named": true
           },
           {
-            "type": "type_atom",
+            "type": "object_atom",
             "named": true
           },
           {
-            "type": "type_coproduct",
+            "type": "object_coproduct",
             "named": true
           },
           {
-            "type": "type_effect_apply",
+            "type": "object_effect_apply",
             "named": true
           },
           {
-            "type": "type_paren",
+            "type": "object_paren",
             "named": true
           },
           {
-            "type": "type_product",
+            "type": "object_product",
             "named": true
           },
           {
-            "type": "type_slash",
+            "type": "object_slash",
             "named": true
           }
         ]
@@ -925,27 +915,27 @@
             "named": true
           },
           {
-            "type": "type_atom",
+            "type": "object_atom",
             "named": true
           },
           {
-            "type": "type_coproduct",
+            "type": "object_coproduct",
             "named": true
           },
           {
-            "type": "type_effect_apply",
+            "type": "object_effect_apply",
             "named": true
           },
           {
-            "type": "type_paren",
+            "type": "object_paren",
             "named": true
           },
           {
-            "type": "type_product",
+            "type": "object_product",
             "named": true
           },
           {
-            "type": "type_slash",
+            "type": "object_slash",
             "named": true
           }
         ]
@@ -954,10 +944,6 @@
         "multiple": true,
         "required": true,
         "types": [
-          {
-            "type": ",",
-            "named": false
-          },
           {
             "type": "contraction_input",
             "named": true
@@ -1003,27 +989,27 @@
             "named": true
           },
           {
-            "type": "type_atom",
+            "type": "object_atom",
             "named": true
           },
           {
-            "type": "type_coproduct",
+            "type": "object_coproduct",
             "named": true
           },
           {
-            "type": "type_effect_apply",
+            "type": "object_effect_apply",
             "named": true
           },
           {
-            "type": "type_paren",
+            "type": "object_paren",
             "named": true
           },
           {
-            "type": "type_product",
+            "type": "object_product",
             "named": true
           },
           {
-            "type": "type_slash",
+            "type": "object_slash",
             "named": true
           }
         ]
@@ -1041,27 +1027,27 @@
             "named": true
           },
           {
-            "type": "type_atom",
+            "type": "object_atom",
             "named": true
           },
           {
-            "type": "type_coproduct",
+            "type": "object_coproduct",
             "named": true
           },
           {
-            "type": "type_effect_apply",
+            "type": "object_effect_apply",
             "named": true
           },
           {
-            "type": "type_paren",
+            "type": "object_paren",
             "named": true
           },
           {
-            "type": "type_product",
+            "type": "object_product",
             "named": true
           },
           {
-            "type": "type_slash",
+            "type": "object_slash",
             "named": true
           }
         ]
@@ -1218,10 +1204,6 @@
         "multiple": true,
         "required": false,
         "types": [
-          {
-            "type": ",",
-            "named": false
-          },
           {
             "type": "identifier",
             "named": true
@@ -1527,6 +1509,26 @@
     }
   },
   {
+    "type": "deduction_binders",
+    "named": true,
+    "fields": {
+      "binders": {
+        "multiple": true,
+        "required": true,
+        "types": [
+          {
+            "type": ",",
+            "named": false
+          },
+          {
+            "type": "identifier",
+            "named": true
+          }
+        ]
+      }
+    }
+  },
+  {
     "type": "deduction_decl",
     "named": true,
     "fields": {
@@ -1543,27 +1545,27 @@
             "named": true
           },
           {
-            "type": "type_atom",
+            "type": "object_atom",
             "named": true
           },
           {
-            "type": "type_coproduct",
+            "type": "object_coproduct",
             "named": true
           },
           {
-            "type": "type_effect_apply",
+            "type": "object_effect_apply",
             "named": true
           },
           {
-            "type": "type_paren",
+            "type": "object_paren",
             "named": true
           },
           {
-            "type": "type_product",
+            "type": "object_product",
             "named": true
           },
           {
-            "type": "type_slash",
+            "type": "object_slash",
             "named": true
           }
         ]
@@ -1591,27 +1593,27 @@
             "named": true
           },
           {
-            "type": "type_atom",
+            "type": "object_atom",
             "named": true
           },
           {
-            "type": "type_coproduct",
+            "type": "object_coproduct",
             "named": true
           },
           {
-            "type": "type_effect_apply",
+            "type": "object_effect_apply",
             "named": true
           },
           {
-            "type": "type_paren",
+            "type": "object_paren",
             "named": true
           },
           {
-            "type": "type_product",
+            "type": "object_product",
             "named": true
           },
           {
-            "type": "type_slash",
+            "type": "object_slash",
             "named": true
           }
         ]
@@ -1643,6 +1645,10 @@
       "types": [
         {
           "type": "deduction_atoms",
+          "named": true
+        },
+        {
+          "type": "deduction_binders",
           "named": true
         },
         {
@@ -1718,27 +1724,27 @@
             "named": true
           },
           {
-            "type": "type_atom",
+            "type": "object_atom",
             "named": true
           },
           {
-            "type": "type_coproduct",
+            "type": "object_coproduct",
             "named": true
           },
           {
-            "type": "type_effect_apply",
+            "type": "object_effect_apply",
             "named": true
           },
           {
-            "type": "type_paren",
+            "type": "object_paren",
             "named": true
           },
           {
-            "type": "type_product",
+            "type": "object_product",
             "named": true
           },
           {
-            "type": "type_slash",
+            "type": "object_slash",
             "named": true
           }
         ]
@@ -1749,6 +1755,16 @@
         "types": [
           {
             "type": "identifier",
+            "named": true
+          }
+        ]
+      },
+      "pragma": {
+        "multiple": false,
+        "required": false,
+        "types": [
+          {
+            "type": "lexicon_pragma",
             "named": true
           }
         ]
@@ -1770,27 +1786,27 @@
             "named": true
           },
           {
-            "type": "type_atom",
+            "type": "object_atom",
             "named": true
           },
           {
-            "type": "type_coproduct",
+            "type": "object_coproduct",
             "named": true
           },
           {
-            "type": "type_effect_apply",
+            "type": "object_effect_apply",
             "named": true
           },
           {
-            "type": "type_paren",
+            "type": "object_paren",
             "named": true
           },
           {
-            "type": "type_product",
+            "type": "object_product",
             "named": true
           },
           {
-            "type": "type_slash",
+            "type": "object_slash",
             "named": true
           }
         ]
@@ -1801,28 +1817,16 @@
     "type": "discrete_constructor",
     "named": true,
     "fields": {
-      "args": {
-        "multiple": true,
-        "required": false,
+      "cardinality": {
+        "multiple": false,
+        "required": true,
         "types": [
-          {
-            "type": ",",
-            "named": false
-          },
-          {
-            "type": "float",
-            "named": true
-          },
           {
             "type": "identifier",
             "named": true
           },
           {
             "type": "integer",
-            "named": true
-          },
-          {
-            "type": "type_constructor_kwarg",
             "named": true
           }
         ]
@@ -1943,10 +1947,6 @@
         "multiple": true,
         "required": false,
         "types": [
-          {
-            "type": ",",
-            "named": false
-          },
           {
             "type": "identifier",
             "named": true
@@ -2563,10 +2563,6 @@
         "multiple": true,
         "required": true,
         "types": [
-          {
-            "type": ",",
-            "named": false
-          },
           {
             "type": "identifier",
             "named": true
@@ -3385,27 +3381,27 @@
             "named": true
           },
           {
-            "type": "type_atom",
+            "type": "object_atom",
             "named": true
           },
           {
-            "type": "type_coproduct",
+            "type": "object_coproduct",
             "named": true
           },
           {
-            "type": "type_effect_apply",
+            "type": "object_effect_apply",
             "named": true
           },
           {
-            "type": "type_paren",
+            "type": "object_paren",
             "named": true
           },
           {
-            "type": "type_product",
+            "type": "object_product",
             "named": true
           },
           {
-            "type": "type_slash",
+            "type": "object_slash",
             "named": true
           }
         ]
@@ -3510,10 +3506,6 @@
         "multiple": true,
         "required": true,
         "types": [
-          {
-            "type": ",",
-            "named": false
-          },
           {
             "type": "let_binop",
             "named": true
@@ -4018,6 +4010,10 @@
         "required": true,
         "types": [
           {
+            "type": "*",
+            "named": false
+          },
+          {
             "type": "continuous_constructor",
             "named": true
           },
@@ -4026,27 +4022,31 @@
             "named": true
           },
           {
-            "type": "type_atom",
+            "type": "enum_set_literal",
             "named": true
           },
           {
-            "type": "type_coproduct",
+            "type": "object_atom",
             "named": true
           },
           {
-            "type": "type_effect_apply",
+            "type": "object_coproduct",
             "named": true
           },
           {
-            "type": "type_paren",
+            "type": "object_effect_apply",
             "named": true
           },
           {
-            "type": "type_product",
+            "type": "object_paren",
             "named": true
           },
           {
-            "type": "type_slash",
+            "type": "object_product",
+            "named": true
+          },
+          {
+            "type": "object_slash",
             "named": true
           }
         ]
@@ -4105,12 +4105,12 @@
           }
         ]
       },
-      "options": {
+      "pragma": {
         "multiple": false,
         "required": false,
         "types": [
           {
-            "type": "option_block",
+            "type": "lexicon_pragma",
             "named": true
           }
         ]
@@ -4121,6 +4121,26 @@
         "types": [
           {
             "type": "string",
+            "named": true
+          }
+        ]
+      }
+    }
+  },
+  {
+    "type": "lexicon_pragma",
+    "named": true,
+    "fields": {
+      "entries": {
+        "multiple": true,
+        "required": true,
+        "types": [
+          {
+            "type": ",",
+            "named": false
+          },
+          {
+            "type": "pragma_entry",
             "named": true
           }
         ]
@@ -4226,10 +4246,6 @@
         "required": false,
         "types": [
           {
-            "type": ",",
-            "named": false
-          },
-          {
             "type": "bracket_index_arg",
             "named": true
           },
@@ -4256,27 +4272,27 @@
             "named": true
           },
           {
-            "type": "type_atom",
+            "type": "object_atom",
             "named": true
           },
           {
-            "type": "type_coproduct",
+            "type": "object_coproduct",
             "named": true
           },
           {
-            "type": "type_effect_apply",
+            "type": "object_effect_apply",
             "named": true
           },
           {
-            "type": "type_paren",
+            "type": "object_paren",
             "named": true
           },
           {
-            "type": "type_product",
+            "type": "object_product",
             "named": true
           },
           {
-            "type": "type_slash",
+            "type": "object_slash",
             "named": true
           }
         ]
@@ -4319,6 +4335,10 @@
           },
           {
             "type": "sample_step",
+            "named": true
+          },
+          {
+            "type": "score_step",
             "named": true
           }
         ]
@@ -4418,10 +4438,6 @@
         "required": false,
         "types": [
           {
-            "type": ",",
-            "named": false
-          },
-          {
             "type": "identifier",
             "named": true
           }
@@ -4472,10 +4488,6 @@
         "required": true,
         "types": [
           {
-            "type": ",",
-            "named": false
-          },
-          {
             "type": "identifier",
             "named": true
           }
@@ -4510,27 +4522,27 @@
             "named": true
           },
           {
-            "type": "type_atom",
+            "type": "object_atom",
             "named": true
           },
           {
-            "type": "type_coproduct",
+            "type": "object_coproduct",
             "named": true
           },
           {
-            "type": "type_effect_apply",
+            "type": "object_effect_apply",
             "named": true
           },
           {
-            "type": "type_paren",
+            "type": "object_paren",
             "named": true
           },
           {
-            "type": "type_product",
+            "type": "object_product",
             "named": true
           },
           {
-            "type": "type_slash",
+            "type": "object_slash",
             "named": true
           }
         ]
@@ -4558,27 +4570,27 @@
             "named": true
           },
           {
-            "type": "type_atom",
+            "type": "object_atom",
             "named": true
           },
           {
-            "type": "type_coproduct",
+            "type": "object_coproduct",
             "named": true
           },
           {
-            "type": "type_effect_apply",
+            "type": "object_effect_apply",
             "named": true
           },
           {
-            "type": "type_paren",
+            "type": "object_paren",
             "named": true
           },
           {
-            "type": "type_product",
+            "type": "object_product",
             "named": true
           },
           {
-            "type": "type_slash",
+            "type": "object_slash",
             "named": true
           }
         ]
@@ -4738,27 +4750,27 @@
             "named": true
           },
           {
-            "type": "type_atom",
+            "type": "object_atom",
             "named": true
           },
           {
-            "type": "type_coproduct",
+            "type": "object_coproduct",
             "named": true
           },
           {
-            "type": "type_effect_apply",
+            "type": "object_effect_apply",
             "named": true
           },
           {
-            "type": "type_paren",
+            "type": "object_paren",
             "named": true
           },
           {
-            "type": "type_product",
+            "type": "object_product",
             "named": true
           },
           {
-            "type": "type_slash",
+            "type": "object_slash",
             "named": true
           }
         ]
@@ -4776,27 +4788,254 @@
             "named": true
           },
           {
-            "type": "type_atom",
+            "type": "object_atom",
             "named": true
           },
           {
-            "type": "type_coproduct",
+            "type": "object_coproduct",
             "named": true
           },
           {
-            "type": "type_effect_apply",
+            "type": "object_effect_apply",
             "named": true
           },
           {
-            "type": "type_paren",
+            "type": "object_paren",
             "named": true
           },
           {
-            "type": "type_product",
+            "type": "object_product",
             "named": true
           },
           {
-            "type": "type_slash",
+            "type": "object_slash",
+            "named": true
+          }
+        ]
+      }
+    }
+  },
+  {
+    "type": "object_atom",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": false,
+      "required": true,
+      "types": [
+        {
+          "type": "identifier",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "object_coproduct",
+    "named": true,
+    "fields": {
+      "left": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "continuous_constructor",
+            "named": true
+          },
+          {
+            "type": "discrete_constructor",
+            "named": true
+          },
+          {
+            "type": "object_atom",
+            "named": true
+          },
+          {
+            "type": "object_coproduct",
+            "named": true
+          },
+          {
+            "type": "object_effect_apply",
+            "named": true
+          },
+          {
+            "type": "object_paren",
+            "named": true
+          },
+          {
+            "type": "object_product",
+            "named": true
+          },
+          {
+            "type": "object_slash",
+            "named": true
+          }
+        ]
+      },
+      "right": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "continuous_constructor",
+            "named": true
+          },
+          {
+            "type": "discrete_constructor",
+            "named": true
+          },
+          {
+            "type": "object_atom",
+            "named": true
+          },
+          {
+            "type": "object_coproduct",
+            "named": true
+          },
+          {
+            "type": "object_effect_apply",
+            "named": true
+          },
+          {
+            "type": "object_paren",
+            "named": true
+          },
+          {
+            "type": "object_product",
+            "named": true
+          },
+          {
+            "type": "object_slash",
+            "named": true
+          }
+        ]
+      }
+    }
+  },
+  {
+    "type": "object_decl",
+    "named": true,
+    "fields": {
+      "docs": {
+        "multiple": false,
+        "required": false,
+        "types": [
+          {
+            "type": "doc_comment_group",
+            "named": true
+          }
+        ]
+      },
+      "name": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "identifier",
+            "named": true
+          }
+        ]
+      },
+      "value": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "continuous_constructor",
+            "named": true
+          },
+          {
+            "type": "discrete_constructor",
+            "named": true
+          },
+          {
+            "type": "enum_set_literal",
+            "named": true
+          },
+          {
+            "type": "free_monoid_expr",
+            "named": true
+          },
+          {
+            "type": "free_residuated_expr",
+            "named": true
+          },
+          {
+            "type": "object_atom",
+            "named": true
+          },
+          {
+            "type": "object_coproduct",
+            "named": true
+          },
+          {
+            "type": "object_effect_apply",
+            "named": true
+          },
+          {
+            "type": "object_paren",
+            "named": true
+          },
+          {
+            "type": "object_product",
+            "named": true
+          },
+          {
+            "type": "object_slash",
+            "named": true
+          }
+        ]
+      }
+    }
+  },
+  {
+    "type": "object_effect_apply",
+    "named": true,
+    "fields": {
+      "args": {
+        "multiple": true,
+        "required": true,
+        "types": [
+          {
+            "type": "continuous_constructor",
+            "named": true
+          },
+          {
+            "type": "discrete_constructor",
+            "named": true
+          },
+          {
+            "type": "object_atom",
+            "named": true
+          },
+          {
+            "type": "object_coproduct",
+            "named": true
+          },
+          {
+            "type": "object_effect_apply",
+            "named": true
+          },
+          {
+            "type": "object_paren",
+            "named": true
+          },
+          {
+            "type": "object_product",
+            "named": true
+          },
+          {
+            "type": "object_slash",
+            "named": true
+          }
+        ]
+      },
+      "effect": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "identifier",
             "named": true
           }
         ]
@@ -4809,6 +5048,227 @@
     "fields": {}
   },
   {
+    "type": "object_paren",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": false,
+      "required": true,
+      "types": [
+        {
+          "type": "continuous_constructor",
+          "named": true
+        },
+        {
+          "type": "discrete_constructor",
+          "named": true
+        },
+        {
+          "type": "object_atom",
+          "named": true
+        },
+        {
+          "type": "object_coproduct",
+          "named": true
+        },
+        {
+          "type": "object_effect_apply",
+          "named": true
+        },
+        {
+          "type": "object_paren",
+          "named": true
+        },
+        {
+          "type": "object_product",
+          "named": true
+        },
+        {
+          "type": "object_slash",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "object_product",
+    "named": true,
+    "fields": {
+      "left": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "continuous_constructor",
+            "named": true
+          },
+          {
+            "type": "discrete_constructor",
+            "named": true
+          },
+          {
+            "type": "object_atom",
+            "named": true
+          },
+          {
+            "type": "object_coproduct",
+            "named": true
+          },
+          {
+            "type": "object_effect_apply",
+            "named": true
+          },
+          {
+            "type": "object_paren",
+            "named": true
+          },
+          {
+            "type": "object_product",
+            "named": true
+          },
+          {
+            "type": "object_slash",
+            "named": true
+          }
+        ]
+      },
+      "right": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "continuous_constructor",
+            "named": true
+          },
+          {
+            "type": "discrete_constructor",
+            "named": true
+          },
+          {
+            "type": "object_atom",
+            "named": true
+          },
+          {
+            "type": "object_coproduct",
+            "named": true
+          },
+          {
+            "type": "object_effect_apply",
+            "named": true
+          },
+          {
+            "type": "object_paren",
+            "named": true
+          },
+          {
+            "type": "object_product",
+            "named": true
+          },
+          {
+            "type": "object_slash",
+            "named": true
+          }
+        ]
+      }
+    }
+  },
+  {
+    "type": "object_slash",
+    "named": true,
+    "fields": {
+      "argument": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "continuous_constructor",
+            "named": true
+          },
+          {
+            "type": "discrete_constructor",
+            "named": true
+          },
+          {
+            "type": "object_atom",
+            "named": true
+          },
+          {
+            "type": "object_coproduct",
+            "named": true
+          },
+          {
+            "type": "object_effect_apply",
+            "named": true
+          },
+          {
+            "type": "object_paren",
+            "named": true
+          },
+          {
+            "type": "object_product",
+            "named": true
+          },
+          {
+            "type": "object_slash",
+            "named": true
+          }
+        ]
+      },
+      "direction": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "/",
+            "named": false
+          },
+          {
+            "type": "\\",
+            "named": false
+          }
+        ]
+      },
+      "result": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "continuous_constructor",
+            "named": true
+          },
+          {
+            "type": "discrete_constructor",
+            "named": true
+          },
+          {
+            "type": "object_atom",
+            "named": true
+          },
+          {
+            "type": "object_coproduct",
+            "named": true
+          },
+          {
+            "type": "object_effect_apply",
+            "named": true
+          },
+          {
+            "type": "object_paren",
+            "named": true
+          },
+          {
+            "type": "object_product",
+            "named": true
+          },
+          {
+            "type": "object_slash",
+            "named": true
+          }
+        ]
+      }
+    }
+  },
+  {
     "type": "observe_step",
     "named": true,
     "fields": {
@@ -4816,10 +5276,6 @@
         "multiple": true,
         "required": false,
         "types": [
-          {
-            "type": ",",
-            "named": false
-          },
           {
             "type": "bracket_index_arg",
             "named": true
@@ -4847,27 +5303,27 @@
             "named": true
           },
           {
-            "type": "type_atom",
+            "type": "object_atom",
             "named": true
           },
           {
-            "type": "type_coproduct",
+            "type": "object_coproduct",
             "named": true
           },
           {
-            "type": "type_effect_apply",
+            "type": "object_effect_apply",
             "named": true
           },
           {
-            "type": "type_paren",
+            "type": "object_paren",
             "named": true
           },
           {
-            "type": "type_product",
+            "type": "object_product",
             "named": true
           },
           {
-            "type": "type_slash",
+            "type": "object_slash",
             "named": true
           }
         ]
@@ -5218,6 +5674,92 @@
     }
   },
   {
+    "type": "pragma_entry",
+    "named": true,
+    "fields": {
+      "key": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "identifier",
+            "named": true
+          }
+        ]
+      },
+      "value": {
+        "multiple": false,
+        "required": false,
+        "types": [
+          {
+            "type": "float",
+            "named": true
+          },
+          {
+            "type": "identifier",
+            "named": true
+          },
+          {
+            "type": "integer",
+            "named": true
+          },
+          {
+            "type": "option_call",
+            "named": true
+          },
+          {
+            "type": "option_list",
+            "named": true
+          },
+          {
+            "type": "string",
+            "named": true
+          }
+        ]
+      }
+    }
+  },
+  {
+    "type": "pragma_inner",
+    "named": true,
+    "fields": {
+      "entries": {
+        "multiple": true,
+        "required": true,
+        "types": [
+          {
+            "type": ",",
+            "named": false
+          },
+          {
+            "type": "pragma_entry",
+            "named": true
+          }
+        ]
+      }
+    }
+  },
+  {
+    "type": "pragma_outer",
+    "named": true,
+    "fields": {
+      "entries": {
+        "multiple": true,
+        "required": true,
+        "types": [
+          {
+            "type": ",",
+            "named": false
+          },
+          {
+            "type": "pragma_entry",
+            "named": true
+          }
+        ]
+      }
+    }
+  },
+  {
     "type": "program_decl",
     "named": true,
     "fields": {
@@ -5234,27 +5776,27 @@
             "named": true
           },
           {
-            "type": "type_atom",
+            "type": "object_atom",
             "named": true
           },
           {
-            "type": "type_coproduct",
+            "type": "object_coproduct",
             "named": true
           },
           {
-            "type": "type_effect_apply",
+            "type": "object_effect_apply",
             "named": true
           },
           {
-            "type": "type_paren",
+            "type": "object_paren",
             "named": true
           },
           {
-            "type": "type_product",
+            "type": "object_product",
             "named": true
           },
           {
-            "type": "type_slash",
+            "type": "object_slash",
             "named": true
           }
         ]
@@ -5282,27 +5824,27 @@
             "named": true
           },
           {
-            "type": "type_atom",
+            "type": "object_atom",
             "named": true
           },
           {
-            "type": "type_coproduct",
+            "type": "object_coproduct",
             "named": true
           },
           {
-            "type": "type_effect_apply",
+            "type": "object_effect_apply",
             "named": true
           },
           {
-            "type": "type_paren",
+            "type": "object_paren",
             "named": true
           },
           {
-            "type": "type_product",
+            "type": "object_product",
             "named": true
           },
           {
-            "type": "type_slash",
+            "type": "object_slash",
             "named": true
           }
         ]
@@ -5332,10 +5874,6 @@
         "required": false,
         "types": [
           {
-            "type": ",",
-            "named": false
-          },
-          {
             "type": "identifier",
             "named": true
           },
@@ -5363,6 +5901,10 @@
           },
           {
             "type": "sample_step",
+            "named": true
+          },
+          {
+            "type": "score_step",
             "named": true
           }
         ]
@@ -5566,27 +6108,27 @@
             "named": true
           },
           {
-            "type": "type_atom",
+            "type": "object_atom",
             "named": true
           },
           {
-            "type": "type_coproduct",
+            "type": "object_coproduct",
             "named": true
           },
           {
-            "type": "type_effect_apply",
+            "type": "object_effect_apply",
             "named": true
           },
           {
-            "type": "type_paren",
+            "type": "object_paren",
             "named": true
           },
           {
-            "type": "type_product",
+            "type": "object_product",
             "named": true
           },
           {
-            "type": "type_slash",
+            "type": "object_slash",
             "named": true
           }
         ]
@@ -5628,27 +6170,27 @@
             "named": true
           },
           {
-            "type": "type_atom",
+            "type": "object_atom",
             "named": true
           },
           {
-            "type": "type_coproduct",
+            "type": "object_coproduct",
             "named": true
           },
           {
-            "type": "type_effect_apply",
+            "type": "object_effect_apply",
             "named": true
           },
           {
-            "type": "type_paren",
+            "type": "object_paren",
             "named": true
           },
           {
-            "type": "type_product",
+            "type": "object_product",
             "named": true
           },
           {
-            "type": "type_slash",
+            "type": "object_slash",
             "named": true
           }
         ]
@@ -5657,10 +6199,6 @@
         "multiple": true,
         "required": true,
         "types": [
-          {
-            "type": ",",
-            "named": false
-          },
           {
             "type": "identifier",
             "named": true
@@ -5677,10 +6215,6 @@
         "multiple": true,
         "required": false,
         "types": [
-          {
-            "type": ",",
-            "named": false
-          },
           {
             "type": "bracket_index_arg",
             "named": true
@@ -5708,27 +6242,27 @@
             "named": true
           },
           {
-            "type": "type_atom",
+            "type": "object_atom",
             "named": true
           },
           {
-            "type": "type_coproduct",
+            "type": "object_coproduct",
             "named": true
           },
           {
-            "type": "type_effect_apply",
+            "type": "object_effect_apply",
             "named": true
           },
           {
-            "type": "type_paren",
+            "type": "object_paren",
             "named": true
           },
           {
-            "type": "type_product",
+            "type": "object_product",
             "named": true
           },
           {
-            "type": "type_slash",
+            "type": "object_slash",
             "named": true
           }
         ]
@@ -5881,27 +6415,27 @@
             "named": true
           },
           {
-            "type": "type_atom",
+            "type": "object_atom",
             "named": true
           },
           {
-            "type": "type_coproduct",
+            "type": "object_coproduct",
             "named": true
           },
           {
-            "type": "type_effect_apply",
+            "type": "object_effect_apply",
             "named": true
           },
           {
-            "type": "type_paren",
+            "type": "object_paren",
             "named": true
           },
           {
-            "type": "type_product",
+            "type": "object_product",
             "named": true
           },
           {
-            "type": "type_slash",
+            "type": "object_slash",
             "named": true
           }
         ]
@@ -5929,27 +6463,27 @@
             "named": true
           },
           {
-            "type": "type_atom",
+            "type": "object_atom",
             "named": true
           },
           {
-            "type": "type_coproduct",
+            "type": "object_coproduct",
             "named": true
           },
           {
-            "type": "type_effect_apply",
+            "type": "object_effect_apply",
             "named": true
           },
           {
-            "type": "type_paren",
+            "type": "object_paren",
             "named": true
           },
           {
-            "type": "type_product",
+            "type": "object_product",
             "named": true
           },
           {
-            "type": "type_slash",
+            "type": "object_slash",
             "named": true
           }
         ]
@@ -5968,10 +6502,6 @@
         "multiple": true,
         "required": true,
         "types": [
-          {
-            "type": ",",
-            "named": false
-          },
           {
             "type": "schema_parameter",
             "named": true
@@ -6011,27 +6541,97 @@
             "named": true
           },
           {
-            "type": "type_atom",
+            "type": "object_atom",
             "named": true
           },
           {
-            "type": "type_coproduct",
+            "type": "object_coproduct",
             "named": true
           },
           {
-            "type": "type_effect_apply",
+            "type": "object_effect_apply",
             "named": true
           },
           {
-            "type": "type_paren",
+            "type": "object_paren",
             "named": true
           },
           {
-            "type": "type_product",
+            "type": "object_product",
             "named": true
           },
           {
-            "type": "type_slash",
+            "type": "object_slash",
+            "named": true
+          }
+        ]
+      }
+    }
+  },
+  {
+    "type": "score_step",
+    "named": true,
+    "fields": {
+      "name": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "identifier",
+            "named": true
+          }
+        ]
+      },
+      "value": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "let_binop",
+            "named": true
+          },
+          {
+            "type": "let_call",
+            "named": true
+          },
+          {
+            "type": "let_factor",
+            "named": true
+          },
+          {
+            "type": "let_index",
+            "named": true
+          },
+          {
+            "type": "let_lambda",
+            "named": true
+          },
+          {
+            "type": "let_list",
+            "named": true
+          },
+          {
+            "type": "let_literal",
+            "named": true
+          },
+          {
+            "type": "let_method_call",
+            "named": true
+          },
+          {
+            "type": "let_paren",
+            "named": true
+          },
+          {
+            "type": "let_string",
+            "named": true
+          },
+          {
+            "type": "let_unary",
+            "named": true
+          },
+          {
+            "type": "let_var",
             "named": true
           }
         ]
@@ -6096,10 +6696,6 @@
         "multiple": true,
         "required": false,
         "types": [
-          {
-            "type": ",",
-            "named": false
-          },
           {
             "type": "identifier",
             "named": true
@@ -6293,6 +6889,18 @@
           "named": true
         },
         {
+          "type": "object_decl",
+          "named": true
+        },
+        {
+          "type": "pragma_inner",
+          "named": true
+        },
+        {
+          "type": "pragma_outer",
+          "named": true
+        },
+        {
           "type": "program_decl",
           "named": true
         },
@@ -6306,10 +6914,6 @@
         },
         {
           "type": "signature_decl",
-          "named": true
-        },
-        {
-          "type": "type_decl",
           "named": true
         }
       ]
@@ -6714,492 +7318,6 @@
     }
   },
   {
-    "type": "type_atom",
-    "named": true,
-    "fields": {},
-    "children": {
-      "multiple": false,
-      "required": true,
-      "types": [
-        {
-          "type": "identifier",
-          "named": true
-        },
-        {
-          "type": "integer",
-          "named": true
-        }
-      ]
-    }
-  },
-  {
-    "type": "type_constructor_kwarg",
-    "named": true,
-    "fields": {
-      "key": {
-        "multiple": false,
-        "required": true,
-        "types": [
-          {
-            "type": "identifier",
-            "named": true
-          }
-        ]
-      },
-      "value": {
-        "multiple": false,
-        "required": true,
-        "types": [
-          {
-            "type": "float",
-            "named": true
-          },
-          {
-            "type": "integer",
-            "named": true
-          }
-        ]
-      }
-    }
-  },
-  {
-    "type": "type_coproduct",
-    "named": true,
-    "fields": {
-      "left": {
-        "multiple": false,
-        "required": true,
-        "types": [
-          {
-            "type": "continuous_constructor",
-            "named": true
-          },
-          {
-            "type": "discrete_constructor",
-            "named": true
-          },
-          {
-            "type": "type_atom",
-            "named": true
-          },
-          {
-            "type": "type_coproduct",
-            "named": true
-          },
-          {
-            "type": "type_effect_apply",
-            "named": true
-          },
-          {
-            "type": "type_paren",
-            "named": true
-          },
-          {
-            "type": "type_product",
-            "named": true
-          },
-          {
-            "type": "type_slash",
-            "named": true
-          }
-        ]
-      },
-      "right": {
-        "multiple": false,
-        "required": true,
-        "types": [
-          {
-            "type": "continuous_constructor",
-            "named": true
-          },
-          {
-            "type": "discrete_constructor",
-            "named": true
-          },
-          {
-            "type": "type_atom",
-            "named": true
-          },
-          {
-            "type": "type_coproduct",
-            "named": true
-          },
-          {
-            "type": "type_effect_apply",
-            "named": true
-          },
-          {
-            "type": "type_paren",
-            "named": true
-          },
-          {
-            "type": "type_product",
-            "named": true
-          },
-          {
-            "type": "type_slash",
-            "named": true
-          }
-        ]
-      }
-    }
-  },
-  {
-    "type": "type_decl",
-    "named": true,
-    "fields": {
-      "docs": {
-        "multiple": false,
-        "required": false,
-        "types": [
-          {
-            "type": "doc_comment_group",
-            "named": true
-          }
-        ]
-      },
-      "name": {
-        "multiple": false,
-        "required": true,
-        "types": [
-          {
-            "type": "identifier",
-            "named": true
-          }
-        ]
-      },
-      "value": {
-        "multiple": false,
-        "required": true,
-        "types": [
-          {
-            "type": "continuous_constructor",
-            "named": true
-          },
-          {
-            "type": "discrete_constructor",
-            "named": true
-          },
-          {
-            "type": "enum_set_literal",
-            "named": true
-          },
-          {
-            "type": "free_monoid_expr",
-            "named": true
-          },
-          {
-            "type": "free_residuated_expr",
-            "named": true
-          },
-          {
-            "type": "type_atom",
-            "named": true
-          },
-          {
-            "type": "type_coproduct",
-            "named": true
-          },
-          {
-            "type": "type_effect_apply",
-            "named": true
-          },
-          {
-            "type": "type_paren",
-            "named": true
-          },
-          {
-            "type": "type_product",
-            "named": true
-          },
-          {
-            "type": "type_slash",
-            "named": true
-          }
-        ]
-      }
-    }
-  },
-  {
-    "type": "type_effect_apply",
-    "named": true,
-    "fields": {
-      "args": {
-        "multiple": true,
-        "required": true,
-        "types": [
-          {
-            "type": ",",
-            "named": false
-          },
-          {
-            "type": "continuous_constructor",
-            "named": true
-          },
-          {
-            "type": "discrete_constructor",
-            "named": true
-          },
-          {
-            "type": "type_atom",
-            "named": true
-          },
-          {
-            "type": "type_coproduct",
-            "named": true
-          },
-          {
-            "type": "type_effect_apply",
-            "named": true
-          },
-          {
-            "type": "type_paren",
-            "named": true
-          },
-          {
-            "type": "type_product",
-            "named": true
-          },
-          {
-            "type": "type_slash",
-            "named": true
-          }
-        ]
-      },
-      "effect": {
-        "multiple": false,
-        "required": true,
-        "types": [
-          {
-            "type": "identifier",
-            "named": true
-          }
-        ]
-      }
-    }
-  },
-  {
-    "type": "type_paren",
-    "named": true,
-    "fields": {},
-    "children": {
-      "multiple": false,
-      "required": true,
-      "types": [
-        {
-          "type": "continuous_constructor",
-          "named": true
-        },
-        {
-          "type": "discrete_constructor",
-          "named": true
-        },
-        {
-          "type": "type_atom",
-          "named": true
-        },
-        {
-          "type": "type_coproduct",
-          "named": true
-        },
-        {
-          "type": "type_effect_apply",
-          "named": true
-        },
-        {
-          "type": "type_paren",
-          "named": true
-        },
-        {
-          "type": "type_product",
-          "named": true
-        },
-        {
-          "type": "type_slash",
-          "named": true
-        }
-      ]
-    }
-  },
-  {
-    "type": "type_product",
-    "named": true,
-    "fields": {
-      "left": {
-        "multiple": false,
-        "required": true,
-        "types": [
-          {
-            "type": "continuous_constructor",
-            "named": true
-          },
-          {
-            "type": "discrete_constructor",
-            "named": true
-          },
-          {
-            "type": "type_atom",
-            "named": true
-          },
-          {
-            "type": "type_coproduct",
-            "named": true
-          },
-          {
-            "type": "type_effect_apply",
-            "named": true
-          },
-          {
-            "type": "type_paren",
-            "named": true
-          },
-          {
-            "type": "type_product",
-            "named": true
-          },
-          {
-            "type": "type_slash",
-            "named": true
-          }
-        ]
-      },
-      "right": {
-        "multiple": false,
-        "required": true,
-        "types": [
-          {
-            "type": "continuous_constructor",
-            "named": true
-          },
-          {
-            "type": "discrete_constructor",
-            "named": true
-          },
-          {
-            "type": "type_atom",
-            "named": true
-          },
-          {
-            "type": "type_coproduct",
-            "named": true
-          },
-          {
-            "type": "type_effect_apply",
-            "named": true
-          },
-          {
-            "type": "type_paren",
-            "named": true
-          },
-          {
-            "type": "type_product",
-            "named": true
-          },
-          {
-            "type": "type_slash",
-            "named": true
-          }
-        ]
-      }
-    }
-  },
-  {
-    "type": "type_slash",
-    "named": true,
-    "fields": {
-      "argument": {
-        "multiple": false,
-        "required": true,
-        "types": [
-          {
-            "type": "continuous_constructor",
-            "named": true
-          },
-          {
-            "type": "discrete_constructor",
-            "named": true
-          },
-          {
-            "type": "type_atom",
-            "named": true
-          },
-          {
-            "type": "type_coproduct",
-            "named": true
-          },
-          {
-            "type": "type_effect_apply",
-            "named": true
-          },
-          {
-            "type": "type_paren",
-            "named": true
-          },
-          {
-            "type": "type_product",
-            "named": true
-          },
-          {
-            "type": "type_slash",
-            "named": true
-          }
-        ]
-      },
-      "direction": {
-        "multiple": false,
-        "required": true,
-        "types": [
-          {
-            "type": "/",
-            "named": false
-          },
-          {
-            "type": "\\",
-            "named": false
-          }
-        ]
-      },
-      "result": {
-        "multiple": false,
-        "required": true,
-        "types": [
-          {
-            "type": "continuous_constructor",
-            "named": true
-          },
-          {
-            "type": "discrete_constructor",
-            "named": true
-          },
-          {
-            "type": "type_atom",
-            "named": true
-          },
-          {
-            "type": "type_coproduct",
-            "named": true
-          },
-          {
-            "type": "type_effect_apply",
-            "named": true
-          },
-          {
-            "type": "type_paren",
-            "named": true
-          },
-          {
-            "type": "type_product",
-            "named": true
-          },
-          {
-            "type": "type_slash",
-            "named": true
-          }
-        ]
-      }
-    }
-  },
-  {
     "type": "typed_program_param",
     "named": true,
     "fields": {
@@ -7283,6 +7401,14 @@
         ]
       }
     }
+  },
+  {
+    "type": "#![",
+    "named": false
+  },
+  {
+    "type": "#[",
+    "named": false
   },
   {
     "type": "$>",
@@ -7477,10 +7603,6 @@
     "named": false
   },
   {
-    "type": "at",
-    "named": false
-  },
-  {
     "type": "atoms",
     "named": false
   },
@@ -7507,6 +7629,11 @@
   {
     "type": "binds",
     "named": false
+  },
+  {
+    "type": "block_comment",
+    "named": true,
+    "extra": true
   },
   {
     "type": "body",
@@ -7590,8 +7717,7 @@
   },
   {
     "type": "doc_comment",
-    "named": true,
-    "extra": true
+    "named": true
   },
   {
     "type": "edge_kinds",
@@ -7771,6 +7897,10 @@
     "named": false
   },
   {
+    "type": "score",
+    "named": false
+  },
+  {
     "type": "semigroupoid",
     "named": false
   },
@@ -7804,10 +7934,6 @@
   },
   {
     "type": "trace",
-    "named": false
-  },
-  {
-    "type": "type",
     "named": false
   },
   {
