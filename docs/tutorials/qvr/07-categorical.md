@@ -49,7 +49,7 @@ A [algebra](https://ncatlab.org/nlab/show/algebra) is a complete lattice equippe
 | `Probability` | $a \cdot b$ | $\sum_i x_i$ (clamped to [0,1]) | 1 | Bounded sum-product. |
 | `Counting` | $a \cdot b$ | $\sum_i x_i$ | 1 | Nonnegative-integer counting. |
 
-`algebra product_fuzzy` at the top of a `.qvr` file sets the enrichment for the module. Every `f >> g` composition uses the corresponding $(\otimes, \bigvee)$.
+`composition product_fuzzy as algebra` at the top of a `.qvr` file sets the enrichment for the module. Every `f >> g` composition uses the corresponding $(\otimes, \bigvee)$.
 
 The hierarchy in `quivers.core.algebras` is:
 
