@@ -1,7 +1,7 @@
 # Bayesian Linear Network for Per-Item Classification Scores
 #
 # A linear Bayesian network with three weight matrices expressed
-# entirely as a morphism composition under algebra real. The
+# entirely as a morphism composition under the real algebra. The
 # per-item input morphism X : Item -> H_in carries the data;
 # the final composite scores each Item under H_out output
 # channels.

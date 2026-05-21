@@ -69,11 +69,11 @@ Each combinator is implemented as a tensor-level operation whose definition is t
 
 ### 3.5 Lookup-table kernels (finite-set codomain)
 
-A `kernel f : A -> B` declaration with finite-set codomain and no `~ Family` clause is realized as a softmax-normalized parameter tensor along the codomain axis (the canonical surjection $\mathbb{R}^{|Y|} \to \Delta^{|Y| - 1}$). Composition is ordinary matrix multiplication, which coincides with Kleisli composition in $\mathbf{Stoch}$ ([Morphisms §2](morphisms.md#2-stochastic-morphisms)).
+A `morphism f : A -> B [role = kernel]` declaration with finite-set codomain and no `~ Family` clause is realized as a softmax-normalized parameter tensor along the codomain axis (the canonical surjection $\mathbb{R}^{|Y|} \to \Delta^{|Y| - 1}$). Composition is ordinary matrix multiplication, which coincides with Kleisli composition in $\mathbf{Stoch}$ ([Morphisms §2](morphisms.md#2-stochastic-morphisms)).
 
 ### 3.6 Parametric kernels (continuous codomain)
 
-A `kernel f : σ -> σ' ~ Family [axis_role_clause]` declaration is realized as a PyTorch `Distribution` parameterized by a small network mapping $\llbracket \sigma \rrbracket$ to $\Theta_{\mathrm{Family}}$. Sampling and density evaluation are exposed by `rsample` and `log_prob`. Composition is realized by *sampled-composition* (Monte-Carlo integration) or, for closed-form families, by the appropriate analytical convolution. The optional axis-role clause configures the family's event / batch decomposition according to the contract of [Morphisms §6](morphisms.md#6-axis-role-specifications); matrix-valued families (`MatrixNormal`, `Wishart`, `InverseWishart`, `LKJCholesky`) receive their row / column dimensions from the named axes at compile time.
+A `morphism f : σ -> σ' [role = kernel, axis_role_clause] ~ Family` declaration is realized as a PyTorch `Distribution` parameterized by a small network mapping $\llbracket \sigma \rrbracket$ to $\Theta_{\mathrm{Family}}$. Sampling and density evaluation are exposed by `rsample` and `log_prob`. Composition is realized by *sampled-composition* (Monte-Carlo integration) or, for closed-form families, by the appropriate analytical convolution. The optional axis-role clause configures the family's event / batch decomposition according to the contract of [Morphisms §6](morphisms.md#6-axis-role-specifications); matrix-valued families (`MatrixNormal`, `Wishart`, `InverseWishart`, `LKJCholesky`) receive their row / column dimensions from the named axes at compile time.
 
 The equality
 

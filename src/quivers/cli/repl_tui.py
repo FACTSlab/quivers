@@ -498,12 +498,27 @@ def run_tui(session: "ReplSession") -> int:
             counts = "no env"
             algebra = ""
             if compiler is not None:
-                counts = (
-                    f"{len(compiler.objects)} obj · "
-                    f"{len(compiler.spaces)} space · "
-                    f"{len(compiler.morphisms)} morph · "
-                    f"{len(compiler.rules)} rule"
-                )
+                # Show every populated bucket; suppress empty ones so a
+                # tiny module's status line stays readable.
+                parts: list[str] = []
+                for label, mapping in (
+                    ("obj", compiler.objects),
+                    ("space", compiler.spaces),
+                    ("morph", compiler.morphisms),
+                    ("rule", compiler.rules),
+                    ("prog", compiler.programs),
+                    ("ded", compiler.deductions),
+                    ("sig", compiler.signatures),
+                    ("enc", compiler.encoders),
+                    ("dec", compiler.decoders),
+                    ("loss", compiler.losses),
+                    ("bundle", compiler.bundles),
+                    ("contr", compiler.contractions),
+                ):
+                    n = len(mapping)
+                    if n:
+                        parts.append(f"{n} {label}")
+                counts = " · ".join(parts) if parts else "empty env"
                 algebra = type(compiler.algebra).__name__
             text = Text()
             text.append("● ", style="bold green")
@@ -533,18 +548,31 @@ def run_tui(session: "ReplSession") -> int:
             def keep(name: str) -> bool:
                 return not needle or needle in name.lower()
 
-            for ns_name, mapping in (
-                ("objects", compiler.objects),
-                ("spaces", compiler.spaces),
-                ("morphisms", compiler.morphisms),
-                ("rules", compiler.rules),
+            for ns_name, mapping, builder in (
+                ("objects", compiler.objects, _children_for_object),
+                ("spaces", compiler.spaces, _children_for_space),
+                ("morphisms", compiler.morphisms, _children_for_morphism),
+                ("rules", compiler.rules, _children_for_rule),
+                ("programs", compiler.programs, _children_for_program),
+                ("deductions", compiler.deductions, _children_for_deduction),
+                ("signatures", compiler.signatures, _children_for_signature),
+                ("encoders", compiler.encoders, _children_for_encoder),
+                ("decoders", compiler.decoders, _children_for_decoder),
+                ("losses", compiler.losses, _children_for_loss),
+                ("bundles", compiler.bundles, _children_for_bundle),
+                ("contractions", compiler.contractions, _children_for_contraction),
             ):
                 names = [n for n in sorted(mapping) if keep(n)]
-                if not names and needle:
+                if not names:
                     continue
                 ns_node = tree.root.add(ns_name, expand=True)
                 for name in names:
-                    ns_node.add_leaf(name)
+                    head, children = builder(name, mapping[name])
+                    if children:
+                        sub = ns_node.add(head, expand=False)
+                        _populate_children(sub, children)
+                    else:
+                        ns_node.add_leaf(head)
 
     app = QvrRepl(session)
     app.run()
@@ -613,6 +641,223 @@ def _append_history(line: str) -> None:
             f.write(line + "\n")
     except OSError:
         pass
+
+
+# ---------------------------------------------------------------------------
+# Env-tree child builders
+# ---------------------------------------------------------------------------
+#
+# Each ``_children_for_*`` returns ``(head_label, children)`` where
+# ``children`` is a possibly nested list of either ``str`` leaves or
+# ``(label, sub_children)`` tuples. ``_populate_children`` walks that
+# structure onto a Textual ``Tree`` node. Builders consult only public
+# accessors on the runtime objects so they never look into compiler
+# internals.
+
+
+Children = list  # list[str | tuple[str, "Children"]]
+
+
+def _populate_children(node, items):  # type: ignore[no-untyped-def]
+    for item in items:
+        if isinstance(item, str):
+            node.add_leaf(item)
+            continue
+        label, sub = item
+        if sub:
+            sub_node = node.add(label, expand=False)
+            _populate_children(sub_node, sub)
+        else:
+            node.add_leaf(label)
+
+
+def _pretty(obj):  # type: ignore[no-untyped-def]
+    name = getattr(obj, "name", None)
+    if isinstance(name, str) and name:
+        return name
+    return repr(obj)
+
+
+def _children_for_object(name, obj):  # type: ignore[no-untyped-def]
+    card = getattr(obj, "cardinality", None)
+    if card is not None:
+        return f"{name} : FinSet {card}", []
+    return f"{name} : {_pretty(obj)}", []
+
+
+def _children_for_space(name, sp):  # type: ignore[no-untyped-def]
+    dim = getattr(sp, "dim", None)
+    if dim is not None:
+        return f"{name} : Real {dim}", []
+    return f"{name} : {_pretty(sp)}", []
+
+
+def _children_for_morphism(name, morph):  # type: ignore[no-untyped-def]
+    dom = _pretty(getattr(morph, "domain", None))
+    cod = _pretty(getattr(morph, "codomain", None))
+    return f"{name} : {dom} -> {cod}", []
+
+
+def _children_for_rule(name, rule):  # type: ignore[no-untyped-def]
+    return name, []
+
+
+def _children_for_program(name, tmpl):  # type: ignore[no-untyped-def]
+    params = getattr(tmpl, "params", None) or ()
+    param_strs = []
+    for p in params:
+        pname = p if isinstance(p, str) else getattr(p, "name", "?")
+        param_strs.append(str(pname))
+    dom = _pretty(getattr(tmpl, "domain", None))
+    cod = _pretty(getattr(tmpl, "codomain", None))
+    head = f"{name}"
+    if param_strs:
+        head += f"({', '.join(param_strs)})"
+    head += f" : {dom} -> {cod}"
+    steps = getattr(tmpl, "draws", ()) or ()
+    return head, [_step_node(step) for step in steps]
+
+
+def _step_node(step):  # type: ignore[no-untyped-def]
+    cls = type(step).__name__
+    if cls == "SampleStep":
+        vars_ = getattr(step, "vars", ()) or ()
+        var = vars_[0] if vars_ else "?"
+        idx = _index_suffix(getattr(step, "index", None))
+        return f"sample {var}{idx} <- {_call_str(step)}", []
+    if cls == "ObserveStep":
+        var = getattr(step, "var", "?")
+        idx = _index_suffix(getattr(step, "index", None))
+        return f"observe {var}{idx} <- {_call_str(step)}", []
+    if cls == "LetStep":
+        return f"let {getattr(step, 'name', '?')} = ...", []
+    if cls == "ScoreStep":
+        return f"score {getattr(step, 'name', '?')} = ...", []
+    if cls == "MarginalizeStep":
+        var = getattr(step, "var", "?")
+        idx = _index_suffix(getattr(step, "index", None))
+        head = f"marginalize {var}{idx} <- {_call_str(step)}"
+        body = [_step_node(s) for s in getattr(step, "scope", ()) or ()]
+        return head, body
+    if cls == "ReturnStep":
+        vars_ = getattr(step, "vars", ()) or ()
+        return f"return {', '.join(vars_)}", []
+    return cls, []
+
+
+def _index_suffix(idx):  # type: ignore[no-untyped-def]
+    if idx is None:
+        return ""
+    return f" : {_pretty(idx)}"
+
+
+def _call_str(step):  # type: ignore[no-untyped-def]
+    head = getattr(step, "morphism", "?") or "?"
+    args = getattr(step, "args", None)
+    if not args:
+        return str(head)
+    return f"{head}({', '.join(str(a) for a in args)})"
+
+
+def _children_for_deduction(name, system):  # type: ignore[no-untyped-def]
+    head = name
+    semiring = type(getattr(system, "semiring", system)).__name__
+    children = []
+    rules = getattr(system, "rules", ()) or ()
+    if rules:
+        rule_kids = [
+            (f"{getattr(r, 'name', '?')} : {_rule_line(r)}", []) for r in rules
+        ]
+        children.append(("rules", rule_kids))
+    children.append((f"semiring: {semiring}", []))
+    tol = getattr(system, "tolerance", None)
+    if tol is not None and tol != 0:
+        children.append((f"tolerance: {tol}", []))
+    return head, children
+
+
+def _rule_line(rule):  # type: ignore[no-untyped-def]
+    premises = getattr(rule, "premises", ()) or ()
+    conclusion = getattr(rule, "conclusion", None)
+    prem_str = ", ".join(_pat_str(p) for p in premises)
+    return f"{prem_str} |- {_pat_str(conclusion)}"
+
+
+def _pat_str(pat):  # type: ignore[no-untyped-def]
+    if pat is None:
+        return "?"
+    if isinstance(pat, tuple):
+        return "(" + ", ".join(_pat_str(p) for p in pat) + ")"
+    return str(pat)
+
+
+def _children_for_signature(name, sig):  # type: ignore[no-untyped-def]
+    children = []
+    sorts = getattr(sig, "sorts_t", ()) or ()
+    if sorts:
+        children.append(
+            (
+                "sorts",
+                [
+                    (
+                        f"{s.name} : {getattr(s, 'kind', '?')}"
+                        + (f" [dim={s.dim}]" if getattr(s, "dim", None) else ""),
+                        [],
+                    )
+                    for s in sorts
+                ],
+            )
+        )
+    ctors = getattr(sig, "constructors_t", ()) or ()
+    if ctors:
+        children.append(
+            (
+                "constructors",
+                [(f"{c.name} : {_ctor_line(c)}", []) for c in ctors],
+            )
+        )
+    binders = getattr(sig, "binders_t", ()) or ()
+    if binders:
+        children.append(("binders", [(b.name, []) for b in binders]))
+    vkinds = getattr(sig, "vertex_kinds_t", ()) or ()
+    if vkinds:
+        children.append(("vertex_kinds", [(v.name, []) for v in vkinds]))
+    ekinds = getattr(sig, "edge_kinds_t", ()) or ()
+    if ekinds:
+        children.append(("edge_kinds", [(e.name, []) for e in ekinds]))
+    return name, children
+
+
+def _ctor_line(ctor):  # type: ignore[no-untyped-def]
+    args = getattr(ctor, "args", ()) or ()
+    ret = getattr(ctor, "return_sort", None) or getattr(ctor, "result", "?")
+    return f"{', '.join(str(a) for a in args)} -> {ret}"
+
+
+def _children_for_encoder(name, enc):  # type: ignore[no-untyped-def]
+    sig_name = getattr(enc, "signature_name", None) or getattr(enc, "signature", "?")
+    return f"{name} : {sig_name}", []
+
+
+def _children_for_decoder(name, dec):  # type: ignore[no-untyped-def]
+    sig_name = getattr(dec, "signature_name", None) or getattr(dec, "signature", "?")
+    return f"{name} : {sig_name}", []
+
+
+def _children_for_loss(name, entry):  # type: ignore[no-untyped-def]
+    kind = getattr(entry, "attachment_kind", "global")
+    target = getattr(entry, "target", None)
+    if target:
+        return f"{name} [on={kind}({target})]", []
+    return f"{name} [on={kind}]", []
+
+
+def _children_for_bundle(name, members):  # type: ignore[no-untyped-def]
+    return f"{name}", [(m, []) for m in members]
+
+
+def _children_for_contraction(name, contr):  # type: ignore[no-untyped-def]
+    return name, []
 
 
 __all__ = ["run_tui"]

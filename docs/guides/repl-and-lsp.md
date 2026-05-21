@@ -147,7 +147,7 @@ column.
 | --- | --- | --- |
 | `:load FILE` | `:l` | Parse + elaborate, rebind the session env |
 | `:reload` | `:r` | Re-`:load` the last file, print added/removed/changed names |
-| `:type EXPR` | `:t` | Print EXPR's resolved type as canonical QVR (`latent f : A -> B`, `object X : 3`, `space Z : Euclidean(64)`) |
+| `:type EXPR` | `:t` | Print EXPR's resolved type as canonical QVR (`morphism f : A -> B [role=latent]`, `object X : FinSet 3`, `object Z : Real 64`) |
 | `:kind T` | `:k` | Print T's AST variant and enumerate the sibling TypeExpr variants |
 | `:info NAME` | `:i` | Show NAME's declaration verbatim from the source, plus its location and doc comment. Pass `--python` for the didactic AST `repr()` instead |
 | `:doc NAME` | — | Render only the doc comment(s) for NAME |

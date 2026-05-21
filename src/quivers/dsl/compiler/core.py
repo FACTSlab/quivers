@@ -133,6 +133,59 @@ class Compiler(
         """The active algebra."""
         return self._algebra
 
+    @property
+    def programs(self) -> dict:
+        """Declared parametric program templates (``program NAME(...)``)."""
+        return dict(getattr(self, "_program_templates", {}))
+
+    @property
+    def deductions(self) -> dict:
+        """Declared deduction systems (``deduction NAME : ...``)."""
+        return dict(getattr(self, "_deductions", {}))
+
+    @property
+    def signatures(self) -> dict:
+        """Declared signatures (``signature NAME``)."""
+        return dict(getattr(self, "_signatures", {}))
+
+    @property
+    def encoders(self) -> dict:
+        """Declared encoders (``encoder NAME : Sig``)."""
+        return dict(getattr(self, "_encoders", {}))
+
+    @property
+    def decoders(self) -> dict:
+        """Declared decoders (``decoder NAME : Sig``)."""
+        return dict(getattr(self, "_decoders", {}))
+
+    @property
+    def losses(self) -> dict:
+        """Declared loss heads (``loss NAME : ... [on=...]``).
+
+        Keyed by entry name; values are the registered :class:`LossEntry`
+        records. Empty when no ``loss`` decl appears in the module.
+        """
+        reg = getattr(self, "_loss_registry", None)
+        if reg is None:
+            return {}
+        return {entry.name: entry for entry in reg.entries()}
+
+    @property
+    def bundles(self) -> dict[str, tuple[str, ...]]:
+        """Declared bundle aliases (``bundle NAME = R1 | R2 | ...``)."""
+        return dict(self._bundles)
+
+    @property
+    def contractions(self) -> dict:
+        """Declared tensor-network contractions
+        (``contraction NAME : ... [wiring=...]``)."""
+        return dict(getattr(self, "_contractions", {}))
+
+    @property
+    def transformations(self) -> dict:
+        """User-declared transformation constructors / singletons."""
+        return dict(self._transformations)
+
     def compile(self) -> Program:
         """Compile the module into a trainable Program.
 
@@ -199,7 +252,10 @@ class Compiler(
         Returns
         -------
         dict
-            Combined environment of objects, spaces, morphisms, and the algebra.
+            Combined environment of every declared atom: the active
+            algebra, objects, spaces, morphisms, rules, programs
+            (parametric templates), deductions, signatures, encoders,
+            decoders, losses, bundles, contractions, transformations.
         """
         _register_extra_algebras()
         for stmt in self._module.statements:
@@ -214,6 +270,24 @@ class Compiler(
             env[name] = morph
         for name, rule in self._rules.items():
             env[name] = rule
+        for name, tmpl in getattr(self, "_program_templates", {}).items():
+            env[name] = tmpl
+        for name, system in getattr(self, "_deductions", {}).items():
+            env[name] = system
+        for name, sig in getattr(self, "_signatures", {}).items():
+            env[name] = sig
+        for name, enc in getattr(self, "_encoders", {}).items():
+            env[name] = enc
+        for name, dec in getattr(self, "_decoders", {}).items():
+            env[name] = dec
+        reg = getattr(self, "_loss_registry", None)
+        if reg is not None:
+            for entry in reg.entries():
+                env[entry.name] = entry
+        for name, bundle in self._bundles.items():
+            env[name] = bundle
+        for name, contr in getattr(self, "_contractions", {}).items():
+            env[name] = contr
         return env
 
     def _compile_statement(self, stmt: Statement) -> None:

@@ -20,31 +20,25 @@ $$
 
 The atom set serves as the generator alphabet of the residuated category universe consumed by chart parsers (§4) and by rule / schema declarations (§5 / §6). Category atoms are *not* finite-set objects: they cannot be used directly as morphism domains or codomains. To make their residuated closure available as a type, declare a `FreeResiduated` object over them (§4) or pass them via `parser(categories=[…])` at the call site.
 
-## 2. Type-level aliases
+## 2. Object-level name bindings
 
-Two transparent name bindings.
-
-An `alias N = τ` declaration (object level) handles two cases depending on whether $\tau$ resolves as a `SetObject`:
-
-- *Object-level alias.* If $\tau$ has no residuated or effect-typed sub-expressions and resolves cleanly to a finite-set object, the alias binds $N$ in $\rho_{\mathrm{obj}}$ to that denotation:
-
-  $$
-  \llbracket \mathrm{alias}\ N = \tau \rrbracket
-  \;:\;\;
-  \rho_{\mathrm{obj}}\ \longmapsto\ \rho_{\mathrm{obj}}\bigl[N \mapsto \llbracket \tau \rrbracket_{\rho_{\mathrm{obj}}}\bigr].
-  $$
-
-- *Syntactic alias.* If $\tau$ contains a residuated slash, an effect application, or otherwise fails `SetObject` resolution, the alias is recorded as a *textual substitution rule* $\rho_{\mathrm{alias}}[N \mapsto \tau]$ that the schema-pattern matcher inlines at every use site. Syntactic aliases are not first-class objects: they cannot appear as morphism domains or codomains, only inside `schema` / `rule` patterns.
-
-A `type N = σ` declaration (space level) binds $N$ in $\rho_{\mathrm{spc}}$ to the denotation of the `SpaceExpr` $\sigma$:
+A single declaration form binds a name to an object or space expression:
 
 $$
-\llbracket \mathrm{type}\ N = \sigma \rrbracket
+\llbracket \mathrm{object}\ N : \tau \rrbracket
 \;:\;\;
-\rho_{\mathrm{spc}}\ \longmapsto\ \rho_{\mathrm{spc}}\bigl[N \mapsto \llbracket \sigma \rrbracket_{\rho}\bigr].
+\rho_{\mathrm{obj}}\ \longmapsto\ \rho_{\mathrm{obj}}\bigl[N \mapsto \llbracket \tau \rrbracket_{\rho_{\mathrm{obj}}}\bigr].
 $$
 
-Aliases are transparent: every later occurrence of $N$ resolves to the underlying object / space, and `alias` introduces no new vertices in the schema-level interpretation of [The Program Theory](program-theory.md).
+The behaviour depends on whether $\tau$ resolves as a `SetObject`:
+
+- *Finite-set binding.* When $\tau$ has no residuated slashes or effect applications and resolves cleanly to a finite-set object (for example `FinSet 16`, `A * B`, `A + B`, or a previously-bound finite-set name), $N$ is bound in $\rho_{\mathrm{obj}}$ to the resulting object. It may appear as the domain or codomain of any later morphism.
+
+- *Continuous-space binding.* When $\tau$ is a continuous constructor (`Real D`, `Simplex K`, `PositiveReals`, `UnitInterval`, `Covariance D`, ...), $N$ is bound in $\rho_{\mathrm{spc}}$ to the corresponding continuous space.
+
+- *Syntactic binding.* When $\tau$ contains a residuated slash, an effect application, or otherwise fails `SetObject` and `ContinuousSpace` resolution, the binding is recorded as a textual substitution rule $\rho_{\mathrm{alias}}[N \mapsto \tau]$ that the schema-pattern matcher inlines at every use site. Syntactic bindings are not first-class objects: they cannot appear as morphism domains or codomains, only inside `schema` / `rule` patterns.
+
+Bindings are transparent: every later occurrence of $N$ resolves to the underlying object / space, and the schema-level interpretation of [The Program Theory](program-theory.md) records no new vertex for the binding itself.
 
 ## 3. Residuated type formers
 

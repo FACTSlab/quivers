@@ -302,11 +302,11 @@ Each statement form contributes an effect:
 
 | Statement form | Effect produced |
 |---|---|
-| `v <- F(args)` | $\mathsf{Sample}$ |
-| `v : A <- F(args)` | $\mathsf{Sample}$ |
+| `sample v <- F(args)` | $\mathsf{Sample}$ |
+| `sample v : A <- F(args)` | $\mathsf{Sample}$ |
 | `observe v <- F(args)` | $\mathsf{Score}$ |
 | `observe r : N <- F(args)` | $\mathsf{Score}$ |
-| `marginalize c <- F(args) in { … }` | $\mathsf{Marginal}$ (plus the effects of the scope body) |
+| `marginalize c <- F(args) [over = G, reduction = R]` (with indented scope body) | $\mathsf{Marginal}$ (plus the effects of the scope body) |
 | `let v = expr` | $\mathsf{Pure}$ |
 | `score v = expr` | $\mathsf{Score}$ |
 | `return e` | $\mathsf{Pure}$ |

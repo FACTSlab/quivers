@@ -483,7 +483,7 @@ variable, the family is resolved at runtime against the current
 trace's values.
 
 For conditional distributions (input-conditional, learned-parameter
-form), use a [`kernel f : A -> B ~ Family`](dsl-declarations.md#kernel)
+form), use a [`morphism f : A -> B [role=kernel] ~ Family`](dsl-declarations.md#kernel)
 declaration instead.
 
 ## Examples
