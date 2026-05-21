@@ -63,18 +63,20 @@ _EFFECT_TOKENS = frozenset({"Pure", "Sample", "Score", "Marginal"})
 # ``[semiring=LogProb]``) and the composition-level head. These too live
 # in option-entry value position, so they don't surface as grammar
 # literals; the registry below mirrors the runtime registry.
-_ALGEBRA_NAMES = frozenset({
-    "product_fuzzy",
-    "boolean",
-    "lukasiewicz",
-    "godel",
-    "tropical",
-    "LogProb",
-    "Boolean",
-    "Viterbi",
-    "Counting",
-    "ProductFuzzy",
-})
+_ALGEBRA_NAMES = frozenset(
+    {
+        "product_fuzzy",
+        "boolean",
+        "lukasiewicz",
+        "godel",
+        "tropical",
+        "LogProb",
+        "Boolean",
+        "Viterbi",
+        "Counting",
+        "ProductFuzzy",
+    }
+)
 
 _KEYWORD_TOKENS = _GRAMMAR_KEYWORDS
 _BUILTIN_FUNCTION_TOKENS = _GRAMMAR_BUILTIN_FUNCTIONS

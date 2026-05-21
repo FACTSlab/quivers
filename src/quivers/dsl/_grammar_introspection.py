@@ -38,9 +38,29 @@ from pathlib import Path
 _WORD_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 _PUNCTUATION_CHARS = frozenset("(){}[],.;")
 _OPERATOR_CHARS = frozenset(r"+-*/\=<>~|@:!.&%?")
-_OPERATOR_EXTRAS = frozenset({"->", "<-", "=>", ">>", "<<", ">>>", ">=>",
-                              "|-", "|->", "⊢", "--", "*>", "+>", "$>",
-                              "%>", "&&>", "||>", "~>", "?>"})
+_OPERATOR_EXTRAS = frozenset(
+    {
+        "->",
+        "<-",
+        "=>",
+        ">>",
+        "<<",
+        ">>>",
+        ">=>",
+        "|-",
+        "|->",
+        "⊢",
+        "--",
+        "*>",
+        "+>",
+        "$>",
+        "%>",
+        "&&>",
+        "||>",
+        "~>",
+        "?>",
+    }
+)
 
 
 def _grammar_json_path() -> Path:
@@ -84,10 +104,20 @@ def _walk_strings(
         for m in node.get("members", []):
             yield from _walk_strings(m, in_field=in_field, in_rule=in_rule)
         return
-    if kind in {"REPEAT", "REPEAT1", "PREC", "PREC_LEFT", "PREC_RIGHT",
-                "PREC_DYNAMIC", "TOKEN", "IMMEDIATE_TOKEN", "ALIAS"}:
-        yield from _walk_strings(node.get("content"), in_field=in_field,
-                                 in_rule=in_rule)
+    if kind in {
+        "REPEAT",
+        "REPEAT1",
+        "PREC",
+        "PREC_LEFT",
+        "PREC_RIGHT",
+        "PREC_DYNAMIC",
+        "TOKEN",
+        "IMMEDIATE_TOKEN",
+        "ALIAS",
+    }:
+        yield from _walk_strings(
+            node.get("content"), in_field=in_field, in_rule=in_rule
+        )
         return
 
 
@@ -138,10 +168,7 @@ def _collect() -> dict[str, frozenset[str]]:
             if not _WORD_RE.match(literal):
                 if literal in _OPERATOR_EXTRAS:
                     operators.add(literal)
-                elif (
-                    len(literal) >= 1
-                    and all(c in _OPERATOR_CHARS for c in literal)
-                ):
+                elif len(literal) >= 1 and all(c in _OPERATOR_CHARS for c in literal):
                     operators.add(literal)
                 continue
             keywords.add(literal)

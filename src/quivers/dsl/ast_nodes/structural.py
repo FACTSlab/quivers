@@ -14,6 +14,7 @@ import didactic.api as dx
 from quivers.dsl.ast_nodes._shared import OptionEntry
 from quivers.dsl.ast_nodes.let_expressions import LetExprNode
 
+
 class SortVocabLiteral(dx.Model):
     """One entry of a data sort's closed vocabulary.
 
@@ -25,6 +26,7 @@ class SortVocabLiteral(dx.Model):
 
     kind: Literal["string", "integer", "float"]
     text: str
+
 
 class SortDecl(dx.Model):
     """One sort within a signature.
@@ -41,6 +43,7 @@ class SortDecl(dx.Model):
     line: int = 0
     col: int = 0
 
+
 class ConstructorDecl(dx.Model):
     """A typed operation `name : s_1, ..., s_n -> s` in a signature."""
 
@@ -49,6 +52,7 @@ class ConstructorDecl(dx.Model):
     codomain: str
     line: int = 0
     col: int = 0
+
 
 class BinderVar(dx.Model):
     """A variable introduced by a binder.
@@ -69,12 +73,14 @@ class BinderVar(dx.Model):
     annot: str | None = None
     annot_sort: str | None = None
 
+
 class BinderArg(dx.Model):
     """An argument of a binder constructor; ``scoped`` arguments live
     in the extended context."""
 
     arg: str
     sort: str
+
 
 class BinderDecl(dx.Model):
     """A binder constructor introducing new scoped variables."""
@@ -85,6 +91,7 @@ class BinderDecl(dx.Model):
     codomain: str
     line: int = 0
     col: int = 0
+
 
 class VertexKindDecl(dx.Model):
     """A vertex kind in a graph-shaped signature.
@@ -99,6 +106,7 @@ class VertexKindDecl(dx.Model):
     line: int = 0
     col: int = 0
 
+
 class EdgeKindDecl(dx.Model):
     """An edge kind in a graph-shaped signature.
 
@@ -112,11 +120,13 @@ class EdgeKindDecl(dx.Model):
     line: int = 0
     col: int = 0
 
+
 class SortDim(dx.Model):
     """A `(sort, dim)` association declared in a encoder/decoder."""
 
     sort: str
     dim: int
+
 
 class EncoderVarInit(dx.Model):
     """One `var_init <var_sort> [from <annot_sort> [as <name>]]` rule.
@@ -133,6 +143,7 @@ class EncoderVarInit(dx.Model):
     body: LetExprNode
     line: int = 0
     col: int = 0
+
 
 class EncoderRule(dx.Model):
     """A per-operation encoder function.
@@ -159,6 +170,7 @@ class EncoderRule(dx.Model):
     line: int = 0
     col: int = 0
 
+
 class EncoderInitRule(dx.Model):
     """Graph-signature initializer: maps vertex `data` payloads to
     initial vertex embeddings before message passing."""
@@ -168,6 +180,7 @@ class EncoderInitRule(dx.Model):
     body: LetExprNode
     line: int = 0
     col: int = 0
+
 
 class EncoderMessageRule(dx.Model):
     """Graph-signature message: maps a `(src, tgt)` pair on an edge
@@ -180,6 +193,7 @@ class EncoderMessageRule(dx.Model):
     line: int = 0
     col: int = 0
 
+
 class EncoderUpdateRule(dx.Model):
     """Graph-signature update: maps `(self_embed, aggregated_msgs)`
     to the next vertex embedding, per vertex kind."""
@@ -190,6 +204,7 @@ class EncoderUpdateRule(dx.Model):
     body: LetExprNode
     line: int = 0
     col: int = 0
+
 
 __all__ = [
     "SortVocabLiteral",

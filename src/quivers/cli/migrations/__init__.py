@@ -137,8 +137,11 @@ def _build_commit_index() -> dict[str, str]:
             # head differs from the last tagged commit; otherwise
             # share the predecessor's commit.
             from quivers.cli.migrations._vcs import _open_repo
+
             head_id = _open_repo().head() or ""
-            out[ref] = head_id if head_id and head_id != last_resolved else last_resolved
+            out[ref] = (
+                head_id if head_id and head_id != last_resolved else last_resolved
+            )
             last_resolved = out[ref]
             continue
         # Mid-chain entry sharing its predecessor's grammar (e.g.
@@ -171,18 +174,21 @@ def vcs_coverage_report() -> list[DiffCoverageReport]:
         from_id = commit_id(from_ref)
         to_id = commit_id(to_ref)
         if from_id == to_id:
-            reports.append(DiffCoverageReport(
-                from_ref=from_ref,
-                to_ref=to_ref,
-                added_rules=(),
-                removed_rules=(),
-                uncovered_removed=(),
-            ))
+            reports.append(
+                DiffCoverageReport(
+                    from_ref=from_ref,
+                    to_ref=to_ref,
+                    added_rules=(),
+                    removed_rules=(),
+                    uncovered_removed=(),
+                )
+            )
             continue
         # Re-implement diff_coverage's body using the resolved
         # commit ids directly to avoid double-resolution.
         from quivers.cli.migrations._vcs import _open_repo
         import panproto
+
         repo = _open_repo()
         src_schema = repo.schema_at(from_id)
         tgt_schema = repo.schema_at(to_id)
@@ -190,13 +196,15 @@ def vcs_coverage_report() -> list[DiffCoverageReport]:
         added = tuple(sorted(diff_dict.get("added_vertices", [])))
         removed = tuple(sorted(diff_dict.get("removed_vertices", [])))
         uncovered = tuple(r for r in removed if r not in decl)
-        reports.append(DiffCoverageReport(
-            from_ref=from_ref,
-            to_ref=to_ref,
-            added_rules=added,
-            removed_rules=removed,
-            uncovered_removed=uncovered,
-        ))
+        reports.append(
+            DiffCoverageReport(
+                from_ref=from_ref,
+                to_ref=to_ref,
+                added_rules=added,
+                removed_rules=removed,
+                uncovered_removed=uncovered,
+            )
+        )
     return reports
 
 
@@ -240,9 +248,8 @@ def compose_migration(from_ref: str, to_ref: str) -> _Migrator:
     missing = [pair for pair in pairs if pair not in MIGRATORS]
     if missing:
         raise MigrationError(
-            "missing migrator(s) for pair(s): " + ", ".join(
-                f"{a} -> {b}" for a, b in missing
-            ),
+            "missing migrator(s) for pair(s): "
+            + ", ".join(f"{a} -> {b}" for a, b in missing),
         )
     migrators = [MIGRATORS[pair] for pair in pairs]
 

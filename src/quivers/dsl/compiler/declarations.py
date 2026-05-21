@@ -115,7 +115,9 @@ def _apply_auto_init(morph, domain, codomain, algebra) -> None:
 
     intermediate_size = max(_numel(domain), _numel(codomain))
     spec = _algebra_init_spec(
-        algebra, depth=1, intermediate_size=intermediate_size,
+        algebra,
+        depth=1,
+        intermediate_size=intermediate_size,
     )
     raw = morph.raw
     is_sigmoid_bijected = isinstance(
@@ -241,14 +243,15 @@ class _DeclarationsMixin:
             )
 
     def _build_custom_composition_rule(
-        self, decl: CompositionDecl, level: str,
+        self,
+        decl: CompositionDecl,
+        level: str,
     ) -> "CompositionRule":
         entries: dict[str, CompositionRuleEntry] = {}
         for entry in decl.body:
             if entry.key in entries:
                 raise CompileError(
-                    f"composition {decl.name!r}: duplicate entry "
-                    f"{entry.key!r}",
+                    f"composition {decl.name!r}: duplicate entry {entry.key!r}",
                     entry.line,
                     entry.col,
                 )
@@ -328,7 +331,9 @@ class _DeclarationsMixin:
         )
 
     def _compile_composition_rule_entry(
-        self, entry: CompositionRuleEntry, decl: CompositionDecl,
+        self,
+        entry: CompositionRuleEntry,
+        decl: CompositionDecl,
     ) -> "Callable[..., torch.Tensor] | float":
         body_fn = _ProgramsMixin._compile_let_expr(entry.body)
         if not entry.params:
@@ -437,10 +442,7 @@ class _DeclarationsMixin:
         variables: frozenset[str] = frozenset(
             n for group in decl.parameters for n in group.names
         )
-        if (
-            isinstance(decl.domain, ObjectProduct)
-            and len(decl.domain.components) == 2
-        ):
+        if isinstance(decl.domain, ObjectProduct) and len(decl.domain.components) == 2:
             left, right = decl.domain.components
             schema = PatternBinarySchema(
                 left_pattern=left,
@@ -472,8 +474,7 @@ class _DeclarationsMixin:
             )
         if decl.name in self._rules or decl.name in SCHEMA_REGISTRY:
             raise CompileError(
-                f"bundle {decl.name!r} shadows a rule / built-in "
-                f"schema",
+                f"bundle {decl.name!r} shadows a rule / built-in schema",
                 decl.line,
                 decl.col,
             )
@@ -506,7 +507,8 @@ class _DeclarationsMixin:
         init = decl.init
         if isinstance(init, TypeEnumSet):
             self._objects[decl.name] = EnumSet(
-                name=decl.name, elements=init.elements,
+                name=decl.name,
+                elements=init.elements,
             )
             return
         if isinstance(init, TypeFreeMonoid):
@@ -520,7 +522,8 @@ class _DeclarationsMixin:
                     decl.col,
                 )
             self._objects[decl.name] = FreeMonoid(
-                generators=gen, max_length=init.max_length,
+                generators=gen,
+                max_length=init.max_length,
             )
             return
         if isinstance(init, TypeFreeResiduated):
@@ -535,7 +538,9 @@ class _DeclarationsMixin:
                     decl.col,
                 )
             self._objects[decl.name] = FreeResiduated(
-                generators=gen, depth=init.depth, ops=init.ops,
+                generators=gen,
+                depth=init.depth,
+                ops=init.ops,
             )
             return
         if isinstance(init, TypeFromExpr):
@@ -562,8 +567,7 @@ class _DeclarationsMixin:
                 self._objects[decl.name] = resolved
             return
         raise CompileError(
-            f"unrecognized type initializer for {decl.name!r}: "
-            f"{type(init).__name__}",
+            f"unrecognized type initializer for {decl.name!r}: {type(init).__name__}",
             decl.line,
             decl.col,
         )
@@ -602,7 +606,10 @@ class _DeclarationsMixin:
                 decl.col,
             )
         role = get_option_name(
-            decl.options, "role", line=decl.line, col=decl.col,
+            decl.options,
+            "role",
+            line=decl.line,
+            col=decl.col,
         )
         if role is None:
             raise CompileError(
@@ -620,7 +627,10 @@ class _DeclarationsMixin:
                 decl.col,
             )
         replicate = get_option_int(
-            decl.options, "replicate", line=decl.line, col=decl.col,
+            decl.options,
+            "replicate",
+            line=decl.line,
+            col=decl.col,
         )
         count = 1 if replicate is None else int(replicate)
         names = (
@@ -646,7 +656,9 @@ class _DeclarationsMixin:
     # role-specific lowerings ------------------------------------------
 
     def _compile_latent_role(
-        self, decl: MorphismDecl, names: list[str],
+        self,
+        decl: MorphismDecl,
+        names: list[str],
     ) -> None:
         if decl.init_expr is not None:
             raise CompileError(
@@ -669,7 +681,10 @@ class _DeclarationsMixin:
             default=0.5,
         )
         init_mode = get_option_name(
-            decl.options, "init", line=decl.line, col=decl.col,
+            decl.options,
+            "init",
+            line=decl.line,
+            col=decl.col,
         )
         for name in names:
             morph = make_latent(
@@ -683,7 +698,9 @@ class _DeclarationsMixin:
             self._morphisms[name] = morph
 
     def _compile_observed_role(
-        self, decl: MorphismDecl, names: list[str],
+        self,
+        decl: MorphismDecl,
+        names: list[str],
     ) -> None:
         if decl.init_expr is None and decl.init_family is None:
             raise CompileError(
@@ -709,7 +726,11 @@ class _DeclarationsMixin:
             self._morphisms[name] = morph
 
     def _coerce_observed_shape(
-        self, morph, domain, codomain, decl: MorphismDecl,
+        self,
+        morph,
+        domain,
+        codomain,
+        decl: MorphismDecl,
     ):
         """Rebind ``morph``'s declared domain/codomain when its
         underlying tensor's numel matches the declared types.
@@ -738,7 +759,10 @@ class _DeclarationsMixin:
             target_shape = tuple(domain.shape) + tuple(codomain.shape)
             reshaped = morph.tensor.reshape(target_shape)
             return ObservedMorphism(
-                domain, codomain, reshaped, algebra=morph.algebra,
+                domain,
+                codomain,
+                reshaped,
+                algebra=morph.algebra,
             )
         raise CompileError(
             f"morphism {decl.name!r} init expression has type "
@@ -750,11 +774,11 @@ class _DeclarationsMixin:
         )
 
     def _compile_kernel_role(
-        self, decl: MorphismDecl, names: list[str],
+        self,
+        decl: MorphismDecl,
+        names: list[str],
     ) -> None:
-        family = (
-            decl.init_family.family if decl.init_family is not None else None
-        )
+        family = decl.init_family.family if decl.init_family is not None else None
         # ``~ Normal`` (bare identifier, no parens) parses as
         # ``init_expr`` rather than ``init_family``. If the bare
         # initializer names a registered family, promote it.
@@ -777,12 +801,17 @@ class _DeclarationsMixin:
         codomain = self._resolve_any_space(decl.codomain)
         for name in names:
             morph = self._make_continuous_morphism(
-                domain, codomain, family, decl,
+                domain,
+                codomain,
+                family,
+                decl,
             )
             self._morphisms[name] = morph
 
     def _compile_embed_role(
-        self, decl: MorphismDecl, names: list[str],
+        self,
+        decl: MorphismDecl,
+        names: list[str],
     ) -> None:
         domain = self._resolve_type(decl.domain)
         if not isinstance(domain, FinSet):
@@ -804,7 +833,9 @@ class _DeclarationsMixin:
             self._morphisms[name] = Embed(domain, codomain)
 
     def _compile_discretize_role(
-        self, decl: MorphismDecl, names: list[str],
+        self,
+        decl: MorphismDecl,
+        names: list[str],
     ) -> None:
         space = self._resolve_any_space(decl.domain)
         if not isinstance(space, ContinuousSpace):
@@ -815,7 +846,10 @@ class _DeclarationsMixin:
                 decl.col,
             )
         bins = get_option_int(
-            decl.options, "bins", line=decl.line, col=decl.col,
+            decl.options,
+            "bins",
+            line=decl.line,
+            col=decl.col,
         )
         if bins is None:
             raise CompileError(
@@ -828,7 +862,9 @@ class _DeclarationsMixin:
             self._morphisms[name] = Discretize(space, n_bins=bins)
 
     def _compile_let_role(
-        self, decl: MorphismDecl, names: list[str],
+        self,
+        decl: MorphismDecl,
+        names: list[str],
     ) -> None:
         if decl.init_expr is None:
             raise CompileError(
@@ -844,20 +880,31 @@ class _DeclarationsMixin:
     # family-construction plumbing ------------------------------------
 
     def _validate_family_axes(
-        self, decl: MorphismDecl, family: str,
+        self,
+        decl: MorphismDecl,
+        family: str,
     ) -> None:
         """Check the option block's ``over``/``iid`` axis lists against
         the family's declared event/batch decomposition."""
         over = get_option_name_list(
-            decl.options, "over", line=decl.line, col=decl.col,
+            decl.options,
+            "over",
+            line=decl.line,
+            col=decl.col,
         )
         iid = get_option_name_list(
-            decl.options, "iid", line=decl.line, col=decl.col,
+            decl.options,
+            "iid",
+            line=decl.line,
+            col=decl.col,
         )
         if not over and not iid:
             return
         axes_spec = AxisSpec(
-            over=over, iid_over=iid, line=decl.line, col=decl.col,
+            over=over,
+            iid_over=iid,
+            line=decl.line,
+            col=decl.col,
         )
         _validate_axis_spec(
             axes_spec,
@@ -868,7 +915,11 @@ class _DeclarationsMixin:
         )
 
     def _make_continuous_morphism(
-        self, domain, codomain, family_name: str, decl: MorphismDecl,
+        self,
+        domain,
+        codomain,
+        family_name: str,
+        decl: MorphismDecl,
     ):
         if family_name == "Flow":
             n_layers = get_option_int(
@@ -909,17 +960,26 @@ class _DeclarationsMixin:
         )
         kwargs: dict = {"hidden_dim": int(hidden_dim)}
         rank = get_option_int(
-            decl.options, "rank", line=decl.line, col=decl.col,
+            decl.options,
+            "rank",
+            line=decl.line,
+            col=decl.col,
         )
         if rank is not None:
             kwargs["rank"] = int(rank)
         temperature = get_option_float(
-            decl.options, "temperature", line=decl.line, col=decl.col,
+            decl.options,
+            "temperature",
+            line=decl.line,
+            col=decl.col,
         )
         if temperature is not None:
             kwargs["temperature"] = float(temperature)
         over = get_option_name_list(
-            decl.options, "over", line=decl.line, col=decl.col,
+            decl.options,
+            "over",
+            line=decl.line,
+            col=decl.col,
         )
         if family_name == "MatrixNormal" and over:
             if len(over) != 2:

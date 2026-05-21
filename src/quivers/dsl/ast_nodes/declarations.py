@@ -4,12 +4,12 @@ tagged union discriminates via the ``kind`` field.
 
 Sixteen Statement subclasses:
 
-* `CompositionDecl` 
+* `CompositionDecl`
 * `CategoryDecl`
 * `RuleDecl`
 * `SchemaDecl`
-* `ObjectDecl` 
-* `MorphismDecl` 
+* `ObjectDecl`
+* `MorphismDecl`
 * `BundleDecl`
 * `ContractionDecl`
 * `LetDecl`
@@ -64,12 +64,15 @@ from quivers.dsl.ast_nodes.objects import ObjectExpr
 # Statement root
 # ---------------------------------------------------------------------------
 
+
 class Statement(dx.TaggedUnion, discriminator="kind"):
     """Sum of top-level statement kinds."""
+
 
 # ---------------------------------------------------------------------------
 # composition
 # ---------------------------------------------------------------------------
+
 
 class CompositionRuleEntry(dx.Model):
     """One entry of a ``composition`` body block.
@@ -85,6 +88,7 @@ class CompositionRuleEntry(dx.Model):
     body: LetExprNode
     line: int = 0
     col: int = 0
+
 
 class CompositionDecl(Statement):
     """``composition NAME [at LEVEL] [: body]`` declaration.
@@ -102,9 +106,11 @@ class CompositionDecl(Statement):
     col: int = 0
     kind: Literal["composition_decl"] = "composition_decl"
 
+
 # ---------------------------------------------------------------------------
 # category
 # ---------------------------------------------------------------------------
+
 
 class CategoryDecl(Statement):
     """``category NAME, NAME, ...`` declaration."""
@@ -115,9 +121,11 @@ class CategoryDecl(Statement):
     col: int = 0
     kind: Literal["category_decl"] = "category_decl"
 
+
 # ---------------------------------------------------------------------------
 # rule (top-level CCG/Lambek)
 # ---------------------------------------------------------------------------
+
 
 class RuleDecl(Statement):
     """``rule NAME(variables) : premises => conclusion`` declaration.
@@ -135,9 +143,11 @@ class RuleDecl(Statement):
     col: int = 0
     kind: Literal["rule_decl"] = "rule_decl"
 
+
 # ---------------------------------------------------------------------------
 # schema (pattern-polymorphic morphism schema)
 # ---------------------------------------------------------------------------
+
 
 class SchemaParameter(dx.Model):
     """One ``names : type`` group inside a schema's parameter list."""
@@ -146,6 +156,7 @@ class SchemaParameter(dx.Model):
     type_expr: ObjectExpr
     line: int = 0
     col: int = 0
+
 
 class SchemaDecl(Statement):
     """``schema NAME(parameters) : DOM -> COD`` declaration."""
@@ -159,9 +170,11 @@ class SchemaDecl(Statement):
     col: int = 0
     kind: Literal["schema_decl"] = "schema_decl"
 
+
 # ---------------------------------------------------------------------------
 # type: collapses object / space / alias / type-alias
 # ---------------------------------------------------------------------------
+
 
 class TypeInitializer(dx.TaggedUnion, discriminator="kind"):
     """Sum of ``type NAME : VALUE`` value shapes.
@@ -170,6 +183,7 @@ class TypeInitializer(dx.TaggedUnion, discriminator="kind"):
     union.
     """
 
+
 class TypeEnumSet(TypeInitializer):
     """``type Atoms : {NP, S, VP}`` enum-set initializer."""
 
@@ -177,6 +191,7 @@ class TypeEnumSet(TypeInitializer):
     line: int = 0
     col: int = 0
     kind: Literal["type_enum_set"] = "type_enum_set"
+
 
 class TypeFreeResiduated(TypeInitializer):
     """``type Cat : FreeResiduated(Atoms, depth=4, ops=[/, \\])`` initializer."""
@@ -188,6 +203,7 @@ class TypeFreeResiduated(TypeInitializer):
     col: int = 0
     kind: Literal["type_free_residuated"] = "type_free_residuated"
 
+
 class TypeFreeMonoid(TypeInitializer):
     """``type Words : FreeMonoid(Atoms, max_length=N)`` initializer."""
 
@@ -196,6 +212,7 @@ class TypeFreeMonoid(TypeInitializer):
     line: int = 0
     col: int = 0
     kind: Literal["type_free_monoid"] = "type_free_monoid"
+
 
 class TypeFromExpr(TypeInitializer):
     """``type X : <type-expression>`` for every non-special-form value.
@@ -207,6 +224,7 @@ class TypeFromExpr(TypeInitializer):
 
     expr: ObjectExpr
     kind: Literal["type_from_expr"] = "type_from_expr"
+
 
 class ObjectDecl(Statement):
     """``type NAME : VALUE`` declaration.
@@ -225,6 +243,7 @@ class ObjectDecl(Statement):
     col: int = 0
     kind: Literal["object_decl"] = "object_decl"
 
+
 # ---------------------------------------------------------------------------
 # morphism: single keyword + ~ initializer
 # ---------------------------------------------------------------------------
@@ -242,6 +261,7 @@ prior), ``embed`` (FinSet -> ContinuousSpace boundary),
 declarations without ``role`` in their option block.
 """
 
+
 class MorphismInitFamily(dx.Model):
     """``~ Family(args)`` family-call initializer (e.g. ``~ Normal(0, 1)``)."""
 
@@ -249,6 +269,7 @@ class MorphismInitFamily(dx.Model):
     args: tuple[str | float, ...] = ()
     line: int = 0
     col: int = 0
+
 
 class MorphismDecl(Statement):
     """``morphism NAME : DOM -> COD [options] [~ init]``.
@@ -280,9 +301,11 @@ class MorphismDecl(Statement):
     col: int = 0
     kind: Literal["morphism_decl"] = "morphism_decl"
 
+
 # ---------------------------------------------------------------------------
 # bundle
 # ---------------------------------------------------------------------------
+
 
 class BundleDecl(Statement):
     """``bundle NAME = [rule1, rule2, ...]`` first-class schema bundle.
@@ -299,9 +322,11 @@ class BundleDecl(Statement):
     col: int = 0
     kind: Literal["bundle_decl"] = "bundle_decl"
 
+
 # ---------------------------------------------------------------------------
 # contraction
 # ---------------------------------------------------------------------------
+
 
 class ContractionInput(dx.Model):
     """One input wire of a `ContractionDecl` declaration."""
@@ -311,6 +336,7 @@ class ContractionInput(dx.Model):
     input_codomain: ObjectExpr
     line: int = 0
     col: int = 0
+
 
 class ContractionDecl(Statement):
     """``contraction NAME(inputs) : DOM -> COD [options]``.
@@ -335,9 +361,11 @@ class ContractionDecl(Statement):
     col: int = 0
     kind: Literal["contraction_decl"] = "contraction_decl"
 
+
 # ---------------------------------------------------------------------------
 # let / export
 # ---------------------------------------------------------------------------
+
 
 class LetDecl(Statement):
     """``let NAME = EXPR [where: nested-lets]`` value binding.
@@ -360,6 +388,7 @@ class LetDecl(Statement):
     col: int = 0
     kind: Literal["let_decl"] = "let_decl"
 
+
 class ExportDecl(Statement):
     """``export EXPR`` module-level export."""
 
@@ -369,9 +398,11 @@ class ExportDecl(Statement):
     col: int = 0
     kind: Literal["export_decl"] = "export_decl"
 
+
 # ---------------------------------------------------------------------------
 # deduction
 # ---------------------------------------------------------------------------
+
 
 class SequentRule(dx.Model):
     """A named sequent inside a deduction block.
@@ -405,6 +436,7 @@ class SequentRule(dx.Model):
     line: int = 0
     col: int = 0
 
+
 class LexiconCategory(dx.TaggedUnion, discriminator="kind"):
     """Category position in a lexicon entry. Three shapes:
 
@@ -418,22 +450,26 @@ class LexiconCategory(dx.TaggedUnion, discriminator="kind"):
       atoms; one learnable weight per listed atom.
     """
 
+
 class LexiconCategoryFixed(LexiconCategory):
     """``"the" : Det = the``."""
 
     category: ObjectExpr
     kind: Literal["fixed"] = "fixed"
 
+
 class LexiconCategoryWildcard(LexiconCategory):
     """``"bank" : * = bank``. Latent over the deduction's atom set."""
 
     kind: Literal["wildcard"] = "wildcard"
+
 
 class LexiconCategoryRestricted(LexiconCategory):
     """``"saw" : {V, N} = saw``. Latent over the listed atoms only."""
 
     atoms: tuple[str, ...]
     kind: Literal["restricted"] = "restricted"
+
 
 class LexiconEntry(dx.Model):
     """A single entry in a deduction's lexicon block."""
@@ -444,6 +480,7 @@ class LexiconEntry(dx.Model):
     options: tuple[OptionEntry, ...] = ()
     line: int = 0
     col: int = 0
+
 
 class DeductionDecl(Statement):
     """``deduction NAME : DOM -> COD [options] : body``.
@@ -468,9 +505,11 @@ class DeductionDecl(Statement):
     col: int = 0
     kind: Literal["deduction_decl"] = "deduction_decl"
 
+
 # ---------------------------------------------------------------------------
 # signature
 # ---------------------------------------------------------------------------
+
 
 class SignatureDecl(Statement):
     """``signature NAME[(params)] : body``."""
@@ -487,9 +526,11 @@ class SignatureDecl(Statement):
     col: int = 0
     kind: Literal["signature_decl"] = "signature_decl"
 
+
 # ---------------------------------------------------------------------------
 # encoder / decoder / loss
 # ---------------------------------------------------------------------------
+
 
 class EncoderDecl(Statement):
     """``encoder NAME : SIG[(sig_args)] [options] [: body]``.
@@ -517,6 +558,7 @@ class EncoderDecl(Statement):
     col: int = 0
     kind: Literal["encoder_decl"] = "encoder_decl"
 
+
 class DecoderDecl(Statement):
     """``decoder NAME : SIG[(sig_args)] [options] : body``."""
 
@@ -539,6 +581,7 @@ class DecoderDecl(Statement):
     col: int = 0
     kind: Literal["decoder_decl"] = "decoder_decl"
 
+
 class LossDecl(Statement):
     """``loss NAME [options] : body``.
 
@@ -557,12 +600,15 @@ class LossDecl(Statement):
     col: int = 0
     kind: Literal["loss_decl"] = "loss_decl"
 
+
 # ---------------------------------------------------------------------------
 # program
 # ---------------------------------------------------------------------------
 
+
 class ProgramParam(dx.TaggedUnion, discriminator="kind"):
     """Sum of typed-program-parameter variants (parametric programs)."""
+
 
 class ObjectParam(ProgramParam):
     """Object-typed program parameter: ``G : FinSet`` / ``Space`` / ``Object``."""
@@ -573,6 +619,7 @@ class ObjectParam(ProgramParam):
     col: int = 0
     kind: Literal["object_param"] = "object_param"
 
+
 class ScalarParam(ProgramParam):
     """Scalar-typed program parameter: ``s : Real`` / ``Nat``."""
 
@@ -581,6 +628,7 @@ class ScalarParam(ProgramParam):
     line: int = 0
     col: int = 0
     kind: Literal["scalar_param"] = "scalar_param"
+
 
 class MorphismParam(ProgramParam):
     """Morphism-typed program parameter: ``f : Mor[A, B]``."""
@@ -591,6 +639,7 @@ class MorphismParam(ProgramParam):
     line: int = 0
     col: int = 0
     kind: Literal["morphism_param"] = "morphism_param"
+
 
 class ProgramDecl(Statement):
     """``program NAME[(params)] : DOM -> COD [options] : body``.
@@ -614,6 +663,7 @@ class ProgramDecl(Statement):
     line: int = 0
     col: int = 0
     kind: Literal["program_decl"] = "program_decl"
+
 
 __all__ = [
     "BundleDecl",

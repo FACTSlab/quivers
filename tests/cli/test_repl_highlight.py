@@ -152,6 +152,8 @@ def test_doc_comment_classification() -> None:
 
 
 def test_operator_classification() -> None:
-    pairs = _classify(tokenize("object X : FinSet 3\nmorphism f : X -> X [role=latent]"))
+    pairs = _classify(
+        tokenize("object X : FinSet 3\nmorphism f : X -> X [role=latent]")
+    )
     operators = {p[1] for p in pairs if p[0] == "operator"}
     assert "->" in operators

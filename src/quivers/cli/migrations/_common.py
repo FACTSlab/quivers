@@ -148,8 +148,13 @@ def _walk_vertex(
         incoming.setdefault(child.vid, []).append(edge_obj)
         between.setdefault((vertex.vid, child.vid), []).append(edge_obj)
         _walk_vertex(
-            child, vertices, edges, constraints,
-            outgoing, incoming, between,
+            child,
+            vertices,
+            edges,
+            constraints,
+            outgoing,
+            incoming,
+            between,
         )
 
 
@@ -165,8 +170,7 @@ def _build_schema_json(protocol_name: str, root: Vertex) -> str:
     _walk_vertex(root, vertices, edges, constraints, outgoing, incoming, between)
 
     between_list = [
-        [[src, tgt], edge_list]
-        for (src, tgt), edge_list in between.items()
+        [[src, tgt], edge_list] for (src, tgt), edge_list in between.items()
     ]
 
     envelope = {
@@ -239,7 +243,7 @@ class SchemaView:
         eb = c.get("end-byte")
         if sb is None or eb is None:
             return ""
-        return self.source[int(sb):int(eb)].decode("utf-8")
+        return self.source[int(sb) : int(eb)].decode("utf-8")
 
     def field(self, parent_vid: str, name: str) -> str | None:
         for edge in self._outgoing.get(parent_vid, []):
@@ -257,8 +261,7 @@ class SchemaView:
 
     def positional(self, parent_vid: str) -> list[str]:
         kids = [
-            e.tgt for e in self._outgoing.get(parent_vid, [])
-            if e.kind == "child_of"
+            e.tgt for e in self._outgoing.get(parent_vid, []) if e.kind == "child_of"
         ]
         kids.sort(key=lambda vid: int(self.consts(vid).get("start-byte", "0")))
         return kids
@@ -269,7 +272,9 @@ class SchemaView:
         return self.positional(_SOURCE_FILE_VID)
 
     def body_children(
-        self, parent_vid: str, header_fields: frozenset[str],
+        self,
+        parent_vid: str,
+        header_fields: frozenset[str],
     ) -> list[tuple[str, str]]:
         """Return ``(edge_kind, target_vid)`` pairs for every
         outgoing edge of ``parent_vid`` whose ``edge.kind`` is NOT
@@ -291,7 +296,9 @@ class SchemaView:
         return items
 
     def list_children(
-        self, parent_vid: str, item_edge_kind: str,
+        self,
+        parent_vid: str,
+        item_edge_kind: str,
     ) -> list[tuple[str, str, str]]:
         """Walk the outgoing edges of a bracketed-list vertex in
         document order. Returns ``(role, kind, target_vid)`` triples
@@ -372,9 +379,7 @@ def emit_bracketed_list(
 
     if not has_comments:
         items_text = ", ".join(
-            item_emitter(view, vid)
-            for role, _kind, vid in children
-            if role == "item"
+            item_emitter(view, vid) for role, _kind, vid in children if role == "item"
         )
         return f"{open_char}{items_text}{close_char}"
 
@@ -420,8 +425,7 @@ def parse_template(target_rev: str, template_source: str) -> Vertex:
     top = view.top_level_decls()
     if not top:
         raise ValueError(
-            f"template_source did not parse as any top-level decl: "
-            f"{template_source!r}",
+            f"template_source did not parse as any top-level decl: {template_source!r}",
         )
     vids = VidGen()
     return clone_vertex(view, top[0], vids)
@@ -500,6 +504,7 @@ def _blame_unknown_kind(kind: str) -> str:
     string if the lookup fails (e.g. VCS unavailable)."""
     try:
         from quivers.cli.migrations._vcs import blame_kind
+
         report = blame_kind(kind)
     except Exception:
         return ""
@@ -600,6 +605,7 @@ def migrate_source(
             blame_msg = _blame_unknown_kind(kind)
             if blame_msg:
                 import sys
+
                 print(
                     f"qvr migrate [{source_rev} -> {target_rev}]: "
                     f"no converter for {kind!r}. {blame_msg}",

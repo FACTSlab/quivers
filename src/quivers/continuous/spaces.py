@@ -500,9 +500,7 @@ class Stiefel(ContinuousSpace):
         # Haar-on-Stiefel via thin QR of a standard Gaussian (Mezzadri
         # again, restricted to the first K columns).
         if self.cols > self.rows:
-            raise ValueError(
-                f"Stiefel cols={self.cols} must be <= rows={self.rows}"
-            )
+            raise ValueError(f"Stiefel cols={self.cols} must be <= rows={self.rows}")
         z = torch.randn(n, self.rows, self.cols)
         q, r = torch.linalg.qr(z)
         d = torch.sign(torch.diagonal(r, dim1=-2, dim2=-1))
@@ -579,9 +577,7 @@ class Diagonal(ContinuousSpace):
     def sample_uniform(self, n: int) -> torch.Tensor:
         # No canonical "uniform" on the unbounded line; bail with a
         # clear error so users opt in to a specific prior family.
-        raise NotImplementedError(
-            "Diagonal has no uniform measure on unbounded ℝ^D"
-        )
+        raise NotImplementedError("Diagonal has no uniform measure on unbounded ℝ^D")
 
     def __str__(self) -> str:
         return f"Diagonal({self.name!r}, {self.dim})"

@@ -78,26 +78,33 @@ def main() -> int:
         help="Migrate .qvr source files between tagged grammar revisions.",
     )
     migrate.add_argument(
-        "--from", dest="from_ref", default=None,
+        "--from",
+        dest="from_ref",
+        default=None,
         help="Source grammar revision (git tag or commit id). "
         "Defaults to the most recent tagged release on the chain.",
     )
     migrate.add_argument(
-        "--to", dest="to_ref", default=None,
+        "--to",
+        dest="to_ref",
+        default=None,
         help="Target grammar revision. Defaults to the upcoming "
         "release (last entry on the chain).",
     )
     migrate.add_argument(
-        "--dry-run", action="store_true",
+        "--dry-run",
+        action="store_true",
         help="Report what would change without writing output.",
     )
     migrate.add_argument(
-        "--output", default=None,
+        "--output",
+        default=None,
         help="Write migrated files under this directory rather than "
         "overwriting in place.",
     )
     migrate.add_argument(
-        "--check", action="store_true",
+        "--check",
+        action="store_true",
         help="Validate the migration chain against the panproto "
         "VCS schema diff: report any rule removed in an adjacent "
         "grammar revision that the corresponding hop migrator has "
@@ -105,7 +112,9 @@ def main() -> int:
         "uncovered removals. Does not migrate any files.",
     )
     migrate.add_argument(
-        "paths", nargs="*", help=".qvr files or directories to migrate.",
+        "paths",
+        nargs="*",
+        help=".qvr files or directories to migrate.",
     )
 
     kernel = sub.add_parser(

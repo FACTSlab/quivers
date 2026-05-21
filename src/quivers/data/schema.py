@@ -241,7 +241,9 @@ def compose(qvr_body: str, schema: DatasetSchema, **kwargs):
     for _, obj_name in sorted(schema.objects.items(), key=lambda kv: kv[1]):
         if obj_name in body_declares:
             continue
-        prelude_lines.append(f"object {obj_name} : FinSet {schema.cardinalities[obj_name]}")
+        prelude_lines.append(
+            f"object {obj_name} : FinSet {schema.cardinalities[obj_name]}"
+        )
     prelude = "\n".join(prelude_lines)
     if prelude:
         prelude += "\n\n"

@@ -226,7 +226,8 @@ morphism f : A -> B [role=latent]
     ],
 )
 def test_algebra_only_ops_rejected_under_semigroupoid(
-    expr: str, op_name: str,
+    expr: str,
+    op_name: str,
 ) -> None:
     src = (
         _NON_ALGEBRA_HEADER

@@ -109,9 +109,7 @@ def _emit_type_init(init: TypeInitializer) -> str:
     if isinstance(init, TypeEnumSet):
         return "{" + ", ".join(init.elements) + "}"
     if isinstance(init, TypeFreeMonoid):
-        return (
-            f"FreeMonoid({init.generators}, max_length={init.max_length})"
-        )
+        return f"FreeMonoid({init.generators}, max_length={init.max_length})"
     if isinstance(init, TypeFreeResiduated):
         body = init.generators
         if init.depth != 1:
@@ -134,9 +132,7 @@ def _emit_type(t: ObjectExpr) -> str:
     if isinstance(t, ObjectCoproduct):
         return " + ".join(_emit_type(c) for c in t.components)
     if isinstance(t, ObjectSlash):
-        return (
-            f"{_emit_type(t.result)} {t.direction} {_emit_type(t.argument)}"
-        )
+        return f"{_emit_type(t.result)} {t.direction} {_emit_type(t.argument)}"
     if isinstance(t, ObjectEffectApply):
         args = ", ".join(_emit_type(a) for a in t.args)
         return f"{t.effect}({args})"
@@ -154,9 +150,7 @@ def _emit_type(t: ObjectExpr) -> str:
             opts = ", ".join(f"{k}={v}" for k, v in t.kwargs.items())
             return f"{head} [{opts}]"
         return head
-    raise NotImplementedError(
-        f"emit: type expression {type(t).__name__} not supported"
-    )
+    raise NotImplementedError(f"emit: type expression {type(t).__name__} not supported")
 
 
 # ---------------------------------------------------------------------------
@@ -237,8 +231,7 @@ def _emit_return(decl: ProgramDecl) -> str:
             return decl.return_vars[0]
         return "(" + ", ".join(decl.return_vars) + ")"
     pairs = ", ".join(
-        f"{lab}: {var}"
-        for lab, var in zip(decl.return_labels, decl.return_vars)
+        f"{lab}: {var}" for lab, var in zip(decl.return_labels, decl.return_vars)
     )
     return f"({pairs})"
 
@@ -252,14 +245,9 @@ def _emit_program_step(step: ProgramStep, *, indent: int = 1) -> list[str]:
         morphism = step.morphism
         if step.args is not None:
             morphism = (
-                f"{step.morphism}("
-                + ", ".join(_emit_arg(a) for a in step.args)
-                + ")"
+                f"{step.morphism}(" + ", ".join(_emit_arg(a) for a in step.args) + ")"
             )
-        return [
-            f"{pad}sample {binder} <- {morphism}"
-            f"{_emit_options(step.options)}"
-        ]
+        return [f"{pad}sample {binder} <- {morphism}{_emit_options(step.options)}"]
     if isinstance(step, ObserveStep):
         binder = step.var
         if step.index is not None:
@@ -267,14 +255,9 @@ def _emit_program_step(step: ProgramStep, *, indent: int = 1) -> list[str]:
         morphism = step.morphism
         if step.args is not None:
             morphism = (
-                f"{step.morphism}("
-                + ", ".join(_emit_arg(a) for a in step.args)
-                + ")"
+                f"{step.morphism}(" + ", ".join(_emit_arg(a) for a in step.args) + ")"
             )
-        return [
-            f"{pad}observe {binder} <- {morphism}"
-            f"{_emit_options(step.options)}"
-        ]
+        return [f"{pad}observe {binder} <- {morphism}{_emit_options(step.options)}"]
     if isinstance(step, MarginalizeStep):
         binder = step.var
         if step.index is not None:
@@ -282,14 +265,9 @@ def _emit_program_step(step: ProgramStep, *, indent: int = 1) -> list[str]:
         morphism = step.morphism
         if step.args is not None:
             morphism = (
-                f"{step.morphism}("
-                + ", ".join(_emit_arg(a) for a in step.args)
-                + ")"
+                f"{step.morphism}(" + ", ".join(_emit_arg(a) for a in step.args) + ")"
             )
-        head = (
-            f"{pad}marginalize {binder} <- {morphism}"
-            f"{_emit_options(step.options)}:"
-        )
+        head = f"{pad}marginalize {binder} <- {morphism}{_emit_options(step.options)}:"
         nested = [head]
         for inner in step.scope:
             nested.extend(_emit_program_step(inner, indent=indent + 1))
@@ -298,9 +276,7 @@ def _emit_program_step(step: ProgramStep, *, indent: int = 1) -> list[str]:
         return [f"{pad}let {step.name} = {_emit_let_expr(step.value)}"]
     if isinstance(step, ReturnStep):
         return [f"{pad}return {_emit_var_pattern(step.vars)}"]
-    raise NotImplementedError(
-        f"emit: program step {type(step).__name__} not supported"
-    )
+    raise NotImplementedError(f"emit: program step {type(step).__name__} not supported")
 
 
 def _emit_var_pattern(names: tuple[str, ...]) -> str:
@@ -336,13 +312,8 @@ def _emit_expr(e: Expr) -> str:
     if isinstance(e, ExprTensorProduct):
         return f"{_emit_expr(e.left)} @ {_emit_expr(e.right)}"
     if isinstance(e, ExprChangeBase):
-        return (
-            f"{_emit_expr(e.inner)}"
-            f".change_base({_emit_expr(e.transform)})"
-        )
-    raise NotImplementedError(
-        f"emit: expression {type(e).__name__} not supported"
-    )
+        return f"{_emit_expr(e.inner)}.change_base({_emit_expr(e.transform)})"
+    raise NotImplementedError(f"emit: expression {type(e).__name__} not supported")
 
 
 def _emit_let_expr(e: LetExprNode) -> str:
@@ -353,9 +324,7 @@ def _emit_let_expr(e: LetExprNode) -> str:
     if isinstance(e, LetExprString):
         return f'"{e.value}"'
     if isinstance(e, LetExprBinOp):
-        return (
-            f"({_emit_let_expr(e.left)} {e.op} {_emit_let_expr(e.right)})"
-        )
+        return f"({_emit_let_expr(e.left)} {e.op} {_emit_let_expr(e.right)})"
     if isinstance(e, LetExprUnaryOp):
         return f"-{_emit_let_expr(e.operand)}"
     if isinstance(e, LetExprCall):
@@ -364,9 +333,7 @@ def _emit_let_expr(e: LetExprNode) -> str:
     if isinstance(e, LetExprIndex):
         idx = ", ".join(_emit_let_expr(i) for i in e.indices)
         return f"{_emit_let_expr(e.array)}[{idx}]"
-    raise NotImplementedError(
-        f"emit: let-expression {type(e).__name__} not supported"
-    )
+    raise NotImplementedError(f"emit: let-expression {type(e).__name__} not supported")
 
 
 __all__ = ["module_to_source"]

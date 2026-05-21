@@ -1312,7 +1312,11 @@ def _auto_register_inline(spec: FamilySpec) -> None:
     if spec.name in _FIXED_FACTORIES or spec.name in _FAMILY_BUILDERS:
         return  # hand-written entry takes precedence
     if spec.output_kind not in {
-        "independent", "categorical", "vector", "mvn", "matrix",
+        "independent",
+        "categorical",
+        "vector",
+        "mvn",
+        "matrix",
     }:
         return
     if spec.output_kind == "independent":

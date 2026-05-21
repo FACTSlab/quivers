@@ -137,7 +137,9 @@ def _build_locator(
 def _make_normal_prior_morphism(scale: float, dim: int = 1) -> "FixedDistribution":
     cod = Euclidean(name=f"R{dim}" if dim > 1 else "R", dim=dim)
 
-    def _make(batch: int, device: torch.device, _scale: float = scale, _dim: int = dim) -> D.Distribution:
+    def _make(
+        batch: int, device: torch.device, _scale: float = scale, _dim: int = dim
+    ) -> D.Distribution:
         loc = torch.zeros(batch, _dim, device=device)
         sc = torch.full((batch, _dim), float(_scale), device=device)
         return D.Normal(loc, sc)
@@ -345,17 +347,21 @@ def bayesian_lift_parameters(
 
     steps: list[tuple] = []
     for site, dim in zip(param_sites, flat_dims):
-        steps.append((
-            (site,),
-            _make_normal_prior_morphism(prior_scale, dim=dim),
-            None,
-        ))
+        steps.append(
+            (
+                (site,),
+                _make_normal_prior_morphism(prior_scale, dim=dim),
+                None,
+            )
+        )
     for site, dim in zip(latent_sites, latent_flat_dims):
-        steps.append((
-            (site,),
-            _make_normal_prior_morphism(latent_placeholder_scale, dim=dim),
-            None,
-        ))
+        steps.append(
+            (
+                (site,),
+                _make_normal_prior_morphism(latent_placeholder_scale, dim=dim),
+                None,
+            )
+        )
 
     placeholder_scale_f = float(latent_placeholder_scale)
 
@@ -387,10 +393,15 @@ def bayesian_lift_parameters(
                 latent_dict[name] = (
                     flat_b.reshape(shape) if shape else flat_b.reshape(())
                 )
-                placeholder_log_prior = placeholder_log_prior + D.Normal(
-                    torch.zeros_like(flat_b),
-                    torch.full_like(flat_b, _placeholder_scale),
-                ).log_prob(flat_b).sum()
+                placeholder_log_prior = (
+                    placeholder_log_prior
+                    + D.Normal(
+                        torch.zeros_like(flat_b),
+                        torch.full_like(flat_b, _placeholder_scale),
+                    )
+                    .log_prob(flat_b)
+                    .sum()
+                )
             with _swap_named_parameters(_locator, overrides):
                 merged_obs = {**_inner_obs, **latent_dict}
                 ll = inner_log_joint(_inner_x, merged_obs)
@@ -533,13 +544,18 @@ def lift_to_bayesian_program(
                     object.__setattr__(self, attr, v)
 
         def log_joint(
-            self, x_in: torch.Tensor, obs: dict[str, torch.Tensor],
+            self,
+            x_in: torch.Tensor,
+            obs: dict[str, torch.Tensor],
         ) -> torch.Tensor:
             return _score_against_family(x_in, obs)
 
     wrapped = _ParameterModuleWithObservation()
     return bayesian_lift_parameters(
-        wrapped, x, observations, prior_scale=parameter_prior_scale,
+        wrapped,
+        x,
+        observations,
+        prior_scale=parameter_prior_scale,
     )
 
 
@@ -607,8 +623,12 @@ def lift_from_log_prob(
                     object.__setattr__(self, attr, v)
 
         def log_joint(
-            self, x_in: torch.Tensor, obs: dict[str, torch.Tensor],
-            _log_prob_fn: Callable[[torch.Tensor, torch.Tensor], torch.Tensor] = log_prob_fn,
+            self,
+            x_in: torch.Tensor,
+            obs: dict[str, torch.Tensor],
+            _log_prob_fn: Callable[
+                [torch.Tensor, torch.Tensor], torch.Tensor
+            ] = log_prob_fn,
             _key: str = target_key,
         ) -> torch.Tensor:
             lp = _log_prob_fn(x_in, obs[_key])
@@ -618,7 +638,10 @@ def lift_from_log_prob(
 
     wrapped = _LogProbWithBayesianPriors()
     return bayesian_lift_parameters(
-        wrapped, x, observations, prior_scale=parameter_prior_scale,
+        wrapped,
+        x,
+        observations,
+        prior_scale=parameter_prior_scale,
     )
 
 
@@ -710,9 +733,7 @@ def monte_carlo_log_joint(
         Exposes ``log_joint(x, observations) -> Tensor``.
     """
     if not all(isinstance(name, str) for name in sample_sites):
-        raise TypeError(
-            "monte_carlo_log_joint: sample_sites must be a list of strings"
-        )
+        raise TypeError("monte_carlo_log_joint: sample_sites must be a list of strings")
 
     class _MCLogJoint(nn.Module):
         def __init__(self, _inner: nn.Module = inner_model) -> None:

@@ -21,6 +21,7 @@ _DECL_CONVERTERS: dict[str, DeclConverter] = {}
 def migrate(source: bytes) -> bytes:
     return migrate_source(source, "v0.2.0", "v0.3.0", _DECL_CONVERTERS)
 
+
 # Identity hop or no converters declared yet. The chain-coverage
 # check will flag every removed source rule as uncovered until
 # the hop's converters are written.

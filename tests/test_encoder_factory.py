@@ -50,18 +50,14 @@ class TestRegisteredFactories:
         assert "enc" in prog.encoders
 
     def test_rnn_encoder_with_dim_override(self):
-        src = _wrap(
-            SEQ_SIG + "\nencoder enc : seq [factory=rnn_encoder, dim=128]\n"
-        )
+        src = _wrap(SEQ_SIG + "\nencoder enc : seq [factory=rnn_encoder, dim=128]\n")
         prog = loads(textwrap.dedent(src))
         # The GRU's hidden size should match the override.
         cell = prog.encoders["enc"]._op_0  # GRUCell
         assert cell.hidden_size == 128
 
     def test_transformer_encoder_factory(self):
-        src = _wrap(
-            SEQ_SIG + "\nencoder enc : seq [factory=transformer_encoder]\n"
-        )
+        src = _wrap(SEQ_SIG + "\nencoder enc : seq [factory=transformer_encoder]\n")
         prog = loads(textwrap.dedent(src))
         assert "enc" in prog.encoders
 
@@ -73,16 +69,13 @@ class TestRegisteredFactories:
 
 class TestUnknownNames:
     def test_unknown_factory_lists_choices(self):
-        src = _wrap(
-            SEQ_SIG + "\nencoder enc : seq [factory=fictitious_encoder]\n"
-        )
+        src = _wrap(SEQ_SIG + "\nencoder enc : seq [factory=fictitious_encoder]\n")
         with pytest.raises(CompileError, match="unknown factory|available:"):
             loads(textwrap.dedent(src))
 
     def test_unknown_option_lists_factory_params(self):
         src = _wrap(
-            SEQ_SIG
-            + "\nencoder enc : seq [factory=rnn_encoder, no_such_option=42]\n"
+            SEQ_SIG + "\nencoder enc : seq [factory=rnn_encoder, no_such_option=42]\n"
         )
         with pytest.raises(CompileError, match="does not accept option"):
             loads(textwrap.dedent(src))

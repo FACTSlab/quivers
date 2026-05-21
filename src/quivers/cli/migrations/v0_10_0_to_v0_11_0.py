@@ -243,7 +243,9 @@ def _replicate_count_text(view: SchemaView, rep_vid: str | None) -> str | None:
 
 
 def _morphism_text(
-    view: SchemaView, src_vid: str, role: str,
+    view: SchemaView,
+    src_vid: str,
+    role: str,
 ) -> str:
     name_vid = view.field(src_vid, "name")
     domain_vid = view.field(src_vid, "domain")
@@ -302,9 +304,7 @@ def _convert_discretize_decl(view: SchemaView, src_vid: str) -> str:
     existing = _option_block_text(view, options_vid)
     if existing:
         opts.append(existing)
-    return (
-        f"morphism {name} : {space} -> _Bins_{bins} [{', '.join(opts)}]\n"
-    )
+    return f"morphism {name} : {space} -> _Bins_{bins} [{', '.join(opts)}]\n"
 
 
 # ---------------------------------------------------------------------------
@@ -346,14 +346,10 @@ def _bind_step_text(view: SchemaView, step_vid: str) -> str:
     axes_vid = view.field(step_vid, "axes")
 
     vars_s = view.text(vars_vid) if vars_vid else "?"
-    index_s = (
-        f" : {_type_expr_text(view, index_vid)}"
-        if index_vid is not None else ""
-    )
+    index_s = f" : {_type_expr_text(view, index_vid)}" if index_vid is not None else ""
     morphism = view.text(morphism_vid) if morphism_vid else "?"
     args_s = (
-        "(" + ", ".join(_draw_arg_text(view, a) for a in args) + ")"
-        if args else ""
+        "(" + ", ".join(_draw_arg_text(view, a) for a in args) + ")" if args else ""
     )
     out = f"sample {vars_s}{index_s} <- {morphism}{args_s}"
     axes_opts = _axis_role_options(view, axes_vid)
@@ -371,14 +367,10 @@ def _observe_step_text(view: SchemaView, step_vid: str) -> str:
     axes_vid = view.field(step_vid, "axes")
 
     var_s = view.text(var_vid) if var_vid else "?"
-    index_s = (
-        f" : {_type_expr_text(view, index_vid)}"
-        if index_vid is not None else ""
-    )
+    index_s = f" : {_type_expr_text(view, index_vid)}" if index_vid is not None else ""
     morphism = view.text(morphism_vid) if morphism_vid else "?"
     args_s = (
-        "(" + ", ".join(_draw_arg_text(view, a) for a in args) + ")"
-        if args else ""
+        "(" + ", ".join(_draw_arg_text(view, a) for a in args) + ")" if args else ""
     )
     opts: list[str] = []
     if via_vid is not None:
@@ -400,7 +392,9 @@ def _let_step_text(view: SchemaView, step_vid: str) -> str:
 
 
 def _marginalize_step_text(
-    view: SchemaView, step_vid: str, indent: str,
+    view: SchemaView,
+    step_vid: str,
+    indent: str,
 ) -> str:
     var_vid = view.field(step_vid, "var")
     index_vid = view.field(step_vid, "index")
@@ -410,14 +404,10 @@ def _marginalize_step_text(
     reduction_vid = view.field(step_vid, "reduction")
 
     var_s = view.text(var_vid) if var_vid else "?"
-    index_s = (
-        f" : {_type_expr_text(view, index_vid)}"
-        if index_vid is not None else ""
-    )
+    index_s = f" : {_type_expr_text(view, index_vid)}" if index_vid is not None else ""
     morphism = view.text(morphism_vid) if morphism_vid else "?"
     args_s = (
-        "(" + ", ".join(_draw_arg_text(view, a) for a in args) + ")"
-        if args else ""
+        "(" + ", ".join(_draw_arg_text(view, a) for a in args) + ")" if args else ""
     )
     opts: list[str] = []
     if over_vid is not None:
@@ -426,14 +416,19 @@ def _marginalize_step_text(
         opts.append(f"reduction={view.text(reduction_vid)}")
     opts_str = f" [{', '.join(opts)}]" if opts else ""
 
-    header = (
-        f"marginalize {var_s}{index_s} <- {morphism}{args_s}{opts_str}"
-    )
+    header = f"marginalize {var_s}{index_s} <- {morphism}{args_s}{opts_str}"
     inner_indent = indent + "    "
-    HEADER = frozenset({
-        "var", "index", "morphism", "args", "over",
-        "reduction", "options",
-    })
+    HEADER = frozenset(
+        {
+            "var",
+            "index",
+            "morphism",
+            "args",
+            "over",
+            "reduction",
+            "options",
+        }
+    )
     body_lines: list[str] = []
     for _edge_kind, child_vid in view.body_children(step_vid, HEADER):
         child_kind = view.kind(child_vid)
@@ -448,7 +443,9 @@ def _marginalize_step_text(
 
 
 def _program_step_text(
-    view: SchemaView, step_vid: str, indent: str = "",
+    view: SchemaView,
+    step_vid: str,
+    indent: str = "",
 ) -> str:
     kind = view.kind(step_vid)
     if kind == "bind_step":
@@ -471,10 +468,7 @@ def _convert_program_decl(view: SchemaView, src_vid: str) -> str:
     effects = view.fields(src_vid, "effects")
 
     name = view.text(name_vid) if name_vid else ""
-    params_str = (
-        "(" + ", ".join(view.text(p) for p in params) + ")"
-        if params else ""
-    )
+    params_str = "(" + ", ".join(view.text(p) for p in params) + ")" if params else ""
     domain = _type_expr_text(view, domain_vid) if domain_vid else ""
     codomain = _type_expr_text(view, codomain_vid) if codomain_vid else ""
 
@@ -486,18 +480,23 @@ def _convert_program_decl(view: SchemaView, src_vid: str) -> str:
         opts.append(f"over_model={view.text(over_model_vid)}")
     opts_str = f" [{', '.join(opts)}]" if opts else ""
 
-    header = (
-        f"program {name}{params_str} : {domain} -> {codomain}{opts_str}"
-    )
+    header = f"program {name}{params_str} : {domain} -> {codomain}{opts_str}"
 
     # Walk every non-header child in document order; this picks up
     # ``steps`` (program steps), ``return`` (the return step), and
     # any ``child_of`` extras (``line_comment``/``doc_comment``)
     # the parser attached to the program_decl vertex.
-    HEADER = frozenset({
-        "docs", "name", "params", "domain", "codomain",
-        "options", "over_model",
-    })
+    HEADER = frozenset(
+        {
+            "docs",
+            "name",
+            "params",
+            "domain",
+            "codomain",
+            "options",
+            "over_model",
+        }
+    )
     body_lines: list[str] = []
     for edge_kind, child_vid in view.body_children(src_vid, HEADER):
         child_kind = view.kind(child_vid)
@@ -525,7 +524,7 @@ def _lexicon_entry_text(view: SchemaView, entry_vid: str) -> str:
     cat_vid = view.field(entry_vid, "category")
     lf_vid = view.field(entry_vid, "lf")
     learnable_vid = view.field(entry_vid, "learnable")
-    word = view.text(word_vid) if word_vid else "\"\""
+    word = view.text(word_vid) if word_vid else '""'
     cat = _type_expr_text(view, cat_vid) if cat_vid else ""
     lf = _flatten_inline(view.text(lf_vid)) if lf_vid else ""
     out = f"{word} : {cat} = {lf}"
@@ -559,9 +558,7 @@ def _convert_deduction_decl(view: SchemaView, src_vid: str) -> str:
             concl_vid = view.field(child_vid, "conclusion")
             rname = view.text(rname_vid) if rname_vid else "?"
             prems_s = ", ".join(_type_expr_text(view, p) for p in prems)
-            concl_s = (
-                _type_expr_text(view, concl_vid) if concl_vid else "?"
-            )
+            concl_s = _type_expr_text(view, concl_vid) if concl_vid else "?"
             body_lines.append(f"    rule {rname} : {prems_s} |- {concl_s}")
         elif ck == "deduction_semiring":
             v = view.field(child_vid, "semiring")
@@ -635,53 +632,76 @@ _DECL_CONVERTERS: dict[str, DeclConverter] = {
 # to verify that every rule removed in the panproto schema diff
 # between this hop's source and target has a corresponding handler
 # here.
-SOURCE_RULE_COVERAGE: frozenset[str] = frozenset(_DECL_CONVERTERS.keys()) | frozenset({
-    # Type-expression subtree: the migrator's ``_type_expr_text``
-    # walks and re-emits every shape under the homogenized names.
-    "type_atom", "type_paren", "type_product", "type_coproduct",
-    "type_slash", "type_effect_apply",
-    "space_atom", "space_constructor", "space_constructor_bare",
-    "space_product", "space_kwarg", "space_decl",
-    # Object-initializer subtree (used inside ``object_decl`` body).
-    "_object_initializer",
-    # Type-alias decl is handled via `_convert_type_alias_decl`.
-    "type_alias_decl", "alias_decl",
-    # Morphism family: latent/observed/kernel/embed/discretize
-    # collapse onto ``morphism_decl [role=...]``.
-    "kernel_decl", "embed_decl", "discretize_decl",
-    # Algebra/semigroupoid/bilinear_form/composition_rule -> ``composition``.
-    "algebra_decl",
-    # Axis-role clause: hoisted into the option block as
-    # ``[over=..., iid_over=...]`` by the bind/observe/marginalize
-    # / morphism emitters.
-    "axis_role_clause", "axis_tuple", "_axis_list",
-    # bind_step gains a ``sample`` keyword (becomes ``sample_step``
-    # in HEAD vocabulary).
-    "bind_step",
-    # Via-spec on observe_step encoded as ``[via=...]`` option.
-    "_via_spec", "via_product",
-    # Replicate count is hoisted to ``[repeat=N]``.
-    "replicate_count",
-    # Deduction body metadata hoisted into the header option block.
-    "deduction_semiring", "deduction_start", "deduction_depth",
-    "deduction_signature", "deduction_encoder_attach",
-    "deduction_axioms",
-    # ``@ learnable`` lexicon marker -> ``[learnable]`` option.
-    "learnable_marker",
-    # Composition-rule body (inline ``{tensor_op = ..., join = ..., unit = ...}``)
-    # preserved verbatim in the algebra_decl converter.
-    "composition_rule_block",
-    # Contraction wiring annotations (rare). Currently passed through
-    # via the option block.
-    "contraction_wiring_einsum", "contraction_wiring_share",
-    # Morphism prior clause (``~ Family(args) [options]``) absorbed
-    # into morphism_decl's ``~`` initializer.
-    "morphism_prior",
-    # Loss attachment metadata (rare).
-    "loss_attachment", "loss_attachment_kind",
-    # Helper anonymous types referenced only inside their parent.
-    "_type_expr", "_space_expr", "_space_arg",
-})
+SOURCE_RULE_COVERAGE: frozenset[str] = frozenset(_DECL_CONVERTERS.keys()) | frozenset(
+    {
+        # Type-expression subtree: the migrator's ``_type_expr_text``
+        # walks and re-emits every shape under the homogenized names.
+        "type_atom",
+        "type_paren",
+        "type_product",
+        "type_coproduct",
+        "type_slash",
+        "type_effect_apply",
+        "space_atom",
+        "space_constructor",
+        "space_constructor_bare",
+        "space_product",
+        "space_kwarg",
+        "space_decl",
+        # Object-initializer subtree (used inside ``object_decl`` body).
+        "_object_initializer",
+        # Type-alias decl is handled via `_convert_type_alias_decl`.
+        "type_alias_decl",
+        "alias_decl",
+        # Morphism family: latent/observed/kernel/embed/discretize
+        # collapse onto ``morphism_decl [role=...]``.
+        "kernel_decl",
+        "embed_decl",
+        "discretize_decl",
+        # Algebra/semigroupoid/bilinear_form/composition_rule -> ``composition``.
+        "algebra_decl",
+        # Axis-role clause: hoisted into the option block as
+        # ``[over=..., iid_over=...]`` by the bind/observe/marginalize
+        # / morphism emitters.
+        "axis_role_clause",
+        "axis_tuple",
+        "_axis_list",
+        # bind_step gains a ``sample`` keyword (becomes ``sample_step``
+        # in HEAD vocabulary).
+        "bind_step",
+        # Via-spec on observe_step encoded as ``[via=...]`` option.
+        "_via_spec",
+        "via_product",
+        # Replicate count is hoisted to ``[repeat=N]``.
+        "replicate_count",
+        # Deduction body metadata hoisted into the header option block.
+        "deduction_semiring",
+        "deduction_start",
+        "deduction_depth",
+        "deduction_signature",
+        "deduction_encoder_attach",
+        "deduction_axioms",
+        # ``@ learnable`` lexicon marker -> ``[learnable]`` option.
+        "learnable_marker",
+        # Composition-rule body (inline ``{tensor_op = ..., join = ..., unit = ...}``)
+        # preserved verbatim in the algebra_decl converter.
+        "composition_rule_block",
+        # Contraction wiring annotations (rare). Currently passed through
+        # via the option block.
+        "contraction_wiring_einsum",
+        "contraction_wiring_share",
+        # Morphism prior clause (``~ Family(args) [options]``) absorbed
+        # into morphism_decl's ``~`` initializer.
+        "morphism_prior",
+        # Loss attachment metadata (rare).
+        "loss_attachment",
+        "loss_attachment_kind",
+        # Helper anonymous types referenced only inside their parent.
+        "_type_expr",
+        "_space_expr",
+        "_space_arg",
+    }
+)
 
 
 def migrate(source: bytes) -> bytes:

@@ -275,9 +275,7 @@ class TestHighlightQueries:
 class TestPygmentsLexer:
     def test_tokenises_keywords_and_identifiers(self):
         lex = QvrLexer()
-        tokens = list(
-            lex.get_tokens_unprocessed("object X : FinSet 3\n")
-        )
+        tokens = list(lex.get_tokens_unprocessed("object X : FinSet 3\n"))
         kinds = [tok[1] for tok in tokens]
         assert any(k is Keyword for k in kinds)
         assert any(k in Name or k is Name.Class for k in kinds)

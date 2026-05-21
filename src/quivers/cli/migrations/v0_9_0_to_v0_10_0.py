@@ -13,6 +13,7 @@ from __future__ import annotations
 def migrate(source: bytes) -> bytes:
     return source
 
+
 # Identity hop or no converters declared yet. The chain-coverage
 # check will flag every removed source rule as uncovered until
 # the hop's converters are written.

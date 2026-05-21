@@ -53,7 +53,10 @@ class TestDatasetSchemaPandas:
         )
         decls = schema.declarations()
         # Sorted alphabetically by object name.
-        assert decls == "object Item : FinSet 3\nobject Subject : FinSet 3\nobject Verb : FinSet 3\n"
+        assert (
+            decls
+            == "object Item : FinSet 3\nobject Subject : FinSet 3\nobject Verb : FinSet 3\n"
+        )
 
     def test_observations_dict_categorical(self, df_pandas):
         schema = DatasetSchema(

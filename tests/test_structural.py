@@ -575,9 +575,11 @@ def test_deduction_with_attached_encoder_exposes_embeddings():
     D = prog.deductions["Parse"]
     assert getattr(D, "_item_signature", None) is not None
     assert getattr(D, "_item_encoder", None) is not None
-    chart = D([
-        (("atom", "NP"), torch.tensor(0.0)),
-        (("atom", "S"), torch.tensor(0.0)),
-    ])
+    chart = D(
+        [
+            (("atom", "NP"), torch.tensor(0.0)),
+            (("atom", "S"), torch.tensor(0.0)),
+        ]
+    )
     # The chart-as-presheaf works as before.
     assert chart.chart.get(("atom", "S")) is not None

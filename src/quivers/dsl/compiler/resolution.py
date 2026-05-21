@@ -73,15 +73,16 @@ class _ResolutionMixin:
             line = getattr(texpr, "line", 0)
             col = getattr(texpr, "col", 0)
             raise CompileError(
-                f"index must be a finite-set object, got "
-                f"{type(obj).__name__}",
+                f"index must be a finite-set object, got {type(obj).__name__}",
                 line,
                 col,
             )
         return int(card)
 
     def _resolve_type(
-        self, texpr: ObjectExpr, bind_name: str | None = None,
+        self,
+        texpr: ObjectExpr,
+        bind_name: str | None = None,
     ) -> SetObject:
         """Resolve a type expression that must denote a discrete object.
 
@@ -123,16 +124,12 @@ class _ResolutionMixin:
         if isinstance(texpr, ContinuousConstructor):
             return self._resolve_continuous_constructor(texpr)
         if isinstance(texpr, ObjectProduct):
-            components = [
-                self._resolve_any_space(c) for c in texpr.components
-            ]
+            components = [self._resolve_any_space(c) for c in texpr.components]
             if any(isinstance(c, ContinuousSpace) for c in components):
                 return ProductSpace(components=tuple(components))
             return ProductSet(components=tuple(components))
         if isinstance(texpr, ObjectCoproduct):
-            components = [
-                self._resolve_any_space(c) for c in texpr.components
-            ]
+            components = [self._resolve_any_space(c) for c in texpr.components]
             if any(isinstance(c, ContinuousSpace) for c in components):
                 raise CompileError(
                     "coproduct of continuous spaces is not supported",
@@ -159,7 +156,8 @@ class _ResolutionMixin:
     # -----------------------------------------------------------------
 
     def _resolve_type_name(
-        self, texpr: TypeName,
+        self,
+        texpr: TypeName,
     ) -> SetObject | ContinuousSpace:
         name = texpr.name
         if name.isdigit():
@@ -169,11 +167,14 @@ class _ResolutionMixin:
         if name in self._spaces:
             return self._spaces[name]
         raise CompileError(
-            f"undefined object or space {name!r}", texpr.line, texpr.col,
+            f"undefined object or space {name!r}",
+            texpr.line,
+            texpr.col,
         )
 
     def _resolve_discrete_constructor(
-        self, texpr: DiscreteConstructor,
+        self,
+        texpr: DiscreteConstructor,
     ) -> SetObject:
         if texpr.constructor != "FinSet":
             raise CompileError(
@@ -183,8 +184,7 @@ class _ResolutionMixin:
             )
         if len(texpr.args) != 1:
             raise CompileError(
-                f"FinSet(N) takes exactly one argument; got "
-                f"{len(texpr.args)}",
+                f"FinSet(N) takes exactly one argument; got {len(texpr.args)}",
                 texpr.line,
                 texpr.col,
             )
@@ -203,7 +203,9 @@ class _ResolutionMixin:
     def _resolve_continuous_constructor(self, texpr: ContinuousConstructor):
         ctor_name = texpr.constructor
         cls = getattr(
-            continuous_spaces, _CONTINUOUS_FACTORIES[ctor_name], None,
+            continuous_spaces,
+            _CONTINUOUS_FACTORIES[ctor_name],
+            None,
         )
         if cls is None:
             raise CompileError(

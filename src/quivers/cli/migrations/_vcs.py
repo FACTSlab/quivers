@@ -26,9 +26,7 @@ from pathlib import Path
 import panproto
 
 
-_VCS_ROOT = (
-    Path(__file__).resolve().parents[4] / "grammars" / "qvr" / "vcs"
-)
+_VCS_ROOT = Path(__file__).resolve().parents[4] / "grammars" / "qvr" / "vcs"
 
 
 def _open_repo() -> panproto.Repository:
@@ -102,13 +100,9 @@ class DiffCoverageReport:
             lines.append("    (grammar identical; no diff)")
             return "\n".join(lines)
         if self.removed_rules:
-            lines.append(
-                f"    removed: {', '.join(self.removed_rules)}"
-            )
+            lines.append(f"    removed: {', '.join(self.removed_rules)}")
         if self.added_rules:
-            lines.append(
-                f"    added:   {', '.join(self.added_rules)}"
-            )
+            lines.append(f"    added:   {', '.join(self.added_rules)}")
         if self.uncovered_removed:
             lines.append(
                 f"    UNCOVERED removed rules (no converter): "
@@ -155,9 +149,7 @@ def diff_coverage(
     diff_dict = diff.to_dict()
     added = tuple(sorted(diff_dict.get("added_vertices", [])))
     removed = tuple(sorted(diff_dict.get("removed_vertices", [])))
-    uncovered = tuple(
-        r for r in removed if r not in declared_converters
-    )
+    uncovered = tuple(r for r in removed if r not in declared_converters)
     return DiffCoverageReport(
         from_ref=from_ref,
         to_ref=to_ref,
@@ -206,8 +198,7 @@ def _resolve_via_chain(repo: panproto.Repository, ref: str) -> str:
         return head_id
     # Otherwise: highest tag whose semver <= target_key.
     candidates = [
-        (name, cid) for name, cid in tags.items()
-        if _semver_key(name) <= target_key
+        (name, cid) for name, cid in tags.items() if _semver_key(name) <= target_key
     ]
     if candidates:
         candidates.sort(key=lambda nc: _semver_key(nc[0]))
@@ -267,7 +258,9 @@ def blame_kind(rule: str) -> BlameReport:
     except Exception:
         introduced_commit = None
 
-    introduced_tag = _tag_for_commit(repo, introduced_commit) if introduced_commit else None
+    introduced_tag = (
+        _tag_for_commit(repo, introduced_commit) if introduced_commit else None
+    )
 
     # Walk log oldest-first, find the last commit whose schema
     # contains the rule. If the current HEAD schema contains it,
@@ -295,7 +288,8 @@ def blame_kind(rule: str) -> BlameReport:
 
 
 def _tag_for_commit(
-    repo: panproto.Repository, commit_id: str | None,
+    repo: panproto.Repository,
+    commit_id: str | None,
 ) -> str | None:
     if commit_id is None:
         return None

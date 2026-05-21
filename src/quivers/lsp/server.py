@@ -523,7 +523,8 @@ def _symbol_kind(stmt: Any) -> lsp.SymbolKind:
     if isinstance(stmt, ObjectDecl):
         init: TypeInitializer = stmt.init
         if isinstance(init, TypeFromExpr) and isinstance(
-            init.expr, ContinuousConstructor,
+            init.expr,
+            ContinuousConstructor,
         ):
             return lsp.SymbolKind.Struct
         return lsp.SymbolKind.Class

@@ -134,7 +134,8 @@ def _category_depth(value) -> int:
         return _category_depth(sub) if sub is not None else 0
     # Generic structural constructor: count one and recurse.
     return 1 + max(
-        (_category_depth(v) for v in value[1:]), default=0,
+        (_category_depth(v) for v in value[1:]),
+        default=0,
     )
 
 
@@ -147,6 +148,7 @@ def _install_depth_guard(rule, depth_n: int) -> None:
     condition the rule already carries (``AND``).
     """
     from quivers.stochastic.agenda import instantiate as _instantiate
+
     existing = rule.side_condition
     conclusion_pattern = rule.conclusion
 
@@ -175,6 +177,7 @@ def _bindings_key(bindings: dict) -> str:
     binding values the runtime emits (atoms as `("atom", "S")`,
     slashed categories as nested tuples, integer indices, …).
     """
+
     def encode(v) -> str:
         if isinstance(v, tuple):
             return "T" + "_".join(encode(x) for x in v) + "E"
@@ -185,6 +188,7 @@ def _bindings_key(bindings: dict) -> str:
         if isinstance(v, float):
             return f"F{v}"
         return "Q" + repr(v).replace(" ", "")
+
     items = sorted(bindings.items(), key=lambda kv: kv[0])
     return "_".join(f"{k}_{encode(v)}" for k, v in items) or "BASE"
 
@@ -217,6 +221,7 @@ def _make_rule_weight_fn(
       (the user declared `parent=other` without `learnable`), the
       rule contributes only the parent's weight.
     """
+
     def _rule_log_weight(
         bindings: dict,
         own_dict: nn.ParameterDict,
@@ -243,11 +248,7 @@ def _make_rule_weight_fn(
             new_p = nn.Parameter(init)
             own_dict[key] = new_p
             return -torch.nn.functional.softplus(new_p) if bounded else new_p
-        return (
-            -torch.nn.functional.softplus(existing)
-            if bounded
-            else existing
-        )
+        return -torch.nn.functional.softplus(existing) if bounded else existing
 
     def weight_fn(bindings, premise_weights, semiring):
         # 1. Premise product (the default semiring-parsing aggregation).
@@ -262,7 +263,10 @@ def _make_rule_weight_fn(
                 base = semiring.times(base, w)
         # 2. Own contribution.
         own_w = _rule_log_weight(
-            bindings, param_dict, is_learnable, rule_name,
+            bindings,
+            param_dict,
+            is_learnable,
+            rule_name,
         )
         total = semiring.times(base, own_w)
         # 3. Parent chain (additive composition in the LogProb / Viterbi
@@ -273,8 +277,7 @@ def _make_rule_weight_fn(
             parent = rule_parent[cur]
             if parent in seen:
                 raise CompileError(
-                    f"rule {rule_name!r}: parent chain cycles at "
-                    f"{parent!r}",
+                    f"rule {rule_name!r}: parent chain cycles at {parent!r}",
                 )
             seen.add(parent)
             parent_dict = rule_param_dicts.get(parent)
@@ -282,7 +285,10 @@ def _make_rule_weight_fn(
                 # Parents may themselves be learnable; pick up their
                 # weight on the same bindings.
                 pw = _rule_log_weight(
-                    bindings, parent_dict, True, parent,
+                    bindings,
+                    parent_dict,
+                    True,
+                    parent,
                 )
                 total = semiring.times(total, pw)
             cur = parent
@@ -407,11 +413,15 @@ class _DeductionsMixin:
             if isinstance(texpr, ObjectEffectApply) and texpr.effect == "span":
                 return len(texpr.args)
             return 0
-        _uses_lf = bool(decl.binders) or any(
-            _span_arity(p) >= 4 for sr in decl.rules for p in sr.premises
-        ) or any(_span_arity(sr.conclusion) >= 4 for sr in decl.rules)
+
+        _uses_lf = (
+            bool(decl.binders)
+            or any(_span_arity(p) >= 4 for sr in decl.rules for p in sr.premises)
+            or any(_span_arity(sr.conclusion) >= 4 for sr in decl.rules)
+        )
 
         _lf_wildcard_counter = {"n": 0}
+
         def _normalise_span(pat):
             if not _uses_lf:
                 return pat
@@ -433,7 +443,10 @@ class _DeductionsMixin:
             "Counting": SEMIRING_COUNTING,
         }
         semiring_name = get_option_name(
-            decl.options, "semiring", line=decl.line, col=decl.col,
+            decl.options,
+            "semiring",
+            line=decl.line,
+            col=decl.col,
         )
         semiring = (
             semiring_registry.get(semiring_name, SEMIRING_LOG_PROB)
@@ -459,9 +472,7 @@ class _DeductionsMixin:
         rule_parent: dict[str, str] = {}
         rule_names_declared = {sr.name for sr in decl.rules}
         for sr in decl.rules:
-            premises = tuple(
-                _normalise_span(_convert_pattern(p)) for p in sr.premises
-            )
+            premises = tuple(_normalise_span(_convert_pattern(p)) for p in sr.premises)
             conclusion = _normalise_span(_convert_pattern(sr.conclusion))
             is_learnable = get_option_flag(sr.options, "learnable")
             parent_entry = find_option(sr.options, "parent")
@@ -470,6 +481,7 @@ class _DeductionsMixin:
                 from quivers.dsl.ast_nodes._shared import (
                     OptionName as _OptionName,
                 )
+
                 if not isinstance(parent_entry.value, _OptionName):
                     raise CompileError(
                         f"deduction {decl.name!r}: rule {sr.name!r}: "
@@ -493,7 +505,8 @@ class _DeductionsMixin:
                 param_dict = nn.ParameterDict()
                 rule_param_dicts[sr.name] = param_dict
                 rule_module.add_module(
-                    f"rule_{sr.name}", param_dict,
+                    f"rule_{sr.name}",
+                    param_dict,
                 )
                 weight_fn = _make_rule_weight_fn(
                     rule_name=sr.name,
@@ -521,7 +534,10 @@ class _DeductionsMixin:
         #   3. Identity — input itself is the axiom list.
 
         axioms_source = get_option_name(
-            decl.options, "axioms", line=decl.line, col=decl.col,
+            decl.options,
+            "axioms",
+            line=decl.line,
+            col=decl.col,
         )
         if axioms_source is not None:
             # General axiom source — look up the named morphism and
@@ -621,6 +637,7 @@ class _DeductionsMixin:
             # `_normalise_binders` below; the lexicon LF value
             # is the post-normalised tree.
             fresh_counter = {"n": 0}
+
             def _fresh() -> str:
                 fresh_counter["n"] += 1
                 return f"#v{fresh_counter['n']}"
@@ -709,7 +726,8 @@ class _DeductionsMixin:
                 file_entries = self._load_lexicon_tsv(
                     decl.lexicon_from_file,
                     get_option_flag(
-                        decl.lexicon_from_file_options, "learnable",
+                        decl.lexicon_from_file_options,
+                        "learnable",
                     ),
                     decl,
                 )
@@ -736,7 +754,9 @@ class _DeductionsMixin:
             _lf_table: dict = {}
 
             def _axiom_injector(
-                input_value, _entries=entries_local, _params=params_local,
+                input_value,
+                _entries=entries_local,
+                _params=params_local,
                 _lf_table=_lf_table,
             ):
                 # `input_value` may be a list/tuple of token strings,
@@ -782,7 +802,10 @@ class _DeductionsMixin:
         # top-level spans. Users override by composing the parse
         # result with their own predicate.
         start = get_option_name(
-            decl.options, "start", line=decl.line, col=decl.col,
+            decl.options,
+            "start",
+            line=decl.line,
+            col=decl.col,
         )
 
         def _goal(item) -> bool:
@@ -836,7 +859,10 @@ class _DeductionsMixin:
         # measure counts every wrapping ``(<ctor>, ...)`` tuple
         # whose head is a category constructor as one unit of depth.
         depth_bound = get_option_int(
-            decl.options, "depth", line=decl.line, col=decl.col,
+            decl.options,
+            "depth",
+            line=decl.line,
+            col=decl.col,
         )
         if depth_bound is not None:
             depth_n = int(depth_bound)
@@ -854,7 +880,10 @@ class _DeductionsMixin:
         # ``max_iterations`` safety net, which is the correct
         # rejection of an ill-posed model.
         tolerance_opt = get_option_float(
-            decl.options, "tolerance", line=decl.line, col=decl.col,
+            decl.options,
+            "tolerance",
+            line=decl.line,
+            col=decl.col,
         )
         tol = float(tolerance_opt) if tolerance_opt is not None else 0.0
         # Compile-time analysis: a deduction whose rule graph
@@ -868,7 +897,10 @@ class _DeductionsMixin:
         # without tolerance), preserving the standard
         # semiring-parsing semantics.
         max_iters_opt = get_option_int(
-            decl.options, "max_iterations", line=decl.line, col=decl.col,
+            decl.options,
+            "max_iterations",
+            line=decl.line,
+            col=decl.col,
         )
         system = DeductionSystem(
             rules=tuple(inference_rules),
@@ -906,7 +938,10 @@ class _DeductionsMixin:
         # this attached encoder to compute on-demand item
         # embeddings.
         item_signature = get_option_name(
-            decl.options, "signature", line=decl.line, col=decl.col,
+            decl.options,
+            "signature",
+            line=decl.line,
+            col=decl.col,
         )
         if item_signature is not None:
             sigs = getattr(self, "_signatures", {})
@@ -919,14 +954,16 @@ class _DeductionsMixin:
                 )
             system._item_signature = sigs[item_signature]  # type: ignore[attr-defined]
         item_encoder = get_option_name(
-            decl.options, "encoder", line=decl.line, col=decl.col,
+            decl.options,
+            "encoder",
+            line=decl.line,
+            col=decl.col,
         )
         if item_encoder is not None:
             comps = getattr(self, "_encoders", {})
             if item_encoder not in comps:
                 raise CompileError(
-                    f"deduction {decl.name!r}: unknown item encoder "
-                    f"{item_encoder!r}",
+                    f"deduction {decl.name!r}: unknown item encoder {item_encoder!r}",
                     decl.line,
                     decl.col,
                 )

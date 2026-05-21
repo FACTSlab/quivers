@@ -258,7 +258,8 @@ def _type_decl_cardinality(decl: ObjectDecl) -> int | None:
 
 
 def _index_size(
-    index: ObjectExpr | None, cardinalities: dict[str, int],
+    index: ObjectExpr | None,
+    cardinalities: dict[str, int],
 ) -> int | None:
     """Best-effort cardinality of a step's plate index.
 

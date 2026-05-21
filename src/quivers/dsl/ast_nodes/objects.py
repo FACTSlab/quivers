@@ -19,8 +19,10 @@ from typing import Literal
 
 import didactic.api as dx
 
+
 class ObjectExpr(dx.TaggedUnion, discriminator="kind"):
     """Sum of type-expression node kinds."""
+
 
 class TypeName(ObjectExpr):
     """A named type reference (identifier or integer literal)."""
@@ -30,6 +32,7 @@ class TypeName(ObjectExpr):
     col: int = 0
     kind: Literal["type_name"] = "type_name"
 
+
 class ObjectProduct(ObjectExpr):
     """Product type: ``A * B``."""
 
@@ -38,6 +41,7 @@ class ObjectProduct(ObjectExpr):
     col: int = 0
     kind: Literal["object_product"] = "object_product"
 
+
 class ObjectCoproduct(ObjectExpr):
     """Coproduct type: ``A + B``."""
 
@@ -45,6 +49,7 @@ class ObjectCoproduct(ObjectExpr):
     line: int = 0
     col: int = 0
     kind: Literal["object_coproduct"] = "object_coproduct"
+
 
 class ObjectSlash(ObjectExpr):
     """Residuated slash type: ``result / argument`` or ``result \\ argument``.
@@ -62,6 +67,7 @@ class ObjectSlash(ObjectExpr):
     col: int = 0
     kind: Literal["object_slash"] = "object_slash"
 
+
 class ObjectEffectApply(ObjectExpr):
     """Effect-typed type-application: ``T(X)``.
 
@@ -77,6 +83,7 @@ class ObjectEffectApply(ObjectExpr):
     col: int = 0
     kind: Literal["object_effect_apply"] = "object_effect_apply"
 
+
 class DiscreteConstructor(ObjectExpr):
     """A discrete-type constructor call: currently ``FinSet(N)``."""
 
@@ -86,6 +93,7 @@ class DiscreteConstructor(ObjectExpr):
     line: int = 0
     col: int = 0
     kind: Literal["discrete_constructor"] = "discrete_constructor"
+
 
 class ContinuousConstructor(ObjectExpr):
     """A continuous-space constructor call.
@@ -116,6 +124,7 @@ class ContinuousConstructor(ObjectExpr):
     line: int = 0
     col: int = 0
     kind: Literal["continuous_constructor"] = "continuous_constructor"
+
 
 __all__ = [
     "ContinuousConstructor",

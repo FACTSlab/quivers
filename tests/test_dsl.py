@@ -45,9 +45,7 @@ class TestParser:
 
     def test_latent_morphism_role(self):
         """Parse a morphism declaration with role=latent."""
-        mod = self._parse(
-            "object X : FinSet 3\nmorphism f : X -> X [role=latent]\n"
-        )
+        mod = self._parse("object X : FinSet 3\nmorphism f : X -> X [role=latent]\n")
         stmt = mod.statements[1]
         assert isinstance(stmt, MorphismDecl)
         assert stmt.name == "f"
@@ -91,11 +89,7 @@ class TestParser:
 
     def test_export_decl(self):
         """Parse an export declaration."""
-        source = (
-            "object X : FinSet 3\n"
-            "morphism f : X -> X [role=latent]\n"
-            "export f\n"
-        )
+        source = "object X : FinSet 3\nmorphism f : X -> X [role=latent]\nexport f\n"
         mod = self._parse(source)
         out = mod.statements[2]
         assert isinstance(out, ExportDecl)
@@ -109,9 +103,7 @@ class TestParser:
     def test_parse_returns_module(self):
         """The parse function returns a Module AST."""
         mod = parse(
-            "object X : FinSet 3\n"
-            "morphism f : X -> X [role=latent]\n"
-            "export f\n"
+            "object X : FinSet 3\nmorphism f : X -> X [role=latent]\nexport f\n"
         )
         assert isinstance(mod, Module)
         assert len(mod.statements) == 3
@@ -213,18 +205,12 @@ class TestCompiler:
     def test_undefined_object_error(self):
         """CompileError for undefined object reference."""
         with pytest.raises(CompileError, match="undefined object"):
-            loads(
-                "morphism f : X -> Y [role=latent]\n"
-                "export f\n"
-            )
+            loads("morphism f : X -> Y [role=latent]\nexport f\n")
 
     def test_undefined_morphism_error(self):
         """CompileError for undefined morphism reference."""
         with pytest.raises(CompileError, match="undefined morphism"):
-            loads(
-                "object X : FinSet 3\n"
-                "export f\n"
-            )
+            loads("object X : FinSet 3\nexport f\n")
 
 
 class TestLoader:
@@ -245,9 +231,7 @@ class TestLoader:
         """Load accepts string paths."""
         f = tmp_path / "model.qvr"
         f.write_text(
-            "object X : FinSet 2\n"
-            "morphism f : X -> X [role=latent]\n"
-            "export f\n"
+            "object X : FinSet 2\nmorphism f : X -> X [role=latent]\nexport f\n"
         )
         prog = load(str(f))
         assert isinstance(prog, Program)
@@ -285,10 +269,7 @@ class TestCompileEnv:
 
     def test_compile_env_algebra(self):
         """compile_env includes the active algebra."""
-        ast = parse(
-            "composition boolean as algebra\n"
-            "object X : FinSet 2\n"
-        )
+        ast = parse("composition boolean as algebra\nobject X : FinSet 2\n")
         compiler = Compiler(ast)
         env = compiler.compile_env()
         assert env["__algebra__"] is BOOLEAN

@@ -102,9 +102,7 @@ def nuts_program_from_deduction(
         site_names.append(f"{site_prefix}__{safe}")
 
     prior_morph = _make_normal_prior_morphism(prior_scale)
-    steps: list[tuple] = [
-        ((site,), prior_morph, None) for site in site_names
-    ]
+    steps: list[tuple] = [((site,), prior_morph, None) for site in site_names]
 
     def _score_fn(
         env: dict[str, torch.Tensor],
@@ -118,10 +116,7 @@ def nuts_program_from_deduction(
         batch = site_values[0].shape[0]
         out = torch.zeros(batch, dtype=torch.get_default_dtype())
         for b in range(batch):
-            overrides = {
-                path: v[b].reshape(())
-                for path, v in zip(_paths, site_values)
-            }
+            overrides = {path: v[b].reshape(()) for path, v in zip(_paths, site_values)}
             with _swap_named_parameters(_locator, overrides):
                 log_z = torch.zeros(())
                 for sentence in _corpus:

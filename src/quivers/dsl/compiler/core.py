@@ -41,6 +41,7 @@ from quivers.dsl.compiler.deductions import _DeductionsMixin
 from quivers.dsl.compiler.resolution import _ResolutionMixin
 from quivers.dsl.compiler.expressions import _ExpressionsMixin
 
+
 class Compiler(
     _DeclarationsMixin,
     _ProgramsMixin,
@@ -154,10 +155,9 @@ class Compiler(
             # exported morphism; the returned Program is a container
             # carrying those artifacts.
             program = Program(None)
-        elif (
-            isinstance(self._output_expr, ExprIdent)
-            and self._output_expr.name in getattr(self, "_program_templates", {})
-        ):
+        elif isinstance(
+            self._output_expr, ExprIdent
+        ) and self._output_expr.name in getattr(self, "_program_templates", {}):
             # The export names a parametric program template. A
             # template has no root morphism on its own (a function
             # ``Pi (p : P). Kern(dom(p), cod(p))`` rather than a

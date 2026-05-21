@@ -18,6 +18,7 @@ from __future__ import annotations
 import textwrap
 
 import os
+
 os.environ.setdefault("QVR_USE_LOCAL_GRAMMAR", "1")
 
 import torch
@@ -78,7 +79,10 @@ def test_adam_fit_allocates_lexicon_and_rule_params():
     torch.manual_seed(0)
     ded = _load_ab()
     adam_fit_deduction(
-        ded, [["the", "dog", "runs"]], steps=5, lr=1e-2,
+        ded,
+        [["the", "dog", "runs"]],
+        steps=5,
+        lr=1e-2,
     )
     lex_params = list(ded._axiom_module.parameters())
     rule_params = list(ded._rule_module.parameters())
@@ -94,8 +98,11 @@ def test_map_prior_regulariser_shrinks_params():
     torch.manual_seed(0)
     ded = _load_ab()
     adam_fit_deduction(
-        ded, [["the", "dog", "runs"]] * 8,
-        steps=200, lr=5e-2, prior_scale=0.2,
+        ded,
+        [["the", "dog", "runs"]] * 8,
+        steps=200,
+        lr=5e-2,
+        prior_scale=0.2,
     )
     max_abs = max(float(p.detach().abs().max()) for p in ded.parameters())
     assert max_abs < 5.0, (
@@ -115,7 +122,10 @@ def test_forward_sampler_recovers_dominant_yield():
     torch.manual_seed(0)
     ded = _load_ab()
     adam_fit_deduction(
-        ded, [["the", "dog", "runs"]] * 8, steps=400, lr=5e-2,
+        ded,
+        [["the", "dog", "runs"]] * 8,
+        steps=400,
+        lr=5e-2,
     )
     samples = sample_corpus(ded, length=3, n_samples=32, seed=0)
     target = ["the", "dog", "runs"]
@@ -142,7 +152,8 @@ def test_nuts_program_is_well_shaped():
     # Count the registered morphisms whose bound name starts with
     # ``log_w__`` (the per-parameter Normal-prior sample sites).
     n_log_w_steps = sum(
-        1 for s in model._step_specs
+        1
+        for s in model._step_specs
         if getattr(s, "vars", None) and s.vars[0].startswith("log_w__")
     )
     n_params = sum(1 for _ in ded.parameters())
@@ -151,6 +162,7 @@ def test_nuts_program_is_well_shaped():
     )
     # The final step is the score.
     from quivers.continuous.programs import _ScoreSpec
+
     assert isinstance(model._step_specs[-1], _ScoreSpec)
     assert x.shape == (1, 1)
     assert obs == {}
@@ -183,8 +195,7 @@ def test_binders_alpha_rename_lexicon_lfs():
         assert lf[0] == "Lam"
         canon_per_lex.append(lf[1][0])
     assert canon_per_lex[0] != canon_per_lex[1], (
-        f"binders failed to alpha-rename: both entries got "
-        f"{canon_per_lex[0]!r}"
+        f"binders failed to alpha-rename: both entries got {canon_per_lex[0]!r}"
     )
 
 
@@ -233,6 +244,7 @@ def test_subst_capture_avoiding():
     # compiler.
     from quivers.dsl.compiler.programs import _ProgramsMixin
     from quivers.dsl.ast_nodes import LetExprCall, LetExprVar
+
     # subst(App(f, Var(x)), Var(x), Var(arg))
     #   = App(f, Var(arg))
     expr = LetExprCall(
@@ -240,7 +252,10 @@ def test_subst_capture_avoiding():
         args=(
             LetExprCall(
                 func="App",
-                args=(LetExprVar(name="f"), LetExprCall(func="Var", args=(LetExprVar(name="x"),))),
+                args=(
+                    LetExprVar(name="f"),
+                    LetExprCall(func="Var", args=(LetExprVar(name="x"),)),
+                ),
             ),
             LetExprCall(func="Var", args=(LetExprVar(name="x"),)),
             LetExprCall(func="Var", args=(LetExprVar(name="arg"),)),
@@ -259,6 +274,7 @@ def test_montague_nli_lambda_lfs_load():
     program-body fit. It must load and parse a real sentence."""
     from pathlib import Path
     from quivers.dsl import load as _load
+
     src = Path("docs/examples/source/montague_nli.qvr")
     if not src.exists():
         return  # docs not vendored in this checkout
@@ -268,9 +284,12 @@ def test_montague_nli_lambda_lfs_load():
     chart = ded(["every", "dog", "barks"])
     # The full sentence should parse to span(0, 3, S, App(App(every, dog), barks)).
     s_items = [
-        (it, w) for it, w in chart.chart.items()
-        if isinstance(it, tuple) and it[:2] == ("span", 0)
-           and len(it) >= 5 and it[3] == ("atom", "S")
+        (it, w)
+        for it, w in chart.chart.items()
+        if isinstance(it, tuple)
+        and it[:2] == ("span", 0)
+        and len(it) >= 5
+        and it[3] == ("atom", "S")
     ]
     assert s_items, "Montague: 'every dog barks' did not derive S at span(0, 3)"
 

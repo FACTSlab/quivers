@@ -8,6 +8,7 @@ from quivers.dsl.ast_nodes import Module, Statement
 from quivers.dsl.parser._registry import ParseError, _Tree, _registry
 from quivers.dsl.parser.statements import _walk_statement
 
+
 def parse(source: str | bytes, file_path: str = "<source>") -> Module:
     """Parse `.qvr` source bytes into a `Module`."""
     if isinstance(source, str):
@@ -48,6 +49,7 @@ def parse(source: str | bytes, file_path: str = "<source>") -> Module:
         statements.extend(results)
     return Module(statements=tuple(statements))
 
+
 def _attach_docs(stmt: Statement, docs: tuple[str, ...]) -> Statement:
     """Attach accumulated ``##`` doc-comment lines to a Statement.
 
@@ -68,10 +70,12 @@ def _attach_docs(stmt: Statement, docs: tuple[str, ...]) -> Statement:
     existing = stmt.docs  # type: ignore[attr-defined]
     return stmt.with_(docs=tuple(existing) + docs)  # type: ignore[attr-defined]
 
+
 def parse_file(path: str | Path) -> Module:
     """Parse a `.qvr` file at `path`."""
     p = Path(path)
     return parse(p.read_bytes(), str(p))
+
 
 # ---------------------------------------------------------------------------
 # structural-compression walkers

@@ -75,6 +75,7 @@ from quivers.dsl.parser.program_steps import (
 # top-level dispatcher
 # ---------------------------------------------------------------------------
 
+
 def _walk_statement(t: _Tree, vid: str) -> Statement | list[Statement]:
     k = t.kind(vid)
     line, col = t.line_col(vid)
@@ -118,21 +119,17 @@ def _walk_statement(t: _Tree, vid: str) -> Statement | list[Statement]:
         return _walk_loss_decl(t, vid, line, col)
     if k == "ERROR":
         cs = t.consts(vid)
-        snippet = t.source[
-            int(cs["start-byte"]) : int(cs["end-byte"])
-        ].decode("utf-8")
-        raise ParseError(
-            f"syntax error at line {line}, col {col}: {snippet!r}"
-        )
+        snippet = t.source[int(cs["start-byte"]) : int(cs["end-byte"])].decode("utf-8")
+        raise ParseError(f"syntax error at line {line}, col {col}: {snippet!r}")
     raise ParseError(f"unexpected statement kind: {k}")
+
 
 # ---------------------------------------------------------------------------
 # composition
 # ---------------------------------------------------------------------------
 
-def _walk_composition_decl(
-    t: _Tree, vid: str, line: int, col: int
-) -> CompositionDecl:
+
+def _walk_composition_decl(t: _Tree, vid: str, line: int, col: int) -> CompositionDecl:
     name_vid = t.field(vid, "name")
     name = _required_text(t, name_vid, vid, "name")
     level_vid = t.field(vid, "level")
@@ -147,8 +144,13 @@ def _walk_composition_decl(
         if t.kind(child) == "composition_rule_entry":
             body.append(_walk_composition_rule_entry(t, child))
     return CompositionDecl(
-        name=name, level=level, body=tuple(body), line=line, col=col,
+        name=name,
+        level=level,
+        body=tuple(body),
+        line=line,
+        col=col,
     )
+
 
 def _walk_composition_rule_entry(t: _Tree, vid: str) -> CompositionRuleEntry:
     line, col = t.line_col(vid)
@@ -165,9 +167,11 @@ def _walk_composition_rule_entry(t: _Tree, vid: str) -> CompositionRuleEntry:
         col=col,
     )
 
+
 # ---------------------------------------------------------------------------
 # rule (top-level CCG/Lambek)
 # ---------------------------------------------------------------------------
+
 
 def _walk_rule_decl(t: _Tree, vid: str, line: int, col: int) -> RuleDecl:
     name_vid = t.field(vid, "name")
@@ -183,9 +187,11 @@ def _walk_rule_decl(t: _Tree, vid: str, line: int, col: int) -> RuleDecl:
         col=col,
     )
 
+
 # ---------------------------------------------------------------------------
 # schema
 # ---------------------------------------------------------------------------
+
 
 def _walk_schema_decl(t: _Tree, vid: str, line: int, col: int) -> SchemaDecl:
     name_vid = t.field(vid, "name")
@@ -216,9 +222,11 @@ def _walk_schema_decl(t: _Tree, vid: str, line: int, col: int) -> SchemaDecl:
         col=col,
     )
 
+
 # ---------------------------------------------------------------------------
 # type
 # ---------------------------------------------------------------------------
+
 
 def _walk_type_decl(t: _Tree, vid: str, line: int, col: int) -> ObjectDecl:
     name_vid = t.field(vid, "name")
@@ -231,6 +239,7 @@ def _walk_type_decl(t: _Tree, vid: str, line: int, col: int) -> ObjectDecl:
         line=line,
         col=col,
     )
+
 
 def _walk_type_value(t: _Tree, vid: str) -> TypeInitializer:
     k = t.kind(vid)
@@ -269,9 +278,7 @@ def _walk_type_value(t: _Tree, vid: str) -> TypeInitializer:
         gen_vid = t.field(vid, "generators")
         ml_vid = t.field(vid, "max_length")
         if gen_vid is None or ml_vid is None:
-            raise ParseError(
-                f"free_monoid_expr missing generators/max_length at {vid}"
-            )
+            raise ParseError(f"free_monoid_expr missing generators/max_length at {vid}")
         return TypeFreeMonoid(
             generators=t.text(gen_vid),
             max_length=int(t.text(ml_vid)),
@@ -281,13 +288,13 @@ def _walk_type_value(t: _Tree, vid: str) -> TypeInitializer:
     # Anything else is a plain type expression (FinSet, Real, etc.).
     return TypeFromExpr(expr=_walk_type(t, vid))
 
+
 # ---------------------------------------------------------------------------
 # morphism
 # ---------------------------------------------------------------------------
 
-def _walk_morphism_decl(
-    t: _Tree, vid: str, line: int, col: int
-) -> MorphismDecl:
+
+def _walk_morphism_decl(t: _Tree, vid: str, line: int, col: int) -> MorphismDecl:
     name_vid = t.field(vid, "name")
     dom_vid = t.field(vid, "domain")
     cod_vid = t.field(vid, "codomain")
@@ -314,6 +321,7 @@ def _walk_morphism_decl(
         col=col,
     )
 
+
 def _walk_morphism_init_family(t: _Tree, vid: str) -> MorphismInitFamily:
     line, col = t.line_col(vid)
     family_vid = t.field(vid, "family")
@@ -321,12 +329,17 @@ def _walk_morphism_init_family(t: _Tree, vid: str) -> MorphismInitFamily:
         raise ParseError(f"morphism_init_family missing family at {vid}")
     args = tuple(_walk_draw_arg(t, a) for a in t.fields(vid, "args"))
     return MorphismInitFamily(
-        family=t.text(family_vid), args=args, line=line, col=col,
+        family=t.text(family_vid),
+        args=args,
+        line=line,
+        col=col,
     )
+
 
 # ---------------------------------------------------------------------------
 # bundle
 # ---------------------------------------------------------------------------
+
 
 def _walk_bundle_decl(t: _Tree, vid: str, line: int, col: int) -> BundleDecl:
     name_vid = t.field(vid, "name")
@@ -337,13 +350,13 @@ def _walk_bundle_decl(t: _Tree, vid: str, line: int, col: int) -> BundleDecl:
         col=col,
     )
 
+
 # ---------------------------------------------------------------------------
 # contraction
 # ---------------------------------------------------------------------------
 
-def _walk_contraction_decl(
-    t: _Tree, vid: str, line: int, col: int
-) -> ContractionDecl:
+
+def _walk_contraction_decl(t: _Tree, vid: str, line: int, col: int) -> ContractionDecl:
     name_vid = t.field(vid, "name")
     dom_vid = t.field(vid, "domain")
     cod_vid = t.field(vid, "codomain")
@@ -378,9 +391,11 @@ def _walk_contraction_decl(
         col=col,
     )
 
+
 # ---------------------------------------------------------------------------
 # let / export
 # ---------------------------------------------------------------------------
+
 
 def _walk_let_decl(t: _Tree, vid: str, line: int, col: int) -> LetDecl:
     name_vid = t.field(vid, "name")
@@ -413,21 +428,24 @@ def _walk_let_decl(t: _Tree, vid: str, line: int, col: int) -> LetDecl:
         col=col,
     )
 
+
 def _walk_export_decl(t: _Tree, vid: str, line: int, col: int) -> ExportDecl:
     value_vid = t.field(vid, "value")
     if value_vid is None:
         raise ParseError(f"export_decl missing value at {vid}")
     return ExportDecl(
-        expr=_walk_expr(t, value_vid), line=line, col=col,
+        expr=_walk_expr(t, value_vid),
+        line=line,
+        col=col,
     )
+
 
 # ---------------------------------------------------------------------------
 # deduction
 # ---------------------------------------------------------------------------
 
-def _walk_deduction_decl(
-    t: _Tree, vid: str, line: int, col: int
-) -> DeductionDecl:
+
+def _walk_deduction_decl(t: _Tree, vid: str, line: int, col: int) -> DeductionDecl:
     name_vid = t.field(vid, "name")
     dom_vid = t.field(vid, "domain")
     cod_vid = t.field(vid, "codomain")
@@ -451,9 +469,7 @@ def _walk_deduction_decl(
                 binders.append(t.text(bv))
         elif kk == "deduction_rule":
             rname = _required_text(t, t.field(child, "name"), child, "name")
-            premises = tuple(
-                _walk_type(t, p) for p in t.fields(child, "premises")
-            )
+            premises = tuple(_walk_type(t, p) for p in t.fields(child, "premises"))
             conc_vid = t.field(child, "conclusion")
             if conc_vid is None:
                 raise ParseError(f"deduction_rule missing conclusion at {child}")
@@ -474,9 +490,7 @@ def _walk_deduction_decl(
                 if t.kind(entry_vid) == "lexicon_entry":
                     lex_entries.append(_walk_lexicon_entry(t, entry_vid))
         elif kk == "deduction_lexicon_from_file":
-            path_raw = _required_text(
-                t, t.field(child, "path"), child, "path"
-            )
+            path_raw = _required_text(t, t.field(child, "path"), child, "path")
             if path_raw.startswith('"') and path_raw.endswith('"'):
                 path_raw = path_raw[1:-1]
             lex_from_file = path_raw
@@ -498,6 +512,7 @@ def _walk_deduction_decl(
         line=line,
         col=col,
     )
+
 
 def _walk_lexicon_entry(t: _Tree, vid: str) -> LexiconEntry:
     word_vid = t.field(vid, "word")
@@ -552,7 +567,8 @@ def _walk_lexicon_entry(t: _Tree, vid: str) -> LexiconEntry:
 
 
 def _walk_lexicon_pragma(
-    t: _Tree, vid: str | None,
+    t: _Tree,
+    vid: str | None,
 ) -> tuple[OptionEntry, ...]:
     """Translate a ``lexicon_pragma`` vertex's ``pragma_entry`` children
     into the option-entry list the compiler already consumes.
@@ -576,13 +592,13 @@ def _walk_lexicon_pragma(
         out.append(OptionEntry(key=key, value=value, line=line, col=col))
     return tuple(out)
 
+
 # ---------------------------------------------------------------------------
 # signature
 # ---------------------------------------------------------------------------
 
-def _walk_signature_decl(
-    t: _Tree, vid: str, line: int, col: int
-) -> SignatureDecl:
+
+def _walk_signature_decl(t: _Tree, vid: str, line: int, col: int) -> SignatureDecl:
     name_vid = t.field(vid, "name")
     if name_vid is None:
         raise ParseError(f"signature_decl missing name at {vid}")
@@ -627,6 +643,7 @@ def _walk_signature_decl(
         col=col,
     )
 
+
 def _walk_sort_decl(t: _Tree, vid: str) -> SortDecl:
     name = t.text(t.field(vid, "name"))
     kind_vid = t.field(vid, "kind")
@@ -644,14 +661,20 @@ def _walk_sort_decl(t: _Tree, vid: str) -> SortDecl:
         col=cl,
     )
 
+
 def _walk_constructor_decl(t: _Tree, vid: str) -> ConstructorDecl:
     name = t.text(t.field(vid, "name"))
     domain = tuple(t.text(d) for d in t.fields(vid, "domain"))
     codomain = t.text(t.field(vid, "codomain"))
     ln, cl = t.line_col(vid)
     return ConstructorDecl(
-        name=name, domain=domain, codomain=codomain, line=ln, col=cl,
+        name=name,
+        domain=domain,
+        codomain=codomain,
+        line=ln,
+        col=cl,
     )
+
 
 def _walk_binder_decl(t: _Tree, vid: str) -> BinderDecl:
     name = t.text(t.field(vid, "name"))
@@ -665,9 +688,7 @@ def _walk_binder_decl(t: _Tree, vid: str) -> BinderDecl:
                 sort=t.text(t.field(b, "sort")),
                 annot=t.text(annot_vid) if annot_vid is not None else None,
                 annot_sort=(
-                    t.text(annot_sort_vid)
-                    if annot_sort_vid is not None
-                    else None
+                    t.text(annot_sort_vid) if annot_sort_vid is not None else None
                 ),
             )
         )
@@ -689,6 +710,7 @@ def _walk_binder_decl(t: _Tree, vid: str) -> BinderDecl:
         col=cl,
     )
 
+
 def _walk_vertex_kind_decl(t: _Tree, vid: str) -> VertexKindDecl:
     name = t.text(t.field(vid, "name"))
     kind_vid = t.field(vid, "kind")
@@ -705,6 +727,7 @@ def _walk_vertex_kind_decl(t: _Tree, vid: str) -> VertexKindDecl:
         col=cl,
     )
 
+
 def _walk_edge_kind_decl(t: _Tree, vid: str) -> EdgeKindDecl:
     name = t.text(t.field(vid, "name"))
     src = t.text(t.field(vid, "src"))
@@ -718,21 +741,24 @@ def _walk_edge_kind_decl(t: _Tree, vid: str) -> EdgeKindDecl:
     elif arrow_txt == "--":
         directed = False
     else:
-        raise ParseError(
-            f"edge_kind_decl at {vid}: unknown arrow {arrow_txt!r}"
-        )
+        raise ParseError(f"edge_kind_decl at {vid}: unknown arrow {arrow_txt!r}")
     ln, cl = t.line_col(vid)
     return EdgeKindDecl(
-        name=name, src=src, tgt=tgt, directed=directed, line=ln, col=cl,
+        name=name,
+        src=src,
+        tgt=tgt,
+        directed=directed,
+        line=ln,
+        col=cl,
     )
+
 
 # ---------------------------------------------------------------------------
 # encoder / decoder / loss
 # ---------------------------------------------------------------------------
 
-def _walk_encoder_decl(
-    t: _Tree, vid: str, line: int, col: int
-) -> EncoderDecl:
+
+def _walk_encoder_decl(t: _Tree, vid: str, line: int, col: int) -> EncoderDecl:
     name = t.text(t.field(vid, "name"))
     signature = t.text(t.field(vid, "signature"))
     sig_args = tuple(t.text(c) for c in t.fields(vid, "sig_args"))
@@ -816,18 +842,14 @@ def _walk_encoder_decl(
         elif ck == "encoder_var_init":
             vs_vid = t.field(child, "var_sort")
             if vs_vid is None:
-                raise ParseError(
-                    f"encoder_var_init at {child} missing var_sort"
-                )
+                raise ParseError(f"encoder_var_init at {child} missing var_sort")
             annot_vid = t.field(child, "annot_sort")
             ty_vid = t.field(child, "ty")
             ln, cl = t.line_col(child)
             var_inits.append(
                 EncoderVarInit(
                     var_sort=t.text(vs_vid),
-                    annot_sort=(
-                        t.text(annot_vid) if annot_vid is not None else None
-                    ),
+                    annot_sort=(t.text(annot_vid) if annot_vid is not None else None),
                     ty=t.text(ty_vid) if ty_vid is not None else None,
                     body=_walk_let_arith(t, t.field(child, "body")),
                     line=ln,
@@ -851,9 +873,8 @@ def _walk_encoder_decl(
         col=col,
     )
 
-def _walk_decoder_decl(
-    t: _Tree, vid: str, line: int, col: int
-) -> DecoderDecl:
+
+def _walk_decoder_decl(t: _Tree, vid: str, line: int, col: int) -> DecoderDecl:
     name = t.text(t.field(vid, "name"))
     signature = t.text(t.field(vid, "signature"))
     sig_args = tuple(t.text(c) for c in t.fields(vid, "sig_args"))
@@ -911,6 +932,7 @@ def _walk_decoder_decl(
         col=col,
     )
 
+
 def _walk_loss_decl(t: _Tree, vid: str, line: int, col: int) -> LossDecl:
     name = t.text(t.field(vid, "name"))
     opt_vid = t.field(vid, "options")
@@ -926,13 +948,13 @@ def _walk_loss_decl(t: _Tree, vid: str, line: int, col: int) -> LossDecl:
         col=col,
     )
 
+
 # ---------------------------------------------------------------------------
 # program
 # ---------------------------------------------------------------------------
 
-def _walk_program_decl(
-    t: _Tree, vid: str, line: int, col: int
-) -> ProgramDecl:
+
+def _walk_program_decl(t: _Tree, vid: str, line: int, col: int) -> ProgramDecl:
     name_vid = t.field(vid, "name")
     dom_vid = t.field(vid, "domain")
     cod_vid = t.field(vid, "codomain")
@@ -955,9 +977,7 @@ def _walk_program_decl(
             f"program {_required_text(t, name_vid, vid, 'name')!r} "
             "mixes bare data parameters and typed template parameters"
         )
-    params: tuple[str, ...] | None = (
-        tuple(data_params) if data_params else None
-    )
+    params: tuple[str, ...] | None = tuple(data_params) if data_params else None
     type_params: tuple[ProgramParam, ...] | None = (
         tuple(type_params_list) if type_params_list else None
     )
@@ -989,5 +1009,6 @@ def _walk_program_decl(
         line=line,
         col=col,
     )
+
 
 __all__ = ["_walk_statement"]

@@ -62,9 +62,7 @@ def _build_nested_program(num_levels: int, n_resp: int = 8) -> str:
     # Innermost body: a single observe step carrying the
     # fibration to its response plate.
     inner_pad = indent * (num_levels + 1)
-    nested.append(
-        f"{inner_pad}observe r : Resp <- HalfNormal(1.0) [via=idx_inner]"
-    )
+    nested.append(f"{inner_pad}observe r : Resp <- HalfNormal(1.0) [via=idx_inner]")
     prog_lines.extend(nested)
     prog_lines.append("    return probs_0")
     body = "\n        ".join(prog_lines)

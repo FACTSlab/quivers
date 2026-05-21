@@ -250,7 +250,7 @@ def _expected_call_arity(target: object) -> int | None:
         return 1
     try:
         sig = inspect.signature(target)  # type: ignore[arg-type]
-    except (TypeError, ValueError):
+    except TypeError, ValueError:
         return None
     positional_kinds = (
         inspect.Parameter.POSITIONAL_ONLY,
@@ -859,7 +859,9 @@ class _ProgramsMixin:
         ``Pure`` rejects any of ``{Sample, Score, Marginal}``.
         """
         declared = get_program_effects(
-            decl.options, line=decl.line, col=decl.col,
+            decl.options,
+            line=decl.line,
+            col=decl.col,
         )
         if declared is None:
             return
@@ -1329,13 +1331,17 @@ class _ProgramsMixin:
                 op=expr.op,
                 left=self._rename_let_expr(expr.left, value_subst, rename),
                 right=self._rename_let_expr(
-                    expr.right, value_subst, rename,
+                    expr.right,
+                    value_subst,
+                    rename,
                 ),
             )
         if isinstance(expr, LetExprUnaryOp):
             return LetExprUnaryOp(
                 operand=self._rename_let_expr(
-                    expr.operand, value_subst, rename,
+                    expr.operand,
+                    value_subst,
+                    rename,
                 ),
             )
         if isinstance(expr, LetExprCall):
@@ -1350,8 +1356,7 @@ class _ProgramsMixin:
             return LetExprCall(
                 func=new_func,
                 args=tuple(
-                    self._rename_let_expr(a, value_subst, rename)
-                    for a in expr.args
+                    self._rename_let_expr(a, value_subst, rename) for a in expr.args
                 ),
             )
         if isinstance(expr, LetExprIndex):
@@ -1495,9 +1500,7 @@ class _ProgramsMixin:
                 missing = [n for n in param_names if n not in kwargs]
                 extra = [k for k in kwargs if k not in param_names]
                 if missing:
-                    raise TypeError(
-                        f"template {name!r} missing arguments: {missing}"
-                    )
+                    raise TypeError(f"template {name!r} missing arguments: {missing}")
                 if extra:
                     raise TypeError(
                         f"template {name!r} got unexpected arguments: {extra}"
@@ -1684,7 +1687,10 @@ class _ProgramsMixin:
                 decl.col,
             )
         declared_rule = get_option_name(
-            decl.options, "rule", line=decl.line, col=decl.col,
+            decl.options,
+            "rule",
+            line=decl.line,
+            col=decl.col,
         )
         if declared_rule is None:
             raise CompileError(
@@ -1704,10 +1710,16 @@ class _ProgramsMixin:
             )
         rule = _ALGEBRA_REGISTRY[rule_name]
         wiring_text = get_option_string(
-            decl.options, "wiring", line=decl.line, col=decl.col,
+            decl.options,
+            "wiring",
+            line=decl.line,
+            col=decl.col,
         )
         shared_axes = get_option_name_list(
-            decl.options, "share", line=decl.line, col=decl.col,
+            decl.options,
+            "share",
+            line=decl.line,
+            col=decl.col,
         )
         if wiring_text:
             # Explicit einsum escape hatch (still supported for
@@ -2037,14 +2049,18 @@ class _ProgramsMixin:
                         # Add singleton dims to make response
                         # broadcastable against the (N, K) batch
                         # shape (the response has no K dependence).
-                        while resp_broadcast.dim() < len(dist.batch_shape) + len(dist.event_shape):
+                        while resp_broadcast.dim() < len(dist.batch_shape) + len(
+                            dist.event_shape
+                        ):
                             resp_broadcast = resp_broadcast.unsqueeze(1)
                         if _family._discrete:
                             resp_broadcast = resp_broadcast.float()
                         ll = dist.log_prob(resp_broadcast)
                     else:
                         if len(parts) > 1:
-                            common_shape = torch.broadcast_shapes(*(p.shape for p in parts))
+                            common_shape = torch.broadcast_shapes(
+                                *(p.shape for p in parts)
+                            )
                             expanded = [p.expand(common_shape) for p in parts]
                             theta = torch.stack(expanded, dim=-1)
                         else:
@@ -2100,6 +2116,7 @@ class _ProgramsMixin:
                 # codomains take the codomain's event shape after
                 # the row axis.
                 from quivers.core.objects import SetObject as _SetObject
+
                 resp_shape: tuple[int, ...]
                 if isinstance(family.codomain, _SetObject):
                     resp_shape = (idx_space.size,)
@@ -2405,13 +2422,15 @@ class _ProgramsMixin:
                 if step.name in bound_vars:
                     raise CompileError(
                         f"variable {step.name!r} already bound in program",
-                        step.line, step.col,
+                        step.line,
+                        step.col,
                     )
                 self._validate_let_expr_vars(step.value, bound_vars, step)
                 deductions_globals = dict(getattr(self, "_deductions", {}))
                 deductions_globals["__index_size__"] = self._resolve_index_size
                 compiled_fn = self._compile_let_expr(
-                    step.value, globals_=deductions_globals,
+                    step.value,
+                    globals_=deductions_globals,
                 )
                 bound_vars[step.name] = None
                 steps.append(((step.name,), None, compiled_fn, True))
@@ -2472,7 +2491,9 @@ class _ProgramsMixin:
             return_labels=decl.return_labels,
             effect_set=(
                 get_program_effects(
-                    decl.options, line=decl.line, col=decl.col,
+                    decl.options,
+                    line=decl.line,
+                    col=decl.col,
                 )
                 or frozenset(self._infer_effects(expanded_draws))
             ),
@@ -2480,7 +2501,9 @@ class _ProgramsMixin:
         # Posterior-block routing: `[over=M]` programs go to the
         # posterior registry rather than the morphism registry.
         over_model = get_program_over_model(
-            decl.options, line=decl.line, col=decl.col,
+            decl.options,
+            line=decl.line,
+            col=decl.col,
         )
         if over_model is not None:
             if not hasattr(self, "_posteriors"):
@@ -3046,12 +3069,12 @@ class _ProgramsMixin:
                     # recursive pass.
                     if len(arg_fns) != 3:
                         raise CompileError(
-                            "subst() takes exactly three arguments: "
-                            "term, var, value"
+                            "subst() takes exactly three arguments: term, var, value"
                         )
                     term = arg_fns[0](env)
                     var = arg_fns[1](env)
                     value = arg_fns[2](env)
+
                     # Structural-equality substitution: the
                     # ``var`` argument is matched against every
                     # subterm by ``==``; matching subterms are

@@ -1063,7 +1063,9 @@ class DeductionSystem:
                 yield from mod.parameters(recurse=recurse)
 
     def named_parameters(
-        self, prefix: str = "", recurse: bool = True,
+        self,
+        prefix: str = "",
+        recurse: bool = True,
     ) -> Iterable[tuple[str, torch.nn.Parameter]]:
         """Yield ``(name, parameter)`` pairs over all learnable parameters."""
         for attr in ("_axiom_module", "_rule_module"):
@@ -1071,7 +1073,8 @@ class DeductionSystem:
             if mod is not None and hasattr(mod, "named_parameters"):
                 sub_prefix = f"{prefix}.{attr}" if prefix else attr
                 for n, p in mod.named_parameters(
-                    prefix=sub_prefix, recurse=recurse,
+                    prefix=sub_prefix,
+                    recurse=recurse,
                 ):
                     yield n, p
 

@@ -71,9 +71,9 @@ def adam_fit_deduction(
             log_z = log_z + ded(list(sentence)).goal_weight()
         loss = -log_z
         if prior_scale is not None:
-            inv_var = 1.0 / (prior_scale ** 2)
+            inv_var = 1.0 / (prior_scale**2)
             for p in params:
-                loss = loss + 0.5 * inv_var * (p ** 2).sum()
+                loss = loss + 0.5 * inv_var * (p**2).sum()
         loss.backward()
         optim.step()
         history.append(float(loss.detach()))

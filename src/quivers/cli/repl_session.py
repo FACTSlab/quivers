@@ -343,9 +343,7 @@ class ReplSession:
 
     def kind_of(self, expr_source: str) -> ReplResponse:
         try:
-            mod = parse(
-                f"object __probe__ : {expr_source}", file_path="<kind>"
-            )
+            mod = parse(f"object __probe__ : {expr_source}", file_path="<kind>")
         except ParseError as e:
             return _err(f"parse error: {e}")
         if (

@@ -58,7 +58,9 @@ from typing import cast
 from quivers.continuous.morphisms import AnySpace, ContinuousMorphism
 
 
-_BRACKET_ARG_RE = __import__("re").compile(r"^([A-Za-z_][A-Za-z_0-9]*)\[([A-Za-z_][A-Za-z_0-9]*)\]$")
+_BRACKET_ARG_RE = __import__("re").compile(
+    r"^([A-Za-z_][A-Za-z_0-9]*)\[([A-Za-z_][A-Za-z_0-9]*)\]$"
+)
 
 
 def _lookup_arg(env: "dict[str, torch.Tensor]", arg: str) -> "torch.Tensor":

@@ -35,9 +35,8 @@ from quivers.dsl.ast_nodes import (
 )
 from quivers.dsl.compiler._prelude import CompileError
 
-def find_option(
-    options: tuple[OptionEntry, ...], key: str
-) -> OptionEntry | None:
+
+def find_option(options: tuple[OptionEntry, ...], key: str) -> OptionEntry | None:
     """Linear scan for the first entry whose key matches.
 
     The unified option block is small and bounded; a list scan is
@@ -48,15 +47,18 @@ def find_option(
             return entry
     return None
 
+
 def has_option(options: tuple[OptionEntry, ...], key: str) -> bool:
     """Whether ``key`` appears in ``options`` (any value, including flag)."""
     return find_option(options, key) is not None
+
 
 def _at(line: int, col: int, entry: OptionEntry | None) -> tuple[int, int]:
     """Pick the most precise (line, col) we have for an option error."""
     if entry is not None:
         return entry.line, entry.col
     return line, col
+
 
 def get_option_flag(options: tuple[OptionEntry, ...], key: str) -> bool:
     """Whether ``[key]`` appears as a bare flag (OptionFlag value).
@@ -66,6 +68,7 @@ def get_option_flag(options: tuple[OptionEntry, ...], key: str) -> bool:
     """
     entry = find_option(options, key)
     return entry is not None and isinstance(entry.value, OptionFlag)
+
 
 def get_option_name(
     options: tuple[OptionEntry, ...],
@@ -93,6 +96,7 @@ def get_option_name(
         )
     return entry.value.value
 
+
 def get_option_string(
     options: tuple[OptionEntry, ...],
     key: str,
@@ -114,6 +118,7 @@ def get_option_string(
             cl,
         )
     return entry.value.value
+
 
 @overload
 def get_option_int(
@@ -153,8 +158,7 @@ def get_option_int(
     if not isinstance(entry.value, OptionNumber):
         ln, cl = _at(line, col, entry)
         raise CompileError(
-            f"option {key!r}: expected numeric value, got "
-            f"{type(entry.value).__name__}",
+            f"option {key!r}: expected numeric value, got {type(entry.value).__name__}",
             ln,
             cl,
         )
@@ -162,9 +166,12 @@ def get_option_int(
     if not value.is_integer():
         ln, cl = _at(line, col, entry)
         raise CompileError(
-            f"option {key!r}: expected integer, got {value!r}", ln, cl,
+            f"option {key!r}: expected integer, got {value!r}",
+            ln,
+            cl,
         )
     return int(value)
+
 
 @overload
 def get_option_float(
@@ -199,12 +206,12 @@ def get_option_float(
     if not isinstance(entry.value, OptionNumber):
         ln, cl = _at(line, col, entry)
         raise CompileError(
-            f"option {key!r}: expected numeric value, got "
-            f"{type(entry.value).__name__}",
+            f"option {key!r}: expected numeric value, got {type(entry.value).__name__}",
             ln,
             cl,
         )
     return entry.value.value
+
 
 def get_option_name_list(
     options: tuple[OptionEntry, ...],
@@ -248,6 +255,7 @@ def get_option_name_list(
         cl,
     )
 
+
 def get_option_call(
     options: tuple[OptionEntry, ...],
     key: str,
@@ -269,8 +277,12 @@ def get_option_call(
         )
     return entry.value
 
+
 def get_program_effects(
-    options: tuple[OptionEntry, ...], *, line: int = 0, col: int = 0,
+    options: tuple[OptionEntry, ...],
+    *,
+    line: int = 0,
+    col: int = 0,
 ) -> frozenset[str] | None:
     """Decode the ``effects`` option of a program declaration.
 
@@ -285,7 +297,10 @@ def get_program_effects(
 
 
 def get_program_over_model(
-    options: tuple[OptionEntry, ...], *, line: int = 0, col: int = 0,
+    options: tuple[OptionEntry, ...],
+    *,
+    line: int = 0,
+    col: int = 0,
 ) -> str | None:
     """Decode the ``over`` option of a program declaration.
 
@@ -296,9 +311,7 @@ def get_program_over_model(
     return get_option_name(options, "over", line=line, col=col)
 
 
-def get_option_value(
-    options: tuple[OptionEntry, ...], key: str
-) -> OptionValue | None:
+def get_option_value(options: tuple[OptionEntry, ...], key: str) -> OptionValue | None:
     """Untyped option lookup; returns the raw `OptionValue`.
 
     For paths where the compiler dispatches on the value shape itself
@@ -307,6 +320,7 @@ def get_option_value(
     """
     entry = find_option(options, key)
     return entry.value if entry is not None else None
+
 
 __all__ = [
     "find_option",

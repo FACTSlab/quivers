@@ -45,6 +45,7 @@ Two mechanisms keep the suite aligned with whatever ships under
 from __future__ import annotations
 
 import os
+
 os.environ.setdefault("QVR_USE_LOCAL_GRAMMAR", "1")
 
 import re
@@ -79,13 +80,15 @@ _DEDUCTION_CORPORA: dict[str, tuple[str, list[list[str]]]] = {
 # Models whose total parameter count or composition depth makes a
 # full NUTS sweep slow; the suite still exercises them but only
 # under ``pytest -m slow``.
-_SLOW_EXAMPLES: frozenset[str] = frozenset({
-    "transformer_lm",
-    "seq2seq",
-    "lda",
-    "vae",
-    "bidirectional_rnn_lm",
-})
+_SLOW_EXAMPLES: frozenset[str] = frozenset(
+    {
+        "transformer_lm",
+        "seq2seq",
+        "lda",
+        "vae",
+        "bidirectional_rnn_lm",
+    }
+)
 
 
 # Examples that are present in the gallery but exhibit a *model-
@@ -131,9 +134,7 @@ def test_gallery_fit(stem: str) -> None:
     """
     _maybe_skip_buggy(stem)
     if _is_slow(stem):
-        pytest.skip(
-            f"{stem}: slow example; run with ``pytest -m slow`` to include"
-        )
+        pytest.skip(f"{stem}: slow example; run with ``pytest -m slow`` to include")
     _run_one(stem)
 
 
@@ -175,19 +176,26 @@ def _run_deduction_only(stem: str, prog) -> None:
     ded = prog.deductions[ded_name]
     # MAP fit: log Z should rise (loss should fall).
     history = adam_fit_deduction(
-        ded, corpus, steps=60, lr=5e-2, prior_scale=1.0,
+        ded,
+        corpus,
+        steps=60,
+        lr=5e-2,
+        prior_scale=1.0,
     )
     if history:
         assert history[-1] <= history[0] + 1.0, (
-            f"{stem}: MAP loss did not decrease ({history[0]:.2f} -> "
-            f"{history[-1]:.2f})"
+            f"{stem}: MAP loss did not decrease ({history[0]:.2f} -> {history[-1]:.2f})"
         )
     # NUTS on the lifted Bayesian model.
     model, x, obs = nuts_program_from_deduction(
-        ded, corpus, prior_scale=1.0,
+        ded,
+        corpus,
+        prior_scale=1.0,
     )
     kernel = NUTSKernel(
-        step_size=0.05, max_tree_depth=3, target_accept=0.8,
+        step_size=0.05,
+        max_tree_depth=3,
+        target_accept=0.8,
     )
     mc = MCMC(kernel, num_warmup=8, num_samples=8, num_chains=1)
     torch.manual_seed(0)
@@ -196,8 +204,7 @@ def _run_deduction_only(stem: str, prog) -> None:
         f"{stem}: NUTS chain contains non-finite log densities"
     )
     assert float(res.acceptance_rates.mean()) > 0.05, (
-        f"{stem}: NUTS acceptance too low "
-        f"({float(res.acceptance_rates.mean()):.2f})"
+        f"{stem}: NUTS acceptance too low ({float(res.acceptance_rates.mean()):.2f})"
     )
 
 
@@ -231,7 +238,7 @@ def _extract_try_it_blocks(md_text):
     for m in _TRY_IT_RE.finditer(body):
         start = m.start()
         prev = body.rfind("\n", 0, start - 1)
-        prev_line = body[prev + 1: start - 1] if prev >= 0 else ""
+        prev_line = body[prev + 1 : start - 1] if prev >= 0 else ""
         if _SKIP_MARKER in prev_line:
             continue
         out.append(m.group(1))
@@ -239,7 +246,8 @@ def _extract_try_it_blocks(md_text):
 
 
 _DOC_MD_FILES = sorted(
-    p.name for p in Path("docs/examples").glob("*.md")
+    p.name
+    for p in Path("docs/examples").glob("*.md")
     if p.name not in {"index.md", "README.md"}
 )
 

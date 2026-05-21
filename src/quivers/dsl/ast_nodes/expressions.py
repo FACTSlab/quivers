@@ -4,8 +4,10 @@ from typing import Literal
 
 import didactic.api as dx
 
+
 class Expr(dx.TaggedUnion, discriminator="kind"):
     """Sum of value-expression node kinds (morphism computations)."""
+
 
 class ExprIdent(Expr):
     """Reference to a named morphism or binding."""
@@ -15,6 +17,7 @@ class ExprIdent(Expr):
     col: int = 0
     kind: Literal["expr_ident"] = "expr_ident"
 
+
 class ExprIdentity(Expr):
     """Identity morphism: ``identity(A)``."""
 
@@ -22,6 +25,7 @@ class ExprIdentity(Expr):
     line: int = 0
     col: int = 0
     kind: Literal["expr_identity"] = "expr_identity"
+
 
 class ExprFromData(Expr):
     """Data-derived initializer ``from_data("KEY")``.
@@ -38,6 +42,7 @@ class ExprFromData(Expr):
     col: int = 0
     kind: Literal["expr_from_data"] = "expr_from_data"
 
+
 class ExprFreeze(Expr):
     """Detach gradients: ``inner.freeze`` materialises ``inner``'s
     tensor with ``detach()`` and wraps the result as a frozen
@@ -50,6 +55,7 @@ class ExprFreeze(Expr):
     col: int = 0
     kind: Literal["expr_freeze"] = "expr_freeze"
 
+
 class ExprDagger(Expr):
     """Compact-closed dagger / transpose of an expression."""
 
@@ -57,6 +63,7 @@ class ExprDagger(Expr):
     line: int = 0
     col: int = 0
     kind: Literal["expr_dagger"] = "expr_dagger"
+
 
 class ExprTrace(Expr):
     """Compact-closed trace of an expression along a named object."""
@@ -66,6 +73,7 @@ class ExprTrace(Expr):
     line: int = 0
     col: int = 0
     kind: Literal["expr_trace"] = "expr_trace"
+
 
 class ExprChangeBase(Expr):
     """Change-of-base: apply a transformation (an algebra
@@ -90,6 +98,7 @@ class ExprChangeBase(Expr):
     col: int = 0
     kind: Literal["expr_change_base"] = "expr_change_base"
 
+
 class ExprTransCompose(Expr):
     """Composition of two transformations: ``t1 >>> t2`` denotes
     sequential application, first apply ``t1``, then ``t2``.
@@ -106,6 +115,7 @@ class ExprTransCompose(Expr):
     col: int = 0
     kind: Literal["expr_trans_compose"] = "expr_trans_compose"
 
+
 class ExprCup(Expr):
     """Compact-closed unit ``η_A : I → A ⊗ A`` for a named object."""
 
@@ -114,6 +124,7 @@ class ExprCup(Expr):
     col: int = 0
     kind: Literal["expr_cup"] = "expr_cup"
 
+
 class ExprCap(Expr):
     """Compact-closed counit ``ε_A : A ⊗ A → I`` for a named object."""
 
@@ -121,6 +132,7 @@ class ExprCap(Expr):
     line: int = 0
     col: int = 0
     kind: Literal["expr_cap"] = "expr_cap"
+
 
 class ExprCompose(Expr):
     """Algebra-typed sequential composition.
@@ -150,6 +162,7 @@ class ExprCompose(Expr):
     col: int = 0
     kind: Literal["expr_compose"] = "expr_compose"
 
+
 class ExprTensorProduct(Expr):
     """Parallel product: ``left @ right``."""
 
@@ -158,6 +171,7 @@ class ExprTensorProduct(Expr):
     line: int = 0
     col: int = 0
     kind: Literal["expr_tensor_product"] = "expr_tensor_product"
+
 
 class ExprMarginalize(Expr):
     """Marginalization: ``expr.marginalize(A, B, ...)``."""
@@ -168,6 +182,7 @@ class ExprMarginalize(Expr):
     col: int = 0
     kind: Literal["expr_marginalize"] = "expr_marginalize"
 
+
 class ExprFan(Expr):
     """Fan-out (diagonal) composition: ``fan(f, g, ...)``."""
 
@@ -175,6 +190,7 @@ class ExprFan(Expr):
     line: int = 0
     col: int = 0
     kind: Literal["expr_fan"] = "expr_fan"
+
 
 class ExprRepeat(Expr):
     """Iterated composition: ``repeat(f, n)`` or ``repeat(f)``."""
@@ -185,6 +201,7 @@ class ExprRepeat(Expr):
     col: int = 0
     kind: Literal["expr_repeat"] = "expr_repeat"
 
+
 class ExprStack(Expr):
     """Independent multi-layer composition: ``stack(f, n)``."""
 
@@ -194,6 +211,7 @@ class ExprStack(Expr):
     col: int = 0
     kind: Literal["expr_stack"] = "expr_stack"
 
+
 class ExprScan(Expr):
     """Temporal scan: ``scan(cell)`` or ``scan(cell, init=learned)``."""
 
@@ -202,6 +220,7 @@ class ExprScan(Expr):
     line: int = 0
     col: int = 0
     kind: Literal["expr_scan"] = "expr_scan"
+
 
 class ExprParser(Expr):
     """Deductive parser assembled from rules."""
@@ -215,6 +234,7 @@ class ExprParser(Expr):
     line: int = 0
     col: int = 0
     kind: Literal["expr_parser"] = "expr_parser"
+
 
 class ExprChartFold(Expr):
     """Desugared parser-construction primitive.
@@ -242,6 +262,7 @@ class ExprChartFold(Expr):
     col: int = 0
     kind: Literal["expr_chart_fold"] = "expr_chart_fold"
 
+
 class ExprCurry(Expr):
     """Residuation-witness curry combinator.
 
@@ -262,6 +283,7 @@ class ExprCurry(Expr):
     col: int = 0
     kind: Literal["expr_curry"] = "expr_curry"
 
+
 class ExprMorphismCall(Expr):
     """Call expression ``callee(arg1, arg2, ...)`` resolving to a
     morphism-level operation.
@@ -277,6 +299,7 @@ class ExprMorphismCall(Expr):
     line: int = 0
     col: int = 0
     kind: Literal["expr_morphism_call"] = "expr_morphism_call"
+
 
 __all__ = [
     "Expr",

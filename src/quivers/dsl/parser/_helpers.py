@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from quivers.dsl.parser._registry import ParseError, _Tree
 
+
 def _required_text(
     t: _Tree, child_vid: str | None, parent_vid: str, field_name: str
 ) -> str:
@@ -16,10 +17,10 @@ def _required_text(
     """
     if child_vid is None:
         raise ParseError(
-            f"missing required {field_name!r} field at "
-            f"{parent_vid} (malformed parse)"
+            f"missing required {field_name!r} field at {parent_vid} (malformed parse)"
         )
     return t.text(child_vid)
+
 
 def _walk_draw_arg(t: _Tree, vid: str) -> str | float:
     """Walk a family-argument into its compiler representation.
@@ -44,5 +45,6 @@ def _walk_draw_arg(t: _Tree, vid: str) -> str | float:
             raise ParseError(f"bracket_index_arg malformed at {vid}")
         return f"{t.text(nv)}[{t.text(iv)}]"
     raise ParseError(f"unexpected draw arg kind: {k}")
+
 
 __all__ = ["_required_text", "_walk_draw_arg"]

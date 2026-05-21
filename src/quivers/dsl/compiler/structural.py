@@ -88,14 +88,12 @@ def _decode_vocab_option(
             # _decode_vocab_literal expects the surface-with-quotes
             # form, so re-quote via ``repr`` of an str (single-quoted)
             # then convert to a double-quoted literal.
-            text = '"' + item.value.replace('\\', '\\\\').replace('"', '\\"') + '"'
+            text = '"' + item.value.replace("\\", "\\\\").replace('"', '\\"') + '"'
             lits.append(SortVocabLiteral(kind="string", text=text))
         elif isinstance(item, OptionNumber):
             value = item.value
             if value.is_integer():
-                lits.append(
-                    SortVocabLiteral(kind="integer", text=str(int(value)))
-                )
+                lits.append(SortVocabLiteral(kind="integer", text=str(int(value))))
             else:
                 lits.append(SortVocabLiteral(kind="float", text=repr(value)))
         else:
@@ -145,7 +143,10 @@ def _decode_loss_attachment(
       is the deduction name.
     """
     call = get_option_call(
-        decl.options, "on", line=decl.line, col=decl.col,
+        decl.options,
+        "on",
+        line=decl.line,
+        col=decl.col,
     )
     if call is None:
         return ("global", None, None)
@@ -191,8 +192,7 @@ def _decode_loss_attachment(
             )
         return ("chart", call.args[0].value, None)
     raise CompileError(
-        f"loss {decl.name!r}: unknown attachment kind {name!r} "
-        "in ``on=...``",
+        f"loss {decl.name!r}: unknown attachment kind {name!r} in ``on=...``",
         decl.line,
         decl.col,
     )
@@ -212,12 +212,14 @@ def _build_encoder_from_factory(decl: "EncoderDecl", sig) -> "Encoder":
     builder kwargs the factory doesn't accept.
     """
     factory_name = get_option_name(
-        decl.options, "factory", line=decl.line, col=decl.col,
+        decl.options,
+        "factory",
+        line=decl.line,
+        col=decl.col,
     )
     if factory_name is None:
         raise CompileError(
-            f"encoder {decl.name!r}: missing required option "
-            f"``factory=<name>``",
+            f"encoder {decl.name!r}: missing required option ``factory=<name>``",
             decl.line,
             decl.col,
         )
@@ -314,10 +316,18 @@ class _StructuralMixin:
                     s.col,
                 )
             s_dim = get_option_int(
-                s.options, "dim", line=s.line, col=s.col, default=None,
+                s.options,
+                "dim",
+                line=s.line,
+                col=s.col,
+                default=None,
             )
             s_vocab_lits = _decode_vocab_option(
-                decl.name, s.name, s.options, s.line, s.col,
+                decl.name,
+                s.name,
+                s.options,
+                s.line,
+                s.col,
             )
             if s_vocab_lits and s.kind != "data":
                 raise CompileError(
@@ -356,7 +366,11 @@ class _StructuralMixin:
                     v.col,
                 )
             v_dim = get_option_int(
-                v.options, "dim", line=v.line, col=v.col, default=None,
+                v.options,
+                "dim",
+                line=v.line,
+                col=v.col,
+                default=None,
             )
             vertex_kinds[v.name] = VertexKind(name=v.name, kind=v.kind, dim=v_dim)
         edge_kinds: dict[str, EdgeKind] = {}
@@ -1097,6 +1111,7 @@ class _StructuralMixin:
 
             def weight_fn(_env: dict[str, object], _w: float = _w) -> float:
                 return _w
+
         attachment = _decode_loss_attachment(decl)
         self._loss_registry.add(
             LossEntry(

@@ -52,8 +52,7 @@ def _walk_inputs(paths: Iterable[str]) -> list[Path]:
             out.append(p)
         else:
             raise MigrateError(
-                f"unsupported input {raw!r}: not a directory or "
-                "``.qvr`` file",
+                f"unsupported input {raw!r}: not a directory or ``.qvr`` file",
             )
     return out
 
@@ -112,11 +111,7 @@ def main(args: argparse.Namespace) -> int:
         print(f"{prefix} {src_path}")
         if args.dry_run:
             continue
-        target = (
-            (out_root / src_path.name)
-            if out_root is not None
-            else src_path
-        )
+        target = (out_root / src_path.name) if out_root is not None else src_path
         target.parent.mkdir(parents=True, exist_ok=True)
         target.write_bytes(migrated)
 

@@ -128,10 +128,16 @@ def _draw(
     """
     if mode == "score":
         return ObserveStep(
-            var=var, morphism=family, args=args, index=index,
+            var=var,
+            morphism=family,
+            args=args,
+            index=index,
         )
     return SampleStep(
-        vars=(var,), morphism=family, args=args, index=index,
+        vars=(var,),
+        morphism=family,
+        args=args,
+        index=index,
     )
 
 

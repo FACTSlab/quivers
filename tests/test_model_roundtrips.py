@@ -118,18 +118,12 @@ from quivers.monadic.bridges import ArrowMonad, Kleisli
 
 # AST: object / type expressions
 _TYPE_NAME = TypeName(name="State")
-_TYPE_PRODUCT = ObjectProduct(
-    components=(TypeName(name="A"), TypeName(name="B"))
-)
-_TYPE_COPRODUCT = ObjectCoproduct(
-    components=(_TYPE_NAME, TypeName(name="X"))
-)
+_TYPE_PRODUCT = ObjectProduct(components=(TypeName(name="A"), TypeName(name="B")))
+_TYPE_COPRODUCT = ObjectCoproduct(components=(_TYPE_NAME, TypeName(name="X")))
 _TYPE_SLASH = ObjectSlash(
     result=TypeName(name="X"), argument=TypeName(name="Y"), direction="/"
 )
-_TYPE_EFFECT_APPLY = ObjectEffectApply(
-    effect="Cont_S", args=(TypeName(name="NP"),)
-)
+_TYPE_EFFECT_APPLY = ObjectEffectApply(effect="Cont_S", args=(TypeName(name="NP"),))
 _DISCRETE_CTOR = DiscreteConstructor(constructor="FinSet", args=("3",))
 _CONTINUOUS_CTOR = ContinuousConstructor(
     constructor="Real", args=("3",), kwargs={"low": "0.0", "high": "1.0"}

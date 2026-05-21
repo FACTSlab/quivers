@@ -16,6 +16,7 @@ Three lifts are exercised:
 from __future__ import annotations
 
 import os
+
 os.environ.setdefault("QVR_USE_LOCAL_GRAMMAR", "1")
 
 import torch
@@ -68,7 +69,9 @@ def test_bayesian_lift_log_joint_is_finite():
     x = torch.linspace(0.0, 1.0, 8).unsqueeze(-1)
     obs = {"y": 2.0 * x.squeeze(-1) + 0.5}
     lifted, lx, lobs = bayesian_lift_parameters(model, x, obs, prior_scale=1.0)
-    lj = lifted.log_joint(lx, {"theta__a": torch.zeros(1, 1), "theta__b": torch.zeros(1, 1), **lobs})
+    lj = lifted.log_joint(
+        lx, {"theta__a": torch.zeros(1, 1), "theta__b": torch.zeros(1, 1), **lobs}
+    )
     assert torch.isfinite(lj).all()
 
 
@@ -161,7 +164,9 @@ def test_bayesian_lift_with_additional_latents_cancels_placeholder():
     # log_joint with that same latent value, irrespective of
     # placeholder scale.
     lifted, lx, _ = bayesian_lift_parameters(
-        model, x, {},
+        model,
+        x,
+        {},
         prior_scale=1.0,
         additional_latents={"y": (1,)},
         latent_placeholder_scale=10.0,
@@ -169,16 +174,24 @@ def test_bayesian_lift_with_additional_latents_cancels_placeholder():
     # Two evaluations with different placeholder scales should give
     # the same score after cancellation, given the same theta and z.
     lifted2, lx2, _ = bayesian_lift_parameters(
-        model, x, {},
+        model,
+        x,
+        {},
         prior_scale=1.0,
         additional_latents={"y": (1,)},
         latent_placeholder_scale=1.0,
     )
     # Build matching envs: zero theta, latent y = 2.0
-    env_keys_1 = [spec.morphism_name for spec in lifted._step_specs
-                  if hasattr(spec, "vars") and spec.vars[0].startswith(("theta", "latent"))]
-    env_keys_2 = [spec.morphism_name for spec in lifted2._step_specs
-                  if hasattr(spec, "vars") and spec.vars[0].startswith(("theta", "latent"))]
+    env_keys_1 = [
+        spec.morphism_name
+        for spec in lifted._step_specs
+        if hasattr(spec, "vars") and spec.vars[0].startswith(("theta", "latent"))
+    ]
+    env_keys_2 = [
+        spec.morphism_name
+        for spec in lifted2._step_specs
+        if hasattr(spec, "vars") and spec.vars[0].startswith(("theta", "latent"))
+    ]
     assert env_keys_1 == env_keys_2  # same step layout
     # Direct log_joint comparison: same args, different placeholder
     # scales → identical scores (within float tolerance).
@@ -187,7 +200,11 @@ def test_bayesian_lift_with_additional_latents_cancels_placeholder():
         if hasattr(spec, "vars") and spec.vars[0].startswith(("theta", "latent")):
             morph = lifted._modules[spec.morphism_name]
             d = morph.codomain.dim if hasattr(morph.codomain, "dim") else 1
-            v = torch.full((1, d), 2.0) if spec.vars[0].startswith("latent") else torch.zeros(1, d)
+            v = (
+                torch.full((1, d), 2.0)
+                if spec.vars[0].startswith("latent")
+                else torch.zeros(1, d)
+            )
             env[spec.vars[0]] = v
     s1 = float(lifted.log_joint(lx, env)[0])
     s2 = float(lifted2.log_joint(lx2, env)[0])
@@ -203,12 +220,14 @@ def test_monte_carlo_log_joint_draws_step_site():
 
     def _prior(b, device):
         return D.Normal(
-            torch.zeros(b, 1, device=device), torch.ones(b, 1, device=device),
+            torch.zeros(b, 1, device=device),
+            torch.ones(b, 1, device=device),
         )
 
     def _likelihood(b, device):
         return D.Normal(
-            torch.zeros(b, 1, device=device), torch.ones(b, 1, device=device),
+            torch.zeros(b, 1, device=device),
+            torch.ones(b, 1, device=device),
         )
 
     h_morph = FixedDistribution(Euclidean(name="R", dim=1), _prior, discrete=False)
