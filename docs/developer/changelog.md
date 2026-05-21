@@ -4,6 +4,12 @@ All notable changes to the quivers library are documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/), and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.11.4] - 2026-05-21
+
+### Fixed
+
+- **`:type` on a parametric program dropped its parameter list.** Typed program parameters (`alpha : Real`, `beta : Real`, `G : FinSet`, `k : Mor[A, B]`) live on the AST's `type_params` slot, not on `params` (which holds bare names). The REPL session and the TUI env-tree builder were both reading only `params`, so loading `lda.qvr` and running `:type lda` printed `program lda : Word -> Word` instead of `program lda(alpha : Real, beta : Real) : Word -> Word`; the env tree's program node had the same problem. Both call sites now walk both slots and render the typed parameter list with its `ScalarParam` / `ObjectParam` / `MorphismParam` annotation.
+
 ## [0.11.3] - 2026-05-21
 
 ### Fixed

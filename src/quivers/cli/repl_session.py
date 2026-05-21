@@ -392,20 +392,41 @@ class ReplSession:
     def _type_line_for_program(self, name: str, tmpl: Any) -> str:
         """Render a program template's signature.
 
-        Programs carry a ``params`` list (``(alpha : Real, beta : Real)``)
-        plus a ``(domain, codomain)`` arrow. Reconstructs the surface
-        ``program NAME(params) : DOM -> COD`` line.
+        Reconstructs ``program NAME(params) : DOM -> COD`` from the
+        AST node. Parameters come from two slots:
+        ``params`` (bare-name list, no type annotation) and
+        ``type_params`` (typed list of ``ScalarParam`` / ``ObjectParam``
+        / ``MorphismParam`` records); a program declares at most one
+        of the two, but the AST keeps them separate so the renderer
+        merges whichever is populated.
         """
         del self
-        params = getattr(tmpl, "params", ()) or ()
         param_strs: list[str] = []
-        for p in params:
+        bare = getattr(tmpl, "params", None) or ()
+        for n in bare:
+            param_strs.append(str(n))
+        typed = getattr(tmpl, "type_params", None) or ()
+        for p in typed:
             pname = getattr(p, "name", "?")
-            ptype = getattr(p, "type", None) or getattr(p, "annotation", None)
-            if ptype is None:
-                param_strs.append(str(pname))
+            kind = type(p).__name__
+            if kind == "ScalarParam":
+                annot = getattr(p, "scalar_kind", "?")
+            elif kind == "ObjectParam":
+                annot = getattr(p, "universe", "?")
+            elif kind == "MorphismParam":
+                dom = getattr(p, "domain", None)
+                cod = getattr(p, "codomain", None)
+                annot = (
+                    f"Mor[{_pretty_object(dom)}, {_pretty_object(cod)}]"
+                    if dom is not None and cod is not None
+                    else "Mor"
+                )
             else:
-                param_strs.append(f"{pname} : {_pretty_object(ptype)}")
+                annot = ""
+            if annot:
+                param_strs.append(f"{pname} : {annot}")
+            else:
+                param_strs.append(str(pname))
         head = f"program {name}"
         if param_strs:
             head += f"({', '.join(param_strs)})"
