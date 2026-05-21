@@ -175,9 +175,9 @@ Supported DSL operators:
 | `@` | tensor product | `f @ g` |
 | `.marginalize(X)` | marginalize over object | `f.marginalize(X)` |
 | `.change_base(t)` | change of base under transformation `t` | `f.change_base(softmax(B))` |
-| `identity(X)` | identity morphism | `observed id : X -> X = identity(X)` |
+| `identity(X)` | identity morphism | `morphism id : X -> X [role=observed] ~ identity(X)` |
 
-The DSL also has surface for monadic probabilistic programs (`program ... ! Sample, Score`), composition rules at four algebraic levels (`algebra`, `semigroupoid`, `bilinear_form`, `composition_rule`), and operadic contractions (`contraction op (...) rule R wiring "..."`). The [QVR tutorial](../tutorials/qvr/01-first-model.md) walks the full surface.
+The DSL also has surface for monadic probabilistic programs (`program ... [effects = [Sample, Score]]`), composition rules at four algebraic levels via `composition NAME as <algebra | semigroupoid | bilinear_form | rule>`, and operadic contractions (`contraction op : ... [rule = R, wiring = "..."]`). The [QVR tutorial](../tutorials/qvr/01-first-model.md) walks through the full API.
 
 ## 6. Stochastic Morphisms
 

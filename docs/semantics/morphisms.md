@@ -40,9 +40,9 @@ $$
 \qquad \llbracket f \rrbracket \in V^{|{\llbracket \tau_1 \rrbracket}| \times |{\llbracket \tau_2 \rrbracket}|}.
 $$
 
-For `latent`, the entries are *free parameters* drawn from $V$; the realization in PyTorch is a tensor of `requires_grad = True` parameters passed through a constraint map $\sigma : \mathbb{R} \to V$ (the sigmoid for $\mathcal{V}_{\mathrm{pf}}$, the identity for $\mathcal{V}_{\mathrm{T}}$, etc.).
+For `morphism f : τ₁ -> τ₂ [role = latent]`, the entries are *free parameters* drawn from $V$; the realization in PyTorch is a tensor of `requires_grad = True` parameters passed through a constraint map $\sigma : \mathbb{R} \to V$ (the sigmoid for $\mathcal{V}_{\mathrm{pf}}$, the identity for $\mathcal{V}_{\mathrm{T}}$, etc.).
 
-For `observed g : τ₁ -> τ₂ = data`, the entries are *fixed*: $\llbracket g \rrbracket(x, y) = \mathrm{data}[x, y]$.
+For `morphism g : τ₁ -> τ₂ [role = observed] ~ data`, the entries are *fixed*: $\llbracket g \rrbracket(x, y) = \mathrm{data}[x, y]$.
 
 The implementation does not distinguish the two cases at the categorical level: both produce objects of $\mathcal{V}\text{-}\mathbf{Rel}$. The latent/observed distinction is operational, controlling the gradient-flow during training.
 

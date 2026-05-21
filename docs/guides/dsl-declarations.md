@@ -96,7 +96,7 @@ object Cat = FreeResiduated(Atoms, depth=4, ops=[slash])
 
 Object-shaped aliases (resolvable to a
 [`SetObject`](../api/core/objects.md)) are interchangeable with the
-underlying object, so `latent f : Pair -> X` is well-formed when
+underlying object, so `morphism f : Pair -> X [role=latent]` is well-formed when
 `Pair = X * Y`.
 
 ## Morphism
@@ -542,8 +542,8 @@ hidden state `H` across a sequence:
 - **Type.** If `cell : A * H -> H`, then `scan(cell) : A -> H`.
   The sequence dimension is implicit in the tensor's second
   dimension.
-- **Works with both forms.** Parametric kernels (`kernel cell : A *
-  H -> H ~ Normal`) and `MonadicPrograms` (`program cell(x, h) : A *
+- **Works with both forms.** Parametric kernels (`morphism cell : A *
+  H -> H [role=kernel] ~ Normal`) and `MonadicPrograms` (`program cell(x, h) : A *
   H -> H` with bind / let / return).
 
 **Example: vanilla RNN.**
