@@ -236,20 +236,23 @@ def main(argv: list[str] | None = None) -> int:
     head_bytes = _current_head_grammar()
     last_tag_bytes = revisions[-1][1] if revisions else b""
     if head_bytes != last_tag_bytes:
+        # The working-tree grammar is the canonical v0.11.0 (the
+        # homogenized release). Commit it under that tag so the VCS
+        # surfaces it the same way users address it from the CLI.
         schema = _build_schema(protocol, head_bytes)
         _commit_and_tag(
             repo,
             schema,
-            message="qvr grammar at HEAD: homogenized surface",
-            tag=None,
+            message="qvr grammar at v0.11.0",
+            tag="v0.11.0",
         )
         print(
-            f"  HEAD: {schema.vertex_count} rules, "
+            f"  v0.11.0: {schema.vertex_count} rules, "
             f"{schema.edge_count} field edges",
             flush=True,
         )
     else:
-        print("  HEAD identical to last tag, no new commit needed")
+        print("  v0.11.0 identical to last tag, no new commit needed")
 
     return 0
 

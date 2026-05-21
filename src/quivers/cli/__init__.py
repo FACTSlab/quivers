@@ -1,6 +1,6 @@
 """Command-line entry points for quivers.
 
-The :func:`main` function is registered as the ``qvr`` console script
+The `main` function is registered as the ``qvr`` console script
 in ``pyproject.toml``.
 
 Subcommands:
@@ -78,12 +78,14 @@ def main() -> int:
         help="Migrate .qvr source files between tagged grammar revisions.",
     )
     migrate.add_argument(
-        "--from", dest="from_ref", required=True,
-        help="Source grammar revision (git tag, HEAD, or commit id).",
+        "--from", dest="from_ref", default=None,
+        help="Source grammar revision (git tag or commit id). "
+        "Defaults to the most recent tagged release on the chain.",
     )
     migrate.add_argument(
-        "--to", dest="to_ref", required=True,
-        help="Target grammar revision.",
+        "--to", dest="to_ref", default=None,
+        help="Target grammar revision. Defaults to the upcoming "
+        "release (last entry on the chain).",
     )
     migrate.add_argument(
         "--dry-run", action="store_true",
@@ -95,7 +97,15 @@ def main() -> int:
         "overwriting in place.",
     )
     migrate.add_argument(
-        "paths", nargs="+", help=".qvr files or directories to migrate.",
+        "--check", action="store_true",
+        help="Validate the migration chain against the panproto "
+        "VCS schema diff: report any rule removed in an adjacent "
+        "grammar revision that the corresponding hop migrator has "
+        "no converter for. Non-zero exit when any pair has "
+        "uncovered removals. Does not migrate any files.",
+    )
+    migrate.add_argument(
+        "paths", nargs="*", help=".qvr files or directories to migrate.",
     )
 
     kernel = sub.add_parser(
