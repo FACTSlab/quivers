@@ -1,15 +1,15 @@
 """Static constraint solver for QVR modules.
 
-Walks a parsed :class:`Module` and reports well-formedness violations
+Walks a parsed `Module` and reports well-formedness violations
 that the unified resolver or the compiler would otherwise only
 surface at the point of use:
 
-* ``residuated_constraint``: :class:`TypeSlash` patterns must
+* ``residuated_constraint``: `ObjectSlash` patterns must
   reference a residuated universe (a previously-declared
-  :class:`TypeFreeResiduated`) at every binding site. Schema
+  `TypeFreeResiduated`) at every binding site. Schema
   parameters typed as a residuated universe are recognized; bare
-  :class:`TypeSlash` outside a residuated context is flagged.
-* ``effect_constraint``: :class:`TypeEffectApply` references must
+  `ObjectSlash` outside a residuated context is flagged.
+* ``effect_constraint``: `ObjectEffectApply` references must
   name an effect with a conventional name (PascalCase or
   underscore-containing); other identifiers are flagged.
 * ``bundle_unknown_member``: bundle-decl members that do not
@@ -18,7 +18,7 @@ surface at the point of use:
   problems without invoking the compiler.
 
 The solver consumes the parsed AST only; it never invokes the
-compiler. Returned diagnostics are :class:`Violation` records that
+compiler. Returned diagnostics are `Violation` records that
 the ``qvr check`` CLI lifts into structured ``Diagnostic`` instances.
 """
 
@@ -32,17 +32,17 @@ from quivers.dsl.ast_nodes import (
     Module,
     RuleDecl,
     SchemaDecl,
-    TypeCoproduct,
-    TypeDecl,
-    TypeEffectApply,
+    ObjectCoproduct,
+    ObjectDecl,
+    ObjectEffectApply,
     TypeEnumSet,
-    TypeExpr,
+    ObjectExpr,
     TypeFreeMonoid,
     TypeFreeResiduated,
     TypeFromExpr,
     TypeName,
-    TypeProduct,
-    TypeSlash,
+    ObjectProduct,
+    ObjectSlash,
 )
 from quivers.stochastic.schema import SCHEMA_REGISTRY
 
@@ -69,7 +69,7 @@ def check_constraints(module: Module) -> list[Violation]:
     residuated_universes: dict[str, TypeFreeResiduated] = {}
     enum_sets: dict[str, TypeEnumSet] = {}
     free_monoids: dict[str, TypeFreeMonoid] = {}
-    aliased_names: dict[str, TypeExpr] = {}
+    aliased_names: dict[str, ObjectExpr] = {}
     rule_names: set[str] = set()
     schema_names: set[str] = set()
     bundle_names: set[str] = set()
@@ -98,7 +98,7 @@ def check_constraints(module: Module) -> list[Violation]:
         return bool(name) and (name[0].isupper() or "_" in name)
 
     def walk_pattern(
-        texpr: TypeExpr,
+        texpr: ObjectExpr,
         *,
         in_residuated_context: bool,
         line_hint: int = 0,
@@ -106,7 +106,7 @@ def check_constraints(module: Module) -> list[Violation]:
     ) -> None:
         if isinstance(texpr, TypeName):
             return
-        if isinstance(texpr, TypeProduct):
+        if isinstance(texpr, ObjectProduct):
             for c in texpr.components:
                 walk_pattern(
                     c,
@@ -115,7 +115,7 @@ def check_constraints(module: Module) -> list[Violation]:
                     col_hint=col_hint,
                 )
             return
-        if isinstance(texpr, TypeCoproduct):
+        if isinstance(texpr, ObjectCoproduct):
             for c in texpr.components:
                 walk_pattern(
                     c,
@@ -124,7 +124,7 @@ def check_constraints(module: Module) -> list[Violation]:
                     col_hint=col_hint,
                 )
             return
-        if isinstance(texpr, TypeSlash):
+        if isinstance(texpr, ObjectSlash):
             if not in_residuated_context:
                 line = texpr.line or line_hint
                 col = texpr.col or col_hint
@@ -132,7 +132,7 @@ def check_constraints(module: Module) -> list[Violation]:
                     Violation(
                         code="residuated_constraint",
                         message=(
-                            f"TypeSlash {texpr.direction!r} appears "
+                            f"ObjectSlash {texpr.direction!r} appears "
                             "outside a residuated context; either "
                             "declare a FreeResiduated universe and "
                             "parameterize the schema by it, or remove "
@@ -155,7 +155,7 @@ def check_constraints(module: Module) -> list[Violation]:
                 col_hint=col_hint,
             )
             return
-        if isinstance(texpr, TypeEffectApply):
+        if isinstance(texpr, ObjectEffectApply):
             if not is_known_effect(texpr.effect):
                 line = texpr.line or line_hint
                 col = texpr.col or col_hint
@@ -182,7 +182,7 @@ def check_constraints(module: Module) -> list[Violation]:
             return
 
     for stmt in module.statements:
-        if isinstance(stmt, TypeDecl):
+        if isinstance(stmt, ObjectDecl):
             init = stmt.init
             if isinstance(init, TypeFreeResiduated):
                 residuated_universes[stmt.name] = init

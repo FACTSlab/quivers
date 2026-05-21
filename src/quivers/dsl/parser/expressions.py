@@ -49,12 +49,12 @@ from quivers.dsl.ast_nodes import (
     LetExprVar,
     LetFactorBinder,
     LetFactorCase,
-    TypeCoproduct,
-    TypeEffectApply,
-    TypeExpr,
+    ObjectCoproduct,
+    ObjectEffectApply,
+    ObjectExpr,
     TypeName,
-    TypeProduct,
-    TypeSlash,
+    ObjectProduct,
+    ObjectSlash,
 )
 from quivers.dsl.parser._helpers import _required_text
 from quivers.dsl.parser._registry import ParseError, _Tree
@@ -77,34 +77,34 @@ _CONTINUOUS_CTORS = frozenset({
     "Diagonal",
 })
 
-def _walk_type(t: _Tree, vid: str) -> TypeExpr:
-    """Walk a tree-sitter type-expr vertex into the unified TypeExpr AST."""
+def _walk_type(t: _Tree, vid: str) -> ObjectExpr:
+    """Walk a tree-sitter type-expr vertex into the unified ObjectExpr AST."""
     k = t.kind(vid)
     line, col = t.line_col(vid)
-    if k == "type_atom":
+    if k == "object_atom":
         kids = t.positional(vid)
         if not kids:
-            raise ParseError(f"type_atom {vid} has no child")
+            raise ParseError(f"object_atom {vid} has no child")
         return TypeName(name=t.text(kids[0]), line=line, col=col)
-    if k == "type_paren":
+    if k == "object_paren":
         return _walk_type(t, t.positional(vid)[0])
-    if k == "type_product":
-        return TypeProduct(
-            components=tuple(_flatten_type(t, vid, "type_product")),
+    if k == "object_product":
+        return ObjectProduct(
+            components=tuple(_flatten_type(t, vid, "object_product")),
             line=line,
             col=col,
         )
-    if k == "type_coproduct":
-        return TypeCoproduct(
-            components=tuple(_flatten_type(t, vid, "type_coproduct")),
+    if k == "object_coproduct":
+        return ObjectCoproduct(
+            components=tuple(_flatten_type(t, vid, "object_coproduct")),
             line=line,
             col=col,
         )
-    if k == "type_slash":
+    if k == "object_slash":
         result_vid = t.field(vid, "result")
         argument_vid = t.field(vid, "argument")
         if result_vid is None or argument_vid is None:
-            raise ParseError(f"type_slash missing result/argument at {vid}")
+            raise ParseError(f"object_slash missing result/argument at {vid}")
         rcs = t.consts(result_vid)
         acs = t.consts(argument_vid)
         direction: Literal["/", "\\"] = "/"
@@ -113,19 +113,19 @@ def _walk_type(t: _Tree, vid: str) -> TypeExpr:
                 "utf-8"
             )
             direction = "\\" if "\\" in mid else "/"
-        return TypeSlash(
+        return ObjectSlash(
             result=_walk_type(t, result_vid),
             argument=_walk_type(t, argument_vid),
             direction=direction,
             line=line,
             col=col,
         )
-    if k == "type_effect_apply":
+    if k == "object_effect_apply":
         effect_vid = t.field(vid, "effect")
         if effect_vid is None:
-            raise ParseError(f"type_effect_apply missing effect at {vid}")
+            raise ParseError(f"object_effect_apply missing effect at {vid}")
         arg_vids = t.fields(vid, "args")
-        return TypeEffectApply(
+        return ObjectEffectApply(
             effect=t.text(effect_vid),
             args=tuple(_walk_type(t, av) for av in arg_vids),
             line=line,
@@ -179,23 +179,35 @@ def _constructor_name(t: _Tree, vid: str) -> str:
 def _walk_constructor_args(
     t: _Tree, vid: str
 ) -> tuple[list[str], dict[str, str]]:
-    """Split a constructor's children into positional args and kwargs."""
+    """Return a constructor vertex's positional args (from
+    ``field('args', ...)`` edges) and keyword args (from its trailing
+    ``option_block``). ``Real 28 28 [low=0.0, high=1.0]`` yields
+    ``(["28", "28"], {"low": "0.0", "high": "1.0"})``.
+    """
     args: list[str] = []
-    kwargs: dict[str, str] = {}
+    # ``cardinality`` covers FinSet's single-arg shape; ``args``
+    # covers the multi-positional continuous-constructor shape.
+    cardinality_vid = t.field(vid, "cardinality")
+    if cardinality_vid is not None:
+        args.append(t.text(cardinality_vid))
     for arg_vid in t.fields(vid, "args"):
-        ak = t.kind(arg_vid)
-        if ak == "type_constructor_kwarg":
-            key_vid = t.field(arg_vid, "key")
-            val_vid = t.field(arg_vid, "value")
+        if t.kind(arg_vid) in ("integer", "float", "identifier"):
+            args.append(t.text(arg_vid))
+    kwargs: dict[str, str] = {}
+    options_vid = t.field(vid, "options")
+    if options_vid is not None:
+        for entry_vid in t.fields(options_vid, "child_of"):
+            if t.kind(entry_vid) != "option_entry":
+                continue
+            key_vid = t.field(entry_vid, "key")
+            val_vid = t.field(entry_vid, "value")
             if key_vid is not None and val_vid is not None:
                 kwargs[t.text(key_vid)] = t.text(val_vid)
-        elif ak in ("integer", "float"):
-            args.append(t.text(arg_vid))
     return args, kwargs
 
-def _flatten_type(t: _Tree, vid: str, op_kind: str) -> list[TypeExpr]:
+def _flatten_type(t: _Tree, vid: str, op_kind: str) -> list[ObjectExpr]:
     """Flatten a left-associative binary type operator into a tuple."""
-    out: list[TypeExpr] = []
+    out: list[ObjectExpr] = []
     left_vid = t.field(vid, "left")
     right_vid = t.field(vid, "right")
     if left_vid is None or right_vid is None:
@@ -348,7 +360,10 @@ def _walk_expr(t: _Tree, vid: str) -> Expr:
             raise ParseError(f"postfix_expr missing inner/method at {vid}")
         inner = _walk_expr(t, inner_vid)
         method_name_vid = t.field(method_vid, "name")
-        method_name = t.text(method_name_vid) if method_name_vid else ""
+        if method_name_vid is not None:
+            method_name = t.text(method_name_vid)
+        else:
+            method_name = t.consts(method_vid).get("field:name", "")
         if method_name == "marginalize":
             names = tuple(
                 t.text(av) for av in t.fields(method_vid, "args")
@@ -604,7 +619,7 @@ def _walk_let_arith(t: _Tree, vid: str) -> LetExprNode:
         return LetExprFactor(binders=binders, body=body, cases=cases)
     raise ParseError(f"unexpected let-expression kind: {k}")
 
-def _err_type(t: _Tree, vid: str, field: str) -> TypeExpr:
+def _err_type(t: _Tree, vid: str, field: str) -> ObjectExpr:
     raise ParseError(f"let-factor binder at {vid} missing {field}")
 
 def _err_let(t: _Tree, vid: str, field: str) -> LetExprNode:

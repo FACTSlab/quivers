@@ -5,16 +5,16 @@ unconstrained vector :math:`z \\in \\mathbb{R}^{D}` (where ``D``
 is the registry's total unconstrained dimensionality) and
 parameterize a joint Gaussian over it:
 
-* :class:`AutoMultivariateNormalGuide` uses a full lower-
+* `AutoMultivariateNormalGuide` uses a full lower-
   triangular Cholesky factor ``L`` so the covariance
   :math:`\\Sigma = L L^\\top` is dense. Parameter count
   :math:`D + D(D+1)/2`; memory scales :math:`O(D^2)`.
-* :class:`AutoLowRankMultivariateNormalGuide` uses
+* `AutoLowRankMultivariateNormalGuide` uses
   :math:`\\Sigma = W W^\\top + \\mathrm{diag}(\\sigma^2)` with
   ``W`` a rank-``r`` matrix. Parameter count :math:`D + Dr`;
   memory :math:`O(Dr)`. Log-density goes via the Woodbury
   identity and matrix-determinant lemma in
-  :class:`torch.distributions.LowRankMultivariateNormal`, so
+  `torch.distributions.LowRankMultivariateNormal`, so
   evaluation is :math:`O(Dr^2 + r^3)` instead of :math:`O(D^3)`.
 
 After sampling in unconstrained space the per-site bijector
@@ -82,11 +82,11 @@ class _MVNCommon(Guide):
         vector. Per-site:
 
         * Plate sites get their natural ``(|A|, d_i)`` shape via
-          :meth:`LatentRegistry.unflatten_unconstrained` and pass
+          `LatentRegistry.unflatten_unconstrained` and pass
           through the bijector directly.
         * Scalar sites are expanded to ``(batch, *site.unconstrained_shape)``
           before bijection so the resulting constrained tensor
-          matches :class:`AutoNormalGuide`'s shape convention.
+          matches `AutoNormalGuide`'s shape convention.
         """
         batch = x.shape[0]
         z_flat = self._base_dist().rsample()
@@ -120,7 +120,7 @@ class _MVNCommon(Guide):
 
         Scalar-site values arrive with a leading batch axis; we
         collapse it by taking the first slice (the joint MVN
-        emitted one shared draw across the batch in :meth:`rsample`,
+        emitted one shared draw across the batch in `rsample`,
         so every batch index carries the same value).
         """
         batch = x.shape[0]
@@ -214,7 +214,7 @@ class AutoLowRankMultivariateNormalGuide(_MVNCommon):
     with ``W`` of shape :math:`(D, r)` and :math:`\\sigma \\in
     \\mathbb{R}^{D}_{>0}`. Memory :math:`O(Dr)`; sampling and
     log-density via Woodbury / matrix-determinant lemma in
-    :class:`torch.distributions.LowRankMultivariateNormal`.
+    `torch.distributions.LowRankMultivariateNormal`.
 
     Captures the dominant ``r`` posterior correlation directions
     while remaining tractable for ``D`` in the hundreds-to-

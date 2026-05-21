@@ -1,14 +1,14 @@
 """prompt_toolkit single-line / multi-line REPL frontend.
 
 Used when stdin/stdout is not a TTY or when the user passes
-``--plain``. Honours the same :class:`ReplSession` as the Textual TUI
+``--plain``. Honours the same `ReplSession` as the Textual TUI
 and the Jupyter kernel; the only difference is how input is gathered
 and output is rendered.
 
 Two render paths:
 
-- If ``rich`` is available we render :class:`ReplResponse` bodies with
-  syntax highlighting via :func:`quivers.cli.repl_highlight.to_rich_text`.
+- If ``rich`` is available we render `ReplResponse` bodies with
+  syntax highlighting via [`quivers.cli.repl_highlight.to_rich_text`][quivers.cli.repl_highlight.to_rich_text].
 - Otherwise we print the body verbatim. Diagnostics always print to
   stderr.
 

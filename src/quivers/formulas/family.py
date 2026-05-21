@@ -1,12 +1,12 @@
 """Response families and link functions for the formula frontend.
 
-Each :class:`Family` knows how to emit a QVR ``observe`` step plus
+Each `Family` knows how to emit a QVR ``observe`` step plus
 the inverse-link expression that wraps a linear predictor.  The
 registry maps brms-style family names to a typed family record;
 the compiler dispatches on the family name to slot the right
 inverse-link / observe lines into the emitted ``.qvr`` source.
 
-Adding a new family is one entry in :data:`families`; the
+Adding a new family is one entry in `families`; the
 implementation is uniform across all of GLM / GLMM / GAMLSS-style
 distributional regression because each family declares its
 location parameter (mandatory) and any auxiliary parameters
@@ -68,7 +68,7 @@ class Family(dx.Model):
     The compiler emits, for each family-keyed regression:
 
     1. The auxiliary-parameter latent draws (intercept-only by
-       default; one per parameter named in :attr:`aux_params`).
+       default; one per parameter named in `aux_params`).
     2. A ``let eta = <linear predictor>`` binding the location's
        linear predictor.
     3. A ``let mu = <link.inverse_expr>`` binding the natural

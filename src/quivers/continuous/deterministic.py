@@ -1,6 +1,6 @@
 """Deterministic morphisms in :math:`\\mathbf{Kern}`.
 
-Each builder returns a :class:`ContinuousMorphism` whose runtime
+Each builder returns a `ContinuousMorphism` whose runtime
 realisation is a Dirac kernel concentrated on a deterministic
 image: ``cumsum`` for ordinal monotone splines, ``softmax`` for
 the standard simplex projection, ``cholesky_quad_form`` for
@@ -116,12 +116,12 @@ def cholesky_quad_form(dim: int) -> ContinuousMorphism:
     :math:`R = L L^T` and :math:`D = \\mathrm{diag}(s)`.
 
     Domain is the product
-    :class:`CholeskyFactor(K) <quivers.continuous.spaces.CholeskyFactor>` ``*``
-    :class:`PositiveReals(K) <quivers.continuous.spaces.PositiveReals>`;
-    codomain is :class:`Euclidean(K * K) <quivers.continuous.spaces.Euclidean>`
+    `CholeskyFactor(K) <quivers.continuous.spaces.CholeskyFactor>` ``*``
+    `PositiveReals(K) <quivers.continuous.spaces.PositiveReals>`;
+    codomain is `Euclidean(K * K) <quivers.continuous.spaces.Euclidean>`
     flattened in row-major order so the result composes with
     downstream
-    :class:`~quivers.continuous.families.ConditionalMultivariateNormal`
+    [`quivers.continuous.families.ConditionalMultivariateNormal`][quivers.continuous.families.ConditionalMultivariateNormal]
     consumers that accept a flat covariance vector.
     """
     cholesky = CholeskyFactor(name="L", dim=dim)

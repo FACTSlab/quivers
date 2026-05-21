@@ -9,7 +9,7 @@ from quivers.dsl.parser._registry import ParseError, _Tree, _registry
 from quivers.dsl.parser.statements import _walk_statement
 
 def parse(source: str | bytes, file_path: str = "<source>") -> Module:
-    """Parse `.qvr` source bytes into a :class:`Module`."""
+    """Parse `.qvr` source bytes into a `Module`."""
     if isinstance(source, str):
         source_bytes = source.encode("utf-8")
     else:
@@ -53,11 +53,11 @@ def _attach_docs(stmt: Statement, docs: tuple[str, ...]) -> Statement:
 
     Returns a copy of ``stmt`` with its ``docs`` field extended;
     Statement variants that lack a ``docs`` field are returned
-    unchanged. didactic Models are immutable; :meth:`Model.with_` is
+    unchanged. didactic Models are immutable; `Model.with_` is
     the field-replacement constructor.
     """
     # `docs` is a declared field on every Statement variant that
-    # accepts a leading doc comment (TypeDecl, MorphismDecl,
+    # accepts a leading doc comment (ObjectDecl, MorphismDecl,
     # SchemaDecl, ProgramDecl, BundleDecl, ...). Probe via the
     # class's field-spec registry rather than instance __getattr__,
     # since dx.Model's attribute fall-through raises AttributeError

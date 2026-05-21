@@ -1,8 +1,8 @@
 """Top-level statement dispatcher and per-declaration walkers.
 
-Sixteen :class:`Statement` variants, one walker each. Every walker
+Sixteen `Statement` variants, one walker each. Every walker
 takes a tree-sitter vertex id, reads its fields/positional children
-via the :class:`_Tree` view, and emits a fully constructed AST node.
+via the `_Tree` view, and emits a fully constructed AST node.
 """
 
 from __future__ import annotations
@@ -30,7 +30,16 @@ from quivers.dsl.ast_nodes import (
     EncoderVarInit,
     ExportDecl,
     LetDecl,
+    LetExprIndex,
     LetExprNode,
+    LetExprVar,
+    OptionEntry,
+    OptionFlag,
+    OptionValue,
+    LexiconCategory,
+    LexiconCategoryFixed,
+    LexiconCategoryRestricted,
+    LexiconCategoryWildcard,
     LexiconEntry,
     LossDecl,
     MorphismDecl,
@@ -46,9 +55,9 @@ from quivers.dsl.ast_nodes import (
     SortDecl,
     SortDim,
     Statement,
-    TypeDecl,
+    ObjectDecl,
     TypeEnumSet,
-    TypeExpr,
+    ObjectExpr,
     TypeFreeMonoid,
     TypeFreeResiduated,
     TypeFromExpr,
@@ -58,7 +67,7 @@ from quivers.dsl.ast_nodes import (
 from quivers.dsl.parser._helpers import _required_text, _walk_draw_arg
 from quivers.dsl.parser._registry import ParseError, _Tree
 from quivers.dsl.parser.expressions import _walk_expr, _walk_let_arith, _walk_type
-from quivers.dsl.parser.options import _walk_option_block
+from quivers.dsl.parser.options import _walk_option_block, _walk_option_value
 from quivers.dsl.parser.program_steps import (
     _walk_program_param,
     _walk_program_step,
@@ -86,7 +95,7 @@ def _walk_statement(t: _Tree, vid: str) -> Statement | list[Statement]:
         return _walk_rule_decl(t, vid, line, col)
     if k == "schema_decl":
         return _walk_schema_decl(t, vid, line, col)
-    if k == "type_decl":
+    if k == "object_decl":
         return _walk_type_decl(t, vid, line, col)
     if k == "morphism_decl":
         return _walk_morphism_decl(t, vid, line, col)
@@ -214,12 +223,12 @@ def _walk_schema_decl(t: _Tree, vid: str, line: int, col: int) -> SchemaDecl:
 # type
 # ---------------------------------------------------------------------------
 
-def _walk_type_decl(t: _Tree, vid: str, line: int, col: int) -> TypeDecl:
+def _walk_type_decl(t: _Tree, vid: str, line: int, col: int) -> ObjectDecl:
     name_vid = t.field(vid, "name")
     value_vid = t.field(vid, "value")
     if value_vid is None:
-        raise ParseError(f"type_decl missing value at {vid}")
-    return TypeDecl(
+        raise ParseError(f"object_decl missing value at {vid}")
+    return ObjectDecl(
         name=_required_text(t, name_vid, vid, "name"),
         init=_walk_type_value(t, value_vid),
         line=line,
@@ -434,11 +443,15 @@ def _walk_deduction_decl(
     lex_entries: list[LexiconEntry] = []
     lex_from_file: str | None = None
     lex_from_file_options: tuple = ()
+    binders: list[str] = []
     for child in t.positional(vid):
         kk = t.kind(child)
         if kk == "deduction_atoms":
             for av in t.fields(child, "atoms"):
                 atoms.append(t.text(av))
+        elif kk == "deduction_binders":
+            for bv in t.fields(child, "binders"):
+                binders.append(t.text(bv))
         elif kk == "deduction_rule":
             rname = _required_text(t, t.field(child, "name"), child, "name")
             premises = tuple(
@@ -448,11 +461,13 @@ def _walk_deduction_decl(
             if conc_vid is None:
                 raise ParseError(f"deduction_rule missing conclusion at {child}")
             rl, rc = t.line_col(child)
+            rule_options = _walk_lexicon_pragma(t, t.field(child, "pragma"))
             rules.append(
                 SequentRule(
                     name=rname,
                     premises=premises,
                     conclusion=_walk_type(t, conc_vid),
+                    options=rule_options,
                     line=rl,
                     col=rc,
                 )
@@ -478,6 +493,7 @@ def _walk_deduction_decl(
         codomain=_walk_type(t, cod_vid),
         options=options,
         atoms=tuple(atoms),
+        binders=tuple(binders),
         rules=tuple(rules),
         lexicon=tuple(lex_entries),
         lexicon_from_file=lex_from_file,
@@ -490,22 +506,78 @@ def _walk_lexicon_entry(t: _Tree, vid: str) -> LexiconEntry:
     word_vid = t.field(vid, "word")
     cat_vid = t.field(vid, "category")
     lf_vid = t.field(vid, "lf")
-    if word_vid is None or cat_vid is None or lf_vid is None:
+    if word_vid is None or lf_vid is None:
         raise ParseError(f"lexicon_entry malformed at {vid}")
     word_raw = t.text(word_vid)
     if word_raw.startswith('"') and word_raw.endswith('"'):
         word_raw = word_raw[1:-1]
-    opt_vid = t.field(vid, "options")
-    options = _walk_option_block(t, opt_vid) if opt_vid else ()
+    # Lexicon-entry attributes ride a dedicated ``#[…]`` pragma
+    # (``lexicon_pragma``) rather than an option block: a bracketed
+    # tail after a let-arith expression would otherwise be greedily
+    # absorbed as ``let_index``. The pragma's ``#[`` opener cannot
+    # extend any let expression, so the surface is unambiguous.
+    options = _walk_lexicon_pragma(t, t.field(vid, "pragma"))
     line, col = t.line_col(vid)
+
+    # Three category shapes:
+    #
+    # *  The ``*`` wildcard is captured as ``field:category = *``
+    #    on the lexicon_entry vertex (literal-string field, no
+    #    child vertex). The grammar's ``_lexicon_category`` choice
+    #    puts ``*`` as a bare alternative.
+    # *  ``{A, B, C}`` parses to a ``category`` edge whose target
+    #    is an ``enum_set_literal`` vertex carrying the candidate
+    #    atoms as positional children.
+    # *  Anything else is a fixed ``_object_expr`` and walks
+    #    through `_walk_type` as before.
+    category: LexiconCategory
+    field_cat = t.consts(vid).get("field:category")
+    if field_cat == "*":
+        category = LexiconCategoryWildcard()
+    elif cat_vid is not None and t.kind(cat_vid) == "enum_set_literal":
+        atoms = tuple(t.text(av) for av in t.fields(cat_vid, "elements"))
+        category = LexiconCategoryRestricted(atoms=atoms)
+    elif cat_vid is not None:
+        category = LexiconCategoryFixed(category=_walk_type(t, cat_vid))
+    else:
+        raise ParseError(
+            f"lexicon_entry malformed at {vid}: missing category",
+        )
+
     return LexiconEntry(
         word=word_raw,
-        category=_walk_type(t, cat_vid),
+        category=category,
         lf=_walk_let_arith(t, lf_vid),
         options=options,
         line=line,
         col=col,
     )
+
+
+def _walk_lexicon_pragma(
+    t: _Tree, vid: str | None,
+) -> tuple[OptionEntry, ...]:
+    """Translate a ``lexicon_pragma`` vertex's ``pragma_entry`` children
+    into the option-entry list the compiler already consumes.
+
+    ``#[learnable]`` becomes ``[OptionEntry(key='learnable',
+    value=OptionFlag())]``; ``#[learnable, frozen]`` returns both.
+    """
+    if vid is None:
+        return ()
+    out: list[OptionEntry] = []
+    for entry_vid in t.fields(vid, "entries"):
+        key_vid = t.field(entry_vid, "key")
+        if key_vid is None:
+            continue
+        key = t.text(key_vid)
+        line, col = t.line_col(entry_vid)
+        val_vid = t.field(entry_vid, "value")
+        value: OptionValue = (
+            OptionFlag() if val_vid is None else _walk_option_value(t, val_vid)
+        )
+        out.append(OptionEntry(key=key, value=value, line=line, col=col))
+    return tuple(out)
 
 # ---------------------------------------------------------------------------
 # signature

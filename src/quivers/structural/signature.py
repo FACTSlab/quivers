@@ -1,11 +1,11 @@
 """Signatures: typed multi-sorted algebras with binders.
 
-A :class:`Signature` is the runtime form of a ``signature { … }`` DSL
+A `Signature` is the runtime form of a ``signature { … }`` DSL
 declaration. It carries the sort table, constructor table, binder
 table, and (for graph-shaped signatures) vertex / edge kind tables.
 
 Terms over a signature are first-class Python values
-(:class:`Term` instances): each carries the constructor / binder
+(`Term` instances): each carries the constructor / binder
 name and its positional arguments. The framework's encoder and
 decoder runtimes walk these records uniformly.
 
@@ -14,7 +14,7 @@ term carries an integer index; binders push a fresh entry onto an
 implicit context Γ tracked by the encoder / decoder runtime.
 
 All structured value types in this module are didactic
-:class:`~didactic.api.Model` records, matching the quivers
+`didactic.api.Model` records, matching the quivers
 convention for schema-bearing data; the only fields held opaque
 are runtime-only artefacts that don't round-trip (torch tensors,
 arbitrary Python data leaves).
@@ -67,7 +67,7 @@ class Sort(dx.Model):
     closed vocabulary.
 
     A data sort may carry a ``vocab`` tuple of
-    :class:`SortVocabEntry` records. Object / index sorts must
+    `SortVocabEntry` records. Object / index sorts must
     have an empty vocab (the framework checks at runtime).
     """
 
@@ -131,7 +131,7 @@ class Binder(dx.Model):
 
     def domain(self) -> tuple[str, ...]:
         """Positional sort sequence of the binder's arguments in the
-        enclosing :class:`Term`: type-annotations for each annotated
+        enclosing `Term`: type-annotations for each annotated
         bound variable (in declaration order, outer-context-evaluated),
         followed by the scoped arguments (extended-context-evaluated).
         """
@@ -168,7 +168,7 @@ class Signature(dx.Model):
 
     Sort, constructor, binder, vertex_kind and edge_kind tables are
     represented as tuples of records (rather than dicts) so the
-    enclosing :class:`dx.Model` keeps a schema-bearing layout. The
+    enclosing `dx.Model` keeps a schema-bearing layout. The
     runtime exposes O(1) name-keyed lookup methods (``sort(name)``,
     ``constructor(name)``, etc.) on top of those tuples.
     """
@@ -265,10 +265,10 @@ class Term(dx.Model):
     reference.
 
     ``args`` are positional children. Object positions carry a
-    :class:`Term`; data positions carry a :data:`DataLeaf` raw
+    `Term`; data positions carry a `DataLeaf` raw
     value; index positions carry a non-negative ``int``. ``args``
     is held opaque (its element type is the open union
-    :data:`TermArg`); the encoder / decoder enforce sort
+    `TermArg`); the encoder / decoder enforce sort
     agreement structurally at use time.
 
     No wrapping such as ``Term("Data", …)`` is used at any
@@ -287,7 +287,7 @@ class Term(dx.Model):
     def to_tuple(self) -> tuple:
         """A serialisable form matching the agenda's item-tuple
         convention: ``(op, *args_serialised)``. Children that are
-        :class:`Term`s are recursively serialised; data leaves and
+        `Term`s are recursively serialised; data leaves and
         indices pass through."""
         out: list = [self.op]
         for a in self.args:
@@ -308,7 +308,7 @@ def bound_var(index: int) -> Term:
 def make_term(op: str, *args) -> Term:
     """Construct a term over a signature.
 
-    Each ``arg`` must be a :class:`Term`, a :data:`DataLeaf` raw
+    Each ``arg`` must be a `Term`, a `DataLeaf` raw
     value, or a non-negative int (for index-sorted positions). The
     encoder / decoder runtime validate sort agreement at use
     time.

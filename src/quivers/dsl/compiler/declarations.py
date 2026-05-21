@@ -2,8 +2,8 @@
 
 Handles the consolidated Statement family: composition, category,
 rule, schema, bundle, type, morphism. The mixin dispatches on the
-:class:`TypeInitializer` variant inside a :class:`TypeDecl` and on
-the ``role`` option inside a :class:`MorphismDecl` to pick the
+`TypeInitializer` variant inside a `ObjectDecl` and on
+the ``role`` option inside a `MorphismDecl` to pick the
 runtime construction.
 """
 
@@ -51,16 +51,17 @@ from quivers.dsl.ast_nodes import (
     CompositionDecl,
     CompositionRuleEntry,
     Expr,
+    ExprIdent,
     MorphismDecl,
     RuleDecl,
     SchemaDecl,
-    TypeDecl,
+    ObjectDecl,
     TypeEnumSet,
-    TypeExpr,
+    ObjectExpr,
     TypeFreeMonoid,
     TypeFreeResiduated,
     TypeFromExpr,
-    TypeProduct,
+    ObjectProduct,
 )
 from quivers.dsl.compiler._options import (
     get_option_float,
@@ -93,14 +94,14 @@ _VALID_ROLES: frozenset[str] = frozenset(
 
 def _apply_auto_init(morph, domain, codomain, algebra) -> None:
     """Apply the algebra's saturation-free init recipe to a freshly
-    constructed :class:`LatentMorphism`.
+    constructed `LatentMorphism`.
 
     The recipe is computed at depth 1 (a top-level latent declaration
     is, in isolation, a one-step morphism; downstream composition is
     out of scope for the static recipe) with the larger of the
     morphism's resolved domain / codomain numel as the intermediate
     axis size. The recipe is in value space; the raw parameter feeds
-    through :class:`LatentMorphism`'s sigmoid bijector, so for the
+    through `LatentMorphism`'s sigmoid bijector, so for the
     sigmoid case we invert via ``logit`` before sampling; for
     algebras whose latent representation does not pass through a
     bijector (Markov, log-prob, real, max-plus, tropical) the recipe
@@ -163,28 +164,16 @@ class _DeclarationsMixin:
     _categories: list[str]
     _rules: dict
     _bundles: dict[str, tuple[str, ...]]
-    _aliases: dict[str, TypeExpr]
+    _aliases: dict[str, ObjectExpr]
     _alias_names: set[str]
     _objects: dict[str, SetObject]
     _spaces: dict[str, ContinuousSpace]
     _morphisms: dict
     _groups: dict[str, list[str]]
 
-    def _resolve_type(
-        self, texpr: TypeExpr, bind_name: str | None = None,
-    ) -> SetObject:
-        """Provided by :class:`_ResolutionMixin`."""
-        raise NotImplementedError
-
-    def _resolve_any_space(
-        self, texpr: TypeExpr,
-    ) -> SetObject | ContinuousSpace:
-        """Provided by :class:`_ResolutionMixin`."""
-        raise NotImplementedError
-
-    def _compile_expr(self, expr: Expr) -> Morphism:
-        """Provided by :class:`_ExpressionsMixin`."""
-        raise NotImplementedError
+    # ``_resolve_type``, ``_resolve_any_space``, ``_compile_expr``
+    # come from `_ResolutionMixin` and
+    # `_ExpressionsMixin` via the ``Compiler`` MRO.
 
     # ------------------------------------------------------------------
     # composition
@@ -451,7 +440,7 @@ class _DeclarationsMixin:
             n for group in decl.parameters for n in group.names
         )
         if (
-            isinstance(decl.domain, TypeProduct)
+            isinstance(decl.domain, ObjectProduct)
             and len(decl.domain.components) == 2
         ):
             left, right = decl.domain.components
@@ -496,18 +485,18 @@ class _DeclarationsMixin:
     # type
     # ------------------------------------------------------------------
 
-    def _compile_type(self, decl: TypeDecl) -> None:
+    def _compile_type(self, decl: ObjectDecl) -> None:
         """Compile a ``type NAME : VALUE`` declaration.
 
         The init's tagged-union variant picks the construction:
 
-        * :class:`TypeEnumSet` -> :class:`EnumSet`
-        * :class:`TypeFreeResiduated` -> :class:`FreeResiduated`
-        * :class:`TypeFreeMonoid` -> :class:`FreeMonoid`
-        * :class:`TypeFromExpr` -> the inner type expression is
+        * `TypeEnumSet` -> `EnumSet`
+        * `TypeFreeResiduated` -> `FreeResiduated`
+        * `TypeFreeMonoid` -> `FreeMonoid`
+        * `TypeFromExpr` -> the inner type expression is
           resolved via the unified resolver; the resulting object is
-          either a :class:`SetObject` (discrete) or a
-          :class:`ContinuousSpace`, bound under ``decl.name`` in the
+          either a `SetObject` (discrete) or a
+          `ContinuousSpace`, bound under ``decl.name`` in the
           appropriate environment.
         """
         if decl.name in self._objects or decl.name in self._spaces:
@@ -598,11 +587,11 @@ class _DeclarationsMixin:
           domain/codomain may be anonymous and rebinds to the
           declared types when their numel matches.
         * ``role=kernel``  : Markov kernel. Without ``~ Family``, a
-          lookup-table :class:`StochasticMorphism` on finite sets;
+          lookup-table `StochasticMorphism` on finite sets;
           with ``~ Family(...)``, a parametric continuous kernel.
-        * ``role=embed``   : :class:`Embed` boundary, finite-set to
+        * ``role=embed``   : `Embed` boundary, finite-set to
           continuous space.
-        * ``role=discretize``: :class:`Discretize` boundary,
+        * ``role=discretize``: `Discretize` boundary,
           continuous space to finite set; ``[bins=N]`` is required.
         * ``role=let``     : deterministic morphism whose value is
           ``~ <expr>`` (composition pipeline, contraction call,
@@ -768,6 +757,16 @@ class _DeclarationsMixin:
         family = (
             decl.init_family.family if decl.init_family is not None else None
         )
+        # ``~ Normal`` (bare identifier, no parens) parses as
+        # ``init_expr`` rather than ``init_family``. If the bare
+        # initializer names a registered family, promote it.
+        if (
+            family is None
+            and decl.init_expr is not None
+            and isinstance(decl.init_expr, ExprIdent)
+            and decl.init_expr.name in _get_family_registry()
+        ):
+            family = decl.init_expr.name
         if family is not None:
             self._validate_family_axes(decl, family)
         if family is None:

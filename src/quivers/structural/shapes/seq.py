@@ -7,8 +7,8 @@ Surface algebra::
 The principal shape behind autoregressive LMs (the "compress a
 prefix to a vector, decode next-token from the vector" loop). All
 encoders and decoders below are realised on top of the generic
-:class:`~quivers.structural.Encoder` and
-:class:`~quivers.structural.Decoder` runtimes, with sequence-
+[`quivers.structural.Encoder`][quivers.structural.Encoder] and
+[`quivers.structural.Decoder`][quivers.structural.Decoder] runtimes, with sequence-
 specific per-op functions.
 """
 
@@ -69,7 +69,7 @@ def _learnable_nil(dim: int) -> tuple[nn.Module, torch.Tensor]:
     """A learnable zero-state vector for the `Nil` constructor.
 
     Returned as a `(module, parameter)` pair: ``module`` owns the
-    parameter so that the enclosing :class:`Encoder` picks it up
+    parameter so that the enclosing `Encoder` picks it up
     through ``modules_owned`` and exposes it to optimizers via
     ``.parameters()``.
     """
@@ -241,7 +241,7 @@ def list_to_term(elements: list[DataLeaf]) -> Term:
 
 
 def term_to_list(term: Term) -> list[DataLeaf]:
-    """Inverse of :func:`list_to_term`."""
+    """Inverse of `list_to_term`."""
     out: list[DataLeaf] = []
     cur = term
     while isinstance(cur, Term) and cur.op == "Cons":

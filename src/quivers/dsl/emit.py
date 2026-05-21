@@ -1,13 +1,13 @@
 """AST -> ``.qvr`` source emit.
 
-Walks a :class:`~quivers.dsl.ast_nodes.Module` and produces canonical
+Walks a [`quivers.dsl.ast_nodes.Module`][quivers.dsl.ast_nodes.Module] and produces canonical
 ``.qvr`` source text under the homogenized surface (type / morphism
 / program / sample / observe / return / option-block / etc.).
 
-The emit is a one-way printer, not a panproto :class:`ParseEmitLens`:
+The emit is a one-way printer, not a panproto `ParseEmitLens`:
 quivers' AST is already the resolved form. The printer's contract is
-*semantic*: the emitted source, re-parsed by :func:`quivers.dsl.loads`,
-produces a :class:`Module` that compiles to the same program as the
+*semantic*: the emitted source, re-parsed by `quivers.dsl.loads`,
+produces a `Module` that compiles to the same program as the
 original AST.
 """
 
@@ -51,23 +51,23 @@ from quivers.dsl.ast_nodes import (
     ReturnStep,
     SampleStep,
     Statement,
-    TypeCoproduct,
-    TypeDecl,
-    TypeEffectApply,
+    ObjectCoproduct,
+    ObjectDecl,
+    ObjectEffectApply,
     TypeEnumSet,
-    TypeExpr,
+    ObjectExpr,
     TypeFreeMonoid,
     TypeFreeResiduated,
     TypeFromExpr,
     TypeInitializer,
     TypeName,
-    TypeProduct,
-    TypeSlash,
+    ObjectProduct,
+    ObjectSlash,
 )
 
 
 def module_to_source(module: Module) -> str:
-    """Serialize a :class:`Module` AST to canonical ``.qvr`` source."""
+    """Serialize a `Module` AST to canonical ``.qvr`` source."""
     parts: list[str] = []
     last_was_block = False
     for stmt in module.statements:
@@ -85,8 +85,8 @@ def _emit_statement(stmt: Statement) -> str:
         if stmt.level is not None:
             head = f"{head} at {stmt.level}"
         return head
-    if isinstance(stmt, TypeDecl):
-        return f"type {stmt.name} : {_emit_type_init(stmt.init)}"
+    if isinstance(stmt, ObjectDecl):
+        return f"object {stmt.name} : {_emit_type_init(stmt.init)}"
     if isinstance(stmt, MorphismDecl):
         return _emit_morphism(stmt)
     if isinstance(stmt, LetDecl):
@@ -126,30 +126,34 @@ def _emit_type_init(init: TypeInitializer) -> str:
     )
 
 
-def _emit_type(t: TypeExpr) -> str:
+def _emit_type(t: ObjectExpr) -> str:
     if isinstance(t, TypeName):
         return t.name
-    if isinstance(t, TypeProduct):
+    if isinstance(t, ObjectProduct):
         return " * ".join(_emit_type(c) for c in t.components)
-    if isinstance(t, TypeCoproduct):
+    if isinstance(t, ObjectCoproduct):
         return " + ".join(_emit_type(c) for c in t.components)
-    if isinstance(t, TypeSlash):
+    if isinstance(t, ObjectSlash):
         return (
             f"{_emit_type(t.result)} {t.direction} {_emit_type(t.argument)}"
         )
-    if isinstance(t, TypeEffectApply):
+    if isinstance(t, ObjectEffectApply):
         args = ", ".join(_emit_type(a) for a in t.args)
         return f"{t.effect}({args})"
     if isinstance(t, DiscreteConstructor):
-        args = ", ".join(t.args)
-        kwargs = ", ".join(f"{k}={v}" for k, v in t.kwargs.items())
-        body = ", ".join(s for s in (args, kwargs) if s)
-        return f"{t.constructor}({body})"
+        # ``FinSet N``: Haskell-style space-separated positional args,
+        # with any keyword options demoted to the trailing option block.
+        head = " ".join((t.constructor, *t.args))
+        if t.kwargs:
+            opts = ", ".join(f"{k}={v}" for k, v in t.kwargs.items())
+            return f"{head} [{opts}]"
+        return head
     if isinstance(t, ContinuousConstructor):
-        args = ", ".join(t.args)
-        kwargs = ", ".join(f"{k}={v}" for k, v in t.kwargs.items())
-        body = ", ".join(s for s in (args, kwargs) if s)
-        return f"{t.constructor}({body})"
+        head = " ".join((t.constructor, *t.args))
+        if t.kwargs:
+            opts = ", ".join(f"{k}={v}" for k, v in t.kwargs.items())
+            return f"{head} [{opts}]"
+        return head
     raise NotImplementedError(
         f"emit: type expression {type(t).__name__} not supported"
     )

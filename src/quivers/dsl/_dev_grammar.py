@@ -4,12 +4,12 @@ The QVR grammar lives in-tree at ``grammars/qvr/`` and will be vendored
 into ``panproto-grammars-all`` once it stabilizes. In the meantime, this
 module compiles ``grammars/qvr/src/parser.c`` to a shared library on
 demand, loads the resulting ``TSLanguage*`` via ``ctypes``, and installs
-it through panproto's :meth:`AstParserRegistry.override_grammar` API so
+it through panproto's `AstParserRegistry.override_grammar` API so
 the standard registry serves the in-tree grammar in place of whatever
 ``panproto-grammars-all`` currently ships for ``qvr``.
 
 Activation: set the environment variable ``QVR_USE_LOCAL_GRAMMAR=1``
-before importing :mod:`quivers.dsl.parser`. With the variable unset,
+before importing [`quivers.dsl.parser`][quivers.dsl.parser]. With the variable unset,
 the standard panproto registry is used.
 
 The build step requires a working C compiler in ``$PATH``; cached at
@@ -103,10 +103,10 @@ _LIB_KEEPALIVE: ctypes.CDLL | None = None
 def registry() -> object:
     """Return a panproto registry whose ``qvr`` grammar is the local build.
 
-    The standard :func:`panproto.AstParserRegistry` constructor populates
+    The standard `panproto.AstParserRegistry` constructor populates
     the registry with everything ``panproto-grammars-all`` and other
     installed companion packages contribute, then
-    :meth:`override_grammar` swaps in the locally-compiled QVR grammar.
+    `override_grammar` swaps in the locally-compiled QVR grammar.
     """
     global _REGISTRY, _LIB_KEEPALIVE
     if _REGISTRY is not None:

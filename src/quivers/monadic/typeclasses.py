@@ -17,14 +17,14 @@ Haskell admits them. The class-extension lattice is:
     MonadTrans   — orthogonal: lifts an inner monad through a stacked
                    transformer; not a sub-class of any of the above.
 
-The :func:`quivers.stochastic.effect_lifts.class_directed_lifts`
+The [`quivers.stochastic.effect_lifts.class_directed_lifts`][quivers.stochastic.effect_lifts.class_directed_lifts]
 schema-lifting machinery dispatches on which classes an effect
 inhabits, never on the effect's identity, so user-defined effects
 extend the framework automatically.
 
-Each typeclass is also mirrored by a :mod:`panproto.Theory` in
-:mod:`quivers.monadic.theories`; class-extension is realised there as
-theory inclusion via :func:`panproto.colimit`, making every instance
+Each typeclass is also mirrored by a `panproto.Theory` in
+[`quivers.monadic.theories`][quivers.monadic.theories]; class-extension is realised there as
+theory inclusion via `panproto.colimit`, making every instance
 a verifiable theory morphism.
 
 References
@@ -52,10 +52,10 @@ from quivers.core.objects import SetObject
 class Functor(ABC):
     """Functor: an endofunctor on (V-enriched) finite sets.
 
-    A :class:`Functor` instance carries:
+    A `Functor` instance carries:
 
-    - :meth:`fmap_obj` — the type-level action ``F : SetObject → SetObject``.
-    - :meth:`fmap` — the morphism-level action sending
+    - `fmap_obj` — the type-level action ``F : SetObject → SetObject``.
+    - `fmap` — the morphism-level action sending
       ``f : A → B`` to ``F(f) : F(A) → F(B)``.
 
     Functor laws:
@@ -64,7 +64,7 @@ class Functor(ABC):
     - composition: ``F(g ∘ f) = F(g) ∘ F(f)``
 
     Both laws are documented and runtime-checkable in
-    :mod:`quivers.monadic.laws`.
+    [`quivers.monadic.laws`][quivers.monadic.laws].
     """
 
     @abstractmethod
@@ -81,8 +81,8 @@ class Applicative(Functor, ABC):
 
     Adds:
 
-    - :meth:`pure` — the unit ``η_A : A → F(A)``.
-    - :meth:`apply` — the application combinator
+    - `pure` — the unit ``η_A : A → F(A)``.
+    - `apply` — the application combinator
       ``F(A → B) ⊗ F(A) → F(B)``.
 
     Applicative laws (Hughes 2000 §3.1, after McBride and Paterson):
@@ -93,7 +93,7 @@ class Applicative(Functor, ABC):
     - composition:    ``apply(apply(apply(pure(∘), u), v), w) =
                        apply(u, apply(v, w))``
 
-    The default :meth:`fmap` derivation
+    The default `fmap` derivation
     ``fmap(f) = apply(pure(f), -)`` is provided.
     """
 
@@ -108,7 +108,7 @@ class Applicative(Functor, ABC):
         concrete construction depends on the instance and on the
         internal-hom representation of the underlying enriched
         category. The default implementation raises
-        :exc:`NotImplementedError`; concrete instances override.
+        `NotImplementedError`; concrete instances override.
         """
         raise NotImplementedError(
             f"{type(self).__name__}.apply requires an internal-hom "
@@ -134,9 +134,9 @@ class Monad(Applicative, ABC):
 
     Adds:
 
-    - :meth:`join` — the multiplication ``μ_A : F(F(A)) → F(A)``.
+    - `join` — the multiplication ``μ_A : F(F(A)) → F(A)``.
 
-    The :meth:`bind` operation is derived via ``bind(m, k) = join(fmap(k)(m))``.
+    The `bind` operation is derived via ``bind(m, k) = join(fmap(k)(m))``.
 
     Monad laws:
 
@@ -172,8 +172,8 @@ class Alternative(Applicative, ABC):
 
     Adds:
 
-    - :meth:`empty` — the bottom element ``⊥_A : 1 → F(A)``.
-    - :meth:`alt` — pointwise alternative ``F(A) ⊗ F(A) → F(A)``.
+    - `empty` — the bottom element ``⊥_A : 1 → F(A)``.
+    - `alt` — pointwise alternative ``F(A) ⊗ F(A) → F(A)``.
 
     Alternative laws:
 
@@ -195,7 +195,7 @@ class MonadPlus(Monad, Alternative, ABC):
     """Monad + Alternative: a Monad whose ``F`` is also Alternative.
 
     No new operations; the diamond inheritance picks up both
-    :meth:`join` (from Monad) and :meth:`empty` / :meth:`alt`
+    `join` (from Monad) and `empty` / `alt`
     (from Alternative). Adds the *left-zero* law:
     ``bind(empty, k) = empty`` (already documented under Alternative).
     """
@@ -206,7 +206,7 @@ class Foldable(ABC):
 
     Used by Hamblin-style alternative semantics to collapse a
     structure of alternatives down to a single value. The minimal
-    interface is :meth:`foldr`; richer combinators are derivable.
+    interface is `foldr`; richer combinators are derivable.
     """
 
     @abstractmethod
@@ -217,7 +217,7 @@ class Foldable(ABC):
 class Traversable(Functor, Foldable, ABC):
     """Traversable: distribute an Applicative action through a structure.
 
-    Adds :meth:`traverse`: given an Applicative ``G`` and a morphism
+    Adds `traverse`: given an Applicative ``G`` and a morphism
     ``f : A → G(B)``, produces ``F(A) → G(F(B))``. This is Charlow's
     central tool for distributing scope through alternatives.
 
@@ -240,7 +240,7 @@ class Traversable(Functor, Foldable, ABC):
 class MonadTrans(ABC):
     """Monad transformer: lift an inner monad to a stacked monad.
 
-    A :class:`MonadTrans` instance ``T`` provides :meth:`lift`,
+    A `MonadTrans` instance ``T`` provides `lift`,
     embedding an inner-monad Kleisli arrow into the transformer.
     The class is orthogonal to the Functor/Applicative/Monad tower:
     transformers are themselves monads (when applied to a base monad),

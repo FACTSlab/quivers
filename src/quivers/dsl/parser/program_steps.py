@@ -6,11 +6,14 @@ from __future__ import annotations
 from typing import Literal, cast
 
 from quivers.dsl.ast_nodes import (
+    AxisSpec,
     LetStep,
     MarginalizeStep,
     MorphismParam,
     ObjectParam,
     ObserveStep,
+    OptionList,
+    OptionName,
     ProgramParam,
     ProgramStep,
     ReturnStep,
@@ -36,6 +39,8 @@ def _walk_program_step(t: _Tree, vid: str) -> ProgramStep:
         return _walk_marginalize_step(t, vid)
     if k == "let_step":
         return _walk_let_step(t, vid)
+    if k == "score_step":
+        return _walk_score_step(t, vid)
     if k == "return_step":
         return _walk_return_step(t, vid)
     raise ParseError(f"unexpected program step kind: {k}")
@@ -55,15 +60,48 @@ def _walk_sample_step(t: _Tree, vid: str) -> SampleStep:
     args = tuple(_walk_draw_arg(t, av) for av in args_vids) if args_vids else None
     options_vid = t.field(vid, "options")
     options = _walk_option_block(t, options_vid) if options_vid else ()
+    axes = _extract_axes(options)
     return SampleStep(
         vars=vars_t,
         morphism=t.text(morph_vid),
         args=args,
         index=index,
+        axes=axes,
         options=options,
         line=line,
         col=col,
     )
+
+
+def _extract_axes(options: tuple):
+    """Lift ``over=...`` / ``iid_over=...`` options into an `AxisSpec`.
+
+    ``over`` and ``iid_over`` may each be a single identifier
+    (``over=Topic``) or a list of identifiers (``over=[Doc, Topic]``).
+    """
+    over_names: tuple[str, ...] = ()
+    iid_names: tuple[str, ...] = ()
+    line = col = 0
+    for entry in options:
+        v = entry.value
+        if entry.key == "over":
+            if isinstance(v, OptionName):
+                over_names = (v.value,)
+            elif isinstance(v, OptionList):
+                over_names = tuple(
+                    it.value for it in v.items if isinstance(it, OptionName)
+                )
+            line, col = entry.line, entry.col
+        elif entry.key == "iid_over":
+            if isinstance(v, OptionName):
+                iid_names = (v.value,)
+            elif isinstance(v, OptionList):
+                iid_names = tuple(
+                    it.value for it in v.items if isinstance(it, OptionName)
+                )
+    if not over_names and not iid_names:
+        return None
+    return AxisSpec(over=over_names, iid_over=iid_names, line=line, col=col)
 
 def _walk_observe_step(t: _Tree, vid: str) -> ObserveStep:
     line, col = t.line_col(vid)
@@ -77,15 +115,40 @@ def _walk_observe_step(t: _Tree, vid: str) -> ObserveStep:
     args = tuple(_walk_draw_arg(t, av) for av in args_vids) if args_vids else None
     options_vid = t.field(vid, "options")
     options = _walk_option_block(t, options_vid) if options_vid else ()
+    via, via_axes = _extract_via(options)
     return ObserveStep(
         var=t.text(var_vid),
         morphism=t.text(morph_vid),
         args=args,
         index=index,
+        via=via,
+        via_axes=via_axes,
         options=options,
         line=line,
         col=col,
     )
+
+
+def _extract_via(
+    options: tuple,
+) -> tuple[str | None, tuple[str, ...] | None]:
+    """Lift the ``via=`` option key into dedicated ``via`` / ``via_axes``
+    AST fields. ``via=idx`` -> ``via='idx'``; ``via=[a, b]`` ->
+    ``via_axes=('a', 'b')``."""
+    for entry in options:
+        if entry.key != "via":
+            continue
+        v = entry.value
+        if isinstance(v, OptionName):
+            return v.value, None
+        if isinstance(v, OptionList):
+            axes = []
+            for item in v.items:
+                if isinstance(item, OptionName):
+                    axes.append(item.value)
+            if axes:
+                return None, tuple(axes)
+    return None, None
 
 def _walk_marginalize_step(t: _Tree, vid: str) -> MarginalizeStep:
     line, col = t.line_col(vid)
@@ -99,6 +162,7 @@ def _walk_marginalize_step(t: _Tree, vid: str) -> MarginalizeStep:
     args = tuple(_walk_draw_arg(t, av) for av in args_vids) if args_vids else None
     options_vid = t.field(vid, "options")
     options = _walk_option_block(t, options_vid) if options_vid else ()
+    over, over_objs, reduction = _extract_marginalize_options(options)
     scope = tuple(
         _walk_program_step(t, sv) for sv in t.fields(vid, "scope")
     )
@@ -107,11 +171,43 @@ def _walk_marginalize_step(t: _Tree, vid: str) -> MarginalizeStep:
         morphism=t.text(morph_vid),
         args=args,
         index=index,
+        over=over,
+        over_objs=over_objs,
+        reduction=reduction,
         options=options,
         scope=scope,
         line=line,
         col=col,
     )
+
+
+def _extract_marginalize_options(
+    options: tuple,
+) -> tuple[str | None, tuple[str, ...] | None, str | None]:
+    """Pull ``over=...`` / ``over=[...]`` / ``reduction=...`` keys out of
+    a parsed option block into the dedicated AST fields. ``over=A``
+    becomes ``over='A'``; ``over=[A, B]`` becomes
+    ``over_objs=('A','B')``; ``reduction=logsumexp`` becomes
+    ``reduction='logsumexp'``."""
+    over: str | None = None
+    over_objs: tuple[str, ...] | None = None
+    reduction: str | None = None
+    for entry in options:
+        v = entry.value
+        if entry.key == "over":
+            if isinstance(v, OptionName):
+                over = v.value
+            elif isinstance(v, OptionList):
+                names: list[str] = []
+                for item in v.items:
+                    if isinstance(item, OptionName):
+                        names.append(item.value)
+                if names:
+                    over_objs = tuple(names)
+        elif entry.key == "reduction":
+            if isinstance(v, OptionName):
+                reduction = v.value
+    return over, over_objs, reduction
 
 def _walk_let_step(t: _Tree, vid: str) -> LetStep:
     line, col = t.line_col(vid)
@@ -120,6 +216,20 @@ def _walk_let_step(t: _Tree, vid: str) -> LetStep:
     if name_vid is None or value_vid is None:
         raise ParseError(f"let_step missing name/value at {vid}")
     return LetStep(
+        name=t.text(name_vid),
+        value=_walk_let_arith(t, value_vid),
+        line=line,
+        col=col,
+    )
+
+def _walk_score_step(t: _Tree, vid: str) -> "ScoreStep":
+    from quivers.dsl.ast_nodes import ScoreStep
+    line, col = t.line_col(vid)
+    name_vid = t.field(vid, "name")
+    value_vid = t.field(vid, "value")
+    if name_vid is None or value_vid is None:
+        raise ParseError(f"score_step missing name/value at {vid}")
+    return ScoreStep(
         name=t.text(name_vid),
         value=_walk_let_arith(t, value_vid),
         line=line,

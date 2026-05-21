@@ -45,16 +45,16 @@ type CompositionLevel = Literal[
 """Algebraic level the file declares for its composition rule.
 
 The four levels correspond to the
-:class:`~quivers.core.algebras.CompositionRule`-hierarchy:
+[`quivers.core.algebras.CompositionRule`][quivers.core.algebras.CompositionRule]-hierarchy:
 
-* ``"algebra"`` requires a full :class:`Algebra` (unit, zero,
+* ``"algebra"`` requires a full `Algebra` (unit, zero,
   meet, negate, identity, dagger, cup/cap).
-* ``"semigroupoid"`` requires a :class:`Semigroupoid`
+* ``"semigroupoid"`` requires a `Semigroupoid`
   (associative `tensor_op`, no identity required).
-* ``"bilinear_form"`` requires a :class:`BilinearForm`
+* ``"bilinear_form"`` requires a `BilinearForm`
   (no associativity promise).
 * ``"composition_rule"`` is permissive: any
-  :class:`CompositionRule` is accepted.
+  `CompositionRule` is accepted.
 """
 
 # ---------------------------------------------------------------------------
@@ -66,12 +66,12 @@ class OptionValue(dx.TaggedUnion, discriminator="kind"):
 
     Surface shapes:
 
-    * Bare flag ``[role]`` -> :class:`OptionFlag` (no value)
-    * ``role=latent`` -> :class:`OptionName` (identifier)
-    * ``depth=8`` / ``scale=0.1`` -> :class:`OptionNumber`
-    * ``path="lex.tsv"`` -> :class:`OptionString`
-    * ``over=[a, b]`` -> :class:`OptionList`
-    * ``via=product(a, b)`` -> :class:`OptionCall`
+    * Bare flag ``[role]`` -> `OptionFlag` (no value)
+    * ``role=latent`` -> `OptionName` (identifier)
+    * ``depth=8`` / ``scale=0.1`` -> `OptionNumber`
+    * ``path="lex.tsv"`` -> `OptionString`
+    * ``over=[a, b]`` -> `OptionList`
+    * ``via=product(a, b)`` -> `OptionCall`
     """
 
 class OptionFlag(OptionValue):

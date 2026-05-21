@@ -19,12 +19,12 @@ PyTorch boundary
 ================
 
 The categorical hierarchy is intentionally *not* a subclass of
-:class:`torch.nn.Module`: a Morphism is a categorical object and a
+`torch.nn.Module`: a Morphism is a categorical object and a
 Module is a PyTorch parameter container. When a Morphism needs to
-be bound into a parameter-tracking context (a :class:`MonadicProgram`,
-a :class:`FanMorphism`, a parametric-program parameter slot), the
-adapter :func:`as_torch_module` produces a backend-agnostic
-:class:`nn.Module` wrapping the morphism's parameters. Every
+be bound into a parameter-tracking context (a `MonadicProgram`,
+a `FanMorphism`, a parametric-program parameter slot), the
+adapter `as_torch_module` produces a backend-agnostic
+`nn.Module` wrapping the morphism's parameters. Every
 binding site funnels through this adapter so the categorical /
 PyTorch boundary stays explicit and a JAX or numpy backend can
 replace ``as_torch_module`` without touching the morphism
@@ -178,18 +178,18 @@ class Morphism(ABC):
         """Transport this morphism along a change-of-base functor.
 
         ``phi`` may be either a
-        :class:`~quivers.core.algebra_morphisms.AlgebraHomomorphism`
+        `quivers.core.algebra_morphisms.AlgebraHomomorphism`
         (pointwise: the action factors entry-by-entry through
         ``phi.apply``) or a
-        :class:`~quivers.core.morphism_transformations.MorphismTransformation`
+        `quivers.core.morphism_transformations.MorphismTransformation`
         (shape-aware: the action consumes the whole tensor plus
         the morphism for axis resolution).
 
-        The result is a :class:`TransformedMorphism` whose
-        :attr:`tensor` is recomputed on each access by applying
+        The result is a `TransformedMorphism` whose
+        `tensor` is recomputed on each access by applying
         ``phi`` to the source's current tensor. The source's
         learnable parameters are exposed through ``.module()`` so
-        :meth:`torch.nn.Module.parameters` walks reach them, and
+        `torch.nn.Module.parameters` walks reach them, and
         each backward through a fresh ``.tensor`` access rebuilds
         a graph rooted at those parameters; multi-step optimisation
         through change-of-base is supported.
@@ -384,7 +384,7 @@ class Morphism(ABC):
         component is ``obj``; the codomain must be a product set
         whose first component is ``obj``. If this is not the case
         a TypeError is raised — the user should call
-        :meth:`ProductSet.swap` style helpers (not yet exposed) to
+        `ProductSet.swap` style helpers (not yet exposed) to
         reorder axes before tracing.
 
         Parameters
@@ -466,7 +466,7 @@ class _MorphismModule(nn.Module):
 
 class _SourcedModule(nn.Module):
     """Module wrapper holding a reference to a source morphism's
-    nn.Module so that :meth:`torch.nn.Module.parameters` walks reach
+    nn.Module so that `torch.nn.Module.parameters` walks reach
     the upstream learnable parameters.
     """
 
@@ -477,7 +477,7 @@ class _SourcedModule(nn.Module):
 
 class TransformedMorphism(Morphism):
     """A morphism whose tensor is a transformation of a source
-    morphism's tensor, recomputed on each :attr:`tensor` access.
+    morphism's tensor, recomputed on each `tensor` access.
 
     The source morphism is registered as a submodule so
     ``self.module().parameters()`` includes the source's learnable
@@ -934,7 +934,7 @@ class CurriedMorphism(Morphism):
     """Residuation-witness curried morphism.
 
     For an inner morphism ``f : X * Y -> Z`` whose codomain ``Z`` lives
-    in a residuated universe (a :class:`FreeResiduated`), produces the
+    in a residuated universe (a `FreeResiduated`), produces the
     morphism corresponding to the relevant residuation isomorphism:
 
     - ``direction='right'`` realises the right-residuation
@@ -1113,15 +1113,15 @@ def identity(obj: SetObject, algebra: Algebra | None = None) -> ObservedMorphism
 
 
 def as_torch_module(m: object) -> nn.Module:
-    """Coerce a Morphism into an :class:`nn.Module` for parameter
+    """Coerce a Morphism into an `nn.Module` for parameter
     tracking at a binding site.
 
     The adapter draws the line between the categorical morphism
-    hierarchy (backend-agnostic; lives in :mod:`quivers.core`) and
+    hierarchy (backend-agnostic; lives in `quivers.core`) and
     PyTorch's parameter-container infrastructure. Every site that
     needs to register a morphism's parameters with a parent
-    :class:`nn.Module` (the :class:`MonadicProgram` step list, the
-    submodule list of a :class:`FanMorphism` / :class:`StackMorphism`
+    `nn.Module` (the `MonadicProgram` step list, the
+    submodule list of a `FanMorphism` / `StackMorphism`
     composite, a parametric-program parameter slot bound to a
     morphism) calls this function once and stores the result.
 
@@ -1130,11 +1130,11 @@ def as_torch_module(m: object) -> nn.Module:
     m : object
         The morphism (or other object) to wrap. Accepted forms:
 
-        * Already an :class:`nn.Module` — returned unchanged so a
-          continuous :class:`MonadicProgram` step can pass its
-          :class:`ContinuousMorphism` straight through.
-        * A :class:`Morphism` with a ``.module()`` method (every
-          subclass of :class:`Morphism` defined in this file
+        * Already an `nn.Module` — returned unchanged so a
+          continuous `MonadicProgram` step can pass its
+          `ContinuousMorphism` straight through.
+        * A `Morphism` with a ``.module()`` method (every
+          subclass of `Morphism` defined in this file
           implements it) — the result of ``m.module()`` is
           returned. The morphism object itself is attached to the
           wrapper under the synthetic attribute ``_morphism`` so
@@ -1151,8 +1151,8 @@ def as_torch_module(m: object) -> nn.Module:
     Raises
     ------
     TypeError
-        ``m`` is neither an :class:`nn.Module` nor a
-        :class:`Morphism`-shaped object with a ``.module()`` method.
+        ``m`` is neither an `nn.Module` nor a
+        `Morphism`-shaped object with a ``.module()`` method.
     """
     if isinstance(m, nn.Module):
         return m
@@ -1176,12 +1176,12 @@ def as_torch_module(m: object) -> nn.Module:
 
 
 def extract_morphism(module: nn.Module) -> Morphism | None:
-    """Recover the :class:`Morphism` previously bound through
-    :func:`as_torch_module`.
+    """Recover the `Morphism` previously bound through
+    `as_torch_module`.
 
     Returns the categorical morphism stored on the wrapper, or
     ``None`` if the module was registered directly (i.e. was
-    already an :class:`nn.Module` subclass) and therefore has no
+    already an `nn.Module` subclass) and therefore has no
     separate categorical object attached.
     """
     return getattr(module, "_morphism", None)
@@ -1231,7 +1231,7 @@ def cup(obj: SetObject, algebra: Algebra | None = None) -> ObservedMorphism:
 def cap(obj: SetObject, algebra: Algebra | None = None) -> ObservedMorphism:
     """The compact-closed counit ``ε_A : A ⊗ A → I``.
 
-    The dual of :func:`cup`. The tensor is the diagonal flattened
+    The dual of `cup`. The tensor is the diagonal flattened
     into ``(*A.shape, *A.shape, 1)`` so the trailing axis is the
     unit codomain ``I``.
     """

@@ -1,7 +1,7 @@
 """Per-document state for the QVR language server.
 
-A :class:`DocumentState` holds the latest source bytes, the parsed
-:class:`Module`, the elaborated environment, and the diagnostic list
+A `DocumentState` holds the latest source bytes, the parsed
+`Module`, the elaborated environment, and the diagnostic list
 for one open document. Re-analysis runs synchronously on every
 ``didOpen`` / ``didChange`` so subsequent capabilities (hover,
 documentSymbol, completion) read from a coherent snapshot.

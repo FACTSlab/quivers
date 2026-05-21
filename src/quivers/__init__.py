@@ -20,7 +20,7 @@ Quick start::
     output = program()           # tensor of shape (3, 2)
 """
 
-__version__ = "0.10.0"
+__version__ = "0.11.0"
 
 from quivers.core.objects import (
     SetObject,

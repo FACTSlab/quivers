@@ -2,7 +2,7 @@
 
 Every declaration in the surface carries options as a
 ``tuple[OptionEntry, ...]``. Each entry's value lives in the
-:class:`OptionValue` tagged union (flag / name / number / string /
+`OptionValue` tagged union (flag / name / number / string /
 list / call). The compiler frequently asks ``what is the value of
 this option, decoded to T?'' for concrete T in {str, int, float,
 bool, tuple[str, ...], OptionCall}; this module is the single
@@ -12,7 +12,7 @@ The rules are deliberate:
 
 * Missing key returns the supplied default (or None).
 * Wrong shape (e.g. asking for an int when the entry is a string)
-  is a :class:`CompileError` at the declaration's source location.
+  is a `CompileError` at the declaration's source location.
 * Identifier-valued options (``role=latent``) decode through
   ``get_option_name``; string-valued options (``path="lex.tsv"``)
   decode through ``get_option_string``. The surface distinguishes
@@ -61,7 +61,7 @@ def _at(line: int, col: int, entry: OptionEntry | None) -> tuple[int, int]:
 def get_option_flag(options: tuple[OptionEntry, ...], key: str) -> bool:
     """Whether ``[key]`` appears as a bare flag (OptionFlag value).
 
-    Distinct from :func:`has_option`: ``key=true`` would pass
+    Distinct from `has_option`: ``key=true`` would pass
     ``has_option`` but not ``get_option_flag``.
     """
     entry = find_option(options, key)
@@ -299,7 +299,7 @@ def get_program_over_model(
 def get_option_value(
     options: tuple[OptionEntry, ...], key: str
 ) -> OptionValue | None:
-    """Untyped option lookup; returns the raw :class:`OptionValue`.
+    """Untyped option lookup; returns the raw `OptionValue`.
 
     For paths where the compiler dispatches on the value shape itself
     (e.g. ``loss.on`` accepts both ``[global]`` flag and ``on=...``

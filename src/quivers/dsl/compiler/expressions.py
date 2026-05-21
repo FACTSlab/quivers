@@ -96,13 +96,13 @@ class _ExpressionsMixin:
         object) that supplies the morphism tensor for any
         ``from_data("KEY")`` expression that references it. The
         bindings are consulted at compile time; supply them BEFORE
-        calling :meth:`compile`.
+        calling `compile`.
         """
         self._data_bindings = dict(data)
 
     def _require_algebra(self, op_name: str, line: int, col: int) -> None:
         """Raise ``CompileError`` if the module's composition rule
-        isn't a :class:`Algebra`.
+        isn't a `Algebra`.
 
         Operations that need a unit, zero, dagger, or compact-closed
         structure (``identity``, ``cup``, ``cap``, ``.dagger``,
@@ -139,23 +139,23 @@ class _ExpressionsMixin:
 
         Recognised expression shapes:
 
-        * :class:`ExprIdent` — a bare name resolved against
-          :attr:`_transformations` (user let-bindings) and then
-          :attr:`_trans_singletons` (built-in singletons).
-        * :class:`ExprMorphismCall` — a constructor call whose
-          callee names an entry of :attr:`_trans_constructors`;
+        * `ExprIdent` — a bare name resolved against
+          `_transformations` (user let-bindings) and then
+          `_trans_singletons` (built-in singletons).
+        * `ExprMorphismCall` — a constructor call whose
+          callee names an entry of `_trans_constructors`;
           each argument is resolved against the surrounding scope
           (objects, morphisms, algebras).
-        * :class:`ExprTransCompose` — ``t1 >>> t2``; recursively
+        * `ExprTransCompose` — ``t1 >>> t2``; recursively
           compiles each side, flattens nested sequences, and
           type-checks each adjacent ``target == source`` boundary,
-          returning a :class:`TransSeq` (or, for two single-step
+          returning a `TransSeq` (or, for two single-step
           values, an unboxed TransSeq of length 2).
 
         Returns a value that the runtime understands: a
-        :class:`AlgebraHomomorphism`, a
-        :class:`MorphismTransformation`, or a :class:`TransSeq`.
-        Raises :class:`CompileError` on any unresolved reference
+        `AlgebraHomomorphism`, a
+        `MorphismTransformation`, or a `TransSeq`.
+        Raises `CompileError` on any unresolved reference
         or type mismatch.
         """
         if isinstance(expr, ExprIdent):
@@ -274,7 +274,7 @@ class _ExpressionsMixin:
 
     def _apply_trans(self, inner_morph, phi):
         """Apply a transformation value (a singleton, constructor
-        result, or :class:`TransSeq`) to a morphism via the
+        result, or `TransSeq`) to a morphism via the
         morphism's own ``change_base``.
 
         Sequences are unfolded into iterated change_base calls;
@@ -294,7 +294,7 @@ class _ExpressionsMixin:
         Each composition operator carries an enrichment algebra.
         ``>>``, ``<<`` (already swapped to forward), and ``>=>``
         all use the operands' shared algebra (the existing
-        :meth:`Morphism.__rshift__` path, which raises
+        `Morphism.__rshift__` path, which raises
         ``incompatible algebras`` if they differ).
 
         The new operators (``*>``, ``~>``, ``||>``, ``?>``,
@@ -475,7 +475,7 @@ class _ExpressionsMixin:
             #
             # The data dictionary is stored on the Compiler under
             # ``self._data_bindings``; users supply it via
-            # :meth:`Compiler.bind_data` BEFORE calling compile()
+            # `Compiler.bind_data` BEFORE calling compile()
             # (or via the high-level ``loads()`` ``data=`` kwarg).
             data_dict = getattr(self, "_data_bindings", None)
             if data_dict is None or expr.key not in data_dict:
@@ -745,18 +745,18 @@ class _ExpressionsMixin:
         Effect-typed chart cells (``effect_depth`` > 0) extend the
         category universe to ``Cat × EffectStack_{≤d}`` via the
         class-driven lifting machinery in
-        :mod:`quivers.stochastic.effect_lifts`; the caller is expected
+        [`quivers.stochastic.effect_lifts`][quivers.stochastic.effect_lifts]; the caller is expected
         to have constructed ``binary`` (and any ``unary``) over this
         enlarged universe, typically via
-        :func:`quivers.stochastic.effect_lifts.lift_rule_set` over the
-        declared :class:`EffectDecl` instances in scope. The
+        [`quivers.stochastic.effect_lifts.lift_rule_set`][quivers.stochastic.effect_lifts.lift_rule_set] over the
+        declared `EffectDecl` instances in scope. The
         ``effect_depth`` integer flows through to the parser as the
         depth bound used for any depth-truncating reductions over
         intermediate cells.
 
         Handler firings (``handlers=`` argument) are applied as a
         post-composition step on the parser's denotation: the final
-        chart cell is routed through each handler's :meth:`run`
+        chart cell is routed through each handler's `run`
         morphism in declared order, reducing the effect stack as the
         handlers compose.
         """

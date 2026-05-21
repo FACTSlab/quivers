@@ -1,10 +1,10 @@
 """Point-estimate (MAP / Dirac) variational guide.
 
-:class:`AutoDeltaGuide` is the degenerate case of a variational
+`AutoDeltaGuide` is the degenerate case of a variational
 guide: a Dirac delta at a single learnable point in unconstrained
 space, pushed through the support bijector so the constrained
 estimate lies inside the prior's support. Used for MAP estimation
-and as the warmup mean for :class:`AutoLaplaceApproximation`.
+and as the warmup mean for `AutoLaplaceApproximation`.
 
 Log-density returns zero — the delta-mass contribution and its
 Jacobian cancel in the ELBO under the standard score-function

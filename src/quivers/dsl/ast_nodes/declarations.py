@@ -1,30 +1,30 @@
 """Top-level statement AST nodes for the Every Statement variant corresponds 1:1 to a top-level tree-sitter
-production in ``grammars/qvr/grammar.js``. The :class:`Statement`
+production in ``grammars/qvr/grammar.js``. The `Statement`
 tagged union discriminates via the ``kind`` field.
 
 Sixteen Statement subclasses:
 
-* :class:`CompositionDecl` 
-* :class:`CategoryDecl`
-* :class:`RuleDecl`
-* :class:`SchemaDecl`
-* :class:`TypeDecl` 
-* :class:`MorphismDecl` 
-* :class:`BundleDecl`
-* :class:`ContractionDecl`
-* :class:`LetDecl`
-* :class:`ExportDecl`
-* :class:`DeductionDecl`
-* :class:`SignatureDecl`
-* :class:`EncoderDecl`
-* :class:`DecoderDecl`
-* :class:`LossDecl`
-* :class:`ProgramDecl`
+* `CompositionDecl` 
+* `CategoryDecl`
+* `RuleDecl`
+* `SchemaDecl`
+* `ObjectDecl` 
+* `MorphismDecl` 
+* `BundleDecl`
+* `ContractionDecl`
+* `LetDecl`
+* `ExportDecl`
+* `DeductionDecl`
+* `SignatureDecl`
+* `EncoderDecl`
+* `DecoderDecl`
+* `LossDecl`
+* `ProgramDecl`
 
 Every declaration carries a ``docs: tuple[str, ...]`` field.
 The ``option_block`` surface is modelled as
 ``options: dict[str, OptionValue]``; structured values use the
-:class:`OptionValue` tagged union.
+`OptionValue` tagged union.
 """
 
 from typing import Literal
@@ -58,7 +58,7 @@ from quivers.dsl.ast_nodes.structural import (
     SortDim,
     VertexKindDecl,
 )
-from quivers.dsl.ast_nodes.types import TypeExpr
+from quivers.dsl.ast_nodes.objects import ObjectExpr
 
 # ---------------------------------------------------------------------------
 # Statement root
@@ -122,14 +122,14 @@ class CategoryDecl(Statement):
 class RuleDecl(Statement):
     """``rule NAME(variables) : premises => conclusion`` declaration.
 
-    Premises and conclusion are :class:`TypeExpr` patterns drawn from
+    Premises and conclusion are `ObjectExpr` patterns drawn from
     the unified type-expression family.
     """
 
     name: str
     variables: tuple[str, ...]
-    premises: tuple[TypeExpr, ...]
-    conclusion: TypeExpr
+    premises: tuple[ObjectExpr, ...]
+    conclusion: ObjectExpr
     docs: tuple[str, ...] = ()
     line: int = 0
     col: int = 0
@@ -143,7 +143,7 @@ class SchemaParameter(dx.Model):
     """One ``names : type`` group inside a schema's parameter list."""
 
     names: tuple[str, ...]
-    type_expr: TypeExpr
+    type_expr: ObjectExpr
     line: int = 0
     col: int = 0
 
@@ -152,8 +152,8 @@ class SchemaDecl(Statement):
 
     name: str
     parameters: tuple[SchemaParameter, ...]
-    domain: TypeExpr
-    codomain: TypeExpr
+    domain: ObjectExpr
+    codomain: ObjectExpr
     docs: tuple[str, ...] = ()
     line: int = 0
     col: int = 0
@@ -166,7 +166,7 @@ class SchemaDecl(Statement):
 class TypeInitializer(dx.TaggedUnion, discriminator="kind"):
     """Sum of ``type NAME : VALUE`` value shapes.
 
-    The grammar's ``_type_value`` choice corresponds 1:1 to this
+    The grammar's ``_object_value`` choice corresponds 1:1 to this
     union.
     """
 
@@ -205,15 +205,15 @@ class TypeFromExpr(TypeInitializer):
     Simplex, ...).
     """
 
-    expr: TypeExpr
+    expr: ObjectExpr
     kind: Literal["type_from_expr"] = "type_from_expr"
 
-class TypeDecl(Statement):
+class ObjectDecl(Statement):
     """``type NAME : VALUE`` declaration.
 
     The VALUE's shape picks the
     discrete-vs-continuous and reference-vs-initializer distinction;
-    the compiler reads :attr:`init` to decide what kind of object
+    the compiler reads `init` to decide what kind of object
     (FinSet, EnumSet, FreeResiduated, FreeMonoid, ContinuousSpace) to
     register in the env.
     """
@@ -223,7 +223,7 @@ class TypeDecl(Statement):
     docs: tuple[str, ...] = ()
     line: int = 0
     col: int = 0
-    kind: Literal["type_decl"] = "type_decl"
+    kind: Literal["object_decl"] = "object_decl"
 
 # ---------------------------------------------------------------------------
 # morphism: single keyword + ~ initializer
@@ -270,8 +270,8 @@ class MorphismDecl(Statement):
     """
 
     name: str
-    domain: TypeExpr
-    codomain: TypeExpr
+    domain: ObjectExpr
+    codomain: ObjectExpr
     options: tuple[OptionEntry, ...] = ()
     init_family: MorphismInitFamily | None = None
     init_expr: Expr | None = None
@@ -304,11 +304,11 @@ class BundleDecl(Statement):
 # ---------------------------------------------------------------------------
 
 class ContractionInput(dx.Model):
-    """One input wire of a :class:`ContractionDecl` declaration."""
+    """One input wire of a `ContractionDecl` declaration."""
 
     name: str
-    input_domain: TypeExpr
-    input_codomain: TypeExpr
+    input_domain: ObjectExpr
+    input_codomain: ObjectExpr
     line: int = 0
     col: int = 0
 
@@ -327,8 +327,8 @@ class ContractionDecl(Statement):
 
     name: str
     inputs: tuple[ContractionInput, ...]
-    domain: TypeExpr
-    codomain: TypeExpr
+    domain: ObjectExpr
+    codomain: ObjectExpr
     options: tuple[OptionEntry, ...] = ()
     docs: tuple[str, ...] = ()
     line: int = 0
@@ -342,14 +342,14 @@ class ContractionDecl(Statement):
 class LetDecl(Statement):
     """``let NAME = EXPR [where: nested-lets]`` value binding.
 
-    Unlike a :class:`MorphismDecl` with ``role=let``, this is a
+    Unlike a `MorphismDecl` with ``role=let``, this is a
     value-level let: its RHS is an arbitrary Expr, not a morphism
     signature with an init.
 
     The ``where`` field is typed as ``tuple[Statement, ...]`` (the
     union root) because didactic does not yet accept self-referential
     forward refs in field annotations. The parser only ever writes
-    :class:`LetDecl` instances into the tuple.
+    `LetDecl` instances into the tuple.
     """
 
     name: str
@@ -376,23 +376,70 @@ class ExportDecl(Statement):
 class SequentRule(dx.Model):
     """A named sequent inside a deduction block.
 
-    ``rule NAME : premises |- conclusion``. Premise and conclusion
-    type-expressions may contain single-uppercase wildcards
-    (``X``, ``Y``) that bind to actual category subexpressions when
-    the rule fires.
+    ``rule NAME : premises |- conclusion [pragma]``. Premise and
+    conclusion type-expressions may contain single-uppercase
+    wildcards (``X``, ``Y``) that bind to actual category
+    subexpressions when the rule fires.
+
+    The trailing pragma carries optional rule-level options:
+
+    * ``#[learnable]`` -- allocate one learnable log-weight per
+      distinct binding tuple observed at run time. The bindings
+      tuple is ``(rule_name, *sorted_binding_values)``. The
+      conclusion weight becomes ``semiring_product(premise_weights,
+      param[bindings])``.
+    * ``#[weight = expr]`` -- the conclusion weight is
+      ``semiring_product(premise_weights, expr)`` where ``expr`` is
+      a let-expression evaluated in the rule's binding scope
+      (wildcards bound by the match are in scope). Most general
+      form; subsumes ``learnable``.
+    * ``#[parent = rule_name]`` -- compose this rule's weight
+      additively with the named parent rule's weight on the same
+      bindings. Specialisation as a correction term.
     """
 
     name: str
-    premises: tuple[TypeExpr, ...]
-    conclusion: TypeExpr
+    premises: tuple[ObjectExpr, ...]
+    conclusion: ObjectExpr
+    options: tuple[OptionEntry, ...] = ()
     line: int = 0
     col: int = 0
+
+class LexiconCategory(dx.TaggedUnion, discriminator="kind"):
+    """Category position in a lexicon entry. Three shapes:
+
+    * `LexiconCategoryFixed` -- a known category, e.g. ``Det``.
+    * `LexiconCategoryWildcard` -- the ``*`` wildcard. The
+      compiler treats the entry's category as a latent random variable
+      and learns a Categorical distribution over the deduction's full
+      atom set; one learnable weight is allocated per atom.
+    * `LexiconCategoryRestricted` -- a candidate set ``{A, B}``.
+      Same as wildcard but the Categorical is restricted to the listed
+      atoms; one learnable weight per listed atom.
+    """
+
+class LexiconCategoryFixed(LexiconCategory):
+    """``"the" : Det = the``."""
+
+    category: ObjectExpr
+    kind: Literal["fixed"] = "fixed"
+
+class LexiconCategoryWildcard(LexiconCategory):
+    """``"bank" : * = bank``. Latent over the deduction's atom set."""
+
+    kind: Literal["wildcard"] = "wildcard"
+
+class LexiconCategoryRestricted(LexiconCategory):
+    """``"saw" : {V, N} = saw``. Latent over the listed atoms only."""
+
+    atoms: tuple[str, ...]
+    kind: Literal["restricted"] = "restricted"
 
 class LexiconEntry(dx.Model):
     """A single entry in a deduction's lexicon block."""
 
     word: str
-    category: TypeExpr
+    category: LexiconCategory
     lf: LetExprNode
     options: tuple[OptionEntry, ...] = ()
     line: int = 0
@@ -407,10 +454,11 @@ class DeductionDecl(Statement):
     """
 
     name: str
-    domain: TypeExpr
-    codomain: TypeExpr
+    domain: ObjectExpr
+    codomain: ObjectExpr
     options: tuple[OptionEntry, ...] = ()
     atoms: tuple[str, ...] = ()
+    binders: tuple[str, ...] = ()
     rules: tuple[SequentRule, ...] = ()
     lexicon: tuple[LexiconEntry, ...] = ()
     lexicon_from_file: str | None = None
@@ -495,10 +543,10 @@ class LossDecl(Statement):
     """``loss NAME [options] : body``.
 
     Option keys: ``weight=<expr>``, ``on=<attachment>``. The
-    ``on`` value is an :class:`OptionCall` of one of ``program(NAME)``,
+    ``on`` value is an `OptionCall` of one of ``program(NAME)``,
     ``deduction(NAME)``, ``encoder(NAME)``, ``decoder(NAME)``,
     ``rule(NAME, in=DEDUCTION)``, ``chart(of=DEDUCTION)``, or an
-    :class:`OptionFlag` ``global``.
+    `OptionFlag` ``global``.
     """
 
     name: str
@@ -538,8 +586,8 @@ class MorphismParam(ProgramParam):
     """Morphism-typed program parameter: ``f : Mor[A, B]``."""
 
     name: str
-    domain: TypeExpr
-    codomain: TypeExpr
+    domain: ObjectExpr
+    codomain: ObjectExpr
     line: int = 0
     col: int = 0
     kind: Literal["morphism_param"] = "morphism_param"
@@ -556,8 +604,8 @@ class ProgramDecl(Statement):
     name: str
     params: tuple[str, ...] | None = None
     type_params: tuple[ProgramParam, ...] | None = None
-    domain: TypeExpr
-    codomain: TypeExpr
+    domain: ObjectExpr
+    codomain: ObjectExpr
     options: tuple[OptionEntry, ...] = ()
     draws: tuple[ProgramStep, ...] = ()
     return_vars: tuple[str, ...] = ()
@@ -603,7 +651,7 @@ __all__ = [
     "SequentRule",
     "SignatureDecl",
     "Statement",
-    "TypeDecl",
+    "ObjectDecl",
     "TypeEnumSet",
     "TypeFreeMonoid",
     "TypeFreeResiduated",

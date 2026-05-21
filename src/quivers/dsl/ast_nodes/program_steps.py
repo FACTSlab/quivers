@@ -9,20 +9,20 @@ surface step into one of these specialized IR shapes at the entry to
 
 Surface AST (what the parser emits):
 
-* :class:`SampleStep` - ``sample v[: A] <- F(args) [options]``
-* :class:`ObserveStep` - ``observe v[: A] <- F(args) [options]``
-* :class:`MarginalizeStep` - ``marginalize c[: K] <- F(args) [options] : scope``
-* :class:`LetStep` - ``let x = expr``
-* :class:`ReturnStep` - ``return v`` or ``return (a, b, ...)``
+* `SampleStep` - ``sample v[: A] <- F(args) [options]``
+* `ObserveStep` - ``observe v[: A] <- F(args) [options]``
+* `MarginalizeStep` - ``marginalize c[: K] <- F(args) [options] : scope``
+* `LetStep` - ``let x = expr``
+* `ReturnStep` - ``return v`` or ``return (a, b, ...)``
 
 Compiler-only IR (synthesized at compile time):
 
-* :class:`BindStep` - the unified Kleisli-bind shape used internally
+* `BindStep` - the unified Kleisli-bind shape used internally
   by the compiler when expanding surface steps.
-* :class:`DrawStep`, :class:`PlateDrawStep`,
-  :class:`VectorisedObserveStep` - specializations.
-* :class:`GroupedLatentInitStep`, :class:`GroupedBodyObserveStep`,
-  :class:`GroupedObserveEntry` - grouped-marginalize machinery.
+* `DrawStep`, `PlateDrawStep`,
+  `VectorisedObserveStep` - specializations.
+* `GroupedLatentInitStep`, `GroupedBodyObserveStep`,
+  `GroupedObserveEntry` - grouped-marginalize machinery.
 """
 
 from typing import Literal
@@ -31,7 +31,7 @@ import didactic.api as dx
 
 from quivers.dsl.ast_nodes._shared import AxisSpec, OptionEntry
 from quivers.dsl.ast_nodes.let_expressions import LetExprNode
-from quivers.dsl.ast_nodes.types import TypeExpr
+from quivers.dsl.ast_nodes.objects import ObjectExpr
 
 class ProgramStep(dx.TaggedUnion, discriminator="kind"):
     """Sum of program-block step node kinds."""
@@ -56,7 +56,7 @@ class SampleStep(ProgramStep):
     vars: tuple[str, ...]
     morphism: str
     args: tuple[str | float, ...] | None = None
-    index: TypeExpr | None = None
+    index: ObjectExpr | None = None
     axes: AxisSpec | None = None
     options: tuple[OptionEntry, ...] = ()
     line: int = 0
@@ -74,7 +74,7 @@ class ObserveStep(ProgramStep):
     var: str
     morphism: str
     args: tuple[str | float, ...] | None = None
-    index: TypeExpr | None = None
+    index: ObjectExpr | None = None
     axes: AxisSpec | None = None
     via: str | None = None
     via_axes: tuple[str, ...] | None = None
@@ -98,7 +98,7 @@ class MarginalizeStep(ProgramStep):
     var: str
     morphism: str
     args: tuple[str | float, ...] | None = None
-    index: TypeExpr | None = None
+    index: ObjectExpr | None = None
     over: str | None = None
     over_objs: tuple[str, ...] | None = None
     reduction: str | None = None
@@ -121,6 +121,24 @@ class LetStep(ProgramStep):
     col: int = 0
     kind: Literal["let_step"] = "let_step"
 
+class ScoreStep(ProgramStep):
+    """``score name = value`` log-density factor step.
+
+    Like `LetStep` in that ``name`` is bound to the evaluated
+    expression's value for downstream reference, but distinct in
+    that the value is *additionally* added to the program's
+    ``log_joint``. This is the deduction-style analog of
+    `ObserveStep`: the chart's `goal_weight` is a
+    log-density factor on the corpus, and ``score log_Z = chart.goal_weight()``
+    expresses that contribution as a first-class step.
+    """
+
+    name: str
+    value: LetExprNode
+    line: int = 0
+    col: int = 0
+    kind: Literal["score_step"] = "score_step"
+
 class ReturnStep(ProgramStep):
     """``return v`` or ``return (a, b)`` or ``return (a: x, b: y)`` step.
 
@@ -140,7 +158,7 @@ class ReturnStep(ProgramStep):
 
 
 class GroupedObserveEntry(dx.Model):
-    """One entry in a :class:`GroupedMarginalizeStep`'s
+    """One entry in a `GroupedMarginalizeStep`'s
     ``body_observes`` list.
 
     Pairs an env slot (where the captured observe writes its
@@ -158,7 +176,7 @@ class GroupedObserveEntry(dx.Model):
 class GroupedMarginalizeStep(ProgramStep):
     """Internal compiler IR: a marginalisation pushforward.
 
-    The compiler lowers a surface :class:`MarginalizeStep` into this
+    The compiler lowers a surface `MarginalizeStep` into this
     shape after expanding the scope. ``class_size`` is the resolved
     cardinality of the latent index; ``probs_var`` names the env
     slot holding the family's probability tensor; ``over_obj`` /
@@ -171,7 +189,7 @@ class GroupedMarginalizeStep(ProgramStep):
 
     var_name: str
     class_size: int
-    probs_var: str
+    probs_var: str | None = None
     over_obj: str | None = None
     over_objs: tuple[str, ...] | None = None
     body_ll_var: str = ""
@@ -185,15 +203,15 @@ class GroupedMarginalizeStep(ProgramStep):
 class BindStep(ProgramStep):
     """Internal compiler IR: a unified Kleisli bind.
 
-    Synthesized from surface :class:`SampleStep` / :class:`ObserveStep`
-    / :class:`MarginalizeStep` during template instantiation. The
+    Synthesized from surface `SampleStep` / `ObserveStep`
+    / `MarginalizeStep` during template instantiation. The
     surface AST never carries this shape directly.
     """
 
     vars: tuple[str, ...]
     morphism: str
     args: tuple[str | float, ...] | None = None
-    index: TypeExpr | None = None
+    index: ObjectExpr | None = None
     mode: Literal["sample", "score", "marginal"] = "sample"
     scope: tuple[ProgramStep, ...] | None = None
     axes: AxisSpec | None = None
@@ -209,7 +227,7 @@ class BindStep(ProgramStep):
 class DrawStep(ProgramStep):
     """Internal compiler IR: a scalar sample or score step.
 
-    Synthesised from a :class:`SampleStep`/:class:`ObserveStep` with
+    Synthesised from a `SampleStep`/`ObserveStep` with
     no index annotation; ``is_observed`` distinguishes sample
     (``False``) from score (``True``).
     """
@@ -218,6 +236,7 @@ class DrawStep(ProgramStep):
     morphism: str
     args: tuple[str | float, ...] | None = None
     is_observed: bool = False
+    axes: AxisSpec | None = None
     line: int = 0
     col: int = 0
     kind: Literal["draw_step"] = "draw_step"
@@ -225,16 +244,17 @@ class DrawStep(ProgramStep):
 class PlateDrawStep(ProgramStep):
     """Internal compiler IR: an A-indexed sample step.
 
-    Synthesised from a :class:`SampleStep` with an index annotation;
+    Synthesised from a `SampleStep` with an index annotation;
     realises a Kern-morphism ``A -> Kern(K)`` as a tensor of shape
     ``(|A|, *K.shape)``.
     """
 
     name: str
-    index: TypeExpr
-    codomain: TypeExpr
+    index: ObjectExpr
+    codomain: ObjectExpr
     morphism: str
     args: tuple[str | float, ...] | None = None
+    axes: AxisSpec | None = None
     line: int = 0
     col: int = 0
     kind: Literal["plate_draw_step"] = "plate_draw_step"
@@ -242,14 +262,14 @@ class PlateDrawStep(ProgramStep):
 class VectorisedObserveStep(ProgramStep):
     """Internal compiler IR: an A-indexed score step.
 
-    Synthesised from an :class:`ObserveStep` with an index
+    Synthesised from an `ObserveStep` with an index
     annotation; denotes the sub-probabilistic kernel
     ``Phi -> Kern_{<=1}(Phi)`` with score
     ``prod_n p_F(r_obs(n); theta(n, phi))``.
     """
 
     index_var: str
-    index_set: TypeExpr
+    index_set: ObjectExpr
     morphism: str
     args: tuple[str | float, ...] | None = None
     response_var: str = ""
@@ -279,9 +299,10 @@ class GroupedBodyObserveStep(ProgramStep):
     response_var: str
     morphism: str
     args: tuple[str | float, ...] | None = None
-    index_set: TypeExpr | None = None
+    index_set: ObjectExpr | None = None
     index_var: str = ""
     latent_name: str = ""
+    class_size: int = 0
     fibration_var: str | None = None
     fibration_axes: tuple[str, ...] | None = None
     ll_slot: str = ""

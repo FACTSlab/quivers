@@ -703,15 +703,15 @@ def _match_pattern(
 ) -> bool:
     """Match a category pattern against a concrete category.
 
-    Attempts to unify ``pattern`` (a :class:`TypeExpr`) with ``category``,
+    Attempts to unify ``pattern`` (a `ObjectExpr`) with ``category``,
     extending ``bindings`` with variable assignments. Returns True on
     success, False on failure. Mutates ``bindings`` in place.
 
     Parameters
     ----------
     pattern
-        A :class:`TypeExpr` AST node (``TypeName``, ``TypeProduct``,
-        ``TypeSlash``, or ``TypeEffectApply``).
+        A `ObjectExpr` AST node (``TypeName``, ``ObjectProduct``,
+        ``ObjectSlash``, or ``ObjectEffectApply``).
     category : Category
         The concrete category to match against.
     bindings : dict
@@ -720,10 +720,10 @@ def _match_pattern(
         The set of variable names (from the rule's parameter list).
     """
     from quivers.dsl.ast_nodes import (
-        TypeEffectApply,
+        ObjectEffectApply,
         TypeName,
-        TypeProduct,
-        TypeSlash,
+        ObjectProduct,
+        ObjectSlash,
     )
 
     if isinstance(pattern, TypeName):
@@ -738,7 +738,7 @@ def _match_pattern(
 
         return isinstance(category, AtomicCategory) and category.name == name
 
-    if isinstance(pattern, TypeSlash):
+    if isinstance(pattern, ObjectSlash):
         if not isinstance(category, SlashCategory):
             return False
 
@@ -749,8 +749,8 @@ def _match_pattern(
             pattern.result, category.result, bindings, variables
         ) and _match_pattern(pattern.argument, category.argument, bindings, variables)
 
-    if isinstance(pattern, TypeProduct):
-        # TypeProduct is variadic; fold left-associatively to match the
+    if isinstance(pattern, ObjectProduct):
+        # ObjectProduct is variadic; fold left-associatively to match the
         # binary ProductCategory tree shape.
         comps = pattern.components
         if len(comps) < 2:
@@ -775,7 +775,7 @@ def _match_pattern(
                 return False
         return True
 
-    if isinstance(pattern, TypeEffectApply):
+    if isinstance(pattern, ObjectEffectApply):
         # Effect-typed application requires effect categories in the
         # runtime CategorySystem; absent that, signal a non-match so
         # the rule does not fire on bare effects.
@@ -789,12 +789,12 @@ def _instantiate_pattern(
     bindings: dict[str, Category],
     variables: frozenset[str],
 ) -> Category | None:
-    """Instantiate a category pattern (TypeExpr) with bound variables.
+    """Instantiate a category pattern (ObjectExpr) with bound variables.
 
     Parameters
     ----------
     pattern
-        A :class:`TypeExpr` AST node.
+        A `ObjectExpr` AST node.
     bindings : dict
         Variable bindings from matching.
     variables : frozenset
@@ -806,10 +806,10 @@ def _instantiate_pattern(
         The concrete category, or None if a variable is unbound.
     """
     from quivers.dsl.ast_nodes import (
-        TypeEffectApply,
+        ObjectEffectApply,
         TypeName,
-        TypeProduct,
-        TypeSlash,
+        ObjectProduct,
+        ObjectSlash,
     )
 
     if isinstance(pattern, TypeName):
@@ -818,7 +818,7 @@ def _instantiate_pattern(
 
         return AtomicCategory(name=pattern.name)
 
-    if isinstance(pattern, TypeSlash):
+    if isinstance(pattern, ObjectSlash):
         result = _instantiate_pattern(pattern.result, bindings, variables)
         argument = _instantiate_pattern(pattern.argument, bindings, variables)
 
@@ -829,7 +829,7 @@ def _instantiate_pattern(
             result=result, argument=argument, direction=pattern.direction
         )
 
-    if isinstance(pattern, TypeProduct):
+    if isinstance(pattern, ObjectProduct):
         comps = pattern.components
         if len(comps) < 2:
             return None
@@ -845,7 +845,7 @@ def _instantiate_pattern(
             result_cat = ProductCategory(left=result_cat, right=nxt)
         return result_cat
 
-    if isinstance(pattern, TypeEffectApply):
+    if isinstance(pattern, ObjectEffectApply):
         # Effect-typed instantiation requires CategorySystem entries
         # for the wrapped effect; absent that, return None.
         return None

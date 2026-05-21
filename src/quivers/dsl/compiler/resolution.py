@@ -1,7 +1,7 @@
 """Compiler mixin: unified type resolution.
 
-A single :meth:`_resolve_any_space` walks any :class:`TypeExpr` to
-either a :class:`SetObject` (discrete) or a :class:`ContinuousSpace`
+A single `_resolve_any_space` walks any `ObjectExpr` to
+either a `SetObject` (discrete) or a `ContinuousSpace`
 (continuous). The legacy ``_resolve_type`` and ``_resolve_space``
 forwarders are preserved as type-narrowing wrappers so callers that
 already know they want a discrete object can continue to demand
@@ -16,18 +16,25 @@ from quivers.core.objects import CoproductSet, FinSet, ProductSet, SetObject
 from quivers.dsl.ast_nodes import (
     ContinuousConstructor,
     DiscreteConstructor,
-    TypeCoproduct,
-    TypeEffectApply,
-    TypeExpr,
+    ObjectCoproduct,
+    ObjectEffectApply,
+    ObjectExpr,
     TypeName,
-    TypeProduct,
-    TypeSlash,
+    ObjectProduct,
+    ObjectSlash,
 )
 from quivers.dsl.compiler._prelude import CompileError
 
 
+def _prod(xs: list[int]) -> int:
+    out = 1
+    for x in xs:
+        out *= x
+    return out
+
+
 _CONTINUOUS_FACTORIES: dict[str, str] = {
-    "Real": "Real",
+    "Real": "Euclidean",
     "Simplex": "Simplex",
     "Sphere": "Sphere",
     "Ball": "Ball",
@@ -52,13 +59,13 @@ class _ResolutionMixin:
     _objects: dict[str, SetObject]
     _spaces: dict[str, ContinuousSpace]
 
-    def _resolve_index_size(self, texpr: TypeExpr) -> int:
+    def _resolve_index_size(self, texpr: ObjectExpr) -> int:
         """Resolve a type expression in index position to a cardinality.
 
         Used by the let-expression factor evaluator to determine the
         axis size of each binder at compile time. Any resolved
-        :class:`SetObject` exposes its cardinality directly; a
-        :class:`ContinuousSpace` is illegal in this position.
+        `SetObject` exposes its cardinality directly; a
+        `ContinuousSpace` is illegal in this position.
         """
         obj = self._resolve_type(texpr)
         card = getattr(obj, "cardinality", None)
@@ -74,13 +81,13 @@ class _ResolutionMixin:
         return int(card)
 
     def _resolve_type(
-        self, texpr: TypeExpr, bind_name: str | None = None,
+        self, texpr: ObjectExpr, bind_name: str | None = None,
     ) -> SetObject:
         """Resolve a type expression that must denote a discrete object.
 
-        Calls :meth:`_resolve_any_space` and rejects continuous-space
+        Calls `_resolve_any_space` and rejects continuous-space
         results. ``bind_name`` is consulted when the type is an
-        anonymous integer literal so the synthesised :class:`FinSet`
+        anonymous integer literal so the synthesised `FinSet`
         carries the declaration's name.
         """
         if (
@@ -100,14 +107,14 @@ class _ResolutionMixin:
             )
         return obj
 
-    def _resolve_any_space(self, texpr: TypeExpr):
+    def _resolve_any_space(self, texpr: ObjectExpr):
         """Resolve a type expression to a SetObject or ContinuousSpace.
 
-        Dispatches on the :class:`TypeExpr` variant. Product types
+        Dispatches on the `ObjectExpr` variant. Product types
         mix discrete and continuous components: a product whose
-        every factor is discrete becomes a :class:`ProductSet`; any
+        every factor is discrete becomes a `ProductSet`; any
         continuous component lifts the whole product into a
-        :class:`ProductSpace`.
+        `ProductSpace`.
         """
         if isinstance(texpr, TypeName):
             return self._resolve_type_name(texpr)
@@ -115,14 +122,14 @@ class _ResolutionMixin:
             return self._resolve_discrete_constructor(texpr)
         if isinstance(texpr, ContinuousConstructor):
             return self._resolve_continuous_constructor(texpr)
-        if isinstance(texpr, TypeProduct):
+        if isinstance(texpr, ObjectProduct):
             components = [
                 self._resolve_any_space(c) for c in texpr.components
             ]
             if any(isinstance(c, ContinuousSpace) for c in components):
                 return ProductSpace(components=tuple(components))
             return ProductSet(components=tuple(components))
-        if isinstance(texpr, TypeCoproduct):
+        if isinstance(texpr, ObjectCoproduct):
             components = [
                 self._resolve_any_space(c) for c in texpr.components
             ]
@@ -133,7 +140,7 @@ class _ResolutionMixin:
                     getattr(texpr, "col", 0),
                 )
             return CoproductSet(components=tuple(components))
-        if isinstance(texpr, (TypeSlash, TypeEffectApply)):
+        if isinstance(texpr, (ObjectSlash, ObjectEffectApply)):
             raise CompileError(
                 f"{type(texpr).__name__}: residuated / effect-typed "
                 f"expressions do not resolve to a concrete object or "
@@ -211,15 +218,33 @@ class _ResolutionMixin:
         kwargs: dict[str, float | int] = {}
         for key, val in texpr.kwargs.items():
             kwargs[key] = self._eval_scalar_kwarg(val, texpr)
-        try:
-            return cls(*positional, **kwargs)
-        except TypeError as exc:
+        synth_name = f"_{ctor_name}_" + "_".join(str(p) for p in positional)
+        if ctor_name == "Real":
+            if len(positional) == 1:
+                return cls(name=synth_name, dim=positional[0], **kwargs)
+            if len(positional) >= 2:
+                return cls(
+                    name=synth_name,
+                    dim=int(_prod(positional)),
+                    **kwargs,
+                )
             raise CompileError(
-                f"{ctor_name}: invalid arguments "
-                f"({positional!r}, {kwargs!r}): {exc}",
+                f"Real takes at least one dimension argument; got 0",
                 texpr.line,
                 texpr.col,
-            ) from exc
+            )
+        try:
+            return cls(name=synth_name, *positional, **kwargs)
+        except TypeError:
+            try:
+                return cls(*positional, **kwargs)
+            except TypeError as exc:
+                raise CompileError(
+                    f"{ctor_name}: invalid arguments "
+                    f"({positional!r}, {kwargs!r}): {exc}",
+                    texpr.line,
+                    texpr.col,
+                ) from exc
 
     def _eval_size_arg(self, arg: str, texpr) -> int:
         if arg.isdigit():

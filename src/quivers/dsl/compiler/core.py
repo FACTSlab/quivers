@@ -14,6 +14,7 @@ from quivers.dsl.ast_nodes import (
     EncoderDecl,
     ExportDecl,
     Expr,
+    ExprIdent,
     LetDecl,
     LossDecl,
     Module,
@@ -23,8 +24,8 @@ from quivers.dsl.ast_nodes import (
     SchemaDecl,
     SignatureDecl,
     Statement,
-    TypeDecl,
-    TypeExpr,
+    ObjectDecl,
+    ObjectExpr,
 )
 from quivers.dsl.compiler._prelude import (
     CompileError,
@@ -71,18 +72,18 @@ class Compiler(
         self._categories: list[str] = []
         self._rules: dict = {}
         self._bundles: dict[str, tuple[str, ...]] = {}
-        self._aliases: dict[str, TypeExpr] = {}
+        self._aliases: dict[str, ObjectExpr] = {}
         self._alias_names: set[str] = set()
         # Built-in transformation catalog: singletons looked up by
         # bare name (``expectation``, ``log_prob``, …) and
         # constructors invoked with arguments (``softmax(B)``,
         # ``bayes_invert(prior)``).  Disjoint from
-        # :attr:`_transformations`, which holds user let-bound
+        # `_transformations`, which holds user let-bound
         # transformations defined inside the module.
         self._trans_singletons: dict = _build_default_trans_singletons()
         self._trans_constructors: dict = _build_default_trans_constructors()
         # User-defined transformations bound via ``let t = …``.
-        # Disjoint from :attr:`_morphisms`: a ``let`` whose RHS
+        # Disjoint from `_morphisms`: a ``let`` whose RHS
         # resolves to a transformation lands here; a ``let`` whose
         # RHS resolves to a morphism lands in ``_morphisms``.
         self._transformations: dict = {}
@@ -97,7 +98,7 @@ class Compiler(
         self._program_templates: dict[str, ProgramDecl] = {}
         # Operadic contraction declarations. Each entry is callable
         # from the DSL at let-binding sites; the value records the
-        # compiled :class:`EinsumWiring` plus the declared domain /
+        # compiled `EinsumWiring` plus the declared domain /
         # codomain typing for shape-checking at invocation time.
         self._contractions: dict[str, "_CompiledContraction"] = {}
 
@@ -153,6 +154,22 @@ class Compiler(
             # exported morphism; the returned Program is a container
             # carrying those artifacts.
             program = Program(None)
+        elif (
+            isinstance(self._output_expr, ExprIdent)
+            and self._output_expr.name in getattr(self, "_program_templates", {})
+        ):
+            # The export names a parametric program template. A
+            # template has no root morphism on its own (a function
+            # ``Pi (p : P). Kern(dom(p), cod(p))`` rather than a
+            # single Kleisli arrow); the returned Program is a
+            # container holding the template, which the caller
+            # instantiates by attribute access.
+            tmpl_name = self._output_expr.name
+            program = Program(None)
+            invoker = self._make_template_invoker(tmpl_name)
+            program.templates = {tmpl_name: invoker}
+            # Convenience: ``program.<name>(...)`` works directly.
+            object.__setattr__(program, tmpl_name, invoker)
         else:
             root_morphism = self._compile_expr(self._output_expr)
             program = Program(root_morphism)
@@ -209,7 +226,7 @@ class Compiler(
             self._compile_rule(stmt)
         elif isinstance(stmt, SchemaDecl):
             self._compile_schema(stmt)
-        elif isinstance(stmt, TypeDecl):
+        elif isinstance(stmt, ObjectDecl):
             self._compile_type(stmt)
         elif isinstance(stmt, BundleDecl):
             self._compile_bundle(stmt)

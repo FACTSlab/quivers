@@ -1,17 +1,17 @@
 """Continuous measurable spaces for the hybrid architecture.
 
 Continuous space objects serve as domains and codomains for continuous
-morphisms. They complement :mod:`quivers.core.objects` (FinSet etc.) used
+morphisms. They complement [`quivers.core.objects`][quivers.core.objects] (FinSet etc.) used
 by discrete morphisms.
 
 The space family is a sum type:
 
-- :class:`Euclidean` — :math:`\\mathbb{R}^d` with optional bounds
-- :class:`Simplex` — probability simplex over ``d`` components
-- :class:`PositiveReals` — :math:`(0, \\infty)^d`
-- :class:`ProductSpace` — cartesian product of continuous spaces
+- `Euclidean` — :math:`\\mathbb{R}^d` with optional bounds
+- `Simplex` — probability simplex over ``d`` components
+- `PositiveReals` — :math:`(0, \\infty)^d`
+- `ProductSpace` — cartesian product of continuous spaces
 
-:func:`UnitInterval` is a convenience factory for ``[0, 1]^d``.
+`UnitInterval` is a convenience factory for ``[0, 1]^d``.
 """
 
 from typing import Literal
@@ -31,8 +31,8 @@ class ContinuousSpace(dx.TaggedUnion, discriminator="kind"):
     """Continuous measurable space (Euclidean, Simplex, PositiveReals, Product).
 
     Variants expose ``name: str`` and ``dim: int`` either as fields (the
-    atomic variants) or as derived properties (:class:`ProductSpace`),
-    plus a :meth:`contains` predicate over the support.
+    atomic variants) or as derived properties (`ProductSpace`),
+    plus a `contains` predicate over the support.
     """
 
     @property
@@ -162,7 +162,7 @@ class CholeskyFactor(ContinuousSpace):
     Carrier represented as a flat :math:`K \\times K` array
     (row-major); the on-manifold constraint is enforced by the
     sampling family
-    (:class:`~quivers.continuous.families.LKJCorrelationFactor`)
+    ([`quivers.continuous.families.LKJCorrelationFactor`][quivers.continuous.families.LKJCorrelationFactor])
     and not by the type itself.
     """
 
@@ -204,8 +204,8 @@ def _component_name(c: "ContinuousSpace | SetObject") -> str:
 def _component_dim(c: "ContinuousSpace | SetObject") -> int:
     """Return the event-shape width of a product component.
 
-    ContinuousSpace components contribute :attr:`dim`; SetObject
-    components contribute the length of their tensor :attr:`shape`
+    ContinuousSpace components contribute `dim`; SetObject
+    components contribute the length of their tensor `shape`
     (1 for FinSet, len(components) for ProductSet, 1 for CoproductSet).
     """
     return c.dim if isinstance(c, ContinuousSpace) else len(c.shape)
@@ -222,12 +222,12 @@ def _product_dim(components: tuple["ContinuousSpace | SetObject", ...]) -> int:
 class ProductSpace(ContinuousSpace):
     """Cartesian product of continuous spaces (and discrete objects).
 
-    Components may be a mix of :class:`ContinuousSpace` variants and
-    :class:`~quivers.core.objects.SetObject` variants — programs whose
+    Components may be a mix of `ContinuousSpace` variants and
+    [`quivers.core.objects.SetObject`][quivers.core.objects.SetObject] variants — programs whose
     domain or codomain combines discrete and continuous variables produce
     such a ProductSpace at compile time. Nested products are flattened
-    on construction; :attr:`name` and :attr:`dim` are derived from
-    :attr:`components` (for SetObject components, :attr:`dim` falls back
+    on construction; `name` and `dim` are derived from
+    `components` (for SetObject components, `dim` falls back
     to ``len(component.shape)``).
     """
 
@@ -466,9 +466,9 @@ class Orthogonal(ContinuousSpace):
 class Stiefel(ContinuousSpace):
     r"""The Stiefel manifold :math:`V_K(\mathbb{R}^N) = \{X \in \mathbb{R}^{N \times K} : X^T X = I_K\}`.
 
-    Generalises :class:`Orthogonal` to rectangular orthonormal-column
+    Generalises `Orthogonal` to rectangular orthonormal-column
     matrices. ``rows`` is :math:`N`, ``cols`` is :math:`K`; require
-    :math:`K \le N`. The base :attr:`dim` field is :math:`N`, kept
+    :math:`K \le N`. The base `dim` field is :math:`N`, kept
     for the standard ``event_shape = (dim,)`` contract; the actual
     carrier is flat with shape ``(N*K,)``.
     """

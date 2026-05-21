@@ -194,7 +194,7 @@ def _make_family(
 ) -> type:
     """Generate a named conditional distribution class.
 
-    Each call also installs a :class:`FamilySpec` into the unified
+    Each call also installs a `FamilySpec` into the unified
     catalog so the inline (fixed / mixed) call paths and the DSL
     compiler discover the family automatically.
 
@@ -203,7 +203,7 @@ def _make_family(
     name : str
         Class name (e.g. ``"ConditionalCauchy"``).
     dist_class : type
-        The :mod:`torch.distributions` class.
+        The `torch.distributions` class.
     param_specs : list of (str, str)
         Ordered ``(parameter_name, transform_name)`` pairs.
     doc : str
@@ -220,7 +220,7 @@ def _make_family(
     Returns
     -------
     type
-        A new :class:`ContinuousMorphism` subclass.
+        A new `ContinuousMorphism` subclass.
     """
     resolved_specs = [(pname, _TRANSFORMS[tname]) for pname, tname in param_specs]
     is_discrete = _resolve_discrete(dist_class, discrete)
@@ -1552,6 +1552,11 @@ class ConditionalCategorical(ContinuousMorphism):
         self._k = codomain.size
         self.param_source = _make_source(domain, self._k, hidden_dim)
 
+    @property
+    def support(self):
+        """Discrete-integer support over ``{0, …, k-1}``."""
+        return _constraints.integer_interval(0, self._k - 1)
+
     def _get_logits(self, x: torch.Tensor) -> torch.Tensor:
         """Compute category logits from input.
 
@@ -1675,8 +1680,8 @@ class ConditionalLogisticNormal(ContinuousMorphism):
 
     Pushes a Normal(loc(x), scale(x)) draw through the softmax
     transform to produce a simplex-valued sample. Multivariate
-    analogue of :class:`ConditionalLogitNormal`. Useful as an
-    alternative to :class:`ConditionalDirichlet` when the
+    analogue of `ConditionalLogitNormal`. Useful as an
+    alternative to `ConditionalDirichlet` when the
     underlying simplex distribution should be Gaussian in
     logit space rather than Beta-shaped.
 
@@ -1731,7 +1736,7 @@ class ConditionalLogisticNormal(ContinuousMorphism):
 class ConditionalOneHotCategorical(ContinuousMorphism):
     """Conditional OneHotCategorical(probs(x)).
 
-    Generalises :class:`ConditionalCategorical` to one-hot
+    Generalises `ConditionalCategorical` to one-hot
     encoded outputs (vector of zeros with a single one). Useful
     as a discrete-output observation kernel where downstream
     code wants a vector rather than an integer index.
@@ -1880,7 +1885,7 @@ class ConditionalIndependent(ContinuousMorphism):
     family as an event dimension.
 
     Equivalent to wrapping the base distribution in
-    :class:`torch.distributions.Independent` with
+    `torch.distributions.Independent` with
     ``reinterpreted_batch_ndims = 1``. Used to make per-element
     independence explicit when a downstream guide wants to score
     a vector-valued observation as a single event.
@@ -1921,7 +1926,7 @@ class ConditionalIndependent(ContinuousMorphism):
 class ConditionalTransformed(ContinuousMorphism):
     """A base conditional family composed with a chain of bijectors.
 
-    Equivalent to :class:`torch.distributions.TransformedDistribution`
+    Equivalent to `torch.distributions.TransformedDistribution`
     lifted to ContinuousMorphism. The ``transforms`` are applied in
     forward order to ``rsample`` outputs; ``log_prob`` includes the
     log-determinant Jacobian correction.
@@ -2463,11 +2468,11 @@ except AttributeError:
 # ============================================================================
 #
 # The factory-generated families (Cauchy, Laplace, ..., VonMises) are
-# registered inside :func:`_make_family`. The hand-written specials
+# registered inside `_make_family`. The hand-written specials
 # below (Normal, LogitNormal, Beta, TruncatedNormal, Dirichlet, Uniform,
 # MultivariateNormal, LowRankMVN, RelaxedBernoulli,
 # RelaxedOneHotCategorical, Wishart, Bernoulli, Categorical) require
-# explicit registration. Each :class:`FamilySpec` records the same
+# explicit registration. Each `FamilySpec` records the same
 # canonical info the factory-generated ones do; the
 # ``conditional_class_override`` field carries the hand-written class
 # so the unified catalog can build a ConditionalX from any DSL name.
@@ -2891,7 +2896,7 @@ class Truncated(ContinuousMorphism):
 
     and the morphism :math:`F_{|[a,b]} : \\Theta \\to
     \\mathcal{G}([a,b])`. Sampling uses inverse-CDF when
-    :attr:`base` supports it; otherwise rejection sampling.
+    `base` supports it; otherwise rejection sampling.
 
     Parameters
     ----------

@@ -2,13 +2,13 @@
 
 Three canonical conversions:
 
-- :func:`kleisli` — given a :class:`Monad` instance ``m``, produce a
+- `kleisli` — given a `Monad` instance ``m``, produce a
   ``Kleisli(m)`` arrow whose hom from ``A`` to ``B`` is the V-Rel
   morphism set ``Hom(A, m(B))``.
-- :func:`arrow_monad` — given an :class:`ArrowApply` instance ``a``,
-  produce a :class:`Monad` whose underlying functor is
+- `arrow_monad` — given an `ArrowApply` instance ``a``,
+  produce a `Monad` whose underlying functor is
   ``ArrowMonad(a)(α) = a(1, α)``.
-- :func:`cokleisli` — comonadic dual of :func:`kleisli`.
+- `cokleisli` — comonadic dual of `kleisli`.
 
 Each bridge is realised at the value level as concrete morphism
 constructions: ``compose`` is Kleisli composition (fmap-then-join),
@@ -56,11 +56,11 @@ class Kleisli(dx.Model):
 
     Hom from ``A`` to ``B`` is the set of morphisms ``A → m(B)`` in
     V-Rel. Composition is Kleisli composition (fmap, then join);
-    identity is :meth:`Monad.pure`. ``first`` is realised via the
+    identity is `Monad.pure`. ``first`` is realised via the
     canonical monad strength; ``app`` evaluates a function-space
-    embedding through the monad's :meth:`Monad.apply`.
+    embedding through the monad's `Monad.apply`.
 
-    :attr:`monad` is held opaquely so the typeclass-ABC reference
+    `monad` is held opaquely so the typeclass-ABC reference
     survives in-process identity through ``with_`` without panproto
     schema validation; the field does not round-trip through JSON.
 
@@ -202,7 +202,7 @@ def _recover_value_type(m, mB: SetObject) -> SetObject:
 
 
 class ArrowMonad(dx.Model):
-    """The monad induced by an :class:`ArrowApply` arrow.
+    """The monad induced by an `ArrowApply` arrow.
 
     Hughes 2000 §4: any ``ArrowApply`` arrow ``a`` gives a monad
     ``ArrowMonad(a)(α) = a(1, α)``, where ``1`` is the monoidal unit.
@@ -214,7 +214,7 @@ class ArrowMonad(dx.Model):
     - ``join(A)`` is the arrow's ``app`` morphism on the unit-anchored
       arrow values.
 
-    :attr:`arrow` is held opaquely.
+    `arrow` is held opaquely.
 
     Attributes
     ----------
@@ -241,7 +241,7 @@ class ArrowMonad(dx.Model):
     def apply(self, A: SetObject, B: SetObject) -> Morphism:
         """``apply : ArrowMonad(a)([A → B]) ⊗ ArrowMonad(a)(A) → ArrowMonad(a)(B)``.
 
-        Routes through the underlying arrow's :meth:`ArrowApply.app`.
+        Routes through the underlying arrow's `ArrowApply.app`.
         """
         return self.arrow.app(A, B)
 
@@ -272,7 +272,7 @@ def kleisli(monad) -> Kleisli:
 
 
 def arrow_monad(arrow) -> ArrowMonad:
-    """Wrap an :class:`ArrowApply` arrow as a Monad."""
+    """Wrap an `ArrowApply` arrow as a Monad."""
     return ArrowMonad(arrow=arrow)
 
 
@@ -283,16 +283,16 @@ class CoKleisli(dx.Model):
     Composition is the comonadic CoKleisli composition
     ``f =>> g = g ∘ W(f) ∘ δ_A``; identity is the counit ``ε_A``.
 
-    CoKleisli is registered as :class:`Category_` rather than
-    :class:`Arrow` because the arrow ``first`` derivation requires
+    CoKleisli is registered as `Category_` rather than
+    `Arrow` because the arrow ``first`` derivation requires
     a comonadic *costrength* ``W(A × C) → W(A) × C``, which is not
     canonical for an arbitrary comonad. When the underlying comonad
     supplies a ``costrength(A, C)`` method, that morphism composes
     with ``parallel(f, ε_C ∘ W(π_2))`` to realise ``first`` as the
-    full Arrow primitive; the helper :meth:`first_via_costrength`
+    full Arrow primitive; the helper `first_via_costrength`
     constructs that morphism given an explicit costrength.
 
-    :attr:`comonad` is held opaquely so the typeclass-ABC reference
+    `comonad` is held opaquely so the typeclass-ABC reference
     survives in-process identity without panproto schema validation.
 
     Attributes
@@ -338,9 +338,9 @@ class CoKleisli(dx.Model):
 def cokleisli(comonad) -> CoKleisli:
     """Wrap a Comonad as a CoKleisli category.
 
-    The result is registered as :class:`Category_` (always) but not
-    :class:`Arrow`; promoting to an Arrow requires the user-supplied
-    costrength routed through :meth:`CoKleisli.first_via_costrength`.
+    The result is registered as `Category_` (always) but not
+    `Arrow`; promoting to an Arrow requires the user-supplied
+    costrength routed through `CoKleisli.first_via_costrength`.
     """
     return CoKleisli(comonad=comonad)
 

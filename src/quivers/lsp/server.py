@@ -12,7 +12,7 @@ Capabilities (LSP 3.17):
 - ``textDocument/completion``
 - ``textDocument/formatting``
 
-The server holds per-URI :class:`DocumentState` and re-analyses on
+The server holds per-URI `DocumentState` and re-analyses on
 every change. All token classification, completion, and rendering
 logic is shared with the REPL so the in-editor experience matches the
 TUI exactly.
@@ -35,7 +35,7 @@ from quivers.cli.repl_session import Diagnostic, ReplSession
 from quivers.dsl.ast_nodes import (
     ContinuousConstructor,
     MorphismDecl,
-    TypeDecl,
+    ObjectDecl,
     TypeFromExpr,
     TypeInitializer,
 )
@@ -47,7 +47,7 @@ SERVER_VERSION = "0.2.0"
 
 
 def build_server() -> LanguageServer:
-    """Return a configured :class:`pygls.server.LanguageServer`."""
+    """Return a configured `pygls.server.LanguageServer`."""
     server = LanguageServer(name=SERVER_NAME, version=SERVER_VERSION)
     docs: dict[str, DocumentState] = {}
 
@@ -412,7 +412,7 @@ def _pretty_ast(decl) -> str:  # type: ignore[no-untyped-def]
 
 
 def _ast_lines(value, indent: int) -> str:  # type: ignore[no-untyped-def]
-    """Recursive renderer used by :func:`_pretty_ast`."""
+    """Recursive renderer used by `_pretty_ast`."""
     pad = "    " * indent
     next_pad = "    " * (indent + 1)
     # didactic models expose __field_specs__; treat them as records.
@@ -516,11 +516,11 @@ def _prefix_at(source: str, line: int, character: int) -> str:
 def _symbol_kind(stmt: Any) -> lsp.SymbolKind:
     """Classify a top-level decl as a Class / Struct / Function symbol.
 
-    For a :class:`TypeDecl`, peek at the initializer's inner expression
+    For a `ObjectDecl`, peek at the initializer's inner expression
     to distinguish discrete objects (``Class``) from continuous spaces
     (``Struct``). Unwrapped or aliased forms default to ``Class``.
     """
-    if isinstance(stmt, TypeDecl):
+    if isinstance(stmt, ObjectDecl):
         init: TypeInitializer = stmt.init
         if isinstance(init, TypeFromExpr) and isinstance(
             init.expr, ContinuousConstructor,

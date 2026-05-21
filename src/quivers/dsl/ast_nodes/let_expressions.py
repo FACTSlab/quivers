@@ -4,7 +4,7 @@ from typing import Literal
 
 import didactic.api as dx
 
-from quivers.dsl.ast_nodes.types import TypeExpr
+from quivers.dsl.ast_nodes.objects import ObjectExpr
 
 class LetExprNode(dx.TaggedUnion, discriminator="kind"):
     """Sum of let-step arithmetic expression nodes."""
@@ -54,7 +54,7 @@ class LetExprIndex(LetExprNode):
     Attributes
     ----------
     array : LetExprNode
-        The indexed-family expression (typically a :class:`LetExprVar`
+        The indexed-family expression (typically a `LetExprVar`
         naming a previously-drawn plate variable).
     indices : tuple of LetExprNode
         The index expressions; supports multi-dim indexing for
@@ -111,7 +111,7 @@ class LetFactorBinder(dx.Model):
     """
 
     var: str
-    index: TypeExpr
+    index: ObjectExpr
     line: int = 0
     col: int = 0
 
@@ -149,7 +149,7 @@ class LetExprFactor(LetExprNode):
     section of the trivial bundle ``I -> body_type``; multi-axis is
     a section over the product ``I1 x ... x In``.  The dual
     operation is the index pullback ``arr[i1, ..., in]``
-    (:class:`LetExprIndex`); together they realize the indexed-family
+    (`LetExprIndex`); together they realize the indexed-family
     colim / lim pair in the slice category over ``FinSet``.
     """
 

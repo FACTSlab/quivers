@@ -1,7 +1,7 @@
 """Walker for the unified ``[k=v, ...]`` option block.
 
-Produces tuples of :class:`OptionEntry` from the tree-sitter
-``option_block`` vertex. The :class:`OptionValue` tagged union covers
+Produces tuples of `OptionEntry` from the tree-sitter
+``option_block`` vertex. The `OptionValue` tagged union covers
 every surface shape:
 
 * ``[role]`` -> OptionFlag

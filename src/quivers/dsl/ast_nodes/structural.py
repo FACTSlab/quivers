@@ -1,10 +1,10 @@
 """Structural-compression helper AST nodes.
 
 These are the non-Statement support models used by
-:class:`SignatureDecl`, :class:`EncoderDecl`, :class:`DecoderDecl`, and
-:class:`LossDecl`. The four Statement subclasses themselves live in
+`SignatureDecl`, `EncoderDecl`, `DecoderDecl`, and
+`LossDecl`. The four Statement subclasses themselves live in
 ``declarations.py`` because they participate in the top-level
-:class:`Statement` tagged union.
+`Statement` tagged union.
 """
 
 from typing import Literal
@@ -19,7 +19,7 @@ class SortVocabLiteral(dx.Model):
 
     The literal carries its surface text plus a tag so the compiler
     can decode each entry into the canonical Python value the
-    runtime stores in :attr:`Sort.vocab` (``str``, ``int``, or
+    runtime stores in `Sort.vocab` (``str``, ``int``, or
     ``float``).
     """
 
@@ -89,7 +89,7 @@ class BinderDecl(dx.Model):
 class VertexKindDecl(dx.Model):
     """A vertex kind in a graph-shaped signature.
 
-    Like :class:`SortDecl`, the surface threads ``dim`` and any
+    Like `SortDecl`, the surface threads ``dim`` and any
     other modifier through the unified option block.
     """
 

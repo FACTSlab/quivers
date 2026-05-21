@@ -3,15 +3,15 @@
 Each Hughes-style arrow typeclass corresponds to a panproto theory
 that declares the operations and laws the typeclass requires:
 
-- :data:`ThCategory_` — composition + identity, with the three
+- `ThCategory_` — composition + identity, with the three
   category laws.
-- :data:`ThArrow` — adds ``arr`` and ``first``; the seven Hughes
+- `ThArrow` — adds ``arr`` and ``first``; the seven Hughes
   arrow laws.
-- :data:`ThArrowChoice`, :data:`ThArrowApply`, :data:`ThArrowLoop`,
-  :data:`ThArrowZero`, :data:`ThArrowPlus` — the additional
+- `ThArrowChoice`, `ThArrowApply`, `ThArrowLoop`,
+  `ThArrowZero`, `ThArrowPlus` — the additional
   operations and laws of each extension.
 
-The bridges in :mod:`quivers.monadic.bridges` correspond to panproto
+The bridges in [`quivers.monadic.bridges`][quivers.monadic.bridges] correspond to panproto
 theory morphisms ``ThMonad → ThArrowApply`` (Kleisli construction)
 and back (ArrowMonad construction); the round-trip composition is
 the identity on the appropriate theory image.

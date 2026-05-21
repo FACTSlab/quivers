@@ -11,8 +11,8 @@ from scratch.
 
 This is a two-phase orchestrator: it owns no kernel state of its
 own, just a guide + an MCMC kernel + a driver. The two phases are
-:meth:`fit_guide` (vanilla SVI) and :meth:`run_mcmc` (the warmup-
-seeded MCMC chain); :meth:`run` calls both in sequence.
+`fit_guide` (vanilla SVI) and `run_mcmc` (the warmup-
+seeded MCMC chain); `run` calls both in sequence.
 """
 
 from __future__ import annotations
@@ -34,12 +34,12 @@ class WarmupThenHMC:
     ----------
     guide : Guide
         Variational guide trained in the SVI warmup phase. Any
-        :class:`Guide` subclass; :class:`AutoMultivariateNormalGuide`
+        `Guide` subclass; `AutoMultivariateNormalGuide`
         is the canonical pick because its learned Cholesky factor
         directly seeds the dense mass matrix of HMC's adaptation.
     kernel : MCMCKernel
         Markov kernel for the sampling phase (typically
-        :class:`HMCKernel` or :class:`NUTSKernel`).
+        `HMCKernel` or `NUTSKernel`).
     svi_steps : int
         Number of SVI steps in the warmup phase.
     svi_lr : float
@@ -54,7 +54,7 @@ class WarmupThenHMC:
     num_chains : int
         Number of MCMC chains.
     objective : Objective
-        SVI objective. Default :class:`ELBO`.
+        SVI objective. Default `ELBO`.
     """
 
     def __init__(
@@ -111,7 +111,7 @@ class WarmupThenHMC:
         observations: dict[str, torch.Tensor],
     ) -> MCMCResult:
         """Run the post-warmup MCMC phase. Chains are seeded from
-        the fitted guide via :meth:`MCMC.run`'s ``init_strategy='guide'``."""
+        the fitted guide via `MCMC.run`'s ``init_strategy='guide'``."""
         driver = MCMC(
             kernel=self.kernel,
             num_warmup=self.mcmc_warmup,

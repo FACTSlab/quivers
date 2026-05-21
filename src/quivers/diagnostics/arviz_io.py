@@ -1,7 +1,7 @@
-"""Conversion from quivers fits to :class:`xarray.DataTree` (the
+"""Conversion from quivers fits to `xarray.DataTree` (the
 ArviZ 1.x replacement for the legacy ``InferenceData`` container).
 
-The MCMC sampler hands back :class:`~quivers.inference.MCMCResult`
+The MCMC sampler hands back [`quivers.inference.MCMCResult`][quivers.inference.MCMCResult]
 records whose ``samples`` dict already follows the
 ``(num_chains, num_samples, *site_shape)`` shape convention ArviZ
 expects.  This module repackages those tensors as numpy arrays under
@@ -41,7 +41,7 @@ def to_datatree(
     coords: Mapping[str, list] | None = None,
     dims: Mapping[str, list[str]] | None = None,
 ) -> xr.DataTree:
-    """Convert an :class:`MCMCResult` into an ArviZ-style DataTree.
+    """Convert an `MCMCResult` into an ArviZ-style DataTree.
 
     Parameters
     ----------
@@ -62,7 +62,7 @@ def to_datatree(
         Site name to per-observation log-likelihood of shape
         ``(num_chains, num_samples, *obs_shape)``.  Becomes the
         ``log_likelihood`` group; required for
-        :func:`arviz.loo` / :func:`arviz.waic`.
+        `arviz.loo` / `arviz.waic`.
     constant_data : Mapping[str, torch.Tensor], optional
         Site name to fixed covariate tensor (e.g. design matrix).
         Becomes the ``constant_data`` group.

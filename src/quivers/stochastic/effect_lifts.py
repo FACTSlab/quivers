@@ -1,22 +1,22 @@
 """Class-driven schema lifting for effect-typed parsers.
 
-The :func:`class_directed_lifts` function takes a base
-:class:`SchemaDecl` and an effect instance and returns a tuple of
-lifted :class:`SchemaDecl` instances — one per typeclass-class the
+The `class_directed_lifts` function takes a base
+`SchemaDecl` and an effect instance and returns a tuple of
+lifted `SchemaDecl` instances — one per typeclass-class the
 effect inhabits.
 
 The dispatch key is the typeclass interface, never the effect's
 concrete identity. Adding a new effect (or a new typeclass) extends
 the lifting machinery automatically: every effect that registers
-against :class:`Functor` gets ``fmap`` lifts; every effect that
-additionally registers against :class:`Applicative` also gets
-``apply`` lifts; every :class:`Monad` gets ``bind`` lifts; and so
+against `Functor` gets ``fmap`` lifts; every effect that
+additionally registers against `Applicative` also gets
+``apply`` lifts; every `Monad` gets ``bind`` lifts; and so
 on across both the monad-style and arrow-style towers.
 
-The lifted schemas are :class:`SchemaDecl` instances and feed into
-the same :class:`PatternBinarySchema` / :class:`PatternUnarySchema`
+The lifted schemas are `SchemaDecl` instances and feed into
+the same `PatternBinarySchema` / `PatternUnarySchema`
 machinery as user-written schemas; the chart-fixed-point machinery in
-:mod:`quivers.stochastic.parsers` consumes them uniformly with the
+[`quivers.stochastic.parsers`][quivers.stochastic.parsers] consumes them uniformly with the
 base schemas. The chart cells are indexed by ``(Cat, EffectStack)``
 pairs, and at each cell the parser fires:
 
@@ -24,7 +24,7 @@ pairs, and at each cell the parser fires:
    case).
 2. **Lift schemas** when one or more children carry effect prefixes
    that the schema's domain doesn't (this is what
-   :func:`class_directed_lifts` produces).
+   `class_directed_lifts` produces).
 3. **Handler firings** when an applicable handler is registered,
    reducing an effect-typed cell to a less-effect-typed cell.
 4. **Commutation firings** when a registered distributive law swaps
@@ -46,10 +46,10 @@ from quivers.arrows.typeclasses import ArrowApply, ArrowLoop
 from quivers.dsl.ast_nodes import (
     SchemaDecl,
     SchemaParameter,
-    TypeEffectApply,
+    ObjectEffectApply,
     TypeName,
-    TypeProduct,
-    TypeSlash,
+    ObjectProduct,
+    ObjectSlash,
 )
 from quivers.monadic.distributive_laws import DistributiveLaw
 from quivers.monadic.typeclasses import Alternative, Applicative, Monad
@@ -60,11 +60,11 @@ if TYPE_CHECKING:
 
 
 def _wrap_with_effect(type_expr, effect_name: str):
-    """Wrap a TypeExpr in a TypeEffectApply for the given effect.
+    """Wrap a ObjectExpr in a ObjectEffectApply for the given effect.
 
     e.g. ``X -> T(X)``, ``X/Y -> T(X/Y)``, etc.
     """
-    return TypeEffectApply(effect=effect_name, args=(type_expr,))
+    return ObjectEffectApply(effect=effect_name, args=(type_expr,))
 
 
 def _effect_name(effect: object) -> str:
@@ -121,10 +121,10 @@ def _make_apply_schema(effect: object, base_schema: SchemaDecl) -> SchemaDecl:
                 type_expr=TypeName(name="Cat"),
             ),
         ),
-        domain=TypeProduct(
+        domain=ObjectProduct(
             components=(
                 _wrap_with_effect(
-                    TypeSlash(
+                    ObjectSlash(
                         result=TypeName(name="X"),
                         argument=TypeName(name="Y"),
                         direction="/",
@@ -155,14 +155,14 @@ def _make_bind_schema(effect: object, base_schema: SchemaDecl) -> SchemaDecl:
                 type_expr=TypeName(name="Cat"),
             ),
         ),
-        domain=TypeProduct(
+        domain=ObjectProduct(
             components=(
                 _wrap_with_effect(TypeName(name="X"), eff_name),
                 # The (X -> T(Y)) function-space lives in the
                 # internal-hom of the residuated universe; surface
-                # representation uses TypeSlash to reuse the existing
+                # representation uses ObjectSlash to reuse the existing
                 # pattern machinery.
-                TypeSlash(
+                ObjectSlash(
                     result=_wrap_with_effect(TypeName(name="Y"), eff_name),
                     argument=TypeName(name="X"),
                     direction="/",
@@ -190,7 +190,7 @@ def _make_alt_schema(effect: object, base_schema: SchemaDecl) -> SchemaDecl:
                 type_expr=TypeName(name="Cat"),
             ),
         ),
-        domain=TypeProduct(
+        domain=ObjectProduct(
             components=(
                 _wrap_with_effect(TypeName(name="X"), eff_name),
                 _wrap_with_effect(TypeName(name="X"), eff_name),
@@ -207,19 +207,19 @@ def class_directed_lifts(
 
     Dispatches on which typeclasses the effect inhabits — Functor,
     Applicative, Monad, Alternative, MonadPlus, ArrowApply, ArrowLoop,
-    and so on — and emits one or more :class:`SchemaDecl` instances
+    and so on — and emits one or more `SchemaDecl` instances
     per class. The lifts compose with the base schema in the chart
     parser's joint type-and-effect dispatch.
 
     Lifts emitted (when the corresponding class is inhabited):
 
-    - :class:`Applicative`: ``pure_T`` + ``apply_T``.
-    - :class:`Monad` (and :class:`Applicative`): adds ``bind_T``.
-    - :class:`Alternative`: adds ``alt_T``.
-    - :class:`MonadPlus`: union of Monad and Alternative lifts.
+    - `Applicative`: ``pure_T`` + ``apply_T``.
+    - `Monad` (and `Applicative`): adds ``bind_T``.
+    - `Alternative`: adds ``alt_T``.
+    - `MonadPlus`: union of Monad and Alternative lifts.
 
     Functor-only effects produce ``pure_T``-shape lifts only when the
-    instance also implements :class:`Applicative`; bare Functor
+    instance also implements `Applicative`; bare Functor
     instances need a separate ``fmap_T`` shape (analogous to
     ``apply_T`` but with one functor-typed premise rather than two).
 
@@ -233,7 +233,7 @@ def class_directed_lifts(
         The base schema being lifted.
     effect : object
         An effect instance (any class registered against the relevant
-        typeclass ABCs in :mod:`quivers.monadic.typeclasses`).
+        typeclass ABCs in [`quivers.monadic.typeclasses`][quivers.monadic.typeclasses]).
 
     Returns
     -------
@@ -277,7 +277,7 @@ def make_swap_schema(
 ) -> SchemaDecl:
     """Generate a ``swap_TU`` schema from a registered distributive law.
 
-    Given a :class:`DistributiveLaw` ``λ : S ∘ T ⇒ T ∘ S``, the chart
+    Given a `DistributiveLaw` ``λ : S ∘ T ⇒ T ∘ S``, the chart
     parser uses ``swap_TU`` to exchange sibling effect orderings at a
     cell whose effect stack ends in ``T·U``:
 
@@ -325,7 +325,7 @@ def swap_rule_set(
 def lift_rule_set(
     base_schemas: tuple[SchemaDecl, ...], effects: tuple[object, ...]
 ) -> tuple[SchemaDecl, ...]:
-    """Apply :func:`class_directed_lifts` over a rule-set and effect-stack.
+    """Apply `class_directed_lifts` over a rule-set and effect-stack.
 
     Returns the union of base schemas and all lifts produced for each
     (base_schema, effect) pair. The chart parser consumes the

@@ -125,7 +125,7 @@ class PlateDraw(ContinuousMorphism):
     Categorically: by the natural isomorphism
     :math:`\\mathbf{Kern}(\\mathbf{1}, B^A) \\cong \\mathbf{Kern}(A, B)`,
     the plate variable IS a Kern-morphism :math:`A \\to B`. The
-    PlateDraw is realised as a :class:`ContinuousMorphism` whose
+    PlateDraw is realised as a `ContinuousMorphism` whose
     codomain is the flat product-space of ``index_size`` copies of
     the per-row family's codomain.
 
@@ -275,10 +275,10 @@ class VectorisedObserve(ContinuousMorphism):
     Categorically, the batched-likelihood kernel
     :math:`\\Phi \\to \\mathcal{G}_{\\le 1}(\\Phi)` whose score is
     :math:`\\prod_{n \\in N} p_F(r_{\\text{obs}}(n);\\, \\theta(n,\\phi))`.
-    Realised as a :class:`ContinuousMorphism` whose domain is the
+    Realised as a `ContinuousMorphism` whose domain is the
     parameter-input space (the morphism conditions on θ) and whose
     codomain is the per-observation response space — so the
-    existing :class:`MonadicProgram` ``_StepSpec`` machinery treats
+    existing `MonadicProgram` ``_StepSpec`` machinery treats
     it as an observed site and threads the score through
     ``log_joint`` via the usual ``morph.log_prob(theta, response)``
     call, with ``log_prob`` here summing over the leading index axis.
@@ -304,6 +304,12 @@ class VectorisedObserve(ContinuousMorphism):
     @property
     def response(self) -> torch.Tensor:
         return cast("torch.Tensor", self._response)
+
+    @property
+    def support(self):
+        """Inherit the underlying per-row family's support so guides
+        and validators see the correct constraint for the observation."""
+        return getattr(self._family, "support", super().support)
 
     def rsample(
         self, x: torch.Tensor, sample_shape: torch.Size = torch.Size()

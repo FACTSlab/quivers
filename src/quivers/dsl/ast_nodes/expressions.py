@@ -28,7 +28,7 @@ class ExprFromData(Expr):
 
     The string key is resolved against the runtime data dictionary
     at fit time; the morphism's tensor is the looked-up value.
-    The resulting morphism is :class:`ObservedMorphism`: its
+    The resulting morphism is `ObservedMorphism`: its
     entries are frozen / structural inputs, not learnable
     parameters.
     """
@@ -41,7 +41,7 @@ class ExprFromData(Expr):
 class ExprFreeze(Expr):
     """Detach gradients: ``inner.freeze`` materialises ``inner``'s
     tensor with ``detach()`` and wraps the result as a frozen
-    :class:`ObservedMorphism`. Used to pin a learned composition
+    `ObservedMorphism`. Used to pin a learned composition
     as a structural input that the downstream model treats as
     constant."""
 
@@ -69,13 +69,13 @@ class ExprTrace(Expr):
 
 class ExprChangeBase(Expr):
     """Change-of-base: apply a transformation (an algebra
-    homomorphism or :class:`MorphismTransformation`) to a
+    homomorphism or `MorphismTransformation`) to a
     morphism.
 
     The transformation is a first-class value: ``phi`` is any
     expression whose compile-time value is a
-    :class:`MorphismTransformation` or
-    :class:`AlgebraHomomorphism`.  Concretely:
+    `MorphismTransformation` or
+    `AlgebraHomomorphism`.  Concretely:
 
     * A bare identifier resolving a registered singleton
       (``f.change_base(expectation)``) or a let-bound trans value
@@ -95,7 +95,7 @@ class ExprTransCompose(Expr):
     sequential application, first apply ``t1``, then ``t2``.
 
     Required: ``t1.target == t2.source`` (typed at compile time;
-    a mismatch raises :class:`CompileError`).  The result behaves
+    a mismatch raises `CompileError`).  The result behaves
     as a transformation with ``source = t1.source`` and
     ``target = t2.target``.
     """
@@ -253,7 +253,7 @@ class ExprCurry(Expr):
     of the residuation-adjunction unit/counit triangle. Validity of the
     construction is checked at compile time: domain must factor as a
     non-commutative product and codomain must inhabit a residuated
-    universe (a :class:`FreeResiduated` object in scope).
+    universe (a `FreeResiduated` object in scope).
     """
 
     inner: Expr
@@ -266,7 +266,7 @@ class ExprMorphismCall(Expr):
     """Call expression ``callee(arg1, arg2, ...)`` resolving to a
     morphism-level operation.
 
-    Used by :class:`ContractionDecl` declarations: when the user
+    Used by `ContractionDecl` declarations: when the user
     writes ``let out = op_apply(arg1, arg2, kernel)``, the
     ``op_apply`` identifier resolves to a registered contraction
     and the arguments are looked up in the morphism scope.

@@ -7,15 +7,15 @@ their sum's root and pin ``kind`` to a ``Literal[...]`` value.
 
 This package's submodules group the node families:
 
-* :mod:`._shared` for shared helpers (``AxisSpec``,
+* `._shared` for shared helpers (``AxisSpec``,
   ``CompositionLevel``, the option-value tagged union)
-* :mod:`.types` for type expressions
-* :mod:`.let_expressions` for let-arith expressions
-* :mod:`.expressions` for value (morphism) expressions
-* :mod:`.program_steps` for monadic program steps
-* :mod:`.structural` for structural-compression helpers
-* :mod:`.declarations` for top-level statements (sixteen variants)
-* :mod:`.module` for the file-level :class:`Module` container
+* `.types` for type expressions
+* `.let_expressions` for let-arith expressions
+* `.expressions` for value (morphism) expressions
+* `.program_steps` for monadic program steps
+* `.structural` for structural-compression helpers
+* `.declarations` for top-level statements (sixteen variants)
+* `.module` for the file-level `Module` container
 
 Every public class is re-exported here so ``from quivers.dsl.ast_nodes
 import X`` keeps working.
@@ -37,6 +37,10 @@ from quivers.dsl.ast_nodes.declarations import (
     EncoderDecl,
     ExportDecl,
     LetDecl,
+    LexiconCategory,
+    LexiconCategoryFixed,
+    LexiconCategoryRestricted,
+    LexiconCategoryWildcard,
     LexiconEntry,
     LossDecl,
     MorphismDecl,
@@ -61,7 +65,7 @@ from quivers.dsl.ast_nodes.declarations import (
     SequentRule,
     SignatureDecl,
     Statement,
-    TypeDecl,
+    ObjectDecl,
     TypeEnumSet,
     TypeFreeMonoid,
     TypeFreeResiduated,
@@ -123,6 +127,7 @@ from quivers.dsl.ast_nodes.program_steps import (
     ProgramStep,
     ReturnStep,
     SampleStep,
+    ScoreStep,
     VectorisedObserveStep,
 )
 from quivers.dsl.ast_nodes.structural import (
@@ -141,15 +146,15 @@ from quivers.dsl.ast_nodes.structural import (
     SortVocabLiteral,
     VertexKindDecl,
 )
-from quivers.dsl.ast_nodes.types import (
+from quivers.dsl.ast_nodes.objects import (
     ContinuousConstructor,
     DiscreteConstructor,
-    TypeCoproduct,
-    TypeEffectApply,
-    TypeExpr,
+    ObjectCoproduct,
+    ObjectEffectApply,
+    ObjectExpr,
     TypeName,
-    TypeProduct,
-    TypeSlash,
+    ObjectProduct,
+    ObjectSlash,
 )
 
 __all__ = [
@@ -221,6 +226,11 @@ __all__ = [
     "LetFactorBinder",
     "LetFactorCase",
     "LetStep",
+    "ScoreStep",
+    "LexiconCategory",
+    "LexiconCategoryFixed",
+    "LexiconCategoryRestricted",
+    "LexiconCategoryWildcard",
     "LexiconEntry",
     "LossDecl",
     "MarginalizeStep",
@@ -255,18 +265,18 @@ __all__ = [
     "SortDim",
     "SortVocabLiteral",
     "Statement",
-    "TypeCoproduct",
-    "TypeDecl",
-    "TypeEffectApply",
+    "ObjectCoproduct",
+    "ObjectDecl",
+    "ObjectEffectApply",
     "TypeEnumSet",
-    "TypeExpr",
+    "ObjectExpr",
     "TypeFreeMonoid",
     "TypeFreeResiduated",
     "TypeFromExpr",
     "TypeInitializer",
     "TypeName",
-    "TypeProduct",
-    "TypeSlash",
+    "ObjectProduct",
+    "ObjectSlash",
     "VectorisedObserveStep",
     "VertexKindDecl",
 ]

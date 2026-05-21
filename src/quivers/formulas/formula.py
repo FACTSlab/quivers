@@ -1,5 +1,5 @@
-"""Parsed-formula IR: a typed :class:`didactic.api.Model` wrapping
-the raw :class:`formulae.matrices.DesignMatrices` so the rest of
+"""Parsed-formula IR: a typed `didactic.api.Model` wrapping
+the raw `formulae.matrices.DesignMatrices` so the rest of
 the formula frontend operates on typed values.
 
 The Formula IR is the canonical *source* representation of the
@@ -14,12 +14,12 @@ Each fixed-effect *term* may produce one or more design-matrix
 for an unordered factor with ``K + 1`` levels, etc.).  R / brms
 assign one coefficient per *column*; this IR follows the same
 convention by exploding each term into a tuple of
-:class:`FixedColumn` records.  Multi-column terms thus produce
+`FixedColumn` records.  Multi-column terms thus produce
 multiple named scalar latents downstream, with deterministic naming
 ``{term}_1``, ``{term}_2``, ... that mirrors R's
 ``poly(x, 2)1`` / ``poly(x, 2)2`` display.
 
-Polynomial default: :func:`formulae.design_matrices`'s ``poly``
+Polynomial default: `formulae.design_matrices`'s ``poly``
 transform is orthogonal by default (matches R's
 ``stats::poly``).  Raw monomials are available via
 ``I(x^2)`` / ``I(x**2)``.  Transforms ``log``, ``exp``, ``sqrt``,
@@ -75,7 +75,7 @@ class FixedColumn(dx.Model):
         and ``f"{term}_{k+1}"`` (1-indexed, matching R's display) for
         multi-column terms like ``poly(x, 2)``.
     qvr_name : str
-        QVR-legal identifier derived from :attr:`name` (alnum / ``_``
+        QVR-legal identifier derived from `name` (alnum / ``_``
         only); used as the variable name in the emitted program.
     is_intercept : bool
         ``True`` for the constant-1 column.
@@ -144,10 +144,10 @@ class Formula(dx.Model):
 
 
 class FormulaData(dx.Model):
-    """The complement of a :class:`Formula` under the
-    :class:`~quivers.formulas.compile.FormulaToQVRModule` lens.
+    """The complement of a `Formula` under the
+    [`quivers.formulas.compile.FormulaToQVRModule`][quivers.formulas.compile.FormulaToQVRModule] lens.
 
-    The emitted QVR :class:`~quivers.dsl.ast_nodes.Module` carries
+    The emitted QVR [`quivers.dsl.ast_nodes.Module`][quivers.dsl.ast_nodes.Module] carries
     the structural skeleton of the formula (which columns there are,
     keyed by their QVR-legal identifier; whether each is an
     intercept; the random-effect group / slope pairs; the family;
@@ -157,7 +157,7 @@ class FormulaData(dx.Model):
     * the per-row data arrays (those flow through the host-data
       channel at fit time);
     * the per-column / per-group / response *original* names (the
-      lens uses :func:`_qvr_name` to normalize identifiers, which
+      lens uses `_qvr_name` to normalize identifiers, which
       replaces non-alphanumeric characters with underscores and is
       therefore lossy);
     * the per-column ``term`` label (presentation, ungrouped from
@@ -169,20 +169,20 @@ class FormulaData(dx.Model):
     Those fields travel in the complement. ``backward(module,
     complement)`` decodes the structural fields from the Module and
     fuses them with this carrier to reproduce the original
-    :class:`Formula` verbatim.
+    `Formula` verbatim.
 
     Attributes
     ----------
     formula : str
         Original formula string.
     response_name : str
-        Original (pre-:func:`_qvr_name`) response column name.
+        Original (pre-`_qvr_name`) response column name.
     response_values : np.ndarray
         Response column values, shape ``(N,)``.
     fixed_column_names : Mapping[str, tuple[str, str]]
         Per-column ``(term, name)`` keyed by ``FixedColumn.qvr_name``.
-        Lets the decoder recover :attr:`FixedColumn.term` and
-        :attr:`FixedColumn.name` from the qvr-name surfaced in the
+        Lets the decoder recover `FixedColumn.term` and
+        `FixedColumn.name` from the qvr-name surfaced in the
         Module's latent declarations.
     fixed_column_data : Mapping[str, np.ndarray]
         Per-row predictor values, keyed by ``FixedColumn.qvr_name``.
@@ -190,7 +190,7 @@ class FormulaData(dx.Model):
         Per-group ``qvr_name → original group name``.
     group_levels : Mapping[str, tuple[str, ...]]
         Canonical per-group level ordering. Needed to populate
-        :attr:`Formula.group_levels` from the integer-coded
+        `Formula.group_levels` from the integer-coded
         ``object G : K`` declarations the Module records.
     group_indices : Mapping[str, tuple[int, ...]]
         Per-row integer codes for each grouping factor.
@@ -283,12 +283,12 @@ def formula_from_data(
     *,
     extra_namespace: Mapping[str, object] | None = None,
 ) -> Formula:
-    """Build a typed :class:`Formula` IR by lifting
-    :func:`formulae.design_matrices` over a dataframe.
+    """Build a typed `Formula` IR by lifting
+    `formulae.design_matrices` over a dataframe.
 
     This is an adapter, not a parser: the brms-style formula syntax
     is parsed by the [`formulae`](https://bambinos.github.io/formulae/)
-    library; we lift its :class:`~formulae.matrices.DesignMatrices`
+    library; we lift its `formulae.matrices.DesignMatrices`
     result into a typed didactic record, augmented with deterministic
     per-group level orderings and integer-code arrays derived from
     the dataframe.

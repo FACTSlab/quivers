@@ -1,9 +1,9 @@
 """UI-agnostic REPL engine.
 
-A :class:`ReplSession` owns the in-memory environment that ``qvr repl``,
+A `ReplSession` owns the in-memory environment that ``qvr repl``,
 the Textual TUI, the prompt_toolkit fallback, and the Jupyter kernel
 all drive. Every meta-command dispatches to a method on this class and
-returns a :class:`ReplResponse`; the frontends decide how to render it.
+returns a `ReplResponse`; the frontends decide how to render it.
 
 The session never imports any UI library and never reads from stdin or
 writes to stdout. That keeps it fully testable from pytest.
@@ -27,8 +27,8 @@ from quivers.dsl.ast_nodes import (
     ExprTensorProduct,
     Module,
     Statement,
-    TypeDecl,
-    TypeExpr,
+    ObjectDecl,
+    ObjectExpr,
     TypeFromExpr,
 )
 from quivers.dsl.constraints import Violation, check_constraints
@@ -242,12 +242,12 @@ class ReplSession:
     # ----- :type / :kind ------------------------------------------------
 
     def type_of(self, expr_source: str) -> ReplResponse:
-        """Resolve `expr_source` as a TypeExpr or morphism and print its type.
+        """Resolve `expr_source` as a ObjectExpr or morphism and print its type.
 
         Strategy: try to parse `type __probe__ : <expr_source>` so the
         existing parser handles whatever surface form the user typed.
-        If that succeeds, walk the resulting :class:`TypeDecl`'s
-        :class:`TypeFromExpr` initializer through the compiler's
+        If that succeeds, walk the resulting `ObjectDecl`'s
+        `TypeFromExpr` initializer through the compiler's
         resolution mixin.
 
         Failing that, try parsing `let __probe__ = <expr_source>` to
@@ -293,7 +293,7 @@ class ReplSession:
             mod = None
         if mod is not None and mod.statements:
             stmt = mod.statements[0]
-            if isinstance(stmt, TypeDecl) and isinstance(stmt.init, TypeFromExpr):
+            if isinstance(stmt, ObjectDecl) and isinstance(stmt.init, TypeFromExpr):
                 try:
                     obj = probe._resolve_any_space(stmt.init.expr)
                     return _resp(
@@ -344,21 +344,21 @@ class ReplSession:
     def kind_of(self, expr_source: str) -> ReplResponse:
         try:
             mod = parse(
-                f"type __probe__ : {expr_source}", file_path="<kind>"
+                f"object __probe__ : {expr_source}", file_path="<kind>"
             )
         except ParseError as e:
             return _err(f"parse error: {e}")
         if (
             not mod.statements
-            or not isinstance(mod.statements[0], TypeDecl)
+            or not isinstance(mod.statements[0], ObjectDecl)
             or not isinstance(mod.statements[0].init, TypeFromExpr)
         ):
             return _err("expected a type expression")
-        texpr: TypeExpr = mod.statements[0].init.expr
+        texpr: ObjectExpr = mod.statements[0].init.expr
         klass = type(texpr).__name__
-        variants = sorted(cls.__name__ for cls in TypeExpr.__variants__.values())
+        variants = sorted(cls.__name__ for cls in ObjectExpr.__variants__.values())
         return _resp(
-            f"{expr_source} : {klass}\n  TypeExpr variants: {', '.join(variants)}",
+            f"{expr_source} : {klass}\n  ObjectExpr variants: {', '.join(variants)}",
             body_kind="qvr",
         )
 
@@ -616,7 +616,7 @@ class ReplSession:
             v = val.strip().lower() in ("1", "true", "yes", "on")
         else:
             v = val.strip()
-        setattr(self.options, key, v)
+        self.options = self.options.with_(**{key: v})
         return _resp(f"{key} = {v}")
 
     # ----- :help --------------------------------------------------------
