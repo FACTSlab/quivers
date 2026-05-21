@@ -4,6 +4,16 @@ All notable changes to the quivers library are documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/), and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.11.3] - 2026-05-21
+
+### Fixed
+
+- **REPL environment was missing eight declaration categories.** `qvr repl`, `:browse`, and the TUI env browser only surfaced `objects` / `spaces` / `morphisms` / `rules` — every other top-level declaration (`program`, `composition`, `deduction`, `signature`, `encoder`, `decoder`, `loss`, `bundle`, `contraction`) compiled successfully but was invisible at the user-facing surface. Loading [`lda.qvr`](https://FACTSlab.github.io/quivers/examples/lda) showed three objects and "0 programs" despite the declared `program lda`. The compiler now exposes public `@property` accessors (`programs`, `deductions`, `signatures`, `encoders`, `decoders`, `losses`, `bundles`, `contractions`, `transformations`) and `compile_env()` returns the full set; the REPL session, `:browse`, the completer, and the TUI status bar / env tree all surface every populated bucket.
+
+### Added
+
+- **Nested env-tree rendering.** The TUI env pane now expands structural declarations to their internal AST shape on click: a `program` opens to its `sample` / `observe` / `let` / `marginalize` / `return` step list (with `marginalize` recursively opening to its body); a `deduction` opens to its `rules` (each labelled with its `premises |- conclusion` line) plus `semiring` / `tolerance` metadata; a `signature` opens to its `sorts` / `constructors` / `binders` / `vertex_kinds` / `edge_kinds` tables; a `bundle` opens to its constituent rule names. The plain-text `:browse` meta-command renders the same hierarchy as indented text so plain-mode users (`qvr repl --plain`, Jupyter kernel) see the same structure the TUI shows.
+
 ## [0.11.2] - 2026-05-21
 
 ### Changed

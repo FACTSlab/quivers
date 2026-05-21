@@ -87,18 +87,23 @@ def _env_completions(session: "ReplSession", prefix: str) -> list[Completion]:
     if compiler is None:
         return []
     out: list[Completion] = []
-    for name in compiler.objects:
-        if name.startswith(prefix):
-            out.append(Completion(text=name, kind="env", detail="object"))
-    for name in compiler.spaces:
-        if name.startswith(prefix):
-            out.append(Completion(text=name, kind="env", detail="space"))
-    for name in compiler.morphisms:
-        if name.startswith(prefix):
-            out.append(Completion(text=name, kind="env", detail="morphism"))
-    for name in compiler.rules:
-        if name.startswith(prefix):
-            out.append(Completion(text=name, kind="env", detail="rule"))
+    for label, mapping in (
+        ("object", compiler.objects),
+        ("space", compiler.spaces),
+        ("morphism", compiler.morphisms),
+        ("rule", compiler.rules),
+        ("program", compiler.programs),
+        ("deduction", compiler.deductions),
+        ("signature", compiler.signatures),
+        ("encoder", compiler.encoders),
+        ("decoder", compiler.decoders),
+        ("loss", compiler.losses),
+        ("bundle", compiler.bundles),
+        ("contraction", compiler.contractions),
+    ):
+        for name in mapping:
+            if name.startswith(prefix):
+                out.append(Completion(text=name, kind="env", detail=label))
     return out
 
 
