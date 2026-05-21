@@ -4,7 +4,7 @@
 # observation as a linear-Gaussian transformation of a
 # K-dimensional latent factor. The model mean factors through a
 # learnable loading matrix and a per-item latent code, expressed
-# here as a morphism composition under algebra real.
+# here as a morphism composition under the real algebra.
 #
 # Structural form:
 #
