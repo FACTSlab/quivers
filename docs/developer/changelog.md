@@ -4,6 +4,16 @@ All notable changes to the quivers library are documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/), and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.11.2] - 2026-05-21
+
+### Changed
+
+- **`panproto>=0.48.4` and `panproto-grammars-all>=0.48.4`.** Upstream now vendors the homogenized QVR grammar (the unified `KIND NAME : SIGNATURE [k = v, ...] [~ INIT] [BODY]` surface, the `composition NAME as <level>` keyword, the `[role=...]` option-block roles, the indented-body deductions / signatures / encoders / decoders / marginalize blocks). The `QVR_USE_LOCAL_GRAMMAR` shim is no longer required for the runtime parser: a fresh wheel install parses every gallery example out of the box.
+
+### Fixed
+
+- **`qvr repl`, `qvr-lsp`, `qvr-kernel` parse-error on every `.qvr` load.** 0.11.0 / 0.11.1 against `panproto-grammars-all 0.48.3` (the latest at release time) used a pre-homogenization grammar whose `object_decl` node had no `init` field; the in-tree parser walker raised `ParseError: object_decl missing value` on the first homogenized declaration. With `panproto-grammars-all>=0.48.4` the vendored grammar matches the walker's expectations and every example in `docs/examples/source/` loads cleanly.
+
 ## [0.11.1] - 2026-05-20
 
 ### Fixed
