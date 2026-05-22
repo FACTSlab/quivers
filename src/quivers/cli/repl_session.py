@@ -99,6 +99,24 @@ class SessionOptions(dx.Model):
 class ReplSession:
     """Stateful evaluator for a single REPL session."""
 
+    def _build_alias_map(self) -> dict[int, str]:
+        """``id(obj) -> user-given name`` for every type-level binding.
+
+        Lets the morphism renderer surface ``Item -> H_in`` instead
+        of the compiler's resolved ``FinSet 200 -> FinSet 4``.
+        """
+        if self._compiler is None:
+            return {}
+        out: dict[int, str] = {}
+        for name, obj in self._compiler.objects.items():
+            out[id(obj)] = name
+        for name, sp in self._compiler.spaces.items():
+            out[id(sp)] = name
+        return out
+
+    def _pretty(self, obj: Any) -> str:
+        return _pretty_object_with_aliases(obj, self._build_alias_map())
+
     def __init__(self) -> None:
         self._loaded_path: Path | None = None
         self._loaded_source: str = ""
@@ -347,83 +365,123 @@ class ReplSession:
         """Return the value-level signature for ``bare``, or None.
 
         Bare-name fast path shared by ``:type`` and ``_describe``.
-        Looks the name up in every value-level bucket on the
-        compiler; returns a QVR-shaped signature line so the TUI
-        tokenizer can colour the operands. Returns None when the
-        name is unknown or refers to a type-level binding.
+        A name is value-level when its declaration denotes a morphism,
+        program, encoder/decoder/loss, contraction, transformation,
+        rule (rule schema), or the rule-set of a bundle / deduction
+        block. Returns a GHCi-shaped ``name :: type`` line.
         """
         if not self._compiler:
             return None
-        if bare in self._compiler.morphisms:
-            return self._type_signature_for_morphism(
-                bare, self._compiler.morphisms[bare]
-            )
-        if bare in self._compiler.programs:
-            return self._type_signature_for_program(
-                bare, self._compiler.programs[bare]
-            )
-        if bare in self._compiler.deductions:
-            ded = self._compiler.deductions[bare]
-            dom = getattr(ded, "domain", None)
-            cod = getattr(ded, "codomain", None)
-            if dom is not None and cod is not None:
-                return (
-                    f"{bare} :: "
-                    f"{_pretty_object(dom)} -> {_pretty_object(cod)}"
-                )
-            return f"{bare} :: ?"
-        if bare in self._compiler.signatures:
-            return f"{bare} :: signature"
-        if bare in self._compiler.encoders:
+        c = self._compiler
+        if bare in c.morphisms:
+            return self._type_signature_for_morphism(bare, c.morphisms[bare])
+        if bare in c.programs:
+            return self._type_signature_for_program(bare, c.programs[bare])
+        if bare in c.encoders:
             return f"{bare} :: encoder"
-        if bare in self._compiler.decoders:
+        if bare in c.decoders:
             return f"{bare} :: decoder"
-        if bare in self._compiler.losses:
+        if bare in c.losses:
             return f"{bare} :: loss"
-        if bare in self._compiler.bundles:
-            members = self._compiler.bundles[bare]
+        if bare in c.contractions:
+            return self._type_signature_for_contraction(bare, c.contractions[bare])
+        if bare in c.transformations:
+            return f"{bare} :: transformation"
+        if bare in c.rules:
+            return self._type_signature_for_rule(bare, c.rules[bare])
+        if bare in c.bundles:
+            members = c.bundles[bare]
             return f"{bare} :: {' | '.join(members)}"
+        if bare in c.deductions:
+            return f"{bare} :: deduction"
         return None
 
     def _type_line_for_name(self, bare: str) -> str | None:
         """Return the type-level declaration line for ``bare``, or None.
 
-        Looks ``bare`` up in the compiler's object / space buckets
-        and renders a QVR-shaped ``object NAME : <pretty>`` (or
-        ``space NAME : <pretty>``) so highlighting paints the
-        constructor / argument tokens.
+        Type-level names are those whose declaration introduces a
+        universe / theory / signature: objects, spaces, signatures
+        (generalised algebraic theories), and category atoms. Bundles
+        and deductions are namespaces over rule-sets and are treated
+        as value-level (they appear in :type, not :kind).
         """
         if not self._compiler:
             return None
-        if bare in self._compiler.objects:
-            obj = self._compiler.objects[bare]
-            return f"object {bare} : {_pretty_object(obj)}"
-        if bare in self._compiler.spaces:
-            sp = self._compiler.spaces[bare]
-            return f"space {bare} : {_pretty_object(sp)}"
+        c = self._compiler
+        if bare in c.objects:
+            return f"object {bare} : {_pretty_object(c.objects[bare])}"
+        if bare in c.spaces:
+            return f"space {bare} : {_pretty_object(c.spaces[bare])}"
+        if bare in c.signatures:
+            return f"signature {bare}"
+        if bare in c.categories:
+            return f"category {bare}"
         return None
 
     def _is_type_level_name(self, bare: str) -> bool:
         if not self._compiler:
             return False
-        return bare in self._compiler.objects or bare in self._compiler.spaces
+        c = self._compiler
+        return (
+            bare in c.objects
+            or bare in c.spaces
+            or bare in c.signatures
+            or bare in c.categories
+        )
 
     def _is_value_level_name(self, bare: str) -> bool:
         if not self._compiler:
             return False
-        for bucket in (
-            self._compiler.morphisms,
-            self._compiler.programs,
-            self._compiler.deductions,
-            self._compiler.signatures,
-            self._compiler.encoders,
-            self._compiler.decoders,
-            self._compiler.losses,
-            self._compiler.bundles,
-        ):
-            if bare in bucket:
-                return True
-        return False
+        c = self._compiler
+        return (
+            bare in c.morphisms
+            or bare in c.programs
+            or bare in c.deductions
+            or bare in c.encoders
+            or bare in c.decoders
+            or bare in c.losses
+            or bare in c.contractions
+            or bare in c.transformations
+            or bare in c.rules
+            or bare in c.bundles
+        )
+
+    def _type_signature_for_contraction(self, name: str, comp: Any) -> str:
+        """GHCi-style signature for a registered contraction.
+
+        Contractions denote operadic n-ary morphism builders
+        ``(A_1, …, A_k) -> B``. The wiring's input objects and
+        codomain are inspected through their declared AST node.
+        """
+        decl = getattr(comp, "decl", None) or comp
+        inputs = getattr(decl, "input_domain", None) or getattr(decl, "domain", None)
+        cod = getattr(decl, "input_codomain", None) or getattr(decl, "codomain", None)
+        if inputs is None or cod is None:
+            return f"{name} :: ?"
+        if hasattr(inputs, "components"):
+            input_strs = [
+                (self._pretty_obj_expr(c) or "?")
+                for c in getattr(inputs, "components", ())
+            ]
+            input_render = ", ".join(input_strs) if input_strs else "?"
+        else:
+            input_render = self._pretty_obj_expr(inputs) or "?"
+        cod_render = self._pretty_obj_expr(cod) or "?"
+        return f"{name} :: ({input_render}) -> {cod_render}"
+
+    def _type_signature_for_rule(self, name: str, rule: Any) -> str:
+        """GHCi-style signature for a deduction rule schema.
+
+        A rule denotes a hyperedge ``premises |- conclusion`` in
+        the deduction multicategory. Premises and conclusion are
+        rendered as pattern tuples to mirror the schema's surface
+        form.
+        """
+        del self
+        premises = getattr(rule, "premises", ()) or ()
+        conclusion = getattr(rule, "conclusion", None)
+        prem_str = ", ".join(_pat_str(p) for p in premises)
+        return f"{name} :: {prem_str} |- {_pat_str(conclusion)}"
 
     def _parses_as_type(self, expr_source: str) -> bool:
         try:
@@ -465,8 +523,11 @@ class ReplSession:
     # and drives ``:info`` / ``:browse`` instead.
 
     def _type_signature_for_morphism(self, name: str, morph: Any) -> str:
-        del self
-        return f"{name} :: {_pretty_morphism(morph)}"
+        dom = getattr(morph, "domain", getattr(morph, "dom", None))
+        cod = getattr(morph, "codomain", getattr(morph, "cod", None))
+        if dom is None or cod is None:
+            return f"{name} :: ?"
+        return f"{name} :: {self._pretty(dom)} -> {self._pretty(cod)}"
 
     def _type_signature_for_program(self, name: str, tmpl: Any) -> str:
         """GHCi-style signature for a program template.
@@ -494,26 +555,19 @@ class ReplSession:
         type_param_strs: list[str] = []
         for p in getattr(tmpl, "type_params", None) or ():
             kind = type(p).__name__
-            pname = getattr(p, "name", "?")
             if kind == "ScalarParam":
-                type_param_strs.append(
-                    f"{pname} : {getattr(p, 'scalar_kind', '?')}"
-                )
+                type_param_strs.append(str(getattr(p, "scalar_kind", "?")))
             elif kind == "ObjectParam":
-                type_param_strs.append(
-                    f"{pname} : {getattr(p, 'universe', '?')}"
-                )
+                type_param_strs.append(str(getattr(p, "universe", "?")))
             elif kind == "MorphismParam":
                 dom_p = self._pretty_obj_expr(getattr(p, "domain", None))
                 cod_p = self._pretty_obj_expr(getattr(p, "codomain", None))
                 if dom_p is not None and cod_p is not None:
-                    type_param_strs.append(
-                        f"{pname} : Mor[{dom_p}, {cod_p}]"
-                    )
+                    type_param_strs.append(f"Mor[{dom_p}, {cod_p}]")
                 else:
-                    type_param_strs.append(f"{pname} : Mor")
+                    type_param_strs.append("Mor")
             else:
-                type_param_strs.append(f"{pname} : ?")
+                type_param_strs.append("?")
         dom = self._pretty_obj_expr(getattr(tmpl, "domain", None))
         cod = self._pretty_obj_expr(getattr(tmpl, "codomain", None))
         if dom is None or cod is None:
@@ -2073,6 +2127,37 @@ def _strip_auto_name(name: str) -> str | None:
         return None
     ctor, args = m.group(1), m.group(2)
     return f"{ctor} {args.replace('_', ' ')}"
+
+
+def _pretty_object_with_aliases(
+    obj: Any, alias_map: dict[int, str] | None
+) -> str:
+    """Render an object preferring user-given aliases.
+
+    When ``alias_map`` is provided, a resolved SetObject /
+    ContinuousSpace whose ``id()`` is a key in the map renders as
+    the user's declared name (``Item`` rather than ``FinSet 200``).
+    Product / coproduct factors recurse so a mixed ``Doc * Topic``
+    still surfaces each component's alias.
+    """
+    if obj is None:
+        return "?"
+    if alias_map is not None and id(obj) in alias_map:
+        return alias_map[id(obj)]
+    kind = type(obj).__name__
+    if kind in ("ProductSet", "ProductSpace"):
+        comps = getattr(obj, "components", ())
+        if comps:
+            return " * ".join(
+                _pretty_object_with_aliases(c, alias_map) for c in comps
+            )
+    if kind == "CoproductSet":
+        comps = getattr(obj, "components", ())
+        if comps:
+            return " + ".join(
+                _pretty_object_with_aliases(c, alias_map) for c in comps
+            )
+    return _pretty_object(obj)
 
 
 def _pretty_object(obj: Any) -> str:
