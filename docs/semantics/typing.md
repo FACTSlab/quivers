@@ -480,11 +480,11 @@ A let statement is the deterministic special case of bind: the kernel is a Dirac
 ### 6.6 Score
 
 $$
-\frac{\Gamma; \Phi \vdash e : \Phi \rightsquigarrow \mathsf{Real}\,1}
-     {\Gamma; \Phi \vdash \mathsf{score}\ e \dashv \Phi}\ \textsc{Score}
+\frac{\Gamma; \Phi \vdash e : \Phi \rightsquigarrow \mathsf{Real}\,1 \quad v\ \text{fresh in}\ \Phi}
+     {\Gamma; \Phi \vdash \mathsf{score}\ v = e \dashv \Phi, v : \mathsf{Real}\,1}\ \textsc{Score}
 $$
 
-A score statement contributes a log-density factor; the trace context is preserved because no new random variable is introduced.
+Per [Programs §2.7a](programs.md#27a-score-factor), a score statement (i) binds the value of $e$ to a fresh name $v$ in the trace (so the trace context *is* extended, unlike $\textsc{Observe}$) and (ii) multiplies the sub-probability measure's total mass by $\exp(e(\phi))$. Categorically, $\mathcal{S}\llbracket \mathsf{score}\ v = e \rrbracket : \Phi \to \mathcal{G}_{\le 1}(\Phi \times \mathsf{Real}\,1)$, so the conclusion of $\textsc{Score}$ is in the unnormalized Giry sub-monad $\mathcal{G}_{\le 1}$, the same setting as $\textsc{Observe}$.
 
 ### 6.7 Statement sequencing
 
@@ -648,7 +648,7 @@ which collapses to a plain element of $\mathrm{Hom}_{\mathbf{Kern}}(\llbracket A
 * *if $\Gamma \vdash \tau : \kappa$ then $\llbracket \tau \rrbracket$ is defined and $\llbracket \tau \rrbracket \in \llbracket \kappa \rrbracket$;*
 * *if $\Gamma; \Phi \vdash e : A \rightsquigarrow B$ then $\llbracket e \rrbracket$ is defined and $\llbracket e \rrbracket \in \mathrm{Hom}_{\mathbf{Kern}}(\llbracket A \rrbracket,\, \mathcal{G}(\llbracket B \rrbracket))$;*
 * *if $\Gamma; \Phi \vdash F(\bar a) : \mathsf{Kernel}[\Phi, B]$ then $\llbracket F(\bar a) \rrbracket \in \mathrm{Hom}_{\mathbf{Kern}}(\llbracket \Phi \rrbracket,\, \mathcal{G}(\llbracket B \rrbracket))$;*
-* *if $\Gamma; \Phi \vdash s \dashv \Phi'$ then $\llbracket s \rrbracket$ is defined and $\llbracket s \rrbracket \in \mathrm{Hom}_{\mathbf{Kern}}(\llbracket \Phi \rrbracket,\, \mathcal{G}(\llbracket \Phi' \rrbracket))$;*
+* *if $\Gamma; \Phi \vdash s \dashv \Phi'$ then $\llbracket s \rrbracket$ is defined and $\llbracket s \rrbracket \in \mathrm{Hom}_{\mathbf{Kern}_{\le 1}}(\llbracket \Phi \rrbracket,\, \mathcal{G}_{\le 1}(\llbracket \Phi' \rrbracket))$, with the sharper inclusion $\llbracket s \rrbracket \in \mathrm{Hom}_{\mathbf{Kern}}(\llbracket \Phi \rrbracket,\, \mathcal{G}(\llbracket \Phi' \rrbracket))$ holding for $s \in \{\textsc{Bind}, \textsc{BindTuple}, \textsc{Let}, \textsc{Marginalize}, \textsc{Seq}\textit{ of full-} \mathcal{G} \textit{ statements}\}$ (statements that build a full probability measure); statements involving $\textsc{Observe}$ or $\textsc{Score}$ land in the unnormalized sub-monad $\mathcal{G}_{\le 1}$ ([Programs §2.2](programs.md#22-observe), [§2.7a](programs.md#27a-score-factor));*
 * *if $\Gamma \vdash p : (\Delta) \Rightarrow A \rightsquigarrow B$ then $\llbracket p \rrbracket$ is defined and $\llbracket p \rrbracket \in \prod_{\delta : \llbracket \Delta \rrbracket} \mathrm{Hom}_{\mathbf{Kern}}(\llbracket A[\delta] \rrbracket,\, \mathcal{G}(\llbracket B[\delta] \rrbracket))$.*
 
 The trace context $\Phi$ enters as the domain of the *statement* and *family-application* judgments; in the *morphism* judgment it is a scope for resolving free names (via $\textsc{TraceVar}$, where the morphism's domain $A$ may *equal* $\Phi$, but is not multiplied with it). The asymmetry tracks the actual roles of $\Phi$ in the rules of §[5](#5-inference-rules-for-morphism-expressions), §[4](#4-inference-rules-for-families), and §[6](#6-inference-rules-for-statements).
