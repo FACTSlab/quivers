@@ -30,7 +30,7 @@ $$
 \rho_{\mathrm{obj}}\ \longmapsto\ \rho_{\mathrm{obj}}\bigl[N \mapsto \llbracket \tau \rrbracket_{\rho_{\mathrm{obj}}}\bigr].
 $$
 
-The behaviour depends on whether $\tau$ resolves as a `SetObject`:
+The behavior depends on whether $\tau$ resolves as a `SetObject`:
 
 - *Finite-set binding.* When $\tau$ has no residuated slashes or effect applications and resolves cleanly to a finite-set object (for example `FinSet 16`, `A * B`, `A + B`, or a previously-bound finite-set name), $N$ is bound in $\rho_{\mathrm{obj}}$ to the resulting object. It may appear as the domain or codomain of any later morphism.
 
@@ -52,7 +52,7 @@ $$
 
 QVR uses a *biclosed* slash convention: in both $\tau_1 / \tau_2$ and $\tau_1 \backslash \tau_2$, the lexical-left operand $\tau_1$ is the *result* and the lexical-right operand $\tau_2$ is the *argument*. The direction indicates *where the argument is sought* in a chart firing: $/$ seeks the argument on the right, $\backslash$ seeks it on the left. This is opposite to the standard Lambek convention (where `A\B` reads "needs A on the left to give B"); see the runtime documentation of `SlashCategory` for confirmation.
 
-Under this convention, the right and left residuals are the unique objects characterised by the adjunctions
+Under this convention, the right and left residuals are the unique objects characterized by the adjunctions
 
 $$
 \mathcal{C}(X \otimes \llbracket \tau_2 \rrbracket,\ \llbracket \tau_1 \rrbracket)
@@ -72,7 +72,7 @@ The form $T(\tau_1, \dots, \tau_k)$ is the application of an effect functor $T$ 
 
 ## 4. The free residuated universe
 
-A `FreeResiduated(G, depth = d, ops = O)` initialiser, used in `object Cat = FreeResiduated(Atoms, …)`, denotes the *bounded free residuated category*
+A `FreeResiduated(G, depth = d, ops = O)` initializer, used in `object Cat = FreeResiduated(Atoms, …)`, denotes the *bounded free residuated category*
 
 $$
 \llbracket \mathrm{FreeResiduated}(G, d, O) \rrbracket
@@ -118,7 +118,7 @@ A `schema` declaration
 schema R[X_{1,1}, …, X_{1,k_1} : τ_1, …, X_{g,1}, …, X_{g,k_g} : τ_g] : Dom -> Cod
 ```
 
-is the type-polymorphic morphism analogue of a `rule`. Where a rule is a *generic* hyperedge (no further structure), a schema is a *family of morphisms* parameterised by typed meta-variables. Each parameter group $X_{i,1}, \dots, X_{i,k_i} : \tau_i$ declares $k_i$ meta-variables ranging over $\llbracket \tau_i \rrbracket$ (typically $\tau_i = \mathrm{Cat}$).
+is the type-polymorphic morphism analogue of a `rule`. Where a rule is a *generic* hyperedge (no further structure), a schema is a *family of morphisms* parameterized by typed meta-variables. Each parameter group $X_{i,1}, \dots, X_{i,k_i} : \tau_i$ declares $k_i$ meta-variables ranging over $\llbracket \tau_i \rrbracket$ (typically $\tau_i = \mathrm{Cat}$).
 
 Let $\bar X = (X_{i,j})_{i, j}$ be the flat tuple of parameters, and let
 
@@ -126,7 +126,7 @@ $$
 \Theta \;=\; \prod_i \llbracket \tau_i \rrbracket^{k_i}
 $$
 
-be the parameter-space product. The denotation is the parameterised family
+be the parameter-space product. The denotation is the parameterized family
 
 $$
 \llbracket R \rrbracket \;:\;\; \prod_{\sigma \in \Theta}\;\mathcal{V}\text{-}\mathbf{Rel}\bigl(\llbracket \mathrm{Dom} \rrbracket_\sigma,\, \llbracket \mathrm{Cod} \rrbracket_\sigma\bigr),

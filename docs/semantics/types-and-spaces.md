@@ -72,7 +72,7 @@ The surface form
 object X : value
 ```
 
-admits five *initializer* shapes for the right-hand side `value`, each binding $X$ to a concrete object of $\mathbf{FinSet}$ or $\mathbf{SBor}$ built from explicit data rather than from a syntactic `ObjectExpr`. Each is interpreted at the value layer and contributes its denotation directly to $\rho_{\mathrm{obj}}(X)$ (or $\rho_{\mathrm{spc}}(X)$ for the continuous-space initialiser):
+admits five *initializer* shapes for the right-hand side `value`, each binding $X$ to a concrete object of $\mathbf{FinSet}$ or $\mathbf{SBor}$ built from explicit data rather than from a syntactic `ObjectExpr`. Each is interpreted at the value layer and contributes its denotation directly to $\rho_{\mathrm{obj}}(X)$ (or $\rho_{\mathrm{spc}}(X)$ for the continuous-space initializer):
 
 | Initialiser | Denotation |
 |---|---|
@@ -103,11 +103,11 @@ A `category C_1, …, C_n` declaration is the singleton-cardinality special case
 
 ### 2a.2 Free monoids
 
-The `FreeMonoid(X, max_length = n)` initialiser binds $X$ to the bounded Kleene closure of the generator set. See §3 below for the denotation.
+The `FreeMonoid(X, max_length = n)` initializer binds $X$ to the bounded Kleene closure of the generator set. See §3 below for the denotation.
 
 ### 2a.3 Free residuated categories
 
-The `FreeResiduated(G, depth = d, ops = O)` initialiser binds $X$ to a finite enumeration of category expressions over the generators, closed under the chosen residuation operations up to a depth bound. The denotation is given in [Schemas §4](schemas.md#4-the-free-residuated-universe).
+The `FreeResiduated(G, depth = d, ops = O)` initializer binds $X$ to a finite enumeration of category expressions over the generators, closed under the chosen residuation operations up to a depth bound. The denotation is given in [Schemas §4](schemas.md#4-the-free-residuated-universe).
 
 ## 3. Free monoids
 

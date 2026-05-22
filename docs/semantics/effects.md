@@ -89,7 +89,7 @@ $$
 \;:\; T(X) \otimes (X \backslash T(Y)) \;\to\; T(Y),
 $$
 
-a morphism in the Kleisli category $\mathrm{Kl}(T)$ realising the
+a morphism in the Kleisli category $\mathrm{Kl}(T)$ realizing the
 canonical bind. The two presentations agree via the
 [`kleisli` / `arrow_monad` bridges](../api/index.md#monadic-package).
 

@@ -65,7 +65,7 @@ vertex_kinds { K_1 : k_1 [dim d_1], ... }
 edge_kinds   { ε_1 : K_a -> K_b, ε_2 : K_c -- K_d, ... }
 ```
 
-A vertex kind is the type of a vertex; an edge kind is a typed binary relation $\varepsilon \subseteq K_{\mathrm{src}} \times K_{\mathrm{tgt}}$, with `->` directed and `--` undirected. The corresponding initial structure is the category $\mathbf{Graph}_\Sigma$ of finite typed graphs over the kind signature: objects of a fixed labelled multi-relational shape with payload data on each vertex. Encoders interpret graph signatures via message-passing rather than structural recursion (§2.4).
+A vertex kind is the type of a vertex; an edge kind is a typed binary relation $\varepsilon \subseteq K_{\mathrm{src}} \times K_{\mathrm{tgt}}$, with `->` directed and `--` undirected. The corresponding initial structure is the category $\mathbf{Graph}_\Sigma$ of finite typed graphs over the kind signature: objects of a fixed labeled multi-relational shape with payload data on each vertex. Encoders interpret graph signatures via message-passing rather than structural recursion (§2.4).
 
 ### 1.4 Parametric signatures
 
@@ -246,7 +246,7 @@ $$
 \mathrm{score}_D(t, v, \Gamma) \;=\; \log P\bigl[t \mid \llbracket D \rrbracket(v, \Gamma)\bigr],
 $$
 
-is the log-probability of producing the observed term $t$ under the same factorised distribution; it is computed by the recursion above with every "sample" replaced by "score against the observed branch."
+is the log-probability of producing the observed term $t$ under the same factorized distribution; it is computed by the recursion above with every "sample" replaced by "score against the observed branch."
 
 ### 3.3 Round-trip with the encoder
 
@@ -296,7 +296,7 @@ Loss bodies are arbitrary let-expressions over the trace; canonical shapes inclu
 
 ### 4.3 Composition with the inference layer
 
-The total loss is the objective passed to the optimiser by the inference driver. It is not part of the kernel-denotation of any program: a `program P : τ_in → τ_out` denotes a Markov kernel, and losses attached to $P$ are functionals on its trace, not on its denotation. See [Programs §6](programs.md#6-inference-and-conditioning) for the role of conditioning and the inference layer.
+The total loss is the objective passed to the optimizer by the inference driver. It is not part of the kernel-denotation of any program: a `program P : τ_in → τ_out` denotes a Markov kernel, and losses attached to $P$ are functionals on its trace, not on its denotation. See [Programs §6](programs.md#6-inference-and-conditioning) for the role of conditioning and the inference layer.
 
 ## 5. References
 
