@@ -51,7 +51,7 @@ $$
 \llbracket \mathsf{identity}(\tau) \rrbracket_{\rho} \;=\; 1_{\llbracket \tau \rrbracket_{\rho}},
 $$
 
-the categorical identity at the type denotation $\llbracket \tau \rrbracket_{\rho}$. The stratum is determined by $\tau$: a `TypeExpr` produces the identity in $\mathcal{V}\text{-}\mathbf{Rel}$, while a `SpaceExpr` produces the identity in $\mathbf{Kern}$.
+the categorical identity at the type denotation $\llbracket \tau \rrbracket_{\rho}$. The stratum is determined by $\tau$: a `ObjectExpr` produces the identity in $\mathcal{V}\text{-}\mathbf{Rel}$, while a `SpaceExpr` produces the identity in $\mathbf{Kern}$.
 
 ### 2.3 Composition
 

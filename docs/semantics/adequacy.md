@@ -41,7 +41,7 @@ The proof proceeds by structural induction on the module $M$. We outline the ind
 
 ### 3.1 Types and spaces
 
-For every `TypeExpr` $\tau$ and every well-formed environment $\rho_{\mathrm{obj}}$, the compiler's `_resolve_type(τ)` satisfies
+For every `ObjectExpr` $\tau$ and every well-formed environment $\rho_{\mathrm{obj}}$, the compiler's `_resolve_type(τ)` satisfies
 
 $$
 \mathtt{\_resolve\_type}(\tau) \;=\; \llbracket \tau \rrbracket_{\rho_{\mathrm{obj}}}
@@ -148,13 +148,10 @@ The schema extractor `extract_program_schema` walks the same resolved environmen
 
 ## 4. Tests as adequacy witnesses
 
-The test suite at `tests/test_resolution_lenses.py` and `tests/test_program_theory.py` asserts the following propositions, each a special case of the adequacy theorem.
+The test suite asserts the following propositions, each a special case of the adequacy theorem.
 
 | Test file | Assertion |
 |-----------|-----------|
-| `test_resolution_lenses.py` | $\mathrm{forward}(\tau) = \llbracket \tau \rrbracket$ and $\mathrm{forward}(\sigma) = \llbracket \sigma \rrbracket$ on every example program. |
-| `test_resolution_lenses.py` | GetPut and PutGet laws hold on every example. |
-| `test_resolution_lenses.py` | The lens-driven resolution agrees with the compiler's `_resolve_type` dispatch on every example. |
 | `test_program_theory.py` | $\mathcal{S}(M)$ validates against $\mathsf{QVR}$ on every example. |
 | `test_program_theory.py` | $\mathcal{S}(M_1) \neq \mathcal{S}(M_2)$ when $M_1, M_2$ differ in declarations. |
 | `test_program_theory.py` | Idempotence: $\mathcal{S}(M)$ recomputed twice yields equal schemas. |
