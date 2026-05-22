@@ -23,11 +23,9 @@ $$
 \;\mid\; \mathsf{Family}[\Theta,\, B]
 \;\mid\; \mathsf{Mor}[A,\, B]
 \;\mid\; \mathsf{Scalar}_{R}
-\;\mid\; \mathsf{Bundle}
-\;\mid\; \mathsf{Sig}
 $$
 
-Kinds classify type-level constructions. The five primitive kinds are:
+Kinds classify type-level constructions. The seven primitive kinds are:
 
 | Kind | Inhabitants | Denotational target |
 |---|---|---|
@@ -87,21 +85,37 @@ $$
 \begin{aligned}
 e \;::=\;& x
 \;\mid\; f
-\;\mid\; e_1 \,{>\!\!>}\, e_2
-\;\mid\; e_1 \otimes e_2
-\;\mid\; e\,\langle a_1, \ldots, a_k \rangle \\
+\;\mid\; e_1 \mathbin{\diamond_\alpha} e_2
+\;\mid\; e_1 \mathbin{@} e_2
+\;\mid\; c(\bar y) \\
 &\;\mid\; \mathsf{id}_\tau
-\;\mid\; \pi_i
-\;\mid\; \mathsf{inl}
-\;\mid\; \mathsf{inr}
-\;\mid\; \mathsf{fan}(e_1, \ldots, e_n)
-\;\mid\; \mathsf{repeat}(e, n)
+\;\mid\; \mathsf{id}
+\;\mid\; e^\dagger
+\;\mid\; \mathsf{trace}(e)
+\;\mid\; e\,.\mathsf{change\_base}(\varphi)
+\;\mid\; e_1 \mathrel{*} e_2 \\
+&\;\mid\; \mathsf{cup}(\tau)
+\;\mid\; \mathsf{cap}(\tau)
+\;\mid\; e\,.\mathsf{marginalize}(v_1, \ldots, v_m)
+\;\mid\; \mathsf{fan}(e_1, \ldots, e_n) \\
+&\;\mid\; \mathsf{repeat}(e, n)
 \;\mid\; \mathsf{stack}(e, n)
-\;\mid\; \mathsf{scan}(e, n)
+\;\mid\; \mathsf{scan}(e)
+\;\mid\; \mathsf{freeze}(e)
+\;\mid\; \mathsf{from\_data}(\bar a) \\
+&\;\mid\; \mathsf{parser}(\bar r;\; \bar c)
+\;\mid\; \mathsf{chart\_fold}(\ldots)
+\;\mid\; \mathsf{curry}(e, k)
 \end{aligned}
 $$
 
-The variable cases distinguish a bound name $x$ (introduced inside a program body by a bind / let statement) from a free morphism name $f$ (introduced at module scope by a `morphism`, `program`, `let`, or `export` declaration). The expression-level combinators are explained in [Expressions](expressions.md); their typing is presented in §[5](#5-inference-rules-for-morphism-expressions) below.
+The variable cases distinguish a bound name $x$ (introduced inside a program body by a bind / let statement) from a free morphism name $f$ (introduced at module scope by a `morphism`, `program`, `let`, or `export` declaration). The contraction-call form $c(\bar y)$ (`ExprMorphismCall`) applies a registered $n$-ary contraction $c$ to morphism-scope names $\bar y$ inside a `let`-binding initialiser (see [Composition rules §4](composition-rules.md)).
+
+**Program instantiation is not an expression form.** Surface program calls $P(\bar a)$ live in the program-body sub-language as the family slot of a `DrawStep`: a statement $v \leftarrow P(\bar a)$ with $P$ a program template is interpreted by inlining the template's body, as described in [Programs §3a](programs.md#3a-parametric-programs). Consequently the typing rule for parametric instantiation is presented at the statement level (§[6.8](#68-template-inlining)), not as a morphism-expression rule.
+
+Sequential composition $\mathbin{\diamond_\alpha}$ is parameterised by a choice of enrichment algebra $\alpha$: the QVR surface syntax exposes one operator per algebra, including `>>` (`ProductFuzzy` noisy-or, the default), `<<` (reversed `ProductFuzzy`), `>=>` (Kleisli composition for the operands' shared algebra), `*>` (Markov sum-product), `~>` (`LogProb`), `||>` (Gödel), `?>` (Viterbi), `&&>` (Boolean), and `+>` (Łukasiewicz); see [Composition rules](composition-rules.md). The tensor `@` denotes the symmetric monoidal product $\otimes$ ([Morphisms §2](morphisms.md)). The dagger $e^\dagger$ is the compact-closed dual, $\mathsf{trace}$ is the categorical trace, $\mathsf{cup}/\mathsf{cap}$ are the unit / counit of the compact-closed structure, and $.\mathsf{change\_base}(\varphi)$ is the base-change functor between algebras. The remaining combinators $\mathsf{fan}, \mathsf{repeat}, \mathsf{stack}, \mathsf{scan}, \mathsf{freeze}, \mathsf{from\_data}, \mathsf{parser}, \mathsf{chart\_fold}, \mathsf{curry}$ are explained in [Expressions](expressions.md); we present typing for the core fragment ($\diamond$, $@$, $\mathsf{id}$, $\mathsf{fan}$, $\mathsf{repeat}$, and program instantiation) in §[5](#5-inference-rules-for-morphism-expressions) below and refer to [Expressions](expressions.md) for the derived combinators.
+
+Notably absent from the expression sub-language are first-class projections $\pi_i$ and injections $\mathsf{inl}, \mathsf{inr}$: products are introduced and eliminated implicitly through tuple-pattern bindings in the program-body sub-language (§[1.5](#15-statements-program-body-sub-language)), and the discrete coproduct is reached through declared `morphism` arrows initialised from data rather than through dedicated combinators. Projections appear in the *meta-language* of the denotation (e.g. $\pi_i : \llbracket A_1 \times \cdots \times A_k \rrbracket \to \llbracket A_i \rrbracket$) but not in the surface syntax.
 
 ### 1.5 Statements (program-body sub-language)
 
@@ -253,7 +267,7 @@ The residuated formers and the effect type-constructor $T(\cdot)$ are typed only
 
 ### 3.6 Kind subsumption
 
-There is no general kind subsumption rule. The only implicit coercion is the absorption built into $\sqcup$. In particular, an inhabitant of $\ast_{\mathrm{FinSet}}$ may be used in a $\ast_{\mathrm{Space}}$ position only through the explicit *discrete-to-continuous embedding* $\iota : \ast_{\mathrm{FinSet}} \hookrightarrow \ast_{\mathrm{Space}}$ realised on objects by $\iota(\mathsf{FinSet}\,n) = \mathsf{Real}\,n$ with the indicator-vector embedding.
+There is no general kind subsumption rule. The only implicit coercion is the absorption built into $\sqcup$: in a mixed product $\sigma_{\mathrm{FinSet}} \times \tau_{\mathrm{Space}}$, the discrete factor is implicitly indicator-embedded into the ambient continuous space ($[n] \hookrightarrow \mathbb{R}^n$), so that the product lands in $\mathbf{SBor}$. The compiler realises this through the resolution dispatch in [`_resolve_any_space`](../api/dsl/compiler/resolution.md): a `ProductSet` lifts to a `ProductSpace` whenever any component is a `ContinuousSpace`. No standalone embedding combinator exists in the surface syntax.
 
 ## 4. Inference rules for families
 
@@ -305,24 +319,17 @@ $$
 
 The tensor uses the symmetric monoidal structure of $\mathbf{Kern}$ inherited from $\mathbf{SBor}$; see [Morphisms §2](morphisms.md).
 
-### 5.4 Identity, projections, injections
+### 5.4 Identity
 
 $$
 \frac{\Gamma \vdash \tau : \kappa}{\Gamma; \Phi \vdash \mathsf{id}_\tau : \tau \rightsquigarrow \tau}\ \textsc{Id}
-\qquad
-\frac{\Gamma \vdash \tau_1 \times \cdots \times \tau_n : \kappa \quad 1 \le i \le n}
-     {\Gamma; \Phi \vdash \pi_i : \tau_1 \times \cdots \times \tau_n \rightsquigarrow \tau_i}\ \textsc{Proj}
 $$
 
-$$
-\frac{\Gamma \vdash \tau_1 + \tau_2 : \ast_{\mathrm{FinSet}}}
-     {\Gamma; \Phi \vdash \mathsf{inl} : \tau_1 \rightsquigarrow \tau_1 + \tau_2}\ \textsc{InL}
-\qquad
-\frac{\Gamma \vdash \tau_1 + \tau_2 : \ast_{\mathrm{FinSet}}}
-     {\Gamma; \Phi \vdash \mathsf{inr} : \tau_2 \rightsquigarrow \tau_1 + \tau_2}\ \textsc{InR}
-$$
+Identity is the only "structural" combinator with a dedicated expression form (`ExprIdentity` for a typed identity at a specific object, plus the un-annotated `id` form whose target is synthesised from context). Products and coproducts have no first-class projection or injection combinators; their introduction and elimination is handled by:
 
-The identity rule covers `id`, the projection rule covers the bare-parameter projection introduced by an `(q₁, …, qₖ)` program header, and the injection rules cover the discrete sum-type introduction forms.
+* the program-body sub-language's tuple-pattern bind $(v_1, \ldots, v_m) \leftarrow F(\bar a)$ (§[6.2](#62-destructuring-bind)), which both introduces a product (the family's codomain) and eliminates it (extending the trace by all $m$ component variables);
+* bare-identifier program headers `program P (q₁, …, qₖ) : A → B`, which add the projections $q_i = \pi_i^A$ to the body's initial trace context $\Phi_0$ (§[7.2](#72-bare-identifier-projection-programs));
+* the data-initialised morphism declaration `morphism f : A → B ~ from_data(...)`, which compiles to a concrete tensor / kernel realising whatever projection or injection the user encoded in the data.
 
 ### 5.5 Higher combinators
 
@@ -340,17 +347,19 @@ $$
 
 with similar shapes for $\mathsf{stack}$ (axis-1 broadcast) and $\mathsf{scan}$ (sequential fold).
 
-### 5.6 Program instantiation
+### 5.6 Contraction application
 
-A program name $P$ in the value context with signature $(\Delta) \Rightarrow A \rightsquigarrow B$ can be applied to a parameter tuple to yield a morphism. Let $\Delta = p_1 : P_1, \ldots, p_k : P_k$ and suppose actual arguments $\bar a = a_1, \ldots, a_k$ inhabit each $P_i$. Then:
+A contraction $c$ registered in the value context with arity $k$ and inputs $A_1, \ldots, A_k$ producing a codomain $B$ may be applied to morphism-scope names $y_1, \ldots, y_k$ in a `let`-binding initialiser:
 
 $$
-\frac{P : (\Delta) \Rightarrow A \rightsquigarrow B \in \Gamma
-       \qquad \Gamma; \Phi \vdash a_i : P_i\ \text{(in the parameter universe)}\quad (1 \le i \le k)}
-      {\Gamma; \Phi \vdash P\,\langle a_1, \ldots, a_k \rangle : A[\bar a / \bar p] \rightsquigarrow B[\bar a / \bar p]}\ \textsc{ProgApp}
+\frac{c \in \mathrm{ContractionReg}\ \text{with arity}\ k\ \text{and signature}\ (A_1, \ldots, A_k) \to B
+       \qquad y_i : \tau_i \in \Gamma\ \text{and}\ \tau_i\ \text{matches}\ A_i\ (1 \le i \le k)}
+      {\Gamma; \Phi \vdash c(y_1, \ldots, y_k) : \mathbf{1} \rightsquigarrow B}\ \textsc{ContractApp}
 $$
 
-The substitution $[\bar a / \bar p]$ replaces each formal parameter $p_i$ in the declared $A$ and $B$ with the actual argument $a_i$. The denotation of this rule is exactly the inline-expansion semantics of [Programs §3a](programs.md#3a-parametric-programs).
+See [Composition rules §4](composition-rules.md) for the operadic semantics of contractions as flat wirings.
+
+**Note on program instantiation.** A program template $P$ with signature $(\Delta) \Rightarrow A \rightsquigarrow B$ is not first-class as an expression: there is no rule of the form "$\Gamma; \Phi \vdash P\langle \bar a \rangle : \cdots$". Instead, $P$ is instantiated inside a program body by the statement $v \leftarrow P(\bar a)$, whose typing rule is given in §[6.8](#68-template-inlining). This design choice reflects the implementation strategy of inline expansion by substitution and avoids a higher-order Π-application form that would not contribute to the surface DSL's expressive power.
 
 ## 6. Inference rules for statements
 
@@ -426,6 +435,20 @@ $$
 $$
 
 The empty sequence is typed by $\Gamma; \Phi \vdash \varepsilon \dashv \Phi$.
+
+### 6.8 Template inlining
+
+When the family slot of a draw statement refers to a program template $P$ rather than a registered distribution family, the statement is interpreted by inline expansion of the template's body. The typing rule is:
+
+$$
+\frac{P : (\Delta) \Rightarrow A \rightsquigarrow B \in \Gamma
+       \qquad \Delta = p_1 : P_1, \ldots, p_k : P_k
+       \qquad \Gamma; \Phi \vdash a_i : P_i \quad (1 \le i \le k)
+       \qquad \Phi \vdash A[\bar a / \bar p]\ \text{matches the actual input shape}}
+     {\Gamma; \Phi \vdash v \leftarrow P(a_1, \ldots, a_k) \dashv \Phi, v : B[\bar a / \bar p]}\ \textsc{Inline}
+$$
+
+The substitution $[\bar a / \bar p]$ replaces each formal parameter $p_i$ in the declared $A$ and $B$ with the actual argument $a_i$. The denotation is exactly the inline-expansion semantics of [Programs §3a](programs.md#3a-parametric-programs): the template's body steps are α-renamed under a fresh prefix $v\$$, the return-variable is renamed to $v$, and the renamed statement list replaces the call site. Cycle detection in the compiler rejects template self-application and any mutually recursive template clique, so the inlining procedure terminates on every well-typed module.
 
 ## 7. Inference rules for programs
 
