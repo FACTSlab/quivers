@@ -2,7 +2,7 @@
 
 A *change-of-base* transformation turns a $\mathcal{V}$-enriched morphism into a $\mathcal{W}$-enriched one. Two flavours coexist in the library:
 
-- [`AlgebraHomomorphism`](../../api/core/algebras.md) values ([Rosenthal, 1990](https://doi.org/10.1090/conm/094)) are lax monoidal [lattice](https://en.wikipedia.org/wiki/Lattice_(order)) maps $\varphi : \mathcal{V} \to \mathcal{W}$ that act pointwise: every entry of the morphism's tensor is sent through $\varphi$.
+- [`AlgebraHomomorphism`](../../api/core/algebras.md) values (Rosenthal, 1990, *Quantales and Their Applications*, Pitman Research Notes in Mathematics 234, Longman; ISBN 978-0-582-06423-2) are lax monoidal [lattice](https://en.wikipedia.org/wiki/Lattice_(order)) maps $\varphi : \mathcal{V} \to \mathcal{W}$ that act pointwise: every entry of the morphism's tensor is sent through $\varphi$.
 - [`MorphismTransformation`](../../api/core/morphisms.md) values act on the whole tensor, not entry-by-entry. Softmax row-normalization, L1/L2 row-normalization, Bayes inversion under a prior; all consume axis information that pointwise actions don't see.
 
 Both inherit a common interface: a `.source` algebra, a `.target` algebra, and an `apply` that ingests a tensor (plus a morphism for shape resolution). The Python API treats them as first-class values: you bind them to local names, compose them by calling [`compose_trans`](../../api/core/algebras.md) (the DSL surface spells this as `>>>`), and pass either kind into [`Morphism.change_base`](../../api/core/morphisms.md).

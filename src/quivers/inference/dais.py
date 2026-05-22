@@ -14,8 +14,8 @@ DAIS gives an *unbiased* lower-bound estimator of the model
 evidence (Geffner-Domke 2021,
 `doi:10.48550/arXiv.2102.07501
 <https://doi.org/10.48550/arXiv.2102.07501>`_; Zhang et al. 2021,
-`doi:10.48550/arXiv.2107.10859
-<https://doi.org/10.48550/arXiv.2107.10859>`_) that strictly
+`doi:10.48550/arXiv.2107.10211
+<https://doi.org/10.48550/arXiv.2107.10211>`_) that strictly
 dominates the base guide's ELBO for ``num_steps >= 1``. Combined
 with multimodal base guides (`AutoMixtureGuide`) it
 recovers multimodal posteriors that plain VI misses.
