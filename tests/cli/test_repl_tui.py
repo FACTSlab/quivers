@@ -284,9 +284,7 @@ def test_info_body_keyword_truecolor_is_unique_to_keywords(lda_session):
 def test_type_lda_emits_ghci_signature(lda_session):
     # GHCi-style: ``name :: dom -> cod``. Decl-style ``program
     # lda(alpha, beta) : Word -> Word`` lives in :info / :browse.
-    assert lda_session.type_of("lda").body == (
-        "lda :: (Real, Real) => Word -> Word"
-    )
+    assert lda_session.type_of("lda").body == ("lda :: (Real, Real) => Word -> Word")
 
 
 def test_browse_includes_program_and_nested_steps(lda_session):
