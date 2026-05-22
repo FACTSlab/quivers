@@ -914,13 +914,18 @@ lda :: (Real, Real) => Word -> Word
 
 The bidirectional algorithm of §[10](#10-algorithmic-typechecking) carries this derivation out automatically. The dependent Π over $\Delta$ surfaces in the context to the left of the constraint arrow $\Rightarrow$; the parameter *names* are accessible through `:info lda` (and through the `ProgramDecl`'s `type_params` AST field) but are absent from the rendered type because they are bound by the Π and so are not free in the surface type.
 
-## Bibliography
+## References
 
 The categorical apparatus is standard; in addition to the references in [Setting](setting.md), the type-theoretic presentation here draws on:
 
-* Pierce, B. *Types and Programming Languages*. MIT Press, 2002. (For bidirectional typechecking and decidability arguments.)
-* Hofmann, M., Streicher, T. "The groupoid interpretation of type theory." *Twenty-five years of constructive type theory*, 1998. (For the categorical semantics of dependent products.)
-* Staton, S., Yang, H., Heunen, C., Kammar, O., Wood, F. "Semantics for probabilistic programming: higher-order functions, continuous distributions, and soft constraints." *LICS 2016*. [https://doi.org/10.1145/2933575.2935313](https://doi.org/10.1145/2933575.2935313). (For the Kleisli-arrow semantics of bind, observe, and score statements.)
-* Vákár, M., Kammar, O., Staton, S. "A domain theory for statistical probabilistic programming." *POPL 2019*. [https://doi.org/10.1145/3290349](https://doi.org/10.1145/3290349). (For the categorical setting of measure-theoretic probability with score.)
-* Cho, K., Jacobs, B. "Disintegration and Bayesian inversion via string diagrams." *Mathematical Structures in Computer Science*, 2019. [https://doi.org/10.1017/S0960129518000488](https://doi.org/10.1017/S0960129518000488). (For the Markov-category-with-conditioning setting of $\textsc{Observe}$.)
-* Fritz, T. "A synthetic approach to Markov kernels, conditional independence and theorems on sufficient statistics." *Advances in Mathematics*, 2020. [https://doi.org/10.1016/j.aim.2020.107239](https://doi.org/10.1016/j.aim.2020.107239). (For the axiomatic-Markov-category framework underlying the $\mathbf{Kern}$ denotation.)
+Kenta Cho and Bart Jacobs. 2019. [Disintegration and Bayesian inversion via string diagrams](https://doi.org/10.1017/S0960129518000488). *Mathematical Structures in Computer Science*, 29(7):938–971.
+
+Tobias Fritz. 2020. [A synthetic approach to Markov kernels, conditional independence and theorems on sufficient statistics](https://doi.org/10.1016/j.aim.2020.107239). *Advances in Mathematics*, 370:107239.
+
+Martin Hofmann and Thomas Streicher. 1998. [The groupoid interpretation of type theory](https://academic.oup.com/book/41963/chapter/355193131). In Giovanni Sambin and Jan M. Smith, editors, *Twenty Five Years of Constructive Type Theory*, volume 36 of *Oxford Logic Guides*, pages 83–111. Oxford University Press.
+
+Benjamin C. Pierce. 2002. *Types and Programming Languages*. MIT Press, Cambridge, MA. ISBN 978-0-262-16209-8.
+
+Sam Staton, Hongseok Yang, Chris Heunen, Ohad Kammar, and Frank Wood. 2016. [Semantics for probabilistic programming: higher-order functions, continuous distributions, and soft constraints](https://doi.org/10.1145/2933575.2935313). In *Proceedings of the 31st Annual ACM/IEEE Symposium on Logic in Computer Science (LICS '16)*, pages 525–534, New York, NY, USA. ACM.
+
+Matthijs Vákár, Ohad Kammar, and Sam Staton. 2019. [A domain theory for statistical probabilistic programming](https://doi.org/10.1145/3290349). *Proceedings of the ACM on Programming Languages*, 3(POPL), Article 36.
