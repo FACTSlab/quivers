@@ -56,6 +56,10 @@ Composition $;$, tensor $\boxtimes$, and identity $1_X$ in $\mathcal{V}\text{-}\
 | `f @ g` | $\llbracket f \rrbracket \boxtimes \llbracket g \rrbracket$ | $(f \boxtimes g)((x_1, x_2), (y_1, y_2)) = f(x_1, y_1) \otimes g(x_2, y_2)$ |
 | `identity(X)` | $1_{\llbracket X \rrbracket}$ | $1_X(x, x') = \mathbf{1}$ if $x = x'$, $\bot$ otherwise |
 
+**Proposition (Categorical structure).** *$\mathcal{V}\text{-}\mathbf{Rel}$ is a symmetric monoidal category, with $;$ as composition, $1_X$ as identities, $\boxtimes$ as monoidal product, $\mathbf{1}$ (the singleton) as monoidal unit, and the braid $\sigma_{X, Y}(x, y) = \mathbf{1}$ iff coordinates swap. When $\mathcal{V}$ is a strict quantale ([Setting §1](setting.md#1-algebras-as-enrichment-bases)), $\mathcal{V}\text{-}\mathbf{Rel}$ is moreover compact closed with every object self-dual.*
+
+*Proof.* Associativity of $;$ is the universal property of $\bigoplus$ as a colimit: $((f; g); h)(x, w) = \bigoplus_z \bigoplus_y f(x, y) \otimes g(y, z) \otimes h(z, w)$, and by the distributivity law of [Setting §1](setting.md#1-algebras-as-enrichment-bases) the two joins commute, yielding $(f; (g; h))(x, w)$. The identity laws use $1_X(x, x') = \mathbf{1}$ iff $x = x'$ to collapse one $\bigoplus$ to a single term. Symmetry of $\boxtimes$ follows from commutativity of $\otimes$. Compact closure is established in [Expressions §2.9](expressions.md#29-compact-closed-structure) under the strict-quantale hypothesis. $\square$
+
 ### 1.2 Marginalization
 
 For $f : X \otimes Y \to Z$ in $\mathcal{V}\text{-}\mathbf{Rel}$, the expression `f.marginalize(X)` denotes the $\mathcal{V}$-enriched colimit (algebra-join) of $f$ along the $X$-coordinate:
