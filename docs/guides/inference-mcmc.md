@@ -135,3 +135,9 @@ samples = predictive(x_new)
 - [Analysis Pipelines: Fitting and Diagnostics](analysis-fitting-and-diagnostics.md):
   the high-level `fit(...)` surface that wraps the MCMC and SVI
   drivers under one entry point.
+
+
+## References
+
+- [split R̂ and effective sample size (Vehtari et al.
+2021)](https://doi.org/10.1214/20-BA1221).

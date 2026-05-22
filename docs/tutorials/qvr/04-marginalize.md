@@ -177,3 +177,10 @@ flowchart LR
 ## Next
 
 [Chapter 5](05-time-series.md) looks at sequence-shaped models: HMMs, state-space models, and the chart-shaped deduction surface.
+
+
+## References
+
+- [Casella & Robert, 1996](https://doi.org/10.1093/biomet/83.1.81).
+- [Maddison, Mnih & Teh, 2017](https://doi.org/10.48550/arXiv.1611.00712).
+- [Stephens, 2000](https://doi.org/10.1111/1467-9868.00265).

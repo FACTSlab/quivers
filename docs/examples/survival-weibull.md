@@ -105,3 +105,8 @@ print(f"divergences: {int(result.divergence_counts.sum())}")
 ## Categorical Perspective
 
 The model denotes a Kleisli morphism into the positive reals in the [Giry monad](https://doi.org/10.1007/BFb0092872)'s Kleisli category. The Weibull is the [exponential](https://en.wikipedia.org/wiki/Exponential_distribution) family generalization with shape; the proportional-hazards link makes the model canonical in the [exponential family](https://en.wikipedia.org/wiki/Exponential_family) representation.
+
+
+## References
+
+- [Klein and Moeschberger 2003](https://doi.org/10.1007/b97377).

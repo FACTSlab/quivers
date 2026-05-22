@@ -74,3 +74,8 @@ To use the deduction inside a probabilistic program, wrap the chart's per-deriva
 ## Connections
 
 The fragment composes directly with [type-logical](type-logical.md) and [multimodal](multimodal-tlg.md) grammars: replacing `Cont` with a controlled modality `Dia` yields a modal scope fragment in which structural rules are licensed only inside the scope-taker.
+
+
+## References
+
+- [Bumford & Charlow (2026)](https://www.cambridge.org/core/elements/abs/effectdriven-interpretation/56671E539160AAA1DACF8555B82A2FE4).

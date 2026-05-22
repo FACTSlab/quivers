@@ -317,3 +317,8 @@ algebra-homomorphism / Kleisli coalgebra pattern, no special-casing.
 - [Weighted Deduction Systems](deduction.md): the chart-parser
   substrate that an encoder can attach to, exposing
   `chart.embedding(item)` as a differentiable value.
+
+
+## References
+
+- [Tai et al. 2015](https://doi.org/10.48550/arXiv.1503.00075).

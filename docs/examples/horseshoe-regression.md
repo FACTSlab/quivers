@@ -116,3 +116,8 @@ print(f"divergences: {int(result.divergence_counts.sum())}")
 ## Categorical Perspective
 
 The model factors as the Kleisli composite of a global-local hyperprior kernel, a deterministic Hadamard product `tau * lambda * z` lifted into the [Giry monad](https://doi.org/10.1007/BFb0092872)'s Kleisli category as a Dirac kernel, and the per-row Normal likelihood. The plate-draws `lambda_local` and `z_raw` are Kleisli sections of the `Coef`-indexed plate, and `lambda_local[coef_idx]` is the [Kleisli pullback](https://ncatlab.org/nlab/show/Kleisli+category) along the fibration `Resp -> Coef` carried by the runtime index.
+
+
+## References
+
+- [Carvalho, Polson, and Scott 2010](https://doi.org/10.1093/biomet/asq017).

@@ -136,3 +136,9 @@ A few warning signs to watch for in `compare`'s output:
 ## Next
 
 If you want to extend the categorical machinery itself (custom algebras, custom transformations, custom composition rules), continue to the Python-API track starting at [chapter 1](../python/01-first-quiver.md). If you want a deeper formal treatment, the [semantics section](../../semantics/index.md) gives the full denotational semantics of the DSL.
+
+
+## References
+
+- [Vehtari, Gelman & Gabry, 2017](https://doi.org/10.1007/s11222-016-9696-4).
+- [Vehtari, Simpson, Gelman, Yao & Gabry, 2024](https://doi.org/10.48550/arXiv.1507.02646).

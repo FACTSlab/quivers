@@ -381,3 +381,8 @@ program, the user edits the source, and feeds it back through
 - [DSL Declarations](dsl-declarations.md#init-recipes-initauto):
   the surface `[init=auto]` annotation that consumes
   `Algebra.init_spec` at compile time.
+
+
+## References
+
+- [Yao et al. 2018](https://doi.org/10.1214/17-BA1091).

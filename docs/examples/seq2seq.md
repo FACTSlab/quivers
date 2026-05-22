@@ -184,3 +184,9 @@ print("divergences:", int(result.divergence_counts.sum()))
 ## Categorical Perspective
 
 The seq2seq model denotes a Kleisli morphism $\mathrm{Source} \times \mathrm{Target} \to \mathcal{G}(\mathrm{Target})$ in the [Giry monad](https://doi.org/10.1007/BFb0092872)'s Kleisli category. The encoder and decoder are independent Kleisli morphisms over distinct objects; the [tensor product](https://ncatlab.org/nlab/show/tensor+product) `@` is their strong-monoidal product, and `cross` is the merge that closes the bilinear pairing into a single combined latent. The Categorical head puts a finite-set codomain on the composite, and `observe` is the [right Kan extension](https://ncatlab.org/nlab/show/Kan+extension) closing the LM likelihood.
+
+
+## References
+
+- [Sutskever, Vinyals, and Le 2014](https://doi.org/10.48550/arXiv.1409.3215).
+- [Vaswani et al. 2017](https://doi.org/10.48550/arXiv.1706.03762).

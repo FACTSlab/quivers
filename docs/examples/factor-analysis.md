@@ -121,3 +121,9 @@ The factor analysis mean is a composition $Z \mathbin{>>} W$ in the [Kleisli cat
 
 - [Probabilistic PCA](ppca.md), the isotropic-noise special case.
 - [DSL Guide: Hierarchical Bayesian Models](../guides/programs-hierarchical.md#hierarchical-models-with-parametric-templates) for the morphism-valued prior surface.
+
+
+## References
+
+- [Bartholomew, Knott, and Moustaki 2011](https://doi.org/10.1002/9781119970583).
+- [Spearman 1904](https://www.jstor.org/stable/1412107).

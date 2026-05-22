@@ -201,3 +201,8 @@ print("divergences:", int(result.divergence_counts.sum()))
 ## Categorical Perspective
 
 Each `deduction` block denotes a weighted relation in the [agenda-based deduction semiring](../semantics/composition-rules.md): an arrow $\mathrm{Term} \to \mathrm{Term}$ in the [LogProb algebra](../semantics/algebras.md) whose underlying tensor is the chart of derivable items keyed by their derivation log-weights. Composing grammar with prover is composition in the same enriched category, so the gradient of the prover's goal weight flows back through the grammar's lexicon entries during training.
+
+
+## References
+
+- [Montague (1973)](https://doi.org/10.1007/978-94-010-2506-5_10).

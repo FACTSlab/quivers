@@ -125,3 +125,8 @@ in the real algebra. SVI's mean-field variational guide places an independent No
 
 - [Bayesian Linear Regression](bayesian-regression.md) for the single-layer linear special case.
 - [DSL Guide](../guides/dsl-overview.md) for the morphism-valued prior surface and stochastic-kernel composition.
+
+
+## References
+
+- [MacKay 1992](https://doi.org/10.1162/neco.1992.4.3.448).
