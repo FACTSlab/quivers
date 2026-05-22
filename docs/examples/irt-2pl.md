@@ -2,7 +2,7 @@
 
 ## Overview
 
-The 2PL [item response theory](https://en.wikipedia.org/wiki/Item_response_theory) model ([Birnbaum 1968](https://doi.org/10.1007/BF02288467)) for binary item responses `y_{ij}` of respondent i to item j. Each respondent carries a unidimensional ability `theta_i`, each item carries a difficulty `b_j` and a discrimination `a_j` (positive by construction via a [LogNormal](https://en.wikipedia.org/wiki/Log-normal_distribution) prior), and the probability of a correct response is `sigmoid(a_j * (theta_i - b_j))`.
+The 2PL [item response theory](https://en.wikipedia.org/wiki/Item_response_theory) model (Birnbaum 1968, *Some latent trait models and their use in inferring an examinee's ability*, in Lord & Novick eds., *Statistical Theories of Mental Test Scores*, Addison-Wesley, pp. 397–479) for binary item responses `y_{ij}` of respondent i to item j. Each respondent carries a unidimensional ability `theta_i`, each item carries a difficulty `b_j` and a discrimination `a_j` (positive by construction via a [LogNormal](https://en.wikipedia.org/wiki/Log-normal_distribution) prior), and the probability of a correct response is `sigmoid(a_j * (theta_i - b_j))`.
 
 ## QVR Source
 

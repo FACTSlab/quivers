@@ -119,7 +119,7 @@ If `observed_names` is missing a name the body references, the compiler reports 
 
 #! Compile and fit
 
-QVR programs compile to `nn.Module`. You can train them with the inference stack quivers ships (built around stochastic variational inference, [Hoffman, Blei, Wang & Paisley, 2013](https://doi.org/10.5555/2567709.2502622)), or with any PyTorch optimizer if you want to drop to raw gradients.
+QVR programs compile to `nn.Module`. You can train them with the inference stack quivers ships (built around stochastic variational inference, [Hoffman, Blei, Wang & Paisley, 2013](https://www.jmlr.org/papers/v14/hoffman13a.html)), or with any PyTorch optimizer if you want to drop to raw gradients.
 
 ```python
 import torch

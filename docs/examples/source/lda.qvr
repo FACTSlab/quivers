@@ -21,7 +21,7 @@
 # which the `marginalize` block computes via logsumexp over the
 # K topic atoms.
 #
-# Reference: [Blei, Ng & Jordan 2003](https://doi.org/10.1162/jmlr.2003.3.4-5.993).
+# Reference: [Blei, Ng & Jordan 2003](https://www.jmlr.org/papers/v3/blei03a.html).
 
 composition log_prob as algebra
 
