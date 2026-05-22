@@ -181,6 +181,6 @@ flowchart LR
 
 ## References
 
-- [Casella & Robert, 1996](https://doi.org/10.1093/biomet/83.1.81).
-- [Maddison, Mnih & Teh, 2017](https://doi.org/10.48550/arXiv.1611.00712).
-- [Stephens, 2000](https://doi.org/10.1111/1467-9868.00265).
+- Chris J. Maddison, Andriy Mnih, and Yee Whye Teh. 2017. The Concrete distribution: A continuous relaxation of discrete random variables. arXiv preprint arXiv:1611.00712.
+- George Casella and Christian P. Robert. 1996. Rao-Blackwellisation of sampling schemes. *Biometrika*, 83(1):81–94.
+- Matthew Stephens. 2000. Dealing with label switching in mixture models. *Journal of the Royal Statistical Society Series B: Statistical Methodology*, 62(4):795–809.

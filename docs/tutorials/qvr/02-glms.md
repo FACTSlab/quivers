@@ -185,4 +185,4 @@ Three observations from this chapter you may have already noticed:
 
 ## References
 
-- [Nelder & Wedderburn, 1972](https://doi.org/10.2307/2344614).
+- John A. Nelder and Robert W. M. Wedderburn. 1972. Generalized linear models. *Journal of the Royal Statistical Society Series A: General*, 135(3):370–384.

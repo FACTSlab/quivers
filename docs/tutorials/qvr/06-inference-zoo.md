@@ -177,4 +177,4 @@ Whenever you're unsure which guide handles a model shape, look at
 
 ## References
 
-- [Neal, 2011](https://doi.org/10.1201/b10905-6).
+- Radford M. Neal. 2011. MCMC using Hamiltonian dynamics. In Steve Brooks, Andrew Gelman, Galin L. Jones, and Xiao-Li Meng, editors, *Handbook of Markov Chain Monte Carlo*, chapter 5. Chapman & Hall/CRC.

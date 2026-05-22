@@ -336,5 +336,5 @@ one named axis carries the per-coordinate marginal product.
 
 ## References
 
-- [Carvalho, Polson, Scott (2010)](https://doi.org/10.1093/biomet/asq017).
-- [Gelman, Carlin, Stern, Dunson, Vehtari, Rubin 2013](https://doi.org/10.1201/b16018).
+- Andrew Gelman, John B. Carlin, Hal S. Stern, David B. Dunson, Aki Vehtari, and Donald B. Rubin. 2013. *Bayesian Data Analysis*, 3rd edition. Chapman & Hall/CRC.
+- Carlos M. Carvalho, Nicholas G. Polson, and James G. Scott. 2010. The horseshoe estimator for sparse signals. *Biometrika*, 97(2):465–480.

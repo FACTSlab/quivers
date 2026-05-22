@@ -121,4 +121,4 @@ The model is a [Kleisli morphism](https://ncatlab.org/nlab/show/Kleisli+category
 
 ## References
 
-- [Ferrari and Cribari-Neto 2004](https://doi.org/10.1080/0266476042000214501).
+- Silvia Ferrari and Francisco Cribari-Neto. 2004. Beta regression for modelling rates and proportions. *Journal of Applied Statistics*, 31(7):799–815.

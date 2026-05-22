@@ -135,4 +135,4 @@ The [ELBO](https://en.wikipedia.org/wiki/Evidence_lower_bound) decomposes catego
 
 ## References
 
-- [Kingma & Welling 2014](https://arxiv.org/abs/1312.6114).
+- Diederik P. Kingma and Max Welling. 2013. Auto-Encoding Variational Bayes. arXiv preprint arXiv:1312.6114.

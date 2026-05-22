@@ -116,4 +116,4 @@ The model is a Kleisli morphism over the latent log-volatility plate, composed w
 
 ## References
 
-- [Kim, Shephard, and Chib (1998)](https://doi.org/10.1111/1467-937X.00050).
+- Sangjoon Kim, Neil Shephard, and Siddhartha Chib. 1998. Stochastic volatility: Likelihood inference and comparison with ARCH models. *The Review of Economic Studies*, 65(3):361–393.

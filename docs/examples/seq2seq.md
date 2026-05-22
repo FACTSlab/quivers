@@ -188,5 +188,5 @@ The seq2seq model denotes a Kleisli morphism $\mathrm{Source} \times \mathrm{Tar
 
 ## References
 
-- [Sutskever, Vinyals, and Le 2014](https://doi.org/10.48550/arXiv.1409.3215).
-- [Vaswani et al. 2017](https://doi.org/10.48550/arXiv.1706.03762).
+- Ashish Vaswani, Noam Shazeer, Niki Parmar, Jakob Uszkoreit, Llion Jones, Aidan N. Gomez, Łukasz Kaiser, and Illia Polosukhin. 2017. Attention is all you need. arXiv preprint arXiv:1706.03762.
+- Ilya Sutskever, Oriol Vinyals, and Quoc V. Le. 2014. Sequence to sequence learning with neural networks. arXiv preprint arXiv:1409.3215.

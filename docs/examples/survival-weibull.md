@@ -109,4 +109,4 @@ The model denotes a Kleisli morphism into the positive reals in the [Giry monad]
 
 ## References
 
-- [Klein and Moeschberger 2003](https://doi.org/10.1007/b97377).
+- John P. Klein and Melvin L. Moeschberger. 2003. *Survival Analysis: Techniques for Censored and Truncated Data*, 2nd edition. Springer.

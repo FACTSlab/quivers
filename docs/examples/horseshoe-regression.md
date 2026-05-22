@@ -120,4 +120,4 @@ The model factors as the Kleisli composite of a global-local hyperprior kernel, 
 
 ## References
 
-- [Carvalho, Polson, and Scott 2010](https://doi.org/10.1093/biomet/asq017).
+- Carlos M. Carvalho, Nicholas G. Polson, and James G. Scott. 2010. The horseshoe estimator for sparse signals. *Biometrika*, 97(2):465–480.
