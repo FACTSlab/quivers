@@ -469,7 +469,7 @@ $$
 \mathrm{dst}_2 \;=\; \mu_{S \times T} \,\circ\, \mathcal{G}(\mathrm{str}'_{S, T}) \,\circ\, \mathrm{str}_{\mathcal{G}(S), T}
 $$
 
-— is what licenses reordering of independent draws in a QVR program body without changing the denotation. For $\mathcal{G}$ on $\mathbf{SBor}$, $\mathrm{dst}_1 = \mathrm{dst}_2$ reduces exactly to Fubini–Tonelli on the product $\sigma$-algebra ([Kock 1972](https://doi.org/10.7146/math.scand.a-11434)).
+— is what licenses reordering of independent draws in a QVR program body without changing the denotation. For $\mathcal{G}$ on $\mathbf{SBor}$, $\mathrm{dst}_1 = \mathrm{dst}_2$ reduces exactly to Fubini–Tonelli on the product $\sigma$-algebra ([Kock 1972](https://doi.org/10.1007/BF01304852)).
 
 By Soundness of typing (Theorem [Typing §9.1](typing.md#91-soundness)), every well-typed QVR program denotes a morphism in $\mathbf{Kern}$ built by these Kleisli operations; the monad laws lift from $\mathbf{Kern}$ to QVR programs because the body's denotation function $\mathcal{B}\llbracket \cdot \rrbracket$ is compositional in the Kleisli composite. $\square$
 
