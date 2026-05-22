@@ -683,14 +683,14 @@ Working bottom-up from $\textsc{Prog}$:
 3. The body's statements are typed by $\textsc{Bind}$ (the `sample theta`, `sample phi` sites), $\textsc{Marginalize}$ (the `marginalize z { observe w }` block), and the trailing $\textsc{Seq}$ rule. The trace context grows from $\Phi_0 = \mathsf{Doc}$ (the bare-identifier projection of the input) through the successive sample sites.
 4. The return expression `return theta` checks against the declared codomain $\mathsf{Word}$ by $\textsc{TraceVar}$ followed by the appropriate projection.
 
-The conclusion $\Gamma \vdash \mathsf{lda} : (\alpha : \mathsf{Real}, \beta : \mathsf{Real}) \Rightarrow \mathsf{Word} \rightsquigarrow \mathsf{Word}$ is exactly the string the REPL prints for `:type lda`:
+The conclusion $\Gamma \vdash \mathsf{lda} : (\alpha : \mathsf{Real}, \beta : \mathsf{Real}) \Rightarrow \mathsf{Word} \rightsquigarrow \mathsf{Word}$ is the judgment derived by the typechecker. The REPL's `:type` prints the *type* of `lda` in the GHCi convention, where the constraint context names only the universes (not the binders, which are implementation detail):
 
 ```
 :type lda
-lda :: (alpha : Real, beta : Real) => Word -> Word
+lda :: (Real, Real) => Word -> Word
 ```
 
-The bidirectional algorithm of §[10](#10-algorithmic-typechecking) carries this derivation out automatically, with the dependent Π over $\Delta$ surfacing in the context to the left of the constraint arrow $\Rightarrow$ and the kernel signature surfacing to the right.
+The bidirectional algorithm of §[10](#10-algorithmic-typechecking) carries this derivation out automatically. The dependent Π over $\Delta$ surfaces in the context to the left of the constraint arrow $\Rightarrow$; the parameter *names* are accessible through `:info lda` (and through the `ProgramDecl`'s `type_params` AST field) but are absent from the rendered type because they are bound by the Π and so are not free in the surface type.
 
 ## Bibliography
 

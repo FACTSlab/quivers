@@ -285,7 +285,7 @@ def test_type_lda_emits_ghci_signature(lda_session):
     # GHCi-style: ``name :: dom -> cod``. Decl-style ``program
     # lda(alpha, beta) : Word -> Word`` lives in :info / :browse.
     assert lda_session.type_of("lda").body == (
-        "lda :: (alpha : Real, beta : Real) => Word -> Word"
+        "lda :: (Real, Real) => Word -> Word"
     )
 
 

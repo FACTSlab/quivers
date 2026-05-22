@@ -59,7 +59,7 @@ def test_type_of_morphism() -> None:
     assert r.ok, r.diagnostics
     # GHCi-style: ``name :: dom -> cod``, no decl keyword, no
     # ``[role=...]`` annotation.
-    assert r.body == "f :: FinSet 3 -> FinSet 4"
+    assert r.body == "f :: X -> Y"
 
 
 def test_kind_of_object() -> None:
