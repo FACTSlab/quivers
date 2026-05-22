@@ -260,7 +260,7 @@ $$
 \nu \;\longmapsto\; \pi_{\Phi *} \nu.
 $$
 
-The denotation is the pushforward $\pi_{\Phi *}$ in both the discrete and continuous cases. Operationally, the implementation realises the pushforward by log-sum-exp on the accumulated log-likelihood when $C$ is a finite-set latent, and by fibrewise integration (e.g. by sampling, when the family admits a reparameterised draw) when $C$ is a continuous space. After the scope closes, $c$ falls out of scope.
+The denotation is the pushforward $\pi_{\Phi *}$ in both the discrete and continuous cases. Operationally, the implementation realizes the pushforward by log-sum-exp on the accumulated log-likelihood when $C$ is a finite-set latent, and by fibrewise integration (e.g. by sampling, when the family admits a reparameterised draw) when $C$ is a continuous space. After the scope closes, $c$ falls out of scope.
 
 The four bind variants, scalar, indexed, scored, marginalized, are uniformly a single underlying step with a `mode ∈ {sample, score, marginal}` tag and an optional index `A`. The scalar/plate axis is orthogonal to the full-probability/sub-probability distinction.
 
@@ -477,7 +477,7 @@ The denotation of a program is a *kernel*, not yet a posterior. Conditioning on 
 
 A `program` whose body lacks explicit `sample` priors on its
 learnable parameters still has a well-defined kernel denotation
-(it is a parameterised Kleisli arrow, with the parameters held
+(it is a parameterized Kleisli arrow, with the parameters held
 fixed). To pass such a program to the SVI / NUTS layer, which
 operates on programs with explicit priors, the
 [`quivers.inference.lifts`](../api/inference/lifts.md) module exposes four lifts. Each lifts a
@@ -543,7 +543,7 @@ $\log \mathcal{N}(\theta; 0, \sigma_{\theta}^{2} I_{D}) + \log p_{\mathrm{inner}
 
 *Proof.* The score step subtracts exactly the sum of placeholder
 log-priors that the sample-site declarations add, so the algebra
-is an identity. Gradient flow back to $\theta$ is realised by
+is an identity. Gradient flow back to $\theta$ is realized by
 the [`_swap_named_parameters`](../api/inference/lifts.md) context manager, which
 temporarily writes the override tensor into the parent module's
 `_parameters` dict so that downstream attribute reads return the
@@ -600,7 +600,7 @@ $$
 i.e. the [Bayesian posterior](https://en.wikipedia.org/wiki/Posterior_probability)
 of $\theta$ under the chosen
 likelihood, modulo the
-$\theta$-independent normaliser of $\mathcal{F}$.
+$\theta$-independent normalizer of $\mathcal{F}$.
 
 *Proof.* The lift is implemented as a delegating wrapper whose
 `log_joint(x, obs)` returns $\log p_{\mathcal{F}}(y \mid \mu(x), \boldsymbol{\eta})$ (reduced over event axes), then
@@ -651,7 +651,7 @@ likelihood.
 **Definition.** Let
 $q_{j}(\mathbf{z}_{j} \mid x, \theta) = p_{\mathrm{inner}}(\mathbf{z}_{j} \mid x, \theta)$ denote the
 sample-step family of the inner program at site $j$. The
-wrapper realises the random map
+wrapper realizes the random map
 
 $$
 \widetilde{\ell}(x, y;\, \theta)
@@ -706,7 +706,7 @@ posterior under a deterministic per-evaluation log-density.
 ### 7.5 Bayesian lift for weighted deduction systems
 
 [`nuts_program_from_deduction`](../api/stochastic/deduction/bayes.md#quivers.stochastic.deduction.bayes.nuts_program_from_deduction) is the
-deduction-system specialisation of §7.1. Given a
+deduction-system specialization of §7.1. Given a
 [`DeductionSystem`](../api/stochastic/deduction.md#quivers.stochastic.deduction.DeductionSystem)
 $D$ with learnable log-weights $\mathbf{w} \in \mathbb{R}^{D}$
 and a corpus $\{s_{n}\}_{n=1}^{N}$, the lift produces a program
@@ -723,25 +723,25 @@ $$
 where $Z(s_{n}; \mathbf{w})$ is the chart's goal weight (the
 sentence's inside log-partition under $D$). Whether this joint
 *is* the Bayesian posterior $p(\mathbf{w} \mid \{s_{n}\})$
-depends on the modelling reading:
+depends on the modeling reading:
 
-* **Undirected / globally normalised** (CRF / log-linear /
+* **Undirected / globally normalized** (CRF / log-linear /
   energy-based [Lafferty et al. 2001](https://repository.upenn.edu/cis_papers/159/)). Here
-  $p(s_{n} \mid \mathbf{w}) = Z(s_{n}; \mathbf{w}) / \sum_{s'} Z(s'; \mathbf{w})$, and the sentence-level normaliser
+  $p(s_{n} \mid \mathbf{w}) = Z(s_{n}; \mathbf{w}) / \sum_{s'} Z(s'; \mathbf{w})$, and the sentence-level normalizer
   $\sum_{s'} Z(s'; \mathbf{w})$ is a constant in $\mathbf{w}$
   only when the deduction is a [partition function](https://en.wikipedia.org/wiki/Partition_function_(mathematics))
   closed under the
   algebra's join. In the undirected setting that $\mathbf{w}$-
-  dependent normaliser is precisely what $\sum_{n} \log Z$
+  dependent normalizer is precisely what $\sum_{n} \log Z$
   captures; $\pi(\mathbf{w})$ is then the posterior up to a
   $\mathbf{w}$-independent constant.
 
-* **Directed / locally normalised PCFG** ([Booth & Thompson 1973](https://doi.org/10.1109/TC.1973.223746)).
+* **Directed / locally normalized PCFG** ([Booth & Thompson 1973](https://doi.org/10.1109/TC.1973.223746)).
   The per-rule weights are constrained to a local simplex
   (each non-terminal's expansions sum to $1$), and the true
   per-sentence likelihood is
   $Z(s; \mathbf{w}) / \sum_{s'} Z(s'; \mathbf{w})$ with the
-  global normaliser intractable. Treating $\mathbf{w}$ as a
+  global normalizer intractable. Treating $\mathbf{w}$ as a
   free unconstrained vector and adding $\sum_{n} \log Z(s_{n}; \mathbf{w})$ to a Gaussian prior produces a
   *pseudo-posterior* (a [composite likelihood](https://en.wikipedia.org/wiki/Composite_likelihood) in the sense
   of [Varin, Reid & Firth 2011](https://www.jstor.org/stable/24309261)) that differs

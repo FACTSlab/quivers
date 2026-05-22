@@ -29,7 +29,7 @@ t & ::= & \mathit{trans\_singleton}
 \end{array}
 $$
 
-The first grammar covers morphism-valued expressions. The auxiliary grammar for $t$ covers *transformation-valued* expressions used inside $\mathsf{change\_base}$: bare-name singletons from the built-in catalogue ($\mathit{trans\_singleton}$), parametric constructors ($\mathit{trans\_ctor}$), sequential composition $>>>$, and let-bound transformation references $y$ in the dedicated transformation namespace.
+The first grammar covers morphism-valued expressions. The auxiliary grammar for $t$ covers *transformation-valued* expressions used inside $\mathsf{change\_base}$: bare-name singletons from the built-in catalog ($\mathit{trans\_singleton}$), parametric constructors ($\mathit{trans\_ctor}$), sequential composition $>>>$, and let-bound transformation references $y$ in the dedicated transformation namespace.
 
 The clause $\mathit{op}(e_1, \dots, e_n)$ stands for a registered operadic contraction: $\mathit{op}$ is the name of a $\mathsf{contraction}$ declared elsewhere in the module, with its declared input arity and signature checked at the call site. See [§ Composition Rules § 4](composition-rules.md#4-operadic-contractions) for the operadic action.
 
@@ -268,7 +268,7 @@ $$
 \llbracket \mathsf{scan}(e, \mathit{init}) \rrbracket \;=\; \mathrm{Tr}^{S}\bigl( \llbracket e \rrbracket \bigr) : X \to Y,
 $$
 
-where $\mathrm{Tr}^{S} : \mathcal{C}(X \otimes S, Y \otimes S) \to \mathcal{C}(X, Y)$ is the trace operator of the appropriate [traced symmetric monoidal category](https://ncatlab.org/nlab/show/traced+monoidal+category) $\mathcal{C}$ ([Joyal, Street & Verity, 1996](https://doi.org/10.1017/S0305004100074338)) eliminating the recurrent state $S$. The trace itself is canonical; the annotation $\mathit{init} \in \{\mathrm{zeros}, \mathrm{learned}\}$ selects the *seed* used by the iterative computation that realises the trace in code, i.e. the distinguished element $s_0 \in S$ at which the fixed-point iteration begins. Concretely:
+where $\mathrm{Tr}^{S} : \mathcal{C}(X \otimes S, Y \otimes S) \to \mathcal{C}(X, Y)$ is the trace operator of the appropriate [traced symmetric monoidal category](https://ncatlab.org/nlab/show/traced+monoidal+category) $\mathcal{C}$ ([Joyal, Street & Verity, 1996](https://doi.org/10.1017/S0305004100074338)) eliminating the recurrent state $S$. The trace itself is canonical; the annotation $\mathit{init} \in \{\mathrm{zeros}, \mathrm{learned}\}$ selects the *seed* used by the iterative computation that realizes the trace in code, i.e. the distinguished element $s_0 \in S$ at which the fixed-point iteration begins. Concretely:
 
 - In $\mathcal{V}\text{-}\mathbf{Rel}$, $\mathrm{Tr}^{S}$ is the *iterative* trace, defined by algebra-join over the orbit of $S$;
 - In $\mathbf{Stoch}$ and $\mathbf{Kern}$, $\mathrm{Tr}^{S}$ is implemented as a sequence of Markov-kernel compositions seeded by $s_0$.
@@ -353,12 +353,12 @@ presheaf evaluation:
 | $\mathit{chart}.\mathsf{semiring}$ | the chart's semiring $K$. |
 
 Composition $D_1 \mathbin{\mathrm{c}} D_2$ ([Weighted Deduction
-Fragment §9.1](grammar.md#91-composing-deductions)) realises an
+Fragment §9.1](grammar.md#91-composing-deductions)) realizes an
 axiom-injector chaining: $D_1$'s goal items appear as $D_2$'s
 axioms, with the resulting system inheriting $D_2$'s semiring,
 agenda, and goal predicate. The composition's `.parameters()`
 walks both factors' submodule side-tables, so a single fit
-optimises the joint parameter set.
+optimizes the joint parameter set.
 
 Substitution $t[v := w]$ ([Weighted Deduction Fragment §9.3](grammar.md#93-let-expression-builtins))
 is structural: it walks $t$ replacing every subterm equal to $v$

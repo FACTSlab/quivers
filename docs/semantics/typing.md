@@ -2,7 +2,7 @@
 
 This chapter develops the **type theory** of the QVR DSL as a formal proof system, paired with the denotational interpretation already given in the surrounding chapters. The denotational semantics (chapters [Setting](setting.md) through [Adequacy](adequacy.md)) tells us *what* a well-typed QVR phrase means: an object of $\mathbf{FinSet}$ or $\mathbf{SBor}$, a morphism in $\mathbf{Stoch}$, a Markov kernel in $\mathbf{Kern}$, a Π-indexed family of Kleisli arrows, and so on. The present chapter gives the **type system** that picks out *which* phrases are well-typed in the first place: judgments, contexts, inference rules, and the soundness theorem that ties the two layers together.
 
-The development is organised so that:
+The development is organized so that:
 
 * every judgment form is given with its denotational interpretation, so the proof theory and the model theory stay synchronised;
 * every inference rule is justified by an appeal to the categorical structure already exhibited in the denotational chapters;
@@ -60,7 +60,7 @@ Kinds classify type-level constructions. The seven primitive kinds are:
 |---|---|---|
 | $\ast_{\mathrm{FinSet}}$ | finite-set objects | objects of $\mathbf{FinSet}$ |
 | $\ast_{\mathrm{Space}}$ | standard-Borel spaces | objects of $\mathbf{SBor}$ |
-| $\ast_{\mathrm{Sort}}$ | item sorts of a deduction signature | small fibre of a generalised algebraic theory |
+| $\ast_{\mathrm{Sort}}$ | item sorts of a deduction signature | small fibre of a generalized algebraic theory |
 | $\ast_{\mathrm{Atom}}$ | abstract category atoms | hom-objects of a residuated category universe |
 | $\mathsf{Family}[\Theta, B]$ | stochastic families | $\mathrm{Hom}_{\mathbf{Kern}}(\Theta, B)$ |
 | $\mathsf{Mor}[A, B]$ | morphism-valued names | $\mathrm{Hom}_{\mathbf{Kern}}(A, B)$ |
@@ -138,13 +138,13 @@ e \;::=\;& x
 \end{aligned}
 $$
 
-The variable cases distinguish a bound name $x$ (introduced inside a program body by a bind / let statement) from a free morphism name $f$ (introduced at module scope by a `morphism`, `program`, `let`, or `export` declaration). The contraction-call form $c(\bar y)$ (`ExprMorphismCall`) applies a registered $n$-ary contraction $c$ to morphism-scope names $\bar y$ inside a `let`-binding initialiser (see [Composition rules §4](composition-rules.md)).
+The variable cases distinguish a bound name $x$ (introduced inside a program body by a bind / let statement) from a free morphism name $f$ (introduced at module scope by a `morphism`, `program`, `let`, or `export` declaration). The contraction-call form $c(\bar y)$ (`ExprMorphismCall`) applies a registered $n$-ary contraction $c$ to morphism-scope names $\bar y$ inside a `let`-binding initializer (see [Composition rules §4](composition-rules.md)).
 
 **Program instantiation is not an expression form.** Surface program calls $P(\bar a)$ live in the program-body sub-language as the family slot of a `DrawStep`: a statement $v \leftarrow P(\bar a)$ with $P$ a program template is interpreted by inlining the template's body, as described in [Programs §3a](programs.md#3a-parametric-programs). Consequently the typing rule for parametric instantiation is presented at the statement level (§[6.8](#68-template-inlining)), not as a morphism-expression rule.
 
-Sequential composition $\mathbin{\diamond_\alpha}$ is parameterised by a choice of enrichment algebra $\alpha$: the QVR surface syntax exposes one operator per algebra. The eleven-operator family is `>>` (`ProductFuzzy` noisy-or, the default), `<<` (reversed `ProductFuzzy`), `>=>` (Kleisli composition for the operands' shared algebra), `*>` (Markov sum-product), `~>` (`LogProb`), `||>` (Gödel), `?>` (Viterbi / Max-plus), `&&>` (Boolean), `+>` (Łukasiewicz), `$>` (`Real` sum-product), and `%>` (`Probability` saturated sum); see [Composition rules](composition-rules.md). The tensor `@` denotes the symmetric monoidal product $\otimes$ ([Morphisms §2](morphisms.md)). The dagger $e^\dagger$ is the compact-closed dual, $\mathsf{trace}$ is the categorical trace, $\mathsf{cup}/\mathsf{cap}$ are the unit / counit of the compact-closed structure, and $.\mathsf{change\_base}(\varphi)$ is the base-change functor between algebras. The remaining combinators $\mathsf{fan}, \mathsf{repeat}, \mathsf{stack}, \mathsf{scan}, \mathsf{freeze}, \mathsf{from\_data}, \mathsf{parser}, \mathsf{chart\_fold}, \mathsf{curry}$ are explained in [Expressions](expressions.md); we present typing for the core fragment ($\diamond$, $@$, $\mathsf{id}$, $\mathsf{fan}$, $\mathsf{repeat}$, and program instantiation) in §[5](#5-inference-rules-for-morphism-expressions) below and refer to [Expressions](expressions.md) for the derived combinators.
+Sequential composition $\mathbin{\diamond_\alpha}$ is parameterized by a choice of enrichment algebra $\alpha$: the QVR surface syntax exposes one operator per algebra. The eleven-operator family is `>>` (`ProductFuzzy` noisy-or, the default), `<<` (reversed `ProductFuzzy`), `>=>` (Kleisli composition for the operands' shared algebra), `*>` (Markov sum-product), `~>` (`LogProb`), `||>` (Gödel), `?>` (Viterbi / Max-plus), `&&>` (Boolean), `+>` (Łukasiewicz), `$>` (`Real` sum-product), and `%>` (`Probability` saturated sum); see [Composition rules](composition-rules.md). The tensor `@` denotes the symmetric monoidal product $\otimes$ ([Morphisms §2](morphisms.md)). The dagger $e^\dagger$ is the compact-closed dual, $\mathsf{trace}$ is the categorical trace, $\mathsf{cup}/\mathsf{cap}$ are the unit / counit of the compact-closed structure, and $.\mathsf{change\_base}(\varphi)$ is the base-change functor between algebras. The remaining combinators $\mathsf{fan}, \mathsf{repeat}, \mathsf{stack}, \mathsf{scan}, \mathsf{freeze}, \mathsf{from\_data}, \mathsf{parser}, \mathsf{chart\_fold}, \mathsf{curry}$ are explained in [Expressions](expressions.md); we present typing for the core fragment ($\diamond$, $@$, $\mathsf{id}$, $\mathsf{fan}$, $\mathsf{repeat}$, and program instantiation) in §[5](#5-inference-rules-for-morphism-expressions) below and refer to [Expressions](expressions.md) for the derived combinators.
 
-Notably absent from the expression sub-language are first-class projections $\pi_i$ and injections $\mathsf{inl}, \mathsf{inr}$: products are introduced and eliminated implicitly through tuple-pattern bindings in the program-body sub-language (§[1.5](#15-statements-program-body-sub-language)), and the discrete coproduct is reached through declared `morphism` arrows initialised from data rather than through dedicated combinators. Projections appear in the *meta-language* of the denotation (e.g. $\pi_i : \llbracket A_1 \times \cdots \times A_k \rrbracket \to \llbracket A_i \rrbracket$) but not in the surface syntax.
+Notably absent from the expression sub-language are first-class projections $\pi_i$ and injections $\mathsf{inl}, \mathsf{inr}$: products are introduced and eliminated implicitly through tuple-pattern bindings in the program-body sub-language (§[1.5](#15-statements-program-body-sub-language)), and the discrete coproduct is reached through declared `morphism` arrows initialized from data rather than through dedicated combinators. Projections appear in the *meta-language* of the denotation (e.g. $\pi_i : \llbracket A_1 \times \cdots \times A_k \rrbracket \to \llbracket A_i \rrbracket$) but not in the surface syntax.
 
 ### 1.5 Statements (program-body sub-language)
 
@@ -304,7 +304,7 @@ The residuated formers and the effect type-constructor $T(\cdot)$ are typed only
 
 ### 3.6 Kind subsumption
 
-There is no general kind subsumption rule. The only implicit coercion is the absorption built into $\sqcup$: in a mixed product $\sigma_{\mathrm{FinSet}} \times \tau_{\mathrm{Space}}$, the discrete factor is implicitly indicator-embedded into the ambient continuous space ($[n] \hookrightarrow \mathbb{R}^n$), so that the product lands in $\mathbf{SBor}$. The compiler realises this through the resolution dispatch in [`_resolve_any_space`](../api/dsl/resolution.md): a `ProductSet` lifts to a `ProductSpace` whenever any component is a `ContinuousSpace`. No standalone embedding combinator exists in the surface syntax.
+There is no general kind subsumption rule. The only implicit coercion is the absorption built into $\sqcup$: in a mixed product $\sigma_{\mathrm{FinSet}} \times \tau_{\mathrm{Space}}$, the discrete factor is implicitly indicator-embedded into the ambient continuous space ($[n] \hookrightarrow \mathbb{R}^n$), so that the product lands in $\mathbf{SBor}$. The compiler realizes this through the resolution dispatch in [`_resolve_any_space`](../api/dsl/resolution.md): a `ProductSet` lifts to a `ProductSpace` whenever any component is a `ContinuousSpace`. No standalone embedding combinator exists in the surface syntax.
 
 ## 4. Inference rules for families
 
@@ -323,7 +323,7 @@ $$
       {\Gamma; \Phi \vdash F(\bar a) : \mathsf{Kernel}[\Phi, B]}\ \textsc{FamApp}
 $$
 
-Here $\mathsf{Kernel}[\Phi, B]$ is the kind of Kleisli arrows $\Phi \to \mathcal{G}(B)$. Each argument $a_i$ is itself a morphism from the trace $\Phi$ into its declared slot $A_i$: this is what allows a family parameter to *depend on* previously-bound random variables (e.g. `Categorical(theta)` where `theta` is a Dirichlet-distributed simplex value bound earlier in the body). The composite $F \circ \mathrm{params}_F^{-1} \circ \langle a_1, \ldots, a_k \rangle$ is the resulting kernel on $\Phi$. The implementation realises $\mathrm{params}_F$ as the `FamilySpec.param_specs` list in `src/quivers/continuous/families.py`.
+Here $\mathsf{Kernel}[\Phi, B]$ is the kind of Kleisli arrows $\Phi \to \mathcal{G}(B)$. Each argument $a_i$ is itself a morphism from the trace $\Phi$ into its declared slot $A_i$: this is what allows a family parameter to *depend on* previously-bound random variables (e.g. `Categorical(theta)` where `theta` is a Dirichlet-distributed simplex value bound earlier in the body). The composite $F \circ \mathrm{params}_F^{-1} \circ \langle a_1, \ldots, a_k \rangle$ is the resulting kernel on $\Phi$. The implementation realizes $\mathrm{params}_F$ as the `FamilySpec.param_specs` list in `src/quivers/continuous/families.py`.
 
 ## 5. Inference rules for morphism expressions
 
@@ -357,7 +357,7 @@ $$
      {\Gamma; \Phi \vdash e_1 \mathbin{\diamond_\beta^{\mathrm{tag}}} e_2 : A \rightsquigarrow C}\ \textsc{ComposeTag}_\beta
 $$
 
-The function $\mathrm{alg}(\cdot)$ is the synthesised algebra of a morphism expression, computed inductively from the algebras of declared morphisms ([Composition rules §3](composition-rules.md#3-user-defined-composition-rules)). When operands disagree, the typechecker rejects rather than auto-coercing; explicit base change is the surface syntax `.change_base(φ)` ([Expressions §4](expressions.md), `ExprChangeBase`). Soundness (Theorem [§9.1](#91-soundness)) collapses both syntactic shapes onto Kleisli composition $\diamond$ in $\mathbf{Kern}$ at the algebra $\alpha$ (resp. $\beta$).
+The function $\mathrm{alg}(\cdot)$ is the synthesized algebra of a morphism expression, computed inductively from the algebras of declared morphisms ([Composition rules §3](composition-rules.md#3-user-defined-composition-rules)). When operands disagree, the typechecker rejects rather than auto-coercing; explicit base change is the surface syntax `.change_base(φ)` ([Expressions §4](expressions.md), `ExprChangeBase`). Soundness (Theorem [§9.1](#91-soundness)) collapses both syntactic shapes onto Kleisli composition $\diamond$ in $\mathbf{Kern}$ at the algebra $\alpha$ (resp. $\beta$).
 
 ### 5.3 Tensor product
 
@@ -374,11 +374,11 @@ $$
 \frac{\Gamma \vdash \tau : \kappa}{\Gamma; \Phi \vdash \mathsf{id}_\tau : \tau \rightsquigarrow \tau}\ \textsc{Id}
 $$
 
-Identity is the only "structural" combinator with a dedicated expression form (`ExprIdentity` for a typed identity at a specific object, plus the un-annotated `id` form whose target is synthesised from context). Products and coproducts have no first-class projection or injection combinators; their introduction and elimination is handled by:
+Identity is the only "structural" combinator with a dedicated expression form (`ExprIdentity` for a typed identity at a specific object, plus the un-annotated `id` form whose target is synthesized from context). Products and coproducts have no first-class projection or injection combinators; their introduction and elimination is handled by:
 
 * the program-body sub-language's tuple-pattern bind $(v_1, \ldots, v_m) \leftarrow F(\bar a)$ (§[6.2](#62-destructuring-bind)), which both introduces a product (the family's codomain) and eliminates it (extending the trace by all $m$ component variables);
 * bare-identifier program headers `program P (q₁, …, qₖ) : A → B`, which add the projections $q_i = \pi_i^A$ to the body's initial trace context $\Phi_0$ (§[7.2](#72-bare-identifier-projection-programs));
-* the data-initialised morphism declaration `morphism f : A → B ~ from_data(...)`, which compiles to a concrete tensor / kernel realising whatever projection or injection the user encoded in the data.
+* the data-initialized morphism declaration `morphism f : A → B ~ from_data(...)`, which compiles to a concrete tensor / kernel realizing whatever projection or injection the user encoded in the data.
 
 ### 5.5 Higher combinators
 
@@ -398,7 +398,7 @@ with similar shapes for $\mathsf{stack}$ (axis-1 broadcast) and $\mathsf{scan}$ 
 
 ### 5.6 Contraction application
 
-A contraction $c$ registered in the value context with arity $k$ and inputs $A_1, \ldots, A_k$ producing a codomain $B$ may be applied to morphism-scope names $y_1, \ldots, y_k$ in a `let`-binding initialiser:
+A contraction $c$ registered in the value context with arity $k$ and inputs $A_1, \ldots, A_k$ producing a codomain $B$ may be applied to morphism-scope names $y_1, \ldots, y_k$ in a `let`-binding initializer:
 
 $$
 \frac{c \in \mathrm{ContractionReg}\ \text{with arity}\ k\ \text{and signature}\ (A_1, \ldots, A_k) \to B
@@ -444,7 +444,7 @@ $$
      {\Gamma; \Phi \vdash \mathsf{observe}\ v \leftarrow F(\bar a) \dashv \Phi}\ \textsc{Observe}
 $$
 
-The trace context is unchanged because the observed value is externally supplied; the statement contributes only a score factor. The denotation lives in the unnormalised Giry sub-monad $\mathcal{G}_{\le 1}$ (see [Programs §2.2](programs.md#22-observe)).
+The trace context is unchanged because the observed value is externally supplied; the statement contributes only a score factor. The denotation lives in the unnormalized Giry sub-monad $\mathcal{G}_{\le 1}$ (see [Programs §2.2](programs.md#22-observe)).
 
 ### 6.4 Marginalize
 
@@ -570,7 +570,7 @@ A kind $\kappa$ denotes a (large) category $\llbracket \kappa \rrbracket$:
 |---|---|
 | $\ast_{\mathrm{FinSet}}$ | $\mathbf{FinSet}$ |
 | $\ast_{\mathrm{Space}}$ | $\mathbf{SBor}$ |
-| $\ast_{\mathrm{Sort}}$ | fibre of the signature's generalised algebraic theory |
+| $\ast_{\mathrm{Sort}}$ | fibre of the signature's generalized algebraic theory |
 | $\ast_{\mathrm{Atom}}$ | hom-objects of a free residuated category universe |
 | $\mathsf{Family}[\Theta, B]$ | $\mathrm{Hom}_{\mathbf{Kern}}(\Theta, B)$ (a set, not a category) |
 | $\mathsf{Mor}[A, B]$ | $\mathrm{Hom}_{\mathbf{Kern}}(\llbracket A \rrbracket, \llbracket B \rrbracket)$ |
@@ -679,7 +679,7 @@ extended to all of $\Sigma_{\Phi \times B}$ by Caratheodory's theorem — the re
 2. *Body*: Kleisli-compose with $k_{\mathrm{body}}$ (with the $\diamond$ convention "first left then right") to obtain $\widetilde{F} \diamond k_{\mathrm{body}} \;=\; \mu \circ \mathcal{G}(k_{\mathrm{body}}) \circ \widetilde{F} : \llbracket \Phi \rrbracket \to \mathcal{G}(\llbracket \Phi' \rrbracket)$;
 3. *Pushforward*: let $\pi : \llbracket \Phi' \rrbracket \to \llbracket \Phi' \setminus v \rrbracket$ be the measurable projection that drops the $v$-coordinate. The Giry monad's functorial action sends $\pi$ to the pushforward kernel $\mathcal{G}(\pi) : \mathcal{G}(\llbracket \Phi' \rrbracket) \to \mathcal{G}(\llbracket \Phi' \setminus v \rrbracket)$, defined on measures by $\mathcal{G}(\pi)(\mu)(F) = \mu(\pi^{-1}(F))$ for $F \in \Sigma_{\Phi' \setminus v}$. Compose: $\mathcal{G}(\pi) \circ (\widetilde{F} \diamond k_{\mathrm{body}}) : \llbracket \Phi \rrbracket \to \mathcal{G}(\llbracket \Phi' \setminus v \rrbracket)$.
 
-The pushforward is the measure-theoretic content of marginalisation: integrating out the $v$-coordinate of the joint distribution, equivalently applying Fubini–Tonelli on the product $\sigma$-algebra $\Sigma_{\Phi' \setminus v} \otimes \Sigma_{\{v\}}$.
+The pushforward is the measure-theoretic content of marginalization: integrating out the $v$-coordinate of the joint distribution, equivalently applying Fubini–Tonelli on the product $\sigma$-algebra $\Sigma_{\Phi' \setminus v} \otimes \Sigma_{\{v\}}$.
 
 *Case $\textsc{Prog}$.* Let $\Delta = p_1 : P_1, \ldots, p_k : P_k$. The body's denotation is computed in the parameter-extended value context $\Gamma \uplus \Delta$, so it is naturally a *function of the parameter environment*. Concretely, by IH applied to the premise $\Gamma \uplus \Delta; A \vdash s_1; \ldots; s_n \dashv \Phi_n$, the statement-typing soundness clause yields a measurable map
 
@@ -825,7 +825,7 @@ $\square$
 
 **Corollary (Decidable type membership, decidable fragment).** *For every phrase $\phi$ free of the residuated formers and the effect-typed nodes ($\textsf{ObjectSlash}$, $\textsf{ObjectEffectApply}$) and every candidate type $\tau$, the question "is $\phi$ of type $\tau$?" is decidable.*
 
-This follows from Soundness + Completeness + Type Uniqueness (§[9.3](#93-structural-lemmas)) restricted to the decidable fragment of §[10.1](#101-decidability): synthesise $\tau' = \mathrm{type}(\phi)$ by the bidirectional algorithm of §[10](#10-algorithmic-typechecking) (which terminates on this fragment by the proposition there), check $\tau' = \tau$ structurally. By Soundness the synthesis returns a valid type or fails; by Completeness it succeeds whenever $\llbracket \phi \rrbracket_{\mathrm{raw}}$ is defined; by Type Uniqueness the synthesised type is unique. For the residuated / effect-typed extension, decidability is conditional on the underlying solver as noted in §[10.1](#101-decidability).
+This follows from Soundness + Completeness + Type Uniqueness (§[9.3](#93-structural-lemmas)) restricted to the decidable fragment of §[10.1](#101-decidability): synthesize $\tau' = \mathrm{type}(\phi)$ by the bidirectional algorithm of §[10](#10-algorithmic-typechecking) (which terminates on this fragment by the proposition there), check $\tau' = \tau$ structurally. By Soundness the synthesis returns a valid type or fails; by Completeness it succeeds whenever $\llbracket \phi \rrbracket_{\mathrm{raw}}$ is defined; by Type Uniqueness the synthesized type is unique. For the residuated / effect-typed extension, decidability is conditional on the underlying solver as noted in §[10.1](#101-decidability).
 
 ### 9.5 Equivalence and conservativity
 
@@ -833,14 +833,14 @@ Two well-typed phrases $\phi_1, \phi_2$ at the same judgment are *denotationally
 
 ## 10. Algorithmic typechecking
 
-The inference rules of §[3](#3-inference-rules-for-types-and-kinds)–§[7](#7-inference-rules-for-programs) are *declarative*: they specify which judgments are derivable, not how to derive them. The implementation in `src/quivers/dsl/compiler/` realises a *bidirectional* algorithm with two modes:
+The inference rules of §[3](#3-inference-rules-for-types-and-kinds)–§[7](#7-inference-rules-for-programs) are *declarative*: they specify which judgments are derivable, not how to derive them. The implementation in `src/quivers/dsl/compiler/` realizes a *bidirectional* algorithm with two modes:
 
 | Mode | Read as |
 |---|---|
 | **Check** $\Gamma; \Phi \vdash e \mathrel{\Leftarrow} A \rightsquigarrow B$ | given $e$ and the expected signature $A \rightsquigarrow B$, verify the rule's premises |
 | **Synth** $\Gamma; \Phi \vdash e \mathrel{\Rightarrow} A \rightsquigarrow B$ | given $e$, compute the (unique) signature $A \rightsquigarrow B$ |
 
-The compiler synthesises from leaves upward: variables and module-level names look up declared signatures; composition and tensor synthesise from their operands; program instantiation synthesises through substitution. The compiler checks at boundaries where the expected signature is fixed by the surrounding context: morphism declarations (the right-hand side of `~` must check against the declared $A \to B$), program declarations (the return expression must check against the declared codomain), and statement composition (each statement's $\Phi'$ must match the next statement's input $\Phi$).
+The compiler synthesizes from leaves upward: variables and module-level names look up declared signatures; composition and tensor synthesize from their operands; program instantiation synthesizes through substitution. The compiler checks at boundaries where the expected signature is fixed by the surrounding context: morphism declarations (the right-hand side of `~` must check against the declared $A \to B$), program declarations (the return expression must check against the declared codomain), and statement composition (each statement's $\Phi'$ must match the next statement's input $\Phi$).
 
 The relevant entry points in the implementation are:
 
@@ -852,7 +852,7 @@ The relevant entry points in the implementation are:
 
 **Proposition.** *The fragment of the type system excluding the residuated formers and effect-typed expressions ($\mathsf{TySlashR}, \mathsf{TySlashL}, \mathsf{TyEff}$) is decidable: there is an algorithm that, given $\Gamma$ and a phrase $\phi$, returns either a derivation of $\Gamma \vdash \phi : \cdot$ or a proof that no such derivation exists.*
 
-**Proof sketch.** Type formation is structurally recursive over the syntax of $\tau$ and bottoms out at primitive constructors or context lookup. Morphism and statement typing are bidirectional and also structurally recursive over the term / statement, with no rule that introduces a metavariable requiring search. Program-instantiation substitution is straightforward syntactic substitution. The only source of unbounded computation would be a recursive program definition; QVR forbids recursive `program` declarations, so all derivations are finite. $\square$
+**Proof sketch.** Type formation is structurally recursive over the syntax of $\tau$ and bottoms out at primitive constructors or context lookup. Morphism and statement typing are bidirectional and also structurally recursive over the term / statement, with no rule that introduces a metavariable requiring search. Program-typing's $\textsc{Prog}$ rule reads the body bottom-up, threading $\Phi$ through $\textsc{Seq}$; this is finite recursion on the body's statement count. Type-equality at the conclusion ($A_1 = A_2$, etc.) is decidable because the kinds of §[1.1](#11-kinds) and the type expressions of §[1.2](#12-type-expressions) are first-order finite trees. (The compiler additionally rejects cyclic *template-call graphs* at the inline-expansion stage of §[6.8](#68-template-inlining), which is a separate semantic check needed for instantiation but not for typechecking itself; typechecking terminates regardless of the call graph because it is structural recursion on the AST.) $\square$
 
 The residuated and effect-typed fragments require additional side conditions ([Schemas §3](schemas.md), [Effects §4](effects.md)); their decidability is conditional on the underlying constraint solver.
 
@@ -883,7 +883,7 @@ Working bottom-up from $\textsc{Prog}$:
 
 1. The parameter context $\Delta = (\alpha : \mathsf{Real},\, \beta : \mathsf{Real})$ is well-formed because $\mathsf{Real}$ is a scalar universe.
 2. $\Gamma \vdash \mathsf{Word} : \ast_{\mathrm{FinSet}}$ by $\textsc{TyVar}$ (assuming $\mathsf{Word}$ is a previously-declared finite-set object).
-3. The body's statements are typed by $\textsc{Bind}$ (the `sample theta`, `sample phi` sites), $\textsc{Marginalize}$ (the `marginalize z { observe w }` block), and the trailing $\textsc{Seq}$ rule. The trace context grows from $\Phi_0 = \mathsf{Doc}$ (the bare-identifier projection of the input) through the successive sample sites.
+3. The body's statements are typed by $\textsc{Bind}$ (the `sample theta`, `sample phi` sites), $\textsc{Marginalize}$ (the `marginalize z { observe w }` block), and the trailing $\textsc{Seq}$ rule. The trace context starts at $\Phi_0 = \mathsf{Word}$ (the program's declared input) and grows through the successive sample sites: $\Phi_1 = \Phi_0, \theta : \mathrm{Doc \to Topic}$ after the first sample; $\Phi_2 = \Phi_1, \phi : \mathrm{Topic \to Word}$ after the second; the marginalize block's body extends $\Phi_2$ with $z : \mathrm{Topic}$ internally, then $w$ is observed (no trace extension) and $z$ is integrated out, leaving the post-marginalize trace at $\Phi_2$ again.
 4. The return expression `return theta` checks against the declared codomain $\mathsf{Word}$ by $\textsc{TraceVar}$ followed by the appropriate projection.
 
 The conclusion $\Gamma \vdash \mathsf{lda} : (\alpha : \mathsf{Real}, \beta : \mathsf{Real}) \Rightarrow \mathsf{Word} \rightsquigarrow \mathsf{Word}$ is the judgment derived by the typechecker. The REPL's `:type` prints the *type* of `lda` in the GHCi convention, where the constraint context names only the universes (not the binders, which are implementation detail):
