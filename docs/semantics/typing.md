@@ -6,7 +6,7 @@ The development is organised so that:
 
 * every judgment form is given with its denotational interpretation, so the proof theory and the model theory stay synchronised;
 * every inference rule is justified by an appeal to the categorical structure already exhibited in the denotational chapters;
-* the soundness theorem (Theorem [§7.1](#71-soundness)) is the precise statement under which the REPL's `:type` and `:kind` commands are guaranteed to report mathematically meaningful answers.
+* the soundness theorem (Theorem [§9.1](#91-soundness)) is the precise statement under which the REPL's `:type` and `:kind` commands are guaranteed to report mathematically meaningful answers.
 
 ## 1. Syntactic categories
 
@@ -170,13 +170,13 @@ $$
 \Delta \;::=\; \varepsilon \;\mid\; \Delta,\ p : P
 $$
 
-where $p$ is a parameter name and $P$ ranges over the parameter universes listed in [Programs §3a](programs.md#3a-parametric-programs):
+where $p$ is a parameter name and $P$ ranges over the parameter universes listed in [Programs §3a](programs.md#3a-parametric-programs). The implementation in [`ProgramParam`](../api/dsl/ast_nodes.md#programparam) records three concrete variants:
 
-| $P$ | Universe |
-|---|---|
-| $\ast_{\mathrm{FinSet}}$, $\ast_{\mathrm{Space}}$, $\ast_{\mathrm{Atom}}$ | an object of the relevant sub-category |
-| $\mathsf{Scalar}_\mathbb{R}$, $\mathsf{Scalar}_\mathbb{N}$ | a scalar hyperparameter |
-| $\mathsf{Mor}[A, B]$ | a kernel $A \to \mathcal{G}(B)$ |
+| Variant | Surface | Universe |
+|---|---|---|
+| [`ObjectParam`](../api/dsl/ast_nodes.md#objectparam) | `G : FinSet` / `G : Space` / `G : Object` | an object of $\mathbf{FinSet}$ / $\mathbf{SBor}$ / either |
+| [`ScalarParam`](../api/dsl/ast_nodes.md#scalarparam) | `α : Real` / `α : Nat` | the underlying set of the rig $\mathbb{R}$ or $\mathbb{N}$ |
+| [`MorphismParam`](../api/dsl/ast_nodes.md#morphismparam) | `f : Mor[A, B]` | a kernel $A \to \mathcal{G}(B)$ in $\mathrm{Hom}_{\mathbf{Kern}}(A, B)$ |
 
 A bare-identifier parameter list $(q_1, \ldots, q_k)$ is the special case of a $\Delta$ all of whose entries are *projection binders*: they do not contribute a Π-quantifier (their denotation is identity), they only name the components of the program's domain.
 
@@ -249,7 +249,7 @@ $$
 \ast_{\mathrm{Space}} \sqcup \ast_{\mathrm{Space}} = \ast_{\mathrm{Space}}
 $$
 
-implementing the discrete-component absorption discussed in [Resolution §1.3](types-and-spaces.md#13-mixed-products). Coproducts are restricted to the discrete sub-language because $\mathbf{SBor}$ has no general finite coproducts that play well with the Giry monad.
+implementing the discrete-component absorption discussed in [Types and spaces §6](types-and-spaces.md#6-resolution-in-code). Coproducts are restricted to the discrete sub-language because $\mathbf{SBor}$ has no general finite coproducts that play well with the Giry monad.
 
 ### 3.5 Residuated formers
 
@@ -305,10 +305,10 @@ The two rules separate trace-bound names (which project from the current $\Phi$)
 
 $$
 \frac{\Gamma; \Phi \vdash e_1 : A \rightsquigarrow B \qquad \Gamma; \Phi \vdash e_2 : B \rightsquigarrow C}
-     {\Gamma; \Phi \vdash e_1\,{>\!\!>}\,e_2 : A \rightsquigarrow C}\ \textsc{Compose}
+     {\Gamma; \Phi \vdash e_1 \mathbin{\diamond_\alpha} e_2 : A \rightsquigarrow C}\ \textsc{Compose}
 $$
 
-This is Kleisli composition $\diamond$ in the underlying Markov category. Soundness (Theorem [§7.1](#71-soundness)) collapses the syntactic $>\!\!>$ onto $\diamond$.
+This is Kleisli composition $\diamond_\alpha$ in the underlying Markov category, with $\alpha$ ranging over the algebra-parameterised operators of [Composition rules](composition-rules.md) (`>>`, `>=>`, `*>`, `~>`, `||>`, `?>`, `&&>`, `+>`, `<<`). Soundness (Theorem [§9.1](#91-soundness)) collapses every syntactic composition operator onto its algebra's $\diamond$.
 
 ### 5.3 Tensor product
 
@@ -405,7 +405,7 @@ $$
      {\Gamma; \Phi \vdash \mathsf{marginalize}\ v \leftarrow F(\bar a)\,\{\, s_1; \ldots; s_n\,\} \dashv \Phi'\setminus v}\ \textsc{Marginalize}
 $$
 
-The variable $v$ is bound *inside* the marginalize body but does not appear in the resulting trace context: marginalization is precisely the pushforward $\pi_{\Phi *}$ that eliminates $v$ from the joint kernel (see [Programs §2.5](programs.md#25-marginalize)).
+The variable $v$ is bound *inside* the marginalize body but does not appear in the resulting trace context: marginalization is precisely the pushforward $\pi_{\Phi *}$ that eliminates $v$ from the joint kernel (see [Programs §2.6](programs.md#26-marginalize)).
 
 ### 6.5 Let
 
