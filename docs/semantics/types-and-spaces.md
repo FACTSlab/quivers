@@ -25,7 +25,7 @@ Here $n \in \mathbb{N}$ is an integer literal, $X$ ranges over object names, $S$
 Type denotation is a function
 
 $$
-\llbracket \cdot \rrbracket_{\mathrm{Ty}} : \textsf{TypeExpr} \times \mathrm{Env}_{\mathrm{obj}} \to \mathrm{Ob}(\mathbf{FinSet}).
+\llbracket \cdot \rrbracket_{\mathrm{Ty}} : \textsf{ObjectExpr} \times \mathrm{Env}_{\mathrm{obj}} \to \mathrm{Ob}(\mathbf{FinSet}).
 $$
 
 We omit the environment argument when it is clear.

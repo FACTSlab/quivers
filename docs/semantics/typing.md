@@ -588,7 +588,15 @@ which collapses to a plain element of $\mathrm{Hom}_{\mathbf{Kern}}(\llbracket A
 * *if $\Gamma; \Phi \vdash s \dashv \Phi'$ then $\llbracket s \rrbracket$ is defined and $\llbracket s \rrbracket \in \mathrm{Hom}_{\mathbf{Kern}}(\llbracket \Phi \rrbracket,\, \mathcal{G}(\llbracket \Phi' \rrbracket))$;*
 * *if $\Gamma \vdash p : (\Delta) \Rightarrow A \rightsquigarrow B$ then $\llbracket p \rrbracket$ is defined and $\llbracket p \rrbracket \in \prod_{\delta : \llbracket \Delta \rrbracket} \mathrm{Hom}_{\mathbf{Kern}}(\llbracket A \rrbracket,\, \mathcal{G}(\llbracket B \rrbracket))$.*
 
-**Proof.** By mutual induction on the derivation. We give the four key cases; the remaining cases are similar.
+**Proof.** By mutual induction on the derivation. The structure is:
+
+* the *type-formation* clauses ($\textsc{FinSet}, \textsc{Real}, \textsc{TyProd}, \textsc{TySum}, \textsc{TySlashR}, \textsc{TySlashL}, \textsc{TyEff}, \textsc{FinSetVar}, \textsc{TyVar}$) each appeal to the corresponding constructor in $\mathbf{FinSet}$ / $\mathbf{SBor}$ / the residuated atom universe ([Types and spaces §2–§3](types-and-spaces.md)), totality of which is a standing assumption of the categorical setting;
+* the *morphism* clauses ($\textsc{TraceVar}, \textsc{ModuleVar}, \textsc{Compose}, \textsc{Tensor}, \textsc{Id}, \textsc{Fan}, \textsc{Repeat}, \textsc{ContractApp}$, plus the derived combinators $\mathsf{stack}, \mathsf{scan}, \mathsf{cup}, \mathsf{cap}, \mathsf{dagger}, \mathsf{trace}, \mathsf{change\_base}$) each appeal to a categorical operation in $\mathbf{Kern}$ ([Morphisms](morphisms.md) and [Expressions](expressions.md)), whose totality on the hom-set of the premises is the conclusion;
+* the *family* clauses ($\textsc{FamReg}, \textsc{FamApp}$) appeal to the registered family's measurable parameter map ([Programs §2.1](programs.md#21-bind));
+* the *statement* clauses ($\textsc{Bind}, \textsc{BindTuple}, \textsc{Observe}, \textsc{Marginalize}, \textsc{Let}, \textsc{Score}, \textsc{Seq}, \textsc{Inline}$) appeal to the explicit Kleisli arrows of [Programs §2](programs.md#2-statements);
+* the *program* clause ($\textsc{Prog}, \textsc{ProgProj}$) appeals to the dependent-product structure of [Programs §3a](programs.md#3a-parametric-programs) plus the iterated $\diamond$-composition of the body.
+
+We give four representative cases ($\textsc{Compose}, \textsc{Bind}, \textsc{Marginalize}, \textsc{Prog}$) in full; every other case follows the same template, substituting the relevant categorical operation for $\diamond$.
 
 *Case $\textsc{Compose}$.* By induction, $\llbracket e_1 \rrbracket \in \mathrm{Hom}_{\mathbf{Kern}}(\Phi \times A,\, \mathcal{G}(B))$ and $\llbracket e_2 \rrbracket \in \mathrm{Hom}_{\mathbf{Kern}}(\Phi \times B,\, \mathcal{G}(C))$. Kleisli composition $\diamond$ in $\mathbf{Kern}$ (extended over the trace argument by the obvious pre-composition with the duplication map $\Delta_\Phi$) lands in $\mathrm{Hom}_{\mathbf{Kern}}(\Phi \times A,\, \mathcal{G}(C))$, which is the required signature. Total composition is well-defined because $\mathbf{Kern}$ is a category, established in [Morphisms §2](morphisms.md).
 
@@ -624,7 +632,25 @@ $$
 
 **Proof sketch.** Substitution commutes with the body's denotation function $\mathcal{B}\llbracket \cdot \rrbracket$ because $\mathcal{B}\llbracket \cdot \rrbracket$ is defined compositionally on the syntactic structure of the body, and each clause is closed under syntactic substitution of free parameters. The α-renaming step (used by inline expansion to give fresh names to internal latents) is sound because $\mathcal{B}\llbracket \cdot \rrbracket$ depends only on the multiset of bound-variable types, not on the names. The detailed argument is the substitution lemma of [Programs §3a](programs.md#3a-parametric-programs). $\square$
 
-### 9.3 Equivalence and conservativity
+### 9.3 Structural lemmas
+
+The Soundness theorem (§[9.1](#91-soundness)) and the Subject-Reduction theorem (§[9.2](#92-subject-reduction-parametric-instantiation)) appeal to three structural facts about the type system that are themselves worth stating as lemmas. Each is proved by structural induction on the derivation; the inductive cases follow the corresponding clause of the relevant judgment.
+
+**Lemma (Weakening).** *Let $\mathcal{J}$ be any judgment form. If $\Gamma \vdash \mathcal{J}$ and $\Gamma'$ extends $\Gamma$ with disjoint entries, then $\Gamma' \vdash \mathcal{J}$. The same holds for $\Delta$ and $\Phi$ in any judgment that mentions them.*
+
+*Proof.* Each rule's premises mention only the entries actually consulted (no rule reads "$\Gamma$ has exactly $n$ entries"); extending the context preserves every premise. $\square$
+
+**Lemma (Substitution).** *Suppose $\Gamma \vdash a : P$ for a parameter universe $P$. Then for every judgment $\Gamma, p : P; \Phi \vdash \mathcal{J}$, the substituted judgment $\Gamma; \Phi[a/p] \vdash \mathcal{J}[a/p]$ is derivable, and $\llbracket \mathcal{J}[a/p] \rrbracket = \llbracket \mathcal{J} \rrbracket\bigl[\llbracket a \rrbracket / p\bigr]$ in the appropriate $\Pi$-fibre.*
+
+*Proof.* Induction on $\mathcal{J}$. The base cases ($\textsc{TyVar}, \textsc{TraceVar}, \textsc{ModuleVar}, \textsc{FinSet}, \textsc{Real}, \ldots$) are immediate because they either consult the substituted entry directly or not at all. The inductive cases ($\textsc{TyProd}, \textsc{Compose}, \textsc{Tensor}, \textsc{Fan}, \textsc{Bind}, \textsc{Marginalize}, \ldots$) follow because each rule's denotation is compositional in its premises' denotations, and substitution commutes with the categorical operations ($\diamond$, $\otimes$, $\pi_*$) by their universal properties. $\square$
+
+**Lemma (Type uniqueness).** *Suppose $\Gamma; \Phi \vdash e : A_1 \rightsquigarrow B_1$ and $\Gamma; \Phi \vdash e : A_2 \rightsquigarrow B_2$. Then $A_1 = A_2$ and $B_1 = B_2$. The analogous statement holds for the statement, family, type-formation, and program judgments.*
+
+*Proof.* Induction on $e$. For each Expr variant, exactly one rule's conclusion shape applies; the rule determines the conclusion's $A$ and $B$ as functions of the premises' types (e.g. $\textsc{Compose}$ fixes $A = A_1$, $B = C$ given the operand types). The premises themselves have unique types by induction, so the conclusion is uniquely determined. The $\textsc{ModuleVar}$ rule's $A \rightsquigarrow B$ is uniquely read from $\Gamma$ by the disjointness of context entries; $\textsc{TraceVar}$ reads $\tau$ uniquely from $\Phi$. $\square$
+
+The three lemmas justify each "by induction" step in the proof of Soundness (§[9.1](#91-soundness)): Weakening discharges the case where a premise's context differs from the conclusion's; Substitution underwrites the $\textsc{Prog}$ case's claim that each fibre is well-defined; Type Uniqueness ensures the algorithm of §[10](#10-algorithmic-typechecking) is well-defined (each synthesis returns *the* type, not a non-empty family).
+
+### 9.4 Equivalence and conservativity
 
 Two well-typed phrases $\phi_1, \phi_2$ at the same judgment are *denotationally equivalent*, written $\phi_1 \equiv \phi_2$, when $\llbracket \phi_1 \rrbracket = \llbracket \phi_2 \rrbracket$. The QVR type system is *conservative* in the following sense: for any judgment form $\mathcal{J}$, if $\phi_1$ and $\phi_2$ are $\mathcal{J}$-derivable and denotationally equal, the type system does not assign them distinguishable types (no judgment $\mathcal{J}'$ separates them). This conservativity is the categorical content of the "every well-typed phrase has a unique denotation" reading of [Adequacy](adequacy.md).
 
