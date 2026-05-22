@@ -383,3 +383,7 @@ Every well-typed expression denotes a morphism in a symmetric monoidal category 
 These are the equational theory of symmetric monoidal categories; together with the trace axioms ([Joyal, Street & Verity 1996, §3](https://doi.org/10.1017/S0305004100074338)), they constitute the equational semantics of QVR expressions.
 
 The compiler does *not* normalize expressions modulo these laws; it computes a literal AST-driven tensor expression. The laws are nevertheless valid statements about denotations, and the [Adequacy](adequacy.md) theorem confirms they are respected by the implementation up to the floating-point precision of the underlying tensor library.
+
+## References
+
+André Joyal, Ross Street, and Dominic Verity. 1996. [Traced monoidal categories](https://doi.org/10.1017/S0305004100074338). *Mathematical Proceedings of the Cambridge Philosophical Society*, 119(3):447–468.
