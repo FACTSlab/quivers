@@ -689,7 +689,7 @@ $\log \mathbb{E}_{\mathbf{z}}[p(y \mid \mathbf{z})] \ge \mathbb{E}_{\mathbf{z}}[
 families ([`Normal`](https://docs.pytorch.org/docs/stable/distributions.html#normal), [`MultivariateNormal`](https://docs.pytorch.org/docs/stable/distributions.html#multivariatenormal),
 [`LowRankMultivariateNormal`](https://docs.pytorch.org/docs/stable/distributions.html#lowrankmultivariatenormal), etc.) yield a pathwise-
 differentiable $\mathbf{z}_{*}(\xi; x, \theta)$ in an auxiliary
-noise $\xi$. For SVI, the [unbiased gradient identity](https://doi.org/10.1561/2200000076)
+noise $\xi$. For SVI, the [unbiased reparameterization gradient identity](https://doi.org/10.48550/arXiv.1312.6114)
 $\nabla_{\theta} \mathbb{E}_{\mathbf{z}}[\log p(y \mid \mathbf{z}, \theta)] = \mathbb{E}_{\xi}[\nabla_{\theta} \log p(y \mid \mathbf{z}_{*}(\xi; \theta), \theta)]$
 holds, and a single MC draw at each SVI step is an unbiased
 stochastic gradient of the wrapper's expected objective; under
@@ -766,3 +766,23 @@ log-joint, pointwise and with exact placeholder cancellation)
 applies unchanged to [`nuts_program_from_deduction`](../api/stochastic/deduction/bayes.md#quivers.stochastic.deduction.bayes.nuts_program_from_deduction);
 the choice of reading enters only when interpreting that
 log-density as a posterior.
+
+## References
+
+Taylor L. Booth and Richard A. Thompson. 1973. [Applying probability measures to abstract languages](https://doi.org/10.1109/TC.1973.223746). *IEEE Transactions on Computers*, C-22(5):442–450.
+
+Kenta Cho and Bart Jacobs. 2019. [Disintegration and Bayesian inversion via string diagrams](https://doi.org/10.1017/S0960129518000488). *Mathematical Structures in Computer Science*, 29(7):938–971.
+
+Tobias Fritz. 2020. [A synthetic approach to Markov kernels, conditional independence and theorems on sufficient statistics](https://doi.org/10.1016/j.aim.2020.107239). *Advances in Mathematics*, 370:107239.
+
+Michèle Giry. 1982. [A categorical approach to probability theory](https://doi.org/10.1007/BFb0092872). In Bernhard Banaschewski, editor, *Categorical Aspects of Topology and Analysis*, volume 915 of *Lecture Notes in Mathematics*, pages 68–85. Springer, Berlin, Heidelberg.
+
+Diederik P. Kingma and Max Welling. 2013. [Auto-Encoding Variational Bayes](https://doi.org/10.48550/arXiv.1312.6114). arXiv preprint arXiv:1312.6114.
+
+Anders Kock. 1972. [Strong functors and monoidal monads](https://doi.org/10.1007/BF01304852). *Archiv der Mathematik*, 23(1):113–120.
+
+John D. Lafferty, Andrew McCallum, and Fernando C. N. Pereira. 2001. [Conditional random fields: Probabilistic models for segmenting and labeling sequence data](https://repository.upenn.edu/cis_papers/159/). In *Proceedings of the Eighteenth International Conference on Machine Learning (ICML 2001)*, pages 282–289, San Francisco, CA, USA. Morgan Kaufmann.
+
+Herbert Robbins and Sutton Monro. 1951. [A stochastic approximation method](https://doi.org/10.1214/aoms/1177729586). *The Annals of Mathematical Statistics*, 22(3):400–407.
+
+Cristiano Varin, Nancy Reid, and David Firth. 2011. [An overview of composite likelihood methods](https://www.jstor.org/stable/24309261). *Statistica Sinica*, 21(1):5–42.
