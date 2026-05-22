@@ -41,45 +41,44 @@ def ccg():
 
 
 def test_type_scoped_sample_site(lda):
+    # GHCi-style: ``theta :: index -> value-space``.
     r = lda.type_of("lda::theta")
     assert r.ok
-    assert "sample theta" in r.body
+    assert r.body.startswith("theta ::")
     assert "Doc" in r.body
-    assert "Dirichlet" in r.body
+    assert "Topic" in r.body
 
 
 def test_type_scoped_marginalize_site(lda):
     r = lda.type_of("lda::z")
     assert r.ok
-    assert "marginalize z" in r.body
+    assert r.body.startswith("z ::")
     assert "Topic" in r.body
-    assert "Categorical(theta)" in r.body
 
 
 def test_type_scoped_observe_inside_marginalize(lda):
     r = lda.type_of("lda::z::w")
     assert r.ok
-    assert "observe w" in r.body
+    assert r.body.startswith("w ::")
     assert "Word" in r.body
-    assert "via=word_idx" in r.body
 
 
 def test_type_scoped_param(lda):
     r = lda.type_of("lda::alpha")
     assert r.ok
-    assert r.body == "param alpha : Real"
+    assert r.body == "alpha :: Real"
 
 
 def test_type_scoped_return(lda):
     r = lda.type_of("lda::return")
     assert r.ok
-    assert r.body == "return theta"
+    assert r.body == "return :: theta"
 
 
 def test_type_scoped_deduction_rule(ccg):
     r = ccg.type_of("CCG::fwd_app")
     assert r.ok
-    assert r.body.startswith("rule fwd_app : ")
+    assert r.body.startswith("fwd_app :: ")
     assert "|-" in r.body
 
 
@@ -90,11 +89,11 @@ def test_type_unknown_path_returns_error(lda):
 
 
 def test_type_bare_name_still_works(lda):
-    """The bare-name fast path is unaffected by the scope-path
-    addition."""
+    """The bare-name fast path emits a GHCi-style signature line for
+    a program: ``name :: dom -> cod`` (no params, no decl keyword)."""
     r = lda.type_of("lda")
     assert r.ok
-    assert r.body == "program lda(alpha : Real, beta : Real) : Word -> Word"
+    assert r.body == "lda :: Word -> Word"
 
 
 # ---------------------------------------------------------------------------

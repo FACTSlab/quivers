@@ -299,7 +299,7 @@ class ReplSession:
                 return _err(
                     f"{expr_source} is a type, not an expression; use :kind {expr_source}"
                 )
-            return _resp(self._type_line_for_ref(ref), body_kind="qvr")
+            return _resp(self._type_signature_for_ref(ref), body_kind="qvr")
 
         bare = expr_source.strip()
         if bare.isidentifier():
@@ -335,7 +335,7 @@ class ReplSession:
         if morph is None:
             return _err("expression did not resolve to a morphism")
         return _resp(
-            self._type_line_for_morphism(expr_source, morph),
+            self._type_signature_for_morphism(expr_source, morph),
             body_kind="qvr",
         )
 
@@ -351,30 +351,34 @@ class ReplSession:
         if not self._compiler:
             return None
         if bare in self._compiler.morphisms:
-            return self._type_line_for_morphism(bare, self._compiler.morphisms[bare])
+            return self._type_signature_for_morphism(
+                bare, self._compiler.morphisms[bare]
+            )
         if bare in self._compiler.programs:
-            return self._type_line_for_program(bare, self._compiler.programs[bare])
+            return self._type_signature_for_program(
+                bare, self._compiler.programs[bare]
+            )
         if bare in self._compiler.deductions:
             ded = self._compiler.deductions[bare]
             dom = getattr(ded, "domain", None)
             cod = getattr(ded, "codomain", None)
             if dom is not None and cod is not None:
                 return (
-                    f"deduction {bare} : "
+                    f"{bare} :: "
                     f"{_pretty_object(dom)} -> {_pretty_object(cod)}"
                 )
-            return f"deduction {bare}"
+            return f"{bare} :: ?"
         if bare in self._compiler.signatures:
-            return f"signature {bare}"
+            return f"{bare} :: signature"
         if bare in self._compiler.encoders:
-            return f"encoder {bare}"
+            return f"{bare} :: encoder"
         if bare in self._compiler.decoders:
-            return f"decoder {bare}"
+            return f"{bare} :: decoder"
         if bare in self._compiler.losses:
-            return f"loss {bare}"
+            return f"{bare} :: loss"
         if bare in self._compiler.bundles:
             members = self._compiler.bundles[bare]
-            return f"bundle {bare} = {' | '.join(members)}"
+            return f"{bare} :: {' | '.join(members)}"
         return None
 
     def _type_line_for_name(self, bare: str) -> str | None:
@@ -448,6 +452,77 @@ class ReplSession:
             if kind_response.ok:
                 return kind_response
         return response
+
+    # ----- GHCi-style :type signature renderers ------------------------
+    #
+    # These produce ``name :: type`` lines (no decl-keyword prefix, no
+    # ``[role=...]`` / option annotations). They drive ``:type``.
+    # The ``_type_line_for_*`` family below produces decl-shaped lines
+    # and drives ``:info`` / ``:browse`` instead.
+
+    def _type_signature_for_morphism(self, name: str, morph: Any) -> str:
+        del self
+        return f"{name} :: {_pretty_morphism(morph)}"
+
+    def _type_signature_for_program(self, name: str, tmpl: Any) -> str:
+        del self
+        dom = getattr(tmpl, "domain", None)
+        cod = getattr(tmpl, "codomain", None)
+        if dom is not None and cod is not None:
+            return f"{name} :: {_pretty_object(dom)} -> {_pretty_object(cod)}"
+        return f"{name} :: ?"
+
+    def _type_signature_for_ref(self, ref: ScopedRef) -> str:
+        """Render a GHCi-style ``name :: type`` line for a scoped ref.
+
+        Strips the decl-style keyword prefix and any annotation
+        suffixes, keeping only the underlying type information.
+        """
+        node = ref.node
+        kind = ref.kind
+        if kind == "program":
+            return self._type_signature_for_program(ref.name, node)
+        if kind == "morphism":
+            return self._type_signature_for_morphism(ref.name, node)
+        if kind == "deduction":
+            dom = getattr(node, "domain", None)
+            cod = getattr(node, "codomain", None)
+            if dom is not None and cod is not None:
+                return (
+                    f"{ref.name} :: "
+                    f"{_pretty_object(dom)} -> {_pretty_object(cod)}"
+                )
+            return f"{ref.name} :: ?"
+        if kind in ("sample-site", "observe-site", "marginalize-site"):
+            return _site_signature(ref.name, node)
+        if kind == "let-site":
+            return f"{ref.name} :: ?"
+        if kind == "score-site":
+            return f"{ref.name} :: Real"
+        if kind == "return-site":
+            members = node if isinstance(node, tuple) else (str(node),)
+            return f"return :: {', '.join(str(m) for m in members)}"
+        if kind == "param":
+            sk = getattr(node, "scalar_kind", None)
+            universe = getattr(node, "universe", None)
+            if sk is not None:
+                return f"{ref.name} :: {sk}"
+            if universe is not None:
+                return f"{ref.name} :: {universe}"
+            return f"{ref.name} :: ?"
+        if kind == "deduction-rule":
+            premises = getattr(node, "premises", ()) or ()
+            conclusion = getattr(node, "conclusion", None)
+            prem_str = ", ".join(_pat_str(p) for p in premises)
+            return f"{ref.name} :: {prem_str} |- {_pat_str(conclusion)}"
+        # Other value-level kinds (signature / encoder / decoder /
+        # loss / bundle / rule / contraction / category / *-rule /
+        # var-init / decoder-head / bundle-member / composition):
+        # surface whatever the decl-line renderer produces with the
+        # leading kind keyword stripped.
+        line = self._type_line_for_ref(ref)
+        stripped = _drop_leading_keyword(line, ref.name)
+        return stripped if stripped is not None else line
 
     def _type_line_for_morphism(self, name: str, morph: Any) -> str:
         """Render a morphism's signature in valid-QVR notation.
@@ -2034,6 +2109,50 @@ def _options_suffix(step: Any) -> str:
         v = getattr(value, "value", None)
         parts.append(f"{key}={v if v is not None else value}")
     return f" [{', '.join(parts)}]"
+
+
+def _site_value_space(step: Any) -> str | None:
+    """Extract the ``over=`` value-space option from a sample /
+    observe / marginalize step, returning its rendered name."""
+    for opt in getattr(step, "options", ()) or ():
+        if getattr(opt, "key", "") == "over":
+            value = getattr(opt, "value", None)
+            v = getattr(value, "value", None)
+            return str(v) if v is not None else str(value)
+    return None
+
+
+def _site_signature(name: str, step: Any) -> str:
+    """GHCi-style ``name :: type`` for a sample / observe / marginalize
+    step. ``type`` is ``index -> value-space`` when both are known,
+    or just ``value-space`` when the step has no index.
+    Falls back to the family call (``Dirichlet(alpha)``) when the
+    value-space can't be read off the options.
+    """
+    idx_obj = getattr(step, "index", None)
+    idx_name = (
+        getattr(idx_obj, "name", None) or repr(idx_obj) if idx_obj is not None else None
+    )
+    value_space = _site_value_space(step)
+    if value_space is None:
+        value_space = _call_str(step)
+    if idx_name is not None:
+        return f"{name} :: {idx_name} -> {value_space}"
+    return f"{name} :: {value_space}"
+
+
+def _drop_leading_keyword(line: str, name: str) -> str | None:
+    """If ``line`` starts with ``<keyword> <name> :`` (the decl-line
+    shape used by :info / :browse), strip the keyword + name and
+    return a ``<name> :: <rest>`` form. Otherwise return None.
+    """
+    head, sep, rest = line.partition(" : ")
+    if not sep:
+        return None
+    head_tokens = head.split()
+    if len(head_tokens) < 2 or head_tokens[-1] != name:
+        return None
+    return f"{name} :: {rest}"
 
 
 def _render_sample_line(step: Any) -> str:

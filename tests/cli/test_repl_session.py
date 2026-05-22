@@ -57,10 +57,9 @@ def test_type_of_morphism() -> None:
     s = _populated()
     r = s.dispatch(":type f")
     assert r.ok, r.diagnostics
-    assert " -> " in r.body
-    # Morphism signatures lead with the declaration kind keyword so
-    # the QVR grammar can colour the domain/codomain as types.
-    assert r.body.split()[0] in {"morphism", "program"}
+    # GHCi-style: ``name :: dom -> cod``, no decl keyword, no
+    # ``[role=...]`` annotation.
+    assert r.body == "f :: FinSet 3 -> FinSet 4"
 
 
 def test_kind_of_object() -> None:
@@ -342,10 +341,10 @@ def test_bare_expression_falls_through_to_type_or_kind() -> None:
     r = s.dispatch("X")
     assert r.ok
     assert r.body.startswith("object X")
-    # And for a value-level name, :type wins.
+    # And for a value-level name, :type wins (GHCi-style sig line).
     r = s.dispatch("f")
     assert r.ok
-    assert r.body.startswith("morphism f")
+    assert r.body.startswith("f ::")
 
 
 def test_bare_statement_extends_module() -> None:
