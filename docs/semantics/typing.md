@@ -681,23 +681,30 @@ The three lemmas justify each "by induction" step in the proof of Soundness (§[
 
 ### 9.4 Completeness
 
-Soundness (§[9.1](#91-soundness)) says every well-typed phrase has a denotation in the appropriate hom-set. The converse direction is a *completeness* theorem: every phrase that has a denotation has a derivation.
+Soundness (§[9.1](#91-soundness)) says every well-typed phrase has a denotation. The converse — that no semantically-meaningful phrase is rejected by the type system — requires a denotation function that is defined independently of any typing derivation.
 
-**Theorem (Completeness).** *Let $\phi$ be a phrase of one of the syntactic categories of §[1](#1-syntactic-categories), and suppose its denotation $\llbracket \phi \rrbracket$ is defined under the compositional clauses of §[8](#8-denotational-interpretation). Then there exists a context $\Gamma$ and a derivation of the appropriate judgment $\Gamma \vdash \mathcal{J}(\phi)$.*
+**Definition (Partial raw denotation).** *Extend the clauses of §[8](#8-denotational-interpretation) to raw syntax by setting $\llbracket \phi \rrbracket_{\mathrm{raw}}$ undefined whenever:*
 
-**Proof.** By structural induction on $\phi$.
+* *a leaf identifier is absent from the surrounding environment $\rho$;*
+* *a primitive constructor is invoked outside its domain (e.g. $\mathsf{FinSet}(n)$ at $n < 0$);*
+* *a binary node receives operands whose recursively-computed denotations are incompatible with the node's categorical operation (e.g. $\textsc{Compose}$ at $\llbracket e_1 \rrbracket_{\mathrm{raw}} \in \mathrm{Hom}(A, B)$ and $\llbracket e_2 \rrbracket_{\mathrm{raw}} \in \mathrm{Hom}(B', C)$ with $B \neq B'$);*
+* *any recursive call returns undefined.*
 
-*Type expressions.* The denotation $\llbracket \tau \rrbracket$ is defined iff every $\textsf{TypeName}$ leaf $X$ resolves in $\rho_{\mathrm{obj}}$ or $\rho_{\mathrm{spc}}$, every $\textsf{DiscreteConstructor}$ / $\textsf{ContinuousConstructor}$ leaf has its primitive interpretation defined ([Types and spaces §2–§4](types-and-spaces.md)), and every product / coproduct / residuated / effect-apply node's children are defined (which is the structural inductive hypothesis). Each of these conditions is exactly the premise of the corresponding kinding rule ($\textsc{TyVar}$, $\textsc{FinSet}$, $\textsc{Real}$, $\textsc{TyProd}$, $\textsc{TySum}$, $\textsc{TySlashR}$, $\textsc{TySlashL}$, $\textsc{TyEff}$). Constructing $\Gamma$ to declare each name at the kind read off from $\rho$ produces the required derivation.
+Otherwise $\llbracket \phi \rrbracket_{\mathrm{raw}}$ is the value of the structural recursion in §[8](#8-denotational-interpretation).
 
-*Morphism expressions.* The denotation $\llbracket e \rrbracket$ is defined iff every leaf $f$ resolves in $\rho_{\mathrm{mor}}$ with the dom / cod the parser inferred, every $\textsf{ExprIdentity}$ / $\textsf{ExprDagger}$ / $\textsf{ExprTrace}$ / etc. node has its categorical operation defined on the inductively-resolved operands, and every composition's dom / cod agree. Each condition is the premise of the corresponding morphism rule ($\textsc{ModuleVar}$, $\textsc{Id}$, $\textsc{Compose}$, $\textsc{Tensor}$, $\textsc{Fan}$, $\ldots$).
+**Theorem (Completeness).** *For every phrase $\phi$ and every environment $\rho$ over which $\llbracket \phi \rrbracket_{\mathrm{raw}}$ is defined, there exist a typing context $\Gamma$ (with the same identifier bindings as $\rho$ but tracking sorts rather than denotations) and a derivation $\Gamma \vdash \mathcal{J}(\phi)$ such that the §[8](#8-denotational-interpretation) denotation of that derivation equals $\llbracket \phi \rrbracket_{\mathrm{raw}}$.*
 
-*Statements and programs.* Inductive in the same shape, with the trace-context premises threading through $\textsc{Seq}$ and the program-level premise discharging $\textsc{Prog}$.
+**Proof.** By structural induction on $\phi$ with mutual cases for each syntactic category. We give type expressions in full; the morphism, family, statement, and program cases follow the same template.
+
+*Type expressions.* By the definition above, $\llbracket \tau \rrbracket_{\mathrm{raw}}$ is defined exactly when (a) every $\textsf{TypeName}$ leaf $X$ has $\rho_{\mathrm{obj}}(X)$ or $\rho_{\mathrm{spc}}(X)$ defined, (b) every $\textsf{DiscreteConstructor}$ / $\textsf{ContinuousConstructor}$ leaf has a defined primitive interpretation ([Types and spaces §2–§4](types-and-spaces.md)), and (c) every product / coproduct / residuated / effect-apply node has all children defined. For each clause, the corresponding kinding rule's premise is exactly this condition: e.g. $\textsc{TyVar}$ requires $X : \kappa \in \Gamma$, and we construct $\Gamma$ to declare $X$ at the kind $\kappa$ that matches the entry in $\rho$. The inductive hypothesis discharges the premises about children. The constructed derivation satisfies $\llbracket \mathrm{derivation} \rrbracket = \llbracket \tau \rrbracket_{\mathrm{raw}}$ because both sides apply the same structural-recursive clauses to the same inputs.
+
+*Morphism expressions, families, statements, programs.* The same template: the partial raw denotation's defined-ness condition at each node is, by the definition above, exactly the premise of the rule whose conclusion matches that node's syntactic shape. The compositionality of $\llbracket \cdot \rrbracket$ ensures the constructed-derivation denotation agrees with the raw denotation.
 
 $\square$
 
-**Corollary (Decidable type membership).** *For every phrase $\phi$ and every candidate type $\tau$, the question "is $\phi$ of type $\tau$?" is decidable.*
+**Corollary (Decidable type membership, decidable fragment).** *For every phrase $\phi$ free of the residuated formers and the effect-typed nodes ($\textsf{ObjectSlash}$, $\textsf{ObjectEffectApply}$) and every candidate type $\tau$, the question "is $\phi$ of type $\tau$?" is decidable.*
 
-This follows from Soundness + Completeness + Type Uniqueness (§[9.3](#93-structural-lemmas)): synthesise $\tau' = \mathrm{type}(\phi)$ by the algorithm of §[10](#10-algorithmic-typechecking), check $\tau' = \tau$ structurally. By Soundness the synthesis returns a valid type or fails; by Completeness it succeeds whenever the denotation is defined; by Type Uniqueness the answer is independent of the synthesis order.
+This follows from Soundness + Completeness + Type Uniqueness (§[9.3](#93-structural-lemmas)) restricted to the decidable fragment of §[10.1](#101-decidability): synthesise $\tau' = \mathrm{type}(\phi)$ by the bidirectional algorithm of §[10](#10-algorithmic-typechecking) (which terminates on this fragment by the proposition there), check $\tau' = \tau$ structurally. By Soundness the synthesis returns a valid type or fails; by Completeness it succeeds whenever $\llbracket \phi \rrbracket_{\mathrm{raw}}$ is defined; by Type Uniqueness the synthesised type is unique. For the residuated / effect-typed extension, decidability is conditional on the underlying solver as noted in §[10.1](#101-decidability).
 
 ### 9.5 Equivalence and conservativity
 

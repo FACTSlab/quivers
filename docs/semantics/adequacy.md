@@ -69,9 +69,9 @@ Each combinator is implemented as a tensor-level operation whose definition is t
 
 **Proposition (Adequacy of `@`).** *Let $f : A_1 \to B_1$ and $g : A_2 \to B_2$ be QVR morphisms with tensor representations $T_f \in \mathcal{V}^{|A_1| \times |B_1|}$ and $T_g \in \mathcal{V}^{|A_2| \times |B_2|}$. Then the runtime tensor of $f \mathbin{@} g$ equals the denotation $\llbracket f \otimes g \rrbracket \in \mathcal{V}^{|A_1 \times A_2| \times |B_1 \times B_2|}$ as a $\mathcal{V}$-valued function on indices.*
 
-**Proof.** The compiler's handler for `ExprTensorProduct` (in `_ProgramsMixin._compile_expr`) constructs a `TensorProductMorphism(f, g)` whose `tensor` property is
+**Proof.** The compiler's handler for `ExprTensorProduct` (in `_ProgramsMixin._compile_expr`) evaluates `left @ right`, where `Morphism.__matmul__` returns a `ProductMorphism(f, g)` whose `tensor` property is
 $$
-\mathtt{TensorProductMorphism.tensor}[(a_1, a_2), (b_1, b_2)]
+\mathtt{ProductMorphism.tensor}[(a_1, a_2), (b_1, b_2)]
 \;=\;
 T_f[a_1, b_1] \otimes T_g[a_2, b_2].
 $$

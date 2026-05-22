@@ -143,7 +143,6 @@ under effect prefix $\bar T \in \mathrm{EffectStack}_{\le d}$".
 
 $$
 \frac{r : \pi_1 \otimes \pi_2 \to \pi \in \mathrm{Rules}
-       \qquad \sigma\ \text{matches}\ \pi_1\ \text{at}\ \mathrm{Chart}[i, k]\ \text{and}\ \pi_2\ \text{at}\ \mathrm{Chart}[k, j]
        \qquad \mathrm{Chart}[i, k] \ni (\sigma\pi_1; \varepsilon)
        \qquad \mathrm{Chart}[k, j] \ni (\sigma\pi_2; \varepsilon)}
      {\mathrm{Chart}[i, j] \ni (\sigma\pi; \varepsilon)}\ \textsc{Base}
@@ -151,7 +150,7 @@ $$
 
 $$
 \frac{r : \pi_1 \otimes \pi_2 \to \pi \in \mathrm{Rules}
-       \qquad T \in \mathbf{Applicative}\ \text{or}\ T \in \mathbf{Monad}
+       \qquad T \in \mathbf{Applicative}
        \qquad \mathrm{Chart}[i, k] \ni (\sigma\pi_1; \bar S \cdot T)
        \qquad \mathrm{Chart}[k, j] \ni (\sigma\pi_2; \bar S \cdot T)}
      {\mathrm{Chart}[i, j] \ni (\sigma\pi; \bar S \cdot T)}\ \textsc{Lift}_T
@@ -159,8 +158,15 @@ $$
 
 $$
 \frac{H : \mathrm{Th}T \to \mathrm{Th}S \in \mathrm{Handlers}
+       \qquad S \neq \mathrm{Identity}
        \qquad \mathrm{Chart}[i, j] \ni (\alpha; \bar S \cdot T)}
-     {\mathrm{Chart}[i, j] \ni (\alpha; \bar S \cdot S)\quad \text{(or}\ \bar S\ \text{when}\ S = \mathrm{Identity})}\ \textsc{Handle}_{T \to S}
+     {\mathrm{Chart}[i, j] \ni (\alpha; \bar S \cdot S)}\ \textsc{Handle}_{T \to S}
+$$
+
+$$
+\frac{H : \mathrm{Th}T \to \mathrm{Th}\,\mathrm{Identity} \in \mathrm{Handlers}
+       \qquad \mathrm{Chart}[i, j] \ni (\alpha; \bar S \cdot T)}
+     {\mathrm{Chart}[i, j] \ni (\alpha; \bar S)}\ \textsc{Eliminate}_T
 $$
 
 $$
@@ -168,6 +174,8 @@ $$
        \qquad \mathrm{Chart}[i, j] \ni (\alpha; \bar S \cdot T \cdot U)}
      {\mathrm{Chart}[i, j] \ni (\alpha; \bar S \cdot U \cdot T)}\ \textsc{Swap}_{T \mid U}
 $$
+
+In $\textsc{Base}$ and $\textsc{Lift}_T$ the substitution $\sigma$ is fixed by the cells' type coordinates (which must match $\pi_1$ and $\pi_2$ structurally); we elide its construction. $\textsc{Lift}_T$ requires only that $T$ inhabit $\mathbf{Applicative}$ — every $\mathbf{Monad}$ extends $\mathbf{Applicative}$, so the rule covers monadic effects as a special case. $\textsc{Handle}_{T \to S}$ and $\textsc{Eliminate}_T$ are syntactic variants of the same handler firing, separated so each rule has a single conclusion shape.
 
 The denotation of every derivation built from these four rules is
 the corresponding composite natural transformation in
