@@ -740,7 +740,7 @@ $$
 \llbracket P \rrbracket (\llbracket a_1 \rrbracket, \ldots, \llbracket a_k \rrbracket)
 $$
 
-*in $\mathrm{Hom}_{\mathbf{Kern}}(\llbracket A[\bar a / \bar p] \rrbracket, \mathcal{G}(\llbracket B[\bar a / \bar p] \rrbracket))$.*
+*in $\mathrm{Hom}_{\mathbf{Kern}_\mathcal{T}}(\llbracket A[\bar a / \bar p] \rrbracket, \mathcal{T}(\llbracket B[\bar a / \bar p] \rrbracket))$, where $\mathcal{T}$ is determined by which statement forms occur in $P$'s body (§[8.4](#84-statement-denotation)).*
 
 **Proof.** Apply the Substitution Lemma of §[9.3](#93-structural-lemmas) at each $a_i$ for $p_i$ in turn — using whichever per-parameter clause of the lemma matches the variant of $p_i$ ($P_i = \mathsf{Scalar}_R$ uses the kinding-judgment clause; $P_i = \mathsf{Mor}[A_i, B_i]$ uses the morphism-judgment clause; object-parameter clauses use the kinding-judgment clause for $X : \kappa$ entries) — to the body's typing derivations
 
