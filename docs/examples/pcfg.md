@@ -39,7 +39,7 @@ from quivers.dsl import load
 prog = load("docs/examples/source/pcfg.qvr")
 ```
 
-To fit per-rule probabilities, wrap the deduction in a [`program`](../guides/dsl-overview.md) that draws lexicon weights from a [Dirichlet](https://doi.org/10.1093/biomet/74.2.237) prior per preterminal and observes the chart's `chart.goal_weight()` against a corpus of sentences. The `#[learnable]` markers on each lexicon entry expose `nn.Parameter`s the optimizer adjusts; an [`AutoNormalGuide`](../api/inference/guide.md) plus [`SVI`](../api/inference/svi.md) over an [`ELBO`](../api/inference/elbo.md) objective drives the fit. For Viterbi or counting semirings the chart returns a single max-derivation score or a derivation count, which can be conditioned in the same way.
+To fit per-rule probabilities, wrap the deduction in a [`program`](../guides/dsl-overview.md) that draws lexicon weights from a [Dirichlet](https://en.wikipedia.org/wiki/Dirichlet_distribution) prior per preterminal and observes the chart's `chart.goal_weight()` against a corpus of sentences. The `#[learnable]` markers on each lexicon entry expose `nn.Parameter`s the optimizer adjusts; an [`AutoNormalGuide`](../api/inference/guide.md) plus [`SVI`](../api/inference/svi.md) over an [`ELBO`](../api/inference/elbo.md) objective drives the fit. For Viterbi or counting semirings the chart returns a single max-derivation score or a derivation count, which can be conditioned in the same way.
 
 ## Categorical Perspective
 

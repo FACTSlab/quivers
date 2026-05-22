@@ -2,7 +2,7 @@
 
 ## Overview
 
-[Latent Dirichlet allocation](https://en.wikipedia.org/wiki/Latent_Dirichlet_allocation) ([Blei, Ng & Jordan 2003](https://doi.org/10.1162/jmlr.2003.3.4-5.993)) is the canonical [topic model](https://en.wikipedia.org/wiki/Topic_model). Each document draws a topic mixture $\theta_d$ from a [Dirichlet](https://en.wikipedia.org/wiki/Dirichlet_distribution) prior; each topic draws a vocabulary distribution $\phi_k$ from a Dirichlet prior; each word in a document draws a topic $z_{d,n}$ from $\theta_d$ and then a token $w_{d,n}$ from $\phi_{z_{d,n}}$. The per-word topic assignment is integrated out by a scoped `marginalize` block, yielding the closed-form per-word [Categorical](https://en.wikipedia.org/wiki/Categorical_distribution) marginal
+[Latent Dirichlet allocation](https://en.wikipedia.org/wiki/Latent_Dirichlet_allocation) ([Blei, Ng & Jordan 2003](https://www.jmlr.org/papers/v3/blei03a.html)) is the canonical [topic model](https://en.wikipedia.org/wiki/Topic_model). Each document draws a topic mixture $\theta_d$ from a [Dirichlet](https://en.wikipedia.org/wiki/Dirichlet_distribution) prior; each topic draws a vocabulary distribution $\phi_k$ from a Dirichlet prior; each word in a document draws a topic $z_{d,n}$ from $\theta_d$ and then a token $w_{d,n}$ from $\phi_{z_{d,n}}$. The per-word topic assignment is integrated out by a scoped `marginalize` block, yielding the closed-form per-word [Categorical](https://en.wikipedia.org/wiki/Categorical_distribution) marginal
 
 $$
 p(w_{d,n} \mid \theta_d, \phi) \;=\; \sum_{k=1}^{K} \theta_d[k]\,\phi_k[w_{d,n}],

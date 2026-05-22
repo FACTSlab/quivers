@@ -1,6 +1,6 @@
 # 6. Choosing an inference algorithm
 
-Quivers ships nine variational [guides](../../api/inference/guide.md) ([Hoffman, Blei, Wang & Paisley, 2013](https://doi.org/10.5555/2567709.2502622) for the SVI substrate), four [objectives](../../api/inference/elbo.md), two MCMC kernels (HMC, [Neal, 2011](https://doi.org/10.1201/b10905-6); NUTS, [Hoffman & Gelman, 2014](https://www.jmlr.org/papers/v15/hoffman14a.html)), two hybrid samplers, and four gradient [estimators](../../api/inference/estimators.md). Some combinations are obviously sensible; some are obvious mistakes; most fall between, and the right call depends on the shape of your posterior. This chapter is a field guide.
+Quivers ships nine variational [guides](../../api/inference/guide.md) ([Hoffman, Blei, Wang & Paisley, 2013](https://www.jmlr.org/papers/v14/hoffman13a.html) for the SVI substrate), four [objectives](../../api/inference/elbo.md), two MCMC kernels (HMC, [Neal, 2011](https://doi.org/10.1201/b10905-6); NUTS, [Hoffman & Gelman, 2014](https://www.jmlr.org/papers/v15/hoffman14a.html)), two hybrid samplers, and four gradient [estimators](../../api/inference/estimators.md). Some combinations are obviously sensible; some are obvious mistakes; most fall between, and the right call depends on the shape of your posterior. This chapter is a field guide.
 
 The mental model: you pick (a) a *family* (variational, MCMC, hybrid), then (b) a *configuration* within that family, then (c) gradient-estimator and tightness knobs. The choices roughly factor; we'll walk down the tree.
 
