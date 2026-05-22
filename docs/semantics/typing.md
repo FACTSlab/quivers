@@ -608,36 +608,38 @@ and so on for the remaining constructors; see [Types and spaces §2–§3](types
 A judgment $\Gamma; \Phi \vdash e : A \rightsquigarrow B$ denotes a Kleisli arrow
 
 $$
-\llbracket e \rrbracket : \llbracket \Phi \times A \rrbracket \to \mathcal{G}(\llbracket B \rrbracket)
+\llbracket e \rrbracket : \llbracket A \rrbracket \to \mathcal{G}(\llbracket B \rrbracket).
 $$
 
-(in the empty-$\Phi$ case the input simplifies to $\llbracket A \rrbracket$). The composition, tensor, and combinator rules of §[5](#5-inference-rules-for-morphism-expressions) interpret to the corresponding categorical operations: Kleisli composition $\diamond$, the symmetric monoidal product $\otimes$, the structural projections / injections of $\mathbf{Kern}$.
+The trace context $\Phi$ does not appear in the signature; it is a *scope* for resolving free trace-variable references inside $e$ (via $\textsc{TraceVar}$, which sets $A = \Phi$ when the body of $e$ is a trace name). The composition, tensor, and combinator rules of §[5](#5-inference-rules-for-morphism-expressions) interpret to the corresponding categorical operations: Kleisli composition $\diamond$, the symmetric monoidal product $\otimes$, identities, and the higher combinators of [Expressions §3](expressions.md).
 
 ### 8.4 Statement denotation
 
 A judgment $\Gamma; \Phi \vdash s \dashv \Phi'$ denotes a Kleisli arrow
 
 $$
-\llbracket s \rrbracket : \llbracket \Phi \rrbracket \to \mathcal{G}(\llbracket \Phi' \rrbracket).
+\llbracket s \rrbracket : \llbracket \Phi \rrbracket \to \mathcal{T}(\llbracket \Phi' \rrbracket),
 $$
 
-The rules of §[6](#6-inference-rules-for-statements) thread $\Phi$ through the body, building the Kleisli composite of [Programs §2 equation (3)](programs.md#2-statements):
+where $\mathcal{T}$ is $\mathcal{G}$ (full Giry monad) when $s$ is among $\{\textsc{Bind}, \textsc{BindTuple}, \textsc{Let}, \textsc{Marginalize}, \textsc{Seq}\textit{ of full-} \mathcal{G} \textit{ statements}\}$, and $\mathcal{G}_{\le 1}$ (sub-probability sub-monad) when $s$ involves $\textsc{Observe}$ or $\textsc{Score}$ ([Programs §2.2](programs.md#22-observe), [§2.7a](programs.md#27a-score-factor)). The rules of §[6](#6-inference-rules-for-statements) thread $\Phi$ through the body, building the Kleisli composite of [Programs §2 equation (3)](programs.md#2-statements):
 
 $$
 \mathcal{B}\llbracket s_1; \ldots; s_n; \mathsf{return}\ e \rrbracket
 \;=\;
-\llbracket s_1 \rrbracket \diamond \cdots \diamond \llbracket s_n \rrbracket \diamond (\eta \circ \pi_e).
+\llbracket s_1 \rrbracket \diamond \cdots \diamond \llbracket s_n \rrbracket \diamond (\eta \circ \pi_e),
 $$
+
+with the body's monad $\mathcal{T}$ determined by the strongest sub-mode present among the body's statements ($\mathcal{G}_{\le 1}$ if any observe / score is used; $\mathcal{G}$ otherwise).
 
 ### 8.5 Program denotation
 
 A program judgment $\Gamma \vdash p : (\Delta) \Rightarrow A \rightsquigarrow B$ denotes a dependent family
 
 $$
-\llbracket p \rrbracket \;\in\; \prod_{\delta : \llbracket \Delta \rrbracket} \mathrm{Hom}_{\mathbf{Kern}}(\llbracket A \rrbracket, \llbracket B \rrbracket),
+\llbracket p \rrbracket \;\in\; \prod_{\delta : \llbracket \Delta \rrbracket} \mathrm{Hom}_{\mathbf{Kern}_{\mathcal{T}}}(\llbracket A \rrbracket, \mathcal{T}(\llbracket B \rrbracket)),
 $$
 
-which collapses to a plain element of $\mathrm{Hom}_{\mathbf{Kern}}(\llbracket A \rrbracket, \llbracket B \rrbracket)$ when $\Delta = \varepsilon$.
+where $\mathcal{T}$ is determined as in §[8.4](#84-statement-denotation), and which collapses to a plain element of $\mathrm{Hom}_{\mathbf{Kern}_{\mathcal{T}}}(\llbracket A \rrbracket, \mathcal{T}(\llbracket B \rrbracket))$ when $\Delta = \varepsilon$.
 
 ## 9. Soundness
 
@@ -649,7 +651,7 @@ which collapses to a plain element of $\mathrm{Hom}_{\mathbf{Kern}}(\llbracket A
 * *if $\Gamma; \Phi \vdash e : A \rightsquigarrow B$ then $\llbracket e \rrbracket$ is defined and $\llbracket e \rrbracket \in \mathrm{Hom}_{\mathbf{Kern}}(\llbracket A \rrbracket,\, \mathcal{G}(\llbracket B \rrbracket))$;*
 * *if $\Gamma; \Phi \vdash F(\bar a) : \mathsf{Kernel}[\Phi, B]$ then $\llbracket F(\bar a) \rrbracket \in \mathrm{Hom}_{\mathbf{Kern}}(\llbracket \Phi \rrbracket,\, \mathcal{G}(\llbracket B \rrbracket))$;*
 * *if $\Gamma; \Phi \vdash s \dashv \Phi'$ then $\llbracket s \rrbracket$ is defined and $\llbracket s \rrbracket \in \mathrm{Hom}_{\mathbf{Kern}_{\le 1}}(\llbracket \Phi \rrbracket,\, \mathcal{G}_{\le 1}(\llbracket \Phi' \rrbracket))$, with the sharper inclusion $\llbracket s \rrbracket \in \mathrm{Hom}_{\mathbf{Kern}}(\llbracket \Phi \rrbracket,\, \mathcal{G}(\llbracket \Phi' \rrbracket))$ holding for $s \in \{\textsc{Bind}, \textsc{BindTuple}, \textsc{Let}, \textsc{Marginalize}, \textsc{Seq}\textit{ of full-} \mathcal{G} \textit{ statements}\}$ (statements that build a full probability measure); statements involving $\textsc{Observe}$ or $\textsc{Score}$ land in the unnormalized sub-monad $\mathcal{G}_{\le 1}$ ([Programs §2.2](programs.md#22-observe), [§2.7a](programs.md#27a-score-factor));*
-* *if $\Gamma \vdash p : (\Delta) \Rightarrow A \rightsquigarrow B$ then $\llbracket p \rrbracket$ is defined and $\llbracket p \rrbracket \in \prod_{\delta : \llbracket \Delta \rrbracket} \mathrm{Hom}_{\mathbf{Kern}}(\llbracket A[\delta] \rrbracket,\, \mathcal{G}(\llbracket B[\delta] \rrbracket))$.*
+* *if $\Gamma \vdash p : (\Delta) \Rightarrow A \rightsquigarrow B$ then $\llbracket p \rrbracket$ is defined and $\llbracket p \rrbracket \in \prod_{\delta : \llbracket \Delta \rrbracket} \mathrm{Hom}_{\mathbf{Kern}_\mathcal{T}}(\llbracket A[\delta] \rrbracket,\, \mathcal{T}(\llbracket B[\delta] \rrbracket))$, where $\mathcal{T}$ is determined by the body's strongest sub-mode (§[8.4](#84-statement-denotation)).*
 
 The trace context $\Phi$ enters as the domain of the *statement* and *family-application* judgments; in the *morphism* judgment it is a scope for resolving free names (via $\textsc{TraceVar}$, where the morphism's domain $A$ may *equal* $\Phi$, but is not multiplied with it). The asymmetry tracks the actual roles of $\Phi$ in the rules of §[5](#5-inference-rules-for-morphism-expressions), §[4](#4-inference-rules-for-families), and §[6](#6-inference-rules-for-statements).
 
