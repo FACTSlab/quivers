@@ -11,7 +11,7 @@ program P (params) : τ₁ -> τ₂
     return e
 ```
 
-denotes a Markov kernel
+denotes a Markov kernel (the typing rules for statements and the program declaration live in [Typing §6–§7](typing.md#6-inference-rules-for-statements))
 
 $$
 \llbracket P \rrbracket : \llbracket \tau_1 \rrbracket \to \mathcal{G}\bigl(\llbracket \tau_2 \rrbracket\bigr),
