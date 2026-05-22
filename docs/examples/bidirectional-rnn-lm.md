@@ -159,3 +159,9 @@ print(f"divergences: {int(result.divergence_counts.sum())}")
 ## Categorical Perspective
 
 The model denotes a Kleisli morphism $\mathrm{Token} \to \mathcal{G}(\mathrm{Token})$ assembled by `fan`-composing two independent scan-folds and following with a merge. The `fan` combinator is the diagonal-pair construction $f \times g \circ \Delta$ in the Kleisli category that delivers a common input to both branches; `combine` is the merge $\mathrm{Hidden}^2 \to \mathcal{G}(\mathrm{Combined})$ that pulls the bilinear pairing back onto a single object. The Categorical head closes with the masked-token likelihood as a sub-probability kernel.
+
+
+## References
+
+- Jacob Devlin, Ming-Wei Chang, Kenton Lee, and Kristina Toutanova. 2019. BERT: Pre-training of deep bidirectional transformers for language understanding. In *Proceedings of the 2019 Conference of the North American Chapter of the Association for Computational Linguistics: Human Language Technologies (NAACL-HLT)*, pages 4171–4186. ACL.
+- Michèle Giry. 1982. A categorical approach to probability theory. In Bernhard Banaschewski, editor, *Categorical Aspects of Topology and Analysis*, volume 915 of *Lecture Notes in Mathematics*, pages 68–85. Springer, Berlin, Heidelberg.

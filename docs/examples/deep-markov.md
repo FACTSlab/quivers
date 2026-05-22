@@ -140,3 +140,9 @@ flowchart LR
     h_emit["h_emit"] --> emit_mlp_2["emit_mlp_2"]
     emit_mlp_2["emit_mlp_2"] --> o_t["o_t"]
 ```
+
+
+## References
+
+- Diederik P. Kingma and Max Welling. 2013. Auto-Encoding Variational Bayes. arXiv preprint arXiv:1312.6114.
+- Rahul G. Krishnan, Uri Shalit, and David Sontag. 2017. Structured inference networks for nonlinear state space models. In *Proceedings of the Thirty-First AAAI Conference on Artificial Intelligence (AAAI '17)*, pages 2101–2109. AAAI Press.

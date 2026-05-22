@@ -113,3 +113,10 @@ for name, samples in result.samples.items():
 ## Categorical Perspective
 
 The model is a Kleisli morphism in the [Giry monad](https://doi.org/10.1007/BFb0092872)'s Kleisli category whose denotation is the joint $p(\tau, r_1, r_2) \prod_t \mathrm{Poisson}(y_t \mid r(t; \tau, r_1, r_2))$. The soft indicator is the [reparameterisation gradient](https://doi.org/10.48550/arXiv.1312.6114)-friendly relaxation of an indicator function; in the hard-change-point variant, the discrete `tau_idx` is integrated out by `marginalize`, realizing the right Kan extension along the trivial projection from the time axis to a singleton.
+
+
+## References
+
+- Bradley P. Carlin, Alan E. Gelfand, and Adrian F. M. Smith. 1992. Hierarchical Bayesian analysis of changepoint problems. *Journal of the Royal Statistical Society Series C: Applied Statistics*, 41(2):389–405.
+- Diederik P. Kingma and Max Welling. 2013. Auto-Encoding Variational Bayes. arXiv preprint arXiv:1312.6114.
+- Michèle Giry. 1982. A categorical approach to probability theory. In Bernhard Banaschewski, editor, *Categorical Aspects of Topology and Analysis*, volume 915 of *Lecture Notes in Mathematics*, pages 68–85. Springer, Berlin, Heidelberg.

@@ -386,3 +386,9 @@ errors surface as `ParseError`.
 - [Contractions](dsl-contractions.md): operadic n-ary contractions,
   type-driven wiring inference, `share`, and the explicit `wiring`
   escape hatch.
+
+
+## References
+
+- Carlos M. Carvalho, Nicholas G. Polson, and James G. Scott. 2010. The horseshoe estimator for sparse signals. *Biometrika*, 97(2):465–480.
+- Daniel Lewandowski, Dorota Kurowicka, and Harry Joe. 2009. Generating random correlation matrices based on vines and extended onion method. *Journal of Multivariate Analysis*, 100(9):1989–2001.
