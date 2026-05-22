@@ -465,12 +465,56 @@ class ReplSession:
         return f"{name} :: {_pretty_morphism(morph)}"
 
     def _type_signature_for_program(self, name: str, tmpl: Any) -> str:
+        """GHCi-style signature for a program template.
+
+        Per ``docs/semantics/programs.md``, a program's denotation
+        depends on the parameter list:
+
+        - Bare-identifier params (``P(q₁, …, qₖ) : τ₁ -> τ₂``) project
+          components of the domain. The kernel's signature is just
+          ``τ₁ -> τ₂``; the q_i are syntactic conveniences, not
+          additional arguments, so they do not appear in the type.
+        - Typed params (``alpha : Real``, ``X : Object``,
+          ``f : Mor[A, B]``) denote a dependent family
+          ``∏ p_i:P_i. Kern(dom, cod)`` and are surfaced as a
+          Haskell-style constraint context ``(p₁ : P₁, …) => dom -> cod``
+          so the ∏-bound parameters never get conflated with the
+          kernel's dom -> cod arrow.
+        """
         del self
+        type_param_strs: list[str] = []
+        for p in getattr(tmpl, "type_params", None) or ():
+            kind = type(p).__name__
+            pname = getattr(p, "name", "?")
+            if kind == "ScalarParam":
+                type_param_strs.append(
+                    f"{pname} : {getattr(p, 'scalar_kind', '?')}"
+                )
+            elif kind == "ObjectParam":
+                type_param_strs.append(
+                    f"{pname} : {getattr(p, 'universe', '?')}"
+                )
+            elif kind == "MorphismParam":
+                dom_p = getattr(p, "domain", None)
+                cod_p = getattr(p, "codomain", None)
+                if dom_p is not None and cod_p is not None:
+                    type_param_strs.append(
+                        f"{pname} : "
+                        f"Mor[{_pretty_object(dom_p)}, {_pretty_object(cod_p)}]"
+                    )
+                else:
+                    type_param_strs.append(f"{pname} : Mor")
+            else:
+                type_param_strs.append(f"{pname} : ?")
         dom = getattr(tmpl, "domain", None)
         cod = getattr(tmpl, "codomain", None)
-        if dom is not None and cod is not None:
-            return f"{name} :: {_pretty_object(dom)} -> {_pretty_object(cod)}"
-        return f"{name} :: ?"
+        if dom is None or cod is None:
+            return f"{name} :: ?"
+        morph_sig = f"{_pretty_object(dom)} -> {_pretty_object(cod)}"
+        if type_param_strs:
+            ctx = ", ".join(type_param_strs)
+            return f"{name} :: ({ctx}) => {morph_sig}"
+        return f"{name} :: {morph_sig}"
 
     def _type_signature_for_ref(self, ref: ScopedRef) -> str:
         """Render a GHCi-style ``name :: type`` line for a scoped ref.
