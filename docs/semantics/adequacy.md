@@ -65,7 +65,7 @@ term-by-term equal to the categorical composition of [Morphisms §1.1](morphisms
 
 ### 3.4 Tensor product, marginalization, fan, stack, repeat, scan
 
-Each combinator is implemented as a tensor-level operation whose definition is the term-by-term unfolding of its denotation. The proofs are straightforward: `@` is `torch.einsum` of the appropriate shape; `marginalize` is `torch.sum` (or algebra-join) along the marginalized axes; `fan` is `torch.stack`; `stack` is `kron`; `repeat` is repeated composition; `scan` is a Python-level fold realizing the trace of [Expressions §3.4](expressions.md#34-scan).
+Each combinator is implemented as a tensor-level operation whose definition is the term-by-term unfolding of its denotation. The proofs are straightforward: `@` is `torch.einsum` of the appropriate shape; `marginalize` is `torch.sum` (or algebra-join) along the marginalized axes; `fan` builds a `FanOutMorphism` whose tensor stacks each component's output along a fresh axis; `stack` and `repeat` are both realised as repeated `>>` composition of the operand (`stack` uses `copy.deepcopy` per replica so each layer has independent parameters; `repeat` shares the operand across replicas); `scan` constructs a `ScanMorphism` realising the trace of [Expressions §3.4](expressions.md#34-scan).
 
 ### 3.5 Lookup-table kernels (finite-set codomain)
 
@@ -85,7 +85,7 @@ between the Chapman–Kolmogorov composition and its Monte-Carlo realization hol
 
 ### 3.7 Programs
 
-The body-interpreter `_compile_program_body` of [`quivers.dsl.compiler`](../api/dsl/compiler.md) realizes the Kleisli chain of [Programs §2](programs.md#2-statements). Each statement is interpreted as a Python operation that:
+The body-interpreter `_compile_program` of [`quivers.dsl.compiler`](../api/dsl/compiler.md) realizes the Kleisli chain of [Programs §2](programs.md#2-statements). Each statement is interpreted as a Python operation that:
 
 - *Draw*: calls `family.rsample(theta(context))` and appends the result to the trace;
 - *Observe*: calls `family.log_prob(value, theta(context))` and accumulates the score;
@@ -97,7 +97,7 @@ The categorical equations of [Programs §5](programs.md#5-soundness-of-monadic-s
 
 ### 3.7a Deduction systems and chart-access let-expressions
 
-The body-interpreter resolves three deduction-related let-expression builtins through the [`compose_deductions`, `parse`, `subst`] dispatch table on `_ProgramsMixin`:
+The body-interpreter resolves three deduction-related let-expression builtins through the [`compose`, `parse`, `subst`] dispatch table on `_ProgramsMixin`:
 
 - *parse(D, x)*: runs the registered `DeductionSystem` $D$ on $x$ to the agenda's fixed point, wrapping the resulting `Chart` in a `ChartView`. The view's method-call surface ([Expressions §4.2](expressions.md#42-deduction-system-call-sites)) realizes presheaf evaluation against the chart's $K$-valued tensor entries; gradients flow through the entries' `requires_grad` via the agenda's semiring operations, matching the differentiable-chart denotation of [Weighted Deduction Fragment §8](grammar.md#8-charts-as-first-class-differentiable-values).
 - *compose($D_1, D_2$)*: synthesises a new `DeductionSystem` whose `axiom_injector` chains $D_1$'s `goal_items` into $D_2$'s axioms; the composed system carries cross-attached `_axiom_module` / `_rule_module` references so `composed.parameters()` walks both factors' learnable weights ([Weighted Deduction Fragment §9.1](grammar.md#91-composing-deductions)).
