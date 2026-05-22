@@ -93,7 +93,13 @@ def test_type_bare_name_still_works(lda):
     a program: ``name :: dom -> cod`` (no params, no decl keyword)."""
     r = lda.type_of("lda")
     assert r.ok
-    assert r.body == "lda :: Word -> Word"
+    # Per ``docs/semantics/programs.md §3a``, typed program
+    # parameters denote a dependent family ``∏ p_i:P_i. Kern(dom, cod)``;
+    # they are NOT curried with the kernel arrow. The renderer surfaces
+    # them as a Haskell-style constraint context.
+    assert r.body == (
+        "lda :: (alpha : Real, beta : Real) => Word -> Word"
+    )
 
 
 # ---------------------------------------------------------------------------
