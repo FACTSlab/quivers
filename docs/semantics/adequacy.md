@@ -65,7 +65,35 @@ term-by-term equal to the categorical composition of [Morphisms §1.1](morphisms
 
 ### 3.4 Tensor product, marginalization, fan, stack, repeat, scan
 
-Each combinator is implemented as a tensor-level operation whose definition is the term-by-term unfolding of its denotation. The proofs are straightforward: `@` is `torch.einsum` of the appropriate shape; `marginalize` is `torch.sum` (or algebra-join) along the marginalized axes; `fan` builds a `FanOutMorphism` whose tensor stacks each component's output along a fresh axis; `stack` and `repeat` are both realised as repeated `>>` composition of the operand (`stack` uses `copy.deepcopy` per replica so each layer has independent parameters; `repeat` shares the operand across replicas); `scan` constructs a `ScanMorphism` realising the trace of [Expressions §3.4](expressions.md#34-scan).
+Each combinator is implemented as a tensor-level operation whose definition is the term-by-term unfolding of its denotation. We give the proof for `@` (tensor product) in full as a representative case; the remaining combinators (`marginalize`, `fan`, `stack`, `repeat`, `scan`) follow the same template.
+
+**Proposition (Adequacy of `@`).** *Let $f : A_1 \to B_1$ and $g : A_2 \to B_2$ be QVR morphisms with tensor representations $T_f \in \mathcal{V}^{|A_1| \times |B_1|}$ and $T_g \in \mathcal{V}^{|A_2| \times |B_2|}$. Then the runtime tensor of $f \mathbin{@} g$ equals the denotation $\llbracket f \otimes g \rrbracket \in \mathcal{V}^{|A_1 \times A_2| \times |B_1 \times B_2|}$ as a $\mathcal{V}$-valued function on indices.*
+
+**Proof.** The compiler's handler for `ExprTensorProduct` (in `_ProgramsMixin._compile_expr`) constructs a `TensorProductMorphism(f, g)` whose `tensor` property is
+$$
+\mathtt{TensorProductMorphism.tensor}[(a_1, a_2), (b_1, b_2)]
+\;=\;
+T_f[a_1, b_1] \otimes T_g[a_2, b_2].
+$$
+The denotation $\llbracket f \otimes g \rrbracket$ is the tensor product $\boxtimes$ of $\mathcal{V}$-relations from [Setting §2](setting.md#2-mathcalv-enriched-relations):
+$$
+(\llbracket f \rrbracket \boxtimes \llbracket g \rrbracket)\bigl((a_1, a_2), (b_1, b_2)\bigr)
+\;=\;
+\llbracket f \rrbracket(a_1, b_1) \otimes \llbracket g \rrbracket(a_2, b_2).
+$$
+By induction $\llbracket f \rrbracket(a_1, b_1) = T_f[a_1, b_1]$ and $\llbracket g \rrbracket(a_2, b_2) = T_g[a_2, b_2]$, so the two expressions are term-by-term equal. $\square$
+
+The remaining combinators are summarised:
+
+| Combinator | Runtime realisation | Denotational target |
+|---|---|---|
+| `marginalize(f, axes)` | `torch.sum(T_f, dim=axes)` (or algebra-join along those axes) | the $\bigoplus$-fold $\sum_{y \in Y} \llbracket f \rrbracket(x, y)$ of [Morphisms §1.1](morphisms.md#11-composition-tensor-identity) |
+| `fan(f_1, ..., f_n)` | `FanOutMorphism` whose tensor stacks each $T_{f_i}$ along a fresh axis | the diagonal $\Delta : A \to A^n$ post-composed with $f_1 \otimes \cdots \otimes f_n$ |
+| `stack(f, n)` | repeated `>>` composition of `copy.deepcopy(f)` per replica | the $n$-fold Kleisli composite of $\llbracket f \rrbracket$ with itself, parameters freshly cloned per layer |
+| `repeat(f, n)` | repeated `>>` composition sharing the operand | the same $n$-fold composite, parameters shared |
+| `scan(f)` | `ScanMorphism(f)` realising the categorical trace | the trace $\mathrm{tr}_X(\llbracket f \rrbracket)$ of [Expressions §3.4](expressions.md#34-scan) |
+
+For each row, the proof is the same shape as the proposition above: the runtime tensor is the term-by-term unfolding of the categorical operation. The induction is on the structure of the morphism expression, with the base case being a primitive `morphism` declaration whose tensor is the declared parameter (`role=latent`), the supplied data tensor (`role=observed`), or the family's parameter map (`role=kernel`).
 
 ### 3.5 Lookup-table kernels (finite-set codomain)
 

@@ -131,6 +131,49 @@ Schema firings populate cells according to four rules:
 The four firings compose freely; the chart's CKY enumeration computes
 the inside score over the joint search space.
 
+### 4a. Inference rules for effect-typed firing
+
+The four firings are inference rules in the proof system of the
+chart. Let $\sigma : \mathrm{Var}(r) \to \mathcal{C}$ range over
+substitutions of the schema's free pattern variables and let
+$\bar S \cdot \bar T$ denote effect-stack concatenation. We write
+$\mathrm{Chart}[i, j] \ni (\alpha; \bar T)$ for "the cell at span
+$(i, j)$ holds an entry at type $\alpha \in \mathcal{C}$ stacked
+under effect prefix $\bar T \in \mathrm{EffectStack}_{\le d}$".
+
+$$
+\frac{r : \pi_1 \otimes \pi_2 \to \pi \in \mathrm{Rules}
+       \qquad \sigma\ \text{matches}\ \pi_1\ \text{at}\ \mathrm{Chart}[i, k]\ \text{and}\ \pi_2\ \text{at}\ \mathrm{Chart}[k, j]
+       \qquad \mathrm{Chart}[i, k] \ni (\sigma\pi_1; \varepsilon)
+       \qquad \mathrm{Chart}[k, j] \ni (\sigma\pi_2; \varepsilon)}
+     {\mathrm{Chart}[i, j] \ni (\sigma\pi; \varepsilon)}\ \textsc{Base}
+$$
+
+$$
+\frac{r : \pi_1 \otimes \pi_2 \to \pi \in \mathrm{Rules}
+       \qquad T \in \mathbf{Applicative}\ \text{or}\ T \in \mathbf{Monad}
+       \qquad \mathrm{Chart}[i, k] \ni (\sigma\pi_1; \bar S \cdot T)
+       \qquad \mathrm{Chart}[k, j] \ni (\sigma\pi_2; \bar S \cdot T)}
+     {\mathrm{Chart}[i, j] \ni (\sigma\pi; \bar S \cdot T)}\ \textsc{Lift}_T
+$$
+
+$$
+\frac{H : \mathrm{Th}T \to \mathrm{Th}S \in \mathrm{Handlers}
+       \qquad \mathrm{Chart}[i, j] \ni (\alpha; \bar S \cdot T)}
+     {\mathrm{Chart}[i, j] \ni (\alpha; \bar S \cdot S)\quad \text{(or}\ \bar S\ \text{when}\ S = \mathrm{Identity})}\ \textsc{Handle}_{T \to S}
+$$
+
+$$
+\frac{\mathrm{swap}_{T, U} : T \circ U \Rightarrow U \circ T \in \mathrm{DistributiveLaws}
+       \qquad \mathrm{Chart}[i, j] \ni (\alpha; \bar S \cdot T \cdot U)}
+     {\mathrm{Chart}[i, j] \ni (\alpha; \bar S \cdot U \cdot T)}\ \textsc{Swap}_{T \mid U}
+$$
+
+The denotation of every derivation built from these four rules is
+the corresponding composite natural transformation in
+$\widehat{\mathcal{C}}$; Theorem [Lifting Adequacy](#5-adequacy-of-the-lifting-machinery)
+below identifies the chart's inside score with that composite.
+
 ## 5. Adequacy of the lifting machinery
 
 **Theorem (Lifting Adequacy).** *Let $r$ be a base SchemaDecl and

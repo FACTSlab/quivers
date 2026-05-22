@@ -8,6 +8,35 @@ The development is organised so that:
 * every inference rule is justified by an appeal to the categorical structure already exhibited in the denotational chapters;
 * the soundness theorem (Theorem [§9.1](#91-soundness)) is the precise statement under which the REPL's `:type` and `:kind` commands are guaranteed to report mathematically meaningful answers.
 
+## 0. Notation
+
+We collect the notation used throughout, with cross-references to the other chapters that introduce each symbol. Every chapter of the semantics development uses the same conventions; deviations are flagged in the chapter where they occur.
+
+| Symbol | Meaning | Defined in |
+|---|---|---|
+| $\mathcal{V}$ | A QVR algebra (one of eleven, plus de Morgan duals) | [Algebras §1](algebras.md#1-the-eleven-algebras) |
+| $\otimes, \mathbf{1}$ | Monoidal product and unit of $\mathcal{V}$ | [Setting §1](setting.md#1-algebras-as-enrichment-bases) |
+| $\bigoplus$ | Join of $\mathcal{V}$ | [Setting §1](setting.md#1-algebras-as-enrichment-bases) |
+| $\mathbf{FinSet}$, $\mathbf{SBor}$ | Finite sets / standard Borel spaces | [Setting §3](setting.md#3-standard-borel-spaces-and-markov-kernels) |
+| $\mathcal{V}\text{-}\mathbf{Rel}$ | $\mathcal{V}$-enriched relations on $\mathbf{FinSet}$ | [Setting §2](setting.md#2-mathcalv-enriched-relations) |
+| $\mathbf{Stoch}, \mathbf{Kern}$ | Kleisli categories of the finitary / measure-theoretic Giry monad | [Setting §3](setting.md#3-standard-borel-spaces-and-markov-kernels) |
+| $\mathcal{G}$ | Giry monad (finitary or measure-theoretic, disambiguated by domain) | [Setting §3](setting.md#3-standard-borel-spaces-and-markov-kernels) |
+| $\diamond$ | Kleisli composition in $\mathbf{Kern}$ (or $\mathbf{Stoch}$) | [Programs §1](programs.md#1-the-giry-monad-as-semantic-substrate) |
+| $\diamond_\alpha$ | Kleisli composition keyed by the algebra $\alpha$ | [Composition rules](composition-rules.md) |
+| $\eta, \mu$ | Unit and multiplication of $\mathcal{G}$ | [Programs §1](programs.md#1-the-giry-monad-as-semantic-substrate) |
+| $\llbracket \cdot \rrbracket$ | Denotation function | this chapter §[8](#8-denotational-interpretation) |
+| $\Gamma$ | Module-level value context (typing) | §[2.1](#21-the-value-context-gamma) |
+| $\Delta$ | Π-bound parameter context (parametric programs) | §[2.2](#22-the-parameter-context-delta) |
+| $\Phi$ | Trace context (random variables inside a program body) | §[2.3](#23-the-trace-context-phi) |
+| $\rho$ | Semantic environment (assignment of denotations to free names) | [Setting §5](setting.md#5-environments) |
+| $A \rightsquigarrow B$ | Kleisli signature (Markov kernel $A \to \mathcal{G}(B)$) | this chapter §[5](#5-inference-rules-for-morphism-expressions) |
+| $(\Delta) \Rightarrow A \rightsquigarrow B$ | Π-quantified Kleisli signature (parametric program) | this chapter §[7](#7-inference-rules-for-programs) |
+| $\dashv$ | Trace-context updater (statement typing) | this chapter §[6](#6-inference-rules-for-statements) |
+| $\Gamma \vdash \mathcal{J}$ | Generic typing judgment | this chapter §[3](#3-inference-rules-for-types-and-kinds) |
+| $\phi \equiv \psi$ | Denotational equivalence | §[9.5](#95-equivalence-and-conservativity) |
+
+Composition of morphisms uses $\diamond$ throughout (with the algebra subscript $\alpha$ omitted when it is the module's declared default); the surface operator family (`>>`, `<<`, `>=>`, `*>`, `~>`, `||>`, `?>`, `&&>`, `+>`, `$>`, `%>`) all denote $\diamond_\alpha$ for the appropriate $\alpha$ ([Composition rules](composition-rules.md), [Expressions §2.8](expressions.md#28-the-eleven-composition-operators)). Tensor product uses $\otimes$ throughout (surface operator `@`).
+
 ## 1. Syntactic categories
 
 We work over four disjoint syntactic universes. Each is given by a context-free grammar over a fixed alphabet of names (identifiers).
@@ -650,7 +679,27 @@ The Soundness theorem (§[9.1](#91-soundness)) and the Subject-Reduction theorem
 
 The three lemmas justify each "by induction" step in the proof of Soundness (§[9.1](#91-soundness)): Weakening discharges the case where a premise's context differs from the conclusion's; Substitution underwrites the $\textsc{Prog}$ case's claim that each fibre is well-defined; Type Uniqueness ensures the algorithm of §[10](#10-algorithmic-typechecking) is well-defined (each synthesis returns *the* type, not a non-empty family).
 
-### 9.4 Equivalence and conservativity
+### 9.4 Completeness
+
+Soundness (§[9.1](#91-soundness)) says every well-typed phrase has a denotation in the appropriate hom-set. The converse direction is a *completeness* theorem: every phrase that has a denotation has a derivation.
+
+**Theorem (Completeness).** *Let $\phi$ be a phrase of one of the syntactic categories of §[1](#1-syntactic-categories), and suppose its denotation $\llbracket \phi \rrbracket$ is defined under the compositional clauses of §[8](#8-denotational-interpretation). Then there exists a context $\Gamma$ and a derivation of the appropriate judgment $\Gamma \vdash \mathcal{J}(\phi)$.*
+
+**Proof.** By structural induction on $\phi$.
+
+*Type expressions.* The denotation $\llbracket \tau \rrbracket$ is defined iff every $\textsf{TypeName}$ leaf $X$ resolves in $\rho_{\mathrm{obj}}$ or $\rho_{\mathrm{spc}}$, every $\textsf{DiscreteConstructor}$ / $\textsf{ContinuousConstructor}$ leaf has its primitive interpretation defined ([Types and spaces §2–§4](types-and-spaces.md)), and every product / coproduct / residuated / effect-apply node's children are defined (which is the structural inductive hypothesis). Each of these conditions is exactly the premise of the corresponding kinding rule ($\textsc{TyVar}$, $\textsc{FinSet}$, $\textsc{Real}$, $\textsc{TyProd}$, $\textsc{TySum}$, $\textsc{TySlashR}$, $\textsc{TySlashL}$, $\textsc{TyEff}$). Constructing $\Gamma$ to declare each name at the kind read off from $\rho$ produces the required derivation.
+
+*Morphism expressions.* The denotation $\llbracket e \rrbracket$ is defined iff every leaf $f$ resolves in $\rho_{\mathrm{mor}}$ with the dom / cod the parser inferred, every $\textsf{ExprIdentity}$ / $\textsf{ExprDagger}$ / $\textsf{ExprTrace}$ / etc. node has its categorical operation defined on the inductively-resolved operands, and every composition's dom / cod agree. Each condition is the premise of the corresponding morphism rule ($\textsc{ModuleVar}$, $\textsc{Id}$, $\textsc{Compose}$, $\textsc{Tensor}$, $\textsc{Fan}$, $\ldots$).
+
+*Statements and programs.* Inductive in the same shape, with the trace-context premises threading through $\textsc{Seq}$ and the program-level premise discharging $\textsc{Prog}$.
+
+$\square$
+
+**Corollary (Decidable type membership).** *For every phrase $\phi$ and every candidate type $\tau$, the question "is $\phi$ of type $\tau$?" is decidable.*
+
+This follows from Soundness + Completeness + Type Uniqueness (§[9.3](#93-structural-lemmas)): synthesise $\tau' = \mathrm{type}(\phi)$ by the algorithm of §[10](#10-algorithmic-typechecking), check $\tau' = \tau$ structurally. By Soundness the synthesis returns a valid type or fails; by Completeness it succeeds whenever the denotation is defined; by Type Uniqueness the answer is independent of the synthesis order.
+
+### 9.5 Equivalence and conservativity
 
 Two well-typed phrases $\phi_1, \phi_2$ at the same judgment are *denotationally equivalent*, written $\phi_1 \equiv \phi_2$, when $\llbracket \phi_1 \rrbracket = \llbracket \phi_2 \rrbracket$. The QVR type system is *conservative* in the following sense: for any judgment form $\mathcal{J}$, if $\phi_1$ and $\phi_2$ are $\mathcal{J}$-derivable and denotationally equal, the type system does not assign them distinguishable types (no judgment $\mathcal{J}'$ separates them). This conservativity is the categorical content of the "every well-typed phrase has a unique denotation" reading of [Adequacy](adequacy.md).
 
