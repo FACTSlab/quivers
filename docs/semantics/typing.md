@@ -652,12 +652,13 @@ The trace context $\Phi$ enters as the domain of the *statement* and *family-app
 We give four representative cases ($\textsc{Compose}, \textsc{Bind}, \textsc{Marginalize}, \textsc{Prog}$) in full; every other case follows the same template, substituting the relevant categorical operation for $\diamond$.
 
 *Case $\textsc{ComposePoly}_\alpha$* (the $\textsc{ComposeTag}_\beta$ case is identical with $\beta$ in place of $\alpha$).
-By induction, $\llbracket e_1 \rrbracket \in \mathrm{Hom}_{\mathbf{Kern}}(\llbracket A \rrbracket,\, \mathcal{G}(\llbracket B \rrbracket))$ and $\llbracket e_2 \rrbracket \in \mathrm{Hom}_{\mathbf{Kern}}(\llbracket B \rrbracket,\, \mathcal{G}(\llbracket C \rrbracket))$. The denotation
+By induction, $\llbracket e_1 \rrbracket \in \mathrm{Hom}_{\mathbf{Kern}}(\llbracket A \rrbracket,\, \mathcal{G}(\llbracket B \rrbracket))$ and $\llbracket e_2 \rrbracket \in \mathrm{Hom}_{\mathbf{Kern}}(\llbracket B \rrbracket,\, \mathcal{G}(\llbracket C \rrbracket))$. Using the Kleisli-composition convention of [Setting §3](setting.md#3-standard-borel-spaces-and-markov-kernels) ($k_1 \diamond k_2 = \mu \circ \mathcal{G}(k_2) \circ k_1$, *first* $k_1$ *then* $k_2$), the denotation
 $$
-\llbracket e_1 \mathbin{\diamond_\alpha} e_2 \rrbracket \;=\; \llbracket e_2 \rrbracket \diamond \llbracket e_1 \rrbracket
+\llbracket e_1 \mathbin{\diamond_\alpha} e_2 \rrbracket \;=\; \llbracket e_1 \rrbracket \diamond \llbracket e_2 \rrbracket
+\;=\; \mu \circ \mathcal{G}(\llbracket e_2 \rrbracket) \circ \llbracket e_1 \rrbracket
 \;:\; \llbracket A \rrbracket \;\to\; \mathcal{G}(\llbracket C \rrbracket)
 $$
-is Kleisli composition in $\mathbf{Kern}$ at the algebra $\alpha$, which is well-defined and total on hom-sets by the categorical structure of $\mathbf{Kern}$ ([Setting §3](setting.md#3-standard-borel-spaces-and-markov-kernels)). The trace context $\Phi$ does not enter the signature: it is the scope in which $\textsc{TraceVar}$ resolves any free names appearing in $e_1$ or $e_2$, and the IH gives both operand denotations relative to that scope.
+is Kleisli composition in $\mathbf{Kern}$ at the algebra $\alpha$, well-defined and total on hom-sets by the categorical structure of $\mathbf{Kern}$. The trace context $\Phi$ does not enter the signature: it is the scope in which $\textsc{TraceVar}$ resolves any free names appearing in $e_1$ or $e_2$, and the IH gives both operand denotations relative to that scope.
 
 *Case $\textsc{Bind}$.* By induction (on the family-application clause), $\llbracket F(\bar a) \rrbracket \in \mathrm{Hom}_{\mathbf{Kern}}(\llbracket \Phi \rrbracket,\, \mathcal{G}(\llbracket B \rrbracket))$. To produce the bind statement's required kernel $\llbracket \Phi \rrbracket \to \mathcal{G}(\llbracket \Phi \rrbracket \times \llbracket B \rrbracket)$ — note that the conclusion's trace context $\Phi, v : B$ denotes $\Phi \times B$ — we use the strength $\mathrm{str}_{\Phi, B} : \llbracket \Phi \rrbracket \times \mathcal{G}(\llbracket B \rrbracket) \to \mathcal{G}(\llbracket \Phi \rrbracket \times \llbracket B \rrbracket)$ of $\mathcal{G}$ on $\mathbf{SBor}$ ([Programs §5](programs.md#5-soundness-of-monadic-semantics)) to bundle the unchanged trace with the freshly-sampled value:
 $$
@@ -675,47 +676,88 @@ extended to all of $\Sigma_{\Phi \times B}$ by Caratheodory's theorem — the re
 *Case $\textsc{Marginalize}$.* By IH on the family premise, $\llbracket F(\bar a) \rrbracket : \llbracket \Phi \rrbracket \to \mathcal{G}(\llbracket B \rrbracket)$; by IH on the body premise, $k_{\mathrm{body}} : \llbracket \Phi \rrbracket \times \llbracket B \rrbracket \to \mathcal{G}(\llbracket \Phi' \rrbracket)$ (the body's trace context is the extended $\Phi, v : B$, denoting $\Phi \times B$). Build the marginalize statement's denotation in three composable Kleisli stages:
 
 1. *Bind*: $\widetilde{F} \;=\; \mathrm{str}_{\Phi, B} \circ \langle \mathrm{id}_\Phi, \llbracket F(\bar a) \rrbracket \rangle : \llbracket \Phi \rrbracket \to \mathcal{G}(\llbracket \Phi \rrbracket \times \llbracket B \rrbracket)$, as in the $\textsc{Bind}$ case;
-2. *Body*: Kleisli-compose with $k_{\mathrm{body}}$ to obtain $k_{\mathrm{body}} \diamond \widetilde{F} : \llbracket \Phi \rrbracket \to \mathcal{G}(\llbracket \Phi' \rrbracket)$;
-3. *Pushforward*: post-compose with $\pi_*$ along the measurable projection $\pi : \llbracket \Phi' \rrbracket \to \llbracket \Phi' \setminus v \rrbracket$ (defined on measures by $\pi_* \mu(F) = \mu(\pi^{-1}(F))$ for $F \in \Sigma_{\Phi' \setminus v}$), yielding $\llbracket \Phi \rrbracket \to \mathcal{G}(\llbracket \Phi' \setminus v \rrbracket)$.
+2. *Body*: Kleisli-compose with $k_{\mathrm{body}}$ (with the $\diamond$ convention "first left then right") to obtain $\widetilde{F} \diamond k_{\mathrm{body}} \;=\; \mu \circ \mathcal{G}(k_{\mathrm{body}}) \circ \widetilde{F} : \llbracket \Phi \rrbracket \to \mathcal{G}(\llbracket \Phi' \rrbracket)$;
+3. *Pushforward*: post-compose (as ordinary measurable map of measures) with $\pi_*$ along the measurable projection $\pi : \llbracket \Phi' \rrbracket \to \llbracket \Phi' \setminus v \rrbracket$ (defined on measures by $\pi_* \mu(F) = \mu(\pi^{-1}(F))$ for $F \in \Sigma_{\Phi' \setminus v}$), yielding $\mathcal{G}(\pi_*) \circ (\widetilde{F} \diamond k_{\mathrm{body}}) : \llbracket \Phi \rrbracket \to \mathcal{G}(\llbracket \Phi' \setminus v \rrbracket)$.
 
 The pushforward is the measure-theoretic content of marginalisation: integrating out the $v$-coordinate of the joint distribution, equivalently applying Fubini–Tonelli on the product $\sigma$-algebra $\Sigma_{\Phi' \setminus v} \otimes \Sigma_{\{v\}}$.
 
-*Case $\textsc{Prog}$.* Let $\Delta = p_1 : P_1, \ldots, p_k : P_k$. For each $\delta \in \llbracket \Delta \rrbracket$, the assumption "$\Gamma \uplus \Delta; A \vdash s_1; \ldots; s_n \dashv \Phi_n$" — together with the Substitution Lemma (§[9.3](#93-structural-lemmas)) applied at $\delta$ — produces a kernel $k_\delta : \llbracket A[\delta] \rrbracket \to \mathcal{G}(\llbracket \Phi_n[\delta] \rrbracket)$. Composing with the return arrow $\llbracket \Phi_n[\delta] \rrbracket \to \mathcal{G}(\llbracket B[\delta] \rrbracket)$ via Kleisli composition gives the fibrewise kernel $\llbracket A[\delta] \rrbracket \to \mathcal{G}(\llbracket B[\delta] \rrbracket)$. The map $\delta \mapsto k_\delta$ is measurable in $\delta$ when $\llbracket \Delta \rrbracket$ carries the product $\sigma$-algebra, so the dependent product $\prod_\delta \mathrm{Hom}_{\mathbf{Kern}}(\llbracket A[\delta] \rrbracket, \llbracket B[\delta] \rrbracket)$ admits a coherent assignment; this is the Π-fibred totality claim.
+*Case $\textsc{Prog}$.* Let $\Delta = p_1 : P_1, \ldots, p_k : P_k$. The body's denotation is computed in the parameter-extended value context $\Gamma \uplus \Delta$, so it is naturally a *function of the parameter environment*. Concretely, by IH applied to the premise $\Gamma \uplus \Delta; A \vdash s_1; \ldots; s_n \dashv \Phi_n$, the statement-typing soundness clause yields a measurable map
+
+$$
+\Lambda \;:\; \prod_{i = 1}^{k} \llbracket P_i \rrbracket \;\longrightarrow\; \mathrm{Hom}_{\mathbf{Kern}}\bigl(\llbracket A[\delta] \rrbracket,\, \mathcal{G}(\llbracket \Phi_n[\delta] \rrbracket)\bigr)
+$$
+
+defined by interpreting the body's denotation function at each $\delta \in \prod_i \llbracket P_i \rrbracket = \llbracket \Delta \rrbracket$; measurability in $\delta$ follows from the fact that each clause of the body's denotation function (§[8.4](#84-statement-denotation)) is built from measurable categorical operations ($\diamond$, $\mathrm{str}$, $\pi_*$, the family's parameter map), and a composite of measurable maps is measurable. Pre- and post-composing with the return denotation $\llbracket e[\delta] \rrbracket : \llbracket \Phi_n[\delta] \rrbracket \to \mathcal{G}(\llbracket B[\delta] \rrbracket)$ (a Dirac kernel induced by the return-coordinate projection, also measurable in $\delta$) gives a measurable map $\delta \mapsto k_\delta : \llbracket A[\delta] \rrbracket \to \mathcal{G}(\llbracket B[\delta] \rrbracket)$. This *is* the dependent product
+
+$$
+\llbracket p \rrbracket \;\in\; \prod_{\delta : \llbracket \Delta \rrbracket} \mathrm{Hom}_{\mathbf{Kern}}\bigl(\llbracket A[\delta] \rrbracket,\, \mathcal{G}(\llbracket B[\delta] \rrbracket)\bigr).
+$$
+
+Note that the $\delta$-indexing is *denotational*, not syntactic: each $\delta \in \llbracket \Delta \rrbracket$ ranges over the full categorical universe (e.g. every kernel in $\mathrm{Hom}_{\mathbf{Kern}}(\llbracket A_i \rrbracket, \llbracket B_i \rrbracket)$ for a $\mathsf{Mor}[A_i, B_i]$-typed parameter), not just those expressible by a QVR expression. The Substitution Lemma of §[9.3](#93-structural-lemmas) gives the *syntactic* counterpart used in §[9.2](#92-subject-reduction-parametric-instantiation), and the two agree on the expressible sub-product $\{(\llbracket a_1 \rrbracket, \ldots, \llbracket a_k \rrbracket) : \Gamma \vdash a_i : P_i\} \subseteq \llbracket \Delta \rrbracket$ by the Semantic Substitution Corollary.
 
 $\square$
 
 ### 9.2 Subject reduction (parametric instantiation)
 
-**Theorem (Subject reduction).** *Let $P : (\Delta) \Rightarrow A \rightsquigarrow B$ with $\Delta = p_1 : P_1, \ldots, p_k : P_k$, and let $\bar a = a_1, \ldots, a_k$ be a tuple of expressions with $\Gamma; \Phi \vdash a_i : P_i$. Then the inline-expanded program*
+**Theorem (Subject reduction).** *Let $P$ be a program with $\Gamma \vdash P : (\Delta) \Rightarrow A \rightsquigarrow B$ and body $\{s_1; \ldots; s_n; \mathsf{return}\,e\}$, and let $\bar a = a_1, \ldots, a_k$ be a tuple of actual arguments inhabiting $\Delta = p_1 : P_1, \ldots, p_k : P_k$ in $\Gamma$ (per the per-parameter clauses of the Substitution Lemma, §[9.3](#93-structural-lemmas)). Then the substituted body*
 
 $$
-P[\bar a / \bar p]
+\{s_1[\bar a / \bar p];\ \ldots;\ s_n[\bar a / \bar p];\ \mathsf{return}\,e[\bar a / \bar p]\}
 $$
 
-*satisfies $\Gamma; \Phi \vdash P[\bar a / \bar p] : A[\bar a / \bar p] \rightsquigarrow B[\bar a / \bar p]$, and*
+*is well-typed under $\Gamma$ as a morphism $A[\bar a / \bar p] \rightsquigarrow B[\bar a / \bar p]$, in the sense that*
 
 $$
-\llbracket P[\bar a / \bar p] \rrbracket = \llbracket P \rrbracket (\llbracket \bar a \rrbracket).
+\Gamma;\ A[\bar a / \bar p] \;\vdash\; s_1[\bar a / \bar p];\ \ldots;\ s_n[\bar a / \bar p] \;\dashv\; \Phi_n[\bar a / \bar p],
+\qquad
+\Gamma;\ \Phi_n[\bar a / \bar p] \;\vdash\; e[\bar a / \bar p] : \Phi_n[\bar a / \bar p] \rightsquigarrow B[\bar a / \bar p],
 $$
 
-**Proof.** Apply the Substitution Lemma of §[9.3](#93-structural-lemmas) at $a_1, \ldots, a_k$ for $p_1, \ldots, p_k$ in turn to the body's typing derivation $\Gamma \uplus \Delta; A \vdash s_1; \ldots; s_n \dashv \Phi_n$, obtaining $\Gamma; \Phi \vdash s_1[\bar a / \bar p]; \ldots; s_n[\bar a / \bar p] \dashv \Phi_n[\bar a / \bar p]$ for the inline-expanded body in the caller's trace context. The Semantic Substitution Corollary of §[9.3](#93-structural-lemmas) then gives the equation $\llbracket P[\bar a / \bar p] \rrbracket = \llbracket P \rrbracket(\llbracket a_1 \rrbracket, \ldots, \llbracket a_k \rrbracket)$ in the $\Pi$-fibre over $\Delta$. The α-renaming step (used by inline expansion to give fresh names to internal latents under prefix $v\$$, [Programs §3a](programs.md#3a-parametric-programs)) is sound because each rule of the statement-typing judgment depends only on the *types* a name carries, not on the name itself; the renaming is captured by a bijection of trace-context entries that commutes with the body's denotation function $\mathcal{B}\llbracket \cdot \rrbracket$ ([Programs §2 equation (3)](programs.md#2-statements)). $\square$
+*and the corresponding Kleisli composite agrees with the program's $\Pi$-fibre value at $\llbracket \bar a \rrbracket$:*
+
+$$
+\mathcal{B}\bigl\llbracket s_1[\bar a / \bar p];\ \ldots;\ s_n[\bar a / \bar p];\ \mathsf{return}\,e[\bar a / \bar p] \bigr\rrbracket
+\;=\;
+\llbracket P \rrbracket (\llbracket a_1 \rrbracket, \ldots, \llbracket a_k \rrbracket)
+$$
+
+*in $\mathrm{Hom}_{\mathbf{Kern}}(\llbracket A[\bar a / \bar p] \rrbracket, \mathcal{G}(\llbracket B[\bar a / \bar p] \rrbracket))$.*
+
+**Proof.** Apply the Substitution Lemma of §[9.3](#93-structural-lemmas) at each $a_i$ for $p_i$ in turn — using whichever per-parameter clause of the lemma matches the variant of $p_i$ ($P_i = \mathsf{Scalar}_R$ uses the kinding-judgment clause; $P_i = \mathsf{Mor}[A_i, B_i]$ uses the morphism-judgment clause; object-parameter clauses use the kinding-judgment clause for $X : \kappa$ entries) — to the body's typing derivations
+
+$$
+\Gamma \uplus \Delta;\ A \;\vdash\; s_1; \ldots; s_n \;\dashv\; \Phi_n,
+\qquad
+\Gamma \uplus \Delta;\ \Phi_n \;\vdash\; e : \Phi_n \rightsquigarrow B,
+$$
+
+obtaining the substituted versions stated above. The Semantic Substitution Corollary then identifies the Kleisli composite of the substituted body with the $\Pi$-fibre evaluation $\llbracket P \rrbracket(\llbracket a_1 \rrbracket, \ldots, \llbracket a_k \rrbracket)$, because each clause of $\mathcal{B}\llbracket \cdot \rrbracket$ ([Programs §2](programs.md#2-statements)) commutes with substitution by naturality of the categorical operations involved.
+
+The α-renaming step of inline expansion ([Programs §3a](programs.md#3a-parametric-programs)), which prefixes every internal latent name by $v\$$ to avoid capture in the caller's context, is sound because the rules of the statement-typing judgment depend only on the *types* a name carries (not on the name itself): the renaming induces a bijection of trace-context entries that preserves every typing premise. Splicing the renamed substituted body into a caller's statement list is then a Weakening (§[9.3](#93-structural-lemmas)) into the caller's larger $\Gamma$ and $\Phi$. $\square$
 
 ### 9.3 Structural lemmas
 
 The Soundness theorem (§[9.1](#91-soundness)) and the Subject-Reduction theorem (§[9.2](#92-subject-reduction-parametric-instantiation)) appeal to three structural facts about the type system that are themselves worth stating as lemmas. Each is proved by structural induction on the derivation; the inductive cases follow the corresponding clause of the relevant judgment.
 
-**Lemma (Weakening).** *Let $\mathcal{J}$ be any judgment form, $\Gamma$ a well-formed value context, and $\Gamma'$ an extension of $\Gamma$ by entries whose names are fresh in $\Gamma$. If $\Gamma \vdash \mathcal{J}$ then $\Gamma' \vdash \mathcal{J}$. The analogous statement holds for $\Delta$ and $\Phi$ in any judgment that mentions them.*
+**Lemma (Weakening).** *Let $\mathcal{J}$ be any judgment form. If $\Gamma \vdash \mathcal{J}$ and $\Gamma'$ extends $\Gamma$ with entries whose names are fresh with respect to $\Gamma$ and to every name appearing in $\mathcal{J}$, then $\Gamma' \vdash \mathcal{J}$. The analogous statements hold for the parameter context $\Delta$ and for the trace context $\Phi$ under the same freshness condition.*
 
-*Proof.* Induction on the derivation. Each leaf rule ($\textsc{TyVar}, \textsc{FinSet}, \textsc{TraceVar}, \textsc{ModuleVar}, \textsc{FamReg}$) requires only that a specific entry appear in the context; extension preserves that entry. Each inductive rule's premises are themselves judgments derivable under the same context, so the IH applies. The freshness side-conditions in $\textsc{Bind}$, $\textsc{BindTuple}$, $\textsc{Let}$ ("$v$ fresh in $\Phi$") are preserved because freshness in $\Gamma$ extends to $\Gamma'$ when the extension's names are themselves fresh in $\Gamma$ by hypothesis. $\square$
+*Proof.* Induction on the derivation. Each leaf rule ($\textsc{TyVar}, \textsc{FinSet}, \textsc{TraceVar}, \textsc{ModuleVar}, \textsc{FamReg}$) requires only that a specific entry appear in the context; extension preserves that entry. Each inductive rule's premises are themselves judgments derivable under the same context, so the IH applies. The freshness side-conditions of $\textsc{Bind}$, $\textsc{BindTuple}$, $\textsc{Let}$ — "$v$ fresh in $\Phi$" — are preserved by $\Gamma$-weakening trivially ($\Gamma$-extension does not touch $\Phi$) and by $\Phi$-weakening because the lemma's hypothesis demands that the extension's names be fresh with respect to every name in $\mathcal{J}$, including the bound $v$. The kind-join $\sqcup$ side-condition of $\textsc{TyProd}$ is unchanged by context extension because $\sqcup$ depends only on the kinds, which the IH supplies unchanged. $\square$
 
-**Lemma (Substitution).** *Suppose $\Gamma \vdash a : P$ for a parameter universe $P$. Then for every judgment $\Gamma \uplus (p : P); \Phi \vdash \mathcal{J}$ we have $\Gamma; \Phi[a/p] \vdash \mathcal{J}[a/p]$.*
+**Lemma (Substitution).** *Suppose the parameter universe $P$ and the hypothesis "$a$ inhabits $P$" take one of three forms, matching the $\mathsf{ProgramParam}$ variants:*
 
-*Proof (syntactic).* Induction on the derivation. The substitution $[a/p]$ replaces every occurrence of $p$ in $\Phi$ and in the conclusion's subject and type with the corresponding part of $a$. Cases:
+* *$P$ is a kind ($\ast_{\mathrm{FinSet}}, \ast_{\mathrm{Space}}, \ast_{\mathrm{Object}}, \mathsf{Scalar}_R$, $\ldots$) and the hypothesis is the kinding judgment $\Gamma \vdash a : P$;*
+* *$P = \mathsf{Mor}[A, B]$ and the hypothesis is the morphism judgment $\Gamma; \Phi \vdash a : A \rightsquigarrow B$.*
 
-* $\textsc{TyVar}$ at $p$: if $X = p$, the conclusion was $\Gamma \uplus (p : P) \vdash p : P$ and the substituted conclusion is $\Gamma \vdash a : P$, which is the hypothesis.
+*Then for every judgment $\mathcal{J}$ derivable in $\Gamma \uplus (p : P); \Phi$, the substituted judgment $\mathcal{J}[a/p]$ is derivable in $\Gamma; \Phi[a/p]$.*
+
+*Proof (syntactic).* Induction on the derivation. The substitution $[a/p]$ replaces every occurrence of $p$ in $\Phi$ and in the conclusion's subject and type with $a$. Cases:
+
+* $\textsc{TyVar}$ at $p$ (when $P$ is a kind): the conclusion was $\Gamma \uplus (p : P) \vdash p : P$; substituted conclusion is $\Gamma \vdash a : P$, which is the hypothesis.
 * $\textsc{TyVar}$ at $X \neq p$: $X : \kappa \in \Gamma$ survives unchanged.
-* $\textsc{TraceVar}$, $\textsc{ModuleVar}$: the consulted entry is in $\Phi$ or $\Gamma$, not in $p : P$, so the rule re-applies.
-* All other rules: the premises mention strictly smaller derivations; the IH gives them substituted; the rule re-fires because its premise pattern is closed under substitution (substitution maps the syntactic shape of each premise to a permissible substituted shape).
+* $\textsc{ModuleVar}$ at $p$ (when $P = \mathsf{Mor}[A, B]$): the conclusion was $\Gamma \uplus (p : A \rightsquigarrow B); \Phi \vdash p : A \rightsquigarrow B$; substituted conclusion is $\Gamma; \Phi[a/p] \vdash a : A \rightsquigarrow B$. The hypothesis $\Gamma; \Phi \vdash a : A \rightsquigarrow B$ gives this directly (and $\Phi[a/p] = \Phi$ when no entries of $\Phi$ mention $p$, which is the case here because morphism-level $p$ cannot appear inside a type expression).
+* $\textsc{ModuleVar}$ at $f \neq p$, $\textsc{TraceVar}$ at any $x$, $\textsc{FamReg}$ at any $F$: the consulted entry is in $\Phi$ or in the $\Gamma$ part of $\Gamma \uplus (p : P)$, not in the $p$ part, so the rule re-applies under $\Gamma$ unchanged.
+* $\textsc{TyVar}$ at a $p$-typed object-parameter (when $P \in \{\ast_{\mathrm{FinSet}}, \ast_{\mathrm{Space}}\}$): the $p$-occurrences may appear inside compound type expressions in $\Phi$. The substitution replaces them with $a$ (an object name); each occurrence becomes a $\textsc{TyVar}$ at $a$, which fires because $a$ is declared in $\Gamma$.
+* All other rules: the premises mention strictly smaller derivations; the IH gives them substituted; the rule re-fires because its premise pattern is closed under substitution (each premise's syntactic shape maps to a permissible substituted shape, the rule's well-formedness side-conditions like "$\sqcup$ defined" or "$v$ fresh" being preserved by substitution).
 $\square$
 
 **Corollary (Semantic substitution).** *Under the hypothesis of the Substitution Lemma, $\llbracket \mathcal{J}[a/p] \rrbracket = \llbracket \mathcal{J} \rrbracket\bigl[\llbracket a \rrbracket / p\bigr]$ in the appropriate $\Pi$-fibre, where the right side denotes evaluation of the $\Pi$-indexed family at $\llbracket a \rrbracket$.*
