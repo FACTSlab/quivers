@@ -261,24 +261,32 @@ with analogous rules for $\mathsf{Sphere}, \mathsf{Ball}, \mathsf{CholeskyFactor
 ### 3.4 Products and coproducts
 
 $$
-\frac{\Gamma \vdash \tau_1 : \kappa_1 \quad \Gamma \vdash \tau_2 : \kappa_2}{\Gamma \vdash \tau_1 \times \tau_2 : \kappa_1 \sqcup \kappa_2}\ \textsc{TyProd}
+\frac{\Gamma \vdash \tau_1 : \kappa_1 \quad \Gamma \vdash \tau_2 : \kappa_2 \quad \kappa_1 \sqcup \kappa_2\ \text{defined}}{\Gamma \vdash \tau_1 \times \tau_2 : \kappa_1 \sqcup \kappa_2}\ \textsc{TyProd}
 \qquad
 \frac{\Gamma \vdash \tau_1 : \ast_{\mathrm{FinSet}} \quad \Gamma \vdash \tau_2 : \ast_{\mathrm{FinSet}}}{\Gamma \vdash \tau_1 + \tau_2 : \ast_{\mathrm{FinSet}}}\ \textsc{TySum}
 $$
 
-The product rule uses the kind-join $\sqcup$:
+The kind-join $\sqcup$ is the partial function
 
 $$
-\ast_{\mathrm{FinSet}} \sqcup \ast_{\mathrm{FinSet}} = \ast_{\mathrm{FinSet}}
+\sqcup\ :\ \{\ast_{\mathrm{FinSet}}, \ast_{\mathrm{Space}}\}^2 \rightharpoonup \{\ast_{\mathrm{FinSet}}, \ast_{\mathrm{Space}}\}
+$$
+
+defined exactly by the four cases
+
+$$
+\ast_{\mathrm{FinSet}} \sqcup \ast_{\mathrm{FinSet}} = \ast_{\mathrm{FinSet}},
 \qquad
 \ast_{\mathrm{FinSet}} \sqcup \ast_{\mathrm{Space}}
 = \ast_{\mathrm{Space}} \sqcup \ast_{\mathrm{FinSet}}
-= \ast_{\mathrm{Space}}
+= \ast_{\mathrm{Space}},
 \qquad
-\ast_{\mathrm{Space}} \sqcup \ast_{\mathrm{Space}} = \ast_{\mathrm{Space}}
+\ast_{\mathrm{Space}} \sqcup \ast_{\mathrm{Space}} = \ast_{\mathrm{Space}}.
 $$
 
-implementing the discrete-component absorption discussed in [Types and spaces §6](types-and-spaces.md#6-resolution-in-code). Coproducts are restricted to the discrete sub-language because $\mathbf{SBor}$ has no general finite coproducts that play well with the Giry monad.
+$\sqcup$ is undefined on $\ast_{\mathrm{Sort}}$, $\ast_{\mathrm{Atom}}$, and the parametric kinds $\mathsf{Family}[\Theta, B]$, $\mathsf{Mor}[A, B]$, $\mathsf{Scalar}_R$: products of items at those kinds are not legal QVR objects. $\textsc{TyProd}$'s third premise "$\kappa_1 \sqcup \kappa_2$ defined" is the well-typedness restriction that rules out $\mathsf{FinSet}\,3 \times \mathsf{Sort}_T$ etc. The defined cases implement the discrete-component absorption discussed in [Types and spaces §6](types-and-spaces.md#6-resolution-in-code).
+
+Coproducts are restricted to the discrete sub-language because $\mathbf{SBor}$ has no general finite coproducts that play well with the Giry monad ([Setting §3](setting.md#3-standard-borel-spaces-and-markov-kernels)).
 
 ### 3.5 Residuated formers
 
@@ -306,15 +314,16 @@ $$
 \frac{F \in \mathsf{FamReg}\ \text{with parameter}\ \Theta_F\ \text{and value space}\ B_F}{\Gamma \vdash F : \mathsf{Family}[\Theta_F, B_F]}\ \textsc{FamReg}
 $$
 
-A *family application* $F(a_1, \ldots, a_k)$ is typed by checking that the actual argument tuple $\bar a$ matches the family's parameter shape: the parameters are usually nested in a tuple structure $\Theta_F = R_1 \times \cdots \times R_k$ over a rig $R_i$, so each $a_i$ must inhabit the corresponding scalar slot.
+A *family application* $F(a_1, \ldots, a_k)$ is typed by checking that the actual argument tuple $\bar a$ matches the parameter object $\Theta_F$ that the registry assigns to $F$. The parameter object is not necessarily a simple product of scalar slots: a `Normal(mu, sigma)` family has $\Theta_{\mathrm{Normal}} = \mathbb{R} \times \mathbb{R}_{> 0}$ (mean and a positive scale), whereas `MultivariateNormal(loc, scale_tril)` has $\Theta = \mathbb{R}^d \times \mathrm{CholeskyFactor}(d)$ (a vector and a Cholesky factor at dimension $d$). The general typing rule abstracts over this with an arity-$k$ argument map $\mathrm{params}_F : \Theta_F \to A_1 \times \cdots \times A_k$ that specifies, per family, what each surface argument slot inhabits:
 
 $$
-\frac{\Gamma \vdash F : \mathsf{Family}[R_1 \times \cdots \times R_k,\, B]
-       \qquad \Gamma; \Phi \vdash a_i : R_i \quad (1 \le i \le k)}
+\frac{\Gamma \vdash F : \mathsf{Family}[\Theta_F,\, B]
+       \qquad \mathrm{params}_F = (A_1, \ldots, A_k)
+       \qquad \Gamma; \Phi \vdash a_i : A_i\ \text{(each}\ a_i\ \text{a morphism}\ \Phi \rightsquigarrow A_i)\ \text{for}\ i = 1, \ldots, k}
       {\Gamma; \Phi \vdash F(\bar a) : \mathsf{Kernel}[\Phi, B]}\ \textsc{FamApp}
 $$
 
-Here $\mathsf{Kernel}[\Phi, B]$ is the kind of Kleisli arrows $\Phi \to \mathcal{G}(B)$, and the parameter arguments may depend on the trace context $\Phi$ (the family becomes a kernel parameterised by the current trace).
+Here $\mathsf{Kernel}[\Phi, B]$ is the kind of Kleisli arrows $\Phi \to \mathcal{G}(B)$. Each argument $a_i$ is itself a morphism from the trace $\Phi$ into its declared slot $A_i$: this is what allows a family parameter to *depend on* previously-bound random variables (e.g. `Categorical(theta)` where `theta` is a Dirichlet-distributed simplex value bound earlier in the body). The composite $F \circ \mathrm{params}_F^{-1} \circ \langle a_1, \ldots, a_k \rangle$ is the resulting kernel on $\Phi$. The implementation realises $\mathrm{params}_F$ as the `FamilySpec.param_specs` list in `src/quivers/continuous/families.py`.
 
 ## 5. Inference rules for morphism expressions
 
@@ -332,12 +341,23 @@ The two rules separate trace-bound names (which project from the current $\Phi$)
 
 ### 5.2 Composition
 
+Sequential composition splits into two rules by the algebra-dispatch convention of [Expressions §2.8](expressions.md#28-the-eleven-composition-operators).
+
+For the *algebra-polymorphic* operators (`>>`, `<<`, `>=>`), the composition fires when both operands inhabit the *same* algebra; the module's declared algebra $\alpha_{\text{mod}}$ supplies $\otimes$ and $\bigoplus$:
+
 $$
-\frac{\Gamma; \Phi \vdash e_1 : A \rightsquigarrow B \qquad \Gamma; \Phi \vdash e_2 : B \rightsquigarrow C}
-     {\Gamma; \Phi \vdash e_1 \mathbin{\diamond_\alpha} e_2 : A \rightsquigarrow C}\ \textsc{Compose}
+\frac{\Gamma; \Phi \vdash e_1 : A \rightsquigarrow B \qquad \Gamma; \Phi \vdash e_2 : B \rightsquigarrow C \qquad \mathrm{alg}(e_1) = \mathrm{alg}(e_2) = \alpha}
+     {\Gamma; \Phi \vdash e_1 \mathbin{\diamond_\alpha^{\mathrm{poly}}} e_2 : A \rightsquigarrow C}\ \textsc{ComposePoly}_\alpha
 $$
 
-This is Kleisli composition $\diamond_\alpha$ in the underlying Markov category, with $\alpha$ ranging over the eleven-operator family of [Composition rules](composition-rules.md) (`>>`, `<<`, `>=>`, `*>`, `~>`, `||>`, `?>`, `&&>`, `+>`, `$>`, `%>`). Soundness (Theorem [§9.1](#91-soundness)) collapses every syntactic composition operator onto its algebra's $\diamond$.
+For each *algebra-tagged* operator $\circ_\beta$ in the set $\{\mathbin{*>} : \beta = \mathcal{V}_{\mathrm{M}},\ \mathbin{\sim>} : \beta = \mathcal{V}_{\mathrm{LP}},\ \mathbin{||>} : \beta = \mathcal{V}_{\mathrm{G}},\ \mathbin{?>} : \beta = \mathcal{V}_{\mathrm{MP}},\ \mathbin{\&\&>} : \beta = \mathcal{V}_{\mathbb{B}},\ \mathbin{+>} : \beta = \mathcal{V}_{\mathrm{L}},\ \mathbin{\$>} : \beta = \mathcal{V}_{\mathbb{R}},\ \mathbin{\%>} : \beta = \mathcal{V}_{[0,1]}\}$, the composition fixes its target algebra $\beta$ and requires both operands to inhabit it:
+
+$$
+\frac{\Gamma; \Phi \vdash e_1 : A \rightsquigarrow B \qquad \Gamma; \Phi \vdash e_2 : B \rightsquigarrow C \qquad \mathrm{alg}(e_1) = \mathrm{alg}(e_2) = \beta}
+     {\Gamma; \Phi \vdash e_1 \mathbin{\diamond_\beta^{\mathrm{tag}}} e_2 : A \rightsquigarrow C}\ \textsc{ComposeTag}_\beta
+$$
+
+The function $\mathrm{alg}(\cdot)$ is the synthesised algebra of a morphism expression, computed inductively from the algebras of declared morphisms ([Composition rules §3](composition-rules.md#3-user-defined-composition-rules)). When operands disagree, the typechecker rejects rather than auto-coercing; explicit base change is the surface syntax `.change_base(φ)` ([Expressions §4](expressions.md), `ExprChangeBase`). Soundness (Theorem [§9.1](#91-soundness)) collapses both syntactic shapes onto Kleisli composition $\diamond$ in $\mathbf{Kern}$ at the algebra $\alpha$ (resp. $\beta$).
 
 ### 5.3 Tensor product
 
@@ -486,15 +506,16 @@ The program-typing judgment is $\Gamma \vdash p : (\Delta) \Rightarrow A \rights
 ### 7.1 Program declaration
 
 $$
-\frac{\Gamma \vdash A : \kappa_A
-       \qquad \Gamma \vdash B : \kappa_B
-       \qquad \Gamma; \Delta \vdash A\ \mathsf{ok}\ \text{and}\ B\ \mathsf{ok}
-       \qquad \Gamma, \Delta; A \vdash s_1; \ldots; s_n \dashv \Phi_n
-       \qquad \Gamma, \Delta; \Phi_n \vdash e : \Phi_n \rightsquigarrow B}
+\frac{\Gamma \uplus \Delta \vdash A : \kappa_A
+       \qquad \Gamma \uplus \Delta \vdash B : \kappa_B
+       \qquad \Gamma \uplus \Delta; A \vdash s_1; \ldots; s_n \dashv \Phi_n
+       \qquad \Gamma \uplus \Delta; \Phi_n \vdash e : \Phi_n \rightsquigarrow B}
      {\Gamma \vdash \mathsf{program}\ P\ (\Delta)\ :\ A \to B\ \{\,s_1; \ldots; s_n; \mathsf{return}\ e\,\} : (\Delta) \Rightarrow A \rightsquigarrow B}\ \textsc{Prog}
 $$
 
-The rule reads bottom-up: a program is well-typed when (i) the declared signature $A \to B$ is kind-correct in any extension of $\Gamma$ by $\Delta$, (ii) the body, threaded through the trace contexts $\Phi_0 = A$ through $\Phi_n$, is a valid statement sequence, and (iii) the return expression projects $\Phi_n$ onto $B$.
+The operator $\uplus$ is *parameter folding*: $\Gamma \uplus \Delta$ extends $\Gamma$ with one new entry per $\Delta$-binder, treating each ScalarParam $p : R$ as a fresh module-level binding of $p$ at the scalar kind $\mathsf{Scalar}_R$, each ObjectParam $X : \mathrm{U}$ as a fresh type-level binding at the universe kind $\mathrm{U} \in \{\ast_{\mathrm{FinSet}}, \ast_{\mathrm{Space}}, \mathrm{either}\}$, and each MorphismParam $f : \mathsf{Mor}[A, B]$ as a fresh morphism-level binding at signature $A \rightsquigarrow B$. The fold is well-defined because $\Delta$'s binders are syntactically disjoint from $\Gamma$ (any clash is a compile error). $\uplus$ is the syntactic device that fits a Π-binder list into a flat value context for the body's typing; the Π-structure resurfaces in the conclusion as the $(\Delta) \Rightarrow$ prefix.
+
+The rule reads bottom-up: a program is well-typed when (i) the declared signature $A \to B$ is kind-correct in the parameter-extended context, (ii) the body, threaded through the trace contexts $\Phi_0 = A$ through $\Phi_n$, is a valid statement sequence, and (iii) the return expression projects $\Phi_n$ onto $B$.
 
 The dependent-product structure of the conclusion's denotation,
 
@@ -675,9 +696,18 @@ The Soundness theorem (§[9.1](#91-soundness)) and the Subject-Reduction theorem
 
 **Lemma (Type uniqueness).** *Suppose $\Gamma; \Phi \vdash e : A_1 \rightsquigarrow B_1$ and $\Gamma; \Phi \vdash e : A_2 \rightsquigarrow B_2$. Then $A_1 = A_2$ and $B_1 = B_2$. The analogous statement holds for the statement, family, type-formation, and program judgments.*
 
-*Proof.* Induction on $e$. For each Expr variant, exactly one rule's conclusion shape applies; the rule determines the conclusion's $A$ and $B$ as functions of the premises' types (e.g. $\textsc{Compose}$ fixes $A = A_1$, $B = C$ given the operand types). The premises themselves have unique types by induction, so the conclusion is uniquely determined. The $\textsc{ModuleVar}$ rule's $A \rightsquigarrow B$ is uniquely read from $\Gamma$ by the disjointness of context entries; $\textsc{TraceVar}$ reads $\tau$ uniquely from $\Phi$. $\square$
+*Proof.* Induction on $e$. For each Expr variant, exactly one rule's conclusion shape applies; the rule determines the conclusion's $A$ and $B$ as functions of the premises' types (e.g. $\textsc{ComposePoly}_\alpha$ fixes $A = A_1$, $B = C$ given the operand types). The premises themselves have unique types by induction, so the conclusion is uniquely determined. The $\textsc{ModuleVar}$ rule's $A \rightsquigarrow B$ is uniquely read from $\Gamma$ by the disjointness of context entries; $\textsc{TraceVar}$ reads $\tau$ uniquely from $\Phi$. $\square$
 
-The three lemmas justify each "by induction" step in the proof of Soundness (§[9.1](#91-soundness)): Weakening discharges the case where a premise's context differs from the conclusion's; Substitution underwrites the $\textsc{Prog}$ case's claim that each fibre is well-defined; Type Uniqueness ensures the algorithm of §[10](#10-algorithmic-typechecking) is well-defined (each synthesis returns *the* type, not a non-empty family).
+**Lemma (Inversion).** *Every derivable judgment ends with exactly one rule, and the form of the conclusion uniquely determines which rule. Specifically:*
+
+* *if $\Gamma \vdash \tau : \kappa$, the head constructor of $\tau$ determines the rule ($\textsc{TyVar}$ for $\textsf{TypeName}$, $\textsc{FinSet}$ for an integer-literal $\textsf{DiscreteConstructor}$, $\textsc{TyProd}$ for $\textsf{ObjectProduct}$, ...);*
+* *if $\Gamma; \Phi \vdash e : A \rightsquigarrow B$, the head constructor of $e$ determines the rule, with the algebra dispatch of $\textsf{ExprCompose}$ further selecting between $\textsc{ComposePoly}_\alpha$ and $\textsc{ComposeTag}_\beta$ by the operator's $\mathrm{op}$ field;*
+* *if $\Gamma; \Phi \vdash s \dashv \Phi'$, the statement constructor determines the rule;*
+* *if $\Gamma \vdash p : (\Delta) \Rightarrow A \rightsquigarrow B$, the program declaration's parameter list determines whether $\textsc{Prog}$ or $\textsc{ProgProj}$ applies (typed vs bare-identifier).*
+
+*Proof.* By inspection of the rule set: no two rules share a conclusion shape. The algebra-polymorphic / algebra-tagged split in $\textsc{Compose}$ is the only refinement, and it is determined by the operator's $\mathrm{op}$ field — a syntactic discriminator on the Expr node. The bare-vs-typed parameter split in $\textsc{Prog}$ / $\textsc{ProgProj}$ is determined by the $\mathsf{ProgramParam}$ tagged-union discriminator on the parameter list. $\square$
+
+The four lemmas together underwrite every "by induction" step in §[9.1](#91-soundness) and §[9.2](#92-subject-reduction-parametric-instantiation): Weakening discharges the cases where a premise's context differs from the conclusion's; Substitution underwrites the $\textsc{Prog}$ case's claim that each fibre is well-defined; Type Uniqueness ensures the algorithm of §[10](#10-algorithmic-typechecking) is well-defined (each synthesis returns *the* type, not a non-empty family); Inversion is the syntactic-direction property the bidirectional algorithm of §[10](#10-algorithmic-typechecking) exploits to drive its check / synth dispatch.
 
 ### 9.4 Completeness
 
