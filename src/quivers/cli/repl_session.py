@@ -23,6 +23,7 @@ import didactic.api as dx
 
 from quivers.dsl import Compiler, CompileError, ParseError, parse
 from quivers.dsl.ast_nodes import (
+    ExportDecl,
     ExprCompose,
     ExprIdent,
     ExprTensorProduct,
@@ -31,6 +32,7 @@ from quivers.dsl.ast_nodes import (
     ObjectDecl,
     ObjectExpr,
     TypeFromExpr,
+    TypeName,
 )
 from quivers.analysis.scope import (
     SCOPE_SEPARATOR,
@@ -312,6 +314,11 @@ class ReplSession:
                 )
 
         # Try to resolve as an expression (morphism reference / composition).
+        # We drive the compiler's own ``_compile_expr`` inference rather
+        # than re-running the full module compile: ``_compile_expr``
+        # reads ``_morphisms`` / ``_objects`` / ``_spaces`` but does
+        # not mutate them, so the session's already-compiled state is
+        # the right environment to ask "what is the type of e?" in.
         try:
             mod = parse(f"export {expr_source}", file_path="<expr>")
         except ParseError as e:
@@ -322,16 +329,13 @@ class ReplSession:
                     f"{expr_source} is a type expression; use :kind {expr_source}"
                 )
             return _err(f"parse error: {e}")
-        scratch = Compiler(_extend_module(self._module, mod.statements))
+        expr_ast = _extract_export_expr(mod)
+        if expr_ast is None:
+            return _err("expression did not resolve to a morphism")
         try:
-            scratch.compile()
+            morph = self._compiler._compile_expr(expr_ast)
         except CompileError as e:
-            return _err(f"compile error: {e}")
-        program = getattr(scratch, "_output_expr", None)
-        try:
-            morph = scratch._compile_expr(program) if program is not None else None
-        except CompileError as e:
-            return _err(f"compile error: {e}")
+            return _err(f"type error: {e}")
         if morph is None:
             return _err("expression did not resolve to a morphism")
         return _resp(
@@ -480,8 +484,13 @@ class ReplSession:
           Haskell-style constraint context ``(p₁ : P₁, …) => dom -> cod``
           so the ∏-bound parameters never get conflated with the
           kernel's dom -> cod arrow.
+
+        The dom / cod ``ObjectExpr`` AST nodes are routed through
+        the compiler's ``_resolve_any_space`` so the rendered
+        signature carries the *elaborated* SetObject / ContinuousSpace
+        (with cardinalities and dims resolved) rather than the raw
+        parse tree.
         """
-        del self
         type_param_strs: list[str] = []
         for p in getattr(tmpl, "type_params", None) or ():
             kind = type(p).__name__
@@ -495,26 +504,56 @@ class ReplSession:
                     f"{pname} : {getattr(p, 'universe', '?')}"
                 )
             elif kind == "MorphismParam":
-                dom_p = getattr(p, "domain", None)
-                cod_p = getattr(p, "codomain", None)
+                dom_p = self._pretty_obj_expr(getattr(p, "domain", None))
+                cod_p = self._pretty_obj_expr(getattr(p, "codomain", None))
                 if dom_p is not None and cod_p is not None:
                     type_param_strs.append(
-                        f"{pname} : "
-                        f"Mor[{_pretty_object(dom_p)}, {_pretty_object(cod_p)}]"
+                        f"{pname} : Mor[{dom_p}, {cod_p}]"
                     )
                 else:
                     type_param_strs.append(f"{pname} : Mor")
             else:
                 type_param_strs.append(f"{pname} : ?")
-        dom = getattr(tmpl, "domain", None)
-        cod = getattr(tmpl, "codomain", None)
+        dom = self._pretty_obj_expr(getattr(tmpl, "domain", None))
+        cod = self._pretty_obj_expr(getattr(tmpl, "codomain", None))
         if dom is None or cod is None:
             return f"{name} :: ?"
-        morph_sig = f"{_pretty_object(dom)} -> {_pretty_object(cod)}"
+        morph_sig = f"{dom} -> {cod}"
         if type_param_strs:
             ctx = ", ".join(type_param_strs)
             return f"{name} :: ({ctx}) => {morph_sig}"
         return f"{name} :: {morph_sig}"
+
+    def _pretty_obj_expr(self, expr: Any) -> str | None:
+        """Render an ``ObjectExpr`` for display, preferring the
+        user-given alias for bare ``TypeName`` references.
+
+        For bare names pointing at a module-level binding, returns
+        the alias the user declared (``Word`` rather than the
+        compiler's internal ``FinSet(name='_FinSet_200',
+        cardinality=200)``). For compound type expressions
+        (``FinSet 3``, ``A * B``) defers to the compiler's
+        ``_resolve_any_space`` so the elaborated structure surfaces
+        through ``_pretty_object``.
+        """
+        if expr is None:
+            return None
+        if not isinstance(expr, ObjectExpr):
+            return _pretty_object(expr)
+        if not self._compiler:
+            return _pretty_object(expr)
+        if isinstance(expr, TypeName):
+            if (
+                expr.name in self._compiler.objects
+                or expr.name in self._compiler.spaces
+            ):
+                return expr.name
+        try:
+            return _pretty_object(self._compiler._resolve_any_space(expr))
+        except CompileError:
+            return _pretty_object(expr)
+        except Exception:
+            return _pretty_object(expr)
 
     def _type_signature_for_ref(self, ref: ScopedRef) -> str:
         """Render a GHCi-style ``name :: type`` line for a scoped ref.
@@ -2118,6 +2157,19 @@ def _render_decl(decl: Statement) -> str:
 
 def _extend_module(base: Module, additions: Iterable[Statement]) -> Module:
     return Module(statements=tuple(base.statements) + tuple(additions))
+
+
+def _extract_export_expr(mod: Module):
+    """Return the ``Expr`` AST node from a probe ``export <expr>``
+    module, or ``None`` if the parse did not produce an
+    `ExportDecl`. Used by :type to feed the user's expression
+    directly into ``Compiler._compile_expr`` without re-running
+    the full module compile pass.
+    """
+    for stmt in mod.statements:
+        if isinstance(stmt, ExportDecl):
+            return stmt.expr
+    return None
 
 
 # ---------------------------------------------------------------------------
