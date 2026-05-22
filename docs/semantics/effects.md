@@ -65,7 +65,7 @@ $\mathbf{Stoch}$ / $\mathbf{Kern}$.
 
 ## 3. Effect-typed schema denotations
 
-A `SchemaDecl` whose domain or codomain mentions a `TypeEffectApply`
+A `SchemaDecl` whose domain or codomain mentions an `ObjectEffectApply`
 node $T(X)$ is *parametric* in its free pattern variables. For each
 choice of instantiation $X, Y \in \mathcal{C}$ the schema denotes a
 morphism

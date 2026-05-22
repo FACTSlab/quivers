@@ -1,6 +1,6 @@
 # Types and Spaces
 
-This page gives the denotation of the syntactic categories `TypeExpr` (finite-set types) and `SpaceExpr` (continuous spaces). Both are interpreted compositionally by structural recursion on the syntactic constructors of [`quivers.dsl.ast_nodes`](../api/dsl/ast_nodes.md), and both are realized by the unified resolution walk in [`quivers.dsl.compiler.resolution`](../api/dsl/resolution.md).
+This page gives the denotation of the syntactic categories `ObjectExpr` (finite-set types) and `SpaceExpr` (continuous spaces). Both are interpreted compositionally by structural recursion on the syntactic constructors of [`quivers.dsl.ast_nodes`](../api/dsl/ast_nodes.md), and both are realized by the unified resolution walk in [`quivers.dsl.compiler.resolution`](../api/dsl/resolution.md).
 
 ## 1. Syntactic categories
 
@@ -72,7 +72,7 @@ The surface form
 object X : value
 ```
 
-admits five *initializer* shapes for the right-hand side `value`, each binding $X$ to a concrete object of $\mathbf{FinSet}$ or $\mathbf{SBor}$ built from explicit data rather than from a syntactic `TypeExpr`. Each is interpreted at the value layer and contributes its denotation directly to $\rho_{\mathrm{obj}}(X)$ (or $\rho_{\mathrm{spc}}(X)$ for the continuous-space initialiser):
+admits five *initializer* shapes for the right-hand side `value`, each binding $X$ to a concrete object of $\mathbf{FinSet}$ or $\mathbf{SBor}$ built from explicit data rather than from a syntactic `ObjectExpr`. Each is interpreted at the value layer and contributes its denotation directly to $\rho_{\mathrm{obj}}(X)$ (or $\rho_{\mathrm{spc}}(X)$ for the continuous-space initialiser):
 
 | Initialiser | Denotation |
 |---|---|
@@ -111,7 +111,7 @@ The `FreeResiduated(G, depth = d, ops = O)` initialiser binds $X$ to a finite en
 
 ## 3. Free monoids
 
-The runtime value layer exposes a `FreeMonoid` object class, which arises in the deduction fragment as the carrier of strings over an alphabet (see [Weighted Deduction Fragment](grammar.md)). At the surface, `FreeMonoid(X, max_length = n)` appears only as an *object initializer* (§2a.2 above), not as a `TypeExpr` constructor: a free monoid must be bound to an `object` name via `object Words = FreeMonoid(...)` before it can be referenced as a type.
+The runtime value layer exposes a `FreeMonoid` object class, which arises in the deduction fragment as the carrier of strings over an alphabet (see [Weighted Deduction Fragment](grammar.md)). At the surface, `FreeMonoid(X, max_length = n)` appears only as an *object initializer* (§2a.2 above), not as a `ObjectExpr` constructor: a free monoid must be bound to an `object` name via `object Words = FreeMonoid(...)` before it can be referenced as a type.
 
 The denotation of `FreeMonoid(generators = X, max_length = n)` is the bounded Kleene star
 
@@ -228,13 +228,13 @@ where $\iota : \mathbf{FinSet} \hookrightarrow \mathbf{SBor}$ is the canonical i
 
 ## 5. Coherence
 
-The two type-formers $\times$ and $+$ on `TypeExpr` are interpreted by the cartesian product and disjoint union in $\mathbf{FinSet}$, both of which are associative, commutative, and unital up to canonical isomorphism (with units the singleton $\mathbf{1}$ and the empty set $\emptyset$ respectively). Concretely:
+The two type-formers $\times$ and $+$ on `ObjectExpr` are interpreted by the cartesian product and disjoint union in $\mathbf{FinSet}$, both of which are associative, commutative, and unital up to canonical isomorphism (with units the singleton $\mathbf{1}$ and the empty set $\emptyset$ respectively). Concretely:
 
 - The flattening converters on `ProductSet` and `CoproductSet` realize the *coherence isomorphisms* $((\tau_1 \times \tau_2) \times \tau_3) \cong (\tau_1 \times (\tau_2 \times \tau_3))$ as identities on the chosen representative.
 - Empty products denote $\mathbf{1}$ (a singleton; `EmptySet` for coproducts denotes $\emptyset$).
 - The `EmptySet` constructor in `categorical.monoidal` is the unit for $+$.
 
-Mac Lane's coherence theorem guarantees that any two parses of the same `TypeExpr` denote *equal* finite sets in $\mathbf{FinSet}$, not merely isomorphic ones, when the implementation uses the canonical flattened normal form.
+Mac Lane's coherence theorem guarantees that any two parses of the same `ObjectExpr` denote *equal* finite sets in $\mathbf{FinSet}$, not merely isomorphic ones, when the implementation uses the canonical flattened normal form.
 
 ## 6. Resolution in code
 
