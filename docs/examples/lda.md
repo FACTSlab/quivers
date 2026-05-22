@@ -131,3 +131,8 @@ The discrete per-word topic $z : \mathsf{Topic}$ is integrated out by the [pushf
 ## See Also
 
 - [Bayesian Gaussian Mixture Model](mixture-model.md) for a simpler grouped `marginalize` over a discrete latent.
+
+
+## References
+
+- David M. Blei, Andrew Y. Ng, and Michael I. Jordan. 2003. Latent Dirichlet allocation. *Journal of Machine Learning Research*, 3:993–1022.

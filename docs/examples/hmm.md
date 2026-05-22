@@ -148,3 +148,8 @@ print(f"divergences: {int(result.divergence_counts.sum())}")
 The forward algorithm and the Viterbi algorithm are the same composed morphism evaluated in different [algebras](https://ncatlab.org/nlab/show/algebra): under product, composition multiplies probabilities and summation marginalizes; under tropical, composition adds log-probabilities and summation maximizes. Quivers makes this explicit: switching `algebra` changes the V-enriched composition rule without touching the program text.
 
 The row-wise Dirichlet prior is the standard conjugate prior for a categorical kernel; declaring it via `over cod iid over dom` resolves the axis-role ambiguity that distinguishes a flat Dirichlet on $|State|\cdot|State|$ entries (wrong: not row-stochastic) from $|State|$ independent simplex draws (right). The categorical reading: each row of $T$ is a fiber of the dependent kernel $\prod_{c \,:\, \mathrm{State}} \mathcal{G}(\mathrm{State})$, so the prior factors as a product of independent simplex priors.
+
+
+## References
+
+- Michèle Giry. 1982. A categorical approach to probability theory. In Bernhard Banaschewski, editor, *Categorical Aspects of Topology and Analysis*, volume 915 of *Lecture Notes in Mathematics*, pages 68–85. Springer, Berlin, Heidelberg.

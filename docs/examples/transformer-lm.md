@@ -162,3 +162,9 @@ print(f"divergences: {int(result.divergence_counts.sum())}")
 ## Categorical Perspective
 
 The model denotes a Kleisli morphism $\mathrm{Token} \to \mathcal{G}(\mathrm{Token})$ in the [Giry monad](https://doi.org/10.1007/BFb0092872)'s Kleisli category, assembled by composition of replicated heads, an output projection, residual mixers, and a two-stage feed-forward block. [`stack`](../guides/dsl-declarations.md#stack-independent-multi-layer) is independent multi-layer deep composition; [`fan`](../guides/dsl-declarations.md#fan-out-diagonal-morphism) is the diagonal followed by parallel composition, the categorical realization of multi-head attention. The Categorical head accumulates per-position log-likelihood as a sub-probability kernel.
+
+
+## References
+
+- Ashish Vaswani, Noam Shazeer, Niki Parmar, Jakob Uszkoreit, Llion Jones, Aidan N. Gomez, Łukasz Kaiser, and Illia Polosukhin. 2017. Attention is all you need. arXiv preprint arXiv:1706.03762.
+- Michèle Giry. 1982. A categorical approach to probability theory. In Bernhard Banaschewski, editor, *Categorical Aspects of Topology and Analysis*, volume 915 of *Lecture Notes in Mathematics*, pages 68–85. Springer, Berlin, Heidelberg.

@@ -301,3 +301,11 @@ normalization layers, and LU-parameterized linear layers.
 - [Stochastic Morphisms](stochastic.md): the finite-state
   counterpart and the
   [Giry monad](https://ncatlab.org/nlab/show/Giry+monad) substrate.
+
+
+## References
+
+- Conor Durkan, Artur Bekasov, Iain Murray, and George Papamakarios. 2019. Neural spline flows. arXiv preprint arXiv:1906.04032.
+- Diederik P. Kingma, Tim Salimans, Rafal Jozefowicz, Xi Chen, Ilya Sutskever, and Max Welling. 2016. Improving variational inference with inverse autoregressive flow. arXiv preprint arXiv:1606.04934.
+- George Papamakarios, Theo Pavlakou, and Iain Murray. 2017. Masked autoregressive flow for density estimation. arXiv preprint arXiv:1705.07057.
+- Laurent Dinh, Jascha Sohl-Dickstein, and Samy Bengio. 2016. Density estimation using Real NVP. arXiv preprint arXiv:1605.08803.
