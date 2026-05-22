@@ -2244,6 +2244,29 @@ def _extend_module(base: Module, additions: Iterable[Statement]) -> Module:
     return Module(statements=tuple(base.statements) + tuple(additions))
 
 
+def render_signature(compiler: Compiler | None, name: str) -> str | None:
+    """Return the GHCi-style ``name :: type`` (or ``object NAME : ...``
+    for type-level bindings) for a top-level name, or ``None`` when
+    the compiler is absent or the name is unknown.
+
+    This is the shared entry point used by both the REPL (``:type``
+    / ``:kind`` / bare-expression fallback) and the LSP server's
+    hover panel: by routing every surface that wants a one-line
+    signature through the same function, a binding looks identical
+    regardless of whether the user is in the TUI or hovering in an
+    editor.
+    """
+    if compiler is None:
+        return None
+    s = ReplSession()
+    s._compiler = compiler
+    s._module = getattr(compiler, "_module", Module(statements=()))
+    line = s._value_line_for_name(name)
+    if line is not None:
+        return line
+    return s._type_line_for_name(name)
+
+
 def _extract_export_expr(mod: Module):
     """Return the ``Expr`` AST node from a probe ``export <expr>``
     module, or ``None`` if the parse did not produce an
