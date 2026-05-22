@@ -392,7 +392,11 @@ def _render_hover(doc: DocumentState, name: str) -> str | None:
     parts: list[str] = []
     signature = render_signature(doc.compiler, name)
     if signature is not None:
-        header = "Kind" if signature.startswith(("object ", "space ", "signature ", "category ")) else "Type"
+        header = (
+            "Kind"
+            if signature.startswith(("object ", "space ", "signature ", "category "))
+            else "Type"
+        )
         parts.append(f"**{header}**")
         parts.append(f"```qvr\n{signature}\n```")
     if docs:

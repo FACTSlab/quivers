@@ -327,9 +327,7 @@ class ReplSession:
             if line is not None:
                 return _resp(line, body_kind="qvr")
             if self._is_type_level_name(bare):
-                return _err(
-                    f"{bare} is a type, not an expression; use :kind {bare}"
-                )
+                return _err(f"{bare} is a type, not an expression; use :kind {bare}")
 
         # Try to resolve as an expression (morphism reference / composition).
         # We drive the compiler's own ``_compile_expr`` inference rather
@@ -504,11 +502,7 @@ class ReplSession:
         if response.ok:
             return response
         # If :type rejected the name as a type, retry as :kind.
-        msg = (
-            response.diagnostics[0].message
-            if response.diagnostics
-            else ""
-        )
+        msg = response.diagnostics[0].message if response.diagnostics else ""
         if "use :kind" in msg or "is a type" in msg:
             kind_response = self.kind_of(expr_source)
             if kind_response.ok:
@@ -625,10 +619,7 @@ class ReplSession:
             dom = getattr(node, "domain", None)
             cod = getattr(node, "codomain", None)
             if dom is not None and cod is not None:
-                return (
-                    f"{ref.name} :: "
-                    f"{_pretty_object(dom)} -> {_pretty_object(cod)}"
-                )
+                return f"{ref.name} :: {_pretty_object(dom)} -> {_pretty_object(cod)}"
             return f"{ref.name} :: ?"
         if kind in ("sample-site", "observe-site", "marginalize-site"):
             return _site_signature(ref.name, node)
@@ -859,9 +850,7 @@ class ReplSession:
             if line is not None:
                 return _resp(line, body_kind="qvr")
             if self._is_value_level_name(bare):
-                return _err(
-                    f"{bare} is an expression, not a type; use :type {bare}"
-                )
+                return _err(f"{bare} is an expression, not a type; use :type {bare}")
 
         # Type-expression form: resolve through the compiler's space
         # resolver and pretty-print as a QVR object declaration.
@@ -1864,7 +1853,10 @@ HELP_CATEGORIES: tuple[tuple[str, tuple[tuple[str, str], ...]], ...] = (
     (
         "inspection",
         (
-            (":type EXPR", "print EXPR's type (morphisms, programs, sites; like GHCi :type)"),
+            (
+                ":type EXPR",
+                "print EXPR's type (morphisms, programs, sites; like GHCi :type)",
+            ),
             (":kind T", "print T's kind (objects, spaces, sorts; like GHCi :kind)"),
             (":info NAME", "show NAME's declaration source + location"),
             (":doc NAME", "render the doc-comment above NAME's declaration"),
@@ -2129,9 +2121,7 @@ def _strip_auto_name(name: str) -> str | None:
     return f"{ctor} {args.replace('_', ' ')}"
 
 
-def _pretty_object_with_aliases(
-    obj: Any, alias_map: dict[int, str] | None
-) -> str:
+def _pretty_object_with_aliases(obj: Any, alias_map: dict[int, str] | None) -> str:
     """Render an object preferring user-given aliases.
 
     When ``alias_map`` is provided, a resolved SetObject /
@@ -2148,15 +2138,11 @@ def _pretty_object_with_aliases(
     if kind in ("ProductSet", "ProductSpace"):
         comps = getattr(obj, "components", ())
         if comps:
-            return " * ".join(
-                _pretty_object_with_aliases(c, alias_map) for c in comps
-            )
+            return " * ".join(_pretty_object_with_aliases(c, alias_map) for c in comps)
     if kind == "CoproductSet":
         comps = getattr(obj, "components", ())
         if comps:
-            return " + ".join(
-                _pretty_object_with_aliases(c, alias_map) for c in comps
-            )
+            return " + ".join(_pretty_object_with_aliases(c, alias_map) for c in comps)
     return _pretty_object(obj)
 
 
