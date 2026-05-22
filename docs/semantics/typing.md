@@ -170,13 +170,13 @@ $$
 \Delta \;::=\; \varepsilon \;\mid\; \Delta,\ p : P
 $$
 
-where $p$ is a parameter name and $P$ ranges over the parameter universes listed in [Programs §3a](programs.md#3a-parametric-programs). The implementation in [`ProgramParam`](../api/dsl/ast_nodes.md#programparam) records three concrete variants:
+where $p$ is a parameter name and $P$ ranges over the parameter universes listed in [Programs §3a](programs.md#3a-parametric-programs). The implementation in [`ProgramParam`](../api/dsl/ast_nodes.md#quivers.dsl.ast_nodes.programparam) records three concrete variants:
 
 | Variant | Surface | Universe |
 |---|---|---|
-| [`ObjectParam`](../api/dsl/ast_nodes.md#objectparam) | `G : FinSet` / `G : Space` / `G : Object` | an object of $\mathbf{FinSet}$ / $\mathbf{SBor}$ / either |
-| [`ScalarParam`](../api/dsl/ast_nodes.md#scalarparam) | `α : Real` / `α : Nat` | the underlying set of the rig $\mathbb{R}$ or $\mathbb{N}$ |
-| [`MorphismParam`](../api/dsl/ast_nodes.md#morphismparam) | `f : Mor[A, B]` | a kernel $A \to \mathcal{G}(B)$ in $\mathrm{Hom}_{\mathbf{Kern}}(A, B)$ |
+| [`ObjectParam`](../api/dsl/ast_nodes.md#quivers.dsl.ast_nodes.objectparam) | `G : FinSet` / `G : Space` / `G : Object` | an object of $\mathbf{FinSet}$ / $\mathbf{SBor}$ / either |
+| [`ScalarParam`](../api/dsl/ast_nodes.md#quivers.dsl.ast_nodes.scalarparam) | `α : Real` / `α : Nat` | the underlying set of the rig $\mathbb{R}$ or $\mathbb{N}$ |
+| [`MorphismParam`](../api/dsl/ast_nodes.md#quivers.dsl.ast_nodes.morphismparam) | `f : Mor[A, B]` | a kernel $A \to \mathcal{G}(B)$ in $\mathrm{Hom}_{\mathbf{Kern}}(A, B)$ |
 
 A bare-identifier parameter list $(q_1, \ldots, q_k)$ is the special case of a $\Delta$ all of whose entries are *projection binders*: they do not contribute a Π-quantifier (their denotation is identity), they only name the components of the program's domain.
 
@@ -267,7 +267,7 @@ The residuated formers and the effect type-constructor $T(\cdot)$ are typed only
 
 ### 3.6 Kind subsumption
 
-There is no general kind subsumption rule. The only implicit coercion is the absorption built into $\sqcup$: in a mixed product $\sigma_{\mathrm{FinSet}} \times \tau_{\mathrm{Space}}$, the discrete factor is implicitly indicator-embedded into the ambient continuous space ($[n] \hookrightarrow \mathbb{R}^n$), so that the product lands in $\mathbf{SBor}$. The compiler realises this through the resolution dispatch in [`_resolve_any_space`](../api/dsl/compiler/resolution.md): a `ProductSet` lifts to a `ProductSpace` whenever any component is a `ContinuousSpace`. No standalone embedding combinator exists in the surface syntax.
+There is no general kind subsumption rule. The only implicit coercion is the absorption built into $\sqcup$: in a mixed product $\sigma_{\mathrm{FinSet}} \times \tau_{\mathrm{Space}}$, the discrete factor is implicitly indicator-embedded into the ambient continuous space ($[n] \hookrightarrow \mathbb{R}^n$), so that the product lands in $\mathbf{SBor}$. The compiler realises this through the resolution dispatch in [`_resolve_any_space`](../api/dsl/resolution.md): a `ProductSet` lifts to a `ProductSpace` whenever any component is a `ContinuousSpace`. No standalone embedding combinator exists in the surface syntax.
 
 ## 4. Inference rules for families
 
@@ -641,9 +641,9 @@ The compiler synthesises from leaves upward: variables and module-level names lo
 
 The relevant entry points in the implementation are:
 
-* [`_resolve_any_space`](../api/dsl/compiler/resolution.md) — type-formation judgment $\Gamma \vdash \tau : \kappa$, returning the denotational object.
-* [`_compile_expr`](../api/dsl/compiler/expressions.md) — morphism judgment $\Gamma; \Phi \vdash e \mathrel{\Rightarrow} A \rightsquigarrow B$, returning a record carrying the resolved domain and codomain.
-* [`_compile_program`](../api/dsl/compiler/programs.md) — program judgment, including the per-statement $\Phi$ chain tracked by `ChainShape`.
+* [`_resolve_any_space`](../api/dsl/resolution.md) — type-formation judgment $\Gamma \vdash \tau : \kappa$, returning the denotational object.
+* [`_compile_expr`](../api/dsl/compiler.md) — morphism judgment $\Gamma; \Phi \vdash e \mathrel{\Rightarrow} A \rightsquigarrow B$, returning a record carrying the resolved domain and codomain.
+* [`_compile_program`](../api/dsl/compiler.md) — program judgment, including the per-statement $\Phi$ chain tracked by `ChainShape`.
 
 ### 10.1 Decidability
 
