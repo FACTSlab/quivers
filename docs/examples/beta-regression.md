@@ -117,3 +117,8 @@ print(f"divergences: {int(result.divergence_counts.sum())}")
 ## Categorical Perspective
 
 The model is a [Kleisli morphism](https://ncatlab.org/nlab/show/Kleisli+category) in the [Giry monad](https://doi.org/10.1007/BFb0092872)'s Kleisli category whose codomain factors through the [unit interval](https://en.wikipedia.org/wiki/Logistic_function); the per-cell Beta likelihood factors through the link `sigmoid` as a `1 -> G((0, 1))` kernel. The plate-gather `beta_1[out_idx]` is the Kleisli pullback of the `Out`-indexed plate along the fibration `Resp -> Out` carried by the runtime index.
+
+
+## References
+
+- [Ferrari and Cribari-Neto 2004](https://doi.org/10.1080/0266476042000214501).

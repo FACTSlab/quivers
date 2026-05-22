@@ -124,3 +124,8 @@ The morphism-valued [`MatrixNormal`](../api/continuous/families.md#quivers.conti
 
 - [Factor Analysis](factor-analysis.md), the free-diagonal generalisation.
 - [DSL Guide](../guides/dsl-overview.md) for the morphism-valued prior surface.
+
+
+## References
+
+- [Tipping & Bishop 1999](https://doi.org/10.1111/1467-9868.00196).

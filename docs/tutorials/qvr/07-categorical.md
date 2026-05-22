@@ -132,3 +132,9 @@ If you've read all seven chapters, you can write models in QVR, fit them with an
 - The [examples gallery](../../examples/index.md) for end-to-end model code (Bayesian regression, mixture models, VAE, transformer, vanilla RNN).
 - The [DSL reference guide](../../guides/dsl-overview.md) for the full surface of `.qvr` syntax.
 - The [inference benchmark report](../../developer/inference-benchmarks.md) for the empirical truth-table of which algorithm fits which problem.
+
+
+## References
+
+- [Fritz, 2020](https://doi.org/10.1016/j.aim.2020.107239).
+- [Giry, 1982](https://doi.org/10.1007/BFb0092872).

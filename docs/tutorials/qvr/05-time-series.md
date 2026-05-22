@@ -123,3 +123,9 @@ For a fully nonlinear (deep) variant where transition and emission are neural Ga
 ## Next
 
 [Chapter 6](06-inference-zoo.md) surveys the inference algorithms: nine variational guides, four objectives, HMC and NUTS, two hybrid samplers. We'll work out which combination fits which kind of model.
+
+
+## References
+
+- [Kalman, 1960](https://doi.org/10.1115/1.3662552).
+- [Rabiner, 1989](https://doi.org/10.1109/5.18626).

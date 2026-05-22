@@ -131,3 +131,8 @@ The [ELBO](https://en.wikipedia.org/wiki/Evidence_lower_bound) decomposes catego
 
 - [Probabilistic PCA](ppca.md) for a linear-Gaussian latent-variable model.
 - [DSL Guide](../guides/dsl-overview.md) for the morphism composition surface (`>>`, `stack`, `embed`).
+
+
+## References
+
+- [Kingma & Welling 2014](https://arxiv.org/abs/1312.6114).

@@ -332,3 +332,9 @@ one named axis carries the per-coordinate marginal product.
   `event_rank`.
 - [Examples Gallery: Horseshoe Regression](../examples/horseshoe-regression.md):
   end-to-end use of `ConditionalHorseshoe` in a regression.
+
+
+## References
+
+- [Carvalho, Polson, Scott (2010)](https://doi.org/10.1093/biomet/asq017).
+- [Gelman, Carlin, Stern, Dunson, Vehtari, Rubin 2013](https://doi.org/10.1201/b16018).

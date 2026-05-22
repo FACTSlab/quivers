@@ -334,3 +334,13 @@ class MyGuide(Guide):
         """Compute log q(sites | x), summed across latent sites."""
         raise NotImplementedError()
 ```
+
+
+## References
+
+- [Burda et al. 2016](https://doi.org/10.48550/arXiv.1509.00519).
+- [Daudel et al. 2023](https://doi.org/10.48550/arXiv.2210.06226).
+- [Durkan et al. 2019](https://doi.org/10.48550/arXiv.1906.04032).
+- [Li-Turner 2016](https://doi.org/10.48550/arXiv.1602.02311).
+- [Roeder et al. 2017](https://doi.org/10.48550/arXiv.1703.09194).
+- [Tucker et al. 2019](https://doi.org/10.48550/arXiv.1810.04152).

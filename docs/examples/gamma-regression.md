@@ -111,3 +111,8 @@ print(f"divergences: {int(result.divergence_counts.sum())}")
 ## Categorical Perspective
 
 The model factors as a K-fold tensor product of [`Gamma(alpha_k, 1)`](https://en.wikipedia.org/wiki/Gamma_distribution) kernels, one per category, with shape parameters driven by a per-category linear predictor through the exponential link. Pushing the joint Gamma kernel through the deterministic normalizing map `t |-> t / sum t` lands on the K-simplex as the [Dirichlet](https://en.wikipedia.org/wiki/Dirichlet_distribution) kernel, recovering Dirichlet regression as a post-composition. Working in the unnormalized Gamma layer keeps the per-category log-shapes linear in the predictor; the simplex projection is left as a deterministic adjunct that the runtime applies on demand.
+
+
+## References
+
+- [Maier 2014](https://doi.org/10.32614/CRAN.package.DirichletReg).

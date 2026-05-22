@@ -112,3 +112,8 @@ print(f"sigma_h posterior mean: {result.samples['sigma_h'].mean().item():.3f}")
 ## Categorical Perspective
 
 The model is a Kleisli morphism over the latent log-volatility plate, composed with a per-step Normal observation kernel whose scale depends on the latent. In the [Giry monad](https://doi.org/10.1007/BFb0092872)'s Kleisli category, the chain `h_prev -> h -> r` is associative Kleisli composition; the SVI guide approximates the joint posterior $p(\mu, \phi, \sigma_h, h \mid r)$.
+
+
+## References
+
+- [Kim, Shephard, and Chib (1998)](https://doi.org/10.1111/1467-937X.00050).

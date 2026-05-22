@@ -113,3 +113,8 @@ print(f"divergences: {int(result.divergence_counts.sum())}")
 ## Categorical Perspective
 
 The model factors as a Kleisli composite of two kernels: a per-cell `ContinuousBernoulli(pi)` kernel on the unit interval and a `Poisson(rate)` kernel on the non-negative integers. The scoped `marginalize` step pushes forward the joint measure on the trace's `z` axis through projection, integrating out the indicator and leaving the marginal Poisson likelihood reweighted by the per-cell mixing weight. Categorically the construction is a coproduct fibration over the binary indicator axis, followed by [logsumexp](https://en.wikipedia.org/wiki/LogSumExp) on the accumulated log-likelihood in the discrete-limit case and reparameterised integration in the relaxed case.
+
+
+## References
+
+- [Lambert 1992](https://doi.org/10.2307/1269547).
