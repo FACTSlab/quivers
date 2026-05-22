@@ -165,3 +165,7 @@ signature Mol {
 ```
 
 These declarations are part of the signature's *theory*, not the QVR protocol $\mathsf{QVR}$. A `vertex_kind_decl` $K : k\,[\mathrm{dim}\,d]$ extends the signature's kind set with a typed vertex kind whose sort role is $k$ and whose declared embedding dimension is $d$; an `edge_kind_decl` $\varepsilon : K_s\,\mathrm{arrow}\,K_t$ extends the signature's edge set with a typed binary relation between vertex kinds, directed iff `arrow == '->'`. The denotation of a graph signature equipped with these declarations is the category $\mathbf{Graph}_\Sigma$ of finite typed graphs of the prescribed shape; see [Structural Compression §1.3](structural.md#13-graph-signatures) for the formal treatment and §2.4 of the same page for the message-passing encoder that consumes them.
+
+## References
+
+Joachim Lambek. 1958. [The mathematics of sentence structure](https://doi.org/10.2307/2310058). *The American Mathematical Monthly*, 65(3):154–170.
