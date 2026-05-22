@@ -31,7 +31,7 @@ from quivers.cli.repl_highlight import (
     SEMANTIC_TOKEN_TYPES,
     to_semantic_token_data,
 )
-from quivers.cli.repl_session import Diagnostic, ReplSession
+from quivers.cli.repl_session import Diagnostic, ReplSession, render_signature
 from quivers.dsl.ast_nodes import (
     ContinuousConstructor,
     MorphismDecl,
@@ -351,15 +351,22 @@ def _apply_partial(source: str, change: Any) -> str:
 
 
 def _render_hover(doc: DocumentState, name: str) -> str | None:
-    """Hover Markdown: QVR declaration on top, didactic AST below.
+    """Hover Markdown: GHCi-style signature, doc comment, QVR source,
+    and the didactic AST.
 
-    The two panes are visually separated:
+    Panes from top to bottom:
 
-      1. A bolded **QVR source** header.
-      2. The verbatim source slice inside a fenced ```qvr block.
-      3. A horizontal rule (``---``) drawing the divider.
-      4. A bolded **AST (didactic)** header.
-      5. The didactic ``repr()`` inside a fenced ```python block,
+      1. A bolded **Type** (or **Kind**) header followed by the
+         one-line GHCi signature rendered by the same code path the
+         REPL's ``:type`` and ``:kind`` use, so a binding looks the
+         same whether the user is hovering in the editor or asking
+         the REPL.
+      2. Doc comment lines harvested from the declaration.
+      3. A bolded **QVR source** header.
+      4. The verbatim source slice inside a fenced ```qvr block.
+      5. A horizontal rule (``---``) drawing the divider.
+      6. A bolded **AST (didactic)** header.
+      7. The didactic ``repr()`` inside a fenced ```python block,
          collapsed behind ``<details>`` so it only takes vertical
          space when the user clicks to expand it.
 
@@ -383,6 +390,15 @@ def _render_hover(doc: DocumentState, name: str) -> str | None:
     docs = getattr(decl, "docs", ())
 
     parts: list[str] = []
+    signature = render_signature(doc.compiler, name)
+    if signature is not None:
+        header = (
+            "Kind"
+            if signature.startswith(("object ", "space ", "signature ", "category "))
+            else "Type"
+        )
+        parts.append(f"**{header}**")
+        parts.append(f"```qvr\n{signature}\n```")
     if docs:
         parts.append("\n".join(docs))
     parts.append("**QVR source**")

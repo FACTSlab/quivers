@@ -163,7 +163,7 @@ The implementation ships a registry of named homomorphisms, including:
 - $\mathcal{V}_{\mathrm{pf}} \to \mathcal{V}_{\mathrm{G}}$ via the [material conditional](https://en.wikipedia.org/wiki/Material_conditional) $a \mapsto \min(1, 1 - a + b)$ (`MaterialImplication`);
 - $\mathcal{V}_{\mathrm{M}} \to \mathcal{V}_{\mathrm{pf}}$ (`Expectation`);
 - $\mathcal{V}_{\mathrm{pf}} \to \mathcal{V}_{\mathrm{LP}}$ via $a \mapsto \log a$ (`LogProb`);
-- $\mathcal{V}_{\mathrm{pf}} \to \mathcal{V}_{\mathrm{MP}}$ via $a \mapsto \log a$ (`MaxPlus`); the per-entry map matches `LogProb` but the target join is $\max$ rather than $\operatorname{logsumexp}$, realising Viterbi-MAP aggregation;
+- $\mathcal{V}_{\mathrm{pf}} \to \mathcal{V}_{\mathrm{MP}}$ via $a \mapsto \log a$ (`MaxPlus`); the per-entry map matches `LogProb` but the target join is $\max$ rather than $\operatorname{logsumexp}$, realizing Viterbi-MAP aggregation;
 - $\mathcal{V}_{\mathbb{R}} \rightleftarrows \mathcal{V}_{[0, 1]}$ (`ProbabilityClamp` / `ProbabilityToReal`);
 - $\mathcal{V}_{\mathbb{R}} \rightleftarrows \mathcal{V}_{\mathbb{N}}$ (`CountingFromReal` / `CountingToReal`).
 

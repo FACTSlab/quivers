@@ -4,6 +4,43 @@ All notable changes to the quivers library are documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/), and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.13.0] - 2026-05-22
+
+### Added
+
+- **GHCi-style `:type` and `:kind` commands in the REPL.** `:type` accepts an expression (morphism, program, deduction, scoped sample / observe / let / marginalize / return site, contraction, rule, encoder / decoder / loss, bundle, transformation) and prints the GHCi-shaped one-line signature `name :: A -> B` (or `name :: (Real, Real) => Word -> Word` for parametric programs, with the Π-bound parameter universes in a Haskell-style constraint context). `:kind` accepts a type-level binding (object, space, signature, category) or a bare type expression (`FinSet 3`, `A * B`) and prints the kind. Each command rejects the wrong sort with a redirect: `:type Doc` → "Doc is a type, not an expression; use :kind Doc". The bare-expression fallback tries `:type` first, then `:kind`, so users can keep typing a name on its own. Aliases `:t` and `:k` work as before.
+- **User-given type aliases preserved across the REPL.** The compiler internally resolves `object Item : FinSet 200` to `FinSet(name='_FinSet_200', cardinality=200)`. The REPL now builds an `id(obj) → user_name` map per session and renders morphism signatures through it, so `:type X` prints `X :: Item -> H_in` rather than `X :: FinSet 200 -> FinSet 4`. The map recurses into product / coproduct components, so a mixed `Doc * Topic` still surfaces both user names.
+- **`render_signature(compiler, name)` shared helper in `quivers.cli.repl_session`.** Single entry point for the GHCi-style signature line, used by both the REPL's `:type` / `:kind` / bare-expression fallback and the LSP's hover panel — so a binding looks the same in the TUI and in an editor.
+- **LSP hover leads with a `**Type**` / `**Kind**` block.** Hover now shows the GHCi signature first (same string `:type` / `:kind` would print), then the doc comment, then the verbatim QVR source slice, then the collapsed AST. Editor users get the one-glance signature that REPL users already had.
+- **New semantics chapter: [`docs/semantics/typing.md`](https://FACTSlab.github.io/quivers/semantics/typing).** Chapter 8 in the semantics development, presenting the QVR type system as a proof calculus: syntactic categories (kinds, type expressions, families, term expressions, statements, programs); contexts ($\Gamma$, $\Delta$, $\Phi$); judgments ($\Gamma \vdash \tau : \kappa$, $\Gamma; \Phi \vdash e : A \rightsquigarrow B$, $\Gamma; \Phi \vdash F(\bar a) : \mathsf{Kernel}[\Phi, B]$, $\Gamma; \Phi \vdash s \dashv \Phi'$, $\Gamma \vdash p : (\Delta) \Rightarrow A \rightsquigarrow B$); the full inference-rule set; the four structural lemmas (Weakening, Substitution, Type Uniqueness, Inversion); the Soundness theorem against the denotation with proof sketches for the representative Compose / Bind / Marginalize / Prog cases; the Subject-Reduction theorem for parametric instantiation; a Completeness theorem (every phrase with a defined raw denotation has a derivation) with a Decidable-Type-Membership corollary on the non-residuated fragment; the bidirectional algorithm underlying the compiler's typechecker; and a worked example deriving the LDA program's full judgment.
+
+### Changed
+
+- **Constraint context in parametric programs drops binder names.** A program with typed parameters renders as `lda :: (Real, Real) => Word -> Word`, not `lda :: (alpha : Real, beta : Real) => Word -> Word` — Haskell convention. Parameter names are accessible through `:info lda`.
+- **`:type` of a parametric program no longer curries the parameters with the kernel arrow.** Per `docs/semantics/programs.md §3a`, typed parameters denote a dependent family $\prod_{p:P} \mathbf{Kern}(\mathrm{dom}, \mathrm{cod})$ — they live in a $\Pi$, not in the kernel's domain. Rendering them as `Real -> Real -> Word -> Word` (the previous "GHCi-curried" form) conflates the $\Pi$-context with the kernel arrow.
+- **Compiler-driven expression typing in `:type`.** The expression-fallback path now drives `Compiler._compile_expr` directly on the already-compiled session state instead of re-running the full module compile for every `:type` query.
+- **Auto-generated placeholder names stripped from output.** The compiler assigns synthetic names like `_FinSet_20` and `_Real_8` to anonymous FinSets and Euclidean spaces. They no longer leak into `:type` / `:kind` output as `Doc : _FinSet_20`; the stripper renders them as `Doc : FinSet 20`.
+- **Help-text rewrite for `:type` and `:kind`.** Both commands' inline `:help` entries and detailed `:help :type` / `:help :kind` text now match the GHCi-style semantics.
+
+### Documentation
+
+- **`docs/semantics/typing.md`** added as chapter 8; index renumbered.
+- **Semantics corpus audit (substantive).**  After threading `typing.md` into the development:
+  - Cross-link `setting.md §6`, `morphisms.md`, and `programs.md` into the new typing chapter at their natural touch-points.
+  - `morphisms.md §1.1` gets a "Categorical structure" proposition under the strict-quantale hypothesis, proving $\mathcal{V}\text{-}\mathbf{Rel}$ is a symmetric monoidal category using the join's universal colimit property, $\otimes$ associativity, $\bot$ absorption, and the distributivity law; flags the lax cases of $\mathcal{V}_{\mathrm{pf}}$ / $\mathcal{V}_{\mathrm{L}}$ explicitly.
+  - `programs.md §5` upgrades the monad-law table to a "Monad laws for QVR programs" theorem with proofs derived from the Giry monad's universal property (Giry 1982, Kock 1972, Fritz 2020). The commutativity equation is now stated with an explicit double-strength pair $\mathrm{dst}_1$ / $\mathrm{dst}_2$ rather than the previous ambiguous one-line formula, identifying Fubini–Tonelli as its substance.
+  - `adequacy.md §3.4` upgrades the one-liner "the proofs are straightforward" to a full "Adequacy of `@`" proposition with term-by-term unfolding; the remaining five tensor combinators get a table whose every row makes the proof template explicit.
+  - `effects.md §4a` adds explicit inference rules for the four chart firings (`Base`, `Lift_T`, `Handle_{T→S}`, `Eliminate_T`, `Swap_{T|U}`), turning the previously prose-only joint type-and-effect dispatch into a proof system.
+  - Stale class-name references across the corpus updated: `TypeExpr` → `ObjectExpr`, `TypeProduct` → `ObjectProduct`, `TypeEffectApply` → `ObjectEffectApply` (the AST class was renamed and the docs had not tracked it).
+  - `adequacy.md §3.7` references the real method names (`_compile_program`, not `_compile_program_body`; dispatch key `compose`, not `compose_deductions`).
+  - `adequacy.md §4`: drop references to `tests/test_resolution_lenses.py`, which no longer exists.
+- **British → American spelling sweep across all 14 semantics chapters.** marginalisation → marginalization, realise → realize, behaviour → behavior, catalogue → catalog, modelling → modeling, analyse → analyze, etc.
+
+### Fixed
+
+- **`Compiler.signatures`, `Compiler.categories` now exposed to the REPL's bare-name lookup.** Previously, `:type SomeSignature` returned "unknown name" because signatures and categories were not in either the value-level or type-level buckets the REPL consulted. They are now classified as type-level (a signature denotes a generalised algebraic theory; a category denotes an atom universe) and respond to `:kind`.
+- **Contraction and rule signatures render correctly under `:type`.** Contractions get an operadic `c :: (A_1, …, A_k) -> B` signature; rules get the `r :: prem |- concl` schema form.
+
 ## [0.12.0] - 2026-05-21
 
 ### Added

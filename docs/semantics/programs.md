@@ -11,7 +11,7 @@ program P (params) : τ₁ -> τ₂
     return e
 ```
 
-denotes a Markov kernel
+denotes a Markov kernel (the typing rules for statements and the program declaration live in [Typing §6–§7](typing.md#6-inference-rules-for-statements))
 
 $$
 \llbracket P \rrbracket : \llbracket \tau_1 \rrbracket \to \mathcal{G}\bigl(\llbracket \tau_2 \rrbracket\bigr),
@@ -260,7 +260,7 @@ $$
 \nu \;\longmapsto\; \pi_{\Phi *} \nu.
 $$
 
-The denotation is the pushforward $\pi_{\Phi *}$ in both the discrete and continuous cases. Operationally, the implementation realises the pushforward by log-sum-exp on the accumulated log-likelihood when $C$ is a finite-set latent, and by fibrewise integration (e.g. by sampling, when the family admits a reparameterised draw) when $C$ is a continuous space. After the scope closes, $c$ falls out of scope.
+The denotation is the pushforward $\pi_{\Phi *}$ in both the discrete and continuous cases. Operationally, the implementation realizes the pushforward by log-sum-exp on the accumulated log-likelihood when $C$ is a finite-set latent, and by fibrewise integration (e.g. by sampling, when the family admits a reparameterised draw) when $C$ is a continuous space. After the scope closes, $c$ falls out of scope.
 
 The four bind variants, scalar, indexed, scored, marginalized, are uniformly a single underlying step with a `mode ∈ {sample, score, marginal}` tag and an optional index `A`. The scalar/plate axis is orthogonal to the full-probability/sub-probability distinction.
 
@@ -454,6 +454,25 @@ The interpretations above satisfy the standard monadic equations:
 
 These are valid statements about denotations of QVR programs; in particular, the order in which independent draws are listed in the body is irrelevant to the denotation, by the symmetry of the product measure.
 
+**Theorem (Monad laws for QVR programs).** *The Kleisli composition $\diamond$ of [Setting §3](setting.md#3-standard-borel-spaces-and-markov-kernels) on the kernels produced by the bind / observe / let / score / marginalize / return clauses of §[2](#2-statements) satisfies the four equations above.*
+
+**Proof.** The four equations are the standard monad laws for the Giry monad $\mathcal{G}$, established by [Giry 1982, Theorem 5](https://doi.org/10.1007/BFb0092872): $\mathcal{G}$ is a monad on $\mathbf{SBor}$ with unit $\eta_S(s) = \delta_s$ (the Dirac at $s$) and multiplication $\mu_S(M)(B) = \int_{\mathcal{G}(S)} m(B)\, M(\mathrm{d}m)$ (integration of measures over measures). Kleisli composition $k_1 \diamond k_2 = \mu \circ \mathcal{G}(k_2) \circ k_1$ inherits the monad's universal property. Concretely:
+
+* **Left unit.** $\eta_S \diamond k = \mu_T \circ \mathcal{G}(k) \circ \eta_S = \mu_T \circ \eta_{\mathcal{G}(T)} \circ k = k$, where the second equality is the naturality of $\eta$ and the third is the monad's left-unit law $\mu \circ \eta_{\mathcal{G}} = \mathrm{id}$.
+* **Right unit.** $k \diamond \eta_T = \mu_T \circ \mathcal{G}(\eta_T) \circ k = \mathrm{id}_{\mathcal{G}(T)} \circ k = k$, by the monad's right-unit law $\mu \circ \mathcal{G}(\eta) = \mathrm{id}$.
+* **Associativity.** A direct calculation: $((k_1 \diamond k_2) \diamond k_3)(s) = \mu \circ \mathcal{G}(k_3) \circ (\mu \circ \mathcal{G}(k_2) \circ k_1)(s)$. Naturality of $\mu$ rewrites this as $\mu \circ \mu_{\mathcal{G}} \circ \mathcal{G}(\mathcal{G}(k_3)) \circ \mathcal{G}(k_2) \circ k_1$, and the monad's associativity law $\mu \circ \mu_{\mathcal{G}} = \mu \circ \mathcal{G}(\mu)$ rewrites it to $\mu \circ \mathcal{G}(\mu) \circ \mathcal{G}(\mathcal{G}(k_3)) \circ \mathcal{G}(k_2) \circ k_1 = \mu \circ \mathcal{G}(\mu \circ \mathcal{G}(k_3) \circ k_2) \circ k_1 = k_1 \diamond (k_2 \diamond k_3)(s)$.
+* **Strength coherence.** $\mathcal{G}$ is a *commutative strong* monad on $\mathbf{SBor}$. The right strength $\mathrm{str}_{S, T} : S \times \mathcal{G}(T) \to \mathcal{G}(S \times T)$ is given on rectangles by $(s, m) \mapsto \delta_s \otimes m$, and the left strength $\mathrm{str}'_{S, T} : \mathcal{G}(S) \times T \to \mathcal{G}(S \times T)$ symmetrically by $(m, t) \mapsto m \otimes \delta_t$; both are measurable and satisfy the four Kock-Linton strength axioms (associativity with the monoidal product, unit / pentagon coherence with $\eta$ and $\mu$, and naturality in $S, T$; see [Fritz 2020, §4](https://doi.org/10.1016/j.aim.2020.107239)). The strength-coherence row of the table refers to the naturality of $\mathrm{str}$ with respect to the symmetric-monoidal swap, which is the second Kock-Linton axiom and holds for every strong monad by a standard diagram chase. The deeper *commutativity* property of $\mathcal{G}$ — the equality, as maps $\mathcal{G}(S) \times \mathcal{G}(T) \to \mathcal{G}(S \times T)$, of the two double-strength composites
+
+$$
+\mathrm{dst}_1 \;=\; \mu_{S \times T} \,\circ\, \mathcal{G}(\mathrm{str}_{S, T}) \,\circ\, \mathrm{str}'_{S, \mathcal{G}(T)}
+\qquad\text{and}\qquad
+\mathrm{dst}_2 \;=\; \mu_{S \times T} \,\circ\, \mathcal{G}(\mathrm{str}'_{S, T}) \,\circ\, \mathrm{str}_{\mathcal{G}(S), T}
+$$
+
+— is what licenses reordering of independent draws in a QVR program body without changing the denotation. For $\mathcal{G}$ on $\mathbf{SBor}$, $\mathrm{dst}_1 = \mathrm{dst}_2$ reduces exactly to Fubini–Tonelli on the product $\sigma$-algebra ([Kock 1972](https://doi.org/10.7146/math.scand.a-11434)).
+
+By Soundness of typing (Theorem [Typing §9.1](typing.md#91-soundness)), every well-typed QVR program denotes a morphism in $\mathbf{Kern}$ built by these Kleisli operations; the monad laws lift from $\mathbf{Kern}$ to QVR programs because the body's denotation function $\mathcal{B}\llbracket \cdot \rrbracket$ is compositional in the Kleisli composite. $\square$
+
 ## 6. Inference and conditioning
 
 The denotation of a program is a *kernel*, not yet a posterior. Conditioning on observed data, normalization, and approximate posterior inference are *external* operations on the denotation, supplied by the [`quivers.inference`](../api/inference/svi.md) module. The categorical apparatus is that of *Markov categories with conditionals* ([Cho & Jacobs 2019](https://doi.org/10.1017/S0960129518000488); [Fritz 2020](https://doi.org/10.1016/j.aim.2020.107239)); the implementation realizes trace-based conditioning and stochastic variational inference as concrete instances of that theory.
@@ -462,7 +481,7 @@ The denotation of a program is a *kernel*, not yet a posterior. Conditioning on 
 
 A `program` whose body lacks explicit `sample` priors on its
 learnable parameters still has a well-defined kernel denotation
-(it is a parameterised Kleisli arrow, with the parameters held
+(it is a parameterized Kleisli arrow, with the parameters held
 fixed). To pass such a program to the SVI / NUTS layer, which
 operates on programs with explicit priors, the
 [`quivers.inference.lifts`](../api/inference/lifts.md) module exposes four lifts. Each lifts a
@@ -528,7 +547,7 @@ $\log \mathcal{N}(\theta; 0, \sigma_{\theta}^{2} I_{D}) + \log p_{\mathrm{inner}
 
 *Proof.* The score step subtracts exactly the sum of placeholder
 log-priors that the sample-site declarations add, so the algebra
-is an identity. Gradient flow back to $\theta$ is realised by
+is an identity. Gradient flow back to $\theta$ is realized by
 the [`_swap_named_parameters`](../api/inference/lifts.md) context manager, which
 temporarily writes the override tensor into the parent module's
 `_parameters` dict so that downstream attribute reads return the
@@ -585,7 +604,7 @@ $$
 i.e. the [Bayesian posterior](https://en.wikipedia.org/wiki/Posterior_probability)
 of $\theta$ under the chosen
 likelihood, modulo the
-$\theta$-independent normaliser of $\mathcal{F}$.
+$\theta$-independent normalizer of $\mathcal{F}$.
 
 *Proof.* The lift is implemented as a delegating wrapper whose
 `log_joint(x, obs)` returns $\log p_{\mathcal{F}}(y \mid \mu(x), \boldsymbol{\eta})$ (reduced over event axes), then
@@ -636,7 +655,7 @@ likelihood.
 **Definition.** Let
 $q_{j}(\mathbf{z}_{j} \mid x, \theta) = p_{\mathrm{inner}}(\mathbf{z}_{j} \mid x, \theta)$ denote the
 sample-step family of the inner program at site $j$. The
-wrapper realises the random map
+wrapper realizes the random map
 
 $$
 \widetilde{\ell}(x, y;\, \theta)
@@ -691,7 +710,7 @@ posterior under a deterministic per-evaluation log-density.
 ### 7.5 Bayesian lift for weighted deduction systems
 
 [`nuts_program_from_deduction`](../api/stochastic/deduction/bayes.md#quivers.stochastic.deduction.bayes.nuts_program_from_deduction) is the
-deduction-system specialisation of §7.1. Given a
+deduction-system specialization of §7.1. Given a
 [`DeductionSystem`](../api/stochastic/deduction.md#quivers.stochastic.deduction.DeductionSystem)
 $D$ with learnable log-weights $\mathbf{w} \in \mathbb{R}^{D}$
 and a corpus $\{s_{n}\}_{n=1}^{N}$, the lift produces a program
@@ -708,25 +727,25 @@ $$
 where $Z(s_{n}; \mathbf{w})$ is the chart's goal weight (the
 sentence's inside log-partition under $D$). Whether this joint
 *is* the Bayesian posterior $p(\mathbf{w} \mid \{s_{n}\})$
-depends on the modelling reading:
+depends on the modeling reading:
 
-* **Undirected / globally normalised** (CRF / log-linear /
+* **Undirected / globally normalized** (CRF / log-linear /
   energy-based [Lafferty et al. 2001](https://repository.upenn.edu/cis_papers/159/)). Here
-  $p(s_{n} \mid \mathbf{w}) = Z(s_{n}; \mathbf{w}) / \sum_{s'} Z(s'; \mathbf{w})$, and the sentence-level normaliser
+  $p(s_{n} \mid \mathbf{w}) = Z(s_{n}; \mathbf{w}) / \sum_{s'} Z(s'; \mathbf{w})$, and the sentence-level normalizer
   $\sum_{s'} Z(s'; \mathbf{w})$ is a constant in $\mathbf{w}$
   only when the deduction is a [partition function](https://en.wikipedia.org/wiki/Partition_function_(mathematics))
   closed under the
   algebra's join. In the undirected setting that $\mathbf{w}$-
-  dependent normaliser is precisely what $\sum_{n} \log Z$
+  dependent normalizer is precisely what $\sum_{n} \log Z$
   captures; $\pi(\mathbf{w})$ is then the posterior up to a
   $\mathbf{w}$-independent constant.
 
-* **Directed / locally normalised PCFG** ([Booth & Thompson 1973](https://doi.org/10.1109/TC.1973.223746)).
+* **Directed / locally normalized PCFG** ([Booth & Thompson 1973](https://doi.org/10.1109/TC.1973.223746)).
   The per-rule weights are constrained to a local simplex
   (each non-terminal's expansions sum to $1$), and the true
   per-sentence likelihood is
   $Z(s; \mathbf{w}) / \sum_{s'} Z(s'; \mathbf{w})$ with the
-  global normaliser intractable. Treating $\mathbf{w}$ as a
+  global normalizer intractable. Treating $\mathbf{w}$ as a
   free unconstrained vector and adding $\sum_{n} \log Z(s_{n}; \mathbf{w})$ to a Gaussian prior produces a
   *pseudo-posterior* (a [composite likelihood](https://en.wikipedia.org/wiki/Composite_likelihood) in the sense
   of [Varin, Reid & Firth 2011](https://www.jstor.org/stable/24309261)) that differs

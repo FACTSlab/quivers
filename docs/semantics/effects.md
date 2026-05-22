@@ -65,7 +65,7 @@ $\mathbf{Stoch}$ / $\mathbf{Kern}$.
 
 ## 3. Effect-typed schema denotations
 
-A `SchemaDecl` whose domain or codomain mentions a `TypeEffectApply`
+A `SchemaDecl` whose domain or codomain mentions an `ObjectEffectApply`
 node $T(X)$ is *parametric* in its free pattern variables. For each
 choice of instantiation $X, Y \in \mathcal{C}$ the schema denotes a
 morphism
@@ -89,7 +89,7 @@ $$
 \;:\; T(X) \otimes (X \backslash T(Y)) \;\to\; T(Y),
 $$
 
-a morphism in the Kleisli category $\mathrm{Kl}(T)$ realising the
+a morphism in the Kleisli category $\mathrm{Kl}(T)$ realizing the
 canonical bind. The two presentations agree via the
 [`kleisli` / `arrow_monad` bridges](../api/index.md#monadic-package).
 
@@ -130,6 +130,57 @@ Schema firings populate cells according to four rules:
 
 The four firings compose freely; the chart's CKY enumeration computes
 the inside score over the joint search space.
+
+### 4a. Inference rules for effect-typed firing
+
+The four firings are inference rules in the proof system of the
+chart. Let $\sigma : \mathrm{Var}(r) \to \mathcal{C}$ range over
+substitutions of the schema's free pattern variables and let
+$\bar S \cdot \bar T$ denote effect-stack concatenation. We write
+$\mathrm{Chart}[i, j] \ni (\alpha; \bar T)$ for "the cell at span
+$(i, j)$ holds an entry at type $\alpha \in \mathcal{C}$ stacked
+under effect prefix $\bar T \in \mathrm{EffectStack}_{\le d}$".
+
+$$
+\frac{r : \pi_1 \otimes \pi_2 \to \pi \in \mathrm{Rules}
+       \qquad \mathrm{Chart}[i, k] \ni (\sigma\pi_1; \varepsilon)
+       \qquad \mathrm{Chart}[k, j] \ni (\sigma\pi_2; \varepsilon)}
+     {\mathrm{Chart}[i, j] \ni (\sigma\pi; \varepsilon)}\ \textsc{Base}
+$$
+
+$$
+\frac{r : \pi_1 \otimes \pi_2 \to \pi \in \mathrm{Rules}
+       \qquad T \in \mathbf{Applicative}
+       \qquad \mathrm{Chart}[i, k] \ni (\sigma\pi_1; \bar S \cdot T)
+       \qquad \mathrm{Chart}[k, j] \ni (\sigma\pi_2; \bar S \cdot T)}
+     {\mathrm{Chart}[i, j] \ni (\sigma\pi; \bar S \cdot T)}\ \textsc{Lift}_T
+$$
+
+$$
+\frac{H : \mathrm{Th}T \to \mathrm{Th}S \in \mathrm{Handlers}
+       \qquad S \neq \mathrm{Identity}
+       \qquad \mathrm{Chart}[i, j] \ni (\alpha; \bar S \cdot T)}
+     {\mathrm{Chart}[i, j] \ni (\alpha; \bar S \cdot S)}\ \textsc{Handle}_{T \to S}
+$$
+
+$$
+\frac{H : \mathrm{Th}T \to \mathrm{Th}\,\mathrm{Identity} \in \mathrm{Handlers}
+       \qquad \mathrm{Chart}[i, j] \ni (\alpha; \bar S \cdot T)}
+     {\mathrm{Chart}[i, j] \ni (\alpha; \bar S)}\ \textsc{Eliminate}_T
+$$
+
+$$
+\frac{\mathrm{swap}_{T, U} : T \circ U \Rightarrow U \circ T \in \mathrm{DistributiveLaws}
+       \qquad \mathrm{Chart}[i, j] \ni (\alpha; \bar S \cdot T \cdot U)}
+     {\mathrm{Chart}[i, j] \ni (\alpha; \bar S \cdot U \cdot T)}\ \textsc{Swap}_{T \mid U}
+$$
+
+In $\textsc{Base}$ and $\textsc{Lift}_T$ the substitution $\sigma$ is fixed by the cells' type coordinates (which must match $\pi_1$ and $\pi_2$ structurally); we elide its construction. $\textsc{Lift}_T$ requires only that $T$ inhabit $\mathbf{Applicative}$ — every $\mathbf{Monad}$ extends $\mathbf{Applicative}$, so the rule covers monadic effects as a special case. $\textsc{Handle}_{T \to S}$ and $\textsc{Eliminate}_T$ are syntactic variants of the same handler firing, separated so each rule has a single conclusion shape.
+
+The denotation of every derivation built from these four rules is
+the corresponding composite natural transformation in
+$\widehat{\mathcal{C}}$; Theorem [Lifting Adequacy](#5-adequacy-of-the-lifting-machinery)
+below identifies the chart's inside score with that composite.
 
 ## 5. Adequacy of the lifting machinery
 

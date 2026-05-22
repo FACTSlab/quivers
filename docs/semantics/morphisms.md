@@ -1,6 +1,6 @@
 # Morphisms
 
-This page assigns denotations to the three QVR morphism strata (discrete $\mathcal{V}$-enriched, stochastic, and continuous) and to the structural transitions between them. Throughout, we fix an algebra $\mathcal{V}$ as in [Setting and notation](setting.md).
+This page assigns denotations to the three QVR morphism strata (discrete $\mathcal{V}$-enriched, stochastic, and continuous) and to the structural transitions between them. Throughout, we fix an algebra $\mathcal{V}$ as in [Setting and notation](setting.md). The corresponding typing judgments and inference rules for morphism expressions ($\Gamma; \Phi \vdash e : A \rightsquigarrow B$) live in [Typing §5](typing.md#5-inference-rules-for-morphism-expressions).
 
 ## 0. The unified `morphism` declaration
 
@@ -12,7 +12,7 @@ morphism f : DOM -> COD [k = v, ...] [~ INIT]
 
 with the *role* selected by the option block:
 
-| `role=...` | Stratum                                    | Initialiser admitted | Default initialiser |
+| `role=...` | Stratum                                    | Initialiser admitted | Default initializer |
 |------------|--------------------------------------------|----------------------|----------------------|
 | `latent`   | learnable parameter on the source category | `~ Family(...)`      | Normal prior on raw logits |
 | `kernel`   | parameter-driven distribution-family kernel | `~ Family(...)`      | family-specific      |
@@ -21,7 +21,7 @@ with the *role* selected by the option block:
 | `discretize` | quotient kernel                           | `~ expr` (partition) | uniform-quantile     |
 | `let`      | deterministic morphism (alias for `~ expr`) | `~ expr`             | required             |
 
-Other option-block keys carry per-role configuration: `scale` (initial parameter scale for `latent` and `kernel`), `init` (named initialisation regime), `bins` (`discretize`), `replicate=N` (allocate $N$ independently-parameterised copies under names `f_0, …, f_{N-1}` with a group binding $f$), and the axis-role keys (`over`, `iid`) consumed by the family-prior surface of §6.
+Other option-block keys carry per-role configuration: `scale` (initial parameter scale for `latent` and `kernel`), `init` (named initialization regime), `bins` (`discretize`), `replicate=N` (allocate $N$ independently-parameterized copies under names `f_0, …, f_{N-1}` with a group binding $f$), and the axis-role keys (`over`, `iid`) consumed by the family-prior surface of §6.
 
 The remainder of this page uses the legacy keyword form (`latent`, `kernel`, `embed`) when illustrating individual strata; every snippet desugars to the unified form by `morphism f : … [role=KIND, …]`.
 
@@ -55,6 +55,14 @@ Composition $;$, tensor $\boxtimes$, and identity $1_X$ in $\mathcal{V}\text{-}\
 | `f >> g` | $\llbracket g \rrbracket \circ \llbracket f \rrbracket$ | $(f; g)(x, z) = \bigoplus_y f(x, y) \otimes g(y, z)$ |
 | `f @ g` | $\llbracket f \rrbracket \boxtimes \llbracket g \rrbracket$ | $(f \boxtimes g)((x_1, x_2), (y_1, y_2)) = f(x_1, y_1) \otimes g(x_2, y_2)$ |
 | `identity(X)` | $1_{\llbracket X \rrbracket}$ | $1_X(x, x') = \mathbf{1}$ if $x = x'$, $\bot$ otherwise |
+
+**Proposition (Categorical structure).** *Assume $\mathcal{V}$ is a strict quantale ([Setting §1](setting.md#1-algebras-as-enrichment-bases)): $\otimes$ distributes over arbitrary joins $\bigoplus$ on both sides. Then $\mathcal{V}\text{-}\mathbf{Rel}$ is a symmetric monoidal category, with $;$ as composition, $1_X$ as identities, $\boxtimes$ as monoidal product, $\mathbf{1}$ (the singleton) as monoidal unit, and the braid $\sigma_{X, Y}(x, y) = \mathbf{1}$ iff coordinates swap. Under the same hypothesis $\mathcal{V}\text{-}\mathbf{Rel}$ is moreover compact closed with every object self-dual. For the lax $\mathcal{V}_{\mathrm{pf}}$ / $\mathcal{V}_{\mathrm{L}}$ algebras (where distributivity is sub-equational, [Algebras §2.1](algebras.md#21-a-note-on-the-product-fuzzy-and-ukasiewicz-pairs)) the same diagrams commute laxly rather than strictly; the chart parser and SVI use the lax denotation but the equational claims of this chapter require the strict hypothesis.*
+
+*Proof.* Associativity of $;$ unfolds to
+$$
+((f; g); h)(x, w) \;=\; \bigoplus_z \Bigl( \bigoplus_y f(x, y) \otimes g(y, z) \Bigr) \otimes h(z, w).
+$$
+The strict-quantale distributivity law of [Setting §1](setting.md#1-algebras-as-enrichment-bases) commutes the outer $\otimes h(z, w)$ past the inner join over $y$, giving $\bigoplus_z \bigoplus_y f(x, y) \otimes g(y, z) \otimes h(z, w)$; the associativity of $\otimes$ (standing assumption on $\mathcal{V}$ as a commutative monoid, [Setting §1](setting.md#1-algebras-as-enrichment-bases)) means the bracketing of the threefold tensor is immaterial. The join's universal-colimit property collapses $\bigoplus_z \bigoplus_y = \bigoplus_{(y, z)}$ and the two-variable joins commute by the same property (a colimit cone is determined by its components in any order), so we can re-bracket as $\bigoplus_y f(x, y) \otimes \bigoplus_z g(y, z) \otimes h(z, w)$, applying distributivity once more to absorb $f(x, y)$ into the inner join. This is $(f; (g; h))(x, w)$. Without strict distributivity, the equation degrades to an inequality $((f; g); h) \le (f; (g; h))$, so the associativity isomorphism is lax. The identity laws use $1_X(x, x') = \mathbf{1}$ iff $x = x'$ and $\bot$ otherwise to collapse one join to a single term, using $\bot \otimes a = \bot$ (absorption) for the off-diagonal entries: this requires $\bot$ to be the bottom of the lattice, which holds in every strict quantale. Symmetry of $\boxtimes$ follows from commutativity of $\otimes$ (a standing assumption on $\mathcal{V}$, [Setting §1](setting.md#1-algebras-as-enrichment-bases)). Compact closure is established in [Expressions §2.9](expressions.md#29-compact-closed-structure) under the strict-quantale hypothesis. $\square$
 
 ### 1.2 Marginalization
 
@@ -107,7 +115,7 @@ $$
 \llbracket f \rrbracket(x, B) \;=\; \int_B p_{\mathrm{Family}}(y \,;\, \theta(x))\, \mathrm{d}y,
 $$
 
-where $\theta : \llbracket \tau_1 \rrbracket \to \Theta$ is the family's parameter map (typically a neural network), and $p_{\mathrm{Family}}(\cdot \,;\, \theta)$ is the density of the family at parameter $\theta$. The QVR-supplied family registry catalogues the pairs $(\Theta, p)$ for each name (Normal, Beta, Dirichlet, …).
+where $\theta : \llbracket \tau_1 \rrbracket \to \Theta$ is the family's parameter map (typically a neural network), and $p_{\mathrm{Family}}(\cdot \,;\, \theta)$ is the density of the family at parameter $\theta$. The QVR-supplied family registry catalogs the pairs $(\Theta, p)$ for each name (Normal, Beta, Dirichlet, …).
 
 ## 3. Continuous morphisms
 
@@ -156,7 +164,7 @@ extended uniquely (by the standard product-measure construction) to the product 
 
 ### 4a.1 Replication
 
-A `kernel f[n] : A -> B [~ Family ...]` declaration (note the bracketed integer after the kernel name) introduces $n$ *independently-parameterised* kernels sharing one declared signature, registered in the environment under synthesised names $f\_0, f\_1, \dots, f\_{n-1}$ along with a *group binding* $f \mapsto (f\_0, \dots, f\_{n-1})$. Denotationally,
+A `kernel f[n] : A -> B [~ Family ...]` declaration (note the bracketed integer after the kernel name) introduces $n$ *independently-parameterized* kernels sharing one declared signature, registered in the environment under synthesized names $f\_0, f\_1, \dots, f\_{n-1}$ along with a *group binding* $f \mapsto (f\_0, \dots, f\_{n-1})$. Denotationally,
 
 $$
 \llbracket f\_i \rrbracket \;:\; \llbracket A \rrbracket \to \llbracket B \rrbracket \quad (i = 0, \dots, n-1),
@@ -214,7 +222,7 @@ Each registered family carries a declared *event rank* $r_F \in \mathbb{N}$.
 | 1 | `MultivariateNormal`, `LowRankMVN`, `Dirichlet`, `LogisticNormal`, `RelaxedOneHotCategorical`, `GP`, `Horseshoe` | $\mathbb{R}^{d}$ for a single named axis |
 | 2 | `Wishart`, `LKJCholesky` | $\mathbb{R}^{d_1 \times d_2}$ for two named axes |
 
-Every family in the table is installed in the unified family catalog by [`_register_family`](../api/continuous/families.md) (directly for the bespoke families, via [`_make_family`](../api/continuous/families.md) for the auto-generated wrappers around `torch.distributions`). Each is therefore equally usable as a conditional morphism (`[role=kernel]` / `[role=latent]` with a `~ Family(args)` initialiser) and as an inline draw site (`sample x <- Family(args)`). The parameter map, support, and `log_prob` semantics are uniform across the two call paths.
+Every family in the table is installed in the unified family catalog by [`_register_family`](../api/continuous/families.md) (directly for the bespoke families, via [`_make_family`](../api/continuous/families.md) for the auto-generated wrappers around `torch.distributions`). Each is therefore equally usable as a conditional morphism (`[role=kernel]` / `[role=latent]` with a `~ Family(args)` initializer) and as an inline draw site (`sample x <- Family(args)`). The parameter map, support, and `log_prob` semantics are uniform across the two call paths.
 
 A distribution clause `~ F(args) over <axes> [iid over <axes>]` *configures* the event–batch decomposition of a $F$-valued draw. Concretely, for a morphism $f : A \to B$ whose representing tensor has shape $\prod_{i} d_i$ indexed by the named factors $\{a_1, \dots, a_m\}$ of $A$ and $\{b_1, \dots, b_n\}$ of $B$, the clause names a sub-multiset $E \subseteq \{a_i\} \cup \{b_j\}$ of cardinality $|E| = r_F$ and declares:
 
