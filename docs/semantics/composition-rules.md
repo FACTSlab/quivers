@@ -80,7 +80,7 @@ composition NAME as rule
     join(t)         = E_⋁
 ```
 
-The `composition` keyword is a top-level *selector* / *definer* statement: with no body and no `as` clause it resolves the named rule from the built-in catalogue and registers it as the module's composition rule; with an `as` clause but no body it resolves a built-in rule and verifies it matches the declared algebraic level; with a body it declares the rule's operations inline as shown above. There is no per-level keyword variant: `algebra X`, `semigroupoid X`, `bilinear_form X`, `composition_rule X` all desugar to the unified `composition X as <level>` form.
+The `composition` keyword is a top-level *selector* / *definer* statement: with no body and no `as` clause it resolves the named rule from the built-in catalog and registers it as the module's composition rule; with an `as` clause but no body it resolves a built-in rule and verifies it matches the declared algebraic level; with a body it declares the rule's operations inline as shown above. There is no per-level keyword variant: `algebra X`, `semigroupoid X`, `bilinear_form X`, `composition_rule X` all desugar to the unified `composition X as <level>` form.
 
 Each entry's RHS is a let-expression (the same fragment used in `let v = expr` lines elsewhere in the surface, [§ Expressions](expressions.md)). The declaration's denotation is the named composition rule
 

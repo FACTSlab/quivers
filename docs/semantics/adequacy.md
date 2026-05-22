@@ -41,7 +41,7 @@ The proof proceeds by structural induction on the module $M$. We outline the ind
 
 ### 3.1 Types and spaces
 
-For every `TypeExpr` $\tau$ and every well-formed environment $\rho_{\mathrm{obj}}$, the compiler's `_resolve_type(τ)` satisfies
+For every `ObjectExpr` $\tau$ and every well-formed environment $\rho_{\mathrm{obj}}$, the compiler's `_resolve_type(τ)` satisfies
 
 $$
 \mathtt{\_resolve\_type}(\tau) \;=\; \llbracket \tau \rrbracket_{\rho_{\mathrm{obj}}}
@@ -65,7 +65,35 @@ term-by-term equal to the categorical composition of [Morphisms §1.1](morphisms
 
 ### 3.4 Tensor product, marginalization, fan, stack, repeat, scan
 
-Each combinator is implemented as a tensor-level operation whose definition is the term-by-term unfolding of its denotation. The proofs are straightforward: `@` is `torch.einsum` of the appropriate shape; `marginalize` is `torch.sum` (or algebra-join) along the marginalized axes; `fan` is `torch.stack`; `stack` is `kron`; `repeat` is repeated composition; `scan` is a Python-level fold realizing the trace of [Expressions §3.4](expressions.md#34-scan).
+Each combinator is implemented as a tensor-level operation whose definition is the term-by-term unfolding of its denotation. We give the proof for `@` (tensor product) in full as a representative case; the remaining combinators (`marginalize`, `fan`, `stack`, `repeat`, `scan`) follow the same template.
+
+**Proposition (Adequacy of `@`).** *Let $f : A_1 \to B_1$ and $g : A_2 \to B_2$ be QVR morphisms with tensor representations $T_f \in \mathcal{V}^{|A_1| \times |B_1|}$ and $T_g \in \mathcal{V}^{|A_2| \times |B_2|}$. Then the runtime tensor of $f \mathbin{@} g$ equals the denotation $\llbracket f \otimes g \rrbracket \in \mathcal{V}^{|A_1 \times A_2| \times |B_1 \times B_2|}$ as a $\mathcal{V}$-valued function on indices.*
+
+**Proof.** The compiler's handler for `ExprTensorProduct` (in `_ProgramsMixin._compile_expr`) evaluates `left @ right`, where `Morphism.__matmul__` returns a `ProductMorphism(f, g)` whose `tensor` property is
+$$
+\mathtt{ProductMorphism.tensor}[(a_1, a_2), (b_1, b_2)]
+\;=\;
+T_f[a_1, b_1] \otimes T_g[a_2, b_2].
+$$
+The denotation $\llbracket f \otimes g \rrbracket$ is the tensor product $\boxtimes$ of $\mathcal{V}$-relations from [Setting §2](setting.md#2-mathcalv-enriched-relations):
+$$
+(\llbracket f \rrbracket \boxtimes \llbracket g \rrbracket)\bigl((a_1, a_2), (b_1, b_2)\bigr)
+\;=\;
+\llbracket f \rrbracket(a_1, b_1) \otimes \llbracket g \rrbracket(a_2, b_2).
+$$
+By induction $\llbracket f \rrbracket(a_1, b_1) = T_f[a_1, b_1]$ and $\llbracket g \rrbracket(a_2, b_2) = T_g[a_2, b_2]$, so the two expressions are term-by-term equal. $\square$
+
+The remaining combinators are summarised:
+
+| Combinator | Runtime realization | Denotational target |
+|---|---|---|
+| `marginalize(f, axes)` | `torch.sum(T_f, dim=axes)` (or algebra-join along those axes) | the $\bigoplus$-fold $\sum_{y \in Y} \llbracket f \rrbracket(x, y)$ of [Morphisms §1.1](morphisms.md#11-composition-tensor-identity) |
+| `fan(f_1, ..., f_n)` | `FanOutMorphism` whose tensor stacks each $T_{f_i}$ along a fresh axis | the diagonal $\Delta : A \to A^n$ post-composed with $f_1 \otimes \cdots \otimes f_n$ |
+| `stack(f, n)` | repeated `>>` composition of `copy.deepcopy(f)` per replica | the $n$-fold Kleisli composite of $\llbracket f \rrbracket$ with itself, parameters freshly cloned per layer |
+| `repeat(f, n)` | repeated `>>` composition sharing the operand | the same $n$-fold composite, parameters shared |
+| `scan(f)` | `ScanMorphism(f)` realizing the categorical trace | the trace $\mathrm{tr}_X(\llbracket f \rrbracket)$ of [Expressions §3.4](expressions.md#34-scan) |
+
+For each row, the proof is the same shape as the proposition above: the runtime tensor is the term-by-term unfolding of the categorical operation. The induction is on the structure of the morphism expression, with the base case being a primitive `morphism` declaration whose tensor is the declared parameter (`role=latent`), the supplied data tensor (`role=observed`), or the family's parameter map (`role=kernel`).
 
 ### 3.5 Lookup-table kernels (finite-set codomain)
 
@@ -85,7 +113,7 @@ between the Chapman–Kolmogorov composition and its Monte-Carlo realization hol
 
 ### 3.7 Programs
 
-The body-interpreter `_compile_program_body` of [`quivers.dsl.compiler`](../api/dsl/compiler.md) realizes the Kleisli chain of [Programs §2](programs.md#2-statements). Each statement is interpreted as a Python operation that:
+The body-interpreter `_compile_program` of [`quivers.dsl.compiler`](../api/dsl/compiler.md) realizes the Kleisli chain of [Programs §2](programs.md#2-statements). Each statement is interpreted as a Python operation that:
 
 - *Draw*: calls `family.rsample(theta(context))` and appends the result to the trace;
 - *Observe*: calls `family.log_prob(value, theta(context))` and accumulates the score;
@@ -97,10 +125,10 @@ The categorical equations of [Programs §5](programs.md#5-soundness-of-monadic-s
 
 ### 3.7a Deduction systems and chart-access let-expressions
 
-The body-interpreter resolves three deduction-related let-expression builtins through the [`compose_deductions`, `parse`, `subst`] dispatch table on `_ProgramsMixin`:
+The body-interpreter resolves three deduction-related let-expression builtins through the [`compose`, `parse`, `subst`] dispatch table on `_ProgramsMixin`:
 
 - *parse(D, x)*: runs the registered `DeductionSystem` $D$ on $x$ to the agenda's fixed point, wrapping the resulting `Chart` in a `ChartView`. The view's method-call surface ([Expressions §4.2](expressions.md#42-deduction-system-call-sites)) realizes presheaf evaluation against the chart's $K$-valued tensor entries; gradients flow through the entries' `requires_grad` via the agenda's semiring operations, matching the differentiable-chart denotation of [Weighted Deduction Fragment §8](grammar.md#8-charts-as-first-class-differentiable-values).
-- *compose($D_1, D_2$)*: synthesises a new `DeductionSystem` whose `axiom_injector` chains $D_1$'s `goal_items` into $D_2$'s axioms; the composed system carries cross-attached `_axiom_module` / `_rule_module` references so `composed.parameters()` walks both factors' learnable weights ([Weighted Deduction Fragment §9.1](grammar.md#91-composing-deductions)).
+- *compose($D_1, D_2$)*: synthesizes a new `DeductionSystem` whose `axiom_injector` chains $D_1$'s `goal_items` into $D_2$'s axioms; the composed system carries cross-attached `_axiom_module` / `_rule_module` references so `composed.parameters()` walks both factors' learnable weights ([Weighted Deduction Fragment §9.1](grammar.md#91-composing-deductions)).
 - *subst($t, v, w$)*: performs a structural-equality walk over $t$, replacing each subterm equal to $v$ with $w$. Capture-avoidance is guaranteed at the call site by the compile-time alpha-renaming invariant of the lexicon-LF compiler ([Weighted Deduction Fragment §3a](grammar.md#3a-binders-and-alpha-renaming)).
 
 Adequacy for the deduction-fitting surface follows from the agenda's strategy-independence theorem (Goodman 1999) applied to the bindings-keyed rule-weight parameters: each rule firing on bindings $\sigma$ contributes $\theta_{r, \sigma}$ from a per-deduction `nn.ParameterDict` allocated lazily at run time, and the differentiable-chart equations of §8 propagate the gradient back to $\theta_{r, \sigma}$ through the standard semiring-times / semiring-plus operations.
@@ -108,9 +136,9 @@ Adequacy for the deduction-fitting surface follows from the agenda's strategy-in
 ### 3.7b Bayesian lifts of parameter-bearing artefacts
 
 The four lift constructors of [`quivers.inference.lifts`](../api/inference/lifts.md)
-realise [Programs §7](programs.md#7-bayesian-lifts). Adequacy
+realize [Programs §7](programs.md#7-bayesian-lifts). Adequacy
 at this stratum is the claim that the lifted [`MonadicProgram`](../api/continuous/programs.md#quivers.continuous.programs.MonadicProgram)
-realises its stated log-density.
+realizes its stated log-density.
 
 * [`bayesian_lift_parameters`](../api/inference/lifts.md#quivers.inference.lifts.bayesian_lift_parameters) (Programs §7.1): the
   total log-density assembled by the inference layer is
@@ -118,7 +146,7 @@ realises its stated log-density.
   with $S$ the score step. The score step's subtraction of the
   placeholder log-priors cancels the second term *pointwise*
   (not merely in expectation), so the lifted log-density
-  realises $\log p(\theta) + \log p_{\mathrm{inner}}(\mathbf{z}, y \mid x, \theta)$ exactly. The
+  realizes $\log p(\theta) + \log p_{\mathrm{inner}}(\mathbf{z}, y \mid x, \theta)$ exactly. The
   parameter-substitution context manager
   ([`_swap_named_parameters`](../api/inference/lifts.md)) preserves the
   inner module's autograd graph through the override tensors,
@@ -130,7 +158,7 @@ realises its stated log-density.
   §7.1, since both wrap their input in a synthetic `log_joint`
   before delegating to [`bayesian_lift_parameters`](../api/inference/lifts.md#quivers.inference.lifts.bayesian_lift_parameters).
 * [`monte_carlo_log_joint`](../api/inference/lifts.md#quivers.inference.lifts.monte_carlo_log_joint) (Programs §7.4): the
-  wrapper realises a single-sample MC estimator
+  wrapper realizes a single-sample MC estimator
   $\widetilde{\ell}(x, y; \theta) = \log p_{\mathrm{inner}}(y \mid \mathbf{z}_{*}, x, \theta)$,
   $\mathbf{z}_{*} \sim q$. By Jensen's inequality, the
   estimator is downward-biased relative to the marginal
@@ -148,13 +176,10 @@ The schema extractor `extract_program_schema` walks the same resolved environmen
 
 ## 4. Tests as adequacy witnesses
 
-The test suite at `tests/test_resolution_lenses.py` and `tests/test_program_theory.py` asserts the following propositions, each a special case of the adequacy theorem.
+The test suite asserts the following propositions, each a special case of the adequacy theorem.
 
 | Test file | Assertion |
 |-----------|-----------|
-| `test_resolution_lenses.py` | $\mathrm{forward}(\tau) = \llbracket \tau \rrbracket$ and $\mathrm{forward}(\sigma) = \llbracket \sigma \rrbracket$ on every example program. |
-| `test_resolution_lenses.py` | GetPut and PutGet laws hold on every example. |
-| `test_resolution_lenses.py` | The lens-driven resolution agrees with the compiler's `_resolve_type` dispatch on every example. |
 | `test_program_theory.py` | $\mathcal{S}(M)$ validates against $\mathsf{QVR}$ on every example. |
 | `test_program_theory.py` | $\mathcal{S}(M_1) \neq \mathcal{S}(M_2)$ when $M_1, M_2$ differ in declarations. |
 | `test_program_theory.py` | Idempotence: $\mathcal{S}(M)$ recomputed twice yields equal schemas. |

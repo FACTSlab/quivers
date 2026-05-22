@@ -12,6 +12,7 @@ writes to stdout. That keeps it fully testable from pytest.
 from __future__ import annotations
 
 import os
+import re
 import subprocess
 import tempfile
 from collections.abc import Iterable
@@ -22,6 +23,7 @@ import didactic.api as dx
 
 from quivers.dsl import Compiler, CompileError, ParseError, parse
 from quivers.dsl.ast_nodes import (
+    ExportDecl,
     ExprCompose,
     ExprIdent,
     ExprTensorProduct,
@@ -30,6 +32,7 @@ from quivers.dsl.ast_nodes import (
     ObjectDecl,
     ObjectExpr,
     TypeFromExpr,
+    TypeName,
 )
 from quivers.analysis.scope import (
     SCOPE_SEPARATOR,
@@ -95,6 +98,24 @@ class SessionOptions(dx.Model):
 
 class ReplSession:
     """Stateful evaluator for a single REPL session."""
+
+    def _build_alias_map(self) -> dict[int, str]:
+        """``id(obj) -> user-given name`` for every type-level binding.
+
+        Lets the morphism renderer surface ``Item -> H_in`` instead
+        of the compiler's resolved ``FinSet 200 -> FinSet 4``.
+        """
+        if self._compiler is None:
+            return {}
+        out: dict[int, str] = {}
+        for name, obj in self._compiler.objects.items():
+            out[id(obj)] = name
+        for name, sp in self._compiler.spaces.items():
+            out[id(sp)] = name
+        return out
+
+    def _pretty(self, obj: Any) -> str:
+        return _pretty_object_with_aliases(obj, self._build_alias_map())
 
     def __init__(self) -> None:
         self._loaded_path: Path | None = None
@@ -264,132 +285,372 @@ class ReplSession:
         return _resp(body, tuple(diags))
 
     # ----- :type / :kind ------------------------------------------------
+    #
+    # GHCi semantics:
+    #   :type EXPR   — print the type of a value-level expression
+    #                  (morphism, program, sample site, etc.).
+    #                  Refuses type-level names; suggests :kind.
+    #   :kind T      — print the kind of a type-level name or type
+    #                  expression (object, space, sort, FinSet 3, ...).
+    #                  Refuses value-level names; suggests :type.
+    #
+    # The bare-expression fallback (a name typed without a colon
+    # command) lands in ``_describe`` which tries :type first and
+    # falls back to :kind, so users keep the "just type a name"
+    # ergonomics.
 
     def type_of(self, expr_source: str) -> ReplResponse:
-        """Resolve `expr_source` as a ObjectExpr or morphism and print its type.
+        """Print the type of a value-level expression.
 
-        Strategy: try to parse `type __probe__ : <expr_source>` so the
-        existing parser handles whatever surface form the user typed.
-        If that succeeds, walk the resulting `ObjectDecl`'s
-        `TypeFromExpr` initializer through the compiler's
-        resolution mixin.
-
-        Failing that, try parsing `let __probe__ = <expr_source>` to
-        catch let-expression syntax, then `output <expr_source>` so
-        morphism references work; report dom -> cod.
+        Mirrors GHCi's ``:type``: works on morphisms, programs,
+        deductions, scoped sample / observe / let sites, and any
+        expression that resolves to a morphism. For type-level names
+        (objects, spaces, sorts), returns an error directing the user
+        to ``:kind``.
         """
         if not self._compiler:
             return _err("no environment loaded; use :load <FILE> first")
 
-        # Scope-path form: ``lda::theta``, ``LF::sorts::Term``, etc.
-        # Resolves through the scope walker rather than the parser.
         if SCOPE_SEPARATOR in expr_source:
             ref = resolve_scoped_path(self._compiler, expr_source.strip())
             if ref is None:
                 return _err(f"unknown path: {expr_source}")
-            return _resp(self._type_line_for_ref(ref), body_kind="qvr")
+            if _ref_kind_class(ref.kind) == "type":
+                return _err(
+                    f"{expr_source} is a type, not an expression; use :kind {expr_source}"
+                )
+            return _resp(self._type_signature_for_ref(ref), body_kind="qvr")
 
-        # Fast path: bare identifier resolves directly out of the env.
-        # GHCi-shaped :type queries are dominated by name lookups, so we
-        # handle them without round-tripping through the parser.
         bare = expr_source.strip()
         if bare.isidentifier():
-            if bare in self._compiler.morphisms:
-                m = self._compiler.morphisms[bare]
-                return _resp(
-                    self._type_line_for_morphism(bare, m),
-                    body_kind="qvr",
-                )
-            if bare in self._compiler.objects:
-                obj = self._compiler.objects[bare]
-                return _resp(
-                    f"object {bare} : {_pretty_object(obj)}",
-                    body_kind="qvr",
-                )
-            if bare in self._compiler.spaces:
-                sp = self._compiler.spaces[bare]
-                return _resp(
-                    f"space {bare} : {_pretty_object(sp)}",
-                    body_kind="qvr",
-                )
-            if bare in self._compiler.programs:
-                tmpl = self._compiler.programs[bare]
-                return _resp(
-                    self._type_line_for_program(bare, tmpl),
-                    body_kind="qvr",
-                )
-            if bare in self._compiler.deductions:
-                ded = self._compiler.deductions[bare]
-                dom = getattr(ded, "domain", None)
-                cod = getattr(ded, "codomain", None)
-                if dom is not None and cod is not None:
-                    return _resp(
-                        f"deduction {bare} : {_pretty_object(dom)} -> {_pretty_object(cod)}",
-                        body_kind="qvr",
-                    )
-                return _resp(f"deduction {bare}", body_kind="qvr")
-            if bare in self._compiler.signatures:
-                return _resp(f"signature {bare}", body_kind="qvr")
-            if bare in self._compiler.encoders:
-                return _resp(f"encoder {bare}", body_kind="qvr")
-            if bare in self._compiler.decoders:
-                return _resp(f"decoder {bare}", body_kind="qvr")
-            if bare in self._compiler.losses:
-                return _resp(f"loss {bare}", body_kind="qvr")
-            if bare in self._compiler.bundles:
-                members = self._compiler.bundles[bare]
-                return _resp(
-                    f"bundle {bare} = {' | '.join(members)}",
-                    body_kind="qvr",
-                )
+            line = self._value_line_for_name(bare)
+            if line is not None:
+                return _resp(line, body_kind="qvr")
+            if self._is_type_level_name(bare):
+                return _err(f"{bare} is a type, not an expression; use :kind {bare}")
 
-        probe = self._scratch_compiler()
-
-        # Path 1: type-level. Probe via a ``type __probe__ : <expr>``
-        # declaration, then re-resolve the inner expression through
-        # the scratch compiler so identifiers in scope land on the
-        # right object/space.
-        try:
-            mod = parse(f"type __probe__ : {expr_source}", file_path="<type>")
-        except ParseError:
-            mod = None
-        if mod is not None and mod.statements:
-            stmt = mod.statements[0]
-            if isinstance(stmt, ObjectDecl) and isinstance(stmt.init, TypeFromExpr):
-                try:
-                    obj = probe._resolve_any_space(stmt.init.expr)
-                    return _resp(
-                        f"{expr_source} :: {_pretty_object(obj)}",
-                        body_kind="qvr",
-                    )
-                except CompileError as e:
-                    return _err(f"type error: {e}")
-                except Exception as e:
-                    return _err(f"type error: {e}")
-
-        # Path 2: morphism-level via output binding
+        # Try to resolve as an expression (morphism reference / composition).
+        # We drive the compiler's own ``_compile_expr`` inference rather
+        # than re-running the full module compile: ``_compile_expr``
+        # reads ``_morphisms`` / ``_objects`` / ``_spaces`` but does
+        # not mutate them, so the session's already-compiled state is
+        # the right environment to ask "what is the type of e?" in.
         try:
             mod = parse(f"export {expr_source}", file_path="<expr>")
         except ParseError as e:
+            # If the user wrote a type expression like ``FinSet 3``,
+            # parsing as an output binding fails; surface a hint.
+            if self._parses_as_type(expr_source):
+                return _err(
+                    f"{expr_source} is a type expression; use :kind {expr_source}"
+                )
             return _err(f"parse error: {e}")
-        # Re-run the full compile so morphism algebra is wired.
-        scratch = Compiler(_extend_module(self._module, mod.statements))
+        expr_ast = _extract_export_expr(mod)
+        if expr_ast is None:
+            return _err("expression did not resolve to a morphism")
         try:
-            scratch.compile()
+            morph = self._compiler._compile_expr(expr_ast)
         except CompileError as e:
-            return _err(f"compile error: {e}")
-        program = getattr(scratch, "_output_expr", None)
-        # Resolve the output expression to a morphism and pretty-print.
-        try:
-            morph = scratch._compile_expr(program) if program is not None else None
-        except CompileError as e:
-            return _err(f"compile error: {e}")
+            return _err(f"type error: {e}")
         if morph is None:
             return _err("expression did not resolve to a morphism")
         return _resp(
-            self._type_line_for_morphism(expr_source, morph),
+            self._type_signature_for_morphism(expr_source, morph),
             body_kind="qvr",
         )
+
+    def _value_line_for_name(self, bare: str) -> str | None:
+        """Return the value-level signature for ``bare``, or None.
+
+        Bare-name fast path shared by ``:type`` and ``_describe``.
+        A name is value-level when its declaration denotes a morphism,
+        program, encoder/decoder/loss, contraction, transformation,
+        rule (rule schema), or the rule-set of a bundle / deduction
+        block. Returns a GHCi-shaped ``name :: type`` line.
+        """
+        if not self._compiler:
+            return None
+        c = self._compiler
+        if bare in c.morphisms:
+            return self._type_signature_for_morphism(bare, c.morphisms[bare])
+        if bare in c.programs:
+            return self._type_signature_for_program(bare, c.programs[bare])
+        if bare in c.encoders:
+            return f"{bare} :: encoder"
+        if bare in c.decoders:
+            return f"{bare} :: decoder"
+        if bare in c.losses:
+            return f"{bare} :: loss"
+        if bare in c.contractions:
+            return self._type_signature_for_contraction(bare, c.contractions[bare])
+        if bare in c.transformations:
+            return f"{bare} :: transformation"
+        if bare in c.rules:
+            return self._type_signature_for_rule(bare, c.rules[bare])
+        if bare in c.bundles:
+            members = c.bundles[bare]
+            return f"{bare} :: {' | '.join(members)}"
+        if bare in c.deductions:
+            return f"{bare} :: deduction"
+        return None
+
+    def _type_line_for_name(self, bare: str) -> str | None:
+        """Return the type-level declaration line for ``bare``, or None.
+
+        Type-level names are those whose declaration introduces a
+        universe / theory / signature: objects, spaces, signatures
+        (generalised algebraic theories), and category atoms. Bundles
+        and deductions are namespaces over rule-sets and are treated
+        as value-level (they appear in :type, not :kind).
+        """
+        if not self._compiler:
+            return None
+        c = self._compiler
+        if bare in c.objects:
+            return f"object {bare} : {_pretty_object(c.objects[bare])}"
+        if bare in c.spaces:
+            return f"space {bare} : {_pretty_object(c.spaces[bare])}"
+        if bare in c.signatures:
+            return f"signature {bare}"
+        if bare in c.categories:
+            return f"category {bare}"
+        return None
+
+    def _is_type_level_name(self, bare: str) -> bool:
+        if not self._compiler:
+            return False
+        c = self._compiler
+        return (
+            bare in c.objects
+            or bare in c.spaces
+            or bare in c.signatures
+            or bare in c.categories
+        )
+
+    def _is_value_level_name(self, bare: str) -> bool:
+        if not self._compiler:
+            return False
+        c = self._compiler
+        return (
+            bare in c.morphisms
+            or bare in c.programs
+            or bare in c.deductions
+            or bare in c.encoders
+            or bare in c.decoders
+            or bare in c.losses
+            or bare in c.contractions
+            or bare in c.transformations
+            or bare in c.rules
+            or bare in c.bundles
+        )
+
+    def _type_signature_for_contraction(self, name: str, comp: Any) -> str:
+        """GHCi-style signature for a registered contraction.
+
+        Contractions denote operadic n-ary morphism builders
+        ``(A_1, …, A_k) -> B``. The wiring's input objects and
+        codomain are inspected through their declared AST node.
+        """
+        decl = getattr(comp, "decl", None) or comp
+        inputs = getattr(decl, "input_domain", None) or getattr(decl, "domain", None)
+        cod = getattr(decl, "input_codomain", None) or getattr(decl, "codomain", None)
+        if inputs is None or cod is None:
+            return f"{name} :: ?"
+        if hasattr(inputs, "components"):
+            input_strs = [
+                (self._pretty_obj_expr(c) or "?")
+                for c in getattr(inputs, "components", ())
+            ]
+            input_render = ", ".join(input_strs) if input_strs else "?"
+        else:
+            input_render = self._pretty_obj_expr(inputs) or "?"
+        cod_render = self._pretty_obj_expr(cod) or "?"
+        return f"{name} :: ({input_render}) -> {cod_render}"
+
+    def _type_signature_for_rule(self, name: str, rule: Any) -> str:
+        """GHCi-style signature for a deduction rule schema.
+
+        A rule denotes a hyperedge ``premises |- conclusion`` in
+        the deduction multicategory. Premises and conclusion are
+        rendered as pattern tuples to mirror the schema's surface
+        form.
+        """
+        del self
+        premises = getattr(rule, "premises", ()) or ()
+        conclusion = getattr(rule, "conclusion", None)
+        prem_str = ", ".join(_pat_str(p) for p in premises)
+        return f"{name} :: {prem_str} |- {_pat_str(conclusion)}"
+
+    def _parses_as_type(self, expr_source: str) -> bool:
+        try:
+            mod = parse(f"object __probe__ : {expr_source}", file_path="<probe>")
+        except ParseError:
+            return False
+        if not mod.statements:
+            return False
+        stmt = mod.statements[0]
+        return isinstance(stmt, ObjectDecl) and isinstance(stmt.init, TypeFromExpr)
+
+    def _describe(self, expr_source: str) -> ReplResponse:
+        """Fallback inspector used by bare-expression evaluation
+        and ``:watch``: try ``:type`` first, then ``:kind``.
+
+        Lets the user type a bare name without caring whether it
+        denotes an expression or a type.
+        """
+        response = self.type_of(expr_source)
+        if response.ok:
+            return response
+        # If :type rejected the name as a type, retry as :kind.
+        msg = response.diagnostics[0].message if response.diagnostics else ""
+        if "use :kind" in msg or "is a type" in msg:
+            kind_response = self.kind_of(expr_source)
+            if kind_response.ok:
+                return kind_response
+        return response
+
+    # ----- GHCi-style :type signature renderers ------------------------
+    #
+    # These produce ``name :: type`` lines (no decl-keyword prefix, no
+    # ``[role=...]`` / option annotations). They drive ``:type``.
+    # The ``_type_line_for_*`` family below produces decl-shaped lines
+    # and drives ``:info`` / ``:browse`` instead.
+
+    def _type_signature_for_morphism(self, name: str, morph: Any) -> str:
+        dom = getattr(morph, "domain", getattr(morph, "dom", None))
+        cod = getattr(morph, "codomain", getattr(morph, "cod", None))
+        if dom is None or cod is None:
+            return f"{name} :: ?"
+        return f"{name} :: {self._pretty(dom)} -> {self._pretty(cod)}"
+
+    def _type_signature_for_program(self, name: str, tmpl: Any) -> str:
+        """GHCi-style signature for a program template.
+
+        Per ``docs/semantics/programs.md``, a program's denotation
+        depends on the parameter list:
+
+        - Bare-identifier params (``P(q₁, …, qₖ) : τ₁ -> τ₂``) project
+          components of the domain. The kernel's signature is just
+          ``τ₁ -> τ₂``; the q_i are syntactic conveniences, not
+          additional arguments, so they do not appear in the type.
+        - Typed params (``alpha : Real``, ``X : Object``,
+          ``f : Mor[A, B]``) denote a dependent family
+          ``∏ p_i:P_i. Kern(dom, cod)`` and are surfaced as a
+          Haskell-style constraint context ``(p₁ : P₁, …) => dom -> cod``
+          so the ∏-bound parameters never get conflated with the
+          kernel's dom -> cod arrow.
+
+        The dom / cod ``ObjectExpr`` AST nodes are routed through
+        the compiler's ``_resolve_any_space`` so the rendered
+        signature carries the *elaborated* SetObject / ContinuousSpace
+        (with cardinalities and dims resolved) rather than the raw
+        parse tree.
+        """
+        type_param_strs: list[str] = []
+        for p in getattr(tmpl, "type_params", None) or ():
+            kind = type(p).__name__
+            if kind == "ScalarParam":
+                type_param_strs.append(str(getattr(p, "scalar_kind", "?")))
+            elif kind == "ObjectParam":
+                type_param_strs.append(str(getattr(p, "universe", "?")))
+            elif kind == "MorphismParam":
+                dom_p = self._pretty_obj_expr(getattr(p, "domain", None))
+                cod_p = self._pretty_obj_expr(getattr(p, "codomain", None))
+                if dom_p is not None and cod_p is not None:
+                    type_param_strs.append(f"Mor[{dom_p}, {cod_p}]")
+                else:
+                    type_param_strs.append("Mor")
+            else:
+                type_param_strs.append("?")
+        dom = self._pretty_obj_expr(getattr(tmpl, "domain", None))
+        cod = self._pretty_obj_expr(getattr(tmpl, "codomain", None))
+        if dom is None or cod is None:
+            return f"{name} :: ?"
+        morph_sig = f"{dom} -> {cod}"
+        if type_param_strs:
+            ctx = ", ".join(type_param_strs)
+            return f"{name} :: ({ctx}) => {morph_sig}"
+        return f"{name} :: {morph_sig}"
+
+    def _pretty_obj_expr(self, expr: Any) -> str | None:
+        """Render an ``ObjectExpr`` for display, preferring the
+        user-given alias for bare ``TypeName`` references.
+
+        For bare names pointing at a module-level binding, returns
+        the alias the user declared (``Word`` rather than the
+        compiler's internal ``FinSet(name='_FinSet_200',
+        cardinality=200)``). For compound type expressions
+        (``FinSet 3``, ``A * B``) defers to the compiler's
+        ``_resolve_any_space`` so the elaborated structure surfaces
+        through ``_pretty_object``.
+        """
+        if expr is None:
+            return None
+        if not isinstance(expr, ObjectExpr):
+            return _pretty_object(expr)
+        if not self._compiler:
+            return _pretty_object(expr)
+        if isinstance(expr, TypeName):
+            if (
+                expr.name in self._compiler.objects
+                or expr.name in self._compiler.spaces
+            ):
+                return expr.name
+        try:
+            return _pretty_object(self._compiler._resolve_any_space(expr))
+        except CompileError:
+            return _pretty_object(expr)
+        except Exception:
+            return _pretty_object(expr)
+
+    def _type_signature_for_ref(self, ref: ScopedRef) -> str:
+        """Render a GHCi-style ``name :: type`` line for a scoped ref.
+
+        Strips the decl-style keyword prefix and any annotation
+        suffixes, keeping only the underlying type information.
+        """
+        node = ref.node
+        kind = ref.kind
+        if kind == "program":
+            return self._type_signature_for_program(ref.name, node)
+        if kind == "morphism":
+            return self._type_signature_for_morphism(ref.name, node)
+        if kind == "deduction":
+            dom = getattr(node, "domain", None)
+            cod = getattr(node, "codomain", None)
+            if dom is not None and cod is not None:
+                return f"{ref.name} :: {_pretty_object(dom)} -> {_pretty_object(cod)}"
+            return f"{ref.name} :: ?"
+        if kind in ("sample-site", "observe-site", "marginalize-site"):
+            return _site_signature(ref.name, node)
+        if kind == "let-site":
+            return f"{ref.name} :: ?"
+        if kind == "score-site":
+            return f"{ref.name} :: Real"
+        if kind == "return-site":
+            members = node if isinstance(node, tuple) else (str(node),)
+            return f"return :: {', '.join(str(m) for m in members)}"
+        if kind == "param":
+            sk = getattr(node, "scalar_kind", None)
+            universe = getattr(node, "universe", None)
+            if sk is not None:
+                return f"{ref.name} :: {sk}"
+            if universe is not None:
+                return f"{ref.name} :: {universe}"
+            return f"{ref.name} :: ?"
+        if kind == "deduction-rule":
+            premises = getattr(node, "premises", ()) or ()
+            conclusion = getattr(node, "conclusion", None)
+            prem_str = ", ".join(_pat_str(p) for p in premises)
+            return f"{ref.name} :: {prem_str} |- {_pat_str(conclusion)}"
+        # Other value-level kinds (signature / encoder / decoder /
+        # loss / bundle / rule / contraction / category / *-rule /
+        # var-init / decoder-head / bundle-member / composition):
+        # surface whatever the decl-line renderer produces with the
+        # leading kind keyword stripped.
+        line = self._type_line_for_ref(ref)
+        stripped = _drop_leading_keyword(line, ref.name)
+        return stripped if stripped is not None else line
 
     def _type_line_for_morphism(self, name: str, morph: Any) -> str:
         """Render a morphism's signature in valid-QVR notation.
@@ -562,6 +823,37 @@ class ReplSession:
         return f"{kind} {ref.name}"
 
     def kind_of(self, expr_source: str) -> ReplResponse:
+        """Print the kind of a type-level name or type expression.
+
+        Mirrors GHCi's ``:kind``: works on objects, spaces, sorts,
+        atoms, constructors, and bare type expressions like
+        ``FinSet 3`` or ``A * B``. For value-level names (morphisms,
+        programs, sites), returns an error directing the user to
+        ``:type``.
+        """
+        if not self._compiler:
+            return _err("no environment loaded; use :load <FILE> first")
+
+        if SCOPE_SEPARATOR in expr_source:
+            ref = resolve_scoped_path(self._compiler, expr_source.strip())
+            if ref is None:
+                return _err(f"unknown path: {expr_source}")
+            if _ref_kind_class(ref.kind) == "value":
+                return _err(
+                    f"{expr_source} is an expression, not a type; use :type {expr_source}"
+                )
+            return _resp(self._type_line_for_ref(ref), body_kind="qvr")
+
+        bare = expr_source.strip()
+        if bare.isidentifier():
+            line = self._type_line_for_name(bare)
+            if line is not None:
+                return _resp(line, body_kind="qvr")
+            if self._is_value_level_name(bare):
+                return _err(f"{bare} is an expression, not a type; use :type {bare}")
+
+        # Type-expression form: resolve through the compiler's space
+        # resolver and pretty-print as a QVR object declaration.
         try:
             mod = parse(f"object __probe__ : {expr_source}", file_path="<kind>")
         except ParseError as e:
@@ -573,10 +865,15 @@ class ReplSession:
         ):
             return _err("expected a type expression")
         texpr: ObjectExpr = mod.statements[0].init.expr
-        klass = type(texpr).__name__
-        variants = sorted(cls.__name__ for cls in ObjectExpr.__variants__.values())
+        probe = self._scratch_compiler()
+        try:
+            obj = probe._resolve_any_space(texpr)
+        except CompileError as e:
+            return _err(f"kind error: {e}")
+        except Exception as e:
+            return _err(f"kind error: {e}")
         return _resp(
-            f"{expr_source} : {klass}\n  ObjectExpr variants: {', '.join(variants)}",
+            f"{expr_source} :: {_pretty_object(obj)}",
             body_kind="qvr",
         )
 
@@ -1182,7 +1479,7 @@ class ReplSession:
         self._watch_results = {}
         for expr in self._watches:
             try:
-                response = self.type_of(expr)
+                response = self._describe(expr)
                 self._watch_results[expr] = response.body if response.ok else "(error)"
             except Exception:
                 self._watch_results[expr] = "(error)"
@@ -1228,8 +1525,8 @@ class ReplSession:
             return self._install_module(extended, source_path=self._loaded_path)
         except ParseError:
             pass
-        # Fall back to expression: print its type.
-        return self.type_of(src)
+        # Fall back to expression: print its type or kind.
+        return self._describe(src)
 
     # ----- helpers ------------------------------------------------------
 
@@ -1556,8 +1853,11 @@ HELP_CATEGORIES: tuple[tuple[str, tuple[tuple[str, str], ...]], ...] = (
     (
         "inspection",
         (
-            (":type EXPR", "print EXPR's resolved type (accepts a::b::c paths)"),
-            (":kind T", "print T's AST variant + sibling TypeExpr variants"),
+            (
+                ":type EXPR",
+                "print EXPR's type (morphisms, programs, sites; like GHCi :type)",
+            ),
+            (":kind T", "print T's kind (objects, spaces, sorts; like GHCi :kind)"),
             (":info NAME", "show NAME's declaration source + location"),
             (":doc NAME", "render the doc-comment above NAME's declaration"),
             (":browse [NS]", "list every binding in NS (or the module's scopes)"),
@@ -1653,8 +1953,8 @@ _META_COMMANDS = {
 _HELP_SUMMARIES = {
     "load FILE": "parse + compile a .qvr file into the session",
     "reload": "re-run :load on the last file, diffing the env",
-    "type EXPR": "infer and print the type of EXPR",
-    "kind TYPE": "report the AST kind of a type expression",
+    "type EXPR": "print the type of a value-level expression (GHCi-style)",
+    "kind TYPE": "print the kind of a type (GHCi-style)",
     "info NAME": "show the declaration and source location of NAME (--python for AST repr)",
     "doc NAME": "render the doc comment attached to NAME",
     "browse [NS]": "list bound names, optionally per namespace",
@@ -1673,11 +1973,16 @@ _HELP_SUMMARIES = {
 _HELP: dict[str, str] = {
     "load": "Parse and compile <FILE>; the environment is rebound to the new module.",
     "reload": "Re-parse the most recently loaded file and show which names changed.",
-    "type": "Resolve <EXPR> as either a type expression or a morphism reference; "
-    "in the first case prints the underlying SetObject, in the second the "
-    "domain -> codomain signature.",
-    "kind": "Show the AST kind (didactic discriminator) of a type expression and "
-    "enumerate the sibling variants.",
+    "type": "Resolve <EXPR> as a value-level expression and print its type "
+    "signature. Works on morphisms, programs, deductions, scoped sample "
+    "/ observe / let sites, or any expression that resolves to a morphism. "
+    "If <EXPR> names a type-level binding (object, space, sort), the "
+    "command reports an error directing you to :kind.",
+    "kind": "Resolve <TYPE> as a type-level expression and print its kind. "
+    "Works on objects, spaces, sorts, atoms, constructors, and bare type "
+    "expressions like ``FinSet 3`` or ``A * B``. If <TYPE> names a "
+    "value-level binding (morphism, program), the command reports an "
+    "error directing you to :type.",
     "info": "Show NAME's declaration as verbatim .qvr source (sliced from the "
     "loaded file), plus the source location and any leading doc comment. "
     "Pass --python to see the didactic AST `repr()` instead.",
@@ -1732,18 +2037,128 @@ def _violation_to_diag(v: Violation) -> Diagnostic:
     )
 
 
+# ScopedRef.kind values that denote value-level bindings (have a
+# DOM -> COD signature or evaluate to a morphism); used by :type.
+_VALUE_REF_KINDS: frozenset[str] = frozenset(
+    {
+        "morphism",
+        "program",
+        "deduction",
+        "sample-site",
+        "observe-site",
+        "marginalize-site",
+        "let-site",
+        "score-site",
+        "return-site",
+        "encoder",
+        "decoder",
+        "loss",
+        "signature",
+        "bundle",
+        "rule",
+        "contraction",
+        "deduction-rule",
+        "lexicon-entry",
+        "composition",
+        "composition-entry",
+        "bundle-member",
+        "category",
+        "op-rule",
+        "init-rule",
+        "message-rule",
+        "update-rule",
+        "var-init",
+        "decoder-head",
+        "param",
+    }
+)
+
+# ScopedRef.kind values that denote type-level bindings (describe a
+# universe / shape / sort); used by :kind.
+_TYPE_REF_KINDS: frozenset[str] = frozenset(
+    {
+        "object",
+        "space",
+        "sort",
+        "atom",
+        "constructor",
+        "binder",
+        "vertex-kind",
+        "edge-kind",
+    }
+)
+
+
+def _ref_kind_class(kind: str) -> Literal["value", "type", "other"]:
+    """Classify a ``ScopedRef.kind`` for the :type / :kind split.
+
+    Returns ``"value"`` for expression-shaped refs (rendered by
+    :type), ``"type"`` for type-shaped refs (rendered by :kind),
+    and ``"other"`` for refs that belong to neither (top-level
+    namespaces, unclassified kinds). Callers default ``"other"`` to
+    the permissive branch so unknown kinds still render somewhere.
+    """
+    if kind in _VALUE_REF_KINDS:
+        return "value"
+    if kind in _TYPE_REF_KINDS:
+        return "type"
+    return "other"
+
+
+_AUTO_NAME_RE = re.compile(r"^_([A-Z][A-Za-z]*)_([0-9]+(?:_[0-9]+)*)$")
+
+
+def _strip_auto_name(name: str) -> str | None:
+    """If ``name`` is a compiler-generated placeholder like
+    ``_FinSet_20`` or ``_Real_8`` or ``_Real_3_4``, return the
+    surface form (``FinSet 20``, ``Real 8``, ``Real 3 4``).
+    Otherwise return None so callers fall back to the raw name.
+    """
+    m = _AUTO_NAME_RE.match(name)
+    if m is None:
+        return None
+    ctor, args = m.group(1), m.group(2)
+    return f"{ctor} {args.replace('_', ' ')}"
+
+
+def _pretty_object_with_aliases(obj: Any, alias_map: dict[int, str] | None) -> str:
+    """Render an object preferring user-given aliases.
+
+    When ``alias_map`` is provided, a resolved SetObject /
+    ContinuousSpace whose ``id()`` is a key in the map renders as
+    the user's declared name (``Item`` rather than ``FinSet 200``).
+    Product / coproduct factors recurse so a mixed ``Doc * Topic``
+    still surfaces each component's alias.
+    """
+    if obj is None:
+        return "?"
+    if alias_map is not None and id(obj) in alias_map:
+        return alias_map[id(obj)]
+    kind = type(obj).__name__
+    if kind in ("ProductSet", "ProductSpace"):
+        comps = getattr(obj, "components", ())
+        if comps:
+            return " * ".join(_pretty_object_with_aliases(c, alias_map) for c in comps)
+    if kind == "CoproductSet":
+        comps = getattr(obj, "components", ())
+        if comps:
+            return " + ".join(_pretty_object_with_aliases(c, alias_map) for c in comps)
+    return _pretty_object(obj)
+
+
 def _pretty_object(obj: Any) -> str:
     """Render a SetObject / ContinuousSpace in QVR-shaped notation.
 
     Examples:
         FinSet(name='X', cardinality=3)            -> "X"
-        FinSet(name='', cardinality=3)              -> "FinSet(3)"
+        FinSet(name='', cardinality=3)              -> "FinSet 3"
+        FinSet(name='_FinSet_20', cardinality=20)  -> "FinSet 20"
         ProductSet(components=(A, B))               -> "A * B"
         CoproductSet(components=(A, B))             -> "A + B"
         FreeMonoid(name='Words', alphabet=A)        -> "Words"
         EnumSet(name='Tags', members=('NP','S'))    -> "Tags"
         FreeResiduated(name='Cat', ...)             -> "Cat"
-        ContinuousSpace subtypes                    -> their `name`
+        Euclidean(name='_Real_8', dim=8)           -> "Real 8"
     """
     kind = type(obj).__name__
     name = getattr(obj, "name", "") or ""
@@ -1757,10 +2172,16 @@ def _pretty_object(obj: Any) -> str:
             return " + ".join(_pretty_object(c) for c in comps)
     if kind == "FinSet":
         if name:
+            stripped = _strip_auto_name(name)
+            if stripped is not None:
+                return stripped
             return name
         cardinality = getattr(obj, "cardinality", None)
-        return f"FinSet({cardinality})" if cardinality is not None else "FinSet"
+        return f"FinSet {cardinality}" if cardinality is not None else "FinSet"
     if name:
+        stripped = _strip_auto_name(name)
+        if stripped is not None:
+            return stripped
         # The discrete-to-continuous embedding wraps a FinSet inside
         # an `Euclidean(name="idx(FinSet(name='Source', ...))", ...)`.
         # Strip the wrapper so users see the original object name.
@@ -1809,6 +2230,42 @@ def _extend_module(base: Module, additions: Iterable[Statement]) -> Module:
     return Module(statements=tuple(base.statements) + tuple(additions))
 
 
+def render_signature(compiler: Compiler | None, name: str) -> str | None:
+    """Return the GHCi-style ``name :: type`` (or ``object NAME : ...``
+    for type-level bindings) for a top-level name, or ``None`` when
+    the compiler is absent or the name is unknown.
+
+    This is the shared entry point used by both the REPL (``:type``
+    / ``:kind`` / bare-expression fallback) and the LSP server's
+    hover panel: by routing every surface that wants a one-line
+    signature through the same function, a binding looks identical
+    regardless of whether the user is in the TUI or hovering in an
+    editor.
+    """
+    if compiler is None:
+        return None
+    s = ReplSession()
+    s._compiler = compiler
+    s._module = getattr(compiler, "_module", Module(statements=()))
+    line = s._value_line_for_name(name)
+    if line is not None:
+        return line
+    return s._type_line_for_name(name)
+
+
+def _extract_export_expr(mod: Module):
+    """Return the ``Expr`` AST node from a probe ``export <expr>``
+    module, or ``None`` if the parse did not produce an
+    `ExportDecl`. Used by :type to feed the user's expression
+    directly into ``Compiler._compile_expr`` without re-running
+    the full module compile pass.
+    """
+    for stmt in mod.statements:
+        if isinstance(stmt, ExportDecl):
+            return stmt.expr
+    return None
+
+
 # ---------------------------------------------------------------------------
 # Scoped-step pretty printers (used by ``:type lda::theta``-style queries)
 # ---------------------------------------------------------------------------
@@ -1842,6 +2299,50 @@ def _options_suffix(step: Any) -> str:
         v = getattr(value, "value", None)
         parts.append(f"{key}={v if v is not None else value}")
     return f" [{', '.join(parts)}]"
+
+
+def _site_value_space(step: Any) -> str | None:
+    """Extract the ``over=`` value-space option from a sample /
+    observe / marginalize step, returning its rendered name."""
+    for opt in getattr(step, "options", ()) or ():
+        if getattr(opt, "key", "") == "over":
+            value = getattr(opt, "value", None)
+            v = getattr(value, "value", None)
+            return str(v) if v is not None else str(value)
+    return None
+
+
+def _site_signature(name: str, step: Any) -> str:
+    """GHCi-style ``name :: type`` for a sample / observe / marginalize
+    step. ``type`` is ``index -> value-space`` when both are known,
+    or just ``value-space`` when the step has no index.
+    Falls back to the family call (``Dirichlet(alpha)``) when the
+    value-space can't be read off the options.
+    """
+    idx_obj = getattr(step, "index", None)
+    idx_name = (
+        getattr(idx_obj, "name", None) or repr(idx_obj) if idx_obj is not None else None
+    )
+    value_space = _site_value_space(step)
+    if value_space is None:
+        value_space = _call_str(step)
+    if idx_name is not None:
+        return f"{name} :: {idx_name} -> {value_space}"
+    return f"{name} :: {value_space}"
+
+
+def _drop_leading_keyword(line: str, name: str) -> str | None:
+    """If ``line`` starts with ``<keyword> <name> :`` (the decl-line
+    shape used by :info / :browse), strip the keyword + name and
+    return a ``<name> :: <rest>`` form. Otherwise return None.
+    """
+    head, sep, rest = line.partition(" : ")
+    if not sep:
+        return None
+    head_tokens = head.split()
+    if len(head_tokens) < 2 or head_tokens[-1] != name:
+        return None
+    return f"{name} :: {rest}"
 
 
 def _render_sample_line(step: Any) -> str:

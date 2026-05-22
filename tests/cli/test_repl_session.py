@@ -44,31 +44,39 @@ def test_unknown_command() -> None:
     assert "unknown command" in r.diagnostics[0].message
 
 
-def test_type_of_object() -> None:
+def test_type_rejects_type_level_name() -> None:
     s = _populated()
+    # GHCi semantics: :type on a type-level binding errors and
+    # redirects to :kind.
     r = s.dispatch(":type X")
-    assert r.ok, r.diagnostics
-    # :type renders the binding as its source-form QVR declaration so
-    # the grammar can classify identifiers in type position.
-    assert r.body.startswith("object X")
+    assert not r.ok
+    assert "use :kind" in r.diagnostics[0].message
 
 
 def test_type_of_morphism() -> None:
     s = _populated()
     r = s.dispatch(":type f")
     assert r.ok, r.diagnostics
-    assert " -> " in r.body
-    # Morphism signatures lead with the declaration kind keyword so
-    # the QVR grammar can colour the domain/codomain as types.
-    assert r.body.split()[0] in {"morphism", "program"}
+    # GHCi-style: ``name :: dom -> cod``, no decl keyword, no
+    # ``[role=...]`` annotation.
+    assert r.body == "f :: X -> Y"
 
 
-def test_kind_reports_ast_variant() -> None:
+def test_kind_of_object() -> None:
     s = _populated()
     r = s.dispatch(":kind X")
     assert r.ok, r.diagnostics
-    assert "TypeName" in r.body
-    assert "ObjectProduct" in r.body  # variant enumeration
+    # :kind renders the type-level binding as a QVR object decl so
+    # the grammar can classify the constructor + arguments.
+    assert r.body.startswith("object X")
+    assert "FinSet" in r.body
+
+
+def test_kind_rejects_value_level_name() -> None:
+    s = _populated()
+    r = s.dispatch(":kind f")
+    assert not r.ok
+    assert "use :type" in r.diagnostics[0].message
 
 
 def test_browse_lists_namespaces() -> None:
@@ -276,11 +284,12 @@ def test_unwatch_unknown_errors() -> None:
 def test_kind_handles_constructor() -> None:
     s = _populated()
     # Constructor-style sized objects are a primary type-expression
-    # shape in the grammar (e.g. ``FinSet 3``). The kind path should
-    # return the canonical variant name without erroring.
+    # shape in the grammar (e.g. ``FinSet 3``). :kind resolves the
+    # expression and prints the resulting universe / shape.
     r = s.dispatch(":kind FinSet 3")
     assert r.ok
-    assert "DiscreteConstructor" in r.body
+    assert "FinSet 3" in r.body
+    assert "::" in r.body
 
 
 def test_doc_unknown_name() -> None:
@@ -324,13 +333,18 @@ def test_autoreload_only_when_stale(tmp_path: Path) -> None:
     assert "Z" in s.env
 
 
-def test_bare_expression_falls_through_to_type() -> None:
+def test_bare_expression_falls_through_to_type_or_kind() -> None:
     s = _populated()
     # `X` alone isn't a statement form the grammar accepts, but the
-    # session's _eval_source falls back to :type.
+    # session's _eval_source falls back to a unified inspector that
+    # tries :type first, then :kind. X is type-level, so :kind wins.
     r = s.dispatch("X")
     assert r.ok
     assert r.body.startswith("object X")
+    # And for a value-level name, :type wins (GHCi-style sig line).
+    r = s.dispatch("f")
+    assert r.ok
+    assert r.body.startswith("f ::")
 
 
 def test_bare_statement_extends_module() -> None:

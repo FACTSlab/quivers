@@ -71,7 +71,7 @@ observed at run time, keyed by a canonical string form of
 $\sigma$). The parameters live on a per-deduction `nn.Module`
 side-table that participates in the model's `.parameters()`.
 
-Two specialisations of the surface deserve explicit names:
+Two specializations of the surface deserve explicit names:
 
 * When the rule's conclusion contains no free wildcards (every
   binding has a unique ground value), $\theta_{r, \sigma}$
@@ -80,9 +80,9 @@ Two specialisations of the surface deserve explicit names:
 * When the rule's conclusion is wildcarded (e.g. `branch : ... |-
   span(I, J, A)` with $A$ free), each distinct ground value of
   the wildcard pulls a distinct parameter from the dictionary,
-  recovering the *partial-application weight* of [§2.2](#22-parent-rule-specialisation-parent).
+  recovering the *partial-application weight* of [§2.2](#22-parent-rule-specialization-parent).
 
-### 2.2 Parent rule specialisation (`parent=`)
+### 2.2 Parent rule specialization (`parent=`)
 
 A rule may declare a *parent* via the `parent=` option in its
 pragma:
@@ -101,8 +101,8 @@ $$
 $$
 
 The parent chain is acyclic and terminates at a non-parented
-rule. This recovers a *hierarchical* / *back-off* parametrisation
-in which the specialisation contributes a correction term over
+rule. This recovers a *hierarchical* / *back-off* parametrization
+in which the specialization contributes a correction term over
 the parent's bindings-keyed weight without retraining the parent
 from scratch.
 
@@ -116,7 +116,7 @@ $$
 $$
 
 so $\theta_{r, \sigma} \le 0$ for every binding. This is the
-correct parameterisation when the rule appears in a closed cycle
+correct parameterization when the rule appears in a closed cycle
 of the deduction graph and the semiring is non-idempotent
 (`LogProb`, `Counting`, `Inside`): the cycle's accumulated
 log-weight is then bounded above by zero, the Kleene-star series
@@ -377,7 +377,7 @@ trivial deduction with no rules.
 ### 9.2 Forward sampling
 
 The [`quivers.deduction.sample_corpus`](../api/stochastic/deduction/sample.md#quivers.stochastic.deduction.sample.sample_corpus)
-helper realises exact forward sampling from a deduction's
+helper realizes exact forward sampling from a deduction's
 distribution over yields: it enumerates the deduction's surface
 vocabulary to a chosen length, evaluates $\alpha[\mathsf{goal}]$
 for every candidate yield, and draws categorically from the
@@ -452,7 +452,7 @@ rule_pragma_entry   := 'learnable'
                      | 'bounded'
                      | 'parent' '=' IDENT
 
-# Deduction-level options recognised by the agenda compiler;
+# Deduction-level options recognized by the agenda compiler;
 # extend the standard ``[k=v, ...]`` option list.
 deduction_option    := 'semiring'   '=' IDENT
                      | 'start'      '=' IDENT
@@ -478,7 +478,7 @@ bind_step           := var_pattern [ ':' type_expr ] '<-' IDENT
 observe_step        := 'observe' IDENT [ ':' type_expr ]
                        '<-' IDENT [ '(' draw_arg_list ')' ]
                        [ option_block ]
-# Option-block entries recognised on observe steps include
+# Option-block entries recognized on observe steps include
 # ``via = idx`` (a fibration into a marginalize grouping plate)
 # and any family-specific keyword overrides.
 
@@ -548,7 +548,7 @@ morphism_call       := IDENT '(' IDENT (',' IDENT)* ')'
 
 A `program_decl` is *parametric* iff its parameter list contains any `typed_program_param`; the walker dispatches parametric programs to the call-site inliner rather than to the runtime program compiler. A program whose option block carries `[effects = [...]]` has its body checked against the declared capability set: the actual effects of the body must form a subset of the listed set, and `[effects = [Pure]]` rejects any `sample_step` / `observe_step` / `marginalize_step`. A program whose option block carries `[over = M]` is a posterior block consuming the latents of model `M`; the consumed latents appear as data parameters in the program's parameter list.
 
-A `composition_decl` selects the module's underlying composition rule. With no body and no `as` clause, the keyword resolves the named rule from the built-in catalogue and registers it. With an `as LEVEL` clause but no body, the resolved built-in rule is verified to match the declared algebraic level (`algebra`, `semigroupoid`, `bilinear_form`, or `rule`, the last covering any `CompositionRule`). With a body, the entries declare the rule's operations inline; the `as LEVEL` clause fixes the algebraic level, and the compiler verifies that the required entries (`tensor_op`, `join`, plus `unit`, `zero` for `algebra`) are present. See [Composition Rules](composition-rules.md) for the formal denotation.
+A `composition_decl` selects the module's underlying composition rule. With no body and no `as` clause, the keyword resolves the named rule from the built-in catalog and registers it. With an `as LEVEL` clause but no body, the resolved built-in rule is verified to match the declared algebraic level (`algebra`, `semigroupoid`, `bilinear_form`, or `rule`, the last covering any `CompositionRule`). With a body, the entries declare the rule's operations inline; the `as LEVEL` clause fixes the algebraic level, and the compiler verifies that the required entries (`tensor_op`, `join`, plus `unit`, `zero` for `algebra`) are present. See [Composition Rules](composition-rules.md) for the formal denotation.
 
 A `contraction_decl` declares an n-ary operadic morphism whose action contracts its input morphisms under the named composition rule using the wiring spec. Call sites `IDENT(arg_1, …, arg_n)` route through `morphism_call`; the compiler resolves `IDENT` against the contraction registry, the parametric-program template table, and the morphism scope in that order. See [Expressions § 2.13](expressions.md#213-operadic-contraction-call) for the call-site denotation.
 
@@ -561,4 +561,4 @@ A `contraction_decl` declares an n-ary operadic morphism whose action contracts 
 - Knuth (1977). [*A generalization of Dijkstra's algorithm*](https://doi.org/10.1016/0020-0190(77)90002-3). Information Processing Letters 6(1):1–5.
 - Nederhof (2003). [*Weighted deductive parsing and Knuth's algorithm*](https://doi.org/10.1162/089120103321337467). Computational Linguistics 29(1):135–143.
 - Eisner, Goldlust & Smith (2005). [*Compiling Comp Ling: Practical weighted dynamic programming and the Dyna language*](https://aclanthology.org/H05-1036/). In Proceedings of HLT-EMNLP, pp. 281–290.
-- McAllester (2002). [*On the complexity analysis of static analyses*](https://doi.org/10.1145/581771.581774). Journal of the ACM 49(4):512–537.
+- McAllester (2002). [*On the complexity analysis of static analyzes*](https://doi.org/10.1145/581771.581774). Journal of the ACM 49(4):512–537.

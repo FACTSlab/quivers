@@ -33,7 +33,7 @@ Edges encode structural relations:
 | `codomain` | morphism / kernel / discretize / embed `_decl` | object / space vertex | Codomain of the declaration |
 | `output` | `program` | `output_decl` | The module's public export |
 
-The schema and instance theories of $\mathsf{QVR}$ are panproto's `ThBratSchema` and `ThBratInstance` (the shape-graph theories used by the brat protocol family); the QVR protocol reuses them and specialises via the kind enumerations and edge rules above.
+The schema and instance theories of $\mathsf{QVR}$ are panproto's `ThBratSchema` and `ThBratInstance` (the shape-graph theories used by the brat protocol family); the QVR protocol reuses them and specializes via the kind enumerations and edge rules above.
 
 ## 2. The extraction functor
 
@@ -67,7 +67,7 @@ Because $\mathcal{S}(M) \in \mathrm{Schema}(\mathsf{QVR})$, every panproto opera
 - $\mathrm{auto\_lens} : \mathrm{Schema}(\mathsf{QVR})^2 \to \mathrm{Lens}(\mathsf{QVR})$: derive a bidirectional migration lens between two module versions;
 - $\mathrm{check} : \mathrm{Schema}(\mathsf{QVR})^2 \times \mathrm{Lens}(\mathsf{QVR}) \to \mathrm{Bool}$: check that a candidate lens satisfies the GetPut/PutGet round-trip laws.
 
-These operate on the *shape* of a module (its declarations and the relations between them) and not on its parameter values. Numerical-content migration, e.g.\ initialising the parameters of a renamed `latent` morphism from those of the original, is a separate concern, handled by panproto's *field-transform* layer ([Field Transforms](https://panproto.dev/skills/panproto-field-transforms.html)) using `compute-field` / `coerce-type` rules.
+These operate on the *shape* of a module (its declarations and the relations between them) and not on its parameter values. Numerical-content migration, e.g.\ initializing the parameters of a renamed `latent` morphism from those of the original, is a separate concern, handled by panproto's *field-transform* layer ([Field Transforms](https://panproto.dev/skills/panproto-field-transforms.html)) using `compute-field` / `coerce-type` rules.
 
 ## 5. Naturality
 
