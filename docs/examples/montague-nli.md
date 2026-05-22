@@ -205,4 +205,4 @@ Each `deduction` block denotes a weighted relation in the [agenda-based deductio
 
 ## References
 
-- [Montague (1973)](https://doi.org/10.1007/978-94-010-2506-5_10).
+- Richard Montague. 1973. The proper treatment of quantification in ordinary English. In K. J. J. Hintikka, J. M. E. Moravcsik, and P. Suppes, editors, *Approaches to Natural Language*, pages 221–242. Springer, Dordrecht.

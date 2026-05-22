@@ -140,5 +140,5 @@ If you want to extend the categorical machinery itself (custom algebras, custom 
 
 ## References
 
-- [Vehtari, Gelman & Gabry, 2017](https://doi.org/10.1007/s11222-016-9696-4).
-- [Vehtari, Simpson, Gelman, Yao & Gabry, 2024](https://doi.org/10.48550/arXiv.1507.02646).
+- Aki Vehtari, Andrew Gelman, and Jonah Gabry. 2017. Practical Bayesian model evaluation using leave-one-out cross-validation and WAIC. *Statistics and Computing*, 27(5):1413–1432.
+- Aki Vehtari, Daniel Simpson, Andrew Gelman, Yuling Yao, and Jonah Gabry. 2024. Pareto smoothed importance sampling. *Journal of Machine Learning Research*, 25(72):1–58. arXiv:1507.02646.

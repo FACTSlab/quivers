@@ -385,4 +385,4 @@ program, the user edits the source, and feeds it back through
 
 ## References
 
-- [Yao et al. 2018](https://doi.org/10.1214/17-BA1091).
+- Yuling Yao, Aki Vehtari, Daniel Simpson, and Andrew Gelman. 2018. Using stacking to average Bayesian predictive distributions (with discussion). *Bayesian Analysis*, 13(3):917–1007.

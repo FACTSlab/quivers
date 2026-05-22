@@ -128,4 +128,4 @@ The morphism-valued [`MatrixNormal`](../api/continuous/families.md#quivers.conti
 
 ## References
 
-- [Tipping & Bishop 1999](https://doi.org/10.1111/1467-9868.00196).
+- Michael E. Tipping and Christopher M. Bishop. 1999. Probabilistic principal component analysis. *Journal of the Royal Statistical Society Series B: Statistical Methodology*, 61(3):611–622.

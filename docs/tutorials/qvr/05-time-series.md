@@ -127,5 +127,5 @@ For a fully nonlinear (deep) variant where transition and emission are neural Ga
 
 ## References
 
-- [Kalman, 1960](https://doi.org/10.1115/1.3662552).
-- [Rabiner, 1989](https://doi.org/10.1109/5.18626).
+- Lawrence R. Rabiner. 1989. A tutorial on hidden Markov models and selected applications in speech recognition. *Proceedings of the IEEE*, 77(2):257–286.
+- Rudolf E. Kalman. 1960. A new approach to linear filtering and prediction problems. *Journal of Basic Engineering*, 82(1):35–45.

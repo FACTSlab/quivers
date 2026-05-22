@@ -129,4 +129,4 @@ in the real algebra. SVI's mean-field variational guide places an independent No
 
 ## References
 
-- [MacKay 1992](https://doi.org/10.1162/neco.1992.4.3.448).
+- David J. C. MacKay. 1992. The evidence framework applied to classification networks. *Neural Computation*, 4(3):448–472.

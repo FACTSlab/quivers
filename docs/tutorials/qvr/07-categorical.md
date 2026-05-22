@@ -136,5 +136,5 @@ If you've read all seven chapters, you can write models in QVR, fit them with an
 
 ## References
 
-- [Fritz, 2020](https://doi.org/10.1016/j.aim.2020.107239).
-- [Giry, 1982](https://doi.org/10.1007/BFb0092872).
+- Michèle Giry. 1982. A categorical approach to probability theory. In Bernhard Banaschewski, editor, *Categorical Aspects of Topology and Analysis*, volume 915 of *Lecture Notes in Mathematics*, pages 68–85. Springer, Berlin, Heidelberg.
+- Tobias Fritz. 2020. A synthetic approach to Markov kernels, conditional independence and theorems on sufficient statistics. *Advances in Mathematics*, 370:107239.

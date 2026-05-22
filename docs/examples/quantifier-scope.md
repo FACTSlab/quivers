@@ -78,4 +78,4 @@ The fragment composes directly with [type-logical](type-logical.md) and [multimo
 
 ## References
 
-- [Bumford & Charlow (2026)](https://www.cambridge.org/core/elements/abs/effectdriven-interpretation/56671E539160AAA1DACF8555B82A2FE4).
+- Dylan Bumford and Simon Charlow. 2026. *Effect-Driven Interpretation: Functors for Natural Language Composition*. Cambridge Elements in Semantics. Cambridge University Press.

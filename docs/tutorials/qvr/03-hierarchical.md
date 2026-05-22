@@ -191,8 +191,8 @@ print("predictive school 1:", y_hat[..., 0].mean().item(),
 
 ## References
 
-- [Betancourt & Girolami (2013)](https://doi.org/10.48550/arXiv.1312.0906).
-- [Neal, 2003](https://doi.org/10.1214/aos/1056562461).
-- [Papaspiliopoulos, Roberts & Sköld, 2007](https://doi.org/10.1214/088342307000000014).
 - [Rubin, 1981](https://doi.org/10.3102/10769986006004377).
-- [Vehtari, Gelman, Simpson, Carpenter & Bürkner, 2021](https://doi.org/10.1214/20-BA1221).
+- Aki Vehtari, Andrew Gelman, Daniel Simpson, Bob Carpenter, and Paul-Christian Bürkner. 2021. Rank-normalization, folding, and localization: An improved $\hat R$ for assessing convergence of MCMC. *Bayesian Analysis*, 16(2):667–718.
+- Michael Betancourt and Mark Girolami. 2013. Hamiltonian Monte Carlo for hierarchical models. arXiv preprint arXiv:1312.0906.
+- Omiros Papaspiliopoulos, Gareth O. Roberts, and Martin Sköld. 2007. A general framework for the parametrization of hierarchical models. *Statistical Science*, 22(1):59–73.
+- Radford M. Neal. 2003. Slice sampling. *The Annals of Statistics*, 31(3):705–767.

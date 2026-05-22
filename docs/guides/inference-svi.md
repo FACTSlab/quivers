@@ -338,9 +338,9 @@ class MyGuide(Guide):
 
 ## References
 
-- [Burda et al. 2016](https://doi.org/10.48550/arXiv.1509.00519).
-- [Daudel et al. 2023](https://doi.org/10.48550/arXiv.2210.06226).
-- [Durkan et al. 2019](https://doi.org/10.48550/arXiv.1906.04032).
-- [Li-Turner 2016](https://doi.org/10.48550/arXiv.1602.02311).
-- [Roeder et al. 2017](https://doi.org/10.48550/arXiv.1703.09194).
-- [Tucker et al. 2019](https://doi.org/10.48550/arXiv.1810.04152).
+- Conor Durkan, Artur Bekasov, Iain Murray, and George Papamakarios. 2019. Neural spline flows. arXiv preprint arXiv:1906.04032.
+- Geoffrey Roeder, Yuhuai Wu, and David Duvenaud. 2017. Sticking the landing: Simple, lower-variance gradient estimators for variational inference. arXiv preprint arXiv:1703.09194.
+- George Tucker, Dieterich Lawson, Shixiang Gu, and Chris J. Maddison. 2019. Doubly reparameterized gradient estimators for Monte Carlo objectives. arXiv preprint arXiv:1810.04152.
+- Kamélia Daudel, Joe Benton, Yuyang Shi, and Arnaud Doucet. 2023. Alpha-divergence variational inference meets importance weighted auto-encoders: Methodology and asymptotics. arXiv preprint arXiv:2210.06226.
+- Yingzhen Li and Richard E. Turner. 2016. Rényi divergence variational inference. arXiv preprint arXiv:1602.02311.
+- Yuri Burda, Roger Grosse, and Ruslan Salakhutdinov. 2016. Importance weighted autoencoders. arXiv preprint arXiv:1509.00519.

@@ -205,4 +205,4 @@ Three things:
 
 ## References
 
-- [Kingma & Welling (2014)](https://doi.org/10.48550/arXiv.1312.6114).
+- Diederik P. Kingma and Max Welling. 2013. Auto-Encoding Variational Bayes. arXiv preprint arXiv:1312.6114.

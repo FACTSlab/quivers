@@ -117,4 +117,4 @@ The model factors as a Kleisli composite of two kernels: a per-cell `ContinuousB
 
 ## References
 
-- [Lambert 1992](https://doi.org/10.2307/1269547).
+- Diane Lambert. 1992. Zero-inflated Poisson regression, with an application to defects in manufacturing. *Technometrics*, 34(1):1–14.

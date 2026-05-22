@@ -321,4 +321,4 @@ algebra-homomorphism / Kleisli coalgebra pattern, no special-casing.
 
 ## References
 
-- [Tai et al. 2015](https://doi.org/10.48550/arXiv.1503.00075).
+- Kai Sheng Tai, Richard Socher, and Christopher D. Manning. 2015. Improved semantic representations from tree-structured Long Short-Term Memory networks. arXiv preprint arXiv:1503.00075.
