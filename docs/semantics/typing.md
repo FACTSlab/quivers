@@ -382,7 +382,7 @@ Identity is the only "structural" combinator with a dedicated expression form (`
 
 ### 5.5 Higher combinators
 
-$\mathsf{fan}, \mathsf{repeat}, \mathsf{stack}, \mathsf{scan}$ are syntactic sugar for derived expressions; their typing is determined by their unfolding in [Expressions §3–§5](expressions.md). For example:
+$\mathsf{fan}, \mathsf{repeat}, \mathsf{stack}, \mathsf{scan}$ are first-class Expr variants (`ExprFan`, `ExprRepeat`, `ExprStack`, `ExprScan`) realising the higher-arity combinators described in [Expressions §3](expressions.md). Their typing rules are:
 
 $$
 \frac{\Gamma; \Phi \vdash e_i : A \rightsquigarrow B_i \quad (1 \le i \le n)}
@@ -390,11 +390,23 @@ $$
 $$
 
 $$
-\frac{\Gamma; \Phi \vdash e : A \rightsquigarrow B \quad n \in \mathbb{N}_{\ge 1}}
-     {\Gamma; \Phi \vdash \mathsf{repeat}(e, n) : A^n \rightsquigarrow B^n}\ \textsc{Repeat}
+\frac{\Gamma; \Phi \vdash e : A \rightsquigarrow A \quad n \in \mathbb{N}_{\ge 1}}
+     {\Gamma; \Phi \vdash \mathsf{repeat}(e, n) : A \rightsquigarrow A}\ \textsc{Repeat}
 $$
 
-with similar shapes for $\mathsf{stack}$ (axis-1 broadcast) and $\mathsf{scan}$ (sequential fold).
+(per [Expressions §3.3](expressions.md#33-repeat), $\mathsf{repeat}$ is the $n$-fold Kleisli composition of $e$ with itself, requiring $e$ to be an endomorphism so the composition typechecks).
+
+$$
+\frac{\Gamma; \Phi \vdash e : A \rightsquigarrow B \quad n \in \mathbb{N}_{\ge 1}}
+     {\Gamma; \Phi \vdash \mathsf{stack}(e, n) : A^n \rightsquigarrow B^n}\ \textsc{Stack}
+$$
+
+(per [Expressions §3.2](expressions.md#32-stack), $\mathsf{stack}$ is the $n$-fold tensor product of $e$ with itself; the compiler additionally clones $e$'s parameters per replica via $\mathsf{copy.deepcopy}$ so each layer is independently learnable). $\mathsf{scan}$ has the shape of a categorical trace ([Expressions §3.4](expressions.md#34-scan)):
+
+$$
+\frac{\Gamma; \Phi \vdash e : A \times S \rightsquigarrow B \times S}
+     {\Gamma; \Phi \vdash \mathsf{scan}(e) : A \rightsquigarrow B}\ \textsc{Scan}
+$$
 
 ### 5.6 Contraction application
 
