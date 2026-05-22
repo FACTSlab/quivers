@@ -63,3 +63,10 @@ A *type* in the QVR sense is a finite-set object; a *space* is a standard Borel 
 ## Audience
 
 This document is written for users who wish to reason formally about QVR programs: to verify that two `.qvr` files denote the same morphism, to prove that an optimization pass preserves meaning, or to understand the precise relationship between the syntactic AST, the `dx.Model` value-type layer, and the underlying tensor computations. Familiarity with enriched category theory at the level of Kelly's [*Basic Concepts of Enriched Category Theory*](http://www.tac.mta.ca/tac/reprints/articles/10/tr10abs.html) and with the categorical foundations of probability ([Giry, 1982](https://doi.org/10.1007/BFb0092872); [Fritz, 2020](https://doi.org/10.1016/j.aim.2020.107239)) is assumed.
+
+
+## References
+
+- Tobias Fritz. 2020. A synthetic approach to Markov kernels, conditional independence and theorems on sufficient statistics. *Advances in Mathematics*, 370:107239.
+- Michèle Giry. 1982. A categorical approach to probability theory. In Bernhard Banaschewski, editor, *Categorical Aspects of Topology and Analysis*, volume 915 of *Lecture Notes in Mathematics*, pages 68–85. Springer, Berlin, Heidelberg.
+- Gregory M. Kelly. 1982. *Basic Concepts of Enriched Category Theory*. Cambridge University Press; reprinted as *Reprints in Theory and Applications of Categories* 10 (2005):1–136.
