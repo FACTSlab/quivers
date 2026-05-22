@@ -12,6 +12,7 @@ writes to stdout. That keeps it fully testable from pytest.
 from __future__ import annotations
 
 import os
+import re
 import subprocess
 import tempfile
 from collections.abc import Iterable
@@ -1900,18 +1901,35 @@ def _ref_kind_class(kind: str) -> Literal["value", "type", "other"]:
     return "other"
 
 
+_AUTO_NAME_RE = re.compile(r"^_([A-Z][A-Za-z]*)_([0-9]+(?:_[0-9]+)*)$")
+
+
+def _strip_auto_name(name: str) -> str | None:
+    """If ``name`` is a compiler-generated placeholder like
+    ``_FinSet_20`` or ``_Real_8`` or ``_Real_3_4``, return the
+    surface form (``FinSet 20``, ``Real 8``, ``Real 3 4``).
+    Otherwise return None so callers fall back to the raw name.
+    """
+    m = _AUTO_NAME_RE.match(name)
+    if m is None:
+        return None
+    ctor, args = m.group(1), m.group(2)
+    return f"{ctor} {args.replace('_', ' ')}"
+
+
 def _pretty_object(obj: Any) -> str:
     """Render a SetObject / ContinuousSpace in QVR-shaped notation.
 
     Examples:
         FinSet(name='X', cardinality=3)            -> "X"
-        FinSet(name='', cardinality=3)              -> "FinSet(3)"
+        FinSet(name='', cardinality=3)              -> "FinSet 3"
+        FinSet(name='_FinSet_20', cardinality=20)  -> "FinSet 20"
         ProductSet(components=(A, B))               -> "A * B"
         CoproductSet(components=(A, B))             -> "A + B"
         FreeMonoid(name='Words', alphabet=A)        -> "Words"
         EnumSet(name='Tags', members=('NP','S'))    -> "Tags"
         FreeResiduated(name='Cat', ...)             -> "Cat"
-        ContinuousSpace subtypes                    -> their `name`
+        Euclidean(name='_Real_8', dim=8)           -> "Real 8"
     """
     kind = type(obj).__name__
     name = getattr(obj, "name", "") or ""
@@ -1925,10 +1943,16 @@ def _pretty_object(obj: Any) -> str:
             return " + ".join(_pretty_object(c) for c in comps)
     if kind == "FinSet":
         if name:
+            stripped = _strip_auto_name(name)
+            if stripped is not None:
+                return stripped
             return name
         cardinality = getattr(obj, "cardinality", None)
-        return f"FinSet({cardinality})" if cardinality is not None else "FinSet"
+        return f"FinSet {cardinality}" if cardinality is not None else "FinSet"
     if name:
+        stripped = _strip_auto_name(name)
+        if stripped is not None:
+            return stripped
         # The discrete-to-continuous embedding wraps a FinSet inside
         # an `Euclidean(name="idx(FinSet(name='Source', ...))", ...)`.
         # Strip the wrapper so users see the original object name.
