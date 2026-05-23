@@ -157,3 +157,8 @@ reportMissingImports = "warning"
 # with branch-specific captures and only one branch is reached at
 # runtime.
 reportRedeclaration = "warning"
+
+[dependency-groups]
+dev = [
+    "pytest>=9.0.3",
+]
