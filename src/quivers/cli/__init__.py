@@ -144,6 +144,47 @@ def main() -> int:
     )
     kernel_run_f.add_argument("connection_file")
 
+    transpile_sub = sub.add_parser(
+        "transpile",
+        help="Transpile a .qvr file to other probabilistic-programming "
+        "languages (Stan, NumPyro, Pyro, PyMC, ...).",
+    )
+    transpile_sub.add_argument(
+        "file",
+        nargs="?",
+        default=None,
+        help="Path to the .qvr source file.",
+    )
+    transpile_sub.add_argument(
+        "--to",
+        default=None,
+        help="Target backend name (e.g. 'stan', 'numpyro').",
+    )
+    transpile_sub.add_argument(
+        "--to-all",
+        action="store_true",
+        help="Transpile to every registered backend.",
+    )
+    transpile_sub.add_argument(
+        "--list-targets",
+        action="store_true",
+        help="List every registered backend and exit.",
+    )
+    transpile_sub.add_argument(
+        "-o",
+        "--output",
+        default=None,
+        help="Write the single-target output to this path "
+        "instead of stdout.",
+    )
+    transpile_sub.add_argument(
+        "-d",
+        "--out-dir",
+        default=None,
+        help="With --to-all, write one file per backend under this "
+        "directory (named <stem>.<extension>).",
+    )
+
     args = parser.parse_args()
     if args.cmd == "check":
         return check_main(args.files, json_output=args.json)
@@ -163,6 +204,10 @@ def main() -> int:
         from quivers.kernel.install import main as kernel_main
 
         return kernel_main(args)
+    if args.cmd == "transpile":
+        from quivers.cli.transpile import main as transpile_main
+
+        return transpile_main(args)
     parser.print_help(sys.stderr)
     return 2
 

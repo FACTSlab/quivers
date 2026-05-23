@@ -1479,6 +1479,11 @@ repl = [
     { name = "textual" },
 ]
 
+[package.dev-dependencies]
+dev = [
+    { name = "pytest" },
+]
+
 [package.metadata]
 requires-dist = [
     { name = "arviz", marker = "extra == 'diagnostics'", specifier = ">=0.17" },
@@ -1520,6 +1525,9 @@ requires-dist = [
     { name = "xarray", marker = "extra == 'formulas'", specifier = ">=2025.1" },
 ]
 provides-extras = ["dev", "docs", "data", "diagnostics", "formulas", "repl", "lsp"]
+
+[package.metadata.requires-dev]
+dev = [{ name = "pytest", specifier = ">=9.0.3" }]
 
 [[package]]
 name = "rich"
