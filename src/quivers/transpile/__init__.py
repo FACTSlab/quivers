@@ -52,6 +52,8 @@ from quivers.transpile._pipeline import (
 # Side-effect: each backend module's import registers itself via
 # `@dx.codegen.emitter("qvr-<name>")`.
 from quivers.transpile.backends import numpyro as _numpyro  # noqa: F401
+from quivers.transpile.backends import pymc as _pymc  # noqa: F401
+from quivers.transpile.backends import pyro as _pyro  # noqa: F401
 from quivers.transpile.backends import stan as _stan  # noqa: F401
 
 if TYPE_CHECKING:
