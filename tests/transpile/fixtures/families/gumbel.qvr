@@ -1,0 +1,9 @@
+# Auto-generated fixture exercising the Gumbel family.
+# Family lacks an inline factory; declared via a morphism
+# kernel with `~ Gumbel(0.0, 1.0)`.
+object Obs : Real 4
+morphism gumbel_kernel : Obs -> Obs [role=kernel] ~ Gumbel(0.0, 1.0)
+program gumbel_fixture : Obs -> Obs
+    sample x <- gumbel_kernel
+    return x
+export gumbel_fixture

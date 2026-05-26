@@ -1,0 +1,9 @@
+# Auto-generated fixture exercising the RelaxedBernoulli family.
+# Family lacks an inline factory; declared via a morphism
+# kernel with `~ RelaxedBernoulli(0.5, 1.0)`.
+object Obs : Real 4
+morphism relaxedbernoulli_kernel : Obs -> Obs [role=kernel] ~ RelaxedBernoulli(0.5, 1.0)
+program relaxedbernoulli_fixture : Obs -> Obs
+    sample x <- relaxedbernoulli_kernel
+    return x
+export relaxedbernoulli_fixture

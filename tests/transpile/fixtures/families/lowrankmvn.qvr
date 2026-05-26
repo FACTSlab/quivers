@@ -1,0 +1,8 @@
+# Hand-written LowRankMVN fixture (vector family with low-rank factor).
+object Dim : FinSet 5
+object Obs : Real 5
+morphism lr_kernel : Obs -> Obs [role=kernel, rank=2] ~ LowRankMVN
+program lowrankmvn_fixture : Obs -> Obs
+    sample x <- lr_kernel
+    return x
+export lowrankmvn_fixture

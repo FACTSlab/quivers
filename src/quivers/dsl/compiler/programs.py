@@ -250,7 +250,7 @@ def _expected_call_arity(target: object) -> int | None:
         return 1
     try:
         sig = inspect.signature(target)  # type: ignore[arg-type]
-    except TypeError, ValueError:
+    except (TypeError, ValueError):
         return None
     positional_kinds = (
         inspect.Parameter.POSITIONAL_ONLY,

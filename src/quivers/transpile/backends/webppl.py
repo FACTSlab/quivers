@@ -20,7 +20,7 @@ from __future__ import annotations
 import didactic.api as dx
 import panproto
 
-from quivers.dsl.ast_nodes import Module
+from quivers.dsl.ast_nodes import Module, ReturnStep
 from quivers.transpile._api import CHURCH_LIKE, UnsupportedConstruct, unsupported_for
 from quivers.transpile._pipeline import (
     SchemaTransform,
@@ -28,6 +28,11 @@ from quivers.transpile._pipeline import (
     target_protocol,
 )
 from quivers.transpile.backends.numpyro import _partition, _program_steps
+from quivers.transpile.backends._resolve import (
+    build_let_table,
+    build_morphism_table,
+    resolve_step_dist,
+)
 
 
 # QVR family → (WebPPL distribution constructor name, positional arg names).
@@ -125,6 +130,9 @@ class _WebPPLWalker(SchemaTransform):
         ctx.v("prog", "program")
         program, _ = _partition(module, "qvr-webppl")
         samples, observes = _program_steps(program, "qvr-webppl")
+        morphisms = build_morphism_table(module)
+        lets = build_let_table(module)
+        family_set = frozenset(_FAMILIES)
 
         # function model(obs1, obs2, ...) { body }
         fn = ctx.v(ctx.fresh("fn"), "function_declaration")
@@ -139,9 +147,14 @@ class _WebPPLWalker(SchemaTransform):
         ctx.e("prog", fn, "child_of")
 
         for sam in samples:
+            resolved = resolve_step_dist(
+                sam.morphism, sam.args,
+                morphisms=morphisms, lets=lets,
+                family_registry=family_set, target="qvr-webppl",
+            )
             for var in sam.vars:
                 rhs = _dist_call(ctx, "sample",
-                                 family=sam.morphism, args=sam.args)
+                                 family=resolved.family, args=resolved.args)
                 # var theta = sample(Beta({...}));
                 decl = ctx.v(ctx.fresh("vd"), "variable_declaration")
                 d = ctx.v(ctx.fresh("dr"), "variable_declarator")
@@ -151,15 +164,41 @@ class _WebPPLWalker(SchemaTransform):
                 ctx.e(body, decl, "child_of")
 
         for obs in observes:
-            dist = _dist_call_inner(ctx, family=obs.morphism, args=obs.args)
+            resolved = resolve_step_dist(
+                obs.morphism, obs.args,
+                morphisms=morphisms, lets=lets,
+                family_registry=family_set, target="qvr-webppl",
+            )
+            dist = _dist_call_inner(ctx, family=resolved.family,
+                                    args=resolved.args)
             obs_call = _call(ctx, _ident(ctx, "observe"),
                              positional=(dist, _ident(ctx, obs.var)))
             stmt = ctx.v(ctx.fresh("es"), "expression_statement")
             ctx.e(stmt, obs_call, "child_of")
             ctx.e(body, stmt, "child_of")
 
-        # return y; (single-var ReturnStep)
+        for step in program.draws:
+            if isinstance(step, ReturnStep):
+                _emit_webppl_return(ctx, body, step)
         return sb.build()
+
+
+def _emit_webppl_return(ctx: _Ctx, body_vid: str, step: ReturnStep) -> str:
+    """Emit ``return <var>;`` as a `return_statement` inside ``body_vid``.
+
+    WebPPL's grammar is JavaScript; multi-var returns use a JS array
+    expression (`return [a, b];`).
+    """
+    rs = ctx.v(ctx.fresh("ret"), "return_statement")
+    if len(step.vars) == 1:
+        ctx.e(rs, _ident(ctx, step.vars[0]), "child_of")
+    else:
+        arr = ctx.v(ctx.fresh("arr"), "array")
+        for var in step.vars:
+            ctx.e(arr, _ident(ctx, var), "child_of")
+        ctx.e(rs, arr, "child_of")
+    ctx.e(body_vid, rs, "child_of")
+    return rs
 
 
 def _dist_call(

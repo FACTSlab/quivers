@@ -14,7 +14,7 @@ from __future__ import annotations
 import didactic.api as dx
 import panproto
 
-from quivers.dsl.ast_nodes import Module
+from quivers.dsl.ast_nodes import Module, ReturnStep
 from quivers.transpile._api import STAN_LIKE, UnsupportedConstruct, unsupported_for
 from quivers.transpile._pipeline import (
     SchemaTransform,
@@ -30,7 +30,16 @@ from quivers.transpile.backends._pyhelpers import (
     function_def,
     string_literal,
 )
-from quivers.transpile.backends.numpyro import _partition, _program_steps
+from quivers.transpile.backends.numpyro import (
+    _emit_python_return,
+    _partition,
+    _program_steps,
+)
+from quivers.transpile.backends._resolve import (
+    build_let_table,
+    build_morphism_table,
+    resolve_step_dist,
+)
 
 
 _FAMILIES: dict[str, str] = {
@@ -55,6 +64,9 @@ class _Edward2Walker(SchemaTransform):
         ctx.v("mod", "module")
         program, _ = _partition(module, "qvr-edward2")
         samples, observes = _program_steps(program, "qvr-edward2")
+        morphisms = build_morphism_table(module)
+        lets = build_let_table(module)
+        family_set = frozenset(_FAMILIES)
 
         body = ctx.v(ctx.fresh("body"), "block")
         func = function_def(
@@ -65,12 +77,29 @@ class _Edward2Walker(SchemaTransform):
         ctx.e("mod", func, "child_of")
 
         for sam in samples:
+            resolved = resolve_step_dist(
+                sam.morphism, sam.args,
+                morphisms=morphisms, lets=lets,
+                family_registry=family_set, target="qvr-edward2",
+            )
             for var in sam.vars:
-                rhs = _ed_rv(ctx, name=var, family=sam.morphism, args=sam.args)
+                rhs = _ed_rv(ctx, name=var, family=resolved.family,
+                             args=resolved.args)
                 ctx.e(body, assignment(ctx, lhs_name=var, rhs=rhs), "child_of")
         for obs in observes:
-            rhs = _ed_rv(ctx, name=obs.var, family=obs.morphism, args=obs.args)
+            resolved = resolve_step_dist(
+                obs.morphism, obs.args,
+                morphisms=morphisms, lets=lets,
+                family_registry=family_set, target="qvr-edward2",
+            )
+            rhs = _ed_rv(ctx, name=obs.var, family=resolved.family,
+                         args=resolved.args)
             ctx.e(body, assignment(ctx, lhs_name=obs.var, rhs=rhs), "child_of")
+
+        # Emit `return <vars>` for the ReturnStep, if any.
+        for step in program.draws:
+            if isinstance(step, ReturnStep):
+                _emit_python_return(ctx, body, step)
 
         return sb.build()
 

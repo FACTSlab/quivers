@@ -38,6 +38,30 @@ from quivers.transpile.backends._pyhelpers import (
     identifier,
     string_literal,
 )
+from quivers.transpile.backends._resolve import (
+    build_let_table,
+    build_morphism_table,
+    resolve_step_dist,
+)
+
+
+def _emit_python_return(ctx: PyCtx, body_vid: str, step: ReturnStep) -> None:
+    """Emit ``return <var>`` or ``return (<a>, <b>, ...)`` as a Python
+    `return_statement` inside ``body_vid``.
+
+    Tree-sitter Python represents a single-variable return as
+    ``return_statement → identifier``; a tuple return wraps in an
+    ``expression_list`` of children.
+    """
+    rs = ctx.v(ctx.fresh("ret"), "return_statement")
+    if len(step.vars) == 1:
+        ctx.e(rs, identifier(ctx, step.vars[0]), "child_of")
+    else:
+        elist = ctx.v(ctx.fresh("elist"), "expression_list")
+        for var in step.vars:
+            ctx.e(elist, identifier(ctx, var), "child_of")
+        ctx.e(rs, elist, "child_of")
+    ctx.e(body_vid, rs, "child_of")
 
 
 # QVR family name → NumPyro distribution class name.
@@ -75,19 +99,37 @@ class _NumPyroWalker(SchemaTransform):
         )
         ctx.e("mod", func, "child_of")
 
+        morphisms = build_morphism_table(module)
+        lets = build_let_table(module)
+        family_set = frozenset(_FAMILIES)
         for sam in samples:
+            resolved = resolve_step_dist(
+                sam.morphism, sam.args,
+                morphisms=morphisms, lets=lets,
+                family_registry=family_set, target="qvr-numpyro",
+            )
             for var in sam.vars:
                 rhs = _numpyro_sample(
-                    ctx, name=var, family=sam.morphism, args=sam.args,
-                    obs_name=None,
+                    ctx, name=var, family=resolved.family,
+                    args=resolved.args, obs_name=None,
                 )
                 ctx.e(body, assignment(ctx, lhs_name=var, rhs=rhs), "child_of")
         for obs in observes:
+            resolved = resolve_step_dist(
+                obs.morphism, obs.args,
+                morphisms=morphisms, lets=lets,
+                family_registry=family_set, target="qvr-numpyro",
+            )
             call_expr = _numpyro_sample(
-                ctx, name=obs.var, family=obs.morphism, args=obs.args,
-                obs_name=obs.var,
+                ctx, name=obs.var, family=resolved.family,
+                args=resolved.args, obs_name=obs.var,
             )
             ctx.e(body, call_expr, "child_of")
+
+        # Emit `return <vars>` for the ReturnStep, if any.
+        for step in program.draws:
+            if isinstance(step, ReturnStep):
+                _emit_python_return(ctx, body, step)
 
         return sb.build()
 
@@ -135,7 +177,22 @@ def _program_steps(
 
 
 def _ignorable(stmt: Statement) -> bool:
-    return str(stmt.kind) in {"export_decl", "let_decl"}
+    """Top-level statements consumed by other walker layers.
+
+    - ``export_decl``: QVR-internal; no target emit required.
+    - ``let_decl`` / ``morphism_decl``: consumed by the
+      [`resolve_step_dist`][quivers.transpile.backends._resolve.resolve_step_dist]
+      layer when a sample / observe step references the bound name.
+      A declared morphism's ``~ Family(args)`` init clause becomes
+      the resolved family + args for that step. A let-binding to a
+      bare identifier resolves to whatever that identifier resolves
+      to.
+    """
+    return str(stmt.kind) in {
+        "export_decl",
+        "let_decl",
+        "morphism_decl",
+    }
 
 
 def _numpyro_sample(

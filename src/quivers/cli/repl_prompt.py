@@ -67,7 +67,7 @@ def run_plain(session: "ReplSession") -> int:
     while True:
         try:
             line = getline()
-        except EOFError, KeyboardInterrupt:
+        except (EOFError, KeyboardInterrupt):
             sys.stdout.write("\n")
             return 0
         if line is None:

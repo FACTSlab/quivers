@@ -26,6 +26,11 @@ from quivers.transpile._pipeline import (
     target_protocol,
 )
 from quivers.transpile.backends.numpyro import _partition, _program_steps
+from quivers.transpile.backends._resolve import (
+    build_let_table,
+    build_morphism_table,
+    resolve_step_dist,
+)
 
 
 # QVR family → Church / Scheme distribution constructor symbol.
@@ -107,26 +112,39 @@ class _ChurchWalker(SchemaTransform):
         ctx.v("prog", "program")
         program, _ = _partition(module, "qvr-church")
         samples, observes = _program_steps(program, "qvr-church")
+        morphisms = build_morphism_table(module)
+        lets = build_let_table(module)
+        family_set = frozenset(_FAMILIES)
 
         # body = sequence of (define theta ...) followed by (observe ...) calls
         # plus a final reference to the returned variable.
         body_forms: list[str] = []
         for sam in samples:
+            resolved = resolve_step_dist(
+                sam.morphism, sam.args,
+                morphisms=morphisms, lets=lets,
+                family_registry=family_set, target="qvr-church",
+            )
             for var in sam.vars:
                 # (define <var> (sample (<family> args...)))
                 define = _list(ctx, (
                     _sym(ctx, "define"),
                     _sym(ctx, var),
                     _list(ctx, (_sym(ctx, "sample"),
-                                _dist(ctx, family=sam.morphism,
-                                      args=sam.args))),
+                                _dist(ctx, family=resolved.family,
+                                      args=resolved.args))),
                 ))
                 body_forms.append(define)
         for obs in observes:
+            resolved = resolve_step_dist(
+                obs.morphism, obs.args,
+                morphisms=morphisms, lets=lets,
+                family_registry=family_set, target="qvr-church",
+            )
             # (observe (<family> args...) <var>)
             obs_form = _list(ctx, (
                 _sym(ctx, "observe"),
-                _dist(ctx, family=obs.morphism, args=obs.args),
+                _dist(ctx, family=resolved.family, args=resolved.args),
                 _sym(ctx, obs.var),
             ))
             body_forms.append(obs_form)

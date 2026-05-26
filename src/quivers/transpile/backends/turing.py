@@ -31,6 +31,11 @@ from quivers.transpile.backends._juliahelpers import (
     tilde_assignment,
 )
 from quivers.transpile.backends.numpyro import _partition, _program_steps
+from quivers.transpile.backends._resolve import (
+    build_let_table,
+    build_morphism_table,
+    resolve_step_dist,
+)
 
 
 _FAMILIES: dict[str, str] = {
@@ -54,14 +59,27 @@ class _TuringWalker(SchemaTransform):
         ctx.v("src", "source_file")
         program, _ = _partition(module, "qvr-turing")
         samples, observes = _program_steps(program, "qvr-turing")
+        morphisms = build_morphism_table(module)
+        lets = build_let_table(module)
+        family_set = frozenset(_FAMILIES)
 
         body = ctx.v(ctx.fresh("body"), "block")
         for sam in samples:
+            resolved = resolve_step_dist(
+                sam.morphism, sam.args,
+                morphisms=morphisms, lets=lets,
+                family_registry=family_set, target="qvr-turing",
+            )
             for var in sam.vars:
-                rhs = _dist(ctx, family=sam.morphism, args=sam.args)
+                rhs = _dist(ctx, family=resolved.family, args=resolved.args)
                 ctx.e(body, tilde_assignment(ctx, ident(ctx, var), rhs))
         for obs in observes:
-            rhs = _dist(ctx, family=obs.morphism, args=obs.args)
+            resolved = resolve_step_dist(
+                obs.morphism, obs.args,
+                morphisms=morphisms, lets=lets,
+                family_registry=family_set, target="qvr-turing",
+            )
+            rhs = _dist(ctx, family=resolved.family, args=resolved.args)
             ctx.e(body, tilde_assignment(ctx, ident(ctx, obs.var), rhs))
 
         fn = function_def(

@@ -11,7 +11,7 @@ from __future__ import annotations
 import didactic.api as dx
 import panproto
 
-from quivers.dsl.ast_nodes import Module
+from quivers.dsl.ast_nodes import Module, ReturnStep
 from quivers.transpile._api import STAN_LIKE, UnsupportedConstruct, unsupported_for
 from quivers.transpile._pipeline import (
     SchemaTransform,
@@ -28,7 +28,16 @@ from quivers.transpile.backends._pyhelpers import (
     identifier,
     string_literal,
 )
-from quivers.transpile.backends.numpyro import _partition, _program_steps
+from quivers.transpile.backends.numpyro import (
+    _emit_python_return,
+    _partition,
+    _program_steps,
+)
+from quivers.transpile.backends._resolve import (
+    build_let_table,
+    build_morphism_table,
+    resolve_step_dist,
+)
 
 
 # Pyro carries the same distribution surface as NumPyro; share the map.
@@ -64,15 +73,32 @@ class _PyroWalker(SchemaTransform):
         )
         ctx.e("mod", func, "child_of")
 
+        morphisms = build_morphism_table(module)
+        lets = build_let_table(module)
+        family_set = frozenset(_FAMILIES)
         for sam in samples:
+            resolved = resolve_step_dist(
+                sam.morphism, sam.args,
+                morphisms=morphisms, lets=lets,
+                family_registry=family_set, target="qvr-pyro",
+            )
             for var in sam.vars:
-                rhs = _pyro_sample(ctx, name=var, family=sam.morphism,
-                                   args=sam.args, obs_name=None)
+                rhs = _pyro_sample(ctx, name=var, family=resolved.family,
+                                   args=resolved.args, obs_name=None)
                 ctx.e(body, assignment(ctx, lhs_name=var, rhs=rhs), "child_of")
         for obs in observes:
-            call_expr = _pyro_sample(ctx, name=obs.var, family=obs.morphism,
-                                     args=obs.args, obs_name=obs.var)
+            resolved = resolve_step_dist(
+                obs.morphism, obs.args,
+                morphisms=morphisms, lets=lets,
+                family_registry=family_set, target="qvr-pyro",
+            )
+            call_expr = _pyro_sample(ctx, name=obs.var, family=resolved.family,
+                                     args=resolved.args, obs_name=obs.var)
             ctx.e(body, call_expr, "child_of")
+
+        for step in program.draws:
+            if isinstance(step, ReturnStep):
+                _emit_python_return(ctx, body, step)
 
         return sb.build()
 

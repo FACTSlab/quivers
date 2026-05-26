@@ -9,6 +9,7 @@ runtime construction.
 
 from __future__ import annotations
 
+import inspect
 import math
 from collections.abc import Callable
 
@@ -992,6 +993,12 @@ class _DeclarationsMixin:
             rows_axis, cols_axis = over
             kwargs["rows"] = self._axis_dim(decl, rows_axis)
             kwargs["cols"] = self._axis_dim(decl, cols_axis)
+        # Bespoke ``Conditional<F>`` classes (Horseshoe, GP, ...) have
+        # parameter sets that don't include ``hidden_dim`` / ``rank`` /
+        # ``temperature``. The kwargs are accumulated for every family
+        # above; here we drop any that the target class doesn't accept,
+        # so the call site stays uniform across the registry.
+        kwargs = _filter_kwargs_for(cls, kwargs)
         return cls(domain, codomain, **kwargs)
 
     def _axis_dim(self, decl: MorphismDecl, axis_name: str) -> int:
@@ -1009,6 +1016,40 @@ class _DeclarationsMixin:
             decl.line,
             decl.col,
         )
+
+
+def _filter_kwargs_for(cls: type, kwargs: dict) -> dict:
+    """Drop kwargs the target class's ``__init__`` does not accept.
+
+    The ``Conditional<F>`` classes in
+    [`quivers.continuous.families`][quivers.continuous.families] are a
+    mix of the standard parametric template (which accepts
+    ``hidden_dim``) and hand-written bespoke priors (`Horseshoe`, `GP`,
+    `RelaxedOneHotCategorical`) whose ``__init__`` signatures diverge.
+    The morphism-kernel compile path accumulates every option-derived
+    kwarg uniformly and then filters here, so callers don't have to
+    know which families honour which options.
+
+    A class whose ``__init__`` accepts ``**kwargs`` is treated as
+    accepting every supplied kwarg (no filtering).
+    """
+    sig = inspect.signature(cls.__init__)
+    accepts_var_kw = any(
+        p.kind is inspect.Parameter.VAR_KEYWORD
+        for p in sig.parameters.values()
+    )
+    if accepts_var_kw:
+        return kwargs
+    accepted = {
+        name
+        for name, p in sig.parameters.items()
+        if p.kind
+        in (
+            inspect.Parameter.POSITIONAL_OR_KEYWORD,
+            inspect.Parameter.KEYWORD_ONLY,
+        )
+    }
+    return {k: v for k, v in kwargs.items() if k in accepted}
 
 
 __all__ = ["_DeclarationsMixin", "_apply_auto_init"]

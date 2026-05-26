@@ -1,0 +1,6 @@
+# Exercises ObjectDecl with a discrete FinSet initializer.
+object Resp : FinSet 4
+program identity_prog : Resp -> Resp
+    sample x <- Bernoulli(0.5)
+    return x
+export identity_prog

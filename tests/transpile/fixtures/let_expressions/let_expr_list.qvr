@@ -1,0 +1,10 @@
+# Exercises LetExprList (literal list of elements).
+object Obs : FinSet 4
+program prog : Obs -> Obs
+    sample a <- Normal(0.0, 1.0)
+    sample b <- Normal(0.0, 1.0)
+    let pair = [a, b]
+    let total = a + b
+    observe y <- Normal(total, 1.0)
+    return pair
+export prog

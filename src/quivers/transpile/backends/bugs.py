@@ -27,6 +27,11 @@ from quivers.transpile._pipeline import (
     target_protocol,
 )
 from quivers.transpile.backends.numpyro import _partition, _program_steps
+from quivers.transpile.backends._resolve import (
+    build_let_table,
+    build_morphism_table,
+    resolve_step_dist,
+)
 
 
 # QVR family → BUGS distribution name. BUGS dialects vary slightly;
@@ -114,19 +119,32 @@ def _build(module: Module, grammar: str) -> panproto.Schema:
     ctx.v("src", "source_file")
     program, _ = _partition(module, f"qvr-{grammar}")
     samples, observes = _program_steps(program, f"qvr-{grammar}")
+    morphisms = build_morphism_table(module)
+    lets = build_let_table(module)
+    family_set = frozenset(_FAMILIES)
 
     block = ctx.v(ctx.fresh("mb"), "model_block")
     ctx.e("src", block)
     for sam in samples:
+        resolved = resolve_step_dist(
+            sam.morphism, sam.args,
+            morphisms=morphisms, lets=lets,
+            family_registry=family_set, target=f"qvr-{grammar}",
+        )
         for var in sam.vars:
             sr = _stochastic_relation(
-                ctx, var=var, family=sam.morphism, args=sam.args,
+                ctx, var=var, family=resolved.family, args=resolved.args,
                 grammar=grammar,
             )
             ctx.e(block, sr)
     for obs in observes:
+        resolved = resolve_step_dist(
+            obs.morphism, obs.args,
+            morphisms=morphisms, lets=lets,
+            family_registry=family_set, target=f"qvr-{grammar}",
+        )
         sr = _stochastic_relation(
-            ctx, var=obs.var, family=obs.morphism, args=obs.args,
+            ctx, var=obs.var, family=resolved.family, args=resolved.args,
             grammar=grammar,
         )
         ctx.e(block, sr)

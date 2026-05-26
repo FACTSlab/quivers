@@ -35,6 +35,11 @@ from quivers.transpile.backends._pyhelpers import (
     with_statement,
 )
 from quivers.transpile.backends.numpyro import _partition, _program_steps
+from quivers.transpile.backends._resolve import (
+    build_let_table,
+    build_morphism_table,
+    resolve_step_dist,
+)
 
 
 _FAMILIES: dict[str, str] = {
@@ -60,6 +65,9 @@ class _PyMCWalker(SchemaTransform):
         ctx.v("mod", "module")
         program, _ = _partition(module, "qvr-pymc")
         samples, observes = _program_steps(program, "qvr-pymc")
+        morphisms = build_morphism_table(module)
+        lets = build_let_table(module)
+        family_set = frozenset(_FAMILIES)
 
         # `pymc.Model()` call (the with-expression)
         model_call = call(ctx, attribute(ctx, ("pymc", "Model")))
@@ -69,14 +77,24 @@ class _PyMCWalker(SchemaTransform):
         ctx.e("mod", ws, "child_of")
 
         for sam in samples:
+            resolved = resolve_step_dist(
+                sam.morphism, sam.args,
+                morphisms=morphisms, lets=lets,
+                family_registry=family_set, target="qvr-pymc",
+            )
             for var in sam.vars:
-                rhs = _pymc_rv(ctx, name=var, family=sam.morphism,
-                               args=sam.args, observed_name=None)
+                rhs = _pymc_rv(ctx, name=var, family=resolved.family,
+                               args=resolved.args, observed_name=None)
                 ctx.e(with_body, assignment(ctx, lhs_name=var, rhs=rhs),
                       "child_of")
         for obs in observes:
-            rhs = _pymc_rv(ctx, name=obs.var, family=obs.morphism,
-                           args=obs.args, observed_name=obs.var)
+            resolved = resolve_step_dist(
+                obs.morphism, obs.args,
+                morphisms=morphisms, lets=lets,
+                family_registry=family_set, target="qvr-pymc",
+            )
+            rhs = _pymc_rv(ctx, name=obs.var, family=resolved.family,
+                           args=resolved.args, observed_name=obs.var)
             ctx.e(with_body, assignment(ctx, lhs_name=obs.var, rhs=rhs),
                   "child_of")
 
