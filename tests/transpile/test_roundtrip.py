@@ -20,14 +20,6 @@ program flip : Resp -> Resp:
 """
 
 # Backend → tree-sitter grammar name (for the round-trip re-parse).
-# `webppl`, `turing`, and `gen` are registered but omitted from this
-# suite: they hit upstream panproto grammar bugs in `emit_pretty`
-# (panproto/panproto#150 for Julia macrocall_expression; webppl's
-# JavaScript output is missing automatic-semicolon-insertion
-# delimiters between adjacent expression statements). Their output is
-# structurally informed but does not round-trip cleanly through the
-# tree-sitter parser; they will join this matrix once those upstreams
-# land.
 _GRAMMARS = {
     "stan": "stan",
     "numpyro": "python",
@@ -38,6 +30,8 @@ _GRAMMARS = {
     "bugs": "bugs",
     "jags": "jags",
     "turing": "julia",
+    "gen": "julia",
+    "webppl": "javascript",
 }
 
 
