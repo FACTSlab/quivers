@@ -44,6 +44,7 @@ _META_COMMANDS = (
     "reload",
     "type",
     "kind",
+    "transpile",
     "info",
     "doc",
     "browse",
@@ -64,9 +65,39 @@ def all_completions(session: "ReplSession", prefix: str) -> list[Completion]:
     """
     out: list[Completion] = []
     out.extend(_meta_completions(prefix))
+    out.extend(_transpile_target_completions(prefix))
     out.extend(_env_completions(session, prefix))
     out.extend(_keyword_completions(prefix))
     out.extend(_path_completions(prefix))
+    return out
+
+
+def _transpile_target_completions(prefix: str) -> list[Completion]:
+    """Complete `:transpile <TAB>` over the registered backend names.
+
+    Activates only when the prefix starts with ``:transpile `` (note
+    the trailing space): until the user types the space, the
+    :py:func:`_meta_completions` table already completes the command
+    itself. After the space, each remaining keystroke filters the
+    [`quivers.transpile.available_targets`][quivers.transpile.available_targets]
+    list.
+    """
+    head = ":transpile "
+    if not prefix.startswith(head):
+        return []
+    typed = prefix[len(head):]
+    from quivers.transpile import available_targets
+
+    out: list[Completion] = []
+    for target in available_targets():
+        if target.startswith(typed):
+            out.append(
+                Completion(
+                    text=head + target,
+                    kind="command",
+                    detail=f"transpile target: {target}",
+                )
+            )
     return out
 
 
