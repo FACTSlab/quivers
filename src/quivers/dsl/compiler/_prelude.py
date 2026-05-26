@@ -490,7 +490,7 @@ def _get_family_registry() -> dict[str, type]:
         from quivers.continuous.families import ConditionalGeneralizedPareto
 
         _FAMILY_REGISTRY["GeneralizedPareto"] = ConditionalGeneralizedPareto
-    except ImportError, AttributeError:
+    except (ImportError, AttributeError):
         pass
     return _FAMILY_REGISTRY
 

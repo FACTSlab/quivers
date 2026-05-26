@@ -1,0 +1,13 @@
+# Hand-written Horseshoe fixture (structural prior; no inline
+# or conditional kernel surface). The horseshoe is built as
+# tau (global) * lambda_local (per-coord) * z_raw (standard
+# Normal raw), per Carvalho-Polson-Scott (2010).
+object Coef : FinSet 4
+object Obs : FinSet 200
+program horseshoe_fixture : Obs -> Obs
+    sample tau <- HalfCauchy(1.0)
+    sample lambda_local : Coef <- HalfCauchy(1.0)
+    sample z_raw : Coef <- Normal(0.0, 1.0)
+    let beta = tau * lambda_local * z_raw
+    return beta
+export horseshoe_fixture

@@ -1,0 +1,7 @@
+# Exercises MorphismDecl with a `~ Family(args)` init clause.
+object Obs : Real 1
+morphism prior : Obs -> Obs [role=kernel, scale=0.5] ~ Normal
+program prog : Obs -> Obs
+    sample x <- prior
+    return x
+export prog

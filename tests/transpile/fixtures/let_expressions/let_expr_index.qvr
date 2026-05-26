@@ -1,0 +1,11 @@
+# Exercises LetExprIndex (subscript / array indexing).
+object Coef : FinSet 3
+object Obs : FinSet 4
+program prog : Obs -> Obs
+    sample x <- Normal(0.0, 1.0)
+    sample coefs : Coef <- Normal(0.0, 1.0)
+    let pick = coefs[0]
+    let scaled = pick * x
+    observe y <- Normal(scaled, 1.0)
+    return pick
+export prog

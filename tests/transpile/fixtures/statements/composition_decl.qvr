@@ -1,0 +1,11 @@
+# Exercises CompositionDecl (categorical-algebra statement).
+# Outside every transpile backend's support tier; the
+# construct-matrix test asserts each backend raises
+# `UnsupportedConstruct(kinds=["composition_decl", ...])` for this
+# fixture.
+composition log_prob as algebra
+object Obs : FinSet 4
+program prog : Obs -> Obs
+    sample x <- Bernoulli(0.5)
+    return x
+export prog

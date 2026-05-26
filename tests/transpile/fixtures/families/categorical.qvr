@@ -1,0 +1,9 @@
+# Hand-written Categorical fixture (vector family).
+object Item : FinSet 8
+object Comp : FinSet 4
+program categorical_fixture(probs : Real) : Item -> Item
+    sample probs <- Dirichlet(1.0) [over=Comp]
+    marginalize cls : Comp <- Categorical(probs) [over=Item, reduction=logsumexp]
+        observe r : Item <- Normal(0.0, 1.0) [via=idx]
+    return probs
+export categorical_fixture

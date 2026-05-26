@@ -1,0 +1,7 @@
+# Exercises CategoryDecl (declares parser-category atoms).
+category S, NP, VP, N
+object Resp : FinSet 4
+program prog : Resp -> Resp
+    sample x <- Bernoulli(0.5)
+    return x
+export prog

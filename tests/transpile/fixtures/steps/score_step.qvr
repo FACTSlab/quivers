@@ -1,0 +1,7 @@
+# Exercises ScoreStep (log-density factor on a let-expression value).
+object Obs : FinSet 4
+program prog : Obs -> Obs
+    sample x <- Normal(0.0, 1.0)
+    score penalty = x * x
+    return x
+export prog

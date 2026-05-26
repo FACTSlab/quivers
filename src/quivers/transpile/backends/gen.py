@@ -34,6 +34,11 @@ from quivers.transpile.backends._juliahelpers import (
     macro_call_paren,
 )
 from quivers.transpile.backends.numpyro import _partition, _program_steps
+from quivers.transpile.backends._resolve import (
+    build_let_table,
+    build_morphism_table,
+    resolve_step_dist,
+)
 
 
 # Gen.jl distribution constructors (lowercase by convention).
@@ -109,16 +114,29 @@ class _GenWalker(SchemaTransform):
         ctx.v("src", "source_file")
         program, _ = _partition(module, "qvr-gen")
         samples, observes = _program_steps(program, "qvr-gen")
+        morphisms = build_morphism_table(module)
+        lets = build_let_table(module)
+        family_set = frozenset(_FAMILIES)
 
         body = ctx.v(ctx.fresh("body"), "block")
         for sam in samples:
+            resolved = resolve_step_dist(
+                sam.morphism, sam.args,
+                morphisms=morphisms, lets=lets,
+                family_registry=family_set, target="qvr-gen",
+            )
             for var in sam.vars:
-                rhs = _trace_call(ctx, family=sam.morphism,
-                                  args=sam.args, address=var)
+                rhs = _trace_call(ctx, family=resolved.family,
+                                  args=resolved.args, address=var)
                 ctx.e(body, _eq_assignment(ctx, ident(ctx, var), rhs))
         for obs in observes:
-            rhs = _trace_call(ctx, family=obs.morphism,
-                              args=obs.args, address=obs.var)
+            resolved = resolve_step_dist(
+                obs.morphism, obs.args,
+                morphisms=morphisms, lets=lets,
+                family_registry=family_set, target="qvr-gen",
+            )
+            rhs = _trace_call(ctx, family=resolved.family,
+                              args=resolved.args, address=obs.var)
             ctx.e(body, _eq_assignment(ctx, ident(ctx, obs.var), rhs))
 
         fn = function_def(

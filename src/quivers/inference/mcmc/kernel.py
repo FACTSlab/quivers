@@ -168,7 +168,7 @@ class PotentialFn:
             if grad is None or not torch.isfinite(grad).all():
                 return ld.detach(), torch.zeros_like(z)
             return ld.detach(), grad.detach()
-        except ValueError, RuntimeError:
+        except (ValueError, RuntimeError):
             return (
                 torch.tensor(float("-inf"), device=z.device, dtype=z.dtype),
                 torch.zeros_like(z),

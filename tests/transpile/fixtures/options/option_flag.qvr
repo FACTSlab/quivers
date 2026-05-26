@@ -1,0 +1,8 @@
+# Exercises OptionFlag (bare key, no `= value`).
+category S, NP, VP
+rule combine(X, Y) : NP, VP => S #[learnable]
+object Resp : FinSet 4
+program prog : Resp -> Resp
+    sample x <- Bernoulli(0.5)
+    return x
+export prog

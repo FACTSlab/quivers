@@ -1,0 +1,7 @@
+# Hand-written Dirichlet fixture (vector family).
+object Obs : FinSet 4
+object Comp : FinSet 3
+program dirichlet_fixture(alpha : Real) : Obs -> Obs
+    sample probs <- Dirichlet(alpha) [over=Comp]
+    return probs
+export dirichlet_fixture

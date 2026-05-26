@@ -1,0 +1,14 @@
+# Exercises OptionString (`key="literal_string"`).
+object Term : FinSet 16
+deduction PCFG : Term -> Term [semiring=LogProb, start=S, depth=2]
+    atoms S, the
+    rule s_the : the |- S #[learnable]
+    lexicon
+        "the" : S = the
+object Resp : FinSet 4
+program prog : Resp -> Resp
+    sample x <- Bernoulli(0.5)
+    return x
+loss reconstruction [weight=1.0, on=program(prog)]
+    -log_prob_sum
+export prog

@@ -1,0 +1,9 @@
+# Auto-generated fixture exercising the ContinuousBernoulli family.
+# Family lacks an inline factory; declared via a morphism
+# kernel with `~ ContinuousBernoulli(0.5)`.
+object Obs : Real 4
+morphism continuousbernoulli_kernel : Obs -> Obs [role=kernel] ~ ContinuousBernoulli(0.5)
+program continuousbernoulli_fixture : Obs -> Obs
+    sample x <- continuousbernoulli_kernel
+    return x
+export continuousbernoulli_fixture

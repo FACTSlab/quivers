@@ -1,0 +1,7 @@
+# Exercises OptionList (`key=[...]`).
+object Obs : FinSet 4
+object Comp : FinSet 3
+program prog(alpha : Real) : Obs -> Obs
+    sample probs <- Dirichlet(alpha) [over=Comp]
+    return probs
+export prog

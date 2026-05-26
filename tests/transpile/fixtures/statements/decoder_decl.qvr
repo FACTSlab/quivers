@@ -1,0 +1,15 @@
+# Exercises DecoderDecl (PYTHON_DEEP tier construct).
+signature LF
+    sorts
+        Term : object [dim=16]
+    constructors
+        App : Term, Term -> Term
+encoder enc : LF
+    dim Term = 16
+decoder dec over LF [depth=4]
+    body |-> recursive
+object Resp : FinSet 4
+program prog : Resp -> Resp
+    sample x <- Bernoulli(0.5)
+    return x
+export prog

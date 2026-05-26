@@ -1,0 +1,9 @@
+# Auto-generated fixture exercising the Kumaraswamy family.
+# Family lacks an inline factory; declared via a morphism
+# kernel with `~ Kumaraswamy(2.0, 2.0)`.
+object Obs : Real 4
+morphism kumaraswamy_kernel : Obs -> Obs [role=kernel] ~ Kumaraswamy(2.0, 2.0)
+program kumaraswamy_fixture : Obs -> Obs
+    sample x <- kumaraswamy_kernel
+    return x
+export kumaraswamy_fixture

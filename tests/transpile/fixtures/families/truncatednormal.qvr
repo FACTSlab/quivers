@@ -1,0 +1,9 @@
+# Auto-generated fixture exercising the TruncatedNormal family.
+# Uses the inline-with-variable builder (literals-only path is
+# unavailable for TruncatedNormal).
+object Obs : FinSet 8
+program truncatednormal_fixture : Obs -> Obs
+    sample mu <- Uniform(0.0, 1.0)
+    observe y : Obs <- TruncatedNormal(mu, 0.2, 0.0, 1.0)
+    return mu
+export truncatednormal_fixture

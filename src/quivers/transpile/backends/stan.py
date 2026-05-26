@@ -45,6 +45,11 @@ from quivers.transpile._pipeline import (
     realize,
     target_protocol,
 )
+from quivers.transpile.backends._resolve import (
+    build_let_table,
+    build_morphism_table,
+    resolve_step_dist,
+)
 
 
 # Stan distribution names for each supported QVR family. Unsupported
@@ -143,14 +148,34 @@ class _StanWalker(SchemaTransform):
                 lower_zero = (sam.morphism in _LOWER_ZERO)
                 _emit_real_param(ctx, params_id, var, lower_zero=lower_zero)
 
-        # `model` block: tilde statements from sample + observe.
+        morphisms = build_morphism_table(module)
+        lets = build_let_table(module)
+        family_set = frozenset(_FAMILIES)
+
+        # `model` block: tilde statements from sample + observe,
+        # with the morphism slot resolved through the morphism / let
+        # table when it is not directly a family name.
         model_id = ctx.vertex("model", "model")
         ctx.edge("prog", model_id, "child_of")
         for sam in samples:
+            resolved = resolve_step_dist(
+                sam.morphism, sam.args,
+                morphisms=morphisms, lets=lets,
+                family_registry=family_set, target="qvr-stan",
+            )
             for var in sam.vars:
-                _emit_sampling(ctx, model_id, var, sam.morphism, sam.args)
+                _emit_sampling(
+                    ctx, model_id, var, resolved.family, resolved.args
+                )
         for obs in observes:
-            _emit_sampling(ctx, model_id, obs.var, obs.morphism, obs.args)
+            resolved = resolve_step_dist(
+                obs.morphism, obs.args,
+                morphisms=morphisms, lets=lets,
+                family_registry=family_set, target="qvr-stan",
+            )
+            _emit_sampling(
+                ctx, model_id, obs.var, resolved.family, resolved.args
+            )
 
         return sb.build()
 
@@ -178,8 +203,20 @@ class _StanCtx:
 
 
 def _is_ignorable(stmt: Statement) -> bool:
-    """Top-level statements that don't contribute to Stan output."""
-    return cast("str", stmt.kind) in {"export_decl", "let_decl"}
+    """Top-level statements consumed by other walker layers.
+
+    - ``export_decl``: QVR-internal; no Stan emit needed.
+    - ``let_decl`` / ``morphism_decl``: consumed by
+      [`resolve_step_dist`][quivers.transpile.backends._resolve.resolve_step_dist]
+      when a sample / observe step references the bound name; the
+      declaration itself does not produce a Stan artefact (Stan has
+      no analogue for a free-standing morphism declaration).
+    """
+    return cast("str", stmt.kind) in {
+        "export_decl",
+        "let_decl",
+        "morphism_decl",
+    }
 
 
 def _ident(ctx: _StanCtx, prefix: str, text: str) -> str:

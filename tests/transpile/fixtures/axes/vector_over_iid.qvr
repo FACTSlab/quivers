@@ -1,0 +1,9 @@
+# Exercises a vector family with both `over` and `iid_over` axis
+# roles (event + batch decomposition).
+object Doc : FinSet 5
+object Topic : FinSet 3
+object Resp : FinSet 4
+program prog(alpha : Real) : Resp -> Resp
+    sample theta : Doc <- Dirichlet(alpha) [over=Topic, iid_over=Doc]
+    return theta
+export prog

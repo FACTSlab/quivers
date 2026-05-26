@@ -1,0 +1,9 @@
+# Auto-generated fixture exercising the Chi2 family.
+# Family lacks an inline factory; declared via a morphism
+# kernel with `~ Chi2(3.0)`.
+object Obs : Real 4
+morphism chi2_kernel : Obs -> Obs [role=kernel] ~ Chi2(3.0)
+program chi2_fixture : Obs -> Obs
+    sample x <- chi2_kernel
+    return x
+export chi2_fixture

@@ -1,0 +1,8 @@
+# Exercises LetExprLiteral (numeric constant).
+object Obs : FinSet 4
+program prog : Obs -> Obs
+    sample x <- Normal(0.0, 1.0)
+    let scaled = x * 3.14
+    observe y <- Normal(scaled, 1.0)
+    return scaled
+export prog

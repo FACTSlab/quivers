@@ -1,0 +1,9 @@
+# Auto-generated fixture exercising the Laplace family.
+# Family lacks an inline factory; declared via a morphism
+# kernel with `~ Laplace(0.0, 1.0)`.
+object Obs : Real 4
+morphism laplace_kernel : Obs -> Obs [role=kernel] ~ Laplace(0.0, 1.0)
+program laplace_fixture : Obs -> Obs
+    sample x <- laplace_kernel
+    return x
+export laplace_fixture

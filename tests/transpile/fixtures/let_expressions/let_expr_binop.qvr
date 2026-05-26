@@ -1,0 +1,13 @@
+# Exercises LetExprBinOp (+/-/*//).
+object Obs : FinSet 4
+program prog : Obs -> Obs
+    sample a <- Normal(0.0, 1.0)
+    sample b <- Normal(0.0, 1.0)
+    let sum_ab = a + b
+    let prod_ab = a * b
+    let diff_ab = a - b
+    let div_ab = a / b
+    let composite = sum_ab + prod_ab + diff_ab + div_ab
+    observe y <- Normal(composite, 1.0)
+    return y
+export prog

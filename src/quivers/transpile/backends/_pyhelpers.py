@@ -160,21 +160,38 @@ def with_statement(
     alias: str | None,
     body_vid: str,
 ) -> str:
-    """Build ``with <expression> [as <alias>]: <body>``."""
+    """Build ``with <expression> [as <alias>]: <body>``.
+
+    Tree-sitter Python's shape for ``with X as Y: body`` is:
+
+    ```text
+    with_statement
+      with_clause
+        with_item   (value field → either expression, or as_pattern wrapping it)
+      body field    → block
+    ```
+
+    When ``alias`` is set, the ``with_item``'s value field points at
+    the as_pattern (which itself owns the expression via its child_of
+    edge and the target via its alias field). Crucially, the
+    expression is referenced exactly ONCE in the schema graph; routing
+    it under both the with_item's value field and the as_pattern's
+    child_of edge would cause `emit_pretty` to traverse it twice and
+    emit the call twice (producing
+    ``with pymc.Model() pymc.Model() as: ...``).
+    """
     ws = ctx.v(ctx.fresh("with"), "with_statement")
     clause = ctx.v(ctx.fresh("wc"), "with_clause")
     item = ctx.v(ctx.fresh("wi"), "with_item")
-    ctx.e(item, expression, "value")
     if alias is not None:
         as_pat = ctx.v(ctx.fresh("asp"), "as_pattern")
         target = ctx.v(ctx.fresh("astgt"), "as_pattern_target")
-        target_id = identifier(ctx, alias)
-        ctx.e(target, target_id, "child_of")
+        ctx.e(target, identifier(ctx, alias), "child_of")
         ctx.e(as_pat, expression, "child_of")
         ctx.e(as_pat, target, "alias")
-        ctx.e(item, as_pat, "child_of")
+        ctx.e(item, as_pat, "value")
     else:
-        ctx.e(item, expression, "child_of")
+        ctx.e(item, expression, "value")
     ctx.e(clause, item, "child_of")
     ctx.e(ws, clause, "child_of")
     ctx.e(ws, body_vid, "body")

@@ -1,0 +1,7 @@
+# Exercises a vector (rank-1) family with explicit `over=<event_axis>`.
+object Comp : FinSet 3
+object Obs : FinSet 4
+program prog(alpha : Real) : Obs -> Obs
+    sample probs <- Dirichlet(alpha) [over=Comp]
+    return probs
+export prog
