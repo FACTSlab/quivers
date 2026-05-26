@@ -130,15 +130,15 @@ def test_mapping_composition_equivalence(backend: str) -> None:
 # is known not to be a fixed point on the canonical fixture; the
 # strict-xfail flips when panproto fixes the upstream non-determinism.
 _REEMIT_IS_FIXED_POINT: dict[str, bool] = {
-    "stan": True,
-    "numpyro": False,  # panproto py emit normalises `;` → `\n` on reparse
+    "stan": False,     # panproto/panproto#171 top_var_decl identifier mangle
+    "numpyro": False,  # panproto py emit normalises `;` -> `\n` on reparse
     "pyro": False,     # same
-    "pymc": False,     # same + as_pattern emit drops the alias identifier
+    "pymc": False,     # same
     "edward2": False,  # same
-    "church": True,
+    "church": True,    # vacuous: panproto/panproto#172 makes both emits empty
     "webppl": True,
     "turing": True,
-    "gen": True,
+    "gen": False,      # julia @trace emit inserts spurious `;` after re-parse
     "bugs": True,
     "jags": True,
 }

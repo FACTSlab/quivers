@@ -155,6 +155,15 @@ def test_family_backend_cell(
             )
         )
 
+    if backend == "church" and output == b"":
+        pytest.xfail(
+            reason=(
+                "panproto/panproto#172: scheme `emit_pretty` returns "
+                "empty bytes for every input. Walker succeeded; flips "
+                "when upstream restores the scheme pretty-printer."
+            )
+        )
+
     if family not in family_map:
         pytest.fail(
             f"backend {backend!r} on family {family!r}: family is NOT "

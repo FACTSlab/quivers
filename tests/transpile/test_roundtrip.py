@@ -53,6 +53,13 @@ def test_round_trip(target: str) -> None:
         pytest.skip(f"backend {target!r} not registered")
     module = parse(_FIXTURE)
     output = transpile(module, target=target)
+    if target == "church" and output == b"":
+        pytest.xfail(
+            reason=(
+                "panproto/panproto#172: scheme `emit_pretty` returns "
+                "empty bytes for every input."
+            )
+        )
     assert output, f"empty bytes from {target}"
     grammar = _GRAMMARS[target]
     back = _registry().parse_with_protocol(grammar, output, f"rt.{target}")
