@@ -85,7 +85,12 @@ def tilde_assignment(ctx: JlCtx, lhs: str, rhs: str) -> str:
 
 
 def macro_call(ctx: JlCtx, macro_name: str, body_vid: str) -> str:
-    """Build ``@macro_name body``."""
+    """Build ``@macro_name body`` (no parentheses; long-form).
+
+    Used for the ``@model function ... end`` / ``@gen function ... end``
+    style invocation where the macro body is a single expression
+    (typically a function_definition).
+    """
     mc = ctx.v(ctx.fresh("mc"), "macrocall_expression")
     macro_id = ctx.v(ctx.fresh("mid"), "macro_identifier")
     ctx.e(macro_id, ident(ctx, macro_name))
@@ -93,6 +98,25 @@ def macro_call(ctx: JlCtx, macro_name: str, body_vid: str) -> str:
     ctx.e(margs, body_vid)
     ctx.e(mc, macro_id)
     ctx.e(mc, margs)
+    return mc
+
+
+def macro_call_paren(
+    ctx: JlCtx, macro_name: str, args: tuple[str, ...]
+) -> str:
+    """Build ``@macro_name(arg1, arg2, ...)`` (parenthesised short-form).
+
+    Used by Gen.jl's ``@trace(dist, :address)``. The parenthesised
+    form uses ``argument_list`` instead of ``macro_argument_list``.
+    """
+    mc = ctx.v(ctx.fresh("mc"), "macrocall_expression")
+    macro_id = ctx.v(ctx.fresh("mid"), "macro_identifier")
+    ctx.e(macro_id, ident(ctx, macro_name))
+    al = ctx.v(ctx.fresh("al"), "argument_list")
+    for a in args:
+        ctx.e(al, a)
+    ctx.e(mc, macro_id)
+    ctx.e(mc, al)
     return mc
 
 

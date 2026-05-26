@@ -35,6 +35,9 @@ _GRAMMARS = {
     "pymc": "python",
     "edward2": "python",
     "church": "scheme",
+    "bugs": "bugs",
+    "jags": "jags",
+    "turing": "julia",
 }
 
 
