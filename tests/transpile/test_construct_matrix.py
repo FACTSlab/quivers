@@ -180,6 +180,15 @@ def test_construct_backend_cell(
         _ORTHOGONAL_PREFIXES = ("family:", "let:")
         try:
             output = transpile(module, target=backend)
+            if backend == "church" and output == b"":
+                pytest.xfail(
+                    reason=(
+                        "panproto/panproto#172: scheme `emit_pretty` "
+                        "returns empty bytes for every input. Walker "
+                        "succeeded; flips when upstream restores the "
+                        "scheme pretty-printer."
+                    )
+                )
         except UnsupportedConstruct as exc:
             orthogonal = [
                 k for k in exc.kinds

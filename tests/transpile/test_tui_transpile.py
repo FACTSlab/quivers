@@ -81,6 +81,13 @@ def test_transpile_dispatches_to_every_backend(
         f"{target!r} dispatch failed: "
         + "; ".join(d.message for d in response.diagnostics)
     )
+    if target == "church" and not response.body.strip():
+        pytest.xfail(
+            reason=(
+                "panproto/panproto#172: scheme `emit_pretty` returns "
+                "empty bytes for every input."
+            )
+        )
     assert response.body.strip(), f"{target!r} produced empty body"
 
 

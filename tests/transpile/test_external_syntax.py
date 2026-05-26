@@ -85,32 +85,9 @@ def test_stan_external_syntax() -> None:
 
 
 @pytest.mark.parametrize("backend", ["numpyro", "pyro", "pymc", "edward2"])
-def test_python_external_syntax(
-    backend: str, request: pytest.FixtureRequest
-) -> None:
+def test_python_external_syntax(backend: str) -> None:
     """``python -m py_compile`` accepts each python-grammar backend's
-    output.
-
-    The `pymc` cell strict-xfails on a panproto upstream bug:
-    `emit_pretty` drops the alias identifier inside `with X as Y:`,
-    emitting `with X as:` which is a Python SyntaxError. Filed at
-    panproto/panproto issue tracker; the strict-xfail flips when the
-    upstream walker descends into `as_pattern_target` to emit the
-    alias name.
-    """
-    if backend == "pymc":
-        request.applymarker(
-            pytest.mark.xfail(
-                strict=True,
-                reason=(
-                    "panproto emit_pretty drops the alias identifier "
-                    "in `with X as Y:` (emits `with X as:`); upstream "
-                    "tree-sitter Python emit-pretty bug for the "
-                    "as_pattern_target node. Flips when panproto fixes "
-                    "the walker."
-                ),
-            )
-        )
+    output."""
     source = transpile(parse(_BETA_BERNOULLI), target=backend)
     rc, out, err = _run_syntax_check(
         "python",
@@ -128,9 +105,7 @@ def test_webppl_external_syntax() -> None:
     """``node --check`` accepts the transpiled WebPPL output.
 
     WebPPL is a JavaScript subset; ``node --check`` validates JS
-    syntax without executing. Doesn't catch WebPPL-specific
-    semantics (e.g. wrong use of `sample` outside a query), but
-    catches every grammatical typo.
+    syntax without executing.
     """
     source = transpile(parse(_BETA_BERNOULLI), target="webppl")
     # `node --check` reads from a file, not stdin; use process
