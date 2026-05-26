@@ -31,6 +31,7 @@ from quivers.transpile.backends._juliahelpers import (
     function_def,
     ident,
     macro_call,
+    macro_call_paren,
 )
 from quivers.transpile.backends.numpyro import _partition, _program_steps
 
@@ -96,9 +97,7 @@ def _trace_call(
         raise UnsupportedConstruct("qvr-gen", [f"family:{family}"])
     dist = call(ctx, ident(ctx, dist_name),
                 positional=tuple(arg(ctx, a) for a in (args or ())))
-    inner = call(ctx, ident(ctx, "trace"),
-                 positional=(dist, _symbol_literal(ctx, address)))
-    return macro_call(ctx, "trace", inner)
+    return macro_call_paren(ctx, "trace", (dist, _symbol_literal(ctx, address)))
 
 
 class _GenWalker(SchemaTransform):
