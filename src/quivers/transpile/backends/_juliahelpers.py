@@ -104,19 +104,22 @@ def macro_call(ctx: JlCtx, macro_name: str, body_vid: str) -> str:
 def macro_call_paren(
     ctx: JlCtx, macro_name: str, args: tuple[str, ...]
 ) -> str:
-    """Build ``@macro_name(arg1, arg2, ...)`` (parenthesised short-form).
+    """Build ``@macro_name arg1 arg2 ...`` (space-separated macro args).
 
-    Used by Gen.jl's ``@trace(dist, :address)``. The parenthesised
-    form uses ``argument_list`` instead of ``macro_argument_list``.
+    Used by Gen.jl's ``@trace(dist, :address)``. Julia accepts both
+    ``@trace(dist, addr)`` and ``@trace dist addr`` as syntactically
+    equivalent macro invocations; we emit the space-separated form
+    because it round-trips faithfully through the panproto julia
+    grammar.
     """
     mc = ctx.v(ctx.fresh("mc"), "macrocall_expression")
     macro_id = ctx.v(ctx.fresh("mid"), "macro_identifier")
     ctx.e(macro_id, ident(ctx, macro_name))
-    al = ctx.v(ctx.fresh("al"), "argument_list")
+    margs = ctx.v(ctx.fresh("mal"), "macro_argument_list")
     for a in args:
-        ctx.e(al, a)
+        ctx.e(margs, a)
     ctx.e(mc, macro_id)
-    ctx.e(mc, al)
+    ctx.e(mc, margs)
     return mc
 
 
