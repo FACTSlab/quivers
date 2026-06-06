@@ -46,6 +46,7 @@ _FAMILIES: dict[str, tuple[str, tuple[str, ...]]] = {
     # is the unrestricted normal; we emit it with mu=0 (kw not in args)
     # via the one-argument signature.
     "HalfNormal":   ("Gaussian", ("sigma",)),
+    "HalfCauchy":   ("Cauchy", ("scale",)),
     "Beta":         ("Beta", ("a", "b")),
     "Bernoulli":    ("Bernoulli", ("p",)),
     "Categorical":  ("Categorical", ("ps",)),
