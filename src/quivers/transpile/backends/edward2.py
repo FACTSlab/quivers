@@ -57,6 +57,12 @@ _FAMILIES: dict[str, str] = {
     "MatrixNormal": "MatrixNormalLinearOperator",
     "GP": "GaussianProcess",
     "Horseshoe": "Normal",
+    "Poisson": "Poisson", "NegativeBinomial": "NegativeBinomial",
+    "Binomial": "Binomial", "Geometric": "Geometric",
+    "TruncatedNormal": "TruncatedNormal",
+    "LogitNormal": "LogitNormal",
+    "Kumaraswamy": "Kumaraswamy",
+    "LKJ": "LKJ", "LKJCholesky": "LKJ",
 }
 
 

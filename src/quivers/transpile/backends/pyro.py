@@ -57,6 +57,18 @@ _FAMILIES: dict[str, str] = {
     "MatrixNormal": "MultivariateNormal",
     "GP": "MultivariateNormal",
     "Horseshoe": "Normal",
+    "Poisson": "Poisson", "NegativeBinomial": "NegativeBinomial",
+    "Binomial": "Binomial", "Geometric": "Geometric",
+    "ContinuousBernoulli": "ContinuousBernoulli",
+    "FisherSnedecor": "FisherSnedecor",
+    "Gumbel": "Gumbel", "Kumaraswamy": "Kumaraswamy",
+    "LogitNormal": "LogitNormal",
+    "RelaxedBernoulli": "RelaxedBernoulli",
+    "RelaxedOneHotCategorical": "RelaxedOneHotCategorical",
+    "TruncatedNormal": "TruncatedNormal",
+    "LowRankMVN": "LowRankMultivariateNormal",
+    "GeneralizedPareto": "GeneralizedPareto",
+    "LKJ": "LKJCorrCholesky", "LKJCholesky": "LKJCorrCholesky",
 }
 
 

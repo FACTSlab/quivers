@@ -62,6 +62,13 @@ _FAMILIES: dict[str, str] = {
     "MatrixNormal": "MatrixNormal",
     "GP": "MvNormal",
     "Horseshoe": "Normal",
+    "Poisson": "Poisson", "NegativeBinomial": "NegativeBinomial",
+    "Binomial": "Binomial", "Geometric": "Geometric",
+    "TruncatedNormal": "TruncatedNormal",
+    "LogitNormal": "LogitNormal",
+    "Kumaraswamy": "Kumaraswamy",
+    "DiscreteUniform": "DiscreteUniform",
+    "LKJ": "LKJCorr", "LKJCholesky": "LKJCholeskyCov",
 }
 
 

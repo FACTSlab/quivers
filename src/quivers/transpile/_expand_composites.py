@@ -204,27 +204,26 @@ def _resolve_to_chain(
     return None
 
 
-def _flatten_compose(expr: ExprCompose) -> tuple[str, ...]:
+def _flatten_compose(expr: ExprCompose) -> tuple[str, ...] | None:
     """Flatten a (possibly nested) ExprCompose into a tuple of
     ExprIdent names from left to right.
 
-    Raises ValueError if any leaf is not an ExprIdent (only handle
-    name-based chains for now).
+    Returns None when any leaf is not an ExprIdent (the chain
+    contains fan / scan / stack / tensor-product / call leaves that
+    this pass does not know how to expand). The caller falls back
+    to leaving the original step intact, in which case the walker
+    will raise `UnsupportedConstruct(let:composite_expression:...)`.
     """
     out: list[str] = []
-    def walk(e: Expr) -> None:
+    def walk(e: Expr) -> bool:
         if isinstance(e, ExprCompose):
-            walk(e.left)
-            walk(e.right)
-        elif isinstance(e, ExprIdent):
+            return walk(e.left) and walk(e.right)
+        if isinstance(e, ExprIdent):
             out.append(e.name)
-        else:
-            raise ValueError(
-                f"composite-let chain contains a non-identifier leaf "
-                f"of kind {type(e).__name__!r}; only `name >> name` "
-                f"chains are expanded"
-            )
-    walk(expr)
+            return True
+        return False
+    if not walk(expr):
+        return None
     return tuple(out)
 
 
