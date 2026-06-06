@@ -52,6 +52,8 @@ _FAMILIES: dict[str, str] = {
     "Weibull": "Weibull", "Gumbel": "Gumbel", "Chi2": "Chi2",
     "ContinuousBernoulli": "ContinuousBernoulli", "Wishart": "Wishart",
     "InverseWishart": "InverseWishart",
+    "MatrixNormal": "MultivariateNormal",
+    "GP": "MultivariateNormal",
 }
 
 

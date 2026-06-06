@@ -47,6 +47,8 @@ _FAMILIES: dict[str, str] = {
     "LogNormal": "LogNormal", "MultivariateNormal": "MvNormal",
     "Pareto": "Pareto", "StudentT": "TDist", "Uniform": "Uniform",
     "Weibull": "Weibull",
+    "MatrixNormal": "MatrixNormal",
+    "GP": "MvNormal",
 }
 
 

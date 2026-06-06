@@ -205,14 +205,46 @@ def _from_init_family(
     chain: tuple[str, ...],
 ) -> ResolvedDist:
     """Unfold a ``~ Family(args)`` init clause. Step-supplied args
-    override the declaration's defaults when both are present."""
+    override the declaration's defaults when both are present. When
+    neither the step nor the init clause supplies args (the common
+    `morphism foo : T -> T [role=kernel] ~ Family` form), fall back
+    to the family's canonical default parameters so the resulting
+    call has the arity the target backend expects."""
     args = step_args if step_args else init.args
+    if not args:
+        args = _FAMILY_DEFAULT_ARGS.get(init.family, ())
     return ResolvedDist(
         family=init.family,
         args=args,
         original_morphism_name=morphism_name,
         via=chain[:-1] if chain else (),
     )
+
+
+# Canonical default args for kernel morphisms declared `~ Family` with
+# no explicit init args. These let the resolver produce a target call
+# with the right arity for backends whose family signature is
+# positional (Stan's `normal(0, 1)`, WebPPL's `Gaussian({mu, sigma})`).
+# Mirror of `_expand_composites._FAMILY_DEFAULT_ARGS` for
+# resolver-side use (the expansion pass does in-chain substitution,
+# this fallback is for standalone kernels).
+_FAMILY_DEFAULT_ARGS: dict[str, tuple[float, ...]] = {
+    "Normal":       (0.0, 1.0),
+    "HalfNormal":   (1.0,),
+    "Cauchy":       (0.0, 1.0),
+    "HalfCauchy":   (1.0,),
+    "Laplace":      (0.0, 1.0),
+    "LogNormal":    (0.0, 1.0),
+    "Beta":         (1.0, 1.0),
+    "Bernoulli":    (0.5,),
+    "Gamma":        (1.0, 1.0),
+    "InverseGamma": (1.0, 1.0),
+    "Exponential":  (1.0,),
+    "Uniform":      (0.0, 1.0),
+    "StudentT":     (1.0, 0.0, 1.0),
+    "Pareto":       (1.0, 1.0),
+    "Weibull":      (1.0, 1.0),
+}
 
 
 def _resolve_expr(

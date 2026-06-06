@@ -76,6 +76,7 @@ _FAMILIES: dict[str, str] = {
     "Exponential": "Exponential", "Gamma": "Gamma",
     "InverseGamma": "InverseGamma", "Laplace": "Laplace",
     "LogNormal": "LogNormal", "MultivariateNormal": "MultivariateNormal",
+    "GP": "MultivariateNormal", "MatrixNormal": "MultivariateNormal",
     "Pareto": "Pareto", "StudentT": "StudentT", "Uniform": "Uniform",
     "Weibull": "Weibull", "Gumbel": "Gumbel", "Chi2": "Chi2",
     "ContinuousBernoulli": "ContinuousBernoulli", "Wishart": "Wishart",

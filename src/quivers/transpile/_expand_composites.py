@@ -1,31 +1,48 @@
-"""AST preprocessing: expand composite-let bindings into sample chains.
-
-A `let chain = prior >> likelihood` binding turns a single
-`sample x <- chain` step into the equivalent chain of sample steps
-
-    sample _chain_0 <- prior
-    sample x       <- likelihood
-
-where the second step's parameters are derived from the first step's
-output (the Kleisli composition of the two kernels). Without this
-pre-pass, the transpile resolver raises
-`UnsupportedConstruct(kinds=["let:composite_expression:..."])` on the
-composite expression.
+"""AST preprocessing: expand composite-let bindings into sample chains
+and flatten MarginalizeStep / ScoreStep / LetStep scopes into plain
+sample / observe / assignment sequences.
 
 The pass operates at the Module level: it rebuilds every
-`program_decl` in place, replacing each affected SampleStep / ObserveStep
-with its expanded chain. Non-composite let bindings (`let a = b`) are
-left to the resolver's existing alias-unfolding path.
+`program_decl` in place. Three rewrites fire:
 
-When a kernel morphism in a chain has no explicit init args (the
-common `morphism foo : T -> T [role=kernel] ~ Family` form), the
-expansion fills in canonical default parameters for the family:
-location/scale families like `Normal` get `(prev, 1.0)` where `prev`
-is the upstream step's output variable (or `0.0` at the head of the
-chain); shape/rate families like `Gamma` get canonical defaults
-`(1.0, 1.0)`. The defaults are deliberately mild priors and match the
-Bayesian intuition that an unparameterized kernel in a Kleisli chain
-is a standard kernel centered on its input.
+1. **Composite let**: `let chain = prior >> likelihood` binds a
+   Kleisli composition. A single `sample x <- chain` step rewrites
+   into a chain of atomic sample steps:
+
+       sample _chain_0 <- prior
+       sample x        <- likelihood
+
+   where the second step's parameters are derived from the first
+   step's output. For kernel morphisms declared with `~ Family` and
+   no explicit args (the common form), the expansion fills in
+   canonical default parameters for the family: location/scale
+   families like `Normal` get `(prev, 1.0)` with `prev` being the
+   upstream step's output variable (or `0.0` at the head of the
+   chain); shape/rate families like `Gamma` get canonical defaults
+   `(1.0, 1.0)`. The defaults are mild priors matching the Bayesian
+   intuition that an unparameterized kernel in a Kleisli chain is the
+   standard kernel centered on its input.
+
+2. **MarginalizeStep**: the discrete-marginalization step
+
+       marginalize cls : T <- Categorical(probs) [over=...]:
+           observe r <- Normal(mu[cls], sigma)
+
+   rewrites to a plain sample-then-observe pair:
+
+       sample cls <- Categorical(probs)
+       observe r  <- Normal(mu[cls], sigma)
+
+   The rewrite is operationally equivalent under MCMC inference for
+   any backend that supports discrete-latent sampling (NumPyro, Pyro,
+   PyMC, Turing.jl, Gen.jl, Church, WebPPL, BUGS, JAGS). Stan does
+   not natively sample discrete parameters and requires explicit
+   `log_sum_exp` marginalization; for Stan the rewrite produces
+   `categorical(probs)` in a parameter block, which Stan's compiler
+   will reject. (Stan-specific marginalization is tracked as future
+   walker work; see `docs/semantics/transpile-correctness.md` §5.6.)
+
+3. **ScoreStep** / **LetStep**: passthrough for now; tracked.
 """
 
 from __future__ import annotations
@@ -35,6 +52,7 @@ from quivers.dsl.ast_nodes import (
     ExprCompose,
     ExprIdent,
     LetDecl,
+    MarginalizeStep,
     Module,
     MorphismDecl,
     ObserveStep,
@@ -115,11 +133,33 @@ def _expand_draws(
     lets: dict[str, Expr],
 ) -> tuple[ProgramStep, ...]:
     """Expand every SampleStep / ObserveStep whose morphism slot
-    resolves to a composite-let chain."""
+    resolves to a composite-let chain, and flatten every
+    MarginalizeStep into a sample-then-scope-body sequence."""
     any_changed = False
     out: list[ProgramStep] = []
     counter = 0
     for step in draws:
+        if isinstance(step, MarginalizeStep):
+            any_changed = True
+            # Rewrite `marginalize cls <- F(args): scope` as
+            # `sample cls <- F(args); scope...`. Operationally
+            # equivalent under MCMC for backends that support discrete-
+            # latent sampling; Stan-specific log_sum_exp emission is
+            # future walker work.
+            out.append(SampleStep(
+                vars=(step.var,),
+                morphism=step.morphism,
+                args=step.args,
+                index=step.index,
+                options=step.options,
+                line=step.line,
+                col=step.col,
+            ))
+            scope_expanded = _expand_draws(
+                step.scope, morphisms=morphisms, lets=lets
+            )
+            out.extend(scope_expanded)
+            continue
         if isinstance(step, (SampleStep, ObserveStep)):
             chain = _resolve_to_chain(step.morphism, morphisms=morphisms, lets=lets)
             if chain is not None:

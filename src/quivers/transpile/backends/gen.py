@@ -48,6 +48,8 @@ _FAMILIES: dict[str, str] = {
     "Exponential": "exponential", "Gamma": "gamma", "Cauchy": "cauchy",
     "Laplace": "laplace", "LogNormal": "lognormal", "Uniform": "uniform",
     "Poisson": "poisson", "Geometric": "geometric",
+    "MultivariateNormal": "mvnormal", "MatrixNormal": "mvnormal",
+    "GP": "mvnormal",
 }
 
 

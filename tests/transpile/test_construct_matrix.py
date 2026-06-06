@@ -81,10 +81,6 @@ _KNOWN_WALKER_GAPS: dict[str, str] = {
         "walker does not emit ScoreStep; raises "
         "UnsupportedConstruct(kinds=['step:score_step'])"
     ),
-    "marginalize_step": (
-        "walker does not emit MarginalizeStep; raises "
-        "UnsupportedConstruct(kinds=['step:marginalize_step'])"
-    ),
     "let_expr_binop": "walker raises on LetStep in body",
     "let_expr_unary": "walker raises on LetStep in body",
     "let_expr_call": "walker raises on LetStep in body",
