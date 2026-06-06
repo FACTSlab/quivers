@@ -27,6 +27,21 @@ class JlCtx:
     def lit(self, vid: str, text: str) -> None:
         self._sb.constraint(vid, "literal-value", text)
 
+    def constraint(self, vid: str, sort: str, value: str) -> None:
+        self._sb.constraint(vid, sort, value)
+
+
+def _argument_list(ctx: JlCtx, prefix: str) -> str:
+    """Build an ``argument_list`` vertex.
+
+    Julia tree-sitter aliases ``argument_list`` from ``tuple_expression``;
+    panproto's emitter uses the ``pre-alias-symbol`` constraint to route
+    the production to the parenthesised form.
+    """
+    vid = ctx.v(ctx.fresh(prefix), "argument_list")
+    ctx.constraint(vid, "pre-alias-symbol", "tuple_expression")
+    return vid
+
 
 def ident(ctx: JlCtx, text: str) -> str:
     vid = ctx.v(ctx.fresh("id"), "identifier")
@@ -67,7 +82,7 @@ def operator(ctx: JlCtx, text: str) -> str:
 def call(ctx: JlCtx, callee: str, positional: tuple[str, ...]) -> str:
     """Build ``callee(arg1, arg2, ...)``."""
     c = ctx.v(ctx.fresh("call"), "call_expression")
-    args = ctx.v(ctx.fresh("args"), "argument_list")
+    args = _argument_list(ctx, "args")
     ctx.e(c, callee)
     ctx.e(c, args)
     for pid in positional:
@@ -106,11 +121,12 @@ def macro_call_paren(
 ) -> str:
     """Build ``@macro_name arg1 arg2 ...`` (space-separated macro args).
 
-    Used by Gen.jl's ``@trace(dist, :address)``. Julia accepts both
-    ``@trace(dist, addr)`` and ``@trace dist addr`` as syntactically
-    equivalent macro invocations; we emit the space-separated form
-    because it round-trips faithfully through the panproto julia
-    grammar.
+    Julia accepts both ``@trace(dist, addr)`` and ``@trace dist addr``
+    as syntactically equivalent macro invocations. The panproto
+    emitter does not consistently round-trip the paren form for
+    by-construction schemas (it requires byte-position metadata the
+    walker cannot synthesise), so we emit the space-separated form
+    instead. Gen.jl parses both identically.
     """
     mc = ctx.v(ctx.fresh("mc"), "macrocall_expression")
     macro_id = ctx.v(ctx.fresh("mid"), "macro_identifier")
@@ -134,7 +150,7 @@ def function_def(
     fn = ctx.v(ctx.fresh("fn"), "function_definition")
     sig = ctx.v(ctx.fresh("sig"), "signature")
     callsig = ctx.v(ctx.fresh("scall"), "call_expression")
-    args = ctx.v(ctx.fresh("sargs"), "argument_list")
+    args = _argument_list(ctx, "sargs")
     for p in params:
         ctx.e(args, ident(ctx, p))
     ctx.e(callsig, ident(ctx, name))

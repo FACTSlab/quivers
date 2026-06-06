@@ -71,9 +71,8 @@ def _assignment(ctx: JlCtx, lhs: str, rhs: str) -> str:
 # `compound_assignment_expression` with operator `=` since both forms
 # share the same internal shape for tree-sitter Julia.
 def _eq_assignment(ctx: JlCtx, lhs: str, rhs: str) -> str:
-    asn = ctx.v(ctx.fresh("ca"), "compound_assignment_expression")
+    asn = ctx.v(ctx.fresh("asn"), "assignment")
     op = ctx.v(ctx.fresh("op"), "operator")
-    ctx.lit(op, "=")
     ctx.e(asn, lhs)
     ctx.e(asn, op)
     ctx.e(asn, rhs)
