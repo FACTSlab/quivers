@@ -67,6 +67,9 @@ class _Ctx:
     def e(self, src: str, tgt: str, kind: str = "child_of") -> None:
         self._sb.edge(src, tgt, kind)
 
+    def constraint(self, vid: str, sort: str, value: str) -> None:
+        self._sb.constraint(vid, sort, value)
+
     def lit(self, vid: str, text: str) -> None:
         self._sb.constraint(vid, "literal-value", text)
 
@@ -156,14 +159,18 @@ def _build(module: Module, grammar: str) -> panproto.Schema:
     for body_step in program.draws:
         if isinstance(body_step, LetStep):
             # BUGS / JAGS deterministic relation: `<name> <- <expr>`.
+            # The grammar uses `variable` / `value` field edges and
+            # encodes `<-` as a literal terminal in the production,
+            # not a child vertex.
             asn = ctx.v(ctx.fresh("dr"), "deterministic_relation")
             ident_v = ctx.v(ctx.fresh("id"), "identifier")
             ctx.lit(ident_v, body_step.name)
-            ctx.e(asn, ident_v)
-            arrow = ctx.v(ctx.fresh("op"), "operator")
-            ctx.lit(arrow, "<-")
-            ctx.e(asn, arrow)
-            ctx.e(asn, render_let_expr_bugs(ctx, body_step.value))
+            ctx.e(asn, ident_v, "variable")
+            ctx.e(
+                asn,
+                render_let_expr_bugs(ctx, body_step.value),
+                "value",
+            )
             ctx.e(block, asn)
         elif isinstance(body_step, ScoreStep):
             # ScoreStep in BUGS / JAGS uses the "zeros trick":
@@ -176,34 +183,31 @@ def _build(module: Module, grammar: str) -> panproto.Schema:
             asn = ctx.v(ctx.fresh("dr"), "deterministic_relation")
             ident_v = ctx.v(ctx.fresh("id"), "identifier")
             ctx.lit(ident_v, body_step.name)
-            ctx.e(asn, ident_v)
-            arrow = ctx.v(ctx.fresh("op"), "operator")
-            ctx.lit(arrow, "<-")
-            ctx.e(asn, arrow)
-            ctx.e(asn, render_let_expr_bugs(ctx, body_step.value))
+            ctx.e(asn, ident_v, "variable")
+            ctx.e(
+                asn,
+                render_let_expr_bugs(ctx, body_step.value),
+                "value",
+            )
             ctx.e(block, asn)
             # `__zero_<name> ~ dpois(-(<name>))` -- requires the
             # caller to declare `__zero_<name>` as observed at 0.
             sr = ctx.v(ctx.fresh("sr"), "stochastic_relation")
             lhs = ctx.v(ctx.fresh("id"), "identifier")
             ctx.lit(lhs, f"_zero_{body_step.name}")
-            ctx.e(sr, lhs)
-            tilde = ctx.v(ctx.fresh("op"), "operator")
-            ctx.lit(tilde, "~")
-            ctx.e(sr, tilde)
-            dpois = ctx.v(ctx.fresh("call"), "function_call")
+            ctx.e(sr, lhs, "variable")
+            dpois = ctx.v(ctx.fresh("call"), "distribution_call")
             fn = ctx.v(ctx.fresh("fn"), "identifier")
             ctx.lit(fn, "dpois")
             ctx.e(dpois, fn)
             neg = ctx.v(ctx.fresh("u"), "unary_expression")
-            op = ctx.v(ctx.fresh("op"), "operator")
-            ctx.lit(op, "-")
-            ctx.e(neg, op)
+            ctx.constraint(neg, "field:operator", "-")
+            ctx.constraint(neg, "chose-alt-fingerprint", "-")
             score_id = ctx.v(ctx.fresh("id"), "identifier")
             ctx.lit(score_id, body_step.name)
-            ctx.e(neg, score_id)
+            ctx.e(neg, score_id, "argument")
             ctx.e(dpois, neg)
-            ctx.e(sr, dpois)
+            ctx.e(sr, dpois, "distribution")
             ctx.e(block, sr)
 
     return sb.build()

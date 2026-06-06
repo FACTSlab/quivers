@@ -37,18 +37,18 @@ def render_let_expr_stan(ctx, expr: LetExprNode) -> str:
         ctx.edge(v, ident, "child_of")
         return v
     if isinstance(expr, LetExprBinOp):
-        b = ctx.vertex(ctx.fresh("bin"), "binary_expression")
+        # Stan's grammar uses `infix_op_expression` whose CHOICE alts
+        # are per-operator. The operator is a literal token, not a
+        # child vertex; the alt is discriminated by
+        # `chose-alt-fingerprint=<op>`.
+        b = ctx.vertex(ctx.fresh("bin"), "infix_op_expression")
+        ctx.constraint(b, "chose-alt-fingerprint", expr.op)
         ctx.edge(b, render_let_expr_stan(ctx, expr.left), "child_of")
-        op = ctx.vertex(ctx.fresh("op"), "operator")
-        ctx.literal(op, expr.op)
-        ctx.edge(b, op, "child_of")
         ctx.edge(b, render_let_expr_stan(ctx, expr.right), "child_of")
         return b
     if isinstance(expr, LetExprUnaryOp):
-        u = ctx.vertex(ctx.fresh("uop"), "unary_expression")
-        op = ctx.vertex(ctx.fresh("op"), "operator")
-        ctx.literal(op, "-")
-        ctx.edge(u, op, "child_of")
+        u = ctx.vertex(ctx.fresh("uop"), "prefix_op_expression")
+        ctx.constraint(u, "chose-alt-fingerprint", "-")
         ctx.edge(u, render_let_expr_stan(ctx, expr.operand), "child_of")
         return u
     if isinstance(expr, LetExprCall):

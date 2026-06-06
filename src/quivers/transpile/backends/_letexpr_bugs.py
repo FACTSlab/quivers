@@ -33,18 +33,20 @@ def render_let_expr_bugs(ctx, expr: LetExprNode) -> str:
         ctx.lit(v, expr.name)
         return v
     if isinstance(expr, LetExprBinOp):
+        # BUGS/JAGS `binary_expression` has per-operator CHOICE alts
+        # discriminated by `field:operator=<op>` with `left`/`right`
+        # field-named edges (panproto behavior matches the JS / Python
+        # convention here).
         b = ctx.v(ctx.fresh("be"), "binary_expression")
-        ctx.e(b, render_let_expr_bugs(ctx, expr.left))
-        op = ctx.v(ctx.fresh("op"), "operator")
-        ctx.lit(op, expr.op)
-        ctx.e(b, op)
-        ctx.e(b, render_let_expr_bugs(ctx, expr.right))
+        ctx.constraint(b, "field:operator", expr.op)
+        ctx.constraint(b, "chose-alt-fingerprint", expr.op)
+        ctx.e(b, render_let_expr_bugs(ctx, expr.left), "left")
+        ctx.e(b, render_let_expr_bugs(ctx, expr.right), "right")
         return b
     if isinstance(expr, LetExprUnaryOp):
         u = ctx.v(ctx.fresh("ue"), "unary_expression")
-        op = ctx.v(ctx.fresh("op"), "operator")
-        ctx.lit(op, "-")
-        ctx.e(u, op)
+        ctx.constraint(u, "field:operator", "-")
+        ctx.constraint(u, "chose-alt-fingerprint", "-")
         ctx.e(u, render_let_expr_bugs(ctx, expr.operand))
         return u
     if isinstance(expr, LetExprCall):
