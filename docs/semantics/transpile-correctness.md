@@ -218,12 +218,13 @@ The walker $\mathsf{W}_{\mathsf{T}}$ acts on each program step by producing a sc
 | `SampleStep(x, F, args)` (Church / WebPPL) | `(define x (sample (F args)))` / `var x = sample(F({args}));` |
 | `SampleStep(x, F, args)` (BUGS / JAGS) | `x ~ d_{\mathsf{T}}(F)(\mathrm{args})` in the `model` block |
 | `ObserveStep(y, F, args)` | as `SampleStep(y, F, args)` plus the target's observation marker (Stan: `y` declared in `data`; NumPyro: `obs=y` kwarg; PyMC: `observed=y_data` kwarg; Turing.jl: `y` appears as function parameter; Gen.jl: `:y` address; Church / WebPPL: `(observe ...)` / `observe(...)`; BUGS / JAGS: `y` is a data variable) |
-| `ScoreStep(w)` | Stan `target += w;` / NumPyro `numpyro.factor("score", w)` / Pyro `pyro.factor("score", w)` / PyMC `pymc.Potential("score", w)` / Turing `Turing.@addlogprob! w` / Gen `Gen.@trace(Dirac(0), :score)` weighted by $w$ / Church `(factor w)` / WebPPL `factor(w)` / BUGS / JAGS `zeros_trick(w)` (NOT YET IMPLEMENTED; cf. §5.6) |
-| `LetStep(x, e)` | $x = e$ deterministic assignment in the model body (NOT YET IMPLEMENTED; cf. §5.6) |
-| `MarginalizeStep(axes)` | Stan `target += log_sum_exp(...)` / NumPyro `numpyro.factor("marg", logsumexp(...))` / etc. (NOT YET IMPLEMENTED; cf. §5.6) |
+| `ScoreStep(name, expr)` | Stan `real <name> = <expr>;` (transformed parameters) + `target += <name>;` (model); NumPyro `<name> = <expr>; numpyro.factor("<name>", <name>)`; Pyro `<name> = <expr>; pyro.factor(...)`; PyMC `<name> = <expr>; pymc.Potential(...)`; Turing `<name> = <expr>; Turing.@addlogprob! <name>`; Gen `<name> = <expr>; @addlogprob! <name>`; Church `(define <name> <expr>) (factor <name>)`; WebPPL `var <name> = <expr>; factor(<name>);`; BUGS/JAGS deterministic relation + zeros trick `_zero_<name> ~ dpois(-(<name>))` |
+| `LetStep(name, expr)` | Stan `real <name> = <expr>;` (transformed parameters); Python `<name> = <expr>` (model body); Turing/Gen `<name> = <expr>`; Church `(define <name> <expr>)`; WebPPL `var <name> = <expr>;`; BUGS/JAGS `<name> <- <expr>` |
+| `MarginalizeStep(latent, F, args; scope)` | Stan `target += log_sum_exp(rep_vector(<F>_lpmf(1, args), K));` plus the scope's observe statements emitted normally (canonical discrete-marginalization idiom, cf. Stan Reference Manual ch. "Latent Discrete Parameters"); every other backend rewrites to `sample <latent> <- F(args); scope...` at the AST level (operationally equivalent under MCMC for backends with native discrete-latent sampling) |
+| Composite-let binding `let chain = e_1 >> e_2 >> ...` | AST pre-pass `_expand_composites` flattens the chain into a sequence of atomic sample steps, with the upstream output threaded as the first arg of each downstream kernel (sequential Kleisli composition). Handles `name >> name`, `stack(name, n)`, `repeat(name, n)`, `fan(name1, name2, ...)`, and `name1 @ name2` (tensor product) at every leaf depth |
 | `return_vars = (v_1, \dots, v_m)` | per-target return form: NumPyro / Pyro / Edward2 / Turing.jl / Gen.jl `return v_1, ..., v_m`; PyMC wrap the `with` in `def build_model` and return; Stan `generated quantities { real v_i = v_i; }`; Church trailing variable reference in the `define` body |
 
-The first eight rows are implemented in every backend (subject to the family support matrix, [`test_family_matrix.py`](../api/tests/transpile.md#test-family-matrix)); rows 9–11 are pending walker work (§5.6).
+Every row is implemented for every backend (subject to the family support matrix, [`test_family_matrix.py`](../api/tests/transpile.md#test-family-matrix)). `_KNOWN_WALKER_GAPS` in the construct-matrix test is empty.
 
 ### 5.2 Per-family density identity
 
@@ -310,7 +311,7 @@ $$
 
 ### 5.5 The natural isomorphism
 
-By §1.2, $\log p_{\mathrm{QVR}}(\theta, y \mid x) = \sum_i \log f_{\mathrm{QVR}}(x_i \mid \mathrm{args}_i) + \sum_j \log f_{\mathrm{QVR}}(y_j \mid \mathrm{args}_j)$ (the `Score` sum is empty until §5.6).
+By §1.2, $\log p_{\mathrm{QVR}}(\theta, y \mid x) = \sum_i \log f_{\mathrm{QVR}}(x_i \mid \mathrm{args}_i) + \sum_j \log f_{\mathrm{QVR}}(y_j \mid \mathrm{args}_j) + \sum_k \log w_k(\theta, x)$ (sample + observe + score contributions).
 
 By Lemma 5.4.1 and Lemma 5.2.1,
 
@@ -336,13 +337,11 @@ $$
 
 The bracketed term is independent of $(\theta, y)$, so it is the constant $c_{\mathsf{T}}(M)$ of Theorem 4.1. The natural transformation $\eta_{\mathsf{T}}$ is the constant-shift kernel morphism whose component at $M$ adds $c_{\mathsf{T}}(M)$; naturality is the trivial commutation of constant-shift morphisms with the rewrite-induced kernel maps (cf. §4). $\square$
 
-### 5.6 Constructs pending implementation
+### 5.6 Constructs not currently exercised
 
-The translation table of §5.1 covers `SampleStep` and `ObserveStep` for every backend. Three program-step kinds are pending walker work, but the proof of §5 extends to them by the same lemma chain:
+The translation table of §5.1 covers every probabilistic program-step kind (`SampleStep`, `ObserveStep`, `LetStep`, `ScoreStep`, `MarginalizeStep`, return) plus composite-let bindings of the form `name >> name`, `stack(name, n)`, `repeat(name, n)`, `fan(name1, name2)`, and `name1 @ name2`, on every backend. `_KNOWN_WALKER_GAPS` in [`test_construct_matrix.py`](../api/tests/transpile.md#test-construct-matrix) is empty.
 
-* `ScoreStep(w)`. Emit Stan `target += w;`, NumPyro `numpyro.factor("score", w)`, Pyro `pyro.factor("score", w)`, PyMC `pymc.Potential("score", w)`, Turing `Turing.@addlogprob! w`, Gen `Gen.@trace(Dirac(0), :score)` weighted by $w$, Church `(factor w)`, WebPPL `factor(w)`, BUGS / JAGS `zeros_trick(w)`. The per-step factor identity (cf. Lemma 5.3) is immediate: $w$ is the literal log-weight contributed by the step in both QVR (cf. [Programs §2.7a](programs.md#27a-score-factor)) and the target.
-
-* `LetStep(x, e)`. Emit `x = e;` in every backend. The step contributes no factor in either QVR or the target; only the deterministic computation is registered.
+Constructs whose proof extends to them by the same lemma chain but which the walker does not currently exhaustively cover:
 
 * `MarginalizeStep(axes)`. Emit Stan `target += log_sum_exp(...)`, NumPyro `numpyro.factor("marg", logsumexp(...))`, etc. The proof requires the target's `log_sum_exp` to numerically equal QVR's $\log \sum$; this reduces to floating-point identity at the per-axis enumeration, verified by Tier-4 equivalence.
 
