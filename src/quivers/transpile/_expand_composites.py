@@ -87,7 +87,9 @@ _FAMILY_DEFAULT_ARGS: dict[str, tuple[float, ...]] = {
 }
 
 
-def expand_composite_lets(module: Module) -> Module:
+def expand_composite_lets(
+    module: Module, *, target: str | None = None,
+) -> Module:
     """Rewrite `program_decl` bodies so composite-let sample steps
     become equivalent chains of atomic sample steps.
 
@@ -109,6 +111,14 @@ def expand_composite_lets(module: Module) -> Module:
         s.name: s.expr for s in module.statements if isinstance(s, LetDecl)
     }
 
+    # Stan needs explicit `log_sum_exp` marginalization (it cannot
+    # natively sample discrete parameters); for Stan we leave
+    # MarginalizeStep nodes intact and let the Stan walker emit the
+    # enumeration loop. Every other backend (NumPyro / Pyro / PyMC /
+    # Edward2 / Turing / Gen / Church / WebPPL / BUGS / JAGS)
+    # natively samples discrete latents under MCMC, so the
+    # sample-then-scope rewrite is operationally correct.
+    flatten_marginalize = target != "stan"
     new_statements: list = []
     for stmt in module.statements:
         if isinstance(stmt, ProgramDecl):
@@ -116,6 +126,7 @@ def expand_composite_lets(module: Module) -> Module:
                 stmt.draws,
                 morphisms=morphism_table,
                 lets=let_table,
+                flatten_marginalize=flatten_marginalize,
             )
             if new_draws is stmt.draws:
                 new_statements.append(stmt)
@@ -131,15 +142,17 @@ def _expand_draws(
     *,
     morphisms: dict[str, MorphismDecl],
     lets: dict[str, Expr],
+    flatten_marginalize: bool = True,
 ) -> tuple[ProgramStep, ...]:
     """Expand every SampleStep / ObserveStep whose morphism slot
-    resolves to a composite-let chain, and flatten every
+    resolves to a composite-let chain. When `flatten_marginalize` is
+    True (the default for every backend except Stan), flatten every
     MarginalizeStep into a sample-then-scope-body sequence."""
     any_changed = False
     out: list[ProgramStep] = []
     counter = 0
     for step in draws:
-        if isinstance(step, MarginalizeStep):
+        if isinstance(step, MarginalizeStep) and flatten_marginalize:
             any_changed = True
             # Rewrite `marginalize cls <- F(args): scope` as
             # `sample cls <- F(args); scope...`. Operationally

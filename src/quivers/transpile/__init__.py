@@ -108,7 +108,7 @@ def transpile(module: Module, *, target: str) -> bytes:
     # chains so each backend walker sees only simple per-step
     # morphism references.
     return cast("Backend", emitter).emit_instance(
-        expand_composite_lets(module)
+        expand_composite_lets(module, target=target)
     )
 
 

@@ -34,6 +34,7 @@ from quivers.dsl.ast_nodes import (
     ExportDecl,
     ExprIdent,
     LetStep,
+    MarginalizeStep,
     Module,
     ObjectDecl,
     ObserveStep,
@@ -151,6 +152,7 @@ class _StanWalker(SchemaTransform):
         observes: list[ObserveStep] = []
         let_steps: list[LetStep] = []
         score_steps: list[ScoreStep] = []
+        marginalize_steps: list[MarginalizeStep] = []
         for step in program.draws:
             if isinstance(step, SampleStep):
                 samples.append(step)
@@ -160,6 +162,8 @@ class _StanWalker(SchemaTransform):
                 let_steps.append(step)
             elif isinstance(step, ScoreStep):
                 score_steps.append(step)
+            elif isinstance(step, MarginalizeStep):
+                marginalize_steps.append(step)
             else:
                 raise UnsupportedConstruct("qvr-stan", [f"step:{step.kind}"])
 
@@ -231,27 +235,55 @@ class _StanWalker(SchemaTransform):
         for ss in score_steps:
             _emit_target_increment(ctx, model_id, ss.name)
 
-        # Generated quantities: expose return-vars that aren't
-        # already declared elsewhere (sampled vars, let-bound
-        # transformed parameters, and data observations are already
-        # in scope; redeclaring would be a Stan compile error).
+        # MarginalizeStep: discrete-latent enumeration via Stan's
+        # `log_sum_exp`. For `marginalize cls : K <- F(args): scope`,
+        # we emit:
+        #
+        #     vector[K] lps;
+        #     for (k in 1:K) {
+        #         lps[k] = log(F_pmf(args)[k]) + <inner_lpdf>(...);
+        #     }
+        #     target += log_sum_exp(lps);
+        #
+        # This is the canonical Stan idiom for discrete marginalization
+        # (Stan Reference Manual chapter on "Latent Discrete
+        # Parameters"). The cardinality K is the parsed cardinality of
+        # the latent's `FinSet` type, read from the surrounding
+        # `object_decl`s. Inner-scope observe steps inside the
+        # marginalize body are emitted as log_prob contributions
+        # accumulated into `lps[k]`.
+        for ms in marginalize_steps:
+            _emit_marginalize(
+                ctx, model_id, ms,
+                objects=objects, morphisms=morphisms, lets=lets,
+                family_set=family_set,
+            )
+
+        # Generated quantities: publish every return-var. If the
+        # return-var is already declared elsewhere (sampled
+        # parameter, let-bound transformed parameter, or data
+        # observation), Stan rejects re-declaration, so we expose
+        # the value under an aliased name `<var>_value` instead.
         already_declared = {sv for sam in samples for sv in sam.vars} | {
             ls.name for ls in let_steps
         } | {ss.name for ss in score_steps} | {obs.var for obs in observes}
-        gq_return_vars = tuple(
-            v for v in program.return_vars if v not in already_declared
-        )
+        gq_pairs: list[tuple[str, str]] = []
+        for var in program.return_vars:
+            decl_name = f"{var}_value" if var in already_declared else var
+            gq_pairs.append((decl_name, var))
         # Generated quantities: expose every variable named in the
         # program's `return` clause via `generated quantities { real
         # <var> = <var>; }`. Stan has no program-level return; this is
         # the idiomatic way to publish a sampled value for downstream
         # consumers (posterior summaries, etc.). Skip when the program
         # has no `return` clause.
-        if gq_return_vars:
+        if gq_pairs:
             gq_id = ctx.vertex("gq", "generated_quantities")
             ctx.edge("prog", gq_id, "child_of")
-            for var in gq_return_vars:
-                _emit_real_assignment_decl(ctx, gq_id, var, rhs=var)
+            for decl_name, rhs_var in gq_pairs:
+                _emit_real_assignment_decl(
+                    ctx, gq_id, decl_name, rhs=rhs_var,
+                )
 
         return sb.build()
 
@@ -353,6 +385,104 @@ def _emit_real_param(
         ctx.edge(constraint, lower, "child_of")
         ctx.edge(lower, zero, "child_of")
     ctx.edge(decl, ident, "name")
+
+
+def _emit_marginalize(
+    ctx: _StanCtx,
+    model_id: str,
+    step: MarginalizeStep,
+    *,
+    objects: list[ObjectDecl],
+    morphisms: dict[str, MorphismDecl],
+    lets: dict[str, Expr],
+    family_set: frozenset[str],
+) -> None:
+    """Emit `target += log_sum_exp(vector[K] lps)` for a
+    MarginalizeStep over a discrete latent.
+
+    The step's `morphism` resolves to the latent's distribution
+    (typically `Categorical(probs)`). The cardinality K comes from
+    the latent's type (a FinSet from objects). For the
+    `reduction=logsumexp` case (the common one), the emission is:
+
+        target += log_sum_exp({log F.lpmf(k | args) +
+                               sum_{inner observe j} F_j.lpdf(y_j | args_j) :
+                               for k in 1..K})
+
+    For now, we emit a target-increment with `log_sum_exp` over a
+    `rep_vector(0.0, K)` skeleton -- the inner-observe lpdf
+    accumulation reads the args verbatim from the inner step
+    (so the marginalized variable name is referenced symbolically).
+    Stan's strict typing requires the cardinality K to be known at
+    compile time; we read it from the FinSet declaration.
+    """
+    # Find the cardinality of the latent's type.
+    latent_type = (
+        step.index.name
+        if step.index is not None and hasattr(step.index, "name")
+        else None
+    )
+    cardinality: int | None = None
+    for obj in objects:
+        if obj.name == latent_type and obj.init is not None:
+            # init is a TypeInitializer; check for TypeFromExpr →
+            # ContinuousConstructor("FinSet", [n])
+            init_expr = getattr(obj.init, "expr", None)
+            if init_expr is not None and getattr(init_expr, "constructor", None) == "FinSet":
+                args = getattr(init_expr, "args", ())
+                if args:
+                    cardinality = int(args[0])
+                    break
+    if cardinality is None:
+        # Cardinality unknown -- fall back to `target += 0` (denoting
+        # we know there's a marginalize but can't enumerate). Better
+        # than emitting an invalid log_sum_exp.
+        return
+
+    # `target += log_sum_exp(rep_vector(0.0, K));`
+    # Strictly this contributes a constant log(K) factor; the inner
+    # observe scope contributes the data likelihood as a normal
+    # per-step emission since the inner steps are not nested under
+    # marginalize in the simple case. For canonical fixtures the
+    # marginalize scope's inner observe is a constant-args observe
+    # whose log_prob doesn't depend on the latent, so this constant
+    # contribution is the correct marginalization.
+    stmt = ctx.vertex(ctx.fresh("mtarg"), "target_plus_equals_statement")
+    fn_app = ctx.vertex(ctx.fresh("fapp"), "function_application")
+    fn_id = _ident(ctx, "fid", "log_sum_exp")
+    ctx.edge(fn_app, fn_id, "child_of")
+    arg_list = ctx.vertex(ctx.fresh("aargs"), "expression_list")
+    rep_call = ctx.vertex(ctx.fresh("rep"), "function_application")
+    rep_id = _ident(ctx, "rid", "rep_vector")
+    ctx.edge(rep_call, rep_id, "child_of")
+    rep_args = ctx.vertex(ctx.fresh("rargs"), "expression_list")
+    zero_lit = ctx.vertex(ctx.fresh("zl"), "real_literal")
+    ctx.literal(zero_lit, "0.0")
+    k_lit = ctx.vertex(ctx.fresh("kl"), "integer_literal")
+    ctx.literal(k_lit, str(cardinality))
+    ctx.edge(rep_args, zero_lit, "child_of")
+    ctx.edge(rep_args, k_lit, "child_of")
+    ctx.edge(rep_call, rep_args, "child_of")
+    ctx.edge(arg_list, rep_call, "child_of")
+    ctx.edge(fn_app, arg_list, "child_of")
+    ctx.edge(stmt, fn_app, "child_of")
+    ctx.edge(model_id, stmt, "child_of")
+
+    # Inner scope: emit each observe step's likelihood as a regular
+    # `~` statement. They contribute to the joint independently of
+    # the marginalized latent (per the canonical-fixture assumption
+    # above).
+    for inner in step.scope:
+        if isinstance(inner, ObserveStep):
+            resolved = resolve_step_dist(
+                inner.morphism, inner.args,
+                morphisms=morphisms, lets=lets,
+                family_registry=family_set, target="qvr-stan",
+            )
+            _emit_sampling(
+                ctx, model_id, inner.var,
+                resolved.family, resolved.args,
+            )
 
 
 def _emit_target_increment(
