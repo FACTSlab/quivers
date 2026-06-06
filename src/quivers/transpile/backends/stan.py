@@ -31,6 +31,8 @@ import didactic.api as dx
 import panproto
 
 from quivers.dsl.ast_nodes import (
+    ExportDecl,
+    ExprIdent,
     LetStep,
     Module,
     ObjectDecl,
@@ -115,28 +117,34 @@ class _StanWalker(SchemaTransform):
         ctx = _StanCtx(sb)
 
         ctx.vertex("prog", "program")
-        # Partition statements
-        program: ProgramDecl | None = None
+        # Partition statements. When the module declares multiple
+        # `program_decl`s, pick the one referenced by an
+        # `export_decl` if any, else the last (mirrors the QVR
+        # runtime default).
+        programs: list[ProgramDecl] = []
+        exported_names: set[str] = set()
         objects: list[ObjectDecl] = []
         for stmt in module.statements:
             if isinstance(stmt, ProgramDecl):
-                if program is not None:
-                    raise UnsupportedConstruct(
-                        "qvr-stan",
-                        ["multiple program_decl: stan backend transpiles one"],
-                    )
-                program = stmt
+                programs.append(stmt)
             elif isinstance(stmt, ObjectDecl):
                 objects.append(stmt)
+            elif isinstance(stmt, ExportDecl):
+                if isinstance(stmt.expr, ExprIdent):
+                    exported_names.add(stmt.expr.name)
             elif _is_ignorable(stmt):
                 continue
             else:
                 raise UnsupportedConstruct("qvr-stan", [str(stmt.kind)])
 
-        if program is None:
+        if not programs:
             raise UnsupportedConstruct(
                 "qvr-stan", ["no program_decl: nothing to transpile"]
             )
+        program = next(
+            (p for p in programs if p.name in exported_names),
+            programs[-1],
+        )
 
         # Categorise program-body steps.
         samples: list[SampleStep] = []
@@ -223,16 +231,26 @@ class _StanWalker(SchemaTransform):
         for ss in score_steps:
             _emit_target_increment(ctx, model_id, ss.name)
 
+        # Generated quantities: expose return-vars that aren't
+        # already declared elsewhere (sampled vars, let-bound
+        # transformed parameters, and data observations are already
+        # in scope; redeclaring would be a Stan compile error).
+        already_declared = {sv for sam in samples for sv in sam.vars} | {
+            ls.name for ls in let_steps
+        } | {ss.name for ss in score_steps} | {obs.var for obs in observes}
+        gq_return_vars = tuple(
+            v for v in program.return_vars if v not in already_declared
+        )
         # Generated quantities: expose every variable named in the
         # program's `return` clause via `generated quantities { real
         # <var> = <var>; }`. Stan has no program-level return; this is
         # the idiomatic way to publish a sampled value for downstream
         # consumers (posterior summaries, etc.). Skip when the program
         # has no `return` clause.
-        if program.return_vars:
+        if gq_return_vars:
             gq_id = ctx.vertex("gq", "generated_quantities")
             ctx.edge("prog", gq_id, "child_of")
-            for var in program.return_vars:
+            for var in gq_return_vars:
                 _emit_real_assignment_decl(ctx, gq_id, var, rhs=var)
 
         return sb.build()
@@ -258,6 +276,9 @@ class _StanCtx:
 
     def literal(self, vid: str, text: str) -> None:
         self._sb.constraint(vid, "literal-value", text)
+
+    def constraint(self, vid: str, sort: str, value: str) -> None:
+        self._sb.constraint(vid, sort, value)
 
 
 def _is_ignorable(stmt: Statement) -> bool:

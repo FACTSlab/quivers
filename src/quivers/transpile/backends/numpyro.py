@@ -14,6 +14,8 @@ import didactic.api as dx
 import panproto
 
 from quivers.dsl.ast_nodes import (
+    ExportDecl,
+    ExprIdent,
     LetStep,
     Module,
     ObjectDecl,
@@ -215,31 +217,41 @@ class _NumPyroWalker(SchemaTransform):
 def _partition(
     module: Module, target: str
 ) -> tuple[ProgramDecl, list[ObjectDecl]]:
-    program: ProgramDecl | None = None
+    """Partition the module into the single program to emit plus
+    the object declarations that scope it.
+
+    When the module declares multiple `program_decl`s (common in
+    deep-learning gallery examples that define a helper cell program
+    plus the main unrolled program), the exported one is selected as
+    the main; if no `export_decl` names one, the LAST declared
+    program is chosen (mirrors the QVR runtime's default).
+    Non-selected programs are silently ignored as "helper" programs;
+    a richer backend could lift them to standalone functions.
+    """
+    programs: list[ProgramDecl] = []
+    exported_names: set[str] = set()
     objects: list[ObjectDecl] = []
     ignored_kinds: list[str] = []
     for stmt in module.statements:
         if isinstance(stmt, ProgramDecl):
-            if program is not None:
-                raise UnsupportedConstruct(
-                    target, ["multiple program_decl: backend transpiles one"]
-                )
-            program = stmt
+            programs.append(stmt)
         elif isinstance(stmt, ObjectDecl):
             objects.append(stmt)
+        elif isinstance(stmt, ExportDecl):
+            if isinstance(stmt.expr, ExprIdent):
+                exported_names.add(stmt.expr.name)
         elif _ignorable(stmt):
             ignored_kinds.append(str(stmt.kind))
             continue
         else:
             raise UnsupportedConstruct(target, [str(stmt.kind)])
-    if program is None:
-        # No probabilistic program to transpile. When the module only
-        # carries categorical-metadata declarations (composition_decl,
-        # category_decl, schema_decl, ...), report those statement
-        # kinds in the error so the construct-matrix test confirms
-        # the construct cell is correctly rejected at this layer.
+    if not programs:
         kinds = ignored_kinds or ["no program_decl: nothing to transpile"]
         raise UnsupportedConstruct(target, kinds)
+    program = next(
+        (p for p in programs if p.name in exported_names),
+        programs[-1],
+    )
     return program, objects
 
 

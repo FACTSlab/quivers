@@ -34,18 +34,19 @@ def render_let_expr_javascript(ctx, expr: LetExprNode) -> str:
         ctx.lit(v, f'"{expr.value}"')
         return v
     if isinstance(expr, LetExprBinOp):
+        # JavaScript tree-sitter's `binary_expression` has per-operator
+        # CHOICE alts. The operator is a literal token discriminated by
+        # `field:operator=<op>`, NOT a child vertex.
         b = ctx.v(ctx.fresh("bin"), "binary_expression")
+        ctx.constraint(b, "field:operator", expr.op)
+        ctx.constraint(b, "chose-alt-fingerprint", expr.op)
         ctx.e(b, render_let_expr_javascript(ctx, expr.left), "left")
-        op = ctx.v(ctx.fresh("op"), "operator")
-        ctx.lit(op, expr.op)
-        ctx.e(b, op, "operator")
         ctx.e(b, render_let_expr_javascript(ctx, expr.right), "right")
         return b
     if isinstance(expr, LetExprUnaryOp):
         u = ctx.v(ctx.fresh("uop"), "unary_expression")
-        op = ctx.v(ctx.fresh("op"), "operator")
-        ctx.lit(op, "-")
-        ctx.e(u, op, "operator")
+        ctx.constraint(u, "field:operator", "-")
+        ctx.constraint(u, "chose-alt-fingerprint", "-")
         ctx.e(u, render_let_expr_javascript(ctx, expr.operand), "argument")
         return u
     if isinstance(expr, LetExprCall):
