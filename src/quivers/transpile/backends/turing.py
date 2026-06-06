@@ -112,6 +112,23 @@ def _dist(
     family: str,
     args: tuple[str | float, ...] | None,
 ) -> str:
+    if family in ("HalfNormal", "HalfCauchy"):
+        # Turing.jl has no native HalfNormal / HalfCauchy. The standard
+        # encoding is `truncated(Normal(0, sigma), 0, Inf)` (for
+        # HalfNormal) and `truncated(Cauchy(0, gamma), 0, Inf)` (for
+        # HalfCauchy). The QVR family takes a single scale argument.
+        scale_args = tuple(args or ())
+        base_name = "Normal" if family == "HalfNormal" else "Cauchy"
+        base = call(
+            ctx,
+            ident(ctx, base_name),
+            positional=(arg(ctx, 0), *(arg(ctx, a) for a in scale_args)),
+        )
+        return call(
+            ctx,
+            ident(ctx, "truncated"),
+            positional=(base, arg(ctx, 0), ident(ctx, "Inf")),
+        )
     dist_name = _FAMILIES.get(family)
     if dist_name is None:
         raise UnsupportedConstruct("qvr-turing", [f"family:{family}"])

@@ -38,7 +38,11 @@ from quivers.transpile.backends._resolve import (
 # QVR family → (WebPPL distribution constructor name, positional arg names).
 _FAMILIES: dict[str, tuple[str, tuple[str, ...]]] = {
     "Normal":       ("Gaussian", ("mu", "sigma")),
-    "HalfNormal":   ("Gaussian", ("mu", "sigma")),
+    # HalfNormal in QVR takes a single `sigma` argument (the half is
+    # the support restriction, mu is fixed at 0). WebPPL's Gaussian
+    # is the unrestricted normal; we emit it with mu=0 (kw not in args)
+    # via the one-argument signature.
+    "HalfNormal":   ("Gaussian", ("sigma",)),
     "Beta":         ("Beta", ("a", "b")),
     "Bernoulli":    ("Bernoulli", ("p",)),
     "Categorical":  ("Categorical", ("ps",)),
@@ -49,7 +53,8 @@ _FAMILIES: dict[str, tuple[str, tuple[str, ...]]] = {
     "Laplace":      ("Laplace", ("location", "scale")),
     "LogNormal":    ("LogNormal", ("mu", "sigma")),
     "MultivariateNormal": ("MultivariateGaussian", ("mu", "cov")),
-    "StudentT":     ("StudentT", ("nu",)),
+    # StudentT canonical parameterization is (nu, mu, sigma).
+    "StudentT":     ("StudentT", ("nu", "mu", "sigma")),
     "Uniform":      ("Uniform", ("a", "b")),
 }
 
