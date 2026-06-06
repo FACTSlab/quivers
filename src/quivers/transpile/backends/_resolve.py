@@ -135,9 +135,12 @@ def resolve_step_dist(
         membership in this tuple.
     """
     if morphism_name in family_registry:
+        args = raw_args or ()
+        if not args:
+            args = _FAMILY_DEFAULT_ARGS.get(morphism_name, ())
         return ResolvedDist(
             family=morphism_name,
-            args=raw_args or (),
+            args=args,
             original_morphism_name=morphism_name,
         )
 

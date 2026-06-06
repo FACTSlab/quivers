@@ -37,6 +37,7 @@ from quivers.transpile.backends._resolve import (
 # QVR family → Church / Scheme distribution constructor symbol.
 _FAMILIES: dict[str, str] = {
     "Normal": "gaussian", "HalfNormal": "gaussian", "Cauchy": "cauchy",
+    "HalfCauchy": "cauchy",
     "Bernoulli": "flip", "Beta": "beta", "Categorical": "categorical",
     "Dirichlet": "dirichlet", "Exponential": "exponential",
     "Gamma": "gamma", "Uniform": "uniform", "Pareto": "pareto",

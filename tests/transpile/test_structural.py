@@ -125,31 +125,24 @@ export prog
 """
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason=(
-        "qvr-turing maps HalfNormal/HalfCauchy to `truncated(...)` "
-        "with two args (the dist and the scale literal) instead of "
-        "three (Normal(0, sigma), lower=0, upper=Inf). The emitted "
-        "call_expression has wrong arity. Tracked in backends/turing.py "
-        "_FAMILIES table."
-    ),
-)
 def test_turing_halfnormal_emits_truncated_with_lower_bound() -> None:
-    """Turing's HalfNormal must emit `truncated(Normal(0, sigma);
-    lower=0)` — a three-argument call (or a tilde to `truncated`
-    with the bound included)."""
+    """Turing's HalfNormal must emit `truncated(Normal(0, sigma), 0,
+    Inf)` -- a three-argument call to `truncated` -- since Turing's
+    `HalfNormal` distribution is not parameterized identically and
+    canonical practice is `truncated(Normal(0, σ), 0, Inf)`."""
     schema = _transpile_to_schema("turing", _TURING_HALFNORMAL)
     truncated_calls = [
         v.id for v in schema.vertices
         if v.kind == "call_expression"
-        and _truncated_call(schema, v.id)
+        and _julia_call_is_named(schema, v.id, "truncated")
     ]
     assert truncated_calls, "no truncated() call found"
+    vertex_kinds = {v.id: v.kind for v in schema.vertices}
     for call_id in truncated_calls:
-        arg_lists = _structural.outgoing_edges_named(
-            schema, call_id, "arguments"
-        )
+        arg_lists = [
+            e.tgt for e in schema.outgoing_edges(call_id)
+            if vertex_kinds.get(e.tgt) == "argument_list"
+        ]
         assert arg_lists, f"truncated call {call_id!r} has no argument_list"
         args = _structural.children_of(schema, arg_lists[0])
         assert len(args) >= 3, (
@@ -158,12 +151,22 @@ def test_turing_halfnormal_emits_truncated_with_lower_bound() -> None:
         )
 
 
-def _truncated_call(schema: panproto.Schema, call_id: str) -> bool:
-    fn_targets = _structural.outgoing_edges_named(schema, call_id, "function")
-    return (
-        len(fn_targets) == 1
-        and _structural.literal_value(schema, fn_targets[0]) == "truncated"
-    )
+def _julia_call_is_named(
+    schema: panproto.Schema, call_id: str, name: str
+) -> bool:
+    """A Julia `call_expression` whose callee is an identifier with
+    the given literal-value. Julia's tree-sitter grammar emits the
+    callee as the first un-named child rather than a `function`-field
+    edge (which is the Python convention)."""
+    for edge in schema.outgoing_edges(call_id):
+        tgt = next(
+            (v for v in schema.vertices if v.id == edge.tgt), None
+        )
+        if tgt is None or tgt.kind != "identifier":
+            continue
+        if _structural.literal_value(schema, edge.tgt) == name:
+            return True
+    return False
 
 
 # ---------------------------------------------------------------------------
