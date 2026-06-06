@@ -1,0 +1,303 @@
+"""AST preprocessing: expand composite-let bindings into sample chains.
+
+A `let chain = prior >> likelihood` binding turns a single
+`sample x <- chain` step into the equivalent chain of sample steps
+
+    sample _chain_0 <- prior
+    sample x       <- likelihood
+
+where the second step's parameters are derived from the first step's
+output (the Kleisli composition of the two kernels). Without this
+pre-pass, the transpile resolver raises
+`UnsupportedConstruct(kinds=["let:composite_expression:..."])` on the
+composite expression.
+
+The pass operates at the Module level: it rebuilds every
+`program_decl` in place, replacing each affected SampleStep / ObserveStep
+with its expanded chain. Non-composite let bindings (`let a = b`) are
+left to the resolver's existing alias-unfolding path.
+
+When a kernel morphism in a chain has no explicit init args (the
+common `morphism foo : T -> T [role=kernel] ~ Family` form), the
+expansion fills in canonical default parameters for the family:
+location/scale families like `Normal` get `(prev, 1.0)` where `prev`
+is the upstream step's output variable (or `0.0` at the head of the
+chain); shape/rate families like `Gamma` get canonical defaults
+`(1.0, 1.0)`. The defaults are deliberately mild priors and match the
+Bayesian intuition that an unparameterized kernel in a Kleisli chain
+is a standard kernel centered on its input.
+"""
+
+from __future__ import annotations
+
+from quivers.dsl.ast_nodes import (
+    Expr,
+    ExprCompose,
+    ExprIdent,
+    LetDecl,
+    Module,
+    MorphismDecl,
+    ObserveStep,
+    ProgramDecl,
+    ProgramStep,
+    SampleStep,
+)
+
+
+# Canonical default args per family for kernels that ship `~ Family`
+# with no init args. The first arg becomes `prev_output` when the
+# step is mid-chain; remaining args use these defaults verbatim.
+_FAMILY_DEFAULT_ARGS: dict[str, tuple[float, ...]] = {
+    "Normal":       (0.0, 1.0),
+    "HalfNormal":   (1.0,),
+    "Cauchy":       (0.0, 1.0),
+    "HalfCauchy":   (1.0,),
+    "Laplace":      (0.0, 1.0),
+    "LogNormal":    (0.0, 1.0),
+    "Beta":         (1.0, 1.0),
+    "Bernoulli":    (0.5,),
+    "Gamma":        (1.0, 1.0),
+    "InverseGamma": (1.0, 1.0),
+    "Exponential":  (1.0,),
+    "Uniform":      (0.0, 1.0),
+    "StudentT":     (1.0, 0.0, 1.0),
+    "Pareto":       (1.0, 1.0),
+    "Weibull":      (1.0, 1.0),
+    "Categorical":  (),
+    "Dirichlet":    (),
+    "MultivariateNormal": (),
+}
+
+
+def expand_composite_lets(module: Module) -> Module:
+    """Rewrite `program_decl` bodies so composite-let sample steps
+    become equivalent chains of atomic sample steps.
+
+    A composite let is a `LetDecl` whose `.expr` is an `ExprCompose`
+    (the `prior >> likelihood` form). Each `SampleStep` /
+    `ObserveStep` whose `morphism` slot names such a let is rewritten
+    into a sequence of fresh `SampleStep`s, one per element of the
+    composition chain, with the trailing step keeping the original
+    step's bound variable name.
+
+    The returned `Module` shares vertex identity with the input for
+    every non-rewritten statement; only the `program_decl`s with
+    composite-let references are rebuilt.
+    """
+    morphism_table: dict[str, MorphismDecl] = {
+        s.name: s for s in module.statements if isinstance(s, MorphismDecl)
+    }
+    let_table: dict[str, Expr] = {
+        s.name: s.expr for s in module.statements if isinstance(s, LetDecl)
+    }
+
+    new_statements: list = []
+    for stmt in module.statements:
+        if isinstance(stmt, ProgramDecl):
+            new_draws = _expand_draws(
+                stmt.draws,
+                morphisms=morphism_table,
+                lets=let_table,
+            )
+            if new_draws is stmt.draws:
+                new_statements.append(stmt)
+            else:
+                new_statements.append(stmt.with_(draws=tuple(new_draws)))
+        else:
+            new_statements.append(stmt)
+    return module.with_(statements=tuple(new_statements))
+
+
+def _expand_draws(
+    draws: tuple[ProgramStep, ...],
+    *,
+    morphisms: dict[str, MorphismDecl],
+    lets: dict[str, Expr],
+) -> tuple[ProgramStep, ...]:
+    """Expand every SampleStep / ObserveStep whose morphism slot
+    resolves to a composite-let chain."""
+    any_changed = False
+    out: list[ProgramStep] = []
+    counter = 0
+    for step in draws:
+        if isinstance(step, (SampleStep, ObserveStep)):
+            chain = _resolve_to_chain(step.morphism, morphisms=morphisms, lets=lets)
+            if chain is not None:
+                any_changed = True
+                expanded, counter = _expand_step(
+                    step, chain, morphisms=morphisms, counter=counter
+                )
+                out.extend(expanded)
+                continue
+        out.append(step)
+    return tuple(out) if any_changed else draws
+
+
+def _resolve_to_chain(
+    name: str,
+    *,
+    morphisms: dict[str, MorphismDecl],
+    lets: dict[str, Expr],
+    _seen: tuple[str, ...] = (),
+) -> tuple[str, ...] | None:
+    """If `name` is a composite-let binding, return the ordered tuple
+    of morphism / family names in the composition chain. Otherwise
+    return None.
+
+    Resolves through alias chains: `let a = b; let b = c >> d` returns
+    `(c, d)`.
+    """
+    if name in _seen:
+        return None
+    if name not in lets:
+        return None
+    expr = lets[name]
+    if isinstance(expr, ExprIdent):
+        return _resolve_to_chain(
+            expr.name,
+            morphisms=morphisms,
+            lets=lets,
+            _seen=(*_seen, name),
+        )
+    if isinstance(expr, ExprCompose):
+        return _flatten_compose(expr)
+    return None
+
+
+def _flatten_compose(expr: ExprCompose) -> tuple[str, ...]:
+    """Flatten a (possibly nested) ExprCompose into a tuple of
+    ExprIdent names from left to right.
+
+    Raises ValueError if any leaf is not an ExprIdent (only handle
+    name-based chains for now).
+    """
+    out: list[str] = []
+    def walk(e: Expr) -> None:
+        if isinstance(e, ExprCompose):
+            walk(e.left)
+            walk(e.right)
+        elif isinstance(e, ExprIdent):
+            out.append(e.name)
+        else:
+            raise ValueError(
+                f"composite-let chain contains a non-identifier leaf "
+                f"of kind {type(e).__name__!r}; only `name >> name` "
+                f"chains are expanded"
+            )
+    walk(expr)
+    return tuple(out)
+
+
+def _expand_step(
+    step: SampleStep | ObserveStep,
+    chain: tuple[str, ...],
+    *,
+    morphisms: dict[str, MorphismDecl],
+    counter: int,
+) -> tuple[list[ProgramStep], int]:
+    """Convert a single sample / observe step that references a
+    composite-let chain into N atomic sample steps.
+
+    The first N-1 steps are fresh latent samples named
+    `_<name>_<counter>`; the final step keeps the original step's
+    bound variable name.
+    """
+    if len(chain) < 2:
+        return [step], counter
+    out: list[ProgramStep] = []
+    prev_var: str | None = None
+    base_name = (
+        step.vars[0] if isinstance(step, SampleStep) and step.vars
+        else step.var if isinstance(step, ObserveStep) else "tmp"
+    )
+    for i, morphism_name in enumerate(chain):
+        is_last = i == len(chain) - 1
+        if is_last:
+            if isinstance(step, ObserveStep):
+                terminal_var = step.var
+            else:
+                terminal_var = base_name
+        else:
+            counter += 1
+            terminal_var = f"_{base_name}_chain_{counter}"
+        args = _derive_chain_args(
+            morphism_name=morphism_name,
+            prev_var=prev_var,
+            morphisms=morphisms,
+        )
+        if is_last and isinstance(step, ObserveStep):
+            out.append(ObserveStep(
+                var=terminal_var,
+                morphism=morphism_name,
+                args=args,
+                index=step.index,
+                axes=step.axes,
+                via=step.via,
+                via_axes=step.via_axes,
+                options=step.options,
+                line=step.line,
+                col=step.col,
+            ))
+        else:
+            sample_options = (
+                step.options if (is_last and isinstance(step, SampleStep)) else ()
+            )
+            sample_axes = (
+                step.axes if (is_last and isinstance(step, SampleStep)) else None
+            )
+            sample_index = (
+                step.index if (is_last and isinstance(step, SampleStep)) else None
+            )
+            out.append(SampleStep(
+                vars=(terminal_var,),
+                morphism=morphism_name,
+                args=args,
+                index=sample_index,
+                axes=sample_axes,
+                options=sample_options,
+                line=step.line,
+                col=step.col,
+            ))
+        prev_var = terminal_var
+    return out, counter
+
+
+def _derive_chain_args(
+    *,
+    morphism_name: str,
+    prev_var: str | None,
+    morphisms: dict[str, MorphismDecl],
+) -> tuple[str | float, ...]:
+    """Compute the chain-position args for a kernel morphism.
+
+    If the morphism declaration carries explicit `~ Family(args)`,
+    those args are used verbatim. Otherwise the kernel is `~ Family`
+    with no explicit args, and we substitute canonical defaults: the
+    first arg is the upstream step's output variable name (when one
+    exists) or the family's first default; remaining args are the
+    family's default tail.
+    """
+    decl = morphisms.get(morphism_name)
+    family: str | None = None
+    explicit_args: tuple[str | float, ...] = ()
+    if decl is not None:
+        if decl.init_family is not None:
+            family = decl.init_family.family
+            explicit_args = decl.init_family.args
+        elif isinstance(decl.init_expr, ExprIdent):
+            family = decl.init_expr.name
+    if explicit_args:
+        return explicit_args
+    if family is None:
+        return ()
+    defaults = _FAMILY_DEFAULT_ARGS.get(family)
+    if defaults is None:
+        return ()
+    if prev_var is None:
+        return defaults
+    if not defaults:
+        return ()
+    return (prev_var, *defaults[1:])
+
+
+__all__ = ["expand_composite_lets"]
