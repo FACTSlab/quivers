@@ -14,7 +14,7 @@ from __future__ import annotations
 import didactic.api as dx
 import panproto
 
-from quivers.dsl.ast_nodes import Module
+from quivers.dsl.ast_nodes import LetStep, Module
 from quivers.transpile._api import STAN_LIKE, UnsupportedConstruct, unsupported_for
 from quivers.transpile._pipeline import (
     SchemaTransform,
@@ -30,6 +30,7 @@ from quivers.transpile.backends._juliahelpers import (
     macro_call,
     tilde_assignment,
 )
+from quivers.transpile.backends._letexpr_julia import render_let_expr_julia
 from quivers.transpile.backends.numpyro import _partition, _program_steps
 from quivers.transpile.backends._resolve import (
     build_let_table,
@@ -49,6 +50,7 @@ _FAMILIES: dict[str, str] = {
     "Weibull": "Weibull",
     "MatrixNormal": "MatrixNormal",
     "GP": "MvNormal",
+    "Horseshoe": "Normal",
 }
 
 
@@ -83,6 +85,16 @@ class _TuringWalker(SchemaTransform):
             )
             rhs = _dist(ctx, family=resolved.family, args=resolved.args)
             ctx.e(body, tilde_assignment(ctx, ident(ctx, obs.var), rhs))
+
+        for let_step in program.draws:
+            if isinstance(let_step, LetStep):
+                asn = ctx.v(ctx.fresh("asn"), "assignment")
+                ctx.e(asn, ident(ctx, let_step.name))
+                op = ctx.v(ctx.fresh("op"), "operator")
+                ctx.lit(op, "=")
+                ctx.e(asn, op)
+                ctx.e(asn, render_let_expr_julia(ctx, let_step.value))
+                ctx.e(body, asn)
 
         # `return <var>` clause: emit a return_statement at the end of
         # the model body for every return_var. Tuple returns become a

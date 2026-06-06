@@ -14,7 +14,7 @@ from __future__ import annotations
 import didactic.api as dx
 import panproto
 
-from quivers.dsl.ast_nodes import Module, ReturnStep
+from quivers.dsl.ast_nodes import LetStep, Module, ReturnStep
 from quivers.transpile._api import STAN_LIKE, UnsupportedConstruct, unsupported_for
 from quivers.transpile._pipeline import (
     SchemaTransform,
@@ -31,6 +31,7 @@ from quivers.transpile.backends._pyhelpers import (
     string_literal,
 )
 from quivers.transpile.backends.numpyro import (
+    _emit_python_let_step,
     _emit_python_return,
     _partition,
     _program_steps,
@@ -54,6 +55,7 @@ _FAMILIES: dict[str, str] = {
     "Wishart": "Wishart",
     "MatrixNormal": "MatrixNormalLinearOperator",
     "GP": "GaussianProcess",
+    "Horseshoe": "Normal",
 }
 
 
@@ -88,6 +90,9 @@ class _Edward2Walker(SchemaTransform):
                 rhs = _ed_rv(ctx, name=var, family=resolved.family,
                              args=resolved.args)
                 ctx.e(body, assignment(ctx, lhs_name=var, rhs=rhs), "child_of")
+        for let_step in program.draws:
+            if isinstance(let_step, LetStep):
+                _emit_python_let_step(ctx, body, let_step)
         for obs in observes:
             resolved = resolve_step_dist(
                 obs.morphism, obs.args,

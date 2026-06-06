@@ -228,7 +228,7 @@ def _from_init_family(
 # Mirror of `_expand_composites._FAMILY_DEFAULT_ARGS` for
 # resolver-side use (the expansion pass does in-chain substitution,
 # this fallback is for standalone kernels).
-_FAMILY_DEFAULT_ARGS: dict[str, tuple[float, ...]] = {
+_FAMILY_DEFAULT_ARGS: dict[str, tuple[str | float, ...]] = {
     "Normal":       (0.0, 1.0),
     "HalfNormal":   (1.0,),
     "Cauchy":       (0.0, 1.0),
@@ -244,6 +244,13 @@ _FAMILY_DEFAULT_ARGS: dict[str, tuple[float, ...]] = {
     "StudentT":     (1.0, 0.0, 1.0),
     "Pareto":       (1.0, 1.0),
     "Weibull":      (1.0, 1.0),
+    # Multivariate-shape families: placeholder mu / cov vector
+    # literals so the resolved call has the standard 2-arg signature
+    # WebPPL / NumPyro / Stan / PyMC expect. Real GP / MatrixNormal
+    # emission would derive these from declared axis types.
+    "MultivariateNormal": ("[0.0]", "[[1.0]]"),
+    "GP":                 ("[0.0]", "[[1.0]]"),
+    "MatrixNormal":       ("[0.0]", "[[1.0]]"),
 }
 
 

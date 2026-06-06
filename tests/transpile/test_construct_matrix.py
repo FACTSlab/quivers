@@ -73,23 +73,10 @@ def _expected_unsupported_kinds(fixture: _load.Fixture, backend: str) -> set[str
 # When the walker grows the case, the strict-xfail flips to a failure
 # and the entry is removed.
 _KNOWN_WALKER_GAPS: dict[str, str] = {
-    "let_step": (
-        "walker does not emit LetStep bodies; raises "
-        "UnsupportedConstruct(kinds=['step:let_step'])"
-    ),
     "score_step": (
         "walker does not emit ScoreStep; raises "
         "UnsupportedConstruct(kinds=['step:score_step'])"
     ),
-    "let_expr_binop": "walker raises on LetStep in body",
-    "let_expr_unary": "walker raises on LetStep in body",
-    "let_expr_call": "walker raises on LetStep in body",
-    "let_expr_literal": "walker raises on LetStep in body",
-    "let_expr_var": "walker raises on LetStep in body",
-    "let_expr_index": "walker raises on LetStep in body",
-    "let_expr_list": "walker raises on LetStep in body",
-    "let_expr_lambda": "walker raises on LetStep in body",
-    "let_expr_factor": "walker raises on LetStep in body",
 }
 
 

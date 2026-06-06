@@ -14,6 +14,7 @@ import didactic.api as dx
 import panproto
 
 from quivers.dsl.ast_nodes import (
+    LetStep,
     Module,
     ObjectDecl,
     ObserveStep,
@@ -38,11 +39,25 @@ from quivers.transpile.backends._pyhelpers import (
     identifier,
     string_literal,
 )
+from quivers.transpile.backends._letexpr_python import (
+    render_let_expr_python,
+)
 from quivers.transpile.backends._resolve import (
     build_let_table,
     build_morphism_table,
     resolve_step_dist,
 )
+
+
+def _emit_python_let_step(ctx: PyCtx, body_vid: str, step: LetStep) -> None:
+    """Emit a deterministic `<name> = <expr>` assignment inside the
+    model body for a `LetStep`."""
+    asn = ctx.v(ctx.fresh("asn"), "assignment")
+    lhs = ctx.v(ctx.fresh("id"), "identifier")
+    ctx.literal(lhs, step.name)
+    ctx.e(asn, lhs, "left")
+    ctx.e(asn, render_let_expr_python(ctx, step.value), "right")
+    ctx.e(body_vid, asn, "child_of")
 
 
 def _emit_python_return(
@@ -77,6 +92,7 @@ _FAMILIES: dict[str, str] = {
     "InverseGamma": "InverseGamma", "Laplace": "Laplace",
     "LogNormal": "LogNormal", "MultivariateNormal": "MultivariateNormal",
     "GP": "MultivariateNormal", "MatrixNormal": "MultivariateNormal",
+    "Horseshoe": "Normal",
     "Pareto": "Pareto", "StudentT": "StudentT", "Uniform": "Uniform",
     "Weibull": "Weibull", "Gumbel": "Gumbel", "Chi2": "Chi2",
     "ContinuousBernoulli": "ContinuousBernoulli", "Wishart": "Wishart",
@@ -119,6 +135,9 @@ class _NumPyroWalker(SchemaTransform):
                     args=resolved.args, obs_name=None,
                 )
                 ctx.e(body, assignment(ctx, lhs_name=var, rhs=rhs), "child_of")
+        for let_step in program.draws:
+            if isinstance(let_step, LetStep):
+                _emit_python_let_step(ctx, body, let_step)
         for obs in observes:
             resolved = resolve_step_dist(
                 obs.morphism, obs.args,
@@ -174,6 +193,10 @@ def _program_steps(
             samples.append(step)
         elif isinstance(step, ObserveStep):
             observes.append(step)
+        elif isinstance(step, LetStep):
+            # LetStep is emitted separately in the walker body after
+            # the sample loop; skip here.
+            continue
         else:
             raise UnsupportedConstruct(target, [f"step:{step.kind}"])
     return samples, observes
