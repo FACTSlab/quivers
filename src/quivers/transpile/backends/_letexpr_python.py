@@ -44,18 +44,20 @@ def render_let_expr_python(ctx, expr: LetExprNode) -> str:
         ctx.literal(v, f'"{expr.value}"')
         return v
     if isinstance(expr, LetExprBinOp):
+        # Python tree-sitter's `binary_operator` has CHOICE alts per
+        # operator (`+`, `-`, `*`, `**`, etc.). The walker discriminates
+        # via the `field:operator` constraint on the binary_operator
+        # vertex itself; no separate operator vertex is needed.
         b = ctx.v(ctx.fresh("bop"), "binary_operator")
+        ctx.constraint(b, "field:operator", expr.op)
+        ctx.constraint(b, "chose-alt-fingerprint", expr.op)
         ctx.e(b, render_let_expr_python(ctx, expr.left), "left")
-        op = ctx.v(ctx.fresh("op"), "operator")
-        ctx.literal(op, expr.op)
-        ctx.e(b, op, "operator")
         ctx.e(b, render_let_expr_python(ctx, expr.right), "right")
         return b
     if isinstance(expr, LetExprUnaryOp):
         u = ctx.v(ctx.fresh("uop"), "unary_operator")
-        op = ctx.v(ctx.fresh("op"), "operator")
-        ctx.literal(op, "-")
-        ctx.e(u, op, "operator")
+        ctx.constraint(u, "field:operator", "-")
+        ctx.constraint(u, "chose-alt-fingerprint", "-")
         ctx.e(u, render_let_expr_python(ctx, expr.operand), "argument")
         return u
     if isinstance(expr, LetExprCall):
