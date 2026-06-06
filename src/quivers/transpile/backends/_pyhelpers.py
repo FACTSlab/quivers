@@ -36,6 +36,9 @@ class PyCtx:
     def literal(self, vid: str, text: str) -> None:
         self._sb.constraint(vid, "literal-value", text)
 
+    def constraint(self, vid: str, sort: str, value: str) -> None:
+        self._sb.constraint(vid, sort, value)
+
 
 def identifier(ctx: PyCtx, text: str) -> str:
     """Emit an ``identifier`` vertex carrying ``text``."""
