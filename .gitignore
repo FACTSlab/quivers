@@ -56,3 +56,4 @@ editors/vscode-qvr/*.vsix
 grammars/qvr/parser.dylib
 grammars/qvr/parser.so
 grammars/qvr/parser.dll
+papers/
