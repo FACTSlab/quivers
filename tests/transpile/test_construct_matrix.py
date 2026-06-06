@@ -72,12 +72,7 @@ def _expected_unsupported_kinds(fixture: _load.Fixture, backend: str) -> set[str
 # statement is in the support tier. Each maps fixture stem → reason.
 # When the walker grows the case, the strict-xfail flips to a failure
 # and the entry is removed.
-_KNOWN_WALKER_GAPS: dict[str, str] = {
-    "score_step": (
-        "walker does not emit ScoreStep; raises "
-        "UnsupportedConstruct(kinds=['step:score_step'])"
-    ),
-}
+_KNOWN_WALKER_GAPS: dict[str, str] = {}
 
 
 def _construct_fixtures() -> list[_load.Fixture]:

@@ -18,7 +18,7 @@ from __future__ import annotations
 import didactic.api as dx
 import panproto
 
-from quivers.dsl.ast_nodes import LetStep, Module
+from quivers.dsl.ast_nodes import LetStep, Module, ScoreStep
 from quivers.transpile._api import CHURCH_LIKE, UnsupportedConstruct, unsupported_for
 from quivers.transpile._pipeline import (
     SchemaTransform,
@@ -153,15 +153,28 @@ class _ChurchWalker(SchemaTransform):
                 _sym(ctx, obs.var),
             ))
             body_forms.append(obs_form)
-        for let_step in program.draws:
-            if isinstance(let_step, LetStep):
+        for body_step in program.draws:
+            if isinstance(body_step, LetStep):
                 # (define <name> <expr>)
                 define_form = _list(ctx, (
                     _sym(ctx, "define"),
-                    _sym(ctx, let_step.name),
-                    render_let_expr_scheme(ctx, let_step.value),
+                    _sym(ctx, body_step.name),
+                    render_let_expr_scheme(ctx, body_step.value),
                 ))
                 body_forms.append(define_form)
+            elif isinstance(body_step, ScoreStep):
+                # (define <name> <expr>) followed by (factor <name>).
+                define_form = _list(ctx, (
+                    _sym(ctx, "define"),
+                    _sym(ctx, body_step.name),
+                    render_let_expr_scheme(ctx, body_step.value),
+                ))
+                body_forms.append(define_form)
+                factor_form = _list(ctx, (
+                    _sym(ctx, "factor"),
+                    _sym(ctx, body_step.name),
+                ))
+                body_forms.append(factor_form)
         return_vars = program.return_vars or ()
         for rv in return_vars:
             body_forms.append(_sym(ctx, rv))
