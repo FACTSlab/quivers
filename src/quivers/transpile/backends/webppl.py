@@ -177,24 +177,26 @@ class _WebPPLWalker(SchemaTransform):
             ctx.e(stmt, obs_call, "child_of")
             ctx.e(body, stmt, "child_of")
 
-        for step in program.draws:
-            if isinstance(step, ReturnStep):
-                _emit_webppl_return(ctx, body, step)
+        _emit_webppl_return(ctx, body, tuple(program.return_vars))
         return sb.build()
 
 
-def _emit_webppl_return(ctx: _Ctx, body_vid: str, step: ReturnStep) -> str:
+def _emit_webppl_return(
+    ctx: _Ctx, body_vid: str, return_vars: tuple[str, ...]
+) -> None:
     """Emit ``return <var>;`` as a `return_statement` inside ``body_vid``.
 
     WebPPL's grammar is JavaScript; multi-var returns use a JS array
-    expression (`return [a, b];`).
+    expression (`return [a, b];``).
     """
+    if not return_vars:
+        return
     rs = ctx.v(ctx.fresh("ret"), "return_statement")
-    if len(step.vars) == 1:
-        ctx.e(rs, _ident(ctx, step.vars[0]), "child_of")
+    if len(return_vars) == 1:
+        ctx.e(rs, _ident(ctx, return_vars[0]), "child_of")
     else:
         arr = ctx.v(ctx.fresh("arr"), "array")
-        for var in step.vars:
+        for var in return_vars:
             ctx.e(arr, _ident(ctx, var), "child_of")
         ctx.e(rs, arr, "child_of")
     ctx.e(body_vid, rs, "child_of")

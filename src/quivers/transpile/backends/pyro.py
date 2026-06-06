@@ -96,9 +96,7 @@ class _PyroWalker(SchemaTransform):
                                      args=resolved.args, obs_name=obs.var)
             ctx.e(body, call_expr, "child_of")
 
-        for step in program.draws:
-            if isinstance(step, ReturnStep):
-                _emit_python_return(ctx, body, step)
+        _emit_python_return(ctx, body, tuple(program.return_vars))
 
         return sb.build()
 

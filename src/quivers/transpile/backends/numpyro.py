@@ -45,7 +45,9 @@ from quivers.transpile.backends._resolve import (
 )
 
 
-def _emit_python_return(ctx: PyCtx, body_vid: str, step: ReturnStep) -> None:
+def _emit_python_return(
+    ctx: PyCtx, body_vid: str, return_vars: tuple[str, ...]
+) -> None:
     """Emit ``return <var>`` or ``return (<a>, <b>, ...)`` as a Python
     `return_statement` inside ``body_vid``.
 
@@ -53,12 +55,14 @@ def _emit_python_return(ctx: PyCtx, body_vid: str, step: ReturnStep) -> None:
     ``return_statement → identifier``; a tuple return wraps in an
     ``expression_list`` of children.
     """
+    if not return_vars:
+        return
     rs = ctx.v(ctx.fresh("ret"), "return_statement")
-    if len(step.vars) == 1:
-        ctx.e(rs, identifier(ctx, step.vars[0]), "child_of")
+    if len(return_vars) == 1:
+        ctx.e(rs, identifier(ctx, return_vars[0]), "child_of")
     else:
         elist = ctx.v(ctx.fresh("elist"), "expression_list")
-        for var in step.vars:
+        for var in return_vars:
             ctx.e(elist, identifier(ctx, var), "child_of")
         ctx.e(rs, elist, "child_of")
     ctx.e(body_vid, rs, "child_of")
@@ -126,10 +130,10 @@ class _NumPyroWalker(SchemaTransform):
             )
             ctx.e(body, call_expr, "child_of")
 
-        # Emit `return <vars>` for the ReturnStep, if any.
-        for step in program.draws:
-            if isinstance(step, ReturnStep):
-                _emit_python_return(ctx, body, step)
+        # Emit `return <vars>` from the ProgramDecl's return_vars
+        # (the parser stores the return on the declaration, not as
+        # a separate ReturnStep in `draws`).
+        _emit_python_return(ctx, body, tuple(program.return_vars))
 
         return sb.build()
 
@@ -169,8 +173,6 @@ def _program_steps(
             samples.append(step)
         elif isinstance(step, ObserveStep):
             observes.append(step)
-        elif isinstance(step, ReturnStep):
-            continue
         else:
             raise UnsupportedConstruct(target, [f"step:{step.kind}"])
     return samples, observes

@@ -30,10 +30,12 @@ from quivers.transpile.backends._pyhelpers import (
     assignment,
     attribute,
     call,
+    function_def,
     identifier,
     string_literal,
     with_statement,
 )
+from quivers.transpile.backends.numpyro import _emit_python_return
 from quivers.transpile.backends.numpyro import _partition, _program_steps
 from quivers.transpile.backends._resolve import (
     build_let_table,
@@ -69,12 +71,17 @@ class _PyMCWalker(SchemaTransform):
         lets = build_let_table(module)
         family_set = frozenset(_FAMILIES)
 
-        # `pymc.Model()` call (the with-expression)
+        # Wrap the `with pymc.Model() as model: ...` block in a
+        # `def model_fn(y=None): ...` function so we can attach a
+        # module-level return clause. PyMC programs are commonly
+        # wrapped this way (a single function that constructs the
+        # model and returns it / the latent variables of interest).
+        fn_body = ctx.v(ctx.fresh("fbody"), "block")
         model_call = call(ctx, attribute(ctx, ("pymc", "Model")))
         with_body = ctx.v(ctx.fresh("wbody"), "block")
         ws = with_statement(ctx, expression=model_call, alias="model",
                             body_vid=with_body)
-        ctx.e("mod", ws, "child_of")
+        ctx.e(fn_body, ws, "child_of")
 
         for sam in samples:
             resolved = resolve_step_dist(
@@ -97,6 +104,18 @@ class _PyMCWalker(SchemaTransform):
                            args=resolved.args, observed_name=obs.var)
             ctx.e(with_body, assignment(ctx, lhs_name=obs.var, rhs=rhs),
                   "child_of")
+
+        # Trailing `return <vars>` inside the function body (outside
+        # the `with` block).
+        if program.return_vars:
+            _emit_python_return(ctx, fn_body, tuple(program.return_vars))
+
+        fn = function_def(
+            ctx, name="build_model",
+            default_params=tuple(o.var for o in observes),
+            body_vid=fn_body,
+        )
+        ctx.e("mod", fn, "child_of")
 
         return sb.build()
 
