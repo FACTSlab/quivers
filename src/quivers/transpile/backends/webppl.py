@@ -56,6 +56,8 @@ _FAMILIES: dict[str, tuple[str, tuple[str, ...]]] = {
     # StudentT canonical parameterization is (nu, mu, sigma).
     "StudentT":     ("StudentT", ("nu", "mu", "sigma")),
     "Uniform":      ("Uniform", ("a", "b")),
+    "GP":           ("MultivariateGaussian", ("mu", "cov")),
+    "MatrixNormal": ("MultivariateGaussian", ("mu", "cov")),
 }
 
 

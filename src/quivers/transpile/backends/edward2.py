@@ -52,6 +52,8 @@ _FAMILIES: dict[str, str] = {
     "MultivariateNormal": "MultivariateNormalFullCovariance",
     "Pareto": "Pareto", "StudentT": "StudentT", "Uniform": "Uniform",
     "Wishart": "Wishart",
+    "MatrixNormal": "MatrixNormalLinearOperator",
+    "GP": "GaussianProcess",
 }
 
 

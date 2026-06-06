@@ -56,6 +56,7 @@ _FAMILIES: dict[str, str] = {
     "Gumbel": "Gumbel", "ChiSquared": "ChiSquared", "Chi2": "ChiSquared",
     "Wishart": "Wishart",
     "MatrixNormal": "MatrixNormal",
+    "GP": "MvNormal",
 }
 
 

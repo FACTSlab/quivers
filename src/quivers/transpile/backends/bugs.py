@@ -43,6 +43,7 @@ _FAMILIES: dict[str, str] = {
     "Uniform": "dunif", "Pareto": "dpar", "LogNormal": "dlnorm",
     "MultivariateNormal": "dmnorm", "Wishart": "dwish",
     "Chi2": "dchisqr",
+    "GP": "dmnorm", "MatrixNormal": "dmnorm",
 }
 
 

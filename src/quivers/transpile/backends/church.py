@@ -40,6 +40,8 @@ _FAMILIES: dict[str, str] = {
     "Dirichlet": "dirichlet", "Exponential": "exponential",
     "Gamma": "gamma", "Uniform": "uniform", "Pareto": "pareto",
     "LogNormal": "lognormal", "StudentT": "student-t",
+    "MultivariateNormal": "multivariate-gaussian",
+    "GP": "multivariate-gaussian", "MatrixNormal": "multivariate-gaussian",
 }
 
 

@@ -74,6 +74,15 @@ _FAMILIES: dict[str, str] = {
     "StudentT": "student_t",
     "Uniform": "uniform",
     "Weibull": "weibull",
+    # GP and MatrixNormal are emitted via their multivariate-normal
+    # surrogate. A true GP would require kernel function emission
+    # (Stan `cov_exp_quad` + `multi_normal_cholesky`); MatrixNormal
+    # would require Stan's `matrix_normal_lpdf` from the math
+    # library. These aliases give the structural shape and let
+    # downstream tooling discover the construct; specialized
+    # emission is future walker work.
+    "GP": "multi_normal",
+    "MatrixNormal": "multi_normal",
 }
 
 
