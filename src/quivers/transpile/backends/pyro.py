@@ -11,7 +11,7 @@ from __future__ import annotations
 import didactic.api as dx
 import panproto
 
-from quivers.dsl.ast_nodes import LetStep, Module, ReturnStep
+from quivers.dsl.ast_nodes import LetStep, Module, ReturnStep, ScoreStep
 from quivers.transpile._api import STAN_LIKE, UnsupportedConstruct, unsupported_for
 from quivers.transpile._pipeline import (
     SchemaTransform,
@@ -31,6 +31,7 @@ from quivers.transpile.backends._pyhelpers import (
 from quivers.transpile.backends.numpyro import (
     _emit_python_let_step,
     _emit_python_return,
+    _emit_python_score_step,
     _partition,
     _program_steps,
 )
@@ -90,9 +91,14 @@ class _PyroWalker(SchemaTransform):
                 rhs = _pyro_sample(ctx, name=var, family=resolved.family,
                                    args=resolved.args, obs_name=None)
                 ctx.e(body, assignment(ctx, lhs_name=var, rhs=rhs), "child_of")
-        for let_step in program.draws:
-            if isinstance(let_step, LetStep):
-                _emit_python_let_step(ctx, body, let_step)
+        for body_step in program.draws:
+            if isinstance(body_step, LetStep):
+                _emit_python_let_step(ctx, body, body_step)
+            elif isinstance(body_step, ScoreStep):
+                _emit_python_score_step(
+                    ctx, body, body_step,
+                    factor_namespace=("pyro",),
+                )
         for obs in observes:
             resolved = resolve_step_dist(
                 obs.morphism, obs.args,

@@ -21,6 +21,7 @@ from quivers.dsl.ast_nodes import (
     ProgramDecl,
     ReturnStep,
     SampleStep,
+    ScoreStep,
     Statement,
 )
 from quivers.transpile._api import STAN_LIKE, UnsupportedConstruct, unsupported_for
@@ -37,7 +38,7 @@ from quivers.transpile.backends._pyhelpers import (
     call,
     function_def,
     identifier,
-    string_literal,
+    string_literal,  # noqa: F401  -- exposed for score-step factor calls
 )
 from quivers.transpile.backends._letexpr_python import (
     render_let_expr_python,
@@ -58,6 +59,43 @@ def _emit_python_let_step(ctx: PyCtx, body_vid: str, step: LetStep) -> None:
     ctx.e(asn, lhs, "left")
     ctx.e(asn, render_let_expr_python(ctx, step.value), "right")
     ctx.e(body_vid, asn, "child_of")
+
+
+def _emit_python_score_step(
+    ctx: PyCtx,
+    body_vid: str,
+    step: ScoreStep,
+    *,
+    factor_namespace: tuple[str, ...] = ("numpyro",),
+    factor_fn: str = "factor",
+) -> None:
+    """Emit `<name> = <expr>; <namespace>.<factor_fn>("<name>", <name>)`
+    for a `ScoreStep`.
+
+    The semantics of `score name = expr` is two-fold (cf.
+    [Programs §2.7a](../docs/semantics/programs.md#27a-score-factor)):
+    bind `name` to the value of `expr` AND add `expr` as a log-density
+    factor to the program's joint. Python PPLs realize the factor via
+    the backend's `factor` primitive (NumPyro: `numpyro.factor`; Pyro:
+    `pyro.factor`; PyMC: `pymc.Potential`; Edward2: explicit
+    `tape().factor`).
+    """
+    asn = ctx.v(ctx.fresh("asn"), "assignment")
+    lhs = ctx.v(ctx.fresh("id"), "identifier")
+    ctx.literal(lhs, step.name)
+    ctx.e(asn, lhs, "left")
+    ctx.e(asn, render_let_expr_python(ctx, step.value), "right")
+    ctx.e(body_vid, asn, "child_of")
+
+    factor_call = call(
+        ctx,
+        attribute(ctx, (*factor_namespace, factor_fn)),
+        positional=(
+            string_literal(ctx, step.name),
+            identifier(ctx, step.name),
+        ),
+    )
+    ctx.e(body_vid, factor_call, "child_of")
 
 
 def _emit_python_return(
@@ -135,9 +173,11 @@ class _NumPyroWalker(SchemaTransform):
                     args=resolved.args, obs_name=None,
                 )
                 ctx.e(body, assignment(ctx, lhs_name=var, rhs=rhs), "child_of")
-        for let_step in program.draws:
-            if isinstance(let_step, LetStep):
-                _emit_python_let_step(ctx, body, let_step)
+        for body_step in program.draws:
+            if isinstance(body_step, LetStep):
+                _emit_python_let_step(ctx, body, body_step)
+            elif isinstance(body_step, ScoreStep):
+                _emit_python_score_step(ctx, body, body_step)
         for obs in observes:
             resolved = resolve_step_dist(
                 obs.morphism, obs.args,
@@ -193,9 +233,9 @@ def _program_steps(
             samples.append(step)
         elif isinstance(step, ObserveStep):
             observes.append(step)
-        elif isinstance(step, LetStep):
-            # LetStep is emitted separately in the walker body after
-            # the sample loop; skip here.
+        elif isinstance(step, (LetStep, ScoreStep)):
+            # LetStep and ScoreStep are emitted separately in the
+            # walker body after the sample loop; skip here.
             continue
         else:
             raise UnsupportedConstruct(target, [f"step:{step.kind}"])

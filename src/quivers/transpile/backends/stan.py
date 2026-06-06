@@ -38,6 +38,7 @@ from quivers.dsl.ast_nodes import (
     ProgramDecl,
     ReturnStep,
     SampleStep,
+    ScoreStep,
     Statement,
 )
 from quivers.transpile._api import STAN_LIKE, UnsupportedConstruct, unsupported_for
@@ -141,6 +142,7 @@ class _StanWalker(SchemaTransform):
         samples: list[SampleStep] = []
         observes: list[ObserveStep] = []
         let_steps: list[LetStep] = []
+        score_steps: list[ScoreStep] = []
         for step in program.draws:
             if isinstance(step, SampleStep):
                 samples.append(step)
@@ -148,6 +150,8 @@ class _StanWalker(SchemaTransform):
                 observes.append(step)
             elif isinstance(step, LetStep):
                 let_steps.append(step)
+            elif isinstance(step, ScoreStep):
+                score_steps.append(step)
             else:
                 raise UnsupportedConstruct("qvr-stan", [f"step:{step.kind}"])
 
@@ -169,15 +173,21 @@ class _StanWalker(SchemaTransform):
                 _emit_real_param(ctx, params_id, var, lower_zero=lower_zero)
 
         # `transformed parameters` block: deterministic let-step
-        # assignments. Each `let name = expr` becomes
-        # `real name = expr;` here, so the sampling block can
-        # reference the bound name and `generated quantities` can
-        # publish it.
-        if let_steps:
+        # assignments AND score-step value bindings. Each
+        # `let name = expr` and `score name = expr` becomes a
+        # `real name = expr;` declaration here. The score step also
+        # contributes a `target += name;` line to the `model` block
+        # below (handled in score_steps loop after sampling).
+        if let_steps or score_steps:
             tp_id = ctx.vertex("tparams", "transformed_parameters")
             ctx.edge("prog", tp_id, "child_of")
             for ls in let_steps:
                 _emit_let_step_decl(ctx, tp_id, ls)
+            for ss in score_steps:
+                _emit_let_step_decl(ctx, tp_id, LetStep(
+                    name=ss.name, value=ss.value,
+                    line=ss.line, col=ss.col,
+                ))
 
         morphisms = build_morphism_table(module)
         lets = build_let_table(module)
@@ -207,6 +217,11 @@ class _StanWalker(SchemaTransform):
             _emit_sampling(
                 ctx, model_id, obs.var, resolved.family, resolved.args
             )
+
+        # Score steps: `target += <name>;` for each. The let-style
+        # declaration of `<name>` is already in transformed_parameters.
+        for ss in score_steps:
+            _emit_target_increment(ctx, model_id, ss.name)
 
         # Generated quantities: expose every variable named in the
         # program's `return` clause via `generated quantities { real
@@ -317,6 +332,20 @@ def _emit_real_param(
         ctx.edge(constraint, lower, "child_of")
         ctx.edge(lower, zero, "child_of")
     ctx.edge(decl, ident, "name")
+
+
+def _emit_target_increment(
+    ctx: _StanCtx, parent: str, var_name: str
+) -> None:
+    """Emit `target += <var_name>;` inside the model block, the Stan
+    idiom for adding a log-density factor from a previously-computed
+    transformed parameter (the ScoreStep semantics)."""
+    stmt = ctx.vertex(ctx.fresh("tinc"), "target_plus_equals_statement")
+    var_expr = ctx.vertex(ctx.fresh("vex"), "variable_expression")
+    var_id = _ident(ctx, "vid", var_name)
+    ctx.edge(var_expr, var_id, "child_of")
+    ctx.edge(stmt, var_expr, "child_of")
+    ctx.edge(parent, stmt, "child_of")
 
 
 def _emit_let_step_decl(

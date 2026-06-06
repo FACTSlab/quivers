@@ -20,7 +20,7 @@ from __future__ import annotations
 import didactic.api as dx
 import panproto
 
-from quivers.dsl.ast_nodes import LetStep, Module, ReturnStep
+from quivers.dsl.ast_nodes import LetStep, Module, ReturnStep, ScoreStep
 from quivers.transpile.backends._letexpr_javascript import (
     render_let_expr_javascript,
 )
@@ -189,14 +189,29 @@ class _WebPPLWalker(SchemaTransform):
             ctx.e(stmt, obs_call, "child_of")
             ctx.e(body, stmt, "child_of")
 
-        for let_step in program.draws:
-            if isinstance(let_step, LetStep):
+        for body_step in program.draws:
+            if isinstance(body_step, LetStep):
                 decl = ctx.v(ctx.fresh("vd"), "variable_declaration")
                 d = ctx.v(ctx.fresh("dr"), "variable_declarator")
-                ctx.e(d, _ident(ctx, let_step.name), "name")
-                ctx.e(d, render_let_expr_javascript(ctx, let_step.value), "value")
+                ctx.e(d, _ident(ctx, body_step.name), "name")
+                ctx.e(d, render_let_expr_javascript(ctx, body_step.value), "value")
                 ctx.e(decl, d, "child_of")
                 ctx.e(body, decl, "child_of")
+            elif isinstance(body_step, ScoreStep):
+                # var <name> = <expr>; factor(<name>);
+                decl = ctx.v(ctx.fresh("vd"), "variable_declaration")
+                d = ctx.v(ctx.fresh("dr"), "variable_declarator")
+                ctx.e(d, _ident(ctx, body_step.name), "name")
+                ctx.e(d, render_let_expr_javascript(ctx, body_step.value), "value")
+                ctx.e(decl, d, "child_of")
+                ctx.e(body, decl, "child_of")
+                factor_call = _call(
+                    ctx, _ident(ctx, "factor"),
+                    positional=(_ident(ctx, body_step.name),),
+                )
+                stmt = ctx.v(ctx.fresh("es"), "expression_statement")
+                ctx.e(stmt, factor_call, "child_of")
+                ctx.e(body, stmt, "child_of")
 
         _emit_webppl_return(ctx, body, tuple(program.return_vars))
         return sb.build()

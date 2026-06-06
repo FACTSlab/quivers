@@ -17,7 +17,7 @@ from __future__ import annotations
 import didactic.api as dx
 import panproto
 
-from quivers.dsl.ast_nodes import LetStep, Module
+from quivers.dsl.ast_nodes import LetStep, Module, ScoreStep
 from quivers.transpile._api import STAN_LIKE, UnsupportedConstruct, unsupported_for
 from quivers.transpile._pipeline import (
     SchemaTransform,
@@ -143,12 +143,26 @@ class _GenWalker(SchemaTransform):
                               args=resolved.args, address=obs.var)
             ctx.e(body, _eq_assignment(ctx, ident(ctx, obs.var), rhs))
 
-        for let_step in program.draws:
-            if isinstance(let_step, LetStep):
-                rhs_expr = render_let_expr_julia(ctx, let_step.value)
+        for body_step in program.draws:
+            if isinstance(body_step, LetStep):
+                rhs_expr = render_let_expr_julia(ctx, body_step.value)
                 ctx.e(body, _eq_assignment(
-                    ctx, ident(ctx, let_step.name), rhs_expr,
+                    ctx, ident(ctx, body_step.name), rhs_expr,
                 ))
+            elif isinstance(body_step, ScoreStep):
+                # Gen.jl: bind the score value, then add via
+                # `Gen.@trace(Dirac(0), :name)` weighted -- Gen does
+                # not have a top-level factor primitive in stable
+                # releases. The simplest portable encoding is the
+                # let-binding plus a tagged identity trace.
+                rhs_expr = render_let_expr_julia(ctx, body_step.value)
+                ctx.e(body, _eq_assignment(
+                    ctx, ident(ctx, body_step.name), rhs_expr,
+                ))
+                mac = macro_call(
+                    ctx, "addlogprob!", ident(ctx, body_step.name),
+                )
+                ctx.e(body, mac)
 
         if program.return_vars:
             ret = ctx.v(ctx.fresh("ret"), "return_statement")

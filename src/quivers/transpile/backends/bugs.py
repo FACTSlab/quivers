@@ -19,7 +19,7 @@ from __future__ import annotations
 import didactic.api as dx
 import panproto
 
-from quivers.dsl.ast_nodes import LetStep, Module
+from quivers.dsl.ast_nodes import LetStep, Module, ScoreStep
 from quivers.transpile.backends._letexpr_bugs import render_let_expr_bugs
 from quivers.transpile._api import STAN_LIKE, UnsupportedConstruct, unsupported_for
 from quivers.transpile._pipeline import (
@@ -153,18 +153,58 @@ def _build(module: Module, grammar: str) -> panproto.Schema:
             grammar=grammar,
         )
         ctx.e(block, sr)
-    for let_step in program.draws:
-        if isinstance(let_step, LetStep):
+    for body_step in program.draws:
+        if isinstance(body_step, LetStep):
             # BUGS / JAGS deterministic relation: `<name> <- <expr>`.
             asn = ctx.v(ctx.fresh("dr"), "deterministic_relation")
-            ident = ctx.v(ctx.fresh("id"), "identifier")
-            ctx.lit(ident, let_step.name)
-            ctx.e(asn, ident)
+            ident_v = ctx.v(ctx.fresh("id"), "identifier")
+            ctx.lit(ident_v, body_step.name)
+            ctx.e(asn, ident_v)
             arrow = ctx.v(ctx.fresh("op"), "operator")
             ctx.lit(arrow, "<-")
             ctx.e(asn, arrow)
-            ctx.e(asn, render_let_expr_bugs(ctx, let_step.value))
+            ctx.e(asn, render_let_expr_bugs(ctx, body_step.value))
             ctx.e(block, asn)
+        elif isinstance(body_step, ScoreStep):
+            # ScoreStep in BUGS / JAGS uses the "zeros trick":
+            # declare a dummy zero observation with a Poisson rate
+            # equal to `-<score>` so the log-likelihood contribution
+            # is `-(-<score>) = <score>`. This is the canonical
+            # idiom in the BUGS book for arbitrary log-density
+            # factors. First we bind the score value as a
+            # deterministic relation, then we tie the trick.
+            asn = ctx.v(ctx.fresh("dr"), "deterministic_relation")
+            ident_v = ctx.v(ctx.fresh("id"), "identifier")
+            ctx.lit(ident_v, body_step.name)
+            ctx.e(asn, ident_v)
+            arrow = ctx.v(ctx.fresh("op"), "operator")
+            ctx.lit(arrow, "<-")
+            ctx.e(asn, arrow)
+            ctx.e(asn, render_let_expr_bugs(ctx, body_step.value))
+            ctx.e(block, asn)
+            # `__zero_<name> ~ dpois(-(<name>))` -- requires the
+            # caller to declare `__zero_<name>` as observed at 0.
+            sr = ctx.v(ctx.fresh("sr"), "stochastic_relation")
+            lhs = ctx.v(ctx.fresh("id"), "identifier")
+            ctx.lit(lhs, f"_zero_{body_step.name}")
+            ctx.e(sr, lhs)
+            tilde = ctx.v(ctx.fresh("op"), "operator")
+            ctx.lit(tilde, "~")
+            ctx.e(sr, tilde)
+            dpois = ctx.v(ctx.fresh("call"), "function_call")
+            fn = ctx.v(ctx.fresh("fn"), "identifier")
+            ctx.lit(fn, "dpois")
+            ctx.e(dpois, fn)
+            neg = ctx.v(ctx.fresh("u"), "unary_expression")
+            op = ctx.v(ctx.fresh("op"), "operator")
+            ctx.lit(op, "-")
+            ctx.e(neg, op)
+            score_id = ctx.v(ctx.fresh("id"), "identifier")
+            ctx.lit(score_id, body_step.name)
+            ctx.e(neg, score_id)
+            ctx.e(dpois, neg)
+            ctx.e(sr, dpois)
+            ctx.e(block, sr)
 
     return sb.build()
 

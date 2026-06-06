@@ -14,7 +14,7 @@ from __future__ import annotations
 import didactic.api as dx
 import panproto
 
-from quivers.dsl.ast_nodes import LetStep, Module
+from quivers.dsl.ast_nodes import LetStep, Module, ScoreStep
 from quivers.transpile._api import STAN_LIKE, UnsupportedConstruct, unsupported_for
 from quivers.transpile._pipeline import (
     SchemaTransform,
@@ -86,15 +86,30 @@ class _TuringWalker(SchemaTransform):
             rhs = _dist(ctx, family=resolved.family, args=resolved.args)
             ctx.e(body, tilde_assignment(ctx, ident(ctx, obs.var), rhs))
 
-        for let_step in program.draws:
-            if isinstance(let_step, LetStep):
+        for body_step in program.draws:
+            if isinstance(body_step, LetStep):
                 asn = ctx.v(ctx.fresh("asn"), "assignment")
-                ctx.e(asn, ident(ctx, let_step.name))
+                ctx.e(asn, ident(ctx, body_step.name))
                 op = ctx.v(ctx.fresh("op"), "operator")
                 ctx.lit(op, "=")
                 ctx.e(asn, op)
-                ctx.e(asn, render_let_expr_julia(ctx, let_step.value))
+                ctx.e(asn, render_let_expr_julia(ctx, body_step.value))
                 ctx.e(body, asn)
+            elif isinstance(body_step, ScoreStep):
+                # Turing.jl: bind the score value then add it to the
+                # log-joint via `Turing.@addlogprob!`.
+                asn = ctx.v(ctx.fresh("asn"), "assignment")
+                ctx.e(asn, ident(ctx, body_step.name))
+                op = ctx.v(ctx.fresh("op"), "operator")
+                ctx.lit(op, "=")
+                ctx.e(asn, op)
+                ctx.e(asn, render_let_expr_julia(ctx, body_step.value))
+                ctx.e(body, asn)
+                # `Turing.@addlogprob! <name>`.
+                mac = macro_call(
+                    ctx, "addlogprob!", ident(ctx, body_step.name),
+                )
+                ctx.e(body, mac)
 
         # `return <var>` clause: emit a return_statement at the end of
         # the model body for every return_var. Tuple returns become a
