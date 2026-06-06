@@ -138,6 +138,17 @@ class _GenWalker(SchemaTransform):
                               args=resolved.args, address=obs.var)
             ctx.e(body, _eq_assignment(ctx, ident(ctx, obs.var), rhs))
 
+        if program.return_vars:
+            ret = ctx.v(ctx.fresh("ret"), "return_statement")
+            if len(program.return_vars) == 1:
+                ctx.e(ret, ident(ctx, program.return_vars[0]))
+            else:
+                tup = ctx.v(ctx.fresh("tup"), "tuple_expression")
+                for var in program.return_vars:
+                    ctx.e(tup, ident(ctx, var))
+                ctx.e(ret, tup)
+            ctx.e(body, ret)
+
         fn = function_def(
             ctx, name="model",
             params=tuple(o.var for o in observes),

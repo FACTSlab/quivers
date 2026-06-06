@@ -126,8 +126,6 @@ class _StanWalker(SchemaTransform):
                 samples.append(step)
             elif isinstance(step, ObserveStep):
                 observes.append(step)
-            elif isinstance(step, ReturnStep):
-                continue
             else:
                 raise UnsupportedConstruct("qvr-stan", [f"step:{step.kind}"])
 
@@ -176,6 +174,18 @@ class _StanWalker(SchemaTransform):
             _emit_sampling(
                 ctx, model_id, obs.var, resolved.family, resolved.args
             )
+
+        # Generated quantities: expose every variable named in the
+        # program's `return` clause via `generated quantities { real
+        # <var> = <var>; }`. Stan has no program-level return; this is
+        # the idiomatic way to publish a sampled value for downstream
+        # consumers (posterior summaries, etc.). Skip when the program
+        # has no `return` clause.
+        if program.return_vars:
+            gq_id = ctx.vertex("gq", "generated_quantities")
+            ctx.edge("prog", gq_id, "child_of")
+            for var in program.return_vars:
+                _emit_real_assignment_decl(ctx, gq_id, var, rhs=var)
 
         return sb.build()
 
@@ -274,6 +284,27 @@ def _emit_real_param(
         ctx.edge(constraint, lower, "child_of")
         ctx.edge(lower, zero, "child_of")
     ctx.edge(decl, ident, "name")
+
+
+def _emit_real_assignment_decl(
+    ctx: _StanCtx, parent: str, name: str, *, rhs: str
+) -> None:
+    """Add ``real <name> = <rhs>;`` (top-level assignment-form
+    declaration) to a block. Used by `generated quantities` to expose
+    a previously-sampled variable as a return value."""
+    decl = ctx.vertex(ctx.fresh("vdec"), "top_var_decl")
+    tvtype = ctx.vertex(ctx.fresh("tvt"), "top_var_type")
+    rty = ctx.vertex(ctx.fresh("rty"), "real_type")
+    ctx.literal(rty, "real")
+    ident = _ident(ctx, "ident", name)
+    rhs_expr = ctx.vertex(ctx.fresh("varex"), "variable_expression")
+    rhs_id = _ident(ctx, "rident", rhs)
+    ctx.edge(rhs_expr, rhs_id, "child_of")
+    ctx.edge(parent, decl, "child_of")
+    ctx.edge(decl, tvtype, "child_of")
+    ctx.edge(tvtype, rty, "child_of")
+    ctx.edge(decl, ident, "name")
+    ctx.edge(decl, rhs_expr, "child_of")
 
 
 def _emit_sampling(

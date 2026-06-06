@@ -182,7 +182,10 @@ export prog
 
 
 _RETURN_KINDS_PER_BACKEND = {
-    "stan": "return_statement",
+    # Stan has no function-level return at the program scope; the
+    # idiomatic way to publish a sampled value as the model's "output"
+    # is a `generated quantities { ... }` block.
+    "stan": "generated_quantities",
     "numpyro": "return_statement",
     "pyro": "return_statement",
     "pymc": "return_statement",

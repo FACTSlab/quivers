@@ -96,10 +96,7 @@ class _Edward2Walker(SchemaTransform):
                          args=resolved.args)
             ctx.e(body, assignment(ctx, lhs_name=obs.var, rhs=rhs), "child_of")
 
-        # Emit `return <vars>` for the ReturnStep, if any.
-        for step in program.draws:
-            if isinstance(step, ReturnStep):
-                _emit_python_return(ctx, body, step)
+        _emit_python_return(ctx, body, tuple(program.return_vars))
 
         return sb.build()
 

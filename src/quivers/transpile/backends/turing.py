@@ -82,6 +82,20 @@ class _TuringWalker(SchemaTransform):
             rhs = _dist(ctx, family=resolved.family, args=resolved.args)
             ctx.e(body, tilde_assignment(ctx, ident(ctx, obs.var), rhs))
 
+        # `return <var>` clause: emit a return_statement at the end of
+        # the model body for every return_var. Tuple returns become a
+        # Julia tuple_expression.
+        if program.return_vars:
+            ret = ctx.v(ctx.fresh("ret"), "return_statement")
+            if len(program.return_vars) == 1:
+                ctx.e(ret, ident(ctx, program.return_vars[0]))
+            else:
+                tup = ctx.v(ctx.fresh("tup"), "tuple_expression")
+                for var in program.return_vars:
+                    ctx.e(tup, ident(ctx, var))
+                ctx.e(ret, tup)
+            ctx.e(body, ret)
+
         fn = function_def(
             ctx, name="model",
             params=tuple(o.var for o in observes),
