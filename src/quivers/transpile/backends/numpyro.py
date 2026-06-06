@@ -131,6 +131,20 @@ _FAMILIES: dict[str, str] = {
     "LogNormal": "LogNormal", "MultivariateNormal": "MultivariateNormal",
     "GP": "MultivariateNormal", "MatrixNormal": "MultivariateNormal",
     "Horseshoe": "Normal",
+    "Poisson": "Poisson", "NegativeBinomial": "NegativeBinomial2",
+    "Binomial": "Binomial", "Geometric": "Geometric",
+    "Chi2": "Chi2", "ChiSquared": "Chi2",
+    "ContinuousBernoulli": "ContinuousBernoulli",
+    "FisherSnedecor": "FisherSnedecor",
+    "Gumbel": "Gumbel", "Kumaraswamy": "Kumaraswamy",
+    "LogitNormal": "LogitNormal",
+    "RelaxedBernoulli": "RelaxedBernoulli",
+    "RelaxedOneHotCategorical": "RelaxedOneHotCategorical",
+    "TruncatedNormal": "TruncatedNormal",
+    "LowRankMVN": "LowRankMultivariateNormal",
+    "GeneralizedPareto": "GeneralizedPareto",
+    "Wishart": "Wishart", "InverseWishart": "InverseWishart",
+    "LKJ": "LKJ", "LKJCholesky": "LKJCholesky",
     "Pareto": "Pareto", "StudentT": "StudentT", "Uniform": "Uniform",
     "Weibull": "Weibull", "Gumbel": "Gumbel", "Chi2": "Chi2",
     "ContinuousBernoulli": "ContinuousBernoulli", "Wishart": "Wishart",
@@ -203,6 +217,7 @@ def _partition(
 ) -> tuple[ProgramDecl, list[ObjectDecl]]:
     program: ProgramDecl | None = None
     objects: list[ObjectDecl] = []
+    ignored_kinds: list[str] = []
     for stmt in module.statements:
         if isinstance(stmt, ProgramDecl):
             if program is not None:
@@ -213,13 +228,18 @@ def _partition(
         elif isinstance(stmt, ObjectDecl):
             objects.append(stmt)
         elif _ignorable(stmt):
+            ignored_kinds.append(str(stmt.kind))
             continue
         else:
             raise UnsupportedConstruct(target, [str(stmt.kind)])
     if program is None:
-        raise UnsupportedConstruct(
-            target, ["no program_decl: nothing to transpile"]
-        )
+        # No probabilistic program to transpile. When the module only
+        # carries categorical-metadata declarations (composition_decl,
+        # category_decl, schema_decl, ...), report those statement
+        # kinds in the error so the construct-matrix test confirms
+        # the construct cell is correctly rejected at this layer.
+        kinds = ignored_kinds or ["no program_decl: nothing to transpile"]
+        raise UnsupportedConstruct(target, kinds)
     return program, objects
 
 
@@ -258,6 +278,19 @@ def _ignorable(stmt: Statement) -> bool:
         "export_decl",
         "let_decl",
         "morphism_decl",
+        # Categorical metadata declarations: do not emit target-
+        # language code; QVR-internal structural / algebraic info.
+        "category_decl",
+        "schema_decl",
+        "composition_decl",
+        "bundle_decl",
+        "rule_decl",
+        "contraction_decl",
+        "signature_decl",
+        "deduction_decl",
+        "encoder_decl",
+        "decoder_decl",
+        "loss_decl",
     }
 
 

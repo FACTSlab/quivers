@@ -47,6 +47,25 @@ STAN_LIKE: frozenset[str] = frozenset(
     }
 )
 
+#: Categorical-metadata declarations a backend's walker may silently
+#: ignore when a `program_decl` is present alongside them. When a
+#: module carries ONLY these declarations and no `program_decl`, the
+#: walker still raises `UnsupportedConstruct` listing the kinds (so
+#: the construct-matrix test continues to verify rejection of
+#: standalone categorical declarations).
+CATEGORICAL_METADATA_IGNORABLE: frozenset[str] = frozenset(
+    {
+        "category_decl",
+        "schema_decl",
+        "composition_decl",
+        "bundle_decl",
+        "rule_decl",
+        "contraction_decl",
+        "signature_decl",
+        "deduction_decl",
+    }
+)
+
 #: Adds encoder/decoder declarations for backends with a deep-learning
 #: idiom (Pyro modules, NumPyro/Flax modules, Edward2/TF, PyMC custom
 #: dists).
