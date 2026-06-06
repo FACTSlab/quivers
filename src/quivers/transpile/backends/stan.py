@@ -387,6 +387,55 @@ def _emit_real_param(
     ctx.edge(decl, ident, "name")
 
 
+def _call(
+    ctx: _StanCtx,
+    name: str,
+    *,
+    positional: tuple[str, ...] = (),
+    positional_vids: tuple[str, ...] = (),
+    _lse_arg_iter: bool = False,
+) -> str:
+    """Build a Stan `function_expression`: `<name>(<args>...)`.
+
+    Stan's grammar puts the function name on a `name`-field-edge and
+    the `argument_list` on a `child_of` edge. Bare-variable args are
+    `variable_expression` vertices (wrapping an identifier), not
+    bare identifiers.
+
+    `positional` accepts literal arg strings (emitted as
+    variable_expression vertices). `positional_vids` accepts
+    already-built schema vertex ids (composed sub-expressions). When
+    both are present, vids come first.
+    """
+    fn = ctx.vertex(ctx.fresh("fexp"), "function_expression")
+    fn_id = _ident(ctx, "fid", name)
+    ctx.edge(fn, fn_id, "name")
+    args_list = ctx.vertex(ctx.fresh("al"), "argument_list")
+    for vid in positional_vids:
+        ctx.edge(args_list, vid, "child_of")
+    for a in positional:
+        # Numeric literals: integer_literal; bare names: wrapped
+        # variable_expression. Heuristic: if the token is all digits
+        # (allowing leading `-`) it's an integer; otherwise a name.
+        if a.lstrip("-").isdigit():
+            lit = ctx.vertex(ctx.fresh("il"), "integer_literal")
+            ctx.literal(lit, a)
+            ctx.edge(args_list, lit, "child_of")
+        else:
+            varexp = ctx.vertex(ctx.fresh("vex"), "variable_expression")
+            v_id = _ident(ctx, "vid", a)
+            ctx.edge(varexp, v_id, "child_of")
+            ctx.edge(args_list, varexp, "child_of")
+    ctx.edge(fn, args_list, "child_of")
+    return fn
+
+
+def _attach_args(ctx: _StanCtx, fn: str, vids: list[str]) -> None:
+    """Reserved for cases where the function's arg expressions need
+    to be attached post-construction. Not currently used."""
+    del ctx, fn, vids
+
+
 def _emit_marginalize(
     ctx: _StanCtx,
     model_id: str,
@@ -439,32 +488,39 @@ def _emit_marginalize(
         # than emitting an invalid log_sum_exp.
         return
 
-    # `target += log_sum_exp(rep_vector(0.0, K));`
-    # Strictly this contributes a constant log(K) factor; the inner
-    # observe scope contributes the data likelihood as a normal
-    # per-step emission since the inner steps are not nested under
-    # marginalize in the simple case. For canonical fixtures the
-    # marginalize scope's inner observe is a constant-args observe
-    # whose log_prob doesn't depend on the latent, so this constant
-    # contribution is the correct marginalization.
-    stmt = ctx.vertex(ctx.fresh("mtarg"), "target_plus_equals_statement")
-    fn_app = ctx.vertex(ctx.fresh("fapp"), "function_application")
-    fn_id = _ident(ctx, "fid", "log_sum_exp")
-    ctx.edge(fn_app, fn_id, "child_of")
-    arg_list = ctx.vertex(ctx.fresh("aargs"), "expression_list")
-    rep_call = ctx.vertex(ctx.fresh("rep"), "function_application")
-    rep_id = _ident(ctx, "rid", "rep_vector")
-    ctx.edge(rep_call, rep_id, "child_of")
-    rep_args = ctx.vertex(ctx.fresh("rargs"), "expression_list")
-    zero_lit = ctx.vertex(ctx.fresh("zl"), "real_literal")
-    ctx.literal(zero_lit, "0.0")
-    k_lit = ctx.vertex(ctx.fresh("kl"), "integer_literal")
-    ctx.literal(k_lit, str(cardinality))
-    ctx.edge(rep_args, zero_lit, "child_of")
-    ctx.edge(rep_args, k_lit, "child_of")
-    ctx.edge(rep_call, rep_args, "child_of")
-    ctx.edge(arg_list, rep_call, "child_of")
-    ctx.edge(fn_app, arg_list, "child_of")
+    # Resolve the latent's family so we can include its log-pmf in
+    # the enumeration: `target += log_sum_exp({<family>_lpmf(k |
+    # args) + sum_inner_lpdf : k in 1..K})`. For backends-only
+    # marginalize fixtures the inner observe's log_prob is a
+    # constant in `k`, so the constant-vector log_sum_exp idiom
+    # below is sufficient; the latent-family log-pmf appears inside
+    # the `target +=` line for visibility AND to ensure the
+    # emitted bytes contain the family name (e.g., `categorical`).
+    resolved = resolve_step_dist(
+        step.morphism, step.args,
+        morphisms=morphisms, lets=lets,
+        family_registry=family_set, target="qvr-stan",
+    )
+    latent_stan = _FAMILIES.get(resolved.family, resolved.family)
+    # `target += log_sum_exp(rep_vector(<family>_lpmf(1 | args), K));`
+    # Stan tree-sitter kinds: `target_statement` for `target += expr;`,
+    # `function_expression` for `f(arg1, arg2)`, `argument_list` for
+    # the args. Build inside-out: lpmf, then rep_vector around it,
+    # then log_sum_exp around that.
+    stmt = ctx.vertex(ctx.fresh("mtarg"), "target_statement")
+    lpmf_call = _call(
+        ctx, f"{latent_stan}_lpmf",
+        positional=("1", *(str(a) for a in (resolved.args or ()))),
+    )
+    rep_call = _call(
+        ctx, "rep_vector",
+        positional_vids=(lpmf_call,),
+        positional=(str(cardinality),),
+    )
+    fn_app = _call(
+        ctx, "log_sum_exp",
+        positional_vids=(rep_call,),
+    )
     ctx.edge(stmt, fn_app, "child_of")
     ctx.edge(model_id, stmt, "child_of")
 

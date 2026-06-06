@@ -50,7 +50,11 @@ from __future__ import annotations
 from quivers.dsl.ast_nodes import (
     Expr,
     ExprCompose,
+    ExprFan,
     ExprIdent,
+    ExprRepeat,
+    ExprStack,
+    ExprTensorProduct,
     LetDecl,
     MarginalizeStep,
     Module,
@@ -219,13 +223,25 @@ def _resolve_to_chain(
 
 def _flatten_compose(expr: ExprCompose) -> tuple[str, ...] | None:
     """Flatten a (possibly nested) ExprCompose into a tuple of
-    ExprIdent names from left to right.
+    morphism names from left to right.
 
-    Returns None when any leaf is not an ExprIdent (the chain
-    contains fan / scan / stack / tensor-product / call leaves that
-    this pass does not know how to expand). The caller falls back
-    to leaving the original step intact, in which case the walker
-    will raise `UnsupportedConstruct(let:composite_expression:...)`.
+    Handles four leaf shapes:
+
+    * `ExprIdent` -> the single named morphism.
+    * `ExprStack(name, n)` / `ExprRepeat(name, n)` -> n copies of
+      `name` (sequential repetition; canonical Kleisli iteration).
+    * `ExprFan(exprs)` -> all the named morphisms in `exprs`
+      flattened in order (parallel fan-out emits each independently
+      under MCMC).
+    * `ExprTensorProduct(left, right)` -> the named morphism leaves
+      of `left` followed by those of `right` (tensor product as
+      parallel sample).
+
+    Returns None when any leaf is not one of the above (composite
+    expressions with embedded calls, scans, marginalizations, etc.
+    are not expanded; the caller falls back to leaving the original
+    step intact, which the walker rejects with
+    `UnsupportedConstruct(let:composite_expression:...)`).
     """
     out: list[str] = []
     def walk(e: Expr) -> bool:
@@ -234,10 +250,40 @@ def _flatten_compose(expr: ExprCompose) -> tuple[str, ...] | None:
         if isinstance(e, ExprIdent):
             out.append(e.name)
             return True
+        if isinstance(e, ExprStack):
+            inner = _expr_to_name(e.expr)
+            if inner is None or e.count is None or e.count <= 0:
+                return False
+            for _ in range(e.count):
+                out.append(inner)
+            return True
+        if isinstance(e, ExprRepeat):
+            inner = _expr_to_name(e.expr)
+            if inner is None or e.count is None or e.count <= 0:
+                return False
+            for _ in range(e.count):
+                out.append(inner)
+            return True
+        if isinstance(e, ExprFan):
+            for sub in e.exprs:
+                name = _expr_to_name(sub)
+                if name is None:
+                    return False
+                out.append(name)
+            return True
+        if isinstance(e, ExprTensorProduct):
+            return walk(e.left) and walk(e.right)
         return False
     if not walk(expr):
         return None
     return tuple(out)
+
+
+def _expr_to_name(e: Expr) -> str | None:
+    """If `e` is an `ExprIdent`, return its name; otherwise None."""
+    if isinstance(e, ExprIdent):
+        return e.name
+    return None
 
 
 def _expand_step(
