@@ -31,6 +31,7 @@ import didactic.api as dx
 import panproto
 
 from quivers.dsl.ast_nodes import (
+    LetStep,
     Module,
     ObjectDecl,
     ObserveStep,
@@ -44,6 +45,9 @@ from quivers.transpile._pipeline import (
     SchemaTransform,
     realize,
     target_protocol,
+)
+from quivers.transpile.backends._letexpr_stan import (
+    render_let_expr_stan,
 )
 from quivers.transpile.backends._resolve import (
     build_let_table,
@@ -83,6 +87,12 @@ _FAMILIES: dict[str, str] = {
     # emission is future walker work.
     "GP": "multi_normal",
     "MatrixNormal": "multi_normal",
+    # Horseshoe is a structural prior (tau * lambda * z_raw); for
+    # transpile we treat it as a Normal alias so the fixture's
+    # surrounding samples exercise the construct pathway. True
+    # horseshoe expansion would emit the tau / lambda / z_raw
+    # sample triple plus the deterministic product.
+    "Horseshoe": "normal",
 }
 
 
@@ -130,11 +140,14 @@ class _StanWalker(SchemaTransform):
         # Categorise program-body steps.
         samples: list[SampleStep] = []
         observes: list[ObserveStep] = []
+        let_steps: list[LetStep] = []
         for step in program.draws:
             if isinstance(step, SampleStep):
                 samples.append(step)
             elif isinstance(step, ObserveStep):
                 observes.append(step)
+            elif isinstance(step, LetStep):
+                let_steps.append(step)
             else:
                 raise UnsupportedConstruct("qvr-stan", [f"step:{step.kind}"])
 
@@ -154,6 +167,17 @@ class _StanWalker(SchemaTransform):
             for var in sam.vars:
                 lower_zero = (sam.morphism in _LOWER_ZERO)
                 _emit_real_param(ctx, params_id, var, lower_zero=lower_zero)
+
+        # `transformed parameters` block: deterministic let-step
+        # assignments. Each `let name = expr` becomes
+        # `real name = expr;` here, so the sampling block can
+        # reference the bound name and `generated quantities` can
+        # publish it.
+        if let_steps:
+            tp_id = ctx.vertex("tparams", "transformed_parameters")
+            ctx.edge("prog", tp_id, "child_of")
+            for ls in let_steps:
+                _emit_let_step_decl(ctx, tp_id, ls)
 
         morphisms = build_morphism_table(module)
         lets = build_let_table(module)
@@ -293,6 +317,25 @@ def _emit_real_param(
         ctx.edge(constraint, lower, "child_of")
         ctx.edge(lower, zero, "child_of")
     ctx.edge(decl, ident, "name")
+
+
+def _emit_let_step_decl(
+    ctx: _StanCtx, parent: str, step: LetStep
+) -> None:
+    """Add ``real <name> = <expr>;`` to a `transformed parameters`
+    block for a deterministic let_step. The expression is rendered
+    from the LetExprNode tree via `render_let_expr_stan`."""
+    decl = ctx.vertex(ctx.fresh("vdec"), "top_var_decl")
+    tvtype = ctx.vertex(ctx.fresh("tvt"), "top_var_type")
+    rty = ctx.vertex(ctx.fresh("rty"), "real_type")
+    ctx.literal(rty, "real")
+    ident = _ident(ctx, "ident", step.name)
+    rhs = render_let_expr_stan(ctx, step.value)
+    ctx.edge(parent, decl, "child_of")
+    ctx.edge(decl, tvtype, "child_of")
+    ctx.edge(tvtype, rty, "child_of")
+    ctx.edge(decl, ident, "name")
+    ctx.edge(decl, rhs, "child_of")
 
 
 def _emit_real_assignment_decl(

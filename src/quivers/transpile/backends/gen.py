@@ -17,7 +17,7 @@ from __future__ import annotations
 import didactic.api as dx
 import panproto
 
-from quivers.dsl.ast_nodes import Module
+from quivers.dsl.ast_nodes import LetStep, Module
 from quivers.transpile._api import STAN_LIKE, UnsupportedConstruct, unsupported_for
 from quivers.transpile._pipeline import (
     SchemaTransform,
@@ -33,6 +33,7 @@ from quivers.transpile.backends._juliahelpers import (
     macro_call,
     macro_call_paren,
 )
+from quivers.transpile.backends._letexpr_julia import render_let_expr_julia
 from quivers.transpile.backends.numpyro import _partition, _program_steps
 from quivers.transpile.backends._resolve import (
     build_let_table,
@@ -43,13 +44,15 @@ from quivers.transpile.backends._resolve import (
 
 # Gen.jl distribution constructors (lowercase by convention).
 _FAMILIES: dict[str, str] = {
-    "Normal": "normal", "Bernoulli": "bernoulli", "Beta": "beta",
+    "Normal": "normal", "HalfNormal": "normal", "HalfCauchy": "cauchy",
+    "Bernoulli": "bernoulli", "Beta": "beta",
     "Categorical": "categorical", "Dirichlet": "dirichlet",
     "Exponential": "exponential", "Gamma": "gamma", "Cauchy": "cauchy",
     "Laplace": "laplace", "LogNormal": "lognormal", "Uniform": "uniform",
     "Poisson": "poisson", "Geometric": "geometric",
     "MultivariateNormal": "mvnormal", "MatrixNormal": "mvnormal",
     "GP": "mvnormal",
+    "Horseshoe": "normal",
 }
 
 
@@ -139,6 +142,13 @@ class _GenWalker(SchemaTransform):
             rhs = _trace_call(ctx, family=resolved.family,
                               args=resolved.args, address=obs.var)
             ctx.e(body, _eq_assignment(ctx, ident(ctx, obs.var), rhs))
+
+        for let_step in program.draws:
+            if isinstance(let_step, LetStep):
+                rhs_expr = render_let_expr_julia(ctx, let_step.value)
+                ctx.e(body, _eq_assignment(
+                    ctx, ident(ctx, let_step.name), rhs_expr,
+                ))
 
         if program.return_vars:
             ret = ctx.v(ctx.fresh("ret"), "return_statement")

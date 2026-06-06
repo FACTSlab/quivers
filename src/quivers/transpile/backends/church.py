@@ -18,13 +18,14 @@ from __future__ import annotations
 import didactic.api as dx
 import panproto
 
-from quivers.dsl.ast_nodes import Module
+from quivers.dsl.ast_nodes import LetStep, Module
 from quivers.transpile._api import CHURCH_LIKE, UnsupportedConstruct, unsupported_for
 from quivers.transpile._pipeline import (
     SchemaTransform,
     realize,
     target_protocol,
 )
+from quivers.transpile.backends._letexpr_scheme import render_let_expr_scheme
 from quivers.transpile.backends.numpyro import _partition, _program_steps
 from quivers.transpile.backends._resolve import (
     build_let_table,
@@ -42,6 +43,7 @@ _FAMILIES: dict[str, str] = {
     "LogNormal": "lognormal", "StudentT": "student-t",
     "MultivariateNormal": "multivariate-gaussian",
     "GP": "multivariate-gaussian", "MatrixNormal": "multivariate-gaussian",
+    "Horseshoe": "gaussian",
 }
 
 
@@ -150,6 +152,15 @@ class _ChurchWalker(SchemaTransform):
                 _sym(ctx, obs.var),
             ))
             body_forms.append(obs_form)
+        for let_step in program.draws:
+            if isinstance(let_step, LetStep):
+                # (define <name> <expr>)
+                define_form = _list(ctx, (
+                    _sym(ctx, "define"),
+                    _sym(ctx, let_step.name),
+                    render_let_expr_scheme(ctx, let_step.value),
+                ))
+                body_forms.append(define_form)
         return_vars = program.return_vars or ()
         for rv in return_vars:
             body_forms.append(_sym(ctx, rv))

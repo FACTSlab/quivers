@@ -19,7 +19,8 @@ from __future__ import annotations
 import didactic.api as dx
 import panproto
 
-from quivers.dsl.ast_nodes import Module
+from quivers.dsl.ast_nodes import LetStep, Module
+from quivers.transpile.backends._letexpr_bugs import render_let_expr_bugs
 from quivers.transpile._api import STAN_LIKE, UnsupportedConstruct, unsupported_for
 from quivers.transpile._pipeline import (
     SchemaTransform,
@@ -37,13 +38,16 @@ from quivers.transpile.backends._resolve import (
 # QVR family → BUGS distribution name. BUGS dialects vary slightly;
 # WinBUGS / OpenBUGS / classic-BUGS all accept the d-prefix forms here.
 _FAMILIES: dict[str, str] = {
-    "Normal": "dnorm", "Bernoulli": "dbern", "Beta": "dbeta",
+    "Normal": "dnorm", "HalfNormal": "dnorm",
+    "HalfCauchy": "dt",
+    "Bernoulli": "dbern", "Beta": "dbeta",
     "Categorical": "dcat", "Dirichlet": "ddirch",
     "Exponential": "dexp", "Gamma": "dgamma", "Cauchy": "dt",
     "Uniform": "dunif", "Pareto": "dpar", "LogNormal": "dlnorm",
     "MultivariateNormal": "dmnorm", "Wishart": "dwish",
     "Chi2": "dchisqr",
     "GP": "dmnorm", "MatrixNormal": "dmnorm",
+    "Horseshoe": "dnorm",
 }
 
 
@@ -149,6 +153,18 @@ def _build(module: Module, grammar: str) -> panproto.Schema:
             grammar=grammar,
         )
         ctx.e(block, sr)
+    for let_step in program.draws:
+        if isinstance(let_step, LetStep):
+            # BUGS / JAGS deterministic relation: `<name> <- <expr>`.
+            asn = ctx.v(ctx.fresh("dr"), "deterministic_relation")
+            ident = ctx.v(ctx.fresh("id"), "identifier")
+            ctx.lit(ident, let_step.name)
+            ctx.e(asn, ident)
+            arrow = ctx.v(ctx.fresh("op"), "operator")
+            ctx.lit(arrow, "<-")
+            ctx.e(asn, arrow)
+            ctx.e(asn, render_let_expr_bugs(ctx, let_step.value))
+            ctx.e(block, asn)
 
     return sb.build()
 
