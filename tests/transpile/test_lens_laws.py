@@ -131,10 +131,10 @@ def test_mapping_composition_equivalence(backend: str) -> None:
 # strict-xfail flips when panproto fixes the upstream non-determinism.
 _REEMIT_IS_FIXED_POINT: dict[str, bool] = {
     "stan": True,
-    "numpyro": False,  # panproto py emit normalises `;` -> `\n` on reparse
-    "pyro": False,     # same
-    "pymc": False,     # same
-    "edward2": False,  # same
+    "numpyro": True,
+    "pyro": True,
+    "pymc": True,
+    "edward2": True,
     "church": True,    # vacuous: panproto/panproto#172 makes both emits empty
     "webppl": True,
     "turing": True,
