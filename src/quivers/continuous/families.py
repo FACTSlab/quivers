@@ -247,6 +247,17 @@ def _make_family(
     _Cls.__name__ = name
     _Cls.__qualname__ = name
 
+    # Transpile-time introspection. The conditional class exposes the
+    # same class-level `arg_constraints` and `support` that the
+    # underlying torch distribution publishes; the transpile lower
+    # pipeline reads these without instantiating a sentinel and the
+    # variational guide reads `instance.support` from the same
+    # attribute (a class attribute is visible on both the class and
+    # its instances).
+    if isinstance(dist_class.arg_constraints, dict):
+        _Cls.arg_constraints = dict(dist_class.arg_constraints)  # type: ignore[attr-defined]
+    _Cls.support = out_support  # type: ignore[assignment]
+
     if dsl_name is None:
         dsl_name = name.removeprefix("Conditional")
     _register_family(
@@ -1619,7 +1630,7 @@ class ConditionalBinomial(ContinuousMorphism):
     """Conditional Binomial(total_count, probs(x)).
 
     The ``total_count`` (number of trials) is a fixed
-    hyperparameter set at construction time — typical for binomial
+    hyperparameter set at construction time, typical for binomial
     likelihoods where ``n`` is known per observation. Only the
     ``probs`` parameter is learnable.
 
@@ -1637,6 +1648,15 @@ class ConditionalBinomial(ContinuousMorphism):
         Hidden layer width for the parameter source.
     """
 
+    # Class-level transpile-time metadata. `support` is the broadest
+    # interval `nonnegative_integer`; the per-instance upper bound
+    # `total_count` lives on the instance and the variational guide
+    # picks it up via `_total_count` for bijector construction.
+    arg_constraints: dict[str, _constraints.Constraint] = dict(
+        D.Binomial.arg_constraints
+    )
+    support: _constraints.Constraint = _constraints.nonnegative_integer  # type: ignore[assignment]
+
     def __init__(
         self,
         domain: AnySpace,
@@ -1653,10 +1673,6 @@ class ConditionalBinomial(ContinuousMorphism):
         self._d = d
         self._total_count = int(total_count)
         self.param_source = _make_source(domain, d, hidden_dim)
-
-    @property
-    def support(self) -> _constraints.Constraint:
-        return _constraints.integer_interval(0, self._total_count)
 
     def _get_dist(self, x: torch.Tensor) -> D.Binomial:
         logits = self.param_source(x)
@@ -1695,6 +1711,11 @@ class ConditionalLogisticNormal(ContinuousMorphism):
         Hidden layer width for the parameter source.
     """
 
+    arg_constraints: dict[str, _constraints.Constraint] = dict(
+        D.LogisticNormal.arg_constraints
+    )
+    support: _constraints.Constraint = _constraints.simplex  # type: ignore[assignment]
+
     def __init__(
         self,
         domain: AnySpace,
@@ -1708,10 +1729,6 @@ class ConditionalLogisticNormal(ContinuousMorphism):
         # torch.distributions.LogisticNormal handles this.
         self.param_source = _make_source(domain, 2 * (d - 1), hidden_dim)
         self._d = d
-
-    @property
-    def support(self) -> _constraints.Constraint:
-        return _constraints.simplex
 
     def _get_dist(self, x: torch.Tensor) -> D.LogisticNormal:
         raw = self.param_source(x)
@@ -1751,6 +1768,13 @@ class ConditionalOneHotCategorical(ContinuousMorphism):
         Hidden layer width for the parameter source.
     """
 
+    # torch's `OneHotCategorical.support` is `OneHot()`; the
+    # variational guide treats it as a simplex bijector target.
+    arg_constraints: dict[str, _constraints.Constraint] = dict(
+        D.OneHotCategorical.arg_constraints
+    )
+    support: _constraints.Constraint = D.OneHotCategorical.support  # type: ignore[assignment, misc]
+
     def __init__(
         self,
         domain: AnySpace,
@@ -1761,12 +1785,6 @@ class ConditionalOneHotCategorical(ContinuousMorphism):
         d = codomain.dim
         self._d = d
         self.param_source = _make_source(domain, d, hidden_dim)
-
-    @property
-    def support(self) -> _constraints.Constraint:
-        # torch's OneHotCategorical.support is OneHot(); the
-        # variational guide treats it as a simplex bijector target.
-        return D.OneHotCategorical.support  # type: ignore[return-value]
 
     def _get_dist(self, x: torch.Tensor) -> D.OneHotCategorical:
         logits = self.param_source(x)
@@ -1820,6 +1838,17 @@ class ConditionalMixture(ContinuousMorphism):
         component's parameter source.
     """
 
+    # Class-level transpile-time metadata. The user-facing argument
+    # is the per-component mixing probability vector; per-component
+    # parameters travel through the component morphisms themselves.
+    # The output `support` mirrors the first component's support and
+    # is exposed at instance access via the component delegation
+    # below.
+    arg_constraints: dict[str, _constraints.Constraint] = {
+        "weights": _constraints.simplex,
+    }
+    support: _constraints.Constraint = _constraints.real  # type: ignore[assignment]
+
     def __init__(
         self,
         domain: AnySpace,
@@ -1838,10 +1867,6 @@ class ConditionalMixture(ContinuousMorphism):
             [component_class(domain, codomain, hidden_dim) for _ in range(self._K)]
         )
         self.mixture_logits = _make_source(domain, self._K, hidden_dim)
-
-    @property
-    def support(self):  # type: ignore[override]
-        return self._components[0].support
 
     def _log_weights(self, x: torch.Tensor) -> torch.Tensor:
         logits = self.mixture_logits(x)
@@ -1898,13 +1923,17 @@ class ConditionalIndependent(ContinuousMorphism):
         axis to score a vector-valued observation.
     """
 
+    # Class-level transpile-time metadata. Argument-shape constraints
+    # are empty: the wrapped morphism's parameters surface through
+    # the base reference. `support` defaults to `real` at the class
+    # level; the wrapped base's support is recoverable via the
+    # `_base` attribute at instance access time.
+    arg_constraints: dict[str, _constraints.Constraint] = {}
+    support: _constraints.Constraint = _constraints.real  # type: ignore[assignment]
+
     def __init__(self, base: ContinuousMorphism) -> None:
         super().__init__(base.domain, base.codomain)
         self._base = base
-
-    @property
-    def support(self):  # type: ignore[override]
-        return self._base.support
 
     def log_prob(self, x: torch.Tensor, y: torch.Tensor) -> torch.Tensor:
         # The base's log_prob already sums along the last axis for
@@ -1940,6 +1969,16 @@ class ConditionalTransformed(ContinuousMorphism):
         ``__call__``, ``inv``, and ``log_abs_det_jacobian``.
     """
 
+    # Class-level transpile-time metadata. Argument-shape constraints
+    # are empty: the wrapped morphism's parameters surface through
+    # the base reference and each transform exposes its own
+    # `domain` / `codomain` constraint. `support` defaults to `real`
+    # at the class level; the composed transforms' codomain
+    # constraint is recoverable via the `_transforms` attribute at
+    # instance access time.
+    arg_constraints: dict[str, _constraints.Constraint] = {}
+    support: _constraints.Constraint = _constraints.real  # type: ignore[assignment]
+
     def __init__(
         self,
         base: ContinuousMorphism,
@@ -1948,13 +1987,6 @@ class ConditionalTransformed(ContinuousMorphism):
         super().__init__(base.domain, base.codomain)
         self._base = base
         self._transforms = list(transforms)
-
-    @property
-    def support(self):  # type: ignore[override]
-        # The composed support is the codomain of the final transform.
-        if self._transforms:
-            return self._transforms[-1].codomain
-        return self._base.support
 
     def rsample(
         self,
@@ -2004,6 +2036,11 @@ class ConditionalLKJCholesky(ContinuousMorphism):
         Hidden layer width for the parameter source.
     """
 
+    arg_constraints: dict[str, _constraints.Constraint] = dict(
+        D.LKJCholesky.arg_constraints
+    )
+    support: _constraints.Constraint = _constraints.corr_cholesky  # type: ignore[assignment]
+
     def __init__(
         self,
         domain: AnySpace,
@@ -2013,10 +2050,6 @@ class ConditionalLKJCholesky(ContinuousMorphism):
         super().__init__(domain, codomain)
         self._matrix_dim = codomain.dim
         self.param_source = _make_source(domain, 1, hidden_dim)
-
-    @property
-    def support(self) -> _constraints.Constraint:
-        return _constraints.corr_cholesky
 
     def _get_dist(self, x: torch.Tensor) -> D.LKJCholesky:
         raw = self.param_source(x)
@@ -3079,6 +3112,16 @@ class LKJCorrelationFactor(ContinuousMorphism):
         broadcasts the prior across the batch dimension.
     """
 
+    # Class-level transpile-time metadata. The constructor takes the
+    # correlation-matrix dimension `dim` (a positive integer) and the
+    # concentration `eta` (a positive real). Output is a Cholesky
+    # factor of a correlation matrix.
+    arg_constraints: dict[str, _constraints.Constraint] = {
+        "dim": _constraints.positive_integer,
+        "eta": _constraints.positive,
+    }
+    support: _constraints.Constraint = _constraints.corr_cholesky  # type: ignore[assignment]
+
     def __init__(self, dim: int, eta: float, domain: AnySpace) -> None:
         if dim < 2:
             raise ValueError(f"LKJ requires dim >= 2; got {dim}")
@@ -3105,18 +3148,26 @@ class LKJCorrelationFactor(ContinuousMorphism):
         batch = x.shape[0]
         K = self._dim
         eta = self._eta
-        L = torch.zeros(batch, K, K, device=x.device, dtype=x.dtype)
+        # The Cholesky factor and partial-correlation calculations are
+        # continuous; pick a float dtype so the Beta sampler accepts
+        # the concentration parameters. Discrete-domain `x` arrives as
+        # `torch.long`, so the morphism's own working dtype is fixed
+        # by `torch.get_default_dtype()`.
+        dtype = (
+            x.dtype if x.is_floating_point() else torch.get_default_dtype()
+        )
+        L = torch.zeros(batch, K, K, device=x.device, dtype=dtype)
         L[:, 0, 0] = 1.0
         for i in range(1, K):
             # Beta parameters for row i (Stan's onion method).
             alpha = eta + (K - 1 - i) / 2.0
             beta = i / 2.0
             r2 = torch.distributions.Beta(
-                torch.full((batch,), alpha, device=x.device, dtype=x.dtype),
-                torch.full((batch,), beta, device=x.device, dtype=x.dtype),
+                torch.full((batch,), alpha, device=x.device, dtype=dtype),
+                torch.full((batch,), beta, device=x.device, dtype=dtype),
             ).rsample()
             # Sample a vector uniformly on the unit (i)-sphere.
-            u = torch.randn(batch, i, device=x.device, dtype=x.dtype)
+            u = torch.randn(batch, i, device=x.device, dtype=dtype)
             u = u / torch.linalg.vector_norm(u, dim=-1, keepdim=True)
             # row i has off-diagonal entries r * u, diagonal sqrt(1 - r^2).
             L[:, i, :i] = torch.sqrt(r2).unsqueeze(-1) * u
@@ -3184,6 +3235,16 @@ class Truncated(ContinuousMorphism):
     max_rejection_iterations : int
         Cap on rejection-sampling attempts before raising.
     """
+
+    # Class-level transpile-time metadata. The base wrapped morphism
+    # carries its own argument constraints; the bounds are simple
+    # real scalars. Class-level `support` defaults to `real`; per-
+    # instance the lookup tightens via `support_at_bounds()`.
+    arg_constraints: dict[str, _constraints.Constraint] = {
+        "lower": _constraints.real,
+        "upper": _constraints.real,
+    }
+    support: _constraints.Constraint = _constraints.real  # type: ignore[assignment]
 
     def __init__(
         self,
