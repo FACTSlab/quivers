@@ -20,10 +20,12 @@ from quivers.transpile.renderers._base import (
     assert_no_dangling_refs,
     assert_no_lists,
 )
+from quivers.transpile.renderers.edward2 import Edward2Renderer
 
 
 __all__ = [
     "BlockKind",
+    "Edward2Renderer",
     "IRArgTransform",
     "Renderer",
     "RendererBase",
