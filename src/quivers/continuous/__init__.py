@@ -106,6 +106,14 @@ from quivers.continuous.families import (
     # discrete-valued
     ConditionalBernoulli,
     ConditionalCategorical,
+    # Phase B tier 1
+    ConditionalBetaBinomial,
+    ConditionalLogistic,
+    ConditionalHalfStudentT,
+)
+from quivers.continuous.ordered import (
+    ConditionalOrderedLogistic,
+    ConditionalOrderedProbit,
 )
 from quivers.continuous.programs import (
     MonadicProgram,
@@ -198,6 +206,12 @@ __all__ = [
     # discrete-valued conditional distributions
     "ConditionalBernoulli",
     "ConditionalCategorical",
+    # Phase B tier 1
+    "ConditionalBetaBinomial",
+    "ConditionalLogistic",
+    "ConditionalHalfStudentT",
+    "ConditionalOrderedLogistic",
+    "ConditionalOrderedProbit",
     # monadic programs
     "MonadicProgram",
     # scan (temporal recurrence)

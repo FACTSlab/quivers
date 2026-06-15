@@ -281,6 +281,12 @@ from quivers.continuous import (
     # families — discrete-valued
     ConditionalBernoulli,
     ConditionalCategorical,
+    # families — Phase B tier 1
+    ConditionalBetaBinomial,
+    ConditionalLogistic,
+    ConditionalHalfStudentT,
+    ConditionalOrderedLogistic,
+    ConditionalOrderedProbit,
     # monadic programs
     MonadicProgram,
     # boundaries & flows
@@ -533,6 +539,12 @@ __all__ = [
     # continuous — families (discrete-valued)
     "ConditionalBernoulli",
     "ConditionalCategorical",
+    # continuous — families (Phase B tier 1)
+    "ConditionalBetaBinomial",
+    "ConditionalLogistic",
+    "ConditionalHalfStudentT",
+    "ConditionalOrderedLogistic",
+    "ConditionalOrderedProbit",
     # continuous — monadic programs
     "MonadicProgram",
     "Discretize",
