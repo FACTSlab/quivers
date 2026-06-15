@@ -31,8 +31,15 @@ from quivers.dsl.ast_nodes import (
     BindStep,
     ContractionDecl,
     ContractionInput,
+    DrawArg,
+    DrawArgList,
+    DrawArgMatrix,
+    DrawArgName,
+    DrawArgScalar,
     DrawStep,
     Expr,
+    atom_to_draw_arg,
+    draw_arg_atom_value,
     ExprIdent,
     ExprMorphismCall,
     ExprTransCompose,
@@ -225,6 +232,38 @@ _LET_EXPR_BUILTINS: dict[str, Callable] = {
     "layer_norm": lambda a: _F.layer_norm(a, normalized_shape=(a.shape[-1],)),
     "rms_norm": lambda a: a * torch.rsqrt(a.pow(2).mean(dim=-1, keepdim=True) + 1e-6),
 }
+
+
+def _draw_arg_to_name(arg: DrawArg) -> str:
+    """Extract the name from a `DrawArgName`, raising for other variants.
+
+    The compiler's per-step-args fast path treats every arg as a
+    reference to a previously-bound name; this helper enforces the
+    invariant.
+    """
+    if isinstance(arg, DrawArgName):
+        return arg.text
+    raise TypeError(
+        f"_draw_arg_to_name: expected DrawArgName, got "
+        f"{type(arg).__name__}"
+    )
+
+
+def _draw_arg_to_wire(arg: DrawArg) -> str | float:
+    """Lower a `DrawArg` atomic variant to its wire form.
+
+    Raises on compound variants (`DrawArgList`, `DrawArgMatrix`);
+    compound args go through the new transpile path, not through the
+    classical compiler's inline-distribution machinery.
+    """
+    if isinstance(arg, DrawArgScalar):
+        return arg.value
+    if isinstance(arg, DrawArgName):
+        return arg.text
+    raise TypeError(
+        f"_draw_arg_to_wire: compound argument "
+        f"{type(arg).__name__} not supported by inline distributions"
+    )
 
 
 def _expected_call_arity(target: object) -> int | None:
@@ -634,7 +673,7 @@ class _ProgramsMixin:
                             step.col,
                         )
                     first = step.args[0]
-                    if not isinstance(first, str):
+                    if not isinstance(first, DrawArgName):
                         raise CompileError(
                             "grouped marginalize: the categorical family's "
                             "first argument must be a named probs tensor "
@@ -642,7 +681,7 @@ class _ProgramsMixin:
                             step.line,
                             step.col,
                         )
-                    probs_var = first
+                    probs_var = first.text
                 # Introduce the coordinate. For an *ungrouped*
                 # marginalize block the latent is a real sample
                 # from its categorical prior; for a *grouped*
@@ -942,7 +981,7 @@ class _ProgramsMixin:
         self,
         tmpl: ProgramDecl,
         bind_name: str,
-        args: tuple,
+        args: tuple[DrawArg, ...],
         call_site: ProgramStep,
     ) -> tuple[ProgramStep, ...]:
         """Realise one call site of a parametric program template.
@@ -971,7 +1010,10 @@ class _ProgramsMixin:
         # Build the parameter-substitution environment.
         type_subst: dict[str, ObjectExpr] = {}
         value_subst: dict[str, str | float] = {}
-        for param, arg in zip(type_params, args):
+        wire_args: tuple[str | float, ...] = tuple(
+            _draw_arg_to_wire(a) for a in args
+        )
+        for param, arg in zip(type_params, wire_args):
             if isinstance(param, ObjectParam):
                 if not isinstance(arg, str):
                     raise CompileError(
@@ -1144,20 +1186,22 @@ class _ProgramsMixin:
 
     def _rename_args(
         self,
-        args: tuple | None,
+        args: tuple[DrawArg, ...] | None,
         value_subst: dict[str, str | float],
         rename: dict[str, str],
-    ) -> tuple | None:
+    ) -> tuple[DrawArg, ...] | None:
         """Apply parameter substitution and α-renaming inside a draw-arg list."""
         if args is None:
             return None
-        out: list = []
+        out: list[DrawArg] = []
         for a in args:
-            if isinstance(a, str):
-                if a in value_subst:
-                    out.append(value_subst[a])
-                elif a in rename:
-                    out.append(rename[a])
+            if isinstance(a, DrawArgName):
+                text = a.text
+                if text in value_subst:
+                    replacement = value_subst[text]
+                    out.append(atom_to_draw_arg(replacement))
+                elif text in rename:
+                    out.append(DrawArgName(text=rename[text], line=a.line, col=a.col))
                 else:
                     out.append(a)
             else:
@@ -2547,14 +2591,24 @@ class _ProgramsMixin:
             morph = self._morphisms[draw.morphism]
             if draw.args is not None:
                 for a in draw.args:
-                    if isinstance(a, (int, float)):
+                    if isinstance(a, DrawArgScalar):
                         raise CompileError(
-                            f"literal argument {a} not allowed for named morphism {draw.morphism!r}",
+                            f"literal argument {a.value} not allowed for "
+                            f"named morphism {draw.morphism!r}",
+                            draw.line,
+                            draw.col,
+                        )
+                    if isinstance(a, (DrawArgList, DrawArgMatrix)):
+                        raise CompileError(
+                            f"compound literal argument not allowed for "
+                            f"named morphism {draw.morphism!r}",
                             draw.line,
                             draw.col,
                         )
             step_args = (
-                tuple((str(a) for a in draw.args)) if draw.args is not None else None
+                tuple(_draw_arg_to_name(a) for a in draw.args)
+                if draw.args is not None
+                else None
             )
             return (morph, step_args)
         from quivers.continuous.inline import (
@@ -2571,15 +2625,16 @@ class _ProgramsMixin:
                     draw.col,
                 )
             axes_override = self._axes_codomain(getattr(draw, "axes", None))
+            wire_args = tuple(_draw_arg_to_wire(a) for a in draw.args)
             inline_codomain = self._infer_inline_codomain(
                 draw.morphism,
-                draw.args,
+                wire_args,
                 draw.vars,
                 program_codomain if axes_override is None else axes_override,
             )
             morph, var_args = make_inline_distribution(
                 draw.morphism,
-                draw.args,
+                wire_args,
                 inline_codomain,
                 variable_types={k: v for k, v in bound_vars.items() if v is not None},
             )

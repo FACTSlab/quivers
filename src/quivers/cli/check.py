@@ -33,6 +33,7 @@ from pathlib import Path
 from typing import Literal
 
 from quivers.dsl import Compiler, CompileError, ParseError, parse
+from quivers.dsl.compiler._validate import validate_family_arg_shapes
 from quivers.dsl.constraints import check_constraints
 
 
@@ -49,6 +50,18 @@ class Diagnostic:
     severity: Severity
     code: str
     message: str
+
+
+def _normalize_severity(value: str) -> Severity:
+    """Coerce a raw severity string into the typed `Severity` literal,
+    raising on an unknown value."""
+    if value == "error":
+        return "error"
+    if value == "warning":
+        return "warning"
+    if value == "note":
+        return "note"
+    raise ValueError(f"unknown severity {value!r}")
 
 
 def _check_one(path: Path) -> list[Diagnostic]:
@@ -91,12 +104,37 @@ def _check_one(path: Path) -> list[Diagnostic]:
             file=str(path),
             line=v.line,
             col=v.col,
-            severity="error",
+            severity=_normalize_severity(v.severity),
             code=v.code,
             message=v.message,
         )
         for v in check_constraints(module)
     )
+
+    # Family argument-shape pass: arity and elementwise compatibility
+    # against the distribution's `arg_constraints`. Surfaces the
+    # ``implicit-family-defaults`` warning and ``family-arg-shape``
+    # errors / warnings.
+    family_diags = [
+        Diagnostic(
+            file=str(path),
+            line=v.line,
+            col=v.col,
+            severity=_normalize_severity(v.severity),
+            code=v.code,
+            message=v.message,
+        )
+        for v in validate_family_arg_shapes(module)
+    ]
+    diags.extend(family_diags)
+    has_family_shape_error = any(
+        d.code == "family-arg-shape" and d.severity == "error"
+        for d in family_diags
+    )
+    if has_family_shape_error:
+        # Skip compile: the wider compiler would crash on shape-mismatched
+        # args before we get a useful diagnostic.
+        return diags
 
     try:
         Compiler(module).compile()

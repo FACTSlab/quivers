@@ -23,6 +23,7 @@ from quivers.dsl.ast_nodes import (
     CompositionDecl,
     ContinuousConstructor,
     DiscreteConstructor,
+    DrawArgName,
     DrawStep,
     ExportDecl,
     Expr,
@@ -165,7 +166,7 @@ _LE_CALL = LetExprCall(func="log", args=(_LE_VAR,))
 
 # AST: program steps
 _DRAW = DrawStep(vars=("x",), morphism="f", args=None)
-_BIND = BindStep(vars=("y",), morphism="g", args=("x",))
+_BIND = BindStep(vars=("y",), morphism="g", args=(DrawArgName(text="x"),))
 _LET_STEP = LetStep(name="y", value=_LE_BINOP)
 
 # AST: top-level statements

@@ -30,6 +30,7 @@ from typing import Literal
 import didactic.api as dx
 
 from quivers.dsl.ast_nodes._shared import AxisSpec, OptionEntry
+from quivers.dsl.ast_nodes.draw_args import DrawArg
 from quivers.dsl.ast_nodes.let_expressions import LetExprNode
 from quivers.dsl.ast_nodes.objects import ObjectExpr
 
@@ -58,7 +59,7 @@ class SampleStep(ProgramStep):
 
     vars: tuple[str, ...]
     morphism: str
-    args: tuple[str | float, ...] | None = None
+    args: tuple[DrawArg, ...] | None = None
     index: ObjectExpr | None = None
     axes: AxisSpec | None = None
     options: tuple[OptionEntry, ...] = ()
@@ -77,7 +78,7 @@ class ObserveStep(ProgramStep):
 
     var: str
     morphism: str
-    args: tuple[str | float, ...] | None = None
+    args: tuple[DrawArg, ...] | None = None
     index: ObjectExpr | None = None
     axes: AxisSpec | None = None
     via: str | None = None
@@ -102,7 +103,7 @@ class MarginalizeStep(ProgramStep):
 
     var: str
     morphism: str
-    args: tuple[str | float, ...] | None = None
+    args: tuple[DrawArg, ...] | None = None
     index: ObjectExpr | None = None
     over: str | None = None
     over_objs: tuple[str, ...] | None = None
@@ -219,7 +220,7 @@ class BindStep(ProgramStep):
 
     vars: tuple[str, ...]
     morphism: str
-    args: tuple[str | float, ...] | None = None
+    args: tuple[DrawArg, ...] | None = None
     index: ObjectExpr | None = None
     mode: Literal["sample", "score", "marginal"] = "sample"
     scope: tuple[ProgramStep, ...] | None = None
@@ -244,7 +245,7 @@ class DrawStep(ProgramStep):
 
     vars: tuple[str, ...]
     morphism: str
-    args: tuple[str | float, ...] | None = None
+    args: tuple[DrawArg, ...] | None = None
     is_observed: bool = False
     axes: AxisSpec | None = None
     line: int = 0
@@ -264,7 +265,7 @@ class PlateDrawStep(ProgramStep):
     index: ObjectExpr
     codomain: ObjectExpr
     morphism: str
-    args: tuple[str | float, ...] | None = None
+    args: tuple[DrawArg, ...] | None = None
     axes: AxisSpec | None = None
     line: int = 0
     col: int = 0
@@ -283,7 +284,7 @@ class VectorisedObserveStep(ProgramStep):
     index_var: str
     index_set: ObjectExpr
     morphism: str
-    args: tuple[str | float, ...] | None = None
+    args: tuple[DrawArg, ...] | None = None
     response_var: str = ""
     fibration_var: str | None = None
     fibration_axes: tuple[str, ...] | None = None
@@ -312,7 +313,7 @@ class GroupedBodyObserveStep(ProgramStep):
 
     response_var: str
     morphism: str
-    args: tuple[str | float, ...] | None = None
+    args: tuple[DrawArg, ...] | None = None
     index_set: ObjectExpr | None = None
     index_var: str = ""
     latent_name: str = ""
