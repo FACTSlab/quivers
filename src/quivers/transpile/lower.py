@@ -44,6 +44,11 @@ import torch.distributions.constraints as c
 from torch.distributions.distribution import Distribution
 
 from quivers.dsl.ast_nodes import (
+    DrawArg,
+    DrawArgList,
+    DrawArgMatrix,
+    DrawArgName,
+    DrawArgScalar,
     Expr,
     ExprIdent,
     LetStep,
@@ -231,7 +236,9 @@ class Lower(dx.Mapping[Module, IRProgram]):
         )
         meta = FAMILY_META[resolved.family]
         ir_args, arg_names = self._lower_args(
-            meta, resolved, ctx, axes_index=step.index
+            meta, resolved, ctx,
+            axes_index=step.index,
+            structural_args=step.args,
         )
         plate = self._build_plate(step, ctx, meta, ir_args)
         constraint = from_constraint(_resolve_support(meta, ir_args, ctx))
@@ -266,7 +273,9 @@ class Lower(dx.Mapping[Module, IRProgram]):
         )
         meta = FAMILY_META[resolved.family]
         ir_args, arg_names = self._lower_args(
-            meta, resolved, ctx, axes_index=step.index
+            meta, resolved, ctx,
+            axes_index=step.index,
+            structural_args=step.args,
         )
         plate = self._build_plate(step, ctx, meta, ir_args)
         constraint = from_constraint(_resolve_support(meta, ir_args, ctx))
@@ -293,7 +302,9 @@ class Lower(dx.Mapping[Module, IRProgram]):
         )
         meta = FAMILY_META[resolved.family]
         ir_args, arg_names = self._lower_args(
-            meta, resolved, ctx, axes_index=step.index
+            meta, resolved, ctx,
+            axes_index=step.index,
+            structural_args=step.args,
         )
         plate = self._build_marginalize_plate(step, ctx, meta, ir_args)
         constraint = from_constraint(_resolve_support(meta, ir_args, ctx))
@@ -338,9 +349,19 @@ class Lower(dx.Mapping[Module, IRProgram]):
         ctx: _LowerCtx,
         *,
         axes_index: ObjectExpr | None,
+        structural_args: tuple[DrawArg, ...] | None,
     ) -> tuple[tuple[IRArg, ...], tuple[str, ...]]:
         """Match the user-supplied args against `arg_constraints` and
         build the IR-level arg tuple plus the parallel arg-name tuple.
+
+        ``structural_args`` is the original step's tagged-union arg
+        list (preserves compound `DrawArgList` / `DrawArgMatrix`
+        forms). When it is ``None`` (e.g. the step had no explicit
+        args and the resolver supplied family defaults) the wire-form
+        ``resolved.args`` is decoded into IR; that decoding handles
+        atomic literals and bracket-indexed references but cannot
+        recover compound structure (none arises through this default
+        path today).
 
         Bracket-indexed string args (`"phi[z]"`) are parsed into
         `IRArgRef(name=..., indices=...)` trees. Scalar args that
@@ -351,10 +372,15 @@ class Lower(dx.Mapping[Module, IRProgram]):
         # First-pass IR conversion (without knowing arg_constraints
         # yet so we can compute the sentinel for property-form
         # arg_constraints).
-        raw_args = resolved.args or ()
-        pre_args = tuple(
-            self._raw_arg_to_ir(a, ctx) for a in raw_args
-        )
+        if structural_args is not None:
+            pre_args = tuple(
+                self._raw_arg_to_ir(a, ctx) for a in structural_args
+            )
+        else:
+            raw_args = resolved.args or ()
+            pre_args = tuple(
+                self._raw_arg_to_ir(a, ctx) for a in raw_args
+            )
         arg_names = self._arg_names_for(meta, pre_args, ctx)
         # Re-walk with arg_constraints in hand to apply
         # IRArgBroadcast wrapping where needed.
@@ -399,14 +425,44 @@ class Lower(dx.Mapping[Module, IRProgram]):
 
     def _raw_arg_to_ir(
         self,
-        raw: str | float,
+        raw: DrawArg | str | float,
         ctx: _LowerCtx,
     ) -> IRArg:
         """First-pass conversion: parser-form arg to IR form, without
-        broadcast wrapping."""
+        broadcast wrapping.
+
+        Accepts either the wire-form ``str | float`` (used for nested
+        index expressions and resolver-internal calls) or a tagged
+        `DrawArg` variant (used at top-level for step args).
+        """
+        if isinstance(raw, DrawArgScalar):
+            return IRArgNumber(value=raw.value)
+        if isinstance(raw, DrawArgName):
+            return self._atom_text_to_ir(raw.text, ctx)
+        if isinstance(raw, DrawArgList):
+            return IRArgList(
+                elements=tuple(
+                    self._raw_arg_to_ir(e, ctx) for e in raw.elements
+                )
+            )
+        if isinstance(raw, DrawArgMatrix):
+            ir_rows: list[IRArgList] = []
+            for row in raw.rows:
+                ir_rows.append(
+                    IRArgList(
+                        elements=tuple(
+                            self._raw_arg_to_ir(e, ctx) for e in row.elements
+                        )
+                    )
+                )
+            return IRArgMatrix(rows=tuple(ir_rows))
         if isinstance(raw, (int, float)):
             return IRArgNumber(value=float(raw))
-        text = raw
+        return self._atom_text_to_ir(raw, ctx)
+
+    def _atom_text_to_ir(self, text: str, ctx: _LowerCtx) -> IRArg:
+        """Convert an atomic wire-form string (identifier or encoded
+        bracket form) into the corresponding IR arg."""
         # Wrapper family ref: a bare name pointing at a morphism with
         # an `~ Family(...)` init clause.
         if text in ctx.morphisms:
@@ -882,17 +938,38 @@ def _names_in_step(step: ProgramStep) -> list[str]:
     return out
 
 
-def _names_in_raw_arg(arg: str | float) -> list[str]:
+def _names_in_raw_arg(arg: DrawArg | str | float) -> list[str]:
+    if isinstance(arg, DrawArgScalar):
+        return []
+    if isinstance(arg, DrawArgName):
+        return _names_in_atom_text(arg.text)
+    if isinstance(arg, DrawArgList):
+        out: list[str] = []
+        for element in arg.elements:
+            out.extend(_names_in_atom_text(element) if isinstance(element, str) else [])
+        return out
+    if isinstance(arg, DrawArgMatrix):
+        out = []
+        for row in arg.rows:
+            for element in row.elements:
+                if isinstance(element, str):
+                    out.extend(_names_in_atom_text(element))
+        return out
     if not isinstance(arg, str):
         return []
-    m = _BRACKET_RE.match(arg)
+    return _names_in_atom_text(arg)
+
+
+def _names_in_atom_text(text: str) -> list[str]:
+    """Walk a wire-form atom text and return the names it references."""
+    m = _BRACKET_RE.match(text)
     if m is None:
-        if _is_number_text(arg):
+        if _is_number_text(text):
             return []
-        return [arg]
+        return [text]
     out: list[str] = [m.group(1)]
     for idx in _BRACKET_INDICES_RE.findall(m.group(2)):
-        out.extend(_names_in_raw_arg(idx))
+        out.extend(_names_in_atom_text(idx))
     return out
 
 
@@ -1194,14 +1271,37 @@ def _shape_default_tensor(shape: tuple[int, ...]) -> torch.Tensor:
     return torch.zeros(shape, dtype=torch.float32)
 
 
-def _raw_to_ir_for_sentinel(raw: str | float) -> IRArg:
+def _raw_to_ir_for_sentinel(raw: DrawArg | str | float) -> IRArg:
     """Cheap arg-to-IR conversion used only for inner sentinel
     construction (no morphism table required)."""
+    if isinstance(raw, DrawArgScalar):
+        return IRArgNumber(value=raw.value)
+    if isinstance(raw, DrawArgName):
+        return _atom_text_for_sentinel(raw.text)
+    if isinstance(raw, DrawArgList):
+        return IRArgList(
+            elements=tuple(_raw_to_ir_for_sentinel(e) for e in raw.elements)
+        )
+    if isinstance(raw, DrawArgMatrix):
+        return IRArgMatrix(
+            rows=tuple(
+                IRArgList(
+                    elements=tuple(
+                        _raw_to_ir_for_sentinel(e) for e in row.elements
+                    )
+                )
+                for row in raw.rows
+            )
+        )
     if isinstance(raw, (int, float)):
         return IRArgNumber(value=float(raw))
-    if _is_number_text(raw):
-        return IRArgNumber(value=float(raw))
-    return IRArgRef(name=raw, indices=())
+    return _atom_text_for_sentinel(raw)
+
+
+def _atom_text_for_sentinel(text: str) -> IRArg:
+    if _is_number_text(text):
+        return IRArgNumber(value=float(text))
+    return IRArgRef(name=text, indices=())
 
 
 def _arg_key(a: IRArg) -> str:

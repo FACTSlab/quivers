@@ -538,7 +538,11 @@ program test : Unit -> R1
         observe_step = prog_decl.draws[1]
         assert isinstance(observe_step, ObserveStep)
         assert observe_step.args is not None
-        assert "x" in observe_step.args
+        names = tuple(
+            arg.text for arg in observe_step.args
+            if hasattr(arg, "text")
+        )
+        assert "x" in names
 
     def test_draw_and_observe_difference(self):
         """Parse distinguishes sample-mode and score-mode binds."""

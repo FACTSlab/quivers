@@ -17,6 +17,10 @@ from quivers.dsl.ast_nodes import (
     CompositionDecl,
     ContinuousConstructor,
     DiscreteConstructor,
+    DrawArgList,
+    DrawArgMatrix,
+    DrawArgName,
+    DrawArgScalar,
     ExportDecl,
     Expr,
     ExprChangeBase,
@@ -290,10 +294,30 @@ def _emit_var_pattern(names: tuple[str, ...]) -> str:
 # ---------------------------------------------------------------------------
 
 
-def _emit_arg(arg: str | float) -> str:
+def _emit_arg(arg: object) -> str:
+    if isinstance(arg, DrawArgScalar):
+        return _emit_number(arg.value)
+    if isinstance(arg, DrawArgName):
+        return arg.text
+    if isinstance(arg, DrawArgList):
+        return "[" + ", ".join(_emit_arg_atom(e) for e in arg.elements) + "]"
+    if isinstance(arg, DrawArgMatrix):
+        rows = ", ".join(
+            "[" + ", ".join(_emit_arg_atom(e) for e in row.elements) + "]"
+            for row in arg.rows
+        )
+        return f"[{rows}]"
     if isinstance(arg, (int, float)) and not isinstance(arg, bool):
         return _emit_number(float(arg))
-    return str(arg)
+    if isinstance(arg, str):
+        return arg
+    raise TypeError(f"_emit_arg: unsupported argument {arg!r}")
+
+
+def _emit_arg_atom(value: str | float) -> str:
+    if isinstance(value, (int, float)) and not isinstance(value, bool):
+        return _emit_number(float(value))
+    return str(value)
 
 
 def _emit_number(value: float) -> str:

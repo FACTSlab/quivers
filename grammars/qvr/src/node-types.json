@@ -1859,6 +1859,44 @@
     }
   },
   {
+    "type": "draw_arg_list",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": true,
+      "required": true,
+      "types": [
+        {
+          "type": "bracket_index_arg",
+          "named": true
+        },
+        {
+          "type": "identifier",
+          "named": true
+        },
+        {
+          "type": "signed_number",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "draw_arg_matrix",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": true,
+      "required": true,
+      "types": [
+        {
+          "type": "draw_arg_list",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
     "type": "edge_arrow",
     "named": true,
     "fields": {}
@@ -4250,6 +4288,14 @@
             "named": true
           },
           {
+            "type": "draw_arg_list",
+            "named": true
+          },
+          {
+            "type": "draw_arg_matrix",
+            "named": true
+          },
+          {
             "type": "identifier",
             "named": true
           },
@@ -4709,6 +4755,14 @@
           },
           {
             "type": "bracket_index_arg",
+            "named": true
+          },
+          {
+            "type": "draw_arg_list",
+            "named": true
+          },
+          {
+            "type": "draw_arg_matrix",
             "named": true
           },
           {
@@ -5278,6 +5332,14 @@
         "types": [
           {
             "type": "bracket_index_arg",
+            "named": true
+          },
+          {
+            "type": "draw_arg_list",
+            "named": true
+          },
+          {
+            "type": "draw_arg_matrix",
             "named": true
           },
           {
@@ -6217,6 +6279,14 @@
         "types": [
           {
             "type": "bracket_index_arg",
+            "named": true
+          },
+          {
+            "type": "draw_arg_list",
+            "named": true
+          },
+          {
+            "type": "draw_arg_matrix",
             "named": true
           },
           {
