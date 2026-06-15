@@ -8,7 +8,14 @@ only the transpile-specific facts that torch doesn't publish:
 * `qvr_name`: the DSL-facing family name.
 * `distribution_class`: the underlying
   [`torch.distributions.Distribution`][torch.distributions.Distribution]
-  subclass.
+  subclass. The transpile layer reads `arg_constraints`, `support`,
+  and `event_shape` from this class.
+* `quivers_class`: the
+  [`ContinuousMorphism`][quivers.continuous.morphisms.ContinuousMorphism]
+  subclass used by the inference layer for runtime ``log_prob`` and
+  ``rsample`` evaluation. ``None`` for wrapper or aggregate families
+  whose runtime morphism is built from a referenced inner morphism
+  rather than constructed directly.
 * `target_names`: per-backend distribution-name mapping. The single
   source of truth for backend-to-distribution-name resolution. No
   per-renderer `_FAMILIES` dict.
@@ -43,6 +50,62 @@ import torch.distributions as td
 import torch.distributions.constraints as c
 from torch.distributions.distribution import Distribution
 
+from quivers.continuous.families import (
+    ConditionalBernoulli,
+    ConditionalBeta,
+    ConditionalBetaBinomial,
+    ConditionalBinomial,
+    ConditionalCategorical,
+    ConditionalCauchy,
+    ConditionalChi2,
+    ConditionalContinuousBernoulli,
+    ConditionalDirichlet,
+    ConditionalExponential,
+    ConditionalFisherSnedecor,
+    ConditionalGamma,
+    ConditionalGaussianProcess,
+    ConditionalGeometric,
+    ConditionalGumbel,
+    ConditionalHalfCauchy,
+    ConditionalHalfNormal,
+    ConditionalHalfStudentT,
+    ConditionalHorseshoe,
+    ConditionalIndependent,
+    ConditionalInverseGamma,
+    ConditionalInverseWishart,
+    ConditionalKumaraswamy,
+    ConditionalLKJCholesky,
+    ConditionalLaplace,
+    ConditionalLogNormal,
+    ConditionalLogistic,
+    ConditionalLogisticNormal,
+    ConditionalLogitNormal,
+    ConditionalLowRankMVN,
+    ConditionalMatrixNormal,
+    ConditionalMixture,
+    ConditionalMultivariateNormal,
+    ConditionalNegativeBinomial,
+    ConditionalNormal,
+    ConditionalOneHotCategorical,
+    ConditionalPareto,
+    ConditionalPoisson,
+    ConditionalRelaxedBernoulli,
+    ConditionalRelaxedOneHotCategorical,
+    ConditionalStudentT,
+    ConditionalTransformed,
+    ConditionalTruncatedNormal,
+    ConditionalUniform,
+    ConditionalVonMises,
+    ConditionalWeibull,
+    ConditionalWishart,
+    LKJCorrelationFactor,
+    Truncated,
+)
+from quivers.continuous.morphisms import ContinuousMorphism
+from quivers.continuous.ordered import (
+    ConditionalOrderedLogistic,
+    ConditionalOrderedProbit,
+)
 from quivers.transpile.ir import (
     IRArg,
     IRArgNumber,
@@ -58,14 +121,20 @@ class FamilyMeta(dx.Model):
     arg_aliases: dict[str, dict[str, str]] = dx.field(
         default_factory=lambda: {}
     )
+    quivers_class: type[ContinuousMorphism] | None = dx.field(
+        default=None, opaque=True
+    )
 
 
 # ---------------------------------------------------------------------------
 # Phase B tier 1: shim Distribution subclasses for families torch lacks.
+# Their `__name__` and `arg_constraints` / `support` are the transpile-layer
+# contract that `Lower` and every renderer read. The runtime behaviour lives
+# in the `quivers_class` `ContinuousMorphism` subclass paired in FAMILY_META.
 # ---------------------------------------------------------------------------
 
 
-class _BetaBinomial(Distribution):
+class BetaBinomial(Distribution):
     """Beta-Binomial: `Binomial(n, p)` with `p ~ Beta(c1, c0)`."""
 
     arg_constraints: dict[str, c.Constraint] = {
@@ -89,7 +158,7 @@ class _BetaBinomial(Distribution):
         super().__init__(validate_args=validate_args)
 
 
-class _OrderedLogistic(Distribution):
+class OrderedLogistic(Distribution):
     """Ordered-logistic over `len(cutpoints) + 1` ordered categories."""
 
     arg_constraints: dict[str, c.Constraint] = {
@@ -110,7 +179,7 @@ class _OrderedLogistic(Distribution):
         super().__init__(validate_args=validate_args)
 
 
-class _OrderedProbit(Distribution):
+class OrderedProbit(Distribution):
     """Ordered-probit over `len(cutpoints) + 1` ordered categories."""
 
     arg_constraints: dict[str, c.Constraint] = {
@@ -131,7 +200,7 @@ class _OrderedProbit(Distribution):
         super().__init__(validate_args=validate_args)
 
 
-class _Logistic(Distribution):
+class Logistic(Distribution):
     """Logistic location-scale distribution on the real line."""
 
     arg_constraints: dict[str, c.Constraint] = {
@@ -152,7 +221,7 @@ class _Logistic(Distribution):
         super().__init__(validate_args=validate_args)
 
 
-class _HalfStudentT(Distribution):
+class HalfStudentT(Distribution):
     """Half-StudentT: a StudentT folded around zero (support on the
     nonnegative reals)."""
 
@@ -383,6 +452,7 @@ FAMILY_META: dict[str, FamilyMeta] = {
     "Normal": FamilyMeta(
         qvr_name="Normal",
         distribution_class=td.Normal,
+        quivers_class=ConditionalNormal,
         target_names={
             "stan": "normal", "numpyro": "Normal", "pyro": "Normal",
             "pymc": "Normal", "edward2": "Normal",
@@ -398,6 +468,7 @@ FAMILY_META: dict[str, FamilyMeta] = {
     "LogitNormal": FamilyMeta(
         qvr_name="LogitNormal",
         distribution_class=_LogitNormal,
+        quivers_class=ConditionalLogitNormal,
         target_names={
             "stan": "logit_normal", "numpyro": "LogitNormal",
             "pyro": "LogitNormal", "pymc": "LogitNormal",
@@ -407,6 +478,7 @@ FAMILY_META: dict[str, FamilyMeta] = {
     "Beta": FamilyMeta(
         qvr_name="Beta",
         distribution_class=td.Beta,
+        quivers_class=ConditionalBeta,
         target_names={
             "stan": "beta", "numpyro": "Beta", "pyro": "Beta",
             "pymc": "Beta", "edward2": "Beta",
@@ -418,6 +490,7 @@ FAMILY_META: dict[str, FamilyMeta] = {
     "TruncatedNormal": FamilyMeta(
         qvr_name="TruncatedNormal",
         distribution_class=_TruncatedNormal,
+        quivers_class=ConditionalTruncatedNormal,
         target_names={
             "numpyro": "TruncatedNormal", "pyro": "TruncatedNormal",
             "pymc": "TruncatedNormal", "edward2": "TruncatedNormal",
@@ -426,6 +499,7 @@ FAMILY_META: dict[str, FamilyMeta] = {
     "Dirichlet": FamilyMeta(
         qvr_name="Dirichlet",
         distribution_class=td.Dirichlet,
+        quivers_class=ConditionalDirichlet,
         target_names={
             "stan": "dirichlet", "numpyro": "Dirichlet", "pyro": "Dirichlet",
             "pymc": "Dirichlet", "edward2": "Dirichlet",
@@ -440,6 +514,7 @@ FAMILY_META: dict[str, FamilyMeta] = {
     "Cauchy": FamilyMeta(
         qvr_name="Cauchy",
         distribution_class=td.Cauchy,
+        quivers_class=ConditionalCauchy,
         target_names={
             "stan": "cauchy", "numpyro": "Cauchy", "pyro": "Cauchy",
             "pymc": "Cauchy", "edward2": "Cauchy",
@@ -455,6 +530,7 @@ FAMILY_META: dict[str, FamilyMeta] = {
     "Laplace": FamilyMeta(
         qvr_name="Laplace",
         distribution_class=td.Laplace,
+        quivers_class=ConditionalLaplace,
         target_names={
             "stan": "double_exponential", "numpyro": "Laplace",
             "pyro": "Laplace", "pymc": "Laplace",
@@ -470,6 +546,7 @@ FAMILY_META: dict[str, FamilyMeta] = {
     "Gumbel": FamilyMeta(
         qvr_name="Gumbel",
         distribution_class=td.Gumbel,
+        quivers_class=ConditionalGumbel,
         target_names={
             "stan": "gumbel", "numpyro": "Gumbel", "pyro": "Gumbel",
             "pymc": "Gumbel", "edward2": "Gumbel",
@@ -479,6 +556,7 @@ FAMILY_META: dict[str, FamilyMeta] = {
     "LogNormal": FamilyMeta(
         qvr_name="LogNormal",
         distribution_class=td.LogNormal,
+        quivers_class=ConditionalLogNormal,
         target_names={
             "stan": "lognormal", "numpyro": "LogNormal", "pyro": "LogNormal",
             "pymc": "LogNormal", "edward2": "LogNormal",
@@ -490,6 +568,7 @@ FAMILY_META: dict[str, FamilyMeta] = {
     "StudentT": FamilyMeta(
         qvr_name="StudentT",
         distribution_class=td.StudentT,
+        quivers_class=ConditionalStudentT,
         target_names={
             "stan": "student_t", "numpyro": "StudentT", "pyro": "StudentT",
             "pymc": "StudentT", "edward2": "StudentT",
@@ -501,6 +580,7 @@ FAMILY_META: dict[str, FamilyMeta] = {
     "Exponential": FamilyMeta(
         qvr_name="Exponential",
         distribution_class=td.Exponential,
+        quivers_class=ConditionalExponential,
         target_names={
             "stan": "exponential", "numpyro": "Exponential",
             "pyro": "Exponential", "pymc": "Exponential",
@@ -513,6 +593,7 @@ FAMILY_META: dict[str, FamilyMeta] = {
     "Gamma": FamilyMeta(
         qvr_name="Gamma",
         distribution_class=td.Gamma,
+        quivers_class=ConditionalGamma,
         target_names={
             "stan": "gamma", "numpyro": "Gamma", "pyro": "Gamma",
             "pymc": "Gamma", "edward2": "Gamma",
@@ -524,6 +605,7 @@ FAMILY_META: dict[str, FamilyMeta] = {
     "Chi2": FamilyMeta(
         qvr_name="Chi2",
         distribution_class=td.Chi2,
+        quivers_class=ConditionalChi2,
         target_names={
             "stan": "chi_square", "numpyro": "Chi2", "pyro": "Chi2",
             "pymc": "ChiSquared", "edward2": "Chi2",
@@ -533,6 +615,7 @@ FAMILY_META: dict[str, FamilyMeta] = {
     "HalfCauchy": FamilyMeta(
         qvr_name="HalfCauchy",
         distribution_class=td.HalfCauchy,
+        quivers_class=ConditionalHalfCauchy,
         target_names={
             "stan": "cauchy", "numpyro": "HalfCauchy", "pyro": "HalfCauchy",
             "pymc": "HalfCauchy", "edward2": "HalfCauchy",
@@ -543,6 +626,7 @@ FAMILY_META: dict[str, FamilyMeta] = {
     "HalfNormal": FamilyMeta(
         qvr_name="HalfNormal",
         distribution_class=td.HalfNormal,
+        quivers_class=ConditionalHalfNormal,
         target_names={
             "stan": "normal", "numpyro": "HalfNormal", "pyro": "HalfNormal",
             "pymc": "HalfNormal", "edward2": "HalfNormal",
@@ -553,6 +637,7 @@ FAMILY_META: dict[str, FamilyMeta] = {
     "InverseGamma": FamilyMeta(
         qvr_name="InverseGamma",
         distribution_class=td.InverseGamma,
+        quivers_class=ConditionalInverseGamma,
         target_names={
             "stan": "inv_gamma", "numpyro": "InverseGamma",
             "pyro": "InverseGamma", "pymc": "InverseGamma",
@@ -562,6 +647,7 @@ FAMILY_META: dict[str, FamilyMeta] = {
     "Weibull": FamilyMeta(
         qvr_name="Weibull",
         distribution_class=td.Weibull,
+        quivers_class=ConditionalWeibull,
         target_names={
             "stan": "weibull", "numpyro": "Weibull", "pyro": "Weibull",
             "pymc": "Weibull", "edward2": "Weibull",
@@ -572,6 +658,7 @@ FAMILY_META: dict[str, FamilyMeta] = {
     "Pareto": FamilyMeta(
         qvr_name="Pareto",
         distribution_class=td.Pareto,
+        quivers_class=ConditionalPareto,
         target_names={
             "stan": "pareto", "numpyro": "Pareto", "pyro": "Pareto",
             "pymc": "Pareto", "edward2": "Pareto",
@@ -582,6 +669,7 @@ FAMILY_META: dict[str, FamilyMeta] = {
     "Kumaraswamy": FamilyMeta(
         qvr_name="Kumaraswamy",
         distribution_class=td.Kumaraswamy,
+        quivers_class=ConditionalKumaraswamy,
         target_names={
             "numpyro": "Kumaraswamy", "pyro": "Kumaraswamy",
             "pymc": "Kumaraswamy", "edward2": "Kumaraswamy",
@@ -590,6 +678,7 @@ FAMILY_META: dict[str, FamilyMeta] = {
     "ContinuousBernoulli": FamilyMeta(
         qvr_name="ContinuousBernoulli",
         distribution_class=td.ContinuousBernoulli,
+        quivers_class=ConditionalContinuousBernoulli,
         target_names={
             "stan": "continuous_bernoulli", "numpyro": "ContinuousBernoulli",
             "pyro": "ContinuousBernoulli", "edward2": "ContinuousBernoulli",
@@ -598,6 +687,7 @@ FAMILY_META: dict[str, FamilyMeta] = {
     "FisherSnedecor": FamilyMeta(
         qvr_name="FisherSnedecor",
         distribution_class=td.FisherSnedecor,
+        quivers_class=ConditionalFisherSnedecor,
         target_names={
             "numpyro": "FisherSnedecor", "pyro": "FisherSnedecor",
         },
@@ -605,6 +695,7 @@ FAMILY_META: dict[str, FamilyMeta] = {
     "Uniform": FamilyMeta(
         qvr_name="Uniform",
         distribution_class=td.Uniform,
+        quivers_class=ConditionalUniform,
         target_names={
             "stan": "uniform", "numpyro": "Uniform", "pyro": "Uniform",
             "pymc": "Uniform", "edward2": "Uniform",
@@ -617,6 +708,7 @@ FAMILY_META: dict[str, FamilyMeta] = {
     "MultivariateNormal": FamilyMeta(
         qvr_name="MultivariateNormal",
         distribution_class=td.MultivariateNormal,
+        quivers_class=ConditionalMultivariateNormal,
         target_names={
             "stan": "multi_normal", "numpyro": "MultivariateNormal",
             "pyro": "MultivariateNormal", "pymc": "MvNormal",
@@ -630,6 +722,7 @@ FAMILY_META: dict[str, FamilyMeta] = {
     "LowRankMVN": FamilyMeta(
         qvr_name="LowRankMVN",
         distribution_class=td.LowRankMultivariateNormal,
+        quivers_class=ConditionalLowRankMVN,
         target_names={
             "numpyro": "LowRankMultivariateNormal",
             "pyro": "LowRankMultivariateNormal",
@@ -639,6 +732,7 @@ FAMILY_META: dict[str, FamilyMeta] = {
     "RelaxedBernoulli": FamilyMeta(
         qvr_name="RelaxedBernoulli",
         distribution_class=td.RelaxedBernoulli,
+        quivers_class=ConditionalRelaxedBernoulli,
         target_names={
             "numpyro": "RelaxedBernoulli", "pyro": "RelaxedBernoulli",
         },
@@ -646,6 +740,7 @@ FAMILY_META: dict[str, FamilyMeta] = {
     "RelaxedOneHotCategorical": FamilyMeta(
         qvr_name="RelaxedOneHotCategorical",
         distribution_class=td.RelaxedOneHotCategorical,
+        quivers_class=ConditionalRelaxedOneHotCategorical,
         target_names={
             "numpyro": "RelaxedOneHotCategorical",
             "pyro": "RelaxedOneHotCategorical",
@@ -655,6 +750,7 @@ FAMILY_META: dict[str, FamilyMeta] = {
     "Wishart": FamilyMeta(
         qvr_name="Wishart",
         distribution_class=td.Wishart,
+        quivers_class=ConditionalWishart,
         target_names={
             "numpyro": "Wishart", "pyro": "Wishart",
             "pymc": "Wishart", "edward2": "Wishart",
@@ -664,6 +760,7 @@ FAMILY_META: dict[str, FamilyMeta] = {
     "InverseWishart": FamilyMeta(
         qvr_name="InverseWishart",
         distribution_class=_InverseWishart,
+        quivers_class=ConditionalInverseWishart,
         target_names={
             "numpyro": "InverseWishart", "pyro": "InverseWishart",
         },
@@ -671,6 +768,7 @@ FAMILY_META: dict[str, FamilyMeta] = {
     "MatrixNormal": FamilyMeta(
         qvr_name="MatrixNormal",
         distribution_class=_MatrixNormal,
+        quivers_class=ConditionalMatrixNormal,
         target_names={
             "pymc": "MatrixNormal",
             "edward2": "MatrixNormalLinearOperator",
@@ -679,6 +777,7 @@ FAMILY_META: dict[str, FamilyMeta] = {
     "GP": FamilyMeta(
         qvr_name="GP",
         distribution_class=_GaussianProcess,
+        quivers_class=ConditionalGaussianProcess,
         target_names={
             "edward2": "GaussianProcess",
         },
@@ -686,6 +785,7 @@ FAMILY_META: dict[str, FamilyMeta] = {
     "Horseshoe": FamilyMeta(
         qvr_name="Horseshoe",
         distribution_class=_Horseshoe,
+        quivers_class=ConditionalHorseshoe,
         target_names={
             "stan": "normal", "numpyro": "Normal", "pyro": "Normal",
             "pymc": "Normal", "edward2": "Normal",
@@ -695,6 +795,7 @@ FAMILY_META: dict[str, FamilyMeta] = {
     "Bernoulli": FamilyMeta(
         qvr_name="Bernoulli",
         distribution_class=td.Bernoulli,
+        quivers_class=ConditionalBernoulli,
         target_names={
             "stan": "bernoulli", "numpyro": "Bernoulli", "pyro": "Bernoulli",
             "pymc": "Bernoulli", "edward2": "Bernoulli",
@@ -706,6 +807,7 @@ FAMILY_META: dict[str, FamilyMeta] = {
     "Categorical": FamilyMeta(
         qvr_name="Categorical",
         distribution_class=td.Categorical,
+        quivers_class=ConditionalCategorical,
         target_names={
             "stan": "categorical", "numpyro": "Categorical",
             "pyro": "Categorical", "pymc": "Categorical",
@@ -719,6 +821,7 @@ FAMILY_META: dict[str, FamilyMeta] = {
     "Poisson": FamilyMeta(
         qvr_name="Poisson",
         distribution_class=td.Poisson,
+        quivers_class=ConditionalPoisson,
         target_names={
             "stan": "poisson", "numpyro": "Poisson", "pyro": "Poisson",
             "pymc": "Poisson", "edward2": "Poisson",
@@ -729,6 +832,7 @@ FAMILY_META: dict[str, FamilyMeta] = {
     "NegativeBinomial": FamilyMeta(
         qvr_name="NegativeBinomial",
         distribution_class=td.NegativeBinomial,
+        quivers_class=ConditionalNegativeBinomial,
         target_names={
             "stan": "neg_binomial_2", "numpyro": "NegativeBinomial2",
             "pyro": "NegativeBinomial", "pymc": "NegativeBinomial",
@@ -739,6 +843,7 @@ FAMILY_META: dict[str, FamilyMeta] = {
     "Geometric": FamilyMeta(
         qvr_name="Geometric",
         distribution_class=td.Geometric,
+        quivers_class=ConditionalGeometric,
         target_names={
             "numpyro": "Geometric", "pyro": "Geometric",
             "pymc": "Geometric", "edward2": "Geometric",
@@ -748,6 +853,7 @@ FAMILY_META: dict[str, FamilyMeta] = {
     "Binomial": FamilyMeta(
         qvr_name="Binomial",
         distribution_class=td.Binomial,
+        quivers_class=ConditionalBinomial,
         target_names={
             "stan": "binomial", "numpyro": "Binomial", "pyro": "Binomial",
             "pymc": "Binomial", "edward2": "Binomial",
@@ -757,6 +863,7 @@ FAMILY_META: dict[str, FamilyMeta] = {
     "VonMises": FamilyMeta(
         qvr_name="VonMises",
         distribution_class=td.VonMises,
+        quivers_class=ConditionalVonMises,
         target_names={
             "stan": "von_mises", "numpyro": "VonMises", "pyro": "VonMises",
         },
@@ -764,6 +871,7 @@ FAMILY_META: dict[str, FamilyMeta] = {
     "LogisticNormal": FamilyMeta(
         qvr_name="LogisticNormal",
         distribution_class=td.LogisticNormal,
+        quivers_class=ConditionalLogisticNormal,
         target_names={
             "numpyro": "LogisticNormal", "pyro": "LogisticNormal",
         },
@@ -771,6 +879,7 @@ FAMILY_META: dict[str, FamilyMeta] = {
     "OneHotCategorical": FamilyMeta(
         qvr_name="OneHotCategorical",
         distribution_class=td.OneHotCategorical,
+        quivers_class=ConditionalOneHotCategorical,
         target_names={
             "numpyro": "OneHotCategorical", "pyro": "OneHotCategorical",
             "edward2": "OneHotCategorical",
@@ -779,6 +888,7 @@ FAMILY_META: dict[str, FamilyMeta] = {
     "LKJCholesky": FamilyMeta(
         qvr_name="LKJCholesky",
         distribution_class=td.LKJCholesky,
+        quivers_class=ConditionalLKJCholesky,
         target_names={
             "stan": "lkj_corr_cholesky", "numpyro": "LKJCholesky",
             "pyro": "LKJCorrCholesky", "pymc": "LKJCholeskyCov",
@@ -788,6 +898,7 @@ FAMILY_META: dict[str, FamilyMeta] = {
     "Mixture": FamilyMeta(
         qvr_name="Mixture",
         distribution_class=td.MixtureSameFamily,
+        quivers_class=ConditionalMixture,
         target_names={
             "numpyro": "MixtureSameFamily", "pyro": "MixtureSameFamily",
             "pymc": "Mixture",
@@ -796,6 +907,7 @@ FAMILY_META: dict[str, FamilyMeta] = {
     "Independent": FamilyMeta(
         qvr_name="Independent",
         distribution_class=td.Independent,
+        quivers_class=ConditionalIndependent,
         target_names={
             "numpyro": "Independent", "pyro": "Independent",
         },
@@ -803,6 +915,7 @@ FAMILY_META: dict[str, FamilyMeta] = {
     "Transformed": FamilyMeta(
         qvr_name="Transformed",
         distribution_class=td.TransformedDistribution,
+        quivers_class=ConditionalTransformed,
         target_names={
             "numpyro": "TransformedDistribution",
             "pyro": "TransformedDistribution",
@@ -811,6 +924,7 @@ FAMILY_META: dict[str, FamilyMeta] = {
     "Truncated": FamilyMeta(
         qvr_name="Truncated",
         distribution_class=_Truncated,
+        quivers_class=Truncated,
         target_names={
             "pymc": "Truncated",
         },
@@ -818,6 +932,7 @@ FAMILY_META: dict[str, FamilyMeta] = {
     "LKJCorrelationFactor": FamilyMeta(
         qvr_name="LKJCorrelationFactor",
         distribution_class=_LKJCorrelationFactor,
+        quivers_class=LKJCorrelationFactor,
         target_names={
             "pymc": "LKJCorr",
         },
@@ -825,7 +940,8 @@ FAMILY_META: dict[str, FamilyMeta] = {
     # ----- Phase B tier 1 -----
     "BetaBinomial": FamilyMeta(
         qvr_name="BetaBinomial",
-        distribution_class=_BetaBinomial,
+        distribution_class=BetaBinomial,
+        quivers_class=ConditionalBetaBinomial,
         target_names={
             "stan": "beta_binomial", "numpyro": "BetaBinomial",
             "pyro": "BetaBinomial", "pymc": "BetaBinomial",
@@ -834,7 +950,8 @@ FAMILY_META: dict[str, FamilyMeta] = {
     ),
     "OrderedLogistic": FamilyMeta(
         qvr_name="OrderedLogistic",
-        distribution_class=_OrderedLogistic,
+        distribution_class=OrderedLogistic,
+        quivers_class=ConditionalOrderedLogistic,
         target_names={
             "stan": "ordered_logistic", "numpyro": "OrderedLogistic",
             "pyro": "OrderedLogistic", "pymc": "OrderedLogistic",
@@ -842,7 +959,8 @@ FAMILY_META: dict[str, FamilyMeta] = {
     ),
     "OrderedProbit": FamilyMeta(
         qvr_name="OrderedProbit",
-        distribution_class=_OrderedProbit,
+        distribution_class=OrderedProbit,
+        quivers_class=ConditionalOrderedProbit,
         target_names={
             "stan": "ordered_probit", "numpyro": "OrderedProbit",
             "pyro": "OrderedProbit", "pymc": "OrderedProbit",
@@ -850,7 +968,8 @@ FAMILY_META: dict[str, FamilyMeta] = {
     ),
     "Logistic": FamilyMeta(
         qvr_name="Logistic",
-        distribution_class=_Logistic,
+        distribution_class=Logistic,
+        quivers_class=ConditionalLogistic,
         target_names={
             "stan": "logistic", "numpyro": "Logistic",
             "pyro": "Logistic", "pymc": "Logistic",
@@ -859,7 +978,8 @@ FAMILY_META: dict[str, FamilyMeta] = {
     ),
     "HalfStudentT": FamilyMeta(
         qvr_name="HalfStudentT",
-        distribution_class=_HalfStudentT,
+        distribution_class=HalfStudentT,
+        quivers_class=ConditionalHalfStudentT,
         target_names={
             "stan": "student_t", "numpyro": "HalfStudentT",
             "pyro": "HalfStudentT", "pymc": "HalfStudentT",
