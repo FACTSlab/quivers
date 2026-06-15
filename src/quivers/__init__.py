@@ -281,6 +281,22 @@ from quivers.continuous import (
     # families — discrete-valued
     ConditionalBernoulli,
     ConditionalCategorical,
+    # families — Phase A: discrete count
+    ConditionalPoisson,
+    ConditionalNegativeBinomial,
+    ConditionalGeometric,
+    ConditionalBinomial,
+    # families — Phase A: circular / simplex / one-hot / correlation
+    ConditionalVonMises,
+    ConditionalLogisticNormal,
+    ConditionalOneHotCategorical,
+    ConditionalLKJCholesky,
+    # families — Phase A: distribution wrappers
+    ConditionalMixture,
+    ConditionalIndependent,
+    ConditionalTransformed,
+    Truncated,
+    LKJCorrelationFactor,
     # monadic programs
     MonadicProgram,
     # boundaries & flows
@@ -533,6 +549,22 @@ __all__ = [
     # continuous — families (discrete-valued)
     "ConditionalBernoulli",
     "ConditionalCategorical",
+    # continuous — families (Phase A: discrete count)
+    "ConditionalPoisson",
+    "ConditionalNegativeBinomial",
+    "ConditionalGeometric",
+    "ConditionalBinomial",
+    # continuous — families (Phase A: circular / simplex / one-hot / correlation)
+    "ConditionalVonMises",
+    "ConditionalLogisticNormal",
+    "ConditionalOneHotCategorical",
+    "ConditionalLKJCholesky",
+    # continuous — families (Phase A: distribution wrappers)
+    "ConditionalMixture",
+    "ConditionalIndependent",
+    "ConditionalTransformed",
+    "Truncated",
+    "LKJCorrelationFactor",
     # continuous — monadic programs
     "MonadicProgram",
     "Discretize",

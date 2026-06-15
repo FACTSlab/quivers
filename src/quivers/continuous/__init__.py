@@ -106,6 +106,22 @@ from quivers.continuous.families import (
     # discrete-valued
     ConditionalBernoulli,
     ConditionalCategorical,
+    # Phase A: discrete count families
+    ConditionalPoisson,
+    ConditionalNegativeBinomial,
+    ConditionalGeometric,
+    ConditionalBinomial,
+    # Phase A: circular / simplex / one-hot / correlation
+    ConditionalVonMises,
+    ConditionalLogisticNormal,
+    ConditionalOneHotCategorical,
+    ConditionalLKJCholesky,
+    # Phase A: distribution wrappers
+    ConditionalMixture,
+    ConditionalIndependent,
+    ConditionalTransformed,
+    Truncated,
+    LKJCorrelationFactor,
 )
 from quivers.continuous.programs import (
     MonadicProgram,
@@ -198,6 +214,22 @@ __all__ = [
     # discrete-valued conditional distributions
     "ConditionalBernoulli",
     "ConditionalCategorical",
+    # Phase A: discrete count families
+    "ConditionalPoisson",
+    "ConditionalNegativeBinomial",
+    "ConditionalGeometric",
+    "ConditionalBinomial",
+    # Phase A: circular / simplex / one-hot / correlation
+    "ConditionalVonMises",
+    "ConditionalLogisticNormal",
+    "ConditionalOneHotCategorical",
+    "ConditionalLKJCholesky",
+    # Phase A: distribution wrappers
+    "ConditionalMixture",
+    "ConditionalIndependent",
+    "ConditionalTransformed",
+    "Truncated",
+    "LKJCorrelationFactor",
     # monadic programs
     "MonadicProgram",
     # scan (temporal recurrence)

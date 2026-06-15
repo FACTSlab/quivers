@@ -22,11 +22,13 @@ Phase B tier-one families (`BetaBinomial`, `OrderedLogistic`,
 [`torch.distributions`][torch.distributions] classes; this module
 defines minimal `Distribution` subclasses carrying the right
 `arg_constraints` and `support` so the lower pipeline can introspect
-them. Several existing wrappers (`Truncated`, `Mixture`,
-`Independent`, `Transformed`, `LKJCorrelationFactor`, `Horseshoe`,
-`GP`, `InverseWishart`, `MatrixNormal`, `LogitNormal`,
-`TruncatedNormal`) also use this shim mechanism for the metadata
-that the renderer pipeline reads.
+them. Several existing wrappers (`Horseshoe`, `GP`, `InverseWishart`,
+`MatrixNormal`, `LogitNormal`, `TruncatedNormal`) also use this shim
+mechanism for the metadata that the renderer pipeline reads. The
+Phase A `Conditional*` classes from
+[`quivers.continuous.families`][quivers.continuous.families] expose
+their own class-level `arg_constraints` and `support` and serve as
+their own `distribution_class`.
 
 `finite_enumerable_at_call_site` is a per-call predicate (not a
 per-family flag); it dispatches on the family name and the IR-form
@@ -43,6 +45,22 @@ import torch.distributions as td
 import torch.distributions.constraints as c
 from torch.distributions.distribution import Distribution
 
+from quivers.continuous.families import (
+    ConditionalBinomial,
+    ConditionalGeometric,
+    ConditionalIndependent,
+    ConditionalLKJCholesky,
+    ConditionalLogisticNormal,
+    ConditionalMixture,
+    ConditionalNegativeBinomial,
+    ConditionalOneHotCategorical,
+    ConditionalPoisson,
+    ConditionalTransformed,
+    ConditionalVonMises,
+    LKJCorrelationFactor,
+    Truncated,
+)
+from quivers.continuous.morphisms import ContinuousMorphism
 from quivers.transpile.ir import (
     IRArg,
     IRArgNumber,
@@ -50,10 +68,19 @@ from quivers.transpile.ir import (
 
 
 class FamilyMeta(dx.Model):
-    """Static transpile-only metadata for one distribution family."""
+    """Static transpile-only metadata for one distribution family.
+
+    `distribution_class` accepts either a
+    [`torch.distributions.Distribution`][torch.distributions.Distribution]
+    subclass or a
+    [`quivers.continuous.morphisms.ContinuousMorphism`][quivers.continuous.morphisms.ContinuousMorphism]
+    subclass; both expose class-level `arg_constraints` and `support`
+    attributes that the transpile lower pipeline reads."""
 
     qvr_name: str
-    distribution_class: type[Distribution] = dx.field(opaque=True)
+    distribution_class: type[Distribution] | type[ContinuousMorphism] = dx.field(
+        opaque=True
+    )
     target_names: dict[str, str]
     arg_aliases: dict[str, dict[str, str]] = dx.field(
         default_factory=lambda: {}
@@ -308,68 +335,6 @@ class _Horseshoe(Distribution):
         validate_args: bool | None = None,
     ) -> None:
         self.scale = scale
-        super().__init__(validate_args=validate_args)
-
-
-class _Truncated(Distribution):
-    """Generic truncation wrapper: a base distribution restricted to
-    `[low, high]`."""
-
-    arg_constraints: dict[str, c.Constraint] = {
-        "low": c.real,
-        "high": c.real,
-    }
-    support: c.Constraint = c.real
-    has_rsample: bool = False
-
-    def __init__(
-        self,
-        base: Distribution,
-        low: torch.Tensor,
-        high: torch.Tensor,
-        validate_args: bool | None = None,
-    ) -> None:
-        self.base = base
-        self.low = low
-        self.high = high
-        super().__init__(validate_args=validate_args)
-
-
-class _Mixture(Distribution):
-    """A mixture: per-component weights plus a component distribution."""
-
-    arg_constraints: dict[str, c.Constraint] = {
-        "weights": c.simplex,
-    }
-    support: c.Constraint = c.real
-    has_rsample: bool = False
-
-    def __init__(
-        self,
-        weights: torch.Tensor,
-        component: Distribution,
-        validate_args: bool | None = None,
-    ) -> None:
-        self.weights = weights
-        self.component = component
-        super().__init__(validate_args=validate_args)
-
-
-class _LKJCorrelationFactor(Distribution):
-    """LKJ on the full correlation matrix (non-Cholesky form)."""
-
-    arg_constraints: dict[str, c.Constraint] = {
-        "concentration": c.positive,
-    }
-    support: c.Constraint = c.positive_definite
-    has_rsample: bool = False
-
-    def __init__(
-        self,
-        concentration: torch.Tensor,
-        validate_args: bool | None = None,
-    ) -> None:
-        self.concentration = concentration
         super().__init__(validate_args=validate_args)
 
 
@@ -718,7 +683,7 @@ FAMILY_META: dict[str, FamilyMeta] = {
     # ----- Phase A: implementations not yet exposed via DSL -----
     "Poisson": FamilyMeta(
         qvr_name="Poisson",
-        distribution_class=td.Poisson,
+        distribution_class=ConditionalPoisson,
         target_names={
             "stan": "poisson", "numpyro": "Poisson", "pyro": "Poisson",
             "pymc": "Poisson", "edward2": "Poisson",
@@ -728,7 +693,7 @@ FAMILY_META: dict[str, FamilyMeta] = {
     ),
     "NegativeBinomial": FamilyMeta(
         qvr_name="NegativeBinomial",
-        distribution_class=td.NegativeBinomial,
+        distribution_class=ConditionalNegativeBinomial,
         target_names={
             "stan": "neg_binomial_2", "numpyro": "NegativeBinomial2",
             "pyro": "NegativeBinomial", "pymc": "NegativeBinomial",
@@ -738,7 +703,7 @@ FAMILY_META: dict[str, FamilyMeta] = {
     ),
     "Geometric": FamilyMeta(
         qvr_name="Geometric",
-        distribution_class=td.Geometric,
+        distribution_class=ConditionalGeometric,
         target_names={
             "numpyro": "Geometric", "pyro": "Geometric",
             "pymc": "Geometric", "edward2": "Geometric",
@@ -747,7 +712,7 @@ FAMILY_META: dict[str, FamilyMeta] = {
     ),
     "Binomial": FamilyMeta(
         qvr_name="Binomial",
-        distribution_class=td.Binomial,
+        distribution_class=ConditionalBinomial,
         target_names={
             "stan": "binomial", "numpyro": "Binomial", "pyro": "Binomial",
             "pymc": "Binomial", "edward2": "Binomial",
@@ -756,21 +721,21 @@ FAMILY_META: dict[str, FamilyMeta] = {
     ),
     "VonMises": FamilyMeta(
         qvr_name="VonMises",
-        distribution_class=td.VonMises,
+        distribution_class=ConditionalVonMises,
         target_names={
             "stan": "von_mises", "numpyro": "VonMises", "pyro": "VonMises",
         },
     ),
     "LogisticNormal": FamilyMeta(
         qvr_name="LogisticNormal",
-        distribution_class=td.LogisticNormal,
+        distribution_class=ConditionalLogisticNormal,
         target_names={
             "numpyro": "LogisticNormal", "pyro": "LogisticNormal",
         },
     ),
     "OneHotCategorical": FamilyMeta(
         qvr_name="OneHotCategorical",
-        distribution_class=td.OneHotCategorical,
+        distribution_class=ConditionalOneHotCategorical,
         target_names={
             "numpyro": "OneHotCategorical", "pyro": "OneHotCategorical",
             "edward2": "OneHotCategorical",
@@ -778,7 +743,7 @@ FAMILY_META: dict[str, FamilyMeta] = {
     ),
     "LKJCholesky": FamilyMeta(
         qvr_name="LKJCholesky",
-        distribution_class=td.LKJCholesky,
+        distribution_class=ConditionalLKJCholesky,
         target_names={
             "stan": "lkj_corr_cholesky", "numpyro": "LKJCholesky",
             "pyro": "LKJCorrCholesky", "pymc": "LKJCholeskyCov",
@@ -787,7 +752,7 @@ FAMILY_META: dict[str, FamilyMeta] = {
     ),
     "Mixture": FamilyMeta(
         qvr_name="Mixture",
-        distribution_class=td.MixtureSameFamily,
+        distribution_class=ConditionalMixture,
         target_names={
             "numpyro": "MixtureSameFamily", "pyro": "MixtureSameFamily",
             "pymc": "Mixture",
@@ -795,14 +760,14 @@ FAMILY_META: dict[str, FamilyMeta] = {
     ),
     "Independent": FamilyMeta(
         qvr_name="Independent",
-        distribution_class=td.Independent,
+        distribution_class=ConditionalIndependent,
         target_names={
             "numpyro": "Independent", "pyro": "Independent",
         },
     ),
     "Transformed": FamilyMeta(
         qvr_name="Transformed",
-        distribution_class=td.TransformedDistribution,
+        distribution_class=ConditionalTransformed,
         target_names={
             "numpyro": "TransformedDistribution",
             "pyro": "TransformedDistribution",
@@ -810,14 +775,14 @@ FAMILY_META: dict[str, FamilyMeta] = {
     ),
     "Truncated": FamilyMeta(
         qvr_name="Truncated",
-        distribution_class=_Truncated,
+        distribution_class=Truncated,
         target_names={
             "pymc": "Truncated",
         },
     ),
     "LKJCorrelationFactor": FamilyMeta(
         qvr_name="LKJCorrelationFactor",
-        distribution_class=_LKJCorrelationFactor,
+        distribution_class=LKJCorrelationFactor,
         target_names={
             "pymc": "LKJCorr",
         },
