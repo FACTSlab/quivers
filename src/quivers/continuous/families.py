@@ -2774,6 +2774,278 @@ if _HAS_GPD:
         )
     )
 # ---------------------------------------------------------------------------
+# Phase B tier 1: Beta-Binomial, Logistic, Half-StudentT
+# ---------------------------------------------------------------------------
+
+
+class ConditionalBetaBinomial(ContinuousMorphism):
+    """Conjugate Beta-Binomial likelihood with learnable Beta parameters.
+
+    The number of successes ``y`` arises by drawing
+    ``p ~ Beta(concentration1(x), concentration0(x))`` and then
+    ``y ~ Binomial(total_count, p)``. The Beta is integrated out
+    analytically, yielding the log-probability
+
+    .. math::
+
+        \\log p(y \\mid x) = \\log \\Gamma(\\alpha + \\beta)
+            + \\log \\Gamma(\\alpha + y) + \\log \\Gamma(\\beta + n - y)
+            - \\log \\Gamma(\\alpha) - \\log \\Gamma(\\beta)
+            - \\log \\Gamma(\\alpha + \\beta + n)
+            + \\log \\binom{n}{y}
+
+    where :math:`\\alpha = \\mathrm{concentration1}(x)`,
+    :math:`\\beta = \\mathrm{concentration0}(x)`, and :math:`n` is
+    ``total_count``.
+
+    Sampling is not reparameterisable; ``rsample`` raises and
+    ``sample`` draws ``p`` from the Beta and ``y`` from the
+    resulting Binomial.
+
+    Parameters
+    ----------
+    domain : SetObject or ContinuousSpace
+        Source space.
+    codomain : ContinuousSpace
+        Target space. ``codomain.dim`` independent Beta-Binomial
+        observations are produced per input.
+    total_count : int
+        Number of Bernoulli trials per observation; must be a
+        positive integer.
+    hidden_dim : int
+        Hidden layer width for the neural parameter source.
+    """
+
+    def __init__(
+        self,
+        domain: AnySpace,
+        codomain: ContinuousSpace,
+        total_count: int,
+        hidden_dim: int = 64,
+    ) -> None:
+        if total_count < 1:
+            raise ValueError(
+                f"ConditionalBetaBinomial: total_count must be >= 1, "
+                f"got {total_count}"
+            )
+        super().__init__(domain, codomain)
+        d = codomain.dim
+        self._d = d
+        self._total_count = int(total_count)
+        # Two raw scalars per codomain dim: alpha and beta concentrations.
+        self.param_source = _make_source(domain, 2 * d, hidden_dim)
+
+    @property
+    def support(self) -> _constraints.Constraint:
+        return _constraints.integer_interval(0, self._total_count)
+
+    def _get_concentrations(
+        self, x: torch.Tensor
+    ) -> tuple[torch.Tensor, torch.Tensor]:
+        raw = self.param_source(x)
+        log_alpha = raw[..., : self._d]
+        log_beta = raw[..., self._d :]
+        alpha = F.softplus(log_alpha) + EPS
+        beta = F.softplus(log_beta) + EPS
+        return alpha, beta
+
+    def log_prob(self, x: torch.Tensor, y: torch.Tensor) -> torch.Tensor:
+        alpha, beta = self._get_concentrations(x)
+        n = float(self._total_count)
+        y_f = y.float()
+        lgamma = torch.lgamma
+        n_tensor = torch.tensor(n, device=y_f.device, dtype=y_f.dtype)
+        log_binom = (
+            lgamma(n_tensor + 1.0)
+            - lgamma(y_f + 1.0)
+            - lgamma(n_tensor - y_f + 1.0)
+        )
+        log_p = (
+            lgamma(alpha + beta)
+            + lgamma(alpha + y_f)
+            + lgamma(beta + n_tensor - y_f)
+            - lgamma(alpha)
+            - lgamma(beta)
+            - lgamma(alpha + beta + n_tensor)
+            + log_binom
+        )
+        return log_p.sum(dim=-1)
+
+    def rsample(
+        self,
+        x: torch.Tensor,
+        sample_shape: torch.Size = torch.Size(),
+    ) -> torch.Tensor:
+        raise NotImplementedError(
+            "ConditionalBetaBinomial.rsample is not supported: "
+            "Beta-Binomial sampling is not reparameterisable; "
+            "use .sample() instead."
+        )
+
+    def sample(
+        self,
+        x: torch.Tensor,
+        sample_shape: torch.Size = torch.Size(),
+    ) -> torch.Tensor:
+        with torch.no_grad():
+            alpha, beta = self._get_concentrations(x)
+            p = D.Beta(alpha, beta).sample(sample_shape)
+            return D.Binomial(total_count=self._total_count, probs=p).sample().long()
+
+
+class ConditionalLogistic(ContinuousMorphism):
+    """Conditional logistic distribution on the real line.
+
+    Independent per codomain dim with learnable location and scale:
+
+    .. math::
+
+        \\log p(y \\mid x) = -z - 2 \\log(1 + e^{-z}) - \\log \\sigma
+
+    where :math:`z = (y - \\mu) / \\sigma`. Samples are
+    reparameterised via the inverse-CDF transform of a uniform draw,
+    :math:`y = \\mu + \\sigma \\log(u / (1 - u))`.
+
+    Parameters
+    ----------
+    domain : SetObject or ContinuousSpace
+        Source space.
+    codomain : ContinuousSpace
+        Target space. ``codomain.dim`` independent logistic
+        components are produced per input.
+    hidden_dim : int
+        Hidden layer width for the neural parameter source.
+    """
+
+    def __init__(
+        self,
+        domain: AnySpace,
+        codomain: ContinuousSpace,
+        hidden_dim: int = 64,
+    ) -> None:
+        super().__init__(domain, codomain)
+        d = codomain.dim
+        self._d = d
+        # param_dim = d (loc) + d (raw_scale).
+        self.param_source = _make_source(domain, 2 * d, hidden_dim)
+
+    @property
+    def support(self) -> _constraints.Constraint:
+        return _constraints.real
+
+    def _get_params(
+        self, x: torch.Tensor
+    ) -> tuple[torch.Tensor, torch.Tensor]:
+        raw = self.param_source(x)
+        loc = raw[..., : self._d]
+        scale = F.softplus(raw[..., self._d :]) + EPS
+        return loc, scale
+
+    def log_prob(self, x: torch.Tensor, y: torch.Tensor) -> torch.Tensor:
+        loc, scale = self._get_params(x)
+        z = (y - loc) / scale
+        log_p = -z - 2.0 * F.softplus(-z) - scale.log()
+        return log_p.sum(dim=-1)
+
+    def rsample(
+        self,
+        x: torch.Tensor,
+        sample_shape: torch.Size = torch.Size(),
+    ) -> torch.Tensor:
+        loc, scale = self._get_params(x)
+        u = torch.rand(
+            *sample_shape,
+            *loc.shape,
+            device=loc.device,
+            dtype=loc.dtype,
+        ).clamp(min=EPS, max=1.0 - EPS)
+        return loc + scale * (u.log() - (-u).log1p())
+
+
+class ConditionalHalfStudentT(ContinuousMorphism):
+    """Conditional half-StudentT on the positive reals.
+
+    A StudentT with ``df`` fixed at construction time, learnable
+    scale, and location fixed at zero, restricted to nonnegative
+    values via reflection. The folded log-density at ``y >= 0`` is
+    ``log 2 + log_prob_studentt(0, scale(x), df; y)`` and ``-inf``
+    elsewhere.
+
+    Sampling reflects a base StudentT draw through the origin:
+    ``y = |z|`` with ``z ~ StudentT(df, 0, scale)``.
+    Reparameterisation flows through the absolute-value operation.
+
+    Parameters
+    ----------
+    domain : SetObject or ContinuousSpace
+        Source space.
+    codomain : ContinuousSpace
+        Target space. ``codomain.dim`` independent half-StudentT
+        components are produced per input.
+    df : float
+        Degrees-of-freedom hyperparameter (positive). Held fixed
+        across observations; only ``scale`` is learnable.
+    hidden_dim : int
+        Hidden layer width for the neural parameter source.
+    """
+
+    def __init__(
+        self,
+        domain: AnySpace,
+        codomain: ContinuousSpace,
+        df: float,
+        hidden_dim: int = 64,
+    ) -> None:
+        if df <= 0.0:
+            raise ValueError(
+                f"ConditionalHalfStudentT: df must be > 0, got {df!r}"
+            )
+        super().__init__(domain, codomain)
+        d = codomain.dim
+        self._d = d
+        self._df = float(df)
+        self.param_source = _make_source(domain, d, hidden_dim)
+
+    @property
+    def support(self) -> _constraints.Constraint:
+        return _constraints.greater_than(0.0)
+
+    def _get_scale(self, x: torch.Tensor) -> torch.Tensor:
+        raw = self.param_source(x)
+        return F.softplus(raw) + EPS
+
+    def _base_dist(self, scale: torch.Tensor) -> D.StudentT:
+        df_tensor = torch.full_like(scale, self._df)
+        loc = torch.zeros_like(scale)
+        return D.StudentT(df_tensor, loc, scale)
+
+    def log_prob(self, x: torch.Tensor, y: torch.Tensor) -> torch.Tensor:
+        scale = self._get_scale(x)
+        base = self._base_dist(scale)
+        in_support = (y >= 0.0)
+        # Fold: log p_half(y) = log 2 + log p_base(y) for y >= 0,
+        # else -inf. Clamp y to a finite nonnegative value before
+        # evaluating the base density to avoid NaN from StudentT at
+        # negative inputs (which is fine; the mask zeros it out).
+        y_safe = y.clamp(min=0.0)
+        base_lp = base.log_prob(y_safe)
+        folded = math.log(2.0) + base_lp
+        masked = torch.where(
+            in_support, folded, torch.full_like(folded, float("-inf"))
+        )
+        return masked.sum(dim=-1)
+
+    def rsample(
+        self,
+        x: torch.Tensor,
+        sample_shape: torch.Size = torch.Size(),
+    ) -> torch.Tensor:
+        scale = self._get_scale(x)
+        base = self._base_dist(scale)
+        return base.rsample(sample_shape).abs()
+
+
+# ---------------------------------------------------------------------------
 # LKJ correlation prior on Cholesky factors
 # ---------------------------------------------------------------------------
 
