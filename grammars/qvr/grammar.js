@@ -923,6 +923,8 @@ module.exports = grammar({
       $.bracket_index_arg,
       $.identifier,
       $.signed_number,
+      $.draw_arg_list,
+      $.draw_arg_matrix,
     ),
 
     bracket_index_arg: $ => prec(1, seq(
@@ -931,6 +933,35 @@ module.exports = grammar({
       field('index', $._object_expr),
       ']',
     )),
+
+    /*
+     * Vector literal: ``[a, b, c]``. Elements are atomic draw args
+     * (identifiers, numbers, or bracket-indexed references); nested
+     * lists go through `draw_arg_matrix`.
+     */
+    draw_arg_list: $ => prec(2, seq(
+      '[',
+      commaSep1($._draw_arg_atom),
+      optional(','),
+      ']',
+    )),
+
+    /*
+     * Matrix literal: ``[[a, b], [c, d]]``. Each row is a
+     * `draw_arg_list`.
+     */
+    draw_arg_matrix: $ => prec(3, seq(
+      '[',
+      commaSep1($.draw_arg_list),
+      optional(','),
+      ']',
+    )),
+
+    _draw_arg_atom: $ => choice(
+      $.identifier,
+      $.signed_number,
+      $.bracket_index_arg,
+    ),
 
     _var_pattern: $ => choice($.identifier, $.var_tuple),
 

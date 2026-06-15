@@ -30,6 +30,11 @@ from __future__ import annotations
 import dataclasses
 
 from quivers.dsl.ast_nodes import (
+    DrawArg,
+    DrawArgList,
+    DrawArgMatrix,
+    DrawArgName,
+    DrawArgScalar,
     Expr,
     ExprIdent,
     LetDecl,
@@ -46,7 +51,9 @@ class ResolvedDist:
 
     ``family`` is the canonical QVR family name, exactly as it would
     appear if the user had written ``sample x <- family(args)``.
-    ``args`` is the tuple of positional arguments after resolution.
+    ``args`` is the tuple of positional arguments after resolution,
+    held in the legacy wire form ``str | float`` for backends that
+    have not migrated to the structural `DrawArg` representation.
 
     The ``original_morphism_name`` and ``via`` fields are diagnostic:
     when a sample resolves through a morphism declaration, the
@@ -58,9 +65,41 @@ class ResolvedDist:
     args: tuple[str | float, ...]
     original_morphism_name: str
     via: tuple[str, ...] = ()
-    """The chain of intermediate let / morphism names the resolver
-    walked through to reach ``family``. Empty when the morphism
-    slot was already a family name."""
+
+
+def _draw_arg_to_wire(arg: DrawArg) -> str | float:
+    """Lower a `DrawArg` atomic variant to its wire form. Compound
+    variants encode positionally so the legacy backend pipeline
+    receives the structural literal as a parseable string surrogate."""
+    if isinstance(arg, DrawArgScalar):
+        return arg.value
+    if isinstance(arg, DrawArgName):
+        return arg.text
+    if isinstance(arg, DrawArgList):
+        return (
+            "[" + ", ".join(_atom_to_text(e) for e in arg.elements) + "]"
+        )
+    if isinstance(arg, DrawArgMatrix):
+        rows = ", ".join(
+            "[" + ", ".join(_atom_to_text(e) for e in row.elements) + "]"
+            for row in arg.rows
+        )
+        return f"[{rows}]"
+    raise TypeError(
+        f"_draw_arg_to_wire: unsupported arg variant {type(arg).__name__}"
+    )
+
+
+def _atom_to_text(value: str | float) -> str:
+    if isinstance(value, (int, float)) and not isinstance(value, bool):
+        return _format_number(float(value))
+    return str(value)
+
+
+def _format_number(value: float) -> str:
+    if value == int(value):
+        return f"{int(value)}"
+    return repr(value)
 
 
 def build_morphism_table(module: Module) -> dict[str, MorphismDecl]:
@@ -93,7 +132,7 @@ def build_let_table(module: Module) -> dict[str, Expr]:
 
 def resolve_step_dist(
     morphism_name: str,
-    raw_args: tuple[str | float, ...] | None,
+    raw_args: tuple[DrawArg, ...] | None,
     *,
     morphisms: dict[str, MorphismDecl],
     lets: dict[str, Expr],
@@ -135,12 +174,14 @@ def resolve_step_dist(
         membership in this tuple.
     """
     if morphism_name in family_registry:
-        args = raw_args or ()
-        if not args:
-            args = _FAMILY_DEFAULT_ARGS.get(morphism_name, ())
+        wire: tuple[str | float, ...]
+        if raw_args:
+            wire = tuple(_draw_arg_to_wire(a) for a in raw_args)
+        else:
+            wire = _FAMILY_DEFAULT_ARGS.get(morphism_name, ())
         return ResolvedDist(
             family=morphism_name,
-            args=args,
+            args=wire,
             original_morphism_name=morphism_name,
         )
 
@@ -204,7 +245,7 @@ def _from_init_family(
     *,
     morphism_name: str,
     init: MorphismInitFamily,
-    step_args: tuple[str | float, ...] | None,
+    step_args: tuple[DrawArg, ...] | None,
     chain: tuple[str, ...],
 ) -> ResolvedDist:
     """Unfold a ``~ Family(args)`` init clause. Step-supplied args
@@ -213,12 +254,15 @@ def _from_init_family(
     `morphism foo : T -> T [role=kernel] ~ Family` form), fall back
     to the family's canonical default parameters so the resulting
     call has the arity the target backend expects."""
-    args = step_args if step_args else init.args
-    if not args:
-        args = _FAMILY_DEFAULT_ARGS.get(init.family, ())
+    source: tuple[DrawArg, ...] = step_args if step_args else init.args
+    wire: tuple[str | float, ...]
+    if source:
+        wire = tuple(_draw_arg_to_wire(a) for a in source)
+    else:
+        wire = _FAMILY_DEFAULT_ARGS.get(init.family, ())
     return ResolvedDist(
         family=init.family,
-        args=args,
+        args=wire,
         original_morphism_name=morphism_name,
         via=chain[:-1] if chain else (),
     )
@@ -261,7 +305,7 @@ def _resolve_expr(
     *,
     morphism_name: str,
     expr: Expr,
-    raw_args: tuple[str | float, ...] | None,
+    raw_args: tuple[DrawArg, ...] | None,
     morphisms: dict[str, MorphismDecl],
     lets: dict[str, Expr],
     family_registry: frozenset[str],

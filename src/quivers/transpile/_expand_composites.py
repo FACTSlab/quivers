@@ -48,6 +48,7 @@ The pass operates at the Module level: it rebuilds every
 from __future__ import annotations
 
 from quivers.dsl.ast_nodes import (
+    DrawArg,
     Expr,
     ExprCompose,
     ExprFan,
@@ -63,6 +64,7 @@ from quivers.dsl.ast_nodes import (
     ProgramDecl,
     ProgramStep,
     SampleStep,
+    atom_to_draw_arg,
 )
 
 
@@ -365,7 +367,7 @@ def _derive_chain_args(
     morphism_name: str,
     prev_var: str | None,
     morphisms: dict[str, MorphismDecl],
-) -> tuple[str | float, ...]:
+) -> tuple[DrawArg, ...]:
     """Compute the chain-position args for a kernel morphism.
 
     If the morphism declaration carries explicit `~ Family(args)`,
@@ -377,7 +379,7 @@ def _derive_chain_args(
     """
     decl = morphisms.get(morphism_name)
     family: str | None = None
-    explicit_args: tuple[str | float, ...] = ()
+    explicit_args: tuple[DrawArg, ...] = ()
     if decl is not None:
         if decl.init_family is not None:
             family = decl.init_family.family
@@ -392,10 +394,10 @@ def _derive_chain_args(
     if defaults is None:
         return ()
     if prev_var is None:
-        return defaults
+        return tuple(atom_to_draw_arg(d) for d in defaults)
     if not defaults:
         return ()
-    return (prev_var, *defaults[1:])
+    return (atom_to_draw_arg(prev_var), *(atom_to_draw_arg(d) for d in defaults[1:]))
 
 
 __all__ = ["expand_composite_lets"]

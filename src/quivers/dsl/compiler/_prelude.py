@@ -247,36 +247,76 @@ def _register_extra_algebras() -> None:
             pass
 
 
-_FAMILY_REGISTRY: dict[str, type] | None = None
-
-
-# Event rank declared by each registered family.  Used by the
-# compiler to validate axis-role clauses (`over <axes> [iid over
-# <axes>]`): the number of names in `over` must equal the family's
-# event rank.  Scalar families have rank 0 (every codomain axis is
-# iid); vector families have rank 1; matrix families have rank 2.
-# Multivariate, matrix, and correlation families that take more
-# than one named event axis declare it here; everything else
-# defaults to 0 in the lookup helper.
-_FAMILY_EVENT_RANK: dict[str, int] = {
-    "MultivariateNormal": 1,
-    "LowRankMVN": 1,
-    "Dirichlet": 1,
-    "OneHotCategorical": 1,
-    "RelaxedOneHotCategorical": 1,
-    "LogisticNormal": 1,
-    "Wishart": 2,
-    "InverseWishart": 2,
-    "MatrixNormal": 2,
-    "LKJCholesky": 2,
-    "GP": 1,
-    "Horseshoe": 1,
-}
-
-
 def _family_event_rank(family_name: str) -> int:
-    """Return the declared event rank of a family (0 for scalar)."""
-    return _FAMILY_EVENT_RANK.get(family_name, 0)
+    """Return the declared event rank of a family (0 for scalar).
+
+    The event rank is derived from the family's distribution class
+    via [`quivers.transpile.family_meta.FAMILY_META`][quivers.transpile.family_meta.FAMILY_META]:
+    the class-level ``support`` (or, for property-form supports, a
+    sentinel instance built with placeholder parameters) reports an
+    ``event_dim`` attribute that is the family's event rank.
+
+    Returns ``0`` for any family name that is not registered in
+    `FAMILY_META`; the unknown-family condition is caught
+    downstream by the family resolver with a richer diagnostic.
+    """
+    from quivers.transpile.family_meta import FAMILY_META
+
+    meta = FAMILY_META.get(family_name)
+    if meta is None:
+        return 0
+    cls_support = meta.distribution_class.support
+    rank = _event_rank_of_support(cls_support)
+    if rank is not None:
+        return rank
+    sentinel = _family_sentinel(family_name)
+    return int(getattr(sentinel.support, "event_dim", 0))
+
+
+def _event_rank_of_support(support: object) -> int | None:
+    """Return the event rank carried by a class-level ``support``
+    constraint, or ``None`` when the support is a property and must
+    be evaluated on an instance.
+    """
+    import torch.distributions.constraints as _c
+
+    if isinstance(support, _c.Constraint) and not isinstance(
+        support, _c._DependentProperty
+    ):
+        return int(getattr(support, "event_dim", 0))
+    return None
+
+
+def _family_sentinel(family_name: str):
+    """Build a sentinel instance of the family's distribution class
+    using the shared sentinel construction path in
+    [`quivers.transpile.lower`][quivers.transpile.lower].
+
+    Constructs a minimal `_LowerCtx` so the sentinel cache key path
+    works; the cache is throwaway for this call.
+    """
+    from torch.distributions.distribution import Distribution
+
+    from quivers.dsl.ast_nodes import ProgramDecl, TypeName
+    from quivers.transpile.family_meta import FAMILY_META
+    from quivers.transpile.lower import _LowerCtx, _make_sentinel
+
+    meta = FAMILY_META[family_name]
+    cache: dict[tuple[str, tuple[str, ...]], Distribution] = {}
+    placeholder_program = ProgramDecl(
+        name="_axis_role_sentinel",
+        domain=TypeName(name="X"),
+        codomain=TypeName(name="X"),
+    )
+    ctx = _LowerCtx(
+        morphisms={},
+        lets={},
+        cards={},
+        family_set=frozenset(),
+        sentinel_cache=cache,
+        program=placeholder_program,
+    )
+    return _make_sentinel(meta, (), ctx)
 
 
 def _shape_size(obj) -> int:
@@ -411,88 +451,53 @@ def _validate_axis_spec(
 
 
 def _get_family_registry() -> dict[str, type]:
-    """Lazily build the distribution family registry."""
-    global _FAMILY_REGISTRY
-    if _FAMILY_REGISTRY is not None:
-        return _FAMILY_REGISTRY
-    from quivers.continuous.families import (
-        ConditionalNormal,
-        ConditionalLogitNormal,
-        ConditionalBeta,
-        ConditionalTruncatedNormal,
-        ConditionalDirichlet,
-        ConditionalCauchy,
-        ConditionalLaplace,
-        ConditionalGumbel,
-        ConditionalLogNormal,
-        ConditionalStudentT,
-        ConditionalExponential,
-        ConditionalGamma,
-        ConditionalChi2,
-        ConditionalHalfCauchy,
-        ConditionalHalfNormal,
-        ConditionalInverseGamma,
-        ConditionalWeibull,
-        ConditionalPareto,
-        ConditionalKumaraswamy,
-        ConditionalContinuousBernoulli,
-        ConditionalFisherSnedecor,
-        ConditionalUniform,
-        ConditionalMultivariateNormal,
-        ConditionalLowRankMVN,
-        ConditionalRelaxedBernoulli,
-        ConditionalRelaxedOneHotCategorical,
-        ConditionalWishart,
-        ConditionalInverseWishart,
-        ConditionalMatrixNormal,
-        ConditionalGaussianProcess,
-        ConditionalHorseshoe,
-        ConditionalBernoulli,
-        ConditionalCategorical,
-    )
+    """Return the compiler-side distribution-family registry,
+    derived from
+    [`quivers.transpile.family_meta.FAMILY_META`][quivers.transpile.family_meta.FAMILY_META].
 
-    _FAMILY_REGISTRY = {
-        "Normal": ConditionalNormal,
-        "LogitNormal": ConditionalLogitNormal,
-        "Beta": ConditionalBeta,
-        "TruncatedNormal": ConditionalTruncatedNormal,
-        "Dirichlet": ConditionalDirichlet,
-        "Cauchy": ConditionalCauchy,
-        "Laplace": ConditionalLaplace,
-        "Gumbel": ConditionalGumbel,
-        "LogNormal": ConditionalLogNormal,
-        "StudentT": ConditionalStudentT,
-        "Exponential": ConditionalExponential,
-        "Gamma": ConditionalGamma,
-        "Chi2": ConditionalChi2,
-        "HalfCauchy": ConditionalHalfCauchy,
-        "HalfNormal": ConditionalHalfNormal,
-        "InverseGamma": ConditionalInverseGamma,
-        "Weibull": ConditionalWeibull,
-        "Pareto": ConditionalPareto,
-        "Kumaraswamy": ConditionalKumaraswamy,
-        "ContinuousBernoulli": ConditionalContinuousBernoulli,
-        "FisherSnedecor": ConditionalFisherSnedecor,
-        "Uniform": ConditionalUniform,
-        "MultivariateNormal": ConditionalMultivariateNormal,
-        "LowRankMVN": ConditionalLowRankMVN,
-        "RelaxedBernoulli": ConditionalRelaxedBernoulli,
-        "RelaxedOneHotCategorical": ConditionalRelaxedOneHotCategorical,
-        "Wishart": ConditionalWishart,
-        "InverseWishart": ConditionalInverseWishart,
-        "MatrixNormal": ConditionalMatrixNormal,
-        "GP": ConditionalGaussianProcess,
-        "Horseshoe": ConditionalHorseshoe,
-        "Bernoulli": ConditionalBernoulli,
-        "Categorical": ConditionalCategorical,
+    `FAMILY_META` is the single source of truth for the set of
+    registered family names. For each name we look up the
+    corresponding compile-time wrapper class (the
+    ``Conditional<F>`` quivers class that lifts the underlying
+    `torch.distributions.Distribution`
+    into a `StochasticMorphism` between the morphism's
+    declared domain and codomain). Families lacking a wrapper class
+    are omitted (they are reachable only through the structural
+    transpile pipeline, not through the runtime compiler).
+
+    Adding a family to `FAMILY_META` automatically extends this
+    registry once the corresponding `Conditional<F>` wrapper exists.
+    No parallel registration step is required.
+    """
+    from quivers.continuous import families as _families
+    from quivers.transpile.family_meta import FAMILY_META
+
+    out: dict[str, type] = {}
+    for name in FAMILY_META:
+        wrapper_name = f"Conditional{name}"
+        wrapper = getattr(_families, wrapper_name, None)
+        if wrapper is not None:
+            out[name] = wrapper
+    # Aliases: a few wrappers use a non-canonical name that does
+    # not match the ``Conditional<QvrName>`` schema. Look them up
+    # explicitly to keep the registry's coverage stable.
+    aliases = {
+        "LowRankMVN": "ConditionalLowRankMVN",
+        "GP": "ConditionalGaussianProcess",
     }
-    try:
-        from quivers.continuous.families import ConditionalGeneralizedPareto
-
-        _FAMILY_REGISTRY["GeneralizedPareto"] = ConditionalGeneralizedPareto
-    except (ImportError, AttributeError):
-        pass
-    return _FAMILY_REGISTRY
+    for qvr_name, wrapper_name in aliases.items():
+        if qvr_name in FAMILY_META and qvr_name not in out:
+            wrapper = getattr(_families, wrapper_name, None)
+            if wrapper is not None:
+                out[qvr_name] = wrapper
+    # ``GeneralizedPareto`` lives in a torch-version-dependent
+    # `Conditional<F>` wrapper but does not have a transpile-time
+    # `FamilyMeta` entry: register it from the wrapper module so the
+    # runtime compiler keeps its coverage.
+    extra_wrapper = getattr(_families, "ConditionalGeneralizedPareto", None)
+    if extra_wrapper is not None and "GeneralizedPareto" not in out:
+        out["GeneralizedPareto"] = extra_wrapper
+    return out
 
 
 _SPACE_CONSTRUCTORS: (
