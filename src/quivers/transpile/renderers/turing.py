@@ -43,6 +43,18 @@ import torch.distributions.constraints as _torch_constraints
 from quivers.dsl.ast_nodes import (
     ExportDecl,
     ExprIdent,
+    LetExprBinOp,
+    LetExprCall,
+    LetExprFactor,
+    LetExprIndex,
+    LetExprLambda,
+    LetExprList,
+    LetExprLiteral,
+    LetExprMethodCall,
+    LetExprNode,
+    LetExprString,
+    LetExprUnaryOp,
+    LetExprVar,
     Module,
     ProgramDecl,
 )
@@ -415,9 +427,12 @@ class TuringRenderer(RendererBase):
         body = _vertex(sb, counter, "block")
 
         # The Turing.jl function signature carries every IRDataInput
-        # name in lowering order (scalar params, observed vars, free
-        # identifiers).
-        params = tuple(inp.name for inp in ir.inputs)
+        # in alphabetical name order. The in-container probe (which
+        # has no access to the IR's lowering order) passes observed
+        # values as positional args in `sort(collect(keys(data)))`
+        # order; sorting here keeps the two sides in lockstep so
+        # callers never have to know the original IR order.
+        params = tuple(sorted(inp.name for inp in ir.inputs))
 
         # Walk the body. Each node emits a `~` / `=` / `return`
         # statement into `body`.
@@ -430,11 +445,19 @@ class TuringRenderer(RendererBase):
             body=body,
             input_plates={inp.name: inp.plate for inp in ir.inputs},
             sample_plates={},
+            batch_shaped_names=set(),
         )
         # Pre-populate the sample-plate table by walking the body so
         # observe / marginalize bodies can detect index-dependent args
         # against the originating sample's plate.
         _seed_sample_plates(ctx, ir.body)
+        # Pre-populate the batch-shaped-names table: every
+        # IRDataInput / IRSample with non-empty batch_dims, plus every
+        # IRDeterministic whose RHS transitively references one such
+        # name. Drives the broadcast-dot fallback for observes whose
+        # `loc=` etc. is a let-bound vector (e.g. `mu = a + b *
+        # x_design` in bayes_linear_regression).
+        _seed_batch_shaped(ctx, ir.body)
         for node in ir.body:
             self._dispatch(ctx, node)
 
@@ -552,7 +575,12 @@ class TuringRenderer(RendererBase):
         # through the fibration variable.
         index_dep = (
             via is not None
-            or _args_have_batch_index(args, ctx.sample_plates, plate)
+            or _args_have_batch_index(
+                args,
+                ctx.sample_plates,
+                plate,
+                ctx.batch_shaped_names,
+            )
         )
 
         lhs = _identifier(sb, counter, name)
@@ -567,6 +595,31 @@ class TuringRenderer(RendererBase):
             family_callee = _identifier(sb, counter, target_dist)
             rhs = _broadcast_call(sb, counter, family_callee, rhs_args)
             stmt = _tilde(sb, counter, lhs, rhs, broadcast=True)
+            sb.edge(ctx.body, stmt, "child_of")
+            return ""
+
+        if index_dep and observed and via is None:
+            # Index-dependent observe whose arg(s) reference a
+            # batch-shaped name (e.g. a let-bound vector) directly,
+            # without a `via` fibration. The plain
+            # `filldist(Family(args), B)` form requires the args to
+            # be scalar; wrap the per-element distribution array in
+            # `product_distribution(Family.(args))` and emit the
+            # scalar tilde. DynamicPPL no longer accepts `.~` over
+            # an array of distributions; `product_distribution` is
+            # the supported replacement.
+            rhs_args = tuple(
+                _arg_to_julia(ctx, a, family=family) for a in args
+            )
+            family_callee = _identifier(sb, counter, target_dist)
+            elemwise = _broadcast_call(sb, counter, family_callee, rhs_args)
+            rhs = _call(
+                sb,
+                counter,
+                _identifier(sb, counter, "product_distribution"),
+                (elemwise,),
+            )
+            stmt = _tilde(sb, counter, lhs, rhs)
             sb.edge(ctx.body, stmt, "child_of")
             return ""
 
@@ -657,18 +710,28 @@ class TuringRenderer(RendererBase):
         """Build `<TargetDist>(<args>)` for the no-batch-iteration case.
 
         Most families lower to a direct `<target_dist>(<args>)` call.
-        Two QVR families have no native Turing.jl distribution and the
-        renderer composes them out of the `truncated` wrapper:
+        Three QVR families have no native Turing.jl distribution and
+        the renderer composes them out of the `truncated` wrapper:
 
         * `HalfNormal(sigma)` -> `truncated(Normal(0, sigma), 0, Inf)`
         * `HalfCauchy(gamma)` -> `truncated(Cauchy(0, gamma), 0, Inf)`
+        * `TruncatedNormal(loc, scale, low, high)` ->
+          `truncated(Normal(loc, scale), low, high)`
 
-        The composition is keyed on the family name (the FAMILY_META
-        target_name for both is `"truncated"`, which is the wrapper
-        callable); a per-renderer recipe table supplies the inner
-        base distribution because that choice is the family's own
-        per-target lowering convention rather than a renderer-level
-        dispatch on the QVR family discriminator.
+        Two QVR families take a rate parameter that the Distributions.jl
+        equivalent expects as a scale `theta = 1/rate`; the renderer
+        emits the inverse explicitly so the log-density matches:
+
+        * `Exponential(rate)` -> `Exponential(1/rate)`
+        * `Gamma(concentration, rate)` -> `Gamma(concentration, 1/rate)`
+
+        The compositions are keyed on the family name (the FAMILY_META
+        target_name for the half-truncated and `TruncatedNormal`
+        families is `"truncated"`, which is the wrapper callable); a
+        per-renderer recipe supplies the inner base distribution and
+        argument layout because those choices are per-target lowering
+        conventions rather than renderer-level dispatch on the QVR
+        family discriminator.
         """
         sb, counter = ctx.sb, ctx.counter
         rhs_args = tuple(
@@ -693,6 +756,32 @@ class TuringRenderer(RendererBase):
                     _integer(sb, counter, 0),
                     _identifier(sb, counter, "Inf"),
                 ),
+            )
+        if family == "TruncatedNormal":
+            # args order: (loc, scale, low, high).
+            if len(rhs_args) != 4:
+                raise UnsupportedConstruct(
+                    "qvr-turing",
+                    [
+                        f"family:TruncatedNormal: expected 4 args "
+                        f"(loc, scale, low, high), got {len(rhs_args)}"
+                    ],
+                )
+            base_call = _call(
+                sb,
+                counter,
+                _identifier(sb, counter, "Normal"),
+                (rhs_args[0], rhs_args[1]),
+            )
+            return _call(
+                sb,
+                counter,
+                _identifier(sb, counter, target_dist),
+                (base_call, rhs_args[2], rhs_args[3]),
+            )
+        if family in _RATE_TO_SCALE_INVERT_POSITIONS:
+            rhs_args = _invert_rate_arg(
+                sb, counter, rhs_args, _RATE_TO_SCALE_INVERT_POSITIONS[family]
             )
         return _call(
             sb,
@@ -739,11 +828,23 @@ class TuringRenderer(RendererBase):
     def _emit_deterministic(
         self, ctx: _TuringCtx, node: IRDeterministic
     ) -> None:
+        """Emit one `<name> = <rhs>` or `<name> = @. <rhs>` assignment.
+
+        Wraps the RHS in Julia's `@.` macro when the deterministic is
+        batch-shaped (its `name` was pre-seeded into
+        [`ctx.batch_shaped_names`][_TuringCtx]); this turns every
+        arithmetic operator and function call in the body into its
+        broadcasting variant so a `mu = a + b * x_design` against a
+        vector `x_design` produces a Vector{Float64} mu rather than
+        raising "no method matching +(::Int64, ::Vector)".
+        """
         sb, counter = ctx.sb, ctx.counter
         lhs = _identifier(sb, counter, node.name)
         rhs = render_let_expr_julia(
             _JlCtxShim(sb, counter, ctx.cards, "turing"), node.expr
         )
+        if node.name in ctx.batch_shaped_names:
+            rhs = _macro_call(sb, counter, ".", rhs)
         stmt = _assignment(sb, counter, lhs, rhs)
         sb.edge(ctx.body, stmt, "child_of")
 
@@ -790,6 +891,53 @@ _HALF_TRUNCATED_BASES: dict[str, str] = {
 }
 
 
+# Recipe table: QVR families whose `rate` arg corresponds to a
+# `scale = 1/rate` argument slot in Distributions.jl. The mapped
+# value is the 0-based positional index of the rate arg in the QVR
+# call (per the family's arg-name tuple).
+#
+# * Exponential(rate) -> Exponential(1/rate), rate at position 0.
+# * Gamma(concentration, rate) -> Gamma(concentration, 1/rate),
+#   rate at position 1.
+_RATE_TO_SCALE_INVERT_POSITIONS: dict[str, int] = {
+    "Exponential": 0,
+    "Gamma": 1,
+}
+
+
+def _invert_rate_arg(
+    sb: panproto.SchemaBuilder,
+    counter: list[int],
+    rhs_args: tuple[str, ...],
+    position: int,
+) -> tuple[str, ...]:
+    """Replace `rhs_args[position]` with `inv(<rhs_args[position]>)`.
+
+    Julia's `Base.inv` returns the multiplicative inverse for any
+    numeric type; emitting `inv(rate)` rather than the literal
+    `1/rate` avoids encoding a `binary_expression` whose right
+    child kind would need to be inferred from the arg's emitter
+    output. The reciprocal is the canonical Distributions.jl
+    `theta = 1/rate` substitution for the `Gamma` and `Exponential`
+    families.
+    """
+    if position >= len(rhs_args):
+        raise UnsupportedConstruct(
+            "qvr-turing",
+            [
+                f"rate-arg-invert: position {position} out of range for "
+                f"{len(rhs_args)} args"
+            ],
+        )
+    inv_call = _call(
+        sb,
+        counter,
+        _identifier(sb, counter, "inv"),
+        (rhs_args[position],),
+    )
+    return rhs_args[:position] + (inv_call,) + rhs_args[position + 1:]
+
+
 # ---------------------------------------------------------------------------
 # Renderer context: extends _RenderCtx with Turing-specific carriers.
 # ---------------------------------------------------------------------------
@@ -811,6 +959,7 @@ class _TuringCtx(_RenderCtx):
         body: str,
         input_plates: dict[str, Plate],
         sample_plates: dict[str, Plate],
+        batch_shaped_names: set[str],
     ) -> None:
         super().__init__(sb=sb, morphisms=morphisms, lets=lets)
         self.counter = counter
@@ -818,6 +967,7 @@ class _TuringCtx(_RenderCtx):
         self.body = body
         self.input_plates = input_plates
         self.sample_plates = sample_plates
+        self.batch_shaped_names = batch_shaped_names
 
 
 # `_JlCtxShim` lets us reuse
@@ -1064,6 +1214,7 @@ def _args_have_batch_index(
     args: tuple[IRArg, ...],
     sample_plates: dict[str, Plate],
     plate: Plate,
+    batch_shaped_names: frozenset[str] | set[str] = frozenset(),
 ) -> bool:
     """Detect whether any arg references a name whose plate has a
     nonempty batch axis (i.e. an index-dependent call site for the
@@ -1071,35 +1222,51 @@ def _args_have_batch_index(
 
     Used by [`sample`][TuringRenderer.sample] to choose between the
     `filldist(...)` form (no dependence) and the `arraydist(...)` /
-    broadcast-dot form (dependence).
+    broadcast-dot form (dependence). The `batch_shaped_names` set
+    additionally flags direct (un-indexed) references to a
+    batch-shaped IRDataInput or to a let-bound deterministic whose
+    RHS transitively references one, so a vector-valued `loc` like
+    `mu = a + b * x_design` in bayes_linear_regression is recognised
+    even though its IRDeterministic carries an empty plate.
     """
     del plate
-    return any(_arg_indexes_plated(a, sample_plates) for a in args)
+    return any(
+        _arg_indexes_plated(a, sample_plates, batch_shaped_names)
+        for a in args
+    )
 
 
 def _arg_indexes_plated(
-    arg: IRArg, sample_plates: dict[str, Plate]
+    arg: IRArg,
+    sample_plates: dict[str, Plate],
+    batch_shaped_names: frozenset[str] | set[str] = frozenset(),
 ) -> bool:
     """Recursive helper: True iff `arg` carries a bracket index whose
     inner reference is itself a previously-bound sample with a
-    nonempty plate."""
+    nonempty plate, OR `arg` (or a sub-arg) references a name in
+    `batch_shaped_names` directly (un-indexed)."""
     if isinstance(arg, IRArgRef):
+        if not arg.indices and arg.name in batch_shaped_names:
+            return True
         if arg.indices:
             for idx in arg.indices:
                 if isinstance(idx, IRArgRef) and idx.name in sample_plates:
                     return True
         for idx in arg.indices:
-            if _arg_indexes_plated(idx, sample_plates):
+            if _arg_indexes_plated(idx, sample_plates, batch_shaped_names):
                 return True
         return False
     if isinstance(arg, IRArgBroadcast):
-        return _arg_indexes_plated(arg.value, sample_plates)
+        return _arg_indexes_plated(arg.value, sample_plates, batch_shaped_names)
     if isinstance(arg, IRArgList):
-        return any(_arg_indexes_plated(e, sample_plates) for e in arg.elements)
+        return any(
+            _arg_indexes_plated(e, sample_plates, batch_shaped_names)
+            for e in arg.elements
+        )
     if isinstance(arg, IRArgMatrix):
         for row in arg.rows:
             for e in row.elements:
-                if _arg_indexes_plated(e, sample_plates):
+                if _arg_indexes_plated(e, sample_plates, batch_shaped_names):
                     return True
     return False
 
@@ -1177,6 +1344,202 @@ def _seed_sample_plates(ctx: _TuringCtx, body: tuple[IRNode, ...]) -> None:
         elif isinstance(node, IRMarginalize):
             ctx.sample_plates[node.latent] = node.plate
             _seed_sample_plates(ctx, node.scope)
+
+
+def _seed_batch_shaped(ctx: _TuringCtx, body: tuple[IRNode, ...]) -> None:
+    """Populate `ctx.batch_shaped_names` with every name that carries a
+    batch dimension at runtime.
+
+    A name is batch-shaped when:
+
+    * it is an [`IRDataInput`][quivers.transpile.ir.IRDataInput] whose
+      plate has any `batch_dims`;
+    * it is an [`IRSample`][quivers.transpile.ir.IRSample] or
+      [`IRObserve`][quivers.transpile.ir.IRObserve] whose plate has any
+      `batch_dims`;
+    * it is an [`IRDataInput`][quivers.transpile.ir.IRDataInput] with
+      empty plate that is referenced (transitively, through let
+      bindings) by a plated observe's arg (e.g. `x_design` in
+      `let mu = a + b * x_design` followed by
+      `observe y : Obs <- Normal(mu, 0.3)`; the IR carries no shape
+      annotation for `x_design` so the implicit shape is recovered
+      from its use site);
+    * it is an [`IRDeterministic`][quivers.transpile.ir.IRDeterministic]
+      whose RHS [`LetExprNode`][quivers.dsl.ast_nodes.LetExprNode]
+      references at least one batch-shaped name (closure under
+      `let`-binding).
+
+    The Turing renderer uses this set to pick the broadcast-dot form
+    `y .~ Family.(...)` for observes whose plain-call form would
+    fail at the boundary between a scalar Julia distribution
+    constructor and a vector argument, and to wrap each
+    batch-shaped deterministic's RHS in `@.` so its arithmetic
+    broadcasts elementwise.
+    """
+    # Seed inputs first (no dependencies).
+    for name, plate in ctx.input_plates.items():
+        if plate.batch_dims:
+            ctx.batch_shaped_names.add(name)
+    # Pre-pass: every sample / observe with a non-empty batch_dims is
+    # batch-shaped. (Marginalize scopes recurse.)
+    _collect_sample_batch_shaped(ctx, body)
+    # Build a name -> IRDeterministic table so closure propagation
+    # below can dereference let bindings in any order.
+    dets: dict[str, IRDeterministic] = {
+        n.name: n for n in body if isinstance(n, IRDeterministic)
+    }
+    # Implicit-shape propagation: for every plated IRObserve / IRSample
+    # whose args reference a let-bound deterministic or an empty-plate
+    # input, mark every transitively-referenced name (including the
+    # original input) as batch-shaped. This recovers the implicit
+    # vector shape of inputs like `x_design` that have no explicit
+    # plate annotation but whose use site (a plated observe's `loc`)
+    # demands a per-element value.
+    for node in body:
+        if isinstance(node, (IRSample, IRObserve)) and node.plate.batch_dims:
+            for arg in node.args:
+                _mark_arg_refs_batch_shaped(arg, ctx, dets)
+    # Fixpoint over IRDeterministic let bindings: a deterministic is
+    # batch-shaped iff any name its RHS references is batch-shaped.
+    # Repeat until no new name is added (LetExpr graphs are acyclic by
+    # construction, so this converges in O(|body|) iterations).
+    changed = True
+    while changed:
+        changed = False
+        for node in body:
+            if isinstance(node, IRDeterministic):
+                if node.name in ctx.batch_shaped_names:
+                    continue
+                refs = _let_expr_var_refs(node.expr)
+                if any(r in ctx.batch_shaped_names for r in refs):
+                    ctx.batch_shaped_names.add(node.name)
+                    changed = True
+
+
+def _mark_arg_refs_batch_shaped(
+    arg: IRArg,
+    ctx: _TuringCtx,
+    dets: dict[str, IRDeterministic],
+) -> None:
+    """Walk `arg`'s referenced names and add each let-bound
+    deterministic or empty-plate IRDataInput to
+    `ctx.batch_shaped_names`, recursively descending into the
+    deterministic's RHS so a chain
+    ``observe y <- Normal(mu, 0.3); let mu = a + b * x_design``
+    marks `mu` AND `x_design` (the un-plated input whose use under a
+    plated observe's `loc` implies a per-element value)."""
+    if isinstance(arg, IRArgRef):
+        name = arg.name
+        if name in dets and name not in ctx.batch_shaped_names:
+            ctx.batch_shaped_names.add(name)
+            for ref in _let_expr_var_refs(dets[name].expr):
+                _mark_name_batch_shaped(ref, ctx, dets)
+        elif name in ctx.input_plates and name not in ctx.batch_shaped_names:
+            ctx.batch_shaped_names.add(name)
+        for idx in arg.indices:
+            _mark_arg_refs_batch_shaped(idx, ctx, dets)
+    elif isinstance(arg, IRArgBroadcast):
+        _mark_arg_refs_batch_shaped(arg.value, ctx, dets)
+    elif isinstance(arg, IRArgList):
+        for el in arg.elements:
+            _mark_arg_refs_batch_shaped(el, ctx, dets)
+    elif isinstance(arg, IRArgMatrix):
+        for row in arg.rows:
+            for el in row.elements:
+                _mark_arg_refs_batch_shaped(el, ctx, dets)
+
+
+def _mark_name_batch_shaped(
+    name: str,
+    ctx: _TuringCtx,
+    dets: dict[str, IRDeterministic],
+) -> None:
+    """Add `name` (a bare identifier from a let-expression) to
+    `ctx.batch_shaped_names` if it resolves to an
+    [`IRDeterministic`][quivers.transpile.ir.IRDeterministic] or an
+    [`IRDataInput`][quivers.transpile.ir.IRDataInput], descending
+    through any let bindings recursively."""
+    if name in ctx.batch_shaped_names:
+        return
+    if name in dets:
+        ctx.batch_shaped_names.add(name)
+        for ref in _let_expr_var_refs(dets[name].expr):
+            _mark_name_batch_shaped(ref, ctx, dets)
+    elif name in ctx.input_plates:
+        ctx.batch_shaped_names.add(name)
+
+
+def _collect_sample_batch_shaped(
+    ctx: _TuringCtx, body: tuple[IRNode, ...]
+) -> None:
+    """Add every IRSample / IRObserve / IRMarginalize name with
+    non-empty batch_dims to `ctx.batch_shaped_names`."""
+    for node in body:
+        if isinstance(node, IRSample) and node.plate.batch_dims:
+            ctx.batch_shaped_names.add(node.name)
+        elif isinstance(node, IRObserve) and node.plate.batch_dims:
+            ctx.batch_shaped_names.add(node.name)
+        elif isinstance(node, IRMarginalize):
+            if node.plate.batch_dims:
+                ctx.batch_shaped_names.add(node.latent)
+            _collect_sample_batch_shaped(ctx, node.scope)
+
+
+def _let_expr_var_refs(expr: LetExprNode) -> set[str]:
+    """Collect the set of variable names a let-expression references.
+
+    Walks the [`LetExprNode`][quivers.dsl.ast_nodes.LetExprNode]
+    discriminator union exhaustively; unknown discriminators raise
+    [`UnsupportedConstruct`][quivers.transpile._api.UnsupportedConstruct]
+    so a new let-expression kind announces itself rather than silently
+    contributing an empty ref set (which would mis-classify a
+    deterministic as scalar and break the broadcast-dot dispatch).
+    """
+    if isinstance(expr, LetExprVar):
+        return {expr.name}
+    if isinstance(expr, LetExprLiteral):
+        return set()
+    if isinstance(expr, LetExprString):
+        return set()
+    if isinstance(expr, LetExprBinOp):
+        return _let_expr_var_refs(expr.left) | _let_expr_var_refs(expr.right)
+    if isinstance(expr, LetExprUnaryOp):
+        return _let_expr_var_refs(expr.operand)
+    if isinstance(expr, LetExprCall):
+        refs: set[str] = set()
+        for a in expr.args:
+            refs |= _let_expr_var_refs(a)
+        return refs
+    if isinstance(expr, LetExprIndex):
+        out = _let_expr_var_refs(expr.array)
+        for i in expr.indices:
+            out |= _let_expr_var_refs(i)
+        return out
+    if isinstance(expr, LetExprList):
+        out2: set[str] = set()
+        for item in expr.items:
+            out2 |= _let_expr_var_refs(item)
+        return out2
+    if isinstance(expr, LetExprLambda):
+        body_refs = _let_expr_var_refs(expr.body)
+        return body_refs - {expr.param}
+    if isinstance(expr, LetExprMethodCall):
+        out3 = _let_expr_var_refs(expr.receiver)
+        for a in expr.args:
+            out3 |= _let_expr_var_refs(a)
+        return out3
+    if isinstance(expr, LetExprFactor):
+        body_refs2: set[str] = (
+            _let_expr_var_refs(expr.body) if expr.body is not None else set()
+        )
+        for case in expr.cases:
+            body_refs2 |= _let_expr_var_refs(case.value)
+        bound2 = {b.var for b in expr.binders}
+        return body_refs2 - bound2
+    raise UnsupportedConstruct(
+        "qvr-turing",
+        [f"let-expr:{type(expr).__name__}: unhandled for batch-shape inference"],
+    )
 
 
 # ---------------------------------------------------------------------------
