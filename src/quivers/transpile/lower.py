@@ -402,10 +402,30 @@ class Lower(dx.Mapping[Module, IRProgram]):
         # First-pass IR conversion (without knowing arg_constraints
         # yet so we can compute the sentinel for property-form
         # arg_constraints).
+        #
+        # `structural_args` is the original step's call-site arg
+        # tuple (preserves compound `DrawArgList` / `DrawArgMatrix`
+        # forms). `resolved.args` is the resolver's output: when the
+        # step references a morphism whose option block fills extra
+        # family slots (`[scale=0.1]` -> Normal's `scale`), the
+        # resolved tuple is longer than the structural tuple. We
+        # keep the leading positions from the structural args (which
+        # preserve compound shapes) and extend with the resolver's
+        # tail so the morphism's option-derived args reach the IR.
         if structural_args is not None:
-            pre_args = tuple(
+            structural_ir = tuple(
                 self._raw_arg_to_ir(a, ctx) for a in structural_args
             )
+            resolved_tail = (
+                tuple(
+                    self._raw_arg_to_ir(a, ctx)
+                    for a in resolved.args[len(structural_ir):]
+                )
+                if resolved.args
+                and len(resolved.args) > len(structural_ir)
+                else ()
+            )
+            pre_args = structural_ir + resolved_tail
         else:
             raw_args = resolved.args or ()
             pre_args = tuple(
