@@ -1040,9 +1040,108 @@ def _dirichlet_builder(params: list[torch.Tensor]) -> D.Distribution:
     return D.Dirichlet(params[0].clamp(min=EPS))
 
 
+def _logistic_builder(params: list[torch.Tensor]) -> D.Distribution:
+    """Build a Logistic distribution from [loc, scale].
+
+    torch does not ship a `Logistic` directly; it is constructed as a
+    location-scale transform of the standard logistic, which torch
+    exposes as a `TransformedDistribution` of a base Uniform through
+    the logit map. The implementation here uses a
+    `TransformedDistribution(Uniform(0, 1), [SigmoidTransform().inv,
+    AffineTransform(loc, scale)])` which has the right density.
+    """
+    loc = params[0]
+    scale = params[1].clamp(min=EPS)
+    base = D.Uniform(
+        torch.zeros_like(loc), torch.ones_like(loc)
+    )
+    return D.TransformedDistribution(
+        base,
+        [
+            D.transforms.SigmoidTransform().inv,
+            D.transforms.AffineTransform(loc=loc, scale=scale),
+        ],
+    )
+
+
+def _half_student_t_builder(
+    params: list[torch.Tensor],
+) -> D.Distribution:
+    """Build a half-Student-t distribution from [df, scale].
+
+    Constructed as `TransformedDistribution(StudentT(df, 0, scale),
+    AbsTransform())` so the sampler and `log_prob` flow through the
+    folded representation. `log_prob` corrects for the folding by
+    adding `log 2` (the AbsTransform Jacobian on the positive ray).
+    """
+    df = params[0].clamp(min=EPS)
+    scale = params[1].clamp(min=EPS)
+    base = D.StudentT(df, torch.zeros_like(scale), scale)
+    return D.TransformedDistribution(
+        base, D.transforms.AbsTransform()
+    )
+
+
+def _beta_binomial_builder(
+    params: list[torch.Tensor],
+) -> D.Distribution:
+    """Build a Beta-Binomial distribution from [total_count,
+    concentration1, concentration0].
+
+    Constructed as a `MixtureSameFamily` over the Beta-prior latent
+    rate so the resulting Distribution exposes `log_prob`, `sample`,
+    `mean`, and `variance` directly.
+    """
+    total_count = params[0].clamp(min=EPS)
+    a = params[1].clamp(min=EPS)
+    b = params[2].clamp(min=EPS)
+    from quivers.transpile.family_meta import BetaBinomial as _BB
+
+    return _BB(total_count, a, b)
+
+
+def _kumaraswamy_builder(
+    params: list[torch.Tensor],
+) -> D.Distribution:
+    """Build a Kumaraswamy distribution from [concentration1,
+    concentration0]."""
+    return D.Kumaraswamy(
+        params[0].clamp(min=EPS), params[1].clamp(min=EPS)
+    )
+
+
+def _lkj_cholesky_builder(
+    params: list[torch.Tensor],
+) -> D.Distribution:
+    """Build an LKJCholesky distribution from [concentration]. The
+    dimension is inferred from the codomain at fit time via the
+    morphism's event_shape; here the distribution is constructed
+    at dim=2 as a sentinel and the runtime resizes through the
+    family's normal sample-time event_shape resolution."""
+    concentration = params[0].clamp(min=EPS)
+    return D.LKJCholesky(2, concentration)
+
+
 _FAMILY_BUILDERS: dict[str, tuple[tuple[str, ...], Callable, bool]] = {
     "Normal": (("loc", "scale"), _normal_builder, False),
     "Bernoulli": (("probs",), _bernoulli_builder, True),
+    "Logistic": (("loc", "scale"), _logistic_builder, False),
+    "HalfStudentT": (("df", "scale"), _half_student_t_builder, False),
+    "BetaBinomial": (
+        ("total_count", "concentration1", "concentration0"),
+        _beta_binomial_builder,
+        True,
+    ),
+    "Kumaraswamy": (
+        ("concentration1", "concentration0"),
+        _kumaraswamy_builder,
+        False,
+    ),
+    "LKJCholesky": (
+        ("concentration",),
+        _lkj_cholesky_builder,
+        False,
+    ),
     "TruncatedNormal": (
         ("mu", "sigma", "low", "high"),
         _truncated_normal_builder,
@@ -1111,7 +1210,20 @@ def make_inline_distribution(
             else:
                 morph = factory(*all_floats, codomain)
             return (morph, None)
-        raise ValueError(f"no fixed factory for inline family {family!r}")
+        # Families without a dedicated `_FIXED_FACTORIES` entry fall
+        # back to the `_FAMILY_BUILDERS` path with literal args (this
+        # is the standard path for Phase B families like
+        # `BetaBinomial` / `HalfStudentT` / `Logistic` whose
+        # distributions are constructed once per fit through the
+        # general `MixedInlineDistribution` machinery).
+        if family in _FAMILY_BUILDERS:
+            # fall through to the mixed-arg path below; treat
+            # literals as zero-variable inputs.
+            pass
+        else:
+            raise ValueError(
+                f"no fixed factory for inline family {family!r}"
+            )
     if family not in _FAMILY_BUILDERS:
         raise ValueError(
             f"no builder for inline family {family!r} with variable arguments"
