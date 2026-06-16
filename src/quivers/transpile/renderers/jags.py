@@ -66,6 +66,7 @@ from quivers.transpile.ir import (
     IRScore,
     Plate,
 )
+from quivers.transpile.renderers._bugs_helpers import render_let_expr_bugs
 from quivers.transpile.renderers._base import (
     BlockKind,
     IRArgTransform,
@@ -132,6 +133,7 @@ class JAGSRenderer(RendererBase):
         proto = self.target_protocol()
         sb = proto.schema()
         jctx = _JAGSCtx(sb=sb, morphisms={}, lets={})
+        self._cards = dict(ir.cards)
 
         _vertex(jctx, "src", "source_file")
         jctx.sb.constraint("src", "ptrace-0", "Cmodel_block")
@@ -1001,23 +1003,22 @@ class JAGSRenderer(RendererBase):
     def _emit_deterministic(
         self, ctx: _JAGSCtx, node: IRDeterministic
     ) -> None:
-        """JAGS deterministic relation: ``<name> <- <expr>``.
+        """JAGS deterministic relation ``<name> <- <expr>``.
 
-        Without per-let renderer support for the full LetExprNode
-        tree, fall back to a placeholder identifier so the structure
-        round-trips through the grammar but the host can inspect the
-        binding."""
+        The RHS goes through
+        [`render_let_expr_bugs`][quivers.transpile.renderers._bugs_helpers.render_let_expr_bugs]
+        (BUGS / JAGS share an expression grammar), with a thin
+        ctx shim adapting `_JAGSCtx`'s `_fresh` /
+        `panproto.SchemaBuilder` to the helper's protocol.
+        """
         dr = _fresh(ctx, "dr", "deterministic_relation")
         ctx.sb.constraint(dr, "chose-alt-fingerprint", "<-")
-        ctx.sb.constraint(
-            dr, "chose-alt-child-kinds", "identifier identifier"
-        )
         ctx.sb.constraint(dr, "ptrace-0", "Cidentifier")
         ctx.sb.constraint(dr, "ptrace-1", "T<-")
-        ctx.sb.constraint(dr, "ptrace-2", "Cidentifier")
         var = _identifier(ctx, node.name)
         ctx.sb.edge(dr, var, "variable")
-        val = _identifier(ctx, "__placeholder__")
+        let_ctx = _jags_let_ctx(ctx, self._cards)
+        val = render_let_expr_bugs(let_ctx, node.expr)
         ctx.sb.edge(dr, val, "value")
         if ctx.current_block is not None:
             ctx.sb.edge(ctx.current_block, dr, "child_of")
@@ -1026,28 +1027,20 @@ class JAGSRenderer(RendererBase):
             )
 
     def _emit_score(self, ctx: _JAGSCtx, node: IRScore) -> None:  # type: ignore[override]
-        """JAGS score: the "zeros trick" pairs an observed zero with a
-        Poisson rate of ``-<expr>`` so the log-likelihood contribution
-        becomes ``<expr>``. Without a full LetExpr renderer for JAGS,
-        emit a placeholder deterministic relation that names the score
-        variable; the host wires the zeros trick at the data level."""
-        dr = _fresh(ctx, "dr", "deterministic_relation")
-        ctx.sb.constraint(dr, "chose-alt-fingerprint", "<-")
-        ctx.sb.constraint(
-            dr, "chose-alt-child-kinds", "identifier identifier"
+        """JAGS has no native target-statement; the zeros / ones
+        trick demands a host-supplied phantom-observation carrier
+        the IR does not currently express. Refuse rather than
+        emit a placeholder."""
+        del ctx, node
+        raise UnsupportedConstruct(
+            "qvr-jags",
+            [
+                "node:IRScore: jags has no native target-statement; "
+                "the zeros / ones trick requires a host-supplied "
+                "phantom-observation carrier the IR does not "
+                "currently express"
+            ],
         )
-        ctx.sb.constraint(dr, "ptrace-0", "Cidentifier")
-        ctx.sb.constraint(dr, "ptrace-1", "T<-")
-        ctx.sb.constraint(dr, "ptrace-2", "Cidentifier")
-        var = _identifier(ctx, node.name)
-        ctx.sb.edge(dr, var, "variable")
-        val = _identifier(ctx, "__placeholder__")
-        ctx.sb.edge(dr, val, "value")
-        if ctx.current_block is not None:
-            ctx.sb.edge(ctx.current_block, dr, "child_of")
-            ctx.block_children.setdefault(ctx.current_block, []).append(
-                "deterministic_relation"
-            )
 
     # ------------------------------------------------------------------
     # Plate-name disambiguation
@@ -1322,6 +1315,40 @@ def _vertex(ctx: _JAGSCtx, vid: str, kind: str) -> str:
     `source_file` root vertex)."""
     ctx.sb.vertex(vid, kind)
     return vid
+
+
+class _JagsLetCtx:
+    """Adapter exposing the protocol
+    [`render_let_expr_bugs`][quivers.transpile.renderers._bugs_helpers.render_let_expr_bugs]
+    expects (``v``, ``e``, ``lit``, ``fresh``, ``constraint``,
+    ``target``, ``cards``) on top of a `_JAGSCtx`."""
+
+    def __init__(self, ctx: _JAGSCtx, cards: dict[str, int]) -> None:
+        self._ctx = ctx
+        self.cards = cards
+        self.target = "jags"
+
+    def fresh(self, prefix: str) -> str:
+        self._ctx.fresh_counter += 1
+        return f"{prefix}_{self._ctx.fresh_counter}"
+
+    def v(self, vid: str, kind: str) -> str:
+        self._ctx.sb.vertex(vid, kind)
+        return vid
+
+    def e(self, src: str, tgt: str, kind: str = "child_of") -> None:
+        self._ctx.sb.edge(src, tgt, kind)
+
+    def lit(self, vid: str, text: str) -> None:
+        self._ctx.sb.constraint(vid, "literal-value", text)
+
+    def constraint(self, vid: str, sort: str, value: str) -> None:
+        self._ctx.sb.constraint(vid, sort, value)
+
+
+def _jags_let_ctx(ctx: _JAGSCtx, cards: dict[str, int]) -> _JagsLetCtx:
+    """Construct a `_JagsLetCtx` bound to `ctx` and `cards`."""
+    return _JagsLetCtx(ctx, cards)
 
 
 def _identifier(ctx: _JAGSCtx, text: str) -> str:
