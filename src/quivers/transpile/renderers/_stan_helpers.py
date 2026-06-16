@@ -171,18 +171,32 @@ def _emit_prefix(ctx, expr: LetExprUnaryOp) -> tuple[str, str]:
     return vid, "prefix_op_expression"
 
 
+# QVR function names that map to a different identifier in Stan's
+# stdlib. Most pure-math names (`log`, `exp`, `sqrt`, `abs`,
+# `softmax`, ...) coincide across targets and need no rewrite.
+_STAN_FUNCTION_RENAMES: dict[str, str] = {
+    "sigmoid": "inv_logit",
+}
+
+
 def _emit_function_expression(
     ctx, func: str, args: tuple[LetExprNode, ...]
 ) -> tuple[str, str]:
     """Emit a `function_expression` with `name` edge to the callee
-    identifier and `child_of` edge to the `argument_list`."""
+    identifier and `child_of` edge to the `argument_list`.
+
+    Applies the
+    [`_STAN_FUNCTION_RENAMES`][quivers.transpile.renderers._stan_helpers._STAN_FUNCTION_RENAMES]
+    table so QVR-named math primitives (`sigmoid`, ...) reach Stan
+    under their stdlib identifiers (`inv_logit`, ...).
+    """
     rendered = tuple(_render(ctx, a) for a in args)
     vid = ctx.vertex(ctx.fresh("call"), "function_expression")
     ctx.constraint(
         vid, "chose-alt-child-kinds", "identifier argument_list"
     )
     fn = ctx.vertex(ctx.fresh("fn"), "identifier")
-    ctx.literal(fn, func)
+    ctx.literal(fn, _STAN_FUNCTION_RENAMES.get(func, func))
     ctx.edge(vid, fn, "name")
     al_vid = _emit_argument_list(ctx, rendered)
     ctx.edge(vid, al_vid, "child_of")
