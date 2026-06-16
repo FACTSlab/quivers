@@ -18,7 +18,7 @@ The check is syntax-only (no execution). Per backend:
 
 | Backend | Tool | Invocation |
 |---|---|---|
-| stan | ``stanc`` | ``stanc --no-output /dev/stdin`` |
+| stan | ``stanc`` | ``stanc --info /dev/stdin`` |
 | numpyro / pyro / pymc / edward2 | ``python`` | ``python -m py_compile /dev/stdin`` |
 | webppl | ``node`` | ``node --check /dev/stdin`` |
 | turing / gen | ``julia`` | ``julia --eval 'Meta.parse(read(stdin,String))'`` |
@@ -73,10 +73,10 @@ def _run_syntax_check(
 
 
 def test_stan_external_syntax() -> None:
-    """``stanc --no-output -`` accepts the transpiled Stan output."""
+    """``stanc --info -`` accepts the transpiled Stan output."""
     source = transpile(parse(_BETA_BERNOULLI), target="stan")
     rc, out, err = _run_syntax_check(
-        "stanc", ["stanc", "--no-output", "-"], input_bytes=source
+        "stanc", ["stanc", "--info", "-"], input_bytes=source
     )
     assert rc == 0, (
         f"stanc exited {rc}: stdout={out!r} stderr={err!r}\n"

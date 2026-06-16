@@ -46,7 +46,7 @@ def _gallery_examples() -> list[Path]:
 # no standard interpreter we can lint against; Gen and Turing share
 # Julia's `Meta.parse`).
 _SYNTAX_CHECKS: dict[str, tuple[str, list[str], bool]] = {
-    "stan":    ("stanc",  ["stanc", "--no-output", "-"], True),
+    "stan":    ("stanc",  ["stanc", "--info", "-"], True),
     "numpyro": ("python", ["python", "-c",
                            "import ast, sys; ast.parse(sys.stdin.read())"], True),
     "pyro":    ("python", ["python", "-c",
