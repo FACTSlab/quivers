@@ -204,10 +204,15 @@ class Edward2Renderer(RendererBase):
                 family=node.family,
                 args=node.args,
                 arg_names=node.arg_names,
-                # Observed leaves omit `sample_shape`: at conditioning
-                # time the observation tensor's shape determines the
-                # batch. The canonical Edward2 idiom relies on the
-                # caller's interceptor mechanism for this.
+                # Observed leaves omit ``sample_shape``: the probe
+                # detects the value-shape mismatch and scores the
+                # observation directly via ``dist.log_prob(value)``,
+                # which broadcasts ``loc`` / ``scale`` / ``probs``
+                # against the user-supplied tensor's shape. Carrying
+                # batch_dims into the RV constructor instead would
+                # bake in a fixed ``value.shape`` that rejects any
+                # observation whose runtime shape comes from a
+                # deterministic input the IR does not know about.
                 plate=Plate(event_dims=node.plate.event_dims, batch_dims=()),
                 input_specs=input_specs,
                 bindings=bindings,
@@ -428,10 +433,7 @@ class Edward2Renderer(RendererBase):
         # for arguments whose target name is not the family's first
         # positional, and the positional form otherwise; this matches
         # the canonical Edward2 idiom (`Dirichlet(tf.fill([K], x))`
-        # positional; `Categorical(probs=x)` keyword). The leading
-        # positional gate avoids tree-sitter Python's `argument_list`
-        # tail rule, which refuses to render a list whose only
-        # children are `keyword_argument` vertices.
+        # positional; `Categorical(probs=x)` keyword).
         keyword: list[tuple[str, str]] = []
         positional: list[str] = []
         for arg_name, rendered in zip(arg_names, rendered_args, strict=False):
@@ -447,16 +449,6 @@ class Edward2Renderer(RendererBase):
         if sample_shape is not None:
             keyword.append(("sample_shape", sample_shape))
         keyword.append(("name", string_literal(py, name)))
-
-        if not positional:
-            # panproto's python pretty-printer drops every
-            # `keyword_argument` child of an `argument_list` whose
-            # children are all `keyword_argument`s. Insert an explicit
-            # `None` to satisfy that walker's `expression` requirement.
-            # For Edward2 / TFP this defaults the alternate
-            # parameterisation (`logits=None` for `Categorical`,
-            # `Bernoulli`, etc.) so the call's semantics are preserved.
-            positional.append(_none_literal(py))
 
         return call(
             py,
@@ -859,13 +851,6 @@ def _is_scalar_constraint(spec: ConstraintSpec) -> bool:
 def _is_scalar_plate(plate: Plate) -> bool:
     """True iff the plate has neither event nor batch dims."""
     return not plate.event_dims and not plate.batch_dims
-
-
-def _none_literal(py: PyCtx) -> str:
-    """Emit a ``none`` vertex carrying the ``None`` literal."""
-    vid = py.v(py.fresh("none"), "none")
-    py.literal(vid, "None")
-    return vid
 
 
 def _is_positional_arg(meta: FamilyMeta, target_name: str) -> bool:
