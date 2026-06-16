@@ -347,6 +347,13 @@ def _options_to_map(
 # Per-family ordered parameter names. Mirrors the positional layout
 # used by `_FAMILY_DEFAULT_ARGS` so an option-block entry
 # (`scale=0.1`) can be routed to the right slot by name.
+#
+# IMPORTANT: the names AND their order must match
+# `torch.distributions.<Family>.arg_constraints.keys()` for every
+# entry where torch has a Distribution of that name. The
+# `_assert_family_arg_names_match_torch` startup check below
+# enforces this so a typo here cannot silently transpose the loc
+# and scale slots (which would route `[scale=0.1]` to `loc=0.1`).
 _FAMILY_ARG_NAMES: dict[str, tuple[str, ...]] = {
     "Normal": ("loc", "scale"),
     "HalfNormal": ("scale",),
@@ -361,9 +368,56 @@ _FAMILY_ARG_NAMES: dict[str, tuple[str, ...]] = {
     "Exponential": ("rate",),
     "Uniform": ("low", "high"),
     "StudentT": ("df", "loc", "scale"),
-    "Pareto": ("scale", "alpha"),
+    "Pareto": ("alpha", "scale"),
     "Weibull": ("scale", "concentration"),
 }
+
+
+def _assert_family_arg_names_match_torch() -> None:
+    """Startup invariant: every entry in `_FAMILY_ARG_NAMES` for a
+    family that torch ships must match
+    `torch.distributions.<Family>.arg_constraints.keys()` in name
+    AND order.
+
+    Raises `AssertionError` at module-import time if the table
+    drifts from torch's ground truth. The cost of running this once
+    per process is negligible; the cost of letting a transposition
+    bug ship is a silent wrong-density that no syntactic test
+    catches.
+
+    Families whose `arg_constraints` is a Python `property` (Uniform,
+    Wishart) or that are not present in torch (custom Phase B
+    families) are skipped: the table's entry is the source of truth
+    for those.
+    """
+    import torch.distributions as td
+
+    for family, declared in _FAMILY_ARG_NAMES.items():
+        cls = getattr(td, family, None)
+        if cls is None:
+            continue
+        ac = getattr(cls, "arg_constraints", None)
+        if not isinstance(ac, dict):
+            continue
+        # `Bernoulli.arg_constraints` lists both ``probs`` and
+        # ``logits`` (alternative parameterisations). Accept any
+        # `declared` whose names are a prefix-ordered subset of the
+        # torch keys; transposition is still caught.
+        torch_keys = tuple(ac.keys())
+        prefix = torch_keys[: len(declared)]
+        if declared != prefix:
+            raise AssertionError(
+                f"_FAMILY_ARG_NAMES[{family!r}] = {declared!r} does "
+                f"not match the leading prefix of "
+                f"torch.distributions.{family}.arg_constraints "
+                f"keys ({torch_keys!r}). The option-block routing "
+                "depends on this ordering matching torch's positional "
+                "parameter contract; fix the table to agree with "
+                "torch's `arg_constraints` order."
+            )
+
+
+_assert_family_arg_names_match_torch()
 
 
 # Canonical default args for kernel morphisms declared `~ Family` with
