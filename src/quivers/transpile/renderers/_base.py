@@ -419,6 +419,13 @@ def assert_no_dangling_refs(ir: IRProgram) -> None:
     """Raise if the IR contains an `IRArgRef` whose name is not bound
     by a declaration, a previous step, or an input."""
     declared: set[str] = {inp.name for inp in ir.inputs}
+    # ``__row_var__`` is the sentinel Lower writes into observe arg
+    # threads to mark "the renderer's per-row loop variable; name
+    # bound at render time". Each renderer substitutes the sentinel
+    # for its actual loop variable (Stan ``n``, BUGS ``n``, NumPyro's
+    # implicit plate index, ...). It is a structural marker, not a
+    # true free name, so it does not count as dangling.
+    declared.add("__row_var__")
     _walk_for_refs(ir.body, declared, ir.name)
 
 
