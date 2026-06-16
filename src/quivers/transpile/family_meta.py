@@ -582,7 +582,7 @@ FAMILY_META: dict[str, FamilyMeta] = {
             "stan": "lognormal", "numpyro": "LogNormal", "pyro": "LogNormal",
             "pymc": "LogNormal", "edward2": "LogNormal",
             "turing": "LogNormal", "gen": "lognormal",
-            "church": "lognormal",
+            "church": "lognormal", "webppl": "LogNormal",
             "bugs": "dlnorm", "jags": "dlnorm",
         },
         arg_aliases={
@@ -655,11 +655,13 @@ FAMILY_META: dict[str, FamilyMeta] = {
         target_names={
             "stan": "cauchy", "numpyro": "HalfCauchy", "pyro": "HalfCauchy",
             "pymc": "HalfCauchy", "edward2": "HalfCauchy",
-            "turing": "truncated",
+            "turing": "truncated", "gen": "cauchy",
+            "church": "gaussian", "webppl": "Cauchy",
             "bugs": "dt", "jags": "dt",
         },
         arg_aliases={
             "pymc": {"scale": "beta"},
+            "webppl": {"scale": "scale"},
         },
     ),
     "HalfNormal": FamilyMeta(
@@ -669,7 +671,8 @@ FAMILY_META: dict[str, FamilyMeta] = {
         target_names={
             "stan": "normal", "numpyro": "HalfNormal", "pyro": "HalfNormal",
             "pymc": "HalfNormal", "edward2": "HalfNormal",
-            "turing": "truncated", "webppl": "Gaussian",
+            "turing": "truncated", "gen": "normal",
+            "church": "gaussian", "webppl": "Gaussian",
             "bugs": "dnorm", "jags": "dnorm",
         },
         arg_aliases={
@@ -699,7 +702,8 @@ FAMILY_META: dict[str, FamilyMeta] = {
         target_names={
             "stan": "weibull", "numpyro": "Weibull", "pyro": "Weibull",
             "pymc": "Weibull", "edward2": "Weibull",
-            "turing": "Weibull",
+            "turing": "Weibull", "gen": "weibull",
+            "church": "weibull", "webppl": "Weibull",
             "bugs": "dweib", "jags": "dweib",
         },
         arg_aliases={
@@ -941,7 +945,8 @@ FAMILY_META: dict[str, FamilyMeta] = {
             "stan": "neg_binomial_2", "numpyro": "NegativeBinomial2",
             "pyro": "NegativeBinomial", "pymc": "NegativeBinomial",
             "edward2": "NegativeBinomial", "turing": "NegativeBinomial",
-            "gen": "neg_binom",
+            "gen": "neg_binom", "church": "negative-binomial",
+            "webppl": "NegativeBinomial",
             "bugs": "dnegbin", "jags": "dnegbin",
         },
         arg_aliases={
