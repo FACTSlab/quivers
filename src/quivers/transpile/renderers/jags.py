@@ -94,6 +94,15 @@ _ALIAS_TRANSFORMS: dict[str, _TransformKind] = {
     "tau": "inv_square",
 }
 
+
+#: JAGS-side argument injection for QVR families whose underlying
+#: torch distribution carries fewer parameters than the JAGS
+#: distribution it maps to. ``HalfNormal(scale)`` maps to JAGS'
+#: ``dnorm(0, tau)``; the renderer prepends ``IRArgNumber(0)`` under
+#: the loc-position arg name so the alias-transform pipeline still
+#: rewrites the scale into ``tau = 1/(scale*scale)``.
+_PREPEND_ZERO: frozenset[str] = frozenset({"HalfNormal", "HalfCauchy"})
+
 #: Sentinel name prefix used by the JAGS renderer to encode a `1:N`
 #: range as an IRArgRef. The arg-rendering path inspects the name
 #: prefix and emits a `range` vertex instead of an
@@ -362,6 +371,10 @@ class JAGSRenderer(RendererBase):
             raise UnsupportedConstruct(
                 f"qvr-{_BACKEND}", [f"family:no-target-name:{family}"]
             )
+
+        if family in _PREPEND_ZERO:
+            args = (IRArgNumber(value=0.0), *args)
+            arg_names = ("loc", *arg_names)
 
         aliases = meta.arg_aliases.get(_BACKEND, {})
         renamed_pairs: list[tuple[str, IRArg]] = []
