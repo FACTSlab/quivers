@@ -43,6 +43,8 @@ The Stan-specific layout decisions:
 
 from __future__ import annotations
 
+from typing import Callable
+
 import panproto
 import torch.distributions.constraints as _torch_constraints
 from torch.distributions.constraints import Constraint
@@ -105,6 +107,43 @@ from quivers.transpile.renderers._base import (
     _RenderCtx,
     assert_no_dangling_refs,
 )
+from quivers.transpile.renderers._stan_helpers import render_let_expr_stan
+
+
+class _StanLetCtx:
+    """Bridge ``_RenderCtx.sb`` to the
+    [`render_let_expr_stan`][quivers.transpile.renderers._stan_helpers.render_let_expr_stan]
+    helper interface (`vertex`, `edge`, `literal`, `constraint`,
+    `fresh`).
+
+    The Stan IR-walk operates over `_RenderCtx`; the let-expression
+    helper expects a small carrier that exposes
+    [`panproto.SchemaBuilder`][panproto.SchemaBuilder] operations
+    under terse method names. The shim keeps the helper independent
+    of any specific renderer class.
+    """
+
+    def __init__(
+        self, sb: panproto.SchemaBuilder, fresh: Callable[[str], str]
+    ) -> None:
+        self._sb = sb
+        self._fresh_fn = fresh
+
+    def fresh(self, prefix: str) -> str:
+        return self._fresh_fn(prefix)
+
+    def vertex(self, vid: str, kind: str) -> str:
+        self._sb.vertex(vid, kind)
+        return vid
+
+    def edge(self, src: str, tgt: str, kind: str = "child_of") -> None:
+        self._sb.edge(src, tgt, kind)
+
+    def literal(self, vid: str, text: str) -> None:
+        self._sb.constraint(vid, "literal-value", text)
+
+    def constraint(self, vid: str, sort: str, value: str) -> None:
+        self._sb.constraint(vid, sort, value)
 
 
 class StanRenderer(RendererBase):
@@ -193,6 +232,16 @@ class StanRenderer(RendererBase):
             self._declared_shapes_state.clear()
         # Program root.
         ctx.sb.vertex("prog", "program")
+        # Pre-create blocks in canonical Stan order so emit_pretty
+        # honours the `data? transformed_data? parameters?
+        # transformed_parameters? model? generated_quantities?`
+        # grammar production. Without this the IR-walk's lazy
+        # `_ensure_block` connects blocks in IR-encounter order
+        # (`data` -> `parameters` -> `model` -> `transformed_parameters`),
+        # which puts `transformed_parameters` past `model` and
+        # makes the pretty-printer drop it.
+        for kind in self._needed_blocks(ir):
+            self._ensure_block(ctx, kind)
         # IRDataInput entries land in `data`.
         for inp in ir.inputs:
             self.declare(
@@ -206,6 +255,42 @@ class StanRenderer(RendererBase):
         for node in ir.body:
             self._dispatch_node(ctx, node)
         return ctx.sb.build()
+
+    _CANONICAL_BLOCK_ORDER: tuple[BlockKind, ...] = (
+        "data",
+        "parameters",
+        "transformed_parameters",
+        "model",
+        "generated_quantities",
+    )
+
+    def _needed_blocks(self, ir: IRProgram) -> list[BlockKind]:
+        """Return the Stan blocks the renderer must materialise for
+        `ir`, in canonical grammar order. A block is needed iff some
+        IR node will route emit into it; pre-allocating in this order
+        ensures the pretty-printer never sees a block out of grammar
+        position."""
+        needed: set[BlockKind] = set()
+        if ir.inputs:
+            needed.add("data")
+        for node in ir.body:
+            if isinstance(node, IRSample):
+                needed.add("parameters")
+                needed.add("model")
+            elif isinstance(node, IRObserve):
+                needed.add("data")
+                needed.add("model")
+            elif isinstance(node, IRDataInput):
+                needed.add("data")
+            elif isinstance(node, IRDeterministic):
+                needed.add("transformed_parameters")
+            elif isinstance(node, IRScore):
+                needed.add("model")
+            elif isinstance(node, IRMarginalize):
+                needed.add("model")
+            elif isinstance(node, IRReturn):
+                needed.add("generated_quantities")
+        return [k for k in self._CANONICAL_BLOCK_ORDER if k in needed]
 
     # ----- declare dispatch -----
 
@@ -1868,12 +1953,16 @@ class StanRenderer(RendererBase):
         node: IRDeterministic,
     ) -> None:
         """Emit a deterministic let-binding into the
-        `transformed_parameters` block as `real <name> = <expr>;`.
+        ``transformed_parameters`` block as
+        ``<type> <name> = <expr>;``.
 
-        The expression rendering currently delegates to a placeholder
-        variable_expression so the construct's existence is visible
-        in the schema; deeper let-expression rendering is the job of
-        a per-target helper.
+        Lowers
+        [`node.expr`][quivers.transpile.ir.IRDeterministic.expr]
+        through
+        [`render_let_expr_stan`][quivers.transpile.renderers._stan_helpers.render_let_expr_stan]
+        so binary ops, calls, indices, and variable references reach
+        the emitter as real Stan expression vertices rather than a
+        self-referential identifier.
         """
         parent = self._ensure_block(ctx, "transformed_parameters")
         if node.name in self._declared["transformed_parameters"]:
@@ -1892,21 +1981,29 @@ class StanRenderer(RendererBase):
         ctx.sb.vertex(nm, "identifier")
         ctx.sb.constraint(nm, "literal-value", node.name)
         ctx.sb.edge(decl, nm, "name")
-        # Initialiser: placeholder bare-name reference. Real let-expr
-        # rendering belongs to a per-renderer let-expr helper.
-        rhs = self._variable_expression(ctx, node.name)
+        rhs = render_let_expr_stan(
+            _StanLetCtx(ctx.sb, lambda p: self._fresh(ctx, p)),
+            node.expr,
+        )
         ctx.sb.edge(decl, rhs, "child_of")
 
     def _emit_score(self, ctx: _RenderCtx, node: IRScore) -> None:
-        """Emit `target += <name>;` to the model block. The let-style
-        decl of `<name>` lives in transformed_parameters."""
-        # First materialise the underlying decl + value; for now we
-        # only emit the `target +=` line.
+        """Emit ``target += <expr>;`` to the ``model`` block.
+
+        Renders
+        [`node.expr`][quivers.transpile.ir.IRScore.expr] through
+        [`render_let_expr_stan`][quivers.transpile.renderers._stan_helpers.render_let_expr_stan]
+        so the increment is a real Stan expression rather than a
+        bare-name reference to an undeclared variable.
+        """
         parent = self._ensure_block(ctx, "model")
         ts = self._fresh(ctx, "scts")
         ctx.sb.vertex(ts, "target_statement")
         ctx.sb.edge(parent, ts, "child_of")
-        rhs = self._variable_expression(ctx, node.name)
+        rhs = render_let_expr_stan(
+            _StanLetCtx(ctx.sb, lambda p: self._fresh(ctx, p)),
+            node.expr,
+        )
         ctx.sb.edge(ts, rhs, "child_of")
 
     def _emit_return(
