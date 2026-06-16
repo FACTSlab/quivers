@@ -185,7 +185,12 @@ class Lower(dx.Mapping[Module, IRProgram]):
         if program.return_vars:
             body = (*body, IRReturn(names=tuple(program.return_vars)))
         inputs = self._build_inputs(program, body, ctx)
-        return IRProgram(name=program.name, inputs=inputs, body=body)
+        return IRProgram(
+            name=program.name,
+            inputs=inputs,
+            body=body,
+            cards=dict(cards),
+        )
 
     def _pick_program(self, module: Module) -> ProgramDecl:
         """Pick the `ProgramDecl` to lower.
