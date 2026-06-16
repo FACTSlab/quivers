@@ -126,6 +126,7 @@ from quivers.transpile.ir import (
     IRSample,
     IRScore,
     Plate,
+    event_shape_of,
     from_constraint,
 )
 
@@ -237,6 +238,7 @@ class Lower(dx.Mapping[Module, IRProgram]):
         meta = FAMILY_META[resolved.family]
         ir_args, arg_names = self._lower_args(
             meta, resolved, ctx,
+            event_axes=_event_axis_names(step),
             axes_index=step.index,
             structural_args=step.args,
         )
@@ -274,6 +276,7 @@ class Lower(dx.Mapping[Module, IRProgram]):
         meta = FAMILY_META[resolved.family]
         ir_args, arg_names = self._lower_args(
             meta, resolved, ctx,
+            event_axes=_event_axis_names(step),
             axes_index=step.index,
             structural_args=step.args,
         )
@@ -303,6 +306,7 @@ class Lower(dx.Mapping[Module, IRProgram]):
         meta = FAMILY_META[resolved.family]
         ir_args, arg_names = self._lower_args(
             meta, resolved, ctx,
+            event_axes=_marginalize_event_axis_names(step),
             axes_index=step.index,
             structural_args=step.args,
         )
@@ -348,6 +352,7 @@ class Lower(dx.Mapping[Module, IRProgram]):
         resolved: ResolvedDist,
         ctx: _LowerCtx,
         *,
+        event_axes: tuple[str, ...],
         axes_index: ObjectExpr | None,
         structural_args: tuple[DrawArg, ...] | None,
     ) -> tuple[tuple[IRArg, ...], tuple[str, ...]]:
@@ -388,7 +393,11 @@ class Lower(dx.Mapping[Module, IRProgram]):
         out: list[IRArg] = []
         for arg, name in zip(pre_args, arg_names, strict=False):
             expected = constraints_map.get(name)
-            out.append(self._wrap_for_constraint(arg, expected, axes_index, ctx))
+            out.append(
+                self._wrap_for_constraint(
+                    arg, expected, event_axes, axes_index, ctx
+                )
+            )
         return tuple(out), arg_names
 
     def _arg_names_for(
@@ -489,27 +498,37 @@ class Lower(dx.Mapping[Module, IRProgram]):
         self,
         arg: IRArg,
         expected: Constraint | None,
+        event_axes: tuple[str, ...],
         axes_index: ObjectExpr | None,
         ctx: _LowerCtx,
     ) -> IRArg:
         """When the user supplied a scalar but the constraint is
         `IndependentConstraint(base, n>=1)`, wrap as
         `IRArgBroadcast` whose `target_shape` is derived from the
-        surrounding step's axis index (the over-axis).
+        step's event axes (the `over=` clause when present, falling
+        back to the step's `index`).
+
+        Scalar literals (`IRArgNumber`) always qualify. An unindexed
+        `IRArgRef` qualifies when it names a scalar binding (a
+        `ScalarParam` of the active program); a renderer must then
+        broadcast the scalar to the vector arg position rather than
+        passing the scalar through as if it were already a tensor of
+        the expected shape.
         """
         if expected is None:
             return arg
         if not isinstance(expected, c._IndependentConstraint):
             return arg
-        # Only broadcast scalars. References and literals on the
-        # vector arg position stay as-is.
         if not isinstance(arg, (IRArgNumber, IRArgRef)):
             return arg
         if isinstance(arg, IRArgRef):
-            # A reference: do not broadcast a reference; the
-            # renderer treats it as a tensor of the expected shape.
-            return arg
-        target = self._broadcast_target(expected, axes_index, ctx)
+            if arg.indices:
+                return arg
+            if arg.name not in _scalar_binding_names(ctx):
+                return arg
+        target = self._broadcast_target(
+            expected, event_axes, axes_index, ctx
+        )
         if target is None:
             return arg
         return IRArgBroadcast(value=arg, target_shape=target)
@@ -517,17 +536,34 @@ class Lower(dx.Mapping[Module, IRProgram]):
     def _broadcast_target(
         self,
         expected: c._IndependentConstraint,
+        event_axes: tuple[str, ...],
         axes_index: ObjectExpr | None,
         ctx: _LowerCtx,
     ) -> tuple[int, ...] | None:
-        """Derive the broadcast `target_shape` from the step's index
-        axis when the expected constraint is `IndependentConstraint`."""
-        if axes_index is None:
+        """Derive the broadcast `target_shape` from the step's event
+        axes when the expected constraint is `IndependentConstraint`.
+
+        Prefers the axis names supplied by `event_axes` (the `over=`
+        clause of the surrounding step). Falls back to a single-axis
+        shape derived from `axes_index` when no event axes are
+        declared (the bare scalar-family form).
+        """
+        if event_axes:
+            base: list[int] = []
+            for axis_name in event_axes:
+                size = ctx.cards.get(axis_name)
+                if size is None:
+                    return None
+                base.append(size)
+            base_shape = tuple(base)
+        elif axes_index is not None:
+            size = axis_shape(axes_index, ctx.cards)
+            if size is None:
+                return None
+            base_shape = (size,) * expected.event_dim
+        else:
             return None
-        size = axis_shape(axes_index, ctx.cards)
-        if size is None:
-            return None
-        return (size,) * expected.event_dim
+        return event_shape_of(expected, base_shape)
 
     def _build_plate(
         self,
@@ -1375,6 +1411,56 @@ def _is_number_text(text: str) -> bool:
     except ValueError:
         return False
     return True
+
+
+def _event_axis_names(
+    step: SampleStep | ObserveStep,
+) -> tuple[str, ...]:
+    """Return the event-axis names for a sample / observe step.
+
+    These are the axes the family's event-dim ranges over; in surface
+    syntax they appear as the `over=` clause of the step's
+    [`AxisSpec`][quivers.dsl.ast_nodes._shared.AxisSpec]. Returns an
+    empty tuple when no `AxisSpec` is present (the bare scalar-family
+    form whose event-shape derivation falls back to `step.index`).
+    """
+    if step.axes is None:
+        return ()
+    return step.axes.over
+
+
+def _marginalize_event_axis_names(
+    step: MarginalizeStep,
+) -> tuple[str, ...]:
+    """Event-axis names for a marginalize step.
+
+    Marginalize carries its grouping axes on `over` / `over_objs`; the
+    latent's support cardinality is taken from `step.index`. The
+    grouping axes are not the event axes for the conditioning family
+    (they replicate the family across groups), so this returns the
+    empty tuple and lets `_broadcast_target` fall back to the latent
+    index.
+    """
+    del step
+    return ()
+
+
+def _scalar_binding_names(ctx: _LowerCtx) -> frozenset[str]:
+    """Return the set of identifier names bound to a scalar value in
+    the active program.
+
+    Scalar bindings are program parameters whose ``type_params`` entry
+    is a [`ScalarParam`][quivers.dsl.ast_nodes.declarations.ScalarParam]
+    (`Real` / `Nat`). Used by `_wrap_for_constraint` to decide when an
+    unindexed reference must be broadcast to satisfy an
+    `IndependentConstraint` arg position.
+    """
+    program = ctx.program
+    if program.type_params is None:
+        return frozenset()
+    return frozenset(
+        p.name for p in program.type_params if isinstance(p, ScalarParam)
+    )
 
 
 def _walk_nodes(body: tuple[IRNode, ...]):
