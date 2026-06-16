@@ -633,6 +633,10 @@ FAMILY_META: dict[str, FamilyMeta] = {
             "turing": "truncated", "webppl": "Gaussian",
             "bugs": "dnorm", "jags": "dnorm",
         },
+        arg_aliases={
+            "bugs": {"scale": "tau"},
+            "jags": {"scale": "tau"},
+        },
     ),
     "InverseGamma": FamilyMeta(
         qvr_name="InverseGamma",
