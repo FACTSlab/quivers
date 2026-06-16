@@ -1252,7 +1252,7 @@ def _render_let_expr_gen(gx: _GenCtx, expr: object) -> str:
         return _index_into(gx, base, idxs)
     if isinstance(expr, LetExprList):
         ve = gx.v("vector_expression", "ve")
-        for e in expr.elements:
+        for e in expr.items:
             gx.e(ve, _render_let_expr_gen(gx, e))
         return ve
     raise UnsupportedConstruct(
