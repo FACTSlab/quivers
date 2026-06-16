@@ -774,7 +774,13 @@ class Lower(dx.Mapping[Module, IRProgram]):
         # Free names referenced in let / score expressions and in
         # bracket-index args. Any name used but not bound (and not
         # already in param/via/obs) is an exogenous data input.
+        # Inputs that flow into a known-integer position (an array
+        # index in a let expression, or an integer-typed family arg
+        # such as `BetaBinomial(total_count, ...)`) carry an integer
+        # constraint so renderers declare them as `int` rather than
+        # `real`. The rest default to `CSReal()`.
         seen_param_names = seen_param | seen_via | seen_obs
+        integer_names = self._integer_typed_free_names(body)
         free_inputs: list[IRDataInput] = []
         seen_free: set[str] = set()
         for name in used:
@@ -785,15 +791,61 @@ class Lower(dx.Mapping[Module, IRProgram]):
             if name in seen_free:
                 continue
             seen_free.add(name)
+            constraint: ConstraintSpec = (
+                CSNonnegativeInteger()
+                if name in integer_names
+                else CSReal()
+            )
             free_inputs.append(
                 IRDataInput(
                     name=name,
-                    constraint=CSReal(),
+                    constraint=constraint,
                     plate=Plate(event_dims=(), batch_dims=()),
                 )
             )
 
         return tuple(param_inputs + via_inputs + obs_inputs + free_inputs)
+
+    def _integer_typed_free_names(
+        self, body: tuple[IRNode, ...]
+    ) -> set[str]:
+        """Return the set of free names whose usage proves they
+        must be declared as integers.
+
+        Two evidence kinds promote a name to integer typing:
+
+        * The name appears as an index in any `LetExprIndex.indices`
+          inside an `IRDeterministic.expr`; let-expression indices
+          must be integers in every target language.
+        * The name appears as an `IRArgRef` argument in an
+          `IRSample` or `IRObserve` whose corresponding
+          `arg_name` is an integer-typed parameter in the family's
+          `arg_constraints` (e.g. `BetaBinomial(total_count, ...)`).
+        """
+        out: set[str] = set()
+        for node in _walk_nodes(body):
+            if isinstance(node, IRDeterministic):
+                _collect_integer_index_names(node.expr, out)
+            elif isinstance(node, IRScore):
+                _collect_integer_index_names(node.expr, out)
+            elif isinstance(node, (IRSample, IRObserve)):
+                meta = FAMILY_META.get(node.family)
+                if meta is None:
+                    continue
+                arg_constraints = getattr(
+                    meta.distribution_class, "arg_constraints", {}
+                )
+                for arg, arg_name in zip(
+                    node.args, node.arg_names, strict=True
+                ):
+                    if not isinstance(arg, IRArgRef):
+                        continue
+                    constraint = arg_constraints.get(arg_name)
+                    if constraint is None:
+                        continue
+                    if _is_integer_constraint(constraint):
+                        out.add(arg.name)
+        return out
 
     def _bound_names(self, body: tuple[IRNode, ...]) -> set[str]:
         """Return the set of names bound anywhere in the body
@@ -1490,6 +1542,64 @@ def _walk_nodes(body: tuple[IRNode, ...]):
         yield node
         if isinstance(node, IRMarginalize):
             yield from _walk_nodes(node.scope)
+
+
+def _collect_integer_index_names(
+    expr: LetExprNode, out: set[str]
+) -> None:
+    """Walk `expr` and add to `out` every `LetExprVar.name` that
+    appears as an index in a `LetExprIndex`. Used during data-input
+    typing inference to promote integer-indexed names from `real`
+    to a nonnegative-integer constraint.
+    """
+    if isinstance(expr, LetExprIndex):
+        _collect_integer_index_names(expr.array, out)
+        for idx in expr.indices:
+            if isinstance(idx, LetExprVar):
+                out.add(idx.name)
+            _collect_integer_index_names(idx, out)
+        return
+    if isinstance(expr, LetExprBinOp):
+        _collect_integer_index_names(expr.left, out)
+        _collect_integer_index_names(expr.right, out)
+        return
+    if isinstance(expr, LetExprUnaryOp):
+        _collect_integer_index_names(expr.operand, out)
+        return
+    if isinstance(expr, LetExprCall):
+        for a in expr.args:
+            _collect_integer_index_names(a, out)
+        return
+    if isinstance(expr, LetExprList):
+        for item in expr.items:
+            _collect_integer_index_names(item, out)
+        return
+    if isinstance(expr, LetExprLambda):
+        _collect_integer_index_names(expr.body, out)
+        return
+    if isinstance(expr, LetExprFactor):
+        if expr.body is not None:
+            _collect_integer_index_names(expr.body, out)
+        for c in expr.cases:
+            _collect_integer_index_names(c.value, out)
+        return
+    if isinstance(expr, LetExprMethodCall):
+        _collect_integer_index_names(expr.receiver, out)
+        for a in expr.args:
+            _collect_integer_index_names(a, out)
+        return
+
+
+def _is_integer_constraint(constraint: object) -> bool:
+    """Return True iff `constraint` is one of torch's integer-typed
+    parameter constraints. Used to decide whether a `IRArgRef`
+    target should be declared as an integer data input.
+    """
+    return constraint in (
+        c.nonnegative_integer,
+        c.positive_integer,
+        c.integer_interval,
+    )
 
 
 __all__ = [
