@@ -40,6 +40,7 @@ marginalised joint QVR / Stan compute.
 from __future__ import annotations
 
 import pathlib
+from typing import Callable
 
 import pytest
 import torch
@@ -172,7 +173,16 @@ def _analytic_normal_mix(
     return float(lp.item())
 
 
-_ANALYTIC: dict[str, object] = {
+_AnalyticFn = Callable[
+    [
+        dict[str, float | list[float]],
+        dict[str, list[float] | list[int]],
+    ],
+    float,
+]
+
+
+_ANALYTIC: dict[str, _AnalyticFn] = {
     "beta_bernoulli_mix": _analytic_beta_bernoulli_mix,
     "normal_mix": _analytic_normal_mix,
 }
@@ -264,7 +274,10 @@ def _normal_mix_points() -> list[Point]:
     return points
 
 
-_POINTS: dict[str, object] = {
+_PointsFn = Callable[[], list[Point]]
+
+
+_POINTS: dict[str, _PointsFn] = {
     "beta_bernoulli_mix": _beta_bernoulli_mix_points,
     "normal_mix": _normal_mix_points,
 }
