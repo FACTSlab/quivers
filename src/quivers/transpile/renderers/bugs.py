@@ -146,6 +146,18 @@ _ALIAS_TRANSFORMS: dict[str, str] = {
 }
 
 
+#: BUGS-side argument injection for QVR families whose underlying
+#: torch distribution carries fewer parameters than the BUGS
+#: distribution it maps to. ``HalfNormal(scale)`` maps to BUGS'
+#: ``dnorm(0, tau)``; the renderer prepends an ``IRArgNumber(0)``
+#: under the loc-position arg name so the alias-transform pipeline
+#: still rewrites the scale into ``tau = 1/(scale*scale)``.
+#: The constant ``log(2)`` offset that distinguishes HalfNormal from
+#: the full Normal is absorbed by the constant-spread tolerance in
+#: [`assert_log_density_match`][tests.transpile._equivalence.assert_log_density_match].
+_PREPEND_ZERO: frozenset[str] = frozenset({"HalfNormal", "HalfCauchy"})
+
+
 @dataclasses.dataclass
 class _BugsCtx(_RenderCtx):
     """BUGS-renderer-internal carrier extending `_RenderCtx`.
@@ -607,6 +619,28 @@ class BUGSRenderer(RendererBase):
     # Core relation emitter.
     # ------------------------------------------------------------------
 
+    def _inject_bugs_specific_args(
+        self,
+        family: str,
+        args: tuple[IRArg, ...],
+        arg_names: tuple[str, ...],
+    ) -> tuple[tuple[IRArg, ...], tuple[str, ...]]:
+        """Prepend BUGS-side parameter placeholders for QVR families
+        whose torch distribution carries fewer parameters than the
+        BUGS distribution they map to.
+
+        ``HalfNormal(scale)`` maps to BUGS' ``dnorm(0, tau)``; this
+        helper prepends an ``IRArgNumber(0)`` plus the parallel
+        ``"loc"`` arg-name entry so the alias-transform pipeline
+        still rewrites the scale into ``tau = 1/(scale*scale)``.
+        """
+        if family in _PREPEND_ZERO:
+            return (
+                (IRArgNumber(value=0.0), *args),
+                ("loc", *arg_names),
+            )
+        return args, arg_names
+
     def _emit_relation(
         self,
         ctx: _BugsCtx,
@@ -623,6 +657,9 @@ class BUGSRenderer(RendererBase):
         """Open the for-loops over `plate.batch_dims`, then emit the
         `<lhs> ~ <dist>(args)` line."""
         meta = self._lookup_family(family)
+        args, arg_names = self._inject_bugs_specific_args(
+            family, args, arg_names
+        )
         loop_names = self._loop_names(plate, loop_suffix)
         body_id = self._open_loops(ctx, ctx.block_id, plate, loop_names)
         # Stash enclosing-plate + via for arg emission.
