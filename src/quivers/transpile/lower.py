@@ -126,6 +126,7 @@ from quivers.transpile.ir import (
     IRSample,
     IRScore,
     Plate,
+    event_shape_of,
     from_constraint,
 )
 
@@ -201,20 +202,33 @@ class Lower(dx.Mapping[Module, IRProgram]):
         self,
         steps: tuple[ProgramStep, ...],
         ctx: _LowerCtx,
+        enclosing_latents: frozenset[str] = frozenset(),
     ) -> tuple[IRNode, ...]:
-        """Lower a tuple of program steps into IR nodes."""
+        """Lower a tuple of program steps into IR nodes.
+
+        ``enclosing_latents`` carries the set of latent variable names
+        bound by surrounding marginalize scopes. Inside an observe
+        whose ``via=`` clause is present, references to these latents
+        are rewritten so the IR carries the per-position fibration
+        threading (see `_thread_via`).
+        """
         out: list[IRNode] = []
         for step in steps:
-            out.append(self._lower_step(step, ctx))
+            out.append(self._lower_step(step, ctx, enclosing_latents))
         return tuple(out)
 
-    def _lower_step(self, step: ProgramStep, ctx: _LowerCtx) -> IRNode:
+    def _lower_step(
+        self,
+        step: ProgramStep,
+        ctx: _LowerCtx,
+        enclosing_latents: frozenset[str] = frozenset(),
+    ) -> IRNode:
         if isinstance(step, SampleStep):
             return self._lower_sample(step, ctx)
         if isinstance(step, ObserveStep):
-            return self._lower_observe(step, ctx)
+            return self._lower_observe(step, ctx, enclosing_latents)
         if isinstance(step, MarginalizeStep):
-            return self._lower_marginalize(step, ctx)
+            return self._lower_marginalize(step, ctx, enclosing_latents)
         if isinstance(step, LetStep):
             return self._lower_let(step, ctx)
         if isinstance(step, ScoreStep):
@@ -237,6 +251,7 @@ class Lower(dx.Mapping[Module, IRProgram]):
         meta = FAMILY_META[resolved.family]
         ir_args, arg_names = self._lower_args(
             meta, resolved, ctx,
+            event_axes=_event_axis_names(step),
             axes_index=step.index,
             structural_args=step.args,
         )
@@ -261,7 +276,10 @@ class Lower(dx.Mapping[Module, IRProgram]):
         )
 
     def _lower_observe(
-        self, step: ObserveStep, ctx: _LowerCtx
+        self,
+        step: ObserveStep,
+        ctx: _LowerCtx,
+        enclosing_latents: frozenset[str] = frozenset(),
     ) -> IRObserve:
         resolved = resolve_step_dist(
             step.morphism,
@@ -274,9 +292,14 @@ class Lower(dx.Mapping[Module, IRProgram]):
         meta = FAMILY_META[resolved.family]
         ir_args, arg_names = self._lower_args(
             meta, resolved, ctx,
+            event_axes=_event_axis_names(step),
             axes_index=step.index,
             structural_args=step.args,
         )
+        if step.via is not None and enclosing_latents:
+            ir_args = tuple(
+                _thread_via(a, step.via, enclosing_latents) for a in ir_args
+            )
         plate = self._build_plate(step, ctx, meta, ir_args)
         constraint = from_constraint(_resolve_support(meta, ir_args, ctx))
         return IRObserve(
@@ -290,7 +313,10 @@ class Lower(dx.Mapping[Module, IRProgram]):
         )
 
     def _lower_marginalize(
-        self, step: MarginalizeStep, ctx: _LowerCtx
+        self,
+        step: MarginalizeStep,
+        ctx: _LowerCtx,
+        enclosing_latents: frozenset[str] = frozenset(),
     ) -> IRMarginalize:
         resolved = resolve_step_dist(
             step.morphism,
@@ -303,6 +329,7 @@ class Lower(dx.Mapping[Module, IRProgram]):
         meta = FAMILY_META[resolved.family]
         ir_args, arg_names = self._lower_args(
             meta, resolved, ctx,
+            event_axes=_marginalize_event_axis_names(step),
             axes_index=step.index,
             structural_args=step.args,
         )
@@ -313,7 +340,9 @@ class Lower(dx.Mapping[Module, IRProgram]):
                 "qvr-lower",
                 [f"marginalize:reduction:{step.reduction}"],
             )
-        scope = self._lower_steps(step.scope, ctx)
+        scope = self._lower_steps(
+            step.scope, ctx, enclosing_latents | frozenset({step.var})
+        )
         return IRMarginalize(
             latent=step.var,
             family=resolved.family,
@@ -348,6 +377,7 @@ class Lower(dx.Mapping[Module, IRProgram]):
         resolved: ResolvedDist,
         ctx: _LowerCtx,
         *,
+        event_axes: tuple[str, ...],
         axes_index: ObjectExpr | None,
         structural_args: tuple[DrawArg, ...] | None,
     ) -> tuple[tuple[IRArg, ...], tuple[str, ...]]:
@@ -388,7 +418,11 @@ class Lower(dx.Mapping[Module, IRProgram]):
         out: list[IRArg] = []
         for arg, name in zip(pre_args, arg_names, strict=False):
             expected = constraints_map.get(name)
-            out.append(self._wrap_for_constraint(arg, expected, axes_index, ctx))
+            out.append(
+                self._wrap_for_constraint(
+                    arg, expected, event_axes, axes_index, ctx
+                )
+            )
         return tuple(out), arg_names
 
     def _arg_names_for(
@@ -489,27 +523,37 @@ class Lower(dx.Mapping[Module, IRProgram]):
         self,
         arg: IRArg,
         expected: Constraint | None,
+        event_axes: tuple[str, ...],
         axes_index: ObjectExpr | None,
         ctx: _LowerCtx,
     ) -> IRArg:
         """When the user supplied a scalar but the constraint is
         `IndependentConstraint(base, n>=1)`, wrap as
         `IRArgBroadcast` whose `target_shape` is derived from the
-        surrounding step's axis index (the over-axis).
+        step's event axes (the `over=` clause when present, falling
+        back to the step's `index`).
+
+        Scalar literals (`IRArgNumber`) always qualify. An unindexed
+        `IRArgRef` qualifies when it names a scalar binding (a
+        `ScalarParam` of the active program); a renderer must then
+        broadcast the scalar to the vector arg position rather than
+        passing the scalar through as if it were already a tensor of
+        the expected shape.
         """
         if expected is None:
             return arg
         if not isinstance(expected, c._IndependentConstraint):
             return arg
-        # Only broadcast scalars. References and literals on the
-        # vector arg position stay as-is.
         if not isinstance(arg, (IRArgNumber, IRArgRef)):
             return arg
         if isinstance(arg, IRArgRef):
-            # A reference: do not broadcast a reference; the
-            # renderer treats it as a tensor of the expected shape.
-            return arg
-        target = self._broadcast_target(expected, axes_index, ctx)
+            if arg.indices:
+                return arg
+            if arg.name not in _scalar_binding_names(ctx):
+                return arg
+        target = self._broadcast_target(
+            expected, event_axes, axes_index, ctx
+        )
         if target is None:
             return arg
         return IRArgBroadcast(value=arg, target_shape=target)
@@ -517,17 +561,34 @@ class Lower(dx.Mapping[Module, IRProgram]):
     def _broadcast_target(
         self,
         expected: c._IndependentConstraint,
+        event_axes: tuple[str, ...],
         axes_index: ObjectExpr | None,
         ctx: _LowerCtx,
     ) -> tuple[int, ...] | None:
-        """Derive the broadcast `target_shape` from the step's index
-        axis when the expected constraint is `IndependentConstraint`."""
-        if axes_index is None:
+        """Derive the broadcast `target_shape` from the step's event
+        axes when the expected constraint is `IndependentConstraint`.
+
+        Prefers the axis names supplied by `event_axes` (the `over=`
+        clause of the surrounding step). Falls back to a single-axis
+        shape derived from `axes_index` when no event axes are
+        declared (the bare scalar-family form).
+        """
+        if event_axes:
+            base: list[int] = []
+            for axis_name in event_axes:
+                size = ctx.cards.get(axis_name)
+                if size is None:
+                    return None
+                base.append(size)
+            base_shape = tuple(base)
+        elif axes_index is not None:
+            size = axis_shape(axes_index, ctx.cards)
+            if size is None:
+                return None
+            base_shape = (size,) * expected.event_dim
+        else:
             return None
-        size = axis_shape(axes_index, ctx.cards)
-        if size is None:
-            return None
-        return (size,) * expected.event_dim
+        return event_shape_of(expected, base_shape)
 
     def _build_plate(
         self,
@@ -758,11 +819,18 @@ class Lower(dx.Mapping[Module, IRProgram]):
         """Return the ordered list of names referenced in the body,
         from arg references, bracket indices, and let / score
         expression trees. Order preserved for deterministic input
-        emission."""
+        emission.
+
+        The via-threading sentinel `VIA_ROW_VAR_SENTINEL` is filtered
+        out: it stands in for whichever per-position loop variable a
+        renderer chooses and is never an exogenous data input.
+        """
         out: list[str] = []
         seen: set[str] = set()
 
         def add(name: str) -> None:
+            if name == VIA_ROW_VAR_SENTINEL:
+                return
             if name in seen:
                 return
             seen.add(name)
@@ -1377,6 +1445,120 @@ def _is_number_text(text: str) -> bool:
     return True
 
 
+def _event_axis_names(
+    step: SampleStep | ObserveStep,
+) -> tuple[str, ...]:
+    """Return the event-axis names for a sample / observe step.
+
+    These are the axes the family's event-dim ranges over; in surface
+    syntax they appear as the `over=` clause of the step's
+    [`AxisSpec`][quivers.dsl.ast_nodes._shared.AxisSpec]. Returns an
+    empty tuple when no `AxisSpec` is present (the bare scalar-family
+    form whose event-shape derivation falls back to `step.index`).
+    """
+    if step.axes is None:
+        return ()
+    return step.axes.over
+
+
+#: Sentinel name carried inside an observe arg's via-threaded
+#: index. Each renderer substitutes its own per-position loop
+#: variable (e.g. ``n`` for the observe row).
+VIA_ROW_VAR_SENTINEL = "__row_var__"
+
+
+def _thread_via(
+    arg: IRArg,
+    via_name: str,
+    enclosing_latents: frozenset[str],
+) -> IRArg:
+    """Thread a `[via=fibration]` per-position fibration through an
+    observe-arg tree.
+
+    For every `IRArgRef` whose ``name`` is one of the latents bound by
+    a surrounding marginalize scope, append the per-position lookup
+    `IRArgRef(via_name, indices=(IRArgRef(VIA_ROW_VAR_SENTINEL),))`
+    to the reference's index list. The transform is structural:
+    nested `IRArgRef.indices` are rewritten in place; broadcast and
+    list / matrix wrappers descend into their payload.
+
+    Without the rewrite, a renderer staring at
+    `IRArgRef("phi", indices=(IRArgRef("z"),))` cannot tell from the
+    IR alone that the `z` index must be looked up per-position via
+    the `word_idx` fibration: `phi[z[word_idx[n]]]` rather than
+    `phi[z]`. Threading the lookup at lowering time keeps every
+    renderer free of the same indexing logic.
+    """
+
+    def rewrite(node: IRArg) -> IRArg:
+        if isinstance(node, IRArgRef):
+            new_indices = tuple(rewrite(i) for i in node.indices)
+            if node.name in enclosing_latents:
+                via_lookup = IRArgRef(
+                    name=via_name,
+                    indices=(
+                        IRArgRef(name=VIA_ROW_VAR_SENTINEL, indices=()),
+                    ),
+                )
+                new_indices = (*new_indices, via_lookup)
+            return IRArgRef(name=node.name, indices=new_indices)
+        if isinstance(node, IRArgBroadcast):
+            return IRArgBroadcast(
+                value=rewrite(node.value),
+                target_shape=node.target_shape,
+            )
+        if isinstance(node, IRArgList):
+            return IRArgList(
+                elements=tuple(rewrite(e) for e in node.elements)
+            )
+        if isinstance(node, IRArgMatrix):
+            return IRArgMatrix(
+                rows=tuple(
+                    IRArgList(
+                        elements=tuple(rewrite(e) for e in row.elements)
+                    )
+                    for row in node.rows
+                )
+            )
+        return node
+
+    return rewrite(arg)
+
+
+def _marginalize_event_axis_names(
+    step: MarginalizeStep,
+) -> tuple[str, ...]:
+    """Event-axis names for a marginalize step.
+
+    Marginalize carries its grouping axes on `over` / `over_objs`; the
+    latent's support cardinality is taken from `step.index`. The
+    grouping axes are not the event axes for the conditioning family
+    (they replicate the family across groups), so this returns the
+    empty tuple and lets `_broadcast_target` fall back to the latent
+    index.
+    """
+    del step
+    return ()
+
+
+def _scalar_binding_names(ctx: _LowerCtx) -> frozenset[str]:
+    """Return the set of identifier names bound to a scalar value in
+    the active program.
+
+    Scalar bindings are program parameters whose ``type_params`` entry
+    is a [`ScalarParam`][quivers.dsl.ast_nodes.declarations.ScalarParam]
+    (`Real` / `Nat`). Used by `_wrap_for_constraint` to decide when an
+    unindexed reference must be broadcast to satisfy an
+    `IndependentConstraint` arg position.
+    """
+    program = ctx.program
+    if program.type_params is None:
+        return frozenset()
+    return frozenset(
+        p.name for p in program.type_params if isinstance(p, ScalarParam)
+    )
+
+
 def _walk_nodes(body: tuple[IRNode, ...]):
     """Yield every IRNode in `body`, descending into `IRMarginalize`
     scopes."""
@@ -1387,6 +1569,7 @@ def _walk_nodes(body: tuple[IRNode, ...]):
 
 
 __all__ = [
+    "VIA_ROW_VAR_SENTINEL",
     "Lower",
     "arg_ref_shape",
     "axis_shape",
