@@ -32,6 +32,7 @@ program gmm(alpha : Real) : Resp -> Resp
     sample probs <- Dirichlet(alpha) [over=Component]
     sample mu : Component <- Normal(0.0, 5.0)
     sample sigma : Component <- HalfNormal(1.0)
+    sample idx : Resp <- HalfNormal(1.0)
 
     marginalize cls : Component <- Categorical(probs) [over=Item, reduction=logsumexp]
         observe r : Resp <- Normal(mu[cls], sigma[cls]) [via=idx]
