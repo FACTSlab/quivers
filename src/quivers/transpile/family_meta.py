@@ -744,7 +744,10 @@ FAMILY_META: dict[str, FamilyMeta] = {
         quivers_class=ConditionalFisherSnedecor,
         target_names={
             "numpyro": "FisherSnedecor", "pyro": "FisherSnedecor",
-            "turing": "FDist",
+            "turing": "FDist", "jags": "df",
+        },
+        arg_aliases={
+            "jags": {"df1": "n", "df2": "m"},
         },
     ),
     "Uniform": FamilyMeta(
@@ -1028,7 +1031,7 @@ FAMILY_META: dict[str, FamilyMeta] = {
         target_names={
             "numpyro": "MixtureSameFamily", "pyro": "MixtureSameFamily",
             "pymc": "Mixture", "edward2": "MixtureSameFamily",
-            "turing": "MixtureModel",
+            "turing": "MixtureModel", "webppl": "Mixture",
         },
         arg_aliases={
             "pymc": {
