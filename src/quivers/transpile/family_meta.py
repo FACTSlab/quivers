@@ -565,7 +565,10 @@ FAMILY_META: dict[str, FamilyMeta] = {
             "turing": "truncated",
         },
         arg_aliases={
-            "pymc": {"loc": "mu", "scale": "sigma"},
+            "pymc": {
+                "loc": "mu", "scale": "sigma",
+                "low": "lower", "high": "upper",
+            },
         },
     ),
     "Dirichlet": FamilyMeta(
@@ -825,6 +828,7 @@ FAMILY_META: dict[str, FamilyMeta] = {
             "bugs": "dunif", "jags": "dunif",
         },
         arg_aliases={
+            "pymc": {"low": "lower", "high": "upper"},
             "webppl": {"low": "a", "high": "b"},
         },
     ),
