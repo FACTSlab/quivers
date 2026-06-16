@@ -97,9 +97,9 @@ def render_let_expr_scheme(ctx, expr: LetExprNode) -> str:
         return _render_factor(ctx, expr)
     if isinstance(expr, LetExprMethodCall):
         return _render_method_call(ctx, expr)
-    raise NotImplementedError(
-        f"render_let_expr_scheme: unhandled LetExprNode kind "
-        f"{type(expr).__name__!r}"
+    raise UnsupportedConstruct(
+        _TARGET,
+        [f"let-expr:{type(expr).__name__}: unhandled node kind"],
     )
 
 
