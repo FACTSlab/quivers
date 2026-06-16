@@ -395,8 +395,11 @@ def _emit_factor(
     uniform-body form (one or more binders, body is the repeated
     expression, cases is empty) emits a tower of `array` vertices of
     shape ``(|b0|, |b1|, ..., |bn-1|)``, with each binder
-    substituted for its 1-indexed integer value (the QVR surface
-    convention).
+    substituted for its 0-indexed integer value (JavaScript arrays
+    are 0-based, matching QVR's surface convention). The shared
+    [`_substitute_let_expr`][quivers.transpile.renderers._stan_helpers._substitute_let_expr]
+    walk takes the same value for both `index_value` and
+    `scalar_value` because no index-base shift is needed here.
     """
     if expr.cases and expr.body is None:
         if len(expr.binders) != 1:
@@ -473,8 +476,12 @@ def _build_nested_array(
     if len(fixed) == len(binders):
         subst = body
         for binder, value in zip(binders, fixed, strict=True):
+            literal = LetExprLiteral(value=value)
             subst = _substitute_let_expr(
-                subst, binder.var, LetExprLiteral(value=value + 1)
+                subst,
+                binder.var,
+                index_value=literal,
+                scalar_value=literal,
             )
         return _render(ctx, subst)
     level = len(fixed)

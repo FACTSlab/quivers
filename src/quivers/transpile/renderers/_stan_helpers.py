@@ -286,9 +286,11 @@ def _render_factor(ctx, expr: LetExprFactor) -> tuple[str, str]:
     The uniform-body form (one or more binders, body is the
     repeated expression, cases is empty) emits a tower of
     `array_expression` vertices of shape
-    `(|b0|, |b1|, ..., |bn-1|)`, with each binder substituted for
-    its 1-indexed integer value (Stan arrays are 1-indexed and
-    QVR's surface indexing is mapped through directly).
+    `(|b0|, |b1|, ..., |bn-1|)`. The shared
+    [`_substitute_let_expr`][quivers.transpile.renderers._stan_helpers._substitute_let_expr]
+    walk receives a 1-indexed `index_value` (Stan arrays are
+    1-based) and a 0-indexed `scalar_value` (arithmetic on the
+    binder uses QVR's 0-based surface convention).
     """
     if expr.cases and expr.body is None:
         if len(expr.binders) != 1:
@@ -363,7 +365,10 @@ def _build_nested_array(
         subst = body
         for binder, value in zip(binders, fixed, strict=True):
             subst = _substitute_let_expr(
-                subst, binder.var, LetExprLiteral(value=value + 1)
+                subst,
+                binder.var,
+                index_value=LetExprLiteral(value=value + 1),
+                scalar_value=LetExprLiteral(value=value),
             )
         return _render(ctx, subst)
     level = len(fixed)
@@ -378,19 +383,72 @@ def _build_nested_array(
 
 
 def _substitute_let_expr(
-    expr: LetExprNode, name: str, value: LetExprNode
+    expr: LetExprNode,
+    name: str,
+    *,
+    index_value: LetExprNode,
+    scalar_value: LetExprNode,
 ) -> LetExprNode:
-    """Capture-avoiding substitution of every free occurrence of
-    `LetExprVar(name=name)` in `expr` with `value`.
+    """Capture-avoiding, context-aware substitution of every free
+    occurrence of `LetExprVar(name=name)` in `expr`.
+
+    Two replacement values are required because backends with
+    1-based array indexing (Stan) want the binder substituted with
+    its 1-indexed integer in *index slots* (`arr[v]` -> `arr[1]`
+    for `v=0`) yet with its 0-indexed integer everywhere else
+    (`2 * v` -> `2 * 0` for `v=0`). Backends with 0-based
+    indexing (NumPyro, Pyro, PyMC, Edward2, JavaScript, WebPPL)
+    pass the same value for both arguments, since QVR's surface
+    semantics agrees with the host language in every slot.
+
+    The walk distinguishes "index slot" exactly when it recurses
+    into the `indices` tuple of a
+    [`LetExprIndex`][quivers.dsl.ast_nodes.LetExprIndex] node; the
+    `array` child of the same node and every other position is a
+    scalar slot. Nested indexing (`arr[idx[v]]`) re-classifies the
+    inner `v` as an index slot because it lives inside the inner
+    `LetExprIndex.indices` tuple, which matches Stan's semantics
+    where every integer fed to `[ ]` is 1-based.
 
     Shared substitution helper for every per-target renderer that
-    needs to unroll `LetExprFactor` by binding indices to integer
-    literals. Lives in `_stan_helpers` because Stan was the first
-    target to need it; other helper modules import from here when
-    they grow the same need (one source of truth for the walk).
+    needs to unroll [`LetExprFactor`][quivers.dsl.ast_nodes.LetExprFactor]
+    by binding indices to integer literals. Lives in `_stan_helpers`
+    because Stan was the first target to need it; other helper
+    modules import from here when they grow the same need (one
+    source of truth for the walk).
+    """
+    return _substitute_let_expr_walk(
+        expr,
+        name,
+        index_value=index_value,
+        scalar_value=scalar_value,
+        in_index_slot=False,
+    )
+
+
+def _substitute_let_expr_walk(
+    expr: LetExprNode,
+    name: str,
+    *,
+    index_value: LetExprNode,
+    scalar_value: LetExprNode,
+    in_index_slot: bool,
+) -> LetExprNode:
+    """Inner walk for
+    [`_substitute_let_expr`][quivers.transpile.renderers._stan_helpers._substitute_let_expr]
+    that carries the `in_index_slot` flag.
+
+    The flag is set to `True` only when descending into the
+    `indices` tuple of a `LetExprIndex`; every other recursive
+    descent (including the `array` child of `LetExprIndex` itself)
+    resets the flag to `False`. This matches Stan's grammar: the
+    body of `arr[i]` is `arr` in scalar position and `i` in index
+    position, and the helper substitutes accordingly.
     """
     if isinstance(expr, LetExprVar):
-        return value if expr.name == name else expr
+        if expr.name != name:
+            return expr
+        return index_value if in_index_slot else scalar_value
     if isinstance(expr, LetExprLiteral):
         return expr
     if isinstance(expr, LetExprString):
@@ -398,32 +456,76 @@ def _substitute_let_expr(
     if isinstance(expr, LetExprBinOp):
         return LetExprBinOp(
             op=expr.op,
-            left=_substitute_let_expr(expr.left, name, value),
-            right=_substitute_let_expr(expr.right, name, value),
+            left=_substitute_let_expr_walk(
+                expr.left,
+                name,
+                index_value=index_value,
+                scalar_value=scalar_value,
+                in_index_slot=False,
+            ),
+            right=_substitute_let_expr_walk(
+                expr.right,
+                name,
+                index_value=index_value,
+                scalar_value=scalar_value,
+                in_index_slot=False,
+            ),
         )
     if isinstance(expr, LetExprUnaryOp):
         return LetExprUnaryOp(
-            op=expr.op,
-            operand=_substitute_let_expr(expr.operand, name, value),
+            operand=_substitute_let_expr_walk(
+                expr.operand,
+                name,
+                index_value=index_value,
+                scalar_value=scalar_value,
+                in_index_slot=False,
+            ),
         )
     if isinstance(expr, LetExprCall):
         return LetExprCall(
             func=expr.func,
             args=tuple(
-                _substitute_let_expr(a, name, value) for a in expr.args
+                _substitute_let_expr_walk(
+                    a,
+                    name,
+                    index_value=index_value,
+                    scalar_value=scalar_value,
+                    in_index_slot=False,
+                )
+                for a in expr.args
             ),
         )
     if isinstance(expr, LetExprIndex):
         return LetExprIndex(
-            array=_substitute_let_expr(expr.array, name, value),
+            array=_substitute_let_expr_walk(
+                expr.array,
+                name,
+                index_value=index_value,
+                scalar_value=scalar_value,
+                in_index_slot=False,
+            ),
             indices=tuple(
-                _substitute_let_expr(i, name, value) for i in expr.indices
+                _substitute_let_expr_walk(
+                    i,
+                    name,
+                    index_value=index_value,
+                    scalar_value=scalar_value,
+                    in_index_slot=True,
+                )
+                for i in expr.indices
             ),
         )
     if isinstance(expr, LetExprList):
         return LetExprList(
             items=tuple(
-                _substitute_let_expr(i, name, value) for i in expr.items
+                _substitute_let_expr_walk(
+                    i,
+                    name,
+                    index_value=index_value,
+                    scalar_value=scalar_value,
+                    in_index_slot=False,
+                )
+                for i in expr.items
             ),
         )
     if isinstance(expr, LetExprLambda):
@@ -431,7 +533,13 @@ def _substitute_let_expr(
             return expr
         return LetExprLambda(
             param=expr.param,
-            body=_substitute_let_expr(expr.body, name, value),
+            body=_substitute_let_expr_walk(
+                expr.body,
+                name,
+                index_value=index_value,
+                scalar_value=scalar_value,
+                in_index_slot=False,
+            ),
         )
     if isinstance(expr, LetExprFactor):
         if any(b.var == name for b in expr.binders):
@@ -439,14 +547,26 @@ def _substitute_let_expr(
         return LetExprFactor(
             binders=expr.binders,
             body=(
-                _substitute_let_expr(expr.body, name, value)
+                _substitute_let_expr_walk(
+                    expr.body,
+                    name,
+                    index_value=index_value,
+                    scalar_value=scalar_value,
+                    in_index_slot=False,
+                )
                 if expr.body is not None
                 else None
             ),
             cases=tuple(
                 LetFactorCase(
                     label=c.label,
-                    value=_substitute_let_expr(c.value, name, value),
+                    value=_substitute_let_expr_walk(
+                        c.value,
+                        name,
+                        index_value=index_value,
+                        scalar_value=scalar_value,
+                        in_index_slot=False,
+                    ),
                     line=c.line,
                     col=c.col,
                 )
@@ -455,10 +575,23 @@ def _substitute_let_expr(
         )
     if isinstance(expr, LetExprMethodCall):
         return LetExprMethodCall(
-            receiver=_substitute_let_expr(expr.receiver, name, value),
+            receiver=_substitute_let_expr_walk(
+                expr.receiver,
+                name,
+                index_value=index_value,
+                scalar_value=scalar_value,
+                in_index_slot=False,
+            ),
             method=expr.method,
             args=tuple(
-                _substitute_let_expr(a, name, value) for a in expr.args
+                _substitute_let_expr_walk(
+                    a,
+                    name,
+                    index_value=index_value,
+                    scalar_value=scalar_value,
+                    in_index_slot=False,
+                )
+                for a in expr.args
             ),
         )
     raise UnsupportedConstruct(
