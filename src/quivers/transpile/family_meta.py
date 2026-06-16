@@ -503,6 +503,7 @@ FAMILY_META: dict[str, FamilyMeta] = {
         target_names={
             "numpyro": "TruncatedNormal", "pyro": "TruncatedNormal",
             "pymc": "TruncatedNormal", "edward2": "TruncatedNormal",
+            "turing": "truncated",
         },
         arg_aliases={
             "pymc": {"loc": "mu", "scale": "sigma"},
@@ -550,13 +551,14 @@ FAMILY_META: dict[str, FamilyMeta] = {
             "stan": "double_exponential", "numpyro": "Laplace",
             "pyro": "Laplace", "pymc": "Laplace",
             "edward2": "Laplace", "turing": "Laplace",
-            "gen": "laplace",
+            "gen": "laplace", "webppl": "Laplace",
             "bugs": "ddexp", "jags": "ddexp",
         },
         arg_aliases={
             "bugs": {"scale": "tau"},
             "jags": {"scale": "tau"},
             "pymc": {"loc": "mu", "scale": "b"},
+            "webppl": {"loc": "location", "scale": "scale"},
         },
     ),
     "Gumbel": FamilyMeta(
@@ -642,6 +644,7 @@ FAMILY_META: dict[str, FamilyMeta] = {
         target_names={
             "stan": "chi_square", "numpyro": "Chi2", "pyro": "Chi2",
             "pymc": "ChiSquared", "edward2": "Chi2",
+            "turing": "Chisq",
             "bugs": "dchisqr", "jags": "dchisqr",
         },
     ),
@@ -741,6 +744,7 @@ FAMILY_META: dict[str, FamilyMeta] = {
         quivers_class=ConditionalFisherSnedecor,
         target_names={
             "numpyro": "FisherSnedecor", "pyro": "FisherSnedecor",
+            "turing": "FDist",
         },
     ),
     "Uniform": FamilyMeta(
@@ -800,6 +804,7 @@ FAMILY_META: dict[str, FamilyMeta] = {
         quivers_class=ConditionalRelaxedBernoulli,
         target_names={
             "numpyro": "RelaxedBernoulli", "pyro": "RelaxedBernoulli",
+            "edward2": "RelaxedBernoulli",
         },
     ),
     "RelaxedOneHotCategorical": FamilyMeta(
@@ -809,6 +814,7 @@ FAMILY_META: dict[str, FamilyMeta] = {
         target_names={
             "numpyro": "RelaxedOneHotCategorical",
             "pyro": "RelaxedOneHotCategorical",
+            "edward2": "RelaxedOneHotCategorical",
         },
     ),
     # ----- matrix-valued -----
@@ -820,6 +826,7 @@ FAMILY_META: dict[str, FamilyMeta] = {
             "stan": "wishart",
             "numpyro": "Wishart", "pyro": "Wishart",
             "pymc": "Wishart", "edward2": "Wishart",
+            "turing": "Wishart",
             "bugs": "dwish", "jags": "dwish",
         },
         arg_aliases={
@@ -833,6 +840,7 @@ FAMILY_META: dict[str, FamilyMeta] = {
         target_names={
             "stan": "inv_wishart",
             "numpyro": "InverseWishart", "pyro": "InverseWishart",
+            "turing": "InverseWishart",
         },
     ),
     "MatrixNormal": FamilyMeta(
@@ -842,6 +850,7 @@ FAMILY_META: dict[str, FamilyMeta] = {
         target_names={
             "pymc": "MatrixNormal",
             "edward2": "MatrixNormalLinearOperator",
+            "turing": "MatrixNormal",
         },
         arg_aliases={
             "pymc": {
@@ -914,7 +923,11 @@ FAMILY_META: dict[str, FamilyMeta] = {
             "stan": "poisson", "numpyro": "Poisson", "pyro": "Poisson",
             "pymc": "Poisson", "edward2": "Poisson",
             "turing": "Poisson", "gen": "poisson",
+            "church": "poisson", "webppl": "Poisson",
             "bugs": "dpois", "jags": "dpois",
+        },
+        arg_aliases={
+            "webppl": {"rate": "mu"},
         },
     ),
     "NegativeBinomial": FamilyMeta(
@@ -924,7 +937,8 @@ FAMILY_META: dict[str, FamilyMeta] = {
         target_names={
             "stan": "neg_binomial_2", "numpyro": "NegativeBinomial2",
             "pyro": "NegativeBinomial", "pymc": "NegativeBinomial",
-            "edward2": "NegativeBinomial",
+            "edward2": "NegativeBinomial", "turing": "NegativeBinomial",
+            "gen": "neg_binom",
             "bugs": "dnegbin", "jags": "dnegbin",
         },
         arg_aliases={
@@ -938,7 +952,11 @@ FAMILY_META: dict[str, FamilyMeta] = {
         target_names={
             "numpyro": "Geometric", "pyro": "Geometric",
             "pymc": "Geometric", "edward2": "Geometric",
-            "gen": "geometric",
+            "turing": "Geometric", "gen": "geometric",
+            "church": "geometric",
+        },
+        arg_aliases={
+            "pymc": {"probs": "p"},
         },
     ),
     "Binomial": FamilyMeta(
@@ -948,10 +966,12 @@ FAMILY_META: dict[str, FamilyMeta] = {
         target_names={
             "stan": "binomial", "numpyro": "Binomial", "pyro": "Binomial",
             "pymc": "Binomial", "edward2": "Binomial",
+            "turing": "Binomial", "webppl": "Binomial",
             "bugs": "dbin", "jags": "dbin",
         },
         arg_aliases={
             "pymc": {"probs": "p", "total_count": "n"},
+            "webppl": {"probs": "p", "total_count": "n"},
         },
     ),
     "VonMises": FamilyMeta(
@@ -960,6 +980,11 @@ FAMILY_META: dict[str, FamilyMeta] = {
         quivers_class=ConditionalVonMises,
         target_names={
             "stan": "von_mises", "numpyro": "VonMises", "pyro": "VonMises",
+            "pymc": "VonMises", "edward2": "VonMises",
+            "turing": "VonMises",
+        },
+        arg_aliases={
+            "pymc": {"loc": "mu", "concentration": "kappa"},
         },
     ),
     "LogisticNormal": FamilyMeta(
@@ -968,6 +993,10 @@ FAMILY_META: dict[str, FamilyMeta] = {
         quivers_class=ConditionalLogisticNormal,
         target_names={
             "numpyro": "LogisticNormal", "pyro": "LogisticNormal",
+            "webppl": "LogisticNormal",
+        },
+        arg_aliases={
+            "webppl": {"loc": "mu", "scale": "sigma"},
         },
     ),
     "OneHotCategorical": FamilyMeta(
@@ -989,7 +1018,7 @@ FAMILY_META: dict[str, FamilyMeta] = {
         target_names={
             "stan": "lkj_corr_cholesky", "numpyro": "LKJCholesky",
             "pyro": "LKJCorrCholesky", "pymc": "LKJCholeskyCov",
-            "edward2": "LKJ",
+            "edward2": "LKJ", "turing": "LKJCholesky",
         },
     ),
     "Mixture": FamilyMeta(
@@ -998,7 +1027,8 @@ FAMILY_META: dict[str, FamilyMeta] = {
         quivers_class=ConditionalMixture,
         target_names={
             "numpyro": "MixtureSameFamily", "pyro": "MixtureSameFamily",
-            "pymc": "Mixture",
+            "pymc": "Mixture", "edward2": "MixtureSameFamily",
+            "turing": "MixtureModel",
         },
         arg_aliases={
             "pymc": {
@@ -1013,6 +1043,7 @@ FAMILY_META: dict[str, FamilyMeta] = {
         quivers_class=ConditionalIndependent,
         target_names={
             "numpyro": "Independent", "pyro": "Independent",
+            "edward2": "Independent",
         },
     ),
     "Transformed": FamilyMeta(
@@ -1022,6 +1053,7 @@ FAMILY_META: dict[str, FamilyMeta] = {
         target_names={
             "numpyro": "TransformedDistribution",
             "pyro": "TransformedDistribution",
+            "edward2": "TransformedDistribution",
         },
     ),
     "Truncated": FamilyMeta(
@@ -1030,6 +1062,9 @@ FAMILY_META: dict[str, FamilyMeta] = {
         quivers_class=Truncated,
         target_names={
             "pymc": "Truncated",
+            "numpyro": "TruncatedDistribution",
+            "pyro": "TruncatedDistribution",
+            "turing": "truncated",
         },
         arg_aliases={
             "pymc": {"base_distribution": "dist"},
@@ -1041,6 +1076,8 @@ FAMILY_META: dict[str, FamilyMeta] = {
         quivers_class=LKJCorrelationFactor,
         target_names={
             "pymc": "LKJCorr",
+            "stan": "lkj_corr",
+            "numpyro": "LKJ", "pyro": "LKJ",
         },
     ),
     # ----- Phase B tier 1 -----
@@ -1051,7 +1088,8 @@ FAMILY_META: dict[str, FamilyMeta] = {
         target_names={
             "stan": "beta_binomial", "numpyro": "BetaBinomial",
             "pyro": "BetaBinomial", "pymc": "BetaBinomial",
-            "bugs": "dbetabin",
+            "edward2": "BetaBinomial", "turing": "BetaBinomial",
+            "bugs": "dbetabin", "jags": "dbetabin",
         },
         arg_aliases={
             "pymc": {
@@ -1086,6 +1124,7 @@ FAMILY_META: dict[str, FamilyMeta] = {
         target_names={
             "stan": "logistic", "numpyro": "Logistic",
             "pyro": "Logistic", "pymc": "Logistic",
+            "edward2": "Logistic", "turing": "Logistic",
             "bugs": "dlogis", "jags": "dlogis",
         },
         arg_aliases={
