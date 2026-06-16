@@ -52,6 +52,7 @@ from quivers.transpile.renderers._python_helpers import (
     identifier,
     number_literal,
     render_let_expr_python,
+    shape_tuple,
     string_literal,
     with_statement,
 )
@@ -456,15 +457,13 @@ class PyroRenderer(RendererBase):
                 f"qvr-{_TARGET}",
                 [f"broadcast:rank-{len(target_shape)}"],
             )
-        shape_tuple = pctx.v(pctx.fresh("tup"), "tuple")
-        for k in target_shape:
-            pctx.e(shape_tuple, number_literal(pctx, float(k)), "child_of")
+        shape_vid = shape_tuple(pctx, target_shape)
         value_vid = self._arg_to_vid(pctx, value)
         full_callee = attribute(pctx, ("torch", "full"))
         return call(
             pctx,
             full_callee,
-            positional=(shape_tuple, value_vid),
+            positional=(shape_vid, value_vid),
         )
 
     def render_list(

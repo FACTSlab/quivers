@@ -312,6 +312,47 @@ def render_let_expr_python(ctx: PyCtx, expr: LetExprNode) -> str:
     )
 
 
+def shape_tuple(ctx: PyCtx, shape: tuple[int, ...]) -> str:
+    """Build a Python ``tuple`` node from an integer shape.
+
+    Emits ``()`` for an empty shape, ``(<n>,)`` for a singleton (with
+    the required trailing comma), and ``(<r>, <c>, ...)`` for higher
+    arity. Tree-sitter Python's `tuple` production needs an explicit
+    `ptrace-*` punctuation trace to render the comma; without it the
+    emitter drops the comma and produces a `parenthesized_expression`.
+    """
+    tup = ctx.v(ctx.fresh("tup"), "tuple")
+    n = len(shape)
+    if n == 0:
+        ctx.constraint(tup, "chose-alt-fingerprint", "()")
+        ctx.constraint(tup, "ptrace-0", "T(")
+        ctx.constraint(tup, "ptrace-1", "T)")
+        return tup
+    kind_list = " ".join("integer" for _ in range(n))
+    if n == 1:
+        ctx.constraint(tup, "chose-alt-fingerprint", "( ,)")
+        ctx.constraint(tup, "ptrace-0", "T(")
+        ctx.constraint(tup, "ptrace-1", "Cinteger")
+        ctx.constraint(tup, "ptrace-2", "T,")
+        ctx.constraint(tup, "ptrace-3", "T)")
+    else:
+        fingerprint = "( " + " ".join("," for _ in range(n - 1)) + " )"
+        ctx.constraint(tup, "chose-alt-fingerprint", fingerprint)
+        ctx.constraint(tup, "ptrace-0", "T(")
+        slot = 1
+        for i in range(n):
+            ctx.constraint(tup, f"ptrace-{slot}", "Cinteger")
+            slot += 1
+            if i < n - 1:
+                ctx.constraint(tup, f"ptrace-{slot}", "T,")
+                slot += 1
+        ctx.constraint(tup, f"ptrace-{slot}", "T)")
+    ctx.constraint(tup, "chose-alt-child-kinds", kind_list)
+    for size in shape:
+        ctx.e(tup, number_literal(ctx, size), "child_of")
+    return tup
+
+
 __all__ = [
     "PyCtx",
     "arg_expr",
@@ -322,6 +363,7 @@ __all__ = [
     "identifier",
     "number_literal",
     "render_let_expr_python",
+    "shape_tuple",
     "string_literal",
     "with_statement",
 ]
