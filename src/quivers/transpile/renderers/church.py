@@ -86,9 +86,15 @@ class ChurchRenderer(RendererBase):
         return target_protocol("scheme")
 
     def render(self, ir: IRProgram) -> panproto.Schema:
+        # Snapshot `IRProgram.cards` for the renderer-local cards map
+        # threaded through every `_LetExprCtx`; the Scheme let-expr
+        # helper consults `ctx.cards` when a factor binder's index
+        # references a named QVR object whose cardinality must be
+        # resolved at unroll time.
+        self._cards: dict[str, int] = dict(ir.cards)
         proto = self.target_protocol()
         sb = proto.schema()
-        ctx = _RenderCtx(sb=sb, morphisms={}, lets={})
+        ctx = _RenderCtx(sb=sb, morphisms={}, lets={}, cards=self._cards)
         prog_id = _v(ctx, "prog", "program")
 
         # `(model <param1> <param2> ...)` -- function signature.
@@ -152,7 +158,7 @@ class ChurchRenderer(RendererBase):
             # the surface compiler; render it via the existing Scheme
             # let-expression helper.
             expr_id = render_let_expr_scheme(
-                _LetExprCtx(ctx.sb, ctx), node.expr
+                _LetExprCtx(ctx.sb, ctx, self._cards), node.expr
             )
             return (
                 _list(
@@ -163,7 +169,7 @@ class ChurchRenderer(RendererBase):
         if isinstance(node, IRScore):
             # Church's score primitive: `(factor <expr>)`.
             expr_id = render_let_expr_scheme(
-                _LetExprCtx(ctx.sb, ctx), node.expr
+                _LetExprCtx(ctx.sb, ctx, self._cards), node.expr
             )
             return (_list(ctx, (_sym(ctx, "factor"), expr_id)),)
         if isinstance(node, IRMarginalize):
@@ -597,22 +603,37 @@ def _list(
 
 
 # ---------------------------------------------------------------------------
-# Bridge adapter: the existing `_letexpr_scheme` helper consumes a
-# duck-typed context with `.fresh`, `.v`, `.e`, `.lit` methods. The IR
-# renderer's `_RenderCtx` exposes only the panproto `SchemaBuilder`;
-# this adapter projects the same surface onto it without rebinding the
-# fresh-id counter, so let / score expressions render through the same
-# code path as the schema-extraction backend.
+# Bridge adapter: the
+# [`render_let_expr_scheme`][quivers.transpile.renderers._scheme_helpers.render_let_expr_scheme]
+# helper consumes a duck-typed context with `.fresh`, `.v`, `.e`,
+# `.lit`, `.constraint`, `.cards`, `.target` members. The IR renderer's
+# [`_RenderCtx`][quivers.transpile.renderers._base._RenderCtx] exposes
+# only the panproto `SchemaBuilder` and the morphism / let / cards
+# tables; this adapter projects the helper's expected surface onto it
+# without rebinding the fresh-id counter, so let / score expressions
+# render through the same code path as the schema-extraction backend
+# and benefit from cards-driven binder-size resolution when the helper
+# adds it.
 # ---------------------------------------------------------------------------
 
 
 class _LetExprCtx:
-    """Duck-typed adapter exposing `fresh / v / e / lit` over a
+    """Duck-typed adapter exposing the
+    [`render_let_expr_scheme`][quivers.transpile.renderers._scheme_helpers.render_let_expr_scheme]
+    context protocol (``fresh``, ``v``, ``e``, ``lit``, ``constraint``,
+    ``cards``, ``target``) on top of a
     [`_RenderCtx`][quivers.transpile.renderers._base._RenderCtx]."""
 
-    def __init__(self, sb: panproto.SchemaBuilder, owner: _RenderCtx) -> None:
+    def __init__(
+        self,
+        sb: panproto.SchemaBuilder,
+        owner: _RenderCtx,
+        cards: dict[str, int],
+    ) -> None:
         self._sb = sb
         self._owner = owner
+        self.cards = cards
+        self.target = "church"
 
     def fresh(self, prefix: str) -> str:
         return _fresh(self._owner, prefix)
@@ -626,6 +647,9 @@ class _LetExprCtx:
 
     def lit(self, vid: str, text: str) -> None:
         self._sb.constraint(vid, "literal-value", text)
+
+    def constraint(self, vid: str, sort: str, value: str) -> None:
+        self._sb.constraint(vid, sort, value)
 
 
 __all__ = ["ChurchRenderer"]
