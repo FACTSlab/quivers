@@ -29,4 +29,22 @@ morphism emission : State -> Obs [role=latent]
 let n_step = repeat(transition) >> emission
 let hmm = initial >> n_step
 
+# Probabilistic surface for transpile: every row of every
+# row-stochastic matrix carries a Dirichlet(1) prior (the
+# uniform conjugate prior the header describes; equivalently the
+# Bayesian-Laplace add-one prior of Manning and Schuetze 1999,
+# section 6.2). The initial-state vector is one Dirichlet draw
+# on the State simplex; the transition kernel allocates one
+# Dirichlet row per source state (iid over the State axis); the
+# emission kernel allocates one Dirichlet row per latent state
+# over the Obs simplex.
+program hmm_program : State -> Obs
+    sample initial_row : State <- Dirichlet(1.0) [over=State]
+    sample transition_rows : State <- Dirichlet(1.0) [over=State, iid_over=State]
+    sample emission_rows : State <- Dirichlet(1.0) [over=Obs, iid_over=State]
+
+    observe obs : Obs <- Categorical(emission_rows)
+    return initial_row
+
 export hmm
+export hmm_program
