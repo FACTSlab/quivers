@@ -87,7 +87,7 @@ class _RenderMapping(dx.Mapping):
 
 def _renderer_for(backend: str) -> RendererBase:
     """Return a fresh renderer instance for `backend`."""
-    renderer_cls, _ = _RENDERERS[backend]
+    renderer_cls = _RENDERERS[backend][0]
     return renderer_cls()
 
 
