@@ -7,9 +7,18 @@ kinds the helper builds:
 * `variable_expression` wrapping an `identifier` for variable refs
 * `infix_op_expression` (per-operator alts via `chose-alt-fingerprint`)
 * `prefix_op_expression` for unary minus
-* `function_application` with an `identifier` callee + `expression_list`
-* `index_expression` for `arr[i1][i2]...`
+* `function_expression` with `name`-edged `identifier` callee and a
+  `argument_list` child whose fingerprint encodes the comma count
+* `indexed_expression` with `[ ]` fingerprint, `variable_expression`
+  callee, and `index`-wrapped index children
 * `array_expression` for `{e0, e1, ...}` list literals
+
+Every vertex sets `chose-alt-child-kinds` to the space-separated
+sequence of its children's kinds; the pretty-printer uses this to
+disambiguate grammar productions and silently drops vertices whose
+constraint is missing or stale. The helper returns
+`(vertex_id, kind)` from every recursive call so parents can build
+the `chose-alt-child-kinds` string from real child kinds.
 
 Some `LetExprNode` kinds do not map to Stan user-program syntax
 (strings, lambdas, method calls). The helper raises
@@ -47,54 +56,37 @@ from quivers.transpile._api import UnsupportedConstruct
 
 def render_let_expr_stan(ctx, expr: LetExprNode) -> str:
     """Build a Stan expression schema for `expr` in `ctx`. Returns
-    the root vertex id."""
+    the root vertex id.
+
+    Wraps `_render` to discard the kind return value at the public
+    boundary so callers see the same signature as the other
+    per-target helpers.
+    """
+    vid, _kind = _render(ctx, expr)
+    return vid
+
+
+def _render(ctx, expr: LetExprNode) -> tuple[str, str]:
+    """Recursive renderer returning ``(vertex_id, vertex_kind)`` so
+    parents can populate ``chose-alt-child-kinds`` accurately."""
     if isinstance(expr, LetExprLiteral):
-        if isinstance(expr.value, float) or "." in repr(expr.value):
-            v = ctx.vertex(ctx.fresh("rl"), "real_literal")
-        else:
-            v = ctx.vertex(ctx.fresh("il"), "integer_literal")
-        ctx.literal(v, str(expr.value))
-        return v
+        return _emit_literal(ctx, expr.value)
     if isinstance(expr, LetExprVar):
-        v = ctx.vertex(ctx.fresh("vex"), "variable_expression")
-        ident = ctx.vertex(ctx.fresh("id"), "identifier")
-        ctx.literal(ident, expr.name)
-        ctx.edge(v, ident, "child_of")
-        return v
+        return _emit_variable_expression(ctx, expr.name)
     if isinstance(expr, LetExprBinOp):
-        b = ctx.vertex(ctx.fresh("bin"), "infix_op_expression")
-        ctx.constraint(b, "chose-alt-fingerprint", expr.op)
-        ctx.edge(b, render_let_expr_stan(ctx, expr.left), "child_of")
-        ctx.edge(b, render_let_expr_stan(ctx, expr.right), "child_of")
-        return b
+        return _emit_infix(ctx, expr)
     if isinstance(expr, LetExprUnaryOp):
-        u = ctx.vertex(ctx.fresh("uop"), "prefix_op_expression")
-        ctx.constraint(u, "chose-alt-fingerprint", "-")
-        ctx.edge(u, render_let_expr_stan(ctx, expr.operand), "child_of")
-        return u
+        return _emit_prefix(ctx, expr)
     if isinstance(expr, LetExprCall):
-        c = ctx.vertex(ctx.fresh("call"), "function_application")
-        fn = ctx.vertex(ctx.fresh("fn"), "identifier")
-        ctx.literal(fn, expr.func)
-        ctx.edge(c, fn, "child_of")
-        args = ctx.vertex(ctx.fresh("args"), "expression_list")
-        for a in expr.args:
-            ctx.edge(args, render_let_expr_stan(ctx, a), "child_of")
-        ctx.edge(c, args, "child_of")
-        return c
+        return _emit_function_expression(ctx, expr.func, expr.args)
     if isinstance(expr, LetExprIndex):
-        s = ctx.vertex(ctx.fresh("idx"), "index_expression")
-        ctx.edge(s, render_let_expr_stan(ctx, expr.array), "child_of")
-        for idx in expr.indices:
-            ctx.edge(s, render_let_expr_stan(ctx, idx), "child_of")
-        return s
+        return _emit_indexed(ctx, expr)
     if isinstance(expr, LetExprList):
-        arr = ctx.vertex(ctx.fresh("arr"), "array_expression")
-        for item in expr.items:
-            ctx.edge(arr, render_let_expr_stan(ctx, item), "child_of")
-        return arr
+        return _emit_array_expression(
+            ctx, tuple(_render(ctx, item) for item in expr.items)
+        )
     if isinstance(expr, LetExprFactor):
-        return _render_factor_stan(ctx, expr)
+        return _render_factor(ctx, expr)
     if isinstance(expr, LetExprString):
         raise UnsupportedConstruct(
             "qvr-stan-helper",
@@ -125,7 +117,150 @@ def render_let_expr_stan(ctx, expr: LetExprNode) -> str:
     )
 
 
-def _render_factor_stan(ctx, expr: LetExprFactor) -> str:
+def _emit_literal(ctx, value: object) -> tuple[str, str]:
+    """Emit a `real_literal` or `integer_literal` vertex.
+
+    Whole-number floats (`1.0`, `2.0`) emit as `integer_literal`
+    so that array indices substituted from factor binders satisfy
+    Stan's strict `arr[int]` typing rule.
+    """
+    if isinstance(value, float) and value == int(value):
+        vid = ctx.vertex(ctx.fresh("il"), "integer_literal")
+        ctx.literal(vid, str(int(value)))
+        return vid, "integer_literal"
+    if isinstance(value, float):
+        vid = ctx.vertex(ctx.fresh("rl"), "real_literal")
+        ctx.literal(vid, str(value))
+        return vid, "real_literal"
+    vid = ctx.vertex(ctx.fresh("il"), "integer_literal")
+    ctx.literal(vid, str(value))
+    return vid, "integer_literal"
+
+
+def _emit_variable_expression(ctx, name: str) -> tuple[str, str]:
+    """Emit a `variable_expression` wrapping an `identifier`."""
+    vid = ctx.vertex(ctx.fresh("vex"), "variable_expression")
+    ctx.constraint(vid, "chose-alt-child-kinds", "identifier")
+    ident = ctx.vertex(ctx.fresh("id"), "identifier")
+    ctx.literal(ident, name)
+    ctx.edge(vid, ident, "child_of")
+    return vid, "variable_expression"
+
+
+def _emit_infix(ctx, expr: LetExprBinOp) -> tuple[str, str]:
+    """Emit an `infix_op_expression` for a binary operator."""
+    left_vid, left_kind = _render(ctx, expr.left)
+    right_vid, right_kind = _render(ctx, expr.right)
+    vid = ctx.vertex(ctx.fresh("bin"), "infix_op_expression")
+    ctx.constraint(vid, "chose-alt-fingerprint", expr.op)
+    ctx.constraint(
+        vid, "chose-alt-child-kinds", f"{left_kind} {right_kind}"
+    )
+    ctx.edge(vid, left_vid, "child_of")
+    ctx.edge(vid, right_vid, "child_of")
+    return vid, "infix_op_expression"
+
+
+def _emit_prefix(ctx, expr: LetExprUnaryOp) -> tuple[str, str]:
+    """Emit a `prefix_op_expression` for the unary minus."""
+    operand_vid, operand_kind = _render(ctx, expr.operand)
+    vid = ctx.vertex(ctx.fresh("uop"), "prefix_op_expression")
+    ctx.constraint(vid, "chose-alt-fingerprint", "-")
+    ctx.constraint(vid, "chose-alt-child-kinds", operand_kind)
+    ctx.edge(vid, operand_vid, "child_of")
+    return vid, "prefix_op_expression"
+
+
+def _emit_function_expression(
+    ctx, func: str, args: tuple[LetExprNode, ...]
+) -> tuple[str, str]:
+    """Emit a `function_expression` with `name` edge to the callee
+    identifier and `child_of` edge to the `argument_list`."""
+    rendered = tuple(_render(ctx, a) for a in args)
+    vid = ctx.vertex(ctx.fresh("call"), "function_expression")
+    ctx.constraint(
+        vid, "chose-alt-child-kinds", "identifier argument_list"
+    )
+    fn = ctx.vertex(ctx.fresh("fn"), "identifier")
+    ctx.literal(fn, func)
+    ctx.edge(vid, fn, "name")
+    al_vid = _emit_argument_list(ctx, rendered)
+    ctx.edge(vid, al_vid, "child_of")
+    return vid, "function_expression"
+
+
+def _emit_argument_list(
+    ctx, rendered: tuple[tuple[str, str], ...]
+) -> str:
+    """Emit an `argument_list` with the right comma fingerprint and
+    child-kinds string."""
+    vid = ctx.vertex(ctx.fresh("args"), "argument_list")
+    if rendered:
+        fingerprint = "( " + ", ".join(["" for _ in rendered]) + " )"
+        # Stan's grammar prints the fingerprint as `( , , )` with
+        # N-1 commas for N args (one comma between each pair).
+        fingerprint = "( " + ", ".join("" for _ in rendered).rstrip() + " )"
+        # Build the canonical form: "( )" for one arg, "( , )" for
+        # two args, "( , , )" for three args, etc.
+        if len(rendered) == 1:
+            fingerprint = "( )"
+        else:
+            commas = ", " * (len(rendered) - 1)
+            fingerprint = f"( {commas.rstrip()} )"
+    else:
+        fingerprint = "( )"
+    ctx.constraint(vid, "chose-alt-fingerprint", fingerprint)
+    ctx.constraint(
+        vid,
+        "chose-alt-child-kinds",
+        " ".join(kind for _vid, kind in rendered) or "",
+    )
+    for child_vid, _kind in rendered:
+        ctx.edge(vid, child_vid, "child_of")
+    return vid
+
+
+def _emit_indexed(
+    ctx, expr: LetExprIndex
+) -> tuple[str, str]:
+    """Emit an `indexed_expression` (the `arr[i][j]...` form)."""
+    arr_vid, arr_kind = _render(ctx, expr.array)
+    index_vids: list[str] = []
+    child_kinds: list[str] = [arr_kind]
+    for idx in expr.indices:
+        inner_vid, inner_kind = _render(ctx, idx)
+        wrap = ctx.vertex(ctx.fresh("idx"), "index")
+        ctx.constraint(wrap, "chose-alt-child-kinds", inner_kind)
+        ctx.edge(wrap, inner_vid, "child_of")
+        index_vids.append(wrap)
+        child_kinds.append("index")
+    vid = ctx.vertex(ctx.fresh("ix"), "indexed_expression")
+    ctx.constraint(vid, "chose-alt-fingerprint", "[ ]")
+    ctx.constraint(
+        vid, "chose-alt-child-kinds", " ".join(child_kinds)
+    )
+    ctx.edge(vid, arr_vid, "child_of")
+    for wrap in index_vids:
+        ctx.edge(vid, wrap, "child_of")
+    return vid, "indexed_expression"
+
+
+def _emit_array_expression(
+    ctx, rendered: tuple[tuple[str, str], ...]
+) -> tuple[str, str]:
+    """Emit an `array_expression` ``{e0, e1, ...}`` list literal."""
+    vid = ctx.vertex(ctx.fresh("arr"), "array_expression")
+    ctx.constraint(
+        vid,
+        "chose-alt-child-kinds",
+        " ".join(kind for _vid, kind in rendered),
+    )
+    for child_vid, _kind in rendered:
+        ctx.edge(vid, child_vid, "child_of")
+    return vid, "array_expression"
+
+
+def _render_factor(ctx, expr: LetExprFactor) -> tuple[str, str]:
     """Unroll a `LetExprFactor` into nested `array_expression`
     vertices.
 
@@ -137,10 +272,9 @@ def _render_factor_stan(ctx, expr: LetExprFactor) -> str:
     The uniform-body form (one or more binders, body is the
     repeated expression, cases is empty) emits a tower of
     `array_expression` vertices of shape
-    `(|b0|, |b1|, ..., |bn-1|)`, where the innermost element is
-    the body with each binder substituted for its 1-indexed
-    integer value (Stan arrays are 1-indexed and QVR's surface
-    indexing is mapped through directly).
+    `(|b0|, |b1|, ..., |bn-1|)`, with each binder substituted for
+    its 1-indexed integer value (Stan arrays are 1-indexed and
+    QVR's surface indexing is mapped through directly).
     """
     if expr.cases and expr.body is None:
         if len(expr.binders) != 1:
@@ -152,13 +286,11 @@ def _render_factor_stan(ctx, expr: LetExprFactor) -> str:
                 ],
             )
         ordered = sorted(expr.cases, key=lambda c: c.label)
-        arr = ctx.vertex(ctx.fresh("farr"), "array_expression")
-        for case in ordered:
-            ctx.edge(arr, render_let_expr_stan(ctx, case.value), "child_of")
-        return arr
+        rendered = tuple(_render(ctx, c.value) for c in ordered)
+        return _emit_array_expression(ctx, rendered)
     if expr.body is not None and not expr.cases:
         sizes = tuple(_card_for(ctx, b) for b in expr.binders)
-        return _build_nested_array_stan(
+        return _build_nested_array(
             ctx, expr.binders, sizes, expr.body, ()
         )
     raise UnsupportedConstruct(
@@ -200,30 +332,35 @@ def _card_for(ctx, binder: LetFactorBinder) -> int:
     )
 
 
-def _build_nested_array_stan(
+def _build_nested_array(
     ctx,
     binders: tuple[LetFactorBinder, ...],
     sizes: tuple[int, ...],
     body: LetExprNode,
     fixed: tuple[int, ...],
-) -> str:
+) -> tuple[str, str]:
     """Recursive helper that materialises the nested
-    `array_expression` tower for the uniform-body factor form."""
+    `array_expression` tower for the uniform-body factor form.
+
+    Returns ``(vertex_id, vertex_kind)`` so the outer call site can
+    populate ``chose-alt-child-kinds`` with the right child kinds.
+    """
     if len(fixed) == len(binders):
         subst = body
         for binder, value in zip(binders, fixed, strict=True):
             subst = _substitute_let_expr(
                 subst, binder.var, LetExprLiteral(value=value + 1)
             )
-        return render_let_expr_stan(ctx, subst)
+        return _render(ctx, subst)
     level = len(fixed)
-    arr = ctx.vertex(ctx.fresh("farr"), "array_expression")
+    rendered: list[tuple[str, str]] = []
     for i in range(sizes[level]):
-        child = _build_nested_array_stan(
-            ctx, binders, sizes, body, fixed + (i,)
+        rendered.append(
+            _build_nested_array(
+                ctx, binders, sizes, body, fixed + (i,)
+            )
         )
-        ctx.edge(arr, child, "child_of")
-    return arr
+    return _emit_array_expression(ctx, tuple(rendered))
 
 
 def _substitute_let_expr(
