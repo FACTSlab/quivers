@@ -99,59 +99,6 @@ from quivers.transpile.renderers._base import (
 )
 
 
-# Per-backend supplement to FAMILY_META's `arg_aliases`. Families whose
-# torch arg_constraints carry a name PyMC reparameterises (Categorical's
-# `probs` is PyMC's `p`; Multinomial's `total_count` is PyMC's `n`).
-# Merged with `meta.arg_aliases["pymc"]` at lookup time; keeps the
-# renamings as data rather than per-family dispatch logic.
-_PYMC_EXTRA_ALIASES: dict[str, dict[str, str]] = {
-    "Categorical": {"probs": "p"},
-    "OneHotCategorical": {"probs": "p"},
-    "Multinomial": {"probs": "p", "total_count": "n"},
-    "Bernoulli": {"probs": "p"},
-    "Binomial": {"probs": "p", "total_count": "n"},
-    "BetaBinomial": {
-        "concentration1": "alpha",
-        "concentration0": "beta",
-        "total_count": "n",
-    },
-    "NegativeBinomial": {"probs": "p", "total_count": "n"},
-    "Beta": {"concentration1": "alpha", "concentration0": "beta"},
-    "Gamma": {"concentration": "alpha", "rate": "beta"},
-    "InverseGamma": {"concentration": "alpha", "rate": "beta"},
-    "StudentT": {"df": "nu", "loc": "mu", "scale": "sigma"},
-    "HalfStudentT": {"df": "nu", "scale": "sigma"},
-    "Normal": {"loc": "mu", "scale": "sigma"},
-    "LogNormal": {"loc": "mu", "scale": "sigma"},
-    "HalfNormal": {"scale": "sigma"},
-    "Cauchy": {"loc": "alpha", "scale": "beta"},
-    "HalfCauchy": {"scale": "beta"},
-    "Laplace": {"loc": "mu", "scale": "b"},
-    "LogitNormal": {"loc": "mu", "scale": "sigma"},
-    "TruncatedNormal": {"loc": "mu", "scale": "sigma"},
-    "Logistic": {"loc": "mu", "scale": "s"},
-    "Gumbel": {"loc": "mu", "scale": "beta"},
-    "Weibull": {"concentration": "alpha", "scale": "beta"},
-    "Exponential": {"rate": "lam"},
-    "Pareto": {"alpha": "alpha", "scale": "m"},
-    "MultivariateNormal": {"loc": "mu", "covariance_matrix": "cov"},
-    "LowRankMVN": {
-        "loc": "mu",
-        "cov_factor": "W",
-        "cov_diag": "diag",
-    },
-    "Wishart": {"df": "nu", "covariance_matrix": "scale_matrix"},
-    "InverseWishart": {"df": "nu", "covariance_matrix": "scale_matrix"},
-    "MatrixNormal": {
-        "loc": "mu",
-        "row_covariance": "rowcov",
-        "column_covariance": "colcov",
-    },
-    "Mixture": {"mixture_distribution": "w", "component_distribution": "comp_dists"},
-    "Truncated": {"base_distribution": "dist"},
-}
-
-
 class PyMCRenderer(RendererBase):
     """Render an [`IRProgram`][quivers.transpile.ir.IRProgram] to a
     PyMC `build_model` function under the `python` tree-sitter grammar.
@@ -802,13 +749,10 @@ def _resolve_meta(family: str, target: str) -> FamilyMeta:
 
 
 def _merged_aliases(meta: FamilyMeta) -> dict[str, str]:
-    """Merge `meta.arg_aliases['pymc']` with `_PYMC_EXTRA_ALIASES` so
-    renderer-side renames (PyMC's `probs → p`, `loc → mu`, ...) layer
-    on top of the per-family rename table in
-    [`FAMILY_META`][quivers.transpile.family_meta.FAMILY_META]."""
-    out: dict[str, str] = dict(_PYMC_EXTRA_ALIASES.get(meta.qvr_name, {}))
-    out.update(meta.arg_aliases.get("pymc", {}))
-    return out
+    """Return the PyMC alias map from
+    [`FAMILY_META`][quivers.transpile.family_meta.FAMILY_META]: the
+    per-family arg renames keyed under `"pymc"`."""
+    return dict(meta.arg_aliases.get("pymc", {}))
 
 
 def _wrap_latent_with_via(
