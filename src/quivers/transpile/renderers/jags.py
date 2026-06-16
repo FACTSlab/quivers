@@ -199,7 +199,12 @@ class JAGSRenderer(RendererBase):
         rewritten = self.explicit_latent_scope(node)
         latent = rewritten[0]
         if isinstance(latent, IRSample):
-            renamed = self._dedupe_plate(jctx, latent.plate, latent.name)
+            renamed, rename_map = self._dedupe_plate(
+                jctx, latent.plate, latent.name
+            )
+            # Stash the rename map so `_emit_sample` extends its
+            # axis-to-loop-var map to cover the original axes too.
+            jctx.axis_aliases.update(rename_map)
             latent_dedup = IRSample(
                 name=latent.name,
                 family=latent.family,
@@ -370,12 +375,26 @@ class JAGSRenderer(RendererBase):
                 f"m_{_dim_name(dim)}" for dim in plate.batch_dims
             )
 
+        # Build the axis-to-loop-var map for this sample's surrounding
+        # plate. `_rewrite_arg` uses this to choose the right loop var
+        # when a latent's recorded axis appears in the current plate.
+        # Renamed axes (from `_dedupe_plate`) also resolve to their
+        # original axis so a sample on the renamed plate can index
+        # latents bound on the original.
+        axis_to_lv: dict[str, str] = {}
+        for dim, lv in zip(plate.batch_dims, loop_var_names, strict=False):
+            renamed = _dim_name(dim)
+            axis_to_lv[renamed] = lv
+            original = ctx.axis_aliases.get(renamed)
+            if original is not None:
+                axis_to_lv[original] = lv
+
         # Pre-rewrite every arg ONCE: thread latent loop vars + event
         # ranges + via fibration through any ref to a previously-bound
         # latent. The rewrite is idempotent on its output by construction
         # (the appended event-range sentinels are not themselves latents).
         rewritten_args = tuple(
-            (n, _rewrite_arg(ctx, a, loop_var_names, via))
+            (n, _rewrite_arg(ctx, a, loop_var_names, axis_to_lv, via))
             for n, a in renamed_pairs
         )
 
@@ -392,10 +411,16 @@ class JAGSRenderer(RendererBase):
             ctx.emitted_plate_names.add(dim.name)
 
         # Record this sample's plate info so subsequent refs to `name`
-        # thread the loop var + event ranges through.
+        # thread the loop var + event ranges through. We record both the
+        # axis name (so a reference can use the *current* surrounding
+        # plate's loop var when the axes match) and a fallback loop var
+        # for when no surrounding plate covers the axis.
         if plate.batch_dims:
-            loop_var = loop_var_names[-1] if loop_var_names else f"m_{_dim_name(plate.batch_dims[-1])}"
-            ctx.latent_plate_info[name] = (loop_var, plate.event_dims)
+            fallback_lv = loop_var_names[-1] if loop_var_names else f"m_{_dim_name(plate.batch_dims[-1])}"
+            axes = tuple(_dim_name(d) for d in plate.batch_dims)
+            ctx.latent_plate_info[name] = (
+                fallback_lv, plate.event_dims, axes,
+            )
 
         override_var = (
             "n"
@@ -920,8 +945,6 @@ class JAGSRenderer(RendererBase):
             ctx.sb.constraint(blk, "ptrace-0", "T{")
             ctx.sb.constraint(blk, "ptrace-1", f"C{current_kind}")
             ctx.sb.constraint(blk, "ptrace-2", "T}")
-            ctx.sb.constraint(blk, "interstitial-0", "{ ")
-            ctx.sb.constraint(blk, "interstitial-1", " }")
             ctx.sb.edge(blk, current, "child_of")
 
             fl = _fresh(ctx, "fl", "for_loop")
@@ -1030,19 +1053,29 @@ class JAGSRenderer(RendererBase):
         ctx: _JAGSCtx,
         plate: Plate,
         latent_name: str,
-    ) -> Plate:
+    ) -> tuple[Plate, dict[str, str]]:
         """Return a Plate whose batch_dim names get a ``_<latent>``
         suffix only when the name has already been emitted in this
         render call. Mirrors the NumPyro / Stan convention for the
-        LDA-style marginalize-then-reuse pattern."""
+        LDA-style marginalize-then-reuse pattern.
+
+        Also returns a map from each renamed axis to its original axis
+        name, so a sample inside the renamed plate can resolve refs to
+        latents bound on the original axis (e.g. theta on Doc must
+        thread through m_Doc_z when sampled inside the Doc_z plate).
+        """
         seen = ctx.emitted_plate_names
         new_batch: list[object] = []
+        rename_map: dict[str, str] = {}
         for dim in plate.batch_dims:
+            original = _dim_name(dim)
             renamed = (
-                f"{_dim_name(dim)}_{latent_name}"
-                if _dim_name(dim) in seen
-                else _dim_name(dim)
+                f"{original}_{latent_name}"
+                if original in seen
+                else original
             )
+            if renamed != original:
+                rename_map[renamed] = original
             if isinstance(dim, DimStatic):
                 new_batch.append(DimStatic(size=dim.size, name=renamed))
             elif isinstance(dim, DimDynamic):
@@ -1051,9 +1084,12 @@ class JAGSRenderer(RendererBase):
                 )
             else:
                 new_batch.append(dim)
-        return Plate(
-            event_dims=plate.event_dims,
-            batch_dims=tuple(new_batch),
+        return (
+            Plate(
+                event_dims=plate.event_dims,
+                batch_dims=tuple(new_batch),
+            ),
+            rename_map,
         )
 
     # ------------------------------------------------------------------
@@ -1061,9 +1097,13 @@ class JAGSRenderer(RendererBase):
     # ------------------------------------------------------------------
 
     def _finalise_model_block(self, ctx: _JAGSCtx) -> None:
-        """Set the model_block's child-kind list, ptrace, and
-        layout-controlling interstitials so the pretty-printer emits
-        ``model {\\n  <stmts>\\n}`` form."""
+        """Pin the ``model { ... }`` alternative on the model_block so
+        the pretty-printer emits the keyword-prefixed form.
+
+        The auto-derived theory supplies the inter-child layout from the
+        grammar's whitespace conventions (newline + two-space indent
+        between sibling statements). We only need to disambiguate the
+        ``{ ... }`` vs. ``model { ... }`` alternative."""
         mb = ctx.model_block
         children = ctx.block_children.get(mb, [])
         ctx.sb.constraint(mb, "chose-alt-fingerprint", "model { }")
@@ -1077,12 +1117,6 @@ class JAGSRenderer(RendererBase):
         ctx.sb.constraint(
             mb, f"ptrace-{2 + len(children)}", "T}"
         )
-        ctx.sb.constraint(mb, "interstitial-0", "model {\n  ")
-        for i in range(len(children) - 1):
-            ctx.sb.constraint(mb, f"interstitial-{i + 1}", "\n  ")
-        ctx.sb.constraint(
-            mb, f"interstitial-{len(children)}", "\n}"
-        )
 
 
 # ---------------------------------------------------------------------------
@@ -1094,6 +1128,7 @@ def _rewrite_arg(
     ctx: _JAGSCtx,
     arg: IRArg,
     loop_vars: tuple[str, ...],
+    axis_to_lv: dict[str, str],
     via: str | None,
 ) -> IRArg:
     """Thread latent loop-vars + event ranges + via fibration through
@@ -1104,45 +1139,52 @@ def _rewrite_arg(
     by construction because the appended indices for an already-rewritten
     latent reference are detected via the ``__jags_range__:`` sentinel
     prefix on the trailing event-range entries.
+
+    `axis_to_lv` maps each axis name in the surrounding plate to the
+    loop var that iterates it. A latent ref whose recorded axis appears
+    in this map indexes through the *current* loop var (so two samples
+    on the same axis share the same loop body), with via-wrapping when
+    the latent's recorded fibration applies.
     """
     if isinstance(arg, IRArgRef):
-        # Recurse into existing indices first to thread latents nested
-        # inside `arg.indices`. The visit_seen set protects against
-        # cycles although none should ever appear.
         new_indices = tuple(
-            _rewrite_arg(ctx, idx, loop_vars, via) for idx in arg.indices
+            _rewrite_arg(ctx, idx, loop_vars, axis_to_lv, via)
+            for idx in arg.indices
         )
         info = ctx.latent_plate_info.get(arg.name)
         if info is None:
-            # Not a latent; just return with rewritten inner indices.
             if new_indices == arg.indices:
                 return arg
             return IRArgRef(name=arg.name, indices=new_indices)
-        base_loop_var, event_dims = info
-        # Compute via-wrapped loop-var index if applicable.
+        fallback_lv, event_dims, axes = info
         via_for_latent = ctx.latent_via.get(arg.name)
+        # Choose the loop-var index expression.
         if via_for_latent is not None and loop_vars:
+            # Latent's recorded fibration: wrap the observe loop var
+            # through it (`z[word_idx[n]]`).
             lv_idx: IRArg = IRArgRef(
                 name=via_for_latent,
                 indices=(IRArgRef(name=loop_vars[0]),),
             )
-        elif via is not None and arg.name in ctx.latent_via:
+        elif axes and axes[-1] in axis_to_lv:
+            # Surrounding plate iterates the latent's axis directly:
+            # reuse the current loop var (`theta[m_Doc_z, ...]`).
+            lv_idx = IRArgRef(name=axis_to_lv[axes[-1]])
+        elif via is not None and loop_vars:
+            # Caller-set via overrides (passed via fibration).
             lv_idx = IRArgRef(
                 name=via,
-                indices=(IRArgRef(name=loop_vars[0] if loop_vars else "n"),),
+                indices=(IRArgRef(name=loop_vars[0]),),
             )
         else:
-            lv_idx = IRArgRef(name=base_loop_var)
+            lv_idx = IRArgRef(name=fallback_lv)
 
         event_indices = tuple(_event_range_ir(ed) for ed in event_dims)
         # IDEMPOTENCE GUARD: if `arg.indices` already ends with the
         # event_indices we'd append, leave them alone.
-        if _has_trailing(arg.indices, event_indices) and arg.indices:
+        if arg.indices and _has_trailing(arg.indices, event_indices):
             return IRArgRef(name=arg.name, indices=new_indices)
         if arg.indices:
-            # `arg` already has explicit indices; keep them (rewritten
-            # to thread nested latents) and append the event ranges
-            # ONCE if not already present.
             return IRArgRef(
                 name=arg.name,
                 indices=new_indices + event_indices,
@@ -1152,13 +1194,14 @@ def _rewrite_arg(
             indices=(lv_idx,) + event_indices,
         )
     if isinstance(arg, IRArgBroadcast):
-        inner = _rewrite_arg(ctx, arg.value, loop_vars, via)
+        inner = _rewrite_arg(ctx, arg.value, loop_vars, axis_to_lv, via)
         if inner is arg.value:
             return arg
         return IRArgBroadcast(value=inner, target_shape=arg.target_shape)
     if isinstance(arg, IRArgList):
         elements = tuple(
-            _rewrite_arg(ctx, e, loop_vars, via) for e in arg.elements
+            _rewrite_arg(ctx, e, loop_vars, axis_to_lv, via)
+            for e in arg.elements
         )
         if elements == arg.elements:
             return arg
@@ -1166,13 +1209,14 @@ def _rewrite_arg(
     if isinstance(arg, IRArgMatrix):
         rows = tuple(
             IRArgList(elements=tuple(
-                _rewrite_arg(ctx, e, loop_vars, via) for e in row.elements
+                _rewrite_arg(ctx, e, loop_vars, axis_to_lv, via)
+                for e in row.elements
             ))
             for row in arg.rows
         )
         return IRArgMatrix(rows=rows)
     if isinstance(arg, IRArgTransform):
-        inner = _rewrite_arg(ctx, arg.inner, loop_vars, via)
+        inner = _rewrite_arg(ctx, arg.inner, loop_vars, axis_to_lv, via)
         if inner is arg.inner:
             return arg
         return IRArgTransform(inner=inner, transform=arg.transform)
@@ -1226,14 +1270,23 @@ class _JAGSCtx(_RenderCtx):
         self.emitted_plate_names: set[str] = set()
         self.block_children: dict[str, list[str]] = {}
         #: For every previously-bound latent name, record the
-        #: (loop-var, event_dims) used at its sample site.
+        #: (fallback_loop_var, event_dims, axis_names) used at its
+        #: sample site. The fallback loop var is used when no
+        #: surrounding plate covers any of the latent's axes; otherwise
+        #: the rewriter looks up the axis in the current sample's
+        #: axis-to-loop-var map.
         self.latent_plate_info: dict[
-            str, tuple[str, tuple[object, ...]]
+            str, tuple[str, tuple[object, ...], tuple[str, ...]]
         ] = {}
         #: For each latent on a per-observation plate, record the
         #: fibration that maps the observation row to its parent plate
         #: index.
         self.latent_via: dict[str, str] = {}
+        #: For each renamed axis (from `_dedupe_plate`), record its
+        #: original axis name. The arg rewriter consults this so a
+        #: sample on the renamed plate can resolve refs to latents
+        #: bound on the original axis.
+        self.axis_aliases: dict[str, str] = {}
 
 
 def _as_jags_ctx(ctx: _RenderCtx) -> _JAGSCtx:
