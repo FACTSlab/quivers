@@ -52,7 +52,7 @@ distribution call and appends a `truncation` child to the
 from __future__ import annotations
 
 import dataclasses
-from typing import Literal
+from typing import Callable, Literal
 
 import panproto
 
@@ -95,6 +95,44 @@ from quivers.transpile.renderers._base import (
     _RenderCtx,
     assert_no_dangling_refs,
 )
+from quivers.transpile.renderers._bugs_helpers import render_let_expr_bugs
+
+
+class _BugsLetCtx:
+    """Bridge ``_BugsCtx.sb`` to the
+    [`render_let_expr_bugs`][quivers.transpile.renderers._bugs_helpers.render_let_expr_bugs]
+    helper's ctx protocol (``v``, ``e``, ``lit``, ``fresh``,
+    ``constraint``) and carry the per-render ``cards`` map (for
+    factor unrolling) plus the ``target`` discriminator the helper
+    stamps onto its error tags."""
+
+    def __init__(
+        self,
+        sb: panproto.SchemaBuilder,
+        fresh: Callable[[str], str],
+        cards: dict[str, int],
+        target: str,
+    ) -> None:
+        self._sb = sb
+        self._fresh_fn = fresh
+        self.cards = cards
+        self.target = target
+
+    def fresh(self, prefix: str) -> str:
+        return self._fresh_fn(prefix)
+
+    def v(self, vid: str, kind: str) -> str:
+        self._sb.vertex(vid, kind)
+        return vid
+
+    def e(self, src: str, tgt: str, kind: str = "child_of") -> None:
+        self._sb.edge(src, tgt, kind)
+
+    def lit(self, vid: str, text: str) -> None:
+        self._sb.constraint(vid, "literal-value", text)
+
+    def constraint(self, vid: str, sort: str, value: str) -> None:
+        self._sb.constraint(vid, sort, value)
 
 
 #: Per-renderer alias-transform table. Keys are the *renamed* arg
@@ -162,6 +200,7 @@ class BUGSRenderer(RendererBase):
         proto = self.target_protocol()
         sb = proto.schema()
         ctx = _BugsCtx(sb=sb, morphisms={}, lets={})
+        self._cards = dict(ir.cards)
         # Populate decl_plates for every IRDataInput and IRSample /
         # IRObserve / IRDeterministic / IRMarginalize-latent.
         self._populate_decl_plates(ir, ctx)
@@ -217,16 +256,17 @@ class BUGSRenderer(RendererBase):
             self._emit_observe_node(ctx, node)
             return
         if isinstance(node, IRDeterministic):
-            # BUGS deterministic `<-` is rendered via the let-expr
-            # tree; not exercised by the current acceptance gallery.
-            raise UnsupportedConstruct(
-                f"qvr-{self.target}",
-                ["node:IRDeterministic: not yet wired"],
-            )
+            self._emit_deterministic_node(ctx, node)
+            return
         if isinstance(node, IRScore):
             raise UnsupportedConstruct(
                 f"qvr-{self.target}",
-                ["node:IRScore: not yet wired"],
+                [
+                    f"node:IRScore: {self.target} has no native "
+                    "target-statement; the zeros / ones trick "
+                    "requires a host-supplied phantom-observation "
+                    "carrier the IR does not currently express"
+                ],
             )
         if isinstance(node, IRMarginalize):
             self._emit_marginalize_node(ctx, node)
@@ -521,6 +561,47 @@ class BUGSRenderer(RendererBase):
             loop_suffix="",
             truncation=(lo, hi),
         )
+
+    def _emit_deterministic_node(
+        self, ctx: _BugsCtx, node: IRDeterministic
+    ) -> None:
+        """Emit a BUGS deterministic relation ``<name> <- <expr>``.
+
+        Wraps the relation in `for (m_<axis> in 1:N_<axis>)` loops
+        when the node's plate carries batch dims (one loop per
+        dim, BUGS-style nesting); the LHS is then indexed by each
+        loop variable so the relation populates one element per
+        iteration. The RHS expression goes through
+        [`render_let_expr_bugs`][quivers.transpile.renderers._bugs_helpers.render_let_expr_bugs],
+        which lowers `LetExpr*` nodes to BUGS expression vertices
+        (`binary_expression`, `function_call`, `indexed_variable`,
+        ...).
+        """
+        loop_names = self._loop_names(node.plate, "")
+        body_id = self._open_loops(
+            ctx, ctx.block_id, node.plate, loop_names
+        )
+        prev_plate = ctx.enclosing_plate
+        prev_loops = ctx.enclosing_loop_names
+        ctx.enclosing_plate = node.plate
+        ctx.enclosing_loop_names = loop_names
+        try:
+            dr_id = self._fresh(ctx, "dr")
+            ctx.sb.vertex(dr_id, "deterministic_relation")
+            ctx.sb.edge(body_id, dr_id, "deterministic_relation")
+            lhs_id = self._emit_lhs(ctx, node.name, node.plate, loop_names)
+            ctx.sb.edge(dr_id, lhs_id, "variable")
+            let_ctx = _BugsLetCtx(
+                ctx.sb,
+                lambda p: self._fresh(ctx, p),
+                self._cards,
+                self.target,
+            )
+            rhs_id = render_let_expr_bugs(let_ctx, node.expr)
+            ctx.sb.edge(dr_id, rhs_id, "value")
+        finally:
+            ctx.enclosing_plate = prev_plate
+            ctx.enclosing_loop_names = prev_loops
 
     # ------------------------------------------------------------------
     # Core relation emitter.
