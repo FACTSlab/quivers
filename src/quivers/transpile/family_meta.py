@@ -866,6 +866,9 @@ FAMILY_META: dict[str, FamilyMeta] = {
         target_names={
             "stan": "normal", "numpyro": "Normal", "pyro": "Normal",
             "pymc": "Normal", "edward2": "Normal",
+            "turing": "Normal", "gen": "normal",
+            "church": "gaussian", "webppl": "Gaussian",
+            "bugs": "dnorm", "jags": "dnorm",
         },
     ),
     # ----- discrete -----
