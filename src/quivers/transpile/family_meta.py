@@ -463,6 +463,7 @@ FAMILY_META: dict[str, FamilyMeta] = {
         arg_aliases={
             "bugs": {"scale": "tau"},
             "jags": {"scale": "tau"},
+            "webppl": {"loc": "mu", "scale": "sigma"},
         },
     ),
     "LogitNormal": FamilyMeta(
@@ -485,6 +486,9 @@ FAMILY_META: dict[str, FamilyMeta] = {
             "turing": "Beta", "gen": "beta",
             "church": "beta", "webppl": "Beta",
             "bugs": "dbeta", "jags": "dbeta",
+        },
+        arg_aliases={
+            "webppl": {"concentration1": "a", "concentration0": "b"},
         },
     ),
     "TruncatedNormal": FamilyMeta(
@@ -509,6 +513,7 @@ FAMILY_META: dict[str, FamilyMeta] = {
         },
         arg_aliases={
             "pymc": {"concentration": "a"},
+            "webppl": {"concentration": "alpha"},
         },
     ),
     "Cauchy": FamilyMeta(
@@ -519,12 +524,13 @@ FAMILY_META: dict[str, FamilyMeta] = {
             "stan": "cauchy", "numpyro": "Cauchy", "pyro": "Cauchy",
             "pymc": "Cauchy", "edward2": "Cauchy",
             "turing": "Cauchy", "gen": "cauchy",
-            "church": "cauchy",
+            "church": "cauchy", "webppl": "Cauchy",
             "bugs": "dt", "jags": "dt",
         },
         arg_aliases={
             "bugs": {"scale": "tau"},
             "jags": {"scale": "tau"},
+            "webppl": {"loc": "location"},
         },
     ),
     "Laplace": FamilyMeta(
@@ -589,6 +595,9 @@ FAMILY_META: dict[str, FamilyMeta] = {
             "webppl": "Exponential",
             "bugs": "dexp", "jags": "dexp",
         },
+        arg_aliases={
+            "webppl": {"rate": "a"},
+        },
     ),
     "Gamma": FamilyMeta(
         qvr_name="Gamma",
@@ -600,6 +609,9 @@ FAMILY_META: dict[str, FamilyMeta] = {
             "turing": "Gamma", "gen": "gamma",
             "church": "gamma", "webppl": "Gamma",
             "bugs": "dgamma", "jags": "dgamma",
+        },
+        arg_aliases={
+            "webppl": {"concentration": "shape", "rate": "scale"},
         },
     ),
     "Chi2": FamilyMeta(
@@ -632,6 +644,9 @@ FAMILY_META: dict[str, FamilyMeta] = {
             "pymc": "HalfNormal", "edward2": "HalfNormal",
             "turing": "truncated", "webppl": "Gaussian",
             "bugs": "dnorm", "jags": "dnorm",
+        },
+        arg_aliases={
+            "webppl": {"scale": "sigma"},
         },
     ),
     "InverseGamma": FamilyMeta(
@@ -703,6 +718,9 @@ FAMILY_META: dict[str, FamilyMeta] = {
             "church": "uniform", "webppl": "Uniform",
             "bugs": "dunif", "jags": "dunif",
         },
+        arg_aliases={
+            "webppl": {"low": "a", "high": "b"},
+        },
     ),
     # ----- continuous multivariate -----
     "MultivariateNormal": FamilyMeta(
@@ -717,6 +735,9 @@ FAMILY_META: dict[str, FamilyMeta] = {
             "church": "multivariate-gaussian",
             "webppl": "MultivariateGaussian",
             "bugs": "dmnorm", "jags": "dmnorm",
+        },
+        arg_aliases={
+            "webppl": {"loc": "mu", "covariance_matrix": "cov"},
         },
     ),
     "LowRankMVN": FamilyMeta(
@@ -800,8 +821,11 @@ FAMILY_META: dict[str, FamilyMeta] = {
             "stan": "bernoulli", "numpyro": "Bernoulli", "pyro": "Bernoulli",
             "pymc": "Bernoulli", "edward2": "Bernoulli",
             "turing": "Bernoulli", "gen": "bernoulli",
-            "church": "flip",
+            "church": "flip", "webppl": "Bernoulli",
             "bugs": "dbern", "jags": "dbern",
+        },
+        arg_aliases={
+            "webppl": {"probs": "p"},
         },
     ),
     "Categorical": FamilyMeta(
@@ -815,6 +839,9 @@ FAMILY_META: dict[str, FamilyMeta] = {
             "gen": "categorical", "church": "categorical",
             "webppl": "Categorical",
             "bugs": "dcat", "jags": "dcat",
+        },
+        arg_aliases={
+            "webppl": {"probs": "ps"},
         },
     ),
     # ----- Phase A: implementations not yet exposed via DSL -----
