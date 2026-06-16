@@ -32,7 +32,7 @@ import panproto
 
 from quivers.transpile._api import UnsupportedConstruct
 from quivers.transpile._pipeline import target_protocol
-from quivers.transpile.backends._letexpr_scheme import render_let_expr_scheme
+from quivers.transpile.renderers._scheme_helpers import render_let_expr_scheme
 from quivers.transpile.family_meta import FAMILY_META
 from quivers.transpile.ir import (
     ConstraintSpec,

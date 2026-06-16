@@ -30,8 +30,7 @@ import panproto
 
 from quivers.transpile._api import UnsupportedConstruct
 from quivers.transpile._pipeline import EmitPretty, target_protocol
-from quivers.transpile.backends._letexpr_python import render_let_expr_python
-from quivers.transpile.backends._pyhelpers import (
+from quivers.transpile.renderers._python_helpers import (
     PyCtx,
     assignment,
     attribute,
@@ -39,6 +38,7 @@ from quivers.transpile.backends._pyhelpers import (
     function_def,
     identifier,
     number_literal,
+    render_let_expr_python,
     string_literal,
 )
 from quivers.transpile.family_meta import FAMILY_META, FamilyMeta
