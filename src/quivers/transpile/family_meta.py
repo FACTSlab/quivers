@@ -463,6 +463,7 @@ FAMILY_META: dict[str, FamilyMeta] = {
         arg_aliases={
             "bugs": {"scale": "tau"},
             "jags": {"scale": "tau"},
+            "pymc": {"loc": "mu", "scale": "sigma"},
             "webppl": {"loc": "mu", "scale": "sigma"},
         },
     ),
@@ -474,6 +475,9 @@ FAMILY_META: dict[str, FamilyMeta] = {
             "stan": "logit_normal", "numpyro": "LogitNormal",
             "pyro": "LogitNormal", "pymc": "LogitNormal",
             "edward2": "LogitNormal",
+        },
+        arg_aliases={
+            "pymc": {"loc": "mu", "scale": "sigma"},
         },
     ),
     "Beta": FamilyMeta(
@@ -488,6 +492,7 @@ FAMILY_META: dict[str, FamilyMeta] = {
             "bugs": "dbeta", "jags": "dbeta",
         },
         arg_aliases={
+            "pymc": {"concentration1": "alpha", "concentration0": "beta"},
             "webppl": {"concentration1": "a", "concentration0": "b"},
         },
     ),
@@ -498,6 +503,9 @@ FAMILY_META: dict[str, FamilyMeta] = {
         target_names={
             "numpyro": "TruncatedNormal", "pyro": "TruncatedNormal",
             "pymc": "TruncatedNormal", "edward2": "TruncatedNormal",
+        },
+        arg_aliases={
+            "pymc": {"loc": "mu", "scale": "sigma"},
         },
     ),
     "Dirichlet": FamilyMeta(
@@ -530,6 +538,7 @@ FAMILY_META: dict[str, FamilyMeta] = {
         arg_aliases={
             "bugs": {"scale": "tau"},
             "jags": {"scale": "tau"},
+            "pymc": {"loc": "alpha", "scale": "beta"},
             "webppl": {"loc": "location"},
         },
     ),
@@ -547,6 +556,7 @@ FAMILY_META: dict[str, FamilyMeta] = {
         arg_aliases={
             "bugs": {"scale": "tau"},
             "jags": {"scale": "tau"},
+            "pymc": {"loc": "mu", "scale": "b"},
         },
     ),
     "Gumbel": FamilyMeta(
@@ -557,6 +567,9 @@ FAMILY_META: dict[str, FamilyMeta] = {
             "stan": "gumbel", "numpyro": "Gumbel", "pyro": "Gumbel",
             "pymc": "Gumbel", "edward2": "Gumbel",
             "turing": "Gumbel",
+        },
+        arg_aliases={
+            "pymc": {"loc": "mu", "scale": "beta"},
         },
     ),
     "LogNormal": FamilyMeta(
@@ -570,6 +583,9 @@ FAMILY_META: dict[str, FamilyMeta] = {
             "church": "lognormal",
             "bugs": "dlnorm", "jags": "dlnorm",
         },
+        arg_aliases={
+            "pymc": {"loc": "mu", "scale": "sigma"},
+        },
     ),
     "StudentT": FamilyMeta(
         qvr_name="StudentT",
@@ -581,6 +597,9 @@ FAMILY_META: dict[str, FamilyMeta] = {
             "turing": "TDist",
             "church": "student-t", "webppl": "StudentT",
             "bugs": "dt", "jags": "dt",
+        },
+        arg_aliases={
+            "pymc": {"df": "nu", "loc": "mu", "scale": "sigma"},
         },
     ),
     "Exponential": FamilyMeta(
@@ -596,6 +615,7 @@ FAMILY_META: dict[str, FamilyMeta] = {
             "bugs": "dexp", "jags": "dexp",
         },
         arg_aliases={
+            "pymc": {"rate": "lam"},
             "webppl": {"rate": "a"},
         },
     ),
@@ -611,6 +631,7 @@ FAMILY_META: dict[str, FamilyMeta] = {
             "bugs": "dgamma", "jags": "dgamma",
         },
         arg_aliases={
+            "pymc": {"concentration": "alpha", "rate": "beta"},
             "webppl": {"concentration": "shape", "rate": "scale"},
         },
     ),
@@ -634,6 +655,9 @@ FAMILY_META: dict[str, FamilyMeta] = {
             "turing": "truncated",
             "bugs": "dt", "jags": "dt",
         },
+        arg_aliases={
+            "pymc": {"scale": "beta"},
+        },
     ),
     "HalfNormal": FamilyMeta(
         qvr_name="HalfNormal",
@@ -646,6 +670,7 @@ FAMILY_META: dict[str, FamilyMeta] = {
             "bugs": "dnorm", "jags": "dnorm",
         },
         arg_aliases={
+            "pymc": {"scale": "sigma"},
             "webppl": {"scale": "sigma"},
             "bugs": {"scale": "tau"},
             "jags": {"scale": "tau"},
@@ -660,6 +685,9 @@ FAMILY_META: dict[str, FamilyMeta] = {
             "pyro": "InverseGamma", "pymc": "InverseGamma",
             "edward2": "InverseGamma", "turing": "InverseGamma",
         },
+        arg_aliases={
+            "pymc": {"concentration": "alpha", "rate": "beta"},
+        },
     ),
     "Weibull": FamilyMeta(
         qvr_name="Weibull",
@@ -671,6 +699,9 @@ FAMILY_META: dict[str, FamilyMeta] = {
             "turing": "Weibull",
             "bugs": "dweib", "jags": "dweib",
         },
+        arg_aliases={
+            "pymc": {"concentration": "alpha", "scale": "beta"},
+        },
     ),
     "Pareto": FamilyMeta(
         qvr_name="Pareto",
@@ -681,6 +712,9 @@ FAMILY_META: dict[str, FamilyMeta] = {
             "pymc": "Pareto", "edward2": "Pareto",
             "turing": "Pareto", "church": "pareto",
             "bugs": "dpar", "jags": "dpar",
+        },
+        arg_aliases={
+            "pymc": {"alpha": "alpha", "scale": "m"},
         },
     ),
     "Kumaraswamy": FamilyMeta(
@@ -739,6 +773,7 @@ FAMILY_META: dict[str, FamilyMeta] = {
             "bugs": "dmnorm", "jags": "dmnorm",
         },
         arg_aliases={
+            "pymc": {"loc": "mu", "covariance_matrix": "cov"},
             "webppl": {"loc": "mu", "covariance_matrix": "cov"},
         },
     ),
@@ -749,6 +784,13 @@ FAMILY_META: dict[str, FamilyMeta] = {
         target_names={
             "numpyro": "LowRankMultivariateNormal",
             "pyro": "LowRankMultivariateNormal",
+        },
+        arg_aliases={
+            "pymc": {
+                "loc": "mu",
+                "cov_factor": "W",
+                "cov_diag": "diag",
+            },
         },
     ),
     # ----- continuous discrete-relaxation -----
@@ -779,6 +821,9 @@ FAMILY_META: dict[str, FamilyMeta] = {
             "pymc": "Wishart", "edward2": "Wishart",
             "bugs": "dwish", "jags": "dwish",
         },
+        arg_aliases={
+            "pymc": {"df": "nu", "covariance_matrix": "scale_matrix"},
+        },
     ),
     "InverseWishart": FamilyMeta(
         qvr_name="InverseWishart",
@@ -786,6 +831,9 @@ FAMILY_META: dict[str, FamilyMeta] = {
         quivers_class=ConditionalInverseWishart,
         target_names={
             "numpyro": "InverseWishart", "pyro": "InverseWishart",
+        },
+        arg_aliases={
+            "pymc": {"df": "nu", "covariance_matrix": "scale_matrix"},
         },
     ),
     "MatrixNormal": FamilyMeta(
@@ -795,6 +843,13 @@ FAMILY_META: dict[str, FamilyMeta] = {
         target_names={
             "pymc": "MatrixNormal",
             "edward2": "MatrixNormalLinearOperator",
+        },
+        arg_aliases={
+            "pymc": {
+                "loc": "mu",
+                "row_covariance": "rowcov",
+                "column_covariance": "colcov",
+            },
         },
     ),
     "GP": FamilyMeta(
@@ -827,6 +882,7 @@ FAMILY_META: dict[str, FamilyMeta] = {
             "bugs": "dbern", "jags": "dbern",
         },
         arg_aliases={
+            "pymc": {"probs": "p"},
             "webppl": {"probs": "p"},
         },
     ),
@@ -843,6 +899,7 @@ FAMILY_META: dict[str, FamilyMeta] = {
             "bugs": "dcat", "jags": "dcat",
         },
         arg_aliases={
+            "pymc": {"probs": "p"},
             "webppl": {"probs": "ps"},
         },
     ),
@@ -868,6 +925,9 @@ FAMILY_META: dict[str, FamilyMeta] = {
             "edward2": "NegativeBinomial",
             "bugs": "dnegbin", "jags": "dnegbin",
         },
+        arg_aliases={
+            "pymc": {"probs": "p", "total_count": "n"},
+        },
     ),
     "Geometric": FamilyMeta(
         qvr_name="Geometric",
@@ -887,6 +947,9 @@ FAMILY_META: dict[str, FamilyMeta] = {
             "stan": "binomial", "numpyro": "Binomial", "pyro": "Binomial",
             "pymc": "Binomial", "edward2": "Binomial",
             "bugs": "dbin", "jags": "dbin",
+        },
+        arg_aliases={
+            "pymc": {"probs": "p", "total_count": "n"},
         },
     ),
     "VonMises": FamilyMeta(
@@ -913,6 +976,9 @@ FAMILY_META: dict[str, FamilyMeta] = {
             "numpyro": "OneHotCategorical", "pyro": "OneHotCategorical",
             "edward2": "OneHotCategorical",
         },
+        arg_aliases={
+            "pymc": {"probs": "p"},
+        },
     ),
     "LKJCholesky": FamilyMeta(
         qvr_name="LKJCholesky",
@@ -931,6 +997,12 @@ FAMILY_META: dict[str, FamilyMeta] = {
         target_names={
             "numpyro": "MixtureSameFamily", "pyro": "MixtureSameFamily",
             "pymc": "Mixture",
+        },
+        arg_aliases={
+            "pymc": {
+                "mixture_distribution": "w",
+                "component_distribution": "comp_dists",
+            },
         },
     ),
     "Independent": FamilyMeta(
@@ -957,6 +1029,9 @@ FAMILY_META: dict[str, FamilyMeta] = {
         target_names={
             "pymc": "Truncated",
         },
+        arg_aliases={
+            "pymc": {"base_distribution": "dist"},
+        },
     ),
     "LKJCorrelationFactor": FamilyMeta(
         qvr_name="LKJCorrelationFactor",
@@ -975,6 +1050,13 @@ FAMILY_META: dict[str, FamilyMeta] = {
             "stan": "beta_binomial", "numpyro": "BetaBinomial",
             "pyro": "BetaBinomial", "pymc": "BetaBinomial",
             "bugs": "dbetabin",
+        },
+        arg_aliases={
+            "pymc": {
+                "concentration1": "alpha",
+                "concentration0": "beta",
+                "total_count": "n",
+            },
         },
     ),
     "OrderedLogistic": FamilyMeta(
@@ -1004,6 +1086,9 @@ FAMILY_META: dict[str, FamilyMeta] = {
             "pyro": "Logistic", "pymc": "Logistic",
             "bugs": "dlogis", "jags": "dlogis",
         },
+        arg_aliases={
+            "pymc": {"loc": "mu", "scale": "s"},
+        },
     ),
     "HalfStudentT": FamilyMeta(
         qvr_name="HalfStudentT",
@@ -1012,6 +1097,9 @@ FAMILY_META: dict[str, FamilyMeta] = {
         target_names={
             "stan": "student_t", "numpyro": "HalfStudentT",
             "pyro": "HalfStudentT", "pymc": "HalfStudentT",
+        },
+        arg_aliases={
+            "pymc": {"df": "nu", "scale": "sigma"},
         },
     ),
 }
