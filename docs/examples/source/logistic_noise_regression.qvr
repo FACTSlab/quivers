@@ -1,0 +1,31 @@
+# Linear Regression with Logistic Noise
+#
+# A linear regression whose additive observation noise follows the
+# Logistic distribution rather than the conventional Normal. The
+# Logistic distribution has sub-Gaussian tails (kurtosis 1.2 vs
+# Normal's 0) but heavier shoulders, making the model a smoother
+# alternative when the response distribution has a touch more
+# excess mass than Gaussian errors would imply.
+#
+# Generative structure:
+#
+#   scale   ~ HalfNormal(2)                 Logistic scale, half-Normal prior
+#   beta_0  ~ Normal(0, 5)                  intercept
+#   beta_1  ~ Normal(0, 2)                  slope
+#   y_n     ~ Logistic(beta_0 + beta_1 * x_n, scale)
+#
+# Reference: [Balakrishnan 1991](https://doi.org/10.1201/9781482277098).
+
+object Resp : FinSet 1
+
+program logistic_regression : Resp -> Resp
+    sample scale <- HalfNormal(2.0)
+    sample beta_0 <- Normal(0.0, 5.0)
+    sample beta_1 <- Normal(0.0, 2.0)
+
+    let mu = beta_0 + beta_1 * x
+
+    observe y : Resp <- Logistic(mu, scale)
+    return scale
+
+export logistic_regression

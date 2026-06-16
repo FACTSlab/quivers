@@ -1,0 +1,27 @@
+# Bounded-Outcome Regression via Kumaraswamy
+#
+# A regression on a (0, 1)-bounded response. The Kumaraswamy
+# distribution is a close cousin of the Beta with a closed-form
+# CDF and quantile function, which makes it preferable for models
+# that need cheap inverse-CDF sampling or quantile-based
+# inference. Both shape parameters get HalfNormal priors that
+# concentrate on near-uniform shapes.
+#
+# Generative structure:
+#
+#   alpha   ~ HalfNormal(2)                      first shape parameter
+#   beta    ~ HalfNormal(2)                      second shape parameter
+#   y_n     ~ Kumaraswamy(alpha, beta)
+#
+# Reference: [Kumaraswamy 1980](https://doi.org/10.1016/0022-1694(80)90036-0).
+
+object Resp : FinSet 1
+
+program kumaraswamy_regression : Resp -> Resp
+    sample alpha <- HalfNormal(2.0)
+    sample beta <- HalfNormal(2.0)
+
+    observe y : Resp <- Kumaraswamy(alpha, beta)
+    return alpha
+
+export kumaraswamy_regression

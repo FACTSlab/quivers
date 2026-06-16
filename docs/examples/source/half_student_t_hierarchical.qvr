@@ -1,0 +1,31 @@
+# Hierarchical Regression with HalfStudentT Scale Prior
+#
+# A two-level Bayesian linear regression with a heavy-tailed
+# half-Student-t prior on the noise scale. HalfStudentT(df, scale)
+# is the standard weakly-informative prior for hierarchical
+# variance parameters: it concentrates mass near zero (favouring
+# pooling) while admitting heavy upper tails for groups whose
+# data demand a sharper-peaked likelihood.
+#
+# Generative structure:
+#
+#   sigma   ~ HalfStudentT(3, 1)             noise scale, heavy-tailed
+#   beta_0  ~ Normal(0, 5)                   intercept
+#   beta_1  ~ Normal(0, 2)                   slope
+#   y_n     ~ Normal(beta_0 + beta_1 * x_n, sigma)
+#
+# Reference: [Gelman 2006](https://doi.org/10.1214/06-BA117A).
+
+object Resp : FinSet 1
+
+program hierarchical_regression : Resp -> Resp
+    sample sigma <- HalfStudentT(3.0, 1.0)
+    sample beta_0 <- Normal(0.0, 5.0)
+    sample beta_1 <- Normal(0.0, 2.0)
+
+    let mu = beta_0 + beta_1 * x
+
+    observe y : Resp <- Normal(mu, sigma)
+    return sigma
+
+export hierarchical_regression
