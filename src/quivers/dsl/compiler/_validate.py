@@ -46,7 +46,7 @@ from quivers.dsl.ast_nodes import (
 )
 from quivers.dsl.constraints import Violation
 from quivers.transpile._api import UnsupportedConstruct
-from quivers.transpile.backends._resolve import (
+from quivers.transpile._resolve import (
     ResolvedDist,
     build_let_table,
     build_morphism_table,

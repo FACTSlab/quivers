@@ -40,16 +40,14 @@ from __future__ import annotations
 import panproto
 
 from quivers.transpile._api import UnsupportedConstruct
-from quivers.transpile.backends._letexpr_python import (
-    render_let_expr_python,
-)
-from quivers.transpile.backends._pyhelpers import (
+from quivers.transpile.renderers._python_helpers import (
     PyCtx,
     arg_expr,
     attribute,
     call,
     identifier,
     number_literal,
+    render_let_expr_python,
     string_literal,
     with_statement,
 )

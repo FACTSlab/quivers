@@ -47,7 +47,7 @@ from quivers.transpile._pipeline import (
     realize,
     target_protocol,
 )
-from quivers.transpile.backends._pyhelpers import (
+from quivers.transpile.renderers._python_helpers import (
     PyCtx,
     arg_expr,
     assignment,
@@ -56,13 +56,11 @@ from quivers.transpile.backends._pyhelpers import (
     function_def,
     identifier,
     number_literal,
+    render_let_expr_python,
     string_literal,
     with_statement,
 )
-from quivers.transpile.backends._letexpr_python import (
-    render_let_expr_python,
-)
-from quivers.transpile.backends._resolve import (
+from quivers.transpile._resolve import (
     build_let_table,
     build_morphism_table,
 )
@@ -769,7 +767,7 @@ class PyMCRenderer(RendererBase):
 class _PyMCCtx:
     """Renderer-internal mutable bag threaded through the dispatch
     points: shared [`_RenderCtx`][quivers.transpile.renderers._base._RenderCtx],
-    the [`PyCtx`][quivers.transpile.backends._pyhelpers.PyCtx] adapter,
+    the [`PyCtx`][quivers.transpile.renderers._python_helpers.PyCtx] adapter,
     and per-walk state (`with`-body block, current marginalize latent,
     parent IR for input lookups)."""
 

@@ -52,10 +52,10 @@ from quivers.transpile._pipeline import (
     EmitPretty,
     target_protocol,
 )
-from quivers.transpile.backends._letexpr_julia import (
+from quivers.transpile.renderers._julia_helpers import (
     render_let_expr_julia,
 )
-from quivers.transpile.backends._resolve import (
+from quivers.transpile._resolve import (
     build_let_table,
     build_morphism_table,
 )
@@ -818,12 +818,12 @@ class _TuringCtx(_RenderCtx):
         self.sample_plates = sample_plates
 
 
-# `_JlCtxShim` lets us reuse [`render_let_expr_julia`][quivers.transpile.backends._letexpr_julia.render_let_expr_julia]
+# `_JlCtxShim` lets us reuse [`render_let_expr_julia`][quivers.transpile.renderers._julia_helpers.render_let_expr_julia]
 # (which expects a `JlCtx` with `v`, `e`, `lit`, `fresh`) without
 # pulling in the legacy backend's whole helper module.
 class _JlCtxShim:
     """Minimal adapter exposing the four methods
-    [`render_let_expr_julia`][quivers.transpile.backends._letexpr_julia.render_let_expr_julia]
+    [`render_let_expr_julia`][quivers.transpile.renderers._julia_helpers.render_let_expr_julia]
     reads off its ctx parameter."""
 
     def __init__(

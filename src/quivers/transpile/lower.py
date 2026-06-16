@@ -90,7 +90,7 @@ from quivers.dsl.ast_nodes.objects import (
 )
 from quivers.transpile._api import UnsupportedConstruct
 from quivers.transpile._expand_composites import expand_composite_lets
-from quivers.transpile.backends._resolve import (
+from quivers.transpile._resolve import (
     ResolvedDist,
     build_let_table,
     build_morphism_table,

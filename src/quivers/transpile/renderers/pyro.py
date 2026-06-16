@@ -44,14 +44,14 @@ import panproto
 from quivers.dsl.ast_nodes import MorphismInitFamily
 from quivers.transpile._api import UnsupportedConstruct
 from quivers.transpile._pipeline import target_protocol
-from quivers.transpile.backends._letexpr_python import render_let_expr_python
-from quivers.transpile.backends._pyhelpers import (
+from quivers.transpile.renderers._python_helpers import (
     PyCtx,
     assignment,
     attribute,
     call,
     identifier,
     number_literal,
+    render_let_expr_python,
     string_literal,
     with_statement,
 )
@@ -681,7 +681,7 @@ class PyroRenderer(RendererBase):
 
 
 class _PyroCtx(PyCtx):
-    """A [`PyCtx`][quivers.transpile.backends._pyhelpers.PyCtx]
+    """A [`PyCtx`][quivers.transpile.renderers._python_helpers.PyCtx]
     enriched with the function body block id, the set of observed
     names, and the resolved morphism table.
 
@@ -796,7 +796,7 @@ def _function_def_split(
 ) -> str:
     """Build `def <name>(<pos0>, <pos1>, ..., <def0>=None, ...): <body>`.
 
-    [`function_def`][quivers.transpile.backends._pyhelpers.function_def]
+    [`function_def`][quivers.transpile.renderers._python_helpers.function_def]
     emits every param as `<name>=None`; this variant carries the Pyro
     idiom of positional model params followed by `<obs>=None` for
     every observation.
