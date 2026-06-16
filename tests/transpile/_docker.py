@@ -89,13 +89,20 @@ def run_probe(
     if result_path.exists():
         result_path.unlink()
 
+    # Each per-backend image carries `ENTRYPOINT ["python"]` (Python
+    # backends) or its target-language equivalent (`julia`, `node`,
+    # `jags`); the container takes the script path as the single
+    # post-entrypoint argument. Do NOT also pass `python` here -- the
+    # entrypoint already provides it, so prefixing would run
+    # `python python /io/probe.py` and the container fails with
+    # "no such file: /io/python".
     argv = [
         "docker", "run", "--rm",
         "-v", f"{scratch.resolve()}:/io",
         "-w", "/io",
         "-e", f"FIXTURE_EXT={source_ext}",
         image,
-        "python", "/io/probe.py",
+        "/io/probe.py",
     ]
     completed = subprocess.run(
         argv,

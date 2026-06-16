@@ -2,6 +2,10 @@
 import json
 import pathlib
 
+import jax
+# Match QVR's torch defaults (float64) so the constant-spread
+# comparison is not dominated by float32 round-off in the JAX side.
+jax.config.update("jax_enable_x64", True)
 import jax.numpy as jnp
 import numpyro
 from numpyro.infer.util import log_density
