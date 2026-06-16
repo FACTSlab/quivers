@@ -202,33 +202,20 @@ class Lower(dx.Mapping[Module, IRProgram]):
         self,
         steps: tuple[ProgramStep, ...],
         ctx: _LowerCtx,
-        enclosing_latents: frozenset[str] = frozenset(),
     ) -> tuple[IRNode, ...]:
-        """Lower a tuple of program steps into IR nodes.
-
-        ``enclosing_latents`` carries the set of latent variable names
-        bound by surrounding marginalize scopes. Inside an observe
-        whose ``via=`` clause is present, references to these latents
-        are rewritten so the IR carries the per-position fibration
-        threading (see `_thread_via`).
-        """
+        """Lower a tuple of program steps into IR nodes."""
         out: list[IRNode] = []
         for step in steps:
-            out.append(self._lower_step(step, ctx, enclosing_latents))
+            out.append(self._lower_step(step, ctx))
         return tuple(out)
 
-    def _lower_step(
-        self,
-        step: ProgramStep,
-        ctx: _LowerCtx,
-        enclosing_latents: frozenset[str] = frozenset(),
-    ) -> IRNode:
+    def _lower_step(self, step: ProgramStep, ctx: _LowerCtx) -> IRNode:
         if isinstance(step, SampleStep):
             return self._lower_sample(step, ctx)
         if isinstance(step, ObserveStep):
-            return self._lower_observe(step, ctx, enclosing_latents)
+            return self._lower_observe(step, ctx)
         if isinstance(step, MarginalizeStep):
-            return self._lower_marginalize(step, ctx, enclosing_latents)
+            return self._lower_marginalize(step, ctx)
         if isinstance(step, LetStep):
             return self._lower_let(step, ctx)
         if isinstance(step, ScoreStep):
@@ -276,10 +263,7 @@ class Lower(dx.Mapping[Module, IRProgram]):
         )
 
     def _lower_observe(
-        self,
-        step: ObserveStep,
-        ctx: _LowerCtx,
-        enclosing_latents: frozenset[str] = frozenset(),
+        self, step: ObserveStep, ctx: _LowerCtx
     ) -> IRObserve:
         resolved = resolve_step_dist(
             step.morphism,
@@ -296,10 +280,6 @@ class Lower(dx.Mapping[Module, IRProgram]):
             axes_index=step.index,
             structural_args=step.args,
         )
-        if step.via is not None and enclosing_latents:
-            ir_args = tuple(
-                _thread_via(a, step.via, enclosing_latents) for a in ir_args
-            )
         plate = self._build_plate(step, ctx, meta, ir_args)
         constraint = from_constraint(_resolve_support(meta, ir_args, ctx))
         return IRObserve(
@@ -313,10 +293,7 @@ class Lower(dx.Mapping[Module, IRProgram]):
         )
 
     def _lower_marginalize(
-        self,
-        step: MarginalizeStep,
-        ctx: _LowerCtx,
-        enclosing_latents: frozenset[str] = frozenset(),
+        self, step: MarginalizeStep, ctx: _LowerCtx
     ) -> IRMarginalize:
         resolved = resolve_step_dist(
             step.morphism,
@@ -340,9 +317,7 @@ class Lower(dx.Mapping[Module, IRProgram]):
                 "qvr-lower",
                 [f"marginalize:reduction:{step.reduction}"],
             )
-        scope = self._lower_steps(
-            step.scope, ctx, enclosing_latents | frozenset({step.var})
-        )
+        scope = self._lower_steps(step.scope, ctx)
         return IRMarginalize(
             latent=step.var,
             family=resolved.family,
@@ -819,18 +794,11 @@ class Lower(dx.Mapping[Module, IRProgram]):
         """Return the ordered list of names referenced in the body,
         from arg references, bracket indices, and let / score
         expression trees. Order preserved for deterministic input
-        emission.
-
-        The via-threading sentinel `VIA_ROW_VAR_SENTINEL` is filtered
-        out: it stands in for whichever per-position loop variable a
-        renderer chooses and is never an exogenous data input.
-        """
+        emission."""
         out: list[str] = []
         seen: set[str] = set()
 
         def add(name: str) -> None:
-            if name == VIA_ROW_VAR_SENTINEL:
-                return
             if name in seen:
                 return
             seen.add(name)
@@ -1461,70 +1429,6 @@ def _event_axis_names(
     return step.axes.over
 
 
-#: Sentinel name carried inside an observe arg's via-threaded
-#: index. Each renderer substitutes its own per-position loop
-#: variable (e.g. ``n`` for the observe row).
-VIA_ROW_VAR_SENTINEL = "__row_var__"
-
-
-def _thread_via(
-    arg: IRArg,
-    via_name: str,
-    enclosing_latents: frozenset[str],
-) -> IRArg:
-    """Thread a `[via=fibration]` per-position fibration through an
-    observe-arg tree.
-
-    For every `IRArgRef` whose ``name`` is one of the latents bound by
-    a surrounding marginalize scope, append the per-position lookup
-    `IRArgRef(via_name, indices=(IRArgRef(VIA_ROW_VAR_SENTINEL),))`
-    to the reference's index list. The transform is structural:
-    nested `IRArgRef.indices` are rewritten in place; broadcast and
-    list / matrix wrappers descend into their payload.
-
-    Without the rewrite, a renderer staring at
-    `IRArgRef("phi", indices=(IRArgRef("z"),))` cannot tell from the
-    IR alone that the `z` index must be looked up per-position via
-    the `word_idx` fibration: `phi[z[word_idx[n]]]` rather than
-    `phi[z]`. Threading the lookup at lowering time keeps every
-    renderer free of the same indexing logic.
-    """
-
-    def rewrite(node: IRArg) -> IRArg:
-        if isinstance(node, IRArgRef):
-            new_indices = tuple(rewrite(i) for i in node.indices)
-            if node.name in enclosing_latents:
-                via_lookup = IRArgRef(
-                    name=via_name,
-                    indices=(
-                        IRArgRef(name=VIA_ROW_VAR_SENTINEL, indices=()),
-                    ),
-                )
-                new_indices = (*new_indices, via_lookup)
-            return IRArgRef(name=node.name, indices=new_indices)
-        if isinstance(node, IRArgBroadcast):
-            return IRArgBroadcast(
-                value=rewrite(node.value),
-                target_shape=node.target_shape,
-            )
-        if isinstance(node, IRArgList):
-            return IRArgList(
-                elements=tuple(rewrite(e) for e in node.elements)
-            )
-        if isinstance(node, IRArgMatrix):
-            return IRArgMatrix(
-                rows=tuple(
-                    IRArgList(
-                        elements=tuple(rewrite(e) for e in row.elements)
-                    )
-                    for row in node.rows
-                )
-            )
-        return node
-
-    return rewrite(arg)
-
-
 def _marginalize_event_axis_names(
     step: MarginalizeStep,
 ) -> tuple[str, ...]:
@@ -1569,7 +1473,6 @@ def _walk_nodes(body: tuple[IRNode, ...]):
 
 
 __all__ = [
-    "VIA_ROW_VAR_SENTINEL",
     "Lower",
     "arg_ref_shape",
     "axis_shape",
