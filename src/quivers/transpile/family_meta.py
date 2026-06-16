@@ -817,6 +817,7 @@ FAMILY_META: dict[str, FamilyMeta] = {
         distribution_class=td.Wishart,
         quivers_class=ConditionalWishart,
         target_names={
+            "stan": "wishart",
             "numpyro": "Wishart", "pyro": "Wishart",
             "pymc": "Wishart", "edward2": "Wishart",
             "bugs": "dwish", "jags": "dwish",
@@ -830,10 +831,8 @@ FAMILY_META: dict[str, FamilyMeta] = {
         distribution_class=_InverseWishart,
         quivers_class=ConditionalInverseWishart,
         target_names={
+            "stan": "inv_wishart",
             "numpyro": "InverseWishart", "pyro": "InverseWishart",
-        },
-        arg_aliases={
-            "pymc": {"df": "nu", "covariance_matrix": "scale_matrix"},
         },
     ),
     "MatrixNormal": FamilyMeta(
@@ -1097,9 +1096,12 @@ FAMILY_META: dict[str, FamilyMeta] = {
         target_names={
             "stan": "student_t", "numpyro": "HalfStudentT",
             "pyro": "HalfStudentT", "pymc": "HalfStudentT",
+            "bugs": "dt", "jags": "dt",
         },
         arg_aliases={
             "pymc": {"df": "nu", "scale": "sigma"},
+            "bugs": {"scale": "tau"},
+            "jags": {"scale": "tau"},
         },
     ),
 }
