@@ -128,7 +128,7 @@ class NumPyroRenderer(RendererBase):
         """
         proto = self.target_protocol()
         sb = proto.schema()
-        py = PyCtx(sb)
+        py = PyCtx(sb, cards=dict(ir.cards))
         ctx = _NumPyroCtx(
             sb=sb,
             morphisms={},

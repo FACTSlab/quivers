@@ -128,7 +128,7 @@ class Edward2Renderer(RendererBase):
         assert_no_dangling_refs(ir)
         proto = self.target_protocol()
         sb = proto.schema()
-        py = PyCtx(sb)
+        py = PyCtx(sb, cards=dict(ir.cards))
         ctx = _RenderCtx(sb=sb, morphisms={}, lets={})
 
         sb.vertex("mod", "module")

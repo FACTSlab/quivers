@@ -31,6 +31,12 @@ from quivers.dsl.ast_nodes import (
     LetExprUnaryOp,
     LetExprVar,
 )
+from quivers.dsl.ast_nodes.let_expressions import LetFactorBinder
+from quivers.dsl.ast_nodes.objects import TypeName
+from quivers.transpile._api import UnsupportedConstruct
+from quivers.transpile.renderers._stan_helpers import (
+    _substitute_let_expr,
+)
 
 if TYPE_CHECKING:
     import panproto
@@ -38,11 +44,23 @@ if TYPE_CHECKING:
 
 class PyCtx:
     """Owns a [`panproto.SchemaBuilder`][panproto.SchemaBuilder] plus
-    a fresh-id counter."""
+    a fresh-id counter and the per-render
+    [`IRProgram.cards`][quivers.transpile.ir.IRProgram.cards] map.
 
-    def __init__(self, sb: panproto.SchemaBuilder) -> None:
+    `cards` is consulted when unrolling
+    [`LetExprFactor`][quivers.dsl.ast_nodes.LetExprFactor] binders;
+    every backend that wires the IR-walk into this ctx is expected
+    to pass `cards` at construction.
+    """
+
+    def __init__(
+        self,
+        sb: panproto.SchemaBuilder,
+        cards: dict[str, int] | None = None,
+    ) -> None:
         self._sb = sb
         self._n = 0
+        self.cards: dict[str, int] = dict(cards or {})
 
     def fresh(self, prefix: str) -> str:
         self._n += 1
@@ -300,16 +318,112 @@ def render_let_expr_python(ctx: PyCtx, expr: LetExprNode) -> str:
         ctx.e(c, args, "arguments")
         return c
     if isinstance(expr, LetExprFactor):
-        # Render as a no-op identifier reference; factor expressions
-        # need backend-specific tensor assembly that is out of scope
-        # here. Surface the construct name for visibility.
-        v = ctx.v(ctx.fresh("id"), "identifier")
-        ctx.literal(v, "__factor__")
-        return v
-    raise NotImplementedError(
-        f"render_let_expr_python: unhandled LetExprNode kind "
-        f"{type(expr).__name__!r}"
+        return _render_factor_python(ctx, expr)
+    raise UnsupportedConstruct(
+        "qvr-python-helper",
+        [
+            f"let-expr:{type(expr).__name__}: unhandled node kind"
+        ],
     )
+
+
+def _render_factor_python(ctx: PyCtx, expr: LetExprFactor) -> str:
+    """Unroll a `LetExprFactor` into a Python list literal.
+
+    Cases form (single binder, body=None): emit `[case_0, case_1,
+    ...]` in label order. Uniform-body form (one or more binders):
+    substitute each binder for its 1-indexed integer value and unroll
+    into a nested list literal of shape (|b0|, |b1|, ..., |bn-1|).
+    Indexes substituted at the leaves are 1-based so that downstream
+    `arr[i]` expressions hit the expected element when arrays inherit
+    QVR's 0-based surface indexing through the backend's implicit
+    base.
+    """
+    if expr.cases and expr.body is None:
+        if len(expr.binders) != 1:
+            raise UnsupportedConstruct(
+                "qvr-python-helper",
+                [
+                    "let-expr:LetExprFactor: cases form requires "
+                    f"exactly one binder; got {len(expr.binders)}"
+                ],
+            )
+        ordered = sorted(expr.cases, key=lambda c: c.label)
+        items = tuple(
+            render_let_expr_python(ctx, c.value) for c in ordered
+        )
+        return _emit_python_list(ctx, items)
+    if expr.body is not None and not expr.cases:
+        sizes = tuple(_card_for(ctx, b) for b in expr.binders)
+        return _build_nested_python(
+            ctx, expr.binders, sizes, expr.body, ()
+        )
+    raise UnsupportedConstruct(
+        "qvr-python-helper",
+        [
+            "let-expr:LetExprFactor: mixed cases-plus-body form is "
+            "not a valid surface construct"
+        ],
+    )
+
+
+def _emit_python_list(ctx: PyCtx, items: tuple[str, ...]) -> str:
+    """Emit a Python list literal `[e0, e1, ...]`."""
+    vid = ctx.v(ctx.fresh("list"), "list")
+    for item in items:
+        ctx.e(vid, item, "child_of")
+    return vid
+
+
+def _card_for(ctx: PyCtx, binder: LetFactorBinder) -> int:
+    """Resolve the static cardinality of `binder.index` via the
+    `PyCtx.cards` snapshot of `IRProgram.cards`."""
+    idx = binder.index
+    if isinstance(idx, TypeName):
+        size = ctx.cards.get(idx.name)
+        if size is None:
+            raise UnsupportedConstruct(
+                "qvr-python-helper",
+                [
+                    f"let-expr:LetExprFactor: binder {binder.var!r} "
+                    f"references object {idx.name!r} whose cardinality "
+                    "is unknown at render time"
+                ],
+            )
+        return size
+    raise UnsupportedConstruct(
+        "qvr-python-helper",
+        [
+            f"let-expr:LetExprFactor: binder {binder.var!r} index is "
+            f"{type(idx).__name__}; only TypeName binders unroll"
+        ],
+    )
+
+
+def _build_nested_python(
+    ctx: PyCtx,
+    binders: tuple[LetFactorBinder, ...],
+    sizes: tuple[int, ...],
+    body: LetExprNode,
+    fixed: tuple[int, ...],
+) -> str:
+    """Recursively materialise the nested Python list tower for the
+    uniform-body factor form."""
+    if len(fixed) == len(binders):
+        subst = body
+        for binder, value in zip(binders, fixed, strict=True):
+            subst = _substitute_let_expr(
+                subst, binder.var, LetExprLiteral(value=value + 1)
+            )
+        return render_let_expr_python(ctx, subst)
+    level = len(fixed)
+    items = tuple(
+        _build_nested_python(
+            ctx, binders, sizes, body, fixed + (i,)
+        )
+        for i in range(sizes[level])
+    )
+    return _emit_python_list(ctx, items)
 
 
 def shape_tuple(ctx: PyCtx, shape: tuple[int, ...]) -> str:

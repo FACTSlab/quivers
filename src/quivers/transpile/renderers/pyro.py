@@ -117,7 +117,7 @@ class PyroRenderer(RendererBase):
         proto = self.target_protocol()
         sb = proto.schema()
         ctx = _RenderCtx(sb=sb, morphisms={}, lets={})
-        pctx = _PyroCtx(sb=sb)
+        pctx = _PyroCtx(sb=sb, cards=dict(ir.cards))
 
         # Resolve module-level morphism / let tables for IRArgFamilyRef
         # lookup. The IR carries family names directly for atomic
@@ -688,8 +688,12 @@ class _PyroCtx(PyCtx):
     without rebuilding the panproto builder on every call.
     """
 
-    def __init__(self, sb: panproto.SchemaBuilder) -> None:
-        super().__init__(sb)
+    def __init__(
+        self,
+        sb: panproto.SchemaBuilder,
+        cards: dict[str, int] | None = None,
+    ) -> None:
+        super().__init__(sb, cards=cards)
         self.body: str = ""
         self.observed: frozenset[str] = frozenset()
         self.morphisms: dict = {}
