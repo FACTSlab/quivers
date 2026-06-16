@@ -33,6 +33,7 @@ and QVR compute.
 from __future__ import annotations
 
 import pathlib
+from typing import Callable
 
 import pytest
 import torch
@@ -143,7 +144,16 @@ def _analytic_subject_mix(
     return float(lp.item())
 
 
-_ANALYTIC: dict[str, object] = {
+_AnalyticFn = Callable[
+    [
+        dict[str, float | list[float]],
+        dict[str, list[float] | list[int]],
+    ],
+    float,
+]
+
+
+_ANALYTIC: dict[str, _AnalyticFn] = {
     "subject_mix": _analytic_subject_mix,
 }
 
@@ -191,7 +201,10 @@ def _subject_mix_points() -> list[Point]:
     return points
 
 
-_POINTS: dict[str, object] = {
+_PointsFn = Callable[[], list[Point]]
+
+
+_POINTS: dict[str, _PointsFn] = {
     "subject_mix": _subject_mix_points,
 }
 
