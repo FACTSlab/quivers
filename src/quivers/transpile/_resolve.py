@@ -42,6 +42,11 @@ from quivers.dsl.ast_nodes import (
     MorphismDecl,
     MorphismInitFamily,
 )
+from quivers.dsl.ast_nodes._shared import (
+    OptionEntry,
+    OptionNumber,
+    OptionString,
+)
 from quivers.transpile._api import UnsupportedConstruct
 
 
@@ -202,8 +207,31 @@ def resolve_step_dist(
                 init=decl.init_family,
                 step_args=raw_args,
                 chain=chain,
+                morphism_options=decl.options,
             )
         if decl.init_expr is not None:
+            # When the init expression is a bare family identifier
+            # (`morphism foo : T -> T [scale=0.1] ~ Normal`) the
+            # parser models it as an `init_expr=ExprIdent("Normal")`
+            # rather than `init_family=Normal`. Route this case
+            # through the same option-aware family-merge that
+            # `_from_init_family` uses so the morphism's option
+            # block (`[scale=0.1]`) populates the matching family
+            # parameter slot.
+            if (
+                isinstance(decl.init_expr, ExprIdent)
+                and decl.init_expr.name in family_registry
+            ):
+                return _from_init_family(
+                    morphism_name=morphism_name,
+                    init=MorphismInitFamily(
+                        family=decl.init_expr.name,
+                        args=(),
+                    ),
+                    step_args=raw_args,
+                    chain=chain,
+                    morphism_options=decl.options,
+                )
             return _resolve_expr(
                 morphism_name=morphism_name,
                 expr=decl.init_expr,
@@ -247,25 +275,95 @@ def _from_init_family(
     init: MorphismInitFamily,
     step_args: tuple[DrawArg, ...] | None,
     chain: tuple[str, ...],
+    morphism_options: tuple[OptionEntry, ...] = (),
 ) -> ResolvedDist:
-    """Unfold a ``~ Family(args)`` init clause. Step-supplied args
-    override the declaration's defaults when both are present. When
-    neither the step nor the init clause supplies args (the common
-    `morphism foo : T -> T [role=kernel] ~ Family` form), fall back
-    to the family's canonical default parameters so the resulting
-    call has the arity the target backend expects."""
-    source: tuple[DrawArg, ...] = step_args if step_args else init.args
-    wire: tuple[str | float, ...]
-    if source:
+    """Unfold a ``~ Family(args)`` init clause.
+
+    When the morphism's declaration carries explicit init args
+    (``~ Normal(0, 1)``), those override any step-supplied args
+    completely.
+
+    When the init clause is the bare ``~ Family`` form (no
+    parentheses), arg slots are filled in canonical order from
+    three sources:
+
+    1. Step args (``emission(s_new)``) populate the leading
+       positional slots.
+    2. Remaining slots whose canonical name matches a morphism
+       option (`[scale=0.1]` -> the `scale` slot of `Normal`) take
+       the option value.
+    3. Anything still empty falls back to the family's canonical
+       default (`_FAMILY_DEFAULT_ARGS`).
+    """
+    if init.args:
+        source: tuple[DrawArg, ...] = step_args if step_args else init.args
         wire = tuple(_draw_arg_to_wire(a) for a in source)
-    else:
-        wire = _FAMILY_DEFAULT_ARGS.get(init.family, ())
+        return ResolvedDist(
+            family=init.family,
+            args=wire,
+            original_morphism_name=morphism_name,
+            via=chain[:-1] if chain else (),
+        )
+    defaults = _FAMILY_DEFAULT_ARGS.get(init.family, ())
+    arg_names = _FAMILY_ARG_NAMES.get(init.family, ())
+    option_map = _options_to_map(morphism_options)
+    step_wire = (
+        tuple(_draw_arg_to_wire(a) for a in step_args)
+        if step_args
+        else ()
+    )
+    wire_list: list[str | float] = list(step_wire)
+    for i in range(len(step_wire), len(defaults)):
+        name = arg_names[i] if i < len(arg_names) else None
+        if name is not None and name in option_map:
+            wire_list.append(option_map[name])
+        else:
+            wire_list.append(defaults[i])
     return ResolvedDist(
         family=init.family,
-        args=wire,
+        args=tuple(wire_list),
         original_morphism_name=morphism_name,
         via=chain[:-1] if chain else (),
     )
+
+
+def _options_to_map(
+    options: tuple[OptionEntry, ...],
+) -> dict[str, str | float]:
+    """Reduce a tuple of `OptionEntry` to a `key -> wire-value` map
+    of numeric / string-valued options. Identifier / list / call
+    option shapes are ignored (they describe declaration metadata
+    like `role=kernel` rather than family arguments)."""
+    out: dict[str, str | float] = {}
+    for entry in options:
+        value = entry.value
+        if isinstance(value, OptionNumber):
+            out[entry.key] = value.value
+        elif isinstance(value, OptionString):
+            out[entry.key] = value.value
+    return out
+
+
+# Per-family ordered parameter names. Mirrors the positional layout
+# used by `_FAMILY_DEFAULT_ARGS` so an option-block entry
+# (`scale=0.1`) can be routed to the right slot by name.
+_FAMILY_ARG_NAMES: dict[str, tuple[str, ...]] = {
+    "Normal": ("loc", "scale"),
+    "HalfNormal": ("scale",),
+    "Cauchy": ("loc", "scale"),
+    "HalfCauchy": ("scale",),
+    "Laplace": ("loc", "scale"),
+    "LogNormal": ("loc", "scale"),
+    "Beta": ("concentration1", "concentration0"),
+    "Bernoulli": ("probs",),
+    "Gamma": ("concentration", "rate"),
+    "InverseGamma": ("concentration", "rate"),
+    "Exponential": ("rate",),
+    "Uniform": ("low", "high"),
+    "StudentT": ("df", "loc", "scale"),
+    "Pareto": ("scale", "alpha"),
+    "Weibull": ("scale", "concentration"),
+}
 
 
 # Canonical default args for kernel morphisms declared `~ Family` with
