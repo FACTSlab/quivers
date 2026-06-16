@@ -49,8 +49,8 @@ _KNOWN_COMPOSITION_GAPS: dict[tuple[str, str], str] = {
             "normal_inverse_gamma",
         )
         for backend in (
-            "stan", "numpyro", "pyro", "pymc", "edward2",
-            "church", "webppl", "turing", "gen", "bugs", "jags",
+            "stan", "numpyro", "pyro", "pymc",
+            "church", "webppl", "turing", "bugs", "jags",
         )
     },
 }

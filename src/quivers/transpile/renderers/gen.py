@@ -35,6 +35,19 @@ from typing import Callable
 import panproto
 import torch.distributions.constraints as _constraints
 
+from quivers.dsl.ast_nodes.let_expressions import (
+    LetExprBinOp,
+    LetExprCall,
+    LetExprFactor,
+    LetExprIndex,
+    LetExprLambda,
+    LetExprList,
+    LetExprLiteral,
+    LetExprMethodCall,
+    LetExprString,
+    LetExprUnaryOp,
+    LetExprVar,
+)
 from quivers.transpile._api import UnsupportedConstruct
 from quivers.transpile._pipeline import target_protocol
 from quivers.transpile.family_meta import FAMILY_META
@@ -122,6 +135,16 @@ class _GenCtx:
     # decide whether to emit the bare `m_<Axis>` form or the
     # disambiguated `m_<Axis>_<step>` form.
     used_axes: set[str] = dataclasses.field(default_factory=set)
+    # Pre-walked per-deterministic batch-axis inference: deterministic
+    # let-bindings whose downstream consumers reference them inside a
+    # batch loop without explicit index args carry the union of those
+    # consumer-side batch axes here. The inference makes Julia's
+    # broadcast semantics first-class for Gen's per-element trace
+    # loops, which cannot otherwise pass a vector-valued `mu` into
+    # a scalar `normal(mu, sigma)` family call.
+    inferred_det_axes: dict[str, tuple[Dim, ...]] = dataclasses.field(
+        default_factory=dict
+    )
 
     def fresh(self, prefix: str) -> str:
         self.n += 1
@@ -689,6 +712,19 @@ _WRAPPER_TARGET_NAMES: dict[str, str] = {
 }
 
 
+#: QVR families with no native Gen.jl distribution whose canonical
+#: Gen.jl encoding is the underlying base distribution centred at zero
+#: (e.g. `HalfNormal(scale)` -> `normal(0, scale)`). Gen.jl's `assess`
+#: enumerates the choicemap as written, so reflecting a half-support
+#: family back into a centred two-tail draw differs from the QVR
+#: HalfNormal density by a constant `log 2` per draw; the
+#: log-density-equivalence harness absorbs that constant.
+_HALF_BASE_TARGETS: dict[str, tuple[str, int]] = {
+    "HalfNormal": ("normal", 0),
+    "HalfCauchy": ("cauchy", 0),
+}
+
+
 def _gen_target_name(family: str) -> str:
     """Look up the Gen.jl distribution constructor for a family.
 
@@ -887,8 +923,12 @@ class GenRenderer(RendererBase):
         gx = _GenCtx(sb=sb, cards={}, morphisms={})
 
         _harvest_cards(ir, gx)
+        gx.inferred_det_axes = _infer_deterministic_axes(ir)
 
-        for inp in ir.inputs:
+        # Sort inputs alphabetically so the emitted `model(...)` signature
+        # matches the probe driver's positional-arg convention (the probe
+        # iterates the per-point `data` dict in sorted-key order).
+        for inp in sorted(ir.inputs, key=lambda i: i.name):
             gx.params.append(inp.name)
             gx.inputs_by_name[inp.name] = inp
             gx.decl_axes[inp.name] = inp.plate.batch_dims
@@ -918,8 +958,11 @@ class GenRenderer(RendererBase):
                 gx.e(ret, tup)
             gx.e(blk, ret)
 
+        # Probe drivers eval the source and look up `Main.model`; the
+        # function is always named `model` so the harness has a
+        # canonical entry point regardless of the QVR module name.
         fn = _function_def(
-            gx, name=ir.name, params=tuple(gx.params), body_vid=blk,
+            gx, name="model", params=tuple(gx.params), body_vid=blk,
         )
         mc = _macro_call_body(gx, "gen", fn)
         src = gx.v("source_file", "src")
@@ -1152,6 +1195,10 @@ class GenRenderer(RendererBase):
                 inputs_by_name=gx.inputs_by_name,
             )
             arg_vids.append(rendered)
+        prefix = _HALF_BASE_TARGETS.get(family)
+        if prefix is not None:
+            _, location = prefix
+            arg_vids.insert(0, _number(gx, float(location)))
         return _call(gx, _ident(gx, callee_name), tuple(arg_vids))
 
     # ------------------------------------------------------------------
@@ -1163,9 +1210,23 @@ class GenRenderer(RendererBase):
         rhs = render_let_expr_julia(
             _JlCtxAdapter(gx, "gen"), node.expr
         )
+        # If a downstream sample / observe references this let-binding
+        # inside its batch loop without explicit indices, infer the
+        # batch axes from that consumer so references to `node.name`
+        # inside the loop pick up the loop index.
+        inferred = gx.inferred_det_axes.get(node.name, ())
+        if inferred:
+            gx.decl_axes[node.name] = inferred
+            # The let body must evaluate to a Vector / matrix shaped
+            # along the inferred batch axes. Julia's scalar `+ * - /`
+            # operators reject `scalar OP vector`, so wrap the RHS in
+            # `@.` (fused-broadcast macro) to promote every arithmetic
+            # operator inside the body to its dotted form.
+            rhs = _macro_call_space(gx, ".", (rhs,))
+        else:
+            gx.decl_axes[node.name] = node.plate.batch_dims
         stmt = _assignment(gx, _ident(gx, node.name), rhs)
         gx.body_stmts.append(stmt)
-        gx.decl_axes[node.name] = node.plate.batch_dims
 
     # ------------------------------------------------------------------
     # Marginalize: lower to IRSample + scope inline
@@ -1275,6 +1336,156 @@ def _harvest_plate(plate: Plate, gx: _GenCtx) -> None:
     for dim in (*plate.event_dims, *plate.batch_dims):
         if isinstance(dim, DimStatic):
             gx.cards[dim.name] = dim.size
+
+
+def _infer_deterministic_axes(
+    ir: IRProgram,
+) -> dict[str, tuple[Dim, ...]]:
+    """Infer per-deterministic batch axes from downstream consumers.
+
+    Walks the IR body in declaration order. For each
+    [`IRDeterministic`][quivers.transpile.ir.IRDeterministic] node, the
+    inferred axes are the union of `plate.batch_dims` over every
+    subsequent [`IRSample`][quivers.transpile.ir.IRSample] /
+    [`IRObserve`][quivers.transpile.ir.IRObserve] that references the
+    deterministic by name in its arg tree without explicit index args
+    (a bare [`IRArgRef`][quivers.transpile.ir.IRArgRef]). References
+    through other deterministics propagate transitively because the
+    walk is in IR order and the inferred map is updated incrementally.
+    """
+    inferred: dict[str, tuple[Dim, ...]] = {}
+    det_names: list[str] = []
+    for node in ir.body:
+        if isinstance(node, IRDeterministic):
+            det_names.append(node.name)
+            inferred.setdefault(node.name, ())
+            continue
+        if not isinstance(node, (IRSample, IRObserve)):
+            continue
+        if not node.plate.batch_dims:
+            continue
+        refs = _bare_ref_names(node.args)
+        for name in refs:
+            if name not in inferred:
+                continue
+            inferred[name] = _union_dims(
+                inferred[name], node.plate.batch_dims
+            )
+    # Transitive propagation through deterministic->deterministic refs:
+    # walk det_names twice so an earlier det inherits axes from a
+    # later det that already accumulated them.
+    for _ in range(len(det_names)):
+        changed = False
+        for node in ir.body:
+            if not isinstance(node, IRDeterministic):
+                continue
+            for ref_name in _bare_ref_names_in_expr(node.expr):
+                if ref_name not in inferred:
+                    continue
+                new = _union_dims(
+                    inferred[node.name], inferred[ref_name]
+                )
+                if new != inferred[node.name]:
+                    inferred[node.name] = new
+                    changed = True
+        if not changed:
+            break
+    return inferred
+
+
+def _bare_ref_names(args: tuple[IRArg, ...]) -> list[str]:
+    """Collect IRArgRef names appearing without explicit indices."""
+    out: list[str] = []
+    for arg in args:
+        _collect_bare_refs(arg, out)
+    return out
+
+
+def _collect_bare_refs(arg: IRArg, out: list[str]) -> None:
+    if isinstance(arg, IRArgRef):
+        if not arg.indices:
+            out.append(arg.name)
+        return
+    if isinstance(arg, IRArgBroadcast):
+        _collect_bare_refs(arg.value, out)
+        return
+    if isinstance(arg, IRArgList):
+        for e in arg.elements:
+            _collect_bare_refs(e, out)
+        return
+    if isinstance(arg, IRArgMatrix):
+        for row in arg.rows:
+            for e in row.elements:
+                _collect_bare_refs(e, out)
+
+
+def _bare_ref_names_in_expr(expr: object) -> list[str]:
+    """Collect free-variable names referenced by a let expression tree.
+
+    The let-expression tree's leaf form
+    [`LetExprVar`][quivers.dsl.ast_nodes.let_expressions.LetExprVar]
+    carries a `name`; the walk recurses through every other variant's
+    children via attribute introspection on the tagged-union fields.
+    """
+    out: list[str] = []
+    _walk_let_expr(expr, out)
+    return out
+
+
+def _walk_let_expr(node: object, out: list[str]) -> None:
+    if isinstance(node, LetExprVar):
+        out.append(node.name)
+        return
+    if isinstance(node, (LetExprLiteral, LetExprString)):
+        return
+    if isinstance(node, LetExprUnaryOp):
+        _walk_let_expr(node.operand, out)
+        return
+    if isinstance(node, LetExprBinOp):
+        _walk_let_expr(node.left, out)
+        _walk_let_expr(node.right, out)
+        return
+    if isinstance(node, LetExprCall):
+        for a in node.args:
+            _walk_let_expr(a, out)
+        return
+    if isinstance(node, LetExprMethodCall):
+        _walk_let_expr(node.receiver, out)
+        for a in node.args:
+            _walk_let_expr(a, out)
+        return
+    if isinstance(node, LetExprIndex):
+        _walk_let_expr(node.array, out)
+        for ix in node.indices:
+            _walk_let_expr(ix, out)
+        return
+    if isinstance(node, LetExprList):
+        for e in node.items:
+            _walk_let_expr(e, out)
+        return
+    if isinstance(node, LetExprLambda):
+        _walk_let_expr(node.body, out)
+        return
+    if isinstance(node, LetExprFactor):
+        if node.body is not None:
+            _walk_let_expr(node.body, out)
+        for case in node.cases:
+            _walk_let_expr(case.value, out)
+        return
+
+
+def _union_dims(
+    a: tuple[Dim, ...], b: tuple[Dim, ...]
+) -> tuple[Dim, ...]:
+    """Union two dim tuples by name, preserving the order in `a`
+    followed by any new dims from `b`."""
+    seen = {d.name for d in a}
+    out = list(a)
+    for d in b:
+        if d.name not in seen:
+            out.append(d)
+            seen.add(d.name)
+    return tuple(out)
 
 
 __all__ = ["GenRenderer"]
