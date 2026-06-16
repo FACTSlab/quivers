@@ -1,31 +1,43 @@
 """Tier 1 (continued): lens-law property tests on Mapping
 composition.
 
-The transpile pipeline composes two
-[`didactic.api.Mapping`][didactic.api.Mapping] instances:
+The transpile pipeline composes three
+[`didactic.api.Mapping`][didactic.api.Mapping] arrows:
 
-- per-backend `SchemaTransform` (`Module` → `panproto.Schema`)
+- [`Lower`][quivers.transpile.lower.Lower] (`Module` → `IRProgram`)
+- per-backend `Renderer` wrapped as a Mapping (`IRProgram` →
+  `panproto.Schema`)
 - `EmitPretty(grammar)` (`panproto.Schema` → `bytes`)
 
 For every backend we check:
 
-1. **Determinism**: `transform.forward(module)` returns structurally
-   identical schemas across two consecutive calls.
-2. **Composition equivalence**: `EmitPretty(SchemaTransform(module))`
-   equals `(SchemaTransform >> EmitPretty)(module)`.
+1. **Determinism**: rendering the same module twice returns
+   structurally identical schemas.
+2. **Composition equivalence**: `EmitPretty(Renderer(Lower(module)))`
+   equals `(Lower >> Renderer >> EmitPretty)(module)`.
 3. **Re-emit fixed point**: re-parsing the emit and re-emitting
    produces the same bytes as the original emit.
 """
 
 from __future__ import annotations
 
+import didactic.api as dx
 import pytest
 
 import panproto
 
+from quivers.dsl.ast_nodes import Module
 from quivers.dsl.parser import parse
-from quivers.transpile import available_targets, transpile
+from quivers.transpile import (
+    _RENDERERS,
+    available_targets,
+    transpile,
+)
+from quivers.transpile._expand_composites import expand_composite_lets
 from quivers.transpile._pipeline import EmitPretty
+from quivers.transpile.ir import IRProgram
+from quivers.transpile.lower import Lower
+from quivers.transpile.renderers._base import RendererBase
 
 
 _BACKENDS = sorted(available_targets())
@@ -40,63 +52,81 @@ export flip
 """
 
 
-def _walker_for(backend: str):
-    """Load the backend module and return a fresh `SchemaTransform`."""
-    import importlib
+class _ExpandAndLower(dx.Mapping):
+    """`Module` -> `IRProgram`: per-target composite-let expansion
+    followed by [`Lower`][quivers.transpile.lower.Lower].
 
-    module = importlib.import_module(
-        f"quivers.transpile.backends.{backend}"
-    )
-    walker_cls_name_candidates = [
-        f"_{backend.title()}Walker",
-        f"_{backend.capitalize()}Walker",
-        f"_StanWalker" if backend == "stan" else None,
-        f"_NumPyroWalker" if backend == "numpyro" else None,
-        f"_PyroWalker" if backend == "pyro" else None,
-        f"_PyMCWalker" if backend == "pymc" else None,
-        f"_Edward2Walker" if backend == "edward2" else None,
-        f"_ChurchWalker" if backend == "church" else None,
-        f"_WebPPLWalker" if backend == "webppl" else None,
-        f"_TuringWalker" if backend == "turing" else None,
-        f"_GenWalker" if backend == "gen" else None,
-        f"_BugsWalker" if backend == "bugs" else None,
-        f"_JagsWalker" if backend == "jags" else None,
-    ]
-    for name in walker_cls_name_candidates:
-        if name and hasattr(module, name):
-            return getattr(module, name)()
-    raise AssertionError(
-        f"backend {backend!r}: cannot locate walker class in module "
-        f"{module.__name__!r}; tried {walker_cls_name_candidates}"
-    )
+    The production `transpile()` calls `expand_composite_lets(...,
+    target=backend)` before `Lower().forward(...)`; the lens-law
+    tests compose the same pair so the law applies to the full
+    target-specific frontend, not just the target-independent
+    `Lower` step.
+    """
+
+    def __init__(self, target: str) -> None:
+        self._target = target
+        self._lower = Lower()
+
+    def forward(self, module: Module) -> IRProgram:  # type: ignore[override]
+        expanded = expand_composite_lets(module, target=self._target)
+        return self._lower.forward(expanded)
+
+
+class _RenderMapping(dx.Mapping):
+    """`IRProgram` -> `panproto.Schema`: wrap a
+    [`RendererBase`][quivers.transpile.renderers._base.RendererBase]
+    instance's `render` method as a Mapping so it composes with
+    `Lower` and `EmitPretty` via `>>`."""
+
+    def __init__(self, renderer: RendererBase) -> None:
+        self._renderer = renderer
+
+    def forward(self, ir: IRProgram) -> panproto.Schema:  # type: ignore[override]
+        return self._renderer.render(ir)
+
+
+def _renderer_for(backend: str) -> RendererBase:
+    """Return a fresh renderer instance for `backend`."""
+    renderer_cls, _ = _RENDERERS[backend]
+    return renderer_cls()
 
 
 def _grammar_for(backend: str) -> str:
-    return {
-        "stan": "stan", "numpyro": "python", "pyro": "python",
-        "pymc": "python", "edward2": "python", "church": "scheme",
-        "webppl": "javascript", "turing": "julia", "gen": "julia",
-        "bugs": "bugs", "jags": "jags",
-    }[backend]
+    return _RENDERERS[backend][1]
+
+
+def _pipeline_for(backend: str) -> tuple[_ExpandAndLower, _RenderMapping, EmitPretty]:
+    """Build the three Mapping arrows for `backend`."""
+    return (
+        _ExpandAndLower(backend),
+        _RenderMapping(_renderer_for(backend)),
+        EmitPretty(_grammar_for(backend)),
+    )
 
 
 @pytest.mark.parametrize("backend", _BACKENDS)
 def test_walker_determinism(backend: str) -> None:
-    """Two consecutive `forward()` calls on the same Module return
-    schemas with the same vertex / edge multisets."""
+    """Two consecutive renders on the same Module return schemas
+    with the same vertex / edge multisets."""
     module = parse(_FIXTURE)
-    walker = _walker_for(backend)
-    schema_a = walker.forward(module)
-    schema_b = walker.forward(module)
+    front, render_a, _ = _pipeline_for(backend)
+    _, render_b, _ = _pipeline_for(backend)
+    ir = front.forward(module)
+    schema_a = render_a.forward(ir)
+    schema_b = render_b.forward(ir)
     a_kinds = sorted(v.kind for v in schema_a.vertices)
     b_kinds = sorted(v.kind for v in schema_b.vertices)
     assert a_kinds == b_kinds, (
         f"{backend}: vertex-kind multisets differ between calls"
     )
-    a_edges = sorted((e.kind, _vertex_kind(schema_a, e.src), _vertex_kind(schema_a, e.tgt))
-                     for e in schema_a.edges)
-    b_edges = sorted((e.kind, _vertex_kind(schema_b, e.src), _vertex_kind(schema_b, e.tgt))
-                     for e in schema_b.edges)
+    a_edges = sorted(
+        (e.kind, _vertex_kind(schema_a, e.src), _vertex_kind(schema_a, e.tgt))
+        for e in schema_a.edges
+    )
+    b_edges = sorted(
+        (e.kind, _vertex_kind(schema_b, e.src), _vertex_kind(schema_b, e.tgt))
+        for e in schema_b.edges
+    )
     assert a_edges == b_edges, (
         f"{backend}: edge structure differs between calls"
     )
@@ -111,14 +141,12 @@ def _vertex_kind(schema: panproto.Schema, vid: str) -> str:
 
 @pytest.mark.parametrize("backend", _BACKENDS)
 def test_mapping_composition_equivalence(backend: str) -> None:
-    """``EmitPretty(SchemaTransform(module))`` equals
-    ``(SchemaTransform >> EmitPretty)(module)``."""
+    """``EmitPretty(Renderer(Lower(module)))`` equals
+    ``(Lower >> Renderer >> EmitPretty)(module)``."""
     module = parse(_FIXTURE)
-    walker = _walker_for(backend)
-    grammar = _grammar_for(backend)
-    emit = EmitPretty(grammar)
-    direct = emit.forward(walker.forward(module))
-    composed = (walker >> emit)(module)
+    front, render, emit = _pipeline_for(backend)
+    direct = emit.forward(render.forward(front.forward(module)))
+    composed = (front >> render >> emit)(module)
     assert direct == composed, (
         f"{backend}: composition law violated; direct emit and "
         f"composed pipeline produce different bytes"
