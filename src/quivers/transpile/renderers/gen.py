@@ -35,18 +35,10 @@ from typing import Callable
 import panproto
 import torch.distributions.constraints as _constraints
 
-from quivers.dsl.ast_nodes.let_expressions import (
-    LetExprBinOp,
-    LetExprCall,
-    LetExprIndex,
-    LetExprList,
-    LetExprLiteral,
-    LetExprUnaryOp,
-    LetExprVar,
-)
 from quivers.transpile._api import UnsupportedConstruct
 from quivers.transpile._pipeline import target_protocol
 from quivers.transpile.family_meta import FAMILY_META
+from quivers.transpile.renderers._julia_helpers import render_let_expr_julia
 from quivers.transpile.ir import (
     ConstraintSpec,
     Dim,
@@ -147,6 +139,45 @@ class _GenCtx:
 
     def e(self, src: str, tgt: str) -> None:
         self.sb.edge(src, tgt, "child_of")
+
+
+class _JlCtxAdapter:
+    """Adapt a [`_GenCtx`][quivers.transpile.renderers.gen._GenCtx] to
+    the protocol expected by
+    [`render_let_expr_julia`][quivers.transpile.renderers._julia_helpers.render_let_expr_julia].
+
+    The shared Julia let-expression helper expects a ctx with explicit
+    `v(vid, kind)` / `e(src, tgt, kind=child_of)` / `lit(vid, text)` /
+    `constraint(vid, sort, value)` / `fresh(prefix)` methods plus
+    `cards` and `target` attributes. The Gen renderer's [`_GenCtx`]
+    uses a different signature (`v(kind, prefix)`, `e(src, tgt)`); the
+    adapter bridges the two without touching the underlying
+    SchemaBuilder.
+    """
+
+    target: str
+    cards: dict[str, int]
+
+    def __init__(self, gx: _GenCtx, target: str) -> None:
+        self._gx = gx
+        self.cards = gx.cards
+        self.target = target
+
+    def fresh(self, prefix: str) -> str:
+        return self._gx.fresh(prefix)
+
+    def v(self, vid: str, kind: str) -> str:
+        self._gx.sb.vertex(vid, kind)
+        return vid
+
+    def e(self, src: str, tgt: str, kind: str = "child_of") -> None:
+        self._gx.sb.edge(src, tgt, kind)
+
+    def lit(self, vid: str, text: str) -> None:
+        self._gx.sb.constraint(vid, "literal-value", text)
+
+    def constraint(self, vid: str, sort: str, value: str) -> None:
+        self._gx.sb.constraint(vid, sort, value)
 
 
 def _ident(gx: _GenCtx, name: str) -> str:
@@ -428,9 +459,6 @@ def _loop_var_for(gx: _GenCtx, axis_name: str, step_name: str) -> str:
 # ---------------------------------------------------------------------------
 # IR arg rendering.
 # ---------------------------------------------------------------------------
-
-
-_BINOPS = frozenset({"+", "-", "*", "/", "^"})
 
 
 def _expected_event_rank(
@@ -1132,7 +1160,9 @@ class GenRenderer(RendererBase):
 
     def _emit_deterministic(self, node: IRDeterministic) -> None:
         gx = self._gx  # noqa: SLF001
-        rhs = _render_let_expr_gen(gx, node.expr)
+        rhs = render_let_expr_julia(
+            _JlCtxAdapter(gx, "gen"), node.expr
+        )
         stmt = _assignment(gx, _ident(gx, node.name), rhs)
         gx.body_stmts.append(stmt)
         gx.decl_axes[node.name] = node.plate.batch_dims
@@ -1155,7 +1185,9 @@ class GenRenderer(RendererBase):
     def _emit_score(self, ctx: _RenderCtx, node: IRScore) -> None:
         gx = self._gx  # noqa: SLF001
         del ctx
-        rhs = _render_let_expr_gen(gx, node.expr)
+        rhs = render_let_expr_julia(
+            _JlCtxAdapter(gx, "gen"), node.expr
+        )
         bind = _assignment(gx, _ident(gx, node.name), rhs)
         gx.body_stmts.append(bind)
         mc = _macro_call_space(
@@ -1215,49 +1247,6 @@ class GenRenderer(RendererBase):
         gx = self._gx  # noqa: SLF001
         value_vid = _render_arg(gx, value, arg_ctx=_ArgCtx())
         return _broadcast_to_shape(gx, value_vid, target_shape)
-
-
-# ---------------------------------------------------------------------------
-# Let-expression rendering.
-# ---------------------------------------------------------------------------
-
-
-def _render_let_expr_gen(gx: _GenCtx, expr: object) -> str:
-    """Render an [`IRExpr`][quivers.transpile.ir.IRExpr] subtree as Julia."""
-    if isinstance(expr, LetExprLiteral):
-        if isinstance(expr.value, float) or "." in repr(expr.value):
-            return gx.vlit("float_literal", str(expr.value), "flt")
-        return gx.vlit("integer_literal", str(expr.value), "int")
-    if isinstance(expr, LetExprVar):
-        return _ident(gx, expr.name)
-    if isinstance(expr, LetExprBinOp):
-        op = expr.op if expr.op in _BINOPS else "+"
-        be = gx.v("binary_expression", "be")
-        gx.e(be, _render_let_expr_gen(gx, expr.left))
-        gx.e(be, _operator(gx, op))
-        gx.e(be, _render_let_expr_gen(gx, expr.right))
-        return be
-    if isinstance(expr, LetExprUnaryOp):
-        ue = gx.v("unary_expression", "ue")
-        gx.e(ue, _operator(gx, "-"))
-        gx.e(ue, _render_let_expr_gen(gx, expr.operand))
-        return ue
-    if isinstance(expr, LetExprCall):
-        callee = _ident(gx, expr.func)
-        args = tuple(_render_let_expr_gen(gx, a) for a in expr.args)
-        return _call(gx, callee, args)
-    if isinstance(expr, LetExprIndex):
-        base = _render_let_expr_gen(gx, expr.array)
-        idxs = tuple(_render_let_expr_gen(gx, i) for i in expr.indices)
-        return _index_into(gx, base, idxs)
-    if isinstance(expr, LetExprList):
-        ve = gx.v("vector_expression", "ve")
-        for e in expr.items:
-            gx.e(ve, _render_let_expr_gen(gx, e))
-        return ve
-    raise UnsupportedConstruct(
-        "qvr-gen", [f"let-expr:{type(expr).__name__}"]
-    )
 
 
 # ---------------------------------------------------------------------------
