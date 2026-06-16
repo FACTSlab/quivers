@@ -145,6 +145,11 @@ class PyroRenderer(RendererBase):
         )
 
         pctx.v("mod", "module")
+        # Pyro lacks a built-in `TruncatedNormal`; install a
+        # mathematically-equivalent local class at the top of the
+        # module whenever the IR samples or observes from that family.
+        if _ir_uses_family(ir.body, "TruncatedNormal"):
+            _emit_truncated_normal_helper(pctx)
         body = pctx.v(pctx.fresh("body"), "block")
         func = _function_def_split(
             pctx,
@@ -381,8 +386,18 @@ class PyroRenderer(RendererBase):
                 [f"family:{family}"],
             )
         aliases = meta.arg_aliases.get(_TARGET, {})
-        # Build the distribution call.
-        dist_callee = attribute(pctx, ("pyro", "distributions", dist_class))
+        # Build the distribution call. Pyro lacks a built-in
+        # `TruncatedNormal`; the renderer installs a local
+        # `_TruncatedNormal` class at module top (see
+        # [`_emit_truncated_normal_helper`][quivers.transpile.renderers.pyro._emit_truncated_normal_helper])
+        # and dispatches the call to that bare identifier rather
+        # than to `pyro.distributions.<name>`.
+        if family == "TruncatedNormal":
+            dist_callee = identifier(pctx, _TRUNCATED_NORMAL_HELPER_NAME)
+        else:
+            dist_callee = attribute(
+                pctx, ("pyro", "distributions", dist_class)
+            )
         dist_args = self._build_dist_args(
             pctx, meta=meta, args=args, arg_names=arg_names,
             aliases=aliases, plate=plate,
@@ -861,6 +876,105 @@ def _scalar_broadcast_for_arg(
         else:
             return None
     return tuple(sizes)
+
+
+#: Local class name installed at module top to back the
+#: `TruncatedNormal` family on Pyro (which lacks a built-in
+#: `pyro.distributions.TruncatedNormal`).
+_TRUNCATED_NORMAL_HELPER_NAME = "_TruncatedNormal"
+
+
+#: Python source for the local `_TruncatedNormal` helper.
+#:
+#: The class subclasses
+#: [`pyro.distributions.torch_distribution.TorchDistribution`][pyro.distributions.torch_distribution.TorchDistribution]
+#: and implements the truncated-normal log density as
+#: ``log Normal(x; loc, scale) - log(CDF(high) - CDF(low))`` for
+#: ``x`` in the closed interval ``[low, high]``, returning
+#: ``-inf`` outside the support. `sample` uses inverse-CDF sampling.
+_TRUNCATED_NORMAL_HELPER_SRC = """\
+class _TruncatedNormal(pyro.distributions.torch_distribution.TorchDistribution):
+    arg_constraints = {}
+    has_rsample = False
+    def __init__(self, loc, scale, low, high, validate_args=None):
+        self.base_dist = pyro.distributions.Normal(loc, scale)
+        self.low = torch.as_tensor(low, dtype=torch.get_default_dtype())
+        self.high = torch.as_tensor(high, dtype=torch.get_default_dtype())
+        super().__init__(
+            self.base_dist.batch_shape,
+            self.base_dist.event_shape,
+            validate_args=validate_args,
+        )
+    def log_prob(self, value):
+        base_lp = self.base_dist.log_prob(value)
+        log_Z = torch.log(self.base_dist.cdf(self.high) - self.base_dist.cdf(self.low))
+        in_bounds = (value >= self.low) & (value <= self.high)
+        out = base_lp - log_Z
+        return torch.where(in_bounds, out, torch.full_like(out, float('-inf')))
+    def sample(self, sample_shape=torch.Size()):
+        shape = torch.Size(sample_shape) + self.base_dist.batch_shape + self.base_dist.event_shape
+        u = torch.rand(shape)
+        Fa = self.base_dist.cdf(self.low)
+        Fb = self.base_dist.cdf(self.high)
+        return self.base_dist.icdf(Fa + u * (Fb - Fa))
+"""
+
+
+def _ir_uses_family(body: tuple[IRNode, ...], family: str) -> bool:
+    """True iff any [`IRSample`][quivers.transpile.ir.IRSample] or
+    [`IRObserve`][quivers.transpile.ir.IRObserve] in `body` (including
+    nested [`IRMarginalize`][quivers.transpile.ir.IRMarginalize]
+    scopes) samples from `family`."""
+    for node in body:
+        if isinstance(node, (IRSample, IRObserve)) and node.family == family:
+            return True
+        if isinstance(node, IRMarginalize) and _ir_uses_family(
+            node.scope, family
+        ):
+            return True
+    return False
+
+
+def _emit_truncated_normal_helper(pctx: _PyroCtx) -> None:
+    """Emit ``exec(\"\"\"<helper>\"\"\", globals())`` as the first
+    module-level statement so subsequent ``_TruncatedNormal(...)``
+    calls resolve at runtime against
+    [`_TRUNCATED_NORMAL_HELPER_SRC`][quivers.transpile.renderers.pyro._TRUNCATED_NORMAL_HELPER_SRC].
+    """
+    # exec(...) call vertex
+    exec_call = pctx.v(pctx.fresh("call"), "call")
+    exec_fn = identifier(pctx, "exec")
+    exec_args = pctx.v(pctx.fresh("args"), "argument_list")
+    pctx.e(exec_call, exec_fn, "function")
+    pctx.e(exec_call, exec_args, "arguments")
+
+    # Triple-quoted string holding the helper source.
+    src_str = pctx.v(pctx.fresh("s"), "string")
+    src_start = pctx.v(pctx.fresh("ss"), "string_start")
+    pctx.literal(src_start, '"""')
+    src_content = pctx.v(pctx.fresh("sc"), "string_content")
+    pctx.literal(src_content, _TRUNCATED_NORMAL_HELPER_SRC)
+    src_end = pctx.v(pctx.fresh("se"), "string_end")
+    pctx.literal(src_end, '"""')
+    pctx.e(src_str, src_start, "child_of")
+    pctx.e(src_str, src_content, "child_of")
+    pctx.e(src_str, src_end, "child_of")
+    pctx.e(exec_args, src_str, "child_of")
+
+    # `globals()` second argument so the class lands in the module
+    # namespace that the probe script sets up.
+    globals_call = pctx.v(pctx.fresh("call"), "call")
+    globals_fn = identifier(pctx, "globals")
+    globals_args = pctx.v(pctx.fresh("args"), "argument_list")
+    pctx.e(globals_call, globals_fn, "function")
+    pctx.e(globals_call, globals_args, "arguments")
+    pctx.e(exec_args, globals_call, "child_of")
+
+    # Wrap in an expression_statement and attach to the module before
+    # the function definition.
+    stmt = pctx.v(pctx.fresh("es"), "expression_statement")
+    pctx.e(stmt, exec_call, "child_of")
+    pctx.e("mod", stmt, "child_of")
 
 
 __all__ = ["PyroRenderer"]
