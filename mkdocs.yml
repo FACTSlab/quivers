@@ -127,6 +127,8 @@ nav:
     - Compositional Effects: semantics/effects.md
     - The Program Theory: semantics/program-theory.md
     - Adequacy: semantics/adequacy.md
+    - Transpilation architecture: semantics/transpile-architecture.md
+    - Transpilation correctness: semantics/transpile-correctness/index.md
   - Examples Gallery:
     - Overview: examples/index.md
     - Bayesian Linear Regression: examples/bayesian-regression.md
