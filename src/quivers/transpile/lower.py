@@ -131,6 +131,21 @@ from quivers.transpile.ir import (
 )
 
 
+def _family_meta_or_raise(family: str) -> FamilyMeta:
+    """Return ``FAMILY_META[family]`` or raise
+    [`UnsupportedConstruct`][quivers.transpile.UnsupportedConstruct]
+    with a precise kind. Replaces bare-dict-access ``KeyError`` so
+    callers up the stack see the documented exception type instead
+    of an opaque dict failure."""
+    meta = FAMILY_META.get(family)
+    if meta is None:
+        raise UnsupportedConstruct(
+            "qvr-lower",
+            [f"family:{family}: not in FAMILY_META registry"],
+        )
+    return meta
+
+
 # A parsed bracket-indexed argument string: `name[i0][i1]...`.
 _BRACKET_RE = re.compile(r"^([A-Za-z_][A-Za-z0-9_]*)((?:\[[^\]]+\])+)$")
 _BRACKET_INDICES_RE = re.compile(r"\[([^\]]+)\]")
@@ -235,7 +250,7 @@ class Lower(dx.Mapping[Module, IRProgram]):
             family_registry=ctx.family_set,
             target="qvr-lower",
         )
-        meta = FAMILY_META[resolved.family]
+        meta = _family_meta_or_raise(resolved.family)
         ir_args, arg_names = self._lower_args(
             meta, resolved, ctx,
             event_axes=_event_axis_names(step),
@@ -273,7 +288,7 @@ class Lower(dx.Mapping[Module, IRProgram]):
             family_registry=ctx.family_set,
             target="qvr-lower",
         )
-        meta = FAMILY_META[resolved.family]
+        meta = _family_meta_or_raise(resolved.family)
         ir_args, arg_names = self._lower_args(
             meta, resolved, ctx,
             event_axes=_event_axis_names(step),
@@ -303,7 +318,7 @@ class Lower(dx.Mapping[Module, IRProgram]):
             family_registry=ctx.family_set,
             target="qvr-lower",
         )
-        meta = FAMILY_META[resolved.family]
+        meta = _family_meta_or_raise(resolved.family)
         ir_args, arg_names = self._lower_args(
             meta, resolved, ctx,
             event_axes=_marginalize_event_axis_names(step),
@@ -1283,7 +1298,7 @@ def _arg_to_tensor(
                     f"declared with `~ Family(...)` init"
                 ],
             )
-        inner_meta = FAMILY_META[decl.init_family.family]
+        inner_meta = _family_meta_or_raise(decl.init_family.family)
         inner_args = tuple(
             _raw_to_ir_for_sentinel(a) for a in decl.init_family.args
         )
