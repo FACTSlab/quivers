@@ -1113,13 +1113,84 @@ def _kumaraswamy_builder(
 def _lkj_cholesky_builder(
     params: list[torch.Tensor],
 ) -> D.Distribution:
-    """Build an LKJCholesky distribution from [concentration]. The
-    dimension is inferred from the codomain at fit time via the
-    morphism's event_shape; here the distribution is constructed
-    at dim=2 as a sentinel and the runtime resizes through the
-    family's normal sample-time event_shape resolution."""
-    concentration = params[0].clamp(min=EPS)
-    return D.LKJCholesky(2, concentration)
+    """Sentinel builder for LKJCholesky.
+
+    The real builder is constructed by
+    [`_dim_dependent_builder`][quivers.continuous.inline._dim_dependent_builder]
+    at `make_inline_distribution` time, which closes over the
+    codomain's matrix dimension. The bare sentinel here is what
+    sits in `_FAMILY_BUILDERS` so `get_inline_param_names`
+    advertises the right parameter list; the closure replaces it
+    before `MixedInlineDistribution` is constructed.
+
+    Raising here ensures any code path that fails to thread the
+    closure surfaces the bug loudly instead of silently sampling
+    from a wrong-dimensional LKJ.
+    """
+    del params
+    raise RuntimeError(
+        "LKJCholesky inline builder reached without dim closure; "
+        "call site must route through `_dim_dependent_builder` so "
+        "the codomain's matrix size is baked in"
+    )
+
+
+_DIM_DEPENDENT_FAMILIES: frozenset[str] = frozenset({"LKJCholesky"})
+
+
+def _dim_dependent_builder(
+    family: str, codomain: AnySpace
+) -> Callable[[list[torch.Tensor]], D.Distribution]:
+    """Return a dim-aware builder closure for a family whose torch
+    distribution needs the matrix / vector dimension at construction
+    time.
+
+    Currently used for `LKJCholesky`, whose `dim` argument fixes the
+    Cholesky factor's shape; the closure resolves the dim from the
+    codomain (FinSet cardinality, Euclidean dim, or CholeskyFactor
+    dim) and embeds it.
+    """
+    dim = _codomain_dim_or_raise(family, codomain)
+    if family == "LKJCholesky":
+
+        def _builder(params: list[torch.Tensor]) -> D.Distribution:
+            concentration = params[0].clamp(min=EPS)
+            return D.LKJCholesky(dim, concentration)
+
+        return _builder
+    raise ValueError(
+        f"_dim_dependent_builder: family {family!r} is marked "
+        "dim-dependent but no closure factory is registered"
+    )
+
+
+def _codomain_dim_or_raise(family: str, codomain: AnySpace) -> int:
+    """Resolve the matrix / vector dimension a dim-dependent family
+    requires from its `codomain`.
+
+    Supported codomain shapes: anything that exposes a `cardinality`
+    field (the FinSet case for `object Dim : FinSet K`), a `dim`
+    field (Euclidean / CholeskyFactor / Simplex / PositiveReals),
+    or a callable `shape` property reducing to a single integer.
+
+    Raises `ValueError` rather than silently coercing to a wrong
+    dim, because a wrong LKJCholesky dim is the kind of bug that
+    produces a numerically valid but semantically wrong density.
+    """
+    card = getattr(codomain, "cardinality", None)
+    if isinstance(card, int):
+        return card
+    dim_attr = getattr(codomain, "dim", None)
+    if isinstance(dim_attr, int):
+        return dim_attr
+    raise ValueError(
+        f"_codomain_dim_or_raise: cannot resolve matrix dimension "
+        f"for inline family {family!r} from codomain "
+        f"{type(codomain).__name__} (no `cardinality` or `dim` "
+        "attribute). Declare the codomain with an explicit size "
+        "(e.g., `object Dim : FinSet 4`) or extend "
+        "`_codomain_dim_or_raise` to handle this space kind."
+    )
 
 
 _FAMILY_BUILDERS: dict[str, tuple[tuple[str, ...], Callable, bool]] = {
@@ -1274,6 +1345,14 @@ def make_inline_distribution(
             fam_support = _constraints.interval(lit_args[0], lit_args[1])
         elif family == "TruncatedNormal" and len(lit_args) >= 2:
             fam_support = _constraints.interval(lit_args[-2], lit_args[-1])
+    # Dimension-dependent families need the codomain's matrix /
+    # vector size baked into the builder closure. The shared
+    # `_FAMILY_BUILDERS` entry holds a sentinel-dim factory; here
+    # we replace it with a closure that captures the codomain dim
+    # so the resulting torch distribution has the right event_shape
+    # at construction.
+    if family in _DIM_DEPENDENT_FAMILIES:
+        dist_builder = _dim_dependent_builder(family, codomain)
     morph = MixedInlineDistribution(
         domain,
         codomain,
