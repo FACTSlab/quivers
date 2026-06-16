@@ -54,6 +54,21 @@ from quivers.dsl.ast_nodes.objects import (
     TypeName,
 )
 from quivers.transpile._api import UnsupportedConstruct
+from quivers.transpile.ir import (
+    IRArg,
+    IRArgBroadcast,
+    IRArgList,
+    IRArgMatrix,
+    IRArgRef,
+    IRDataInput,
+    IRDeterministic,
+    IRMarginalize,
+    IRNode,
+    IRObserve,
+    IRProgram,
+    IRSample,
+    Plate,
+)
 
 
 @runtime_checkable
@@ -513,4 +528,259 @@ def _target(ctx: _BugsLetCtx) -> str:
     return getattr(ctx, "target", "bugs")
 
 
-__all__ = ["render_let_expr_bugs"]
+# ---------------------------------------------------------------------------
+# Shared IR pre-pass: lift empty-plate IRDeterministic nodes into the
+# plate of their first downstream consumer. BUGS and JAGS each lack a
+# scalar-to-vector broadcast operator, so a `let mu = a + b * x_design`
+# top-level emit becomes invalid the moment ``x_design`` is a vector
+# supplied via the data list; this helper rewrites the IR so the
+# deterministic and its free-data-input dependencies acquire the
+# consumer's plate and emit as ``for (i in 1:N) { mu[i] <- ... }``.
+# ---------------------------------------------------------------------------
+
+
+def push_scalar_dets_into_loops(ir: IRProgram) -> IRProgram:
+    """Lift each empty-plate `IRDeterministic` whose expression
+    references a plate-less free data input into the plate of the
+    first downstream consumer.
+
+    The consumer is the first `IRObserve` / `IRSample` whose args
+    contain an `IRArgRef` to the deterministic's bound name. The
+    referenced free data inputs are retagged with that consumer's
+    plate so subsequent emission rebroadcasts them consistently.
+    """
+    free_input_names: set[str] = set()
+    for inp in ir.inputs:
+        if not inp.plate.batch_dims and not inp.plate.event_dims:
+            free_input_names.add(inp.name)
+    det_to_free_refs: dict[str, frozenset[str]] = {}
+    for node in ir.body:
+        if not isinstance(node, IRDeterministic):
+            continue
+        if node.plate.batch_dims or node.plate.event_dims:
+            continue
+        free_refs = collect_letexpr_vars(node.expr) & free_input_names
+        if free_refs:
+            det_to_free_refs[node.name] = frozenset(free_refs)
+    if not det_to_free_refs:
+        return ir
+    det_consumer_plate: dict[str, Plate] = {}
+    for node in ir.body:
+        if isinstance(node, (IRObserve, IRSample)) and (
+            node.plate.batch_dims or node.plate.event_dims
+        ):
+            referenced = collect_irargref_names(node.args)
+            for det_name in det_to_free_refs:
+                if det_name in referenced and det_name not in det_consumer_plate:
+                    det_consumer_plate[det_name] = node.plate
+    if not det_consumer_plate:
+        return ir
+    input_plate_overrides: dict[str, Plate] = {}
+    for det_name, free_refs in det_to_free_refs.items():
+        consumer_plate = det_consumer_plate.get(det_name)
+        if consumer_plate is None:
+            continue
+        for free_ref in free_refs:
+            input_plate_overrides[free_ref] = consumer_plate
+    new_inputs = tuple(
+        IRDataInput(
+            name=inp.name,
+            constraint=inp.constraint,
+            plate=input_plate_overrides.get(inp.name, inp.plate),
+        )
+        for inp in ir.inputs
+    )
+    new_body: list[IRNode] = []
+    for node in ir.body:
+        if isinstance(node, IRDeterministic) and node.name in det_consumer_plate:
+            new_body.append(
+                IRDeterministic(
+                    name=node.name,
+                    expr=node.expr,
+                    constraint=node.constraint,
+                    plate=det_consumer_plate[node.name],
+                )
+            )
+        else:
+            new_body.append(node)
+    return IRProgram(
+        name=ir.name,
+        inputs=new_inputs,
+        body=tuple(new_body),
+        cards=ir.cards,
+    )
+
+
+def collect_letexpr_vars(expr: LetExprNode) -> frozenset[str]:
+    """Collect every bare-variable name in a let-expression tree."""
+    if isinstance(expr, LetExprVar):
+        return frozenset({expr.name})
+    if isinstance(expr, LetExprLiteral):
+        return frozenset()
+    if isinstance(expr, LetExprBinOp):
+        return collect_letexpr_vars(expr.left) | collect_letexpr_vars(
+            expr.right
+        )
+    if isinstance(expr, LetExprUnaryOp):
+        return collect_letexpr_vars(expr.operand)
+    if isinstance(expr, LetExprCall):
+        out: frozenset[str] = frozenset()
+        for a in expr.args:
+            out = out | collect_letexpr_vars(a)
+        return out
+    if isinstance(expr, LetExprIndex):
+        out2: frozenset[str] = collect_letexpr_vars(expr.array)
+        for ix in expr.indices:
+            out2 = out2 | collect_letexpr_vars(ix)
+        return out2
+    return frozenset()
+
+
+def collect_irargref_names(args: tuple[IRArg, ...]) -> frozenset[str]:
+    """Collect every `IRArgRef.name` reachable via the arg tuple."""
+    out: set[str] = set()
+    for a in args:
+        _collect_irargref_names_into(a, out)
+    return frozenset(out)
+
+
+def _collect_irargref_names_into(arg: IRArg, out: set[str]) -> None:
+    if isinstance(arg, IRArgRef):
+        out.add(arg.name)
+        for ix in arg.indices:
+            _collect_irargref_names_into(ix, out)
+        return
+    if isinstance(arg, IRArgBroadcast):
+        _collect_irargref_names_into(arg.value, out)
+        return
+    if isinstance(arg, IRArgList):
+        for el in arg.elements:
+            _collect_irargref_names_into(el, out)
+        return
+    if isinstance(arg, IRArgMatrix):
+        for row in arg.rows:
+            for el in row.elements:
+                _collect_irargref_names_into(el, out)
+        return
+    # `IRArgTransform` (renderer-local wrapper) is structurally a
+    # nested IRArg; treat it as opaque here -- nothing in the
+    # pre-pass examines transform-wrapped args before the renderer
+    # injects them downstream.
+
+
+def build_decl_plates(ir: IRProgram) -> dict[str, Plate]:
+    """Build the declared-plate map for every named binding.
+
+    Combines `ir.inputs` and every node in `ir.body` so the let-expr
+    re-indexer can look up the plate of any reference encountered.
+    """
+    out: dict[str, Plate] = {}
+    for inp in ir.inputs:
+        out[inp.name] = inp.plate
+    stack: list[IRNode] = list(ir.body)
+    while stack:
+        node = stack.pop()
+        if isinstance(node, IRSample):
+            out[node.name] = node.plate
+        elif isinstance(node, IRObserve):
+            out[node.name] = node.plate
+        elif isinstance(node, IRDeterministic):
+            out[node.name] = node.plate
+        elif isinstance(node, IRMarginalize):
+            out[node.latent] = node.plate
+            stack.extend(node.scope)
+    return out
+
+
+def index_letexpr_refs(
+    expr: LetExprNode,
+    decl_plates: dict[str, Plate],
+    enclosing_plate: Plate,
+    loop_names: tuple[str, ...],
+) -> LetExprNode:
+    """Rewrite each `LetExprVar` whose declared plate shares axes with
+    ``enclosing_plate`` into a `LetExprIndex` indexed by the matching
+    loop variables.
+
+    Axes are matched by name: for each axis in the var's declared
+    batch_dims the helper looks up the parallel loop variable in
+    ``enclosing_plate`` and emits it as the index expression. Vars
+    whose declared plate has no axes in common with the surrounding
+    loop stay as bare names so they broadcast as constants per
+    iteration; vars whose declared plate has an axis the surrounding
+    loop does not iterate are also left bare so the emitter can flag
+    the shape mismatch downstream rather than silently picking the
+    wrong loop variable.
+    """
+    if not loop_names:
+        return expr
+    axis_to_loop: dict[str, str] = {}
+    for dim, lname in zip(
+        enclosing_plate.batch_dims, loop_names, strict=True
+    ):
+        axis_to_loop[dim.name] = lname
+    return _index_letexpr_refs_inner(expr, decl_plates, axis_to_loop)
+
+
+def _index_letexpr_refs_inner(
+    expr: LetExprNode,
+    decl_plates: dict[str, Plate],
+    axis_to_loop: dict[str, str],
+) -> LetExprNode:
+    if isinstance(expr, LetExprVar):
+        plate = decl_plates.get(expr.name)
+        if plate is None or not plate.batch_dims:
+            return expr
+        indices: list[LetExprNode] = []
+        for dim in plate.batch_dims:
+            lname = axis_to_loop.get(dim.name)
+            if lname is None:
+                return expr
+            indices.append(LetExprVar(name=lname))
+        return LetExprIndex(
+            array=LetExprVar(name=expr.name),
+            indices=tuple(indices),
+        )
+    if isinstance(expr, LetExprLiteral):
+        return expr
+    if isinstance(expr, LetExprBinOp):
+        return LetExprBinOp(
+            op=expr.op,
+            left=_index_letexpr_refs_inner(expr.left, decl_plates, axis_to_loop),
+            right=_index_letexpr_refs_inner(
+                expr.right, decl_plates, axis_to_loop
+            ),
+        )
+    if isinstance(expr, LetExprUnaryOp):
+        return LetExprUnaryOp(
+            operand=_index_letexpr_refs_inner(
+                expr.operand, decl_plates, axis_to_loop
+            ),
+        )
+    if isinstance(expr, LetExprCall):
+        return LetExprCall(
+            func=expr.func,
+            args=tuple(
+                _index_letexpr_refs_inner(a, decl_plates, axis_to_loop)
+                for a in expr.args
+            ),
+        )
+    if isinstance(expr, LetExprIndex):
+        return LetExprIndex(
+            array=expr.array,
+            indices=tuple(
+                _index_letexpr_refs_inner(ix, decl_plates, axis_to_loop)
+                for ix in expr.indices
+            ),
+        )
+    return expr
+
+
+__all__ = [
+    "render_let_expr_bugs",
+    "push_scalar_dets_into_loops",
+    "build_decl_plates",
+    "index_letexpr_refs",
+    "collect_letexpr_vars",
+    "collect_irargref_names",
+]

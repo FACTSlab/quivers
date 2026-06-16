@@ -60,6 +60,13 @@ from quivers.dsl.ast_nodes import (
     DrawArg,
     DrawArgName,
     DrawArgScalar,
+    LetExprBinOp,
+    LetExprCall,
+    LetExprIndex,
+    LetExprLiteral,
+    LetExprNode,
+    LetExprUnaryOp,
+    LetExprVar,
     MorphismDecl,
     MorphismInitFamily,
 )
@@ -95,7 +102,11 @@ from quivers.transpile.renderers._base import (
     _RenderCtx,
     assert_no_dangling_refs,
 )
-from quivers.transpile.renderers._bugs_helpers import render_let_expr_bugs
+from quivers.transpile.renderers._bugs_helpers import (
+    index_letexpr_refs,
+    push_scalar_dets_into_loops,
+    render_let_expr_bugs,
+)
 
 
 class _BugsLetCtx:
@@ -209,6 +220,12 @@ class BUGSRenderer(RendererBase):
         """
         assert_no_dangling_refs(ir)
         self._reject_list_args(ir)
+        # BUGS / JAGS have no scalar-to-vector broadcast: an
+        # IRDeterministic with empty plate whose expression references
+        # a plate-less free data input that ends up consumed inside a
+        # non-empty-plate observe must be lifted into the consumer's
+        # loop, with the references re-indexed by the loop variable.
+        ir = push_scalar_dets_into_loops(ir)
         proto = self.target_protocol()
         sb = proto.schema()
         ctx = _BugsCtx(sb=sb, morphisms={}, lets={})
@@ -603,13 +620,23 @@ class BUGSRenderer(RendererBase):
             ctx.sb.edge(body_id, dr_id, "deterministic_relation")
             lhs_id = self._emit_lhs(ctx, node.name, node.plate, loop_names)
             ctx.sb.edge(dr_id, lhs_id, "variable")
+            # Rewrite the expression so any var reference whose
+            # declared plate axes match the surrounding loop axes
+            # emits as `name[loop_var, ...]`. Required when an empty-
+            # plate det was lifted into a non-empty plate by the
+            # `_push_scalar_dets_into_loops` pre-pass: the lifted
+            # det's expression still names a free data input
+            # (`x_design`) that the lift retagged with the new plate.
+            expr = index_letexpr_refs(
+                node.expr, ctx.decl_plates, node.plate, loop_names
+            )
             let_ctx = _BugsLetCtx(
                 ctx.sb,
                 lambda p: self._fresh(ctx, p),
                 self._cards,
                 self.target,
             )
-            rhs_id = render_let_expr_bugs(let_ctx, node.expr)
+            rhs_id = render_let_expr_bugs(let_ctx, expr)
             ctx.sb.edge(dr_id, rhs_id, "value")
         finally:
             ctx.enclosing_plate = prev_plate
