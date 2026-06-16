@@ -36,6 +36,8 @@ The renderer:
 
 from __future__ import annotations
 
+from typing import Literal
+
 import panproto
 
 from quivers.transpile._api import UnsupportedConstruct
@@ -43,6 +45,7 @@ from quivers.transpile._pipeline import target_protocol
 from quivers.transpile.family_meta import FAMILY_META
 from quivers.transpile.ir import (
     ConstraintSpec,
+    Dim,
     DimDynamic,
     DimStatic,
     IRArg,
@@ -84,7 +87,9 @@ _BACKEND: str = "jags"
 #: Normal's ``scale`` -> ``tau`` is the canonical case: JAGS
 #: parameterises Normal by precision, so the renderer emits
 #: ``1/(scale*scale)``.
-_ALIAS_TRANSFORMS: dict[str, str] = {
+_TransformKind = Literal["inv_square", "inv", "neg", "log", "exp"]
+
+_ALIAS_TRANSFORMS: dict[str, _TransformKind] = {
     "tau": "inv_square",
 }
 
@@ -408,7 +413,7 @@ class JAGSRenderer(RendererBase):
         )
 
         for dim in plate.batch_dims:
-            ctx.emitted_plate_names.add(dim.name)
+            ctx.emitted_plate_names.add(_dim_name(dim))
 
         # Record this sample's plate info so subsequent refs to `name`
         # thread the loop var + event ranges through. We record both the
@@ -1065,7 +1070,7 @@ class JAGSRenderer(RendererBase):
         thread through m_Doc_z when sampled inside the Doc_z plate).
         """
         seen = ctx.emitted_plate_names
-        new_batch: list[object] = []
+        new_batch: list[Dim] = []
         rename_map: dict[str, str] = {}
         for dim in plate.batch_dims:
             original = _dim_name(dim)
