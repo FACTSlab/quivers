@@ -1,0 +1,31 @@
+# Beta-Binomial A/B Test
+#
+# A two-arm A/B test on a binary conversion outcome. Each arm has
+# its own Beta(conc1, conc0) prior on the latent conversion rate;
+# the observed successes per arm are Beta-Binomial draws over a
+# shared trial count with per-arm concentration parameters.
+#
+# Generative structure:
+#
+#   conc1_a ~ HalfCauchy(2)              per-arm success concentration
+#   conc0_a ~ HalfCauchy(2)              per-arm failure concentration
+#   y_a     ~ BetaBinomial(N, conc1_a, conc0_a)   per-arm successes
+#
+# The Beta-Binomial marginalises the latent conversion rate
+# analytically: each arm's posterior on the rate is conjugate-Beta,
+# so the observed counts carry direct evidence about the arm's
+# concentration parameters without introducing an intermediate
+# rate variable.
+#
+# Reference: [Skellam 1948](https://www.jstor.org/stable/2983694).
+
+object Arm : FinSet 2
+
+program ab_test : Arm -> Arm
+    sample conc1 : Arm <- HalfCauchy(2.0)
+    sample conc0 : Arm <- HalfCauchy(2.0)
+
+    observe y : Arm <- BetaBinomial(N, conc1, conc0)
+    return conc1
+
+export ab_test
