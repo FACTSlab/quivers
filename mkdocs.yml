@@ -135,8 +135,13 @@ nav:
     - Beta Regression: examples/beta-regression.md
     - Gamma Regression: examples/gamma-regression.md
     - Horseshoe Regression: examples/horseshoe-regression.md
+    - Logistic-Noise Regression: examples/logistic-noise-regression.md
+    - Hierarchical Regression (HalfStudentT): examples/half-student-t-hierarchical.md
     - Negative Binomial Regression: examples/negbin-regression.md
     - Zero-Inflated Poisson Regression: examples/zip-regression.md
+    - Kumaraswamy Bounded-Outcome Regression: examples/kumaraswamy-bounded-outcome.md
+    - Beta-Binomial A/B Test: examples/beta-binomial-ab-test.md
+    - LKJCholesky Correlation Prior: examples/lkj-cholesky-correlation.md
     - Factor Analysis: examples/factor-analysis.md
     - Probabilistic PCA: examples/ppca.md
     - Latent Dirichlet Allocation: examples/lda.md
