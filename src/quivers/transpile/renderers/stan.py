@@ -675,6 +675,13 @@ class StanRenderer(RendererBase):
         """
         if family in _PREPEND_ZERO:
             return (IRArgNumber(value=0.0), *args)
+        pos = _INSERT_ZERO_AT.get(family)
+        if pos is not None:
+            return (
+                *args[:pos],
+                IRArgNumber(value=0.0),
+                *args[pos:],
+            )
         return args
 
     def _broadcast_scalar_refs(
@@ -2130,6 +2137,14 @@ class StanRenderer(RendererBase):
 # distribution. `HalfNormal(scale)` maps to Stan's `normal(0, scale)`;
 # the renderer prepends `IRArgNumber(0)` before emission.
 _PREPEND_ZERO: frozenset[str] = frozenset({"HalfNormal", "HalfCauchy"})
+
+# Per-family insertion of `IRArgNumber(0)` at an intermediate
+# position. `HalfStudentT(df, scale)` maps to Stan's
+# `student_t(df, 0, scale)`; the renderer injects `mu = 0` between
+# the first and second user-supplied args.
+_INSERT_ZERO_AT: dict[str, int] = {
+    "HalfStudentT": 1,
+}
 
 
 _BLOCK_KIND_MAP: dict[BlockKind, str] = {
