@@ -426,7 +426,7 @@ class TuringRenderer(RendererBase):
             morphisms=self._morphisms,
             lets=self._lets,
             counter=counter,
-            cards={},
+            cards=dict(ir.cards),
             body=body,
             input_plates={inp.name: inp.plate for inp in ir.inputs},
             sample_plates={},
@@ -742,7 +742,7 @@ class TuringRenderer(RendererBase):
         sb, counter = ctx.sb, ctx.counter
         lhs = _identifier(sb, counter, node.name)
         rhs = render_let_expr_julia(
-            _JlCtxShim(sb, counter), node.expr
+            _JlCtxShim(sb, counter, ctx.cards, "turing"), node.expr
         )
         stmt = _assignment(sb, counter, lhs, rhs)
         sb.edge(ctx.body, stmt, "child_of")
@@ -752,7 +752,9 @@ class TuringRenderer(RendererBase):
         `Turing.@addlogprob!`."""
         sb, counter = ctx.sb, ctx.counter
         lhs = _identifier(sb, counter, node.name)
-        rhs = render_let_expr_julia(_JlCtxShim(sb, counter), node.expr)
+        rhs = render_let_expr_julia(
+            _JlCtxShim(sb, counter, ctx.cards, "turing"), node.expr
+        )
         stmt = _assignment(sb, counter, lhs, rhs)
         sb.edge(ctx.body, stmt, "child_of")
         mac = _macro_call(
@@ -818,19 +820,36 @@ class _TuringCtx(_RenderCtx):
         self.sample_plates = sample_plates
 
 
-# `_JlCtxShim` lets us reuse [`render_let_expr_julia`][quivers.transpile.renderers._julia_helpers.render_let_expr_julia]
-# (which expects a `JlCtx` with `v`, `e`, `lit`, `fresh`) without
-# pulling in the legacy backend's whole helper module.
+# `_JlCtxShim` lets us reuse
+# [`render_let_expr_julia`][quivers.transpile.renderers._julia_helpers.render_let_expr_julia]
+# (which expects a `JlCtx` exposing `v`, `e`, `lit`, `fresh`,
+# `constraint`, `cards`, `target`) without pulling in the legacy
+# backend's whole helper module.
 class _JlCtxShim:
-    """Minimal adapter exposing the four methods
+    """Minimal adapter exposing the methods
     [`render_let_expr_julia`][quivers.transpile.renderers._julia_helpers.render_let_expr_julia]
-    reads off its ctx parameter."""
+    reads off its ctx parameter.
+
+    Carries the static-axis-size table `cards` so
+    [`LetExprFactor`][quivers.dsl.ast_nodes.LetExprFactor] unrolling
+    can resolve binder cardinalities, and the `target` tag so error
+    messages identify the backend ("turing").
+    """
+
+    target: str
+    cards: dict[str, int]
 
     def __init__(
-        self, sb: panproto.SchemaBuilder, counter: list[int]
+        self,
+        sb: panproto.SchemaBuilder,
+        counter: list[int],
+        cards: dict[str, int],
+        target: str,
     ) -> None:
         self._sb = sb
         self._counter = counter
+        self.cards = cards
+        self.target = target
 
     def fresh(self, prefix: str) -> str:
         self._counter[0] += 1
@@ -845,6 +864,9 @@ class _JlCtxShim:
 
     def lit(self, vid: str, text: str) -> None:
         self._sb.constraint(vid, "literal-value", text)
+
+    def constraint(self, vid: str, sort: str, value: str) -> None:
+        self._sb.constraint(vid, sort, value)
 
 
 # ---------------------------------------------------------------------------
