@@ -350,12 +350,17 @@ class Lower(dx.Mapping[Module, IRProgram]):
         )
 
     def _lower_let(self, step: LetStep, ctx: _LowerCtx) -> IRDeterministic:
-        # Deterministic let-step. The constraint is `Real()` by
-        # default; a richer derivation would inspect the expression
-        # tree for its output type. Lower keeps the expression tree
-        # unchanged (rendered per-backend downstream).
-        del ctx
-        plate = Plate(event_dims=(), batch_dims=())
+        """Deterministic let-step.
+
+        When the bound expression is a
+        [`LetExprFactor`][quivers.dsl.ast_nodes.LetExprFactor] the
+        result is rank-`n` over its binders' axes, so the IR plate
+        carries one `DimStatic` per binder. Other expression shapes
+        denote a scalar (the default `Real()` constraint, no plate
+        dims). Renderers use the plate to choose the declared type
+        (`array[...] real` vs `real`).
+        """
+        plate = _let_step_plate(step.value, ctx)
         return IRDeterministic(
             name=step.name,
             expr=step.value,
@@ -1533,6 +1538,42 @@ def _scalar_binding_names(ctx: _LowerCtx) -> frozenset[str]:
     return frozenset(
         p.name for p in program.type_params if isinstance(p, ScalarParam)
     )
+
+
+def _let_step_plate(
+    expr: LetExprNode, ctx: _LowerCtx
+) -> Plate:
+    """Derive the IR plate for an `IRDeterministic` whose bound
+    expression is `expr`.
+
+    A `LetExprFactor` of `n` binders produces a rank-`n` result
+    whose event dimensions are the binders' static axis sizes (in
+    declaration order); every other expression denotes a scalar.
+    Resolving a binder's axis size walks the ctx's `cards` map
+    for the bound object name.
+    """
+    if isinstance(expr, LetExprFactor):
+        dims: list[Dim] = []
+        for binder in expr.binders:
+            idx = binder.index
+            if isinstance(idx, TypeName):
+                size = ctx.cards.get(idx.name)
+                if size is None:
+                    return Plate(event_dims=(), batch_dims=())
+                dims.append(
+                    DimStatic(size=size, name=idx.name)
+                )
+            else:
+                return Plate(event_dims=(), batch_dims=())
+        # Per-binder axes are the result's batch dimensions (the
+        # tensor's prepended shape), mirroring how `IRSample` /
+        # `IRObserve` plates carry per-plate axes; renderers consume
+        # batch_dims to size the `array [...]` declaration prefix.
+        return Plate(
+            event_dims=(),
+            batch_dims=tuple(dims),
+        )
+    return Plate(event_dims=(), batch_dims=())
 
 
 def _walk_nodes(body: tuple[IRNode, ...]):

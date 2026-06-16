@@ -1978,10 +1978,18 @@ class StanRenderer(RendererBase):
         decl = self._fresh(ctx, "tpvd")
         ctx.sb.vertex(decl, "top_var_decl")
         ctx.sb.edge(parent, decl, "child_of")
+        if node.plate.batch_dims:
+            arr = self._fresh(ctx, "tparr")
+            ctx.sb.vertex(arr, "arr_dims")
+            for dim in node.plate.batch_dims:
+                size_vid = self._dim_size_vertex(ctx, dim)
+                ctx.sb.edge(arr, size_vid, "child_of")
+            ctx.sb.edge(decl, arr, "child_of")
         tvt = self._fresh(ctx, "tpvt")
         ctx.sb.vertex(tvt, "top_var_type")
         self._emit_type(
-            ctx, tvt, node.constraint.to_constraint(), ()
+            ctx, tvt, node.constraint.to_constraint(),
+            node.plate.event_dims,
         )
         ctx.sb.edge(decl, tvt, "child_of")
         nm = self._fresh(ctx, "tpnm")
