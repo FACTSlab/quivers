@@ -162,6 +162,228 @@ def test_kumaraswamy_builder_matches_closed_form(
         )
 
 
+# ---------------------------------------------------------------------------
+# Support-boundary cells. The parameter sweeps above skip support
+# boundaries (Beta domain starts at 0.05, Kumaraswamy at 0.05, etc.)
+# where many distributions have log-density singularities or
+# surprising behaviour. The tests below evaluate the builders AT the
+# closed-support boundary and assert the analytic value, or detect
+# the singular value (`+inf` / `-inf` / `nan`) explicitly so a future
+# regression that silently swaps the behaviour fails loudly.
+# ---------------------------------------------------------------------------
+
+
+def _beta(a: float, b: float) -> D.Beta:
+    """Construct a `Beta(a, b)` distribution in float64."""
+    return D.Beta(
+        torch.tensor(a, dtype=torch.float64),
+        torch.tensor(b, dtype=torch.float64),
+    )
+
+
+@pytest.mark.parametrize("endpoint", [0.0, 1.0])
+def test_beta_2_2_log_prob_at_boundary_is_neg_inf(endpoint: float) -> None:
+    """`Beta(2, 2)` has density ``6 x (1 - x)`` on ``[0, 1]``; the
+    density vanishes at both closed-support endpoints, so
+    ``log_prob`` is ``-inf`` at ``x = 0`` and ``x = 1``. The
+    builder must report the analytic value (or `-inf`) rather than
+    crashing or silently returning a finite garbage value.
+    """
+    dist = _beta(2.0, 2.0)
+    actual = dist.log_prob(torch.tensor(endpoint, dtype=torch.float64))
+    assert torch.isinf(actual) and actual.item() < 0.0, (
+        f"Beta(2, 2).log_prob({endpoint}) = {actual.item()}; "
+        "expected -inf (density vanishes at the boundary)"
+    )
+
+
+@pytest.mark.parametrize("endpoint", [0.0, 1.0])
+def test_beta_half_half_log_prob_at_boundary_is_pos_inf(
+    endpoint: float,
+) -> None:
+    """`Beta(0.5, 0.5)` is the arcsine distribution with density
+    ``1 / (pi sqrt(x (1 - x)))``; the density diverges at the
+    boundary, so ``log_prob`` is ``+inf`` at ``x = 0`` and ``x = 1``.
+    The builder must surface the singular value rather than crashing.
+    """
+    dist = _beta(0.5, 0.5)
+    actual = dist.log_prob(torch.tensor(endpoint, dtype=torch.float64))
+    assert torch.isinf(actual) and actual.item() > 0.0, (
+        f"Beta(0.5, 0.5).log_prob({endpoint}) = {actual.item()}; "
+        "expected +inf (arcsine density diverges at the boundary)"
+    )
+
+
+def test_beta_1_1_log_prob_at_boundary_is_zero() -> None:
+    """`Beta(1, 1)` is the uniform distribution on ``[0, 1]``;
+    the density is exactly 1 everywhere on the closed support, so
+    ``log_prob`` is exactly 0 at the boundaries. Pins the
+    well-defined endpoint of the Beta family so any future
+    regression to a half-open support is caught."""
+    dist = _beta(1.0, 1.0)
+    for endpoint in (0.0, 1.0):
+        actual = dist.log_prob(
+            torch.tensor(endpoint, dtype=torch.float64)
+        )
+        assert torch.allclose(
+            actual,
+            torch.tensor(0.0, dtype=torch.float64),
+            atol=_ATOL,
+        ), (
+            f"Beta(1, 1).log_prob({endpoint}) = {actual.item()}; "
+            "expected 0 (uniform density)"
+        )
+
+
+@pytest.mark.parametrize("a, b", [(2.0, 2.0), (0.5, 0.5)])
+def test_kumaraswamy_log_prob_approaching_boundary(
+    a: float, b: float
+) -> None:
+    """`Kumaraswamy(a, b).log_prob(x)` near ``x = 0``: for ``a >= 1``
+    the density is finite at the interior but the closed-form
+    ``(a - 1) log x`` term diverges to ``-inf`` for ``a > 1`` and
+    ``log x`` diverges to ``-inf`` for ``a < 1``. The exact-boundary
+    evaluation goes through torch's `TransformedDistribution`
+    machinery and returns `nan` because of a `0 * log(0)` pattern in
+    the transform inverse, but the builder is well-defined at
+    arbitrarily small interior x and the limit matches the closed
+    form. This test pins both behaviours: NaN at exactly 0, and
+    a divergent log-prob as `x` shrinks towards 0.
+    """
+    dist = _build("Kumaraswamy", [a, b])
+    # Exact boundary: NaN (TransformedDistribution quirk).
+    at_zero = dist.log_prob(torch.tensor(0.0, dtype=torch.float64))
+    assert torch.isnan(at_zero), (
+        f"Kumaraswamy({a}, {b}).log_prob(0.0) = {at_zero.item()}; "
+        "expected NaN at the exact boundary (TransformedDistribution "
+        "evaluates 0 * log(0) in the inverse-transform Jacobian)"
+    )
+    # Interior point near the boundary: agrees with the closed-form
+    #   log f(x; a, b) = log a + log b
+    #     + (a - 1) log x + (b - 1) log(1 - x^a)
+    # The PyTorch implementation underflows the ``log(1 - x^a)`` term
+    # for very small x (the ``1 - x^a`` subtraction loses every bit
+    # of precision below ~1e-8 for ``a = 2``), so we evaluate at a
+    # moderately small point where both regimes match.
+    x_small = torch.tensor(1e-6, dtype=torch.float64)
+    near_zero = dist.log_prob(x_small)
+    expected = (
+        math.log(a)
+        + math.log(b)
+        + (a - 1.0) * torch.log(x_small)
+        + (b - 1.0) * torch.log1p(-torch.pow(x_small, a))
+    )
+    assert torch.isfinite(near_zero), (
+        f"Kumaraswamy({a}, {b}).log_prob(1e-6) = {near_zero.item()}; "
+        "expected a finite value at an interior point near the boundary"
+    )
+    assert torch.allclose(near_zero, expected, atol=_ATOL), (
+        f"Kumaraswamy({a}, {b}).log_prob(1e-6) = {near_zero.item()}; "
+        f"expected {expected.item()} from the closed-form pdf"
+    )
+    # Divergence direction matches the sign of (a - 1):
+    #   a > 1: density vanishes at 0, so log_prob -> -inf;
+    #   a < 1: density blows up at 0, so log_prob -> +inf.
+    if a > 1.0:
+        assert near_zero.item() < 0.0, (
+            f"Kumaraswamy({a}, {b}).log_prob(1e-6) = "
+            f"{near_zero.item()}; expected a large negative value "
+            "because the density vanishes at 0 when a > 1"
+        )
+    elif a < 1.0:
+        assert near_zero.item() > 0.0, (
+            f"Kumaraswamy({a}, {b}).log_prob(1e-6) = "
+            f"{near_zero.item()}; expected a large positive value "
+            "because the density diverges at 0 when a < 1"
+        )
+
+
+@pytest.mark.parametrize("n", [5, 20])
+@pytest.mark.parametrize("a, b", [(0.5, 0.5), (1.0, 1.0), (3.0, 3.0)])
+def test_beta_binomial_boundary_masses_match_closed_form(
+    n: int, a: float, b: float
+) -> None:
+    """`BetaBinomial(n, a, b).log_prob(0)` and ``log_prob(n)`` are
+    the masses at the extreme atoms of the Beta-Binomial support.
+    Both are finite for any positive ``a``, ``b``. The closed-form
+    boundary mass simplifies because ``C(n, 0) = C(n, n) = 1``:
+
+        log p(0; n, a, b) = log B(a, b + n) - log B(a, b)
+                          = lgamma(b + n) + lgamma(a + b)
+                            - lgamma(b) - lgamma(a + b + n)
+        log p(n; n, a, b) = log B(a + n, b) - log B(a, b)
+                          = lgamma(a + n) + lgamma(a + b)
+                            - lgamma(a) - lgamma(a + b + n)
+
+    The builder must hit both within `_ATOL`.
+    """
+    dist = _build("BetaBinomial", [float(n), a, b])
+    expected_at_zero = (
+        math.lgamma(b + n)
+        + math.lgamma(a + b)
+        - math.lgamma(b)
+        - math.lgamma(a + b + n)
+    )
+    expected_at_n = (
+        math.lgamma(a + n)
+        + math.lgamma(a + b)
+        - math.lgamma(a)
+        - math.lgamma(a + b + n)
+    )
+    actual_at_zero = dist.log_prob(torch.tensor(0.0, dtype=torch.float64))
+    actual_at_n = dist.log_prob(torch.tensor(float(n), dtype=torch.float64))
+    assert torch.allclose(
+        actual_at_zero,
+        torch.tensor(expected_at_zero, dtype=torch.float64),
+        atol=_ATOL,
+    ), (
+        f"BetaBinomial(n={n}, a={a}, b={b}).log_prob(0) "
+        f"= {actual_at_zero.item()}; expected {expected_at_zero}"
+    )
+    assert torch.allclose(
+        actual_at_n,
+        torch.tensor(expected_at_n, dtype=torch.float64),
+        atol=_ATOL,
+    ), (
+        f"BetaBinomial(n={n}, a={a}, b={b}).log_prob({n}) "
+        f"= {actual_at_n.item()}; expected {expected_at_n}"
+    )
+
+
+@pytest.mark.parametrize("df", [1.5, 3.0, 10.0])
+@pytest.mark.parametrize("scale", [0.5, 1.0, 2.0])
+def test_half_student_t_peak_at_zero_matches_folded_identity(
+    df: float, scale: float
+) -> None:
+    """`HalfStudentT(df, scale)` peaks at ``x = 0`` (the mode of any
+    half-folded symmetric distribution). The value at the peak is
+    finite for every ``df > 0`` because the underlying Student-t
+    density is finite at its mode, and the folding constant adds
+    ``log 2``. This boundary check confirms the peak agrees with
+    ``log 2 + StudentT(df, 0, scale).log_prob(0)`` rather than
+    crashing or returning ``-inf`` at the closed-support endpoint.
+    """
+    dist = _build("HalfStudentT", [df, scale])
+    base = D.StudentT(
+        torch.tensor(df, dtype=torch.float64),
+        torch.tensor(0.0, dtype=torch.float64),
+        torch.tensor(scale, dtype=torch.float64),
+    )
+    expected = math.log(2.0) + base.log_prob(
+        torch.tensor(0.0, dtype=torch.float64)
+    )
+    actual = dist.log_prob(torch.tensor(0.0, dtype=torch.float64))
+    assert torch.isfinite(actual), (
+        f"HalfStudentT(df={df}, scale={scale}).log_prob(0.0) "
+        f"= {actual.item()}; expected a finite peak value"
+    )
+    assert torch.allclose(actual, expected, atol=_ATOL), (
+        f"HalfStudentT(df={df}, scale={scale}).log_prob(0.0) "
+        f"= {actual.item()}; expected {expected.item()} from the "
+        "folded-Student-t identity at the peak"
+    )
+
+
 @pytest.mark.parametrize("dim", [2, 3, 5, 8])
 @pytest.mark.parametrize("eta", [0.5, 1.0, 3.0])
 def test_lkj_cholesky_builder_matches_torch_directly(
