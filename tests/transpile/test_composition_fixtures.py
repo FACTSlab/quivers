@@ -35,7 +35,13 @@ _KNOWN_COMPOSITION_GAPS: dict[tuple[str, str], str] = {
     # bayes_linear_regression / correlated_regression / etc. all
     # have `let mu = ...` (LetStep) and `observe ... <- ...` over a
     # composed expression; the walker doesn't emit LetStep yet.
-    # Every Stan-family backend hits this on the same fixtures.
+    # Every Stan-family backend except Turing hits this on the same
+    # fixtures; Turing closed the gap by emitting `@. <rhs>` for
+    # vector-valued let-bindings and `product_distribution(...)`
+    # for the resulting plated observe. The WebPPL renderer lifts
+    # array-valued deterministic bindings through `mapIndexed`, so
+    # webppl now transpiles every fixture in this set whose families
+    # are all WebPPL-supported.
     **{
         (fixture, backend): (
             f"walker raises on LetStep / let-bound observation arg in "
@@ -50,9 +56,20 @@ _KNOWN_COMPOSITION_GAPS: dict[tuple[str, str], str] = {
         )
         for backend in (
             "stan", "numpyro", "pyro", "pymc",
-            "church", "webppl", "turing", "bugs", "jags",
+            "church", "bugs", "jags",
         )
     },
+    # WebPPL has no native InverseGamma; the renderer raises
+    # `family:no-webppl-target:InverseGamma` because the family_meta
+    # entry has no `target_names["webppl"]` value.
+    ("normal_inverse_gamma", "webppl"): (
+        "WebPPL has no InverseGamma family in family_meta; renderer raises"
+    ),
+    # WebPPL has no native TruncatedNormal; the renderer raises
+    # `family:no-webppl-target:TruncatedNormal`.
+    ("truncated_normal_recovery", "webppl"): (
+        "WebPPL has no TruncatedNormal family in family_meta; renderer raises"
+    ),
 }
 
 
