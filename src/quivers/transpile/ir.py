@@ -618,11 +618,19 @@ class IRReturn(IRNode):
 
 
 class IRProgram(dx.Model):
-    """A lowered program: inputs plus body."""
+    """A lowered program: inputs plus body.
+
+    `cards` carries the static cardinalities of every QVR object
+    used in the program, keyed by object name. Renderers consult
+    it when an expression-level construct binds over a finite-set
+    axis by name (`LetExprFactor` binders, for example) and the
+    static size is required to unroll the construct.
+    """
 
     name: str
     inputs: tuple[IRDataInput, ...]
     body: tuple[IRNode, ...]
+    cards: dict[str, int] = dx.Field(default_factory=dict)
 
 
 __all__ = [

@@ -114,7 +114,9 @@ class _StanLetCtx:
     """Bridge ``_RenderCtx.sb`` to the
     [`render_let_expr_stan`][quivers.transpile.renderers._stan_helpers.render_let_expr_stan]
     helper interface (`vertex`, `edge`, `literal`, `constraint`,
-    `fresh`).
+    `fresh`) and carry the object-name -> static-cardinality map
+    consulted when unrolling
+    [`LetExprFactor`][quivers.dsl.ast_nodes.LetExprFactor].
 
     The Stan IR-walk operates over `_RenderCtx`; the let-expression
     helper expects a small carrier that exposes
@@ -124,10 +126,14 @@ class _StanLetCtx:
     """
 
     def __init__(
-        self, sb: panproto.SchemaBuilder, fresh: Callable[[str], str]
+        self,
+        sb: panproto.SchemaBuilder,
+        fresh: Callable[[str], str],
+        cards: dict[str, int],
     ) -> None:
         self._sb = sb
         self._fresh_fn = fresh
+        self.cards = cards
 
     def fresh(self, prefix: str) -> str:
         return self._fresh_fn(prefix)
@@ -224,6 +230,7 @@ class StanRenderer(RendererBase):
         self._marginalize_latent_card = None
         self._marginalize_group_idx = ()
         self._fresh_n = 0
+        self._cards = dict(ir.cards)
         # Reset the per-render lookup caches so repeated render
         # calls on the same renderer produce identical schemas.
         if hasattr(self, "_simplex_cards_state"):
@@ -1982,7 +1989,7 @@ class StanRenderer(RendererBase):
         ctx.sb.constraint(nm, "literal-value", node.name)
         ctx.sb.edge(decl, nm, "name")
         rhs = render_let_expr_stan(
-            _StanLetCtx(ctx.sb, lambda p: self._fresh(ctx, p)),
+            _StanLetCtx(ctx.sb, lambda p: self._fresh(ctx, p), self._cards),
             node.expr,
         )
         ctx.sb.edge(decl, rhs, "child_of")
@@ -2001,7 +2008,7 @@ class StanRenderer(RendererBase):
         ctx.sb.vertex(ts, "target_statement")
         ctx.sb.edge(parent, ts, "child_of")
         rhs = render_let_expr_stan(
-            _StanLetCtx(ctx.sb, lambda p: self._fresh(ctx, p)),
+            _StanLetCtx(ctx.sb, lambda p: self._fresh(ctx, p), self._cards),
             node.expr,
         )
         ctx.sb.edge(ts, rhs, "child_of")
