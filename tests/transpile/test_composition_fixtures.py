@@ -41,7 +41,10 @@ _KNOWN_COMPOSITION_GAPS: dict[tuple[str, str], str] = {
     # for the resulting plated observe. The WebPPL renderer lifts
     # array-valued deterministic bindings through `mapIndexed`, so
     # webppl now transpiles every fixture in this set whose families
-    # are all WebPPL-supported.
+    # are all WebPPL-supported. BUGS and JAGS lift empty-plate
+    # IRDeterministic nodes into the consumer's plate (see
+    # `push_scalar_dets_into_loops`), so `bayes_linear_regression`
+    # transpiles on both backends.
     **{
         (fixture, backend): (
             f"walker raises on LetStep / let-bound observation arg in "
@@ -56,8 +59,26 @@ _KNOWN_COMPOSITION_GAPS: dict[tuple[str, str], str] = {
         )
         for backend in (
             "stan", "numpyro", "pyro", "pymc",
-            "church", "bugs", "jags",
+            "church",
         )
+    },
+    # BUGS / JAGS lift the deterministic into the consumer plate
+    # only when the consumer references the deterministic. The
+    # remaining four composition fixtures in the BUGS/JAGS gap set
+    # need broader lowering work (truncation wrappers, transformed
+    # parameter blocks, non-centered reparam) and stay listed below.
+    **{
+        (fixture, backend): (
+            f"walker raises on LetStep / let-bound observation arg in "
+            f"{fixture}"
+        )
+        for fixture in (
+            "correlated_regression",
+            "eight_schools_noncentered",
+            "neal_funnel",
+            "normal_inverse_gamma",
+        )
+        for backend in ("bugs", "jags")
     },
     # WebPPL has no native InverseGamma; the renderer raises
     # `family:no-webppl-target:InverseGamma` because the family_meta

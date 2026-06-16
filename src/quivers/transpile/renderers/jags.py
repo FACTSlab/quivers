@@ -66,7 +66,12 @@ from quivers.transpile.ir import (
     IRScore,
     Plate,
 )
-from quivers.transpile.renderers._bugs_helpers import render_let_expr_bugs
+from quivers.transpile.renderers._bugs_helpers import (
+    build_decl_plates,
+    index_letexpr_refs,
+    push_scalar_dets_into_loops,
+    render_let_expr_bugs,
+)
 from quivers.transpile.renderers._base import (
     BlockKind,
     IRArgTransform,
@@ -139,10 +144,18 @@ class JAGSRenderer(RendererBase):
         wrapper is a single ``model_block`` vertex whose children are
         the statements emitted by `_dispatch_jags_node`.
         """
+        # JAGS has no scalar-to-vector broadcast; lift empty-plate
+        # IRDeterministic nodes whose expressions reference plate-less
+        # free data inputs into the plate of the first downstream
+        # consumer, then re-index those references at emit time.
+        ir = push_scalar_dets_into_loops(ir)
         proto = self.target_protocol()
         sb = proto.schema()
         jctx = _JAGSCtx(sb=sb, morphisms={}, lets={})
         self._cards = dict(ir.cards)
+        # Cache decl_plates so the deterministic emitter can re-index
+        # let-expression refs by their declared batch_dims.
+        jctx.decl_plates = build_decl_plates(ir)
 
         _vertex(jctx, "src", "source_file")
         jctx.sb.constraint("src", "ptrace-0", "Cmodel_block")
@@ -1023,21 +1036,62 @@ class JAGSRenderer(RendererBase):
         (BUGS / JAGS share an expression grammar), with a thin
         ctx shim adapting `_JAGSCtx`'s `_fresh` /
         `panproto.SchemaBuilder` to the helper's protocol.
+
+        When ``node.plate`` carries batch dims, the relation is
+        wrapped in matching ``for (m_<axis> in 1:N) { ... }`` loops
+        with the LHS indexed by the loop variables. Each let-expr
+        reference to a plated binding is re-indexed against the
+        same loop variables so the emitted RHS pulls per-iteration
+        values out of the surrounding vectors.
         """
+        loop_var_names = tuple(
+            f"m_{_dim_name(dim)}" for dim in node.plate.batch_dims
+        )
+        # Open the deterministic relation. When plated, the LHS is
+        # indexed by every loop variable; otherwise it is a bare name.
         dr = _fresh(ctx, "dr", "deterministic_relation")
         ctx.sb.constraint(dr, "chose-alt-fingerprint", "<-")
-        ctx.sb.constraint(dr, "ptrace-0", "Cidentifier")
         ctx.sb.constraint(dr, "ptrace-1", "T<-")
-        var = _identifier(ctx, node.name)
-        ctx.sb.edge(dr, var, "variable")
-        let_ctx = _jags_let_ctx(ctx, self._cards)
-        val = render_let_expr_bugs(let_ctx, node.expr)
-        ctx.sb.edge(dr, val, "value")
-        if ctx.current_block is not None:
-            ctx.sb.edge(ctx.current_block, dr, "child_of")
-            ctx.block_children.setdefault(ctx.current_block, []).append(
-                "deterministic_relation"
+        if loop_var_names:
+            ctx.sb.constraint(dr, "ptrace-0", "Cindexed_variable")
+            lhs = self._indexed_variable(
+                ctx, node.name, loop_var_names, ()
             )
+        else:
+            ctx.sb.constraint(dr, "ptrace-0", "Cidentifier")
+            lhs = _identifier(ctx, node.name)
+        ctx.sb.edge(dr, lhs, "variable")
+        rewritten = index_letexpr_refs(
+            node.expr, ctx.decl_plates, node.plate, loop_var_names
+        )
+        let_ctx = _jags_let_ctx(ctx, self._cards)
+        val = render_let_expr_bugs(let_ctx, rewritten)
+        ctx.sb.edge(dr, val, "value")
+        wrapped = self._wrap_in_for_loops(
+            ctx, dr, node.plate.batch_dims, override_var=None
+        )
+        if ctx.current_block is not None:
+            ctx.sb.edge(ctx.current_block, wrapped, "child_of")
+            ctx.block_children.setdefault(ctx.current_block, []).append(
+                _block_child_kind(ctx, wrapped)
+            )
+        # Record the deterministic's plate so downstream IRArgRef
+        # references to `node.name` thread the right loop variable
+        # through. Mirrors the IRSample registration in `_emit_sample`.
+        if node.plate.batch_dims:
+            fallback_lv = (
+                loop_var_names[-1]
+                if loop_var_names
+                else f"m_{_dim_name(node.plate.batch_dims[-1])}"
+            )
+            axes = tuple(_dim_name(d) for d in node.plate.batch_dims)
+            ctx.latent_plate_info[node.name] = (
+                fallback_lv,
+                node.plate.event_dims,
+                axes,
+            )
+            for dim in node.plate.batch_dims:
+                ctx.emitted_plate_names.add(_dim_name(dim))
 
     def _emit_score(self, ctx: _JAGSCtx, node: IRScore) -> None:  # type: ignore[override]
         """JAGS has no native target-statement; the zeros / ones
@@ -1280,6 +1334,11 @@ class _JAGSCtx(_RenderCtx):
         self.model_block: str = ""
         self.emitted_plate_names: set[str] = set()
         self.block_children: dict[str, list[str]] = {}
+        #: Declared plate for every named binding (inputs, samples,
+        #: observes, deterministics, marginalize-latents); read by
+        #: `_emit_deterministic` to re-index plated var references
+        #: inside lifted let-expressions.
+        self.decl_plates: dict[str, Plate] = {}
         #: For every previously-bound latent name, record the
         #: (fallback_loop_var, event_dims, axis_names) used at its
         #: sample site. The fallback loop var is used when no
