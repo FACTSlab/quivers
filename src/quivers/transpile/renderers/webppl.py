@@ -50,6 +50,8 @@ The WebPPL-specific layout decisions:
 
 from __future__ import annotations
 
+from typing import Callable
+
 import panproto
 
 from quivers.dsl.ast_nodes import Expr, LetDecl, Module, MorphismDecl
@@ -86,6 +88,55 @@ from quivers.transpile.renderers._base import (
     _RenderCtx,
     assert_no_dangling_refs,
 )
+from quivers.transpile.renderers._javascript_helpers import (
+    render_let_expr_javascript,
+)
+
+
+class _JsLetCtx:
+    """Bridge `_RenderCtx.sb` to the
+    [`render_let_expr_javascript`][quivers.transpile.renderers._javascript_helpers.render_let_expr_javascript]
+    helper's protocol (`v`, `e`, `lit`, `constraint`, `fresh`).
+
+    Carries the object-name -> static-cardinality map consulted when
+    unrolling [`LetExprFactor`][quivers.dsl.ast_nodes.LetExprFactor]
+    and the `target` tag used in error messages.
+
+    The WebPPL IR-walk operates over
+    [`_RenderCtx`][quivers.transpile.renderers._base._RenderCtx]; the
+    let-expression helper expects a small carrier exposing
+    [`panproto.SchemaBuilder`][panproto.SchemaBuilder] operations
+    under terse method names. The shim keeps the helper independent
+    of any specific renderer class.
+    """
+
+    target: str = "webppl"
+
+    def __init__(
+        self,
+        sb: panproto.SchemaBuilder,
+        fresh: Callable[[str], str],
+        cards: dict[str, int],
+    ) -> None:
+        self._sb = sb
+        self._fresh_fn = fresh
+        self.cards = cards
+
+    def fresh(self, prefix: str) -> str:
+        return self._fresh_fn(prefix)
+
+    def v(self, vid: str, kind: str) -> str:
+        self._sb.vertex(vid, kind)
+        return vid
+
+    def e(self, src: str, tgt: str, kind: str) -> None:
+        self._sb.edge(src, tgt, kind)
+
+    def lit(self, vid: str, text: str) -> None:
+        self._sb.constraint(vid, "literal-value", text)
+
+    def constraint(self, vid: str, sort: str, value: str) -> None:
+        self._sb.constraint(vid, sort, value)
 
 
 class WebPPLRenderer(RendererBase):
@@ -143,6 +194,11 @@ class WebPPLRenderer(RendererBase):
         # `via[loop_var]` indexed through the fibration; refs to
         # other plates pass through unchanged.
         self._group_plate_axes: tuple[str, ...] = ()
+        # Static-cardinality table snapshotted from `IRProgram.cards`
+        # at the top of every `render` call. The let-expression shim
+        # reads this when unrolling `LetExprFactor` binders whose
+        # axis size needs to be known at render time.
+        self._cards: dict[str, int] = {}
 
     # ------------------------------------------------------------------
     # Abstract overrides: target_protocol + four dispatch points.
@@ -171,6 +227,9 @@ class WebPPLRenderer(RendererBase):
         self._binding_supports = {}
         self._observe_via = None
         self._observe_loop_var = None
+        # Snapshot the IR's static-cardinality table so the let-expr
+        # shim can resolve factor binders.
+        self._cards = dict(ir.cards)
         # Program root: a single var-decl wrapping a function expression.
         ctx.sb.vertex("prog", "program")
         var_decl = self._fresh(ctx, "vd")
@@ -584,12 +643,17 @@ class WebPPLRenderer(RendererBase):
     ) -> None:
         """Emit `var <name> = <expr>;` for a deterministic let-binding.
 
-        The expression rendering currently delegates to a bare
-        variable reference so the construct's existence is visible
-        in the emit; per-renderer let-expression rendering is the
-        job of a per-target helper.
+        Lowers [`node.expr`][quivers.transpile.ir.IRDeterministic.expr]
+        through
+        [`render_let_expr_javascript`][quivers.transpile.renderers._javascript_helpers.render_let_expr_javascript]
+        so binary ops, calls, indices, lambdas, list literals, and
+        method calls reach the emitter as real JavaScript expression
+        vertices rather than a self-referential identifier.
         """
-        rhs = self._ident(ctx, node.name)
+        rhs = render_let_expr_javascript(
+            _JsLetCtx(ctx.sb, lambda p: self._fresh(ctx, p), self._cards),
+            node.expr,
+        )
         self._emit_var_decl(ctx, self._body_vid, node.name, rhs)
         self._binding_plates[node.name] = node.plate
         self._binding_supports[node.name] = node.constraint
@@ -600,9 +664,15 @@ class WebPPLRenderer(RendererBase):
 
         WebPPL's `factor(value)` adds `value` to the log-density;
         the convention is to bind the expression to a local var
-        first so the factor reads a name.
+        first so the factor reads a name. The expression is rendered
+        through
+        [`render_let_expr_javascript`][quivers.transpile.renderers._javascript_helpers.render_let_expr_javascript]
+        so the bound value is a real JavaScript expression.
         """
-        rhs = self._ident(ctx, node.name)
+        rhs = render_let_expr_javascript(
+            _JsLetCtx(ctx.sb, lambda p: self._fresh(ctx, p), self._cards),
+            node.expr,
+        )
         self._emit_var_decl(ctx, self._body_vid, node.name, rhs)
         factor_call = self._call(
             ctx,
