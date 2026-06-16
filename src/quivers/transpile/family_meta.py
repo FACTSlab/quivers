@@ -647,6 +647,8 @@ FAMILY_META: dict[str, FamilyMeta] = {
         },
         arg_aliases={
             "webppl": {"scale": "sigma"},
+            "bugs": {"scale": "tau"},
+            "jags": {"scale": "tau"},
         },
     ),
     "InverseGamma": FamilyMeta(
