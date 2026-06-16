@@ -739,7 +739,11 @@ FAMILY_META: dict[str, FamilyMeta] = {
         },
         arg_aliases={
             "pymc": {"scale": "sigma"},
-            "webppl": {"scale": "sigma"},
+            # WebPPL renders HalfNormal as ``Gaussian({mu: 0, sigma:
+            # scale})``; the renderer prepends a `loc=0` argument
+            # before this alias map is consulted, so the keyword for
+            # the injected zero is renamed `loc -> mu` here.
+            "webppl": {"scale": "sigma", "loc": "mu"},
             "bugs": {"scale": "tau"},
             "jags": {"scale": "tau"},
         },

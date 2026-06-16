@@ -324,12 +324,17 @@ class WebPPLRenderer(RendererBase):
                 "qvr-webppl",
                 [f"family:no-webppl-target:{family}"],
             )
+        injected_args, injected_arg_names = _inject_webppl_specific_args(
+            family, args, arg_names
+        )
         if observed:
             return self._emit_observe(
-                ctx, name, meta, webppl_name, args, arg_names, plate
+                ctx, name, meta, webppl_name,
+                injected_args, injected_arg_names, plate,
             )
         return self._emit_sample(
-            ctx, name, meta, webppl_name, args, arg_names, plate
+            ctx, name, meta, webppl_name,
+            injected_args, injected_arg_names, plate,
         )
 
     def _emit_sample(
@@ -1433,6 +1438,42 @@ class WebPPLRenderer(RendererBase):
             elif isinstance(stmt, LetDecl):
                 lets[stmt.name] = stmt.expr
         return morphisms, lets
+
+
+# WebPPL-side argument injection for QVR families whose torch
+# distribution carries fewer parameters than WebPPL's same-named
+# distribution. `HalfNormal(scale)` maps to WebPPL's
+# `Gaussian({mu: 0, sigma: scale})`; the renderer prepends an
+# explicit zero-valued ``mu`` argument so the WebPPL distribution
+# constructor sees both parameters. The resulting log-density
+# differs from QVR's HalfNormal log-density by the constant
+# ``+log(2) * N_observations``; the constant-spread equivalence
+# check in
+# [`assert_log_density_match`][tests.transpile._equivalence.assert_log_density_match]
+# tolerates this offset.
+_PREPEND_MU_ZERO: frozenset[str] = frozenset({"HalfNormal"})
+
+
+def _inject_webppl_specific_args(
+    family: str,
+    args: tuple[IRArg, ...],
+    arg_names: tuple[str, ...],
+) -> tuple[tuple[IRArg, ...], tuple[str, ...]]:
+    """Inject WebPPL-only argument placeholders for families whose
+    torch shape is narrower than WebPPL's call shape.
+
+    Returns the possibly-augmented (args, arg_names) tuple in
+    parallel order. The injected keyword name uses the QVR-side
+    name (e.g. ``loc``) so the family's ``arg_aliases["webppl"]`` map
+    can rename it to the WebPPL-side keyword (``mu``) during
+    rendering.
+    """
+    if family in _PREPEND_MU_ZERO:
+        return (
+            (IRArgNumber(value=0.0), *args),
+            ("loc", *arg_names),
+        )
+    return args, arg_names
 
 
 __all__ = ["WebPPLRenderer"]
