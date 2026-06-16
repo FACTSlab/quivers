@@ -64,18 +64,20 @@ if TYPE_CHECKING:
     from quivers.dsl.ast_nodes import Module
 
 
-_RENDERERS: dict[str, tuple[type[RendererBase], str]] = {
-    "stan":    (StanRenderer,    "stan"),
-    "numpyro": (NumPyroRenderer, "python"),
-    "pyro":    (PyroRenderer,    "python"),
-    "pymc":    (PyMCRenderer,    "python"),
-    "edward2": (Edward2Renderer, "python"),
-    "turing":  (TuringRenderer,  "julia"),
-    "gen":     (GenRenderer,     "julia"),
-    "church":  (ChurchRenderer,  "scheme"),
-    "webppl":  (WebPPLRenderer,  "javascript"),
-    "bugs":    (BUGSRenderer,    "bugs"),
-    "jags":    (JAGSRenderer,    "jags"),
+_RENDERERS: dict[
+    str, tuple[type[RendererBase], str, frozenset[str]]
+] = {
+    "stan":    (StanRenderer,    "stan",       STAN_LIKE),
+    "numpyro": (NumPyroRenderer, "python",     PYTHON_DEEP),
+    "pyro":    (PyroRenderer,    "python",     PYTHON_DEEP),
+    "pymc":    (PyMCRenderer,    "python",     STAN_LIKE),
+    "edward2": (Edward2Renderer, "python",     STAN_LIKE),
+    "turing":  (TuringRenderer,  "julia",      STAN_LIKE),
+    "gen":     (GenRenderer,     "julia",      STAN_LIKE),
+    "church":  (ChurchRenderer,  "scheme",     CHURCH_LIKE),
+    "webppl":  (WebPPLRenderer,  "javascript", CHURCH_LIKE),
+    "bugs":    (BUGSRenderer,    "bugs",       STAN_LIKE),
+    "jags":    (JAGSRenderer,    "jags",       STAN_LIKE),
 }
 
 
@@ -110,7 +112,8 @@ def transpile(module: Module, *, target: str) -> bytes:
                 f"{', '.join(sorted(_RENDERERS))}"
             ],
         )
-    renderer_cls, grammar = _RENDERERS[target]
+    renderer_cls, grammar, support_tier = _RENDERERS[target]
+    unsupported_for(f"qvr-{target}", module, allow=support_tier)
     expanded = expand_composite_lets(module, target=target)
     ir = Lower().forward(expanded)
     schema = renderer_cls().render(ir)
