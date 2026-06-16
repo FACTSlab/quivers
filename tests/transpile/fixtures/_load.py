@@ -39,7 +39,9 @@ import pathlib
 
 
 _THIS_DIR = pathlib.Path(__file__).resolve().parent
-_REPO_ROOT = _THIS_DIR.parents[3]
+# `_THIS_DIR` is `<repo>/tests/transpile/fixtures`; `parents[2]`
+# is the repo root.
+_REPO_ROOT = _THIS_DIR.parents[2]
 _BENCHMARKS_DIR = _REPO_ROOT / "tests" / "benchmarks" / "models"
 
 
@@ -62,6 +64,7 @@ class Fixture:
 
 
 def _load_dir(category: str, directory: pathlib.Path) -> list[Fixture]:
+    """Walk `directory` for ``*.qvr`` files (non-recursive)."""
     if not directory.is_dir():
         return []
     fixtures: list[Fixture] = []
@@ -78,7 +81,14 @@ def _load_dir(category: str, directory: pathlib.Path) -> list[Fixture]:
 
 
 def load_compositions() -> list[Fixture]:
-    """Real-world programs from the inference-benchmark corpus."""
+    """Real-world programs from the inference-benchmark corpus.
+
+    Reads `.qvr` files directly under `tests/benchmarks/models/`;
+    the previous code looked under a non-existent `compositions/`
+    subdirectory and returned an empty list, which caused
+    `test_numeric_equivalence` to fail-skip the fixtures with a
+    spurious "fixture missing" diagnostic.
+    """
     return _load_dir("compositions", _BENCHMARKS_DIR)
 
 
