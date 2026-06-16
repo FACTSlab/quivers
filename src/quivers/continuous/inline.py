@@ -1064,22 +1064,60 @@ def _logistic_builder(params: list[torch.Tensor]) -> D.Distribution:
     )
 
 
+class _HalfStudentT(D.Distribution):
+    """Half-Student-t distribution: the folded form of a centered
+    Student-t.
+
+    `log_prob(x) = log 2 + StudentT(df, 0, scale).log_prob(x)` for
+    `x >= 0`, and `-inf` otherwise. Mirrors the structure
+    `torch.distributions.HalfNormal` uses (override `log_prob`
+    directly rather than route through `TransformedDistribution`
+    with `AbsTransform`, which lacks `log_abs_det_jacobian`).
+    """
+
+    arg_constraints = {"df": _constraints.positive, "scale": _constraints.positive}
+    support = _constraints.positive
+    has_rsample = False
+
+    def __init__(
+        self,
+        df: torch.Tensor,
+        scale: torch.Tensor,
+        validate_args: bool | None = None,
+    ) -> None:
+        self.df = df
+        self.scale = scale
+        self._base = D.StudentT(df, torch.zeros_like(scale), scale)
+        super().__init__(
+            batch_shape=self._base.batch_shape,
+            validate_args=validate_args,
+        )
+
+    def log_prob(self, value: torch.Tensor) -> torch.Tensor:
+        lp = self._base.log_prob(value) + math.log(2.0)
+        return torch.where(
+            value >= 0, lp, torch.full_like(lp, float("-inf"))
+        )
+
+    def sample(self, sample_shape: torch.Size = torch.Size()) -> torch.Tensor:
+        return self._base.sample(sample_shape).abs()
+
+
 def _half_student_t_builder(
     params: list[torch.Tensor],
 ) -> D.Distribution:
     """Build a half-Student-t distribution from [df, scale].
 
-    Constructed as `TransformedDistribution(StudentT(df, 0, scale),
-    AbsTransform())` so the sampler and `log_prob` flow through the
-    folded representation. `log_prob` corrects for the folding by
-    adding `log 2` (the AbsTransform Jacobian on the positive ray).
+    Uses the explicit `_HalfStudentT` class (which overrides
+    `log_prob` with the folded identity) rather than
+    `TransformedDistribution(StudentT, AbsTransform)`, because
+    torch's `AbsTransform` does not implement
+    `log_abs_det_jacobian` and the transformed-distribution
+    `log_prob` would crash with `NotImplementedError`.
     """
     df = params[0].clamp(min=EPS)
     scale = params[1].clamp(min=EPS)
-    base = D.StudentT(df, torch.zeros_like(scale), scale)
-    return D.TransformedDistribution(
-        base, D.transforms.AbsTransform()
-    )
+    return _HalfStudentT(df, scale)
 
 
 def _beta_binomial_builder(

@@ -135,7 +135,16 @@ class FamilyMeta(dx.Model):
 
 
 class BetaBinomial(Distribution):
-    """Beta-Binomial: `Binomial(n, p)` with `p ~ Beta(c1, c0)`."""
+    """Beta-Binomial: `Binomial(n, p)` with `p ~ Beta(c1, c0)`.
+
+    The marginal pmf is
+
+        p(k; n, a, b) = C(n, k) * B(a + k, b + n - k) / B(a, b),
+
+    where `B(.,.)` is the beta function. `log_prob` evaluates this
+    in log space via `torch.lgamma`. `sample` draws p ~ Beta(a, b)
+    then k ~ Binomial(n, p), matching the generative definition.
+    """
 
     arg_constraints: dict[str, c.Constraint] = {
         "total_count": c.nonnegative_integer,
@@ -156,6 +165,56 @@ class BetaBinomial(Distribution):
         self.concentration1 = concentration1
         self.concentration0 = concentration0
         super().__init__(validate_args=validate_args)
+
+    def log_prob(self, value: torch.Tensor) -> torch.Tensor:
+        """``log p(value; n, a, b)`` via the closed-form Beta-Binomial pmf."""
+        n = self.total_count.to(value.dtype)
+        a = self.concentration1.to(value.dtype)
+        b = self.concentration0.to(value.dtype)
+        k = value.to(value.dtype)
+        log_comb = (
+            torch.lgamma(n + 1.0)
+            - torch.lgamma(k + 1.0)
+            - torch.lgamma(n - k + 1.0)
+        )
+        log_beta_post = (
+            torch.lgamma(a + k)
+            + torch.lgamma(b + n - k)
+            - torch.lgamma(a + b + n)
+        )
+        log_beta_prior = (
+            torch.lgamma(a) + torch.lgamma(b) - torch.lgamma(a + b)
+        )
+        return log_comb + log_beta_post - log_beta_prior
+
+    def sample(self, sample_shape: torch.Size = torch.Size()) -> torch.Tensor:
+        """Two-stage draw: ``p ~ Beta(a, b)``; ``k ~ Binomial(n, p)``."""
+        p = torch.distributions.Beta(
+            self.concentration1, self.concentration0
+        ).sample(sample_shape)
+        return torch.distributions.Binomial(
+            total_count=self.total_count, probs=p
+        ).sample()
+
+    @property
+    def mean(self) -> torch.Tensor:
+        """``E[K] = n * a / (a + b)``."""
+        return (
+            self.total_count
+            * self.concentration1
+            / (self.concentration1 + self.concentration0)
+        )
+
+    @property
+    def variance(self) -> torch.Tensor:
+        """Closed-form Beta-Binomial variance."""
+        n = self.total_count
+        a = self.concentration1
+        b = self.concentration0
+        return (
+            n * a * b * (a + b + n)
+            / ((a + b) ** 2 * (a + b + 1.0))
+        )
 
 
 class OrderedLogistic(Distribution):
