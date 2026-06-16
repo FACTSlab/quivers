@@ -47,7 +47,15 @@ import panproto
 import torch.distributions.constraints as _torch_constraints
 from torch.distributions.constraints import Constraint
 
-from quivers.dsl.ast_nodes import Expr, LetDecl, Module, MorphismDecl
+from quivers.dsl.ast_nodes import (
+    DrawArg,
+    DrawArgName,
+    DrawArgScalar,
+    Expr,
+    LetDecl,
+    Module,
+    MorphismDecl,
+)
 from quivers.transpile._api import UnsupportedConstruct
 from quivers.transpile._pipeline import target_protocol
 from quivers.transpile.family_meta import (
@@ -1699,25 +1707,29 @@ class StanRenderer(RendererBase):
     def _render_init_family_arg(
         self,
         ctx: _RenderCtx,
-        raw: int | float | str,
+        raw: DrawArg,
     ) -> SchemaFragment:
-        """Render an `init_family` raw arg. The DSL surface gives us
-        wire-form strings or floats; translate them to expression
-        vertices.
+        """Render an `init_family` raw arg.
 
         Wrapper morphisms (`Truncated(base, -2, 2)`) carry their
-        constants here. Structured `DrawArg` variants are not yet
-        used in `init_family` clauses on any gallery example; widen
-        the type when that surfaces.
+        constants here as atomic `DrawArgScalar` / `DrawArgName`
+        variants. Structured list / matrix variants are not used in
+        `init_family` clauses on any current example; an
+        `UnsupportedConstruct` here flags the gap rather than guess.
         """
-        if isinstance(raw, (int, float)):
-            return self._render_number(ctx, float(raw))
-        stripped = raw.strip()
-        try:
-            value = float(stripped)
-        except ValueError:
-            return self._variable_expression(ctx, stripped)
-        return self._render_number(ctx, value)
+        if isinstance(raw, DrawArgScalar):
+            return self._render_number(ctx, raw.value)
+        if isinstance(raw, DrawArgName):
+            stripped = raw.text.strip()
+            try:
+                value = float(stripped)
+            except ValueError:
+                return self._variable_expression(ctx, stripped)
+            return self._render_number(ctx, value)
+        raise UnsupportedConstruct(
+            "qvr-stan",
+            [f"init_family-arg:unsupported-variant:{type(raw).__name__}"],
+        )
 
     # ----- shared utilities -----
 
