@@ -1093,7 +1093,7 @@ class JAGSRenderer(RendererBase):
             for dim in node.plate.batch_dims:
                 ctx.emitted_plate_names.add(_dim_name(dim))
 
-    def _emit_score(self, ctx: _JAGSCtx, node: IRScore) -> None:  # type: ignore[override]
+    def _emit_score(self, ctx: _RenderCtx, node: IRScore) -> None:
         """JAGS has no native target-statement; the zeros / ones
         trick demands a host-supplied phantom-observation carrier
         the IR does not currently express. Refuse rather than

@@ -160,7 +160,7 @@ class Lower(dx.Mapping[Module, IRProgram]):
     per-call by `(family_name, IR-arg-tuple-key)`.
     """
 
-    def forward(self, module: Module) -> IRProgram:  # type: ignore[override]
+    def forward(self, module: Module) -> IRProgram:
         expanded = expand_composite_lets(module, target="stan")
         morphisms = build_morphism_table(expanded)
         lets = build_let_table(expanded)
@@ -512,6 +512,9 @@ class Lower(dx.Mapping[Module, IRProgram]):
             return IRArgMatrix(rows=tuple(ir_rows))
         if isinstance(raw, (int, float)):
             return IRArgNumber(value=float(raw))
+        assert isinstance(raw, str), (
+            f"unexpected raw arg form {type(raw).__name__!r}: {raw!r}"
+        )
         return self._atom_text_to_ir(raw, ctx)
 
     def _atom_text_to_ir(self, text: str, ctx: _LowerCtx) -> IRArg:
