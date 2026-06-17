@@ -125,7 +125,7 @@ def test_gallery_backend_logdensity_matches_qvr(
     raises `UnsupportedConstruct`. Passing cells certify Theorem
     4.1's `log p_T - log p_QVR = c_T` identity at the chosen point.
     """
-    image, _ext, _script = _BACKENDS_WITH_IMAGES[backend]
+    image, ext, script_name = _BACKENDS_WITH_IMAGES[backend]
     if not _docker.docker_available():
         pytest.skip("docker not available")
     if not _docker.image_available(image):
@@ -172,13 +172,16 @@ def test_gallery_backend_logdensity_matches_qvr(
     # composition fixtures and need per-example data shapes
     # registered to handle arbitrary gallery datasets; the runtime
     # raises a clear "no shape registered" message).
+    script_path = (
+        pathlib.Path(__file__).parent / "probes" / "_scripts" / script_name
+    )
     try:
-        backend_result = _docker.run_probe(
+        raw_result = _docker.run_probe(
             image=image,
+            script=script_path,
             source=emitted,
-            fixture_name=example.stem,
-            points=[point],
-            shapes=_shapes_from_dataset(dataset),
+            source_ext=ext,
+            points=[{"params": point.params, "data": point.data}],
             scratch=scratch,
         )
     except (NotImplementedError, RuntimeError, FileNotFoundError) as exc:
@@ -186,12 +189,14 @@ def test_gallery_backend_logdensity_matches_qvr(
             f"{backend!r} probe on {example.stem!r}: {type(exc).__name__}: {exc}"
         )
 
-    # Constant-spread equivalence assertion via _equivalence helper.
+    backend_lps = [float(x) for x in raw_result["log_densities"]]
+
     from tests.transpile import _equivalence
+
     _equivalence.assert_log_density_match(
-        reference=qvr_result,
-        target=backend_result,
-        tolerance=1e-6,
+        qvr_result.log_densities,
+        backend_lps,
+        context=f"{backend}@{example.stem}",
     )
 
 
