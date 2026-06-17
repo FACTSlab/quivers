@@ -1337,8 +1337,15 @@ def _constraint_default_shape(constraint: Constraint) -> tuple[int, ...]:
 
 def _arg_to_tensor(
     arg: IRArg, ctx: _LowerCtx, expected_shape: tuple[int, ...]
-) -> torch.Tensor:
-    """Materialise a placeholder torch tensor for one IR arg."""
+) -> torch.Tensor | torch.distributions.Distribution:
+    """Materialise a placeholder argument for one IR arg.
+
+    Numeric / ref / list / matrix args produce a `torch.Tensor` of
+    `expected_shape`. `IRArgFamilyRef` produces a fully-instantiated
+    `torch.distributions.Distribution` so wrapper families that
+    accept a base distribution (e.g. `Truncated(base, ...)`) get a
+    valid first positional.
+    """
     if isinstance(arg, IRArgNumber):
         if expected_shape:
             return torch.full(expected_shape, arg.value, dtype=torch.float32)
@@ -1384,7 +1391,7 @@ def _arg_to_tensor(
         inner_args = tuple(
             _raw_to_ir_for_sentinel(a) for a in decl.init_family.args
         )
-        return _make_sentinel(inner_meta, inner_args, ctx)  # type: ignore[return-value]
+        return _make_sentinel(inner_meta, inner_args, ctx)
     raise UnsupportedConstruct(
         "qvr-lower", [f"arg:unknown:{type(arg).__name__}"]
     )
