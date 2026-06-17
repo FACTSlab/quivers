@@ -1138,16 +1138,6 @@ def _beta_binomial_builder(
     return _BB(total_count, a, b)
 
 
-def _kumaraswamy_builder(
-    params: list[torch.Tensor],
-) -> D.Distribution:
-    """Build a Kumaraswamy distribution from [concentration1,
-    concentration0]."""
-    return D.Kumaraswamy(
-        params[0].clamp(min=EPS), params[1].clamp(min=EPS)
-    )
-
-
 def _lkj_cholesky_builder(
     params: list[torch.Tensor],
 ) -> D.Distribution:
@@ -1240,11 +1230,6 @@ _FAMILY_BUILDERS: dict[str, tuple[tuple[str, ...], Callable, bool]] = {
         ("total_count", "concentration1", "concentration0"),
         _beta_binomial_builder,
         True,
-    ),
-    "Kumaraswamy": (
-        ("concentration1", "concentration0"),
-        _kumaraswamy_builder,
-        False,
     ),
     "LKJCholesky": (
         ("concentration",),
