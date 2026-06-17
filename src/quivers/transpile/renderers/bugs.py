@@ -60,13 +60,6 @@ from quivers.dsl.ast_nodes import (
     DrawArg,
     DrawArgName,
     DrawArgScalar,
-    LetExprBinOp,
-    LetExprCall,
-    LetExprIndex,
-    LetExprLiteral,
-    LetExprNode,
-    LetExprUnaryOp,
-    LetExprVar,
     MorphismDecl,
     MorphismInitFamily,
 )
