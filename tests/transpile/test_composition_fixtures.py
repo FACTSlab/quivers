@@ -31,65 +31,71 @@ _BACKENDS = sorted(available_targets())
 # transpile the composition fixture today, with the reason. The
 # entry pair is (fixture_stem, backend). When the walker grows the
 # missing case, the strict test below fires so the entry is removed.
+#
+# The rigor-swarm closure of LetStep / let-bound-observation gaps on
+# numpyro / pyro / pymc / church / turing / bugs / jags (commit
+# series after b043265) collapsed most of the table. The 14 entries
+# that remain divide into two classes:
+#
+# 1. `return:undeclared:<var>` on Stan for fixtures that return a
+#    let-bound deterministic. The Stan generated-quantities aliaser
+#    needs the IR-walker to declare the let-bound name as a
+#    transformed-parameter before the return statement; the walker
+#    declares it inline at use site, so the generated-quantities
+#    pass cannot find a declared shape.
+#
+# 2. `family:<F>:<backend>` for families a target legitimately does
+#    not ship: Stan has no TruncatedNormal native, Gen / Church /
+#    BUGS / JAGS / WebPPL have no InverseGamma / TruncatedNormal.
+#    Each of these is a family_meta-level decision (a target_name
+#    can be added if we add the corresponding renderer-side
+#    construction recipe) rather than a renderer-walker bug.
 _KNOWN_COMPOSITION_GAPS: dict[tuple[str, str], str] = {
-    # bayes_linear_regression / correlated_regression / etc. all
-    # have `let mu = ...` (LetStep) and `observe ... <- ...` over a
-    # composed expression; the walker doesn't emit LetStep yet.
-    # Every Stan-family backend except Turing hits this on the same
-    # fixtures; Turing closed the gap by emitting `@. <rhs>` for
-    # vector-valued let-bindings and `product_distribution(...)`
-    # for the resulting plated observe. The WebPPL renderer lifts
-    # array-valued deterministic bindings through `mapIndexed`, so
-    # webppl now transpiles every fixture in this set whose families
-    # are all WebPPL-supported. BUGS and JAGS lift empty-plate
-    # IRDeterministic nodes into the consumer's plate (see
-    # `push_scalar_dets_into_loops`), so `bayes_linear_regression`
-    # transpiles on both backends.
-    **{
-        (fixture, backend): (
-            f"walker raises on LetStep / let-bound observation arg in "
-            f"{fixture}"
-        )
-        for fixture in (
-            "bayes_linear_regression",
-            "correlated_regression",
-            "eight_schools_noncentered",
-            "neal_funnel",
-            "normal_inverse_gamma",
-        )
-        for backend in (
-            "stan", "numpyro", "pyro", "pymc",
-            "church",
-        )
-    },
-    # BUGS / JAGS lift the deterministic into the consumer plate
-    # only when the consumer references the deterministic. The
-    # remaining four composition fixtures in the BUGS/JAGS gap set
-    # need broader lowering work (truncation wrappers, transformed
-    # parameter blocks, non-centered reparam) and stay listed below.
-    **{
-        (fixture, backend): (
-            f"walker raises on LetStep / let-bound observation arg in "
-            f"{fixture}"
-        )
-        for fixture in (
-            "correlated_regression",
-            "eight_schools_noncentered",
-            "neal_funnel",
-            "normal_inverse_gamma",
-        )
-        for backend in ("bugs", "jags")
-    },
-    # WebPPL has no native InverseGamma; the renderer raises
-    # `family:no-webppl-target:InverseGamma` because the family_meta
-    # entry has no `target_names["webppl"]` value.
-    ("normal_inverse_gamma", "webppl"): (
-        "WebPPL has no InverseGamma family in family_meta; renderer raises"
+    ("bayes_linear_regression", "stan"): (
+        "return:undeclared:mu -- Stan return-alias needs let-bound "
+        "name declared as transformed_parameter before return"
     ),
-    # WebPPL has no native TruncatedNormal; the renderer raises
-    # `family:no-webppl-target:TruncatedNormal`.
+    ("correlated_regression", "stan"): (
+        "return:undeclared:mu -- same"
+    ),
+    ("eight_schools_noncentered", "stan"): (
+        "return:undeclared:theta -- same"
+    ),
+    ("normal_inverse_gamma", "bugs"): (
+        "family:InverseGamma: no BUGS target name (BUGS has no native "
+        "InverseGamma; a `dgamma`-on-precision recipe could close it)"
+    ),
+    ("normal_inverse_gamma", "church"): (
+        "family:InverseGamma:church (Church has no InverseGamma)"
+    ),
+    ("normal_inverse_gamma", "gen"): (
+        "family:InverseGamma: no Gen.jl target name"
+    ),
+    ("normal_inverse_gamma", "jags"): (
+        "family:no-target-name:InverseGamma"
+    ),
+    ("normal_inverse_gamma", "webppl"): (
+        "family:no-webppl-target:InverseGamma"
+    ),
+    ("truncated_normal_recovery", "bugs"): (
+        "family:TruncatedNormal: no BUGS target name"
+    ),
+    ("truncated_normal_recovery", "church"): (
+        "family:TruncatedNormal:church"
+    ),
+    ("truncated_normal_recovery", "gen"): (
+        "family:TruncatedNormal: no Gen.jl target name"
+    ),
+    ("truncated_normal_recovery", "jags"): (
+        "family:no-target-name:TruncatedNormal"
+    ),
+    ("truncated_normal_recovery", "stan"): (
+        "family:no-stan-target:TruncatedNormal -- Stan has no native "
+        "TruncatedNormal; the Stan idiom is `T[lo, hi]` on a "
+        "vanilla `Normal` LHS declaration"
+    ),
     ("truncated_normal_recovery", "webppl"): (
-        "WebPPL has no TruncatedNormal family in family_meta; renderer raises"
+        "family:no-webppl-target:TruncatedNormal"
     ),
 }
 
