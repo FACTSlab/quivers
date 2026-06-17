@@ -1,16 +1,16 @@
-"""Closed-form / independent-reference checks for the Phase B
+"""Closed-form / independent-reference checks for the
 inline-distribution builders registered in
 `quivers.continuous.inline`.
 
-Each Phase B family's builder (`_logistic_builder`,
-`_half_student_t_builder`, `_beta_binomial_builder`,
-`_kumaraswamy_builder`, `_lkj_cholesky_builder`) constructs a
-torch `Distribution` from a parameter tensor list. This test
-asserts the constructed distribution's `log_prob` agrees with an
-independent reference at a sweep of parameter / evaluation points.
-A bug in the builder (transposed args, wrong transform, missing
-folding constant, etc.) shows up here as a non-zero `log_prob`
-difference at any test point.
+For each compound family with a custom builder
+(`_logistic_builder`, `_half_student_t_builder`,
+`_beta_binomial_builder`, `_kumaraswamy_builder`,
+`_lkj_cholesky_builder`), construct the torch `Distribution`
+through the builder and assert the resulting `log_prob` agrees
+with an independent reference at a sweep of parameter and
+evaluation points. A bug in the builder (transposed args, wrong
+transform, missing folding constant, etc.) shows up here as a
+non-zero `log_prob` difference at any test point.
 
 References used:
 

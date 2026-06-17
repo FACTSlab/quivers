@@ -2807,7 +2807,7 @@ if _HAS_GPD:
         )
     )
 # ---------------------------------------------------------------------------
-# Phase B tier 1: Beta-Binomial, Logistic, Half-StudentT
+# Compound / shim families: Beta-Binomial, Logistic, Half-StudentT
 # ---------------------------------------------------------------------------
 
 

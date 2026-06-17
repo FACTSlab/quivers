@@ -234,11 +234,39 @@ def _emit_argument_list(
     return vid
 
 
+_STAN_INDEXED_CALLEE_KINDS: frozenset[str] = frozenset({
+    "variable_expression",
+    "function_expression",
+    "indexed_expression",
+    "parenthized_expression",
+    "array_expression",
+})
+"""Stan grammar `indexed_expression` accepts a narrow set of array
+callee kinds. Anything else (`infix_op_expression`, a literal, ...)
+must be wrapped in `parenthized_expression` for the printer to
+accept it; otherwise emit_pretty silently drops the entire
+indexed expression and prints `[]`."""
+
+
 def _emit_indexed(
     ctx, expr: LetExprIndex
 ) -> tuple[str, str]:
-    """Emit an `indexed_expression` (the `arr[i][j]...` form)."""
+    """Emit an `indexed_expression` (the `arr[i][j]...` form).
+
+    When `expr.array` resolves to a kind Stan's `indexed_expression`
+    production does not accept directly (every kind outside
+    [`_STAN_INDEXED_CALLEE_KINDS`][quivers.transpile.renderers._stan_helpers._STAN_INDEXED_CALLEE_KINDS]),
+    wrap it in `parenthized_expression` so the printer keeps the
+    subtree intact instead of bailing to `[]`.
+    """
     arr_vid, arr_kind = _render(ctx, expr.array)
+    if arr_kind not in _STAN_INDEXED_CALLEE_KINDS:
+        paren = ctx.vertex(ctx.fresh("paren"), "parenthized_expression")
+        ctx.constraint(paren, "chose-alt-fingerprint", "( )")
+        ctx.constraint(paren, "chose-alt-child-kinds", arr_kind)
+        ctx.edge(paren, arr_vid, "child_of")
+        arr_vid = paren
+        arr_kind = "parenthized_expression"
     index_vids: list[str] = []
     child_kinds: list[str] = [arr_kind]
     for idx in expr.indices:
