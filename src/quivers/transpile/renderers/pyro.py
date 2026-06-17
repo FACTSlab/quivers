@@ -39,6 +39,9 @@ lookup, never to per-family equality tests in renderer code.
 
 from __future__ import annotations
 
+import ast
+import pathlib
+
 import panproto
 
 from quivers.dsl.ast_nodes import MorphismInitFamily
@@ -145,9 +148,10 @@ class PyroRenderer(RendererBase):
         )
 
         pctx.v("mod", "module")
-        # Pyro lacks a built-in `TruncatedNormal`; install a
-        # mathematically-equivalent local class at the top of the
-        # module whenever the IR samples or observes from that family.
+        # Pyro lacks a built-in `TruncatedNormal`; the runtime helper
+        # lives at `quivers.transpile.runtime_pyro.TruncatedNormal`.
+        # Emit an `from ... import` at module top whenever the IR
+        # samples or observes from that family.
         if _ir_uses_family(ir.body, "TruncatedNormal"):
             _emit_truncated_normal_helper(pctx)
         body = pctx.v(pctx.fresh("body"), "block")
@@ -387,8 +391,8 @@ class PyroRenderer(RendererBase):
             )
         aliases = meta.arg_aliases.get(_TARGET, {})
         # Build the distribution call. Pyro lacks a built-in
-        # `TruncatedNormal`; the renderer installs a local
-        # `_TruncatedNormal` class at module top (see
+        # `TruncatedNormal`; the renderer imports the helper from
+        # `quivers.transpile.runtime_pyro` (see
         # [`_emit_truncated_normal_helper`][quivers.transpile.renderers.pyro._emit_truncated_normal_helper])
         # and dispatches the call to that bare identifier rather
         # than to `pyro.distributions.<name>`.
@@ -878,46 +882,79 @@ def _scalar_broadcast_for_arg(
     return tuple(sizes)
 
 
-#: Local class name installed at module top to back the
-#: `TruncatedNormal` family on Pyro (which lacks a built-in
-#: `pyro.distributions.TruncatedNormal`).
-_TRUNCATED_NORMAL_HELPER_NAME = "_TruncatedNormal"
+#: Local name the emitted Pyro source uses for the truncated-normal
+#: distribution. The renderer reads
+#: [`quivers.transpile.runtime_pyro`][quivers.transpile.runtime_pyro]
+#: at module-load time, extracts the class definition, and embeds
+#: it in the emit so the result is self-contained.
+_TRUNCATED_NORMAL_HELPER_NAME = "TruncatedNormal"
 
 
-#: Python source for the local `_TruncatedNormal` helper.
-#:
-#: The class subclasses
-#: [`pyro.distributions.torch_distribution.TorchDistribution`][pyro.distributions.torch_distribution.TorchDistribution]
-#: and implements the truncated-normal log density as
-#: ``log Normal(x; loc, scale) - log(CDF(high) - CDF(low))`` for
-#: ``x`` in the closed interval ``[low, high]``, returning
-#: ``-inf`` outside the support. `sample` uses inverse-CDF sampling.
-_TRUNCATED_NORMAL_HELPER_SRC = """\
-class _TruncatedNormal(pyro.distributions.torch_distribution.TorchDistribution):
-    arg_constraints = {}
-    has_rsample = False
-    def __init__(self, loc, scale, low, high, validate_args=None):
-        self.base_dist = pyro.distributions.Normal(loc, scale)
-        self.low = torch.as_tensor(low, dtype=torch.get_default_dtype())
-        self.high = torch.as_tensor(high, dtype=torch.get_default_dtype())
-        super().__init__(
-            self.base_dist.batch_shape,
-            self.base_dist.event_shape,
-            validate_args=validate_args,
-        )
-    def log_prob(self, value):
-        base_lp = self.base_dist.log_prob(value)
-        log_Z = torch.log(self.base_dist.cdf(self.high) - self.base_dist.cdf(self.low))
-        in_bounds = (value >= self.low) & (value <= self.high)
-        out = base_lp - log_Z
-        return torch.where(in_bounds, out, torch.full_like(out, float('-inf')))
-    def sample(self, sample_shape=torch.Size()):
-        shape = torch.Size(sample_shape) + self.base_dist.batch_shape + self.base_dist.event_shape
-        u = torch.rand(shape)
-        Fa = self.base_dist.cdf(self.low)
-        Fb = self.base_dist.cdf(self.high)
-        return self.base_dist.icdf(Fa + u * (Fb - Fa))
-"""
+def _read_truncated_normal_helper_src() -> str:
+    """Extract the ``class TruncatedNormal(...): ...`` definition
+    from
+    [`quivers.transpile.runtime_pyro`][quivers.transpile.runtime_pyro]
+    by parsing its source through `ast` at module import.
+
+    The renderer does not import `runtime_pyro` itself because that
+    module imports `pyro`, which the transpile-only host need not
+    have. Parsing the source text gives a clean read without
+    touching `pyro`.
+
+    Docstrings are stripped from the class body so the embedded
+    source can sit inside a triple-quoted literal at the top of the
+    emit without triple-quote nesting collisions.
+    """
+    src_path = (
+        pathlib.Path(__file__).resolve().parent.parent
+        / "runtime_pyro.py"
+    )
+    tree = ast.parse(src_path.read_text())
+    for node in tree.body:
+        if (
+            isinstance(node, ast.ClassDef)
+            and node.name == _TRUNCATED_NORMAL_HELPER_NAME
+        ):
+            _strip_docstrings(node)
+            return ast.unparse(node)
+    raise RuntimeError(
+        f"`class {_TRUNCATED_NORMAL_HELPER_NAME}` not found in "
+        f"{src_path}; the renderer expects it as the source of "
+        "truth for the embedded Pyro runtime helper."
+    )
+
+
+def _strip_docstrings(node: ast.AST) -> None:
+    """Drop the leading-string `Expr` statement (the docstring) from
+    every function, class, and module node reachable from `node`."""
+    for sub in ast.walk(node):
+        if isinstance(
+            sub,
+            (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef, ast.Module),
+        ):
+            body = sub.body
+            if (
+                body
+                and isinstance(body[0], ast.Expr)
+                and isinstance(body[0].value, ast.Constant)
+                and isinstance(body[0].value.value, str)
+            ):
+                if len(body) == 1:
+                    # Replace bare docstring with `pass` so the
+                    # block stays syntactically valid.
+                    sub.body = [ast.Pass()]
+                else:
+                    sub.body = body[1:]
+
+
+#: Class-definition source embedded at the top of every emit that
+#: samples from `TruncatedNormal`. Read from
+#: [`quivers.transpile.runtime_pyro`][quivers.transpile.runtime_pyro]
+#: at module import so the math lives in exactly one place
+#: (`runtime_pyro.py`) while the emit stays self-contained: the
+#: pretty-printed source carries the class body directly, no external
+#: import is required to run the result.
+_TRUNCATED_NORMAL_HELPER_SRC = _read_truncated_normal_helper_src()
 
 
 def _ir_uses_family(body: tuple[IRNode, ...], family: str) -> bool:
@@ -936,19 +973,29 @@ def _ir_uses_family(body: tuple[IRNode, ...], family: str) -> bool:
 
 
 def _emit_truncated_normal_helper(pctx: _PyroCtx) -> None:
-    """Emit ``exec(\"\"\"<helper>\"\"\", globals())`` as the first
-    module-level statement so subsequent ``_TruncatedNormal(...)``
-    calls resolve at runtime against
-    [`_TRUNCATED_NORMAL_HELPER_SRC`][quivers.transpile.renderers.pyro._TRUNCATED_NORMAL_HELPER_SRC].
-    """
-    # exec(...) call vertex
-    exec_call = pctx.v(pctx.fresh("call"), "call")
-    exec_fn = identifier(pctx, "exec")
-    exec_args = pctx.v(pctx.fresh("args"), "argument_list")
-    pctx.e(exec_call, exec_fn, "function")
-    pctx.e(exec_call, exec_args, "arguments")
+    """Embed the `TruncatedNormal` class at the top of the emitted
+    module so the file is self-contained.
 
-    # Triple-quoted string holding the helper source.
+    The emit shape is two statements:
+
+    ```python
+    _TRUNCATED_NORMAL_HELPER_SRC = '''
+    class TruncatedNormal(pyro.distributions.torch_distribution.TorchDistribution):
+        ...
+    '''
+    exec(_TRUNCATED_NORMAL_HELPER_SRC, globals())
+    ```
+
+    The first statement makes the class source readable in the
+    emit (anyone inspecting the output sees the math directly,
+    no external file to chase). The second runs the source through
+    `exec` so the class lands in the emitted module's namespace
+    where subsequent ``TruncatedNormal(loc, scale, low, high)``
+    calls resolve to it.
+    """
+    # Assignment statement: `_TRUNCATED_NORMAL_HELPER_SRC = """..."""`.
+    assign = pctx.v(pctx.fresh("assign"), "assignment")
+    lhs = identifier(pctx, "_TRUNCATED_NORMAL_HELPER_SRC")
     src_str = pctx.v(pctx.fresh("s"), "string")
     src_start = pctx.v(pctx.fresh("ss"), "string_start")
     pctx.literal(src_start, '"""')
@@ -959,22 +1006,35 @@ def _emit_truncated_normal_helper(pctx: _PyroCtx) -> None:
     pctx.e(src_str, src_start, "child_of")
     pctx.e(src_str, src_content, "child_of")
     pctx.e(src_str, src_end, "child_of")
-    pctx.e(exec_args, src_str, "child_of")
+    pctx.e(assign, lhs, "left")
+    pctx.e(assign, src_str, "right")
 
-    # `globals()` second argument so the class lands in the module
-    # namespace that the probe script sets up.
+    assign_stmt = pctx.v(pctx.fresh("es"), "expression_statement")
+    pctx.e(assign_stmt, assign, "child_of")
+    pctx.e("mod", assign_stmt, "child_of")
+
+    # exec(_TRUNCATED_NORMAL_HELPER_SRC, globals())
+    exec_call = pctx.v(pctx.fresh("call"), "call")
+    pctx.e(exec_call, identifier(pctx, "exec"), "function")
+    exec_args = pctx.v(pctx.fresh("args"), "argument_list")
+    pctx.e(
+        exec_args,
+        identifier(pctx, "_TRUNCATED_NORMAL_HELPER_SRC"),
+        "child_of",
+    )
     globals_call = pctx.v(pctx.fresh("call"), "call")
-    globals_fn = identifier(pctx, "globals")
-    globals_args = pctx.v(pctx.fresh("args"), "argument_list")
-    pctx.e(globals_call, globals_fn, "function")
-    pctx.e(globals_call, globals_args, "arguments")
+    pctx.e(globals_call, identifier(pctx, "globals"), "function")
+    pctx.e(
+        globals_call,
+        pctx.v(pctx.fresh("args"), "argument_list"),
+        "arguments",
+    )
     pctx.e(exec_args, globals_call, "child_of")
+    pctx.e(exec_call, exec_args, "arguments")
 
-    # Wrap in an expression_statement and attach to the module before
-    # the function definition.
-    stmt = pctx.v(pctx.fresh("es"), "expression_statement")
-    pctx.e(stmt, exec_call, "child_of")
-    pctx.e("mod", stmt, "child_of")
+    exec_stmt = pctx.v(pctx.fresh("es"), "expression_statement")
+    pctx.e(exec_stmt, exec_call, "child_of")
+    pctx.e("mod", exec_stmt, "child_of")
 
 
 __all__ = ["PyroRenderer"]
