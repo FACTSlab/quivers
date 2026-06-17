@@ -43,15 +43,24 @@ def docker_available() -> bool:
 
 def image_available(tag: str) -> bool:
     """True iff `docker image inspect <tag>` succeeds (image is built
-    or pulled locally)."""
+    or pulled locally).
+
+    Docker 28+ requires an explicit tag (or digest) on ``image
+    inspect``; bare repository names raise ``No such image``. Probe
+    the bare tag first, then re-probe ``<tag>:latest`` so callers
+    keep using the short name they registered the test image under.
+    """
     if not docker_available():
         return False
-    completed = subprocess.run(
-        ["docker", "image", "inspect", tag],
-        capture_output=True,
-        timeout=10,
-    )
-    return completed.returncode == 0
+    for candidate in (tag, f"{tag}:latest") if ":" not in tag else (tag,):
+        completed = subprocess.run(
+            ["docker", "image", "inspect", candidate],
+            capture_output=True,
+            timeout=10,
+        )
+        if completed.returncode == 0:
+            return True
+    return False
 
 
 def run_probe(
