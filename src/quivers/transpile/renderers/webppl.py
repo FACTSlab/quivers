@@ -1802,8 +1802,8 @@ def _inject_webppl_specific_args(
     args: tuple[IRArg, ...],
     arg_names: tuple[str, ...],
 ) -> tuple[tuple[IRArg, ...], tuple[str, ...]]:
-    """Inject WebPPL-only argument placeholders for families whose
-    torch shape is narrower than WebPPL's call shape.
+    """Inject the canonical extra arguments required by WebPPL for
+    families whose torch shape is narrower than WebPPL's call shape.
 
     Returns the possibly-augmented (args, arg_names) tuple in
     parallel order. The injected keyword name uses the QVR-side

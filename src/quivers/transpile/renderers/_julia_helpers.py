@@ -229,6 +229,20 @@ _JL_PAREN_REQUIRED_OPERAND_KINDS: frozenset[str] = frozenset({
     "unary_expression",
     "arrow_function_expression",
 })
+
+_JL_INDEX_CALLEE_KINDS: frozenset[str] = frozenset({
+    "identifier",
+    "field_expression",
+    "call_expression",
+    "index_expression",
+    "parenthesized_expression",
+    "vector_expression",
+})
+"""Vertex kinds Julia's `index_expression` accepts as the array
+callee directly. Anything else (numeric literals, binary
+expressions, unary expressions) must be wrapped in
+`parenthesized_expression`; otherwise the pretty-printer drops
+the offending subtree silently."""
 """Operand kinds that must be wrapped in `parenthesized_expression`
 when they appear as a sub-expression of a binary or unary operator.
 
@@ -253,6 +267,18 @@ def _maybe_paren(
     vid, kind = rendered
     if kind not in _JL_PAREN_REQUIRED_OPERAND_KINDS:
         return rendered
+    return _force_paren(ctx, rendered)
+
+
+def _force_paren(
+    ctx: _JlLetCtx,
+    rendered: tuple[str, str],
+) -> tuple[str, str]:
+    """Always wrap `rendered` in a `parenthesized_expression`. Used
+    where the surrounding grammar production rejects the rendered
+    kind directly (e.g. an `integer_literal` as an
+    `index_expression` callee)."""
+    vid, kind = rendered
     paren = ctx.v(ctx.fresh("pe"), "parenthesized_expression")
     ctx.constraint(paren, "chose-alt-fingerprint", "( )")
     ctx.constraint(paren, "chose-alt-child-kinds", kind)
@@ -352,11 +378,14 @@ def _emit_index(ctx: _JlLetCtx, expr: LetExprIndex) -> tuple[str, str]:
     Julia's tree-sitter grammar represents subscripting as
     `arr[i,j]` -> `index_expression(arr, vector_expression(i, j))`
     where the inner `vector_expression` carries the comma-separated
-    index list. Emitting the indices as direct children of the
-    `index_expression` (without the `vector_expression` wrapper)
-    causes the pretty-printer to silently drop them.
+    index list. Array callees whose vertex kind is outside
+    [`_JL_INDEX_CALLEE_KINDS`][quivers.transpile.renderers._julia_helpers._JL_INDEX_CALLEE_KINDS]
+    must be wrapped in `parenthesized_expression`; otherwise the
+    pretty-printer drops them and the `index_expression` collapses.
     """
     arr_vid, arr_kind = _render(ctx, expr.array)
+    if arr_kind not in _JL_INDEX_CALLEE_KINDS:
+        arr_vid, arr_kind = _force_paren(ctx, (arr_vid, arr_kind))
     inner_rendered = tuple(_render(ctx, i) for i in expr.indices)
     inner_vid, _inner_kind = _emit_vector(ctx, inner_rendered)
     vid = ctx.v(ctx.fresh("ix"), "index_expression")

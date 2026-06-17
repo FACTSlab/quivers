@@ -652,9 +652,9 @@ class BUGSRenderer(RendererBase):
         args: tuple[IRArg, ...],
         arg_names: tuple[str, ...],
     ) -> tuple[tuple[IRArg, ...], tuple[str, ...]]:
-        """Prepend BUGS-side parameter placeholders for QVR families
-        whose torch distribution carries fewer parameters than the
-        BUGS distribution they map to.
+        """Prepend the canonical zero-location argument for QVR
+        families whose torch distribution carries fewer parameters
+        than the BUGS distribution they map to.
 
         ``HalfNormal(scale)`` maps to BUGS' ``dnorm(0, tau)``; this
         helper prepends an ``IRArgNumber(0)`` plus the parallel
