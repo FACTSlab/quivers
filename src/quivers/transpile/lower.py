@@ -1662,6 +1662,26 @@ def _collect_let_expr_var_names(
         return
 
 
+def _let_expr_needs_plate(expr: LetExprNode) -> bool:
+    """True iff `expr` denotes a value whose shape inherits from its
+    free variables (arithmetic, index, call, method-call), false iff
+    it is shape-self-determining (literal, string, list, factor,
+    lambda).
+
+    The plate-propagation pass uses this to decide whether a
+    `let v = expr` may pick up the surrounding observe/sample's
+    batch_dims. A `let sigma = 0.5` (literal) never inherits a
+    plate; a `let mu = a + b * x_design` (arithmetic that reads a
+    free name) may, when one of its free names is itself plated.
+    """
+    if isinstance(
+        expr, (LetExprLiteral, LetExprString, LetExprList, LetExprFactor,
+               LetExprLambda)
+    ):
+        return False
+    return True
+
+
 def _propagate_let_plates(
     inputs: tuple[IRDataInput, ...],
     body: tuple[IRNode, ...],
@@ -1669,9 +1689,7 @@ def _propagate_let_plates(
     """Shape-inference fixpoint: promote scalar
     [`IRDataInput`][quivers.transpile.ir.IRDataInput] /
     [`IRDeterministic`][quivers.transpile.ir.IRDeterministic] plates
-    that are reachable from a plated
-    [`IRSample`][quivers.transpile.ir.IRSample] or
-    [`IRObserve`][quivers.transpile.ir.IRObserve].
+    that are inferable from a plated consumer.
 
     A free-name input declared as scalar but referenced by a let-bound
     `mu` that flows into ``observe y : Obs <- Normal(mu, ...)`` must
@@ -1682,15 +1700,32 @@ def _propagate_let_plates(
     the let result inherits the input's plate, and any downstream
     `let` reading it propagates further.
 
-    Implementation: iteratively walk the body. For each consumer node
-    with a non-empty `plate.batch_dims`, walk its `IRArgRef` args; for
-    each referenced name N: if N is an `IRDeterministic` with empty
-    `plate.batch_dims`, replace it with a copy that inherits the
-    consumer's `batch_dims`; if N is an `IRDataInput` with empty
-    `plate.batch_dims`, replace it with the inherited batch_dims; then
-    recursively walk the determined let-expression's free names and
-    propagate to those inputs / lets too. Iterate until no batch_dim
-    counts change.
+    Promotion rules (the discriminator that keeps the pass from
+    over-promoting):
+
+    * [`IRDataInput`][quivers.transpile.ir.IRDataInput]: scalar
+      plate is *always* a guess (no `[over=...]` axes attach to a
+      free input), so the consumer's `batch_dims` is the best
+      inferred shape. Promote unconditionally.
+    * [`IRDeterministic`][quivers.transpile.ir.IRDeterministic]
+      with an expression that
+      [`_let_expr_needs_plate`][quivers.transpile.lower._let_expr_needs_plate]
+      classifies as shape-inheriting (arithmetic, index, call):
+      promote, then recurse into the expression's free names so
+      transitively-referenced inputs / lets also pick up the plate.
+    * [`IRDeterministic`][quivers.transpile.ir.IRDeterministic]
+      with a literal / string / list / factor / lambda RHS:
+      shape-self-determining; *never* promote. ``let sigma = 0.5``
+      stays scalar even when it flows into an
+      ``Obs``-plated `Normal(mu, sigma)`; Stan's `normal_lpdf`
+      broadcasts the scalar across the observation loop natively.
+    * [`IRSample`][quivers.transpile.ir.IRSample]: plate is declared
+      by `<- Family(...) [over=...]`; never inferred. Never promote.
+
+    Iterate to fixpoint so a chain like
+    ``observe y : Obs <- f(g) ; let g = h * x_design`` promotes
+    ``g`` (arithmetic, free) → ``x_design`` (data input, free) in
+    the same pass.
 
     Idempotent: returns inputs/body unchanged on the second call.
     """
@@ -1729,6 +1764,8 @@ def _propagate_let_plates(
             return False
         if cur.plate.batch_dims:
             return False
+        if not _let_expr_needs_plate(cur.expr):
+            return False
         body_list[idx] = IRDeterministic(
             name=cur.name,
             expr=cur.expr,
@@ -1738,8 +1775,9 @@ def _propagate_let_plates(
             ),
         )
         # Recurse into the let-expression's free names so any
-        # transitively-referenced free name (e.g. a data input the
-        # let reads) also picks up the plate.
+        # transitively-referenced data input / let also picks up
+        # the plate. IRSample names are left alone (their plate is
+        # declared, never inferred).
         leaves: set[str] = set()
         _collect_let_expr_var_names(cur.expr, leaves)
         for leaf in leaves:
@@ -1759,8 +1797,6 @@ def _propagate_let_plates(
                 if not isinstance(arg, IRArgRef):
                     continue
                 if _promote_let(arg.name, node.plate.batch_dims):
-                    changed = True
-                if _promote_input(arg.name, node.plate.batch_dims):
                     changed = True
 
     return tuple(inputs_list), tuple(body_list)
