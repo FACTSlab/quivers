@@ -39,14 +39,13 @@ lookup, never to per-family equality tests in renderer code.
 
 from __future__ import annotations
 
-import ast
 import pathlib
 
 import panproto
 
 from quivers.dsl.ast_nodes import MorphismInitFamily
 from quivers.transpile._api import UnsupportedConstruct
-from quivers.transpile._pipeline import target_protocol
+from quivers.transpile._pipeline import parser_registry, target_protocol
 from quivers.transpile.renderers._python_helpers import (
     PyCtx,
     assignment,
@@ -148,12 +147,6 @@ class PyroRenderer(RendererBase):
         )
 
         pctx.v("mod", "module")
-        # Pyro lacks a built-in `TruncatedNormal`; the runtime helper
-        # lives at `quivers.transpile.runtime_pyro.TruncatedNormal`.
-        # Emit an `from ... import` at module top whenever the IR
-        # samples or observes from that family.
-        if _ir_uses_family(ir.body, "TruncatedNormal"):
-            _emit_truncated_normal_helper(pctx)
         body = pctx.v(pctx.fresh("body"), "block")
         func = _function_def_split(
             pctx,
@@ -169,6 +162,16 @@ class PyroRenderer(RendererBase):
 
         for node in ir.body:
             self._dispatch_pyro_node(pctx, ctx, node)
+
+        # Pyro lacks a built-in `TruncatedNormal`; the runtime helper
+        # lives at [`quivers.transpile.runtime_pyro`][quivers.transpile.runtime_pyro].
+        # When the IR samples or observes from that family, graft
+        # the parsed `class TruncatedNormal` subtree onto the module
+        # below `model`. Python's late binding makes the order safe:
+        # `model` references `TruncatedNormal` only when called, by
+        # which time the class is defined.
+        if _ir_uses_family(ir.body, "TruncatedNormal"):
+            _emit_truncated_normal_helper(pctx)
 
         return sb.build()
 
@@ -217,13 +220,13 @@ class PyroRenderer(RendererBase):
             pctx.e(pctx.body, asn, "child_of")
             return
         if isinstance(node, IRScore):
-            self._emit_score(pctx, node)
+            self._emit_score_pyro(pctx, node)
             return
         if isinstance(node, IRMarginalize):
             self.marginalize(ctx, node, pctx=pctx)
             return
         if isinstance(node, IRReturn):
-            self._emit_return(pctx, node.names)
+            self._emit_return_pyro(pctx, node.names)
             return
         raise UnsupportedConstruct(
             f"qvr-{self.target}",
@@ -540,7 +543,13 @@ class PyroRenderer(RendererBase):
         positional: list[str] = []
         keyword: list[tuple[str, str]] = []
         if not arg_names or len(arg_names) != len(args):
-            arg_names = tuple(meta.distribution_class.arg_constraints or ())
+            torch_constraints = getattr(
+                meta.distribution_class, "arg_constraints", None
+            )
+            if isinstance(torch_constraints, dict):
+                arg_names = tuple(torch_constraints.keys())
+            else:
+                arg_names = ()
         for ir_arg, arg_name in zip(args, arg_names, strict=False):
             target = None
             if plate is not None:
@@ -661,8 +670,19 @@ class PyroRenderer(RendererBase):
 
     # ----- score / return -----
 
-    def _emit_score(self, pctx: _PyroCtx, node: IRScore) -> None:
-        """`<name> = <expr>; pyro.factor("<name>", <name>)`."""
+    def _emit_score_pyro(
+        self, pctx: _PyroCtx, node: IRScore
+    ) -> None:
+        """`<name> = <expr>; pyro.factor("<name>", <name>)`.
+
+        Pyro-local emitter; never goes through the
+        [`RendererBase`][quivers.transpile.renderers._base.RendererBase]
+        dispatch (the Pyro renderer routes through
+        [`_dispatch_pyro_node`][quivers.transpile.renderers.pyro.PyroRenderer._dispatch_pyro_node]
+        instead, with its own
+        [`_PyroCtx`][quivers.transpile.renderers.pyro._PyroCtx]
+        rather than the base `_RenderCtx`).
+        """
         asn = pctx.v(pctx.fresh("asn"), "assignment")
         lhs = identifier(pctx, node.name)
         pctx.e(asn, lhs, "left")
@@ -678,8 +698,15 @@ class PyroRenderer(RendererBase):
         )
         pctx.e(pctx.body, factor_call, "child_of")
 
-    def _emit_return(self, pctx, names: tuple[str, ...]) -> None:
-        """Emit `return <var>` / `return <a>, <b>, ...`."""
+    def _emit_return_pyro(
+        self, pctx: _PyroCtx, names: tuple[str, ...]
+    ) -> None:
+        """Emit `return <var>` / `return <a>, <b>, ...`.
+
+        Pyro-local emitter; see
+        [`_emit_score_pyro`][quivers.transpile.renderers.pyro.PyroRenderer._emit_score_pyro]
+        for why this does not override the base method.
+        """
         if not names:
             return
         rs = pctx.v(pctx.fresh("ret"), "return_statement")
@@ -890,71 +917,86 @@ def _scalar_broadcast_for_arg(
 _TRUNCATED_NORMAL_HELPER_NAME = "TruncatedNormal"
 
 
-def _read_truncated_normal_helper_src() -> str:
-    """Extract the ``class TruncatedNormal(...): ...`` definition
-    from
-    [`quivers.transpile.runtime_pyro`][quivers.transpile.runtime_pyro]
-    by parsing its source through `ast` at module import.
+_RUNTIME_PYRO_PATH = (
+    pathlib.Path(__file__).resolve().parent.parent / "runtime_pyro.py"
+)
 
-    The renderer does not import `runtime_pyro` itself because that
-    module imports `pyro`, which the transpile-only host need not
-    have. Parsing the source text gives a clean read without
-    touching `pyro`.
 
-    Docstrings are stripped from the class body so the embedded
-    source can sit inside a triple-quoted literal at the top of the
-    emit without triple-quote nesting collisions.
+def _load_truncated_normal_helper_schema() -> tuple[
+    panproto.Schema, str
+]:
+    """Parse [`runtime_pyro.py`][quivers.transpile.runtime_pyro]
+    through panproto's Python tree-sitter grammar at module-load
+    time and return the resulting schema plus the vertex id of the
+    `class TruncatedNormal` root.
+
+    The renderer's
+    [`_emit_truncated_normal_helper`][quivers.transpile.renderers.pyro._emit_truncated_normal_helper]
+    grafts the class-definition subtree (vertex + all descendants
+    + their constraints + edges) into the per-render schema as a
+    `child_of` of the emitted module. The emit is structurally a
+    real Python class definition — no string literal, no `exec`,
+    no runtime self-injection. The class body retains its
+    docstrings (the tree-sitter pretty printer round-trips them
+    cleanly when they live in their proper `string` vertex slot,
+    rather than as nested triple-quotes inside an outer string).
     """
-    src_path = (
-        pathlib.Path(__file__).resolve().parent.parent
-        / "runtime_pyro.py"
+    schema = parser_registry().parse_with_protocol(
+        "python",
+        _RUNTIME_PYRO_PATH.read_bytes(),
+        str(_RUNTIME_PYRO_PATH),
     )
-    tree = ast.parse(src_path.read_text())
-    for node in tree.body:
-        if (
-            isinstance(node, ast.ClassDef)
-            and node.name == _TRUNCATED_NORMAL_HELPER_NAME
-        ):
-            _strip_docstrings(node)
-            return ast.unparse(node)
+    for v in schema.vertices:
+        if v.kind == "class_definition":
+            for e in schema.edges:
+                if e.src == v.id and e.kind == "name":
+                    name_v = next(
+                        (vv for vv in schema.vertices if vv.id == e.tgt),
+                        None,
+                    )
+                    if name_v is None:
+                        continue
+                    name_lit = next(
+                        (
+                            c.value
+                            for c in schema.constraints_for(name_v.id)
+                            if c.sort == "literal-value"
+                        ),
+                        None,
+                    )
+                    if name_lit == _TRUNCATED_NORMAL_HELPER_NAME:
+                        return schema, v.id
     raise RuntimeError(
         f"`class {_TRUNCATED_NORMAL_HELPER_NAME}` not found in "
-        f"{src_path}; the renderer expects it as the source of "
-        "truth for the embedded Pyro runtime helper."
+        f"{_RUNTIME_PYRO_PATH}; the renderer expects it as the source "
+        "of truth for the embedded Pyro runtime helper."
     )
 
 
-def _strip_docstrings(node: ast.AST) -> None:
-    """Drop the leading-string `Expr` statement (the docstring) from
-    every function, class, and module node reachable from `node`."""
-    for sub in ast.walk(node):
-        if isinstance(
-            sub,
-            (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef, ast.Module),
-        ):
-            body = sub.body
-            if (
-                body
-                and isinstance(body[0], ast.Expr)
-                and isinstance(body[0].value, ast.Constant)
-                and isinstance(body[0].value.value, str)
-            ):
-                if len(body) == 1:
-                    # Replace bare docstring with `pass` so the
-                    # block stays syntactically valid.
-                    sub.body = [ast.Pass()]
-                else:
-                    sub.body = body[1:]
+_TRUNCATED_NORMAL_HELPER_SCHEMA, _TRUNCATED_NORMAL_HELPER_ROOT = (
+    _load_truncated_normal_helper_schema()
+)
 
 
-#: Class-definition source embedded at the top of every emit that
-#: samples from `TruncatedNormal`. Read from
-#: [`quivers.transpile.runtime_pyro`][quivers.transpile.runtime_pyro]
-#: at module import so the math lives in exactly one place
-#: (`runtime_pyro.py`) while the emit stays self-contained: the
-#: pretty-printed source carries the class body directly, no external
-#: import is required to run the result.
-_TRUNCATED_NORMAL_HELPER_SRC = _read_truncated_normal_helper_src()
+def _subtree_vertex_ids(
+    schema: panproto.Schema, root: str
+) -> set[str]:
+    """Return every vertex id reachable from `root` via outgoing
+    edges of `schema`."""
+    seen: set[str] = {root}
+    frontier: list[str] = [root]
+    while frontier:
+        src = frontier.pop()
+        for edge in schema.edges:
+            if edge.src == src and edge.tgt not in seen:
+                seen.add(edge.tgt)
+                frontier.append(edge.tgt)
+    return seen
+
+
+_TRUNCATED_NORMAL_HELPER_SUBTREE = _subtree_vertex_ids(
+    _TRUNCATED_NORMAL_HELPER_SCHEMA, _TRUNCATED_NORMAL_HELPER_ROOT
+)
 
 
 def _ir_uses_family(body: tuple[IRNode, ...], family: str) -> bool:
@@ -973,68 +1015,46 @@ def _ir_uses_family(body: tuple[IRNode, ...], family: str) -> bool:
 
 
 def _emit_truncated_normal_helper(pctx: _PyroCtx) -> None:
-    """Embed the `TruncatedNormal` class at the top of the emitted
-    module so the file is self-contained.
+    """Graft the `class TruncatedNormal` subtree from
+    [`runtime_pyro.py`][quivers.transpile.runtime_pyro] into the
+    per-render schema as a top-level child of `mod`.
 
-    The emit shape is two statements:
+    The class definition is a real
+    [`class_definition`][panproto.schema.class_definition] panproto
+    subtree (parsed once at module load via panproto's Python
+    tree-sitter grammar). The renderer copies every vertex, every
+    constraint, and every internal edge of the subtree into the
+    per-render `SchemaBuilder`, then attaches the class root as a
+    `child_of` of `mod`. The emit contains a properly-printed
+    class definition, with no string literal of source code and no
+    `exec` at module load. Subsequent
+    ``TruncatedNormal(loc, scale, low, high)`` call sites in the
+    rendered model body resolve to that class through normal
+    Python name lookup.
 
-    ```python
-    _TRUNCATED_NORMAL_HELPER_SRC = '''
-    class TruncatedNormal(pyro.distributions.torch_distribution.TorchDistribution):
-        ...
-    '''
-    exec(_TRUNCATED_NORMAL_HELPER_SRC, globals())
-    ```
-
-    The first statement makes the class source readable in the
-    emit (anyone inspecting the output sees the math directly,
-    no external file to chase). The second runs the source through
-    `exec` so the class lands in the emitted module's namespace
-    where subsequent ``TruncatedNormal(loc, scale, low, high)``
-    calls resolve to it.
+    Vertex ids are rewritten through `pctx.fresh` so a render that
+    grafts the subtree more than once (e.g. a model that uses
+    `TruncatedNormal` in multiple sample sites — only one graft
+    happens, but the renaming keeps the schema's vertex-id
+    invariant) does not collide with builder-allocated ids.
     """
-    # Assignment statement: `_TRUNCATED_NORMAL_HELPER_SRC = """..."""`.
-    assign = pctx.v(pctx.fresh("assign"), "assignment")
-    lhs = identifier(pctx, "_TRUNCATED_NORMAL_HELPER_SRC")
-    src_str = pctx.v(pctx.fresh("s"), "string")
-    src_start = pctx.v(pctx.fresh("ss"), "string_start")
-    pctx.literal(src_start, '"""')
-    src_content = pctx.v(pctx.fresh("sc"), "string_content")
-    pctx.literal(src_content, _TRUNCATED_NORMAL_HELPER_SRC)
-    src_end = pctx.v(pctx.fresh("se"), "string_end")
-    pctx.literal(src_end, '"""')
-    pctx.e(src_str, src_start, "child_of")
-    pctx.e(src_str, src_content, "child_of")
-    pctx.e(src_str, src_end, "child_of")
-    pctx.e(assign, lhs, "left")
-    pctx.e(assign, src_str, "right")
+    src_schema = _TRUNCATED_NORMAL_HELPER_SCHEMA
+    subtree = _TRUNCATED_NORMAL_HELPER_SUBTREE
+    id_map: dict[str, str] = {}
 
-    assign_stmt = pctx.v(pctx.fresh("es"), "expression_statement")
-    pctx.e(assign_stmt, assign, "child_of")
-    pctx.e("mod", assign_stmt, "child_of")
-
-    # exec(_TRUNCATED_NORMAL_HELPER_SRC, globals())
-    exec_call = pctx.v(pctx.fresh("call"), "call")
-    pctx.e(exec_call, identifier(pctx, "exec"), "function")
-    exec_args = pctx.v(pctx.fresh("args"), "argument_list")
-    pctx.e(
-        exec_args,
-        identifier(pctx, "_TRUNCATED_NORMAL_HELPER_SRC"),
-        "child_of",
-    )
-    globals_call = pctx.v(pctx.fresh("call"), "call")
-    pctx.e(globals_call, identifier(pctx, "globals"), "function")
-    pctx.e(
-        globals_call,
-        pctx.v(pctx.fresh("args"), "argument_list"),
-        "arguments",
-    )
-    pctx.e(exec_args, globals_call, "child_of")
-    pctx.e(exec_call, exec_args, "arguments")
-
-    exec_stmt = pctx.v(pctx.fresh("es"), "expression_statement")
-    pctx.e(exec_stmt, exec_call, "child_of")
-    pctx.e("mod", exec_stmt, "child_of")
+    for old in subtree:
+        new = pctx.fresh("tn")
+        id_map[old] = new
+        kind = next(
+            v.kind for v in src_schema.vertices if v.id == old
+        )
+        pctx.v(new, kind)
+        for cstr in src_schema.constraints_for(old):
+            pctx.constraint(new, cstr.sort, cstr.value)
+    for edge in src_schema.edges:
+        if edge.src in id_map and edge.tgt in id_map:
+            pctx.e(id_map[edge.src], id_map[edge.tgt], edge.kind)
+    pctx.e("mod", id_map[_TRUNCATED_NORMAL_HELPER_ROOT], "child_of")
 
 
 __all__ = ["PyroRenderer"]
