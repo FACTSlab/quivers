@@ -47,16 +47,6 @@ _BACKENDS = sorted(available_targets())
 #    is a `family_meta` decision (a target_name can be added if
 #    paired with a renderer-side construction recipe).
 _KNOWN_COMPOSITION_GAPS: dict[tuple[str, str], str] = {
-    ("bayes_linear_regression", "stan"): (
-        "return:undeclared:mu -- Stan return-alias needs let-bound "
-        "name declared as transformed_parameter before return"
-    ),
-    ("correlated_regression", "stan"): (
-        "return:undeclared:mu -- same"
-    ),
-    ("eight_schools_noncentered", "stan"): (
-        "return:undeclared:theta -- same"
-    ),
     ("normal_inverse_gamma", "bugs"): (
         "family:InverseGamma: no BUGS target name (BUGS has no native "
         "InverseGamma; a `dgamma`-on-precision recipe could close it)"
