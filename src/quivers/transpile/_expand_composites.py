@@ -42,7 +42,8 @@ The pass operates at the Module level: it rebuilds every
    will reject. (Stan-specific marginalization is tracked as future
    walker work; see `docs/semantics/transpile-correctness.md` §5.6.)
 
-3. **ScoreStep** / **LetStep**: passthrough for now; tracked.
+3. **ScoreStep** / **LetStep**: passthrough; the per-target
+   renderer reads them directly.
 """
 
 from __future__ import annotations

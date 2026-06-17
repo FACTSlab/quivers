@@ -1257,9 +1257,12 @@ class GenRenderer(RendererBase):
         gx.body_stmts.append(mc)
 
     # ------------------------------------------------------------------
-    # Protocol-required dispatch points (used by the inherited walk).
-    # The Gen renderer overrides `_emit_node` so these stubs return
-    # empty fragments; the work happens in `_emit_*` above.
+    # Protocol-required dispatch points. The Gen renderer overrides
+    # `_emit_node` at a higher level (it emits the whole Gen
+    # `@gen function ... end` shell inline rather than block-by-block),
+    # so the granular `declare` / `sample` / `marginalize` /
+    # `broadcast` methods below are no-ops: the work happens in the
+    # `_emit_*` methods further up.
     # ------------------------------------------------------------------
 
     def declare(
