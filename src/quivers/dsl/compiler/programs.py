@@ -39,7 +39,6 @@ from quivers.dsl.ast_nodes import (
     DrawStep,
     Expr,
     atom_to_draw_arg,
-    draw_arg_atom_value,
     ExprIdent,
     ExprMorphismCall,
     ExprTransCompose,
