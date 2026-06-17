@@ -33,7 +33,6 @@ import dataclasses
 from typing import Callable
 
 import panproto
-import torch.distributions.constraints as _constraints
 
 from quivers.dsl.ast_nodes.let_expressions import (
     LetExprBinOp,
@@ -503,7 +502,15 @@ def _expected_event_rank(
     constraint = cls_attr.get(arg_name)
     if constraint is None:
         return 0
-    if isinstance(constraint, _constraints._IndependentConstraint):
+    # `torch.distributions.constraints.independent(base, n)` returns
+    # an `_IndependentConstraint` carrying `event_dim` and
+    # `base_constraint`. Duck-typing on both avoids the private class
+    # name while excluding other constraints (`simplex`,
+    # `lower_triangular`, etc.) whose `event_dim > 0` reflects the
+    # support's intrinsic shape, not a `Family.expand(...)` wrapper.
+    if hasattr(constraint, "base_constraint") and hasattr(
+        constraint, "event_dim"
+    ):
         return int(constraint.event_dim)
     return 0
 
@@ -937,7 +944,7 @@ class GenRenderer(RendererBase):
         # required dispatch signatures but the per-render scratch
         # lives on `_GenCtx`.
         ctx = _RenderCtx(sb=sb, morphisms={}, lets={})
-        self._gx = gx  # noqa: SLF001
+        self._gx = gx
         try:
             for node in ir.body:
                 self._emit_node(ctx, node)
@@ -1003,7 +1010,7 @@ class GenRenderer(RendererBase):
             self._emit_marginalize(ctx, node)
             return
         if isinstance(node, IRReturn):
-            self._gx.return_names = tuple(node.names)  # noqa: SLF001
+            self._gx.return_names = tuple(node.names)
             return
         raise UnsupportedConstruct(
             "qvr-gen", [f"node:{type(node).__name__}"]
@@ -1032,7 +1039,7 @@ class GenRenderer(RendererBase):
         signature) and drops the `name[m] = ...` LHS so the trace
         macro emits as a bare statement.
         """
-        gx = self._gx  # noqa: SLF001
+        gx = self._gx
         if not node.plate.batch_dims:
             self._emit_scalar_sample(node, observed=observed)
             return
@@ -1046,7 +1053,7 @@ class GenRenderer(RendererBase):
     def _emit_scalar_sample(
         self, node: IRSample, *, observed: bool
     ) -> None:
-        gx = self._gx  # noqa: SLF001
+        gx = self._gx
         dist_vid = self._build_dist_call(
             family=node.family,
             args=node.args,
@@ -1066,7 +1073,7 @@ class GenRenderer(RendererBase):
 
     def _emit_storage_alloc(self, node: IRSample) -> None:
         """Pre-allocate `Vector{T}(undef, B0, B1, ...)` for batched draws."""
-        gx = self._gx  # noqa: SLF001
+        gx = self._gx
         elem_type = _element_type_for(node.constraint, node.plate)
         # For >1 batch dim, nest the storage: Vector{Vector{...{T}...}}.
         for _ in node.plate.batch_dims[1:]:
@@ -1086,7 +1093,7 @@ class GenRenderer(RendererBase):
         observed: bool,
         via: str | None,
     ) -> None:
-        gx = self._gx  # noqa: SLF001
+        gx = self._gx
         loop_names = tuple(
             _loop_var_for(gx, dim.name, node.name)
             for dim in node.plate.batch_dims
@@ -1148,7 +1155,7 @@ class GenRenderer(RendererBase):
     def _build_indexed_lhs(
         self, name: str, loop_names: tuple[str, ...]
     ) -> str:
-        gx = self._gx  # noqa: SLF001
+        gx = self._gx
         if not loop_names:
             return _ident(gx, name)
         current = _ident(gx, name)
@@ -1175,12 +1182,12 @@ class GenRenderer(RendererBase):
         """
         if family in _WRAPPER_BUILDERS:
             return _build_wrapper_call(
-                self._gx,  # noqa: SLF001
+                self._gx,
                 family=family,
                 args=args,
                 arg_ctx=arg_ctx,
             )
-        gx = self._gx  # noqa: SLF001
+        gx = self._gx
         callee_name = _gen_target_name(family)
         arg_vids: list[str] = []
         for arg, name in zip(args, arg_names, strict=False):
@@ -1206,7 +1213,7 @@ class GenRenderer(RendererBase):
     # ------------------------------------------------------------------
 
     def _emit_deterministic(self, node: IRDeterministic) -> None:
-        gx = self._gx  # noqa: SLF001
+        gx = self._gx
         rhs = render_let_expr_julia(
             _JlCtxAdapter(gx, "gen"), node.expr
         )
@@ -1244,7 +1251,7 @@ class GenRenderer(RendererBase):
     # ------------------------------------------------------------------
 
     def _emit_score(self, ctx: _RenderCtx, node: IRScore) -> None:
-        gx = self._gx  # noqa: SLF001
+        gx = self._gx
         del ctx
         rhs = render_let_expr_julia(
             _JlCtxAdapter(gx, "gen"), node.expr
@@ -1308,7 +1315,7 @@ class GenRenderer(RendererBase):
         target_shape: tuple[int, ...],
     ) -> SchemaFragment:
         del ctx
-        gx = self._gx  # noqa: SLF001
+        gx = self._gx
         value_vid = _render_arg(gx, value, arg_ctx=_ArgCtx())
         return _broadcast_to_shape(gx, value_vid, target_shape)
 

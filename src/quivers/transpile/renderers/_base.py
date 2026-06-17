@@ -43,7 +43,6 @@ from quivers.transpile.ir import (
     IRArgFamilyRef,
     IRArgList,
     IRArgMatrix,
-    IRArgNumber,
     IRArgRef,
     IRDataInput,
     IRDeterministic,
