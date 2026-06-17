@@ -185,6 +185,7 @@ class Lower(dx.Mapping[Module, IRProgram]):
         if program.return_vars:
             body = (*body, IRReturn(names=tuple(program.return_vars)))
         inputs = self._build_inputs(program, body, ctx)
+        inputs, body = _propagate_let_plates(inputs, body)
         return IRProgram(
             name=program.name,
             inputs=inputs,
@@ -1613,6 +1614,156 @@ def _walk_nodes(body: tuple[IRNode, ...]):
         yield node
         if isinstance(node, IRMarginalize):
             yield from _walk_nodes(node.scope)
+
+
+def _collect_let_expr_var_names(
+    expr: LetExprNode, out: set[str]
+) -> None:
+    """Walk `expr` collecting every leaf
+    [`LetExprVar.name`][quivers.dsl.ast_nodes.LetExprVar.name]. Used
+    by the plate-propagation pass to find which exogenous /
+    previously-bound names a `let`-expression reads."""
+    if isinstance(expr, LetExprVar):
+        out.add(expr.name)
+        return
+    if isinstance(expr, LetExprBinOp):
+        _collect_let_expr_var_names(expr.left, out)
+        _collect_let_expr_var_names(expr.right, out)
+        return
+    if isinstance(expr, LetExprUnaryOp):
+        _collect_let_expr_var_names(expr.operand, out)
+        return
+    if isinstance(expr, LetExprCall):
+        for a in expr.args:
+            _collect_let_expr_var_names(a, out)
+        return
+    if isinstance(expr, LetExprIndex):
+        _collect_let_expr_var_names(expr.array, out)
+        for i in expr.indices:
+            _collect_let_expr_var_names(i, out)
+        return
+    if isinstance(expr, LetExprList):
+        for e in expr.items:
+            _collect_let_expr_var_names(e, out)
+        return
+    if isinstance(expr, LetExprLambda):
+        _collect_let_expr_var_names(expr.body, out)
+        return
+    if isinstance(expr, LetExprFactor):
+        for case in expr.cases:
+            _collect_let_expr_var_names(case.value, out)
+        if expr.body is not None:
+            _collect_let_expr_var_names(expr.body, out)
+        return
+    if isinstance(expr, LetExprMethodCall):
+        _collect_let_expr_var_names(expr.receiver, out)
+        for a in expr.args:
+            _collect_let_expr_var_names(a, out)
+        return
+
+
+def _propagate_let_plates(
+    inputs: tuple[IRDataInput, ...],
+    body: tuple[IRNode, ...],
+) -> tuple[tuple[IRDataInput, ...], tuple[IRNode, ...]]:
+    """Shape-inference fixpoint: promote scalar
+    [`IRDataInput`][quivers.transpile.ir.IRDataInput] /
+    [`IRDeterministic`][quivers.transpile.ir.IRDeterministic] plates
+    that are reachable from a plated
+    [`IRSample`][quivers.transpile.ir.IRSample] or
+    [`IRObserve`][quivers.transpile.ir.IRObserve].
+
+    A free-name input declared as scalar but referenced by a let-bound
+    `mu` that flows into ``observe y : Obs <- Normal(mu, ...)`` must
+    actually be a vector over ``Obs``; otherwise the emitted target
+    code declares the input as a scalar and the runtime trips on the
+    shape mismatch at data binding. Same logic for an
+    `IRDeterministic` (a `let`) whose expression reads such an input:
+    the let result inherits the input's plate, and any downstream
+    `let` reading it propagates further.
+
+    Implementation: iteratively walk the body. For each consumer node
+    with a non-empty `plate.batch_dims`, walk its `IRArgRef` args; for
+    each referenced name N: if N is an `IRDeterministic` with empty
+    `plate.batch_dims`, replace it with a copy that inherits the
+    consumer's `batch_dims`; if N is an `IRDataInput` with empty
+    `plate.batch_dims`, replace it with the inherited batch_dims; then
+    recursively walk the determined let-expression's free names and
+    propagate to those inputs / lets too. Iterate until no batch_dim
+    counts change.
+
+    Idempotent: returns inputs/body unchanged on the second call.
+    """
+    by_name: dict[str, int] = {}
+    body_list = list(body)
+    for i, node in enumerate(body_list):
+        if isinstance(node, (IRDeterministic,)):
+            by_name[node.name] = i
+    input_map: dict[str, int] = {
+        inp.name: i for i, inp in enumerate(inputs)
+    }
+    inputs_list = list(inputs)
+
+    def _promote_input(name: str, batch_dims: tuple[Dim, ...]) -> bool:
+        idx = input_map.get(name)
+        if idx is None:
+            return False
+        cur = inputs_list[idx]
+        if cur.plate.batch_dims:
+            return False
+        inputs_list[idx] = IRDataInput(
+            name=cur.name,
+            constraint=cur.constraint,
+            plate=Plate(
+                event_dims=cur.plate.event_dims, batch_dims=batch_dims,
+            ),
+        )
+        return True
+
+    def _promote_let(name: str, batch_dims: tuple[Dim, ...]) -> bool:
+        idx = by_name.get(name)
+        if idx is None:
+            return False
+        cur = body_list[idx]
+        if not isinstance(cur, IRDeterministic):
+            return False
+        if cur.plate.batch_dims:
+            return False
+        body_list[idx] = IRDeterministic(
+            name=cur.name,
+            expr=cur.expr,
+            constraint=cur.constraint,
+            plate=Plate(
+                event_dims=cur.plate.event_dims, batch_dims=batch_dims,
+            ),
+        )
+        # Recurse into the let-expression's free names so any
+        # transitively-referenced free name (e.g. a data input the
+        # let reads) also picks up the plate.
+        leaves: set[str] = set()
+        _collect_let_expr_var_names(cur.expr, leaves)
+        for leaf in leaves:
+            _promote_input(leaf, batch_dims)
+            _promote_let(leaf, batch_dims)
+        return True
+
+    changed = True
+    while changed:
+        changed = False
+        for node in _walk_nodes(tuple(body_list)):
+            if not isinstance(node, (IRSample, IRObserve)):
+                continue
+            if not node.plate.batch_dims:
+                continue
+            for arg in node.args:
+                if not isinstance(arg, IRArgRef):
+                    continue
+                if _promote_let(arg.name, node.plate.batch_dims):
+                    changed = True
+                if _promote_input(arg.name, node.plate.batch_dims):
+                    changed = True
+
+    return tuple(inputs_list), tuple(body_list)
 
 
 def _collect_integer_index_names(

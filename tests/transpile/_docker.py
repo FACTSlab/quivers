@@ -42,25 +42,34 @@ def docker_available() -> bool:
 
 
 def image_available(tag: str) -> bool:
-    """True iff `docker image inspect <tag>` succeeds (image is built
-    or pulled locally).
+    """True iff a Docker image matching ``tag`` is built or pulled
+    locally.
 
-    Docker 28+ requires an explicit tag (or digest) on ``image
-    inspect``; bare repository names raise ``No such image``. Probe
-    the bare tag first, then re-probe ``<tag>:latest`` so callers
-    keep using the short name they registered the test image under.
+    Uses ``docker images --filter reference=<tag>`` rather than
+    ``docker image inspect`` because Docker Desktop 28+ has a daemon
+    bug where ``image inspect <name>`` and ``image inspect
+    <name>:latest`` both raise ``No such image`` even when ``docker
+    images`` lists the image. The filter-form query goes through a
+    different daemon path and reliably returns the image when it
+    exists.
     """
     if not docker_available():
         return False
-    for candidate in (tag, f"{tag}:latest") if ":" not in tag else (tag,):
-        completed = subprocess.run(
-            ["docker", "image", "inspect", candidate],
-            capture_output=True,
-            timeout=10,
-        )
-        if completed.returncode == 0:
-            return True
-    return False
+    completed = subprocess.run(
+        [
+            "docker",
+            "images",
+            "--filter",
+            f"reference={tag}",
+            "--format",
+            "{{.ID}}",
+        ],
+        capture_output=True,
+        timeout=10,
+    )
+    if completed.returncode != 0:
+        return False
+    return bool(completed.stdout.strip())
 
 
 def run_probe(

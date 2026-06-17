@@ -58,8 +58,16 @@ from quivers.dsl.ast_nodes import (
     Module,
     MorphismDecl,
 )
+from quivers.dsl.ast_nodes.let_expressions import (
+    LetExprFactor,
+    LetExprIndex,
+    LetExprList,
+    LetExprNode,
+    LetExprVar,
+)
 from quivers.transpile._api import UnsupportedConstruct
 from quivers.transpile._pipeline import target_protocol
+from quivers.transpile.lower import _collect_let_expr_var_names
 from quivers.transpile.family_meta import (
     FAMILY_META,
     FamilyMeta,
@@ -107,7 +115,10 @@ from quivers.transpile.renderers._base import (
     _RenderCtx,
     assert_no_dangling_refs,
 )
-from quivers.transpile.renderers._stan_helpers import render_let_expr_stan
+from quivers.transpile.renderers._stan_helpers import (
+    _substitute_let_expr,
+    render_let_expr_stan,
+)
 
 
 class _StanLetCtx:
@@ -828,14 +839,45 @@ class StanRenderer(RendererBase):
         referenced name itself sits on the surrounding plate, prepend
         the loop indices.
 
-        The IR's user-written indices (`phi[z]`, `mu[cls]`) already
-        carry the right shape for the gallery cases; this hook is
-        provided so a downstream extension can prepend loop indices
-        when the IR carries an unindexed ref whose binding plate
-        matches the surrounding sample's batch_dims.
+        Two cases handled:
+
+        * User-written index already present (`phi[z]`, `mu[cls]`):
+          left alone; the IR already encodes the per-element lookup.
+        * Unindexed ref whose declared plate's batch_dims align (as a
+          tuple-equality on `Dim`s) with `plate.batch_dims`: prepend
+          one [`IRArgRef`][quivers.transpile.ir.IRArgRef] index per
+          aligned batch dim, in declaration order. The loop indices
+          are 1-based identifiers; the Stan
+          [`indexed_expression`][quivers.transpile.renderers._stan_helpers]
+          emit takes them verbatim.
+
+        This is what
+        [`_propagate_let_plates`][quivers.transpile.lower._propagate_let_plates]
+        relies on: it promotes a let-bound `mu` from scalar to
+        `array[Obs] real`, and this hook makes the surrounding
+        `observe y : Obs <- Normal(mu, ...)` index `mu` per-element
+        rather than reading the whole array into the scalar Normal
+        slot (which Stan rejects with a dimension mismatch at runtime
+        data binding).
         """
-        del plate, loop_names
-        return arg
+        if not isinstance(arg, IRArgRef):
+            return arg
+        if arg.indices:
+            return arg
+        declared = self._declared_shapes.get(arg.name)
+        if declared is None:
+            return arg
+        _decl_support, decl_plate = declared
+        if decl_plate.batch_dims != plate.batch_dims:
+            return arg
+        if not loop_names:
+            return arg
+        return IRArgRef(
+            name=arg.name,
+            indices=tuple(
+                IRArgRef(name=lv) for lv in loop_names
+            ),
+        )
 
     # ----- marginalize dispatch -----
 
@@ -1970,16 +2012,31 @@ class StanRenderer(RendererBase):
         node: IRDeterministic,
     ) -> None:
         """Emit a deterministic let-binding into the
-        ``transformed_parameters`` block as
-        ``<type> <name> = <expr>;``.
+        ``transformed_parameters`` block.
 
-        Lowers
+        Scalar plate (``batch_dims=()``): the binding is a single
+        ``<type> <name> = <expr>;`` declaration whose RHS is
         [`node.expr`][quivers.transpile.ir.IRDeterministic.expr]
-        through
-        [`render_let_expr_stan`][quivers.transpile.renderers._stan_helpers.render_let_expr_stan]
-        so binary ops, calls, indices, and variable references reach
-        the emitter as real Stan expression vertices rather than a
-        self-referential identifier.
+        rendered through
+        [`render_let_expr_stan`][quivers.transpile.renderers._stan_helpers.render_let_expr_stan].
+
+        Non-scalar plate (``batch_dims != ()``): the binding splits
+        into a declaration of the array type and a ``for`` loop that
+        assigns elementwise. Stan's elementwise arithmetic is defined
+        on ``vector``/``matrix`` types but not on
+        ``array[N] real``; using a loop sidesteps the type mismatch
+        and works for arbitrary expression shapes, including those
+        mixing scalar parameters with plated data inputs (the canonical
+        ``a + b * x_design`` regression form).
+
+        Plated references inside the let-expression are auto-indexed
+        by the loop var. Any free
+        [`LetExprVar.name`][quivers.dsl.ast_nodes.LetExprVar.name]
+        whose declared plate has the same ``batch_dims`` as the
+        surrounding let gets substituted with
+        ``<name>[<loop_var>]`` per
+        [`_substitute_let_expr`][quivers.transpile.renderers._stan_helpers._substitute_let_expr];
+        scalar refs (``a``, ``b``) pass through unchanged.
         """
         parent = self._ensure_block(ctx, "transformed_parameters")
         if node.name in self._declared["transformed_parameters"]:
@@ -2009,11 +2066,97 @@ class StanRenderer(RendererBase):
         ctx.sb.vertex(nm, "identifier")
         ctx.sb.constraint(nm, "literal-value", node.name)
         ctx.sb.edge(decl, nm, "name")
-        rhs = render_let_expr_stan(
-            _StanLetCtx(ctx.sb, lambda p: self._fresh(ctx, p), self._cards),
-            node.expr,
+        # Inline-init path: emit `<type> <name> = <expr>;` as a single
+        # `top_var_decl` with an init child. Correct when either:
+        #   - the let is scalar (no batch dims); OR
+        #   - the let's expression is already shape-aware (a
+        #     [`LetExprFactor`][quivers.dsl.ast_nodes.LetExprFactor]
+        #     or [`LetExprList`][quivers.dsl.ast_nodes.LetExprList]
+        #     literal produces the full array on the RHS, so no
+        #     broadcasting / per-element substitution is needed and
+        #     Stan accepts the array-to-array assignment directly).
+        if not node.plate.batch_dims or isinstance(
+            node.expr, (LetExprFactor, LetExprList)
+        ):
+            rhs = render_let_expr_stan(
+                _StanLetCtx(
+                    ctx.sb, lambda p: self._fresh(ctx, p), self._cards
+                ),
+                node.expr,
+            )
+            ctx.sb.edge(decl, rhs, "child_of")
+            return
+
+        # Plated case (non-literal RHS): emit
+        # `for (lv0 in 1:N0) ... { name[lv0]...[lvN-1] = expr; }`
+        # with plated refs in expr substituted to <ref>[lv]. The
+        # for-loop is required because Stan's elementwise arithmetic
+        # is undefined on `array[N] real`; the loop unrolls to scalar
+        # assignments that Stan does accept.
+        loop_names = self.index_for(ctx, node.plate)
+        inner_parent = self._wrap_in_for_loops(
+            ctx, parent, node.plate.batch_dims, loop_names
         )
-        ctx.sb.edge(decl, rhs, "child_of")
+        subbed = self._index_plated_let_refs(
+            node.expr, node.plate.batch_dims, loop_names
+        )
+        # LHS: indexed_lhs <name>[lv0, lv1, ...]
+        asn = self._fresh(ctx, "asn")
+        ctx.sb.vertex(asn, "assignment_statement")
+        ctx.sb.edge(inner_parent, asn, "child_of")
+        lhs_vid = self._build_indexed_lhs(ctx, node.name, loop_names)
+        ctx.sb.edge(asn, lhs_vid, "child_of")
+        op = self._fresh(ctx, "aop")
+        ctx.sb.vertex(op, "assignment_op")
+        ctx.sb.constraint(op, "literal-value", "=")
+        ctx.sb.edge(asn, op, "child_of")
+        rhs = render_let_expr_stan(
+            _StanLetCtx(
+                ctx.sb, lambda p: self._fresh(ctx, p), self._cards
+            ),
+            subbed,
+        )
+        ctx.sb.edge(asn, rhs, "child_of")
+
+    def _index_plated_let_refs(
+        self,
+        expr: LetExprNode,
+        batch_dims: tuple[Dim, ...],
+        loop_names: tuple[str, ...],
+    ) -> LetExprNode:
+        """Substitute every free
+        [`LetExprVar`][quivers.dsl.ast_nodes.LetExprVar] whose
+        declared plate's ``batch_dims`` matches ``batch_dims`` with
+        ``<name>[<loop_name>]`` (or nested for multi-batch).
+
+        Walks the expression collecting candidate names, then calls
+        [`_substitute_let_expr`][quivers.transpile.renderers._stan_helpers._substitute_let_expr]
+        once per name so the substitution preserves the
+        single-pass semantics the helper expects.
+        """
+        seen: set[str] = set()
+        _collect_let_expr_var_names(expr, seen)
+        out = expr
+        for name in seen:
+            declared = self._declared_shapes.get(name)
+            if declared is None:
+                continue
+            _support, plate = declared
+            if plate.batch_dims != batch_dims:
+                continue
+            indexed = LetExprIndex(
+                array=LetExprVar(name=name),
+                indices=tuple(
+                    LetExprVar(name=lv) for lv in loop_names
+                ),
+            )
+            out = _substitute_let_expr(
+                out,
+                name,
+                index_value=indexed,
+                scalar_value=indexed,
+            )
+        return out
 
     def _emit_score(self, ctx: _RenderCtx, node: IRScore) -> None:
         """Emit ``target += <expr>;`` to the ``model`` block.
