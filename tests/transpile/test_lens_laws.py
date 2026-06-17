@@ -52,7 +52,7 @@ export flip
 """
 
 
-class _ExpandAndLower(dx.Mapping):
+class _ExpandAndLower(dx.Mapping[Module, IRProgram]):
     """`Module` -> `IRProgram`: per-target composite-let expansion
     followed by [`Lower`][quivers.transpile.lower.Lower].
 
@@ -67,12 +67,12 @@ class _ExpandAndLower(dx.Mapping):
         self._target = target
         self._lower = Lower()
 
-    def forward(self, module: Module) -> IRProgram:  # type: ignore[override]
+    def forward(self, module: Module) -> IRProgram:
         expanded = expand_composite_lets(module, target=self._target)
         return self._lower.forward(expanded)
 
 
-class _RenderMapping(dx.Mapping):
+class _RenderMapping(dx.Mapping[IRProgram, panproto.Schema]):
     """`IRProgram` -> `panproto.Schema`: wrap a
     [`RendererBase`][quivers.transpile.renderers._base.RendererBase]
     instance's `render` method as a Mapping so it composes with
@@ -81,7 +81,7 @@ class _RenderMapping(dx.Mapping):
     def __init__(self, renderer: RendererBase) -> None:
         self._renderer = renderer
 
-    def forward(self, ir: IRProgram) -> panproto.Schema:  # type: ignore[override]
+    def forward(self, ir: IRProgram) -> panproto.Schema:
         return self._renderer.render(ir)
 
 
