@@ -223,6 +223,10 @@ class WebPPLRenderer(RendererBase):
         # whose data-input references the IR records as scalar but
         # which are array-shaped at runtime.
         self._observe_array_fallback: Plate | None = None
+        # Names registered as IRDataInputs at render start; used by
+        # ref-substitution to discriminate function parameters from
+        # in-scope sample bindings.
+        self._function_parameters_state: set[str] = set()
 
     # ------------------------------------------------------------------
     # Abstract overrides: target_protocol + four dispatch points.
@@ -1120,8 +1124,6 @@ class WebPPLRenderer(RendererBase):
     @property
     def _function_parameters(self) -> set[str]:
         """The names registered as IRDataInputs at render start."""
-        if not hasattr(self, "_function_parameters_state"):
-            self._function_parameters_state: set[str] = set()
         return self._function_parameters_state
 
     def _matches_group_plate(self, decl: Plate) -> bool:

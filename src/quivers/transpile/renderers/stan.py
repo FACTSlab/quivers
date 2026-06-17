@@ -193,6 +193,13 @@ class StanRenderer(RendererBase):
         # Fresh counter is renderer-internal; the base's _RenderCtx
         # counter remains untouched so per-walk node IDs stay stable.
         self._fresh_n = 0
+        # Per-render lookup caches; `render()` clears them on every
+        # entry so repeated render calls on the same renderer produce
+        # identical schemas.
+        self._simplex_cards_state: dict[str, int] = {}
+        self._declared_shapes_state: dict[
+            str, tuple[Constraint, Plate]
+        ] = {}
 
     # ------------------------------------------------------------------
     # abstract overrides
@@ -233,10 +240,8 @@ class StanRenderer(RendererBase):
         self._cards = dict(ir.cards)
         # Reset the per-render lookup caches so repeated render
         # calls on the same renderer produce identical schemas.
-        if hasattr(self, "_simplex_cards_state"):
-            self._simplex_cards_state.clear()
-        if hasattr(self, "_declared_shapes_state"):
-            self._declared_shapes_state.clear()
+        self._simplex_cards_state.clear()
+        self._declared_shapes_state.clear()
         # Program root.
         ctx.sb.vertex("prog", "program")
         # Pre-create blocks in canonical Stan order so emit_pretty
@@ -1390,8 +1395,6 @@ class StanRenderer(RendererBase):
     @property
     def _simplex_cards(self) -> dict[str, int]:
         """Per-render map from simplex-typed name to its event_dim."""
-        if not hasattr(self, "_simplex_cards_state"):
-            self._simplex_cards_state: dict[str, int] = {}
         return self._simplex_cards_state
 
     def _declare_lps_array(
@@ -2100,14 +2103,9 @@ class StanRenderer(RendererBase):
     def _declared_shapes(self) -> dict[str, tuple[Constraint, Plate]]:
         """Per-render map from declared name to (support, plate).
 
-        Lazily initialised so the renderer can be reused across
-        multiple `render` calls; each call resets the state at the
-        top of `render`.
+        Reset at the top of every `render()` call so repeated render
+        invocations on the same renderer produce identical schemas.
         """
-        if not hasattr(self, "_declared_shapes_state"):
-            self._declared_shapes_state: dict[
-                str, tuple[Constraint, Plate]
-            ] = {}
         return self._declared_shapes_state
 
     # ----- morphism / let resolution -----
