@@ -474,7 +474,7 @@ class TuringRenderer(RendererBase):
         """Route one IR body node to the right Turing.jl emission."""
         if isinstance(node, IRSample):
             self.sample(
-                ctx,  # type: ignore[arg-type]
+                ctx,
                 node.name,
                 node.family,
                 node.args,
@@ -486,7 +486,7 @@ class TuringRenderer(RendererBase):
             return
         if isinstance(node, IRObserve):
             self.sample(
-                ctx,  # type: ignore[arg-type]
+                ctx,
                 node.name,
                 node.family,
                 node.args,
@@ -501,13 +501,13 @@ class TuringRenderer(RendererBase):
             self._emit_deterministic(ctx, node)
             return
         if isinstance(node, IRScore):
-            self._emit_score(ctx, node)  # type: ignore[arg-type]
+            self._emit_score(ctx, node)
             return
         if isinstance(node, IRMarginalize):
-            self.marginalize(ctx, node)  # type: ignore[arg-type]
+            self.marginalize(ctx, node)
             return
         if isinstance(node, IRReturn):
-            self._emit_return(ctx, node.names)  # type: ignore[arg-type]
+            self._emit_return(ctx, node.names)
             return
         if isinstance(node, IRDataInput):
             return
@@ -534,9 +534,9 @@ class TuringRenderer(RendererBase):
 
     # ----- sample / observe emission -----
 
-    def sample(  # type: ignore[override]
+    def sample(
         self,
-        ctx: _TuringCtx,
+        ctx: _RenderCtx,
         name: str,
         family: str,
         args: tuple[IRArg, ...],
@@ -559,6 +559,7 @@ class TuringRenderer(RendererBase):
           via is present.
         """
         del constraint  # output support already encoded in the family choice
+        assert isinstance(ctx, _TuringCtx)
         ctx.sample_plates[name] = plate
         sb, counter = ctx.sb, ctx.counter
 
@@ -662,8 +663,8 @@ class TuringRenderer(RendererBase):
 
     # ----- marginalize: lower to explicit sample + scope inline -----
 
-    def marginalize(  # type: ignore[override]
-        self, ctx: _TuringCtx, node: IRMarginalize
+    def marginalize(
+        self, ctx: _RenderCtx, node: IRMarginalize
     ) -> SchemaFragment:
         """Lower an [`IRMarginalize`][quivers.transpile.ir.IRMarginalize]
         to an explicit [`IRSample`][quivers.transpile.ir.IRSample] of
@@ -675,6 +676,7 @@ class TuringRenderer(RendererBase):
         [`RendererBase.explicit_latent_scope`][quivers.transpile.renderers._base.RendererBase.explicit_latent_scope]
         helper supplies the rewrite.
         """
+        assert isinstance(ctx, _TuringCtx)
         rewritten = self.explicit_latent_scope(node)
         for child in rewritten:
             self._dispatch(ctx, child)
@@ -682,12 +684,13 @@ class TuringRenderer(RendererBase):
 
     # ----- broadcast: Julia's fill(<value>, K) / fill(<value>, R, C) -----
 
-    def broadcast(  # type: ignore[override]
+    def broadcast(
         self,
-        ctx: _TuringCtx,
+        ctx: _RenderCtx,
         value: IRArg,
         target_shape: tuple[int, ...],
     ) -> SchemaFragment:
+        assert isinstance(ctx, _TuringCtx)
         sb, counter = ctx.sb, ctx.counter
         value_vid = _arg_to_julia(ctx, value)
         shape_args = tuple(_integer(sb, counter, s) for s in target_shape)
@@ -848,9 +851,10 @@ class TuringRenderer(RendererBase):
         stmt = _assignment(sb, counter, lhs, rhs)
         sb.edge(ctx.body, stmt, "child_of")
 
-    def _emit_score(self, ctx: _TuringCtx, node: IRScore) -> None:  # type: ignore[override]
+    def _emit_score(self, ctx: _RenderCtx, node: IRScore) -> None:
         """Bind the score expression then add it to the log-joint via
         `Turing.@addlogprob!`."""
+        assert isinstance(ctx, _TuringCtx)
         sb, counter = ctx.sb, ctx.counter
         lhs = _identifier(sb, counter, node.name)
         rhs = render_let_expr_julia(
@@ -863,7 +867,10 @@ class TuringRenderer(RendererBase):
         )
         sb.edge(ctx.body, mac, "child_of")
 
-    def _emit_return(self, ctx: _TuringCtx, names: tuple[str, ...]) -> None:  # type: ignore[override]
+    def _emit_return(
+        self, ctx: _RenderCtx, names: tuple[str, ...]
+    ) -> None:
+        assert isinstance(ctx, _TuringCtx)
         sb, counter = ctx.sb, ctx.counter
         if not names:
             return

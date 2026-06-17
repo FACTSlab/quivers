@@ -895,10 +895,12 @@ class BUGSRenderer(RendererBase):
         )
 
     def _lookup_decl_plate_if_known(self, arg: IRArgRef) -> Plate | None:
-        # Class-method only used for edge kind selection; full lookup
-        # happens during _emit_arg via context. The arg's name might
-        # not be in decl_plates if it's a function-call etc.; return
-        # None to fall back to "no slicing".
+        """Edge-kind hook reserved for callers that need to discriminate
+        on the arg's declaration plate. The class-method form returns
+        `None` so the renderer falls through to no-slicing; the real
+        lookup runs inside `_emit_arg` against the per-render context.
+        """
+        del arg
         return None
 
     # ------------------------------------------------------------------
@@ -1507,8 +1509,16 @@ def _as_transform(
     t: str,
 ) -> Literal["inv_square", "inv", "neg", "log", "exp"]:
     """Coerce a string to the `IRArgTransform.transform` literal type."""
-    if t in ("inv_square", "inv", "neg", "log", "exp"):
-        return t  # type: ignore[return-value]
+    if t == "inv_square":
+        return "inv_square"
+    if t == "inv":
+        return "inv"
+    if t == "neg":
+        return "neg"
+    if t == "log":
+        return "log"
+    if t == "exp":
+        return "exp"
     raise UnsupportedConstruct(
         "qvr-bugs",
         [f"transform:{t}"],

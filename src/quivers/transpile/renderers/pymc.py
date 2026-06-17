@@ -860,7 +860,7 @@ class _PyMCWalker(SchemaTransform):
     """SchemaTransform shim: lower the `Module` to IR, then run the
     `PyMCRenderer` to a panproto schema."""
 
-    def forward(self, module: Module) -> panproto.Schema:  # type: ignore[override]
+    def forward(self, module: Module) -> panproto.Schema:
         ir = Lower().forward(module)
         renderer = PyMCRenderer()
         morphisms = build_morphism_table(module)

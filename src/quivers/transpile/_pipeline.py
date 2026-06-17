@@ -29,14 +29,13 @@ the Module and returns the target schema, so backends compose with
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, cast
+from typing import cast
 
 import didactic.api as dx
 import panproto
 from panproto._native import AstParserRegistry as _NativeAstParserRegistry
 
-if TYPE_CHECKING:
-    from quivers.dsl.ast_nodes import Module
+from quivers.dsl.ast_nodes import Module
 
 
 _REGISTRY: _NativeAstParserRegistry | None = None
@@ -77,7 +76,7 @@ def target_protocol(grammar: str) -> panproto.Protocol:
     )
 
 
-class SchemaTransform(dx.Mapping):
+class SchemaTransform(dx.Mapping[Module, panproto.Schema]):
     """[`Mapping[Module, panproto.Schema]`][didactic.api.Mapping].
 
     Subclasses override [`forward`][didactic.api.Mapping.forward] to
@@ -88,21 +87,21 @@ class SchemaTransform(dx.Mapping):
     other downstream Mapping.
     """
 
-    def forward(self, module: Module) -> panproto.Schema:  # type: ignore[override]
+    def forward(self, module: Module) -> panproto.Schema:
         raise NotImplementedError(
             f"{type(self).__name__} must implement forward(module): "
             f"received {module!r}"
         )
 
 
-class EmitPretty(dx.Mapping):
+class EmitPretty(dx.Mapping[panproto.Schema, bytes]):
     """[`Mapping[panproto.Schema, bytes]`][didactic.api.Mapping] over
     [`emit_pretty`][panproto.AstParserRegistry.emit_pretty]."""
 
     def __init__(self, grammar: str) -> None:
         self._grammar = grammar
 
-    def forward(self, schema: panproto.Schema) -> bytes:  # type: ignore[override]
+    def forward(self, schema: panproto.Schema) -> bytes:
         return bytes(parser_registry().emit_pretty(self._grammar, schema))
 
 

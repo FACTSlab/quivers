@@ -1985,6 +1985,9 @@ class StanRenderer(RendererBase):
         if node.name in self._declared["transformed_parameters"]:
             return
         self._declared["transformed_parameters"].add(node.name)
+        self._declared_shapes[node.name] = (
+            node.constraint.to_constraint(), node.plate,
+        )
         decl = self._fresh(ctx, "tpvd")
         ctx.sb.vertex(decl, "top_var_decl")
         ctx.sb.edge(parent, decl, "child_of")
