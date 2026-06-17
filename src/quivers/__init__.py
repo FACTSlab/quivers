@@ -281,23 +281,23 @@ from quivers.continuous import (
     # families — discrete-valued
     ConditionalBernoulli,
     ConditionalCategorical,
-    # families — Phase A: discrete count
+    # families — discrete count
     ConditionalPoisson,
     ConditionalNegativeBinomial,
     ConditionalGeometric,
     ConditionalBinomial,
-    # families — Phase A: circular / simplex / one-hot / correlation
+    # families — circular / simplex / one-hot / correlation
     ConditionalVonMises,
     ConditionalLogisticNormal,
     ConditionalOneHotCategorical,
     ConditionalLKJCholesky,
-    # families — Phase A: distribution wrappers
+    # families — distribution wrappers
     ConditionalMixture,
     ConditionalIndependent,
     ConditionalTransformed,
     Truncated,
     LKJCorrelationFactor,
-    # families — Phase B tier 1
+    # families — shim distributions
     ConditionalBetaBinomial,
     ConditionalLogistic,
     ConditionalHalfStudentT,
@@ -555,23 +555,23 @@ __all__ = [
     # continuous — families (discrete-valued)
     "ConditionalBernoulli",
     "ConditionalCategorical",
-    # continuous — families (Phase A: discrete count)
+    # continuous — families (discrete count)
     "ConditionalPoisson",
     "ConditionalNegativeBinomial",
     "ConditionalGeometric",
     "ConditionalBinomial",
-    # continuous — families (Phase A: circular / simplex / one-hot / correlation)
+    # continuous — families (circular / simplex / one-hot / correlation)
     "ConditionalVonMises",
     "ConditionalLogisticNormal",
     "ConditionalOneHotCategorical",
     "ConditionalLKJCholesky",
-    # continuous — families (Phase A: distribution wrappers)
+    # continuous — families (distribution wrappers)
     "ConditionalMixture",
     "ConditionalIndependent",
     "ConditionalTransformed",
     "Truncated",
     "LKJCorrelationFactor",
-    # continuous — families (Phase B tier 1)
+    # continuous — families (shim distributions)
     "ConditionalBetaBinomial",
     "ConditionalLogistic",
     "ConditionalHalfStudentT",

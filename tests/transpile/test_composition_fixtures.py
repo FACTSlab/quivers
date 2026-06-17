@@ -28,28 +28,24 @@ _BACKENDS = sorted(available_targets())
 
 
 # Per-(fixture, backend) cells where the walker is known not to
-# transpile the composition fixture today, with the reason. The
-# entry pair is (fixture_stem, backend). When the walker grows the
-# missing case, the strict test below fires so the entry is removed.
+# transpile the composition fixture today. The entry pair is
+# (fixture_stem, backend). When the walker grows the missing case,
+# the strict test below fires so the entry is removed.
 #
-# The rigor-swarm closure of LetStep / let-bound-observation gaps on
-# numpyro / pyro / pymc / church / turing / bugs / jags (commit
-# series after b043265) collapsed most of the table. The 14 entries
-# that remain divide into two classes:
+# Two failure classes are represented:
 #
 # 1. `return:undeclared:<var>` on Stan for fixtures that return a
 #    let-bound deterministic. The Stan generated-quantities aliaser
 #    needs the IR-walker to declare the let-bound name as a
 #    transformed-parameter before the return statement; the walker
-#    declares it inline at use site, so the generated-quantities
+#    declares it inline at the use site, so the generated-quantities
 #    pass cannot find a declared shape.
 #
-# 2. `family:<F>:<backend>` for families a target legitimately does
-#    not ship: Stan has no TruncatedNormal native, Gen / Church /
-#    BUGS / JAGS / WebPPL have no InverseGamma / TruncatedNormal.
-#    Each of these is a family_meta-level decision (a target_name
-#    can be added if we add the corresponding renderer-side
-#    construction recipe) rather than a renderer-walker bug.
+# 2. `family:<F>:<backend>` for families a target does not ship:
+#    Stan has no TruncatedNormal native; Gen / Church / BUGS /
+#    JAGS / WebPPL have no InverseGamma or TruncatedNormal. Each
+#    is a `family_meta` decision (a target_name can be added if
+#    paired with a renderer-side construction recipe).
 _KNOWN_COMPOSITION_GAPS: dict[tuple[str, str], str] = {
     ("bayes_linear_regression", "stan"): (
         "return:undeclared:mu -- Stan return-alias needs let-bound "

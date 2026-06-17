@@ -224,12 +224,48 @@ def _emit_operator(ctx: _JlLetCtx, op: str) -> tuple[str, str]:
     return vid, "operator"
 
 
+_JL_PAREN_REQUIRED_OPERAND_KINDS: frozenset[str] = frozenset({
+    "binary_expression",
+    "unary_expression",
+    "arrow_function_expression",
+})
+"""Operand kinds that must be wrapped in `parenthesized_expression`
+when they appear as a sub-expression of a binary or unary operator.
+
+`binary_expression`: precedence preservation (the printer emits in
+source order without re-grouping; without parens `(a + b) * c`
+becomes `a + b * c`).
+
+`unary_expression`: token-collision. `a - -b` tokenises as `a -- b`
+which Julia parses as the post-decrement-like operator `--`, dropping
+the right operand entirely.
+
+`arrow_function_expression`: precedence (arrow binds looser than any
+binary operator)."""
+
+
+def _maybe_paren(
+    ctx: _JlLetCtx,
+    rendered: tuple[str, str],
+) -> tuple[str, str]:
+    """Wrap `rendered` in a `parenthesized_expression` if its vertex
+    kind is in [`_JL_PAREN_REQUIRED_OPERAND_KINDS`][quivers.transpile.renderers._julia_helpers._JL_PAREN_REQUIRED_OPERAND_KINDS]."""
+    vid, kind = rendered
+    if kind not in _JL_PAREN_REQUIRED_OPERAND_KINDS:
+        return rendered
+    paren = ctx.v(ctx.fresh("pe"), "parenthesized_expression")
+    ctx.constraint(paren, "chose-alt-fingerprint", "( )")
+    ctx.constraint(paren, "chose-alt-child-kinds", kind)
+    ctx.e(paren, vid, "child_of")
+    return paren, "parenthesized_expression"
+
+
 def _emit_binop(ctx: _JlLetCtx, expr: LetExprBinOp) -> tuple[str, str]:
     """Emit a `binary_expression` whose children are
     ``<left> operator <right>``."""
-    left_vid, left_kind = _render(ctx, expr.left)
+    left_vid, left_kind = _maybe_paren(ctx, _render(ctx, expr.left))
     op_vid, _op_kind = _emit_operator(ctx, expr.op)
-    right_vid, right_kind = _render(ctx, expr.right)
+    right_vid, right_kind = _maybe_paren(ctx, _render(ctx, expr.right))
     vid = ctx.v(ctx.fresh("be"), "binary_expression")
     ctx.constraint(
         vid,
@@ -248,10 +284,12 @@ def _emit_unary(ctx: _JlLetCtx, expr: LetExprUnaryOp) -> tuple[str, str]:
     [`LetExprUnaryOp`][quivers.dsl.ast_nodes.LetExprUnaryOp] only
     encodes unary minus (the parser does not produce other unary
     operators in let expressions), so the helper emits a literal
-    ``-`` operator.
+    ``-`` operator. Operand is wrapped in parens when it is itself
+    a unary or binary expression to avoid Julia's `--` tokenisation
+    that would otherwise eat the operand.
     """
     op_vid, _op_kind = _emit_operator(ctx, "-")
-    operand_vid, operand_kind = _render(ctx, expr.operand)
+    operand_vid, operand_kind = _maybe_paren(ctx, _render(ctx, expr.operand))
     vid = ctx.v(ctx.fresh("ue"), "unary_expression")
     ctx.constraint(
         vid, "chose-alt-child-kinds", f"operator {operand_kind}"

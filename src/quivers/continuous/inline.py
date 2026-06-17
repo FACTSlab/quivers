@@ -1320,9 +1320,9 @@ def make_inline_distribution(
                 morph = factory(*all_floats, codomain)
             return (morph, None)
         # Families without a dedicated `_FIXED_FACTORIES` entry fall
-        # back to the `_FAMILY_BUILDERS` path with literal args (this
-        # is the standard path for Phase B families like
-        # `BetaBinomial` / `HalfStudentT` / `Logistic` whose
+        # back to the `_FAMILY_BUILDERS` path with literal args (the
+        # standard path for `BetaBinomial` / `HalfStudentT` /
+        # `Logistic` and the other compound families whose
         # distributions are constructed once per fit through the
         # general `MixedInlineDistribution` machinery).
         if family in _FAMILY_BUILDERS:

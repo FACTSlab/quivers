@@ -386,9 +386,9 @@ def _assert_family_arg_names_match_torch() -> None:
     catches.
 
     Families whose `arg_constraints` is a Python `property` (Uniform,
-    Wishart) or that are not present in torch (custom Phase B
-    families) are skipped: the table's entry is the source of truth
-    for those.
+    Wishart) or that are not present in torch (the custom shim
+    families defined in `family_meta`) are skipped: the table's
+    entry is the source of truth for those.
     """
     import torch.distributions as td
 

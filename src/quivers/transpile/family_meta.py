@@ -24,16 +24,15 @@ only the transpile-specific facts that torch doesn't publish:
   arithmetic (BUGS Normal mean/scale to mean/precision) key the
   arithmetic on the alias's target name.
 
-Phase B tier-one families (`BetaBinomial`, `OrderedLogistic`,
-`OrderedProbit`, `Logistic`, `HalfStudentT`) lack direct
-[`torch.distributions`][torch.distributions] classes; this module
-defines minimal `Distribution` subclasses carrying the right
-`arg_constraints` and `support` so the lower pipeline can introspect
-them. Several existing wrappers (`Truncated`, `Mixture`,
-`Independent`, `Transformed`, `LKJCorrelationFactor`, `Horseshoe`,
-`GP`, `InverseWishart`, `MatrixNormal`, `LogitNormal`,
-`TruncatedNormal`) also use this shim mechanism for the metadata
-that the renderer pipeline reads.
+Families without a direct
+[`torch.distributions`][torch.distributions] class (`BetaBinomial`,
+`OrderedLogistic`, `OrderedProbit`, `Logistic`, `HalfStudentT`,
+plus the wrappers `Truncated`, `Mixture`, `Independent`,
+`Transformed`, `LKJCorrelationFactor`, `Horseshoe`, `GP`,
+`InverseWishart`, `MatrixNormal`, `LogitNormal`,
+`TruncatedNormal`) get minimal `Distribution` subclasses defined
+in this module, carrying the right `arg_constraints` and `support`
+so the lower pipeline can introspect them.
 
 `finite_enumerable_at_call_site` is a per-call predicate (not a
 per-family flag); it dispatches on the family name and the IR-form
@@ -127,10 +126,11 @@ class FamilyMeta(dx.Model):
 
 
 # ---------------------------------------------------------------------------
-# Phase B tier 1: shim Distribution subclasses for families torch lacks.
-# Their `__name__` and `arg_constraints` / `support` are the transpile-layer
-# contract that `Lower` and every renderer read. The runtime behaviour lives
-# in the `quivers_class` `ContinuousMorphism` subclass paired in FAMILY_META.
+# Shim Distribution subclasses for families that torch does not ship.
+# Their `__name__`, `arg_constraints`, and `support` are the
+# transpile-layer contract that `Lower` and every renderer read. The
+# runtime behaviour lives in the `quivers_class` `ContinuousMorphism`
+# subclass paired in FAMILY_META.
 # ---------------------------------------------------------------------------
 
 
@@ -988,7 +988,7 @@ FAMILY_META: dict[str, FamilyMeta] = {
             "webppl": {"probs": "ps"},
         },
     ),
-    # ----- Phase A: implementations not yet exposed via DSL -----
+    # ----- count / rate families -----
     "Poisson": FamilyMeta(
         qvr_name="Poisson",
         distribution_class=td.Poisson,
@@ -1155,7 +1155,7 @@ FAMILY_META: dict[str, FamilyMeta] = {
             "numpyro": "LKJ", "pyro": "LKJ",
         },
     ),
-    # ----- Phase B tier 1 -----
+    # ----- compound / shim families -----
     "BetaBinomial": FamilyMeta(
         qvr_name="BetaBinomial",
         distribution_class=BetaBinomial,
