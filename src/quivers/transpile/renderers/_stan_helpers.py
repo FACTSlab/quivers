@@ -147,10 +147,58 @@ def _emit_variable_expression(ctx, name: str) -> tuple[str, str]:
     return vid, "variable_expression"
 
 
+_STAN_PAREN_REQUIRED_OPERAND_KINDS: frozenset[str] = frozenset({
+    "infix_op_expression",
+    "prefix_op_expression",
+})
+"""Operand kinds that must be wrapped in `parenthized_expression`
+when they appear as a sub-expression of a binary or unary operator
+in Stan. Stan's printer emits operands left-to-right without
+re-grouping, so `c * (theta_1 - theta_0)` would otherwise print as
+`c * theta_1 - theta_0` and re-parse as `(c * theta_1) - theta_0`.
+
+Wrapping `prefix_op_expression` operands keeps `-(-x)` from
+collapsing to `--x` (which Stan rejects)."""
+
+
+def _stan_paren(ctx, rendered: tuple[str, str]) -> tuple[str, str]:
+    """Wrap `rendered` in a `parenthized_expression` vertex. Caller
+    must check
+    [`_STAN_PAREN_REQUIRED_OPERAND_KINDS`][quivers.transpile.renderers._stan_helpers._STAN_PAREN_REQUIRED_OPERAND_KINDS]
+    before calling."""
+    vid, kind = rendered
+    paren = ctx.vertex(ctx.fresh("paren"), "parenthized_expression")
+    ctx.constraint(paren, "chose-alt-fingerprint", "( )")
+    ctx.constraint(paren, "chose-alt-child-kinds", kind)
+    ctx.edge(paren, vid, "child_of")
+    return paren, "parenthized_expression"
+
+
+def _stan_maybe_paren(
+    ctx, rendered: tuple[str, str]
+) -> tuple[str, str]:
+    """Wrap `rendered` in a `parenthized_expression` if its kind is in
+    [`_STAN_PAREN_REQUIRED_OPERAND_KINDS`][quivers.transpile.renderers._stan_helpers._STAN_PAREN_REQUIRED_OPERAND_KINDS];
+    otherwise return it unchanged."""
+    _vid, kind = rendered
+    if kind not in _STAN_PAREN_REQUIRED_OPERAND_KINDS:
+        return rendered
+    return _stan_paren(ctx, rendered)
+
+
 def _emit_infix(ctx, expr: LetExprBinOp) -> tuple[str, str]:
-    """Emit an `infix_op_expression` for a binary operator."""
-    left_vid, left_kind = _render(ctx, expr.left)
-    right_vid, right_kind = _render(ctx, expr.right)
+    """Emit an `infix_op_expression` for a binary operator.
+
+    Both operands are routed through
+    [`_stan_maybe_paren`][quivers.transpile.renderers._stan_helpers._stan_maybe_paren]
+    so a binary sub-expression keeps its grouping (Stan's printer
+    emits operands left-to-right without re-grouping; without
+    explicit parens `(theta_1 - theta_0)` as the right operand of
+    `c * (...)` would re-parse as `(c * theta_1) - theta_0` and
+    silently change the meaning).
+    """
+    left_vid, left_kind = _stan_maybe_paren(ctx, _render(ctx, expr.left))
+    right_vid, right_kind = _stan_maybe_paren(ctx, _render(ctx, expr.right))
     vid = ctx.vertex(ctx.fresh("bin"), "infix_op_expression")
     ctx.constraint(vid, "chose-alt-fingerprint", expr.op)
     ctx.constraint(
@@ -162,8 +210,18 @@ def _emit_infix(ctx, expr: LetExprBinOp) -> tuple[str, str]:
 
 
 def _emit_prefix(ctx, expr: LetExprUnaryOp) -> tuple[str, str]:
-    """Emit a `prefix_op_expression` for the unary minus."""
-    operand_vid, operand_kind = _render(ctx, expr.operand)
+    """Emit a `prefix_op_expression` for the unary minus.
+
+    The operand is routed through
+    [`_stan_maybe_paren`][quivers.transpile.renderers._stan_helpers._stan_maybe_paren]
+    so a nested unary or binary operand keeps its grouping; without
+    that wrap, `-(-x)` would print as `--x`, which Stan's lexer
+    rejects, and `-(a + b)` would print as `-a + b` (i.e.
+    `(-a) + b`).
+    """
+    operand_vid, operand_kind = _stan_maybe_paren(
+        ctx, _render(ctx, expr.operand)
+    )
     vid = ctx.vertex(ctx.fresh("uop"), "prefix_op_expression")
     ctx.constraint(vid, "chose-alt-fingerprint", "-")
     ctx.constraint(vid, "chose-alt-child-kinds", operand_kind)
