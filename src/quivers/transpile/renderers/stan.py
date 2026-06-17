@@ -867,7 +867,7 @@ class StanRenderer(RendererBase):
         declared = self._declared_shapes.get(arg.name)
         if declared is None:
             return arg
-        _decl_support, decl_plate = declared
+        decl_plate = declared[1]
         if decl_plate.batch_dims != plate.batch_dims:
             return arg
         if not loop_names:
@@ -2141,7 +2141,7 @@ class StanRenderer(RendererBase):
             declared = self._declared_shapes.get(name)
             if declared is None:
                 continue
-            _support, plate = declared
+            plate = declared[1]
             if plate.batch_dims != batch_dims:
                 continue
             indexed = LetExprIndex(
