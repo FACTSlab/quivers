@@ -29,6 +29,8 @@ from __future__ import annotations
 
 import dataclasses
 
+import torch.distributions as _td
+
 from quivers.dsl.ast_nodes import (
     DrawArg,
     DrawArgList,
@@ -390,10 +392,8 @@ def _assert_family_arg_names_match_torch() -> None:
     families defined in `family_meta`) are skipped: the table's
     entry is the source of truth for those.
     """
-    import torch.distributions as td
-
     for family, declared in _FAMILY_ARG_NAMES.items():
-        cls = getattr(td, family, None)
+        cls = getattr(_td, family, None)
         if cls is None:
             continue
         ac = getattr(cls, "arg_constraints", None)
