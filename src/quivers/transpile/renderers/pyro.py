@@ -169,7 +169,11 @@ class PyroRenderer(RendererBase):
         # the parsed `class TruncatedNormal` subtree onto the module
         # below `model`. Python's late binding makes the order safe:
         # `model` references `TruncatedNormal` only when called, by
-        # which time the class is defined.
+        # which time the class is defined. The class-last ordering
+        # also works around an upstream panproto pretty-print bug
+        # (positional constraints copied from a parsed subtree
+        # produce wrong inter-statement whitespace in a grafted
+        # context).
         if _ir_uses_family(ir.body, "TruncatedNormal"):
             _emit_truncated_normal_helper(pctx)
 
