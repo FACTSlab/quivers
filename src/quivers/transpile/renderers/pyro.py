@@ -147,6 +147,14 @@ class PyroRenderer(RendererBase):
         )
 
         pctx.v("mod", "module")
+        # Pyro lacks a built-in `TruncatedNormal`; the runtime helper
+        # lives at [`quivers.transpile.runtime_pyro`][quivers.transpile.runtime_pyro].
+        # When the IR samples or observes from that family, graft the
+        # parsed `class TruncatedNormal` subtree onto the module above
+        # `model` so a reader sees the helper class first (the natural
+        # Python idiom: define classes before consumers).
+        if _ir_uses_family(ir.body, "TruncatedNormal"):
+            _emit_truncated_normal_helper(pctx)
         body = pctx.v(pctx.fresh("body"), "block")
         func = _function_def_split(
             pctx,
@@ -162,20 +170,6 @@ class PyroRenderer(RendererBase):
 
         for node in ir.body:
             self._dispatch_pyro_node(pctx, ctx, node)
-
-        # Pyro lacks a built-in `TruncatedNormal`; the runtime helper
-        # lives at [`quivers.transpile.runtime_pyro`][quivers.transpile.runtime_pyro].
-        # When the IR samples or observes from that family, graft
-        # the parsed `class TruncatedNormal` subtree onto the module
-        # below `model`. Python's late binding makes the order safe:
-        # `model` references `TruncatedNormal` only when called, by
-        # which time the class is defined. The class-last ordering
-        # also works around an upstream panproto pretty-print bug
-        # (positional constraints copied from a parsed subtree
-        # produce wrong inter-statement whitespace in a grafted
-        # context).
-        if _ir_uses_family(ir.body, "TruncatedNormal"):
-            _emit_truncated_normal_helper(pctx)
 
         return sb.build()
 
