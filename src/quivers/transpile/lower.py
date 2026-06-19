@@ -36,6 +36,7 @@ torch tensors; renderers never do.
 
 from __future__ import annotations
 
+import inspect
 import re
 
 import didactic.api as dx
@@ -1288,6 +1289,25 @@ def _make_sentinel(
     )
     try:
         instance = meta.distribution_class(*sentinel_args)
+    except TypeError as exc:
+        # The family requires args the user did not supply (e.g.
+        # `~ Wishart` with no call-site arguments). Fall through to
+        # the signature-inspection path: build a sentinel from every
+        # required constructor parameter, sized by the parameter's
+        # `arg_constraints` (or the class's
+        # [`Distribution.support`][torch.distributions.constraints]
+        # when `arg_constraints` is a property at the class level).
+        instance = _construct_sentinel_from_signature(meta, sentinel_args)
+        if instance is None:
+            raise UnsupportedConstruct(
+                "qvr-lower",
+                [
+                    f"family:{meta.qvr_name}:sentinel-failed: cannot "
+                    f"instantiate {meta.distribution_class.__name__} "
+                    f"with placeholder args derived from "
+                    f"{args!r}: {exc!r}"
+                ],
+            ) from exc
     except Exception as exc:  # noqa: BLE001
         raise UnsupportedConstruct(
             "qvr-lower",
@@ -1300,6 +1320,130 @@ def _make_sentinel(
         ) from exc
     ctx.sentinel_cache[key] = instance
     return instance
+
+
+def _construct_sentinel_from_signature(
+    meta: FamilyMeta,
+    user_args: tuple[
+        torch.Tensor | torch.distributions.Distribution, ...
+    ],
+) -> torch.distributions.Distribution | None:
+    """Construct a placeholder
+    [`Distribution`][torch.distributions.Distribution] instance for
+    `meta.distribution_class` by inspecting its constructor signature
+    and supplying a sensible default for every required parameter not
+    covered by `user_args`.
+
+    Used as a fallback when
+    [`_lookup_or_build_sentinel`][quivers.transpile.lower._lookup_or_build_sentinel]'s
+    primary path (calling the constructor with `user_args` directly)
+    raises `TypeError` because the user didn't supply enough
+    arguments. The sentinel is only used to derive shape /
+    event-dimension information downstream; its numerical values
+    are arbitrary.
+
+    Returns `None` if the signature inspection cannot construct a
+    valid instance (e.g. the class has an `__init__` that requires
+    backend-specific kwargs the inspector doesn't know about); the
+    caller falls back to `UnsupportedConstruct`.
+
+    Heuristics per parameter:
+
+    * `df` / `degree_of_freedom` / `nu`: a scalar float at least
+      `event_dim + 1` so any positive-definite scale-matrix
+      constraint is satisfied.
+    * `covariance_matrix` / `scale_matrix` / `precision_matrix` /
+      `scale_tril`: a `(dim, dim)` identity matrix where `dim` is
+      derived from a matrix-valued `user_args[0]` shape when
+      present, or 2 by default.
+    * other named parameters: skipped (the constructor's own
+      defaults are used).
+    """
+    sig = inspect.signature(meta.distribution_class.__init__)
+    bound_positional = list(user_args)
+    kwargs: dict[str, torch.Tensor] = {}
+    dim = _infer_sentinel_dim(user_args)
+    sigparams = list(sig.parameters.values())[1:]  # drop `self`
+    # Group A: every parameter the user did not supply positionally AND
+    # that has no default. Pick a sensible sentinel based on the name.
+    for i, param in enumerate(sigparams):
+        if i < len(bound_positional):
+            continue
+        if param.default is not inspect.Parameter.empty:
+            continue
+        sentinel = _sentinel_value_for_param(param.name, dim)
+        if sentinel is None:
+            return None
+        kwargs[param.name] = sentinel
+    # Group B: parameter families where the constructor enforces
+    # "exactly one of {a, b, c} must be non-None" at runtime (Wishart,
+    # MultivariateNormal, InverseWishart on covariance/precision/scale).
+    # Supply the canonical Cholesky-factor variant when none of the
+    # trio is already bound.
+    trio_group = (
+        "covariance_matrix", "precision_matrix", "scale_tril",
+    )
+    param_names = {p.name for p in sigparams}
+    bound_names = {
+        p.name for p in sigparams[: len(bound_positional)]
+    } | set(kwargs)
+    present_in_sig = [n for n in trio_group if n in param_names]
+    if (
+        present_in_sig
+        and not any(n in bound_names for n in present_in_sig)
+    ):
+        kwargs[present_in_sig[-1]] = torch.eye(dim)
+    try:
+        return meta.distribution_class(*bound_positional, **kwargs)
+    except Exception:  # noqa: BLE001
+        return None
+
+
+def _sentinel_value_for_param(
+    name: str, dim: int,
+) -> torch.Tensor | None:
+    """Pick a sensible sentinel default for a constructor parameter
+    by name. Returns `None` for parameters whose name is not
+    recognised; the caller falls back to UnsupportedConstruct.
+    """
+    if name in ("df", "degree_of_freedom", "nu", "concentration"):
+        return torch.tensor(float(dim + 1))
+    if name in (
+        "covariance_matrix", "scale_matrix",
+        "precision_matrix", "scale_tril",
+    ):
+        return torch.eye(dim)
+    if name in ("loc", "mean"):
+        return torch.zeros(dim)
+    if name in ("scale", "sigma"):
+        return torch.tensor(1.0)
+    if name in ("rate", "lambda"):
+        return torch.tensor(1.0)
+    if name in ("low", "lower"):
+        return torch.tensor(0.0)
+    if name in ("high", "upper"):
+        return torch.tensor(1.0)
+    if name in ("probs", "p"):
+        return torch.full((dim,), 1.0 / max(dim, 1))
+    if name in ("total_count",):
+        return torch.tensor(1)
+    if name == "validate_args":
+        return torch.tensor(False)  # not really used; signature ask
+    return None
+
+
+def _infer_sentinel_dim(
+    user_args: tuple[
+        torch.Tensor | torch.distributions.Distribution, ...
+    ],
+) -> int:
+    """Best-effort guess at the event dimension for a sentinel
+    matrix-valued parameter. Inspects the first matrix-shaped tensor
+    in `user_args`; defaults to 2 if nothing useful surfaces."""
+    for arg in user_args:
+        if isinstance(arg, torch.Tensor) and arg.dim() >= 2:
+            return int(arg.shape[-1])
+    return 2
 
 
 def _expected_arg_shapes(
