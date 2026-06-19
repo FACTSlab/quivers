@@ -67,6 +67,77 @@ def md_path_for(source_qvr: Path) -> Path:
     return _GALLERY_DOCS / f"{md_stem}.md"
 
 
+_OBSERVE_NAME_RE = re.compile(
+    r"^\s*observe\s+([A-Za-z_][A-Za-z_0-9]*)\b",
+    re.MULTILINE,
+)
+
+
+def _qvr_observe_names(source_qvr: Path) -> list[str]:
+    """Extract every `observe <name>` binder from the QVR source.
+    Surface read rather than full parse; the regex is conservative
+    (matches the `observe IDENT` prefix of an observe step), so it
+    intentionally returns nothing on a source it can't recognise.
+    """
+    try:
+        text = source_qvr.read_text(encoding="utf-8")
+    except OSError:
+        return []
+    return _OBSERVE_NAME_RE.findall(text)
+
+
+def _is_tensor_like(value: object) -> bool:
+    """True iff `value` is a torch.Tensor or a list of numerics
+    convertible to one (the loader's two accepted shapes)."""
+    if isinstance(value, torch.Tensor):
+        return True
+    if isinstance(value, (list, tuple)) and value:
+        return all(
+            isinstance(x, (int, float, list, tuple)) for x in value
+        )
+    return False
+
+
+def _observations_from_namespace(
+    source_qvr: Path, ns: dict[str, object],
+) -> dict[str, object]:
+    """Build an observations dict by matching the QVR program's
+    `observe <name>` binders against tensors in `ns` by name.
+
+    Strategy, in order:
+
+    1. Direct hit: `ns[<observe_name>]` is a tensor.
+    2. Prefixed hit: `ns["obs_" + <observe_name>]` is a tensor.
+    3. Common alias: a single namespace tensor whose name matches a
+       conventional observation alias (`counts`, `targets`, `Y`, `y`,
+       `data`). Used only when the program has exactly one observe
+       step; ambiguous otherwise.
+
+    Returns an empty dict when no match is found; the caller treats
+    that as "no observation data was generated."
+    """
+    observe_names = _qvr_observe_names(source_qvr)
+    if not observe_names:
+        return {}
+    out: dict[str, object] = {}
+    for name in observe_names:
+        if name in ns and _is_tensor_like(ns[name]):
+            out[name] = ns[name]
+            continue
+        prefixed = f"obs_{name}"
+        if prefixed in ns and _is_tensor_like(ns[prefixed]):
+            out[name] = ns[prefixed]
+            continue
+    if out:
+        return out
+    if len(observe_names) == 1:
+        name = observe_names[0]
+        for alias in ("counts", "targets", "Y", "y", "data", "obs"):
+            if alias in ns and _is_tensor_like(ns[alias]):
+                return {name: ns[alias]}
+    return out
+
+
 def load_gallery_data(source_qvr: Path) -> GalleryDataset | None:
     """Run the example's `### Generating synthetic data` block and
     return its observations + captured ground-truth `true_*` params.
@@ -96,7 +167,15 @@ def load_gallery_data(source_qvr: Path) -> GalleryDataset | None:
 
     observations = ns.get("observations")
     if not isinstance(observations, dict):
-        return None
+        # Fall back: pull observations from the namespace by name
+        # match against the QVR program's `observe <name> : ...`
+        # binders. This lets a doc's synthetic-data block bind its
+        # generated tensors to natural variable names (e.g.
+        # `obs_counts`, `targets`, `y`) without also assembling a
+        # separate `observations` dict.
+        observations = _observations_from_namespace(source_qvr, ns)
+        if not observations:
+            return None
     obs_tensors: dict[str, torch.Tensor] = {}
     for k, v in observations.items():
         if isinstance(v, torch.Tensor):
