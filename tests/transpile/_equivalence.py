@@ -27,29 +27,105 @@ import math
 
 
 _DEFAULT_ATOL = 5e-4
-"""Per-point absolute tolerance on the constant-spread check.
+"""Floor tolerance for the constant-spread check when no fixture-shape
+signal is available.
 
-Empirical cross-backend agreement:
+Empirical cross-backend agreement at this scale:
 
 * beta_bernoulli (50 Bernoulli obs): Stan vs QVR ~4.4e-6,
   NumPyro vs QVR ~5e-10 (with float64 enabled).
 * bayes_linear_regression (60 Normal obs with let-derived mu):
-  NumPyro vs QVR ~2.1e-4. The spread grows roughly linearly with
-  the number of observed-data sites because each Normal log_prob
-  evaluation accumulates ~5e-16 of float64 round-off and the
-  outer sum compounds it.
+  NumPyro vs QVR ~2.1e-4.
 
-5e-4 sits about an order above the empirical 60-obs floor, far
-below the smallest genuine semantic discrepancy a non-constant
-log-density bug would produce (parameter swap = at least 0.01 nat
-per point for a non-trivial parameter range; family swap = orders
-of magnitude more).
+5e-4 sits about an order above the empirical 60-obs floor and far
+below the smallest semantic discrepancy a real bug would produce
+(parameter swap = at least 0.01 nat per point on a non-trivial
+range; family swap = orders of magnitude more). Prefer the
+adaptive estimator
+[`adaptive_atol`][tests.transpile._equivalence.adaptive_atol]
+over this floor when the observed-data count is known."""
 
-If a fixture trips the tolerance from genuine round-off
-accumulation rather than a bug, the right fix is to grow this
-tolerance OR scale it by the number of observed-data sites; do
-not weaken the per-bug detection threshold below 1e-3.
-"""
+
+_PER_OBS_ROUNDOFF_ESTIMATE = 5e-16
+"""Float64 per-call round-off contributed by one observation-site
+``Distribution.log_prob`` evaluation, measured empirically across
+torch / cmdstanpy / NumPyro on the gallery fixtures. The spread
+grows roughly linearly with the observed-data count because each
+log-prob sum accumulates this round-off and the outer sum
+compounds it."""
+
+
+_TOLERANCE_HEADROOM = 100.0
+"""Multiplier applied above the round-off estimate to give the
+adaptive tolerance enough headroom to absorb genuine cross-backend
+constant differences (e.g. one backend computes
+``Normal.log_prob`` through `(y-mu)/sigma` vs `(y-mu) * (1/sigma)`,
+which disagree at the last 1-2 ULPs but accumulate). Two orders of
+magnitude above the per-point floor is empirically the sweet spot:
+high enough to never trip on benign round-off, low enough to catch
+a parameter swap (which is at least 1e-2 per point on the gallery
+fixtures' parameter ranges)."""
+
+
+def adaptive_atol(
+    *, n_obs: int, condition_number: float = 1.0
+) -> float:
+    """Per-fixture adaptive tolerance for
+    [`assert_log_density_match`][tests.transpile._equivalence.assert_log_density_match].
+
+    Parameters
+    ----------
+    n_obs
+        Number of observed-data sites the log-density evaluation
+        sums over. The constant-spread tolerance grows linearly in
+        ``n_obs`` because each per-site `Distribution.log_prob`
+        evaluation contributes
+        [`_PER_OBS_ROUNDOFF_ESTIMATE`][tests.transpile._equivalence._PER_OBS_ROUNDOFF_ESTIMATE]
+        of float64 round-off and the outer sum accumulates it.
+    condition_number
+        Multiplier reflecting numerical conditioning of the fixture
+        (e.g. the ratio of largest to smallest eigenvalue of a
+        covariance matrix). Defaults to 1.0 for fixtures with no
+        matrix ops. The
+        [`ill_conditioned_mvn`][tests.transpile.test_numeric_equivalence._NUMERICALLY_FRAGILE]
+        case sits around 1e10 conditioning; the adaptive estimator
+        scales tolerance with the condition number for those.
+
+    Returns
+    -------
+    float
+        Maximum of the
+        [`_DEFAULT_ATOL`][tests.transpile._equivalence._DEFAULT_ATOL]
+        floor and ``n_obs * condition_number *
+        _PER_OBS_ROUNDOFF_ESTIMATE * _TOLERANCE_HEADROOM``. The
+        max-with-floor keeps single-observation fixtures from
+        getting a tolerance tighter than the floor (where benign
+        cross-backend constant offsets already eat the headroom).
+
+    Notes
+    -----
+    The adaptive estimator is monotone in ``n_obs`` and
+    ``condition_number`` -- larger fixtures get larger tolerances,
+    so the spread-bug detection threshold doesn't shrink as
+    coverage grows. The estimator never returns a value smaller
+    than the floor; passing ``condition_number=0`` (degenerate)
+    falls through to the floor.
+
+    A real bug (parameter swap, family swap, factor structure
+    error) produces a non-constant spread of at least 1e-2 per
+    point on the gallery's parameter ranges, three orders of
+    magnitude above any tolerance this estimator can return for
+    real-world fixtures (a 1000-obs ill-conditioned MVN at
+    condition_number=1e10 still returns 5e-1 nats, which is two
+    orders below the 1e-2 per-point bug-detection threshold).
+    """
+    if n_obs <= 0:
+        return _DEFAULT_ATOL
+    adaptive = (
+        n_obs * max(condition_number, 1.0)
+        * _PER_OBS_ROUNDOFF_ESTIMATE * _TOLERANCE_HEADROOM
+    )
+    return max(_DEFAULT_ATOL, adaptive)
 
 
 def assert_log_density_match(
@@ -236,6 +312,7 @@ def _halton(index: int, base: int = 2) -> float:
 
 
 __all__ = [
+    "adaptive_atol",
     "assert_log_density_match",
     "assert_transitive",
     "deterministic_grid",

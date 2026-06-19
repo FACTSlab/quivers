@@ -50,8 +50,11 @@ def test_unsupported_raises(
     """Every STAN_LIKE backend should reject `encoder_decl`."""
     try:
         module = parse(src)
-    except Exception:  # noqa: BLE001
-        pytest.skip(f"fixture {name!r} did not parse cleanly")
+    except Exception as exc:  # noqa: BLE001
+        pytest.fail(
+            f"fixture {name!r} did not parse cleanly: "
+            f"{type(exc).__name__}: {exc}"
+        )
     with pytest.raises(UnsupportedConstruct) as exc_info:
         # `unsupported_for` enforces the public support-tier contract
         # documented in `quivers.transpile._api`; the Lower + Renderer

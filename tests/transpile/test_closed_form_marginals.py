@@ -348,7 +348,7 @@ def test_three_way_closed_form_agreement(
         )
 
     if not any_target_ran:
-        pytest.skip(
+        pytest.xfail(
             f"no backend image available for {fixture_name!r}; "
             f"QVR vs analytic still passed"
         )

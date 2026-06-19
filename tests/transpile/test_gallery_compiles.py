@@ -72,7 +72,10 @@ def test_gallery_example_compiles(example: Path, backend: str) -> None:
     compiler / parser as a syntax check."""
     binary, argv, _uses_stdin = _SYNTAX_CHECKS[backend]
     if shutil.which(binary) is None:
-        pytest.skip(f"{binary!r} not on PATH")
+        pytest.xfail(
+            f"{binary!r} not on PATH; install it in the local toolchain "
+            f"or add the install step to CI"
+        )
 
     source = example.read_text()
     try:
@@ -80,8 +83,8 @@ def test_gallery_example_compiles(example: Path, backend: str) -> None:
     except UnsupportedConstruct as exc:
         # The backend's walker does not handle every construct in the
         # gallery example. The construct-matrix test owns the gap;
-        # skip this cell with the unsupported kinds in the message.
-        pytest.skip(
+        # xfail this cell with the unsupported kinds in the message.
+        pytest.xfail(
             f"backend {backend!r} does not support a construct in "
             f"{example.name}: {exc.kinds!r}"
         )

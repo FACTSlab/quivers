@@ -691,7 +691,7 @@ def test_grammar_fuzz_round_trip(target: str, seed: int) -> None:
     try:
         original, reparsed, emitted = _build_render_and_extract(spec, expr)
     except UnsupportedConstruct as exc:
-        pytest.skip(
+        pytest.xfail(
             f"{target} helper raised UnsupportedConstruct on the "
             f"random tree for seed {seed}: {exc!r}; tree={expr!r}"
         )

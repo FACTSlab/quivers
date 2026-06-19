@@ -142,6 +142,27 @@ _NUMERICALLY_FRAGILE: frozenset[str] = frozenset({
 })
 
 
+def _observation_count(fixture_name: str) -> int:
+    """Total number of observed-data sites for `fixture_name`, summed
+    across every observation array in
+    [`_PARAM_DATA`][tests.transpile.test_numeric_equivalence._PARAM_DATA].
+
+    Used to derive a per-fixture
+    [`adaptive_atol`][tests.transpile._equivalence.adaptive_atol]:
+    larger observation counts get larger tolerances because the
+    per-site `Distribution.log_prob` round-off compounds in the outer
+    sum.
+    """
+    data = _PARAM_DATA.get(fixture_name, {})
+    total = 0
+    for value in data.values():
+        if isinstance(value, list):
+            total += len(value)
+        else:
+            total += 1
+    return max(total, 1)
+
+
 @pytest.mark.parametrize("backend", sorted(_BACKENDS_WITH_IMAGES))
 @pytest.mark.parametrize("fixture_name", _NUMERIC_FIXTURES)
 def test_log_density_equivalence(
@@ -161,9 +182,11 @@ def test_log_density_equivalence(
     constant-spread log-density equivalence."""
     image, ext, script_name = _BACKENDS_WITH_IMAGES[backend]
     if not _docker.image_available(image):
-        pytest.skip(
-            f"docker image {image!r} not built; "
-            f"run tests/transpile/docker/build.sh"
+        raise RuntimeError(
+            f"docker image {image!r} not available; the session-scope "
+            f"`_ensure_docker_environment` autouse fixture should have "
+            f"built it. Re-check `tests/transpile/docker/build.sh` and "
+            f"the conftest setup."
         )
 
     # Load the fixture from the benchmark corpus.
@@ -176,13 +199,13 @@ def test_log_density_equivalence(
     fixture = compositions[fixture_name]
     module = parse(fixture.source)
 
-    # Skip cells where transpile raises UnsupportedConstruct (the
-    # construct-matrix test already reports these); the numeric tier
-    # only runs cells that produce real source.
+    # Mark backend-level construct gaps as xfail (the construct-matrix
+    # test owns reporting them, but xfailing here keeps the numeric
+    # tier honest about the cells it does not actually run).
     try:
         target_source = transpile(module, target=backend)
     except UnsupportedConstruct as exc:
-        pytest.skip(
+        pytest.xfail(
             f"{backend!r} cannot transpile {fixture_name!r}: "
             f"{exc.kinds}"
         )
@@ -214,8 +237,11 @@ def test_log_density_equivalence(
     )
     target_lps = [float(x) for x in raw_result["log_densities"]]
 
+    n_obs = _observation_count(fixture_name)
+    atol = _equivalence.adaptive_atol(n_obs=n_obs)
     _equivalence.assert_log_density_match(
         qvr_result.log_densities,
         target_lps,
+        atol=atol,
         context=f"{backend}@{fixture_name}",
     )
