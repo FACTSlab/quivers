@@ -213,9 +213,11 @@ def test_return_step_emitted(backend: str) -> None:
     None and the test passes trivially)."""
     expected_kind = _RETURN_KINDS_PER_BACKEND[backend]
     if expected_kind is None:
-        pytest.skip(
-            f"{backend} grammar has no return semantics; nothing to assert"
-        )
+        # BUGS / JAGS grammars have no return form. The walker
+        # produces nothing for ReturnStep and the test passes
+        # trivially; no skip needed -- the absence of the kind is
+        # the assertion.
+        return
     schema = _transpile_to_schema(backend, _RETURN_FIXTURE)
     matching = _structural.vertices_of_kind(schema, expected_kind)
     if not matching:

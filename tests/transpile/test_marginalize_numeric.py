@@ -54,6 +54,28 @@ from tests.transpile import _docker, _equivalence
 from tests.transpile.probes._protocol import Point
 
 
+def _observation_count_marg(points: list[Point]) -> int:
+    """Sum of observed-data lengths across `points`; used to derive
+    the per-fixture
+    [`adaptive_atol`][tests.transpile._equivalence.adaptive_atol].
+
+    A marginalize fixture's observation count is the size of its
+    ``y`` array (per point); the per-site `log_prob` round-off
+    accumulates linearly across that array, so the tolerance scales
+    with the count.
+    """
+    if not points:
+        return 1
+    pt = points[0]
+    total = 0
+    for value in pt.data.values():
+        if isinstance(value, list):
+            total += len(value)
+        else:
+            total += 1
+    return max(total, 1)
+
+
 _DOUBLE = torch.float64
 """Both QVR-probe and analytic evaluations use float64. The
 constant-spread tolerance in
@@ -445,9 +467,12 @@ def test_marginalize_three_way_agreement(
     lp_analytic = [_ANALYTIC[fixture_name](pt.params, pt.data) for pt in qvr_points]
     lp_qvr = _qvr_log_densities(source, fixture_name, qvr_points, scratch)
 
+    n_obs = _observation_count_marg(qvr_points)
+    atol = _equivalence.adaptive_atol(n_obs=n_obs)
     _equivalence.assert_log_density_match(
         lp_qvr,
         lp_analytic,
+        atol=atol,
         context=f"qvr@{fixture_name} vs analytic",
     )
 
@@ -467,16 +492,18 @@ def test_marginalize_three_way_agreement(
         _equivalence.assert_log_density_match(
             lp_target,
             lp_analytic,
+            atol=atol,
             context=f"{backend}@{fixture_name} vs analytic",
         )
         _equivalence.assert_log_density_match(
             lp_target,
             lp_qvr,
+            atol=atol,
             context=f"{backend}@{fixture_name} vs qvr",
         )
 
     if not any_target_ran:
-        pytest.skip(
+        pytest.xfail(
             f"no marginalize-capable backend image available for "
             f"{fixture_name!r}; QVR vs analytic still passed"
         )

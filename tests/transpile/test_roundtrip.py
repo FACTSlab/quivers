@@ -50,7 +50,12 @@ def test_round_trip(target: str) -> None:
     bug in its vertex-kind or edge-label choices.
     """
     if target not in available_targets():
-        pytest.skip(f"backend {target!r} not registered")
+        pytest.fail(
+            f"backend {target!r} parameterised but not in "
+            f"`available_targets()` = {sorted(available_targets())}; "
+            f"either register the renderer or drop the cell from the "
+            f"parametrisation"
+        )
     module = parse(_FIXTURE)
     output = transpile(module, target=target)
     if target == "church" and output == b"":

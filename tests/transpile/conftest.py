@@ -24,14 +24,134 @@ Tool availability markers:
 
 from __future__ import annotations
 
+import os
 import pathlib
+import platform
 import shutil
+import subprocess
+import time
 
 import pytest
 
 from tests.transpile import _docker
 from tests.transpile.fixtures import _load
 from tests.transpile.probes._protocol import LogDensityProbe
+
+
+_DOCKER_IMAGE_BUILD_SCRIPT = (
+    pathlib.Path(__file__).parent / "docker" / "build.sh"
+)
+_DOCKER_IMAGE_TAGS = (
+    "panproto-test-stan",
+    "panproto-test-numpyro",
+    "panproto-test-pyro",
+    "panproto-test-pymc",
+    "panproto-test-edward2",
+    "panproto-test-julia",
+    "panproto-test-node",
+    "panproto-test-jags",
+    "panproto-test-bugs",
+)
+
+
+def _start_docker_daemon() -> None:
+    """Start Docker Desktop on macOS or `dockerd` on Linux when the
+    daemon is not reachable, then block up to 60s for it to come up.
+
+    Raises [`RuntimeError`][builtins.RuntimeError] if the daemon does
+    not become reachable within the timeout, so a test that needs it
+    cannot silently skip. Setting `QUIVERS_NO_DOCKER_AUTOSTART=1`
+    short-circuits the autostart attempt for CI environments where
+    Docker is provisioned by the runner and shouldn't be touched
+    here.
+    """
+    if _docker.docker_available():
+        return
+    if os.environ.get("QUIVERS_NO_DOCKER_AUTOSTART") == "1":
+        raise RuntimeError(
+            "docker daemon not reachable and `QUIVERS_NO_DOCKER_AUTOSTART=1` "
+            "is set; either start the daemon or unset the variable so the "
+            "harness can start it"
+        )
+    if platform.system() == "Darwin":
+        subprocess.run(
+            ["open", "-a", "Docker"], check=False, capture_output=True,
+        )
+    elif platform.system() == "Linux":
+        subprocess.run(
+            ["systemctl", "start", "docker"],
+            check=False, capture_output=True,
+        )
+    else:
+        raise RuntimeError(
+            f"docker daemon not reachable and autostart is not "
+            f"implemented for {platform.system()!r}"
+        )
+    deadline = time.monotonic() + 60.0
+    while time.monotonic() < deadline:
+        if _docker.docker_available():
+            return
+        time.sleep(2.0)
+    raise RuntimeError(
+        "docker daemon did not become reachable within 60s; check "
+        "Docker Desktop / dockerd status before re-running the suite"
+    )
+
+
+def _build_missing_docker_images(tags: tuple[str, ...]) -> None:
+    """Run `tests/transpile/docker/build.sh` when any image in `tags`
+    is missing locally. The build script is idempotent: present images
+    are a fast cache hit.
+
+    Raises [`RuntimeError`][builtins.RuntimeError] if the build script
+    exits non-zero or if any image is still missing after the build,
+    so a test cannot silently skip on a missing image.
+    """
+    missing = [t for t in tags if not _docker.image_available(t)]
+    if not missing:
+        return
+    if not _DOCKER_IMAGE_BUILD_SCRIPT.exists():
+        raise RuntimeError(
+            f"docker images missing ({missing!r}) and build script "
+            f"{_DOCKER_IMAGE_BUILD_SCRIPT} not found"
+        )
+    completed = subprocess.run(
+        ["bash", str(_DOCKER_IMAGE_BUILD_SCRIPT)],
+        capture_output=True, text=True, check=False,
+    )
+    if completed.returncode != 0:
+        raise RuntimeError(
+            f"docker image build failed (exit {completed.returncode}); "
+            f"stdout={completed.stdout!r} stderr={completed.stderr!r}"
+        )
+    still_missing = [t for t in tags if not _docker.image_available(t)]
+    if still_missing:
+        raise RuntimeError(
+            f"docker image build completed but images still missing: "
+            f"{still_missing!r}; inspect "
+            f"{_DOCKER_IMAGE_BUILD_SCRIPT.parent}/<tag>/Dockerfile"
+        )
+
+
+@pytest.fixture(scope="session", autouse=True)
+def _ensure_docker_environment() -> None:
+    """Session-scope autouse fixture: bring Docker up and build every
+    probe image before the first test runs.
+
+    Replaces the per-test "skip when daemon down / image missing"
+    pattern. Either the environment is brought into the state the
+    suite needs, or a clear configuration error fires at session
+    start (no silent per-test skips).
+
+    Set `QUIVERS_SKIP_DOCKER=1` to opt out (only for environments
+    where you genuinely cannot run Docker tests, e.g. a pure
+    documentation build). Tests that need Docker will then raise
+    a configuration error rather than skip silently.
+    """
+    if os.environ.get("QUIVERS_SKIP_DOCKER") == "1":
+        return
+    _start_docker_daemon()
+    _build_missing_docker_images(_DOCKER_IMAGE_TAGS)
 
 
 def pytest_configure(config: pytest.Config) -> None:
@@ -58,29 +178,29 @@ def pytest_configure(config: pytest.Config) -> None:
 def pytest_collection_modifyitems(
     config: pytest.Config, items: list[pytest.Item]
 ) -> None:
-    """Apply per-marker skips at collection time."""
+    """Apply per-marker xfails at collection time.
+
+    Environment shortfalls (binary missing from PATH, probe runtime
+    not installed) become `strict=False` xfails so the gap is visible
+    in the test report rather than absorbed into the skip pile. The
+    Docker daemon and probe images are guaranteed available by the
+    session-scope `_ensure_docker_environment` autouse fixture, so
+    the `requires_docker` / `requires_image` markers reduce to a
+    declaration-of-intent here and don't introduce per-test skips.
+    """
     del config
     for item in items:
         for marker in item.iter_markers(name="requires_tool"):
             binary = marker.args[0]
             if shutil.which(binary) is None:
                 item.add_marker(
-                    pytest.mark.skip(reason=f"binary {binary!r} not on PATH")
-                )
-        if list(item.iter_markers(name="requires_docker")):
-            if not _docker.docker_available():
-                item.add_marker(
-                    pytest.mark.skip(
-                        reason="docker daemon not reachable"
-                    )
-                )
-        for marker in item.iter_markers(name="requires_image"):
-            tag = marker.args[0]
-            if not _docker.image_available(tag):
-                item.add_marker(
-                    pytest.mark.skip(
-                        reason=f"docker image {tag!r} not built locally; "
-                        f"run tests/transpile/docker/build.sh"
+                    pytest.mark.xfail(
+                        reason=(
+                            f"binary {binary!r} not on PATH; install it "
+                            f"in the local toolchain or add the install "
+                            f"step to CI"
+                        ),
+                        strict=False,
                     )
                 )
         for marker in item.iter_markers(name="requires_probe"):
@@ -88,8 +208,13 @@ def pytest_collection_modifyitems(
             probe = _probe_for_name(backend)
             if probe is None or not probe.available():
                 item.add_marker(
-                    pytest.mark.skip(
-                        reason=f"{backend} probe runtime unavailable"
+                    pytest.mark.xfail(
+                        reason=(
+                            f"{backend} probe runtime unavailable; install "
+                            f"the runtime locally or add the install step "
+                            f"to CI"
+                        ),
+                        strict=False,
                     )
                 )
 

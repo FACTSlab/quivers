@@ -80,7 +80,10 @@ def test_gallery_qvr_logdensity_finite(example: pathlib.Path) -> None:
     """
     dataset = _gallery_data.load_gallery_data(example)
     if dataset is None:
-        pytest.skip(f"{example.stem!r}: synthetic-data block missing or failed")
+        pytest.xfail(
+            f"{example.stem!r}: synthetic-data block missing or failed; "
+            f"add a `synthetic_data { '{...}' }` block to the fixture"
+        )
 
     point = _gallery_data.point_from_dataset(dataset)
     probe = QvrProbe()
@@ -93,9 +96,9 @@ def test_gallery_qvr_logdensity_finite(example: pathlib.Path) -> None:
         )
     except Exception as exc:
         # Programs the in-process QVR trace cannot evaluate (missing
-        # primitives, axis-misalignment, etc.) skip cleanly; the
-        # gallery still grows as the runtime grows.
-        pytest.skip(
+        # primitives, axis-misalignment, etc.) mark xfail so the gap
+        # is visible; the gallery still grows as the runtime grows.
+        pytest.xfail(
             f"{example.stem!r}: QvrProbe raised {type(exc).__name__}: {exc}"
         )
     assert len(result.log_densities) == 1, (
@@ -127,16 +130,29 @@ def test_gallery_backend_logdensity_matches_qvr(
     """
     image, ext, script_name = _BACKENDS_WITH_IMAGES[backend]
     if not _docker.docker_available():
-        pytest.skip("docker not available")
+        raise RuntimeError(
+            "docker daemon not reachable; the session-scope "
+            "`_ensure_docker_environment` autouse fixture should have "
+            "started it"
+        )
     if not _docker.image_available(image):
-        pytest.skip(f"image {image!r} not built; run tests/transpile/docker/build.sh")
+        raise RuntimeError(
+            f"docker image {image!r} not available; the session-scope "
+            f"`_ensure_docker_environment` autouse fixture should have "
+            f"built it"
+        )
 
     dataset = _gallery_data.load_gallery_data(example)
     if dataset is None:
-        pytest.skip(f"{example.stem!r}: synthetic-data block missing")
+        pytest.xfail(
+            f"{example.stem!r}: synthetic-data block missing; "
+            f"add a `synthetic_data { '{...}' }` block to the fixture "
+            f"to enable numeric evaluation"
+        )
 
-    # Transpile to bytes; skip on UnsupportedConstruct (the
-    # construct-matrix / family-matrix tests own that gap).
+    # Transpile to bytes; xfail on UnsupportedConstruct (the
+    # construct-matrix / family-matrix tests own that gap, but the
+    # numeric-tier cell is a real assertion we want tracked).
     source = example.read_bytes()
     try:
         emitted = transpile(
@@ -146,7 +162,7 @@ def test_gallery_backend_logdensity_matches_qvr(
             target=backend,
         )
     except UnsupportedConstruct as exc:
-        pytest.skip(
+        pytest.xfail(
             f"backend {backend!r} on {example.stem!r}: "
             f"UnsupportedConstruct {exc.kinds!r}"
         )
@@ -161,7 +177,7 @@ def test_gallery_backend_logdensity_matches_qvr(
             source, example.stem, [point], scratch=scratch,
         )
     except Exception as exc:
-        pytest.skip(
+        pytest.xfail(
             f"{example.stem!r}: QvrProbe raised {type(exc).__name__}: {exc}"
         )
 
@@ -185,7 +201,7 @@ def test_gallery_backend_logdensity_matches_qvr(
             scratch=scratch,
         )
     except (NotImplementedError, RuntimeError, FileNotFoundError) as exc:
-        pytest.skip(
+        pytest.xfail(
             f"{backend!r} probe on {example.stem!r}: {type(exc).__name__}: {exc}"
         )
 

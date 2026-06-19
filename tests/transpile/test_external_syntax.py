@@ -58,7 +58,10 @@ def _run_syntax_check(
     """Run the ``binary`` with ``argv``, feeding ``input_bytes`` on
     stdin. Returns (returncode, stdout, stderr)."""
     if shutil.which(binary) is None:
-        pytest.skip(f"{binary!r} not on PATH")
+        pytest.xfail(
+            f"{binary!r} not on PATH; install it in the local toolchain "
+            f"or add the install step to CI"
+        )
     completed = subprocess.run(
         argv,
         input=input_bytes,

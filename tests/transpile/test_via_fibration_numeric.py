@@ -47,6 +47,22 @@ from tests.transpile import _docker, _equivalence
 from tests.transpile.probes._protocol import Point
 
 
+def _observation_count_via(points: list[Point]) -> int:
+    """Sum of observed-data lengths across `points`; used to derive
+    the per-fixture
+    [`adaptive_atol`][tests.transpile._equivalence.adaptive_atol]."""
+    if not points:
+        return 1
+    pt = points[0]
+    total = 0
+    for value in pt.data.values():
+        if isinstance(value, list):
+            total += len(value)
+        else:
+            total += 1
+    return max(total, 1)
+
+
 _DOUBLE = torch.float64
 
 
@@ -365,9 +381,12 @@ def test_via_fibration_three_way_agreement(
     ]
     lp_qvr = _qvr_log_densities(source, fixture_name, qvr_points)
 
+    n_obs = _observation_count_via(qvr_points)
+    atol = _equivalence.adaptive_atol(n_obs=n_obs)
     _equivalence.assert_log_density_match(
         lp_qvr,
         lp_analytic,
+        atol=atol,
         context=f"qvr@{fixture_name} vs analytic",
     )
 
@@ -387,16 +406,18 @@ def test_via_fibration_three_way_agreement(
         _equivalence.assert_log_density_match(
             lp_target,
             lp_analytic,
+            atol=atol,
             context=f"{backend}@{fixture_name} vs analytic",
         )
         _equivalence.assert_log_density_match(
             lp_target,
             lp_qvr,
+            atol=atol,
             context=f"{backend}@{fixture_name} vs qvr",
         )
 
     if not any_target_ran:
-        pytest.skip(
+        pytest.xfail(
             f"no fibration-capable backend image available for "
             f"{fixture_name!r}; QVR vs analytic still passed"
         )
