@@ -577,6 +577,8 @@ FAMILY_META: dict[str, FamilyMeta] = {
                 "loc": "mu", "scale": "sigma",
                 "low": "lower", "high": "upper",
             },
+            "bugs": {"scale": "tau"},
+            "jags": {"scale": "tau"},
         },
     ),
     "Dirichlet": FamilyMeta(
