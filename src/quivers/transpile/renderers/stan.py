@@ -662,8 +662,24 @@ class StanRenderer(RendererBase):
         ctx.sb.vertex(dn, "identifier")
         ctx.sb.constraint(dn, "literal-value", stan_name)
         ctx.sb.edge(ss, dn, "name")
-        # Args.
-        injected = self._inject_stan_specific_args(family, args)
+        # Args + optional truncation suffix.
+        # TruncatedNormal: split (loc, scale, low, high) -> two args
+        # to `normal()` plus a `T[low, high]` suffix.
+        if family == "TruncatedNormal":
+            if len(args) != 4:
+                raise UnsupportedConstruct(
+                    "qvr-stan",
+                    [
+                        f"family:TruncatedNormal: expected 4 args "
+                        f"(loc, scale, low, high), got {len(args)}"
+                    ],
+                )
+            family_args = args[:2]
+            truncation_args: tuple[IRArg, ...] | None = args[2:]
+        else:
+            family_args = args
+            truncation_args = None
+        injected = self._inject_stan_specific_args(family, family_args)
         rewritten = self._broadcast_scalar_refs(injected, meta, plate)
         for arg in rewritten:
             substituted = self._substitute_for_loops(
@@ -671,8 +687,50 @@ class StanRenderer(RendererBase):
             )
             arg_vid = self._render_arg(ctx, substituted)
             ctx.sb.edge(ss, arg_vid, "child_of")
+        if truncation_args is not None:
+            trunc_vid = self._build_truncation_suffix(
+                ctx, truncation_args, plate, loop_names
+            )
+            ctx.sb.edge(ss, trunc_vid, "child_of")
         ctx.sb.edge(innermost_parent, ss, "child_of")
         return ss
+
+    def _build_truncation_suffix(
+        self,
+        ctx: _RenderCtx,
+        bounds: tuple[IRArg, ...],
+        plate: Plate,
+        loop_names: tuple[str, ...],
+    ) -> str:
+        """Emit a Stan `lower_upper_truncation` vertex (the `T[low,
+        high]` suffix on a sampling statement) carrying two rendered
+        bound expressions.
+
+        Stan's grammar slots this vertex as a `child_of` of the
+        enclosing `sampling_statement`; the pretty printer recovers
+        the canonical `T[lower, upper];` layout from the
+        `chose-alt-fingerprint` constraint.
+        """
+        trunc = self._fresh(ctx, "tnc")
+        ctx.sb.vertex(trunc, "lower_upper_truncation")
+        rendered_kinds: list[str] = []
+        for bound in bounds:
+            substituted = self._substitute_for_loops(
+                bound, plate, loop_names
+            )
+            bound_vid = self._render_arg(ctx, substituted)
+            ctx.sb.edge(trunc, bound_vid, "child_of")
+            rendered_kinds.append(
+                ctx.sb.kind_of(bound_vid)
+                if hasattr(ctx.sb, "kind_of")
+                else "real_literal"
+            )
+        ctx.sb.constraint(trunc, "chose-alt-fingerprint", "T[ , ]")
+        ctx.sb.constraint(
+            trunc, "chose-alt-child-kinds",
+            " ".join(rendered_kinds),
+        )
+        return trunc
 
     def _inject_stan_specific_args(
         self,
