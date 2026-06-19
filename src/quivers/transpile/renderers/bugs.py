@@ -474,6 +474,9 @@ class BUGSRenderer(RendererBase):
         if _is_wrapper_family_call(node.args):
             self._emit_truncated(ctx, node)
             return
+        if node.family == "TruncatedNormal":
+            self._emit_truncated_normal_native(ctx, node, loop_suffix)
+            return
         self._emit_relation(
             ctx,
             name=node.name,
@@ -483,6 +486,46 @@ class BUGSRenderer(RendererBase):
             plate=node.plate,
             via=None,
             loop_suffix=loop_suffix,
+        )
+
+    def _emit_truncated_normal_native(
+        self,
+        ctx: _BugsCtx,
+        node: IRSample,
+        loop_suffix: str,
+    ) -> None:
+        """Emit ``<lhs> ~ dnorm(loc, tau) I(low, high)`` for
+        ``TruncatedNormal(loc, scale, low, high)``.
+
+        Splits the 4-arg call into (loc, scale) for the base ``dnorm``
+        plus (low, high) for the truncation suffix; the family's
+        ``arg_aliases[bugs]`` renames ``scale -> tau`` and the alias
+        pipeline applies the ``inv_square`` transform so the emitted
+        precision is ``1/(scale*scale)``.
+        """
+        if len(node.args) != 4:
+            raise UnsupportedConstruct(
+                f"qvr-{self.target}",
+                [
+                    f"family:TruncatedNormal: expected 4 args "
+                    f"(loc, scale, low, high), got {len(node.args)}"
+                ],
+            )
+        family_args = node.args[:2]
+        family_arg_names = (
+            node.arg_names[:2] if node.arg_names else ("loc", "scale")
+        )
+        lo, hi = node.args[2], node.args[3]
+        self._emit_relation(
+            ctx,
+            name=node.name,
+            family="TruncatedNormal",
+            args=family_args,
+            arg_names=family_arg_names,
+            plate=node.plate,
+            via=None,
+            loop_suffix=loop_suffix,
+            truncation=(lo, hi),
         )
 
     def _emit_observe_node(self, ctx: _BugsCtx, node: IRObserve) -> None:
@@ -503,6 +546,17 @@ class BUGSRenderer(RendererBase):
                 constraint=node.constraint,
                 plate=node.plate,
             ))
+            return
+        if node.family == "TruncatedNormal":
+            self._emit_truncated_normal_native(
+                ctx,
+                IRSample(
+                    name=node.name, family=node.family, args=node.args,
+                    arg_names=node.arg_names, constraint=node.constraint,
+                    plate=node.plate,
+                ),
+                "",
+            )
             return
         self._emit_relation(
             ctx,
@@ -693,6 +747,17 @@ class BUGSRenderer(RendererBase):
             sr_id = self._fresh(ctx, "sr")
             ctx.sb.vertex(sr_id, "stochastic_relation")
             ctx.sb.edge(body_id, sr_id, "stochastic_relation")
+            # When a truncation suffix is present, the
+            # stochastic_relation's child-kind alternative needs to
+            # advertise it so the panproto pretty-printer picks the
+            # `~ ... I( , )` (BUGS) / `~ ... T( , )` (JAGS) alternative
+            # rather than the no-suffix alternative.
+            if truncation is not None:
+                ctx.sb.constraint(sr_id, "chose-alt-fingerprint", "~")
+                ctx.sb.constraint(
+                    sr_id, "chose-alt-child-kinds",
+                    "identifier distribution_call truncation",
+                )
             lhs_id = self._emit_lhs(
                 ctx, name, plate, loop_names
             )
@@ -705,7 +770,7 @@ class BUGSRenderer(RendererBase):
                 trunc_id = self._emit_truncation(
                     ctx, truncation[0], truncation[1]
                 )
-                ctx.sb.edge(sr_id, trunc_id, "truncation")
+                ctx.sb.edge(sr_id, trunc_id, "child_of")
         finally:
             ctx.via = prev_via
             ctx.enclosing_plate = prev_plate
@@ -1365,18 +1430,20 @@ class BUGSRenderer(RendererBase):
         lower: IRArg,
         upper: IRArg,
     ) -> str:
-        """Emit a `truncation` node carrying `T(lower, upper)`.
+        """Emit a `truncation` node carrying `I(lower, upper)`.
 
-        The fingerprint `T( , )` picks the T-alternative of the
-        BUGS truncation rule (T / I / C).
+        BUGS uses `I( , )` for the truncation suffix (the JAGS dialect
+        uses `T( , )`; the BUGS grammar's truncation rule offers both
+        as alternatives keyed by the `chose-alt-fingerprint`
+        constraint).
         """
         tr = self._fresh(ctx, "tr")
         ctx.sb.vertex(tr, "truncation")
-        ctx.sb.constraint(tr, "chose-alt-fingerprint", "T( , )")
+        ctx.sb.constraint(tr, "chose-alt-fingerprint", "I( , )")
         lo_id = self._emit_arg(ctx, lower)
         hi_id = self._emit_arg(ctx, upper)
-        ctx.sb.edge(tr, lo_id, self._arg_edge_kind(lower))
-        ctx.sb.edge(tr, hi_id, self._arg_edge_kind(upper))
+        ctx.sb.edge(tr, lo_id, "child_of")
+        ctx.sb.edge(tr, hi_id, "child_of")
         return tr
 
     # ------------------------------------------------------------------

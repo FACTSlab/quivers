@@ -389,6 +389,26 @@ class JAGSRenderer(RendererBase):
             args = (IRArgNumber(value=0.0), *args)
             arg_names = ("loc", *arg_names)
 
+        # TruncatedNormal lowers to `dnorm(loc, tau) T(low, high)`.
+        # Peel off the last two args (low, high) before the
+        # alias-renaming pipeline so they don't try to map through
+        # the family's arg_aliases (which only renames the
+        # distribution-call args). The peeled bounds are reattached
+        # below as a `truncation` child of the stochastic_relation.
+        truncation_bounds: tuple[IRArg, ...] | None = None
+        if family == "TruncatedNormal":
+            if len(args) != 4:
+                raise UnsupportedConstruct(
+                    f"qvr-{_BACKEND}",
+                    [
+                        f"family:TruncatedNormal: expected 4 args "
+                        f"(loc, scale, low, high), got {len(args)}"
+                    ],
+                )
+            truncation_bounds = args[2:]
+            args = args[:2]
+            arg_names = arg_names[:2]
+
         aliases = meta.arg_aliases.get(_BACKEND, {})
         renamed_pairs: list[tuple[str, IRArg]] = []
         for arg_name, arg in zip(arg_names, args, strict=False):
@@ -438,6 +458,10 @@ class JAGSRenderer(RendererBase):
             renamed_pairs=rewritten_args,
             plate=plate,
             loop_vars=loop_var_names,
+            truncation_bounds=truncation_bounds,
+            axis_to_lv=axis_to_lv,
+            via=via,
+            loop_var_names=loop_var_names,
         )
 
         for dim in plate.batch_dims:
@@ -479,18 +503,45 @@ class JAGSRenderer(RendererBase):
         renamed_pairs: tuple[tuple[str, IRArg], ...],
         plate: Plate,
         loop_vars: tuple[str, ...],
+        truncation_bounds: tuple[IRArg, ...] | None = None,
+        axis_to_lv: dict[str, str] | None = None,
+        via: str | None = None,
+        loop_var_names: tuple[str, ...] = (),
     ) -> str:
-        """Build ``<lhs> ~ <dist>(...)`` as a ``stochastic_relation``."""
+        """Build ``<lhs> ~ <dist>(...) [T(low, high)]`` as a
+        ``stochastic_relation``.
+
+        When `truncation_bounds` is supplied (used for the
+        ``TruncatedNormal`` family, lowered to
+        ``dnorm(loc, tau) T(low, high)``), a `truncation` vertex
+        carrying the two rendered bound expressions is attached as a
+        `child_of` of the stochastic_relation. The bounds go through
+        the same `_rewrite_arg` pipeline as the family-call args so
+        loop-var / latent-ref rewriting threads through them too.
+        """
         sr = _fresh(ctx, "sr", "stochastic_relation")
-        ctx.sb.constraint(sr, "chose-alt-fingerprint", "~")
-        ctx.sb.constraint(
-            sr,
-            "chose-alt-child-kinds",
-            f"{_lhs_kind(plate, loop_vars)} distribution_call",
-        )
-        ctx.sb.constraint(sr, "ptrace-0", f"C{_lhs_kind(plate, loop_vars)}")
-        ctx.sb.constraint(sr, "ptrace-1", "T~")
-        ctx.sb.constraint(sr, "ptrace-2", "Cdistribution_call")
+        has_trunc = truncation_bounds is not None
+        if has_trunc:
+            ctx.sb.constraint(sr, "chose-alt-fingerprint", "~")
+            ctx.sb.constraint(
+                sr,
+                "chose-alt-child-kinds",
+                f"{_lhs_kind(plate, loop_vars)} distribution_call truncation",
+            )
+            ctx.sb.constraint(sr, "ptrace-0", f"C{_lhs_kind(plate, loop_vars)}")
+            ctx.sb.constraint(sr, "ptrace-1", "T~")
+            ctx.sb.constraint(sr, "ptrace-2", "Cdistribution_call")
+            ctx.sb.constraint(sr, "ptrace-3", "Ctruncation")
+        else:
+            ctx.sb.constraint(sr, "chose-alt-fingerprint", "~")
+            ctx.sb.constraint(
+                sr,
+                "chose-alt-child-kinds",
+                f"{_lhs_kind(plate, loop_vars)} distribution_call",
+            )
+            ctx.sb.constraint(sr, "ptrace-0", f"C{_lhs_kind(plate, loop_vars)}")
+            ctx.sb.constraint(sr, "ptrace-1", "T~")
+            ctx.sb.constraint(sr, "ptrace-2", "Cdistribution_call")
 
         lhs = self._build_lhs(ctx, lhs_name, plate, loop_vars)
         ctx.sb.edge(sr, lhs, "variable")
@@ -499,7 +550,50 @@ class JAGSRenderer(RendererBase):
             ctx, target_dist, renamed_pairs
         )
         ctx.sb.edge(sr, dc, "distribution")
+
+        if has_trunc:
+            assert truncation_bounds is not None
+            trunc = self._build_truncation(
+                ctx,
+                bounds=truncation_bounds,
+                axis_to_lv=axis_to_lv or {},
+                via=via,
+                loop_var_names=loop_var_names,
+            )
+            ctx.sb.edge(sr, trunc, "child_of")
         return sr
+
+    def _build_truncation(
+        self,
+        ctx: _JAGSCtx,
+        *,
+        bounds: tuple[IRArg, ...],
+        axis_to_lv: dict[str, str],
+        via: str | None,
+        loop_var_names: tuple[str, ...],
+    ) -> str:
+        """Build a JAGS `truncation` vertex carrying the lo/hi bound
+        expressions for a ``T(low, high)`` suffix on a stochastic
+        relation.
+
+        Each bound goes through the standard `_rewrite_arg` pipeline
+        so loop-var / latent-ref substitutions apply uniformly with
+        the surrounding distribution-call args.
+        """
+        trunc = _fresh(ctx, "tnc", "truncation")
+        kinds: list[str] = []
+        for bound in bounds:
+            rewritten = _rewrite_arg(
+                ctx, bound, loop_var_names, axis_to_lv, via,
+            )
+            vid, kind = self._render_arg_with_kind(ctx, rewritten)
+            ctx.sb.edge(trunc, vid, "child_of")
+            kinds.append(kind)
+        ctx.sb.constraint(trunc, "chose-alt-fingerprint", "T( , )")
+        ctx.sb.constraint(
+            trunc, "chose-alt-child-kinds", " ".join(kinds),
+        )
+        return trunc
 
     def _build_lhs(
         self,
