@@ -559,10 +559,18 @@ FAMILY_META: dict[str, FamilyMeta] = {
         qvr_name="TruncatedNormal",
         distribution_class=_TruncatedNormal,
         quivers_class=ConditionalTruncatedNormal,
+        # Stan / BUGS / JAGS use truncation-suffix syntax on the
+        # sampling statement (`theta ~ normal(loc, scale) T[low, high]`
+        # for Stan; `I(low, high)` for BUGS; `T(low, high)` for JAGS).
+        # The `target_name` is the underlying base family; the per-
+        # renderer sample path detects `family == "TruncatedNormal"`
+        # and emits the suffix after the family call.
         target_names={
             "numpyro": "TruncatedNormal", "pyro": "TruncatedNormal",
             "pymc": "TruncatedNormal", "edward2": "TruncatedNormal",
             "turing": "truncated",
+            "stan": "normal",
+            "bugs": "dnorm", "jags": "dnorm",
         },
         arg_aliases={
             "pymc": {
