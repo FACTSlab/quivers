@@ -63,22 +63,11 @@ _KNOWN_COMPOSITION_GAPS: dict[tuple[str, str], str] = {
     ("normal_inverse_gamma", "webppl"): (
         "family:no-webppl-target:InverseGamma"
     ),
-    ("truncated_normal_recovery", "bugs"): (
-        "family:TruncatedNormal: no BUGS target name"
-    ),
     ("truncated_normal_recovery", "church"): (
         "family:TruncatedNormal:church"
     ),
     ("truncated_normal_recovery", "gen"): (
         "family:TruncatedNormal: no Gen.jl target name"
-    ),
-    ("truncated_normal_recovery", "jags"): (
-        "family:no-target-name:TruncatedNormal"
-    ),
-    ("truncated_normal_recovery", "stan"): (
-        "family:no-stan-target:TruncatedNormal -- Stan has no native "
-        "TruncatedNormal; the Stan idiom is `T[lo, hi]` on a "
-        "vanilla `Normal` LHS declaration"
     ),
     ("truncated_normal_recovery", "webppl"): (
         "family:no-webppl-target:TruncatedNormal"
