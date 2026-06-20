@@ -27,6 +27,7 @@ from quivers.transpile import (
     unsupported_for,
 )
 from quivers.transpile._api import (
+    CATEGORICAL_METADATA_IGNORABLE,
     CHURCH_LIKE,
     PYTHON_DEEP,
     STAN_LIKE,
@@ -64,15 +65,19 @@ def _expected_unsupported_kinds(fixture: _load.Fixture, backend: str) -> set[str
 
     Walks the parsed module and collects every statement discriminator
     that falls outside the backend's support tier.
+    [`CATEGORICAL_METADATA_IGNORABLE`][quivers.transpile.CATEGORICAL_METADATA_IGNORABLE]
+    kinds are accepted alongside a `program_decl` per the
+    [`unsupported_for`][quivers.transpile.unsupported_for] contract,
+    so they're not flagged when a program is present.
     """
     module = parse(fixture.source)
     tier = _SUPPORT_TIER[backend]
-    bad: set[str] = set()
-    for stmt in module.statements:
-        kind = str(stmt.kind)
-        if kind not in tier:
-            bad.add(kind)
-    return bad
+    kinds = {str(stmt.kind) for stmt in module.statements}
+    has_program = "program_decl" in kinds
+    effective_tier = (
+        tier | CATEGORICAL_METADATA_IGNORABLE if has_program else tier
+    )
+    return {k for k in kinds if k not in effective_tier}
 
 
 # Fixtures that the renderer doesn't fully emit yet, even though
