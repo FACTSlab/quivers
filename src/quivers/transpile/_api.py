@@ -463,11 +463,25 @@ def unsupported_for(
     didactic [`TaggedUnion`][didactic.api.TaggedUnion] discriminator
     (``"program_decl"``, ``"morphism_decl"``, etc.). Any kind not in
     ``allow`` is collected; if the resulting set is non-empty, raises.
+
+    [`CATEGORICAL_METADATA_IGNORABLE`][quivers.transpile.CATEGORICAL_METADATA_IGNORABLE]
+    kinds (``composition_decl``, ``category_decl``, ``schema_decl``,
+    ``bundle_decl``, ``rule_decl``, ``contraction_decl``,
+    ``signature_decl``, ``deduction_decl``) are accepted ALONGSIDE a
+    ``program_decl``: when the module has at least one program, the
+    walker ignores these metadata declarations and transpiles the
+    program. Without a ``program_decl`` they remain in `bad` so the
+    contract surfaces "no probabilistic program here to transpile."
     """
+    kinds = {cast_kind(s) for s in module.statements}
+    has_program = "program_decl" in kinds
+    effective_allow = (
+        allow | CATEGORICAL_METADATA_IGNORABLE if has_program else allow
+    )
     bad: set[str] = set()
     for statement in module.statements:
         kind = cast_kind(statement)
-        if kind not in allow:
+        if kind not in effective_allow:
             bad.add(kind)
     if bad:
         raise UnsupportedConstruct(target, sorted(bad))
