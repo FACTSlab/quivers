@@ -103,7 +103,9 @@ x = torch.stack([src.reshape(-1), tgt.reshape(-1)], dim=-1)
 
 tr = run_trace(model, x)
 h_obs = tr.sites["h"].value.detach()
-y_obs = tr.sites["next_token"].value.detach()
+next_token = tr.sites["next_token"].value.detach()
+y_obs = next_token
+observations = {"next_token": next_token}
 print("x:", tuple(x.shape), "h:", tuple(h_obs.shape), "y:", tuple(y_obs.shape))
 ```
 
