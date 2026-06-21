@@ -90,17 +90,24 @@ prog = load("docs/examples/source/tree_categorical.qvr")
 model = prog.morphism
 
 N_TREES = 10
+true_p_root  = torch.tensor([[0.7]])
+true_p_left  = torch.tensor([[0.3]])
+true_p_right = torch.tensor([[0.6]])
+true_sigma_v = torch.tensor([[0.5]])
+true_delta   = 0.5 * torch.randn(12)
+true_mu      = torch.tensor([0.0, 0.5, -0.5, 1.0])
 true_latents = {
-    "p_root":  torch.tensor([[0.7]]),
-    "p_left":  torch.tensor([[0.3]]),
-    "p_right": torch.tensor([[0.6]]),
-    "sigma_v": torch.tensor([[0.5]]),
-    "delta":   0.5 * torch.randn(12),
-    "mu":      torch.tensor([0.0, 0.5, -0.5, 1.0]),
+    "p_root":  true_p_root,
+    "p_left":  true_p_left,
+    "p_right": true_p_right,
+    "sigma_v": true_sigma_v,
+    "delta":   true_delta,
+    "mu":      true_mu,
 }
 x = torch.zeros(N_TREES, 1, dtype=torch.long)
 tr = run_trace(model, x, true_latents)
 y_obs = tr.sites["y"].value.detach().reshape(1, -1)
+observations = {"y": y_obs}
 print("y batch shape:", tuple(y_obs.shape))
 ```
 
