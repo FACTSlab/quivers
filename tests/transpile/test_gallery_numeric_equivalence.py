@@ -92,7 +92,13 @@ def test_gallery_qvr_logdensity_finite(example: pathlib.Path) -> None:
     scratch.mkdir(exist_ok=True, parents=True)
     try:
         result = probe.evaluate(
-            source, example.stem, [point], scratch=scratch,
+            source,
+            example.stem,
+            [point],
+            scratch=scratch,
+            monadic=dataset.monadic,
+            x_input=dataset.x_input,
+            observations=dataset.observations,
         )
     except Exception as exc:
         # Programs the in-process QVR trace cannot evaluate (missing
@@ -174,7 +180,13 @@ def test_gallery_backend_logdensity_matches_qvr(
     scratch.mkdir(exist_ok=True, parents=True)
     try:
         qvr_result = qvr_probe.evaluate(
-            source, example.stem, [point], scratch=scratch,
+            source,
+            example.stem,
+            [point],
+            scratch=scratch,
+            monadic=dataset.monadic,
+            x_input=dataset.x_input,
+            observations=dataset.observations,
         )
     except Exception as exc:
         pytest.xfail(
