@@ -2270,10 +2270,41 @@ class StanRenderer(RendererBase):
         self._declared_shapes[node.name] = (
             node.constraint.to_constraint(), node.plate,
         )
+        # Normalise the RHS shape for fan / parallel-branch literals.
+        # The lower phase aggregates parallel-branch outputs as
+        # `LetExprList` regardless of length; for the Stan declaration
+        # the literal's length dictates the declared type:
+        #   * length 1 -> unwrap to the inner scalar (the wrapping
+        #     list serves no Stan purpose and breaks `real X = {a};`).
+        #   * length >1 -> declare `array[len] real` so the
+        #     `{a, b, ...}` initialiser type-checks; downstream
+        #     consumers vectorise across the array per Stan's
+        #     broadcasting rules.
+        body_expr = node.expr
+        list_array_size: int | None = None
+        if (
+            isinstance(body_expr, LetExprList)
+            and not node.plate.batch_dims
+        ):
+            if len(body_expr.items) == 1:
+                body_expr = body_expr.items[0]
+            elif len(body_expr.items) > 1:
+                list_array_size = len(body_expr.items)
         decl = self._fresh(ctx, "tpvd")
         ctx.sb.vertex(decl, "top_var_decl")
         ctx.sb.edge(parent, decl, "child_of")
-        if node.plate.batch_dims:
+        promoted_k = self._vector_promotions.get(node.name)
+        if list_array_size is not None and promoted_k is None:
+            # `array[N] real` declaration, no batch dims.
+            arr = self._fresh(ctx, "tparr")
+            ctx.sb.vertex(arr, "arr_dims")
+            ctx.sb.edge(
+                arr,
+                self._int_literal(ctx, list_array_size),
+                "child_of",
+            )
+            ctx.sb.edge(decl, arr, "child_of")
+        elif node.plate.batch_dims:
             arr = self._fresh(ctx, "tparr")
             ctx.sb.vertex(arr, "arr_dims")
             for dim in node.plate.batch_dims:
@@ -2282,7 +2313,6 @@ class StanRenderer(RendererBase):
             ctx.sb.edge(decl, arr, "child_of")
         tvt = self._fresh(ctx, "tpvt")
         ctx.sb.vertex(tvt, "top_var_type")
-        promoted_k = self._vector_promotions.get(node.name)
         if promoted_k is not None:
             self._emit_vector_type_of_size(ctx, tvt, promoted_k)
         else:
@@ -2305,13 +2335,13 @@ class StanRenderer(RendererBase):
         #     broadcasting / per-element substitution is needed and
         #     Stan accepts the array-to-array assignment directly).
         if not node.plate.batch_dims or isinstance(
-            node.expr, (LetExprFactor, LetExprList)
+            body_expr, (LetExprFactor, LetExprList)
         ):
             rhs = render_let_expr_stan(
                 _StanLetCtx(
                     ctx.sb, lambda p: self._fresh(ctx, p), self._cards
                 ),
-                node.expr,
+                body_expr,
             )
             if promoted_k is not None:
                 rhs = self._wrap_rep_vector(ctx, rhs, promoted_k)
