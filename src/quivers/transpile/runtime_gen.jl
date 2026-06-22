@@ -91,3 +91,31 @@ Gen.has_output_grad(::HalfStudentTDist) = false
 Gen.has_argument_grads(::HalfStudentTDist) = (false, false)
 
 (::HalfStudentTDist)(df, scale) = Gen.random(HalfStudentTDist(), df, scale)
+
+struct KumaraswamyDist <: Gen.Distribution{Float64} end
+
+const kumaraswamy = KumaraswamyDist()
+
+function Gen.random(::KumaraswamyDist, concentration1::Real, concentration0::Real)
+    u = rand()
+    return (1.0 - (1.0 - u)^(1.0 / concentration0))^(1.0 / concentration1)
+end
+
+function Gen.logpdf(::KumaraswamyDist, x::Real, concentration1::Real, concentration0::Real)
+    if x <= 0 || x >= 1
+        return -Inf
+    end
+    return log(concentration1) + log(concentration0) +
+           (concentration1 - 1) * log(x) +
+           (concentration0 - 1) * log1p(-x^concentration1)
+end
+
+function Gen.logpdf_grad(::KumaraswamyDist, x::Real, concentration1::Real, concentration0::Real)
+    return (nothing, nothing, nothing)
+end
+
+Gen.has_output_grad(::KumaraswamyDist) = false
+
+Gen.has_argument_grads(::KumaraswamyDist) = (false, false)
+
+(::KumaraswamyDist)(concentration1, concentration0) = Gen.random(KumaraswamyDist(), concentration1, concentration0)
