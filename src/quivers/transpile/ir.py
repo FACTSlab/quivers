@@ -348,6 +348,30 @@ def is_real_unit_interval(c: Constraint) -> bool:
     return False
 
 
+def is_real_bounded_interval(c: Constraint) -> bool:
+    """`Interval(lo, hi)` with finite, non-(0,1) bounds.
+
+    Distinguishes `Uniform(-1, 1)`-style supports from `UnitInterval`
+    so the type emitter can produce `real <lower=lo, upper=hi>` rather
+    than falling through to the unsupported-support fallback.
+    """
+    if not isinstance(c, _constraints._Interval):
+        return False
+    lo = float(c.lower_bound)
+    hi = float(c.upper_bound)
+    if lo == float("-inf") or hi == float("inf"):
+        return False
+    if lo == 0.0 and hi == 1.0:
+        return False
+    return lo < hi
+
+
+def real_interval_bounds(c: Constraint) -> tuple[float, float]:
+    """The (lo, hi) bounds of a bounded-interval support."""
+    assert isinstance(c, _constraints._Interval)
+    return float(c.lower_bound), float(c.upper_bound)
+
+
 def is_real_vector(c: Constraint) -> bool:
     """`IndependentConstraint(Real(), 1)` (a vector of real scalars)."""
     if not _is_independent(c, 1):
@@ -694,9 +718,11 @@ __all__ = [
     "is_real_cov_matrix",
     "is_real_matrix",
     "is_real_one_hot",
+    "is_real_bounded_interval",
     "is_real_positive",
     "is_real_scalar",
     "is_real_simplex",
     "is_real_unit_interval",
+    "real_interval_bounds",
     "is_real_vector",
 ]

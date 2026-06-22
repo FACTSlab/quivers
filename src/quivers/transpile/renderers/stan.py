@@ -102,11 +102,13 @@ from quivers.transpile.ir import (
     is_real_cov_matrix,
     is_real_matrix,
     is_real_one_hot,
+    is_real_bounded_interval,
     is_real_positive,
     is_real_scalar,
     is_real_simplex,
     is_real_unit_interval,
     is_real_vector,
+    real_interval_bounds,
 )
 from quivers.transpile.renderers._base import (
     BlockKind,
@@ -381,6 +383,10 @@ class StanRenderer(RendererBase):
             return
         if is_real_unit_interval(sup):
             self._emit_real_type(ctx, tvt_vid, lower=0, upper=1)
+            return
+        if is_real_bounded_interval(sup):
+            lo, hi = real_interval_bounds(sup)
+            self._emit_real_type(ctx, tvt_vid, lower=lo, upper=hi)
             return
         if is_real_vector(sup):
             self._emit_vector_type(ctx, tvt_vid, event_dims)
