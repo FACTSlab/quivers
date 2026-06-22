@@ -826,6 +826,7 @@ FAMILY_META: dict[str, FamilyMeta] = {
             "stan": "continuous_bernoulli", "numpyro": "ContinuousBernoulli",
             "pyro": "ContinuousBernoulli", "edward2": "ContinuousBernoulli",
             "pymc": "ContinuousBernoulli", "turing": "ContinuousBernoulli",
+            "gen": "continuous_bernoulli",
         },
     ),
     "FisherSnedecor": FamilyMeta(

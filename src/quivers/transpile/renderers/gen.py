@@ -1579,6 +1579,7 @@ _GEN_RUNTIME_HELPER_FAMILIES: frozenset[str] = frozenset({
     "BetaBinomial",
     "HalfStudentT",
     "Kumaraswamy",
+    "ContinuousBernoulli",
 })
 
 
