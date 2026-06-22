@@ -46,5 +46,5 @@ program hmm_program : State -> Obs
     observe obs : Obs <- Categorical(emission_rows)
     return initial_row
 
-export hmm
 export hmm_program
+export hmm
