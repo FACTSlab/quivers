@@ -119,3 +119,39 @@ Gen.has_output_grad(::KumaraswamyDist) = false
 Gen.has_argument_grads(::KumaraswamyDist) = (false, false)
 
 (::KumaraswamyDist)(concentration1, concentration0) = Gen.random(KumaraswamyDist(), concentration1, concentration0)
+
+struct ContinuousBernoulliDist <: Gen.Distribution{Float64} end
+
+const continuous_bernoulli = ContinuousBernoulliDist()
+
+function _cb_log_norm(p::Real)
+    if abs(p - 0.5) < 1e-4
+        return log(2.0) + (4.0 / 3.0) * (p - 0.5)^2
+    end
+    return log(abs(2.0 * atanh(1.0 - 2.0 * p))) - log(abs(1.0 - 2.0 * p))
+end
+
+function Gen.random(::ContinuousBernoulliDist, probs::Real)
+    u = rand()
+    if abs(probs - 0.5) < 1e-4
+        return u
+    end
+    return log1p(u * (2.0 * probs - 1.0) / (1.0 - probs)) / log(probs / (1.0 - probs))
+end
+
+function Gen.logpdf(::ContinuousBernoulliDist, x::Real, probs::Real)
+    if x <= 0 || x >= 1
+        return -Inf
+    end
+    return x * log(probs) + (1.0 - x) * log1p(-probs) + _cb_log_norm(probs)
+end
+
+function Gen.logpdf_grad(::ContinuousBernoulliDist, x::Real, probs::Real)
+    return (nothing, nothing)
+end
+
+Gen.has_output_grad(::ContinuousBernoulliDist) = false
+
+Gen.has_argument_grads(::ContinuousBernoulliDist) = (false,)
+
+(::ContinuousBernoulliDist)(probs) = Gen.random(ContinuousBernoulliDist(), probs)
