@@ -130,6 +130,44 @@ _KNOWN_RENDERER_EMIT_GAPS: dict[tuple[str, str], str] = {
         "pick up the latent state from the surrounding scan or thread "
         "it via a `[via=state]` fibration"
     ),
+    ("stan", "vanilla_rnn_lm"): (
+        "composite-let chain emits `h` as `array[Token] real` (a "
+        "flattened deterministic passthrough through the recurrent "
+        "cell); Stan's strict typing then rejects `categorical(h[m_Token])` "
+        "because Categorical's `probs` slot requires `vector` not "
+        "`real`. The fix is a renderer-side type-promotion: when the "
+        "downstream `lm_head : Hidden -> Token` is Categorical, the "
+        "chain's deterministic tail should be declared as "
+        "`array[Token] vector[Token]` rather than `array[Token] real`"
+    ),
+    ("stan", "lstm_lm"): (
+        "composite-let chain emits `h` as `array[Token] real`; Stan "
+        "rejects `categorical(h[m_Token])` for the same vector / real "
+        "mismatch as vanilla_rnn_lm"
+    ),
+    ("stan", "gru_lm"): (
+        "composite-let chain emits `h` as `array[Token] real`; Stan "
+        "rejects `categorical(h[m_Token])` for the same vector / real "
+        "mismatch as vanilla_rnn_lm"
+    ),
+    ("stan", "bidirectional_rnn_lm"): (
+        "composite-let chain emits the merged backbone output as "
+        "`array[Token] real` rather than `array[Token] vector[Token]`; "
+        "Stan rejects the downstream `categorical` call for the same "
+        "vector / real mismatch as vanilla_rnn_lm"
+    ),
+    ("stan", "transformer_lm"): (
+        "composite-let chain emits the transformer backbone output as "
+        "`array[Token] real`; Stan rejects the downstream "
+        "`categorical(h[m_Token])` for the same vector / real mismatch "
+        "as vanilla_rnn_lm"
+    ),
+    ("stan", "seq2seq"): (
+        "composite-let chain emits the seq2seq backbone output as "
+        "`array[Target] real`; Stan rejects the downstream "
+        "`categorical(h[m_Target])` for the same vector / real "
+        "mismatch as vanilla_rnn_lm"
+    ),
     ("stan", "mixture_model"): (
         "fixture declares `sample idx : Resp <- HalfNormal(1.0)` "
         "(real-valued) but uses `[via=idx]` as an integer index. The "
