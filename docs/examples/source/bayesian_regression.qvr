@@ -17,7 +17,7 @@
 # The runtime's host-data channel binds free variables in let
 # expressions from undeclared keys in the observations dict.
 
-object Resp : FinSet 1
+object Resp : FinSet 64
 
 program bayesian_regression : Resp -> Resp
     sample sigma <- HalfCauchy(2.0)
