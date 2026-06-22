@@ -825,7 +825,7 @@ FAMILY_META: dict[str, FamilyMeta] = {
         target_names={
             "stan": "continuous_bernoulli", "numpyro": "ContinuousBernoulli",
             "pyro": "ContinuousBernoulli", "edward2": "ContinuousBernoulli",
-            "pymc": "ContinuousBernoulli",
+            "pymc": "ContinuousBernoulli", "turing": "ContinuousBernoulli",
         },
     ),
     "FisherSnedecor": FamilyMeta(
@@ -1237,7 +1237,7 @@ FAMILY_META: dict[str, FamilyMeta] = {
             "pyro": "HalfStudentT", "pymc": "HalfStudentT",
             "edward2": "HalfStudentT",
             "bugs": "dt", "jags": "dt",
-            "gen": "half_student_t",
+            "gen": "half_student_t", "turing": "HalfStudentT",
         },
         arg_aliases={
             "pymc": {"df": "nu", "scale": "sigma"},
