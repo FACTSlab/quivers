@@ -815,7 +815,7 @@ FAMILY_META: dict[str, FamilyMeta] = {
         target_names={
             "numpyro": "Kumaraswamy", "pyro": "Kumaraswamy",
             "pymc": "Kumaraswamy", "edward2": "Kumaraswamy",
-            "gen": "kumaraswamy",
+            "gen": "kumaraswamy", "turing": "Kumaraswamy",
         },
     ),
     "ContinuousBernoulli": FamilyMeta(
