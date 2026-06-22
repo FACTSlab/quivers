@@ -813,9 +813,11 @@ FAMILY_META: dict[str, FamilyMeta] = {
         distribution_class=td.Kumaraswamy,
         quivers_class=ConditionalKumaraswamy,
         target_names={
+            "stan": "kumaraswamy",
             "numpyro": "Kumaraswamy", "pyro": "Kumaraswamy",
             "pymc": "Kumaraswamy", "edward2": "Kumaraswamy",
             "gen": "kumaraswamy", "turing": "Kumaraswamy",
+            "webppl": "Kumaraswamy",
         },
     ),
     "ContinuousBernoulli": FamilyMeta(
@@ -827,6 +829,7 @@ FAMILY_META: dict[str, FamilyMeta] = {
             "pyro": "ContinuousBernoulli", "edward2": "ContinuousBernoulli",
             "pymc": "ContinuousBernoulli", "turing": "ContinuousBernoulli",
             "gen": "continuous_bernoulli",
+            "webppl": "ContinuousBernoulli",
         },
     ),
     "FisherSnedecor": FamilyMeta(
@@ -1115,7 +1118,7 @@ FAMILY_META: dict[str, FamilyMeta] = {
             "stan": "lkj_corr_cholesky", "numpyro": "LKJCholesky",
             "pyro": "LKJCorrCholesky", "pymc": "LKJCholeskyCov",
             "edward2": "LKJ", "turing": "LKJCholesky",
-            "gen": "lkj_cholesky",
+            "gen": "lkj_cholesky", "webppl": "LKJCholesky",
         },
     ),
     "Mixture": FamilyMeta(
@@ -1187,7 +1190,7 @@ FAMILY_META: dict[str, FamilyMeta] = {
             "pyro": "BetaBinomial", "pymc": "BetaBinomial",
             "edward2": "BetaBinomial", "turing": "BetaBinomial",
             "bugs": "dbetabin", "jags": "dbetabin",
-            "gen": "beta_binomial",
+            "gen": "beta_binomial", "webppl": "BetaBinomial",
         },
         arg_aliases={
             "pymc": {
@@ -1224,7 +1227,7 @@ FAMILY_META: dict[str, FamilyMeta] = {
             "pyro": "Logistic", "pymc": "Logistic",
             "edward2": "Logistic", "turing": "Logistic",
             "bugs": "dlogis", "jags": "dlogis",
-            "gen": "logistic",
+            "gen": "logistic", "webppl": "Logistic",
         },
         arg_aliases={
             "pymc": {"loc": "mu", "scale": "s"},
@@ -1240,6 +1243,7 @@ FAMILY_META: dict[str, FamilyMeta] = {
             "edward2": "HalfStudentT",
             "bugs": "dt", "jags": "dt",
             "gen": "half_student_t", "turing": "HalfStudentT",
+            "webppl": "HalfStudentT",
         },
         arg_aliases={
             "pymc": {"df": "nu", "scale": "sigma"},
