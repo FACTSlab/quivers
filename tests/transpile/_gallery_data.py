@@ -29,6 +29,7 @@ from pathlib import Path
 
 import torch
 
+from quivers.continuous.programs import MonadicProgram
 from tests.transpile.probes._protocol import Point
 
 
@@ -57,8 +58,22 @@ class GalleryDataset:
     the joint log-density."""
 
     x_input: torch.Tensor | None
-    """The `x_in` tensor when the snippet defines one (programs that
-    declare `(alpha : Real, ...)` scalar parameters consume this)."""
+    """The program-input tensor the synthetic-data block prepared.
+    Recognised under any of the names `x_in`, `x`, or `state_prev`;
+    the first one bound in the namespace wins. Programs that declare
+    `(alpha : Real, ...)` scalar parameters consume this directly;
+    state-space and sequence-model programs consume the per-step
+    input slice from it."""
+
+    monadic: MonadicProgram | None
+    """The compiled [`MonadicProgram`][quivers.continuous.programs.MonadicProgram]
+    the synthetic-data block bound to `model` (or, for state-space
+    examples, `inner`). Parametric program templates are exported as
+    a `Program` with `_morphism=None`; the block invokes the template
+    at concrete arguments (e.g. `prog.gmm(alpha=1.0)`) and binds the
+    instantiated MonadicProgram. The QVR probe consumes this directly
+    rather than re-parsing the source, so it sees the same template
+    instance the data was generated under."""
 
 
 def md_path_for(source_qvr: Path) -> Path:
@@ -167,6 +182,14 @@ def load_gallery_data(source_qvr: Path) -> GalleryDataset | None:
 
     observations = ns.get("observations")
     if not isinstance(observations, dict):
+        # `sites` is the alternative idiomatic name in state-space
+        # examples (continuous_hmm threads observed step values via
+        # `sites = {"s_new": ..., "o": ...}` rather than an
+        # `observations` dict).
+        sites = ns.get("sites")
+        if isinstance(sites, dict):
+            observations = sites
+    if not isinstance(observations, dict):
         # Fall back: pull observations from the namespace by name
         # match against the QVR program's `observe <name> : ...`
         # binders. This lets a doc's synthetic-data block bind its
@@ -201,12 +224,36 @@ def load_gallery_data(source_qvr: Path) -> GalleryDataset | None:
             except (TypeError, ValueError):
                 continue
 
-    x_input = ns.get("x_in")
-    if not isinstance(x_input, torch.Tensor):
-        x_input = None
+    # Program-input tensor: the snippet may bind any of the canonical
+    # names below. Try each in order; the first tensor-typed binding
+    # wins. State-space examples conventionally use `state_prev`;
+    # sequence and template examples use `x_in`; transformer-style
+    # examples use `x`.
+    x_input: torch.Tensor | None = None
+    for x_name in ("x_in", "x", "state_prev", "x_lift"):
+        candidate = ns.get(x_name)
+        if isinstance(candidate, torch.Tensor):
+            x_input = candidate
+            break
+
+    # Compiled MonadicProgram. Templates compile to `Program(None)`
+    # with `program.templates[<name>]` invokers; the synthetic-data
+    # block instantiates the template at concrete arguments and binds
+    # the result to `model` (or, for examples that wire the bare
+    # morphism, `inner`). Capturing either lets the QVR probe walk
+    # the instantiated program directly.
+    monadic: MonadicProgram | None = None
+    for monad_name in ("model", "inner"):
+        candidate = ns.get(monad_name)
+        if isinstance(candidate, MonadicProgram):
+            monadic = candidate
+            break
 
     return GalleryDataset(
-        observations=obs_tensors, params=params, x_input=x_input,
+        observations=obs_tensors,
+        params=params,
+        x_input=x_input,
+        monadic=monadic,
     )
 
 
