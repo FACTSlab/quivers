@@ -139,6 +139,29 @@ _KNOWN_RENDERER_EMIT_GAPS: dict[tuple[str, str], str] = {
         "as integer-valued (e.g. DiscreteUniform), or the via-fibration "
         "renderer should reject real-valued fibrations at lower time"
     ),
+    ("stan", "pmf"): (
+        "bilinear inner-product idiom `let mu = sum(u_row * v_row)` "
+        "with `u_row[i]` and `v_row[i]` each a LatentDim-vector "
+        "gather: the renderer flattens both to `array[Rating] real` "
+        "and emits `sum(u_row[m_Rating] * v_row[m_Rating])` "
+        "(sum-of-scalar, which stanc rejects). The fix is renderer-"
+        "side: when a let-RHS is `sum(<vec> * <vec>)` over the "
+        "latent axis, declare the producers as "
+        "`array[Rating] vector[LatentDim]` and emit "
+        "`sum(u_row[m_Rating] .* v_row[m_Rating])`."
+    ),
+    ("stan", "ppca"): (
+        "bilinear inner-product idiom `let mu = sum(z_row * w_row)` "
+        "with the same scalar-vs-vector mismatch as pmf; the renderer "
+        "needs latent-axis-aware vector promotion when the let-RHS "
+        "is a sum-of-products over a contracted axis."
+    ),
+    ("stan", "factor_analysis"): (
+        "bilinear inner-product idiom `let mu = sum(loadings * z)` "
+        "with the same scalar-vs-vector mismatch as pmf; the renderer "
+        "needs latent-axis-aware vector promotion when the let-RHS "
+        "is a sum-of-products over a contracted axis."
+    ),
     ("gen", "montague_nli"): (
         "deduction emission for the Montague grammar's chart-parser "
         "primitives is not yet wired in the Gen.jl renderer"
