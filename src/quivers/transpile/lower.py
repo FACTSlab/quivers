@@ -2033,9 +2033,12 @@ def _propagate_let_plates(
     """
     by_name: dict[str, int] = {}
     body_list = list(body)
+    sample_event_dims: dict[str, tuple[Dim, ...]] = {}
     for i, node in enumerate(body_list):
         if isinstance(node, (IRDeterministic,)):
             by_name[node.name] = i
+        if isinstance(node, IRSample):
+            sample_event_dims[node.name] = node.plate.event_dims
     input_map: dict[str, int] = {
         inp.name: i for i, inp in enumerate(inputs)
     }
@@ -2068,12 +2071,26 @@ def _propagate_let_plates(
             return False
         if not _let_expr_needs_plate(cur.expr):
             return False
+        # Inherit event_dims from a gathered source: `let g = A[i]`
+        # where `A` is an IRSample with event_dims (e.g. `array[User]
+        # vector[LatentDim] U_mat` gathered by an integer index `u_idx`
+        # of batch shape `Rating`) produces a `array[Rating]
+        # vector[LatentDim] g`. The renderer otherwise emits `array
+        # [Rating] real g` and stanc rejects the vector-to-real
+        # assignment.
+        inherited_event_dims = cur.plate.event_dims
+        if not inherited_event_dims and isinstance(cur.expr, LetExprIndex):
+            arr = cur.expr.array
+            if isinstance(arr, LetExprVar):
+                src_event = sample_event_dims.get(arr.name, ())
+                if src_event:
+                    inherited_event_dims = src_event
         body_list[idx] = IRDeterministic(
             name=cur.name,
             expr=cur.expr,
             constraint=cur.constraint,
             plate=Plate(
-                event_dims=cur.plate.event_dims, batch_dims=batch_dims,
+                event_dims=inherited_event_dims, batch_dims=batch_dims,
             ),
         )
         # Recurse into the let-expression's free names so any
