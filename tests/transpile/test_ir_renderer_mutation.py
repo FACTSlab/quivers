@@ -38,7 +38,6 @@ from quivers.transpile import UnsupportedConstruct, transpile
 from quivers.transpile._pipeline import EmitPretty
 from quivers.transpile.ir import (
     IRArgNumber,
-    IRDeterministic,
     IRObserve,
     IRProgram,
     IRSample,
@@ -185,46 +184,22 @@ def _mutate_drop_observe(ir: IRProgram) -> IRProgram:
 
 
 def _mutate_drop_sample(ir: IRProgram) -> IRProgram:
-    """Remove the LAST IRSample (anything earlier might be referenced
-    by a let / observe; the last one is usually free to drop)."""
+    """Remove the LAST [`IRSample`][quivers.transpile.ir.IRSample]. The
+    dropped sample's name may be referenced by a later `let` /
+    `observe` / `return`; in that case the renderer either raises
+    [`UnsupportedConstruct`][quivers.transpile.UnsupportedConstruct]
+    (because an arg references an undeclared name) or emits source
+    that still differs from the baseline by the missing sample call
+    site. Either outcome counts as `the mutation was observed`."""
     body = list(ir.body)
-    idx_to_drop = None
     for i in range(len(body) - 1, -1, -1):
-        node = body[i]
-        if isinstance(node, IRSample):
-            # Conservative: only drop if no later node references its name.
-            later_refs = any(
-                _refs_name(later, node.name) for later in body[i + 1:]
+        if isinstance(body[i], IRSample):
+            body.pop(i)
+            return IRProgram(
+                name=ir.name, inputs=ir.inputs, body=tuple(body),
+                cards=ir.cards,
             )
-            if not later_refs:
-                idx_to_drop = i
-                break
-    if idx_to_drop is None:
-        return ir
-    body.pop(idx_to_drop)
-    return IRProgram(
-        name=ir.name, inputs=ir.inputs, body=tuple(body),
-        cards=ir.cards,
-    )
-
-
-def _refs_name(node: object, name: str) -> bool:
-    """Conservative check: does `node` carry a reference to `name`
-    anywhere in its IR fields?"""
-    if isinstance(node, (IRSample, IRObserve)):
-        for arg in node.args:
-            if _arg_refs_name(arg, name):
-                return True
-    if isinstance(node, IRDeterministic):
-        return name in repr(node.expr)
-    return False
-
-
-def _arg_refs_name(arg: object, name: str) -> bool:
-    from quivers.transpile.ir import IRArgRef
-    if isinstance(arg, IRArgRef):
-        return arg.name == name
-    return False
+    return ir
 
 
 def _mutate_flip_plate_dims(ir: IRProgram) -> IRProgram:
@@ -295,6 +270,25 @@ _BROADCAST_INSENSITIVE_CELLS: frozenset[tuple[str, str]] = frozenset({
 })
 
 
+#: ``(mutation_name, fixture_name)`` pairs where the mutator's
+#: selector criterion cannot match any node in the fixture's lowered
+#: IR (so the mutation is a structural no-op for that fixture). The
+#: value is a fixture-specific reason printed in the `pytest.xfail`
+#: call, replacing the generic `no matching IR node found` message
+#: that buries the actual cause.
+_MUTATION_INAPPLICABLE: dict[tuple[str, str], str] = {
+    ("swap_beta_args", "bayes_linear_regression"): (
+        "bayes_linear_regression has no Beta sample with two numeric "
+        "args; the fixture uses Normal(loc, scale) throughout, so the "
+        "arg-swap selector matches no IRSample node"
+    ),
+    ("normal_to_cauchy", "beta_bernoulli"): (
+        "beta_bernoulli uses Beta and Bernoulli; it has no Normal "
+        "sample or observe for the family rename to retarget to Cauchy"
+    ),
+}
+
+
 def _render(ir: IRProgram, backend: str) -> bytes | None:
     """Run the renderer for `backend` against an arbitrary
     [`IRProgram`][quivers.transpile.ir.IRProgram]. Returns the
@@ -352,10 +346,12 @@ def test_mutation_changes_emit(
     mutator = _MUTATIONS[mutation_name]
     ir_mutated = mutator(ir_baseline)
     if ir_mutated is ir_baseline:
-        pytest.xfail(
-            f"mutation {mutation_name!r} does not apply to "
-            f"{fixture_name!r} (no matching IR node found)"
+        reason = _MUTATION_INAPPLICABLE.get(
+            (mutation_name, fixture_name),
+            f"mutation {mutation_name!r} selector matched no node in "
+            f"{fixture_name!r}",
         )
+        pytest.xfail(reason)
 
     try:
         mutated_bytes = _render(ir_mutated, backend)
