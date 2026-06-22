@@ -565,10 +565,18 @@ FAMILY_META: dict[str, FamilyMeta] = {
         # The `target_name` is the underlying base family; the per-
         # renderer sample path detects `family == "TruncatedNormal"`
         # and emits the suffix after the family call.
+        #
+        # Gen.jl has no built-in `truncated_normal`. The renderer
+        # grafts a `Gen.Distribution` subclass plus a callable instance
+        # named `truncated_normal` (defined in
+        # [`runtime_gen.jl`][quivers.transpile.runtime_gen]) onto the
+        # module above the `@gen function model`; the call site emits
+        # as `truncated_normal(loc, scale, low, high)`.
         target_names={
             "numpyro": "TruncatedNormal", "pyro": "TruncatedNormal",
             "pymc": "TruncatedNormal", "edward2": "TruncatedNormal",
             "turing": "truncated",
+            "gen": "truncated_normal",
             "stan": "normal",
             "bugs": "dnorm", "jags": "dnorm",
         },

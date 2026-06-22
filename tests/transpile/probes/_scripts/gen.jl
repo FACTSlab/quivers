@@ -30,21 +30,27 @@ function _coerce(value)
 end
 
 function _trace_site_names(source::String)
-    # The Gen renderer emits one of two trace-site forms per draw:
-    #   `@trace <dist> :name`                 (scalar draw)
-    #   `@trace <dist> (:name, m_<axis>...)`  (batched per-element)
-    # Scan the source for both shapes and return the set of QVR
-    # variable names that appear as trace addresses.
+    # The Gen renderer emits trace sites in two forms (and two
+    # macro-call shapes -- space-separated and parenthesised):
+    #
+    #   space, scalar:    `@trace <dist> :name`
+    #   space, batched:   `@trace <dist> (:name, m_<axis>...)`
+    #   parens, scalar:   `@trace(<dist>, :name)`
+    #   parens, batched:  `@trace(<dist>, (:name, m_<axis>...))`
+    #
+    # Scan for all four shapes; the address symbol always appears
+    # after a separator (whitespace or `(`) and is preceded by `:`.
     sites = Set{Symbol}()
-    # Match `@trace ... :name` (scalar) — capture the bare symbol
-    # following the rendered distribution call.
-    scalar_re = r"@trace\s+[^\n]*?\s:([A-Za-z_][A-Za-z0-9_]*)\b"
+    # Scalar address: `:name` not followed by a trailing word
+    # character (handled by Julia's regex word-boundary), and not
+    # part of a tuple (so we exclude addresses preceded by `(`).
+    scalar_re = r"@trace[\s(][^\n]*?[\s,]:([A-Za-z_][A-Za-z0-9_]*)\b(?!\s*,)"
     for m in eachmatch(scalar_re, source)
         push!(sites, Symbol(m.captures[1]))
     end
-    # Match `@trace ... (:name, ...)` (batched) — capture the symbol
-    # inside the tuple address.
-    batched_re = r"@trace\s+[^\n]*?\s\(:([A-Za-z_][A-Za-z0-9_]*)\s*,"
+    # Batched address: `(:name, ...)` — the `:` is preceded by `(`
+    # (possibly with whitespace).
+    batched_re = r"@trace[\s(][^\n]*?\(\s*:([A-Za-z_][A-Za-z0-9_]*)\s*,"
     for m in eachmatch(batched_re, source)
         push!(sites, Symbol(m.captures[1]))
     end
@@ -69,7 +75,14 @@ function main()
     source = read("/io/source.jl", String)
     points = JSON3.read(read("/io/points.json", String))
 
-    Base.eval(Main, Meta.parse(source))
+    # Use `include_string` (whole-file evaluation) instead of
+    # `Meta.parse` (single expression) so source files with multiple
+    # top-level statements -- runtime helper grafts (e.g. the
+    # `TruncatedNormalDist` Gen.Distribution lift) followed by the
+    # `@gen function model() ... end` -- load correctly. `Meta.parse`
+    # only consumes one expression and rejects the rest with
+    # "extra token after end of expression".
+    Base.include_string(Main, source)
     sites = _trace_site_names(source)
 
     log_densities = Float64[]

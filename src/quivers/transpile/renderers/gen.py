@@ -30,6 +30,7 @@ inline (Gen samples discrete latents natively, unlike Stan's
 from __future__ import annotations
 
 import dataclasses
+import pathlib
 from typing import Callable
 
 import panproto
@@ -48,7 +49,7 @@ from quivers.dsl.ast_nodes.let_expressions import (
     LetExprVar,
 )
 from quivers.transpile._api import UnsupportedConstruct
-from quivers.transpile._pipeline import target_protocol
+from quivers.transpile._pipeline import parser_registry, target_protocol
 from quivers.transpile.family_meta import FAMILY_META
 from quivers.transpile.renderers._julia_helpers import render_let_expr_julia
 from quivers.transpile.ir import (
@@ -889,9 +890,38 @@ def _trace_call(
     name: str,
     loop_indices: tuple[str, ...],
 ) -> str:
-    """`@trace(<dist>, <address>)`."""
+    """`@trace(<dist>, <address>)` in parenthesised macro form.
+
+    The space-separated form ``@trace <dist> <addr>`` is ambiguous when
+    ``<dist>`` is a function call and ``<addr>`` is a tuple literal:
+    Julia's parser reads ``@trace truncated_normal(args) (:y, i)`` as
+    ``@trace truncated_normal(args)(:y, i)`` (a chained call) and
+    rejects the result with "extra token after end of expression". The
+    parenthesised form binds unambiguously.
+    """
     addr = _trace_address(gx, name, loop_indices)
-    return _macro_call_space(gx, "trace", (dist_vid, addr))
+    return _macro_call_parens(gx, "trace", (dist_vid, addr))
+
+
+def _macro_call_parens(
+    gx: _GenCtx, macro_name: str, args: tuple[str, ...]
+) -> str:
+    """`@<macro_name>(arg1, arg2, ...)` (parenthesised macro args).
+
+    Use this form when any of `args` is a function call whose trailing
+    parenthesis would chain with the next argument under
+    space-separated juxtaposition. Used by `_trace_call` for the
+    `@trace(<dist>, <addr>)` shape.
+    """
+    mc = gx.v("macrocall_expression", "mc")
+    mid = gx.v("macro_identifier", "mid")
+    gx.e(mid, _ident(gx, macro_name))
+    al = gx.v("argument_list", "mal")
+    for a in args:
+        gx.e(al, a)
+    gx.e(mc, mid)
+    gx.e(mc, al)
+    return mc
 
 
 # ---------------------------------------------------------------------------
@@ -973,6 +1003,16 @@ class GenRenderer(RendererBase):
         )
         mc = _macro_call_body(gx, "gen", fn)
         src = gx.v("source_file", "src")
+        # Gen.jl has no built-in `truncated_normal`. When the IR samples
+        # or observes from `TruncatedNormal`, graft the helper from
+        # [`runtime_gen.jl`][quivers.transpile.runtime_gen] onto the
+        # module above the `@gen function model` so the model body can
+        # call `truncated_normal(loc, scale, low, high)`. The graft
+        # carries its own `using Gen` / `using Distributions`
+        # statements; subsequent `@gen` macrocalls see the imported
+        # names through normal Julia name lookup.
+        if _ir_uses_family(ir.body, "TruncatedNormal"):
+            _graft_runtime_gen_helper(gx, src)
         gx.e(src, mc)
         return sb.build()
 
@@ -1496,6 +1536,148 @@ def _union_dims(
             out.append(d)
             seen.add(d.name)
     return tuple(out)
+
+
+# ---------------------------------------------------------------------------
+# Runtime-helper graft: `truncated_normal` as a Gen.Distribution subclass.
+#
+# Gen.jl ships `normal`, `uniform`, `beta`, ... as built-in distributions
+# but no `truncated_normal`. The transpile-time graft parses the
+# hand-written helper at [`runtime_gen.jl`][quivers.transpile.runtime_gen]
+# once at module load through panproto's Julia tree-sitter grammar; per-
+# render, it copies every grafted vertex / constraint / edge into the
+# per-render schema (with fresh vertex ids) and attaches the runtime's
+# top-level statements as `child_of` of the emitted `source_file` above
+# the `@gen function model` macrocall.
+#
+# The emit is structurally a normal Julia source file: `using Gen`,
+# `using Distributions`, the `TruncatedNormalDist` struct, the
+# `Gen.random` / `Gen.logpdf` / `Gen.logpdf_grad` methods, the gradient
+# predicates, and a callable instance bound to `truncated_normal`.
+# `@trace truncated_normal(loc, scale, low, high) (:y, m)` call sites
+# in the model body then resolve to the grafted callable via normal
+# Julia name lookup.
+# ---------------------------------------------------------------------------
+
+
+_RUNTIME_GEN_PATH = (
+    pathlib.Path(__file__).resolve().parent.parent / "runtime_gen.jl"
+)
+
+
+def _load_runtime_gen_schema() -> tuple[
+    panproto.Schema, str, tuple[str, ...]
+]:
+    """Parse [`runtime_gen.jl`][quivers.transpile.runtime_gen] through
+    panproto's Julia tree-sitter grammar at module-load time.
+
+    Returns the parsed schema, the parsed `source_file` vertex id, and
+    the tuple of top-level child ids in source order (sorted by
+    `start-byte`). The graft replays these children in order beneath
+    the per-render `source_file` so the emit's top-level statements
+    appear in the original file's layout.
+    """
+    schema = parser_registry().parse_with_protocol(
+        "julia",
+        _RUNTIME_GEN_PATH.read_bytes(),
+        str(_RUNTIME_GEN_PATH),
+    )
+    src_id = next(
+        (v.id for v in schema.vertices if v.kind == "source_file"),
+        None,
+    )
+    if src_id is None:
+        raise RuntimeError(
+            f"`source_file` not found in parse of {_RUNTIME_GEN_PATH}"
+        )
+    children_with_sb: list[tuple[int, str]] = []
+    for edge in schema.edges:
+        if edge.src != src_id:
+            continue
+        sb_val = next(
+            (
+                int(c.value)
+                for c in schema.constraints_for(edge.tgt)
+                if c.sort == "start-byte"
+            ),
+            0,
+        )
+        children_with_sb.append((sb_val, edge.tgt))
+    children_with_sb.sort()
+    return schema, src_id, tuple(child for _, child in children_with_sb)
+
+
+_RUNTIME_GEN_SCHEMA, _RUNTIME_GEN_SOURCE_ID, _RUNTIME_GEN_TOP_LEVEL = (
+    _load_runtime_gen_schema()
+)
+
+
+def _subtree_vertex_ids(
+    schema: panproto.Schema, roots: tuple[str, ...]
+) -> set[str]:
+    """Return every vertex id reachable from `roots` via outgoing edges."""
+    seen: set[str] = set(roots)
+    frontier: list[str] = list(roots)
+    while frontier:
+        src = frontier.pop()
+        for edge in schema.edges:
+            if edge.src == src and edge.tgt not in seen:
+                seen.add(edge.tgt)
+                frontier.append(edge.tgt)
+    return seen
+
+
+_RUNTIME_GEN_SUBTREE = _subtree_vertex_ids(
+    _RUNTIME_GEN_SCHEMA, _RUNTIME_GEN_TOP_LEVEL
+)
+
+
+def _ir_uses_family(body: tuple[IRNode, ...], family: str) -> bool:
+    """True iff any [`IRSample`][quivers.transpile.ir.IRSample] or
+    [`IRObserve`][quivers.transpile.ir.IRObserve] in `body` (including
+    nested [`IRMarginalize`][quivers.transpile.ir.IRMarginalize] scopes)
+    samples from `family`."""
+    for node in body:
+        if (
+            isinstance(node, (IRSample, IRObserve))
+            and node.family == family
+        ):
+            return True
+        if isinstance(node, IRMarginalize) and _ir_uses_family(
+            node.scope, family
+        ):
+            return True
+    return False
+
+
+def _graft_runtime_gen_helper(gx: _GenCtx, source_vid: str) -> None:
+    """Graft the runtime-helper subtree onto the per-render schema.
+
+    Copies every vertex, every constraint, and every internal edge of
+    the parsed `runtime_gen.jl` subtree into the per-render
+    `SchemaBuilder` with fresh vertex ids, then attaches each
+    top-level child as a `child_of` of `source_vid` in source order.
+    The grafted top-level children appear above the `@gen function
+    model` macrocall in the emit.
+    """
+    src_schema = _RUNTIME_GEN_SCHEMA
+    subtree = _RUNTIME_GEN_SUBTREE
+    id_map: dict[str, str] = {}
+
+    for old in subtree:
+        new = gx.fresh("rg")
+        id_map[old] = new
+        kind = next(
+            v.kind for v in src_schema.vertices if v.id == old
+        )
+        gx.sb.vertex(new, kind)
+        for cstr in src_schema.constraints_for(old):
+            gx.sb.constraint(new, cstr.sort, cstr.value)
+    for edge in src_schema.edges:
+        if edge.src in id_map and edge.tgt in id_map:
+            gx.sb.edge(id_map[edge.src], id_map[edge.tgt], edge.kind)
+    for child_old in _RUNTIME_GEN_TOP_LEVEL:
+        gx.sb.edge(source_vid, id_map[child_old], "child_of")
 
 
 __all__ = ["GenRenderer"]
