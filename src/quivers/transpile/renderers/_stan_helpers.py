@@ -78,6 +78,21 @@ def _render(ctx, expr: LetExprNode) -> tuple[str, str]:
     if isinstance(expr, LetExprUnaryOp):
         return _emit_prefix(ctx, expr)
     if isinstance(expr, LetExprCall):
+        # `sum(<a> * <b>)` over two vector operands maps cleanly to
+        # Stan's `dot_product(<a>, <b>)`; emitting it as
+        # `sum(a * b)` makes stanc reject `vector * vector` (Stan
+        # treats `*` as matrix-style multiply, which is ambiguous for
+        # two same-length vectors).
+        if (
+            expr.func == "sum"
+            and len(expr.args) == 1
+            and isinstance(expr.args[0], LetExprBinOp)
+            and expr.args[0].op == "*"
+        ):
+            inner = expr.args[0]
+            return _emit_function_expression(
+                ctx, "dot_product", (inner.left, inner.right)
+            )
         return _emit_function_expression(ctx, expr.func, expr.args)
     if isinstance(expr, LetExprIndex):
         return _emit_indexed(ctx, expr)
