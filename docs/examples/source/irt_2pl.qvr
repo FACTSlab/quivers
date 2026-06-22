@@ -17,9 +17,9 @@
 # fit time via the standard plate-gather idiom
 # (difficulty[item_idx], ability[person_idx]).
 
-object Person : FinSet 500
-object Item : FinSet 30
-object Resp : FinSet 15000
+object Person : FinSet 8
+object Item : FinSet 8
+object Resp : FinSet 64
 
 program irt_2pl : Resp -> Resp
     sample ability : Person <- Normal(0.0, 1.0)

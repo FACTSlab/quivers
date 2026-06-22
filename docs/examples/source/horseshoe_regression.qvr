@@ -22,9 +22,9 @@
 #
 # Reference: [Carvalho, Polson, and Scott 2010](https://doi.org/10.1093/biomet/asq017).
 
-object Item : FinSet 200
+object Item : FinSet 16
 object Coef : FinSet 4
-object Resp : FinSet 800
+object Resp : FinSet 64
 
 program horseshoe_regression : Resp -> Resp
     sample tau <- HalfCauchy(1.0)

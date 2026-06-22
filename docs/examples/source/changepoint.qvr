@@ -20,7 +20,7 @@
 #
 # Reference: [Carlin, Gelfand, and Smith 1992](https://doi.org/10.2307/2347570).
 
-object Step : FinSet 100
+object Step : FinSet 64
 
 program changepoint : Step -> Step
     sample tau <- Uniform(0.0, 100.0)

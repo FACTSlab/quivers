@@ -21,7 +21,7 @@
 # substituting the Weibull survival function for the density on
 # censored rows.
 
-object Item : FinSet 200
+object Item : FinSet 64
 
 program survival_weibull : Item -> Item
     sample alpha <- Normal(0.0, 5.0)
