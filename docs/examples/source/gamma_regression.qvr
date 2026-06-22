@@ -21,9 +21,9 @@
 #
 # Reference: [Maier 2014](https://doi.org/10.32614/CRAN.package.DirichletReg).
 
-object Item : FinSet 200
+object Item : FinSet 21
 object Cat : FinSet 3
-object Resp : FinSet 600
+object Resp : FinSet 63
 
 program gamma_regression : Resp -> Resp
     sample beta_0 : Cat <- Normal(0.0, 2.0)

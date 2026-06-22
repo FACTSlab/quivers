@@ -16,7 +16,7 @@
 # The Uniform(-1, 1) prior on phi enforces a stationary chain;
 # the marginal stationary variance is sigma^2 / (1 - phi^2).
 
-object Step : FinSet 200
+object Step : FinSet 64
 
 program ar1 : Step -> Step
     sample alpha <- Normal(0.0, 5.0)
