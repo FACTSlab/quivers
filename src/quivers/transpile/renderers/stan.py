@@ -43,6 +43,7 @@ The Stan-specific layout decisions:
 
 from __future__ import annotations
 
+import pathlib
 from typing import Callable
 
 import panproto
@@ -66,7 +67,7 @@ from quivers.dsl.ast_nodes.let_expressions import (
     LetExprVar,
 )
 from quivers.transpile._api import UnsupportedConstruct
-from quivers.transpile._pipeline import target_protocol
+from quivers.transpile._pipeline import parser_registry, target_protocol
 from quivers.transpile.lower import _collect_let_expr_var_names
 from quivers.transpile.family_meta import (
     FAMILY_META,
@@ -269,6 +270,20 @@ class StanRenderer(RendererBase):
         )
         # Program root.
         ctx.sb.vertex("prog", "program")
+        # Stan ships `normal`, `beta`, `gamma`, ... as built-in
+        # densities but lacks `kumaraswamy`. When the IR samples or
+        # observes from a family whose Stan emit relies on a user-
+        # defined `<family>_lpdf` / `<family>_rng`, graft the
+        # hand-written helper at
+        # [`runtime_stan_functions.stan`][quivers.transpile.runtime_stan_functions]
+        # into the program above the data block so the sampling
+        # statement `y ~ kumaraswamy(a, b);` resolves through Stan's
+        # `<family>_lpdf` lookup convention.
+        if any(
+            _ir_uses_family(ir.body, f)
+            for f in _STAN_RUNTIME_HELPER_FAMILIES
+        ):
+            _graft_runtime_stan_helper(ctx.sb, self, "prog")
         # Pre-create blocks in canonical Stan order so emit_pretty
         # honours the `data? transformed_data? parameters?
         # transformed_parameters? model? generated_quantities?`
@@ -2778,6 +2793,159 @@ def _collapse_spaces(text: str) -> str:
             out.append(ch)
             prev_space = False
     return "".join(out)
+
+
+# ---------------------------------------------------------------------------
+# Runtime-helper graft: Stan user-defined `<family>_lpdf` / `_rng`.
+#
+# Stan ships `normal`, `beta`, `gamma`, ... as built-in densities but
+# lacks `kumaraswamy`. The transpile-time graft parses the hand-written
+# helper at
+# [`runtime_stan_functions.stan`][quivers.transpile.runtime_stan_functions]
+# once at module-load through panproto's Stan tree-sitter grammar;
+# per-render, it copies the parsed `functions { ... }` block into the
+# per-render schema (with fresh vertex ids) and attaches it as a
+# `child_of` of the program above the data block. Subsequent
+# `~ kumaraswamy(a, b)` sampling statements then resolve through Stan's
+# `<family>_lpdf` lookup convention.
+# ---------------------------------------------------------------------------
+
+
+_RUNTIME_STAN_PATH = (
+    pathlib.Path(__file__).resolve().parent.parent
+    / "runtime_stan_functions.stan"
+)
+
+
+#: Families whose Stan emit relies on the
+#: [`runtime_stan_functions.stan`][quivers.transpile.runtime_stan_functions]
+#: helper subtree. Stan ships `normal`, `beta`, `gamma`, etc. as
+#: built-in densities but lacks `kumaraswamy`; the renderer grafts the
+#: helper when the IR samples or observes from any of them.
+_STAN_RUNTIME_HELPER_FAMILIES: frozenset[str] = frozenset({
+    "Kumaraswamy",
+})
+
+
+def _load_runtime_stan_schema() -> tuple[
+    panproto.Schema, str, tuple[str, ...]
+]:
+    """Parse
+    [`runtime_stan_functions.stan`][quivers.transpile.runtime_stan_functions]
+    through panproto's Stan tree-sitter grammar at module-load time.
+
+    Returns the parsed schema, the parsed `program` vertex id, and
+    the tuple of top-level child ids in source order (sorted by
+    `start-byte`). The graft replays these children in order beneath
+    the per-render `program` so the emit's top-level statements
+    appear in the original file's layout.
+    """
+    schema = parser_registry().parse_with_protocol(
+        "stan",
+        _RUNTIME_STAN_PATH.read_bytes(),
+        str(_RUNTIME_STAN_PATH),
+    )
+    src_id = next(
+        (v.id for v in schema.vertices if v.kind == "program"),
+        None,
+    )
+    if src_id is None:
+        raise RuntimeError(
+            f"`program` not found in parse of {_RUNTIME_STAN_PATH}"
+        )
+    children_with_sb: list[tuple[int, str]] = []
+    for edge in schema.edges:
+        if edge.src != src_id:
+            continue
+        sb_val = next(
+            (
+                int(c.value)
+                for c in schema.constraints_for(edge.tgt)
+                if c.sort == "start-byte"
+            ),
+            0,
+        )
+        children_with_sb.append((sb_val, edge.tgt))
+    children_with_sb.sort()
+    return schema, src_id, tuple(child for _, child in children_with_sb)
+
+
+_RUNTIME_STAN_SCHEMA, _RUNTIME_STAN_PROGRAM_ID, _RUNTIME_STAN_TOP_LEVEL = (
+    _load_runtime_stan_schema()
+)
+
+
+def _stan_subtree_vertex_ids(
+    schema: panproto.Schema, roots: tuple[str, ...]
+) -> set[str]:
+    """Return every vertex id reachable from `roots` via outgoing edges."""
+    seen: set[str] = set(roots)
+    frontier: list[str] = list(roots)
+    while frontier:
+        src = frontier.pop()
+        for edge in schema.edges:
+            if edge.src == src and edge.tgt not in seen:
+                seen.add(edge.tgt)
+                frontier.append(edge.tgt)
+    return seen
+
+
+_RUNTIME_STAN_SUBTREE = _stan_subtree_vertex_ids(
+    _RUNTIME_STAN_SCHEMA, _RUNTIME_STAN_TOP_LEVEL
+)
+
+
+def _ir_uses_family(body: tuple[IRNode, ...], family: str) -> bool:
+    """True iff any [`IRSample`][quivers.transpile.ir.IRSample] or
+    [`IRObserve`][quivers.transpile.ir.IRObserve] in `body` (including
+    nested [`IRMarginalize`][quivers.transpile.ir.IRMarginalize] scopes)
+    samples from `family`."""
+    for node in body:
+        if (
+            isinstance(node, (IRSample, IRObserve))
+            and node.family == family
+        ):
+            return True
+        if isinstance(node, IRMarginalize) and _ir_uses_family(
+            node.scope, family
+        ):
+            return True
+    return False
+
+
+def _graft_runtime_stan_helper(
+    sb: panproto.SchemaBuilder,
+    renderer: StanRenderer,
+    program_vid: str,
+) -> None:
+    """Graft the runtime-helper subtree onto the per-render schema.
+
+    Copies every vertex, every constraint, and every internal edge of
+    the parsed `runtime_stan_functions.stan` subtree into the per-render
+    `SchemaBuilder` with fresh vertex ids, then attaches each top-level
+    child as a `child_of` of `program_vid` in source order. The grafted
+    `functions { ... }` block appears above the data block in the
+    emit, satisfying Stan's `functions? data? ...` grammar production.
+    """
+    src_schema = _RUNTIME_STAN_SCHEMA
+    subtree = _RUNTIME_STAN_SUBTREE
+    id_map: dict[str, str] = {}
+
+    for old in subtree:
+        renderer._fresh_n += 1
+        new = f"rs_{renderer._fresh_n}"
+        id_map[old] = new
+        kind = next(
+            v.kind for v in src_schema.vertices if v.id == old
+        )
+        sb.vertex(new, kind)
+        for cstr in src_schema.constraints_for(old):
+            sb.constraint(new, cstr.sort, cstr.value)
+    for edge in src_schema.edges:
+        if edge.src in id_map and edge.tgt in id_map:
+            sb.edge(id_map[edge.src], id_map[edge.tgt], edge.kind)
+    for child_old in _RUNTIME_STAN_TOP_LEVEL:
+        sb.edge(program_vid, id_map[child_old], "child_of")
 
 
 __all__ = ["StanRenderer", "format_stan"]
