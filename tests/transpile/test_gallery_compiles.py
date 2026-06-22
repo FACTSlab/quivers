@@ -122,13 +122,6 @@ def test_gallery_example_compiles(example: Path, backend: str) -> None:
 #: those programs now reach the renderer + syntax check and trip on
 #: per-fixture emit bugs the categorical gate had previously hidden.
 _KNOWN_RENDERER_EMIT_GAPS: dict[tuple[str, str], str] = {
-    ("stan", "zip_regression"): (
-        "marginalize scope with a let-binding (`let gated_rate = z * "
-        "rate; observe y <- Poisson(gated_rate)`): the renderer "
-        "currently rejects IRDeterministic inside marginalize scope "
-        "and the QVR parser does not yet accept arithmetic-expression "
-        "draw args (e.g. `Poisson(z * rate)`)."
-    ),
     ("gen", "montague_nli"): (
         "deduction emission for the Montague grammar's chart-parser "
         "primitives is not yet wired in the Gen.jl renderer"
