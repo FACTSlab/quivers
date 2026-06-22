@@ -22,3 +22,72 @@ Gen.has_output_grad(::TruncatedNormalDist) = false
 Gen.has_argument_grads(::TruncatedNormalDist) = (false, false, false, false)
 
 (::TruncatedNormalDist)(loc, scale, low, high) = Gen.random(TruncatedNormalDist(), loc, scale, low, high)
+
+struct LogisticDist <: Gen.Distribution{Float64} end
+
+const logistic = LogisticDist()
+
+function Gen.random(::LogisticDist, loc::Real, scale::Real)
+    return rand(Distributions.Logistic(loc, scale))
+end
+
+function Gen.logpdf(::LogisticDist, x::Real, loc::Real, scale::Real)
+    return Distributions.logpdf(Distributions.Logistic(loc, scale), x)
+end
+
+function Gen.logpdf_grad(::LogisticDist, x::Real, loc::Real, scale::Real)
+    return (nothing, nothing, nothing)
+end
+
+Gen.has_output_grad(::LogisticDist) = false
+
+Gen.has_argument_grads(::LogisticDist) = (false, false)
+
+(::LogisticDist)(loc, scale) = Gen.random(LogisticDist(), loc, scale)
+
+struct BetaBinomialDist <: Gen.Distribution{Int} end
+
+const beta_binomial = BetaBinomialDist()
+
+function Gen.random(::BetaBinomialDist, total_count::Int, concentration1::Real, concentration0::Real)
+    return rand(Distributions.BetaBinomial(total_count, concentration1, concentration0))
+end
+
+function Gen.logpdf(::BetaBinomialDist, x::Int, total_count::Int, concentration1::Real, concentration0::Real)
+    return Distributions.logpdf(Distributions.BetaBinomial(total_count, concentration1, concentration0), x)
+end
+
+function Gen.logpdf_grad(::BetaBinomialDist, x::Int, total_count::Int, concentration1::Real, concentration0::Real)
+    return (nothing, nothing, nothing, nothing)
+end
+
+Gen.has_output_grad(::BetaBinomialDist) = false
+
+Gen.has_argument_grads(::BetaBinomialDist) = (false, false, false)
+
+(::BetaBinomialDist)(total_count, concentration1, concentration0) = Gen.random(BetaBinomialDist(), total_count, concentration1, concentration0)
+
+struct HalfStudentTDist <: Gen.Distribution{Float64} end
+
+const half_student_t = HalfStudentTDist()
+
+function Gen.random(::HalfStudentTDist, df::Real, scale::Real)
+    return abs(rand(Distributions.TDist(df))) * scale
+end
+
+function Gen.logpdf(::HalfStudentTDist, x::Real, df::Real, scale::Real)
+    if x < 0
+        return -Inf
+    end
+    return Distributions.logpdf(Distributions.TDist(df), x / scale) - log(scale) + log(2)
+end
+
+function Gen.logpdf_grad(::HalfStudentTDist, x::Real, df::Real, scale::Real)
+    return (nothing, nothing, nothing)
+end
+
+Gen.has_output_grad(::HalfStudentTDist) = false
+
+Gen.has_argument_grads(::HalfStudentTDist) = (false, false)
+
+(::HalfStudentTDist)(df, scale) = Gen.random(HalfStudentTDist(), df, scale)
