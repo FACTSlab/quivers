@@ -45,4 +45,15 @@ let decoder = dec_1 >> stack(dec_deep, 1) >> dec_to_obs
 let generative = prior >> decoder
 let reconstruct = encoder >> decoder
 
-export generative
+# Probabilistic surface for the generative branch: sample the
+# latent code under the standard-Normal prior, then push it
+# through the decoder Kleisli morphism to score the observation
+# Y. The decoder's per-layer weights carry the kernel-prior
+# Normals declared above; the program traces both the latent and
+# the observation sites for inference.
+program vae_program : UnitSpace -> ObsSpace
+    sample z <- prior
+    observe Y <- decoder(z)
+    return Y
+
+export vae_program
