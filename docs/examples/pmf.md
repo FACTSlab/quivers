@@ -18,13 +18,26 @@ composition real as algebra
 object LatentDim : FinSet 2
 object User : FinSet 8
 object Movie : FinSet 8
+object Rating : FinSet 5
 
 morphism U : LatentDim -> User [role=latent]
 morphism V : LatentDim -> Movie [role=latent]
 
 let pmf = U.dagger >> V
 
-export pmf
+program pmf_program : Rating -> Rating
+    sample sigma <- HalfCauchy(1.0)
+    sample U_mat : User <- Normal(0.0, 0.5) [over=LatentDim, iid_over=User]
+    sample V_mat : Movie <- Normal(0.0, 0.5) [over=LatentDim, iid_over=Movie]
+
+    let u_row = U_mat[u_idx]
+    let v_row = V_mat[m_idx]
+    let mu = sum(u_row * v_row)
+
+    observe r : Rating <- Normal(mu, sigma)
+    return r
+
+export pmf_program
 ```
 
 ## Walkthrough
@@ -54,21 +67,36 @@ Pick true $U$, $V$ factor matrices for an 8-user / 8-item catalogue, then draw a
 
 ```python
 import torch
+from quivers.dsl import load
 
 torch.manual_seed(0)
+prog = load("docs/examples/source/pmf.qvr")
+model = prog.morphism
 
 n_user, n_movie, K = 8, 8, 2
-U_true = 0.5 * torch.randn(K, n_user)
-V_true = 0.5 * torch.randn(K, n_movie)
-
 n_obs = 5  # under 10% of n_user * n_movie = 64 cells
-flat   = torch.randperm(n_user * n_movie)[:n_obs]
-u_idx  = (flat // n_movie).long()
-m_idx  = (flat %  n_movie).long()
-sigma  = 0.1
-r_obs  = (U_true[:, u_idx] * V_true[:, m_idx]).sum(0) + sigma * torch.randn(n_obs)
+
+true_U_mat = 0.5 * torch.randn(n_user, K)
+true_V_mat = 0.5 * torch.randn(n_movie, K)
+true_sigma = 0.1
+
+flat = torch.randperm(n_user * n_movie)[:n_obs]
+u_idx = (flat // n_movie).long()
+m_idx = (flat % n_movie).long()
+mu_true = (true_U_mat[u_idx] * true_V_mat[m_idx]).sum(dim=-1)
+r = torch.distributions.Normal(mu_true, true_sigma).sample()
+
+observations = {
+    "r": r,
+    "u_idx": u_idx,
+    "m_idx": m_idx,
+    "sigma": torch.tensor([true_sigma]),
+    "U_mat": true_U_mat,
+    "V_mat": true_V_mat,
+}
+x_in = torch.zeros(n_obs, 1)
 print("density:", n_obs / (n_user * n_movie))
-print("ratings:", r_obs.tolist())
+print("ratings:", r.tolist())
 ```
 
 ### SVI fit
