@@ -530,6 +530,22 @@ class StanRenderer(RendererBase):
     ) -> None:
         """Materialise the appropriate top_var_type child per the
         renderer's support dispatch table."""
+        # A real-valued family with non-empty event dims is logically
+        # a vector / matrix even though the per-element support is
+        # `CSReal`; defer to the event-shape-aware emitters so the
+        # declaration is `vector[K]` rather than scalar `real`.
+        if event_dims and (
+            is_real_scalar(sup)
+            or is_real_positive(sup)
+            or is_real_unit_interval(sup)
+            or is_real_bounded_interval(sup)
+        ):
+            if len(event_dims) == 1:
+                self._emit_vector_type(ctx, tvt_vid, event_dims)
+                return
+            if len(event_dims) == 2:
+                self._emit_matrix_type(ctx, tvt_vid, event_dims)
+                return
         # Scalar real family.
         if is_real_scalar(sup):
             self._emit_real_type(ctx, tvt_vid, lower=None, upper=None)
