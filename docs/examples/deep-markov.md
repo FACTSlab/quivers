@@ -32,7 +32,13 @@ let emission = emit_mlp_1 >> emit_mlp_2
 let generate = scan(transition_cell) >> emission
 let recognize = scan(infer_cell)
 
-export recognize
+program generative_step : Driver * State -> State
+    sample s_new <- transition_cell
+
+    observe o <- emission(s_new)
+    return s_new
+
+export generative_step
 ```
 
 ## Walkthrough
@@ -48,7 +54,7 @@ The transition stack `trans_mlp_1 >> trans_mlp_2` is a two-layer MLP that maps `
 
 ### Generating synthetic data
 
-Pick concrete ground-truth nonlinear dynamics (tanh recurrence on the latent, tanh decoder to observations) and forward-sample a single trajectory of length `T`. The latent dimension matches `State = Real 8`; the observation dimension matches `Obs = Real 4`.
+Pick concrete ground-truth nonlinear dynamics (tanh recurrence on the latent, tanh decoder to observations) and forward-sample a single trajectory of length `T`. The latent dimension matches `State = Real 8`; the observation dimension matches `Obs = Real 4`. The single-step program `generative_step : Driver * State -> State` reads the previous (driver, state) pair as input; the per-step pair `(s_new, o)` is supplied as the observation dict.
 
 ```python
 import torch
@@ -56,19 +62,25 @@ from quivers.dsl import load
 
 torch.manual_seed(0)
 prog = load("docs/examples/source/deep_markov.qvr")
-recognize = prog.morphism
+model = prog.morphism
 
 T = 32
-state_dim, obs_dim = 8, 4
+state_dim, obs_dim, driver_dim = 8, 4, 4
 W_s = 0.5 * torch.randn(state_dim, state_dim)
 W_o = 0.3 * torch.randn(obs_dim, state_dim)
 s = torch.zeros(T + 1, state_dim)
 o = torch.zeros(T, obs_dim)
+u = torch.randn(T, driver_dim)
 for t in range(T):
     s[t + 1] = torch.tanh(s[t] @ W_s.T) + 0.1 * torch.randn(state_dim)
     o[t] = torch.tanh(s[t + 1] @ W_o.T) + 0.1 * torch.randn(obs_dim)
+
+state_prev = torch.cat([u, s[:T]], dim=-1)
 o_seq = o.unsqueeze(0)
 state_seq = s[1:].unsqueeze(0)
+sites = {"s_new": s[1:T + 1], "o": o}
+x_in = state_prev
+observations = sites
 ```
 
 ### SVI fit

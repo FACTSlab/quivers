@@ -35,4 +35,17 @@ let emission = emit_mlp_1 >> emit_mlp_2
 let generate = scan(transition_cell) >> emission
 let recognize = scan(infer_cell)
 
-export recognize
+# Probabilistic surface: the per-step generative kernel pushes
+# the previous (driver, state) pair through the two-layer
+# transition MLP and scores the new state, then pushes the new
+# state through the two-layer emission MLP and scores the
+# observation. scan threads this per-step program across the
+# input sequence so trace clamps the full (s_new, o) trajectory
+# once per call.
+program generative_step : Driver * State -> State
+    sample s_new <- transition_cell
+
+    observe o <- emission(s_new)
+    return s_new
+
+export generative_step
