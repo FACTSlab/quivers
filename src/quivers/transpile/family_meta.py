@@ -1183,6 +1183,7 @@ FAMILY_META: dict[str, FamilyMeta] = {
             "pyro": "BetaBinomial", "pymc": "BetaBinomial",
             "edward2": "BetaBinomial", "turing": "BetaBinomial",
             "bugs": "dbetabin", "jags": "dbetabin",
+            "gen": "beta_binomial",
         },
         arg_aliases={
             "pymc": {
@@ -1219,6 +1220,7 @@ FAMILY_META: dict[str, FamilyMeta] = {
             "pyro": "Logistic", "pymc": "Logistic",
             "edward2": "Logistic", "turing": "Logistic",
             "bugs": "dlogis", "jags": "dlogis",
+            "gen": "logistic",
         },
         arg_aliases={
             "pymc": {"loc": "mu", "scale": "s"},
@@ -1232,6 +1234,7 @@ FAMILY_META: dict[str, FamilyMeta] = {
             "stan": "student_t", "numpyro": "HalfStudentT",
             "pyro": "HalfStudentT", "pymc": "HalfStudentT",
             "bugs": "dt", "jags": "dt",
+            "gen": "half_student_t",
         },
         arg_aliases={
             "pymc": {"df": "nu", "scale": "sigma"},

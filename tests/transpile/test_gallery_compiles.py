@@ -57,9 +57,9 @@ _SYNTAX_CHECKS: dict[str, tuple[str, list[str], bool]] = {
                            "import ast, sys; ast.parse(sys.stdin.read())"], True),
     "webppl":  ("node",   ["node", "--check", "/dev/stdin"], True),
     "turing":  ("julia",  ["julia", "--startup-file=no", "--quiet", "-e",
-                           "src = read(stdin, String); Meta.parse(src; raise=true)"], True),
+                           "src = read(stdin, String); Meta.parseall(src)"], True),
     "gen":     ("julia",  ["julia", "--startup-file=no", "--quiet", "-e",
-                           "src = read(stdin, String); Meta.parse(src; raise=true)"], True),
+                           "src = read(stdin, String); Meta.parseall(src)"], True),
 }
 
 

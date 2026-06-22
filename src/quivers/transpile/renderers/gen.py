@@ -1011,7 +1011,10 @@ class GenRenderer(RendererBase):
         # carries its own `using Gen` / `using Distributions`
         # statements; subsequent `@gen` macrocalls see the imported
         # names through normal Julia name lookup.
-        if _ir_uses_family(ir.body, "TruncatedNormal"):
+        if any(
+            _ir_uses_family(ir.body, f)
+            for f in _GEN_RUNTIME_HELPER_FAMILIES
+        ):
             _graft_runtime_gen_helper(gx, src)
         gx.e(src, mc)
         return sb.build()
@@ -1563,6 +1566,19 @@ def _union_dims(
 _RUNTIME_GEN_PATH = (
     pathlib.Path(__file__).resolve().parent.parent / "runtime_gen.jl"
 )
+
+
+#: Families whose Gen.jl emit relies on the
+#: [`runtime_gen.jl`][quivers.transpile.runtime_gen] helper subtree.
+#: Gen.jl ships `normal`, `uniform`, `beta`, etc. as built-in
+#: distributions but lacks these; the renderer grafts the helper
+#: when the IR samples or observes from any of them.
+_GEN_RUNTIME_HELPER_FAMILIES: frozenset[str] = frozenset({
+    "TruncatedNormal",
+    "Logistic",
+    "BetaBinomial",
+    "HalfStudentT",
+})
 
 
 def _load_runtime_gen_schema() -> tuple[
