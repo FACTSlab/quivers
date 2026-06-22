@@ -1709,20 +1709,11 @@ class StanRenderer(RendererBase):
         ctx.sb.vertex(nm, "identifier")
         ctx.sb.constraint(nm, "literal-value", lps_name)
         ctx.sb.edge(vd, nm, "name")
-        # Initializer: rep_array(rep_vector(0, K), B0, B1, ...) so the
-        # accumulator starts at zero. Stan otherwise leaves array
-        # entries uninitialised. Emit:
-        #     array[...] vector[K] lps_<latent> = rep_array(
-        #         rep_vector(0, K), <batch_size_0>, ...);
-        init_call = self._fresh(ctx, "lpsinit")
-        ctx.sb.vertex(init_call, "function_expression")
-        init_fn = self._fresh(ctx, "lpsfn")
-        ctx.sb.vertex(init_fn, "identifier")
-        ctx.sb.constraint(init_fn, "literal-value", "rep_array")
-        ctx.sb.edge(init_call, init_fn, "name")
-        init_al = self._fresh(ctx, "lpsal")
-        ctx.sb.vertex(init_al, "argument_list")
-        # First arg: rep_vector(0, K)
+        # Initializer: rep_vector(0, K) for a scalar accumulator (no
+        # batch_dims) or rep_array(rep_vector(0, K), B0, B1, ...) for
+        # the per-group array. The two-argument variant Stan offers
+        # for ``rep_array`` requires at least one size, so the scalar
+        # case must call ``rep_vector`` directly.
         rep_v = self._fresh(ctx, "lpsrv")
         ctx.sb.vertex(rep_v, "function_expression")
         rep_v_fn = self._fresh(ctx, "lpsrvf")
@@ -1736,11 +1727,24 @@ class StanRenderer(RendererBase):
             rep_v_al, self._int_literal(ctx, latent_card), "child_of"
         )
         ctx.sb.edge(rep_v, rep_v_al, "child_of")
-        ctx.sb.edge(init_al, rep_v, "child_of")
-        for dim in batch_dims:
-            ctx.sb.edge(init_al, self._dim_size_vertex(ctx, dim), "child_of")
-        ctx.sb.edge(init_call, init_al, "child_of")
-        ctx.sb.edge(vd, init_call, "child_of")
+        if batch_dims:
+            init_call = self._fresh(ctx, "lpsinit")
+            ctx.sb.vertex(init_call, "function_expression")
+            init_fn = self._fresh(ctx, "lpsfn")
+            ctx.sb.vertex(init_fn, "identifier")
+            ctx.sb.constraint(init_fn, "literal-value", "rep_array")
+            ctx.sb.edge(init_call, init_fn, "name")
+            init_al = self._fresh(ctx, "lpsal")
+            ctx.sb.vertex(init_al, "argument_list")
+            ctx.sb.edge(init_al, rep_v, "child_of")
+            for dim in batch_dims:
+                ctx.sb.edge(
+                    init_al, self._dim_size_vertex(ctx, dim), "child_of"
+                )
+            ctx.sb.edge(init_call, init_al, "child_of")
+            ctx.sb.edge(vd, init_call, "child_of")
+        else:
+            ctx.sb.edge(vd, rep_v, "child_of")
         ctx.sb.edge(scope_block, vd, "child_of")
 
     def _emit_lps_init(

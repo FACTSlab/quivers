@@ -122,14 +122,6 @@ def test_gallery_example_compiles(example: Path, backend: str) -> None:
 #: those programs now reach the renderer + syntax check and trip on
 #: per-fixture emit bugs the categorical gate had previously hidden.
 _KNOWN_RENDERER_EMIT_GAPS: dict[tuple[str, str], str] = {
-    ("stan", "hmm"): (
-        "stan renderer emits `categorical(emission_rows)` where "
-        "emission_rows is `array[State] vector[Obs]`. The fixture's "
-        "`observe obs <- Categorical(emission_rows)` has no per-row "
-        "state index in the call site; the renderer needs to either "
-        "pick up the latent state from the surrounding scan or thread "
-        "it via a `[via=state]` fibration"
-    ),
     ("stan", "pmf"): (
         "bilinear inner-product idiom `let mu = sum(u_row * v_row)` "
         "with `u_row[i]` and `v_row[i]` each a LatentDim-vector "
