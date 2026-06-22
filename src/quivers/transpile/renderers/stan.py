@@ -202,6 +202,10 @@ class StanRenderer(RendererBase):
         self._marginalize_var: str | None = None
         self._marginalize_latent_card: int | None = None
         self._marginalize_group_idx: tuple[str, ...] = ()
+        # Scope-local let bindings inside the current marginalize
+        # block; the per-k observe expands these inline since the
+        # let target is never declared as a Stan parameter.
+        self._marginalize_let_subs: dict[str, LetExprNode] = {}
         # Bookkeeping for redeclaration avoidance.
         self._declared: dict[BlockKind, set[str]] = {}
         # Fresh counter is renderer-internal; the base's _RenderCtx
@@ -1254,20 +1258,14 @@ class StanRenderer(RendererBase):
             )
             return
         if isinstance(node, IRDeterministic):
-            # A deterministic scope binding becomes a let-style decl
-            # inside the marginalize block. The Stan grammar accepts
-            # `top_var_decl` inside block_statement -> var_decl is the
-            # idiomatic form. For the spec's LDA / GMM gallery
-            # examples no IRDeterministic appears inside a marginalize
-            # scope; raise to keep the surface explicit.
-            raise UnsupportedConstruct(
-                "qvr-stan",
-                [
-                    f"marginalize:scope:IRDeterministic:{node.name}: "
-                    f"deterministic bindings inside marginalize scope "
-                    f"not implemented for Stan"
-                ],
-            )
+            # A scope-local let binding (e.g. `let gated_rate = z *
+            # rate; observe y <- Poisson(gated_rate)` inside a
+            # marginalize over z): inlined into downstream observe
+            # args via _marginalize_let_subs rather than declared as
+            # a Stan parameter, since `z` is the loop variable `k`
+            # and the let is meaningful only per-k.
+            self._marginalize_let_subs[node.name] = node.expr
+            return
         raise UnsupportedConstruct(
             "qvr-stan",
             [
@@ -2049,7 +2047,27 @@ class StanRenderer(RendererBase):
     ) -> SchemaFragment:
         """Render an IRArgRef. Bare-name refs become a
         `variable_expression`; indexed refs nest `indexed_expression`
-        nodes."""
+        nodes. When the ref name resolves to a scope-local
+        marginalize let-binding, inline the let-RHS expression so the
+        per-k observe consumes the substituted form (the let target
+        is never declared as a Stan parameter)."""
+        if not arg.indices and arg.name in self._marginalize_let_subs:
+            expr = self._marginalize_let_subs[arg.name]
+            latent = self._current_latent_name()
+            if latent is not None:
+                k_ref = LetExprVar(name="k")
+                expr = _substitute_let_expr(
+                    expr,
+                    latent,
+                    index_value=k_ref,
+                    scalar_value=k_ref,
+                )
+            return render_let_expr_stan(
+                _StanLetCtx(
+                    ctx.sb, lambda p: self._fresh(ctx, p), self._cards
+                ),
+                expr,
+            )
         base = self._variable_expression(ctx, arg.name)
         if not arg.indices:
             return base
