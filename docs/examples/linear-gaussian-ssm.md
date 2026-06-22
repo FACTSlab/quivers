@@ -27,7 +27,13 @@ morphism filter_cell : Obs * State -> State [role=kernel, scale=0.1] ~ Normal
 let generate = scan(transition_cell) >> emission
 let filter = scan(filter_cell)
 
-export filter
+program generative_step : Driver * State -> State
+    sample s_new <- transition_cell
+
+    observe o <- emission(s_new)
+    return s_new
+
+export generative_step
 ```
 
 ## Walkthrough
@@ -45,7 +51,7 @@ A matrix-Normal prior on the transition matrix is the natural conjugate choice w
 
 ### Generating synthetic data
 
-Pick concrete ground-truth dynamics `(A, B, C)` with isotropic process and observation noise, then forward-sample a single trajectory of latent states and observations. The driver inputs `u_t` are independent Normal draws; the per-step recurrence is the standard LGSSM kalman setup.
+Pick concrete ground-truth dynamics `(A, B, C)` with isotropic process and observation noise, then forward-sample a single trajectory of latent states and observations. The driver inputs `u_t` are independent Normal draws; the per-step recurrence is the standard LGSSM kalman setup. The single-step program `generative_step : Driver * State -> State` reads the previous (driver, state) pair as input; the per-step pair `(s_new, o)` is supplied as the observation dict.
 
 ```python
 import torch
@@ -56,19 +62,27 @@ prog = load("docs/examples/source/linear_gaussian_ssm.qvr")
 model = prog.morphism
 
 T = 32
-A = 0.9 * torch.eye(4)
-B = 0.1 * torch.randn(4, 2)
-C = torch.randn(2, 4)
+state_dim = 4
+obs_dim = 2
+driver_dim = 2
+A = 0.9 * torch.eye(state_dim)
+B = 0.1 * torch.randn(state_dim, driver_dim)
+C = torch.randn(obs_dim, state_dim)
 Q_scale, R_scale = 0.1, 0.1
 
-u = torch.randn(T, 2)
-s = torch.zeros(T + 1, 4)
-o = torch.zeros(T, 2)
+u = torch.randn(T, driver_dim)
+s = torch.zeros(T + 1, state_dim)
+o = torch.zeros(T, obs_dim)
 for t in range(T):
-    s[t + 1] = s[t] @ A.T + u[t] @ B.T + Q_scale * torch.randn(4)
-    o[t] = s[t + 1] @ C.T + R_scale * torch.randn(2)
+    s[t + 1] = s[t] @ A.T + u[t] @ B.T + Q_scale * torch.randn(state_dim)
+    o[t] = s[t + 1] @ C.T + R_scale * torch.randn(obs_dim)
+
+state_prev = torch.cat([u, s[:T]], dim=-1)
 o_seq = o.unsqueeze(0)
 state_seq = s[1:].unsqueeze(0)
+sites = {"s_new": s[1:T + 1], "o": o}
+x_in = state_prev
+observations = sites
 ```
 
 ### SVI fit

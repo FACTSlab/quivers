@@ -32,4 +32,16 @@ morphism filter_cell : Obs * State -> State [role=kernel, scale=0.1] ~ Normal
 let generate = scan(transition_cell) >> emission
 let filter = scan(filter_cell)
 
-export filter
+# Probabilistic surface: the per-step generative kernel takes
+# the previous (driver, state) pair and produces a new state by
+# applying the linear-Gaussian transition, then scores the
+# observation o under the emission kernel. scan threads this
+# step across the input sequence so trace clamps the full
+# (s_new, o) trajectory once per call.
+program generative_step : Driver * State -> State
+    sample s_new <- transition_cell
+
+    observe o <- emission(s_new)
+    return s_new
+
+export generative_step
