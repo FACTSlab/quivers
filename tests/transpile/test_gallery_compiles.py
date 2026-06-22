@@ -162,6 +162,16 @@ _KNOWN_RENDERER_EMIT_GAPS: dict[tuple[str, str], str] = {
         "needs latent-axis-aware vector promotion when the let-RHS "
         "is a sum-of-products over a contracted axis."
     ),
+    ("stan", "bnn"): (
+        "linear-network composition `let h2 = W_2_mat[h1]` is "
+        "semantically a matrix-vector product over the contracted "
+        "hidden axis, but the renderer treats the let-binding as "
+        "scalar real indexing; Stan then rejects `W_2_mat[h1[m_Item]]` "
+        "because the index is real, not int. The fix is renderer-"
+        "side: when the source operand `<latent>[<vec>]` has a "
+        "contracted axis in common with the destination, lower to "
+        "matrix multiplication, not gather indexing."
+    ),
     ("gen", "montague_nli"): (
         "deduction emission for the Montague grammar's chart-parser "
         "primitives is not yet wired in the Gen.jl renderer"
