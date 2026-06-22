@@ -58,6 +58,9 @@ from quivers.dsl.ast_nodes import (
     MorphismDecl,
     ObjectDecl,
     ObserveStep,
+    OptionList,
+    OptionName,
+    OptionValue,
     ProgramDecl,
     ProgramStep,
     ReturnStep,
@@ -87,6 +90,7 @@ from quivers.dsl.ast_nodes.objects import (
     ContinuousConstructor,
     DiscreteConstructor,
     ObjectExpr,
+    ObjectProduct,
     TypeName,
 )
 from quivers.transpile._api import UnsupportedConstruct
@@ -260,7 +264,7 @@ class Lower(dx.Mapping[Module, IRProgram]):
         meta = _family_meta_or_raise(resolved.family)
         ir_args, arg_names = self._lower_args(
             meta, resolved, ctx,
-            event_axes=_event_axis_names(step),
+            event_axes=_event_axis_names(step, ctx),
             axes_index=step.index,
             structural_args=step.args,
         )
@@ -298,7 +302,7 @@ class Lower(dx.Mapping[Module, IRProgram]):
         meta = _family_meta_or_raise(resolved.family)
         ir_args, arg_names = self._lower_args(
             meta, resolved, ctx,
-            event_axes=_event_axis_names(step),
+            event_axes=_event_axis_names(step, ctx),
             axes_index=step.index,
             structural_args=step.args,
         )
@@ -625,10 +629,16 @@ class Lower(dx.Mapping[Module, IRProgram]):
         """Build the [`Plate`][quivers.transpile.ir.Plate] for a
         sample / observe step.
 
-        `over` axes become `event_dims`; `iid_over` axes become
-        `batch_dims` in source declaration order. When no
-        AxisSpec is present, the step's `index` is treated as the
-        single batch axis (the common scalar-family form).
+        Event axes come from (in priority order):
+
+        1. The step's `[over=...]` `AxisSpec`.
+        2. The referenced morphism's `[over=...]` option block.
+        3. The morphism's codomain components (one event axis per
+           named factor) when the family is multivariate and the
+           codomain factor count matches the family's event rank.
+
+        Batch axes come from the step's `[iid_over=...]` clause when
+        present; otherwise from `step.index` for scalar families.
         """
         axes = step.axes
         if axes is not None:
@@ -637,11 +647,45 @@ class Lower(dx.Mapping[Module, IRProgram]):
                 self._axis_dim(a, ctx) for a in axes.iid_over
             )
             return Plate(event_dims=event_dims, batch_dims=batch_dims)
-        # No AxisSpec on this step. If the step has an index, treat
-        # it as the batch axis (scalar family) or as the event axis
-        # (vector family per FAMILY_META). Distinguishing dispatches
-        # on the family's class-level event_dim.
+        # No AxisSpec on this step. Try the morphism-level `[over=...]`
+        # option next: `morphism k : A * B -> A * B [over=[A, B]] ~ F`
+        # carries the event axes on the morphism declaration when no
+        # per-call axes are supplied.
+        morphism_over = _morphism_over_axes(step.morphism, ctx)
         event_dim = _event_dim_of(meta, ir_args, ctx)
+        if morphism_over:
+            event_dims = tuple(self._axis_dim(a, ctx) for a in morphism_over)
+            return Plate(event_dims=event_dims, batch_dims=())
+        if event_dim > 0:
+            # Multivariate family without any user-declared axes: read
+            # the morphism's codomain to recover the event axis names.
+            decl = ctx.morphisms.get(step.morphism)
+            if decl is not None:
+                codomain_axes = _codomain_axes(decl.codomain, ctx.cards)
+                if len(codomain_axes) == event_dim:
+                    event_dims = tuple(
+                        self._axis_dim(a, ctx) for a in codomain_axes
+                    )
+                    return Plate(event_dims=event_dims, batch_dims=())
+                if codomain_axes and event_dim == 1:
+                    # Vector family whose codomain is a product of
+                    # named axes: use the first axis as the event
+                    # dimension (Stan vector / MultivariateNormal /
+                    # LowRankMVN / GP take one event axis).
+                    return Plate(
+                        event_dims=(self._axis_dim(codomain_axes[0], ctx),),
+                        batch_dims=(),
+                    )
+                # Last resort: the morphism's codomain is a single
+                # `Real N` cardinality with no named axis; size the
+                # event dim from the codomain's known cardinality.
+                sentinel_dims = _sentinel_event_dims_from_meta(
+                    meta, ir_args, ctx, decl.codomain,
+                )
+                if sentinel_dims is not None:
+                    return Plate(
+                        event_dims=sentinel_dims, batch_dims=(),
+                    )
         if step.index is None:
             return Plate(event_dims=(), batch_dims=())
         dim = self._object_expr_dim(step.index, ctx)
@@ -1667,18 +1711,132 @@ def _is_number_text(text: str) -> bool:
 
 def _event_axis_names(
     step: SampleStep | ObserveStep,
+    ctx: _LowerCtx | None = None,
 ) -> tuple[str, ...]:
     """Return the event-axis names for a sample / observe step.
 
-    These are the axes the family's event-dim ranges over; in surface
-    syntax they appear as the `over=` clause of the step's
-    [`AxisSpec`][quivers.dsl.ast_nodes._shared.AxisSpec]. Returns an
-    empty tuple when no `AxisSpec` is present (the bare scalar-family
-    form whose event-shape derivation falls back to `step.index`).
+    Priority order:
+
+    1. The step's own [`AxisSpec`][quivers.dsl.ast_nodes._shared.AxisSpec]
+       `over` clause (`sample x <- F(args) [over=[A, B]]`).
+    2. The referenced morphism's `[over=[A, B]]` option block
+       (`morphism k : A * B -> A * B [over=[A, B]] ~ F`).
+    3. Empty tuple (no event axes declared at any layer).
     """
-    if step.axes is None:
+    if step.axes is not None:
+        return step.axes.over
+    if ctx is not None:
+        return _morphism_over_axes(step.morphism, ctx)
+    return ()
+
+
+def _morphism_over_axes(
+    morphism_name: str, ctx: _LowerCtx,
+) -> tuple[str, ...]:
+    """Return the morphism declaration's `[over=[A, B]]` axis names.
+
+    Reads the morphism's option block via the
+    [`build_morphism_table`][quivers.transpile._resolve.build_morphism_table]
+    map carried on the lowering context; returns an empty tuple when
+    the morphism is absent, has no `over=` option, or the `over=`
+    value is not a list-of-identifiers.
+    """
+    decl = ctx.morphisms.get(morphism_name)
+    if decl is None:
         return ()
-    return step.axes.over
+    for opt in decl.options:
+        if opt.key != "over":
+            continue
+        return _option_axes_to_tuple(opt.value)
+    return ()
+
+
+def _option_axes_to_tuple(value: OptionValue) -> tuple[str, ...]:
+    """Extract identifier names from an `[over=...]` option value.
+
+    Accepts a single name (`over=A`) or a list of names
+    (`over=[A, B]`); ignores other option-value shapes.
+    """
+    if isinstance(value, OptionName):
+        return (value.value,)
+    if isinstance(value, OptionList):
+        out: list[str] = []
+        for item in value.items:
+            if isinstance(item, OptionName):
+                out.append(item.value)
+        return tuple(out)
+    return ()
+
+
+def _sentinel_event_dims_from_meta(
+    meta: FamilyMeta,
+    ir_args: tuple[IRArg, ...],
+    ctx: _LowerCtx,
+    codomain: ObjectExpr,
+) -> tuple[Dim, ...] | None:
+    """Derive a multivariate family's event dims from its sentinel
+    `event_shape` plus the morphism codomain's anonymous cardinality.
+
+    Used when the codomain has no named axes a user would write into
+    `[over=...]` (e.g. `Obs : Real 9` for a `Wishart` morphism whose
+    9 elements flatten a 3x3 matrix). The sentinel's `event_shape`
+    is the canonical size tuple; the helper rebuilds matching
+    `DimStatic` entries named after the codomain axis when present,
+    or `event_axis_{i}` otherwise.
+
+    Returns `None` when the sentinel cannot be constructed or the
+    codomain provides no usable cardinality.
+    """
+    try:
+        sentinel = _make_sentinel(meta, ir_args, ctx)
+    except UnsupportedConstruct:
+        return None
+    event_shape = tuple(int(s) for s in sentinel.event_shape)
+    if not event_shape:
+        return None
+    base_name = _codomain_base_name(codomain)
+    dims: list[Dim] = []
+    for i, size in enumerate(event_shape):
+        axis_name = base_name if len(event_shape) == 1 else f"{base_name}_{i}"
+        dims.append(DimStatic(size=size, name=axis_name))
+    return tuple(dims)
+
+
+def _codomain_base_name(codomain: ObjectExpr) -> str:
+    """Return a printable name for the codomain's leading factor.
+
+    Falls back to `"event"` when the codomain shape has no surface
+    name (e.g. a `Real N` constructor with no preceding identifier).
+    """
+    if isinstance(codomain, TypeName):
+        return codomain.name
+    if isinstance(codomain, ObjectProduct):
+        for comp in codomain.components:
+            if isinstance(comp, TypeName):
+                return comp.name
+    return "event"
+
+
+def _codomain_axes(
+    codomain: ObjectExpr, cards: dict[str, int],
+) -> tuple[str, ...]:
+    """Return the named axes of a morphism codomain.
+
+    A `TypeName(name=A)` codomain contributes a single axis `A`; a
+    `ObjectProduct(components=...)` codomain contributes one axis
+    per `TypeName` component, in declaration order. Returns an empty
+    tuple when no component is a named axis carrying a known
+    cardinality (`Real` / `Sphere` / anonymous types).
+    """
+    if isinstance(codomain, TypeName):
+        return (codomain.name,) if codomain.name in cards else ()
+    if isinstance(codomain, ObjectProduct):
+        out: list[str] = []
+        for comp in codomain.components:
+            if isinstance(comp, TypeName) and comp.name in cards:
+                out.append(comp.name)
+        return tuple(out)
+    return ()
 
 
 def _marginalize_event_axis_names(
