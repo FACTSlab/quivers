@@ -29,6 +29,7 @@ from quivers.dsl.ast_nodes import (
     SampleStep,
     ScoreStep,
 )
+from quivers.dsl.ast_nodes.declarations import ExportDecl
 from quivers.dsl.parser import parse
 from quivers.transpile._api import UnsupportedConstruct
 from quivers.transpile._expand_composites import expand_composite_lets
@@ -78,9 +79,7 @@ def test_lower_roundtrip(path: pathlib.Path) -> None:
     """Lower the gallery example and verify the structural invariants."""
     src = path.read_text()
     module = parse(src)
-    program = next(
-        s for s in module.statements if isinstance(s, ProgramDecl)
-    )
+    program = _pick_program(module)
     try:
         ir = Lower().forward(module)
     except UnsupportedConstruct as exc:
@@ -253,3 +252,27 @@ def _expected_body_step_count(program: ProgramDecl) -> int:
         else:
             count += 1
     return count
+
+
+
+def _pick_program(module) -> ProgramDecl:
+    """Match `Lower._pick_program`: prefer a program named in an
+    `export` declaration; otherwise return the last `ProgramDecl`.
+    A fixture that declares both `program lstm_cell` and
+    `program lstm_lm` with `export lstm_lm` lowers `lstm_lm`, so the
+    test invariants must apply against the same program Lower picked.
+    """
+    programs = []
+    exported_names = set()
+    for stmt in module.statements:
+        if isinstance(stmt, ProgramDecl):
+            programs.append(stmt)
+        elif isinstance(stmt, ExportDecl):
+            if hasattr(stmt, "expr") and hasattr(stmt.expr, "name"):
+                exported_names.add(stmt.expr.name)
+    if not programs:
+        raise AssertionError("no ProgramDecl in module")
+    return next(
+        (p for p in programs if p.name in exported_names),
+        programs[-1],
+    )
