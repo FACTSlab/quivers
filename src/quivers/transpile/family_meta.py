@@ -1115,6 +1115,7 @@ FAMILY_META: dict[str, FamilyMeta] = {
             "stan": "lkj_corr_cholesky", "numpyro": "LKJCholesky",
             "pyro": "LKJCorrCholesky", "pymc": "LKJCholeskyCov",
             "edward2": "LKJ", "turing": "LKJCholesky",
+            "gen": "lkj_cholesky",
         },
     ),
     "Mixture": FamilyMeta(

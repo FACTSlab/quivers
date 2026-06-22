@@ -155,3 +155,30 @@ Gen.has_output_grad(::ContinuousBernoulliDist) = false
 Gen.has_argument_grads(::ContinuousBernoulliDist) = (false,)
 
 (::ContinuousBernoulliDist)(probs) = Gen.random(ContinuousBernoulliDist(), probs)
+
+using LinearAlgebra: LowerTriangular, Cholesky
+
+struct LKJCholeskyDist <: Gen.Distribution{Matrix{Float64}} end
+
+const lkj_cholesky = LKJCholeskyDist()
+
+function Gen.random(::LKJCholeskyDist, dim::Int, concentration::Real)
+    c = rand(Distributions.LKJCholesky(dim, concentration, :L))
+    return Matrix(c.L)
+end
+
+function Gen.logpdf(::LKJCholeskyDist, x::AbstractMatrix, dim::Int, concentration::Real)
+    L = LowerTriangular(x)
+    c = Cholesky(L)
+    return Distributions.logpdf(Distributions.LKJCholesky(dim, concentration, :L), c)
+end
+
+function Gen.logpdf_grad(::LKJCholeskyDist, x::AbstractMatrix, dim::Int, concentration::Real)
+    return (nothing, nothing, nothing)
+end
+
+Gen.has_output_grad(::LKJCholeskyDist) = false
+
+Gen.has_argument_grads(::LKJCholeskyDist) = (false, false)
+
+(::LKJCholeskyDist)(dim, concentration) = Gen.random(LKJCholeskyDist(), dim, concentration)
