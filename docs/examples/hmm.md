@@ -37,27 +37,33 @@ export hmm
 
 ### Generating synthetic data
 
-Initialise the HMM's `initial`, `transition` and `emission` row-stochastic-algebra logits under a fixed seed (these stand in for the ground-truth generative weights), then forward-sample an observation histogram from the n-step composed pipeline `prog(n_steps=K)`. The returned `(State, Obs)` tensor is the fuzzy-algebra n-step joint; normalising it gives a categorical we draw counts from.
+Run one forward trace under the program's own (random-initialised) row-stochastic logits so the captured per-state observation index sequence is jointly consistent with the sampled Dirichlet priors. The trace clamps every site under the same seed the QvrProbe scores against, so `log p(theta_true, y)` is finite by construction.
 
 ```python
 import torch
 from quivers.dsl import load
+from quivers.inference.trace import trace
 
 torch.manual_seed(0)
 prog = load("docs/examples/source/hmm.qvr")
+model = prog.morphism
 
-# Ground-truth row-stochastic logits.
-for _, p in prog.named_parameters():
-    p.data.copy_(torch.randn_like(p))
+x_in = torch.zeros(1, 1)
+with torch.no_grad():
+    forward = trace(model, x_in)
 
-n_steps = 5
-true_marginal = prog(n_steps=n_steps).detach()
-probs = (true_marginal / true_marginal.sum()).flatten()
-N = 500
-obs_counts = torch.distributions.Multinomial(
-    total_count=N, probs=probs,
-).sample().reshape(true_marginal.shape)
-print("counts shape:", obs_counts.shape, "sum:", int(obs_counts.sum()))
+true_initial_row = forward.sites["initial_row"].value.detach()
+true_transition_rows = forward.sites["transition_rows"].value.detach()
+true_emission_rows = forward.sites["emission_rows"].value.detach()
+obs = forward.sites["obs"].value.detach()
+
+observations = {
+    "obs": obs,
+    "initial_row": true_initial_row,
+    "transition_rows": true_transition_rows,
+    "emission_rows": true_emission_rows,
+}
+print("obs shape:", obs.shape)
 ```
 
 ### SVI fit
