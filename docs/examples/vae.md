@@ -31,7 +31,12 @@ let decoder = dec_1 >> stack(dec_deep, 1) >> dec_to_obs
 let generative = prior >> decoder
 let reconstruct = encoder >> decoder
 
-export generative
+program vae_program : UnitSpace -> ObsSpace
+    sample z <- prior
+    observe Y <- decoder(z)
+    return Y
+
+export vae_program
 ```
 
 ## Walkthrough
@@ -60,17 +65,26 @@ express the VAE's two execution paths as explicit [Kleisli composition](https://
 ```python
 import torch
 from quivers.dsl import load
+from quivers.inference.trace import trace
 
 torch.manual_seed(0)
 prog = load("docs/examples/source/vae.qvr")
-generative = prog.morphism
+model = prog.morphism
 
 N = 32
 unit = torch.zeros(N, 1)
-with torch.no_grad():
-    Y = generative.rsample(unit).detach()
-print("Y shape:", Y.shape)
+x_in = unit
 
+# Run one forward trace under the program's own parameters so the
+# captured latent and observation are jointly consistent under the
+# generative kernel.
+with torch.no_grad():
+    forward = trace(model, unit)
+true_z = forward.sites["z"].value.detach()
+Y = forward.sites["Y"].value.detach()
+
+observations = {"Y": Y, "z": true_z}
+print("Y shape:", Y.shape)
 ```
 
 The exported `generative` composition is a [Kleisli](https://en.wikipedia.org/wiki/Kleisli_category) morphism `UnitSpace -> ObsSpace`; `rsample` runs the full prior-then-decoder ancestral path so the synthetic batch comes from the model itself at its current (random) parameter values, then lift the entire parameter vector into a Bayesian model for SVI and NUTS.
