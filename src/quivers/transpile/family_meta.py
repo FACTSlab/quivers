@@ -1233,6 +1233,7 @@ FAMILY_META: dict[str, FamilyMeta] = {
         target_names={
             "stan": "student_t", "numpyro": "HalfStudentT",
             "pyro": "HalfStudentT", "pymc": "HalfStudentT",
+            "edward2": "HalfStudentT",
             "bugs": "dt", "jags": "dt",
             "gen": "half_student_t",
         },
