@@ -465,8 +465,15 @@ def _resolve_expr(
     chain: tuple[str, ...],
 ) -> ResolvedDist:
     """Unfold a let / morphism init expression. Pure aliases
-    (``let a = b``) recurse; composite expressions (``a >> b``,
-    ``a @ b``, ``identity(X)``) are not yet supported and raise."""
+    (``let a = b``) recurse into the aliased name; composite
+    expressions (``a >> b``, ``a @ b``, ``scan(cell)``, ``fan(a, b)``)
+    are normally pre-expanded into atomic sample / let chains by
+    [`expand_composite_lets`][quivers.transpile._expand_composites.expand_composite_lets]
+    before lowering reaches the resolver. Reaching this branch means
+    the pre-expansion pass bailed (an unrecognised leaf shape inside
+    the composition) and the surface composite has flowed through to
+    the resolver intact; raise a precise unsupported-construct error
+    naming the offending kind."""
     if isinstance(expr, ExprIdent):
         return resolve_step_dist(
             expr.name,
@@ -484,11 +491,13 @@ def _resolve_expr(
             f"let:composite_expression:{expr_kind}",
             (
                 f"morphism / let {morphism_name!r} resolves to a "
-                f"composite expression of kind {expr_kind!r}; "
-                f"transpile backends only unfold pure-alias "
-                f"bindings today. Replace the composition with a "
-                f"direct ``~ Family(args)`` declaration or with a "
-                f"separate `sample` per stochastic step."
+                f"composite expression of kind {expr_kind!r} that the "
+                "pre-lower expansion pass could not flatten into "
+                "atomic sample / let steps. Extend "
+                "`_flatten_compose` in "
+                "`quivers.transpile._expand_composites` to recognise "
+                "the leaf shape, or rewrite the source with a direct "
+                "`~ Family(args)` declaration / a per-step `sample`."
             ),
         ],
     )
