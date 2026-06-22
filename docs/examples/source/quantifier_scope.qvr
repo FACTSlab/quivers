@@ -24,6 +24,18 @@
 
 object Term : FinSet 16
 
+object Rule : FinSet 16
+
+# Probabilistic surface for transpile: each learnable rule weight
+# carries an independent Normal(0, 1) prior. The chart-parser
+# downstream consumes these as the per-rule log-probabilities;
+# the program itself is the prior over the rule-weight vector.
+program quantifier_scope_prior : Rule -> Rule
+    sample rule_weights : Rule <- Normal(0.0, 1.0)
+    return rule_weights
+
+export quantifier_scope_prior
+
 deduction QScope : Term -> Term [semiring=LogProb, start=S, depth=4, tolerance=1e-5]
     atoms S, NP, N, Fwd, Bwd, Cont, span, every, dog, barks
     rule fwd_app : span(I, K, Fwd(A, B)), span(K, J, B) |- span(I, J, A) #[learnable]

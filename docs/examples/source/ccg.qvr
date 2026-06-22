@@ -22,6 +22,18 @@
 
 object Term : FinSet 16
 
+object Rule : FinSet 16
+
+# Probabilistic surface for transpile: each learnable rule weight
+# carries an independent Normal(0, 1) prior. The chart-parser
+# downstream consumes these as the per-rule log-probabilities;
+# the program itself is the prior over the rule-weight vector.
+program ccg_prior : Rule -> Rule
+    sample rule_weights : Rule <- Normal(0.0, 1.0)
+    return rule_weights
+
+export ccg_prior
+
 deduction CCG : Term -> Term [semiring=LogProb, start=S, depth=6]
     atoms NP, S, N, VP, PP, Fwd, Bwd, span, the, cat, sleeps, barks
     rule fwd_app : span(I, K, Fwd(X, Y)), span(K, J, Y) |- span(I, J, X) #[learnable]

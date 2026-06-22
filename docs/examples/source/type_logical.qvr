@@ -21,6 +21,18 @@
 
 object Term : FinSet 16
 
+object Rule : FinSet 16
+
+# Probabilistic surface for transpile: each learnable rule weight
+# carries an independent Normal(0, 1) prior. The chart-parser
+# downstream consumes these as the per-rule log-probabilities;
+# the program itself is the prior over the rule-weight vector.
+program type_logical_prior : Rule -> Rule
+    sample rule_weights : Rule <- Normal(0.0, 1.0)
+    return rule_weights
+
+export type_logical_prior
+
 deduction Lambek : Term -> Term [semiring=LogProb, start=S, depth=6]
     atoms S, NP, N, VP, PP, Fwd, Bwd, Tns, span, every, dog, barks
     rule right_app : span(I, K, Fwd(A, B)), span(K, J, B) |- span(I, J, A) #[learnable]

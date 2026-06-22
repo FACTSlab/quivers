@@ -10,6 +10,17 @@
 # log-probability.
 
 object Term : FinSet 16
+object Rule : FinSet 9
+
+# Probabilistic surface for transpile: each learnable rule weight
+# carries an independent Normal(0, 1) prior. A downstream chart
+# parser would consume these as the per-rule log-probabilities;
+# the program itself is the prior over the rule-weight vector.
+program pcfg_prior : Rule -> Rule
+    sample rule_weights : Rule <- Normal(0.0, 1.0)
+    return rule_weights
+
+export pcfg_prior
 
 deduction PCFG : Term -> Term [semiring=LogProb, start=S, depth=4]
     atoms S, NP, VP, Det, N, V, span, the, a, cat, dog, sleeps, runs

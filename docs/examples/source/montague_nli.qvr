@@ -25,6 +25,18 @@ object Term : FinSet 8
 # Grammar deduction
 # ---------------------------------------------------------------------------
 
+object Rule : FinSet 16
+
+# Probabilistic surface for transpile: each learnable rule weight
+# carries an independent Normal(0, 1) prior. The chart-parser
+# downstream consumes these as the per-rule log-probabilities;
+# the program itself is the prior over the rule-weight vector.
+program montague_nli_prior : Rule -> Rule
+    sample rule_weights : Rule <- Normal(0.0, 1.0)
+    return rule_weights
+
+export montague_nli_prior
+
 deduction Montague : Term -> Term [semiring=LogProb, start=S, depth=10]
     # Category and term-algebra constructors live in ``atoms``.
     # ``Var`` is the variable-occurrence constructor; ``App`` is

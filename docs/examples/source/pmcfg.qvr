@@ -49,6 +49,18 @@
 
 object Term : FinSet 16
 
+object Rule : FinSet 16
+
+# Probabilistic surface for transpile: each learnable rule weight
+# carries an independent Normal(0, 1) prior. The chart-parser
+# downstream consumes these as the per-rule log-probabilities;
+# the program itself is the prior over the rule-weight vector.
+program pmcfg_prior : Rule -> Rule
+    sample rule_weights : Rule <- Normal(0.0, 1.0)
+    return rule_weights
+
+export pmcfg_prior
+
 deduction PMCFG : Term -> Term [semiring=LogProb, start=NP, depth=4]
     atoms NP, N, Det, V, who, S, RC, sg, span, the, man, dog, mary, john, saw, met
     # Lexical entries are span(I, J, X) for rank-1 categories.
