@@ -23,7 +23,7 @@
 
 composition real as algebra
 
-object Item : FinSet 200
+object Item : FinSet 64
 object H_in : FinSet 4
 object H1 : FinSet 32
 object H2 : FinSet 16
@@ -37,4 +37,22 @@ morphism W_3 : H2 -> H_out [role=latent]
 
 let bnn = X >> W_1 >> W_2 >> W_3
 
-export bnn
+# Probabilistic surface: every entry of the three weight matrices
+# carries an independent Normal(0, 1) prior (the matrix-normal
+# special case with V = U = I). The per-item input row drives the
+# composed linear chain; the final H_out-vector is interpreted as
+# an unnormalised score, and the observed class index is sampled
+# from a Categorical over the softmax-normalised scores.
+program bnn_program : Item -> Item
+    sample W_1_mat : H1 <- Normal(0.0, 1.0) [over=H_in, iid_over=H1]
+    sample W_2_mat : H2 <- Normal(0.0, 1.0) [over=H1, iid_over=H2]
+    sample W_3_mat : H_out <- Normal(0.0, 1.0) [over=H2, iid_over=H_out]
+
+    let h1 = W_1_mat[x_row]
+    let h2 = W_2_mat[h1]
+    let logits = W_3_mat[h2]
+
+    observe y : Item <- Categorical(logits)
+    return y
+
+export bnn_program
