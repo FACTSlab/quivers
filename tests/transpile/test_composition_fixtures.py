@@ -66,9 +66,6 @@ _KNOWN_COMPOSITION_GAPS: dict[tuple[str, str], str] = {
     ("truncated_normal_recovery", "church"): (
         "family:TruncatedNormal:church"
     ),
-    ("truncated_normal_recovery", "gen"): (
-        "family:TruncatedNormal: no Gen.jl target name"
-    ),
     ("truncated_normal_recovery", "webppl"): (
         "family:no-webppl-target:TruncatedNormal"
     ),
