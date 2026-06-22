@@ -37,6 +37,8 @@ Per the Turing.jl idiom the renderer:
 
 from __future__ import annotations
 
+import pathlib
+
 import panproto
 import torch.distributions.constraints as _torch_constraints
 
@@ -62,6 +64,7 @@ from quivers.transpile._api import UnsupportedConstruct
 from quivers.transpile._expand_composites import expand_composite_lets
 from quivers.transpile._pipeline import (
     EmitPretty,
+    parser_registry,
     target_protocol,
 )
 from quivers.transpile.renderers._julia_helpers import (
@@ -465,6 +468,18 @@ class TuringRenderer(RendererBase):
             sb, counter, name="model", params=params, body_vid=body
         )
         macro = _macro_call(sb, counter, "model", fn)
+        # Turing.jl + Distributions.jl ship a large catalogue of
+        # distributions but lack `HalfStudentT` and `ContinuousBernoulli`.
+        # When the IR samples or observes from either, graft the helper
+        # at [`runtime_turing.jl`][quivers.transpile.runtime_turing] onto
+        # the source above the `@model function model` macrocall so the
+        # body's `~ HalfStudentT(...)` / `~ ContinuousBernoulli(...)`
+        # call sites resolve through normal Julia name lookup.
+        if any(
+            _ir_uses_family(ir.body, f)
+            for f in _TURING_RUNTIME_HELPER_FAMILIES
+        ):
+            _graft_runtime_turing_helper(sb, counter, source)
         sb.edge(source, macro, "child_of")
         return sb.build()
 
@@ -1595,6 +1610,164 @@ def _pick_program(module: Module) -> ProgramDecl:
             "qvr-turing", ["no program_decl: nothing to render"]
         )
     return next((p for p in programs if p.name in exported), programs[-1])
+
+
+# ---------------------------------------------------------------------------
+# Runtime-helper graft: `HalfStudentT`, `ContinuousBernoulli` as
+# Distributions.ContinuousUnivariateDistribution subclasses.
+#
+# Distributions.jl ships `Normal`, `Beta`, `TDist`, `Kumaraswamy`, ... as
+# built-in distributions but lacks `HalfStudentT` and `ContinuousBernoulli`.
+# The transpile-time graft parses the hand-written helper at
+# [`runtime_turing.jl`][quivers.transpile.runtime_turing] once at module
+# load through panproto's Julia tree-sitter grammar; per-render, it
+# copies every grafted vertex / constraint / edge into the per-render
+# schema (with fresh vertex ids) and attaches the runtime's top-level
+# statements as `child_of` of the emitted `source_file` above the
+# `@model function model` macrocall.
+#
+# The emit is structurally a normal Julia source file: `using Distributions`,
+# `using Random`, `using SpecialFunctions`, the `HalfStudentT` struct, the
+# `Distributions.logpdf` / `Distributions.rand` / support methods, and the
+# `ContinuousBernoulli` struct with the same method set. Subsequent
+# `~ HalfStudentT(df, scale)` and `~ ContinuousBernoulli(probs)` call sites
+# in the model body then resolve to the grafted types via normal Julia
+# name lookup.
+# ---------------------------------------------------------------------------
+
+
+_RUNTIME_TURING_PATH = (
+    pathlib.Path(__file__).resolve().parent.parent / "runtime_turing.jl"
+)
+
+
+#: Families whose Turing.jl emit relies on the
+#: [`runtime_turing.jl`][quivers.transpile.runtime_turing] helper subtree.
+#: Distributions.jl ships `Normal`, `Beta`, `TDist`, `Kumaraswamy`, etc.
+#: as built-in distributions but lacks these; the renderer grafts the
+#: helper when the IR samples or observes from any of them.
+_TURING_RUNTIME_HELPER_FAMILIES: frozenset[str] = frozenset({
+    "HalfStudentT",
+    "ContinuousBernoulli",
+})
+
+
+def _load_runtime_turing_schema() -> tuple[
+    panproto.Schema, str, tuple[str, ...]
+]:
+    """Parse [`runtime_turing.jl`][quivers.transpile.runtime_turing] through
+    panproto's Julia tree-sitter grammar at module-load time.
+
+    Returns the parsed schema, the parsed `source_file` vertex id, and
+    the tuple of top-level child ids in source order (sorted by
+    `start-byte`). The graft replays these children in order beneath
+    the per-render `source_file` so the emit's top-level statements
+    appear in the original file's layout.
+    """
+    schema = parser_registry().parse_with_protocol(
+        "julia",
+        _RUNTIME_TURING_PATH.read_bytes(),
+        str(_RUNTIME_TURING_PATH),
+    )
+    src_id = next(
+        (v.id for v in schema.vertices if v.kind == "source_file"),
+        None,
+    )
+    if src_id is None:
+        raise RuntimeError(
+            f"`source_file` not found in parse of {_RUNTIME_TURING_PATH}"
+        )
+    children_with_sb: list[tuple[int, str]] = []
+    for edge in schema.edges:
+        if edge.src != src_id:
+            continue
+        sb_val = next(
+            (
+                int(c.value)
+                for c in schema.constraints_for(edge.tgt)
+                if c.sort == "start-byte"
+            ),
+            0,
+        )
+        children_with_sb.append((sb_val, edge.tgt))
+    children_with_sb.sort()
+    return schema, src_id, tuple(child for _, child in children_with_sb)
+
+
+_RUNTIME_TURING_SCHEMA, _RUNTIME_TURING_SOURCE_ID, _RUNTIME_TURING_TOP_LEVEL = (
+    _load_runtime_turing_schema()
+)
+
+
+def _subtree_vertex_ids(
+    schema: panproto.Schema, roots: tuple[str, ...]
+) -> set[str]:
+    """Return every vertex id reachable from `roots` via outgoing edges."""
+    seen: set[str] = set(roots)
+    frontier: list[str] = list(roots)
+    while frontier:
+        src = frontier.pop()
+        for edge in schema.edges:
+            if edge.src == src and edge.tgt not in seen:
+                seen.add(edge.tgt)
+                frontier.append(edge.tgt)
+    return seen
+
+
+_RUNTIME_TURING_SUBTREE = _subtree_vertex_ids(
+    _RUNTIME_TURING_SCHEMA, _RUNTIME_TURING_TOP_LEVEL
+)
+
+
+def _ir_uses_family(body: tuple[IRNode, ...], family: str) -> bool:
+    """True iff any [`IRSample`][quivers.transpile.ir.IRSample] or
+    [`IRObserve`][quivers.transpile.ir.IRObserve] in `body` (including
+    nested [`IRMarginalize`][quivers.transpile.ir.IRMarginalize] scopes)
+    samples from `family`."""
+    for node in body:
+        if (
+            isinstance(node, (IRSample, IRObserve))
+            and node.family == family
+        ):
+            return True
+        if isinstance(node, IRMarginalize) and _ir_uses_family(
+            node.scope, family
+        ):
+            return True
+    return False
+
+
+def _graft_runtime_turing_helper(
+    sb: panproto.SchemaBuilder, counter: list[int], source_vid: str
+) -> None:
+    """Graft the runtime-helper subtree onto the per-render schema.
+
+    Copies every vertex, every constraint, and every internal edge of
+    the parsed `runtime_turing.jl` subtree into the per-render
+    `SchemaBuilder` with fresh vertex ids, then attaches each
+    top-level child as a `child_of` of `source_vid` in source order.
+    The grafted top-level children appear above the `@model function
+    model` macrocall in the emit.
+    """
+    src_schema = _RUNTIME_TURING_SCHEMA
+    subtree = _RUNTIME_TURING_SUBTREE
+    id_map: dict[str, str] = {}
+
+    for old in subtree:
+        counter[0] += 1
+        new = f"rt{counter[0]}"
+        id_map[old] = new
+        kind = next(
+            v.kind for v in src_schema.vertices if v.id == old
+        )
+        sb.vertex(new, kind)
+        for cstr in src_schema.constraints_for(old):
+            sb.constraint(new, cstr.sort, cstr.value)
+    for edge in src_schema.edges:
+        if edge.src in id_map and edge.tgt in id_map:
+            sb.edge(id_map[edge.src], id_map[edge.tgt], edge.kind)
+    for child_old in _RUNTIME_TURING_TOP_LEVEL:
+        sb.edge(source_vid, id_map[child_old], "child_of")
 
 
 __all__ = [
