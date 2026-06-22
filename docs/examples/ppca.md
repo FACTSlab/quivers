@@ -19,7 +19,8 @@ composition real as algebra
 
 object LatentDim : FinSet 2
 object ObsDim : FinSet 5
-object Item : FinSet 64
+object Item : FinSet 32
+object Resp : FinSet 160
 
 morphism Z : Item -> LatentDim [role=latent]
 
@@ -27,7 +28,19 @@ morphism W : LatentDim -> ObsDim [role=latent]
 
 let ppca = Z >> W
 
-export ppca
+program ppca_program : Resp -> Resp
+    sample sigma <- HalfCauchy(2.5)
+    sample Z_mat : Item <- Normal(0.0, 1.0) [over=LatentDim, iid_over=Item]
+    sample W_mat : ObsDim <- Normal(0.0, 1.0) [over=LatentDim, iid_over=ObsDim]
+
+    let z_row = Z_mat[item_idx]
+    let w_row = W_mat[obs_idx]
+    let mu = sum(z_row * w_row)
+
+    observe y : Resp <- Normal(mu, sigma)
+    return y
+
+export ppca_program
 ```
 
 ## Walkthrough
@@ -54,39 +67,41 @@ The PPCA / factor analysis distinction lives in the choice of downstream observa
 
 ```python
 import torch
-import torch.distributions as D
 from quivers.dsl import load
 
 torch.manual_seed(0)
 prog = load("docs/examples/source/ppca.qvr")
+model = prog.morphism
 
-N, K, Dn = 64, 2, 5
-W_true     = torch.randn(K, Dn)
-Z_true     = torch.randn(N, K)
-sigma_true = 0.2
-Y          = Z_true @ W_true + sigma_true * torch.randn(N, Dn)
+N, K, Dn = 32, 2, 5
+ND = N * Dn
+item_idx = torch.arange(N).repeat_interleave(Dn)
+obs_idx = torch.arange(Dn).repeat(N)
+
+true_sigma = 0.2
+true_Z_mat = torch.randn(N, K)
+true_W_mat = torch.randn(Dn, K)
+mu_true = (true_Z_mat[item_idx] * true_W_mat[obs_idx]).sum(dim=-1)
+y = torch.distributions.Normal(mu_true, true_sigma).sample()
+
+observations = {
+    "y": y,
+    "item_idx": item_idx,
+    "obs_idx": obs_idx,
+    "sigma": torch.tensor([true_sigma]),
+    "Z_mat": true_Z_mat,
+    "W_mat": true_W_mat,
+}
+x_in = torch.zeros(ND, 1)
 ```
 
 ### SVI fit
 
 ```python
-from quivers.inference import (
-    AutoNormalGuide, ELBO, SVI, lift_to_bayesian_program,
-)
-
-model, x_in, observations = lift_to_bayesian_program(
-    prog,
-    location_fn=lambda _: prog.morphism.tensor,
-    parameter_prior_scale=1.0,
-    observation_family=D.Normal,
-    observation_kwargs={"scale": sigma_true},
-    target_key="Y",
-    x=torch.zeros(N, 1),
-    observations={"Y": Y},
-)
+from quivers.inference import AutoNormalGuide, ELBO, SVI
 
 torch.manual_seed(1)
-guide = AutoNormalGuide(model, observed_names={"Y"})
+guide = AutoNormalGuide(model, observed_names={"y", "item_idx", "obs_idx"})
 optim = torch.optim.Adam(
     list(model.parameters()) + list(guide.parameters()), lr=5e-2,
 )

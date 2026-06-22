@@ -23,7 +23,8 @@ composition real as algebra
 
 object LatentDim : FinSet 2
 object ObsDim : FinSet 5
-object Item : FinSet 64
+object Item : FinSet 32
+object Resp : FinSet 160
 
 morphism Z : Item -> LatentDim [role=latent]
 
@@ -31,4 +32,24 @@ morphism W : LatentDim -> ObsDim [role=latent]
 
 let ppca = Z >> W
 
-export ppca
+# Probabilistic surface: every entry of the loading matrix and
+# per-item latent code carries an independent Normal(0, 1) prior
+# (the matrix-normal special case with V = U = I), the isotropic
+# noise scale sigma carries a HalfCauchy(2.5) prior, and the
+# observed response is scored under Normal(mu, sigma) where mu is
+# the per-row inner product Z[i] . W[d]. The loading matrix is
+# sampled transposed (ObsDim -> LatentDim) so the per-Resp inner
+# product is two compatible Resp-by-LatentDim gathers.
+program ppca_program : Resp -> Resp
+    sample sigma <- HalfCauchy(2.5)
+    sample Z_mat : Item <- Normal(0.0, 1.0) [over=LatentDim, iid_over=Item]
+    sample W_mat : ObsDim <- Normal(0.0, 1.0) [over=LatentDim, iid_over=ObsDim]
+
+    let z_row = Z_mat[item_idx]
+    let w_row = W_mat[obs_idx]
+    let mu = sum(z_row * w_row)
+
+    observe y : Resp <- Normal(mu, sigma)
+    return y
+
+export ppca_program
