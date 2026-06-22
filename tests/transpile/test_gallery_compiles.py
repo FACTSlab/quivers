@@ -130,15 +130,6 @@ _KNOWN_RENDERER_EMIT_GAPS: dict[tuple[str, str], str] = {
         "pick up the latent state from the surrounding scan or thread "
         "it via a `[via=state]` fibration"
     ),
-    ("stan", "mixture_model"): (
-        "fixture declares `sample idx : Resp <- HalfNormal(1.0)` "
-        "(real-valued) but uses `[via=idx]` as an integer index. The "
-        "renderer correctly emits `array[100] real idx` but the "
-        "Stan grammar then rejects the use of a real-valued idx in "
-        "`lps_cls[idx[n], k]`. Either the fixture should declare idx "
-        "as integer-valued (e.g. DiscreteUniform), or the via-fibration "
-        "renderer should reject real-valued fibrations at lower time"
-    ),
     ("stan", "pmf"): (
         "bilinear inner-product idiom `let mu = sum(u_row * v_row)` "
         "with `u_row[i]` and `v_row[i]` each a LatentDim-vector "
