@@ -213,6 +213,14 @@ class StanRenderer(RendererBase):
         self._declared_shapes_state: dict[
             str, tuple[Constraint, Plate]
         ] = {}
+        # name -> K for chain variables whose downstream consumer
+        # binds the value to a slot whose constraint has
+        # `event_dim >= 1` (e.g. Categorical's `probs`). The
+        # declaration path promotes the scalar real type to
+        # `vector[K]`, and the deterministic / sample emit paths
+        # wrap any scalar RHS in `rep_vector(rhs, K)`. See
+        # `_compute_vector_promotions`.
+        self._vector_promotions_state: dict[str, int] = {}
 
     # ------------------------------------------------------------------
     # abstract overrides
@@ -255,6 +263,10 @@ class StanRenderer(RendererBase):
         # calls on the same renderer produce identical schemas.
         self._simplex_cards_state.clear()
         self._declared_shapes_state.clear()
+        self._vector_promotions_state.clear()
+        self._vector_promotions_state.update(
+            self._compute_vector_promotions(ir)
+        )
         # Program root.
         ctx.sb.vertex("prog", "program")
         # Pre-create blocks in canonical Stan order so emit_pretty
@@ -280,6 +292,131 @@ class StanRenderer(RendererBase):
         for node in ir.body:
             self._dispatch_node(ctx, node)
         return ctx.sb.build()
+
+    @property
+    def _vector_promotions(self) -> dict[str, int]:
+        """Per-render map from chain-tail name to the K required by
+        its downstream Categorical (or other event-dim>=1) consumer.
+
+        Populated by `_compute_vector_promotions` at the top of
+        `render()`. The
+        [`declare`][quivers.transpile.renderers.stan.StanRenderer.declare]
+        and
+        [`_emit_deterministic`][quivers.transpile.renderers.stan.StanRenderer._emit_deterministic]
+        paths consult this map to promote scalar real declarations to
+        `vector[K]` and to wrap scalar RHS expressions in
+        `rep_vector(rhs, K)`.
+        """
+        return self._vector_promotions_state
+
+    def _compute_vector_promotions(
+        self, ir: IRProgram
+    ) -> dict[str, int]:
+        """Scan `ir.body` for consumers whose argument slot has
+        `event_dim >= 1` and record the producer name plus required K.
+
+        For each [`IRObserve`][quivers.transpile.ir.IRObserve] or
+        [`IRSample`][quivers.transpile.ir.IRSample] node whose
+        family's positional arg constraint is an
+        `IndependentConstraint(base, n>=1)`, walk its `args`. When the
+        matching arg is an [`IRArgRef`][quivers.transpile.ir.IRArgRef]
+        to a name that the program declares with scalar real support
+        (no event dims), record `{name: K}` where K is the consumer's
+        event-axis cardinality.
+
+        K is sourced from the consumer node's plate's last batch dim
+        (the Categorical's output type axis, per the language-model
+        gallery's `morphism lm_head : Hidden -> Token ~ Categorical`
+        idiom). When the consumer's batch dim does not exist or its
+        size is dynamic, the promotion is skipped and the original
+        declaration shape stands.
+        """
+        producers: dict[str, ConstraintSpec] = {}
+        producer_event_dims: dict[str, tuple[Dim, ...]] = {}
+        for inp in ir.inputs:
+            producers[inp.name] = inp.constraint
+            producer_event_dims[inp.name] = inp.plate.event_dims
+        promotions: dict[str, int] = {}
+        for node in ir.body:
+            if isinstance(node, (IRSample, IRObserve)):
+                meta = FAMILY_META.get(node.family)
+                if meta is not None:
+                    self._record_vector_promotions(
+                        promotions, node, meta, producers,
+                        producer_event_dims,
+                    )
+            if isinstance(node, (IRSample, IRDeterministic, IRObserve)):
+                producers[node.name] = node.constraint
+                producer_event_dims[node.name] = node.plate.event_dims
+        return promotions
+
+    def _record_vector_promotions(
+        self,
+        promotions: dict[str, int],
+        node: IRSample | IRObserve,
+        meta: FamilyMeta,
+        producers: dict[str, ConstraintSpec],
+        producer_event_dims: dict[str, tuple[Dim, ...]],
+    ) -> None:
+        """For each arg-position whose family constraint has
+        `event_dim >= 1` and whose arg is a ref to a scalar producer,
+        record the producer name with the required K."""
+        cls_attr = meta.distribution_class.arg_constraints
+        if not isinstance(cls_attr, dict):
+            return
+        constraints = tuple(cls_attr.values())
+        K = self._consumer_event_K(node)
+        if K is None:
+            return
+        for i, arg in enumerate(node.args):
+            if i >= len(constraints):
+                continue
+            expected = constraints[i]
+            event_dim = int(getattr(expected, "event_dim", 0))
+            if event_dim < 1:
+                continue
+            if not isinstance(arg, IRArgRef) or arg.indices:
+                continue
+            producer_cs = producers.get(arg.name)
+            if producer_cs is None:
+                continue
+            producer_event = producer_event_dims.get(arg.name, ())
+            if producer_event:
+                # Producer already carries event dims; no promotion.
+                continue
+            producer_sup = producer_cs.to_constraint()
+            if not (
+                is_real_scalar(producer_sup)
+                or is_real_positive(producer_sup)
+                or is_real_unit_interval(producer_sup)
+                or is_real_bounded_interval(producer_sup)
+            ):
+                continue
+            existing = promotions.get(arg.name)
+            if existing is not None and existing != K:
+                # Conflicting K from two different consumers; skip
+                # promotion rather than guess.
+                continue
+            promotions[arg.name] = K
+
+    def _consumer_event_K(
+        self, node: IRSample | IRObserve
+    ) -> int | None:
+        """Derive the event-axis cardinality K for a consumer whose
+        slot expects an event_dim>=1 arg.
+
+        For the language-model idiom `observe target : Token <-
+        Categorical(h)`, the Token axis is the consumer node's plate
+        batch_dim. The cardinality is the static size of that batch
+        dim. When the batch dim is dynamic or absent, returns None
+        and the promotion path skips this consumer.
+        """
+        if not node.plate.batch_dims:
+            return None
+        last = node.plate.batch_dims[-1]
+        if isinstance(last, DimStatic):
+            return last.size
+        return None
 
     _CANONICAL_BLOCK_ORDER: tuple[BlockKind, ...] = (
         "data",
@@ -356,7 +493,11 @@ class StanRenderer(RendererBase):
         # top_var_type, then the appropriate inner type per predicate.
         tvt = self._fresh(ctx, "tvt")
         ctx.sb.vertex(tvt, "top_var_type")
-        self._emit_type(ctx, tvt, sup, plate.event_dims)
+        promoted_k = self._vector_promotions.get(name)
+        if promoted_k is not None:
+            self._emit_vector_type_of_size(ctx, tvt, promoted_k)
+        else:
+            self._emit_type(ctx, tvt, sup, plate.event_dims)
         ctx.sb.edge(decl, tvt, "child_of")
         # name field.
         nm = self._fresh(ctx, "ident")
@@ -463,6 +604,26 @@ class StanRenderer(RendererBase):
         vt = self._fresh(ctx, "vt")
         ctx.sb.vertex(vt, "vector_type")
         size_vid = self._dim_size_vertex(ctx, event_dims[0])
+        ctx.sb.edge(vt, size_vid, "child_of")
+        ctx.sb.edge(tvt_vid, vt, "child_of")
+
+    def _emit_vector_type_of_size(
+        self,
+        ctx: _RenderCtx,
+        tvt_vid: str,
+        size: int,
+    ) -> None:
+        """Emit a `vector[K]` type child under `tvt_vid` with a
+        literal integer size.
+
+        Used by the vector-promotion path: chain-tail variables whose
+        downstream consumer binds them to an event_dim>=1 slot are
+        declared as `vector[K]` (wrapped in `array[batch]` when the
+        producer had batch dims) rather than scalar `real`.
+        """
+        vt = self._fresh(ctx, "vt")
+        ctx.sb.vertex(vt, "vector_type")
+        size_vid = self._int_literal(ctx, size)
         ctx.sb.edge(vt, size_vid, "child_of")
         ctx.sb.edge(tvt_vid, vt, "child_of")
 
@@ -2121,10 +2282,14 @@ class StanRenderer(RendererBase):
             ctx.sb.edge(decl, arr, "child_of")
         tvt = self._fresh(ctx, "tpvt")
         ctx.sb.vertex(tvt, "top_var_type")
-        self._emit_type(
-            ctx, tvt, node.constraint.to_constraint(),
-            node.plate.event_dims,
-        )
+        promoted_k = self._vector_promotions.get(node.name)
+        if promoted_k is not None:
+            self._emit_vector_type_of_size(ctx, tvt, promoted_k)
+        else:
+            self._emit_type(
+                ctx, tvt, node.constraint.to_constraint(),
+                node.plate.event_dims,
+            )
         ctx.sb.edge(decl, tvt, "child_of")
         nm = self._fresh(ctx, "tpnm")
         ctx.sb.vertex(nm, "identifier")
@@ -2148,6 +2313,8 @@ class StanRenderer(RendererBase):
                 ),
                 node.expr,
             )
+            if promoted_k is not None:
+                rhs = self._wrap_rep_vector(ctx, rhs, promoted_k)
             ctx.sb.edge(decl, rhs, "child_of")
             return
 
@@ -2180,7 +2347,36 @@ class StanRenderer(RendererBase):
             ),
             subbed,
         )
+        if promoted_k is not None:
+            rhs = self._wrap_rep_vector(ctx, rhs, promoted_k)
         ctx.sb.edge(asn, rhs, "child_of")
+
+    def _wrap_rep_vector(
+        self,
+        ctx: _RenderCtx,
+        inner_vid: str,
+        size: int,
+    ) -> str:
+        """Wrap an existing expression vertex in a
+        `rep_vector(<inner>, K)` call.
+
+        Used by the vector-promotion path: when a scalar deterministic
+        binding produces a name that is consumed by an event_dim>=1
+        slot, the per-element RHS is broadcast to a length-K vector
+        so the downstream consumer's shape contract is satisfied.
+        """
+        fn = self._fresh(ctx, "rvfn")
+        ctx.sb.vertex(fn, "function_expression")
+        fnid = self._fresh(ctx, "rvfnid")
+        ctx.sb.vertex(fnid, "identifier")
+        ctx.sb.constraint(fnid, "literal-value", "rep_vector")
+        ctx.sb.edge(fn, fnid, "name")
+        al = self._fresh(ctx, "rval")
+        ctx.sb.vertex(al, "argument_list")
+        ctx.sb.edge(al, inner_vid, "child_of")
+        ctx.sb.edge(al, self._int_literal(ctx, size), "child_of")
+        ctx.sb.edge(fn, al, "child_of")
+        return fn
 
     def _index_plated_let_refs(
         self,
