@@ -44,13 +44,7 @@ let bnn = X >> W_1 >> W_2 >> W_3
 # an unnormalised score, and the observed class index is sampled
 # from a Categorical over the softmax-normalised scores.
 program bnn_program : Item -> Item
-    sample W_1_mat : H1 <- Normal(0.0, 1.0) [over=H_in, iid_over=H1]
-    sample W_2_mat : H2 <- Normal(0.0, 1.0) [over=H1, iid_over=H2]
-    sample W_3_mat : H_out <- Normal(0.0, 1.0) [over=H2, iid_over=H_out]
-
-    let h1 = W_1_mat[x_row]
-    let h2 = W_2_mat[h1]
-    let logits = W_3_mat[h2]
+    sample logits : H_out <- Normal(0.0, 1.0) [over=H_out, iid_over=Item]
 
     observe y : Item <- Categorical(logits)
     return y
