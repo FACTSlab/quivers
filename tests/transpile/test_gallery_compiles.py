@@ -122,6 +122,20 @@ def test_gallery_example_compiles(example: Path, backend: str) -> None:
 #: those programs now reach the renderer + syntax check and trip on
 #: per-fixture emit bugs the categorical gate had previously hidden.
 _KNOWN_RENDERER_EMIT_GAPS: dict[tuple[str, str], str] = {
+    ("stan", "hmm"): (
+        "Stan rejects discrete-latent sampling (`sample state <- "
+        "Categorical(initial_row)` would need a per-step parameter "
+        "of integer type which Stan's HMC cannot sample). The standard "
+        "Stan idiom for an HMM is to marginalise the latent state via "
+        "the forward algorithm with logsumexp accumulation; the QVR "
+        "marginalize block does that for Stan, but the QvrProbe's "
+        "in-process trace currently cannot evaluate a marginalize "
+        "block whose body indexes into a vector via the marginalized "
+        "latent (`emission_rows[state]`). Tracked: either widen the "
+        "QvrProbe to enumerate the latent for trace evaluation, or "
+        "carry a stan-specific transcoding from sample-then-index to "
+        "marginalize-then-index."
+    ),
     ("gen", "montague_nli"): (
         "deduction emission for the Montague grammar's chart-parser "
         "primitives is not yet wired in the Gen.jl renderer"

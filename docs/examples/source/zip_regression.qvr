@@ -43,7 +43,7 @@ program zip_regression : Resp -> Resp
     let pi_z = sigmoid(az + bz * x)
     let rate = exp(ar + br * x)
 
-    marginalize z : Resp <- Bernoulli(pi_z) [reduction=logsumexp]
+    marginalize z : Resp <- ContinuousBernoulli(pi_z)
         let gated_rate = z * rate
         observe y : Resp <- Poisson(gated_rate)
 
