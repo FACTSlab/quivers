@@ -946,6 +946,7 @@ FAMILY_META: dict[str, FamilyMeta] = {
         distribution_class=_MatrixNormal,
         quivers_class=ConditionalMatrixNormal,
         target_names={
+            "numpyro": "MatrixNormal",
             "pymc": "MatrixNormal",
             "edward2": "MatrixNormalLinearOperator",
             "turing": "MatrixNormal",
@@ -964,6 +965,13 @@ FAMILY_META: dict[str, FamilyMeta] = {
         quivers_class=ConditionalGaussianProcess,
         target_names={
             "edward2": "GaussianProcess",
+            "numpyro": "MultivariateNormal",
+            "pyro": "MultivariateNormal",
+            "stan": "multi_normal",
+            "turing": "MvNormal",
+            "gen": "mvnormal",
+            "webppl": "MultivariateGaussian",
+            "pymc": "MvNormal",
         },
     ),
     "Horseshoe": FamilyMeta(
