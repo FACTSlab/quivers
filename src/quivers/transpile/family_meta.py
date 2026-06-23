@@ -952,6 +952,11 @@ FAMILY_META: dict[str, FamilyMeta] = {
             "edward2": "MatrixNormalLinearOperator",
             "turing": "MatrixNormal",
             "gen": "matrix_normal",
+            "stan": "multi_normal",
+            "webppl": "MultivariateGaussian",
+            "bugs": "dmnorm",
+            "jags": "dmnorm",
+            "church": "multivariate-gaussian",
         },
         arg_aliases={
             "pymc": {
