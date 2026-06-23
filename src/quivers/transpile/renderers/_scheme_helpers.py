@@ -26,6 +26,7 @@ from quivers.dsl.ast_nodes import (
     LetExprUnaryOp,
     LetExprVar,
     LetFactorBinder,
+    TypeName,
 )
 from quivers.transpile._api import UnsupportedConstruct
 
@@ -197,6 +198,16 @@ def _render_factor(ctx, expr: LetExprFactor) -> str:
         )
     binder = expr.binders[0]
     size_text = _binder_static_size(binder)
+    if size_text is None:
+        # Fall back to the renderer ctx's cards map for binders whose
+        # index is a `TypeName` referencing a named object (e.g.
+        # ``c : Comp`` with ``object Comp : FinSet 3``).
+        index = binder.index
+        cards = getattr(ctx, "cards", None) or {}
+        if isinstance(index, TypeName):
+            card = cards.get(index.name)
+            if card is not None:
+                size_text = str(card)
     if size_text is None:
         raise UnsupportedConstruct(
             _TARGET,
