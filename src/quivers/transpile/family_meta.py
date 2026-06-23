@@ -947,9 +947,11 @@ FAMILY_META: dict[str, FamilyMeta] = {
         quivers_class=ConditionalMatrixNormal,
         target_names={
             "numpyro": "MatrixNormal",
+            "pyro": "MatrixNormal",
             "pymc": "MatrixNormal",
             "edward2": "MatrixNormalLinearOperator",
             "turing": "MatrixNormal",
+            "gen": "matrix_normal",
         },
         arg_aliases={
             "pymc": {
