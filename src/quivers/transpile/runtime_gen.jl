@@ -182,3 +182,25 @@ Gen.has_output_grad(::LKJCholeskyDist) = false
 Gen.has_argument_grads(::LKJCholeskyDist) = (false, false)
 
 (::LKJCholeskyDist)(dim, concentration) = Gen.random(LKJCholeskyDist(), dim, concentration)
+
+struct MatrixNormalDist <: Gen.Distribution{Matrix{Float64}} end
+
+const matrix_normal = MatrixNormalDist()
+
+function Gen.random(::MatrixNormalDist, loc::AbstractMatrix, row_covariance::AbstractMatrix, column_covariance::AbstractMatrix)
+    return rand(Distributions.MatrixNormal(Matrix{Float64}(loc), Matrix{Float64}(row_covariance), Matrix{Float64}(column_covariance)))
+end
+
+function Gen.logpdf(::MatrixNormalDist, x::AbstractMatrix, loc::AbstractMatrix, row_covariance::AbstractMatrix, column_covariance::AbstractMatrix)
+    return Distributions.logpdf(Distributions.MatrixNormal(Matrix{Float64}(loc), Matrix{Float64}(row_covariance), Matrix{Float64}(column_covariance)), Matrix{Float64}(x))
+end
+
+function Gen.logpdf_grad(::MatrixNormalDist, x::AbstractMatrix, loc::AbstractMatrix, row_covariance::AbstractMatrix, column_covariance::AbstractMatrix)
+    return (nothing, nothing, nothing, nothing)
+end
+
+Gen.has_output_grad(::MatrixNormalDist) = false
+
+Gen.has_argument_grads(::MatrixNormalDist) = (false, false, false)
+
+(::MatrixNormalDist)(loc, row_covariance, column_covariance) = Gen.random(MatrixNormalDist(), loc, row_covariance, column_covariance)
