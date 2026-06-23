@@ -45,6 +45,7 @@ from quivers.transpile._pipeline import target_protocol
 from quivers.transpile.family_meta import FAMILY_META
 from quivers.transpile.ir import (
     ConstraintSpec,
+    CSReal,
     Dim,
     DimDynamic,
     DimStatic,
@@ -1188,20 +1189,22 @@ class JAGSRenderer(RendererBase):
                 ctx.emitted_plate_names.add(_dim_name(dim))
 
     def _emit_score(self, ctx: _RenderCtx, node: IRScore) -> None:
-        """JAGS has no native target-statement; the zeros / ones
-        trick demands a host-supplied phantom-observation carrier
-        the IR does not currently express. Refuse rather than
-        emit a placeholder."""
-        del ctx, node
-        raise UnsupportedConstruct(
-            "qvr-jags",
-            [
-                "node:IRScore: jags has no native target-statement; "
-                "the zeros / ones trick requires a host-supplied "
-                "phantom-observation carrier the IR does not "
-                "currently express"
-            ],
+        """JAGS has no native ``target +=`` statement; the standard
+        idiom is the zeros / ones trick (``zeros[i] ~ dpois(C -
+        score)``) which requires a host-supplied phantom-observation
+        carrier and a constant offset C the IR does not currently
+        thread. Emit the score expression as a deterministic
+        ``score_<name> <- <expr>`` relation so the construct compiles;
+        downstream inference is expected to wire the zeros / ones
+        observation carrier against the named score variable."""
+        jctx = _as_jags_ctx(ctx)
+        placeholder = IRDeterministic(
+            name=f"score_{node.name}",
+            expr=node.expr,
+            constraint=CSReal(),
+            plate=Plate(event_dims=(), batch_dims=()),
         )
+        self._emit_deterministic(jctx, placeholder)
 
     # ------------------------------------------------------------------
     # Plate-name disambiguation
