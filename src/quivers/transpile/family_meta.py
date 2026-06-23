@@ -373,7 +373,16 @@ class _InverseWishart(Distribution):
     ) -> None:
         self.df = df
         self.scale_tril = scale_tril
-        super().__init__(validate_args=validate_args)
+        # `scale_tril` is `(..., dim, dim)`; carry the trailing two
+        # axes as the matrix event shape so transpile shape inference
+        # picks up the square dimension.
+        event_shape = scale_tril.shape[-2:]
+        batch_shape = scale_tril.shape[:-2]
+        super().__init__(
+            batch_shape=batch_shape,
+            event_shape=event_shape,
+            validate_args=validate_args,
+        )
 
 
 class _MatrixNormal(Distribution):
