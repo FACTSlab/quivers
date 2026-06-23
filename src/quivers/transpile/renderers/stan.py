@@ -688,17 +688,37 @@ class StanRenderer(RendererBase):
         tvt_vid: str,
         event_dims: tuple[Dim, ...],
     ) -> None:
-        if len(event_dims) != 1:
+        # Accept either a single event dim (e.g. `(Dim,)` from an
+        # explicit `over=[Dim]`) or two equal-size event dims (e.g.
+        # `(Dim, Dim)` from a matrix-valued morphism with two
+        # identical axes). Stan's `cov_matrix[N]` is square by
+        # definition; both representations carry the same `N`.
+        if len(event_dims) == 2:
+            d0, d1 = event_dims
+            size0 = getattr(d0, "size", None)
+            size1 = getattr(d1, "size", None)
+            if size0 is None or size1 is None or size0 != size1:
+                raise UnsupportedConstruct(
+                    "qvr-stan",
+                    [
+                        f"declare:cov_matrix:event-rank:2-non-square: "
+                        f"sizes {size0} vs {size1}"
+                    ],
+                )
+            chosen = d0
+        elif len(event_dims) == 1:
+            chosen = event_dims[0]
+        else:
             raise UnsupportedConstruct(
                 "qvr-stan",
                 [
                     f"declare:cov_matrix:event-rank:{len(event_dims)}: "
-                    f"Stan cov_matrix requires one square event dim"
+                    f"Stan cov_matrix requires a square event dim"
                 ],
             )
         ct = self._fresh(ctx, "ct")
         ctx.sb.vertex(ct, "cov_matrix_type")
-        size_vid = self._dim_size_vertex(ctx, event_dims[0])
+        size_vid = self._dim_size_vertex(ctx, chosen)
         ctx.sb.edge(ct, size_vid, "child_of")
         ctx.sb.edge(tvt_vid, ct, "child_of")
 
