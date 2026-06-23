@@ -3,7 +3,7 @@
 object Doc : FinSet 5
 object Topic : FinSet 3
 object Resp : FinSet 4
-program prog(alpha : Real) : Resp -> Resp
-    sample theta : Doc <- Dirichlet(alpha) [over=Topic, iid_over=Doc]
+program prog : Resp -> Resp
+    sample theta : Doc <- Dirichlet(concentration) [over=Topic, iid_over=Doc]
     return theta
 export prog
