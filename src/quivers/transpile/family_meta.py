@@ -974,6 +974,9 @@ FAMILY_META: dict[str, FamilyMeta] = {
             "gen": "mvnormal",
             "webppl": "MultivariateGaussian",
             "pymc": "MvNormal",
+            "bugs": "dmnorm",
+            "jags": "dmnorm",
+            "church": "multivariate-gaussian",
         },
     ),
     "Horseshoe": FamilyMeta(
