@@ -541,6 +541,33 @@ class IRArgFamilyRef(IRArg):
     kind: Literal["family_ref"] = "family_ref"
 
 
+class IRArgKernel(IRArg):
+    """A Gaussian-process kernel-covariance argument.
+
+    Carries the kernel family name (``"rbf"`` is the only kernel
+    `Lower` emits today), the positive ``length_scale`` hyperparameter,
+    the data-input name that holds the input-locations vector
+    (``"x"`` by convention), and the static cardinality of the grid
+    axis. Renderers emit the backend-specific covariance matrix:
+    Stan uses ``gp_exp_quad_cov(x, 1.0, length_scale)`` plus a
+    diagonal jitter; NumPyro / Pyro / PyMC emit a
+    ``jnp.exp(-0.5 * d2 / length_scale**2)`` expression; Turing /
+    Gen build the matrix in Julia; WebPPL / Church emit nested
+    loops.
+
+    A small diagonal ``jitter`` is added for numerical positive-
+    definiteness before passing the matrix to the
+    MultivariateNormal sampler.
+    """
+
+    kernel: str
+    length_scale: float
+    x_name: str
+    grid_size: int
+    jitter: float = 1e-8
+    kind: Literal["kernel"] = "kernel"
+
+
 # ---------------------------------------------------------------------------
 # IRNode: top-level statements of a program body.
 # ---------------------------------------------------------------------------
@@ -681,6 +708,7 @@ __all__ = [
     "IRArg",
     "IRArgBroadcast",
     "IRArgFamilyRef",
+    "IRArgKernel",
     "IRArgList",
     "IRArgMatrix",
     "IRArgNumber",

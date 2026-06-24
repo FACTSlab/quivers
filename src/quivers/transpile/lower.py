@@ -58,8 +58,10 @@ from quivers.dsl.ast_nodes import (
     MorphismDecl,
     ObjectDecl,
     ObserveStep,
+    OptionEntry,
     OptionList,
     OptionName,
+    OptionNumber,
     OptionValue,
     ProgramDecl,
     ProgramStep,
@@ -109,6 +111,7 @@ from quivers.transpile.ir import (
     CSIntegerInterval,
     CSNonnegativeInteger,
     CSReal,
+    CSRealVector,
     Constraint,
     ConstraintSpec,
     Dim,
@@ -117,6 +120,7 @@ from quivers.transpile.ir import (
     IRArg,
     IRArgBroadcast,
     IRArgFamilyRef,
+    IRArgKernel,
     IRArgList,
     IRArgMatrix,
     IRArgNumber,
@@ -261,6 +265,8 @@ class Lower(dx.Mapping[Module, IRProgram]):
             family_registry=ctx.family_set,
             target="qvr-lower",
         )
+        if resolved.family == "GP":
+            return self._lower_sample_gp(step, ctx)
         meta = _family_meta_or_raise(resolved.family)
         ir_args, arg_names = self._lower_args(
             meta, resolved, ctx,
@@ -282,6 +288,68 @@ class Lower(dx.Mapping[Module, IRProgram]):
         return IRSample(
             name=step.vars[0],
             family=resolved.family,
+            args=ir_args,
+            arg_names=arg_names,
+            constraint=constraint,
+            plate=plate,
+        )
+
+    def _lower_sample_gp(
+        self, step: SampleStep, ctx: _LowerCtx
+    ) -> IRSample:
+        """Lower a ``sample f <- gp_kernel`` step whose morphism is
+        declared as ``~ GP``.
+
+        The GP family is realised at the grid points implied by the
+        morphism's domain axis (a `FinSet N` object). The lowered IR
+        carries an [`IRArgKernel`][quivers.transpile.ir.IRArgKernel]
+        argument describing the covariance kernel and the data-input
+        name (``x``) that holds the input locations vector; the mean
+        is the zero vector of the grid size. Each renderer then emits
+        the backend-specific covariance computation plus a
+        MultivariateNormal sample.
+
+        The grid axis is recovered from the morphism's domain. The
+        kernel family name and length_scale ride on the morphism's
+        ``[kernel=..., length_scale=...]`` option block; if the
+        kernel name is absent the lowering raises
+        `UnsupportedConstruct`.
+        """
+        if len(step.vars) != 1:
+            raise UnsupportedConstruct(
+                "qvr-lower",
+                [
+                    "sample:gp:destructuring-tuple: lower expects one "
+                    "bound name per GP SampleStep"
+                ],
+            )
+        decl = ctx.morphisms.get(step.morphism)
+        if decl is None:
+            raise UnsupportedConstruct(
+                "qvr-lower",
+                [f"family:GP:morphism-unknown:{step.morphism}"],
+            )
+        grid_axis_name, grid_size = _gp_grid_axis(decl.domain, ctx.cards)
+        kernel_name, length_scale = _gp_kernel_options(decl.options)
+        x_name = "x"
+        ir_args: tuple[IRArg, ...] = (
+            IRArgNumber(value=0.0),
+            IRArgKernel(
+                kernel=kernel_name,
+                length_scale=length_scale,
+                x_name=x_name,
+                grid_size=grid_size,
+            ),
+        )
+        arg_names = ("mean", "covariance_matrix")
+        plate = Plate(
+            event_dims=(DimStatic(size=grid_size, name=grid_axis_name),),
+            batch_dims=(),
+        )
+        constraint = CSRealVector()
+        return IRSample(
+            name=step.vars[0],
+            family="GP",
             args=ir_args,
             arg_names=arg_names,
             constraint=constraint,
@@ -853,8 +921,12 @@ class Lower(dx.Mapping[Module, IRProgram]):
         # such as `BetaBinomial(total_count, ...)`) carry an integer
         # constraint so renderers declare them as `int` rather than
         # `real`. The rest default to `CSReal()`.
+        # GP kernel-input names ride on `IRArgKernel.x_name` and need
+        # a vector plate sized by the grid axis so renderers declare
+        # them as `vector[N]` / `array[N] real`.
         seen_param_names = seen_param | seen_via | seen_obs
         integer_names = self._integer_typed_free_names(body)
+        kernel_input_plates = self._kernel_input_plates(body)
         free_inputs: list[IRDataInput] = []
         seen_free: set[str] = set()
         for name in used:
@@ -865,6 +937,9 @@ class Lower(dx.Mapping[Module, IRProgram]):
             if name in seen_free:
                 continue
             seen_free.add(name)
+            plate = kernel_input_plates.get(
+                name, Plate(event_dims=(), batch_dims=())
+            )
             constraint: ConstraintSpec = (
                 CSNonnegativeInteger()
                 if name in integer_names
@@ -874,11 +949,40 @@ class Lower(dx.Mapping[Module, IRProgram]):
                 IRDataInput(
                     name=name,
                     constraint=constraint,
-                    plate=Plate(event_dims=(), batch_dims=()),
+                    plate=plate,
                 )
             )
 
         return tuple(param_inputs + via_inputs + obs_inputs + free_inputs)
+
+    def _kernel_input_plates(
+        self, body: tuple[IRNode, ...]
+    ) -> dict[str, Plate]:
+        """Return ``x_name`` → `Plate` for every
+        [`IRArgKernel`][quivers.transpile.ir.IRArgKernel] that appears
+        in the body.
+
+        The kernel input is a one-dimensional vector of grid
+        locations; the renderer declares it with a single batch
+        dim sized by the kernel's `grid_size`. Used by
+        `_build_inputs` to give the GP kernel-input data declaration
+        the right shape rather than defaulting to scalar.
+        """
+        out: dict[str, Plate] = {}
+        for node in _walk_nodes(body):
+            if not isinstance(node, (IRSample, IRObserve, IRMarginalize)):
+                continue
+            for arg in node.args:
+                if not isinstance(arg, IRArgKernel):
+                    continue
+                if arg.x_name in out:
+                    continue
+                grid_dim = DimStatic(size=arg.grid_size, name="grid")
+                out[arg.x_name] = Plate(
+                    event_dims=(),
+                    batch_dims=(grid_dim,),
+                )
+        return out
 
     def _integer_typed_free_names(
         self, body: tuple[IRNode, ...]
@@ -1241,11 +1345,96 @@ def free_names_in_arg(arg: IRArg) -> list[str]:
                 seen.add(a.name)
                 out.append(a.name)
             return
+        if isinstance(a, IRArgKernel):
+            if a.x_name not in seen:
+                seen.add(a.x_name)
+                out.append(a.x_name)
+            return
         if isinstance(a, IRArgNumber):
             return
 
     visit(arg)
     return out
+
+
+def _gp_grid_axis(
+    domain: ObjectExpr, cards: dict[str, int]
+) -> tuple[str, int]:
+    """Return the (axis-name, cardinality) for a GP morphism's
+    domain.
+
+    A GP is realised at a finite collection of input locations
+    indexed by a `FinSet N` axis (the morphism's domain). The
+    helper accepts a `TypeName` domain whose cardinality is recorded
+    in `cards`; raises `UnsupportedConstruct` otherwise.
+    """
+    if isinstance(domain, TypeName):
+        size = cards.get(domain.name)
+        if size is None:
+            raise UnsupportedConstruct(
+                "qvr-lower",
+                [
+                    f"family:GP:grid-axis: domain `{domain.name}` "
+                    f"has no static cardinality in object table"
+                ],
+            )
+        return domain.name, size
+    raise UnsupportedConstruct(
+        "qvr-lower",
+        [
+            f"family:GP:grid-axis: unsupported domain shape "
+            f"{type(domain).__name__}; the GP grid axis must be a "
+            f"single FinSet object"
+        ],
+    )
+
+
+def _gp_kernel_options(
+    options: tuple[OptionEntry, ...],
+) -> tuple[str, float]:
+    """Extract ``(kernel, length_scale)`` from a GP morphism's
+    option block.
+
+    Accepts ``[kernel=rbf, length_scale=1.0]``; missing entries
+    raise `UnsupportedConstruct`. The kernel name is normalised to
+    a lower-case identifier and must be in the registry of
+    supported kernels (``"rbf"`` today).
+    """
+    kernel: str | None = None
+    length_scale: float | None = None
+    for opt in options:
+        if opt.key == "kernel" and isinstance(opt.value, OptionName):
+            kernel = opt.value.value.lower()
+        elif opt.key == "length_scale" and isinstance(
+            opt.value, OptionNumber
+        ):
+            length_scale = float(opt.value.value)
+    if kernel is None:
+        raise UnsupportedConstruct(
+            "qvr-lower",
+            ["family:GP:missing-option: kernel"],
+        )
+    if length_scale is None:
+        raise UnsupportedConstruct(
+            "qvr-lower",
+            ["family:GP:missing-option: length_scale"],
+        )
+    if kernel != "rbf":
+        raise UnsupportedConstruct(
+            "qvr-lower",
+            [
+                f"family:GP:unsupported-kernel:{kernel}: only `rbf` is "
+                f"implemented"
+            ],
+        )
+    if length_scale <= 0.0:
+        raise UnsupportedConstruct(
+            "qvr-lower",
+            [
+                f"family:GP:length_scale:{length_scale}: must be > 0"
+            ],
+        )
+    return kernel, length_scale
 
 
 def arg_ref_shape(
