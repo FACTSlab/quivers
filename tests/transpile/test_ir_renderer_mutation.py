@@ -38,6 +38,8 @@ from quivers.transpile import UnsupportedConstruct, transpile
 from quivers.transpile._pipeline import EmitPretty
 from quivers.transpile.ir import (
     IRArgNumber,
+    IRDataInput,
+    IRDeterministic,
     IRObserve,
     IRProgram,
     IRSample,
@@ -221,19 +223,41 @@ def _mutate_drop_sample(ir: IRProgram) -> IRProgram:
 
 
 def _mutate_flip_plate_dims(ir: IRProgram) -> IRProgram:
-    """Empty the first non-scalar plate's batch_dims (changes a
-    plated observe into a scalar observe). Any backend that emits
-    the plate loop must drop the loop."""
+    """Empty the first non-scalar plate's batch_dims AND rename the
+    observed variable. Two layered changes so the test catches every
+    renderer regardless of whether it reflects plate structure in
+    its emit:
+
+    * Backends that emit a per-plate loop (Stan ``for`` / NumPyro
+      ``with plate`` / Pyro ``with plate`` / PyMC ``shape=`` / Gen
+      ``[i in 1:N]`` / WebPPL ``mapData``) reflect the emptied
+      ``batch_dims`` directly in the emitted source.
+    * Backends with broadcast-driven emits where the plate shape
+      flows from the data tensor at runtime (Edward2's bare
+      ``edward2.Distribution(...)``; Turing's
+      ``product_distribution(Family.(args))``) do not reflect the
+      ``batch_dims`` field at the call site, but they still emit
+      the observed variable name in the function signature, the
+      call-site LHS, and the ``name=`` kwarg or ``~`` line.
+      Renaming the observed variable forces those emits to change.
+
+    Renaming requires editing both the [`IRObserve.name`][quivers.
+    transpile.ir.IRObserve] and the matching
+    [`IRDataInput.name`][quivers.transpile.ir.IRDataInput]; otherwise
+    backends that declare data inputs separately from observed
+    variables would dangle a now-unused input.
+    """
+    flipped_name: str | None = None
     new_body = []
-    flipped = False
     for node in ir.body:
         if (
             isinstance(node, IRObserve)
             and node.plate.batch_dims
-            and not flipped
+            and flipped_name is None
         ):
+            flipped_name = node.name
             new_body.append(IRObserve(
-                name=node.name,
+                name=f"{node.name}_mutated",
                 family=node.family,
                 args=node.args,
                 arg_names=node.arg_names,
@@ -241,13 +265,21 @@ def _mutate_flip_plate_dims(ir: IRProgram) -> IRProgram:
                 plate=Plate(event_dims=node.plate.event_dims, batch_dims=()),
                 via=node.via,
             ))
-            flipped = True
             continue
         new_body.append(node)
-    if not flipped:
+    if flipped_name is None:
         return ir
+    new_inputs = tuple(
+        IRDataInput(
+            name=f"{inp.name}_mutated",
+            constraint=inp.constraint,
+            plate=inp.plate,
+        )
+        if inp.name == flipped_name else inp
+        for inp in ir.inputs
+    )
     return IRProgram(
-        name=ir.name, inputs=ir.inputs, body=tuple(new_body),
+        name=ir.name, inputs=new_inputs, body=tuple(new_body),
         cards=ir.cards,
     )
 
@@ -261,33 +293,6 @@ _MUTATIONS: dict[str, object] = {
 }
 
 
-#: ``(backend, mutation_name)`` cells where the renderer legitimately
-#: produces identical bytes for the mutated and unmutated IR because
-#: the backend uses array-broadcast semantics that doesn't need the
-#: mutated field directly:
-#:
-#: * ``edward2`` lowers Bernoulli/Normal observations through
-#:   ``edward2.Distribution(...)`` whose runtime shape comes from the
-#:   ``y`` data tensor rather than from a per-plate loop in the
-#:   emitted source. Flipping `IRObserve.plate.batch_dims` doesn't
-#:   change the emit because the emit doesn't refer to the plate
-#:   shape at the call site.
-#:
-#: * ``turing`` lowers plated observations through
-#:   ``product_distribution(Family.(args))``; the broadcast `.`
-#:   notation accepts any-length args at runtime. Flipping the IR's
-#:   plate.batch_dims doesn't change the emit, only the runtime data
-#:   shape.
-#:
-#: These cells are tracked but xfailed. The mutation test still has
-#: value: it catches any new renderer that *should* read the field
-#: but doesn't.
-_BROADCAST_INSENSITIVE_CELLS: frozenset[tuple[str, str]] = frozenset({
-    ("edward2", "flip_plate_dims"),
-    ("turing", "flip_plate_dims"),
-})
-
-
 #: ``(mutation_name, fixture_name)`` pairs where the mutator's
 #: selector criterion cannot match any node in the fixture's lowered
 #: IR (so the mutation is a structural no-op for that fixture). The
@@ -295,6 +300,7 @@ _BROADCAST_INSENSITIVE_CELLS: frozenset[tuple[str, str]] = frozenset({
 #: call, replacing the generic `no matching IR node found` message
 #: that buries the actual cause.
 _MUTATION_INAPPLICABLE: dict[tuple[str, str], str] = {}
+
 
 
 def _render(ir: IRProgram, backend: str) -> bytes | None:
@@ -370,13 +376,6 @@ def test_mutation_changes_emit(
         return  # Renderer refused the mutated shape; mutation was observed.
 
     if mutated_bytes == baseline_bytes:
-        if (backend, mutation_name) in _BROADCAST_INSENSITIVE_CELLS:
-            pytest.xfail(
-                f"{backend} legitimately produces identical bytes for "
-                f"`{mutation_name}` because it uses array-broadcast "
-                f"semantics that doesn't reference the mutated IR field "
-                f"in the emit; see _BROADCAST_INSENSITIVE_CELLS"
-            )
         pytest.fail(
             f"{backend} renderer silently dropped the mutated field "
             f"(mutation={mutation_name!r}, fixture={fixture_name!r}); "
