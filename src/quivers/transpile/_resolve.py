@@ -443,13 +443,17 @@ _FAMILY_DEFAULT_ARGS: dict[str, tuple[str | float, ...]] = {
     "StudentT":     (1.0, 0.0, 1.0),
     "Pareto":       (1.0, 1.0),
     "Weibull":      (1.0, 1.0),
-    # Multivariate-shape families: placeholder mu / cov vector
-    # literals so the resolved call has the standard 2-arg signature
-    # WebPPL / NumPyro / Stan / PyMC expect. Real GP / MatrixNormal
+    # Multivariate-shape families: placeholder mu / cov literals so
+    # the resolved call has the right arity for backends that
+    # distinguish positional signatures. Real GP / MatrixNormal
     # emission would derive these from declared axis types.
+    # MatrixNormal carries three placeholders (loc, row_cov, col_cov)
+    # so backends with a strict matrix-normal signature (Stan's
+    # user-defined `matrix_normal_lpdf`, Edward2's
+    # `MatrixNormalLinearOperator`) receive the full argument triple.
     "MultivariateNormal": ("[0.0]", "[[1.0]]"),
     "GP":                 ("[0.0]", "[[1.0]]"),
-    "MatrixNormal":       ("[0.0]", "[[1.0]]"),
+    "MatrixNormal":       ("[0.0]", "[[1.0]]", "[[1.0]]"),
 }
 
 
