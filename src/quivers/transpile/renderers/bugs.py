@@ -706,9 +706,11 @@ class BUGSRenderer(RendererBase):
         ls = kernel_arg.length_scale
         jitter = kernel_arg.jitter
         x = kernel_arg.x_name
-        kmat_name = f"__gp_K_{node.name}"
-        zeros_name = f"__gp_zeros_{node.name}"
-        tau_name = f"__gp_tau_{node.name}"
+        # BUGS rejects identifiers starting with underscore; use a
+        # `gp_` prefix instead of `__gp_` for the synthesized names.
+        kmat_name = f"gp_K_{node.name}"
+        zeros_name = f"gp_zeros_{node.name}"
+        tau_name = f"gp_tau_{node.name}"
         # Synthesize an IRDeterministic for the zeros: K_zeros[i] <- 0
         # with batch_dim "i" (so the existing emit produces the outer
         # for(i) loop and the LHS index).

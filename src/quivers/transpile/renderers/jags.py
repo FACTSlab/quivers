@@ -433,9 +433,11 @@ class JAGSRenderer(RendererBase):
         ls = kernel_arg.length_scale
         jitter = kernel_arg.jitter
         x = kernel_arg.x_name
-        kmat_name = f"__gp_K_{node.name}"
-        zeros_name = f"__gp_zeros_{node.name}"
-        tau_name = f"__gp_tau_{node.name}"
+        # JAGS rejects identifiers starting with underscore; use a
+        # `gp_` prefix instead of `__gp_` for the synthesized names.
+        kmat_name = f"gp_K_{node.name}"
+        zeros_name = f"gp_zeros_{node.name}"
+        tau_name = f"gp_tau_{node.name}"
         # Build the RBF entry expression as a LetExprNode using
         # loop-var references "i" / "j" (JAGS loop variables) plus
         # `x[i]`, `x[j]` lookups.
