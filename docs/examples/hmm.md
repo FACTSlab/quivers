@@ -37,7 +37,7 @@ export hmm
 
 ### Generating synthetic data
 
-Run one forward trace under the program's own (random-initialised) row-stochastic logits so the captured per-state observation index sequence is jointly consistent with the sampled Dirichlet priors. The trace clamps every site under the same seed the QvrProbe scores against, so `log p(theta_true, y)` is finite by construction.
+Run one forward trace under the program's own (random-initialised) row-stochastic logits so the captured observation index is jointly consistent with the sampled Dirichlet priors. The marginalize-then-index body integrates the discrete state out by `logsumexp` enumeration; the surrounding QvrProbe scores `log p(theta_true, y)` against the same marginal, so the captured tensor is finite by construction.
 
 ```python
 import torch
