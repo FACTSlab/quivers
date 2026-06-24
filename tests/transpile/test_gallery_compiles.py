@@ -95,39 +95,9 @@ def test_gallery_example_compiles(example: Path, backend: str) -> None:
         capture_output=True,
         timeout=60.0,
     )
-    if completed.returncode != 0:
-        cell = (backend, example.stem)
-        known = _KNOWN_RENDERER_EMIT_GAPS.get(cell)
-        if known is not None:
-            pytest.xfail(
-                f"{backend!r} on {example.name}: known renderer-emit "
-                f"gap -- {known}"
-            )
     assert completed.returncode == 0, (
         f"{backend!r} compiler rejected {example.name}: "
         f"stdout={completed.stdout.decode('utf-8', errors='replace')!r} "
         f"stderr={completed.stderr.decode('utf-8', errors='replace')!r}\n"
         f"emitted source:\n{emitted.decode('utf-8', errors='replace')}"
     )
-
-
-#: Cells where the QVR→<backend> transpile succeeds but the emitted
-#: source is rejected by the target's syntax check. Each entry pairs
-#: the (backend, fixture-stem) cell with a one-line explanation of
-#: the specific renderer bug. When the renderer is fixed, the
-#: emit re-passes and the entry comes out.
-#:
-#: This list is the residue after the categorical-metadata gate
-#: (`composition_decl` etc.) stopped hiding deeper renderer gaps:
-#: those programs now reach the renderer + syntax check and trip on
-#: per-fixture emit bugs the categorical gate had previously hidden.
-_KNOWN_RENDERER_EMIT_GAPS: dict[tuple[str, str], str] = {
-    ("gen", "montague_nli"): (
-        "deduction emission for the Montague grammar's chart-parser "
-        "primitives is not yet wired in the Gen.jl renderer"
-    ),
-    ("turing", "montague_nli"): (
-        "deduction emission for the Montague grammar's chart-parser "
-        "primitives is not yet wired in the Turing renderer"
-    ),
-}
