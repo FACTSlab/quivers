@@ -365,21 +365,6 @@ def _accumulate_marginalize_block(
     batch_size = x.shape[0]
     per_k_log_liks: list[torch.Tensor] = []
 
-    # Saved env entries we overwrite per-k (the latent itself plus
-    # any body let-binding that consumes the latent); restore the
-    # original values after the pass so downstream steps see a
-    # coherent env.
-    body_vars: list[str] = []
-    for j in block.body_indices:
-        entry = program._step_specs[j]
-        if isinstance(entry, _StepSpec):
-            body_vars.extend(entry.vars)
-        elif isinstance(entry, _LetSpec):
-            body_vars.append(entry.var)
-    saved: dict[str, torch.Tensor] = {
-        name: env[name] for name in body_vars if name in env
-    }
-
     for k in range(K):
         per_k = torch.zeros(batch_size, device=x.device)
         # Bind the latent to k as a long tensor; the bracket-index
@@ -473,7 +458,7 @@ def _accumulate_marginalize_block(
         entry = program._step_specs[j]
         if isinstance(entry, _StepSpec):
             for name in entry.vars:
-                value = env.get(name, saved.get(name, torch.zeros(batch_size, device=x.device)))
+                value = env.get(name, torch.zeros(batch_size, device=x.device))
                 tr.sites[name] = SampleSite(
                     name=name,
                     morphism=cast(
@@ -492,21 +477,6 @@ def _accumulate_marginalize_block(
                 log_prob=torch.zeros(batch_size, device=x.device),
                 is_deterministic=True,
             )
-
-
-def _broadcast_to_batch(lp: torch.Tensor, batch_size: int) -> torch.Tensor:
-    """Broadcast a scalar / `(1,)` log-prob to ``(batch,)``.
-
-    Plate-latent log-probs collapse to a scalar (their density is
-    batch-invariant); observe log-probs return ``(batch,)`` directly.
-    The marginal accumulator needs a uniform ``(batch,)`` shape so
-    every per-k contribution stacks cleanly.
-    """
-    if lp.dim() == 0:
-        return lp.expand(batch_size)
-    if lp.dim() == 1 and lp.shape[0] == 1 and batch_size != 1:
-        return lp.expand(batch_size)
-    return lp
 
 
 def trace(
