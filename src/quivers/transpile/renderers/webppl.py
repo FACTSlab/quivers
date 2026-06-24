@@ -1878,7 +1878,6 @@ _WEBPPL_RUNTIME_HELPER_FAMILIES: frozenset[str] = frozenset({
     "Kumaraswamy",
     "LKJCholesky",
     "ContinuousBernoulli",
-    "MatrixNormal",
 })
 
 
