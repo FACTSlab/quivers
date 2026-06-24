@@ -975,7 +975,7 @@ FAMILY_META: dict[str, FamilyMeta] = {
         distribution_class=_GaussianProcess,
         quivers_class=ConditionalGaussianProcess,
         target_names={
-            "edward2": "GaussianProcess",
+            "edward2": "MultivariateNormalFullCovariance",
             "stan": "multi_normal",
             "numpyro": "MultivariateNormal",
             "pyro": "MultivariateNormal",
