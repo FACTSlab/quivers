@@ -62,6 +62,7 @@ from quivers.transpile.ir import (
     IRArg,
     IRArgBroadcast,
     IRArgFamilyRef,
+    IRArgKernel,
     IRArgList,
     IRArgMatrix,
     IRArgNumber,
@@ -344,6 +345,9 @@ class JAGSRenderer(RendererBase):
         if isinstance(node, IRDataInput):
             return
         if isinstance(node, IRSample):
+            if node.family == "GP":
+                self._emit_gp_block(ctx, node)
+                return
             self._emit_sample(
                 ctx,
                 name=node.name,
@@ -383,6 +387,247 @@ class JAGSRenderer(RendererBase):
     # ------------------------------------------------------------------
     # Sample / observe emission
     # ------------------------------------------------------------------
+
+    def _emit_gp_block(
+        self,
+        ctx: _JAGSCtx,
+        node: IRSample,
+    ) -> None:
+        """Emit a Gaussian-process sample as a sequence of JAGS
+        deterministic relations plus a multivariate-normal stochastic
+        relation:
+
+            for (i in 1:N) {
+              __gp_zeros_<name>[i] <- 0
+              for (j in 1:N) {
+                __gp_K_<name>[i, j] <- exp(-0.5 *
+                    pow(x[i] - x[j], 2) / pow(length_scale, 2)) +
+                    ifelse(equals(i, j), jitter, 0)
+              }
+            }
+            __gp_tau_<name> <- inverse(__gp_K_<name>)
+            <name> ~ dmnorm(__gp_zeros_<name>, __gp_tau_<name>)
+
+        JAGS's ``dmnorm`` parameterises by precision (the inverse of
+        the covariance), so the RBF kernel matrix is constructed in
+        a double loop and then inverted before being passed as the
+        precision argument.
+        """
+        if len(node.args) != 2 or not isinstance(
+            node.args[1], IRArgKernel
+        ):
+            raise UnsupportedConstruct(
+                f"qvr-{_BACKEND}",
+                ["family:GP:expected IRArgKernel as second arg"],
+            )
+        kernel_arg = node.args[1]
+        if kernel_arg.kernel != "rbf":
+            raise UnsupportedConstruct(
+                f"qvr-{_BACKEND}",
+                [
+                    f"family:GP:kernel:{kernel_arg.kernel}: only rbf "
+                    f"is implemented"
+                ],
+            )
+        n = kernel_arg.grid_size
+        ls = kernel_arg.length_scale
+        jitter = kernel_arg.jitter
+        x = kernel_arg.x_name
+        kmat_name = f"__gp_K_{node.name}"
+        zeros_name = f"__gp_zeros_{node.name}"
+        tau_name = f"__gp_tau_{node.name}"
+        # Build the RBF entry expression as a LetExprNode using
+        # loop-var references "i" / "j" (JAGS loop variables) plus
+        # `x[i]`, `x[j]` lookups.
+        i_var = LetExprVar(name="i")
+        j_var = LetExprVar(name="j")
+        x_i = LetExprIndex(
+            array=LetExprVar(name=x), indices=(i_var,),
+        )
+        x_j = LetExprIndex(
+            array=LetExprVar(name=x), indices=(j_var,),
+        )
+        diff = LetExprBinOp(op="-", left=x_i, right=x_j)
+        diff_sq = LetExprCall(
+            func="pow",
+            args=(diff, LetExprLiteral(value=2.0)),
+        )
+        ls_sq = LetExprCall(
+            func="pow",
+            args=(
+                LetExprLiteral(value=ls),
+                LetExprLiteral(value=2.0),
+            ),
+        )
+        half = LetExprLiteral(value=0.5)
+        neg_half = LetExprUnaryOp(operand=half)
+        scaled = LetExprBinOp(
+            op="/",
+            left=LetExprBinOp(op="*", left=neg_half, right=diff_sq),
+            right=ls_sq,
+        )
+        exp_call = LetExprCall(func="exp", args=(scaled,))
+        eq_call = LetExprCall(func="equals", args=(i_var, j_var))
+        ifelse_call = LetExprCall(
+            func="ifelse",
+            args=(
+                eq_call,
+                LetExprLiteral(value=jitter),
+                LetExprLiteral(value=0.0),
+            ),
+        )
+        rbf_entry_expr = LetExprBinOp(
+            op="+", left=exp_call, right=ifelse_call,
+        )
+        # Build the K-matrix relation: K[i, j] <- <entry>, wrapped in
+        # for (j) inside for (i).
+        kij = _fresh(ctx, "kij", "deterministic_relation")
+        ctx.sb.constraint(kij, "chose-alt-fingerprint", "<-")
+        ctx.sb.constraint(kij, "ptrace-0", "Cindexed_variable")
+        ctx.sb.constraint(kij, "ptrace-1", "T<-")
+        lhs_kij = self._indexed_variable(
+            ctx, kmat_name, ("i", "j"), (),
+        )
+        ctx.sb.edge(kij, lhs_kij, "variable")
+        let_ctx = _jags_let_ctx(ctx, self._cards)
+        kij_rhs = render_let_expr_bugs(let_ctx, rbf_entry_expr)
+        ctx.sb.edge(kij, kij_rhs, "value")
+        # for (j in 1:N) { K[i, j] <- ... }
+        inner_dim = DimStatic(size=n, name="j")
+        inner_loop = self._wrap_in_for_loops(
+            ctx, kij, (inner_dim,), override_var="j",
+        )
+        # zeros[i] <- 0 (one deterministic per i)
+        zi = _fresh(ctx, "zi", "deterministic_relation")
+        ctx.sb.constraint(zi, "chose-alt-fingerprint", "<-")
+        ctx.sb.constraint(zi, "ptrace-0", "Cindexed_variable")
+        ctx.sb.constraint(zi, "ptrace-1", "T<-")
+        lhs_zi = self._indexed_variable(ctx, zeros_name, ("i",), ())
+        ctx.sb.edge(zi, lhs_zi, "variable")
+        zi_rhs = render_let_expr_bugs(
+            let_ctx, LetExprLiteral(value=0.0),
+        )
+        ctx.sb.edge(zi, zi_rhs, "value")
+        # Build the outer i-block: { zeros[i] <- 0; <inner_loop> }
+        outer_block = _fresh(ctx, "blk", "block")
+        ctx.sb.constraint(outer_block, "chose-alt-fingerprint", "{ }")
+        ctx.sb.constraint(
+            outer_block, "chose-alt-child-kinds",
+            "deterministic_relation for_loop",
+        )
+        ctx.sb.constraint(outer_block, "ptrace-0", "T{")
+        ctx.sb.constraint(
+            outer_block, "ptrace-1", "Cdeterministic_relation",
+        )
+        ctx.sb.constraint(outer_block, "ptrace-2", "Cfor_loop")
+        ctx.sb.constraint(outer_block, "ptrace-3", "T}")
+        ctx.sb.edge(outer_block, zi, "child_of")
+        ctx.sb.edge(outer_block, inner_loop, "child_of")
+        # for (i in 1:N) { zeros[i] <- 0 ; for (j in 1:N) {...} }
+        outer_loop = self._build_for_loop(
+            ctx, "i", n, outer_block,
+        )
+        if ctx.current_block is not None:
+            ctx.sb.edge(ctx.current_block, outer_loop, "child_of")
+            ctx.block_children.setdefault(
+                ctx.current_block, [],
+            ).append(_block_child_kind(ctx, outer_loop))
+        # tau <- inverse(K)
+        tau_dr = _fresh(ctx, "tdr", "deterministic_relation")
+        ctx.sb.constraint(tau_dr, "chose-alt-fingerprint", "<-")
+        ctx.sb.constraint(tau_dr, "ptrace-0", "Cidentifier")
+        ctx.sb.constraint(tau_dr, "ptrace-1", "T<-")
+        ctx.sb.edge(tau_dr, _identifier(ctx, tau_name), "variable")
+        tau_rhs = render_let_expr_bugs(
+            let_ctx,
+            LetExprCall(
+                func="inverse",
+                args=(LetExprVar(name=kmat_name),),
+            ),
+        )
+        ctx.sb.edge(tau_dr, tau_rhs, "value")
+        if ctx.current_block is not None:
+            ctx.sb.edge(ctx.current_block, tau_dr, "child_of")
+            ctx.block_children.setdefault(
+                ctx.current_block, [],
+            ).append(_block_child_kind(ctx, tau_dr))
+        # f ~ dmnorm(zeros, tau)
+        sr = _fresh(ctx, "sr", "stochastic_relation")
+        ctx.sb.constraint(sr, "chose-alt-fingerprint", "~")
+        ctx.sb.constraint(sr, "ptrace-0", "Cidentifier")
+        ctx.sb.constraint(sr, "ptrace-1", "T~")
+        ctx.sb.constraint(sr, "ptrace-2", "Cdistribution_call")
+        ctx.sb.edge(sr, _identifier(ctx, node.name), "variable")
+        dist_vid = self._build_dmnorm_dist(
+            ctx, zeros_name, tau_name,
+        )
+        ctx.sb.edge(sr, dist_vid, "distribution")
+        if ctx.current_block is not None:
+            ctx.sb.edge(ctx.current_block, sr, "child_of")
+            ctx.block_children.setdefault(
+                ctx.current_block, [],
+            ).append(_block_child_kind(ctx, sr))
+
+    def _build_for_loop(
+        self,
+        ctx: _JAGSCtx,
+        loop_var: str,
+        n: int,
+        body_block: str,
+    ) -> str:
+        """Build a single ``for (<loop_var> in 1:<n>) <body_block>``
+        for-loop wrapping ``body_block``."""
+        fl = _fresh(ctx, "fl", "for_loop")
+        ctx.sb.constraint(fl, "chose-alt-fingerprint", "for ( in )")
+        ctx.sb.constraint(
+            fl, "chose-alt-child-kinds",
+            "identifier range block",
+        )
+        ctx.sb.constraint(fl, "ptrace-0", "Tfor")
+        ctx.sb.constraint(fl, "ptrace-1", "T(")
+        ctx.sb.constraint(fl, "ptrace-2", "Cidentifier")
+        ctx.sb.constraint(fl, "ptrace-3", "Tin")
+        ctx.sb.constraint(fl, "ptrace-4", "Crange")
+        ctx.sb.constraint(fl, "ptrace-5", "T)")
+        ctx.sb.constraint(fl, "ptrace-6", "Cblock")
+        ctx.sb.edge(fl, _identifier(ctx, loop_var), "variable")
+        rng, _ = self._range_static(ctx, n), "range"
+        ctx.sb.edge(fl, rng, "range")
+        ctx.sb.edge(fl, body_block, "body")
+        return fl
+
+    def _build_dmnorm_dist(
+        self,
+        ctx: _JAGSCtx,
+        zeros_name: str,
+        tau_name: str,
+    ) -> str:
+        """Build ``dmnorm(zeros, tau)`` as a ``distribution_call``
+        vertex (the panproto schema kind JAGS uses for stochastic
+        relations' RHS)."""
+        dc = _fresh(ctx, "dc", "distribution_call")
+        ctx.sb.constraint(dc, "chose-alt-fingerprint", "( )")
+        ctx.sb.constraint(
+            dc, "chose-alt-child-kinds",
+            "identifier argument_list",
+        )
+        ctx.sb.constraint(dc, "ptrace-0", "Cidentifier")
+        ctx.sb.constraint(dc, "ptrace-1", "T(")
+        ctx.sb.constraint(dc, "ptrace-2", "Cargument_list")
+        ctx.sb.constraint(dc, "ptrace-3", "T)")
+        ctx.sb.edge(dc, _identifier(ctx, "dmnorm"), "name")
+        al = _fresh(ctx, "al", "argument_list")
+        ctx.sb.constraint(al, "chose-alt-fingerprint", ", ")
+        ctx.sb.constraint(
+            al, "chose-alt-child-kinds", "identifier identifier",
+        )
+        ctx.sb.constraint(al, "ptrace-0", "Cidentifier")
+        ctx.sb.constraint(al, "ptrace-1", "T,")
+        ctx.sb.constraint(al, "ptrace-2", "Cidentifier")
+        ctx.sb.edge(al, _identifier(ctx, zeros_name), "child_of")
+        ctx.sb.edge(al, _identifier(ctx, tau_name), "child_of")
+        ctx.sb.edge(dc, al, "arguments")
+        return dc
 
     def _emit_sample(
         self,
