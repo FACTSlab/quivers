@@ -976,6 +976,16 @@ FAMILY_META: dict[str, FamilyMeta] = {
         quivers_class=ConditionalGaussianProcess,
         target_names={
             "edward2": "GaussianProcess",
+            "stan": "multi_normal",
+            "numpyro": "MultivariateNormal",
+            "pyro": "MultivariateNormal",
+            "pymc": "MvNormal",
+            "turing": "MvNormal",
+            "gen": "mvnormal",
+            "webppl": "MultivariateGaussian",
+            "church": "multivariate-gaussian",
+            "bugs": "dmnorm",
+            "jags": "dmnorm",
         },
     ),
     "Horseshoe": FamilyMeta(
