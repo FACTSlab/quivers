@@ -119,15 +119,12 @@ def _render(ctx, expr: LetExprNode) -> tuple[str, str]:
             ],
         )
     if isinstance(expr, LetExprMethodCall):
-        # Stan has no `receiver.method(args)` dispatch syntax; the
-        # canonical equivalent is the static function call
-        # `method(receiver, args...)`, which is the form Stan's
-        # standard library and user-defined functions use. The
-        # deduction-graft path emits the called functions as
-        # user-defined `<method>` declarations that take the chart
-        # value as the first positional arg.
-        return _emit_function_expression(
-            ctx, expr.method, (expr.receiver, *expr.args)
+        raise UnsupportedConstruct(
+            "qvr-stan-helper",
+            [
+                "let-expr:LetExprMethodCall: Stan has no method "
+                "dispatch syntax"
+            ],
         )
     raise UnsupportedConstruct(
         "qvr-stan-helper",

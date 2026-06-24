@@ -134,18 +134,12 @@ def render_let_expr_bugs(ctx: _BugsLetCtx, expr: LetExprNode) -> str:
             ],
         )
     if isinstance(expr, LetExprMethodCall):
-        # BUGS / JAGS have no `receiver.method(args)` dispatch
-        # syntax; the canonical equivalent is the static function
-        # call `method(receiver, args...)`, which both languages
-        # accept for any function defined in their stdlib or by the
-        # host. Method-emitting deduction grafts are responsible for
-        # providing the function definitions.
-        rewritten = (expr.receiver, *expr.args)
-        return _emit_call(
-            ctx,
-            expr.method,
-            tuple(render_let_expr_bugs(ctx, a) for a in rewritten),
-            tuple(_arg_edge_kind(a) for a in rewritten),
+        raise UnsupportedConstruct(
+            f"qvr-{_target(ctx)}-helper",
+            [
+                f"let-expr:LetExprMethodCall:{_target(ctx)}: BUGS / "
+                f"JAGS have no method-dispatch syntax"
+            ],
         )
     raise UnsupportedConstruct(
         f"qvr-{_target(ctx)}-helper",
