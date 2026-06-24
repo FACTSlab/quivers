@@ -38,6 +38,10 @@ from quivers.transpile.renderers._python_helpers import (
     function_def,
     identifier,
     number_literal,
+    python_binary_op as _python_binary_op,
+    python_method_call as _python_method_call,
+    python_paren as _python_paren,
+    python_unary_minus as _python_unary_minus,
     render_let_expr_python,
     string_literal,
 )
@@ -58,6 +62,7 @@ from quivers.transpile.ir import (
     IRArg,
     IRArgBroadcast,
     IRArgFamilyRef,
+    IRArgKernel,
     IRArgList,
     IRArgMatrix,
     IRArgNumber,
@@ -177,6 +182,12 @@ class Edward2Renderer(RendererBase):
             # to emit in the body.
             return
         if isinstance(node, IRSample):
+            if node.family == "GP":
+                self._emit_gp_block(py, body_vid, node)
+                bindings[node.name] = _Binding(
+                    constraint=node.constraint, plate=node.plate
+                )
+                return
             rhs = self._dist_call(
                 py,
                 name=node.name,
@@ -254,6 +265,133 @@ class Edward2Renderer(RendererBase):
             return
         raise UnsupportedConstruct(
             _BACKEND_KEY, [f"node:{type(node).__name__}"]
+        )
+
+    def _emit_gp_block(
+        self,
+        py: PyCtx,
+        body_vid: str,
+        node: IRSample,
+    ) -> None:
+        """Emit a Gaussian-process sample as three Edward2 statements:
+
+            __gp_mean_<name> = tf.zeros([N])
+            __gp_cov_<name>  = tf.exp(-0.5 * (diff)*(diff) / (ls*ls))
+                                + jitter * tf.eye(N)
+            <name> = edward2.MultivariateNormalFullCovariance(
+                        loc=__gp_mean_<name>,
+                        covariance_matrix=__gp_cov_<name>, name="<name>")
+
+        Uses tf.zeros / tf.exp / tf.eye math. The kernel matrix is
+        the squared-exponential covariance plus diagonal jitter.
+        Parens wrap the diff and squared-length-scale subexpressions
+        so the Python pretty-printer keeps operator precedence.
+        """
+        if len(node.args) != 2 or not isinstance(
+            node.args[1], IRArgKernel
+        ):
+            raise UnsupportedConstruct(
+                _BACKEND_KEY,
+                ["family:GP:expected IRArgKernel as second arg"],
+            )
+        kernel_arg = node.args[1]
+        if kernel_arg.kernel != "rbf":
+            raise UnsupportedConstruct(
+                _BACKEND_KEY,
+                [
+                    f"family:GP:kernel:{kernel_arg.kernel}: only rbf "
+                    f"is implemented"
+                ],
+            )
+        n = kernel_arg.grid_size
+        ls = kernel_arg.length_scale
+        jitter = kernel_arg.jitter
+        x = kernel_arg.x_name
+        mean_name = f"__gp_mean_{node.name}"
+        cov_name = f"__gp_cov_{node.name}"
+        # __gp_mean_<name> = tf.zeros([N])
+        mean_rhs = call(
+            py,
+            attribute(py, ("tf", "zeros")),
+            positional=(number_literal(py, n),),
+        )
+        py.e(
+            body_vid,
+            assignment(py, lhs_name=mean_name, rhs=mean_rhs),
+            "child_of",
+        )
+        # __gp_cov_<name> = tf.exp(-0.5 * (diff)*(diff) / (ls*ls))
+        #                    + jitter * tf.eye(N)
+        x_col = _python_method_call(
+            py, identifier(py, x), "reshape",
+            (
+                _python_unary_minus(py, number_literal(py, 1)),
+                number_literal(py, 1),
+            ),
+        )
+        x_row = _python_method_call(
+            py, identifier(py, x), "reshape",
+            (
+                number_literal(py, 1),
+                _python_unary_minus(py, number_literal(py, 1)),
+            ),
+        )
+        diff = _python_paren(
+            py, _python_binary_op(py, "-", x_col, x_row),
+        )
+        diff_sq = _python_paren(
+            py, _python_binary_op(py, "*", diff, diff),
+        )
+        ls_sq = _python_paren(
+            py,
+            _python_binary_op(
+                py, "*",
+                number_literal(py, ls),
+                number_literal(py, ls),
+            ),
+        )
+        quotient = _python_binary_op(py, "/", diff_sq, ls_sq)
+        neg_half = _python_unary_minus(py, number_literal(py, 0.5))
+        exponent = _python_binary_op(py, "*", neg_half, quotient)
+        kernel_call = call(
+            py,
+            attribute(py, ("tf", "exp")),
+            positional=(exponent,),
+        )
+        eye_call = call(
+            py,
+            attribute(py, ("tf", "eye")),
+            positional=(number_literal(py, n),),
+        )
+        jitter_term = _python_binary_op(
+            py, "*", number_literal(py, jitter), eye_call,
+        )
+        cov_rhs = _python_binary_op(
+            py, "+", kernel_call, jitter_term,
+        )
+        py.e(
+            body_vid,
+            assignment(py, lhs_name=cov_name, rhs=cov_rhs),
+            "child_of",
+        )
+        # <name> = edward2.MultivariateNormalFullCovariance(
+        #     loc=__gp_mean_<name>, covariance_matrix=__gp_cov_<name>,
+        #     name="<name>")
+        mvn_call = call(
+            py,
+            attribute(
+                py, ("edward2", "MultivariateNormalFullCovariance"),
+            ),
+            keyword=(
+                ("loc", identifier(py, mean_name)),
+                ("covariance_matrix", identifier(py, cov_name)),
+                ("name", string_literal(py, node.name)),
+            ),
+        )
+        py.e(
+            body_vid,
+            assignment(py, lhs_name=node.name, rhs=mvn_call),
+            "child_of",
         )
 
     def _emit_score_node(
