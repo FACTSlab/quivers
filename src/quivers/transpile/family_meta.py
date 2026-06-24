@@ -106,8 +106,14 @@ from quivers.continuous.ordered import (
     ConditionalOrderedProbit,
 )
 from quivers.transpile.ir import (
+    DomainGridAxis,
     IRArg,
     IRArgNumber,
+    OverOrCodomainAxes,
+    StructuredDataArg,
+    StructuredKernelArg,
+    StructuredSampleLowering,
+    StructuredZeroVectorArg,
 )
 
 
@@ -123,6 +129,7 @@ class FamilyMeta(dx.Model):
     quivers_class: type[ContinuousMorphism] | None = dx.field(
         default=None, opaque=True
     )
+    structured_lowering: StructuredSampleLowering | None = None
 
 
 # ---------------------------------------------------------------------------
@@ -887,6 +894,22 @@ FAMILY_META: dict[str, FamilyMeta] = {
             "pymc": {"loc": "mu", "covariance_matrix": "cov"},
             "webppl": {"loc": "mu", "covariance_matrix": "cov"},
         },
+        structured_lowering=StructuredSampleLowering(
+            args=(
+                StructuredDataArg(
+                    arg_name="loc",
+                    axis_indices=(0,),
+                    constraint_kind="real_vector",
+                ),
+                StructuredDataArg(
+                    arg_name="covariance_matrix",
+                    axis_indices=(0, 0),
+                    constraint_kind="positive_definite",
+                ),
+            ),
+            event_axis_source=OverOrCodomainAxes(axis_count=1),
+            sample_constraint_kind="real_vector",
+        ),
     ),
     "LowRankMVN": FamilyMeta(
         qvr_name="LowRankMVN",
@@ -972,6 +995,27 @@ FAMILY_META: dict[str, FamilyMeta] = {
                 "col_covariance": "colcov",
             },
         },
+        structured_lowering=StructuredSampleLowering(
+            args=(
+                StructuredDataArg(
+                    arg_name="loc",
+                    axis_indices=(0, 1),
+                    constraint_kind="real_matrix",
+                ),
+                StructuredDataArg(
+                    arg_name="row_covariance",
+                    axis_indices=(0, 0),
+                    constraint_kind="positive_definite",
+                ),
+                StructuredDataArg(
+                    arg_name="col_covariance",
+                    axis_indices=(1, 1),
+                    constraint_kind="positive_definite",
+                ),
+            ),
+            event_axis_source=OverOrCodomainAxes(axis_count=2),
+            sample_constraint_kind="real_matrix",
+        ),
     ),
     "GP": FamilyMeta(
         qvr_name="GP",
@@ -990,6 +1034,18 @@ FAMILY_META: dict[str, FamilyMeta] = {
             "bugs": "dmnorm",
             "jags": "dmnorm",
         },
+        structured_lowering=StructuredSampleLowering(
+            args=(
+                StructuredZeroVectorArg(arg_name="mean"),
+                StructuredKernelArg(
+                    arg_name="covariance_matrix",
+                    x_input_name="x",
+                ),
+            ),
+            event_axis_source=DomainGridAxis(),
+            sample_constraint_kind="real_vector",
+            always_apply=True,
+        ),
     ),
     "Horseshoe": FamilyMeta(
         qvr_name="Horseshoe",

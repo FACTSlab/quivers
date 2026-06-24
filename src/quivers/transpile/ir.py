@@ -569,6 +569,111 @@ class IRArgKernel(IRArg):
 
 
 # ---------------------------------------------------------------------------
+# Structured-args lowering metadata.
+#
+# A family whose `~ Family` clause carries no explicit arguments
+# (today: MultivariateNormal, MatrixNormal, GP) declares a
+# `StructuredSampleLowering` on its `FamilyMeta`. `Lower` walks the
+# declared `args` tuple in order, synthesising the appropriate IRArg
+# variant per spec and deriving every data-input plate from the
+# sample's event axes. The result: one uniform code path replaces
+# the per-family `_lower_sample_<family>` methods, and the
+# per-sample data-input shapes flow from declarative metadata
+# rather than family-name branches in `Lower._structured_input_specs`.
+# ---------------------------------------------------------------------------
+
+
+class StructuredArgSpec(dx.TaggedUnion, discriminator="kind"):
+    """One arg position in a family's structured no-args lowering."""
+
+
+class StructuredDataArg(StructuredArgSpec):
+    """A data-input arg whose name is synthesised per sample site as
+    ``<sample_name>_<arg_name>``.
+
+    `axis_indices` indexes into the family's event-axis tuple to
+    build the data-input plate: ``(0, 1)`` for an `event_axis_0 x
+    event_axis_1` matrix, ``(0, 0)`` for an `event_axis_0 x
+    event_axis_0` square matrix, ``(0,)`` for an `event_axis_0` vector.
+    `constraint_kind` selects the IR constraint:
+
+    - ``"real_matrix"`` :class:`CSRealMatrix`
+    - ``"real_vector"`` :class:`CSRealVector`
+    - ``"positive_definite"`` :class:`CSPositiveDefinite`
+    """
+
+    arg_name: str
+    axis_indices: tuple[int, ...]
+    constraint_kind: Literal[
+        "real_matrix", "real_vector", "positive_definite",
+    ]
+    kind: Literal["data"] = "data"
+
+
+class StructuredZeroVectorArg(StructuredArgSpec):
+    """A zero-valued :class:`IRArgNumber` stand-in for a vector mean
+    that the family treats as the all-zero vector of the sample's
+    event size (today: GP's mean argument)."""
+
+    arg_name: str
+    kind: Literal["zero_vector"] = "zero_vector"
+
+
+class StructuredKernelArg(StructuredArgSpec):
+    """A GP kernel-covariance arg.
+
+    The renderer reads the kernel family name and the positive
+    `length_scale` from the morphism's `[kernel=..., length_scale=...]`
+    option block and emits the backend-specific covariance matrix
+    over the data-input vector named ``x_input_name``.
+    """
+
+    arg_name: str
+    x_input_name: str
+    kind: Literal["kernel"] = "kernel"
+
+
+class EventAxisSource(dx.TaggedUnion, discriminator="kind"):
+    """Where to read the sample's event axes from."""
+
+
+class OverOrCodomainAxes(EventAxisSource):
+    """Read event axes from the morphism's `[over=...]` option,
+    falling back to the codomain product factors. The shape of MN
+    and MVN."""
+
+    axis_count: int
+    kind: Literal["over_or_codomain"] = "over_or_codomain"
+
+
+class DomainGridAxis(EventAxisSource):
+    """Read the single event axis from the morphism's domain
+    (a `FinSet N` object). The shape of GP."""
+
+    kind: Literal["domain_grid"] = "domain_grid"
+
+
+class StructuredSampleLowering(dx.Model):
+    """How `Lower` constructs IR for a no-args `~ Family` sample.
+
+    `args` is the ordered tuple of per-position specs (each one of
+    :class:`StructuredDataArg`, :class:`StructuredZeroVectorArg`, or
+    :class:`StructuredKernelArg`). `event_axis_source` declares how
+    to recover the sample's event axes. `sample_constraint_kind`
+    selects the IR constraint on the sample itself
+    (``"real_matrix"`` or ``"real_vector"``). `always_apply` means
+    this lowering fires unconditionally for the family even when the
+    user supplied positional args (today: GP, whose kernel and grid
+    axes have no user-facing arg surface).
+    """
+
+    args: tuple[StructuredArgSpec, ...]
+    event_axis_source: EventAxisSource
+    sample_constraint_kind: Literal["real_matrix", "real_vector"]
+    always_apply: bool = False
+
+
+# ---------------------------------------------------------------------------
 # IRNode: top-level statements of a program body.
 # ---------------------------------------------------------------------------
 
