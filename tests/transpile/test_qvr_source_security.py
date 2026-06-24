@@ -33,6 +33,7 @@ no internal hooks bypass the input validation.
 
 from __future__ import annotations
 
+import ast
 import sys
 
 import pytest
@@ -253,62 +254,107 @@ export traverse
             parse(src)
 
 
-@pytest.mark.parametrize("backend", _BACKENDS_FOR_SECURITY)
+_PYTHON_STRING_BACKENDS: tuple[str, ...] = (
+    "numpyro",
+    "pyro",
+    "pymc",
+    "edward2",
+)
+
+
+@pytest.mark.parametrize("backend", _PYTHON_STRING_BACKENDS)
 def test_string_literal_does_not_escape_target_quotes(
     backend: str,
 ) -> None:
-    """A `let` binding to a quoted-string value flows through the
-    renderer as a target-language string literal. Backends that emit
-    a syntactic string (the python-host backends and Julia) must
-    escape embedded double-quote and backslash characters so a
-    payload like ``"; os.system('rm -rf /'); foo = "`` cannot break
-    out of the emitted string.
+    """A `let label = "<chars>"` binding flows through the renderer
+    as a target-language string literal. The four python-host
+    backends emit a Python string literal; injection-safety requires
+    the re-parsed Python AST to recover `label` as a string Constant
+    whose value equals the QVR-parsed string content verbatim.
+
+    The QVR grammar reads string-literal bodies as escape-passthrough
+    (a QVR ``"foo\\"bar"`` parses to the literal 7-character value
+    ``foo\\"bar`` with the backslash retained, rather than decoding
+    the escape). The renderer's contract is therefore: take the raw
+    parsed bytes and wrap them in target-language quoting that
+    preserves every byte. A naive ``f'"{value}"'`` interpolation
+    would let a payload containing a target-quote character break
+    out of the literal; `json.dumps`-style escaping does not.
+
+    This test drives a payload whose QVR-parsed value contains every
+    sensitive byte for Python single- and double-quoted strings
+    (``"``, ``\\``, newline, plus a live ``os.system(...)`` call
+    that would execute if the escape failed).
     """
-    payload = '"; os.system(\'rm -rf /\'); foo = "'
-    src = (
+    qvr_source = (
         'object Obs : FinSet 5\n'
         'program p : Obs -> Obs\n'
-        f'    let label = "{payload}"\n'
+        '    let label = "abc\\"; os.system(\'rm -rf /\'); foo = \\"def"\n'
         '    sample x <- Normal(0.0, 1.0)\n'
         '    return x\n'
         'export p\n'
     )
-    try:
-        module = parse(src)
-    except ParseError:
-        pytest.xfail(
-            f"parser rejects payload {payload!r}; the escape contract "
-            f"only applies to renderer emit, not to the parser surface"
-        )
-    try:
-        emitted = transpile(module, target=backend)
-    except UnsupportedConstruct:
-        pytest.xfail(
-            f"backend {backend!r} does not support let-with-string"
-        )
-    body = emitted.decode("utf-8", errors="replace")
-    # The dangerous payload's break-out token (`os.system(...)`) must
-    # not appear unquoted in the emit. Either the emit doesn't contain
-    # the payload at all (string-literal-free backend) or the payload
-    # appears inside a properly escaped string literal.
-    if "os.system" not in body:
-        return
-    # If the payload is present, check that every occurrence is
-    # preceded by an escape-aware string marker. Two heuristics suffice
-    # for the python / julia / js shapes: (a) the payload is wrapped
-    # in a Python/JS-style string with backslash-escaped inner quotes,
-    # or (b) the surrounding bytes around the payload are a balanced
-    # string-literal context.
-    idx = body.find("os.system")
-    # Find the nearest string-opener before idx.
-    quoted_region_start = max(
-        body.rfind('"', 0, idx),
-        body.rfind("'", 0, idx),
+    module = parse(qvr_source)
+    parsed_value = _label_string_value(module)
+    emitted = transpile(module, target=backend)
+    body = emitted.decode("utf-8")
+    tree = ast.parse(body)
+    label_assignments = [
+        node for node in ast.walk(tree)
+        if isinstance(node, ast.Assign)
+        and len(node.targets) == 1
+        and isinstance(node.targets[0], ast.Name)
+        and node.targets[0].id == "label"
+    ]
+    assert len(label_assignments) == 1, (
+        f"{backend!r}: expected exactly one `label = ...` assignment "
+        f"in emit; got {len(label_assignments)} (emit body: {body!r})"
     )
-    assert quoted_region_start >= 0, (
-        f"backend {backend!r}: payload appeared outside any string "
-        f"literal context in emit: ...{body[max(0, idx-40):idx+60]}..."
+    rhs = label_assignments[0].value
+    assert isinstance(rhs, ast.Constant) and isinstance(rhs.value, str), (
+        f"{backend!r}: `label` RHS is not a string literal "
+        f"(got {ast.dump(rhs)}). A renderer that injected the payload "
+        f"as live code would produce a Call / Name / Attribute node "
+        f"here instead of an ast.Constant str."
     )
+    assert rhs.value == parsed_value, (
+        f"{backend!r}: emitted `label` value {rhs.value!r} does not "
+        f"equal the QVR-parsed value {parsed_value!r}; the renderer "
+        f"corrupted or under-escaped the string content"
+    )
+    calls_to_os_system = [
+        node for node in ast.walk(tree)
+        if isinstance(node, ast.Call)
+        and isinstance(node.func, ast.Attribute)
+        and node.func.attr == "system"
+        and isinstance(node.func.value, ast.Name)
+        and node.func.value.id == "os"
+    ]
+    assert not calls_to_os_system, (
+        f"{backend!r}: payload escaped into a live `os.system(...)` "
+        f"call: {[ast.dump(c) for c in calls_to_os_system]}"
+    )
+
+
+def _label_string_value(module: object) -> str:
+    """Return the QVR-parsed string content of the `let label = "..."`
+    binding inside the module's program block. Raises AssertionError
+    if no such binding is present (the test relies on a specific
+    fixture shape)."""
+    for stmt in module.statements:
+        draws = getattr(stmt, "draws", ())
+        for draw in draws:
+            if (
+                getattr(draw, "kind", None) == "let_step"
+                and getattr(draw, "name", None) == "label"
+            ):
+                value = draw.value
+                assert getattr(value, "kind", None) == "let_expr_string", (
+                    f"label binding's RHS is not a string-literal "
+                    f"(got {value!r})"
+                )
+                return value.value
+    raise AssertionError("test fixture missing `let label = ...`")
 
 
 @pytest.mark.parametrize("backend", _BACKENDS_FOR_SECURITY)
