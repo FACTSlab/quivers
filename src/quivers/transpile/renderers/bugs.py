@@ -68,7 +68,6 @@ from quivers.transpile._pipeline import target_protocol
 from quivers.transpile.family_meta import FAMILY_META, FamilyMeta
 from quivers.transpile.ir import (
     ConstraintSpec,
-    CSReal,
     Dim,
     IRArg,
     IRArgBroadcast,
@@ -282,22 +281,15 @@ class BUGSRenderer(RendererBase):
             self._emit_deterministic_node(ctx, node)
             return
         if isinstance(node, IRScore):
-            # BUGS has no native `target +=` statement; the standard
-            # idiom is the zeros / ones trick which requires a host-
-            # supplied phantom-observation carrier and a constant
-            # offset the IR does not currently thread. Emit the
-            # score expression as a deterministic `score_<name> <-
-            # <expr>` relation so the construct compiles; downstream
-            # inference is expected to wire the zeros / ones
-            # observation carrier against the named score variable.
-            placeholder = IRDeterministic(
-                name=f"score_{node.name}",
-                expr=node.expr,
-                constraint=CSReal(),
-                plate=Plate(event_dims=(), batch_dims=()),
+            raise UnsupportedConstruct(
+                f"qvr-{self.target}",
+                [
+                    f"node:IRScore: {self.target} has no native "
+                    "target-statement; the zeros / ones trick "
+                    "requires a host-supplied phantom-observation "
+                    "carrier the IR does not currently express"
+                ],
             )
-            self._emit_deterministic_node(ctx, placeholder)
-            return
         if isinstance(node, IRMarginalize):
             self._emit_marginalize_node(ctx, node)
             return
