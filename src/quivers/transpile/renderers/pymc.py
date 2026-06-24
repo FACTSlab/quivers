@@ -56,6 +56,10 @@ from quivers.transpile.renderers._python_helpers import (
     function_def,
     identifier,
     number_literal,
+    python_binary_op as _python_binary_op,
+    python_method_call as _python_method_call,
+    python_paren as _python_paren,
+    python_unary_minus as _python_unary_minus,
     render_let_expr_python,
     string_literal,
     with_statement,
@@ -73,6 +77,7 @@ from quivers.transpile.ir import (
     IRArg,
     IRArgBroadcast,
     IRArgFamilyRef,
+    IRArgKernel,
     IRArgList,
     IRArgMatrix,
     IRArgNumber,
@@ -257,6 +262,9 @@ class PyMCRenderer(RendererBase):
             # `function_def`. No additional emit inside the with-body.
             return
         if isinstance(node, IRSample):
+            if node.family == "GP":
+                self._emit_gp_block(ctx, node)
+                return
             self._emit_sample(ctx, node, observed_name=None)
             return
         if isinstance(node, IRObserve):
@@ -304,6 +312,133 @@ class PyMCRenderer(RendererBase):
         return ""
 
     # ----- sample / observe -----
+
+    def _emit_gp_block(
+        self,
+        ctx: _PyMCCtx,
+        node: IRSample,
+    ) -> None:
+        """Emit a Gaussian-process sample as a triple of PyMC
+        statements inside the with-block:
+
+            __gp_mean_<name> = pt.zeros(N)
+            __gp_cov_<name>  = pt.exp(-0.5 * (diff)*(diff) / (ls*ls))
+                                + jitter * pt.eye(N)
+            <name> = pymc.MvNormal("<name>", mu=__gp_mean_<name>,
+                                    cov=__gp_cov_<name>)
+
+        PyMC's `pt` namespace is PyTensor (the array backend
+        sym-differentiable layer); `pt.exp`, `pt.eye`, `pt.zeros`
+        and `pt.reshape` are the canonical math primitives. Parens
+        wrap the diff and squared-length-scale subexpressions so the
+        Python pretty-printer keeps precedence intact around the
+        nested binary_operator children.
+        """
+        if len(node.args) != 2 or not isinstance(
+            node.args[1], IRArgKernel
+        ):
+            raise UnsupportedConstruct(
+                self.target,
+                ["family:GP:expected IRArgKernel as second arg"],
+            )
+        kernel_arg = node.args[1]
+        if kernel_arg.kernel != "rbf":
+            raise UnsupportedConstruct(
+                self.target,
+                [
+                    f"family:GP:kernel:{kernel_arg.kernel}: only rbf "
+                    f"is implemented"
+                ],
+            )
+        py = ctx.py
+        n = kernel_arg.grid_size
+        ls = kernel_arg.length_scale
+        jitter = kernel_arg.jitter
+        x = kernel_arg.x_name
+        mean_name = f"__gp_mean_{node.name}"
+        cov_name = f"__gp_cov_{node.name}"
+        # __gp_mean_<name> = pt.zeros(N)
+        mean_rhs = call(
+            py,
+            attribute(py, ("pt", "zeros")),
+            positional=(number_literal(py, n),),
+        )
+        py.e(
+            ctx.with_body,
+            assignment(py, lhs_name=mean_name, rhs=mean_rhs),
+            "child_of",
+        )
+        # __gp_cov_<name> = pt.exp(...) + jitter * pt.eye(N)
+        # x_col = pt.reshape(x, (-1, 1)), x_row = pt.reshape(x, (1, -1))
+        # PyTensor accepts `x.reshape((-1, 1))` syntax.
+        x_col = _python_method_call(
+            py, identifier(py, x), "reshape",
+            (
+                _python_unary_minus(py, number_literal(py, 1)),
+                number_literal(py, 1),
+            ),
+        )
+        x_row = _python_method_call(
+            py, identifier(py, x), "reshape",
+            (
+                number_literal(py, 1),
+                _python_unary_minus(py, number_literal(py, 1)),
+            ),
+        )
+        diff = _python_paren(
+            py, _python_binary_op(py, "-", x_col, x_row),
+        )
+        diff_sq = _python_paren(
+            py, _python_binary_op(py, "*", diff, diff),
+        )
+        ls_sq = _python_paren(
+            py,
+            _python_binary_op(
+                py, "*",
+                number_literal(py, ls),
+                number_literal(py, ls),
+            ),
+        )
+        quotient = _python_binary_op(py, "/", diff_sq, ls_sq)
+        neg_half = _python_unary_minus(py, number_literal(py, 0.5))
+        exponent = _python_binary_op(py, "*", neg_half, quotient)
+        kernel_call = call(
+            py,
+            attribute(py, ("pt", "exp")),
+            positional=(exponent,),
+        )
+        eye_call = call(
+            py,
+            attribute(py, ("pt", "eye")),
+            positional=(number_literal(py, n),),
+        )
+        jitter_term = _python_binary_op(
+            py, "*", number_literal(py, jitter), eye_call,
+        )
+        cov_rhs = _python_binary_op(
+            py, "+", kernel_call, jitter_term,
+        )
+        py.e(
+            ctx.with_body,
+            assignment(py, lhs_name=cov_name, rhs=cov_rhs),
+            "child_of",
+        )
+        # <name> = pymc.MvNormal("<name>", mu=__gp_mean_<name>,
+        #                         cov=__gp_cov_<name>)
+        mvn_call = call(
+            py,
+            attribute(py, ("pymc", "MvNormal")),
+            positional=(string_literal(py, node.name),),
+            keyword=(
+                ("mu", identifier(py, mean_name)),
+                ("cov", identifier(py, cov_name)),
+            ),
+        )
+        py.e(
+            ctx.with_body,
+            assignment(py, lhs_name=node.name, rhs=mvn_call),
+            "child_of",
+        )
 
     def _emit_sample(
         self,
