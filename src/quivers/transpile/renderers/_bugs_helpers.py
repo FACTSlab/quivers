@@ -134,11 +134,42 @@ def render_let_expr_bugs(ctx: _BugsLetCtx, expr: LetExprNode) -> str:
             ],
         )
     if isinstance(expr, LetExprMethodCall):
+        # BUGS and JAGS have no `receiver.method(args)` dispatch
+        # syntax, and unlike Stan they also have no path to a
+        # user-defined-function definition the renderer could graft:
+        #
+        # 1. BUGS / OpenBUGS forbid user-defined functions in the
+        #    model body; only built-in distributions and the
+        #    standard math library are callable, and there is no
+        #    `functions { ... }` block.
+        # 2. JAGS allows user functions only via compiled C++
+        #    modules linked at JAGS startup (the JAGS Module API);
+        #    they cannot be declared inline in the model file.
+        # 3. The model body cannot express the inside-algorithm
+        #    chart parser anyway: BUGS / JAGS deterministic
+        #    relations are non-recursive scalar/array updates over
+        #    static index ranges, with no support for the variable-
+        #    length span enumeration the CKY-style fixed-point
+        #    requires.
+        #
+        # `deduction_decl` is also stripped by the IR pipeline (see
+        # [`CATEGORICAL_METADATA_IGNORABLE`][quivers.transpile._api.CATEGORICAL_METADATA_IGNORABLE]),
+        # so even if the model body could host a chart parser the
+        # renderer has no access to the rules to compile against.
+        # Rewriting `m.f(a)` as the static call `f(m, a)` without
+        # supplying `f` produces an undefined-symbol model that
+        # JAGS / OpenBUGS reject at parse time, so the helper
+        # raises instead of emitting a bogus call.
         raise UnsupportedConstruct(
             f"qvr-{_target(ctx)}-helper",
             [
                 f"let-expr:LetExprMethodCall:{_target(ctx)}: BUGS / "
-                f"JAGS have no method-dispatch syntax"
+                f"JAGS have no method-dispatch syntax; the chart-"
+                f"parser deduction graft that would supply the "
+                f"called function is also impossible because BUGS "
+                f"forbids user-defined model-body functions and "
+                f"JAGS exposes them only through compiled C++ "
+                f"modules linked at startup, not inline"
             ],
         )
     raise UnsupportedConstruct(
