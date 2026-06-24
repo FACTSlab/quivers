@@ -40,7 +40,6 @@ from __future__ import annotations
 import panproto
 
 from quivers.transpile._api import UnsupportedConstruct
-from quivers.transpile._graft_python import graft_python_expression
 from quivers.transpile.renderers._python_helpers import (
     PyCtx,
     arg_expr,
@@ -48,6 +47,10 @@ from quivers.transpile.renderers._python_helpers import (
     call,
     identifier,
     number_literal,
+    python_binary_op as _python_binary_op,
+    python_method_call as _python_method_call,
+    python_paren as _python_paren,
+    python_unary_minus as _python_unary_minus,
     render_let_expr_python,
     string_literal,
     with_statement,
@@ -487,20 +490,20 @@ class NumPyroRenderer(RendererBase):
         *,
         observed: bool,
     ) -> None:
-        """Emit a Gaussian-process sample as a
+        """Emit a Gaussian-process sample as a triple:
         ``__gp_mean_<name> = jnp.zeros(N)``,
-        ``__gp_cov_<name> = jnp.exp(...) + jitter * jnp.eye(N)``,
+        ``__gp_cov_<name>  = jnp.exp(...) + jitter * jnp.eye(N)``,
         ``<name> = numpyro.sample("<name>",
         numpyro.distributions.MultivariateNormal(loc=__gp_mean_<name>,
-        covariance_matrix=__gp_cov_<name>))`` triple.
+        covariance_matrix=__gp_cov_<name>))``.
 
-        The covariance matrix expression is built by parsing a
-        literal Python source snippet through panproto's Python
-        tree-sitter grammar (via
-        [`graft_python_expression`][quivers.transpile._graft_python.graft_python_expression]);
-        this preserves operator precedence (the manual
-        `LetExprBinOp` tree drops parenthesisation, which would
-        produce a mis-grouped RHS).
+        The kernel-covariance expression is built by hand using the
+        Python helper API plus explicit
+        [`parenthesized_expression`][panproto.python.parenthesized_expression]
+        nodes, since the let-expression renderer drops
+        parenthesisation around nested
+        [`LetExprBinOp`][quivers.transpile.ir.LetExprBinOp] children
+        and would otherwise mis-group the exponent.
         """
         del observed  # GP samples are never observed in QVR.
         py = ctx.py
@@ -516,31 +519,69 @@ class NumPyroRenderer(RendererBase):
                 [f"family:GP:kernel:{kernel_arg.kernel}: only rbf supported"],
             )
         n = kernel_arg.grid_size
+        ls = kernel_arg.length_scale
+        jitter = kernel_arg.jitter
+        x = kernel_arg.x_name
         mean_name = f"__gp_mean_{node.name}"
         cov_name = f"__gp_cov_{node.name}"
-        # mean assignment: __gp_mean_f = jnp.zeros(N)
-        mean_rhs = graft_python_expression(
+        # __gp_mean_<name> = jnp.zeros(N)
+        mean_rhs = call(
             py,
-            f"jnp.zeros({n})",
-            fresh_prefix="gpm",
+            attribute(py, ("jnp", "zeros")),
+            positional=(number_literal(py, n),),
         )
         mean_asn = self._assignment_statement(py, mean_name, mean_rhs)
         py.e(body_vid, mean_asn, "child_of")
-        # cov assignment: __gp_cov_f = jnp.exp(...) + jitter * jnp.eye(N)
-        ls = kernel_arg.length_scale
-        jitter = kernel_arg.jitter
-        cov_src = (
-            f"jnp.exp(-0.5 * ((({kernel_arg.x_name}.reshape(-1, 1) - "
-            f"{kernel_arg.x_name}.reshape(1, -1)) ** 2) / "
-            f"({ls!r} ** 2))) + {jitter!r} * jnp.eye({n})"
+        # __gp_cov_<name> = jnp.exp(-0.5 * (diff * diff) / (ls * ls)) + jitter * jnp.eye(N)
+        # where diff = x.reshape(-1, 1) - x.reshape(1, -1)
+        x_col = _python_method_call(
+            py, identifier(py, x), "reshape",
+            (_python_unary_minus(py, number_literal(py, 1)),
+             number_literal(py, 1)),
         )
-        cov_rhs = graft_python_expression(
-            py, cov_src, fresh_prefix="gpc",
+        x_row = _python_method_call(
+            py, identifier(py, x), "reshape",
+            (number_literal(py, 1),
+             _python_unary_minus(py, number_literal(py, 1))),
+        )
+        diff = _python_paren(
+            py,
+            _python_binary_op(py, "-", x_col, x_row),
+        )
+        diff_sq = _python_paren(
+            py,
+            _python_binary_op(py, "*", diff, diff),
+        )
+        ls_sq = _python_paren(
+            py,
+            _python_binary_op(
+                py, "*",
+                number_literal(py, ls),
+                number_literal(py, ls),
+            ),
+        )
+        quotient = _python_binary_op(py, "/", diff_sq, ls_sq)
+        neg_half = _python_unary_minus(py, number_literal(py, 0.5))
+        exponent = _python_binary_op(py, "*", neg_half, quotient)
+        kernel_call = call(
+            py,
+            attribute(py, ("jnp", "exp")),
+            positional=(exponent,),
+        )
+        eye_call = call(
+            py,
+            attribute(py, ("jnp", "eye")),
+            positional=(number_literal(py, n),),
+        )
+        jitter_term = _python_binary_op(
+            py, "*", number_literal(py, jitter), eye_call,
+        )
+        cov_rhs = _python_binary_op(
+            py, "+", kernel_call, jitter_term,
         )
         cov_asn = self._assignment_statement(py, cov_name, cov_rhs)
         py.e(body_vid, cov_asn, "child_of")
-        # sample: f = numpyro.sample("f", numpyro.distributions.MultivariateNormal(
-        #     loc=__gp_mean_f, covariance_matrix=__gp_cov_f))
+        # sample call
         mvn_call = call(
             py,
             attribute(
