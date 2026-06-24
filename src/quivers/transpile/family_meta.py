@@ -961,7 +961,6 @@ FAMILY_META: dict[str, FamilyMeta] = {
             "edward2": "MatrixNormalLinearOperator",
             "turing": "MatrixNormal",
             "gen": "matrix_normal",
-            "webppl": "MatrixNormal",
         },
         arg_aliases={
             "pymc": {
