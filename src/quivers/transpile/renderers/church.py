@@ -28,10 +28,12 @@ form.
 
 from __future__ import annotations
 
+import pathlib
+
 import panproto
 
 from quivers.transpile._api import UnsupportedConstruct
-from quivers.transpile._pipeline import target_protocol
+from quivers.transpile._pipeline import parser_registry, target_protocol
 from quivers.transpile.renderers._scheme_helpers import render_let_expr_scheme
 from quivers.transpile.family_meta import FAMILY_META
 from quivers.transpile.ir import (
@@ -97,6 +99,20 @@ class ChurchRenderer(RendererBase):
         sb = proto.schema()
         ctx = _RenderCtx(sb=sb, morphisms={}, lets={}, cards=self._cards)
         prog_id = _v(ctx, "prog", "program")
+        # Church ships `gaussian`, `beta`, `flip`, `multivariate-
+        # gaussian`, ... as built-in distributions but lacks
+        # `matrix-normal`. When the IR samples or observes from a
+        # family whose Church emit relies on a user-defined helper,
+        # graft the hand-written subtree at
+        # [`runtime_church.scm`][quivers.transpile.runtime_church]
+        # into the program above the model `(define ...)` form so the
+        # sampled identifier resolves through Scheme's top-level
+        # binding lookup.
+        if any(
+            _ir_uses_family(ir.body, f)
+            for f in _CHURCH_RUNTIME_HELPER_FAMILIES
+        ):
+            _graft_runtime_church_helper(ctx, prog_id)
 
         # `(model <param1> <param2> ...)` -- function signature.
         signature_children: list[str] = [_sym(ctx, "model")]
@@ -828,6 +844,156 @@ class _LetExprCtx:
 
     def constraint(self, vid: str, sort: str, value: str) -> None:
         self._sb.constraint(vid, sort, value)
+
+
+# ---------------------------------------------------------------------------
+# Runtime-helper graft: `matrix-normal` as a top-level `(define ...)`
+# built on top of Church's `multivariate-gaussian` primitive plus
+# small vec / Kronecker / reshape helpers.
+#
+# Church's built-in primitive set ships `gaussian`, `beta`, `flip`,
+# `multivariate-gaussian`, ... but lacks a matrix-variate normal.
+# The transpile-time graft parses
+# [`runtime_church.scm`][quivers.transpile.runtime_church] once at
+# module-load through panproto's Scheme tree-sitter grammar; per-render,
+# it copies every grafted vertex / constraint / edge into the per-render
+# schema (with fresh vertex ids) and attaches the runtime's top-level
+# forms as `child_of` of the emitted `program` vertex above the
+# `(define (model ...) ...)` form. The graft makes `matrix-normal` /
+# `vec` / `reshape` / `mat-kron` resolve through the standard Scheme
+# top-level binding lookup at evaluation time.
+# ---------------------------------------------------------------------------
+
+
+_RUNTIME_CHURCH_PATH = (
+    pathlib.Path(__file__).resolve().parent.parent / "runtime_church.scm"
+)
+
+
+#: Families whose Church emit relies on the
+#: [`runtime_church.scm`][quivers.transpile.runtime_church] helper subtree.
+#: Church ships `gaussian`, `beta`, `flip`, `multivariate-gaussian`, ... as
+#: built-in distributions but lacks `matrix-normal`; the renderer grafts
+#: the helper when the IR samples or observes from any of them.
+_CHURCH_RUNTIME_HELPER_FAMILIES: frozenset[str] = frozenset({
+    "MatrixNormal",
+})
+
+
+def _load_runtime_church_schema() -> tuple[
+    panproto.Schema, str, tuple[str, ...]
+]:
+    """Parse [`runtime_church.scm`][quivers.transpile.runtime_church]
+    through panproto's Scheme tree-sitter grammar at module-load time.
+
+    Returns the parsed schema, the parsed `program` vertex id, and the
+    tuple of top-level child ids in source order (sorted by
+    `start-byte`). The graft replays these children in order beneath
+    the per-render `program` so the emit's top-level forms appear in
+    the original file's layout.
+    """
+    schema = parser_registry().parse_with_protocol(
+        "scheme",
+        _RUNTIME_CHURCH_PATH.read_bytes(),
+        str(_RUNTIME_CHURCH_PATH),
+    )
+    src_id = next(
+        (v.id for v in schema.vertices if v.kind == "program"),
+        None,
+    )
+    if src_id is None:
+        raise RuntimeError(
+            f"`program` not found in parse of {_RUNTIME_CHURCH_PATH}"
+        )
+    children_with_sb: list[tuple[int, str]] = []
+    for edge in schema.edges:
+        if edge.src != src_id:
+            continue
+        sb_val = next(
+            (
+                int(c.value)
+                for c in schema.constraints_for(edge.tgt)
+                if c.sort == "start-byte"
+            ),
+            0,
+        )
+        children_with_sb.append((sb_val, edge.tgt))
+    children_with_sb.sort()
+    return schema, src_id, tuple(child for _, child in children_with_sb)
+
+
+_RUNTIME_CHURCH_SCHEMA, _RUNTIME_CHURCH_PROGRAM_ID, _RUNTIME_CHURCH_TOP_LEVEL = (
+    _load_runtime_church_schema()
+)
+
+
+def _church_subtree_vertex_ids(
+    schema: panproto.Schema, roots: tuple[str, ...]
+) -> set[str]:
+    """Return every vertex id reachable from `roots` via outgoing edges."""
+    seen: set[str] = set(roots)
+    frontier: list[str] = list(roots)
+    while frontier:
+        src = frontier.pop()
+        for edge in schema.edges:
+            if edge.src == src and edge.tgt not in seen:
+                seen.add(edge.tgt)
+                frontier.append(edge.tgt)
+    return seen
+
+
+_RUNTIME_CHURCH_SUBTREE = _church_subtree_vertex_ids(
+    _RUNTIME_CHURCH_SCHEMA, _RUNTIME_CHURCH_TOP_LEVEL
+)
+
+
+def _ir_uses_family(body: tuple[IRNode, ...], family: str) -> bool:
+    """True iff any [`IRSample`][quivers.transpile.ir.IRSample],
+    [`IRObserve`][quivers.transpile.ir.IRObserve], or
+    [`IRMarginalize`][quivers.transpile.ir.IRMarginalize] in `body`
+    (including nested marginalize scopes) draws from `family`."""
+    for node in body:
+        if (
+            isinstance(node, (IRSample, IRObserve))
+            and node.family == family
+        ):
+            return True
+        if isinstance(node, IRMarginalize):
+            if node.family == family:
+                return True
+            if _ir_uses_family(node.scope, family):
+                return True
+    return False
+
+
+def _graft_runtime_church_helper(ctx: _RenderCtx, program_vid: str) -> None:
+    """Graft the runtime-helper subtree onto the per-render schema.
+
+    Copies every vertex, every constraint, and every internal edge of
+    the parsed `runtime_church.scm` subtree into the per-render
+    `SchemaBuilder` with fresh vertex ids, then attaches each top-level
+    child as a `child_of` of `program_vid` in source order. The grafted
+    forms appear above the model `(define ...)` in the emit so the
+    helper bindings are in scope when the model is evaluated.
+    """
+    src_schema = _RUNTIME_CHURCH_SCHEMA
+    subtree = _RUNTIME_CHURCH_SUBTREE
+    id_map: dict[str, str] = {}
+
+    for old in subtree:
+        new = _fresh(ctx, "rc")
+        id_map[old] = new
+        kind = next(
+            v.kind for v in src_schema.vertices if v.id == old
+        )
+        ctx.sb.vertex(new, kind)
+        for cstr in src_schema.constraints_for(old):
+            ctx.sb.constraint(new, cstr.sort, cstr.value)
+    for edge in src_schema.edges:
+        if edge.src in id_map and edge.tgt in id_map:
+            ctx.sb.edge(id_map[edge.src], id_map[edge.tgt], edge.kind)
+    for child_old in _RUNTIME_CHURCH_TOP_LEVEL:
+        ctx.sb.edge(program_vid, id_map[child_old], "child_of")
 
 
 __all__ = ["ChurchRenderer"]

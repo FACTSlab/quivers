@@ -963,6 +963,7 @@ FAMILY_META: dict[str, FamilyMeta] = {
             "turing": "MatrixNormal",
             "gen": "matrix_normal",
             "webppl": "MatrixNormal",
+            "church": "matrix-normal",
         },
         arg_aliases={
             "pymc": {
