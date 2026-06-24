@@ -404,6 +404,19 @@ class JAGSRenderer(RendererBase):
             )
         target_name = meta.target_names.get(_BACKEND)
         if target_name is None:
+            # Distribution families absent from the JAGS built-in
+            # table cannot be added through a renderer-side recipe:
+            # JAGS exposes user-defined distributions only via the
+            # JAGS Module API, which requires a compiled C++ module
+            # linked at JAGS startup. The renderer has no way to
+            # supply such a module inline in the transpiled source.
+            # Matrix-variate families such as `MatrixNormal` also
+            # have no native JAGS surface: the standard `dmnorm`-on-
+            # `vec(X)` workaround would need a Kronecker-product
+            # primitive and a vec / reshape operator that JAGS does
+            # not provide. The renderer raises here rather than
+            # emitting a distribution call that the JAGS parser would
+            # reject at model-compile time.
             raise UnsupportedConstruct(
                 f"qvr-{_BACKEND}", [f"family:no-target-name:{family}"]
             )
