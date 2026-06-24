@@ -45,48 +45,4 @@ functions {
     return (log1p(-p + u * (2.0 * p - 1.0)) - log1m(p))
       / (log(p) - log1m(p));
   }
-  // Matrix-normal density for X in R^{p x n} with mean M, row
-  // covariance U (p x p, SPD), and column covariance V (n x n, SPD):
-  //
-  //   log p(X | M, U, V) = -0.5 * (
-  //       n * p * log(2 pi)
-  //     + n * log|U|
-  //     + p * log|V|
-  //     + tr(V^{-1} (X - M)' U^{-1} (X - M))
-  //   )
-  //
-  // Equivalent to vec(X) ~ MultiNormal(vec(M), V (x) U). Stan ships
-  // no built-in matrix-variate normal, so the renderer grafts this
-  // helper when an IR sample / observe uses the MatrixNormal family.
-  real matrix_normal_lpdf(matrix X, matrix M, matrix U, matrix V) {
-    int p = rows(X);
-    int n = cols(X);
-    matrix[p, n] D = X - M;
-    matrix[p, n] U_inv_D = mdivide_left_spd(U, D);
-    matrix[n, n] quad = D' * U_inv_D;
-    real trace_term = trace(mdivide_left_spd(V, quad));
-    real log_det_U = log_determinant_spd(U);
-    real log_det_V = log_determinant_spd(V);
-    return -0.5 * (n * p * log(2 * pi())
-                   + n * log_det_U
-                   + p * log_det_V
-                   + trace_term);
-  }
-  // Sample via the Cholesky-factor reconstruction
-  //   X = M + L_U Z L_V'
-  // where Z is p x n with iid standard-normal entries and L_U L_U' = U,
-  // L_V L_V' = V.
-  matrix matrix_normal_rng(matrix M, matrix U, matrix V) {
-    int p = rows(M);
-    int n = cols(M);
-    matrix[p, p] L_U = cholesky_decompose(U);
-    matrix[n, n] L_V = cholesky_decompose(V);
-    matrix[p, n] Z;
-    for (i in 1:p) {
-      for (j in 1:n) {
-        Z[i, j] = std_normal_rng();
-      }
-    }
-    return M + L_U * Z * L_V';
-  }
 }
