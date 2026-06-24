@@ -83,6 +83,7 @@ from quivers.transpile.ir import (
     IRArg,
     IRArgBroadcast,
     IRArgFamilyRef,
+    IRArgKernel,
     IRArgList,
     IRArgMatrix,
     IRArgNumber,
@@ -488,6 +489,9 @@ class TuringRenderer(RendererBase):
     def _dispatch(self, ctx: _TuringCtx, node: IRNode) -> None:
         """Route one IR body node to the right Turing.jl emission."""
         if isinstance(node, IRSample):
+            if node.family == "GP":
+                self._emit_gp_block(ctx, node)
+                return
             self.sample(
                 ctx,
                 node.name,
@@ -529,6 +533,93 @@ class TuringRenderer(RendererBase):
         raise UnsupportedConstruct(
             "qvr-turing", [f"node:{type(node).__name__}"]
         )
+
+    def _emit_gp_block(
+        self,
+        ctx: _TuringCtx,
+        node: IRSample,
+    ) -> None:
+        """Emit a Gaussian-process sample as a triple of Julia
+        statements inside the ``@model`` body:
+
+            __gp_mean_f = zeros(N)
+            __gp_cov_f  = _qvr_rbf_kernel(x, length_scale, jitter)
+            f ~ MvNormal(__gp_mean_f, __gp_cov_f)
+
+        The ``_qvr_rbf_kernel`` helper is defined in
+        [`runtime_turing.jl`][quivers.transpile.runtime_turing] and
+        is grafted onto the emit when GP is in the IR (handled by
+        the existing
+        [`_graft_runtime_turing_helper`][quivers.transpile.renderers.turing._graft_runtime_turing_helper]
+        path with GP added to the helper-family set).
+        """
+        if len(node.args) != 2 or not isinstance(
+            node.args[1], IRArgKernel
+        ):
+            raise UnsupportedConstruct(
+                "qvr-turing",
+                ["family:GP:expected IRArgKernel as second arg"],
+            )
+        kernel_arg = node.args[1]
+        if kernel_arg.kernel != "rbf":
+            raise UnsupportedConstruct(
+                "qvr-turing",
+                [
+                    f"family:GP:kernel:{kernel_arg.kernel}: only rbf "
+                    f"is implemented"
+                ],
+            )
+        sb, counter = ctx.sb, ctx.counter
+        n = kernel_arg.grid_size
+        ls = kernel_arg.length_scale
+        jitter = kernel_arg.jitter
+        x = kernel_arg.x_name
+        mean_name = f"__gp_mean_{node.name}"
+        cov_name = f"__gp_cov_{node.name}"
+        # __gp_mean_<name> = zeros(N)
+        mean_lhs = _identifier(sb, counter, mean_name)
+        mean_rhs = _call(
+            sb, counter,
+            _identifier(sb, counter, "zeros"),
+            (_integer(sb, counter, n),),
+        )
+        sb.edge(
+            ctx.body,
+            _assignment(sb, counter, mean_lhs, mean_rhs),
+            "child_of",
+        )
+        # __gp_cov_<name> = _qvr_rbf_kernel(x, ls, jitter)
+        cov_lhs = _identifier(sb, counter, cov_name)
+        cov_rhs = _call(
+            sb, counter,
+            _identifier(sb, counter, "_qvr_rbf_kernel"),
+            (
+                _identifier(sb, counter, x),
+                _float(sb, counter, ls),
+                _float(sb, counter, jitter),
+            ),
+        )
+        sb.edge(
+            ctx.body,
+            _assignment(sb, counter, cov_lhs, cov_rhs),
+            "child_of",
+        )
+        # f ~ MvNormal(__gp_mean_f, __gp_cov_f)
+        f_lhs = _identifier(sb, counter, node.name)
+        mvn_rhs = _call(
+            sb, counter,
+            _identifier(sb, counter, "MvNormal"),
+            (
+                _identifier(sb, counter, mean_name),
+                _identifier(sb, counter, cov_name),
+            ),
+        )
+        sb.edge(
+            ctx.body,
+            _tilde(sb, counter, f_lhs, mvn_rhs),
+            "child_of",
+        )
+        ctx.sample_plates[node.name] = node.plate
 
     # ----- declare: Turing.jl has no separate declaration block -----
 
@@ -1649,6 +1740,7 @@ _RUNTIME_TURING_PATH = (
 _TURING_RUNTIME_HELPER_FAMILIES: frozenset[str] = frozenset({
     "HalfStudentT",
     "ContinuousBernoulli",
+    "GP",
 })
 
 

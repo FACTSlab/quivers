@@ -61,3 +61,11 @@ function Distributions.rand(rng::Random.AbstractRNG, d::ContinuousBernoulli)
     end
     return log1p((2 * p - 1) * u / (1 - p)) / log(p / (1 - p))
 end
+
+using LinearAlgebra
+
+function _qvr_rbf_kernel(x::AbstractVector, length_scale::Real, jitter::Real)
+    n = length(x)
+    K = [exp(-0.5 * (x[i] - x[j])^2 / length_scale^2) for i in 1:n, j in 1:n]
+    return K + jitter * Matrix{Float64}(I, n, n)
+end
