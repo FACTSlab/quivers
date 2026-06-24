@@ -15,6 +15,7 @@ renderer to emit `let <name> = <expr>` as a deterministic
 
 from __future__ import annotations
 
+import json
 from typing import TYPE_CHECKING
 
 from quivers.dsl.ast_nodes import (
@@ -254,8 +255,11 @@ def render_let_expr_python(ctx: PyCtx, expr: LetExprNode) -> str:
         ctx.literal(v, expr.name)
         return v
     if isinstance(expr, LetExprString):
+        # Use json.dumps for a fully escaped Python string literal
+        # (handles embedded quotes, backslashes, and control chars
+        # without letting a payload break out of the quoted region).
         v = ctx.v(ctx.fresh("str"), "string")
-        ctx.literal(v, f'"{expr.value}"')
+        ctx.literal(v, json.dumps(expr.value))
         return v
     if isinstance(expr, LetExprBinOp):
         # Python tree-sitter's `binary_operator` has CHOICE alts per

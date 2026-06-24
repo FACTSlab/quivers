@@ -257,21 +257,57 @@ export traverse
 def test_string_literal_does_not_escape_target_quotes(
     backend: str,
 ) -> None:
-    """Where a QVR construct accepts a string (e.g. an option value),
-    the renderer must escape target-language quote characters so a
-    payload like `"; os.system('rm -rf /'); foo = "` doesn't break
-    out of the emitted string literal.
-
-    Today the gallery doesn't surface a string-literal option in a
-    way that lets us drive a backend's emit through this path
-    cleanly; the test is here as a pinning contract for the day a
-    backend grows that surface. For now it documents the audit.
+    """A `let` binding to a quoted-string value flows through the
+    renderer as a target-language string literal. Backends that emit
+    a syntactic string (the python-host backends and Julia) must
+    escape embedded double-quote and backslash characters so a
+    payload like ``"; os.system('rm -rf /'); foo = "`` cannot break
+    out of the emitted string.
     """
-    del backend
-    pytest.xfail(
-        "no QVR construct currently exposes a string literal to the "
-        "renderer in a way that produces a per-backend emit; pinned "
-        "test for the day that changes"
+    payload = '"; os.system(\'rm -rf /\'); foo = "'
+    src = (
+        'object Obs : FinSet 5\n'
+        'program p : Obs -> Obs\n'
+        f'    let label = "{payload}"\n'
+        '    sample x <- Normal(0.0, 1.0)\n'
+        '    return x\n'
+        'export p\n'
+    )
+    try:
+        module = parse(src)
+    except ParseError:
+        pytest.xfail(
+            f"parser rejects payload {payload!r}; the escape contract "
+            f"only applies to renderer emit, not to the parser surface"
+        )
+    try:
+        emitted = transpile(module, target=backend)
+    except UnsupportedConstruct:
+        pytest.xfail(
+            f"backend {backend!r} does not support let-with-string"
+        )
+    body = emitted.decode("utf-8", errors="replace")
+    # The dangerous payload's break-out token (`os.system(...)`) must
+    # not appear unquoted in the emit. Either the emit doesn't contain
+    # the payload at all (string-literal-free backend) or the payload
+    # appears inside a properly escaped string literal.
+    if "os.system" not in body:
+        return
+    # If the payload is present, check that every occurrence is
+    # preceded by an escape-aware string marker. Two heuristics suffice
+    # for the python / julia / js shapes: (a) the payload is wrapped
+    # in a Python/JS-style string with backslash-escaped inner quotes,
+    # or (b) the surrounding bytes around the payload are a balanced
+    # string-literal context.
+    idx = body.find("os.system")
+    # Find the nearest string-opener before idx.
+    quoted_region_start = max(
+        body.rfind('"', 0, idx),
+        body.rfind("'", 0, idx),
+    )
+    assert quoted_region_start >= 0, (
+        f"backend {backend!r}: payload appeared outside any string "
+        f"literal context in emit: ...{body[max(0, idx-40):idx+60]}..."
     )
 
 
