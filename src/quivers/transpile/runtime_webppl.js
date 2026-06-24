@@ -20,6 +20,8 @@
 //                           https://doi.org/10.1016/j.jmva.2009.04.008
 //   ContinuousBernoulli   : Loaiza-Ganem and Cunningham 2019
 //                           https://arxiv.org/abs/1907.06845
+//   MatrixNormal          : Dawid 1981
+//                           https://doi.org/10.1093/biomet/68.1.265
 
 var _lgamma = function(z) {
   // Lanczos approximation. Domain: z > 0.
@@ -269,6 +271,229 @@ var ContinuousBernoulli = function(params) {
     },
     support: function() {
       return { lower: 0, upper: 1 };
+    }
+  };
+};
+
+// Dense matrix utilities. Matrices are arrays-of-arrays in row-major
+// order (so `A[i][j]` is row i, column j). The helpers cover only what
+// MatrixNormal needs: element-wise add / sub, transpose, multiply,
+// Cholesky decomposition (lower-triangular), Cholesky-based solve, log
+// determinant, and trace.
+var _mat_add = function(A, B) {
+  var p = A.length;
+  var n = A[0].length;
+  var C = [];
+  var i = 0;
+  while (i < p) {
+    var row = [];
+    var j = 0;
+    while (j < n) { row.push(A[i][j] + B[i][j]); j = j + 1; }
+    C.push(row);
+    i = i + 1;
+  }
+  return C;
+};
+
+var _mat_sub = function(A, B) {
+  var p = A.length;
+  var n = A[0].length;
+  var C = [];
+  var i = 0;
+  while (i < p) {
+    var row = [];
+    var j = 0;
+    while (j < n) { row.push(A[i][j] - B[i][j]); j = j + 1; }
+    C.push(row);
+    i = i + 1;
+  }
+  return C;
+};
+
+var _mat_transpose = function(A) {
+  var p = A.length;
+  var n = A[0].length;
+  var T = [];
+  var i = 0;
+  while (i < n) {
+    var row = [];
+    var j = 0;
+    while (j < p) { row.push(A[j][i]); j = j + 1; }
+    T.push(row);
+    i = i + 1;
+  }
+  return T;
+};
+
+var _mat_mul = function(A, B) {
+  var p = A.length;
+  var k = A[0].length;
+  var n = B[0].length;
+  var C = [];
+  var i = 0;
+  while (i < p) {
+    var row = [];
+    var j = 0;
+    while (j < n) {
+      var s = 0;
+      var t = 0;
+      while (t < k) { s = s + A[i][t] * B[t][j]; t = t + 1; }
+      row.push(s);
+      j = j + 1;
+    }
+    C.push(row);
+    i = i + 1;
+  }
+  return C;
+};
+
+var _mat_chol = function(A) {
+  // Standard Cholesky decomposition for SPD A; returns lower
+  // triangular L with L L' = A.
+  var n = A.length;
+  var L = [];
+  var ii = 0;
+  while (ii < n) {
+    var zero_row = [];
+    var jz = 0;
+    while (jz < n) { zero_row.push(0); jz = jz + 1; }
+    L.push(zero_row);
+    ii = ii + 1;
+  }
+  var i = 0;
+  while (i < n) {
+    var j = 0;
+    while (j <= i) {
+      var s = 0;
+      var k = 0;
+      while (k < j) { s = s + L[i][k] * L[j][k]; k = k + 1; }
+      if (i == j) {
+        L[i][j] = Math.sqrt(A[i][i] - s);
+      } else {
+        L[i][j] = (A[i][j] - s) / L[j][j];
+      }
+      j = j + 1;
+    }
+    i = i + 1;
+  }
+  return L;
+};
+
+var _mat_solve_chol = function(L, B) {
+  // Solve A X = B given the Cholesky factor L of A (A = L L').
+  // Forward substitution L Y = B, then backward L' X = Y.
+  var n = L.length;
+  var m = B[0].length;
+  var Y = [];
+  var yi = 0;
+  while (yi < n) {
+    var yrow = [];
+    var yj = 0;
+    while (yj < m) { yrow.push(0); yj = yj + 1; }
+    Y.push(yrow);
+    yi = yi + 1;
+  }
+  var i = 0;
+  while (i < n) {
+    var col = 0;
+    while (col < m) {
+      var s = B[i][col];
+      var k = 0;
+      while (k < i) { s = s - L[i][k] * Y[k][col]; k = k + 1; }
+      Y[i][col] = s / L[i][i];
+      col = col + 1;
+    }
+    i = i + 1;
+  }
+  var X = [];
+  var xi = 0;
+  while (xi < n) {
+    var xrow = [];
+    var xj = 0;
+    while (xj < m) { xrow.push(0); xj = xj + 1; }
+    X.push(xrow);
+    xi = xi + 1;
+  }
+  var ib = n - 1;
+  while (ib >= 0) {
+    var c2 = 0;
+    while (c2 < m) {
+      var s2 = Y[ib][c2];
+      var k2 = ib + 1;
+      while (k2 < n) { s2 = s2 - L[k2][ib] * X[k2][c2]; k2 = k2 + 1; }
+      X[ib][c2] = s2 / L[ib][ib];
+      c2 = c2 + 1;
+    }
+    ib = ib - 1;
+  }
+  return X;
+};
+
+var _mat_logdet_chol = function(L) {
+  // log|A| = 2 sum_i log L[i][i] for the Cholesky factor of A.
+  var n = L.length;
+  var s = 0;
+  var i = 0;
+  while (i < n) { s = s + Math.log(L[i][i]); i = i + 1; }
+  return 2 * s;
+};
+
+var _mat_trace = function(A) {
+  var n = A.length;
+  var s = 0;
+  var i = 0;
+  while (i < n) { s = s + A[i][i]; i = i + 1; }
+  return s;
+};
+
+var MatrixNormal = function(params) {
+  // X in R^{p x n} with mean loc, row covariance U (p x p, SPD), and
+  // column covariance V (n x n, SPD). Equivalent to
+  //   vec(X) ~ MultiNormal(vec(loc), V (x) U).
+  // log p(X | loc, U, V) =
+  //   -0.5 * ( n p log(2 pi) + n log|U| + p log|V|
+  //          + tr(V^{-1} (X - loc)' U^{-1} (X - loc)) )
+  var loc = params.loc;
+  var U = params.row_covariance;
+  var V = params.col_covariance;
+  return {
+    sample: function() {
+      // X = loc + L_U Z L_V' with Z iid standard normal, L_U L_U' = U,
+      // L_V L_V' = V.
+      var p = loc.length;
+      var n = loc[0].length;
+      var L_U = _mat_chol(U);
+      var L_V = _mat_chol(V);
+      var Z = [];
+      var i = 0;
+      while (i < p) {
+        var row = [];
+        var j = 0;
+        while (j < n) { row.push(_gaussian_sample(0, 1)); j = j + 1; }
+        Z.push(row);
+        i = i + 1;
+      }
+      return _mat_add(loc, _mat_mul(_mat_mul(L_U, Z), _mat_transpose(L_V)));
+    },
+    score: function(X) {
+      var p = X.length;
+      var n = X[0].length;
+      var D = _mat_sub(X, loc);
+      var L_U = _mat_chol(U);
+      var L_V = _mat_chol(V);
+      var U_inv_D = _mat_solve_chol(L_U, D);
+      var quad = _mat_mul(_mat_transpose(D), U_inv_D);
+      var V_inv_quad = _mat_solve_chol(L_V, quad);
+      var trace_term = _mat_trace(V_inv_quad);
+      var log_det_U = _mat_logdet_chol(L_U);
+      var log_det_V = _mat_logdet_chol(L_V);
+      return -0.5 * (n * p * Math.log(2 * Math.PI)
+                     + n * log_det_U
+                     + p * log_det_V
+                     + trace_term);
+    },
+    support: function() {
+      return { lower: -Infinity, upper: Infinity };
     }
   };
 };
