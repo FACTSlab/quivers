@@ -40,6 +40,17 @@ from typing import Literal
 
 import panproto
 
+from quivers.dsl.ast_nodes.let_expressions import (
+    LetExprBinOp,
+    LetExprCall,
+    LetExprFactor,
+    LetExprIndex,
+    LetExprList,
+    LetExprLiteral,
+    LetExprNode,
+    LetExprUnaryOp,
+    LetExprVar,
+)
 from quivers.transpile._api import UnsupportedConstruct
 from quivers.transpile._pipeline import target_protocol
 from quivers.transpile.family_meta import FAMILY_META
@@ -113,6 +124,18 @@ _PREPEND_ZERO: frozenset[str] = frozenset({"HalfNormal", "HalfCauchy"})
 #: prefix and emits a `range` vertex instead of an
 #: `indexed_variable`.
 _RANGE_SENTINEL_PREFIX: str = "__jags_range__:"
+
+#: JAGS zeros-trick constant offset. JAGS has no native target
+#: statement; the canonical idiom is to add ``<expr>`` to the joint
+#: log-likelihood via ``zero_<name> ~ dpois(C - <expr>)`` with a
+#: host-bound ``zero_<name> = 0``. The Poisson PMF satisfies
+#: ``log P(X = 0; lambda) = -lambda``, so the stochastic relation
+#: contributes ``<expr> - C`` to the log-density; the additive
+#: constant absorbs into the normalising constant and does not
+#: affect inference. ``C`` must stay strictly larger than ``<expr>``
+#: for all parameter values so the Poisson rate remains positive;
+#: ``1.0e6`` is the conventional safe default for typical fixtures.
+_ZEROS_TRICK_OFFSET: float = 1.0e6
 
 
 class JAGSRenderer(RendererBase):
@@ -1187,20 +1210,86 @@ class JAGSRenderer(RendererBase):
             for dim in node.plate.batch_dims:
                 ctx.emitted_plate_names.add(_dim_name(dim))
 
-    def _emit_score(self, ctx: _RenderCtx, node: IRScore) -> None:
-        """JAGS has no native target-statement; the zeros / ones
-        trick demands a host-supplied phantom-observation carrier
-        the IR does not currently express. Refuse rather than
-        emit a placeholder."""
-        del ctx, node
-        raise UnsupportedConstruct(
-            "qvr-jags",
-            [
-                "node:IRScore: jags has no native target-statement; "
-                "the zeros / ones trick requires a host-supplied "
-                "phantom-observation carrier the IR does not "
-                "currently express"
-            ],
+    def _emit_score(self, ctx: _JAGSCtx, node: IRScore) -> None:
+        """Emit ``score <name> = <expr>`` via the JAGS zeros trick.
+
+        JAGS has no native ``target +=`` statement; the canonical
+        idiom for adding ``<expr>`` to the joint log-likelihood is the
+        zeros trick, which exploits ``log P(0; lambda) = -lambda`` for
+        the Poisson distribution. Concretely the renderer emits:
+
+        ```
+        C_<name> <- 1.0e6 - (<expr>)
+        zero_<name> ~ dpois(C_<name>)
+        ```
+
+        The host supplies ``zero_<name> = 0`` through the JAGS
+        ``.data`` file; this renderer emits no in-model carrier for
+        the constant because JAGS has no data-block syntax in the
+        model source. The stochastic relation contributes
+        ``-(1.0e6 - <expr>) = <expr> - 1.0e6`` to the log-density;
+        the additive constant absorbs into the normalising constant.
+
+        The score expression is wrapped in a ``parenthesized_expression``
+        so the emitted source associates the subtraction correctly:
+        without the parens an inner additive expression
+        (``x*x + y*y``) would re-parse as
+        ``1e6 - x*x + y*y = 1e6 - x^2 + y^2`` instead of the intended
+        ``1e6 - (x^2 + y^2)``.
+        """
+        c_name = f"C_{node.name}"
+        zero_name = f"zero_{node.name}"
+        empty_plate = Plate(event_dims=(), batch_dims=())
+        # Open the deterministic relation `C_<name> <- 1.0e6 - (<expr>)`.
+        # IRScore carries no plate, so the relation lives at the
+        # model-block top level with a bare-identifier LHS.
+        dr = _fresh(ctx, "dr", "deterministic_relation")
+        ctx.sb.constraint(dr, "chose-alt-fingerprint", "<-")
+        ctx.sb.constraint(dr, "ptrace-0", "Cidentifier")
+        ctx.sb.constraint(dr, "ptrace-1", "T<-")
+        lhs = _identifier(ctx, c_name)
+        ctx.sb.edge(dr, lhs, "variable")
+        # Build the RHS as `1.0e6 - (<expr>)`: an outer
+        # `binary_expression` (`-`) with the offset on the left and a
+        # `parenthesized_expression` wrapping the score expression on
+        # the right. The parens force right-side grouping when the
+        # score expression itself contains a `+` / `-` operator.
+        offset_id = _number(ctx, _ZEROS_TRICK_OFFSET)
+        let_ctx = _jags_let_ctx(ctx, self._cards)
+        inner_expr_id = render_let_expr_bugs(let_ctx, node.expr)
+        # JAGS `_parenthesized` requires the child's grammar kind; the
+        # score expression's outer kind is the BUGS-helper's emit, which
+        # is `binary_expression` for a binop RHS and `identifier` for a
+        # bare-var RHS. Use `_letexpr_outer_kind` to look it up.
+        inner_kind = _letexpr_outer_kind(node.expr)
+        paren_id = self._parenthesized(ctx, inner_expr_id, inner_kind)
+        sub_id = self._binary_expr(
+            ctx, "-", offset_id, "number", paren_id, "parenthesized_expression",
+        )
+        ctx.sb.edge(dr, sub_id, "value")
+        # Attach the deterministic relation under the model block.
+        if ctx.current_block is not None:
+            ctx.sb.edge(ctx.current_block, dr, "child_of")
+            ctx.block_children.setdefault(ctx.current_block, []).append(
+                _block_child_kind(ctx, dr)
+            )
+        # Record the carrier's plate so the subsequent `dpois(C_<name>)`
+        # call renders `C_<name>` as a bare identifier (no auto-leading
+        # indices). `_emit_sample`'s ref-emission path consults
+        # `latent_plate_info` and `decl_plates` for the rate-arg
+        # IRArgRef.
+        ctx.decl_plates[c_name] = empty_plate
+        ctx.decl_plates[zero_name] = empty_plate
+        # Emit the stochastic relation `zero_<name> ~ dpois(C_<name>)`.
+        # The host supplies `zero_<name> = 0` through the JAGS `.data`
+        # file; the model source carries no in-line `zero_<name> <- 0`.
+        self._emit_sample(
+            ctx,
+            name=zero_name,
+            family="Poisson",
+            args=(IRArgRef(name=c_name),),
+            arg_names=("rate",),
+            plate=empty_plate,
         )
 
     # ------------------------------------------------------------------
@@ -1534,6 +1623,39 @@ def _number(ctx: _JAGSCtx, value: float) -> str:
     ctx.sb.constraint(vid, "literal-value", text)
     ctx.sb.constraint(vid, "chose-alt-fingerprint", text)
     return vid
+
+
+def _letexpr_outer_kind(expr: LetExprNode) -> str:
+    """Return the JAGS grammar kind of the vertex produced by
+    [`render_let_expr_bugs`][quivers.transpile.renderers._bugs_helpers.render_let_expr_bugs]
+    for `expr`.
+
+    Used by the score-emission path to wire a
+    ``parenthesized_expression`` around the rendered score expression:
+    the parens vertex carries a ``chose-alt-child-kinds`` constraint
+    whose value is the inner child's grammar kind, so the caller must
+    know that kind before emission.
+    """
+    if isinstance(expr, LetExprLiteral):
+        return "number"
+    if isinstance(expr, LetExprVar):
+        return "identifier"
+    if isinstance(expr, LetExprBinOp):
+        return "binary_expression"
+    if isinstance(expr, LetExprUnaryOp):
+        return "unary_expression"
+    if isinstance(expr, LetExprCall):
+        return "function_call"
+    if isinstance(expr, LetExprIndex):
+        return "indexed_variable"
+    if isinstance(expr, (LetExprList, LetExprFactor)):
+        # Both lower to a `c(...)` function_call in the shared
+        # BUGS / JAGS expression helper.
+        return "function_call"
+    raise UnsupportedConstruct(
+        f"qvr-{_BACKEND}",
+        [f"let-expr:outer-kind:{type(expr).__name__}: unhandled"],
+    )
 
 
 def _event_range_ir(dim: object) -> IRArg:
