@@ -43,8 +43,8 @@ program hmm_program : State -> Obs
     sample transition_rows : State <- Dirichlet(1.0) [over=State, iid_over=State]
     sample emission_rows : State <- Dirichlet(1.0) [over=Obs, iid_over=State]
 
-    sample state <- Categorical(initial_row)
-    observe obs : Obs <- Categorical(emission_rows[state])
+    marginalize state <- Categorical(initial_row) [reduction=logsumexp]
+        observe obs : Obs <- Categorical(emission_rows[state])
 
     return initial_row
 
