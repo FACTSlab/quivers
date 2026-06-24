@@ -450,21 +450,6 @@ class BUGSRenderer(RendererBase):
                 [f"family:{family}: not in FAMILY_META"],
             )
         if "bugs" not in meta.target_names:
-            # Distribution families absent from BUGS's built-in table
-            # cannot be added through a renderer-side recipe. BUGS /
-            # OpenBUGS forbid user-defined densities in the model
-            # body: only the densities baked into the parser (`dnorm`,
-            # `dgamma`, `dbeta`, `dmnorm`, ...) and the standard math
-            # library are callable, and there is no `functions { ... }`
-            # block to host a graft. Matrix-variate families such as
-            # `MatrixNormal` therefore have no native BUGS surface:
-            # while `dmnorm` over `vec(X)` with covariance V (x) U
-            # would give the right density mathematically, BUGS lacks
-            # both the Kronecker-product operator and the vec /
-            # reshape primitives needed to wire the call, so the
-            # workaround is not expressible in BUGS source. The
-            # renderer raises here rather than emitting a bogus
-            # distribution call that the BUGS parser would reject.
             raise UnsupportedConstruct(
                 f"qvr-{self.target}",
                 [f"family:{family}: no BUGS target name"],
