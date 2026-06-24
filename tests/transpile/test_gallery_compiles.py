@@ -5,13 +5,18 @@ are syntactically valid in the target language.
 This is the gallery-level extension of
 [`test_external_syntax.py`][tests.transpile.test_external_syntax]:
 that test only exercises the canonical Beta-Bernoulli fixture; this
-one drives all 37 examples in the documentation gallery through every
+one drives every example in the documentation gallery through every
 backend whose syntax-check tool is on PATH.
 
-A cell that raises `UnsupportedConstruct` is skipped (the backend
-does not support every QVR construct, and the construct-matrix /
-family-matrix tests already exercise the support boundary); a cell
-that transpiles but fails the target compiler is a real failure.
+Each (backend, example) cell either:
+
+- emits non-empty bytes that the target syntax check accepts, or
+- raises `UnsupportedConstruct` from a cell registered in
+  `_EXPECTED_UNSUPPORTED` (with the expected kind-prefix).
+
+A cell missing from the registry that nevertheless raises is a
+regression. A registered cell that no longer raises is a closed
+gap — drop the entry.
 
 The four-tier verification hierarchy:
 
@@ -63,6 +68,17 @@ _SYNTAX_CHECKS: dict[str, tuple[str, list[str], bool]] = {
 }
 
 
+# Cells where the gallery example exercises a construct outside the
+# backend's support tier. Each entry pins the expected kind-prefix
+# of the raise, so a closed gap surfaces as a test failure
+# (`pytest.raises` matches no entry) and a regression surfaces as a
+# different-kind raise.
+#
+# Key: (backend, example-stem). Value: kind-prefix the raised
+# `UnsupportedConstruct.kinds` must match.
+_EXPECTED_UNSUPPORTED: dict[tuple[str, str], str] = {}
+
+
 @pytest.mark.parametrize(
     "example", _gallery_examples(), ids=lambda p: p.stem
 )
@@ -72,22 +88,30 @@ def test_gallery_example_compiles(example: Path, backend: str) -> None:
     compiler / parser as a syntax check."""
     binary, argv, _uses_stdin = _SYNTAX_CHECKS[backend]
     if shutil.which(binary) is None:
-        pytest.xfail(
+        pytest.skip(
             f"{binary!r} not on PATH; install it in the local toolchain "
             f"or add the install step to CI"
         )
 
     source = example.read_text()
-    try:
-        emitted = transpile(parse(source), target=backend)
-    except UnsupportedConstruct as exc:
-        # The backend's walker does not handle every construct in the
-        # gallery example. The construct-matrix test owns the gap;
-        # xfail this cell with the unsupported kinds in the message.
-        pytest.xfail(
-            f"backend {backend!r} does not support a construct in "
-            f"{example.name}: {exc.kinds!r}"
+    cell = (backend, example.stem)
+    expected_unsupported = _EXPECTED_UNSUPPORTED.get(cell)
+    if expected_unsupported is not None:
+        with pytest.raises(UnsupportedConstruct) as exc_info:
+            transpile(parse(source), target=backend)
+        kinds = exc_info.value.kinds
+        assert any(
+            k.startswith(expected_unsupported) for k in kinds
+        ), (
+            f"{backend!r} on {example.name}: expected raise with "
+            f"kind prefix {expected_unsupported!r}, got {kinds!r}. "
+            f"Either the renderer changed (update the entry in "
+            f"`_EXPECTED_UNSUPPORTED`) or a different gap fired "
+            f"(fix the renderer)."
         )
+        return
+
+    emitted = transpile(parse(source), target=backend)
 
     completed = subprocess.run(
         argv,
