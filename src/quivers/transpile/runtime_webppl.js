@@ -272,3 +272,25 @@ var ContinuousBernoulli = function(params) {
     }
   };
 };
+
+var _qvr_rbf_kernel = function(x, length_scale, jitter) {
+  var n = x.length;
+  var K = [];
+  for (var i = 0; i < n; i++) {
+    var row = [];
+    for (var j = 0; j < n; j++) {
+      var d = x[i] - x[j];
+      var v = Math.exp(-0.5 * d * d / (length_scale * length_scale));
+      if (i === j) { v += jitter; }
+      row.push(v);
+    }
+    K.push(row);
+  }
+  return K;
+};
+
+var _qvr_zeros = function(n) {
+  var v = [];
+  for (var i = 0; i < n; i++) { v.push(0); }
+  return v;
+};

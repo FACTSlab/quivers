@@ -81,6 +81,7 @@ from quivers.transpile.ir import (
     IRArg,
     IRArgBroadcast,
     IRArgFamilyRef,
+    IRArgKernel,
     IRArgList,
     IRArgMatrix,
     IRArgNumber,
@@ -386,6 +387,84 @@ class WebPPLRenderer(RendererBase):
             injected_args, injected_arg_names, plate,
         )
 
+    def _emit_gp_block(
+        self,
+        ctx: _RenderCtx,
+        node,
+    ) -> None:
+        """Emit a Gaussian-process sample as three WebPPL var-decls:
+
+            var __gp_mean_<name> = _qvr_zeros(N);
+            var __gp_cov_<name>  = _qvr_rbf_kernel(x, length_scale, jitter);
+            var <name> = sample(MultivariateGaussian({mu: __gp_mean_<name>,
+                                                       cov: __gp_cov_<name>}));
+
+        The ``_qvr_rbf_kernel`` / ``_qvr_zeros`` helpers live in
+        [`runtime_webppl.js`][quivers.transpile.runtime_webppl] and
+        are grafted into the emit through the existing runtime-helper
+        graft path; GP is added to the helper-family set so the
+        helpers appear above the model body when the IR uses GP.
+        """
+        if len(node.args) != 2 or not isinstance(
+            node.args[1], IRArgKernel
+        ):
+            raise UnsupportedConstruct(
+                "qvr-webppl",
+                ["family:GP:expected IRArgKernel as second arg"],
+            )
+        kernel_arg = node.args[1]
+        if kernel_arg.kernel != "rbf":
+            raise UnsupportedConstruct(
+                "qvr-webppl",
+                [
+                    f"family:GP:kernel:{kernel_arg.kernel}: only rbf "
+                    f"is implemented"
+                ],
+            )
+        n = kernel_arg.grid_size
+        ls = kernel_arg.length_scale
+        jitter = kernel_arg.jitter
+        x = kernel_arg.x_name
+        mean_name = f"__gp_mean_{node.name}"
+        cov_name = f"__gp_cov_{node.name}"
+        # var __gp_mean_<name> = _qvr_zeros(N);
+        mean_rhs = self._call(
+            ctx,
+            self._ident(ctx, "_qvr_zeros"),
+            (self._number_literal(ctx, n),),
+        )
+        self._emit_var_decl(ctx, self._body_vid, mean_name, mean_rhs)
+        # var __gp_cov_<name> = _qvr_rbf_kernel(x, ls, jitter);
+        cov_rhs = self._call(
+            ctx,
+            self._ident(ctx, "_qvr_rbf_kernel"),
+            (
+                self._ident(ctx, x),
+                self._number_literal(ctx, ls),
+                self._number_literal(ctx, jitter),
+            ),
+        )
+        self._emit_var_decl(ctx, self._body_vid, cov_name, cov_rhs)
+        # var <name> = sample(MultivariateGaussian({mu, cov}));
+        params = self._object_literal(
+            ctx,
+            (
+                ("mu", self._ident(ctx, mean_name)),
+                ("cov", self._ident(ctx, cov_name)),
+            ),
+        )
+        dist_call = self._call(
+            ctx,
+            self._ident(ctx, "MultivariateGaussian"),
+            (params,),
+        )
+        sample_call = self._call(
+            ctx, self._ident(ctx, "sample"), (dist_call,),
+        )
+        self._emit_var_decl(
+            ctx, self._body_vid, node.name, sample_call,
+        )
+
     def _emit_sample(
         self,
         ctx: _RenderCtx,
@@ -630,6 +709,9 @@ class WebPPLRenderer(RendererBase):
         whose binding plate matches the fibration's group axis.
         """
         if isinstance(node, IRSample):
+            if node.family == "GP":
+                self._emit_gp_block(ctx, node)
+                return
             self.declare(
                 ctx,
                 node.name,
@@ -1878,6 +1960,7 @@ _WEBPPL_RUNTIME_HELPER_FAMILIES: frozenset[str] = frozenset({
     "Kumaraswamy",
     "LKJCholesky",
     "ContinuousBernoulli",
+    "GP",
 })
 
 
