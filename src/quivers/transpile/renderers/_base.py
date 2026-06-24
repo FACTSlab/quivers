@@ -41,6 +41,7 @@ from quivers.transpile.ir import (
     IRArg,
     IRArgBroadcast,
     IRArgFamilyRef,
+    IRArgKernel,
     IRArgList,
     IRArgMatrix,
     IRArgRef,
@@ -477,6 +478,16 @@ def _check_arg_refs(
             # the bound-name set; renderers tolerate this and
             # consult ctx.morphisms during emission.
             return
+    if isinstance(arg, IRArgKernel):
+        if arg.x_name not in declared:
+            raise UnsupportedConstruct(
+                "qvr-renderer",
+                [
+                    f"program:{program_name}: GP kernel input "
+                    f"references undeclared name {arg.x_name!r}"
+                ],
+            )
+        return
 
 
 def assert_no_lists(ir: IRProgram) -> None:

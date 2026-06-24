@@ -82,6 +82,7 @@ from quivers.transpile.ir import (
     IRArg,
     IRArgBroadcast,
     IRArgFamilyRef,
+    IRArgKernel,
     IRArgList,
     IRArgMatrix,
     IRArgNumber,
@@ -990,7 +991,23 @@ class StanRenderer(RendererBase):
         `<lower=0>` parameter constraint on the LHS comes from the
         family's `support`, dispatched by `is_real_positive` in
         `declare`.
+
+        GP families carry an `IRArgNumber(0.0)` mean and an
+        `IRArgKernel(...)` covariance; Stan's `multi_normal` expects
+        a vector mean of size `N`, so the scalar zero is wrapped in
+        `IRArgBroadcast` whose `target_shape` is the kernel's grid
+        size.
         """
+        if family == "GP" and len(args) == 2:
+            mean_arg, kernel_arg = args
+            if isinstance(mean_arg, IRArgNumber) and isinstance(
+                kernel_arg, IRArgKernel
+            ):
+                broadcast_mean = IRArgBroadcast(
+                    value=mean_arg,
+                    target_shape=(kernel_arg.grid_size,),
+                )
+                return (broadcast_mean, kernel_arg)
         if family in _PREPEND_ZERO:
             return (IRArgNumber(value=0.0), *args)
         pos = _INSERT_ZERO_AT.get(family)
@@ -2142,10 +2159,90 @@ class StanRenderer(RendererBase):
             return self.render_matrix(ctx, arg)
         if isinstance(arg, IRArgFamilyRef):
             return self._render_family_ref(ctx, arg)
+        if isinstance(arg, IRArgKernel):
+            return self._render_kernel(ctx, arg)
         raise UnsupportedConstruct(
             "qvr-stan",
             [f"arg:unknown:{type(arg).__name__}"],
         )
+
+    def _render_kernel(
+        self,
+        ctx: _RenderCtx,
+        arg: IRArgKernel,
+    ) -> SchemaFragment:
+        """Emit ``gp_exp_quad_cov(x, 1.0, length_scale) +
+        diag_matrix(rep_vector(jitter, N))`` for an
+        [`IRArgKernel`][quivers.transpile.ir.IRArgKernel].
+
+        Stan's built-in ``gp_exp_quad_cov(x, alpha, rho)`` returns the
+        N-by-N squared-exponential covariance matrix; the diagonal
+        jitter ensures positive-definiteness under the Cholesky
+        decomposition `multi_normal` performs internally.
+        """
+        if arg.kernel != "rbf":
+            raise UnsupportedConstruct(
+                "qvr-stan",
+                [f"arg:kernel:{arg.kernel}: only rbf is implemented"],
+            )
+        # gp_exp_quad_cov(x, alpha=1.0, length_scale)
+        kernel_fn = self._fresh(ctx, "gpfn")
+        ctx.sb.vertex(kernel_fn, "function_expression")
+        kernel_id = self._fresh(ctx, "gpfid")
+        ctx.sb.vertex(kernel_id, "identifier")
+        ctx.sb.constraint(
+            kernel_id, "literal-value", "gp_exp_quad_cov"
+        )
+        ctx.sb.edge(kernel_fn, kernel_id, "name")
+        kernel_args = self._fresh(ctx, "gpal")
+        ctx.sb.vertex(kernel_args, "argument_list")
+        x_ref = self._variable_expression(ctx, arg.x_name)
+        ctx.sb.edge(kernel_args, x_ref, "child_of")
+        # amplitude = 1.0
+        alpha = self._fresh(ctx, "gpal_a")
+        ctx.sb.vertex(alpha, "real_literal")
+        ctx.sb.constraint(alpha, "literal-value", "1.0")
+        ctx.sb.edge(kernel_args, alpha, "child_of")
+        # length_scale literal
+        ls = self._fresh(ctx, "gpal_l")
+        ctx.sb.vertex(ls, "real_literal")
+        ctx.sb.constraint(ls, "literal-value", repr(arg.length_scale))
+        ctx.sb.edge(kernel_args, ls, "child_of")
+        ctx.sb.edge(kernel_fn, kernel_args, "child_of")
+        # diag_matrix(rep_vector(jitter, N))
+        diag_fn = self._fresh(ctx, "djfn")
+        ctx.sb.vertex(diag_fn, "function_expression")
+        diag_id = self._fresh(ctx, "djfid")
+        ctx.sb.vertex(diag_id, "identifier")
+        ctx.sb.constraint(diag_id, "literal-value", "diag_matrix")
+        ctx.sb.edge(diag_fn, diag_id, "name")
+        diag_args = self._fresh(ctx, "djal")
+        ctx.sb.vertex(diag_args, "argument_list")
+        rep_fn = self._fresh(ctx, "rvfn")
+        ctx.sb.vertex(rep_fn, "function_expression")
+        rep_id = self._fresh(ctx, "rvfid")
+        ctx.sb.vertex(rep_id, "identifier")
+        ctx.sb.constraint(rep_id, "literal-value", "rep_vector")
+        ctx.sb.edge(rep_fn, rep_id, "name")
+        rep_args = self._fresh(ctx, "rval")
+        ctx.sb.vertex(rep_args, "argument_list")
+        jit = self._fresh(ctx, "jit")
+        ctx.sb.vertex(jit, "real_literal")
+        ctx.sb.constraint(jit, "literal-value", repr(arg.jitter))
+        ctx.sb.edge(rep_args, jit, "child_of")
+        ctx.sb.edge(
+            rep_args, self._int_literal(ctx, arg.grid_size), "child_of"
+        )
+        ctx.sb.edge(rep_fn, rep_args, "child_of")
+        ctx.sb.edge(diag_args, rep_fn, "child_of")
+        ctx.sb.edge(diag_fn, diag_args, "child_of")
+        # Sum: gp_exp_quad_cov(...) + diag_matrix(rep_vector(...))
+        sum_v = self._fresh(ctx, "ksum")
+        ctx.sb.vertex(sum_v, "infix_op_expression")
+        ctx.sb.constraint(sum_v, "chose-alt-fingerprint", "+")
+        ctx.sb.edge(sum_v, kernel_fn, "child_of")
+        ctx.sb.edge(sum_v, diag_fn, "child_of")
+        return sum_v
 
     def _render_number(self, ctx: _RenderCtx, value: float) -> str:
         if float(value).is_integer():
