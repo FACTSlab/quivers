@@ -3105,6 +3105,7 @@ _RUNTIME_STAN_PATH = (
 _STAN_RUNTIME_HELPER_FAMILIES: frozenset[str] = frozenset({
     "Kumaraswamy",
     "ContinuousBernoulli",
+    "MatrixNormal",
 })
 
 

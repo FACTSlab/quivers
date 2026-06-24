@@ -955,6 +955,7 @@ FAMILY_META: dict[str, FamilyMeta] = {
         distribution_class=_MatrixNormal,
         quivers_class=ConditionalMatrixNormal,
         target_names={
+            "stan": "matrix_normal",
             "numpyro": "MatrixNormal",
             "pyro": "MatrixNormal",
             "pymc": "MatrixNormal",
