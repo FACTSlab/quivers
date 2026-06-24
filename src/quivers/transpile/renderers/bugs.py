@@ -63,16 +63,11 @@ from quivers.dsl.ast_nodes import (
     MorphismDecl,
     MorphismInitFamily,
 )
-from quivers.dsl.ast_nodes.let_expressions import (
-    LetExprBinOp,
-    LetExprLiteral,
-)
 from quivers.transpile._api import UnsupportedConstruct
 from quivers.transpile._pipeline import target_protocol
 from quivers.transpile.family_meta import FAMILY_META, FamilyMeta
 from quivers.transpile.ir import (
     ConstraintSpec,
-    CSReal,
     Dim,
     IRArg,
     IRArgBroadcast,
@@ -723,44 +718,68 @@ class BUGSRenderer(RendererBase):
         over the entire parameter support so the Poisson rate argument
         remains positive; ``1.0e6`` is the canonical safe default for
         typical BUGS / JAGS fixtures.
+
+        The score expression is wrapped in a ``parenthesized_expression``
+        so the emitted source associates the subtraction correctly:
+        without the parens an inner additive expression
+        (``x*x + y*y``) would re-parse as
+        ``1e6 - x*x + y*y = 1e6 - x^2 + y^2`` instead of the intended
+        ``1e6 - (x^2 + y^2)``.
         """
         c_name = f"C_{node.name}"
         zero_name = f"zero_{node.name}"
-        # Build `1.0e6 - (<expr>)` as a LetExpr binary-op so the
-        # existing let-expression rendering pipeline handles the
-        # whole RHS uniformly (including the nested `<expr>`).
-        offset_minus_expr = LetExprBinOp(
-            op="-",
-            left=LetExprLiteral(value=_ZEROS_TRICK_OFFSET),
-            right=node.expr,
+        empty_plate = Plate(event_dims=(), batch_dims=())
+        # Open the deterministic relation `C_<name> <- 1.0e6 - (<expr>)`.
+        # IRScore carries no plate, so the relation lives at the model
+        # block's top level with a bare-identifier LHS.
+        dr_id = self._fresh(ctx, "dr")
+        ctx.sb.vertex(dr_id, "deterministic_relation")
+        ctx.sb.edge(ctx.block_id, dr_id, "deterministic_relation")
+        lhs_id = self._emit_bare_identifier(ctx, c_name)
+        ctx.sb.edge(dr_id, lhs_id, "variable")
+        # Build the RHS as `1.0e6 - (<expr>)`: an outer
+        # `binary_expression` with `field:operator = -`, left child a
+        # number for the offset, right child a `parenthesized_expression`
+        # wrapping the score expression. The parens force right-side
+        # grouping when the score expression itself contains a `+` / `-`
+        # operator.
+        offset_id = self._emit_number(ctx, _ZEROS_TRICK_OFFSET)
+        # Render the inner score expression through the standard
+        # let-expression pipeline.
+        let_ctx = _BugsLetCtx(
+            ctx.sb,
+            lambda p: self._fresh(ctx, p),
+            self._cards,
+            self.target,
         )
-        # Emit the deterministic relation `C_<name> <- 1.0e6 - (<expr>)`.
-        # IRScore carries no plate: the score increment is a scalar
-        # log-density factor that runs once per sample.
-        c_det = IRDeterministic(
-            name=c_name,
-            expr=offset_minus_expr,
-            constraint=CSReal(),
-            plate=Plate(event_dims=(), batch_dims=()),
-        )
-        # Register the carrier's plate so subsequent references resolve
-        # as a bare identifier (no auto-leading indices). The Poisson
-        # rate arg path consults `decl_plates` for `C_<name>` when it
-        # emits the IRArgRef.
-        ctx.decl_plates[c_name] = c_det.plate
-        self._emit_deterministic_node(ctx, c_det)
+        inner_expr_id = render_let_expr_bugs(let_ctx, node.expr)
+        paren_id = self._fresh(ctx, "par")
+        ctx.sb.vertex(paren_id, "parenthesized_expression")
+        ctx.sb.edge(paren_id, inner_expr_id, "parenthesized_expression")
+        sub_id = self._fresh(ctx, "be")
+        ctx.sb.vertex(sub_id, "binary_expression")
+        ctx.sb.constraint(sub_id, "field:operator", "-")
+        ctx.sb.constraint(sub_id, "chose-alt-fingerprint", "-")
+        ctx.sb.edge(sub_id, offset_id, "left")
+        ctx.sb.edge(sub_id, paren_id, "right")
+        ctx.sb.edge(dr_id, sub_id, "value")
+        # Record the carrier's plate so the subsequent `dpois(C_<name>)`
+        # call renders `C_<name>` as a bare identifier (no auto-leading
+        # indices). `_emit_relation`'s ref-emission path consults
+        # `decl_plates` for the rate-arg IRArgRef.
+        ctx.decl_plates[c_name] = empty_plate
+        ctx.decl_plates[zero_name] = empty_plate
         # Emit the stochastic relation `zero_<name> ~ dpois(C_<name>)`.
         # The host supplies `zero_<name> = 0` in the data list; BUGS
         # has no in-model data declaration so the model source itself
         # carries no `zero_<name> <- 0` line.
-        ctx.decl_plates[zero_name] = Plate(event_dims=(), batch_dims=())
         self._emit_relation(
             ctx,
             name=zero_name,
             family="Poisson",
             args=(IRArgRef(name=c_name),),
             arg_names=("rate",),
-            plate=Plate(event_dims=(), batch_dims=()),
+            plate=empty_plate,
             via=None,
             loop_suffix="",
         )
