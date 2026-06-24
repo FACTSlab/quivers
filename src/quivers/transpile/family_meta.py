@@ -966,7 +966,7 @@ FAMILY_META: dict[str, FamilyMeta] = {
             "pymc": {
                 "loc": "mu",
                 "row_covariance": "rowcov",
-                "column_covariance": "colcov",
+                "col_covariance": "colcov",
             },
         },
     ),
