@@ -7,8 +7,7 @@ deduction PCFG : Term -> Term [semiring=LogProb, start=S, depth=2]
     lexicon
         "the" : S = the
 program prog(sentence : Real) : Term -> Term
-    sample alpha <- Normal(0.0, 1.0)
     let chart = parse(PCFG, sentence)
-    let log_Z = chart.goal_weight()
-    return alpha
+    score log_Z = chart.goal_weight()
+    return log_Z
 export prog
