@@ -53,6 +53,10 @@ from quivers.transpile.renderers._python_helpers import (
     call,
     identifier,
     number_literal,
+    python_binary_op as _python_binary_op,
+    python_method_call as _python_method_call,
+    python_paren as _python_paren,
+    python_unary_minus as _python_unary_minus,
     render_let_expr_python,
     shape_tuple,
     string_literal,
@@ -66,6 +70,7 @@ from quivers.transpile.ir import (
     IRArg,
     IRArgBroadcast,
     IRArgFamilyRef,
+    IRArgKernel,
     IRArgList,
     IRArgMatrix,
     IRArgNumber,
@@ -273,6 +278,139 @@ class PyroRenderer(RendererBase):
             observed=observed,
         )
 
+    def _emit_gp_block(
+        self,
+        pctx: _PyroCtx,
+        *,
+        name: str,
+        args: tuple[IRArg, ...],
+        observed: bool,
+    ) -> None:
+        """Emit a Gaussian-process sample as a triple of Python
+        statements: ``__gp_mean_<name> = torch.zeros(N)``,
+        ``__gp_cov_<name> = torch.exp(...) + jitter * torch.eye(N)``,
+        ``<name> = pyro.sample("<name>", pyro.distributions.MultivariateNormal(
+            loc=__gp_mean_<name>, covariance_matrix=__gp_cov_<name>))``.
+
+        Mirrors the NumPyro emission with `torch` substituted for
+        `jnp`. The kernel-cov expression is built using the Python
+        helper API plus explicit
+        [`parenthesized_expression`][quivers.transpile.renderers._python_helpers.python_paren]
+        wrappers so operator precedence around the squared diff and
+        the squared length scale survives the printer's drop-paren
+        default.
+        """
+        del observed  # GP samples are never observed in QVR.
+        if len(args) != 2 or not isinstance(args[1], IRArgKernel):
+            raise UnsupportedConstruct(
+                "qvr-pyro",
+                ["family:GP:expected IRArgKernel as second arg"],
+            )
+        kernel_arg = args[1]
+        if kernel_arg.kernel != "rbf":
+            raise UnsupportedConstruct(
+                "qvr-pyro",
+                [
+                    f"family:GP:kernel:{kernel_arg.kernel}: only rbf "
+                    f"is implemented"
+                ],
+            )
+        n = kernel_arg.grid_size
+        ls = kernel_arg.length_scale
+        jitter = kernel_arg.jitter
+        x = kernel_arg.x_name
+        mean_name = f"__gp_mean_{name}"
+        cov_name = f"__gp_cov_{name}"
+        # __gp_mean_<name> = torch.zeros(N)
+        mean_rhs = call(
+            pctx,
+            attribute(pctx, ("torch", "zeros")),
+            positional=(number_literal(pctx, n),),
+        )
+        pctx.e(
+            pctx.body,
+            assignment(pctx, lhs_name=mean_name, rhs=mean_rhs),
+            "child_of",
+        )
+        # __gp_cov_<name> = torch.exp(-0.5 * (diff * diff) / (ls * ls))
+        #                    + jitter * torch.eye(N)
+        x_col = _python_method_call(
+            pctx, identifier(pctx, x), "reshape",
+            (
+                _python_unary_minus(pctx, number_literal(pctx, 1)),
+                number_literal(pctx, 1),
+            ),
+        )
+        x_row = _python_method_call(
+            pctx, identifier(pctx, x), "reshape",
+            (
+                number_literal(pctx, 1),
+                _python_unary_minus(pctx, number_literal(pctx, 1)),
+            ),
+        )
+        diff = _python_paren(
+            pctx,
+            _python_binary_op(pctx, "-", x_col, x_row),
+        )
+        diff_sq = _python_paren(
+            pctx,
+            _python_binary_op(pctx, "*", diff, diff),
+        )
+        ls_sq = _python_paren(
+            pctx,
+            _python_binary_op(
+                pctx, "*",
+                number_literal(pctx, ls),
+                number_literal(pctx, ls),
+            ),
+        )
+        quotient = _python_binary_op(pctx, "/", diff_sq, ls_sq)
+        neg_half = _python_unary_minus(pctx, number_literal(pctx, 0.5))
+        exponent = _python_binary_op(pctx, "*", neg_half, quotient)
+        kernel_call = call(
+            pctx,
+            attribute(pctx, ("torch", "exp")),
+            positional=(exponent,),
+        )
+        eye_call = call(
+            pctx,
+            attribute(pctx, ("torch", "eye")),
+            positional=(number_literal(pctx, n),),
+        )
+        jitter_term = _python_binary_op(
+            pctx, "*", number_literal(pctx, jitter), eye_call,
+        )
+        cov_rhs = _python_binary_op(
+            pctx, "+", kernel_call, jitter_term,
+        )
+        pctx.e(
+            pctx.body,
+            assignment(pctx, lhs_name=cov_name, rhs=cov_rhs),
+            "child_of",
+        )
+        # <name> = pyro.sample("<name>", pyro.distributions.MultivariateNormal(
+        #     loc=__gp_mean_<name>, covariance_matrix=__gp_cov_<name>))
+        mvn_call = call(
+            pctx,
+            attribute(
+                pctx,
+                ("pyro", "distributions", "MultivariateNormal"),
+            ),
+            keyword=(
+                ("loc", identifier(pctx, mean_name)),
+                ("covariance_matrix", identifier(pctx, cov_name)),
+            ),
+        )
+        sample_call = call(
+            pctx,
+            attribute(pctx, ("pyro", "sample")),
+            positional=(string_literal(pctx, name), mvn_call),
+        )
+        sample_asn = assignment(
+            pctx, lhs_name=name, rhs=sample_call,
+        )
+        pctx.e(pctx.body, sample_asn, "child_of")
+
     def _emit_sample_or_observe(
         self,
         pctx: _PyroCtx,
@@ -288,6 +426,11 @@ class PyroRenderer(RendererBase):
         """Emit `with pyro.plate(<dim>, <size>):` per batch dim,
         wrapping a `pyro.sample(...)` call (optionally assigned to
         `name` for latents)."""
+        if family == "GP":
+            self._emit_gp_block(
+                pctx, name=name, args=args, observed=observed,
+            )
+            return
         sample_call = self._build_sample_call(
             ctx,
             pctx=pctx,

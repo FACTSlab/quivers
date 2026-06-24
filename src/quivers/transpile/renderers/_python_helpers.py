@@ -163,6 +163,67 @@ def call(
     return c
 
 
+def python_binary_op(
+    ctx: PyCtx, op: str, left: str, right: str,
+) -> str:
+    """Build a ``binary_operator`` vertex carrying ``op`` as the
+    field:operator constraint.
+
+    The Python tree-sitter `binary_operator` has CHOICE alternatives
+    per operator; both the field constraint and the alt fingerprint
+    must be set so the pretty printer picks the right surface form.
+    """
+    b = ctx.v(ctx.fresh("bop"), "binary_operator")
+    ctx.constraint(b, "field:operator", op)
+    ctx.constraint(b, "chose-alt-fingerprint", op)
+    ctx.e(b, left, "left")
+    ctx.e(b, right, "right")
+    return b
+
+
+def python_unary_minus(ctx: PyCtx, operand: str) -> str:
+    """Build a ``unary_operator`` vertex for ``-<operand>``."""
+    u = ctx.v(ctx.fresh("uop"), "unary_operator")
+    ctx.constraint(u, "field:operator", "-")
+    ctx.constraint(u, "chose-alt-fingerprint", "-")
+    ctx.e(u, operand, "argument")
+    return u
+
+
+def python_paren(ctx: PyCtx, inner: str) -> str:
+    """Build a ``parenthesized_expression`` vertex around ``inner``.
+
+    The Python pretty printer drops parens around nested
+    binary_operator children, which scrambles operator precedence;
+    callers that depend on explicit grouping wrap subexpressions in
+    parenthesized_expression to force the printer to emit ``( ... )``.
+    """
+    p = ctx.v(ctx.fresh("paren"), "parenthesized_expression")
+    ctx.constraint(p, "chose-alt-fingerprint", "( )")
+    ctx.e(p, inner, "child_of")
+    return p
+
+
+def python_method_call(
+    ctx: PyCtx,
+    receiver: str,
+    method: str,
+    args: tuple[str, ...],
+) -> str:
+    """Build ``<receiver>.<method>(<args>)``."""
+    a = ctx.v(ctx.fresh("attr"), "attribute")
+    ctx.e(a, receiver, "object")
+    method_id = identifier(ctx, method)
+    ctx.e(a, method_id, "attribute")
+    c = ctx.v(ctx.fresh("call"), "call")
+    arglist = ctx.v(ctx.fresh("args"), "argument_list")
+    ctx.e(c, a, "function")
+    ctx.e(c, arglist, "arguments")
+    for arg in args:
+        ctx.e(arglist, arg, "child_of")
+    return c
+
+
 def assignment(ctx: PyCtx, *, lhs_name: str, rhs: str) -> str:
     """Build ``<lhs_name> = <rhs>``."""
     asn = ctx.v(ctx.fresh("asn"), "assignment")
@@ -485,6 +546,10 @@ __all__ = [
     "function_def",
     "identifier",
     "number_literal",
+    "python_binary_op",
+    "python_method_call",
+    "python_paren",
+    "python_unary_minus",
     "render_let_expr_python",
     "shape_tuple",
     "string_literal",
