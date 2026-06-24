@@ -119,11 +119,42 @@ def _render(ctx, expr: LetExprNode) -> tuple[str, str]:
             ],
         )
     if isinstance(expr, LetExprMethodCall):
+        # Stan has no `receiver.method(args)` dispatch syntax. The
+        # principled emission for a deduction-receiver method call
+        # such as `chart.goal_weight()` is a per-deduction
+        # `functions { ... }` block defining `parse` and
+        # `goal_weight` as user-defined Stan functions that compute
+        # the inside-algorithm log-Z over the rule weight vector.
+        # Two structural prerequisites block that emission:
+        #
+        # 1. `deduction_decl` belongs to
+        #    [`CATEGORICAL_METADATA_IGNORABLE`][quivers.transpile._api.CATEGORICAL_METADATA_IGNORABLE],
+        #    so the IR pipeline elides deductions before the
+        #    renderer runs. The atoms, rules, and lexicon needed to
+        #    build the inside DP table are not present in the IR
+        #    seen here, and there is no IR shape for the chart or
+        #    its learnable rule-weight vector.
+        # 2. PCFG inside requires a token-sequence input. The
+        #    `parse(D, sentence)` callsite's `sentence` parameter
+        #    types as `Real` (a scalar), so even given the rule
+        #    weights the chart-parser graft has no input shape to
+        #    dimension the DP table over spans.
+        #
+        # Rewriting `m.f(a)` as a static `f(m, a)` call without
+        # supplying the `f` definition produces an undefined-
+        # function reference that `stanc` rejects, so the helper
+        # raises instead of emitting a placeholder.
         raise UnsupportedConstruct(
             "qvr-stan-helper",
             [
-                "let-expr:LetExprMethodCall: Stan has no method "
-                "dispatch syntax"
+                "let-expr:LetExprMethodCall:stan: Stan has no method "
+                "dispatch syntax; the chart-parser deduction graft "
+                "that would supply the called function as a Stan "
+                "`functions { ... }` block requires (a) plumbing "
+                "`DeductionDecl` through the IR (currently dropped "
+                "by `CATEGORICAL_METADATA_IGNORABLE`), and (b) a "
+                "token-sequence input shape (the fixture's "
+                "`sentence : Real` is a scalar)"
             ],
         )
     raise UnsupportedConstruct(
