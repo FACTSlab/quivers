@@ -94,23 +94,32 @@ def _lower(fixture_source: str) -> IRProgram:
 
 
 def _mutate_swap_beta_args(ir: IRProgram) -> IRProgram:
-    """Beta(2.0, 5.0) -> Beta(5.0, 2.0). Distinct distribution; any
-    backend that emits the right call site must reflect the swap."""
+    """Swap the first two positional args of the first
+    [`IRSample`][quivers.transpile.ir.IRSample] whose call site has
+    two numeric args. For asymmetric families (Beta, Normal, Gamma,
+    LogNormal, ...) the swap produces a distinct distribution; any
+    backend that emits the right call site must reflect it. Named
+    `swap_beta_args` for legacy reasons but applies to every 2-arg
+    family with numeric literals at the first two positions."""
     new_body = []
     swapped = False
     for node in ir.body:
         if (
             isinstance(node, IRSample)
-            and node.family == "Beta"
-            and len(node.args) == 2
+            and len(node.args) >= 2
             and isinstance(node.args[0], IRArgNumber)
             and isinstance(node.args[1], IRArgNumber)
             and not swapped
         ):
+            new_args = (
+                node.args[1],
+                node.args[0],
+                *node.args[2:],
+            )
             new_body.append(IRSample(
                 name=node.name,
                 family=node.family,
-                args=(node.args[1], node.args[0]),
+                args=new_args,
                 arg_names=node.arg_names,
                 constraint=node.constraint,
                 plate=node.plate,
@@ -127,16 +136,25 @@ def _mutate_swap_beta_args(ir: IRProgram) -> IRProgram:
 
 
 def _mutate_normal_to_cauchy(ir: IRProgram) -> IRProgram:
-    """Normal(loc, scale) -> Cauchy(loc, scale). Same arity, different
-    family. Any backend that emits the family name must reflect the
-    rename."""
+    """Rename the first sample / observe to a same-arity, same-support
+    alternative family. Normal -> Cauchy and Beta -> Kumaraswamy are
+    the canonical pairs; any backend that emits the family name must
+    reflect the rename. Named `normal_to_cauchy` for legacy reasons
+    but applies to every renameable family pair."""
+    pairs = {
+        "Normal": "Cauchy",
+        "Beta": "Kumaraswamy",
+        "Gamma": "InverseGamma",
+        "Bernoulli": "ContinuousBernoulli",
+        "Poisson": "Geometric",
+    }
     new_body = []
     changed = False
     for node in ir.body:
-        if isinstance(node, IRSample) and node.family == "Normal":
+        if isinstance(node, IRSample) and node.family in pairs and not changed:
             new_body.append(IRSample(
                 name=node.name,
-                family="Cauchy",
+                family=pairs[node.family],
                 args=node.args,
                 arg_names=node.arg_names,
                 constraint=node.constraint,
@@ -144,10 +162,10 @@ def _mutate_normal_to_cauchy(ir: IRProgram) -> IRProgram:
             ))
             changed = True
             continue
-        if isinstance(node, IRObserve) and node.family == "Normal":
+        if isinstance(node, IRObserve) and node.family in pairs and not changed:
             new_body.append(IRObserve(
                 name=node.name,
-                family="Cauchy",
+                family=pairs[node.family],
                 args=node.args,
                 arg_names=node.arg_names,
                 constraint=node.constraint,
@@ -276,17 +294,7 @@ _BROADCAST_INSENSITIVE_CELLS: frozenset[tuple[str, str]] = frozenset({
 #: value is a fixture-specific reason printed in the `pytest.xfail`
 #: call, replacing the generic `no matching IR node found` message
 #: that buries the actual cause.
-_MUTATION_INAPPLICABLE: dict[tuple[str, str], str] = {
-    ("swap_beta_args", "bayes_linear_regression"): (
-        "bayes_linear_regression has no Beta sample with two numeric "
-        "args; the fixture uses Normal(loc, scale) throughout, so the "
-        "arg-swap selector matches no IRSample node"
-    ),
-    ("normal_to_cauchy", "beta_bernoulli"): (
-        "beta_bernoulli uses Beta and Bernoulli; it has no Normal "
-        "sample or observe for the family rename to retarget to Cauchy"
-    ),
-}
+_MUTATION_INAPPLICABLE: dict[tuple[str, str], str] = {}
 
 
 def _render(ir: IRProgram, backend: str) -> bytes | None:
