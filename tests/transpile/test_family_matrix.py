@@ -71,95 +71,37 @@ def _family_for_fixture(fixture: _load.Fixture) -> str:
 def test_family_backend_cell(
     fixture: _load.Fixture, backend: str
 ) -> None:
-    """One cell of the (family × backend) matrix."""
+    """One cell of the (family × backend) matrix.
+
+    Two pre-declared outcomes:
+
+    - `backend_name is None` (family absent from
+      `FAMILY_META[family].target_names` for this backend): the
+      pipeline MUST raise `UnsupportedConstruct` with at least one
+      kind whose tag begins with ``"family:"``.
+    - `backend_name is not None`: the pipeline MUST emit non-empty
+      bytes that contain the backend-specific distribution name
+      (e.g. Stan ``beta``, NumPyro ``Beta``).
+    """
     family = _family_for_fixture(fixture)
     backend_name = _backend_target_name(family, backend)
     module = parse(fixture.source)
 
-    try:
-        output = transpile(module, target=backend)
-    except UnsupportedConstruct as exc:
-        kinds = exc.kinds
-        # Three legitimate raise categories:
-        # 1. The family is genuinely unsupported by this backend.
-        # 2. The fixture uses a step / option / axes feature the
-        #    renderer doesn't emit (marginalize, score, let_step,
-        #    ...); that's outside this test's family-support
-        #    concern.
-        # 3. The arity of the resolved family call doesn't match
-        #    the backend's expected signature (WebPPL's keyword-arg
-        #    dist constructors enforce arity strictly).
-        if backend_name is None:
-            if any(k.startswith("family:") for k in kinds):
-                return
-            # Renderer tripped on something else (step / axes /
-            # option) before reaching the family check. We can't
-            # verify family-absence handling on this fixture;
-            # surface as xfail so the un-implemented renderer
-            # construct is the construct-matrix test's concern,
-            # not this one.
-            pytest.xfail(
-                reason=(
-                    f"backend {backend!r} on family {family!r}: "
-                    f"family is absent from FAMILY_META.target_names, "
-                    f"but the renderer raised on a different "
-                    f"construct before checking the family: "
-                    f"kinds={kinds!r}. The construct-matrix test "
-                    f"owns this gap."
-                )
-            )
-        # Family IS in the map but the fixture exercised something
-        # beyond it (typically a marginalize / let / score step
-        # the renderer doesn't emit). The renderer gap belongs to
-        # the construct-matrix test, not the family-matrix one.
-        gap_prefixes = (
-            "step:",
-            "axes:",
-            "option:",
-            "family:",
-            "let:",
-            "let-expr:",
-            "node:",
-            "return:",
-            "declare:",
-            "broadcast:",
-            "arg:",
-        )
-        assert any(
-            any(k.startswith(p) for p in gap_prefixes) for k in kinds
-        ), (
-            f"backend {backend!r} on family {family!r}: renderer "
-            f"raised with unrecognised error kinds {kinds!r}"
-        )
-        pytest.xfail(
-            reason=(
-                f"family {family!r} fixture exercises renderer "
-                f"behaviour beyond pure family-call (raised "
-                f"{kinds!r}); the family-matrix concern is whether "
-                f"the family/backend pair is in `FAMILY_META."
-                f"target_names` (yes), not whether the surrounding "
-                f"construct emits."
-            )
-        )
-
-    if backend == "church" and output == b"":
-        pytest.xfail(
-            reason=(
-                "panproto/panproto#172: scheme `emit_pretty` returns "
-                "empty bytes for every input. Renderer succeeded; "
-                "flips when upstream restores the scheme "
-                "pretty-printer."
-            )
-        )
-
     if backend_name is None:
-        pytest.fail(
-            f"backend {backend!r} on family {family!r}: family is NOT "
-            f"in `FAMILY_META[{family!r}].target_names` yet transpile "
-            f"succeeded; either add {backend!r} to the family's "
-            f"`target_names` map or note why the renderer accepted "
-            f"it. Output: {output[:120]!r}"
+        with pytest.raises(UnsupportedConstruct) as exc_info:
+            transpile(module, target=backend)
+        kinds = exc_info.value.kinds
+        assert any(k.startswith("family:") for k in kinds), (
+            f"backend {backend!r} on family {family!r}: expected "
+            f"`UnsupportedConstruct` with a `family:`-prefixed kind, "
+            f"got kinds={kinds!r}. Either add {backend!r} to "
+            f"`FAMILY_META[{family!r}].target_names` (if the renderer "
+            f"now supports the family) or fix the renderer to raise "
+            f"a family-tagged kind."
         )
+        return
+
+    output = transpile(module, target=backend)
     assert output, (
         f"backend {backend!r} on family {family!r}: empty bytes"
     )

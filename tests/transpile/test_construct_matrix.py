@@ -2,17 +2,25 @@
 
 For every fixture under `fixtures/{statements, steps,
 let_expressions, options, axes}` and every registered backend, the
-test asserts one of three outcomes:
+test asserts one of three pre-declared outcomes:
 
-1. **Pass**: the construct is in the backend's `support` tier and
-   the renderer pipeline successfully transpiles.
-2. **`UnsupportedConstruct`**: the construct is outside the support
-   tier; the pipeline raises with the offending kind name.
-3. **`pytest.xfail`** (set inside the test body): the renderer
-   raises on a construct that *should* be supported (i.e., the
-   kind is in the tier but the renderer hasn't grown the case
-   yet). This is the real assertion of the contract; the xfail
-   tracks the renderer fix.
+1. **Construct out of tier**: the fixture's statement kind is not in
+   the backend's `_SUPPORT_TIER` frozenset; the pipeline MUST raise
+   `UnsupportedConstruct` with at least one of the predicted kinds.
+2. **Orthogonal concern**: the fixture's statement kind IS in the
+   tier, but the fixture also exercises a feature the backend
+   cannot represent (a family without a target_name; a let-expression
+   shape with no method-call surface; a downstream IR node kind the
+   renderer hasn't wired). Each such cell is pinned in
+   `_EXPECTED_ORTHOGONAL_RAISES` with the kind-prefix the raise
+   must carry. A closed gap surfaces as a test failure
+   (pytest.raises matches no entry); a regression surfaces as a
+   different-kind raise.
+3. **Render**: not in either bucket; the pipeline MUST emit
+   non-empty bytes.
+
+Every cell is therefore a positive assertion — no xfail-on-exception
+dispatch.
 """
 
 from __future__ import annotations
@@ -29,7 +37,6 @@ from quivers.transpile import (
 from quivers.transpile._api import (
     CATEGORICAL_METADATA_IGNORABLE,
     CHURCH_LIKE,
-    PYTHON_DEEP,
     STAN_LIKE,
 )
 from tests.transpile.fixtures import _load
@@ -80,11 +87,36 @@ def _expected_unsupported_kinds(fixture: _load.Fixture, backend: str) -> set[str
     return {k for k in kinds if k not in effective_tier}
 
 
-# Fixtures that the renderer doesn't fully emit yet, even though
-# the statement is in the support tier. Each maps fixture stem →
-# reason. When the renderer grows the case, the strict-xfail flips
-# to a failure and the entry is removed.
-_KNOWN_WALKER_GAPS: dict[str, str] = {}
+# Cells where the fixture's statement kind IS in the backend's
+# support tier, but a different concern (the resolved distribution
+# family, a let-expression shape, or a downstream IR node) provokes
+# `UnsupportedConstruct` before the construct gate fires. Each entry
+# pins the expected kind-prefix of the raise.
+#
+# Key: (backend, fixture-category, fixture-name).
+# Value: the prefix the raised `UnsupportedConstruct.kinds` must
+# match (`"family:"`, `"let-expr:"`, `"node:"`, `"declare:"`, etc.).
+#
+# A closed gap surfaces as a test failure because `pytest.raises`
+# succeeds but the assertion-of-prefix is unreachable; remove the
+# entry. A regression surfaces because the raised kinds match a
+# different prefix; either update the entry or fix the renderer.
+_EXPECTED_ORTHOGONAL_RAISES: dict[tuple[str, str, str], str] = {
+    # Stan / BUGS / JAGS have no method-dispatch syntax for the
+    # chart-parser `parser.parse(sentence)` method call. The
+    # deduction graft that would supply the called function is
+    # blocked by `CATEGORICAL_METADATA_IGNORABLE` (Stan) or by
+    # dialect restrictions on user-defined model-body functions
+    # (BUGS, JAGS).
+    ("stan", "let_expressions", "let_expr_method_call"): "let-expr:",
+    ("bugs", "let_expressions", "let_expr_method_call"): "let-expr:",
+    ("jags", "let_expressions", "let_expr_method_call"): "let-expr:",
+    # BUGS / JAGS dialects ship no MatrixNormal surface, so the
+    # axes/matrix_kronecker fixture trips the family-target-name
+    # check before the construct gate.
+    ("bugs", "axes", "matrix_kronecker"): "family:",
+    ("jags", "axes", "matrix_kronecker"): "family:",
+}
 
 
 def _construct_fixtures() -> list[_load.Fixture]:
@@ -143,108 +175,24 @@ def test_construct_backend_cell(
         )
         return
 
-    if fixture.name in _KNOWN_WALKER_GAPS:
-        # Strict gap: the pipeline MUST raise UnsupportedConstruct,
-        # AND the error must report a kind that matches the gap. If
-        # the pipeline stops raising (gap closed), the test fails so
-        # the operator removes the fixture from `_KNOWN_WALKER_GAPS`.
-        # If the pipeline raises with a different kind than expected,
-        # the test fails so the operator updates the gap reason or
-        # investigates the regression.
-        try:
-            output = _transpile_with_tier_check(module, target=backend)
-        except UnsupportedConstruct as exc:
-            reason = _KNOWN_WALKER_GAPS[fixture.name]
-            # The gap reason starts with a step / option signature
-            # like "walker does not emit LetStep"; we don't enforce a
-            # specific kind tag (each backend's error message differs
-            # in detail), but we require the gap to surface as some
-            # `step:` or `family:` error so the gap is real.
-            kinds = exc.kinds
-            del reason
-            assert any(
-                ":" in k for k in kinds
-            ), (
-                f"{backend!r} on {fixture.name!r}: gap fired but the "
-                f"error kinds {kinds!r} have no `:`-tagged construct "
-                f"reference, the gap is no longer the one described "
-                f"in `_KNOWN_WALKER_GAPS[{fixture.name!r}]`. Either "
-                f"update the entry or remove it."
-            )
-        else:
-            pytest.fail(
-                f"{backend!r} on {fixture.name!r}: pipeline no longer "
-                f"raises `UnsupportedConstruct`; the gap recorded in "
-                f"`_KNOWN_WALKER_GAPS[{fixture.name!r}]` has been "
-                f"closed. Remove the entry from the table. "
-                f"(output: {output[:120]!r})"
-            )
-    else:
-        # The construct-matrix test verifies CONSTRUCT support (the
-        # pipeline can handle the Statement / Step / OptionValue
-        # kind). Family support is a separate concern handled by
-        # `test_family_matrix.py`; let-composition resolution is
-        # tracked separately. When the pipeline raises with one of
-        # these orthogonal-concern kinds, the construct cell xfails
-        # so the construct-matrix doesn't double-report bugs the
-        # other matrix already catches.
-        # Renderer-gap prefixes the construct-matrix test treats as
-        # orthogonal: each is raised by the Lower + Renderer pipeline
-        # for a reason unrelated to whether the input's
-        # construct-kind is in the support tier:
-        #
-        # - ``family:`` / ``let:`` — distribution / let resolution
-        #   gaps; tracked by `test_family_matrix.py` and the
-        #   let-resolution tests.
-        # - ``let-expr:`` — let-expression Expr-kind the renderer
-        #   has not grown; tracked alongside `let:`.
-        # - ``node:`` — IR node kind the renderer has not wired
-        #   (e.g. BUGS not handling `IRDeterministic`).
-        # - ``return:`` — generated-quantities aliasing gap (return
-        #   variable whose shape the renderer cannot resolve).
-        # - ``declare:`` — type-constraint gap during declaration
-        #   emission (e.g. Stan vector with wrong event-rank).
-        # - ``broadcast:`` — broadcast-op gap on a non-scalar arg.
-        # - ``arg:`` — arg-shape gap on an IRArg subclass the
-        #   renderer has not wired (e.g. BUGS on `IRArgBroadcast`).
-        _ORTHOGONAL_PREFIXES = (
-            "family:",
-            "let:",
-            "let-expr:",
-            "node:",
-            "return:",
-            "declare:",
-            "broadcast:",
-            "arg:",
+    cell = (backend, fixture.category, fixture.name)
+    expected_orthogonal = _EXPECTED_ORTHOGONAL_RAISES.get(cell)
+    if expected_orthogonal is not None:
+        with pytest.raises(UnsupportedConstruct) as exc_info:
+            _transpile_with_tier_check(module, target=backend)
+        kinds = exc_info.value.kinds
+        assert any(k.startswith(expected_orthogonal) for k in kinds), (
+            f"{backend!r} on {fixture.category}/{fixture.name!r}: "
+            f"expected an orthogonal-concern raise with kind prefix "
+            f"{expected_orthogonal!r}, got kinds={kinds!r}. Either "
+            f"the renderer changed (update the entry in "
+            f"`_EXPECTED_ORTHOGONAL_RAISES`) or a different gap fired "
+            f"(fix the renderer)."
         )
-        try:
-            output = _transpile_with_tier_check(module, target=backend)
-            if backend == "church" and output == b"":
-                pytest.xfail(
-                    reason=(
-                        "panproto/panproto#172: scheme `emit_pretty` "
-                        "returns empty bytes for every input. Pipeline "
-                        "succeeded; flips when upstream restores the "
-                        "scheme pretty-printer."
-                    )
-                )
-        except UnsupportedConstruct as exc:
-            orthogonal = [
-                k for k in exc.kinds
-                if any(k.startswith(p) for p in _ORTHOGONAL_PREFIXES)
-            ]
-            if orthogonal:
-                pytest.xfail(
-                    reason=(
-                        f"{backend!r} on {fixture.name!r}: pipeline "
-                        f"raised on an orthogonal-concern kind "
-                        f"({orthogonal!r}); construct support is "
-                        f"orthogonal to this raise. Tracked by the "
-                        f"family-matrix / let-resolution tests."
-                    )
-                )
-            raise
-        assert output, (
-            f"backend {backend!r} on {fixture.name!r}: transpile "
-            f"returned empty bytes"
-        )
+        return
+
+    output = _transpile_with_tier_check(module, target=backend)
+    assert output, (
+        f"backend {backend!r} on {fixture.name!r}: transpile "
+        f"returned empty bytes"
+    )
