@@ -63,11 +63,16 @@ from quivers.dsl.ast_nodes import (
     MorphismDecl,
     MorphismInitFamily,
 )
+from quivers.dsl.ast_nodes.let_expressions import (
+    LetExprBinOp,
+    LetExprLiteral,
+)
 from quivers.transpile._api import UnsupportedConstruct
 from quivers.transpile._pipeline import target_protocol
 from quivers.transpile.family_meta import FAMILY_META, FamilyMeta
 from quivers.transpile.ir import (
     ConstraintSpec,
+    CSReal,
     Dim,
     IRArg,
     IRArgBroadcast,
@@ -160,6 +165,19 @@ _ALIAS_TRANSFORMS: dict[str, str] = {
 #: the full Normal is absorbed by the constant-spread tolerance in
 #: [`assert_log_density_match`][tests.transpile._equivalence.assert_log_density_match].
 _PREPEND_ZERO: frozenset[str] = frozenset({"HalfNormal", "HalfCauchy"})
+
+
+#: BUGS / JAGS zeros-trick constant offset. The Poisson PMF satisfies
+#: ``log P(X = 0; lambda) = -lambda``, so emitting
+#: ``zero_<name> ~ dpois(C - <expr>)`` with a host-bound
+#: ``zero_<name> = 0`` adds ``<expr>`` to the joint log-likelihood up
+#: to the additive constant ``-C`` (which absorbs into the
+#: normalising constant and does not affect inference). ``C`` must
+#: stay strictly larger than ``<expr>`` over the entire parameter
+#: support; ``1.0e6`` is the conventional safe default for typical
+#: BUGS / JAGS fixtures and matches the offset shipped in WinBUGS /
+#: OpenBUGS examples.
+_ZEROS_TRICK_OFFSET: float = 1.0e6
 
 
 @dataclasses.dataclass
@@ -281,15 +299,8 @@ class BUGSRenderer(RendererBase):
             self._emit_deterministic_node(ctx, node)
             return
         if isinstance(node, IRScore):
-            raise UnsupportedConstruct(
-                f"qvr-{self.target}",
-                [
-                    f"node:IRScore: {self.target} has no native "
-                    "target-statement; the zeros / ones trick "
-                    "requires a host-supplied phantom-observation "
-                    "carrier the IR does not currently express"
-                ],
-            )
+            self._emit_score_node(ctx, node)
+            return
         if isinstance(node, IRMarginalize):
             self._emit_marginalize_node(ctx, node)
             return
@@ -688,6 +699,71 @@ class BUGSRenderer(RendererBase):
         finally:
             ctx.enclosing_plate = prev_plate
             ctx.enclosing_loop_names = prev_loops
+
+    def _emit_score_node(self, ctx: _BugsCtx, node: IRScore) -> None:
+        """Emit ``score <name> = <expr>`` via the BUGS zeros trick.
+
+        BUGS has no native ``target +=`` statement; the canonical idiom
+        for adding ``<expr>`` to the joint log-likelihood is the
+        zeros trick, which exploits ``log P(0; lambda) = -lambda`` for
+        the Poisson distribution. Concretely the renderer emits:
+
+        ```
+        C_<name> <- 1.0e6 - (<expr>)
+        zero_<name> ~ dpois(C_<name>)
+        ```
+
+        The host supplies ``zero_<name> = 0`` in the data list so the
+        stochastic relation contributes ``-(1.0e6 - <expr>) = <expr> -
+        1.0e6`` to the log-density; the additive constant ``-1.0e6``
+        absorbs into the normalising constant and does not affect
+        posterior inference.
+
+        The offset ``1.0e6`` must stay strictly larger than ``<expr>``
+        over the entire parameter support so the Poisson rate argument
+        remains positive; ``1.0e6`` is the canonical safe default for
+        typical BUGS / JAGS fixtures.
+        """
+        c_name = f"C_{node.name}"
+        zero_name = f"zero_{node.name}"
+        # Build `1.0e6 - (<expr>)` as a LetExpr binary-op so the
+        # existing let-expression rendering pipeline handles the
+        # whole RHS uniformly (including the nested `<expr>`).
+        offset_minus_expr = LetExprBinOp(
+            op="-",
+            left=LetExprLiteral(value=_ZEROS_TRICK_OFFSET),
+            right=node.expr,
+        )
+        # Emit the deterministic relation `C_<name> <- 1.0e6 - (<expr>)`.
+        # IRScore carries no plate: the score increment is a scalar
+        # log-density factor that runs once per sample.
+        c_det = IRDeterministic(
+            name=c_name,
+            expr=offset_minus_expr,
+            constraint=CSReal(),
+            plate=Plate(event_dims=(), batch_dims=()),
+        )
+        # Register the carrier's plate so subsequent references resolve
+        # as a bare identifier (no auto-leading indices). The Poisson
+        # rate arg path consults `decl_plates` for `C_<name>` when it
+        # emits the IRArgRef.
+        ctx.decl_plates[c_name] = c_det.plate
+        self._emit_deterministic_node(ctx, c_det)
+        # Emit the stochastic relation `zero_<name> ~ dpois(C_<name>)`.
+        # The host supplies `zero_<name> = 0` in the data list; BUGS
+        # has no in-model data declaration so the model source itself
+        # carries no `zero_<name> <- 0` line.
+        ctx.decl_plates[zero_name] = Plate(event_dims=(), batch_dims=())
+        self._emit_relation(
+            ctx,
+            name=zero_name,
+            family="Poisson",
+            args=(IRArgRef(name=c_name),),
+            arg_names=("rate",),
+            plate=Plate(event_dims=(), batch_dims=()),
+            via=None,
+            loop_suffix="",
+        )
 
     # ------------------------------------------------------------------
     # Core relation emitter.
