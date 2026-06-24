@@ -63,15 +63,25 @@ from quivers.dsl.ast_nodes import (
     MorphismDecl,
     MorphismInitFamily,
 )
+from quivers.dsl.ast_nodes.let_expressions import (
+    LetExprBinOp,
+    LetExprCall,
+    LetExprIndex,
+    LetExprLiteral,
+    LetExprUnaryOp,
+    LetExprVar,
+)
 from quivers.transpile._api import UnsupportedConstruct
 from quivers.transpile._pipeline import target_protocol
 from quivers.transpile.family_meta import FAMILY_META, FamilyMeta
 from quivers.transpile.ir import (
     ConstraintSpec,
     Dim,
+    DimStatic,
     IRArg,
     IRArgBroadcast,
     IRArgFamilyRef,
+    IRArgKernel,
     IRArgList,
     IRArgMatrix,
     IRArgNumber,
@@ -285,6 +295,9 @@ class BUGSRenderer(RendererBase):
             # the caller's data list. No emission.
             return
         if isinstance(node, IRSample):
+            if node.family == "GP":
+                self._emit_gp_block(ctx, node)
+                return
             self._emit_sample_node(ctx, node, loop_suffix="")
             return
         if isinstance(node, IRObserve):
@@ -643,6 +656,149 @@ class BUGSRenderer(RendererBase):
             loop_suffix="",
             truncation=(lo, hi),
         )
+
+    def _emit_gp_block(
+        self,
+        ctx: _BugsCtx,
+        node: IRSample,
+    ) -> None:
+        """Emit a Gaussian-process sample as BUGS deterministic loops
+        plus a multivariate-normal stochastic relation.
+
+        BUGS `dmnorm` parameterises by precision (the inverse of the
+        covariance), so the RBF kernel matrix is constructed in a
+        double loop and then inverted before being passed as the
+        precision argument:
+
+            for (i in 1:N) {
+              __gp_zeros_<name>[i] <- 0
+              for (j in 1:N) {
+                __gp_K_<name>[i, j] <-
+                    exp(-0.5 * pow(x[i] - x[j], 2)
+                              / pow(length_scale, 2))
+                    + equals(i, j) * jitter
+              }
+            }
+            __gp_tau_<name> <- inverse(__gp_K_<name>)
+            <name> ~ dmnorm(__gp_zeros_<name>, __gp_tau_<name>)
+
+        BUGS lacks `ifelse`, so the jitter is added via the
+        ``equals(i, j) * jitter`` idiom (equals returns 1 if true,
+        0 otherwise).
+        """
+        if len(node.args) != 2 or not isinstance(
+            node.args[1], IRArgKernel
+        ):
+            raise UnsupportedConstruct(
+                f"qvr-{self.target}",
+                ["family:GP:expected IRArgKernel as second arg"],
+            )
+        kernel_arg = node.args[1]
+        if kernel_arg.kernel != "rbf":
+            raise UnsupportedConstruct(
+                f"qvr-{self.target}",
+                [
+                    f"family:GP:kernel:{kernel_arg.kernel}: only rbf "
+                    f"is implemented"
+                ],
+            )
+        n = kernel_arg.grid_size
+        ls = kernel_arg.length_scale
+        jitter = kernel_arg.jitter
+        x = kernel_arg.x_name
+        kmat_name = f"__gp_K_{node.name}"
+        zeros_name = f"__gp_zeros_{node.name}"
+        tau_name = f"__gp_tau_{node.name}"
+        # Synthesize an IRDeterministic for the zeros: K_zeros[i] <- 0
+        # with batch_dim "i" (so the existing emit produces the outer
+        # for(i) loop and the LHS index).
+        i_dim = DimStatic(size=n, name="i")
+        j_dim = DimStatic(size=n, name="j")
+        zeros_det = IRDeterministic(
+            name=zeros_name,
+            expr=LetExprLiteral(value=0.0),
+            constraint=node.constraint,
+            plate=Plate(event_dims=(), batch_dims=(i_dim,)),
+        )
+        self._emit_deterministic_node(ctx, zeros_det)
+        # Synthesize an IRDeterministic for K[i, j] <- exp(...) + ...
+        # with batch_dims (i, j). The let-expr references `m_i`,
+        # `m_j` as loop variables; index_letexpr_refs would rewrite
+        # IRArgRef-ish refs to plate-bound names, but our expression
+        # uses raw LetExprVar("m_i") / LetExprVar("m_j") and
+        # LetExprIndex on `x` directly so the rewrite step is a no-op.
+        i_var = LetExprVar(name="m_i")
+        j_var = LetExprVar(name="m_j")
+        x_i = LetExprIndex(
+            array=LetExprVar(name=x), indices=(i_var,),
+        )
+        x_j = LetExprIndex(
+            array=LetExprVar(name=x), indices=(j_var,),
+        )
+        diff = LetExprBinOp(op="-", left=x_i, right=x_j)
+        diff_sq = LetExprCall(
+            func="pow",
+            args=(diff, LetExprLiteral(value=2.0)),
+        )
+        ls_sq = LetExprCall(
+            func="pow",
+            args=(
+                LetExprLiteral(value=ls),
+                LetExprLiteral(value=2.0),
+            ),
+        )
+        neg_half = LetExprUnaryOp(operand=LetExprLiteral(value=0.5))
+        scaled = LetExprBinOp(
+            op="/",
+            left=LetExprBinOp(op="*", left=neg_half, right=diff_sq),
+            right=ls_sq,
+        )
+        exp_call = LetExprCall(func="exp", args=(scaled,))
+        # BUGS lacks `ifelse`; use `equals(i, j) * jitter` (equals
+        # returns 1 if its args are equal, 0 otherwise).
+        eq_call = LetExprCall(func="equals", args=(i_var, j_var))
+        jitter_term = LetExprBinOp(
+            op="*",
+            left=eq_call,
+            right=LetExprLiteral(value=jitter),
+        )
+        kij_expr = LetExprBinOp(
+            op="+", left=exp_call, right=jitter_term,
+        )
+        kij_det = IRDeterministic(
+            name=kmat_name,
+            expr=kij_expr,
+            constraint=node.constraint,
+            plate=Plate(event_dims=(), batch_dims=(i_dim, j_dim)),
+        )
+        self._emit_deterministic_node(ctx, kij_det)
+        # __gp_tau_<name> <- inverse(__gp_K_<name>)
+        tau_det = IRDeterministic(
+            name=tau_name,
+            expr=LetExprCall(
+                func="inverse",
+                args=(LetExprVar(name=kmat_name),),
+            ),
+            constraint=node.constraint,
+            plate=Plate(event_dims=(), batch_dims=()),
+        )
+        self._emit_deterministic_node(ctx, tau_det)
+        # <name> ~ dmnorm(__gp_zeros_<name>, __gp_tau_<name>)
+        # Build a sample IR node for MultivariateNormal whose args
+        # reference the bound names; the existing _emit_sample_node
+        # handles emission via the family's BUGS target_name (dmnorm).
+        mvn_sample = IRSample(
+            name=node.name,
+            family="MultivariateNormal",
+            args=(
+                IRArgRef(name=zeros_name),
+                IRArgRef(name=tau_name),
+            ),
+            arg_names=("loc", "covariance_matrix"),
+            constraint=node.constraint,
+            plate=Plate(event_dims=(), batch_dims=()),
+        )
+        self._emit_sample_node(ctx, mvn_sample, loop_suffix="")
 
     def _emit_deterministic_node(
         self, ctx: _BugsCtx, node: IRDeterministic
