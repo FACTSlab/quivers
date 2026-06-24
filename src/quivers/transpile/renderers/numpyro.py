@@ -40,6 +40,7 @@ from __future__ import annotations
 import panproto
 
 from quivers.transpile._api import UnsupportedConstruct
+from quivers.transpile._graft_python import graft_python_expression
 from quivers.transpile.renderers._python_helpers import (
     PyCtx,
     arg_expr,
@@ -60,6 +61,7 @@ from quivers.transpile.ir import (
     IRArg,
     IRArgBroadcast,
     IRArgFamilyRef,
+    IRArgKernel,
     IRArgList,
     IRArgMatrix,
     IRArgNumber,
@@ -433,6 +435,9 @@ class NumPyroRenderer(RendererBase):
             # body emission. `render` already handled the header.
             return
         if isinstance(node, IRSample):
+            if node.family == "GP":
+                self._emit_gp_block(ctx, body_vid, node, observed=False)
+                return
             stmt = self._sample_statement(
                 ctx,
                 name=node.name,
@@ -473,6 +478,89 @@ class NumPyroRenderer(RendererBase):
             "qvr-numpyro",
             [f"node:{type(node).__name__}"],
         )
+
+    def _emit_gp_block(
+        self,
+        ctx: _NumPyroCtx,
+        body_vid: str,
+        node: IRSample,
+        *,
+        observed: bool,
+    ) -> None:
+        """Emit a Gaussian-process sample as a
+        ``__gp_mean_<name> = jnp.zeros(N)``,
+        ``__gp_cov_<name> = jnp.exp(...) + jitter * jnp.eye(N)``,
+        ``<name> = numpyro.sample("<name>",
+        numpyro.distributions.MultivariateNormal(loc=__gp_mean_<name>,
+        covariance_matrix=__gp_cov_<name>))`` triple.
+
+        The covariance matrix expression is built by parsing a
+        literal Python source snippet through panproto's Python
+        tree-sitter grammar (via
+        [`graft_python_expression`][quivers.transpile._graft_python.graft_python_expression]);
+        this preserves operator precedence (the manual
+        `LetExprBinOp` tree drops parenthesisation, which would
+        produce a mis-grouped RHS).
+        """
+        del observed  # GP samples are never observed in QVR.
+        py = ctx.py
+        _, kernel_arg = node.args
+        if not isinstance(kernel_arg, IRArgKernel):
+            raise UnsupportedConstruct(
+                "qvr-numpyro",
+                ["family:GP:expected IRArgKernel as second arg"],
+            )
+        if kernel_arg.kernel != "rbf":
+            raise UnsupportedConstruct(
+                "qvr-numpyro",
+                [f"family:GP:kernel:{kernel_arg.kernel}: only rbf supported"],
+            )
+        n = kernel_arg.grid_size
+        mean_name = f"__gp_mean_{node.name}"
+        cov_name = f"__gp_cov_{node.name}"
+        # mean assignment: __gp_mean_f = jnp.zeros(N)
+        mean_rhs = graft_python_expression(
+            py,
+            f"jnp.zeros({n})",
+            fresh_prefix="gpm",
+        )
+        mean_asn = self._assignment_statement(py, mean_name, mean_rhs)
+        py.e(body_vid, mean_asn, "child_of")
+        # cov assignment: __gp_cov_f = jnp.exp(...) + jitter * jnp.eye(N)
+        ls = kernel_arg.length_scale
+        jitter = kernel_arg.jitter
+        cov_src = (
+            f"jnp.exp(-0.5 * ((({kernel_arg.x_name}.reshape(-1, 1) - "
+            f"{kernel_arg.x_name}.reshape(1, -1)) ** 2) / "
+            f"({ls!r} ** 2))) + {jitter!r} * jnp.eye({n})"
+        )
+        cov_rhs = graft_python_expression(
+            py, cov_src, fresh_prefix="gpc",
+        )
+        cov_asn = self._assignment_statement(py, cov_name, cov_rhs)
+        py.e(body_vid, cov_asn, "child_of")
+        # sample: f = numpyro.sample("f", numpyro.distributions.MultivariateNormal(
+        #     loc=__gp_mean_f, covariance_matrix=__gp_cov_f))
+        mvn_call = call(
+            py,
+            attribute(
+                py,
+                ("numpyro", "distributions", "MultivariateNormal"),
+            ),
+            keyword=(
+                ("loc", identifier(py, mean_name)),
+                ("covariance_matrix", identifier(py, cov_name)),
+            ),
+        )
+        sample_call = call(
+            py,
+            attribute(py, ("numpyro", "sample")),
+            positional=(string_literal(py, node.name), mvn_call),
+        )
+        sample_stmt = self._assignment_statement(
+            py, node.name, sample_call,
+        )
+        py.e(body_vid, sample_stmt, "child_of")
 
     def _render_sample(
         self,
