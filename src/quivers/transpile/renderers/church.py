@@ -41,6 +41,7 @@ from quivers.transpile.ir import (
     IRArg,
     IRArgBroadcast,
     IRArgFamilyRef,
+    IRArgKernel,
     IRArgList,
     IRArgMatrix,
     IRArgNumber,
@@ -140,6 +141,8 @@ class ChurchRenderer(RendererBase):
             # Inputs land in the model signature; no body form.
             return ()
         if isinstance(node, IRSample):
+            if node.family == "GP":
+                return self._render_gp_forms(ctx, node)
             return (
                 self.sample(
                     ctx, node.name, node.family, node.args, node.arg_names,
@@ -180,6 +183,181 @@ class ChurchRenderer(RendererBase):
         raise UnsupportedConstruct(
             _TARGET, [f"node:{type(node).__name__}"]
         )
+
+    def _render_gp_forms(
+        self, ctx: _RenderCtx, node: IRSample,
+    ) -> tuple[SchemaFragment, ...]:
+        """Emit three Scheme forms for a Gaussian-process sample:
+
+        ``(define __gp_mean_<name> (repeat <N> (lambda () 0)))``
+        ``(define __gp_cov_<name> <inline-rbf-matrix>)``
+        ``(define <name> (multivariate-gaussian __gp_mean_<name>
+                                                  __gp_cov_<name>))``
+
+        The inline-rbf-matrix is a nested `map` over the grid index
+        producing the N-by-N covariance matrix:
+        ``K[i,j] = exp(-0.5 * (x[i]-x[j])^2 / length_scale^2)``
+        plus diagonal jitter via `(if (= i j) <jitter> 0)`.
+        """
+        if len(node.args) != 2 or not isinstance(
+            node.args[1], IRArgKernel
+        ):
+            raise UnsupportedConstruct(
+                _TARGET,
+                ["family:GP:expected IRArgKernel as second arg"],
+            )
+        kernel_arg = node.args[1]
+        if kernel_arg.kernel != "rbf":
+            raise UnsupportedConstruct(
+                _TARGET,
+                [
+                    f"family:GP:kernel:{kernel_arg.kernel}: only rbf "
+                    f"is implemented"
+                ],
+            )
+        n = kernel_arg.grid_size
+        ls = kernel_arg.length_scale
+        jitter = kernel_arg.jitter
+        x = kernel_arg.x_name
+        mean_name = f"__gp_mean_{node.name}"
+        cov_name = f"__gp_cov_{node.name}"
+        # (define __gp_mean_<name> (repeat N (lambda () 0)))
+        zero_lambda = _list(
+            ctx,
+            (
+                _sym(ctx, "lambda"),
+                _list(ctx, ()),
+                _num(ctx, 0),
+            ),
+        )
+        mean_form = _list(
+            ctx,
+            (
+                _sym(ctx, "define"),
+                _sym(ctx, mean_name),
+                _list(
+                    ctx,
+                    (_sym(ctx, "repeat"), _num(ctx, n), zero_lambda),
+                ),
+            ),
+        )
+        # (define __gp_cov_<name>
+        #   (map (lambda (i)
+        #          (map (lambda (j)
+        #                 (+ (exp (- (* 0.5 (* (- (list-ref x i) (list-ref x j))
+        #                                       (- (list-ref x i) (list-ref x j))))
+        #                            (* ls ls)))
+        #                    (if (= i j) jitter 0)))
+        #               (iota N)))
+        #        (iota N)))
+        def diff_form() -> str:
+            return _list(
+                ctx,
+                (
+                    _sym(ctx, "-"),
+                    _list(ctx, (_sym(ctx, "list-ref"),
+                                _sym(ctx, x), _sym(ctx, "i"))),
+                    _list(ctx, (_sym(ctx, "list-ref"),
+                                _sym(ctx, x), _sym(ctx, "j"))),
+                ),
+            )
+
+        diff_sq = _list(
+            ctx, (_sym(ctx, "*"), diff_form(), diff_form()),
+        )
+        # arg to exp: (- (/ (* 0.5 diff_sq) (* ls ls)))
+        ls_sq = _list(
+            ctx, (_sym(ctx, "*"), _num(ctx, ls), _num(ctx, ls)),
+        )
+        scaled = _list(
+            ctx,
+            (
+                _sym(ctx, "/"),
+                _list(
+                    ctx,
+                    (_sym(ctx, "*"), _num(ctx, 0.5), diff_sq),
+                ),
+                ls_sq,
+            ),
+        )
+        neg_scaled = _list(
+            ctx, (_sym(ctx, "-"), scaled),
+        )
+        exp_call = _list(
+            ctx, (_sym(ctx, "exp"), neg_scaled),
+        )
+        jitter_if = _list(
+            ctx,
+            (
+                _sym(ctx, "if"),
+                _list(
+                    ctx,
+                    (_sym(ctx, "="),
+                     _sym(ctx, "i"), _sym(ctx, "j")),
+                ),
+                _num(ctx, jitter),
+                _num(ctx, 0),
+            ),
+        )
+        entry = _list(
+            ctx, (_sym(ctx, "+"), exp_call, jitter_if),
+        )
+        inner_lambda = _list(
+            ctx,
+            (
+                _sym(ctx, "lambda"),
+                _list(ctx, (_sym(ctx, "j"),)),
+                entry,
+            ),
+        )
+        iota_n_inner = _list(
+            ctx, (_sym(ctx, "iota"), _num(ctx, n)),
+        )
+        inner_map = _list(
+            ctx,
+            (_sym(ctx, "map"), inner_lambda, iota_n_inner),
+        )
+        outer_lambda = _list(
+            ctx,
+            (
+                _sym(ctx, "lambda"),
+                _list(ctx, (_sym(ctx, "i"),)),
+                inner_map,
+            ),
+        )
+        iota_n_outer = _list(
+            ctx, (_sym(ctx, "iota"), _num(ctx, n)),
+        )
+        outer_map = _list(
+            ctx,
+            (_sym(ctx, "map"), outer_lambda, iota_n_outer),
+        )
+        cov_form = _list(
+            ctx,
+            (
+                _sym(ctx, "define"),
+                _sym(ctx, cov_name),
+                outer_map,
+            ),
+        )
+        # (define <name> (multivariate-gaussian __gp_mean_<name>
+        #                                         __gp_cov_<name>))
+        sample_form = _list(
+            ctx,
+            (
+                _sym(ctx, "define"),
+                _sym(ctx, node.name),
+                _list(
+                    ctx,
+                    (
+                        _sym(ctx, "multivariate-gaussian"),
+                        _sym(ctx, mean_name),
+                        _sym(ctx, cov_name),
+                    ),
+                ),
+            ),
+        )
+        return (mean_form, cov_form, sample_form)
 
     def _render_marginalize_forms(
         self, ctx: _RenderCtx, node: IRMarginalize
