@@ -455,23 +455,45 @@ class StanRenderer(RendererBase):
         if ir.inputs:
             needed.add("data")
         for node in ir.body:
-            if isinstance(node, IRSample):
-                needed.add("parameters")
-                needed.add("model")
-            elif isinstance(node, IRObserve):
-                needed.add("data")
-                needed.add("model")
-            elif isinstance(node, IRDataInput):
-                needed.add("data")
-            elif isinstance(node, IRDeterministic):
-                needed.add("transformed_parameters")
-            elif isinstance(node, IRScore):
-                needed.add("model")
-            elif isinstance(node, IRMarginalize):
-                needed.add("model")
-            elif isinstance(node, IRReturn):
-                needed.add("generated_quantities")
+            self._collect_needed_blocks(node, needed)
         return [k for k in self._CANONICAL_BLOCK_ORDER if k in needed]
+
+    def _collect_needed_blocks(
+        self, node: IRNode, needed: set[BlockKind]
+    ) -> None:
+        """Walk a single IR node, recording the blocks it touches.
+
+        Descends into [`IRMarginalize`][quivers.transpile.ir.IRMarginalize]
+        scopes so a continuous-latent marginalize whose scope contains
+        an observe contributes `data` / `model`, and a scope
+        deterministic contributes `transformed_parameters`.
+        """
+        if isinstance(node, IRSample):
+            needed.add("parameters")
+            needed.add("model")
+        elif isinstance(node, IRObserve):
+            needed.add("data")
+            needed.add("model")
+        elif isinstance(node, IRDataInput):
+            needed.add("data")
+        elif isinstance(node, IRDeterministic):
+            needed.add("transformed_parameters")
+        elif isinstance(node, IRScore):
+            needed.add("model")
+        elif isinstance(node, IRMarginalize):
+            # The discrete (logsumexp) path emits into model only;
+            # the continuous path emits the latent into parameters
+            # plus the latent's `~` into model, then dispatches the
+            # scope through the normal IR-walk. Pre-allocate both so
+            # either path finds its blocks in canonical order.
+            needed.add("parameters")
+            needed.add("model")
+            latent_sup = node.constraint.to_constraint()
+            if _is_continuous_support(latent_sup):
+                for child in node.scope:
+                    self._collect_needed_blocks(child, needed)
+        elif isinstance(node, IRReturn):
+            needed.add("generated_quantities")
 
     # ----- declare dispatch -----
 
@@ -1166,14 +1188,25 @@ class StanRenderer(RendererBase):
         ctx: _RenderCtx,
         node: IRMarginalize,
     ) -> SchemaFragment:
-        """Emit Stan's `log_sum_exp` enumeration for an
-        [`IRMarginalize`][quivers.transpile.ir.IRMarginalize] node.
+        """Emit the marginalize-over-latent construct.
 
-        Raises
-        [`UnsupportedConstruct`][quivers.transpile._api.UnsupportedConstruct]
-        with kind `marginalize:non-finite-support:<family>` when
-        [`finite_enumerable_at_call_site`][quivers.transpile.family_meta.finite_enumerable_at_call_site]
-        returns False.
+        Discrete latents (Bernoulli, Categorical, OrderedLogistic,
+        ...) compile to Stan's `log_sum_exp` enumeration: per-group
+        `lps_<latent>` accumulator, per-`k` log-pmf contributions,
+        then `target += log_sum_exp(lps[...])`.
+
+        Continuous latents (ContinuousBernoulli, Beta, ...) cannot be
+        enumerated; Stan's HMC samples them jointly with the model's
+        other parameters. The renderer treats the marginalize like a
+        sample step plus inline scope: the latent becomes a Stan
+        parameter with the appropriate constrained type, the latent's
+        draw renders as a standard `~` sampling statement, and the
+        scope body's deterministic / observe nodes pass through the
+        normal dispatch path with the latent name visible as a
+        parameter reference. The joint log-density Stan computes is
+        ``log p(z | theta) + log p(y | z, theta)``; HMC's NUTS sampler
+        handles the joint and the latent posterior emerges by
+        marginalisation of the sampled draws.
         """
         meta = FAMILY_META.get(node.family)
         if meta is None:
@@ -1181,6 +1214,9 @@ class StanRenderer(RendererBase):
                 "qvr-stan",
                 [f"family:unknown:{node.family}"],
             )
+        latent_sup = node.constraint.to_constraint()
+        if _is_continuous_support(latent_sup):
+            return self._marginalize_continuous(ctx, node, meta)
         if not finite_enumerable_at_call_site(meta, node.args):
             raise UnsupportedConstruct(
                 "qvr-stan",
@@ -1256,6 +1292,63 @@ class StanRenderer(RendererBase):
             group_idx_names,
         )
         return outer_block
+
+    def _marginalize_continuous(
+        self,
+        ctx: _RenderCtx,
+        node: IRMarginalize,
+        meta: FamilyMeta,
+    ) -> SchemaFragment:
+        """Emit a continuous-latent marginalize.
+
+        Routes the marginalize through Stan's standard parameter +
+        sampling-statement path: the latent is declared as a
+        constrained parameter, drawn from its family via a `~`
+        statement in the `model` block, and the scope body's
+        deterministic / observe nodes pass through the normal
+        per-construct dispatch with the latent name now in scope as a
+        parameter reference. HMC samples the latent jointly with the
+        rest of the model; no per-step enumeration loop is emitted.
+
+        Records the latent in `_declared_shapes` so downstream IR
+        nodes that reference it (e.g. a scope `IRDeterministic` whose
+        let-expression mentions the latent) resolve the ref through
+        the same lookup path used for any other declared parameter.
+        """
+        stan_name = meta.target_names.get("stan")
+        if stan_name is None:
+            raise UnsupportedConstruct(
+                "qvr-stan",
+                [f"family:no-stan-target:{node.family}"],
+            )
+        # Declare the latent in the parameters block.
+        self.declare(
+            ctx,
+            node.latent,
+            node.constraint,
+            node.plate,
+            block="parameters",
+        )
+        # Emit the latent's `~` sampling statement in the model block.
+        self.sample(
+            ctx,
+            node.latent,
+            node.family,
+            node.args,
+            node.arg_names,
+            node.constraint,
+            node.plate,
+            observed=False,
+        )
+        # Dispatch each scope node through the normal IR-walk; the
+        # latent is now an in-scope parameter reference for
+        # deterministic let-bindings and downstream observes.
+        for scope_node in node.scope:
+            self._dispatch_node(ctx, scope_node)
+        # Return the model-block vertex; the continuous path does not
+        # open a dedicated `{ ... }` scope (no `lps` accumulator to
+        # localise).
+        return self._ensure_block(ctx, "model")
 
     def _dispatch_marginalize_scope(
         self,
@@ -2639,6 +2732,38 @@ class StanRenderer(RendererBase):
                 lets[stmt.name] = stmt.expr
         return morphisms, lets
 
+
+def _is_continuous_support(sup: Constraint) -> bool:
+    """True iff the support is real-valued (continuous), rather than
+    integer-valued (discrete).
+
+    Used by the marginalize dispatch: discrete latents (Bernoulli,
+    Categorical, ...) compile to Stan's `log_sum_exp` enumeration;
+    continuous latents (ContinuousBernoulli, Beta, ...) compile to
+    a parameter declaration plus an inline `~` sampling statement,
+    leaning on Stan's HMC to handle the joint over the latent.
+
+    Recognises scalar reals (any of the four bounded variants),
+    vectors, simplices, covariance / correlation Choleskys, and
+    matrices. Returns False for any integer support
+    ([`is_int_bit`][quivers.transpile.ir.is_int_bit],
+    [`is_int_category`][quivers.transpile.ir.is_int_category],
+    [`is_int_count`][quivers.transpile.ir.is_int_count]).
+    """
+    return (
+        is_real_scalar(sup)
+        or is_real_positive(sup)
+        or is_real_unit_interval(sup)
+        or is_real_bounded_interval(sup)
+        or is_real_vector(sup)
+        or is_real_simplex(sup)
+        or is_real_one_hot(sup)
+        or is_real_cov_matrix(sup)
+        or is_real_corr_chol(sup)
+        or is_real_matrix(sup)
+    )
+
+
 # Stan-side argument injection for QVR families whose underlying
 # torch distribution carries fewer parameters than Stan's same-named
 # distribution. `HalfNormal(scale)` maps to Stan's `normal(0, scale)`;
@@ -2882,6 +3007,7 @@ _RUNTIME_STAN_PATH = (
 #: helper when the IR samples or observes from any of them.
 _STAN_RUNTIME_HELPER_FAMILIES: frozenset[str] = frozenset({
     "Kumaraswamy",
+    "ContinuousBernoulli",
 })
 
 
@@ -2954,20 +3080,28 @@ _RUNTIME_STAN_SUBTREE = _stan_subtree_vertex_ids(
 
 
 def _ir_uses_family(body: tuple[IRNode, ...], family: str) -> bool:
-    """True iff any [`IRSample`][quivers.transpile.ir.IRSample] or
-    [`IRObserve`][quivers.transpile.ir.IRObserve] in `body` (including
-    nested [`IRMarginalize`][quivers.transpile.ir.IRMarginalize] scopes)
-    samples from `family`."""
+    """True iff any [`IRSample`][quivers.transpile.ir.IRSample],
+    [`IRObserve`][quivers.transpile.ir.IRObserve], or
+    [`IRMarginalize`][quivers.transpile.ir.IRMarginalize] in `body`
+    (including nested marginalize scopes) draws from `family`.
+
+    The marginalize check covers the continuous-latent emit path:
+    a `marginalize z <- ContinuousBernoulli(p)` block compiles to
+    a Stan parameter plus a `~ continuous_bernoulli(p)` sampling
+    statement, both of which depend on the runtime-helper
+    `continuous_bernoulli_lpdf`.
+    """
     for node in body:
         if (
             isinstance(node, (IRSample, IRObserve))
             and node.family == family
         ):
             return True
-        if isinstance(node, IRMarginalize) and _ir_uses_family(
-            node.scope, family
-        ):
-            return True
+        if isinstance(node, IRMarginalize):
+            if node.family == family:
+                return True
+            if _ir_uses_family(node.scope, family):
+                return True
     return False
 
 
