@@ -60,6 +60,7 @@ from quivers.transpile.ir import (
     IRArg,
     IRArgBroadcast,
     IRArgFamilyRef,
+    IRArgKernel,
     IRArgList,
     IRArgMatrix,
     IRArgNumber,
@@ -1027,6 +1028,9 @@ class GenRenderer(RendererBase):
         if isinstance(node, IRDataInput):
             return
         if isinstance(node, IRSample):
+            if node.family == "GP":
+                self._emit_gp_block(node)
+                return
             self._emit_sample(node, observed=False, via=None)
             return
         if isinstance(node, IRObserve):
@@ -1092,6 +1096,72 @@ class GenRenderer(RendererBase):
         # batched draw on `node.plate.batch_dims`.
         gx.decl_axes[node.name] = node.plate.batch_dims
         self._emit_loop_nest(node, observed=observed, via=via)
+
+    def _emit_gp_block(self, node: IRSample) -> None:
+        """Emit a Gaussian-process sample as three Gen.jl statements:
+
+            __gp_mean_<name> = zeros(N)
+            __gp_cov_<name>  = _qvr_rbf_kernel(x, length_scale, jitter)
+            <name> = @trace(mvnormal(__gp_mean_<name>, __gp_cov_<name>), :<name>)
+
+        The ``_qvr_rbf_kernel`` helper lives in
+        [`runtime_gen.jl`][quivers.transpile.runtime_gen] and is
+        grafted into the emit via the existing runtime-helper graft
+        when GP appears in the IR.
+        """
+        if len(node.args) != 2 or not isinstance(
+            node.args[1], IRArgKernel
+        ):
+            raise UnsupportedConstruct(
+                "qvr-gen",
+                ["family:GP:expected IRArgKernel as second arg"],
+            )
+        kernel_arg = node.args[1]
+        if kernel_arg.kernel != "rbf":
+            raise UnsupportedConstruct(
+                "qvr-gen",
+                [
+                    f"family:GP:kernel:{kernel_arg.kernel}: only rbf "
+                    f"is implemented"
+                ],
+            )
+        gx = self._gx
+        n = kernel_arg.grid_size
+        ls = kernel_arg.length_scale
+        jitter = kernel_arg.jitter
+        x = kernel_arg.x_name
+        mean_name = f"__gp_mean_{node.name}"
+        cov_name = f"__gp_cov_{node.name}"
+        # __gp_mean_<name> = zeros(N)
+        mean_rhs = _call(
+            gx, _ident(gx, "zeros"), (_integer(gx, n),),
+        )
+        gx.body_stmts.append(
+            _assignment(gx, _ident(gx, mean_name), mean_rhs)
+        )
+        # __gp_cov_<name> = _qvr_rbf_kernel(x, ls, jitter)
+        cov_rhs = _call(
+            gx, _ident(gx, "_qvr_rbf_kernel"),
+            (
+                _ident(gx, x),
+                _float_lit(gx, ls),
+                _float_lit(gx, jitter),
+            ),
+        )
+        gx.body_stmts.append(
+            _assignment(gx, _ident(gx, cov_name), cov_rhs)
+        )
+        # <name> = @trace(mvnormal(__gp_mean_<name>, __gp_cov_<name>), :<name>)
+        mvn_call = _call(
+            gx, _ident(gx, "mvnormal"),
+            (_ident(gx, mean_name), _ident(gx, cov_name)),
+        )
+        trace = _trace_call(
+            gx, dist_vid=mvn_call, name=node.name, loop_indices=(),
+        )
+        gx.body_stmts.append(
+            _assignment(gx, _ident(gx, node.name), trace)
+        )
 
     def _emit_scalar_sample(
         self, node: IRSample, *, observed: bool
@@ -1582,6 +1652,7 @@ _GEN_RUNTIME_HELPER_FAMILIES: frozenset[str] = frozenset({
     "ContinuousBernoulli",
     "LKJCholesky",
     "MatrixNormal",
+    "GP",
 })
 
 

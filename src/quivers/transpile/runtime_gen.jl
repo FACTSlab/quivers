@@ -204,3 +204,11 @@ Gen.has_output_grad(::MatrixNormalDist) = false
 Gen.has_argument_grads(::MatrixNormalDist) = (false, false, false)
 
 (::MatrixNormalDist)(loc, row_covariance, column_covariance) = Gen.random(MatrixNormalDist(), loc, row_covariance, column_covariance)
+
+using LinearAlgebra
+
+function _qvr_rbf_kernel(x::AbstractVector, length_scale::Real, jitter::Real)
+    n = length(x)
+    K = [exp(-0.5 * (x[i] - x[j])^2 / length_scale^2) for i in 1:n, j in 1:n]
+    return K + jitter * Matrix{Float64}(I, n, n)
+end
