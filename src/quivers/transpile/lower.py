@@ -110,7 +110,9 @@ from quivers.transpile.family_meta import (
 from quivers.transpile.ir import (
     CSIntegerInterval,
     CSNonnegativeInteger,
+    CSPositiveDefinite,
     CSReal,
+    CSRealMatrix,
     CSRealVector,
     Constraint,
     ConstraintSpec,
@@ -267,6 +269,10 @@ class Lower(dx.Mapping[Module, IRProgram]):
         )
         if resolved.family == "GP":
             return self._lower_sample_gp(step, ctx)
+        if resolved.family == "MatrixNormal" and not step.args:
+            return self._lower_sample_matrix_normal(step, ctx)
+        if resolved.family == "MultivariateNormal" and not step.args:
+            return self._lower_sample_multivariate_normal(step, ctx)
         meta = _family_meta_or_raise(resolved.family)
         ir_args, arg_names = self._lower_args(
             meta, resolved, ctx,
@@ -350,6 +356,116 @@ class Lower(dx.Mapping[Module, IRProgram]):
         return IRSample(
             name=step.vars[0],
             family="GP",
+            args=ir_args,
+            arg_names=arg_names,
+            constraint=constraint,
+            plate=plate,
+        )
+
+    def _lower_sample_matrix_normal(
+        self, step: SampleStep, ctx: _LowerCtx
+    ) -> IRSample:
+        """Lower a ``sample m <- mn_kernel`` step whose morphism is
+        declared as ``~ MatrixNormal`` without explicit arguments.
+
+        The MatrixNormal family takes a `p x n` mean matrix `loc`, a
+        `p x p` row-covariance `row_covariance`, and a `n x n`
+        column-covariance `col_covariance`. The two event axes are
+        recovered from the morphism's ``[over=[Row, Col]]`` option
+        block (priority) or, when absent, from the morphism's codomain
+        product factors. Each of the three arguments becomes an
+        [`IRArgRef`][quivers.transpile.ir.IRArgRef] pointing at a
+        per-sample data-input name; the surrounding
+        [`_build_inputs`][quivers.transpile.lower.Lower._build_inputs]
+        pass discovers them and emits the matching
+        [`IRDataInput`][quivers.transpile.ir.IRDataInput] declarations
+        with the right [`CSRealMatrix`][quivers.transpile.ir.CSRealMatrix]
+        /
+        [`CSPositiveDefinite`][quivers.transpile.ir.CSPositiveDefinite]
+        constraints and the correct two-dim event plate. The data
+        inputs are named ``<sample_name>_loc`` /
+        ``<sample_name>_row_covariance`` /
+        ``<sample_name>_col_covariance`` so multiple MatrixNormal sites
+        in the same program do not collide.
+        """
+        if len(step.vars) != 1:
+            raise UnsupportedConstruct(
+                "qvr-lower",
+                [
+                    "sample:matrix_normal:destructuring-tuple: lower "
+                    "expects one bound name per MatrixNormal SampleStep"
+                ],
+            )
+        row_dim, col_dim = _matrix_normal_event_dims(step, ctx)
+        sample_name = step.vars[0]
+        loc_name = f"{sample_name}_loc"
+        row_cov_name = f"{sample_name}_row_covariance"
+        col_cov_name = f"{sample_name}_col_covariance"
+        ir_args: tuple[IRArg, ...] = (
+            IRArgRef(name=loc_name, indices=()),
+            IRArgRef(name=row_cov_name, indices=()),
+            IRArgRef(name=col_cov_name, indices=()),
+        )
+        arg_names = ("loc", "row_covariance", "col_covariance")
+        plate = Plate(event_dims=(row_dim, col_dim), batch_dims=())
+        constraint = CSRealMatrix()
+        return IRSample(
+            name=sample_name,
+            family="MatrixNormal",
+            args=ir_args,
+            arg_names=arg_names,
+            constraint=constraint,
+            plate=plate,
+        )
+
+    def _lower_sample_multivariate_normal(
+        self, step: SampleStep, ctx: _LowerCtx
+    ) -> IRSample:
+        """Lower a ``sample x <- mvn_kernel`` step whose morphism is
+        declared as ``~ MultivariateNormal`` without explicit
+        arguments.
+
+        The MultivariateNormal family takes a length-`n` vector
+        `loc` and an `n x n` positive-definite `covariance_matrix`.
+        The single event axis is recovered from the morphism's
+        ``[over=<axis>]`` option block (priority) or, when absent,
+        from the morphism's codomain. Each argument becomes an
+        [`IRArgRef`][quivers.transpile.ir.IRArgRef] pointing at a
+        per-sample data-input name; the surrounding
+        [`_build_inputs`][quivers.transpile.lower.Lower._build_inputs]
+        pass discovers them and emits the matching
+        [`IRDataInput`][quivers.transpile.ir.IRDataInput] declarations
+        with the right
+        [`CSRealVector`][quivers.transpile.ir.CSRealVector] /
+        [`CSPositiveDefinite`][quivers.transpile.ir.CSPositiveDefinite]
+        constraints and the correct event plate. The data inputs are
+        named ``<sample_name>_loc`` /
+        ``<sample_name>_covariance_matrix`` so multiple
+        MultivariateNormal sites in the same program do not collide.
+        """
+        if len(step.vars) != 1:
+            raise UnsupportedConstruct(
+                "qvr-lower",
+                [
+                    "sample:multivariate_normal:destructuring-tuple: "
+                    "lower expects one bound name per "
+                    "MultivariateNormal SampleStep"
+                ],
+            )
+        event_dim = _multivariate_normal_event_dim(step, ctx)
+        sample_name = step.vars[0]
+        loc_name = f"{sample_name}_loc"
+        cov_name = f"{sample_name}_covariance_matrix"
+        ir_args: tuple[IRArg, ...] = (
+            IRArgRef(name=loc_name, indices=()),
+            IRArgRef(name=cov_name, indices=()),
+        )
+        arg_names = ("loc", "covariance_matrix")
+        plate = Plate(event_dims=(event_dim,), batch_dims=())
+        constraint = CSRealVector()
+        return IRSample(
+            name=sample_name,
+            family="MultivariateNormal",
             args=ir_args,
             arg_names=arg_names,
             constraint=constraint,
@@ -927,6 +1043,7 @@ class Lower(dx.Mapping[Module, IRProgram]):
         seen_param_names = seen_param | seen_via | seen_obs
         integer_names = self._integer_typed_free_names(body)
         kernel_input_plates = self._kernel_input_plates(body)
+        structured_input_specs = self._structured_input_specs(body)
         free_inputs: list[IRDataInput] = []
         seen_free: set[str] = set()
         for name in used:
@@ -937,6 +1054,17 @@ class Lower(dx.Mapping[Module, IRProgram]):
             if name in seen_free:
                 continue
             seen_free.add(name)
+            spec = structured_input_specs.get(name)
+            if spec is not None:
+                struct_constraint, struct_plate = spec
+                free_inputs.append(
+                    IRDataInput(
+                        name=name,
+                        constraint=struct_constraint,
+                        plate=struct_plate,
+                    )
+                )
+                continue
             plate = kernel_input_plates.get(
                 name, Plate(event_dims=(), batch_dims=())
             )
@@ -954,6 +1082,78 @@ class Lower(dx.Mapping[Module, IRProgram]):
             )
 
         return tuple(param_inputs + via_inputs + obs_inputs + free_inputs)
+
+    def _structured_input_specs(
+        self, body: tuple[IRNode, ...],
+    ) -> dict[str, tuple[ConstraintSpec, Plate]]:
+        """Return ``name`` → ``(ConstraintSpec, Plate)`` for every
+        per-sample data-input emitted by a structured-arg lowering
+        (today: [`Lower._lower_sample_matrix_normal`][quivers.transpile.lower.Lower._lower_sample_matrix_normal]
+        and [`Lower._lower_sample_multivariate_normal`][quivers.transpile.lower.Lower._lower_sample_multivariate_normal]).
+
+        These structured paths synthesise [`IRArgRef`][quivers.transpile.ir.IRArgRef]
+        arguments whose names are unique per sample site
+        (``<sample_name>_loc`` etc.); the
+        [`_build_inputs`][quivers.transpile.lower.Lower._build_inputs]
+        discovery would otherwise declare them as scalar `real`
+        without the right matrix/cov-matrix structure. This map
+        carries the actual constraint and plate so the data-block
+        declaration matches the family argument's mathematical shape.
+        """
+        out: dict[str, tuple[ConstraintSpec, Plate]] = {}
+        for node in _walk_nodes(body):
+            if not isinstance(node, IRSample):
+                continue
+            if node.family == "MatrixNormal":
+                if len(node.plate.event_dims) != 2:
+                    continue
+                row_dim, col_dim = node.plate.event_dims
+                loc_plate = Plate(
+                    event_dims=(row_dim, col_dim), batch_dims=(),
+                )
+                row_cov_plate = Plate(
+                    event_dims=(row_dim, row_dim), batch_dims=(),
+                )
+                col_cov_plate = Plate(
+                    event_dims=(col_dim, col_dim), batch_dims=(),
+                )
+                for arg, arg_name in zip(
+                    node.args, node.arg_names, strict=False
+                ):
+                    if not isinstance(arg, IRArgRef):
+                        continue
+                    if arg_name == "loc":
+                        out[arg.name] = (CSRealMatrix(), loc_plate)
+                    elif arg_name == "row_covariance":
+                        out[arg.name] = (
+                            CSPositiveDefinite(), row_cov_plate,
+                        )
+                    elif arg_name == "col_covariance":
+                        out[arg.name] = (
+                            CSPositiveDefinite(), col_cov_plate,
+                        )
+            elif node.family == "MultivariateNormal":
+                if len(node.plate.event_dims) != 1:
+                    continue
+                event_dim = node.plate.event_dims[0]
+                loc_plate = Plate(
+                    event_dims=(event_dim,), batch_dims=(),
+                )
+                cov_plate = Plate(
+                    event_dims=(event_dim, event_dim), batch_dims=(),
+                )
+                for arg, arg_name in zip(
+                    node.args, node.arg_names, strict=False
+                ):
+                    if not isinstance(arg, IRArgRef):
+                        continue
+                    if arg_name == "loc":
+                        out[arg.name] = (CSRealVector(), loc_plate)
+                    elif arg_name == "covariance_matrix":
+                        out[arg.name] = (
+                            CSPositiveDefinite(), cov_plate,
+                        )
+        return out
 
     def _kernel_input_plates(
         self, body: tuple[IRNode, ...]
@@ -1435,6 +1635,135 @@ def _gp_kernel_options(
             ],
         )
     return kernel, length_scale
+
+
+def _axis_dim_at(axis_name: str, ctx: _LowerCtx) -> Dim:
+    """Module-level version of
+    [`Lower._axis_dim`][quivers.transpile.lower.Lower._axis_dim] so
+    free-function helpers can convert an axis name into a
+    [`Dim`][quivers.transpile.ir.Dim] without instantiating
+    [`Lower`][quivers.transpile.lower.Lower]."""
+    size = ctx.cards.get(axis_name)
+    if size is None:
+        return DimDynamic(size_name=f"N_{axis_name}", name=axis_name)
+    return DimStatic(size=size, name=axis_name)
+
+
+def _matrix_normal_event_dims(
+    step: SampleStep, ctx: _LowerCtx,
+) -> tuple[Dim, Dim]:
+    """Recover the `(row_dim, col_dim)` event dims for a MatrixNormal
+    sample step.
+
+    Priority: the step's own `[over=[Row, Col]]` AxisSpec, then the
+    morphism declaration's `[over=[Row, Col]]` option block, then the
+    morphism's codomain (which must be a two-factor product). Raises
+    [`UnsupportedConstruct`][quivers.transpile.UnsupportedConstruct]
+    when none of these sources supplies exactly two axes.
+    """
+    axes_pair = _two_event_axes(step, ctx)
+    if axes_pair is None:
+        raise UnsupportedConstruct(
+            "qvr-lower",
+            [
+                f"family:MatrixNormal:morphism:{step.morphism}: "
+                f"cannot derive (Row, Col) event axes. Declare them "
+                f"via `[over=[Row, Col]]` on the morphism or its call "
+                f"site, or give the morphism a codomain that is a "
+                f"product of two named axes."
+            ],
+        )
+    row_name, col_name = axes_pair
+    return (
+        _axis_dim_at(row_name, ctx),
+        _axis_dim_at(col_name, ctx),
+    )
+
+
+def _two_event_axes(
+    step: SampleStep, ctx: _LowerCtx,
+) -> tuple[str, str] | None:
+    """Return the two named event axes for a matrix-variate sample
+    step, or `None` when fewer or more than two are available."""
+    axes = step.axes
+    if axes is not None and len(axes.over) == 2:
+        return axes.over[0], axes.over[1]
+    morphism_over = _morphism_over_axes(step.morphism, ctx)
+    if len(morphism_over) == 2:
+        return morphism_over[0], morphism_over[1]
+    decl = ctx.morphisms.get(step.morphism)
+    if decl is not None:
+        codomain_axes = _codomain_axes(decl.codomain, ctx.cards)
+        if len(codomain_axes) == 2:
+            return codomain_axes[0], codomain_axes[1]
+    return None
+
+
+def _multivariate_normal_event_dim(
+    step: SampleStep, ctx: _LowerCtx,
+) -> Dim:
+    """Recover the single event dim for a MultivariateNormal sample
+    step.
+
+    Priority: the step's own `[over=<axis>]`, then the morphism
+    declaration's `[over=<axis>]`, then the morphism's codomain
+    (which is read for its single named axis or its anonymous
+    `Real N` cardinality). Raises
+    [`UnsupportedConstruct`][quivers.transpile.UnsupportedConstruct]
+    when no usable event axis can be found.
+    """
+    axes = step.axes
+    if axes is not None and len(axes.over) == 1:
+        return _axis_dim_at(axes.over[0], ctx)
+    morphism_over = _morphism_over_axes(step.morphism, ctx)
+    if len(morphism_over) == 1:
+        return _axis_dim_at(morphism_over[0], ctx)
+    decl = ctx.morphisms.get(step.morphism)
+    if decl is not None:
+        codomain_axes = _codomain_axes(decl.codomain, ctx.cards)
+        if len(codomain_axes) == 1:
+            return _axis_dim_at(codomain_axes[0], ctx)
+        if codomain_axes:
+            # Vector family whose codomain is a product of named
+            # axes: collapse to the first axis (mirrors the
+            # generic-path fallback in `_build_plate`).
+            return _axis_dim_at(codomain_axes[0], ctx)
+        # Last resort: anonymous `Real N` cardinality on the
+        # codomain. Recover the size from the codomain itself.
+        anon = _anon_codomain_size(decl.codomain)
+        if anon is not None:
+            size, base_name = anon
+            return DimStatic(size=size, name=base_name)
+    raise UnsupportedConstruct(
+        "qvr-lower",
+        [
+            f"family:MultivariateNormal:morphism:{step.morphism}: "
+            f"cannot derive a single event axis. Declare one via "
+            f"`[over=<axis>]` on the morphism or its call site, or "
+            f"give the morphism a codomain whose factor count is one."
+        ],
+    )
+
+
+def _anon_codomain_size(codomain: ObjectExpr) -> tuple[int, str] | None:
+    """Return ``(size, base_name)`` for an anonymous-cardinality
+    codomain (`Real N`), or `None` when the codomain has no usable
+    anonymous size.
+    """
+    if (
+        isinstance(codomain, DiscreteConstructor)
+        and codomain.args
+        and isinstance(codomain.args[0], int)
+    ):
+        return int(codomain.args[0]), "event"
+    if isinstance(codomain, TypeName):
+        return None
+    if isinstance(codomain, ObjectProduct):
+        for comp in codomain.components:
+            inner = _anon_codomain_size(comp)
+            if inner is not None:
+                return inner
+    return None
 
 
 def arg_ref_shape(

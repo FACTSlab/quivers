@@ -443,13 +443,16 @@ _FAMILY_DEFAULT_ARGS: dict[str, tuple[str | float, ...]] = {
     "StudentT":     (1.0, 0.0, 1.0),
     "Pareto":       (1.0, 1.0),
     "Weibull":      (1.0, 1.0),
-    # Multivariate-shape families: placeholder mu / cov vector
-    # literals so the resolved call has the standard 2-arg signature
-    # WebPPL / NumPyro / Stan / PyMC expect. Real GP / MatrixNormal
-    # emission would derive these from declared axis types.
-    "MultivariateNormal": ("[0.0]", "[[1.0]]"),
-    "GP":                 ("[0.0]", "[[1.0]]"),
-    "MatrixNormal":       ("[0.0]", "[[1.0]]"),
+    # Multivariate-shape families (`MultivariateNormal`,
+    # `MatrixNormal`, `GP`) have no entry here: the
+    # [`Lower`][quivers.transpile.lower.Lower] dispatch intercepts the
+    # bare ``~ Family`` form in `_lower_sample_multivariate_normal` /
+    # `_lower_sample_matrix_normal` / `_lower_sample_gp` and synthesises
+    # the data-input names with the right matrix / vector / cov-matrix
+    # shape from the morphism's `[over=...]` axes. A placeholder
+    # ``"[0.0]"`` / ``"[[1.0]]"`` here would survive into the data
+    # block as a free identifier and produce invalid syntax in every
+    # backend.
 }
 
 
