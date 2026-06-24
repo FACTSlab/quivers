@@ -989,14 +989,33 @@ class Lower(dx.Mapping[Module, IRProgram]):
                 continue
             event_dims = node.plate.event_dims
             for spec, arg in zip(
-                meta.structured_lowering.args, node.args, strict=False,
+                meta.structured_lowering.args, node.args, strict=True,
             ):
                 if not isinstance(spec, StructuredDataArg):
                     continue
                 if not isinstance(arg, IRArgRef):
-                    continue
-                if any(i >= len(event_dims) for i in spec.axis_indices):
-                    continue
+                    raise UnsupportedConstruct(
+                        "qvr-lower",
+                        [
+                            f"family:{node.family}:structured_arg:"
+                            f"{spec.arg_name}: expected IRArgRef from "
+                            f"structured lowering, got {type(arg).__name__}"
+                        ],
+                    )
+                out_of_range = [
+                    i for i in spec.axis_indices if i >= len(event_dims)
+                ]
+                if out_of_range:
+                    raise UnsupportedConstruct(
+                        "qvr-lower",
+                        [
+                            f"family:{node.family}:structured_arg:"
+                            f"{spec.arg_name}: axis_indices "
+                            f"{spec.axis_indices} reference event-dim "
+                            f"positions {out_of_range} but sample plate "
+                            f"has only {len(event_dims)} event dims"
+                        ],
+                    )
                 plate_dims = tuple(
                     event_dims[i] for i in spec.axis_indices
                 )
