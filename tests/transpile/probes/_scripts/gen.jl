@@ -9,6 +9,8 @@
 # and asks `Gen.assess` for the log-density at each test point.
 using Gen, Distributions, JSON3
 
+include("/io/_reshape.jl")
+
 function _coerce(value)
     # JSON3 hands back lazy arrays / numbers; Gen's distribution calls
     # and the model body's broadcast expressions all want concrete

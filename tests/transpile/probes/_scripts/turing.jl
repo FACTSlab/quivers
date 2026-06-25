@@ -15,15 +15,20 @@
 # coercions on params/data, `Turing.logjoint`).
 using Turing, Distributions, LinearAlgebra, JSON3
 
-# Coerce JSON3 scalar / array values into the native Julia shapes
-# Distributions.jl and Turing.logjoint expect: NamedTuple of either
-# scalars or `Vector{Float64}`. JSON3.Array does not flow through
-# Distributions arithmetic, so we project into a concrete vector.
+include("/io/_reshape.jl")
+
+# Coerce a reshaped value (already at the declared multi-dim shape
+# and dtype per `/io/shapes.json`) into the native Julia container
+# Distributions.jl / Turing.logjoint expect: `Vector{Float64}` for
+# 1D, `Matrix{Float64}` for 2D, etc. The reshape helper returns
+# `Array{Any}` for ndims > 1; project to the concrete Float64 array.
 function _coerce_value(v)
-    if v isa JSON3.Array
-        return [Float64(x) for x in v]
-    elseif v isa AbstractArray
-        return [Float64(x) for x in v]
+    if v isa AbstractArray
+        if ndims(v) == 1
+            return [Float64(x) for x in v]
+        end
+        return Array{Float64}(reduce(hcat, [[Float64(x) for x in row]
+                                            for row in v])')
     elseif v isa Integer
         return v
     elseif v isa Real
@@ -41,6 +46,7 @@ end
 function main()
     source = read("/io/source.jl", String)
     points = JSON3.read(read("/io/points.json", String))
+    shapes, dtypes = load_tables("/io")
 
     # Eval the @model declaration in Main; the macro produces a
     # callable `model` symbol.
@@ -48,12 +54,13 @@ function main()
 
     log_densities = Float64[]
     for pt in points
-        data = pt.data
-        params = pt.params
+        reshaped = reshape_point(pt, shapes, dtypes)
+        data = reshaped["data"]
+        params = reshaped["params"]
         # Pass observed values as positional args (sorted by name to
         # match the python harness's convention).
         sorted_keys = sort(collect(keys(data)))
-        args = Tuple(_coerce_value(data[Symbol(k)]) for k in sorted_keys)
+        args = Tuple(_coerce_value(data[k]) for k in sorted_keys)
         model_instance = Base.invokelatest(Main.model, args...)
         theta = _coerce_nt(params)
         lp = Base.invokelatest(Turing.logjoint, model_instance, theta)

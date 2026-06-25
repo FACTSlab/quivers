@@ -28,6 +28,8 @@ import pymc
 import pytensor
 import pytensor.tensor as pt
 
+from _reshape import load_tables, reshape_point
+
 
 def _arr(value):
     return np.asarray(value)
@@ -107,14 +109,16 @@ def main() -> None:
     io = pathlib.Path("/io")
     source = (io / "source.py").read_text()
     points = json.loads((io / "points.json").read_text())
+    shapes, dtypes = load_tables(io)
 
     log_densities = []
     for pt_record in points:
+        reshaped = reshape_point(pt_record, shapes, dtypes)
         data_kw = {
-            k: _arr(v) for k, v in pt_record.get("data", {}).items()
+            k: _arr(v) for k, v in reshaped.get("data", {}).items()
         }
         params = {
-            k: _arr(v) for k, v in pt_record.get("params", {}).items()
+            k: _arr(v) for k, v in reshaped.get("params", {}).items()
         }
         model = _build_model(source, data_kw)
         log_densities.append(_joint_logp_constrained(model, params))

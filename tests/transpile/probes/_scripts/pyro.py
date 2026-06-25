@@ -1,21 +1,30 @@
-"""In-container Pyro probe."""
+"""In-container Pyro probe.
+
+Reshapes each `Point` per `/io/shapes.json` (when present) so a
+gallery example whose data tensor was declared with a multi-dim
+shape sees `torch.tensor(value).shape` match what the model
+expects.
+"""
 import json
 import pathlib
 
 import pyro
 import torch
 
+from _reshape import load_tables, reshape_point
+
 
 def _tensor(value):
     if isinstance(value, (int, float)):
         return torch.tensor(float(value))
-    return torch.tensor([float(v) for v in value])
+    return torch.tensor(value, dtype=torch.float64)
 
 
 def main() -> None:
     io = pathlib.Path("/io")
     source = (io / "source.py").read_text()
     points = json.loads((io / "points.json").read_text())
+    shapes, dtypes = load_tables(io)
 
     ns = {"pyro": pyro, "torch": torch}
     exec(source, ns)  # noqa: S102
@@ -23,8 +32,13 @@ def main() -> None:
 
     log_densities = []
     for pt in points:
-        data_kw = {k: _tensor(v) for k, v in pt.get("data", {}).items()}
-        param_dict = {k: _tensor(v) for k, v in pt.get("params", {}).items()}
+        reshaped = reshape_point(pt, shapes, dtypes)
+        data_kw = {
+            k: _tensor(v) for k, v in reshaped.get("data", {}).items()
+        }
+        param_dict = {
+            k: _tensor(v) for k, v in reshaped.get("params", {}).items()
+        }
         conditioned = pyro.condition(model, data=param_dict)
         traced = pyro.poutine.trace(conditioned).get_trace(**data_kw)
         log_densities.append(float(traced.log_prob_sum()))
