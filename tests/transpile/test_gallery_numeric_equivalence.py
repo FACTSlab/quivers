@@ -44,6 +44,7 @@ from __future__ import annotations
 import pathlib
 
 import pytest
+import torch
 
 from quivers.transpile import UnsupportedConstruct, transpile
 from tests.transpile import _docker, _gallery_data
@@ -130,6 +131,7 @@ _SKIP_PROBE_INCOMPATIBLE: frozenset[tuple[str, str]] = frozenset({
     ("bugs", "ppca"),
     ("bugs", "seq2seq"),
     ("bugs", "stochastic_volatility"),
+    ("bugs", "survival_weibull"),
     ("bugs", "transformer_lm"),
     ("bugs", "tree_categorical"),
     ("bugs", "vae"),
@@ -163,7 +165,6 @@ _SKIP_PROBE_INCOMPATIBLE: frozenset[tuple[str, str]] = frozenset({
     ("edward2", "vae"),
     ("edward2", "vanilla_rnn_lm"),
     ("edward2", "zip_regression"),
-    ("gen", "ar1"),
     ("gen", "beta_regression"),
     ("gen", "bidirectional_rnn_lm"),
     ("gen", "changepoint"),
@@ -183,7 +184,6 @@ _SKIP_PROBE_INCOMPATIBLE: frozenset[tuple[str, str]] = frozenset({
     ("gen", "pmf"),
     ("gen", "ppca"),
     ("gen", "seq2seq"),
-    ("gen", "stochastic_volatility"),
     ("gen", "survival_weibull"),
     ("gen", "transformer_lm"),
     ("gen", "tree_categorical"),
@@ -212,6 +212,7 @@ _SKIP_PROBE_INCOMPATIBLE: frozenset[tuple[str, str]] = frozenset({
     ("jags", "ppca"),
     ("jags", "seq2seq"),
     ("jags", "stochastic_volatility"),
+    ("jags", "survival_weibull"),
     ("jags", "transformer_lm"),
     ("jags", "tree_categorical"),
     ("jags", "vae"),
@@ -245,8 +246,6 @@ _SKIP_PROBE_INCOMPATIBLE: frozenset[tuple[str, str]] = frozenset({
     ("numpyro", "vae"),
     ("numpyro", "vanilla_rnn_lm"),
     ("numpyro", "zip_regression"),
-    ("pymc", "ar1"),
-    ("pymc", "bayesian_regression"),
     ("pymc", "beta_regression"),
     ("pymc", "bidirectional_rnn_lm"),
     ("pymc", "changepoint"),
@@ -299,11 +298,8 @@ _SKIP_PROBE_INCOMPATIBLE: frozenset[tuple[str, str]] = frozenset({
     ("pyro", "vae"),
     ("pyro", "vanilla_rnn_lm"),
     ("pyro", "zip_regression"),
-    ("stan", "ar1"),
-    ("stan", "bayesian_regression"),
     ("stan", "beta_regression"),
     ("stan", "bidirectional_rnn_lm"),
-    ("stan", "changepoint"),
     ("stan", "continuous_hmm"),
     ("stan", "deep_markov"),
     ("stan", "factor_analysis"),
@@ -317,10 +313,8 @@ _SKIP_PROBE_INCOMPATIBLE: frozenset[tuple[str, str]] = frozenset({
     ("stan", "lstm_lm"),
     ("stan", "mixture_model"),
     ("stan", "negbin_regression"),
-    ("stan", "pmf"),
     ("stan", "ppca"),
     ("stan", "seq2seq"),
-    ("stan", "stochastic_volatility"),
     ("stan", "transformer_lm"),
     ("stan", "tree_categorical"),
     ("stan", "vae"),
@@ -348,6 +342,7 @@ _SKIP_PROBE_INCOMPATIBLE: frozenset[tuple[str, str]] = frozenset({
     ("turing", "ppca"),
     ("turing", "seq2seq"),
     ("turing", "stochastic_volatility"),
+    ("turing", "survival_weibull"),
     ("turing", "transformer_lm"),
     ("turing", "tree_categorical"),
     ("turing", "vae"),
@@ -549,6 +544,9 @@ def test_gallery_backend_logdensity_matches_qvr(
         source_ext=ext,
         points=[{"params": point.params, "data": point.data}],
         scratch=scratch,
+        shapes=_shapes_from_dataset(dataset),
+        dtypes=_dtypes_from_dataset(dataset),
+        helpers=list(_PROBE_HELPERS),
     )
 
     backend_lps = [float(x) for x in raw_result["log_densities"]]
@@ -562,12 +560,60 @@ def test_gallery_backend_logdensity_matches_qvr(
     )
 
 
-def _shapes_from_dataset(dataset: _gallery_data.GalleryDataset) -> dict[str, list[int]]:
-    """The per-name shape table the per-backend probe scripts need to
-    reshape the flat lists in `Point` back to tensors."""
+def _shapes_from_dataset(
+    dataset: _gallery_data.GalleryDataset,
+) -> dict[str, list[int]]:
+    """Per-name shape table the per-backend probe scripts read to
+    rebuild nested arrays from the row-major flat lists in `Point`.
+
+    Scalar tensors (zero-dim) map to ``[]`` rather than ``[1]``;
+    `point_from_dataset` collapses length-1 lists to bare scalars
+    and `_reshape.reshape_value` reads the empty shape as a no-op
+    after the dtype cast.
+    """
     shapes: dict[str, list[int]] = {}
     for k, v in dataset.observations.items():
-        shapes[k] = list(v.shape) if v.shape else [1]
+        shapes[k] = list(v.shape)
     for k, v in dataset.params.items():
-        shapes[k] = list(v.shape) if v.shape else [1]
+        shapes[k] = list(v.shape)
     return shapes
+
+
+def _dtypes_from_dataset(
+    dataset: _gallery_data.GalleryDataset,
+) -> dict[str, str]:
+    """Per-name dtype tag (``"int"`` or ``"float"``) so backends that
+    distinguish integer and real declarations (Stan, JAGS, BUGS, PyMC)
+    get the right native type after reshape.
+
+    A tensor is tagged ``"int"`` when its declared dtype is one of
+    the torch integer kinds OR when every element is integer-valued
+    (no fractional part). The latter rule covers the common gallery
+    pattern where `torch.poisson` / `torch.distributions.Binomial`
+    returns ``float32`` counts that the model nevertheless declares
+    as ``int`` (Stan / JAGS / BUGS reject floats for int variables).
+    """
+    integer_dtypes = (
+        torch.int8, torch.int16, torch.int32, torch.int64,
+        torch.uint8, torch.bool,
+    )
+    out: dict[str, str] = {}
+    for section in (dataset.observations, dataset.params):
+        for name, tensor in section.items():
+            if tensor.dtype in integer_dtypes:
+                out[name] = "int"
+            elif tensor.numel() > 0 and torch.equal(
+                tensor, tensor.round(),
+            ):
+                out[name] = "int"
+            else:
+                out[name] = "float"
+    return out
+
+
+_PROBE_HELPERS: tuple[pathlib.Path, ...] = (
+    pathlib.Path(__file__).parent
+    / "probes" / "_scripts" / "_reshape.py",
+    pathlib.Path(__file__).parent
+    / "probes" / "_scripts" / "_reshape.jl",
+)
