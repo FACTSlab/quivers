@@ -120,6 +120,14 @@ _ALIAS_TRANSFORMS: dict[str, _TransformKind] = {
 #: rewrites the scale into ``tau = 1/(scale*scale)``.
 _PREPEND_ZERO: frozenset[str] = frozenset({"HalfNormal", "HalfCauchy"})
 
+#: JAGS-side argument injection for QVR families that map to JAGS'
+#: ``dt(mu, tau, k)`` distribution. JAGS Student-t requires three
+#: parameters (location, precision, degrees of freedom); Cauchy is
+#: the special case ``k = 1``. The renderer appends ``IRArgNumber(1)``
+#: as a trailing ``df`` argument after the alias-renaming pipeline so
+#: the emitted call is ``dt(mu, tau, 1)``.
+_APPEND_DF_ONE: frozenset[str] = frozenset({"Cauchy", "HalfCauchy"})
+
 #: Sentinel name prefix used by the JAGS renderer to encode a `1:N`
 #: range as an IRArgRef. The arg-rendering path inspects the name
 #: prefix and emits a `range` vertex instead of an
@@ -687,6 +695,11 @@ class JAGSRenderer(RendererBase):
             if transform is not None and emitted_name != arg_name:
                 arg = IRArgTransform(inner=arg, transform=transform)
             renamed_pairs.append((emitted_name, arg))
+
+        # Append the trailing `df` argument for families whose JAGS
+        # target is `dt(mu, tau, k)`. Cauchy / HalfCauchy fix k = 1.
+        if family in _APPEND_DF_ONE:
+            renamed_pairs.append(("df", IRArgNumber(value=1.0)))
 
         # Compute loop var names. The observation-plate convention is to
         # use the canonical `n` when `via` is set and the plate has a

@@ -95,6 +95,17 @@ _TARGET = "edward2"
 _BACKEND_KEY = f"qvr-{_TARGET}"
 
 
+#: Edward2-side argument injection for QVR families whose underlying
+#: torch distribution carries fewer parameters than TFP's same-named
+#: distribution. ``HalfCauchy(scale)`` maps to TFP's
+#: ``HalfCauchy(loc, scale)`` (loc is required); the renderer prepends
+#: ``IRArgNumber(0)`` under the ``"loc"`` arg name so TFP sees a
+#: complete (loc, scale) pair. The injected ``loc=0`` is the standard
+#: half-distribution origin and matches the QVR-side semantics for
+#: HalfCauchy / HalfNormal.
+_PREPEND_LOC_ZERO: frozenset[str] = frozenset({"HalfCauchy"})
+
+
 class Edward2Renderer(RendererBase):
     """Render an [`IRProgram`][quivers.transpile.ir.IRProgram] to TFP
     Edward2 Python source.
@@ -547,6 +558,16 @@ class Edward2Renderer(RendererBase):
             )
         callee = attribute(py, ("edward2", dist_class))
         aliases = meta.arg_aliases.get(_TARGET, {})
+
+        # Inject the canonical zero-loc argument for families whose
+        # torch distribution carries fewer parameters than TFP's
+        # same-named distribution (``HalfCauchy(scale)`` ->
+        # ``HalfCauchy(loc, scale)``). The injected name is the QVR
+        # side ``"loc"``; ``arg_aliases["edward2"]`` may rename it
+        # before the keyword form is emitted.
+        if family in _PREPEND_LOC_ZERO:
+            args = (IRArgNumber(value=0.0), *args)
+            arg_names = ("loc", *arg_names)
 
         # Build per-arg expression vertices, lifting scalar refs to
         # broadcasts where the family's event_dims demand it.

@@ -16,7 +16,12 @@ function _load_json_dict(path::AbstractString)
     if !isfile(path)
         return Dict{String,Any}()
     end
-    return Dict{String,Any}(JSON3.read(read(path, String)))
+    raw = JSON3.read(read(path, String))
+    # JSON3.Object iterates as (Symbol, value); rebuild with
+    # explicitly stringified keys so the downstream
+    # `Dict{String,Vector{Int}}` / `Dict{String,String}` typed
+    # conversions accept the entries.
+    return Dict{String,Any}(String(k) => v for (k, v) in pairs(raw))
 end
 
 function load_tables(io::AbstractString)

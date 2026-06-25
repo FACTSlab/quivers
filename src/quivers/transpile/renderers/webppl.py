@@ -1885,15 +1885,18 @@ def _substitute_array_refs(
 # WebPPL-side argument injection for QVR families whose torch
 # distribution carries fewer parameters than WebPPL's same-named
 # distribution. `HalfNormal(scale)` maps to WebPPL's
-# `Gaussian({mu: 0, sigma: scale})`; the renderer prepends an
-# explicit zero-valued ``mu`` argument so the WebPPL distribution
+# `Gaussian({mu: 0, sigma: scale})`; `HalfCauchy(scale)` maps to
+# `Cauchy({location: 0, scale: scale})`. The renderer prepends an
+# explicit zero-valued location argument so the WebPPL distribution
 # constructor sees both parameters. The resulting log-density
-# differs from QVR's HalfNormal log-density by the constant
+# differs from QVR's half-distribution log-density by the constant
 # ``+log(2) * N_observations``; the constant-spread equivalence
 # check in
 # [`assert_log_density_match`][tests.transpile._equivalence.assert_log_density_match]
 # tolerates this offset.
-_PREPEND_MU_ZERO: frozenset[str] = frozenset({"HalfNormal"})
+_PREPEND_MU_ZERO: frozenset[str] = frozenset({
+    "HalfNormal", "HalfCauchy",
+})
 
 
 def _inject_webppl_specific_args(

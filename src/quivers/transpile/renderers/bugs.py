@@ -171,6 +171,14 @@ _ALIAS_TRANSFORMS: dict[str, str] = {
 #: [`assert_log_density_match`][tests.transpile._equivalence.assert_log_density_match].
 _PREPEND_ZERO: frozenset[str] = frozenset({"HalfNormal", "HalfCauchy"})
 
+#: BUGS-side argument injection for QVR families that map to BUGS'
+#: ``dt(mu, tau, k)`` distribution. BUGS Student-t requires three
+#: parameters (location, precision, degrees of freedom); Cauchy is
+#: the special case ``k = 1``. The renderer appends ``IRArgNumber(1)``
+#: as a trailing ``df`` argument after the alias-renaming pipeline so
+#: the emitted call is ``dt(mu, tau, 1)``.
+_APPEND_DF_ONE: frozenset[str] = frozenset({"Cauchy", "HalfCauchy"})
+
 
 #: BUGS / JAGS zeros-trick constant offset. The Poisson PMF satisfies
 #: ``log P(X = 0; lambda) = -lambda``, so emitting
@@ -960,12 +968,19 @@ class BUGSRenderer(RendererBase):
         helper prepends an ``IRArgNumber(0)`` plus the parallel
         ``"loc"`` arg-name entry so the alias-transform pipeline
         still rewrites the scale into ``tau = 1/(scale*scale)``.
+
+        ``Cauchy(loc, scale)`` and ``HalfCauchy(scale)`` map to BUGS'
+        ``dt(mu, tau, k)`` (Student-t parameterised by precision and
+        degrees of freedom); this helper appends ``IRArgNumber(1)``
+        under the ``"df"`` arg-name entry so the emitted call is
+        ``dt(mu, tau, 1)``.
         """
         if family in _PREPEND_ZERO:
-            return (
-                (IRArgNumber(value=0.0), *args),
-                ("loc", *arg_names),
-            )
+            args = (IRArgNumber(value=0.0), *args)
+            arg_names = ("loc", *arg_names)
+        if family in _APPEND_DF_ONE:
+            args = (*args, IRArgNumber(value=1.0))
+            arg_names = (*arg_names, "df")
         return args, arg_names
 
     def _emit_relation(
