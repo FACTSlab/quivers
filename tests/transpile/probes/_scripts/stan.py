@@ -1,8 +1,15 @@
 """In-container Stan probe.
 
-Reads `/io/source.stan` + `/io/points.json`; compiles the model via
+Reads `/io/source.stan` + `/io/points.json` (and optional
+`/io/shapes.json` + `/io/dtypes.json`); compiles the model via
 cmdstanpy and writes `/io/result.json` with the log-density at each
 point.
+
+Each point's `params` and `data` dicts arrive as flat row-major
+lists; the model declares them with multi-dim shapes. The
+`_reshape` helper rebuilds nested lists per `/io/shapes.json`
+(and casts to int / float per `/io/dtypes.json`) so cmdstanpy
+sees the shape Stan declared.
 
 Copied into the container at run time by the test harness.
 """
@@ -11,21 +18,21 @@ import pathlib
 
 import cmdstanpy
 
+from _reshape import load_tables, reshape_point
+
 
 def main() -> None:
     io = pathlib.Path("/io")
     source = io / "source.stan"
     points = json.loads((io / "points.json").read_text())
+    shapes, dtypes = load_tables(io)
 
     model = cmdstanpy.CmdStanModel(stan_file=str(source))
     log_densities = []
     for pt in points:
-        # cmdstanpy expects a dict mapping declared `parameters` to
-        # values and a separate `data` dict. Both come from `points`.
-        # `model.log_prob` returns a pandas DataFrame with one row
-        # per supplied parameter vector and a `lp__` column.
-        params = pt.get("params", {})
-        data = pt.get("data", {})
+        reshaped = reshape_point(pt, shapes, dtypes)
+        params = reshaped.get("params", {})
+        data = reshaped.get("data", {})
         # `jacobian=False` returns the constrained-space log
         # density (the model-statement contribution alone), without
         # adding the change-of-variables Jacobian Stan uses

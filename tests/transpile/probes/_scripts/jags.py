@@ -25,6 +25,8 @@ import pathlib
 import numpy as np
 import pyjags
 
+from _reshape import load_tables, reshape_point
+
 
 pyjags.load_module("basemod")
 pyjags.load_module("bugs")
@@ -40,16 +42,18 @@ def main() -> None:
     ext = os.environ.get("FIXTURE_EXT", "jags")
     source_path = io / f"source.{ext}"
     points = json.loads((io / "points.json").read_text())
+    shapes, dtypes = load_tables(io)
 
     log_densities = []
     for pt in points:
+        reshaped = reshape_point(pt, shapes, dtypes)
         # Combine params + data: JAGS treats every supplied node as
         # observed, so the deviance includes the joint log-density of
         # the latent parameters AND the observed data nodes.
         merged: dict[str, np.ndarray] = {}
-        for k, v in pt.get("data", {}).items():
+        for k, v in reshaped.get("data", {}).items():
             merged[k] = _arr(v)
-        for k, v in pt.get("params", {}).items():
+        for k, v in reshaped.get("params", {}).items():
             merged[k] = _arr(v)
         model = pyjags.Model(
             file=str(source_path),

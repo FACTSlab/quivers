@@ -81,6 +81,9 @@ def run_probe(
     points: list[dict],
     scratch: pathlib.Path,
     timeout: float = 120.0,
+    shapes: dict[str, list[int]] | None = None,
+    dtypes: dict[str, str] | None = None,
+    helpers: list[pathlib.Path] | None = None,
 ) -> dict:
     """Invoke a probe image against ``source`` + ``points``.
 
@@ -89,9 +92,17 @@ def run_probe(
     ```
     /io/source.<ext>   # transpiled source bytes
     /io/points.json    # list[Point.dict()]
+    /io/shapes.json    # {name -> [dim, ...]} (omitted when shapes is None)
+    /io/dtypes.json    # {name -> "int" | "float"} (omitted when dtypes is None)
     /io/probe.py       # the entrypoint script for this backend
+    /io/<helper>       # extra modules copied from `helpers` (e.g. `_reshape.py`)
     /io/result.json    # probe writes this
     ```
+
+    Probes that need to reshape flat-list `Point` values back into
+    multi-dim arrays read `shapes.json` (and optionally `dtypes.json`).
+    When the caller omits either file, the probe falls through to its
+    legacy scalar / list contract.
 
     The container is launched read-only against /io except for the
     result file; this lets the host harness reason about side effects.
@@ -102,7 +113,13 @@ def run_probe(
     source_path = scratch / f"source.{source_ext}"
     source_path.write_bytes(source)
     (scratch / "points.json").write_text(json.dumps(points))
+    if shapes is not None:
+        (scratch / "shapes.json").write_text(json.dumps(shapes))
+    if dtypes is not None:
+        (scratch / "dtypes.json").write_text(json.dumps(dtypes))
     (scratch / "probe.py").write_bytes(script.read_bytes())
+    for helper in helpers or []:
+        (scratch / helper.name).write_bytes(helper.read_bytes())
     result_path = scratch / "result.json"
     if result_path.exists():
         result_path.unlink()

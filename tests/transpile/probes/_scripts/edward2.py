@@ -21,6 +21,8 @@ import pathlib
 import tensorflow as tf
 import edward2 as ed
 
+from _reshape import load_tables, reshape_point
+
 
 def _tensor(value):
     """Cast a JSON-decoded payload into a TF tensor.
@@ -72,6 +74,7 @@ def main() -> None:
     io = pathlib.Path("/io")
     source = (io / "source.py").read_text()
     points = json.loads((io / "points.json").read_text())
+    shapes, dtypes = load_tables(io)
 
     ns = {"edward2": ed, "ed": ed, "tf": tf}
     exec(source, ns)  # noqa: S102
@@ -79,8 +82,9 @@ def main() -> None:
 
     log_densities = []
     for pt in points:
-        params = pt.get("params", {})
-        data = pt.get("data", {})
+        reshaped = reshape_point(pt, shapes, dtypes)
+        params = reshaped.get("params", {})
+        data = reshaped.get("data", {})
         data_kw = {k: _tensor(v) for k, v in data.items()}
 
         # Pass 1: trace the model with no value overrides. This gives

@@ -22,6 +22,8 @@ import pathlib
 import re
 import subprocess
 
+from _reshape import load_tables, reshape_point
+
 
 def _find_matching(source: str, open_idx: int) -> int:
     """Return the index of the `)` matching the `(` at ``open_idx``.
@@ -271,13 +273,15 @@ def main() -> None:
     io = pathlib.Path("/io")
     source = (io / "source.js").read_text()
     points = json.loads((io / "points.json").read_text())
+    shapes, dtypes = load_tables(io)
 
     log_densities: list[float] = []
     for i, pt in enumerate(points):
+        reshaped = reshape_point(pt, shapes, dtypes)
         driver = _build_driver(
             source,
-            pt.get("params", {}),
-            pt.get("data", {}),
+            reshaped.get("params", {}),
+            reshaped.get("data", {}),
         )
         wppl_path = io / f"driver.{i}.wppl"
         wppl_path.write_text(driver)
