@@ -87,6 +87,11 @@ _OBSERVE_NAME_RE = re.compile(
     re.MULTILINE,
 )
 
+_SAMPLE_NAME_RE = re.compile(
+    r"^\s*sample\s+([A-Za-z_][A-Za-z_0-9]*)\b",
+    re.MULTILINE,
+)
+
 
 def _qvr_observe_names(source_qvr: Path) -> list[str]:
     """Extract every `observe <name>` binder from the QVR source.
@@ -99,6 +104,22 @@ def _qvr_observe_names(source_qvr: Path) -> list[str]:
     except OSError:
         return []
     return _OBSERVE_NAME_RE.findall(text)
+
+
+def _qvr_sample_names(source_qvr: Path) -> list[str]:
+    """Extract every `sample <name>` binder from the QVR source.
+
+    Used to pair `Point.params` with the program's latent-variable
+    names: a `.md` snippet may bind the ground-truth value to either
+    ``<name>``, ``<name>_true``, or ``true_<name>``, and the loader
+    needs the list of latent names to recognise any of those three
+    spellings as the same parameter.
+    """
+    try:
+        text = source_qvr.read_text(encoding="utf-8")
+    except OSError:
+        return []
+    return _SAMPLE_NAME_RE.findall(text)
 
 
 def _is_tensor_like(value: object) -> bool:
@@ -209,20 +230,56 @@ def load_gallery_data(source_qvr: Path) -> GalleryDataset | None:
             except (TypeError, ValueError):
                 return None
 
+    # Match every `sample <name>` site in the QVR source against the
+    # namespace under three spellings: bare `<name>`, suffixed
+    # `<name>_true`, and prefixed `true_<name>`. The bare spelling
+    # is accepted only when the QVR source declares the name as a
+    # sample site, so intermediate bindings (`T = 64`, `model = ...`)
+    # in the snippet do not get mis-captured as ground-truth.
+    sample_names = set(_qvr_sample_names(source_qvr))
     params: dict[str, torch.Tensor] = {}
-    for k, v in ns.items():
-        if not k.startswith("true_"):
-            continue
-        name = k[len("true_"):]
-        if isinstance(v, torch.Tensor):
-            params[name] = v.to(dtype=torch.float64)
-        elif isinstance(v, (int, float)):
-            params[name] = torch.tensor(float(v), dtype=torch.float64)
-        elif isinstance(v, (list, tuple)):
+
+    def _coerce(value: object) -> torch.Tensor | None:
+        if isinstance(value, torch.Tensor):
+            return value.to(dtype=torch.float64)
+        if isinstance(value, (int, float)):
+            return torch.tensor(float(value), dtype=torch.float64)
+        if isinstance(value, (list, tuple)):
             try:
-                params[name] = torch.as_tensor(v, dtype=torch.float64)
+                return torch.as_tensor(value, dtype=torch.float64)
             except (TypeError, ValueError):
+                return None
+        return None
+
+    for sample_name in sample_names:
+        for spelling in (
+            f"true_{sample_name}",
+            f"{sample_name}_true",
+            sample_name,
+        ):
+            if spelling not in ns:
                 continue
+            coerced = _coerce(ns[spelling])
+            if coerced is None:
+                continue
+            params[sample_name] = coerced
+            break
+
+    # Also accept the bare `true_*` / `*_true` namespace bindings
+    # for examples whose QVR sample site names don't exactly match
+    # the snippet variable names (legacy compatibility).
+    for k, v in ns.items():
+        if k.startswith("true_"):
+            name = k[len("true_"):]
+        elif k.endswith("_true"):
+            name = k[: -len("_true")]
+        else:
+            continue
+        if name in params:
+            continue
+        coerced = _coerce(v)
+        if coerced is not None:
+            params[name] = coerced
 
     # Program-input tensor: the snippet may bind any of the canonical
     # names below. Try each in order; the first tensor-typed binding
