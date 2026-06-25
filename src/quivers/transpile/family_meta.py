@@ -633,6 +633,11 @@ FAMILY_META: dict[str, FamilyMeta] = {
             "bugs": "dt", "jags": "dt",
         },
         arg_aliases={
+            # JAGS / BUGS `dt(mu, tau, k)` parameterise by precision
+            # and degrees of freedom; the renderer's `_APPEND_DF_ONE`
+            # injection appends ``k=1`` after this alias map renames
+            # ``scale -> tau`` (triggering the inv_square arithmetic
+            # transform, so the emitted tau is ``1/(scale*scale)``).
             "bugs": {"scale": "tau"},
             "jags": {"scale": "tau"},
             "pymc": {"loc": "alpha", "scale": "beta"},
@@ -757,7 +762,21 @@ FAMILY_META: dict[str, FamilyMeta] = {
         },
         arg_aliases={
             "pymc": {"scale": "beta"},
-            "webppl": {"scale": "scale"},
+            # WebPPL renders HalfCauchy as ``Cauchy({location: 0,
+            # scale: scale})``; the renderer prepends a ``loc=0``
+            # argument before this alias map is consulted, so the
+            # keyword for the injected zero is renamed `loc ->
+            # location` here.
+            "webppl": {"scale": "scale", "loc": "location"},
+            # JAGS / BUGS `dt(mu, tau, k)` parameterise by precision
+            # and degrees of freedom; the renderer prepends ``loc=0``
+            # and the `_APPEND_DF_ONE` injection appends ``k=1`` after
+            # this alias map renames ``scale -> tau`` (triggering the
+            # inv_square arithmetic transform). Drop log(2) per
+            # observation is absorbed by the constant-spread
+            # tolerance.
+            "bugs": {"scale": "tau"},
+            "jags": {"scale": "tau"},
         },
     ),
     "HalfNormal": FamilyMeta(

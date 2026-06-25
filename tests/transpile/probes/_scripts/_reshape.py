@@ -21,19 +21,26 @@ list value. The float / int cast applies even for scalars so
 backends that distinguish `int` and `real` (Stan, JAGS) get the
 right type.
 """
+from __future__ import annotations
+
 import json
 import pathlib
 from collections.abc import Sequence
-from typing import cast
+from typing import TYPE_CHECKING, cast
 
 # The probe payload is strictly numeric: scalars (Python int or
-# float) and arbitrarily nested lists of the same. PEP 695 `type`
-# statements keep the recursion declarative; `Any` and `object` are
-# intentionally avoided.
-type Number = int | float
-type NestedNumber = Number | list[NestedNumber]
-type PointSection = dict[str, NestedNumber]
-type Point = dict[str, PointSection]
+# float) and arbitrarily nested lists of the same. Aliases live
+# under `TYPE_CHECKING` so the helper imports on every in-container
+# Python (3.9 in JAGS / BUGS, 3.11 in Edward2 / Node, 3.12 in the
+# rest); `from __future__ import annotations` defers annotation
+# evaluation so the recursive `NestedNumber` reference resolves
+# lazily for type checkers and never executes at runtime. `Any`
+# and `object` are intentionally avoided.
+if TYPE_CHECKING:
+    Number = int | float
+    NestedNumber = Number | list["NestedNumber"]
+    PointSection = dict[str, NestedNumber]
+    Point = dict[str, PointSection]
 
 
 def load_tables(io: pathlib.Path) -> tuple[
@@ -104,7 +111,7 @@ def reshape_value(
             value = _flat_to_nested([value], shapes[name])
         elif isinstance(value, list):
             value = _flat_to_nested(
-                cast(Sequence[Number], value), shapes[name],
+                cast("Sequence[Number]", value), shapes[name],
             )
     if name in dtypes:
         value = _cast_leaves(value, dtypes[name])
@@ -140,8 +147,4 @@ __all__ = [
     "load_tables",
     "reshape_point",
     "reshape_value",
-    "NestedNumber",
-    "Number",
-    "Point",
-    "PointSection",
 ]
