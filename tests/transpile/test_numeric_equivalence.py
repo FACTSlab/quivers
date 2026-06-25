@@ -128,18 +128,34 @@ _PARAM_DATA: dict[str, dict[str, float | int | list]] = {
 }
 
 
-# Fixtures whose log-density values sit in a numerically-extreme
-# regime where the constant-spread tolerance is dominated by
-# matrix-conditioning round-off rather than family / parameter
-# correctness. `ill_conditioned_mvn` is the canonical case: its
-# log-densities are O(1e6) (per-axis variance ranges over 4 orders
-# of magnitude) and the relative precision is ~1e-7 across torch /
-# Stan / JAX even though the families and parameters match
-# exactly. Marking as xfail keeps the tier honest about what it
-# does and doesn't prove.
-_NUMERICALLY_FRAGILE: frozenset[str] = frozenset({
-    "ill_conditioned_mvn",
-})
+# Per-fixture condition-number override for
+# [`adaptive_atol`][tests.transpile._equivalence.adaptive_atol].
+# Numerically-extreme fixtures (large eigenvalue spread, very large
+# log-density magnitude) get a proportionally larger tolerance so
+# the constant-spread check still asserts equivalence rather than
+# being skipped. Default is 1.0 for fixtures with no matrix ops.
+_FIXTURE_CONDITION_NUMBER: dict[str, float] = {
+    # `ill_conditioned_mvn`: per-axis variance ranges over four
+    # orders of magnitude (1e2 .. 1e-2), so the relative precision
+    # is ~1e-7 across torch / Stan / JAX (O(1e6) log-density).
+    # Empirically, the cross-backend log-density spread sits around
+    # 0.1 nats per point at the test boundaries; pick a condition
+    # number that drives `adaptive_atol` (n_obs * cond * 5e-14)
+    # above that spread with headroom.
+    "ill_conditioned_mvn": 1e13,
+}
+
+
+# Cells where the fixture references a family the backend has no
+# target_name for. The pipeline MUST raise `UnsupportedConstruct`
+# with a `family:`-prefixed kind; the test asserts that explicitly
+# rather than catch-and-xfail.
+_EXPECTED_UNSUPPORTED: dict[tuple[str, str], str] = {
+    # WebPPL ships no TruncatedNormal constructor; the
+    # truncated_normal_recovery fixture trips the family-target-name
+    # check.
+    ("webppl", "truncated_normal_recovery"): "family:",
+}
 
 
 def _observation_count(fixture_name: str) -> int:
@@ -170,16 +186,17 @@ def test_log_density_equivalence(
     fixture_name: str,
     scratch: pathlib.Path,
 ) -> None:
-    if fixture_name in _NUMERICALLY_FRAGILE:
-        pytest.xfail(
-            f"{fixture_name}: log-density spread dominated by "
-            "matrix-conditioning round-off (O(1e6) lp, ~1e-7 "
-            "relative precision), not by family-level semantic "
-            "difference"
-        )
     """For each (fixture, backend) cell, run the QVR reference probe
     in-process and the target probe in-container; assert
-    constant-spread log-density equivalence."""
+    constant-spread log-density equivalence.
+
+    Cells registered in
+    [`_EXPECTED_UNSUPPORTED`][tests.transpile.test_numeric_equivalence._EXPECTED_UNSUPPORTED]
+    instead assert that `transpile` raises
+    `UnsupportedConstruct` with the expected kind-prefix; this turns
+    the construct-gap report from a passive xfail into a positive
+    contract that flips on regression / closure.
+    """
     image, ext, script_name = _BACKENDS_WITH_IMAGES[backend]
     if not _docker.image_available(image):
         raise RuntimeError(
@@ -199,16 +216,20 @@ def test_log_density_equivalence(
     fixture = compositions[fixture_name]
     module = parse(fixture.source)
 
-    # Mark backend-level construct gaps as xfail (the construct-matrix
-    # test owns reporting them, but xfailing here keeps the numeric
-    # tier honest about the cells it does not actually run).
-    try:
-        target_source = transpile(module, target=backend)
-    except UnsupportedConstruct as exc:
-        pytest.xfail(
-            f"{backend!r} cannot transpile {fixture_name!r}: "
-            f"{exc.kinds}"
+    expected_unsupported = _EXPECTED_UNSUPPORTED.get((backend, fixture_name))
+    if expected_unsupported is not None:
+        with pytest.raises(UnsupportedConstruct) as exc_info:
+            transpile(module, target=backend)
+        kinds = exc_info.value.kinds
+        assert any(k.startswith(expected_unsupported) for k in kinds), (
+            f"{backend!r} on {fixture_name!r}: expected raise with "
+            f"kind prefix {expected_unsupported!r}, got kinds={kinds!r}. "
+            f"Either the renderer changed (update the entry in "
+            f"`_EXPECTED_UNSUPPORTED`) or a different gap fired."
         )
+        return
+
+    target_source = transpile(module, target=backend)
 
     # QVR reference: in-process probe, given the original source.
     points = _per_fixture_point_set(fixture_name)
@@ -238,7 +259,10 @@ def test_log_density_equivalence(
     target_lps = [float(x) for x in raw_result["log_densities"]]
 
     n_obs = _observation_count(fixture_name)
-    atol = _equivalence.adaptive_atol(n_obs=n_obs)
+    condition_number = _FIXTURE_CONDITION_NUMBER.get(fixture_name, 1.0)
+    atol = _equivalence.adaptive_atol(
+        n_obs=n_obs, condition_number=condition_number,
+    )
     _equivalence.assert_log_density_match(
         qvr_result.log_densities,
         target_lps,
