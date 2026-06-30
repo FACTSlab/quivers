@@ -266,8 +266,12 @@ def load_gallery_data(source_qvr: Path) -> GalleryDataset | None:
             break
 
     # Also accept the bare `true_*` / `*_true` namespace bindings
-    # for examples whose QVR sample site names don't exactly match
-    # the snippet variable names (legacy compatibility).
+    # whose name matches a QVR sample-site declaration. Bindings whose
+    # stripped name does not appear in the program's sample-site set
+    # are local snippet variables (the let-step intermediates
+    # `mu_true`, `alpha_true`, ... in regression examples) and would
+    # poison the backend probe by surfacing as `unused data`
+    # variables in renderers (e.g. BUGS) that reject unknown clamps.
     for k, v in ns.items():
         if k.startswith("true_"):
             name = k[len("true_"):]
@@ -275,7 +279,7 @@ def load_gallery_data(source_qvr: Path) -> GalleryDataset | None:
             name = k[: -len("_true")]
         else:
             continue
-        if name in params:
+        if name in params or name not in sample_names:
             continue
         coerced = _coerce(v)
         if coerced is not None:
