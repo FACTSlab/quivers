@@ -39,11 +39,11 @@ Products and coproducts are formed with the `*` and `+` operators, which automat
 X = FinSet(name="X", cardinality=3)
 Y = FinSet(name="Y", cardinality=4)
 
-P = X * Y          # ProductSet(X, Y)
+P = X * Y          # ProductSet(components=(X, Y))
 print(P.size)      # 12
 print(P.shape)     # (3, 4)
 
-C = X + Y          # CoproductSet(X, Y)
+C = X + Y          # CoproductSet(components=(X, Y))
 print(C.size)      # 7
 print(C.shape)     # (7,), flat representation
 ```

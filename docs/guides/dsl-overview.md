@@ -66,44 +66,44 @@ flowchart TB
     SRC[".qvr source"]
     PARSE["tree-sitter parse via panproto-grammars-all"]
     AST["AST nodes (didactic dx.Model)"]
-    COMPILER["Compiler with resolution lenses"]
+    COMPILER["Compiler statement dispatch"]
     PROG["Program (nn.Module) ready to train"]
     SRC --> PARSE --> AST --> COMPILER --> PROG
 ```
 
-The grammar at `grammars/qvr/` is registered with
-[panproto](https://panproto.dev)'s
+The grammar at `grammars/qvr/` is registered with panproto's
 `panproto-grammars-all` distribution; the AST nodes are documented
 in [`ast_nodes`](../api/dsl/ast_nodes.md); resolution between
-syntactic [`TypeExpr`](../api/dsl/ast_nodes.md) /
-[`SpaceExpr`](../api/dsl/ast_nodes.md) trees and runtime
+syntactic [`ObjectExpr`](../api/dsl/ast_nodes.md) trees and runtime
 [`SetObject`](../api/core/objects.md) /
-[`ContinuousSpace`](../api/continuous/spaces.md) values is a
-[`dx.Lens`](https://didactic.dev/api/Lens) family in
+[`ContinuousSpace`](../api/continuous/spaces.md) values is handled
+by the resolution mixin in
 [`resolution.py`](../api/dsl/resolution.md). Each compiled program
-extracts to a panproto [`Schema`](https://panproto.dev/api/schema)
-via [`program_theory`](../api/dsl/program_theory.md), so diff,
-migrate, and lens-generation tooling applies directly to `.qvr`
-programs.
+extracts to a panproto `Schema` via
+[`program_theory`](../api/dsl/program_theory.md), so diff, migrate,
+and lens-generation tooling applies directly to `.qvr` programs.
 
 The [`Compiler`](../api/dsl/compiler.md) transforms the AST to a
-[`Program`](../api/program.md) in four passes:
+[`Program`](../api/program.md) by walking the module's statements
+in source order, dispatching each to a per-form handler
+(`_compile_statement`). A single sweep threads three concerns:
 
-1. **Resolve declarations**: collect all objects, spaces, morphisms.
-   Type and space resolution is delegated to the lens family in
-   [`quivers.dsl.resolution`](../api/dsl/resolution.md),
-   `TypeExprToSetObject` (parameterized by the object inventory)
-   and `SpaceExprToContinuousSpace` (parameterized by the space
-   and object inventories). Each lens is
-   [`dx.Lens[<AST>, <runtime value>, <AST>]`](https://didactic.dev/api/Lens);
-   [round-trip laws](https://didactic.dev/concepts/laws) hold by
-   construction.
-2. **Type check**: ensure domains and codomains match in
-   compositions.
-3. **Build morphism DAG**: construct morphism modules.
-4. **Wrap in Program**: create an
+1. **Resolve declarations**: as each `object`, `space`, `morphism`,
+   `contraction`, `schema`, `let`, or program declaration is
+   visited, its type expressions are resolved through the mixin in
+   [`quivers.dsl.compiler.resolution`](../api/dsl/resolution.md).
+   `_resolve_any_space` walks an `ObjectExpr` and returns either a
+   `SetObject` or a `ContinuousSpace`; `_resolve_type` and
+   `_resolve_space` are type-narrowing wrappers.
+2. **Type-check compositions**: domain and codomain agreement is
+   enforced at the point of use, so ill-typed compositions fail
+   during the same pass that constructs the morphism modules.
+3. **Wrap the exported expression**: after all statements are
+   handled, the compiler compiles the exported expression into a
+   root morphism and wraps it in an
    [`nn.Module`](https://docs.pytorch.org/docs/stable/generated/torch.nn.Module.html)
-   that manages all parameters.
+   that manages the parameters, deductions, encoders, decoders,
+   and losses accumulated along the way.
 
 ```python
 from quivers.dsl import Compiler, parse

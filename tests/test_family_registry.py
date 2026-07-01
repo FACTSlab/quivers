@@ -9,10 +9,11 @@ Verifies that:
   ``discrete``, ``output_kind``).
 * The inline path auto-registers fixed factories and mixed
   builders for every per-dim-independent family.
-* Every previously-registry-only family (Cauchy, Laplace, Gumbel,
-  StudentT, Chi2, InverseGamma, Weibull, Pareto, Kumaraswamy,
-  ContinuousBernoulli, FisherSnedecor) is now usable inline.
-* Newly-shipped families (Poisson, Geometric, NegativeBinomial,
+* Continuous families beyond the location-scale core (Cauchy,
+  Laplace, Gumbel, StudentT, Chi2, InverseGamma, Weibull, Pareto,
+  Kumaraswamy, ContinuousBernoulli, FisherSnedecor) are usable
+  inline.
+* Discrete families (Poisson, Geometric, NegativeBinomial,
   VonMises) sample, score, and broadcast correctly.
 """
 

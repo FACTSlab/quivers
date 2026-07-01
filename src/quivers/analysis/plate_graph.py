@@ -40,6 +40,8 @@ from typing import Literal
 import didactic.api as dx
 
 from quivers.dsl.ast_nodes import (
+    DrawArgIndex,
+    DrawArgName,
     LetStep,
     MarginalizeStep,
     ObserveStep,
@@ -276,27 +278,28 @@ def _child_plates_for_marginalize(
 
 
 def _step_args(step: object) -> tuple[str, ...]:
-    """Variable references a step depends on. Reads the step's
-    ``args`` tuple (the family-call arguments)."""
+    """Variable references a step depends on. Pattern-matches each
+    `DrawArg` tagged variant to its structured content: a
+    `DrawArgName` contributes one identifier; a `DrawArgIndex`
+    contributes its base name plus every index identifier. Numeric
+    literals (`DrawArgScalar`), nested distribution calls
+    (`DrawArgDist`), and list literals (`DrawArgList`) contribute
+    no plate-graph edges. Legacy bare-string args from
+    compiler-synthesized steps pass through unchanged.
+    """
     args = getattr(step, "args", None)
     if not args:
         return ()
     out: list[str] = []
     for a in args:
-        if isinstance(a, str):
-            # Strip subscripts: ``phi[z]`` references both ``phi``
-            # and ``z``. We surface both as edge sources.
-            if "[" in a and a.endswith("]"):
-                head, _, rest = a.partition("[")
-                inner = rest[:-1].split(",")
-                if head:
-                    out.append(head.strip())
-                for tok in inner:
-                    tok = tok.strip()
-                    if tok and tok.isidentifier():
-                        out.append(tok)
-            else:
-                out.append(a)
+        if isinstance(a, DrawArgIndex):
+            if a.name:
+                out.append(a.name)
+            out.extend(a.indices)
+        elif isinstance(a, DrawArgName):
+            out.append(a.text)
+        elif isinstance(a, str):
+            out.append(a)
     return tuple(out)
 
 

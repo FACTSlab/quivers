@@ -2,7 +2,7 @@
 
 The `Algebra`'s tensor / join operations determine where in
 its value space a ``k``-step composition lands when entries are
-i.i.d. and roughly mean-zero. For each shipped algebra we record
+i.i.d. and roughly mean-zero. For each built-in algebra we record
 the parameters of a one-dimensional initial distribution that
 places the ``k``-step output at the algebra's mid-saturation point,
 which is the regime where gradients are largest and training is

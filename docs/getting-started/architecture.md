@@ -212,7 +212,7 @@ Data-frame ingestion. `schema.py` defines `DatasetSchema` (a frozen `dx.Model` p
 
 ### `diagnostics/`
 
-ArviZ-backed posterior diagnostics. `arviz_io.py` round-trips traces through `arviz.InferenceData` (netCDF on disk); `comparison.py` and `predictive_checks.py` wrap the standard cross-validation and posterior-predictive-check workflows.
+ArviZ-backed posterior diagnostics. `arviz_io.py` converts an `MCMCResult` into an `xarray.DataTree` (the ArviZ 1.x container) via `az.from_dict`, repackaging sample tensors under the canonical ArviZ group names with user-supplied coords and dims; `comparison.py` and `predictive_checks.py` wrap the standard cross-validation and posterior-predictive-check workflows.
 
 ### `formulas/`
 

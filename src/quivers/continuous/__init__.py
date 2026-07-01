@@ -105,7 +105,34 @@ from quivers.continuous.families import (
     ConditionalHorseshoe,
     # discrete-valued
     ConditionalBernoulli,
+    ConditionalBinomial,
     ConditionalCategorical,
+    ConditionalPoisson,
+    ConditionalNegativeBinomial,
+    # ordinal and zero-inflated / hurdle / mixture
+    ConditionalOrderedLogistic,
+    ConditionalZeroInflatedPoisson,
+    ConditionalHurdlePoisson,
+    ConditionalMixtureNormal,
+)
+from quivers.continuous._ordered import OrderedLogistic
+from quivers.continuous._zip_hurdle import (
+    HurdlePoisson,
+    MixtureNormal,
+    ZeroInflatedPoisson,
+)
+from quivers.continuous.param_source import (
+    AttentionSource,
+    ComposeSource,
+    EmbeddingSource,
+    FunctionSource,
+    IdentitySource,
+    LinearSource,
+    LookupSource,
+    MLPSource,
+    ParamSource,
+    make_param_source,
+    param_source_from_option,
 )
 from quivers.continuous.programs import (
     MonadicProgram,
@@ -197,7 +224,32 @@ __all__ = [
     "ConditionalHorseshoe",
     # discrete-valued conditional distributions
     "ConditionalBernoulli",
+    "ConditionalBinomial",
     "ConditionalCategorical",
+    "ConditionalPoisson",
+    "ConditionalNegativeBinomial",
+    # ordinal and zero-inflated / hurdle / mixture
+    "ConditionalOrderedLogistic",
+    "ConditionalZeroInflatedPoisson",
+    "ConditionalHurdlePoisson",
+    "ConditionalMixtureNormal",
+    # underlying distribution classes
+    "OrderedLogistic",
+    "HurdlePoisson",
+    "MixtureNormal",
+    "ZeroInflatedPoisson",
+    # parameter sources
+    "ParamSource",
+    "LinearSource",
+    "MLPSource",
+    "LookupSource",
+    "EmbeddingSource",
+    "AttentionSource",
+    "IdentitySource",
+    "FunctionSource",
+    "ComposeSource",
+    "make_param_source",
+    "param_source_from_option",
     # monadic programs
     "MonadicProgram",
     # scan (temporal recurrence)

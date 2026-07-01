@@ -2756,6 +2756,52 @@
     }
   },
   {
+    "type": "family_call_arg",
+    "named": true,
+    "fields": {
+      "args": {
+        "multiple": true,
+        "required": false,
+        "types": [
+          {
+            "type": ",",
+            "named": false
+          },
+          {
+            "type": "bracket_index_arg",
+            "named": true
+          },
+          {
+            "type": "family_call_arg",
+            "named": true
+          },
+          {
+            "type": "identifier",
+            "named": true
+          },
+          {
+            "type": "list_arg",
+            "named": true
+          },
+          {
+            "type": "signed_number",
+            "named": true
+          }
+        ]
+      },
+      "family": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "identifier",
+            "named": true
+          }
+        ]
+      }
+    }
+  },
+  {
     "type": "fan_expr",
     "named": true,
     "fields": {
@@ -4148,6 +4194,37 @@
     }
   },
   {
+    "type": "list_arg",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": true,
+      "required": false,
+      "types": [
+        {
+          "type": "bracket_index_arg",
+          "named": true
+        },
+        {
+          "type": "family_call_arg",
+          "named": true
+        },
+        {
+          "type": "identifier",
+          "named": true
+        },
+        {
+          "type": "list_arg",
+          "named": true
+        },
+        {
+          "type": "signed_number",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
     "type": "loss_decl",
     "named": true,
     "fields": {
@@ -4250,7 +4327,15 @@
             "named": true
           },
           {
+            "type": "family_call_arg",
+            "named": true
+          },
+          {
             "type": "identifier",
+            "named": true
+          },
+          {
+            "type": "list_arg",
             "named": true
           },
           {
@@ -4712,7 +4797,15 @@
             "named": true
           },
           {
+            "type": "family_call_arg",
+            "named": true
+          },
+          {
             "type": "identifier",
+            "named": true
+          },
+          {
+            "type": "list_arg",
             "named": true
           },
           {
@@ -5281,7 +5374,15 @@
             "named": true
           },
           {
+            "type": "family_call_arg",
+            "named": true
+          },
+          {
             "type": "identifier",
+            "named": true
+          },
+          {
+            "type": "list_arg",
             "named": true
           },
           {
@@ -6220,7 +6321,15 @@
             "named": true
           },
           {
+            "type": "family_call_arg",
+            "named": true
+          },
+          {
             "type": "identifier",
+            "named": true
+          },
+          {
+            "type": "list_arg",
             "named": true
           },
           {

@@ -2,7 +2,7 @@
 
 Verifies:
 
-* Every shipped algebra exposes a ``.dual()`` returning a usable
+* Every built-in algebra exposes a ``.dual()`` returning a usable
   algebra instance.
 * The dual swaps the roles of ``tensor_op`` and ``join`` under the
   de-Morgan involution; ``dual.dual()`` recovers the original

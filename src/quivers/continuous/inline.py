@@ -36,6 +36,20 @@ import torch
 import torch.distributions as D
 from torch.distributions import constraints as _constraints
 from quivers.core.objects import Unit
+from quivers.continuous._ordered import OrderedLogistic
+from quivers.continuous._zip_hurdle import (
+    HurdlePoisson,
+    MixtureNormal,
+    ZeroInflatedPoisson,
+)
+from quivers.continuous.measure import (
+    Independent as _MeasureIndependent,
+    Mixture as _MeasureMixture,
+    Normalize as _MeasureNormalize,
+    PointMass as _MeasurePointMass,
+    Pushforward as _MeasurePushforward,
+    Restrict as _MeasureRestrict,
+)
 from quivers.continuous.spaces import Euclidean
 from quivers.continuous.morphisms import ContinuousMorphism, AnySpace
 from quivers.continuous.family_spec import (
@@ -43,6 +57,12 @@ from quivers.continuous.family_spec import (
     FamilySpec,
 )
 from quivers.core._util import EPS
+from quivers.dsl.ast_nodes import (
+    DrawArgDist,
+    DrawArgList,
+    DrawArgName,
+    DrawArgScalar,
+)
 
 
 class FixedDistribution(ContinuousMorphism):
@@ -176,12 +196,40 @@ class MixedInlineDistribution(ContinuousMorphism):
         dist_builder: Callable,
         discrete: bool = False,
         support: _constraints.Constraint | None = None,
+        param_event_ranks: tuple[int, ...] | None = None,
     ) -> None:
         super().__init__(domain, codomain)
         self._param_spec = param_spec
         self._dist_builder = dist_builder
         self._discrete = discrete
         self._support = support if support is not None else _constraints.real
+        # Per-position event rank. Position 0 = per-row scalar; > 0 =
+        # vector-shaped distribution parameter (cutpoints, mixture
+        # weights). At most one vector-typed position is supported and
+        # it must be the last variable-typed slot; the vector consumes
+        # every remaining column of the stacked input.
+        self._param_event_ranks: tuple[int, ...] = (
+            param_event_ranks
+            if param_event_ranks is not None
+            else tuple(0 for _ in param_spec)
+        )
+        if len(self._param_event_ranks) != len(param_spec):
+            raise ValueError(
+                "MixedInlineDistribution: param_event_ranks length "
+                f"{len(self._param_event_ranks)} disagrees with "
+                f"param_spec length {len(param_spec)}"
+            )
+        vec_positions = [i for i, r in enumerate(self._param_event_ranks) if r >= 1]
+        if len(vec_positions) > 1:
+            raise ValueError(
+                "MixedInlineDistribution: at most one vector-typed "
+                "parameter position is supported"
+            )
+        if vec_positions and vec_positions[0] != len(param_spec) - 1:
+            raise ValueError(
+                "MixedInlineDistribution: vector-typed parameter must be the last slot"
+            )
+        self._has_vector_param: bool = bool(vec_positions)
 
     @property
     def support(self) -> _constraints.Constraint:
@@ -194,7 +242,9 @@ class MixedInlineDistribution(ContinuousMorphism):
         ----------
         x : torch.Tensor
             Stacked variable parameters. Shape ``(batch, total_var_dim)``.
-            May be ``(batch,)`` if total variable dimension is 1.
+            May be ``(batch,)`` if total variable dimension is 1. When
+            the family declares a vector-typed final parameter, the
+            trailing columns of ``x`` are the vector values.
 
         Returns
         -------
@@ -206,12 +256,19 @@ class MixedInlineDistribution(ContinuousMorphism):
             x = x.unsqueeze(-1)
         params = []
         var_offset = 0
-        for kind, value in self._param_spec:
+        n_specs = len(self._param_spec)
+        for pos, (kind, value) in enumerate(self._param_spec):
             if kind == "lit":
                 lit_val = torch.full(
                     (x.shape[0],), float(value), device=x.device, dtype=x.dtype
                 )
                 params.append(lit_val)
+                continue
+            is_last_vector = self._has_vector_param and pos == n_specs - 1
+            if is_last_vector:
+                # Consume all remaining columns as the vector param.
+                params.append(x[..., var_offset:])
+                var_offset = x.shape[-1]
             else:
                 dim = int(value)
                 if dim == 1:
@@ -274,12 +331,12 @@ class MixedInlineDistribution(ContinuousMorphism):
         dist = self._dist_builder(params)
         # For discrete distributions over an integer support,
         # categorical-valued samples must remain integer-typed so
-        # PyTorch's ``IntegerInterval`` validator accepts them;
-        # only Bernoulli / Boolean families historically took a
-        # float-valued sample, but the integer family suite
-        # (Categorical, Binomial, Geometric, NegativeBinomial,
-        # Poisson) refuses floats. Cast only when the validator's
-        # support is a continuous constraint.
+        # PyTorch's ``IntegerInterval`` validator accepts them.
+        # Bernoulli / Boolean families accept float-valued samples,
+        # but the integer family suite (Categorical, Binomial,
+        # Geometric, NegativeBinomial, Poisson) refuses floats. Cast
+        # only when the validator's support is a continuous
+        # constraint.
         if self._discrete and y.dtype.is_floating_point:
             sup = self._support
             if isinstance(sup, _constraints._Boolean):
@@ -904,6 +961,21 @@ _FAMILY_SUPPORTS: dict[str, _constraints.Constraint] = {
     "LogNormal": _constraints.positive,
     "Gamma": _constraints.positive,
     "Dirichlet": _constraints.simplex,
+    "OrderedLogistic": _constraints.nonnegative_integer,
+    "ZeroInflatedPoisson": _constraints.nonnegative_integer,
+    "HurdlePoisson": _constraints.nonnegative_integer,
+    "MixtureNormal": _constraints.real,
+}
+
+
+_OPERATOR_PARAM_NAMES: dict[str, tuple[str, ...]] = {
+    "PointMass": ("value",),
+    "Restrict": ("base", "low", "high"),
+    "Truncate": ("base", "low", "high"),
+    "Pushforward": ("base", "bijector"),
+    "Mixture": ("weights", "components"),
+    "Independent": ("base", "reinterpreted_batch_ndims"),
+    "Normalize": ("base",),
 }
 
 
@@ -920,6 +992,8 @@ def get_inline_param_names(family: str) -> tuple[str, ...] | None:
     tuple[str, ...] or None
         Parameter names, or None if not an inline family.
     """
+    if family in _OPERATOR_PARAM_NAMES:
+        return _OPERATOR_PARAM_NAMES[family]
     if family in _FIXED_FACTORIES:
         return _FIXED_FACTORIES[family][0]
     if family in _FAMILY_BUILDERS:
@@ -1040,6 +1114,62 @@ def _dirichlet_builder(params: list[torch.Tensor]) -> D.Distribution:
     return D.Dirichlet(params[0].clamp(min=EPS))
 
 
+def _zero_inflated_poisson_builder(
+    params: list[torch.Tensor],
+) -> D.Distribution:
+    """Build `ZeroInflatedPoisson` from ``[zero_prob, rate]``."""
+    return ZeroInflatedPoisson(
+        params[0].clamp(EPS, 1.0 - EPS),
+        params[1].clamp(min=EPS),
+    )
+
+
+def _hurdle_poisson_builder(
+    params: list[torch.Tensor],
+) -> D.Distribution:
+    """Build `HurdlePoisson` from ``[zero_prob, rate]``."""
+    return HurdlePoisson(
+        params[0].clamp(EPS, 1.0 - EPS),
+        params[1].clamp(min=EPS),
+    )
+
+
+def _mixture_normal_builder(
+    params: list[torch.Tensor],
+) -> D.Distribution:
+    """Build `MixtureNormal` from ``[weights, loc, scale]``.
+
+    Each parameter is a per-row vector of length ``K`` (number of
+    mixture components). The DSL surfaces this as:
+
+        observe y : Resp <- MixtureNormal(weights, locs, scales)
+
+    with `weights`, `locs`, `scales` declared as ``K``-dim variables
+    (e.g. sampled per-row vectors or host-supplied data tensors).
+    """
+    return MixtureNormal(
+        params[0],
+        params[1],
+        params[2].clamp(min=EPS),
+    )
+
+
+def _ordered_logistic_builder(params: list[torch.Tensor]) -> D.Distribution:
+    """Build OrderedLogistic from ``[predictor, cutpoints]``.
+
+    ``predictor`` is shape ``(batch,)``; ``cutpoints`` is either
+    ``(batch, K-1)`` (per-row thresholds, the ordinal-mixed-model
+    case) or a length-``K-1`` vector broadcast over the batch.
+
+    Cutpoints are not sorted here; the caller (typically a learned
+    monotonic transform or a fixed list) is responsible for ordering.
+    Unsorted cutpoints produce negative differences and the
+    distribution's log-prob clamp will return ``log(0)`` for the
+    affected rows, surfacing the bug at training time.
+    """
+    return OrderedLogistic(params[0], params[1])
+
+
 _FAMILY_BUILDERS: dict[str, tuple[tuple[str, ...], Callable, bool]] = {
     "Normal": (("loc", "scale"), _normal_builder, False),
     "Bernoulli": (("probs",), _bernoulli_builder, True),
@@ -1057,12 +1187,310 @@ _FAMILY_BUILDERS: dict[str, tuple[tuple[str, ...], Callable, bool]] = {
     "LogNormal": (("loc", "scale"), _lognormal_builder, False),
     "Gamma": (("concentration", "rate"), _gamma_builder, False),
     "Dirichlet": (("concentration",), _dirichlet_builder, False),
+    "OrderedLogistic": (
+        ("predictor", "cutpoints"),
+        _ordered_logistic_builder,
+        True,
+    ),
+    "ZeroInflatedPoisson": (
+        ("zero_prob", "rate"),
+        _zero_inflated_poisson_builder,
+        True,
+    ),
+    "HurdlePoisson": (
+        ("zero_prob", "rate"),
+        _hurdle_poisson_builder,
+        True,
+    ),
+    "MixtureNormal": (
+        ("weights", "loc", "scale"),
+        _mixture_normal_builder,
+        False,
+    ),
 }
+
+
+# Per-family per-parameter event ranks for the inline observe / draw
+# surface. A rank-0 parameter is a per-row scalar (participates in
+# the standard `_stack_tensors` per-row concatenation). A rank-1
+# parameter is a vector whose length is a distribution property
+# (cutpoints for OrderedLogistic, weights for MixtureNormal, ...).
+# Vector params may arrive as either a shared 1D tensor of shape
+# ``(D,)`` broadcast across the plate, or a per-row 2D tensor of
+# shape ``(batch, D)``. Families not listed default to all-rank-0.
+_PARAM_EVENT_RANKS: dict[str, tuple[int, ...]] = {
+    "OrderedLogistic": (0, 1),  # predictor scalar, cutpoints vector
+    "MixtureNormal": (1, 1, 1),  # per-component vectors
+    "ZeroInflatedPoisson": (0, 0),
+    "HurdlePoisson": (0, 0),
+}
+
+
+# Operator families that take Distribution-valued / list-valued args
+# rather than scalar / vector parameters. Dispatched separately by
+# `make_inline_distribution`; see the compositional measure algebra
+# in `quivers.continuous.measure`.
+_OPERATOR_FAMILIES: frozenset[str] = frozenset(
+    {
+        "Mixture",
+        "Restrict",
+        "Truncate",  # alias of Restrict
+        "Pushforward",
+        "PointMass",
+        "Independent",
+        "Normalize",
+    }
+)
+
+
+def _unwrap_draw_arg(arg):
+    """Translate a `DrawArg` tagged variant back into the plain
+    Python representation the inline machinery already understands.
+
+    `DrawArgName` -> `str`, `DrawArgScalar` -> `float`, `DrawArgIndex`
+    -> `DrawArgIndex` (passed through structurally so downstream
+    var-name collection can pattern-match on the `kind`).
+    `DrawArgDist` and `DrawArgList` round-trip unchanged; the
+    operator dispatch above handles them.
+    """
+    if isinstance(arg, DrawArgName):
+        return arg.text
+    if isinstance(arg, DrawArgScalar):
+        return arg.value
+    return arg
+
+
+def _normalize_inline_args(args):
+    """Map a tuple of (possibly tagged) draw args to the plain
+    `str | float | DrawArgDist | DrawArgList` form. Operator
+    dispatch sees the tagged compound shapes; the rest of the
+    inline path sees bare strings and floats.
+    """
+    return tuple(_unwrap_draw_arg(a) for a in args)
+
+
+def _eval_draw_arg_value(
+    arg,
+    variable_types,
+):
+    """Evaluate a draw-arg to a Python value usable inside the
+    measure-algebra constructors. Scalars become floats; numeric
+    `DrawArgList`s become lists of floats; `DrawArgDist`s become
+    `Distribution` instances built recursively.
+
+    Identifiers stay as strings; the operator family decides what
+    to do with them (e.g. `PointMass(x)` where `x` is an identifier
+    must be resolved at trace time, which the operator dispatch
+    handles by raising for the current implementation).
+    """
+    if isinstance(arg, DrawArgScalar):
+        return arg.value
+    if isinstance(arg, DrawArgName):
+        return arg.text
+    if isinstance(arg, DrawArgList):
+        return [_eval_draw_arg_value(item, variable_types) for item in arg.items]
+    if isinstance(arg, DrawArgDist):
+        return _build_inner_distribution(arg, variable_types)
+    if isinstance(arg, (int, float)):
+        return float(arg)
+    if isinstance(arg, str):
+        return arg
+    raise TypeError(f"_eval_draw_arg_value: unexpected arg type {type(arg).__name__}")
+
+
+def _build_inner_distribution(
+    arg: DrawArgDist,
+    variable_types,
+):
+    """Recursively build a `torch.distributions.Distribution` (or
+    `Measure`) from a `DrawArgDist`, dispatching on the family name.
+    Used by the compositional measure algebra to evaluate
+    distribution-valued arguments before passing them to the outer
+    family's constructor.
+
+    Recognises every operator in `_OPERATOR_FAMILIES` plus the base
+    families registered in `_FIXED_FACTORIES` and `_FAMILY_BUILDERS`
+    (with all-literal args; variable-bound base families inside a
+    compositional expression are deferred to the operator's runtime
+    evaluation).
+    """
+    family = arg.family
+    if family in _OPERATOR_FAMILIES:
+        return _build_operator_value(family, arg.args, variable_types)
+    if family in _BASE_DISTRIBUTION_BUILDERS:
+        evaluated_args = [_eval_draw_arg_value(a, variable_types) for a in arg.args]
+        if any(isinstance(v, str) for v in evaluated_args):
+            raise ValueError(
+                f"Inline distribution {family}({arg.args}): "
+                "variable-bound base families inside a compositional "
+                "expression require the operator's runtime evaluation; "
+                "use the standalone form or a let-binding."
+            )
+        return _BASE_DISTRIBUTION_BUILDERS[family](evaluated_args)
+    raise ValueError(
+        f"unknown inline family {family!r} in compositional "
+        f"expression; operators: {sorted(_OPERATOR_FAMILIES)}; bases: "
+        f"{sorted(_BASE_DISTRIBUTION_BUILDERS)}"
+    )
+
+
+# Closed-form constructors for base distributions used inside
+# compositional expressions. Each takes a list of evaluated args
+# (floats, after recursing through `_eval_draw_arg_value`) and
+# returns a `torch.distributions.Distribution` instance. Only the
+# families that compose naturally with the operator algebra are
+# listed; user-supplied families can be registered here at runtime.
+_BASE_DISTRIBUTION_BUILDERS: dict = {
+    "Normal": lambda a: D.Normal(
+        torch.as_tensor(a[0]),
+        torch.as_tensor(a[1]),
+    ),
+    "Cauchy": lambda a: D.Cauchy(
+        torch.as_tensor(a[0]),
+        torch.as_tensor(a[1]),
+    ),
+    "Laplace": lambda a: D.Laplace(
+        torch.as_tensor(a[0]),
+        torch.as_tensor(a[1]),
+    ),
+    "StudentT": lambda a: D.StudentT(
+        torch.as_tensor(a[0]),
+        torch.as_tensor(a[1]) if len(a) > 1 else torch.tensor(0.0),
+        torch.as_tensor(a[2]) if len(a) > 2 else torch.tensor(1.0),
+    ),
+    "Beta": lambda a: D.Beta(
+        torch.as_tensor(a[0]),
+        torch.as_tensor(a[1]),
+    ),
+    "Gamma": lambda a: D.Gamma(
+        torch.as_tensor(a[0]),
+        torch.as_tensor(a[1]),
+    ),
+    "Exponential": lambda a: D.Exponential(
+        torch.as_tensor(a[0]),
+    ),
+    "Poisson": lambda a: D.Poisson(torch.as_tensor(a[0])),
+    "Bernoulli": lambda a: D.Bernoulli(probs=torch.as_tensor(a[0])),
+    "Uniform": lambda a: D.Uniform(
+        torch.as_tensor(a[0]),
+        torch.as_tensor(a[1]),
+    ),
+    "HalfNormal": lambda a: D.HalfNormal(torch.as_tensor(a[0])),
+    "HalfCauchy": lambda a: D.HalfCauchy(torch.as_tensor(a[0])),
+    "LogNormal": lambda a: D.LogNormal(
+        torch.as_tensor(a[0]),
+        torch.as_tensor(a[1]),
+    ),
+}
+
+
+def _build_operator_value(
+    family: str,
+    args: tuple,
+    variable_types,
+):
+    """Evaluate an operator-family call inside a compositional
+    expression. Returns a `Distribution` / `Measure` value usable as
+    a parameter to an enclosing operator.
+    """
+    evaluated = [_eval_draw_arg_value(a, variable_types) for a in args]
+    if family == "PointMass":
+        if len(evaluated) != 1:
+            raise ValueError(f"PointMass: expected 1 arg, got {len(evaluated)}")
+        return _MeasurePointMass(torch.as_tensor(evaluated[0]))
+    if family in ("Restrict", "Truncate"):
+        if len(evaluated) < 2 or len(evaluated) > 3:
+            raise ValueError(
+                f"{family}: expected (base[, low, high]), got {len(evaluated)} args"
+            )
+        base = evaluated[0]
+        if not hasattr(base, "log_prob"):
+            raise ValueError(
+                f"{family}: first arg must be a Distribution, got {type(base).__name__}"
+            )
+        low = evaluated[1] if len(evaluated) >= 2 else None
+        high = evaluated[2] if len(evaluated) >= 3 else None
+        low_t = torch.as_tensor(low) if low is not None else None
+        high_t = torch.as_tensor(high) if high is not None else None
+        return _MeasureRestrict(base, low=low_t, high=high_t)
+    if family == "Pushforward":
+        if len(evaluated) != 2:
+            raise ValueError(
+                f"Pushforward: expected (base, bijector), got {len(evaluated)} args"
+            )
+        from quivers.continuous.bijectors import Bijector
+
+        base, bij = evaluated
+        if isinstance(bij, str):
+            from quivers.continuous import bijectors as _bj
+
+            bij_cls = getattr(_bj, bij, None)
+            if bij_cls is None:
+                raise ValueError(
+                    f"Pushforward: unknown bijector {bij!r}; "
+                    f"register or use the named operators."
+                )
+            bij = bij_cls()
+        if not isinstance(bij, Bijector):
+            raise ValueError(
+                f"Pushforward: second arg must be a Bijector, got {type(bij).__name__}"
+            )
+        return _MeasurePushforward(base, bij)
+    if family == "Mixture":
+        if len(evaluated) != 2:
+            raise ValueError(
+                f"Mixture: expected (weights, components), got {len(evaluated)} args"
+            )
+        weights_raw, components_raw = evaluated
+        weights = torch.as_tensor(weights_raw, dtype=torch.float32)
+        if not isinstance(components_raw, list):
+            raise ValueError("Mixture: components must be a list literal")
+        return _MeasureMixture(weights, components_raw)
+    if family == "Independent":
+        if len(evaluated) != 2:
+            raise ValueError(
+                "Independent: expected (base, reinterpreted_batch_ndims), "
+                f"got {len(evaluated)} args"
+            )
+        base, n = evaluated
+        return _MeasureIndependent(base, int(n))
+    if family == "Normalize":
+        if len(evaluated) != 1:
+            raise ValueError(f"Normalize: expected 1 arg, got {len(evaluated)}")
+        return _MeasureNormalize(evaluated[0])
+    raise ValueError(f"unknown operator family {family!r}")
+
+
+def _make_operator_distribution(
+    family: str,
+    args,
+    codomain: AnySpace,
+    variable_types,
+):
+    """Build a `FixedDistribution` wrapper around a compositional
+    measure expression. The expression has no free QVR variables;
+    all arguments are evaluated at compile time to a closed-form
+    `Distribution` / `Measure` instance.
+    """
+    fake_dist = _build_operator_value(family, tuple(args), variable_types)
+    support = getattr(fake_dist, "support", _constraints.real)
+    discrete = isinstance(support, type(_constraints.nonnegative_integer))
+
+    def builder(batch: int, device: torch.device):
+        return fake_dist
+
+    morph = FixedDistribution(
+        codomain,
+        builder,
+        discrete=discrete,
+        support=support,
+    )
+    return (morph, None)
 
 
 def make_inline_distribution(
     family: str,
-    args: tuple[str | float, ...],
+    args: tuple,
     codomain: AnySpace,
     variable_types: dict[str, AnySpace] | None = None,
 ) -> tuple[ContinuousMorphism, tuple[str, ...] | None]:
@@ -1094,7 +1522,20 @@ def make_inline_distribution(
         The inline distribution morphism, and the variable names
         to pass as step input (None = use program input).
     """
-    var_names = [a for a in args if isinstance(a, str)]
+    if family in _OPERATOR_FAMILIES:
+        return _make_operator_distribution(
+            family,
+            args,
+            codomain,
+            variable_types,
+        )
+    args = _normalize_inline_args(args)
+    # A `DrawArgIndex` (structural bracket-indexed ref) counts as a
+    # variable reference for the purposes of picking the fixed vs
+    # mixed factory dispatch, alongside bare identifier strings.
+    var_names = [
+        a for a in args if isinstance(a, str) or getattr(a, "kind", None) == "index"
+    ]
     if not var_names:
         all_floats = [float(a) for a in args]
         if family in _FIXED_FACTORIES:
@@ -1129,8 +1570,13 @@ def make_inline_distribution(
             param_spec.append(("lit", float(arg)))
         else:
             var_dim = 1
-            if variable_types and arg in variable_types:
-                vtype = variable_types[arg]
+            # `DrawArgIndex` carries the base identifier under
+            # `arg.name`; the compiled step spec still references
+            # the base tensor via `_lookup_arg`, so the variable-
+            # type lookup uses that name.
+            lookup_name = arg.name if getattr(arg, "kind", None) == "index" else arg
+            if variable_types and lookup_name in variable_types:
+                vtype = variable_types[lookup_name]
                 var_dim = getattr(vtype, "dim", 1)
             param_spec.append(("var", var_dim))
             var_name_order.append(arg)
@@ -1162,6 +1608,10 @@ def make_inline_distribution(
             fam_support = _constraints.interval(lit_args[0], lit_args[1])
         elif family == "TruncatedNormal" and len(lit_args) >= 2:
             fam_support = _constraints.interval(lit_args[-2], lit_args[-1])
+    fam_event_ranks = _PARAM_EVENT_RANKS.get(
+        family,
+        tuple(0 for _ in param_names),
+    )
     morph = MixedInlineDistribution(
         domain,
         codomain,
@@ -1169,6 +1619,7 @@ def make_inline_distribution(
         dist_builder,
         discrete,
         support=fam_support,
+        param_event_ranks=fam_event_ranks,
     )
     return (morph, tuple(var_name_order))
 

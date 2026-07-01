@@ -262,7 +262,12 @@ class _NeuralSource(nn.Module):
         return self.net(x)
 
 
-def _make_source(domain: AnySpace, param_dim: int, hidden_dim: int = 64) -> nn.Module:
+def _make_source(
+    domain: AnySpace,
+    param_dim: int,
+    hidden_dim: int = 64,
+    param_source=None,
+) -> nn.Module:
     """Create an appropriate parameter source for the given domain.
 
     Parameters
@@ -272,13 +277,22 @@ def _make_source(domain: AnySpace, param_dim: int, hidden_dim: int = 64) -> nn.M
     param_dim : int
         Output dimensionality of the parameter source.
     hidden_dim : int
-        Hidden layer width for neural source (continuous domains).
+        Hidden layer width for the default MLP source when
+        `param_source` is not supplied.
+    param_source : ParamSource, optional
+        Explicit parameter source; overrides the default (MLP for
+        continuous domains, lookup table for discrete). Use this to
+        drop in a `LinearSource`, `AttentionSource`, or user-defined
+        `ParamSource` without subclassing the conditional family.
 
     Returns
     -------
     nn.Module
-        A _LookupSource or _NeuralSource.
+        A `ParamSource` (`_LookupSource` / `_NeuralSource` in the
+        default path; whatever the caller supplies otherwise).
     """
+    if param_source is not None:
+        return param_source
     if isinstance(domain, SetObject):
         return _LookupSource(domain.size, param_dim)
     else:

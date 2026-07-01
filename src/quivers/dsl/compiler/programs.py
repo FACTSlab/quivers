@@ -31,6 +31,9 @@ from quivers.dsl.ast_nodes import (
     BindStep,
     ContractionDecl,
     ContractionInput,
+    DrawArgIndex,
+    DrawArgName,
+    DrawArgScalar,
     DrawStep,
     Expr,
     ExprIdent,
@@ -411,7 +414,17 @@ class _ProgramsMixin:
         with a ``mode`` discriminator. This translator is the seam: it
         is the only place the surface step kinds appear inside the
         compiler.
+
+        Before normalising, sugar families are desugared to their
+        canonical operator-algebra form (`TruncatedNormal` ->
+        `Restrict(Normal, low, high)`, etc.) via
+        [`desugar_step`][quivers.dsl.compiler.sugar.desugar_step], so
+        downstream IR walks the single operator vocabulary.
         """
+        from quivers.dsl.compiler.sugar import desugar_step
+
+        if isinstance(step, (SampleStep, ObserveStep)):
+            step = desugar_step(step)
         if isinstance(step, SampleStep):
             return BindStep(
                 vars=step.vars,
@@ -509,7 +522,7 @@ class _ProgramsMixin:
                     # time; the IR carries a `codomain` field that
                     # the compiler's PlateDrawStep handler resolves
                     # via the family's domain/codomain dimensions.
-                    # For the v0.5 unified surface, the index annotation
+                    # Under the unified surface, the index annotation
                     # `: A` declares the index set; the per-row codomain
                     # is implicit (taken from the family). We supply a
                     # placeholder `TypeName("1")` which the family
@@ -634,7 +647,16 @@ class _ProgramsMixin:
                             step.col,
                         )
                     first = step.args[0]
-                    if not isinstance(first, str):
+                    # `first` is a `DrawArg` tagged variant on the
+                    # widened AST. A `DrawArgName` carries the
+                    # identifier text; other variants (literal,
+                    # nested distribution call, list literal) are
+                    # not admissible as the probs argument.
+                    if isinstance(first, DrawArgName):
+                        probs_var = first.text
+                    elif isinstance(first, str):
+                        probs_var = first
+                    else:
                         raise CompileError(
                             "grouped marginalize: the categorical family's "
                             "first argument must be a named probs tensor "
@@ -642,7 +664,6 @@ class _ProgramsMixin:
                             step.line,
                             step.col,
                         )
-                    probs_var = first
                 # Introduce the coordinate. For an *ungrouped*
                 # marginalize block the latent is a real sample
                 # from its categorical prior; for a *grouped*
@@ -789,8 +810,7 @@ class _ProgramsMixin:
                 # Pushforward reduction. When grouped, the
                 # GroupedMarginalizeStep carries the list of per-observe
                 # (ll_slot, fibration) entries the runtime callable
-                # consumes; the legacy single-fibration fields are
-                # gone.
+                # consumes.
                 single_over = (
                     over_names[0]
                     if over_names is not None and len(over_names) == 1
@@ -973,7 +993,13 @@ class _ProgramsMixin:
         value_subst: dict[str, str | float] = {}
         for param, arg in zip(type_params, args):
             if isinstance(param, ObjectParam):
-                if not isinstance(arg, str):
+                # `DrawArgName` carries the identifier text; a bare
+                # `str` remains admissible for legacy synthetic
+                # steps. Anything else is a literal or nested
+                # distribution call, not a valid type-name argument.
+                if isinstance(arg, DrawArgName):
+                    arg = arg.text
+                elif not isinstance(arg, str):
                     raise CompileError(
                         f"template {tmpl.name!r}: parameter {param.name!r} "
                         f"({param.universe}) requires a type-name argument, "
@@ -1014,16 +1040,23 @@ class _ProgramsMixin:
                     name=arg, line=call_site.line, col=call_site.col
                 )
             elif isinstance(param, ScalarParam):
-                if isinstance(arg, str):
-                    # Scalar parameter passed as a name (e.g., a previously
-                    # let-bound scalar in the caller). Pass through as a
-                    # string reference; the caller's bound_vars will
-                    # resolve it at draw-site time.
+                # A scalar parameter admits either a numeric literal
+                # (`DrawArgScalar`) or a bound-name reference
+                # (`DrawArgName`). Legacy `str` / `float` values from
+                # compiler-synthesized call sites are equally
+                # admissible.
+                if isinstance(arg, DrawArgName):
+                    value_subst[param.name] = arg.text
+                elif isinstance(arg, DrawArgScalar):
+                    value_subst[param.name] = float(arg.value)
+                elif isinstance(arg, str):
                     value_subst[param.name] = arg
                 else:
                     value_subst[param.name] = float(arg)
             elif isinstance(param, MorphismParam):
-                if not isinstance(arg, str):
+                if isinstance(arg, DrawArgName):
+                    arg = arg.text
+                elif not isinstance(arg, str):
                     raise CompileError(
                         f"template {tmpl.name!r}: parameter {param.name!r} : "
                         f"Mor[...] expects a morphism name, got {arg!r}",
@@ -1148,12 +1181,54 @@ class _ProgramsMixin:
         value_subst: dict[str, str | float],
         rename: dict[str, str],
     ) -> tuple | None:
-        """Apply parameter substitution and α-renaming inside a draw-arg list."""
+        """Apply parameter substitution and alpha-renaming inside a
+        draw-arg list. `args` is a tuple of `DrawArg` tagged variants
+        (legacy bare `str` / `float` values also pass through). A
+        `DrawArgName` whose `text` matches a substitution key is
+        rewritten to the substituted value: a numeric substitute
+        becomes `DrawArgScalar`, a string substitute becomes a
+        `DrawArgName` with the new text.
+        """
         if args is None:
             return None
         out: list = []
         for a in args:
-            if isinstance(a, str):
+            if isinstance(a, DrawArgName):
+                key = a.text
+                if key in value_subst:
+                    sub = value_subst[key]
+                    if isinstance(sub, (int, float)) and not isinstance(sub, bool):
+                        out.append(DrawArgScalar(value=float(sub)))
+                    else:
+                        out.append(DrawArgName(text=str(sub)))
+                elif key in rename:
+                    out.append(DrawArgName(text=rename[key]))
+                else:
+                    out.append(a)
+            elif isinstance(a, DrawArgIndex):
+                # Rewrite the base name plus every index identifier
+                # under the substitution / rename maps so both the
+                # tensor and its indexing plate propagate through
+                # template instantiation.
+                new_name = a.name
+                if new_name in value_subst:
+                    sub = value_subst[new_name]
+                    new_name = (
+                        str(sub) if not isinstance(sub, (int, float)) else new_name
+                    )
+                elif new_name in rename:
+                    new_name = rename[new_name]
+                new_indices: list[str] = []
+                for ix in a.indices:
+                    if ix in value_subst:
+                        sub_ix = value_subst[ix]
+                        new_indices.append(str(sub_ix))
+                    elif ix in rename:
+                        new_indices.append(rename[ix])
+                    else:
+                        new_indices.append(ix)
+                out.append(DrawArgIndex(name=new_name, indices=tuple(new_indices)))
+            elif isinstance(a, str):
                 if a in value_subst:
                     out.append(value_subst[a])
                 elif a in rename:
@@ -1849,7 +1924,7 @@ class _ProgramsMixin:
                     bound_vars[pname] = factor
             else:
                 bound_vars[decl.params[0]] = domain
-        # First, expand the v0.5 unified surface (BindStep) into the
+        # First, expand the unified surface (BindStep) into the
         # internal IR (DrawStep / PlateDrawStep / VectorisedObserveStep /
         # GroupedMarginalizeStep) that the rest of the compiler consumes.
         # The expansion translates each BindStep based on its mode +
@@ -2547,15 +2622,37 @@ class _ProgramsMixin:
             morph = self._morphisms[draw.morphism]
             if draw.args is not None:
                 for a in draw.args:
-                    if isinstance(a, (int, float)):
-                        raise CompileError(
-                            f"literal argument {a} not allowed for named morphism {draw.morphism!r}",
-                            draw.line,
-                            draw.col,
-                        )
-            step_args = (
-                tuple((str(a) for a in draw.args)) if draw.args is not None else None
-            )
+                    # A named morphism consumes only identifier
+                    # references: bare identifiers (`DrawArgName`),
+                    # bracket-indexed references (`DrawArgIndex`),
+                    # or legacy bare `str` values from compiler-
+                    # synthesized steps. Numeric literals, nested
+                    # distribution calls, and list literals are
+                    # rejected.
+                    if isinstance(a, (DrawArgName, DrawArgIndex)) or isinstance(a, str):
+                        continue
+                    raise CompileError(
+                        f"literal argument {a!r} not allowed for "
+                        f"named morphism {draw.morphism!r}",
+                        draw.line,
+                        draw.col,
+                    )
+            # Preserve `DrawArgIndex` in the step-spec so the
+            # runtime resolver can gather structurally rather than
+            # re-parsing a stringified surface form.
+            step_args: tuple | None
+            if draw.args is None:
+                step_args = None
+            else:
+                converted: list = []
+                for a in draw.args:
+                    if isinstance(a, DrawArgName):
+                        converted.append(a.text)
+                    elif isinstance(a, DrawArgIndex):
+                        converted.append(a)
+                    else:
+                        converted.append(str(a))
+                step_args = tuple(converted)
             return (morph, step_args)
         from quivers.continuous.inline import (
             get_inline_param_names,
@@ -2623,6 +2720,20 @@ class _ProgramsMixin:
             return ProductSpace(components=tuple(comps))
         return ProductSet(components=tuple(comps))
 
+    @staticmethod
+    def _as_float(arg: object) -> float | None:
+        """Extract a numeric literal from a draw-step argument. Handles
+        both legacy bare `int` / `float` values and the tagged
+        [`DrawArgScalar`][quivers.dsl.ast_nodes.DrawArgScalar]
+        variant. Returns ``None`` for identifier references
+        (`DrawArgName`, bare `str`) and nested distribution calls.
+        """
+        if isinstance(arg, (int, float)) and not isinstance(arg, bool):
+            return float(arg)
+        if isinstance(arg, DrawArgScalar):
+            return float(arg.value)
+        return None
+
     def _infer_inline_codomain(
         self,
         family: str,
@@ -2653,7 +2764,9 @@ class _ProgramsMixin:
         elif family == "Bernoulli":
             return FinSet(name=f"_{var_names[0]}", cardinality=2)
         elif family == "Uniform":
-            float_args = [a for a in args if isinstance(a, (int, float))]
+            float_args = [
+                self._as_float(a) for a in args if self._as_float(a) is not None
+            ]
             if len(float_args) >= 2:
                 low, high = (float(float_args[0]), float(float_args[1]))
                 if low == 0.0 and high == 1.0:
@@ -2661,9 +2774,11 @@ class _ProgramsMixin:
                 return Euclidean(name=f"_{var_names[0]}", dim=1, low=low, high=high)
             return UnitInterval(f"_{var_names[0]}")
         elif family == "TruncatedNormal":
-            float_args = {
-                i: a for i, a in enumerate(args) if isinstance(a, (int, float))
-            }
+            float_args = {}
+            for i, a in enumerate(args):
+                v = self._as_float(a)
+                if v is not None:
+                    float_args[i] = v
             if 2 in float_args and 3 in float_args:
                 low, high = (float(float_args[2]), float(float_args[3]))
                 return Euclidean(name=f"_{var_names[0]}", dim=1, low=low, high=high)
@@ -2691,7 +2806,11 @@ class _ProgramsMixin:
             #   codomain (``dim`` for a ContinuousSpace,
             #   ``cardinality`` for a SetObject), defaulting to 2.
             sim_dim: int | None = None
-            n_literals = sum(1 for a in args if isinstance(a, (int, float)))
+            n_literals = sum(
+                1
+                for a in args
+                if isinstance(a, (int, float)) or isinstance(a, DrawArgScalar)
+            )
             if n_literals >= 2:
                 sim_dim = n_literals
             if sim_dim is None:

@@ -85,7 +85,7 @@ The `dsl` package implements the QVR domain-specific language for quivers. Parsi
 - **Parser**: panproto-driven parser walker (`parse`, `parse_file`, `ParseError`)
 - **AST Nodes**: didactic Model definitions for every syntactic node
 - **Compiler**: lowering from AST to `Program` (`Compiler`, `CompileError`)
-- **Resolution**: bidirectional `dx.Lens` family from `TypeExpr` / `SpaceExpr` to runtime values
+- **Resolution**: bidirectional `dx.Lens` family from `ObjectExpr` to runtime values
 - **Program Theory**: `QVR_PROGRAM_PROTOCOL` and `extract_program_schema` for emitting a panproto `Schema` from a compiled program
 
 ## Inference Package

@@ -199,7 +199,7 @@ def _decode_loss_attachment(
 
 
 def _build_encoder_from_factory(decl: "EncoderDecl", sig) -> "Encoder":
-    """Invoke a shipped encoder factory by name.
+    """Invoke a registered encoder factory by name.
 
     Reads ``options["factory"]`` to pick a builder from
     `_ENCODER_FACTORY_REGISTRY`, then passes every other

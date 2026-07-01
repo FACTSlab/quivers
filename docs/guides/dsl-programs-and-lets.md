@@ -52,7 +52,7 @@ marginal binds.
 
 <!-- compile: false -->
 ```qvr
-program prior : Unit -> Y [effects=[Sample]]
+program prior : X -> Y [effects=[Sample]]
     sample mu <- Normal(0.0, 1.0)
     return mu
 
@@ -248,7 +248,7 @@ family's declared `event_rank` (0 for scalar families like Normal /
 Beta / Gamma; 1 for vector families like
 [`MultivariateNormal`](../api/continuous/families.md#quivers.continuous.families.ConditionalMultivariateNormal),
 [`Dirichlet`](../api/continuous/families.md#quivers.continuous.families.ConditionalDirichlet),
-[`ConditionalGaussianProcess`](../api/continuous/families.md#quivers.continuous.families.ConditionalGaussianProcess),
+[`ConditionalGaussianProcess`](../api/continuous/families.md#quivers.continuous.families.ConditionalGaussianProcess) (DSL surface name `GP`),
 or
 [`ConditionalHorseshoe`](../api/continuous/families.md#quivers.continuous.families.ConditionalHorseshoe);
 2 for matrix families like
@@ -302,7 +302,7 @@ rebinding.
 <!-- compile: false -->
 ```qvr
 # Vector prior: 5-dim MVN over the codomain axis.
-sample mu : Real 5 <- MVN(zeros, L) [over=cod]
+sample mu : Real 5 <- MultivariateNormal(zeros, L) [over=cod]
 
 # Matrix prior on a morphism: Kronecker MatrixNormal.
 morphism W : Real 32 -> Real 64 [role=latent, over=[dom, cod]]
@@ -314,7 +314,7 @@ morphism T : Real K -> Real K [role=latent, over=cod, iid_over=dom]
     ~ Dirichlet(alpha)
 
 # MVN response per observation row.
-observe y : N <- MVN(mu_hat, scale_tril) [over=cod]
+observe y : N <- MultivariateNormal(mu_hat, scale_tril) [over=cod]
 ```
 
 ## Let expressions (arithmetic and primitives)
@@ -464,23 +464,23 @@ full set is documented in
 
 | Family | Parameters | Codomain |
 |---|---|---|
-| `Normal` | `loc`, `scale` | Euclidean |
-| `LogitNormal` | `mu`, `sigma` | UnitInterval |
-| `Uniform` | `low`, `high` | UnitInterval / Euclidean |
-| `Bernoulli` | `probs` | FinSet(2) |
-| `Beta` | `concentration1`, `concentration0` | UnitInterval |
-| `Exponential` | `rate` | PositiveReals |
-| `HalfCauchy` | `scale` | PositiveReals |
-| `HalfNormal` | `scale` | PositiveReals |
-| `LogNormal` | `loc`, `scale` | PositiveReals |
-| `Gamma` | `concentration`, `rate` | PositiveReals |
-| `Dirichlet` | `concentration` | Simplex (codomain `dim` / `cardinality`) |
-| `TruncatedNormal` | `mu`, `sigma`, `low`, `high` | Euclidean (bounded) |
-| `MultivariateNormal` | `loc`, `scale_tril` | Euclidean |
-| `MatrixNormal` | `loc`, `row_scale`, `col_scale` | matrix Euclidean |
-| `LKJCholesky` | `concentration` | Cholesky-factor manifold |
-| `Wishart`, `InverseWishart` | `df`, `scale_tril` | positive-definite matrices |
-| `Horseshoe` | `scale` | Euclidean (sparse-shrinkage prior) |
+| `Normal` | `loc`, `scale` | `Real N` |
+| `LogitNormal` | `mu`, `sigma` | `Real N [low=0, high=1]` |
+| `Uniform` | `low`, `high` | `Real N [low=..., high=...]` |
+| `Bernoulli` | `probs` | `FinSet 2` |
+| `Beta` | `concentration1`, `concentration0` | `Real N [low=0, high=1]` |
+| `Exponential` | `rate` | `Real N [low=0]` |
+| `HalfCauchy` | `scale` | `Real N [low=0]` |
+| `HalfNormal` | `scale` | `Real N [low=0]` |
+| `LogNormal` | `loc`, `scale` | `Real N [low=0]` |
+| `Gamma` | `concentration`, `rate` | `Real N [low=0]` |
+| `Dirichlet` | `concentration` | `Simplex K` |
+| `TruncatedNormal` | `mu`, `sigma`, `low`, `high` | `Real N [low=..., high=...]` |
+| `MultivariateNormal` | `loc`, `scale_tril` | `Real N` (event_rank 1) |
+| `MatrixNormal` | `loc`, `row_scale`, `col_scale` | `Real R C` (event_rank 2) |
+| `LKJCholesky` | `concentration` | `CholeskyFactor K` |
+| `Wishart`, `InverseWishart` | `df`, `scale_tril` | `Covariance K` |
+| `Horseshoe` | `scale` | `Real N` (sparse-shrinkage prior) |
 
 Every parameter position in every family accepts either a literal
 value or a previously-bound variable. When all arguments are

@@ -9,8 +9,9 @@ that route through the existing QVR DSL surface:
   ``X >> beta`` over ``observed`` design-matrix morphisms,
 * random-effect groups as plate-gather of per-level latent draws,
 * responses as ``observe`` sites with the family-link kernel
-  (Gaussian / Bernoulli / Categorical / Poisson / NegBin /
-  Cumulative / Beta / Gamma / Student-t / ZIP / hurdle / mixture)
+  (Gaussian / Bernoulli / Binomial / Categorical / Poisson /
+  NegativeBinomial / Cumulative / Beta / Gamma / Student-t /
+  ZeroInflatedPoisson / HurdlePoisson / Mixture)
   registered in [`quivers.formulas.family`][quivers.formulas.family].
 
 The implementation reuses [`formulae`](https://bambinos.github.io/formulae/)

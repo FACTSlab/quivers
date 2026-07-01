@@ -58,36 +58,44 @@ from typing import cast
 from quivers.continuous.morphisms import AnySpace, ContinuousMorphism
 
 
-_BRACKET_ARG_RE = __import__("re").compile(
-    r"^([A-Za-z_][A-Za-z_0-9]*)\[([A-Za-z_][A-Za-z_0-9]*)\]$"
-)
+def _lookup_arg(
+    env: "dict[str, torch.Tensor]",
+    arg,
+) -> "torch.Tensor":
+    """Resolve a draw / observe argument against the environment.
 
+    Two admissible arg shapes:
 
-def _lookup_arg(env: "dict[str, torch.Tensor]", arg: str) -> "torch.Tensor":
-    """Resolve a draw / observe argument string against the environment.
+    * A bare identifier string (``"mu"``) returns ``env["mu"]``
+      directly. Legacy compiler-synthesized step specs use this
+      form.
+    * A [`DrawArgIndex`][quivers.dsl.ast_nodes.DrawArgIndex] tagged
+      variant (identified structurally via `arg.kind == "index"`)
+      gathers ``env[arg.name]`` at every index tensor listed in
+      ``arg.indices``. For a single-index reference this is the
+      standard plate-gather (``mu[cls]`` with ``mu`` of shape
+      ``(K, ...)`` and ``cls`` an integer tensor of shape ``(N,)``
+      returns a tensor of shape ``(N, ...)``); multi-index refs
+      apply the gathers left to right.
 
-    Bare identifiers (``mu``) are returned directly. Bracket-indexed
-    references (``mu[cls]``, with both ``mu`` and ``cls`` bound in
-    ``env``) gather the array's leading axis at the index tensor:
-
-    * ``mu`` has shape ``(K, ...)``: returns ``mu[cls]`` with leading
-      shape determined by ``cls``.
-    * ``cls`` is an integer tensor of shape ``(N,)``: result has
-      shape ``(N, ...)``.
-
-    The bracket form is the surface notation for plate gathers
-    inside grouped-marginalize bodies (e.g. ``Normal(mu[cls],
-    sigma[cls])`` inside ``marginalize cls : K``). Resolution is
-    central rather than per-call site so any new step shape that
-    accepts ``args`` honours the same convention.
+    The structured `DrawArgIndex` is the AST form the parser
+    produces for the surface ``name[idx]`` notation. Central
+    resolution here keeps every step-spec walker on the same code
+    path. Structural identification (via `kind`) avoids importing
+    the AST-node class from this leaf module and the
+    resulting import cycle through the DSL compiler.
     """
-    if arg in env:
+    if getattr(arg, "kind", None) == "index":
+        if arg.name not in env:
+            raise KeyError(arg.name)
+        tensor = env[arg.name]
+        for ix in arg.indices:
+            if ix not in env:
+                raise KeyError(ix)
+            tensor = tensor[env[ix]]
+        return tensor
+    if isinstance(arg, str) and arg in env:
         return env[arg]
-    m = _BRACKET_ARG_RE.match(arg)
-    if m is not None:
-        name, idx = m.group(1), m.group(2)
-        if name in env and idx in env:
-            return env[name][env[idx]]
     raise KeyError(arg)
 
 
@@ -229,7 +237,7 @@ class MonadicProgram(ContinuousMorphism):
         self._return_is_single = len(return_vars) == 1
         self._params = params
         self._return_labels = return_labels
-        # The v0.5 effect-row annotation. None when unannotated;
+        # The effect-row annotation. None when unannotated;
         # otherwise carries the declared capability set
         # (Sample / Score / Marginal / Pure) for introspection by
         # downstream inference / dispatch code.
@@ -383,7 +391,46 @@ class MonadicProgram(ContinuousMorphism):
 
         # multiple args: stack along feature dimension
         parts = [_lookup_arg(env, a) for a in spec.args]
+        # Families that declare a vector-typed final parameter (e.g.
+        # `OrderedLogistic(predictor, cutpoints)` where cutpoints is
+        # a shared or per-row vector) may supply the vector as a 1-D
+        # tensor of shape ``(D,)``. Broadcast such shared vectors to
+        # per-row ``(batch, D)`` before stacking so `_stack_tensors`
+        # sees uniform per-row shapes.
+        morph = self._modules.get(spec.morphism_name)
+        event_ranks = getattr(morph, "_param_event_ranks", None)
+        if event_ranks is not None and len(event_ranks) == len(parts):
+            parts = self._broadcast_vector_params(parts, event_ranks)
         return self._stack_tensors(parts)
+
+    @staticmethod
+    def _broadcast_vector_params(
+        parts: list[torch.Tensor],
+        event_ranks: tuple[int, ...],
+    ) -> list[torch.Tensor]:
+        """Broadcast shared vector-typed parameters to per-row shape.
+
+        For each position with ``event_ranks[i] >= 1`` whose tensor
+        arrives as 1-D shape ``(D,)``, expand to ``(batch, D)`` where
+        ``batch`` is the max leading dim among the rank-0 (per-row
+        scalar) positions. Rank-0 tensors and already-per-row rank-1
+        tensors pass through unchanged.
+        """
+        scalar_batches = [
+            t.shape[0]
+            for t, r in zip(parts, event_ranks, strict=True)
+            if r == 0 and t.dim() >= 1
+        ]
+        if not scalar_batches:
+            return parts
+        batch = max(scalar_batches)
+        out: list[torch.Tensor] = []
+        for t, r in zip(parts, event_ranks, strict=True):
+            if r >= 1 and t.dim() == 1 and t.shape[0] != batch:
+                out.append(t.unsqueeze(0).expand(batch, -1))
+            else:
+                out.append(t)
+        return out
 
     @staticmethod
     def _promote_rank(t: torch.Tensor) -> torch.Tensor:

@@ -77,7 +77,7 @@ Fitting models to data.
     six-layer inference stack, trace and sample-site interface,
     conditioning.
 14. [Variational Inference: Guides, Objectives, and
-    SVI](inference-svi.md). The `Auto*Guide` family, ELBO / IWAE /
+    SVI](inference-svi.md). The `Auto*Guide` family, ELBO / IWAEBound /
     Rényi / VR-IWAE objectives, gradient estimators, SVI loop,
     predictive sampling.
 15. [Variational Inference: MCMC and Hybrid

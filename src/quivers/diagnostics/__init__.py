@@ -16,12 +16,18 @@ No posterior-analysis primitives are reimplemented here; ArviZ owns
 the analytics.
 """
 
-from quivers.diagnostics.arviz_io import to_datatree
+from quivers.diagnostics.arviz_io import (
+    to_datatree,
+    to_datatree_any,
+    to_datatree_from_svi,
+)
 from quivers.diagnostics.comparison import compare
 from quivers.diagnostics.predictive_checks import posterior_predictive_check
 
 __all__ = [
     "to_datatree",
+    "to_datatree_any",
+    "to_datatree_from_svi",
     "compare",
     "posterior_predictive_check",
 ]

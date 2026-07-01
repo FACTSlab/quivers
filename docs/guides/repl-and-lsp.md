@@ -287,9 +287,9 @@ the surface syntax.
 ```
 > :kind FinSet 20
 DiscreteConstructor
-  siblings: ObjectAtom, ObjectProduct, ObjectCoproduct,
-            ObjectSlash, ObjectEffectApply, ObjectParen,
-            ContinuousConstructor, TypeName, ...
+  siblings: TypeName, ObjectProduct, ObjectCoproduct,
+            ObjectSlash, ObjectEffectApply,
+            ContinuousConstructor
 ```
 
 #### `:info NAME [--python]` / `:i NAME`
@@ -752,9 +752,9 @@ syntax-highlighted.
 
 ```
 qvr> :watch f
-watch f => latent f : Alpha -> Beta
-qvr> object Gamma : 7
-qvr> latent g : Alpha -> Gamma
+watch f => morphism f : Alpha -> Beta [role=latent]
+qvr> object Gamma : FinSet 7
+qvr> morphism g : Alpha -> Gamma [role=latent]
 qvr> :watch g
 # both f and g are now pinned; modifying Alpha or Beta updates both
 ```
@@ -850,7 +850,7 @@ loaded model.qvr: 17 binding(s)
 In [2]: :type backbone
 morphism backbone : Source * Target -> Combined [role=latent]
 
-In [3]: object Extra : 8
+In [3]: object Extra : FinSet 8
         morphism g : Extra -> Combined [role=latent]
 installed module: 19 binding(s)
 ```

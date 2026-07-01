@@ -72,7 +72,7 @@ Each step has a `name`, an `inputs` tuple (names it depends on), and a `family` 
 ## Tracing intermediate values
 
 [`trace`](../../api/inference/trace.md) runs the program forward once and records the value and log-density at every sample site:
-
+<!-- python: skip -->
 ```python
 from quivers.inference import trace
 
@@ -96,7 +96,7 @@ If a log-density comes back `nan` or `-inf`, you have a numerical failure at tha
 ## Watching SVI training
 
 During the SVI loop, print per-step ELBO and gradient norms:
-
+<!-- python: skip -->
 ```python
 from quivers.inference import AutoNormalGuide, ELBO, SVI
 
