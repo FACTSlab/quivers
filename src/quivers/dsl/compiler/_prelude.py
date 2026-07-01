@@ -63,7 +63,7 @@ from quivers.dsl.ast_nodes import (
 # type is widened to ``CompositionRule`` (the common parent of
 # ``Algebra``, ``Semigroupoid``, and ``BilinearForm``) so
 # user-defined non-algebra composition rules can be registered
-# alongside the shipped ones.
+# alongside the built-in ones.
 _ALGEBRA_REGISTRY: dict[str, "CompositionRule"] = {
     "product_fuzzy": PRODUCT_FUZZY,
     "boolean": BOOLEAN,
@@ -193,7 +193,7 @@ def _build_default_trans_constructors() -> dict:
 
 
 def _register_extra_algebras() -> None:
-    """Lazily register every shipped algebra into the
+    """Lazily register every built-in algebra into the
     ``algebra <name>`` resolution table the DSL uses at module
     top.
 
@@ -416,39 +416,46 @@ def _get_family_registry() -> dict[str, type]:
     if _FAMILY_REGISTRY is not None:
         return _FAMILY_REGISTRY
     from quivers.continuous.families import (
-        ConditionalNormal,
-        ConditionalLogitNormal,
         ConditionalBeta,
-        ConditionalTruncatedNormal,
-        ConditionalDirichlet,
+        ConditionalBernoulli,
+        ConditionalBinomial,
+        ConditionalCategorical,
         ConditionalCauchy,
-        ConditionalLaplace,
-        ConditionalGumbel,
-        ConditionalLogNormal,
-        ConditionalStudentT,
-        ConditionalExponential,
-        ConditionalGamma,
         ConditionalChi2,
+        ConditionalContinuousBernoulli,
+        ConditionalDirichlet,
+        ConditionalExponential,
+        ConditionalFisherSnedecor,
+        ConditionalGamma,
+        ConditionalGaussianProcess,
+        ConditionalGumbel,
         ConditionalHalfCauchy,
         ConditionalHalfNormal,
+        ConditionalHorseshoe,
+        ConditionalHurdlePoisson,
         ConditionalInverseGamma,
-        ConditionalWeibull,
-        ConditionalPareto,
+        ConditionalInverseWishart,
         ConditionalKumaraswamy,
-        ConditionalContinuousBernoulli,
-        ConditionalFisherSnedecor,
-        ConditionalUniform,
-        ConditionalMultivariateNormal,
+        ConditionalLaplace,
+        ConditionalLogNormal,
+        ConditionalLogitNormal,
         ConditionalLowRankMVN,
+        ConditionalMatrixNormal,
+        ConditionalMixtureNormal,
+        ConditionalMultivariateNormal,
+        ConditionalNegativeBinomial,
+        ConditionalNormal,
+        ConditionalOrderedLogistic,
+        ConditionalPareto,
+        ConditionalPoisson,
         ConditionalRelaxedBernoulli,
         ConditionalRelaxedOneHotCategorical,
+        ConditionalStudentT,
+        ConditionalTruncatedNormal,
+        ConditionalUniform,
+        ConditionalWeibull,
         ConditionalWishart,
-        ConditionalInverseWishart,
-        ConditionalMatrixNormal,
-        ConditionalGaussianProcess,
-        ConditionalHorseshoe,
-        ConditionalBernoulli,
-        ConditionalCategorical,
+        ConditionalZeroInflatedPoisson,
     )
 
     _FAMILY_REGISTRY = {
@@ -484,7 +491,14 @@ def _get_family_registry() -> dict[str, type]:
         "GP": ConditionalGaussianProcess,
         "Horseshoe": ConditionalHorseshoe,
         "Bernoulli": ConditionalBernoulli,
+        "Binomial": ConditionalBinomial,
         "Categorical": ConditionalCategorical,
+        "Poisson": ConditionalPoisson,
+        "NegativeBinomial": ConditionalNegativeBinomial,
+        "OrderedLogistic": ConditionalOrderedLogistic,
+        "ZeroInflatedPoisson": ConditionalZeroInflatedPoisson,
+        "HurdlePoisson": ConditionalHurdlePoisson,
+        "MixtureNormal": ConditionalMixtureNormal,
     }
     try:
         from quivers.continuous.families import ConditionalGeneralizedPareto

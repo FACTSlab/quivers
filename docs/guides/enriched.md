@@ -44,7 +44,7 @@ X2 = FinSet(name="X2", cardinality=3)
 # Presheaf F: C^op → V; values at each object.
 F = Presheaf(
     objects=(X1, X2),
-    values=(torch.tensor([0.6, 0.2]), torch.tensor([0.1, 0.5, 0.9])),
+    values={0: torch.tensor([0.6, 0.2]), 1: torch.tensor([0.1, 0.5, 0.9])},
 )
 
 hom_tensors = [

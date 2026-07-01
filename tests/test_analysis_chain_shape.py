@@ -7,7 +7,7 @@ Coverage:
 * :class:`ChainShape` finds the program's algebra, every let /
   latent / observe step, source lines, and chain-depth indices.
 * Per-algebra :meth:`Algebra.init_spec` returns the closed-form
-  recipe from the design note for every shipped algebra.
+  recipe from the design note for every built-in algebra.
 * :func:`recommend_init` maps latents to specs; the recipe scales
   with chain depth.
 * :func:`apply_init_spec` materialises onto a learnable tensor.

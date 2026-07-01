@@ -538,7 +538,9 @@ program test : Unit -> R1
         observe_step = prog_decl.draws[1]
         assert isinstance(observe_step, ObserveStep)
         assert observe_step.args is not None
-        assert "x" in observe_step.args
+        # `args` carries `DrawArg` tagged variants; a bare identifier
+        # reference shows up as `DrawArgName(text="x")`.
+        assert any(getattr(a, "text", None) == "x" for a in observe_step.args)
 
     def test_draw_and_observe_difference(self):
         """Parse distinguishes sample-mode and score-mode binds."""

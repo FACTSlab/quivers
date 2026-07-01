@@ -150,7 +150,7 @@ formula in the test suite.
 
 `fit(..., family=...)` accepts a string name or a
 [`Family`](../api/formulas/family.md#quivers.formulas.family.Family)
-value. The ten brms-canonical families:
+value. The built-in families:
 
 | Family | Link (inverse) | Auxiliary parameters |
 |---|---|---|
@@ -163,6 +163,9 @@ value. The ten brms-canonical families:
 | `beta` | logit (sigmoid) | `phi ~ HalfCauchy(2.0)` |
 | `student_t` | identity | `nu ~ Gamma(2.0, 0.1)`, `sigma ~ HalfCauchy(2.0)` |
 | `cumulative` | identity | – |
+| `zero_inflated_poisson` | log (exp) | `zi ~ Beta(2.0, 2.0)` |
+| `hurdle_poisson` | log (exp) | `zi ~ Beta(2.0, 2.0)` |
+| `mixture` | identity | `loc ~ Normal(0.0, 5.0)`, `scale ~ HalfCauchy(2.0)` |
 
 Custom families are pluggable: subclass
 [`Family`](../api/formulas/family.md#quivers.formulas.family.Family)

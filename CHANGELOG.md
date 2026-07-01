@@ -4,6 +4,131 @@ All notable changes to the quivers library are documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/), and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.14.0] - 2026-06-30
+
+### Added
+
+#### Distribution families
+
+- **`OrderedLogistic` distribution + DSL inline observe surface.** PyTorch ships no `OrderedLogistic`. The hand-rolled [`OrderedLogistic`](https://FACTSlab.github.io/quivers/api/continuous/_ordered) implements the cumulative-link form $P(Y=k \mid \eta, c) = \sigma(c_k - \eta) - \sigma(c_{k-1} - \eta)$ via sigmoid-difference probabilities gathered at the observed category. Broadcasting handles three cutpoint shapes uniformly: shared `(K-1,)`, per-row `(batch, K-1)`, and arbitrary leading batch dimensions. Wired into the inline path via `_FAMILY_BUILDERS["OrderedLogistic"]` with a `(predictor, cutpoints)` param schema and `_FAMILY_SUPPORTS["OrderedLogistic"] = nonnegative_integer`. The canonical ordinal-mixed-model program (per-participant cutpoints gathered through a participant index) compiles and traces:
+
+      program ord : Resp -> Resp
+          sample eta <- Normal(0.0, 1.0)
+          let row_cuts = cutpoints[participant_idx]
+          observe y : Resp <- OrderedLogistic(eta, row_cuts)
+          return y
+
+  The host supplies `cutpoints` as a `(num_participants, K-1)` tensor and `participant_idx` as a per-row long tensor; the inline log-prob broadcasts the gathered per-row cutpoints against the predictor.
+- **`ZeroInflatedPoisson` and `HurdlePoisson` distributions.** Two count families brms / Stan users routinely reach for, neither shipped by `torch.distributions`. [`ZeroInflatedPoisson(pi, lambda)`](https://FACTSlab.github.io/quivers/api/continuous/_zip_hurdle) implements the mixture $P(Y=0) = \pi + (1-\pi)\,e^{-\lambda}$, $P(Y=k) = (1-\pi)\,\text{Poisson}(k\mid\lambda)$ for $k > 0$. [`HurdlePoisson(pi, lambda)`](https://FACTSlab.github.io/quivers/api/continuous/_zip_hurdle) implements the two-stage hurdle $P(Y=0) = \pi$, $P(Y=k\mid Y>0) = \text{Poisson}(k\mid\lambda)/(1 - e^{-\lambda})$ for $k > 0$. Both ship `log_prob`, `sample`, and `mean` over arbitrary batch shapes; both register inline and conditional (`ConditionalZeroInflatedPoisson`, `ConditionalHurdlePoisson` over `MLP(x) -> (sigmoid pi, softplus rate)`).
+- **`MixtureNormal` distribution.** Finite Gaussian-mixture with per-row weights, locations, and scales. `log_prob` uses `torch.logsumexp` over `log w_k + log Normal(loc_k, scale_k)`, sample dispatches through a Categorical / Normal pair. Conditional path `ConditionalMixtureNormal(num_components=K, hidden_dim=...)` parameterises all three slots through a single MLP head with softmax / identity / softplus on the appropriate slice.
+- **`Poisson`, `NegativeBinomial`, `Binomial` registered as conditional families.** `ConditionalPoisson`, `ConditionalNegativeBinomial`, `ConditionalBinomial` are now wired into [`_FAMILY_REGISTRY`](https://FACTSlab.github.io/quivers/api/dsl/compiler/_prelude); `morphism f : A -> B [role=kernel] ~ Poisson` and the like compile. The formula frontend's `family="poisson" | "negative_binomial" | "binomial"` paths route through them cleanly, and matching `zero_inflated_poisson`, `hurdle_poisson`, and `mixture` entries land in [`quivers.formulas.family.families`](https://FACTSlab.github.io/quivers/api/formulas/family).
+
+#### Compositional measure algebra
+
+- **Compositional measure algebra at the DSL and Python surfaces.** Distribution families are built by composing five primitive operators from the (sub-)Giry monad rather than by enumerating a Cartesian product of (operator x base family):
+  - [`PointMass(x)`][quivers.continuous.measure.PointMass] — Dirac measure at `x`, the unit $\eta$ of the Giry monad.
+  - [`Restrict(D, low, high)`][quivers.continuous.measure.Restrict] — restriction of `D` to `[low, high]`, the sub-Giry monad's natural operation. Does not renormalise.
+  - [`Pushforward(D, b)`][quivers.continuous.measure.Pushforward] — pushforward through a [`Bijector`][quivers.continuous.bijectors.Bijector], the Giry monad's functoriality on measurable isomorphisms.
+  - [`Mixture(weights, components)`][quivers.continuous.measure.Mixture] — n-ary convex combination, the unique algebra structure on the Giry monad's Eilenberg-Moore category.
+  - [`Independent(D, n)`][quivers.continuous.measure.Independent] — declare the last `n` batch dims as event dims (strong monoidal product).
+  - [`Normalize(D)`][quivers.continuous.measure.Normalize] — collapse a sub-measure to a probability measure; right adjoint to inclusion.
+
+  Lazy normalisation: every operator returns a `Measure` whose symbolic `log_normalizer()` propagates through composition, and `Normalize` (or the implicit observe / sample boundary) collapses it. The discipline is the [partial Markov categories axiomatisation](https://arxiv.org/abs/2502.03477) made operational; the closure-under-composition story is the [Hakaru](https://hakaru-dev.github.io/lang/rand/) / [MeasureTheory.jl](https://arxiv.org/abs/2110.00602) / [Scibior et al. 2018](https://doi.org/10.1145/3236778) "unweighted measures as the universal type" insight.
+
+- **`Bijector` library** at [`quivers.continuous.bijectors`][quivers.continuous.bijectors]. Each bijector exposes `forward` / `inverse` / `forward_log_det_jacobian` / `inverse_log_det_jacobian`, all in log space and stable in tails. `Identity`, `Exp`, `Log`, `Sigmoid`, `Logit`, `Softplus`, `Affine`, `StickBreaking`, `Compose`, `Inverse`. Engineering pattern follows [TensorFlow Probability's `Bijector`](https://www.tensorflow.org/probability/api_docs/python/tfp/bijectors/Bijector).
+
+- **QVR grammar extension** for distribution-valued draw args. The `_draw_arg` rule grows two productions:
+  - `family_call_arg` for nested `Family(...)` expressions:
+
+        observe y <- Mixture([0.3, 0.7], [PointMass(0.0), Poisson(2.0)])
+        observe y <- Restrict(Normal(0.0, 1.0), 0.0, 1.0)
+        observe y <- Pushforward(Normal(0.0, 1.0), Exp)
+
+  - `list_arg` for `[item, item, ...]` literals in mixture weights and component lists.
+
+  The parser walks these to new tagged [`DrawArg`][quivers.dsl.ast_nodes.DrawArg] AST variants ([`DrawArgDist`][quivers.dsl.ast_nodes.DrawArgDist], [`DrawArgList`][quivers.dsl.ast_nodes.DrawArgList], [`DrawArgName`][quivers.dsl.ast_nodes.DrawArgName], [`DrawArgScalar`][quivers.dsl.ast_nodes.DrawArgScalar]) so the compiler recurses on call-shaped args and builds the inner measure before passing it to the outer family's constructor.
+
+- **Compiler sugar table** at [`quivers.dsl.compiler.sugar`][quivers.dsl.compiler.sugar] that desugars the brms-style named families to the canonical operator form at parse time when every argument is a constant literal:
+  - `TruncatedNormal(μ, σ, a, b)` → `Restrict(Normal(μ, σ), a, b)`
+  - `HalfNormal(σ)` → `Restrict(Normal(0, σ), 0)`
+  - `HalfCauchy(σ)` → `Restrict(Cauchy(0, σ), 0)`
+  - `HalfLaplace(σ)` → `Restrict(Laplace(0, σ), 0)`
+  - `HalfStudentT(ν, σ)` → `Restrict(StudentT(ν, 0, σ), 0)`
+
+  Sugar calls with free-variable arguments route through their dedicated inline family entries (`ZeroInflatedPoisson`, `HurdlePoisson`, `MixtureNormal`, etc.), which compose the same `Mixture` / `Restrict` / `PointMass` operators internally. Source can be either form; the compiler canonicalises to the operator form when it can and the pretty-printer re-sugars on the way out.
+
+- **Four compiler rewrite rules** on `Mixture`, each backed by a literature result:
+  - `Mixture.flatten()` — Giry monad associativity ($\mathrm{Mix}(\alpha, \mathrm{Mix}(\beta, A, B), C) \equiv \mathrm{Mix}(\alpha\beta, \alpha(1-\beta), 1-\alpha; A, B, C)$). Closes the [PyMC nested-mixture gap](https://github.com/pymc-devs/pymc/issues/5533).
+  - `Mixture.pushforward_inside(b)` — functoriality of the Giry monad on isos: $g_*(\sum_k \pi_k\,\mu_k) = \sum_k \pi_k\,g_*\mu_k$.
+  - `Mixture.restrict_to(low, high)` — the correct Mixture-Restrict non-commutation identity, reweighting by per-component truncation mass and wrapping the per-component restrictions in `Normalize`. Surfaces the modelling distinction [Welsh et al. 1996](https://doi.org/10.1016/0304-3800(95)00113-1) flag at the operator level.
+  - `Mixture.lift_point_masses()` — surfaces `PointMass` components as the Bernoulli-style branch the ZIP / hurdle canonical factorisation expects (the [Lambert 1992](https://doi.org/10.2307/1269547) / [Mullahy 1986](https://doi.org/10.1016/0304-4076(86)90002-3) shape derived from the operator combination rather than baked per family).
+
+#### Pluggable parameter sources
+
+- **`ParamSource` ABC** at [`quivers.continuous.param_source`][quivers.continuous.param_source]. Every `ConditionalX` family accepts a `param_source=` override in place of the default two-layer MLP. Concrete sources: `LinearSource` (matches the transpile backends' single-matmul emit exactly), `MLPSource(hidden_dims, activation)` (the parameterised default), `LookupSource(n_entries, param_dim)` (discrete-domain table), `EmbeddingSource(n_entries, embed_dim, head)` (embedding + downstream head), `AttentionSource(num_heads)` (self-attention over the input dimension), `IdentitySource` (parameters supplied as data), `FunctionSource(fn, param_dim)` (wraps any `nn.Module` or callable), `ComposeSource(outer, inner)` (categorical composition). The DSL surface reads `[param_source=<kind>[(...)]]` on `morphism` declarations:
+
+      morphism trans : State -> State [role=kernel, param_source=linear] ~ Normal
+      morphism trans : State -> State [role=kernel, param_source=mlp(64, 64)] ~ Normal
+      morphism attn  : Token -> Hidden [role=kernel, param_source=attention(heads=4)] ~ Normal
+
+- **Parameter transforms unified with the bijector library.** [`quivers.continuous.param_transforms`][quivers.continuous.param_transforms] ships `TRANSFORM_TO_BIJECTOR` and `INLINE_CLAMP_TO_BIJECTOR` registries mapping every historical string key (`"id"`, `"sigmoid"`, `"softplus"`, `"softplus_shifted"`, `"exp"`) to a `Bijector` instance. `ParamSpec.transform` accepts a string key or a `Bijector` directly. `_make_family` routes raw parameter tensors through `bijector.forward`, so `inverse`, `forward_log_det_jacobian`, and `inverse_log_det_jacobian` are available on the guide and pushforward paths.
+
+#### Variational objectives
+
+- Three new objectives on the [`Objective`][quivers.inference.objectives.Objective] ABC. Each is a subclass alongside [`ELBO`][quivers.inference.objectives.ELBO], [`IWAEBound`][quivers.inference.objectives.IWAEBound], [`RenyiBound`][quivers.inference.objectives.RenyiBound], [`VRIWAEBound`][quivers.inference.objectives.VRIWAEBound]; each accepts the same [`GradientEstimator`][quivers.inference.estimators.GradientEstimator] strategy attribute as the existing objectives.
+    - [`ChiVI`][quivers.inference.objectives.ChiVI] minimises the chi-squared upper bound on `log p(y)` via the CUBO surrogate ([Dieng et al. 2017](https://doi.org/10.48550/arXiv.1611.00328)). Useful for posterior calibration and for sandwich estimates with the ELBO.
+    - [`RWS`][quivers.inference.objectives.RWS] implements reweighted wake-sleep with a wake-theta phase on the model and a wake-phi phase on the guide ([Bornschein and Bengio 2015](https://doi.org/10.48550/arXiv.1406.2751)). Handles discrete latents where the reparameterization trick does not apply.
+    - [`DReGsBound`][quivers.inference.objectives.DReGsBound] pairs the IWAE bound with the doubly-reparameterised gradient surrogate ([Tucker et al. 2019](https://doi.org/10.48550/arXiv.1810.04152)). Removes the score-function term whose signal-to-noise ratio collapses with `K` in naive reparameterised IWAE. Distinct from the [`DoublyReparameterized`][quivers.inference.estimators.DoublyReparameterized] gradient-estimator strategy: the estimator is the scalar gradient rule, `DReGsBound` is the (bound + estimator) pair for callers that want to switch both together.
+
+#### Autoguide combinators
+
+- [`AutoGuideList`][quivers.inference.guides.AutoGuideList] concatenates disjoint per-block guides so a single model can hold, for example, [`AutoNormal`][quivers.inference.guides.AutoNormal] on local variables and [`AutoMultivariateNormal`][quivers.inference.guides.AutoMultivariateNormal] on a small global block.
+- [`AutoStructured`][quivers.inference.guides.AutoStructured] admits per-site conditional choice (delta / normal / mvn) plus per-edge dependencies (linear affine or a user-supplied callable) walked in ancestral order.
+- Pyro-style short-name aliases (`AutoNormal`, `AutoMultivariateNormal`, `AutoLowRankMVN`, `AutoDelta`, `AutoLaplace`, `AutoIAFNormal`) re-exported from [`quivers.inference.guides`][quivers.inference.guides] as thin aliases for the pre-existing `Auto*Guide` classes.
+
+#### Algebraic effect handlers
+
+- [`quivers.effects`][quivers.effects] package: [`EffectHandler`][quivers.effects.base.EffectHandler] ABC with a thread-local handler stack and three-phase `apply_stack(msg, default=...)` dispatch, plus [`run_program`][quivers.effects.interpreter.run_program] that walks a `MonadicProgram` through the active stack. The design mirrors the Pyro `poutine` / NumPyro `handlers` `Messenger` protocol ([Plotkin and Pretnar 2009](https://doi.org/10.1007/978-3-642-00590-9_7), [Scibior et al. 2018](https://doi.org/10.1145/3236778)).
+- Handlers: [`TraceHandler`][quivers.effects.trace_handler.TraceHandler], [`clamp(data)`][quivers.effects.clamp.clamp] (poutine-style pin of sample sites; the name avoids the collision with the top-level [`condition`][quivers.inference.conditioning.condition] factory that returns a [`Conditioned`][quivers.inference.conditioning.Conditioned] model wrapper), [`do(data)`][quivers.effects.do.do] (Pearl intervention), [`mask(mask_tensor)`][quivers.effects.mask.mask], [`scale(factor)`][quivers.effects.scale.scale], [`block(names)`][quivers.effects.block.block], [`replay(trace)`][quivers.effects.replay.replay], [`lift(prior_scale)`][quivers.effects.lift.lift], [`collapse()`][quivers.effects.collapse.collapse]. The handlers compose: `clamp + scale + mask` is the subsampled-mini-batch likelihood pattern; `do + trace` is intervention-then-record.
+- The `EffectHandler` ABC is distinct from [`quivers.monadic.algebraic.Handler`][quivers.monadic.algebraic.Handler]. `EffectHandler` is a mutable-message dispatcher for runtime interception of a `MonadicProgram`; `monadic.algebraic.Handler` is a free-monad-over-signature interpreter that folds a bounded-depth signature tree into a target monad. Different territories; both remain.
+
+- **Reparameterisation strategies** at [`quivers.effects.reparam`][quivers.effects.reparam] wrap sample sites and rewrite their distributions: [`LocScaleReparam`][quivers.effects.reparam.loc_scale.LocScaleReparam] for the centred / non-centred rewrite of Normal(loc, scale) sites, [`TransformReparam(bijector)`][quivers.effects.reparam.transform.TransformReparam] driving change-of-variables through the bijector library, [`NeuTraReparam(autoguide)`][quivers.effects.reparam.neutra.NeuTraReparam] warping HMC geometry through a trained `AutoIAFGuide`, [`ConjugateReparam`][quivers.effects.reparam.conjugate.ConjugateReparam] for analytic conjugate collapse. The [`reparam({name: strategy})`][quivers.effects.reparam.reparam] orchestrator wires per-site strategies into the effect stack:
+
+      with reparam({"theta": LocScaleReparam(), "z": NeuTraReparam(guide)}):
+          samples = nuts.run(model, x, observations)
+
+#### Diagnostics for any fit type
+
+- **`to_datatree_from_svi`** and **`to_datatree_any`** at [`quivers.diagnostics`][quivers.diagnostics] dispatch on fit type. Every ArviZ downstream (`loo`, `waic`, `plot_trace`, `compare`) works uniformly on `MCMCResult`, `Guide` / `Predictive` draws, or `(samples, log_densities)` tuples.
+
+#### Extensible transpile IR
+
+- **`quivers.transpile`** ships the target-agnostic scaffold: the [`IRNode`][quivers.transpile.ir.IRNode] tagged-union IR with `ConstraintSpec` taxonomy, `IRArg` variants, `Dim` / `Plate` shape metadata; the [`Lower`][quivers.transpile.lower.Lower] AST-to-IR mapping; the [`RendererBase`][quivers.transpile.renderers._base.RendererBase] shared machinery; the [`FAMILY_META`][quivers.transpile.family_meta.FAMILY_META] per-family transpile metadata registry; and the [`renderer_registry`][quivers.transpile.renderer_registry] emit-hook table. Target-specific backend renderers live on their own branches; they register per-`(backend, IRNode)` emits via `@emit_hook(backend_name, node_type)`.
+
+### Changed
+
+- **`SampleStep.args` / `ObserveStep.args` type signatures** widen from `tuple[str | float, ...]` to `tuple[DrawArg, ...]` over the new tagged AST union. The compiler's inline path unwraps `DrawArgName` -> `str` and `DrawArgScalar` -> `float` at entry so the existing arg-shape machinery continues to handle them; `DrawArgDist` and `DrawArgList` are recognised by the operator-family dispatch.
+
+- **`ZeroInflatedPoisson`, `HurdlePoisson`, `MixtureNormal` internals** route through the measure algebra: each user-facing class delegates `log_prob` / `sample` to a `Mixture` of `PointMass` and (for hurdle) `Normalize(Restrict(...))`. The user-facing API is unchanged; the renderer-side IR sees a single Mixture-with-PointMass shape rather than per-family hand-rolled emit logic.
+
+- **`_make_source`** in `quivers.continuous.morphisms` accepts a `param_source=` override; every family that constructs its source through `_make_source` gains the same kwarg plus a `param_source_option=` string form.
+
+- **`quivers.inference.trace.trace`** becomes a thin wrapper that pushes a `TraceHandler` and delegates to `run_program`. The API is unchanged.
+
+### Fixed
+
+- **`Restrict.log_normalizer()` for continuous bases** uses `cdf(low)` for continuous bases and `cdf(low - 1)` (or the survival-sum path for distributions without a `cdf` method) for integer-supported bases, matching the standard truncation-mass formula for each support type.
+
+- **`HurdlePoisson` log-density** handles the survival-sum formula for `Poisson`-restricted-to-`{1, 2, ...}` via `1 - e^{-\lambda}` plus a general pmf-sum for arbitrary integer intervals. Works around `torch.distributions.Poisson`'s absent `cdf`.
+
+- **`OrderedLogistic.sample` accepts any `Sequence[int]` for `sample_shape`.** [`torch.distributions.Distribution.sample`][torch.distributions.Distribution.sample]'s contract admits tuple, list, or `torch.Size`; `sample_shape` is coerced through [`torch.Size`][torch.Size] at the top of the method so every shape form works.
+
+- **Inline DSL `observe ... <- OrderedLogistic(predictor, cutpoints)` routes a shared cutpoints vector as a distribution parameter.** [`quivers.continuous.inline`][quivers.continuous.inline] ships a `_PARAM_EVENT_RANKS` table declaring each family parameter's event rank (0 = per-row scalar, 1 = shared-or-per-row vector). `_resolve_input` reads the table through the wrapping [`VectorisedObserve._param_event_ranks`][quivers.continuous.plate.VectorisedObserve] property and broadcasts rank-1 shared vectors to per-row shape before stacking; [`MixedInlineDistribution`][quivers.continuous.inline.MixedInlineDistribution] takes a `param_event_ranks` argument and lets the trailing vector-typed slot consume the remaining columns of the stacked input. Covers `OrderedLogistic(predictor:(N,), cutpoints:(K-1,) or (N,K-1))` plus `MixtureNormal`, `ZeroInflatedPoisson`, and `HurdlePoisson`.
+
+- **DSL quick-start docstring uses grammar keywords.** [`quivers.dsl`](https://FACTSlab.github.io/quivers/api/dsl)'s module docstring's `loads(...)` example compiles against the canonical `KIND NAME : SIGNATURE` surface (`program NAME : A -> B` with `sample` / `observe` / `return` steps and a top-level `export NAME`), no `latent` / `output` / `alias` (none of which are grammar keywords).
+
+- **REPL/LSP guide examples use the current morphism surface.** [`docs/guides/repl-and-lsp.md`](https://FACTSlab.github.io/quivers/guides/repl-and-lsp) shows `morphism NAME : ... [role=latent]` for latent-role morphisms and `object NAME : FinSet N` for finite-set declarations.
+
 ## [0.13.0] - 2026-05-22
 
 ### Added

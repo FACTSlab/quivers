@@ -290,9 +290,28 @@ def _emit_var_pattern(names: tuple[str, ...]) -> str:
 # ---------------------------------------------------------------------------
 
 
-def _emit_arg(arg: str | float) -> str:
+def _emit_arg(arg: object) -> str:
+    """Render a single draw / init-family argument to its surface
+    form. Accepts either legacy bare `str` / `float` values or the
+    tagged [`DrawArg`][quivers.dsl.ast_nodes.DrawArg] variants
+    (`DrawArgName`, `DrawArgIndex`, `DrawArgScalar`, `DrawArgDist`,
+    `DrawArgList`) that the parser produces."""
     if isinstance(arg, (int, float)) and not isinstance(arg, bool):
         return _emit_number(float(arg))
+    if isinstance(arg, str):
+        return arg
+    kind = getattr(arg, "kind", None)
+    if kind == "name":
+        return arg.text
+    if kind == "index":
+        return f"{arg.name}[{', '.join(arg.indices)}]"
+    if kind == "scalar":
+        return _emit_number(float(arg.value))
+    if kind == "dist":
+        inner = ", ".join(_emit_arg(a) for a in arg.args)
+        return f"{arg.family}({inner})"
+    if kind == "list":
+        return "[" + ", ".join(_emit_arg(a) for a in arg.items) + "]"
     return str(arg)
 
 

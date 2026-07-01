@@ -2,6 +2,14 @@
 
 from __future__ import annotations
 
+from quivers.dsl.ast_nodes import (
+    DrawArg,
+    DrawArgDist,
+    DrawArgIndex,
+    DrawArgList,
+    DrawArgName,
+    DrawArgScalar,
+)
 from quivers.dsl.parser._registry import ParseError, _Tree
 
 
@@ -22,28 +30,57 @@ def _required_text(
     return t.text(child_vid)
 
 
-def _walk_draw_arg(t: _Tree, vid: str) -> str | float:
-    """Walk a family-argument into its compiler representation.
+def _walk_draw_arg(t: _Tree, vid: str) -> DrawArg:
+    """Walk a family-argument into a tagged
+    [`DrawArg`][quivers.dsl.ast_nodes.DrawArg].
 
-    Identifiers and numeric literals walk to their natural Python
-    values. A ``bracket_index_arg`` (e.g. ``theta[N]``) is encoded
-    as the string ``"theta[N]"``; the compiler detects the bracket
-    and unpacks the section's name and index set when resolving the
-    argument at draw / observe time.
+    Identifiers and bracket-index references walk to
+    [`DrawArgName`][quivers.dsl.ast_nodes.DrawArgName] (the bracket
+    form ``"theta[N]"`` is encoded as the variable's `text`). Numeric
+    literals walk to
+    [`DrawArgScalar`][quivers.dsl.ast_nodes.DrawArgScalar]. A
+    `family_call_arg` (a nested `Family(...)` expression) walks to a
+    [`DrawArgDist`][quivers.dsl.ast_nodes.DrawArgDist] carrying the
+    family name and recursively-walked arguments; the compiler then
+    recurses into the inner call to build a distribution-valued
+    parameter for the outer family. A `list_arg` walks to a
+    [`DrawArgList`][quivers.dsl.ast_nodes.DrawArgList] whose items
+    are themselves draw args.
     """
     k = t.kind(vid)
     if k == "identifier":
-        return t.text(vid)
-    if k == "signed_number":
-        return float(t.text(vid))
-    if k in ("integer", "float"):
-        return float(t.text(vid))
+        return DrawArgName(text=t.text(vid))
+    if k in ("signed_number", "integer", "float"):
+        return DrawArgScalar(value=float(t.text(vid)))
     if k == "bracket_index_arg":
         nv = t.field(vid, "name")
         iv = t.field(vid, "index")
         if nv is None or iv is None:
             raise ParseError(f"bracket_index_arg malformed at {vid}")
-        return f"{t.text(nv)}[{t.text(iv)}]"
+        # Parse the index field as a comma-separated identifier list.
+        # tree-sitter's `index` field carries the whole bracket body
+        # verbatim; break it into individual identifiers so downstream
+        # consumers pattern-match against structured references
+        # rather than re-parsing the text.
+        index_text = t.text(iv)
+        indices = tuple(
+            tok.strip() for tok in index_text.split(",") if tok.strip().isidentifier()
+        )
+        return DrawArgIndex(name=t.text(nv), indices=indices)
+    if k == "family_call_arg":
+        fv = t.field(vid, "family")
+        if fv is None:
+            raise ParseError(f"family_call_arg malformed at {vid}")
+        family = t.text(fv)
+        args = tuple(_walk_draw_arg(t, av) for av in t.fields(vid, "args"))
+        return DrawArgDist(family=family, args=args)
+    if k == "list_arg":
+        items = tuple(
+            _walk_draw_arg(t, cv)
+            for cv in t.positional(vid)
+            if t.kind(cv) not in ("[", "]", ",")
+        )
+        return DrawArgList(items=items)
     raise ParseError(f"unexpected draw arg kind: {k}")
 
 

@@ -4,8 +4,8 @@ Each reference function takes the generator's
 :class:`BenchmarkData` and returns a small dict of analytical
 moments (mean, variance, correlation, covariance) that the
 benchmark tests assert their recovered posterior against. No
-caching is needed because every reference shipped here is either
-analytical or constructed by Kalman-style recursive updates.
+caching is needed because every reference here is either analytical
+or constructed by Kalman-style recursive updates.
 """
 
 from __future__ import annotations
@@ -18,7 +18,7 @@ from tests.benchmarks.datasets import BenchmarkData
 
 
 # ============================================================================
-# Tier 1 — conjugate
+# Conjugate
 # ============================================================================
 
 
@@ -142,7 +142,7 @@ def correlated_regression_reference(
 
 
 # ============================================================================
-# Tier 2 — hierarchical (cached numerical references)
+# Hierarchical (cached numerical references)
 # ============================================================================
 
 
@@ -170,7 +170,7 @@ def eight_schools_reference() -> dict[str, torch.Tensor | float]:
 
 
 # ============================================================================
-# Tier 3 — hard posterior geometries
+# Hard posterior geometries
 # ============================================================================
 
 
@@ -227,7 +227,7 @@ def ill_conditioned_mvn_reference(
 
 
 # ============================================================================
-# Tier 6 — constrained-support
+# Constrained support
 # ============================================================================
 
 
@@ -291,19 +291,19 @@ def truncated_normal_recovery_reference(
 
 
 __all__ = [
-    # Tier 1
+    # Conjugate
     "beta_bernoulli_reference",
     "normal_normal_reference",
     "normal_inverse_gamma_reference",
     "gamma_exponential_reference",
     "bayes_linear_regression_reference",
     "correlated_regression_reference",
-    # Tier 2
+    # Hierarchical
     "eight_schools_reference",
-    # Tier 3
+    # Hard geometry
     "neal_funnel_reference",
     "ill_conditioned_mvn_reference",
-    # Tier 6
+    # Constrained support
     "half_normal_scale_reference",
     "truncated_normal_recovery_reference",
 ]

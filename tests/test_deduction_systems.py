@@ -1,4 +1,4 @@
-"""End-to-end tests for the v0.5 deduction-system pipeline.
+"""End-to-end tests for the deduction-system pipeline.
 
 Covers:
 * The stdlib registry of pre-built deductions.

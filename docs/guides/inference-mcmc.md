@@ -42,10 +42,11 @@ Both
 [`HMCKernel`](../api/inference/mcmc.md) and
 [`NUTSKernel`](../api/inference/mcmc.md) implement
 [Nesterov dual-averaging](https://doi.org/10.48550/arXiv.1111.4246)
-step-size adaptation and Welford-online mass-matrix adaptation
-during warmup. The leapfrog integrator vectorizes `num_chains`
-chains as a leading batch axis; warmup runs unvectorised
-(adaptation is impure), sampling runs vectorized (kernel is pure).
+step-size adaptation during warmup, and Welford-online mass-matrix
+adaptation when `mass_matrix` is set to `"diagonal"` or `"dense"`
+(the default `"identity"` disables mass-matrix adaptation). Chains
+run sequentially: the driver loops over `num_chains`, and within
+each chain warmup and sampling advance one leapfrog step at a time.
 
 The [`MCMCResult`](../api/inference/mcmc.md) exposes per-site
 [split `R̂` and effective sample size (Vehtari et al.

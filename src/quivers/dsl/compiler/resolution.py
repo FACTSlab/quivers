@@ -1,11 +1,11 @@
 """Compiler mixin: unified type resolution.
 
-A single `_resolve_any_space` walks any `ObjectExpr` to
-either a `SetObject` (discrete) or a `ContinuousSpace`
-(continuous). The legacy ``_resolve_type`` and ``_resolve_space``
-forwarders are preserved as type-narrowing wrappers so callers that
-already know they want a discrete object can continue to demand
-one without re-encoding the constraint in every call site.
+A single `_resolve_any_space` walks any `ObjectExpr` to either a
+`SetObject` (discrete) or a `ContinuousSpace` (continuous). The
+``_resolve_type`` and ``_resolve_space`` forwarders are
+type-narrowing wrappers so callers that already know they want a
+discrete object can demand one without re-encoding the constraint
+in every call site.
 """
 
 from __future__ import annotations

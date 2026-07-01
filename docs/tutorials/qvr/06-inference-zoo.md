@@ -48,7 +48,7 @@ The shipped guides:
 | `AutoNeuralSplineGuide` | Rational-quadratic spline coupling | Sharper than IAF on bounded support. |
 | `AutoMixtureGuide` | K-component mixture of guides | Multimodal posteriors; specify `num_components`. |
 
-The Tier-1 through Tier-6 benchmark grid in `tests/benchmarks/` walks these against synthetic posteriors with known answers; the report at `docs/developer/inference-benchmarks.md` is the empirical truth-table for which guide passes which kind of problem.
+The benchmark grid in `tests/benchmarks/` walks these against synthetic posteriors with known answers; the report at `docs/developer/inference-benchmarks.md` is the empirical truth-table for which guide passes which kind of problem.
 
 ## Step 3: Which objective?
 
@@ -162,7 +162,7 @@ posterior_predictive = pred(x_test)           # dict of (num_samples, ...) tenso
 ## Reading the benchmark grid
 
 Whenever you're unsure which guide handles a model shape, look at
-`docs/developer/inference-benchmarks.md`. The Tier-1 through Tier-6 grid runs every shipped guide against synthetic posteriors with known answers (conjugate models, hierarchical structures, pathological geometries, multimodal mixtures, latent-variable models, constrained supports), reports the metrics, and gives you an empirical answer. If a guide is missing for your model shape, the failing-cell pattern often suggests the right reparameterisation or a different guide.
+`docs/developer/inference-benchmarks.md`. The benchmark grid runs every shipped guide against synthetic posteriors with known answers (conjugate models, hierarchical structures, pathological geometries, multimodal mixtures, latent-variable models, constrained supports), reports the metrics, and gives you an empirical answer. If a guide is missing for your model shape, the failing-cell pattern often suggests the right reparameterisation or a different guide.
 
 ## Try this
 
