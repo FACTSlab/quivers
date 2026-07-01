@@ -921,8 +921,31 @@ module.exports = grammar({
 
     _draw_arg: $ => choice(
       $.bracket_index_arg,
+      $.family_call_arg,
+      $.list_arg,
       $.identifier,
       $.signed_number,
+    ),
+
+    // Distribution-call expression at a draw-arg position, e.g.
+    // `Mixture([0.3, 0.7], [PointMass(0), Poisson(rate)])`. The
+    // compiler recurses into `args` to build the inner distribution
+    // before passing it to the outer family's builder. See the
+    // measure-algebra design note for the operator vocabulary.
+    family_call_arg: $ => prec(2, seq(
+      field('family', $.identifier),
+      '(',
+      optional(field('args', commaSep1($._draw_arg))),
+      ')',
+    )),
+
+    // List-of-draw-args, e.g. `[0.3, 0.7]` for mixture weights or
+    // `[PointMass(0), Poisson(rate)]` for mixture components. Mirrors
+    // the let-expression list literal but at the draw-arg position.
+    list_arg: $ => seq(
+      '[',
+      optional(commaSep1($._draw_arg)),
+      ']',
     ),
 
     bracket_index_arg: $ => prec(1, seq(

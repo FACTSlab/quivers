@@ -16,8 +16,7 @@ contraction op_apply (
     arg1 : A -> B,
     arg2 : A -> C,
     kernel : B -> D
-) : A -> D
-    rule product_fuzzy
+) : A -> D [rule=product_fuzzy]
 ```
 
 The declared name is callable from any expression site as
@@ -57,9 +56,7 @@ even when they are shared across inputs (rather than contracted):
 contraction broadcast_add (
     f : A -> B,
     g : A -> B
-) : A -> B
-    rule real
-    share B
+) : A -> B [rule=real, share=[B]]
 ```
 
 Without `share B`, the axis `B` would be contracted because it
@@ -89,9 +86,7 @@ Common uses:
 ```qvr
 contraction extract_diag (
     A : I * I -> 1
-) : I -> 1
-    rule real
-    wiring "ii->i"
+) : I -> 1 [rule=real, wiring="ii->i"]
 ```
 
 The wiring string follows the standard numpy / torch
@@ -148,9 +143,7 @@ contraction score (
     e : Item -> Embed,
     w : Embed -> Embed,
     t : Item -> Embed
-) : Item -> Score
-    rule real
-    share Item
+) : Item -> Score [rule=real, share=[Item]]
 
 let final = score(E, W, T)
 export final

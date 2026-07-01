@@ -305,7 +305,7 @@ class TestPygmentsLexer:
 
 class TestGrammarSurfaceParity:
     def test_every_example_still_parses(self):
-        """Every shipped example continues to parse after the surface additions."""
+        """Every bundled example parses under the current surface."""
         repo = Path(__file__).resolve().parents[1]
         examples = sorted((repo / "docs" / "examples" / "source").glob("*.qvr"))
         assert examples, "no examples found"

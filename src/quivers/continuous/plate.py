@@ -217,15 +217,14 @@ class PlateDraw(ContinuousMorphism):
         """Log-density of the variational posterior on the plate sample.
 
         Accepts ``y`` shaped either as the natural plate-latent
-        ``(|A|, *B.shape)`` (one shared sample, the new convention)
-        or the legacy flat ``(batch, |A| * prod(B.shape))``; the
-        latter reshape is preserved for back-compat with any caller
-        that pre-flattened the latent.
+        ``(|A|, *B.shape)`` (one shared sample) or the flat
+        ``(batch, |A| * prod(B.shape))`` form; the latter reshape
+        supports callers that pre-flatten the latent.
         """
         del x  # plate latents are batch-invariant
-        # Accept the new natural plate shape (``(|A|, *per_row_shape)``
-        # or the squeezed ``(|A|,)`` for scalar-per-row plates) before
-        # falling back to the legacy ``(batch, flat)`` reshape.
+        # Accept the natural plate shape (``(|A|, *per_row_shape)``
+        # or the squeezed ``(|A|,)`` for scalar-per-row plates)
+        # before falling back to the flat ``(batch, flat)`` reshape.
         if (
             len(self._per_row_shape) == 1
             and self._per_row_shape[0] == 1
@@ -310,6 +309,14 @@ class VectorisedObserve(ContinuousMorphism):
         """Inherit the underlying per-row family's support so guides
         and validators see the correct constraint for the observation."""
         return getattr(self._family, "support", super().support)
+
+    @property
+    def _param_event_ranks(self) -> tuple[int, ...] | None:
+        """Forward the per-parameter event ranks from the wrapped
+        family so `_resolve_input` can broadcast shared vector-typed
+        parameters (e.g. `OrderedLogistic` cutpoints) before stacking.
+        """
+        return getattr(self._family, "_param_event_ranks", None)
 
     def rsample(
         self, x: torch.Tensor, sample_shape: torch.Size = torch.Size()

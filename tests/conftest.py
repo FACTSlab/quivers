@@ -14,6 +14,17 @@ marker filter for the current invocation.
 
 from __future__ import annotations
 
+import os
+
+# Always activate the local-grammar override during the test run so
+# the new compositional measure-algebra syntax (Mixture, Restrict,
+# Pushforward, PointMass nested in observe sites) is recognised
+# regardless of the installed `panproto-grammars-all` version. The
+# in-tree grammar at `grammars/qvr/` ships the `family_call_arg` and
+# `list_arg` productions; the override drops once a published
+# `panproto-grammars-all` vendors them.
+os.environ.setdefault("QVR_USE_LOCAL_GRAMMAR", "1")
+
 
 def pytest_addoption(parser):
     parser.addoption(

@@ -35,7 +35,7 @@ def _load_model(name: str):
 
 
 # ============================================================================
-# Tier 1 — conjugate models
+# Conjugate models
 # ============================================================================
 
 
@@ -146,7 +146,7 @@ def bayes_linear_regression(
 
 
 # ============================================================================
-# Tier 2 — hierarchical
+# Hierarchical
 # ============================================================================
 
 
@@ -175,7 +175,7 @@ def eight_schools_noncentered(seed: int = 0) -> BenchmarkData:
 
 
 # ============================================================================
-# Tier 3 — hard posterior geometries
+# Hard posterior geometries
 # ============================================================================
 
 
@@ -244,7 +244,7 @@ def ill_conditioned_mvn(seed: int = 0) -> BenchmarkData:
 
 
 # ============================================================================
-# Tier 6 — constrained-support stress
+# Constrained-support stress
 # ============================================================================
 
 
@@ -286,20 +286,20 @@ def truncated_normal_recovery(
 
 __all__ = [
     "BenchmarkData",
-    # Tier 1
+    # Conjugate
     "beta_bernoulli",
     "normal_normal",
     "normal_inverse_gamma",
     "gamma_exponential",
     "bayes_linear_regression",
-    # Tier 2
+    # Hierarchical
     "eight_schools_centered",
     "eight_schools_noncentered",
-    # Tier 3
+    # Hard geometry
     "correlated_regression",
     "neal_funnel",
     "ill_conditioned_mvn",
-    # Tier 6
+    # Constrained support
     "half_normal_scale",
     "truncated_normal_recovery",
 ]

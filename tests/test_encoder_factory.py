@@ -1,6 +1,6 @@
 """Tests for the factory-backed encoder declaration form.
 
-The factory form invokes a shipped encoder builder from
+The factory form invokes a registered encoder builder from
 :data:`quivers.dsl.compiler.structural._ENCODER_FACTORY_REGISTRY`
 with the per-encoder ``[k=v]`` overrides forwarded as kwargs. The
 result is a fully-constructed :class:`Encoder` registered under

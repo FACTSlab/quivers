@@ -71,6 +71,7 @@ from quivers.dsl.ast_nodes import (
     ProgramDecl,
     ProgramStep,
     SampleStep,
+    atom_to_draw_arg as _to_draw_arg,
     Statement,
     ObjectDecl,
     TypeFromExpr,
@@ -122,21 +123,25 @@ def _draw(
     """Build a surface program step for a draw of ``var`` from ``family``.
 
     ``mode="sample"`` / ``"marginal"`` map to `SampleStep`;
-    ``mode="score"`` maps to `ObserveStep`. Marginalisation
-    of formula draws is not currently emitted by the formula
-    compiler, so the marginal mode collapses to sample here.
+    ``mode="score"`` maps to `ObserveStep`. Marginalisation of
+    formula draws is not currently emitted by the formula compiler,
+    so the marginal mode collapses to sample here. Bare-string and
+    bare-float ``args`` are lifted into the tagged
+    [`DrawArg`][quivers.dsl.ast_nodes.DrawArg] shape the AST field
+    expects.
     """
+    tagged_args = tuple(_to_draw_arg(a) for a in args)
     if mode == "score":
         return ObserveStep(
             var=var,
             morphism=family,
-            args=args,
+            args=tagged_args,
             index=index,
         )
     return SampleStep(
         vars=(var,),
         morphism=family,
-        args=args,
+        args=tagged_args,
         index=index,
     )
 
