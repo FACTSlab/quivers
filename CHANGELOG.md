@@ -4,6 +4,12 @@ All notable changes to the quivers library are documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/), and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.14.1] - 2026-07-01
+
+### Fixed
+
+- **v0.11.0 -> v0.14.0 grammar migration hop.** The `CHAIN` in `src/quivers/cli/migrations/__init__.py` now includes `"v0.14.0"`, with the accompanying hop module `v0_11_0_to_v0_14_0.py` and a matching entry in `MIGRATORS` and `COVERAGE`. `qvr migrate --from v0.11.0 --to v0.14.0` composes cleanly; `qvr migrate --check` reports `added_rules: family_call_arg, list_arg` and `uncovered_removed: []` for the pair. The hop is byte-identity: v0.14.0 adds two productions (`family_call_arg`, `list_arg`) to the `_draw_arg` choice as strict grammar extensions, so every source that parses under v0.11.0 also parses under v0.14.0. The `grammars/qvr/vcs/parsers/v0.14.0/` tree-sitter parser snapshot and the panproto VCS object store under `grammars/qvr/vcs/.panproto/` are rebuilt via `python grammars/qvr/vcs/build_schemas.py --reset` and `python grammars/qvr/vcs/build_parsers.py`.
+
 ## [0.14.0] - 2026-06-30
 
 ### Added
