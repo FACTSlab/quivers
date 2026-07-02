@@ -231,10 +231,11 @@ def _decode_module(module: Module) -> dict:
                     cardinality = None
             if cardinality is None:
                 continue
-            if stmt.name == "Resp":
-                n_obs = cardinality
-            else:
-                group_cardinalities[stmt.name] = cardinality
+            for decl_name in stmt.names:
+                if decl_name == "Resp":
+                    n_obs = cardinality
+                else:
+                    group_cardinalities[decl_name] = cardinality
         elif isinstance(stmt, ProgramDecl):
             program = stmt
             break
@@ -271,7 +272,7 @@ def _decode_module(module: Module) -> dict:
             continue
         if isinstance(step, ObserveStep):
             if step.index is not None:
-                response_qvr_name = step.var
+                response_qvr_name = step.vars[0]
                 observe_family = step.morphism
             continue
         if not isinstance(step, SampleStep):
