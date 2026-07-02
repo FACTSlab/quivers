@@ -13,10 +13,12 @@ Quick start
     from quivers.dsl import load, loads
 
     program = loads('''
-        object X : 3
-        object Y : 4
-        latent f : X -> Y
-        output f
+        object Resp : FinSet 8
+        program m : Resp -> Resp
+            sample b <- Normal(0.0, 5.0)
+            observe y : Resp <- Normal(b, 1.0)
+            return y
+        export m
     ''')
 
     program = load("model.qvr")

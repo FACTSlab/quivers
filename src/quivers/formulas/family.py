@@ -200,4 +200,48 @@ families: Mapping[str, Family] = {
         location_link=_IDENTITY,
         observe_family="OrderedLogistic",
     ),
+    "zero_inflated_poisson": Family(
+        name="zero_inflated_poisson",
+        location_link=_LOG,
+        observe_family="ZeroInflatedPoisson",
+        extra_observe_args=("zi",),
+        aux_params=(
+            AuxParam(
+                name="zi",
+                prior="Beta(2.0, 2.0)",
+                link=_LOGIT,
+            ),
+        ),
+    ),
+    "hurdle_poisson": Family(
+        name="hurdle_poisson",
+        location_link=_LOG,
+        observe_family="HurdlePoisson",
+        extra_observe_args=("zi",),
+        aux_params=(
+            AuxParam(
+                name="zi",
+                prior="Beta(2.0, 2.0)",
+                link=_LOGIT,
+            ),
+        ),
+    ),
+    "mixture": Family(
+        name="mixture",
+        location_link=_IDENTITY,
+        observe_family="MixtureNormal",
+        extra_observe_args=("loc", "scale"),
+        aux_params=(
+            AuxParam(
+                name="loc",
+                prior="Normal(0.0, 5.0)",
+                link=_IDENTITY,
+            ),
+            AuxParam(
+                name="scale",
+                prior="HalfCauchy(2.0)",
+                link=_LOG,
+            ),
+        ),
+    ),
 }

@@ -224,14 +224,15 @@ random init.
 ### saturation_warnings
 
 [`saturation_warnings(module)`](../api/diagnostics/index.md) returns
-source-keyed warnings about latents that, under the recommended
-init, would saturate the surrounding algebra's value range. For
-ProductFuzzy / Boolean / Gödel a saturation flag fires when the
-expected partial product after the chain falls outside `[0.1, 0.9]`
-at draw zero (the model would start in a corner of the truth
-algebra and recover slowly); for probability-kernel chains the flag
-fires when the implied per-class log-prob deviates more than $0.2$
-nats from $-\log K$.
+source-keyed warnings about latents whose algebra-guided init
+recipe differs materially from the default `Normal(0, 1)` init. It
+walks every `latent` step at depth $\geq 2$ or with intermediate
+size $> 1$, asks the shape module for the recommended `InitSpec`,
+and flags the step when either the recipe's mean shifts by more
+than $0.2$ from $0$ or its std moves by more than $20\%$ away from
+$1$. The 20% threshold is a single generic cutoff, applied
+identically across ProductFuzzyAlgebra, BooleanAlgebra, Godel,
+Markov, and other supported algebras.
 
 <!-- python: skip -->
 ```python
@@ -296,7 +297,7 @@ parameter.
 ```python
 import torch
 from quivers.dsl import loads
-from quivers.core.algebras import ProductFuzzyAlgebra, BooleanAlgebra
+from quivers.core.algebra_morphisms import Threshold
 
 program = loads('''
 composition product_fuzzy as algebra
@@ -306,12 +307,13 @@ morphism W : X -> Y [role=latent] [init=auto]
 export W
 ''')
 W = program.morphism
+phi = Threshold(tau=0.5)  # ProductFuzzyAlgebra -> BooleanAlgebra
 
 opt = torch.optim.Adam(program.parameters(), lr=1e-2)
 for step in range(100):
     opt.zero_grad()
     # Recomputed each access: fresh autograd graph.
-    rebased = W.change_base(BooleanAlgebra())
+    rebased = W.change_base(phi)
     loss = (rebased.dagger.tensor - target).pow(2).sum()
     loss.backward()
     opt.step()

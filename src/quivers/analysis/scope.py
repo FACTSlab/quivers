@@ -403,8 +403,8 @@ def _scope_for_decoder(ref: ScopedRef) -> Mapping[str, ScopedRef]:
     ``factor``, ``binder_select``) are not exposed."""
     decl = ref.node
     out: dict[str, ScopedRef] = {}
-    # Decoders historically stored per-constructor heads in different
-    # attribute names; check both common shapes.
+    # Decoders may store per-constructor heads under any of a few
+    # attribute names; check the common shapes.
     for attr in ("heads", "primitives", "constructor_heads"):
         entries = getattr(decl, attr, None)
         if entries is None:

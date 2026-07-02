@@ -22,9 +22,9 @@ collected literals by name shape and by the rule that contains them:
 * literals containing any non-word character are operators or
   punctuation.
 
-The walker is pure: it depends only on the JSON file shipped with the
-grammar, so it works at import time even when the shared library hasn't
-been compiled yet.
+The walker is pure: it depends only on the JSON file that accompanies
+the grammar, so it works at import time even when the shared library
+has not been compiled yet.
 """
 
 from __future__ import annotations
@@ -65,7 +65,7 @@ _OPERATOR_EXTRAS = frozenset(
 
 def _grammar_json_path() -> Path:
     # Prefer the package-local copy under
-    # ``quivers/dsl/_grammar_data/grammar.json`` (shipped with the
+    # ``quivers/dsl/_grammar_data/grammar.json`` (bundled with the
     # wheel). Fall back to the canonical in-tree path
     # ``grammars/qvr/src/grammar.json`` when running from a source
     # checkout that hasn't synced the package copy yet.
@@ -81,7 +81,7 @@ def _grammar_json_path() -> Path:
         "grammar.json not found at "
         f"{packaged} or under any parent of {here}; "
         "programmatic keyword derivation requires the grammar JSON "
-        "shipped with the quivers package."
+        "bundled with the quivers package."
     )
 
 

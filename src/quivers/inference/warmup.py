@@ -1,16 +1,15 @@
 """Warmup-then-HMC composite sampler.
 
 Pareto-dominates plain HMC on posteriors whose prior init places
-chains far from the typical set (the canonical SuperTelicity-shape
-case with constrained-support hierarchical priors). The composite
-runs SVI to convergence on a chosen variational guide, then
-initializes the HMC / NUTS chain at the guide's posterior mean and
-adapts the mass matrix to the guide's posterior covariance — so
-HMC's warmup is given a substantial head-start instead of starting
-from scratch.
+chains far from the typical set, as arises with constrained-support
+hierarchical priors. The composite runs SVI to convergence on a
+chosen variational guide, then initializes the HMC / NUTS chain at
+the guide's posterior mean and adapts the mass matrix to the
+guide's posterior covariance, so HMC's warmup is given a
+substantial head-start instead of starting from scratch.
 
 This is a two-phase orchestrator: it owns no kernel state of its
-own, just a guide + an MCMC kernel + a driver. The two phases are
+own, just a guide, an MCMC kernel, and a driver. The two phases are
 `fit_guide` (vanilla SVI) and `run_mcmc` (the warmup-
 seeded MCMC chain); `run` calls both in sequence.
 """

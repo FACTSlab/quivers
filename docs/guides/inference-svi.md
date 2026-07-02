@@ -11,17 +11,22 @@ primitives that every guide consumes live in
 ## Guides: variational families
 
 A guide $q_\phi(z \mid x, y)$ is a variational family approximating
-the posterior. Nine `Auto*Guide` subclasses cover the standard
-zoo, all documented under [Variational
+the posterior. Eleven concrete `Auto*` guide classes cover the
+standard zoo, all documented under [Variational
 Guides](../api/inference/guide.md); each is constructed from the
-model and a set of observed site names.
+model and a set of observed site names. The nine single-family
+guides are summarised in the table below; two combinators,
+[`AutoGuideList`](../api/inference/guide.md#quivers.inference.guides.AutoGuideList)
+and
+[`AutoStructured`](../api/inference/guide.md#quivers.inference.guides.AutoStructured),
+compose per-site guides into a joint variational family.
 
 | Guide | Posterior structure | When to use |
 |---|---|---|
 | [`AutoNormalGuide`](../api/inference/guide.md#quivers.inference.guides.AutoNormalGuide) | Diagonal Normal (mean-field) | Default; identifiable posterior, weak correlation |
 | [`AutoMultivariateNormalGuide`](../api/inference/guide.md#quivers.inference.guides.AutoMultivariateNormalGuide) | Full-rank Normal (Cholesky) | Strong posterior correlations; $D \lesssim 1000$ |
 | [`AutoLowRankMultivariateNormalGuide`](../api/inference/guide.md#quivers.inference.guides.AutoLowRankMultivariateNormalGuide) | Low-rank + diagonal | Hierarchical models with localized correlations |
-| [`AutoLaplaceApproximation`](../api/inference/guide.md#quivers.inference.guides.AutoLaplaceApproximation) | Gaussian centered at MAP w/ Hessian inverse | Post-hoc; cheap quadratic-around-MAP |
+| [`AutoLaplaceApproximation`](../api/inference/guide.md#quivers.inference.guides.AutoLaplaceApproximation) | Gaussian centered at MAP with covariance $-H^{-1}$ (negative inverse Hessian of the log-joint) | Post-hoc; cheap quadratic-around-MAP |
 | [`AutoNormalizingFlow`](../api/inference/guide.md#quivers.inference.guides.AutoNormalizingFlow) | Composed bijector over Normal base | Multimodal / heavy-tailed posteriors |
 | [`AutoIAFGuide`](../api/inference/guide.md#quivers.inference.guides.AutoIAFGuide) | [Inverse autoregressive flow](https://doi.org/10.48550/arXiv.1606.04934) | Flagship NF default |
 | [`AutoNeuralSplineGuide`](../api/inference/guide.md#quivers.inference.guides.AutoNeuralSplineGuide) | Rational-quadratic spline coupling ([Durkan et al. 2019](https://doi.org/10.48550/arXiv.1906.04032)) | Sharper than IAF for bounded support |
@@ -106,7 +111,7 @@ Four are shipped:
 |---|---|---|
 | `ELBO(num_particles=K)` | $\mathbb{E}_q[\log p - \log q]$ | Default |
 | `IWAEBound(K, estimator=...)` | $\mathbb{E}[\log \tfrac{1}{K}\sum_k (p/q)_k]$ | Tighter than ELBO for $K > 1$ ([Burda et al. 2016](https://doi.org/10.48550/arXiv.1509.00519)) |
-| `RenyiBound(alpha, K)` | $\alpha$-divergence bound ([Li-Turner 2016](https://doi.org/10.48550/arXiv.1602.02311)) | $\alpha = 0$ recovers IWAE; $\alpha = 1$ recovers ELBO |
+| `RenyiBound(alpha, K)` | $\alpha$-divergence bound ([Li-Turner 2016](https://doi.org/10.48550/arXiv.1602.02311)) | $\alpha = 0$ recovers IWAE; $\alpha \to 1$ recovers the ELBO in the limit (the constructor rejects `alpha == 1.0` as numerically singular; use `ELBO` directly) |
 | `VRIWAEBound(alpha, K)` | Variational Rényi-IWAE ([Daudel et al. 2023](https://doi.org/10.48550/arXiv.2210.06226)) | Interpolates cheap-vs-tight regimes |
 
 Each accepts an `estimator=` strategy:
@@ -126,9 +131,12 @@ iwae = IWAEBound(num_particles=16, estimator=DoublyReparameterized())
 loss = iwae(model, guide, x, observations)
 ```
 
-The Monte Carlo particle dimension is broadcast as a leading torch
-axis end-to-end; the inner `model.log_joint` evaluation is a single
-fused call against a `(K, batch, ...)`-shaped latent dict.
+Multi-particle objectives run a Python `for` loop over
+`num_particles`, calling `guide.rsample` and `model.log_joint` once
+per particle and stacking the per-particle log-densities into a
+leading `(K, batch)` axis. `torch.distributions` and the model
+runtime are not vectorized over a Monte Carlo dimension, so `K > 1`
+scales linearly in the particle count.
 
 ## ELBO: evidence lower bound
 
@@ -319,10 +327,16 @@ Implement a custom guide by subclassing
 from quivers.inference.guides import Guide
 
 class MyGuide(Guide):
-    def __init__(self, model):
+    def __init__(self, model, latent_names: list[str]):
         super().__init__()
+        self._latent_names = list(latent_names)
         self.mu_net = torch.nn.Linear(5, 10)
         self.sigma_net = torch.nn.Linear(5, 10)
+
+    @property
+    def latent_names(self) -> list[str]:
+        """Names of latent sites this guide covers."""
+        return self._latent_names
 
     def rsample(self, x: torch.Tensor) -> dict[str, torch.Tensor]:
         """Sample latent sites z ~ q(. | x). Returns {site_name: tensor}."""

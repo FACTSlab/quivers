@@ -82,8 +82,8 @@ class _ExpressionsMixin:
         if not hasattr(self, "_exports"):
             self._exports = []
         self._exports.append(decl.expr)
-        # The first export wins for the legacy single-output entry
-        # point that downstream helpers (``compile_env``,
+        # The first export wins for the single-output entry point
+        # that downstream helpers (``compile_env``,
         # ``Program(root_morphism)``) consult.
         if self._output_expr is None:
             self._output_expr = decl.expr
@@ -734,12 +734,12 @@ class _ExpressionsMixin:
     def _compile_chart_fold(self, expr):
         """Compile a chart_fold(...) primitive expression.
 
-        chart_fold is the explicit form of which the legacy
-        parser(rules=...) is sugar. Given a lexical morphism
+        chart_fold is the primitive form; parser(rules=...) is the
+        surface sugar over it. Given a lexical morphism
         ``lex : Token -> Cat`` plus a binary morphism (and optional
         unary morphism) on Cat, it constructs an InsideAlgorithm-based
         chart parser. The user-visible structure of the parser is
-        therefore expressible from primitives — no opaque parser()
+        therefore expressible from primitives, with no opaque parser()
         call required.
 
         Effect-typed chart cells (``effect_depth`` > 0) extend the

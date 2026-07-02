@@ -393,7 +393,7 @@ class DualAlgebra(Algebra):
         zero^op      = base.unit
         negate^op    = base.negate       (involution self-dualizes)
 
-    Concretely for shipped pairs:
+    Concretely for the built-in pairs:
 
     * ``ProductFuzzyAlgebra.dual``: ⊗ = noisy-OR (``a + b - ab``),
       ⋁ = product (``∏ a_i``).

@@ -12,7 +12,7 @@ gradient-based-MCMC layer lives in
 
 The inference subpackage is a six-layer stack, each layer consumable
 independently and re-exported from
-[`quivers.inference`](../api/inference/trace.md):
+[`quivers.inference`](../api/index.md#inference-package):
 
 ```mermaid
 flowchart TB
@@ -26,7 +26,7 @@ flowchart TB
 ```
 
 Every guide and MCMC kernel consumes a single
-[`LatentRegistry.from_model(model, observed_names)`](../api/inference/trace.md),
+`LatentRegistry.from_model(model, observed_names)`,
 which flattens / unflattens between site-keyed dicts and a single
 unconstrained vector and routes every per-site bijector through
 [`torch.distributions.constraint_registry.biject_to`](https://docs.pytorch.org/docs/stable/distributions.html#torch.distributions.constraint_registry.biject_to).

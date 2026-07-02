@@ -211,8 +211,8 @@ Continuous and discrete morphisms integrate transparently via the
 # Discrete to Continuous
 discrete_f = morphism(X, Y)  # X -> Y (finite)
 cont_g = ConditionalNormal(
-    Euclidean(name="YE", dim=Y.size),
-    Euclidean(name="Z", dim=3),
+    domain=Y,                        # discrete domain, indexed lookup
+    codomain=Euclidean(name="Z", dim=3),
 )
 
 composed = discrete_f >> cont_g  # exact marginalization over Y
@@ -282,13 +282,12 @@ y = torch.randn(8, 4)
 log_p = flow.log_prob(x, y)
 ```
 
-Additional flow primitives live in
-[`quivers.continuous.flows`](../api/continuous/flows.md): masked
-autoregressive flows ([MAF](https://doi.org/10.48550/arXiv.1705.07057)),
-inverse autoregressive flows
-([IAF](https://doi.org/10.48550/arXiv.1606.04934)), neural-spline
-flows ([NSF](https://doi.org/10.48550/arXiv.1906.04032)), batch
-normalization layers, and LU-parameterized linear layers.
+The [`quivers.continuous.flows`](../api/continuous/flows.md) module
+exposes two public building blocks:
+[`AffineCouplingLayer`](../api/continuous/flows.md#quivers.continuous.flows.AffineCouplingLayer),
+a single invertible affine coupling layer, and
+[`ConditionalFlow`](../api/continuous/flows.md#quivers.continuous.flows.ConditionalFlow),
+a stack of coupling layers wrapped as a `ContinuousMorphism`.
 
 ## See also
 

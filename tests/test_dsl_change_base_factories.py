@@ -3,14 +3,14 @@
 Exercises the constructor-call form of :class:`MorphismTransformation`
 values inside ``change_base``:
 
-* ``f.change_base(softmax(B))`` — Tier 1: constructor with an
-  object argument resolved at compile time.
-* ``f.change_base(l1_normalize(B))`` — same shape.
-* ``f.change_base(l2_normalize(B))`` — same shape, identity
-  target algebra.
-* ``f.change_base(bayes_invert(prior))`` — Tier 2: constructor
-  with a morphism argument; the prior's tensor is read when the
-  constructor runs to produce the :class:`BayesInvert`.
+* ``f.change_base(softmax(B))``: constructor with an object argument
+  resolved at compile time.
+* ``f.change_base(l1_normalize(B))``: same shape.
+* ``f.change_base(l2_normalize(B))``: same shape, identity target
+  algebra.
+* ``f.change_base(bayes_invert(prior))``: constructor with a morphism
+  argument; the prior's tensor is read when the constructor runs to
+  produce the :class:`BayesInvert`.
 * Bare-name lookup paths still resolve singletons.
 * Helpful error messages for misuse (bare constructor without
   args, unknown constructor, unknown argument).
@@ -35,7 +35,7 @@ _LOCAL_GRAMMAR = pytest.mark.skipif(
 
 
 # ---------------------------------------------------------------------------
-# Tier 1 — object-argument constructors
+# Object-argument constructors
 # ---------------------------------------------------------------------------
 
 
@@ -91,7 +91,7 @@ def test_l2_normalize_compiles() -> None:
 
 
 # ---------------------------------------------------------------------------
-# Tier 2 — morphism-argument constructor
+# Morphism-argument constructor
 # ---------------------------------------------------------------------------
 
 

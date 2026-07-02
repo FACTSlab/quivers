@@ -176,8 +176,8 @@ Declare a continuous space:
 ```qvr
 object R3 : Real 3
 object R2_bounded : Real 2 [low=0.0, high=1.0]
-object U : UnitInterval
-object P2 : PositiveReals(2)
+object U : Real 1 [low=0.0, high=1.0]
+object P2 : Real 2 [low=0.0]
 object S3 : Simplex 3
 
 # Product space
@@ -237,6 +237,8 @@ morphism f : X -> R3 [role=kernel] ~ Normal
 morphism g : R3 -> R3 [role=kernel] ~ Normal [scale=0.5]
 morphism k : X -> S3 [role=kernel] ~ Dirichlet
 # 30+ families are registered; see the families guide.
+# `Flow` is a special-case constructor (not in the family registry)
+# that compiles to a conditional normalizing flow.
 morphism flow : R3 -> R3 [role=kernel] ~ Flow [n_layers=6, hidden_dim=32]
 ```
 
@@ -354,7 +356,7 @@ The three alternatives:
 | Form | Use when |
 |------|----------|
 | `lexicon` block with `"word" : Cat = lf #[learnable]` entries | label-indexed lookup table inline in the body |
-| `lexicon from "path.tsv" [learnable]` | label-indexed lookup loaded from a TSV at compile time |
+| `lexicon from "path.tsv" [learnable=true]` | label-indexed lookup loaded from a TSV at compile time |
 | `[axioms=some_morphism]` in the deduction's option block | general kernel `Input -> List(Item × K)` defined as a declared morphism |
 
 Marking a lexicon entry `#[learnable]` allocates an
@@ -380,8 +382,8 @@ program parse_score : Sentence -> Real [effects=[Sample, Score]]
 - `chart.weight(item)`: log-weight of a fully-determined item.
 - `chart.enumerate(pattern)`: list of `(item, weight)` pairs
   matching a pattern with wildcards.
-- `chart.derivations(item)`: derivation forest under the derivation
-  semiring.
+- `chart.derivations(item)`: flat enumeration of chart items that
+  contributed to `item`'s weight (returned as a `list[Item]`).
 - `chart.goal_weight()`: log-weight of the goal predicate.
 
 Each returns a

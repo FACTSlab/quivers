@@ -5,7 +5,7 @@ embedding an inner-monad Kleisli arrow into the transformer.
 Stacking ``T(m)`` for a base monad ``m`` produces a new monad
 whose effects combine ``T``'s and ``m``'s.
 
-Currently shipped transformers:
+Available transformers:
 
 - `StateT(state)` — adds state-threading to any inner monad.
 - `ReaderT(env)` — adds reader-effect to any inner monad.
