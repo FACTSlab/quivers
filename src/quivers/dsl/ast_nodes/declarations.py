@@ -261,9 +261,8 @@ structural input), ``kernel`` (parametric Markov kernel with a family
 prior), ``embed`` (FinSet -> ContinuousSpace boundary),
 ``discretize`` (ContinuousSpace -> FinSet boundary), ``let``
 (deterministic let-bound morphism). Optional; when the option block
-carries no ``role``, the compiler infers one from program usage
-(sampled -> latent, observed -> observed, otherwise kernel).
-``embed``, ``discretize``, and ``let`` are always explicit.
+carries no ``role``, the morphism is a kernel. Every other role is
+explicit.
 """
 
 
@@ -282,8 +281,8 @@ class MorphismDecl(Statement):
     Each name declares an independent morphism (fresh parameters)
     with the same signature, options, and initializer. The morphism's
     role travels in the option block; the compiler reads
-    ``options["role"]`` (or infers a role from program usage) to pick
-    the runtime construction.
+    ``options["role"]`` (kernel when absent) to pick the runtime
+    construction.
 
     Initializer (``~`` clause, optional):
 

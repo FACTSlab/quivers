@@ -30,6 +30,21 @@ def _required_text(
     return t.text(child_vid)
 
 
+def _required_field(t: _Tree, parent_vid: str, field_name: str) -> str:
+    """Return a required-by-grammar field's vertex id, raising if missing."""
+    child_vid = t.field(parent_vid, field_name)
+    if child_vid is None:
+        raise ParseError(
+            f"missing required {field_name!r} field at {parent_vid} (malformed parse)"
+        )
+    return child_vid
+
+
+def _field_text(t: _Tree, parent_vid: str, field_name: str) -> str:
+    """Return the text of a required-by-grammar field."""
+    return t.text(_required_field(t, parent_vid, field_name))
+
+
 def _walk_draw_arg(t: _Tree, vid: str) -> DrawArg:
     """Walk a family-argument into a tagged
     [`DrawArg`][quivers.dsl.ast_nodes.DrawArg].
@@ -84,4 +99,4 @@ def _walk_draw_arg(t: _Tree, vid: str) -> DrawArg:
     raise ParseError(f"unexpected draw arg kind: {k}")
 
 
-__all__ = ["_required_text", "_walk_draw_arg"]
+__all__ = ["_field_text", "_required_field", "_required_text", "_walk_draw_arg"]

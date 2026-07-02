@@ -225,8 +225,7 @@ module.exports = grammar({
 
     /* ``morphism f, g : A -> B`` declares one morphism per name, each
      * with the same signature and options but independent parameters.
-     * The option block is optional; ``role`` defaults by inference
-     * (sampled -> latent, observed -> observed, otherwise kernel). */
+     * The option block is optional; ``role`` defaults to kernel. */
     morphism_decl: $ => seq(
       optional(field('docs', $.doc_comment_group)),
       'morphism',

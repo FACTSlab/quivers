@@ -117,6 +117,19 @@ class DrawArgList(DrawArg):
     kind: Literal["list"] = "list"
 
 
+def _to_draw_arg(value: str | float | int | DrawArg) -> DrawArg:
+    """Lift a plain Python value into the tagged `DrawArg` shape."""
+    if isinstance(value, DrawArg):
+        return value
+    if isinstance(value, str):
+        return DrawArgName(text=value)
+    if isinstance(value, (int, float)):
+        return DrawArgScalar(value=float(value))
+    raise TypeError(
+        f"_to_draw_arg: expected str | float | DrawArg, got {type(value).__name__}"
+    )
+
+
 class ProgramStep(dx.TaggedUnion, discriminator="kind"):
     """Sum of program-block step node kinds."""
 
