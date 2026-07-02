@@ -180,13 +180,16 @@ def test_define_where_compiles_and_wires_bindings() -> None:
 
 def test_define_where_outer_binding_lands_in_env() -> None:
     """The outer define name is bound in the compile environment and
-    carries the composite morphism."""
+    carries the composite morphism; the where-bound names are scoped
+    to the binding and do not leak into the module namespace."""
     mod = parse(textwrap.dedent(_DEFINE_WHERE_SRC))
     env = Compiler(mod).compile_env()
     assert "f" in env
     bound = env["f"]
     assert isinstance(bound, Morphism)
     assert bound.tensor.shape == (2, 4)
+    assert "gg" not in env
+    assert "hh" not in env
 
 
 # ---------------------------------------------------------------------------
