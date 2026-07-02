@@ -22,8 +22,7 @@ composition product_fuzzy [level=algebra]
 object State : FinSet 8
 object Obs : FinSet 16
 
-morphism initial : State -> State [role=latent]
-morphism transition : State -> State [role=latent]
+morphism initial, transition : State -> State [role=latent]
 morphism emission : State -> Obs [role=latent]
 
 define n_step = repeat(transition) >> emission

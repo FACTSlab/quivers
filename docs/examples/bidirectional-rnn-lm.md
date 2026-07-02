@@ -8,16 +8,14 @@ A bidirectional RNN used as a masked language model in the spirit of [BERT](http
 
 ```qvr
 object Token : FinSet 256
-object Embedded : Real 64
-object FwdHidden : Real 64
-object BwdHidden : Real 64
+object Embedded, FwdHidden, BwdHidden : Real 64
 object Combined : Real 128
 
 morphism tok_embed : Token -> Embedded [role=embed]
-morphism fwd_cell : Embedded * FwdHidden -> FwdHidden [role=kernel, scale=0.1] ~ Normal
-morphism bwd_cell : Embedded * BwdHidden -> BwdHidden [role=kernel, scale=0.1] ~ Normal
-morphism combine : Combined -> Combined [role=kernel, scale=0.1] ~ Normal
-morphism lm_head : Combined -> Token [role=kernel] ~ Categorical
+morphism fwd_cell : Embedded * FwdHidden -> FwdHidden [scale=0.1] ~ Normal
+morphism bwd_cell : Embedded * BwdHidden -> BwdHidden [scale=0.1] ~ Normal
+morphism combine : Combined -> Combined [scale=0.1] ~ Normal
+morphism lm_head : Combined -> Token ~ Categorical
 
 define forward_path = tok_embed >> scan(fwd_cell)
 define backward_path = tok_embed >> scan(bwd_cell)

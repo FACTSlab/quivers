@@ -10,8 +10,8 @@ A continuous state-space model extends the HMM to continuous latent states and o
 object State : Real 16
 object Obs : Real 8
 
-morphism transition : State -> State [role=kernel, scale=0.1] ~ Normal
-morphism emission : State -> Obs [role=kernel, scale=0.1] ~ Normal
+morphism transition : State -> State [scale=0.1] ~ Normal
+morphism emission : State -> Obs [scale=0.1] ~ Normal
 
 program generative_step : State -> State
     sample s_new <- transition
@@ -19,11 +19,11 @@ program generative_step : State -> State
     observe o <- emission(s_new)
     return s_new
 
-morphism inference_cell : Obs * State -> State [role=kernel, scale=0.1] ~ Normal
+morphism inference_cell : Obs * State -> State [scale=0.1] ~ Normal
 
 define filter = scan(inference_cell)
 
-morphism decoder : State -> Obs [role=kernel, scale=0.1] ~ Normal
+morphism decoder : State -> Obs [scale=0.1] ~ Normal
 
 define filter_and_reconstruct = scan(inference_cell) >> decoder
 

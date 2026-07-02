@@ -291,17 +291,19 @@ class _ExpressionsMixin:
         """Compose two morphisms sequentially.
 
         The surface exposes one sequential-composition operator
-        family: ``>>`` (and ``<<``, which the parser swaps into
-        forward ``>>`` form before the AST reaches the compiler).
+        family: ``>>`` composes forward and ``<<`` composes the same
+        pipeline written right-to-left, so ``f << g`` is ``g >> f``.
         Composition uses the operands' shared algebra via the
         `Morphism.__rshift__` path, which raises ``incompatible
         algebras`` when they differ; algebra-tagged composition is
         expressed via ``.change_base(...)`` or a ``composition``
         declaration.
         """
-        if op != ">>":
-            raise CompileError(f"unknown composition operator {op!r}", 0, 0)
-        return left >> right
+        if op == ">>":
+            return left >> right
+        if op == "<<":
+            return right >> left
+        raise CompileError(f"unknown composition operator {op!r}", 0, 0)
 
     def _compile_expr(self, expr: Expr):
         """Compile a value expression into a morphism.
