@@ -16,8 +16,7 @@ In quivers, the two factor matrices are arrows $U : \mathsf{LatentDim} \to \math
 composition real [level=algebra]
 
 object LatentDim : FinSet 2
-object User : FinSet 8
-object Movie : FinSet 8
+object User, Movie : FinSet 8
 
 morphism U : LatentDim -> User [role=latent]
 morphism V : LatentDim -> Movie [role=latent]
@@ -33,8 +32,8 @@ The two top-level latent declarations introduce the user and item factor matrice
 
 <!-- compile: false -->
 ```qvr
-morphism U : LatentDim -> User [role=latent] ~ MatrixNormal(0.0, 1.0, 1.0) over (dom, cod)
-morphism V : LatentDim -> Movie [role=latent] ~ MatrixNormal(0.0, 1.0, 1.0) over (dom, cod)
+morphism U : LatentDim -> User [role=latent, over=[dom, cod]] ~ MatrixNormal(0.0, 1.0, 1.0)
+morphism V : LatentDim -> Movie [role=latent, over=[dom, cod]] ~ MatrixNormal(0.0, 1.0, 1.0)
 ```
 
 The `.dagger` modifier on $U$ transposes the morphism to $\mathsf{User} \to \mathsf{LatentDim}$. The composition `U.dagger >> V` contracts along `LatentDim` and recovers the full `(User, Movie)` score matrix; under `composition real as algebra` this is a real matmul and the resulting tensor entry at `(u, m)` is exactly $\sum_k U_{k, u} V_{k, m}$.

@@ -7,29 +7,27 @@ A single transformer-style encoder-decoder ([Sutskever, Vinyals, and Le 2014](ht
 ## QVR Source
 
 ```qvr
-object Source : FinSet 32
-object Target : FinSet 32
+object Source, Target : FinSet 32
 object Latent : Real 16
 object HeadOut : Real 4
-object FFHidden : Real 32
-object Combined : Real 32
+object FFHidden, Combined : Real 32
 
 morphism src_embed : Source -> Latent [role=embed]
 morphism tgt_embed : Target -> Latent [role=embed]
-morphism enc_head : Latent -> HeadOut [role=kernel, replicate=4, scale=0.1] ~ Normal
-morphism enc_attn_proj : Latent -> Latent [role=kernel, scale=0.1] ~ Normal
-morphism enc_residual_attn : Latent -> Latent [role=kernel, scale=0.01] ~ Normal
-morphism enc_ff_up : Latent -> FFHidden [role=kernel] ~ Normal
-morphism enc_ff_down : FFHidden -> Latent [role=kernel, scale=0.1] ~ Normal
-morphism enc_residual_ff : Latent -> Latent [role=kernel, scale=0.01] ~ Normal
-morphism dec_head : Latent -> HeadOut [role=kernel, replicate=4, scale=0.1] ~ Normal
-morphism dec_attn_proj : Latent -> Latent [role=kernel, scale=0.1] ~ Normal
-morphism dec_residual_attn : Latent -> Latent [role=kernel, scale=0.01] ~ Normal
-morphism dec_ff_up : Latent -> FFHidden [role=kernel] ~ Normal
-morphism dec_ff_down : FFHidden -> Latent [role=kernel, scale=0.1] ~ Normal
-morphism dec_residual_ff : Latent -> Latent [role=kernel, scale=0.01] ~ Normal
-morphism cross : Combined -> Combined [role=kernel, scale=0.1] ~ Normal
-morphism lm_head : Combined -> Target [role=kernel] ~ Categorical
+morphism enc_head : Latent -> HeadOut [replicate=4, scale=0.1] ~ Normal
+morphism enc_attn_proj : Latent -> Latent [scale=0.1] ~ Normal
+morphism enc_residual_attn : Latent -> Latent [scale=0.01] ~ Normal
+morphism enc_ff_up : Latent -> FFHidden ~ Normal
+morphism enc_ff_down : FFHidden -> Latent [scale=0.1] ~ Normal
+morphism enc_residual_ff : Latent -> Latent [scale=0.01] ~ Normal
+morphism dec_head : Latent -> HeadOut [replicate=4, scale=0.1] ~ Normal
+morphism dec_attn_proj : Latent -> Latent [scale=0.1] ~ Normal
+morphism dec_residual_attn : Latent -> Latent [scale=0.01] ~ Normal
+morphism dec_ff_up : Latent -> FFHidden ~ Normal
+morphism dec_ff_down : FFHidden -> Latent [scale=0.1] ~ Normal
+morphism dec_residual_ff : Latent -> Latent [scale=0.01] ~ Normal
+morphism cross : Combined -> Combined [scale=0.1] ~ Normal
+morphism lm_head : Combined -> Target ~ Categorical
 
 define enc_block = fan(enc_head) >> enc_attn_proj >> enc_residual_attn >> enc_ff_up >> enc_ff_down >> enc_residual_ff
 define dec_block = fan(dec_head) >> dec_attn_proj >> dec_residual_attn >> dec_ff_up >> dec_ff_down >> dec_residual_ff
@@ -62,7 +60,7 @@ export seq2seq
 
 ### Language-model head
 
-The closing `morphism lm_head : Combined -> Target [role=kernel] ~ Categorical` maps the combined representation onto a Categorical distribution over the target vocabulary; the program's `observe next_token` step accumulates the per-position categorical log-likelihood against the supplied target tensor.
+The closing `morphism lm_head : Combined -> Target ~ Categorical` maps the combined representation onto a Categorical distribution over the target vocabulary; the program's `observe next_token` step accumulates the per-position categorical log-likelihood against the supplied target tensor.
 
 ```mermaid
 flowchart LR

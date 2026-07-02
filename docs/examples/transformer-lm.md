@@ -13,13 +13,12 @@ object HeadOut : Real 4
 object FFHidden : Real 32
 
 morphism tok_embed : Token -> Latent [role=embed]
-morphism head : Latent -> HeadOut [role=kernel, replicate=4, scale=0.1] ~ Normal
-morphism attn_proj : Latent -> Latent [role=kernel, scale=0.1] ~ Normal
-morphism ff_up : Latent -> FFHidden [role=kernel] ~ Normal
-morphism ff_down : FFHidden -> Latent [role=kernel, scale=0.1] ~ Normal
-morphism residual_attn : Latent -> Latent [role=kernel, scale=0.01] ~ Normal
-morphism residual_ff : Latent -> Latent [role=kernel, scale=0.01] ~ Normal
-morphism lm_head : Latent -> Token [role=kernel] ~ Categorical
+morphism head : Latent -> HeadOut [replicate=4, scale=0.1] ~ Normal
+morphism attn_proj : Latent -> Latent [scale=0.1] ~ Normal
+morphism ff_up : Latent -> FFHidden ~ Normal
+morphism ff_down : FFHidden -> Latent [scale=0.1] ~ Normal
+morphism residual_attn, residual_ff : Latent -> Latent [scale=0.01] ~ Normal
+morphism lm_head : Latent -> Token ~ Categorical
 
 define layer = fan(head) >> attn_proj >> residual_attn >> ff_up >> ff_down >> residual_ff
 define backbone = tok_embed >> stack(layer, 2)

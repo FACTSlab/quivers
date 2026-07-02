@@ -9,22 +9,21 @@ A [variational autoencoder](https://en.wikipedia.org/wiki/Variational_autoencode
 ```qvr
 object Pixel : FinSet 8
 object Latent : Real 4
-object EncoderHidden : Real 16
-object DecoderHidden : Real 16
+object EncoderHidden, DecoderHidden : Real 16
 object ObsSpace : Real 8
 object UnitSpace : Real 1
 
 morphism pixel_embed : Pixel -> EncoderHidden [role=embed]
-morphism enc_deep : EncoderHidden -> EncoderHidden [role=kernel] ~ Normal
-morphism enc_to_latent : EncoderHidden -> Latent [role=kernel, scale=0.5] ~ Normal
+morphism enc_deep : EncoderHidden -> EncoderHidden ~ Normal
+morphism enc_to_latent : EncoderHidden -> Latent [scale=0.5] ~ Normal
 
 define encoder = pixel_embed >> stack(enc_deep, 1) >> enc_to_latent
 
-morphism prior : UnitSpace -> Latent [role=kernel] ~ Normal
+morphism prior : UnitSpace -> Latent ~ Normal
 
-morphism dec_1 : Latent -> DecoderHidden [role=kernel] ~ Normal
-morphism dec_deep : DecoderHidden -> DecoderHidden [role=kernel] ~ Normal
-morphism dec_to_obs : DecoderHidden -> ObsSpace [role=kernel, scale=0.1] ~ Normal
+morphism dec_1 : Latent -> DecoderHidden ~ Normal
+morphism dec_deep : DecoderHidden -> DecoderHidden ~ Normal
+morphism dec_to_obs : DecoderHidden -> ObsSpace [scale=0.1] ~ Normal
 
 define decoder = dec_1 >> stack(dec_deep, 1) >> dec_to_obs
 

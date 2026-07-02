@@ -20,8 +20,8 @@ object Embedded : Real 64
 object Hidden : Real 128
 
 morphism tok_embed : Token -> Embedded [role=embed]
-morphism cell : Embedded * Hidden -> Hidden [role=kernel, scale=0.1] ~ Normal
-morphism lm_head : Hidden -> Token [role=kernel] ~ Categorical
+morphism cell : Embedded * Hidden -> Hidden [scale=0.1] ~ Normal
+morphism lm_head : Hidden -> Token ~ Categorical
 
 define backbone = tok_embed >> scan(cell)
 
