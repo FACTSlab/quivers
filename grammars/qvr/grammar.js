@@ -1,30 +1,34 @@
 /**
- * @file Quivers DSL grammar (0.11.0 homogenized surface)
+ * @file Quivers DSL grammar
  * @author Aaron Steven White <aaronstevenwhite@gmail.com>
  * @license MIT
  *
- * The 0.11.0 surface applies twelve homogenization moves:
+ * Surface invariants:
  *
  *   1. Python-style indented blocks everywhere (INDENT / DEDENT via
  *      external scanner; tree-sitter-python style).
- *   2. ``KEYWORD NAME[(params)] : SIG [options] [body]`` is the
- *      single declaration header shape.
- *   3. ``composition NAME as LEVEL`` replaces algebra /
- *      semigroupoid / bilinear_form / composition_rule.
- *   4. ``morphism NAME : DOM -> COD [role=...]`` replaces latent /
- *      observed / kernel / embed / discretize.
- *   5. ``[k=v, ...]`` option block subsumes ``! effects``,
- *      ``depth N``, ``start S``, ``semiring R``, etc.
- *   6. ``~`` is the only initializer marker.
- *   7. ``## doc`` attaches to every declaration kind.
- *   8. ``type NAME : EXPR`` replaces object / space / alias /
- *      type-alias.
- *   9. ``[over=[...] [iid=...] [via=...]]`` unified.
- *  10. Every program step carries a leading keyword
- *      (sample / observe / marginalize / let / return).
- *  11. Effects move into the option block.
- *  12. Constructor-style sized types: ``FinSet(3)``,
- *      ``Euclidean(64)``; kernel rank moves into options.
+ *   2. ``KEYWORD NAMES[(params)] : SIG [options] [body]`` is the
+ *      single declaration header shape. NAMES is a comma-separated
+ *      identifier list wherever a declaration admits families
+ *      (category / object / morphism); the option block is optional
+ *      on every declaration that takes one.
+ *   3. ``[k=v, ...]`` option blocks carry every declaration-level
+ *      knob (role, scale, level, semiring, effects, over, iid,
+ *      via, ...). Option values admit signed numbers.
+ *   4. Sized spaces use space application (``FinSet 3``,
+ *      ``Real 28 28``); constructor keyword options use braces
+ *      (``Real 1 {low=-1.0, high=1.0}``), so a trailing ``[...]``
+ *      always belongs to the enclosing declaration.
+ *   5. ``~`` is the only initializer marker; ``#!`` doc comments
+ *      attach to every declaration kind.
+ *   6. Every program step carries a leading keyword
+ *      (sample / observe / marginalize / let / score / return);
+ *      variable patterns are parenthesized tuples or a bare name.
+ *   7. ``|-`` (or ``⊢``) is the only premises-to-conclusion
+ *      turnstile, for top-level rules and deduction rules alike.
+ *   8. Top-level ``define`` binds morphism expressions; program-step
+ *      ``let`` binds tensor arithmetic. The two sublanguages never
+ *      share a keyword.
  */
 
 /// <reference types="tree-sitter-cli/dsl" />
@@ -67,14 +71,7 @@ module.exports = grammar({
 
   word: $ => $.identifier,
 
-  conflicts: $ => [
-    [$._let_atom, $.let_index],
-    /* ``Real 64 [low=0.0]`` vs ``Real 64`` followed by a parent
-     * rule's option_block (e.g. morphism_decl). GLR enumerates
-     * both attachments and picks the one whose parent rule
-     * accepts the parse. */
-    [$.continuous_constructor],
-  ],
+  conflicts: _ => [],
 
   rules: {
     // -----------------------------------------------------------------
@@ -97,7 +94,7 @@ module.exports = grammar({
       $.bundle_decl,
       $.program_decl,
       $.contraction_decl,
-      $.let_decl,
+      $.define_decl,
       $.export_decl,
       $.deduction_decl,
       $.signature_decl,
@@ -134,14 +131,14 @@ module.exports = grammar({
     ),
 
     // -----------------------------------------------------------------
-    // composition (move #3)
+    // composition
     // -----------------------------------------------------------------
 
     composition_decl: $ => seq(
       optional(field('docs', $.doc_comment_group)),
       'composition',
       field('name', $.identifier),
-      optional(seq('as', field('level', $.composition_level))),
+      optional(field('options', $.option_block)),
       choice(
         seq(
           $._newline,
@@ -151,13 +148,6 @@ module.exports = grammar({
         ),
         $._newline,
       ),
-    ),
-
-    composition_level: $ => choice(
-      'algebra',
-      'semigroupoid',
-      'bilinear_form',
-      'rule',
     ),
 
     composition_rule_entry: $ => seq(
@@ -182,13 +172,15 @@ module.exports = grammar({
     ),
 
     // -----------------------------------------------------------------
-    // type (move #8)
+    // object
     // -----------------------------------------------------------------
 
+    /* ``object A, B : V`` declares one object per name, each with the
+     * same value expression. */
     object_decl: $ => seq(
       optional(field('docs', $.doc_comment_group)),
       'object',
-      field('name', $.identifier),
+      field('names', commaSep1($.identifier)),
       ':',
       field('value', $._object_value),
       $._newline,
@@ -228,18 +220,22 @@ module.exports = grammar({
     ),
 
     // -----------------------------------------------------------------
-    // morphism (move #4 + #6)
+    // morphism
     // -----------------------------------------------------------------
 
+    /* ``morphism f, g : A -> B`` declares one morphism per name, each
+     * with the same signature and options but independent parameters.
+     * The option block is optional; ``role`` defaults by inference
+     * (sampled -> latent, observed -> observed, otherwise kernel). */
     morphism_decl: $ => seq(
       optional(field('docs', $.doc_comment_group)),
       'morphism',
-      field('name', $.identifier),
+      field('names', commaSep1($.identifier)),
       ':',
       field('domain', $._object_expr),
       '->',
       field('codomain', $._object_expr),
-      field('options', $.option_block),
+      optional(field('options', $.option_block)),
       optional(seq('~', field('init', $._morphism_init))),
       $._newline,
     ),
@@ -264,7 +260,7 @@ module.exports = grammar({
       optional(field('docs', $.doc_comment_group)),
       'bundle',
       field('name', $.identifier),
-      '=',
+      ':',
       '[',
       optional(field('rules', commaSep1($.identifier))),
       ']',
@@ -284,7 +280,7 @@ module.exports = grammar({
       field('domain', $._object_expr),
       '->',
       field('codomain', $._object_expr),
-      field('options', $.option_block),
+      optional(field('options', $.option_block)),
       $._newline,
     ),
 
@@ -307,7 +303,7 @@ module.exports = grammar({
       bracketedList($, '(', field('variables', $.identifier), ')'),
       ':',
       field('premises', commaSep1($._object_expr)),
-      '=>',
+      choice('|-', '⊢'),
       field('conclusion', $._object_expr),
       $._newline,
     ),
@@ -335,22 +331,27 @@ module.exports = grammar({
     ),
 
     // -----------------------------------------------------------------
-    // let / export
+    // define / export
     // -----------------------------------------------------------------
 
-    let_decl: $ => prec.right(seq(
+    /* ``define`` binds a morphism expression at the top level. The
+     * program-step ``let`` binds tensor arithmetic inside program
+     * bodies; the two binding forms never share a keyword. */
+    define_decl: $ => prec.right(seq(
       optional(field('docs', $.doc_comment_group)),
-      'let',
+      'define',
       field('name', $.identifier),
       '=',
       field('value', $._expr),
-      optional(seq(
-        'where',        $._newline,
-        $._indent,
-        repeat1(choice($.let_decl, $._newline)),
-        $._dedent,
-      )),
-      $._newline,
+      choice(
+        seq(
+          'where',        $._newline,
+          $._indent,
+          repeat1(choice($.define_decl, $._newline)),
+          $._dedent,
+        ),
+        $._newline,
+      ),
     )),
 
     export_decl: $ => seq(
@@ -423,8 +424,10 @@ module.exports = grammar({
       $._dedent,
     ),
 
+    /* ``"a", "an" : Det = LF`` declares one entry per word, each with
+     * the same category and logical form. */
     lexicon_entry: $ => seq(
-      field('word', $.string),
+      field('words', commaSep1($.string)),
       ':',
       field('category', $._lexicon_category),
       '=',
@@ -497,8 +500,6 @@ module.exports = grammar({
     ),
 
     sort_kind: $ => choice('object', 'index', 'data'),
-
-    vocab_literal: $ => choice($.string, $.integer, $.float),
 
     signature_constructors: $ => seq(
       'constructors',      $._newline,
@@ -645,7 +646,12 @@ module.exports = grammar({
       $._newline,
     ),
 
+    /* Every encoder body entry is keyword-led; ``op`` introduces a
+     * constructor rewrite rule, so an operator may carry any name
+     * (including ``dim`` or ``init``) without shadowing the sibling
+     * entry keywords. */
     encoder_op_rule: $ => seq(
+      'op',
       field('op', $.identifier),
       optional(seq('(', commaSep1(field('args', $.identifier)), ')')),
       optional(choice(
@@ -715,7 +721,7 @@ module.exports = grammar({
       optional(field('docs', $.doc_comment_group)),
       'decoder',
       field('name', $.identifier),
-      'over',
+      ':',
       field('signature', $.identifier),
       optional(bracketedList($, '(', field('sig_args', $.identifier), ')')),
       optional(field('options', $.option_block)),      $._newline,
@@ -870,7 +876,7 @@ module.exports = grammar({
 
     observe_step: $ => seq(
       'observe',
-      field('var', $.identifier),
+      field('vars', $._var_pattern),
       optional(seq(':', field('index', $._object_expr))),
       '<-',
       field('morphism', $.identifier),
@@ -955,13 +961,15 @@ module.exports = grammar({
       ']',
     )),
 
+    /* Variable patterns share the parenthesized-tuple shape with
+     * return patterns: a bare name or ``(a, b)``. */
     _var_pattern: $ => choice($.identifier, $.var_tuple),
 
     var_tuple: $ => seq(
-      '[',
+      '(',
       commaSep1($.identifier),
       optional(','),
-      ']',
+      ')',
     ),
 
     _return_pattern: $ => choice(
@@ -1031,48 +1039,34 @@ module.exports = grammar({
       bracketedList($, '(', field('args', $._object_expr), ')'),
     )),
 
-    /* Constructor calls for sized types. The grammar keeps a single
-     * call shape ``Name(args)`` but tags each kind so downstream
-     * code dispatches on the parse-tree node, not on the
-     * constructor name string. Operators that combine discrete and
-     * continuous (``FinSet(N) * Euclidean(D)`` is a legitimate
-     * mixed product) remain in the unified ``_object_expr`` family;
-     * categorical validity is a type-checking concern handled by
-     * the compiler, not the grammar. */
-    /* FinSet uses the space-separated mathematical form
-     * ``FinSet N`` where N is the cardinality (an integer literal
-     * or a bound identifier). Matches standard category-theory
-     * notation: ``FinSet`` is the category and ``FinSet N`` is the
-     * canonical n-element object. */
+    /* Sized-space constructors use space application, matching the
+     * mathematical convention that ``FinSet`` names the category and
+     * ``FinSet N`` its canonical n-element object. Operators that
+     * combine discrete and continuous (``FinSet N * Real D`` is a
+     * legitimate mixed product) remain in the unified
+     * ``_object_expr`` family; categorical validity is a
+     * type-checking concern handled by the compiler, not the
+     * grammar. */
     discrete_constructor: $ => prec(PREC.object_apply, seq(
       field('constructor', 'FinSet'),
       field('cardinality', choice($.integer, $.identifier)),
     )),
 
-    /* Continuous-space constructors:
+    /* Continuous-space constructors take space-separated positional
+     * args, mirroring ``FinSet N``, with keyword options in a
+     * trailing brace block:
      *
-     *   Real(N)                       ℝ^N (unbounded)
-     *   Real(N, low=L)                ℝ^N restricted to x >= L (per dim)
-     *   Real(N, low=L, high=H)        the box [L, H]^N
-     *   Real(N, high=H)               x <= H (per dim)
+     *   Real 64                       -- one-dim real vector space
+     *   Real 28 28                    -- 2D tensor space
+     *   Real 1 {low=0.0}              -- half-line
+     *   Real 1 {low=-1.0, high=1.0}   -- the box [-1, 1]
+     *   Simplex 10                    -- the (K-1)-simplex
+     *   CholeskyFactor 4              -- lower-triangular w/ positive diagonal
      *
-     *   Simplex(K)                    the (K-1)-simplex (components sum to 1)
-     *   CholeskyFactor(D)             lower-triangular with positive diagonal
-     *
-     * Product spaces use the ``*`` operator on type expressions:
-     * ``Real(64) * Real(32)`` instead of a dedicated ``ProductSpace``
-     * constructor. The historical PositiveReals and UnitInterval
-     * special-cases are subsumed by ``Real(N, low=...)`` and
-     * ``Real(N, low=..., high=...)`` respectively. */
-    /* Continuous-space constructors take Haskell-style space-
-     * separated positional args, mirroring ``FinSet N``:
-     *
-     *   Real 64            -- one-dim real vector space
-     *   Real 28 28         -- 2D tensor space
-     *   Simplex 10         -- the (K-1)-simplex
-     *   Sphere 2           -- the 2-sphere
-     *   CholeskyFactor 4   -- lower-triangular w/ positive diagonal
-     */
+     * Braces keep constructor options disjoint from declaration
+     * option blocks: a trailing ``[...]`` always belongs to the
+     * enclosing declaration. Product spaces use the ``*`` operator
+     * on type expressions (``Real 64 * Real 32``). */
     continuous_constructor: $ => prec(PREC.object_apply, seq(
       field('constructor', choice(
         'Real',
@@ -1088,24 +1082,27 @@ module.exports = grammar({
         'Diagonal',
       )),
       repeat1(field('args', $._object_constructor_arg)),
-      optional(field('options', $.option_block)),
+      optional(field('options', $.constructor_options)),
     )),
 
-    /* Constructor positional arguments are space-separated (Haskell-
-     * application style): ``Real 28 28``, ``Simplex 10``,
-     * ``CholeskyFactor 4``. Keyword arguments move to the trailing
-     * option block: ``Real 64 [low=0.0, high=1.0]``.
-     */
     _object_constructor_arg: $ => choice(
       $.integer,
       $.float,
       $.identifier,
     ),
 
+    constructor_options: $ => bracketedList($, '{', $.constructor_kwarg, '}'),
+
+    constructor_kwarg: $ => seq(
+      field('key', $.identifier),
+      '=',
+      field('value', choice($.signed_number, $.identifier)),
+    ),
+
     _numeric_literal: $ => choice($.integer, $.float),
 
     // -----------------------------------------------------------------
-    // option block (move #5)
+    // option block
     // -----------------------------------------------------------------
 
     option_block: $ => bracketedList($, '[', $.option_entry, ']'),
@@ -1115,12 +1112,12 @@ module.exports = grammar({
       optional(seq('=', field('value', $._option_value))),
     ),
 
+    /* Numeric option values are signed, mirroring draw arguments. */
     _option_value: $ => choice(
       $.option_list,
       $.option_call,
       $.identifier,
-      $.integer,
-      $.float,
+      $.signed_number,
       $.string,
     ),
 
@@ -1128,7 +1125,7 @@ module.exports = grammar({
       field('func', $.identifier),
       '(',
       optional(field('args', commaSep1(choice(
-        $.string, $.integer, $.float, $.identifier,
+        $.string, $.signed_number, $.identifier,
       )))),
       ')',
     )),
@@ -1136,7 +1133,7 @@ module.exports = grammar({
     option_list: $ => seq(
       '[',
       optional(commaSep1(field('item', choice(
-        $.identifier, $.string, $.integer, $.float,
+        $.identifier, $.string, $.signed_number,
       )))),
       ']',
     ),
@@ -1161,11 +1158,7 @@ module.exports = grammar({
 
     compose_expr: $ => prec.left(PREC.compose, seq(
       field('left', $._expr),
-      field('op', choice(
-        '>>', '<<', '>=>',
-        '*>', '~>', '||>', '?>', '&&>', '+>',
-        '$>', '%>',
-      )),
+      field('op', choice('>>', '<<')),
       field('right', $._expr),
     )),
 
@@ -1440,7 +1433,10 @@ module.exports = grammar({
 
     identifier: _ => /[A-Za-z_][A-Za-z0-9_]*/,
     integer: _ => /[0-9]+/,
-    float: _ => /[0-9]+\.[0-9]+([eE][+-]?[0-9]+)?/,
+    /* Floats admit trailing-dot (``1.``), leading-dot (``.5``), and
+     * exponent-only (``1e-3``) forms alongside ``1.0`` and
+     * ``2.5e-3``. */
+    float: _ => /[0-9]+\.[0-9]*([eE][+-]?[0-9]+)?|\.[0-9]+([eE][+-]?[0-9]+)?|[0-9]+[eE][+-]?[0-9]+/,
     signed_number: $ => seq(optional('-'), choice($.integer, $.float)),
 
     _string_literal: $ => $.string,

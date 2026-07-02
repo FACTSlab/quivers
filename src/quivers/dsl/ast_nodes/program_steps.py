@@ -117,19 +117,6 @@ class DrawArgList(DrawArg):
     kind: Literal["list"] = "list"
 
 
-def _to_draw_arg(value: str | float | int | DrawArg) -> DrawArg:
-    """Lift a plain Python value into the tagged `DrawArg` shape."""
-    if isinstance(value, DrawArg):
-        return value
-    if isinstance(value, str):
-        return DrawArgName(text=value)
-    if isinstance(value, (int, float)):
-        return DrawArgScalar(value=float(value))
-    raise TypeError(
-        f"_to_draw_arg: expected str | float | DrawArg, got {type(value).__name__}"
-    )
-
-
 class ProgramStep(dx.TaggedUnion, discriminator="kind"):
     """Sum of program-block step node kinds."""
 
@@ -146,10 +133,10 @@ class SampleStep(ProgramStep):
 
         sample v <- F(args)                         # scalar draw
         sample v : A <- F(args)                     # A-indexed plate
-        sample [a, b] <- F(args)                    # destructuring tuple
+        sample (a, b) <- F(args)                    # destructuring tuple
 
     Optional ``[options]`` block carries axis-role and other
-    family-level config (move #9 ``[over=[...], iid=[...]]``).
+    family-level config (``[over=[...], iid=[...]]``).
     """
 
     vars: tuple[str, ...]
@@ -164,14 +151,16 @@ class SampleStep(ProgramStep):
 
 
 class ObserveStep(ProgramStep):
-    """``observe var[: index] <- morphism(args) [options]``.
+    """``observe vars[: index] <- morphism(args) [options]``.
 
     Scored Kleisli bind; the bound coordinate is clamped at runtime
     by the ``observations`` dict, making the resulting kernel
-    sub-probabilistic.
+    sub-probabilistic. ``vars`` shares the pattern shape with
+    `SampleStep` (a bare name or a parenthesized tuple); the compiler
+    validates arity against the morphism's codomain.
     """
 
-    var: str
+    vars: tuple[str, ...]
     morphism: str
     args: tuple[DrawArg, ...] | None = None
     index: ObjectExpr | None = None

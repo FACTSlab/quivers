@@ -1,4 +1,6 @@
-"""Top-level statement AST nodes for the Every Statement variant corresponds 1:1 to a top-level tree-sitter
+"""Top-level statement AST nodes for the quivers DSL.
+
+Every Statement variant corresponds 1:1 to a top-level tree-sitter
 production in ``grammars/qvr/grammar.js``. The `Statement`
 tagged union discriminates via the ``kind`` field.
 
@@ -12,7 +14,7 @@ Sixteen Statement subclasses:
 * `MorphismDecl`
 * `BundleDecl`
 * `ContractionDecl`
-* `LetDecl`
+* `DefineDecl`
 * `ExportDecl`
 * `DeductionDecl`
 * `SignatureDecl`
@@ -91,11 +93,11 @@ class CompositionRuleEntry(dx.Model):
 
 
 class CompositionDecl(Statement):
-    """``composition NAME [at LEVEL] [: body]`` declaration.
+    """``composition NAME [level=LEVEL] [: body]`` declaration.
 
-    ``level`` records which algebraic level the
-    declaration advertises; the optional body defines the rule's
-    operations inline.
+    ``level`` records which algebraic level the option block
+    advertises; the optional body defines the rule's operations
+    inline.
     """
 
     name: str
@@ -128,7 +130,7 @@ class CategoryDecl(Statement):
 
 
 class RuleDecl(Statement):
-    """``rule NAME(variables) : premises => conclusion`` declaration.
+    """``rule NAME(variables) : premises |- conclusion`` declaration.
 
     Premises and conclusion are `ObjectExpr` patterns drawn from
     the unified type-expression family.
@@ -227,8 +229,9 @@ class TypeFromExpr(TypeInitializer):
 
 
 class ObjectDecl(Statement):
-    """``type NAME : VALUE`` declaration.
+    """``object NAME, ... : VALUE`` declaration.
 
+    Each name registers an independent object with the same VALUE.
     The VALUE's shape picks the
     discrete-vs-continuous and reference-vs-initializer distinction;
     the compiler reads `init` to decide what kind of object
@@ -236,7 +239,7 @@ class ObjectDecl(Statement):
     register in the env.
     """
 
-    name: str
+    names: tuple[str, ...]
     init: TypeInitializer
     docs: tuple[str, ...] = ()
     line: int = 0
@@ -257,8 +260,10 @@ type MorphismRole = Literal[
 structural input), ``kernel`` (parametric Markov kernel with a family
 prior), ``embed`` (FinSet -> ContinuousSpace boundary),
 ``discretize`` (ContinuousSpace -> FinSet boundary), ``let``
-(deterministic let-bound morphism). Required; the compiler rejects
-declarations without ``role`` in their option block.
+(deterministic let-bound morphism). Optional; when the option block
+carries no ``role``, the compiler infers one from program usage
+(sampled -> latent, observed -> observed, otherwise kernel).
+``embed``, ``discretize``, and ``let`` are always explicit.
 """
 
 
@@ -272,11 +277,13 @@ class MorphismInitFamily(dx.Model):
 
 
 class MorphismDecl(Statement):
-    """``morphism NAME : DOM -> COD [options] [~ init]``.
+    """``morphism NAME, ... : DOM -> COD [options] [~ init]``.
 
-    The morphism's role
-    travels in the option block; the compiler reads ``options["role"]``
-    to pick the runtime construction.
+    Each name declares an independent morphism (fresh parameters)
+    with the same signature, options, and initializer. The morphism's
+    role travels in the option block; the compiler reads
+    ``options["role"]`` (or infers a role from program usage) to pick
+    the runtime construction.
 
     Initializer (``~`` clause, optional):
 
@@ -290,7 +297,7 @@ class MorphismDecl(Statement):
     is populated.
     """
 
-    name: str
+    names: tuple[str, ...]
     domain: ObjectExpr
     codomain: ObjectExpr
     options: tuple[OptionEntry, ...] = ()
@@ -308,7 +315,7 @@ class MorphismDecl(Statement):
 
 
 class BundleDecl(Statement):
-    """``bundle NAME = [rule1, rule2, ...]`` first-class schema bundle.
+    """``bundle NAME : [rule1, rule2, ...]`` first-class schema bundle.
 
     Binds NAME to a tuple of schema references; ``parser(rules=NAME)``
     and ``chart_fold(binary=NAME, ...)`` resolve the bundle by name
@@ -363,21 +370,22 @@ class ContractionDecl(Statement):
 
 
 # ---------------------------------------------------------------------------
-# let / export
+# define / export
 # ---------------------------------------------------------------------------
 
 
-class LetDecl(Statement):
-    """``let NAME = EXPR [where: nested-lets]`` value binding.
+class DefineDecl(Statement):
+    """``define NAME = EXPR [where: nested-defines]`` value binding.
 
     Unlike a `MorphismDecl` with ``role=let``, this is a
-    value-level let: its RHS is an arbitrary Expr, not a morphism
-    signature with an init.
+    value-level binding: its RHS is an arbitrary morphism Expr, not a
+    morphism signature with an init. The program-step ``let`` binds
+    tensor arithmetic instead; the two forms never share a keyword.
 
     The ``where`` field is typed as ``tuple[Statement, ...]`` (the
     union root) because didactic does not yet accept self-referential
     forward refs in field annotations. The parser only ever writes
-    `LetDecl` instances into the tuple.
+    `DefineDecl` instances into the tuple.
     """
 
     name: str
@@ -386,7 +394,7 @@ class LetDecl(Statement):
     docs: tuple[str, ...] = ()
     line: int = 0
     col: int = 0
-    kind: Literal["let_decl"] = "let_decl"
+    kind: Literal["define_decl"] = "define_decl"
 
 
 class ExportDecl(Statement):
@@ -472,9 +480,12 @@ class LexiconCategoryRestricted(LexiconCategory):
 
 
 class LexiconEntry(dx.Model):
-    """A single entry in a deduction's lexicon block."""
+    """One lexicon-block entry: ``"word", ... : CAT = LF``.
 
-    word: str
+    Each word maps to the same category and logical form.
+    """
+
+    words: tuple[str, ...]
     category: LexiconCategory
     lf: LetExprNode
     options: tuple[OptionEntry, ...] = ()
@@ -676,7 +687,7 @@ __all__ = [
     "DeductionDecl",
     "EncoderDecl",
     "ExportDecl",
-    "LetDecl",
+    "DefineDecl",
     "LexiconEntry",
     "LossDecl",
     "MorphismDecl",
