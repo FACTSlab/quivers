@@ -448,7 +448,6 @@ def _err_expr(t: _Tree, vid: str, field: str) -> Expr:
 
 
 def _walk_parser_expr(t: _Tree, vid: str, line: int, col: int) -> ExprParser:
-    keyword_vid = t.field(vid, "keyword")
     args = t.fields(vid, "args")
     rules: tuple[str, ...] = ()
     categories: tuple[str, ...] = ()
@@ -457,11 +456,13 @@ def _walk_parser_expr(t: _Tree, vid: str, line: int, col: int) -> ExprParser:
     depth = 1
     constructors: tuple[str, ...] | None = None
     for arg_vid in args:
-        key_vid = t.field(arg_vid, "key")
+        # The grammar binds each argument's keyword as a field on an
+        # anonymous token; panproto surfaces those as ``field:<name>``
+        # constraints on the argument vertex rather than as edges.
+        key = t.consts(arg_vid).get("field:key")
         val_vid = t.field(arg_vid, "value")
-        if key_vid is None or val_vid is None:
-            continue
-        key = t.text(key_vid)
+        if key is None or val_vid is None:
+            raise ParseError(f"parser_arg missing key/value at {arg_vid}")
         if key == "rules":
             rules = _ident_list_to_tuple(t, val_vid)
         elif key == "categories":
@@ -478,7 +479,6 @@ def _walk_parser_expr(t: _Tree, vid: str, line: int, col: int) -> ExprParser:
                 start = start_text
         elif key == "depth":
             depth = int(t.text(val_vid))
-    del keyword_vid
     return ExprParser(
         rules=rules,
         categories=categories,
@@ -500,11 +500,12 @@ def _walk_chart_fold_expr(t: _Tree, vid: str, line: int, col: int) -> ExprChartF
     depth = 1
     effect_depth = 0
     for arg_vid in args:
-        key_vid = t.field(arg_vid, "key")
+        # As in ``_walk_parser_expr``: the keyword rides a
+        # ``field:key`` constraint, not an edge.
+        key = t.consts(arg_vid).get("field:key")
         val_vid = t.field(arg_vid, "value")
-        if key_vid is None or val_vid is None:
-            continue
-        key = t.text(key_vid)
+        if key is None or val_vid is None:
+            raise ParseError(f"chart_fold_arg missing key/value at {arg_vid}")
         if key == "lex":
             lex = _walk_expr(t, val_vid)
         elif key == "binary":
