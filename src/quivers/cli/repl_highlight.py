@@ -122,7 +122,7 @@ def tokenize(
     """Return the styled span list for ``source``.
 
     Drives directly on the tree-sitter parse so that anonymous tokens
-    (keywords, punctuation) are preserved — panproto's Schema view
+    (keywords, punctuation) are preserved; panproto's Schema view
     strips those, so we go to tree-sitter for highlighting and keep
     panproto for parsing into the didactic AST.
 
@@ -131,7 +131,7 @@ def tokenize(
     SEMANTIC_TOKEN_TYPES value). Identifiers the grammar leaves as
     ``"variable"`` are upgraded to their env-known kind, so a name
     looks the same across the input pane, ``:type``, ``:info``, and
-    any other surface — regardless of whether the surrounding context
+    any other surface, regardless of whether the surrounding context
     parses as a valid declaration.
 
     Failure path: if the parser raises, the entire source is returned
@@ -229,8 +229,6 @@ def _classify(kind: str, text: str, parent_kind: str | None) -> str:
         return "number"
     if kind == "string":
         return "string"
-    if kind == "composition_level":
-        return "keyword"
     if kind == "identifier":
         # When a tree-sitter parse error puts a known keyword in the
         # 'identifier' bucket (because the surrounding production
