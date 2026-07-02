@@ -133,7 +133,7 @@ def _draw(
     tagged_args = tuple(_to_draw_arg(a) for a in args)
     if mode == "score":
         return ObserveStep(
-            var=var,
+            vars=(var,),
             morphism=family,
             args=tagged_args,
             index=index,
@@ -492,7 +492,7 @@ class FormulaToQVRModule(dx.Lens[Formula, Module, FormulaData]):
         n_obs = formula.response_values.shape[0]
         statements.append(
             ObjectDecl(
-                name="Resp",
+                names=("Resp",),
                 init=TypeFromExpr(
                     expr=DiscreteConstructor(
                         constructor="FinSet",
@@ -511,7 +511,7 @@ class FormulaToQVRModule(dx.Lens[Formula, Module, FormulaData]):
             levels = formula.group_levels[group]
             statements.append(
                 ObjectDecl(
-                    name=qgroup,
+                    names=(qgroup,),
                     init=TypeFromExpr(
                         expr=DiscreteConstructor(
                             constructor="FinSet",
