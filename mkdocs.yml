@@ -139,6 +139,7 @@ nav:
     - Probabilistic PCA: examples/ppca.md
     - Latent Dirichlet Allocation: examples/lda.md
     - "Item Response Theory (2PL)": examples/irt-2pl.md
+    - Parametric Partial Pooling: examples/parametric-pooling.md
     - Probabilistic Matrix Factorization: examples/pmf.md
     - Bilinear Tensor Contraction: examples/tensor-contraction.md
     - Bayesian Neural Network: examples/bnn.md

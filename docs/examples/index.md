@@ -28,6 +28,7 @@ All source files live under `docs/examples/source/`.
 - [Gaussian Mixture Model](mixture-model.md): finite mixture with grouped marginalization over the cluster label.
 - [Variational Autoencoder](vae.md): amortized inference over a continuous latent with neural decoder.
 - [Bayesian Neural Network](bnn.md): feed-forward classifier with Normal priors over every weight.
+- [Parametric Partial Pooling](parametric-pooling.md): random effects from a parametric program template, with a labeled return tuple, a score-step sum-to-zero factor, and export selection.
 - [Probabilistic Matrix Factorization](pmf.md): low-rank Bayesian completion of a sparse rating matrix.
 - [Bilinear Tensor Contraction](tensor-contraction.md): neural-tensor-layer scoring of predicate-argument pairs via an operadic three-way contraction.
 
