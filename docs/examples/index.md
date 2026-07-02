@@ -29,6 +29,7 @@ All source files live under `docs/examples/source/`.
 - [Variational Autoencoder](vae.md): amortized inference over a continuous latent with neural decoder.
 - [Bayesian Neural Network](bnn.md): feed-forward classifier with Normal priors over every weight.
 - [Probabilistic Matrix Factorization](pmf.md): low-rank Bayesian completion of a sparse rating matrix.
+- [Bilinear Tensor Contraction](tensor-contraction.md): neural-tensor-layer scoring of predicate-argument pairs via an operadic three-way contraction.
 
 ## State-space and time-series models
 
@@ -59,6 +60,8 @@ All source files live under `docs/examples/source/`.
 - [CCG](ccg.md): combinatory categorial grammar with forward / backward application and composition.
 - [Type-Logical Grammar (Lambek)](type-logical.md): Lambek calculus with residuated slashes and tensor.
 - [PMCFG](pmcfg.md): probabilistic multiple context-free grammar with WH-movement via a rank-2 non-terminal.
+- [Schema-Bundled Chart Parser](schema-chart-parser.md): pattern-polymorphic rule schemas bundled into a differentiable CKY chart parser.
+- [Term Autoencoder](term-autoencoder.md): a signature, encoder, decoder, and loss compressing typed lambda terms.
 - [Multimodal TLG](multimodal-tlg.md): Lambek calculus extended with diamond and box modalities.
 - [Custom Sequent Rules](custom-rules.md): user-defined sequents over a free residuated category.
 - [Quantifier Scope](quantifier-scope.md): continuation-monad lift for generalized quantifiers.
