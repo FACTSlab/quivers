@@ -140,7 +140,7 @@ class _ExpressionsMixin:
         Recognised expression shapes:
 
         * `ExprIdent` — a bare name resolved against
-          `_transformations` (user let-bindings) and then
+          `_transformations` (user define-bindings) and then
           `_trans_singletons` (built-in singletons).
         * `ExprMorphismCall` — a constructor call whose
           callee names an entry of `_trans_constructors`;
@@ -175,7 +175,7 @@ class _ExpressionsMixin:
                 f"change_base: undefined transformation "
                 f"{expr.name!r}; available singletons: "
                 f"{sorted(self._trans_singletons)}; constructors: "
-                f"{sorted(self._trans_constructors)}; let-bound: "
+                f"{sorted(self._trans_constructors)}; define-bound: "
                 f"{sorted(self._transformations)}",
                 expr.line,
                 expr.col,
@@ -288,84 +288,20 @@ class _ExpressionsMixin:
         return inner_morph.change_base(phi)
 
     def _compose_with_op(self, left, right, op: str):
-        """Dispatch a composition expression to the algebra
-        implied by the surface operator.
+        """Compose two morphisms sequentially.
 
-        Each composition operator carries an enrichment algebra.
-        ``>>``, ``<<`` (already swapped to forward), and ``>=>``
-        all use the operands' shared algebra (the existing
-        `Morphism.__rshift__` path, which raises
-        ``incompatible algebras`` if they differ).
-
-        The new operators (``*>``, ``~>``, ``||>``, ``?>``,
-        ``&&>``, ``+>``) each fix the composition algebra at the
-        operator and re-tag the operands accordingly. If the
-        operands' declared algebras already match the operator's
-        target, no base change is needed; otherwise the user must
-        have applied an explicit ``.change_base(φ)`` upstream.
+        The surface exposes one sequential-composition operator
+        family: ``>>`` (and ``<<``, which the parser swaps into
+        forward ``>>`` form before the AST reaches the compiler).
+        Composition uses the operands' shared algebra via the
+        `Morphism.__rshift__` path, which raises ``incompatible
+        algebras`` when they differ; algebra-tagged composition is
+        expressed via ``.change_base(...)`` or a ``composition``
+        declaration.
         """
-        from quivers.core.algebras import (
-            COUNTING,
-            GODEL,
-            LOG_PROB,
-            LUKASIEWICZ,
-            MAX_PLUS,
-            PROBABILITY,
-            REAL,
-        )
-        from quivers.core.morphisms import ComposedMorphism, Morphism
-        from quivers.core.algebras import BOOLEAN
-        from quivers.core.algebras import MARKOV
-
-        del COUNTING  # exposed via module-level `algebra counting` only
-        op_to_algebra: dict[str, object] = {
-            ">>": None,  # use operands' shared algebra
-            ">=>": None,
-            "*>": MARKOV,
-            "~>": LOG_PROB,
-            "||>": GODEL,
-            "?>": MAX_PLUS,
-            "&&>": BOOLEAN,
-            "+>": LUKASIEWICZ,
-            "$>": REAL,
-            "%>": PROBABILITY,
-        }
-        if op not in op_to_algebra:
+        if op != ">>":
             raise CompileError(f"unknown composition operator {op!r}", 0, 0)
-        target_algebra = op_to_algebra[op]
-        if target_algebra is None:
-            # ``>>`` and ``>=>``: fall through to the operands' own
-            # composition machinery, which uses the shared algebra
-            # (and errors on a mismatch as before).
-            return left >> right
-        # Validate both operands carry the operator's target
-        # algebra. The operator does NOT auto-base-change; the
-        # user must have applied ``.change_base(...)`` upstream to
-        # bring both operands to the target algebra before
-        # composing.
-        if not isinstance(left, Morphism) or not isinstance(right, Morphism):
-            raise TypeError(
-                f"composition operator {op!r}: both operands must be "
-                f"Morphism instances; got "
-                f"{type(left).__name__} {op} {type(right).__name__}"
-            )
-        for label, m in (("left", left), ("right", right)):
-            if type(m.algebra) is not type(target_algebra):
-                raise TypeError(
-                    f"composition operator {op!r}: {label} operand's "
-                    f"algebra is {m.algebra.name!r}, but the "
-                    f"operator dispatches to "
-                    f"{target_algebra.name!r}; apply "  # type: ignore[union-attr]
-                    f"`.change_base(...)` first to convert "
-                    f"{label} into the operator's algebra"
-                )
-        if left.codomain != right.domain:
-            raise TypeError(
-                f"composition operator {op!r}: cannot compose "
-                f"codomain {left.codomain!r} != domain "
-                f"{right.domain!r}"
-            )
-        return ComposedMorphism(left, right)
+        return left >> right
 
     def _compile_expr(self, expr: Expr):
         """Compile a value expression into a morphism.

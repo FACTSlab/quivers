@@ -25,6 +25,7 @@ from quivers.dsl.ast_nodes import (
     SortVocabLiteral,
 )
 from quivers.dsl.compiler._options import (
+    check_option_keys,
     find_option,
     get_option_call,
     get_option_int,
@@ -107,6 +108,23 @@ def _decode_vocab_option(
     return tuple(lits)
 
 
+# Closed option-key sets for the structural surface. Each set lives
+# next to the code that consumes it; `check_option_keys`
+# rejects anything outside the set with a did-you-mean diagnostic.
+#
+# * Encoders read only ``factory``; a factory-backed encoder's option
+#   block is deliberately open-ended (every other entry is a factory
+#   keyword argument validated against the factory's own Python
+#   signature in `_build_encoder_from_factory`), so strict
+#   key-checking applies only to non-factory encoders.
+# * Decoders read the search ``depth``.
+# * Losses read the ``weight`` scalar, the ``on`` attachment call,
+#   and the bare ``global`` attachment flag.
+_ENCODER_OPTION_KEYS: frozenset[str] = frozenset({"factory"})
+_DECODER_OPTION_KEYS: frozenset[str] = frozenset({"depth"})
+_LOSS_OPTION_KEYS: frozenset[str] = frozenset({"weight", "on", "global"})
+
+
 _ENCODER_FACTORY_REGISTRY: dict[str, str] = {
     # Encoder factory name (as users write it in ``using
     # <factory>``) → import path ``module:attribute`` resolved at
@@ -150,14 +168,17 @@ def _decode_loss_attachment(
     )
     if call is None:
         return ("global", None, None)
+    on_entry = find_option(decl.options, "on")
+    ln = on_entry.line if on_entry is not None and on_entry.line else decl.line
+    cl = on_entry.col if on_entry is not None and on_entry.line else decl.col
     name = call.func
     if name in ("program", "deduction", "encoder", "decoder"):
         if len(call.args) != 1 or not isinstance(call.args[0], OptionName):
             raise CompileError(
                 f"loss {decl.name!r}: ``on={name}(...)`` takes a "
                 "single identifier argument",
-                decl.line,
-                decl.col,
+                ln,
+                cl,
             )
         return (name, call.args[0].value, None)
     if name == "rule":
@@ -178,8 +199,8 @@ def _decode_loss_attachment(
                 f"loss {decl.name!r}: ``on=rule(NAME, in=DED)`` "
                 "requires both the rule name and the enclosing "
                 "deduction",
-                decl.line,
-                decl.col,
+                ln,
+                cl,
             )
         return ("rule", target, rule_ded)
     if name == "chart":
@@ -187,14 +208,14 @@ def _decode_loss_attachment(
             raise CompileError(
                 f"loss {decl.name!r}: ``on=chart(of=DED)`` takes a "
                 "single identifier argument",
-                decl.line,
-                decl.col,
+                ln,
+                cl,
             )
         return ("chart", call.args[0].value, None)
     raise CompileError(
         f"loss {decl.name!r}: unknown attachment kind {name!r} in ``on=...``",
-        decl.line,
-        decl.col,
+        ln,
+        cl,
     )
 
 
@@ -243,13 +264,15 @@ def _build_encoder_from_factory(decl: "EncoderDecl", sig) -> "Encoder":
         if entry.key == "factory":
             continue
         key = entry.key
+        entry_line = entry.line if entry.line else decl.line
+        entry_col = entry.col if entry.line else decl.col
         if key not in signature_obj.parameters:
             raise CompileError(
                 f"encoder {decl.name!r}: factory {factory_name!r} does not "
                 f"accept option {key!r}; signature is "
                 f"{', '.join(sorted(signature_obj.parameters))}",
-                decl.line,
-                decl.col,
+                entry_line,
+                entry_col,
             )
         value = entry.value
         if isinstance(value, OptionName):
@@ -263,8 +286,8 @@ def _build_encoder_from_factory(decl: "EncoderDecl", sig) -> "Encoder":
             raise CompileError(
                 f"encoder {decl.name!r}: factory option {key!r} has "
                 f"unsupported value shape {type(value).__name__}",
-                decl.line,
-                decl.col,
+                entry_line,
+                entry_col,
             )
     return factory(**kwargs)
 
@@ -564,9 +587,20 @@ class _StructuralMixin:
         sig = self._signatures[decl.signature]
 
         if has_option(decl.options, "factory"):
+            # Factory-backed form: every non-``factory`` entry is a
+            # factory keyword argument checked against the factory's
+            # Python signature inside the builder, so no closed-set
+            # key check applies here.
             encoder = _build_encoder_from_factory(decl, sig)
             self._encoders[decl.name] = encoder
             return
+        check_option_keys(
+            decl.options,
+            _ENCODER_OPTION_KEYS,
+            owner=f"encoder {decl.name!r}",
+            line=decl.line,
+            col=decl.col,
+        )
 
         # Per-sort dim resolution.
         overrides: dict[str, int] = {sd.sort: sd.dim for sd in decl.dims}
@@ -867,6 +901,13 @@ class _StructuralMixin:
                 decl.col,
             )
         sig: Signature = self._signatures[decl.signature]
+        check_option_keys(
+            decl.options,
+            _DECODER_OPTION_KEYS,
+            owner=f"decoder {decl.name!r}",
+            line=decl.line,
+            col=decl.col,
+        )
 
         overrides: dict[str, int] = {sd.sort: sd.dim for sd in decl.dims}
         sort_dims: dict[str, int] = {}
@@ -1095,17 +1136,35 @@ class _StructuralMixin:
         if not hasattr(self, "_loss_registry"):
             self._loss_registry = LossRegistry()
 
+        check_option_keys(
+            decl.options,
+            _LOSS_OPTION_KEYS,
+            owner=f"loss {decl.name!r}",
+            line=decl.line,
+            col=decl.col,
+        )
         globs = self._lex_globals_for_structural()
         body_fn = self._compile_let_expr(decl.body, globals_=globs)
         weight_value = get_option_value(decl.options, "weight")
         weight_fn: Callable[[dict[str, object]], object] | None = None
         if weight_value is not None:
             if not isinstance(weight_value, OptionNumber):
+                weight_entry = find_option(decl.options, "weight")
+                ln = (
+                    weight_entry.line
+                    if weight_entry is not None and weight_entry.line
+                    else decl.line
+                )
+                cl = (
+                    weight_entry.col
+                    if weight_entry is not None and weight_entry.line
+                    else decl.col
+                )
                 raise CompileError(
                     f"loss {decl.name!r}: ``weight`` must be a numeric "
                     f"literal, got {type(weight_value).__name__}",
-                    decl.line,
-                    decl.col,
+                    ln,
+                    cl,
                 )
             _w = float(weight_value.value)
 

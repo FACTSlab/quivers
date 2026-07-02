@@ -62,6 +62,8 @@ from quivers.dsl.ast_nodes import (
     ObjectProduct,
 )
 from quivers.dsl.compiler._options import (
+    check_option_keys,
+    find_option,
     get_option_float,
     get_option_int,
     get_option_name,
@@ -88,6 +90,37 @@ from quivers.stochastic.schema import (
 
 _VALID_ROLES: frozenset[str] = frozenset(
     {"latent", "observed", "kernel", "embed", "discretize", "let"}
+)
+
+# Closed option-key set for ``morphism`` declarations. Every key the
+# compiler reads off a `MorphismDecl`'s option block appears here:
+#
+# * ``role`` / ``replicate`` pick the lowering and its multiplicity;
+# * ``scale`` / ``init`` configure the latent lowering;
+# * ``bins`` configures the discretize lowering;
+# * ``over`` / ``iid`` carry the axis-role clause for family inits
+#   (``over`` doubles as the MatrixNormal rows/cols selector);
+# * ``n_layers`` / ``hidden_dim`` / ``param_source`` / ``rank`` /
+#   ``temperature`` configure family-backed kernel construction.
+#
+# Family construction is NOT open-ended: `_make_continuous_morphism`
+# threads exactly these keys into the family constructors, so the set
+# is complete and strict checking is safe for every family.
+_MORPHISM_OPTION_KEYS: frozenset[str] = frozenset(
+    {
+        "role",
+        "replicate",
+        "scale",
+        "init",
+        "bins",
+        "over",
+        "iid",
+        "n_layers",
+        "hidden_dim",
+        "param_source",
+        "rank",
+        "temperature",
+    }
 )
 
 
@@ -194,6 +227,11 @@ class _DeclarationsMixin:
           inline; the compiler synthesises a ``CustomAlgebra`` /
           ``CustomSemigroupoid`` / ``CustomBilinearForm`` of the
           declared level.
+
+        The declaration's only option key is ``level``; the parser
+        collapses the option block into ``decl.level`` (a typed
+        Literal), so there is no raw option tuple left to key-check
+        here.
         """
         level = decl.level or "rule"
         if decl.body:
@@ -237,8 +275,8 @@ class _DeclarationsMixin:
             raise CompileError(
                 f"composition {decl.name!r}: registered rule is a "
                 f"{actual}, which is not at level {level!r}. Declare "
-                f"with the matching `at <level>` clause or register a "
-                f"rule at the right level.",
+                f"with the matching ``[level=...]`` option or register "
+                f"a rule at the right level.",
                 decl.line,
                 decl.col,
             )
@@ -486,9 +524,11 @@ class _DeclarationsMixin:
     # ------------------------------------------------------------------
 
     def _compile_type(self, decl: ObjectDecl) -> None:
-        """Compile a ``type NAME : VALUE`` declaration.
+        """Compile a ``type NAME, ... : VALUE`` declaration.
 
-        The init's tagged-union variant picks the construction:
+        Each name in ``decl.names`` registers an independent object
+        constructed from the same VALUE. The init's tagged-union
+        variant picks the construction:
 
         * `TypeEnumSet` -> `EnumSet`
         * `TypeFreeResiduated` -> `FreeResiduated`
@@ -496,19 +536,23 @@ class _DeclarationsMixin:
         * `TypeFromExpr` -> the inner type expression is
           resolved via the unified resolver; the resulting object is
           either a `SetObject` (discrete) or a
-          `ContinuousSpace`, bound under ``decl.name`` in the
+          `ContinuousSpace`, bound under the declared name in the
           appropriate environment.
         """
-        if decl.name in self._objects or decl.name in self._spaces:
+        for name in decl.names:
+            self._compile_type_named(decl, name)
+
+    def _compile_type_named(self, decl: ObjectDecl, name: str) -> None:
+        if name in self._objects or name in self._spaces:
             raise CompileError(
-                f"type {decl.name!r} already declared",
+                f"type {name!r} already declared",
                 decl.line,
                 decl.col,
             )
         init = decl.init
         if isinstance(init, TypeEnumSet):
-            self._objects[decl.name] = EnumSet(
-                name=decl.name,
+            self._objects[name] = EnumSet(
+                name=name,
                 elements=init.elements,
             )
             return
@@ -522,7 +566,7 @@ class _DeclarationsMixin:
                     decl.line,
                     decl.col,
                 )
-            self._objects[decl.name] = FreeMonoid(
+            self._objects[name] = FreeMonoid(
                 generators=gen,
                 max_length=init.max_length,
             )
@@ -538,7 +582,7 @@ class _DeclarationsMixin:
                     decl.line,
                     decl.col,
                 )
-            self._objects[decl.name] = FreeResiduated(
+            self._objects[name] = FreeResiduated(
                 generators=gen,
                 depth=init.depth,
                 ops=init.ops,
@@ -553,22 +597,22 @@ class _DeclarationsMixin:
                 # resolve to a concrete object/space; record the
                 # alias for use-site substitution inside schema
                 # patterns.
-                if decl.name in self._alias_names:
+                if name in self._alias_names:
                     raise CompileError(
-                        f"alias {decl.name!r} already declared",
+                        f"alias {name!r} already declared",
                         decl.line,
                         decl.col,
                     )
-                self._alias_names.add(decl.name)
-                self._aliases[decl.name] = expr
+                self._alias_names.add(name)
+                self._aliases[name] = expr
                 return
             if isinstance(resolved, ContinuousSpace):
-                self._spaces[decl.name] = resolved
+                self._spaces[name] = resolved
             else:
-                self._objects[decl.name] = resolved
+                self._objects[name] = resolved
             return
         raise CompileError(
-            f"unrecognized type initializer for {decl.name!r}: {type(init).__name__}",
+            f"unrecognized type initializer for {name!r}: {type(init).__name__}",
             decl.line,
             decl.col,
         )
@@ -578,9 +622,12 @@ class _DeclarationsMixin:
     # ------------------------------------------------------------------
 
     def _compile_morphism(self, decl: MorphismDecl) -> None:
-        """Compile a ``morphism NAME : DOM -> COD [options] [~ init]``.
+        """Compile a ``morphism NAME, ... : DOM -> COD [options] [~ init]``.
 
-        Required option ``role`` picks the runtime construction:
+        Each name in ``decl.names`` compiles as an independent
+        declaration (fresh parameters per name) sharing the same
+        signature, options, and initializer. The ``role`` option
+        picks the runtime construction:
 
         * ``role=latent``  : learnable algebraic morphism on finite
           sets, optionally re-initialised by the algebra's auto
@@ -599,13 +646,68 @@ class _DeclarationsMixin:
         * ``role=let``     : deterministic morphism whose value is
           ``~ <expr>`` (composition pipeline, contraction call,
           transformation invocation, etc.).
+
+        When ``role`` is absent the morphism is a kernel: programs
+        draw from kernels, so the parametric-Markov-kernel lowering
+        is the only sound default. Every other role (latent /
+        observed / embed / discretize / let) is always explicit.
         """
-        if decl.name in self._morphisms:
+        display = ", ".join(decl.names)
+        check_option_keys(
+            decl.options,
+            _MORPHISM_OPTION_KEYS,
+            owner=f"morphism {display!r}",
+            line=decl.line,
+            col=decl.col,
+        )
+        for name in decl.names:
+            self._compile_morphism_named(decl, name)
+
+    def _compile_morphism_named(self, decl: MorphismDecl, name: str) -> None:
+        """Compile one name of a (possibly plural) morphism declaration."""
+        if name in self._morphisms:
             raise CompileError(
-                f"morphism {decl.name!r} already declared",
+                f"morphism {name!r} already declared",
                 decl.line,
                 decl.col,
             )
+        role = self._resolve_morphism_role(decl, name)
+        replicate = get_option_int(
+            decl.options,
+            "replicate",
+            line=decl.line,
+            col=decl.col,
+        )
+        names = (
+            [f"{name}_{i}" for i in range(int(replicate))]
+            if replicate is not None
+            else [name]
+        )
+        if role == "latent":
+            self._compile_latent_role(decl, name, names)
+        elif role == "observed":
+            self._compile_observed_role(decl, name, names)
+        elif role == "kernel":
+            self._compile_kernel_role(decl, name, names)
+        elif role == "embed":
+            self._compile_embed_role(decl, name, names)
+        elif role == "discretize":
+            self._compile_discretize_role(decl, name, names)
+        else:
+            self._compile_let_role(decl, name, names)
+        if replicate is not None:
+            self._groups[name] = names
+
+    def _resolve_morphism_role(self, decl: MorphismDecl, name: str) -> str:
+        """Resolve a morphism's role: explicit ``role=`` wins; absent
+        role defaults to ``kernel``.
+
+        A kernel is what programs draw from (a parametric Markov
+        kernel with a family prior), so it is the only sound default;
+        ``latent`` (learnable point estimate), ``observed`` (fixed
+        structural input), and the boundary / binding roles are
+        always explicit.
+        """
         role = get_option_name(
             decl.options,
             "role",
@@ -613,62 +715,44 @@ class _DeclarationsMixin:
             col=decl.col,
         )
         if role is None:
-            raise CompileError(
-                f"morphism {decl.name!r}: required option ``role`` is "
-                f"missing; expected one of "
-                f"{sorted(_VALID_ROLES)}",
-                decl.line,
-                decl.col,
-            )
+            return "kernel"
         if role not in _VALID_ROLES:
+            entry = find_option(decl.options, "role")
+            ln = entry.line if entry is not None else decl.line
+            cl = entry.col if entry is not None else decl.col
             raise CompileError(
-                f"morphism {decl.name!r}: unknown role {role!r}; "
+                f"morphism {name!r}: unknown role {role!r}; "
                 f"expected one of {sorted(_VALID_ROLES)}",
-                decl.line,
-                decl.col,
+                ln,
+                cl,
             )
-        replicate = get_option_int(
-            decl.options,
-            "replicate",
-            line=decl.line,
-            col=decl.col,
-        )
-        count = 1 if replicate is None else int(replicate)
-        names = (
-            [f"{decl.name}_{i}" for i in range(count)]
-            if replicate is not None
-            else [decl.name]
-        )
-        if role == "latent":
-            self._compile_latent_role(decl, names)
-        elif role == "observed":
-            self._compile_observed_role(decl, names)
-        elif role == "kernel":
-            self._compile_kernel_role(decl, names)
-        elif role == "embed":
-            self._compile_embed_role(decl, names)
-        elif role == "discretize":
-            self._compile_discretize_role(decl, names)
-        else:
-            self._compile_let_role(decl, names)
-        if replicate is not None:
-            self._groups[decl.name] = names
+        return role
 
     # role-specific lowerings ------------------------------------------
 
     def _compile_latent_role(
         self,
         decl: MorphismDecl,
+        name: str,
         names: list[str],
     ) -> None:
         if decl.init_expr is not None:
+            # `Expr` is a tagged-union root, so its ``line`` / ``col``
+            # type as the generic field-value union; narrow to int
+            # before using them as a source location.
+            init_line = decl.init_expr.line
+            init_col = decl.init_expr.col
+            if isinstance(init_line, int) and isinstance(init_col, int) and init_line:
+                ln, cl = init_line, init_col
+            else:
+                ln, cl = decl.line, decl.col
             raise CompileError(
-                f"latent morphism {decl.name!r}: ``~ <expression>`` "
+                f"latent morphism {name!r}: ``~ <expression>`` "
                 f"init is reserved for ``role=let`` and ``role="
                 f"observed``; latent priors take a ``~ Family(...)`` "
                 f"form instead",
-                decl.line,
-                decl.col,
+                ln,
+                cl,
             )
         if decl.init_family is not None:
             self._validate_family_axes(decl, decl.init_family.family)
@@ -687,7 +771,7 @@ class _DeclarationsMixin:
             line=decl.line,
             col=decl.col,
         )
-        for name in names:
+        for member in names:
             morph = make_latent(
                 domain,
                 codomain,
@@ -696,35 +780,38 @@ class _DeclarationsMixin:
             )
             if init_mode == "auto":
                 _apply_auto_init(morph, domain, codomain, self._algebra)
-            self._morphisms[name] = morph
+            self._morphisms[member] = morph
 
     def _compile_observed_role(
         self,
         decl: MorphismDecl,
+        name: str,
         names: list[str],
     ) -> None:
         if decl.init_expr is None and decl.init_family is None:
             raise CompileError(
-                f"observed morphism {decl.name!r} requires an "
+                f"observed morphism {name!r} requires an "
                 f"initializer (e.g. ``~ identity({decl.domain})``)",
                 decl.line,
                 decl.col,
             )
         if decl.init_family is not None:
+            ln = decl.init_family.line or decl.line
+            cl = decl.init_family.col or decl.col
             raise CompileError(
-                f"observed morphism {decl.name!r}: ``~ Family(...)`` "
+                f"observed morphism {name!r}: ``~ Family(...)`` "
                 f"is a stochastic-kernel prior; use ``role=kernel`` "
                 f"or supply a deterministic ``~ <expression>`` "
                 f"initializer instead",
-                decl.line,
-                decl.col,
+                ln,
+                cl,
             )
         domain = self._resolve_type(decl.domain)
         codomain = self._resolve_type(decl.codomain)
-        for name in names:
+        for member in names:
             morph = self._compile_expr(decl.init_expr)
-            morph = self._coerce_observed_shape(morph, domain, codomain, decl)
-            self._morphisms[name] = morph
+            morph = self._coerce_observed_shape(morph, domain, codomain, decl, name)
+            self._morphisms[member] = morph
 
     def _coerce_observed_shape(
         self,
@@ -732,6 +819,7 @@ class _DeclarationsMixin:
         domain,
         codomain,
         decl: MorphismDecl,
+        name: str,
     ):
         """Rebind ``morph``'s declared domain/codomain when its
         underlying tensor's numel matches the declared types.
@@ -766,7 +854,7 @@ class _DeclarationsMixin:
                 algebra=morph.algebra,
             )
         raise CompileError(
-            f"morphism {decl.name!r} init expression has type "
+            f"morphism {name!r} init expression has type "
             f"{morph.domain!r} -> {morph.codomain!r} (numel {init_d} "
             f"-> {init_c}), expected {domain!r} -> {codomain!r} "
             f"(numel {decl_d} -> {decl_c})",
@@ -777,6 +865,7 @@ class _DeclarationsMixin:
     def _compile_kernel_role(
         self,
         decl: MorphismDecl,
+        name: str,
         names: list[str],
     ) -> None:
         family = decl.init_family.family if decl.init_family is not None else None
@@ -795,29 +884,30 @@ class _DeclarationsMixin:
         if family is None:
             domain = self._resolve_type(decl.domain)
             codomain = self._resolve_type(decl.codomain)
-            for name in names:
-                self._morphisms[name] = StochasticMorphism(domain, codomain)
+            for member in names:
+                self._morphisms[member] = StochasticMorphism(domain, codomain)
             return
         domain = self._resolve_any_space(decl.domain)
         codomain = self._resolve_any_space(decl.codomain)
-        for name in names:
+        for member in names:
             morph = self._make_continuous_morphism(
                 domain,
                 codomain,
                 family,
                 decl,
             )
-            self._morphisms[name] = morph
+            self._morphisms[member] = morph
 
     def _compile_embed_role(
         self,
         decl: MorphismDecl,
+        name: str,
         names: list[str],
     ) -> None:
         domain = self._resolve_type(decl.domain)
         if not isinstance(domain, FinSet):
             raise CompileError(
-                f"embed morphism {decl.name!r}: domain must be a "
+                f"embed morphism {name!r}: domain must be a "
                 f"FinSet, got {type(domain).__name__}",
                 decl.line,
                 decl.col,
@@ -825,23 +915,24 @@ class _DeclarationsMixin:
         codomain = self._resolve_any_space(decl.codomain)
         if not isinstance(codomain, ContinuousSpace):
             raise CompileError(
-                f"embed morphism {decl.name!r}: codomain must be a "
+                f"embed morphism {name!r}: codomain must be a "
                 f"ContinuousSpace, got {type(codomain).__name__}",
                 decl.line,
                 decl.col,
             )
-        for name in names:
-            self._morphisms[name] = Embed(domain, codomain)
+        for member in names:
+            self._morphisms[member] = Embed(domain, codomain)
 
     def _compile_discretize_role(
         self,
         decl: MorphismDecl,
+        name: str,
         names: list[str],
     ) -> None:
         space = self._resolve_any_space(decl.domain)
         if not isinstance(space, ContinuousSpace):
             raise CompileError(
-                f"discretize morphism {decl.name!r}: domain must be a "
+                f"discretize morphism {name!r}: domain must be a "
                 f"ContinuousSpace, got {type(space).__name__}",
                 decl.line,
                 decl.col,
@@ -854,29 +945,29 @@ class _DeclarationsMixin:
         )
         if bins is None:
             raise CompileError(
-                f"discretize morphism {decl.name!r}: required option "
+                f"discretize morphism {name!r}: required option "
                 f"``bins`` is missing",
                 decl.line,
                 decl.col,
             )
-        for name in names:
-            self._morphisms[name] = Discretize(space, n_bins=bins)
+        for member in names:
+            self._morphisms[member] = Discretize(space, n_bins=bins)
 
     def _compile_let_role(
         self,
         decl: MorphismDecl,
+        name: str,
         names: list[str],
     ) -> None:
         if decl.init_expr is None:
             raise CompileError(
-                f"let morphism {decl.name!r}: ``role=let`` requires an "
+                f"let morphism {name!r}: ``role=let`` requires an "
                 f"``~ <expression>`` initializer",
                 decl.line,
                 decl.col,
             )
-        morph = self._compile_expr(decl.init_expr)
-        for name in names:
-            self._morphisms[name] = morph
+        for member in names:
+            self._morphisms[member] = self._compile_expr(decl.init_expr)
 
     # family-construction plumbing ------------------------------------
 
@@ -901,18 +992,23 @@ class _DeclarationsMixin:
         )
         if not over and not iid:
             return
+        # Point axis-role diagnostics at the option entry that
+        # carries the clause rather than the declaration header.
+        entry = find_option(decl.options, "over") or find_option(decl.options, "iid")
+        ln = entry.line if entry is not None and entry.line else decl.line
+        cl = entry.col if entry is not None and entry.line else decl.col
         axes_spec = AxisSpec(
             over=over,
             iid_over=iid,
-            line=decl.line,
-            col=decl.col,
+            line=ln,
+            col=cl,
         )
         _validate_axis_spec(
             axes_spec,
             family,
             _available_axes_for(decl.domain, decl.codomain),
-            decl.line,
-            decl.col,
+            ln,
+            cl,
         )
 
     def _make_continuous_morphism(
@@ -1006,11 +1102,14 @@ class _DeclarationsMixin:
         )
         if family_name == "MatrixNormal" and over:
             if len(over) != 2:
+                entry = find_option(decl.options, "over")
+                ln = entry.line if entry is not None and entry.line else decl.line
+                cl = entry.col if entry is not None and entry.line else decl.col
                 raise CompileError(
                     f"MatrixNormal requires ``over=[rows_axis, "
                     f"cols_axis]``; got over={list(over)!r}",
-                    decl.line,
-                    decl.col,
+                    ln,
+                    cl,
                 )
             rows_axis, cols_axis = over
             kwargs["rows"] = self._axis_dim(decl, rows_axis)

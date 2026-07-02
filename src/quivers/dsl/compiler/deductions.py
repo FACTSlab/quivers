@@ -7,6 +7,7 @@ import torch.nn as nn
 from quivers.core.algebras import BOOLEAN
 from quivers.dsl.ast_nodes import (
     DeductionDecl,
+    LetStep,
     LexiconCategoryFixed,
     LexiconCategoryRestricted,
     LexiconCategoryWildcard,
@@ -14,6 +15,7 @@ from quivers.dsl.ast_nodes import (
     ObjectEffectApply,
     ObjectProduct,
     ObjectSlash,
+    ProgramDecl,
     TypeName,
 )
 from quivers.stochastic.agenda import (
@@ -31,6 +33,7 @@ from quivers.stochastic.semiring import (
     VITERBI as SEMIRING_VITERBI,
 )
 from quivers.dsl.compiler._options import (
+    check_option_keys,
     find_option,
     get_option_flag,
     get_option_float,
@@ -67,6 +70,40 @@ type LexiconLF = (
 # learnable_flag)``.
 type LexiconEntry = tuple[str, LexiconPattern, LexiconLF, bool]
 
+# Closed option-key sets for the deduction surface. Each set lives
+# next to the code that consumes it; `check_option_keys`
+# rejects anything outside the set with a did-you-mean diagnostic.
+#
+# * Deduction blocks read the ``semiring``, the ``axioms`` source,
+#   the ``start`` goal symbol, the ``depth`` bound, the Kleene-star
+#   ``tolerance``, the agenda ``max_iterations``, and the attached
+#   item ``signature`` / ``encoder``.
+# * Sequent-rule pragmas read the ``learnable`` / ``bounded`` flags
+#   and the ``parent`` composition reference.
+# * Lexicon-entry pragmas (inline and ``from "file"``) read only the
+#   ``learnable`` flag.
+_DEDUCTION_OPTION_KEYS: frozenset[str] = frozenset(
+    {
+        "semiring",
+        "axioms",
+        "start",
+        "depth",
+        "tolerance",
+        "max_iterations",
+        "signature",
+        "encoder",
+    }
+)
+_SEQUENT_RULE_OPTION_KEYS: frozenset[str] = frozenset(
+    {"learnable", "parent", "bounded"}
+)
+_LEXICON_ENTRY_OPTION_KEYS: frozenset[str] = frozenset({"learnable"})
+
+
+def _words_display(entry: _LexiconEntryAst) -> str:
+    """Human-readable form of a lexicon entry's word tuple."""
+    return ", ".join(repr(w) for w in entry.words)
+
 
 def _candidate_atoms(
     entry: _LexiconEntryAst,
@@ -93,7 +130,7 @@ def _candidate_atoms(
         if unknown:
             raise CompileError(
                 f"deduction {decl.name!r}: lexicon entry for "
-                f"{entry.word!r} restricts category to "
+                f"{_words_display(entry)} restricts category to "
                 f"{list(entry.category.atoms)!r}, but the atom(s) "
                 f"{unknown!r} are not declared on the deduction",
                 entry.line,
@@ -101,7 +138,7 @@ def _candidate_atoms(
             )
         return tuple(entry.category.atoms)
     raise CompileError(
-        f"deduction {decl.name!r}: lexicon entry for {entry.word!r} "
+        f"deduction {decl.name!r}: lexicon entry for {_words_display(entry)} "
         f"has an unknown category kind {type(entry.category).__name__!r}",
         entry.line,
         entry.col,
@@ -355,6 +392,13 @@ class _DeductionsMixin:
                 decl.line,
                 decl.col,
             )
+        check_option_keys(
+            decl.options,
+            _DEDUCTION_OPTION_KEYS,
+            owner=f"deduction {decl.name!r}",
+            line=decl.line,
+            col=decl.col,
+        )
 
         # Pattern-conversion: ObjectExpr -> agenda-engine Pattern.
         # The conversion is fully general; users may use any
@@ -472,6 +516,13 @@ class _DeductionsMixin:
         rule_parent: dict[str, str] = {}
         rule_names_declared = {sr.name for sr in decl.rules}
         for sr in decl.rules:
+            check_option_keys(
+                sr.options,
+                _SEQUENT_RULE_OPTION_KEYS,
+                owner=f"deduction {decl.name!r}: rule {sr.name!r}",
+                line=sr.line,
+                col=sr.col,
+            )
             premises = tuple(_normalise_span(_convert_pattern(p)) for p in sr.premises)
             conclusion = _normalise_span(_convert_pattern(sr.conclusion))
             is_learnable = get_option_flag(sr.options, "learnable")
@@ -669,6 +720,16 @@ class _DeductionsMixin:
                 return term
 
             for entry in decl.lexicon:
+                check_option_keys(
+                    entry.options,
+                    _LEXICON_ENTRY_OPTION_KEYS,
+                    owner=(
+                        f"deduction {decl.name!r}: lexicon entry for "
+                        f"{_words_display(entry)}"
+                    ),
+                    line=entry.line,
+                    col=entry.col,
+                )
                 lf_fn = _ProgramsMixin._compile_let_expr(entry.lf, globals_=globals_)
                 # Evaluate the LF eagerly under an empty environment;
                 # LF templates in lexicons must be closed expressions.
@@ -681,7 +742,7 @@ class _DeductionsMixin:
                 except CompileError as e:
                     raise CompileError(
                         f"deduction {decl.name!r}: lexicon entry for "
-                        f"{entry.word!r} has unresolved variable: {e}",
+                        f"{_words_display(entry)} has unresolved variable: {e}",
                         entry.line,
                         entry.col,
                     ) from e
@@ -697,32 +758,45 @@ class _DeductionsMixin:
                     else None
                 )
                 learnable_flag = get_option_flag(entry.options, "learnable")
-                if fixed_category is not None:
-                    entries.append(
-                        (
-                            entry.word,
-                            fixed_category,
-                            lf_value,
-                            learnable_flag,
-                        )
-                    )
-                else:
-                    # Wildcard / restricted: expand to one axiom per
-                    # candidate atom. Force learnable=True since the
-                    # point of the wildcard is to learn the
-                    # distribution; the user's [learnable] flag
-                    # additionally controls the LF body's parameters.
-                    for atom in candidate_atoms:
+                # Plural word entries expand here: each word maps to
+                # the same category pattern and logical form, with
+                # its own axiom rows (and, for latent categories, its
+                # own per-atom learnable weights).
+                for word in entry.words:
+                    if fixed_category is not None:
                         entries.append(
                             (
-                                entry.word,
-                                ("atom", atom),
+                                word,
+                                fixed_category,
                                 lf_value,
-                                True,
+                                learnable_flag,
                             )
                         )
+                    else:
+                        # Wildcard / restricted: expand to one axiom
+                        # per candidate atom. Force learnable=True
+                        # since the point of the wildcard is to learn
+                        # the distribution; the user's [learnable]
+                        # flag additionally controls the LF body's
+                        # parameters.
+                        for atom in candidate_atoms:
+                            entries.append(
+                                (
+                                    word,
+                                    ("atom", atom),
+                                    lf_value,
+                                    True,
+                                )
+                            )
             # File-loaded lexicon: TSV with `word\tcategory\tlf` rows.
             if decl.lexicon_from_file is not None:
+                check_option_keys(
+                    decl.lexicon_from_file_options,
+                    _LEXICON_ENTRY_OPTION_KEYS,
+                    owner=f"deduction {decl.name!r}: lexicon from file",
+                    line=decl.line,
+                    col=decl.col,
+                )
                 file_entries = self._load_lexicon_tsv(
                     decl.lexicon_from_file,
                     get_option_flag(
@@ -1035,24 +1109,43 @@ class _DeductionsMixin:
                     # wrapping it in a synthetic program whose body
                     # contains a single let step bound to the LF.
                     syn_src = (
-                        "type _DummyObj : 1\n"
+                        "object _DummyObj : 1\n"
                         "morphism _f : _DummyObj -> _DummyObj "
                         "[role=latent]\n"
-                        "program _dummy_prog : _DummyObj -> _DummyObj:\n"
+                        "program _dummy_prog : _DummyObj -> _DummyObj\n"
                         "    sample _x : _DummyObj <- _f\n"
                         f"    let _lex_lf = {lf_text}\n"
                         "    return _x\n"
                     )
                     syn_mod = _parse_qvr(syn_src.encode(), "<lex-lf>")
-                    # The third statement is the program; its
-                    # second step's value carries the parsed LF.
+                    # The synthetic module carries exactly one program;
+                    # its second step's value is the parsed LF.
                     prog = next(
-                        s
-                        for s in syn_mod.statements
-                        if hasattr(s, "draws")
-                        and getattr(s, "name", None) == "_dummy_prog"
+                        (
+                            s
+                            for s in syn_mod.statements
+                            if isinstance(s, ProgramDecl)
+                            and s.name == "_dummy_prog"
+                        ),
+                        None,
                     )
+                    if prog is None:
+                        raise CompileError(
+                            f"deduction {decl.name!r}: lexicon file "
+                            f"{path!r}:{lineno}: LF template {lf_text!r} "
+                            f"did not parse to the synthetic program",
+                            decl.line,
+                            decl.col,
+                        )
                     let_step = prog.draws[1]
+                    if not isinstance(let_step, LetStep):
+                        raise CompileError(
+                            f"deduction {decl.name!r}: lexicon file "
+                            f"{path!r}:{lineno}: LF template {lf_text!r} "
+                            f"did not parse to a let binding",
+                            decl.line,
+                            decl.col,
+                        )
                     lex_globals = self._lex_globals_for_structural()
                     lf_value = _ProgramsMixin._compile_let_expr(
                         let_step.value, globals_=lex_globals

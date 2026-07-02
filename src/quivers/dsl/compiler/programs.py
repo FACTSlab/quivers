@@ -1,7 +1,8 @@
-"""Compiler mixin: program / contraction / let compilation.
+"""Compiler mixin: program / contraction / define compilation.
 
 Handles bind-step expansion, effect verification, template inlining,
-program bodies, contractions, and let-expression compilation.
+program bodies, contractions, define bindings, and let-expression
+compilation.
 """
 
 from __future__ import annotations
@@ -39,10 +40,10 @@ from quivers.dsl.ast_nodes import (
     ExprIdent,
     ExprMorphismCall,
     ExprTransCompose,
+    DefineDecl,
     GroupedBodyObserveStep,
     GroupedLatentInitStep,
     GroupedObserveEntry,
-    LetDecl,
     LetExprBinOp,
     LetExprCall,
     LetExprIndex,
@@ -74,6 +75,8 @@ from quivers.dsl.ast_nodes import (
     VectorisedObserveStep,
 )
 from quivers.dsl.compiler._options import (
+    check_option_keys,
+    find_option,
     get_option_name,
     get_option_name_list,
     get_option_string,
@@ -382,8 +385,30 @@ def _infer_wiring_from_signature(
     return f"{', '.join(input_letter_groups)} -> {output_letters}"
 
 
+# Closed option-key sets for the program surface. Each set lives next
+# to the code that consumes it; `check_option_keys` rejects
+# anything outside the set with a did-you-mean diagnostic at the
+# offending entry's own line/col.
+#
+# * ``sample`` steps read the axis-role clause (``over`` / ``iid_over``),
+#   which the parser lifts into the step's `AxisSpec`.
+# * ``observe`` steps additionally read ``via`` (the per-observe
+#   fibration inside grouped marginalize blocks).
+# * ``marginalize`` steps read the grouping plate (``over``) and the
+#   pushforward ``reduction``.
+# * ``program`` declarations read the ``effects`` capability row and
+#   the posterior-block ``over`` model reference.
+# * ``contraction`` declarations read the composition ``rule``, the
+#   explicit einsum ``wiring`` escape hatch, and the ``share`` list.
+_SAMPLE_STEP_OPTION_KEYS: frozenset[str] = frozenset({"over", "iid_over"})
+_OBSERVE_STEP_OPTION_KEYS: frozenset[str] = frozenset({"via", "over", "iid_over"})
+_MARGINALIZE_STEP_OPTION_KEYS: frozenset[str] = frozenset({"over", "reduction"})
+_PROGRAM_OPTION_KEYS: frozenset[str] = frozenset({"effects", "over"})
+_CONTRACTION_OPTION_KEYS: frozenset[str] = frozenset({"rule", "wiring", "share"})
+
+
 class _ProgramsMixin:
-    """Mixin: program / contraction / let compilation methods.
+    """Mixin: program / contraction / define compilation methods.
 
     The compiler base supplies every environment slot below; the
     annotations let the type checker verify each access from a
@@ -426,6 +451,13 @@ class _ProgramsMixin:
         if isinstance(step, (SampleStep, ObserveStep)):
             step = desugar_step(step)
         if isinstance(step, SampleStep):
+            check_option_keys(
+                step.options,
+                _SAMPLE_STEP_OPTION_KEYS,
+                owner="sample step",
+                line=step.line,
+                col=step.col,
+            )
             return BindStep(
                 vars=step.vars,
                 morphism=step.morphism,
@@ -437,8 +469,26 @@ class _ProgramsMixin:
                 col=step.col,
             )
         if isinstance(step, ObserveStep):
+            check_option_keys(
+                step.options,
+                _OBSERVE_STEP_OPTION_KEYS,
+                owner="observe step",
+                line=step.line,
+                col=step.col,
+            )
+            if len(step.vars) != 1:
+                # The runtime observe path (response clamping via the
+                # observations dict, VectorisedObserve, grouped
+                # marginalize capture) is single-response throughout;
+                # a tuple pattern on observe has no runtime meaning.
+                raise CompileError(
+                    f"observe takes a single variable; got "
+                    f"({', '.join(step.vars)})",
+                    step.line,
+                    step.col,
+                )
             return BindStep(
-                vars=(step.var,),
+                vars=step.vars,
                 morphism=step.morphism,
                 args=step.args,
                 index=step.index,
@@ -450,6 +500,13 @@ class _ProgramsMixin:
                 col=step.col,
             )
         if isinstance(step, MarginalizeStep):
+            check_option_keys(
+                step.options,
+                _MARGINALIZE_STEP_OPTION_KEYS,
+                owner="marginalize step",
+                line=step.line,
+                col=step.col,
+            )
             return BindStep(
                 vars=(step.var,),
                 morphism=step.morphism,
@@ -1119,7 +1176,7 @@ class _ProgramsMixin:
                 if isinstance(step, SampleStep):
                     out.update(step.vars)
                 elif isinstance(step, ObserveStep):
-                    out.add(step.var)
+                    out.update(step.vars)
                 elif isinstance(step, MarginalizeStep):
                     out.add(step.var)
                     if step.scope:
@@ -1479,7 +1536,7 @@ class _ProgramsMixin:
 
     def _compile_morphism_call(self, expr: ExprMorphismCall):
         """Compile ``callee(arg1, arg2, …)`` — currently used to
-        invoke a `ContractionDecl` at a let-binding site.
+        invoke a `ContractionDecl` at a define-binding site.
 
         Resolves ``expr.callee`` against the registered
         contractions, validates that the argument count matches
@@ -1494,7 +1551,7 @@ class _ProgramsMixin:
         contraction = self._contractions.get(expr.callee)
         if contraction is None:
             # Fall through to parametric-program template
-            # invocation: ``let applied = p(f)`` is the existing
+            # invocation: ``define applied = p(f)`` is the existing
             # surface and should keep working when ``p`` is a
             # parametric program rather than a contraction.
             if expr.callee in self._program_templates:
@@ -1603,8 +1660,8 @@ class _ProgramsMixin:
         return _invoke
 
     def _compile_program_template_call(self, expr: ExprMorphismCall):
-        """Instantiate a parametric program template at a let-binding
-        site: ``let applied = p(f, …)`` substitutes the actual
+        """Instantiate a parametric program template at a define-binding
+        site: ``define applied = p(f, …)`` substitutes the actual
         morphism / object / scalar arguments for the template's
         formal parameters, builds a synthetic non-parametric
         `ProgramDecl`, and compiles it into a runtime
@@ -1753,7 +1810,7 @@ class _ProgramsMixin:
         `ObservedMorphism` whose tensor is the contraction
         result. The callable is registered in the morphism table
         so the user can invoke it like any other morphism:
-        ``let out = op_apply(arg1, arg2, kernel)``.
+        ``define out = op_apply(arg1, arg2, kernel)``.
         """
         if decl.name in self._morphisms or decl.name in self._program_templates:
             raise CompileError(
@@ -1761,6 +1818,13 @@ class _ProgramsMixin:
                 decl.line,
                 decl.col,
             )
+        check_option_keys(
+            decl.options,
+            _CONTRACTION_OPTION_KEYS,
+            owner=f"contraction {decl.name!r}",
+            line=decl.line,
+            col=decl.col,
+        )
         declared_rule = get_option_name(
             decl.options,
             "rule",
@@ -1776,12 +1840,15 @@ class _ProgramsMixin:
             )
         rule_name = declared_rule.lower()
         if rule_name not in _ALGEBRA_REGISTRY:
+            rule_entry = find_option(decl.options, "rule")
+            ln = rule_entry.line if rule_entry is not None and rule_entry.line else decl.line
+            cl = rule_entry.col if rule_entry is not None and rule_entry.line else decl.col
             raise CompileError(
                 f"contraction {decl.name!r}: unknown rule "
                 f"{declared_rule!r}; available: "
                 f"{', '.join(sorted(_ALGEBRA_REGISTRY))}",
-                decl.line,
-                decl.col,
+                ln,
+                cl,
             )
         rule = _ALGEBRA_REGISTRY[rule_name]
         wiring_text = get_option_string(
@@ -1878,6 +1945,13 @@ class _ProgramsMixin:
         fact that distinct call sites contribute distinct factors
         to the parent's joint kernel.
         """
+        check_option_keys(
+            decl.options,
+            _PROGRAM_OPTION_KEYS,
+            owner=f"program {decl.name!r}",
+            line=decl.line,
+            col=decl.col,
+        )
         if decl.type_params is not None:
             # Parametric program — store as a template; defer body
             # compilation until each call site instantiates it.
@@ -3476,14 +3550,14 @@ class _ProgramsMixin:
             return _index
         raise CompileError(f"unknown let expression node: {type(node).__name__}")
 
-    def _compile_let(self, decl: LetDecl) -> None:
-        """Compile a let-binding with optional where clause.
+    def _compile_define(self, decl: DefineDecl) -> None:
+        """Compile a ``define`` binding with optional where clause.
 
         The RHS is first classified by surface shape:
 
         * If it's an expression that denotes a transformation
           (bare reference to a registered trans singleton or
-          let-bound trans, a constructor call against the
+          define-bound trans, a constructor call against the
           transformation catalog, or ``t1 >>> t2``), the binding
           lands in `_transformations`.
         * Otherwise it's compiled as a morphism expression and
@@ -3491,10 +3565,18 @@ class _ProgramsMixin:
 
         The two namespaces are disjoint: a name cannot be used as
         both a morphism and a transformation in the same module.
+        Where-block entries compile first (innermost bindings feed
+        the outer RHS); each entry must itself be a `DefineDecl`.
         """
-        if hasattr(decl, "where") and decl.where:
-            for where_decl in decl.where:
-                self._compile_let(where_decl)
+        for where_decl in decl.where:
+            if not isinstance(where_decl, DefineDecl):
+                raise CompileError(
+                    f"define {decl.name!r}: where-block entries must be "
+                    f"define bindings; got {type(where_decl).__name__}",
+                    decl.line,
+                    decl.col,
+                )
+            self._compile_define(where_decl)
         if decl.name in self._morphisms or decl.name in self._transformations:
             raise CompileError(f"name {decl.name!r} already bound", decl.line, decl.col)
         if self._is_trans_expr(decl.expr):
@@ -3508,7 +3590,7 @@ class _ProgramsMixin:
 
         The classification is *purely structural* — based on the
         expression's surface shape — and is the criterion the
-        let-binding logic uses to choose between the morphism and
+        define-binding logic uses to choose between the morphism and
         transformation namespaces.  An `ExprMorphismCall`
         whose callee is in `_trans_constructors` is a
         transformation; the same shape with a callee in
