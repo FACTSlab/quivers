@@ -34,12 +34,19 @@ import torch.nn.functional as F
 import torch.distributions as D
 from torch.distributions import constraints as _constraints
 
+from quivers.continuous._ordered import OrderedLogistic
+from quivers.continuous._zip_hurdle import (
+    HurdlePoisson,
+    MixtureNormal,
+    ZeroInflatedPoisson,
+)
+from quivers.continuous.bijectors import Bijector
 from quivers.continuous.family_spec import (
     FamilySpec,
     ParamSpec,
-    _RAW_TRANSFORMS as _TRANSFORMS,
     register as _register_family,
 )
+from quivers.continuous.param_transforms import resolve_transform
 from quivers.continuous.spaces import (
     CholeskyFactor,
     ContinuousSpace,
@@ -120,6 +127,8 @@ class _IndependentConditional(ContinuousMorphism):
         param_specs: list[tuple[str, Callable]],
         hidden_dim: int = 64,
         discrete: bool = False,
+        param_source=None,
+        param_source_option: str | None = None,
     ) -> None:
         super().__init__(domain, codomain)
         d = codomain.dim
@@ -130,7 +139,22 @@ class _IndependentConditional(ContinuousMorphism):
 
         # total raw parameters: one scalar per spec per codomain dim
         total_raw = len(param_specs) * d
-        self.param_source = _make_source(domain, total_raw, hidden_dim)
+        if param_source is None and param_source_option is not None:
+            from quivers.continuous.param_source import (
+                param_source_from_option,
+            )
+
+            param_source = param_source_from_option(
+                domain,
+                total_raw,
+                param_source_option,
+            )
+        self.param_source = _make_source(
+            domain,
+            total_raw,
+            hidden_dim,
+            param_source=param_source,
+        )
 
     def _get_dist(self, x: torch.Tensor) -> D.Distribution:
         """Build the torch distribution for input x.
@@ -185,7 +209,7 @@ class _IndependentConditional(ContinuousMorphism):
 def _make_family(
     name: str,
     dist_class: type,
-    param_specs: list[tuple[str, str]],
+    param_specs: list[tuple[str, str | Bijector]],
     doc: str,
     *,
     dsl_name: str | None = None,
@@ -204,8 +228,12 @@ def _make_family(
         Class name (e.g. ``"ConditionalCauchy"``).
     dist_class : type
         The `torch.distributions` class.
-    param_specs : list of (str, str)
-        Ordered ``(parameter_name, transform_name)`` pairs.
+    param_specs : list of (str, str | Bijector)
+        Ordered ``(parameter_name, transform)`` pairs. Each
+        transform is either a string key registered in
+        [`TRANSFORM_TO_BIJECTOR`][quivers.continuous.param_transforms.TRANSFORM_TO_BIJECTOR]
+        or a `Bijector` instance. String and bijector entries may
+        be mixed freely within one family.
     doc : str
         Class docstring.
     dsl_name : str, optional
@@ -222,7 +250,9 @@ def _make_family(
     type
         A new `ContinuousMorphism` subclass.
     """
-    resolved_specs = [(pname, _TRANSFORMS[tname]) for pname, tname in param_specs]
+    resolved_specs = [
+        (pname, resolve_transform(tname).forward) for pname, tname in param_specs
+    ]
     is_discrete = _resolve_discrete(dist_class, discrete)
     out_support = _resolve_support(dist_class, support)
 
@@ -234,6 +264,8 @@ def _make_family(
             domain: AnySpace,
             codomain: ContinuousSpace,
             hidden_dim: int = 64,
+            param_source=None,
+            param_source_option: str | None = None,
         ) -> None:
             super().__init__(
                 domain,
@@ -242,6 +274,8 @@ def _make_family(
                 resolved_specs,
                 hidden_dim,
                 discrete=is_discrete,
+                param_source=param_source,
+                param_source_option=param_source_option,
             )
 
     _Cls.__name__ = name
@@ -319,12 +353,28 @@ class ConditionalNormal(ContinuousMorphism):
         domain: AnySpace,
         codomain: ContinuousSpace,
         hidden_dim: int = 64,
+        param_source=None,
+        param_source_option: str | None = None,
     ) -> None:
         super().__init__(domain, codomain)
         d = codomain.dim
-
         # param_dim = d (mu) + d (log_sigma)
-        self.param_source = _make_source(domain, 2 * d, hidden_dim)
+        if param_source is None and param_source_option is not None:
+            from quivers.continuous.param_source import (
+                param_source_from_option,
+            )
+
+            param_source = param_source_from_option(
+                domain,
+                2 * d,
+                param_source_option,
+            )
+        self.param_source = _make_source(
+            domain,
+            2 * d,
+            hidden_dim,
+            param_source=param_source,
+        )
         self._d = d
 
     def _get_params(
@@ -1748,6 +1798,203 @@ class ConditionalLogisticNormal(ContinuousMorphism):
     ) -> torch.Tensor:
         dist = self._get_dist(x)
         return dist.rsample(sample_shape)
+
+
+class ConditionalOrderedLogistic(ContinuousMorphism):
+    """Conditional OrderedLogistic(predictor(x), cutpoints(x)).
+
+    The continuous input drives a parameter source that produces
+    `1 + (K - 1)` numbers: one real predictor and a `K - 1` cutpoint
+    vector. The cutpoints are passed through a strictly-monotonic
+    transform (first entry free, subsequent entries via cumulative
+    softplus) so the cumulative-link contract `c_0 < c_1 < ... <
+    c_{K-2}` is satisfied unconditionally.
+
+    Outputs integer categories in `{0, …, K - 1}` where `K =
+    codomain.size`. The codomain must be a finite set.
+    """
+
+    def __init__(
+        self,
+        domain: AnySpace,
+        codomain: AnySpace,
+        hidden_dim: int = 64,
+    ) -> None:
+        from quivers.core.objects import SetObject
+
+        if not isinstance(codomain, SetObject):
+            raise ValueError(
+                "ConditionalOrderedLogistic requires a FinSet codomain, "
+                f"got {codomain!r}"
+            )
+        if codomain.size < 2:
+            raise ValueError(
+                "ConditionalOrderedLogistic requires K >= 2 categories, "
+                f"got codomain.size = {codomain.size}"
+            )
+        super().__init__(domain, codomain)
+        self._k = codomain.size
+        self.param_source = _make_source(domain, 1 + (self._k - 1), hidden_dim)
+
+    @property
+    def support(self) -> _constraints.Constraint:
+        return _constraints.integer_interval(0, self._k - 1)
+
+    def _get_dist(self, x: torch.Tensor) -> OrderedLogistic:
+        raw = self.param_source(x)
+        predictor = raw[..., 0]
+        cut_raw = raw[..., 1:]
+        first = cut_raw[..., :1]
+        rest = F.softplus(cut_raw[..., 1:]) + EPS
+        cutpoints = torch.cat([first, first + torch.cumsum(rest, dim=-1)], dim=-1)
+        return OrderedLogistic(predictor, cutpoints)
+
+    def log_prob(self, x: torch.Tensor, y: torch.Tensor) -> torch.Tensor:
+        return self._get_dist(x).log_prob(y.long())
+
+    def rsample(
+        self,
+        x: torch.Tensor,
+        sample_shape: torch.Size = torch.Size(),
+    ) -> torch.Tensor:
+        return self._get_dist(x).sample(sample_shape).long()
+
+
+class ConditionalZeroInflatedPoisson(ContinuousMorphism):
+    """Conditional ZeroInflatedPoisson(zero_prob(x), rate(x)).
+
+    The parameter source produces `2 * codomain.dim` numbers per
+    input row: the first half feeds a sigmoid to produce the
+    zero-inflation probability, the second half a softplus to
+    produce the Poisson rate. Outputs non-negative integer counts.
+    """
+
+    def __init__(
+        self,
+        domain: AnySpace,
+        codomain: ContinuousSpace,
+        hidden_dim: int = 64,
+    ) -> None:
+        super().__init__(domain, codomain)
+        d = codomain.dim
+        self._d = d
+        self.param_source = _make_source(domain, 2 * d, hidden_dim)
+
+    @property
+    def support(self) -> _constraints.Constraint:
+        return _constraints.nonnegative_integer
+
+    def _get_dist(self, x: torch.Tensor) -> ZeroInflatedPoisson:
+        raw = self.param_source(x)
+        zero_prob = torch.sigmoid(raw[..., : self._d]).clamp(EPS, 1.0 - EPS)
+        rate = F.softplus(raw[..., self._d :]) + EPS
+        return ZeroInflatedPoisson(zero_prob, rate)
+
+    def log_prob(self, x: torch.Tensor, y: torch.Tensor) -> torch.Tensor:
+        return self._get_dist(x).log_prob(y.float()).sum(dim=-1)
+
+    def rsample(
+        self,
+        x: torch.Tensor,
+        sample_shape: torch.Size = torch.Size(),
+    ) -> torch.Tensor:
+        return self._get_dist(x).sample(sample_shape).long()
+
+
+class ConditionalHurdlePoisson(ContinuousMorphism):
+    """Conditional HurdlePoisson(zero_prob(x), rate(x)).
+
+    Same parameter shape as `ConditionalZeroInflatedPoisson` but the
+    two-stage hurdle log-density: a Bernoulli for zero vs positive,
+    then a zero-truncated Poisson for the strictly-positive branch.
+    """
+
+    def __init__(
+        self,
+        domain: AnySpace,
+        codomain: ContinuousSpace,
+        hidden_dim: int = 64,
+    ) -> None:
+        super().__init__(domain, codomain)
+        d = codomain.dim
+        self._d = d
+        self.param_source = _make_source(domain, 2 * d, hidden_dim)
+
+    @property
+    def support(self) -> _constraints.Constraint:
+        return _constraints.nonnegative_integer
+
+    def _get_dist(self, x: torch.Tensor) -> HurdlePoisson:
+        raw = self.param_source(x)
+        zero_prob = torch.sigmoid(raw[..., : self._d]).clamp(EPS, 1.0 - EPS)
+        rate = F.softplus(raw[..., self._d :]) + EPS
+        return HurdlePoisson(zero_prob, rate)
+
+    def log_prob(self, x: torch.Tensor, y: torch.Tensor) -> torch.Tensor:
+        return self._get_dist(x).log_prob(y.float()).sum(dim=-1)
+
+    def rsample(
+        self,
+        x: torch.Tensor,
+        sample_shape: torch.Size = torch.Size(),
+    ) -> torch.Tensor:
+        return self._get_dist(x).sample(sample_shape).long()
+
+
+class ConditionalMixtureNormal(ContinuousMorphism):
+    """Conditional finite Gaussian mixture with input-driven weights,
+    locations, and scales.
+
+    The parameter source produces `3 * K` numbers per row, where
+    `K` is the number of mixture components (fixed at construction).
+    Weights pass through softmax, locations are emitted directly,
+    scales pass through softplus + epsilon.
+
+    The codomain is assumed scalar (1-d real); a higher-dimensional
+    extension would replace `Normal` with `Independent(Normal(...), 1)`
+    and triple the per-component parameter count.
+    """
+
+    def __init__(
+        self,
+        domain: AnySpace,
+        codomain: ContinuousSpace,
+        num_components: int = 2,
+        hidden_dim: int = 64,
+    ) -> None:
+        if num_components < 2:
+            raise ValueError(
+                "ConditionalMixtureNormal: num_components must be >= 2, "
+                f"got {num_components}"
+            )
+        super().__init__(domain, codomain)
+        self._k = int(num_components)
+        self.param_source = _make_source(domain, 3 * self._k, hidden_dim)
+
+    @property
+    def support(self) -> _constraints.Constraint:
+        return _constraints.real
+
+    @property
+    def num_components(self) -> int:
+        return self._k
+
+    def _get_dist(self, x: torch.Tensor) -> MixtureNormal:
+        raw = self.param_source(x)
+        weights = F.softmax(raw[..., : self._k], dim=-1)
+        loc = raw[..., self._k : 2 * self._k]
+        scale = F.softplus(raw[..., 2 * self._k :]) + EPS
+        return MixtureNormal(weights, loc, scale)
+
+    def log_prob(self, x: torch.Tensor, y: torch.Tensor) -> torch.Tensor:
+        return self._get_dist(x).log_prob(y)
+
+    def rsample(
+        self,
+        x: torch.Tensor,
+        sample_shape: torch.Size = torch.Size(),
+    ) -> torch.Tensor:
+        return self._get_dist(x).sample(sample_shape)
 
 
 class ConditionalOneHotCategorical(ContinuousMorphism):

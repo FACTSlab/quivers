@@ -1,10 +1,9 @@
 """Structural compression: signatures, encoders, decoders, losses.
 
-This package provides the runtime substrate for the v0.5.0
-structural-compression surface described in
-``notes/structural-compression.md``: a uniform algebraic interface
-for compressing arbitrary structured objects to fixed-length
-vectors and decoding them back under a learned distribution.
+Runtime substrate for the structural-compression surface described
+in ``notes/structural-compression.md``: a uniform algebraic interface
+for compressing arbitrary structured objects to fixed-length vectors
+and decoding them back under a learned distribution.
 """
 
 from .encoder import Encoder

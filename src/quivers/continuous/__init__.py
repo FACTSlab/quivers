@@ -126,6 +126,9 @@ from quivers.continuous.families import (
     ConditionalBetaBinomial,
     ConditionalLogistic,
     ConditionalHalfStudentT,
+    ConditionalZeroInflatedPoisson,
+    ConditionalHurdlePoisson,
+    ConditionalMixtureNormal,
 )
 from quivers.continuous.ordered import (
     ConditionalOrderedLogistic,
@@ -144,6 +147,27 @@ from quivers.continuous.boundaries import (
 from quivers.continuous.flows import (
     AffineCouplingLayer,
     ConditionalFlow,
+)
+
+# Compositional measure-algebra families from main (0.14.x)
+from quivers.continuous._ordered import OrderedLogistic
+from quivers.continuous._zip_hurdle import (
+    HurdlePoisson,
+    MixtureNormal,
+    ZeroInflatedPoisson,
+)
+from quivers.continuous.param_source import (
+    AttentionSource,
+    ComposeSource,
+    EmbeddingSource,
+    FunctionSource,
+    IdentitySource,
+    LinearSource,
+    LookupSource,
+    MLPSource,
+    ParamSource,
+    make_param_source,
+    param_source_from_option,
 )
 
 # optional: GeneralizedPareto (torch version dependent)
@@ -244,6 +268,9 @@ __all__ = [
     "ConditionalHalfStudentT",
     "ConditionalOrderedLogistic",
     "ConditionalOrderedProbit",
+    "ConditionalZeroInflatedPoisson",
+    "ConditionalHurdlePoisson",
+    "ConditionalMixtureNormal",
     # monadic programs
     "MonadicProgram",
     # scan (temporal recurrence)
@@ -254,4 +281,20 @@ __all__ = [
     # flows
     "AffineCouplingLayer",
     "ConditionalFlow",
+    # Compositional measure-algebra families from main
+    "OrderedLogistic",
+    "HurdlePoisson",
+    "MixtureNormal",
+    "ZeroInflatedPoisson",
+    "ParamSource",
+    "LinearSource",
+    "MLPSource",
+    "LookupSource",
+    "EmbeddingSource",
+    "AttentionSource",
+    "IdentitySource",
+    "FunctionSource",
+    "ComposeSource",
+    "make_param_source",
+    "param_source_from_option",
 ]

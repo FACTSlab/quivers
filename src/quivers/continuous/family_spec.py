@@ -28,79 +28,38 @@ from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import Literal
 
-import didactic.api as dx
 import torch
 import torch.distributions as D
-import torch.nn.functional as F
 from torch.distributions import constraints as _constraints
 
-from quivers.core._util import EPS
+from quivers.continuous.bijectors import Bijector
+from quivers.continuous.param_transforms import (
+    TRANSFORM_TO_BIJECTOR,
+    resolve_inline_clamp,
+    resolve_transform,
+)
 
 # ---------------------------------------------------------------------------
 # Parameter transforms (used by the conditional path to convert raw
 # MLP outputs into constraint-respecting values).
+#
+# The transform vocabulary is bijector-typed: every entry in
+# `TRANSFORM_TO_BIJECTOR` is a
+# [`Bijector`][quivers.continuous.bijectors.Bijector] exposing
+# `forward`, `inverse`, `forward_log_det_jacobian`, and
+# `inverse_log_det_jacobian`. String keys are kept as a convenience
+# surface (backward-compatible with existing family declarations);
+# `ParamSpec.transform` accepts either a string key or a bijector
+# instance directly.
 # ---------------------------------------------------------------------------
 
 
-def _identity(x: torch.Tensor) -> torch.Tensor:
-    return x
-
-
-def _softplus(x: torch.Tensor) -> torch.Tensor:
-    return F.softplus(x) + EPS
-
-
-def _softplus_shifted(x: torch.Tensor) -> torch.Tensor:
-    """Positive with a minimum of 0.1 for concentration / df-style params."""
-    return F.softplus(x) + 0.1
-
-
-def _exp(x: torch.Tensor) -> torch.Tensor:
-    return x.exp().clamp(min=EPS)
-
-
-def _sigmoid(x: torch.Tensor) -> torch.Tensor:
-    return torch.sigmoid(x)
-
-
+# Historical alias retained so downstream imports that pull
+# `_RAW_TRANSFORMS` off this module resolve to a `dict[str,
+# Callable[[Tensor], Tensor]]` that routes through the bijector
+# forward map.
 _RAW_TRANSFORMS: dict[str, Callable[[torch.Tensor], torch.Tensor]] = {
-    "id": _identity,
-    "softplus": _softplus,
-    "softplus_shifted": _softplus_shifted,
-    "exp": _exp,
-    "sigmoid": _sigmoid,
-}
-
-
-# Per-named-transform safety clamp for inline parameters. The user
-# supplies these directly as either literal floats (in
-# ``FixedDistribution``) or runtime tensors (in
-# ``MixedInlineDistribution``); we enforce the matching constraint
-# at construction time so a slightly-off tensor (e.g. ``scale = 0``
-# from a guide draw against a HalfNormal prior at the boundary)
-# doesn't tip torch's distribution validation into raising.
-def _clamp_id(t: torch.Tensor) -> torch.Tensor:
-    return t
-
-
-def _clamp_positive(t: torch.Tensor) -> torch.Tensor:
-    return t.clamp(min=EPS)
-
-
-def _clamp_positive_shifted(t: torch.Tensor) -> torch.Tensor:
-    return t.clamp(min=0.1)
-
-
-def _clamp_unit_interval(t: torch.Tensor) -> torch.Tensor:
-    return t.clamp(min=EPS, max=1.0 - EPS)
-
-
-_INLINE_CLAMPS: dict[str, Callable[[torch.Tensor], torch.Tensor]] = {
-    "id": _clamp_id,
-    "softplus": _clamp_positive,
-    "softplus_shifted": _clamp_positive_shifted,
-    "exp": _clamp_positive,
-    "sigmoid": _clamp_unit_interval,
+    name: bij.forward for name, bij in TRANSFORM_TO_BIJECTOR.items()
 }
 
 
@@ -124,47 +83,104 @@ type ParamKind = Literal["scalar", "vector", "integer"]
 """
 
 
-def _validate_transform(name: str) -> str:
-    if name not in _RAW_TRANSFORMS:
-        raise ValueError(
-            f"ParamSpec: unknown transform {name!r}. "
-            f"Valid transforms: {sorted(_RAW_TRANSFORMS)}"
-        )
-    return name
+def _validate_transform(value: str | Bijector) -> str | Bijector:
+    """Validate a `ParamSpec.transform` argument.
+
+    String values must be registered in
+    [`TRANSFORM_TO_BIJECTOR`][quivers.continuous.param_transforms.TRANSFORM_TO_BIJECTOR];
+    `Bijector` instances pass through. Any other type raises.
+    """
+    if isinstance(value, Bijector):
+        return value
+    if isinstance(value, str):
+        if value not in TRANSFORM_TO_BIJECTOR:
+            raise ValueError(
+                f"ParamSpec: unknown transform {value!r}. "
+                f"Valid transforms: {sorted(TRANSFORM_TO_BIJECTOR)}"
+            )
+        return value
+    raise TypeError(
+        "ParamSpec: transform must be a string key or a Bijector; "
+        f"got {type(value).__name__}"
+    )
 
 
-class ParamSpec(dx.Model):
+@dataclass(frozen=True, eq=False)
+class ParamSpec:
     """Spec for a single parameter of a distribution family.
 
-    A `didactic.api.Model` so the schema-aware tooling that
-    consumes `FAMILY_REGISTRY` (didactic-driven serialization,
-    panproto schema export, …) sees the parameter list as typed
-    data rather than as opaque tuples.
+    A plain frozen dataclass rather than a
+    [`dx.Model`][didactic.api.Model] because `transform` accepts a
+    [`Bijector`][quivers.continuous.bijectors.Bijector] instance,
+    and the didactic model surface admits only registered scalar
+    types in a union field. String-typed transforms retain a stable
+    identity for panproto-side introspection via `transform_name`.
 
     Attributes
     ----------
     name : str
         Keyword argument expected by the underlying torch
         ``Distribution`` constructor.
-    transform : str
-        Name of the raw-output transform applied on the conditional
-        path (one of the keys of `_RAW_TRANSFORMS`).  Also
-        determines the safety clamp on the inline path.
+    transform : str | Bijector
+        Either a string key registered in
+        [`TRANSFORM_TO_BIJECTOR`][quivers.continuous.param_transforms.TRANSFORM_TO_BIJECTOR]
+        or a `Bijector` instance. The bijector's `forward` is
+        applied to the raw parameter tensor on the conditional
+        path; its full four-primitive interface is available to
+        guides and pushforwards.
     kind : ParamKind
         Per-parameter shape contract on the inline call side.
     """
 
     name: str
-    transform: str = dx.field(converter=_validate_transform)
+    transform: str | Bijector
     kind: ParamKind = "scalar"
+
+    def __post_init__(self) -> None:
+        # Mirror the historical converter check; store the
+        # validated value back onto the frozen instance.
+        validated = _validate_transform(self.transform)
+        object.__setattr__(self, "transform", validated)
+
+    @property
+    def bijector(self) -> Bijector:
+        """The resolved [`Bijector`][quivers.continuous.bijectors.Bijector]
+        for this parameter.
+
+        For a string-typed `transform`, looks the key up in
+        [`TRANSFORM_TO_BIJECTOR`][quivers.continuous.param_transforms.TRANSFORM_TO_BIJECTOR];
+        for a `Bijector`-typed `transform`, returns it unchanged.
+        """
+        return resolve_transform(self.transform)
 
     @property
     def raw_transform(self) -> Callable[[torch.Tensor], torch.Tensor]:
-        return _RAW_TRANSFORMS[self.transform]
+        """The bijector's `forward` map, exposed as a plain callable.
+
+        For callers that treat the transform as
+        `Callable[[Tensor], Tensor]`.
+        """
+        return self.bijector.forward
 
     @property
     def inline_clamp(self) -> Callable[[torch.Tensor], torch.Tensor]:
-        return _INLINE_CLAMPS[self.transform]
+        """Inline safety-clamp callable for user-supplied literal
+        or runtime parameters, sourced from
+        [`resolve_inline_clamp`][quivers.continuous.param_transforms.resolve_inline_clamp].
+        """
+        return resolve_inline_clamp(self.transform).forward
+
+    @property
+    def transform_name(self) -> str:
+        """A stable string identifier for the transform.
+
+        Returns the registered key when `transform` is a string;
+        returns a synthesised name based on the bijector class for
+        `Bijector`-typed transforms.
+        """
+        if isinstance(self.transform, str):
+            return self.transform
+        return f"<bijector:{type(self.transform).__name__}>"
 
 
 type OutputKind = Literal[
@@ -193,8 +209,9 @@ class FamilySpec:
     Python callables (``fixed_factory_override``,
     ``mixed_builder_override``) or class objects
     (``conditional_class_override``) that don't translate to a
-    panproto sort. `ParamSpec` is a ``dx.Model`` since its
-    fields are all primitive types.
+    panproto sort. `ParamSpec` is similarly a plain frozen
+    dataclass since its `transform` field accepts a `Bijector`
+    instance that has no didactic scalar registration.
 
     Used by:
 

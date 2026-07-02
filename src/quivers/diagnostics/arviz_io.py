@@ -1,5 +1,5 @@
 """Conversion from quivers fits to `xarray.DataTree` (the
-ArviZ 1.x replacement for the legacy ``InferenceData`` container).
+ArviZ 1.x container).
 
 The MCMC sampler hands back [`quivers.inference.MCMCResult`][quivers.inference.MCMCResult]
 records whose ``samples`` dict already follows the
@@ -130,4 +130,133 @@ def to_datatree(
         data,
         coords=dict(coords) if coords is not None else None,
         dims=dict(dims) if dims is not None else None,
+    )
+
+
+def to_datatree_from_svi(
+    samples: Mapping[str, torch.Tensor],
+    *,
+    log_densities: torch.Tensor | None = None,
+    observed_data: Mapping[str, torch.Tensor] | None = None,
+    posterior_predictive: Mapping[str, torch.Tensor] | None = None,
+    log_likelihood: Mapping[str, torch.Tensor] | None = None,
+    constant_data: Mapping[str, torch.Tensor] | None = None,
+    coords: Mapping[str, list] | None = None,
+    dims: Mapping[str, list[str]] | None = None,
+) -> xr.DataTree:
+    """Convert a set of SVI or Predictive draws into an ArviZ-style
+    DataTree with a single pseudo-chain.
+
+    Each entry in `samples` is a `(num_samples, *site_shape)` tensor
+    (the standard shape produced by `Predictive(model, guide,
+    num_samples=...)`). A leading chain dimension of size 1 is
+    inserted so the resulting DataTree matches the `(chain, draw,
+    *event)` shape ArviZ expects. `log_densities`, when supplied,
+    becomes `sample_stats/lp`; ArviZ diagnostic functions (`loo`,
+    `waic`, `plot_trace`) work uniformly on the resulting object.
+    """
+    data: dict[str, dict] = {}
+
+    posterior_group: dict = {}
+    for name, t in samples.items():
+        arr = _tensor_to_numpy(t)
+        if arr.ndim == 0:
+            arr = arr.reshape(1)
+        posterior_group[name] = arr[None, ...]
+    data["posterior"] = posterior_group
+
+    if log_densities is not None:
+        lp = _tensor_to_numpy(log_densities)
+        if lp.ndim == 0:
+            lp = lp.reshape(1)
+        data["sample_stats"] = {"lp": lp[None, ...]}
+
+    if observed_data:
+        data["observed_data"] = {
+            name: _tensor_to_numpy(t) for name, t in observed_data.items()
+        }
+    if posterior_predictive:
+        data["posterior_predictive"] = {
+            name: _tensor_to_numpy(t)[None, ...]
+            for name, t in posterior_predictive.items()
+        }
+    if log_likelihood:
+        data["log_likelihood"] = {
+            name: _tensor_to_numpy(t)[None, ...] for name, t in log_likelihood.items()
+        }
+    if constant_data:
+        data["constant_data"] = {
+            name: _tensor_to_numpy(t) for name, t in constant_data.items()
+        }
+
+    return az.from_dict(
+        data,
+        coords=dict(coords) if coords is not None else None,
+        dims=dict(dims) if dims is not None else None,
+    )
+
+
+def to_datatree_any(
+    fit,
+    *,
+    observed_data: Mapping[str, torch.Tensor] | None = None,
+    posterior_predictive: Mapping[str, torch.Tensor] | None = None,
+    log_likelihood: Mapping[str, torch.Tensor] | None = None,
+    constant_data: Mapping[str, torch.Tensor] | None = None,
+    coords: Mapping[str, list] | None = None,
+    dims: Mapping[str, list[str]] | None = None,
+) -> xr.DataTree:
+    """Dispatch a DataTree conversion on the fit type.
+
+    Accepts:
+
+    * [`MCMCResult`][quivers.inference.MCMCResult] — routes to the
+      original `to_datatree` chain / draw semantics.
+    * A plain dict of `str -> Tensor` (SVI / Predictive draws) —
+      routes to `to_datatree_from_svi` with a single pseudo-chain.
+    * A tuple `(samples, log_densities)` — same as the dict form
+      but populates `sample_stats/lp` from the second entry.
+
+    Consumers with a custom fit-container type can add a case here
+    or call the specific `to_datatree` / `to_datatree_from_svi`
+    entry point directly. The generic dispatch closes issue #43 by
+    giving SVI users a one-line ArviZ export path.
+    """
+    if isinstance(fit, MCMCResult):
+        return to_datatree(
+            fit,
+            observed_data=observed_data,
+            posterior_predictive=posterior_predictive,
+            log_likelihood=log_likelihood,
+            constant_data=constant_data,
+            coords=coords,
+            dims=dims,
+        )
+    if isinstance(fit, tuple) and len(fit) == 2:
+        samples, log_densities = fit
+        return to_datatree_from_svi(
+            samples,
+            log_densities=log_densities,
+            observed_data=observed_data,
+            posterior_predictive=posterior_predictive,
+            log_likelihood=log_likelihood,
+            constant_data=constant_data,
+            coords=coords,
+            dims=dims,
+        )
+    if isinstance(fit, Mapping):
+        return to_datatree_from_svi(
+            fit,
+            observed_data=observed_data,
+            posterior_predictive=posterior_predictive,
+            log_likelihood=log_likelihood,
+            constant_data=constant_data,
+            coords=coords,
+            dims=dims,
+        )
+    raise TypeError(
+        f"to_datatree_any: cannot dispatch on fit type "
+        f"{type(fit).__name__}; supported: MCMCResult, "
+        "Mapping[str, Tensor] (SVI / Predictive), "
+        "tuple[Mapping, Tensor] (samples + log-densities)."
     )

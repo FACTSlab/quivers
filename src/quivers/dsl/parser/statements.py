@@ -21,6 +21,8 @@ from quivers.dsl.ast_nodes import (
     ContractionInput,
     DecoderDecl,
     DeductionDecl,
+    DrawArgName,
+    DrawArgScalar,
     EdgeKindDecl,
     EncoderDecl,
     EncoderInitRule,
@@ -327,10 +329,26 @@ def _walk_morphism_init_family(t: _Tree, vid: str) -> MorphismInitFamily:
     family_vid = t.field(vid, "family")
     if family_vid is None:
         raise ParseError(f"morphism_init_family missing family at {vid}")
-    args = tuple(_walk_draw_arg(t, a) for a in t.fields(vid, "args"))
+    # `MorphismInitFamily` predates the tagged `DrawArg` union and
+    # accepts only simple `str | float` args (identifiers or numeric
+    # literals). Flatten the two admissible `DrawArg` variants
+    # (`DrawArgName`, `DrawArgScalar`) back to their scalar form
+    # here; other variants are grammar errors for an init family.
+    args: list[str | float] = []
+    for a in t.fields(vid, "args"):
+        wrapped = _walk_draw_arg(t, a)
+        if isinstance(wrapped, DrawArgName):
+            args.append(wrapped.text)
+        elif isinstance(wrapped, DrawArgScalar):
+            args.append(wrapped.value)
+        else:
+            raise ParseError(
+                f"morphism_init_family: unsupported arg shape "
+                f"{type(wrapped).__name__} at {vid}"
+            )
     return MorphismInitFamily(
         family=t.text(family_vid),
-        args=args,
+        args=tuple(args),
         line=line,
         col=col,
     )

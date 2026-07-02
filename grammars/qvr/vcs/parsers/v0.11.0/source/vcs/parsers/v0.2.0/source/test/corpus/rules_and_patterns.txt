@@ -1,0 +1,62 @@
+==================
+forward application
+==================
+
+rule app(X, Y) : X/Y, Y => X
+
+---
+
+(source_file
+  (rule_decl
+    name: (identifier)
+    variables: (identifier)
+    variables: (identifier)
+    premises: (cat_slash
+      result: (cat_atom (identifier))
+argument: (cat_atom (identifier)))
+    premises: (cat_atom (identifier))
+    conclusion: (cat_atom (identifier))))
+
+==================
+forward composition (left-associative)
+==================
+
+rule comp(X, Y, Z) : X/Y, Y/Z => X/Z
+
+---
+
+(source_file
+  (rule_decl
+    name: (identifier)
+    variables: (identifier)
+    variables: (identifier)
+    variables: (identifier)
+    premises: (cat_slash
+      result: (cat_atom (identifier))
+argument: (cat_atom (identifier)))
+    premises: (cat_slash
+      result: (cat_atom (identifier))
+argument: (cat_atom (identifier)))
+    conclusion: (cat_slash
+      result: (cat_atom (identifier))
+argument: (cat_atom (identifier)))))
+
+==================
+parenthesized backslash
+==================
+
+rule lift(A) : A => B/(A\B)
+
+---
+
+(source_file
+  (rule_decl
+    name: (identifier)
+    variables: (identifier)
+    premises: (cat_atom (identifier))
+    conclusion: (cat_slash
+      result: (cat_atom (identifier))
+argument: (cat_paren
+        (cat_slash
+          result: (cat_atom (identifier))
+        argument: (cat_atom (identifier)))))))

@@ -35,6 +35,102 @@ from quivers.dsl.ast_nodes.let_expressions import LetExprNode
 from quivers.dsl.ast_nodes.objects import ObjectExpr
 
 
+class DrawArg(dx.TaggedUnion, discriminator="kind"):
+    """A single argument in a draw step. Variants cover all four
+    surface shapes the parser can produce: bare identifier
+    (variable reference), numeric literal, distribution-call
+    expression (compositional measure algebra), and list of args.
+
+    Sum-type representation rather than a Python union so the
+    panproto translation can carry the AST through the grammar
+    walker, the migration lens, and the pretty-printer uniformly.
+    """
+
+
+class DrawArgName(DrawArg):
+    """Bare identifier reference in a draw step. Carries only the
+    identifier text; bracket-indexed forms (``theta[N]``) parse to
+    the dedicated [`DrawArgIndex`][quivers.dsl.ast_nodes.DrawArgIndex]
+    variant.
+    """
+
+    text: str
+    line: int = 0
+    col: int = 0
+    kind: Literal["name"] = "name"
+
+
+class DrawArgIndex(DrawArg):
+    """Bracket-indexed reference in a draw step. `name` is the base
+    tensor identifier; `indices` is the tuple of index-tensor
+    identifiers referenced inside the brackets (typically length
+    one, e.g. ``theta[N]``). Both the base name and every index
+    identifier count as dependencies for plate-graph edge emission.
+    """
+
+    name: str
+    indices: tuple[str, ...] = ()
+    line: int = 0
+    col: int = 0
+    kind: Literal["index"] = "index"
+
+
+class DrawArgScalar(DrawArg):
+    """Numeric literal in a draw step."""
+
+    value: float
+    line: int = 0
+    col: int = 0
+    kind: Literal["scalar"] = "scalar"
+
+
+class DrawArgDist(DrawArg):
+    """Nested `Family(...)` call inside the `args` of a draw step.
+
+    Surfaces the compositional measure algebra (`Mixture`,
+    `Restrict`, `Pushforward`, `PointMass`, ...) so distributions
+    can be expressed as ordinary draw-arg expressions:
+
+        observe y <- Mixture([0.3, 0.7], [PointMass(0), Poisson(rate)])
+
+    The compiler recurses into `args` to build the inner measure
+    before passing it to the outer family's builder.
+    """
+
+    family: str
+    args: tuple[DrawArg, ...]
+    line: int = 0
+    col: int = 0
+    kind: Literal["dist"] = "dist"
+
+
+class DrawArgList(DrawArg):
+    """List-of-draw-args, e.g. `[0.3, 0.7]` for mixture weights or
+    `[PointMass(0), Poisson(rate)]` for mixture components. The
+    compiler unpacks the list into a vector or list of inner
+    distributions depending on the consuming family's argument
+    schema.
+    """
+
+    items: tuple[DrawArg, ...]
+    line: int = 0
+    col: int = 0
+    kind: Literal["list"] = "list"
+
+
+def _to_draw_arg(value: str | float | int | DrawArg) -> DrawArg:
+    """Lift a plain Python value into the tagged `DrawArg` shape."""
+    if isinstance(value, DrawArg):
+        return value
+    if isinstance(value, str):
+        return DrawArgName(text=value)
+    if isinstance(value, (int, float)):
+        return DrawArgScalar(value=float(value))
+    raise TypeError(
+        f"_to_draw_arg: expected str | float | DrawArg, got {type(value).__name__}"
+    )
+
+
 class ProgramStep(dx.TaggedUnion, discriminator="kind"):
     """Sum of program-block step node kinds."""
 

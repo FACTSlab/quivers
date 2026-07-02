@@ -127,6 +127,12 @@ from quivers.dsl.ast_nodes.let_expressions import (
 from quivers.dsl.ast_nodes.module import Module
 from quivers.dsl.ast_nodes.program_steps import (
     BindStep,
+    DrawArg,
+    DrawArgDist,
+    DrawArgIndex,
+    DrawArgList,
+    DrawArgName,
+    DrawArgScalar,
     DrawStep,
     GroupedBodyObserveStep,
     GroupedLatentInitStep,
@@ -141,6 +147,7 @@ from quivers.dsl.ast_nodes.program_steps import (
     SampleStep,
     ScoreStep,
     VectorisedObserveStep,
+    _to_draw_arg as atom_to_draw_arg,
 )
 from quivers.dsl.ast_nodes.structural import (
     BinderArg,
@@ -197,7 +204,14 @@ __all__ = [
     "DecoderDecl",
     "DeductionDecl",
     "DiscreteConstructor",
+    "DrawArg",
+    "DrawArgDist",
+    "DrawArgIndex",
+    "DrawArgList",
+    "DrawArgName",
+    "DrawArgScalar",
     "DrawStep",
+    "atom_to_draw_arg",
     "EdgeKindDecl",
     "EncoderDecl",
     "EncoderInitRule",

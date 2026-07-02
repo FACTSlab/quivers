@@ -19,7 +19,8 @@ guides : Variational guide families (mean-field, full-rank /
     Laplace). Re-exported here at top level.
 estimators : Gradient estimators (reparameterized, sticking-the-
     landing, DReG, score-function).
-objectives : Variational objectives (ELBO, IWAE, Rényi, VR-IWAE).
+objectives : Variational objectives (ELBO, IWAEBound, RenyiBound,
+    VRIWAEBound, ChiVI, RWS, DReGsBound).
 svi : Stochastic variational inference training loop.
 predictive : Posterior predictive sampling.
 """
@@ -30,15 +31,23 @@ from quivers.inference.trace import Trace, SampleSite, trace
 from quivers.inference.conditioning import Conditioned, condition
 from quivers.inference.registry import LatentRegistry, LatentSite
 from quivers.inference.guides import (
+    AutoDelta,
     AutoDeltaGuide,
+    AutoGuideList,
     AutoIAFGuide,
+    AutoIAFNormal,
+    AutoLaplace,
     AutoLaplaceApproximation,
+    AutoLowRankMVN,
     AutoLowRankMultivariateNormalGuide,
     AutoMixtureGuide,
+    AutoMultivariateNormal,
     AutoMultivariateNormalGuide,
     AutoNeuralSplineGuide,
+    AutoNormal,
     AutoNormalGuide,
     AutoNormalizingFlow,
+    AutoStructured,
     Guide,
 )
 from quivers.inference.estimators import (
@@ -50,6 +59,9 @@ from quivers.inference.estimators import (
 )
 from quivers.inference.objectives import (
     ELBO,
+    RWS,
+    ChiVI,
+    DReGsBound,
     IWAEBound,
     Objective,
     RenyiBound,
@@ -91,6 +103,14 @@ __all__ = [
     "AutoIAFGuide",
     "AutoNeuralSplineGuide",
     "AutoMixtureGuide",
+    "AutoGuideList",
+    "AutoStructured",
+    "AutoNormal",
+    "AutoMultivariateNormal",
+    "AutoLowRankMVN",
+    "AutoDelta",
+    "AutoLaplace",
+    "AutoIAFNormal",
     "MCMCKernel",
     "HMCKernel",
     "NUTSKernel",
@@ -102,6 +122,9 @@ __all__ = [
     "ELBO",
     "IWAEBound",
     "RenyiBound",
+    "ChiVI",
+    "RWS",
+    "DReGsBound",
     "VRIWAEBound",
     "GradientEstimator",
     "Reparameterized",

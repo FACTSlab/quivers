@@ -921,11 +921,33 @@ module.exports = grammar({
 
     _draw_arg: $ => choice(
       $.bracket_index_arg,
+      $.family_call_arg,
+      $.draw_arg_matrix,
+      $.list_arg,
       $.identifier,
       $.signed_number,
-      $.draw_arg_list,
-      $.draw_arg_matrix,
     ),
+
+    // Distribution-call expression at a draw-arg position, e.g.
+    // `Mixture([0.3, 0.7], [PointMass(0), Poisson(rate)])`. The
+    // compiler recurses into `args` to build the inner distribution
+    // before passing it to the outer family's builder. See the
+    // measure-algebra design note for the operator vocabulary.
+    family_call_arg: $ => prec(2, seq(
+      field('family', $.identifier),
+      '(',
+      optional(field('args', commaSep1($._draw_arg))),
+      ')',
+    )),
+
+    // List-of-draw-args, e.g. `[0.3, 0.7]` for mixture weights or
+    // `[PointMass(0), Poisson(rate)]` for mixture components. Mirrors
+    // the let-expression list literal but at the draw-arg position.
+    list_arg: $ => prec(2, seq(
+      '[',
+      optional(commaSep1($._draw_arg)),
+      ']',
+    )),
 
     bracket_index_arg: $ => prec(1, seq(
       field('name', $.identifier),
@@ -935,33 +957,16 @@ module.exports = grammar({
     )),
 
     /*
-     * Vector literal: ``[a, b, c]``. Elements are atomic draw args
-     * (identifiers, numbers, or bracket-indexed references); nested
-     * lists go through `draw_arg_matrix`.
-     */
-    draw_arg_list: $ => prec(2, seq(
-      '[',
-      commaSep1($._draw_arg_atom),
-      optional(','),
-      ']',
-    )),
-
     /*
      * Matrix literal: ``[[a, b], [c, d]]``. Each row is a
      * `draw_arg_list`.
      */
     draw_arg_matrix: $ => prec(3, seq(
       '[',
-      commaSep1($.draw_arg_list),
+      commaSep1($.list_arg),
       optional(','),
       ']',
     )),
-
-    _draw_arg_atom: $ => choice(
-      $.identifier,
-      $.signed_number,
-      $.bracket_index_arg,
-    ),
 
     _var_pattern: $ => choice($.identifier, $.var_tuple),
 

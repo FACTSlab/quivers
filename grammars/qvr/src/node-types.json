@@ -1859,29 +1859,6 @@
     }
   },
   {
-    "type": "draw_arg_list",
-    "named": true,
-    "fields": {},
-    "children": {
-      "multiple": true,
-      "required": true,
-      "types": [
-        {
-          "type": "bracket_index_arg",
-          "named": true
-        },
-        {
-          "type": "identifier",
-          "named": true
-        },
-        {
-          "type": "signed_number",
-          "named": true
-        }
-      ]
-    }
-  },
-  {
     "type": "draw_arg_matrix",
     "named": true,
     "fields": {},
@@ -1890,7 +1867,7 @@
       "required": true,
       "types": [
         {
-          "type": "draw_arg_list",
+          "type": "list_arg",
           "named": true
         }
       ]
@@ -2791,6 +2768,56 @@
           "named": true
         }
       ]
+    }
+  },
+  {
+    "type": "family_call_arg",
+    "named": true,
+    "fields": {
+      "args": {
+        "multiple": true,
+        "required": false,
+        "types": [
+          {
+            "type": ",",
+            "named": false
+          },
+          {
+            "type": "bracket_index_arg",
+            "named": true
+          },
+          {
+            "type": "draw_arg_matrix",
+            "named": true
+          },
+          {
+            "type": "family_call_arg",
+            "named": true
+          },
+          {
+            "type": "identifier",
+            "named": true
+          },
+          {
+            "type": "list_arg",
+            "named": true
+          },
+          {
+            "type": "signed_number",
+            "named": true
+          }
+        ]
+      },
+      "family": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "identifier",
+            "named": true
+          }
+        ]
+      }
     }
   },
   {
@@ -4186,6 +4213,41 @@
     }
   },
   {
+    "type": "list_arg",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": true,
+      "required": false,
+      "types": [
+        {
+          "type": "bracket_index_arg",
+          "named": true
+        },
+        {
+          "type": "draw_arg_matrix",
+          "named": true
+        },
+        {
+          "type": "family_call_arg",
+          "named": true
+        },
+        {
+          "type": "identifier",
+          "named": true
+        },
+        {
+          "type": "list_arg",
+          "named": true
+        },
+        {
+          "type": "signed_number",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
     "type": "loss_decl",
     "named": true,
     "fields": {
@@ -4288,15 +4350,19 @@
             "named": true
           },
           {
-            "type": "draw_arg_list",
-            "named": true
-          },
-          {
             "type": "draw_arg_matrix",
             "named": true
           },
           {
+            "type": "family_call_arg",
+            "named": true
+          },
+          {
             "type": "identifier",
+            "named": true
+          },
+          {
+            "type": "list_arg",
             "named": true
           },
           {
@@ -4758,15 +4824,19 @@
             "named": true
           },
           {
-            "type": "draw_arg_list",
-            "named": true
-          },
-          {
             "type": "draw_arg_matrix",
             "named": true
           },
           {
+            "type": "family_call_arg",
+            "named": true
+          },
+          {
             "type": "identifier",
+            "named": true
+          },
+          {
+            "type": "list_arg",
             "named": true
           },
           {
@@ -5335,15 +5405,19 @@
             "named": true
           },
           {
-            "type": "draw_arg_list",
-            "named": true
-          },
-          {
             "type": "draw_arg_matrix",
             "named": true
           },
           {
+            "type": "family_call_arg",
+            "named": true
+          },
+          {
             "type": "identifier",
+            "named": true
+          },
+          {
+            "type": "list_arg",
             "named": true
           },
           {
@@ -6282,15 +6356,19 @@
             "named": true
           },
           {
-            "type": "draw_arg_list",
-            "named": true
-          },
-          {
             "type": "draw_arg_matrix",
             "named": true
           },
           {
+            "type": "family_call_arg",
+            "named": true
+          },
+          {
             "type": "identifier",
+            "named": true
+          },
+          {
+            "type": "list_arg",
             "named": true
           },
           {

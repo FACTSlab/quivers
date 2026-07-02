@@ -1,0 +1,116 @@
+==================
+simple program with return
+==================
+
+program p : A -> B
+    draw x ~ f
+    return x
+
+---
+
+(source_file
+  (program_decl
+    name: (identifier)
+    domain: (type_atom (identifier))
+    codomain: (type_atom (identifier))
+    steps: (draw_step
+      vars: (identifier)
+      morphism: (identifier))
+    return: (identifier)))
+
+==================
+program with params, observe, and labeled return
+==================
+
+program model(y, z) : Belief * Belief -> Truth * Truth
+    draw c ~ bern_c(y)
+    observe d ~ bern_d(z, 0.5)
+    let threshold = 0.5
+    return (state: c, prob: d)
+
+---
+
+(source_file
+  (program_decl
+    name: (identifier)
+    params: (identifier)
+    params: (identifier)
+    domain: (type_product
+      left: (type_atom (identifier))
+      right: (type_atom (identifier)))
+    codomain: (type_product
+      left: (type_atom (identifier))
+      right: (type_atom (identifier)))
+    steps: (draw_step
+      vars: (identifier)
+      morphism: (identifier)
+      args: (identifier))
+    steps: (observe_step
+      vars: (identifier)
+      morphism: (identifier)
+      args: (identifier)
+      args: (signed_number (float)))
+    steps: (let_step
+      name: (identifier)
+      value: (let_literal (float)))
+    return: (return_labeled_tuple
+      (return_label_entry label: (identifier) var: (identifier))
+      (return_label_entry label: (identifier) var: (identifier)))))
+
+==================
+let-step arithmetic
+==================
+
+program p : A -> B
+    draw x ~ f
+    let logit = log(p) - log(1.0 - p)
+    let combined = x * 0.5 + y * 0.5
+    return logit
+
+---
+
+(source_file
+  (program_decl
+    name: (identifier)
+    domain: (type_atom (identifier))
+    codomain: (type_atom (identifier))
+    steps: (draw_step vars: (identifier) morphism: (identifier))
+    steps: (let_step
+      name: (identifier)
+      value: (let_binop
+        left: (let_call args: (let_var (identifier)))
+        right: (let_call
+          args: (let_binop
+            left: (let_literal (float))
+            right: (let_var (identifier))))))
+    steps: (let_step
+      name: (identifier)
+      value: (let_binop
+        left: (let_binop
+          left: (let_var (identifier))
+          right: (let_literal (float)))
+        right: (let_binop
+          left: (let_var (identifier))
+          right: (let_literal (float)))))
+    return: (identifier)))
+
+==================
+arrow-style draw
+==================
+
+program p : A -> B
+    x <- f(theta)
+    return x
+
+---
+
+(source_file
+  (program_decl
+    name: (identifier)
+    domain: (type_atom (identifier))
+    codomain: (type_atom (identifier))
+    steps: (arrow_draw_step
+      var: (identifier)
+      morphism: (identifier)
+      args: (identifier))
+    return: (identifier)))
