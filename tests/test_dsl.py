@@ -11,12 +11,12 @@ from quivers.core.algebras import BOOLEAN
 from quivers.core.objects import FinSet
 from quivers.dsl import CompileError, ParseError, load, loads, parse
 from quivers.dsl.ast_nodes import (
+    DefineDecl,
     ExportDecl,
     ExprCompose,
     ExprIdent,
     ExprMarginalize,
     ExprTensorProduct,
-    LetDecl,
     Module,
     MorphismDecl,
     ObjectDecl,
@@ -32,7 +32,7 @@ class TestParser:
 
     def test_composition_decl(self):
         """Parse a composition declaration at the algebra level."""
-        mod = self._parse("composition product_fuzzy as algebra\n")
+        mod = self._parse("composition product_fuzzy [level=algebra]\n")
         assert len(mod.statements) == 1
 
     def test_object_decl_finset(self):
@@ -41,14 +41,14 @@ class TestParser:
         assert len(mod.statements) == 1
         stmt = mod.statements[0]
         assert isinstance(stmt, ObjectDecl)
-        assert stmt.name == "X"
+        assert stmt.names == ("X",)
 
     def test_latent_morphism_role(self):
         """Parse a morphism declaration with role=latent."""
         mod = self._parse("object X : FinSet 3\nmorphism f : X -> X [role=latent]\n")
         stmt = mod.statements[1]
         assert isinstance(stmt, MorphismDecl)
-        assert stmt.name == "f"
+        assert stmt.names == ("f",)
 
     def test_let_compose(self):
         """Parse a let binding with composition."""
@@ -56,11 +56,11 @@ class TestParser:
             "object X : FinSet 3\n"
             "morphism f : X -> X [role=latent]\n"
             "morphism g : X -> X [role=latent]\n"
-            "let h = f >> g\n"
+            "define h = f >> g\n"
         )
         mod = self._parse(source)
         let_stmt = mod.statements[3]
-        assert isinstance(let_stmt, LetDecl)
+        assert isinstance(let_stmt, DefineDecl)
         assert isinstance(let_stmt.expr, ExprCompose)
 
     def test_let_tensor_product(self):
@@ -69,7 +69,7 @@ class TestParser:
             "object X : FinSet 3\n"
             "morphism f : X -> X [role=latent]\n"
             "morphism g : X -> X [role=latent]\n"
-            "let h = f @ g\n"
+            "define h = f @ g\n"
         )
         mod = self._parse(source)
         let_stmt = mod.statements[3]
@@ -80,7 +80,7 @@ class TestParser:
         source = (
             "object X : FinSet 3\n"
             "morphism f : X -> X [role=latent]\n"
-            "let m = f.marginalize(X)\n"
+            "define m = f.marginalize(X)\n"
         )
         mod = self._parse(source)
         let_stmt = mod.statements[2]
@@ -149,7 +149,7 @@ class TestCompiler:
         prog = loads(
             "object X : FinSet 3\n"
             "morphism f : X -> X [role=latent]\n"
-            "let g = f >> f\n"
+            "define g = f >> f\n"
             "export g\n"
         )
         assert prog().shape == torch.Size([3, 3])
@@ -157,7 +157,7 @@ class TestCompiler:
     def test_composition_algebra_boolean(self):
         """Compile with the boolean algebra."""
         prog = loads(
-            "composition boolean as algebra\n"
+            "composition boolean [level=algebra]\n"
             "object X : FinSet 2\n"
             "morphism h : X -> X [role=observed] ~ identity(X)\n"
             "export h\n"
@@ -269,7 +269,7 @@ class TestCompileEnv:
 
     def test_compile_env_algebra(self):
         """compile_env includes the active algebra."""
-        ast = parse("composition boolean as algebra\nobject X : FinSet 2\n")
+        ast = parse("composition boolean [level=algebra]\nobject X : FinSet 2\n")
         compiler = Compiler(ast)
         env = compiler.compile_env()
         assert env["__algebra__"] is BOOLEAN

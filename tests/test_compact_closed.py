@@ -28,8 +28,6 @@ This module tests the categorical contract end-to-end:
 
 from __future__ import annotations
 
-import os
-
 import pytest
 import torch
 import textwrap
@@ -41,12 +39,6 @@ from quivers.core.morphisms import (
     cup,
 )
 from quivers.core.objects import FinSet
-
-
-_LOCAL_GRAMMAR = pytest.mark.skipif(
-    os.environ.get("QVR_USE_LOCAL_GRAMMAR", "") not in ("1", "true", "True"),
-    reason="needs QVR_USE_LOCAL_GRAMMAR=1 to pick up the in-tree grammar",
-)
 
 
 # ---------------------------------------------------------------------------
@@ -144,17 +136,16 @@ def test_cap_returns_codiagonal_from_product() -> None:
 # ---------------------------------------------------------------------------
 
 
-@_LOCAL_GRAMMAR
 def test_dsl_dagger_method_call() -> None:
     from quivers.dsl import loads
 
     src = """
-    composition product_fuzzy as algebra
+    composition product_fuzzy [level=algebra]
     object A : FinSet 3
     object B : FinSet 4
 
     morphism f : A -> B [role=latent]
-    let f_dag = f.dagger
+    define f_dag = f.dagger
     export f_dag
     """
     m = loads(textwrap.dedent(src))
@@ -162,15 +153,14 @@ def test_dsl_dagger_method_call() -> None:
     assert m.morphism.tensor.shape == (4, 3)
 
 
-@_LOCAL_GRAMMAR
 def test_dsl_cup_returns_diagonal() -> None:
     from quivers.dsl import loads
 
     src = """
-    composition product_fuzzy as algebra
+    composition product_fuzzy [level=algebra]
     object A : FinSet 3
 
-    let eta = cup(A)
+    define eta = cup(A)
     export eta
     """
     m = loads(textwrap.dedent(src))
@@ -180,15 +170,14 @@ def test_dsl_cup_returns_diagonal() -> None:
     assert torch.allclose(t.squeeze(0), expected)
 
 
-@_LOCAL_GRAMMAR
 def test_dsl_cap_returns_codiagonal() -> None:
     from quivers.dsl import loads
 
     src = """
-    composition product_fuzzy as algebra
+    composition product_fuzzy [level=algebra]
     object A : FinSet 3
 
-    let eps = cap(A)
+    define eps = cap(A)
     export eps
     """
     m = loads(textwrap.dedent(src))
@@ -198,16 +187,15 @@ def test_dsl_cap_returns_codiagonal() -> None:
     assert torch.allclose(t.squeeze(-1), expected)
 
 
-@_LOCAL_GRAMMAR
 def test_dsl_change_base_to_log_prob() -> None:
     from quivers.dsl import loads
 
     src = """
-    composition product_fuzzy as algebra
+    composition product_fuzzy [level=algebra]
     object A : FinSet 3
 
     morphism f : A -> A [role=latent]
-    let f_log = f.change_base(log_prob)
+    define f_log = f.change_base(log_prob)
     export f_log
     """
     m = loads(textwrap.dedent(src))
@@ -216,31 +204,29 @@ def test_dsl_change_base_to_log_prob() -> None:
     assert (m.morphism.tensor <= 0).all()
 
 
-@_LOCAL_GRAMMAR
 def test_dsl_change_base_unknown_homomorphism_errors() -> None:
     from quivers.dsl import loads
     from quivers.dsl.compiler import CompileError
 
     src = """
-    composition product_fuzzy as algebra
+    composition product_fuzzy [level=algebra]
     object A : FinSet 3
     morphism f : A -> A [role=latent]
-    let g = f.change_base(not_a_real_homomorphism)
+    define g = f.change_base(not_a_real_homomorphism)
     export g
     """
     with pytest.raises(CompileError, match="undefined transformation"):
         loads(textwrap.dedent(src))
 
 
-@_LOCAL_GRAMMAR
 def test_dsl_change_base_to_boolean() -> None:
     from quivers.dsl import loads
 
     src = """
-    composition product_fuzzy as algebra
+    composition product_fuzzy [level=algebra]
     object A : FinSet 3
     morphism f : A -> A [role=latent]
-    let g = f.change_base(threshold)
+    define g = f.change_base(threshold)
     export g
     """
     m = loads(textwrap.dedent(src))
@@ -250,13 +236,12 @@ def test_dsl_change_base_to_boolean() -> None:
     assert torch.all((t == 0.0) | (t == 1.0))
 
 
-@_LOCAL_GRAMMAR
 def test_dsl_dagger_chained_with_compose() -> None:
     """The canonical bilinear-scoring pattern: ``f >> g.dagger``."""
     from quivers.dsl import loads
 
     src = """
-    composition product_fuzzy as algebra
+    composition product_fuzzy [level=algebra]
     object A : FinSet 3
     object B : FinSet 3
     object Latent : FinSet 4
@@ -264,7 +249,7 @@ def test_dsl_dagger_chained_with_compose() -> None:
     morphism emb_a : A -> Latent [role=latent]
     morphism emb_b : B -> Latent [role=latent]
 
-    let score = emb_a >> emb_b.dagger
+    define score = emb_a >> emb_b.dagger
     export score
     """
     m = loads(textwrap.dedent(src))

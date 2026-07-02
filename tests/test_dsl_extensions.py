@@ -50,7 +50,7 @@ class TestBundleDecl:
             object Atoms : {NP, S}
             object Cat : FreeResiduated(Atoms, depth=1, ops=[slash])
             schema fa(X, Y : Cat) : (X/Y) * Y -> X
-            bundle B = [fa]
+            bundle B : [fa]
         """)
         m = parse(textwrap.dedent(src))
         bundles = [s for s in m.statements if isinstance(s, BundleDecl)]
@@ -64,7 +64,7 @@ class TestBundleDecl:
             object Cat : FreeResiduated(Atoms, depth=2, ops=[slash])
             schema fa(X, Y : Cat) : (X/Y) * Y -> X
             schema ba(X, Y : Cat) : Y * (X\\Y) -> X
-            bundle CCG = [fa, ba]
+            bundle CCG : [fa, ba]
         """)
         m = parse(textwrap.dedent(src))
         bundles = [s for s in m.statements if isinstance(s, BundleDecl)]
@@ -86,7 +86,7 @@ class TestCommentHandling:
         m = parse(textwrap.dedent(src))
         objs = [s for s in m.statements if isinstance(s, ObjectDecl)]
         assert len(objs) == 1
-        assert objs[0].name == "X"
+        assert objs[0].names == ("X",)
 
 
 # ---------------------------------------------------------------------------
@@ -147,7 +147,7 @@ class TestConstraintSolver:
 
     def test_bundle_unknown_member_diagnostic(self):
         src = textwrap.dedent("""
-            bundle B = [does_not_exist]
+            bundle B : [does_not_exist]
         """)
         m = parse(textwrap.dedent(src))
         v = check_constraints(m)
@@ -229,7 +229,7 @@ class TestQvrCheckCli:
         f = tmp_qvr(
             "constraint_bad.qvr",
             """
-            bundle B = [no_such_rule]
+            bundle B : [no_such_rule]
             """,
         )
         diags = _check_one(f)

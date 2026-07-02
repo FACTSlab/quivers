@@ -18,8 +18,6 @@ This file exercises:
 from __future__ import annotations
 import textwrap
 
-import os
-
 import pytest
 import torch
 
@@ -27,26 +25,19 @@ from quivers.dsl import loads
 from quivers.dsl.compiler import CompileError
 
 
-_LOCAL_GRAMMAR = pytest.mark.skipif(
-    os.environ.get("QVR_USE_LOCAL_GRAMMAR", "") not in ("1", "true", "True"),
-    reason="needs QVR_USE_LOCAL_GRAMMAR=1 to pick up the in-tree grammar",
-)
-
-
 # ---------------------------------------------------------------------------
 # Let-binding a transformation
 # ---------------------------------------------------------------------------
 
 
-@_LOCAL_GRAMMAR
 def test_let_binds_singleton_transformation() -> None:
     src = """
-    composition real as algebra
+    composition real [level=algebra]
     object A : FinSet 3
     object B : FinSet 4
     morphism f : A -> B [role=latent]
-    let phi = boolean_embedding
-    let g = f.change_base(phi)
+    define phi = boolean_embedding
+    define g = f.change_base(phi)
     export g
     """
     # phi has source=Boolean, target=ProductFuzzyAlgebra; f is over Real.
@@ -57,15 +48,14 @@ def test_let_binds_singleton_transformation() -> None:
         loads(textwrap.dedent(src))
 
 
-@_LOCAL_GRAMMAR
 def test_let_binds_constructor_result() -> None:
     src = """
-    composition product_fuzzy as algebra
+    composition product_fuzzy [level=algebra]
     object A : FinSet 3
     object B : FinSet 4
     morphism f : A -> B [role=latent]
-    let normalize = softmax(B)
-    let g = f.change_base(normalize)
+    define normalize = softmax(B)
+    define g = f.change_base(normalize)
     export g
     """
     program = loads(textwrap.dedent(src))
@@ -73,34 +63,32 @@ def test_let_binds_constructor_result() -> None:
     assert torch.allclose(tensor.sum(dim=-1), torch.ones(3), atol=1e-5)
 
 
-@_LOCAL_GRAMMAR
 def test_let_binds_then_reuses_transformation() -> None:
     """A single trans can be applied to two different morphisms."""
     src = """
-    composition product_fuzzy as algebra
+    composition product_fuzzy [level=algebra]
     object A : FinSet 3
     object B : FinSet 4
     morphism f : A -> B [role=latent]
     morphism h : A -> B [role=latent]
-    let normalize = softmax(B)
-    let f_norm = f.change_base(normalize)
-    let h_norm = h.change_base(normalize)
+    define normalize = softmax(B)
+    define f_norm = f.change_base(normalize)
+    define h_norm = h.change_base(normalize)
     export f_norm
     """
     program = loads(textwrap.dedent(src))
     assert program.morphism is not None
 
 
-@_LOCAL_GRAMMAR
 def test_let_trans_name_disjoint_from_morphism_name() -> None:
     """Trans and morphism namespaces are disjoint."""
     src = """
-    composition product_fuzzy as algebra
+    composition product_fuzzy [level=algebra]
     object A : FinSet 3
     object B : FinSet 4
     morphism f : A -> B [role=latent]
-    let t = softmax(B)
-    let t = f
+    define t = softmax(B)
+    define t = f
     export f
     """
     with pytest.raises(CompileError, match="already bound"):
@@ -112,19 +100,18 @@ def test_let_trans_name_disjoint_from_morphism_name() -> None:
 # ---------------------------------------------------------------------------
 
 
-@_LOCAL_GRAMMAR
 def test_trans_compose_chains_two_compatible_steps() -> None:
     """``t1 >>> t2`` applies t1 then t2; the morphism's algebra
     travels from t1.source through t1.target == t2.source to
     t2.target."""
     src = """
-    composition product_fuzzy as algebra
+    composition product_fuzzy [level=algebra]
     object A : FinSet 3
     object B : FinSet 4
     morphism f : A -> B [role=latent]
-    let s = softmax(B)
-    let pipe = s >>> expectation
-    let g = f.change_base(pipe)
+    define s = softmax(B)
+    define pipe = s >>> expectation
+    define g = f.change_base(pipe)
     export g
     """
     # softmax : ProductFuzzyAlgebra -> Markov ; expectation : Markov ->
@@ -136,33 +123,31 @@ def test_trans_compose_chains_two_compatible_steps() -> None:
     assert tensor.shape == (3, 4)
 
 
-@_LOCAL_GRAMMAR
 def test_trans_compose_inline_in_change_base() -> None:
     """``f.change_base(t1 >>> t2)`` works without an intermediate
     let."""
     src = """
-    composition product_fuzzy as algebra
+    composition product_fuzzy [level=algebra]
     object A : FinSet 3
     object B : FinSet 4
     morphism f : A -> B [role=latent]
-    let g = f.change_base(softmax(B) >>> expectation)
+    define g = f.change_base(softmax(B) >>> expectation)
     export g
     """
     program = loads(textwrap.dedent(src))
     assert program.morphism is not None
 
 
-@_LOCAL_GRAMMAR
 def test_trans_compose_three_steps_flattens() -> None:
     """``t1 >>> t2 >>> t3`` flattens into a single 3-step
     sequence; intermediate boundaries are typed."""
     src = """
-    composition real as algebra
+    composition real [level=algebra]
     object A : FinSet 3
     object B : FinSet 4
     morphism f : A -> B [role=latent]
-    let pipe = probability_clamp >>> probability_to_real >>> counting_from_real
-    let g = f.change_base(pipe)
+    define pipe = probability_clamp >>> probability_to_real >>> counting_from_real
+    define g = f.change_base(pipe)
     export g
     """
     # Real -> Probability -> Real -> Counting
@@ -170,18 +155,17 @@ def test_trans_compose_three_steps_flattens() -> None:
     assert program.morphism is not None
 
 
-@_LOCAL_GRAMMAR
 def test_trans_compose_source_target_mismatch_errors() -> None:
     """``boolean_embedding >>> expectation`` is a type error:
     boolean_embedding's target is ProductFuzzyAlgebra, but expectation
     expects Markov."""
     src = """
-    composition boolean as algebra
+    composition boolean [level=algebra]
     object A : FinSet 3
     object B : FinSet 4
     morphism f : A -> B [role=latent]
-    let bad = boolean_embedding >>> expectation
-    let g = f.change_base(bad)
+    define bad = boolean_embedding >>> expectation
+    define g = f.change_base(bad)
     export g
     """
     with pytest.raises(CompileError, match="does not match"):
@@ -193,29 +177,27 @@ def test_trans_compose_source_target_mismatch_errors() -> None:
 # ---------------------------------------------------------------------------
 
 
-@_LOCAL_GRAMMAR
 def test_softmax_constructor_accepts_object() -> None:
     src = """
-    composition product_fuzzy as algebra
+    composition product_fuzzy [level=algebra]
     object A : FinSet 3
     object B : FinSet 4
     morphism f : A -> B [role=latent]
-    let g = f.change_base(softmax(B))
+    define g = f.change_base(softmax(B))
     export g
     """
     program = loads(textwrap.dedent(src))
     assert program.morphism is not None
 
 
-@_LOCAL_GRAMMAR
 def test_constructor_args_resolve_against_object_scope() -> None:
     src = """
-    composition real as algebra
+    composition real [level=algebra]
     object A : FinSet 3
     object B : FinSet 4
     object NotUsed : FinSet 2
     morphism f : A -> B [role=latent]
-    let g = f.change_base(l1_normalize(B))
+    define g = f.change_base(l1_normalize(B))
     export g
     """
     program = loads(textwrap.dedent(src))
@@ -228,58 +210,54 @@ def test_constructor_args_resolve_against_object_scope() -> None:
 # ---------------------------------------------------------------------------
 
 
-@_LOCAL_GRAMMAR
 def test_bare_singleton_resolves() -> None:
     src = """
-    composition boolean as algebra
+    composition boolean [level=algebra]
     object A : FinSet 3
     object B : FinSet 4
     morphism f : A -> B [role=latent]
-    let g = f.change_base(boolean_embedding)
+    define g = f.change_base(boolean_embedding)
     export g
     """
     program = loads(textwrap.dedent(src))
     assert program.morphism is not None
 
 
-@_LOCAL_GRAMMAR
 def test_constructor_referenced_bare_errors_helpfully() -> None:
     """Using a constructor's name without parentheses surfaces a
     pointed error."""
     src = """
-    composition real as algebra
+    composition real [level=algebra]
     object A : FinSet 3
     object B : FinSet 4
     morphism f : A -> B [role=latent]
-    let g = f.change_base(softmax)
+    define g = f.change_base(softmax)
     export g
     """
     with pytest.raises(CompileError, match="needs arguments"):
         loads(textwrap.dedent(src))
 
 
-@_LOCAL_GRAMMAR
 def test_unknown_name_in_change_base_errors() -> None:
     src = """
-    composition real as algebra
+    composition real [level=algebra]
     object A : FinSet 3
     object B : FinSet 4
     morphism f : A -> B [role=latent]
-    let g = f.change_base(no_such_thing)
+    define g = f.change_base(no_such_thing)
     export g
     """
     with pytest.raises(CompileError, match="undefined transformation"):
         loads(textwrap.dedent(src))
 
 
-@_LOCAL_GRAMMAR
 def test_unknown_constructor_errors() -> None:
     src = """
-    composition real as algebra
+    composition real [level=algebra]
     object A : FinSet 3
     object B : FinSet 4
     morphism f : A -> B [role=latent]
-    let g = f.change_base(no_such_constructor(B))
+    define g = f.change_base(no_such_constructor(B))
     export g
     """
     with pytest.raises(CompileError, match="undefined"):

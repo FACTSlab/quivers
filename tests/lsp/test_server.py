@@ -49,7 +49,9 @@ def _doc(source: str = SAMPLE) -> DocumentState:
 
 def test_document_update_populates_module_and_env() -> None:
     doc = _doc()
-    names = {getattr(s, "name", None) for s in doc.module.statements}
+    names: set[str] = set()
+    for s in doc.module.statements:
+        names.update(getattr(s, "names", ()))
     assert {"Alpha", "Beta", "f"} <= names
     assert "Alpha" in doc.env
     assert "f" in doc.env
@@ -151,7 +153,7 @@ def test_document_find_decl() -> None:
     doc = _doc()
     decl = doc.find_decl("f")
     assert decl is not None
-    assert getattr(decl, "name", None) == "f"
+    assert getattr(decl, "names", None) == ("f",)
     assert doc.find_decl("missing") is None
 
 
@@ -181,8 +183,10 @@ def test_pretty_ast_indents_one_field_per_line() -> None:
     out = _pretty_ast(decl)
     # Multi-line shape (vs. single-line repr).
     assert "\n" in out
-    # Every leading field starts on its own indented line.
-    assert "    name='f'" in out
+    # Every leading field starts on its own indented line; the
+    # names tuple expands across lines.
+    assert "    names=(" in out
+    assert "        'f'," in out
     assert "    domain=" in out
     assert "    codomain=" in out
     # Empty `docs=()` and the AST discriminator field are stripped to

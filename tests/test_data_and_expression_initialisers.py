@@ -17,8 +17,6 @@ Three kinds of initializers are tested end-to-end:
 
 from __future__ import annotations
 
-import os
-
 import pytest
 import torch
 import textwrap
@@ -26,23 +24,16 @@ import textwrap
 from quivers.dsl import loads
 
 
-_LOCAL_GRAMMAR = pytest.mark.skipif(
-    os.environ.get("QVR_USE_LOCAL_GRAMMAR", "") not in ("1", "true", "True"),
-    reason="needs QVR_USE_LOCAL_GRAMMAR=1 to pick up the in-tree grammar",
-)
-
-
 # ---------------------------------------------------------------------------
 # from_data initializer
 # ---------------------------------------------------------------------------
 
 
-@_LOCAL_GRAMMAR
 def test_from_data_binds_supplied_tensor() -> None:
     """``observed f : A -> B = from_data("KEY")`` binds the
     supplied tensor as the morphism's data buffer."""
     src = """
-    composition product_fuzzy as algebra
+    composition product_fuzzy [level=algebra]
     object A : FinSet 3
     object B : FinSet 4
 
@@ -59,12 +50,11 @@ def test_from_data_binds_supplied_tensor() -> None:
     assert m.morphism.codomain.cardinality == 4
 
 
-@_LOCAL_GRAMMAR
 def test_from_data_unknown_key_errors() -> None:
     from quivers.dsl.compiler import CompileError
 
     src = """
-    composition product_fuzzy as algebra
+    composition product_fuzzy [level=algebra]
     object A : FinSet 2
     object B : FinSet 2
     morphism h : A -> B [role=observed] ~ from_data("MISSING_KEY")
@@ -74,12 +64,11 @@ def test_from_data_unknown_key_errors() -> None:
         loads(textwrap.dedent(src), data={"OTHER_KEY": torch.zeros(2, 2)})
 
 
-@_LOCAL_GRAMMAR
 def test_from_data_without_data_dict_errors() -> None:
     from quivers.dsl.compiler import CompileError
 
     src = """
-    composition product_fuzzy as algebra
+    composition product_fuzzy [level=algebra]
     object A : FinSet 2
     object B : FinSet 2
     morphism h : A -> B [role=observed] ~ from_data("KEY")
@@ -89,14 +78,13 @@ def test_from_data_without_data_dict_errors() -> None:
         loads(textwrap.dedent(src))
 
 
-@_LOCAL_GRAMMAR
 def test_from_data_shape_mismatch_with_declared_types_errors() -> None:
     """A data tensor whose shape doesn't match the declared
     domain/codomain shapes must be rejected with a clear error."""
     from quivers.dsl.compiler import CompileError
 
     src = """
-    composition product_fuzzy as algebra
+    composition product_fuzzy [level=algebra]
     object A : FinSet 3
     object B : FinSet 4
     morphism h : A -> B [role=observed] ~ from_data("H")
@@ -107,12 +95,11 @@ def test_from_data_shape_mismatch_with_declared_types_errors() -> None:
         loads(textwrap.dedent(src), data={"H": torch.zeros(2, 4)})
 
 
-@_LOCAL_GRAMMAR
 def test_from_data_does_not_register_parameters() -> None:
     """A ``from_data``-initialized morphism is structural / frozen;
     its tensor is a buffer, not an ``nn.Parameter``."""
     src = """
-    composition product_fuzzy as algebra
+    composition product_fuzzy [level=algebra]
     object A : FinSet 2
     object B : FinSet 2
     morphism h : A -> B [role=observed] ~ from_data("H")
@@ -128,12 +115,11 @@ def test_from_data_does_not_register_parameters() -> None:
 # ---------------------------------------------------------------------------
 
 
-@_LOCAL_GRAMMAR
 def test_freeze_materialises_composition_tensor() -> None:
     """``(f >> g).freeze`` produces an :class:`ObservedMorphism`
     whose tensor equals the composition's materialised tensor."""
     src = """
-    composition product_fuzzy as algebra
+    composition product_fuzzy [level=algebra]
     object A : FinSet 2
     object B : FinSet 2
     object C : FinSet 2
@@ -141,8 +127,8 @@ def test_freeze_materialises_composition_tensor() -> None:
     morphism f : A -> B [role=latent]
     morphism g : B -> C [role=latent]
 
-    let chain = f >> g
-    let frozen = chain.freeze
+    define chain = f >> g
+    define frozen = chain.freeze
     export frozen
     """
     m = loads(textwrap.dedent(src))
@@ -153,15 +139,14 @@ def test_freeze_materialises_composition_tensor() -> None:
     assert m.morphism.tensor.shape == (2, 2)
 
 
-@_LOCAL_GRAMMAR
 def test_freeze_detaches_gradients() -> None:
     """Gradients do not propagate through a freeze boundary."""
     src = """
-    composition product_fuzzy as algebra
+    composition product_fuzzy [level=algebra]
     object A : FinSet 2
     object B : FinSet 2
     morphism f : A -> B [role=latent]
-    let frozen = f.freeze
+    define frozen = f.freeze
     export frozen
     """
     m = loads(textwrap.dedent(src))
@@ -178,14 +163,13 @@ def test_freeze_detaches_gradients() -> None:
 # ---------------------------------------------------------------------------
 
 
-@_LOCAL_GRAMMAR
 def test_expression_initializer_propagates_parameters() -> None:
     """``observed h : A -> B = f`` (or any other expression) is an
     alias bound through the compiler; the underlying morphism's
     parameters are reachable via the alias. Without the
     ``.freeze`` modifier the binding does NOT detach."""
     src = """
-    composition product_fuzzy as algebra
+    composition product_fuzzy [level=algebra]
     object A : FinSet 3
     object B : FinSet 3
     morphism f : A -> B [role=latent]
@@ -203,13 +187,12 @@ def test_expression_initializer_propagates_parameters() -> None:
 # ---------------------------------------------------------------------------
 
 
-@_LOCAL_GRAMMAR
 def test_latent_morphism_accepts_scale_option() -> None:
     """The ``[scale=...]`` option block already supports
     hyperparameter-dependent init for ``latent`` morphisms; this
     is a regression test for the surface."""
     src = """
-    composition product_fuzzy as algebra
+    composition product_fuzzy [level=algebra]
     object A : FinSet 5
     object B : FinSet 5
     morphism f : A -> B [role=latent, scale=0.01]
@@ -231,20 +214,19 @@ def test_latent_morphism_accepts_scale_option() -> None:
 # ---------------------------------------------------------------------------
 
 
-@_LOCAL_GRAMMAR
 def test_from_data_composed_with_latent_yields_learnable_chain() -> None:
     """A frozen data-derived morphism composed with a learnable
     one yields a chain whose only learnable parameters come from
     the learnable side."""
     src = """
-    composition product_fuzzy as algebra
+    composition product_fuzzy [level=algebra]
     object A : FinSet 3
     object B : FinSet 4
     object C : FinSet 5
 
     morphism h : A -> B [role=observed] ~ from_data("H")
     morphism g : B -> C [role=latent]
-    let chain = h >> g
+    define chain = h >> g
     export chain
     """
     H = torch.rand(3, 4)

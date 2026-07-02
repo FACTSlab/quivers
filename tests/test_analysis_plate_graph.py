@@ -11,10 +11,7 @@ fixtures to lock down every shape.
 
 from __future__ import annotations
 
-import os
 import textwrap
-
-os.environ.setdefault("QVR_USE_LOCAL_GRAMMAR", "1")
 
 import pytest  # noqa: E402
 
@@ -42,7 +39,7 @@ def _compile(src: str) -> Compiler:
 def test_build_returns_none_for_unknown_program():
     c = _compile(
         """
-        composition product_fuzzy as algebra
+        composition product_fuzzy [level=algebra]
         object A : FinSet 3
         """
     )
@@ -145,7 +142,7 @@ def test_lda_kind_partitions_are_consistent(lda_graph):
 def test_let_step_appears_as_deterministic_node():
     c = _compile(
         """
-        composition log_prob as algebra
+        composition log_prob [level=algebra]
 
         object Resp : FinSet 50
 
@@ -171,7 +168,7 @@ def test_let_step_appears_as_deterministic_node():
 def test_observe_with_index_on_response_plate():
     c = _compile(
         """
-        composition log_prob as algebra
+        composition log_prob [level=algebra]
         object Resp : FinSet 50
 
         program reg : Resp -> Resp
@@ -201,7 +198,7 @@ def test_doubly_nested_marginalize():
     the inner one."""
     c = _compile(
         """
-        composition log_prob as algebra
+        composition log_prob [level=algebra]
         object Doc : FinSet 20
         object Topic : FinSet 3
         object Sense : FinSet 2

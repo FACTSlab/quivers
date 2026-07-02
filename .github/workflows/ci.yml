@@ -33,6 +33,11 @@ jobs:
     strategy:
       matrix:
         python-version: ["3.14"]
+    env:
+      # Parse against the in-tree grammar at grammars/qvr/; the
+      # override builds the committed parser.c with the runner's C
+      # compiler on first use.
+      QVR_USE_LOCAL_GRAMMAR: "1"
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5

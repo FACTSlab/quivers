@@ -29,20 +29,12 @@ behavior of binding sites it unblocks:
 from __future__ import annotations
 import textwrap
 
-import os
-
 import pytest
 import torch
 
 from quivers.core.morphisms import (
     as_torch_module,
     extract_morphism,
-)
-
-
-_LOCAL_GRAMMAR = pytest.mark.skipif(
-    os.environ.get("QVR_USE_LOCAL_GRAMMAR", "") not in ("1", "true", "True"),
-    reason="needs QVR_USE_LOCAL_GRAMMAR=1 to pick up the in-tree grammar",
 )
 
 
@@ -134,14 +126,13 @@ def test_as_torch_module_wraps_composed_morphism() -> None:
 # ---------------------------------------------------------------------------
 
 
-@_LOCAL_GRAMMAR
 def test_program_binding_let_composed_chain_compiles_and_runs() -> None:
     """The issue's first repro: a ``program`` block whose body
     references a let-composed chain ``h = f >> g``."""
     from quivers.dsl import loads
 
     src = """
-    composition product_fuzzy as algebra
+    composition product_fuzzy [level=algebra]
     object A : FinSet 4
     object B : FinSet 4
     object C : FinSet 4
@@ -149,7 +140,7 @@ def test_program_binding_let_composed_chain_compiles_and_runs() -> None:
     morphism f : A -> B [role=latent]
     morphism g : B -> C [role=latent]
 
-    let h = f >> g
+    define h = f >> g
 
     program p : A -> C
         sample out <- h
@@ -168,14 +159,13 @@ def test_program_binding_let_composed_chain_compiles_and_runs() -> None:
     assert torch.isfinite(out).all()
 
 
-@_LOCAL_GRAMMAR
 def test_program_binding_let_composed_chain_has_learnable_params() -> None:
     """The wrapped composed morphism still exposes its learnable
     parameters to the outer program's optimizer."""
     from quivers.dsl import loads
 
     src = """
-    composition product_fuzzy as algebra
+    composition product_fuzzy [level=algebra]
     object A : FinSet 4
     object B : FinSet 4
     object C : FinSet 4
@@ -183,7 +173,7 @@ def test_program_binding_let_composed_chain_has_learnable_params() -> None:
     morphism f : A -> B [role=latent]
     morphism g : B -> C [role=latent]
 
-    let h = f >> g
+    define h = f >> g
 
     program p : A -> C
         sample out <- h
@@ -202,7 +192,6 @@ def test_program_binding_let_composed_chain_has_learnable_params() -> None:
 # ---------------------------------------------------------------------------
 
 
-@_LOCAL_GRAMMAR
 def test_parametric_program_with_morphism_typed_parameter_compiles() -> None:
     """A parametric program with ``k : Mor[A, B]`` parameter
     accepts a morphism at instantiation; the template body's
@@ -211,7 +200,7 @@ def test_parametric_program_with_morphism_typed_parameter_compiles() -> None:
     from quivers.dsl import loads
 
     src = """
-    composition product_fuzzy as algebra
+    composition product_fuzzy [level=algebra]
     object A : FinSet 4
     object B : FinSet 4
 
@@ -221,7 +210,7 @@ def test_parametric_program_with_morphism_typed_parameter_compiles() -> None:
         sample out <- k
         return out
 
-    let applied = p(f)
+    define applied = p(f)
     export applied
     """
     m = loads(textwrap.dedent(src))
@@ -233,14 +222,13 @@ def test_parametric_program_with_morphism_typed_parameter_compiles() -> None:
 # ---------------------------------------------------------------------------
 
 
-@_LOCAL_GRAMMAR
 def test_fan_over_composed_morphism_compiles() -> None:
     """``fan(f >> g, ...)`` must accept composed-let morphisms
     without crashing at the binding site."""
     from quivers.dsl import loads
 
     src = """
-    composition product_fuzzy as algebra
+    composition product_fuzzy [level=algebra]
     object A : FinSet 4
     object B : FinSet 4
     object C : FinSet 4
@@ -248,8 +236,8 @@ def test_fan_over_composed_morphism_compiles() -> None:
     morphism f : A -> B [role=latent]
     morphism g : B -> C [role=latent]
 
-    let chain = f >> g
-    let split = fan(chain, chain)
+    define chain = f >> g
+    define split = fan(chain, chain)
     export split
     """
     m = loads(textwrap.dedent(src))
