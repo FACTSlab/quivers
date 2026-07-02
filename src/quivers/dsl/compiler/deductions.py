@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 from collections.abc import Callable
+from pathlib import Path
 import torch
 import torch.nn as nn
 from quivers.core.algebras import BOOLEAN
@@ -1061,7 +1062,6 @@ class _DeductionsMixin:
         Resolved relative to the working directory; paths starting
         with ``/`` are absolute.
         """
-        from pathlib import Path
         # Re-parse the category and LF text by feeding them to the
         # tree-sitter parser inside a synthetic dummy program.
         # This keeps the lexicon-file syntax aligned with the

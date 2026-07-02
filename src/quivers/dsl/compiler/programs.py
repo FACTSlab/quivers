@@ -3566,8 +3566,12 @@ class _ProgramsMixin:
         The two namespaces are disjoint: a name cannot be used as
         both a morphism and a transformation in the same module.
         Where-block entries compile first (innermost bindings feed
-        the outer RHS); each entry must itself be a `DefineDecl`.
+        the outer RHS) and are scoped to this binding: after the
+        outer RHS compiles, the where-bound names are removed from
+        the module namespaces. Each entry must itself be a
+        `DefineDecl`.
         """
+        where_names: list[str] = []
         for where_decl in decl.where:
             if not isinstance(where_decl, DefineDecl):
                 raise CompileError(
@@ -3577,13 +3581,18 @@ class _ProgramsMixin:
                     decl.col,
                 )
             self._compile_define(where_decl)
+            where_names.append(where_decl.name)
         if decl.name in self._morphisms or decl.name in self._transformations:
             raise CompileError(f"name {decl.name!r} already bound", decl.line, decl.col)
-        if self._is_trans_expr(decl.expr):
-            self._transformations[decl.name] = self._compile_trans_expr(decl.expr)
-            return
-        morph = self._compile_expr(decl.expr)
-        self._morphisms[decl.name] = morph
+        try:
+            if self._is_trans_expr(decl.expr):
+                self._transformations[decl.name] = self._compile_trans_expr(decl.expr)
+            else:
+                self._morphisms[decl.name] = self._compile_expr(decl.expr)
+        finally:
+            for name in where_names:
+                self._morphisms.pop(name, None)
+                self._transformations.pop(name, None)
 
     def _is_trans_expr(self, expr) -> bool:
         """Return True iff ``expr`` denotes a transformation value.
