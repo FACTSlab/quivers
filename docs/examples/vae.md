@@ -18,7 +18,7 @@ morphism pixel_embed : Pixel -> EncoderHidden [role=embed]
 morphism enc_deep : EncoderHidden -> EncoderHidden [role=kernel] ~ Normal
 morphism enc_to_latent : EncoderHidden -> Latent [role=kernel, scale=0.5] ~ Normal
 
-let encoder = pixel_embed >> stack(enc_deep, 1) >> enc_to_latent
+define encoder = pixel_embed >> stack(enc_deep, 1) >> enc_to_latent
 
 morphism prior : UnitSpace -> Latent [role=kernel] ~ Normal
 
@@ -26,10 +26,10 @@ morphism dec_1 : Latent -> DecoderHidden [role=kernel] ~ Normal
 morphism dec_deep : DecoderHidden -> DecoderHidden [role=kernel] ~ Normal
 morphism dec_to_obs : DecoderHidden -> ObsSpace [role=kernel, scale=0.1] ~ Normal
 
-let decoder = dec_1 >> stack(dec_deep, 1) >> dec_to_obs
+define decoder = dec_1 >> stack(dec_deep, 1) >> dec_to_obs
 
-let generative = prior >> decoder
-let reconstruct = encoder >> decoder
+define generative = prior >> decoder
+define reconstruct = encoder >> decoder
 
 export generative
 ```
@@ -44,8 +44,8 @@ The two top-level compositions
 
 <!-- compile: false -->
 ```qvr
-let generative = prior >> decoder
-let reconstruct = encoder >> decoder
+define generative = prior >> decoder
+define reconstruct = encoder >> decoder
 ```
 
 express the VAE's two execution paths as explicit [Kleisli composition](https://en.wikipedia.org/wiki/Kleisli_category). The `generative` path samples a latent from the standard-normal prior and decodes it, used for sampling new data. The `reconstruct` path encodes observed data and decodes the resulting latent code, the path traversed by the [ELBO](https://en.wikipedia.org/wiki/Evidence_lower_bound) reconstruction term during training. Both paths share the decoder; the relationship between generation and inference is a matter of which morphism precedes the decoder in the composition chain.

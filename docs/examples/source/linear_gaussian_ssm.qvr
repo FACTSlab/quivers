@@ -29,7 +29,7 @@ morphism transition_cell : Driver * State -> State [role=kernel, scale=0.1] ~ No
 morphism emission : State -> Obs [role=kernel, scale=0.1] ~ Normal
 morphism filter_cell : Obs * State -> State [role=kernel, scale=0.1] ~ Normal
 
-let generate = scan(transition_cell) >> emission
-let filter = scan(filter_cell)
+define generate = scan(transition_cell) >> emission
+define filter = scan(filter_cell)
 
 export filter

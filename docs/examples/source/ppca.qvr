@@ -19,7 +19,7 @@
 #
 # Reference: [Tipping and Bishop 1999](https://doi.org/10.1111/1467-9868.00196).
 
-composition real as algebra
+composition real [level=algebra]
 
 object LatentDim : FinSet 2
 object ObsDim : FinSet 5
@@ -29,6 +29,6 @@ morphism Z : Item -> LatentDim [role=latent]
 
 morphism W : LatentDim -> ObsDim [role=latent]
 
-let ppca = Z >> W
+define ppca = Z >> W
 
 export ppca

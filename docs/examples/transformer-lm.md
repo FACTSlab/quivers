@@ -21,8 +21,8 @@ morphism residual_attn : Latent -> Latent [role=kernel, scale=0.01] ~ Normal
 morphism residual_ff : Latent -> Latent [role=kernel, scale=0.01] ~ Normal
 morphism lm_head : Latent -> Token [role=kernel] ~ Categorical
 
-let layer = fan(head) >> attn_proj >> residual_attn >> ff_up >> ff_down >> residual_ff
-let backbone = tok_embed >> stack(layer, 2)
+define layer = fan(head) >> attn_proj >> residual_attn >> ff_up >> ff_down >> residual_ff
+define backbone = tok_embed >> stack(layer, 2)
 
 program transformer_lm : Token -> Token
     sample h <- backbone
@@ -43,7 +43,7 @@ export transformer_lm
 
 <!-- compile: false -->
 ```qvr
-let layer = fan(head) >> attn_proj >> residual_attn >> ff_up >> ff_down >> residual_ff
+define layer = fan(head) >> attn_proj >> residual_attn >> ff_up >> ff_down >> residual_ff
 ```
 
 After the multi-head attention, `attn_proj` mixes the head outputs back into `Latent`, `residual_attn` is a small-scale Bayesian shortcut that plays the role of the standard residual `+` (the prior centered near identity), and the `ff_up >> ff_down` pair is the standard two-layer position-wise feed-forward block.

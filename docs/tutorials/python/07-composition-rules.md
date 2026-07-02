@@ -198,21 +198,21 @@ The user surface mirrors the Python API. Inside `.qvr` files:
 
 <!-- compile: false -->
 ```qvr
-composition my_godel as algebra
+composition my_godel [level=algebra]
     tensor_op(a, b) = a * b
     join(t)         = sum(t)
     unit            = 1.0
     zero            = 0.0
 
-composition my_semi as semigroupoid
+composition my_semi [level=semigroupoid]
     tensor_op(a, b) = a * b
     join(t)         = sum(t)
 
-composition my_bf as bilinear_form
+composition my_bf [level=bilinear_form]
     tensor_op(a, b) = (a + b) * 0.5
     join(t)         = sum(t)
 
-composition any_rule_name as rule
+composition any_rule_name [level=rule]
 ```
 
 The `as <level>` clause selects the algebraic level (`algebra`, `semigroupoid`, `bilinear_form`, `rule`). The optional indented body declares the rule's operations inline; without a body, the declaration resolves the named rule from the built-in catalog (`product_fuzzy`, `material_impl`, etc.) and verifies it matches the declared level.

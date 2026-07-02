@@ -11,7 +11,7 @@ $$
 ## QVR Source
 
 ```qvr
-composition log_prob as algebra
+composition log_prob [level=algebra]
 
 object Component : FinSet 3
 object Item : FinSet 8

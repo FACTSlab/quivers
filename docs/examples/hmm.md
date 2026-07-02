@@ -7,7 +7,7 @@ A discrete-state, discrete-emission [hidden Markov model](https://en.wikipedia.o
 ## QVR Source
 
 ```qvr
-composition product_fuzzy as algebra
+composition product_fuzzy [level=algebra]
 
 object State : FinSet 8
 object Obs : FinSet 16
@@ -16,8 +16,8 @@ morphism initial : State -> State [role=latent]
 morphism transition : State -> State [role=latent]
 morphism emission : State -> Obs [role=latent]
 
-let n_step = repeat(transition) >> emission
-let hmm = initial >> n_step
+define n_step = repeat(transition) >> emission
+define hmm = initial >> n_step
 
 export hmm
 ```

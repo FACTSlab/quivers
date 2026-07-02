@@ -89,14 +89,14 @@ A *algebra homomorphism* $\varphi : \mathcal{V} \to \mathcal{W}$ is a lax monoid
 The DSL exposes a catalog of named homomorphisms (`expectation`, `log_prob`, `max_plus`, `material_implication`, `threshold`, `boolean_embedding`, ...) and a small set of *constructors* parameterized by an object or morphism (`softmax(B)`, `l1_normalize(B)`, `l2_normalize(B)`, `bayes_invert(prior)`). Each of these is a first-class transformation value: you can let-bind them, compose them with `>>>`, pass them through `change_base`. The Python API track chapter 6 walks through the full surface; here's the short version:
 
 ```qvr
-composition product_fuzzy as algebra
+composition product_fuzzy [level=algebra]
 object A : FinSet 3
 object B : FinSet 4
 morphism f : A -> B [role=latent]
 
-let s = softmax(B)
-let pipeline = s >>> expectation
-let g = f.change_base(pipeline)
+define s = softmax(B)
+define pipeline = s >>> expectation
+define g = f.change_base(pipeline)
 ```
 
 `softmax(B)` builds a `MorphismTransformation` with `source = ProductFuzzyAlgebra, target = Markov`; `expectation` is a `AlgebraHomomorphism` with `source = Markov, target = ProductFuzzyAlgebra`. The composition `s >>> expectation` round-trips back to ProductFuzzyAlgebra and gives you a morphism whose rows are normalized on the way out.

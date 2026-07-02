@@ -15,7 +15,7 @@ In quivers, the loading matrix is a [`LatentMorphism`](../api/core/morphisms.md)
 ## QVR Source
 
 ```qvr
-composition real as algebra
+composition real [level=algebra]
 
 object LatentDim : FinSet 2
 object ObsDim : FinSet 5
@@ -25,7 +25,7 @@ morphism Z : Item -> LatentDim [role=latent]
 
 morphism W : LatentDim -> ObsDim [role=latent]
 
-let ppca = Z >> W
+define ppca = Z >> W
 
 export ppca
 ```

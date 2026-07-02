@@ -31,7 +31,7 @@ program lstm_cell(x_t, h_prev) : Embedded * Hidden -> Hidden
     let h_new = o_gate * tanh_c
     return h_new
 
-let backbone = tok_embed >> scan(lstm_cell)
+define backbone = tok_embed >> scan(lstm_cell)
 
 program lstm_lm : Token -> Token
     sample h <- backbone

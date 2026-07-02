@@ -13,7 +13,7 @@ In quivers, the two factor matrices are arrows $U : \mathsf{LatentDim} \to \math
 ## QVR Source
 
 ```qvr
-composition real as algebra
+composition real [level=algebra]
 
 object LatentDim : FinSet 2
 object User : FinSet 8
@@ -22,7 +22,7 @@ object Movie : FinSet 8
 morphism U : LatentDim -> User [role=latent]
 morphism V : LatentDim -> Movie [role=latent]
 
-let pmf = U.dagger >> V
+define pmf = U.dagger >> V
 
 export pmf
 ```

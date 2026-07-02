@@ -28,7 +28,7 @@ program gru_cell(x_t, h_prev) : Embedded * Hidden -> Hidden
     let h_new = z_complement * h_prev + z * h_cand
     return h_new
 
-let backbone = tok_embed >> scan(gru_cell)
+define backbone = tok_embed >> scan(gru_cell)
 
 program gru_lm : Token -> Token
     sample h <- backbone

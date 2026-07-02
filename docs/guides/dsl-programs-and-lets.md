@@ -503,7 +503,7 @@ object Y : FinSet 4
 morphism f : X -> Y [role=latent]
 morphism g : Y -> Y [role=latent]
 
-let fg = f >> g
+define fg = f >> g
 
 export fg
 ```

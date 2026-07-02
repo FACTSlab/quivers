@@ -31,11 +31,11 @@ program generative_step : State -> State
 
 morphism inference_cell : Obs * State -> State [role=kernel, scale=0.1] ~ Normal
 
-let filter = scan(inference_cell)
+define filter = scan(inference_cell)
 
 morphism decoder : State -> Obs [role=kernel, scale=0.1] ~ Normal
 
-let filter_and_reconstruct = scan(inference_cell) >> decoder
+define filter_and_reconstruct = scan(inference_cell) >> decoder
 
 export generative_step
 export filter_and_reconstruct

@@ -30,9 +30,9 @@ morphism emit_mlp_1 : State -> Hidden [role=kernel, scale=0.5] ~ Normal
 morphism emit_mlp_2 : Hidden -> Obs [role=kernel, scale=0.1] ~ Normal
 morphism infer_cell : Obs * State -> State [role=kernel, scale=0.1] ~ Normal
 
-let transition_cell = trans_mlp_1 >> trans_mlp_2
-let emission = emit_mlp_1 >> emit_mlp_2
-let generate = scan(transition_cell) >> emission
-let recognize = scan(infer_cell)
+define transition_cell = trans_mlp_1 >> trans_mlp_2
+define emission = emit_mlp_1 >> emit_mlp_2
+define generate = scan(transition_cell) >> emission
+define recognize = scan(infer_cell)
 
 export recognize

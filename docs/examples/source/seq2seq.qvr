@@ -45,11 +45,11 @@ morphism dec_residual_ff : Latent -> Latent [role=kernel, scale=0.01] ~ Normal
 morphism cross : Combined -> Combined [role=kernel, scale=0.1] ~ Normal
 morphism lm_head : Combined -> Target [role=kernel] ~ Categorical
 
-let enc_block = fan(enc_head) >> enc_attn_proj >> enc_residual_attn >> enc_ff_up >> enc_ff_down >> enc_residual_ff
-let dec_block = fan(dec_head) >> dec_attn_proj >> dec_residual_attn >> dec_ff_up >> dec_ff_down >> dec_residual_ff
-let encoder = src_embed >> stack(enc_block, 2)
-let decoder = tgt_embed >> stack(dec_block, 2)
-let backbone = (encoder @ decoder) >> cross
+define enc_block = fan(enc_head) >> enc_attn_proj >> enc_residual_attn >> enc_ff_up >> enc_ff_down >> enc_residual_ff
+define dec_block = fan(dec_head) >> dec_attn_proj >> dec_residual_attn >> dec_ff_up >> dec_ff_down >> dec_residual_ff
+define encoder = src_embed >> stack(enc_block, 2)
+define decoder = tgt_embed >> stack(dec_block, 2)
+define backbone = (encoder @ decoder) >> cross
 
 program seq2seq : Source * Target -> Target
     sample h <- backbone

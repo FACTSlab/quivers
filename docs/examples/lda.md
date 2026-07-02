@@ -13,7 +13,7 @@ computed via [log-sum-exp](https://en.wikipedia.org/wiki/LogSumExp) over the $K$
 ## QVR Source
 
 ```qvr
-composition log_prob as algebra
+composition log_prob [level=algebra]
 
 object Doc : FinSet 20
 object Topic : FinSet 3

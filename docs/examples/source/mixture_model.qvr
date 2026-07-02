@@ -22,7 +22,7 @@
 # item-group accumulator; `[via=idx]` names the per-observe
 # fibration from `Resp` into the `Item` plate.
 
-composition log_prob as algebra
+composition log_prob [level=algebra]
 
 object Component : FinSet 3
 object Item : FinSet 8

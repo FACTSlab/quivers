@@ -19,9 +19,9 @@ morphism bwd_cell : Embedded * BwdHidden -> BwdHidden [role=kernel, scale=0.1] ~
 morphism combine : Combined -> Combined [role=kernel, scale=0.1] ~ Normal
 morphism lm_head : Combined -> Token [role=kernel] ~ Categorical
 
-let forward_path = tok_embed >> scan(fwd_cell)
-let backward_path = tok_embed >> scan(bwd_cell)
-let backbone = fan(forward_path, backward_path) >> combine
+define forward_path = tok_embed >> scan(fwd_cell)
+define backward_path = tok_embed >> scan(bwd_cell)
+define backbone = fan(forward_path, backward_path) >> combine
 
 program bidirectional_rnn_lm : Token -> Token
     sample h <- backbone

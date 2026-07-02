@@ -45,14 +45,14 @@ Both forms can be let-bound and composed with `>>>`. Composition checks the seam
 
 <!-- compile: false -->
 ```qvr
-composition product_fuzzy as algebra
+composition product_fuzzy [level=algebra]
 object A : FinSet 3
 object B : FinSet 4
 morphism f : A -> B [role=latent]
 
-let s    = softmax(B)
-let pipe = s >>> expectation
-let g    = f.change_base(pipe)
+define s    = softmax(B)
+define pipe = s >>> expectation
+define g    = f.change_base(pipe)
 export g
 ```
 
@@ -104,17 +104,17 @@ A composition rule can be defined inline. The body is a sequence of entries whos
 
 <!-- compile: false -->
 ```qvr
-composition my_godel as algebra
+composition my_godel [level=algebra]
     tensor_op(a, b) = a * b
     join(t) = sum(t)
     unit = 1.0
     zero = 0.0
 
-composition my_semi as semigroupoid
+composition my_semi [level=semigroupoid]
     tensor_op(a, b) = (1 - a + a * b)
     join(t) = prod(t)
 
-composition signed_dot as bilinear_form
+composition signed_dot [level=bilinear_form]
     tensor_op(a, b) = (a + b) * 0.5
     join(t) = sum(t)
 ```
@@ -135,12 +135,12 @@ The shipped `material_implication` rule is a `CustomSemigroupoid` with tensor $a
 
 <!-- compile: false -->
 ```qvr
-composition material_impl as semigroupoid
+composition material_impl [level=semigroupoid]
 object A : FinSet 3
 object B : FinSet 3
 morphism f : A -> B [role=latent]
 morphism g : B -> B [role=latent]
-let composed = f >> g
+define composed = f >> g
 export composed
 ```
 

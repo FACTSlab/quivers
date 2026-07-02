@@ -12,17 +12,17 @@ Choose the enriching algebra (optional, defaults to `product_fuzzy`):
 
 <!-- compile: false -->
 ```qvr
-composition product_fuzzy as algebra
-composition boolean as algebra
-composition lukasiewicz as algebra
-composition godel as algebra
-composition tropical as algebra
-composition max_plus as algebra
-composition log_prob as algebra
-composition markov as algebra
-composition real as algebra
-composition probability as algebra
-composition counting as algebra
+composition product_fuzzy [level=algebra]
+composition boolean [level=algebra]
+composition lukasiewicz [level=algebra]
+composition godel [level=algebra]
+composition tropical [level=algebra]
+composition max_plus [level=algebra]
+composition log_prob [level=algebra]
+composition markov [level=algebra]
+composition real [level=algebra]
+composition probability [level=algebra]
+composition counting [level=algebra]
 ```
 
 The keyword `algebra` resolves a name against the built-in
@@ -32,9 +32,9 @@ are also surface-declarable:
 
 <!-- compile: false -->
 ```qvr
-composition material_impl as semigroupoid
-composition some_bf as bilinear_form
-composition any_rule as rule
+composition material_impl [level=semigroupoid]
+composition some_bf [level=bilinear_form]
+composition any_rule [level=rule]
 ```
 
 A [semigroupoid](https://ncatlab.org/nlab/show/semigroupoid) level
@@ -55,17 +55,17 @@ with each entry a `let`-expression:
 
 <!-- compile: false -->
 ```qvr
-composition my_godel as algebra
+composition my_godel [level=algebra]
     tensor_op(a, b) = a * b
     join(t)         = sum(t)
     unit            = 1.0
     zero            = 0.0
 
-composition my_semi as semigroupoid
+composition my_semi [level=semigroupoid]
     tensor_op(a, b) = a * b
     join(t)         = sum(t)
 
-composition my_bf as bilinear_form
+composition my_bf [level=bilinear_form]
     tensor_op(a, b) = (a + b) * 0.5
     join(t)         = sum(t)
 ```
@@ -175,9 +175,9 @@ Declare a continuous space:
 <!-- compile: false -->
 ```qvr
 object R3 : Real 3
-object R2_bounded : Real 2 [low=0.0, high=1.0]
-object U : Real 1 [low=0.0, high=1.0]
-object P2 : Real 2 [low=0.0]
+object R2_bounded : Real 2 {low=0.0, high=1.0}
+object U : Real 1 {low=0.0, high=1.0}
+object P2 : Real 2 {low=0.0}
 object S3 : Simplex 3
 
 # Product space
@@ -449,14 +449,14 @@ fixed composition chain:
 <!-- compile: false -->
 ```qvr
 # transition >> transition >> transition
-let deep = repeat(transition, 3)
+define deep = repeat(transition, 3)
 
 # works with composed expressions too
-let layer = attn >> residual >> ffn >> residual
-let deep_model = repeat(layer, 6)
+define layer = attn >> residual >> ffn >> residual
+define deep_model = repeat(layer, 6)
 
 # repeat(f, 1) = f
-let same = repeat(f, 1)
+define same = repeat(f, 1)
 ```
 
 **Runtime-variable repeat.** Count omitted, creates a
@@ -470,7 +470,7 @@ morphism transition : State -> State [role=kernel]
 morphism emission : State -> Obs [role=kernel]
 
 # runtime-variable: no count specified
-let n_step = repeat(transition) >> emission
+define n_step = repeat(transition) >> emission
 
 export n_step
 ```
@@ -492,10 +492,10 @@ parameters (no weight-tying):
 <!-- compile: false -->
 ```qvr
 # stack creates independent parameters per layer
-let deep = stack(transition, 3)  # 3 layers, each with own params
+define deep = stack(transition, 3)  # 3 layers, each with own params
 
 # repeat reuses the same parameters (weight-tying)
-let tied = repeat(transition, 3)  # 3 iterations, shared params
+define tied = repeat(transition, 3)  # 3 iterations, shared params
 ```
 
 Unlike `repeat`, which composes a morphism with itself using the
@@ -559,7 +559,7 @@ For deeper temporal models, stack multiple scans:
 
 <!-- compile: false -->
 ```qvr
-let deep_rnn = tok_embed >> scan(cell_1) >> scan(cell_2) >> output_proj
+define deep_rnn = tok_embed >> scan(cell_1) >> scan(cell_2) >> output_proj
 ```
 
 Each `scan` threads its own hidden state independently.
@@ -605,7 +605,7 @@ object X : FinSet 3
 object Y : FinSet 4
 object Z : FinSet 5
 morphism f : X * Y -> Z [role=latent]
-let g = f.curry_right    # g : X -> Z/Y
+define g = f.curry_right    # g : X -> Z/Y
 export g
 ```
 
@@ -619,10 +619,10 @@ Compose morphisms and bind:
 
 <!-- compile: false -->
 ```qvr
-let fg = f >> g
-let par = f @ g
-let marg = fg.marginalize(Y)
-let composed = f >> g >> h
+define fg = f >> g
+define par = f @ g
+define marg = fg.marginalize(Y)
+define composed = f >> g >> h
 ```
 
 For arithmetic and family-argument `let` expressions inside a

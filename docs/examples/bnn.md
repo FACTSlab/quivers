@@ -13,7 +13,7 @@ Each $W_l$ is a learnable morphism whose prior is matrix-normal over its (in, ou
 ## QVR Source
 
 ```qvr
-composition real as algebra
+composition real [level=algebra]
 
 object Item : FinSet 200
 object H_in : FinSet 4
@@ -27,7 +27,7 @@ morphism W_1 : H_in -> H1 [role=latent]
 morphism W_2 : H1 -> H2 [role=latent]
 morphism W_3 : H2 -> H_out [role=latent]
 
-let bnn = X >> W_1 >> W_2 >> W_3
+define bnn = X >> W_1 >> W_2 >> W_3
 
 export bnn
 ```

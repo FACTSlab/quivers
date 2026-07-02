@@ -127,13 +127,13 @@ output = program.rsample(x)        # reparameterized samples, shape (3, 2)
 Write categorical programs declaratively in `.qvr` files:
 
 ```qvr
-composition product_fuzzy as algebra
+composition product_fuzzy [level=algebra]
 object X : FinSet 3
 object Y : FinSet 4
 object Z : FinSet 2
 morphism f : X -> Y [role=latent]
 morphism g : Y -> Z [role=latent]
-let composed = f >> g
+define composed = f >> g
 export composed
 ```
 

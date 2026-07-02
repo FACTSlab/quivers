@@ -13,7 +13,7 @@ The free diagonal $\psi$ distinguishes factor analysis from [probabilistic PCA](
 ## QVR Source
 
 ```qvr
-composition real as algebra
+composition real [level=algebra]
 
 object LatentDim : FinSet 2
 object ObsDim : FinSet 5
@@ -23,7 +23,7 @@ morphism Z : Item -> LatentDim [role=latent]
 
 morphism W : LatentDim -> ObsDim [role=latent]
 
-let factor_analysis = Z >> W
+define factor_analysis = Z >> W
 
 export factor_analysis
 ```

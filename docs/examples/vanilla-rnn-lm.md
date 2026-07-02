@@ -15,7 +15,7 @@ morphism tok_embed : Token -> Embedded [role=embed]
 morphism cell : Embedded * Hidden -> Hidden [role=kernel, scale=0.1] ~ Normal
 morphism lm_head : Hidden -> Token [role=kernel] ~ Categorical
 
-let backbone = tok_embed >> scan(cell)
+define backbone = tok_embed >> scan(cell)
 
 program vanilla_rnn_lm : Token -> Token
     sample h <- backbone

@@ -54,14 +54,14 @@ If you've used Haskell's `mapAccumL` or NumPy's `np.cumsum`, this is the same id
 HMMs ([Rabiner, 1989](https://doi.org/10.1109/5.18626)) factor as an initial distribution, a row-stochastic transition kernel, and a row-stochastic emission kernel. In QVR's enriched setting they compose directly with `>>`. Here's the canonical K-state HMM with categorical emissions, lifted from `docs/examples/source/hmm.qvr`:
 
 ```qvr
-composition product_fuzzy as algebra
+composition product_fuzzy [level=algebra]
 object State : FinSet 8
 object Obs : FinSet 16
 morphism initial : State -> State [role=latent]
 morphism transition : State -> State [role=latent]
 morphism emission : State -> Obs [role=latent]
-let n_step = repeat(transition) >> emission
-let hmm    = initial >> n_step
+define n_step = repeat(transition) >> emission
+define hmm    = initial >> n_step
 
 export hmm
 ```
