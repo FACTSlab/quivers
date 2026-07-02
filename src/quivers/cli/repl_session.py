@@ -1532,8 +1532,9 @@ class ReplSession:
 
     def _find_decl(self, name: str) -> Statement | None:
         for stmt in self._module.statements:
-            n = getattr(stmt, "name", None)
-            if n == name:
+            if getattr(stmt, "name", None) == name:
+                return stmt
+            if name in (getattr(stmt, "names", None) or ()):
                 return stmt
         return None
 
@@ -2353,7 +2354,8 @@ def _render_sample_line(step: Any) -> str:
 
 
 def _render_observe_line(step: Any) -> str:
-    var = getattr(step, "var", "?")
+    vars_ = getattr(step, "vars", ()) or ()
+    var = ", ".join(vars_) if vars_ else "?"
     idx = _index_suffix(getattr(step, "index", None))
     return f"observe {var}{idx} <- {_call_str(step)}{_options_suffix(step)}"
 
@@ -2379,7 +2381,10 @@ def _replace_decl_by_name(
     replaced = False
     repls = list(replacements)
     for stmt in base.statements:
-        if not replaced and getattr(stmt, "name", None) == name:
+        bound = (getattr(stmt, "names", None) or ()) or (
+            (getattr(stmt, "name", None),) if getattr(stmt, "name", None) else ()
+        )
+        if not replaced and name in bound:
             out.extend(repls)
             replaced = True
             continue
