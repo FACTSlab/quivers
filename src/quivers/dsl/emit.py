@@ -196,8 +196,12 @@ def _emit_number(value: float) -> str:
 
 
 def _emit_string(value: str) -> str:
-    escaped = value.replace("\\", "\\\\").replace('"', '\\"')
-    return f'"{escaped}"'
+    # The parser stores a string's inner text verbatim: it strips the
+    # surrounding quotes but leaves every escape sequence exactly as it
+    # appeared in source. Re-wrapping in quotes therefore reproduces the
+    # source string, and re-escaping here would double every backslash
+    # and quote on each round-trip.
+    return f'"{value}"'
 
 
 def _emit_names(names: tuple[str, ...]) -> str:
@@ -569,6 +573,11 @@ def _emit_draw_arg(arg: DrawArg) -> str:
     if isinstance(arg, DrawArgName):
         return arg.text
     if isinstance(arg, DrawArgIndex):
+        if not arg.indices:
+            raise EmitError(
+                f"emit: bracket index {arg.name!r} has no indices; "
+                f"a DrawArgIndex must carry at least one index name",
+            )
         return f"{arg.name}[" + ", ".join(arg.indices) + "]"
     if isinstance(arg, DrawArgScalar):
         return _emit_number(arg.value)
