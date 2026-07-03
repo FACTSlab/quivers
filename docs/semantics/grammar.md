@@ -109,20 +109,29 @@ from scratch.
 ### 2.3 Bounded rule weights (`bounded`)
 
 A learnable rule whose pragma additionally lists `bounded` is
-reparameterised to keep its surface log-weight non-positive:
+reparameterised to keep its surface log-weight strictly negative:
 
 $$
-\theta_{r, \sigma} \;=\; -\mathrm{softplus}(\mathit{raw}_{r,\sigma}),
+\theta_{r, \sigma} \;=\; -\mathrm{softplus}(\mathit{raw}_{r,\sigma})
+\;-\; \log n_b,
 $$
 
-so $\theta_{r, \sigma} \le 0$ for every binding. This is the
-correct parameterization when the rule appears in a closed cycle
-of the deduction graph and the semiring is non-idempotent
-(`LogProb`, `Counting`, `Inside`): the cycle's accumulated
-log-weight is then bounded above by zero, the Kleene-star series
-$\sum_{n \ge 0} (\bigotimes^n \theta_{r, \sigma})$ converges, and
-the chart's fixed point is finite (see [§7](#7-strategy-independence)
-on convergence vs. divergence detection).
+where $n_b$ counts the deduction's bounded rules. The per-firing
+factor $\exp(\theta_{r,\sigma})$ is then strictly below $1 / n_b$,
+so the total mass a chart item can push through the deduction's
+bounded rules is strictly below 1. This is the correct
+parameterization when the rules close cycles in the deduction
+graph and the semiring is non-idempotent (`LogProb`, `Counting`,
+`Inside`): for cycles built from unary bounded rules, each of
+which contributes at most one out-edge per item, the joint cap
+bounds the row sums of the chart's update operator below 1, the
+Kleene-star series converges, and the chart's fixed point is
+finite for every parameter value (see
+[§7](#7-strategy-independence) on convergence vs. divergence
+detection). Note that a per-rule cap of 1 alone would not
+suffice: interlocking cycles (e.g. an introduction / elimination
+pair over nested constructors) can diverge even when every
+individual cycle's log-weight is negative.
 
 ## 3. Semiring
 
@@ -235,8 +244,8 @@ without privileging any particular category constructor.
 weight aggregation. For non-idempotent semirings with cyclic
 rule graphs, each re-derivation of an item along a new path
 increases its weight via `semiring.plus`, even when the item is
-already in the chart; with bounded cycle weight (e.g. every
-cycle's bounded total log-weight $\le 0$ via [§2.3 `bounded`](#23-bounded-rule-weights-bounded)),
+already in the chart; with contractive cycle weights (e.g. the
+joint sub-stochastic cap of [§2.3 `bounded`](#23-bounded-rule-weights-bounded)),
 the sequence of updates converges to a Kleene-star limit, and
 the chart terminates re-firings on an item once successive
 updates fall below $\varepsilon$. With a divergent cycle the
