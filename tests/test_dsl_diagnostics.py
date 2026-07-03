@@ -253,3 +253,67 @@ def test_leading_dot_float_parses_to_half() -> None:
 def test_exponent_only_float_parses() -> None:
     source = "object A : FinSet 3\nobject R : Real 2 {low=1e-3}\nexport A\n"
     assert _constructor_kwargs(source) == {"low": 0.001}
+
+
+# ---------------------------------------------------------------------------
+# review-driven regressions: silent misbehavior the front end must reject
+# ---------------------------------------------------------------------------
+
+
+def test_kernel_deterministic_init_is_rejected() -> None:
+    """A role-less (default-kernel) morphism with a deterministic
+    ``~ <expression>`` initializer must error rather than silently
+    compiling to a bare random kernel; the message names the fixing
+    roles."""
+    source = "object X : FinSet 3\nmorphism f : X -> X ~ identity(X)\nexport f\n"
+    with pytest.raises(CompileError) as excinfo:
+        loads(source)
+    message = str(excinfo.value)
+    assert "role=observed" in message
+    assert "line 2" in message
+
+
+def test_object_slash_direction_ignores_intervening_comment() -> None:
+    """The slash direction comes from the grammar field, so a block
+    comment carrying a backslash between the operator and its right
+    operand does not flip ``/`` to ``\\``."""
+    from quivers.dsl.ast_nodes import ObjectSlash, TypeFromExpr
+
+    module = parse("object Z : A /#{x}# B\n")
+    stmt = module.statements[0]
+    assert isinstance(stmt, ObjectDecl)
+    assert isinstance(stmt.init, TypeFromExpr)
+    slash = stmt.init.expr
+    assert isinstance(slash, ObjectSlash)
+    assert slash.direction == "/"
+
+
+def test_compound_bracket_index_is_rejected() -> None:
+    """A bracket index that is not a bare identifier is rejected at
+    parse time rather than silently dropped to an empty index tuple."""
+    source = (
+        "object P : FinSet 2\n"
+        "program q : P -> P [n=1]\n"
+        "    sample x <- f(theta[i * j])\n"
+        "    return x\n"
+    )
+    with pytest.raises(ParseError) as excinfo:
+        parse(source)
+    assert "bare identifier" in str(excinfo.value)
+
+
+def test_escaped_string_round_trips_as_a_fixed_point() -> None:
+    """A lexicon word containing an escaped quote survives
+    parse -> emit -> parse -> emit without growing."""
+    from quivers.dsl.emit import module_to_source
+
+    source = (
+        "deduction d : T -> T\n"
+        "    atoms x\n"
+        "    lexicon\n"
+        '        "a\\"b" : x = x\n'
+    )
+    first = module_to_source(parse(source))
+    second = module_to_source(parse(first))
+    assert first == second
+    assert '"a\\"b"' in first
