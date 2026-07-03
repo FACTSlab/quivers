@@ -42,6 +42,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/), and this
 - **Formula compilation.** The formula frontend constructs AST nodes with the current field shapes; `fit()` and the analysis-pipelines tutorial run again.
 - **Editor and tooling drift.** The tree-sitter corpus tests cover the current surface (fifty cases, all passing), VS Code indentation and highlighting match the shipped grammar, the Zed extension and Pygments lexer follow, and the package quick-start snippet parses.
 - **DSL tests always run.** The suite builds the in-tree grammar unconditionally; the environment-gated skips are gone.
+- **Cyclic deductions converge in linearly many agenda pops.** The FIFO agenda merges contributions pushed for an item that is already pending via the semiring's plus, so a contractive cycle reaches its `tolerance` fixed point with at most one queue entry per item per wavefront; previously every contribution was enqueued separately and the pending-entry count grew geometrically with derivation depth.
+- **`bounded` rule weights carry a joint sub-stochastic cap.** Each bounded rule's per-firing factor is strictly below one over the count of the deduction's bounded rules, so the total mass an item can push through them stays below 1 and interlocking cycles (e.g. an introduction / elimination pair over nested constructors) stay contractive for every parameter value; the previous per-rule cap of 1 left such systems free to diverge under fitting.
 
 ## [0.14.1] - 2026-07-01
 

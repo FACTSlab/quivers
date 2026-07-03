@@ -1,6 +1,7 @@
 """Compiler mixin: deduction systems and lexicon loading."""
 
 from __future__ import annotations
+import math
 from collections.abc import Callable
 from pathlib import Path
 import torch
@@ -239,6 +240,7 @@ def _make_rule_weight_fn(
     rule_param_dicts: dict,
     is_learnable: bool,
     bounded: bool = False,
+    n_bounded: int = 1,
 ) -> Callable:
     """Build the `weight_fn` for a learnable / parented rule.
 
@@ -260,6 +262,24 @@ def _make_rule_weight_fn(
       rule contributes only the parent's weight.
     """
 
+    # ``bounded=True`` parameterizes the rule weight as
+    # ``-softplus(raw_param) - log(n_bounded)`` where ``n_bounded``
+    # counts the deduction's bounded rules. The per-firing factor is
+    # then strictly below ``1 / n_bounded``, so the total mass any
+    # chart item can push through the deduction's bounded rules is
+    # strictly below 1. For cycles built from unary bounded rules
+    # (each such rule contributes at most one out-edge per item),
+    # this caps the delta-propagation operator's row sums below 1,
+    # and the LogProb chart's Kleene-star series converges for every
+    # parameter value. A per-rule cap of 1 alone would not suffice:
+    # interlocking cycles (e.g. an introduction / elimination pair
+    # over nested constructors) can diverge even when every
+    # individual cycle's log-weight is negative.
+    bounded_log_cap = math.log(n_bounded) if n_bounded > 1 else 0.0
+
+    def _bounded_weight(raw: torch.Tensor) -> torch.Tensor:
+        return -torch.nn.functional.softplus(raw) - bounded_log_cap
+
     def _rule_log_weight(
         bindings: dict,
         own_dict: nn.ParameterDict,
@@ -273,20 +293,14 @@ def _make_rule_weight_fn(
         key = _bindings_key(bindings)
         existing = own_dict.get(key)
         if existing is None:
-            # ``bounded=True`` parameterizes the rule weight as
-            # ``-softplus(raw_param)``: the surface log-weight is
-            # always non-positive, so any closed cycle through this
-            # rule has total log-weight :math:`< 0` and the LogProb
-            # chart's Kleene-star series converges. The standard
-            # interpretation: the per-firing contribution is bounded
-            # above by 1, i.e. a sub-stochastic rate. Initialise
-            # ``raw_param`` to a value whose softplus gives a mildly
-            # negative log-weight (``-softplus(0)`` = ``-log(2)``).
+            # Initialise ``raw_param`` to zero: for bounded rules the
+            # initial log-weight is ``-log(2) - log(n_bounded)``, a
+            # mildly sub-stochastic per-firing rate.
             init = torch.zeros(())
             new_p = nn.Parameter(init)
             own_dict[key] = new_p
-            return -torch.nn.functional.softplus(new_p) if bounded else new_p
-        return -torch.nn.functional.softplus(existing) if bounded else existing
+            return _bounded_weight(new_p) if bounded else new_p
+        return _bounded_weight(existing) if bounded else existing
 
     def weight_fn(bindings, premise_weights, semiring):
         # 1. Premise product (the default semiring-parsing aggregation).
@@ -516,6 +530,19 @@ class _DeductionsMixin:
         # composition by chaining lookups at run time.
         rule_parent: dict[str, str] = {}
         rule_names_declared = {sr.name for sr in decl.rules}
+        # Count the rules whose weight is bounded-reparameterised: the
+        # joint cap divides each bounded rule's per-firing factor by
+        # this count so their total out-flow from any item stays
+        # below 1 (see `_make_rule_weight_fn`).
+        n_bounded_rules = sum(
+            1
+            for sr in decl.rules
+            if get_option_flag(sr.options, "bounded")
+            and (
+                get_option_flag(sr.options, "learnable")
+                or find_option(sr.options, "parent") is not None
+            )
+        )
         for sr in decl.rules:
             check_option_keys(
                 sr.options,
@@ -567,6 +594,7 @@ class _DeductionsMixin:
                     rule_param_dicts=rule_param_dicts,
                     is_learnable=is_learnable,
                     bounded=bounded_flag,
+                    n_bounded=max(n_bounded_rules, 1),
                 )
             inference_rules.append(
                 InferenceRule(
