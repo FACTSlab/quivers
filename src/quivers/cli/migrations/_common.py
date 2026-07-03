@@ -566,7 +566,7 @@ def validate_decl(target_rev: str, text: str) -> None:
     schema = lens.parse(text.encode("utf-8"))
     errors = [v.id for v in schema.vertices if v.kind == "ERROR"]
     if errors:
-        raise ValueError(
+        raise MigrationError(
             f"converted decl text does not parse under {target_rev}: "
             f"{text!r}; ERROR vertices: {errors}",
         )
