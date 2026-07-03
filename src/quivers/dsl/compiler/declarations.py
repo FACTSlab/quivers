@@ -879,6 +879,18 @@ class _DeclarationsMixin:
             and decl.init_expr.name in _get_family_registry()
         ):
             family = decl.init_expr.name
+        if family is None and decl.init_expr is not None:
+            ln = decl.init_expr.line or decl.line
+            cl = decl.init_expr.col or decl.col
+            raise CompileError(
+                f"kernel morphism {name!r}: a deterministic "
+                f"``~ <expression>`` initializer is not a kernel prior; "
+                f"use ``role=observed`` for a fixed morphism or "
+                f"``role=let`` for a deterministic one, or supply a "
+                f"distribution family (``~ Family(...)``)",
+                ln,
+                cl,
+            )
         if family is not None:
             self._validate_family_axes(decl, family)
         if family is None:
