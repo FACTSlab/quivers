@@ -73,7 +73,7 @@ state_seq = s[1:].unsqueeze(0)
 
 ### SVI fit
 
-The exported morphism is a [`ScanMorphism`](../api/continuous/scan.md) whose parameter-network weights are `[role=kernel]` parameters without explicit `sample` priors; [`bayesian_lift_parameters`](../api/inference/lifts.md#quivers.inference.lifts.bayesian_lift_parameters) lifts each leaf parameter into a unit-Normal sample site so the standard guide-plus-ELBO machinery applies uniformly. The thin `DictWrap` adapter exposes `log_joint(x, obs_dict)` over the scan's positional state-trajectory argument.
+The exported morphism is a [`ScanMorphism`](../api/continuous/scan.md) whose parameter-network weights are kernel parameters without explicit `sample` priors; [`bayesian_lift_parameters`](../api/inference/lifts.md#quivers.inference.lifts.bayesian_lift_parameters) lifts each leaf parameter into a unit-Normal sample site so the standard guide-plus-ELBO machinery applies uniformly. The thin `DictWrap` adapter exposes `log_joint(x, obs_dict)` over the scan's positional state-trajectory argument.
 
 ```python
 from quivers.inference import AutoNormalGuide, ELBO, SVI, bayesian_lift_parameters

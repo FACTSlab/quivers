@@ -36,7 +36,7 @@ export transformer_lm
 
 ### Multi-head attention
 
-`morphism head : Latent -> HeadOut [role=kernel, replicate=4, scale=0.1] ~ Normal` declares four independent attention heads via the [replicate](../guides/dsl-declarations.md#replicated-declarations) attribute on a single morphism. Each head is a Bayesian Kleisli morphism `Latent -> HeadOut`; `HeadOut` is four-dimensional, so the four heads together cover the sixteen-dimensional `Latent`. [`fan(head)`](../guides/dsl-declarations.md#fan-out-diagonal-morphism) runs the four heads in parallel on the same input and concatenates the outputs, the standard multi-head wiring.
+`morphism head : Latent -> HeadOut [replicate=4, scale=0.1] ~ Normal` declares four independent attention heads via the [replicate](../guides/dsl-declarations.md#replicated-declarations) attribute on a single morphism. Each head is a Bayesian Kleisli morphism `Latent -> HeadOut`; `HeadOut` is four-dimensional, so the four heads together cover the sixteen-dimensional `Latent`. [`fan(head)`](../guides/dsl-declarations.md#fan-out-diagonal-morphism) runs the four heads in parallel on the same input and concatenates the outputs, the standard multi-head wiring.
 
 ### Layer block
 
@@ -53,7 +53,7 @@ After the multi-head attention, `attn_proj` mixes the head outputs back into `La
 
 ### Language-model head
 
-The closing `morphism lm_head : Latent -> Token [role=kernel] ~ Categorical` is a Kleisli morphism `Latent -> Token`; per position it produces a Categorical distribution over the thirty-two-symbol vocabulary, and the program's `observe next_token` step accumulates the per-position categorical log-likelihood against the supplied target tensor.
+The closing `morphism lm_head : Latent -> Token ~ Categorical` is a Kleisli morphism `Latent -> Token`; per position it produces a Categorical distribution over the thirty-two-symbol vocabulary, and the program's `observe next_token` step accumulates the per-position categorical log-likelihood against the supplied target tensor.
 
 ## Try it
 

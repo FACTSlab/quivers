@@ -518,11 +518,11 @@ program_decl        := 'program' IDENT [ '(' param_list ')' ]
 # ``over = M`` (posterior consumer over model M's latents).
 
 # Top-level composition-rule selection. The single `composition`
-# keyword takes an optional `as LEVEL` clause naming the declared
+# keyword takes an optional `[level=LEVEL]` option naming the declared
 # algebraic level; the optional indented body declares a fresh
 # rule inline.
 composition_decl    := 'composition' IDENT
-                       [ 'as' composition_level ]
+                       [ option_block ]
                        [ NEWLINE INDENT composition_rule_entry+ DEDENT ]
 
 composition_level   := 'algebra' | 'semigroupoid'
@@ -557,7 +557,7 @@ morphism_call       := IDENT '(' IDENT (',' IDENT)* ')'
 
 A `program_decl` is *parametric* iff its parameter list contains any `typed_program_param`; the walker dispatches parametric programs to the call-site inliner rather than to the runtime program compiler. A program whose option block carries `[effects = [...]]` has its body checked against the declared capability set: the actual effects of the body must form a subset of the listed set, and `[effects = [Pure]]` rejects any `sample_step` / `observe_step` / `marginalize_step`. A program whose option block carries `[over = M]` is a posterior block consuming the latents of model `M`; the consumed latents appear as data parameters in the program's parameter list.
 
-A `composition_decl` selects the module's underlying composition rule. With no body and no `as` clause, the keyword resolves the named rule from the built-in catalog and registers it. With an `as LEVEL` clause but no body, the resolved built-in rule is verified to match the declared algebraic level (`algebra`, `semigroupoid`, `bilinear_form`, or `rule`, the last covering any `CompositionRule`). With a body, the entries declare the rule's operations inline; the `as LEVEL` clause fixes the algebraic level, and the compiler verifies that the required entries (`tensor_op`, `join`, plus `unit`, `zero` for `algebra`) are present. See [Composition Rules](composition-rules.md) for the formal denotation.
+A `composition_decl` selects the module's underlying composition rule. With no body and no `[level=...]` option, the keyword resolves the named rule from the built-in catalog and registers it. With a `[level=LEVEL]` option but no body, the resolved built-in rule is verified to match the declared algebraic level (`algebra`, `semigroupoid`, `bilinear_form`, or `rule`, the last covering any `CompositionRule`). With a body, the entries declare the rule's operations inline; the `[level=LEVEL]` option fixes the algebraic level, and the compiler verifies that the required entries (`tensor_op`, `join`, plus `unit`, `zero` for `algebra`) are present. See [Composition Rules](composition-rules.md) for the formal denotation.
 
 A `contraction_decl` declares an n-ary operadic morphism whose action contracts its input morphisms under the named composition rule using the wiring spec. Call sites `IDENT(arg_1, …, arg_n)` route through `morphism_call`; the compiler resolves `IDENT` against the contraction registry, the parametric-program template table, and the morphism scope in that order. See [Expressions § 2.13](expressions.md#213-operadic-contraction-call) for the call-site denotation.
 

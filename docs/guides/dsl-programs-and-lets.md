@@ -489,7 +489,7 @@ variable, the family is resolved at runtime against the current
 trace's values.
 
 For conditional distributions (input-conditional, learned-parameter
-form), use a [`morphism f : A -> B [role=kernel] ~ Family`](dsl-declarations.md#kernel)
+form), use a [`morphism f : A -> B ~ Family`](dsl-declarations.md#kernel)
 declaration instead.
 
 ## Examples
@@ -516,8 +516,8 @@ object Cond : FinSet 2
 object Latent : Real 3
 object Obs : Real 5
 
-morphism prior : Cond -> Latent [role=kernel] ~ Normal
-morphism likelihood : Latent -> Obs [role=kernel] ~ Normal [scale=0.1]
+morphism prior : Cond -> Latent ~ Normal
+morphism likelihood : Latent -> Obs ~ Normal [scale=0.1]
 define posterior = prior >> likelihood
 
 export posterior

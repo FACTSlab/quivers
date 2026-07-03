@@ -52,11 +52,11 @@ This denotation does not require associativity, an identity, or distributivity: 
 | `Semigroupoid` | Associativity: $f \mathbin{>\!>} (g \mathbin{>\!>} h) = (f \mathbin{>\!>} g) \mathbin{>\!>} h$. |
 | `Algebra` | Associativity, identity ($\mathrm{id}_A \mathbin{>\!>} f = f = f \mathbin{>\!>} \mathrm{id}_B$), and distributivity. |
 
-The compact-closed operations of $\mathcal{V}\text{-}\mathbf{Rel}$ (`identity(A)`, `cup(A)`, `cap(A)`, `f.dagger`, `f.trace(A)`) require both an identity element and the meet / negation pair; their denotations consequently exist only at the `Algebra` level. The compiler enforces this statically: in a module declared as `semigroupoid X` or `bilinear_form X` or `composition_rule X`, the operations above raise a typed `CompileError`.
+The compact-closed operations of $\mathcal{V}\text{-}\mathbf{Rel}$ (`identity(A)`, `cup(A)`, `cap(A)`, `f.dagger`, `f.trace(A)`) require both an identity element and the meet / negation pair; their denotations consequently exist only at the `Algebra` level. The compiler enforces this statically: in a module declared with `composition X [level=semigroupoid]`, `[level=bilinear_form]`, or `[level=rule]`, the operations above raise a typed `CompileError`.
 
 ## 3. User-defined composition rules
 
-The `.qvr` surface admits the declaration of a fresh composition rule via the unified `composition` keyword, the level chosen by an `as` clause, and the rule body supplied as an indented block of entries:
+The `.qvr` surface admits the declaration of a fresh composition rule via the unified `composition` keyword, the level chosen by a `[level=...]` option, and the rule body supplied as an indented block of entries:
 
 ```
 composition NAME [level=algebra]
@@ -215,4 +215,4 @@ The composition-rule hierarchy and the operadic contraction surface are stratifi
 - The operadic contraction operation `op_apply(a_1, ..., a_n)` denotes the wiring's action on the supplied morphisms; the result lives in the same enriched category and is composable with the rest of the program under `>>` (subject to the surrounding rule's algebraic guarantees).
 - First-class transformations refine the existing [§ Algebras § 3](algebras.md#3-base-change) base-change surface: every named singleton there is now a let-bindable value, every parametric constructor produces a let-bindable value, and `>>>` composes them.
 
-The conservativity claim is the formal content of the implementation's class hierarchy: removing a `semigroupoid` or `bilinear_form` declaration and replacing it with `algebra` of the same name (when the named rule is in fact at algebra level) gives a strictly stronger module that admits every operation the original did, plus the compact-closed surface.
+The conservativity claim is the formal content of the implementation's class hierarchy: changing a composition's `[level=semigroupoid]` or `[level=bilinear_form]` to `[level=algebra]` for the same rule (when the named rule is in fact at algebra level) gives a strictly stronger module that admits every operation the original did, plus the compact-closed surface.

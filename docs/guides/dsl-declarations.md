@@ -211,8 +211,9 @@ in a domain or codomain position.
 
 ## Kernel
 
-The `kernel` keyword declares a [Markov
-kernel](https://ncatlab.org/nlab/show/Markov+kernel) `A -> B`.
+A kernel morphism declares a [Markov
+kernel](https://ncatlab.org/nlab/show/Markov+kernel) `A -> B`. It is
+the default role, so a `morphism` with no `role=` key is a kernel.
 Two shapes:
 
 - **Without a `~` clause**: a finite-set lookup-table kernel
@@ -228,21 +229,21 @@ Two shapes:
 <!-- compile: false -->
 ```qvr
 # Lookup-table kernel on finite sets.
-morphism s : X -> Y [role=kernel]
-morphism cat : X -> Y * Z [role=kernel]
+morphism s : X -> Y
+morphism cat : X -> Y * Z
 
 # Parametric kernel: input-conditional Normal on R^3.
-morphism f : X -> R3 [role=kernel] ~ Normal
+morphism f : X -> R3 ~ Normal
 # Family options control the parameter network.
-morphism g : R3 -> R3 [role=kernel] ~ Normal [scale=0.5]
-morphism k : X -> S3 [role=kernel] ~ Dirichlet
+morphism g : R3 -> R3 ~ Normal [scale=0.5]
+morphism k : X -> S3 ~ Dirichlet
 # 30+ families are registered; see the families guide.
 # `Flow` is a special-case constructor (not in the family registry)
 # that compiles to a conditional normalizing flow.
-morphism flow : R3 -> R3 [role=kernel] ~ Flow [n_layers=6, hidden_dim=32]
+morphism flow : R3 -> R3 ~ Flow [n_layers=6, hidden_dim=32]
 ```
 
-The `kernel` keyword unifies the discrete (finite-set lookup) and
+The kernel role unifies the discrete (finite-set lookup) and
 continuous / stochastic (parametric Family) cases under one surface;
 the runtime branches on whether the codomain is a
 [`FinSet`](../api/core/objects.md) or a
@@ -400,11 +401,11 @@ referenced by [`fan`](#fan-out-diagonal-morphism):
 <!-- compile: false -->
 ```qvr
 # creates head_0, head_1, head_2, head_3 with independent parameters
-morphism head : Latent -> HeadOut [role=kernel, replicate=4, scale=0.1] ~ Normal
+morphism head : Latent -> HeadOut [replicate=4, scale=0.1] ~ Normal
 
 # works on every morphism whose role permits replication:
-morphism T    : State -> Obs [role=kernel, replicate=3]               # lookup-table kernel
-morphism emit : State -> Obs [role=kernel, replicate=3] ~ Normal      # parametric kernel
+morphism T    : State -> Obs [replicate=3]               # lookup-table kernel
+morphism emit : State -> Obs [replicate=3] ~ Normal      # parametric kernel
 morphism tok  : Token -> Hidden [role=embed, replicate=2]              # finite-to-Real
 ```
 
@@ -466,8 +467,8 @@ repeated squaring for $O(\log n)$ compositions:
 
 <!-- compile: false -->
 ```qvr
-morphism transition : State -> State [role=kernel]
-morphism emission : State -> Obs [role=kernel]
+morphism transition : State -> State
+morphism emission : State -> Obs
 
 # runtime-variable: no count specified
 define n_step = repeat(transition) >> emission
@@ -510,7 +511,7 @@ Thread hidden state across a sequence using a recurrent cell:
 <!-- compile: false -->
 ```qvr
 # Basic syntax: cell has product domain A * H -> H
-morphism cell : Embedded * Hidden -> Hidden [role=kernel] ~ Normal [scale=0.1]
+morphism cell : Embedded * Hidden -> Hidden ~ Normal [scale=0.1]
 define rnn = tok_embed >> scan(cell) >> output_proj
 
 # With learned initial state (default is zeros)
@@ -534,7 +535,7 @@ hidden state `H` across a sequence:
   The sequence dimension is implicit in the tensor's second
   dimension.
 - **Works with both forms.** Parametric kernels (`morphism cell : A *
-  H -> H [role=kernel] ~ Normal`) and `MonadicPrograms` (`program cell(x, h) : A *
+  H -> H ~ Normal`) and `MonadicPrograms` (`program cell(x, h) : A *
   H -> H` with bind / let / return).
 
 **Example: vanilla RNN.**
@@ -548,8 +549,8 @@ object Output : Real 64
 
 morphism tok_embed : Token -> Embedded [role=embed]
 
-morphism cell : Embedded * Hidden -> Hidden [role=kernel] ~ Normal [scale=0.1]
-morphism output_proj : Hidden -> Output [role=kernel] ~ Normal [scale=0.1]
+morphism cell : Embedded * Hidden -> Hidden ~ Normal [scale=0.1]
+morphism output_proj : Hidden -> Output ~ Normal [scale=0.1]
 define rnn = tok_embed >> scan(cell) >> output_proj
 
 export rnn

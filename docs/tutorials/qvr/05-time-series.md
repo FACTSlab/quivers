@@ -39,8 +39,8 @@ object Output : Real 64
 
 morphism tok_embed : Token -> Embedded [role=embed]
 
-morphism cell : Embedded * Hidden -> Hidden [role=kernel, scale=0.1] ~ Normal
-morphism output_proj : Hidden -> Output [role=kernel, scale=0.1] ~ Normal
+morphism cell : Embedded * Hidden -> Hidden [scale=0.1] ~ Normal
+morphism output_proj : Hidden -> Output [scale=0.1] ~ Normal
 define rnn = tok_embed >> scan(cell) >> output_proj
 export rnn
 ```
@@ -101,11 +101,11 @@ object Driver : Real 2
 object State : Real 4
 object Obs : Real 2
 
-morphism transition_cell : Driver * State -> State [role=kernel, scale=0.1] ~ Normal
-morphism emission : State -> Obs [role=kernel, scale=0.1] ~ Normal
-morphism filter_cell : Obs * State -> State [role=kernel, scale=0.1] ~ Normal
+morphism transition_cell : Driver * State -> State [scale=0.1] ~ Normal
+morphism emission : State -> Obs [scale=0.1] ~ Normal
+morphism filter_cell : Obs * State -> State [scale=0.1] ~ Normal
 define generate = scan(transition_cell) >> emission
-let filter   = scan(filter_cell)
+define filter = scan(filter_cell)
 
 export filter
 ```

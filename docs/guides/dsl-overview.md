@@ -156,7 +156,7 @@ statement      := composition_decl
                 | bundle_decl
                 | program_decl
                 | contraction_decl
-                | let_decl
+                | define_decl
                 | export_decl
                 | deduction_decl
                 | signature_decl
@@ -166,15 +166,15 @@ statement      := composition_decl
                 | pragma_outer
                 | pragma_inner
 
-(* Selects the module's composition rule. The `as` clause fixes the
-   algebraic level the surrounding morphisms must live in; the
-   optional indented body declares a fresh rule inline (each entry
+(* Selects the module's composition rule. The `[level=LEVEL]` option
+   fixes the algebraic level the surrounding morphisms must live in;
+   the optional indented body declares a fresh rule inline (each entry
    is a let-expression). *)
 composition_decl
                := 'composition' IDENT
-                  ['as' composition_level]
+                  [option_block]
                   [composition_rule_block]
-composition_level
+composition_level              (* the value of the `level` option key *)
                := 'algebra' | 'semigroupoid' | 'bilinear_form' | 'rule'
 composition_rule_entry
                := IDENT ['(' IDENT (',' IDENT)* ')'] '=' let_expr
@@ -221,12 +221,12 @@ contraction_input
                := IDENT ':' object_expr '->' object_expr
 
 (* Bundle: a named tuple of rule references. *)
-bundle_decl    := 'bundle' IDENT '=' '[' IDENT (',' IDENT)* ']'
+bundle_decl    := 'bundle' IDENT ':' '[' IDENT (',' IDENT)* ']'
 
 (* Top-level production-style rule. *)
 rule_decl      := 'rule' IDENT '(' IDENT (',' IDENT)* ')'
                   ':' object_expr (',' object_expr)*
-                  '=>' object_expr
+                  '|-' object_expr
 
 (* Schema: a parameterised morphism shape. *)
 schema_decl    := 'schema' IDENT '(' schema_parameter (',' schema_parameter)* ')'
@@ -252,7 +252,7 @@ encoder_decl   := 'encoder' IDENT ':' IDENT
                   [option_block]
                   [INDENT encoder_body_entry+ DEDENT]
 
-decoder_decl   := 'decoder' IDENT 'over' IDENT
+decoder_decl   := 'decoder' IDENT ':' IDENT
                   ['(' IDENT (',' IDENT)* ')']
                   [option_block]
                   INDENT decoder_body_entry+ DEDENT
@@ -289,7 +289,7 @@ let_step       := 'let' IDENT '=' let_arith
 score_step     := 'score' IDENT '=' let_arith
 return_step    := 'return' return_pattern
 
-let_decl       := 'let' IDENT '=' expr ['where' INDENT let_decl+ DEDENT]
+define_decl    := 'define' IDENT '=' expr ['where' INDENT define_decl+ DEDENT]
 export_decl    := 'export' expr
 
 (* Pragmas. `#[...]` attaches to the next declaration; `#![...]`

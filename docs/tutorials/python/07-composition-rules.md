@@ -134,7 +134,7 @@ with pytest.raises(AttributeError):
     mi.identity_tensor((3,))               # also unavailable
 ```
 
-The DSL surface raises a typed `CompileError` at parse time if you try `identity(A)`, `cup(A)`, `cap(A)`, `f.dagger`, or `f.trace(A)` inside a module declared as `semigroupoid` or `bilinear_form`. The [QVR categorical tutorial](../qvr/07-categorical.md) covers the user surface.
+The DSL surface raises a typed `CompileError` at parse time if you try `identity(A)`, `cup(A)`, `cap(A)`, `f.dagger`, or `f.trace(A)` inside a module declared with `composition X [level=semigroupoid]` or `[level=bilinear_form]`. The [QVR categorical tutorial](../qvr/07-categorical.md) covers the user surface.
 
 ## Operadic n-ary contractions
 
@@ -215,7 +215,7 @@ composition my_bf [level=bilinear_form]
 composition any_rule_name [level=rule]
 ```
 
-The `as <level>` clause selects the algebraic level (`algebra`, `semigroupoid`, `bilinear_form`, `rule`). The optional indented body declares the rule's operations inline; without a body, the declaration resolves the named rule from the built-in catalog (`product_fuzzy`, `material_impl`, etc.) and verifies it matches the declared level.
+The `[level=...]` option selects the algebraic level (`algebra`, `semigroupoid`, `bilinear_form`, `rule`). The optional indented body declares the rule's operations inline; without a body, the declaration resolves the named rule from the built-in catalog (`product_fuzzy`, `material_impl`, etc.) and verifies it matches the declared level.
 
 Operadic contractions:
 

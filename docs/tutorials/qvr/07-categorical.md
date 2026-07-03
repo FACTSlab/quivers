@@ -60,7 +60,7 @@ CompositionRule
             └── Algebra  (associative ⊗ with identity, plus meet/negate)
 ```
 
-Operations like `identity(A)`, `cup(A)`, `cap(A)`, `f.dagger`, `f.trace(A)` need the identity element and the compact-closed structure: they live on `Algebra`. If your module declares `semigroupoid material_impl` (Reichenbach-style implication composition, which is associative but lacks an identity), the compiler rejects `identity(A)` with a typed error pointing at the rule's level. Chapter 4 of the Python API track has the full story.
+Operations like `identity(A)`, `cup(A)`, `cap(A)`, `f.dagger`, `f.trace(A)` need the identity element and the compact-closed structure: they live on `Algebra`. If your module declares `composition material_impl [level=semigroupoid]` (Reichenbach-style implication composition, which is associative but lacks an identity), the compiler rejects `identity(A)` with a typed error pointing at the rule's level. Chapter 4 of the Python API track has the full story.
 
 ## Composition carries the enrichment
 
