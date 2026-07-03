@@ -72,16 +72,20 @@ def _walk_draw_arg(t: _Tree, vid: str) -> DrawArg:
         iv = t.field(vid, "index")
         if nv is None or iv is None:
             raise ParseError(f"bracket_index_arg malformed at {vid}")
-        # Parse the index field as a comma-separated identifier list.
-        # tree-sitter's `index` field carries the whole bracket body
-        # verbatim; break it into individual identifiers so downstream
-        # consumers pattern-match against structured references
-        # rather than re-parsing the text.
+        # The index field carries the bracket body verbatim. Downstream
+        # consumers (plate-graph edges, transpilation) resolve each index
+        # as a bare identifier naming an index tensor, so a compound or
+        # non-identifier index is rejected here rather than silently
+        # dropped.
         index_text = t.text(iv)
-        indices = tuple(
-            tok.strip() for tok in index_text.split(",") if tok.strip().isidentifier()
-        )
-        return DrawArgIndex(name=t.text(nv), indices=indices)
+        tokens = [tok.strip() for tok in index_text.split(",")]
+        if not all(tok.isidentifier() for tok in tokens):
+            line, col = t.line_col(iv)
+            raise ParseError(
+                f"bracket index {index_text!r} at line {line}, col {col}: "
+                f"each index must be a bare identifier naming an index tensor",
+            )
+        return DrawArgIndex(name=t.text(nv), indices=tuple(tokens))
     if k == "family_call_arg":
         fv = t.field(vid, "family")
         if fv is None:

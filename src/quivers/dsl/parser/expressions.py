@@ -108,14 +108,12 @@ def _walk_type(t: _Tree, vid: str) -> ObjectExpr:
         argument_vid = t.field(vid, "argument")
         if result_vid is None or argument_vid is None:
             raise ParseError(f"object_slash missing result/argument at {vid}")
-        rcs = t.consts(result_vid)
-        acs = t.consts(argument_vid)
-        direction: Literal["/", "\\"] = "/"
-        if rcs.get("end-byte") is not None and acs.get("start-byte") is not None:
-            mid = t.source[int(rcs["end-byte"]) : int(acs["start-byte"])].decode(
-                "utf-8"
+        raw_direction = t.consts(vid).get("field:direction")
+        if raw_direction not in ("/", "\\"):
+            raise ParseError(
+                f"object_slash has no direction field at {vid}",
             )
-            direction = "\\" if "\\" in mid else "/"
+        direction: Literal["/", "\\"] = raw_direction  # type: ignore[assignment]
         return ObjectSlash(
             result=_walk_type(t, result_vid),
             argument=_walk_type(t, argument_vid),
