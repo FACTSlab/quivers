@@ -23,7 +23,7 @@ export hmm
 
 ## Walkthrough
 
-`composition product_fuzzy as algebra` selects the standard multiplicative composition of probabilities along paths; switching to the [tropical (max-plus) algebra](https://en.wikipedia.org/wiki/Tropical_semiring) reinterprets the same composed morphism as the Viterbi recurrence.
+`composition product_fuzzy [level=algebra]` selects the standard multiplicative composition of probabilities along paths; switching to the [tropical (max-plus) algebra](https://en.wikipedia.org/wiki/Tropical_semiring) reinterprets the same composed morphism as the Viterbi recurrence.
 
 `object State : FinSet 8` and `object Obs : FinSet 16` are finite discrete spaces. The three `morphism` declarations `initial : State -> State`, `transition : State -> State`, and `emission : State -> Obs` introduce row-stochastic matrices as `[role=latent]` arrows. The natural row-wise prior is a [symmetric Dirichlet](https://en.wikipedia.org/wiki/Dirichlet_distribution#Symmetric_case) on each row, attached via the axis-role surface `~ Dirichlet(1.0) [over=cod, iid_over=dom]`: the event axis sits on the codomain (each row is one simplex), and the domain axis is asserted as iid (independent rows). The axis count must match the family's event rank; [Dirichlet](https://en.wikipedia.org/wiki/Dirichlet_distribution) has event rank one, so a single `over` axis is required.
 

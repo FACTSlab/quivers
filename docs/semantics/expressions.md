@@ -99,34 +99,22 @@ $$
 
 The well-typedness side-condition $\mathrm{target}(t_1) = \mathrm{source}(t_2)$ is checked statically; a mismatch raises a typed compile-time error with line and column of the offending expression. Chains of length $\ge 3$ flatten unambiguously: $t_1 \mathbin{>\!\!>\!\!>} (t_2 \mathbin{>\!\!>\!\!>} t_3)$ and $(t_1 \mathbin{>\!\!>\!\!>} t_2) \mathbin{>\!\!>\!\!>} t_3$ denote the same transformation. See [§ Composition Rules § 5](composition-rules.md#5-first-class-transformations) for the full development.
 
-### 2.8 The eleven composition operators
+### 2.8 The composition operators
 
-The composition combinator $>\!\!>$ of §2.3 is one of an *eleven-operator family*. The operators fall into two groups by dispatch rule:
-
-- **Algebra-polymorphic.** $>\!\!>$, $<\!\!<$, and $>\!\!=\!\!>$ use the *operands' shared algebra*: whichever algebra the surrounding module declared (via the `algebra X` directive, [Composition Rules §3](composition-rules.md#3-user-defined-composition-rules)) supplies $\otimes$ and $\bigoplus$. A composition under one of these operators raises a typed error if the two operands disagree on their algebra. The three operators differ only in surface ergonomics: $<\!\!<$ swaps operand order ($g \mathbin{<\!\!<} f = f \mathbin{>\!\!>} g$), and $>\!\!=\!\!>$ is the Haskell-style "Kleisli arrow" surface alias for $>\!\!>$ (it does not dispatch to a different algebra).
-- **Algebra-tagged.** The remaining eight operators each fix a target algebra and require both operands to already inhabit it; the compiler raises if either operand's declared algebra differs. These are the surface for spelling cross-algebra composition without an explicit `change_base` chain.
+The composition combinator $>\!\!>$ of §2.3 comes in two surface spellings. Both are *algebra-polymorphic*: they compose in the *operands' shared algebra*, whichever algebra the surrounding module declared (via `composition NAME [level=algebra]`, [Composition Rules §3](composition-rules.md#3-user-defined-composition-rules)), and that algebra supplies $\otimes$ and $\bigoplus$. A composition raises a typed error if the two operands disagree on their algebra. The two operators differ only in surface ergonomics: $<\!\!<$ writes the same pipeline right to left ($g \mathbin{<\!\!<} f = f \mathbin{>\!\!>} g$).
 
 | Operator | Dispatch | Algebra $\mathcal{V}$ | Composition |
 |---|---|---|---|
 | `>>` | polymorphic | module's declared algebra | $\bigoplus_y f \otimes g$ in that algebra |
 | `<<` | polymorphic | module's declared algebra | $g \mathbin{<\!\!<} f \;=\; f \mathbin{>\!\!>} g$ |
-| `>=>` | polymorphic | module's declared algebra | same denotation as $>\!\!>$ |
-| `*>` | tagged | $\mathcal{V}_{\mathrm{M}}$ | Markov sum-product on $\mathbb{R}_{\ge 0}$ |
-| `~>` | tagged | $\mathcal{V}_{\mathrm{LP}}$ | log-domain sum-product (logsumexp / $+$) |
-| `\|\|>` | tagged | $\mathcal{V}_{\mathrm{G}}$ | Gödel (max / min) |
-| `?>` | tagged | $\mathcal{V}_{\mathrm{MP}}$ | Viterbi max-plus (max / $+$) |
-| `&&>` | tagged | $\mathcal{V}_{\mathbb{B}}$ | Boolean ($\vee$ / $\wedge$) |
-| `+>` | tagged | $\mathcal{V}_{\mathrm{L}}$ | Łukasiewicz (bounded sum / $\otimes_{\mathrm{L}}$) |
-| `$>` | tagged | $\mathcal{V}_{\mathbb{R}}$ | real sum-product |
-| `%>` | tagged | $\mathcal{V}_{[0,1]}$ | saturated probability sum-product |
 
-For every operator $\circ$ with effective algebra $\mathcal{V} = (V, \otimes, \bigoplus)$,
+For each operator $\circ$ with effective algebra $\mathcal{V} = (V, \otimes, \bigoplus)$,
 
 $$
 \llbracket f \mathbin{\circ} g \rrbracket(x, z) \;=\; \bigoplus_{y}\ \llbracket f \rrbracket(x, y) \otimes \llbracket g \rrbracket(y, z),
 $$
 
-with the algebra-polymorphic operators sourcing $(\otimes, \bigoplus)$ from the module's declared algebra and the algebra-tagged operators sourcing them from the operator's fixed target. The reverse operator $\mathbin{<\!\!<}$ satisfies $\llbracket g \mathbin{<\!\!<} f \rrbracket = \llbracket f \mathbin{>\!\!>} g \rrbracket$ by definition; the parser swaps the operands and stores the forward form. Mixing tagged operators in a chain (e.g. `f *> g ~> h`) requires an explicit `change_base` between segments because the tagged operators do *not* auto-convert their operands.
+sourcing $(\otimes, \bigoplus)$ from the module's declared algebra. The reverse operator $\mathbin{<\!\!<}$ satisfies $\llbracket g \mathbin{<\!\!<} f \rrbracket = \llbracket f \mathbin{>\!\!>} g \rrbracket$ by definition. Composition across two different algebras is spelled with an explicit [`.change_base`](composition-rules.md#5-first-class-transformations) between segments, which transports a morphism from one algebra to another before it composes; the composition operators themselves never auto-convert their operands.
 
 ### 2.9 Compact-closed structure
 

@@ -18,11 +18,11 @@ program p : Item -> Item [effects=[Pure]]
 ```
 
 ```text
-# An algebra mismatch under typed composition:
-composition product_fuzzy as algebra
-let pipeline = f *> g    # *> demands Markov, but module is product_fuzzy
-# CompileError: typed composition *> requires both operands
-#               in algebra Markov; got ProductFuzzyAlgebra
+# An algebra mismatch under composition:
+composition product_fuzzy [level=algebra]
+define pipeline = f >> g    # f is ProductFuzzy, g was change_based to Markov
+# CompileError: incompatible algebras under `>>`: the left operand
+#               is ProductFuzzyAlgebra, the right is Markov
 ```
 
 Without the effect and algebra tags, the same programs would either run and silently produce nonsense, or fail somewhere deep in a tensor evaluation with a stack trace pointing at the wrong place. The category-theoretic reading below is *why* those tags compose cleanly; the practical payoff is the error messages.
@@ -49,7 +49,7 @@ A [algebra](https://ncatlab.org/nlab/show/algebra) is a complete lattice equippe
 | `Probability` | $a \cdot b$ | $\sum_i x_i$ (clamped to [0,1]) | 1 | Bounded sum-product. |
 | `Counting` | $a \cdot b$ | $\sum_i x_i$ | 1 | Nonnegative-integer counting. |
 
-`composition product_fuzzy as algebra` at the top of a `.qvr` file sets the enrichment for the module. Every `f >> g` composition uses the corresponding $(\otimes, \bigvee)$.
+`composition product_fuzzy [level=algebra]` at the top of a `.qvr` file sets the enrichment for the module. Every `f >> g` composition uses the corresponding $(\otimes, \bigvee)$.
 
 The hierarchy in `quivers.core.algebras` is:
 
@@ -62,25 +62,16 @@ CompositionRule
 
 Operations like `identity(A)`, `cup(A)`, `cap(A)`, `f.dagger`, `f.trace(A)` need the identity element and the compact-closed structure: they live on `Algebra`. If your module declares `semigroupoid material_impl` (Reichenbach-style implication composition, which is associative but lacks an identity), the compiler rejects `identity(A)` with a typed error pointing at the rule's level. Chapter 4 of the Python API track has the full story.
 
-## Composition operators carry the enrichment
+## Composition carries the enrichment
 
-The shipped composition operators split into two groups. `>>` and `>=>` defer to the operands' own algebra (the module-level `algebra` declaration); the typed variants pin a specific enrichment and reject operands carrying a different one:
+The two composition operators both defer to the operands' own algebra, fixed by the module-level `composition NAME [level=...]` declaration:
 
-| Operator | Algebra |
+| Operator | Meaning |
 |---|---|
-| `>>` | operands' shared algebra |
-| `>=>` | [Kleisli composition](https://en.wikipedia.org/wiki/Kleisli_category) in operands' shared algebra |
-| `*>` | Markov (sum-product, kernel composition) |
-| `~>` | LogProb (numerically stable in log-space) |
-| `||>` | Gödel (min/max) |
-| `?>` | Viterbi (max-plus) |
-| `&&>` | Boolean (AND/OR) |
-| `+>` | Łukasiewicz |
-| `$>` | Real (sum-product) |
-| `%>` | Probability |
-| `<<` | Reverse of `>>` |
+| `>>` | [Kleisli composition](https://en.wikipedia.org/wiki/Kleisli_category) in the operands' shared algebra |
+| `<<` | The same composite written right to left: `g << f` is `f >> g` |
 
-So `f >> g` composes in whatever enrichment both operands carry, and errors on a mismatch; the typed operators (`*>`, `~>`, ...) require both operands to already live in the target algebra and never auto-base-change. To cross enrichments, you [`change_base`](../../api/core/morphisms.md) between segments.
+So `f >> g` composes in whatever enrichment both operands carry, and errors on a mismatch. There is no operator that silently pins a different enrichment; to cross enrichments, you [`change_base`](../../api/core/morphisms.md) one operand into the other's algebra before composing.
 
 ## Change of base
 

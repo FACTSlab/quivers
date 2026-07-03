@@ -518,7 +518,7 @@ object Obs : Real 5
 
 morphism prior : Cond -> Latent [role=kernel] ~ Normal
 morphism likelihood : Latent -> Obs [role=kernel] ~ Normal [scale=0.1]
-let posterior = prior >> likelihood
+define posterior = prior >> likelihood
 
 export posterior
 ```

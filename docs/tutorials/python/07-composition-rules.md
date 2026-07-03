@@ -229,7 +229,7 @@ contraction op_apply (
     rule product_fuzzy
     wiring "sp, sq, pqd -> sd"
 
-let combined = op_apply(arg1_morph, arg2_morph, kernel_morph)
+define combined = op_apply(arg1_morph, arg2_morph, kernel_morph)
 ```
 
 `contraction NAME ( ... ) : DOM -> COD rule R wiring "SPEC"` declares a named n-ary operadic morphism; the resulting `NAME` is callable from any expression site that accepts a morphism. Each call site type-checks argument count and per-argument numel against the contraction's declared signature, and runs the `EinsumWiring` against the supplied morphism tensors.

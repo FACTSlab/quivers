@@ -12,7 +12,7 @@ import torch
 from quivers.dsl import loads
 
 prog = loads("""
-composition product_fuzzy as algebra
+composition product_fuzzy [level=algebra]
 
 object X : FinSet 3
 object Y : FinSet 4

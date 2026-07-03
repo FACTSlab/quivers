@@ -300,7 +300,7 @@ from quivers.dsl import loads
 from quivers.core.algebra_morphisms import Threshold
 
 program = loads('''
-composition product_fuzzy as algebra
+composition product_fuzzy [level=algebra]
 object X : FinSet 8
 object Y : FinSet 8
 morphism W : X -> Y [role=latent] [init=auto]

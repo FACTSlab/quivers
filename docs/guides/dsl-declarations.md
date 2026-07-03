@@ -88,10 +88,10 @@ object XY : X * Y     # ProductSet(components=(X, Y))
 object Sum : X + Y    # CoproductSet(components=(X, Y))
 
 # 2. FreeMonoid, bounded Kleene closure over a FinSet of generators.
-object Strings = FreeMonoid(X, max_length=4)
+object Strings : FreeMonoid(X, max_length=4)
 
 # 3. Residuated universe.
-object Cat = FreeResiduated(Atoms, depth=4, ops=[slash])
+object Cat : FreeResiduated(Atoms, depth=4, ops=[slash])
 ```
 
 Object-shaped aliases (resolvable to a
@@ -423,16 +423,16 @@ declaration:
 <!-- compile: false -->
 ```qvr
 # explicit: fan-out to three named morphisms
-let parallel = fan(f, g, h)
+define parallel = fan(f, g, h)
 
 # group expansion: fan(head) expands to fan(head_0, head_1, head_2, head_3)
-morphism head : Latent -> HeadOut [role=kernel, replicate=4, scale=0.1] ~ Normal
+morphism head : Latent -> HeadOut [replicate=4, scale=0.1] ~ Normal
 
-let multi_head = fan(head)
+define multi_head = fan(head)
 
 # commonly followed by a projection to recombine
-morphism proj : Combined -> Latent [role=kernel] ~ Normal [scale=0.1]
-let attention = fan(head) >> proj
+morphism proj : Combined -> Latent [scale=0.1] ~ Normal
+define attention = fan(head) >> proj
 ```
 
 All component morphisms must have the same domain. The output
@@ -511,10 +511,10 @@ Thread hidden state across a sequence using a recurrent cell:
 ```qvr
 # Basic syntax: cell has product domain A * H -> H
 morphism cell : Embedded * Hidden -> Hidden [role=kernel] ~ Normal [scale=0.1]
-let rnn = tok_embed >> scan(cell) >> output_proj
+define rnn = tok_embed >> scan(cell) >> output_proj
 
 # With learned initial state (default is zeros)
-let rnn_learned = tok_embed >> scan(cell, init=learned) >> output_proj
+define rnn_learned = tok_embed >> scan(cell, init=learned) >> output_proj
 ```
 
 The `scan` combinator implements temporal recurrence by threading
@@ -550,7 +550,7 @@ morphism tok_embed : Token -> Embedded [role=embed]
 
 morphism cell : Embedded * Hidden -> Hidden [role=kernel] ~ Normal [scale=0.1]
 morphism output_proj : Hidden -> Output [role=kernel] ~ Normal [scale=0.1]
-let rnn = tok_embed >> scan(cell) >> output_proj
+define rnn = tok_embed >> scan(cell) >> output_proj
 
 export rnn
 ```
@@ -566,23 +566,22 @@ Each `scan` threads its own hidden state independently.
 
 ### Backward composition
 
-Compose morphisms in reverse order using `<<`, or use [Kleisli
-composition](https://ncatlab.org/nlab/show/Kleisli+category) `<=>`:
+Bind a composite morphism with `define`, and write the pipeline in
+either direction:
 
 <!-- compile: false -->
 ```qvr
-# forward composition (both equivalent):
-let fg = f >> g
-let fg = f >=> g
+# forward composition:
+define fg = f >> g
 
 # backward composition:
-let gf = g << f    # equivalent to f >> g
+define gf = g << f    # equivalent to f >> g
 ```
 
-`<<` reverses the direction of composition; `>=>` is the Kleisli
-composition operator (composes Markov kernels in
-[`Stoch`](../api/stochastic/categories.md) or
-[`Kern`](../api/stochastic/categories.md)).
+`<<` writes the same [Kleisli composition](https://ncatlab.org/nlab/show/Kleisli+category)
+right to left: `g << f` is `f >> g`. Both operators compose in the
+operands' shared algebra and reject a mismatch; to cross algebras,
+insert an explicit `.change_base` between segments.
 
 ### Curry combinators (residuation witnesses)
 
@@ -636,7 +635,7 @@ Attach local let-bindings to a top-level let declaration using
 
 <!-- compile: false -->
 ```qvr
-let model = embed >> layers >> output_proj
+define model = embed >> layers >> output_proj
 
 where
 

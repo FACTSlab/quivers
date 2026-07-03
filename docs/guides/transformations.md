@@ -91,10 +91,10 @@ The four `.qvr` level keywords select the level:
 
 | Declaration | Required level | Available operations |
 |---|---|---|
-| `composition X as algebra` | `Algebra` | `>>`, `@`, `identity(A)`, `f.dagger`, `f.trace(A)`, `cup(A)`, `cap(A)`, all compact-closed surface |
-| `composition X as semigroupoid` | `Semigroupoid` | `>>`, `@`, no identity / compact-closed surface |
-| `composition X as bilinear_form` | `BilinearForm` | `>>`, `@`, no associativity guarantee |
-| `composition X as rule` | `CompositionRule` | permissive; accepts any rule |
+| `composition X [level=algebra]` | `Algebra` | `>>`, `@`, `identity(A)`, `f.dagger`, `f.trace(A)`, `cup(A)`, `cap(A)`, all compact-closed surface |
+| `composition X [level=semigroupoid]` | `Semigroupoid` | `>>`, `@`, no identity / compact-closed surface |
+| `composition X [level=bilinear_form]` | `BilinearForm` | `>>`, `@`, no associativity guarantee |
+| `composition X [level=rule]` | `CompositionRule` | permissive; accepts any rule |
 
 A typed `CompileError` flags every Algebra-only operation used inside a non-Algebra module. The diagnostic names the operation and the offending rule's level.
 
