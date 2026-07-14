@@ -318,6 +318,15 @@ class VectorisedObserve(ContinuousMorphism):
         """
         return getattr(self._family, "_param_event_ranks", None)
 
+    @property
+    def _param_spec(self) -> list[tuple[str, int | float]] | None:
+        """Forward the per-parameter spec (kinds and dims) from the
+        wrapped family so `_resolve_input` can stack multiple vector-
+        typed parameters (e.g. `MixtureNormal` weights / locs / scales)
+        by their declared dims rather than by tensor rank.
+        """
+        return getattr(self._family, "_param_spec", None)
+
     def rsample(
         self, x: torch.Tensor, sample_shape: torch.Size = torch.Size()
     ) -> torch.Tensor:

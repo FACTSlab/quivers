@@ -389,48 +389,78 @@ class MonadicProgram(ContinuousMorphism):
         if len(spec.args) == 1:
             return self._promote_rank(_lookup_arg(env, spec.args[0]))
 
-        # multiple args: stack along feature dimension
+        # multiple args: stack along the feature dimension. When the
+        # morphism declares per-parameter event ranks and dims (an
+        # inline distribution), the stacking interprets each argument by
+        # its declared role rather than guessing from tensor rank: a
+        # rank-0 position is a per-row scalar; a rank->=1 position is a
+        # vector feature of its declared dim, arriving either as a
+        # shared ``(D,)`` vector or a per-row ``(N, D)`` block.
         parts = [_lookup_arg(env, a) for a in spec.args]
-        # Families that declare a vector-typed final parameter (e.g.
-        # `OrderedLogistic(predictor, cutpoints)` where cutpoints is
-        # a shared or per-row vector) may supply the vector as a 1-D
-        # tensor of shape ``(D,)``. Broadcast such shared vectors to
-        # per-row ``(batch, D)`` before stacking so `_stack_tensors`
-        # sees uniform per-row shapes.
         morph = self._modules.get(spec.morphism_name)
         event_ranks = getattr(morph, "_param_event_ranks", None)
-        if event_ranks is not None and len(event_ranks) == len(parts):
-            parts = self._broadcast_vector_params(parts, event_ranks)
+        param_spec = getattr(morph, "_param_spec", None)
+        if event_ranks is not None and param_spec is not None:
+            var_ranks = tuple(
+                event_ranks[i] for i, (k, _) in enumerate(param_spec) if k == "var"
+            )
+            var_dims = tuple(
+                int(v) for k, v in param_spec if k == "var"
+            )
+            if len(var_ranks) == len(parts):
+                return self._stack_params(parts, var_ranks, var_dims)
         return self._stack_tensors(parts)
 
     @staticmethod
-    def _broadcast_vector_params(
+    def _stack_params(
         parts: list[torch.Tensor],
         event_ranks: tuple[int, ...],
-    ) -> list[torch.Tensor]:
-        """Broadcast shared vector-typed parameters to per-row shape.
+        dims: tuple[int, ...],
+    ) -> torch.Tensor:
+        """Stack inline-distribution parameters into a single input.
 
-        For each position with ``event_ranks[i] >= 1`` whose tensor
-        arrives as 1-D shape ``(D,)``, expand to ``(batch, D)`` where
-        ``batch`` is the max leading dim among the rank-0 (per-row
-        scalar) positions. Rank-0 tensors and already-per-row rank-1
-        tensors pass through unchanged.
+        Each parameter is reshaped to a per-row ``(batch, dim)`` block
+        using its declared event rank and dim, and the blocks are
+        concatenated along the feature axis. A shared parameter (no
+        leading batch: a scalar ``()``/``(1,)`` or a vector ``(dim,)``)
+        reshapes to a batch-1 block and broadcasts against any per-row
+        parameters. When every parameter is shared, the result is a
+        single batch-1 row; the response batch is supplied downstream by
+        the observed value.
         """
-        scalar_batches = [
-            t.shape[0]
-            for t, r in zip(parts, event_ranks, strict=True)
-            if r == 0 and t.dim() >= 1
-        ]
-        if not scalar_batches:
-            return parts
-        batch = max(scalar_batches)
-        out: list[torch.Tensor] = []
-        for t, r in zip(parts, event_ranks, strict=True):
-            if r >= 1 and t.dim() == 1 and t.shape[0] != batch:
-                out.append(t.unsqueeze(0).expand(batch, -1))
+        shaped: list[torch.Tensor] = []
+        for t, rank, dim in zip(parts, event_ranks, dims, strict=True):
+            tf = t.float()
+            if rank >= 1:
+                # Vector feature of size ``dim``.
+                if tf.dim() <= 1:
+                    # Shared vector ``(dim,)`` (or a scalar broadcast to
+                    # the vector width): one row.
+                    shaped.append(tf.reshape(1, -1))
+                else:
+                    shaped.append(tf.reshape(tf.shape[0], -1))
             else:
-                out.append(t)
-        return out
+                # Per-row scalar.
+                if tf.dim() == 0:
+                    shaped.append(tf.reshape(1, 1))
+                elif tf.dim() == 1:
+                    shaped.append(tf.unsqueeze(-1))
+                else:
+                    shaped.append(tf.reshape(tf.shape[0], -1))
+        batch = max((t.shape[0] for t in shaped), default=1)
+        broadcast: list[torch.Tensor] = []
+        for t in shaped:
+            if t.shape[0] == batch:
+                broadcast.append(t)
+            elif t.shape[0] == 1:
+                broadcast.append(t.expand(batch, *t.shape[1:]))
+            else:
+                raise RuntimeError(
+                    "_stack_params: incompatible batch sizes "
+                    f"{[t.shape[0] for t in shaped]}; expected each to be "
+                    f"1 (shared) or {batch} (per-row)"
+                )
+        return torch.cat(broadcast, dim=-1)
 
     @staticmethod
     def _promote_rank(t: torch.Tensor) -> torch.Tensor:
