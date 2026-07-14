@@ -13,16 +13,15 @@ object HeadOut : Real 4
 object FFHidden : Real 32
 
 morphism tok_embed : Token -> Latent [role=embed]
-morphism head : Latent -> HeadOut [role=kernel, replicate=4, scale=0.1] ~ Normal
-morphism attn_proj : Latent -> Latent [role=kernel, scale=0.1] ~ Normal
-morphism ff_up : Latent -> FFHidden [role=kernel] ~ Normal
-morphism ff_down : FFHidden -> Latent [role=kernel, scale=0.1] ~ Normal
-morphism residual_attn : Latent -> Latent [role=kernel, scale=0.01] ~ Normal
-morphism residual_ff : Latent -> Latent [role=kernel, scale=0.01] ~ Normal
-morphism lm_head : Latent -> Token [role=kernel] ~ Categorical
+morphism head : Latent -> HeadOut [replicate=4, scale=0.1] ~ Normal
+morphism attn_proj : Latent -> Latent [scale=0.1] ~ Normal
+morphism ff_up : Latent -> FFHidden ~ Normal
+morphism ff_down : FFHidden -> Latent [scale=0.1] ~ Normal
+morphism residual_attn, residual_ff : Latent -> Latent [scale=0.01] ~ Normal
+morphism lm_head : Latent -> Token ~ Categorical
 
-let layer = fan(head) >> attn_proj >> residual_attn >> ff_up >> ff_down >> residual_ff
-let backbone = tok_embed >> stack(layer, 2)
+define layer = fan(head) >> attn_proj >> residual_attn >> ff_up >> ff_down >> residual_ff
+define backbone = tok_embed >> stack(layer, 2)
 
 program transformer_lm : Token -> Token
     sample h <- backbone
@@ -37,13 +36,13 @@ export transformer_lm
 
 ### Multi-head attention
 
-`morphism head : Latent -> HeadOut [role=kernel, replicate=4, scale=0.1] ~ Normal` declares four independent attention heads via the [replicate](../guides/dsl-declarations.md#replicated-declarations) attribute on a single morphism. Each head is a Bayesian Kleisli morphism `Latent -> HeadOut`; `HeadOut` is four-dimensional, so the four heads together cover the sixteen-dimensional `Latent`. [`fan(head)`](../guides/dsl-declarations.md#fan-out-diagonal-morphism) runs the four heads in parallel on the same input and concatenates the outputs, the standard multi-head wiring.
+`morphism head : Latent -> HeadOut [replicate=4, scale=0.1] ~ Normal` declares four independent attention heads via the [replicate](../guides/dsl-declarations.md#replicated-declarations) attribute on a single morphism. Each head is a Bayesian Kleisli morphism `Latent -> HeadOut`; `HeadOut` is four-dimensional, so the four heads together cover the sixteen-dimensional `Latent`. [`fan(head)`](../guides/dsl-declarations.md#fan-out-diagonal-morphism) runs the four heads in parallel on the same input and concatenates the outputs, the standard multi-head wiring.
 
 ### Layer block
 
 <!-- compile: false -->
 ```qvr
-let layer = fan(head) >> attn_proj >> residual_attn >> ff_up >> ff_down >> residual_ff
+define layer = fan(head) >> attn_proj >> residual_attn >> ff_up >> ff_down >> residual_ff
 ```
 
 After the multi-head attention, `attn_proj` mixes the head outputs back into `Latent`, `residual_attn` is a small-scale Bayesian shortcut that plays the role of the standard residual `+` (the prior centered near identity), and the `ff_up >> ff_down` pair is the standard two-layer position-wise feed-forward block.
@@ -54,7 +53,7 @@ After the multi-head attention, `attn_proj` mixes the head outputs back into `La
 
 ### Language-model head
 
-The closing `morphism lm_head : Latent -> Token [role=kernel] ~ Categorical` is a Kleisli morphism `Latent -> Token`; per position it produces a Categorical distribution over the thirty-two-symbol vocabulary, and the program's `observe next_token` step accumulates the per-position categorical log-likelihood against the supplied target tensor.
+The closing `morphism lm_head : Latent -> Token ~ Categorical` is a Kleisli morphism `Latent -> Token`; per position it produces a Categorical distribution over the thirty-two-symbol vocabulary, and the program's `observe next_token` step accumulates the per-position categorical log-likelihood against the supplied target tensor.
 
 ## Try it
 

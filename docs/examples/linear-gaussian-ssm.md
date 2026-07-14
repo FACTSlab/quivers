@@ -20,12 +20,12 @@ object Driver : Real 2
 object State : Real 4
 object Obs : Real 2
 
-morphism transition_cell : Driver * State -> State [role=kernel, scale=0.1] ~ Normal
-morphism emission : State -> Obs [role=kernel, scale=0.1] ~ Normal
-morphism filter_cell : Obs * State -> State [role=kernel, scale=0.1] ~ Normal
+morphism transition_cell : Driver * State -> State [scale=0.1] ~ Normal
+morphism emission : State -> Obs [scale=0.1] ~ Normal
+morphism filter_cell : Obs * State -> State [scale=0.1] ~ Normal
 
-let generate = scan(transition_cell) >> emission
-let filter = scan(filter_cell)
+define generate = scan(transition_cell) >> emission
+define filter = scan(filter_cell)
 
 export filter
 ```
@@ -73,7 +73,7 @@ state_seq = s[1:].unsqueeze(0)
 
 ### SVI fit
 
-The exported morphism is a [`ScanMorphism`](../api/continuous/scan.md) whose parameter-network weights are `[role=kernel]` parameters without explicit `sample` priors; [`bayesian_lift_parameters`](../api/inference/lifts.md#quivers.inference.lifts.bayesian_lift_parameters) lifts each leaf parameter into a unit-Normal sample site so the standard guide-plus-ELBO machinery applies uniformly. The thin `DictWrap` adapter exposes `log_joint(x, obs_dict)` over the scan's positional state-trajectory argument.
+The exported morphism is a [`ScanMorphism`](../api/continuous/scan.md) whose parameter-network weights are kernel parameters without explicit `sample` priors; [`bayesian_lift_parameters`](../api/inference/lifts.md#quivers.inference.lifts.bayesian_lift_parameters) lifts each leaf parameter into a unit-Normal sample site so the standard guide-plus-ELBO machinery applies uniformly. The thin `DictWrap` adapter exposes `log_joint(x, obs_dict)` over the scan's positional state-trajectory argument.
 
 ```python
 from quivers.inference import AutoNormalGuide, ELBO, SVI, bayesian_lift_parameters

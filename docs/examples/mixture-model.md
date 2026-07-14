@@ -11,7 +11,7 @@ $$
 ## QVR Source
 
 ```qvr
-composition log_prob as algebra
+composition log_prob [level=algebra]
 
 object Component : FinSet 3
 object Item : FinSet 8
@@ -33,7 +33,7 @@ export gmm
 
 ## Walkthrough
 
-`composition log_prob as algebra` selects the log-probability semiring so the program's `Score` effect accumulates log-densities additively. `object Component : FinSet 3`, `object Item : FinSet 8`, `object Resp : FinSet 100` declare the three discrete plates: $K = 3$ components, $I = 8$ item groups, $N = 100$ observed rows. `program gmm(alpha : Real) : Resp -> Resp` parameterises the program by the Dirichlet concentration.
+`composition log_prob [level=algebra]` selects the log-probability semiring so the program's `Score` effect accumulates log-densities additively. `object Component : FinSet 3`, `object Item : FinSet 8`, `object Resp : FinSet 100` declare the three discrete plates: $K = 3$ components, $I = 8$ item groups, $N = 100$ observed rows. `program gmm(alpha : Real) : Resp -> Resp` parameterises the program by the Dirichlet concentration.
 
 `sample probs <- Dirichlet(alpha) [over=Component]` draws the mixing weights as a single point on the `Component` simplex; `over=Component` names the family's event axis. `sample mu : Component <- Normal(0.0, 5.0)` and `sample sigma : Component <- HalfNormal(1.0)` draw the per-component mean and scale as plate-bound continuous latents. `sample idx : Resp <- HalfNormal(1.0)` registers the per-row fibration site that names the runtime map from `Resp` into the `Item` grouping plate.
 

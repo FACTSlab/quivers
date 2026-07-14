@@ -49,7 +49,7 @@ from quivers.dsl.parser import parse
 
 
 SIMPLE_PROGRAM = """
-composition product_fuzzy as algebra
+composition product_fuzzy [level=algebra]
 
 object A : FinSet 4
 object B : FinSet 4
@@ -65,7 +65,7 @@ export model
 
 
 DEEP_PROGRAM = """
-composition product_fuzzy as algebra
+composition product_fuzzy [level=algebra]
 
 object A : FinSet 8
 
@@ -276,7 +276,7 @@ class TestSaturationWarnings:
 
     def test_shallow_chain_does_not_warn(self):
         program = """
-composition real as algebra
+composition real [level=algebra]
 
 object A : FinSet 4
 
@@ -314,7 +314,7 @@ class TestInitAutoDSL:
 
     def test_product_fuzzy_latent_lands_at_recipe(self):
         src = """
-composition product_fuzzy as algebra
+composition product_fuzzy [level=algebra]
 object A : FinSet 8
 object B : FinSet 4
 morphism f : A -> B [role=latent, init=auto]
@@ -333,7 +333,7 @@ export f
 
     def test_init_default_without_annotation_is_centered(self):
         src = """
-composition product_fuzzy as algebra
+composition product_fuzzy [level=algebra]
 object A : FinSet 8
 object B : FinSet 4
 morphism f : A -> B [role=latent]
@@ -348,7 +348,7 @@ export f
 
     def test_init_auto_idempotent_algebra_constant(self):
         src = """
-composition boolean as algebra
+composition boolean [level=algebra]
 object A : FinSet 4
 object B : FinSet 4
 morphism f : A -> B [role=latent, init=auto]

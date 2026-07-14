@@ -92,7 +92,7 @@ def test_decoder_default_scaffold_samples_and_scores():
     encoder C : S
         dim Term = 16
 
-    decoder D over S [depth=4]
+    decoder D : S [depth=4]
         body |-> recursive
     """
     prog = loads(textwrap.dedent(src))
@@ -119,7 +119,7 @@ def test_loss_decl_registers_and_evaluates():
     encoder C : S
         dim Term = 8
 
-    decoder D over S [depth=3]
+    decoder D : S [depth=3]
         body |-> recursive
 
     loss zero [weight=2.0, on=encoder(C)]
@@ -205,7 +205,7 @@ def test_multiple_losses_attached_at_different_sites():
     encoder C : S
         dim Term = 8
 
-    decoder D over S [depth=3]
+    decoder D : S [depth=3]
         body |-> recursive
 
     loss a [weight=1.0, on=encoder(C)]
@@ -275,7 +275,7 @@ def test_data_sort_vocab_declared_in_signature_block():
         dim Tok = 16
         dim Phrase = 16
 
-    decoder D over LM [depth=3]
+    decoder D : LM [depth=3]
         body |-> recursive
     """
     prog = loads(textwrap.dedent(src))
@@ -362,8 +362,8 @@ def test_recurrent_mode_binds_state_to_recursive_child():
 
     encoder C : Seq
         dim Seq = 8
-        Nil                              |-> 0.0
-        Cons(head, tail) recurrent state |-> head + state
+        op Nil                              |-> 0.0
+        op Cons(head, tail) recurrent state |-> head + state
     """
     prog = loads(textwrap.dedent(src))
     C = prog.encoders["C"]
@@ -388,8 +388,8 @@ def test_attention_mode_threads_prefix_list():
 
     encoder C : Seq
         dim Seq = 8
-        Nil                               |-> 0.0
-        Cons(head, tail) attention prefix |-> head + tail
+        op Nil                               |-> 0.0
+        op Cons(head, tail) attention prefix |-> head + tail
     """
     prog = loads(textwrap.dedent(src))
     C = prog.encoders["C"]

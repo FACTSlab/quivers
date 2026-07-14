@@ -23,7 +23,7 @@
 #
 # Reference: [Blei, Ng & Jordan 2003](https://www.jmlr.org/papers/v3/blei03a.html).
 
-composition log_prob as algebra
+composition log_prob [level=algebra]
 
 object Doc : FinSet 20
 object Topic : FinSet 3

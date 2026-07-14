@@ -2,27 +2,17 @@
 morphisms.
 
 A morphism in :mod:`quivers.core.morphisms` carries an enrichment
-algebra. Composing two morphisms over the same composition uses as algebra
-that algebra's monoidal structure; composing across algebras
-requires an algebra homomorphism (a lax monoidal poset functor)
-applied via :meth:`Morphism.change_base`.
+algebra. Composing two morphisms over a shared algebra uses that
+algebra's monoidal structure; composing across algebras requires
+an algebra homomorphism (a lax monoidal poset functor) applied via
+:meth:`Morphism.change_base`.
 
-The DSL exposes one composition operator per canonical algebra:
-
-* ``>>`` — ProductFuzzyAlgebra noisy-OR (default).
-* ``<<`` — reverse ``>>``.
-* ``>=>`` — Kleisli, in the operands' shared algebra.
-* ``*>`` — Markov sum-product.
-* ``~>`` — LogProb (log-space sum-product).
-* ``||>`` — Gödel (lattice min/max + Heyting implication).
-* ``?>`` — Viterbi (max-plus tropical, best path).
-* ``&&>`` — Boolean (∧/∨).
-* ``+>`` — Łukasiewicz (probabilistic sum bounded by 1).
-
-Each operator carries its algebra; the operands' declared
-algebras must already match the operator's target (the operator
-does not auto-base-change). Cross-operator chains require an
-explicit ``.change_base(φ)`` between segments.
+The DSL exposes two sequential composition operators: ``>>``
+composes in the operands' shared algebra, and ``<<`` is reversed
+``>>`` (``g << f`` compiles as ``f >> g``). Neither operator
+auto-base-changes: operands whose declared algebras differ must be
+brought into a common algebra with an explicit ``.change_base(φ)``
+first.
 
 This module verifies:
 
@@ -33,14 +23,13 @@ This module verifies:
 2. Composition over each non-default algebra (Markov, LogProb,
    Gödel, Viterbi, Boolean, Łukasiewicz) produces a
    :class:`ComposedMorphism` over the right algebra.
-3. The DSL composition operators dispatch to the right algebra
-   and raise a typed error on mismatched operands.
+3. The DSL operators ``>>`` and ``<<`` compose in the declared
+   algebra, and cross-algebra composition without an explicit
+   base change raises a typed error.
 """
 
 from __future__ import annotations
 import textwrap
-
-import os
 
 import pytest
 import torch
@@ -70,12 +59,6 @@ from quivers.core.algebra_morphisms import (
 )
 from quivers.core.algebras import BOOLEAN, PRODUCT_FUZZY
 from quivers.core.algebras import MARKOV
-
-
-_LOCAL_GRAMMAR = pytest.mark.skipif(
-    os.environ.get("QVR_USE_LOCAL_GRAMMAR", "") not in ("1", "true", "True"),
-    reason="needs QVR_USE_LOCAL_GRAMMAR=1 to pick up the in-tree grammar",
-)
 
 
 # ---------------------------------------------------------------------------
@@ -188,18 +171,17 @@ def test_change_base_preserves_gradients_to_morphism_parameters() -> None:
 # ---------------------------------------------------------------------------
 
 
-@_LOCAL_GRAMMAR
 def test_default_compose_uses_product_fuzzy() -> None:
     from quivers.dsl import loads
 
     src = """
-    composition product_fuzzy as algebra
+    composition product_fuzzy [level=algebra]
     object A : FinSet 3
     object B : FinSet 3
     object C : FinSet 3
     morphism f : A -> B [role=latent]
     morphism g : B -> C [role=latent]
-    let chain = f >> g
+    define chain = f >> g
     export chain
     """
     m = loads(textwrap.dedent(src))
@@ -207,29 +189,52 @@ def test_default_compose_uses_product_fuzzy() -> None:
     assert m.morphism.algebra.name == "ProductFuzzy"
 
 
-@_LOCAL_GRAMMAR
-def test_cross_algebra_compose_without_change_base_errors() -> None:
-    """An operator that fixes its algebra rejects operands whose
-    declared algebra differs without an explicit base change."""
+def test_reverse_compose_matches_forward_compose() -> None:
+    """``g << f`` compiles as ``f >> g``: same signature, same
+    algebra, same tensor."""
     from quivers.dsl import loads
-    from quivers.dsl.compiler import CompileError
 
-    src = """
-    composition product_fuzzy as algebra
+    header = """
+    composition product_fuzzy [level=algebra]
     object A : FinSet 3
-    object B : FinSet 3
-    object C : FinSet 3
-    morphism f : A -> B [role=latent]
-    morphism g : B -> C [role=latent]
-    let chain = f *> g
-    export chain
+    object B : FinSet 4
+    object C : FinSet 2
+    morphism f : A -> B [role=observed] ~ from_data("F")
+    morphism g : B -> C [role=observed] ~ from_data("G")
     """
-    with pytest.raises(CompileError, match="dispatches to"):
-        loads(textwrap.dedent(src))
+    torch.manual_seed(0)
+    data = {"F": torch.rand(3, 4), "G": torch.rand(4, 2)}
+    forward = loads(
+        textwrap.dedent(header + "    define chain = f >> g\n    export chain\n"),
+        data=data,
+    )
+    reverse = loads(
+        textwrap.dedent(header + "    define chain = g << f\n    export chain\n"),
+        data=data,
+    )
+    fwd = forward.morphism
+    rev = reverse.morphism
+    assert isinstance(fwd, ComposedMorphism)
+    assert isinstance(rev, ComposedMorphism)
+    assert rev.algebra.name == "ProductFuzzy"
+    assert torch.allclose(rev.tensor, fwd.tensor)
+
+
+def test_cross_algebra_compose_without_change_base_errors() -> None:
+    """``>>`` composes in the operands' shared algebra; operands
+    whose declared algebras differ raise a typed error unless an
+    explicit base change brings them into a common algebra."""
+    A = FinSet(name="A", cardinality=2)
+    B = FinSet(name="B", cardinality=2)
+    C = FinSet(name="C", cardinality=2)
+    f = LatentMorphism(A, B)
+    g = LatentMorphism(B, C, algebra=MARKOV)
+    with pytest.raises(TypeError, match="incompatible algebras"):
+        _ = f >> g
 
 
 # ---------------------------------------------------------------------------
-# Each new operator dispatches to the right algebra
+# Composition over each non-default algebra
 # ---------------------------------------------------------------------------
 
 
@@ -359,8 +364,8 @@ def test_threshold_homomorphism_rejects_invalid_tau() -> None:
 
 
 def test_change_base_then_compose_in_target_algebra() -> None:
-    """Bring a ProductFuzzyAlgebra morphism into the Markov composition via as algebra
-    a custom homomorphism, then compose with a Markov-native
+    """Bring a ProductFuzzyAlgebra morphism into the Markov algebra
+    via a custom homomorphism, then compose with a Markov-native
     morphism."""
     A = FinSet(name="A", cardinality=2)
     B = FinSet(name="B", cardinality=2)

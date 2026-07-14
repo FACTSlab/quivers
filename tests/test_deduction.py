@@ -17,10 +17,6 @@ divergences.
 from __future__ import annotations
 import textwrap
 
-import os
-
-os.environ.setdefault("QVR_USE_LOCAL_GRAMMAR", "1")
-
 import torch
 
 from quivers.dsl.parser import parse

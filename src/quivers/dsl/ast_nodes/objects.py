@@ -89,7 +89,7 @@ class DiscreteConstructor(ObjectExpr):
 
     constructor: Literal["FinSet"]
     args: tuple[str, ...] = ()
-    kwargs: dict[str, str] = dx.field(default_factory=dict)
+    kwargs: dict[str, float | int | str] = dx.field(default_factory=dict)
     line: int = 0
     col: int = 0
     kind: Literal["discrete_constructor"] = "discrete_constructor"
@@ -120,7 +120,7 @@ class ContinuousConstructor(ObjectExpr):
         "Diagonal",
     ]
     args: tuple[str, ...] = ()
-    kwargs: dict[str, str] = dx.field(default_factory=dict)
+    kwargs: dict[str, float | int | str] = dx.field(default_factory=dict)
     line: int = 0
     col: int = 0
     kind: Literal["continuous_constructor"] = "continuous_constructor"

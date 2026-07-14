@@ -223,8 +223,10 @@ def _step_bound_name(step: object) -> str | None:
     if isinstance(step, SampleStep):
         vars_ = getattr(step, "vars", ()) or ()
         return vars_[0] if len(vars_) == 1 else None
-    if isinstance(step, (ObserveStep, MarginalizeStep)):
-        return getattr(step, "var", None)
+    if isinstance(step, ObserveStep):
+        return step.vars[0] if len(step.vars) == 1 else None
+    if isinstance(step, MarginalizeStep):
+        return step.var
     if isinstance(step, LetStep):
         return getattr(step, "name", None)
     if isinstance(step, ReturnStep):

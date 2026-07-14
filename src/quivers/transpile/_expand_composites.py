@@ -1,11 +1,11 @@
-"""AST preprocessing: expand composite-let bindings into sample chains
-and flatten MarginalizeStep / ScoreStep / LetStep scopes into plain
-sample / observe / assignment sequences.
+"""AST preprocessing: expand composite-define bindings into sample
+chains and flatten MarginalizeStep / ScoreStep / LetStep scopes into
+plain sample / observe / assignment sequences.
 
 The pass operates at the Module level: it rebuilds every
 `program_decl` in place. Three rewrites fire:
 
-1. **Composite let**: `let chain = prior >> likelihood` binds a
+1. **Composite define**: `define chain = prior >> likelihood` binds a
    Kleisli composition. A single `sample x <- chain` step rewrites
    into a chain of atomic sample steps:
 
@@ -48,6 +48,9 @@ The pass operates at the Module level: it rebuilds every
 from __future__ import annotations
 
 from quivers.dsl.ast_nodes import (
+    DefineDecl,
+    DrawArg,
+    DrawArgName,
     Expr,
     ExprCompose,
     ExprFan,
@@ -55,7 +58,6 @@ from quivers.dsl.ast_nodes import (
     ExprRepeat,
     ExprStack,
     ExprTensorProduct,
-    LetDecl,
     MarginalizeStep,
     Module,
     MorphismDecl,
@@ -63,6 +65,7 @@ from quivers.dsl.ast_nodes import (
     ProgramDecl,
     ProgramStep,
     SampleStep,
+    atom_to_draw_arg,
 )
 
 
@@ -91,30 +94,33 @@ _FAMILY_DEFAULT_ARGS: dict[str, tuple[float, ...]] = {
 }
 
 
-def expand_composite_lets(
+def expand_composite_defines(
     module: Module,
     *,
     target: str | None = None,
 ) -> Module:
-    """Rewrite `program_decl` bodies so composite-let sample steps
+    """Rewrite `program_decl` bodies so composite-define sample steps
     become equivalent chains of atomic sample steps.
 
-    A composite let is a `LetDecl` whose `.expr` is an `ExprCompose`
-    (the `prior >> likelihood` form). Each `SampleStep` /
-    `ObserveStep` whose `morphism` slot names such a let is rewritten
-    into a sequence of fresh `SampleStep`s, one per element of the
-    composition chain, with the trailing step keeping the original
-    step's bound variable name.
+    A composite define is a `DefineDecl` whose `.expr` is an
+    `ExprCompose` (the `prior >> likelihood` form). Each `SampleStep` /
+    `ObserveStep` whose `morphism` slot names such a binding is
+    rewritten into a sequence of fresh `SampleStep`s, one per element
+    of the composition chain, with the trailing step keeping the
+    original step's bound variable pattern.
 
     The returned `Module` shares vertex identity with the input for
     every non-rewritten statement; only the `program_decl`s with
-    composite-let references are rebuilt.
+    composite-define references are rebuilt.
     """
     morphism_table: dict[str, MorphismDecl] = {
-        s.name: s for s in module.statements if isinstance(s, MorphismDecl)
+        name: s
+        for s in module.statements
+        if isinstance(s, MorphismDecl)
+        for name in s.names
     }
-    let_table: dict[str, Expr] = {
-        s.name: s.expr for s in module.statements if isinstance(s, LetDecl)
+    define_table: dict[str, Expr] = {
+        s.name: s.expr for s in module.statements if isinstance(s, DefineDecl)
     }
 
     # Stan needs explicit `log_sum_exp` marginalization (it cannot
@@ -131,7 +137,7 @@ def expand_composite_lets(
             new_draws = _expand_draws(
                 stmt.draws,
                 morphisms=morphism_table,
-                lets=let_table,
+                defines=define_table,
                 flatten_marginalize=flatten_marginalize,
             )
             if new_draws is stmt.draws:
@@ -147,11 +153,11 @@ def _expand_draws(
     draws: tuple[ProgramStep, ...],
     *,
     morphisms: dict[str, MorphismDecl],
-    lets: dict[str, Expr],
+    defines: dict[str, Expr],
     flatten_marginalize: bool = True,
 ) -> tuple[ProgramStep, ...]:
     """Expand every SampleStep / ObserveStep whose morphism slot
-    resolves to a composite-let chain. When `flatten_marginalize` is
+    resolves to a composite-define chain. When `flatten_marginalize` is
     True (the default for every backend except Stan), flatten every
     MarginalizeStep into a sample-then-scope-body sequence."""
     any_changed = False
@@ -176,11 +182,15 @@ def _expand_draws(
                     col=step.col,
                 )
             )
-            scope_expanded = _expand_draws(step.scope, morphisms=morphisms, lets=lets)
+            scope_expanded = _expand_draws(
+                step.scope, morphisms=morphisms, defines=defines
+            )
             out.extend(scope_expanded)
             continue
         if isinstance(step, (SampleStep, ObserveStep)):
-            chain = _resolve_to_chain(step.morphism, morphisms=morphisms, lets=lets)
+            chain = _resolve_to_chain(
+                step.morphism, morphisms=morphisms, defines=defines
+            )
             if chain is not None:
                 any_changed = True
                 expanded, counter = _expand_step(
@@ -196,26 +206,26 @@ def _resolve_to_chain(
     name: str,
     *,
     morphisms: dict[str, MorphismDecl],
-    lets: dict[str, Expr],
+    defines: dict[str, Expr],
     _seen: tuple[str, ...] = (),
 ) -> tuple[str, ...] | None:
-    """If `name` is a composite-let binding, return the ordered tuple
-    of morphism / family names in the composition chain. Otherwise
-    return None.
+    """If `name` is a composite-define binding, return the ordered
+    tuple of morphism / family names in the composition chain.
+    Otherwise return None.
 
-    Resolves through alias chains: `let a = b; let b = c >> d` returns
-    `(c, d)`.
+    Resolves through alias chains: `define a = b; define b = c >> d`
+    returns `(c, d)`.
     """
     if name in _seen:
         return None
-    if name not in lets:
+    if name not in defines:
         return None
-    expr = lets[name]
+    expr = defines[name]
     if isinstance(expr, ExprIdent):
         return _resolve_to_chain(
             expr.name,
             morphisms=morphisms,
-            lets=lets,
+            defines=defines,
             _seen=(*_seen, name),
         )
     if isinstance(expr, ExprCompose):
@@ -225,7 +235,8 @@ def _resolve_to_chain(
 
 def _flatten_compose(expr: ExprCompose) -> tuple[str, ...] | None:
     """Flatten a (possibly nested) ExprCompose into a tuple of
-    morphism names from left to right.
+    morphism names in application order: ``a >> b`` yields
+    ``(a, b)``; the reverse form ``a << b`` yields ``(b, a)``.
 
     Handles four leaf shapes:
 
@@ -243,13 +254,17 @@ def _flatten_compose(expr: ExprCompose) -> tuple[str, ...] | None:
     expressions with embedded calls, scans, marginalizations, etc.
     are not expanded; the caller falls back to leaving the original
     step intact, which the walker rejects with
-    `UnsupportedConstruct(let:composite_expression:...)`).
+    `UnsupportedConstruct(define:composite_expression:...)`).
     """
     out: list[str] = []
 
     def walk(e: Expr) -> bool:
         if isinstance(e, ExprCompose):
-            return walk(e.left) and walk(e.right)
+            if e.op == ">>":
+                return walk(e.left) and walk(e.right)
+            if e.op == "<<":
+                return walk(e.right) and walk(e.left)
+            return False
         if isinstance(e, ExprIdent):
             out.append(e.name)
             return True
@@ -298,33 +313,24 @@ def _expand_step(
     counter: int,
 ) -> tuple[list[ProgramStep], int]:
     """Convert a single sample / observe step that references a
-    composite-let chain into N atomic sample steps.
+    composite-define chain into N atomic sample steps.
 
     The first N-1 steps are fresh latent samples named
     `_<name>_<counter>`; the final step keeps the original step's
-    bound variable name.
+    bound variable pattern.
     """
     if len(chain) < 2:
         return [step], counter
     out: list[ProgramStep] = []
     prev_var: str | None = None
-    base_name = (
-        step.vars[0]
-        if isinstance(step, SampleStep) and step.vars
-        else step.var
-        if isinstance(step, ObserveStep)
-        else "tmp"
-    )
+    base_name = step.vars[0] if step.vars else "tmp"
     for i, morphism_name in enumerate(chain):
         is_last = i == len(chain) - 1
         if is_last:
-            if isinstance(step, ObserveStep):
-                terminal_var = step.var
-            else:
-                terminal_var = base_name
+            step_vars = step.vars
         else:
             counter += 1
-            terminal_var = f"_{base_name}_chain_{counter}"
+            step_vars = (f"_{base_name}_chain_{counter}",)
         args = _derive_chain_args(
             morphism_name=morphism_name,
             prev_var=prev_var,
@@ -333,7 +339,7 @@ def _expand_step(
         if is_last and isinstance(step, ObserveStep):
             out.append(
                 ObserveStep(
-                    var=terminal_var,
+                    vars=step_vars,
                     morphism=morphism_name,
                     args=args,
                     index=step.index,
@@ -357,7 +363,7 @@ def _expand_step(
             )
             out.append(
                 SampleStep(
-                    vars=(terminal_var,),
+                    vars=step_vars,
                     morphism=morphism_name,
                     args=args,
                     index=sample_index,
@@ -367,7 +373,7 @@ def _expand_step(
                     col=step.col,
                 )
             )
-        prev_var = terminal_var
+        prev_var = step_vars[0] if step_vars else base_name
     return out, counter
 
 
@@ -376,7 +382,7 @@ def _derive_chain_args(
     morphism_name: str,
     prev_var: str | None,
     morphisms: dict[str, MorphismDecl],
-) -> tuple[str | float, ...]:
+) -> tuple[DrawArg, ...]:
     """Compute the chain-position args for a kernel morphism.
 
     If the morphism declaration carries explicit `~ Family(args)`,
@@ -384,7 +390,9 @@ def _derive_chain_args(
     with no explicit args, and we substitute canonical defaults: the
     first arg is the upstream step's output variable name (when one
     exists) or the family's first default; remaining args are the
-    family's default tail.
+    family's default tail. Values are lifted into the tagged
+    `DrawArg` shape via
+    [`atom_to_draw_arg`][quivers.dsl.ast_nodes.atom_to_draw_arg].
     """
     decl = morphisms.get(morphism_name)
     family: str | None = None
@@ -396,17 +404,20 @@ def _derive_chain_args(
         elif isinstance(decl.init_expr, ExprIdent):
             family = decl.init_expr.name
     if explicit_args:
-        return explicit_args
+        return tuple(atom_to_draw_arg(a) for a in explicit_args)
     if family is None:
         return ()
     defaults = _FAMILY_DEFAULT_ARGS.get(family)
     if defaults is None:
         return ()
     if prev_var is None:
-        return defaults
+        return tuple(atom_to_draw_arg(a) for a in defaults)
     if not defaults:
         return ()
-    return (prev_var, *defaults[1:])
+    return (
+        DrawArgName(text=prev_var),
+        *(atom_to_draw_arg(a) for a in defaults[1:]),
+    )
 
 
-__all__ = ["expand_composite_lets"]
+__all__ = ["expand_composite_defines"]

@@ -10,9 +10,9 @@ consumes the same IR and the same
 The forward pass:
 
 1. Runs the existing
-   [`expand_composite_lets`][quivers.transpile._expand_composites.expand_composite_lets]
+   [`expand_composite_defines`][quivers.transpile._expand_composites.expand_composite_defines]
    preprocessor.
-2. Builds the morphism / let / object-cardinality tables.
+2. Builds the morphism / define / object-cardinality tables.
 3. Picks the active
    [`ProgramDecl`][quivers.dsl.ast_nodes.declarations.ProgramDecl]
    (the export target if any, else the last one).
@@ -37,6 +37,8 @@ torch tensors; renderers never do.
 from __future__ import annotations
 
 import re
+from collections.abc import Callable
+from typing import cast
 
 import didactic.api as dx
 import torch
@@ -44,6 +46,12 @@ import torch.distributions.constraints as c
 from torch.distributions.distribution import Distribution
 
 from quivers.dsl.ast_nodes import (
+    DrawArg,
+    DrawArgDist,
+    DrawArgIndex,
+    DrawArgList,
+    DrawArgName,
+    DrawArgScalar,
     Expr,
     ExprIdent,
     LetStep,
@@ -84,10 +92,10 @@ from quivers.dsl.ast_nodes.objects import (
     TypeName,
 )
 from quivers.transpile._api import UnsupportedConstruct
-from quivers.transpile._expand_composites import expand_composite_lets
+from quivers.transpile._expand_composites import expand_composite_defines
 from quivers.transpile.backends._resolve import (
     ResolvedDist,
-    build_let_table,
+    build_define_table,
     build_morphism_table,
     resolve_step_dist,
 )
@@ -140,9 +148,9 @@ class Lower(dx.Mapping[Module, IRProgram]):
     """
 
     def forward(self, module: Module) -> IRProgram:  # type: ignore[override]
-        expanded = expand_composite_lets(module, target="stan")
+        expanded = expand_composite_defines(module, target="stan")
         morphisms = build_morphism_table(expanded)
-        lets = build_let_table(expanded)
+        defines = build_define_table(expanded)
         cards = object_cardinalities(expanded)
         program = self._pick_program(expanded)
         family_set = frozenset(FAMILY_META)
@@ -153,7 +161,7 @@ class Lower(dx.Mapping[Module, IRProgram]):
 
         ctx = _LowerCtx(
             morphisms=morphisms,
-            lets=lets,
+            defines=defines,
             cards=cards,
             family_set=family_set,
             sentinel_cache=sentinel_cache,
@@ -221,7 +229,7 @@ class Lower(dx.Mapping[Module, IRProgram]):
             step.morphism,
             step.args,
             morphisms=ctx.morphisms,
-            lets=ctx.lets,
+            defines=ctx.defines,
             family_registry=ctx.family_set,
             target="qvr-lower",
         )
@@ -254,7 +262,7 @@ class Lower(dx.Mapping[Module, IRProgram]):
             step.morphism,
             step.args,
             morphisms=ctx.morphisms,
-            lets=ctx.lets,
+            defines=ctx.defines,
             family_registry=ctx.family_set,
             target="qvr-lower",
         )
@@ -264,8 +272,16 @@ class Lower(dx.Mapping[Module, IRProgram]):
         )
         plate = self._build_plate(step, ctx, meta, ir_args)
         constraint = from_constraint(_resolve_support(meta, ir_args, ctx))
+        if len(step.vars) != 1:
+            raise UnsupportedConstruct(
+                "qvr-lower",
+                [
+                    "observe:destructuring-tuple: lower expects one "
+                    "bound name per ObserveStep"
+                ],
+            )
         return IRObserve(
-            name=step.var,
+            name=step.vars[0],
             family=resolved.family,
             args=ir_args,
             arg_names=arg_names,
@@ -281,7 +297,7 @@ class Lower(dx.Mapping[Module, IRProgram]):
             step.morphism,
             step.args,
             morphisms=ctx.morphisms,
-            lets=ctx.lets,
+            defines=ctx.defines,
             family_registry=ctx.family_set,
             target="qvr-lower",
         )
@@ -728,7 +744,7 @@ class _LowerCtx(dx.Model):
     sentinel cache. Threaded through the lowering recursion."""
 
     morphisms: dict[str, MorphismDecl] = dx.field(opaque=True)
-    lets: dict[str, Expr] = dx.field(opaque=True)
+    defines: dict[str, Expr] = dx.field(opaque=True)
     cards: dict[str, int]
     family_set: frozenset[str]
     sentinel_cache: dict[tuple[str, tuple[str, ...]], Distribution] = dx.field(
@@ -743,7 +759,11 @@ class _LowerCtx(dx.Model):
 
 
 def object_cardinalities(module: Module) -> dict[str, int]:
-    """Return name -> cardinality for every `FinSet N` object decl."""
+    """Return name -> cardinality for every `FinSet N` object decl.
+
+    A plural-name declaration contributes one entry per name (each
+    name is an independent object with the same value).
+    """
     out: dict[str, int] = {}
     for stmt in module.statements:
         if not isinstance(stmt, ObjectDecl):
@@ -752,13 +772,16 @@ def object_cardinalities(module: Module) -> dict[str, int]:
         if isinstance(init, TypeFromExpr):
             expr = init.expr
             if isinstance(expr, DiscreteConstructor) and expr.args:
-                out[stmt.name] = int(expr.args[0])
+                for name in stmt.names:
+                    out[name] = int(expr.args[0])
             elif isinstance(expr, ContinuousConstructor) and expr.args:
                 # `Real D` etc.: take the first arg as the size.
                 try:
-                    out[stmt.name] = int(expr.args[0])
+                    size = int(expr.args[0])
                 except ValueError:
-                    pass
+                    continue
+                for name in stmt.names:
+                    out[name] = size
     return out
 
 
@@ -786,7 +809,9 @@ def build_shape_table(
             for v in step.vars:
                 out[v] = shape
         elif isinstance(step, ObserveStep):
-            out[step.var] = _step_shape(step.index, cards)
+            shape = _step_shape(step.index, cards)
+            for v in step.vars:
+                out[v] = shape
         elif isinstance(step, LetStep):
             out[step.name] = ()
         elif isinstance(step, MarginalizeStep):
@@ -838,15 +863,15 @@ def _names_in_step(step: ProgramStep) -> list[str]:
     out: list[str] = []
     if isinstance(step, SampleStep):
         for a in step.args or ():
-            out.extend(_names_in_raw_arg(a))
+            out.extend(_names_in_draw_arg(a))
     elif isinstance(step, ObserveStep):
         for a in step.args or ():
-            out.extend(_names_in_raw_arg(a))
+            out.extend(_names_in_draw_arg(a))
         if step.via is not None:
             out.append(step.via)
     elif isinstance(step, MarginalizeStep):
         for a in step.args or ():
-            out.extend(_names_in_raw_arg(a))
+            out.extend(_names_in_draw_arg(a))
         for inner in step.scope:
             out.extend(_names_in_step(inner))
     elif isinstance(step, LetStep):
@@ -856,18 +881,28 @@ def _names_in_step(step: ProgramStep) -> list[str]:
     return out
 
 
-def _names_in_raw_arg(arg: str | float) -> list[str]:
-    if not isinstance(arg, str):
+def _names_in_draw_arg(arg: DrawArg) -> list[str]:
+    """Return the identifier names referenced by one tagged draw arg."""
+    if isinstance(arg, DrawArgScalar):
         return []
-    m = _BRACKET_RE.match(arg)
-    if m is None:
-        if _is_number_text(arg):
-            return []
-        return [arg]
-    out: list[str] = [m.group(1)]
-    for idx in _BRACKET_INDICES_RE.findall(m.group(2)):
-        out.extend(_names_in_raw_arg(idx))
-    return out
+    if isinstance(arg, DrawArgName):
+        return [] if _is_number_text(arg.text) else [arg.text]
+    if isinstance(arg, DrawArgIndex):
+        return [
+            arg.name,
+            *(i for i in arg.indices if not _is_number_text(i)),
+        ]
+    if isinstance(arg, DrawArgDist):
+        out: list[str] = []
+        for a in arg.args:
+            out.extend(_names_in_draw_arg(a))
+        return out
+    if isinstance(arg, DrawArgList):
+        out = []
+        for a in arg.items:
+            out.extend(_names_in_draw_arg(a))
+        return out
+    raise UnsupportedConstruct("qvr-lower", [f"draw-arg:{type(arg).__name__}"])
 
 
 def free_vars_in_let(expr: LetExprNode) -> list[str]:
@@ -1045,8 +1080,13 @@ def _make_sentinel(
     sentinel_args = tuple(
         _arg_to_tensor(a, ctx, expected_shapes[i]) for i, a in enumerate(args)
     )
+    # `type[Distribution]` exposes only the base-class __init__
+    # signature; subclass constructors take family-specific tensor
+    # parameters, so the call goes through a positional-only callable
+    # view of the class.
+    dist_cls = cast("Callable[..., Distribution]", meta.distribution_class)
     try:
-        instance = meta.distribution_class(*sentinel_args)
+        instance = dist_cls(*sentinel_args)
     except Exception as exc:  # noqa: BLE001
         raise UnsupportedConstruct(
             "qvr-lower",
@@ -1212,7 +1252,16 @@ def _resolve_support(
     ):
         return cls_support
     instance = _make_sentinel(meta, args, ctx)
-    return instance.support
+    support = instance.support
+    if support is None:
+        raise UnsupportedConstruct(
+            "qvr-lower",
+            [
+                f"family:{meta.qvr_name}:no-support: sentinel "
+                f"instance reports no support constraint"
+            ],
+        )
+    return support
 
 
 def _event_dim_of(meta: FamilyMeta, args: tuple[IRArg, ...], ctx: _LowerCtx) -> int:

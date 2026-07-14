@@ -8,12 +8,12 @@ $$
 \mathsf{Item} \xrightarrow{X} \mathsf{H}_\text{in} \xrightarrow{W_1} \mathsf{H}_1 \xrightarrow{W_2} \mathsf{H}_2 \xrightarrow{W_3} \mathsf{H}_\text{out}.
 $$
 
-Each $W_l$ is a learnable morphism whose prior is matrix-normal over its (in, out) [Kronecker covariance](https://en.wikipedia.org/wiki/Kronecker_product), the natural prior for a linear layer. Under `composition real as algebra` the composition `X >> W_1 >> W_2 >> W_3` is a real-valued matmul stack.
+Each $W_l$ is a learnable morphism whose prior is matrix-normal over its (in, out) [Kronecker covariance](https://en.wikipedia.org/wiki/Kronecker_product), the natural prior for a linear layer. Under `composition real [level=algebra]` the composition `X >> W_1 >> W_2 >> W_3` is a real-valued matmul stack.
 
 ## QVR Source
 
 ```qvr
-composition real as algebra
+composition real [level=algebra]
 
 object Item : FinSet 200
 object H_in : FinSet 4
@@ -27,7 +27,7 @@ morphism W_1 : H_in -> H1 [role=latent]
 morphism W_2 : H1 -> H2 [role=latent]
 morphism W_3 : H2 -> H_out [role=latent]
 
-let bnn = X >> W_1 >> W_2 >> W_3
+define bnn = X >> W_1 >> W_2 >> W_3
 
 export bnn
 ```
@@ -49,7 +49,7 @@ The per-item input is itself a learnable morphism `X : Item -> H_in`; in a real 
 
 ### Limitation
 
-QVR's pure-composition surface under `composition real as algebra` is strictly linear. There is no pointwise nonlinearity between composed weight matrices and no stochastic observation kernel on top of the discrete codomain `H_out`. The model expressed here is therefore a Bayesian *linear* network with matrix-normal priors on every layer's tensor. A deep nonlinear MLP with Bayesian weights is not currently expressible as a pure latent-morphism composition: a continuous-space surface would have to wrap each `W_l` in a continuous kernel carrying a nonlinearity inside its parameter network. The closest categorical form of the original BNN, with the matrix-normal priors actually entering the inference path, is the per-layer linear composition shown above.
+QVR's pure-composition surface under `composition real [level=algebra]` is strictly linear. There is no pointwise nonlinearity between composed weight matrices and no stochastic observation kernel on top of the discrete codomain `H_out`. The model expressed here is therefore a Bayesian *linear* network with matrix-normal priors on every layer's tensor. A deep nonlinear MLP with Bayesian weights is not currently expressible as a pure latent-morphism composition: a continuous-space surface would have to wrap each `W_l` in a continuous kernel carrying a nonlinearity inside its parameter network. The closest categorical form of the original BNN, with the matrix-normal priors actually entering the inference path, is the per-layer linear composition shown above.
 
 ## Try it
 

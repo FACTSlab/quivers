@@ -107,19 +107,20 @@
     },
     "keyword-control": {
       "name": "keyword.control.qvr",
-      "match": "\\b(sample|observe|marginalize|score|return|let|where|in|from|as|over|export)\\b"
+      "match": "\\b(sample|observe|marginalize|score|return|let|where|in|from|as|export)\\b"
     },
     "keyword-declaration": {
       "name": "keyword.declaration.qvr",
-      "match": "\\b(composition|contraction|category|object|morphism|schema|rule|bundle|program|deduction|signature|encoder|decoder|loss)\\b"
+      "match": "\\b(composition|contraction|category|object|morphism|schema|rule|bundle|program|deduction|signature|encoder|decoder|loss|define)\\b"
     },
     "keyword-composition-level": {
+      "comment": "Composition-level names carried by `[level=...]` option values.",
       "name": "storage.modifier.qvr",
       "match": "\\b(algebra|semigroupoid|bilinear_form)\\b"
     },
     "keyword-structural": {
       "name": "keyword.declaration.structural.qvr",
-      "match": "\\b(sorts|constructors|binders|vertex_kinds|edge_kinds|binds|dim|iterations|readout|init|message|update|var_init|recurrent|attention|structure|primitive|factor|binder_select|body|recursive|data|index)\\b"
+      "match": "\\b(sorts|constructors|binders|vertex_kinds|edge_kinds|binds|dim|iterations|readout|op|init|message|update|var_init|recurrent|attention|structure|primitive|factor|binder_select|body|recursive|data|index)\\b"
     },
     "keyword-deduction": {
       "name": "keyword.declaration.deduction.qvr",
@@ -142,9 +143,9 @@
           "match": "\\|-|⊢"
         },
         {
-          "comment": "Compose-and-flip arrows (longest-first; trans-compose first).",
+          "comment": "Compose arrows (longest-first; trans-compose first).",
           "name": "keyword.operator.qvr",
-          "match": ">>>|>=>|>>|<<|->|=>|<-"
+          "match": ">>>|>>|<<|->|<-"
         },
         {
           "comment": "Graph undirected-edge arrow (matched before unary minus).",
@@ -154,11 +155,6 @@
         {
           "name": "keyword.operator.qvr",
           "match": "~"
-        },
-        {
-          "comment": "Effect-signature marker on programs.",
-          "name": "keyword.operator.effect.qvr",
-          "match": "!"
         },
         {
           "name": "keyword.operator.qvr",
@@ -175,7 +171,7 @@
       "match": "\\b(FinSet|Real|Simplex|Sphere|Ball|CholeskyFactor|Covariance|Correlation|Orthogonal|Stiefel|LowerTriangular|Diagonal|Mor|Space|Object|Nat)\\b"
     },
     "semiring": {
-      "comment": "Semiring names recognised by `deduction { semiring … }`.",
+      "comment": "Semiring names carried by `[semiring=...]` option values.",
       "name": "support.constant.semiring.qvr",
       "match": "\\b(LogProb|Boolean|Viterbi|Counting|ProductFuzzyAlgebra)\\b"
     },
@@ -191,8 +187,9 @@
     "numeric-literal": {
       "patterns": [
         {
+          "comment": "Floats admit trailing-dot, leading-dot, and exponent-only forms, optionally signed.",
           "name": "constant.numeric.float.qvr",
-          "match": "-?\\b\\d+\\.\\d+(?:[eE][+-]?\\d+)?\\b"
+          "match": "(?<![\\w.])-?(?:\\d+\\.\\d*(?:[eE][+-]?\\d+)?|\\.\\d+(?:[eE][+-]?\\d+)?|\\d+[eE][+-]?\\d+)(?![\\w.])"
         },
         {
           "name": "constant.numeric.integer.qvr",

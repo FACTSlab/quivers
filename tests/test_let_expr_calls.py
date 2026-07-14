@@ -16,8 +16,6 @@ Covers:
 from __future__ import annotations
 import textwrap
 
-import os
-
 import pytest
 import torch
 import torch.nn as nn
@@ -123,12 +121,14 @@ class TestBuiltinPrimitives:
         x = torch.randn(3, 5)
         fn = _compile(_call("softmax", _var("x")))
         out = fn({"x": x})
+        assert isinstance(out, torch.Tensor)
         torch.testing.assert_close(out.sum(dim=-1), torch.ones(3))
 
     def test_log_softmax_then_exp_equals_softmax(self):
         x = torch.randn(3, 5)
         lsm = _compile(_call("log_softmax", _var("x")))({"x": x})
         sm = _compile(_call("softmax", _var("x")))({"x": x})
+        assert isinstance(lsm, torch.Tensor)
         torch.testing.assert_close(lsm.exp(), sm)
 
     def test_sum_reduces_last_axis(self):
@@ -155,12 +155,15 @@ class TestBuiltinPrimitives:
         x = torch.randn(8, 16) * 5 + 7
         fn = _compile(_call("layer_norm", _var("x")))
         out = fn({"x": x})
+        assert isinstance(out, torch.Tensor)
         torch.testing.assert_close(out.mean(dim=-1), torch.zeros(8), atol=1e-5, rtol=0)
 
     def test_rms_norm_preserves_shape(self):
         x = torch.randn(4, 8)
         fn = _compile(_call("rms_norm", _var("x")))
-        assert fn({"x": x}).shape == x.shape
+        out = fn({"x": x})
+        assert isinstance(out, torch.Tensor)
+        assert out.shape == x.shape
 
     def test_chained_activations_match_torch(self):
         x = torch.randn(10)
@@ -212,6 +215,7 @@ class TestUserCallableDispatch:
         layer = nn.Linear(4, 8, bias=False)
         node = _call("L", _var("x"))
         out = _compile(node, globals_={"L": layer})({"x": torch.randn(2, 4)})
+        assert isinstance(out, torch.Tensor)
         assert out.shape == (2, 8)
 
     def test_composition_primitive_over_user_call(self):
@@ -219,6 +223,7 @@ class TestUserCallableDispatch:
         # relu(L(x))
         node = _call("relu", _call("L", _var("x")))
         out = _compile(node, globals_={"L": layer})({"x": torch.randn(2, 4)})
+        assert isinstance(out, torch.Tensor)
         assert out.shape == (2, 8)
         assert (out >= 0).all()
 
@@ -451,10 +456,6 @@ class TestRuntimeShapeWrapping:
 # ===========================================================================
 
 
-@pytest.mark.skipif(
-    os.environ.get("QVR_USE_LOCAL_GRAMMAR", "") not in ("1", "true", "True"),
-    reason="needs QVR_USE_LOCAL_GRAMMAR=1 to pick up the in-tree grammar",
-)
 class TestEncoderBodyEndToEnd:
     """End-to-end DSL: encoder rule bodies can call top-level
     ``let``-bound morphisms and PyTorch primitive activations on
@@ -466,17 +467,17 @@ class TestEncoderBodyEndToEnd:
         # learnable embedding (dim 4) plus the broadcast recurrent
         # state.
         src = """
-        signature Seq:
-            sorts:
+        signature Seq
+            sorts
                 Seq : object [dim=4]
                 A : data [dim=4]
-            constructors:
+            constructors
                 Nil  :        -> Seq
                 Cons : A, Seq -> Seq
-        encoder C : Seq:
+        encoder C : Seq
             dim Seq = 4
-            Nil                              |-> 0.0
-            Cons(head, tail) recurrent state |-> relu(head + state)
+            op Nil                              |-> 0.0
+            op Cons(head, tail) recurrent state |-> relu(head + state)
         """
         prog = loads(textwrap.dedent(src))
         from quivers.structural import make_term
@@ -489,17 +490,17 @@ class TestEncoderBodyEndToEnd:
 
     def test_chained_activations_in_rule_body(self):
         src = """
-        signature Seq:
-            sorts:
+        signature Seq
+            sorts
                 Seq : object [dim=4]
                 A : data [dim=4]
-            constructors:
+            constructors
                 Nil  :        -> Seq
                 Cons : A, Seq -> Seq
-        encoder C : Seq:
+        encoder C : Seq
             dim Seq = 4
-            Nil                              |-> 0.0
-            Cons(head, tail) recurrent state |-> tanh(sigmoid(relu(head + state)))
+            op Nil                              |-> 0.0
+            op Cons(head, tail) recurrent state |-> tanh(sigmoid(relu(head + state)))
         """
         prog = loads(textwrap.dedent(src))
         from quivers.structural import make_term
@@ -511,17 +512,17 @@ class TestEncoderBodyEndToEnd:
 
     def test_layer_norm_in_recurrent_body(self):
         src = """
-        signature Seq:
-            sorts:
+        signature Seq
+            sorts
                 Seq : object [dim=8]
                 A : data [dim=8]
-            constructors:
+            constructors
                 Nil  :        -> Seq
                 Cons : A, Seq -> Seq
-        encoder C : Seq:
+        encoder C : Seq
             dim Seq = 8
-            Nil                              |-> 0.0
-            Cons(head, tail) recurrent state |-> layer_norm(head + state)
+            op Nil                              |-> 0.0
+            op Cons(head, tail) recurrent state |-> layer_norm(head + state)
         """
         prog = loads(textwrap.dedent(src))
         from quivers.structural import make_term
@@ -533,17 +534,17 @@ class TestEncoderBodyEndToEnd:
 
     def test_softmax_then_sum_in_body(self):
         src = """
-        signature Seq:
-            sorts:
+        signature Seq
+            sorts
                 Seq : object [dim=8]
                 A : data [dim=8]
-            constructors:
+            constructors
                 Nil  :        -> Seq
                 Cons : A, Seq -> Seq
-        encoder C : Seq:
+        encoder C : Seq
             dim Seq = 8
-            Nil                              |-> 0.0
-            Cons(head, tail) recurrent state |-> softmax(head + state)
+            op Nil                              |-> 0.0
+            op Cons(head, tail) recurrent state |-> softmax(head + state)
         """
         prog = loads(textwrap.dedent(src))
         from quivers.structural import make_term
@@ -637,6 +638,7 @@ class TestDeepNestingAndBroadcasting:
         node = _call("L", _var("x"))
         compiled = _compile(node, globals_={"L": layer})
         out = compiled({"x": torch.randn(7, 16)})
+        assert isinstance(out, torch.Tensor)
         assert out.shape == (7, 4)
 
     def test_mixed_primitives_and_user_calls_deep(self):
@@ -649,4 +651,5 @@ class TestDeepNestingAndBroadcasting:
         )
         compiled = _compile(node, globals_={"L1": L1, "L2": L2})
         out = compiled({"x": torch.randn(3, 16)})
+        assert isinstance(out, torch.Tensor)
         assert out.shape == (3, 4)

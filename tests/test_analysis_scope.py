@@ -9,10 +9,6 @@ every container kind the homogenized DSL surface admits.
 
 from __future__ import annotations
 
-import os
-
-os.environ.setdefault("QVR_USE_LOCAL_GRAMMAR", "1")
-
 import pytest  # noqa: E402
 
 from quivers.analysis.scope import (  # noqa: E402
@@ -284,7 +280,7 @@ def _compile(src: str):  # type: ignore[no-untyped-def]
 def test_scope_for_signature_exposes_sorts_constructors_binders():
     c = _compile(
         """
-        composition product_fuzzy as algebra
+        composition product_fuzzy [level=algebra]
 
         signature LF
             sorts
@@ -308,7 +304,7 @@ def test_scope_for_signature_exposes_sorts_constructors_binders():
 def test_resolve_scoped_path_walks_into_signature_sorts():
     c = _compile(
         """
-        composition product_fuzzy as algebra
+        composition product_fuzzy [level=algebra]
 
         signature LF
             sorts
@@ -326,12 +322,12 @@ def test_resolve_scoped_path_walks_into_signature_sorts():
 def test_scope_for_bundle_exposes_member_names():
     c = _compile(
         """
-        composition product_fuzzy as algebra
+        composition product_fuzzy [level=algebra]
         object A : FinSet 3
         object B : FinSet 4
         morphism f : A -> B [role=latent]
         morphism g : A -> B [role=latent]
-        bundle MyBundle = [f, g]
+        bundle MyBundle : [f, g]
         """
     )
     ref = resolve_scoped_path(c, "MyBundle")
@@ -344,14 +340,14 @@ def test_scope_for_bundle_exposes_member_names():
 def test_scope_for_contraction_exposes_input_names():
     c = _compile(
         """
-        composition product_fuzzy as algebra
+        composition product_fuzzy [level=algebra]
         object A : FinSet 3
         object B : FinSet 4
         object C : FinSet 5
 
         contraction op_apply (
             arg1 : A -> B,
-            arg2 : B -> C
+            arg2 : B -> C,
         ) : A -> C [rule=product_fuzzy]
         """
     )
@@ -371,7 +367,7 @@ def test_factory_encoder_has_no_user_named_children():
     still resolves at the top level."""
     c = _compile(
         """
-        composition product_fuzzy as algebra
+        composition product_fuzzy [level=algebra]
 
         signature seq
             sorts
@@ -395,7 +391,7 @@ def test_loss_is_a_leaf_in_the_scope_graph():
     enumerate the body's let-expression internals."""
     c = _compile(
         """
-        composition product_fuzzy as algebra
+        composition product_fuzzy [level=algebra]
 
         signature LF
             sorts
@@ -405,7 +401,7 @@ def test_loss_is_a_leaf_in_the_scope_graph():
 
         encoder enc : LF [factory=tree_lstm_encoder]
 
-        loss l1 [weight=0.5, on=encoder(enc)]:
+        loss l1 [weight=0.5, on=encoder(enc)]
             sum([1.0])
         """
     )
@@ -422,7 +418,7 @@ def test_object_is_a_leaf_regardless_of_constructor_shape():
     : A * B`` — all are leaf scopes."""
     c = _compile(
         """
-        composition product_fuzzy as algebra
+        composition product_fuzzy [level=algebra]
         object A : FinSet 3
         object B : FinSet 4
         object Pair : A * B
@@ -438,7 +434,7 @@ def test_object_is_a_leaf_regardless_of_constructor_shape():
 def test_morphism_is_a_leaf():
     c = _compile(
         """
-        composition product_fuzzy as algebra
+        composition product_fuzzy [level=algebra]
         object A : FinSet 3
         object B : FinSet 4
         morphism f : A -> B [role=latent]

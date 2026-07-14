@@ -15,7 +15,7 @@ this script:
    Linux) via the platform C compiler.
 
 The resulting shared libraries are loadable by the same
-``ctypes`` path :mod:`quivers.dsl._dev_grammar` already uses for
+``ctypes`` path the historical-grammar loader uses for
 HEAD; :mod:`quivers.dsl._historical_grammar` exposes a uniform
 ``language_for(revision)`` helper.
 

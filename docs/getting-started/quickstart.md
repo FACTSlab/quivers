@@ -127,13 +127,13 @@ output = program.rsample(x)        # reparameterized samples, shape (3, 2)
 Write categorical programs declaratively in `.qvr` files:
 
 ```qvr
-composition product_fuzzy as algebra
+composition product_fuzzy [level=algebra]
 object X : FinSet 3
 object Y : FinSet 4
 object Z : FinSet 2
 morphism f : X -> Y [role=latent]
 morphism g : Y -> Z [role=latent]
-let composed = f >> g
+define composed = f >> g
 export composed
 ```
 
@@ -151,13 +151,13 @@ Or use `loads` for inline strings:
 from quivers.dsl import loads
 
 source = """
-composition product_fuzzy as algebra
+composition product_fuzzy [level=algebra]
 object X : FinSet 3
 object Y : FinSet 4
 object Z : FinSet 2
 morphism f : X -> Y [role=latent]
 morphism g : Y -> Z [role=latent]
-let composed = f >> g
+define composed = f >> g
 export composed
 """
 
@@ -177,7 +177,7 @@ Supported DSL operators:
 | `.change_base(t)` | change of base under transformation `t` | `f.change_base(softmax(B))` |
 | `identity(X)` | identity morphism | `morphism id : X -> X [role=observed] ~ identity(X)` |
 
-The DSL also has surface for monadic probabilistic programs (`program ... [effects = [Sample, Score]]`), composition rules at four algebraic levels via `composition NAME as <algebra | semigroupoid | bilinear_form | rule>`, and operadic contractions (`contraction op : ... [rule = R, wiring = "..."]`). The [QVR tutorial](../tutorials/qvr/01-first-model.md) walks through the full API.
+The DSL also has surface for monadic probabilistic programs (`program ... [effects = [Sample, Score]]`), composition rules at four algebraic levels via `composition NAME [level=<algebra | semigroupoid | bilinear_form | rule>]`, and operadic contractions (`contraction op : ... [rule = R, wiring = "..."]`). The [QVR tutorial](../tutorials/qvr/01-first-model.md) walks through the full API.
 
 ## 6. Stochastic Morphisms
 
@@ -254,7 +254,7 @@ qvr> :type seq2seq
 morphism seq2seq : Source * Target -> Target [role=latent]
 
 qvr> :info backbone
-let backbone = (encoder @ decoder) >> cross
+define backbone = (encoder @ decoder) >> cross
 -- declared at docs/examples/source/seq2seq.qvr:59:0
 
 qvr> :watch backbone           # pinned re-eval after every recompile

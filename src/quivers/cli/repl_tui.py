@@ -938,7 +938,8 @@ def _step_node(step):  # type: ignore[no-untyped-def]
         idx = _index_suffix(getattr(step, "index", None))
         return f"sample {var}{idx} <- {_call_str(step)}", []
     if cls == "ObserveStep":
-        var = getattr(step, "var", "?")
+        vars_ = getattr(step, "vars", ()) or ()
+        var = ", ".join(vars_) if vars_ else "?"
         idx = _index_suffix(getattr(step, "index", None))
         return f"observe {var}{idx} <- {_call_str(step)}", []
     if cls == "LetStep":

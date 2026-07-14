@@ -16,8 +16,6 @@ over groups. Concretely::
 from __future__ import annotations
 import textwrap
 
-import os
-
 import pytest
 import torch
 
@@ -189,13 +187,7 @@ class TestMarginalizeGroupedPrimitive:
         assert torch.allclose(out, expected, atol=1e-10)
 
 
-# DSL-level integration tests. They rely on the local-grammar override
-# so the regenerated `over`/`via` parser is picked up.
-
-_LOCAL_GRAMMAR = pytest.mark.skipif(
-    os.environ.get("QVR_USE_LOCAL_GRAMMAR", "") in ("", "0", "false", "False"),
-    reason="DSL-level tests require QVR_USE_LOCAL_GRAMMAR=1",
-)
+# DSL-level integration tests over the grouped-marginalize surface.
 
 
 def _compile(src: str):
@@ -208,13 +200,12 @@ def _compile(src: str):
     return c
 
 
-@_LOCAL_GRAMMAR
 class TestGroupedMarginalizeSurface:
     """End-to-end DSL compilation tests for the grouped surface."""
 
     def test_grouped_block_compiles(self):
         src = """
-        composition log_prob as algebra
+        composition log_prob [level=algebra]
 
         object Item : FinSet 4
         object Resp : FinSet 10
@@ -236,7 +227,7 @@ class TestGroupedMarginalizeSurface:
         from quivers.dsl.compiler import CompileError
 
         src = """
-        composition log_prob as algebra
+        composition log_prob [level=algebra]
 
         object Item : FinSet 4
         object Resp : FinSet 10
@@ -257,7 +248,7 @@ class TestGroupedMarginalizeSurface:
         from quivers.dsl.compiler import CompileError
 
         src = """
-        composition log_prob as algebra
+        composition log_prob [level=algebra]
 
         object Item : FinSet 4
         object Resp : FinSet 10
@@ -279,7 +270,7 @@ class TestGroupedMarginalizeSurface:
         from quivers.dsl.compiler import CompileError
 
         src = """
-        composition log_prob as algebra
+        composition log_prob [level=algebra]
 
         object Item : FinSet 4
         object Resp : FinSet 10
@@ -301,7 +292,7 @@ class TestGroupedMarginalizeSurface:
         """An ungrouped marginalize (no ``over=`` option) still parses
         and compiles unchanged."""
         src = """
-        composition log_prob as algebra
+        composition log_prob [level=algebra]
 
         object Item : FinSet 5
         object Class : FinSet 3

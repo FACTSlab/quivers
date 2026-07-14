@@ -1,7 +1,7 @@
-"""One-hop migrator: v0.9.0 source to HEAD source.
+"""One-hop migrator: v0.9.0 source to v0.11.0 source.
 
 The homogenization hop. Per-declaration converters cover the rule
-renames and surface-shape changes between v0.9.0 and HEAD:
+renames and surface-shape changes between v0.9.0 and v0.11.0:
 
 * ``object_decl`` -> ``type X : FinSet N`` (or the unchanged
   expression body under the new keyword).
@@ -11,18 +11,19 @@ renames and surface-shape changes between v0.9.0 and HEAD:
 * ``morphism_decl`` (latent/observed) / ``kernel_decl`` / ``embed_decl``
   / ``discretize_decl`` -> ``morphism X : A -> B [role=..., ...]``.
 * ``algebra_decl`` / ``semigroupoid`` / ``bilinear_form`` /
-  ``composition_rule`` -> ``composition X at <level>``.
+  ``composition_rule`` -> ``composition X as <level>``.
 * ``program_decl`` -> indented colon-block with effects hoisted into
   the option block; bare draw steps gain ``sample``.
 * ``deduction_decl`` -> indented colon-block with brace bodies
-  flattened into HEAD's atoms / rule / lexicon forms; metadata
+  flattened into v0.11.0's atoms / rule / lexicon forms; metadata
   (semiring / start / depth / signature / encoder) hoists to the
   header option block.
 
 Each converter returns target-revision source text for its
 declaration; `migrate_source` validates the text by parsing
-it through HEAD and concatenates. Grammar binding lives at the
-per-decl validate step and at the final whole-file parse.
+it through the pinned v0.11.0 snapshot and concatenates. Grammar
+binding lives at the per-decl validate step and at the final
+whole-file parse.
 """
 
 from __future__ import annotations
@@ -63,7 +64,7 @@ def _space_arg_text(view: SchemaView, arg_vid: str) -> str:
 
 def _type_expr_text(view: SchemaView, type_vid: str) -> str:
     """Render a v0.9.0 ``_object_expr`` / ``_space_expr`` / object
-    initializer subtree as HEAD-compatible source text."""
+    initializer subtree as v0.11.0-compatible source text."""
     kind = view.kind(type_vid)
     if kind == "type_atom":
         kids = view.positional(type_vid)
@@ -326,7 +327,7 @@ def _convert_algebra_decl(view: SchemaView, src_vid: str) -> str:
     raw = view.text(src_vid)
     keyword = raw.split(None, 1)[0] if raw else "algebra"
     level = _ALGEBRA_LEVEL_MAP.get(keyword, "algebra")
-    return f"composition {name} at {level}\n"
+    return f"composition {name} as {level}\n"
 
 
 # ---------------------------------------------------------------------------
@@ -374,7 +375,7 @@ def _observe_step_text(view: SchemaView, step_vid: str) -> str:
     )
     opts: list[str] = []
     if via_vid is not None:
-        # HEAD's observe_step dropped the trailing ``via <spec>``
+        # v0.11.0's observe_step dropped the trailing ``via <spec>``
         # keyword and accepts the fibration as a named option
         # instead.
         opts.append(f"via={view.text(via_vid)}")
@@ -667,7 +668,7 @@ SOURCE_RULE_COVERAGE: frozenset[str] = frozenset(_DECL_CONVERTERS.keys()) | froz
         "axis_tuple",
         "_axis_list",
         # bind_step gains a ``sample`` keyword (becomes ``sample_step``
-        # in HEAD vocabulary).
+        # in v0.11.0 vocabulary).
         "bind_step",
         # Via-spec on observe_step encoded as ``[via=...]`` option.
         "_via_spec",
@@ -706,7 +707,6 @@ SOURCE_RULE_COVERAGE: frozenset[str] = frozenset(_DECL_CONVERTERS.keys()) | froz
 
 def migrate(source: bytes) -> bytes:
     # v0.10.0's tree-sitter grammar.js is byte-identical to v0.9.0's,
-    # so we parse with the v0.9.0 parser. v0.11.0 is the upcoming
-    # tag for the homogenized HEAD grammar; until tagged it lives at
-    # the HEAD parser, so we emit through that.
-    return migrate_source(source, "v0.9.0", "HEAD", _DECL_CONVERTERS)
+    # so we parse with the v0.9.0 parser and validate each converted
+    # declaration against the pinned v0.11.0 snapshot.
+    return migrate_source(source, "v0.9.0", "v0.11.0", _DECL_CONVERTERS)

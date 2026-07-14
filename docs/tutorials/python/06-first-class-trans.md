@@ -11,7 +11,7 @@ Both inherit a common interface: a `.source` algebra, a `.target` algebra, and a
 
 In a PyTorch program you'd write `softmax(logits, dim=-1)` whenever you needed to normalise. That's fine for a one-shot call, but it has no record of *which algebra the result lives in* once normalised. If you then compose with another morphism that lives in a fuzzy algebra, nothing flags the mismatch and the result is mathematically incoherent (you've sum-product-composed a row-stochastic tensor with a noisy-OR one).
 
-A [`MorphismTransformation`](../../api/core/morphisms.md) is a typed function on morphisms: `softmax(B)` doesn't just normalise a tensor, it announces "I take a ProductFuzzyAlgebra morphism in, I emit a Markov morphism out". The compiler can then verify downstream compositions. Concretely, applying `softmax(B)` to any row-stochastic-shape morphism `f` returns a new morphism `f.change_base(softmax(B))` whose algebra tag is `Markov`. Subsequent `*>` composition (which demands Markov) accepts it; subsequent `>>` in a fuzzy module rejects it.
+A [`MorphismTransformation`](../../api/core/morphisms.md) is a typed function on morphisms: `softmax(B)` doesn't just normalise a tensor, it announces "I take a ProductFuzzyAlgebra morphism in, I emit a Markov morphism out". The compiler can then verify downstream compositions. Concretely, applying `softmax(B)` to any row-stochastic-shape morphism `f` returns a new morphism `f.change_base(softmax(B))` whose algebra tag is `Markov`. Subsequent `>>` composition against another Markov morphism accepts it; `>>` against a fuzzy morphism rejects it, since the two operands carry different algebras.
 
 This is the same idea as PyMC's `pm.Deterministic` wrapping a transformation so that the trace knows about it, but lifted to the algebra layer: the tag isn't just "deterministic", it's "lives in algebra W now".
 
@@ -128,14 +128,14 @@ print(g.tensor.sum(dim=-1))      # rows of g sum to 1 (Markov)
 Inside `.qvr` files, the same machinery is the `change_base(t)` postfix and the `>>>` operator:
 
 ```qvr
-composition product_fuzzy as algebra
+composition product_fuzzy [level=algebra]
 object A : FinSet 3
 object B : FinSet 4
 morphism f : A -> B [role=latent]
 
-let s    = softmax(B)
-let pipe = s >>> expectation
-let g    = f.change_base(pipe)
+define s    = softmax(B)
+define pipe = s >>> expectation
+define g    = f.change_base(pipe)
 export g
 ```
 

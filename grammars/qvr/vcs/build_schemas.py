@@ -236,23 +236,25 @@ def main(argv: list[str] | None = None) -> int:
     head_bytes = _current_head_grammar()
     last_tag_bytes = revisions[-1][1] if revisions else b""
     if head_bytes != last_tag_bytes:
-        # The working-tree grammar is the canonical v0.11.0 (the
-        # homogenized release). Commit it under that tag so the VCS
-        # surfaces it the same way users address it from the CLI.
+        # The working-tree grammar differs from every tagged release:
+        # commit it untagged. The migration chain's final (not yet
+        # tagged) entry resolves to this commit via the VCS HEAD; the
+        # release ritual tags it in git first, so on the next rebuild
+        # it enters the tagged loop above.
         schema = _build_schema(protocol, head_bytes)
         _commit_and_tag(
             repo,
             schema,
-            message="qvr grammar at v0.11.0",
-            tag="v0.11.0",
+            message="qvr grammar at working tree",
+            tag=None,
         )
         print(
-            f"  v0.11.0: {schema.vertex_count} rules, "
+            f"  HEAD (working tree): {schema.vertex_count} rules, "
             f"{schema.edge_count} field edges",
             flush=True,
         )
     else:
-        print("  v0.11.0 identical to last tag, no new commit needed")
+        print("  working-tree grammar identical to last tag, no new commit needed")
 
     return 0
 

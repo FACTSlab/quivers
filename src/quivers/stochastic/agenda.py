@@ -58,6 +58,7 @@ from __future__ import annotations
 
 import heapq
 from abc import ABC, abstractmethod
+from collections import deque
 from collections.abc import Callable, Iterable
 from dataclasses import dataclass, field
 from typing import Any, TYPE_CHECKING
@@ -530,6 +531,16 @@ class Agenda(ABC):
     @abstractmethod
     def empty(self) -> bool: ...
 
+    def bind_semiring(self, semiring: ChartSemiring) -> None:
+        """Give the agenda access to the engine's semiring.
+
+        `run_agenda` calls this once, before pushing the axioms.
+        Disciplines that can exploit the binding override it; for
+        instance, `FIFOAgenda` merges pending contributions
+        to the same item via ``semiring.plus``. The default ignores
+        the binding.
+        """
+
 
 class FIFOAgenda(Agenda):
     """First-in-first-out agenda (semi-naïve Datalog discipline).
@@ -537,19 +548,50 @@ class FIFOAgenda(Agenda):
     The agenda processes items in the order they were derived.
     Correct for any monotone semiring; the canonical choice for
     Datalog and Earley parsing.
+
+    Once a semiring is bound (`bind_semiring`, which the engine does
+    on entry), a contribution pushed for an item that is already
+    pending merges into that item's single queue entry via
+    ``semiring.plus``. Semiring distributivity makes the merge exact:
+    firing a rule once on the merged contribution pushes the same
+    total mass downstream as firing it once per contribution. Without
+    merging, a cyclic rule graph re-enqueues every contribution
+    separately, and the number of pending entries grows geometrically
+    with derivation depth even when the weighted fixed point
+    converges.
     """
 
     def __init__(self) -> None:
-        self._queue: list[tuple[Item, torch.Tensor]] = []
+        self._queue: deque[tuple[Item, torch.Tensor]] = deque()
+        self._order: deque[Item] = deque()
+        self._pending: dict[Item, torch.Tensor] = {}
+        self._semiring: ChartSemiring | None = None
+
+    def bind_semiring(self, semiring: ChartSemiring) -> None:
+        self._semiring = semiring
 
     def push(self, item: Item, weight: torch.Tensor) -> None:
-        self._queue.append((item, weight))
+        if self._semiring is None:
+            self._queue.append((item, weight))
+            return
+        existing = self._pending.get(item)
+        if existing is None:
+            self._pending[item] = weight
+            self._order.append(item)
+            return
+        stacked = torch.stack([existing, weight])
+        self._pending[item] = self._semiring.plus(stacked, dim=0)
 
     def pop(self) -> tuple[Item, torch.Tensor]:
-        return self._queue.pop(0)
+        # Entries pushed before a semiring was bound drain first;
+        # they were pushed earliest, so this preserves FIFO order.
+        if self._queue:
+            return self._queue.popleft()
+        item = self._order.popleft()
+        return item, self._pending.pop(item)
 
     def empty(self) -> bool:
-        return not self._queue
+        return not self._queue and not self._order
 
 
 class LIFOAgenda(Agenda):
@@ -699,6 +741,7 @@ def run_agenda(
     """
     semiring = semiring or LOG_PROB
     agenda = agenda or FIFOAgenda()
+    agenda.bind_semiring(semiring)
     chart = chart or HashChart()
     rules = tuple(rules)
 

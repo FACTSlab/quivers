@@ -30,7 +30,7 @@ The predictor $x$ is exogenous host data supplied alongside the response at fit 
 
 ## Walkthrough
 
-`object Resp : FinSet 1` declares the response object: a single scalar per row of the `Resp` plate. The program signature `program bayesian_regression : Resp -> Resp` is a [Kleisli morphism](https://ncatlab.org/nlab/show/Kleisli+category) in the probability monad that scores observed responses under the model's joint kernel.
+`object Resp : FinSet 1` declares the response object: a single scalar per row of the `Resp` plate. The program signature `program bayesian_regression : Resp -> Resp` is a [Kleisli morphism](https://ncatlab.org/nlab/show/Kleisli+category) in the [probability monad](https://ncatlab.org/nlab/show/probability+monad) that scores observed responses under the model's joint kernel.
 
 The three `sample` lines draw the prior parameters as global scalars: `sample sigma <- HalfCauchy(2.0)` puts a heavy-tailed positive prior on the noise scale, and `sample beta_0 <- Normal(0.0, 5.0)`, `sample beta_1 <- Normal(0.0, 2.0)` give the intercept and slope independent Gaussian priors with a wider spread on the intercept than on the slope.
 
@@ -133,7 +133,7 @@ Quivers abstracts over inference algorithms, so the same model specification wor
 
 ## Extensions and Advanced Usage
 
-For multi-dimensional regression, add predictor variables and coefficients. For hierarchical models, nest probabilistic programs (samples from one become parameters of another). For Bayesian nonparametrics, use distributions like the Dirichlet process. A Bayesian linear regression program can serve as a component in a larger hierarchical model or be extended with non-linear transformations and richer likelihood models.
+For multi-dimensional regression, add predictor variables and coefficients. For hierarchical models, nest probabilistic programs (samples from one become parameters of another). For Bayesian nonparametrics, place a [`GP`](../api/continuous/families.md#quivers.continuous.families.ConditionalGaussianProcess) prior over the regression function. A Bayesian linear regression program can serve as a component in a larger hierarchical model or be extended with non-linear transformations and richer likelihood models.
 
 ## See Also
 

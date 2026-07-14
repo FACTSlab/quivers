@@ -72,7 +72,7 @@ The form $T(\tau_1, \dots, \tau_k)$ is the application of an effect functor $T$ 
 
 ## 4. The free residuated universe
 
-A `FreeResiduated(G, depth = d, ops = O)` initializer, used in `object Cat = FreeResiduated(Atoms, …)`, denotes the *bounded free residuated category*
+A `FreeResiduated(G, depth = d, ops = O)` initializer, used in `object Cat : FreeResiduated(Atoms, …)`, denotes the *bounded free residuated category*
 
 $$
 \llbracket \mathrm{FreeResiduated}(G, d, O) \rrbracket
@@ -80,7 +80,7 @@ $$
 \Bigl\{\, \text{well-formed expressions over $\llbracket G \rrbracket$ using ops from $O$, of formation depth $\le d$}\,\Bigr\},
 $$
 
-where $\llbracket G \rrbracket$ is the underlying generator set (typically an `EnumSet` from a `category` declaration or an `object Atoms = {…}` form), and $O \subseteq \{\,/,\ \backslash,\ \otimes,\ \diamondsuit\,\}$ is the chosen operator pool. Formation depth is the height of the syntax tree. As a finite-set object this is a finite enumeration of category expressions; as a residuated-monoidal category it is the free such category on $\llbracket G \rrbracket$ truncated at depth $d$, subject to the universal property of the free construction on the chosen operator pool.
+where $\llbracket G \rrbracket$ is the underlying generator set (typically an `EnumSet` from a `category` declaration or an `object Atoms : {…}` form), and $O \subseteq \{\,/,\ \backslash,\ \otimes,\ \diamondsuit\,\}$ is the chosen operator pool. Formation depth is the height of the syntax tree. As a finite-set object this is a finite enumeration of category expressions; as a residuated-monoidal category it is the free such category on $\llbracket G \rrbracket$ truncated at depth $d$, subject to the universal property of the free construction on the chosen operator pool.
 
 When $O = \{/, \backslash\}$ this is the free *bi-closed* category of Lambek calculus ([Lambek, 1958](https://doi.org/10.2307/2310058)); when $O = \{/, \backslash, \otimes\}$ it adds the monoidal product, recovering associative Lambek calculus; the diamond modality $\diamondsuit$ adds the multimodal extension.
 
@@ -89,7 +89,7 @@ When $O = \{/, \backslash\}$ this is the free *bi-closed* category of Lambek cal
 A `rule` declaration
 
 ```
-rule R(X_1, …, X_k) : π_1, …, π_m => π
+rule R(X_1, …, X_k) : π_1, …, π_m |- π
 ```
 
 introduces a typed inference rule over the residuated universe. The variables $X_1, \dots, X_k$ are universally quantified meta-variables ranging over $\llbracket \mathrm{Cat} \rrbracket$; the patterns $\pi_1, \dots, \pi_m, \pi$ are `ObjectExpr`s built from the meta-variables and any atoms in scope. The compiler accepts $m \in \{1, 2\}$ (unary and binary chart rules); declaring a rule with $m \ge 3$ raises `CompileError`.
@@ -106,9 +106,9 @@ Standard CCG / Lambek combinators are direct instances under QVR's biclosed slas
 
 | Rule | Surface | Denotation |
 |---|---|---|
-| Forward application | `fwd_app(X, Y) : X / Y, Y => X` | $(X / Y) \otimes Y \to X$, the counit of the right residuation |
-| Backward application | `bwd_app(X, Y) : X, Y \ X => Y` | $X \otimes (Y \backslash X) \to Y$, the counit of the left residuation |
-| Forward composition | `fwd_comp(X, Y, Z) : X / Y, Y / Z => X / Z` | $(X / Y) \otimes (Y / Z) \to X / Z$, composition of right residuals |
+| Forward application | `fwd_app(X, Y) : X / Y, Y |- X` | $(X / Y) \otimes Y \to X$, the counit of the right residuation |
+| Backward application | `bwd_app(X, Y) : X, Y \ X |- Y` | $X \otimes (Y \backslash X) \to Y$, the counit of the left residuation |
+| Forward composition | `fwd_comp(X, Y, Z) : X / Y, Y / Z |- X / Z` | $(X / Y) \otimes (Y / Z) \to X / Z$, composition of right residuals |
 
 ## 6. Schema declarations
 
@@ -143,7 +143,7 @@ Schemas are first-class citizens of the chart-parser API: `parser(rules = [R_1, 
 
 ## 7. Bundles
 
-A `bundle B = [r_1, …, r_n]` declaration is a first-class set binding:
+A `bundle B : [r_1, …, r_n]` declaration is a first-class set binding:
 
 $$
 \llbracket B \rrbracket \;=\; \{\,\llbracket r_1 \rrbracket,\, \dots,\, \llbracket r_n \rrbracket\,\},

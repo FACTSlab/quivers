@@ -133,7 +133,7 @@ def _draw(
     tagged_args = tuple(_to_draw_arg(a) for a in args)
     if mode == "score":
         return ObserveStep(
-            var=var,
+            vars=(var,),
             morphism=family,
             args=tagged_args,
             index=index,
@@ -231,10 +231,11 @@ def _decode_module(module: Module) -> dict:
                     cardinality = None
             if cardinality is None:
                 continue
-            if stmt.name == "Resp":
-                n_obs = cardinality
-            else:
-                group_cardinalities[stmt.name] = cardinality
+            for decl_name in stmt.names:
+                if decl_name == "Resp":
+                    n_obs = cardinality
+                else:
+                    group_cardinalities[decl_name] = cardinality
         elif isinstance(stmt, ProgramDecl):
             program = stmt
             break
@@ -271,7 +272,7 @@ def _decode_module(module: Module) -> dict:
             continue
         if isinstance(step, ObserveStep):
             if step.index is not None:
-                response_qvr_name = step.var
+                response_qvr_name = step.vars[0]
                 observe_family = step.morphism
             continue
         if not isinstance(step, SampleStep):
@@ -492,7 +493,7 @@ class FormulaToQVRModule(dx.Lens[Formula, Module, FormulaData]):
         n_obs = formula.response_values.shape[0]
         statements.append(
             ObjectDecl(
-                name="Resp",
+                names=("Resp",),
                 init=TypeFromExpr(
                     expr=DiscreteConstructor(
                         constructor="FinSet",
@@ -511,7 +512,7 @@ class FormulaToQVRModule(dx.Lens[Formula, Module, FormulaData]):
             levels = formula.group_levels[group]
             statements.append(
                 ObjectDecl(
-                    name=qgroup,
+                    names=(qgroup,),
                     init=TypeFromExpr(
                         expr=DiscreteConstructor(
                             constructor="FinSet",

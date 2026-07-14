@@ -2,26 +2,24 @@
 
 ## Overview
 
-A bidirectional RNN used as a masked language model in the spirit of [BERT](https://doi.org/10.18653/v1/N19-1423). Two independently-parameterized recurrent cells scan the token sequence forward and backward; the [tensor product](https://ncatlab.org/nlab/show/tensor+product) `@` runs the two directional Kleisli morphisms in parallel and a `combine` morphism merges their outputs into a single 128-dimensional `Combined` representation. The Categorical `lm_head` scores the masked-token target from the bidirectional context.
+A bidirectional RNN used as a masked language model in the spirit of [BERT](https://doi.org/10.18653/v1/N19-1423). Two independently-parameterized recurrent cells each scan the token sequence; the `fan` combinator copies the shared input to the two [Kleisli morphisms](https://ncatlab.org/nlab/show/Kleisli+category) and pairs their outputs, and a `combine` morphism merges the paired streams into a single 128-dimensional `Combined` representation. The Categorical `lm_head` scores the masked-token target from the bidirectional context.
 
 ## QVR Source
 
 ```qvr
 object Token : FinSet 256
-object Embedded : Real 64
-object FwdHidden : Real 64
-object BwdHidden : Real 64
+object Embedded, FwdHidden, BwdHidden : Real 64
 object Combined : Real 128
 
 morphism tok_embed : Token -> Embedded [role=embed]
-morphism fwd_cell : Embedded * FwdHidden -> FwdHidden [role=kernel, scale=0.1] ~ Normal
-morphism bwd_cell : Embedded * BwdHidden -> BwdHidden [role=kernel, scale=0.1] ~ Normal
-morphism combine : Combined -> Combined [role=kernel, scale=0.1] ~ Normal
-morphism lm_head : Combined -> Token [role=kernel] ~ Categorical
+morphism fwd_cell : Embedded * FwdHidden -> FwdHidden [scale=0.1] ~ Normal
+morphism bwd_cell : Embedded * BwdHidden -> BwdHidden [scale=0.1] ~ Normal
+morphism combine : Combined -> Combined [scale=0.1] ~ Normal
+morphism lm_head : Combined -> Token ~ Categorical
 
-let forward_path = tok_embed >> scan(fwd_cell)
-let backward_path = tok_embed >> scan(bwd_cell)
-let backbone = fan(forward_path, backward_path) >> combine
+define forward_path = tok_embed >> scan(fwd_cell)
+define backward_path = tok_embed >> scan(bwd_cell)
+define backbone = fan(forward_path, backward_path) >> combine
 
 program bidirectional_rnn_lm : Token -> Token
     sample h <- backbone
@@ -36,11 +34,11 @@ export bidirectional_rnn_lm
 
 ### Two independent scans
 
-`forward_path = tok_embed >> scan(fwd_cell)` and `backward_path = tok_embed >> scan(bwd_cell)` are two independent Kleisli morphisms `Token -> Hidden`. They use distinct cells with independent parameters; the runtime supplies the reversed sequence to the backward path so the same `scan` machinery realizes the right-to-left pass.
+`forward_path = tok_embed >> scan(fwd_cell)` and `backward_path = tok_embed >> scan(bwd_cell)` are two independent Kleisli morphisms, `Token -> FwdHidden` and `Token -> BwdHidden`. Both thread state left to right over the same token sequence with the same `scan` machinery; what distinguishes the two paths is their cells, which carry independent parameters and thus learn separate summaries of the sequence.
 
 ### Parallel composition
 
-`fan(forward_path, backward_path) >> combine` runs the two directional paths in parallel via the `fan` combinator, the [Kleisli](https://ncatlab.org/nlab/show/Kleisli+category) fan-out that feeds the same input to two morphisms and pairs their outputs in the [Giry monad](https://doi.org/10.1007/BFb0092872)'s Kleisli category. The result lives in `FwdHidden * BwdHidden`, which by the type aliases above has total dimension 128, matching `Combined`. The `combine` Bayesian morphism is the merge that mixes the two streams into a single combined representation.
+`fan(forward_path, backward_path) >> combine` runs the two paths in parallel via the `fan` combinator, the Kleisli fan-out that feeds the same input to two morphisms and pairs their outputs in the [Giry monad](https://doi.org/10.1007/BFb0092872)'s Kleisli category. The result lives in `FwdHidden * BwdHidden`, which by the type aliases above has total dimension 128, matching `Combined`. The `combine` Bayesian morphism is the merge that mixes the two streams into a single combined representation.
 
 ### Masked LM head
 
@@ -124,7 +122,7 @@ print(f"final loss:   {losses[-1]:.2f}")
 
 ### NUTS posterior
 
-The forward / backward cells and the combine morphism are `[role=kernel]` Bayesian morphisms whose weights live as `nn.Parameter`s inside the program. [`bayesian_lift_parameters`](../api/inference/lifts.md#quivers.inference.lifts.bayesian_lift_parameters) lifts those parameters into Normal-prior sample sites so [`NUTSKernel`](../api/inference/mcmc.md#quivers.inference.mcmc.NUTSKernel) has a continuous unconstrained state space. The likelihood scores the masked-token target via the Categorical [`lm_head`](../api/continuous/families.md) applied to a forward sample of the merged hidden state.
+The forward / backward cells and the combine morphism are kernel Bayesian morphisms whose weights live as `nn.Parameter`s inside the program. [`bayesian_lift_parameters`](../api/inference/lifts.md#quivers.inference.lifts.bayesian_lift_parameters) lifts those parameters into Normal-prior sample sites so [`NUTSKernel`](../api/inference/mcmc.md#quivers.inference.mcmc.NUTSKernel) has a continuous unconstrained state space. The likelihood scores the masked-token target via the Categorical [`lm_head`](../api/continuous/families.md) applied to a forward sample of the merged hidden state.
 
 ```python
 import torch
@@ -158,7 +156,7 @@ print(f"divergences: {int(result.divergence_counts.sum())}")
 
 ## Categorical Perspective
 
-The model denotes a Kleisli morphism $\mathrm{Token} \to \mathcal{G}(\mathrm{Token})$ assembled by `fan`-composing two independent scan-folds and following with a merge. The `fan` combinator is the diagonal-pair construction $f \times g \circ \Delta$ in the Kleisli category that delivers a common input to both branches; `combine` is the merge $\mathrm{Hidden}^2 \to \mathcal{G}(\mathrm{Combined})$ that pulls the bilinear pairing back onto a single object. The Categorical head closes with the masked-token likelihood as a sub-probability kernel.
+The model denotes a Kleisli morphism $\mathrm{Token} \to \mathcal{G}(\mathrm{Token})$ assembled by `fan`-composing two independent scan-folds and following with a merge. The `fan` combinator is the diagonal-pair construction $(f \times g) \circ \Delta$ in the Kleisli category that delivers a common input to both branches, landing in $\mathrm{FwdHidden} \times \mathrm{BwdHidden}$. Because that product carries the same 128 dimensions as $\mathrm{Combined}$, the Normal-kernel morphism `combine` $: \mathrm{Combined} \to \mathcal{G}(\mathrm{Combined})$ consumes the paired streams directly and mixes them into a single object. The Categorical head closes with the masked-token likelihood as a sub-probability kernel.
 
 
 ## References

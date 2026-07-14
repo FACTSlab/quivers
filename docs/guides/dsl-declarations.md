@@ -12,17 +12,17 @@ Choose the enriching algebra (optional, defaults to `product_fuzzy`):
 
 <!-- compile: false -->
 ```qvr
-composition product_fuzzy as algebra
-composition boolean as algebra
-composition lukasiewicz as algebra
-composition godel as algebra
-composition tropical as algebra
-composition max_plus as algebra
-composition log_prob as algebra
-composition markov as algebra
-composition real as algebra
-composition probability as algebra
-composition counting as algebra
+composition product_fuzzy [level=algebra]
+composition boolean [level=algebra]
+composition lukasiewicz [level=algebra]
+composition godel [level=algebra]
+composition tropical [level=algebra]
+composition max_plus [level=algebra]
+composition log_prob [level=algebra]
+composition markov [level=algebra]
+composition real [level=algebra]
+composition probability [level=algebra]
+composition counting [level=algebra]
 ```
 
 The keyword `algebra` resolves a name against the built-in
@@ -32,9 +32,9 @@ are also surface-declarable:
 
 <!-- compile: false -->
 ```qvr
-composition material_impl as semigroupoid
-composition some_bf as bilinear_form
-composition any_rule as rule
+composition material_impl [level=semigroupoid]
+composition some_bf [level=bilinear_form]
+composition any_rule [level=rule]
 ```
 
 A [semigroupoid](https://ncatlab.org/nlab/show/semigroupoid) level
@@ -55,17 +55,17 @@ with each entry a `let`-expression:
 
 <!-- compile: false -->
 ```qvr
-composition my_godel as algebra
+composition my_godel [level=algebra]
     tensor_op(a, b) = a * b
     join(t)         = sum(t)
     unit            = 1.0
     zero            = 0.0
 
-composition my_semi as semigroupoid
+composition my_semi [level=semigroupoid]
     tensor_op(a, b) = a * b
     join(t)         = sum(t)
 
-composition my_bf as bilinear_form
+composition my_bf [level=bilinear_form]
     tensor_op(a, b) = (a + b) * 0.5
     join(t)         = sum(t)
 ```
@@ -88,10 +88,10 @@ object XY : X * Y     # ProductSet(components=(X, Y))
 object Sum : X + Y    # CoproductSet(components=(X, Y))
 
 # 2. FreeMonoid, bounded Kleene closure over a FinSet of generators.
-object Strings = FreeMonoid(X, max_length=4)
+object Strings : FreeMonoid(X, max_length=4)
 
 # 3. Residuated universe.
-object Cat = FreeResiduated(Atoms, depth=4, ops=[slash])
+object Cat : FreeResiduated(Atoms, depth=4, ops=[slash])
 ```
 
 Object-shaped aliases (resolvable to a
@@ -175,9 +175,9 @@ Declare a continuous space:
 <!-- compile: false -->
 ```qvr
 object R3 : Real 3
-object R2_bounded : Real 2 [low=0.0, high=1.0]
-object U : Real 1 [low=0.0, high=1.0]
-object P2 : Real 2 [low=0.0]
+object R2_bounded : Real 2 {low=0.0, high=1.0}
+object U : Real 1 {low=0.0, high=1.0}
+object P2 : Real 2 {low=0.0}
 object S3 : Simplex 3
 
 # Product space
@@ -211,8 +211,9 @@ in a domain or codomain position.
 
 ## Kernel
 
-The `kernel` keyword declares a [Markov
-kernel](https://ncatlab.org/nlab/show/Markov+kernel) `A -> B`.
+A kernel morphism declares a [Markov
+kernel](https://ncatlab.org/nlab/show/Markov+kernel) `A -> B`. It is
+the default role, so a `morphism` with no `role=` key is a kernel.
 Two shapes:
 
 - **Without a `~` clause**: a finite-set lookup-table kernel
@@ -228,21 +229,21 @@ Two shapes:
 <!-- compile: false -->
 ```qvr
 # Lookup-table kernel on finite sets.
-morphism s : X -> Y [role=kernel]
-morphism cat : X -> Y * Z [role=kernel]
+morphism s : X -> Y
+morphism cat : X -> Y * Z
 
 # Parametric kernel: input-conditional Normal on R^3.
-morphism f : X -> R3 [role=kernel] ~ Normal
+morphism f : X -> R3 ~ Normal
 # Family options control the parameter network.
-morphism g : R3 -> R3 [role=kernel] ~ Normal [scale=0.5]
-morphism k : X -> S3 [role=kernel] ~ Dirichlet
+morphism g : R3 -> R3 ~ Normal [scale=0.5]
+morphism k : X -> S3 ~ Dirichlet
 # 30+ families are registered; see the families guide.
 # `Flow` is a special-case constructor (not in the family registry)
 # that compiles to a conditional normalizing flow.
-morphism flow : R3 -> R3 [role=kernel] ~ Flow [n_layers=6, hidden_dim=32]
+morphism flow : R3 -> R3 ~ Flow [n_layers=6, hidden_dim=32]
 ```
 
-The `kernel` keyword unifies the discrete (finite-set lookup) and
+The kernel role unifies the discrete (finite-set lookup) and
 continuous / stochastic (parametric Family) cases under one surface;
 the runtime branches on whether the codomain is a
 [`FinSet`](../api/core/objects.md) or a
@@ -400,11 +401,11 @@ referenced by [`fan`](#fan-out-diagonal-morphism):
 <!-- compile: false -->
 ```qvr
 # creates head_0, head_1, head_2, head_3 with independent parameters
-morphism head : Latent -> HeadOut [role=kernel, replicate=4, scale=0.1] ~ Normal
+morphism head : Latent -> HeadOut [replicate=4, scale=0.1] ~ Normal
 
 # works on every morphism whose role permits replication:
-morphism T    : State -> Obs [role=kernel, replicate=3]               # lookup-table kernel
-morphism emit : State -> Obs [role=kernel, replicate=3] ~ Normal      # parametric kernel
+morphism T    : State -> Obs [replicate=3]               # lookup-table kernel
+morphism emit : State -> Obs [replicate=3] ~ Normal      # parametric kernel
 morphism tok  : Token -> Hidden [role=embed, replicate=2]              # finite-to-Real
 ```
 
@@ -423,16 +424,16 @@ declaration:
 <!-- compile: false -->
 ```qvr
 # explicit: fan-out to three named morphisms
-let parallel = fan(f, g, h)
+define parallel = fan(f, g, h)
 
 # group expansion: fan(head) expands to fan(head_0, head_1, head_2, head_3)
-morphism head : Latent -> HeadOut [role=kernel, replicate=4, scale=0.1] ~ Normal
+morphism head : Latent -> HeadOut [replicate=4, scale=0.1] ~ Normal
 
-let multi_head = fan(head)
+define multi_head = fan(head)
 
 # commonly followed by a projection to recombine
-morphism proj : Combined -> Latent [role=kernel] ~ Normal [scale=0.1]
-let attention = fan(head) >> proj
+morphism proj : Combined -> Latent [scale=0.1] ~ Normal
+define attention = fan(head) >> proj
 ```
 
 All component morphisms must have the same domain. The output
@@ -449,14 +450,14 @@ fixed composition chain:
 <!-- compile: false -->
 ```qvr
 # transition >> transition >> transition
-let deep = repeat(transition, 3)
+define deep = repeat(transition, 3)
 
 # works with composed expressions too
-let layer = attn >> residual >> ffn >> residual
-let deep_model = repeat(layer, 6)
+define layer = attn >> residual >> ffn >> residual
+define deep_model = repeat(layer, 6)
 
 # repeat(f, 1) = f
-let same = repeat(f, 1)
+define same = repeat(f, 1)
 ```
 
 **Runtime-variable repeat.** Count omitted, creates a
@@ -466,11 +467,11 @@ repeated squaring for $O(\log n)$ compositions:
 
 <!-- compile: false -->
 ```qvr
-morphism transition : State -> State [role=kernel]
-morphism emission : State -> Obs [role=kernel]
+morphism transition : State -> State
+morphism emission : State -> Obs
 
 # runtime-variable: no count specified
-let n_step = repeat(transition) >> emission
+define n_step = repeat(transition) >> emission
 
 export n_step
 ```
@@ -492,10 +493,10 @@ parameters (no weight-tying):
 <!-- compile: false -->
 ```qvr
 # stack creates independent parameters per layer
-let deep = stack(transition, 3)  # 3 layers, each with own params
+define deep = stack(transition, 3)  # 3 layers, each with own params
 
 # repeat reuses the same parameters (weight-tying)
-let tied = repeat(transition, 3)  # 3 iterations, shared params
+define tied = repeat(transition, 3)  # 3 iterations, shared params
 ```
 
 Unlike `repeat`, which composes a morphism with itself using the
@@ -510,11 +511,11 @@ Thread hidden state across a sequence using a recurrent cell:
 <!-- compile: false -->
 ```qvr
 # Basic syntax: cell has product domain A * H -> H
-morphism cell : Embedded * Hidden -> Hidden [role=kernel] ~ Normal [scale=0.1]
-let rnn = tok_embed >> scan(cell) >> output_proj
+morphism cell : Embedded * Hidden -> Hidden ~ Normal [scale=0.1]
+define rnn = tok_embed >> scan(cell) >> output_proj
 
 # With learned initial state (default is zeros)
-let rnn_learned = tok_embed >> scan(cell, init=learned) >> output_proj
+define rnn_learned = tok_embed >> scan(cell, init=learned) >> output_proj
 ```
 
 The `scan` combinator implements temporal recurrence by threading
@@ -534,7 +535,7 @@ hidden state `H` across a sequence:
   The sequence dimension is implicit in the tensor's second
   dimension.
 - **Works with both forms.** Parametric kernels (`morphism cell : A *
-  H -> H [role=kernel] ~ Normal`) and `MonadicPrograms` (`program cell(x, h) : A *
+  H -> H ~ Normal`) and `MonadicPrograms` (`program cell(x, h) : A *
   H -> H` with bind / let / return).
 
 **Example: vanilla RNN.**
@@ -548,9 +549,9 @@ object Output : Real 64
 
 morphism tok_embed : Token -> Embedded [role=embed]
 
-morphism cell : Embedded * Hidden -> Hidden [role=kernel] ~ Normal [scale=0.1]
-morphism output_proj : Hidden -> Output [role=kernel] ~ Normal [scale=0.1]
-let rnn = tok_embed >> scan(cell) >> output_proj
+morphism cell : Embedded * Hidden -> Hidden ~ Normal [scale=0.1]
+morphism output_proj : Hidden -> Output ~ Normal [scale=0.1]
+define rnn = tok_embed >> scan(cell) >> output_proj
 
 export rnn
 ```
@@ -559,30 +560,29 @@ For deeper temporal models, stack multiple scans:
 
 <!-- compile: false -->
 ```qvr
-let deep_rnn = tok_embed >> scan(cell_1) >> scan(cell_2) >> output_proj
+define deep_rnn = tok_embed >> scan(cell_1) >> scan(cell_2) >> output_proj
 ```
 
 Each `scan` threads its own hidden state independently.
 
 ### Backward composition
 
-Compose morphisms in reverse order using `<<`, or use [Kleisli
-composition](https://ncatlab.org/nlab/show/Kleisli+category) `<=>`:
+Bind a composite morphism with `define`, and write the pipeline in
+either direction:
 
 <!-- compile: false -->
 ```qvr
-# forward composition (both equivalent):
-let fg = f >> g
-let fg = f >=> g
+# forward composition:
+define fg = f >> g
 
 # backward composition:
-let gf = g << f    # equivalent to f >> g
+define gf = g << f    # equivalent to f >> g
 ```
 
-`<<` reverses the direction of composition; `>=>` is the Kleisli
-composition operator (composes Markov kernels in
-[`Stoch`](../api/stochastic/categories.md) or
-[`Kern`](../api/stochastic/categories.md)).
+`<<` writes the same [Kleisli composition](https://ncatlab.org/nlab/show/Kleisli+category)
+right to left: `g << f` is `f >> g`. Both operators compose in the
+operands' shared algebra and reject a mismatch; to cross algebras,
+insert an explicit `.change_base` between segments.
 
 ### Curry combinators (residuation witnesses)
 
@@ -605,7 +605,7 @@ object X : FinSet 3
 object Y : FinSet 4
 object Z : FinSet 5
 morphism f : X * Y -> Z [role=latent]
-let g = f.curry_right    # g : X -> Z/Y
+define g = f.curry_right    # g : X -> Z/Y
 export g
 ```
 
@@ -619,10 +619,10 @@ Compose morphisms and bind:
 
 <!-- compile: false -->
 ```qvr
-let fg = f >> g
-let par = f @ g
-let marg = fg.marginalize(Y)
-let composed = f >> g >> h
+define fg = f >> g
+define par = f @ g
+define marg = fg.marginalize(Y)
+define composed = f >> g >> h
 ```
 
 For arithmetic and family-argument `let` expressions inside a
@@ -636,7 +636,7 @@ Attach local let-bindings to a top-level let declaration using
 
 <!-- compile: false -->
 ```qvr
-let model = embed >> layers >> output_proj
+define model = embed >> layers >> output_proj
 
 where
 

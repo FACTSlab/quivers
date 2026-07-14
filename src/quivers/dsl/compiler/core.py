@@ -11,11 +11,11 @@ from quivers.dsl.ast_nodes import (
     ContractionDecl,
     DecoderDecl,
     DeductionDecl,
+    DefineDecl,
     EncoderDecl,
     ExportDecl,
     Expr,
     ExprIdent,
-    LetDecl,
     LossDecl,
     Module,
     MorphismDecl,
@@ -79,13 +79,13 @@ class Compiler(
         # bare name (``expectation``, ``log_prob``, …) and
         # constructors invoked with arguments (``softmax(B)``,
         # ``bayes_invert(prior)``).  Disjoint from
-        # `_transformations`, which holds user let-bound
+        # `_transformations`, which holds user define-bound
         # transformations defined inside the module.
         self._trans_singletons: dict = _build_default_trans_singletons()
         self._trans_constructors: dict = _build_default_trans_constructors()
-        # User-defined transformations bound via ``let t = …``.
-        # Disjoint from `_morphisms`: a ``let`` whose RHS
-        # resolves to a transformation lands here; a ``let`` whose
+        # User-defined transformations bound via ``define t = …``.
+        # Disjoint from `_morphisms`: a ``define`` whose RHS
+        # resolves to a transformation lands here; a ``define`` whose
         # RHS resolves to a morphism lands in ``_morphisms``.
         self._transformations: dict = {}
         self._objects: dict[str, SetObject] = {}
@@ -98,7 +98,7 @@ class Compiler(
         # site by parameter substitution + α-renaming of internal latents.
         self._program_templates: dict[str, ProgramDecl] = {}
         # Operadic contraction declarations. Each entry is callable
-        # from the DSL at let-binding sites; the value records the
+        # from the DSL at define-binding sites; the value records the
         # compiled `EinsumWiring` plus the declared domain /
         # codomain typing for shape-checking at invocation time.
         self._contractions: dict[str, "_CompiledContraction"] = {}
@@ -310,8 +310,8 @@ class Compiler(
             self._compile_program(stmt)
         elif isinstance(stmt, ContractionDecl):
             self._compile_contraction(stmt)
-        elif isinstance(stmt, LetDecl):
-            self._compile_let(stmt)
+        elif isinstance(stmt, DefineDecl):
+            self._compile_define(stmt)
         elif isinstance(stmt, ExportDecl):
             self._compile_export(stmt)
         elif isinstance(stmt, DeductionDecl):

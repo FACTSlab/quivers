@@ -61,9 +61,10 @@ def _walk_option_value(t: _Tree, vid: str) -> OptionValue:
     k = t.kind(vid)
     if k == "identifier":
         return OptionName(value=t.text(vid))
-    if k == "integer":
-        return OptionNumber(value=float(t.text(vid)))
-    if k == "float":
+    if k == "signed_number":
+        # A ``signed_number`` wraps an integer or float literal with an
+        # optional leading ``-``; the vertex text spans the sign, so a
+        # single float() conversion carries it into the value.
         return OptionNumber(value=float(t.text(vid)))
     if k == "string":
         text = t.text(vid)

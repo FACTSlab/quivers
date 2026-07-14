@@ -428,7 +428,7 @@ The DSL exposes this through a top-level `let` binding the composition and an `e
 
 <!-- compile: false -->
 ```qvr
-let pq = p >> q
+define pq = p >> q
 export pq
 ```
 

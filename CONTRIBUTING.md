@@ -6,7 +6,7 @@ This guide covers setting up a development environment, understanding the projec
 
 ### Prerequisites
 
-- Python 3.12 or later
+- Python 3.14 or later
 - pip or conda
 - git
 
@@ -51,9 +51,9 @@ quivers/
 ├── src/quivers/                   # Main package
 │   ├── __init__.py
 │   ├── categorical/               # Categorical algebra
-│   ├── continuous/                # Continuous distributions (30+ families)
+│   ├── continuous/                # Continuous distributions (40+ families)
 │   ├── core/                      # Core types and utilities
-│   ├── dsl/                       # QVR DSL (lexer, parser, compiler)
+│   ├── dsl/                       # QVR DSL (grammar walker, compiler, emitter)
 │   ├── enriched/                  # Enriched categories
 │   ├── inference/                 # Variational inference
 │   ├── monadic/                   # Monadic programs (draw, observe, return)
@@ -67,7 +67,7 @@ quivers/
 
 ### Type Hints
 
-Include type hints in all function signatures. Use modern Python 3.12+ syntax:
+Include type hints in all function signatures. Use modern Python 3.14+ syntax:
 
 - Use `dict[K, V]` not `Dict[K, V]`
 - Use `list[T]` not `List[T]`
@@ -129,7 +129,7 @@ Avoid stating the obvious. Comments should explain "why," not "what."
 
 ### Python Version and Modern Features
 
-Maintain compatibility with Python 3.12 and later. Use modern features:
+Maintain compatibility with Python 3.14 and later. Use modern features:
 
 - Type union syntax: `X | None` instead of `Union[X, None]`
 - Positional-only parameters: `def func(a, /, b)`
@@ -138,56 +138,55 @@ Maintain compatibility with Python 3.12 and later. Use modern features:
 
 The QVR DSL processes `.qvr` files through these stages:
 
-### 1. Tokenization (tokens.py)
+### 1. Grammar and parsing (`grammars/qvr/`, `dsl/parser/`)
 
-The lexer breaks source text into tokens. Each token carries type, value, line, and column:
+There is no hand-written lexer or recursive-descent parser. The
+grammar is a [tree-sitter](https://tree-sitter.github.io/) grammar
+(`grammars/qvr/grammar.js`), compiled to a parser that ships vendored
+in `panproto-grammars-all` and is served through panproto's
+`AstParserRegistry`. Parsing a `.qvr` source yields a panproto schema
+(the parse tree as vertices, edges, and field constraints), and the
+walkers in `src/quivers/dsl/parser/` turn that schema into AST nodes.
+The walker rejects any `ERROR` or missing node, so a malformed source
+fails loudly with a line and column rather than parsing to a silently
+different tree.
 
-```python
-class TokenType(Enum):
-    ALGEBRA = auto()
-    OBJECT = auto()
-    PROGRAM = auto()
-    DRAW = auto()
-    OBSERVE = auto()
-    ...
-```
+Editing the grammar means editing `grammar.js`, regenerating with
+`tree-sitter generate`, and re-vendoring through `panproto-grammars-all`;
+the `grammars/qvr/vcs/` panproto store and the `qvr migrate` chain
+carry `.qvr` sources across grammar releases.
 
-Keywords like `program`, `draw`, `observe`, `return` map to specific token types. Operators (`->`, `>>`, `@`, `~`) and punctuation are also tokenized.
+### 2. AST nodes (`dsl/ast_nodes/`)
 
-### 2. Parsing (parser.py)
-
-The recursive descent parser transforms the token stream into an Abstract Syntax Tree (AST). The grammar is documented in the module docstring:
-
-- **Statements**: algebra, object, morphism, space, continuous, stochastic, discretize, embed, program, let, output declarations
-- **Programs**: blocks with draw/observe steps and return statements
-- **Expressions**: identity, composition (>>), tensor product (@), marginalization
-- **Types**: products (*), coproducts (+)
-
-### 3. AST Nodes (ast_nodes.py)
-
-Each syntax construct maps to a dataclass:
+Each grammar production maps to a [didactic](https://github.com/panproto/didactic)
+model, not a dataclass. Statement variants live under a `dx.TaggedUnion`
+keyed on `kind`; leaf records are `dx.Model` subclasses:
 
 ```python
-@dataclass
 class ProgramDecl(Statement):
     name: str
-    params: tuple[str, ...] | None
-    domain: TypeExpr
-    codomain: TypeExpr
-    draws: tuple[DrawStep | LetStep, ...]
-    return_vars: tuple[str, ...]
-    return_labels: tuple[str, ...] | None
+    params: tuple[str, ...] | None = None
+    type_params: tuple[ProgramParam, ...] | None = None
+    domain: ObjectExpr
+    codomain: ObjectExpr
+    options: tuple[OptionEntry, ...] = ()
+    draws: tuple[ProgramStep, ...] = ()
+    return_vars: tuple[str, ...] = ()
+    return_labels: tuple[str, ...] | None = None
+    docs: tuple[str, ...] = ()
+    line: int = 0
+    col: int = 0
+    kind: Literal["program_decl"] = "program_decl"
 ```
 
-### 4. Compilation (compiler.py)
+### 3. Compilation (`dsl/compiler/`)
 
 The compiler walks the AST and builds executable programs:
 
-- Builds up a scope mapping variable names to values
-- Executes draw steps by sampling from morphism distributions
-- Executes observe steps by conditioning
-- Processes let steps to bind computed expressions
-- Returns final values according to the return statement
+- Resolves object and morphism references against the module's declarations.
+- Reads each declaration's option block against a closed key set, reporting an unknown key with a did-you-mean suggestion.
+- Expands surface program steps (`sample`, `observe`, `marginalize`, `let`, `score`) into the internal bind IR.
+- Emits a [`Program`][quivers.program.Program] whose morphism is a Kleisli arrow in the (discrete or continuous) Giry monad.
 
 ## Adding a New Distribution Family
 
@@ -197,31 +196,32 @@ To add a new continuous distribution family:
 
 Create a new class in `src/quivers/continuous/families.py` or a new module:
 
+Distribution families subclass `torch.distributions.Distribution`
+(often alongside the measure-algebra combinators in
+`quivers.continuous.measure`), so they compose with PyTorch's
+sampling and scoring machinery:
+
 ```python
-from dataclasses import dataclass
 import torch
+from torch import Tensor
+from torch.distributions.distribution import Distribution
 
-@dataclass(frozen=True)
-class MyDistribution:
-    """My custom probability distribution.
 
-    Parameters
-    ----------
-    param1 : float
-        First parameter.
-    param2 : float
-        Second parameter.
-    """
-    param1: float
-    param2: float
+class MyDistribution(Distribution):
+    """My custom probability distribution."""
 
-    def sample(self, size: int) -> torch.Tensor:
+    def __init__(self, param1: Tensor, param2: Tensor) -> None:
+        self.param1 = param1
+        self.param2 = param2
+        super().__init__(batch_shape=param1.shape)
+
+    def sample(self, sample_shape: torch.Size = torch.Size()) -> Tensor:
         """Draw samples from this distribution."""
-        pass
+        ...
 
-    def log_prob(self, value: torch.Tensor) -> torch.Tensor:
-        """Compute log probability density."""
-        pass
+    def log_prob(self, value: Tensor) -> Tensor:
+        """Compute the log probability of ``value``."""
+        ...
 ```
 
 ### 2. Register in the DSL
@@ -234,12 +234,12 @@ Create test cases in `tests/continuous/`:
 
 ```python
 def test_mydistribution_sample_shape():
-    dist = MyDistribution(param1=1.0, param2=2.0)
+    dist = MyDistribution(param1=torch.tensor(1.0), param2=torch.tensor(2.0))
     samples = dist.sample(1000)
     assert samples.shape == (1000,)
 
 def test_mydistribution_log_prob():
-    dist = MyDistribution(param1=1.0, param2=2.0)
+    dist = MyDistribution(param1=torch.tensor(1.0), param2=torch.tensor(2.0))
     value = torch.tensor([0.5])
     log_prob = dist.log_prob(value)
     assert log_prob.shape == ()

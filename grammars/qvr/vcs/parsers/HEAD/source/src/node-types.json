@@ -474,47 +474,11 @@
         "required": true,
         "types": [
           {
-            "type": "$>",
-            "named": false
-          },
-          {
-            "type": "%>",
-            "named": false
-          },
-          {
-            "type": "&&>",
-            "named": false
-          },
-          {
-            "type": "*>",
-            "named": false
-          },
-          {
-            "type": "+>",
-            "named": false
-          },
-          {
             "type": "<<",
             "named": false
           },
           {
-            "type": ">=>",
-            "named": false
-          },
-          {
             "type": ">>",
-            "named": false
-          },
-          {
-            "type": "?>",
-            "named": false
-          },
-          {
-            "type": "||>",
-            "named": false
-          },
-          {
-            "type": "~>",
             "named": false
           }
         ]
@@ -609,22 +573,22 @@
           }
         ]
       },
-      "level": {
-        "multiple": false,
-        "required": false,
-        "types": [
-          {
-            "type": "composition_level",
-            "named": true
-          }
-        ]
-      },
       "name": {
         "multiple": false,
         "required": true,
         "types": [
           {
             "type": "identifier",
+            "named": true
+          }
+        ]
+      },
+      "options": {
+        "multiple": false,
+        "required": false,
+        "types": [
+          {
+            "type": "option_block",
             "named": true
           }
         ]
@@ -640,11 +604,6 @@
         }
       ]
     }
-  },
-  {
-    "type": "composition_level",
-    "named": true,
-    "fields": {}
   },
   {
     "type": "composition_rule_entry",
@@ -767,6 +726,51 @@
     }
   },
   {
+    "type": "constructor_kwarg",
+    "named": true,
+    "fields": {
+      "key": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "identifier",
+            "named": true
+          }
+        ]
+      },
+      "value": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "identifier",
+            "named": true
+          },
+          {
+            "type": "signed_number",
+            "named": true
+          }
+        ]
+      }
+    }
+  },
+  {
+    "type": "constructor_options",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": true,
+      "required": true,
+      "types": [
+        {
+          "type": "constructor_kwarg",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
     "type": "continuous_constructor",
     "named": true,
     "fields": {
@@ -843,7 +847,7 @@
         "required": false,
         "types": [
           {
-            "type": "option_block",
+            "type": "constructor_options",
             "named": true
           }
         ]
@@ -962,7 +966,7 @@
       },
       "options": {
         "multiple": false,
-        "required": true,
+        "required": false,
         "types": [
           {
             "type": "option_block",
@@ -1811,6 +1815,116 @@
           }
         ]
       }
+    }
+  },
+  {
+    "type": "define_decl",
+    "named": true,
+    "fields": {
+      "docs": {
+        "multiple": false,
+        "required": false,
+        "types": [
+          {
+            "type": "doc_comment_group",
+            "named": true
+          }
+        ]
+      },
+      "name": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "identifier",
+            "named": true
+          }
+        ]
+      },
+      "value": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "cap_expr",
+            "named": true
+          },
+          {
+            "type": "chart_fold_expr",
+            "named": true
+          },
+          {
+            "type": "compose_expr",
+            "named": true
+          },
+          {
+            "type": "cup_expr",
+            "named": true
+          },
+          {
+            "type": "expr_ident",
+            "named": true
+          },
+          {
+            "type": "expr_paren",
+            "named": true
+          },
+          {
+            "type": "fan_expr",
+            "named": true
+          },
+          {
+            "type": "from_data_expr",
+            "named": true
+          },
+          {
+            "type": "identity_expr",
+            "named": true
+          },
+          {
+            "type": "morphism_call",
+            "named": true
+          },
+          {
+            "type": "parser_expr",
+            "named": true
+          },
+          {
+            "type": "postfix_expr",
+            "named": true
+          },
+          {
+            "type": "repeat_expr",
+            "named": true
+          },
+          {
+            "type": "scan_expr",
+            "named": true
+          },
+          {
+            "type": "stack_expr",
+            "named": true
+          },
+          {
+            "type": "tensor_expr",
+            "named": true
+          },
+          {
+            "type": "trans_compose",
+            "named": true
+          }
+        ]
+      }
+    },
+    "children": {
+      "multiple": true,
+      "required": false,
+      "types": [
+        {
+          "type": "define_decl",
+          "named": true
+        }
+      ]
     }
   },
   {
@@ -3221,116 +3335,6 @@
     }
   },
   {
-    "type": "let_decl",
-    "named": true,
-    "fields": {
-      "docs": {
-        "multiple": false,
-        "required": false,
-        "types": [
-          {
-            "type": "doc_comment_group",
-            "named": true
-          }
-        ]
-      },
-      "name": {
-        "multiple": false,
-        "required": true,
-        "types": [
-          {
-            "type": "identifier",
-            "named": true
-          }
-        ]
-      },
-      "value": {
-        "multiple": false,
-        "required": true,
-        "types": [
-          {
-            "type": "cap_expr",
-            "named": true
-          },
-          {
-            "type": "chart_fold_expr",
-            "named": true
-          },
-          {
-            "type": "compose_expr",
-            "named": true
-          },
-          {
-            "type": "cup_expr",
-            "named": true
-          },
-          {
-            "type": "expr_ident",
-            "named": true
-          },
-          {
-            "type": "expr_paren",
-            "named": true
-          },
-          {
-            "type": "fan_expr",
-            "named": true
-          },
-          {
-            "type": "from_data_expr",
-            "named": true
-          },
-          {
-            "type": "identity_expr",
-            "named": true
-          },
-          {
-            "type": "morphism_call",
-            "named": true
-          },
-          {
-            "type": "parser_expr",
-            "named": true
-          },
-          {
-            "type": "postfix_expr",
-            "named": true
-          },
-          {
-            "type": "repeat_expr",
-            "named": true
-          },
-          {
-            "type": "scan_expr",
-            "named": true
-          },
-          {
-            "type": "stack_expr",
-            "named": true
-          },
-          {
-            "type": "tensor_expr",
-            "named": true
-          },
-          {
-            "type": "trans_compose",
-            "named": true
-          }
-        ]
-      }
-    },
-    "children": {
-      "multiple": true,
-      "required": false,
-      "types": [
-        {
-          "type": "let_decl",
-          "named": true
-        }
-      ]
-    }
-  },
-  {
     "type": "let_factor",
     "named": true,
     "fields": {
@@ -4161,10 +4165,14 @@
           }
         ]
       },
-      "word": {
-        "multiple": false,
+      "words": {
+        "multiple": true,
         "required": true,
         "types": [
+          {
+            "type": ",",
+            "named": false
+          },
           {
             "type": "string",
             "named": true
@@ -4758,10 +4766,14 @@
           }
         ]
       },
-      "name": {
-        "multiple": false,
+      "names": {
+        "multiple": true,
         "required": true,
         "types": [
+          {
+            "type": ",",
+            "named": false
+          },
           {
             "type": "identifier",
             "named": true
@@ -4770,7 +4782,7 @@
       },
       "options": {
         "multiple": false,
-        "required": true,
+        "required": false,
         "types": [
           {
             "type": "option_block",
@@ -5019,10 +5031,14 @@
           }
         ]
       },
-      "name": {
-        "multiple": false,
+      "names": {
+        "multiple": true,
         "required": true,
         "types": [
+          {
+            "type": ",",
+            "named": false
+          },
           {
             "type": "identifier",
             "named": true
@@ -5449,12 +5465,16 @@
           }
         ]
       },
-      "var": {
+      "vars": {
         "multiple": false,
         "required": true,
         "types": [
           {
             "type": "identifier",
+            "named": true
+          },
+          {
+            "type": "var_tuple",
             "named": true
           }
         ]
@@ -5489,15 +5509,11 @@
             "named": false
           },
           {
-            "type": "float",
-            "named": true
-          },
-          {
             "type": "identifier",
             "named": true
           },
           {
-            "type": "integer",
+            "type": "signed_number",
             "named": true
           },
           {
@@ -5537,15 +5553,7 @@
         "required": false,
         "types": [
           {
-            "type": "float",
-            "named": true
-          },
-          {
             "type": "identifier",
-            "named": true
-          },
-          {
-            "type": "integer",
             "named": true
           },
           {
@@ -5554,6 +5562,10 @@
           },
           {
             "type": "option_list",
+            "named": true
+          },
+          {
+            "type": "signed_number",
             "named": true
           },
           {
@@ -5573,15 +5585,11 @@
         "required": false,
         "types": [
           {
-            "type": "float",
-            "named": true
-          },
-          {
             "type": "identifier",
             "named": true
           },
           {
-            "type": "integer",
+            "type": "signed_number",
             "named": true
           },
           {
@@ -5793,15 +5801,7 @@
         "required": false,
         "types": [
           {
-            "type": "float",
-            "named": true
-          },
-          {
             "type": "identifier",
-            "named": true
-          },
-          {
-            "type": "integer",
             "named": true
           },
           {
@@ -5810,6 +5810,10 @@
           },
           {
             "type": "option_list",
+            "named": true
+          },
+          {
+            "type": "signed_number",
             "named": true
           },
           {
@@ -6978,15 +6982,15 @@
           "named": true
         },
         {
+          "type": "define_decl",
+          "named": true
+        },
+        {
           "type": "encoder_decl",
           "named": true
         },
         {
           "type": "export_decl",
-          "named": true
-        },
-        {
-          "type": "let_decl",
           "named": true
         },
         {
@@ -7520,18 +7524,6 @@
     "named": false
   },
   {
-    "type": "$>",
-    "named": false
-  },
-  {
-    "type": "%>",
-    "named": false
-  },
-  {
-    "type": "&&>",
-    "named": false
-  },
-  {
     "type": "(",
     "named": false
   },
@@ -7544,15 +7536,7 @@
     "named": false
   },
   {
-    "type": "*>",
-    "named": false
-  },
-  {
     "type": "+",
-    "named": false
-  },
-  {
-    "type": "+>",
     "named": false
   },
   {
@@ -7596,23 +7580,11 @@
     "named": false
   },
   {
-    "type": "=>",
-    "named": false
-  },
-  {
-    "type": ">=>",
-    "named": false
-  },
-  {
     "type": ">>",
     "named": false
   },
   {
     "type": ">>>",
-    "named": false
-  },
-  {
-    "type": "?>",
     "named": false
   },
   {
@@ -7704,10 +7676,6 @@
     "named": false
   },
   {
-    "type": "algebra",
-    "named": false
-  },
-  {
     "type": "as",
     "named": false
   },
@@ -7717,10 +7685,6 @@
   },
   {
     "type": "attention",
-    "named": false
-  },
-  {
-    "type": "bilinear_form",
     "named": false
   },
   {
@@ -7814,6 +7778,10 @@
   },
   {
     "type": "deduction",
+    "named": false
+  },
+  {
+    "type": "define",
     "named": false
   },
   {
@@ -7946,11 +7914,11 @@
     "named": false
   },
   {
-    "type": "ops",
+    "type": "op",
     "named": false
   },
   {
-    "type": "over",
+    "type": "ops",
     "named": false
   },
   {
@@ -8007,10 +7975,6 @@
   },
   {
     "type": "score",
-    "named": false
-  },
-  {
-    "type": "semigroupoid",
     "named": false
   },
   {
@@ -8078,19 +8042,11 @@
     "named": false
   },
   {
-    "type": "||>",
-    "named": false
-  },
-  {
     "type": "}",
     "named": false
   },
   {
     "type": "~",
-    "named": false
-  },
-  {
-    "type": "~>",
     "named": false
   },
   {
