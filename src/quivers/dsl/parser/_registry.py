@@ -3,12 +3,9 @@
 from __future__ import annotations
 
 import warnings
-from typing import cast
 
 import panproto
 from panproto._native import AstParserRegistry
-
-from quivers.dsl import _dev_grammar
 
 
 class ParseError(Exception):
@@ -25,14 +22,9 @@ _REGISTRY: AstParserRegistry | None = None
 def _registry() -> AstParserRegistry:
     global _REGISTRY
     if _REGISTRY is None:
-        if _dev_grammar.is_active():
-            # `_dev_grammar.registry` builds the same native registry
-            # class behind an untyped ctypes boundary.
-            registry = cast(AstParserRegistry, _dev_grammar.registry())
-        else:
-            with warnings.catch_warnings():
-                warnings.simplefilter("ignore")
-                registry = panproto.AstParserRegistry()
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            registry = panproto.AstParserRegistry()
         if "qvr" not in registry.protocol_names():
             raise ParseError(
                 "panproto registry has no `qvr` protocol; install "

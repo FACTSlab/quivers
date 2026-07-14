@@ -6,11 +6,9 @@ emit``. The second parse must succeed and the two emitted texts must
 be byte-identical: ``module_to_source`` is a canonical fixed point of
 the parse/emit pair.
 
-Requires ``QVR_USE_LOCAL_GRAMMAR=1`` (set by ``tests/conftest.py``,
-and defaulted again here for direct invocation) so parsing picks up
-the in-tree grammar at ``grammars/qvr/``::
+Run with::
 
-    QVR_USE_LOCAL_GRAMMAR=1 pytest tests/test_emit_roundtrip.py
+    pytest tests/test_emit_roundtrip.py
 
 QVR corpus
 ----------
@@ -34,13 +32,11 @@ compiles.
 
 from __future__ import annotations
 
-import os
 import re
 from pathlib import Path
 
 import pytest
 
-os.environ.setdefault("QVR_USE_LOCAL_GRAMMAR", "1")
 
 from quivers.dsl import parse
 from quivers.dsl.emit import module_to_source

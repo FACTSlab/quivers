@@ -12,22 +12,19 @@ kernels. The negative path checks that a bundle member naming nothing
 raises the compiler's unknown-rule diagnostic at the ``parser(...)``
 use site.
 
-Requires ``QVR_USE_LOCAL_GRAMMAR=1`` (set by ``tests/conftest.py``,
-and defaulted again here for direct invocation)::
+Run with::
 
-    QVR_USE_LOCAL_GRAMMAR=1 pytest tests/test_dsl_schema_bundle_parser.py
+    pytest tests/test_dsl_schema_bundle_parser.py
 """
 
 from __future__ import annotations
 
-import os
 import textwrap
 from pathlib import Path
 
 import pytest
 import torch
 
-os.environ.setdefault("QVR_USE_LOCAL_GRAMMAR", "1")
 
 from quivers.dsl import CompileError, loads
 from quivers.dsl.compiler import Compiler

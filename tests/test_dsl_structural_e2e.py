@@ -8,20 +8,15 @@ attached reconstruction loss. Negative cases pin the structural
 diagnostics for unknown option keys, ops outside the signature, and
 unresolved sort dims.
 
-Requires ``QVR_USE_LOCAL_GRAMMAR=1`` (set by ``tests/conftest.py``,
-and defaulted again here for direct invocation) so parsing picks up
-the in-tree grammar at ``grammars/qvr/``.
 """
 
 from __future__ import annotations
 
-import os
 import textwrap
 from collections.abc import Mapping
 from pathlib import Path
 from typing import cast
 
-os.environ.setdefault("QVR_USE_LOCAL_GRAMMAR", "1")
 
 import pytest
 import torch

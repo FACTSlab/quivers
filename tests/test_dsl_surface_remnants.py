@@ -20,12 +20,10 @@ coverage elsewhere in the suite:
 
 from __future__ import annotations
 
-import os
 import textwrap
 from pathlib import Path
 from typing import cast
 
-os.environ.setdefault("QVR_USE_LOCAL_GRAMMAR", "1")
 
 import torch
 import torch.nn as nn

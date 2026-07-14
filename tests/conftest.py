@@ -14,15 +14,6 @@ marker filter for the current invocation.
 
 from __future__ import annotations
 
-import os
-
-# Activate the local-grammar override before any quivers import so the
-# whole test run parses against the in-tree grammar at `grammars/qvr/`
-# rather than whatever `panproto-grammars-all` ships for `qvr`. The
-# override compiles the committed `parser.c` on demand, so a working C
-# compiler is the only requirement.
-os.environ.setdefault("QVR_USE_LOCAL_GRAMMAR", "1")
-
 
 def pytest_addoption(parser):
     parser.addoption(

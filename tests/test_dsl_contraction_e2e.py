@@ -22,13 +22,11 @@ site. The suite checks four contracts:
 
 from __future__ import annotations
 
-import os
 from pathlib import Path
 
 import pytest
 import torch
 
-os.environ.setdefault("QVR_USE_LOCAL_GRAMMAR", "1")
 
 from quivers.core.morphisms import ObservedMorphism
 from quivers.core.wiring import EinsumWiring

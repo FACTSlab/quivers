@@ -18,7 +18,7 @@ reports:
 
 Invoked from CI or interactively::
 
-    QVR_USE_LOCAL_GRAMMAR=1 python -m tests.benchmarks.runner
+    python -m tests.benchmarks.runner
 
 The runner respects seeds and is deterministic given the same
 torch / numpy versions.
@@ -934,7 +934,7 @@ def emit_markdown(
     lines.append("## Reproducing the grid")
     lines.append("")
     lines.append("```bash")
-    lines.append("QVR_USE_LOCAL_GRAMMAR=1 python -m tests.benchmarks.runner")
+    lines.append("python -m tests.benchmarks.runner")
     lines.append("```")
     lines.append("")
     lines.append(

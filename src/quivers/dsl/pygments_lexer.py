@@ -1,8 +1,8 @@
 """Pygments lexer for the QVR domain-specific language.
 
-The lexer drives on the in-tree tree-sitter parser (loaded via the
-[`quivers.dsl._dev_grammar`][quivers.dsl._dev_grammar] shim) so it always reflects the
-authoritative grammar; there is no regex approximation. When the
+The lexer drives on the in-tree tree-sitter parser (compiled via
+[`quivers.dsl._grammar_build`][quivers.dsl._grammar_build]) so it always reflects
+the authoritative grammar; there is no regex approximation. When the
 shared library cannot be built, lexer construction raises with a
 typed diagnostic so the failure is visible at the rendering site
 rather than silently producing a degraded highlight.
@@ -37,7 +37,7 @@ from pygments.token import (
     _TokenType,
 )
 
-from quivers.dsl._dev_grammar import _build_shared_lib, _grammar_dir
+from quivers.dsl._grammar_build import _build_shared_lib, _grammar_dir
 from quivers.dsl._grammar_introspection import (
     BUILTIN_FUNCTIONS as _GRAMMAR_BUILTIN_FUNCTIONS,
     BUILTIN_TYPES as _GRAMMAR_BUILTIN_TYPES,
