@@ -10,7 +10,7 @@ Every morphism, kernel, latent, observed, embed, and discretize binding ships th
 morphism f : DOM -> COD [k = v, ...] [~ INIT]
 ```
 
-with the *role* selected by the option block:
+with the *role* selected by the option block; `kernel` is the default, so a `morphism` with no `role=` key is a kernel and the other roles are named explicitly:
 
 | `role=...` | Stratum                                    | Initialiser admitted | Default initializer |
 |------------|--------------------------------------------|----------------------|----------------------|
@@ -222,7 +222,7 @@ Each registered family carries a declared *event rank* $r_F \in \mathbb{N}$.
 | 1 | `MultivariateNormal`, `LowRankMVN`, `Dirichlet`, `LogisticNormal`, `RelaxedOneHotCategorical`, `GP`, `Horseshoe` | $\mathbb{R}^{d}$ for a single named axis |
 | 2 | `Wishart`, `LKJCholesky` | $\mathbb{R}^{d_1 \times d_2}$ for two named axes |
 
-Every family in the table is installed in the unified family catalog by [`_register_family`](../api/continuous/families.md) (directly for the bespoke families, via [`_make_family`](../api/continuous/families.md) for the auto-generated wrappers around `torch.distributions`). Each is therefore equally usable as a conditional morphism (`[role=kernel]` / `[role=latent]` with a `~ Family(args)` initializer) and as an inline draw site (`sample x <- Family(args)`). The parameter map, support, and `log_prob` semantics are uniform across the two call paths.
+Every family in the table is installed in the unified family catalog by [`_register_family`](../api/continuous/families.md) (directly for the bespoke families, via [`_make_family`](../api/continuous/families.md) for the auto-generated wrappers around `torch.distributions`). Each is therefore equally usable as a conditional morphism (a kernel or `[role=latent]` morphism with a `~ Family(args)` initializer) and as an inline draw site (`sample x <- Family(args)`). The parameter map, support, and `log_prob` semantics are uniform across the two call paths.
 
 A distribution clause `~ F(args) over <axes> [iid over <axes>]` *configures* the event–batch decomposition of a $F$-valued draw. Concretely, for a morphism $f : A \to B$ whose representing tensor has shape $\prod_{i} d_i$ indexed by the named factors $\{a_1, \dots, a_m\}$ of $A$ and $\{b_1, \dots, b_n\}$ of $B$, the clause names a sub-multiset $E \subseteq \{a_i\} \cup \{b_j\}$ of cardinality $|E| = r_F$ and declares:
 

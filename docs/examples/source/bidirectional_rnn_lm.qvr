@@ -1,10 +1,10 @@
 # Bayesian Bidirectional RNN Masked Language Model
 #
-# A bidirectional RNN used as a masked language model. The
-# forward path scans left to right; the backward path scans an
-# independently-parameterised cell over the reversed sequence;
-# a combine morphism merges the two directional streams, and a
-# Categorical lm_head over Token scores the masked-token target.
+# A bidirectional RNN used as a masked language model. Two
+# independently-parameterised cells each scan the token
+# sequence left to right; a combine morphism merges the two
+# streams, and a Categorical lm_head over Token scores the
+# masked-token target.
 #
 # Generative structure:
 #
@@ -13,8 +13,8 @@
 #   h        ~ combine(h_fwd, h_bwd)           merged representation
 #   masked_t ~ Categorical(lm_head(h))         observed masked token
 #
-# The fan-out fan(forward_path, backward_path) runs forward and
-# backward in parallel over the same token sequence in the
+# The fan-out fan(forward_path, backward_path) runs the two
+# paths in parallel over the same token sequence in the
 # Kleisli category; the backbone is
 # fan(forward_path, backward_path) >> combine. Because each
 # masked position is conditioned on both left and right context,
@@ -23,20 +23,18 @@
 # Reference: [Devlin et al. 2019](https://doi.org/10.18653/v1/N19-1423).
 
 object Token : FinSet 256
-object Embedded : Real 64
-object FwdHidden : Real 64
-object BwdHidden : Real 64
+object Embedded, FwdHidden, BwdHidden : Real 64
 object Combined : Real 128
 
 morphism tok_embed : Token -> Embedded [role=embed]
-morphism fwd_cell : Embedded * FwdHidden -> FwdHidden [role=kernel, scale=0.1] ~ Normal
-morphism bwd_cell : Embedded * BwdHidden -> BwdHidden [role=kernel, scale=0.1] ~ Normal
-morphism combine : Combined -> Combined [role=kernel, scale=0.1] ~ Normal
-morphism lm_head : Combined -> Token [role=kernel] ~ Categorical
+morphism fwd_cell : Embedded * FwdHidden -> FwdHidden [scale=0.1] ~ Normal
+morphism bwd_cell : Embedded * BwdHidden -> BwdHidden [scale=0.1] ~ Normal
+morphism combine : Combined -> Combined [scale=0.1] ~ Normal
+morphism lm_head : Combined -> Token ~ Categorical
 
-let forward_path = tok_embed >> scan(fwd_cell)
-let backward_path = tok_embed >> scan(bwd_cell)
-let backbone = fan(forward_path, backward_path) >> combine
+define forward_path = tok_embed >> scan(fwd_cell)
+define backward_path = tok_embed >> scan(bwd_cell)
+define backbone = fan(forward_path, backward_path) >> combine
 
 program bidirectional_rnn_lm : Token -> Token
     sample h <- backbone

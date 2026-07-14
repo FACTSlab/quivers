@@ -21,16 +21,16 @@ object Hidden : Real 32
 object State : Real 8
 object Obs : Real 4
 
-morphism trans_mlp_1 : Driver * State -> Hidden [role=kernel, scale=0.5] ~ Normal
-morphism trans_mlp_2 : Hidden -> State [role=kernel, scale=0.1] ~ Normal
-morphism emit_mlp_1 : State -> Hidden [role=kernel, scale=0.5] ~ Normal
-morphism emit_mlp_2 : Hidden -> Obs [role=kernel, scale=0.1] ~ Normal
-morphism infer_cell : Obs * State -> State [role=kernel, scale=0.1] ~ Normal
+morphism trans_mlp_1 : Driver * State -> Hidden [scale=0.5] ~ Normal
+morphism trans_mlp_2 : Hidden -> State [scale=0.1] ~ Normal
+morphism emit_mlp_1 : State -> Hidden [scale=0.5] ~ Normal
+morphism emit_mlp_2 : Hidden -> Obs [scale=0.1] ~ Normal
+morphism infer_cell : Obs * State -> State [scale=0.1] ~ Normal
 
-let transition_cell = trans_mlp_1 >> trans_mlp_2
-let emission = emit_mlp_1 >> emit_mlp_2
-let generate = scan(transition_cell) >> emission
-let recognize = scan(infer_cell)
+define transition_cell = trans_mlp_1 >> trans_mlp_2
+define emission = emit_mlp_1 >> emit_mlp_2
+define generate = scan(transition_cell) >> emission
+define recognize = scan(infer_cell)
 
 export recognize
 ```
@@ -73,7 +73,7 @@ state_seq = s[1:].unsqueeze(0)
 
 ### SVI fit
 
-The exported `recognize` is a [`ScanMorphism`](../api/continuous/scan.md) whose MLP weights are `[role=kernel]` parameters without explicit priors; [`bayesian_lift_parameters`](../api/inference/lifts.md#quivers.inference.lifts.bayesian_lift_parameters) lifts each leaf into a unit-Normal sample site so [`AutoNormalGuide`](../api/inference/guide.md#quivers.inference.guides.AutoNormalGuide) can build a mean-field surrogate. The thin `DictWrap` adapter exposes `log_joint(x, obs_dict)` over the scan's positional state-trajectory argument.
+The exported `recognize` is a [`ScanMorphism`](../api/continuous/scan.md) whose MLP weights are kernel parameters without explicit priors; [`bayesian_lift_parameters`](../api/inference/lifts.md#quivers.inference.lifts.bayesian_lift_parameters) lifts each leaf into a unit-Normal sample site so [`AutoNormalGuide`](../api/inference/guide.md#quivers.inference.guides.AutoNormalGuide) can build a mean-field surrogate. The thin `DictWrap` adapter exposes `log_joint(x, obs_dict)` over the scan's positional state-trajectory argument.
 
 ```python
 from quivers.inference import AutoNormalGuide, ELBO, SVI, bayesian_lift_parameters

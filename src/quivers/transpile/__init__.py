@@ -41,7 +41,7 @@ from quivers.transpile._api import (
     UnsupportedConstruct,
     unsupported_for,
 )
-from quivers.transpile._expand_composites import expand_composite_lets
+from quivers.transpile._expand_composites import expand_composite_defines
 from quivers.transpile._pipeline import (
     EmitPretty,
     SchemaTransform,
@@ -97,12 +97,12 @@ def transpile(module: Module, *, target: str) -> bytes:
     # `Emitter.emit_instance` is typed `(Model) -> bytes`; quivers
     # backends accept a `Module` instead. The Emitter Protocol is
     # `runtime_checkable` and duck-typed; the cast is the static-type
-    # boundary. Before dispatch, expand composite-let bindings (the
-    # `let chain = prior >> likelihood` form) into atomic sample
-    # chains so each backend walker sees only simple per-step
+    # boundary. Before dispatch, expand composite-define bindings
+    # (the `define chain = prior >> likelihood` form) into atomic
+    # sample chains so each backend walker sees only simple per-step
     # morphism references.
     return cast("Backend", emitter).emit_instance(
-        expand_composite_lets(module, target=target)
+        expand_composite_defines(module, target=target)
     )
 
 

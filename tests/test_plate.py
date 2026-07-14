@@ -18,12 +18,7 @@ test once the inference layer recognizes plate-draw sites.
 
 from __future__ import annotations
 
-import os
-
 import torch
-
-# Ensure the local-grammar override is on for parser-driven tests.
-os.environ.setdefault("QVR_USE_LOCAL_GRAMMAR", "1")
 
 
 # ---------------------------------------------------------------------------

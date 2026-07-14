@@ -10,8 +10,8 @@ A continuous state-space model extends the HMM to continuous latent states and o
 object State : Real 16
 object Obs : Real 8
 
-morphism transition : State -> State [role=kernel, scale=0.1] ~ Normal
-morphism emission : State -> Obs [role=kernel, scale=0.1] ~ Normal
+morphism transition : State -> State [scale=0.1] ~ Normal
+morphism emission : State -> Obs [scale=0.1] ~ Normal
 
 program generative_step : State -> State
     sample s_new <- transition
@@ -19,13 +19,13 @@ program generative_step : State -> State
     observe o <- emission(s_new)
     return s_new
 
-morphism inference_cell : Obs * State -> State [role=kernel, scale=0.1] ~ Normal
+morphism inference_cell : Obs * State -> State [scale=0.1] ~ Normal
 
-let filter = scan(inference_cell)
+define filter = scan(inference_cell)
 
-morphism decoder : State -> Obs [role=kernel, scale=0.1] ~ Normal
+morphism decoder : State -> Obs [scale=0.1] ~ Normal
 
-let filter_and_reconstruct = scan(inference_cell) >> decoder
+define filter_and_reconstruct = scan(inference_cell) >> decoder
 
 export generative_step
 export filter_and_reconstruct
@@ -35,13 +35,13 @@ export filter_and_reconstruct
 
 `object State : Real 16` and `object Obs : Real 8` introduce the two Euclidean spaces: a 16-dimensional latent and an 8-dimensional observation.
 
-`morphism transition : State -> State [role=kernel, scale=0.1] ~ Normal` evolves the latent state by one time step under a Normal kernel whose mean is a learned linear function of the previous state and whose prior scale is 0.1. `morphism emission : State -> Obs [role=kernel, scale=0.1] ~ Normal` projects a state to an observation under the same kernel family.
+`morphism transition : State -> State [scale=0.1] ~ Normal` evolves the latent state by one time step under a Normal kernel whose mean is a learned linear function of the previous state and whose prior scale is 0.1. `morphism emission : State -> Obs [scale=0.1] ~ Normal` projects a state to an observation under the same kernel family.
 
 `program generative_step : State -> State` is a one-step monadic program: `sample s_new <- transition` draws the new latent state from the transition kernel, `observe o <- emission(s_new)` scores an observation against the emission kernel, and `return s_new` projects the program's joint kernel onto the new state. To unroll over time, this single-step program is composed with itself via `repeat` or threaded through `scan`.
 
-`morphism inference_cell : Obs * State -> State [role=kernel, scale=0.1] ~ Normal` is a recurrent cell that incorporates a new observation into the running state estimate. `let filter = scan(inference_cell)` constructs a temporal-recurrence morphism that threads state across a sequence of observations.
+`morphism inference_cell : Obs * State -> State [scale=0.1] ~ Normal` is a recurrent cell that incorporates a new observation into the running state estimate. `define filter = scan(inference_cell)` constructs a temporal-recurrence morphism that threads state across a sequence of observations.
 
-`morphism decoder : State -> Obs [role=kernel, scale=0.1] ~ Normal` decodes a state back to observation space; `let filter_and_reconstruct = scan(inference_cell) >> decoder` composes the scan with the decoder so the exported pipeline filters and reconstructs in one composite.
+`morphism decoder : State -> Obs [scale=0.1] ~ Normal` decodes a state back to observation space; `define filter_and_reconstruct = scan(inference_cell) >> decoder` composes the scan with the decoder so the exported pipeline filters and reconstructs in one composite.
 
 ## Try it
 
@@ -76,7 +76,7 @@ sites = {"s_new": s[1:T + 1], "o": o}
 
 ### SVI fit
 
-The exported program is a single-step [`MonadicProgram`](../api/monadic/monads.md) with no explicit priors on the kernel parameter networks; [`bayesian_lift_parameters`](../api/inference/lifts.md#quivers.inference.lifts.bayesian_lift_parameters) lifts each leaf parameter into a unit-Normal sample site so [`AutoNormalGuide`](../api/inference/guide.md#quivers.inference.guides.AutoNormalGuide) can build a mean-field surrogate. With both `s_new` and `o` observed, the ELBO is the parameter-marginal log-likelihood of the full trajectory.
+The exported program is a single-step [`MonadicProgram`](../api/continuous/programs.md#quivers.continuous.programs.MonadicProgram) with no explicit priors on the kernel parameter networks; [`bayesian_lift_parameters`](../api/inference/lifts.md#quivers.inference.lifts.bayesian_lift_parameters) lifts each leaf parameter into a unit-Normal sample site so [`AutoNormalGuide`](../api/inference/guide.md#quivers.inference.guides.AutoNormalGuide) can build a mean-field surrogate. With both `s_new` and `o` observed, the ELBO is the parameter-marginal log-likelihood of the full trajectory.
 
 ```python
 from quivers.inference import bayesian_lift_parameters
@@ -127,6 +127,6 @@ print("divergences:", int(result.divergence_counts.sum()))
 
 ## Categorical Perspective
 
-The `scan` combinator implements Kleisli composition threaded through time. Given a step morphism $f : S \to S$ in the Kleisli category (where $S$ carries both state and noise), `scan` produces the $n$-fold composition $f^n$ while collecting all intermediate results. Because Kleisli composition is associative, the computation decomposes into local single-step updates, which is why online/streaming inference works: each filtering step depends only on the previous belief and the current observation, not on the full history.
+The `scan` combinator implements [Kleisli composition](https://en.wikipedia.org/wiki/Kleisli_category) threaded through time. Given a step morphism $f : S \to S$ in the [Giry monad](https://doi.org/10.1007/BFb0092872)'s [Kleisli category](https://ncatlab.org/nlab/show/Kleisli+category) (where $S$ carries both state and noise), `scan` produces the $n$-fold composition $f^n$ while collecting all intermediate results. Because Kleisli composition is associative, the computation decomposes into local single-step updates, which is why online/streaming inference works: each filtering step depends only on the previous belief and the current observation, not on the full history.
 
 The generative program `generative_step` and the filtering pipeline `filter_and_reconstruct` are built from the same underlying kernels but run in opposite directions: the generative path threads the `transition` and `emission` morphisms forward to produce states and observations, while the filtering path threads `inference_cell` over the observed sequence and uses `observe` to invert the observation morphism. The inversion is Bayes' rule expressed as conditioning in the Kleisli category, and the `scan` combinator threads it through the full sequence.

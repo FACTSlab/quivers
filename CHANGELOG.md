@@ -4,6 +4,49 @@ All notable changes to the quivers library are documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/), and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.15.0] - 2026-07-02
+
+### Changed
+
+#### Grammar surface
+
+- **Optional option blocks and a default role.** `morphism` and `contraction` declarations no longer require an option block, and a morphism without `role=` is a kernel. The other roles (`latent`, `observed`, `embed`, `discretize`, `let`) remain explicit. `morphism f : A -> B` is now a complete declaration.
+- **Brace-delimited constructor options.** Continuous-space constructors take keyword options in braces: `Real 1 {low=-1.0, high=1.0}`. A trailing `[...]` always belongs to the enclosing declaration, so the constructor-versus-declaration attachment of an option block is decided by syntax rather than by parse-order luck, and the grammar is now conflict-free.
+- **Signed and scientific numeric literals.** Option values, option-list items, option-call arguments, and constructor keyword values accept signed numbers; floats admit trailing-dot (`1.`), leading-dot (`.5`), and exponent (`1e-3`, `2.5e-3`) forms.
+- **One turnstile.** Top-level `rule` declarations state their conclusion with `|-` (or `⊢`), the same marker deduction rules use.
+- **Homogenized declaration headers.** `bundle NAME : [...]` and `decoder NAME : SIG` use the same `:` connective as every other declaration; the composition level moves into the option block (`composition NAME [level=algebra]`).
+- **`define` binds morphism expressions.** The top-level value binding is `define NAME = EXPR`, with `where` blocks of nested defines scoped to the binding; the program-step `let` binds tensor arithmetic. The two binding forms no longer share a keyword.
+- **Plural-name declarations.** `object A, B : V`, `morphism f, g : A -> B`, and lexicon entries `"a", "an" : CAT = LF` declare one item per name with shared shape and independent parameters, matching the existing `category` list form.
+- **Parenthesized variable patterns.** `sample (a, b) <- f` and `return (a, b)` share one tuple shape; `observe` accepts the same pattern and reports a clear arity error for tuples, which its runtime does not support.
+- **Keyword-led encoder rules.** Encoder constructor rewrites carry a leading `op` (`op App(fun, arg) |-> ...`), so an operator named `dim` or `init` cannot shadow the sibling entry keywords.
+- **Composition operators.** Sequential composition is `>>` and `<<` (the same pipeline written right to left), transformation composition is `>>>`, and the tensor product is `@`. The algebra-tagged operator family (`>=>`, `*>`, `~>`, `||>`, `?>`, `&&>`, `+>`, `$>`, `%>`) is gone; algebra-tagged composition is expressed with `.change_base(...)` or a `composition` declaration.
+- **Migration.** `qvr migrate --from v0.14.0 --to v0.15.0` rewrites sources across all of the above with byte-preserving span edits; the hop is registered on the migration chain with full coverage of the removed rules, and every repository `.qvr` file and fenced doc block is migrated. When a source cannot be migrated (a removed compose operator has no rewrite), the CLI reports the location and exits non-zero rather than raising.
+
+#### Packaging
+
+- **The QVR grammar ships vendored.** Parsing goes through the `qvr` grammar bundled in `panproto-grammars-all`; the floor moves to `panproto>=0.58.0` and `panproto-grammars-all>=0.58.0`, which vendor the current surface and surface tree-sitter's inserted (MISSING) tokens to the walker.
+
+#### Diagnostics
+
+- **Malformed input is rejected, never reinterpreted.** Parsing fails loudly on any damaged span anywhere in the tree, with the innermost offending token's line, column, and source snippet. Inputs that previously parsed to a silently different model, such as `[low=-1.0]` dropping its sign, `[scale=.5]` reading as `5.0`, a mis-bracketed `sample` step vanishing from the program, or a declaration truncated by an unbalanced `{` or `[`, now raise `ParseError` at the exact position.
+- **Closed option-key sets with suggestions.** Every declaration and step kind validates its option keys; an unknown key raises at the entry's own position with a did-you-mean suggestion and the valid set, and a constructor key such as `low` on a declaration adds the hint to attach it with braces on the codomain.
+- **Named failure for a missing `return`.** A program body without a return step reports that directly instead of leaking an internal registry message, and a `Program` holding only parametric templates raises a typed error naming the template and its instantiation call when `.domain` is touched.
+
+### Added
+
+- **A complete source emitter.** [`module_to_source`](https://FACTSlab.github.io/quivers/api/dsl/emit) covers every AST node kind, and a round-trip suite asserts that parsing, emitting, and re-parsing reaches a byte-identical canonical fixed point over every repository `.qvr` file and fenced doc block. LSP formatting uses it directly.
+- **Four gallery examples with end-to-end tests.** A schema-bundled categorial chart parser (`schema`, `bundle`, `parser(...)`, `chart_fold(...)`), a bilinear tensor contraction (`contraction` with operadic three-way wiring), a term autoencoder (`signature`, `encoder`, `decoder`, `loss`), and parametric partial pooling (typed program parameters, labeled return tuples, `score` steps, `export` selection). Tests also cover file-loaded and plural-word lexicons, `define ... where`, doc comments, `.curry_left`/`.curry_right`/`.trace`, and `from_data` tensors flowing through inference.
+- **A diagnostics regression suite** pinning the rejected-input catalogue and message quality, including line and column accuracy.
+
+- **Editor and highlighting support.** The tree-sitter corpus (fifty cases), the VS Code and Zed extensions, and the Pygments lexer that renders `qvr` blocks in the docs all track the current surface.
+
+### Fixed
+
+- **`parser(...)` and `chart_fold(...)` keyword arguments.** The walkers read argument keywords from anonymous-token field constraints; every argument was previously dropped, so no surface form of either expression could compile.
+- **`<<` composition** compiles as the reversed pipeline of `>>`, and reverse chains expand right to left in the transpiler.
+- **Cyclic deductions converge in linearly many agenda pops.** The FIFO agenda merges contributions pushed for an item that is already pending via the semiring's plus, so a contractive cycle reaches its `tolerance` fixed point with at most one queue entry per item per wavefront; previously every contribution was enqueued separately and the pending-entry count grew geometrically with derivation depth.
+- **`bounded` rule weights carry a joint sub-stochastic cap.** Each bounded rule's per-firing factor is strictly below one over the count of the deduction's bounded rules, so the total mass an item can push through them stays below 1 and interlocking cycles (e.g. an introduction / elimination pair over nested constructors) stay contractive for every parameter value; the previous per-rule cap of 1 left such systems free to diverge under fitting.
+
 ## [0.14.1] - 2026-07-01
 
 ### Fixed

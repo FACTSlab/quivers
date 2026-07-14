@@ -21,6 +21,7 @@ The rules are deliberate:
 
 from __future__ import annotations
 
+from difflib import get_close_matches
 from typing import overload
 
 from quivers.dsl.ast_nodes import (
@@ -34,6 +35,43 @@ from quivers.dsl.ast_nodes import (
     OptionValue,
 )
 from quivers.dsl.compiler._prelude import CompileError
+
+# Keys that belong to a continuous-space constructor's brace-delimited
+# keyword block (``Real 1 {low=-1.0, high=1.0}``).  When one of these
+# shows up in a declaration's ``[...]`` option block the user almost
+# certainly meant to attach it to the codomain constructor, so the
+# unknown-key error carries a dedicated hint.
+_CONSTRUCTOR_OPTION_KEYS: frozenset[str] = frozenset({"low", "high"})
+
+
+def check_option_keys(
+    options: tuple[OptionEntry, ...],
+    allowed: frozenset[str],
+    *,
+    owner: str,
+    line: int = 0,
+    col: int = 0,
+) -> None:
+    """Reject any option entry whose key is outside ``allowed``.
+
+    Every declaration / step kind that reads options declares its
+    closed key set next to the code that consumes it and calls this
+    checker before decoding individual keys. The error points at the
+    offending entry's own line/col and offers a did-you-mean
+    suggestion over the allowed set.
+    """
+    for entry in options:
+        if entry.key in allowed:
+            continue
+        ln, cl = _at(line, col, entry)
+        parts = [f"{owner}: unknown option {entry.key!r}"]
+        matches = get_close_matches(entry.key, sorted(allowed), n=1)
+        if matches:
+            parts.append(f"; did you mean {matches[0]!r}?")
+        if entry.key in _CONSTRUCTOR_OPTION_KEYS:
+            parts.append("; constructor options attach with braces: Real 1 {low=...}")
+        parts.append(f" valid options: {sorted(allowed)}")
+        raise CompileError("".join(parts), ln, cl)
 
 
 def find_option(options: tuple[OptionEntry, ...], key: str) -> OptionEntry | None:
@@ -323,6 +361,7 @@ def get_option_value(options: tuple[OptionEntry, ...], key: str) -> OptionValue 
 
 
 __all__ = [
+    "check_option_keys",
     "find_option",
     "get_option_call",
     "get_option_flag",

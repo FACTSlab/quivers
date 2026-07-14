@@ -1,0 +1,5 @@
+# Toy lexicon fixture: word <TAB> category <TAB> logical form.
+the	Det	the_lf
+a	Det	a_lf
+dog	N	dog_lf
+cat	N	cat_lf

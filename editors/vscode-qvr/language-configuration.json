@@ -53,7 +53,7 @@
     ]
   ],
   "indentationRules": {
-    "increaseIndentPattern": "^\\s*(program|latent|observed|continuous|stochastic|discretize|embed|contraction|algebra|semigroupoid|bilinear_form|composition_rule|marginalize)\\b.*$",
-    "decreaseIndentPattern": "^\\s*(return)\\b"
+    "increaseIndentPattern": "^\\s*(program|deduction|signature|encoder|decoder|loss|composition|marginalize)\\b.*$|^\\s*(lexicon|sorts|constructors|binders|vertex_kinds|edge_kinds)\\s*$|.*\\bwhere\\s*$|.*[\\[({]\\s*$",
+    "decreaseIndentPattern": "^\\s*(return\\b.*|[\\])}].*)$"
   }
 }

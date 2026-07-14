@@ -34,7 +34,7 @@ Python markers don't collide:
 
 Run with the rest of the suite::
 
-    QVR_USE_LOCAL_GRAMMAR=1 pytest tests/test_doc_blocks.py
+    pytest tests/test_doc_blocks.py
 
 CI gates the doc surface on this file: a release-blocking failure here
 means a published example doesn't compile or doesn't run.

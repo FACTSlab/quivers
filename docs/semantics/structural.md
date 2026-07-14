@@ -200,7 +200,7 @@ Undirected edges (`--`) emit messages in both directions; directed edges (`->`) 
 
 ## 3. Decoders
 
-A `decoder D over Σ depth d` declaration denotes, for each object sort $s \in S_{\mathrm{obj}}$ and each syntactic de Bruijn context $\Gamma$ (§1.2), a *Markov kernel*
+A `decoder D : Σ [depth=d]` declaration denotes, for each object sort $s \in S_{\mathrm{obj}}$ and each syntactic de Bruijn context $\Gamma$ (§1.2), a *Markov kernel*
 
 $$
 \llbracket D \rrbracket_{s, \Gamma} \;:\; \mathbb{R}^{d_s} \;\longrightarrow\; \mathcal{G}\bigl(T_\Sigma(\Gamma, s)\bigr),

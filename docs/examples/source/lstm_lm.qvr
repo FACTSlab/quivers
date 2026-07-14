@@ -26,11 +26,9 @@ object Embedded : Real 64
 object Hidden : Real 128
 
 morphism tok_embed : Token -> Embedded [role=embed]
-morphism gate_i : Embedded * Hidden -> Hidden [role=kernel] ~ LogitNormal
-morphism gate_f : Embedded * Hidden -> Hidden [role=kernel] ~ LogitNormal
-morphism gate_o : Embedded * Hidden -> Hidden [role=kernel] ~ LogitNormal
-morphism cell_cand : Embedded * Hidden -> Hidden [role=kernel, scale=0.5] ~ Normal
-morphism lm_head : Hidden -> Token [role=kernel] ~ Categorical
+morphism gate_i, gate_f, gate_o : Embedded * Hidden -> Hidden ~ LogitNormal
+morphism cell_cand : Embedded * Hidden -> Hidden [scale=0.5] ~ Normal
+morphism lm_head : Hidden -> Token ~ Categorical
 
 program lstm_cell(x_t, h_prev) : Embedded * Hidden -> Hidden
     sample i_gate <- gate_i(x_t, h_prev)
@@ -45,7 +43,7 @@ program lstm_cell(x_t, h_prev) : Embedded * Hidden -> Hidden
     let h_new = o_gate * tanh_c
     return h_new
 
-let backbone = tok_embed >> scan(lstm_cell)
+define backbone = tok_embed >> scan(lstm_cell)
 
 program lstm_lm : Token -> Token
     sample h <- backbone

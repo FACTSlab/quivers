@@ -403,7 +403,7 @@ def build_plate_graph(  # type: ignore[no-untyped-def]
                 for a in args:
                     edges.append(Edge(src=a, dst=name))
             elif isinstance(step, ObserveStep):
-                name = step.var
+                name = step.vars[0]
                 plates = _plates_for_step(step, parent_plates)
                 for p in plates:
                     if p not in plate_names:

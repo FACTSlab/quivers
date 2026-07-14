@@ -8,21 +8,20 @@ $$
 r_{u, m} \mid U_{:, u}, V_{:, m} \sim \mathcal{N}(\langle U_{:, u}, V_{:, m} \rangle, \sigma_{\text{obs}}^2).
 $$
 
-In quivers, the two factor matrices are arrows $U : \mathsf{LatentDim} \to \mathsf{User}$ and $V : \mathsf{LatentDim} \to \mathsf{Movie}$ carrying [matrix-normal](https://en.wikipedia.org/wiki/Matrix_normal_distribution) priors. The bilinear score is the composition $U^\dagger \mathbin{>>} V : \mathsf{User} \to \mathsf{Movie}$, whose `(u, m)` entry is the inner product $\sum_k U_{k, u} V_{k, m}$. Under `composition real as algebra` this composition is the canonical PMF rating-mean matmul.
+In quivers, the two factor matrices are arrows $U : \mathsf{LatentDim} \to \mathsf{User}$ and $V : \mathsf{LatentDim} \to \mathsf{Movie}$ carrying [matrix-normal](https://en.wikipedia.org/wiki/Matrix_normal_distribution) priors. The bilinear score is the composition $U^\dagger \mathbin{>>} V : \mathsf{User} \to \mathsf{Movie}$, whose `(u, m)` entry is the inner product $\sum_k U_{k, u} V_{k, m}$. Under `composition real [level=algebra]` this composition is the canonical PMF rating-mean matmul.
 
 ## QVR Source
 
 ```qvr
-composition real as algebra
+composition real [level=algebra]
 
 object LatentDim : FinSet 2
-object User : FinSet 8
-object Movie : FinSet 8
+object User, Movie : FinSet 8
 
 morphism U : LatentDim -> User [role=latent]
 morphism V : LatentDim -> Movie [role=latent]
 
-let pmf = U.dagger >> V
+define pmf = U.dagger >> V
 
 export pmf
 ```
@@ -33,11 +32,11 @@ The two top-level latent declarations introduce the user and item factor matrice
 
 <!-- compile: false -->
 ```qvr
-morphism U : LatentDim -> User [role=latent] ~ MatrixNormal(0.0, 1.0, 1.0) over (dom, cod)
-morphism V : LatentDim -> Movie [role=latent] ~ MatrixNormal(0.0, 1.0, 1.0) over (dom, cod)
+morphism U : LatentDim -> User [role=latent, over=[dom, cod]] ~ MatrixNormal(0.0, 1.0, 1.0)
+morphism V : LatentDim -> Movie [role=latent, over=[dom, cod]] ~ MatrixNormal(0.0, 1.0, 1.0)
 ```
 
-The `.dagger` modifier on $U$ transposes the morphism to $\mathsf{User} \to \mathsf{LatentDim}$. The composition `U.dagger >> V` contracts along `LatentDim` and recovers the full `(User, Movie)` score matrix; under `composition real as algebra` this is a real matmul and the resulting tensor entry at `(u, m)` is exactly $\sum_k U_{k, u} V_{k, m}$.
+The `.dagger` modifier on $U$ transposes the morphism to $\mathsf{User} \to \mathsf{LatentDim}$. The composition `U.dagger >> V` contracts along `LatentDim` and recovers the full `(User, Movie)` score matrix; under `composition real [level=algebra]` this is a real matmul and the resulting tensor entry at `(u, m)` is exactly $\sum_k U_{k, u} V_{k, m}$.
 
 Working over discrete `User` and `Movie` plates materialises the full dense score matrix. For very large catalogues the dense materialisation is wasteful and a per-rating gather is preferable; the morphism surface in quivers can lift that gather as a separate fibration $\mathsf{Rating} \to \mathsf{User} \times \mathsf{Movie}$ composed with the bilinear pmf morphism.
 

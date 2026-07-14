@@ -284,7 +284,7 @@ def test_sugar_desugar_step_idempotent() -> None:
     morphisms and the table is keyed on sugar names only.
     """
     obs = ObserveStep(
-        var="y",
+        vars=("y",),
         morphism="TruncatedNormal",
         args=(
             DrawArgScalar(value=0.0),
@@ -307,7 +307,7 @@ def test_sugar_with_variable_arg_passes_through() -> None:
     binding path.
     """
     obs = ObserveStep(
-        var="y",
+        vars=("y",),
         morphism="HalfNormal",
         args=(DrawArgName(text="sigma"),),
     )
@@ -317,7 +317,7 @@ def test_sugar_with_variable_arg_passes_through() -> None:
 
 
 # ---------------------------------------------------------------------------
-# Existing-surface compatibility (0.14.0 surface keeps working)
+# Inline-family surface keeps working alongside the sugar forms
 # ---------------------------------------------------------------------------
 
 

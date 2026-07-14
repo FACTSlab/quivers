@@ -1,20 +1,20 @@
-"""Morphism / let-binding resolution shared by every transpile
+"""Morphism / define-binding resolution shared by every transpile
 backend.
 
-A ``sample x <- morphism_or_let_name`` step's ``morphism`` slot may
-refer to one of three things:
+A ``sample x <- name`` step's ``morphism`` slot may refer to one of
+three things:
 
-1. A distribution family name (e.g. ``Beta``) — the existing
+1. A distribution family name (e.g. ``Beta``): the existing
    ``_FAMILIES`` map carries the target name.
 2. A declared ``morphism`` whose ``~ Family(args)`` init clause
    names the underlying distribution.
-3. A ``let`` binding whose RHS is itself a morphism reference (the
+3. A ``define`` binding whose RHS is itself a morphism reference (the
    common shape is a pure alias or a Kleisli composition).
 
 The resolver here turns case 2 into the equivalent of case 1 by
 unfolding the declared morphism's `init_family`. Case 3 is unfolded
-recursively: a let binding to a bare identifier resolves to whatever
-that identifier resolves to; composite expressions raise
+recursively: a define binding to a bare identifier resolves to
+whatever that identifier resolves to; composite expressions raise
 [`UnsupportedConstruct`][quivers.transpile.UnsupportedConstruct]
 with a clear message naming the composition operator.
 
@@ -27,12 +27,16 @@ the call with ``args``.
 
 from __future__ import annotations
 
-import dataclasses
+import didactic.api as dx
 
 from quivers.dsl.ast_nodes import (
+    DefineDecl,
+    DrawArg,
+    DrawArgIndex,
+    DrawArgName,
+    DrawArgScalar,
     Expr,
     ExprIdent,
-    LetDecl,
     Module,
     MorphismDecl,
     MorphismInitFamily,
@@ -40,8 +44,7 @@ from quivers.dsl.ast_nodes import (
 from quivers.transpile._api import UnsupportedConstruct
 
 
-@dataclasses.dataclass(frozen=True)
-class ResolvedDist:
+class ResolvedDist(dx.Model):
     """The (family, args) pair a sample / observe step resolves to.
 
     ``family`` is the canonical QVR family name, exactly as it would
@@ -58,45 +61,48 @@ class ResolvedDist:
     args: tuple[str | float, ...]
     original_morphism_name: str
     via: tuple[str, ...] = ()
-    """The chain of intermediate let / morphism names the resolver
+    """The chain of intermediate define / morphism names the resolver
     walked through to reach ``family``. Empty when the morphism
     slot was already a family name."""
 
 
 def build_morphism_table(module: Module) -> dict[str, MorphismDecl]:
     """Return name → MorphismDecl for every morphism declaration in
-    ``module``. Duplicate names are an error (the QVR compiler also
-    rejects them, but the resolver catches it locally with a clearer
-    transpile-time message)."""
+    ``module``. A plural-name declaration contributes one entry per
+    name (each name is an independent morphism with the same
+    signature and init). Duplicate names are an error (the QVR
+    compiler also rejects them, but the resolver catches it locally
+    with a clearer transpile-time message)."""
     out: dict[str, MorphismDecl] = {}
     for stmt in module.statements:
         if isinstance(stmt, MorphismDecl):
-            if stmt.name in out:
-                msg = (
-                    f"duplicate morphism declaration {stmt.name!r}: "
-                    f"first at line {out[stmt.name].line}, again at "
-                    f"line {stmt.line}"
-                )
-                raise UnsupportedConstruct("qvr-transpile", [msg])
-            out[stmt.name] = stmt
+            for name in stmt.names:
+                if name in out:
+                    msg = (
+                        f"duplicate morphism declaration {name!r}: "
+                        f"first at line {out[name].line}, again at "
+                        f"line {stmt.line}"
+                    )
+                    raise UnsupportedConstruct("qvr-transpile", [msg])
+                out[name] = stmt
     return out
 
 
-def build_let_table(module: Module) -> dict[str, Expr]:
-    """Return name → expr for every top-level ``let_decl``."""
+def build_define_table(module: Module) -> dict[str, Expr]:
+    """Return name → expr for every top-level ``define_decl``."""
     out: dict[str, Expr] = {}
     for stmt in module.statements:
-        if isinstance(stmt, LetDecl):
+        if isinstance(stmt, DefineDecl):
             out[stmt.name] = stmt.expr
     return out
 
 
 def resolve_step_dist(
     morphism_name: str,
-    raw_args: tuple[str | float, ...] | None,
+    raw_args: tuple[DrawArg, ...] | None,
     *,
     morphisms: dict[str, MorphismDecl],
-    lets: dict[str, Expr],
+    defines: dict[str, Expr],
     family_registry: frozenset[str],
     target: str,
     _seen: tuple[str, ...] = (),
@@ -109,20 +115,23 @@ def resolve_step_dist(
     morphism_name
         The string in ``SampleStep.morphism`` /
         ``ObserveStep.morphism``. Either a family name, a declared
-        morphism's name, or a let-binding name.
+        morphism's name, or a define-binding name.
     raw_args
-        Positional arguments on the step (``None`` is treated as
-        empty). When the resolver unfolds a morphism with its own
-        ``~ Family(args)`` init clause, the step-supplied ``raw_args``
-        take precedence over the declaration's defaults; in current
-        practice the step does not supply args when referring to a
-        morphism (the morphism's args carry the parameter set).
+        Positional [`DrawArg`][quivers.dsl.ast_nodes.DrawArg]
+        arguments on the step (``None`` is treated as empty); the
+        resolver flattens them to atomic ``str | float`` forms
+        before resolution. When the resolver unfolds a morphism with
+        its own ``~ Family(args)`` init clause, the step-supplied
+        ``raw_args`` take precedence over the declaration's defaults;
+        in current practice the step does not supply args when
+        referring to a morphism (the morphism's args carry the
+        parameter set).
     morphisms
         Name → MorphismDecl table from
         [`build_morphism_table`][quivers.transpile.backends._resolve.build_morphism_table].
-    lets
+    defines
         Name → Expr table from
-        [`build_let_table`][quivers.transpile.backends._resolve.build_let_table].
+        [`build_define_table`][quivers.transpile.backends._resolve.build_define_table].
     family_registry
         Frozen set of canonical QVR family names. When
         ``morphism_name`` is in this set, the resolver returns
@@ -131,9 +140,71 @@ def resolve_step_dist(
         Backend name (for error messages).
     _seen
         Internal: the chain of names visited during resolution. The
-        resolver detects cycles (``let a = b; let b = a``) by
+        resolver detects cycles (``define a = b; define b = a``) by
         membership in this tuple.
     """
+    atoms = _step_args_to_atoms(raw_args, target=target)
+    return _resolve_atoms(
+        morphism_name,
+        atoms,
+        morphisms=morphisms,
+        defines=defines,
+        family_registry=family_registry,
+        target=target,
+        _seen=_seen,
+    )
+
+
+def _step_args_to_atoms(
+    args: tuple[DrawArg, ...] | None,
+    *,
+    target: str,
+) -> tuple[str | float, ...] | None:
+    """Flatten a step's tagged `DrawArg` tuple into the atomic
+    ``str | float`` forms the resolver and renderers consume.
+
+    `DrawArgName` contributes its identifier text, `DrawArgScalar`
+    its value, and `DrawArgIndex` the bracket-indexed reference
+    string (``name[i0][i1]``) that the lowering pass parses back
+    into an [`IRArgRef`][quivers.transpile.ir.IRArgRef].
+    Compositional args (`DrawArgDist`, `DrawArgList`) have no atomic
+    form and raise
+    [`UnsupportedConstruct`][quivers.transpile.UnsupportedConstruct].
+    """
+    if args is None:
+        return None
+    out: list[str | float] = []
+    for arg in args:
+        if isinstance(arg, DrawArgName):
+            out.append(arg.text)
+        elif isinstance(arg, DrawArgScalar):
+            out.append(arg.value)
+        elif isinstance(arg, DrawArgIndex):
+            out.append(arg.name + "".join(f"[{i}]" for i in arg.indices))
+        else:
+            raise UnsupportedConstruct(
+                target,
+                [
+                    f"draw-arg:{arg.kind}: compositional draw args "
+                    f"are not resolvable to a (family, args) pair"
+                ],
+            )
+    return tuple(out)
+
+
+def _resolve_atoms(
+    morphism_name: str,
+    raw_args: tuple[str | float, ...] | None,
+    *,
+    morphisms: dict[str, MorphismDecl],
+    defines: dict[str, Expr],
+    family_registry: frozenset[str],
+    target: str,
+    _seen: tuple[str, ...] = (),
+) -> ResolvedDist:
+    """Resolution core over atomic ``str | float`` args; the public
+    [`resolve_step_dist`][quivers.transpile.backends._resolve.resolve_step_dist]
+    flattens the step's `DrawArg` tuple and delegates here."""
     if morphism_name in family_registry:
         args = raw_args or ()
         if not args:
@@ -146,7 +217,8 @@ def resolve_step_dist(
 
     if morphism_name in _seen:
         msg = (
-            f"morphism / let cycle while resolving {morphism_name!r}; "
+            f"morphism / define cycle while resolving "
+            f"{morphism_name!r}; "
             f"chain: {' -> '.join((*_seen, morphism_name))}"
         )
         raise UnsupportedConstruct(target, [msg])
@@ -168,7 +240,7 @@ def resolve_step_dist(
                 expr=decl.init_expr,
                 raw_args=raw_args,
                 morphisms=morphisms,
-                lets=lets,
+                defines=defines,
                 family_registry=family_registry,
                 target=target,
                 chain=chain,
@@ -180,13 +252,13 @@ def resolve_step_dist(
         )
         raise UnsupportedConstruct(target, [msg])
 
-    if morphism_name in lets:
+    if morphism_name in defines:
         return _resolve_expr(
             morphism_name=morphism_name,
-            expr=lets[morphism_name],
+            expr=defines[morphism_name],
             raw_args=raw_args,
             morphisms=morphisms,
-            lets=lets,
+            defines=defines,
             family_registry=family_registry,
             target=target,
             chain=chain,
@@ -195,7 +267,7 @@ def resolve_step_dist(
     msg = (
         f"sample / observe step references {morphism_name!r} which "
         f"is neither a family in the registry, a declared morphism, "
-        f"nor a let-bound name"
+        f"nor a define-bound name"
     )
     raise UnsupportedConstruct(target, [f"family:{morphism_name}", msg])
 
@@ -263,20 +335,20 @@ def _resolve_expr(
     expr: Expr,
     raw_args: tuple[str | float, ...] | None,
     morphisms: dict[str, MorphismDecl],
-    lets: dict[str, Expr],
+    defines: dict[str, Expr],
     family_registry: frozenset[str],
     target: str,
     chain: tuple[str, ...],
 ) -> ResolvedDist:
-    """Unfold a let / morphism init expression. Pure aliases
-    (``let a = b``) recurse; composite expressions (``a >> b``,
+    """Unfold a define / morphism init expression. Pure aliases
+    (``define a = b``) recurse; composite expressions (``a >> b``,
     ``a @ b``, ``identity(X)``) are not yet supported and raise."""
     if isinstance(expr, ExprIdent):
-        return resolve_step_dist(
+        return _resolve_atoms(
             expr.name,
             raw_args,
             morphisms=morphisms,
-            lets=lets,
+            defines=defines,
             family_registry=family_registry,
             target=target,
             _seen=chain,
@@ -285,9 +357,9 @@ def _resolve_expr(
     raise UnsupportedConstruct(
         target,
         [
-            f"let:composite_expression:{expr_kind}",
+            f"define:composite_expression:{expr_kind}",
             (
-                f"morphism / let {morphism_name!r} resolves to a "
+                f"morphism / define {morphism_name!r} resolves to a "
                 f"composite expression of kind {expr_kind!r}; "
                 f"transpile backends only unfold pure-alias "
                 f"bindings today. Replace the composition with a "
@@ -300,7 +372,7 @@ def _resolve_expr(
 
 __all__ = [
     "ResolvedDist",
-    "build_let_table",
+    "build_define_table",
     "build_morphism_table",
     "resolve_step_dist",
 ]

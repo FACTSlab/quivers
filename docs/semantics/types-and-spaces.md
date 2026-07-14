@@ -87,7 +87,7 @@ The five initialisers share a single declaration form: there is no `space X : �
 ### 2a.1 Enum sets
 
 ```
-object Atoms = {NP, S, VP}
+object Atoms : {NP, S, VP}
 ```
 
 denotes the finite set whose elements are exactly the named labels, ordered by declaration position:
@@ -111,7 +111,7 @@ The `FreeResiduated(G, depth = d, ops = O)` initializer binds $X$ to a finite en
 
 ## 3. Free monoids
 
-The runtime value layer exposes a `FreeMonoid` object class, which arises in the deduction fragment as the carrier of strings over an alphabet (see [Weighted Deduction Fragment](grammar.md)). At the surface, `FreeMonoid(X, max_length = n)` appears only as an *object initializer* (§2a.2 above), not as a `ObjectExpr` constructor: a free monoid must be bound to an `object` name via `object Words = FreeMonoid(...)` before it can be referenced as a type.
+The runtime value layer exposes a `FreeMonoid` object class, which arises in the deduction fragment as the carrier of strings over an alphabet (see [Weighted Deduction Fragment](grammar.md)). At the surface, `FreeMonoid(X, max_length = n)` appears only as an *object initializer* (§2a.2 above), not as a `ObjectExpr` constructor: a free monoid must be bound to an `object` name via `object Words : FreeMonoid(...)` before it can be referenced as a type.
 
 The denotation of `FreeMonoid(generators = X, max_length = n)` is the bounded Kleene star
 

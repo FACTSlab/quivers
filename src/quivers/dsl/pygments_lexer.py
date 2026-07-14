@@ -1,8 +1,8 @@
 """Pygments lexer for the QVR domain-specific language.
 
-The lexer drives on the in-tree tree-sitter parser (loaded via the
-[`quivers.dsl._dev_grammar`][quivers.dsl._dev_grammar] shim) so it always reflects the
-authoritative grammar; there is no regex approximation. When the
+The lexer drives on the in-tree tree-sitter parser (compiled via
+[`quivers.dsl._grammar_build`][quivers.dsl._grammar_build]) so it always reflects
+the authoritative grammar; there is no regex approximation. When the
 shared library cannot be built, lexer construction raises with a
 typed diagnostic so the failure is visible at the rendering site
 rather than silently producing a degraded highlight.
@@ -37,7 +37,7 @@ from pygments.token import (
     _TokenType,
 )
 
-from quivers.dsl._dev_grammar import _build_shared_lib, _grammar_dir
+from quivers.dsl._grammar_build import _build_shared_lib, _grammar_dir
 from quivers.dsl._grammar_introspection import (
     BUILTIN_FUNCTIONS as _GRAMMAR_BUILTIN_FUNCTIONS,
     BUILTIN_TYPES as _GRAMMAR_BUILTIN_TYPES,
@@ -60,9 +60,9 @@ from quivers.dsl._grammar_introspection import (
 _EFFECT_TOKENS = frozenset({"Pure", "Sample", "Score", "Marginal"})
 
 # Algebra / semiring identifiers carried by option-block values (e.g.
-# ``[semiring=LogProb]``) and the composition-level head. These too live
-# in option-entry value position, so they don't surface as grammar
-# literals; the registry below mirrors the runtime registry.
+# ``[semiring=LogProb]``). These live in option-entry value position,
+# so they don't surface as grammar literals; the registry below
+# mirrors the runtime registry.
 _ALGEBRA_NAMES = frozenset(
     {
         "product_fuzzy",
@@ -78,10 +78,17 @@ _ALGEBRA_NAMES = frozenset(
     }
 )
 
+# Composition levels ride in ``[level=...]`` option values (e.g.
+# ``composition prod [level=algebra]``), so they are likewise
+# invisible to the grammar walker; the compiler validates membership.
+_COMPOSITION_LEVEL_NAMES = frozenset(
+    {"algebra", "semigroupoid", "bilinear_form", "rule"}
+)
+
 _KEYWORD_TOKENS = _GRAMMAR_KEYWORDS
 _BUILTIN_FUNCTION_TOKENS = _GRAMMAR_BUILTIN_FUNCTIONS
 _BUILTIN_TYPE_TOKENS = _GRAMMAR_BUILTIN_TYPES
-_OPERATOR_TOKENS = _GRAMMAR_OPERATORS | {"!"}
+_OPERATOR_TOKENS = _GRAMMAR_OPERATORS
 
 
 def _node_kind_to_pygments_token(
@@ -116,6 +123,8 @@ def _node_kind_to_pygments_token(
             return Keyword
         if text in _ALGEBRA_NAMES:
             return String.Symbol
+        if parent_kind == "option_entry" and text in _COMPOSITION_LEVEL_NAMES:
+            return Keyword
         if parent_kind in {
             "object_atom",
             "object_effect_apply",

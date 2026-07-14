@@ -5,6 +5,7 @@ from __future__ import annotations
 import warnings
 
 import panproto
+from panproto._native import AstParserRegistry
 
 
 class ParseError(Exception):
@@ -15,25 +16,21 @@ class ParseError(Exception):
 # panproto registry singleton
 # ---------------------------------------------------------------------------
 
-_REGISTRY: panproto.AstParserRegistry | None = None
+_REGISTRY: AstParserRegistry | None = None
 
 
-def _registry() -> panproto.AstParserRegistry:
+def _registry() -> AstParserRegistry:
     global _REGISTRY
     if _REGISTRY is None:
-        from quivers.dsl import _dev_grammar
-
-        if _dev_grammar.is_active():
-            _REGISTRY = _dev_grammar.registry()  # type: ignore[assignment]
-        else:
-            with warnings.catch_warnings():
-                warnings.simplefilter("ignore")
-                _REGISTRY = panproto.AstParserRegistry()
-        if "qvr" not in _REGISTRY.protocol_names():
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            registry = panproto.AstParserRegistry()
+        if "qvr" not in registry.protocol_names():
             raise ParseError(
                 "panproto registry has no `qvr` protocol; install "
                 "`panproto-grammars-all` (or a pack containing qvr)"
             )
+        _REGISTRY = registry
     return _REGISTRY
 
 
@@ -80,10 +77,14 @@ class _Tree:
         sb = c.get("start-byte")
         if sb is None:
             return 0, 0
-        prefix = self.source[: int(sb)]
+        return self.line_col_at(int(sb))
+
+    def line_col_at(self, byte: int) -> tuple[int, int]:
+        """1-based line and 0-based column of a byte offset in the source."""
+        prefix = self.source[:byte]
         line = prefix.count(b"\n") + 1
         last_nl = prefix.rfind(b"\n")
-        col = (int(sb) - last_nl - 1) if last_nl >= 0 else int(sb)
+        col = (byte - last_nl - 1) if last_nl >= 0 else byte
         return line, col
 
     def _sort_key(self, vid: str) -> int:

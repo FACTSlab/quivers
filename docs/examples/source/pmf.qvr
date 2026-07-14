@@ -18,15 +18,14 @@
 # carries a matrix-normal prior with row covariance on LatentDim
 # and column covariance on the user or movie plate.
 
-composition real as algebra
+composition real [level=algebra]
 
 object LatentDim : FinSet 2
-object User : FinSet 8
-object Movie : FinSet 8
+object User, Movie : FinSet 8
 
 morphism U : LatentDim -> User [role=latent]
 morphism V : LatentDim -> Movie [role=latent]
 
-let pmf = U.dagger >> V
+define pmf = U.dagger >> V
 
 export pmf

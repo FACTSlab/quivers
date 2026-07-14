@@ -267,17 +267,14 @@ class _ResolutionMixin:
             texpr.col,
         )
 
-    def _eval_scalar_kwarg(self, val: str, texpr) -> float | int:
-        try:
-            if any(ch in val for ch in ".eE"):
-                return float(val)
-            return int(val)
-        except ValueError as exc:
-            raise CompileError(
-                f"keyword argument {val!r}: not a numeric literal",
-                texpr.line,
-                texpr.col,
-            ) from exc
+    def _eval_scalar_kwarg(self, val: float | int | str, texpr) -> float | int:
+        if isinstance(val, (int, float)):
+            return val
+        raise CompileError(
+            f"keyword argument {val!r}: not a numeric literal",
+            texpr.line,
+            texpr.col,
+        )
 
 
 __all__ = ["_ResolutionMixin"]

@@ -1075,29 +1075,29 @@ wheels = [
 
 [[package]]
 name = "panproto"
-version = "0.48.7"
+version = "0.58.0"
 source = { registry = "https://pypi.org/simple" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/fa/53/41cef7857557065c8516c391a2b5041e49e6de405a2aae10d2960b7a2a09/panproto-0.48.7-cp313-abi3-macosx_10_12_x86_64.whl", hash = "sha256:79957edcd22e1bd25155e632ca657ec332cb1fb917d90da77e88206ac770951f", size = 11656183, upload-time = "2026-05-21T20:30:56.985Z" },
-    { url = "https://files.pythonhosted.org/packages/1e/23/ab57a6b36e92eea95c3b5f16ffc30a5fb72d2968bcddc647375890f61338/panproto-0.48.7-cp313-abi3-macosx_11_0_arm64.whl", hash = "sha256:f0d14b754a960e5bc398ee2c4b92269c385ff8216ad4b8fc8c00ce1e1792369b", size = 11419146, upload-time = "2026-05-21T20:30:59.573Z" },
-    { url = "https://files.pythonhosted.org/packages/4e/a8/0cd82c80195606b55aca9d3d71af2a4dd12ccfe75b00604d6dfdac7ca7b6/panproto-0.48.7-cp313-abi3-manylinux_2_28_aarch64.whl", hash = "sha256:136ac719677e811e6db93792b2c97de190a709a6e8a80cb32278723356c4be41", size = 11958112, upload-time = "2026-05-21T20:31:02.49Z" },
-    { url = "https://files.pythonhosted.org/packages/18/d0/f064e0e53e767257fcc004444b5a65f1cf29de63423ad6458a7deefc1b94/panproto-0.48.7-cp313-abi3-manylinux_2_28_x86_64.whl", hash = "sha256:661866cd3ff7c4847afcbe12bee45386da05180b4a175f08eecebe4d963db512", size = 12526343, upload-time = "2026-05-21T20:31:05.381Z" },
-    { url = "https://files.pythonhosted.org/packages/b0/c1/f7d8997d9578b75747c3644885518c054debb6420220f9f6c146a13cde62/panproto-0.48.7-cp313-abi3-win_amd64.whl", hash = "sha256:7e1eb1fb662bd5c04b71b61acb9306368b50a70bce55318c3200d8fb2f896212", size = 11596769, upload-time = "2026-05-21T20:31:07.631Z" },
+    { url = "https://files.pythonhosted.org/packages/90/d4/b6b4c71b4dafca2aeb8c6ca70c82c8823ccd1117c3df801ce59dafc96e06/panproto-0.58.0-cp313-abi3-macosx_10_12_x86_64.whl", hash = "sha256:084e28ff4d6c9464603aa7bc34aa54ce7f54c225ceedc79107fd1d827b03e371", size = 10680898, upload-time = "2026-07-14T15:41:03.587Z" },
+    { url = "https://files.pythonhosted.org/packages/c2/ce/b203c0d2f1e8e2c81e019aab0f9419b625a7b03139b410e0c7e54dd649db/panproto-0.58.0-cp313-abi3-macosx_11_0_arm64.whl", hash = "sha256:8c8ba3eacd03990eaf0381323f1cd2bcec3cdad2d52bf142148352d938b1f5de", size = 10078321, upload-time = "2026-07-14T15:41:06.2Z" },
+    { url = "https://files.pythonhosted.org/packages/a7/e1/21cec4ae0e019a3f187f74702d15694b9abb82ec5c6ee0ca2de10efd5653/panproto-0.58.0-cp313-abi3-manylinux_2_28_aarch64.whl", hash = "sha256:1fd1709468269d5fe852ad674a6e32478b2c0ddba1b962088a3ea039e7f5a0d3", size = 10119128, upload-time = "2026-07-14T15:41:08.682Z" },
+    { url = "https://files.pythonhosted.org/packages/14/55/65a5425123da1b7e508bf7c24430f45a531b2846de5eaa51b8f024418821/panproto-0.58.0-cp313-abi3-manylinux_2_28_x86_64.whl", hash = "sha256:3732e26dcf811db594e849d7345457dcedd78be8052c12dc355517b3e65c4fb8", size = 10856071, upload-time = "2026-07-14T15:41:10.994Z" },
+    { url = "https://files.pythonhosted.org/packages/c1/cd/320dab94789156de9948657371a06e11e83891d030c798e97d746651f498/panproto-0.58.0-cp313-abi3-win_amd64.whl", hash = "sha256:5cf17dd21c1e1d7d636dc565e474127698eef9b6c38ca020b318365aa6952a46", size = 12032981, upload-time = "2026-07-14T15:41:13.37Z" },
 ]
 
 [[package]]
 name = "panproto-grammars-all"
-version = "0.48.7"
+version = "0.58.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "panproto" },
 ]
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/f2/9e/7e282dfffb900e2224e8869eee789ea380bc8da085894b8c7be8c8a8bcc0/panproto_grammars_all-0.48.7-cp313-abi3-macosx_10_12_x86_64.whl", hash = "sha256:a947af58462c8a1b83ebd5e53c227f6d31f6bbea468afe63b8e7600fc2b99a52", size = 24522755, upload-time = "2026-05-21T20:36:55.401Z" },
-    { url = "https://files.pythonhosted.org/packages/03/8f/00a3e0f112e4f6d12d527faacd2c127510df176f0a7519600e6e901bf29a/panproto_grammars_all-0.48.7-cp313-abi3-macosx_11_0_arm64.whl", hash = "sha256:c11507696bd61496926abb95aaccfcbce25b1a14336daffc8255d4347a118dba", size = 26583247, upload-time = "2026-05-21T20:36:58.757Z" },
-    { url = "https://files.pythonhosted.org/packages/9f/06/f02280eec56d1dcb88c9be9e66ee388955eb56aa8707c9629a0e61d896b0/panproto_grammars_all-0.48.7-cp313-abi3-manylinux_2_28_aarch64.whl", hash = "sha256:41f3b6dc3dbbe7a13df63e24314b1b28036df22ffcb69b69eb08e98c88b7ffe9", size = 24565435, upload-time = "2026-05-21T20:37:02.738Z" },
-    { url = "https://files.pythonhosted.org/packages/d8/6a/f7aa07b162688e7479c19aabd9d73ac041c0923016b02502db0924fd0dfb/panproto_grammars_all-0.48.7-cp313-abi3-manylinux_2_28_x86_64.whl", hash = "sha256:ba9b04b6d1e7932d53f0d89acc571cd5ceb76f71e8407219c78eae6ba1d3d6c4", size = 24827605, upload-time = "2026-05-21T20:37:06.409Z" },
-    { url = "https://files.pythonhosted.org/packages/20/37/e21c960a2a778eb496b0743bef88607aec80f8e8ee03e05b280ca558a71e/panproto_grammars_all-0.48.7-cp313-abi3-win_amd64.whl", hash = "sha256:9fd1514aa0e383f0468ea1ae529e54e92f4701036600576658b2254f17ea0a7d", size = 24369014, upload-time = "2026-05-21T20:37:09.519Z" },
+    { url = "https://files.pythonhosted.org/packages/2b/50/0c68ac2dbc830908f9d3a551d0be1fa04424ef9888baf3a328a83bdd65b4/panproto_grammars_all-0.58.0-cp313-abi3-macosx_10_12_x86_64.whl", hash = "sha256:2ad518fd712bf8cc81337630a23adefb9f414f005b73a79690bac8a57ea798cc", size = 24858762, upload-time = "2026-07-14T15:49:47.769Z" },
+    { url = "https://files.pythonhosted.org/packages/ea/d9/2bde09d13dc24481b45ddb33f699b96138173e51bc798f52b6bb567fc68e/panproto_grammars_all-0.58.0-cp313-abi3-macosx_11_0_arm64.whl", hash = "sha256:b166245706e6228417cf62892b1cc71491c64026a2b687c337d16f51c6903d1b", size = 26952536, upload-time = "2026-07-14T15:49:50.447Z" },
+    { url = "https://files.pythonhosted.org/packages/fd/02/4b33e304b29227ed0690b0697ff36286e4e4b57da0dceec8ac07fba99ca6/panproto_grammars_all-0.58.0-cp313-abi3-manylinux_2_28_aarch64.whl", hash = "sha256:c5ec1a06c064189f3e8607a261744692288e63391d23bde019f10f0622ada245", size = 24901844, upload-time = "2026-07-14T15:49:53.118Z" },
+    { url = "https://files.pythonhosted.org/packages/50/69/1bb29bbcc0ff5e07fbd123a1a9fb2cc3134bc058e94137ca8ee757512312/panproto_grammars_all-0.58.0-cp313-abi3-manylinux_2_28_x86_64.whl", hash = "sha256:274b87b846fb5bbe4029a0ec9008fee2754004ba39f02e065a9b545b9ae4b015", size = 25193225, upload-time = "2026-07-14T15:49:55.628Z" },
+    { url = "https://files.pythonhosted.org/packages/5e/24/f988b30fcc7f634466c95316bea5fa51974d4d3fa924e3d1106ab1b65247/panproto_grammars_all-0.58.0-cp313-abi3-win_amd64.whl", hash = "sha256:3f9c9a02077192434740f48ef6227f16cfa2abbc65118cf83a92bd8af87136ee", size = 24286436, upload-time = "2026-07-14T15:49:58.108Z" },
 ]
 
 [[package]]
@@ -1421,7 +1421,7 @@ wheels = [
 
 [[package]]
 name = "quivers"
-version = "0.12.0"
+version = "0.15.0"
 source = { editable = "." }
 dependencies = [
     { name = "didactic" },
@@ -1497,8 +1497,8 @@ requires-dist = [
     { name = "netcdf4", marker = "extra == 'formulas'", specifier = ">=1.7" },
     { name = "numpy", marker = "extra == 'dev'" },
     { name = "pandas", marker = "extra == 'dev'" },
-    { name = "panproto", specifier = ">=0.48.4" },
-    { name = "panproto-grammars-all", specifier = ">=0.48.4" },
+    { name = "panproto", specifier = ">=0.58.0" },
+    { name = "panproto-grammars-all", specifier = ">=0.58.0" },
     { name = "polars", marker = "extra == 'dev'" },
     { name = "prompt-toolkit", marker = "extra == 'repl'", specifier = ">=3.0" },
     { name = "pyarrow", marker = "extra == 'dev'" },

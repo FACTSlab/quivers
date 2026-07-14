@@ -134,7 +134,7 @@ with pytest.raises(AttributeError):
     mi.identity_tensor((3,))               # also unavailable
 ```
 
-The DSL surface raises a typed `CompileError` at parse time if you try `identity(A)`, `cup(A)`, `cap(A)`, `f.dagger`, or `f.trace(A)` inside a module declared as `semigroupoid` or `bilinear_form`. The [QVR categorical tutorial](../qvr/07-categorical.md) covers the user surface.
+The DSL surface raises a typed `CompileError` at parse time if you try `identity(A)`, `cup(A)`, `cap(A)`, `f.dagger`, or `f.trace(A)` inside a module declared with `composition X [level=semigroupoid]` or `[level=bilinear_form]`. The [QVR categorical tutorial](../qvr/07-categorical.md) covers the user surface.
 
 ## Operadic n-ary contractions
 
@@ -198,24 +198,24 @@ The user surface mirrors the Python API. Inside `.qvr` files:
 
 <!-- compile: false -->
 ```qvr
-composition my_godel as algebra
+composition my_godel [level=algebra]
     tensor_op(a, b) = a * b
     join(t)         = sum(t)
     unit            = 1.0
     zero            = 0.0
 
-composition my_semi as semigroupoid
+composition my_semi [level=semigroupoid]
     tensor_op(a, b) = a * b
     join(t)         = sum(t)
 
-composition my_bf as bilinear_form
+composition my_bf [level=bilinear_form]
     tensor_op(a, b) = (a + b) * 0.5
     join(t)         = sum(t)
 
-composition any_rule_name as rule
+composition any_rule_name [level=rule]
 ```
 
-The `as <level>` clause selects the algebraic level (`algebra`, `semigroupoid`, `bilinear_form`, `rule`). The optional indented body declares the rule's operations inline; without a body, the declaration resolves the named rule from the built-in catalog (`product_fuzzy`, `material_impl`, etc.) and verifies it matches the declared level.
+The `[level=...]` option selects the algebraic level (`algebra`, `semigroupoid`, `bilinear_form`, `rule`). The optional indented body declares the rule's operations inline; without a body, the declaration resolves the named rule from the built-in catalog (`product_fuzzy`, `material_impl`, etc.) and verifies it matches the declared level.
 
 Operadic contractions:
 
@@ -229,7 +229,7 @@ contraction op_apply (
     rule product_fuzzy
     wiring "sp, sq, pqd -> sd"
 
-let combined = op_apply(arg1_morph, arg2_morph, kernel_morph)
+define combined = op_apply(arg1_morph, arg2_morph, kernel_morph)
 ```
 
 `contraction NAME ( ... ) : DOM -> COD rule R wiring "SPEC"` declares a named n-ary operadic morphism; the resulting `NAME` is callable from any expression site that accepts a morphism. Each call site type-checks argument count and per-argument numel against the contraction's declared signature, and runs the `EinsumWiring` against the supplied morphism tensors.

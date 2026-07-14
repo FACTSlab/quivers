@@ -44,10 +44,6 @@ Two mechanisms keep the suite aligned with whatever ships under
 
 from __future__ import annotations
 
-import os
-
-os.environ.setdefault("QVR_USE_LOCAL_GRAMMAR", "1")
-
 import re
 from pathlib import Path
 

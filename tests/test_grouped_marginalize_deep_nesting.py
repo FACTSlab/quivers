@@ -16,19 +16,12 @@ construction is correct.
 from __future__ import annotations
 import textwrap
 
-import os
 from textwrap import dedent
 
 import pytest
 import torch
 
 from quivers.continuous.plate import marginalize_grouped
-
-
-_LOCAL_GRAMMAR = pytest.mark.skipif(
-    os.environ.get("QVR_USE_LOCAL_GRAMMAR", "") not in ("1", "true", "True"),
-    reason="needs QVR_USE_LOCAL_GRAMMAR=1 to pick up the in-tree grammar",
-)
 
 
 def _build_nested_program(num_levels: int, n_resp: int = 8) -> str:
@@ -40,7 +33,11 @@ def _build_nested_program(num_levels: int, n_resp: int = 8) -> str:
     ``probs_i``. The innermost body observes a single Resp-plate
     likelihood; outer levels share the same body.
     """
-    decls = ["composition log_prob as algebra", "", f"object Resp : FinSet {n_resp}"]
+    decls = [
+        "composition log_prob [level=algebra]",
+        "",
+        f"object Resp : FinSet {n_resp}",
+    ]
     for i in range(num_levels):
         decls.append(f"object G_{i} : FinSet 2")
         decls.append(f"object K_{i} : FinSet 2")
@@ -90,7 +87,6 @@ def _make_obs(num_levels: int, n_resp: int = 8) -> dict[str, torch.Tensor]:
 # ---------------------------------------------------------------------------
 
 
-@_LOCAL_GRAMMAR
 @pytest.mark.parametrize("num_levels", [3, 4, 5, 6, 7])
 def test_deep_nested_marginalize_compiles(num_levels: int) -> None:
     """A ``num_levels``-deep nested marginalize compiles."""
@@ -101,7 +97,6 @@ def test_deep_nested_marginalize_compiles(num_levels: int) -> None:
     assert m.morphism is not None
 
 
-@_LOCAL_GRAMMAR
 @pytest.mark.parametrize("num_levels", [3, 4, 5, 6, 7])
 def test_deep_nested_marginalize_log_joint_finite(num_levels: int) -> None:
     """A ``num_levels``-deep nested marginalize runs through

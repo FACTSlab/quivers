@@ -1,0 +1,49 @@
+# Parametric Partial Pooling
+#
+# A one-way random-effects model whose group-level effects come
+# from a parametric program template. The template fixes the
+# non-centered pooling structure once; each host program
+# instantiates it at a concrete between-group spread, so a single
+# source expresses tight and loose partial pooling side by side.
+#
+# Generative structure:
+#
+#   z_j      ~ Normal(0, 1)              standardized group effect
+#   theta_j  = spread * z_j              non-centered scaling
+#   sigma    ~ LogNormal(0, 0.5)         observation noise scale
+#   y_j      ~ Normal(theta_j, sigma)    per-group observed summary
+#
+# The score step multiplies the joint density by a soft
+# sum-to-zero factor on the group effects, the standard
+# identification device for random effects, and the labeled
+# return tuple names the program's outputs. The export selects
+# which host program the compiled module runs.
+#
+# References: [Rubin 1981](https://doi.org/10.3102/10769986006004377),
+# [Papaspiliopoulos et al. 2007](https://doi.org/10.1214/088342307000000014),
+# [Morris et al. 2019](https://doi.org/10.1016/j.sste.2019.100301).
+
+object School : FinSet 8
+
+program school_effects(spread : Real, K : FinSet) : K -> K
+    sample z : K <- Normal(0.0, 1.0)
+    let effect = spread * z
+    return effect
+
+program pooled_tight : School -> School
+    sample theta <- school_effects(0.6, School)
+    sample sigma <- LogNormal(0.0, 0.5)
+    let total_effect = sum(theta)
+    score centering = -50.0 * total_effect * total_effect
+    observe y : School <- Normal(theta, sigma)
+    return (effects: theta, scale: sigma)
+
+program pooled_loose : School -> School
+    sample theta <- school_effects(2.5, School)
+    sample sigma <- LogNormal(0.0, 0.5)
+    let total_effect = sum(theta)
+    score centering = -50.0 * total_effect * total_effect
+    observe y : School <- Normal(theta, sigma)
+    return (effects: theta, scale: sigma)
+
+export pooled_tight
