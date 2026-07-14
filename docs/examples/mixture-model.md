@@ -2,11 +2,15 @@
 
 ## Overview
 
-A finite [Gaussian mixture model](https://en.wikipedia.org/wiki/Mixture_model) assigns each observation to one of $K$ [Gaussian](https://en.wikipedia.org/wiki/Normal_distribution) components, with the per-row component drawn from a [Dirichlet](https://en.wikipedia.org/wiki/Dirichlet_distribution)-distributed mixing prior. This example demonstrates the canonical quivers idiom for finite mixtures: per-component means and scales are continuous latents on the `Component` plate, and the discrete per-row component assignment is integrated out by a scoped `marginalize` block whose body genuinely depends on the marginalized variable, yielding the canonical [log-sum-exp](https://en.wikipedia.org/wiki/LogSumExp) over $K$ classes at every observation:
+A finite [Gaussian mixture model](https://en.wikipedia.org/wiki/Mixture_model) treats each observed value as a draw from one of $K$ [Gaussian](https://en.wikipedia.org/wiki/Normal_distribution) components. The components share three per-component vector parameters: the mixing weights on the simplex, the component locations, and the component scales. A [Dirichlet](https://en.wikipedia.org/wiki/Dirichlet_distribution) prior governs the mixing weights, and independent priors govern the locations and scales.
+
+Rather than sample a discrete per-row component label and integrate it out by hand, this example scores each row directly against the mixture through the [`MixtureNormal`](../api/continuous/families.md#quivers.continuous.families.ConditionalMixtureNormal) likelihood. The per-row marginal is the closed-form convex combination
 
 $$
-p(r_n) \;=\; \sum_{k=1}^{K} \mathrm{probs}[k] \; \mathcal{N}\!\bigl(r_n;\, \mu[k],\, \sigma[k]\bigr).
+p(r_n) \;=\; \sum_{k=1}^{K} \mathrm{probs}[k] \; \mathcal{N}\!\bigl(r_n;\, \mu[k],\, \sigma[k]\bigr),
 $$
+
+so the model carries no discrete latent: `MixtureNormal` integrates the component assignment out analytically, evaluating the marginal by [log-sum-exp](https://en.wikipedia.org/wiki/LogSumExp) over the $K$ components.
 
 ## QVR Source
 
@@ -14,17 +18,14 @@ $$
 composition log_prob [level=algebra]
 
 object Component : FinSet 3
-object Item : FinSet 8
 object Resp : FinSet 100
 
 program gmm(alpha : Real) : Resp -> Resp
     sample probs <- Dirichlet(alpha) [over=Component]
     sample mu : Component <- Normal(0.0, 5.0)
     sample sigma : Component <- HalfNormal(1.0)
-    sample idx : Resp <- HalfNormal(1.0)
 
-    marginalize cls : Component <- Categorical(probs) [over=Item, reduction=logsumexp]
-        observe r : Resp <- Normal(mu[cls], sigma[cls]) [via=idx]
+    observe r : Resp <- MixtureNormal(probs, mu, sigma)
 
     return probs
 
@@ -33,19 +34,15 @@ export gmm
 
 ## Walkthrough
 
-`composition log_prob [level=algebra]` selects the log-probability semiring so the program's `Score` effect accumulates log-densities additively. `object Component : FinSet 3`, `object Item : FinSet 8`, `object Resp : FinSet 100` declare the three discrete plates: $K = 3$ components, $I = 8$ item groups, $N = 100$ observed rows. `program gmm(alpha : Real) : Resp -> Resp` parameterises the program by the Dirichlet concentration.
+`composition log_prob [level=algebra]` selects the log-probability semiring so the program's `Score` effect accumulates log-densities additively. `object Component : FinSet 3` and `object Resp : FinSet 100` declare the two discrete plates: $K = 3$ mixture components and $N = 100$ observed rows. `program gmm(alpha : Real) : Resp -> Resp` parameterises the program by the Dirichlet concentration.
 
-`sample probs <- Dirichlet(alpha) [over=Component]` draws the mixing weights as a single point on the `Component` simplex; `over=Component` names the family's event axis. `sample mu : Component <- Normal(0.0, 5.0)` and `sample sigma : Component <- HalfNormal(1.0)` draw the per-component mean and scale as plate-bound continuous latents. `sample idx : Resp <- HalfNormal(1.0)` registers the per-row fibration site that names the runtime map from `Resp` into the `Item` grouping plate.
+The three `sample` steps draw the shared per-component parameters:
 
-The scoped `marginalize` block
+- `sample probs <- Dirichlet(alpha) [over=Component]` draws the mixing weights as a single point on the `Component` simplex; `over=Component` names the family's event axis (Dirichlet event-rank 1).
+- `sample mu : Component <- Normal(0.0, 5.0)` draws the $K$ component locations as plate-bound continuous latents, one per component.
+- `sample sigma : Component <- HalfNormal(1.0)` draws the $K$ positive component scales the same way.
 
-<!-- compile: false -->
-```qvr
-marginalize cls : Component <- Categorical(probs) [over=Item, reduction=logsumexp]
-    observe r : Resp <- Normal(mu[cls], sigma[cls]) [via=idx]
-```
-
-introduces the per-row component latent `cls : Component` under a [Categorical](https://en.wikipedia.org/wiki/Categorical_distribution) prior parameterised by `probs`. The body's `Normal(mu[cls], sigma[cls])` looks up the chosen component's mean and scale and scores the observed row `r` against that per-class Gaussian. The `[over=Item]` grouping plate accumulates each observation into its `Item` bucket; `[via=idx]` names the runtime fibration from each row into its item group. The `[reduction=logsumexp]` reduction integrates `cls` out by pushforward along the projection $\Phi \times \mathsf{Component} \to \Phi$, recovering the closed-form per-row mixture marginal $\sum_k \mathrm{probs}[k]\,\mathcal{N}(r_n;\,\mu[k],\,\sigma[k])$. At the end of the scope `cls` falls out of scope.
+`observe r : Resp <- MixtureNormal(probs, mu, sigma)` scores each observed row against the $K$-component mixture the three shared vectors define. `MixtureNormal` takes the mixing weights, the locations, and the scales as three per-component vectors, each broadcast across every row of the `Resp` plate, and returns the per-row marginal $\sum_k \mathrm{probs}[k]\,\mathcal{N}(r_n;\,\mu[k],\,\sigma[k])$ in closed form. No component-assignment latent is sampled: the mixture likelihood integrates it out.
 
 `return probs` projects the program's joint kernel onto the mixing-weight site.
 
@@ -72,13 +69,12 @@ true_sigma = torch.tensor([0.5, 0.7, 0.4])
 
 comps = torch.distributions.Categorical(true_probs).sample((N,))
 r     = torch.distributions.Normal(true_mu[comps], true_sigma[comps]).sample()
-idx   = torch.randint(0, 8, (N,))
 
-observations = {"r": r, "idx": idx, "probs": true_probs}
+observations = {"r": r, "probs": true_probs}
 x_in = torch.zeros(N, 1)
 ```
 
-The simplex-supported `probs` site is supplied via `observations` so the grouped marginalize block sees a `(K,)` mixing prior at every batch position. The Gaussian per-component parameters `mu` and `sigma` remain unobserved and are recovered by SVI.
+The synthetic rows are drawn by sampling a component per row and then a value from that component's Gaussian, but the model never sees the component labels: only the rows `r` and the fixed mixing weights `probs` enter `observations`. The per-component locations `mu` and scales `sigma` remain unobserved latents and are recovered by SVI.
 
 ### SVI fit
 
@@ -86,18 +82,21 @@ The simplex-supported `probs` site is supplied via `observations` so the grouped
 from quivers.inference import AutoNormalGuide, ELBO, SVI
 
 torch.manual_seed(1)
-guide = AutoNormalGuide(
-    model, observed_names={"r", "idx", "probs"},
-)
+guide = AutoNormalGuide(model, observed_names={"r", "probs"})
 optim = torch.optim.Adam(
-    list(model.parameters()) + list(guide.parameters()), lr=5e-2,
+    list(model.parameters()) + list(guide.parameters()), lr=1e-1,
 )
 svi = SVI(model, guide, optim, ELBO(num_particles=1))
 
-losses = [svi.step(x_in, observations) for _ in range(300)]
-print(f"initial loss: {losses[0]:.2f}")
-print(f"final loss:   {losses[-1]:.2f}")
+losses = [svi.step(x_in, observations) for _ in range(1200)]
+recovered = sorted(guide.loc_mu.detach().flatten().tolist())
+print(f"initial loss:    {losses[0]:.2f}")
+print(f"final loss:      {losses[-1]:.2f}")
+print("recovered means: [" + ", ".join(f"{m:.2f}" for m in recovered) + "]")
+print("true means:      [-3.00, 0.00, 3.00]")
 ```
+
+The variational locations `guide.loc_mu` hold the recovered component means. Because the mixture ELBO is multimodal, the fit is sensitive to initialisation and to the mixing weights held fixed at `probs`; a sharper separation between components makes the locations easier to recover.
 
 ### NUTS posterior
 
@@ -116,8 +115,8 @@ print(f"divergences: {int(result.divergence_counts.sum())}")
 
 ## Categorical Perspective
 
-The discrete latent `cls : Component` is integrated out by [pushforward](https://en.wikipedia.org/wiki/Pushforward_measure) along the projection $\Phi \times \mathsf{Component} \to \Phi$. The grouped marginalize block is the [right Kan extension](https://ncatlab.org/nlab/show/Kan+extension) of the per-class log-likelihood along the per-row fibration $\mathsf{Resp} \to \mathsf{Item}$ in $\mathbf{Kern}$, followed by a [log-sum-exp](https://en.wikipedia.org/wiki/LogSumExp) reduction along the `Component` axis weighted by the categorical prior implied by the Dirichlet.
+The per-row likelihood `MixtureNormal(probs, mu, sigma)` is a [Kleisli arrow](https://en.wikipedia.org/wiki/Kleisli_category) $\mathsf{Resp} \to \mathsf{Resp}$ in the [Giry monad](https://doi.org/10.1007/BFb0092872). It is a finite convex combination of the $K$ Gaussian component measures, weighted by the categorical measure $\mathrm{probs}$ on `Component`: the Giry-monad mixture operation that draws a component from $\mathrm{Categorical}(\mathrm{probs})$, then a value from the chosen Gaussian, and keeps the marginal on the value. Equivalently, `MixtureNormal` is the [pushforward](https://en.wikipedia.org/wiki/Pushforward_measure) of the joint component-and-value measure along the projection $\mathsf{Component} \times \mathbb{R} \to \mathbb{R}$, which is exactly the closed-form marginal $\sum_k \mathrm{probs}[k]\,\mathcal{N}(\cdot;\,\mu[k],\,\sigma[k])$. Because the component index is integrated out inside the likelihood rather than sampled, the program carries no discrete latent to marginalise and every site it holds is continuous.
 
 ## See Also
 
-- [Latent Dirichlet Allocation](lda.md), the topic-model generalization.
+- [Latent Dirichlet Allocation](lda.md), the grouped discrete-mixture generalisation whose per-word topic assignment is integrated out by a scoped `marginalize` block.
