@@ -203,11 +203,15 @@ class MixedInlineDistribution(ContinuousMorphism):
         self._dist_builder = dist_builder
         self._discrete = discrete
         self._support = support if support is not None else _constraints.real
-        # Per-position event rank. Position 0 = per-row scalar; > 0 =
+        # Per-position event rank. Position 0 = per-row scalar; >= 1 =
         # vector-shaped distribution parameter (cutpoints, mixture
-        # weights). At most one vector-typed position is supported and
-        # it must be the last variable-typed slot; the vector consumes
-        # every remaining column of the stacked input.
+        # weights / locations / scales). Any number of vector-typed
+        # positions is supported: each consumes the number of columns
+        # recorded in its ``param_spec`` dim, so the stacked input is
+        # split by offset. The one exception is a vector whose event
+        # dimension was not resolved at construction (dim recorded as
+        # 1 while the runtime tensor is wider); a single such vector,
+        # in the last slot, absorbs the surplus columns.
         self._param_event_ranks: tuple[int, ...] = (
             param_event_ranks
             if param_event_ranks is not None
@@ -220,16 +224,9 @@ class MixedInlineDistribution(ContinuousMorphism):
                 f"param_spec length {len(param_spec)}"
             )
         vec_positions = [i for i, r in enumerate(self._param_event_ranks) if r >= 1]
-        if len(vec_positions) > 1:
-            raise ValueError(
-                "MixedInlineDistribution: at most one vector-typed "
-                "parameter position is supported"
-            )
-        if vec_positions and vec_positions[0] != len(param_spec) - 1:
-            raise ValueError(
-                "MixedInlineDistribution: vector-typed parameter must be the last slot"
-            )
         self._has_vector_param: bool = bool(vec_positions)
+        self._last_vector_pos: int | None = vec_positions[-1] if vec_positions else None
+        self._n_vector_params: int = len(vec_positions)
 
     @property
     def support(self) -> _constraints.Constraint:
@@ -254,28 +251,41 @@ class MixedInlineDistribution(ContinuousMorphism):
         """
         if x.dim() == 1:
             x = x.unsqueeze(-1)
-        params = []
+        params: list[torch.Tensor] = []
         var_offset = 0
-        n_specs = len(self._param_spec)
+        # Columns the recorded dims account for; any surplus belongs to
+        # a single trailing vector whose event dim was not resolved at
+        # construction. With more than one vector param the surplus is
+        # unattributable, so the dims must be exact.
+        known_total = sum(int(v) for k, v in self._param_spec if k == "var")
+        surplus = x.shape[-1] - known_total
+        if surplus > 0 and self._n_vector_params > 1:
+            raise ValueError(
+                "MixedInlineDistribution: cannot resolve parameters: the "
+                f"stacked width {x.shape[-1]} exceeds the declared "
+                f"variable dimension {known_total}, but there is more than "
+                "one vector-typed parameter, so the surplus columns cannot "
+                "be attributed to a single parameter"
+            )
         for pos, (kind, value) in enumerate(self._param_spec):
             if kind == "lit":
-                lit_val = torch.full(
-                    (x.shape[0],), float(value), device=x.device, dtype=x.dtype
+                params.append(
+                    torch.full(
+                        (x.shape[0],), float(value), device=x.device, dtype=x.dtype
+                    )
                 )
-                params.append(lit_val)
                 continue
-            is_last_vector = self._has_vector_param and pos == n_specs - 1
-            if is_last_vector:
-                # Consume all remaining columns as the vector param.
-                params.append(x[..., var_offset:])
-                var_offset = x.shape[-1]
+            dim = int(value)
+            if surplus > 0 and pos == self._last_vector_pos:
+                # The single trailing under-counted vector absorbs the
+                # surplus columns.
+                dim += surplus
+            is_vector = self._param_event_ranks[pos] >= 1
+            if dim == 1 and not is_vector:
+                params.append(x[..., var_offset])
             else:
-                dim = int(value)
-                if dim == 1:
-                    params.append(x[..., var_offset])
-                else:
-                    params.append(x[..., var_offset : var_offset + dim])
-                var_offset += dim
+                params.append(x[..., var_offset : var_offset + dim])
+            var_offset += dim
         return params
 
     def rsample(
