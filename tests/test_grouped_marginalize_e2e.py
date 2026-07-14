@@ -27,9 +27,11 @@ Together these tests close the verification gap between the
 from __future__ import annotations
 import textwrap
 
+import pytest
 import torch
 
 from quivers.dsl import loads
+from quivers.dsl.compiler import CompileError
 from quivers.inference import (
     AutoNormalGuide,
     ELBO,
@@ -55,7 +57,6 @@ def _two_class_mixture_model() -> str:
 
     program two_class_mix : Resp -> Resp
         sample probs : Class <- HalfNormal(1.0)
-        sample idx : Resp <- HalfNormal(1.0)
         sample mu_shift <- Normal(0.0, 1.0)
         marginalize cls : Class <- Dirichlet(probs) [over=Item]
             observe r : Resp <- Normal(mu_shift, 1.0) [via=idx]
@@ -90,6 +91,27 @@ def test_grouped_marginalize_log_joint_returns_finite_scalar() -> None:
     }
     out = model.log_joint(torch.zeros(1, 1), obs)
     assert torch.isfinite(out).all()
+
+
+def test_missing_via_index_raises_clear_error() -> None:
+    """A ``via`` fibration index is free host data: it must be
+    supplied through the observations dict at runtime, exactly like
+    a covariate. When it is neither a bound program variable nor
+    supplied, ``log_joint`` fails with a clear message that names
+    the index and says how to supply it, rather than a bare
+    ``KeyError``."""
+    src = _two_class_mixture_model()
+    model = loads(textwrap.dedent(src)).morphism
+    obs = {
+        "probs": torch.tensor([0.6, 0.4]),
+        "mu_shift": torch.tensor([0.5]),
+        "_grouped_ll_cls_0": torch.zeros(8, 2),
+        # ``idx`` intentionally omitted.
+    }
+    with pytest.raises(CompileError, match=r"via`` fibration index"):
+        model.log_joint(torch.zeros(1, 1), obs)
+    with pytest.raises(CompileError, match="supplied at runtime"):
+        model.log_joint(torch.zeros(1, 1), obs)
 
 
 def test_svi_runs_on_grouped_marginalize_model() -> None:
@@ -164,7 +186,6 @@ def test_grouped_marginalize_recovers_mixture_proportions() -> None:
 
     program recovery : Resp -> Resp
         sample probs : Class <- HalfNormal(1.0)
-        sample idx : Resp <- HalfNormal(1.0)
         sample mu_shift <- Normal(0.0, 1.0)
         marginalize cls : Class <- Dirichlet(probs) [over=Item]
             observe r : Resp <- Normal(mu_shift, 1.0) [via=idx]
