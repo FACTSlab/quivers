@@ -213,7 +213,6 @@ class TestGroupedMarginalizeSurface:
 
         program demo : Item -> Item
             sample probs : Class <- HalfNormal(1.0)
-            sample idx : Resp <- HalfNormal(1.0)
             marginalize cls : Class <- Dirichlet(probs) [over=Item, reduction=logsumexp]
                 observe r : Resp <- HalfNormal(1.0) [via=idx]
             return probs
@@ -256,7 +255,6 @@ class TestGroupedMarginalizeSurface:
 
         program demo : Item -> Item
             sample probs : Class <- HalfNormal(1.0)
-            sample idx : Resp <- HalfNormal(1.0)
             marginalize cls <- Dirichlet(probs) [over=Item]
                 sample inner : Resp <- HalfNormal(1.0)
             return probs
@@ -278,7 +276,6 @@ class TestGroupedMarginalizeSurface:
 
         program demo : Item -> Item
             sample probs : Class <- HalfNormal(1.0)
-            sample idx : Resp <- HalfNormal(1.0)
             marginalize cls : Class <- Dirichlet(probs) [over=NotAnObject]
                 sample inner : Resp <- HalfNormal(1.0)
             return probs
