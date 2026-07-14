@@ -69,9 +69,7 @@ def check_option_keys(
         if matches:
             parts.append(f"; did you mean {matches[0]!r}?")
         if entry.key in _CONSTRUCTOR_OPTION_KEYS:
-            parts.append(
-                "; constructor options attach with braces: Real 1 {low=...}"
-            )
+            parts.append("; constructor options attach with braces: Real 1 {low=...}")
         parts.append(f" valid options: {sorted(allowed)}")
         raise CompileError("".join(parts), ln, cl)
 

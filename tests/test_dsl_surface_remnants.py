@@ -124,9 +124,7 @@ def test_plural_lexicon_entries_match_separate_entries() -> None:
     separate_axioms = separate.axiom_injector(tokens)
     assert len(plural_axioms) == 3
     assert len(plural_axioms) == len(separate_axioms)
-    assert [item for item, _ in plural_axioms] == [
-        item for item, _ in separate_axioms
-    ]
+    assert [item for item, _ in plural_axioms] == [item for item, _ in separate_axioms]
 
     # Each expanded word carries its own learnable weight.
     plural_module = getattr(plural, "_axiom_module")

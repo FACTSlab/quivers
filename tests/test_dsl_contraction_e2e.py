@@ -86,9 +86,7 @@ class TestRuntimeWiring:
     def test_contraction_is_registered(self, compiler: Compiler) -> None:
         assert "bilinear_score" in compiler.contractions
 
-    def test_wiring_spec_is_inferred_from_signature(
-        self, compiler: Compiler
-    ) -> None:
+    def test_wiring_spec_is_inferred_from_signature(self, compiler: Compiler) -> None:
         # p : Item -> PredDim, a : Item -> ArgDim,
         # w : (PredDim * ArgDim) -> Judgment, output Item -> Judgment.
         # PredDim and ArgDim appear in two inputs each and not in the
@@ -176,12 +174,8 @@ class TestContractionErrors:
         assert "real" in str(exc.value)
 
     def test_unknown_option_key_gets_did_you_mean(self) -> None:
-        src = _EXAMPLE.read_text().replace(
-            "[rule=real]", "[rule=real, sharing=[Item]]"
-        )
-        with pytest.raises(
-            CompileError, match="unknown option 'sharing'"
-        ) as exc:
+        src = _EXAMPLE.read_text().replace("[rule=real]", "[rule=real, sharing=[Item]]")
+        with pytest.raises(CompileError, match="unknown option 'sharing'") as exc:
             loads(src)
         assert "did you mean 'share'" in str(exc.value)
         assert "valid options" in str(exc.value)

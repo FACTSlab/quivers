@@ -482,8 +482,7 @@ class _ProgramsMixin:
                 # marginalize capture) is single-response throughout;
                 # a tuple pattern on observe has no runtime meaning.
                 raise CompileError(
-                    f"observe takes a single variable; got "
-                    f"({', '.join(step.vars)})",
+                    f"observe takes a single variable; got ({', '.join(step.vars)})",
                     step.line,
                     step.col,
                 )
@@ -1841,8 +1840,16 @@ class _ProgramsMixin:
         rule_name = declared_rule.lower()
         if rule_name not in _ALGEBRA_REGISTRY:
             rule_entry = find_option(decl.options, "rule")
-            ln = rule_entry.line if rule_entry is not None and rule_entry.line else decl.line
-            cl = rule_entry.col if rule_entry is not None and rule_entry.line else decl.col
+            ln = (
+                rule_entry.line
+                if rule_entry is not None and rule_entry.line
+                else decl.line
+            )
+            cl = (
+                rule_entry.col
+                if rule_entry is not None and rule_entry.line
+                else decl.col
+            )
             raise CompileError(
                 f"contraction {decl.name!r}: unknown rule "
                 f"{declared_rule!r}; available: "

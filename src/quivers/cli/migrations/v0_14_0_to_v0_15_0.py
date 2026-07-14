@@ -268,9 +268,7 @@ def _collect_object_paren(view: SchemaView, vid: str, edits: list[_Edit]) -> Non
     seals the constructor against absorbing following tokens, so the
     wrapper does nothing. Any other paren shape is kept: parens
     around an object expression are always valid."""
-    kids = [
-        k for k in view.outgoing_vids(vid) if view.kind(k) not in _COMMENT_KINDS
-    ]
+    kids = [k for k in view.outgoing_vids(vid) if view.kind(k) not in _COMMENT_KINDS]
     if len(kids) != 1:
         return
     inner = kids[0]

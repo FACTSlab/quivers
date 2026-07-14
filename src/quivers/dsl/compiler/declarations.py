@@ -957,8 +957,7 @@ class _DeclarationsMixin:
         )
         if bins is None:
             raise CompileError(
-                f"discretize morphism {name!r}: required option "
-                f"``bins`` is missing",
+                f"discretize morphism {name!r}: required option ``bins`` is missing",
                 decl.line,
                 decl.col,
             )

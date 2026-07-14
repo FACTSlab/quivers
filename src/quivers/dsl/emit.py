@@ -551,13 +551,9 @@ def _emit_let_receiver(e: LetExprNode, *, context: str) -> str:
 def _emit_let_factor(e: LetExprFactor) -> str:
     if not e.binders:
         raise EmitError("emit: factor expression with no binders")
-    binders = ", ".join(
-        f"{b.var} : {_emit_object_expr(b.index)}" for b in e.binders
-    )
+    binders = ", ".join(f"{b.var} : {_emit_object_expr(b.index)}" for b in e.binders)
     if e.cases:
-        cases = ", ".join(
-            f"{c.label} -> {_emit_let_expr(c.value)}" for c in e.cases
-        )
+        cases = ", ".join(f"{c.label} -> {_emit_let_expr(c.value)}" for c in e.cases)
         return f"factor {binders} in {{{cases}}}"
     if e.body is None:
         raise EmitError("emit: factor expression with neither body nor cases")
@@ -647,16 +643,26 @@ def _emit_program_step(step: ProgramStep, indent: int) -> list[str]:
         binder = _emit_var_pattern(step.vars)
         return [
             _emit_draw_head(
-                "sample", binder, step.index, step.morphism,
-                step.args, step.options, indent,
+                "sample",
+                binder,
+                step.index,
+                step.morphism,
+                step.args,
+                step.options,
+                indent,
             )
         ]
     if isinstance(step, ObserveStep):
         binder = _emit_var_pattern(step.vars)
         return [
             _emit_draw_head(
-                "observe", binder, step.index, step.morphism,
-                step.args, step.options, indent,
+                "observe",
+                binder,
+                step.index,
+                step.morphism,
+                step.args,
+                step.options,
+                indent,
             )
         ]
     if isinstance(step, MarginalizeStep):
@@ -664,8 +670,13 @@ def _emit_program_step(step: ProgramStep, indent: int) -> list[str]:
             raise EmitError("emit: marginalize step with an empty scope")
         lines = [
             _emit_draw_head(
-                "marginalize", step.var, step.index, step.morphism,
-                step.args, step.options, indent,
+                "marginalize",
+                step.var,
+                step.index,
+                step.morphism,
+                step.args,
+                step.options,
+                indent,
             )
         ]
         for inner in step.scope:
@@ -685,28 +696,49 @@ def _emit_program_step(step: ProgramStep, indent: int) -> list[str]:
         binder = _emit_var_pattern(step.vars)
         return [
             _emit_draw_head(
-                keyword, binder, None, step.morphism, step.args, (), indent,
+                keyword,
+                binder,
+                None,
+                step.morphism,
+                step.args,
+                (),
+                indent,
             )
         ]
     if isinstance(step, PlateDrawStep):
         return [
             _emit_draw_head(
-                "sample", step.name, step.index, step.morphism,
-                step.args, (), indent,
+                "sample",
+                step.name,
+                step.index,
+                step.morphism,
+                step.args,
+                (),
+                indent,
             )
         ]
     if isinstance(step, VectorisedObserveStep):
         return [
             _emit_draw_head(
-                "observe", step.response_var, step.index_set, step.morphism,
-                step.args, (), indent,
+                "observe",
+                step.response_var,
+                step.index_set,
+                step.morphism,
+                step.args,
+                (),
+                indent,
             )
         ]
     if isinstance(step, GroupedBodyObserveStep):
         return [
             _emit_draw_head(
-                "observe", step.response_var, step.index_set, step.morphism,
-                step.args, (), indent,
+                "observe",
+                step.response_var,
+                step.index_set,
+                step.morphism,
+                step.args,
+                (),
+                indent,
             )
         ]
     if isinstance(step, (GroupedMarginalizeStep, GroupedLatentInitStep)):
@@ -722,21 +754,38 @@ def _emit_bind_step(step: BindStep, indent: int) -> list[str]:
     if step.mode == "sample":
         return [
             _emit_draw_head(
-                "sample", binder, step.index, step.morphism, step.args, (), indent,
+                "sample",
+                binder,
+                step.index,
+                step.morphism,
+                step.args,
+                (),
+                indent,
             )
         ]
     if step.mode == "score":
         return [
             _emit_draw_head(
-                "observe", binder, step.index, step.morphism, step.args, (), indent,
+                "observe",
+                binder,
+                step.index,
+                step.morphism,
+                step.args,
+                (),
+                indent,
             )
         ]
     if not step.scope:
         raise EmitError("emit: marginal bind step with an empty scope")
     lines = [
         _emit_draw_head(
-            "marginalize", step.vars[0], step.index, step.morphism,
-            step.args, (), indent,
+            "marginalize",
+            step.vars[0],
+            step.index,
+            step.morphism,
+            step.args,
+            (),
+            indent,
         )
     ]
     for inner in step.scope:
@@ -856,9 +905,7 @@ def _emit_morphism(decl: MorphismDecl, indent: int) -> str:
 
 def _emit_contraction(decl: ContractionDecl, indent: int) -> str:
     if not decl.inputs:
-        raise EmitError(
-            f"emit: contraction {decl.name!r} requires at least one input"
-        )
+        raise EmitError(f"emit: contraction {decl.name!r} requires at least one input")
     inputs = ", ".join(
         f"{i.name} : {_emit_object_expr(i.input_domain)} -> "
         f"{_emit_object_expr(i.input_codomain)}"
@@ -949,9 +996,7 @@ def _emit_lexicon_category(category: LexiconCategory) -> str:
         return "{" + ", ".join(category.atoms) + "}"
     if isinstance(category, LexiconCategoryFixed):
         return _emit_object_expr(category.category)
-    raise EmitError(
-        f"emit: unknown LexiconCategory kind {type(category).__name__!r}"
-    )
+    raise EmitError(f"emit: unknown LexiconCategory kind {type(category).__name__!r}")
 
 
 # ---------------------------------------------------------------------------
@@ -1089,10 +1134,7 @@ def _emit_encoder_op_rule(rule: EncoderRule, indent: int) -> str:
 
 
 def _emit_encoder_init_rule(rule: EncoderInitRule, indent: int) -> str:
-    return (
-        f"{_pad(indent)}init {rule.kind}({rule.arg}) |-> "
-        f"{_emit_let_expr(rule.body)}"
-    )
+    return f"{_pad(indent)}init {rule.kind}({rule.arg}) |-> {_emit_let_expr(rule.body)}"
 
 
 def _emit_encoder_message_rule(rule: EncoderMessageRule, indent: int) -> str:
@@ -1168,16 +1210,12 @@ def _emit_loss(decl: LossDecl, indent: int) -> str:
 def _emit_program(decl: ProgramDecl, indent: int) -> str:
     lines = _doc_lines(decl.docs, indent)
     if decl.params and decl.type_params:
-        raise EmitError(
-            f"emit: program {decl.name!r} mixes bare and typed parameters"
-        )
+        raise EmitError(f"emit: program {decl.name!r} mixes bare and typed parameters")
     params = ""
     if decl.params:
         params = "(" + ", ".join(decl.params) + ")"
     elif decl.type_params:
-        params = (
-            "(" + ", ".join(_emit_program_param(p) for p in decl.type_params) + ")"
-        )
+        params = "(" + ", ".join(_emit_program_param(p) for p in decl.type_params) + ")"
     lines.append(
         f"{_pad(indent)}program {decl.name}{params} : "
         f"{_emit_object_expr(decl.domain)} -> {_emit_object_expr(decl.codomain)}"

@@ -351,7 +351,9 @@ def test_bare_statement_extends_module() -> None:
     s = _populated()
     s.dispatch("object Z : FinSet 7")
     assert "Z" in s.env
-    assert any("Z" in (getattr(stmt, "names", None) or ()) for stmt in s.module.statements)
+    assert any(
+        "Z" in (getattr(stmt, "names", None) or ()) for stmt in s.module.statements
+    )
 
 
 def test_set_invalid_form() -> None:

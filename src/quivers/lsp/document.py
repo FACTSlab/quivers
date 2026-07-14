@@ -145,9 +145,7 @@ def decl_names(stmt: Statement) -> tuple[str, ...]:
     return ()
 
 
-def _find_decl_in(
-    statements: tuple[Statement, ...], name: str
-) -> Statement | None:
+def _find_decl_in(statements: tuple[Statement, ...], name: str) -> Statement | None:
     for stmt in statements:
         if name in decl_names(stmt):
             return stmt

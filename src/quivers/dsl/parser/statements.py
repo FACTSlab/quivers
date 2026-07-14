@@ -182,8 +182,7 @@ def _walk_composition_decl(t: _Tree, vid: str, line: int, col: int) -> Compositi
             if lt not in _COMPOSITION_LEVELS:
                 raise ParseError(
                     f"unknown composition level {lt!r} at line {entry.line}, "
-                    f"col {entry.col}; valid levels: "
-                    + ", ".join(_COMPOSITION_LEVELS)
+                    f"col {entry.col}; valid levels: " + ", ".join(_COMPOSITION_LEVELS)
                 )
             level = lt  # type: ignore[assignment]
     body: list[CompositionRuleEntry] = []

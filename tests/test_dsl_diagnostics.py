@@ -307,12 +307,7 @@ def test_escaped_string_round_trips_as_a_fixed_point() -> None:
     parse -> emit -> parse -> emit without growing."""
     from quivers.dsl.emit import module_to_source
 
-    source = (
-        "deduction d : T -> T\n"
-        "    atoms x\n"
-        "    lexicon\n"
-        '        "a\\"b" : x = x\n'
-    )
+    source = 'deduction d : T -> T\n    atoms x\n    lexicon\n        "a\\"b" : x = x\n'
     first = module_to_source(parse(source))
     second = module_to_source(parse(first))
     assert first == second

@@ -1152,8 +1152,7 @@ class _DeductionsMixin:
                         (
                             s
                             for s in syn_mod.statements
-                            if isinstance(s, ProgramDecl)
-                            and s.name == "_dummy_prog"
+                            if isinstance(s, ProgramDecl) and s.name == "_dummy_prog"
                         ),
                         None,
                     )

@@ -216,10 +216,13 @@ signature S
 
 
 def test_unknown_encoder_option_key_is_rejected() -> None:
-    src = _BASE + """
+    src = (
+        _BASE
+        + """
 encoder E : S [facotry=bow_encoder]
     dim Term = 8
 """
+    )
     with pytest.raises(
         CompileError,
         match=r"encoder 'E': unknown option 'facotry'; did you mean 'factory'\?",
@@ -228,10 +231,13 @@ encoder E : S [facotry=bow_encoder]
 
 
 def test_unknown_decoder_option_key_is_rejected() -> None:
-    src = _BASE + """
+    src = (
+        _BASE
+        + """
 decoder D : S [depht=4]
     body |-> recursive
 """
+    )
     with pytest.raises(
         CompileError,
         match=r"decoder 'D': unknown option 'depht'; did you mean 'depth'\?",
@@ -240,10 +246,13 @@ decoder D : S [depht=4]
 
 
 def test_encoder_op_outside_signature_is_rejected() -> None:
-    src = _BASE + """
+    src = (
+        _BASE
+        + """
 encoder E : S
     op Zap(x) |-> x
 """
+    )
     with pytest.raises(
         CompileError,
         match=r"encoder 'E': op 'Zap' is not in signature 'S'",

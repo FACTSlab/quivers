@@ -315,9 +315,7 @@ def _to_lsp_diag(d: Diagnostic, doc: DocumentState) -> lsp.Diagnostic:
     )
 
 
-def _apply_partial(
-    source: str, change: lsp.TextDocumentContentChangePartial
-) -> str:
+def _apply_partial(source: str, change: lsp.TextDocumentContentChangePartial) -> str:
     """Apply one incremental change to ``source``."""
     rng = change.range
     lines = source.split("\n")
@@ -544,9 +542,7 @@ def _statement_symbols(
     out: list[lsp.DocumentSymbol] = []
     for stmt in statements:
         children = (
-            _statement_symbols(doc, stmt.where)
-            if isinstance(stmt, DefineDecl)
-            else []
+            _statement_symbols(doc, stmt.where) if isinstance(stmt, DefineDecl) else []
         )
         for name in decl_names(stmt):
             line, col = _name_position(doc, stmt, name)
