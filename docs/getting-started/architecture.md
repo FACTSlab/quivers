@@ -176,7 +176,7 @@ Domain-specific language for quiver expressions in `.qvr` files. Parsing is dele
 - **`constraints.py`:** post-parse axiom checks: `check_constraints(module)` returns a list of `Violation` records (used by the LSP, the REPL, and `qvr check`).
 - **`emit.py`:** AST → `.qvr` source emission (the print direction of the parser).
 - **`pygments_lexer.py`:** A minimal Pygments lexer used to syntax-highlight `.qvr` blocks in this documentation site (registered as the `qvr` lexer entry point).
-- **`_dev_grammar.py`, `_grammar_data/`, `_grammar_introspection.py`, `_historical_grammar.py`:** development-grammar override (a workaround until `panproto-grammars-all` vendors the head-of-tree QVR grammar), pinned per-revision grammar blobs, runtime grammar introspection, and a parser that selects a historical grammar by revision string (used by `qvr migrate`).
+- **`_grammar_build.py`, `_grammar_data/`, `_grammar_introspection.py`, `_historical_grammar.py`:** compiles the in-tree grammar for the Pygments lexer, pinned per-revision grammar blobs, runtime grammar introspection, and a loader that selects a historical grammar by revision string (used by `qvr migrate`). Parsing itself goes through the `qvr` grammar vendored in `panproto-grammars-all`.
 
 Top-level DSL API (re-exported from `quivers.dsl`): `parse()`, `parse_file()`, `loads()`, `load()`, `Compiler`, `Module`, `QVR_PROGRAM_PROTOCOL`, `extract_program_schema()`, plus exceptions `ParseError`, `CompileError`.
 
@@ -224,9 +224,9 @@ Structural compression: a uniform algebraic interface for encoding arbitrary str
 
 - **`signature.py`:** Term-level data model. `Sort`, `Constructor`, `Binder`, `BinderArgSpec`, `BinderVarSpec`, `Term`, `VertexKind`, `EdgeKind`, `Signature`, `Context`, `EMPTY_CONTEXT`, plus the `make_term` / `bound_var` factories.
 - **`encoder.py`:** `Encoder` (`nn.Module`) plus the `make_default_op_fn` / `make_default_var_init` defaults.
-- **`decoder.py`:** `Decoder` (`nn.Module`) — the inverse direction.
+- **`decoder.py`:** `Decoder` (`nn.Module`), the inverse direction.
 - **`losses.py`:** `LossEntry`, `LossRegistry` for plug-in reconstruction objectives.
-- **`shapes/`:** shape backends — `seq.py`, `tree.py`, `graph.py` — one per supported shape category.
+- **`shapes/`:** shape backends (`seq.py`, `tree.py`, `graph.py`), one per supported shape category.
 
 ### `cli/`
 
