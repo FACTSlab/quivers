@@ -40,3 +40,17 @@ jobs:
           python-version: ${{ matrix.python-version }}
       - run: pip install -e ".[dev,data,diagnostics,formulas,repl,lsp]"
       - run: python -m pytest tests/ -x -q
+
+  # The default addopts deselect `slow`, so the gallery sweep and the
+  # recovery benchmarks never run in the `test` job. They gate here
+  # instead: an example whose prose or code stops matching the library
+  # fails CI rather than rotting unnoticed.
+  slow:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.14"
+      - run: pip install -e ".[dev,data,diagnostics,formulas,repl,lsp]"
+      - run: python -m pytest tests/ -m slow -q
