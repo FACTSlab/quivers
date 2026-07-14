@@ -20,11 +20,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/), and this
 - **Parenthesized variable patterns.** `sample (a, b) <- f` and `return (a, b)` share one tuple shape; `observe` accepts the same pattern and reports a clear arity error for tuples, which its runtime does not support.
 - **Keyword-led encoder rules.** Encoder constructor rewrites carry a leading `op` (`op App(fun, arg) |-> ...`), so an operator named `dim` or `init` cannot shadow the sibling entry keywords.
 - **Composition operators.** Sequential composition is `>>` and `<<` (the same pipeline written right to left), transformation composition is `>>>`, and the tensor product is `@`. The algebra-tagged operator family (`>=>`, `*>`, `~>`, `||>`, `?>`, `&&>`, `+>`, `$>`, `%>`) is gone; algebra-tagged composition is expressed with `.change_base(...)` or a `composition` declaration.
-- **Migration.** `qvr migrate --from v0.14.0 --to v0.15.0` rewrites sources across all of the above with byte-preserving span edits; the hop is registered on the migration chain with full coverage of the removed rules, and every repository `.qvr` file and fenced doc block is migrated.
+- **Migration.** `qvr migrate --from v0.14.0 --to v0.15.0` rewrites sources across all of the above with byte-preserving span edits; the hop is registered on the migration chain with full coverage of the removed rules, and every repository `.qvr` file and fenced doc block is migrated. When a source cannot be migrated (a removed compose operator has no rewrite), the CLI reports the location and exits non-zero rather than raising.
+
+#### Packaging
+
+- **The QVR grammar ships vendored.** Parsing goes through the `qvr` grammar bundled in `panproto-grammars-all`; the floor moves to `panproto>=0.58.0` and `panproto-grammars-all>=0.58.0`, which vendor the current surface and surface tree-sitter's inserted (MISSING) tokens to the walker.
 
 #### Diagnostics
 
-- **Malformed input is rejected, never reinterpreted.** Parsing fails loudly on any damaged span anywhere in the tree, with the innermost offending token's line, column, and source snippet. Inputs that previously parsed to a silently different model, such as `[low=-1.0]` dropping its sign, `[scale=.5]` reading as `5.0`, or a mis-bracketed `sample` step vanishing from the program, now raise `ParseError` at the exact position.
+- **Malformed input is rejected, never reinterpreted.** Parsing fails loudly on any damaged span anywhere in the tree, with the innermost offending token's line, column, and source snippet. Inputs that previously parsed to a silently different model, such as `[low=-1.0]` dropping its sign, `[scale=.5]` reading as `5.0`, a mis-bracketed `sample` step vanishing from the program, or a declaration truncated by an unbalanced `{` or `[`, now raise `ParseError` at the exact position.
 - **Closed option-key sets with suggestions.** Every declaration and step kind validates its option keys; an unknown key raises at the entry's own position with a did-you-mean suggestion and the valid set, and a constructor key such as `low` on a declaration adds the hint to attach it with braces on the codomain.
 - **Named failure for a missing `return`.** A program body without a return step reports that directly instead of leaking an internal registry message, and a `Program` holding only parametric templates raises a typed error naming the template and its instantiation call when `.domain` is touched.
 
@@ -34,14 +38,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/), and this
 - **Four gallery examples with end-to-end tests.** A schema-bundled categorial chart parser (`schema`, `bundle`, `parser(...)`, `chart_fold(...)`), a bilinear tensor contraction (`contraction` with operadic three-way wiring), a term autoencoder (`signature`, `encoder`, `decoder`, `loss`), and parametric partial pooling (typed program parameters, labeled return tuples, `score` steps, `export` selection). Tests also cover file-loaded and plural-word lexicons, `define ... where`, doc comments, `.curry_left`/`.curry_right`/`.trace`, and `from_data` tensors flowing through inference.
 - **A diagnostics regression suite** pinning the rejected-input catalogue and message quality, including line and column accuracy.
 
+- **Editor and highlighting support.** The tree-sitter corpus (fifty cases), the VS Code and Zed extensions, and the Pygments lexer that renders `qvr` blocks in the docs all track the current surface.
+
 ### Fixed
 
-- **`parser(...)` and `chart_fold(...)` keyword arguments.** The walkers read argument keywords from anonymous-token field constraints; previously every argument was dropped and no surface form of either expression could compile.
-- **`<<` composition** compiles as the reversed pipeline of `>>` in the compiler, and reverse chains expand right to left in the transpiler.
-- **`define ... where` scoping.** Where-bound names no longer leak into the module namespace.
-- **Formula compilation.** The formula frontend constructs AST nodes with the current field shapes; `fit()` and the analysis-pipelines tutorial run again.
-- **Editor and tooling drift.** The tree-sitter corpus tests cover the current surface (fifty cases, all passing), VS Code indentation and highlighting match the shipped grammar, the Zed extension and Pygments lexer follow, and the package quick-start snippet parses.
-- **DSL tests always run.** The suite builds the in-tree grammar unconditionally; the environment-gated skips are gone.
+- **`parser(...)` and `chart_fold(...)` keyword arguments.** The walkers read argument keywords from anonymous-token field constraints; every argument was previously dropped, so no surface form of either expression could compile.
+- **`<<` composition** compiles as the reversed pipeline of `>>`, and reverse chains expand right to left in the transpiler.
 - **Cyclic deductions converge in linearly many agenda pops.** The FIFO agenda merges contributions pushed for an item that is already pending via the semiring's plus, so a contractive cycle reaches its `tolerance` fixed point with at most one queue entry per item per wavefront; previously every contribution was enqueued separately and the pending-entry count grew geometrically with derivation depth.
 - **`bounded` rule weights carry a joint sub-stochastic cap.** Each bounded rule's per-firing factor is strictly below one over the count of the deduction's bounded rules, so the total mass an item can push through them stays below 1 and interlocking cycles (e.g. an introduction / elimination pair over nested constructors) stay contractive for every parameter value; the previous per-rule cap of 1 left such systems free to diverge under fitting.
 
