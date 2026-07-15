@@ -10,13 +10,14 @@ underlying distribution needs.
 The primitives:
 
 * [`LinearSource`][quivers.continuous.param_source.LinearSource]:
-  one `nn.Linear`, no nonlinearity. Matches the single-linear
-  layer the transpile backends emit exactly, so a kernel morphism
-  configured with this source is numerically equivalent to its
+  the default; one `nn.Linear`, no nonlinearity. Matches the
+  single-linear layer the transpile backends emit exactly, so a
+  kernel morphism on this source is numerically equivalent to its
   transpiled counterpart.
 * [`MLPSource`][quivers.continuous.param_source.MLPSource]:
-  the default, parameterised with user-configurable hidden widths
-  and activation.
+  a multi-layer perceptron with user-configurable hidden widths and
+  activation. Selected by `[param_source=mlp]`; a kernel is linear
+  unless it asks for this.
 * [`LookupSource`][quivers.continuous.param_source.LookupSource]:
   a learnable per-entry embedding table, the discrete-domain
   standard.
@@ -36,12 +37,17 @@ The primitives:
   building sequential architectures out of primitives.
 
 The DSL surface accepts a `[param_source=...]` option on
-`morphism` declarations:
+`morphism` declarations, with the hidden widths given either as the
+option's arguments or through `hidden_dim`:
 
-    morphism trans : State -> State [role=kernel, param_source=linear] ~ Normal
-    morphism trans : State -> State [role=kernel, param_source=mlp(64, 64)] ~ Normal
+    morphism trans : State -> State [param_source=linear] ~ Normal
+    morphism trans : State -> State [param_source=mlp] ~ Normal
+    morphism trans : State -> State [param_source=mlp(64, 64)] ~ Normal
+    morphism trans : State -> State [param_source=mlp, hidden_dim=[64, 32]] ~ Normal
 
-with the string form parsed by
+One width per hidden layer, so the sequence says how many as well as
+how wide; a bare `hidden_dim=64` is the one-layer case. The call form
+is parsed by
 [`param_source_from_option`][quivers.continuous.param_source.param_source_from_option].
 """
 
@@ -315,23 +321,62 @@ class ComposeSource(ParamSource):
         return self.outer(self.inner(x))
 
 
+#: The kind a family gets when nothing selects one.
+_DEFAULT_SOURCE_KIND = "linear"
+
+
+def _split_source_option(option_value: str | None) -> tuple[str, dict]:
+    """Split a ``[param_source=...]`` option into its kind and the
+    arguments it carries.
+
+    ``"mlp"`` is a bare kind; ``"mlp(64, 32)"`` carries positional
+    hidden widths; ``"attention(heads=4)"`` carries keywords. Absent,
+    the kind is the default.
+    """
+    if option_value is None:
+        return _DEFAULT_SOURCE_KIND, {}
+    val = option_value.strip()
+    if "(" not in val:
+        return val, {}
+    kind, rest = val.split("(", 1)
+    rest = rest.rstrip(")").strip()
+    if not rest:
+        return kind.strip(), {}
+    kwargs: dict[str, object] = {}
+    positional: list[int] = []
+    for token in rest.split(","):
+        token = token.strip()
+        if "=" in token:
+            k, v = token.split("=", 1)
+            kwargs[k.strip()] = int(v.strip())
+        else:
+            positional.append(int(token))
+    if positional:
+        kwargs["hidden_dims"] = tuple(positional)
+    return kind.strip(), kwargs
+
+
 def make_param_source(
     domain: AnySpace,
     param_dim: int,
-    kind: str = "mlp",
+    kind: str = _DEFAULT_SOURCE_KIND,
     **kwargs,
 ) -> ParamSource:
     """Factory that dispatches the `[param_source=...]` DSL option
-    to the concrete class. Existing families call this to preserve
-    the pre-abstraction default (MLP with `hidden_dim=64`) when no
-    option is supplied.
+    to the concrete class.
+
+    The default is `LinearSource`, so a morphism declared
+    ``f : X -> Y ~ Normal`` maps its input to the family's parameters
+    the way its arrow reads: linearly. A model that wants a
+    nonlinearity between its input and its parameters asks for one,
+    and the fact then appears in the source rather than in a default.
 
     Recognised kinds:
     * ``"lookup"`` — always used when the domain is a `SetObject`,
       regardless of the requested kind.
-    * ``"linear"`` — one `nn.Linear`.
-    * ``"mlp"`` — the default; `hidden_dims=(64, 64)` unless
-      overridden by ``hidden_dims`` or ``hidden_dim`` kwargs.
+    * ``"linear"`` — the default; one `nn.Linear`.
+    * ``"mlp"`` — `hidden_dims=(64, 64)` unless overridden by
+      ``hidden_dims`` or ``hidden_dim`` kwargs.
     * ``"identity"`` — pass through.
     * ``"attention"`` — self-attention head.
     """
@@ -359,6 +404,52 @@ def make_param_source(
     raise ValueError(f"make_param_source: unknown kind {kind!r}")
 
 
+#: Source kinds with hidden layers, so a width is something they read.
+_HIDDEN_LAYER_KINDS: frozenset[str] = frozenset({"mlp"})
+
+
+def _make_source(
+    domain: AnySpace,
+    param_dim: int,
+    hidden_dim: int | Sequence[int] | None = None,
+    param_source: ParamSource | None = None,
+    param_source_option: str | None = None,
+) -> ParamSource:
+    """Create the parameter source a conditional family reads from.
+
+    This is the one seam every family builds its source through, so
+    each of them takes the same three ways of choosing it:
+
+    * ``param_source``: an instance, which wins outright.
+    * ``param_source_option``: the DSL's ``[param_source=...]`` text,
+      a kind with optional arguments (``"mlp"``, ``"mlp(64, 32)"``).
+    * ``hidden_dim``: the hidden widths, as one width or a sequence of
+      them. A sequence gives one hidden layer per entry.
+
+    Without any of them the default is linear for a continuous domain
+    and a lookup table for a discrete one.
+
+    A width that the chosen source has no layers to apply it to raises
+    rather than being dropped: asking a single matrix how wide its
+    hidden layers should be has no answer, and silence would read as
+    one.
+    """
+    if param_source is not None:
+        return param_source
+    kind, kwargs = _split_source_option(param_source_option)
+    if hidden_dim is not None:
+        if kind not in _HIDDEN_LAYER_KINDS:
+            raise ValueError(
+                f"hidden_dim is not read by the {kind!r} parameter source, "
+                f"which has no hidden layers; select one that does with "
+                f"param_source, or drop the width"
+            )
+        if "hidden_dims" not in kwargs:
+            widths = (hidden_dim,) if isinstance(hidden_dim, int) else tuple(hidden_dim)
+            kwargs["hidden_dims"] = tuple(int(w) for w in widths)
+    return make_param_source(domain, param_dim, kind=kind, **kwargs)
+
+
 def param_source_from_option(
     domain: AnySpace,
     param_dim: int,
@@ -375,26 +466,7 @@ def param_source_from_option(
     Unrecognised syntax raises `ValueError` so parse errors surface
     at compile time rather than as silent identity fallthrough.
     """
-    if option_value is None:
-        return make_param_source(domain, param_dim)
-    val = option_value.strip()
-    if "(" not in val:
-        return make_param_source(domain, param_dim, kind=val)
-    kind, rest = val.split("(", 1)
-    rest = rest.rstrip(")").strip()
-    if not rest:
-        return make_param_source(domain, param_dim, kind=kind)
-    kwargs: dict[str, object] = {}
-    positional: list[int] = []
-    for token in rest.split(","):
-        token = token.strip()
-        if "=" in token:
-            k, v = token.split("=", 1)
-            kwargs[k.strip()] = int(v.strip())
-        else:
-            positional.append(int(token))
-    if positional:
-        kwargs["hidden_dims"] = tuple(positional)
+    kind, kwargs = _split_source_option(option_value)
     return make_param_source(domain, param_dim, kind=kind, **kwargs)
 
 

@@ -171,13 +171,34 @@ Custom families are pluggable: subclass
 [`Family`](../api/formulas/family.md#quivers.formulas.family.Family)
 and register your own observe kernel and link.
 
+### Coefficient priors are autoscaled
+
+A column enters the linear predictor as `beta * column`, so a prior on
+the coefficient alone is really a statement about the coefficient's
+contribution, and the same nominal prior means something different for
+every column. The default fixed-effect prior is therefore autoscaled:
+its scale is divided by the column's root-mean-square, which states it
+in contribution space so that `Normal(0.0, 5.0)` means the same thing
+on a raw predictor and on an orthonormal `poly` column. The
+coefficients themselves stay on their own column's scale, so nothing
+needs transforming back.
+
+This matters most for a basis whose columns are not O(1). `poly(x, k)`
+returns columns of norm one, whose entries run about $1/\sqrt{N}$; an
+unscaled `Normal(0.0, 5.0)` would assert that the contribution is near
+zero, and the fit would agree with the prior rather than the data,
+putting the noise scale at the marginal spread of the response and
+leaving the coefficients where they started.
+
 ### Prior overrides
 
 Prior overrides are keyed by the latent's name in the emitted QVR
 program (which `formula_to_qvr` lets you inspect upfront). The
 prior template is a brms-style `Family(arg, arg, ...)` call;
 numeric args become floats, identifier args stay as references to
-other latents in the program. The full call shape lives in
+other latents in the program. An explicit prior is your statement
+about that coefficient and is emitted exactly as written, without the
+autoscaling above. The full call shape lives in
 [Fitting and Diagnostics](analysis-fitting-and-diagnostics.md#prior-overrides).
 
 ## See also

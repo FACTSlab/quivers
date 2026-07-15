@@ -9,6 +9,7 @@ runtime construction.
 
 from __future__ import annotations
 
+import inspect
 import math
 from collections.abc import Callable
 
@@ -64,11 +65,12 @@ from quivers.dsl.ast_nodes import (
 from quivers.dsl.compiler._options import (
     check_option_keys,
     find_option,
+    get_option_call_text,
     get_option_float,
+    get_option_int_list,
     get_option_int,
     get_option_name,
     get_option_name_list,
-    get_option_string,
 )
 from quivers.dsl.compiler._prelude import (
     _ALGEBRA_REGISTRY,
@@ -122,6 +124,44 @@ _MORPHISM_OPTION_KEYS: frozenset[str] = frozenset(
         "temperature",
     }
 )
+
+# The union above spans every role, so checking against it alone would
+# accept a key the chosen lowering never reads and drop it in silence.
+# Each role therefore declares the keys it actually consumes, and a key
+# outside its set is rejected rather than ignored: `scale` configures a
+# latent morphism's init and means nothing to a family-backed kernel,
+# whose parameters come from its `param_source`.
+#
+# ``role`` and ``replicate`` pick the lowering and its multiplicity, so
+# every role reads them.
+_COMMON_MORPHISM_OPTION_KEYS: frozenset[str] = frozenset({"role", "replicate"})
+
+_ROLE_OPTION_KEYS: dict[str, frozenset[str]] = {
+    # `_compile_latent_role` reads scale / init; a `~ Family(...)` init
+    # carries its axis-role clause through `_validate_family_axes`.
+    "latent": frozenset({"scale", "init", "over", "iid"}),
+    "observed": frozenset(),
+    # `_make_continuous_morphism` threads these into the family.
+    "kernel": frozenset(
+        {
+            "n_layers",
+            "hidden_dim",
+            "param_source",
+            "rank",
+            "temperature",
+            "over",
+            "iid",
+        }
+    ),
+    "embed": frozenset(),
+    "discretize": frozenset({"bins"}),
+    "let": frozenset({"over", "iid"}),
+}
+
+
+def _signature_params(cls) -> frozenset[str]:
+    """The keyword names a family's ``__init__`` accepts."""
+    return frozenset(inspect.signature(cls.__init__).parameters)
 
 
 def _apply_auto_init(morph, domain, codomain, algebra) -> None:
@@ -672,6 +712,7 @@ class _DeclarationsMixin:
                 decl.col,
             )
         role = self._resolve_morphism_role(decl, name)
+        self._check_role_options(decl, name, role)
         replicate = get_option_int(
             decl.options,
             "replicate",
@@ -697,6 +738,35 @@ class _DeclarationsMixin:
             self._compile_let_role(decl, name, names)
         if replicate is not None:
             self._groups[name] = names
+
+    def _check_role_options(self, decl: MorphismDecl, name: str, role: str) -> None:
+        """Reject an option the resolved role's lowering never reads.
+
+        `check_option_keys` has already rejected keys outside the
+        union, so anything reaching here is a real morphism option
+        applied to a role that ignores it. Ignoring it silently is how
+        ``[scale=0.5] ~ Normal`` came to read as a configured init
+        while doing nothing at all.
+        """
+        allowed = _COMMON_MORPHISM_OPTION_KEYS | _ROLE_OPTION_KEYS[role]
+        for entry in decl.options:
+            if entry.key in allowed:
+                continue
+            owners = sorted(
+                r for r, keys in _ROLE_OPTION_KEYS.items() if entry.key in keys
+            )
+            where = (
+                f"it configures {', '.join(f'role={r}' for r in owners)}"
+                if owners
+                else "no role reads it"
+            )
+            raise CompileError(
+                f"morphism {name!r}: option {entry.key!r} is not read by "
+                f"role={role}; {where}. Remove it, or declare the "
+                f"morphism under a role that reads it.",
+                entry.line or decl.line,
+                entry.col or decl.col,
+            )
 
     def _resolve_morphism_role(self, decl: MorphismDecl, name: str) -> str:
         """Resolve a morphism's role: explicit ``role=`` wins; absent
@@ -1059,36 +1129,42 @@ class _DeclarationsMixin:
                 decl.col,
             )
         cls = registry[family_name]
-        hidden_dim = get_option_int(
+        hidden_dim = get_option_int_list(
             decl.options,
             "hidden_dim",
             line=decl.line,
             col=decl.col,
-            default=64,
         )
-        kwargs: dict = {"hidden_dim": int(hidden_dim)}
-        # Optional `[param_source=<kind>[(...)]]` DSL surface for
-        # picking the parameter-source architecture (linear, MLP,
-        # attention, identity). The default MLP with `hidden_dim`
-        # matches the pre-abstraction behaviour. The kwarg is
-        # threaded through to the conditional family's `__init__`,
-        # which uses `param_source_from_option` internally to build
-        # the concrete `ParamSource` once `param_dim` is knowable.
-        param_source_opt = get_option_name(
+        kwargs: dict = {}
+        if hidden_dim:
+            kwargs["hidden_dim"] = hidden_dim[0] if len(hidden_dim) == 1 else hidden_dim
+        # Optional `[param_source=<kind>]` / `[param_source=<kind>(...)]`
+        # DSL surface for picking the parameter-source architecture
+        # (linear, MLP, attention, identity). The default is linear.
+        # Both keys are threaded to the family's `__init__`, which hands
+        # them to `_make_source`: the option's text carries any
+        # parenthesised widths, so the call form has to reach it as
+        # surface text rather than as a bare name.
+        param_source_opt = get_option_call_text(
             decl.options,
             "param_source",
             line=decl.line,
             col=decl.col,
         )
-        if param_source_opt is None:
-            param_source_opt = get_option_string(
-                decl.options,
-                "param_source",
-                line=decl.line,
-                col=decl.col,
-            )
         if param_source_opt is not None:
             kwargs["param_source_option"] = param_source_opt
+        # A family whose parameters do not come from a source has
+        # nothing to point these at. Saying so beats a TypeError out of
+        # a constructor with no line or column on it.
+        unread = sorted(k for k in kwargs if k not in _signature_params(cls))
+        if unread:
+            raise CompileError(
+                f"morphism {decl.names[0]!r}: {family_name} does not take "
+                f"{', '.join(repr(k) for k in unread)}; its parameters do "
+                f"not come from a ``param_source``",
+                decl.line,
+                decl.col,
+            )
         rank = get_option_int(
             decl.options,
             "rank",

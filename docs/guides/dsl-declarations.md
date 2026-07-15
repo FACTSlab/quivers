@@ -235,7 +235,7 @@ morphism cat : X -> Y * Z
 # Parametric kernel: input-conditional Normal on R^3.
 morphism f : X -> R3 ~ Normal
 # Family options control the parameter network.
-morphism g : R3 -> R3 ~ Normal [scale=0.5]
+morphism g : R3 -> R3 ~ Normal
 morphism k : X -> S3 ~ Dirichlet
 # 30+ families are registered; see the families guide.
 # `Flow` is a special-case constructor (not in the family registry)
@@ -401,7 +401,7 @@ referenced by [`fan`](#fan-out-diagonal-morphism):
 <!-- compile: false -->
 ```qvr
 # creates head_0, head_1, head_2, head_3 with independent parameters
-morphism head : Latent -> HeadOut [replicate=4, scale=0.1] ~ Normal
+morphism head : Latent -> HeadOut [replicate=4] ~ Normal
 
 # works on every morphism whose role permits replication:
 morphism T    : State -> Obs [replicate=3]               # lookup-table kernel
@@ -427,12 +427,12 @@ declaration:
 define parallel = fan(f, g, h)
 
 # group expansion: fan(head) expands to fan(head_0, head_1, head_2, head_3)
-morphism head : Latent -> HeadOut [replicate=4, scale=0.1] ~ Normal
+morphism head : Latent -> HeadOut [replicate=4] ~ Normal
 
 define multi_head = fan(head)
 
 # commonly followed by a projection to recombine
-morphism proj : Combined -> Latent [scale=0.1] ~ Normal
+morphism proj : Combined -> Latent ~ Normal
 define attention = fan(head) >> proj
 ```
 
@@ -511,7 +511,7 @@ Thread hidden state across a sequence using a recurrent cell:
 <!-- compile: false -->
 ```qvr
 # Basic syntax: cell has product domain A * H -> H
-morphism cell : Embedded * Hidden -> Hidden ~ Normal [scale=0.1]
+morphism cell : Embedded * Hidden -> Hidden ~ Normal
 define rnn = tok_embed >> scan(cell) >> output_proj
 
 # With learned initial state (default is zeros)
@@ -549,8 +549,8 @@ object Output : Real 64
 
 morphism tok_embed : Token -> Embedded [role=embed]
 
-morphism cell : Embedded * Hidden -> Hidden ~ Normal [scale=0.1]
-morphism output_proj : Hidden -> Output ~ Normal [scale=0.1]
+morphism cell : Embedded * Hidden -> Hidden ~ Normal
+morphism output_proj : Hidden -> Output ~ Normal
 define rnn = tok_embed >> scan(cell) >> output_proj
 
 export rnn

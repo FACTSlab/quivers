@@ -1,21 +1,43 @@
-# Montague Grammar + Lambda-Calculus Type Surface
+# Montague Grammar + Syllogistic Entailment
 #
 # Two-stage natural-language-inference architecture composed
 # entirely out of QVR's weighted-deduction surface:
 #
-#   1. A Montague-style grammar derives logical forms from token
-#      spans. Lexical entries are honest lambda terms over a
-#      user-declared free term algebra; binders are listed in the
-#      ``binders`` block so the compiler treats their first
-#      argument as a bound variable and alpha-renames it to a
-#      fresh canonical symbol per term construction.
+#   1. A Montague-style grammar derives a logical form for every
+#      token span. Common nouns and intransitive verbs denote
+#      honest lambda terms over a user-declared free term algebra;
+#      ``Lam`` is listed in the ``binders`` block, so the compiler
+#      treats its first argument as a bound variable and
+#      alpha-renames it to a fresh canonical symbol per term
+#      construction. Structural equality on the chart is therefore
+#      alpha-equivalence on the surface.
 #
-#   2. An entailment prover closes the LFs under modus ponens and
-#      a functorial-substitution rule; ``subst(...)`` is the
-#      capture-avoiding substitution primitive both halves rely
-#      on. The two deductions chain through ``compose(...)`` at
-#      the ``program``-body level, so the prover's chart inherits
-#      the grammar's gradient flow into the lexicon's log-weights.
+#   2. An entailment prover closes the resulting claims under
+#      three syllogistic rules. The prover's items are the
+#      grammar's own logical forms wrapped in ``Claim``, so the
+#      two deductions share one term language.
+#
+# Why the sentence LF is built in normal form
+# -------------------------------------------
+# A deduction rule's conclusion is a constructor tree over the
+# rule's pattern variables, and the runtime instantiates it by
+# structural substitution alone. There is no beta-rule: nothing
+# reduces a redex, and the chart never normalises an item. So a
+# determiner cannot denote a continuation-form lambda term
+# ``Lam(P, Lam(Q, ...))`` that later beta-reduces against its
+# arguments; the chart would simply carry the unreduced redex
+# forever, and no prover rule could see through it.
+#
+# The grammar therefore builds the sentence LF in normal form
+# directly, in the generalised-quantifier style of
+# [Barwise and Cooper (1981)](https://doi.org/10.1007/BF00350139):
+# a determiner denotes a relation between two sets, written here
+# as the binary constructors ``Every(P, Q)`` and ``Some(P, Q)``.
+# The determiner's quantificational force rides on its category
+# (``DetEvery`` / ``DetSome``), and the sentence rule that consumes
+# that category builds the matching constructor. Restrictor and
+# scope stay genuine lambda terms, so the ``binders`` machinery is
+# doing real work at the predicate level.
 #
 # Reference: [Montague (1973)](https://doi.org/10.1007/978-94-010-2506-5_10).
 
@@ -25,51 +47,85 @@ object Term : FinSet 8
 # Grammar deduction
 # ---------------------------------------------------------------------------
 
-deduction Montague : Term -> Term [semiring=LogProb, start=S, depth=10]
-    # Category and term-algebra constructors live in ``atoms``.
-    # ``Var`` is the variable-occurrence constructor; ``App`` is
-    # application; ``forall_t`` / ``implies_t`` / ``and_t`` are the
-    # logical connectives used in determiner denotations; predicate
-    # constants ``dog_p`` / ``bark_p`` / ... are nullary atoms.
-    atoms NP, S, N, Fwd, Bwd, span, App, Var, dog_p, cat_p, animal_p, bark_p, walk_p, forall_t, exists_t, implies_t, and_t
+deduction Montague : Term -> Term [semiring=LogProb, start=S, depth=12]
+    # Categories, the chart-item constructor ``span``, the LF
+    # constructors (``App``, ``Var``, ``Every``, ``Some``), and the
+    # predicate constants all live in ``atoms``.
+    atoms S, N, VP, Nom, Art, Cop, DetEvery, DetSome, QEvery, QSome, span, App, Var, Every, Some, dog_p, cat_p, animal_p, bark_p, walk_p, every_q, some_q, an_q, is_q
     # ``Lam`` is the binder constructor: ``Lam(x, body)``. The
     # compiler alpha-renames ``x`` to a fresh canonical symbol per
-    # term construction so structural equality on the chart is
-    # alpha-equivalence on the surface.
+    # lexicon entry, so the predicate a word denotes is one
+    # canonical term wherever that word occurs.
     binders Lam
-    rule fwd_app : span(I, K, Fwd(X, Y), F), span(K, J, X, A) |- span(I, J, Y, App(F, A)) #[learnable]
-    rule bwd_app : span(I, K, X, A), span(K, J, Bwd(X, Y), F) |- span(I, J, Y, App(F, A)) #[learnable]
+    # Determiner + common noun. The quantified-NP span carries the
+    # restrictor predicate as its LF; the determiner's category
+    # records which quantifier is coming.
+    rule every_np : span(I, K, DetEvery, D), span(K, J, N, P) |- span(I, J, QEvery, P) #[learnable]
+    rule some_np : span(I, K, DetSome, D), span(K, J, N, P) |- span(I, J, QSome, P) #[learnable]
+    # Quantified NP + verb phrase. This is where the
+    # generalised-quantifier relation is built, already in normal
+    # form: no redex, nothing left to reduce.
+    rule every_s : span(I, K, QEvery, P), span(K, J, VP, Q) |- span(I, J, S, Every(P, Q)) #[learnable]
+    rule some_s : span(I, K, QSome, P), span(K, J, VP, Q) |- span(I, J, S, Some(P, Q)) #[learnable]
+    # Predicative "is an N": the article and the copula are
+    # semantically vacuous, so both rules pass the noun's predicate
+    # through unchanged.
+    rule art_n : span(I, K, Art, D), span(K, J, N, P) |- span(I, J, Nom, P) #[learnable]
+    rule cop_nom : span(I, K, Cop, D), span(K, J, Nom, P) |- span(I, J, VP, P) #[learnable]
     lexicon
         # Common nouns are unary predicates: ``λx. dog(x)``.
-        "dog"    : N          = Lam(x, App(dog_p, Var(x)))      #[learnable]
-        "cat"    : N          = Lam(x, App(cat_p, Var(x)))      #[learnable]
-        "animal" : N          = Lam(x, App(animal_p, Var(x)))   #[learnable]
+        "dog"    : N  = Lam(x, App(dog_p, Var(x)))      #[learnable]
+        "cat"    : N  = Lam(x, App(cat_p, Var(x)))      #[learnable]
+        "animal" : N  = Lam(x, App(animal_p, Var(x)))   #[learnable]
         # Intransitive verbs are unary predicates over individuals.
-        "barks"  : Bwd(NP, S) = Lam(x, App(bark_p, Var(x)))     #[learnable]
-        "walks"  : Bwd(NP, S) = Lam(x, App(walk_p, Var(x)))     #[learnable]
-        # Determiners are generalised quantifiers:
-        #     "every" : (S/(S\NP))/N
-        #             = λP. λQ. ∀(λx. P(x) → Q(x))
-        # Bound variables ``P``, ``Q``, ``x`` are declared by the
-        # ``binders Lam`` block + the lexicon-LF compiler's bound-
-        # variable pre-pass; they need not appear in ``atoms``.
-        "every"  : Fwd(N, Fwd(Bwd(NP, S), S)) = Lam(P, Lam(Q, App(forall_t, Lam(x, App(App(implies_t, App(Var(P), Var(x))), App(Var(Q), Var(x))))))) #[learnable]
-        "some"   : Fwd(N, Fwd(Bwd(NP, S), S)) = Lam(P, Lam(Q, App(exists_t, Lam(x, App(App(and_t, App(Var(P), Var(x))), App(Var(Q), Var(x))))))) #[learnable]
+        "barks"  : VP = Lam(x, App(bark_p, Var(x)))     #[learnable]
+        "walks"  : VP = Lam(x, App(walk_p, Var(x)))     #[learnable]
+        # The determiners, the article, and the copula contribute no
+        # LF of their own: their category is what drives the rules,
+        # exactly as in the CCG example's lexicon. Each entry names
+        # itself with a constant so its log-weight is still learnable.
+        "every"  : DetEvery = every_q #[learnable]
+        "some"   : DetSome  = some_q  #[learnable]
+        "an"     : Art      = an_q    #[learnable]
+        "is"     : Cop      = is_q    #[learnable]
 
 # ---------------------------------------------------------------------------
 # Prover deduction
 # ---------------------------------------------------------------------------
+#
+# The prover's items are ``Claim(phi)`` for ``phi`` a sentence LF
+# the grammar built, plus ``Nonempty(P)`` for an explicit
+# existence premise. All three rules are classically valid on the
+# generalised-quantifier reading
+#
+#     Every(P, Q)  =  forall x. P(x) -> Q(x)
+#     Some(P, Q)   =  exists x. P(x) & Q(x)
+#     Nonempty(P)  =  exists x. P(x)
+#
+# ``ex_import`` is the one that needs care. ``Every(P, Q)`` alone
+# does *not* entail ``Some(P, Q)``: on the standard first-order
+# reading a universal over an empty restrictor is vacuously true,
+# while the existential is false. The inference is valid only
+# under existential import, so the rule takes ``Nonempty(P)`` as a
+# second premise rather than smuggling the assumption in. A caller
+# that wants the inference must supply that premise.
 
-deduction Prover : Term -> Term [semiring=LogProb, depth=8]
-    atoms Claim, Implies, App, Var
+deduction Prover : Term -> Term [semiring=LogProb, depth=12]
+    atoms Claim, Every, Some, Nonempty, App, Var
     binders Lam
-    rule modus_ponens : Claim(P), Claim(Implies(P, Q)) |- Claim(Q) #[learnable]
-    rule app_subst : Claim(App(F, X)), Claim(Implies(X, Y)) |- Claim(App(F, Y)) #[learnable]
+    # Barbara: every P is Q, every Q is R, therefore every P is R.
+    # Valid with no existence assumption.
+    rule barbara : Claim(Every(P, Q)), Claim(Every(Q, R)) |- Claim(Every(P, R)) #[learnable]
+    # Darii: some P is Q, every Q is R, therefore some P is R.
+    # Valid; the existential premise carries the witness.
+    rule darii : Claim(Some(P, Q)), Claim(Every(Q, R)) |- Claim(Some(P, R)) #[learnable]
+    # Subalternation, licensed only by an explicit non-emptiness
+    # premise on the restrictor.
+    rule ex_import : Claim(Every(P, Q)), Claim(Nonempty(P)) |- Claim(Some(P, Q)) #[learnable]
 
 # ---------------------------------------------------------------------------
-# Fit program: regression-style SVI / NUTS over the lexicon and
-# rule log-weights. The chart's goal weight is the inside
-# log-marginal of the sentence under the current parameters.
+# Fit program: the chart's goal weight is the inside log-marginal
+# of the sentence at the start symbol under the current parameters.
 # ---------------------------------------------------------------------------
 
 program fit_grammar : Term -> Term
@@ -78,18 +134,3 @@ program fit_grammar : Term -> Term
     return log_Z
 
 export fit_grammar
-
-# ---------------------------------------------------------------------------
-# Demonstration of ``subst`` and ``compose`` as program-body
-# builtins. ``subst(term, var, value)`` is capture-avoiding because
-# every binder has already been alpha-renamed at compile time;
-# ``compose(D1, D2)`` chains D1's goal items into D2's axiom set
-# and propagates submodule parameters so a composed fit walks both
-# factors' weights together.
-# ---------------------------------------------------------------------------
-
-program fit_pipeline : Term -> Term
-    let pipeline = compose(Montague, Prover)
-    let chart = parse(pipeline, sentence)
-    score log_Z = chart.goal_weight()
-    return log_Z

@@ -27,7 +27,7 @@ object Hidden : Real 128
 
 morphism tok_embed : Token -> Embedded [role=embed]
 morphism gate_i, gate_f, gate_o : Embedded * Hidden -> Hidden ~ LogitNormal
-morphism cell_cand : Embedded * Hidden -> Hidden [scale=0.5] ~ Normal
+morphism cell_cand : Embedded * Hidden -> Hidden ~ Normal
 morphism lm_head : Hidden -> Token ~ Categorical
 
 program lstm_cell(x_t, h_prev) : Embedded * Hidden -> Hidden

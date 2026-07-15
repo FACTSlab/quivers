@@ -26,11 +26,11 @@ object HeadOut : Real 4
 object FFHidden : Real 32
 
 morphism tok_embed : Token -> Latent [role=embed]
-morphism head : Latent -> HeadOut [replicate=4, scale=0.1] ~ Normal
-morphism attn_proj : Latent -> Latent [scale=0.1] ~ Normal
-morphism ff_up : Latent -> FFHidden ~ Normal
-morphism ff_down : FFHidden -> Latent [scale=0.1] ~ Normal
-morphism residual_attn, residual_ff : Latent -> Latent [scale=0.01] ~ Normal
+morphism head : Latent -> HeadOut [replicate=4, param_source=mlp] ~ Normal
+morphism attn_proj : Latent -> Latent [param_source=mlp] ~ Normal
+morphism ff_up : Latent -> FFHidden [param_source=mlp] ~ Normal
+morphism ff_down : FFHidden -> Latent [param_source=mlp] ~ Normal
+morphism residual_attn, residual_ff : Latent -> Latent [param_source=mlp] ~ Normal
 morphism lm_head : Latent -> Token ~ Categorical
 
 define layer = fan(head) >> attn_proj >> residual_attn >> ff_up >> ff_down >> residual_ff

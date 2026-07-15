@@ -4,6 +4,34 @@ All notable changes to the quivers library are documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/), and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.16.0] - 2026-07-15
+
+### Changed
+
+- **A kernel's parameter source defaults to a linear map.** A morphism declared `f : X -> Y ~ Family` over continuous spaces reads its distribution parameters from a single `nn.Linear`, which is how its arrow reads. A model whose parameters depend nonlinearly on the input requests that with `[param_source=mlp]`, so the fact appears in the source instead of in a default: previously every such kernel carried a two-hidden-layer tanh MLP, and a `Real 1 -> Real 1` kernel silently held 4418 weights. The gallery is now what it says it is. `linear_gaussian_ssm` is linear, and an LSTM, GRU or vanilla-RNN gate is one matrix under a cell whose nonlinearity is the sigmoid its program body applies. `deep_markov`, the VAE's encoder and decoder bodies, the transformer and seq2seq feed-forward sublayers, and the recurrent cells that carry their own tanh now name the MLP they rely on.
+- **Morphism options are checked against the role that reads them.** Options were checked against the union of every role's keys and then read per role, so an option belonging to another role passed validation and was dropped in silence. `[scale=]` on a family-backed kernel is the case that bit: nothing reads it there, and all 34 uses across the examples configured an init that never existed. Each role now declares the keys its lowering consumes, and a key outside that set is rejected with an error naming the role that does read it.
+- **A default coefficient prior is autoscaled to its column.** A column enters a formula's linear predictor as `beta * column`, so a prior on the coefficient alone states the scale of its contribution, and one fixed `Normal(0, 5)` therefore means something different for every column. The default's scale is now divided by the column's root-mean-square, which states it in contribution space; an explicit per-name prior is emitted as written. Coefficients stay on their own column's scale, so nothing is transformed back.
+
+### Added
+
+- **Inline distributions take any number of vector-typed parameters.** A family may declare vector parameters in any position, and the stacked input is split at each one's declared dim rather than by a single trailing parameter eating the remaining columns. `MixtureNormal(weights, locations, scales)`, whose three per-component vectors are each shared across the response plate, is expressible.
+- **`[param_source=<kind>(...)]` carries its arguments.** The grammar has always parsed the call form and `param_source_from_option` has always read parenthesised hidden widths, but the compiler decoded the option as a bare identifier and raised on anything else, so `[param_source=mlp(16, 8)]` died at compile time and the width parser was unreachable from QVR.
+- **`hidden_dim` takes a sequence of widths.** One entry per hidden layer, so `[param_source=mlp, hidden_dim=[64, 32, 16]]` builds those three; a bare `hidden_dim=64` is the one-layer case. A single number could say how wide an MLP's layers are but not how many of them there were.
+
+### Fixed
+
+- **Every family that has a parameter source can select it.** `[param_source=...]` is accepted by the compiler for any family-backed kernel, and exactly one of the 28 conditional families could receive it: `_make_continuous_morphism` passed the keyword into a constructor that only `ConditionalNormal` declared, so the other 27 died on a `TypeError` raised inside `__init__`, with no line or column on it. Every family whose parameters come from a source now takes `param_source` and `param_source_option` and hands them to the one seam that builds it. The four whose parameters do not (`Horseshoe`, `GaussianProcess`, `Independent`, `Transformed`) refuse the option at compile time, naming the family.
+- **`hidden_dim` is read or refused, not dropped.** It was ignored whenever `param_source` was given, so `[param_source=mlp, hidden_dim=32]` silently built the default width. It now reaches the source that has layers to apply it to, and a width aimed at a source with none is an error: asking a single matrix how wide its hidden layers should be has no answer, and silence would read as one.
+- **A scalar response is scored against its codomain's event axis.** A conditional family's parameters for a `d`-dimensional codomain arrive as `(N, d)`. An `(N,)` response against a `d = 1` codomain, which is the shape the response placeholder implies, broadcast to `(N, N)`, and because the observe step sums its score the result was a finite log-joint wrong by a factor of `N`. The axis is restored, and a response that cannot carry the codomain's event shape is rejected rather than broadcast into one. An inline family keeps the plate layout its parameters already align with.
+- **An unsupplied `via` fibration index names itself.** A grouped `marginalize` reads its index from the observations dict like any covariate, so omitting it is a user error; it surfaced as a bare `KeyError`.
+- **`quivers.__version__` reads the installed distribution's metadata.** It was a literal, and it had drifted a release behind.
+
+### Documentation
+
+- **The Bayesian neural network is a neural network.** The example composed four latent morphisms under an algebra whose composition is matrix multiplication, so with no pointwise nonlinearity the chain collapsed to a single linear map; its fit drove a learnable input morphism at pure noise and reported a residual worse than predicting zero, its NUTS block named an `x` and an `observations` no earlier block defined, over a composite carrying no likelihood to sample, and its walkthrough placed matrix-normal priors through a syntax that does not parse. It is now a Bayesian MLP for nonlinear regression whose conditional-Normal kernel emits both a mean and a log-scale, fit to a sine wave that no linear model can represent and scored against the best least-squares line under a matching Gaussian.
+- **The Gaussian mixture is scored per row.** The example grouped a per-row component assignment under a `marginalize` block keyed by a fibration index, which read as an item-grouped mixture and carried a discrete latent no guide could biject. `MixtureNormal` integrates the assignment out in closed form.
+- **`ParamSource` is documented.** Its eight sources and the `[param_source=...]` option had no API page, despite being where a kernel's dependence on its input is computed.
+
 ## [0.15.0] - 2026-07-02
 
 ### Changed

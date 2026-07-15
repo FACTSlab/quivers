@@ -39,6 +39,8 @@ import textwrap
 import numpy as np
 import pandas as pd
 import polars as pl
+import re
+
 import pytest
 
 from quivers.dsl import Compiler, loads
@@ -739,12 +741,28 @@ class TestPosteriorRecovery:
             seed=0,
         )
         means = _posterior_means(result.posterior, n_obs=len(ys))
-        # Grand mean within tolerance of the true value.
-        assert abs(means["intercept"].item() - true_grand_mean) < 0.5
-        # Per-group random effects are an 8-vector; correlation with
-        # the true effects should be strong.
-        post_group = means["alpha_g"].detach().numpy().reshape(-1)
+        # The formula compiler emits the non-centred parameterisation,
+        # so a group's random effect is its standard-normal draw scaled
+        # by the group-level sigma; there is no centred `alpha_g` site.
+        post_group = (
+            (means["sigma_g_Intercept"] * means["z_g_Intercept"])
+            .detach()
+            .numpy()
+            .reshape(-1)
+        )
         assert len(post_group) == n_groups
+
+        # The intercept and the random effects are identified only up to
+        # a constant shared shift: adding c to the intercept and taking
+        # c off every group effect leaves the likelihood untouched, and
+        # only the N(0, 1) prior on the draws pulls the split back, which
+        # with eight groups it does weakly. So the level is asserted on
+        # the identified sum rather than on the intercept alone.
+        level = means["intercept"].item() + float(post_group.mean())
+        assert abs(level - (true_grand_mean + group_effects.mean())) < 0.5
+
+        # The effects themselves are identified up to that same shift,
+        # which correlation is invariant to.
         corr = np.corrcoef(post_group, group_effects)[0, 1]
         assert corr > 0.7
 
@@ -767,11 +785,20 @@ class TestPosteriorRecovery:
             seed=0,
         )
         means = _posterior_means(result.posterior, n_obs=N)
-        # The orthogonal polynomial coefficients aren't the raw
-        # quadratic ones, but BOTH should be substantially nonzero
-        # because the true function has linear + quadratic content.
-        assert abs(means["beta_poly_x_2_1"].item()) > 0.5
-        assert abs(means["beta_poly_x_2_2"].item()) > 0.5
+        # `poly` returns an orthonormal basis, so least squares on it is
+        # just the projection of y onto each column and gives the exact
+        # target the fit has to reach. Both coefficients are large
+        # because the columns are of norm one over N rows.
+        from formulae import design_matrices
+
+        X = np.asarray(design_matrices("y ~ poly(x, 2)", df).common.design_matrix)
+        exact = np.linalg.lstsq(X, y, rcond=None)[0]
+        assert abs(means["beta_poly_x_2_1"].item() - exact[1]) < 0.5 * abs(exact[1])
+        assert abs(means["beta_poly_x_2_2"].item() - exact[2]) < 0.5 * abs(exact[2])
+        # The noise scale is the data's, not the marginal spread of y:
+        # a fit that gives up puts sigma near std(y) and leaves the
+        # coefficients at their prior.
+        assert abs(means["sigma"].item() - 0.3) < 0.15
 
     def test_log_transform_recovers_slope(self):
         """y ~ log(w) recovers a slope when y is generated from a
@@ -892,9 +919,16 @@ class TestPosteriorRecovery:
             seed=0,
         )
         means = _posterior_means(result.posterior, n_obs=len(ys))
-        # Per-group random intercepts and slopes correlate with truth.
-        post_int = means["alpha_g"].detach().numpy().reshape(-1)
-        post_slope = means["beta_g_x"].detach().numpy().reshape(-1)
+        # The formula compiler emits the non-centred parameterisation,
+        # so a group's random effect is its standard-normal draw scaled
+        # by the group-level sigma; there is no centred `alpha_g` site.
+        post_int = (
+            (means["sigma_g_Intercept"] * means["z_g_Intercept"])
+            .detach()
+            .numpy()
+            .reshape(-1)
+        )
+        post_slope = (means["sigma_g_x"] * means["z_g_x"]).detach().numpy().reshape(-1)
         assert np.corrcoef(post_int, ranef_intercept)[0, 1] > 0.7
         assert np.corrcoef(post_slope, ranef_slope)[0, 1] > 0.5
 
@@ -930,3 +964,57 @@ class TestFamilyLinkDefaults:
     def test_unknown_family_raises(self, base_df):
         with pytest.raises(ValueError, match="unknown family"):
             formula_to_qvr("y ~ x", data=base_df, family="nonexistent")
+
+
+# ---------------------------------------------------------------------------
+# Default coefficient priors are autoscaled to their column
+# ---------------------------------------------------------------------------
+
+
+class TestPriorAutoscaling:
+    def test_default_prior_scales_by_the_column_rms(self, base_df):
+        """A column enters as ``beta * column``, so the default prior's
+        scale is divided by the column's RMS: the nominal value then
+        reads in contribution space and means the same thing whatever
+        the column's units."""
+        src = formula_to_qvr("y ~ x", data=base_df, family="gaussian")
+        rms = float(np.sqrt(np.mean(np.square(base_df["x"].to_numpy()))))
+        match = re.search(r"sample beta_x <- Normal\(0\.0, ([0-9.eE+-]+)\)", src)
+        assert match, f"no autoscaled beta_x prior in:\n{src}"
+        assert float(match.group(1)) == pytest.approx(5.0 / rms, rel=1e-6)
+
+    def test_orthonormal_poly_columns_get_a_wide_prior(self):
+        """`poly` returns columns of norm one, whose entries run about
+        1/sqrt(N). Without autoscaling the default prior would assert
+        the contribution is near zero and the fit would believe it."""
+        rng = np.random.default_rng(0)
+        df = pd.DataFrame({"y": rng.normal(size=200), "x": rng.uniform(-2, 2, 200)})
+        src = formula_to_qvr("y ~ poly(x, 2)", data=df, family="gaussian")
+        scales = [
+            float(s)
+            for s in re.findall(
+                r"sample beta_poly_x_2_\d <- Normal\(0\.0, ([0-9.eE+-]+)\)", src
+            )
+        ]
+        assert len(scales) == 2
+        # rms of a norm-one column over N rows is 1/sqrt(N), so the
+        # scale lands near 5 * sqrt(N).
+        for s in scales:
+            assert s == pytest.approx(5.0 * np.sqrt(200), rel=1e-3)
+
+    def test_intercept_prior_is_left_alone(self, base_df):
+        """The intercept multiplies a column of ones, so there is no
+        scale to correct for."""
+        src = formula_to_qvr("y ~ x", data=base_df, family="gaussian")
+        assert "sample intercept <- Normal(0.0, 5.0)" in src
+
+    def test_explicit_prior_is_emitted_as_written(self, base_df):
+        """An override is the user's statement about that coefficient,
+        so it is not rescaled underneath them."""
+        src = formula_to_qvr(
+            "y ~ x",
+            data=base_df,
+            family="gaussian",
+            priors={"beta_x": "Normal(0.0, 0.25)"},
+        )
+        assert "sample beta_x <- Normal(0.0, 0.25)" in src

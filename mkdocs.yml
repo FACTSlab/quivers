@@ -253,6 +253,7 @@ nav:
       - Overview: api/continuous/spaces.md
       - Morphisms: api/continuous/morphisms.md
       - Families: api/continuous/families.md
+      - Parameter Sources: api/continuous/param_source.md
       - Inline Builders: api/continuous/inline.md
       - Programs: api/continuous/programs.md
       - Scan: api/continuous/scan.md
