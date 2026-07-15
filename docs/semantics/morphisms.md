@@ -21,7 +21,9 @@ with the *role* selected by the option block; `kernel` is the default, so a `mor
 | `discretize` | quotient kernel                           | `~ expr` (partition) | uniform-quantile     |
 | `let`      | deterministic morphism (alias for `~ expr`) | `~ expr`             | required             |
 
-Other option-block keys carry per-role configuration: `scale` (initial parameter scale for `latent` and `kernel`), `init` (named initialization regime), `bins` (`discretize`), `replicate=N` (allocate $N$ independently-parameterized copies under names `f_0, …, f_{N-1}` with a group binding $f$), and the axis-role keys (`over`, `iid`) consumed by the family-prior surface of §6.
+Other option-block keys carry per-role configuration, and each is read by the role it configures: `scale` and `init` (the `latent` lowering's initial parameter scale and named initialization regime), `bins` (`discretize`), `param_source` and `hidden_dim` (the `kernel` lowering's parameter map $\theta$, §2.1), `replicate=N` (allocate $N$ independently-parameterized copies under names `f_0, …, f_{N-1}` with a group binding $f$, read by every role), and the axis-role keys (`over`, `iid`) consumed by the family-prior surface of §6.
+
+A key outside the resolved role's set is rejected rather than ignored. The set is per role, not per declaration: `scale` is an initial value for a `latent`'s tensor and means nothing to a `kernel`, whose parameters are computed from its input by $\theta$ rather than held.
 
 The remainder of this page uses the legacy keyword form (`latent`, `kernel`, `embed`) when illustrating individual strata; every snippet desugars to the unified form by `morphism f : … [role=KIND, …]`.
 
@@ -115,7 +117,19 @@ $$
 \llbracket f \rrbracket(x, B) \;=\; \int_B p_{\mathrm{Family}}(y \,;\, \theta(x))\, \mathrm{d}y,
 $$
 
-where $\theta : \llbracket \tau_1 \rrbracket \to \Theta$ is the family's parameter map (typically a neural network), and $p_{\mathrm{Family}}(\cdot \,;\, \theta)$ is the density of the family at parameter $\theta$. The QVR-supplied family registry catalogs the pairs $(\Theta, p)$ for each name (Normal, Beta, Dirichlet, …).
+where $\theta : \llbracket \tau_1 \rrbracket \to \Theta$ is the family's parameter map and $p_{\mathrm{Family}}(\cdot \,;\, \theta)$ is the density of the family at parameter $\theta$. The QVR-supplied family registry catalogs the pairs $(\Theta, p)$ for each name (Normal, Beta, Dirichlet, …).
+
+The kernel therefore factors through $\Theta$, and $\theta$ is what the `param_source` option selects: a single affine map by default, an MLP under `[param_source=mlp]`, a lookup table whenever $\llbracket \tau_1 \rrbracket$ is finite. A finite $\Theta$-factorization is a real restriction on which kernels a declaration can denote, since $\llbracket f \rrbracket$ ranges only over the image of
+
+$$
+\mathbf{Meas}\bigl(\llbracket \tau_1 \rrbracket,\, \Theta\bigr) \longrightarrow \mathbf{Kern}\bigl(\llbracket \tau_1 \rrbracket,\, \llbracket \sigma \rrbracket\bigr),
+\qquad
+\theta \longmapsto p_{\mathrm{Family}}(\,\cdot\;;\theta(-)),
+$$
+
+so `~ Normal` denotes a Gaussian kernel and nothing else. Because $\theta$ carries learnable weights $\varphi$, the declaration denotes not one kernel but the $\varphi$-indexed family $\varphi \mapsto p_{\mathrm{Family}}(\,\cdot\;;\theta_\varphi(-))$; fitting selects the point.
+
+Note that $\theta$ is invisible to the typing judgment: `f : τ₁ -> σ ~ Family` types identically whichever parameter map it carries, so the choice moves $\llbracket f \rrbracket$ inside the hom-set while leaving the arrow fixed. Whether a model is linear in its input is therefore a fact about $\theta$, not about the type, which is why the option states it in the source.
 
 ## 3. Continuous morphisms
 
@@ -140,6 +154,14 @@ $$
 $$
 
 realized numerically by Monte-Carlo or sampled-composition approximation in the implementation.
+
+Composing does not always buy expressiveness, and whether it does is a fact about $\theta$. Gaussian kernels with affine $\theta$ are closed under the integral above: for $g_1(s, \cdot) = \mathcal{N}(As + a,\, \Sigma_1)$ and $g_2(t, \cdot) = \mathcal{N}(Bt + b,\, \Sigma_2)$,
+
+$$
+(g_1; g_2)(s, \cdot) \;=\; \mathcal{N}\bigl(BA\,s + Ba + b,\; B \Sigma_1 B^{\top} + \Sigma_2\bigr),
+$$
+
+again a Gaussian kernel with affine $\theta$. A chain of them is one kernel of the same family, and the intermediate spaces contribute only a rank bound on $BA$. A nonlinear $\theta$ breaks the closure, which is what makes a composite of `~ Normal` kernels deeper than its factors rather than equal to their product.
 
 ## 4. Tensor product across strata
 
