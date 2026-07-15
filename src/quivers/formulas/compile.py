@@ -30,9 +30,13 @@ Emitted structure (one named scalar coefficient per design-matrix
 * One ``object G : K`` declaration per random-effect grouping
   factor (with ``K`` levels).
 * For each fixed-design column ``c``: one scalar latent draw
-  inside the program body, ``beta_c <- Normal(0, fixed_prior)``.
-  The per-row covariate values for ``c`` flow in as a free
-  variable via the host-data channel (``observations[c]``).
+  inside the program body, ``beta_c <- Normal(0, fixed_prior)``,
+  whose scale is autoscaled by ``1 / rms(c)`` so the nominal
+  value reads in contribution space and means the same thing on
+  a raw predictor and on an orthonormal ``poly`` column. An
+  explicit per-name prior is emitted as written. The per-row
+  covariate values for ``c`` flow in as a free variable via the
+  host-data channel (``observations[c]``).
 * For each random-effect group ``(slope | g)``: a
   `HalfNormal` scale latent plus a per-level plate draw,
   with the per-row contribution as a plate-gather
@@ -85,6 +89,51 @@ from quivers.formulas.formula import (
     RandomTerm,
     _qvr_name,
 )
+
+
+#: Prior families whose last positional argument is a scale, so an
+#: autoscaled default divides it by the column's RMS.
+_SCALE_LAST_PRIOR_FAMILIES: frozenset[str] = frozenset(
+    {"Normal", "Cauchy", "Laplace", "StudentT", "Logistic"}
+)
+
+
+def _autoscaled_prior_args(
+    family_name: str,
+    args: tuple[str | float, ...],
+    column: "np.ndarray",
+) -> tuple[str | float, ...]:
+    """Rescale a default coefficient prior to the column it multiplies.
+
+    A prior stated on the coefficient alone is a statement about the
+    coefficient's *contribution*, which is what the response actually
+    sees: the column enters the linear predictor as ``beta * column``,
+    so ``beta ~ Normal(0, s)`` asserts a contribution of scale
+    ``s * rms(column)``. The same nominal prior therefore means
+    something different for every column.
+
+    That bites hardest on an orthonormal basis. ``poly(x, k)`` returns
+    columns of norm one, whose entries are of order ``1 / sqrt(N)``, so
+    a fixed ``Normal(0, 5)`` asserts a contribution near zero and the
+    fit obliges: the noise scale rises to the marginal spread of the
+    response and the coefficients never leave the prior.
+
+    Dividing the scale by the column's RMS states the prior in
+    contribution space instead, which is what the nominal value reads
+    as and what makes it mean the same thing across columns. The
+    coefficients stay on their own column's scale, so nothing has to be
+    transformed back afterwards. This is the autoscaling convention
+    `rstanarm` applies by default.
+    """
+    if family_name not in _SCALE_LAST_PRIOR_FAMILIES or not args:
+        return args
+    scale = args[-1]
+    if not isinstance(scale, float):
+        return args
+    rms = float(np.sqrt(np.mean(np.square(np.asarray(column, dtype=np.float64)))))
+    if not np.isfinite(rms) or rms <= 0.0:
+        return args
+    return (*args[:-1], scale / rms)
 
 
 def _parse_prior_call(text: str) -> tuple[str, tuple[str | float, ...]]:
@@ -528,8 +577,16 @@ class FormulaToQVRModule(dx.Lens[Formula, Module, FormulaData]):
         # Fixed effects: one scalar latent per design-matrix column.
         for col in formula.fixed_columns:
             beta_name = "intercept" if col.is_intercept else f"beta_{col.qvr_name}"
-            prior_text = self._user_priors.get(beta_name, self._fixed_prior)
+            override = self._user_priors.get(beta_name)
+            prior_text = override if override is not None else self._fixed_prior
             family_name, args = _parse_prior_call(prior_text)
+            # A default prior is autoscaled to the column it multiplies,
+            # so its nominal scale reads in contribution space and means
+            # the same thing on a raw predictor and on an orthonormal
+            # `poly` column. An explicit prior is the user's statement
+            # about that coefficient and is emitted as written.
+            if override is None and not col.is_intercept:
+                args = _autoscaled_prior_args(family_name, args, col.data)
             program_steps.append(_draw(beta_name, family_name, args))
             if col.is_intercept:
                 linear_terms.append(_var(beta_name))

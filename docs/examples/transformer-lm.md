@@ -13,11 +13,11 @@ object HeadOut : Real 4
 object FFHidden : Real 32
 
 morphism tok_embed : Token -> Latent [role=embed]
-morphism head : Latent -> HeadOut [replicate=4] ~ Normal
-morphism attn_proj : Latent -> Latent ~ Normal
-morphism ff_up : Latent -> FFHidden ~ Normal
-morphism ff_down : FFHidden -> Latent ~ Normal
-morphism residual_attn, residual_ff : Latent -> Latent ~ Normal
+morphism head : Latent -> HeadOut [replicate=4, param_source=mlp] ~ Normal
+morphism attn_proj : Latent -> Latent [param_source=mlp] ~ Normal
+morphism ff_up : Latent -> FFHidden [param_source=mlp] ~ Normal
+morphism ff_down : FFHidden -> Latent [param_source=mlp] ~ Normal
+morphism residual_attn, residual_ff : Latent -> Latent [param_source=mlp] ~ Normal
 morphism lm_head : Latent -> Token ~ Categorical
 
 define layer = fan(head) >> attn_proj >> residual_attn >> ff_up >> ff_down >> residual_ff
@@ -36,7 +36,7 @@ export transformer_lm
 
 ### Multi-head attention
 
-`morphism head : Latent -> HeadOut [replicate=4] ~ Normal` declares four independent attention heads via the [replicate](../guides/dsl-declarations.md#replicated-declarations) attribute on a single morphism. Each head is a Bayesian Kleisli morphism `Latent -> HeadOut`; `HeadOut` is four-dimensional, so the four heads together cover the sixteen-dimensional `Latent`. [`fan(head)`](../guides/dsl-declarations.md#fan-out-diagonal-morphism) runs the four heads in parallel on the same input and concatenates the outputs, the standard multi-head wiring.
+`morphism head : Latent -> HeadOut [replicate=4, param_source=mlp] ~ Normal` declares four independent attention heads via the [replicate](../guides/dsl-declarations.md#replicated-declarations) attribute on a single morphism. Each head is a Bayesian Kleisli morphism `Latent -> HeadOut`; `HeadOut` is four-dimensional, so the four heads together cover the sixteen-dimensional `Latent`. [`fan(head)`](../guides/dsl-declarations.md#fan-out-diagonal-morphism) runs the four heads in parallel on the same input and concatenates the outputs, the standard multi-head wiring.
 
 ### Layer block
 
