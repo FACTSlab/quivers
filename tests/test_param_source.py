@@ -222,3 +222,61 @@ def test_param_source_is_subclassable() -> None:
     Y = Euclidean(name="Y", dim=2)
     n = ConditionalNormal(X, Y, param_source=src)
     assert n.param_source is src
+
+
+# ---------------------------------------------------------------------------
+# DSL surface: [param_source=...] reaches the family
+# ---------------------------------------------------------------------------
+
+
+def _family_of(source: str):
+    """Compile a one-kernel program and return its conditional family."""
+    from quivers.dsl import loads
+
+    prog = loads(source)
+    model = prog.morphism
+    assert model is not None
+    return dict(model.named_modules())["_step_y._family"]
+
+
+def _program(option: str) -> str:
+    return (
+        "object F : Real 1\n"
+        "object T : Real 1\n"
+        "object R : FinSet 8\n"
+        "\n"
+        f"morphism net : F -> T [{option}] ~ Normal\n"
+        "\n"
+        "program p : R -> R\n"
+        "    observe y : R <- net(x)\n"
+        "    return y\n"
+        "\n"
+        "export p\n"
+    )
+
+
+def test_param_source_name_selects_the_architecture() -> None:
+    """A bare name picks the source: ``linear`` is one matrix, not the
+    default MLP."""
+    assert isinstance(
+        _family_of(_program("param_source=linear")).param_source, LinearSource
+    )
+    assert isinstance(_family_of(_program("param_source=mlp")).param_source, MLPSource)
+
+
+def test_param_source_call_form_carries_the_hidden_widths() -> None:
+    """``mlp(16, 8)`` is a call, not a bare name, and its arguments are
+    the hidden widths. The widths have to survive the option decode and
+    reach the source, so the built net is 16 then 8 rather than the
+    default 64, 64."""
+    src = _family_of(_program("param_source=mlp(16, 8)")).param_source
+    assert isinstance(src, MLPSource)
+    widths = [layer.out_features for layer in src.net if hasattr(layer, "out_features")]
+    # Two hidden widths as written, then the family's param_dim (loc, log-scale).
+    assert widths == [16, 8, 2]
+
+    default = _family_of(_program("param_source=mlp")).param_source
+    default_widths = [
+        layer.out_features for layer in default.net if hasattr(layer, "out_features")
+    ]
+    assert default_widths == [64, 64, 2]

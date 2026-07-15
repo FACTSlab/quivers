@@ -404,9 +404,7 @@ class MonadicProgram(ContinuousMorphism):
             var_ranks = tuple(
                 event_ranks[i] for i, (k, _) in enumerate(param_spec) if k == "var"
             )
-            var_dims = tuple(
-                int(v) for k, v in param_spec if k == "var"
-            )
+            var_dims = tuple(int(v) for k, v in param_spec if k == "var")
             if len(var_ranks) == len(parts):
                 return self._stack_params(parts, var_ranks, var_dims)
         return self._stack_tensors(parts)

@@ -157,20 +157,12 @@ _ERROR_CASES: list[tuple[str, str, tuple[str, ...]]] = [
         # kernel draws its parameters from its param_source, so the
         # option means nothing there and must not be swallowed.
         "scale-on-kernel-names-the-role-that-reads-it",
-        (
-            "object S : Real 4\n"
-            "morphism f : S -> S [scale=0.1] ~ Normal\n"
-            "export f\n"
-        ),
+        ("object S : Real 4\nmorphism f : S -> S [scale=0.1] ~ Normal\nexport f\n"),
         ("line 2", "'scale'", "not read by role=kernel", "role=latent"),
     ),
     (
         "bins-on-kernel-names-the-role-that-reads-it",
-        (
-            "object S : Real 4\n"
-            "morphism f : S -> S [bins=4] ~ Normal\n"
-            "export f\n"
-        ),
+        ("object S : Real 4\nmorphism f : S -> S [bins=4] ~ Normal\nexport f\n"),
         ("line 2", "'bins'", "not read by role=kernel", "role=discretize"),
     ),
     (
