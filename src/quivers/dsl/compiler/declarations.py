@@ -9,6 +9,7 @@ runtime construction.
 
 from __future__ import annotations
 
+import inspect
 import math
 from collections.abc import Callable
 
@@ -66,6 +67,7 @@ from quivers.dsl.compiler._options import (
     find_option,
     get_option_call_text,
     get_option_float,
+    get_option_int_list,
     get_option_int,
     get_option_name,
     get_option_name_list,
@@ -155,6 +157,11 @@ _ROLE_OPTION_KEYS: dict[str, frozenset[str]] = {
     "discretize": frozenset({"bins"}),
     "let": frozenset({"over", "iid"}),
 }
+
+
+def _signature_params(cls) -> frozenset[str]:
+    """The keyword names a family's ``__init__`` accepts."""
+    return frozenset(inspect.signature(cls.__init__).parameters)
 
 
 def _apply_auto_init(morph, domain, codomain, algebra) -> None:
@@ -1122,23 +1129,22 @@ class _DeclarationsMixin:
                 decl.col,
             )
         cls = registry[family_name]
-        hidden_dim = get_option_int(
+        hidden_dim = get_option_int_list(
             decl.options,
             "hidden_dim",
             line=decl.line,
             col=decl.col,
-            default=64,
         )
-        kwargs: dict = {"hidden_dim": int(hidden_dim)}
+        kwargs: dict = {}
+        if hidden_dim:
+            kwargs["hidden_dim"] = hidden_dim[0] if len(hidden_dim) == 1 else hidden_dim
         # Optional `[param_source=<kind>]` / `[param_source=<kind>(...)]`
         # DSL surface for picking the parameter-source architecture
-        # (linear, MLP, attention, identity). The default is linear;
-        # `hidden_dim` is read only by a source with hidden layers. The
-        # kwarg is threaded through to the conditional family's `__init__`,
-        # which uses `param_source_from_option` internally to build the
-        # concrete `ParamSource` once `param_dim` is knowable; that
-        # parser reads the parenthesised widths, so the call form has
-        # to reach it as surface text rather than as a bare name.
+        # (linear, MLP, attention, identity). The default is linear.
+        # Both keys are threaded to the family's `__init__`, which hands
+        # them to `_make_source`: the option's text carries any
+        # parenthesised widths, so the call form has to reach it as
+        # surface text rather than as a bare name.
         param_source_opt = get_option_call_text(
             decl.options,
             "param_source",
@@ -1147,6 +1153,18 @@ class _DeclarationsMixin:
         )
         if param_source_opt is not None:
             kwargs["param_source_option"] = param_source_opt
+        # A family whose parameters do not come from a source has
+        # nothing to point these at. Saying so beats a TypeError out of
+        # a constructor with no line or column on it.
+        unread = sorted(k for k in kwargs if k not in _signature_params(cls))
+        if unread:
+            raise CompileError(
+                f"morphism {decl.names[0]!r}: {family_name} does not take "
+                f"{', '.join(repr(k) for k in unread)}; its parameters do "
+                f"not come from a ``param_source``",
+                decl.line,
+                decl.col,
+            )
         rank = get_option_int(
             decl.options,
             "rank",

@@ -16,12 +16,27 @@ discrete domains; `IdentitySource`, `FunctionSource`, and
 of two sources.
 
 `make_param_source` is the factory the families call, and
-`param_source_from_option` parses the DSL's
-`[param_source=<kind>]` morphism option. The default for a continuous
-domain is `MLPSource` with two hidden layers of width 64 and tanh
-activations; a `SetObject` domain always uses `LookupSource`
-regardless of the requested kind. The
+`param_source_from_option` parses the DSL's `[param_source=<kind>]`
+morphism option. The default for a continuous domain is `LinearSource`,
+so a kernel is linear unless it asks for something else; a `SetObject`
+domain always uses `LookupSource` regardless of the requested kind. The
 [Bayesian Neural Network](../../examples/bnn.md) example selects the
 MLP source explicitly and relies on it for its nonlinearity.
+
+The hidden widths come either from the option's arguments or from
+`hidden_dim`, one width per hidden layer:
+
+<!-- compile: false -->
+```qvr
+morphism f : X -> Y [param_source=mlp] ~ Normal                      # (64, 64)
+morphism f : X -> Y [param_source=mlp(64, 32)] ~ Normal              # (64, 32)
+morphism f : X -> Y [param_source=mlp, hidden_dim=[64, 32]] ~ Normal # (64, 32)
+morphism f : X -> Y [param_source=mlp, hidden_dim=64] ~ Normal       # (64,)
+```
+
+A width given to a source with no hidden layers to apply it to is an
+error rather than a silent no-op, and so is `param_source` on a family
+whose parameters do not come from a source at all (`Horseshoe`,
+`GaussianProcess`, `Independent`, `Transformed`).
 
 ::: quivers.continuous.param_source
