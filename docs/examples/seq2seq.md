@@ -14,19 +14,19 @@ object FFHidden, Combined : Real 32
 
 morphism src_embed : Source -> Latent [role=embed]
 morphism tgt_embed : Target -> Latent [role=embed]
-morphism enc_head : Latent -> HeadOut [replicate=4] ~ Normal
-morphism enc_attn_proj : Latent -> Latent ~ Normal
-morphism enc_residual_attn : Latent -> Latent ~ Normal
-morphism enc_ff_up : Latent -> FFHidden ~ Normal
-morphism enc_ff_down : FFHidden -> Latent ~ Normal
-morphism enc_residual_ff : Latent -> Latent ~ Normal
-morphism dec_head : Latent -> HeadOut [replicate=4] ~ Normal
-morphism dec_attn_proj : Latent -> Latent ~ Normal
-morphism dec_residual_attn : Latent -> Latent ~ Normal
-morphism dec_ff_up : Latent -> FFHidden ~ Normal
-morphism dec_ff_down : FFHidden -> Latent ~ Normal
-morphism dec_residual_ff : Latent -> Latent ~ Normal
-morphism cross : Combined -> Combined ~ Normal
+morphism enc_head : Latent -> HeadOut [replicate=4, param_source=mlp] ~ Normal
+morphism enc_attn_proj : Latent -> Latent [param_source=mlp] ~ Normal
+morphism enc_residual_attn : Latent -> Latent [param_source=mlp] ~ Normal
+morphism enc_ff_up : Latent -> FFHidden [param_source=mlp] ~ Normal
+morphism enc_ff_down : FFHidden -> Latent [param_source=mlp] ~ Normal
+morphism enc_residual_ff : Latent -> Latent [param_source=mlp] ~ Normal
+morphism dec_head : Latent -> HeadOut [replicate=4, param_source=mlp] ~ Normal
+morphism dec_attn_proj : Latent -> Latent [param_source=mlp] ~ Normal
+morphism dec_residual_attn : Latent -> Latent [param_source=mlp] ~ Normal
+morphism dec_ff_up : Latent -> FFHidden [param_source=mlp] ~ Normal
+morphism dec_ff_down : FFHidden -> Latent [param_source=mlp] ~ Normal
+morphism dec_residual_ff : Latent -> Latent [param_source=mlp] ~ Normal
+morphism cross : Combined -> Combined [param_source=mlp] ~ Normal
 morphism lm_head : Combined -> Target ~ Categorical
 
 define enc_block = fan(enc_head) >> enc_attn_proj >> enc_residual_attn >> enc_ff_up >> enc_ff_down >> enc_residual_ff

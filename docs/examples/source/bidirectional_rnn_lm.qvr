@@ -27,9 +27,9 @@ object Embedded, FwdHidden, BwdHidden : Real 64
 object Combined : Real 128
 
 morphism tok_embed : Token -> Embedded [role=embed]
-morphism fwd_cell : Embedded * FwdHidden -> FwdHidden ~ Normal
-morphism bwd_cell : Embedded * BwdHidden -> BwdHidden ~ Normal
-morphism combine : Combined -> Combined ~ Normal
+morphism fwd_cell : Embedded * FwdHidden -> FwdHidden [param_source=mlp] ~ Normal
+morphism bwd_cell : Embedded * BwdHidden -> BwdHidden [param_source=mlp] ~ Normal
+morphism combine : Combined -> Combined [param_source=mlp] ~ Normal
 morphism lm_head : Combined -> Token ~ Categorical
 
 define forward_path = tok_embed >> scan(fwd_cell)
