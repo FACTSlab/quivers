@@ -123,6 +123,39 @@ _MORPHISM_OPTION_KEYS: frozenset[str] = frozenset(
     }
 )
 
+# The union above spans every role, so checking against it alone would
+# accept a key the chosen lowering never reads and drop it in silence.
+# Each role therefore declares the keys it actually consumes, and a key
+# outside its set is rejected rather than ignored: `scale` configures a
+# latent morphism's init and means nothing to a family-backed kernel,
+# whose parameters come from its `param_source`.
+#
+# ``role`` and ``replicate`` pick the lowering and its multiplicity, so
+# every role reads them.
+_COMMON_MORPHISM_OPTION_KEYS: frozenset[str] = frozenset({"role", "replicate"})
+
+_ROLE_OPTION_KEYS: dict[str, frozenset[str]] = {
+    # `_compile_latent_role` reads scale / init; a `~ Family(...)` init
+    # carries its axis-role clause through `_validate_family_axes`.
+    "latent": frozenset({"scale", "init", "over", "iid"}),
+    "observed": frozenset(),
+    # `_make_continuous_morphism` threads these into the family.
+    "kernel": frozenset(
+        {
+            "n_layers",
+            "hidden_dim",
+            "param_source",
+            "rank",
+            "temperature",
+            "over",
+            "iid",
+        }
+    ),
+    "embed": frozenset(),
+    "discretize": frozenset({"bins"}),
+    "let": frozenset({"over", "iid"}),
+}
+
 
 def _apply_auto_init(morph, domain, codomain, algebra) -> None:
     """Apply the algebra's saturation-free init recipe to a freshly
@@ -672,6 +705,7 @@ class _DeclarationsMixin:
                 decl.col,
             )
         role = self._resolve_morphism_role(decl, name)
+        self._check_role_options(decl, name, role)
         replicate = get_option_int(
             decl.options,
             "replicate",
@@ -697,6 +731,35 @@ class _DeclarationsMixin:
             self._compile_let_role(decl, name, names)
         if replicate is not None:
             self._groups[name] = names
+
+    def _check_role_options(self, decl: MorphismDecl, name: str, role: str) -> None:
+        """Reject an option the resolved role's lowering never reads.
+
+        `check_option_keys` has already rejected keys outside the
+        union, so anything reaching here is a real morphism option
+        applied to a role that ignores it. Ignoring it silently is how
+        ``[scale=0.5] ~ Normal`` came to read as a configured init
+        while doing nothing at all.
+        """
+        allowed = _COMMON_MORPHISM_OPTION_KEYS | _ROLE_OPTION_KEYS[role]
+        for entry in decl.options:
+            if entry.key in allowed:
+                continue
+            owners = sorted(
+                r for r, keys in _ROLE_OPTION_KEYS.items() if entry.key in keys
+            )
+            where = (
+                f"it configures {', '.join(f'role={r}' for r in owners)}"
+                if owners
+                else "no role reads it"
+            )
+            raise CompileError(
+                f"morphism {name!r}: option {entry.key!r} is not read by "
+                f"role={role}; {where}. Remove it, or declare the "
+                f"morphism under a role that reads it.",
+                entry.line or decl.line,
+                entry.col or decl.col,
+            )
 
     def _resolve_morphism_role(self, decl: MorphismDecl, name: str) -> str:
         """Resolve a morphism's role: explicit ``role=`` wins; absent

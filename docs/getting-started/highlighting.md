@@ -203,7 +203,7 @@ object SD : Real 32
 object SK : Real 64
 
 morphism W : SD -> SK [role=latent, over=[dom, cod]] ~ MatrixNormal(0.0, 1.0)
-morphism softmax_link : SK -> SK [scale=0.1] ~ Normal
+morphism softmax_link : SK -> SK ~ Normal
 program regression : SD -> SK [effects = [Sample, Score]]
     let z = W >> softmax_link
     observe y : K <- Normal(z, 0.5)
