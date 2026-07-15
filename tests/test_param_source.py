@@ -284,3 +284,119 @@ def test_param_source_call_form_carries_the_hidden_widths() -> None:
         layer.out_features for layer in default.net if hasattr(layer, "out_features")
     ]
     assert default_widths == [64, 64, 2]
+
+
+# ---------------------------------------------------------------------------
+# Every family that has a parameter source can select it
+# ---------------------------------------------------------------------------
+
+
+_FAMILIES_WITHOUT_A_SOURCE = frozenset(
+    {
+        "ConditionalIndependent",
+        "ConditionalTransformed",
+        "ConditionalGaussianProcess",
+        "ConditionalHorseshoe",
+    }
+)
+
+
+def test_every_family_with_a_source_accepts_the_option() -> None:
+    """`[param_source=...]` is a morphism option the compiler accepts
+    for any family-backed kernel, so every family whose parameters come
+    from a source has to be able to receive it. A family that cannot is
+    a `TypeError` raised inside a constructor, with no line or column
+    on it."""
+    import inspect
+
+    from quivers.continuous import families
+
+    missing = []
+    for name, cls in vars(families).items():
+        if not name.startswith("Conditional") or name in _FAMILIES_WITHOUT_A_SOURCE:
+            continue
+        try:
+            params = inspect.signature(cls.__init__).parameters
+        except TypeError, ValueError:  # pragma: no cover - builtins
+            continue
+        if "param_source_option" not in params or "param_source" not in params:
+            missing.append(name)
+    assert not missing, f"families that cannot receive param_source: {missing}"
+
+
+def _source_of(option: str, family: str = "Normal"):
+    from quivers.dsl import loads
+
+    src = (
+        "object F : Real 2\n"
+        "object T : Real 1\n"
+        "object R : FinSet 8\n"
+        "\n"
+        f"morphism net : F -> T {option} ~ {family}\n"
+        "\n"
+        "program p : R -> R\n"
+        "    observe y : R <- net(x)\n"
+        "    return y\n"
+        "\n"
+        "export p\n"
+    )
+    model = loads(src).morphism
+    assert model is not None
+    return dict(model.named_modules())["_step_y._family"].param_source
+
+
+def _widths(source) -> list[int]:
+    return [
+        layer.out_features for layer in source.net if hasattr(layer, "out_features")
+    ]
+
+
+@pytest.mark.parametrize("family", ["Normal", "Beta", "Gamma", "LogitNormal"])
+def test_param_source_reaches_every_family(family: str) -> None:
+    """Not just `Normal`: the option has to build the source whatever
+    the family."""
+    assert isinstance(_source_of("[param_source=mlp]", family), MLPSource)
+    assert isinstance(_source_of("[param_source=linear]", family), LinearSource)
+
+
+def test_hidden_dim_takes_a_sequence_of_widths() -> None:
+    """One entry per hidden layer, so the option says how many layers as
+    well as how wide. A single number cannot say the first."""
+    source = _source_of("[param_source=mlp, hidden_dim=[64, 32, 16]]")
+    # three hidden layers as written, then the family's param_dim.
+    assert _widths(source) == [64, 32, 16, 2]
+
+
+def test_hidden_dim_takes_a_single_width() -> None:
+    """A bare number is the one-layer case, so `n` reads as `[n]`."""
+    assert _widths(_source_of("[param_source=mlp, hidden_dim=32]")) == [32, 2]
+
+
+def test_hidden_dim_is_rejected_when_nothing_would_read_it() -> None:
+    """A single matrix has no hidden layers to be wide, so a width
+    against it is a question with no answer. Silence would read as one."""
+    with pytest.raises(ValueError, match="no hidden layers"):
+        _source_of("[hidden_dim=32]")
+
+
+def test_param_source_is_rejected_by_a_family_that_has_none() -> None:
+    """`Horseshoe` draws its own scale rather than reading parameters
+    from a source, so the option is refused at compile time with a
+    location, not inside a constructor."""
+    from quivers.dsl import CompileError, loads
+
+    src = (
+        "object F : Real 2\n"
+        "object T : Real 2\n"
+        "object R : FinSet 8\n"
+        "\n"
+        "morphism net : F -> T [param_source=mlp] ~ Horseshoe\n"
+        "\n"
+        "program p : R -> R\n"
+        "    observe y : R <- net(x)\n"
+        "    return y\n"
+        "\n"
+        "export p\n"
+    )
+    with pytest.raises(CompileError, match="does not take"):
+        loads(src)
