@@ -309,3 +309,56 @@ def test_nuts_runs_and_log_density_does_not_collapse():
     assert int(res.divergence_counts.sum()) == 0, (
         f"NUTS reported divergences: {res.divergence_counts.tolist()}"
     )
+
+
+def test_lambda_body_occurrence_matches_its_binder():
+    """A lexicon LF's bound occurrence must carry its binder's
+    canonical symbol.
+
+    ``binders Lam`` alpha-renames a lambda's bound variable to a fresh
+    canonical name per term construction, and the occurrences in the
+    body have to be renamed with it. A rewrite that renames the binder
+    while leaving the body's ``Var(x)`` behind still produces a
+    well-formed tuple and a chart that parses, so nothing downstream
+    fails: the lambda simply binds nothing and the body references a
+    free variable. This pins the two together.
+    """
+    from pathlib import Path
+
+    from quivers.dsl import load as _load
+
+    src = Path("docs/examples/source/montague_nli.qvr")
+    if not src.exists():
+        return  # docs not vendored in this checkout
+    ded = _load(str(src)).deductions["Montague"]
+    chart = ded(["every", "dog", "barks"])
+
+    # "dog" is Lam(x, App(dog_p, Var(x))): one binder, one occurrence.
+    lfs = [
+        item[4]
+        for item, _ in chart.chart.items()
+        if isinstance(item, tuple) and item[:3] == ("span", 1, 2) and len(item) > 4
+    ]
+    assert lfs, "the noun 'dog' did not derive a span(1, 2) item"
+    lf = lfs[0]
+
+    assert lf[0] == "Lam", f"expected a Lam-headed LF, got {lf!r}"
+    bound = lf[1]
+    assert isinstance(bound, tuple) and len(bound) == 1, (
+        f"binder should carry one canonical symbol, got {bound!r}"
+    )
+
+    def _occurrences(term) -> list:
+        if not isinstance(term, tuple):
+            return []
+        if term and term[0] == "Var":
+            return [term[1]]
+        return [o for sub in term for o in _occurrences(sub)]
+
+    occurrences = _occurrences(lf[2])
+    assert occurrences, f"no Var occurrence in the lambda body: {lf!r}"
+    for occurrence in occurrences:
+        assert occurrence == bound, (
+            f"lambda binds {bound!r} but its body references {occurrence!r}; "
+            f"the occurrence is unbound"
+        )
