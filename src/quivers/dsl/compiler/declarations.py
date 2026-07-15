@@ -64,11 +64,11 @@ from quivers.dsl.ast_nodes import (
 from quivers.dsl.compiler._options import (
     check_option_keys,
     find_option,
+    get_option_call_text,
     get_option_float,
     get_option_int,
     get_option_name,
     get_option_name_list,
-    get_option_string,
 )
 from quivers.dsl.compiler._prelude import (
     _ALGEBRA_REGISTRY,
@@ -1130,26 +1130,21 @@ class _DeclarationsMixin:
             default=64,
         )
         kwargs: dict = {"hidden_dim": int(hidden_dim)}
-        # Optional `[param_source=<kind>[(...)]]` DSL surface for
-        # picking the parameter-source architecture (linear, MLP,
-        # attention, identity). The default MLP with `hidden_dim`
-        # matches the pre-abstraction behaviour. The kwarg is
-        # threaded through to the conditional family's `__init__`,
-        # which uses `param_source_from_option` internally to build
-        # the concrete `ParamSource` once `param_dim` is knowable.
-        param_source_opt = get_option_name(
+        # Optional `[param_source=<kind>]` / `[param_source=<kind>(...)]`
+        # DSL surface for picking the parameter-source architecture
+        # (linear, MLP, attention, identity). The default MLP with
+        # `hidden_dim` matches the pre-abstraction behaviour. The kwarg
+        # is threaded through to the conditional family's `__init__`,
+        # which uses `param_source_from_option` internally to build the
+        # concrete `ParamSource` once `param_dim` is knowable; that
+        # parser reads the parenthesised widths, so the call form has
+        # to reach it as surface text rather than as a bare name.
+        param_source_opt = get_option_call_text(
             decl.options,
             "param_source",
             line=decl.line,
             col=decl.col,
         )
-        if param_source_opt is None:
-            param_source_opt = get_option_string(
-                decl.options,
-                "param_source",
-                line=decl.line,
-                col=decl.col,
-            )
         if param_source_opt is not None:
             kwargs["param_source_option"] = param_source_opt
         rank = get_option_int(

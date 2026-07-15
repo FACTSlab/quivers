@@ -158,6 +158,56 @@ def get_option_string(
     return entry.value.value
 
 
+def _render_option_value(value: OptionValue) -> str:
+    """Render an option value back to its surface text."""
+    if isinstance(value, OptionName | OptionString):
+        return value.value
+    if isinstance(value, OptionNumber):
+        f = float(value.value)
+        return str(int(f)) if f.is_integer() else str(f)
+    if isinstance(value, OptionCall):
+        args = ", ".join(_render_option_value(a) for a in value.args)
+        return f"{value.func}({args})"
+    raise CompileError(
+        f"option value of kind {type(value).__name__!r} has no surface text",
+        0,
+        0,
+    )
+
+
+def get_option_call_text(
+    options: tuple[OptionEntry, ...],
+    key: str,
+    *,
+    line: int = 0,
+    col: int = 0,
+    default: str | None = None,
+) -> str | None:
+    """Decode an option written as a bare name or a call, to its
+    surface text.
+
+    Some options name a construction whose arguments are part of the
+    choice rather than separate keys: ``param_source=mlp`` and
+    ``param_source=mlp(64, 64)`` select the same architecture at
+    different widths. The grammar admits both, so both decode here,
+    to ``"mlp"`` and ``"mlp(64, 64)"``, and the consumer parses the
+    arguments it defines.
+    """
+    entry = find_option(options, key)
+    if entry is None:
+        return default
+    if not isinstance(entry.value, OptionName | OptionString | OptionCall):
+        ln, cl = _at(line, col, entry)
+        raise CompileError(
+            f"option {key!r}: expected a name or a call such as "
+            f"``{key}=mlp`` or ``{key}=mlp(64, 64)``, got "
+            f"{type(entry.value).__name__}",
+            ln,
+            cl,
+        )
+    return _render_option_value(entry.value)
+
+
 @overload
 def get_option_int(
     options: tuple[OptionEntry, ...],
