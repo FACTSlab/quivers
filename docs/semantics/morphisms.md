@@ -131,6 +131,28 @@ so `~ Normal` denotes a Gaussian kernel and nothing else. Because $\theta$ carri
 
 Note that $\theta$ is invisible to the typing judgment: `f : τ₁ -> σ ~ Family` types identically whichever parameter map it carries, so the choice moves $\llbracket f \rrbracket$ inside the hom-set while leaving the arrow fixed. Whether a model is linear in its input is therefore a fact about $\theta$, not about the type, which is why the option states it in the source.
 
+#### The density is a product for most families
+
+When $\llbracket \sigma \rrbracket$ has dimension $d > 1$, the display above hides a choice, because most names in the registry are *per-coordinate independent*: their density factors,
+
+$$
+p_{\mathrm{Family}}\bigl(y \,;\, \theta(x)\bigr) \;=\; \prod_{i=1}^{d} p\bigl(y_i \,;\, \theta_i(x)\bigr),
+\qquad\text{so}\qquad
+\log \llbracket f \rrbracket(x, \cdot) \;=\; \sum_{i=1}^{d} \log p\bigl(y_i \,;\, \theta_i(x)\bigr).
+$$
+
+Structurally this is a [conditional independence](https://en.wikipedia.org/wiki/Conditional_independence), and it has a presentation that mentions neither coordinates nor Gaussians. In a [Markov category](https://ncatlab.org/nlab/show/Markov+category) a morphism $f : A \to X \otimes Y$ exhibits the independence of $X$ and $Y$ given $A$ exactly when it factors through the copy map as the tensor of its marginals, $f = (f_X \otimes f_Y) \circ \Delta_A$. An independent family is that factorization iterated over the codomain's coordinates:
+
+$$
+\llbracket f \rrbracket \;=\; \bigl(f_1 \otimes \cdots \otimes f_d\bigr) \circ \Delta_{\llbracket \tau_1 \rrbracket},
+\qquad
+f_i(x) \;=\; p\bigl(\,\cdot\;;\theta_i(x)\bigr).
+$$
+
+So the registry splits $\mathbf{Kern}(\llbracket \tau_1 \rrbracket, \llbracket \sigma \rrbracket)$ into the kernels that factor through $\Delta$ and the kernels that do not. `Normal`, `Beta`, `Gamma` and their siblings denote the former; `MultivariateNormal`, `LowRankMVN`, and `MatrixNormal` denote the latter, and their $\Theta$ carries a [Cholesky factor](https://en.wikipedia.org/wiki/Cholesky_decomposition) so that the covariance is positive-definite by construction rather than by penalty. `~ Normal` on a $d$-dimensional codomain is therefore $d$ independent scalar Gaussians, not a Gaussian with a general covariance: the name selects the factorization, and `~ MultivariateNormal` is how a declaration asks for correlation.
+
+Two readings of that default are worth separating. Parameter sharing is not dependence: every $\theta_i$ is a slice of one $\theta$, so the coordinates share all of the map's weights while remaining independent *given* $x$, since the factorization is through $\Delta$ on the domain. And the factorized family is the least committal one on its marginals, being the [maximum-entropy](https://en.wikipedia.org/wiki/Principle_of_maximum_entropy) distribution subject to per-coordinate first and second moments with no constraint on the cross-moments; a correlation is a further claim. What it cannot express is residual correlation, dependence between coordinates that survives conditioning on $x$, which no choice of $\theta$ recovers because $\theta$ acts before the tensor product.
+
 ## 3. Continuous morphisms
 
 A `kernel` declaration whose source is itself a space, e.g.
