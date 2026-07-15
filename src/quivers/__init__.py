@@ -20,7 +20,12 @@ Quick start::
     output = program()           # tensor of shape (3, 2)
 """
 
-__version__ = "0.14.1"
+from importlib.metadata import version as _version
+
+#: Read from the installed distribution's metadata, which the build
+#: takes from ``pyproject.toml``. A literal here would be a second
+#: place to state the version and a second place to forget it.
+__version__ = _version("quivers")
 
 from quivers.core.objects import (
     SetObject,
