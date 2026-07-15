@@ -153,6 +153,36 @@ _ERROR_CASES: list[tuple[str, str, tuple[str, ...]]] = [
         ),
     ),
     (
+        # `scale` configures a latent morphism's init. A family-backed
+        # kernel draws its parameters from its param_source, so the
+        # option means nothing there and must not be swallowed.
+        "scale-on-kernel-names-the-role-that-reads-it",
+        (
+            "object S : Real 4\n"
+            "morphism f : S -> S [scale=0.1] ~ Normal\n"
+            "export f\n"
+        ),
+        ("line 2", "'scale'", "not read by role=kernel", "role=latent"),
+    ),
+    (
+        "bins-on-kernel-names-the-role-that-reads-it",
+        (
+            "object S : Real 4\n"
+            "morphism f : S -> S [bins=4] ~ Normal\n"
+            "export f\n"
+        ),
+        ("line 2", "'bins'", "not read by role=kernel", "role=discretize"),
+    ),
+    (
+        "param-source-on-latent-names-the-role-that-reads-it",
+        (
+            "object A : FinSet 3\n"
+            "morphism f : A -> A [role=latent, param_source=mlp]\n"
+            "export f\n"
+        ),
+        ("line 2", "'param_source'", "not read by role=latent", "role=kernel"),
+    ),
+    (
         "typo-keyword",
         ("object A : FinSet 3\nmorphsim f : A -> A\nexport f\n"),
         ("line 2", "morphsim"),

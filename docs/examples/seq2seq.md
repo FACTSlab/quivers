@@ -14,19 +14,19 @@ object FFHidden, Combined : Real 32
 
 morphism src_embed : Source -> Latent [role=embed]
 morphism tgt_embed : Target -> Latent [role=embed]
-morphism enc_head : Latent -> HeadOut [replicate=4, scale=0.1] ~ Normal
-morphism enc_attn_proj : Latent -> Latent [scale=0.1] ~ Normal
-morphism enc_residual_attn : Latent -> Latent [scale=0.01] ~ Normal
+morphism enc_head : Latent -> HeadOut [replicate=4] ~ Normal
+morphism enc_attn_proj : Latent -> Latent ~ Normal
+morphism enc_residual_attn : Latent -> Latent ~ Normal
 morphism enc_ff_up : Latent -> FFHidden ~ Normal
-morphism enc_ff_down : FFHidden -> Latent [scale=0.1] ~ Normal
-morphism enc_residual_ff : Latent -> Latent [scale=0.01] ~ Normal
-morphism dec_head : Latent -> HeadOut [replicate=4, scale=0.1] ~ Normal
-morphism dec_attn_proj : Latent -> Latent [scale=0.1] ~ Normal
-morphism dec_residual_attn : Latent -> Latent [scale=0.01] ~ Normal
+morphism enc_ff_down : FFHidden -> Latent ~ Normal
+morphism enc_residual_ff : Latent -> Latent ~ Normal
+morphism dec_head : Latent -> HeadOut [replicate=4] ~ Normal
+morphism dec_attn_proj : Latent -> Latent ~ Normal
+morphism dec_residual_attn : Latent -> Latent ~ Normal
 morphism dec_ff_up : Latent -> FFHidden ~ Normal
-morphism dec_ff_down : FFHidden -> Latent [scale=0.1] ~ Normal
-morphism dec_residual_ff : Latent -> Latent [scale=0.01] ~ Normal
-morphism cross : Combined -> Combined [scale=0.1] ~ Normal
+morphism dec_ff_down : FFHidden -> Latent ~ Normal
+morphism dec_residual_ff : Latent -> Latent ~ Normal
+morphism cross : Combined -> Combined ~ Normal
 morphism lm_head : Combined -> Target ~ Categorical
 
 define enc_block = fan(enc_head) >> enc_attn_proj >> enc_residual_attn >> enc_ff_up >> enc_ff_down >> enc_residual_ff

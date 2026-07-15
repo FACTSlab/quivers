@@ -29,7 +29,7 @@ object UnitSpace : Real 1
 
 morphism pixel_embed : Pixel -> EncoderHidden [role=embed]
 morphism enc_deep : EncoderHidden -> EncoderHidden ~ Normal
-morphism enc_to_latent : EncoderHidden -> Latent [scale=0.5] ~ Normal
+morphism enc_to_latent : EncoderHidden -> Latent ~ Normal
 
 define encoder = pixel_embed >> stack(enc_deep, 1) >> enc_to_latent
 
@@ -37,7 +37,7 @@ morphism prior : UnitSpace -> Latent ~ Normal
 
 morphism dec_1 : Latent -> DecoderHidden ~ Normal
 morphism dec_deep : DecoderHidden -> DecoderHidden ~ Normal
-morphism dec_to_obs : DecoderHidden -> ObsSpace [scale=0.1] ~ Normal
+morphism dec_to_obs : DecoderHidden -> ObsSpace ~ Normal
 
 define decoder = dec_1 >> stack(dec_deep, 1) >> dec_to_obs
 

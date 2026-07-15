@@ -10,8 +10,8 @@ A continuous state-space model extends the HMM to continuous latent states and o
 object State : Real 16
 object Obs : Real 8
 
-morphism transition : State -> State [scale=0.1] ~ Normal
-morphism emission : State -> Obs [scale=0.1] ~ Normal
+morphism transition : State -> State ~ Normal
+morphism emission : State -> Obs ~ Normal
 
 program generative_step : State -> State
     sample s_new <- transition
@@ -19,11 +19,11 @@ program generative_step : State -> State
     observe o <- emission(s_new)
     return s_new
 
-morphism inference_cell : Obs * State -> State [scale=0.1] ~ Normal
+morphism inference_cell : Obs * State -> State ~ Normal
 
 define filter = scan(inference_cell)
 
-morphism decoder : State -> Obs [scale=0.1] ~ Normal
+morphism decoder : State -> Obs ~ Normal
 
 define filter_and_reconstruct = scan(inference_cell) >> decoder
 
@@ -35,13 +35,13 @@ export filter_and_reconstruct
 
 `object State : Real 16` and `object Obs : Real 8` introduce the two Euclidean spaces: a 16-dimensional latent and an 8-dimensional observation.
 
-`morphism transition : State -> State [scale=0.1] ~ Normal` evolves the latent state by one time step under a Normal kernel whose mean is a learned linear function of the previous state and whose prior scale is 0.1. `morphism emission : State -> Obs [scale=0.1] ~ Normal` projects a state to an observation under the same kernel family.
+`morphism transition : State -> State ~ Normal` evolves the latent state by one time step under a Normal kernel whose mean and scale are both produced from the previous state by the kernel's [`ParamSource`](../api/continuous/param_source.md#quivers.continuous.param_source.ParamSource). `morphism emission : State -> Obs ~ Normal` projects a state to an observation under the same kernel family.
 
 `program generative_step : State -> State` is a one-step monadic program: `sample s_new <- transition` draws the new latent state from the transition kernel, `observe o <- emission(s_new)` scores an observation against the emission kernel, and `return s_new` projects the program's joint kernel onto the new state. To unroll over time, this single-step program is composed with itself via `repeat` or threaded through `scan`.
 
-`morphism inference_cell : Obs * State -> State [scale=0.1] ~ Normal` is a recurrent cell that incorporates a new observation into the running state estimate. `define filter = scan(inference_cell)` constructs a temporal-recurrence morphism that threads state across a sequence of observations.
+`morphism inference_cell : Obs * State -> State ~ Normal` is a recurrent cell that incorporates a new observation into the running state estimate. `define filter = scan(inference_cell)` constructs a temporal-recurrence morphism that threads state across a sequence of observations.
 
-`morphism decoder : State -> Obs [scale=0.1] ~ Normal` decodes a state back to observation space; `define filter_and_reconstruct = scan(inference_cell) >> decoder` composes the scan with the decoder so the exported pipeline filters and reconstructs in one composite.
+`morphism decoder : State -> Obs ~ Normal` decodes a state back to observation space; `define filter_and_reconstruct = scan(inference_cell) >> decoder` composes the scan with the decoder so the exported pipeline filters and reconstructs in one composite.
 
 ## Try it
 
