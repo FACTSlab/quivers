@@ -291,8 +291,10 @@ class VectorisedObserve(ContinuousMorphism):
     family : ContinuousMorphism
         The per-observation distribution family.
     response : torch.Tensor
-        Observed values ``r_obs`` of shape ``(N, *codom.shape)``
-        (or ``(N,)`` for scalar codomains).
+        Observed values ``r_obs`` of shape ``(N, *codom.shape)``. A
+        one-dimensional continuous codomain also accepts ``(N,)``,
+        which gains its event axis in `_align_response`; a discrete
+        codomain takes ``(N,)`` indices and has no event axis.
     """
 
     def __init__(self, family: ContinuousMorphism, response: torch.Tensor) -> None:
@@ -339,6 +341,47 @@ class VectorisedObserve(ContinuousMorphism):
         """
         return self._family.rsample(x, sample_shape)
 
+    def _align_response(self, target: torch.Tensor) -> torch.Tensor:
+        """Give the response its codomain's event axis before scoring.
+
+        A conditional family reads its parameters out of a network, so
+        for a codomain of dimension ``d`` they arrive as ``(N, d)``. The
+        natural way to write N scalar responses against a ``d = 1``
+        codomain is ``(N,)``, and subtracting that from an ``(N, 1)``
+        mean broadcasts to ``(N, N)``. Because the score is then summed,
+        the result is a finite number that is simply wrong, so the axis
+        is restored here.
+
+        An inline family is the other layout and is left alone: its
+        parameters come from the program's environment as per-row
+        scalars already aligned with the plate, so the response's last
+        axis indexes the plate rather than an event. ``_param_spec``
+        marks that case.
+        """
+        if getattr(self._family, "_param_spec", None) is not None:
+            return target
+        codomain = self._family.codomain
+        dim = getattr(codomain, "dim", None)
+        if dim is None:
+            # Discrete codomain: one index per row, no event axis.
+            return target
+        dim = int(dim)
+        if target.dim() == 1:
+            if dim != 1:
+                raise ValueError(
+                    f"observed response for codomain {codomain!r} has shape "
+                    f"{tuple(target.shape)}; expected (N, {dim}) for a "
+                    f"{dim}-dimensional codomain"
+                )
+            return target.unsqueeze(-1)
+        if target.shape[-1] != dim:
+            raise ValueError(
+                f"observed response for codomain {codomain!r} has shape "
+                f"{tuple(target.shape)}; its last axis must be the "
+                f"codomain's event axis of size {dim}"
+            )
+        return target
+
     def log_prob(self, x: torch.Tensor, y: torch.Tensor | None = None) -> torch.Tensor:
         """Sum of per-observation log-densities.
 
@@ -347,7 +390,7 @@ class VectorisedObserve(ContinuousMorphism):
         for fast prior-predictive checks.
         """
         target = y if y is not None else cast("torch.Tensor", self._response)
-        return self._family.log_prob(x, target).sum()
+        return self._family.log_prob(x, self._align_response(target)).sum()
 
     def log_likelihood(self, theta: torch.Tensor) -> torch.Tensor:
         """Alias for ``log_prob(theta)``; preserved for the Python
