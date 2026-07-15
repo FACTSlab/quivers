@@ -120,9 +120,12 @@ def test_make_param_source_discrete_returns_lookup() -> None:
     assert isinstance(ps, LookupSource)
 
 
-def test_make_param_source_continuous_default_mlp() -> None:
+def test_make_param_source_continuous_default_linear() -> None:
+    """A continuous domain defaults to one linear map. The default
+    decides whether a model is linear, so it is the reading of the
+    arrow rather than a hidden network."""
     ps = make_param_source(Euclidean(name="X", dim=4), 8)
-    assert isinstance(ps, MLPSource)
+    assert isinstance(ps, LinearSource)
 
 
 def test_make_param_source_kind_linear() -> None:
@@ -156,7 +159,7 @@ def test_param_source_from_option_paren_forms() -> None:
 
 def test_param_source_from_option_none_returns_default() -> None:
     ps = param_source_from_option(Euclidean(name="X", dim=4), 8, None)
-    assert isinstance(ps, MLPSource)
+    assert isinstance(ps, LinearSource)
 
 
 def test_conditional_normal_accepts_param_source_kwarg() -> None:
@@ -176,13 +179,14 @@ def test_conditional_normal_accepts_param_source_option_string() -> None:
     assert isinstance(n.param_source, LinearSource)
 
 
-def test_conditional_normal_default_source_is_neural() -> None:
+def test_conditional_normal_default_source_is_linear() -> None:
+    """A family built without an explicit source goes through the same
+    factory as the DSL option, so its default is one linear map rather
+    than a network."""
     X = Euclidean(name="X", dim=4)
     Y = Euclidean(name="Y", dim=2)
     n = ConditionalNormal(X, Y)
-    # Default: `_NeuralSource` (pre-abstraction two-layer MLP) or
-    # `MLPSource` depending on which entry-point built it; both are
-    # nn.Modules with the right output dim.
+    assert isinstance(n.param_source, LinearSource)
     x = torch.randn(3, 4)
     y = torch.randn(3, 2)
     assert n.log_prob(x, y).shape == torch.Size([3])

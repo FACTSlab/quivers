@@ -55,8 +55,8 @@ from quivers.continuous.spaces import (
 from quivers.continuous.morphisms import (
     AnySpace,
     ContinuousMorphism,
-    _make_source,
 )
+from quivers.continuous.param_source import _make_source
 from quivers.core._util import EPS
 
 

@@ -10,13 +10,14 @@ underlying distribution needs.
 The primitives:
 
 * [`LinearSource`][quivers.continuous.param_source.LinearSource]:
-  one `nn.Linear`, no nonlinearity. Matches the single-linear
-  layer the transpile backends emit exactly, so a kernel morphism
-  configured with this source is numerically equivalent to its
+  the default; one `nn.Linear`, no nonlinearity. Matches the
+  single-linear layer the transpile backends emit exactly, so a
+  kernel morphism on this source is numerically equivalent to its
   transpiled counterpart.
 * [`MLPSource`][quivers.continuous.param_source.MLPSource]:
-  the default, parameterised with user-configurable hidden widths
-  and activation.
+  a multi-layer perceptron with user-configurable hidden widths and
+  activation. Selected by `[param_source=mlp]`; a kernel is linear
+  unless it asks for this.
 * [`LookupSource`][quivers.continuous.param_source.LookupSource]:
   a learnable per-entry embedding table, the discrete-domain
   standard.
@@ -318,20 +319,24 @@ class ComposeSource(ParamSource):
 def make_param_source(
     domain: AnySpace,
     param_dim: int,
-    kind: str = "mlp",
+    kind: str = "linear",
     **kwargs,
 ) -> ParamSource:
     """Factory that dispatches the `[param_source=...]` DSL option
-    to the concrete class. Existing families call this to preserve
-    the pre-abstraction default (MLP with `hidden_dim=64`) when no
-    option is supplied.
+    to the concrete class.
+
+    The default is `LinearSource`, so a morphism declared
+    ``f : X -> Y ~ Normal`` maps its input to the family's parameters
+    the way its arrow reads: linearly. A model that wants a
+    nonlinearity between its input and its parameters asks for one,
+    and the fact then appears in the source rather than in a default.
 
     Recognised kinds:
     * ``"lookup"`` — always used when the domain is a `SetObject`,
       regardless of the requested kind.
-    * ``"linear"`` — one `nn.Linear`.
-    * ``"mlp"`` — the default; `hidden_dims=(64, 64)` unless
-      overridden by ``hidden_dims`` or ``hidden_dim`` kwargs.
+    * ``"linear"`` — the default; one `nn.Linear`.
+    * ``"mlp"`` — `hidden_dims=(64, 64)` unless overridden by
+      ``hidden_dims`` or ``hidden_dim`` kwargs.
     * ``"identity"`` — pass through.
     * ``"attention"`` — self-attention head.
     """
@@ -357,6 +362,25 @@ def make_param_source(
             hidden_dims = (int(hidden_dim), int(hidden_dim))
         return MLPSource(dim, param_dim, hidden_dims=hidden_dims, **kwargs)
     raise ValueError(f"make_param_source: unknown kind {kind!r}")
+
+
+def _make_source(
+    domain: AnySpace,
+    param_dim: int,
+    hidden_dim: int = 64,
+    param_source: ParamSource | None = None,
+) -> ParamSource:
+    """Create the parameter source a conditional family reads from.
+
+    An explicit ``param_source`` wins; otherwise the family gets the
+    factory's default, which is linear for a continuous domain and a
+    lookup table for a discrete one. ``hidden_dim`` is carried for the
+    callers that pass it positionally and is read only by a source that
+    has hidden layers.
+    """
+    if param_source is not None:
+        return param_source
+    return make_param_source(domain, param_dim)
 
 
 def param_source_from_option(
