@@ -21,11 +21,11 @@ object Hidden : Real 32
 object State : Real 8
 object Obs : Real 4
 
-morphism trans_mlp_1 : Driver * State -> Hidden ~ Normal
-morphism trans_mlp_2 : Hidden -> State ~ Normal
-morphism emit_mlp_1 : State -> Hidden ~ Normal
-morphism emit_mlp_2 : Hidden -> Obs ~ Normal
-morphism infer_cell : Obs * State -> State ~ Normal
+morphism trans_mlp_1 : Driver * State -> Hidden [param_source=mlp] ~ Normal
+morphism trans_mlp_2 : Hidden -> State [param_source=mlp] ~ Normal
+morphism emit_mlp_1 : State -> Hidden [param_source=mlp] ~ Normal
+morphism emit_mlp_2 : Hidden -> Obs [param_source=mlp] ~ Normal
+morphism infer_cell : Obs * State -> State [param_source=mlp] ~ Normal
 
 define transition_cell = trans_mlp_1 >> trans_mlp_2
 define emission = emit_mlp_1 >> emit_mlp_2

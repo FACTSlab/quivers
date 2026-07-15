@@ -38,7 +38,7 @@ export bnn
 Linear(1, 64) -> Tanh -> Linear(64, 64) -> Tanh -> Linear(64, 2)
 ```
 
-Its 4418 weights are the network's parameters. `hidden_dim` sets the width and `param_source` the architecture; `linear`, `identity`, and `attention` are the other choices, and `mlp` is the default for a continuous domain.
+Its 4418 weights are the network's parameters. `hidden_dim` sets the width and `param_source` the architecture; `linear` is the default, and `identity` and `attention` are the other choices. Without `param_source=mlp` this kernel would map its input to the Normal's parameters through a single matrix, and the model would be a linear regression with a learned noise scale.
 
 `program bnn : Resp -> Resp` then does the only thing left. `observe y : Resp <- net(x)` applies the kernel to the per-row input and scores the observed response under the resulting Normal, accumulating over the `Resp` plate. `x` is a free variable: it never appears in a `sample` or `let`, so it is supplied as host data through the observations dict alongside `y`, exactly as a covariate would be in a regression.
 

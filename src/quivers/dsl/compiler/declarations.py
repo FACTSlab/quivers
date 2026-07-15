@@ -1132,9 +1132,9 @@ class _DeclarationsMixin:
         kwargs: dict = {"hidden_dim": int(hidden_dim)}
         # Optional `[param_source=<kind>]` / `[param_source=<kind>(...)]`
         # DSL surface for picking the parameter-source architecture
-        # (linear, MLP, attention, identity). The default MLP with
-        # `hidden_dim` matches the pre-abstraction behaviour. The kwarg
-        # is threaded through to the conditional family's `__init__`,
+        # (linear, MLP, attention, identity). The default is linear;
+        # `hidden_dim` is read only by a source with hidden layers. The
+        # kwarg is threaded through to the conditional family's `__init__`,
         # which uses `param_source_from_option` internally to build the
         # concrete `ParamSource` once `param_dim` is knowable; that
         # parser reads the parenthesised widths, so the call form has
