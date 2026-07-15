@@ -18,6 +18,7 @@ test once the inference layer recognizes plate-draw sites.
 
 from __future__ import annotations
 
+import pytest
 import torch
 
 
@@ -287,3 +288,99 @@ class TestDSLSurface:
         """
         c = self._compile(src)
         assert "demo" in c._morphisms
+
+
+# ---------------------------------------------------------------------------
+# Observed responses carry their codomain's event axis
+# ---------------------------------------------------------------------------
+
+
+_SCALAR_KERNEL = """object F : Real 1
+object T : Real 1
+object R : FinSet 5
+
+morphism net : F -> T [param_source=linear] ~ Normal
+
+program p : R -> R
+    observe y : R <- net(x)
+    return y
+
+export p
+"""
+
+
+def test_scalar_response_scores_the_same_either_shape() -> None:
+    """A one-dimensional continuous codomain accepts N scalar responses
+    as ``(N,)`` or ``(N, 1)``. Both must score identically: the family's
+    parameters carry the event axis, so a bare ``(N,)`` response would
+    otherwise broadcast against ``(N, 1)`` into an ``(N, N)`` grid and
+    sum to a finite but wrong log-joint.
+    """
+    from quivers.dsl import loads
+
+    torch.manual_seed(0)
+    model = loads(_SCALAR_KERNEL).morphism
+    assert model is not None
+    x = torch.randn(5, 1)
+    flat = torch.randn(5)
+    column = flat.unsqueeze(-1)
+
+    got_flat = model.log_joint(torch.zeros(5, 1), {"y": flat, "x": x})[0]
+    got_column = model.log_joint(torch.zeros(5, 1), {"y": column, "x": x})[0]
+    assert torch.allclose(got_flat, got_column, atol=1e-6)
+
+    family = dict(model.named_modules())["_step_y._family"]
+    mu, sigma = family._get_params(x)
+    expected = torch.distributions.Normal(mu, sigma).log_prob(column).sum()
+    assert torch.allclose(got_flat, expected, atol=1e-5)
+
+
+def test_response_whose_event_axis_is_wrong_is_rejected() -> None:
+    """A response that cannot carry the codomain's event shape is an
+    error, not something to broadcast into shape."""
+    from quivers.continuous.families import ConditionalNormal
+    from quivers.continuous.plate import VectorisedObserve
+    from quivers.continuous.spaces import Euclidean
+
+    domain = Euclidean(name="F", dim=1)
+    codomain = Euclidean(name="T", dim=3)
+    family = ConditionalNormal(domain, codomain)
+    obs = VectorisedObserve(family, torch.randn(5, 3))
+    x = torch.randn(5, 1)
+
+    # A 3-dimensional codomain has no reading of a bare (N,) response.
+    with pytest.raises(ValueError, match="expected \\(N, 3\\)"):
+        obs.log_prob(x, torch.randn(5))
+
+    # Nor of one whose event axis is the wrong width.
+    with pytest.raises(ValueError, match="event axis of size 3"):
+        obs.log_prob(x, torch.randn(5, 2))
+
+
+def test_inline_family_response_keeps_its_plate_shape() -> None:
+    """An inline family takes its parameters from the program's
+    environment as per-row values already aligned with the plate, so its
+    response indexes the plate and must not gain an event axis.
+    `OrderedLogistic` scores ordinal levels against a real-valued
+    predictor, and unsqueezing its index would push the score off by an
+    axis."""
+    from quivers.dsl import loads
+
+    torch.manual_seed(0)
+    program = loads(
+        "object Resp : FinSet 6\n"
+        "program ord : Resp -> Resp\n"
+        "    observe y : Resp <- OrderedLogistic(eta, cuts)\n"
+        "    return y\n"
+        "export ord\n"
+    )
+    model = program.morphism
+    assert model is not None
+    n = 8
+    obs = {
+        "y": torch.randint(0, 6, (n,)),
+        "eta": torch.randn(n),
+        "cuts": torch.linspace(-2.0, 2.0, 5),
+    }
+    out = model.log_joint(torch.zeros(n, 1), obs)
+    assert torch.isfinite(out).all()
