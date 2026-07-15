@@ -92,6 +92,29 @@ from quivers.dsl.compiler._prelude import (
 )
 
 
+def _fibration_index(env: dict[str, torch.Tensor], name: str) -> torch.Tensor:
+    """Resolve a grouped-marginalize ``via`` fibration index from the
+    runtime environment.
+
+    The index is a per-row map from the response plate into the
+    grouping plate, supplied as host data through the observations
+    dict (like any free covariate). A name that resolves to nothing
+    is a user error, so it fails with a clear message rather than a
+    bare ``KeyError``.
+    """
+    idx = env.get(name)
+    if idx is None:
+        raise CompileError(
+            f"grouped marginalize: the ``via`` fibration index {name!r} "
+            f"is neither a bound program variable nor supplied at runtime; "
+            f"pass it in the observations dict as a long tensor of "
+            f"row-to-group indices",
+            0,
+            0,
+        )
+    return idx
+
+
 # Value carried by a let-binding at compile time.  The let
 # sublanguage is a small typed lambda calculus over heterogeneous
 # values: numeric literals lift to torch tensors; identifier
@@ -2437,13 +2460,13 @@ class _ProgramsMixin:
                             if fib_axes is not None:
                                 idx_tuple = []
                                 for axis_name in fib_axes:
-                                    idx = env[axis_name]
+                                    idx = _fibration_index(env, axis_name)
                                     if idx.dim() == 2 and idx.shape[-1] == 1:
                                         idx = idx.squeeze(-1)
                                     idx_tuple.append(idx.to(torch.long))
                                 idx_list.append(tuple(idx_tuple))
                             elif fib_var is not None:
-                                idx = env[fib_var]
+                                idx = _fibration_index(env, fib_var)
                                 if idx.dim() == 2 and idx.shape[-1] == 1:
                                     idx = idx.squeeze(-1)
                                 idx_list.append(idx.to(torch.long))

@@ -254,14 +254,17 @@ def test_gallery_try_it_blocks_execute(doc_name):
     """Execute every ``## Try it`` Python block in the doc. A block
     that names a missing helper or breaks under the current compiler
     fails the suite, keeping the docs honest about what the framework
-    supports today. Blocks may opt out via a ``<!-- pytest: skip -->``
+    supports today. The blocks of a page share one namespace and run
+    in order, so a later block sees the imports and bindings an
+    earlier one established, exactly as a reader stepping through the
+    page would. Blocks may opt out via a ``<!-- pytest: skip -->``
     HTML comment immediately above the fenced block."""
     path = Path(f"docs/examples/{doc_name}")
     blocks = _extract_try_it_blocks(path.read_text())
     if not blocks:
         pytest.skip(f"{doc_name}: no Try-it blocks")
+    ns = {"__name__": f"_try_it_{path.stem}"}
     for i, block in enumerate(blocks):
-        ns = {"__name__": f"_try_it_{path.stem}_{i}"}
         try:
             exec(compile(block, f"{doc_name}::block-{i}", "exec"), ns)
         except SystemExit:

@@ -1,40 +1,36 @@
-# Bayesian Linear Network for Per-Item Classification Scores
+# Bayesian Neural Network for Nonlinear Regression
 #
-# A linear Bayesian network with three weight matrices expressed
-# entirely as a morphism composition under the real algebra. The
-# per-item input morphism X : Item -> H_in carries the data;
-# the final composite scores each Item under H_out output
-# channels.
+# A Bayesian multi-layer perceptron. The response is Normal about a
+# nonlinear function of the input, and that function is a
+# two-hidden-layer tanh MLP carried inside the morphism's parameter
+# network. The network emits both the mean and the log-scale, so the
+# model is heteroscedastic: the predictive spread varies with the
+# input.
 #
-# Structural form:
+# Generative structure:
 #
-#   X    : Item -> H_in              per-item input
-#   W_1  : H_in -> H1                matrix-normal weight
-#   W_2  : H1   -> H2                matrix-normal weight
-#   W_3  : H2   -> H_out             matrix-normal weight
-#   bnn  = X >> W_1 >> W_2 >> W_3    composed linear chain
+#   mu(x), sigma(x) = MLP(x)                   two hidden layers, tanh
+#   y_n             ~ Normal(mu(x_n), sigma(x_n))
 #
-# Each weight tensor is a learnable morphism whose prior is a
-# matrix-normal over its (in, out) Kronecker covariance, the
-# natural prior for a linear layer. Composition under algebra
-# real is strictly linear: there is no pointwise nonlinearity
-# between composed weight matrices, so the surface expressed
-# here is a Bayesian linear network rather than a deep MLP.
+# The per-row input x is a free variable, supplied as host data
+# through the observations dict; the Resp plate indexes the rows.
+#
+# What makes the fit Bayesian is a prior over the network's weights.
+# The weights are ordinary learnable parameters here, so the prior is
+# supplied at the inference layer by lift_from_log_prob rather than
+# declared in the source: a Normal prior on every weight turns a
+# maximum-likelihood fit into a posterior over networks.
+#
+# Reference: [MacKay (1992)](https://doi.org/10.1162/neco.1992.4.3.448).
 
-composition real [level=algebra]
+object Feature : Real 1
+object Target : Real 1
+object Resp : FinSet 200
 
-object Item : FinSet 200
-object H_in : FinSet 4
-object H1 : FinSet 32
-object H2 : FinSet 16
-object H_out : FinSet 2
+morphism net : Feature -> Target [param_source=mlp, hidden_dim=64] ~ Normal
 
-morphism X : Item -> H_in [role=latent]
-
-morphism W_1 : H_in -> H1 [role=latent]
-morphism W_2 : H1 -> H2 [role=latent]
-morphism W_3 : H2 -> H_out [role=latent]
-
-define bnn = X >> W_1 >> W_2 >> W_3
+program bnn : Resp -> Resp
+    observe y : Resp <- net(x)
+    return y
 
 export bnn

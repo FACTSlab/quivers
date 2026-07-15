@@ -130,7 +130,7 @@ The discrete per-word topic $z : \mathsf{Topic}$ is integrated out by the [pushf
 
 ## See Also
 
-- [Bayesian Gaussian Mixture Model](mixture-model.md) for a simpler grouped `marginalize` over a discrete latent.
+- [Bayesian Gaussian Mixture Model](mixture-model.md) for a per-row mixture whose component assignment is integrated out in closed form by the likelihood, carrying no discrete latent and no `marginalize` block.
 
 
 ## References

@@ -108,7 +108,6 @@ def test_body_with_multiple_lets_using_latent() -> None:
 
     program bodylet : Resp -> Resp
         sample probs : Class <- HalfNormal(1.0)
-        sample idx : Resp <- HalfNormal(1.0)
         marginalize cls : Class <- Dirichlet(probs) [over=Item]
             observe r : Resp <- HalfNormal(1.0) [via=idx]
         return probs

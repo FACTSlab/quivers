@@ -1,41 +1,38 @@
 # Bayesian Gaussian Mixture Model
 #
-# A finite Gaussian mixture model with K components. Per-component
-# means and scales are continuous latents on the Component plate;
-# the per-row component assignment is a discrete latent integrated
-# out by a scoped `marginalize` block under the canonical
-# logsumexp aggregation over the K classes.
+# A finite Gaussian mixture with K components. Per-component means,
+# scales, and mixing weights are latents on the Component plate; each
+# observed row is drawn from the resulting mixture. The per-row
+# component assignment is integrated out in closed form by the
+# MixtureNormal likelihood, so the model carries no discrete latent.
 #
 # Generative structure:
 #
-#   probs    ~ Dirichlet(alpha)                  Component-simplex mixing weights
-#   mu_k     ~ Normal(0, 5)                      per-component mean
-#   sigma_k  ~ HalfNormal(1)                     per-component scale
-#   cls_n    ~ Categorical(probs)                per-row class assignment
-#   r_n      ~ Normal(mu[cls_n], sigma[cls_n])   observed row
+#   probs    ~ Dirichlet(alpha)                    Component-simplex mixing weights
+#   mu_k     ~ Normal(0, 5)                        per-component mean
+#   sigma_k  ~ HalfNormal(1)                       per-component scale
+#   r_n      ~ MixtureNormal(probs, mu, sigma)     observed row
 #
-# Per-row marginal likelihood (closed form via logsumexp):
+# Per-row marginal likelihood (closed form):
 #
 #   p(r_n) = sum_k probs[k] * Normal(r_n; mu[k], sigma[k]).
 #
-# The `[over=Item]` plate routes each per-row draw through its
-# item-group accumulator; `[via=idx]` names the per-observe
-# fibration from `Resp` into the `Item` plate.
+# MixtureNormal takes three per-component vector parameters (the
+# mixing weights, the locations, and the scales), each shared across
+# every row of the Resp plate, and scores each row against the
+# K-component mixture they define.
 
 composition log_prob [level=algebra]
 
 object Component : FinSet 3
-object Item : FinSet 8
 object Resp : FinSet 100
 
 program gmm(alpha : Real) : Resp -> Resp
     sample probs <- Dirichlet(alpha) [over=Component]
     sample mu : Component <- Normal(0.0, 5.0)
     sample sigma : Component <- HalfNormal(1.0)
-    sample idx : Resp <- HalfNormal(1.0)
 
-    marginalize cls : Component <- Categorical(probs) [over=Item, reduction=logsumexp]
-        observe r : Resp <- Normal(mu[cls], sigma[cls]) [via=idx]
+    observe r : Resp <- MixtureNormal(probs, mu, sigma)
 
     return probs
 

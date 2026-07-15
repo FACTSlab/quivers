@@ -342,7 +342,6 @@ class TestReductionSurface:
 
         program demo : Resp -> Resp
             sample probs : Class <- HalfNormal(1.0)
-            sample idx : Resp <- HalfNormal(1.0)
             marginalize cls : Class <- Dirichlet(probs) [over=Item, reduction=sum]
                 observe r : Resp <- HalfNormal(1.0) [via=idx]
             return probs
@@ -364,7 +363,6 @@ class TestReductionSurface:
 
         program demo : Resp -> Resp
             sample probs : Class <- HalfNormal(1.0)
-            sample idx : Resp <- HalfNormal(1.0)
             marginalize cls : Class <- Dirichlet(probs) [over=Item, reduction=bogus]
                 observe r : Resp <- HalfNormal(1.0) [via=idx]
             return probs
@@ -398,10 +396,9 @@ class TestSurfaceCompileErrors:
         object Class : FinSet 2
 
         program demo : Resp -> Resp
-            sample idx : Resp <- HalfNormal(1.0)
             marginalize cls : Class <- Dirichlet(1.0) [over=Item]
                 observe r : Resp <- HalfNormal(1.0) [via=idx]
-            return idx
+            return cls
         export demo
         """
         with pytest.raises(CompileError, match="named probs"):
@@ -423,7 +420,6 @@ class TestSurfaceCompileErrors:
 
         program demo : Resp -> Resp
             sample probs : Class <- HalfNormal(1.0)
-            sample idx : Resp <- HalfNormal(1.0)
             marginalize cls : Class <- Dirichlet(probs) [over=Item]
                 sample other : Resp <- HalfNormal(1.0)
             return probs

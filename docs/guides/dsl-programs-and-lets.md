@@ -517,7 +517,7 @@ object Latent : Real 3
 object Obs : Real 5
 
 morphism prior : Cond -> Latent ~ Normal
-morphism likelihood : Latent -> Obs ~ Normal [scale=0.1]
+morphism likelihood : Latent -> Obs ~ Normal
 define posterior = prior >> likelihood
 
 export posterior
