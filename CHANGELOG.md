@@ -4,6 +4,12 @@ All notable changes to the quivers library are documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/), and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.17.0] - 2026-07-16
+
+### Fixed
+
+- **Nullary constants share one chart encoding in patterns and lexicon LFs.** Rule patterns already compiled atoms to `("atom", name)`, but the lexicon LF evaluator emitted a bare `(name,)`, so a premise like `Claim(App(forall_t, X))` compiled cleanly and never matched the chart. Lexicon LFs now emit the same tagged `("atom", name)` for nullary constants, and bound variables are tagged `("var", name)` so alpha-renaming still finds occurrences after constants adopt the atom tag. `atom` and `var` are reserved term-algebra tags: declaring either as an atom or binder name is now a compile error. This changes the observable chart encoding of logical forms (a bound variable that was `("#v1",)` is now `("var", "#v1")`, and a nullary LF constant that was `("dog_p",)` is now `("atom", "dog_p")`), so consumers that inspect chart LFs must read the tagged forms.
+
 ## [0.16.0] - 2026-07-15
 
 ### Changed

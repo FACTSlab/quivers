@@ -266,11 +266,25 @@ The two deductions are chained by hand rather than by a `compose(...)` step, and
 
 ## Limitations
 
-The fragment is deliberately small, and two limits are structural rather than incidental.
+The fragment is deliberately small, and one limit is structural
+rather than incidental.
 
-First, there is no beta-reduction on the deduction surface, so the grammar cannot use continuation-form determiner denotations and recover a readable logical form; it builds the normal form directly instead. A grammar that genuinely needed higher-order denotations (quantifier raising, for instance, or the scope ambiguities the [quantifier-scope example](quantifier-scope.md) encodes in its categories) would have to encode the reduction in its rules or its categories, not rely on the runtime to normalise.
+There is no beta-reduction on the deduction surface, so the
+grammar cannot use continuation-form determiner denotations and
+recover a readable logical form; it builds the normal form
+directly instead. A grammar that genuinely needed higher-order
+denotations (quantifier raising, for instance, or the scope
+ambiguities the [quantifier-scope example](quantifier-scope.md)
+encodes in its categories) would have to encode the reduction in
+its rules or its categories, not rely on the runtime to
+normalise.
 
-Second, a rule pattern cannot mention a nullary constant inside a logical form. Rule patterns compile atoms to a tagged `("atom", name)` pair while the lexicon's logical-form evaluator emits a bare `(name,)` tuple, so a pattern like `Claim(Quant(every_t, P, Q))` never matches a chart item. That is why quantificational force is carried by the determiner's category here rather than by a constant in the logical form. The workaround costs one category per determiner, which is why the fragment has `DetEvery` and `DetSome` instead of a single `Det`.
+Quantificational force still rides on the determiner's category
+(`DetEvery` / `DetSome`) here for pedagogical clarity about
+generalised-quantifier constructors, but a rule pattern *can*
+mention a nullary constant inside a logical form: patterns and
+lexicon LFs share the tagged `("atom", name)` encoding, so a
+premise like `Claim(Quant(every_t, P, Q))` matches the chart.
 
 ## References
 

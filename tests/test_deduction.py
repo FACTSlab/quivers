@@ -20,7 +20,7 @@ import textwrap
 import torch
 
 from quivers.dsl.parser import parse
-from quivers.dsl.compiler import Compiler
+from quivers.dsl.compiler import Compiler, CompileError
 from quivers.stochastic.deduction import (
     DeductionSystem,
     adam_fit_deduction,
@@ -187,9 +187,13 @@ def test_binders_alpha_rename_lexicon_lfs():
     # canonical name despite both using ``x`` in source.
     canon_per_lex = []
     for lf in lfs:
-        # lf is ("Lam", (canon,), ("App", ..., ("Var", (canon,))))
+        # lf is ("Lam", ("var", canon), ("App", ..., ("Var", ("var", canon))))
         assert lf[0] == "Lam"
-        canon_per_lex.append(lf[1][0])
+        binder = lf[1]
+        assert isinstance(binder, tuple) and binder[0] == "var", (
+            f"binder should be tagged ('var', name), got {binder!r}"
+        )
+        canon_per_lex.append(binder[1])
     assert canon_per_lex[0] != canon_per_lex[1], (
         f"binders failed to alpha-rename: both entries got {canon_per_lex[0]!r}"
     )
@@ -261,7 +265,62 @@ def test_subst_capture_avoiding():
         expr, globals_={"__constructors__": frozenset({"App", "Var", "f", "x", "arg"})}
     )
     out = fn({})
-    assert out == ("App", ("f",), ("Var", ("arg",))), f"subst gave {out!r}"
+    assert out == (
+        "App",
+        ("atom", "f"),
+        ("Var", ("atom", "arg")),
+    ), f"subst gave {out!r}"
+
+
+def test_rule_pattern_matches_nullary_lf_constant():
+    """A rule that mentions a nullary constant inside an LF must
+    match the lexicon-emitted chart encoding of that constant.
+
+    Patterns and lexicon LFs both use ``("atom", name)`` for nullary
+    constants, so ``Claim(App(forall_t, X))`` can fire against a
+    chart item whose LF carries ``forall_t``. Bound variables stay
+    tagged ``("var", name)`` so alpha-renaming is unaffected.
+    """
+    src = """
+    object Term : FinSet 4
+    deduction Quant : Term -> Term [semiring=LogProb, start=S]
+        atoms S, N, span, App, Var, Claim, forall_t, dog_p
+        binders Lam
+        rule lift : span(I, J, S, F) |- Claim(F)
+        rule forall_intro : Claim(App(forall_t, X)) |- Claim(X)
+        lexicon
+            "every" : S = App(forall_t, Lam(x, App(dog_p, Var(x))))
+    """
+    mod = parse(textwrap.dedent(src))
+    prog = Compiler(mod).compile()
+    ded = prog.deductions["Quant"]
+    chart = ded(["every"])
+
+    # Lexicon LF uses the tagged nullary encoding.
+    span_lfs = [
+        item[4]
+        for item, _ in chart.chart.items()
+        if isinstance(item, tuple) and item[:3] == ("span", 0, 1) and len(item) > 4
+    ]
+    assert span_lfs, "lexicon did not emit a span item"
+    lf = span_lfs[0]
+    assert lf[0] == "App" and lf[1] == ("atom", "forall_t"), (
+        f"nullary constant should be ('atom', 'forall_t'), got {lf!r}"
+    )
+    lam = lf[2]
+    assert lam[0] == "Lam" and lam[1][0] == "var", (
+        f"binder should be tagged ('var', …), got {lam!r}"
+    )
+
+    # The rule over forall_t must fire and expose the lambda.
+    claims = [
+        item
+        for item, _ in chart.chart.items()
+        if isinstance(item, tuple) and item and item[0] == "Claim"
+    ]
+    assert any(c[1] == lam for c in claims), (
+        f"forall_intro did not fire: claims={claims!r}, expected Claim({lam!r})"
+    )
 
 
 def test_montague_nli_lambda_lfs_load():
@@ -344,8 +403,13 @@ def test_lambda_body_occurrence_matches_its_binder():
 
     assert lf[0] == "Lam", f"expected a Lam-headed LF, got {lf!r}"
     bound = lf[1]
-    assert isinstance(bound, tuple) and len(bound) == 1, (
-        f"binder should carry one canonical symbol, got {bound!r}"
+    assert isinstance(bound, tuple) and len(bound) == 2 and bound[0] == "var", (
+        f"binder should carry a tagged canonical symbol, got {bound!r}"
+    )
+    # Predicate constant is tagged like every other nullary atom.
+    app = lf[2]
+    assert app[0] == "App" and app[1] == ("atom", "dog_p"), (
+        f"nullary LF constant should be ('atom', 'dog_p'), got {app!r}"
     )
 
     def _occurrences(term) -> list:
@@ -362,3 +426,21 @@ def test_lambda_body_occurrence_matches_its_binder():
             f"lambda binds {bound!r} but its body references {occurrence!r}; "
             f"the occurrence is unbound"
         )
+
+
+def test_reserved_term_tags_rejected_as_atoms():
+    """``atom`` and ``var`` are reserved term-algebra tags."""
+    src = """
+    object Term : FinSet 2
+    deduction Bad : Term -> Term [semiring=LogProb, start=S]
+        atoms S, atom
+        rule r : S |- S
+    """
+    mod = parse(textwrap.dedent(src))
+    try:
+        Compiler(mod).compile()
+    except CompileError as exc:
+        assert "reserved" in str(exc).lower()
+        assert "atom" in str(exc)
+    else:
+        raise AssertionError("expected CompileError for reserved atom name")
