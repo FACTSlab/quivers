@@ -147,12 +147,21 @@ def _candidate_atoms(
     )
 
 
+# Internal term-algebra tags. Nullary constants and bound variables
+# share the same surface shape in source (a bare identifier), so the
+# runtime discriminates them with reserved heads that cannot appear
+# as user-declared atom or binder names.
+_TERM_TAG_ATOM = "atom"
+_TERM_TAG_VAR = "var"
+_RESERVED_TERM_TAGS = frozenset({_TERM_TAG_ATOM, _TERM_TAG_VAR})
+
+
 def _category_depth(value) -> int:
     """Constructor-tree depth of a chart category or item.
 
-    Atoms count as depth 0; the tagged pair ``("atom", "S")``
-    counts as depth 0 (a leaf category); a wrapping tuple
-    ``(<ctor>, <args>...)`` whose head is a non-``"atom"``,
+    Atoms and bound variables count as depth 0; the tagged pairs
+    ``("atom", "S")`` and ``("var", "#v1")`` are leaves. A wrapping
+    tuple ``(<ctor>, <args>...)`` whose head is a non-tag,
     non-``"span"`` constructor counts as
     :math:`1 + \\max_i \\text{depth}(\\text{args}_i)`. Used to gate
     rules that would otherwise rewrite ``A`` into ``Dia(A)`` or
@@ -163,7 +172,7 @@ def _category_depth(value) -> int:
     if not value:
         return 0
     head = value[0]
-    if head == "atom":
+    if head in _RESERVED_TERM_TAGS:
         return 0
     if head == "span":
         # span(I, J, C, ...): depth of the surrounding span is the
@@ -425,11 +434,27 @@ class _DeductionsMixin:
         # ground; undeclared identifiers in patterns are variables).
         atoms_set = set(decl.atoms)
 
+        reserved_clash = sorted(
+            (atoms_set | set(decl.binders)) & _RESERVED_TERM_TAGS
+        )
+        if reserved_clash:
+            names = ", ".join(repr(n) for n in reserved_clash)
+            raise CompileError(
+                f"deduction {decl.name!r}: {names} "
+                f"{'is' if len(reserved_clash) == 1 else 'are'} "
+                f"reserved as term-algebra tag"
+                f"{'' if len(reserved_clash) == 1 else 's'} "
+                f"(nullary constants use {(_TERM_TAG_ATOM, '<name>')!r}; "
+                f"bound variables use {(_TERM_TAG_VAR, '<name>')!r})",
+                decl.line,
+                decl.col,
+            )
+
         def _convert_pattern(texpr):
             if isinstance(texpr, TypeName):
                 name = texpr.name
                 if name in atoms_set:
-                    return ("atom", name)
+                    return (_TERM_TAG_ATOM, name)
                 # Variable convention: any identifier not in the
                 # atoms list (and not a numeric literal) is a
                 # wildcard. This permits arbitrary metavariable
@@ -458,7 +483,7 @@ class _DeductionsMixin:
                 args = tuple(_convert_pattern(a) for a in texpr.args)
                 return (texpr.effect, *args)
             # Fallback: a structural-equality probe.
-            return ("atom", repr(texpr))
+            return (_TERM_TAG_ATOM, repr(texpr))
 
         # Detect whether this deduction's item algebra carries an
         # LF slot. The signal: any rule pattern of the form
@@ -702,12 +727,16 @@ class _DeductionsMixin:
             # variable names are constructor-like only inside their
             # scope, but at compile time we expand the set
             # uniformly and rely on the alpha-renaming pass to
-            # disambiguate scopes.
+            # disambiguate scopes. Bound names are also recorded in
+            # ``__bound_vars__`` so the let-expression compiler emits
+            # the tagged ``("var", name)`` form rather than a nullary
+            # ``("atom", name)`` constant.
             globals_["__constructors__"] = (
                 frozenset(decl.atoms)
                 | frozenset(decl.binders)
                 | frozenset(bound_var_names)
             )
+            globals_["__bound_vars__"] = frozenset(bound_var_names)
             # The LF compiler treats binder-applied terms specially:
             # the first argument of any constructor listed in
             # ``binders`` is the bound variable. We alpha-rename it
@@ -724,27 +753,39 @@ class _DeductionsMixin:
 
             def _normalise_binders(term, env: dict):
                 # Apply alpha-renaming of bound variables to fresh
-                # canonical symbols. ``env`` maps original
-                # variable names to their canonical replacements;
-                # references to bound variables are substituted.
+                # canonical symbols. ``env`` maps original variable
+                # names to their canonical replacements; references
+                # to bound variables (tagged ``("var", name)``) are
+                # substituted. Nullary constants stay
+                # ``("atom", name)`` and are never rewritten.
                 if isinstance(term, tuple) and term:
                     head = term[0]
                     if head in binders_set and len(term) >= 3:
                         var_term = term[1]
-                        if not (isinstance(var_term, tuple) and var_term):
+                        if not (
+                            isinstance(var_term, tuple)
+                            and len(var_term) == 2
+                            and var_term[0] == _TERM_TAG_VAR
+                            and isinstance(var_term[1], str)
+                        ):
                             # Malformed binder; pass through.
                             return tuple(_normalise_binders(x, env) for x in term)
-                        var_name = var_term[0]
+                        var_name = var_term[1]
                         canonical = _fresh()
                         new_env = dict(env)
                         new_env[var_name] = canonical
                         body_norm = tuple(
                             _normalise_binders(x, new_env) for x in term[2:]
                         )
-                        return (head, (canonical,), *body_norm)
+                        return (head, (_TERM_TAG_VAR, canonical), *body_norm)
                     # Reference to a bound variable: substitute.
-                    if len(term) == 1 and isinstance(head, str) and head in env:
-                        return (env[head],)
+                    if (
+                        head == _TERM_TAG_VAR
+                        and len(term) == 2
+                        and isinstance(term[1], str)
+                        and term[1] in env
+                    ):
+                        return (_TERM_TAG_VAR, env[term[1]])
                     return tuple(_normalise_binders(x, env) for x in term)
                 return term
 
@@ -812,7 +853,7 @@ class _DeductionsMixin:
                             entries.append(
                                 (
                                     word,
-                                    ("atom", atom),
+                                    (_TERM_TAG_ATOM, atom),
                                     lf_value,
                                     True,
                                 )
@@ -923,7 +964,7 @@ class _DeductionsMixin:
             # underlying DeductionSystem).
             head = item[0]
             # 1. Bare atom: ("atom", "S").
-            if head == "atom" and len(item) == 2 and item[1] == start:
+            if head == _TERM_TAG_ATOM and len(item) == 2 and item[1] == start:
                 return True
             # 2. Head-keyed (Datalog-style): ("reach", ...).
             if isinstance(head, str) and head == start:
@@ -934,7 +975,7 @@ class _DeductionsMixin:
                 if (
                     isinstance(cat, tuple)
                     and len(cat) == 2
-                    and cat[0] == "atom"
+                    and cat[0] == _TERM_TAG_ATOM
                     and cat[1] == start
                 ):
                     return True
@@ -1127,7 +1168,7 @@ class _DeductionsMixin:
                 # category-shape parsing happens on the live
                 # grammar; here we accept atom identifiers as a
                 # safe, broadly-useful starting point.)
-                cat_pattern = ("atom", cat_text)
+                cat_pattern = (_TERM_TAG_ATOM, cat_text)
                 # LF: treat as a constructor-application or atom.
                 # If the text contains '(' it's a let-call shape;
                 # otherwise it's a bare identifier. Building the

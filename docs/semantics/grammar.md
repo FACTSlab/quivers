@@ -176,6 +176,21 @@ source therefore produce chart items with *distinct* canonical
 bound names, so the chart's structural identity on item tuples
 coincides with alpha-equivalence on the source terms.
 
+Nullary constants and bound variables share a bare-identifier
+surface form, so the runtime discriminates them with reserved
+heads:
+
+| Role | Chart encoding |
+| --- | --- |
+| Nullary constant (category or LF) | `("atom", name)` |
+| Bound variable | `("var", name)` |
+| $n$-ary constructor application ($n \ge 1$) | `(ctor, *args)` |
+
+Rule patterns and lexicon LFs therefore agree on nullary
+constants: a premise `Claim(App(forall_t, X))` matches a chart
+item whose LF carries `forall_t`. The tags `atom` and `var` are
+reserved and cannot be declared as atom or binder names.
+
 The compiler additionally collects every bound variable name
 appearing in any lexicon LF and extends the constructor set
 $\mathsf{atoms}(D)$ with those names for the duration of LF
