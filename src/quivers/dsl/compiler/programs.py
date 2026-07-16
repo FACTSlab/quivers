@@ -3051,13 +3051,27 @@ class _ProgramsMixin:
             name = node.name
             globs = globals_ or {}
             constructors = globs.get("__constructors__", frozenset())
+            # Bound-variable names collected by the deduction compiler
+            # (see ``_normalise_binders``). Discriminated from nullary
+            # constants so alpha-renaming can find occurrences by the
+            # ``"var"`` head rather than by tuple shape alone.
+            bound_vars = globs.get("__bound_vars__", frozenset())
 
             def _var(env: dict):
                 if name in env:
                     return env[name]
+                if name in bound_vars:
+                    return ("var", name)
                 if name in constructors:
-                    return (name,)
-                if name in globs and name != "__constructors__":
+                    # Nullary constant: same tagged form patterns and
+                    # categories use (``("atom", name)``), so a rule
+                    # that mentions a constant inside an LF matches
+                    # the lexicon-emitted chart item.
+                    return ("atom", name)
+                if name in globs and name not in (
+                    "__constructors__",
+                    "__bound_vars__",
+                ):
                     return globs[name]
                 raise CompileError(f"undefined variable {name!r} in let expression")
 
@@ -3278,18 +3292,15 @@ class _ProgramsMixin:
                 if func_name == "subst":
                     # subst(term, var, value) — capture-avoiding
                     # substitution on a structural LF term. Walks the
-                    # term tree, replacing every occurrence of the
-                    # ``(var,)`` 1-tuple with ``value``. Bound
-                    # variables (subterms whose head was listed in a
-                    # ``binders`` block, recognisable by their fresh
-                    # ``#vN`` canonical names) are passed through;
-                    # under-binders that shadow ``var`` halt the
-                    # descent. Because the lexicon LF compiler has
-                    # already alpha-renamed every bound variable to
-                    # a unique canonical symbol, no further capture
-                    # is possible: alpha-equivalence is structural
-                    # at this point and ``subst`` is a single
-                    # recursive pass.
+                    # term tree, replacing every subterm equal to
+                    # ``var`` with ``value``. Bound variables are
+                    # tagged ``("var", name)`` with a fresh ``#vN``
+                    # canonical name after lexicon alpha-renaming;
+                    # nullary constants are tagged ``("atom", name)``.
+                    # Because every binder has already been
+                    # alpha-renamed to a unique canonical symbol,
+                    # naive structural substitution is
+                    # capture-avoiding.
                     if len(arg_fns) != 3:
                         raise CompileError(
                             "subst() takes exactly three arguments: term, var, value"
@@ -3302,14 +3313,14 @@ class _ProgramsMixin:
                     # ``var`` argument is matched against every
                     # subterm by ``==``; matching subterms are
                     # replaced wholesale by ``value``. This handles
-                    # both bare-variable patterns ``(x,)`` and
-                    # wrapped variable patterns ``Var(x)`` /
-                    # ``(\"Var\", (\"x\",))`` uniformly. Capture
-                    # avoidance is automatic because the lexicon-LF
-                    # compiler has already alpha-renamed every
-                    # binder's bound variable to a fresh canonical
-                    # symbol, so no two distinct variables share a
-                    # name.
+                    # tagged variables ``("var", name)``, tagged
+                    # constants ``("atom", name)``, and wrapped
+                    # forms ``("Var", ("var", name))`` uniformly.
+                    # Capture avoidance is automatic because the
+                    # lexicon-LF compiler has already alpha-renamed
+                    # every binder's bound variable to a fresh
+                    # canonical symbol, so no two distinct variables
+                    # share a name.
                     def _subst(t, _v=var, _r=value):
                         if t == _v:
                             return _r
