@@ -172,6 +172,41 @@ def _emit_string(ctx: _JsLetCtx, value: str) -> tuple[str, str]:
     return vid, "string"
 
 
+_JS_PAREN_REQUIRED_OPERAND_KINDS: frozenset[str] = frozenset({
+    "binary_expression",
+    "unary_expression",
+})
+"""Operand kinds wrapped in `parenthesized_expression` when they appear
+under a binary or unary operator. WebPPL's pretty printer emits children
+in source order without re-grouping, so an unparenthesised
+`binary_expression` operand reassociates: ``(a + b) * c`` would print as
+``a + b * c``."""
+
+
+def _maybe_paren(
+    ctx: _JsLetCtx, rendered: tuple[str, str]
+) -> tuple[str, str]:
+    """Wrap `rendered` in a `parenthesized_expression` when its vertex
+    kind is in
+    [`_JS_PAREN_REQUIRED_OPERAND_KINDS`][quivers.transpile.renderers._javascript_helpers._JS_PAREN_REQUIRED_OPERAND_KINDS]."""
+    _vid, kind = rendered
+    if kind not in _JS_PAREN_REQUIRED_OPERAND_KINDS:
+        return rendered
+    return _emit_paren(ctx, rendered)
+
+
+def _emit_paren(
+    ctx: _JsLetCtx, rendered: tuple[str, str]
+) -> tuple[str, str]:
+    """Wrap `rendered` in a `parenthesized_expression` vertex."""
+    vid, kind = rendered
+    paren = ctx.v(ctx.fresh("paren"), "parenthesized_expression")
+    ctx.constraint(paren, "chose-alt-fingerprint", "( )")
+    ctx.constraint(paren, "chose-alt-child-kinds", kind)
+    ctx.e(paren, vid, "child_of")
+    return paren, "parenthesized_expression"
+
+
 def _emit_binop(ctx: _JsLetCtx, expr: LetExprBinOp) -> tuple[str, str]:
     """Emit a `binary_expression` with `left` / `right` field edges.
 
@@ -179,8 +214,8 @@ def _emit_binop(ctx: _JsLetCtx, expr: LetExprBinOp) -> tuple[str, str]:
     the grammar's CHOICE alternatives; the panproto walker picks the
     alt from the ``field:operator`` + ``chose-alt-fingerprint`` pair.
     """
-    left_vid, left_kind = _render(ctx, expr.left)
-    right_vid, right_kind = _render(ctx, expr.right)
+    left_vid, left_kind = _maybe_paren(ctx, _render(ctx, expr.left))
+    right_vid, right_kind = _maybe_paren(ctx, _render(ctx, expr.right))
     vid = ctx.v(ctx.fresh("bin"), "binary_expression")
     ctx.constraint(vid, "field:operator", expr.op)
     ctx.constraint(vid, "chose-alt-fingerprint", expr.op)
@@ -195,7 +230,7 @@ def _emit_binop(ctx: _JsLetCtx, expr: LetExprBinOp) -> tuple[str, str]:
 def _emit_unary(ctx: _JsLetCtx, expr: LetExprUnaryOp) -> tuple[str, str]:
     """Emit a unary-minus `unary_expression` carrying its operand on
     the `argument` field edge."""
-    operand_vid, operand_kind = _render(ctx, expr.operand)
+    operand_vid, operand_kind = _maybe_paren(ctx, _render(ctx, expr.operand))
     vid = ctx.v(ctx.fresh("uop"), "unary_expression")
     ctx.constraint(vid, "field:operator", "-")
     ctx.constraint(vid, "chose-alt-fingerprint", "-")

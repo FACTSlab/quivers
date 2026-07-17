@@ -133,7 +133,7 @@ class NumPyroRenderer(RendererBase):
         """
         proto = self.target_protocol()
         sb = proto.schema()
-        py = PyCtx(sb, cards=dict(ir.cards))
+        py = PyCtx(sb, cards=dict(ir.cards), target="numpyro")
         ctx = _NumPyroCtx(
             sb=sb,
             morphisms={},
@@ -143,14 +143,17 @@ class NumPyroRenderer(RendererBase):
         )
 
         py.v("mod", "module")
-        self._emit_imports(ctx)
-
         body = py.v(py.fresh("body"), "block")
         params = self._function_params(ir)
         func = self._build_function(py, body, params)
-        py.e("mod", func, "child_of")
 
+        # Dispatch the body first so any ``LetExprCall`` records the
+        # imports its symbol needs (jax.scipy.special / jax.nn), then emit
+        # the import block and wire the function after it so the imports
+        # lead the module.
         self._dispatch_body(ctx, body, ir.body)
+        self._emit_imports(ctx)
+        py.e("mod", func, "child_of")
 
         return sb.build()
 
@@ -304,11 +307,15 @@ class NumPyroRenderer(RendererBase):
 
     def _emit_imports(self, ctx: _NumPyroCtx) -> None:
         """Emit ``import jax.numpy as jnp``, ``import numpyro``,
-        ``import numpyro.distributions``."""
+        ``import numpyro.distributions``, plus any aliased imports a
+        lowered ``LetExprCall`` symbol recorded (``jax.scipy.special`` /
+        ``jax.nn``)."""
         py = ctx.py
         self._emit_aliased_import(py, ("jax", "numpy"), "jnp")
         self._emit_plain_import(py, ("numpyro",))
         self._emit_plain_import(py, ("numpyro", "distributions"))
+        for chain, alias in sorted(py.required_imports):
+            self._emit_aliased_import(py, chain, alias)
 
     def _emit_plain_import(
         self, py: PyCtx, chain: tuple[str, ...]

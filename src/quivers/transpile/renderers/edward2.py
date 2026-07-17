@@ -144,7 +144,7 @@ class Edward2Renderer(RendererBase):
         assert_no_dangling_refs(ir)
         proto = self.target_protocol()
         sb = proto.schema()
-        py = PyCtx(sb, cards=dict(ir.cards))
+        py = PyCtx(sb, cards=dict(ir.cards), target="edward2")
         ctx = _RenderCtx(sb=sb, morphisms={}, lets={})
 
         sb.vertex("mod", "module")
@@ -479,7 +479,7 @@ class Edward2Renderer(RendererBase):
         emitted call.
         """
         del constraint, observed
-        py = PyCtx(ctx.sb)
+        py = PyCtx(ctx.sb, target="edward2")
         return self._dist_call(
             py,
             name=name,
@@ -520,7 +520,7 @@ class Edward2Renderer(RendererBase):
         ``tf.fill([R, C], <value>)``. The shape literal is a plain
         Python list (Edward2 / TF accept it).
         """
-        py = PyCtx(ctx.sb)
+        py = PyCtx(ctx.sb, target="edward2")
         return self._broadcast(py, value, target_shape, {}, {})
 
     # ------------------------------------------------------------------
