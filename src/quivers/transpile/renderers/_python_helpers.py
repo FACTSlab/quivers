@@ -58,10 +58,20 @@ class PyCtx:
         self,
         sb: panproto.SchemaBuilder,
         cards: dict[str, int] | None = None,
+        target: str = "python",
     ) -> None:
         self._sb = sb
         self._n = 0
         self.cards: dict[str, int] = dict(cards or {})
+        # The concrete Python backend ("pyro" / "numpyro" / "pymc" /
+        # "edward2"); selects the per-target builtin symbol table when a
+        # ``LetExprCall`` is lowered.
+        self.target = target
+        # Imports a lowered ``LetExprCall`` symbol requires, as
+        # ``(dotted-chain, alias)`` pairs. Only NumPyro emits an import
+        # block, so only it drains this; the other backends assume their
+        # framework runtime is already in scope.
+        self.required_imports: set[tuple[tuple[str, ...], str]] = set()
 
     def fresh(self, prefix: str) -> str:
         self._n += 1
@@ -303,6 +313,196 @@ def with_statement(
     return ws
 
 
+#: ``(dotted-import chain, alias)`` -> ``import <chain> as <alias>``.
+#: Used only by the NumPyro renderer, whose ``jnp`` namespace lacks the
+#: special functions and activations; ``torch`` / ``pymc`` / ``tensorflow``
+#: expose theirs on the framework namespace the fragment already assumes.
+_JAX_SPECIAL: tuple[tuple[str, ...], str] = (("jax", "scipy", "special"), "jsp")
+_JAX_NN: tuple[tuple[str, ...], str] = (("jax", "nn"), "jnn")
+
+#: A builtin's per-target lowering: the symbol path to emit as a dotted
+#: attribute, plus the import it needs (``None`` when the symbol lives on
+#: a namespace the target already has in scope).
+_CallEntry = tuple[tuple[str, ...], "tuple[tuple[str, ...], str] | None"]
+
+
+def _torch(name: str) -> _CallEntry:
+    return (("torch", name), None)
+
+
+def _torch_fn(name: str) -> _CallEntry:
+    return (("torch", "nn", "functional", name), None)
+
+
+def _jnp(name: str) -> _CallEntry:
+    return (("jnp", name), None)
+
+
+def _jsp(name: str) -> _CallEntry:
+    return (("jsp", name), _JAX_SPECIAL)
+
+
+def _jnn(name: str) -> _CallEntry:
+    return (("jnn", name), _JAX_NN)
+
+
+def _pmath(name: str) -> _CallEntry:
+    return (("pymc", "math", name), None)
+
+
+def _tfmath(name: str) -> _CallEntry:
+    return (("tf", "math", name), None)
+
+
+def _tfnn(name: str) -> _CallEntry:
+    return (("tf", "nn", name), None)
+
+
+#: Element-wise ``torch`` primitives that live at the top level with the
+#: same name a user writes; verified against the installed ``torch``.
+_TORCH_TOPLEVEL: tuple[str, ...] = (
+    "exp", "expm1", "log", "log1p", "log2", "log10", "sqrt", "rsqrt",
+    "square", "abs", "sign", "reciprocal", "sin", "cos", "tan", "asin",
+    "acos", "atan", "sinh", "cosh", "asinh", "acosh", "atanh", "floor",
+    "ceil", "round", "trunc", "erf", "erfc", "erfinv", "lgamma", "digamma",
+    "tanh", "sigmoid", "neg",
+)
+#: Activations that live under ``torch.nn.functional``.
+_TORCH_FUNCTIONAL: tuple[str, ...] = (
+    "relu", "relu6", "elu", "selu", "gelu", "silu", "mish", "softplus",
+    "logsigmoid", "softsign",
+)
+
+#: ``target -> {builtin name -> lowering}``. A builtin absent from a
+#: target's table has no faithful single-call rendering there (e.g. it
+#: needs a ``dim`` argument, or the library exposes no matching symbol),
+#: so lowering it raises rather than emit an undefined name.
+_LET_CALL_SYMBOLS: dict[str, dict[str, _CallEntry]] = {
+    "pyro": {
+        **{n: _torch(n) for n in _TORCH_TOPLEVEL},
+        **{n: _torch_fn(n) for n in _TORCH_FUNCTIONAL},
+    },
+    "numpyro": {
+        "exp": _jnp("exp"), "expm1": _jnp("expm1"), "log": _jnp("log"),
+        "log1p": _jnp("log1p"), "log2": _jnp("log2"), "log10": _jnp("log10"),
+        "sqrt": _jnp("sqrt"), "square": _jnp("square"), "abs": _jnp("abs"),
+        "sign": _jnp("sign"), "reciprocal": _jnp("reciprocal"),
+        "sin": _jnp("sin"), "cos": _jnp("cos"), "tan": _jnp("tan"),
+        "asin": _jnp("arcsin"), "acos": _jnp("arccos"), "atan": _jnp("arctan"),
+        "sinh": _jnp("sinh"), "cosh": _jnp("cosh"), "asinh": _jnp("arcsinh"),
+        "acosh": _jnp("arccosh"), "atanh": _jnp("arctanh"),
+        "floor": _jnp("floor"), "ceil": _jnp("ceil"), "round": _jnp("round"),
+        "trunc": _jnp("trunc"), "tanh": _jnp("tanh"), "neg": _jnp("negative"),
+        "erf": _jsp("erf"), "erfc": _jsp("erfc"), "erfinv": _jsp("erfinv"),
+        "lgamma": _jsp("gammaln"), "digamma": _jsp("digamma"),
+        "sigmoid": _jnn("sigmoid"), "relu": _jnn("relu"), "elu": _jnn("elu"),
+        "selu": _jnn("selu"), "gelu": _jnn("gelu"), "silu": _jnn("silu"),
+        "softplus": _jnn("softplus"), "logsigmoid": _jnn("log_sigmoid"),
+        "softsign": _jnn("soft_sign"),
+    },
+    "pymc": {
+        "exp": _pmath("exp"), "expm1": _pmath("expm1"), "log": _pmath("log"),
+        "log1p": _pmath("log1p"), "log2": _pmath("log2"), "sqrt": _pmath("sqrt"),
+        "abs": _pmath("abs"), "sin": _pmath("sin"), "cos": _pmath("cos"),
+        "tan": _pmath("tan"), "sinh": _pmath("sinh"), "cosh": _pmath("cosh"),
+        "tanh": _pmath("tanh"), "floor": _pmath("floor"), "ceil": _pmath("ceil"),
+        "erf": _pmath("erf"), "erfc": _pmath("erfc"), "erfinv": _pmath("erfinv"),
+        "sigmoid": _pmath("sigmoid"),
+    },
+    "edward2": {
+        "exp": _tfmath("exp"), "expm1": _tfmath("expm1"), "log": _tfmath("log"),
+        "log1p": _tfmath("log1p"), "sqrt": _tfmath("sqrt"), "rsqrt": _tfmath("rsqrt"),
+        "square": _tfmath("square"), "abs": _tfmath("abs"), "sign": _tfmath("sign"),
+        "reciprocal": _tfmath("reciprocal"), "sin": _tfmath("sin"),
+        "cos": _tfmath("cos"), "tan": _tfmath("tan"), "asin": _tfmath("asin"),
+        "acos": _tfmath("acos"), "atan": _tfmath("atan"), "sinh": _tfmath("sinh"),
+        "cosh": _tfmath("cosh"), "asinh": _tfmath("asinh"), "acosh": _tfmath("acosh"),
+        "atanh": _tfmath("atanh"), "floor": _tfmath("floor"), "ceil": _tfmath("ceil"),
+        "round": _tfmath("round"), "tanh": _tfmath("tanh"), "sigmoid": _tfmath("sigmoid"),
+        "erf": _tfmath("erf"), "erfc": _tfmath("erfc"), "erfinv": _tfmath("erfinv"),
+        "lgamma": _tfmath("lgamma"), "digamma": _tfmath("digamma"),
+        "neg": _tfmath("negative"), "logsigmoid": _tfmath("log_sigmoid"),
+        "relu": _tfnn("relu"), "elu": _tfnn("elu"), "selu": _tfnn("selu"),
+        "gelu": _tfnn("gelu"), "silu": _tfnn("silu"), "softplus": _tfnn("softplus"),
+        "softsign": _tfnn("softsign"),
+    },
+}
+
+
+#: Names of the tensor primitives a let-expression body may call, mirrored
+#: from ``quivers.dsl.compiler.programs._LET_EXPR_BUILTINS`` (the native
+#: torch dispatch table). Kept as a literal so this schema-building helper
+#: stays decoupled from the torch execution path; a drift guard in the test
+#: suite asserts it matches the compiler's table.
+_MATH_BUILTIN_NAMES: frozenset[str] = frozenset({
+    "relu", "relu6", "leaky_relu", "prelu", "rrelu", "elu", "selu", "celu",
+    "gelu", "silu", "swish", "mish", "hardtanh", "hardshrink", "hardsigmoid",
+    "hardswish", "softplus", "softshrink", "softsign", "softmax",
+    "log_softmax", "softmin", "tanh", "tanhshrink", "sigmoid", "logsigmoid",
+    "threshold", "glu", "normalize", "exp", "expm1", "log", "log1p", "log2",
+    "log10", "sqrt", "rsqrt", "square", "abs", "neg", "sign", "reciprocal",
+    "clamp", "sin", "cos", "tan", "asin", "acos", "atan", "sinh", "cosh",
+    "asinh", "acosh", "atanh", "floor", "ceil", "round", "trunc", "erf",
+    "erfc", "erfinv", "lgamma", "digamma", "sum", "mean", "var", "std",
+    "min", "max", "argmin", "argmax", "prod", "amax", "amin", "logsumexp",
+    "norm", "cumsum", "cumprod", "cummax", "cummin", "flip", "sort",
+    "dropout", "alpha_dropout", "layer_norm", "rms_norm",
+})
+
+
+def _resolve_python_call(ctx: PyCtx, func: str) -> str:
+    """Emit the callee vertex for a ``LetExprCall`` to ``func``.
+
+    When ``func`` is one of the target's mapped math builtins, emit its
+    symbol as a dotted attribute (e.g. ``torch.erf``) and record any
+    import the symbol needs on ``ctx.required_imports``. When ``func`` is
+    a math builtin with no symbol for this target (e.g. a reduction that
+    needs a ``dim`` argument), raise
+    [`UnsupportedConstruct`][quivers.transpile._api.UnsupportedConstruct]
+    rather than emit an undefined name. Any other callee (a domain
+    function such as a chart-parser ``parse``, or a user helper) is
+    emitted verbatim, as before.
+    """
+    table = _LET_CALL_SYMBOLS.get(ctx.target, {})
+    entry = table.get(func)
+    if entry is not None:
+        segments, import_spec = entry
+        if import_spec is not None:
+            ctx.required_imports.add(import_spec)
+        if len(segments) == 1:
+            return identifier(ctx, segments[0])
+        return attribute(ctx, segments)
+    if func in _MATH_BUILTIN_NAMES:
+        raise UnsupportedConstruct(
+            "qvr-python-helper",
+            [
+                f"let-expr:LetExprCall:{ctx.target}: builtin {func!r} has "
+                f"no {ctx.target} symbol mapping; it cannot be rendered as "
+                f"a single call in this target"
+            ],
+        )
+    return identifier(ctx, func)
+
+
+def _render_python_operand(ctx: PyCtx, expr: LetExprNode) -> str:
+    """Render `expr` as an operand of a binary or unary operator.
+
+    A nested [`LetExprBinOp`][quivers.dsl.ast_nodes.LetExprBinOp] or
+    [`LetExprUnaryOp`][quivers.dsl.ast_nodes.LetExprUnaryOp] operand is
+    wrapped in a `parenthesized_expression` via
+    [`python_paren`][quivers.transpile.renderers._python_helpers.python_paren].
+    The Python pretty printer drops parens around nested
+    `binary_operator` children, so ``(a + b) * c`` would otherwise print
+    as ``a + b * c`` and reassociate under Python's precedence. Wrapping
+    every nested operator preserves the source grouping, matching the
+    Stan and Julia renderers.
+    """
+    vid = render_let_expr_python(ctx, expr)
+    if isinstance(expr, (LetExprBinOp, LetExprUnaryOp)):
+        return python_paren(ctx, vid)
+    return vid
+
+
 def render_let_expr_python(ctx: PyCtx, expr: LetExprNode) -> str:
     """Recursively build a Python expression schema for `expr` in
     `ctx` (a [`PyCtx`][quivers.transpile.renderers._python_helpers.PyCtx]).
@@ -330,19 +530,18 @@ def render_let_expr_python(ctx: PyCtx, expr: LetExprNode) -> str:
         b = ctx.v(ctx.fresh("bop"), "binary_operator")
         ctx.constraint(b, "field:operator", expr.op)
         ctx.constraint(b, "chose-alt-fingerprint", expr.op)
-        ctx.e(b, render_let_expr_python(ctx, expr.left), "left")
-        ctx.e(b, render_let_expr_python(ctx, expr.right), "right")
+        ctx.e(b, _render_python_operand(ctx, expr.left), "left")
+        ctx.e(b, _render_python_operand(ctx, expr.right), "right")
         return b
     if isinstance(expr, LetExprUnaryOp):
         u = ctx.v(ctx.fresh("uop"), "unary_operator")
         ctx.constraint(u, "field:operator", "-")
         ctx.constraint(u, "chose-alt-fingerprint", "-")
-        ctx.e(u, render_let_expr_python(ctx, expr.operand), "argument")
+        ctx.e(u, _render_python_operand(ctx, expr.operand), "argument")
         return u
     if isinstance(expr, LetExprCall):
+        fn = _resolve_python_call(ctx, expr.func)
         c = ctx.v(ctx.fresh("call"), "call")
-        fn = ctx.v(ctx.fresh("fn"), "identifier")
-        ctx.literal(fn, expr.func)
         ctx.e(c, fn, "function")
         args = ctx.v(ctx.fresh("args"), "argument_list")
         for a in expr.args:

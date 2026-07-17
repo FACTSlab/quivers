@@ -151,7 +151,7 @@ class PyMCRenderer(RendererBase):
         proto = self.target_protocol()
         sb = proto.schema()
         ctx = _RenderCtx(sb=sb, morphisms=dict(morphisms), lets=dict(lets))
-        py = PyCtx(sb, cards=dict(ir.cards))
+        py = PyCtx(sb, cards=dict(ir.cards), target="pymc")
         bag = _PyMCCtx(ctx=ctx, py=py, ir=ir)
 
         # `module` root.

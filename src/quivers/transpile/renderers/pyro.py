@@ -880,7 +880,7 @@ class _PyroCtx(PyCtx):
         sb: panproto.SchemaBuilder,
         cards: dict[str, int] | None = None,
     ) -> None:
-        super().__init__(sb, cards=cards)
+        super().__init__(sb, cards=cards, target="pyro")
         self.body: str = ""
         self.observed: frozenset[str] = frozenset()
         self.morphisms: dict = {}

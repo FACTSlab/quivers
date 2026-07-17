@@ -198,6 +198,32 @@ def _emit_identifier(ctx: _BugsLetCtx, name: str) -> str:
     return v
 
 
+def _render_bugs_operand(ctx: _BugsLetCtx, expr: LetExprNode) -> str:
+    """Render `expr` as an operand of a binary / unary operator.
+
+    A nested [`LetExprBinOp`][quivers.dsl.ast_nodes.LetExprBinOp] or
+    [`LetExprUnaryOp`][quivers.dsl.ast_nodes.LetExprUnaryOp] operand is
+    wrapped in a `parenthesized_expression`. The BUGS / JAGS pretty
+    printer emits children in source order without re-grouping, so
+    ``(a + b) * c`` would otherwise print as ``a + b * c`` and
+    reassociate under the language's precedence.
+    """
+    vid = render_let_expr_bugs(ctx, expr)
+    if isinstance(expr, (LetExprBinOp, LetExprUnaryOp)):
+        return _emit_paren(ctx, vid, _arg_edge_kind(expr))
+    return vid
+
+
+def _emit_paren(ctx: _BugsLetCtx, inner: str, inner_kind: str) -> str:
+    """Wrap `inner` (of grammar kind `inner_kind`) in a
+    `parenthesized_expression` vertex."""
+    p = ctx.v(ctx.fresh("paren"), "parenthesized_expression")
+    ctx.constraint(p, "chose-alt-fingerprint", "( )")
+    ctx.constraint(p, "chose-alt-child-kinds", inner_kind)
+    ctx.e(p, inner, "child_of")
+    return p
+
+
 def _emit_binop(ctx: _BugsLetCtx, expr: LetExprBinOp) -> str:
     """Emit a `binary_expression` with `left`/`right` field edges.
 
@@ -208,8 +234,8 @@ def _emit_binop(ctx: _BugsLetCtx, expr: LetExprBinOp) -> str:
     b = ctx.v(ctx.fresh("be"), "binary_expression")
     ctx.constraint(b, "field:operator", expr.op)
     ctx.constraint(b, "chose-alt-fingerprint", expr.op)
-    ctx.e(b, render_let_expr_bugs(ctx, expr.left), "left")
-    ctx.e(b, render_let_expr_bugs(ctx, expr.right), "right")
+    ctx.e(b, _render_bugs_operand(ctx, expr.left), "left")
+    ctx.e(b, _render_bugs_operand(ctx, expr.right), "right")
     return b
 
 
@@ -219,7 +245,7 @@ def _emit_unary(ctx: _BugsLetCtx, expr: LetExprUnaryOp) -> str:
     u = ctx.v(ctx.fresh("ue"), "unary_expression")
     ctx.constraint(u, "field:operator", "-")
     ctx.constraint(u, "chose-alt-fingerprint", "-")
-    ctx.e(u, render_let_expr_bugs(ctx, expr.operand), "operand")
+    ctx.e(u, _render_bugs_operand(ctx, expr.operand), "operand")
     return u
 
 
