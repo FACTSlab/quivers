@@ -51,10 +51,6 @@ import torch.distributions.constraints as _torch_constraints
 from torch.distributions.constraints import Constraint
 
 from quivers.dsl.ast_nodes import (
-    DrawArg,
-    DrawArgIndex,
-    DrawArgName,
-    DrawArgScalar,
     Expr,
     DefineDecl,
     Module,
@@ -68,7 +64,6 @@ from quivers.dsl.ast_nodes.let_expressions import (
     LetExprVar,
 )
 from quivers.transpile._api import UnsupportedConstruct
-from quivers.transpile._draw_args import encode_index
 from quivers.transpile._pipeline import parser_registry, target_protocol
 from quivers.transpile.lower import _collect_let_expr_var_names
 from quivers.transpile.family_meta import (
@@ -2341,31 +2336,24 @@ class StanRenderer(RendererBase):
     def _render_init_family_arg(
         self,
         ctx: _RenderCtx,
-        raw: DrawArg,
+        raw: str | float,
     ) -> SchemaFragment:
-        """Render an `init_family` raw arg.
+        """Render an `init_family` wire-form arg.
 
-        Wrapper morphisms (`Truncated(base, -2, 2)`) carry their
-        constants here as atomic `DrawArgScalar` / `DrawArgName`
-        variants. Structured list / matrix variants are not used in
-        `init_family` clauses on any current example; an
-        `UnsupportedConstruct` here flags the gap rather than guess.
+        `init_family` clauses carry their constants as wire-form
+        ``float`` literals or ``str`` identifiers (a bracket-indexed
+        reference re-serialises to ``name[i]`` text). Structured list
+        / matrix args are not admitted in an `init_family` clause, so
+        every arg here is atomic.
         """
-        if isinstance(raw, DrawArgScalar):
-            return self._render_number(ctx, raw.value)
-        if isinstance(raw, DrawArgName):
-            stripped = raw.text.strip()
-            try:
-                value = float(stripped)
-            except ValueError:
-                return self._variable_expression(ctx, stripped)
-            return self._render_number(ctx, value)
-        if isinstance(raw, DrawArgIndex):
-            return self._variable_expression(ctx, encode_index(raw))
-        raise UnsupportedConstruct(
-            "qvr-stan",
-            [f"init_family-arg:unsupported-variant:{type(raw).__name__}"],
-        )
+        if isinstance(raw, (int, float)):
+            return self._render_number(ctx, float(raw))
+        stripped = raw.strip()
+        try:
+            value = float(stripped)
+        except ValueError:
+            return self._variable_expression(ctx, stripped)
+        return self._render_number(ctx, value)
 
     # ----- shared utilities -----
 

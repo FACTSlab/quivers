@@ -21,8 +21,9 @@ _FIXTURES = [
     (
         "encoder",
         """\
-encoder encode : Resp -> Resp
-program flip : Resp -> Resp:
+object Resp : FinSet 1
+encoder encode : Resp
+program flip : Resp -> Resp
     sample theta <- Beta(2.0, 2.0)
     observe y <- Bernoulli(theta)
     return y

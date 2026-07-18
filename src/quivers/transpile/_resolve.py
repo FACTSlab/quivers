@@ -301,9 +301,12 @@ def _from_init_family(
 ) -> ResolvedDist:
     """Unfold a ``~ Family(args)`` init clause.
 
-    When the morphism's declaration carries explicit init args
-    (``~ Normal(0, 1)``), those override any step-supplied args
-    completely.
+    ``init.args`` are already in wire form (``str`` identifiers or
+    ``float`` literals); the step's own args arrive as `DrawArg`
+    variants and are lowered to wire form here. When the declaration
+    carries explicit init args and the step also supplies args, the
+    step args take precedence; otherwise the declaration's init args
+    are used.
 
     When the init clause is the bare ``~ Family`` form (no
     parentheses), arg slots are filled in canonical order from
@@ -318,8 +321,11 @@ def _from_init_family(
        default (`_FAMILY_DEFAULT_ARGS`).
     """
     if init.args:
-        source: tuple[DrawArg, ...] = step_args if step_args else init.args
-        wire = tuple(_draw_arg_to_wire(a) for a in source)
+        wire: tuple[str | float, ...]
+        if step_args:
+            wire = tuple(_draw_arg_to_wire(a) for a in step_args)
+        else:
+            wire = init.args
         return ResolvedDist(
             family=init.family,
             args=wire,

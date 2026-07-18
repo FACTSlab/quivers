@@ -46,6 +46,7 @@ from quivers.transpile.ir import (
 )
 from quivers.transpile.lower import (
     Lower,
+    _names_in_raw_arg,
     free_vars_in_let,
 )
 
@@ -128,7 +129,7 @@ def _source_free_names(program: ProgramDecl) -> set[str]:
     if program.params is not None:
         bound.update(program.params)
     if program.type_params is not None:
-        bound.update(p.name for p in program.type_params)
+        bound.update(str(p.name) for p in program.type_params)
     used: list[str] = []
     _collect_step_names(program.draws, bound, used)
     return set(used) - bound
@@ -144,17 +145,18 @@ def _collect_step_names(
             for v in step.vars:
                 bound.add(v)
             for a in step.args or ():
-                _add_arg_names(a, out)
+                out.extend(_names_in_raw_arg(a))
         elif isinstance(step, ObserveStep):
-            bound.add(step.var)
+            for v in step.vars:
+                bound.add(v)
             for a in step.args or ():
-                _add_arg_names(a, out)
+                out.extend(_names_in_raw_arg(a))
             if step.via is not None:
                 out.append(step.via)
         elif isinstance(step, MarginalizeStep):
             bound.add(step.var)
             for a in step.args or ():
-                _add_arg_names(a, out)
+                out.extend(_names_in_raw_arg(a))
             _collect_step_names(step.scope, bound, out)
         elif isinstance(step, LetStep):
             bound.add(step.name)
@@ -164,40 +166,6 @@ def _collect_step_names(
             out.extend(free_vars_in_let(step.value))
         elif isinstance(step, ReturnStep):
             out.extend(step.vars)
-
-
-def _add_arg_names(arg: str | float, out: list[str]) -> None:
-    """Collect free names from a parser-form arg (string or float)."""
-    if not isinstance(arg, str):
-        return
-    text = arg
-    # bracket-indexed `name[i0][i1]...` form: collect the base name
-    # and each index expression.
-    if "[" in text:
-        head, _, rest = text.partition("[")
-        out.append(head)
-        depth = 0
-        inner = ""
-        for ch in text[len(head):]:
-            if ch == "[":
-                depth += 1
-                if depth == 1:
-                    inner = ""
-                    continue
-            if ch == "]":
-                depth -= 1
-                if depth == 0:
-                    _add_arg_names(inner, out)
-                    inner = ""
-                    continue
-            if depth >= 1:
-                inner += ch
-        return
-    # Plain identifier or numeric literal.
-    try:
-        float(text)
-    except ValueError:
-        out.append(text)
 
 
 def _ir_bound_names(ir: IRProgram) -> set[str]:

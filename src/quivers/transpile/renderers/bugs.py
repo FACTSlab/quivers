@@ -57,10 +57,6 @@ from typing import Callable, Literal
 import panproto
 
 from quivers.dsl.ast_nodes import (
-    DrawArg,
-    DrawArgIndex,
-    DrawArgName,
-    DrawArgScalar,
     MorphismDecl,
     MorphismInitFamily,
 )
@@ -1822,28 +1818,22 @@ def _is_wrapper_family_call(args: tuple[IRArg, ...]) -> bool:
     return bool(args) and isinstance(args[0], IRArgFamilyRef)
 
 
-def _draw_arg_to_ir(a: DrawArg) -> IRArg:
-    """Convert a DSL-level
-    [`DrawArg`][quivers.dsl.ast_nodes.DrawArg] tagged-union variant
-    into the corresponding [`IRArg`][quivers.transpile.ir.IRArg].
+def _draw_arg_to_ir(a: str | float) -> IRArg:
+    """Convert a morphism ``~ Family(args)`` init arg into the
+    corresponding [`IRArg`][quivers.transpile.ir.IRArg].
 
-    Used by the wrapper-family (Truncated) handler to lift the
-    referenced morphism's `~ Family(args)` clause into IR form for
-    re-emission as the truncated call's args.
+    Init-family args arrive in wire form: a ``float`` literal or a
+    ``str`` identifier. Used by the wrapper-family (Truncated)
+    handler to lift the referenced morphism's init clause into IR
+    form for re-emission as the truncated call's args.
     """
-    if isinstance(a, DrawArgScalar):
-        return IRArgNumber(value=a.value)
-    if isinstance(a, DrawArgName):
-        return IRArgRef(name=a.text)
-    if isinstance(a, DrawArgIndex):
-        return IRArgRef(
-            name=a.name,
-            indices=tuple(IRArgRef(name=index) for index in a.indices),
-        )
-    raise UnsupportedConstruct(
-        "qvr-bugs",
-        [f"draw-arg:{type(a).__name__}"],
-    )
+    if isinstance(a, (int, float)):
+        return IRArgNumber(value=float(a))
+    stripped = a.strip()
+    try:
+        return IRArgNumber(value=float(stripped))
+    except ValueError:
+        return IRArgRef(name=stripped)
 
 
 def _as_transform(
