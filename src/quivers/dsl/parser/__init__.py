@@ -10,15 +10,15 @@ This package's submodules group the walker logic by topic:
 * `._registry` for the panproto registry singleton, ``ParseError``,
   and the ``_Tree`` view that every walker reads from.
 * `._helpers` for the low-level helpers ``_required_text``,
-  ``_walk_options``, and ``_walk_return_pattern``.
+  ``_required_field``, ``_field_text``, and ``_walk_draw_arg``.
+* `.options` for the ``[k=v, ...]`` option-block walkers.
 * `.expressions` for type / space / morphism-expression / let-arith walkers.
-* `.axes` for axis-role and morphism-prior walkers.
 * `.program_steps` for program-block step walkers.
 * `.statements` for the top-level ``_walk_statement`` dispatcher and
-  every per-declaration walker (object, morphism, kernel, deduction,
+  every per-declaration walker (object, morphism, deduction,
   contraction, signature, encoder, decoder, loss, ...).
-* `.core` for the public `parse` / `parse_file` entry
-  points and ``_attach_docs``.
+* `.core` for the public `parse` / `parse_file` entry points and the
+  whole-tree syntax validation that rejects ERROR and missing nodes.
 
 Every public name is re-exported here so ``from quivers.dsl.parser
 import X`` keeps working unchanged.

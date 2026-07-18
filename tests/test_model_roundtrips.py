@@ -22,6 +22,7 @@ from quivers.dsl.ast_nodes import (
     CategoryDecl,
     CompositionDecl,
     ContinuousConstructor,
+    DefineDecl,
     DiscreteConstructor,
     DrawArgName as _DrawArgName,
     DrawStep,
@@ -39,7 +40,6 @@ from quivers.dsl.ast_nodes import (
     ExprScan,
     ExprStack,
     ExprTensorProduct,
-    LetDecl,
     LetExprBinOp,
     LetExprCall,
     LetExprLiteral,
@@ -127,7 +127,7 @@ _TYPE_SLASH = ObjectSlash(
 _TYPE_EFFECT_APPLY = ObjectEffectApply(effect="Cont_S", args=(TypeName(name="NP"),))
 _DISCRETE_CTOR = DiscreteConstructor(constructor="FinSet", args=("3",))
 _CONTINUOUS_CTOR = ContinuousConstructor(
-    constructor="Real", args=("3",), kwargs={"low": "0.0", "high": "1.0"}
+    constructor="Real", args=("3",), kwargs={"low": 0.0, "high": 1.0}
 )
 
 # AST: value expressions
@@ -178,9 +178,9 @@ _RDECL = RuleDecl(
     premises=(_TYPE_SLASH, TypeName(name="Y")),
     conclusion=TypeName(name="X"),
 )
-_ODECL = ObjectDecl(name="State", init=TypeFromExpr(expr=_TYPE_NAME))
+_ODECL = ObjectDecl(names=("State",), init=TypeFromExpr(expr=_TYPE_NAME))
 _MDECL = MorphismDecl(
-    name="f",
+    names=("f",),
     domain=_TYPE_NAME,
     codomain=_TYPE_NAME,
 )
@@ -192,7 +192,7 @@ _PDECL = ProgramDecl(
     draws=(_DRAW,),
     return_vars=("x",),
 )
-_LDECL = LetDecl(name="h", expr=_E_IDENT)
+_LDECL = DefineDecl(name="h", expr=_E_IDENT)
 _OUTDECL = ExportDecl(expr=_E_IDENT)
 
 _MODULE = Module(statements=(_COMPDECL, _ODECL, _MDECL, _OUTDECL))

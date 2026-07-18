@@ -21,17 +21,13 @@ The tests verify:
 
 1. Each algebra's tensor / join / meet / negate / identity-tensor
    operations satisfy their documented contract.
-2. Composition via the matching DSL operator (``$>`` for Real,
-   ``%>`` for Probability) and via module-level
-   ``algebra <name>`` annotation works end-to-end.
-3. The compiler rejects operator/operand composition mismatches as algebra
-   with a typed error.
+2. Composition under a module-level
+   ``composition <name> [level=algebra]`` declaration works
+   end-to-end: ``>>`` composes in the declared algebra.
 """
 
 from __future__ import annotations
 import textwrap
-
-import os
 
 import pytest
 import torch
@@ -43,12 +39,6 @@ from quivers.core.algebras import (
 )
 from quivers.core.morphisms import LatentMorphism, ObservedMorphism
 from quivers.core.objects import FinSet
-
-
-_LOCAL_GRAMMAR = pytest.mark.skipif(
-    os.environ.get("QVR_USE_LOCAL_GRAMMAR", "") not in ("1", "true", "True"),
-    reason="needs QVR_USE_LOCAL_GRAMMAR=1 to pick up the in-tree grammar",
-)
 
 
 # ---------------------------------------------------------------------------
@@ -223,81 +213,56 @@ def test_counting_compose_counts_paths() -> None:
 
 
 # ---------------------------------------------------------------------------
-# DSL surface: $> and %> operators
+# DSL surface: composition in the declared algebra
 # ---------------------------------------------------------------------------
 
 
-@_LOCAL_GRAMMAR
-def test_dollar_gt_operator_dispatches_to_real() -> None:
+def test_real_composition_uses_declared_algebra() -> None:
     from quivers.dsl import loads
 
     src = """
-    composition real as algebra
+    composition real [level=algebra]
     object A : FinSet 3
     object B : FinSet 3
     object C : FinSet 3
 
     morphism f : A -> B [role=latent]
     morphism g : B -> C [role=latent]
-    let chain = f $> g
+    define chain = f >> g
     export chain
     """
     m = loads(textwrap.dedent(src))
     assert m.morphism.algebra.name == "Real"
 
 
-@_LOCAL_GRAMMAR
-def test_percent_gt_operator_dispatches_to_probability() -> None:
+def test_probability_composition_uses_declared_algebra() -> None:
     from quivers.dsl import loads
 
     src = """
-    composition probability as algebra
+    composition probability [level=algebra]
     object A : FinSet 3
     object B : FinSet 3
     object C : FinSet 3
 
     morphism f : A -> B [role=latent]
     morphism g : B -> C [role=latent]
-    let chain = f %> g
+    define chain = f >> g
     export chain
     """
     m = loads(textwrap.dedent(src))
     assert m.morphism.algebra.name == "Probability"
 
 
-@_LOCAL_GRAMMAR
-def test_dollar_gt_with_non_real_operand_errors() -> None:
-    """The ``$>`` operator fixes the composition algebra to Real
-    and rejects operands declared over a different algebra."""
-    from quivers.dsl import loads
-    from quivers.dsl.compiler import CompileError
-
-    src = """
-    composition product_fuzzy as algebra
-    object A : FinSet 3
-    object B : FinSet 3
-    object C : FinSet 3
-
-    morphism f : A -> B [role=latent]
-    morphism g : B -> C [role=latent]
-    let chain = f $> g
-    export chain
-    """
-    with pytest.raises(CompileError, match="dispatches to"):
-        loads(textwrap.dedent(src))
-
-
 # ---------------------------------------------------------------------------
-# Module-level composition declarations as algebra
+# Module-level composition declarations
 # ---------------------------------------------------------------------------
 
 
-@_LOCAL_GRAMMAR
 def test_algebra_real_declaration_compiles() -> None:
     from quivers.dsl import loads
 
     src = """
-    composition real as algebra
+    composition real [level=algebra]
     object A : FinSet 4
     morphism f : A -> A [role=latent]
     export f
@@ -306,12 +271,11 @@ def test_algebra_real_declaration_compiles() -> None:
     assert m.morphism.algebra.name == "Real"
 
 
-@_LOCAL_GRAMMAR
 def test_algebra_probability_declaration_compiles() -> None:
     from quivers.dsl import loads
 
     src = """
-    composition probability as algebra
+    composition probability [level=algebra]
     object A : FinSet 4
     morphism f : A -> A [role=latent]
     export f
@@ -320,12 +284,11 @@ def test_algebra_probability_declaration_compiles() -> None:
     assert m.morphism.algebra.name == "Probability"
 
 
-@_LOCAL_GRAMMAR
 def test_algebra_counting_declaration_compiles() -> None:
     from quivers.dsl import loads
 
     src = """
-    composition counting as algebra
+    composition counting [level=algebra]
     object A : FinSet 4
     morphism f : A -> A [role=latent]
     export f
@@ -334,14 +297,12 @@ def test_algebra_counting_declaration_compiles() -> None:
     assert m.morphism.algebra.name == "Counting"
 
 
-@_LOCAL_GRAMMAR
 def test_algebra_max_plus_declaration_compiles() -> None:
-    """The ``max_plus`` algebra name is now exposed at module
-    level (previously only reachable via the ``?>`` operator)."""
+    """The ``max_plus`` algebra name resolves at module level."""
     from quivers.dsl import loads
 
     src = """
-    composition max_plus as algebra
+    composition max_plus [level=algebra]
     object A : FinSet 4
     morphism f : A -> A [role=latent]
     export f
@@ -350,12 +311,11 @@ def test_algebra_max_plus_declaration_compiles() -> None:
     assert m.morphism.algebra.name == "MaxPlus"
 
 
-@_LOCAL_GRAMMAR
 def test_algebra_log_prob_declaration_compiles() -> None:
     from quivers.dsl import loads
 
     src = """
-    composition log_prob as algebra
+    composition log_prob [level=algebra]
     object A : FinSet 4
     morphism f : A -> A [role=latent]
     export f
@@ -365,7 +325,7 @@ def test_algebra_log_prob_declaration_compiles() -> None:
 
 
 # ---------------------------------------------------------------------------
-# Gradient flow through the new composition compositions as algebra
+# Gradient flow through sum-product semiring composition
 # ---------------------------------------------------------------------------
 
 
@@ -524,32 +484,30 @@ def test_change_base_real_to_probability_via_named_homomorphism() -> None:
     assert torch.allclose(g.tensor, expected)
 
 
-@_LOCAL_GRAMMAR
 def test_dsl_change_base_to_probability_clamp() -> None:
     from quivers.dsl import loads
 
     src = """
-    composition real as algebra
+    composition real [level=algebra]
     object A : FinSet 3
 
     morphism f : A -> A [role=latent]
-    let g = f.change_base(probability_clamp)
+    define g = f.change_base(probability_clamp)
     export g
     """
     m = loads(textwrap.dedent(src))
     assert m.morphism.algebra.name == "Probability"
 
 
-@_LOCAL_GRAMMAR
 def test_dsl_change_base_to_counting_from_real() -> None:
     from quivers.dsl import loads
 
     src = """
-    composition real as algebra
+    composition real [level=algebra]
     object A : FinSet 3
 
     morphism f : A -> A [role=latent]
-    let g = f.change_base(counting_from_real)
+    define g = f.change_base(counting_from_real)
     export g
     """
     m = loads(textwrap.dedent(src))

@@ -15,10 +15,6 @@ Three lifts are exercised:
 
 from __future__ import annotations
 
-import os
-
-os.environ.setdefault("QVR_USE_LOCAL_GRAMMAR", "1")
-
 import torch
 import torch.distributions as D
 import torch.nn as nn

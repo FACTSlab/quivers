@@ -1,0 +1,38 @@
+# Schema-Bundled Chart Parser
+#
+# A learnable CKY chart parser assembled from pattern-polymorphic
+# rule schemas over a free residuated category universe, rather
+# than from a deduction block. Two binary schemas give forward
+# and backward application (the AB grammar core); one unary
+# schema adds the directional permutation of the commutative
+# Lambek calculus LP. A bundle names the rule set, and
+# parser(...) splices the bundle into a differentiable chart
+# parser whose lexical category assignments and per-rule weights
+# are learnable log-weights.
+#
+# Rule schemas (X, Y range over Cat):
+#
+#   fwd_app : X/Y, Y  |- X      forward application
+#   bwd_app : Y, X\Y  |- X      backward application
+#   perm    : X/Y     |- X\Y    directional permutation (LP)
+#
+# The chart's category inventory is the depth-1 residuated
+# closure of the atoms {N, NP, S}: the atoms plus every A/B and
+# A\B with atomic A and B. Token indexes the four-word
+# vocabulary {the, dog, cat, sleeps} in declaration order; the
+# parser's forward pass scores a token sequence by the inside
+# log-weight of the S-rooted span covering the whole input.
+
+object Atoms : {N, NP, S}
+object Cat : FreeResiduated(Atoms)
+object Token : {the, dog, cat, sleeps}
+
+schema fwd_app (X, Y : Cat) : (X / Y) * Y -> X
+schema bwd_app (X, Y : Cat) : Y * (X \ Y) -> X
+schema perm (X, Y : Cat) : X / Y -> X \ Y
+
+bundle lp_rules : [fwd_app, bwd_app, perm]
+
+define lp_parser = parser(rules=[lp_rules], terminal=Token, start=S, depth=1)
+
+export lp_parser

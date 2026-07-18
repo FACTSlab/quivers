@@ -47,8 +47,9 @@ from torch.distributions.distribution import Distribution
 
 from quivers.dsl.ast_nodes import (
     DrawArg,
+    DrawArgDist,
+    DrawArgIndex,
     DrawArgList,
-    DrawArgMatrix,
     DrawArgName,
     DrawArgScalar,
     Expr,
@@ -97,6 +98,12 @@ from quivers.dsl.ast_nodes.objects import (
     TypeName,
 )
 from quivers.transpile._api import UnsupportedConstruct
+from quivers.transpile._draw_args import (
+    encode_index,
+    is_matrix,
+    list_items,
+    matrix_rows,
+)
 from quivers.transpile._expand_composites import expand_composite_lets
 from quivers.transpile._resolve import (
     ResolvedDist,
@@ -374,7 +381,7 @@ class Lower(dx.Mapping[Module, IRProgram]):
         plate = self._build_plate(step, ctx, meta, ir_args)
         constraint = from_constraint(_resolve_support(meta, ir_args, ctx))
         return IRObserve(
-            name=step.var,
+            name=_observe_var(step),
             family=resolved.family,
             args=ir_args,
             arg_names=arg_names,
@@ -456,8 +463,9 @@ class Lower(dx.Mapping[Module, IRProgram]):
         build the IR-level arg tuple plus the parallel arg-name tuple.
 
         ``structural_args`` is the original step's tagged-union arg
-        list (preserves compound `DrawArgList` / `DrawArgMatrix`
-        forms). When it is ``None`` (e.g. the step had no explicit
+        list (preserves compound `DrawArgList` forms, including the
+        nested `DrawArgList` that models a matrix literal). When it
+        is ``None`` (e.g. the step had no explicit
         args and the resolver supplied family defaults) the wire-form
         ``resolved.args`` is decoded into IR; that decoding handles
         atomic literals and bracket-indexed references but cannot
@@ -475,8 +483,9 @@ class Lower(dx.Mapping[Module, IRProgram]):
         # arg_constraints).
         #
         # `structural_args` is the original step's call-site arg
-        # tuple (preserves compound `DrawArgList` / `DrawArgMatrix`
-        # forms). `resolved.args` is the resolver's output: when the
+        # tuple (preserves compound `DrawArgList` forms, including
+        # the nested `DrawArgList` that models a matrix literal).
+        # `resolved.args` is the resolver's output: when the
         # step references a morphism whose option block fills extra
         # family slots (`[scale=0.1]` -> Normal's `scale`), the
         # resolved tuple is longer than the structural tuple. We
@@ -564,23 +573,34 @@ class Lower(dx.Mapping[Module, IRProgram]):
             return IRArgNumber(value=raw.value)
         if isinstance(raw, DrawArgName):
             return self._atom_text_to_ir(raw.text, ctx)
-        if isinstance(raw, DrawArgList):
-            return IRArgList(
-                elements=tuple(
-                    self._raw_arg_to_ir(e, ctx) for e in raw.elements
-                )
+        if isinstance(raw, DrawArgIndex):
+            return self._atom_text_to_ir(encode_index(raw), ctx)
+        if isinstance(raw, DrawArgDist):
+            raise UnsupportedConstruct(
+                "qvr-lower",
+                [
+                    f"nested-distribution-arg:{raw.family}: a "
+                    "distribution-valued draw argument is not "
+                    "representable in this backend's IR"
+                ],
             )
-        if isinstance(raw, DrawArgMatrix):
-            ir_rows: list[IRArgList] = []
-            for row in raw.rows:
-                ir_rows.append(
-                    IRArgList(
-                        elements=tuple(
-                            self._raw_arg_to_ir(e, ctx) for e in row.elements
+        if isinstance(raw, DrawArgList):
+            if is_matrix(raw):
+                return IRArgMatrix(
+                    rows=tuple(
+                        IRArgList(
+                            elements=tuple(
+                                self._raw_arg_to_ir(e, ctx) for e in row
+                            )
                         )
+                        for row in matrix_rows(raw)
                     )
                 )
-            return IRArgMatrix(rows=tuple(ir_rows))
+            return IRArgList(
+                elements=tuple(
+                    self._raw_arg_to_ir(e, ctx) for e in list_items(raw)
+                )
+            )
         if isinstance(raw, (int, float)):
             return IRArgNumber(value=float(raw))
         assert isinstance(raw, str), (
@@ -1175,6 +1195,23 @@ class _LowerCtx(dx.Model):
 # ---------------------------------------------------------------------------
 
 
+def _observe_var(step: ObserveStep) -> str:
+    """The single observed variable name of an observe step.
+
+    The transpile models one observed variable per step; a
+    multi-variable observe has no single-name IR form.
+    """
+    if len(step.vars) != 1:
+        raise UnsupportedConstruct(
+            "qvr-lower",
+            [
+                f"observe:multiple-vars:{step.vars}: the transpile "
+                "emits one observed variable per step"
+            ],
+        )
+    return step.vars[0]
+
+
 def object_cardinalities(module: Module) -> dict[str, int]:
     """Return name -> cardinality for every `FinSet N` object decl."""
     out: dict[str, int] = {}
@@ -1184,14 +1221,18 @@ def object_cardinalities(module: Module) -> dict[str, int]:
         init = stmt.init
         if isinstance(init, TypeFromExpr):
             expr = init.expr
+            card: int | None = None
             if isinstance(expr, DiscreteConstructor) and expr.args:
-                out[stmt.name] = int(expr.args[0])
+                card = int(expr.args[0])
             elif isinstance(expr, ContinuousConstructor) and expr.args:
                 # `Real D` etc.: take the first arg as the size.
                 try:
-                    out[stmt.name] = int(expr.args[0])
+                    card = int(expr.args[0])
                 except ValueError:
-                    pass
+                    card = None
+            if card is not None:
+                for name in stmt.names:
+                    out[name] = card
     return out
 
 
@@ -1221,7 +1262,7 @@ def build_shape_table(
             for v in step.vars:
                 out[v] = shape
         elif isinstance(step, ObserveStep):
-            out[step.var] = _step_shape(step.index, cards)
+            out[_observe_var(step)] = _step_shape(step.index, cards)
         elif isinstance(step, LetStep):
             out[step.name] = ()
         elif isinstance(step, MarginalizeStep):
@@ -1300,18 +1341,18 @@ def _names_in_raw_arg(arg: DrawArg | str | float) -> list[str]:
         return []
     if isinstance(arg, DrawArgName):
         return _names_in_atom_text(arg.text)
+    if isinstance(arg, DrawArgIndex):
+        return _names_in_atom_text(encode_index(arg))
+    if isinstance(arg, DrawArgDist):
+        dist_names: list[str] = []
+        for a in arg.args:
+            dist_names.extend(_names_in_raw_arg(a))
+        return dist_names
     if isinstance(arg, DrawArgList):
-        out: list[str] = []
-        for element in arg.elements:
-            out.extend(_names_in_atom_text(element) if isinstance(element, str) else [])
-        return out
-    if isinstance(arg, DrawArgMatrix):
-        out = []
-        for row in arg.rows:
-            for element in row.elements:
-                if isinstance(element, str):
-                    out.extend(_names_in_atom_text(element))
-        return out
+        list_names: list[str] = []
+        for item in list_items(arg):
+            list_names.extend(_names_in_raw_arg(item))
+        return list_names
     if not isinstance(arg, str):
         return []
     return _names_in_atom_text(arg)
@@ -2042,19 +2083,32 @@ def _raw_to_ir_for_sentinel(raw: DrawArg | str | float) -> IRArg:
         return IRArgNumber(value=raw.value)
     if isinstance(raw, DrawArgName):
         return _atom_text_for_sentinel(raw.text)
-    if isinstance(raw, DrawArgList):
-        return IRArgList(
-            elements=tuple(_raw_to_ir_for_sentinel(e) for e in raw.elements)
+    if isinstance(raw, DrawArgIndex):
+        return _atom_text_for_sentinel(encode_index(raw))
+    if isinstance(raw, DrawArgDist):
+        raise UnsupportedConstruct(
+            "qvr-lower",
+            [
+                f"nested-distribution-arg:{raw.family}: a "
+                "distribution-valued draw argument is not "
+                "representable in this backend's IR"
+            ],
         )
-    if isinstance(raw, DrawArgMatrix):
-        return IRArgMatrix(
-            rows=tuple(
-                IRArgList(
-                    elements=tuple(
-                        _raw_to_ir_for_sentinel(e) for e in row.elements
+    if isinstance(raw, DrawArgList):
+        if is_matrix(raw):
+            return IRArgMatrix(
+                rows=tuple(
+                    IRArgList(
+                        elements=tuple(
+                            _raw_to_ir_for_sentinel(e) for e in row
+                        )
                     )
+                    for row in matrix_rows(raw)
                 )
-                for row in raw.rows
+            )
+        return IRArgList(
+            elements=tuple(
+                _raw_to_ir_for_sentinel(e) for e in list_items(raw)
             )
         )
     if isinstance(raw, (int, float)):

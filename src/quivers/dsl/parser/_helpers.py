@@ -2,14 +2,13 @@
 
 from __future__ import annotations
 
-from quivers.dsl.ast_nodes.draw_args import (
+from quivers.dsl.ast_nodes import (
     DrawArg,
-    DrawArgAtom,
+    DrawArgDist,
+    DrawArgIndex,
     DrawArgList,
-    DrawArgMatrix,
     DrawArgName,
     DrawArgScalar,
-    atom_to_draw_arg,
 )
 from quivers.dsl.parser._registry import ParseError, _Tree
 
@@ -31,78 +30,77 @@ def _required_text(
     return t.text(child_vid)
 
 
-def _walk_draw_arg_atom(t: _Tree, vid: str) -> DrawArgAtom:
-    """Walk an atomic draw arg into its wire-form ``str | float``
-    representation.
+def _required_field(t: _Tree, parent_vid: str, field_name: str) -> str:
+    """Return a required-by-grammar field's vertex id, raising if missing."""
+    child_vid = t.field(parent_vid, field_name)
+    if child_vid is None:
+        raise ParseError(
+            f"missing required {field_name!r} field at {parent_vid} (malformed parse)"
+        )
+    return child_vid
 
-    Identifiers and numeric literals walk to their natural Python
-    values. A ``bracket_index_arg`` (e.g. ``theta[N]``) is encoded
-    as the string ``"theta[N]"``; downstream consumers detect the
-    bracket and unpack the section's name and index set when
-    resolving the argument at draw / observe time.
+
+def _field_text(t: _Tree, parent_vid: str, field_name: str) -> str:
+    """Return the text of a required-by-grammar field."""
+    return t.text(_required_field(t, parent_vid, field_name))
+
+
+def _walk_draw_arg(t: _Tree, vid: str) -> DrawArg:
+    """Walk a family-argument into a tagged
+    [`DrawArg`][quivers.dsl.ast_nodes.DrawArg].
+
+    Identifiers and bracket-index references walk to
+    [`DrawArgName`][quivers.dsl.ast_nodes.DrawArgName] (the bracket
+    form ``"theta[N]"`` is encoded as the variable's `text`). Numeric
+    literals walk to
+    [`DrawArgScalar`][quivers.dsl.ast_nodes.DrawArgScalar]. A
+    `family_call_arg` (a nested `Family(...)` expression) walks to a
+    [`DrawArgDist`][quivers.dsl.ast_nodes.DrawArgDist] carrying the
+    family name and recursively-walked arguments; the compiler then
+    recurses into the inner call to build a distribution-valued
+    parameter for the outer family. A `list_arg` walks to a
+    [`DrawArgList`][quivers.dsl.ast_nodes.DrawArgList] whose items
+    are themselves draw args.
     """
     k = t.kind(vid)
     if k == "identifier":
-        return t.text(vid)
-    if k == "signed_number":
-        return float(t.text(vid))
-    if k in ("integer", "float"):
-        return float(t.text(vid))
+        return DrawArgName(text=t.text(vid))
+    if k in ("signed_number", "integer", "float"):
+        return DrawArgScalar(value=float(t.text(vid)))
     if k == "bracket_index_arg":
         nv = t.field(vid, "name")
         iv = t.field(vid, "index")
         if nv is None or iv is None:
             raise ParseError(f"bracket_index_arg malformed at {vid}")
-        return f"{t.text(nv)}[{t.text(iv)}]"
-    raise ParseError(f"unexpected draw arg atom kind: {k}")
-
-
-def _walk_draw_arg(t: _Tree, vid: str) -> DrawArg:
-    """Walk a family-argument into its `DrawArg` tagged-union variant.
-
-    Atomic positions (identifier, signed_number, bracket_index_arg)
-    wrap into `DrawArgScalar` / `DrawArgName`; compound forms
-    ``draw_arg_list`` and ``draw_arg_matrix`` walk into the
-    `DrawArgList` and `DrawArgMatrix` variants respectively.
-    """
-    k = t.kind(vid)
-    if k == "draw_arg_list":
-        elements = tuple(
-            _walk_draw_arg_atom(t, child)
-            for child in t.positional(vid)
-            if t.kind(child)
-            in ("identifier", "signed_number", "bracket_index_arg")
+        # The index field carries the bracket body verbatim. Downstream
+        # consumers (plate-graph edges, transpilation) resolve each index
+        # as a bare identifier naming an index tensor, so a compound or
+        # non-identifier index is rejected here rather than silently
+        # dropped.
+        index_text = t.text(iv)
+        tokens = [tok.strip() for tok in index_text.split(",")]
+        if not all(tok.isidentifier() for tok in tokens):
+            line, col = t.line_col(iv)
+            raise ParseError(
+                f"bracket index {index_text!r} at line {line}, col {col}: "
+                f"each index must be a bare identifier naming an index tensor",
+            )
+        return DrawArgIndex(name=t.text(nv), indices=tuple(tokens))
+    if k == "family_call_arg":
+        fv = t.field(vid, "family")
+        if fv is None:
+            raise ParseError(f"family_call_arg malformed at {vid}")
+        family = t.text(fv)
+        args = tuple(_walk_draw_arg(t, av) for av in t.fields(vid, "args"))
+        return DrawArgDist(family=family, args=args)
+    if k == "list_arg":
+        items = tuple(
+            _walk_draw_arg(t, cv)
+            for cv in t.positional(vid)
+            if t.kind(cv) not in ("[", "]", ",")
         )
-        line, col = t.line_col(vid)
-        return DrawArgList(elements=elements, line=line, col=col)
-    if k == "draw_arg_matrix":
-        rows: list[DrawArgList] = []
-        for child in t.positional(vid):
-            if t.kind(child) != "draw_arg_list":
-                continue
-            row_elements = tuple(
-                _walk_draw_arg_atom(t, atom)
-                for atom in t.positional(child)
-                if t.kind(atom)
-                in ("identifier", "signed_number", "bracket_index_arg")
-            )
-            row_line, row_col = t.line_col(child)
-            rows.append(
-                DrawArgList(elements=row_elements, line=row_line, col=row_col)
-            )
-        line, col = t.line_col(vid)
-        return DrawArgMatrix(rows=tuple(rows), line=line, col=col)
-    line, col = t.line_col(vid)
-    return atom_to_draw_arg(_walk_draw_arg_atom(t, vid), line=line, col=col)
+        return DrawArgList(items=items)
+    raise ParseError(f"unexpected draw arg kind: {k}")
 
 
-__all__ = [
-    "DrawArg",
-    "DrawArgList",
-    "DrawArgMatrix",
-    "DrawArgName",
-    "DrawArgScalar",
-    "_required_text",
-    "_walk_draw_arg",
-    "_walk_draw_arg_atom",
-]
+__all__ = ["_field_text", "_required_field", "_required_text", "_walk_draw_arg"]

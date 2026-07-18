@@ -55,7 +55,7 @@ from typing import Callable
 
 import panproto
 
-from quivers.dsl.ast_nodes import Expr, LetDecl, Module, MorphismDecl
+from quivers.dsl.ast_nodes import Expr, DefineDecl, Module, MorphismDecl
 from quivers.dsl.ast_nodes.let_expressions import (
     LetExprBinOp,
     LetExprCall,
@@ -175,7 +175,7 @@ class WebPPLRenderer(RendererBase):
         ----------
         source_module
             Optional original [`Module`][quivers.dsl.ast_nodes.Module]
-            the IR came from. Carries `MorphismDecl` / `LetDecl`
+            the IR came from. Carries `MorphismDecl` / `DefineDecl`
             entries the renderer reads when resolving
             [`IRArgFamilyRef`][quivers.transpile.ir.IRArgFamilyRef]
             args. When omitted, the renderer raises on
@@ -250,7 +250,7 @@ class WebPPLRenderer(RendererBase):
         proto = self.target_protocol()
         sb = proto.schema()
         morphisms, lets = self._resolve_morphisms_and_lets()
-        ctx = _RenderCtx(sb=sb, morphisms=morphisms, lets=lets)
+        ctx = _RenderCtx(sb=sb, morphisms=morphisms, defines=lets)
         # Reset per-render state.
         self._fresh_n = 0
         self._binding_plates = {}
@@ -1697,8 +1697,9 @@ class WebPPLRenderer(RendererBase):
         lets: dict[str, Expr] = {}
         for stmt in self._source_module.statements:
             if isinstance(stmt, MorphismDecl):
-                morphisms[stmt.name] = stmt
-            elif isinstance(stmt, LetDecl):
+                for name in stmt.names:
+                    morphisms[name] = stmt
+            elif isinstance(stmt, DefineDecl):
                 lets[stmt.name] = stmt.expr
         return morphisms, lets
 

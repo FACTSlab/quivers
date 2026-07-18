@@ -11,19 +11,11 @@ failure modes during the refactor).
 from __future__ import annotations
 import textwrap
 
-import os
 from textwrap import dedent
 
-import pytest
 import torch
 
 from quivers.continuous.plate import marginalize_grouped
-
-
-_LOCAL_GRAMMAR = pytest.mark.skipif(
-    os.environ.get("QVR_USE_LOCAL_GRAMMAR", "") not in ("1", "true", "True"),
-    reason="needs QVR_USE_LOCAL_GRAMMAR=1 to pick up the in-tree grammar",
-)
 
 
 # ---------------------------------------------------------------------------
@@ -31,7 +23,6 @@ _LOCAL_GRAMMAR = pytest.mark.skipif(
 # ---------------------------------------------------------------------------
 
 
-@_LOCAL_GRAMMAR
 class TestSurfaceCombinations:
     """Each test compiles a program that combines several issue-#9
     features in one program."""
@@ -42,7 +33,7 @@ class TestSurfaceCombinations:
         from quivers.dsl import loads
 
         src = dedent("""
-        composition log_prob as algebra
+        composition log_prob [level=algebra]
 
         object Item : FinSet 2
         object Subj : FinSet 2
@@ -71,7 +62,7 @@ class TestSurfaceCombinations:
         from quivers.dsl import loads
 
         src = dedent("""
-        composition log_prob as algebra
+        composition log_prob [level=algebra]
 
         object Item : FinSet 2
         object Subj : FinSet 2
@@ -100,7 +91,7 @@ class TestSurfaceCombinations:
         from quivers.dsl import loads
 
         src = dedent("""
-        composition log_prob as algebra
+        composition log_prob [level=algebra]
 
         object G_a : FinSet 2
         object G_b : FinSet 2
@@ -134,7 +125,6 @@ class TestSurfaceCombinations:
 # ---------------------------------------------------------------------------
 
 
-@_LOCAL_GRAMMAR
 class TestRuntimeCombinations:
     """The same surface combinations run end-to-end through
     log_joint, producing a finite scalar."""
@@ -143,7 +133,7 @@ class TestRuntimeCombinations:
         from quivers.dsl import loads
 
         src = dedent("""
-        composition log_prob as algebra
+        composition log_prob [level=algebra]
 
         object G_a : FinSet 2
         object G_b : FinSet 2
@@ -186,7 +176,7 @@ class TestRuntimeCombinations:
         from quivers.dsl import loads
 
         src = dedent("""
-        composition log_prob as algebra
+        composition log_prob [level=algebra]
 
         object Item : FinSet 2
         object Subj : FinSet 2

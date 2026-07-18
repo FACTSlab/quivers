@@ -6,6 +6,11 @@ instances (``nn.Module`` subclasses). Parsing is delegated to panproto
 via the ``qvr`` tree-sitter grammar; the AST is a tree of
 [`quivers.dsl.ast_nodes`][quivers.dsl.ast_nodes] didactic Models.
 
+Morphism roles need not be declared: a morphism drawn with ``sample``
+compiles as latent, one drawn with ``observe`` as observed, and any
+other morphism as a kernel. An explicit ``[role=...]`` option always
+wins over inference.
+
 Quick start
 -----------
 ::
@@ -14,8 +19,9 @@ Quick start
 
     program = loads('''
         object Resp : FinSet 8
+        morphism bias : Resp -> Real 1 ~ Normal(0.0, 5.0)
         program m : Resp -> Resp
-            sample b <- Normal(0.0, 5.0)
+            sample b <- bias
             observe y : Resp <- Normal(b, 1.0)
             return y
         export m

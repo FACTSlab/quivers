@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 
+from collections.abc import Callable
 from typing import cast
 
 import torch
@@ -44,6 +45,12 @@ class Program(nn.Module):
         morphism: Morphism | ContinuousMorphism | nn.Module | None = None,
     ) -> None:
         super().__init__()
+        # Parametric-program-template invokers, attached by the DSL
+        # compiler when the module's export names a template rather
+        # than a concrete morphism. Keyed by template name; each
+        # invoker instantiates the template at concrete arguments
+        # and returns the resulting Program.
+        self.templates: dict[str, Callable[..., Program]] = {}
         self._morphism = morphism
         self._is_continuous = isinstance(morphism, ContinuousMorphism)
         self._is_callable_module = (
@@ -69,25 +76,63 @@ class Program(nn.Module):
     def morphism(self) -> Morphism | ContinuousMorphism | nn.Module | None:
         """The underlying morphism expression, or ``None`` for a
         morphism-less module (one declaring only signatures /
-        encoders / decoders / losses)."""
+        encoders / decoders / losses, or exporting a parametric
+        program template that has not been instantiated)."""
         return self._morphism
+
+    def _missing_morphism_error(self, attribute: str) -> TypeError:
+        """Build the error for ``domain`` / ``codomain`` access on a
+        Program that wraps no morphism.
+
+        A ``TypeError`` (rather than ``AttributeError``) is essential
+        here: a property that raises ``AttributeError`` is re-routed
+        through ``nn.Module.__getattr__``, which replaces the message
+        with a generic missing-attribute one.
+        """
+        if self.templates:
+            names = sorted(self.templates)
+            listed = ", ".join(repr(n) for n in names)
+            noun = "templates" if len(names) > 1 else "template"
+            return TypeError(
+                f"this Program has no {attribute}: it exports the "
+                f"parametric program {noun} {listed}, which denotes a "
+                f"parameter-indexed family of kernels rather than a "
+                f"single morphism. Instantiate the template at concrete "
+                f"arguments (e.g. ``program.{names[0]}(...)``) and read "
+                f".{attribute} on the returned Program."
+            )
+        return TypeError(
+            f"this Program has no exported morphism, so its {attribute} "
+            f"is undefined; the module declares structural artifacts "
+            f"(signatures, encoders, decoders, losses) only"
+        )
 
     @property
     def domain(self):
-        """Domain of the underlying morphism."""
+        """Domain of the underlying morphism.
+
+        Raises
+        ------
+        TypeError
+            If the Program wraps no morphism (an uninstantiated
+            parametric template or a structural-artifact container).
+        """
         if self._morphism is None:
-            raise AttributeError(
-                "this Program has no exported morphism; its domain is undefined"
-            )
+            raise self._missing_morphism_error("domain")
         return self._morphism.domain
 
     @property
     def codomain(self):
-        """Codomain of the underlying morphism."""
+        """Codomain of the underlying morphism.
+
+        Raises
+        ------
+        TypeError
+            If the Program wraps no morphism (an uninstantiated
+            parametric template or a structural-artifact container).
+        """
         if self._morphism is None:
-            raise AttributeError(
-                "this Program has no exported morphism; its codomain is undefined"
-            )
+            raise self._missing_morphism_error("codomain")
         return self._morphism.codomain
 
     def rsample(

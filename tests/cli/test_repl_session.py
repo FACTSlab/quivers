@@ -107,7 +107,7 @@ def test_dump_renders_ast() -> None:
     s = _populated()
     r = s.dispatch(":dump f")
     assert "MorphismDecl" in r.body
-    assert "name='f'" in r.body
+    assert "names=('f',)" in r.body
 
 
 def test_dump_json() -> None:
@@ -311,7 +311,7 @@ def test_dump_json_is_valid_json() -> None:
     r = s.dispatch(":dump f --json")
     # Output starts with a `{` and parses as JSON.
     parsed = json.loads(r.body)
-    assert parsed["name"] == "f"
+    assert parsed["names"] == ["f"]
 
 
 def test_autoreload_only_when_stale(tmp_path: Path) -> None:
@@ -351,7 +351,9 @@ def test_bare_statement_extends_module() -> None:
     s = _populated()
     s.dispatch("object Z : FinSet 7")
     assert "Z" in s.env
-    assert any(getattr(stmt, "name", None) == "Z" for stmt in s.module.statements)
+    assert any(
+        "Z" in (getattr(stmt, "names", None) or ()) for stmt in s.module.statements
+    )
 
 
 def test_set_invalid_form() -> None:

@@ -40,7 +40,7 @@ signature seq
 
 
 def _wrap(body: str) -> str:
-    return f"composition product_fuzzy as algebra\n{body}\n"
+    return f"composition product_fuzzy [level=algebra]\n{body}\n"
 
 
 class TestRegisteredFactories:

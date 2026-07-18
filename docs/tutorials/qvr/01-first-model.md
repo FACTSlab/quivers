@@ -194,7 +194,7 @@ Three things:
 
 ## Try this
 
-- Add `composition log_prob as algebra` at the top of the file. The enrichment changes how compositions accumulate scalars: likelihood-style values stay finite under very small probabilities; sometimes useful for long sequence models.
+- Add `composition log_prob [level=algebra]` at the top of the file. The enrichment changes how compositions accumulate scalars: likelihood-style values stay finite under very small probabilities; sometimes useful for long sequence models.
 - Replace [`AutoNormalGuide`](../../api/inference/guide.md) with [`AutoMultivariateNormalGuide`](../../api/inference/guide.md) and watch the recovered correlation between `beta_0` and `beta_1`.
 - Drop the `[effects=[Sample, Score]]` annotation, then add `[effects=[Pure]]` and re-run. The second case fails compilation with a typed error pointing to the `observe`.
 

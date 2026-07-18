@@ -520,7 +520,7 @@ class TestEndToEndCompilation:
     @pytest.fixture
     def src_inferred(self):
         return """
-composition product_fuzzy as algebra
+composition product_fuzzy [level=algebra]
 
 object A : FinSet 3
 object B : FinSet 4
@@ -530,7 +530,7 @@ object D : FinSet 2
 contraction op_apply (
     arg1 : A -> B,
     arg2 : A -> C,
-    kernel : (B * C) -> D
+    kernel : (B * C) -> D,
 ) : A -> D [rule=product_fuzzy]
 
 program p : A -> A
@@ -544,7 +544,7 @@ export p
     @pytest.fixture
     def src_explicit_wiring(self):
         return """
-composition product_fuzzy as algebra
+composition product_fuzzy [level=algebra]
 
 object A : FinSet 3
 object B : FinSet 4
@@ -554,7 +554,7 @@ object D : FinSet 2
 contraction op_apply (
     arg1 : A -> B,
     arg2 : A -> C,
-    kernel : (B * C) -> D
+    kernel : (B * C) -> D,
 ) : A -> D [rule=product_fuzzy, wiring="ab, ac, bcd -> ad"]
 
 program p : A -> A
@@ -577,7 +577,7 @@ export p
 
     def test_share_clause_compiles(self):
         src = """
-composition product_fuzzy as algebra
+composition product_fuzzy [level=algebra]
 
 object A : FinSet 3
 object B : FinSet 4
@@ -585,7 +585,7 @@ object C : FinSet 5
 
 contraction shared_b (
     f : A -> B,
-    g : C -> B
+    g : C -> B,
 ) : (A * C) -> B [rule=product_fuzzy, share=[B]]
 
 program p : A -> A

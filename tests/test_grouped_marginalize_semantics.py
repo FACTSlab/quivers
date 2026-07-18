@@ -18,9 +18,6 @@ just the validation surface. They verify:
 from __future__ import annotations
 import textwrap
 
-import os
-
-import pytest
 import torch
 
 from quivers.continuous.plate import (
@@ -29,18 +26,11 @@ from quivers.continuous.plate import (
 )
 
 
-_LOCAL_GRAMMAR = pytest.mark.skipif(
-    os.environ.get("QVR_USE_LOCAL_GRAMMAR", "") not in ("1", "true", "True"),
-    reason="needs QVR_USE_LOCAL_GRAMMAR=1 to pick up the in-tree grammar",
-)
-
-
 # ---------------------------------------------------------------------------
 # Gradient flow through a nested marginalize chain
 # ---------------------------------------------------------------------------
 
 
-@_LOCAL_GRAMMAR
 def test_three_level_nested_gradient_flows_to_continuous_latent() -> None:
     """A 3-level nested marginalize block depending on a single
     continuous latent ``mu_shift``: the gradient of the log-joint
@@ -49,7 +39,7 @@ def test_three_level_nested_gradient_flows_to_continuous_latent() -> None:
     from quivers.dsl import loads
 
     src = """
-    composition log_prob as algebra
+    composition log_prob [level=algebra]
 
     object G1 : FinSet 2
     object G2 : FinSet 2
@@ -102,7 +92,6 @@ def test_three_level_nested_gradient_flows_to_continuous_latent() -> None:
 # ---------------------------------------------------------------------------
 
 
-@_LOCAL_GRAMMAR
 def test_body_with_multiple_lets_using_latent() -> None:
     """The body contains two let-steps that reference the latent
     via index gathers, then an observe whose parameters depend on
@@ -111,7 +100,7 @@ def test_body_with_multiple_lets_using_latent() -> None:
     from quivers.dsl import loads
 
     src = """
-    composition log_prob as algebra
+    composition log_prob [level=algebra]
 
     object Item : FinSet 2
     object Resp : FinSet 4
@@ -119,7 +108,6 @@ def test_body_with_multiple_lets_using_latent() -> None:
 
     program bodylet : Resp -> Resp
         sample probs : Class <- HalfNormal(1.0)
-        sample idx : Resp <- HalfNormal(1.0)
         marginalize cls : Class <- Dirichlet(probs) [over=Item]
             observe r : Resp <- HalfNormal(1.0) [via=idx]
         return probs

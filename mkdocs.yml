@@ -146,7 +146,9 @@ nav:
     - Probabilistic PCA: examples/ppca.md
     - Latent Dirichlet Allocation: examples/lda.md
     - "Item Response Theory (2PL)": examples/irt-2pl.md
+    - Parametric Partial Pooling: examples/parametric-pooling.md
     - Probabilistic Matrix Factorization: examples/pmf.md
+    - Bilinear Tensor Contraction: examples/tensor-contraction.md
     - Bayesian Neural Network: examples/bnn.md
     - Gaussian Mixture Model: examples/mixture-model.md
     - Variational Autoencoder: examples/vae.md
@@ -173,6 +175,8 @@ nav:
     - Tree-Structured Categorical: examples/tree-categorical.md
     - Montague NLI: examples/montague-nli.md
     - PMCFG (WH-movement): examples/pmcfg.md
+    - Schema-Bundled Chart Parser: examples/schema-chart-parser.md
+    - Term Autoencoder: examples/term-autoencoder.md
   - Tutorials:
     - Overview: tutorials/index.md
   - QVR DSL tutorials:
@@ -256,6 +260,7 @@ nav:
       - Overview: api/continuous/spaces.md
       - Morphisms: api/continuous/morphisms.md
       - Families: api/continuous/families.md
+      - Parameter Sources: api/continuous/param_source.md
       - Inline Builders: api/continuous/inline.md
       - Programs: api/continuous/programs.md
       - Scan: api/continuous/scan.md

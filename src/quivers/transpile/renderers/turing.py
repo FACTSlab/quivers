@@ -1074,7 +1074,7 @@ class _TuringCtx(_RenderCtx):
         sample_plates: dict[str, Plate],
         batch_shaped_names: set[str],
     ) -> None:
-        super().__init__(sb=sb, morphisms=morphisms, lets=lets)
+        super().__init__(sb=sb, morphisms=morphisms, defines=lets)
         self.counter = counter
         self.cards = cards
         self.body = body

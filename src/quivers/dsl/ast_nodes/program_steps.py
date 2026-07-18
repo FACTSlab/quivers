@@ -30,7 +30,6 @@ from typing import Literal
 import didactic.api as dx
 
 from quivers.dsl.ast_nodes._shared import AxisSpec, OptionEntry
-from quivers.dsl.ast_nodes.draw_args import DrawArg
 from quivers.dsl.ast_nodes.let_expressions import LetExprNode
 from quivers.dsl.ast_nodes.objects import ObjectExpr
 
@@ -147,10 +146,10 @@ class SampleStep(ProgramStep):
 
         sample v <- F(args)                         # scalar draw
         sample v : A <- F(args)                     # A-indexed plate
-        sample [a, b] <- F(args)                    # destructuring tuple
+        sample (a, b) <- F(args)                    # destructuring tuple
 
     Optional ``[options]`` block carries axis-role and other
-    family-level config (move #9 ``[over=[...], iid=[...]]``).
+    family-level config (``[over=[...], iid=[...]]``).
     """
 
     vars: tuple[str, ...]
@@ -165,14 +164,16 @@ class SampleStep(ProgramStep):
 
 
 class ObserveStep(ProgramStep):
-    """``observe var[: index] <- morphism(args) [options]``.
+    """``observe vars[: index] <- morphism(args) [options]``.
 
     Scored Kleisli bind; the bound coordinate is clamped at runtime
     by the ``observations`` dict, making the resulting kernel
-    sub-probabilistic.
+    sub-probabilistic. ``vars`` shares the pattern shape with
+    `SampleStep` (a bare name or a parenthesized tuple); the compiler
+    validates arity against the morphism's codomain.
     """
 
-    var: str
+    vars: tuple[str, ...]
     morphism: str
     args: tuple[DrawArg, ...] | None = None
     index: ObjectExpr | None = None

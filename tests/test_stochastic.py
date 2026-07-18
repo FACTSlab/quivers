@@ -655,7 +655,7 @@ class TestStochasticIntegration:
         from quivers.dsl import loads
 
         prog = loads(
-            "composition markov as algebra\n"
+            "composition markov [level=algebra]\n"
             "object X : FinSet 3\n"
             "morphism h : X -> X [role=observed] ~ identity(X)\n"
             "export h\n"

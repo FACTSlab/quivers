@@ -23,12 +23,13 @@ Sampling is non-reparameterisable: the support is discrete.
 from __future__ import annotations
 
 import math
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 
 import torch
 from torch.distributions import constraints as _constraints
 
-from quivers.continuous.morphisms import AnySpace, ContinuousMorphism, _make_source
+from quivers.continuous.morphisms import AnySpace, ContinuousMorphism
+from quivers.continuous.param_source import ParamSource, _make_source
 
 
 def _ordered_log_probs(
@@ -99,7 +100,9 @@ class _ConditionalOrdered(ContinuousMorphism):
         domain: AnySpace,
         codomain: AnySpace,
         num_categories: int,
-        hidden_dim: int = 64,
+        hidden_dim: int | Sequence[int] | None = None,
+        param_source: ParamSource | None = None,
+        param_source_option: str | None = None,
     ) -> None:
         if num_categories < 2:
             raise ValueError(
@@ -107,7 +110,13 @@ class _ConditionalOrdered(ContinuousMorphism):
             )
         super().__init__(domain, codomain)
         self._k = int(num_categories)
-        self.param_source = _make_source(domain, 1, hidden_dim)
+        self.param_source = _make_source(
+            domain,
+            1,
+            hidden_dim,
+            param_source=param_source,
+            param_source_option=param_source_option,
+        )
 
     @property
     def support(self) -> _constraints.Constraint:

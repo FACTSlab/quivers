@@ -8,10 +8,6 @@ dispatcher's argument parsing is part of the test surface.
 
 from __future__ import annotations
 
-import os
-
-os.environ.setdefault("QVR_USE_LOCAL_GRAMMAR", "1")
-
 import pytest  # noqa: E402
 
 from quivers.cli.repl_session import ReplSession  # noqa: E402

@@ -328,7 +328,7 @@ Throughput (iters/s for SVI, draws/s for MCMC):
 ## Reproducing the grid
 
 ```bash
-QVR_USE_LOCAL_GRAMMAR=1 python -m tests.benchmarks.runner
+python -m tests.benchmarks.runner
 ```
 
 The runner accepts `--algorithms` and `--problems` flags for partial runs and writes the regenerated table back to this file by default. See `tests/benchmarks/runner.py` for the cell definitions and `tests/benchmarks/references.py` for the reference posteriors.

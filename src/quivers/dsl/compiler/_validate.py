@@ -32,7 +32,6 @@ from torch.distributions.constraints import Constraint
 from quivers.dsl.ast_nodes import (
     DrawArg,
     DrawArgList,
-    DrawArgMatrix,
     DrawArgScalar,
     MarginalizeStep,
     Module,
@@ -44,6 +43,7 @@ from quivers.dsl.ast_nodes import (
 )
 from quivers.dsl.constraints import Violation
 from quivers.transpile._api import UnsupportedConstruct
+from quivers.transpile._draw_args import is_matrix
 from quivers.transpile._resolve import (
     ResolvedDist,
     build_let_table,
@@ -266,15 +266,15 @@ def _check_arg_against_constraint(
             # this is not a shape error.
             return
         if isinstance(arg, DrawArgList):
+            if is_matrix(arg):
+                # Matrix-shape validation requires a sentinel.
+                return
             literal = _list_literal_length(arg)
             if literal is None:
                 return
             # Without an instance event_shape we can't determine the
             # required length; the per-call validation in Lower fills
             # this in. Skip silently here.
-            return
-        if isinstance(arg, DrawArgMatrix):
-            # Same: matrix-shape validation requires a sentinel.
             return
     if isinstance(constraint, _c._Simplex) and isinstance(arg, DrawArgList):
         literal_values = _list_literal_floats(arg)
@@ -305,25 +305,22 @@ def _read_arg_constraints(meta: FamilyMeta) -> dict[str, Constraint] | None:
 
 
 def _list_literal_length(arg: DrawArgList) -> int | None:
-    """Return the literal length when every element is a numeric
+    """Return the literal length when every item is a numeric
     literal; ``None`` otherwise."""
-    for e in arg.elements:
-        if not isinstance(e, (int, float)) or isinstance(e, bool):
+    for item in arg.items:
+        if not isinstance(item, DrawArgScalar):
             return None
-    return len(arg.elements)
+    return len(arg.items)
 
 
 def _list_literal_floats(arg: DrawArgList) -> list[float] | None:
-    """Return the float values when every element is a numeric
+    """Return the float values when every item is a numeric
     literal; ``None`` otherwise."""
     out: list[float] = []
-    for e in arg.elements:
-        if isinstance(e, bool):
+    for item in arg.items:
+        if not isinstance(item, DrawArgScalar):
             return None
-        if isinstance(e, (int, float)):
-            out.append(float(e))
-        else:
-            return None
+        out.append(item.value)
     return out
 
 

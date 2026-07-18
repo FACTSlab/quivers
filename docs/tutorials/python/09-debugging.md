@@ -30,7 +30,7 @@ The five error classes you'll see most often:
 |---|---|---|
 | Effect mismatch | `[effects=[Pure]]` body contains `<-` or `observe` | Loosen the effect tag or remove the offending step |
 | Free-name error | A name in the body is neither bound, declared, nor in host-data scope | Add to `observed_names` or to a `<-` / `let` |
-| Algebra mismatch | Typed composition `*>` / `~>` operands have a different algebra | Use `>>` (auto) or insert a `change_base` |
+| Algebra mismatch | The two operands of `>>` carry different algebras | Insert a `change_base` on one operand so both share an algebra |
 | Shape mismatch | Tensor argument has the wrong cardinality for an object | Check object declarations against the data |
 | Unknown identifier | A family name (`Norma`, typo) isn't in the prelude | Check the [family catalogue](../../api/continuous/families.md) |
 

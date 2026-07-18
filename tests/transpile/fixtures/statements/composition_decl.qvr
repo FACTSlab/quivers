@@ -3,7 +3,8 @@
 # construct-matrix test asserts each backend raises
 # `UnsupportedConstruct(kinds=["composition_decl", ...])` for this
 # fixture.
-composition log_prob as algebra
+composition log_prob
+    combine = a
 object Obs : FinSet 4
 program prog : Obs -> Obs
     sample x <- Bernoulli(0.5)

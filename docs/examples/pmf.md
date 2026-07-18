@@ -8,36 +8,22 @@ $$
 r_{u, m} \mid U_{:, u}, V_{:, m} \sim \mathcal{N}(\langle U_{:, u}, V_{:, m} \rangle, \sigma_{\text{obs}}^2).
 $$
 
-In quivers, the two factor matrices are arrows $U : \mathsf{LatentDim} \to \mathsf{User}$ and $V : \mathsf{LatentDim} \to \mathsf{Movie}$ carrying [matrix-normal](https://en.wikipedia.org/wiki/Matrix_normal_distribution) priors. The bilinear score is the composition $U^\dagger \mathbin{>>} V : \mathsf{User} \to \mathsf{Movie}$, whose `(u, m)` entry is the inner product $\sum_k U_{k, u} V_{k, m}$. Under `composition real as algebra` this composition is the canonical PMF rating-mean matmul.
+In quivers, the two factor matrices are arrows $U : \mathsf{LatentDim} \to \mathsf{User}$ and $V : \mathsf{LatentDim} \to \mathsf{Movie}$ carrying [matrix-normal](https://en.wikipedia.org/wiki/Matrix_normal_distribution) priors. The bilinear score is the composition $U^\dagger \mathbin{>>} V : \mathsf{User} \to \mathsf{Movie}$, whose `(u, m)` entry is the inner product $\sum_k U_{k, u} V_{k, m}$. Under `composition real [level=algebra]` this composition is the canonical PMF rating-mean matmul.
 
 ## QVR Source
 
 ```qvr
-composition real as algebra
+composition real [level=algebra]
 
 object LatentDim : FinSet 2
-object User : FinSet 8
-object Movie : FinSet 8
-object Rating : FinSet 5
+object User, Movie : FinSet 8
 
 morphism U : LatentDim -> User [role=latent]
 morphism V : LatentDim -> Movie [role=latent]
 
-let pmf = U.dagger >> V
+define pmf = U.dagger >> V
 
-program pmf_program : Rating -> Rating
-    sample sigma <- HalfCauchy(1.0)
-    sample U_mat : User <- Normal(0.0, 0.5) [over=LatentDim, iid_over=User]
-    sample V_mat : Movie <- Normal(0.0, 0.5) [over=LatentDim, iid_over=Movie]
-
-    let u_row = U_mat[u_idx]
-    let v_row = V_mat[m_idx]
-    let mu = sum(u_row * v_row)
-
-    observe r : Rating <- Normal(mu, sigma)
-    return r
-
-export pmf_program
+export pmf
 ```
 
 ## Walkthrough
@@ -46,11 +32,11 @@ The two top-level latent declarations introduce the user and item factor matrice
 
 <!-- compile: false -->
 ```qvr
-morphism U : LatentDim -> User [role=latent] ~ MatrixNormal(0.0, 1.0, 1.0) over (dom, cod)
-morphism V : LatentDim -> Movie [role=latent] ~ MatrixNormal(0.0, 1.0, 1.0) over (dom, cod)
+morphism U : LatentDim -> User [role=latent, over=[dom, cod]] ~ MatrixNormal(0.0, 1.0, 1.0)
+morphism V : LatentDim -> Movie [role=latent, over=[dom, cod]] ~ MatrixNormal(0.0, 1.0, 1.0)
 ```
 
-The `.dagger` modifier on $U$ transposes the morphism to $\mathsf{User} \to \mathsf{LatentDim}$. The composition `U.dagger >> V` contracts along `LatentDim` and recovers the full `(User, Movie)` score matrix; under `composition real as algebra` this is a real matmul and the resulting tensor entry at `(u, m)` is exactly $\sum_k U_{k, u} V_{k, m}$.
+The `.dagger` modifier on $U$ transposes the morphism to $\mathsf{User} \to \mathsf{LatentDim}$. The composition `U.dagger >> V` contracts along `LatentDim` and recovers the full `(User, Movie)` score matrix; under `composition real [level=algebra]` this is a real matmul and the resulting tensor entry at `(u, m)` is exactly $\sum_k U_{k, u} V_{k, m}$.
 
 Working over discrete `User` and `Movie` plates materialises the full dense score matrix. For very large catalogues the dense materialisation is wasteful and a per-rating gather is preferable; the morphism surface in quivers can lift that gather as a separate fibration $\mathsf{Rating} \to \mathsf{User} \times \mathsf{Movie}$ composed with the bilinear pmf morphism.
 
@@ -67,36 +53,21 @@ Pick true $U$, $V$ factor matrices for an 8-user / 8-item catalogue, then draw a
 
 ```python
 import torch
-from quivers.dsl import load
 
 torch.manual_seed(0)
-prog = load("docs/examples/source/pmf.qvr")
-model = prog.morphism
 
 n_user, n_movie, K = 8, 8, 2
+U_true = 0.5 * torch.randn(K, n_user)
+V_true = 0.5 * torch.randn(K, n_movie)
+
 n_obs = 5  # under 10% of n_user * n_movie = 64 cells
-
-true_U_mat = 0.5 * torch.randn(n_user, K)
-true_V_mat = 0.5 * torch.randn(n_movie, K)
-true_sigma = 0.1
-
-flat = torch.randperm(n_user * n_movie)[:n_obs]
-u_idx = (flat // n_movie).long()
-m_idx = (flat % n_movie).long()
-mu_true = (true_U_mat[u_idx] * true_V_mat[m_idx]).sum(dim=-1)
-r = torch.distributions.Normal(mu_true, true_sigma).sample()
-
-observations = {
-    "r": r,
-    "u_idx": u_idx,
-    "m_idx": m_idx,
-    "sigma": torch.tensor([true_sigma]),
-    "U_mat": true_U_mat,
-    "V_mat": true_V_mat,
-}
-x_in = torch.zeros(n_obs, 1)
+flat   = torch.randperm(n_user * n_movie)[:n_obs]
+u_idx  = (flat // n_movie).long()
+m_idx  = (flat %  n_movie).long()
+sigma  = 0.1
+r_obs  = (U_true[:, u_idx] * V_true[:, m_idx]).sum(0) + sigma * torch.randn(n_obs)
 print("density:", n_obs / (n_user * n_movie))
-print("ratings:", r.tolist())
+print("ratings:", r_obs.tolist())
 ```
 
 ### SVI fit

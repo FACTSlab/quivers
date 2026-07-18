@@ -19,8 +19,6 @@ values inside ``change_base``:
 from __future__ import annotations
 import textwrap
 
-import os
-
 import pytest
 import torch
 
@@ -28,25 +26,18 @@ from quivers.dsl import loads
 from quivers.dsl.compiler import CompileError
 
 
-_LOCAL_GRAMMAR = pytest.mark.skipif(
-    os.environ.get("QVR_USE_LOCAL_GRAMMAR", "") not in ("1", "true", "True"),
-    reason="needs QVR_USE_LOCAL_GRAMMAR=1 to pick up the in-tree grammar",
-)
-
-
 # ---------------------------------------------------------------------------
 # Object-argument constructors
 # ---------------------------------------------------------------------------
 
 
-@_LOCAL_GRAMMAR
 def test_softmax_compiles() -> None:
     src = """
-    composition product_fuzzy as algebra
+    composition product_fuzzy [level=algebra]
     object A : FinSet 3
     object B : FinSet 4
     morphism f : A -> B [role=latent]
-    let g = f.change_base(softmax(B))
+    define g = f.change_base(softmax(B))
     export g
     """
     program = loads(textwrap.dedent(src))
@@ -57,14 +48,13 @@ def test_softmax_compiles() -> None:
     assert torch.allclose(tensor.sum(dim=-1), torch.ones(3), atol=1e-5)
 
 
-@_LOCAL_GRAMMAR
 def test_l1_normalize_compiles() -> None:
     src = """
-    composition real as algebra
+    composition real [level=algebra]
     object A : FinSet 3
     object B : FinSet 4
     morphism f : A -> B [role=latent]
-    let g = f.change_base(l1_normalize(B))
+    define g = f.change_base(l1_normalize(B))
     export g
     """
     program = loads(textwrap.dedent(src))
@@ -74,14 +64,13 @@ def test_l1_normalize_compiles() -> None:
     assert torch.allclose(tensor.sum(dim=-1), torch.ones(3), atol=1e-5)
 
 
-@_LOCAL_GRAMMAR
 def test_l2_normalize_compiles() -> None:
     src = """
-    composition real as algebra
+    composition real [level=algebra]
     object A : FinSet 3
     object B : FinSet 4
     morphism f : A -> B [role=latent]
-    let g = f.change_base(l2_normalize(B))
+    define g = f.change_base(l2_normalize(B))
     export g
     """
     program = loads(textwrap.dedent(src))
@@ -95,15 +84,14 @@ def test_l2_normalize_compiles() -> None:
 # ---------------------------------------------------------------------------
 
 
-@_LOCAL_GRAMMAR
 def test_bayes_invert_with_morphism_prior() -> None:
     src = """
-    composition markov as algebra
+    composition markov [level=algebra]
     object Unit : FinSet 1
     object A : FinSet 3
     morphism prior : Unit -> A [role=observed] ~ from_data("PRIOR")
     morphism f : A -> A [role=latent]
-    let g = f.change_base(bayes_invert(prior))
+    define g = f.change_base(bayes_invert(prior))
     export g
     """
     prior = torch.tensor([[0.5, 0.3, 0.2]])
@@ -119,14 +107,13 @@ def test_bayes_invert_with_morphism_prior() -> None:
 # ---------------------------------------------------------------------------
 
 
-@_LOCAL_GRAMMAR
 def test_bare_name_homomorphism_still_resolves() -> None:
     src = """
-    composition boolean as algebra
+    composition boolean [level=algebra]
     object A : FinSet 3
     object B : FinSet 4
     morphism f : A -> B [role=latent]
-    let g = f.change_base(boolean_embedding)
+    define g = f.change_base(boolean_embedding)
     export g
     """
     program = loads(textwrap.dedent(src))
@@ -138,42 +125,39 @@ def test_bare_name_homomorphism_still_resolves() -> None:
 # ---------------------------------------------------------------------------
 
 
-@_LOCAL_GRAMMAR
 def test_bare_constructor_without_args_errors() -> None:
     src = """
-    composition real as algebra
+    composition real [level=algebra]
     object A : FinSet 3
     object B : FinSet 4
     morphism f : A -> B [role=latent]
-    let g = f.change_base(softmax)
+    define g = f.change_base(softmax)
     export g
     """
     with pytest.raises(CompileError, match="needs arguments"):
         loads(textwrap.dedent(src))
 
 
-@_LOCAL_GRAMMAR
 def test_unknown_constructor_errors() -> None:
     src = """
-    composition real as algebra
+    composition real [level=algebra]
     object A : FinSet 3
     object B : FinSet 4
     morphism f : A -> B [role=latent]
-    let g = f.change_base(not_a_real_constructor(B))
+    define g = f.change_base(not_a_real_constructor(B))
     export g
     """
     with pytest.raises(CompileError, match="undefined"):
         loads(textwrap.dedent(src))
 
 
-@_LOCAL_GRAMMAR
 def test_unknown_constructor_arg_errors() -> None:
     src = """
-    composition real as algebra
+    composition real [level=algebra]
     object A : FinSet 3
     object B : FinSet 4
     morphism f : A -> B [role=latent]
-    let g = f.change_base(softmax(NotAnObject))
+    define g = f.change_base(softmax(NotAnObject))
     export g
     """
     with pytest.raises(CompileError, match="unresolved"):

@@ -53,6 +53,11 @@ from quivers.dsl._historical_grammar import registry_for
 _SOURCE_FILE_VID = "parse_emit_lens"
 
 
+class MigrationError(Exception):
+    """Raised when a requested migration cannot be composed, or when
+    a source construct admits no rewrite under the target grammar."""
+
+
 # ---------------------------------------------------------------------------
 # Vertex tree builder
 # ---------------------------------------------------------------------------
@@ -265,6 +270,38 @@ class SchemaView:
         ]
         kids.sort(key=lambda vid: int(self.consts(vid).get("start-byte", "0")))
         return kids
+
+    def outgoing_vids(self, parent_vid: str) -> list[str]:
+        """Document-order target vids of every outgoing edge of
+        ``parent_vid``, regardless of edge kind. Use this to walk a
+        whole declaration subtree when the migration logic keys on
+        vertex kinds rather than field names."""
+        kids = [e.tgt for e in self._outgoing.get(parent_vid, [])]
+        kids.sort(key=lambda vid: int(self.consts(vid).get("start-byte", "0")))
+        return kids
+
+    def span(self, vid: str) -> tuple[int, int]:
+        """Byte span ``(start, end)`` of ``vid`` in the source."""
+        c = self.consts(vid)
+        return int(c["start-byte"]), int(c["end-byte"])
+
+    def interstitials(self, vid: str) -> list[tuple[int, str]]:
+        """The anonymous-token / whitespace runs the parser recorded
+        on ``vid``, as ``(absolute_start_byte, text)`` pairs in
+        document order. These carry every literal keyword and
+        punctuation token of the vertex's own production (named
+        children are excluded), so migrations locate anonymous
+        tokens (``'=>'``, ``'over'``, ``'let'``, ...) precisely."""
+        c = self.consts(vid)
+        out: list[tuple[int, str]] = []
+        i = 0
+        while True:
+            text = c.get(f"interstitial-{i}")
+            if text is None:
+                break
+            out.append((int(c[f"interstitial-{i}-start-byte"]), text))
+            i += 1
+        return out
 
     def top_level_decls(self) -> list[str]:
         """Document-order vertex ids of every top-level declaration
@@ -529,7 +566,7 @@ def validate_decl(target_rev: str, text: str) -> None:
     schema = lens.parse(text.encode("utf-8"))
     errors = [v.id for v in schema.vertices if v.kind == "ERROR"]
     if errors:
-        raise ValueError(
+        raise MigrationError(
             f"converted decl text does not parse under {target_rev}: "
             f"{text!r}; ERROR vertices: {errors}",
         )

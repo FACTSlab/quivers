@@ -1,7 +1,8 @@
 """Load any historical QVR grammar revision built by
 ``grammars/qvr/vcs/build_parsers.py``.
 
-Mirrors [`quivers.dsl._dev_grammar`][quivers.dsl._dev_grammar] but lets the caller pick
+Compiles a historical QVR grammar revision and installs it through
+panproto's ``override_grammar`` API, letting the caller pick
 which revision (``v0.2.0`` ... ``v0.9.0`` or ``HEAD``) to load.
 Each revision lives at
 ``grammars/qvr/vcs/parsers/<revision>/qvr.{dylib,so,dll}`` together

@@ -13,7 +13,7 @@ computed via [log-sum-exp](https://en.wikipedia.org/wiki/LogSumExp) over the $K$
 ## QVR Source
 
 ```qvr
-composition log_prob as algebra
+composition log_prob [level=algebra]
 
 object Doc : FinSet 20
 object Topic : FinSet 3
@@ -33,7 +33,7 @@ export lda
 
 ## Walkthrough
 
-`object Doc : FinSet 20`, `object Topic : FinSet 3`, `object Word : FinSet 200` declare the three discrete plates: $D = 20$ documents, $K = 3$ topics, $V = 200$ vocabulary items. `composition log_prob as algebra` selects the log-probability semiring so the `Score` effect on the program accumulates log-densities additively.
+`object Doc : FinSet 20`, `object Topic : FinSet 3`, `object Word : FinSet 200` declare the three discrete plates: $D = 20$ documents, $K = 3$ topics, $V = 200$ vocabulary items. `composition log_prob [level=algebra]` selects the log-probability semiring so the `Score` effect on the program accumulates log-densities additively.
 
 The two `sample` steps draw the document-topic and topic-vocabulary simplex matrices under symmetric Dirichlet priors:
 
@@ -130,7 +130,7 @@ The discrete per-word topic $z : \mathsf{Topic}$ is integrated out by the [pushf
 
 ## See Also
 
-- [Bayesian Gaussian Mixture Model](mixture-model.md) for a simpler grouped `marginalize` over a discrete latent.
+- [Bayesian Gaussian Mixture Model](mixture-model.md) for a per-row mixture whose component assignment is integrated out in closed form by the likelihood, carrying no discrete latent and no `marginalize` block.
 
 
 ## References

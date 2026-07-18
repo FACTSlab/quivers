@@ -4,6 +4,208 @@ All notable changes to the quivers library are documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/), and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.16.0] - 2026-07-15
+
+### Changed
+
+- **A kernel's parameter source defaults to a linear map.** A morphism declared `f : X -> Y ~ Family` over continuous spaces reads its distribution parameters from a single `nn.Linear`, which is how its arrow reads. A model whose parameters depend nonlinearly on the input requests that with `[param_source=mlp]`, so the fact appears in the source instead of in a default: previously every such kernel carried a two-hidden-layer tanh MLP, and a `Real 1 -> Real 1` kernel silently held 4418 weights. The gallery is now what it says it is. `linear_gaussian_ssm` is linear, and an LSTM, GRU or vanilla-RNN gate is one matrix under a cell whose nonlinearity is the sigmoid its program body applies. `deep_markov`, the VAE's encoder and decoder bodies, the transformer and seq2seq feed-forward sublayers, and the recurrent cells that carry their own tanh now name the MLP they rely on.
+- **Morphism options are checked against the role that reads them.** Options were checked against the union of every role's keys and then read per role, so an option belonging to another role passed validation and was dropped in silence. `[scale=]` on a family-backed kernel is the case that bit: nothing reads it there, and all 34 uses across the examples configured an init that never existed. Each role now declares the keys its lowering consumes, and a key outside that set is rejected with an error naming the role that does read it.
+- **A default coefficient prior is autoscaled to its column.** A column enters a formula's linear predictor as `beta * column`, so a prior on the coefficient alone states the scale of its contribution, and one fixed `Normal(0, 5)` therefore means something different for every column. The default's scale is now divided by the column's root-mean-square, which states it in contribution space; an explicit per-name prior is emitted as written. Coefficients stay on their own column's scale, so nothing is transformed back.
+
+### Added
+
+- **Inline distributions take any number of vector-typed parameters.** A family may declare vector parameters in any position, and the stacked input is split at each one's declared dim rather than by a single trailing parameter eating the remaining columns. `MixtureNormal(weights, locations, scales)`, whose three per-component vectors are each shared across the response plate, is expressible.
+- **`[param_source=<kind>(...)]` carries its arguments.** The grammar has always parsed the call form and `param_source_from_option` has always read parenthesised hidden widths, but the compiler decoded the option as a bare identifier and raised on anything else, so `[param_source=mlp(16, 8)]` died at compile time and the width parser was unreachable from QVR.
+- **`hidden_dim` takes a sequence of widths.** One entry per hidden layer, so `[param_source=mlp, hidden_dim=[64, 32, 16]]` builds those three; a bare `hidden_dim=64` is the one-layer case. A single number could say how wide an MLP's layers are but not how many of them there were.
+
+### Fixed
+
+- **Every family that has a parameter source can select it.** `[param_source=...]` is accepted by the compiler for any family-backed kernel, and exactly one of the 28 conditional families could receive it: `_make_continuous_morphism` passed the keyword into a constructor that only `ConditionalNormal` declared, so the other 27 died on a `TypeError` raised inside `__init__`, with no line or column on it. Every family whose parameters come from a source now takes `param_source` and `param_source_option` and hands them to the one seam that builds it. The four whose parameters do not (`Horseshoe`, `GaussianProcess`, `Independent`, `Transformed`) refuse the option at compile time, naming the family.
+- **`hidden_dim` is read or refused, not dropped.** It was ignored whenever `param_source` was given, so `[param_source=mlp, hidden_dim=32]` silently built the default width. It now reaches the source that has layers to apply it to, and a width aimed at a source with none is an error: asking a single matrix how wide its hidden layers should be has no answer, and silence would read as one.
+- **A scalar response is scored against its codomain's event axis.** A conditional family's parameters for a `d`-dimensional codomain arrive as `(N, d)`. An `(N,)` response against a `d = 1` codomain, which is the shape the response placeholder implies, broadcast to `(N, N)`, and because the observe step sums its score the result was a finite log-joint wrong by a factor of `N`. The axis is restored, and a response that cannot carry the codomain's event shape is rejected rather than broadcast into one. An inline family keeps the plate layout its parameters already align with.
+- **An unsupplied `via` fibration index names itself.** A grouped `marginalize` reads its index from the observations dict like any covariate, so omitting it is a user error; it surfaced as a bare `KeyError`.
+- **`quivers.__version__` reads the installed distribution's metadata.** It was a literal, and it had drifted a release behind.
+
+### Documentation
+
+- **The Bayesian neural network is a neural network.** The example composed four latent morphisms under an algebra whose composition is matrix multiplication, so with no pointwise nonlinearity the chain collapsed to a single linear map; its fit drove a learnable input morphism at pure noise and reported a residual worse than predicting zero, its NUTS block named an `x` and an `observations` no earlier block defined, over a composite carrying no likelihood to sample, and its walkthrough placed matrix-normal priors through a syntax that does not parse. It is now a Bayesian MLP for nonlinear regression whose conditional-Normal kernel emits both a mean and a log-scale, fit to a sine wave that no linear model can represent and scored against the best least-squares line under a matching Gaussian.
+- **The Gaussian mixture is scored per row.** The example grouped a per-row component assignment under a `marginalize` block keyed by a fibration index, which read as an item-grouped mixture and carried a discrete latent no guide could biject. `MixtureNormal` integrates the assignment out in closed form.
+- **`ParamSource` is documented.** Its eight sources and the `[param_source=...]` option had no API page, despite being where a kernel's dependence on its input is computed.
+
+## [0.15.0] - 2026-07-02
+
+### Changed
+
+#### Grammar surface
+
+- **Optional option blocks and a default role.** `morphism` and `contraction` declarations no longer require an option block, and a morphism without `role=` is a kernel. The other roles (`latent`, `observed`, `embed`, `discretize`, `let`) remain explicit. `morphism f : A -> B` is now a complete declaration.
+- **Brace-delimited constructor options.** Continuous-space constructors take keyword options in braces: `Real 1 {low=-1.0, high=1.0}`. A trailing `[...]` always belongs to the enclosing declaration, so the constructor-versus-declaration attachment of an option block is decided by syntax rather than by parse-order luck, and the grammar is now conflict-free.
+- **Signed and scientific numeric literals.** Option values, option-list items, option-call arguments, and constructor keyword values accept signed numbers; floats admit trailing-dot (`1.`), leading-dot (`.5`), and exponent (`1e-3`, `2.5e-3`) forms.
+- **One turnstile.** Top-level `rule` declarations state their conclusion with `|-` (or `⊢`), the same marker deduction rules use.
+- **Homogenized declaration headers.** `bundle NAME : [...]` and `decoder NAME : SIG` use the same `:` connective as every other declaration; the composition level moves into the option block (`composition NAME [level=algebra]`).
+- **`define` binds morphism expressions.** The top-level value binding is `define NAME = EXPR`, with `where` blocks of nested defines scoped to the binding; the program-step `let` binds tensor arithmetic. The two binding forms no longer share a keyword.
+- **Plural-name declarations.** `object A, B : V`, `morphism f, g : A -> B`, and lexicon entries `"a", "an" : CAT = LF` declare one item per name with shared shape and independent parameters, matching the existing `category` list form.
+- **Parenthesized variable patterns.** `sample (a, b) <- f` and `return (a, b)` share one tuple shape; `observe` accepts the same pattern and reports a clear arity error for tuples, which its runtime does not support.
+- **Keyword-led encoder rules.** Encoder constructor rewrites carry a leading `op` (`op App(fun, arg) |-> ...`), so an operator named `dim` or `init` cannot shadow the sibling entry keywords.
+- **Composition operators.** Sequential composition is `>>` and `<<` (the same pipeline written right to left), transformation composition is `>>>`, and the tensor product is `@`. The algebra-tagged operator family (`>=>`, `*>`, `~>`, `||>`, `?>`, `&&>`, `+>`, `$>`, `%>`) is gone; algebra-tagged composition is expressed with `.change_base(...)` or a `composition` declaration.
+- **Migration.** `qvr migrate --from v0.14.0 --to v0.15.0` rewrites sources across all of the above with byte-preserving span edits; the hop is registered on the migration chain with full coverage of the removed rules, and every repository `.qvr` file and fenced doc block is migrated. When a source cannot be migrated (a removed compose operator has no rewrite), the CLI reports the location and exits non-zero rather than raising.
+
+#### Packaging
+
+- **The QVR grammar ships vendored.** Parsing goes through the `qvr` grammar bundled in `panproto-grammars-all`; the floor moves to `panproto>=0.58.0` and `panproto-grammars-all>=0.58.0`, which vendor the current surface and surface tree-sitter's inserted (MISSING) tokens to the walker.
+
+#### Diagnostics
+
+- **Malformed input is rejected, never reinterpreted.** Parsing fails loudly on any damaged span anywhere in the tree, with the innermost offending token's line, column, and source snippet. Inputs that previously parsed to a silently different model, such as `[low=-1.0]` dropping its sign, `[scale=.5]` reading as `5.0`, a mis-bracketed `sample` step vanishing from the program, or a declaration truncated by an unbalanced `{` or `[`, now raise `ParseError` at the exact position.
+- **Closed option-key sets with suggestions.** Every declaration and step kind validates its option keys; an unknown key raises at the entry's own position with a did-you-mean suggestion and the valid set, and a constructor key such as `low` on a declaration adds the hint to attach it with braces on the codomain.
+- **Named failure for a missing `return`.** A program body without a return step reports that directly instead of leaking an internal registry message, and a `Program` holding only parametric templates raises a typed error naming the template and its instantiation call when `.domain` is touched.
+
+### Added
+
+- **A complete source emitter.** [`module_to_source`](https://FACTSlab.github.io/quivers/api/dsl/emit) covers every AST node kind, and a round-trip suite asserts that parsing, emitting, and re-parsing reaches a byte-identical canonical fixed point over every repository `.qvr` file and fenced doc block. LSP formatting uses it directly.
+- **Four gallery examples with end-to-end tests.** A schema-bundled categorial chart parser (`schema`, `bundle`, `parser(...)`, `chart_fold(...)`), a bilinear tensor contraction (`contraction` with operadic three-way wiring), a term autoencoder (`signature`, `encoder`, `decoder`, `loss`), and parametric partial pooling (typed program parameters, labeled return tuples, `score` steps, `export` selection). Tests also cover file-loaded and plural-word lexicons, `define ... where`, doc comments, `.curry_left`/`.curry_right`/`.trace`, and `from_data` tensors flowing through inference.
+- **A diagnostics regression suite** pinning the rejected-input catalogue and message quality, including line and column accuracy.
+
+- **Editor and highlighting support.** The tree-sitter corpus (fifty cases), the VS Code and Zed extensions, and the Pygments lexer that renders `qvr` blocks in the docs all track the current surface.
+
+### Fixed
+
+- **`parser(...)` and `chart_fold(...)` keyword arguments.** The walkers read argument keywords from anonymous-token field constraints; every argument was previously dropped, so no surface form of either expression could compile.
+- **`<<` composition** compiles as the reversed pipeline of `>>`, and reverse chains expand right to left in the transpiler.
+- **Cyclic deductions converge in linearly many agenda pops.** The FIFO agenda merges contributions pushed for an item that is already pending via the semiring's plus, so a contractive cycle reaches its `tolerance` fixed point with at most one queue entry per item per wavefront; previously every contribution was enqueued separately and the pending-entry count grew geometrically with derivation depth.
+- **`bounded` rule weights carry a joint sub-stochastic cap.** Each bounded rule's per-firing factor is strictly below one over the count of the deduction's bounded rules, so the total mass an item can push through them stays below 1 and interlocking cycles (e.g. an introduction / elimination pair over nested constructors) stay contractive for every parameter value; the previous per-rule cap of 1 left such systems free to diverge under fitting.
+
+## [0.14.1] - 2026-07-01
+
+### Fixed
+
+- **v0.11.0 -> v0.14.0 grammar migration hop.** The `CHAIN` in `src/quivers/cli/migrations/__init__.py` now includes `"v0.14.0"`, with the accompanying hop module `v0_11_0_to_v0_14_0.py` and a matching entry in `MIGRATORS` and `COVERAGE`. `qvr migrate --from v0.11.0 --to v0.14.0` composes cleanly; `qvr migrate --check` reports `added_rules: family_call_arg, list_arg` and `uncovered_removed: []` for the pair. The hop is byte-identity: v0.14.0 adds two productions (`family_call_arg`, `list_arg`) to the `_draw_arg` choice as strict grammar extensions, so every source that parses under v0.11.0 also parses under v0.14.0. The `grammars/qvr/vcs/parsers/v0.14.0/` tree-sitter parser snapshot and the panproto VCS object store under `grammars/qvr/vcs/.panproto/` are rebuilt via `python grammars/qvr/vcs/build_schemas.py --reset` and `python grammars/qvr/vcs/build_parsers.py`.
+
+## [0.14.0] - 2026-06-30
+
+### Added
+
+#### Distribution families
+
+- **`OrderedLogistic` distribution + DSL inline observe surface.** PyTorch ships no `OrderedLogistic`. The hand-rolled [`OrderedLogistic`](https://FACTSlab.github.io/quivers/api/continuous/_ordered) implements the cumulative-link form $P(Y=k \mid \eta, c) = \sigma(c_k - \eta) - \sigma(c_{k-1} - \eta)$ via sigmoid-difference probabilities gathered at the observed category. Broadcasting handles three cutpoint shapes uniformly: shared `(K-1,)`, per-row `(batch, K-1)`, and arbitrary leading batch dimensions. Wired into the inline path via `_FAMILY_BUILDERS["OrderedLogistic"]` with a `(predictor, cutpoints)` param schema and `_FAMILY_SUPPORTS["OrderedLogistic"] = nonnegative_integer`. The canonical ordinal-mixed-model program (per-participant cutpoints gathered through a participant index) compiles and traces:
+
+      program ord : Resp -> Resp
+          sample eta <- Normal(0.0, 1.0)
+          let row_cuts = cutpoints[participant_idx]
+          observe y : Resp <- OrderedLogistic(eta, row_cuts)
+          return y
+
+  The host supplies `cutpoints` as a `(num_participants, K-1)` tensor and `participant_idx` as a per-row long tensor; the inline log-prob broadcasts the gathered per-row cutpoints against the predictor.
+- **`ZeroInflatedPoisson` and `HurdlePoisson` distributions.** Two count families brms / Stan users routinely reach for, neither shipped by `torch.distributions`. [`ZeroInflatedPoisson(pi, lambda)`](https://FACTSlab.github.io/quivers/api/continuous/_zip_hurdle) implements the mixture $P(Y=0) = \pi + (1-\pi)\,e^{-\lambda}$, $P(Y=k) = (1-\pi)\,\text{Poisson}(k\mid\lambda)$ for $k > 0$. [`HurdlePoisson(pi, lambda)`](https://FACTSlab.github.io/quivers/api/continuous/_zip_hurdle) implements the two-stage hurdle $P(Y=0) = \pi$, $P(Y=k\mid Y>0) = \text{Poisson}(k\mid\lambda)/(1 - e^{-\lambda})$ for $k > 0$. Both ship `log_prob`, `sample`, and `mean` over arbitrary batch shapes; both register inline and conditional (`ConditionalZeroInflatedPoisson`, `ConditionalHurdlePoisson` over `MLP(x) -> (sigmoid pi, softplus rate)`).
+- **`MixtureNormal` distribution.** Finite Gaussian-mixture with per-row weights, locations, and scales. `log_prob` uses `torch.logsumexp` over `log w_k + log Normal(loc_k, scale_k)`, sample dispatches through a Categorical / Normal pair. Conditional path `ConditionalMixtureNormal(num_components=K, hidden_dim=...)` parameterises all three slots through a single MLP head with softmax / identity / softplus on the appropriate slice.
+- **`Poisson`, `NegativeBinomial`, `Binomial` registered as conditional families.** `ConditionalPoisson`, `ConditionalNegativeBinomial`, `ConditionalBinomial` are now wired into [`_FAMILY_REGISTRY`](https://FACTSlab.github.io/quivers/api/dsl/compiler/_prelude); `morphism f : A -> B [role=kernel] ~ Poisson` and the like compile. The formula frontend's `family="poisson" | "negative_binomial" | "binomial"` paths route through them cleanly, and matching `zero_inflated_poisson`, `hurdle_poisson`, and `mixture` entries land in [`quivers.formulas.family.families`](https://FACTSlab.github.io/quivers/api/formulas/family).
+
+#### Compositional measure algebra
+
+- **Compositional measure algebra at the DSL and Python surfaces.** Distribution families are built by composing five primitive operators from the (sub-)Giry monad rather than by enumerating a Cartesian product of (operator x base family):
+  - `PointMass(x)` — Dirac measure at `x`, the unit $\eta$ of the Giry monad.
+  - `Restrict(D, low, high)` — restriction of `D` to `[low, high]`, the sub-Giry monad's natural operation. Does not renormalise.
+  - `Pushforward(D, b)` — pushforward through a `Bijector`, the Giry monad's functoriality on measurable isomorphisms.
+  - `Mixture(weights, components)` — n-ary convex combination, the unique algebra structure on the Giry monad's Eilenberg-Moore category.
+  - `Independent(D, n)` — declare the last `n` batch dims as event dims (strong monoidal product).
+  - `Normalize(D)` — collapse a sub-measure to a probability measure; right adjoint to inclusion.
+
+  Lazy normalisation: every operator returns a `Measure` whose symbolic `log_normalizer()` propagates through composition, and `Normalize` (or the implicit observe / sample boundary) collapses it. The discipline is the [partial Markov categories axiomatisation](https://arxiv.org/abs/2502.03477) made operational; the closure-under-composition story is the [Hakaru](https://hakaru-dev.github.io/lang/rand/) / [MeasureTheory.jl](https://arxiv.org/abs/2110.00602) / [Scibior et al. 2018](https://doi.org/10.1145/3236778) "unweighted measures as the universal type" insight.
+
+- **`Bijector` library** at `quivers.continuous.bijectors`. Each bijector exposes `forward` / `inverse` / `forward_log_det_jacobian` / `inverse_log_det_jacobian`, all in log space and stable in tails. `Identity`, `Exp`, `Log`, `Sigmoid`, `Logit`, `Softplus`, `Affine`, `StickBreaking`, `Compose`, `Inverse`. Engineering pattern follows [TensorFlow Probability's `Bijector`](https://www.tensorflow.org/probability/api_docs/python/tfp/bijectors/Bijector).
+
+- **QVR grammar extension** for distribution-valued draw args. The `_draw_arg` rule grows two productions:
+  - `family_call_arg` for nested `Family(...)` expressions:
+
+        observe y <- Mixture([0.3, 0.7], [PointMass(0.0), Poisson(2.0)])
+        observe y <- Restrict(Normal(0.0, 1.0), 0.0, 1.0)
+        observe y <- Pushforward(Normal(0.0, 1.0), Exp)
+
+  - `list_arg` for `[item, item, ...]` literals in mixture weights and component lists.
+
+  The parser walks these to new tagged `DrawArg` AST variants (`DrawArgDist`, `DrawArgList`, `DrawArgName`, `DrawArgScalar`) so the compiler recurses on call-shaped args and builds the inner measure before passing it to the outer family's constructor.
+
+- **Compiler sugar table** at `quivers.dsl.compiler.sugar` that desugars the brms-style named families to the canonical operator form at parse time when every argument is a constant literal:
+  - `TruncatedNormal(μ, σ, a, b)` → `Restrict(Normal(μ, σ), a, b)`
+  - `HalfNormal(σ)` → `Restrict(Normal(0, σ), 0)`
+  - `HalfCauchy(σ)` → `Restrict(Cauchy(0, σ), 0)`
+  - `HalfLaplace(σ)` → `Restrict(Laplace(0, σ), 0)`
+  - `HalfStudentT(ν, σ)` → `Restrict(StudentT(ν, 0, σ), 0)`
+
+  Sugar calls with free-variable arguments route through their dedicated inline family entries (`ZeroInflatedPoisson`, `HurdlePoisson`, `MixtureNormal`, etc.), which compose the same `Mixture` / `Restrict` / `PointMass` operators internally. Source can be either form; the compiler canonicalises to the operator form when it can and the pretty-printer re-sugars on the way out.
+
+- **Four compiler rewrite rules** on `Mixture`, each backed by a literature result:
+  - `Mixture.flatten()` — Giry monad associativity ($\mathrm{Mix}(\alpha, \mathrm{Mix}(\beta, A, B), C) \equiv \mathrm{Mix}(\alpha\beta, \alpha(1-\beta), 1-\alpha; A, B, C)$). Closes the [PyMC nested-mixture gap](https://github.com/pymc-devs/pymc/issues/5533).
+  - `Mixture.pushforward_inside(b)` — functoriality of the Giry monad on isos: $g_*(\sum_k \pi_k\,\mu_k) = \sum_k \pi_k\,g_*\mu_k$.
+  - `Mixture.restrict_to(low, high)` — the correct Mixture-Restrict non-commutation identity, reweighting by per-component truncation mass and wrapping the per-component restrictions in `Normalize`. Surfaces the modelling distinction [Welsh et al. 1996](https://doi.org/10.1016/0304-3800(95)00113-1) flag at the operator level.
+  - `Mixture.lift_point_masses()` — surfaces `PointMass` components as the Bernoulli-style branch the ZIP / hurdle canonical factorisation expects (the [Lambert 1992](https://doi.org/10.2307/1269547) / [Mullahy 1986](https://doi.org/10.1016/0304-4076(86)90002-3) shape derived from the operator combination rather than baked per family).
+
+#### Pluggable parameter sources
+
+- **`ParamSource` ABC** at `quivers.continuous.param_source`. Every `ConditionalX` family accepts a `param_source=` override in place of the default two-layer MLP. Concrete sources: `LinearSource` (matches the transpile backends' single-matmul emit exactly), `MLPSource(hidden_dims, activation)` (the parameterised default), `LookupSource(n_entries, param_dim)` (discrete-domain table), `EmbeddingSource(n_entries, embed_dim, head)` (embedding + downstream head), `AttentionSource(num_heads)` (self-attention over the input dimension), `IdentitySource` (parameters supplied as data), `FunctionSource(fn, param_dim)` (wraps any `nn.Module` or callable), `ComposeSource(outer, inner)` (categorical composition). The DSL surface reads `[param_source=<kind>[(...)]]` on `morphism` declarations:
+
+      morphism trans : State -> State [role=kernel, param_source=linear] ~ Normal
+      morphism trans : State -> State [role=kernel, param_source=mlp(64, 64)] ~ Normal
+      morphism attn  : Token -> Hidden [role=kernel, param_source=attention(heads=4)] ~ Normal
+
+- **Parameter transforms unified with the bijector library.** `quivers.continuous.param_transforms` ships `TRANSFORM_TO_BIJECTOR` and `INLINE_CLAMP_TO_BIJECTOR` registries mapping every historical string key (`"id"`, `"sigmoid"`, `"softplus"`, `"softplus_shifted"`, `"exp"`) to a `Bijector` instance. `ParamSpec.transform` accepts a string key or a `Bijector` directly. `_make_family` routes raw parameter tensors through `bijector.forward`, so `inverse`, `forward_log_det_jacobian`, and `inverse_log_det_jacobian` are available on the guide and pushforward paths.
+
+#### Variational objectives
+
+- Three new objectives on the `Objective` ABC. Each is a subclass alongside `ELBO`, `IWAEBound`, `RenyiBound`, `VRIWAEBound`; each accepts the same `GradientEstimator` strategy attribute as the existing objectives.
+    - `ChiVI` minimises the chi-squared upper bound on `log p(y)` via the CUBO surrogate ([Dieng et al. 2017](https://doi.org/10.48550/arXiv.1611.00328)). Useful for posterior calibration and for sandwich estimates with the ELBO.
+    - `RWS` implements reweighted wake-sleep with a wake-theta phase on the model and a wake-phi phase on the guide ([Bornschein and Bengio 2015](https://doi.org/10.48550/arXiv.1406.2751)). Handles discrete latents where the reparameterization trick does not apply.
+    - `DReGsBound` pairs the IWAE bound with the doubly-reparameterised gradient surrogate ([Tucker et al. 2019](https://doi.org/10.48550/arXiv.1810.04152)). Removes the score-function term whose signal-to-noise ratio collapses with `K` in naive reparameterised IWAE. Distinct from the `DoublyReparameterized` gradient-estimator strategy: the estimator is the scalar gradient rule, `DReGsBound` is the (bound + estimator) pair for callers that want to switch both together.
+
+#### Autoguide combinators
+
+- `AutoGuideList` concatenates disjoint per-block guides so a single model can hold, for example, `AutoNormal` on local variables and `AutoMultivariateNormal` on a small global block.
+- `AutoStructured` admits per-site conditional choice (delta / normal / mvn) plus per-edge dependencies (linear affine or a user-supplied callable) walked in ancestral order.
+- Pyro-style short-name aliases (`AutoNormal`, `AutoMultivariateNormal`, `AutoLowRankMVN`, `AutoDelta`, `AutoLaplace`, `AutoIAFNormal`) re-exported from `quivers.inference.guides` as thin aliases for the pre-existing `Auto*Guide` classes.
+
+#### Algebraic effect handlers
+
+- `quivers.effects` package: `EffectHandler` ABC with a thread-local handler stack and three-phase `apply_stack(msg, default=...)` dispatch, plus `run_program` that walks a `MonadicProgram` through the active stack. The design mirrors the Pyro `poutine` / NumPyro `handlers` `Messenger` protocol ([Plotkin and Pretnar 2009](https://doi.org/10.1007/978-3-642-00590-9_7), [Scibior et al. 2018](https://doi.org/10.1145/3236778)).
+- Handlers: `TraceHandler`, `clamp(data)` (poutine-style pin of sample sites; the name avoids the collision with the top-level `condition` factory that returns a `Conditioned` model wrapper), `do(data)` (Pearl intervention), `mask(mask_tensor)`, `scale(factor)`, `block(names)`, `replay(trace)`, `lift(prior_scale)`, `collapse()`. The handlers compose: `clamp + scale + mask` is the subsampled-mini-batch likelihood pattern; `do + trace` is intervention-then-record.
+- The `EffectHandler` ABC is distinct from `quivers.monadic.algebraic.Handler`. `EffectHandler` is a mutable-message dispatcher for runtime interception of a `MonadicProgram`; `monadic.algebraic.Handler` is a free-monad-over-signature interpreter that folds a bounded-depth signature tree into a target monad. Different territories; both remain.
+
+- **Reparameterisation strategies** at `quivers.effects.reparam` wrap sample sites and rewrite their distributions: `LocScaleReparam` for the centred / non-centred rewrite of Normal(loc, scale) sites, `TransformReparam(bijector)` driving change-of-variables through the bijector library, `NeuTraReparam(autoguide)` warping HMC geometry through a trained `AutoIAFGuide`, `ConjugateReparam` for analytic conjugate collapse. The `reparam({name: strategy})` orchestrator wires per-site strategies into the effect stack:
+
+      with reparam({"theta": LocScaleReparam(), "z": NeuTraReparam(guide)}):
+          samples = nuts.run(model, x, observations)
+
+#### Diagnostics for any fit type
+
+- **`to_datatree_from_svi`** and **`to_datatree_any`** at `quivers.diagnostics` dispatch on fit type. Every ArviZ downstream (`loo`, `waic`, `plot_trace`, `compare`) works uniformly on `MCMCResult`, `Guide` / `Predictive` draws, or `(samples, log_densities)` tuples.
+
+#### Extensible transpile IR
+
+- **`quivers.transpile`** ships the target-agnostic scaffold: the `IRNode` tagged-union IR with `ConstraintSpec` taxonomy, `IRArg` variants, `Dim` / `Plate` shape metadata; the `Lower` AST-to-IR mapping; the `RendererBase` shared machinery; the `FAMILY_META` per-family transpile metadata registry; and the `renderer_registry` emit-hook table. Target-specific backend renderers live on their own branches; they register per-`(backend, IRNode)` emits via `@emit_hook(backend_name, node_type)`.
+
+### Changed
+
+- **`SampleStep.args` / `ObserveStep.args` type signatures** widen from `tuple[str | float, ...]` to `tuple[DrawArg, ...]` over the new tagged AST union. The compiler's inline path unwraps `DrawArgName` -> `str` and `DrawArgScalar` -> `float` at entry so the existing arg-shape machinery continues to handle them; `DrawArgDist` and `DrawArgList` are recognised by the operator-family dispatch.
+
+- **`ZeroInflatedPoisson`, `HurdlePoisson`, `MixtureNormal` internals** route through the measure algebra: each user-facing class delegates `log_prob` / `sample` to a `Mixture` of `PointMass` and (for hurdle) `Normalize(Restrict(...))`. The user-facing API is unchanged; the renderer-side IR sees a single Mixture-with-PointMass shape rather than per-family hand-rolled emit logic.
+
+- **`_make_source`** in `quivers.continuous.morphisms` accepts a `param_source=` override; every family that constructs its source through `_make_source` gains the same kwarg plus a `param_source_option=` string form.
+
+- **`quivers.inference.trace.trace`** becomes a thin wrapper that pushes a `TraceHandler` and delegates to `run_program`. The API is unchanged.
+
+### Fixed
+
+- **`Restrict.log_normalizer()` for continuous bases** uses `cdf(low)` for continuous bases and `cdf(low - 1)` (or the survival-sum path for distributions without a `cdf` method) for integer-supported bases, matching the standard truncation-mass formula for each support type.
+
+- **`HurdlePoisson` log-density** handles the survival-sum formula for `Poisson`-restricted-to-`{1, 2, ...}` via `1 - e^{-\lambda}` plus a general pmf-sum for arbitrary integer intervals. Works around `torch.distributions.Poisson`'s absent `cdf`.
+
+- **`OrderedLogistic.sample` accepts any `Sequence[int]` for `sample_shape`.** `torch.distributions.Distribution.sample`'s contract admits tuple, list, or `torch.Size`; `sample_shape` is coerced through `torch.Size` at the top of the method so every shape form works.
+
+- **Inline DSL `observe ... <- OrderedLogistic(predictor, cutpoints)` routes a shared cutpoints vector as a distribution parameter.** `quivers.continuous.inline` ships a `_PARAM_EVENT_RANKS` table declaring each family parameter's event rank (0 = per-row scalar, 1 = shared-or-per-row vector). `_resolve_input` reads the table through the wrapping `VectorisedObserve._param_event_ranks` property and broadcasts rank-1 shared vectors to per-row shape before stacking; `MixedInlineDistribution` takes a `param_event_ranks` argument and lets the trailing vector-typed slot consume the remaining columns of the stacked input. Covers `OrderedLogistic(predictor:(N,), cutpoints:(K-1,) or (N,K-1))` plus `MixtureNormal`, `ZeroInflatedPoisson`, and `HurdlePoisson`.
+
+- **DSL quick-start docstring uses grammar keywords.** [`quivers.dsl`](https://FACTSlab.github.io/quivers/api/dsl)'s module docstring's `loads(...)` example compiles against the canonical `KIND NAME : SIGNATURE` surface (`program NAME : A -> B` with `sample` / `observe` / `return` steps and a top-level `export NAME`), no `latent` / `output` / `alias` (none of which are grammar keywords).
+
+- **REPL/LSP guide examples use the current morphism surface.** [`docs/guides/repl-and-lsp.md`](https://FACTSlab.github.io/quivers/guides/repl-and-lsp) shows `morphism NAME : ... [role=latent]` for latent-role morphisms and `object NAME : FinSet N` for finite-set declarations.
+
 ## [0.13.0] - 2026-05-22
 
 ### Added

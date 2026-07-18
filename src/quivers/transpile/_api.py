@@ -385,7 +385,7 @@ STAN_LIKE: frozenset[str] = frozenset(
     {
         "object_decl",
         "morphism_decl",
-        "let_decl",
+        "define_decl",
         "program_decl",
         "export_decl",
     }

@@ -52,14 +52,14 @@ This denotation does not require associativity, an identity, or distributivity: 
 | `Semigroupoid` | Associativity: $f \mathbin{>\!>} (g \mathbin{>\!>} h) = (f \mathbin{>\!>} g) \mathbin{>\!>} h$. |
 | `Algebra` | Associativity, identity ($\mathrm{id}_A \mathbin{>\!>} f = f = f \mathbin{>\!>} \mathrm{id}_B$), and distributivity. |
 
-The compact-closed operations of $\mathcal{V}\text{-}\mathbf{Rel}$ (`identity(A)`, `cup(A)`, `cap(A)`, `f.dagger`, `f.trace(A)`) require both an identity element and the meet / negation pair; their denotations consequently exist only at the `Algebra` level. The compiler enforces this statically: in a module declared as `semigroupoid X` or `bilinear_form X` or `composition_rule X`, the operations above raise a typed `CompileError`.
+The compact-closed operations of $\mathcal{V}\text{-}\mathbf{Rel}$ (`identity(A)`, `cup(A)`, `cap(A)`, `f.dagger`, `f.trace(A)`) require both an identity element and the meet / negation pair; their denotations consequently exist only at the `Algebra` level. The compiler enforces this statically: in a module declared with `composition X [level=semigroupoid]`, `[level=bilinear_form]`, or `[level=rule]`, the operations above raise a typed `CompileError`.
 
 ## 3. User-defined composition rules
 
-The `.qvr` surface admits the declaration of a fresh composition rule via the unified `composition` keyword, the level chosen by an `as` clause, and the rule body supplied as an indented block of entries:
+The `.qvr` surface admits the declaration of a fresh composition rule via the unified `composition` keyword, the level chosen by a `[level=...]` option, and the rule body supplied as an indented block of entries:
 
 ```
-composition NAME as algebra
+composition NAME [level=algebra]
     tensor_op(a, b) = E_⊗
     join(t)         = E_⋁
     unit            = E_1
@@ -67,20 +67,20 @@ composition NAME as algebra
     negation(a)     = E_¬     # optional
     meet(t)         = E_⋀     # optional
 
-composition NAME as semigroupoid
+composition NAME [level=semigroupoid]
     tensor_op(a, b) = E_⊗
     join(t)         = E_⋁
 
-composition NAME as bilinear_form
+composition NAME [level=bilinear_form]
     tensor_op(a, b) = E_⊗
     join(t)         = E_⋁
 
-composition NAME as rule
+composition NAME [level=rule]
     tensor_op(a, b) = E_⊗
     join(t)         = E_⋁
 ```
 
-The `composition` keyword is a top-level *selector* / *definer* statement: with no body and no `as` clause it resolves the named rule from the built-in catalog and registers it as the module's composition rule; with an `as` clause but no body it resolves a built-in rule and verifies it matches the declared algebraic level; with a body it declares the rule's operations inline as shown above. There is no per-level keyword variant: `algebra X`, `semigroupoid X`, `bilinear_form X`, `composition_rule X` all desugar to the unified `composition X as <level>` form.
+The `composition` keyword is a top-level *selector* / *definer* statement: with no body and no `[level=...]` option it resolves the named rule from the built-in catalog and registers it as the module's composition rule; with a `[level=...]` option but no body it resolves a built-in rule and verifies it matches the declared algebraic level; with a body it declares the rule's operations inline as shown above. The level travels in the option block, so `composition X [level=algebra]`, `composition X [level=semigroupoid]`, `composition X [level=bilinear_form]`, and `composition X [level=rule]` are the four declared forms.
 
 Each entry's RHS is a let-expression (the same fragment used in `let v = expr` lines elsewhere in the surface, [§ Expressions](expressions.md)). The declaration's denotation is the named composition rule
 
@@ -210,9 +210,9 @@ A mismatch surfaces as a typed compile-time error naming the two clashing algebr
 
 The composition-rule hierarchy and the operadic contraction surface are stratified additions: they extend the language conservatively over the [§ Setting](setting.md). Concretely:
 
-- A module declared as `algebra X` denotes a morphism in $X\text{-}\mathbf{Rel}$ exactly as in [§ Morphisms](morphisms.md). The new strata add no new morphisms at this level.
-- A module declared as `semigroupoid X` or `bilinear_form X` or `composition_rule X` denotes a morphism in the corresponding weaker enriched category, with the compact-closed surface restricted as described in § 2 above.
+- A module declared with `composition X [level=algebra]` denotes a morphism in $X\text{-}\mathbf{Rel}$ exactly as in [§ Morphisms](morphisms.md). The new strata add no new morphisms at this level.
+- A module declared with `composition X [level=semigroupoid]`, `[level=bilinear_form]`, or `[level=rule]` denotes a morphism in the corresponding weaker enriched category, with the compact-closed surface restricted as described in § 2 above.
 - The operadic contraction operation `op_apply(a_1, ..., a_n)` denotes the wiring's action on the supplied morphisms; the result lives in the same enriched category and is composable with the rest of the program under `>>` (subject to the surrounding rule's algebraic guarantees).
 - First-class transformations refine the existing [§ Algebras § 3](algebras.md#3-base-change) base-change surface: every named singleton there is now a let-bindable value, every parametric constructor produces a let-bindable value, and `>>>` composes them.
 
-The conservativity claim is the formal content of the implementation's class hierarchy: removing a `semigroupoid` or `bilinear_form` declaration and replacing it with `algebra` of the same name (when the named rule is in fact at algebra level) gives a strictly stronger module that admits every operation the original did, plus the compact-closed surface.
+The conservativity claim is the formal content of the implementation's class hierarchy: changing a composition's `[level=semigroupoid]` or `[level=bilinear_form]` to `[level=algebra]` for the same rule (when the named rule is in fact at algebra level) gives a strictly stronger module that admits every operation the original did, plus the compact-closed surface.

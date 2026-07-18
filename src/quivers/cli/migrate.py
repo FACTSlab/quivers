@@ -103,7 +103,11 @@ def main(args: argparse.Namespace) -> int:
     changed = 0
     for src_path in inputs:
         source = src_path.read_bytes()
-        migrated = migrate_fn(source)
+        try:
+            migrated = migrate_fn(source)
+        except (MigrateError, MigrationError) as exc:
+            print(f"qvr migrate: {src_path}: {exc}", file=sys.stderr)
+            return 2
         if migrated == source:
             continue
         changed += 1

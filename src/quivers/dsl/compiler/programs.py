@@ -1,7 +1,8 @@
-"""Compiler mixin: program / contraction / let compilation.
+"""Compiler mixin: program / contraction / define compilation.
 
 Handles bind-step expansion, effect verification, template inlining,
-program bodies, contractions, and let-expression compilation.
+program bodies, contractions, define bindings, and let-expression
+compilation.
 """
 
 from __future__ import annotations
@@ -31,21 +32,18 @@ from quivers.dsl.ast_nodes import (
     BindStep,
     ContractionDecl,
     ContractionInput,
-    DrawArg,
-    DrawArgList,
-    DrawArgMatrix,
+    DrawArgIndex,
     DrawArgName,
     DrawArgScalar,
     DrawStep,
     Expr,
-    atom_to_draw_arg,
     ExprIdent,
     ExprMorphismCall,
     ExprTransCompose,
+    DefineDecl,
     GroupedBodyObserveStep,
     GroupedLatentInitStep,
     GroupedObserveEntry,
-    LetDecl,
     LetExprBinOp,
     LetExprCall,
     LetExprIndex,
@@ -77,6 +75,8 @@ from quivers.dsl.ast_nodes import (
     VectorisedObserveStep,
 )
 from quivers.dsl.compiler._options import (
+    check_option_keys,
+    find_option,
     get_option_name,
     get_option_name_list,
     get_option_string,
@@ -90,6 +90,29 @@ from quivers.dsl.compiler._prelude import (
     _get_family_registry,
     _numel_shape,
 )
+
+
+def _fibration_index(env: dict[str, torch.Tensor], name: str) -> torch.Tensor:
+    """Resolve a grouped-marginalize ``via`` fibration index from the
+    runtime environment.
+
+    The index is a per-row map from the response plate into the
+    grouping plate, supplied as host data through the observations
+    dict (like any free covariate). A name that resolves to nothing
+    is a user error, so it fails with a clear message rather than a
+    bare ``KeyError``.
+    """
+    idx = env.get(name)
+    if idx is None:
+        raise CompileError(
+            f"grouped marginalize: the ``via`` fibration index {name!r} "
+            f"is neither a bound program variable nor supplied at runtime; "
+            f"pass it in the observations dict as a long tensor of "
+            f"row-to-group indices",
+            0,
+            0,
+        )
+    return idx
 
 
 # Value carried by a let-binding at compile time.  The let
@@ -233,38 +256,6 @@ _LET_EXPR_BUILTINS: dict[str, Callable] = {
 }
 
 
-def _draw_arg_to_name(arg: DrawArg) -> str:
-    """Extract the name from a `DrawArgName`, raising for other variants.
-
-    The compiler's per-step-args fast path treats every arg as a
-    reference to a previously-bound name; this helper enforces the
-    invariant.
-    """
-    if isinstance(arg, DrawArgName):
-        return arg.text
-    raise TypeError(
-        f"_draw_arg_to_name: expected DrawArgName, got "
-        f"{type(arg).__name__}"
-    )
-
-
-def _draw_arg_to_wire(arg: DrawArg) -> str | float:
-    """Lower a `DrawArg` atomic variant to its wire form.
-
-    Raises on compound variants (`DrawArgList`, `DrawArgMatrix`);
-    compound args go through the new transpile path, not through the
-    classical compiler's inline-distribution machinery.
-    """
-    if isinstance(arg, DrawArgScalar):
-        return arg.value
-    if isinstance(arg, DrawArgName):
-        return arg.text
-    raise TypeError(
-        f"_draw_arg_to_wire: compound argument "
-        f"{type(arg).__name__} not supported by inline distributions"
-    )
-
-
 def _expected_call_arity(target: object) -> int | None:
     """Return the expected number of positional arguments for ``target``
     when invoked from a let-expression call site, or ``None`` when the
@@ -288,7 +279,7 @@ def _expected_call_arity(target: object) -> int | None:
         return 1
     try:
         sig = inspect.signature(target)  # type: ignore[arg-type]
-    except (TypeError, ValueError):
+    except TypeError, ValueError:
         return None
     positional_kinds = (
         inspect.Parameter.POSITIONAL_ONLY,
@@ -417,8 +408,30 @@ def _infer_wiring_from_signature(
     return f"{', '.join(input_letter_groups)} -> {output_letters}"
 
 
+# Closed option-key sets for the program surface. Each set lives next
+# to the code that consumes it; `check_option_keys` rejects
+# anything outside the set with a did-you-mean diagnostic at the
+# offending entry's own line/col.
+#
+# * ``sample`` steps read the axis-role clause (``over`` / ``iid_over``),
+#   which the parser lifts into the step's `AxisSpec`.
+# * ``observe`` steps additionally read ``via`` (the per-observe
+#   fibration inside grouped marginalize blocks).
+# * ``marginalize`` steps read the grouping plate (``over``) and the
+#   pushforward ``reduction``.
+# * ``program`` declarations read the ``effects`` capability row and
+#   the posterior-block ``over`` model reference.
+# * ``contraction`` declarations read the composition ``rule``, the
+#   explicit einsum ``wiring`` escape hatch, and the ``share`` list.
+_SAMPLE_STEP_OPTION_KEYS: frozenset[str] = frozenset({"over", "iid_over"})
+_OBSERVE_STEP_OPTION_KEYS: frozenset[str] = frozenset({"via", "over", "iid_over"})
+_MARGINALIZE_STEP_OPTION_KEYS: frozenset[str] = frozenset({"over", "reduction"})
+_PROGRAM_OPTION_KEYS: frozenset[str] = frozenset({"effects", "over"})
+_CONTRACTION_OPTION_KEYS: frozenset[str] = frozenset({"rule", "wiring", "share"})
+
+
 class _ProgramsMixin:
-    """Mixin: program / contraction / let compilation methods.
+    """Mixin: program / contraction / define compilation methods.
 
     The compiler base supplies every environment slot below; the
     annotations let the type checker verify each access from a
@@ -449,8 +462,25 @@ class _ProgramsMixin:
         with a ``mode`` discriminator. This translator is the seam: it
         is the only place the surface step kinds appear inside the
         compiler.
+
+        Before normalising, sugar families are desugared to their
+        canonical operator-algebra form (`TruncatedNormal` ->
+        `Restrict(Normal, low, high)`, etc.) via
+        [`desugar_step`][quivers.dsl.compiler.sugar.desugar_step], so
+        downstream IR walks the single operator vocabulary.
         """
+        from quivers.dsl.compiler.sugar import desugar_step
+
+        if isinstance(step, (SampleStep, ObserveStep)):
+            step = desugar_step(step)
         if isinstance(step, SampleStep):
+            check_option_keys(
+                step.options,
+                _SAMPLE_STEP_OPTION_KEYS,
+                owner="sample step",
+                line=step.line,
+                col=step.col,
+            )
             return BindStep(
                 vars=step.vars,
                 morphism=step.morphism,
@@ -462,8 +492,25 @@ class _ProgramsMixin:
                 col=step.col,
             )
         if isinstance(step, ObserveStep):
+            check_option_keys(
+                step.options,
+                _OBSERVE_STEP_OPTION_KEYS,
+                owner="observe step",
+                line=step.line,
+                col=step.col,
+            )
+            if len(step.vars) != 1:
+                # The runtime observe path (response clamping via the
+                # observations dict, VectorisedObserve, grouped
+                # marginalize capture) is single-response throughout;
+                # a tuple pattern on observe has no runtime meaning.
+                raise CompileError(
+                    f"observe takes a single variable; got ({', '.join(step.vars)})",
+                    step.line,
+                    step.col,
+                )
             return BindStep(
-                vars=(step.var,),
+                vars=step.vars,
                 morphism=step.morphism,
                 args=step.args,
                 index=step.index,
@@ -475,6 +522,13 @@ class _ProgramsMixin:
                 col=step.col,
             )
         if isinstance(step, MarginalizeStep):
+            check_option_keys(
+                step.options,
+                _MARGINALIZE_STEP_OPTION_KEYS,
+                owner="marginalize step",
+                line=step.line,
+                col=step.col,
+            )
             return BindStep(
                 vars=(step.var,),
                 morphism=step.morphism,
@@ -547,7 +601,7 @@ class _ProgramsMixin:
                     # time; the IR carries a `codomain` field that
                     # the compiler's PlateDrawStep handler resolves
                     # via the family's domain/codomain dimensions.
-                    # For the v0.5 unified surface, the index annotation
+                    # Under the unified surface, the index annotation
                     # `: A` declares the index set; the per-row codomain
                     # is implicit (taken from the family). We supply a
                     # placeholder `TypeName("1")` which the family
@@ -672,7 +726,16 @@ class _ProgramsMixin:
                             step.col,
                         )
                     first = step.args[0]
-                    if not isinstance(first, DrawArgName):
+                    # `first` is a `DrawArg` tagged variant on the
+                    # widened AST. A `DrawArgName` carries the
+                    # identifier text; other variants (literal,
+                    # nested distribution call, list literal) are
+                    # not admissible as the probs argument.
+                    if isinstance(first, DrawArgName):
+                        probs_var = first.text
+                    elif isinstance(first, str):
+                        probs_var = first
+                    else:
                         raise CompileError(
                             "grouped marginalize: the categorical family's "
                             "first argument must be a named probs tensor "
@@ -680,7 +743,6 @@ class _ProgramsMixin:
                             step.line,
                             step.col,
                         )
-                    probs_var = first.text
                 # Introduce the coordinate. For an *ungrouped*
                 # marginalize block the latent is a real sample
                 # from its categorical prior; for a *grouped*
@@ -827,8 +889,7 @@ class _ProgramsMixin:
                 # Pushforward reduction. When grouped, the
                 # GroupedMarginalizeStep carries the list of per-observe
                 # (ll_slot, fibration) entries the runtime callable
-                # consumes; the legacy single-fibration fields are
-                # gone.
+                # consumes.
                 single_over = (
                     over_names[0]
                     if over_names is not None and len(over_names) == 1
@@ -980,7 +1041,7 @@ class _ProgramsMixin:
         self,
         tmpl: ProgramDecl,
         bind_name: str,
-        args: tuple[DrawArg, ...],
+        args: tuple,
         call_site: ProgramStep,
     ) -> tuple[ProgramStep, ...]:
         """Realise one call site of a parametric program template.
@@ -1009,12 +1070,15 @@ class _ProgramsMixin:
         # Build the parameter-substitution environment.
         type_subst: dict[str, ObjectExpr] = {}
         value_subst: dict[str, str | float] = {}
-        wire_args: tuple[str | float, ...] = tuple(
-            _draw_arg_to_wire(a) for a in args
-        )
-        for param, arg in zip(type_params, wire_args):
+        for param, arg in zip(type_params, args):
             if isinstance(param, ObjectParam):
-                if not isinstance(arg, str):
+                # `DrawArgName` carries the identifier text; a bare
+                # `str` remains admissible for legacy synthetic
+                # steps. Anything else is a literal or nested
+                # distribution call, not a valid type-name argument.
+                if isinstance(arg, DrawArgName):
+                    arg = arg.text
+                elif not isinstance(arg, str):
                     raise CompileError(
                         f"template {tmpl.name!r}: parameter {param.name!r} "
                         f"({param.universe}) requires a type-name argument, "
@@ -1055,16 +1119,23 @@ class _ProgramsMixin:
                     name=arg, line=call_site.line, col=call_site.col
                 )
             elif isinstance(param, ScalarParam):
-                if isinstance(arg, str):
-                    # Scalar parameter passed as a name (e.g., a previously
-                    # let-bound scalar in the caller). Pass through as a
-                    # string reference; the caller's bound_vars will
-                    # resolve it at draw-site time.
+                # A scalar parameter admits either a numeric literal
+                # (`DrawArgScalar`) or a bound-name reference
+                # (`DrawArgName`). Legacy `str` / `float` values from
+                # compiler-synthesized call sites are equally
+                # admissible.
+                if isinstance(arg, DrawArgName):
+                    value_subst[param.name] = arg.text
+                elif isinstance(arg, DrawArgScalar):
+                    value_subst[param.name] = float(arg.value)
+                elif isinstance(arg, str):
                     value_subst[param.name] = arg
                 else:
                     value_subst[param.name] = float(arg)
             elif isinstance(param, MorphismParam):
-                if not isinstance(arg, str):
+                if isinstance(arg, DrawArgName):
+                    arg = arg.text
+                elif not isinstance(arg, str):
                     raise CompileError(
                         f"template {tmpl.name!r}: parameter {param.name!r} : "
                         f"Mor[...] expects a morphism name, got {arg!r}",
@@ -1127,7 +1198,7 @@ class _ProgramsMixin:
                 if isinstance(step, SampleStep):
                     out.update(step.vars)
                 elif isinstance(step, ObserveStep):
-                    out.add(step.var)
+                    out.update(step.vars)
                 elif isinstance(step, MarginalizeStep):
                     out.add(step.var)
                     if step.scope:
@@ -1185,22 +1256,62 @@ class _ProgramsMixin:
 
     def _rename_args(
         self,
-        args: tuple[DrawArg, ...] | None,
+        args: tuple | None,
         value_subst: dict[str, str | float],
         rename: dict[str, str],
-    ) -> tuple[DrawArg, ...] | None:
-        """Apply parameter substitution and α-renaming inside a draw-arg list."""
+    ) -> tuple | None:
+        """Apply parameter substitution and alpha-renaming inside a
+        draw-arg list. `args` is a tuple of `DrawArg` tagged variants
+        (legacy bare `str` / `float` values also pass through). A
+        `DrawArgName` whose `text` matches a substitution key is
+        rewritten to the substituted value: a numeric substitute
+        becomes `DrawArgScalar`, a string substitute becomes a
+        `DrawArgName` with the new text.
+        """
         if args is None:
             return None
-        out: list[DrawArg] = []
+        out: list = []
         for a in args:
             if isinstance(a, DrawArgName):
-                text = a.text
-                if text in value_subst:
-                    replacement = value_subst[text]
-                    out.append(atom_to_draw_arg(replacement))
-                elif text in rename:
-                    out.append(DrawArgName(text=rename[text], line=a.line, col=a.col))
+                key = a.text
+                if key in value_subst:
+                    sub = value_subst[key]
+                    if isinstance(sub, (int, float)) and not isinstance(sub, bool):
+                        out.append(DrawArgScalar(value=float(sub)))
+                    else:
+                        out.append(DrawArgName(text=str(sub)))
+                elif key in rename:
+                    out.append(DrawArgName(text=rename[key]))
+                else:
+                    out.append(a)
+            elif isinstance(a, DrawArgIndex):
+                # Rewrite the base name plus every index identifier
+                # under the substitution / rename maps so both the
+                # tensor and its indexing plate propagate through
+                # template instantiation.
+                new_name = a.name
+                if new_name in value_subst:
+                    sub = value_subst[new_name]
+                    new_name = (
+                        str(sub) if not isinstance(sub, (int, float)) else new_name
+                    )
+                elif new_name in rename:
+                    new_name = rename[new_name]
+                new_indices: list[str] = []
+                for ix in a.indices:
+                    if ix in value_subst:
+                        sub_ix = value_subst[ix]
+                        new_indices.append(str(sub_ix))
+                    elif ix in rename:
+                        new_indices.append(rename[ix])
+                    else:
+                        new_indices.append(ix)
+                out.append(DrawArgIndex(name=new_name, indices=tuple(new_indices)))
+            elif isinstance(a, str):
+                if a in value_subst:
+                    out.append(value_subst[a])
+                elif a in rename:
+                    out.append(rename[a])
                 else:
                     out.append(a)
             else:
@@ -1447,7 +1558,7 @@ class _ProgramsMixin:
 
     def _compile_morphism_call(self, expr: ExprMorphismCall):
         """Compile ``callee(arg1, arg2, …)`` — currently used to
-        invoke a `ContractionDecl` at a let-binding site.
+        invoke a `ContractionDecl` at a define-binding site.
 
         Resolves ``expr.callee`` against the registered
         contractions, validates that the argument count matches
@@ -1462,7 +1573,7 @@ class _ProgramsMixin:
         contraction = self._contractions.get(expr.callee)
         if contraction is None:
             # Fall through to parametric-program template
-            # invocation: ``let applied = p(f)`` is the existing
+            # invocation: ``define applied = p(f)`` is the existing
             # surface and should keep working when ``p`` is a
             # parametric program rather than a contraction.
             if expr.callee in self._program_templates:
@@ -1571,8 +1682,8 @@ class _ProgramsMixin:
         return _invoke
 
     def _compile_program_template_call(self, expr: ExprMorphismCall):
-        """Instantiate a parametric program template at a let-binding
-        site: ``let applied = p(f, …)`` substitutes the actual
+        """Instantiate a parametric program template at a define-binding
+        site: ``define applied = p(f, …)`` substitutes the actual
         morphism / object / scalar arguments for the template's
         formal parameters, builds a synthetic non-parametric
         `ProgramDecl`, and compiles it into a runtime
@@ -1721,7 +1832,7 @@ class _ProgramsMixin:
         `ObservedMorphism` whose tensor is the contraction
         result. The callable is registered in the morphism table
         so the user can invoke it like any other morphism:
-        ``let out = op_apply(arg1, arg2, kernel)``.
+        ``define out = op_apply(arg1, arg2, kernel)``.
         """
         if decl.name in self._morphisms or decl.name in self._program_templates:
             raise CompileError(
@@ -1729,6 +1840,13 @@ class _ProgramsMixin:
                 decl.line,
                 decl.col,
             )
+        check_option_keys(
+            decl.options,
+            _CONTRACTION_OPTION_KEYS,
+            owner=f"contraction {decl.name!r}",
+            line=decl.line,
+            col=decl.col,
+        )
         declared_rule = get_option_name(
             decl.options,
             "rule",
@@ -1744,12 +1862,23 @@ class _ProgramsMixin:
             )
         rule_name = declared_rule.lower()
         if rule_name not in _ALGEBRA_REGISTRY:
+            rule_entry = find_option(decl.options, "rule")
+            ln = (
+                rule_entry.line
+                if rule_entry is not None and rule_entry.line
+                else decl.line
+            )
+            cl = (
+                rule_entry.col
+                if rule_entry is not None and rule_entry.line
+                else decl.col
+            )
             raise CompileError(
                 f"contraction {decl.name!r}: unknown rule "
                 f"{declared_rule!r}; available: "
                 f"{', '.join(sorted(_ALGEBRA_REGISTRY))}",
-                decl.line,
-                decl.col,
+                ln,
+                cl,
             )
         rule = _ALGEBRA_REGISTRY[rule_name]
         wiring_text = get_option_string(
@@ -1846,6 +1975,13 @@ class _ProgramsMixin:
         fact that distinct call sites contribute distinct factors
         to the parent's joint kernel.
         """
+        check_option_keys(
+            decl.options,
+            _PROGRAM_OPTION_KEYS,
+            owner=f"program {decl.name!r}",
+            line=decl.line,
+            col=decl.col,
+        )
         if decl.type_params is not None:
             # Parametric program — store as a template; defer body
             # compilation until each call site instantiates it.
@@ -1892,7 +2028,7 @@ class _ProgramsMixin:
                     bound_vars[pname] = factor
             else:
                 bound_vars[decl.params[0]] = domain
-        # First, expand the v0.5 unified surface (BindStep) into the
+        # First, expand the unified surface (BindStep) into the
         # internal IR (DrawStep / PlateDrawStep / VectorisedObserveStep /
         # GroupedMarginalizeStep) that the rest of the compiler consumes.
         # The expansion translates each BindStep based on its mode +
@@ -2324,13 +2460,13 @@ class _ProgramsMixin:
                             if fib_axes is not None:
                                 idx_tuple = []
                                 for axis_name in fib_axes:
-                                    idx = env[axis_name]
+                                    idx = _fibration_index(env, axis_name)
                                     if idx.dim() == 2 and idx.shape[-1] == 1:
                                         idx = idx.squeeze(-1)
                                     idx_tuple.append(idx.to(torch.long))
                                 idx_list.append(tuple(idx_tuple))
                             elif fib_var is not None:
-                                idx = env[fib_var]
+                                idx = _fibration_index(env, fib_var)
                                 if idx.dim() == 2 and idx.shape[-1] == 1:
                                     idx = idx.squeeze(-1)
                                 idx_list.append(idx.to(torch.long))
@@ -2590,25 +2726,37 @@ class _ProgramsMixin:
             morph = self._morphisms[draw.morphism]
             if draw.args is not None:
                 for a in draw.args:
-                    if isinstance(a, DrawArgScalar):
-                        raise CompileError(
-                            f"literal argument {a.value} not allowed for "
-                            f"named morphism {draw.morphism!r}",
-                            draw.line,
-                            draw.col,
-                        )
-                    if isinstance(a, (DrawArgList, DrawArgMatrix)):
-                        raise CompileError(
-                            f"compound literal argument not allowed for "
-                            f"named morphism {draw.morphism!r}",
-                            draw.line,
-                            draw.col,
-                        )
-            step_args = (
-                tuple(_draw_arg_to_name(a) for a in draw.args)
-                if draw.args is not None
-                else None
-            )
+                    # A named morphism consumes only identifier
+                    # references: bare identifiers (`DrawArgName`),
+                    # bracket-indexed references (`DrawArgIndex`),
+                    # or legacy bare `str` values from compiler-
+                    # synthesized steps. Numeric literals, nested
+                    # distribution calls, and list literals are
+                    # rejected.
+                    if isinstance(a, (DrawArgName, DrawArgIndex)) or isinstance(a, str):
+                        continue
+                    raise CompileError(
+                        f"literal argument {a!r} not allowed for "
+                        f"named morphism {draw.morphism!r}",
+                        draw.line,
+                        draw.col,
+                    )
+            # Preserve `DrawArgIndex` in the step-spec so the
+            # runtime resolver can gather structurally rather than
+            # re-parsing a stringified surface form.
+            step_args: tuple | None
+            if draw.args is None:
+                step_args = None
+            else:
+                converted: list = []
+                for a in draw.args:
+                    if isinstance(a, DrawArgName):
+                        converted.append(a.text)
+                    elif isinstance(a, DrawArgIndex):
+                        converted.append(a)
+                    else:
+                        converted.append(str(a))
+                step_args = tuple(converted)
             return (morph, step_args)
         from quivers.continuous.inline import (
             get_inline_param_names,
@@ -2624,16 +2772,15 @@ class _ProgramsMixin:
                     draw.col,
                 )
             axes_override = self._axes_codomain(getattr(draw, "axes", None))
-            wire_args = tuple(_draw_arg_to_wire(a) for a in draw.args)
             inline_codomain = self._infer_inline_codomain(
                 draw.morphism,
-                wire_args,
+                draw.args,
                 draw.vars,
                 program_codomain if axes_override is None else axes_override,
             )
             morph, var_args = make_inline_distribution(
                 draw.morphism,
-                wire_args,
+                draw.args,
                 inline_codomain,
                 variable_types={k: v for k, v in bound_vars.items() if v is not None},
             )
@@ -2677,6 +2824,20 @@ class _ProgramsMixin:
             return ProductSpace(components=tuple(comps))
         return ProductSet(components=tuple(comps))
 
+    @staticmethod
+    def _as_float(arg: object) -> float | None:
+        """Extract a numeric literal from a draw-step argument. Handles
+        both legacy bare `int` / `float` values and the tagged
+        [`DrawArgScalar`][quivers.dsl.ast_nodes.DrawArgScalar]
+        variant. Returns ``None`` for identifier references
+        (`DrawArgName`, bare `str`) and nested distribution calls.
+        """
+        if isinstance(arg, (int, float)) and not isinstance(arg, bool):
+            return float(arg)
+        if isinstance(arg, DrawArgScalar):
+            return float(arg.value)
+        return None
+
     def _infer_inline_codomain(
         self,
         family: str,
@@ -2707,7 +2868,9 @@ class _ProgramsMixin:
         elif family == "Bernoulli":
             return FinSet(name=f"_{var_names[0]}", cardinality=2)
         elif family == "Uniform":
-            float_args = [a for a in args if isinstance(a, (int, float))]
+            float_args = [
+                self._as_float(a) for a in args if self._as_float(a) is not None
+            ]
             if len(float_args) >= 2:
                 low, high = (float(float_args[0]), float(float_args[1]))
                 if low == 0.0 and high == 1.0:
@@ -2715,9 +2878,11 @@ class _ProgramsMixin:
                 return Euclidean(name=f"_{var_names[0]}", dim=1, low=low, high=high)
             return UnitInterval(f"_{var_names[0]}")
         elif family == "TruncatedNormal":
-            float_args = {
-                i: a for i, a in enumerate(args) if isinstance(a, (int, float))
-            }
+            float_args = {}
+            for i, a in enumerate(args):
+                v = self._as_float(a)
+                if v is not None:
+                    float_args[i] = v
             if 2 in float_args and 3 in float_args:
                 low, high = (float(float_args[2]), float(float_args[3]))
                 return Euclidean(name=f"_{var_names[0]}", dim=1, low=low, high=high)
@@ -2745,7 +2910,11 @@ class _ProgramsMixin:
             #   codomain (``dim`` for a ContinuousSpace,
             #   ``cardinality`` for a SetObject), defaulting to 2.
             sim_dim: int | None = None
-            n_literals = sum(1 for a in args if isinstance(a, (int, float)))
+            n_literals = sum(
+                1
+                for a in args
+                if isinstance(a, (int, float)) or isinstance(a, DrawArgScalar)
+            )
             if n_literals >= 2:
                 sim_dim = n_literals
             if sim_dim is None:
@@ -3411,14 +3580,14 @@ class _ProgramsMixin:
             return _index
         raise CompileError(f"unknown let expression node: {type(node).__name__}")
 
-    def _compile_let(self, decl: LetDecl) -> None:
-        """Compile a let-binding with optional where clause.
+    def _compile_define(self, decl: DefineDecl) -> None:
+        """Compile a ``define`` binding with optional where clause.
 
         The RHS is first classified by surface shape:
 
         * If it's an expression that denotes a transformation
           (bare reference to a registered trans singleton or
-          let-bound trans, a constructor call against the
+          define-bound trans, a constructor call against the
           transformation catalog, or ``t1 >>> t2``), the binding
           lands in `_transformations`.
         * Otherwise it's compiled as a morphism expression and
@@ -3426,24 +3595,41 @@ class _ProgramsMixin:
 
         The two namespaces are disjoint: a name cannot be used as
         both a morphism and a transformation in the same module.
+        Where-block entries compile first (innermost bindings feed
+        the outer RHS) and are scoped to this binding: after the
+        outer RHS compiles, the where-bound names are removed from
+        the module namespaces. Each entry must itself be a
+        `DefineDecl`.
         """
-        if hasattr(decl, "where") and decl.where:
-            for where_decl in decl.where:
-                self._compile_let(where_decl)
+        where_names: list[str] = []
+        for where_decl in decl.where:
+            if not isinstance(where_decl, DefineDecl):
+                raise CompileError(
+                    f"define {decl.name!r}: where-block entries must be "
+                    f"define bindings; got {type(where_decl).__name__}",
+                    decl.line,
+                    decl.col,
+                )
+            self._compile_define(where_decl)
+            where_names.append(where_decl.name)
         if decl.name in self._morphisms or decl.name in self._transformations:
             raise CompileError(f"name {decl.name!r} already bound", decl.line, decl.col)
-        if self._is_trans_expr(decl.expr):
-            self._transformations[decl.name] = self._compile_trans_expr(decl.expr)
-            return
-        morph = self._compile_expr(decl.expr)
-        self._morphisms[decl.name] = morph
+        try:
+            if self._is_trans_expr(decl.expr):
+                self._transformations[decl.name] = self._compile_trans_expr(decl.expr)
+            else:
+                self._morphisms[decl.name] = self._compile_expr(decl.expr)
+        finally:
+            for name in where_names:
+                self._morphisms.pop(name, None)
+                self._transformations.pop(name, None)
 
     def _is_trans_expr(self, expr) -> bool:
         """Return True iff ``expr`` denotes a transformation value.
 
         The classification is *purely structural* — based on the
         expression's surface shape — and is the criterion the
-        let-binding logic uses to choose between the morphism and
+        define-binding logic uses to choose between the morphism and
         transformation namespaces.  An `ExprMorphismCall`
         whose callee is in `_trans_constructors` is a
         transformation; the same shape with a callee in

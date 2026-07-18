@@ -145,7 +145,7 @@ contraction score (
     t : Item -> Embed
 ) : Item -> Score [rule=real, share=[Item]]
 
-let final = score(E, W, T)
+define final = score(E, W, T)
 export final
 ```
 

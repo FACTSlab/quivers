@@ -56,7 +56,7 @@ from quivers.dsl.ast_nodes import (
     ObjectProduct,
     ObjectSlash,
 )
-from quivers.dsl.parser._helpers import _required_text
+from quivers.dsl.parser._helpers import _required_field, _required_text
 from quivers.dsl.parser._registry import ParseError, _Tree
 
 # ---------------------------------------------------------------------------
@@ -108,14 +108,12 @@ def _walk_type(t: _Tree, vid: str) -> ObjectExpr:
         argument_vid = t.field(vid, "argument")
         if result_vid is None or argument_vid is None:
             raise ParseError(f"object_slash missing result/argument at {vid}")
-        rcs = t.consts(result_vid)
-        acs = t.consts(argument_vid)
-        direction: Literal["/", "\\"] = "/"
-        if rcs.get("end-byte") is not None and acs.get("start-byte") is not None:
-            mid = t.source[int(rcs["end-byte"]) : int(acs["start-byte"])].decode(
-                "utf-8"
+        raw_direction = t.consts(vid).get("field:direction")
+        if raw_direction not in ("/", "\\"):
+            raise ParseError(
+                f"object_slash has no direction field at {vid}",
             )
-            direction = "\\" if "\\" in mid else "/"
+        direction: Literal["/", "\\"] = raw_direction  # type: ignore[assignment]
         return ObjectSlash(
             result=_walk_type(t, result_vid),
             argument=_walk_type(t, argument_vid),
@@ -180,11 +178,14 @@ def _constructor_name(t: _Tree, vid: str) -> str:
     return name
 
 
-def _walk_constructor_args(t: _Tree, vid: str) -> tuple[list[str], dict[str, str]]:
+def _walk_constructor_args(
+    t: _Tree, vid: str
+) -> tuple[list[str], dict[str, float | int | str]]:
     """Return a constructor vertex's positional args (from
     ``field('args', ...)`` edges) and keyword args (from its trailing
-    ``option_block``). ``Real 28 28 [low=0.0, high=1.0]`` yields
-    ``(["28", "28"], {"low": "0.0", "high": "1.0"})``.
+    brace-delimited ``constructor_options``).
+    ``Real 28 28 {low=-1.0, high=1.0}`` yields
+    ``(["28", "28"], {"low": -1.0, "high": 1.0})``.
     """
     args: list[str] = []
     # ``cardinality`` covers FinSet's single-arg shape; ``args``
@@ -195,17 +196,43 @@ def _walk_constructor_args(t: _Tree, vid: str) -> tuple[list[str], dict[str, str
     for arg_vid in t.fields(vid, "args"):
         if t.kind(arg_vid) in ("integer", "float", "identifier"):
             args.append(t.text(arg_vid))
-    kwargs: dict[str, str] = {}
+    kwargs: dict[str, float | int | str] = {}
     options_vid = t.field(vid, "options")
     if options_vid is not None:
-        for entry_vid in t.fields(options_vid, "child_of"):
-            if t.kind(entry_vid) != "option_entry":
+        for kwarg_vid in t.positional(options_vid):
+            if t.kind(kwarg_vid) != "constructor_kwarg":
                 continue
-            key_vid = t.field(entry_vid, "key")
-            val_vid = t.field(entry_vid, "value")
-            if key_vid is not None and val_vid is not None:
-                kwargs[t.text(key_vid)] = t.text(val_vid)
+            key_vid = t.field(kwarg_vid, "key")
+            val_vid = t.field(kwarg_vid, "value")
+            if key_vid is None or val_vid is None:
+                raise ParseError(f"constructor_kwarg missing key/value at {kwarg_vid}")
+            kwargs[t.text(key_vid)] = _constructor_kwarg_value(t, val_vid)
     return args, kwargs
+
+
+def _constructor_kwarg_value(t: _Tree, vid: str) -> float | int | str:
+    """Type a constructor kwarg's value.
+
+    Identifiers stay strings; a ``signed_number`` becomes an ``int``
+    when its inner literal is an integer (a leading ``-`` keeps the
+    value integral) and a ``float`` when the inner literal carries a
+    decimal point or exponent.
+    """
+    k = t.kind(vid)
+    if k == "identifier":
+        return t.text(vid)
+    if k == "signed_number":
+        kids = t.positional(vid)
+        if not kids:
+            raise ParseError(f"signed_number without a literal child at {vid}")
+        inner_kind = t.kind(kids[0])
+        text = t.text(vid)
+        if inner_kind == "integer":
+            return int(text)
+        if inner_kind == "float":
+            return float(text)
+        raise ParseError(f"unexpected signed_number child kind {inner_kind!r} at {vid}")
+    raise ParseError(f"unexpected constructor kwarg value kind: {k}")
 
 
 def _flatten_type(t: _Tree, vid: str, op_kind: str) -> list[ObjectExpr]:
@@ -336,10 +363,17 @@ def _walk_expr(t: _Tree, vid: str) -> Expr:
     if k == "compose_expr":
         left_vid = t.field(vid, "left")
         right_vid = t.field(vid, "right")
-        op_vid = t.field(vid, "op")
         if left_vid is None or right_vid is None:
             raise ParseError(f"compose_expr missing operands at {vid}")
-        op_text = t.text(op_vid) if op_vid else _op_between(t, left_vid, right_vid)
+        # ``field('op', choice('>>', '<<'))`` binds an anonymous token,
+        # so the operator rides the vertex as a ``field:op`` constant
+        # rather than a child vertex (same mechanism as
+        # ``field:constructor``).
+        op_text = t.consts(vid).get("field:op")
+        if op_text is None:
+            raise ParseError(f"compose_expr missing field:op constant at {vid}")
+        if op_text not in (">>", "<<"):
+            raise ParseError(f"unexpected compose operator {op_text!r} at {vid}")
         return ExprCompose(
             left=_walk_expr(t, left_vid),
             right=_walk_expr(t, right_vid),
@@ -411,19 +445,7 @@ def _err_expr(t: _Tree, vid: str, field: str) -> Expr:
     raise ParseError(f"expression node {vid} missing {field}")
 
 
-def _op_between(t: _Tree, left_vid: str | None, right_vid: str | None) -> str:
-    """Recover the compose operator string between two operand spans."""
-    if left_vid is None or right_vid is None:
-        return ">>"
-    le = t.consts(left_vid).get("end-byte")
-    rs = t.consts(right_vid).get("start-byte")
-    if le is None or rs is None:
-        return ">>"
-    return t.source[int(le) : int(rs)].decode("utf-8").strip()
-
-
 def _walk_parser_expr(t: _Tree, vid: str, line: int, col: int) -> ExprParser:
-    keyword_vid = t.field(vid, "keyword")
     args = t.fields(vid, "args")
     rules: tuple[str, ...] = ()
     categories: tuple[str, ...] = ()
@@ -432,11 +454,13 @@ def _walk_parser_expr(t: _Tree, vid: str, line: int, col: int) -> ExprParser:
     depth = 1
     constructors: tuple[str, ...] | None = None
     for arg_vid in args:
-        key_vid = t.field(arg_vid, "key")
+        # The grammar binds each argument's keyword as a field on an
+        # anonymous token; panproto surfaces those as ``field:<name>``
+        # constraints on the argument vertex rather than as edges.
+        key = t.consts(arg_vid).get("field:key")
         val_vid = t.field(arg_vid, "value")
-        if key_vid is None or val_vid is None:
-            continue
-        key = t.text(key_vid)
+        if key is None or val_vid is None:
+            raise ParseError(f"parser_arg missing key/value at {arg_vid}")
         if key == "rules":
             rules = _ident_list_to_tuple(t, val_vid)
         elif key == "categories":
@@ -453,7 +477,6 @@ def _walk_parser_expr(t: _Tree, vid: str, line: int, col: int) -> ExprParser:
                 start = start_text
         elif key == "depth":
             depth = int(t.text(val_vid))
-    del keyword_vid
     return ExprParser(
         rules=rules,
         categories=categories,
@@ -475,11 +498,12 @@ def _walk_chart_fold_expr(t: _Tree, vid: str, line: int, col: int) -> ExprChartF
     depth = 1
     effect_depth = 0
     for arg_vid in args:
-        key_vid = t.field(arg_vid, "key")
+        # As in ``_walk_parser_expr``: the keyword rides a
+        # ``field:key`` constraint, not an edge.
+        key = t.consts(arg_vid).get("field:key")
         val_vid = t.field(arg_vid, "value")
-        if key_vid is None or val_vid is None:
-            continue
-        key = t.text(key_vid)
+        if key is None or val_vid is None:
+            raise ParseError(f"chart_fold_arg missing key/value at {arg_vid}")
         if key == "lex":
             lex = _walk_expr(t, val_vid)
         elif key == "binary":
@@ -603,18 +627,14 @@ def _walk_let_arith(t: _Tree, vid: str) -> LetExprNode:
         binders = tuple(
             LetFactorBinder(
                 var=_required_text(t, t.field(bv, "var"), bv, "var"),
-                index=_walk_type(t, t.field(bv, "index"))
-                if t.field(bv, "index") is not None
-                else _err_type(t, bv, "index"),
+                index=_walk_type(t, _required_field(t, bv, "index")),
             )
             for bv in t.fields(vid, "binders")
         )
         cases = tuple(
             LetFactorCase(
                 label=int(_required_text(t, t.field(cv, "label"), cv, "label")),
-                value=_walk_let_arith(t, t.field(cv, "value"))
-                if t.field(cv, "value") is not None
-                else _err_let(t, cv, "value"),
+                value=_walk_let_arith(t, _required_field(t, cv, "value")),
             )
             for cv in t.fields(vid, "cases")
         )
@@ -622,11 +642,3 @@ def _walk_let_arith(t: _Tree, vid: str) -> LetExprNode:
         body = _walk_let_arith(t, body_vid) if body_vid else None
         return LetExprFactor(binders=binders, body=body, cases=cases)
     raise ParseError(f"unexpected let-expression kind: {k}")
-
-
-def _err_type(t: _Tree, vid: str, field: str) -> ObjectExpr:
-    raise ParseError(f"let-factor binder at {vid} missing {field}")
-
-
-def _err_let(t: _Tree, vid: str, field: str) -> LetExprNode:
-    raise ParseError(f"let-factor case at {vid} missing {field}")

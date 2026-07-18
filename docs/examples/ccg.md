@@ -54,12 +54,12 @@ Combinatory Categorial Grammar (CCG) is expressed as an agenda-based weighted de
 
 Each `rule` is a sequent: premises on the left of `|-`, conclusion on the right. `Fwd(X, Y)` constructs the forward-slash category `X/Y`; `Bwd(X, Y)` constructs the backward-slash category `X\Y`. Adjacent spans whose end / start indices agree fire whichever rule's pattern matches their categories.
 
-`semiring LogProb` selects log-space inside scores. `start S` declares the goal category for a successful parse. `depth 6` bounds derivation depth to keep the agenda finite.
+The header's option block sets the remaining knobs: the `semiring=LogProb` option selects log-space inside scores, the `start=S` option declares the goal category for a successful parse, and the `depth=6` option bounds derivation depth to keep the agenda finite.
 
 ## DSL Features
 
-- **`deduction { … }` block**: declares the agenda-based weighted deduction in a single record. The block's seven irreducible parameters, item algebra (via `atoms`), rule set, semiring, axiom source, goal predicate, start symbol, depth bound, are field-by-field.
-- **`atoms NAME, NAME, ...`**: closes the constructor universe. Every identifier appearing in a rule pattern must be either an atom or a single-uppercase wildcard variable.
+- **`deduction Name : Dom -> Cod [options]` header plus indented body**: declares the agenda-based weighted deduction in a single construct. The header's option block sets the semiring, the start symbol, and the depth bound; the body supplies the item algebra (via `atoms`), the rule set, and the lexicon that serves as the axiom source.
+- **`atoms NAME, NAME, ...`**: closes the constructor universe. Identifiers listed here match literally in rule patterns; any identifier not listed is bound as a wildcard, with single uppercase letters (`X`, `Y`, `Z`, `I`, `J`, `K`) as the convention.
 - **Sequent rules**: arbitrary-arity premises on the left of `|-`, single conclusion on the right; rules with one premise are unary chart rules, with two are binary, and so on.
 - **Slash constructors**: `Fwd(X, Y)` and `Bwd(X, Y)` are user-declared atoms, not built-in syntax. The combinators are theorems in this presentation.
 
@@ -82,6 +82,8 @@ two standard surfaces.
 ### MAP fit (Adam on rule & lexicon weights)
 
 ```python
+from collections import Counter
+
 import torch
 from quivers.dsl import load
 from quivers.stochastic.deduction import adam_fit_deduction, sample_corpus
@@ -100,8 +102,8 @@ print(f"loss: {history[0]:.2f} → {history[-1]:.2f}")  # strictly decreasing
 # Forward-sample under the fitted parameters and check the
 # dominant length-3 yield recovers the training corpus.
 draws = sample_corpus(ded, length=3, n_samples=32, seed=0)
-print("dominant yield:", max(set(map(tuple, draws)), key=draws.count))
-# → ("the cat sleeps",)
+print("dominant yield:", Counter(map(tuple, draws)).most_common(1)[0][0])
+# → ('the', 'cat', 'barks')
 ```
 
 `adam_fit_deduction` maximises the corpus log-marginal under an
@@ -156,4 +158,4 @@ CCG is the internal language of a closed monoidal category. The forward slash `X
 
 ## Semiring Selection
 
-The choice of semiring affects the parser's behavior: `LogProb` accumulates inside log-probabilities (numerically stable, differentiable); `Viterbi` returns the highest-weight derivation; `Counting` counts distinct derivations; `Boolean` checks membership without weights. The same deduction block serves all four objectives via the `semiring` field.
+The choice of semiring affects the parser's behavior: `LogProb` accumulates inside log-probabilities (numerically stable, differentiable); `Viterbi` returns the highest-weight derivation; `Counting` counts distinct derivations; `Boolean` checks membership without weights. The same deduction block serves all four objectives via the `semiring` option.

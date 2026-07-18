@@ -108,10 +108,11 @@ def _extract_axes(options: tuple):
 
 def _walk_observe_step(t: _Tree, vid: str) -> ObserveStep:
     line, col = t.line_col(vid)
-    var_vid = t.field(vid, "var")
+    vars_vid = t.field(vid, "vars")
     morph_vid = t.field(vid, "morphism")
-    if var_vid is None or morph_vid is None:
-        raise ParseError(f"observe_step missing var/morphism at {vid}")
+    if vars_vid is None or morph_vid is None:
+        raise ParseError(f"observe_step missing vars/morphism at {vid}")
+    vars_t = _walk_var_pattern(t, vars_vid)
     index_vid = t.field(vid, "index")
     index = _walk_type(t, index_vid) if index_vid else None
     args_vids = t.fields(vid, "args")
@@ -120,7 +121,7 @@ def _walk_observe_step(t: _Tree, vid: str) -> ObserveStep:
     options = _walk_option_block(t, options_vid) if options_vid else ()
     via, via_axes = _extract_via(options)
     return ObserveStep(
-        var=t.text(var_vid),
+        vars=vars_t,
         morphism=t.text(morph_vid),
         args=args,
         index=index,
@@ -274,7 +275,7 @@ def _walk_return_pattern(
         return (names, None)
     if k == "return_labeled_tuple":
         entries = [e for e in t.positional(vid) if t.kind(e) == "return_label_entry"]
-        names: list[str] = []
+        entry_names: list[str] = []
         labels: list[str] = []
         for entry in entries:
             label_vid = t.field(entry, "label")
@@ -282,8 +283,8 @@ def _walk_return_pattern(
             if label_vid is None or var_vid is None:
                 raise ParseError(f"return_label_entry missing field at {entry}")
             labels.append(t.text(label_vid))
-            names.append(t.text(var_vid))
-        return (tuple(names), tuple(labels))
+            entry_names.append(t.text(var_vid))
+        return (tuple(entry_names), tuple(labels))
     raise ParseError(f"unexpected return pattern kind: {k}")
 
 

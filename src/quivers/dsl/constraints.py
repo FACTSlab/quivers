@@ -193,14 +193,15 @@ def check_constraints(module: Module) -> list[Violation]:
     for stmt in module.statements:
         if isinstance(stmt, ObjectDecl):
             init = stmt.init
-            if isinstance(init, TypeFreeResiduated):
-                residuated_universes[stmt.name] = init
-            elif isinstance(init, TypeEnumSet):
-                enum_sets[stmt.name] = init
-            elif isinstance(init, TypeFreeMonoid):
-                free_monoids[stmt.name] = init
-            elif isinstance(init, TypeFromExpr):
-                aliased_names[stmt.name] = init.expr
+            for name in stmt.names:
+                if isinstance(init, TypeFreeResiduated):
+                    residuated_universes[name] = init
+                elif isinstance(init, TypeEnumSet):
+                    enum_sets[name] = init
+                elif isinstance(init, TypeFreeMonoid):
+                    free_monoids[name] = init
+                elif isinstance(init, TypeFromExpr):
+                    aliased_names[name] = init.expr
         elif isinstance(stmt, CategoryDecl):
             for name in stmt.names:
                 category_atoms.add(name)

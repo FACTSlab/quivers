@@ -143,14 +143,14 @@ class PyMCRenderer(RendererBase):
         morphisms: dict[str, MorphismDecl],
         lets: dict[str, Expr],
     ) -> panproto.Schema:
-        """Same as `render` but pre-populates `ctx.morphisms` / `ctx.lets`
+        """Same as `render` but pre-populates `ctx.morphisms` / `ctx.defines`
         so [`IRArgFamilyRef`][quivers.transpile.ir.IRArgFamilyRef]
         rendering can read the referenced morphism's `init_family`
         clause."""
         assert_no_dangling_refs(ir)
         proto = self.target_protocol()
         sb = proto.schema()
-        ctx = _RenderCtx(sb=sb, morphisms=dict(morphisms), lets=dict(lets))
+        ctx = _RenderCtx(sb=sb, morphisms=dict(morphisms), defines=dict(lets))
         py = PyCtx(sb, cards=dict(ir.cards), target="pymc")
         bag = _PyMCCtx(ctx=ctx, py=py, ir=ir)
 

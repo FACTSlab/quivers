@@ -158,8 +158,8 @@ def _build_default_trans_singletons() -> dict:
     `MorphismTransformation` (collectively, a ``Trans``
     value).  Bare-name lookup produces the singleton:
 
-        let phi = expectation
-        let g = f.change_base(phi)
+        define phi = expectation
+        define g = f.change_base(phi)
     """
     return {
         "expectation": EXPECTATION,
