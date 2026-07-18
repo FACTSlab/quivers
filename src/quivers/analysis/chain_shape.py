@@ -154,7 +154,8 @@ class ChainShape(dx.Model):
             elif isinstance(stmt, ObjectDecl):
                 cardinality = _type_decl_cardinality(stmt)
                 if cardinality is not None:
-                    cardinalities[stmt.name] = cardinality
+                    for decl_name in stmt.names:
+                        cardinalities[decl_name] = cardinality
             elif isinstance(stmt, ProgramDecl) and program is None:
                 program = stmt
 
@@ -194,7 +195,7 @@ class ChainShape(dx.Model):
                     )
                 elif isinstance(step, ObserveStep):
                     record(
-                        step.var,
+                        step.vars[0],
                         "observe",
                         step.line,
                         step.col,

@@ -111,11 +111,11 @@ encoder C : LF
     dim Term = 64
     dim Type = 32
 
-    Const(n) |-> name_embed
-    App(f, x) |-> mlp_app([f, x])
+    op Const(n) |-> name_embed
+    op App(f, x) |-> mlp_app([f, x])
 
-    Lam(ty, body) |-> mlp_lam([ty, body])
-    All(ty, body) |-> mlp_all([ty, body])
+    op Lam(ty, body) |-> mlp_lam([ty, body])
+    op All(ty, body) |-> mlp_all([ty, body])
 
     var_init Term from Type as ty |-> mlp_typed_var(ty)
 ```
@@ -185,7 +185,7 @@ program embed : Pixel -> Latent
 
 encoder C : LF
     dim Term = 64
-    App(f, x) |-> gelu(embed(f) + embed(x))
+    op App(f, x) |-> gelu(embed(f) + embed(x))
 ```
 
 ### Factory form
@@ -234,12 +234,12 @@ body shapes are available:
 <!-- compile: false -->
 ```qvr
 encoder RNN : Seq
-    Nil |-> 0.0
-    Cons(head, tail) recurrent state |-> gru_step(head, state)
+    op Nil |-> 0.0
+    op Cons(head, tail) recurrent state |-> gru_step(head, state)
 
 encoder Tfm : Seq
-    Nil |-> 0.0
-    Cons(head, tail) attention prefix |-> tfm_step(head, prefix)
+    op Nil |-> 0.0
+    op Cons(head, tail) attention prefix |-> tfm_step(head, prefix)
 ```
 
 - `recurrent <state>` binds the named state variable to the

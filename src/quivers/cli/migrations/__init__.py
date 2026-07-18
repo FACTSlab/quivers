@@ -45,6 +45,8 @@ from quivers.cli.migrations import v0_7_0_to_v0_9_0 as _hop_7_9
 from quivers.cli.migrations import v0_9_0_to_v0_10_0 as _hop_9_10
 from quivers.cli.migrations import v0_10_0_to_v0_11_0 as _hop_10_11
 from quivers.cli.migrations import v0_11_0_to_v0_14_0 as _hop_11_14
+from quivers.cli.migrations import v0_14_0_to_v0_15_0 as _hop_14_15
+from quivers.cli.migrations._common import MigrationError
 from quivers.cli.migrations._vcs import (
     BlameReport,
     DiffCoverageReport,
@@ -84,6 +86,7 @@ CHAIN: tuple[str, ...] = (
     "v0.10.0",
     "v0.11.0",
     "v0.14.0",
+    "v0.15.0",
 )
 
 
@@ -97,6 +100,7 @@ MIGRATORS: dict[tuple[str, str], _Migrator] = {
     ("v0.9.0", "v0.10.0"): _hop_9_10.migrate,
     ("v0.10.0", "v0.11.0"): _hop_10_11.migrate,
     ("v0.11.0", "v0.14.0"): _hop_11_14.migrate,
+    ("v0.14.0", "v0.15.0"): _hop_14_15.migrate,
 }
 
 # Per-hop coverage declarations: source-side rule names each hop's
@@ -113,6 +117,7 @@ COVERAGE: dict[tuple[str, str], frozenset[str]] = {
     ("v0.9.0", "v0.10.0"): _hop_9_10.SOURCE_RULE_COVERAGE,
     ("v0.10.0", "v0.11.0"): _hop_10_11.SOURCE_RULE_COVERAGE,
     ("v0.11.0", "v0.14.0"): _hop_11_14.SOURCE_RULE_COVERAGE,
+    ("v0.14.0", "v0.15.0"): _hop_14_15.SOURCE_RULE_COVERAGE,
 }
 
 # Commit-id index: maps each `CHAIN` release name to its
@@ -210,10 +215,6 @@ def vcs_coverage_report() -> list[DiffCoverageReport]:
             )
         )
     return reports
-
-
-class MigrationError(Exception):
-    """Raised when the requested migration cannot be composed."""
 
 
 def _identity(source: bytes) -> bytes:

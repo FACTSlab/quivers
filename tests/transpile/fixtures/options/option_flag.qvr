@@ -1,8 +1,8 @@
-# Exercises OptionFlag (bare key, no `= value`).
+# Exercises OptionFlag (bare key, no `= value`) in an option block.
 category S, NP, VP
-rule combine(X, Y) : NP, VP => S #[learnable]
+rule combine(X, Y) : NP, VP |- S
 object Resp : FinSet 4
 program prog : Resp -> Resp
-    sample x <- Bernoulli(0.5)
+    sample x <- Bernoulli(0.5) [learnable]
     return x
 export prog

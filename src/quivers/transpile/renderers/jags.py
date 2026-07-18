@@ -1772,7 +1772,7 @@ class _JAGSCtx(_RenderCtx):
         morphisms: dict,
         lets: dict,
     ) -> None:
-        super().__init__(sb=sb, morphisms=morphisms, lets=lets)
+        super().__init__(sb=sb, morphisms=morphisms, defines=lets)
         self.current_block: str | None = None
         self.model_block: str = ""
         self.emitted_plate_names: set[str] = set()

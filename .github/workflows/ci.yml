@@ -39,54 +39,18 @@ jobs:
         with:
           python-version: ${{ matrix.python-version }}
       - run: pip install -e ".[dev,data,diagnostics,formulas,repl,lsp]"
-      # Non-transpile suite: runs anywhere, no Docker required.
-      - run: |
-          python -m pytest tests/ -x -q \
-            --ignore=tests/transpile
-        env:
-          QUIVERS_SKIP_DOCKER: "1"
+      - run: python -m pytest tests/ -x -q
 
-  transpile:
-    name: Transpile suite (Docker matrix)
+  # The default addopts deselect `slow`, so the gallery sweep and the
+  # recovery benchmarks never run in the `test` job. They gate here
+  # instead: an example whose prose or code stops matching the library
+  # fails CI rather than rotting unnoticed.
+  slow:
     runs-on: ubuntu-latest
-    strategy:
-      matrix:
-        python-version: ["3.14"]
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
-          python-version: ${{ matrix.python-version }}
-      # Docker is pre-installed on ubuntu-latest runners. Verify the
-      # daemon is up before we start the slow image-build step so a
-      # daemon problem surfaces with a clear error.
-      - name: Verify Docker
-        run: docker info
-      - name: Install external syntax-check tools
-        run: |
-          # External compilers used by the Tier-2 external-syntax
-          # tier. node is on ubuntu-latest by default; the others
-          # need install steps.
-          sudo apt-get update
-          sudo apt-get install -y jags
-          # julia, stanc come from the in-container probes; the
-          # syntax-check tier uses host binaries when present and
-          # falls back to xfail otherwise. Install julia for the
-          # Turing/Gen syntax checks.
-          wget -qO- https://julialang.org/install.sh | sh -s -- --yes
-          echo "$HOME/.juliaup/bin" >> "$GITHUB_PATH"
-      - name: Install quivers
-        run: pip install -e ".[dev,data,diagnostics,formulas,repl,lsp]"
-      - name: Build all probe Docker images
-        # The session-scope autouse fixture in tests/transpile/conftest.py
-        # also builds missing images, but pre-building in CI keeps
-        # the per-test runtime predictable and surfaces image-build
-        # failures as a distinct CI step.
-        run: bash tests/transpile/docker/build.sh
-      - name: Run transpile suite (full Docker matrix)
-        # The session fixture asserts every image is available before
-        # any test runs; if a probe image is missing the suite fires
-        # a configuration error instead of skipping the test.
-        run: python -m pytest tests/transpile/ -q --no-header
-        env:
-          QUIVERS_NO_DOCKER_AUTOSTART: "1"
+          python-version: "3.14"
+      - run: pip install -e ".[dev,data,diagnostics,formulas,repl,lsp]"
+      - run: python -m pytest tests/ -m slow -q

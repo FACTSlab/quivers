@@ -6,7 +6,7 @@ signature LF
         App : Term, Term -> Term
 encoder enc : LF
     dim Term = 16
-decoder dec over LF [depth=4]
+decoder dec : LF [depth=4]
     body |-> recursive
 object Resp : FinSet 4
 program prog : Resp -> Resp

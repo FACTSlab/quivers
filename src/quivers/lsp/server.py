@@ -20,8 +20,10 @@ TUI exactly.
 
 from __future__ import annotations
 
-from typing import Any
+import re
+from collections.abc import Iterator
 
+import didactic.api as dx
 from pygls.lsp.server import LanguageServer
 from lsprotocol import types as lsp
 
@@ -34,13 +36,15 @@ from quivers.cli.repl_highlight import (
 from quivers.cli.repl_session import Diagnostic, ReplSession, render_signature
 from quivers.dsl.ast_nodes import (
     ContinuousConstructor,
+    DefineDecl,
     MorphismDecl,
     ObjectDecl,
+    Statement,
     TypeFromExpr,
     TypeInitializer,
 )
 from quivers.dsl.emit import module_to_source
-from quivers.lsp.document import DocumentState
+from quivers.lsp.document import DocumentState, decl_names
 
 SERVER_NAME = "qvr-lsp"
 SERVER_VERSION = "0.2.0"
@@ -144,8 +148,7 @@ def build_server() -> LanguageServer:
         decl = doc.find_decl(name)
         if decl is None:
             return None
-        line = max(0, getattr(decl, "line", 1) - 1)
-        col = max(0, getattr(decl, "col", 0))
+        line, col = _name_position(doc, decl, name)
         return [
             lsp.Location(
                 uri=doc.uri,
@@ -175,26 +178,7 @@ def build_server() -> LanguageServer:
         doc = docs.get(params.text_document.uri)
         if doc is None:
             return []
-        out: list[lsp.DocumentSymbol] = []
-        for stmt in doc.module.statements:
-            name = getattr(stmt, "name", None)
-            if name is None:
-                continue
-            line = max(0, getattr(stmt, "line", 1) - 1)
-            col = max(0, getattr(stmt, "col", 0))
-            rng = lsp.Range(
-                start=lsp.Position(line=line, character=col),
-                end=lsp.Position(line=line, character=col + len(name)),
-            )
-            out.append(
-                lsp.DocumentSymbol(
-                    name=name,
-                    kind=_symbol_kind(stmt),
-                    range=rng,
-                    selection_range=rng,
-                )
-            )
-        return out
+        return _statement_symbols(doc, doc.module.statements)
 
     # ----- completion ---------------------------------------------------
 
@@ -232,12 +216,7 @@ def build_server() -> LanguageServer:
         doc = docs.get(params.text_document.uri)
         if doc is None or not doc.module.statements:
             return None
-        try:
-            canonical = module_to_source(doc.module)
-        except NotImplementedError:
-            # Module contains a variant the canonical emitter doesn't cover;
-            # leave the buffer alone rather than corrupting it.
-            return None
+        canonical = module_to_source(doc.module)
         if canonical == doc.source:
             return []
         end_line = doc.source.count("\n")
@@ -336,7 +315,7 @@ def _to_lsp_diag(d: Diagnostic, doc: DocumentState) -> lsp.Diagnostic:
     )
 
 
-def _apply_partial(source: str, change: Any) -> str:
+def _apply_partial(source: str, change: lsp.TextDocumentContentChangePartial) -> str:
     """Apply one incremental change to ``source``."""
     rng = change.range
     lines = source.split("\n")
@@ -371,9 +350,11 @@ def _render_hover(doc: DocumentState, name: str) -> str | None:
          space when the user clicks to expand it.
 
     The QVR slice is taken from the original source so user
-    formatting and comments survive verbatim; the canonical emitter
-    is the fallback for slices we can't compute (statements appended
-    in the REPL with no source range).
+    formatting and comments survive verbatim; statements with no
+    source range (appended in the REPL) render through the canonical
+    emitter instead. Options render as written: a morphism with no
+    ``role=`` shows no role, since the compiler infers one from
+    program usage and the server does not run that inference.
     """
     decl = doc.find_decl(name)
     if decl is None:
@@ -382,10 +363,7 @@ def _render_hover(doc: DocumentState, name: str) -> str | None:
         return None
     qvr = _slice_source(doc, decl)
     if qvr is None:
-        try:
-            qvr = module_to_source(type(doc.module)(statements=(decl,))).rstrip()
-        except NotImplementedError:
-            qvr = f"-- (no QVR rendering available for {type(decl).__name__})"
+        qvr = module_to_source(type(doc.module)(statements=(decl,))).rstrip()
     python_repr = _pretty_ast(decl)
     docs = getattr(decl, "docs", ())
 
@@ -413,21 +391,36 @@ def _render_hover(doc: DocumentState, name: str) -> str | None:
     return "\n\n".join(parts)
 
 
-def _pretty_ast(decl) -> str:  # type: ignore[no-untyped-def]
+type _AstValue = (
+    dx.Model
+    | str
+    | int
+    | float
+    | bool
+    | None
+    | tuple["_AstValue", ...]
+    | list["_AstValue"]
+    | dict[str, "_AstValue"]
+)
+"""Anything a didactic AST field can hold: a nested model, a scalar,
+or a container of the same."""
+
+
+def _pretty_ast(decl: Statement) -> str:
     """Pretty-print a didactic AST node, one field per line.
 
     Plain ``repr()`` puts the whole struct on one line; for deeply
     nested QVR declarations (kernels with product domains, programs
     with chains of binds) that produces a single ~200-column blob
-    that hover panes truncate. Walk the dataclass tree manually so
-    every field gets its own indented line, matching Python's
+    that hover panes truncate. Walk the didactic model tree manually
+    so every field gets its own indented line, matching Python's
     standard ``pprint`` shape but preserving the keyword=value
     syntax that didactic uses.
     """
     return _ast_lines(decl, indent=0)
 
 
-def _ast_lines(value, indent: int) -> str:  # type: ignore[no-untyped-def]
+def _ast_lines(value: _AstValue, indent: int) -> str:
     """Recursive renderer used by `_pretty_ast`."""
     pad = "    " * indent
     next_pad = "    " * (indent + 1)
@@ -474,8 +467,13 @@ def _ast_lines(value, indent: int) -> str:  # type: ignore[no-untyped-def]
     return repr(value)
 
 
-def _slice_source(doc: DocumentState, decl) -> str | None:  # type: ignore[no-untyped-def]
-    """Return the original source lines that produced ``decl``."""
+def _decl_line_span(doc: DocumentState, decl: Statement) -> tuple[int, int] | None:
+    """1-based ``[start, end)`` line span of ``decl``'s source slice.
+
+    The span runs from the statement's recorded line to the line of
+    the next top-level statement (or one past the last source line),
+    or ``None`` when the statement carries no source position.
+    """
     start_line = getattr(decl, "line", 0)
     if not start_line:
         return None
@@ -489,12 +487,82 @@ def _slice_source(doc: DocumentState, decl) -> str | None:  # type: ignore[no-un
         other_line = getattr(other, "line", 0)
         if other_line > start_line and other_line < end_line:
             end_line = other_line
+    return start_line, end_line
+
+
+def _slice_source(doc: DocumentState, decl: Statement) -> str | None:
+    """Return the original source lines that produced ``decl``."""
+    span = _decl_line_span(doc, decl)
+    if span is None:
+        return None
+    start_line, end_line = span
+    lines = doc.source.splitlines()
     while end_line - 1 > start_line and not lines[end_line - 2].strip():
         end_line -= 1
     return "\n".join(lines[start_line - 1 : end_line - 1])
 
 
-def _find_references(doc: DocumentState, name: str):  # type: ignore[no-untyped-def]
+def _name_position(doc: DocumentState, decl: Statement, name: str) -> tuple[int, int]:
+    """0-based ``(line, col)`` of ``name``'s own binding token.
+
+    A plural-name declaration binds several names in one statement, so
+    each name's definition target is its own token, located by a
+    word-boundary scan of the declaration's source slice. Comment
+    lines are skipped since a doc comment above the declaration may
+    mention the name. Statements with no source position (appended in
+    the REPL) anchor at the declaration's recorded coordinates.
+    """
+    decl_line = getattr(decl, "line", 0) or 0
+    decl_col = getattr(decl, "col", 0) or 0
+    span = _decl_line_span(doc, decl)
+    if span is None:
+        return max(0, decl_line - 1), max(0, decl_col)
+    start_line, end_line = span
+    lines = doc.source.splitlines()
+    pattern = re.compile(rf"(?<![A-Za-z0-9_]){re.escape(name)}(?![A-Za-z0-9_])")
+    for lineno in range(start_line - 1, min(end_line - 1, len(lines))):
+        text = lines[lineno]
+        if text.lstrip().startswith("#"):
+            continue
+        m = pattern.search(text)
+        if m is not None:
+            return lineno, m.start()
+    return max(0, decl_line - 1), max(0, decl_col)
+
+
+def _statement_symbols(
+    doc: DocumentState, statements: tuple[Statement, ...]
+) -> list[lsp.DocumentSymbol]:
+    """Document symbols for ``statements``, one per bound name.
+
+    A plural-name declaration yields one symbol per name, each
+    anchored at that name's own token. ``define`` where-blocks nest
+    as children of the enclosing define's symbol.
+    """
+    out: list[lsp.DocumentSymbol] = []
+    for stmt in statements:
+        children = (
+            _statement_symbols(doc, stmt.where) if isinstance(stmt, DefineDecl) else []
+        )
+        for name in decl_names(stmt):
+            line, col = _name_position(doc, stmt, name)
+            rng = lsp.Range(
+                start=lsp.Position(line=line, character=col),
+                end=lsp.Position(line=line, character=col + len(name)),
+            )
+            out.append(
+                lsp.DocumentSymbol(
+                    name=name,
+                    kind=_symbol_kind(stmt),
+                    range=rng,
+                    selection_range=rng,
+                    children=children or None,
+                )
+            )
+    return out
+
+
+def _find_references(doc: DocumentState, name: str) -> Iterator[lsp.Location]:
     """Locate every textual occurrence of ``name`` in the source."""
     for lineno, line in enumerate(doc.source.splitlines()):
         start = 0
@@ -529,12 +597,14 @@ def _prefix_at(source: str, line: int, character: int) -> str:
     return text[i:]
 
 
-def _symbol_kind(stmt: Any) -> lsp.SymbolKind:
+def _symbol_kind(stmt: Statement) -> lsp.SymbolKind:
     """Classify a top-level decl as a Class / Struct / Function symbol.
 
     For a `ObjectDecl`, peek at the initializer's inner expression
     to distinguish discrete objects (``Class``) from continuous spaces
     (``Struct``). Unwrapped or aliased forms default to ``Class``.
+    A `DefineDecl` binds a morphism-valued expression, so it
+    classifies as ``Function`` alongside `MorphismDecl`.
     """
     if isinstance(stmt, ObjectDecl):
         init: TypeInitializer = stmt.init
@@ -544,7 +614,7 @@ def _symbol_kind(stmt: Any) -> lsp.SymbolKind:
         ):
             return lsp.SymbolKind.Struct
         return lsp.SymbolKind.Class
-    if isinstance(stmt, MorphismDecl):
+    if isinstance(stmt, (MorphismDecl, DefineDecl)):
         return lsp.SymbolKind.Function
     return lsp.SymbolKind.Variable
 

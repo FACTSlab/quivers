@@ -143,7 +143,7 @@ tag every program step (`latent`, `observe`, `marginalize`, or
   steps inherit the depth of the most recent stochastic
   predecessor; a `let` before any stochastic step has depth `0`,
 - the governing `algebra_name` (read from the surrounding
-  `composition <name> as <algebra>` declaration),
+  `composition <name> [level=<algebra>]` declaration),
 - the inferred `intermediate_size` after the step's contraction
   / activation.
 
@@ -300,7 +300,7 @@ from quivers.dsl import loads
 from quivers.core.algebra_morphisms import Threshold
 
 program = loads('''
-composition product_fuzzy as algebra
+composition product_fuzzy [level=algebra]
 object X : FinSet 8
 object Y : FinSet 8
 morphism W : X -> Y [role=latent] [init=auto]

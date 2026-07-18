@@ -145,7 +145,7 @@ class Edward2Renderer(RendererBase):
         proto = self.target_protocol()
         sb = proto.schema()
         py = PyCtx(sb, cards=dict(ir.cards), target="edward2")
-        ctx = _RenderCtx(sb=sb, morphisms={}, lets={})
+        ctx = _RenderCtx(sb=sb, morphisms={}, defines={})
 
         sb.vertex("mod", "module")
         body_vid = py.v(py.fresh("body"), "block")

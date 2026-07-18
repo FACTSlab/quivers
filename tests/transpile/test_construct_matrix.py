@@ -111,6 +111,12 @@ _EXPECTED_ORTHOGONAL_RAISES: dict[tuple[str, str, str], str] = {
     ("stan", "let_expressions", "let_expr_method_call"): "let-expr:",
     ("bugs", "let_expressions", "let_expr_method_call"): "let-expr:",
     ("jags", "let_expressions", "let_expr_method_call"): "let-expr:",
+    # Stan / BUGS / JAGS have no anonymous-function syntax in the
+    # model-body expression position, so a `param -> body` lambda is
+    # an orthogonal unsupported concern for these dialects.
+    ("stan", "let_expressions", "let_expr_lambda"): "let-expr:",
+    ("bugs", "let_expressions", "let_expr_lambda"): "let-expr:",
+    ("jags", "let_expressions", "let_expr_lambda"): "let-expr:",
     # BUGS / JAGS dialects ship no MatrixNormal surface, so the
     # axes/matrix_kronecker fixture trips the family-target-name
     # check before the construct gate.

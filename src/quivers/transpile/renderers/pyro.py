@@ -123,7 +123,7 @@ class PyroRenderer(RendererBase):
         """
         proto = self.target_protocol()
         sb = proto.schema()
-        ctx = _RenderCtx(sb=sb, morphisms={}, lets={})
+        ctx = _RenderCtx(sb=sb, morphisms={}, defines={})
         pctx = _PyroCtx(sb=sb, cards=dict(ir.cards))
 
         # Resolve module-level morphism / let tables for IRArgFamilyRef

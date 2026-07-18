@@ -27,22 +27,15 @@ Together these tests close the verification gap between the
 from __future__ import annotations
 import textwrap
 
-import os
-
 import pytest
 import torch
 
 from quivers.dsl import loads
+from quivers.dsl.compiler import CompileError
 from quivers.inference import (
     AutoNormalGuide,
     ELBO,
     SVI,
-)
-
-
-_LOCAL_GRAMMAR = pytest.mark.skipif(
-    os.environ.get("QVR_USE_LOCAL_GRAMMAR", "") not in ("1", "true", "True"),
-    reason="needs QVR_USE_LOCAL_GRAMMAR=1 to pick up the in-tree grammar",
 )
 
 
@@ -56,7 +49,7 @@ def _two_class_mixture_model() -> str:
     the data-generating distribution; the marginalize block
     integrates the discrete class out and SVI fits ``mu_shift``."""
     return """
-    composition log_prob as algebra
+    composition log_prob [level=algebra]
 
     object Item : FinSet 4
     object Resp : FinSet 8
@@ -64,7 +57,6 @@ def _two_class_mixture_model() -> str:
 
     program two_class_mix : Resp -> Resp
         sample probs : Class <- HalfNormal(1.0)
-        sample idx : Resp <- HalfNormal(1.0)
         sample mu_shift <- Normal(0.0, 1.0)
         marginalize cls : Class <- Dirichlet(probs) [over=Item]
             observe r : Resp <- Normal(mu_shift, 1.0) [via=idx]
@@ -73,7 +65,6 @@ def _two_class_mixture_model() -> str:
     """
 
 
-@_LOCAL_GRAMMAR
 def test_grouped_marginalize_model_compiles_with_continuous_latent() -> None:
     """The body of a grouped block may reference continuous latents
     declared in the enclosing program scope."""
@@ -82,7 +73,6 @@ def test_grouped_marginalize_model_compiles_with_continuous_latent() -> None:
     assert m.morphism is not None
 
 
-@_LOCAL_GRAMMAR
 def test_grouped_marginalize_log_joint_returns_finite_scalar() -> None:
     """End-to-end: model.log_joint on a grouped-marginalize model
     with continuous latents conditioned via the observations dict
@@ -103,7 +93,27 @@ def test_grouped_marginalize_log_joint_returns_finite_scalar() -> None:
     assert torch.isfinite(out).all()
 
 
-@_LOCAL_GRAMMAR
+def test_missing_via_index_raises_clear_error() -> None:
+    """A ``via`` fibration index is free host data: it must be
+    supplied through the observations dict at runtime, exactly like
+    a covariate. When it is neither a bound program variable nor
+    supplied, ``log_joint`` fails with a clear message that names
+    the index and says how to supply it, rather than a bare
+    ``KeyError``."""
+    src = _two_class_mixture_model()
+    model = loads(textwrap.dedent(src)).morphism
+    obs = {
+        "probs": torch.tensor([0.6, 0.4]),
+        "mu_shift": torch.tensor([0.5]),
+        "_grouped_ll_cls_0": torch.zeros(8, 2),
+        # ``idx`` intentionally omitted.
+    }
+    with pytest.raises(CompileError, match=r"via`` fibration index"):
+        model.log_joint(torch.zeros(1, 1), obs)
+    with pytest.raises(CompileError, match="supplied at runtime"):
+        model.log_joint(torch.zeros(1, 1), obs)
+
+
 def test_svi_runs_on_grouped_marginalize_model() -> None:
     """SVI takes ELBO steps on a model that uses a grouped
     marginalize block. The continuous latent ``mu_shift`` has a
@@ -130,7 +140,6 @@ def test_svi_runs_on_grouped_marginalize_model() -> None:
         assert torch.isfinite(torch.tensor(loss))
 
 
-@_LOCAL_GRAMMAR
 def test_svi_gradients_flow_into_continuous_latent_guide_params() -> None:
     """The gradient of the loss with respect to the guide's
     mu_shift variational parameters must be non-zero and finite —
@@ -154,7 +163,6 @@ def test_svi_gradients_flow_into_continuous_latent_guide_params() -> None:
     assert torch.isfinite(mu_scale_grad).all()
 
 
-@_LOCAL_GRAMMAR
 def test_grouped_marginalize_recovers_mixture_proportions() -> None:
     """Verify SVI on a grouped-marginalize model recovers the
     true mixture proportions.
@@ -170,7 +178,7 @@ def test_grouped_marginalize_recovers_mixture_proportions() -> None:
     direction of the recovery (more populous component gets larger
     weight) should be unambiguous."""
     src = """
-    composition log_prob as algebra
+    composition log_prob [level=algebra]
 
     object Item : FinSet 1
     object Resp : FinSet 40
@@ -178,7 +186,6 @@ def test_grouped_marginalize_recovers_mixture_proportions() -> None:
 
     program recovery : Resp -> Resp
         sample probs : Class <- HalfNormal(1.0)
-        sample idx : Resp <- HalfNormal(1.0)
         sample mu_shift <- Normal(0.0, 1.0)
         marginalize cls : Class <- Dirichlet(probs) [over=Item]
             observe r : Resp <- Normal(mu_shift, 1.0) [via=idx]
@@ -235,7 +242,7 @@ def _two_task_mixture_model() -> str:
     the per-item class.
     """
     return """
-    composition log_prob as algebra
+    composition log_prob [level=algebra]
 
     object Item : FinSet 4
     object RespA : FinSet 8
@@ -254,7 +261,6 @@ def _two_task_mixture_model() -> str:
     """
 
 
-@_LOCAL_GRAMMAR
 def test_two_task_mixture_compiles() -> None:
     """A single grouped marginalize block with two observe steps,
     each carrying its own ``via`` clause, compiles cleanly."""
@@ -263,7 +269,6 @@ def test_two_task_mixture_compiles() -> None:
     assert m.morphism is not None
 
 
-@_LOCAL_GRAMMAR
 def test_two_task_mixture_log_joint_returns_finite_scalar() -> None:
     """``log_joint`` on the two-task mixture model, with the
     per-axis ll tensors supplied directly to each observe's
@@ -287,7 +292,6 @@ def test_two_task_mixture_log_joint_returns_finite_scalar() -> None:
     assert torch.isfinite(out).all()
 
 
-@_LOCAL_GRAMMAR
 def test_log_joint_depends_on_grouped_ll_input() -> None:
     """The marginalize block's per-group log-likelihood input must
     actually flow into ``log_joint``.  Regression: previously the
@@ -316,7 +320,6 @@ def test_log_joint_depends_on_grouped_ll_input() -> None:
     )
 
 
-@_LOCAL_GRAMMAR
 def test_two_task_mixture_recovers_joint_proportions() -> None:
     """SVI on the two-task mixture model with synthetic data: the
     fit's final loss is finite and lower than the initial loss.

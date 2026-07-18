@@ -1,8 +1,8 @@
-# Exercises LetExprLambda (`param -> body` inside a fold-style call).
+# Exercises LetExprLambda (`param -> body` anonymous function).
 object Obs : FinSet 4
 program prog : Obs -> Obs
     sample x <- Normal(0.0, 1.0)
-    let doubled = (x_in -> x_in + x_in)(x)
-    observe y <- Normal(doubled, 1.0)
-    return doubled
+    let doubled = x_in -> x_in + x_in
+    observe y <- Normal(x, 1.0)
+    return x
 export prog

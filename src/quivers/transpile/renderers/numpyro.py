@@ -1192,7 +1192,7 @@ class _NumPyroCtx(_RenderCtx):
         py: PyCtx,
         observed_names: set[str],
     ) -> None:
-        super().__init__(sb=sb, morphisms=morphisms, lets=lets)
+        super().__init__(sb=sb, morphisms=morphisms, defines=lets)
         self.py = py
         self.observed_names = observed_names
         self.current_body: str | None = None

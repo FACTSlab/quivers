@@ -22,7 +22,7 @@ and four private dispatch points (`declare`, `sample`, `marginalize`,
 
 The `_RenderCtx` dataclass is the renderer-internal carrier for
 the panproto `SchemaBuilder`, fresh-id counter, and resolved
-morphism / let tables; it's the only `@dataclasses.dataclass` in
+morphism / define tables; it's the only `@dataclasses.dataclass` in
 the transpile layer (the IR uses `dx.Model` exclusively).
 """
 
@@ -79,7 +79,7 @@ type SchemaFragment = str
 @dataclasses.dataclass
 class _RenderCtx:
     """Renderer-internal mutable carrier for the panproto
-    `SchemaBuilder`, fresh-id counter, and resolved morphism / let
+    `SchemaBuilder`, fresh-id counter, and resolved morphism / define
     tables.
 
     One per `render` call. Threaded through the IR-walk dispatch
@@ -91,7 +91,7 @@ class _RenderCtx:
 
     sb: panproto.SchemaBuilder
     morphisms: dict[str, MorphismDecl]
-    lets: dict[str, Expr]
+    defines: dict[str, Expr]
     fresh_counter: int = 0
     cards: dict[str, int] = dataclasses.field(default_factory=dict)
 
@@ -258,7 +258,7 @@ class RendererBase(abc.ABC):
         assert_no_lists(ir)
         proto = self.target_protocol()
         sb = proto.schema()
-        ctx = _RenderCtx(sb=sb, morphisms={}, lets={})
+        ctx = _RenderCtx(sb=sb, morphisms={}, defines={})
         self._walk(ctx, ir)
         return sb.build()
 

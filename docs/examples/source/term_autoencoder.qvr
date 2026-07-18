@@ -1,0 +1,42 @@
+# Term Autoencoder
+#
+# A stochastic autoencoder on simply typed lambda terms: a
+# multi-sorted signature fixes the term algebra, an encoder folds
+# each term bottom-up into one fixed-width code vector, a decoder
+# corecursively expands a code back into a term, and a loss head
+# scores the round trip by reconstruction negative log-likelihood.
+
+#! Simply typed lambda terms: Term and Type are the recursively
+#! decoded object sorts; Name is a data sort with a closed
+#! vocabulary that the decoder samples and scores leaves from.
+signature STLC
+    sorts
+        Term : object
+        Type : object [dim=24]
+        Name : data   [dim=24, vocab=["f", "x", "plus", "base"]]
+    constructors
+        Const : Name -> Term
+        App   : Term, Term -> Term
+        Base  : Name -> Type
+    binders
+        Lam : binds (x : Term : ty : Type) in (body : Term) -> Term
+
+#! Fold a term bottom-up into one code vector. App carries an
+#! explicit op rule; every other operator keeps its learned
+#! scaffold. Bound variables enter the context as their type's
+#! annotation embedding.
+encoder Enc : STLC
+    dim Term = 24
+    op App(fun, arg) |-> relu(fun + arg)
+    var_init Term from Type as ty |-> ty
+
+#! Expand a code vector back into a term, scoring constructor,
+#! binder, and bound-variable candidates at every node down to a
+#! bounded depth.
+decoder Dec : STLC [depth=6]
+    dim Term = 24
+    body |-> recursive
+
+#! Reconstruction negative log-likelihood of the round trip.
+loss reconstruct [weight=1.0, on=decoder(Dec)]
+    -Dec.log_prob(term, Enc(term))

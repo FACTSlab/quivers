@@ -120,9 +120,12 @@ def test_make_param_source_discrete_returns_lookup() -> None:
     assert isinstance(ps, LookupSource)
 
 
-def test_make_param_source_continuous_default_mlp() -> None:
+def test_make_param_source_continuous_default_linear() -> None:
+    """A continuous domain defaults to one linear map. The default
+    decides whether a model is linear, so it is the reading of the
+    arrow rather than a hidden network."""
     ps = make_param_source(Euclidean(name="X", dim=4), 8)
-    assert isinstance(ps, MLPSource)
+    assert isinstance(ps, LinearSource)
 
 
 def test_make_param_source_kind_linear() -> None:
@@ -156,7 +159,7 @@ def test_param_source_from_option_paren_forms() -> None:
 
 def test_param_source_from_option_none_returns_default() -> None:
     ps = param_source_from_option(Euclidean(name="X", dim=4), 8, None)
-    assert isinstance(ps, MLPSource)
+    assert isinstance(ps, LinearSource)
 
 
 def test_conditional_normal_accepts_param_source_kwarg() -> None:
@@ -176,13 +179,14 @@ def test_conditional_normal_accepts_param_source_option_string() -> None:
     assert isinstance(n.param_source, LinearSource)
 
 
-def test_conditional_normal_default_source_is_neural() -> None:
+def test_conditional_normal_default_source_is_linear() -> None:
+    """A family built without an explicit source goes through the same
+    factory as the DSL option, so its default is one linear map rather
+    than a network."""
     X = Euclidean(name="X", dim=4)
     Y = Euclidean(name="Y", dim=2)
     n = ConditionalNormal(X, Y)
-    # Default: `_NeuralSource` (pre-abstraction two-layer MLP) or
-    # `MLPSource` depending on which entry-point built it; both are
-    # nn.Modules with the right output dim.
+    assert isinstance(n.param_source, LinearSource)
     x = torch.randn(3, 4)
     y = torch.randn(3, 2)
     assert n.log_prob(x, y).shape == torch.Size([3])
@@ -222,3 +226,177 @@ def test_param_source_is_subclassable() -> None:
     Y = Euclidean(name="Y", dim=2)
     n = ConditionalNormal(X, Y, param_source=src)
     assert n.param_source is src
+
+
+# ---------------------------------------------------------------------------
+# DSL surface: [param_source=...] reaches the family
+# ---------------------------------------------------------------------------
+
+
+def _family_of(source: str):
+    """Compile a one-kernel program and return its conditional family."""
+    from quivers.dsl import loads
+
+    prog = loads(source)
+    model = prog.morphism
+    assert model is not None
+    return dict(model.named_modules())["_step_y._family"]
+
+
+def _program(option: str) -> str:
+    return (
+        "object F : Real 1\n"
+        "object T : Real 1\n"
+        "object R : FinSet 8\n"
+        "\n"
+        f"morphism net : F -> T [{option}] ~ Normal\n"
+        "\n"
+        "program p : R -> R\n"
+        "    observe y : R <- net(x)\n"
+        "    return y\n"
+        "\n"
+        "export p\n"
+    )
+
+
+def test_param_source_name_selects_the_architecture() -> None:
+    """A bare name picks the source: ``linear`` is one matrix, not the
+    default MLP."""
+    assert isinstance(
+        _family_of(_program("param_source=linear")).param_source, LinearSource
+    )
+    assert isinstance(_family_of(_program("param_source=mlp")).param_source, MLPSource)
+
+
+def test_param_source_call_form_carries_the_hidden_widths() -> None:
+    """``mlp(16, 8)`` is a call, not a bare name, and its arguments are
+    the hidden widths. The widths have to survive the option decode and
+    reach the source, so the built net is 16 then 8 rather than the
+    default 64, 64."""
+    src = _family_of(_program("param_source=mlp(16, 8)")).param_source
+    assert isinstance(src, MLPSource)
+    widths = [layer.out_features for layer in src.net if hasattr(layer, "out_features")]
+    # Two hidden widths as written, then the family's param_dim (loc, log-scale).
+    assert widths == [16, 8, 2]
+
+    default = _family_of(_program("param_source=mlp")).param_source
+    default_widths = [
+        layer.out_features for layer in default.net if hasattr(layer, "out_features")
+    ]
+    assert default_widths == [64, 64, 2]
+
+
+# ---------------------------------------------------------------------------
+# Every family that has a parameter source can select it
+# ---------------------------------------------------------------------------
+
+
+_FAMILIES_WITHOUT_A_SOURCE = frozenset(
+    {
+        "ConditionalIndependent",
+        "ConditionalTransformed",
+        "ConditionalGaussianProcess",
+        "ConditionalHorseshoe",
+    }
+)
+
+
+def test_every_family_with_a_source_accepts_the_option() -> None:
+    """`[param_source=...]` is a morphism option the compiler accepts
+    for any family-backed kernel, so every family whose parameters come
+    from a source has to be able to receive it. A family that cannot is
+    a `TypeError` raised inside a constructor, with no line or column
+    on it."""
+    import inspect
+
+    from quivers.continuous import families
+
+    missing = []
+    for name, cls in vars(families).items():
+        if not name.startswith("Conditional") or name in _FAMILIES_WITHOUT_A_SOURCE:
+            continue
+        try:
+            params = inspect.signature(cls.__init__).parameters
+        except TypeError, ValueError:  # pragma: no cover - builtins
+            continue
+        if "param_source_option" not in params or "param_source" not in params:
+            missing.append(name)
+    assert not missing, f"families that cannot receive param_source: {missing}"
+
+
+def _source_of(option: str, family: str = "Normal"):
+    from quivers.dsl import loads
+
+    src = (
+        "object F : Real 2\n"
+        "object T : Real 1\n"
+        "object R : FinSet 8\n"
+        "\n"
+        f"morphism net : F -> T {option} ~ {family}\n"
+        "\n"
+        "program p : R -> R\n"
+        "    observe y : R <- net(x)\n"
+        "    return y\n"
+        "\n"
+        "export p\n"
+    )
+    model = loads(src).morphism
+    assert model is not None
+    return dict(model.named_modules())["_step_y._family"].param_source
+
+
+def _widths(source) -> list[int]:
+    return [
+        layer.out_features for layer in source.net if hasattr(layer, "out_features")
+    ]
+
+
+@pytest.mark.parametrize("family", ["Normal", "Beta", "Gamma", "LogitNormal"])
+def test_param_source_reaches_every_family(family: str) -> None:
+    """Not just `Normal`: the option has to build the source whatever
+    the family."""
+    assert isinstance(_source_of("[param_source=mlp]", family), MLPSource)
+    assert isinstance(_source_of("[param_source=linear]", family), LinearSource)
+
+
+def test_hidden_dim_takes_a_sequence_of_widths() -> None:
+    """One entry per hidden layer, so the option says how many layers as
+    well as how wide. A single number cannot say the first."""
+    source = _source_of("[param_source=mlp, hidden_dim=[64, 32, 16]]")
+    # three hidden layers as written, then the family's param_dim.
+    assert _widths(source) == [64, 32, 16, 2]
+
+
+def test_hidden_dim_takes_a_single_width() -> None:
+    """A bare number is the one-layer case, so `n` reads as `[n]`."""
+    assert _widths(_source_of("[param_source=mlp, hidden_dim=32]")) == [32, 2]
+
+
+def test_hidden_dim_is_rejected_when_nothing_would_read_it() -> None:
+    """A single matrix has no hidden layers to be wide, so a width
+    against it is a question with no answer. Silence would read as one."""
+    with pytest.raises(ValueError, match="no hidden layers"):
+        _source_of("[hidden_dim=32]")
+
+
+def test_param_source_is_rejected_by_a_family_that_has_none() -> None:
+    """`Horseshoe` draws its own scale rather than reading parameters
+    from a source, so the option is refused at compile time with a
+    location, not inside a constructor."""
+    from quivers.dsl import CompileError, loads
+
+    src = (
+        "object F : Real 2\n"
+        "object T : Real 2\n"
+        "object R : FinSet 8\n"
+        "\n"
+        "morphism net : F -> T [param_source=mlp] ~ Horseshoe\n"
+        "\n"
+        "program p : R -> R\n"
+        "    observe y : R <- net(x)\n"
+        "    return y\n"
+        "\n"
+        "export p\n"
+    )
+    with pytest.raises(CompileError, match="does not take"):
+        loads(src)

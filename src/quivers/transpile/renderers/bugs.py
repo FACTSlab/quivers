@@ -58,6 +58,7 @@ import panproto
 
 from quivers.dsl.ast_nodes import (
     DrawArg,
+    DrawArgIndex,
     DrawArgName,
     DrawArgScalar,
     MorphismDecl,
@@ -252,7 +253,7 @@ class BUGSRenderer(RendererBase):
         ir = push_scalar_dets_into_loops(ir)
         proto = self.target_protocol()
         sb = proto.schema()
-        ctx = _BugsCtx(sb=sb, morphisms={}, lets={})
+        ctx = _BugsCtx(sb=sb, morphisms={}, defines={})
         self._cards = dict(ir.cards)
         # Populate decl_plates for every IRDataInput and IRSample /
         # IRObserve / IRDeterministic / IRMarginalize-latent.
@@ -1834,6 +1835,11 @@ def _draw_arg_to_ir(a: DrawArg) -> IRArg:
         return IRArgNumber(value=a.value)
     if isinstance(a, DrawArgName):
         return IRArgRef(name=a.text)
+    if isinstance(a, DrawArgIndex):
+        return IRArgRef(
+            name=a.name,
+            indices=tuple(IRArgRef(name=index) for index in a.indices),
+        )
     raise UnsupportedConstruct(
         "qvr-bugs",
         [f"draw-arg:{type(a).__name__}"],

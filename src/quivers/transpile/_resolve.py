@@ -33,13 +33,14 @@ import torch.distributions as _td
 
 from quivers.dsl.ast_nodes import (
     DrawArg,
+    DrawArgDist,
+    DrawArgIndex,
     DrawArgList,
-    DrawArgMatrix,
     DrawArgName,
     DrawArgScalar,
     Expr,
     ExprIdent,
-    LetDecl,
+    DefineDecl,
     Module,
     MorphismDecl,
     MorphismInitFamily,
@@ -50,6 +51,12 @@ from quivers.dsl.ast_nodes._shared import (
     OptionString,
 )
 from quivers.transpile._api import UnsupportedConstruct
+from quivers.transpile._draw_args import (
+    encode_index,
+    is_matrix,
+    list_atoms,
+    matrix_rows,
+)
 
 
 @dataclasses.dataclass(frozen=True)
@@ -82,16 +89,26 @@ def _draw_arg_to_wire(arg: DrawArg) -> str | float:
         return arg.value
     if isinstance(arg, DrawArgName):
         return arg.text
+    if isinstance(arg, DrawArgIndex):
+        return encode_index(arg)
+    if isinstance(arg, DrawArgDist):
+        raise UnsupportedConstruct(
+            "qvr-transpile",
+            [
+                f"nested-distribution-arg:{arg.family}: a "
+                "distribution-valued argument has no wire form"
+            ],
+        )
     if isinstance(arg, DrawArgList):
+        if is_matrix(arg):
+            rows = ", ".join(
+                "[" + ", ".join(_atom_to_text(e) for e in row) + "]"
+                for row in matrix_rows(arg)
+            )
+            return f"[{rows}]"
         return (
-            "[" + ", ".join(_atom_to_text(e) for e in arg.elements) + "]"
+            "[" + ", ".join(_atom_to_text(e) for e in list_atoms(arg)) + "]"
         )
-    if isinstance(arg, DrawArgMatrix):
-        rows = ", ".join(
-            "[" + ", ".join(_atom_to_text(e) for e in row.elements) + "]"
-            for row in arg.rows
-        )
-        return f"[{rows}]"
     raise TypeError(
         f"_draw_arg_to_wire: unsupported arg variant {type(arg).__name__}"
     )
@@ -111,20 +128,23 @@ def _format_number(value: float) -> str:
 
 def build_morphism_table(module: Module) -> dict[str, MorphismDecl]:
     """Return name → MorphismDecl for every morphism declaration in
-    ``module``. Duplicate names are an error (the QVR compiler also
-    rejects them, but the resolver catches it locally with a clearer
-    transpile-time message)."""
+    ``module``. A plural-name declaration contributes one entry per
+    name (each name is an independent morphism with the same
+    signature and init). Duplicate names are an error (the QVR
+    compiler also rejects them, but the resolver catches it locally
+    with a clearer transpile-time message)."""
     out: dict[str, MorphismDecl] = {}
     for stmt in module.statements:
         if isinstance(stmt, MorphismDecl):
-            if stmt.name in out:
-                msg = (
-                    f"duplicate morphism declaration {stmt.name!r}: "
-                    f"first at line {out[stmt.name].line}, again at "
-                    f"line {stmt.line}"
-                )
-                raise UnsupportedConstruct("qvr-transpile", [msg])
-            out[stmt.name] = stmt
+            for name in stmt.names:
+                if name in out:
+                    msg = (
+                        f"duplicate morphism declaration {name!r}: "
+                        f"first at line {out[name].line}, again at "
+                        f"line {stmt.line}"
+                    )
+                    raise UnsupportedConstruct("qvr-transpile", [msg])
+                out[name] = stmt
     return out
 
 
@@ -132,7 +152,7 @@ def build_let_table(module: Module) -> dict[str, Expr]:
     """Return name → expr for every top-level ``let_decl``."""
     out: dict[str, Expr] = {}
     for stmt in module.statements:
-        if isinstance(stmt, LetDecl):
+        if isinstance(stmt, DefineDecl):
             out[stmt.name] = stmt.expr
     return out
 

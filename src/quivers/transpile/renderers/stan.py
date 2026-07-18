@@ -52,10 +52,11 @@ from torch.distributions.constraints import Constraint
 
 from quivers.dsl.ast_nodes import (
     DrawArg,
+    DrawArgIndex,
     DrawArgName,
     DrawArgScalar,
     Expr,
-    LetDecl,
+    DefineDecl,
     Module,
     MorphismDecl,
 )
@@ -67,6 +68,7 @@ from quivers.dsl.ast_nodes.let_expressions import (
     LetExprVar,
 )
 from quivers.transpile._api import UnsupportedConstruct
+from quivers.transpile._draw_args import encode_index
 from quivers.transpile._pipeline import parser_registry, target_protocol
 from quivers.transpile.lower import _collect_let_expr_var_names
 from quivers.transpile.family_meta import (
@@ -187,7 +189,7 @@ class StanRenderer(RendererBase):
         ----------
         source_module
             Optional original [`Module`][quivers.dsl.ast_nodes.Module]
-            the IR came from. Carries `MorphismDecl` / `LetDecl`
+            the IR came from. Carries `MorphismDecl` / `DefineDecl`
             entries the renderer reads when resolving
             [`IRArgFamilyRef`][quivers.transpile.ir.IRArgFamilyRef] args
             (`Truncated(base, ...)` style wrappers). When omitted, the
@@ -248,7 +250,7 @@ class StanRenderer(RendererBase):
         proto = self.target_protocol()
         sb = proto.schema()
         morphisms, lets = self._resolve_morphisms_and_lets()
-        ctx = _RenderCtx(sb=sb, morphisms=morphisms, lets=lets)
+        ctx = _RenderCtx(sb=sb, morphisms=morphisms, defines=lets)
         # Reset per-render state.
         self._blocks = {}
         self._declared = {
@@ -2358,6 +2360,8 @@ class StanRenderer(RendererBase):
             except ValueError:
                 return self._variable_expression(ctx, stripped)
             return self._render_number(ctx, value)
+        if isinstance(raw, DrawArgIndex):
+            return self._variable_expression(ctx, encode_index(raw))
         raise UnsupportedConstruct(
             "qvr-stan",
             [f"init_family-arg:unsupported-variant:{type(raw).__name__}"],
@@ -2824,8 +2828,9 @@ class StanRenderer(RendererBase):
         lets: dict[str, Expr] = {}
         for stmt in self._source_module.statements:
             if isinstance(stmt, MorphismDecl):
-                morphisms[stmt.name] = stmt
-            elif isinstance(stmt, LetDecl):
+                for name in stmt.names:
+                    morphisms[name] = stmt
+            elif isinstance(stmt, DefineDecl):
                 lets[stmt.name] = stmt.expr
         return morphisms, lets
 

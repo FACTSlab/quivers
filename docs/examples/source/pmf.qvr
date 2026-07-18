@@ -18,37 +18,14 @@
 # carries a matrix-normal prior with row covariance on LatentDim
 # and column covariance on the user or movie plate.
 
-composition real as algebra
+composition real [level=algebra]
 
 object LatentDim : FinSet 2
-object User : FinSet 8
-object Movie : FinSet 8
-object Rating : FinSet 5
+object User, Movie : FinSet 8
 
 morphism U : LatentDim -> User [role=latent]
 morphism V : LatentDim -> Movie [role=latent]
 
-let pmf = U.dagger >> V
+define pmf = U.dagger >> V
 
-# Probabilistic surface: every entry of the U and V factor
-# matrices carries an independent Normal(0, 0.5) prior (the
-# matrix-normal special case with V = U = I scaled to 0.5),
-# the rating-noise scale carries a HalfCauchy(1.0) prior, and
-# each observed rating is scored under Normal(mu, sigma) where
-# mu is the per-rating inner product U[:, u_idx] . V[:, m_idx].
-# The factor matrices are sampled transposed (User -> LatentDim
-# and Movie -> LatentDim) so the per-Rating inner product is
-# two compatible Rating-by-LatentDim gathers.
-program pmf_program : Rating -> Rating
-    sample sigma <- HalfCauchy(1.0)
-    sample U_mat : User <- Normal(0.0, 0.5) [over=LatentDim, iid_over=User]
-    sample V_mat : Movie <- Normal(0.0, 0.5) [over=LatentDim, iid_over=Movie]
-
-    let u_row = U_mat[u_idx]
-    let v_row = V_mat[m_idx]
-    let mu = sum(u_row * v_row)
-
-    observe r : Rating <- Normal(mu, sigma)
-    return r
-
-export pmf_program
+export pmf

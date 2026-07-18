@@ -27,7 +27,7 @@ implemented as standalone classes.
 from __future__ import annotations
 
 import math
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 
 import torch
 import torch.nn.functional as F
@@ -55,8 +55,8 @@ from quivers.continuous.spaces import (
 from quivers.continuous.morphisms import (
     AnySpace,
     ContinuousMorphism,
-    _make_source,
 )
+from quivers.continuous.param_source import ParamSource, _make_source
 from quivers.core._util import EPS
 
 
@@ -125,7 +125,7 @@ class _IndependentConditional(ContinuousMorphism):
         codomain: ContinuousSpace,
         dist_class: type,
         param_specs: list[tuple[str, Callable]],
-        hidden_dim: int = 64,
+        hidden_dim: int | Sequence[int] | None = None,
         discrete: bool = False,
         param_source=None,
         param_source_option: str | None = None,
@@ -139,21 +139,12 @@ class _IndependentConditional(ContinuousMorphism):
 
         # total raw parameters: one scalar per spec per codomain dim
         total_raw = len(param_specs) * d
-        if param_source is None and param_source_option is not None:
-            from quivers.continuous.param_source import (
-                param_source_from_option,
-            )
-
-            param_source = param_source_from_option(
-                domain,
-                total_raw,
-                param_source_option,
-            )
         self.param_source = _make_source(
             domain,
             total_raw,
             hidden_dim,
             param_source=param_source,
+            param_source_option=param_source_option,
         )
 
     def _get_dist(self, x: torch.Tensor) -> D.Distribution:
@@ -263,8 +254,8 @@ def _make_family(
             self,
             domain: AnySpace,
             codomain: ContinuousSpace,
-            hidden_dim: int = 64,
-            param_source=None,
+            hidden_dim: int | Sequence[int] | None = None,
+            param_source: ParamSource | None = None,
             param_source_option: str | None = None,
         ) -> None:
             super().__init__(
@@ -352,28 +343,19 @@ class ConditionalNormal(ContinuousMorphism):
         self,
         domain: AnySpace,
         codomain: ContinuousSpace,
-        hidden_dim: int = 64,
+        hidden_dim: int | Sequence[int] | None = None,
         param_source=None,
         param_source_option: str | None = None,
     ) -> None:
         super().__init__(domain, codomain)
         d = codomain.dim
         # param_dim = d (mu) + d (log_sigma)
-        if param_source is None and param_source_option is not None:
-            from quivers.continuous.param_source import (
-                param_source_from_option,
-            )
-
-            param_source = param_source_from_option(
-                domain,
-                2 * d,
-                param_source_option,
-            )
         self.param_source = _make_source(
             domain,
             2 * d,
             hidden_dim,
             param_source=param_source,
+            param_source_option=param_source_option,
         )
         self._d = d
 
@@ -444,11 +426,19 @@ class ConditionalLogitNormal(ContinuousMorphism):
         self,
         domain: AnySpace,
         codomain: ContinuousSpace,
-        hidden_dim: int = 64,
+        hidden_dim: int | Sequence[int] | None = None,
+        param_source: ParamSource | None = None,
+        param_source_option: str | None = None,
     ) -> None:
         super().__init__(domain, codomain)
         d = codomain.dim
-        self.param_source = _make_source(domain, 2 * d, hidden_dim)
+        self.param_source = _make_source(
+            domain,
+            2 * d,
+            hidden_dim,
+            param_source=param_source,
+            param_source_option=param_source_option,
+        )
         self._d = d
 
     @property
@@ -522,11 +512,19 @@ class ConditionalBeta(ContinuousMorphism):
         self,
         domain: AnySpace,
         codomain: ContinuousSpace,
-        hidden_dim: int = 64,
+        hidden_dim: int | Sequence[int] | None = None,
+        param_source: ParamSource | None = None,
+        param_source_option: str | None = None,
     ) -> None:
         super().__init__(domain, codomain)
         d = codomain.dim
-        self.param_source = _make_source(domain, 2 * d, hidden_dim)
+        self.param_source = _make_source(
+            domain,
+            2 * d,
+            hidden_dim,
+            param_source=param_source,
+            param_source_option=param_source_option,
+        )
         self._d = d
 
     @property
@@ -582,14 +580,22 @@ class ConditionalTruncatedNormal(ContinuousMorphism):
         self,
         domain: AnySpace,
         codomain: Euclidean,
-        hidden_dim: int = 64,
+        hidden_dim: int | Sequence[int] | None = None,
+        param_source: ParamSource | None = None,
+        param_source_option: str | None = None,
     ) -> None:
         if codomain.low is None or codomain.high is None:
             raise ValueError("ConditionalTruncatedNormal requires a bounded codomain")
 
         super().__init__(domain, codomain)
         d = codomain.dim
-        self.param_source = _make_source(domain, 2 * d, hidden_dim)
+        self.param_source = _make_source(
+            domain,
+            2 * d,
+            hidden_dim,
+            param_source=param_source,
+            param_source_option=param_source_option,
+        )
         self._d = d
         self._low = codomain.low
         self._high = codomain.high
@@ -669,11 +675,19 @@ class ConditionalDirichlet(ContinuousMorphism):
         self,
         domain: AnySpace,
         codomain: ContinuousSpace,
-        hidden_dim: int = 64,
+        hidden_dim: int | Sequence[int] | None = None,
+        param_source: ParamSource | None = None,
+        param_source_option: str | None = None,
     ) -> None:
         super().__init__(domain, codomain)
         d = codomain.dim
-        self.param_source = _make_source(domain, d, hidden_dim)
+        self.param_source = _make_source(
+            domain,
+            d,
+            hidden_dim,
+            param_source=param_source,
+            param_source_option=param_source_option,
+        )
         self._d = d
 
     @property
@@ -886,12 +900,20 @@ class ConditionalUniform(ContinuousMorphism):
         self,
         domain: AnySpace,
         codomain: ContinuousSpace,
-        hidden_dim: int = 64,
+        hidden_dim: int | Sequence[int] | None = None,
+        param_source: ParamSource | None = None,
+        param_source_option: str | None = None,
     ) -> None:
         super().__init__(domain, codomain)
         d = codomain.dim
         # param_dim = d (loc) + d (raw_width)
-        self.param_source = _make_source(domain, 2 * d, hidden_dim)
+        self.param_source = _make_source(
+            domain,
+            2 * d,
+            hidden_dim,
+            param_source=param_source,
+            param_source_option=param_source_option,
+        )
         self._d = d
         # The bounds are data-dependent, so we cannot pin a single
         # interval at construction time; advertise the codomain's
@@ -956,12 +978,20 @@ class ConditionalMultivariateNormal(ContinuousMorphism):
         self,
         domain: AnySpace,
         codomain: ContinuousSpace,
-        hidden_dim: int = 64,
+        hidden_dim: int | Sequence[int] | None = None,
+        param_source: ParamSource | None = None,
+        param_source_option: str | None = None,
     ) -> None:
         super().__init__(domain, codomain)
         d = codomain.dim
         n_tril = d * (d + 1) // 2
-        self.param_source = _make_source(domain, d + n_tril, hidden_dim)
+        self.param_source = _make_source(
+            domain,
+            d + n_tril,
+            hidden_dim,
+            param_source=param_source,
+            param_source_option=param_source_option,
+        )
         self._d = d
         self._n_tril = n_tril
 
@@ -1028,7 +1058,9 @@ class ConditionalLowRankMVN(ContinuousMorphism):
         domain: AnySpace,
         codomain: ContinuousSpace,
         rank: int = 2,
-        hidden_dim: int = 64,
+        hidden_dim: int | Sequence[int] | None = None,
+        param_source: ParamSource | None = None,
+        param_source_option: str | None = None,
     ) -> None:
         super().__init__(domain, codomain)
         d = codomain.dim
@@ -1037,7 +1069,13 @@ class ConditionalLowRankMVN(ContinuousMorphism):
 
         # loc (d) + factor (d * rank) + diag (d)
         total = d + d * rank + d
-        self.param_source = _make_source(domain, total, hidden_dim)
+        self.param_source = _make_source(
+            domain,
+            total,
+            hidden_dim,
+            param_source=param_source,
+            param_source_option=param_source_option,
+        )
 
     def _get_dist(self, x: torch.Tensor) -> D.LowRankMultivariateNormal:
         raw = self.param_source(x)
@@ -1095,11 +1133,19 @@ class ConditionalRelaxedBernoulli(ContinuousMorphism):
         domain: AnySpace,
         codomain: ContinuousSpace,
         temperature: float = 0.5,
-        hidden_dim: int = 64,
+        hidden_dim: int | Sequence[int] | None = None,
+        param_source: ParamSource | None = None,
+        param_source_option: str | None = None,
     ) -> None:
         super().__init__(domain, codomain)
         d = codomain.dim
-        self.param_source = _make_source(domain, d, hidden_dim)
+        self.param_source = _make_source(
+            domain,
+            d,
+            hidden_dim,
+            param_source=param_source,
+            param_source_option=param_source_option,
+        )
         self._d = d
         self._temperature = temperature
 
@@ -1148,11 +1194,19 @@ class ConditionalRelaxedOneHotCategorical(ContinuousMorphism):
         domain: AnySpace,
         codomain: ContinuousSpace,
         temperature: float = 0.5,
-        hidden_dim: int = 64,
+        hidden_dim: int | Sequence[int] | None = None,
+        param_source: ParamSource | None = None,
+        param_source_option: str | None = None,
     ) -> None:
         super().__init__(domain, codomain)
         d = codomain.dim
-        self.param_source = _make_source(domain, d, hidden_dim)
+        self.param_source = _make_source(
+            domain,
+            d,
+            hidden_dim,
+            param_source=param_source,
+            param_source_option=param_source_option,
+        )
         self._d = d
         self._temperature = temperature
 
@@ -1206,13 +1260,21 @@ class ConditionalWishart(ContinuousMorphism):
         self,
         domain: AnySpace,
         codomain: ContinuousSpace,
-        hidden_dim: int = 64,
+        hidden_dim: int | Sequence[int] | None = None,
+        param_source: ParamSource | None = None,
+        param_source_option: str | None = None,
     ) -> None:
         super().__init__(domain, codomain)
         d = codomain.dim
         n_tril = d * (d + 1) // 2
         # df (1) + lower-triangular scale (n_tril)
-        self.param_source = _make_source(domain, 1 + n_tril, hidden_dim)
+        self.param_source = _make_source(
+            domain,
+            1 + n_tril,
+            hidden_dim,
+            param_source=param_source,
+            param_source_option=param_source_option,
+        )
         self._d = d
         self._n_tril = n_tril
 
@@ -1312,7 +1374,9 @@ class ConditionalMatrixNormal(ContinuousMorphism):
         codomain: ContinuousSpace,
         rows: int,
         cols: int,
-        hidden_dim: int = 64,
+        hidden_dim: int | Sequence[int] | None = None,
+        param_source: ParamSource | None = None,
+        param_source_option: str | None = None,
     ) -> None:
         super().__init__(domain, codomain)
         self._rows = int(rows)
@@ -1324,7 +1388,11 @@ class ConditionalMatrixNormal(ContinuousMorphism):
         self._n_row_tril = n_row_tril
         self._n_col_tril = n_col_tril
         self.param_source = _make_source(
-            domain, n_loc + n_row_tril + n_col_tril, hidden_dim
+            domain,
+            n_loc + n_row_tril + n_col_tril,
+            hidden_dim,
+            param_source=param_source,
+            param_source_option=param_source_option,
         )
 
     def _build_tril(self, raw: torch.Tensor, d: int, n_tril: int) -> torch.Tensor:
@@ -1401,14 +1469,22 @@ class ConditionalInverseWishart(ContinuousMorphism):
         self,
         domain: AnySpace,
         codomain: ContinuousSpace,
-        hidden_dim: int = 64,
+        hidden_dim: int | Sequence[int] | None = None,
+        param_source: ParamSource | None = None,
+        param_source_option: str | None = None,
     ) -> None:
         super().__init__(domain, codomain)
         d = codomain.dim
         n_tril = d * (d + 1) // 2
         self._d = d
         self._n_tril = n_tril
-        self.param_source = _make_source(domain, 1 + n_tril, hidden_dim)
+        self.param_source = _make_source(
+            domain,
+            1 + n_tril,
+            hidden_dim,
+            param_source=param_source,
+            param_source_option=param_source_option,
+        )
 
     @property
     def support(self) -> _constraints.Constraint:
@@ -1506,7 +1582,9 @@ class ConditionalBernoulli(ContinuousMorphism):
         self,
         domain: AnySpace,
         codomain: AnySpace,
-        hidden_dim: int = 64,
+        hidden_dim: int | Sequence[int] | None = None,
+        param_source: ParamSource | None = None,
+        param_source_option: str | None = None,
     ) -> None:
         from quivers.core.objects import SetObject
 
@@ -1518,7 +1596,13 @@ class ConditionalBernoulli(ContinuousMorphism):
         super().__init__(domain, codomain)
 
         # one logit per input
-        self.param_source = _make_source(domain, 1, hidden_dim)
+        self.param_source = _make_source(
+            domain,
+            1,
+            hidden_dim,
+            param_source=param_source,
+            param_source_option=param_source_option,
+        )
 
     def _get_probs(self, x: torch.Tensor) -> torch.Tensor:
         """Compute Bernoulli probabilities from input.
@@ -1600,7 +1684,9 @@ class ConditionalCategorical(ContinuousMorphism):
         self,
         domain: AnySpace,
         codomain: AnySpace,
-        hidden_dim: int = 64,
+        hidden_dim: int | Sequence[int] | None = None,
+        param_source: ParamSource | None = None,
+        param_source_option: str | None = None,
     ) -> None:
         from quivers.core.objects import SetObject
 
@@ -1611,7 +1697,13 @@ class ConditionalCategorical(ContinuousMorphism):
 
         super().__init__(domain, codomain)
         self._k = codomain.size
-        self.param_source = _make_source(domain, self._k, hidden_dim)
+        self.param_source = _make_source(
+            domain,
+            self._k,
+            hidden_dim,
+            param_source=param_source,
+            param_source_option=param_source_option,
+        )
 
     @property
     def support(self):
@@ -1712,7 +1804,9 @@ class ConditionalBinomial(ContinuousMorphism):
         domain: AnySpace,
         codomain: ContinuousSpace,
         total_count: int = 1,
-        hidden_dim: int = 64,
+        hidden_dim: int | Sequence[int] | None = None,
+        param_source: ParamSource | None = None,
+        param_source_option: str | None = None,
     ) -> None:
         if total_count < 1:
             raise ValueError(
@@ -1722,7 +1816,13 @@ class ConditionalBinomial(ContinuousMorphism):
         d = codomain.dim
         self._d = d
         self._total_count = int(total_count)
-        self.param_source = _make_source(domain, d, hidden_dim)
+        self.param_source = _make_source(
+            domain,
+            d,
+            hidden_dim,
+            param_source=param_source,
+            param_source_option=param_source_option,
+        )
 
     def _get_dist(self, x: torch.Tensor) -> D.Binomial:
         logits = self.param_source(x)
@@ -1770,14 +1870,22 @@ class ConditionalLogisticNormal(ContinuousMorphism):
         self,
         domain: AnySpace,
         codomain: ContinuousSpace,
-        hidden_dim: int = 64,
+        hidden_dim: int | Sequence[int] | None = None,
+        param_source: ParamSource | None = None,
+        param_source_option: str | None = None,
     ) -> None:
         super().__init__(domain, codomain)
         d = codomain.dim
         # We use a Normal in (d-1)-dim space and the
         # StickBreakingTransform to land on the d-simplex.
         # torch.distributions.LogisticNormal handles this.
-        self.param_source = _make_source(domain, 2 * (d - 1), hidden_dim)
+        self.param_source = _make_source(
+            domain,
+            2 * (d - 1),
+            hidden_dim,
+            param_source=param_source,
+            param_source_option=param_source_option,
+        )
         self._d = d
 
     def _get_dist(self, x: torch.Tensor) -> D.LogisticNormal:
@@ -1818,7 +1926,9 @@ class ConditionalOrderedLogistic(ContinuousMorphism):
         self,
         domain: AnySpace,
         codomain: AnySpace,
-        hidden_dim: int = 64,
+        hidden_dim: int | Sequence[int] | None = None,
+        param_source: ParamSource | None = None,
+        param_source_option: str | None = None,
     ) -> None:
         from quivers.core.objects import SetObject
 
@@ -1834,7 +1944,13 @@ class ConditionalOrderedLogistic(ContinuousMorphism):
             )
         super().__init__(domain, codomain)
         self._k = codomain.size
-        self.param_source = _make_source(domain, 1 + (self._k - 1), hidden_dim)
+        self.param_source = _make_source(
+            domain,
+            1 + (self._k - 1),
+            hidden_dim,
+            param_source=param_source,
+            param_source_option=param_source_option,
+        )
 
     @property
     def support(self) -> _constraints.Constraint:
@@ -1873,12 +1989,20 @@ class ConditionalZeroInflatedPoisson(ContinuousMorphism):
         self,
         domain: AnySpace,
         codomain: ContinuousSpace,
-        hidden_dim: int = 64,
+        hidden_dim: int | Sequence[int] | None = None,
+        param_source: ParamSource | None = None,
+        param_source_option: str | None = None,
     ) -> None:
         super().__init__(domain, codomain)
         d = codomain.dim
         self._d = d
-        self.param_source = _make_source(domain, 2 * d, hidden_dim)
+        self.param_source = _make_source(
+            domain,
+            2 * d,
+            hidden_dim,
+            param_source=param_source,
+            param_source_option=param_source_option,
+        )
 
     @property
     def support(self) -> _constraints.Constraint:
@@ -1913,12 +2037,20 @@ class ConditionalHurdlePoisson(ContinuousMorphism):
         self,
         domain: AnySpace,
         codomain: ContinuousSpace,
-        hidden_dim: int = 64,
+        hidden_dim: int | Sequence[int] | None = None,
+        param_source: ParamSource | None = None,
+        param_source_option: str | None = None,
     ) -> None:
         super().__init__(domain, codomain)
         d = codomain.dim
         self._d = d
-        self.param_source = _make_source(domain, 2 * d, hidden_dim)
+        self.param_source = _make_source(
+            domain,
+            2 * d,
+            hidden_dim,
+            param_source=param_source,
+            param_source_option=param_source_option,
+        )
 
     @property
     def support(self) -> _constraints.Constraint:
@@ -1960,7 +2092,9 @@ class ConditionalMixtureNormal(ContinuousMorphism):
         domain: AnySpace,
         codomain: ContinuousSpace,
         num_components: int = 2,
-        hidden_dim: int = 64,
+        hidden_dim: int | Sequence[int] | None = None,
+        param_source: ParamSource | None = None,
+        param_source_option: str | None = None,
     ) -> None:
         if num_components < 2:
             raise ValueError(
@@ -1969,7 +2103,13 @@ class ConditionalMixtureNormal(ContinuousMorphism):
             )
         super().__init__(domain, codomain)
         self._k = int(num_components)
-        self.param_source = _make_source(domain, 3 * self._k, hidden_dim)
+        self.param_source = _make_source(
+            domain,
+            3 * self._k,
+            hidden_dim,
+            param_source=param_source,
+            param_source_option=param_source_option,
+        )
 
     @property
     def support(self) -> _constraints.Constraint:
@@ -2026,12 +2166,20 @@ class ConditionalOneHotCategorical(ContinuousMorphism):
         self,
         domain: AnySpace,
         codomain: ContinuousSpace,
-        hidden_dim: int = 64,
+        hidden_dim: int | Sequence[int] | None = None,
+        param_source: ParamSource | None = None,
+        param_source_option: str | None = None,
     ) -> None:
         super().__init__(domain, codomain)
         d = codomain.dim
         self._d = d
-        self.param_source = _make_source(domain, d, hidden_dim)
+        self.param_source = _make_source(
+            domain,
+            d,
+            hidden_dim,
+            param_source=param_source,
+            param_source_option=param_source_option,
+        )
 
     def _get_dist(self, x: torch.Tensor) -> D.OneHotCategorical:
         logits = self.param_source(x)
@@ -2102,7 +2250,9 @@ class ConditionalMixture(ContinuousMorphism):
         codomain: ContinuousSpace,
         component_class: type,
         num_components: int = 4,
-        hidden_dim: int = 64,
+        hidden_dim: int | Sequence[int] | None = None,
+        param_source: ParamSource | None = None,
+        param_source_option: str | None = None,
     ) -> None:
         if num_components < 2:
             raise ValueError(
@@ -2113,7 +2263,13 @@ class ConditionalMixture(ContinuousMorphism):
         self._components = torch.nn.ModuleList(
             [component_class(domain, codomain, hidden_dim) for _ in range(self._K)]
         )
-        self.mixture_logits = _make_source(domain, self._K, hidden_dim)
+        self.mixture_logits = _make_source(
+            domain,
+            self._K,
+            hidden_dim,
+            param_source=param_source,
+            param_source_option=param_source_option,
+        )
 
     def _log_weights(self, x: torch.Tensor) -> torch.Tensor:
         logits = self.mixture_logits(x)
@@ -2292,11 +2448,19 @@ class ConditionalLKJCholesky(ContinuousMorphism):
         self,
         domain: AnySpace,
         codomain: ContinuousSpace,
-        hidden_dim: int = 64,
+        hidden_dim: int | Sequence[int] | None = None,
+        param_source: ParamSource | None = None,
+        param_source_option: str | None = None,
     ) -> None:
         super().__init__(domain, codomain)
         self._matrix_dim = codomain.dim
-        self.param_source = _make_source(domain, 1, hidden_dim)
+        self.param_source = _make_source(
+            domain,
+            1,
+            hidden_dim,
+            param_source=param_source,
+            param_source_option=param_source_option,
+        )
 
     def _get_dist(self, x: torch.Tensor) -> D.LKJCholesky:
         raw = self.param_source(x)
@@ -2701,20 +2865,31 @@ try:
             Source space.
         codomain : ContinuousSpace
             Target space.
-        hidden_dim : int
-            Hidden layer width for neural parameter source.
+        hidden_dim : int or sequence of int
+            Hidden widths, read only by a source that has hidden layers.
+        param_source, param_source_option
+            Select the parameter source directly, or by the DSL's
+            ``[param_source=...]`` text.
         """
 
         def __init__(
             self,
             domain: AnySpace,
             codomain: ContinuousSpace,
-            hidden_dim: int = 64,
+            hidden_dim: int | Sequence[int] | None = None,
+            param_source: ParamSource | None = None,
+            param_source_option: str | None = None,
         ) -> None:
             super().__init__(domain, codomain)
             d = codomain.dim
             # loc + scale + concentration
-            self.param_source = _make_source(domain, 3 * d, hidden_dim)
+            self.param_source = _make_source(
+                domain,
+                3 * d,
+                hidden_dim,
+                param_source=param_source,
+                param_source_option=param_source_option,
+            )
             self._d = d
 
         def _get_dist(self, x: torch.Tensor) -> D.GeneralizedPareto:
@@ -3101,7 +3276,9 @@ class ConditionalBetaBinomial(ContinuousMorphism):
         domain: AnySpace,
         codomain: ContinuousSpace,
         total_count: int,
-        hidden_dim: int = 64,
+        hidden_dim: int | Sequence[int] | None = None,
+        param_source: ParamSource | None = None,
+        param_source_option: str | None = None,
     ) -> None:
         if total_count < 1:
             raise ValueError(
@@ -3113,7 +3290,13 @@ class ConditionalBetaBinomial(ContinuousMorphism):
         self._d = d
         self._total_count = int(total_count)
         # Two raw scalars per codomain dim: alpha and beta concentrations.
-        self.param_source = _make_source(domain, 2 * d, hidden_dim)
+        self.param_source = _make_source(
+            domain,
+            2 * d,
+            hidden_dim,
+            param_source=param_source,
+            param_source_option=param_source_option,
+        )
 
     @property
     def support(self) -> _constraints.Constraint:
@@ -3201,13 +3384,21 @@ class ConditionalLogistic(ContinuousMorphism):
         self,
         domain: AnySpace,
         codomain: ContinuousSpace,
-        hidden_dim: int = 64,
+        hidden_dim: int | Sequence[int] | None = None,
+        param_source: ParamSource | None = None,
+        param_source_option: str | None = None,
     ) -> None:
         super().__init__(domain, codomain)
         d = codomain.dim
         self._d = d
         # param_dim = d (loc) + d (raw_scale).
-        self.param_source = _make_source(domain, 2 * d, hidden_dim)
+        self.param_source = _make_source(
+            domain,
+            2 * d,
+            hidden_dim,
+            param_source=param_source,
+            param_source_option=param_source_option,
+        )
 
     @property
     def support(self) -> _constraints.Constraint:
@@ -3274,7 +3465,9 @@ class ConditionalHalfStudentT(ContinuousMorphism):
         domain: AnySpace,
         codomain: ContinuousSpace,
         df: float,
-        hidden_dim: int = 64,
+        hidden_dim: int | Sequence[int] | None = None,
+        param_source: ParamSource | None = None,
+        param_source_option: str | None = None,
     ) -> None:
         if df <= 0.0:
             raise ValueError(
@@ -3284,7 +3477,13 @@ class ConditionalHalfStudentT(ContinuousMorphism):
         d = codomain.dim
         self._d = d
         self._df = float(df)
-        self.param_source = _make_source(domain, d, hidden_dim)
+        self.param_source = _make_source(
+            domain,
+            d,
+            hidden_dim,
+            param_source=param_source,
+            param_source_option=param_source_option,
+        )
 
     @property
     def support(self) -> _constraints.Constraint:

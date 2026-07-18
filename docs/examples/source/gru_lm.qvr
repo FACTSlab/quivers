@@ -24,9 +24,8 @@ object Embedded : Real 64
 object Hidden : Real 128
 
 morphism tok_embed : Token -> Embedded [role=embed]
-morphism gate_z : Embedded * Hidden -> Hidden [role=kernel] ~ LogitNormal
-morphism gate_r : Embedded * Hidden -> Hidden [role=kernel] ~ LogitNormal
-morphism lm_head : Hidden -> Token [role=kernel] ~ Categorical
+morphism gate_z, gate_r : Embedded * Hidden -> Hidden ~ LogitNormal
+morphism lm_head : Hidden -> Token ~ Categorical
 
 program gru_cell(x_t, h_prev) : Embedded * Hidden -> Hidden
     sample z <- gate_z(x_t, h_prev)
@@ -40,7 +39,7 @@ program gru_cell(x_t, h_prev) : Embedded * Hidden -> Hidden
     let h_new = z_complement * h_prev + z * h_cand
     return h_new
 
-let backbone = tok_embed >> scan(gru_cell)
+define backbone = tok_embed >> scan(gru_cell)
 
 program gru_lm : Token -> Token
     sample h <- backbone

@@ -97,7 +97,7 @@ class ChurchRenderer(RendererBase):
         self._cards: dict[str, int] = dict(ir.cards)
         proto = self.target_protocol()
         sb = proto.schema()
-        ctx = _RenderCtx(sb=sb, morphisms={}, lets={}, cards=self._cards)
+        ctx = _RenderCtx(sb=sb, morphisms={}, defines={}, cards=self._cards)
         prog_id = _v(ctx, "prog", "program")
         # Church ships `gaussian`, `beta`, `flip`, `multivariate-
         # gaussian`, ... as built-in distributions but lacks

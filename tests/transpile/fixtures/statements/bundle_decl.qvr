@@ -1,8 +1,8 @@
 # Exercises BundleDecl (first-class rule bundle).
 category S, NP, VP
-rule fwd_app(X, Y) : NP, VP => S
-rule bwd_app(X, Y) : VP, NP => S
-bundle CCG_rules = [fwd_app, bwd_app]
+rule fwd_app(X, Y) : NP, VP |- S
+rule bwd_app(X, Y) : VP, NP |- S
+bundle CCG_rules : [fwd_app, bwd_app]
 object Resp : FinSet 4
 program prog : Resp -> Resp
     sample x <- Bernoulli(0.5)

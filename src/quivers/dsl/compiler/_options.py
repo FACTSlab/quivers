@@ -21,6 +21,7 @@ The rules are deliberate:
 
 from __future__ import annotations
 
+from difflib import get_close_matches
 from typing import overload
 
 from quivers.dsl.ast_nodes import (
@@ -34,6 +35,43 @@ from quivers.dsl.ast_nodes import (
     OptionValue,
 )
 from quivers.dsl.compiler._prelude import CompileError
+
+# Keys that belong to a continuous-space constructor's brace-delimited
+# keyword block (``Real 1 {low=-1.0, high=1.0}``).  When one of these
+# shows up in a declaration's ``[...]`` option block the user almost
+# certainly meant to attach it to the codomain constructor, so the
+# unknown-key error carries a dedicated hint.
+_CONSTRUCTOR_OPTION_KEYS: frozenset[str] = frozenset({"low", "high"})
+
+
+def check_option_keys(
+    options: tuple[OptionEntry, ...],
+    allowed: frozenset[str],
+    *,
+    owner: str,
+    line: int = 0,
+    col: int = 0,
+) -> None:
+    """Reject any option entry whose key is outside ``allowed``.
+
+    Every declaration / step kind that reads options declares its
+    closed key set next to the code that consumes it and calls this
+    checker before decoding individual keys. The error points at the
+    offending entry's own line/col and offers a did-you-mean
+    suggestion over the allowed set.
+    """
+    for entry in options:
+        if entry.key in allowed:
+            continue
+        ln, cl = _at(line, col, entry)
+        parts = [f"{owner}: unknown option {entry.key!r}"]
+        matches = get_close_matches(entry.key, sorted(allowed), n=1)
+        if matches:
+            parts.append(f"; did you mean {matches[0]!r}?")
+        if entry.key in _CONSTRUCTOR_OPTION_KEYS:
+            parts.append("; constructor options attach with braces: Real 1 {low=...}")
+        parts.append(f" valid options: {sorted(allowed)}")
+        raise CompileError("".join(parts), ln, cl)
 
 
 def find_option(options: tuple[OptionEntry, ...], key: str) -> OptionEntry | None:
@@ -118,6 +156,111 @@ def get_option_string(
             cl,
         )
     return entry.value.value
+
+
+def _render_option_value(value: OptionValue) -> str:
+    """Render an option value back to its surface text."""
+    if isinstance(value, OptionName | OptionString):
+        return value.value
+    if isinstance(value, OptionNumber):
+        f = float(value.value)
+        return str(int(f)) if f.is_integer() else str(f)
+    if isinstance(value, OptionCall):
+        args = ", ".join(_render_option_value(a) for a in value.args)
+        return f"{value.func}({args})"
+    raise CompileError(
+        f"option value of kind {type(value).__name__!r} has no surface text",
+        0,
+        0,
+    )
+
+
+def get_option_int_list(
+    options: tuple[OptionEntry, ...],
+    key: str,
+    *,
+    line: int = 0,
+    col: int = 0,
+    default: tuple[int, ...] = (),
+) -> tuple[int, ...]:
+    """Decode a list-of-integers option (``hidden_dim=[64, 32]``).
+
+    Accepts two surface shapes, mirroring `get_option_name_list`:
+
+    * ``[hidden_dim=[64, 32]]`` -> OptionList of OptionNumbers.
+    * ``[hidden_dim=64]`` -> single OptionNumber, lifted to ``(64,)``.
+
+    One entry per layer, so a sequence says how many as well as how
+    wide, which is what an MLP needs and a single number cannot say.
+    """
+    entry = find_option(options, key)
+    if entry is None:
+        return default
+    v = entry.value
+
+    def _as_int(value: OptionValue) -> int:
+        if not isinstance(value, OptionNumber):
+            ln, cl = _at(line, col, entry)
+            raise CompileError(
+                f"option {key!r}: expected an integer or a list of them, "
+                f"got {type(value).__name__}",
+                ln,
+                cl,
+            )
+        number = float(value.value)
+        if not number.is_integer():
+            ln, cl = _at(line, col, entry)
+            raise CompileError(
+                f"option {key!r}: expected whole numbers, got {number}",
+                ln,
+                cl,
+            )
+        return int(number)
+
+    if isinstance(v, OptionNumber):
+        return (_as_int(v),)
+    if isinstance(v, OptionList):
+        return tuple(_as_int(item) for item in v.items)
+    ln, cl = _at(line, col, entry)
+    raise CompileError(
+        f"option {key!r}: expected an integer or a list of them, such as "
+        f"``{key}=64`` or ``{key}=[64, 32]``, got {type(v).__name__}",
+        ln,
+        cl,
+    )
+
+
+def get_option_call_text(
+    options: tuple[OptionEntry, ...],
+    key: str,
+    *,
+    line: int = 0,
+    col: int = 0,
+    default: str | None = None,
+) -> str | None:
+    """Decode an option written as a bare name or a call, to its
+    surface text.
+
+    Some options name a construction whose arguments are part of the
+    choice rather than separate keys: ``param_source=mlp`` and
+    ``param_source=mlp(64, 64)`` select the same architecture at
+    different widths. The grammar admits both, so both decode here,
+    to ``"mlp"`` and ``"mlp(64, 64)"``, and the consumer parses the
+    arguments it defines.
+    """
+    entry = find_option(options, key)
+    if entry is None:
+        return default
+    if not isinstance(entry.value, OptionName | OptionString | OptionCall):
+        ln, cl = _at(line, col, entry)
+        raise CompileError(
+            f"option {key!r}: expected a name or a call such as "
+            f"``{key}=mlp`` or ``{key}=mlp(64, 64)``, got "
+            f"{type(entry.value).__name__}",
+            ln,
+            cl,
+        )
+    return _render_option_value(entry.value)
 
 
 @overload
@@ -323,6 +466,7 @@ def get_option_value(options: tuple[OptionEntry, ...], key: str) -> OptionValue 
 
 
 __all__ = [
+    "check_option_keys",
     "find_option",
     "get_option_call",
     "get_option_flag",

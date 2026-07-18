@@ -19,7 +19,7 @@ the framework.
 
 <!-- compile: false -->
 ```qvr
-decoder D over LF [depth=8]
+decoder D : LF [depth=8]
     body |-> recursive
 ```
 

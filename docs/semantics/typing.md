@@ -35,7 +35,7 @@ We collect the notation used throughout, with cross-references to the other chap
 | $\Gamma \vdash \mathcal{J}$ | Generic typing judgment | this chapter §[3](#3-inference-rules-for-types-and-kinds) |
 | $\phi \equiv \psi$ | Denotational equivalence | §[9.5](#95-equivalence-and-conservativity) |
 
-Composition of morphisms uses $\diamond$ throughout (with the algebra subscript $\alpha$ omitted when it is the module's declared default); the surface operator family (`>>`, `<<`, `>=>`, `*>`, `~>`, `||>`, `?>`, `&&>`, `+>`, `$>`, `%>`) all denote $\diamond_\alpha$ for the appropriate $\alpha$ ([Composition rules](composition-rules.md), [Expressions §2.8](expressions.md#28-the-eleven-composition-operators)). Tensor product uses $\otimes$ throughout (surface operator `@`).
+Composition of morphisms uses $\diamond$ throughout (with the algebra subscript $\alpha$ omitted when it is the module's declared default); the surface operators `>>` and `<<` both denote $\diamond_\alpha$ for the module's declared algebra $\alpha$ ([Composition rules](composition-rules.md), [Expressions §2.8](expressions.md#28-the-composition-operators)). Tensor product uses $\otimes$ throughout (surface operator `@`).
 
 ## 1. Syntactic categories
 
@@ -142,7 +142,7 @@ The variable cases distinguish a bound name $x$ (introduced inside a program bod
 
 **Program instantiation is not an expression form.** Surface program calls $P(\bar a)$ live in the program-body sub-language as the family slot of a `DrawStep`: a statement $v \leftarrow P(\bar a)$ with $P$ a program template is interpreted by inlining the template's body, as described in [Programs §3a](programs.md#3a-parametric-programs). Consequently the typing rule for parametric instantiation is presented at the statement level (§[6.8](#68-template-inlining)), not as a morphism-expression rule.
 
-Sequential composition $\mathbin{\diamond_\alpha}$ is parameterized by a choice of enrichment algebra $\alpha$: the QVR surface syntax exposes one operator per algebra. The eleven-operator family is `>>` (`ProductFuzzy` noisy-or, the default), `<<` (reversed `ProductFuzzy`), `>=>` (Kleisli composition for the operands' shared algebra), `*>` (Markov sum-product), `~>` (`LogProb`), `||>` (Gödel), `?>` (Viterbi / Max-plus), `&&>` (Boolean), `+>` (Łukasiewicz), `$>` (`Real` sum-product), and `%>` (`Probability` saturated sum); see [Composition rules](composition-rules.md). The tensor `@` denotes the symmetric monoidal product $\otimes$ ([Morphisms §2](morphisms.md)). The dagger $e^\dagger$ is the compact-closed dual, $\mathsf{trace}$ is the categorical trace, $\mathsf{cup}/\mathsf{cap}$ are the unit / counit of the compact-closed structure, and $.\mathsf{change\_base}(\varphi)$ is the base-change functor between algebras. The remaining combinators $\mathsf{fan}, \mathsf{repeat}, \mathsf{stack}, \mathsf{scan}, \mathsf{freeze}, \mathsf{from\_data}, \mathsf{parser}, \mathsf{chart\_fold}, \mathsf{curry}$ are explained in [Expressions](expressions.md); we present typing for the core fragment ($\diamond$, $@$, $\mathsf{id}$, $\mathsf{fan}$, $\mathsf{repeat}$, and program instantiation) in §[5](#5-inference-rules-for-morphism-expressions) below and refer to [Expressions](expressions.md) for the derived combinators.
+Sequential composition $\mathbin{\diamond_\alpha}$ is parameterized by a choice of enrichment algebra $\alpha$: the module's declared composition rule fixes $\alpha$, and both surface operators compose in it. The two operators are `>>` (forward) and `<<` (the same pipeline written right to left, $g \mathbin{<\!\!<} f = f \mathbin{>\!\!>} g$); see [Composition rules](composition-rules.md). Composing across two algebras uses an explicit `.change_base(φ)` between segments. The tensor `@` denotes the symmetric monoidal product $\otimes$ ([Morphisms §2](morphisms.md)). The dagger $e^\dagger$ is the compact-closed dual, $\mathsf{trace}$ is the categorical trace, $\mathsf{cup}/\mathsf{cap}$ are the unit / counit of the compact-closed structure, and $.\mathsf{change\_base}(\varphi)$ is the base-change functor between algebras. The remaining combinators $\mathsf{fan}, \mathsf{repeat}, \mathsf{stack}, \mathsf{scan}, \mathsf{freeze}, \mathsf{from\_data}, \mathsf{parser}, \mathsf{chart\_fold}, \mathsf{curry}$ are explained in [Expressions](expressions.md); we present typing for the core fragment ($\diamond$, $@$, $\mathsf{id}$, $\mathsf{fan}$, $\mathsf{repeat}$, and program instantiation) in §[5](#5-inference-rules-for-morphism-expressions) below and refer to [Expressions](expressions.md) for the derived combinators.
 
 Notably absent from the expression sub-language are first-class projections $\pi_i$ and injections $\mathsf{inl}, \mathsf{inr}$: products are introduced and eliminated implicitly through tuple-pattern bindings in the program-body sub-language (§[1.5](#15-statements-program-body-sub-language)), and the discrete coproduct is reached through declared `morphism` arrows initialized from data rather than through dedicated combinators. Projections appear in the *meta-language* of the denotation (e.g. $\pi_i : \llbracket A_1 \times \cdots \times A_k \rrbracket \to \llbracket A_i \rrbracket$) but not in the surface syntax.
 
@@ -341,23 +341,14 @@ The two rules separate trace-bound names (which project from the current $\Phi$)
 
 ### 5.2 Composition
 
-Sequential composition splits into two rules by the algebra-dispatch convention of [Expressions §2.8](expressions.md#28-the-eleven-composition-operators).
-
-For the *algebra-polymorphic* operators (`>>`, `<<`, `>=>`), the composition fires when both operands inhabit the *same* algebra; the module's declared algebra $\alpha_{\text{mod}}$ supplies $\otimes$ and $\bigoplus$:
+Sequential composition follows the algebra-dispatch convention of [Expressions §2.8](expressions.md#28-the-composition-operators). Both surface operators (`>>` and `<<`) are algebra-polymorphic: the composition fires when both operands inhabit the *same* algebra, and the module's declared algebra $\alpha_{\text{mod}}$ supplies $\otimes$ and $\bigoplus$:
 
 $$
 \frac{\Gamma; \Phi \vdash e_1 : A \rightsquigarrow B \qquad \Gamma; \Phi \vdash e_2 : B \rightsquigarrow C \qquad \mathrm{alg}(e_1) = \mathrm{alg}(e_2) = \alpha}
-     {\Gamma; \Phi \vdash e_1 \mathbin{\diamond_\alpha^{\mathrm{poly}}} e_2 : A \rightsquigarrow C}\ \textsc{ComposePoly}_\alpha
+     {\Gamma; \Phi \vdash e_1 \mathbin{\diamond_\alpha} e_2 : A \rightsquigarrow C}\ \textsc{Compose}_\alpha
 $$
 
-For each *algebra-tagged* operator $\circ_\beta$ in the set $\{\mathbin{*>} : \beta = \mathcal{V}_{\mathrm{M}},\ \mathbin{\sim>} : \beta = \mathcal{V}_{\mathrm{LP}},\ \mathbin{||>} : \beta = \mathcal{V}_{\mathrm{G}},\ \mathbin{?>} : \beta = \mathcal{V}_{\mathrm{MP}},\ \mathbin{\&\&>} : \beta = \mathcal{V}_{\mathbb{B}},\ \mathbin{+>} : \beta = \mathcal{V}_{\mathrm{L}},\ \mathbin{\$>} : \beta = \mathcal{V}_{\mathbb{R}},\ \mathbin{\%>} : \beta = \mathcal{V}_{[0,1]}\}$, the composition fixes its target algebra $\beta$ and requires both operands to inhabit it:
-
-$$
-\frac{\Gamma; \Phi \vdash e_1 : A \rightsquigarrow B \qquad \Gamma; \Phi \vdash e_2 : B \rightsquigarrow C \qquad \mathrm{alg}(e_1) = \mathrm{alg}(e_2) = \beta}
-     {\Gamma; \Phi \vdash e_1 \mathbin{\diamond_\beta^{\mathrm{tag}}} e_2 : A \rightsquigarrow C}\ \textsc{ComposeTag}_\beta
-$$
-
-The function $\mathrm{alg}(\cdot)$ is the synthesized algebra of a morphism expression, computed inductively from the algebras of declared morphisms ([Composition rules §3](composition-rules.md#3-user-defined-composition-rules)). When operands disagree, the typechecker rejects rather than auto-coercing; explicit base change is the surface syntax `.change_base(φ)` ([Expressions §4](expressions.md), `ExprChangeBase`). Soundness (Theorem [§9.1](#91-soundness)) collapses both syntactic shapes onto Kleisli composition $\diamond$ in $\mathbf{Kern}$ at the algebra $\alpha$ (resp. $\beta$).
+The reverse operator writes the same composite right to left ($e_2 \mathbin{<\!\!<} e_1$ elaborates to $e_1 \mathbin{>\!\!>} e_2$), so it shares this rule. The function $\mathrm{alg}(\cdot)$ is the synthesized algebra of a morphism expression, computed inductively from the algebras of declared morphisms ([Composition rules §3](composition-rules.md#3-user-defined-composition-rules)). When operands disagree, the typechecker rejects rather than auto-coercing; composition across two algebras is spelled with an explicit base change, `.change_base(φ)` ([Expressions §4](expressions.md), `ExprChangeBase`), which transports one operand into the other's algebra first. Soundness (Theorem [§9.1](#91-soundness)) sends the composite onto Kleisli composition $\diamond$ in $\mathbf{Kern}$ at the algebra $\alpha$.
 
 ### 5.3 Tensor product
 
@@ -670,7 +661,7 @@ The trace context $\Phi$ enters as the domain of the *statement* and *family-app
 
 We give four representative cases ($\textsc{Compose}, \textsc{Bind}, \textsc{Marginalize}, \textsc{Prog}$) in full; every other case follows the same template, substituting the relevant categorical operation for $\diamond$.
 
-*Case $\textsc{ComposePoly}_\alpha$* (the $\textsc{ComposeTag}_\beta$ case is identical with $\beta$ in place of $\alpha$).
+*Case $\textsc{Compose}_\alpha$.*
 By induction, $\llbracket e_1 \rrbracket \in \mathrm{Hom}_{\mathbf{Kern}}(\llbracket A \rrbracket,\, \mathcal{G}(\llbracket B \rrbracket))$ and $\llbracket e_2 \rrbracket \in \mathrm{Hom}_{\mathbf{Kern}}(\llbracket B \rrbracket,\, \mathcal{G}(\llbracket C \rrbracket))$. Using the Kleisli-composition convention of [Setting §3](setting.md#3-standard-borel-spaces-and-markov-kernels) ($k_1 \diamond k_2 = \mu \circ \mathcal{G}(k_2) \circ k_1$, *first* $k_1$ *then* $k_2$), the denotation
 $$
 \llbracket e_1 \mathbin{\diamond_\alpha} e_2 \rrbracket \;=\; \llbracket e_1 \rrbracket \diamond \llbracket e_2 \rrbracket
@@ -788,9 +779,9 @@ $\square$
 *Proof.* Induction on $e$. Each Expr AST variant has a unique introduction rule, modulo two syntactic discriminators:
 
 * $\textsf{ExprIdent}\,x$ dispatches to $\textsc{TraceVar}$ if $x \in \mathrm{dom}(\Phi)$ and to $\textsc{ModuleVar}$ if $x \in \mathrm{dom}(\Gamma)$. The two domains are *disjoint*: every rule that extends $\Phi$ ($\textsc{Bind}$, $\textsc{BindTuple}$, $\textsc{Let}$, ...) carries a freshness side-condition "$v$ fresh in $\Phi$" *and* the implicit invariant that program-body-scope names never collide with module-level names ($\Gamma$ entries are declared once at module level before any program body is typed). The two cases therefore cannot simultaneously apply.
-* $\textsf{ExprCompose}$ dispatches to $\textsc{ComposePoly}_\alpha$ or $\textsc{ComposeTag}_\beta$ by its `op` field; the `op` value determines the rule and hence the algebra ($\alpha$ from the module's declared algebra for polymorphic ops; $\beta$ fixed by the tagged op's column in the table of §[5.2](#52-composition)).
+* $\textsf{ExprCompose}$ selects $\textsc{Compose}_\alpha$ with $\alpha$ the module's declared algebra; the `op` field (`>>` or `<<`) fixes only operand order, not the algebra.
 
-Modulo these dispatchers, each rule determines the conclusion's $A$ and $B$ as functions of the premises' types: e.g. $\textsc{ComposePoly}_\alpha$ fixes the conclusion's $A$ to be the first premise's $A$ and the conclusion's $B$ to be the second premise's $C$. The premises themselves have unique types by induction. Base cases: $\textsc{ModuleVar}$ reads $A \rightsquigarrow B$ uniquely from $\Gamma$ by the disjointness of context entries; $\textsc{TraceVar}$ reads $\tau$ uniquely from $\Phi$ by the same disjointness on $\Phi$. $\square$
+Modulo these dispatchers, each rule determines the conclusion's $A$ and $B$ as functions of the premises' types: e.g. $\textsc{Compose}_\alpha$ fixes the conclusion's $A$ to be the first premise's $A$ and the conclusion's $B$ to be the second premise's $C$. The premises themselves have unique types by induction. Base cases: $\textsc{ModuleVar}$ reads $A \rightsquigarrow B$ uniquely from $\Gamma$ by the disjointness of context entries; $\textsc{TraceVar}$ reads $\tau$ uniquely from $\Phi$ by the same disjointness on $\Phi$. $\square$
 
 **Lemma (Inversion).** *Suppose $\Gamma \vdash \mathcal{J}$ is derivable. Then there is exactly one rule whose conclusion matches the shape of $\mathcal{J}$, and that rule's premises are necessarily derivable in $\Gamma$.*
 
@@ -799,7 +790,7 @@ Modulo these dispatchers, each rule determines the conclusion's $A$ and $B$ as f
 * Type-formation rules: the head constructor of $\tau$ partitions the rules into disjoint classes — $\textsf{TypeName}$ goes to $\textsc{TyVar}$, an integer-literal $\textsf{DiscreteConstructor}$ to $\textsc{FinSet}$, a continuous constructor $C$ to the corresponding $\textsc{Real} / \textsc{Simplex} / \ldots$ rule, $\textsf{ObjectProduct}$ to $\textsc{TyProd}$, $\textsf{ObjectCoproduct}$ to $\textsc{TySum}$, $\textsf{ObjectSlash}$ to $\textsc{TySlashR}$ or $\textsc{TySlashL}$ (the AST's `direction` field distinguishes), $\textsf{ObjectEffectApply}$ to $\textsc{TyEff}$.
 * Morphism-expression rules: the AST variant of $e$ (one of $\textsf{ExprIdent}$, $\textsf{ExprIdentity}$, $\textsf{ExprCompose}$, $\textsf{ExprTensorProduct}$, $\textsf{ExprFan}$, $\ldots$) partitions them. Two refinements:
   - $\textsf{ExprIdent}\,x$ splits on whether $x \in \mathrm{dom}(\Phi)$ ($\to \textsc{TraceVar}$) or $x \in \mathrm{dom}(\Gamma)$ ($\to \textsc{ModuleVar}$); the two domains are disjoint by the program-body freshness invariant.
-  - $\textsf{ExprCompose}$ is further split on its `op` field: the polymorphic `op` $\in \{\mathtt{>>}, \mathtt{<<}, \mathtt{>=>}\}$ selects $\textsc{ComposePoly}_\alpha$ (with $\alpha$ the module's declared algebra); the tagged `op` $\in \{\mathtt{*>}, \mathtt{\sim>}, \mathtt{||>}, \mathtt{?>}, \mathtt{\&\&>}, \mathtt{+>}, \mathtt{\$>}, \mathtt{\%>}\}$ selects the corresponding $\textsc{ComposeTag}_\beta$.
+  - $\textsf{ExprCompose}$ selects $\textsc{Compose}_\alpha$ with $\alpha$ the module's declared algebra; its `op` field $\in \{\mathtt{>>}, \mathtt{<<}\}$ fixes operand order only.
 * Statement rules: the AST variant of $s$ (one of $\textsf{DrawStep}$, $\textsf{ObserveStep}$, $\textsf{MarginalizeStep}$, $\textsf{LetStep}$, $\textsf{ScoreStep}$) partitions them. $\textsf{DrawStep}$ is further split on whether the family slot resolves to a $\textsf{FamilySpec}$ (giving $\textsc{Bind}$ / $\textsc{BindTuple}$) or to a $\textsf{ProgramDecl}$ (giving $\textsc{Inline}$).
 * Program rules: the $\textsf{ProgramParam}$ tagged-union discriminator on the parameter list selects $\textsc{Prog}$ (any typed parameter) or $\textsc{ProgProj}$ (all bare-identifier).
 

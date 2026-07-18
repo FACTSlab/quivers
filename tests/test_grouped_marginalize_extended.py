@@ -11,18 +11,10 @@ semantic regressions, not just runtime-primitive regressions.
 from __future__ import annotations
 import textwrap
 
-import os
-
 import pytest
 import torch
 
 from quivers.continuous.plate import marginalize_grouped
-
-
-_LOCAL_GRAMMAR = pytest.mark.skipif(
-    os.environ.get("QVR_USE_LOCAL_GRAMMAR", "") not in ("1", "true", "True"),
-    reason="needs QVR_USE_LOCAL_GRAMMAR=1 to pick up the in-tree grammar",
-)
 
 
 # ---------------------------------------------------------------------------
@@ -158,7 +150,6 @@ class TestProductFibration:
 # ---------------------------------------------------------------------------
 
 
-@_LOCAL_GRAMMAR
 class TestNestedMarginalize:
     """Mixtures-of-mixtures: a marginalize block whose body contains
     another marginalize block. The outer latent is in scope inside
@@ -172,7 +163,7 @@ class TestNestedMarginalize:
         from quivers.dsl import loads
 
         src = """
-        composition log_prob as algebra
+        composition log_prob [level=algebra]
 
         object G_outer : FinSet 2
         object G_middle : FinSet 2
@@ -209,7 +200,7 @@ class TestNestedMarginalize:
         from quivers.dsl import loads
 
         src = """
-        composition log_prob as algebra
+        composition log_prob [level=algebra]
 
         object G_outer : FinSet 2
         object G_middle : FinSet 2
@@ -251,7 +242,7 @@ class TestNestedMarginalize:
         from quivers.dsl import loads
 
         src = """
-        composition log_prob as algebra
+        composition log_prob [level=algebra]
 
         object G1 : FinSet 2
         object G2 : FinSet 3
@@ -279,7 +270,6 @@ class TestNestedMarginalize:
 # ---------------------------------------------------------------------------
 
 
-@_LOCAL_GRAMMAR
 class TestProductFibrationSurface:
     """``over G * H via product(idx_a, idx_b)`` parses, compiles,
     and threads the product-fibration data into the runtime."""
@@ -288,7 +278,7 @@ class TestProductFibrationSurface:
         from quivers.dsl import loads
 
         src = """
-        composition log_prob as algebra
+        composition log_prob [level=algebra]
 
         object Item : FinSet 3
         object Subj : FinSet 2
@@ -312,7 +302,7 @@ class TestProductFibrationSurface:
         from quivers.dsl.compiler import CompileError
 
         src = """
-        composition log_prob as algebra
+        composition log_prob [level=algebra]
 
         object Item : FinSet 3
         object Subj : FinSet 2
@@ -336,7 +326,6 @@ class TestProductFibrationSurface:
 # ---------------------------------------------------------------------------
 
 
-@_LOCAL_GRAMMAR
 class TestReductionSurface:
     """``reduction = sum`` / ``reduction = mean`` parses and is
     threaded into the runtime primitive."""
@@ -345,7 +334,7 @@ class TestReductionSurface:
         from quivers.dsl import loads
 
         src = """
-        composition log_prob as algebra
+        composition log_prob [level=algebra]
 
         object Item : FinSet 3
         object Resp : FinSet 6
@@ -353,7 +342,6 @@ class TestReductionSurface:
 
         program demo : Resp -> Resp
             sample probs : Class <- HalfNormal(1.0)
-            sample idx : Resp <- HalfNormal(1.0)
             marginalize cls : Class <- Dirichlet(probs) [over=Item, reduction=sum]
                 observe r : Resp <- HalfNormal(1.0) [via=idx]
             return probs
@@ -367,7 +355,7 @@ class TestReductionSurface:
         from quivers.dsl.compiler import CompileError
 
         src = """
-        composition log_prob as algebra
+        composition log_prob [level=algebra]
 
         object Item : FinSet 3
         object Resp : FinSet 6
@@ -375,7 +363,6 @@ class TestReductionSurface:
 
         program demo : Resp -> Resp
             sample probs : Class <- HalfNormal(1.0)
-            sample idx : Resp <- HalfNormal(1.0)
             marginalize cls : Class <- Dirichlet(probs) [over=Item, reduction=bogus]
                 observe r : Resp <- HalfNormal(1.0) [via=idx]
             return probs
@@ -390,7 +377,6 @@ class TestReductionSurface:
 # ---------------------------------------------------------------------------
 
 
-@_LOCAL_GRAMMAR
 class TestSurfaceCompileErrors:
     """Each error path the grouped-marginalize compiler raises has
     its own test so a regression hides nothing."""
@@ -403,17 +389,16 @@ class TestSurfaceCompileErrors:
         from quivers.dsl.compiler import CompileError
 
         src = """
-        composition log_prob as algebra
+        composition log_prob [level=algebra]
 
         object Item : FinSet 3
         object Resp : FinSet 6
         object Class : FinSet 2
 
         program demo : Resp -> Resp
-            sample idx : Resp <- HalfNormal(1.0)
             marginalize cls : Class <- Dirichlet(1.0) [over=Item]
                 observe r : Resp <- HalfNormal(1.0) [via=idx]
-            return idx
+            return cls
         export demo
         """
         with pytest.raises(CompileError, match="named probs"):
@@ -427,7 +412,7 @@ class TestSurfaceCompileErrors:
         from quivers.dsl.compiler import CompileError
 
         src = """
-        composition log_prob as algebra
+        composition log_prob [level=algebra]
 
         object Item : FinSet 3
         object Resp : FinSet 6
@@ -435,7 +420,6 @@ class TestSurfaceCompileErrors:
 
         program demo : Resp -> Resp
             sample probs : Class <- HalfNormal(1.0)
-            sample idx : Resp <- HalfNormal(1.0)
             marginalize cls : Class <- Dirichlet(probs) [over=Item]
                 sample other : Resp <- HalfNormal(1.0)
             return probs
@@ -445,14 +429,13 @@ class TestSurfaceCompileErrors:
             loads(textwrap.dedent(src))
 
 
-@_LOCAL_GRAMMAR
 def test_three_axis_product_fibration_dsl_compiles() -> None:
     """`over A * B * C via product(idx_a, idx_b, idx_c)` parses
     and compiles."""
     from quivers.dsl import loads
 
     src = """
-    composition log_prob as algebra
+    composition log_prob [level=algebra]
 
     object A : FinSet 2
     object B : FinSet 2

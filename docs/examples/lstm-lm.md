@@ -12,11 +12,9 @@ object Embedded : Real 64
 object Hidden : Real 128
 
 morphism tok_embed : Token -> Embedded [role=embed]
-morphism gate_i : Embedded * Hidden -> Hidden [role=kernel] ~ LogitNormal
-morphism gate_f : Embedded * Hidden -> Hidden [role=kernel] ~ LogitNormal
-morphism gate_o : Embedded * Hidden -> Hidden [role=kernel] ~ LogitNormal
-morphism cell_cand : Embedded * Hidden -> Hidden [role=kernel, scale=0.5] ~ Normal
-morphism lm_head : Hidden -> Token [role=kernel] ~ Categorical
+morphism gate_i, gate_f, gate_o : Embedded * Hidden -> Hidden ~ LogitNormal
+morphism cell_cand : Embedded * Hidden -> Hidden ~ Normal
+morphism lm_head : Hidden -> Token ~ Categorical
 
 program lstm_cell(x_t, h_prev) : Embedded * Hidden -> Hidden
     sample i_gate <- gate_i(x_t, h_prev)
@@ -31,7 +29,7 @@ program lstm_cell(x_t, h_prev) : Embedded * Hidden -> Hidden
     let h_new = o_gate * tanh_c
     return h_new
 
-let backbone = tok_embed >> scan(lstm_cell)
+define backbone = tok_embed >> scan(lstm_cell)
 
 program lstm_lm : Token -> Token
     sample h <- backbone
@@ -149,7 +147,7 @@ print(f"final loss:   {losses[-1]:.2f}")
 
 ### NUTS posterior
 
-The LSTM's four gates and cell candidate are `[role=kernel]` Bayesian morphisms whose weights live as `nn.Parameter`s inside the program. [`bayesian_lift_parameters`](../api/inference/lifts.md#quivers.inference.lifts.bayesian_lift_parameters) lifts those parameters into Normal-prior sample sites so [`NUTSKernel`](../api/inference/mcmc.md#quivers.inference.mcmc.NUTSKernel) has a continuous unconstrained state space. The likelihood scores the next-token target via the Categorical [`lm_head`](../api/continuous/families.md) applied to a forward sample of the hidden state.
+The LSTM's four gates and cell candidate are kernel Bayesian morphisms whose weights live as `nn.Parameter`s inside the program. [`bayesian_lift_parameters`](../api/inference/lifts.md#quivers.inference.lifts.bayesian_lift_parameters) lifts those parameters into Normal-prior sample sites so [`NUTSKernel`](../api/inference/mcmc.md#quivers.inference.mcmc.NUTSKernel) has a continuous unconstrained state space. The likelihood scores the next-token target via the Categorical [`lm_head`](../api/continuous/families.md) applied to a forward sample of the hidden state.
 
 ```python
 import torch

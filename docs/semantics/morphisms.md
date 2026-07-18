@@ -10,7 +10,7 @@ Every morphism, kernel, latent, observed, embed, and discretize binding ships th
 morphism f : DOM -> COD [k = v, ...] [~ INIT]
 ```
 
-with the *role* selected by the option block:
+with the *role* selected by the option block; `kernel` is the default, so a `morphism` with no `role=` key is a kernel and the other roles are named explicitly:
 
 | `role=...` | Stratum                                    | Initialiser admitted | Default initializer |
 |------------|--------------------------------------------|----------------------|----------------------|
@@ -21,7 +21,9 @@ with the *role* selected by the option block:
 | `discretize` | quotient kernel                           | `~ expr` (partition) | uniform-quantile     |
 | `let`      | deterministic morphism (alias for `~ expr`) | `~ expr`             | required             |
 
-Other option-block keys carry per-role configuration: `scale` (initial parameter scale for `latent` and `kernel`), `init` (named initialization regime), `bins` (`discretize`), `replicate=N` (allocate $N$ independently-parameterized copies under names `f_0, …, f_{N-1}` with a group binding $f$), and the axis-role keys (`over`, `iid`) consumed by the family-prior surface of §6.
+Other option-block keys carry per-role configuration, and each is read by the role it configures: `scale` and `init` (the `latent` lowering's initial parameter scale and named initialization regime), `bins` (`discretize`), `param_source` and `hidden_dim` (the `kernel` lowering's parameter map $\theta$, §2.1), `replicate=N` (allocate $N$ independently-parameterized copies under names `f_0, …, f_{N-1}` with a group binding $f$, read by every role), and the axis-role keys (`over`, `iid`) consumed by the family-prior surface of §6.
+
+A key outside the resolved role's set is rejected rather than ignored. The set is per role, not per declaration: `scale` is an initial value for a `latent`'s tensor and means nothing to a `kernel`, whose parameters are computed from its input by $\theta$ rather than held.
 
 The remainder of this page uses the legacy keyword form (`latent`, `kernel`, `embed`) when illustrating individual strata; every snippet desugars to the unified form by `morphism f : … [role=KIND, …]`.
 
@@ -115,7 +117,41 @@ $$
 \llbracket f \rrbracket(x, B) \;=\; \int_B p_{\mathrm{Family}}(y \,;\, \theta(x))\, \mathrm{d}y,
 $$
 
-where $\theta : \llbracket \tau_1 \rrbracket \to \Theta$ is the family's parameter map (typically a neural network), and $p_{\mathrm{Family}}(\cdot \,;\, \theta)$ is the density of the family at parameter $\theta$. The QVR-supplied family registry catalogs the pairs $(\Theta, p)$ for each name (Normal, Beta, Dirichlet, …).
+where $\theta : \llbracket \tau_1 \rrbracket \to \Theta$ is the family's parameter map and $p_{\mathrm{Family}}(\cdot \,;\, \theta)$ is the density of the family at parameter $\theta$. The QVR-supplied family registry catalogs the pairs $(\Theta, p)$ for each name (Normal, Beta, Dirichlet, …).
+
+The kernel therefore factors through $\Theta$, and $\theta$ is what the `param_source` option selects: a single affine map by default, an MLP under `[param_source=mlp]`, a lookup table whenever $\llbracket \tau_1 \rrbracket$ is finite. A finite $\Theta$-factorization is a real restriction on which kernels a declaration can denote, since $\llbracket f \rrbracket$ ranges only over the image of
+
+$$
+\mathbf{Meas}\bigl(\llbracket \tau_1 \rrbracket,\, \Theta\bigr) \longrightarrow \mathbf{Kern}\bigl(\llbracket \tau_1 \rrbracket,\, \llbracket \sigma \rrbracket\bigr),
+\qquad
+\theta \longmapsto p_{\mathrm{Family}}(\,\cdot\;;\theta(-)),
+$$
+
+so `~ Normal` denotes a Gaussian kernel and nothing else. Because $\theta$ carries learnable weights $\varphi$, the declaration denotes not one kernel but the $\varphi$-indexed family $\varphi \mapsto p_{\mathrm{Family}}(\,\cdot\;;\theta_\varphi(-))$; fitting selects the point.
+
+Note that $\theta$ is invisible to the typing judgment: `f : τ₁ -> σ ~ Family` types identically whichever parameter map it carries, so the choice moves $\llbracket f \rrbracket$ inside the hom-set while leaving the arrow fixed. Whether a model is linear in its input is therefore a fact about $\theta$, not about the type, which is why the option states it in the source.
+
+#### The density is a product for most families
+
+When $\llbracket \sigma \rrbracket$ has dimension $d > 1$, the display above hides a choice, because most names in the registry are *per-coordinate independent*: their density factors,
+
+$$
+p_{\mathrm{Family}}\bigl(y \,;\, \theta(x)\bigr) \;=\; \prod_{i=1}^{d} p\bigl(y_i \,;\, \theta_i(x)\bigr),
+\qquad\text{so}\qquad
+\log \llbracket f \rrbracket(x, \cdot) \;=\; \sum_{i=1}^{d} \log p\bigl(y_i \,;\, \theta_i(x)\bigr).
+$$
+
+Structurally this is a [conditional independence](https://en.wikipedia.org/wiki/Conditional_independence), and it has a presentation that mentions neither coordinates nor Gaussians. In a [Markov category](https://ncatlab.org/nlab/show/Markov+category) a morphism $f : A \to X \otimes Y$ exhibits the independence of $X$ and $Y$ given $A$ exactly when it factors through the copy map as the tensor of its marginals, $f = (f_X \otimes f_Y) \circ \Delta_A$. An independent family is that factorization iterated over the codomain's coordinates:
+
+$$
+\llbracket f \rrbracket \;=\; \bigl(f_1 \otimes \cdots \otimes f_d\bigr) \circ \Delta_{\llbracket \tau_1 \rrbracket},
+\qquad
+f_i(x) \;=\; p\bigl(\,\cdot\;;\theta_i(x)\bigr).
+$$
+
+So the registry splits $\mathbf{Kern}(\llbracket \tau_1 \rrbracket, \llbracket \sigma \rrbracket)$ into the kernels that factor through $\Delta$ and the kernels that do not. `Normal`, `Beta`, `Gamma` and their siblings denote the former; `MultivariateNormal`, `LowRankMVN`, and `MatrixNormal` denote the latter, and their $\Theta$ carries a [Cholesky factor](https://en.wikipedia.org/wiki/Cholesky_decomposition) so that the covariance is positive-definite by construction rather than by penalty. `~ Normal` on a $d$-dimensional codomain is therefore $d$ independent scalar Gaussians, not a Gaussian with a general covariance: the name selects the factorization, and `~ MultivariateNormal` is how a declaration asks for correlation.
+
+Two readings of that default are worth separating. Parameter sharing is not dependence: every $\theta_i$ is a slice of one $\theta$, so the coordinates share all of the map's weights while remaining independent *given* $x$, since the factorization is through $\Delta$ on the domain. And the factorized family is the least committal one on its marginals, being the [maximum-entropy](https://en.wikipedia.org/wiki/Principle_of_maximum_entropy) distribution subject to per-coordinate first and second moments with no constraint on the cross-moments; a correlation is a further claim. What it cannot express is residual correlation, dependence between coordinates that survives conditioning on $x$, which no choice of $\theta$ recovers because $\theta$ acts before the tensor product.
 
 ## 3. Continuous morphisms
 
@@ -140,6 +176,14 @@ $$
 $$
 
 realized numerically by Monte-Carlo or sampled-composition approximation in the implementation.
+
+Composing does not always buy expressiveness, and whether it does is a fact about $\theta$. Gaussian kernels with affine $\theta$ are closed under the integral above: for $g_1(s, \cdot) = \mathcal{N}(As + a,\, \Sigma_1)$ and $g_2(t, \cdot) = \mathcal{N}(Bt + b,\, \Sigma_2)$,
+
+$$
+(g_1; g_2)(s, \cdot) \;=\; \mathcal{N}\bigl(BA\,s + Ba + b,\; B \Sigma_1 B^{\top} + \Sigma_2\bigr),
+$$
+
+again a Gaussian kernel with affine $\theta$. A chain of them is one kernel of the same family, and the intermediate spaces contribute only a rank bound on $BA$. A nonlinear $\theta$ breaks the closure, which is what makes a composite of `~ Normal` kernels deeper than its factors rather than equal to their product.
 
 ## 4. Tensor product across strata
 
@@ -222,7 +266,7 @@ Each registered family carries a declared *event rank* $r_F \in \mathbb{N}$.
 | 1 | `MultivariateNormal`, `LowRankMVN`, `Dirichlet`, `LogisticNormal`, `RelaxedOneHotCategorical`, `GP`, `Horseshoe` | $\mathbb{R}^{d}$ for a single named axis |
 | 2 | `Wishart`, `LKJCholesky` | $\mathbb{R}^{d_1 \times d_2}$ for two named axes |
 
-Every family in the table is installed in the unified family catalog by [`_register_family`](../api/continuous/families.md) (directly for the bespoke families, via [`_make_family`](../api/continuous/families.md) for the auto-generated wrappers around `torch.distributions`). Each is therefore equally usable as a conditional morphism (`[role=kernel]` / `[role=latent]` with a `~ Family(args)` initializer) and as an inline draw site (`sample x <- Family(args)`). The parameter map, support, and `log_prob` semantics are uniform across the two call paths.
+Every family in the table is installed in the unified family catalog by [`_register_family`](../api/continuous/families.md) (directly for the bespoke families, via [`_make_family`](../api/continuous/families.md) for the auto-generated wrappers around `torch.distributions`). Each is therefore equally usable as a conditional morphism (a kernel or `[role=latent]` morphism with a `~ Family(args)` initializer) and as an inline draw site (`sample x <- Family(args)`). The parameter map, support, and `log_prob` semantics are uniform across the two call paths.
 
 A distribution clause `~ F(args) over <axes> [iid over <axes>]` *configures* the event–batch decomposition of a $F$-valued draw. Concretely, for a morphism $f : A \to B$ whose representing tensor has shape $\prod_{i} d_i$ indexed by the named factors $\{a_1, \dots, a_m\}$ of $A$ and $\{b_1, \dots, b_n\}$ of $B$, the clause names a sub-multiset $E \subseteq \{a_i\} \cup \{b_j\}$ of cardinality $|E| = r_F$ and declares:
 

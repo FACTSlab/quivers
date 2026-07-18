@@ -974,7 +974,7 @@ class GenRenderer(RendererBase):
         # `_RenderCtx` is the inherited carrier; we re-use it for the
         # required dispatch signatures but the per-render scratch
         # lives on `_GenCtx`.
-        ctx = _RenderCtx(sb=sb, morphisms={}, lets={})
+        ctx = _RenderCtx(sb=sb, morphisms={}, defines={})
         self._gx = gx
         try:
             for node in ir.body:

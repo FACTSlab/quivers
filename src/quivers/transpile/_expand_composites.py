@@ -73,7 +73,7 @@ from quivers.dsl.ast_nodes import (
     ExprScan,
     ExprStack,
     ExprTensorProduct,
-    LetDecl,
+    DefineDecl,
     LetStep,
     MarginalizeStep,
     Module,
@@ -82,7 +82,6 @@ from quivers.dsl.ast_nodes import (
     ProgramDecl,
     ProgramStep,
     SampleStep,
-    atom_to_draw_arg,
 )
 from quivers.dsl.ast_nodes.let_expressions import (
     LetExprBinOp,
@@ -91,6 +90,7 @@ from quivers.dsl.ast_nodes.let_expressions import (
     LetExprNode,
     LetExprVar,
 )
+from quivers.transpile._draw_args import atom_to_draw_arg
 
 
 # Canonical default args per family for kernels that ship `~ Family`
@@ -170,7 +170,7 @@ def expand_composite_lets(
     """Rewrite `program_decl` bodies so composite-let sample steps
     become equivalent chains of atomic sample steps.
 
-    A composite let is a `LetDecl` whose `.expr` is an `ExprCompose`
+    A composite let is a `DefineDecl` whose `.expr` is an `ExprCompose`
     (the `prior >> likelihood` form). Each `SampleStep` /
     `ObserveStep` whose `morphism` slot names such a let is rewritten
     into a sequence of fresh `SampleStep`s, one per element of the
@@ -182,10 +182,13 @@ def expand_composite_lets(
     composite-let references are rebuilt.
     """
     morphism_table: dict[str, MorphismDecl] = {
-        s.name: s for s in module.statements if isinstance(s, MorphismDecl)
+        name: s
+        for s in module.statements
+        if isinstance(s, MorphismDecl)
+        for name in s.names
     }
     let_table: dict[str, Expr] = {
-        s.name: s.expr for s in module.statements if isinstance(s, LetDecl)
+        s.name: s.expr for s in module.statements if isinstance(s, DefineDecl)
     }
 
     # Stan needs explicit `log_sum_exp` marginalization (it cannot
@@ -529,7 +532,8 @@ def _expand_step(
         return [step], counter
     base_name = (
         step.vars[0] if isinstance(step, SampleStep) and step.vars
-        else step.var if isinstance(step, ObserveStep) else "tmp"
+        else step.vars[0] if isinstance(step, ObserveStep) and step.vars
+        else "tmp"
     )
     if len(chain) == 1 and isinstance(chain[0], _StochasticLeaf):
         elem = chain[0]
@@ -537,7 +541,7 @@ def _expand_step(
             return [step], counter
         if isinstance(step, ObserveStep):
             return [ObserveStep(
-                var=base_name,
+                vars=(base_name,),
                 morphism=elem.name,
                 args=step.args,
                 index=step.index,
@@ -603,7 +607,7 @@ def _emit_chain_elem(
         )
         if is_last and isinstance(original, ObserveStep):
             return [ObserveStep(
-                var=terminal_var,
+                vars=(terminal_var,),
                 morphism=elem.name,
                 args=args,
                 index=original.index,

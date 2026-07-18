@@ -1,8 +1,8 @@
-# Exercises LetDecl at the top level (deterministic morphism binding).
+# Exercises DefineDecl at the top level (deterministic morphism binding).
 object Obs : Real 1
 morphism prior : Obs -> Obs [role=kernel] ~ Normal
 morphism likelihood : Obs -> Obs [role=kernel] ~ Normal
-let chain = prior >> likelihood
+define chain = prior >> likelihood
 program prog : Obs -> Obs
     sample x <- chain
     return x

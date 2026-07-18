@@ -13,7 +13,7 @@ The free diagonal $\psi$ distinguishes factor analysis from [probabilistic PCA](
 ## QVR Source
 
 ```qvr
-composition real as algebra
+composition real [level=algebra]
 
 object LatentDim : FinSet 2
 object ObsDim : FinSet 5
@@ -24,7 +24,7 @@ morphism Z : Item -> LatentDim [role=latent]
 
 morphism W : LatentDim -> ObsDim [role=latent]
 
-let factor_analysis = Z >> W
+define factor_analysis = Z >> W
 
 program factor_analysis_program : Resp -> Resp
     sample sigma <- HalfCauchy(2.5)
@@ -43,7 +43,7 @@ export factor_analysis_program
 
 ## Walkthrough
 
-The two latent declarations introduce the per-item factor and the loading matrix as arrows. Under `composition real as algebra` the composition `Z >> W` is a real-valued matmul: the `(i, d)` entry of the `Item x ObsDim` model tensor is $\sum_k Z_{i,k} W_{k,d}$, the factor analysis model mean.
+The two latent declarations introduce the per-item factor and the loading matrix as arrows. Under `composition real [level=algebra]` the composition `Z >> W` is a real-valued matmul: the `(i, d)` entry of the `Item x ObsDim` model tensor is $\sum_k Z_{i,k} W_{k,d}$, the factor analysis model mean.
 
 The top-level morphism prior
 
@@ -129,7 +129,7 @@ print(f"divergences: {int(result.divergence_counts.sum())}")
 
 ## Categorical Perspective
 
-The factor analysis mean is a composition $Z \mathbin{>>} W$ in the [Kleisli category](https://en.wikipedia.org/wiki/Kleisli_category) over the [Giry monad](https://doi.org/10.1007/BFb0092872) under `composition real as algebra`. The loading morphism $W : \mathsf{LatentDim} \to \mathsf{ObsDim}$ carries a [`MatrixNormal`](../api/continuous/families.md#quivers.continuous.families.ConditionalMatrixNormal) prior whose [tensor-product](https://en.wikipedia.org/wiki/Tensor_product) factorisation $\mathrm{vec}(W) \sim \mathcal{N}(0, V \otimes U)$ expresses the prior as the product of two univariate Gaussians on the row and column axes. The morphism-valued prior surface treats the matrix as a first-class arrow and its prior as a measure on the hom-object $\mathbf{Kern}(\mathsf{LatentDim}, \mathsf{ObsDim})$.
+The factor analysis mean is a composition $Z \mathbin{>>} W$ in the [Kleisli category](https://en.wikipedia.org/wiki/Kleisli_category) over the [Giry monad](https://doi.org/10.1007/BFb0092872) under `composition real [level=algebra]`. The loading morphism $W : \mathsf{LatentDim} \to \mathsf{ObsDim}$ carries a [`MatrixNormal`](../api/continuous/families.md#quivers.continuous.families.ConditionalMatrixNormal) prior whose [tensor-product](https://en.wikipedia.org/wiki/Tensor_product) factorisation $\mathrm{vec}(W) \sim \mathcal{N}(0, V \otimes U)$ expresses the prior as the product of two univariate Gaussians on the row and column axes. The morphism-valued prior surface treats the matrix as a first-class arrow and its prior as a measure on the hom-object $\mathbf{Kern}(\mathsf{LatentDim}, \mathsf{ObsDim})$.
 
 ## See Also
 

@@ -72,7 +72,7 @@ def _module(let_value: LetExprNode, *, extra_samples: tuple[str, ...] = ()) -> M
         SampleStep(vars=("sigma",), morphism="Uniform", args=(_scalar(0.0), _scalar(1.0))),
         LetStep(name="m", value=let_value),
         ObserveStep(
-            var="y",
+            vars=("y",),
             morphism="Normal",
             args=(DrawArgName(text="m"), DrawArgName(text="sigma")),
             index=_RESP,
@@ -80,7 +80,7 @@ def _module(let_value: LetExprNode, *, extra_samples: tuple[str, ...] = ()) -> M
     )
     return Module(statements=(
         ObjectDecl(
-            name="Resp",
+            names=("Resp",),
             init=TypeFromExpr(
                 expr=DiscreteConstructor(constructor="FinSet", args=("100",))
             ),

@@ -25,10 +25,7 @@ direct regression tests here:
 
 from __future__ import annotations
 
-import os
 import re
-
-os.environ.setdefault("QVR_USE_LOCAL_GRAMMAR", "1")
 
 import pytest  # noqa: E402
 
