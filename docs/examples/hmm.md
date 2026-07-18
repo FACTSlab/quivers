@@ -45,7 +45,7 @@ from quivers.inference.trace import trace
 
 torch.manual_seed(0)
 prog = load("docs/examples/source/hmm.qvr")
-model = prog.morphism
+model = prog.hmm_program
 
 x_in = torch.zeros(1, 1)
 with torch.no_grad():

@@ -56,6 +56,7 @@ from abc import ABC
 from collections.abc import Callable
 from dataclasses import dataclass, field
 import threading
+from typing import Self
 
 import torch
 
@@ -151,7 +152,7 @@ class EffectHandler(ABC):
     is closest to the effect on the inner side.
     """
 
-    def __enter__(self) -> "EffectHandler":
+    def __enter__(self) -> Self:
         _handler_stack().append(self)
         return self
 

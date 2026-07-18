@@ -226,6 +226,11 @@ class Compiler(
         else:
             root_morphism = self._compile_expr(self._output_expr)
             program = Program(root_morphism)
+        # Exports after the first become named accessors on the compiled
+        # Program: ``export a`` then ``export b`` makes ``a`` the primary
+        # morphism (``program.morphism`` / ``program(...)``) and
+        # ``program.b`` the compiled form of the second.
+        self._attach_secondary_exports(program)
         # Attach the compiler's deduction and posterior registries to
         # the Program so downstream callers can reach them after
         # `quivers.dsl.load(...)`.
@@ -243,6 +248,38 @@ class Compiler(
                 system._loss_registry = program.losses  # type: ignore[attr-defined]
                 system._deduction_name = name  # type: ignore[attr-defined]
         return program
+
+    def _attach_secondary_exports(self, program: "Program") -> None:
+        """Expose every export after the first as a named attribute.
+
+        The first export is the module's primary output (already wrapped
+        as ``program``). Each later ``export <name>`` is compiled and
+        attached under its name so callers reach it via
+        ``program.<name>``: a program module exporting both a plain
+        composite and its probabilistic-program surface makes the
+        composite the callable primary while keeping the program body
+        reachable by name for tracing.
+
+        Attachment goes through ``object.__setattr__`` so a
+        morphism-valued export is stored as a plain attribute rather than
+        an ``nn`` submodule, which would otherwise fold its parameters
+        into the primary's optimiser view. Names colliding with an
+        existing Program attribute (``morphism``, ``domain``, ...) are
+        skipped so a secondary export never shadows the public surface.
+        """
+        exports = getattr(self, "_exports", [])
+        templates = getattr(self, "_program_templates", {})
+        for expr in exports[1:]:
+            if not isinstance(expr, ExprIdent):
+                continue
+            name = expr.name
+            if hasattr(program, name):
+                continue
+            if name in templates:
+                value: object = self._make_template_invoker(name)
+            else:
+                value = self._compile_expr(expr)
+            object.__setattr__(program, name, value)
 
     def compile_env(self) -> dict:
         """Compile all statements and return the full environment.

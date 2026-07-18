@@ -88,9 +88,6 @@ observations = {
     "y": y,
     "item_idx": item_idx,
     "obs_idx": obs_idx,
-    "sigma": torch.tensor([true_sigma]),
-    "Z_mat": true_Z_mat,
-    "W_mat": true_W_mat,
 }
 x_in = torch.zeros(ND, 1)
 ```
