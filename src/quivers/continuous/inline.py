@@ -971,6 +971,9 @@ _FAMILY_SUPPORTS: dict[str, _constraints.Constraint] = {
     "LogNormal": _constraints.positive,
     "Gamma": _constraints.positive,
     "Dirichlet": _constraints.simplex,
+    "Logistic": _constraints.real,
+    "HalfStudentT": _constraints.positive,
+    "BetaBinomial": _constraints.nonnegative_integer,
     "OrderedLogistic": _constraints.nonnegative_integer,
     "ZeroInflatedPoisson": _constraints.nonnegative_integer,
     "HurdlePoisson": _constraints.nonnegative_integer,
@@ -1124,6 +1127,235 @@ def _dirichlet_builder(params: list[torch.Tensor]) -> D.Distribution:
     return D.Dirichlet(params[0].clamp(min=EPS))
 
 
+def _logistic_builder(params: list[torch.Tensor]) -> D.Distribution:
+    """Build a Logistic distribution from [loc, scale].
+
+    torch does not ship a `Logistic` directly; it is constructed as a
+    location-scale transform of the standard logistic, which torch
+    exposes as a `TransformedDistribution` of a base Uniform through
+    the logit map. The implementation here uses a
+    `TransformedDistribution(Uniform(0, 1), [SigmoidTransform().inv,
+    AffineTransform(loc, scale)])` which has the right density.
+    """
+    loc = params[0]
+    scale = params[1].clamp(min=EPS)
+    base = D.Uniform(torch.zeros_like(loc), torch.ones_like(loc))
+    return D.TransformedDistribution(
+        base,
+        [
+            D.transforms.SigmoidTransform().inv,
+            D.transforms.AffineTransform(loc=loc, scale=scale),
+        ],
+    )
+
+
+class _HalfStudentT(D.Distribution):
+    """Half-Student-t distribution: the folded form of a centered
+    Student-t.
+
+    `log_prob(x) = log 2 + StudentT(df, 0, scale).log_prob(x)` for
+    `x >= 0`, and `-inf` otherwise. Mirrors the structure
+    `torch.distributions.HalfNormal` uses (override `log_prob`
+    directly rather than route through `TransformedDistribution`
+    with `AbsTransform`, which lacks `log_abs_det_jacobian`).
+    """
+
+    arg_constraints = {
+        "df": _constraints.positive,
+        "scale": _constraints.positive,
+    }
+    support = _constraints.positive
+    has_rsample = False
+
+    def __init__(
+        self,
+        df: torch.Tensor,
+        scale: torch.Tensor,
+        validate_args: bool | None = None,
+    ) -> None:
+        self.df = df
+        self.scale = scale
+        self._base = D.StudentT(df, torch.zeros_like(scale), scale)
+        super().__init__(
+            batch_shape=self._base.batch_shape,
+            validate_args=validate_args,
+        )
+
+    def log_prob(self, value: torch.Tensor) -> torch.Tensor:
+        lp = self._base.log_prob(value) + math.log(2.0)
+        return torch.where(value >= 0, lp, torch.full_like(lp, float("-inf")))
+
+    def sample(self, sample_shape: torch.Size = torch.Size()) -> torch.Tensor:
+        return self._base.sample(sample_shape).abs()
+
+
+def _half_student_t_builder(params: list[torch.Tensor]) -> D.Distribution:
+    """Build a half-Student-t distribution from [df, scale].
+
+    Uses the explicit `_HalfStudentT` class (which overrides
+    `log_prob` with the folded identity) rather than
+    `TransformedDistribution(StudentT, AbsTransform)`, because
+    torch's `AbsTransform` does not implement
+    `log_abs_det_jacobian` and the transformed-distribution
+    `log_prob` would crash with `NotImplementedError`.
+    """
+    df = params[0].clamp(min=EPS)
+    scale = params[1].clamp(min=EPS)
+    return _HalfStudentT(df, scale)
+
+
+class _BetaBinomial(D.Distribution):
+    """Beta-Binomial: ``Binomial(n, p)`` with ``p ~ Beta(a, b)``.
+
+    The marginal pmf is
+
+        p(k; n, a, b) = C(n, k) * B(a + k, b + n - k) / B(a, b),
+
+    where ``B(.,.)`` is the beta function. `log_prob` evaluates this
+    in log space through `torch.lgamma`; `sample` draws ``p ~ Beta(a,
+    b)`` then ``k ~ Binomial(n, p)``, matching the generative
+    definition.
+
+    Defined here in the continuous layer so the inline builder carries
+    no dependency on the transpile layer.
+    """
+
+    arg_constraints = {
+        "total_count": _constraints.nonnegative_integer,
+        "concentration1": _constraints.positive,
+        "concentration0": _constraints.positive,
+    }
+    support = _constraints.nonnegative_integer
+    has_rsample = False
+
+    def __init__(
+        self,
+        total_count: torch.Tensor,
+        concentration1: torch.Tensor,
+        concentration0: torch.Tensor,
+        validate_args: bool | None = None,
+    ) -> None:
+        self.total_count = total_count
+        self.concentration1 = concentration1
+        self.concentration0 = concentration0
+        super().__init__(validate_args=validate_args)
+
+    def log_prob(self, value: torch.Tensor) -> torch.Tensor:
+        """``log p(value; n, a, b)`` via the closed-form Beta-Binomial pmf."""
+        n = self.total_count.to(value.dtype)
+        a = self.concentration1.to(value.dtype)
+        b = self.concentration0.to(value.dtype)
+        k = value.to(value.dtype)
+        log_comb = (
+            torch.lgamma(n + 1.0)
+            - torch.lgamma(k + 1.0)
+            - torch.lgamma(n - k + 1.0)
+        )
+        log_beta_post = (
+            torch.lgamma(a + k)
+            + torch.lgamma(b + n - k)
+            - torch.lgamma(a + b + n)
+        )
+        log_beta_prior = (
+            torch.lgamma(a) + torch.lgamma(b) - torch.lgamma(a + b)
+        )
+        return log_comb + log_beta_post - log_beta_prior
+
+    def sample(self, sample_shape: torch.Size = torch.Size()) -> torch.Tensor:
+        """Two-stage draw: ``p ~ Beta(a, b)``; ``k ~ Binomial(n, p)``."""
+        p = D.Beta(self.concentration1, self.concentration0).sample(sample_shape)
+        return D.Binomial(total_count=self.total_count, probs=p).sample()
+
+    @property
+    def mean(self) -> torch.Tensor:
+        """``E[K] = n * a / (a + b)``."""
+        return (
+            self.total_count
+            * self.concentration1
+            / (self.concentration1 + self.concentration0)
+        )
+
+    @property
+    def variance(self) -> torch.Tensor:
+        """Closed-form Beta-Binomial variance."""
+        n = self.total_count
+        a = self.concentration1
+        b = self.concentration0
+        return n * a * b * (a + b + n) / ((a + b) ** 2 * (a + b + 1.0))
+
+
+def _beta_binomial_builder(params: list[torch.Tensor]) -> D.Distribution:
+    """Build a Beta-Binomial distribution from [total_count,
+    concentration1, concentration0].
+
+    The distribution is the continuous-layer `_BetaBinomial`, whose
+    closed-form `log_prob` exposes `sample`, `mean`, and `variance`
+    directly and keeps the inline path free of a transpile import.
+    """
+    total_count = params[0].clamp(min=EPS)
+    a = params[1].clamp(min=EPS)
+    b = params[2].clamp(min=EPS)
+    return _BetaBinomial(total_count, a, b)
+
+
+_DIM_DEPENDENT_FAMILIES: frozenset[str] = frozenset({"LKJCholesky"})
+
+
+def _dim_dependent_builder(
+    family: str, codomain: AnySpace
+) -> Callable[[list[torch.Tensor]], D.Distribution]:
+    """Return a dim-aware builder closure for a family whose torch
+    distribution needs the matrix / vector dimension at construction
+    time.
+
+    Currently used for `LKJCholesky`, whose ``dim`` argument fixes the
+    Cholesky factor's shape; the closure resolves the dim from the
+    codomain (FinSet cardinality or Euclidean / CholeskyFactor dim)
+    and embeds it.
+    """
+    dim = _codomain_dim_or_raise(family, codomain)
+    if family == "LKJCholesky":
+
+        def _builder(params: list[torch.Tensor]) -> D.Distribution:
+            concentration = params[0].clamp(min=EPS)
+            return D.LKJCholesky(dim, concentration)
+
+        return _builder
+    raise ValueError(
+        f"_dim_dependent_builder: family {family!r} is marked "
+        "dim-dependent but no closure factory is registered"
+    )
+
+
+def _codomain_dim_or_raise(family: str, codomain: AnySpace) -> int:
+    """Resolve the matrix / vector dimension a dim-dependent family
+    requires from its ``codomain``.
+
+    Supported codomain shapes: anything that exposes a ``cardinality``
+    field (the FinSet case for ``object Dim : FinSet K``), a ``dim``
+    field (Euclidean / CholeskyFactor / Simplex / PositiveReals), or a
+    callable ``shape`` property reducing to a single integer.
+
+    Raises `ValueError` rather than silently coercing to a wrong dim,
+    because a wrong LKJCholesky dim is the kind of bug that produces a
+    numerically valid but semantically wrong density.
+    """
+    card = getattr(codomain, "cardinality", None)
+    if isinstance(card, int):
+        return card
+    dim_attr = getattr(codomain, "dim", None)
+    if isinstance(dim_attr, int):
+        return dim_attr
+    raise ValueError(
+        f"_codomain_dim_or_raise: cannot resolve matrix dimension "
+        f"for inline family {family!r} from codomain "
+        f"{type(codomain).__name__} (no `cardinality` or `dim` "
+        "attribute). Declare the codomain with an explicit size "
+        "(e.g., `object Dim : FinSet 4`) or extend "
+        "`_codomain_dim_or_raise` to handle this space kind."
+    )
+
+
 def _zero_inflated_poisson_builder(
     params: list[torch.Tensor],
 ) -> D.Distribution:
@@ -1183,6 +1415,13 @@ def _ordered_logistic_builder(params: list[torch.Tensor]) -> D.Distribution:
 _FAMILY_BUILDERS: dict[str, tuple[tuple[str, ...], Callable, bool]] = {
     "Normal": (("loc", "scale"), _normal_builder, False),
     "Bernoulli": (("probs",), _bernoulli_builder, True),
+    "Logistic": (("loc", "scale"), _logistic_builder, False),
+    "HalfStudentT": (("df", "scale"), _half_student_t_builder, False),
+    "BetaBinomial": (
+        ("total_count", "concentration1", "concentration0"),
+        _beta_binomial_builder,
+        True,
+    ),
     "TruncatedNormal": (
         ("mu", "sigma", "low", "high"),
         _truncated_normal_builder,
@@ -1622,6 +1861,14 @@ def make_inline_distribution(
         family,
         tuple(0 for _ in param_names),
     )
+    # Dimension-dependent families need the codomain's matrix / vector
+    # size baked into the builder closure. The registered
+    # `_FAMILY_BUILDERS` entry carries a dim-agnostic builder; here we
+    # replace it with a closure that captures the codomain dim so the
+    # resulting torch distribution has the right event_shape at
+    # construction.
+    if family in _DIM_DEPENDENT_FAMILIES:
+        dist_builder = _dim_dependent_builder(family, codomain)
     morph = MixedInlineDistribution(
         domain,
         codomain,

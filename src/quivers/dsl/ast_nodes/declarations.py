@@ -46,7 +46,7 @@ from quivers.dsl.ast_nodes._shared import (
 )
 from quivers.dsl.ast_nodes.expressions import Expr
 from quivers.dsl.ast_nodes.let_expressions import LetExprNode
-from quivers.dsl.ast_nodes.program_steps import DrawArg, ProgramStep
+from quivers.dsl.ast_nodes.program_steps import ProgramStep
 from quivers.dsl.ast_nodes.structural import (
     BinderDecl,
     ConstructorDecl,
@@ -270,7 +270,7 @@ class MorphismInitFamily(dx.Model):
     """``~ Family(args)`` family-call initializer (e.g. ``~ Normal(0, 1)``)."""
 
     family: str
-    args: tuple[DrawArg, ...] = ()
+    args: tuple[str | float, ...] = ()
     line: int = 0
     col: int = 0
 

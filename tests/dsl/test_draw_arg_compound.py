@@ -1,8 +1,10 @@
 """Grammar / AST round-trip and compound-arg validation tests.
 
-Exercises the new ``draw_arg_list`` / ``draw_arg_matrix`` grammar
-productions, the `DrawArg`
-tagged-union variants the parser emits, and the
+Exercises the ``draw_arg_list`` grammar production (a vector literal
+``[a, b]`` is a `DrawArgList` of atoms; a matrix literal
+``[[a, b], [c, d]]`` is a `DrawArgList` whose items are themselves
+`DrawArgList` rows), the `DrawArg` tagged-union variants the parser
+emits, and the
 [`validate_family_arg_shapes`][quivers.dsl.compiler._validate.validate_family_arg_shapes]
 pass (implicit-defaults warning + family-arg-shape error).
 """
@@ -13,15 +15,14 @@ import textwrap
 
 from quivers.dsl.ast_nodes import (
     DrawArgList,
-    DrawArgMatrix,
     DrawArgName,
     DrawArgScalar,
-    MorphismDecl,
     ProgramDecl,
     SampleStep,
 )
 from quivers.dsl.compiler._validate import validate_family_arg_shapes
 from quivers.dsl.parser import parse
+from quivers.transpile._draw_args import is_matrix, list_atoms, matrix_rows
 
 
 def _parse(src: str):
@@ -50,31 +51,31 @@ def test_parser_emits_draw_arg_list_for_vector_literal():
     assert len(step.args) == 1
     arg = step.args[0]
     assert isinstance(arg, DrawArgList)
-    assert arg.elements == (0.1, 0.2, 0.7)
+    assert not is_matrix(arg)
+    assert list_atoms(arg) == (0.1, 0.2, 0.7)
 
 
-def test_parser_emits_draw_arg_matrix_for_2d_literal():
+def test_parser_emits_nested_draw_arg_list_for_2d_literal():
     src = """
         object X : FinSet 2
-        morphism mvn : X -> X [role=kernel] ~ MultivariateNormal([0.0, 0.0], [[1.0, 0.5], [0.5, 1.0]])
         program p : X -> X
-            sample z : X <- mvn
+            sample z : X <- MultivariateNormal([0.0, 0.0], [[1.0, 0.5], [0.5, 1.0]])
             return z
     """
     module = _parse(src)
-    morphism = next(
-        s for s in module.statements if isinstance(s, MorphismDecl)
-    )
-    assert morphism.init_family is not None
-    args = morphism.init_family.args
-    assert len(args) == 2
-    mean, cov = args
+    step = _first_sample(module)
+    assert step.args is not None
+    assert len(step.args) == 2
+    mean, cov = step.args
+    # A vector literal is a flat `DrawArgList` of scalar atoms.
     assert isinstance(mean, DrawArgList)
-    assert mean.elements == (0.0, 0.0)
-    assert isinstance(cov, DrawArgMatrix)
-    assert len(cov.rows) == 2
-    assert cov.rows[0].elements == (1.0, 0.5)
-    assert cov.rows[1].elements == (0.5, 1.0)
+    assert not is_matrix(mean)
+    assert list_atoms(mean) == (0.0, 0.0)
+    # A matrix literal is a `DrawArgList` whose items are themselves
+    # `DrawArgList` rows of scalar atoms.
+    assert isinstance(cov, DrawArgList)
+    assert is_matrix(cov)
+    assert matrix_rows(cov) == ((1.0, 0.5), (0.5, 1.0))
 
 
 def test_parser_emits_draw_arg_scalar_for_numeric_literal():

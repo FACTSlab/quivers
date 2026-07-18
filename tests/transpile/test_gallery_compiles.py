@@ -74,9 +74,92 @@ _SYNTAX_CHECKS: dict[str, tuple[str, list[str], bool]] = {
 # (`pytest.raises` matches no entry) and a regression surfaces as a
 # different-kind raise.
 #
+# Four boundary classes are represented:
+#
+# 1. Structural / categorical declarations (`schema`, `bundle`,
+#    `composition`, `contraction`, `encoder`/`decoder`/`loss`/
+#    `signature`). No PPL backend has a surface for these, so the
+#    examples that carry them fail to lower on every target:
+#    schema_chart_parser (schema + bundle), pmf (composition),
+#    tensor_contraction (composition + contraction), and
+#    term_autoencoder (encoder / decoder / loss / signature).
+# 2. Lower-pass family resolution. mixture_model names the
+#    `MixtureNormal` likelihood, which the lower family registry does
+#    not carry, and parametric_pooling samples the `school_effects`
+#    sub-program (program-as-distribution). Neither resolves to a
+#    target family on any backend.
+# 3. The `sum` builtin, which has no single-call symbol mapping in the
+#    four Python backends (pyro, numpyro, pymc, edward2). Stan renders
+#    it via `dot_product` and Turing / Gen / WebPPL emit it inline, so
+#    only the Python cells of factor_analysis and ppca are gaps.
+# 4. Method-call let-expressions, which Stan cannot render (it has no
+#    method-dispatch syntax), gapping the montague_nli Stan cell.
+#
 # Key: (backend, example-stem). Value: kind-prefix the raised
 # `UnsupportedConstruct.kinds` must match.
-_EXPECTED_UNSUPPORTED: dict[tuple[str, str], str] = {}
+_EXPECTED_UNSUPPORTED: dict[tuple[str, str], str] = {
+    # 1. Structural / categorical declarations (all backends).
+    ("edward2", "schema_chart_parser"): "bundle_decl",
+    ("gen", "schema_chart_parser"): "bundle_decl",
+    ("numpyro", "schema_chart_parser"): "bundle_decl",
+    ("pymc", "schema_chart_parser"): "bundle_decl",
+    ("pyro", "schema_chart_parser"): "bundle_decl",
+    ("stan", "schema_chart_parser"): "bundle_decl",
+    ("turing", "schema_chart_parser"): "bundle_decl",
+    ("webppl", "schema_chart_parser"): "bundle_decl",
+    ("edward2", "pmf"): "composition_decl",
+    ("gen", "pmf"): "composition_decl",
+    ("numpyro", "pmf"): "composition_decl",
+    ("pymc", "pmf"): "composition_decl",
+    ("pyro", "pmf"): "composition_decl",
+    ("stan", "pmf"): "composition_decl",
+    ("turing", "pmf"): "composition_decl",
+    ("webppl", "pmf"): "composition_decl",
+    ("edward2", "tensor_contraction"): "composition_decl",
+    ("gen", "tensor_contraction"): "composition_decl",
+    ("numpyro", "tensor_contraction"): "composition_decl",
+    ("pymc", "tensor_contraction"): "composition_decl",
+    ("pyro", "tensor_contraction"): "composition_decl",
+    ("stan", "tensor_contraction"): "composition_decl",
+    ("turing", "tensor_contraction"): "composition_decl",
+    ("webppl", "tensor_contraction"): "composition_decl",
+    ("edward2", "term_autoencoder"): "signature_decl",
+    ("gen", "term_autoencoder"): "signature_decl",
+    ("numpyro", "term_autoencoder"): "signature_decl",
+    ("pymc", "term_autoencoder"): "signature_decl",
+    ("pyro", "term_autoencoder"): "signature_decl",
+    ("stan", "term_autoencoder"): "signature_decl",
+    ("turing", "term_autoencoder"): "signature_decl",
+    ("webppl", "term_autoencoder"): "signature_decl",
+    # 2. Lower-pass family resolution (all backends).
+    ("edward2", "mixture_model"): "family:MixtureNormal",
+    ("gen", "mixture_model"): "family:MixtureNormal",
+    ("numpyro", "mixture_model"): "family:MixtureNormal",
+    ("pymc", "mixture_model"): "family:MixtureNormal",
+    ("pyro", "mixture_model"): "family:MixtureNormal",
+    ("stan", "mixture_model"): "family:MixtureNormal",
+    ("turing", "mixture_model"): "family:MixtureNormal",
+    ("webppl", "mixture_model"): "family:MixtureNormal",
+    ("edward2", "parametric_pooling"): "family:school_effects",
+    ("gen", "parametric_pooling"): "family:school_effects",
+    ("numpyro", "parametric_pooling"): "family:school_effects",
+    ("pymc", "parametric_pooling"): "family:school_effects",
+    ("pyro", "parametric_pooling"): "family:school_effects",
+    ("stan", "parametric_pooling"): "family:school_effects",
+    ("turing", "parametric_pooling"): "family:school_effects",
+    ("webppl", "parametric_pooling"): "family:school_effects",
+    # 3. `sum` builtin has no single-call mapping in the Python backends.
+    ("edward2", "factor_analysis"): "let-expr:LetExprCall",
+    ("numpyro", "factor_analysis"): "let-expr:LetExprCall",
+    ("pymc", "factor_analysis"): "let-expr:LetExprCall",
+    ("pyro", "factor_analysis"): "let-expr:LetExprCall",
+    ("edward2", "ppca"): "let-expr:LetExprCall",
+    ("numpyro", "ppca"): "let-expr:LetExprCall",
+    ("pymc", "ppca"): "let-expr:LetExprCall",
+    ("pyro", "ppca"): "let-expr:LetExprCall",
+    # 4. Method-call let-expressions have no Stan rendering.
+    ("stan", "montague_nli"): "let-expr:LetExprMethodCall",
+}
 
 
 @pytest.mark.parametrize(

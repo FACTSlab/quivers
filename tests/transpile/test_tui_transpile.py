@@ -22,7 +22,7 @@ from quivers.transpile import available_targets
 
 _BETA_BERNOULLI_FIXTURE = """\
 object Resp : FinSet 1
-program flip : Resp -> Resp:
+program flip : Resp -> Resp
     sample theta <- Beta(2.0, 2.0)
     observe y <- Bernoulli(theta)
     return y
