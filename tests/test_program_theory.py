@@ -81,7 +81,8 @@ def test_output_decl_recorded_for_hmm() -> None:
     output_constraints = {
         c.sort: c.value for c in schema.constraints_for(output_ids[0])
     }
-    # hmm.qvr's `output hmm` resolves to ExprIdent(name='hmm')
+    # hmm.qvr's first export (`export hmm`) is the module's output
+    # entry point; it resolves to ExprIdent(name='hmm').
     assert output_constraints["name"] == "hmm"
     # the program -> output_decl edge with kind 'output' is present
     output_edges = [

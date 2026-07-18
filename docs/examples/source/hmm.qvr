@@ -47,5 +47,5 @@ program hmm_program : State -> Obs
 
     return initial_row
 
-export hmm_program
 export hmm
+export hmm_program

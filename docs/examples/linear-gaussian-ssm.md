@@ -78,8 +78,6 @@ for t in range(T):
     o[t] = s[t + 1] @ C.T + R_scale * torch.randn(obs_dim)
 
 state_prev = torch.cat([u, s[:T]], dim=-1)
-o_seq = o.unsqueeze(0)
-state_seq = s[1:].unsqueeze(0)
 sites = {"s_new": s[1:T + 1], "o": o}
 x_in = state_prev
 observations = sites
@@ -87,7 +85,7 @@ observations = sites
 
 ### SVI fit
 
-The exported morphism is a [`ScanMorphism`](../api/continuous/scan.md) whose parameter-network weights are kernel parameters without explicit `sample` priors; [`bayesian_lift_parameters`](../api/inference/lifts.md#quivers.inference.lifts.bayesian_lift_parameters) lifts each leaf parameter into a unit-Normal sample site so the standard guide-plus-ELBO machinery applies uniformly. The thin `DictWrap` adapter exposes `log_joint(x, obs_dict)` over the scan's positional state-trajectory argument.
+The exported `generative_step` is a monadic program whose linear-Gaussian transition and emission weights are kernel parameters without explicit `sample` priors; [`bayesian_lift_parameters`](../api/inference/lifts.md#quivers.inference.lifts.bayesian_lift_parameters) lifts each leaf parameter into a unit-Normal sample site so the standard guide-plus-ELBO machinery applies uniformly. The per-step `(s_new, o)` trajectory is supplied as the observation dict, so `log_joint` scores the clamped trajectory under each lifted parameter draw.
 
 ```python
 from quivers.inference import AutoNormalGuide, ELBO, SVI, bayesian_lift_parameters
@@ -96,10 +94,10 @@ torch.manual_seed(1)
 prog = load("docs/examples/source/linear_gaussian_ssm.qvr")
 inner = prog.morphism
 model, x_lift, obs_lift = bayesian_lift_parameters(
-    inner, o_seq, {"h": state_seq}, prior_scale=1.0,
+    inner, x_in, observations, prior_scale=1.0,
 )
 
-guide = AutoNormalGuide(model, observed_names={"h"})
+guide = AutoNormalGuide(model, observed_names=set())
 optim = torch.optim.Adam(
     list(model.parameters()) + list(guide.parameters()), lr=1e-2,
 )
@@ -108,7 +106,7 @@ svi = SVI(model, guide, optim, ELBO())
 loss0 = svi.step(x_lift, obs_lift)
 losses = [svi.step(x_lift, obs_lift) for _ in range(300)]
 loss_final = sum(losses[-20:]) / 20.0
-oracle_ll = inner.log_joint(o_seq, state_seq).item()
+oracle_ll = inner.log_joint(x_in, observations).sum().item()
 print(f"initial ELBO loss: {loss0:.1f}")
 print(f"final ELBO loss:   {loss_final:.1f}")
 print(f"oracle -log p(h):  {-oracle_ll:.1f}")
@@ -124,7 +122,7 @@ from quivers.inference import MCMC, NUTSKernel, bayesian_lift_parameters
 torch.manual_seed(2)
 prog = load("docs/examples/source/linear_gaussian_ssm.qvr")
 model, x_lift, obs_lift = bayesian_lift_parameters(
-    prog.morphism, o_seq, {"h": state_seq}, prior_scale=1.0,
+    prog.morphism, x_in, observations, prior_scale=1.0,
 )
 
 kernel = NUTSKernel(step_size=0.05, max_tree_depth=3, target_accept=0.8)

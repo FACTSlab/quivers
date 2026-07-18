@@ -490,13 +490,23 @@ def _get_family_registry() -> dict[str, type]:
             wrapper = getattr(_families, wrapper_name, None)
             if wrapper is not None:
                 out[qvr_name] = wrapper
-    # ``GeneralizedPareto`` lives in a torch-version-dependent
-    # `Conditional<F>` wrapper but does not have a transpile-time
-    # `FamilyMeta` entry: register it from the wrapper module so the
-    # runtime compiler keeps its coverage.
-    extra_wrapper = getattr(_families, "ConditionalGeneralizedPareto", None)
-    if extra_wrapper is not None and "GeneralizedPareto" not in out:
-        out["GeneralizedPareto"] = extra_wrapper
+    # Families that ship a ``Conditional<F>`` wrapper for the runtime
+    # compiler but carry no transpile-time `FamilyMeta` entry (they
+    # are not lowered to the structural transpile backends). Register
+    # each from the wrapper module so the runtime compiler resolves
+    # its ``~ Family`` declarations.
+    wrapper_only = {
+        "GeneralizedPareto": "ConditionalGeneralizedPareto",
+        "ZeroInflatedPoisson": "ConditionalZeroInflatedPoisson",
+        "HurdlePoisson": "ConditionalHurdlePoisson",
+        "MixtureNormal": "ConditionalMixtureNormal",
+    }
+    for qvr_name, wrapper_name in wrapper_only.items():
+        if qvr_name in out:
+            continue
+        wrapper = getattr(_families, wrapper_name, None)
+        if wrapper is not None:
+            out[qvr_name] = wrapper
     return out
 
 

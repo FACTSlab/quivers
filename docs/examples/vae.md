@@ -86,26 +86,21 @@ observations = {"Y": Y, "z": true_z}
 print("Y shape:", Y.shape)
 ```
 
-The exported `generative` composition is a [Kleisli](https://en.wikipedia.org/wiki/Kleisli_category) morphism `UnitSpace -> ObsSpace`; `rsample` runs the full prior-then-decoder ancestral path so the synthetic batch comes from the model itself at its current (random) parameter values, then lift the entire parameter vector into a Bayesian model for SVI and NUTS.
+The exported `vae_program` is a [Kleisli](https://en.wikipedia.org/wiki/Kleisli_category) morphism `UnitSpace -> ObsSpace` whose body samples the latent `z` and scores the observation `Y` under `decoder(z)`; the forward trace captures a jointly-consistent `(z, Y)` pair, which the observation dict then clamps while [`bayesian_lift_parameters`](../api/inference/lifts.md#quivers.inference.lifts.bayesian_lift_parameters) lifts the entire parameter vector into a Bayesian model for SVI and NUTS.
 
 ### SVI fit
 
 ```python
 from quivers.inference import (
-    AutoNormalGuide, ELBO, SVI, lift_from_log_prob,
+    AutoNormalGuide, ELBO, SVI, bayesian_lift_parameters,
 )
 
-model, x_in, observations = lift_from_log_prob(
-    prog,
-    log_prob_fn=prog.morphism.log_prob,
-    parameter_prior_scale=1.0,
-    target_key="Y",
-    x=unit,
-    observations={"Y": Y},
+model, x_in, observations = bayesian_lift_parameters(
+    prog.morphism, x_in, observations, prior_scale=1.0,
 )
 
 torch.manual_seed(1)
-guide = AutoNormalGuide(model, observed_names={"Y"})
+guide = AutoNormalGuide(model, observed_names=set())
 optim = torch.optim.Adam(
     list(model.parameters()) + list(guide.parameters()), lr=1e-2,
 )
