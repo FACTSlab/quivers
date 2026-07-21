@@ -44,12 +44,17 @@ def _emit_file(rel_path: str) -> str:
 
 def test_pareto_shape_keyword_is_concentration() -> None:
     """Pareto's shape parameter rides as ``concentration``, TFP's
-    keyword, not torch's ``alpha`` (which TFP rejects)."""
+    keyword, not torch's ``alpha`` (which TFP rejects).
+
+    The fixture declares ``Pareto(1.0, 2.0)``, which binds positionally
+    the way ``torch.distributions.Pareto`` does: ``scale=1``,
+    shape ``=2``. TFP names that shape ``concentration``.
+    """
     out = _emit_file("tests/transpile/fixtures/families/pareto.qvr")
     ast.parse(out)
     assert "edward2.Pareto(" in out
-    assert "concentration=1" in out
-    assert "scale=2" in out
+    assert "scale=1" in out
+    assert "concentration=2" in out
     # torch's `alpha` keyword must not survive: TFP's Pareto has no
     # `alpha` argument.
     assert "alpha=" not in out
