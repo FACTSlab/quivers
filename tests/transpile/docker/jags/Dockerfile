@@ -9,7 +9,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 
 RUN pip install --no-cache-dir \
-    pyjags==1.3.8 \
-    numpy==1.26.4
+    pyjags==2.4.0 \
+    numpy==2.5.1
 
 ENTRYPOINT ["python"]
