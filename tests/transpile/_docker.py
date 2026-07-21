@@ -83,7 +83,6 @@ def run_probe(
     timeout: float = 120.0,
     shapes: dict[str, list[int]] | None = None,
     dtypes: dict[str, str] | None = None,
-    helpers: list[pathlib.Path] | None = None,
 ) -> dict:
     """Invoke a probe image against ``source`` + ``points``.
 
@@ -95,7 +94,8 @@ def run_probe(
     /io/shapes.json    # {name -> [dim, ...]} (omitted when shapes is None)
     /io/dtypes.json    # {name -> "int" | "float"} (omitted when dtypes is None)
     /io/probe.py       # the entrypoint script for this backend
-    /io/<helper>       # extra modules copied from `helpers` (e.g. `_reshape.py`)
+    /io/_reshape.py    # the shared reshape helper (Python probes import it)
+    /io/_reshape.jl    # the shared reshape helper (Julia probes include it)
     /io/result.json    # probe writes this
     ```
 
@@ -118,8 +118,15 @@ def run_probe(
     if dtypes is not None:
         (scratch / "dtypes.json").write_text(json.dumps(dtypes))
     (scratch / "probe.py").write_bytes(script.read_bytes())
-    for helper in helpers or []:
-        (scratch / helper.name).write_bytes(helper.read_bytes())
+    # The per-backend probe scripts import a shared reshape helper that
+    # sits beside them in `_scripts/`: Python probes do `from _reshape
+    # import ...` and Julia probes `include("/io/_reshape.jl")`. Copy
+    # both reshape modules from the script's own directory into `/io/`
+    # so the container-side import resolves whatever the probe language.
+    for reshape_name in ("_reshape.py", "_reshape.jl"):
+        reshape_path = script.parent / reshape_name
+        if reshape_path.exists():
+            (scratch / reshape_name).write_bytes(reshape_path.read_bytes())
     result_path = scratch / "result.json"
     if result_path.exists():
         result_path.unlink()
