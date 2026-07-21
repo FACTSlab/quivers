@@ -156,6 +156,50 @@ Gen.has_argument_grads(::ContinuousBernoulliDist) = (false,)
 
 (::ContinuousBernoulliDist)(probs) = Gen.random(ContinuousBernoulliDist(), probs)
 
+struct LogNormalDist <: Gen.Distribution{Float64} end
+
+const lognormal = LogNormalDist()
+
+function Gen.random(::LogNormalDist, loc::Real, scale::Real)
+    return rand(Distributions.LogNormal(loc, scale))
+end
+
+function Gen.logpdf(::LogNormalDist, x::Real, loc::Real, scale::Real)
+    return Distributions.logpdf(Distributions.LogNormal(loc, scale), x)
+end
+
+function Gen.logpdf_grad(::LogNormalDist, x::Real, loc::Real, scale::Real)
+    return (nothing, nothing, nothing)
+end
+
+Gen.has_output_grad(::LogNormalDist) = false
+
+Gen.has_argument_grads(::LogNormalDist) = (false, false)
+
+(::LogNormalDist)(loc, scale) = Gen.random(LogNormalDist(), loc, scale)
+
+struct WeibullDist <: Gen.Distribution{Float64} end
+
+const weibull = WeibullDist()
+
+function Gen.random(::WeibullDist, scale::Real, concentration::Real)
+    return rand(Distributions.Weibull(concentration, scale))
+end
+
+function Gen.logpdf(::WeibullDist, x::Real, scale::Real, concentration::Real)
+    return Distributions.logpdf(Distributions.Weibull(concentration, scale), x)
+end
+
+function Gen.logpdf_grad(::WeibullDist, x::Real, scale::Real, concentration::Real)
+    return (nothing, nothing, nothing)
+end
+
+Gen.has_output_grad(::WeibullDist) = false
+
+Gen.has_argument_grads(::WeibullDist) = (false, false)
+
+(::WeibullDist)(scale, concentration) = Gen.random(WeibullDist(), scale, concentration)
+
 using LinearAlgebra: LowerTriangular, Cholesky
 
 struct LKJCholeskyDist <: Gen.Distribution{Matrix{Float64}} end

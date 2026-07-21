@@ -111,6 +111,55 @@ _ALIAS_TRANSFORMS: dict[str, _TransformKind] = {
     "tau": "inv_square",
 }
 
+#: Per-family override of the arg-alias arithmetic transform. The
+#: shared ``tau`` alias assumes a precision (``1/scale^2``)
+#: parameterisation, which is right for JAGS' ``dnorm`` / ``dt`` but
+#: wrong for ``ddexp``. JAGS' ``ddexp(mu, tau)`` is rate-parameterised
+#: (density ``(tau/2) * exp(-tau*|x-mu|)``), so ``Laplace``'s scale
+#: maps to the rate ``tau = 1/scale`` rather than ``1/scale^2``.
+_FAMILY_ALIAS_TRANSFORM_OVERRIDE: dict[str, dict[str, _TransformKind]] = {
+    "Laplace": {"tau": "inv"},
+}
+
+
+def _alias_transform_for(
+    family: str, emitted_name: str
+) -> _TransformKind | None:
+    """Resolve the arithmetic transform for an aliased arg, honouring
+    the per-family override in
+    [`_FAMILY_ALIAS_TRANSFORM_OVERRIDE`][quivers.transpile.renderers.jags._FAMILY_ALIAS_TRANSFORM_OVERRIDE]
+    before falling back to the shared
+    [`_ALIAS_TRANSFORMS`][quivers.transpile.renderers.jags._ALIAS_TRANSFORMS]
+    table."""
+    override = _FAMILY_ALIAS_TRANSFORM_OVERRIDE.get(family)
+    if override is not None and emitted_name in override:
+        return override[emitted_name]
+    return _ALIAS_TRANSFORMS.get(emitted_name)
+
+
+def _reorder_studentt_dt(
+    args: tuple[IRArg, ...], arg_names: tuple[str, ...]
+) -> tuple[tuple[IRArg, ...], tuple[str, ...]]:
+    """Reshape a location-scale ``StudentT(df, loc, scale)`` into JAGS'
+    ``dt(mu, tau, k)`` argument order.
+
+    JAGS' Student-t is parameterised by location, precision, and
+    degrees of freedom, in that order; torch's ``StudentT`` carries
+    ``(df, loc, scale)``. This reorders the three arguments to
+    ``(loc, scale, df)`` and pre-wraps the scale in the
+    precision transform ``tau = 1/(scale*scale)`` so the emitted call
+    is ``dt(loc, 1/(scale*scale), df)``.
+    """
+    by_name = dict(zip(arg_names, args, strict=True))
+    return (
+        (
+            by_name["loc"],
+            IRArgTransform(inner=by_name["scale"], transform="inv_square"),
+            by_name["df"],
+        ),
+        ("loc", "tau", "df"),
+    )
+
 
 #: JAGS-side argument injection for QVR families whose underlying
 #: torch distribution carries fewer parameters than the JAGS
@@ -687,11 +736,18 @@ class JAGSRenderer(RendererBase):
             args = args[:2]
             arg_names = arg_names[:2]
 
+        # StudentT: torch (df, loc, scale) -> JAGS dt(mu, tau, k) =
+        # (loc, 1/scale^2, df). Reorder and precision-transform before
+        # the alias pipeline; the pre-wrapped scale carries its own
+        # transform so the loop below leaves it untouched.
+        if family == "StudentT":
+            args, arg_names = _reorder_studentt_dt(args, arg_names)
+
         aliases = meta.arg_aliases.get(_BACKEND, {})
         renamed_pairs: list[tuple[str, IRArg]] = []
         for arg_name, arg in zip(arg_names, args, strict=False):
             emitted_name = aliases.get(arg_name, arg_name)
-            transform = _ALIAS_TRANSFORMS.get(emitted_name)
+            transform = _alias_transform_for(family, emitted_name)
             if transform is not None and emitted_name != arg_name:
                 arg = IRArgTransform(inner=arg, transform=transform)
             renamed_pairs.append((emitted_name, arg))

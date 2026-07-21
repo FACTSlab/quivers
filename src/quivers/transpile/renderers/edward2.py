@@ -106,6 +106,18 @@ _BACKEND_KEY = f"qvr-{_TARGET}"
 _PREPEND_LOC_ZERO: frozenset[str] = frozenset({"HalfCauchy"})
 
 
+#: Edward2-local argument renames layered on top of
+#: ``FAMILY_META[family].arg_aliases["edward2"]``. TFP's ``Pareto``
+#: names its shape parameter ``concentration`` where torch / QVR name
+#: it ``alpha``; without the rename the emitted keyword ``alpha=`` is
+#: not a valid TFP ``Pareto`` constructor argument and construction
+#: raises ``TypeError``. The value is unchanged: torch's ``alpha`` and
+#: TFP's ``concentration`` are the same Pareto shape parameter.
+_EDWARD2_ARG_ALIASES: dict[str, dict[str, str]] = {
+    "Pareto": {"alpha": "concentration"},
+}
+
+
 class Edward2Renderer(RendererBase):
     """Render an [`IRProgram`][quivers.transpile.ir.IRProgram] to TFP
     Edward2 Python source.
@@ -556,8 +568,48 @@ class Edward2Renderer(RendererBase):
                 _BACKEND_KEY,
                 [f"family:{family}: no edward2 target name in FAMILY_META"],
             )
+
+        # Families whose TFP constructor shape diverges from the
+        # generic (rename-only) path get a dedicated builder.
+        if family == "MatrixNormal":
+            return self._matrix_normal_call(
+                py,
+                name=name,
+                dist_class=dist_class,
+                args=args,
+                plate=plate,
+                input_specs=input_specs,
+                bindings=bindings,
+            )
+        if family == "LKJCholesky":
+            return self._lkj_cholesky_call(
+                py,
+                name=name,
+                dist_class=dist_class,
+                args=args,
+                plate=plate,
+                input_specs=input_specs,
+                bindings=bindings,
+            )
+
+        # ``HalfStudentT`` has no TFP class. A half-Student-t with
+        # ``(df, scale)`` is the fold of ``StudentT(df, 0, scale)`` onto
+        # the nonnegative half-line; its density there is
+        # ``StudentT(df, 0, scale)`` scaled by 2, so the two agree up to
+        # the additive constant ``log 2`` on the family's positive
+        # support. The renderer emits the location-scale StudentT and
+        # relies on the fold being an additive-constant shift.
+        if family == "HalfStudentT":
+            dist_class = "StudentT"
+            args = (args[0], IRArgNumber(value=0.0), *args[1:])
+            arg_names = (arg_names[0], "loc", *arg_names[1:])
+            meta = self._lookup_meta("StudentT")
+
         callee = attribute(py, ("edward2", dist_class))
-        aliases = meta.arg_aliases.get(_TARGET, {})
+        aliases = {
+            **meta.arg_aliases.get(_TARGET, {}),
+            **_EDWARD2_ARG_ALIASES.get(family, {}),
+        }
 
         # Inject the canonical zero-loc argument for families whose
         # torch distribution carries fewer parameters than TFP's
@@ -615,6 +667,117 @@ class Edward2Renderer(RendererBase):
             positional=tuple(positional),
             keyword=tuple(keyword),
         )
+
+    def _lkj_cholesky_call(
+        self,
+        py: PyCtx,
+        *,
+        name: str,
+        dist_class: str,
+        args: tuple[IRArg, ...],
+        plate: Plate,
+        input_specs: dict[str, ConstraintSpec],
+        bindings: dict[str, _Binding],
+    ) -> str:
+        """Build ``edward2.LKJ(<d>, <concentration>,
+        input_output_cholesky=True, name="<name>")``.
+
+        TFP's ``LKJ`` takes the correlation-matrix dimension ``d`` as
+        its first positional argument; the generic path emits only the
+        concentration, so ``concentration`` binds to ``dimension`` and
+        the true concentration is dropped. The dimension is read from
+        the sample's event axis. ``input_output_cholesky=True`` makes
+        TFP sample / score Cholesky factors, matching the QVR
+        ``LKJCholesky`` support (a bare ``LKJ`` ranges over full
+        correlation matrices, a different support and density).
+        """
+        if not plate.event_dims:
+            raise UnsupportedConstruct(
+                _BACKEND_KEY,
+                ["family:LKJCholesky:missing matrix-dimension event axis"],
+            )
+        callee = attribute(py, ("edward2", dist_class))
+        dimension = _dim_expr(py, plate.event_dims[-1])
+        concentration = self._render_arg(
+            py,
+            args[0],
+            expected_arg_event=(),
+            arg_position=0,
+            meta=self._lookup_meta("LKJCholesky"),
+            input_specs=input_specs,
+            bindings=bindings,
+        )
+        keyword: list[tuple[str, str]] = [
+            ("input_output_cholesky", _true_literal(py)),
+        ]
+        sample_shape = self._sample_shape(py, plate)
+        if sample_shape is not None:
+            keyword.append(("sample_shape", sample_shape))
+        keyword.append(("name", string_literal(py, name)))
+        return call(
+            py,
+            callee,
+            positional=(dimension, concentration),
+            keyword=tuple(keyword),
+        )
+
+    def _matrix_normal_call(
+        self,
+        py: PyCtx,
+        *,
+        name: str,
+        dist_class: str,
+        args: tuple[IRArg, ...],
+        plate: Plate,
+        input_specs: dict[str, ConstraintSpec],
+        bindings: dict[str, _Binding],
+    ) -> str:
+        """Build ``edward2.MatrixNormalLinearOperator(loc=...,
+        scale_row=..., scale_column=..., name="<name>")``.
+
+        TFP parameterizes the matrix-normal by the Cholesky factors of
+        the row and column covariances, wrapped as ``LinearOperator``s,
+        under the keywords ``scale_row`` / ``scale_column``. The generic
+        path forwards the QVR ``row_covariance`` / ``col_covariance``
+        keywords with the covariance matrices themselves, neither of
+        which TFP accepts. Row / column covariance ``C`` becomes
+        ``tf.linalg.LinearOperatorLowerTriangular(tf.linalg.cholesky(C))``;
+        since ``C = L Lᵀ`` this leaves the distribution (and its
+        log-density) unchanged.
+        """
+        if len(args) != 3:
+            raise UnsupportedConstruct(
+                _BACKEND_KEY,
+                [
+                    "family:MatrixNormal:expected "
+                    "(loc, row_covariance, col_covariance)"
+                ],
+            )
+        callee = attribute(py, ("edward2", dist_class))
+        meta = self._lookup_meta("MatrixNormal")
+        event = _event_shape(plate)
+        rendered = tuple(
+            self._render_arg(
+                py,
+                arg,
+                expected_arg_event=event,
+                arg_position=i,
+                meta=meta,
+                input_specs=input_specs,
+                bindings=bindings,
+            )
+            for i, arg in enumerate(args)
+        )
+        keyword: list[tuple[str, str]] = [
+            ("loc", rendered[0]),
+            ("scale_row", _linop_cholesky(py, rendered[1])),
+            ("scale_column", _linop_cholesky(py, rendered[2])),
+        ]
+        sample_shape = self._sample_shape(py, plate)
+        if sample_shape is not None:
+            keyword.append(("sample_shape", sample_shape))
+        keyword.append(("name", string_literal(py, name)))
+        return call(py, callee, keyword=tuple(keyword))
 
     def _render_arg(
         self,
@@ -967,6 +1130,31 @@ def _event_shape(plate: Plate) -> tuple[int, ...]:
         else:
             out.append(0)
     return tuple(out)
+
+
+def _true_literal(py: PyCtx) -> str:
+    """Emit a Python ``True`` literal vertex."""
+    vid = py.v(py.fresh("true"), "true")
+    py.literal(vid, "True")
+    return vid
+
+
+def _linop_cholesky(py: PyCtx, cov_expr: str) -> str:
+    """Wrap a covariance expression ``C`` as the ``LinearOperator``
+    ``tf.linalg.LinearOperatorLowerTriangular(tf.linalg.cholesky(C))``,
+    the Cholesky-factor scale TFP's ``MatrixNormalLinearOperator``
+    expects for ``scale_row`` / ``scale_column``.
+    """
+    chol = call(
+        py,
+        attribute(py, ("tf", "linalg", "cholesky")),
+        positional=(cov_expr,),
+    )
+    return call(
+        py,
+        attribute(py, ("tf", "linalg", "LinearOperatorLowerTriangular")),
+        positional=(chol,),
+    )
 
 
 def _dim_expr(py: PyCtx, dim: Dim) -> str:

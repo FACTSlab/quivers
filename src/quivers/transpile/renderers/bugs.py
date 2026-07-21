@@ -156,6 +156,16 @@ _ALIAS_TRANSFORMS: dict[str, str] = {
     "tau": "inv_square",
 }
 
+#: Per-family override of the arg-alias arithmetic transform. The
+#: shared ``tau`` alias assumes a precision (``1/scale^2``)
+#: parameterisation, right for ``dnorm`` / ``dt`` but wrong for
+#: ``ddexp``. BUGS' ``ddexp(mu, tau)`` is rate-parameterised (density
+#: ``(tau/2) * exp(-tau*|x-mu|)``), so ``Laplace``'s scale maps to the
+#: rate ``tau = 1/scale`` rather than ``1/scale^2``.
+_FAMILY_ALIAS_TRANSFORM_OVERRIDE: dict[str, dict[str, str]] = {
+    "Laplace": {"tau": "inv"},
+}
+
 
 #: BUGS-side argument injection for QVR families whose underlying
 #: torch distribution carries fewer parameters than the BUGS
@@ -1160,9 +1170,13 @@ class BUGSRenderer(RendererBase):
         al_id = self._fresh(ctx, "al")
         ctx.sb.vertex(al_id, "argument_list")
         ctx.sb.edge(dc_id, al_id, "arguments")
+        if meta.qvr_name == "StudentT":
+            args, arg_names = _reorder_studentt_dt(args, arg_names)
         renames = meta.arg_aliases.get("bugs", {})
         for arg, aname in zip(args, arg_names, strict=True):
-            wrapped = self._apply_alias_transform(arg, aname, renames)
+            wrapped = self._apply_alias_transform(
+                arg, aname, renames, meta.qvr_name
+            )
             receiver_event_rank = self._receiver_event_rank(meta, aname)
             child_id = self._emit_arg(
                 ctx, wrapped, receiver_event_rank=receiver_event_rank
@@ -1188,17 +1202,27 @@ class BUGSRenderer(RendererBase):
         return int(getattr(expected, "event_dim", 0))
 
     def _apply_alias_transform(
-        self, arg: IRArg, arg_name: str, renames: dict[str, str]
+        self,
+        arg: IRArg,
+        arg_name: str,
+        renames: dict[str, str],
+        family: str,
     ) -> IRArg:
         """If `renames[arg_name]` targets a name with an arithmetic
-        transform in [`_ALIAS_TRANSFORMS`][quivers.transpile.renderers.bugs._ALIAS_TRANSFORMS],
+        transform in [`_ALIAS_TRANSFORMS`][quivers.transpile.renderers.bugs._ALIAS_TRANSFORMS]
+        (or the per-family override in
+        [`_FAMILY_ALIAS_TRANSFORM_OVERRIDE`][quivers.transpile.renderers.bugs._FAMILY_ALIAS_TRANSFORM_OVERRIDE]),
         wrap `arg` in
         [`IRArgTransform`][quivers.transpile.renderers._base.IRArgTransform];
         otherwise return `arg` unchanged."""
         target_name = renames.get(arg_name)
         if target_name is None:
             return arg
-        transform = _ALIAS_TRANSFORMS.get(target_name)
+        override = _FAMILY_ALIAS_TRANSFORM_OVERRIDE.get(family)
+        if override is not None and target_name in override:
+            transform: str | None = override[target_name]
+        else:
+            transform = _ALIAS_TRANSFORMS.get(target_name)
         if transform is None:
             return arg
         return IRArgTransform(inner=arg, transform=_as_transform(transform))
@@ -1834,6 +1858,30 @@ def _draw_arg_to_ir(a: str | float) -> IRArg:
         return IRArgNumber(value=float(stripped))
     except ValueError:
         return IRArgRef(name=stripped)
+
+
+def _reorder_studentt_dt(
+    args: tuple[IRArg, ...], arg_names: tuple[str, ...]
+) -> tuple[tuple[IRArg, ...], tuple[str, ...]]:
+    """Reshape a location-scale ``StudentT(df, loc, scale)`` into BUGS'
+    ``dt(mu, tau, k)`` argument order.
+
+    BUGS' Student-t is parameterised by location, precision, and
+    degrees of freedom, in that order; torch's ``StudentT`` carries
+    ``(df, loc, scale)``. This reorders to ``(loc, scale, df)`` and
+    pre-wraps the scale in the precision transform
+    ``tau = 1/(scale*scale)`` so the emitted call is
+    ``dt(loc, 1/(scale*scale), df)``.
+    """
+    by_name = dict(zip(arg_names, args, strict=True))
+    return (
+        (
+            by_name["loc"],
+            IRArgTransform(inner=by_name["scale"], transform="inv_square"),
+            by_name["df"],
+        ),
+        ("loc", "tau", "df"),
+    )
 
 
 def _as_transform(

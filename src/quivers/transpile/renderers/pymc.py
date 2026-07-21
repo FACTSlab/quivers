@@ -33,6 +33,8 @@ the `comp_dists` keyword. The renderer reads the referenced morphism's
 
 from __future__ import annotations
 
+import pathlib
+
 import torch.distributions.constraints as c
 import panproto
 
@@ -44,6 +46,7 @@ from quivers.dsl.ast_nodes import (
 from quivers.transpile._api import UnsupportedConstruct
 from quivers.transpile._pipeline import (
     SchemaTransform,
+    parser_registry,
     realize,
     target_protocol,
 )
@@ -177,6 +180,14 @@ class PyMCRenderer(RendererBase):
         bag.with_body = with_body
         for node in ir.body:
             self._dispatch_pymc(bag, node)
+
+        # Graft runtime helpers for families PyMC does not ship, once,
+        # as top-level definitions preceding `build_model`.
+        if any(
+            _ir_uses_family(ir.body, family)
+            for family in _PYMC_RUNTIME_HELPER_FAMILIES
+        ):
+            _graft_runtime_pymc_helpers(py)
 
         # Trailing `return model` inside the function body (outside
         # the with-block). PyMC's idiom is for `build_model` to return
@@ -448,6 +459,9 @@ class PyMCRenderer(RendererBase):
     ) -> None:
         """Build `<name> = pymc.<Family>("<name>", **args, dims=(...),
         observed=<observed>)` and append to the with-body block."""
+        if node.family == "Geometric":
+            self._emit_geometric(ctx, node, observed_name=observed_name)
+            return
         meta = _resolve_meta(node.family, self.target)
         dist_class = meta.target_names.get("pymc")
         if dist_class is None:
@@ -455,8 +469,16 @@ class PyMCRenderer(RendererBase):
                 self.target, [f"family:{node.family}"]
             )
 
-        callee = attribute(ctx.py, ("pymc", dist_class))
+        # A family PyMC does not ship (`ContinuousBernoulli`) resolves
+        # to a grafted runtime helper called by bare name; the graft
+        # is emitted once in `render_with_tables`.
+        if node.family in _PYMC_RUNTIME_HELPER_FAMILIES:
+            callee = identifier(ctx.py, _PYMC_RUNTIME_HELPER_FAMILIES[node.family])
+        else:
+            callee = attribute(ctx.py, ("pymc", dist_class))
         positional = (string_literal(ctx.py, node.name),)
+
+        complement_args = _PYMC_COMPLEMENT_ARGS.get(node.family, frozenset())
 
         # Apply via=<idx> rewrite: when an observation declares
         # `via=<idx>`, wrap every reference to the surrounding-
@@ -491,7 +513,15 @@ class PyMCRenderer(RendererBase):
                 plate=node.plate,
                 ir=ctx.ir,
             )
-            keyword.append((renamed, self._render_arg(ctx, arg_to_emit)))
+            rendered = self._render_arg(ctx, arg_to_emit)
+            if arg_name in complement_args:
+                rendered = _python_paren(
+                    ctx.py,
+                    _python_binary_op(
+                        ctx.py, "-", number_literal(ctx.py, 1.0), rendered,
+                    ),
+                )
+            keyword.append((renamed, rendered))
 
         # `dims=(<batch+event names>,)`.
         dims_tuple = self._dims_tuple(ctx.py, node.plate)
@@ -513,6 +543,94 @@ class PyMCRenderer(RendererBase):
             stmt = ctx.py.v(ctx.py.fresh("es"), "expression_statement")
             ctx.py.e(stmt, rhs, "child_of")
         ctx.py.e(ctx.with_body, stmt, "child_of")
+
+    def _emit_geometric(
+        self,
+        ctx: _PyMCCtx,
+        node: IRSample | IRObserve,
+        *,
+        observed_name: str | None,
+    ) -> None:
+        """Emit a support-corrected PyMC `Geometric`.
+
+        torch `Geometric(probs)` counts failures on `{0, 1, 2, ...}`,
+        while PyMC `Geometric(p)` counts trials on `{1, 2, 3, ...}`.
+        The two share the success probability `p == probs` but differ
+        by a unit shift, so:
+
+        * a latent sample binds the QVR name to a
+          [`pymc.Deterministic`][pymc.Deterministic] holding the PyMC
+          draw minus one, keeping the density on the shifted RV while
+          exposing the torch-convention value; and
+        * an observation feeds `observed + 1` so the shifted data land
+          in PyMC's support.
+        """
+        py = ctx.py
+        meta = _resolve_meta("Geometric", self.target)
+        aliases = _merged_aliases(meta)
+        via = getattr(node, "via", None)
+        latent_name = ctx.current_latent
+
+        keyword: list[tuple[str, str]] = []
+        for arg, arg_name in zip(node.args, node.arg_names, strict=True):
+            renamed = aliases.get(arg_name, arg_name)
+            arg_to_emit = arg
+            if via is not None and latent_name is not None:
+                arg_to_emit = _wrap_latent_with_via(
+                    arg, latent_name=latent_name, via=via,
+                )
+            keyword.append((renamed, self._render_arg(ctx, arg_to_emit)))
+
+        dims_tuple = self._dims_tuple(py, node.plate)
+        callee = attribute(py, ("pymc", "Geometric"))
+
+        if observed_name is None:
+            geom_keyword = list(keyword)
+            if dims_tuple is not None:
+                geom_keyword.append(("dims", dims_tuple))
+            geom = call(
+                py, callee,
+                positional=(string_literal(py, f"{node.name}__geom"),),
+                keyword=tuple(geom_keyword),
+            )
+            # The shift is a positional argument to `Deterministic`,
+            # already delimited by the argument boundary, so it needs
+            # no parenthesis (a parenthesized_expression renders empty
+            # in positional position under the Python pretty printer).
+            shifted = _python_binary_op(
+                py, "-", geom, number_literal(py, 1.0),
+            )
+            det_keyword: list[tuple[str, str]] = []
+            det_dims = self._dims_tuple(py, node.plate)
+            if det_dims is not None:
+                det_keyword.append(("dims", det_dims))
+            det = call(
+                py, attribute(py, ("pymc", "Deterministic")),
+                positional=(string_literal(py, node.name), shifted),
+                keyword=tuple(det_keyword),
+            )
+            stmt = assignment(py, lhs_name=node.name, rhs=det)
+            py.e(ctx.with_body, stmt, "child_of")
+            return
+
+        obs_keyword = list(keyword)
+        if dims_tuple is not None:
+            obs_keyword.append(("dims", dims_tuple))
+        observed_expr = _python_paren(
+            py,
+            _python_binary_op(
+                py, "+", identifier(py, observed_name), number_literal(py, 1.0),
+            ),
+        )
+        obs_keyword.append(("observed", observed_expr))
+        rhs = call(
+            py, callee,
+            positional=(string_literal(py, node.name),),
+            keyword=tuple(obs_keyword),
+        )
+        stmt = py.v(py.fresh("es"), "expression_statement")
+        py.e(stmt, rhs, "child_of")
+        py.e(ctx.with_body, stmt, "child_of")
 
     def _maybe_broadcast_ref(
         self,
@@ -883,11 +1001,52 @@ def _resolve_meta(family: str, target: str) -> FamilyMeta:
     return meta
 
 
+#: Per-family PyMC arg renames the renderer applies on top of
+#: [`FamilyMeta.arg_aliases`][quivers.transpile.family_meta.FamilyMeta].
+#: Each maps a torch canonical arg name to the keyword PyMC's
+#: constructor expects. These correct call-sites where PyMC's
+#: parameter name differs from the shared spec: `Poisson(mu)`,
+#: `ChiSquared(nu)`, `Kumaraswamy(a, b)`, and `Wishart(nu, V)`.
+_PYMC_ALIAS_FIXUPS: dict[str, dict[str, str]] = {
+    "Poisson": {"rate": "mu"},
+    "Chi2": {"df": "nu"},
+    "Kumaraswamy": {"concentration1": "a", "concentration0": "b"},
+    "Wishart": {"df": "nu", "covariance_matrix": "V"},
+}
+
+
+#: Families PyMC does not ship, resolved to a grafted runtime helper
+#: called by bare name. The value is both the emitted call name and
+#: the top-level function in
+#: [`runtime_pymc.py`][quivers.transpile.runtime_pymc] that the
+#: renderer grafts into the module.
+_PYMC_RUNTIME_HELPER_FAMILIES: dict[str, str] = {
+    "ContinuousBernoulli": "ContinuousBernoulli",
+}
+
+
+#: Families whose PyMC arg carries the complement of the torch
+#: parameter: torch `NegativeBinomial(total_count, probs)` has
+#: pmf proportional to `(1 - probs)**total_count * probs**k`, while
+#: PyMC `NegativeBinomial(n, p)` uses `p**n * (1 - p)**k`, so PyMC's
+#: `p` is `1 - probs`.
+_PYMC_COMPLEMENT_ARGS: dict[str, frozenset[str]] = {
+    "NegativeBinomial": frozenset({"probs"}),
+}
+
+
 def _merged_aliases(meta: FamilyMeta) -> dict[str, str]:
-    """Return the PyMC alias map from
-    [`FAMILY_META`][quivers.transpile.family_meta.FAMILY_META]: the
-    per-family arg renames keyed under `"pymc"`."""
-    return dict(meta.arg_aliases.get("pymc", {}))
+    """Return the PyMC alias map for `meta`: the per-family arg
+    renames keyed under `"pymc"` in
+    [`FAMILY_META`][quivers.transpile.family_meta.FAMILY_META],
+    overlaid with the renderer-local
+    [`_PYMC_ALIAS_FIXUPS`][quivers.transpile.renderers.pymc._PYMC_ALIAS_FIXUPS]
+    for `meta`'s family. The fixups win on key collision, so a family
+    whose central alias names the wrong PyMC keyword is corrected
+    here."""
+    merged = dict(meta.arg_aliases.get("pymc", {}))
+    merged.update(_PYMC_ALIAS_FIXUPS.get(meta.qvr_name, {}))
+    return merged
 
 
 def _wrap_latent_with_via(
@@ -984,6 +1143,122 @@ def _unary_op(py: PyCtx, op: str, operand: str) -> str:
     py.e(u, op_vid, "operator")
     py.e(u, operand, "argument")
     return u
+
+
+# ---------------------------------------------------------------------------
+# Runtime-helper graft: embed distributions PyMC does not ship.
+# ---------------------------------------------------------------------------
+
+
+_RUNTIME_PYMC_PATH = (
+    pathlib.Path(__file__).resolve().parent.parent / "runtime_pymc.py"
+)
+
+
+def _load_runtime_pymc_helpers() -> tuple[panproto.Schema, tuple[str, ...]]:
+    """Parse [`runtime_pymc.py`][quivers.transpile.runtime_pymc]
+    through panproto's Python tree-sitter grammar at module-load time
+    and return the resulting schema plus the vertex ids of its
+    top-level `function_definition` roots.
+
+    The renderer grafts these subtrees into the per-render schema so
+    the emitted module carries real function definitions (no source
+    string, no `exec`). Only the function definitions are copied; the
+    helper module's own imports stay behind, matching the emitted
+    program's convention of resolving `pymc` / `np` / `pt` as free
+    names in the run namespace."""
+    schema = parser_registry().parse_with_protocol(
+        "python",
+        _RUNTIME_PYMC_PATH.read_bytes(),
+        str(_RUNTIME_PYMC_PATH),
+    )
+    module_id = next(
+        (v.id for v in schema.vertices if v.kind == "module"), None
+    )
+    if module_id is None:
+        raise RuntimeError(
+            f"no module root parsed from {_RUNTIME_PYMC_PATH}; the "
+            "renderer expects a valid Python module of grafted helpers."
+        )
+    roots = tuple(
+        v.id
+        for v in schema.vertices
+        if v.kind == "function_definition"
+        and any(
+            e.src == module_id and e.tgt == v.id and e.kind == "child_of"
+            for e in schema.edges
+        )
+    )
+    if not roots:
+        raise RuntimeError(
+            f"no top-level function definitions found in "
+            f"{_RUNTIME_PYMC_PATH}; the renderer expects it as the "
+            "source of truth for grafted PyMC runtime helpers."
+        )
+    return schema, roots
+
+
+def _subtree_vertex_ids(
+    schema: panproto.Schema, root: str
+) -> set[str]:
+    """Return every vertex id reachable from `root` via outgoing
+    edges of `schema`."""
+    seen: set[str] = {root}
+    frontier: list[str] = [root]
+    while frontier:
+        src = frontier.pop()
+        for edge in schema.edges:
+            if edge.src == src and edge.tgt not in seen:
+                seen.add(edge.tgt)
+                frontier.append(edge.tgt)
+    return seen
+
+
+_RUNTIME_PYMC_SCHEMA, _RUNTIME_PYMC_ROOTS = _load_runtime_pymc_helpers()
+_RUNTIME_PYMC_SUBTREE: set[str] = set()
+for _root in _RUNTIME_PYMC_ROOTS:
+    _RUNTIME_PYMC_SUBTREE |= _subtree_vertex_ids(_RUNTIME_PYMC_SCHEMA, _root)
+
+
+def _ir_uses_family(body: tuple[IRNode, ...], family: str) -> bool:
+    """True iff any [`IRSample`][quivers.transpile.ir.IRSample] or
+    [`IRObserve`][quivers.transpile.ir.IRObserve] in `body` (including
+    nested [`IRMarginalize`][quivers.transpile.ir.IRMarginalize]
+    scopes) draws from `family`."""
+    for node in body:
+        if isinstance(node, (IRSample, IRObserve)) and node.family == family:
+            return True
+        if isinstance(node, IRMarginalize) and _ir_uses_family(
+            node.scope, family
+        ):
+            return True
+    return False
+
+
+def _graft_runtime_pymc_helpers(py: PyCtx) -> None:
+    """Graft every top-level `function_definition` subtree from
+    [`runtime_pymc.py`][quivers.transpile.runtime_pymc] into the
+    per-render schema as a `child_of` of the `mod` module root.
+
+    Each vertex, constraint, and internal edge of the subtrees is
+    copied under fresh ids, so a render that grafts more than once
+    keeps the schema's vertex-id invariant."""
+    src_schema = _RUNTIME_PYMC_SCHEMA
+    id_map: dict[str, str] = {}
+    for old in _RUNTIME_PYMC_SUBTREE:
+        new = py.fresh("rt")
+        id_map[old] = new
+        kind = next(
+            v.kind for v in src_schema.vertices if v.id == old
+        )
+        py.v(new, kind)
+        for cstr in src_schema.constraints_for(old):
+            py.constraint(new, cstr.sort, cstr.value)
+    for edge in src_schema.edges:
+        if edge.src in id_map and edge.tgt in id_map:
+            py.e(id_map[edge.src], id_map[edge.tgt], edge.kind)
+    for root in _RUNTIME_PYMC_ROOTS:
+        py.e("mod", id_map[root], "child_of")
 
 
 # ---------------------------------------------------------------------------

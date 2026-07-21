@@ -229,6 +229,10 @@ class WebPPLRenderer(RendererBase):
         # ref-substitution to discriminate function parameters from
         # in-scope sample bindings.
         self._function_parameters_state: set[str] = set()
+        # Names the emit binds to JS arrays (plate carries batch / event
+        # dims); drives the vectorised-arithmetic rewrite of
+        # deterministic bindings.
+        self._array_names: frozenset[str] = frozenset()
 
     # ------------------------------------------------------------------
     # Abstract overrides: target_protocol + four dispatch points.
@@ -266,6 +270,7 @@ class WebPPLRenderer(RendererBase):
         # records as scalar still flow through this plate's `mapIndexed`
         # so the per-element computation runs over the right array.
         self._observe_array_fallback = self._first_observe_plate(ir)
+        self._array_names = _static_array_names(ir)
         # Program root: a single var-decl wrapping a function expression.
         ctx.sb.vertex("prog", "program")
         # WebPPL's `dists` module ships `Gaussian`, `Beta`, `Categorical`,
@@ -280,7 +285,7 @@ class WebPPLRenderer(RendererBase):
         if any(
             _ir_uses_family(ir.body, f)
             for f in _WEBPPL_RUNTIME_HELPER_FAMILIES
-        ):
+        ) or _ir_uses_vectorized_let(ir.body, self._array_names):
             _graft_runtime_webppl_helper(ctx.sb, self, "prog")
         var_decl = self._fresh(ctx, "vd")
         ctx.sb.vertex(var_decl, "variable_declaration")
@@ -803,7 +808,8 @@ class WebPPLRenderer(RendererBase):
         an index access.
         """
         array_inputs = self._array_input_refs_in_expr(node.expr)
-        if not array_inputs:
+        array_bindings = self._array_binding_refs_in_expr(node.expr)
+        if not array_inputs and not array_bindings:
             rhs = render_let_expr_javascript(
                 _JsLetCtx(
                     ctx.sb, lambda p: self._fresh(ctx, p), self._cards
@@ -814,13 +820,35 @@ class WebPPLRenderer(RendererBase):
             self._binding_plates[node.name] = node.plate
             self._binding_supports[node.name] = node.constraint
             return
+        if not array_inputs:
+            # No per-observation data-input pivot, but the expression
+            # combines array-valued bindings under scalar operators.
+            # Rewrite those operators into elementwise `_qvr_bcast`
+            # calls so the arithmetic stays vectorised.
+            vectorized = _vectorize_let_expr(node.expr, self._array_names)
+            rhs = render_let_expr_javascript(
+                _JsLetCtx(
+                    ctx.sb, lambda p: self._fresh(ctx, p), self._cards
+                ),
+                vectorized,
+            )
+            self._emit_var_decl(ctx, self._body_vid, node.name, rhs)
+            binding_plate = self._binding_plates.get(array_bindings[0])
+            self._binding_plates[node.name] = (
+                binding_plate
+                if binding_plate is not None and binding_plate.batch_dims
+                else node.plate
+            )
+            self._binding_supports[node.name] = node.constraint
+            return
         # Lift the binding through a `mapIndexed` over the pivot
         # array. The expression's body is rewritten so each array-
-        # input reference becomes ``<name>[__i]``; the loop var
-        # ``__i`` is injected as a bare identifier reference.
+        # input reference (and each array-valued binding aligned with
+        # the pivot axis) becomes ``<name>[__i]``; the loop var ``__i``
+        # is injected as a bare identifier reference.
         loop_var = self._fresh_loop_var()
         rewritten = self._index_array_refs(
-            node.expr, array_inputs, loop_var,
+            node.expr, array_inputs + array_bindings, loop_var,
         )
         body_block = self._fresh(ctx, "lbody")
         ctx.sb.vertex(body_block, "statement_block")
@@ -889,6 +917,32 @@ class WebPPLRenderer(RendererBase):
             # Names known to be scalar (no plate, not in
             # function parameters as an array) skip the lift via the
             # outer check above.
+            seen.add(name)
+            ordered.append(name)
+        return tuple(ordered)
+
+    def _array_binding_refs_in_expr(
+        self, expr: LetExprNode
+    ) -> tuple[str, ...]:
+        """Return the array-valued sample / let binding names referenced
+        in ``expr``, in left-to-right traversal order, deduplicated.
+
+        A name counts here when it is array-valued (its plate carries
+        batch / event dims, tracked in
+        [`_array_names`][quivers.transpile.renderers.webppl.WebPPLRenderer])
+        and is not a function parameter (those drive the `mapIndexed`
+        lift instead). These are the array-valued priors the vectorised
+        rewrite broadcasts over.
+        """
+        ordered: list[str] = []
+        seen: set[str] = set()
+        for name in _free_names_in_let_expr(expr):
+            if name in seen:
+                continue
+            if name in self._function_parameters:
+                continue
+            if name not in self._array_names:
+                continue
             seen.add(name)
             ordered.append(name)
         return tuple(ordered)
@@ -1040,7 +1094,13 @@ class WebPPLRenderer(RendererBase):
             substituted = self._substitute_for_indexing(
                 broadcasted, plate, loop_name, index_dependent
             )
-            vid = self._render_arg(ctx, substituted)
+            reciprocal = raw_name in _WEBPPL_ARG_RECIPROCAL.get(
+                meta.qvr_name, frozenset()
+            )
+            if reciprocal:
+                vid = self._render_reciprocal(ctx, substituted)
+            else:
+                vid = self._render_arg(ctx, substituted)
             out.append((keyword, vid))
         return tuple(out)
 
@@ -1397,6 +1457,70 @@ class WebPPLRenderer(RendererBase):
         raise UnsupportedConstruct(
             "qvr-webppl",
             [f"arg:unknown:{type(arg).__name__}"],
+        )
+
+    def _render_reciprocal(
+        self, ctx: _RenderCtx, arg: IRArg
+    ) -> SchemaFragment:
+        """Render ``1 / <arg>`` as a JS `binary_expression`.
+
+        WebPPL's `Gamma({shape, scale})` is scale-parameterised, but
+        QVR / torch carry the Gamma rate; the reciprocal converts the
+        rate into the scale WebPPL expects. The inner operand is
+        parenthesised when it is itself a binary / unary expression so
+        the division binds correctly.
+        """
+        inner_vid = self._render_arg(ctx, arg)
+        inner_kind = self._js_kind_of(arg)
+        if inner_kind in ("binary_expression", "unary_expression"):
+            inner_vid = self._paren(ctx, inner_vid, inner_kind)
+            inner_kind = "parenthesized_expression"
+        one = self._number_literal(ctx, 1)
+        be = self._fresh(ctx, "bin")
+        ctx.sb.vertex(be, "binary_expression")
+        ctx.sb.constraint(be, "field:operator", "/")
+        ctx.sb.constraint(be, "chose-alt-fingerprint", "/")
+        ctx.sb.constraint(
+            be, "chose-alt-child-kinds", f"number {inner_kind}"
+        )
+        ctx.sb.edge(be, one, "left")
+        ctx.sb.edge(be, inner_vid, "right")
+        return be
+
+    def _paren(
+        self, ctx: _RenderCtx, inner_vid: str, inner_kind: str
+    ) -> str:
+        """Wrap `inner_vid` in a `parenthesized_expression` vertex."""
+        paren = self._fresh(ctx, "paren")
+        ctx.sb.vertex(paren, "parenthesized_expression")
+        ctx.sb.constraint(paren, "chose-alt-fingerprint", "( )")
+        ctx.sb.constraint(paren, "chose-alt-child-kinds", inner_kind)
+        ctx.sb.edge(paren, inner_vid, "child_of")
+        return paren
+
+    def _js_kind_of(self, arg: IRArg) -> str:
+        """Return the JS vertex kind
+        [`_render_arg`][quivers.transpile.renderers.webppl.WebPPLRenderer._render_arg]
+        produces for ``arg``.
+
+        Used to populate the ``chose-alt-child-kinds`` constraint of a
+        parent expression that wraps a rendered arg (e.g. the
+        reciprocal `binary_expression`)."""
+        if isinstance(arg, IRArgNumber):
+            return "number"
+        if isinstance(arg, IRArgRef):
+            return (
+                "subscript_expression" if arg.indices else "identifier"
+            )
+        if isinstance(arg, IRArgBroadcast):
+            return "call_expression"
+        if isinstance(arg, (IRArgList, IRArgMatrix)):
+            return "array"
+        if isinstance(arg, IRArgFamilyRef):
+            return "call_expression"
+        raise UnsupportedConstruct(
+            "qvr-webppl",
+            [f"reciprocal:arg-kind:{type(arg).__name__}"],
         )
 
     def _render_number(self, ctx: _RenderCtx, value: float) -> str:
@@ -1798,6 +1922,217 @@ def _collect_free_names(expr: LetExprNode, out: list[str]) -> None:
         return
 
 
+# ---------------------------------------------------------------------------
+# Vectorised arithmetic for array-valued deterministic bindings.
+#
+# WebPPL's `+`, `-`, `*`, `/` operators are scalar-only. A deterministic
+# `let` that combines an array-valued prior (a vector sample, or another
+# array-valued let) under a scalar operator would coerce the array to
+# `NaN` (or string-concatenate it). The renderer rewrites every binary /
+# unary operator whose operands are array-valued into a
+# [`_qvr_bcast`][quivers.transpile.runtime_webppl] call so the arithmetic
+# stays elementwise. Reduction calls (`sum`, ...) collapse their argument
+# to a scalar, so an operator applied to a reduction result stays scalar.
+# ---------------------------------------------------------------------------
+
+
+#: QVR let-expression call names that reduce an array argument to a
+#: scalar; an operator applied to their result does not need
+#: broadcasting.
+_REDUCTION_FUNCS: frozenset[str] = frozenset({
+    "sum", "prod", "mean", "max", "min", "logsumexp", "norm", "dot",
+})
+
+
+def _let_expr_is_array_valued(
+    expr: LetExprNode, array_names: frozenset[str]
+) -> bool:
+    """True iff ``expr`` evaluates to a JS array under the WebPPL emit.
+
+    A name is array-valued when it appears in ``array_names`` (bindings
+    whose plate carries batch / event dims). Indexing collapses to a
+    scalar element; reduction calls collapse to a scalar; every other
+    node is array-valued when any of its operands is.
+    """
+    if isinstance(expr, LetExprVar):
+        return expr.name in array_names
+    if isinstance(expr, (LetExprLiteral, LetExprString)):
+        return False
+    if isinstance(expr, LetExprBinOp):
+        return _let_expr_is_array_valued(
+            expr.left, array_names
+        ) or _let_expr_is_array_valued(expr.right, array_names)
+    if isinstance(expr, LetExprUnaryOp):
+        return _let_expr_is_array_valued(expr.operand, array_names)
+    if isinstance(expr, LetExprIndex):
+        return False
+    if isinstance(expr, LetExprCall):
+        if expr.func in _REDUCTION_FUNCS:
+            return False
+        return any(
+            _let_expr_is_array_valued(a, array_names) for a in expr.args
+        )
+    if isinstance(expr, LetExprList):
+        return True
+    if isinstance(expr, LetExprMethodCall):
+        return _let_expr_is_array_valued(expr.receiver, array_names)
+    return False
+
+
+def _let_expr_needs_bcast(
+    expr: LetExprNode, array_names: frozenset[str]
+) -> bool:
+    """True iff ``expr`` contains a binary / unary operator applied to an
+    array-valued operand, i.e. rewriting it produces a
+    [`_qvr_bcast`][quivers.transpile.runtime_webppl] call."""
+    if isinstance(expr, LetExprBinOp):
+        if _let_expr_is_array_valued(
+            expr.left, array_names
+        ) or _let_expr_is_array_valued(expr.right, array_names):
+            return True
+        return _let_expr_needs_bcast(
+            expr.left, array_names
+        ) or _let_expr_needs_bcast(expr.right, array_names)
+    if isinstance(expr, LetExprUnaryOp):
+        if _let_expr_is_array_valued(expr.operand, array_names):
+            return True
+        return _let_expr_needs_bcast(expr.operand, array_names)
+    if isinstance(expr, LetExprCall):
+        return any(
+            _let_expr_needs_bcast(a, array_names) for a in expr.args
+        )
+    if isinstance(expr, LetExprIndex):
+        return _let_expr_needs_bcast(
+            expr.array, array_names
+        ) or any(
+            _let_expr_needs_bcast(i, array_names) for i in expr.indices
+        )
+    if isinstance(expr, LetExprList):
+        return any(
+            _let_expr_needs_bcast(i, array_names) for i in expr.items
+        )
+    if isinstance(expr, LetExprMethodCall):
+        return _let_expr_needs_bcast(
+            expr.receiver, array_names
+        ) or any(
+            _let_expr_needs_bcast(a, array_names) for a in expr.args
+        )
+    return False
+
+
+def _vectorize_let_expr(
+    expr: LetExprNode, array_names: frozenset[str]
+) -> LetExprNode:
+    """Rewrite every operator in ``expr`` whose operands are array-valued
+    into a [`_qvr_bcast`][quivers.transpile.runtime_webppl] call.
+
+    Binary operators become ``_qvr_bcast("<op>", left, right)``; the
+    unary minus becomes ``_qvr_bcast("-", 0, operand)``. Operators over
+    scalar operands keep their native form so purely-scalar bindings emit
+    unchanged.
+    """
+    if isinstance(expr, LetExprBinOp):
+        left = _vectorize_let_expr(expr.left, array_names)
+        right = _vectorize_let_expr(expr.right, array_names)
+        if _let_expr_is_array_valued(
+            expr.left, array_names
+        ) or _let_expr_is_array_valued(expr.right, array_names):
+            return LetExprCall(
+                func="_qvr_bcast",
+                args=(LetExprString(value=expr.op), left, right),
+            )
+        return LetExprBinOp(op=expr.op, left=left, right=right)
+    if isinstance(expr, LetExprUnaryOp):
+        operand = _vectorize_let_expr(expr.operand, array_names)
+        if _let_expr_is_array_valued(expr.operand, array_names):
+            return LetExprCall(
+                func="_qvr_bcast",
+                args=(
+                    LetExprString(value="-"),
+                    LetExprLiteral(value=0.0),
+                    operand,
+                ),
+            )
+        return LetExprUnaryOp(operand=operand)
+    if isinstance(expr, LetExprCall):
+        return LetExprCall(
+            func=expr.func,
+            args=tuple(
+                _vectorize_let_expr(a, array_names) for a in expr.args
+            ),
+        )
+    if isinstance(expr, LetExprIndex):
+        return LetExprIndex(
+            array=_vectorize_let_expr(expr.array, array_names),
+            indices=tuple(
+                _vectorize_let_expr(i, array_names)
+                for i in expr.indices
+            ),
+        )
+    if isinstance(expr, LetExprList):
+        return LetExprList(
+            items=tuple(
+                _vectorize_let_expr(i, array_names)
+                for i in expr.items
+            )
+        )
+    if isinstance(expr, LetExprMethodCall):
+        return LetExprMethodCall(
+            receiver=_vectorize_let_expr(expr.receiver, array_names),
+            method=expr.method,
+            args=tuple(
+                _vectorize_let_expr(a, array_names) for a in expr.args
+            ),
+        )
+    return expr
+
+
+def _static_array_names(ir: IRProgram) -> frozenset[str]:
+    """Return the names the WebPPL emit binds to JS arrays.
+
+    A data input, sample, or deterministic binding is array-valued when
+    its plate carries any batch or event dimension. Reads directly from
+    the IR so the graft decision and the per-binding rewrite agree."""
+    names: set[str] = set()
+    for inp in ir.inputs:
+        if inp.plate.batch_dims or inp.plate.event_dims:
+            names.add(inp.name)
+
+    def walk(body: tuple[IRNode, ...]) -> None:
+        for node in body:
+            plate = getattr(node, "plate", None)
+            name = getattr(node, "name", None)
+            if (
+                isinstance(name, str)
+                and plate is not None
+                and (plate.batch_dims or plate.event_dims)
+            ):
+                names.add(name)
+            if isinstance(node, IRMarginalize):
+                walk(node.scope)
+
+    walk(ir.body)
+    return frozenset(names)
+
+
+def _ir_uses_vectorized_let(
+    body: tuple[IRNode, ...], array_names: frozenset[str]
+) -> bool:
+    """True iff any deterministic binding in ``body`` (including nested
+    marginalize scopes) needs a
+    [`_qvr_bcast`][quivers.transpile.runtime_webppl] rewrite."""
+    for node in body:
+        if isinstance(node, IRDeterministic) and _let_expr_needs_bcast(
+            node.expr, array_names
+        ):
+            return True
+        if isinstance(node, IRMarginalize) and _ir_uses_vectorized_let(
+            node.scope, array_names
+        ):
+            return True
+    return False
+
+
 def _substitute_array_refs(
     expr: LetExprNode,
     array_names: set[str],
@@ -1827,7 +2162,6 @@ def _substitute_array_refs(
         )
     if isinstance(expr, LetExprUnaryOp):
         return LetExprUnaryOp(
-            op=expr.op,
             operand=_substitute_array_refs(
                 expr.operand, array_names, loop_var
             ),
@@ -1900,6 +2234,16 @@ _PREPEND_MU_ZERO: frozenset[str] = frozenset({
 })
 
 
+#: Per-family set of QVR arg names whose value the WebPPL renderer
+#: reciprocates (``1 / x``) before emission. WebPPL's
+#: ``Gamma({shape, scale})`` is scale-parameterised (``scale =
+#: 1/rate``), so the torch Gamma rate must be inverted; without this
+#: the emitted density is wrong whenever ``rate != 1``.
+_WEBPPL_ARG_RECIPROCAL: dict[str, frozenset[str]] = {
+    "Gamma": frozenset({"rate"}),
+}
+
+
 def _inject_webppl_specific_args(
     family: str,
     args: tuple[IRArg, ...],
@@ -1966,6 +2310,10 @@ _WEBPPL_RUNTIME_HELPER_FAMILIES: frozenset[str] = frozenset({
     "ContinuousBernoulli",
     "GP",
     "MatrixNormal",
+    "LogNormal",
+    "StudentT",
+    "Weibull",
+    "NegativeBinomial",
 })
 
 

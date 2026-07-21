@@ -85,6 +85,7 @@ from quivers.transpile.ir import (
     IRSample,
     IRScore,
     Plate,
+    StructuredDataArg,
 )
 from quivers.transpile.renderers._base import (
     BlockKind,
@@ -152,14 +153,16 @@ class PyroRenderer(RendererBase):
         )
 
         pctx.v("mod", "module")
-        # Pyro lacks a built-in `TruncatedNormal`; the runtime helper
-        # lives at [`quivers.transpile.runtime_pyro`][quivers.transpile.runtime_pyro].
-        # When the IR samples or observes from that family, graft the
-        # parsed `class TruncatedNormal` subtree onto the module above
-        # `model` so a reader sees the helper class first (the natural
-        # Python idiom: define classes before consumers).
-        if _ir_uses_family(ir.body, "TruncatedNormal"):
-            _emit_truncated_normal_helper(pctx)
+        # Pyro lacks several QVR families as built-ins (`TruncatedNormal`,
+        # `LogitNormal`, `HalfStudentT`, `MatrixNormal`); their runtime
+        # helpers live at
+        # [`quivers.transpile.runtime_pyro`][quivers.transpile.runtime_pyro].
+        # When the IR samples or observes from such a family, graft the
+        # parsed helper `class` subtree onto the module above `model`
+        # so a reader sees the helper classes first (the natural Python
+        # idiom: define classes before consumers).
+        for helper_name in sorted(_ir_helper_classes_used(ir.body)):
+            _emit_runtime_helper(pctx, helper_name)
         body = pctx.v(pctx.fresh("body"), "block")
         func = _function_def_split(
             pctx,
@@ -534,14 +537,15 @@ class PyroRenderer(RendererBase):
                 [f"family:{family}"],
             )
         aliases = meta.arg_aliases.get(_TARGET, {})
-        # Build the distribution call. Pyro lacks a built-in
-        # `TruncatedNormal`; the renderer imports the helper from
-        # `quivers.transpile.runtime_pyro` (see
-        # [`_emit_truncated_normal_helper`][quivers.transpile.renderers.pyro._emit_truncated_normal_helper])
-        # and dispatches the call to that bare identifier rather
-        # than to `pyro.distributions.<name>`.
-        if family == "TruncatedNormal":
-            dist_callee = identifier(pctx, _TRUNCATED_NORMAL_HELPER_NAME)
+        # Build the distribution call. Pyro lacks several QVR families
+        # as built-ins (`TruncatedNormal`, `LogitNormal`,
+        # `HalfStudentT`, `MatrixNormal`); the renderer grafts a helper
+        # class from `quivers.transpile.runtime_pyro` (see
+        # [`_emit_runtime_helper`][quivers.transpile.renderers.pyro._emit_runtime_helper])
+        # and dispatches the call to that bare identifier rather than
+        # to `pyro.distributions.<name>`.
+        if dist_class in _RUNTIME_PYRO_HELPER_ROOTS:
+            dist_callee = identifier(pctx, dist_class)
         else:
             dist_callee = attribute(
                 pctx, ("pyro", "distributions", dist_class)
@@ -550,10 +554,20 @@ class PyroRenderer(RendererBase):
             pctx, meta=meta, args=args, arg_names=arg_names,
             aliases=aliases, plate=plate,
         )
+        positional = dist_args.positional
+        # The Cholesky-LKJ families take the correlation-matrix
+        # dimension as a mandatory leading positional argument
+        # (`LKJCorrCholesky(d, eta)`, `LKJ(d, eta)`); it is carried on
+        # the sample's event axis, not in the QVR init clause.
+        if family in _PYRO_LEADING_DIM_FAMILIES:
+            positional = (
+                self._leading_dim_arg(pctx, family, plate),
+                *positional,
+            )
         dist_call = call(
             pctx,
             dist_callee,
-            positional=dist_args.positional,
+            positional=positional,
             keyword=dist_args.keyword,
         )
         # Wrap in pyro.sample(...)
@@ -800,6 +814,34 @@ class PyroRenderer(RendererBase):
         dist_class = meta.target_names.get(_TARGET, meta.qvr_name)
         return attribute(pctx, ("pyro", "distributions", dist_class))
 
+    def _leading_dim_arg(
+        self,
+        pctx: _PyroCtx,
+        family: str,
+        plate: Plate | None,
+    ) -> str:
+        """Emit the correlation-matrix dimension for a Cholesky-LKJ
+        family, read off the sample's first event axis.
+
+        Pyro's `LKJCorrCholesky` / `LKJ` require the matrix dimension
+        `d` as the leading positional argument; the QVR init clause
+        supplies only the concentration, so the dimension is recovered
+        from the sample site's event axis (e.g. `sample chol : Dim`
+        with `Dim : FinSet 4` yields `4`).
+        """
+        if plate is None or not plate.event_dims:
+            raise UnsupportedConstruct(
+                f"qvr-{_TARGET}",
+                [f"family:{family}:missing-dimension-axis"],
+            )
+        dim = plate.event_dims[0]
+        if not isinstance(dim, DimStatic):
+            raise UnsupportedConstruct(
+                f"qvr-{_TARGET}",
+                [f"family:{family}:dynamic-dimension-axis"],
+            )
+        return number_literal(pctx, float(dim.size))
+
     def _family_meta(self, family: str) -> FamilyMeta:
         meta = FAMILY_META.get(family)
         if meta is None:
@@ -1023,13 +1065,30 @@ def _scalar_broadcast_for_arg(
     plate: Plate,
 ) -> tuple[int, ...] | None:
     """If `arg` is a bare scalar reference / literal and `arg_name`'s
-    constraint is rank-`n` independent, return the `(K, ...)` derived
-    from `plate.event_dims`; otherwise `None`.
+    slot is a rank-`n` array, return the target shape derived from
+    `plate.event_dims`; otherwise `None`.
+
+    When the family declares a
+    [`StructuredSampleLowering`][quivers.transpile.ir.StructuredSampleLowering],
+    the per-argument shape is read off the matching
+    [`StructuredDataArg`][quivers.transpile.ir.StructuredDataArg]'s
+    `axis_indices` so a Kronecker-factored family (e.g. `MatrixNormal`)
+    fills its row covariance from event axis 0 (`(0, 0)`) and its
+    column covariance from event axis 1 (`(1, 1)`), rather than
+    filling every covariance to the full `loc` shape. Absent a
+    structured lowering, the target shape falls back to the leading
+    `event_dim` axes implied by the torch arg constraint (the
+    `Dirichlet` idiom of `torch.full((K,), alpha)`).
     """
     if not isinstance(arg, (IRArgRef, IRArgNumber)):
         return None
     if isinstance(arg, IRArgRef) and arg.indices:
         return None
+    axis_indices = _structured_axis_indices(meta, arg_name)
+    if axis_indices is not None:
+        if not axis_indices:
+            return None
+        return _shape_from_axis_indices(axis_indices, plate)
     constraints = getattr(meta.distribution_class, "arg_constraints", {})
     expected = constraints.get(arg_name) if isinstance(
         constraints, dict
@@ -1039,23 +1098,51 @@ def _scalar_broadcast_for_arg(
     event_dim = int(getattr(expected, "event_dim", 0))
     if event_dim < 1:
         return None
-    if len(plate.event_dims) < event_dim:
+    return _shape_from_axis_indices(tuple(range(event_dim)), plate)
+
+
+def _structured_axis_indices(
+    meta: FamilyMeta, arg_name: str
+) -> tuple[int, ...] | None:
+    """The `axis_indices` of the family's structured-lowering
+    [`StructuredDataArg`][quivers.transpile.ir.StructuredDataArg] whose
+    `arg_name` matches, or `None` when the family declares no
+    structured lowering (or no data arg of that name)."""
+    lowering = meta.structured_lowering
+    if lowering is None:
         return None
+    for spec in lowering.args:
+        if isinstance(spec, StructuredDataArg) and spec.arg_name == arg_name:
+            return spec.axis_indices
+    return None
+
+
+def _shape_from_axis_indices(
+    axis_indices: tuple[int, ...], plate: Plate
+) -> tuple[int, ...] | None:
+    """Resolve `axis_indices` against `plate.event_dims`, returning the
+    concrete static shape or `None` if any indexed axis is out of range
+    or dynamic."""
     sizes: list[int] = []
-    for dim in plate.event_dims[:event_dim]:
-        if isinstance(dim, DimStatic):
-            sizes.append(dim.size)
-        else:
+    for i in axis_indices:
+        if i >= len(plate.event_dims):
             return None
+        dim = plate.event_dims[i]
+        if not isinstance(dim, DimStatic):
+            return None
+        sizes.append(dim.size)
     return tuple(sizes)
 
 
-#: Local name the emitted Pyro source uses for the truncated-normal
-#: distribution. The renderer reads
-#: [`quivers.transpile.runtime_pyro`][quivers.transpile.runtime_pyro]
-#: at module-load time, extracts the class definition, and embeds
-#: it in the emit so the result is self-contained.
-_TRUNCATED_NORMAL_HELPER_NAME = "TruncatedNormal"
+#: The Cholesky-LKJ families whose Pyro distribution class takes the
+#: correlation-matrix dimension `d` as a mandatory leading positional
+#: argument (`LKJCorrCholesky(d, eta)`, `LKJ(d, eta)`). The QVR init
+#: clause carries only the concentration, so the renderer prepends the
+#: dimension read off the sample's first event axis.
+_PYRO_LEADING_DIM_FAMILIES = frozenset({
+    "LKJCholesky",
+    "LKJCorrelationFactor",
+})
 
 
 _RUNTIME_PYRO_PATH = (
@@ -1063,60 +1150,27 @@ _RUNTIME_PYRO_PATH = (
 )
 
 
-def _load_truncated_normal_helper_schema() -> tuple[
-    panproto.Schema, str
-]:
-    """Parse [`runtime_pyro.py`][quivers.transpile.runtime_pyro]
-    through panproto's Python tree-sitter grammar at module-load
-    time and return the resulting schema plus the vertex id of the
-    `class TruncatedNormal` root.
-
-    The renderer's
-    [`_emit_truncated_normal_helper`][quivers.transpile.renderers.pyro._emit_truncated_normal_helper]
-    grafts the class-definition subtree (vertex + all descendants
-    + their constraints + edges) into the per-render schema as a
-    `child_of` of the emitted module. The emit is structurally a
-    real Python class definition — no string literal, no `exec`,
-    no runtime self-injection. The class body retains its
-    docstrings (the tree-sitter pretty printer round-trips them
-    cleanly when they live in their proper `string` vertex slot,
-    rather than as nested triple-quotes inside an outer string).
-    """
-    schema = parser_registry().parse_with_protocol(
-        "python",
-        _RUNTIME_PYRO_PATH.read_bytes(),
-        str(_RUNTIME_PYRO_PATH),
-    )
-    for v in schema.vertices:
-        if v.kind == "class_definition":
-            for e in schema.edges:
-                if e.src == v.id and e.kind == "name":
-                    name_v = next(
-                        (vv for vv in schema.vertices if vv.id == e.tgt),
-                        None,
-                    )
-                    if name_v is None:
-                        continue
-                    name_lit = next(
-                        (
-                            c.value
-                            for c in schema.constraints_for(name_v.id)
-                            if c.sort == "literal-value"
-                        ),
-                        None,
-                    )
-                    if name_lit == _TRUNCATED_NORMAL_HELPER_NAME:
-                        return schema, v.id
-    raise RuntimeError(
-        f"`class {_TRUNCATED_NORMAL_HELPER_NAME}` not found in "
-        f"{_RUNTIME_PYRO_PATH}; the renderer expects it as the source "
-        "of truth for the embedded Pyro runtime helper."
-    )
-
-
-_TRUNCATED_NORMAL_HELPER_SCHEMA, _TRUNCATED_NORMAL_HELPER_ROOT = (
-    _load_truncated_normal_helper_schema()
-)
+def _class_definition_name(
+    schema: panproto.Schema, class_vid: str
+) -> str | None:
+    """The literal name of a `class_definition` vertex, or `None`."""
+    for edge in schema.edges:
+        if edge.src == class_vid and edge.kind == "name":
+            name_v = next(
+                (vv for vv in schema.vertices if vv.id == edge.tgt),
+                None,
+            )
+            if name_v is None:
+                continue
+            return next(
+                (
+                    c.value
+                    for c in schema.constraints_for(name_v.id)
+                    if c.sort == "literal-value"
+                ),
+                None,
+            )
+    return None
 
 
 def _subtree_vertex_ids(
@@ -1135,28 +1189,78 @@ def _subtree_vertex_ids(
     return seen
 
 
-_TRUNCATED_NORMAL_HELPER_SUBTREE = _subtree_vertex_ids(
-    _TRUNCATED_NORMAL_HELPER_SCHEMA, _TRUNCATED_NORMAL_HELPER_ROOT
-)
+def _load_runtime_pyro_helpers() -> tuple[
+    panproto.Schema, dict[str, str], dict[str, set[str]]
+]:
+    """Parse [`runtime_pyro.py`][quivers.transpile.runtime_pyro]
+    through panproto's Python tree-sitter grammar at module-load time
+    and index every helper `class_definition` subtree by class name.
+
+    Returns the parsed schema, a map from class name to the
+    class-definition vertex id, and a map from class name to the set
+    of vertex ids in that class's subtree. The renderer's
+    [`_emit_runtime_helper`][quivers.transpile.renderers.pyro._emit_runtime_helper]
+    grafts a class subtree (vertex + all descendants + their
+    constraints + edges) into the per-render schema as a `child_of`
+    of the emitted module. The emit is structurally a real Python
+    class definition, with no string literal, no `exec`, and no
+    runtime self-injection.
+    """
+    schema = parser_registry().parse_with_protocol(
+        "python",
+        _RUNTIME_PYRO_PATH.read_bytes(),
+        str(_RUNTIME_PYRO_PATH),
+    )
+    roots: dict[str, str] = {}
+    for v in schema.vertices:
+        if v.kind == "class_definition":
+            name = _class_definition_name(schema, v.id)
+            if name is not None:
+                roots[name] = v.id
+    if not roots:
+        raise RuntimeError(
+            f"no helper `class` definitions found in {_RUNTIME_PYRO_PATH}; "
+            "the renderer expects it as the source of truth for the "
+            "embedded Pyro runtime helpers."
+        )
+    subtrees = {
+        name: _subtree_vertex_ids(schema, root)
+        for name, root in roots.items()
+    }
+    return schema, roots, subtrees
 
 
-def _ir_uses_family(body: tuple[IRNode, ...], family: str) -> bool:
-    """True iff any [`IRSample`][quivers.transpile.ir.IRSample] or
-    [`IRObserve`][quivers.transpile.ir.IRObserve] in `body` (including
-    nested [`IRMarginalize`][quivers.transpile.ir.IRMarginalize]
-    scopes) samples from `family`."""
+(
+    _RUNTIME_PYRO_HELPER_SCHEMA,
+    _RUNTIME_PYRO_HELPER_ROOTS,
+    _RUNTIME_PYRO_HELPER_SUBTREES,
+) = _load_runtime_pyro_helpers()
+
+
+def _ir_helper_classes_used(body: tuple[IRNode, ...]) -> set[str]:
+    """The set of runtime-helper class names the IR body needs grafted.
+
+    For each [`IRSample`][quivers.transpile.ir.IRSample] /
+    [`IRObserve`][quivers.transpile.ir.IRObserve] (including nested
+    [`IRMarginalize`][quivers.transpile.ir.IRMarginalize] scopes),
+    a helper is needed when the family's Pyro target name matches a
+    `class` defined in
+    [`runtime_pyro.py`][quivers.transpile.runtime_pyro]."""
+    used: set[str] = set()
     for node in body:
-        if isinstance(node, (IRSample, IRObserve)) and node.family == family:
-            return True
-        if isinstance(node, IRMarginalize) and _ir_uses_family(
-            node.scope, family
-        ):
-            return True
-    return False
+        if isinstance(node, (IRSample, IRObserve)):
+            meta = FAMILY_META.get(node.family)
+            if meta is not None:
+                target = meta.target_names.get(_TARGET)
+                if target in _RUNTIME_PYRO_HELPER_ROOTS:
+                    used.add(target)
+        elif isinstance(node, IRMarginalize):
+            used |= _ir_helper_classes_used(node.scope)
+    return used
 
 
-def _emit_truncated_normal_helper(pctx: _PyroCtx) -> None:
-    """Graft the `class TruncatedNormal` subtree from
+def _emit_runtime_helper(pctx: _PyroCtx, class_name: str) -> None:
+    """Graft the named helper `class` subtree from
     [`runtime_pyro.py`][quivers.transpile.runtime_pyro] into the
     per-render schema as a top-level child of `mod`.
 
@@ -1166,25 +1270,20 @@ def _emit_truncated_normal_helper(pctx: _PyroCtx) -> None:
     tree-sitter grammar). The renderer copies every vertex, every
     constraint, and every internal edge of the subtree into the
     per-render `SchemaBuilder`, then attaches the class root as a
-    `child_of` of `mod`. The emit contains a properly-printed
-    class definition, with no string literal of source code and no
-    `exec` at module load. Subsequent
-    ``TruncatedNormal(loc, scale, low, high)`` call sites in the
-    rendered model body resolve to that class through normal
-    Python name lookup.
-
-    Vertex ids are rewritten through `pctx.fresh` so a render that
-    grafts the subtree more than once (e.g. a model that uses
-    `TruncatedNormal` in multiple sample sites — only one graft
-    happens, but the renaming keeps the schema's vertex-id
-    invariant) does not collide with builder-allocated ids.
+    `child_of` of `mod`. Subsequent call sites (e.g.
+    ``TruncatedNormal(loc, scale, low, high)`` or
+    ``MatrixNormal(loc, row_covariance, col_covariance)``) in the
+    rendered model body resolve to that class through normal Python
+    name lookup. Vertex ids are rewritten through `pctx.fresh` so the
+    graft does not collide with builder-allocated ids.
     """
-    src_schema = _TRUNCATED_NORMAL_HELPER_SCHEMA
-    subtree = _TRUNCATED_NORMAL_HELPER_SUBTREE
+    src_schema = _RUNTIME_PYRO_HELPER_SCHEMA
+    subtree = _RUNTIME_PYRO_HELPER_SUBTREES[class_name]
+    root = _RUNTIME_PYRO_HELPER_ROOTS[class_name]
     id_map: dict[str, str] = {}
 
     for old in subtree:
-        new = pctx.fresh("tn")
+        new = pctx.fresh("rh")
         id_map[old] = new
         kind = next(
             v.kind for v in src_schema.vertices if v.id == old
@@ -1195,7 +1294,7 @@ def _emit_truncated_normal_helper(pctx: _PyroCtx) -> None:
     for edge in src_schema.edges:
         if edge.src in id_map and edge.tgt in id_map:
             pctx.e(id_map[edge.src], id_map[edge.tgt], edge.kind)
-    pctx.e("mod", id_map[_TRUNCATED_NORMAL_HELPER_ROOT], "child_of")
+    pctx.e("mod", id_map[root], "child_of")
 
 
 __all__ = ["PyroRenderer"]

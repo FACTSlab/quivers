@@ -37,6 +37,8 @@ function header carries ``import jax.numpy as jnp`` plus
 
 from __future__ import annotations
 
+import pathlib
+
 import panproto
 
 from quivers.transpile._api import UnsupportedConstruct
@@ -55,7 +57,7 @@ from quivers.transpile.renderers._python_helpers import (
     string_literal,
     with_statement,
 )
-from quivers.transpile._pipeline import target_protocol
+from quivers.transpile._pipeline import parser_registry, target_protocol
 from quivers.transpile.family_meta import FAMILY_META
 from quivers.transpile.ir import (
     ConstraintSpec,
@@ -72,6 +74,7 @@ from quivers.transpile.ir import (
     IRDataInput,
     IRDeterministic,
     IRMarginalize,
+    IRNode,
     IRObserve,
     IRProgram,
     IRReturn,
@@ -100,6 +103,46 @@ _NUMPYRO_TRUNCATED_SPECIALISATION: dict[str, str] = {
     "Normal": "TruncatedNormal",
     "Cauchy": "TruncatedCauchy",
 }
+
+
+#: QVR families for which NumPyro ships no distribution class. Each maps
+#: to a helper class grafted from
+#: [`runtime_numpyro`][quivers.transpile.runtime_numpyro] whose name is
+#: emitted as a bare identifier (not ``numpyro.distributions.<Name>``)
+#: at the call site. The helper's ``log_prob`` matches the QVR family up
+#: to the shared additive constant.
+_NUMPYRO_RUNTIME_HELPER_FAMILIES: frozenset[str] = frozenset(
+    {
+        "LogitNormal",
+        "HalfStudentT",
+        "ContinuousBernoulli",
+        "FisherSnedecor",
+        "LogisticNormal",
+        "OneHotCategorical",
+        "OrderedProbit",
+    }
+)
+
+
+#: Extra aliased imports each grafted helper class needs in the emitted
+#: module beyond the always-present ``jnp`` / ``numpyro`` /
+#: ``numpyro.distributions``. Keyed by the grafted class name.
+_NUMPYRO_HELPER_IMPORTS: dict[str, tuple[tuple[str, ...], str]] = {
+    "ContinuousBernoulli": (("jax", "scipy", "special"), "jss"),
+    "FisherSnedecor": (("jax", "scipy", "special"), "jss"),
+    "OneHotCategorical": (("jax", "scipy", "special"), "jss"),
+    "OrderedProbit": (("jax", "scipy", "special"), "jss"),
+}
+
+
+#: Families that lower with a leading matrix-dimension positional in
+#: NumPyro (``LKJCholesky(dimension, concentration)`` /
+#: ``LKJ(dimension, concentration)``). The dimension comes from the
+#: sample's event/codomain axis, which QVR carries on
+#: [`Plate.event_dims`][quivers.transpile.ir.Plate].
+_NUMPYRO_MATRIX_DIMENSION_FAMILIES: frozenset[str] = frozenset(
+    {"LKJCholesky", "LKJCorrelationFactor"}
+)
 
 
 class NumPyroRenderer(RendererBase):
@@ -149,10 +192,18 @@ class NumPyroRenderer(RendererBase):
 
         # Dispatch the body first so any ``LetExprCall`` records the
         # imports its symbol needs (jax.scipy.special / jax.nn), then emit
-        # the import block and wire the function after it so the imports
-        # lead the module.
+        # the import block, graft any runtime-helper classes the body
+        # uses, and wire the function last so a reader sees imports, then
+        # helper classes, then ``def model``.
         self._dispatch_body(ctx, body, ir.body)
+        used_helpers = _ir_helper_classes_used(ir.body)
+        for cls_name in used_helpers:
+            extra_import = _NUMPYRO_HELPER_IMPORTS.get(cls_name)
+            if extra_import is not None:
+                py.required_imports.add(extra_import)
         self._emit_imports(ctx)
+        for cls_name in sorted(used_helpers):
+            _emit_runtime_helper(py, cls_name)
         py.e("mod", func, "child_of")
 
         return sb.build()
@@ -662,6 +713,7 @@ class NumPyroRenderer(RendererBase):
             family=family,
             args=args,
             arg_names=arg_names,
+            plate=plate,
             obs_name=name if observed else None,
         )
         if observed:
@@ -777,11 +829,14 @@ class NumPyroRenderer(RendererBase):
         family: str,
         args: tuple[IRArg, ...],
         arg_names: tuple[str, ...],
+        plate: Plate,
         obs_name: str | None,
     ) -> str:
         """Build ``numpyro.sample("<name>", <dist>, [obs=<obs>])``."""
         py = ctx.py
-        dist_call = self._distribution_call(ctx, family, args, arg_names)
+        dist_call = self._distribution_call(
+            ctx, family, args, arg_names, plate
+        )
         sample_callee = attribute(py, ("numpyro", "sample"))
         positional = (string_literal(py, name), dist_call)
         keyword: tuple[tuple[str, str], ...] = ()
@@ -800,12 +855,28 @@ class NumPyroRenderer(RendererBase):
         family: str,
         args: tuple[IRArg, ...],
         arg_names: tuple[str, ...],
+        plate: Plate,
     ) -> str:
         """Build ``numpyro.distributions.<TargetName>(arg=value, ...)``.
 
         Looks up the target distribution name in `FAMILY_META`, applies
         any `arg_aliases` rename, and emits keyword arguments using
         each family's torch ``arg_constraints`` parameter names.
+
+        Several families need a NumPyro-specific reparameterisation
+        because the target distribution's parameters differ from the
+        QVR/torch canonical ones. These are handled before the generic
+        keyword emission:
+
+        - `NegativeBinomial` -> `NegativeBinomial2(mean, concentration)`,
+          converting ``(total_count, probs)``;
+        - `MatrixNormal` -> Cholesky ``scale_tril_row`` /
+          ``scale_tril_column`` factors of the row/column covariances;
+        - `LKJCholesky` / `LKJCorrelationFactor` -> a leading
+          matrix-dimension positional drawn from the event axis;
+        - families NumPyro does not ship (`LogitNormal`, `HalfStudentT`,
+          `ContinuousBernoulli`, ...) -> a bare call to the grafted
+          runtime-helper class.
 
         Wrapper-family handling: when ``family == "Truncated"`` and the
         first arg is an [`IRArgFamilyRef`][quivers.transpile.ir.IRArgFamilyRef]
@@ -834,6 +905,17 @@ class NumPyroRenderer(RendererBase):
         if wrapper_call is not None:
             return wrapper_call
 
+        if family == "NegativeBinomial":
+            return self._negative_binomial2_call(ctx, args, arg_names)
+        if family == "MatrixNormal":
+            return self._matrix_normal_call(ctx, meta, args, arg_names)
+        if family in _NUMPYRO_MATRIX_DIMENSION_FAMILIES:
+            return self._matrix_dimension_call(
+                ctx, meta, args, arg_names, plate
+            )
+        if family in _NUMPYRO_RUNTIME_HELPER_FAMILIES:
+            return self._runtime_helper_call(ctx, meta, args, arg_names)
+
         target_name = meta.target_names[_BACKEND]
         callee = attribute(
             py, ("numpyro", "distributions", target_name)
@@ -844,6 +926,162 @@ class NumPyroRenderer(RendererBase):
             emitted_name = aliases.get(name, name)
             value_vid = self._render_arg(ctx, arg)
             keyword.append((emitted_name, value_vid))
+        return call(py, callee, keyword=tuple(keyword))
+
+    def _negative_binomial2_call(
+        self,
+        ctx: _NumPyroCtx,
+        args: tuple[IRArg, ...],
+        arg_names: tuple[str, ...],
+    ) -> str:
+        """``NegativeBinomial2(mean=r*p/(1-p), concentration=r)``.
+
+        NumPyro's ``NegativeBinomial2`` is mean / dispersion
+        parameterised, whereas QVR/torch ``NegativeBinomial(total_count
+        r, probs p)`` counts failures with per-trial success ``p``. The
+        NB2 concentration equals ``r`` and the mean equals
+        ``r * p / (1 - p)``, which reproduces the torch pmf and both
+        moments exactly.
+        """
+        py = ctx.py
+        by_name = dict(zip(arg_names, args, strict=False))
+        total = by_name.get("total_count")
+        probs = by_name.get("probs")
+        if total is None or probs is None:
+            raise UnsupportedConstruct(
+                "qvr-numpyro",
+                ["family:NegativeBinomial:expected (total_count, probs)"],
+            )
+        total_vid = self._render_arg(ctx, total)
+        probs_vid = self._render_arg(ctx, probs)
+        one = number_literal(py, 1)
+        # mean = total_count * probs / (1 - probs)
+        one_minus_p = _python_paren(
+            py, _python_binary_op(py, "-", one, probs_vid)
+        )
+        numerator = _python_paren(
+            py, _python_binary_op(py, "*", total_vid, probs_vid)
+        )
+        mean_expr = _python_binary_op(py, "/", numerator, one_minus_p)
+        callee = attribute(
+            py, ("numpyro", "distributions", "NegativeBinomial2")
+        )
+        return call(
+            py,
+            callee,
+            keyword=(
+                ("mean", mean_expr),
+                ("concentration", self._render_arg(ctx, total)),
+            ),
+        )
+
+    def _matrix_normal_call(
+        self,
+        ctx: _NumPyroCtx,
+        meta,
+        args: tuple[IRArg, ...],
+        arg_names: tuple[str, ...],
+    ) -> str:
+        """``MatrixNormal(loc, scale_tril_row, scale_tril_column)``.
+
+        NumPyro's ``MatrixNormal`` takes Cholesky factors of the row and
+        column covariances, not the covariances themselves. The row /
+        column covariance args are wrapped in ``jnp.linalg.cholesky``;
+        the factors reconstruct the Kronecker covariance exactly, so the
+        matrix-normal density is unchanged.
+        """
+        py = ctx.py
+        rename: dict[str, str] = {
+            "row_covariance": "scale_tril_row",
+            "col_covariance": "scale_tril_column",
+        }
+        keyword: list[tuple[str, str]] = []
+        for arg, name in zip(args, arg_names, strict=False):
+            value_vid = self._render_arg(ctx, arg)
+            if name in ("row_covariance", "col_covariance"):
+                value_vid = call(
+                    py,
+                    attribute(py, ("jnp", "linalg", "cholesky")),
+                    positional=(value_vid,),
+                )
+            keyword.append((rename.get(name, name), value_vid))
+        callee = attribute(
+            py, ("numpyro", "distributions", meta.target_names[_BACKEND])
+        )
+        return call(py, callee, keyword=tuple(keyword))
+
+    def _matrix_dimension_call(
+        self,
+        ctx: _NumPyroCtx,
+        meta,
+        args: tuple[IRArg, ...],
+        arg_names: tuple[str, ...],
+        plate: Plate,
+    ) -> str:
+        """``LKJCholesky(<dim>, concentration=...)`` /
+        ``LKJ(<dim>, concentration=...)``.
+
+        NumPyro's LKJ families require the correlation-matrix dimension
+        as a leading positional argument. QVR carries it on the sample's
+        event axis; the first event dim's size is emitted before the
+        concentration keyword.
+        """
+        py = ctx.py
+        dimension = self._event_matrix_dimension(plate, meta)
+        callee = attribute(
+            py, ("numpyro", "distributions", meta.target_names[_BACKEND])
+        )
+        aliases = meta.arg_aliases.get(_BACKEND, {})
+        keyword: list[tuple[str, str]] = []
+        for arg, name in zip(args, arg_names, strict=False):
+            keyword.append(
+                (aliases.get(name, name), self._render_arg(ctx, arg))
+            )
+        return call(
+            py,
+            callee,
+            positional=(number_literal(py, dimension),),
+            keyword=tuple(keyword),
+        )
+
+    def _event_matrix_dimension(self, plate: Plate, meta) -> int:
+        """The square-matrix dimension for an LKJ family, read from the
+        first event dim of the sample's plate."""
+        if not plate.event_dims:
+            raise UnsupportedConstruct(
+                "qvr-numpyro",
+                [
+                    "family:"
+                    f"{meta.qvr_name}:missing-event-dimension"
+                ],
+            )
+        first = plate.event_dims[0]
+        if not isinstance(first, DimStatic):
+            raise UnsupportedConstruct(
+                "qvr-numpyro",
+                [
+                    "family:"
+                    f"{meta.qvr_name}:non-static-event-dimension"
+                ],
+            )
+        return int(first.size)
+
+    def _runtime_helper_call(
+        self,
+        ctx: _NumPyroCtx,
+        meta,
+        args: tuple[IRArg, ...],
+        arg_names: tuple[str, ...],
+    ) -> str:
+        """Bare ``<HelperClass>(arg=value, ...)`` for a family NumPyro
+        does not ship, resolved by the grafted runtime-helper class of
+        the same name."""
+        py = ctx.py
+        target_name = meta.target_names[_BACKEND]
+        callee = identifier(py, target_name)
+        keyword: list[tuple[str, str]] = []
+        for arg, name in zip(args, arg_names, strict=False):
+            keyword.append((name, self._render_arg(ctx, arg)))
         return call(py, callee, keyword=tuple(keyword))
 
     def _maybe_wrapper_call(
@@ -1227,6 +1465,156 @@ class _Params:
     ) -> None:
         self.positional = positional
         self.defaulted = defaulted
+
+
+# ---------------------------------------------------------------------------
+# Runtime-helper grafting
+# ---------------------------------------------------------------------------
+
+
+_RUNTIME_NUMPYRO_PATH = (
+    pathlib.Path(__file__).resolve().parent.parent / "runtime_numpyro.py"
+)
+
+
+def _class_definition_name(
+    schema: panproto.Schema, class_vid: str
+) -> str | None:
+    """The literal name of a `class_definition` vertex, or `None`."""
+    for edge in schema.edges:
+        if edge.src == class_vid and edge.kind == "name":
+            name_v = next(
+                (vv for vv in schema.vertices if vv.id == edge.tgt),
+                None,
+            )
+            if name_v is None:
+                continue
+            return next(
+                (
+                    c.value
+                    for c in schema.constraints_for(name_v.id)
+                    if c.sort == "literal-value"
+                ),
+                None,
+            )
+    return None
+
+
+def _subtree_vertex_ids(
+    schema: panproto.Schema, root: str
+) -> set[str]:
+    """Every vertex id reachable from `root` via outgoing edges."""
+    seen: set[str] = {root}
+    frontier: list[str] = [root]
+    while frontier:
+        src = frontier.pop()
+        for edge in schema.edges:
+            if edge.src == src and edge.tgt not in seen:
+                seen.add(edge.tgt)
+                frontier.append(edge.tgt)
+    return seen
+
+
+def _load_runtime_numpyro_helpers() -> tuple[
+    panproto.Schema, dict[str, str], dict[str, set[str]]
+]:
+    """Parse [`runtime_numpyro.py`][quivers.transpile.runtime_numpyro]
+    through panproto's Python tree-sitter grammar at module-load time
+    and index every helper `class_definition` subtree by class name.
+
+    Returns the parsed schema, a map from class name to the
+    class-definition vertex id, and a map from class name to the set of
+    vertex ids in that class's subtree. The renderer's
+    [`_emit_runtime_helper`][quivers.transpile.renderers.numpyro._emit_runtime_helper]
+    grafts a class subtree (vertex + all descendants + their
+    constraints + edges) into the per-render schema as a `child_of`
+    of the emitted module. The emit is a real Python class definition,
+    with no string literal, no `exec`, and no runtime self-injection.
+    """
+    schema = parser_registry().parse_with_protocol(
+        "python",
+        _RUNTIME_NUMPYRO_PATH.read_bytes(),
+        str(_RUNTIME_NUMPYRO_PATH),
+    )
+    roots: dict[str, str] = {}
+    for v in schema.vertices:
+        if v.kind == "class_definition":
+            name = _class_definition_name(schema, v.id)
+            if name is not None:
+                roots[name] = v.id
+    if not roots:
+        raise RuntimeError(
+            f"no helper `class` definitions found in {_RUNTIME_NUMPYRO_PATH}; "
+            "the renderer expects it as the source of truth for the "
+            "embedded NumPyro runtime helpers."
+        )
+    subtrees = {
+        name: _subtree_vertex_ids(schema, root)
+        for name, root in roots.items()
+    }
+    return schema, roots, subtrees
+
+
+(
+    _RUNTIME_NUMPYRO_HELPER_SCHEMA,
+    _RUNTIME_NUMPYRO_HELPER_ROOTS,
+    _RUNTIME_NUMPYRO_HELPER_SUBTREES,
+) = _load_runtime_numpyro_helpers()
+
+
+def _ir_helper_classes_used(body: tuple[IRNode, ...]) -> set[str]:
+    """The set of runtime-helper class names the IR body needs grafted.
+
+    A helper is needed when an [`IRSample`][quivers.transpile.ir.IRSample]
+    / [`IRObserve`][quivers.transpile.ir.IRObserve] (including nested
+    [`IRMarginalize`][quivers.transpile.ir.IRMarginalize] scopes) uses a
+    family in
+    [`_NUMPYRO_RUNTIME_HELPER_FAMILIES`][quivers.transpile.renderers.numpyro._NUMPYRO_RUNTIME_HELPER_FAMILIES]
+    whose NumPyro target name matches a `class` in
+    [`runtime_numpyro.py`][quivers.transpile.runtime_numpyro].
+    """
+    used: set[str] = set()
+    for node in body:
+        if isinstance(node, (IRSample, IRObserve)):
+            if node.family in _NUMPYRO_RUNTIME_HELPER_FAMILIES:
+                meta = FAMILY_META.get(node.family)
+                if meta is not None:
+                    target = meta.target_names.get(_BACKEND)
+                    if target in _RUNTIME_NUMPYRO_HELPER_ROOTS:
+                        used.add(target)
+        elif isinstance(node, IRMarginalize):
+            used |= _ir_helper_classes_used(node.scope)
+    return used
+
+
+def _emit_runtime_helper(py: PyCtx, class_name: str) -> None:
+    """Graft the named helper `class` subtree from
+    [`runtime_numpyro.py`][quivers.transpile.runtime_numpyro] into the
+    per-render schema as a top-level child of `mod`.
+
+    The renderer copies every vertex, constraint, and internal edge of
+    the parsed class subtree into the per-render builder, then attaches
+    the class root as a `child_of` of `mod`. Subsequent bare call sites
+    (e.g. ``LogitNormal(loc=..., scale=...)``) in the rendered model
+    body resolve to that class through normal Python name lookup. Vertex
+    ids are rewritten through `py.fresh` so the graft does not collide
+    with builder-allocated ids.
+    """
+    src_schema = _RUNTIME_NUMPYRO_HELPER_SCHEMA
+    subtree = _RUNTIME_NUMPYRO_HELPER_SUBTREES[class_name]
+    root = _RUNTIME_NUMPYRO_HELPER_ROOTS[class_name]
+    id_map: dict[str, str] = {}
+    for old in subtree:
+        new = py.fresh("rh")
+        id_map[old] = new
+        kind = next(v.kind for v in src_schema.vertices if v.id == old)
+        py.v(new, kind)
+        for cstr in src_schema.constraints_for(old):
+            py.constraint(new, cstr.sort, cstr.value)
+    for edge in src_schema.edges:
+        if edge.src in id_map and edge.tgt in id_map:
+            py.e(id_map[edge.src], id_map[edge.tgt], edge.kind)
+    py.e("mod", id_map[root], "child_of")
 
 
 __all__ = ["NumPyroRenderer"]
