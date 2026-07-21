@@ -28,6 +28,7 @@ the call with ``args``.
 from __future__ import annotations
 
 import dataclasses
+import inspect as _inspect
 
 import torch.distributions as _td
 
@@ -396,50 +397,61 @@ _FAMILY_ARG_NAMES: dict[str, tuple[str, ...]] = {
     "Exponential": ("rate",),
     "Uniform": ("low", "high"),
     "StudentT": ("df", "loc", "scale"),
-    "Pareto": ("alpha", "scale"),
+    "Pareto": ("scale", "alpha"),
     "Weibull": ("scale", "concentration"),
 }
 
 
 def _assert_family_arg_names_match_torch() -> None:
     """Startup invariant: every entry in `_FAMILY_ARG_NAMES` for a
-    family that torch ships must match
-    `torch.distributions.<Family>.arg_constraints.keys()` in name
-    AND order.
+    family that torch ships must match that distribution's positional
+    constructor parameters in name AND order.
 
-    Raises `AssertionError` at module-import time if the table
-    drifts from torch's ground truth. The cost of running this once
-    per process is negligible; the cost of letting a transposition
-    bug ship is a silent wrong-density that no syntactic test
-    catches.
+    The constructor signature, not ``arg_constraints``, is the
+    positional contract a QVR call site writes against: ``~ Pareto(a,
+    b)`` binds ``a`` and ``b`` the way ``torch.distributions.Pareto``
+    binds them, and the conditional family classes in
+    [quivers.continuous.families][] declare their parameters in the
+    same order. For most families the two agree, but they can diverge
+    (``Pareto.arg_constraints`` is keyed ``alpha, scale`` while the
+    constructor takes ``scale, alpha``), and following the wrong one
+    transposes the slots and silently changes the density.
 
-    Families whose `arg_constraints` is a Python `property` (Uniform,
-    Wishart) or that are not present in torch (the custom shim
-    families defined in `family_meta`) are skipped: the table's
-    entry is the source of truth for those.
+    Raises `AssertionError` at module-import time if the table drifts
+    from torch's ground truth. The cost of running this once per
+    process is negligible; the cost of letting a transposition bug
+    ship is a silent wrong-density that no syntactic test catches.
+
+    Families that are not present in torch (the custom shim families
+    defined in `family_meta`) are skipped: the table's entry is the
+    source of truth for those.
     """
     for family, declared in _FAMILY_ARG_NAMES.items():
         cls = getattr(_td, family, None)
         if cls is None:
             continue
-        ac = getattr(cls, "arg_constraints", None)
-        if not isinstance(ac, dict):
+        try:
+            params = _inspect.signature(cls.__init__).parameters
+        except (TypeError, ValueError):
             continue
-        # `Bernoulli.arg_constraints` lists both ``probs`` and
-        # ``logits`` (alternative parameterisations). Accept any
-        # `declared` whose names are a prefix-ordered subset of the
-        # torch keys; transposition is still caught.
-        torch_keys = tuple(ac.keys())
-        prefix = torch_keys[: len(declared)]
+        # Alternative parameterisations trail the canonical ones
+        # (``Bernoulli(probs, logits)``), so compare against the
+        # leading prefix; transposition is still caught.
+        ctor_names = tuple(
+            name
+            for name in params
+            if name not in ("self", "validate_args")
+        )
+        prefix = ctor_names[: len(declared)]
         if declared != prefix:
             raise AssertionError(
                 f"_FAMILY_ARG_NAMES[{family!r}] = {declared!r} does "
-                f"not match the leading prefix of "
-                f"torch.distributions.{family}.arg_constraints "
-                f"keys ({torch_keys!r}). The option-block routing "
-                "depends on this ordering matching torch's positional "
-                "parameter contract; fix the table to agree with "
-                "torch's `arg_constraints` order."
+                f"not match the leading positional parameters of "
+                f"torch.distributions.{family}.__init__ "
+                f"({ctor_names!r}). The option-block routing depends "
+                "on this ordering matching torch's positional "
+                "parameter contract; fix the table to agree with the "
+                "constructor signature."
             )
 
 

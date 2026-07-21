@@ -533,18 +533,35 @@ class Lower(dx.Mapping[Module, IRProgram]):
     ) -> tuple[str, ...]:
         """Return the parallel arg-name tuple for `args`.
 
-        Reads from `meta.distribution_class.arg_constraints` when
-        possible. When `arg_constraints` is a property (Wishart,
-        Uniform, etc.), instantiates a sentinel to read the
-        instance-level dict. The returned tuple is positional: the
+        Names come from the distribution's positional constructor
+        signature, because that is the contract a QVR call site writes
+        against: ``~ Pareto(a, b)`` binds its arguments the way
+        ``torch.distributions.Pareto`` binds them. The constructor can
+        differ from ``arg_constraints``, which is keyed by the
+        *constrained* parameters and so both reorders (``Pareto`` is
+        keyed ``alpha, scale`` but constructed ``scale, alpha``) and
+        omits leading parameters that carry no constraint
+        (``RelaxedBernoulli``'s ``temperature``). Reading the wrong one
+        transposes or drops a slot and silently changes the density.
+
+        `_STRUCTURAL_ARG_NAMES` overrides the families whose leading
+        constructor parameter is supplied structurally by the renderer
+        rather than written at the call site. When the constructor
+        cannot be introspected the constrained parameters are used; if
+        those are a property (Wishart, Uniform), a sentinel supplies
+        the instance-level dict. The returned tuple is positional: the
         i'th entry names the i'th user-supplied arg.
         """
-        cls_attr = meta.distribution_class.arg_constraints
-        if isinstance(cls_attr, dict):
-            names = tuple(cls_attr.keys())
-        else:
-            sentinel = _make_sentinel(meta, args, ctx)
-            names = tuple(sentinel.arg_constraints.keys())
+        names = _STRUCTURAL_ARG_NAMES.get(meta.qvr_name, ())
+        if not names:
+            names = _ctor_param_names(meta.distribution_class)
+        if not names:
+            cls_attr = meta.distribution_class.arg_constraints
+            if isinstance(cls_attr, dict):
+                names = tuple(cls_attr.keys())
+            else:
+                sentinel = _make_sentinel(meta, args, ctx)
+                names = tuple(sentinel.arg_constraints.keys())
         if len(args) > len(names):
             raise UnsupportedConstruct(
                 "qvr-lower",
@@ -1776,6 +1793,39 @@ def inline_list_lets(
 # ---------------------------------------------------------------------------
 # Sentinel parameter construction and `arg_constraints` resolution.
 # ---------------------------------------------------------------------------
+
+
+#: Families whose leading constructor parameter is supplied by the
+#: renderer from the sample's event axis rather than written at the QVR
+#: call site, so it must not consume a user-supplied argument slot.
+#: ``LKJCholesky(dim, concentration)`` takes its matrix dimension from
+#: the codomain axis; the call site writes only the concentration.
+_STRUCTURAL_ARG_NAMES: dict[str, tuple[str, ...]] = {
+    "LKJCholesky": ("concentration",),
+}
+
+
+def _ctor_param_names(cls: type) -> tuple[str, ...]:
+    """Return the positional parameter names of ``cls.__init__``.
+
+    Drops ``self``, ``validate_args``, and any variadic parameter, so
+    the result is the positional contract a call site binds against.
+    Returns an empty tuple when the signature cannot be read (a C
+    extension type or a shim without an introspectable ``__init__``),
+    which the caller treats as "fall back to the constrained
+    parameters".
+    """
+    try:
+        params = inspect.signature(cls.__init__).parameters
+    except (TypeError, ValueError):
+        return ()
+    return tuple(
+        name
+        for name, param in params.items()
+        if name not in ("self", "validate_args")
+        and param.kind
+        not in (param.VAR_POSITIONAL, param.VAR_KEYWORD)
+    )
 
 
 def _make_sentinel(
