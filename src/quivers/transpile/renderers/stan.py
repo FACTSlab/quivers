@@ -923,12 +923,17 @@ class StanRenderer(RendererBase):
             truncation_args = None
         injected = self._inject_stan_specific_args(family, family_args)
         rewritten = self._broadcast_scalar_refs(injected, meta, plate)
-        for arg in rewritten:
-            substituted = self._substitute_for_loops(
-                arg, plate, loop_names
+        if family == "NegativeBinomial":
+            self._emit_neg_binomial_2_args(
+                ctx, ss, rewritten, plate, loop_names
             )
-            arg_vid = self._render_arg(ctx, substituted)
-            ctx.sb.edge(ss, arg_vid, "child_of")
+        else:
+            for arg in rewritten:
+                substituted = self._substitute_for_loops(
+                    arg, plate, loop_names
+                )
+                arg_vid = self._render_arg(ctx, substituted)
+                ctx.sb.edge(ss, arg_vid, "child_of")
         if truncation_args is not None:
             trunc_vid = self._build_truncation_suffix(
                 ctx, truncation_args, plate, loop_names
@@ -994,7 +999,14 @@ class StanRenderer(RendererBase):
         a vector mean of size `N`, so the scalar zero is wrapped in
         `IRArgBroadcast` whose `target_shape` is the kernel's grid
         size.
+
+        `Weibull(scale, concentration)` (torch's positional order)
+        maps to Stan's `weibull(alpha, sigma)` which is shape-first
+        (`alpha` = concentration, `sigma` = scale); the two positional
+        args are swapped so the emitted density matches the QVR model.
         """
+        if family == "Weibull" and len(args) == 2:
+            return (args[1], args[0])
         if family == "GP" and len(args) == 2:
             mean_arg, kernel_arg = args
             if isinstance(mean_arg, IRArgNumber) and isinstance(
@@ -1015,6 +1027,87 @@ class StanRenderer(RendererBase):
                 *args[pos:],
             )
         return args
+
+    def _emit_neg_binomial_2_args(
+        self,
+        ctx: _RenderCtx,
+        stmt: str,
+        args: tuple[IRArg, ...],
+        plate: Plate,
+        loop_names: tuple[str, ...],
+    ) -> None:
+        """Emit the two Stan `neg_binomial_2(mu, phi)` arguments from a
+        QVR `NegativeBinomial(total_count, probs)` call.
+
+        Stan's `neg_binomial_2` is mean / dispersion parameterised
+        (mean `mu`, `variance = mu + mu^2 / phi`), whereas the QVR /
+        torch `NegativeBinomial(total_count, probs)` has
+        `pmf` proportional to `(1 - probs)^total_count probs^k` with
+        mean `total_count * probs / (1 - probs)`. Matching the two
+        gives ``mu = total_count * probs / (1 - probs)`` and
+        ``phi = total_count``; the emitted call is
+        ``neg_binomial_2(total_count * probs / (1 - probs),
+        total_count)``. Each source arg is substituted for the
+        surrounding batch loops before rendering, so a plated
+        ``probs[m_Resp]`` carries its index into both slots.
+        """
+        if len(args) != 2:
+            raise UnsupportedConstruct(
+                "qvr-stan",
+                [
+                    f"family:NegativeBinomial: expected 2 args "
+                    f"(total_count, probs), got {len(args)}"
+                ],
+            )
+        total_count = self._substitute_for_loops(
+            args[0], plate, loop_names
+        )
+        probs = self._substitute_for_loops(args[1], plate, loop_names)
+        # mu = total_count * probs / (1 - probs)
+        product = self._stan_binop(
+            ctx,
+            self._render_arg(ctx, total_count),
+            "*",
+            self._render_arg(ctx, probs),
+        )
+        complement = self._stan_binop(
+            ctx,
+            self._int_literal(ctx, 1),
+            "-",
+            self._render_arg(ctx, probs),
+        )
+        mu = self._stan_binop(
+            ctx, product, "/", self._stan_paren(ctx, complement)
+        )
+        ctx.sb.edge(stmt, mu, "child_of")
+        # phi = total_count
+        ctx.sb.edge(stmt, self._render_arg(ctx, total_count), "child_of")
+
+    def _stan_binop(
+        self,
+        ctx: _RenderCtx,
+        left_vid: str,
+        op: str,
+        right_vid: str,
+    ) -> str:
+        """Emit an `infix_op_expression` for the binary operator `op`
+        over two already-rendered operand vertices."""
+        vid = self._fresh(ctx, "bin")
+        ctx.sb.vertex(vid, "infix_op_expression")
+        ctx.sb.constraint(vid, "chose-alt-fingerprint", op)
+        ctx.sb.edge(vid, left_vid, "child_of")
+        ctx.sb.edge(vid, right_vid, "child_of")
+        return vid
+
+    def _stan_paren(self, ctx: _RenderCtx, vid: str) -> str:
+        """Wrap an already-rendered expression vertex in a
+        `parenthized_expression` so its grouping survives Stan's
+        left-to-right printer (e.g. the `(1 - probs)` denominator)."""
+        paren = self._fresh(ctx, "paren")
+        ctx.sb.vertex(paren, "parenthized_expression")
+        ctx.sb.constraint(paren, "chose-alt-fingerprint", "( )")
+        ctx.sb.edge(paren, vid, "child_of")
+        return paren
 
     def _broadcast_scalar_refs(
         self,
@@ -3099,6 +3192,7 @@ _STAN_RUNTIME_HELPER_FAMILIES: frozenset[str] = frozenset({
     "Kumaraswamy",
     "ContinuousBernoulli",
     "MatrixNormal",
+    "LogitNormal",
 })
 
 

@@ -45,6 +45,18 @@ functions {
     return (log1p(-p + u * (2.0 * p - 1.0)) - log1m(p))
       / (log(p) - log1m(p));
   }
+  // Logit-normal density on (0, 1): Y = inv_logit(X) with
+  // X ~ Normal(mu, sigma). Stan ships no built-in logit_normal, so
+  // the renderer grafts these helpers when an IR sample / observe /
+  // marginalize uses the LogitNormal family. The change-of-variables
+  // Jacobian d/dy logit(y) = 1 / (y (1 - y)) contributes the
+  // -log(y) - log1m(y) term.
+  real logit_normal_lpdf(real y, real mu, real sigma) {
+    return normal_lpdf(logit(y) | mu, sigma) - log(y) - log1m(y);
+  }
+  real logit_normal_rng(real mu, real sigma) {
+    return inv_logit(normal_rng(mu, sigma));
+  }
   // Matrix-normal density for X in R^{p x n} with mean M, row
   // covariance U (p x p, SPD), and column covariance V (n x n, SPD):
   //

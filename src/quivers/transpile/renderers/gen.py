@@ -734,6 +734,56 @@ _HALF_BASE_TARGETS: dict[str, tuple[str, int]] = {
 }
 
 
+#: QVR families whose `rate` arg maps to a `scale = 1/rate` slot in
+#: Gen.jl's constructor. Gen.jl's `gamma(shape, scale)` is
+#: scale-parameterized, so the QVR rate is reciprocated. The mapped
+#: value is the 0-based positional index of the rate arg.
+_GEN_RATE_TO_SCALE_INVERT_POSITIONS: dict[str, int] = {
+    "Gamma": 1,
+}
+
+
+#: QVR families whose probability parameter is the complement of the
+#: Gen.jl distribution's. torch `NegativeBinomial(r, p)` has pmf
+#: proportional to `(1 - p)^r p^k`; Gen.jl's `neg_binom(r, p)` (built on
+#: Distributions.jl) has pmf proportional to `p^r (1 - p)^k`, so the
+#: probs slot carries `1 - p`. The mapped value is the 0-based
+#: positional index of the probs arg.
+_GEN_PROB_COMPLEMENT_POSITIONS: dict[str, int] = {
+    "NegativeBinomial": 1,
+}
+
+
+def _gen_binary_expr(gx: _GenCtx, left: str, op: str, right: str) -> str:
+    """`<left> <op> <right>` as a Julia `binary_expression`."""
+    be = gx.v("binary_expression", "be")
+    gx.e(be, left)
+    gx.e(be, _operator(gx, op))
+    gx.e(be, right)
+    return be
+
+
+def _gen_transform_args(
+    gx: _GenCtx, arg_vids: list[str], family: str
+) -> list[str]:
+    """Apply the family's value-level arg transforms to rendered args.
+
+    Reciprocates the rate arg (Gamma) into Gen.jl's scale slot and
+    complements the probs arg (NegativeBinomial). Both are
+    position-stable rewrites on already-rendered vertices, mirroring
+    the Turing renderer's `inv(rate)` and `1 - probs` substitutions.
+    """
+    pos = _GEN_RATE_TO_SCALE_INVERT_POSITIONS.get(family)
+    if pos is not None and pos < len(arg_vids):
+        inv = _call(gx, _ident(gx, "inv"), (arg_vids[pos],))
+        arg_vids = arg_vids[:pos] + [inv] + arg_vids[pos + 1:]
+    cpos = _GEN_PROB_COMPLEMENT_POSITIONS.get(family)
+    if cpos is not None and cpos < len(arg_vids):
+        comp = _gen_binary_expr(gx, _integer(gx, 1), "-", arg_vids[cpos])
+        arg_vids = arg_vids[:cpos] + [comp] + arg_vids[cpos + 1:]
+    return arg_vids
+
+
 def _gen_target_name(family: str) -> str:
     """Look up the Gen.jl distribution constructor for a family.
 
@@ -1315,6 +1365,7 @@ class GenRenderer(RendererBase):
                 inputs_by_name=gx.inputs_by_name,
             )
             arg_vids.append(rendered)
+        arg_vids = _gen_transform_args(gx, arg_vids, family)
         prefix = _HALF_BASE_TARGETS.get(family)
         if prefix is not None:
             _, location = prefix
@@ -1652,6 +1703,8 @@ _GEN_RUNTIME_HELPER_FAMILIES: frozenset[str] = frozenset({
     "ContinuousBernoulli",
     "LKJCholesky",
     "MatrixNormal",
+    "LogNormal",
+    "Weibull",
     "GP",
 })
 

@@ -699,6 +699,7 @@ class TuringRenderer(RendererBase):
                 _arg_to_julia(ctx, a, via=via, family=family)
                 for a in args
             )
+            rhs_args = _transform_rhs_args(sb, counter, rhs_args, family)
             family_callee = _identifier(sb, counter, target_dist)
             rhs = _broadcast_call(sb, counter, family_callee, rhs_args)
             stmt = _tilde(sb, counter, lhs, rhs, broadcast=True)
@@ -718,6 +719,7 @@ class TuringRenderer(RendererBase):
             rhs_args = tuple(
                 _arg_to_julia(ctx, a, family=family) for a in args
             )
+            rhs_args = _transform_rhs_args(sb, counter, rhs_args, family)
             family_callee = _identifier(sb, counter, target_dist)
             elemwise = _broadcast_call(sb, counter, family_callee, rhs_args)
             rhs = _call(
@@ -736,7 +738,9 @@ class TuringRenderer(RendererBase):
             # the comprehension axis.
             if not plate.batch_dims:
                 # No batch axis to iterate; treat as a scalar call.
-                rhs = self._family_call(ctx, target_dist, args, family)
+                rhs = self._family_call(
+                    ctx, target_dist, args, family, plate.event_dims
+                )
             else:
                 rhs = self._arraydist_call(
                     ctx, target_dist, args, plate.batch_dims[0], family
@@ -754,7 +758,9 @@ class TuringRenderer(RendererBase):
             _promote_scalar_ref(a, name, plate, meta)
             for name, a in zip(arg_names, args, strict=False)
         )
-        dist = self._family_call(ctx, target_dist, promoted, family)
+        dist = self._family_call(
+            ctx, target_dist, promoted, family, plate.event_dims
+        )
         for dim in plate.batch_dims:
             size_vid = _dim_to_size(sb, counter, dim)
             dist = _call(
@@ -815,6 +821,7 @@ class TuringRenderer(RendererBase):
         target_dist: str,
         args: tuple[IRArg, ...],
         family: str,
+        event_dims: tuple[Dim, ...] = (),
     ) -> str:
         """Build `<TargetDist>(<args>)` for the no-batch-iteration case.
 
@@ -833,6 +840,20 @@ class TuringRenderer(RendererBase):
 
         * `Exponential(rate)` -> `Exponential(1/rate)`
         * `Gamma(concentration, rate)` -> `Gamma(concentration, 1/rate)`
+
+        Three further families need a per-target rewrite because the
+        Distributions.jl surface differs from torch's:
+
+        * `StudentT(df, loc, scale)` -> `loc + scale * TDist(df)`
+          (Distributions.jl `TDist` is standardised, one-parameter;
+          the affine form recovers the location-scale density);
+        * `Weibull(scale, concentration)` ->
+          `Weibull(concentration, scale)` (Distributions.jl is
+          shape-first);
+        * `LKJCholesky(concentration)` ->
+          `LKJCholesky(<dim>, concentration)` (the matrix dimension is
+          a mandatory leading argument, recovered from the sample's
+          event axis).
 
         The compositions are keyed on the family name (the FAMILY_META
         target_name for the half-truncated and `TruncatedNormal`
@@ -888,10 +909,37 @@ class TuringRenderer(RendererBase):
                 _identifier(sb, counter, target_dist),
                 (base_call, rhs_args[2], rhs_args[3]),
             )
-        if family in _RATE_TO_SCALE_INVERT_POSITIONS:
-            rhs_args = _invert_rate_arg(
-                sb, counter, rhs_args, _RATE_TO_SCALE_INVERT_POSITIONS[family]
+        if family == "StudentT":
+            if len(rhs_args) != 3:
+                raise UnsupportedConstruct(
+                    "qvr-turing",
+                    [
+                        f"family:StudentT: expected 3 args "
+                        f"(df, loc, scale), got {len(rhs_args)}"
+                    ],
+                )
+            df, loc, scale = rhs_args
+            tdist = _call(
+                sb, counter, _identifier(sb, counter, target_dist), (df,)
             )
+            scaled = _binary_expr(sb, counter, scale, "*", tdist)
+            return _binary_expr(sb, counter, loc, "+", scaled)
+        if family == "Weibull" and len(rhs_args) >= 2:
+            # QVR `Weibull(scale, concentration)` -> Distributions.jl
+            # `Weibull(shape, scale)` (shape == concentration).
+            rhs_args = (rhs_args[1], rhs_args[0], *rhs_args[2:])
+        if family == "LKJCholesky":
+            if not event_dims:
+                raise UnsupportedConstruct(
+                    "qvr-turing",
+                    [
+                        "family:LKJCholesky: missing matrix dimension "
+                        "(no event axis on the sample)"
+                    ],
+                )
+            dim = _dim_to_size(sb, counter, event_dims[0])
+            rhs_args = (dim, *rhs_args)
+        rhs_args = _transform_rhs_args(sb, counter, rhs_args, family)
         return _call(
             sb,
             counter,
@@ -920,7 +968,14 @@ class TuringRenderer(RendererBase):
             sb,
             counter,
             _identifier(sb, counter, target_dist),
-            tuple(_arg_to_julia(ctx, a, family=family) for a in rewritten),
+            _transform_rhs_args(
+                sb,
+                counter,
+                tuple(
+                    _arg_to_julia(ctx, a, family=family) for a in rewritten
+                ),
+                family,
+            ),
         )
         size_vid = _dim_to_size(sb, counter, batch_dim)
         rng = _range(sb, counter, _integer(sb, counter, 1), size_vid)
@@ -1016,6 +1071,87 @@ _RATE_TO_SCALE_INVERT_POSITIONS: dict[str, int] = {
     "Exponential": 0,
     "Gamma": 1,
 }
+
+
+# Recipe table: QVR families whose probability parameter is the
+# complement of the target distribution's. torch `NegativeBinomial(r, p)`
+# has pmf proportional to `(1 - p)^r p^k` (mean `r p / (1 - p)`);
+# Distributions.jl `NegativeBinomial(r, p)` has pmf proportional to
+# `p^r (1 - p)^k` (mean `r (1 - p) / p`), so the probs slot must carry
+# `1 - p`. The mapped value is the 0-based positional index of the
+# probs arg in the QVR call.
+_PROB_COMPLEMENT_POSITIONS: dict[str, int] = {
+    "NegativeBinomial": 1,
+}
+
+
+def _binary_expr(
+    sb: panproto.SchemaBuilder,
+    counter: list[int],
+    left: str,
+    op: str,
+    right: str,
+) -> str:
+    """`<left> <op> <right>` as a Julia `binary_expression`."""
+    vid = _vertex(sb, counter, "binary_expression")
+    sb.edge(vid, left, "child_of")
+    sb.edge(vid, _operator(sb, counter, op), "child_of")
+    sb.edge(vid, right, "child_of")
+    return vid
+
+
+def _complement_prob_arg(
+    sb: panproto.SchemaBuilder,
+    counter: list[int],
+    rhs_args: tuple[str, ...],
+    position: int,
+) -> tuple[str, ...]:
+    """Replace `rhs_args[position]` with `1 .- <rhs_args[position]>`.
+
+    The dotted subtraction broadcasts over both scalar and vector
+    operands, so the same complement is correct whether the probs
+    slot is a scalar (`NegativeBinomial(r, 1 .- 0.3)`) or a per-
+    element vector inside a broadcast call
+    (`NegativeBinomial.(r, 1 .- probs)`).
+    """
+    if position >= len(rhs_args):
+        raise UnsupportedConstruct(
+            "qvr-turing",
+            [
+                f"prob-arg-complement: position {position} out of range "
+                f"for {len(rhs_args)} args"
+            ],
+        )
+    one = _integer(sb, counter, 1)
+    comp = _binary_expr(sb, counter, one, ".-", rhs_args[position])
+    return rhs_args[:position] + (comp,) + rhs_args[position + 1:]
+
+
+def _transform_rhs_args(
+    sb: panproto.SchemaBuilder,
+    counter: list[int],
+    rhs_args: tuple[str, ...],
+    family: str,
+) -> tuple[str, ...]:
+    """Apply the family's value-level arg transforms to rendered args.
+
+    Covers the rate->scale reciprocation (Gamma / Exponential) and the
+    probs complement (NegativeBinomial). Structural rewrites that
+    change the call shape (StudentT affine, LKJCholesky dimension
+    prepend, Weibull arg swap, half-truncated wrapping) live in
+    [`_family_call`][TuringRenderer._family_call]; these value
+    transforms are position-stable and safe to apply on every path
+    that renders a family's args.
+    """
+    if family in _RATE_TO_SCALE_INVERT_POSITIONS:
+        rhs_args = _invert_rate_arg(
+            sb, counter, rhs_args, _RATE_TO_SCALE_INVERT_POSITIONS[family]
+        )
+    if family in _PROB_COMPLEMENT_POSITIONS:
+        rhs_args = _complement_prob_arg(
+            sb, counter, rhs_args, _PROB_COMPLEMENT_POSITIONS[family]
+        )
+    return rhs_args
 
 
 def _invert_rate_arg(

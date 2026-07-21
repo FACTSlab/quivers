@@ -102,6 +102,39 @@ var _binomial_sample = function(n, p) {
   return k;
 };
 
+var _qvr_bcast = function(op, a, b) {
+  // Broadcasting binary arithmetic over scalars and (possibly nested)
+  // arrays. WebPPL's `+`, `-`, `*`, `/` operators are scalar-only, so a
+  // deterministic `let` combining an array-valued prior with another
+  // value must route through this helper to stay elementwise instead of
+  // coercing arrays to NaN. Scalar-with-array broadcasts the scalar
+  // across every element; array-with-array applies elementwise and
+  // recurses so rank-2 operands broadcast correctly.
+  var a_arr = Array.isArray(a);
+  var b_arr = Array.isArray(b);
+  if (!a_arr && !b_arr) {
+    if (op === "+") { return a + b; }
+    if (op === "-") { return a - b; }
+    if (op === "*") { return a * b; }
+    if (op === "/") { return a / b; }
+    if (op === "^") { return Math.pow(a, b); }
+    return NaN;
+  }
+  var n = 0;
+  if (a_arr) { n = a.length; } else { n = b.length; }
+  var out = [];
+  var i = 0;
+  while (i < n) {
+    var ai = a;
+    if (a_arr) { ai = a[i]; }
+    var bi = b;
+    if (b_arr) { bi = b[i]; }
+    out.push(_qvr_bcast(op, ai, bi));
+    i = i + 1;
+  }
+  return out;
+};
+
 var Logistic = function(params) {
   var loc = params.loc;
   var scale = params.scale;
@@ -517,6 +550,111 @@ var MatrixNormal = function(params) {
     },
     support: function() {
       return { lower: -Infinity, upper: Infinity };
+    }
+  };
+};
+
+var _poisson_sample = function(lambda) {
+  // Knuth's multiplication method. Adequate for the moderate rates
+  // that arise in the gamma-Poisson mixture used by NegativeBinomial.
+  var L = Math.exp(-lambda);
+  var k = 0;
+  var p = 1;
+  while (true) {
+    k = k + 1;
+    p = p * Math.random();
+    if (p <= L) { return k - 1; }
+  }
+};
+
+var LogNormal = function(params) {
+  // torch LogNormal(loc, scale): X = exp(loc + scale * Z), Z ~ N(0, 1).
+  var loc = params.loc;
+  var scale = params.scale;
+  return {
+    sample: function() {
+      return Math.exp(_gaussian_sample(loc, scale));
+    },
+    score: function(x) {
+      if (x <= 0) { return -Infinity; }
+      var lx = Math.log(x);
+      var z = (lx - loc) / scale;
+      return -lx - Math.log(scale) - 0.5 * Math.log(2 * Math.PI)
+             - 0.5 * z * z;
+    },
+    support: function() {
+      return { lower: 0, upper: Infinity };
+    }
+  };
+};
+
+var StudentT = function(params) {
+  // torch StudentT(df, loc, scale): location-scale Student-t.
+  var df = params.df;
+  var loc = params.loc;
+  var scale = params.scale;
+  return {
+    sample: function() {
+      var z = _gaussian_sample(0, 1);
+      var u = _gamma_sample(df / 2, 2);
+      var t = z / Math.sqrt(u / df);
+      return loc + scale * t;
+    },
+    score: function(x) {
+      var z = (x - loc) / scale;
+      var log_t = _lgamma((df + 1) / 2) - _lgamma(df / 2)
+                  - 0.5 * Math.log(df * Math.PI)
+                  - ((df + 1) / 2) * Math.log(1 + (z * z) / df);
+      return log_t - Math.log(scale);
+    },
+    support: function() {
+      return { lower: -Infinity, upper: Infinity };
+    }
+  };
+};
+
+var Weibull = function(params) {
+  // torch Weibull(scale, concentration): density
+  //   (k / lam) * (x / lam)^(k - 1) * exp(-(x / lam)^k), x >= 0,
+  // with lam = scale and k = concentration.
+  var lam = params.scale;
+  var k = params.concentration;
+  return {
+    sample: function() {
+      var u = Math.random();
+      return lam * Math.pow(-Math.log(1 - u), 1 / k);
+    },
+    score: function(x) {
+      if (x <= 0) { return -Infinity; }
+      var z = x / lam;
+      return Math.log(k) - Math.log(lam)
+             + (k - 1) * Math.log(z)
+             - Math.pow(z, k);
+    },
+    support: function() {
+      return { lower: 0, upper: Infinity };
+    }
+  };
+};
+
+var NegativeBinomial = function(params) {
+  // torch NegativeBinomial(total_count, probs): pmf proportional to
+  //   C(k + r - 1, k) * (1 - probs)^r * probs^k, mean r * probs / (1 - probs).
+  // Sampled as a gamma-Poisson mixture with gamma scale probs / (1 - probs).
+  var r = params.total_count;
+  var p = params.probs;
+  return {
+    sample: function() {
+      var lambda = _gamma_sample(r, p / (1 - p));
+      return _poisson_sample(lambda);
+    },
+    score: function(k) {
+      if (k < 0) { return -Infinity; }
+      return _lgamma(k + r) - _lgamma(k + 1) - _lgamma(r)
+             + r * Math.log(1 - p) + k * Math.log(p);
+    },
+    support: function() {
+      return { lower: 0, upper: Infinity };
     }
   };
 };
