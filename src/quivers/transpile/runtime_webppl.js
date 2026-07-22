@@ -6,6 +6,13 @@
 // and `support` methods. WebPPL's `sample(dist)` and `observe(dist,
 // value)` accept any object exposing this triple.
 //
+// WebPPL compiles its source through a CPS transform that rejects
+// `while` / `for` loops, variable reassignment, and in-place array
+// mutation. Every helper below is therefore written in WebPPL's
+// functional subset: single-assignment `var`, recursion, and the
+// `map` / `mapN` / `sum` / `reduce` combinators. The densities are
+// identical to the standard closed forms.
+//
 // Mathematical references for each density:
 //
 //   Logistic              : Balakrishnan 1991
@@ -40,15 +47,13 @@ var _lgamma = function(z) {
   if (z < 0.5) {
     return Math.log(Math.PI / Math.sin(Math.PI * z)) - _lgamma(1 - z);
   }
-  z = z - 1;
-  var x = c[0];
-  var i = 1;
-  while (i < g + 2) {
-    x = x + c[i] / (z + i);
-    i = i + 1;
-  }
-  var t = z + g + 0.5;
-  return 0.5 * Math.log(2 * Math.PI) + (z + 0.5) * Math.log(t) - t + Math.log(x);
+  var zz = z - 1;
+  var x = c[0] + sum(mapN(function(k) {
+    var i = k + 1;
+    return c[i] / (zz + i);
+  }, g + 1));
+  var t = zz + g + 0.5;
+  return 0.5 * Math.log(2 * Math.PI) + (zz + 0.5) * Math.log(t) - t + Math.log(x);
 };
 
 var _lbeta = function(a, b) {
@@ -71,19 +76,19 @@ var _gamma_sample = function(shape, scale) {
   }
   var d = shape - 1 / 3;
   var c = 1 / Math.sqrt(9 * d);
-  while (true) {
+  var attempt = function() {
     var x = _gaussian_sample(0, 1);
-    var v = 1 + c * x;
-    if (v <= 0) { continue; }
-    v = v * v * v;
+    var v0 = 1 + c * x;
+    if (v0 <= 0) { return attempt(); }
+    var v = v0 * v0 * v0;
     var u2 = Math.random();
-    if (u2 < 1 - 0.0331 * x * x * x * x) {
-      return d * v * scale;
-    }
+    if (u2 < 1 - 0.0331 * x * x * x * x) { return d * v * scale; }
     if (Math.log(u2) < 0.5 * x * x + d * (1 - v + Math.log(v))) {
       return d * v * scale;
     }
-  }
+    return attempt();
+  };
+  return attempt();
 };
 
 var _beta_sample = function(a, b) {
@@ -93,13 +98,9 @@ var _beta_sample = function(a, b) {
 };
 
 var _binomial_sample = function(n, p) {
-  var k = 0;
-  var i = 0;
-  while (i < n) {
-    if (Math.random() < p) { k = k + 1; }
-    i = i + 1;
-  }
-  return k;
+  return sum(mapN(function(i) {
+    return Math.random() < p ? 1 : 0;
+  }, n));
 };
 
 var _qvr_bcast = function(op, a, b) {
@@ -113,26 +114,19 @@ var _qvr_bcast = function(op, a, b) {
   var a_arr = Array.isArray(a);
   var b_arr = Array.isArray(b);
   if (!a_arr && !b_arr) {
-    if (op === "+") { return a + b; }
-    if (op === "-") { return a - b; }
-    if (op === "*") { return a * b; }
-    if (op === "/") { return a / b; }
-    if (op === "^") { return Math.pow(a, b); }
-    return NaN;
+    return op === "+" ? a + b
+      : op === "-" ? a - b
+      : op === "*" ? a * b
+      : op === "/" ? a / b
+      : op === "^" ? Math.pow(a, b)
+      : NaN;
   }
-  var n = 0;
-  if (a_arr) { n = a.length; } else { n = b.length; }
-  var out = [];
-  var i = 0;
-  while (i < n) {
-    var ai = a;
-    if (a_arr) { ai = a[i]; }
-    var bi = b;
-    if (b_arr) { bi = b[i]; }
-    out.push(_qvr_bcast(op, ai, bi));
-    i = i + 1;
-  }
-  return out;
+  var n = a_arr ? a.length : b.length;
+  return mapN(function(i) {
+    var ai = a_arr ? a[i] : a;
+    var bi = b_arr ? b[i] : b;
+    return _qvr_bcast(op, ai, bi);
+  }, n);
 };
 
 var Logistic = function(params) {
@@ -225,42 +219,25 @@ var LKJCholesky = function(params) {
     sample: function() {
       // Onion method: draw beta-distributed partial correlations
       // and stitch them into a Cholesky factor. Returns a square
-      // lower-triangular matrix as an array of arrays.
-      var L = [];
-      var i = 0;
-      while (i < dim) {
-        var row = [];
-        var j = 0;
-        while (j < dim) { row.push(0); j = j + 1; }
-        L.push(row);
-        i = i + 1;
-      }
-      L[0][0] = 1;
-      var k = 1;
-      while (k < dim) {
+      // lower-triangular matrix as an array of arrays. Each row k is
+      // built from its own random draws and is independent of the
+      // other rows, so the rows map independently.
+      return mapN(function(k) {
+        if (k === 0) {
+          return mapN(function(j) { return j === 0 ? 1 : 0; }, dim);
+        }
         var alpha = eta + (dim - 1 - k) / 2;
         var r2 = _beta_sample(k / 2, alpha);
         var r = Math.sqrt(r2);
         // Sample a unit vector in R^k via independent normals.
-        var u = [];
-        var sumsq = 0;
-        var m = 0;
-        while (m < k) {
-          var g = _gaussian_sample(0, 1);
-          u.push(g);
-          sumsq = sumsq + g * g;
-          m = m + 1;
-        }
+        var u = mapN(function(m) { return _gaussian_sample(0, 1); }, k);
+        var sumsq = sum(map(function(g) { return g * g; }, u));
         var norm = Math.sqrt(sumsq);
-        var t = 0;
-        while (t < k) {
-          L[k][t] = r * u[t] / norm;
-          t = t + 1;
-        }
-        L[k][k] = Math.sqrt(1 - r2);
-        k = k + 1;
-      }
-      return L;
+        return mapN(function(t) {
+          return t < k ? r * u[t] / norm
+            : (t === k ? Math.sqrt(1 - r2) : 0);
+        }, dim);
+      }, dim);
     },
     score: function(L) {
       // Unnormalised LKJ density on the Cholesky factor:
@@ -268,13 +245,10 @@ var LKJCholesky = function(params) {
       // plus the LKJ normalising constant. For the syntactic check
       // we return only the data-dependent part; the constant cancels
       // in MCMC ratios.
-      var lp = 0;
-      var i = 1;
-      while (i < dim) {
-        lp = lp + (dim - i - 1 + 2 * eta - 2) * Math.log(L[i][i]);
-        i = i + 1;
-      }
-      return lp;
+      return sum(mapN(function(k) {
+        var i = k + 1;
+        return (dim - i - 1 + 2 * eta - 2) * Math.log(L[i][i]);
+      }, dim - 1));
     },
     support: function() {
       return { lower: -1, upper: 1 };
@@ -284,14 +258,11 @@ var LKJCholesky = function(params) {
 
 var ContinuousBernoulli = function(params) {
   var p = params.probs;
-  var log_norm = (function() {
-    if (Math.abs(p - 0.5) < 1e-4) {
-      var d = p - 0.5;
-      return Math.log(2) + 2 * d * d + (4 / 3) * d * d * d * d;
-    }
-    return Math.log(Math.abs(2 * Math.atanh(1 - 2 * p)))
-           - Math.log(Math.abs(1 - 2 * p));
-  })();
+  var log_norm = (Math.abs(p - 0.5) < 1e-4)
+    ? (Math.log(2) + 2 * (p - 0.5) * (p - 0.5)
+       + (4 / 3) * Math.pow(p - 0.5, 4))
+    : (Math.log(Math.abs(2 * Math.atanh(1 - 2 * p)))
+       - Math.log(Math.abs(1 - 2 * p)));
   return {
     sample: function() {
       var u = Math.random();
@@ -310,24 +281,17 @@ var ContinuousBernoulli = function(params) {
 
 var _qvr_rbf_kernel = function(x, length_scale, jitter) {
   var n = x.length;
-  var K = [];
-  for (var i = 0; i < n; i++) {
-    var row = [];
-    for (var j = 0; j < n; j++) {
+  return mapN(function(i) {
+    return mapN(function(j) {
       var d = x[i] - x[j];
       var v = Math.exp(-0.5 * d * d / (length_scale * length_scale));
-      if (i === j) { v += jitter; }
-      row.push(v);
-    }
-    K.push(row);
-  }
-  return K;
+      return i === j ? v + jitter : v;
+    }, n);
+  }, n);
 };
 
 var _qvr_zeros = function(n) {
-  var v = [];
-  for (var i = 0; i < n; i++) { v.push(0); }
-  return v;
+  return mapN(function(i) { return 0; }, n);
 };
 
 
@@ -337,102 +301,57 @@ var _qvr_zeros = function(n) {
 // Cholesky decomposition (lower-triangular), Cholesky-based solve, log
 // determinant, and trace.
 var _mat_add = function(A, B) {
-  var p = A.length;
-  var n = A[0].length;
-  var C = [];
-  var i = 0;
-  while (i < p) {
-    var row = [];
-    var j = 0;
-    while (j < n) { row.push(A[i][j] + B[i][j]); j = j + 1; }
-    C.push(row);
-    i = i + 1;
-  }
-  return C;
+  return mapN(function(i) {
+    return mapN(function(j) { return A[i][j] + B[i][j]; }, A[0].length);
+  }, A.length);
 };
 
 var _mat_sub = function(A, B) {
-  var p = A.length;
-  var n = A[0].length;
-  var C = [];
-  var i = 0;
-  while (i < p) {
-    var row = [];
-    var j = 0;
-    while (j < n) { row.push(A[i][j] - B[i][j]); j = j + 1; }
-    C.push(row);
-    i = i + 1;
-  }
-  return C;
+  return mapN(function(i) {
+    return mapN(function(j) { return A[i][j] - B[i][j]; }, A[0].length);
+  }, A.length);
 };
 
 var _mat_transpose = function(A) {
-  var p = A.length;
-  var n = A[0].length;
-  var T = [];
-  var i = 0;
-  while (i < n) {
-    var row = [];
-    var j = 0;
-    while (j < p) { row.push(A[j][i]); j = j + 1; }
-    T.push(row);
-    i = i + 1;
-  }
-  return T;
+  return mapN(function(i) {
+    return mapN(function(j) { return A[j][i]; }, A.length);
+  }, A[0].length);
 };
 
 var _mat_mul = function(A, B) {
-  var p = A.length;
   var k = A[0].length;
-  var n = B[0].length;
-  var C = [];
-  var i = 0;
-  while (i < p) {
-    var row = [];
-    var j = 0;
-    while (j < n) {
-      var s = 0;
-      var t = 0;
-      while (t < k) { s = s + A[i][t] * B[t][j]; t = t + 1; }
-      row.push(s);
-      j = j + 1;
-    }
-    C.push(row);
-    i = i + 1;
-  }
-  return C;
+  return mapN(function(i) {
+    return mapN(function(j) {
+      return sum(mapN(function(t) { return A[i][t] * B[t][j]; }, k));
+    }, B[0].length);
+  }, A.length);
 };
 
 var _mat_chol = function(A) {
   // Standard Cholesky decomposition for SPD A; returns lower
-  // triangular L with L L' = A.
+  // triangular L with L L' = A. Rows are built in order because row i
+  // depends on rows 0..i-1; columns within a row are built in order
+  // because column j depends on columns 0..j-1 of the same row.
   var n = A.length;
-  var L = [];
-  var ii = 0;
-  while (ii < n) {
-    var zero_row = [];
-    var jz = 0;
-    while (jz < n) { zero_row.push(0); jz = jz + 1; }
-    L.push(zero_row);
-    ii = ii + 1;
-  }
-  var i = 0;
-  while (i < n) {
-    var j = 0;
-    while (j <= i) {
-      var s = 0;
-      var k = 0;
-      while (k < j) { s = s + L[i][k] * L[j][k]; k = k + 1; }
-      if (i == j) {
-        L[i][j] = Math.sqrt(A[i][i] - s);
-      } else {
-        L[i][j] = (A[i][j] - s) / L[j][j];
+  var buildRow = function(i, Lprev) {
+    var buildCol = function(j, rowAcc) {
+      if (j > i) {
+        return rowAcc.concat(mapN(function(m) { return 0; }, n - j));
       }
-      j = j + 1;
-    }
-    i = i + 1;
-  }
-  return L;
+      var Lj = j === i ? rowAcc : Lprev[j];
+      var s = sum(mapN(function(k) { return rowAcc[k] * Lj[k]; }, j));
+      var val = i === j
+        ? Math.sqrt(A[i][i] - s)
+        : (A[i][j] - s) / Lprev[j][j];
+      return buildCol(j + 1, rowAcc.concat([val]));
+    };
+    return buildCol(0, []);
+  };
+  var buildAll = function(i, acc) {
+    if (i >= n) { return acc; }
+    return buildAll(i + 1, acc.concat([buildRow(i, acc)]));
+  };
+  return buildAll(0, []);
 };
 
 var _mat_solve_chol = function(L, B) {
@@ -440,66 +359,38 @@ var _mat_solve_chol = function(L, B) {
   // Forward substitution L Y = B, then backward L' X = Y.
   var n = L.length;
   var m = B[0].length;
-  var Y = [];
-  var yi = 0;
-  while (yi < n) {
-    var yrow = [];
-    var yj = 0;
-    while (yj < m) { yrow.push(0); yj = yj + 1; }
-    Y.push(yrow);
-    yi = yi + 1;
-  }
-  var i = 0;
-  while (i < n) {
-    var col = 0;
-    while (col < m) {
-      var s = B[i][col];
-      var k = 0;
-      while (k < i) { s = s - L[i][k] * Y[k][col]; k = k + 1; }
-      Y[i][col] = s / L[i][i];
-      col = col + 1;
-    }
-    i = i + 1;
-  }
-  var X = [];
-  var xi = 0;
-  while (xi < n) {
-    var xrow = [];
-    var xj = 0;
-    while (xj < m) { xrow.push(0); xj = xj + 1; }
-    X.push(xrow);
-    xi = xi + 1;
-  }
-  var ib = n - 1;
-  while (ib >= 0) {
-    var c2 = 0;
-    while (c2 < m) {
-      var s2 = Y[ib][c2];
-      var k2 = ib + 1;
-      while (k2 < n) { s2 = s2 - L[k2][ib] * X[k2][c2]; k2 = k2 + 1; }
-      X[ib][c2] = s2 / L[ib][ib];
-      c2 = c2 + 1;
-    }
-    ib = ib - 1;
-  }
-  return X;
+  var solveForward = function(i, Yacc) {
+    if (i >= n) { return Yacc; }
+    var row = mapN(function(col) {
+      var s = B[i][col]
+        - sum(mapN(function(k) { return L[i][k] * Yacc[k][col]; }, i));
+      return s / L[i][i];
+    }, m);
+    return solveForward(i + 1, Yacc.concat([row]));
+  };
+  var Y = solveForward(0, []);
+  var solveBackward = function(ib, Xacc) {
+    if (ib < 0) { return Xacc; }
+    var row = mapN(function(col) {
+      var s = Y[ib][col]
+        - sum(mapN(function(kk) {
+            var k = ib + 1 + kk;
+            return L[k][ib] * Xacc[kk][col];
+          }, n - 1 - ib));
+      return s / L[ib][ib];
+    }, m);
+    return solveBackward(ib - 1, [row].concat(Xacc));
+  };
+  return solveBackward(n - 1, []);
 };
 
 var _mat_logdet_chol = function(L) {
   // log|A| = 2 sum_i log L[i][i] for the Cholesky factor of A.
-  var n = L.length;
-  var s = 0;
-  var i = 0;
-  while (i < n) { s = s + Math.log(L[i][i]); i = i + 1; }
-  return 2 * s;
+  return 2 * sum(mapN(function(i) { return Math.log(L[i][i]); }, L.length));
 };
 
 var _mat_trace = function(A) {
-  var n = A.length;
-  var s = 0;
-  var i = 0;
-  while (i < n) { s = s + A[i][i]; i = i + 1; }
-  return s;
+  return sum(mapN(function(i) { return A[i][i]; }, A.length));
 };
 
 var MatrixNormal = function(params) {
@@ -520,15 +411,9 @@ var MatrixNormal = function(params) {
       var n = loc[0].length;
       var L_U = _mat_chol(U);
       var L_V = _mat_chol(V);
-      var Z = [];
-      var i = 0;
-      while (i < p) {
-        var row = [];
-        var j = 0;
-        while (j < n) { row.push(_gaussian_sample(0, 1)); j = j + 1; }
-        Z.push(row);
-        i = i + 1;
-      }
+      var Z = mapN(function(i) {
+        return mapN(function(j) { return _gaussian_sample(0, 1); }, n);
+      }, p);
       return _mat_add(loc, _mat_mul(_mat_mul(L_U, Z), _mat_transpose(L_V)));
     },
     score: function(X) {
@@ -558,13 +443,11 @@ var _poisson_sample = function(lambda) {
   // Knuth's multiplication method. Adequate for the moderate rates
   // that arise in the gamma-Poisson mixture used by NegativeBinomial.
   var L = Math.exp(-lambda);
-  var k = 0;
-  var p = 1;
-  while (true) {
-    k = k + 1;
-    p = p * Math.random();
-    if (p <= L) { return k - 1; }
-  }
+  var step = function(k, prod) {
+    var p = prod * Math.random();
+    return p <= L ? k : step(k + 1, p);
+  };
+  return step(0, 1);
 };
 
 var LogNormal = function(params) {

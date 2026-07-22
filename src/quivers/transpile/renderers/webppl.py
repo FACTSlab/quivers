@@ -283,9 +283,8 @@ class WebPPLRenderer(RendererBase):
         # declaration so the body's `sample(<Family>({...}))` call
         # sites resolve through normal JS name lookup.
         if any(
-            _ir_uses_family(ir.body, f)
-            for f in _WEBPPL_RUNTIME_HELPER_FAMILIES
-        ) or _ir_uses_vectorized_let(ir.body, self._array_names):
+            _ir_uses_family(ir.body, f) for f in _WEBPPL_RUNTIME_HELPER_FAMILIES
+        ) or _ir_emits_qvr_bcast(ir, self._array_names):
             _graft_runtime_webppl_helper(ctx.sb, self, "prog")
         var_decl = self._fresh(ctx, "vd")
         ctx.sb.vertex(var_decl, "variable_declaration")
@@ -384,12 +383,22 @@ class WebPPLRenderer(RendererBase):
         )
         if observed:
             return self._emit_observe(
-                ctx, name, meta, webppl_name,
-                injected_args, injected_arg_names, plate,
+                ctx,
+                name,
+                meta,
+                webppl_name,
+                injected_args,
+                injected_arg_names,
+                plate,
             )
         return self._emit_sample(
-            ctx, name, meta, webppl_name,
-            injected_args, injected_arg_names, plate,
+            ctx,
+            name,
+            meta,
+            webppl_name,
+            injected_args,
+            injected_arg_names,
+            plate,
         )
 
     def _emit_gp_block(
@@ -410,9 +419,7 @@ class WebPPLRenderer(RendererBase):
         graft path; GP is added to the helper-family set so the
         helpers appear above the model body when the IR uses GP.
         """
-        if len(node.args) != 2 or not isinstance(
-            node.args[1], IRArgKernel
-        ):
+        if len(node.args) != 2 or not isinstance(node.args[1], IRArgKernel):
             raise UnsupportedConstruct(
                 "qvr-webppl",
                 ["family:GP:expected IRArgKernel as second arg"],
@@ -421,10 +428,7 @@ class WebPPLRenderer(RendererBase):
         if kernel_arg.kernel != "rbf":
             raise UnsupportedConstruct(
                 "qvr-webppl",
-                [
-                    f"family:GP:kernel:{kernel_arg.kernel}: only rbf "
-                    f"is implemented"
-                ],
+                [f"family:GP:kernel:{kernel_arg.kernel}: only rbf is implemented"],
             )
         n = kernel_arg.grid_size
         ls = kernel_arg.length_scale
@@ -464,10 +468,15 @@ class WebPPLRenderer(RendererBase):
             (params,),
         )
         sample_call = self._call(
-            ctx, self._ident(ctx, "sample"), (dist_call,),
+            ctx,
+            self._ident(ctx, "sample"),
+            (dist_call,),
         )
         self._emit_var_decl(
-            ctx, self._body_vid, node.name, sample_call,
+            ctx,
+            self._body_vid,
+            node.name,
+            sample_call,
         )
 
     def _emit_sample(
@@ -491,12 +500,8 @@ class WebPPLRenderer(RendererBase):
             ctx, args, arg_names, meta, plate, loop_name, index_dependent
         )
         dist_obj = self._object_literal(ctx, rendered_args)
-        dist_call = self._call(
-            ctx, self._ident(ctx, webppl_name), (dist_obj,)
-        )
-        sample_call = self._call(
-            ctx, self._ident(ctx, "sample"), (dist_call,)
-        )
+        dist_call = self._call(ctx, self._ident(ctx, webppl_name), (dist_obj,))
+        sample_call = self._call(ctx, self._ident(ctx, "sample"), (dist_call,))
         # Wrap the call per the batching strategy.
         value_vid = self._wrap_for_batch(
             ctx, sample_call, plate, loop_name, index_dependent
@@ -528,21 +533,22 @@ class WebPPLRenderer(RendererBase):
         # When unbatched, emit a top-level observe(...) statement.
         if not plate.batch_dims:
             rendered_args = self._render_arg_tuple(
-                ctx, args, arg_names, meta, plate,
-                loop_name=None, index_dependent=False,
+                ctx,
+                args,
+                arg_names,
+                meta,
+                plate,
+                loop_name=None,
+                index_dependent=False,
             )
             dist_obj = self._object_literal(ctx, rendered_args)
-            dist_call = self._call(
-                ctx, self._ident(ctx, webppl_name), (dist_obj,)
-            )
+            dist_call = self._call(ctx, self._ident(ctx, webppl_name), (dist_obj,))
             observe_call = self._call(
                 ctx,
                 self._ident(ctx, "observe"),
                 (dist_call, self._ident(ctx, name)),
             )
-            self._emit_expression_statement(
-                ctx, self._body_vid, observe_call
-            )
+            self._emit_expression_statement(ctx, self._body_vid, observe_call)
             return observe_call
         # Batched observe: mapIndexed over the observed data.
         # The loop var is `n`; the per-element bound var is `<name>_n`.
@@ -558,13 +564,16 @@ class WebPPLRenderer(RendererBase):
         # IRObserve node.
         try:
             rendered_args = self._render_arg_tuple(
-                ctx, args, arg_names, meta, plate,
-                loop_name=loop_var, index_dependent=True,
+                ctx,
+                args,
+                arg_names,
+                meta,
+                plate,
+                loop_name=loop_var,
+                index_dependent=True,
             )
             dist_obj = self._object_literal(ctx, rendered_args)
-            dist_call = self._call(
-                ctx, self._ident(ctx, webppl_name), (dist_obj,)
-            )
+            dist_call = self._call(ctx, self._ident(ctx, webppl_name), (dist_obj,))
             observe_call = self._call(
                 ctx,
                 self._ident(ctx, "observe"),
@@ -572,9 +581,7 @@ class WebPPLRenderer(RendererBase):
             )
             lambda_body = self._fresh(ctx, "obody")
             ctx.sb.vertex(lambda_body, "statement_block")
-            self._emit_expression_statement(
-                ctx, lambda_body, observe_call
-            )
+            self._emit_expression_statement(ctx, lambda_body, observe_call)
             lambda_expr = self._function_expression(
                 ctx, (loop_var, per_elem_var), lambda_body
             )
@@ -583,9 +590,7 @@ class WebPPLRenderer(RendererBase):
                 self._ident(ctx, "mapIndexed"),
                 (lambda_expr, self._ident(ctx, name)),
             )
-            self._emit_expression_statement(
-                ctx, self._body_vid, mi_call
-            )
+            self._emit_expression_statement(ctx, self._body_vid, mi_call)
             return mi_call
         finally:
             self._observe_loop_var = prev_loop
@@ -617,9 +622,7 @@ class WebPPLRenderer(RendererBase):
         """
         rewritten = self.explicit_latent_scope(node)
         prev_group = self._group_plate_axes
-        self._group_plate_axes = tuple(
-            str(d.name) for d in node.plate.batch_dims
-        )
+        self._group_plate_axes = tuple(str(d.name) for d in node.plate.batch_dims)
         try:
             for inner in rewritten:
                 self._dispatch_node(ctx, inner)
@@ -736,9 +739,7 @@ class WebPPLRenderer(RendererBase):
             )
             return
         if isinstance(node, IRObserve):
-            self.declare(
-                ctx, node.name, node.constraint, node.plate, block="data"
-            )
+            self.declare(ctx, node.name, node.constraint, node.plate, block="data")
             prev_via = self._observe_via
             self._observe_via = node.via
             try:
@@ -756,9 +757,7 @@ class WebPPLRenderer(RendererBase):
                 self._observe_via = prev_via
             return
         if isinstance(node, IRDataInput):
-            self.declare(
-                ctx, node.name, node.constraint, node.plate, block="data"
-            )
+            self.declare(ctx, node.name, node.constraint, node.plate, block="data")
             return
         if isinstance(node, IRDeterministic):
             self._emit_deterministic(ctx, node)
@@ -811,9 +810,7 @@ class WebPPLRenderer(RendererBase):
         array_bindings = self._array_binding_refs_in_expr(node.expr)
         if not array_inputs and not array_bindings:
             rhs = render_let_expr_javascript(
-                _JsLetCtx(
-                    ctx.sb, lambda p: self._fresh(ctx, p), self._cards
-                ),
+                _JsLetCtx(ctx.sb, lambda p: self._fresh(ctx, p), self._cards),
                 node.expr,
             )
             self._emit_var_decl(ctx, self._body_vid, node.name, rhs)
@@ -827,9 +824,7 @@ class WebPPLRenderer(RendererBase):
             # calls so the arithmetic stays vectorised.
             vectorized = _vectorize_let_expr(node.expr, self._array_names)
             rhs = render_let_expr_javascript(
-                _JsLetCtx(
-                    ctx.sb, lambda p: self._fresh(ctx, p), self._cards
-                ),
+                _JsLetCtx(ctx.sb, lambda p: self._fresh(ctx, p), self._cards),
                 vectorized,
             )
             self._emit_var_decl(ctx, self._body_vid, node.name, rhs)
@@ -848,19 +843,21 @@ class WebPPLRenderer(RendererBase):
         # is injected as a bare identifier reference.
         loop_var = self._fresh_loop_var()
         rewritten = self._index_array_refs(
-            node.expr, array_inputs + array_bindings, loop_var,
+            node.expr,
+            array_inputs + array_bindings,
+            loop_var,
         )
         body_block = self._fresh(ctx, "lbody")
         ctx.sb.vertex(body_block, "statement_block")
         body_vid = render_let_expr_javascript(
-            _JsLetCtx(
-                ctx.sb, lambda p: self._fresh(ctx, p), self._cards
-            ),
+            _JsLetCtx(ctx.sb, lambda p: self._fresh(ctx, p), self._cards),
             rewritten,
         )
         self._emit_return_statement(ctx, body_block, body_vid)
         lam = self._function_expression(
-            ctx, (loop_var, "_"), body_block,
+            ctx,
+            (loop_var, "_"),
+            body_block,
         )
         pivot = array_inputs[0]
         mi_call = self._call(
@@ -891,9 +888,7 @@ class WebPPLRenderer(RendererBase):
         self._lift_n += 1
         return f"__i_{self._lift_n}"
 
-    def _array_input_refs_in_expr(
-        self, expr: LetExprNode
-    ) -> tuple[str, ...]:
+    def _array_input_refs_in_expr(self, expr: LetExprNode) -> tuple[str, ...]:
         """Return the array-shaped data-input names referenced in
         ``expr``, in left-to-right traversal order, deduplicated.
 
@@ -921,9 +916,7 @@ class WebPPLRenderer(RendererBase):
             ordered.append(name)
         return tuple(ordered)
 
-    def _array_binding_refs_in_expr(
-        self, expr: LetExprNode
-    ) -> tuple[str, ...]:
+    def _array_binding_refs_in_expr(self, expr: LetExprNode) -> tuple[str, ...]:
         """Return the array-valued sample / let binding names referenced
         in ``expr``, in left-to-right traversal order, deduplicated.
 
@@ -1003,9 +996,7 @@ class WebPPLRenderer(RendererBase):
             self._ident(ctx, "factor"),
             (self._ident(ctx, node.name),),
         )
-        self._emit_expression_statement(
-            ctx, self._body_vid, factor_call
-        )
+        self._emit_expression_statement(ctx, self._body_vid, factor_call)
 
     def _emit_return(
         self,
@@ -1060,9 +1051,7 @@ class WebPPLRenderer(RendererBase):
         """
         alias_map = meta.arg_aliases.get("webppl", {})
         # Pull the per-arg constraint table for broadcast detection.
-        cls_attr = getattr(
-            meta.distribution_class, "arg_constraints", None
-        )
+        cls_attr = getattr(meta.distribution_class, "arg_constraints", None)
         per_arg_constraints: tuple[object, ...]
         if isinstance(cls_attr, dict):
             per_arg_constraints = tuple(cls_attr.values())
@@ -1079,18 +1068,12 @@ class WebPPLRenderer(RendererBase):
                 ],
             )
         out: list[tuple[str, str]] = []
-        for idx, (arg, raw_name) in enumerate(
-            zip(args, arg_names, strict=True)
-        ):
+        for idx, (arg, raw_name) in enumerate(zip(args, arg_names, strict=True)):
             keyword = alias_map.get(raw_name, raw_name)
             expected = (
-                per_arg_constraints[idx]
-                if idx < len(per_arg_constraints)
-                else None
+                per_arg_constraints[idx] if idx < len(per_arg_constraints) else None
             )
-            broadcasted = self._maybe_broadcast(
-                arg, expected, plate
-            )
+            broadcasted = self._maybe_broadcast(arg, expected, plate)
             substituted = self._substitute_for_indexing(
                 broadcasted, plate, loop_name, index_dependent
             )
@@ -1162,9 +1145,7 @@ class WebPPLRenderer(RendererBase):
                         f"implemented for WebPPL"
                     ],
                 )
-        return IRArgBroadcast(
-            value=arg, target_shape=tuple(sizes)
-        )
+        return IRArgBroadcast(value=arg, target_shape=tuple(sizes))
 
     def _substitute_for_indexing(
         self,
@@ -1203,9 +1184,7 @@ class WebPPLRenderer(RendererBase):
                 self._substitute_ref_indexing(idx, plate, loop_name)
                 for idx in arg.indices
             )
-            if decl_plate is not None and self._plates_align(
-                decl_plate, plate
-            ):
+            if decl_plate is not None and self._plates_align(decl_plate, plate):
                 # Prepend the loop var to the existing indices.
                 loop_ref = IRArgRef(name=loop_name)
                 return IRArgRef(
@@ -1234,9 +1213,7 @@ class WebPPLRenderer(RendererBase):
             return IRArgRef(name=arg.name, indices=new_indices)
         if isinstance(arg, IRArgBroadcast):
             return IRArgBroadcast(
-                value=self._substitute_ref_indexing(
-                    arg.value, plate, loop_name
-                ),
+                value=self._substitute_ref_indexing(arg.value, plate, loop_name),
                 target_shape=arg.target_shape,
             )
         if isinstance(arg, IRArgList):
@@ -1251,9 +1228,7 @@ class WebPPLRenderer(RendererBase):
                 rows=tuple(
                     IRArgList(
                         elements=tuple(
-                            self._substitute_ref_indexing(
-                                e, plate, loop_name
-                            )
+                            self._substitute_ref_indexing(e, plate, loop_name)
                             for e in row.elements
                         )
                     )
@@ -1340,21 +1315,15 @@ class WebPPLRenderer(RendererBase):
         """Recursive worker for `_args_use_surrounding_index`."""
         if isinstance(arg, IRArgRef):
             decl_plate = self._binding_plates.get(arg.name)
-            if decl_plate is not None and self._plates_align(
-                decl_plate, plate
-            ):
+            if decl_plate is not None and self._plates_align(decl_plate, plate):
                 return True
             return any(
-                self._arg_uses_surrounding_index(idx, plate)
-                for idx in arg.indices
+                self._arg_uses_surrounding_index(idx, plate) for idx in arg.indices
             )
         if isinstance(arg, IRArgBroadcast):
             return self._arg_uses_surrounding_index(arg.value, plate)
         if isinstance(arg, IRArgList):
-            return any(
-                self._arg_uses_surrounding_index(e, plate)
-                for e in arg.elements
-            )
+            return any(self._arg_uses_surrounding_index(e, plate) for e in arg.elements)
         if isinstance(arg, IRArgMatrix):
             return any(
                 self._arg_uses_surrounding_index(e, plate)
@@ -1409,9 +1378,7 @@ class WebPPLRenderer(RendererBase):
         self._emit_return_statement(ctx, body, inner_value)
         if index_dependent and loop_name is not None:
             # mapIndexed(function(m, _) { return <inner>; }, repeat(N, 0))
-            lam = self._function_expression(
-                ctx, (loop_name, "_"), body
-            )
+            lam = self._function_expression(ctx, (loop_name, "_"), body)
             zero = self._number_literal(ctx, 0)
             inner_repeat = self._call(
                 ctx,
@@ -1459,9 +1426,7 @@ class WebPPLRenderer(RendererBase):
             [f"arg:unknown:{type(arg).__name__}"],
         )
 
-    def _render_reciprocal(
-        self, ctx: _RenderCtx, arg: IRArg
-    ) -> SchemaFragment:
+    def _render_reciprocal(self, ctx: _RenderCtx, arg: IRArg) -> SchemaFragment:
         """Render ``1 / <arg>`` as a JS `binary_expression`.
 
         WebPPL's `Gamma({shape, scale})` is scale-parameterised, but
@@ -1480,16 +1445,12 @@ class WebPPLRenderer(RendererBase):
         ctx.sb.vertex(be, "binary_expression")
         ctx.sb.constraint(be, "field:operator", "/")
         ctx.sb.constraint(be, "chose-alt-fingerprint", "/")
-        ctx.sb.constraint(
-            be, "chose-alt-child-kinds", f"number {inner_kind}"
-        )
+        ctx.sb.constraint(be, "chose-alt-child-kinds", f"number {inner_kind}")
         ctx.sb.edge(be, one, "left")
         ctx.sb.edge(be, inner_vid, "right")
         return be
 
-    def _paren(
-        self, ctx: _RenderCtx, inner_vid: str, inner_kind: str
-    ) -> str:
+    def _paren(self, ctx: _RenderCtx, inner_vid: str, inner_kind: str) -> str:
         """Wrap `inner_vid` in a `parenthesized_expression` vertex."""
         paren = self._fresh(ctx, "paren")
         ctx.sb.vertex(paren, "parenthesized_expression")
@@ -1509,9 +1470,7 @@ class WebPPLRenderer(RendererBase):
         if isinstance(arg, IRArgNumber):
             return "number"
         if isinstance(arg, IRArgRef):
-            return (
-                "subscript_expression" if arg.indices else "identifier"
-            )
+            return "subscript_expression" if arg.indices else "identifier"
         if isinstance(arg, IRArgBroadcast):
             return "call_expression"
         if isinstance(arg, (IRArgList, IRArgMatrix)):
@@ -1526,9 +1485,7 @@ class WebPPLRenderer(RendererBase):
     def _render_number(self, ctx: _RenderCtx, value: float) -> str:
         return self._number_literal(ctx, value)
 
-    def _render_ref(
-        self, ctx: _RenderCtx, arg: IRArgRef
-    ) -> SchemaFragment:
+    def _render_ref(self, ctx: _RenderCtx, arg: IRArgRef) -> SchemaFragment:
         """Render an IRArgRef. Bare-name refs emit an identifier;
         indexed refs build `subscript_expression` chains."""
         base = self._ident(ctx, arg.name)
@@ -1583,9 +1540,7 @@ class WebPPLRenderer(RendererBase):
         # object literal using the inner family's `arg_names` from
         # its arg_constraints.
         alias_map = inner_meta.arg_aliases.get("webppl", {})
-        cls_attr = getattr(
-            inner_meta.distribution_class, "arg_constraints", None
-        )
+        cls_attr = getattr(inner_meta.distribution_class, "arg_constraints", None)
         if isinstance(cls_attr, dict):
             keys = tuple(cls_attr.keys())
         else:
@@ -1656,14 +1611,10 @@ class WebPPLRenderer(RendererBase):
         ctx.sb.constraint(vid, "literal-value", text)
         return vid
 
-    def _number_literal(
-        self, ctx: _RenderCtx, value: int | float
-    ) -> str:
+    def _number_literal(self, ctx: _RenderCtx, value: int | float) -> str:
         vid = self._fresh(ctx, "num")
         ctx.sb.vertex(vid, "number")
-        text = (
-            str(int(value)) if float(value).is_integer() else repr(float(value))
-        )
+        text = str(int(value)) if float(value).is_integer() else repr(float(value))
         ctx.sb.constraint(vid, "literal-value", text)
         return vid
 
@@ -1827,7 +1778,6 @@ class WebPPLRenderer(RendererBase):
                 lets[stmt.name] = stmt.expr
         return morphisms, lets
 
-
     def _first_observe_plate(self, ir: IRProgram) -> Plate | None:
         """Return the first
         [`IRObserve`][quivers.transpile.ir.IRObserve] step's plate
@@ -1939,14 +1889,21 @@ def _collect_free_names(expr: LetExprNode, out: list[str]) -> None:
 #: QVR let-expression call names that reduce an array argument to a
 #: scalar; an operator applied to their result does not need
 #: broadcasting.
-_REDUCTION_FUNCS: frozenset[str] = frozenset({
-    "sum", "prod", "mean", "max", "min", "logsumexp", "norm", "dot",
-})
+_REDUCTION_FUNCS: frozenset[str] = frozenset(
+    {
+        "sum",
+        "prod",
+        "mean",
+        "max",
+        "min",
+        "logsumexp",
+        "norm",
+        "dot",
+    }
+)
 
 
-def _let_expr_is_array_valued(
-    expr: LetExprNode, array_names: frozenset[str]
-) -> bool:
+def _let_expr_is_array_valued(expr: LetExprNode, array_names: frozenset[str]) -> bool:
     """True iff ``expr`` evaluates to a JS array under the WebPPL emit.
 
     A name is array-valued when it appears in ``array_names`` (bindings
@@ -1969,9 +1926,7 @@ def _let_expr_is_array_valued(
     if isinstance(expr, LetExprCall):
         if expr.func in _REDUCTION_FUNCS:
             return False
-        return any(
-            _let_expr_is_array_valued(a, array_names) for a in expr.args
-        )
+        return any(_let_expr_is_array_valued(a, array_names) for a in expr.args)
     if isinstance(expr, LetExprList):
         return True
     if isinstance(expr, LetExprMethodCall):
@@ -1979,9 +1934,7 @@ def _let_expr_is_array_valued(
     return False
 
 
-def _let_expr_needs_bcast(
-    expr: LetExprNode, array_names: frozenset[str]
-) -> bool:
+def _let_expr_needs_bcast(expr: LetExprNode, array_names: frozenset[str]) -> bool:
     """True iff ``expr`` contains a binary / unary operator applied to an
     array-valued operand, i.e. rewriting it produces a
     [`_qvr_bcast`][quivers.transpile.runtime_webppl] call."""
@@ -1990,39 +1943,29 @@ def _let_expr_needs_bcast(
             expr.left, array_names
         ) or _let_expr_is_array_valued(expr.right, array_names):
             return True
-        return _let_expr_needs_bcast(
-            expr.left, array_names
-        ) or _let_expr_needs_bcast(expr.right, array_names)
+        return _let_expr_needs_bcast(expr.left, array_names) or _let_expr_needs_bcast(
+            expr.right, array_names
+        )
     if isinstance(expr, LetExprUnaryOp):
         if _let_expr_is_array_valued(expr.operand, array_names):
             return True
         return _let_expr_needs_bcast(expr.operand, array_names)
     if isinstance(expr, LetExprCall):
-        return any(
-            _let_expr_needs_bcast(a, array_names) for a in expr.args
-        )
+        return any(_let_expr_needs_bcast(a, array_names) for a in expr.args)
     if isinstance(expr, LetExprIndex):
-        return _let_expr_needs_bcast(
-            expr.array, array_names
-        ) or any(
+        return _let_expr_needs_bcast(expr.array, array_names) or any(
             _let_expr_needs_bcast(i, array_names) for i in expr.indices
         )
     if isinstance(expr, LetExprList):
-        return any(
-            _let_expr_needs_bcast(i, array_names) for i in expr.items
-        )
+        return any(_let_expr_needs_bcast(i, array_names) for i in expr.items)
     if isinstance(expr, LetExprMethodCall):
-        return _let_expr_needs_bcast(
-            expr.receiver, array_names
-        ) or any(
+        return _let_expr_needs_bcast(expr.receiver, array_names) or any(
             _let_expr_needs_bcast(a, array_names) for a in expr.args
         )
     return False
 
 
-def _vectorize_let_expr(
-    expr: LetExprNode, array_names: frozenset[str]
-) -> LetExprNode:
+def _vectorize_let_expr(expr: LetExprNode, array_names: frozenset[str]) -> LetExprNode:
     """Rewrite every operator in ``expr`` whose operands are array-valued
     into a [`_qvr_bcast`][quivers.transpile.runtime_webppl] call.
 
@@ -2057,32 +2000,22 @@ def _vectorize_let_expr(
     if isinstance(expr, LetExprCall):
         return LetExprCall(
             func=expr.func,
-            args=tuple(
-                _vectorize_let_expr(a, array_names) for a in expr.args
-            ),
+            args=tuple(_vectorize_let_expr(a, array_names) for a in expr.args),
         )
     if isinstance(expr, LetExprIndex):
         return LetExprIndex(
             array=_vectorize_let_expr(expr.array, array_names),
-            indices=tuple(
-                _vectorize_let_expr(i, array_names)
-                for i in expr.indices
-            ),
+            indices=tuple(_vectorize_let_expr(i, array_names) for i in expr.indices),
         )
     if isinstance(expr, LetExprList):
         return LetExprList(
-            items=tuple(
-                _vectorize_let_expr(i, array_names)
-                for i in expr.items
-            )
+            items=tuple(_vectorize_let_expr(i, array_names) for i in expr.items)
         )
     if isinstance(expr, LetExprMethodCall):
         return LetExprMethodCall(
             receiver=_vectorize_let_expr(expr.receiver, array_names),
             method=expr.method,
-            args=tuple(
-                _vectorize_let_expr(a, array_names) for a in expr.args
-            ),
+            args=tuple(_vectorize_let_expr(a, array_names) for a in expr.args),
         )
     return expr
 
@@ -2115,19 +2048,40 @@ def _static_array_names(ir: IRProgram) -> frozenset[str]:
     return frozenset(names)
 
 
-def _ir_uses_vectorized_let(
-    body: tuple[IRNode, ...], array_names: frozenset[str]
+def _ir_emits_qvr_bcast(ir: IRProgram, array_names: frozenset[str]) -> bool:
+    """True iff any deterministic binding in ``ir`` emits a
+    [`_qvr_bcast`][quivers.transpile.runtime_webppl] call.
+
+    A binding routes through ``_qvr_bcast`` only when it combines an
+    array-valued operand under a scalar operator and has no data-input
+    pivot: a binding that references a data-input array is lifted
+    through ``mapIndexed`` instead (per-element scalar indexing), so it
+    needs no broadcast helper. This mirrors the emission decision in
+    [`_emit_deterministic`][quivers.transpile.renderers.webppl.WebPPLRenderer._emit_deterministic]
+    so the graft fires exactly when the helper is used, rather than
+    prepending the whole runtime for a binding that lowers to a plain
+    ``mapIndexed``.
+    """
+    input_names = frozenset(inp.name for inp in ir.inputs)
+    return _body_emits_qvr_bcast(ir.body, array_names, input_names)
+
+
+def _body_emits_qvr_bcast(
+    body: tuple[IRNode, ...],
+    array_names: frozenset[str],
+    input_names: frozenset[str],
 ) -> bool:
-    """True iff any deterministic binding in ``body`` (including nested
-    marginalize scopes) needs a
-    [`_qvr_bcast`][quivers.transpile.runtime_webppl] rewrite."""
+    """Recursive worker for
+    [`_ir_emits_qvr_bcast`][quivers.transpile.renderers.webppl._ir_emits_qvr_bcast],
+    descending into marginalize scopes."""
     for node in body:
-        if isinstance(node, IRDeterministic) and _let_expr_needs_bcast(
-            node.expr, array_names
-        ):
-            return True
-        if isinstance(node, IRMarginalize) and _ir_uses_vectorized_let(
-            node.scope, array_names
+        if isinstance(node, IRDeterministic):
+            free = frozenset(_free_names_in_let_expr(node.expr))
+            has_input_pivot = bool(free & input_names)
+            if not has_input_pivot and _let_expr_needs_bcast(node.expr, array_names):
+                return True
+        if isinstance(node, IRMarginalize) and _body_emits_qvr_bcast(
+            node.scope, array_names, input_names
         ):
             return True
     return False
@@ -2162,23 +2116,18 @@ def _substitute_array_refs(
         )
     if isinstance(expr, LetExprUnaryOp):
         return LetExprUnaryOp(
-            operand=_substitute_array_refs(
-                expr.operand, array_names, loop_var
-            ),
+            operand=_substitute_array_refs(expr.operand, array_names, loop_var),
         )
     if isinstance(expr, LetExprCall):
         return LetExprCall(
             func=expr.func,
             args=tuple(
-                _substitute_array_refs(a, array_names, loop_var)
-                for a in expr.args
+                _substitute_array_refs(a, array_names, loop_var) for a in expr.args
             ),
         )
     if isinstance(expr, LetExprIndex):
         return LetExprIndex(
-            array=_substitute_array_refs(
-                expr.array, array_names, loop_var
-            ),
+            array=_substitute_array_refs(expr.array, array_names, loop_var),
             indices=tuple(
                 _substitute_array_refs(idx, array_names, loop_var)
                 for idx in expr.indices
@@ -2194,19 +2143,14 @@ def _substitute_array_refs(
     if isinstance(expr, LetExprLambda):
         return LetExprLambda(
             param=expr.param,
-            body=_substitute_array_refs(
-                expr.body, array_names, loop_var
-            ),
+            body=_substitute_array_refs(expr.body, array_names, loop_var),
         )
     if isinstance(expr, LetExprMethodCall):
         return LetExprMethodCall(
-            receiver=_substitute_array_refs(
-                expr.receiver, array_names, loop_var
-            ),
+            receiver=_substitute_array_refs(expr.receiver, array_names, loop_var),
             method=expr.method,
             args=tuple(
-                _substitute_array_refs(a, array_names, loop_var)
-                for a in expr.args
+                _substitute_array_refs(a, array_names, loop_var) for a in expr.args
             ),
         )
     if isinstance(expr, LetExprFactor):
@@ -2229,9 +2173,12 @@ def _substitute_array_refs(
 # check in
 # [`assert_log_density_match`][tests.transpile._equivalence.assert_log_density_match]
 # tolerates this offset.
-_PREPEND_MU_ZERO: frozenset[str] = frozenset({
-    "HalfNormal", "HalfCauchy",
-})
+_PREPEND_MU_ZERO: frozenset[str] = frozenset(
+    {
+        "HalfNormal",
+        "HalfCauchy",
+    }
+)
 
 
 #: Per-family set of QVR arg names whose value the WebPPL renderer
@@ -2301,25 +2248,25 @@ _RUNTIME_WEBPPL_PATH = (
 #: WebPPL's `dists` module ships `Gaussian`, `Beta`, `Categorical`, etc.
 #: as built-in distributions but lacks these; the renderer grafts the
 #: helper when the IR samples or observes from any of them.
-_WEBPPL_RUNTIME_HELPER_FAMILIES: frozenset[str] = frozenset({
-    "Logistic",
-    "BetaBinomial",
-    "HalfStudentT",
-    "Kumaraswamy",
-    "LKJCholesky",
-    "ContinuousBernoulli",
-    "GP",
-    "MatrixNormal",
-    "LogNormal",
-    "StudentT",
-    "Weibull",
-    "NegativeBinomial",
-})
+_WEBPPL_RUNTIME_HELPER_FAMILIES: frozenset[str] = frozenset(
+    {
+        "Logistic",
+        "BetaBinomial",
+        "HalfStudentT",
+        "Kumaraswamy",
+        "LKJCholesky",
+        "ContinuousBernoulli",
+        "GP",
+        "MatrixNormal",
+        "LogNormal",
+        "StudentT",
+        "Weibull",
+        "NegativeBinomial",
+    }
+)
 
 
-def _load_runtime_webppl_schema() -> tuple[
-    panproto.Schema, str, tuple[str, ...]
-]:
+def _load_runtime_webppl_schema() -> tuple[panproto.Schema, str, tuple[str, ...]]:
     """Parse [`runtime_webppl.js`][quivers.transpile.runtime_webppl]
     through panproto's JavaScript tree-sitter grammar at module-load
     time.
@@ -2340,9 +2287,7 @@ def _load_runtime_webppl_schema() -> tuple[
         None,
     )
     if src_id is None:
-        raise RuntimeError(
-            f"`program` not found in parse of {_RUNTIME_WEBPPL_PATH}"
-        )
+        raise RuntimeError(f"`program` not found in parse of {_RUNTIME_WEBPPL_PATH}")
     children_with_sb: list[tuple[int, str]] = []
     for edge in schema.edges:
         if edge.src != src_id:
@@ -2365,9 +2310,7 @@ _RUNTIME_WEBPPL_SCHEMA, _RUNTIME_WEBPPL_PROGRAM_ID, _RUNTIME_WEBPPL_TOP_LEVEL = 
 )
 
 
-def _subtree_vertex_ids(
-    schema: panproto.Schema, roots: tuple[str, ...]
-) -> set[str]:
+def _subtree_vertex_ids(schema: panproto.Schema, roots: tuple[str, ...]) -> set[str]:
     """Return every vertex id reachable from `roots` via outgoing edges."""
     seen: set[str] = set(roots)
     frontier: list[str] = list(roots)
@@ -2391,14 +2334,9 @@ def _ir_uses_family(body: tuple[IRNode, ...], family: str) -> bool:
     nested [`IRMarginalize`][quivers.transpile.ir.IRMarginalize] scopes)
     samples from `family`."""
     for node in body:
-        if (
-            isinstance(node, (IRSample, IRObserve))
-            and node.family == family
-        ):
+        if isinstance(node, (IRSample, IRObserve)) and node.family == family:
             return True
-        if isinstance(node, IRMarginalize) and _ir_uses_family(
-            node.scope, family
-        ):
+        if isinstance(node, IRMarginalize) and _ir_uses_family(node.scope, family):
             return True
     return False
 
@@ -2425,9 +2363,7 @@ def _graft_runtime_webppl_helper(
         renderer._fresh_n += 1
         new = f"rw_{renderer._fresh_n}"
         id_map[old] = new
-        kind = next(
-            v.kind for v in src_schema.vertices if v.id == old
-        )
+        kind = next(v.kind for v in src_schema.vertices if v.id == old)
         sb.vertex(new, kind)
         for cstr in src_schema.constraints_for(old):
             sb.constraint(new, cstr.sort, cstr.value)
