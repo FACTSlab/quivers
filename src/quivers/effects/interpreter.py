@@ -91,7 +91,7 @@ def _emit_let(
                     device=x.device,
                 )
         if m.log_prob is None:
-            m.log_prob = torch.zeros(x.shape[0], device=x.device)
+            m.log_prob = torch.zeros((), device=x.device)
 
     apply_stack(msg, default=default)
     assert msg.value is not None
@@ -145,7 +145,19 @@ def _emit_sample(
             is_observed=is_obs,
         )
         if is_obs:
-            msg.value = observations[var_name]
+            clamped = observations[var_name]
+            # A clamped plate latent may arrive flattened to
+            # ``(|A| * prod(event),)`` (the shape a host-data / test
+            # point produces for a matrix-valued latent). Restore its
+            # structured ``(|A|, *event)`` shape so a downstream gather
+            # over the plate axis preserves the per-row event
+            # coordinates and the family scores each row over its full
+            # event. Non-plate sites carry no such method and pass
+            # through unchanged.
+            canonical = getattr(morph, "canonical_latent", None)
+            if canonical is not None:
+                clamped = canonical(clamped)
+            msg.value = clamped
 
         def default(m: Message) -> None:
             if m.value is None:
@@ -153,7 +165,7 @@ def _emit_sample(
             if m.log_prob is None:
                 assert m.value is not None
                 if m.is_deterministic:
-                    m.log_prob = torch.zeros(x.shape[0], device=x.device)
+                    m.log_prob = torch.zeros((), device=x.device)
                 else:
                     m.log_prob = morph.log_prob(inp, m.value)
 

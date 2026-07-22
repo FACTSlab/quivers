@@ -101,7 +101,6 @@ from __future__ import annotations
 from typing import cast
 
 import torch
-import torch.nn as nn
 
 
 from quivers.continuous.morphisms import ContinuousMorphism, AnySpace
@@ -164,10 +163,19 @@ class PlateDraw(ContinuousMorphism):
         self._index_size = index_size
         self._family = family
         self._per_row_shape = per_row_shape
-        # Variational mean / log-scale per row (mean-field Gaussian
-        # posterior over the plate). Shape (|A|, *B.shape).
-        self._mean = nn.Parameter(torch.zeros(index_size, *per_row_shape))
-        self._log_scale = nn.Parameter(torch.full((index_size, *per_row_shape), -2.0))
+        self._per_row_dim = per_row_dim
+        # Width of the conditioning input a single row of the family
+        # consumes. Fixed families ignore it (they read only the row
+        # count); conditional families feed it through their parameter
+        # network, so it must equal the domain's feature width.
+        dom = actual_domain
+        if hasattr(dom, "dim"):
+            self._domain_width = max(1, int(dom.dim))
+        elif hasattr(dom, "shape"):
+            shape = tuple(dom.shape)
+            self._domain_width = int(torch.tensor(shape).prod().item()) if shape else 1
+        else:
+            self._domain_width = 1
 
     @property
     def index_size(self) -> int:
@@ -178,15 +186,20 @@ class PlateDraw(ContinuousMorphism):
         return self._family
 
     def rsample(
-        self, x: torch.Tensor, sample_shape: torch.Size = torch.Size()
+        self,
+        x: torch.Tensor | None = None,
+        sample_shape: torch.Size = torch.Size(),
     ) -> torch.Tensor:
-        """Reparameterized sample.
+        """Reparameterized sample from the plate's prior.
 
         A plate draw is *batch-invariant*: the latent vector is a
-        global model parameter shared across every row of an
-        observed plate. The returned tensor has shape
-        ``(|A|, *B.shape)`` regardless of the program input's
-        leading batch dimension.
+        global model quantity shared across every row of an observed
+        plate. The returned tensor has shape ``(|A|, *B.shape)``
+        regardless of the program input's leading batch dimension,
+        with each row drawn independently from the per-row family
+        ``F`` at its declared parameters. ``x`` supplies only the
+        device; it is optional so batch-invariant callers such as
+        `gather` need not fabricate one.
 
         This is the standard Pyro / NumPyro semantic: a sample inside
         a ``plate("subj", n_subj)`` context is one ``(n_subj,)``
@@ -194,66 +207,121 @@ class PlateDraw(ContinuousMorphism):
         gather ``arr[idx]`` along the plate axis then composes
         cleanly with per-row observed-plate axes downstream.
         """
-        del sample_shape, x  # plate latents are batch-invariant
-        eps = torch.randn(
-            *self._mean.shape, device=self._mean.device, dtype=self._mean.dtype
+        del sample_shape  # plate latents are batch-invariant
+        device = x.device if x is not None else None
+        # Draw ``|A|`` independent rows by sampling the per-row family
+        # with a leading sample axis of length ``|A|`` from a single
+        # conditioning row. Threading the row count through
+        # ``sample_shape`` rather than the input's batch axis keeps the
+        # draw genuinely independent even for families whose fixed
+        # parameterization advertises a scalar batch shape (a
+        # positive-support family realised as a restricted base
+        # measure, say); those ignore the input's leading axis but
+        # still honour the explicit sample shape.
+        row_input = torch.zeros(1, self._domain_width, device=device)
+        base = self._family.rsample(
+            row_input, sample_shape=torch.Size((self._index_size,))
         )
-        sample = self._mean + self._log_scale.exp() * eps
-        # Scalar-per-row plates have ``per_row_shape == (1,)``; the
-        # trailing length-1 axis is noise from how the family
-        # advertises its codomain (Euclidean(name=..., dim=1)). Squeeze
-        # it so the latent has the natural ``(|A|,)`` shape and
-        # downstream ``arr[idx]`` advance-indexing produces ``(N,)``
-        # without the user having to squeeze manually.
-        if (
-            sample.dim() >= 2
-            and sample.shape[-1] == 1
-            and len(self._per_row_shape) == 1
-        ):
+        expected = self._index_size * self._per_row_dim
+        if base.numel() != expected:
+            raise ValueError(
+                f"plate rsample: per-row family produced {base.numel()} "
+                f"elements for {self._index_size} rows of per-row width "
+                f"{self._per_row_dim}; expected {expected}"
+            )
+        return self._to_structured(base)
+
+    def _to_structured(self, value: torch.Tensor) -> torch.Tensor:
+        """Reshape a plate value to its structured ``(|A|, *B.shape)``.
+
+        The per-row event axis ``B`` is carried explicitly so a
+        downstream gather ``v[idx]`` along the plate axis preserves the
+        event coordinates. Scalar-per-row plates
+        (``per_row_shape == (1,)``) drop the trailing length-1 axis so
+        the latent has the natural ``(|A|,)`` shape and ``v[idx]``
+        advance-indexing produces ``(N,)`` without a manual squeeze.
+        """
+        sample = value.reshape(self._index_size, *self._per_row_shape)
+        if len(self._per_row_shape) == 1 and self._per_row_shape[0] == 1:
             sample = sample.squeeze(-1)
         return sample
 
-    def log_prob(self, x: torch.Tensor, y: torch.Tensor) -> torch.Tensor:
-        """Log-density of the variational posterior on the plate sample.
+    def canonical_latent(self, value: torch.Tensor) -> torch.Tensor:
+        """Give a clamped plate value its structured ``(|A|, *B.shape)``.
 
-        Accepts ``y`` shaped either as the natural plate-latent
-        ``(|A|, *B.shape)`` (one shared sample) or the flat
-        ``(batch, |A| * prod(B.shape))`` form; the latter reshape
-        supports callers that pre-flatten the latent.
+        A plate latent supplied as a conditioning / observed value may
+        arrive flattened to ``(|A| * prod(B.shape),)`` (the shape a
+        test point or host-data channel produces when it flattens a
+        matrix-valued latent). Restoring the structured shape here lets
+        a gather ``v[idx]`` over the plate axis yield ``(N, *B.shape)``
+        with the per-row event axis intact.
+
+        A value whose element count is not exactly ``|A| * prod(B)`` is
+        a genuinely batched latent (a leading parameter-sample axis);
+        it is returned unchanged so the batched scoring path handles
+        it.
+        """
+        if value.numel() != self._index_size * self._per_row_dim:
+            return value
+        return self._to_structured(value)
+
+    def log_prob(self, x: torch.Tensor, y: torch.Tensor) -> torch.Tensor:
+        """Prior log-density of the plate sample.
+
+        The plate variable ``v : A -> B`` scores as the independent
+        product ``prod_a p_F(v_a)`` of the per-row family ``F``; the
+        contribution is ``sum_a log p_F(v_a)``.
+
+        Two layouts are accepted. The natural *plate latent* carries a
+        leading axis of length ``|A|`` (or is a flat vector whose
+        element count is ``|A| * prod(event)``): its rows are scored
+        under ``F`` and reduced to a scalar, wrapped in a length-1
+        tensor so the downstream log-joint accumulator sees a uniform
+        1-d shape it can broadcast against the response plate. A
+        *batched* value carries a genuine leading batch axis distinct
+        from ``|A|``; each batch element is scored independently and a
+        ``(batch,)`` vector of per-element densities is returned.
+
+        The per-row event size is read from the value's element count
+        rather than solely from the family's advertised codomain, so a
+        scalar family carrying an explicit event axis (``over=...``)
+        is scored over the full event without loss.
         """
         del x  # plate latents are batch-invariant
-        # Accept the natural plate shape (``(|A|, *per_row_shape)``
-        # or the squeezed ``(|A|,)`` for scalar-per-row plates)
-        # before falling back to the flat ``(batch, flat)`` reshape.
-        if (
-            len(self._per_row_shape) == 1
-            and self._per_row_shape[0] == 1
-            and y.dim() == 1
-            and y.shape[0] == self._index_size
-        ):
-            sample = y.unsqueeze(-1)
-            collapse_batch = False
-        elif y.dim() == 1 + len(self._per_row_shape) and y.shape[0] == self._index_size:
-            sample = y
-            collapse_batch = False
-        else:
-            batch = y.shape[0]
-            sample = y.reshape(batch, self._index_size, *self._per_row_shape)
-            collapse_batch = True
-        var = (2.0 * self._log_scale).exp()
-        per_row_lp = (
-            -0.5 * ((sample - self._mean) ** 2 / var)
-            - self._log_scale
-            - 0.5
-            * torch.log(torch.tensor(2.0 * torch.pi, device=y.device, dtype=y.dtype))
+        index_size = self._index_size
+        per_row_family = self._per_row_dim
+        batched = y.dim() >= 2 and y.shape[0] != index_size
+        if not batched:
+            total = y.numel()
+            if total % index_size != 0:
+                raise ValueError(
+                    f"plate latent has {total} elements, not divisible "
+                    f"by the plate index size {index_size}"
+                )
+            row_numel = total // index_size
+            event_shape = (
+                self._per_row_shape if row_numel == per_row_family else (row_numel,)
+            )
+            sample = y.reshape(index_size, *event_shape)
+            row_input = torch.zeros(index_size, self._domain_width, device=y.device)
+            per_row_lp = self._family.log_prob(row_input, sample)
+            return per_row_lp.reshape(-1).sum().unsqueeze(0)
+        batch = y.shape[0]
+        per_batch = y.numel() // batch
+        if per_batch % index_size != 0:
+            raise ValueError(
+                f"batched plate latent has {per_batch} elements per "
+                f"batch row, not divisible by the plate index size "
+                f"{index_size}"
+            )
+        row_numel = per_batch // index_size
+        event_shape = (
+            self._per_row_shape if row_numel == per_row_family else (row_numel,)
         )
-        if collapse_batch:
-            return per_row_lp.reshape(per_row_lp.shape[0], -1).sum(dim=-1)
-        # Plate-latent shape: return a scalar log-density. We wrap in
-        # a length-1 tensor so the downstream log-joint accumulator
-        # (which sums batched per-step contributions) sees a uniform
-        # 1-d shape it can broadcast against the response plate.
-        return per_row_lp.reshape(-1).sum().unsqueeze(0)
+        flat = y.reshape(batch * index_size, *event_shape)
+        row_input = torch.zeros(batch * index_size, self._domain_width, device=y.device)
+        per_row_lp = self._family.log_prob(row_input, flat)
+        return per_row_lp.reshape(batch, index_size).sum(dim=-1)
 
     def gather(self, indices: torch.Tensor) -> torch.Tensor:
         """Pullback ``v[indices]`` along a finite fibration.

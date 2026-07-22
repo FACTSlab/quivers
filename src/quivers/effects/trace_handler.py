@@ -68,8 +68,20 @@ class TraceHandler(EffectHandler):
         their message; score steps (compiled marginalize bodies)
         contribute their callable's return value, which the
         interpreter installed as the message's log-prob.
+
+        The accumulator seeds from a scalar zero rather than a
+        ``batch_size``-wide zero: the joint is the plain sum of the
+        per-site log-densities, whose shape is the broadcast of the
+        contributing sites. A replica-batched model whose every site
+        carries a leading ``(batch,)`` axis broadcasts to ``(batch,)``,
+        recovering the per-replica joint; a single-instance plate model
+        whose sites each reduce over their own plate / event axes to a
+        scalar (or a length-1 parameter-sample axis) sums to that
+        scalar, so a shared prior contributes exactly once instead of
+        being replicated across the response plate.
         """
-        total = torch.zeros(batch_size, device=device)
+        del batch_size  # the joint's shape follows from the sites
+        total = torch.zeros((), device=device)
         for site in self.trace.sites.values():
             total = total + site.log_prob
         return total
