@@ -42,11 +42,15 @@ and the renderer wraps the arg in an
 before emitting `1 / (scale * scale)`.
 
 [`IRArgFamilyRef`][quivers.transpile.ir.IRArgFamilyRef] arguments
-(wrapper families like `Truncated`) render via the BUGS
+(wrapper families like `Truncated`) render via the
 `d<family>(args) T(lower, upper)` truncation idiom: the renderer
 inlines the referenced morphism's `~ Family(args)` clause as the
 distribution call and appends a `truncation` child to the
-`stochastic_relation` carrying `(lower, upper)`.
+`stochastic_relation` carrying `(lower, upper)`. The `bugs` backend
+executes through the JAGS engine (the probe image installs the
+`jags` binary and pyjags), so it emits JAGS's renormalized
+`T(lower, upper)` suffix rather than the `I(lower, upper)` censoring
+form, which JAGS rejects on any latent-parent node.
 """
 
 from __future__ import annotations
@@ -103,6 +107,8 @@ from quivers.transpile.renderers._base import (
     assert_no_dangling_refs,
 )
 from quivers.transpile.renderers._bugs_helpers import (
+    TRUNCATION_FINGERPRINT,
+    half_support_truncation,
     index_letexpr_refs,
     push_scalar_dets_into_loops,
     render_let_expr_bugs,
@@ -374,7 +380,6 @@ class BUGSRenderer(RendererBase):
         observed variables and the same `~` line carries the
         likelihood factor.
         """
-        del observed
         if not isinstance(ctx, _BugsCtx):
             raise UnsupportedConstruct(
                 f"qvr-{self.target}",
@@ -388,7 +393,7 @@ class BUGSRenderer(RendererBase):
             constraint=constraint,
             plate=plate,
         )
-        self._emit_sample_node(ctx, node, loop_suffix="")
+        self._emit_sample_node(ctx, node, loop_suffix="", observed=observed)
         return ""
 
     def marginalize(
@@ -494,6 +499,7 @@ class BUGSRenderer(RendererBase):
         node: IRSample,
         *,
         loop_suffix: str,
+        observed: bool = False,
     ) -> None:
         """Render an [`IRSample`][quivers.transpile.ir.IRSample] node.
 
@@ -520,6 +526,7 @@ class BUGSRenderer(RendererBase):
             plate=node.plate,
             via=None,
             loop_suffix=loop_suffix,
+            observed=observed,
         )
 
     def _emit_truncated_normal_native(
@@ -528,7 +535,7 @@ class BUGSRenderer(RendererBase):
         node: IRSample,
         loop_suffix: str,
     ) -> None:
-        """Emit ``<lhs> ~ dnorm(loc, tau) I(low, high)`` for
+        """Emit ``<lhs> ~ dnorm(loc, tau) T(low, high)`` for
         ``TruncatedNormal(loc, scale, low, high)``.
 
         Splits the 4-arg call into (loc, scale) for the base ``dnorm``
@@ -546,9 +553,7 @@ class BUGSRenderer(RendererBase):
                 ],
             )
         family_args = node.args[:2]
-        family_arg_names = (
-            node.arg_names[:2] if node.arg_names else ("loc", "scale")
-        )
+        family_arg_names = node.arg_names[:2] if node.arg_names else ("loc", "scale")
         lo, hi = node.args[2], node.args[3]
         self._emit_relation(
             ctx,
@@ -572,21 +577,27 @@ class BUGSRenderer(RendererBase):
         `via[n]`".
         """
         if _is_wrapper_family_call(node.args):
-            self._emit_truncated(ctx, IRSample(
-                name=node.name,
-                family=node.family,
-                args=node.args,
-                arg_names=node.arg_names,
-                constraint=node.constraint,
-                plate=node.plate,
-            ))
+            self._emit_truncated(
+                ctx,
+                IRSample(
+                    name=node.name,
+                    family=node.family,
+                    args=node.args,
+                    arg_names=node.arg_names,
+                    constraint=node.constraint,
+                    plate=node.plate,
+                ),
+            )
             return
         if node.family == "TruncatedNormal":
             self._emit_truncated_normal_native(
                 ctx,
                 IRSample(
-                    name=node.name, family=node.family, args=node.args,
-                    arg_names=node.arg_names, constraint=node.constraint,
+                    name=node.name,
+                    family=node.family,
+                    args=node.args,
+                    arg_names=node.arg_names,
+                    constraint=node.constraint,
                     plate=node.plate,
                 ),
                 "",
@@ -601,11 +612,10 @@ class BUGSRenderer(RendererBase):
             plate=node.plate,
             via=node.via,
             loop_suffix="",
+            observed=True,
         )
 
-    def _emit_marginalize_node(
-        self, ctx: _BugsCtx, node: IRMarginalize
-    ) -> None:
+    def _emit_marginalize_node(self, ctx: _BugsCtx, node: IRMarginalize) -> None:
         """Lower marginalize to explicit-latent + scope body.
 
         The latent's loop variable is suffixed with the latent
@@ -619,9 +629,7 @@ class BUGSRenderer(RendererBase):
             constraint=node.constraint,
             plate=node.plate,
         )
-        self._emit_sample_node(
-            ctx, latent_sample, loop_suffix=f"_{node.latent}"
-        )
+        self._emit_sample_node(ctx, latent_sample, loop_suffix=f"_{node.latent}")
         for inner in node.scope:
             self._dispatch_bugs_node(ctx, inner)
 
@@ -643,15 +651,10 @@ class BUGSRenderer(RendererBase):
         if not isinstance(init, MorphismInitFamily):
             raise UnsupportedConstruct(
                 f"qvr-{self.target}",
-                [
-                    f"truncated:base:{family_ref.name}: init is not "
-                    f"`~ Family(args)`"
-                ],
+                [f"truncated:base:{family_ref.name}: init is not `~ Family(args)`"],
             )
         base_family = init.family
-        base_args = tuple(
-            _draw_arg_to_ir(a) for a in (init.args or ())
-        )
+        base_args = tuple(_draw_arg_to_ir(a) for a in (init.args or ()))
         base_meta = self._lookup_family(base_family)
         base_arg_names = self._infer_arg_names(base_meta, base_args)
         if len(node.args) < 3:
@@ -701,9 +704,7 @@ class BUGSRenderer(RendererBase):
         ``equals(i, j) * jitter`` idiom (equals returns 1 if true,
         0 otherwise).
         """
-        if len(node.args) != 2 or not isinstance(
-            node.args[1], IRArgKernel
-        ):
+        if len(node.args) != 2 or not isinstance(node.args[1], IRArgKernel):
             raise UnsupportedConstruct(
                 f"qvr-{self.target}",
                 ["family:GP:expected IRArgKernel as second arg"],
@@ -712,10 +713,7 @@ class BUGSRenderer(RendererBase):
         if kernel_arg.kernel != "rbf":
             raise UnsupportedConstruct(
                 f"qvr-{self.target}",
-                [
-                    f"family:GP:kernel:{kernel_arg.kernel}: only rbf "
-                    f"is implemented"
-                ],
+                [f"family:GP:kernel:{kernel_arg.kernel}: only rbf is implemented"],
             )
         n = kernel_arg.grid_size
         ls = kernel_arg.length_scale
@@ -747,10 +745,12 @@ class BUGSRenderer(RendererBase):
         i_var = LetExprVar(name="m_i")
         j_var = LetExprVar(name="m_j")
         x_i = LetExprIndex(
-            array=LetExprVar(name=x), indices=(i_var,),
+            array=LetExprVar(name=x),
+            indices=(i_var,),
         )
         x_j = LetExprIndex(
-            array=LetExprVar(name=x), indices=(j_var,),
+            array=LetExprVar(name=x),
+            indices=(j_var,),
         )
         diff = LetExprBinOp(op="-", left=x_i, right=x_j)
         diff_sq = LetExprCall(
@@ -780,7 +780,9 @@ class BUGSRenderer(RendererBase):
             right=LetExprLiteral(value=jitter),
         )
         kij_expr = LetExprBinOp(
-            op="+", left=exp_call, right=jitter_term,
+            op="+",
+            left=exp_call,
+            right=jitter_term,
         )
         kij_det = IRDeterministic(
             name=kmat_name,
@@ -817,9 +819,7 @@ class BUGSRenderer(RendererBase):
         )
         self._emit_sample_node(ctx, mvn_sample, loop_suffix="")
 
-    def _emit_deterministic_node(
-        self, ctx: _BugsCtx, node: IRDeterministic
-    ) -> None:
+    def _emit_deterministic_node(self, ctx: _BugsCtx, node: IRDeterministic) -> None:
         """Emit a BUGS deterministic relation ``<name> <- <expr>``.
 
         Wraps the relation in `for (m_<axis> in 1:N_<axis>)` loops
@@ -833,9 +833,7 @@ class BUGSRenderer(RendererBase):
         ...).
         """
         loop_names = self._loop_names(node.plate, "")
-        body_id = self._open_loops(
-            ctx, ctx.block_id, node.plate, loop_names
-        )
+        body_id = self._open_loops(ctx, ctx.block_id, node.plate, loop_names)
         prev_plate = ctx.enclosing_plate
         prev_loops = ctx.enclosing_loop_names
         ctx.enclosing_plate = node.plate
@@ -1001,14 +999,15 @@ class BUGSRenderer(RendererBase):
         plate: Plate,
         via: str | None,
         loop_suffix: str,
-        truncation: tuple[IRArg, IRArg] | None = None,
+        truncation: tuple[IRArg, ...] | None = None,
+        observed: bool = False,
     ) -> None:
         """Open the for-loops over `plate.batch_dims`, then emit the
         `<lhs> ~ <dist>(args)` line."""
+        if truncation is None:
+            truncation = half_support_truncation(family, observed=observed)
         meta = self._lookup_family(family)
-        args, arg_names = self._inject_bugs_specific_args(
-            family, args, arg_names
-        )
+        args, arg_names = self._inject_bugs_specific_args(family, args, arg_names)
         loop_names = self._loop_names(plate, loop_suffix)
         body_id = self._open_loops(ctx, ctx.block_id, plate, loop_names)
         # Stash enclosing-plate + via for arg emission.
@@ -1025,26 +1024,27 @@ class BUGSRenderer(RendererBase):
             # When a truncation suffix is present, the
             # stochastic_relation's child-kind alternative needs to
             # advertise it so the panproto pretty-printer picks the
-            # `~ ... I( , )` (BUGS) / `~ ... T( , )` (JAGS) alternative
-            # rather than the no-suffix alternative.
+            # `~ ... T( , )` alternative rather than the no-suffix
+            # alternative. Both the `jags` and the `bugs` backend
+            # emit the JAGS `T( , )` spelling.
             if truncation is not None:
+                lhs_kind = (
+                    "identifier"
+                    if not loop_names and not plate.event_dims
+                    else "indexed_variable"
+                )
                 ctx.sb.constraint(sr_id, "chose-alt-fingerprint", "~")
                 ctx.sb.constraint(
-                    sr_id, "chose-alt-child-kinds",
-                    "identifier distribution_call truncation",
+                    sr_id,
+                    "chose-alt-child-kinds",
+                    f"{lhs_kind} distribution_call truncation",
                 )
-            lhs_id = self._emit_lhs(
-                ctx, name, plate, loop_names
-            )
+            lhs_id = self._emit_lhs(ctx, name, plate, loop_names)
             ctx.sb.edge(sr_id, lhs_id, "variable")
-            dc_id = self._emit_distribution_call(
-                ctx, meta, args, arg_names
-            )
+            dc_id = self._emit_distribution_call(ctx, meta, args, arg_names)
             ctx.sb.edge(sr_id, dc_id, "distribution")
             if truncation is not None:
-                trunc_id = self._emit_truncation(
-                    ctx, truncation[0], truncation[1]
-                )
+                trunc_id = self._emit_truncation(ctx, truncation)
                 ctx.sb.edge(sr_id, trunc_id, "child_of")
         finally:
             ctx.via = prev_via
@@ -1055,9 +1055,7 @@ class BUGSRenderer(RendererBase):
     # Loop emission.
     # ------------------------------------------------------------------
 
-    def _loop_names(
-        self, plate: Plate, suffix: str
-    ) -> tuple[str, ...]:
+    def _loop_names(self, plate: Plate, suffix: str) -> tuple[str, ...]:
         """Return the loop-variable name for each `plate.batch_dim`."""
         return tuple(f"m_{dim.name}{suffix}" for dim in plate.batch_dims)
 
@@ -1096,9 +1094,7 @@ class BUGSRenderer(RendererBase):
             current = body_id
         return current
 
-    def _emit_upper_literal(
-        self, ctx: _BugsCtx, vid: str, text: str
-    ) -> None:
+    def _emit_upper_literal(self, ctx: _BugsCtx, vid: str, text: str) -> None:
         """Emit either a number or an identifier vertex for the loop
         upper bound, depending on whether `text` is a digit string."""
         if text.lstrip("-").isdigit():
@@ -1134,9 +1130,7 @@ class BUGSRenderer(RendererBase):
     ) -> str:
         """Emit the LHS variable, indexed by batch loop names plus
         event-axis slices."""
-        event_slices = tuple(
-            self._dim_upper_text(d) for d in plate.event_dims
-        )
+        event_slices = tuple(self._dim_upper_text(d) for d in plate.event_dims)
         if not loop_names and not event_slices:
             return self._emit_bare_identifier(ctx, name)
         return self._emit_indexed_name(
@@ -1174,9 +1168,7 @@ class BUGSRenderer(RendererBase):
             args, arg_names = _reorder_studentt_dt(args, arg_names)
         renames = meta.arg_aliases.get("bugs", {})
         for arg, aname in zip(args, arg_names, strict=True):
-            wrapped = self._apply_alias_transform(
-                arg, aname, renames, meta.qvr_name
-            )
+            wrapped = self._apply_alias_transform(arg, aname, renames, meta.qvr_name)
             receiver_event_rank = self._receiver_event_rank(meta, aname)
             child_id = self._emit_arg(
                 ctx, wrapped, receiver_event_rank=receiver_event_rank
@@ -1184,9 +1176,7 @@ class BUGSRenderer(RendererBase):
             ctx.sb.edge(al_id, child_id, self._arg_edge_kind(wrapped))
         return dc_id
 
-    def _receiver_event_rank(
-        self, meta: FamilyMeta, arg_name: str
-    ) -> int:
+    def _receiver_event_rank(self, meta: FamilyMeta, arg_name: str) -> int:
         """Return the receiver arg-constraint's event rank.
 
         Reads from `meta.distribution_class.arg_constraints[arg_name]`
@@ -1271,9 +1261,7 @@ class BUGSRenderer(RendererBase):
         if isinstance(arg, IRArgNumber):
             return self._emit_number(ctx, arg.value)
         if isinstance(arg, IRArgRef):
-            return self._emit_ref(
-                ctx, arg, receiver_event_rank=receiver_event_rank
-            )
+            return self._emit_ref(ctx, arg, receiver_event_rank=receiver_event_rank)
         if isinstance(arg, IRArgTransform):
             return self._emit_transform(ctx, arg)
         if isinstance(arg, IRArgBroadcast):
@@ -1350,13 +1338,9 @@ class BUGSRenderer(RendererBase):
             and receiver_event_rank > 0
             and not ref.indices
         ):
-            slice_uppers = self._receiver_slice_uppers(
-                ctx, receiver_event_rank
-            )
+            slice_uppers = self._receiver_slice_uppers(ctx, receiver_event_rank)
             if slice_uppers:
-                return self._emit_indexed_from_pieces(
-                    ctx, ref.name, (), slice_uppers
-                )
+                return self._emit_indexed_from_pieces(ctx, ref.name, (), slice_uppers)
         if decl_plate is None:
             if not ref.indices:
                 return self._emit_bare_identifier(ctx, ref.name)
@@ -1366,12 +1350,10 @@ class BUGSRenderer(RendererBase):
                 ctx, ref.name, indices, kinds, ()
             )
         # User indices fill the leftmost batch_dim positions.
-        user_pieces = tuple(
-            self._user_index_piece(ctx, ix) for ix in ref.indices
-        )
+        user_pieces = tuple(self._user_index_piece(ctx, ix) for ix in ref.indices)
         # Auto-leading covers the remaining batch dims.
         auto_leading: list[_IndexPiece] = []
-        for dim in decl_plate.batch_dims[len(user_pieces):]:
+        for dim in decl_plate.batch_dims[len(user_pieces) :]:
             axis = str(dim.name)
             loop_var = self._loop_for_axis(ctx, axis)
             if loop_var is not None:
@@ -1392,19 +1374,13 @@ class BUGSRenderer(RendererBase):
         # Event-dim slices: prefer the referenced var's own event
         # dims; fall back to the receiver's expected event rank
         # when the referenced var has none but the receiver does.
-        slice_uppers = tuple(
-            self._dim_upper_text(d) for d in decl_plate.event_dims
-        )
+        slice_uppers = tuple(self._dim_upper_text(d) for d in decl_plate.event_dims)
         if not slice_uppers and receiver_event_rank > len(user_pieces):
-            slice_uppers = self._receiver_slice_uppers(
-                ctx, receiver_event_rank
-            )
+            slice_uppers = self._receiver_slice_uppers(ctx, receiver_event_rank)
         if not (auto_leading or user_pieces or slice_uppers):
             return self._emit_bare_identifier(ctx, ref.name)
         all_pieces = tuple(list(user_pieces) + auto_leading)
-        return self._emit_indexed_from_pieces(
-            ctx, ref.name, all_pieces, slice_uppers
-        )
+        return self._emit_indexed_from_pieces(ctx, ref.name, all_pieces, slice_uppers)
 
     def _receiver_slice_uppers(
         self, ctx: _BugsCtx, receiver_event_rank: int
@@ -1422,9 +1398,7 @@ class BUGSRenderer(RendererBase):
         ev = ctx.enclosing_plate.event_dims
         if len(ev) < receiver_event_rank:
             return ()
-        return tuple(
-            self._dim_upper_text(d) for d in ev[:receiver_event_rank]
-        )
+        return tuple(self._dim_upper_text(d) for d in ev[:receiver_event_rank])
 
     def _loop_for_axis(self, ctx: _BugsCtx, axis: str) -> str | None:
         """Return the enclosing loop variable for `axis`, or None.
@@ -1444,9 +1418,7 @@ class BUGSRenderer(RendererBase):
                 return ln
         return None
 
-    def _user_index_piece(
-        self, ctx: _BugsCtx, arg: IRArg
-    ) -> _IndexPiece:
+    def _user_index_piece(self, ctx: _BugsCtx, arg: IRArg) -> _IndexPiece:
         """Build an `_IndexPiece` for a user-supplied bracket index.
 
         Numeric literals become number-pieces. Bare identifier refs
@@ -1464,9 +1436,7 @@ class BUGSRenderer(RendererBase):
             if inner_plate is None or not inner_plate.batch_dims:
                 if not arg.indices:
                     return _IndexPiece.ident(arg.name)
-                children = tuple(
-                    self._user_index_piece(ctx, ix) for ix in arg.indices
-                )
+                children = tuple(self._user_index_piece(ctx, ix) for ix in arg.indices)
                 return _IndexPiece.indexed_pieces(arg.name, children)
             # arg has declared batch dims: build nested indexing.
             sub: list[_IndexPiece] = []
@@ -1478,11 +1448,7 @@ class BUGSRenderer(RendererBase):
                     continue
                 if ctx.via is not None and ctx.enclosing_loop_names:
                     via_inner = ctx.enclosing_loop_names[-1]
-                    sub.append(
-                        _IndexPiece.indexed(
-                            ctx.via, (_LoopRef(via_inner),)
-                        )
-                    )
+                    sub.append(_IndexPiece.indexed(ctx.via, (_LoopRef(via_inner),)))
                     continue
                 sub.append(_IndexPiece.ident(axis))
             for ix in arg.indices:
@@ -1579,9 +1545,7 @@ class BUGSRenderer(RendererBase):
         if isinstance(arg, IRArgRef):
             if not arg.indices:
                 return self._emit_bare_identifier(ctx, arg.name)
-            children = tuple(
-                self._emit_index_child(ctx, ix) for ix in arg.indices
-            )
+            children = tuple(self._emit_index_child(ctx, ix) for ix in arg.indices)
             kinds = tuple(self._index_child_kind(ix) for ix in arg.indices)
             return self._emit_indexed_with_pre_emitted(
                 ctx, arg.name, children, kinds, ()
@@ -1601,9 +1565,7 @@ class BUGSRenderer(RendererBase):
             [f"index:{type(arg).__name__}"],
         )
 
-    def _emit_one_to(
-        self, ctx: _BugsCtx, parent_index_list: str, upper: str
-    ) -> None:
+    def _emit_one_to(self, ctx: _BugsCtx, parent_index_list: str, upper: str) -> None:
         """Emit a `1:upper` range as a child of `parent_index_list`.
 
         `upper` is the raw upper-bound text (digit string for a
@@ -1623,9 +1585,7 @@ class BUGSRenderer(RendererBase):
     # Transform emission (1 / (x*x), 1/x, -x, log(x), exp(x)).
     # ------------------------------------------------------------------
 
-    def _emit_transform(
-        self, ctx: _BugsCtx, wrapped: IRArgTransform
-    ) -> str:
+    def _emit_transform(self, ctx: _BugsCtx, wrapped: IRArgTransform) -> str:
         """Emit the arithmetic transform's expression schema.
 
         BUGS infix arithmetic. The root of the emitted fragment is
@@ -1634,9 +1594,7 @@ class BUGSRenderer(RendererBase):
         first_inner = self._emit_arg(ctx, wrapped.inner)
         if wrapped.transform == "inv_square":
             second_inner = self._emit_arg(ctx, wrapped.inner)
-            return self._emit_inv_square(
-                ctx, first_inner, second_inner
-            )
+            return self._emit_inv_square(ctx, first_inner, second_inner)
         if wrapped.transform == "inv":
             return self._emit_inv(ctx, first_inner)
         if wrapped.transform == "neg":
@@ -1695,9 +1653,7 @@ class BUGSRenderer(RendererBase):
         ctx.sb.edge(u, inner_id, "operand")
         return u
 
-    def _emit_unary_call(
-        self, ctx: _BugsCtx, fn_name: str, inner_id: str
-    ) -> str:
+    def _emit_unary_call(self, ctx: _BugsCtx, fn_name: str, inner_id: str) -> str:
         """Emit `<fn_name>(<inner>)` as a function_call."""
         call = self._fresh(ctx, "call")
         ctx.sb.vertex(call, "function_call")
@@ -1716,23 +1672,31 @@ class BUGSRenderer(RendererBase):
     def _emit_truncation(
         self,
         ctx: _BugsCtx,
-        lower: IRArg,
-        upper: IRArg,
+        bounds: tuple[IRArg, ...],
     ) -> str:
-        """Emit a `truncation` node carrying `I(lower, upper)`.
+        """Emit a `truncation` node carrying `T(lower, upper)`, or
+        `T(lower,)` when `bounds` holds a single lower bound.
 
-        BUGS uses `I( , )` for the truncation suffix (the JAGS dialect
-        uses `T( , )`; the BUGS grammar's truncation rule offers both
-        as alternatives keyed by the `chose-alt-fingerprint`
-        constraint).
+        The `bugs` backend executes through the JAGS engine, so it
+        emits JAGS's renormalized `T( , )` suffix, the same spelling
+        the `jags` backend uses. The grammar's truncation rule offers
+        `T( , )` and `I( , )` as alternatives keyed by the
+        `chose-alt-fingerprint` constraint; the renderer selects
+        `T( , )` for both backends because `I( , )` is JAGS interval
+        censoring, which JAGS rejects on any latent-parent node.
         """
+        if not bounds or len(bounds) > 2:
+            raise UnsupportedConstruct(
+                f"qvr-{self.target}",
+                [f"truncation:expected 1 or 2 bounds, got {len(bounds)}"],
+            )
         tr = self._fresh(ctx, "tr")
         ctx.sb.vertex(tr, "truncation")
-        ctx.sb.constraint(tr, "chose-alt-fingerprint", "I( , )")
-        lo_id = self._emit_arg(ctx, lower)
-        hi_id = self._emit_arg(ctx, upper)
-        ctx.sb.edge(tr, lo_id, "child_of")
-        ctx.sb.edge(tr, hi_id, "child_of")
+        ctx.sb.constraint(
+            tr, "chose-alt-fingerprint", TRUNCATION_FINGERPRINT[self.target]
+        )
+        for bound in bounds:
+            ctx.sb.edge(tr, self._emit_arg(ctx, bound), "child_of")
         return tr
 
     # ------------------------------------------------------------------
@@ -1797,13 +1761,9 @@ class _IndexPiece:
     def indexed_pieces(
         cls, name: str, children: tuple[_IndexPiece, ...]
     ) -> _IndexPiece:
-        return cls(
-            kind="indexed", text=name, children=tuple(children)
-        )
+        return cls(kind="indexed", text=name, children=tuple(children))
 
-    def emit(
-        self, ctx: _BugsCtx, renderer: BUGSRenderer
-    ) -> tuple[str, str]:
+    def emit(self, ctx: _BugsCtx, renderer: BUGSRenderer) -> tuple[str, str]:
         """Emit this piece as a schema fragment; return `(id, kind)`."""
         if self.kind == "ident":
             return renderer._emit_bare_identifier(ctx, self.text), "identifier"

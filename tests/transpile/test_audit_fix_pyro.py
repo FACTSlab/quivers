@@ -22,8 +22,19 @@ audit-confirmed defects these guard:
   the full `loc` shape `(3, 4)` rather than the per-factor `(3, 3)` /
   `(4, 4)`. It is now a grafted runtime helper class with per-factor
   covariance shapes derived from the structured-lowering axis indices.
+- `matrixnormal-inversewishart-nonexistent-pyro` (InverseWishart half):
+  `InverseWishart` emitted as `pyro.distributions.InverseWishart`,
+  which Pyro does not ship (AttributeError at construction). It is now
+  a grafted runtime helper class carrying the closed-form
+  inverse-Wishart density on ``(df, scale_tril)``, checked here against
+  `scipy.stats.invwishart`.
+- `relaxed-temperature-slot-mishandled`: the relaxed families take
+  `temperature` as their leading constructor slot; the emitted call
+  must place the QVR's first argument there.
 
-Assertions run on the emitted source text (fast, deterministic).
+Assertions run on the emitted source text (fast, deterministic), plus
+execution checks that score the emitted model against an independent
+reference density.
 """
 
 from __future__ import annotations
@@ -83,6 +94,42 @@ export half_student_t_model
 """
 
 
+#: A 3x3 inverse-Wishart with an explicit lower-triangular scale
+#: factor ``L``; the scale matrix scored against is ``Psi = L L^T``.
+_INVERSEWISHART_SOURCE = """
+object Dim : FinSet 3
+
+program inverse_wishart_model : Dim -> Dim
+    sample sigma : Dim <- InverseWishart(7.0, [[1.0, 0.0, 0.0], [0.2, 1.0, 0.0], [0.1, 0.3, 1.0]])
+    return sigma
+
+export inverse_wishart_model
+"""
+
+
+#: The scale Cholesky factor written in `_INVERSEWISHART_SOURCE`.
+_INVERSEWISHART_SCALE_TRIL = (
+    (1.0, 0.0, 0.0),
+    (0.2, 1.0, 0.0),
+    (0.1, 0.3, 1.0),
+)
+
+#: The degrees of freedom written in `_INVERSEWISHART_SOURCE`.
+_INVERSEWISHART_DF = 7.0
+
+
+_RELAXED_SOURCE = """
+object Obs : FinSet 4
+
+program relaxed_model : Obs -> Obs
+    sample x <- RelaxedBernoulli(0.5, 0.3)
+    sample z : Obs <- RelaxedOneHotCategorical(0.25, [0.1, 0.2, 0.3, 0.4])
+    return z
+
+export relaxed_model
+"""
+
+
 def test_lkj_prepends_matrix_dimension() -> None:
     """`LKJCholesky` over a `FinSet 4` event axis emits
     `LKJCorrCholesky(4, eta)`, dimension first, concentration second.
@@ -138,10 +185,110 @@ def test_matrixnormal_grafts_helper_with_per_factor_covariance_shapes() -> None:
     assert "torch.full((3,4,),m_col_covariance)" not in stripped, text
 
 
+def test_inversewishart_grafts_helper_not_pyro_class() -> None:
+    """`InverseWishart` emits a grafted helper class plus a bare-name
+    call, never the nonexistent `pyro.distributions.InverseWishart`."""
+    text, stripped = _emit(_INVERSEWISHART_SOURCE)
+    assert "class InverseWishart(" in text
+    assert "pyro.distributions.InverseWishart" not in text
+    # Called by its bare name with (df, scale_tril) in order.
+    assert (
+        "InverseWishart(7,torch.tensor([[1,0,0],[0.2,1,0],[0.1,0.3,1]]))"
+        in stripped
+    ), text
+
+
+def test_inversewishart_helper_support_is_positive_definite() -> None:
+    """The grafted helper declares the positive-definite support, so
+    Pyro's `biject_to` supplies the unconstrained-space Jacobian during
+    inference rather than treating the matrix as unconstrained."""
+    text, _ = _emit(_INVERSEWISHART_SOURCE)
+    assert "support = pyro.distributions.constraints.positive_definite" in text
+
+
+def test_inversewishart_emitted_density_matches_reference() -> None:
+    """The emitted model's joint log-density equals the inverse-Wishart
+    log density from `scipy.stats.invwishart` on the same draw.
+
+    This is the measure-equivalence check: the helper scores the closed
+    form density in the constrained coordinates, so no change of
+    variables and no Jacobian correction enters `log_prob`.
+    """
+    pyro = pytest.importorskip("pyro")
+    torch = pytest.importorskip("torch")
+    invwishart = pytest.importorskip("scipy.stats").invwishart
+    text, _ = _emit(_INVERSEWISHART_SOURCE)
+    namespace: dict[str, object] = {"pyro": pyro, "torch": torch}
+    exec(text, namespace)  # noqa: S102 - emitted source under test
+    model = namespace["model"]
+    assert callable(model)
+    with pyro.poutine.trace() as tracer:
+        draw = model()
+    assert tuple(draw.shape) == (3, 3)
+    scale_tril = torch.tensor(
+        [list(row) for row in _INVERSEWISHART_SCALE_TRIL],
+        dtype=draw.dtype,
+    )
+    scale = scale_tril @ scale_tril.transpose(-1, -2)
+    reference = float(
+        invwishart.logpdf(
+            draw.detach().numpy(),
+            df=_INVERSEWISHART_DF,
+            scale=scale.numpy(),
+        )
+    )
+    emitted = float(tracer.trace.log_prob_sum())
+    assert emitted == pytest.approx(reference, rel=1e-5, abs=1e-5)
+
+
+def test_inversewishart_sampler_mean_matches_theory() -> None:
+    """The helper's sampler draws from the density it scores: the
+    empirical mean of many draws approaches ``Psi / (nu - d - 1)``,
+    confirming the Wishart-inverse construction is the right law.
+    """
+    torch = pytest.importorskip("torch")
+    runtime = pytest.importorskip("quivers.transpile.runtime_pyro")
+    torch.manual_seed(0)
+    scale_tril = torch.tensor(
+        [list(row) for row in _INVERSEWISHART_SCALE_TRIL]
+    )
+    scale = scale_tril @ scale_tril.transpose(-1, -2)
+    dist = runtime.InverseWishart(
+        torch.tensor(_INVERSEWISHART_DF), scale_tril
+    )
+    draws = dist.sample((40000,))
+    expected = scale / (_INVERSEWISHART_DF - 3.0 - 1.0)
+    assert torch.allclose(draws.mean(0), expected, atol=0.05)
+
+
+def test_relaxed_families_place_temperature_first() -> None:
+    """The relaxed families take `temperature` as their leading
+    constructor slot; the QVR call's first argument lands there and the
+    probability argument follows."""
+    text, stripped = _emit(_RELAXED_SOURCE)
+    assert "pyro.distributions.RelaxedBernoulli(0.5,0.3)" in stripped, text
+    assert (
+        "pyro.distributions.RelaxedOneHotCategorical("
+        "0.25,torch.tensor([0.1,0.2,0.3,0.4]))" in stripped
+    ), text
+
+
 @pytest.mark.parametrize(
     "source",
-    [_LOGITNORMAL_SOURCE, _HALFSTUDENTT_SOURCE, _LKJ_SOURCE],
-    ids=["logitnormal", "halfstudentt", "lkj"],
+    [
+        _LOGITNORMAL_SOURCE,
+        _HALFSTUDENTT_SOURCE,
+        _LKJ_SOURCE,
+        _INVERSEWISHART_SOURCE,
+        _RELAXED_SOURCE,
+    ],
+    ids=[
+        "logitnormal",
+        "halfstudentt",
+        "lkj",
+        "inversewishart",
+        "relaxed",
+    ],
 )
 def test_emitted_model_executes(source: str) -> None:
     """The emitted Pyro model runs end-to-end under a `{pyro, torch}`

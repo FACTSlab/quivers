@@ -40,6 +40,7 @@ from __future__ import annotations
 import pathlib
 
 import panproto
+import torch.distributions.constraints as c
 
 from quivers.transpile._api import UnsupportedConstruct
 from quivers.transpile.renderers._python_helpers import (
@@ -80,7 +81,10 @@ from quivers.transpile.ir import (
     IRReturn,
     IRSample,
     IRScore,
+    LetExprFactor,
+    LetExprList,
     Plate,
+    event_dim_of,
 )
 from quivers.transpile.renderers._base import (
     BlockKind,
@@ -177,12 +181,15 @@ class NumPyroRenderer(RendererBase):
         proto = self.target_protocol()
         sb = proto.schema()
         py = PyCtx(sb, cards=dict(ir.cards), target="numpyro")
+        scalar_refs, bound_refs = _classify_bindings(ir)
         ctx = _NumPyroCtx(
             sb=sb,
             morphisms={},
             lets={},
             py=py,
             observed_names=self._collect_observed(ir),
+            scalar_refs=scalar_refs,
+            bound_refs=bound_refs,
         )
 
         py.v("mod", "module")
@@ -294,7 +301,12 @@ class NumPyroRenderer(RendererBase):
             self._dispatch_body(npctx, body_vid, (latent_dedup,))
         else:  # pragma: no cover -- explicit_latent_scope shape
             self._dispatch_body(npctx, body_vid, (latent,))
-        self._dispatch_body(npctx, body_vid, rewritten[1:])
+        previous_latent = npctx.current_latent
+        npctx.current_latent = node.latent
+        try:
+            self._dispatch_body(npctx, body_vid, rewritten[1:])
+        finally:
+            npctx.current_latent = previous_latent
         return ""
 
     def broadcast(
@@ -511,11 +523,20 @@ class NumPyroRenderer(RendererBase):
             ctx.py.e(body_vid, stmt, "child_of")
             return
         if isinstance(node, IRObserve):
+            args = node.args
+            latent_name = ctx.current_latent
+            if node.via is not None and latent_name is not None:
+                args = tuple(
+                    _wrap_latent_with_via(
+                        a, latent_name=latent_name, via=node.via,
+                    )
+                    for a in args
+                )
             stmt = self._sample_statement(
                 ctx,
                 name=node.name,
                 family=node.family,
-                args=node.args,
+                args=args,
                 arg_names=node.arg_names,
                 plate=node.plate,
                 observed=True,
@@ -921,12 +942,146 @@ class NumPyroRenderer(RendererBase):
             py, ("numpyro", "distributions", target_name)
         )
         aliases = meta.arg_aliases.get(_BACKEND, {})
+        cls_constraints = getattr(
+            meta.distribution_class, "arg_constraints", {},
+        )
+        if not isinstance(cls_constraints, dict):
+            cls_constraints = {}
         keyword: list[tuple[str, str]] = []
         for arg, name in zip(args, arg_names, strict=False):
             emitted_name = aliases.get(name, name)
-            value_vid = self._render_arg(ctx, arg)
+            value_vid = self._render_arg(
+                ctx,
+                self._maybe_broadcast_ref(
+                    ctx,
+                    arg,
+                    arg_name=name,
+                    cls_constraints=cls_constraints,
+                    plate=plate,
+                ),
+            )
             keyword.append((emitted_name, value_vid))
         return call(py, callee, keyword=tuple(keyword))
+
+    def _maybe_broadcast_ref(
+        self,
+        ctx: _NumPyroCtx,
+        arg: IRArg,
+        *,
+        arg_name: str,
+        cls_constraints: dict[str, c.Constraint],
+        plate: Plate,
+    ) -> IRArg:
+        """Wrap a scalar [`IRArgRef`][quivers.transpile.ir.IRArgRef] in
+        [`IRArgBroadcast`][quivers.transpile.ir.IRArgBroadcast] when the
+        family's ``arg_constraints[arg_name]`` expects a vector or a
+        matrix.
+
+        `Lower` leaves an [`IRArgRef`][quivers.transpile.ir.IRArgRef]
+        unwrapped on the assumption the referenced binding already has
+        the right shape. That holds for a genuinely vector-valued
+        binding but not for a scalar one, whether a free scalar data
+        input or a let-bound scalar literal / expression:
+        ``Dirichlet(concentration=a)`` with a scalar ``a`` is a rank
+        error in NumPyro. Broadcasting to the surrounding plate's event
+        axes recovers the declared shape, and a constant concentration
+        vector is exactly what the QVR ``[over=...]`` clause denotes.
+
+        Scalar-ness is read from the IR classification carried on `ctx`
+        (`scalar_refs` / `bound_refs`), never from `IRProgram.inputs`
+        alone, so a let-bound scalar is repaired identically to a free
+        one. A reference the classification cannot resolve raises rather
+        than emitting an unverified rank; a dynamic or under-ranked
+        event axis likewise raises rather than silently passing through.
+        """
+        expected = cls_constraints.get(arg_name)
+        expected_event_dim = (
+            expected.event_dim
+            if isinstance(expected, c._IndependentConstraint)
+            else 0
+        )
+        if expected_event_dim < 1:
+            # Scalar-parameter slot (loc, scale, rate, probs-as-simplex,
+            # ...): a scalar reference already satisfies it and a
+            # vector-valued one is emitted verbatim. Nothing to lift.
+            return arg
+        if not isinstance(arg, IRArgRef):
+            # `IRArgList` / `IRArgMatrix` are literal vectors / matrices,
+            # `IRArgBroadcast` is a scalar `Lower` already broadcast, and
+            # `IRArgFamilyRef` names a component distribution: each
+            # reaches a vector / matrix slot already correctly shaped.
+            return arg
+        if arg.indices:
+            # An indexed reference (`mu[g]`) selects along a batch axis,
+            # so its rank is fixed by the indexing rather than by this
+            # slot; the referenced binding already carries the event
+            # shape at the selected position.
+            return arg
+        if arg.name in ctx.scalar_refs:
+            target = self._static_event_shape(
+                plate, expected_event_dim, arg_name
+            )
+            return IRArgBroadcast(value=arg, target_shape=target)
+        if arg.name in ctx.bound_refs:
+            # The referenced binding already carries a vector / matrix
+            # shape (a sampled simplex, a declared vector input, a
+            # let-bound list literal); emit it unchanged.
+            return arg
+        raise UnsupportedConstruct(
+            "qvr-numpyro",
+            [
+                f"broadcast:{arg_name}:unresolved-ref:{arg.name}: cannot "
+                "classify the referenced binding's shape to decide "
+                "whether a scalar-to-event broadcast is required"
+            ],
+        )
+
+    def _static_event_shape(
+        self, plate: Plate, event_dim: int, arg_name: str
+    ) -> tuple[int, ...]:
+        """The static event shape a scalar arg must broadcast to.
+
+        Takes the first `event_dim` axes off the sample's
+        [`Plate.event_dims`][quivers.transpile.ir.Plate]. A plate that
+        carries fewer event axes than the constraint requires, or an
+        axis whose length is only known at run time
+        ([`DimDynamic`][quivers.transpile.ir.DimDynamic]), raises:
+        NumPyro's ``jnp.full`` broadcast needs a compile-time shape, and
+        silently dropping the axis would regress a dynamic event axis to
+        a rank error.
+        """
+        dims = plate.event_dims
+        if len(dims) < event_dim:
+            raise UnsupportedConstruct(
+                "qvr-numpyro",
+                [
+                    f"broadcast:{arg_name}:event-rank:{len(dims)}<"
+                    f"{event_dim}: the sample's plate carries fewer event "
+                    "axes than the family constraint requires"
+                ],
+            )
+        sizes: list[int] = []
+        for dim in dims[:event_dim]:
+            if isinstance(dim, DimStatic):
+                sizes.append(dim.size)
+            elif isinstance(dim, DimDynamic):
+                raise UnsupportedConstruct(
+                    "qvr-numpyro",
+                    [
+                        f"broadcast:{arg_name}:dynamic-event-axis:"
+                        f"{dim.name}: NumPyro's jnp.full broadcast needs "
+                        "a static event size"
+                    ],
+                )
+            else:
+                raise UnsupportedConstruct(
+                    "qvr-numpyro",
+                    [
+                        f"broadcast:{arg_name}:event-dim-kind:"
+                        f"{type(dim).__name__}"
+                    ],
+                )
+        return tuple(sizes)
 
     def _negative_binomial2_call(
         self,
@@ -1429,12 +1584,78 @@ class _NumPyroCtx(_RenderCtx):
         lets: dict,
         py: PyCtx,
         observed_names: set[str],
+        scalar_refs: frozenset[str],
+        bound_refs: frozenset[str],
     ) -> None:
         super().__init__(sb=sb, morphisms=morphisms, defines=lets)
         self.py = py
         self.observed_names = observed_names
+        #: Names of scalar-shaped bindings (empty plate, scalar support
+        #: for inputs / samples / observes / marginalize latents;
+        #: non-list / non-factor let-bindings). Broadcast candidates.
+        self.scalar_refs = scalar_refs
+        #: Every bindable name in the program (inputs plus body,
+        #: descending into marginalize scopes). A vector-slot reference
+        #: outside this set is unresolvable and raises.
+        self.bound_refs = bound_refs
         self.current_body: str | None = None
         self.emitted_plate_names: set[str] = set()
+        self.current_latent: str | None = None
+
+
+def _wrap_latent_with_via(
+    arg: IRArg, *, latent_name: str, via: str
+) -> IRArg:
+    """Rewrite an IR arg by appending a `[via]` index to every
+    [`IRArgRef`][quivers.transpile.ir.IRArgRef] naming the
+    marginalize-scoped latent.
+
+    An inner `observe ... [via=f]` says the observation's own batch
+    axis fibres over the latent's grouping axis through `f`, so the
+    latent must be gathered at the observation's index before it can
+    index anything else. `phi[z]` with `latent_name='z'` and
+    `via='word_idx'` becomes `phi[z[word_idx]]`, which carries the
+    observation's batch shape rather than the latent's.
+    """
+    if isinstance(arg, IRArgRef):
+        inner = tuple(
+            _wrap_latent_with_via(i, latent_name=latent_name, via=via)
+            for i in arg.indices
+        )
+        if arg.name == latent_name:
+            return IRArgRef(
+                name=arg.name, indices=(*inner, IRArgRef(name=via)),
+            )
+        return IRArgRef(name=arg.name, indices=inner)
+    if isinstance(arg, IRArgBroadcast):
+        return IRArgBroadcast(
+            value=_wrap_latent_with_via(
+                arg.value, latent_name=latent_name, via=via,
+            ),
+            target_shape=arg.target_shape,
+        )
+    if isinstance(arg, IRArgList):
+        return IRArgList(
+            elements=tuple(
+                _wrap_latent_with_via(e, latent_name=latent_name, via=via)
+                for e in arg.elements
+            ),
+        )
+    if isinstance(arg, IRArgMatrix):
+        return IRArgMatrix(
+            rows=tuple(
+                IRArgList(
+                    elements=tuple(
+                        _wrap_latent_with_via(
+                            e, latent_name=latent_name, via=via,
+                        )
+                        for e in row.elements
+                    ),
+                )
+                for row in arg.rows
+            ),
+        )
+    return arg
 
 
 def _as_numpyro_ctx(ctx: _RenderCtx) -> _NumPyroCtx:
@@ -1447,6 +1668,60 @@ def _as_numpyro_ctx(ctx: _RenderCtx) -> _NumPyroCtx:
             ["ctx:type-mismatch"],
         )
     return ctx
+
+
+def _is_scalar_shape(plate: Plate) -> bool:
+    """A binding whose plate carries neither batch nor event axes is
+    rank-0 in every replicated / joint dimension."""
+    return not plate.batch_dims and not plate.event_dims
+
+
+def _classify_bindings(
+    ir: IRProgram,
+) -> tuple[frozenset[str], frozenset[str]]:
+    """Classify every bindable name in `ir` as scalar and / or bound.
+
+    Returns ``(scalar_refs, bound_refs)``. A name is *bound* when the
+    program introduces it (a data input, sample, observe, deterministic
+    let, or marginalize latent). A bound name is *scalar* when it is
+    rank-0: an empty plate plus a scalar-support constraint for the
+    stochastic / input bindings, and an empty plate whose let-expression
+    is not a vector-producing list / factor construct for the
+    deterministic ones. A let-bound scalar literal therefore lands in
+    `scalar_refs` exactly like a free scalar input, so the NumPyro
+    broadcast fires on both.
+    """
+    scalar: set[str] = set()
+    bound: set[str] = set()
+
+    def _record_stochastic(
+        name: str, plate: Plate, constraint: ConstraintSpec
+    ) -> None:
+        bound.add(name)
+        if _is_scalar_shape(plate) and (
+            event_dim_of(constraint.to_constraint()) == 0
+        ):
+            scalar.add(name)
+
+    def _visit(nodes: tuple[IRNode, ...]) -> None:
+        for node in nodes:
+            if isinstance(node, (IRDataInput, IRSample, IRObserve)):
+                _record_stochastic(node.name, node.plate, node.constraint)
+            elif isinstance(node, IRDeterministic):
+                bound.add(node.name)
+                if _is_scalar_shape(node.plate) and not isinstance(
+                    node.expr, (LetExprList, LetExprFactor)
+                ):
+                    scalar.add(node.name)
+            elif isinstance(node, IRMarginalize):
+                _record_stochastic(
+                    node.latent, node.plate, node.constraint
+                )
+                _visit(node.scope)
+
+    _visit(ir.inputs)
+    _visit(ir.body)
+    return frozenset(scalar), frozenset(bound)
 
 
 # ---------------------------------------------------------------------------

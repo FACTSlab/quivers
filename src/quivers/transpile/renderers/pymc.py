@@ -462,6 +462,11 @@ class PyMCRenderer(RendererBase):
         if node.family == "Geometric":
             self._emit_geometric(ctx, node, observed_name=observed_name)
             return
+        if node.family == "LKJCholesky":
+            self._emit_lkj_cholesky(
+                ctx, node, observed_name=observed_name,
+            )
+            return
         meta = _resolve_meta(node.family, self.target)
         dist_class = meta.target_names.get("pymc")
         if dist_class is None:
@@ -631,6 +636,75 @@ class PyMCRenderer(RendererBase):
         stmt = py.v(py.fresh("es"), "expression_statement")
         py.e(stmt, rhs, "child_of")
         py.e(ctx.with_body, stmt, "child_of")
+
+    def _emit_lkj_cholesky(
+        self,
+        ctx: _PyMCCtx,
+        node: IRSample | IRObserve,
+        *,
+        observed_name: str | None,
+    ) -> None:
+        """Emit `LKJCholesky("<name>", n=<dim>, eta=<concentration>)`,
+        the grafted runtime helper from
+        [`runtime_pymc.py`][quivers.transpile.runtime_pymc].
+
+        PyMC ships no distribution over correlation Cholesky factors
+        alone, so the helper supplies the exact factor density. The
+        correlation-matrix dimension is a constructor argument rather
+        than a `dims` entry: the variable is square over one QVR event
+        axis, which a single-name `dims` tuple cannot express."""
+        py = ctx.py
+        meta = _resolve_meta("LKJCholesky", self.target)
+        aliases = _merged_aliases(meta)
+        via = getattr(node, "via", None)
+        latent_name = ctx.current_latent
+
+        keyword: list[tuple[str, str]] = [
+            ("n", number_literal(py, self._lkj_dimension(node.plate))),
+        ]
+        for arg, arg_name in zip(node.args, node.arg_names, strict=True):
+            arg_to_emit = arg
+            if via is not None and latent_name is not None:
+                arg_to_emit = _wrap_latent_with_via(
+                    arg, latent_name=latent_name, via=via,
+                )
+            keyword.append(
+                (
+                    aliases.get(arg_name, arg_name),
+                    self._render_arg(ctx, arg_to_emit),
+                )
+            )
+        if observed_name is not None:
+            keyword.append(("observed", identifier(py, observed_name)))
+
+        rhs = call(
+            py,
+            identifier(py, _PYMC_RUNTIME_HELPER_FAMILIES["LKJCholesky"]),
+            positional=(string_literal(py, node.name),),
+            keyword=tuple(keyword),
+        )
+        if observed_name is None:
+            stmt = assignment(py, lhs_name=node.name, rhs=rhs)
+        else:
+            stmt = py.v(py.fresh("es"), "expression_statement")
+            py.e(stmt, rhs, "child_of")
+        py.e(ctx.with_body, stmt, "child_of")
+
+    def _lkj_dimension(self, plate: Plate) -> int:
+        """The square-matrix dimension of an `LKJCholesky` draw, read
+        from the first event dim of the sample's plate."""
+        if not plate.event_dims:
+            raise UnsupportedConstruct(
+                self.target,
+                ["family:LKJCholesky:missing-event-dimension"],
+            )
+        first = plate.event_dims[0]
+        if not isinstance(first, DimStatic):
+            raise UnsupportedConstruct(
+                self.target,
+                ["family:LKJCholesky:non-static-event-dimension"],
+            )
+        return int(first.size)
 
     def _maybe_broadcast_ref(
         self,
@@ -1001,20 +1075,6 @@ def _resolve_meta(family: str, target: str) -> FamilyMeta:
     return meta
 
 
-#: Per-family PyMC arg renames the renderer applies on top of
-#: [`FamilyMeta.arg_aliases`][quivers.transpile.family_meta.FamilyMeta].
-#: Each maps a torch canonical arg name to the keyword PyMC's
-#: constructor expects. These correct call-sites where PyMC's
-#: parameter name differs from the shared spec: `Poisson(mu)`,
-#: `ChiSquared(nu)`, `Kumaraswamy(a, b)`, and `Wishart(nu, V)`.
-_PYMC_ALIAS_FIXUPS: dict[str, dict[str, str]] = {
-    "Poisson": {"rate": "mu"},
-    "Chi2": {"df": "nu"},
-    "Kumaraswamy": {"concentration1": "a", "concentration0": "b"},
-    "Wishart": {"df": "nu", "covariance_matrix": "V"},
-}
-
-
 #: Families PyMC does not ship, resolved to a grafted runtime helper
 #: called by bare name. The value is both the emitted call name and
 #: the top-level function in
@@ -1022,6 +1082,7 @@ _PYMC_ALIAS_FIXUPS: dict[str, dict[str, str]] = {
 #: renderer grafts into the module.
 _PYMC_RUNTIME_HELPER_FAMILIES: dict[str, str] = {
     "ContinuousBernoulli": "ContinuousBernoulli",
+    "LKJCholesky": "LKJCholesky",
 }
 
 
@@ -1038,15 +1099,10 @@ _PYMC_COMPLEMENT_ARGS: dict[str, frozenset[str]] = {
 def _merged_aliases(meta: FamilyMeta) -> dict[str, str]:
     """Return the PyMC alias map for `meta`: the per-family arg
     renames keyed under `"pymc"` in
-    [`FAMILY_META`][quivers.transpile.family_meta.FAMILY_META],
-    overlaid with the renderer-local
-    [`_PYMC_ALIAS_FIXUPS`][quivers.transpile.renderers.pymc._PYMC_ALIAS_FIXUPS]
-    for `meta`'s family. The fixups win on key collision, so a family
-    whose central alias names the wrong PyMC keyword is corrected
-    here."""
-    merged = dict(meta.arg_aliases.get("pymc", {}))
-    merged.update(_PYMC_ALIAS_FIXUPS.get(meta.qvr_name, {}))
-    return merged
+    [`FAMILY_META`][quivers.transpile.family_meta.FAMILY_META], which
+    map each torch canonical argument name to the keyword PyMC's
+    constructor expects."""
+    return dict(meta.arg_aliases.get("pymc", {}))
 
 
 def _wrap_latent_with_via(
@@ -1215,9 +1271,20 @@ def _subtree_vertex_ids(
 
 
 _RUNTIME_PYMC_SCHEMA, _RUNTIME_PYMC_ROOTS = _load_runtime_pymc_helpers()
-_RUNTIME_PYMC_SUBTREE: set[str] = set()
+_RUNTIME_PYMC_REACHABLE: set[str] = set()
 for _root in _RUNTIME_PYMC_ROOTS:
-    _RUNTIME_PYMC_SUBTREE |= _subtree_vertex_ids(_RUNTIME_PYMC_SCHEMA, _root)
+    _RUNTIME_PYMC_REACHABLE |= _subtree_vertex_ids(
+        _RUNTIME_PYMC_SCHEMA, _root
+    )
+
+#: The grafted vertices in the parsed schema's own vertex order, so a
+#: render assigns fresh ids, and the pretty printer emits the helper
+#: definitions, in a fixed sequence.
+_RUNTIME_PYMC_SUBTREE: tuple[str, ...] = tuple(
+    v.id
+    for v in _RUNTIME_PYMC_SCHEMA.vertices
+    if v.id in _RUNTIME_PYMC_REACHABLE
+)
 
 
 def _ir_uses_family(body: tuple[IRNode, ...], family: str) -> bool:

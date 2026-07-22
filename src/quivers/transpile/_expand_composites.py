@@ -34,27 +34,18 @@ The pass operates at the Module level: it rebuilds every
    resolve transitively, so `let backbone = ... >> compose_alias`
    expands the alias in place.
 
-2. **MarginalizeStep**: the discrete-marginalization step
-
-       marginalize cls : T <- Categorical(probs) [over=...]:
-           observe r <- Normal(mu[cls], sigma)
-
-   rewrites to a plain sample-then-observe pair:
-
-       sample cls <- Categorical(probs)
-       observe r  <- Normal(mu[cls], sigma)
-
-   The rewrite is operationally equivalent under MCMC inference for
-   any backend that supports discrete-latent sampling (NumPyro, Pyro,
-   PyMC, Turing.jl, Gen.jl, Church, WebPPL, BUGS, JAGS). Stan does
-   not natively sample discrete parameters and requires explicit
-   `log_sum_exp` marginalization; for Stan the rewrite produces
-   `categorical(probs)` in a parameter block, which Stan's compiler
-   will reject. (Stan-specific marginalization is tracked as future
-   walker work; see `docs/semantics/transpile-correctness.md` §5.6.)
-
-3. **ScoreStep** / **LetStep**: passthrough; the per-target
-   renderer reads them directly.
+2. **MarginalizeStep** / **ScoreStep** / **LetStep**: passthrough
+   apart from expanding composite-let references inside a
+   marginalize scope. A marginalize step's axis roles are not
+   expressible as a `SampleStep`: its `[over=...]` names the
+   grouping (batch) axes while its `: T` index names either the
+   enumerated support or, for a non-enumerable latent, a
+   replication axis. Lowering resolves those roles against the
+   family metadata, so the step reaches each renderer intact as an
+   [`IRMarginalize`][quivers.transpile.ir.IRMarginalize]. Backends
+   that sample discrete latents natively rewrite it to a sample
+   plus inline scope through `RendererBase.explicit_latent_scope`,
+   which reuses the lowered plate.
 """
 
 from __future__ import annotations
@@ -180,6 +171,13 @@ def expand_composite_lets(
     The returned `Module` shares vertex identity with the input for
     every non-rewritten statement; only the `program_decl`s with
     composite-let references are rebuilt.
+
+    The rewrite is target-independent: every backend consumes the same
+    expanded AST, and the choice of whether to enumerate or to sample a
+    marginalize latent is each renderer's, taken against the lowered
+    [`IRMarginalize`][quivers.transpile.ir.IRMarginalize]. `target` is
+    accepted so callers can name the backend they are compiling for
+    without the pass branching on it.
     """
     morphism_table: dict[str, MorphismDecl] = {
         name: s
@@ -191,14 +189,7 @@ def expand_composite_lets(
         s.name: s.expr for s in module.statements if isinstance(s, DefineDecl)
     }
 
-    # Stan needs explicit `log_sum_exp` marginalization (it cannot
-    # natively sample discrete parameters); for Stan we leave
-    # MarginalizeStep nodes intact and let the Stan walker emit the
-    # enumeration loop. Every other backend (NumPyro / Pyro / PyMC /
-    # Edward2 / Turing / Gen / Church / WebPPL / BUGS / JAGS)
-    # natively samples discrete latents under MCMC, so the
-    # sample-then-scope rewrite is operationally correct.
-    flatten_marginalize = target != "stan"
+    del target
     new_statements: list = []
     for stmt in module.statements:
         if isinstance(stmt, ProgramDecl):
@@ -206,7 +197,6 @@ def expand_composite_lets(
                 stmt.draws,
                 morphisms=morphism_table,
                 lets=let_table,
-                flatten_marginalize=flatten_marginalize,
             )
             if new_draws is stmt.draws:
                 new_statements.append(stmt)
@@ -222,36 +212,30 @@ def _expand_draws(
     *,
     morphisms: dict[str, MorphismDecl],
     lets: dict[str, Expr],
-    flatten_marginalize: bool = True,
 ) -> tuple[ProgramStep, ...]:
     """Expand every SampleStep / ObserveStep whose morphism slot
-    resolves to a composite-let chain. When `flatten_marginalize` is
-    True (the default for every backend except Stan), flatten every
-    MarginalizeStep into a sample-then-scope-body sequence."""
+    resolves to a composite-let chain.
+
+    A `MarginalizeStep` passes through with its axis roles intact:
+    its `[over=...]` names the grouping (batch) axes while its `: T`
+    index names either the enumerated support or a replication axis,
+    a distinction `SampleStep` has no slot for. Only the step's scope
+    is rewritten, so composite-let references nested under a
+    marginalize still expand.
+    """
     any_changed = False
     out: list[ProgramStep] = []
     counter = 0
     for step in draws:
-        if isinstance(step, MarginalizeStep) and flatten_marginalize:
-            any_changed = True
-            # Rewrite `marginalize cls <- F(args): scope` as
-            # `sample cls <- F(args); scope...`. Operationally
-            # equivalent under MCMC for backends that support discrete-
-            # latent sampling; Stan-specific log_sum_exp emission is
-            # future walker work.
-            out.append(SampleStep(
-                vars=(step.var,),
-                morphism=step.morphism,
-                args=step.args,
-                index=step.index,
-                options=step.options,
-                line=step.line,
-                col=step.col,
-            ))
+        if isinstance(step, MarginalizeStep):
             scope_expanded = _expand_draws(
                 step.scope, morphisms=morphisms, lets=lets,
             )
-            out.extend(scope_expanded)
+            if scope_expanded is step.scope:
+                out.append(step)
+            else:
+                any_changed = True
+                out.append(step.with_(scope=scope_expanded))
             continue
         if isinstance(step, (SampleStep, ObserveStep)):
             chain = _resolve_to_chain(
