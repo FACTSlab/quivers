@@ -270,6 +270,7 @@ _SKIP_PROBE_INCOMPATIBLE: frozenset[tuple[str, str]] = frozenset({
     ('jags', 'factor_analysis'),
     ('jags', 'gamma_regression'),
     ('jags', 'gru_lm'),
+    ('jags', 'hmm'),
     ('jags', 'horseshoe_regression'),
     ('jags', 'irt_2pl'),
     ('jags', 'lda'),
