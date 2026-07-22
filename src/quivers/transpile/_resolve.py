@@ -224,6 +224,23 @@ def resolve_step_dist(
 
     if morphism_name in morphisms:
         decl = morphisms[morphism_name]
+        param_source = next(
+            (e.value.value for e in decl.options if e.key == "param_source"),
+            None,
+        )
+        if param_source is not None:
+            msg = (
+                f"morphism {morphism_name!r} draws its parameters from a "
+                f"{param_source!r} network. The network's weights are "
+                f"model-internal and appear in neither the wire form nor the "
+                f"sample sites, so no backend can reconstruct the mean the "
+                f"morphism computes. Express the network as explicit sampled "
+                f"weights and a deterministic forward pass, or observe against "
+                f"a closed-form family."
+            )
+            raise UnsupportedConstruct(
+                target, [f"param-source:{param_source}", msg]
+            )
         if decl.init_family is not None:
             return _from_init_family(
                 morphism_name=morphism_name,

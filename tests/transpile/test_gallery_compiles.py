@@ -161,6 +161,24 @@ _EXPECTED_UNSUPPORTED: dict[tuple[str, str], str] = {
     ("stan", "montague_nli"): "let-expr:LetExprMethodCall",
 }
 
+# 5. Neural morphisms (`param_source=mlp`) compute their mean with a
+#    network whose weights are model-internal: they appear in neither
+#    the wire form nor the sample sites, so no backend can reconstruct
+#    the mean. The transpiler raises rather than emit a meanless
+#    observation. Every syntax-check backend is affected.
+for _neural_example in (
+    "bnn",
+    "bidirectional_rnn_lm",
+    "deep_markov",
+    "seq2seq",
+    "transformer_lm",
+    "vae",
+):
+    for _syntax_backend in _SYNTAX_CHECKS:
+        _EXPECTED_UNSUPPORTED[(_syntax_backend, _neural_example)] = (
+            "param-source:mlp"
+        )
+
 
 @pytest.mark.parametrize(
     "example", _gallery_examples(), ids=lambda p: p.stem
