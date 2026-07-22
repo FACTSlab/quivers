@@ -569,7 +569,10 @@ def test_gallery_backend_logdensity_matches_qvr(
 
     point = _gallery_data.point_from_dataset(dataset)
     qvr_probe = QvrProbe()
-    scratch = pathlib.Path("/tmp") / f"qvr_gallery_eq_{example.stem}"
+    # Isolate the bind-mounted scratch per (backend, example) so a
+    # probe never mounts a source or helper file another backend's run
+    # left behind in a shared directory.
+    scratch = pathlib.Path("/tmp") / f"qvr_gallery_eq_{example.stem}_{backend}"
     scratch.mkdir(exist_ok=True, parents=True)
     qvr_result = qvr_probe.evaluate(
         source,
