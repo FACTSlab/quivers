@@ -157,6 +157,13 @@ _EXPECTED_TRANSPILE_RAISES: dict[tuple[str, str], str] = {
     ("jags", "zip_regression"): "family:",
 }
 
+# bnn's `net` morphism draws its mean from an `mlp` param source. The
+# network weights are model-internal, absent from both the wire form
+# and the sample sites, so no backend can reconstruct the mean; the
+# transpiler raises on every backend.
+for _bnn_backend in _BACKENDS_WITH_IMAGES:
+    _EXPECTED_TRANSPILE_RAISES[(_bnn_backend, "bnn")] = "param-source:mlp"
+
 # Gallery examples whose `.md` synthetic-data snippet fails to
 # `exec` (raises at runtime, or never sets the `observations`
 # dict). Numeric evaluation has no point set, so the cell skips.
