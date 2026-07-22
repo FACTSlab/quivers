@@ -44,6 +44,7 @@ from quivers.continuous._zip_hurdle import (
 )
 from quivers.continuous.measure import (
     Independent as _MeasureIndependent,
+    Measure as _Measure,
     Mixture as _MeasureMixture,
     Normalize as _MeasureNormalize,
     PointMass as _MeasurePointMass,
@@ -143,9 +144,29 @@ class FixedDistribution(ContinuousMorphism):
         torch.Tensor
             Log-probabilities. Shape ``(batch,)``.
         """
-        batch = x.shape[0]
-        dist = self._make_dist_fn(batch, x.device)
-        lp = dist.log_prob(y.float() if self._discrete else y)
+        value = y.float() if self._discrete else y
+        # The distribution's parameters are shared constants, so the
+        # density is built once (batch of one) and its constant
+        # parameters broadcast against whatever value is scored: a
+        # globally-shared prior clamped to a single draw scores once, a
+        # per-row batch broadcasts to that batch, and a value carrying
+        # the family's own event axis (a Dirichlet simplex, say) keeps
+        # that axis as the event rather than mistaking it for a batch.
+        # Building at the value's leading axis instead would replicate a
+        # shared prior across the program's response count, or read an
+        # event coordinate as a batch row.
+        device = value.device if value.dim() >= 1 else x.device
+        dist = self._make_dist_fn(1, device)
+        # A `Measure` (an operator-algebra sub-distribution such as
+        # the `Restrict` a desugared half-family produces) carries its
+        # residual mass symbolically in ``log_normalizer``; the
+        # sample / observe boundary is where the algebra collapses it
+        # to a probability density, so we score the renormalised
+        # log-density here rather than the raw sub-measure value.
+        if isinstance(dist, _Measure):
+            lp = dist.log_prob_normalized(value)
+        else:
+            lp = dist.log_prob(value)
         if lp.dim() > 1:
             return lp.sum(dim=-1)
         return lp
@@ -1247,18 +1268,12 @@ class _BetaBinomial(D.Distribution):
         b = self.concentration0.to(value.dtype)
         k = value.to(value.dtype)
         log_comb = (
-            torch.lgamma(n + 1.0)
-            - torch.lgamma(k + 1.0)
-            - torch.lgamma(n - k + 1.0)
+            torch.lgamma(n + 1.0) - torch.lgamma(k + 1.0) - torch.lgamma(n - k + 1.0)
         )
         log_beta_post = (
-            torch.lgamma(a + k)
-            + torch.lgamma(b + n - k)
-            - torch.lgamma(a + b + n)
+            torch.lgamma(a + k) + torch.lgamma(b + n - k) - torch.lgamma(a + b + n)
         )
-        log_beta_prior = (
-            torch.lgamma(a) + torch.lgamma(b) - torch.lgamma(a + b)
-        )
+        log_beta_prior = torch.lgamma(a) + torch.lgamma(b) - torch.lgamma(a + b)
         return log_comb + log_beta_post - log_beta_prior
 
     def sample(self, sample_shape: torch.Size = torch.Size()) -> torch.Tensor:

@@ -342,16 +342,18 @@ def test_two_task_mixture_recovers_joint_proportions() -> None:
     ll_b[: n_b // 2, 0] = 1.0
     ll_b[n_b // 2 :, 1] = 1.0
     obs = {
-        "probs": torch.tensor([0.5, 0.5]),
         "idx_a": torch.tensor([0, 0, 1, 1, 2, 2, 3, 3]),
         "idx_b": torch.tensor([0, 1, 2, 3, 0, 1]),
         "_grouped_ll_cls_0": ll_a,
         "_grouped_ll_cls_1": ll_b,
     }
+    # `probs` is the latent the two heterogeneous observe blocks jointly
+    # identify, so it is inferred rather than clamped; the guide carries
+    # its variational parameters. The fibration indices and the grouped
+    # per-axis log-likelihoods are data.
     guide = AutoNormalGuide(
         model,
         observed_names={
-            "probs",
             "idx_a",
             "idx_b",
             "_grouped_ll_cls_0",

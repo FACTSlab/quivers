@@ -2485,6 +2485,36 @@ class _ProgramsMixin:
                                 )
                         probs = env[_probs]
                         log_prior = torch.log(probs.clamp_min(1e-38))
+                        # A per-group prior (the categorical's ``probs``
+                        # is indexed by the grouping plate, shape
+                        # ``(|G|, K)``) denotes a per-row latent: each
+                        # response row draws its own class from its
+                        # group's prior ``theta[g(row)]``, so the row's
+                        # marginal is ``rho_k(log theta[g(row)][k] +
+                        # ll[row, k])`` and the block contributes the
+                        # sum over rows. A global ``(K,)`` prior instead
+                        # denotes one class shared across each group's
+                        # rows, scored by scatter-summing the rows'
+                        # log-likelihoods into the group before the
+                        # reduction.
+                        per_group_prior = (
+                            not _product
+                            and log_prior.dim() == 2
+                            and log_prior.shape[0] == _sizes[0]
+                        )
+                        if per_group_prior:
+                            total = log_prior.new_zeros(())
+                            for ll, idx in zip(ll_list, idx_list):
+                                gathered = log_prior[idx]
+                                weighted = gathered + ll
+                                if _reduction == "logsumexp":
+                                    per_row = torch.logsumexp(weighted, dim=-1)
+                                elif _reduction == "sum":
+                                    per_row = weighted.sum(dim=-1)
+                                else:
+                                    per_row = weighted.mean(dim=-1)
+                                total = total + per_row.sum()
+                            return total.reshape(1)
                         result = marginalize_grouped(
                             ll_list,
                             idx_list,
@@ -2777,6 +2807,7 @@ class _ProgramsMixin:
                 draw.args,
                 draw.vars,
                 program_codomain if axes_override is None else axes_override,
+                event_axis=axes_override,
             )
             morph, var_args = make_inline_distribution(
                 draw.morphism,
@@ -2838,12 +2869,36 @@ class _ProgramsMixin:
             return float(arg.value)
         return None
 
+    @staticmethod
+    def _axis_event_size(space: object) -> int | None:
+        """Cardinality of an explicit ``over=`` event axis, or None.
+
+        A finite-set axis contributes its cardinality, a continuous
+        axis its ``dim``, and a product axis the product of its
+        components' sizes. Anything else yields None (no resolvable
+        event width).
+        """
+        if isinstance(space, SetObject):
+            return int(space.cardinality)
+        if isinstance(space, ContinuousSpace):
+            return int(space.dim)
+        if isinstance(space, (ProductSet, ProductSpace)):
+            total = 1
+            for comp in space.components:
+                sub = _ProgramsMixin._axis_event_size(comp)
+                if sub is None:
+                    return None
+                total *= sub
+            return total
+        return None
+
     def _infer_inline_codomain(
         self,
         family: str,
         args: tuple,
         var_names: tuple[str, ...],
         program_codomain: object,
+        event_axis: object | None = None,
     ):
         """Infer the codomain for an inline distribution.
 
@@ -2857,12 +2912,34 @@ class _ProgramsMixin:
             Bound variable name(s).
         program_codomain : object
             The program's declared codomain.
+        event_axis : object or None
+            The object named by an explicit ``[over=...]`` clause,
+            when present. A scalar-per-draw family paired with an
+            event axis of cardinality ``K`` draws a ``K``-vector of
+            independent variates per plate row, so its per-row codomain
+            becomes ``K``-dimensional rather than scalar. Families
+            whose event dimension already flows from
+            ``program_codomain`` (Dirichlet's simplex) ignore this.
 
         Returns
         -------
         AnySpace
             The inferred codomain.
         """
+        event_size = (
+            self._axis_event_size(event_axis) if event_axis is not None else None
+        )
+        if event_size is not None and event_size > 1:
+            if family in ("Normal", "LogitNormal", "Uniform", "TruncatedNormal"):
+                return Euclidean(name=f"_{var_names[0]}", dim=event_size)
+            if family in (
+                "Exponential",
+                "HalfCauchy",
+                "HalfNormal",
+                "LogNormal",
+                "Gamma",
+            ):
+                return PositiveReals(name=f"_{var_names[0]}", dim=event_size)
         if family == "LogitNormal":
             return UnitInterval(f"_{var_names[0]}")
         elif family == "Bernoulli":

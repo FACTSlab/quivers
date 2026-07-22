@@ -3117,11 +3117,11 @@ _register_family(
     FamilySpec(
         name="Categorical",
         dist_class=D.Categorical,
-        params=(ParamSpec(name="logits", transform="id", kind="vector"),),
+        params=(ParamSpec(name="probs", transform="id", kind="vector"),),
         support=_constraints.nonnegative_integer,
         discrete=True,
         output_kind="categorical",
-        docstring="Conditional Categorical(logits(x)) over {0, ..., k-1}.",
+        docstring="Conditional Categorical(probs(x)) over {0, ..., k-1}.",
         conditional_class_override=ConditionalCategorical,
     )
 )
