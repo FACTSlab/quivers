@@ -4,6 +4,12 @@ All notable changes to the quivers library are documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/), and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.17.0] - 2026-07-22
+
+### Added
+
+- **A zero-one-inflated beta family for proportions that pile up at their endpoints.** Rates, shares, and probabilities are frequently recorded with exact zeros and exact ones, which a beta likelihood cannot represent: its density vanishes at both endpoints, so the boundary observations either have to be nudged inward or dropped. `ZeroOneInflatedBeta(mu, phi, zoi, coi)` mixes point masses at 0 and 1 with a beta on the open interval, taking `zoi` as the probability that an observation is an endpoint at all and `coi` as the probability that such an endpoint is 1. The continuous part uses the mean-precision parameterisation, so `mu` remains the mean of the beta component and `phi` its precision. The formula frontend names it `zero_one_inflated_beta`, with a logit link on the mean and on both inflation probabilities and a log link on the precision.
+
 ## [0.16.0] - 2026-07-15
 
 ### Changed
