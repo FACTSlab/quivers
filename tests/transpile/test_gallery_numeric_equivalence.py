@@ -146,11 +146,11 @@ _EXPECTED_TRANSPILE_RAISES: dict[tuple[str, str], str] = {
     ("pymc", "ppca"): "let-expr:LetExprCall",
     ("pyro", "factor_analysis"): "let-expr:LetExprCall",
     ("pyro", "ppca"): "let-expr:LetExprCall",
-    # hmm / lda broadcast a literal scalar to a vector; JAGS and BUGS
-    # have no scalar-to-vector broadcast primitive.
+    # hmm / lda broadcast a literal scalar concentration to a vector.
+    # JAGS spells this with `rep(v, K)`, so the JAGS cells transpile;
+    # the BUGS renderer does not emit the broadcast and raises.
     ("bugs", "hmm"): "arg:broadcast",
     ("bugs", "lda"): "arg:broadcast",
-    ("jags", "hmm"): "arg:broadcast",
     # zip_regression names `ContinuousBernoulli`, which has no JAGS /
     # BUGS target name.
     ("bugs", "zip_regression"): "family:",

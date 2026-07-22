@@ -114,6 +114,7 @@ from quivers.transpile._resolve import (
 from quivers.transpile.family_meta import (
     FAMILY_META,
     FamilyMeta,
+    finite_enumerable_at_call_site,
 )
 from quivers.transpile.ir import (
     CSIntegerInterval,
@@ -802,9 +803,26 @@ class Lower(dx.Mapping[Module, IRProgram]):
         meta: FamilyMeta,
         ir_args: tuple[IRArg, ...],
     ) -> Plate:
-        """The marginalize step carries an `over=` list (the grouping
-        axes) which become `batch_dims`; the latent itself contributes
-        an event_dim only when the family's event_dim > 0.
+        """Build the [`Plate`][quivers.transpile.ir.Plate] for a
+        marginalize step.
+
+        The `over=` / `over_objs` axes are the grouping axes: one
+        latent per group, so they are always `batch_dims`.
+
+        The role of `step.index` depends on the latent's support:
+
+        * Multivariate family (`event_dim > 0`): the index names the
+          family's event axis, so it becomes an `event_dim`.
+        * Scalar family with finite enumerable support at the call
+          site (Categorical over `Topic`, Bernoulli, ...): the index
+          names the *support* cardinality, which the integration
+          sums over rather than replicates. It contributes no plate
+          dim; the constraint records the support range.
+        * Scalar family whose support is not finite-enumerable
+          (ContinuousBernoulli, Beta, ...): nothing is summed over,
+          so the index is a replication axis, one latent value per
+          index. It becomes a `batch_dim`, and renderers declare the
+          latent as a per-index vector rather than a scalar.
         """
         event_dim = _event_dim_of(meta, ir_args, ctx)
         batch_dims: tuple[Dim, ...] = ()
@@ -815,14 +833,12 @@ class Lower(dx.Mapping[Module, IRProgram]):
         elif step.over_objs is not None:
             batch_dims = tuple(self._axis_dim(a, ctx) for a in step.over_objs)
         event_dims: tuple[Dim, ...] = ()
-        if step.index is not None and event_dim == 0:
-            # The latent's index (e.g. `Topic`) is its support
-            # cardinality; it doesn't become an event_dim of the
-            # Plate (the latent is integrated out), but the
-            # constraint still records the support range.
-            pass
-        if step.index is not None and event_dim > 0:
-            event_dims = (self._object_expr_dim(step.index, ctx),)
+        if step.index is not None:
+            index_dim = self._object_expr_dim(step.index, ctx)
+            if event_dim > 0:
+                event_dims = (index_dim,)
+            elif not finite_enumerable_at_call_site(meta, ir_args):
+                batch_dims = (*batch_dims, index_dim)
         return Plate(event_dims=event_dims, batch_dims=batch_dims)
 
     def _axis_dim(self, axis_name: str, ctx: _LowerCtx) -> Dim:
@@ -2560,19 +2576,31 @@ def _propagate_let_plates(
     * [`IRSample`][quivers.transpile.ir.IRSample]: plate is declared
       by `<- Family(...) [over=...]`; never inferred. Never promote.
 
+    Plated consumers are `IRSample`, `IRObserve`, and
+    [`IRMarginalize`][quivers.transpile.ir.IRMarginalize]: a
+    marginalize latent replicated over a batch axis conditions on
+    args that must carry the same axis, so its `batch_dims` drive
+    promotion exactly as a sample's do.
+
     Iterate to fixpoint so a chain like
     ``observe y : Obs <- f(g) ; let g = h * x_design`` promotes
     ``g`` (arithmetic, free) → ``x_design`` (data input, free) in
     the same pass.
 
+    Lets bound inside an
+    [`IRMarginalize`][quivers.transpile.ir.IRMarginalize] scope
+    participate on the same footing as top-level lets: the scope body
+    runs once per latent value, so a let reading the plated latent
+    (``let gated_rate = z * rate``) carries the latent's batch axis
+    and propagates it back out to every name it reads.
+
     Idempotent: returns inputs/body unchanged on the second call.
     """
-    by_name: dict[str, int] = {}
-    body_list = list(body)
+    lets_by_name: dict[str, IRDeterministic] = {}
     sample_event_dims: dict[str, tuple[Dim, ...]] = {}
-    for i, node in enumerate(body_list):
-        if isinstance(node, (IRDeterministic,)):
-            by_name[node.name] = i
+    for node in _walk_nodes(body):
+        if isinstance(node, IRDeterministic):
+            lets_by_name[node.name] = node
         if isinstance(node, IRSample):
             sample_event_dims[node.name] = node.plate.event_dims
     input_map: dict[str, int] = {
@@ -2597,11 +2625,8 @@ def _propagate_let_plates(
         return True
 
     def _promote_let(name: str, batch_dims: tuple[Dim, ...]) -> bool:
-        idx = by_name.get(name)
-        if idx is None:
-            return False
-        cur = body_list[idx]
-        if not isinstance(cur, IRDeterministic):
+        cur = lets_by_name.get(name)
+        if cur is None:
             return False
         if cur.plate.batch_dims:
             return False
@@ -2621,7 +2646,7 @@ def _propagate_let_plates(
                 src_event = sample_event_dims.get(arr.name, ())
                 if src_event:
                     inherited_event_dims = src_event
-        body_list[idx] = IRDeterministic(
+        lets_by_name[name] = IRDeterministic(
             name=cur.name,
             expr=cur.expr,
             constraint=cur.constraint,
@@ -2643,8 +2668,8 @@ def _propagate_let_plates(
     changed = True
     while changed:
         changed = False
-        for node in _walk_nodes(tuple(body_list)):
-            if not isinstance(node, (IRSample, IRObserve)):
+        for node in _walk_nodes(body):
+            if not isinstance(node, (IRSample, IRObserve, IRMarginalize)):
                 continue
             if not node.plate.batch_dims:
                 continue
@@ -2654,7 +2679,31 @@ def _propagate_let_plates(
                 if _promote_let(arg.name, node.plate.batch_dims):
                     changed = True
 
-    return tuple(inputs_list), tuple(body_list)
+    return tuple(inputs_list), _rebuild_with_lets(body, lets_by_name)
+
+
+def _rebuild_with_lets(
+    body: tuple[IRNode, ...],
+    lets_by_name: dict[str, IRDeterministic],
+) -> tuple[IRNode, ...]:
+    """Rebuild `body`, substituting each
+    [`IRDeterministic`][quivers.transpile.ir.IRDeterministic] with the
+    promoted node of the same name and descending into
+    [`IRMarginalize`][quivers.transpile.ir.IRMarginalize] scopes."""
+    out: list[IRNode] = []
+    for node in body:
+        if isinstance(node, IRDeterministic):
+            out.append(lets_by_name.get(node.name, node))
+            continue
+        if isinstance(node, IRMarginalize):
+            out.append(
+                node.with_(
+                    scope=_rebuild_with_lets(node.scope, lets_by_name),
+                )
+            )
+            continue
+        out.append(node)
+    return tuple(out)
 
 
 def _collect_integer_index_names(

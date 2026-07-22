@@ -66,9 +66,63 @@ from quivers.transpile.ir import (
     IRNode,
     IRObserve,
     IRProgram,
+    IRArgNumber,
     IRSample,
     Plate,
 )
+
+
+#: QVR families supported on the non-negative reals whose BUGS / JAGS
+#: target distribution is supported on all of R. ``HalfNormal(scale)``
+#: lowers to ``dnorm(0, 1/scale^2)`` and ``HalfCauchy(scale)`` to
+#: ``dt(0, 1/scale^2, 1)``; both need an explicit lower truncation at
+#: zero so the emitted support matches the family's, and so the
+#: normalising constant picks up the factor of two the folded density
+#: carries. The value is the lower bound of the family's support.
+HALF_SUPPORT_LOWER_BOUND: dict[str, float] = {
+    "HalfNormal": 0.0,
+    "HalfCauchy": 0.0,
+}
+
+#: The truncation-suffix keyword each backend spells. Both the ``jags``
+#: and the ``bugs`` backend execute through the JAGS engine (the
+#: ``bugs`` probe image installs the ``jags`` binary and pyjags, and
+#: the gallery / numeric-equivalence harness maps ``"bugs"`` to the
+#: JAGS probe script), so both emit JAGS's renormalized truncation
+#: ``T(lower, upper)``. JAGS accepts the alternative ``I(lower, upper)``
+#: only when every parameter of the truncated distribution is a
+#: compile-time constant, and on a latent-parent node (the canonical
+#: hierarchical scale prior ``sigma ~ dnorm(0, 1/(tau*tau)) T(0,)`` with
+#: latent ``tau``) it rejects ``I(,)`` at compile time; on real
+#: OpenBUGS ``I(,)`` on a latent-parent node is interval censoring, a
+#: different likelihood, not the folded prior measure the family
+#: denotes. ``T(,)`` is the only spelling that both compiles on the
+#: JAGS engine and preserves the renormalized one-sided fold, so it is
+#: the correct emission for both backends. The grammar exposes both
+#: spellings as alternatives of the same ``truncation`` rule, selected
+#: through the ``chose-alt-fingerprint`` constraint.
+TRUNCATION_FINGERPRINT: dict[str, str] = {
+    "jags": "T( , )",
+    "bugs": "T( , )",
+}
+
+
+def half_support_truncation(family: str, *, observed: bool) -> tuple[IRArg, ...] | None:
+    """Return the one-sided truncation bounds a latent draw from
+    ``family`` needs, or `None` when no truncation applies.
+
+    Only latent draws are truncated. On an observed node the JAGS
+    engine reads the truncation suffix as censoring rather than
+    truncation, which is a different likelihood; an observed
+    half-support variate already lies in the support, so the omitted
+    suffix costs only the constant ``log 2`` per observation.
+    """
+    if observed:
+        return None
+    lower = HALF_SUPPORT_LOWER_BOUND.get(family)
+    if lower is None:
+        return None
+    return (IRArgNumber(value=lower),)
 
 
 @runtime_checkable
@@ -307,9 +361,7 @@ def _emit_index(ctx: _BugsLetCtx, expr: LetExprIndex) -> str:
     return iv
 
 
-def _emit_list(
-    ctx: _BugsLetCtx, items: tuple[LetExprNode, ...]
-) -> str:
+def _emit_list(ctx: _BugsLetCtx, items: tuple[LetExprNode, ...]) -> str:
     """Render a list literal as the BUGS / JAGS `c(...)` combine call.
 
     Neither language has an inline list-literal surface form; the
@@ -354,16 +406,11 @@ def _emit_factor(ctx: _BugsLetCtx, expr: LetExprFactor) -> str:
                     f"{len(expr.binders)}"
                 ],
             )
-        return _emit_factor_cases(
-            ctx, expr.binders[0], sizes[0], expr.cases
-        )
+        return _emit_factor_cases(ctx, expr.binders[0], sizes[0], expr.cases)
     if expr.body is None:
         raise UnsupportedConstruct(
             f"qvr-{_target(ctx)}-helper",
-            [
-                f"let-expr:LetExprFactor:{_target(ctx)}: missing "
-                f"body and no cases"
-            ],
+            [f"let-expr:LetExprFactor:{_target(ctx)}: missing body and no cases"],
         )
     elements: list[str] = []
     element_kinds: list[str] = []
@@ -408,9 +455,7 @@ def _emit_factor_cases(
 # ---------------------------------------------------------------------------
 
 
-def _factor_axis_size(
-    ctx: _BugsLetCtx, binder: LetFactorBinder
-) -> int:
+def _factor_axis_size(ctx: _BugsLetCtx, binder: LetFactorBinder) -> int:
     """Resolve a factor binder's axis to a static integer size.
 
     Looks up the binder's index expression in ``ctx.cards``. Raises
@@ -431,9 +476,7 @@ def _factor_axis_size(
     return int(size)
 
 
-def _object_expr_axis_name(
-    ctx: _BugsLetCtx, obj: ObjectExpr
-) -> str:
+def _object_expr_axis_name(ctx: _BugsLetCtx, obj: ObjectExpr) -> str:
     """Resolve an `ObjectExpr` to the axis name a `cards` lookup wants.
 
     Handles `TypeName` directly and `DiscreteConstructor("FinSet", N)`
@@ -472,9 +515,7 @@ def _enumerate_indices(
     return [(i, *tail) for i in range(head) for tail in tails]
 
 
-def _substitute(
-    expr: LetExprNode, env: dict[str, int]
-) -> LetExprNode:
+def _substitute(expr: LetExprNode, env: dict[str, int]) -> LetExprNode:
     """Substitute integer literals for every `LetExprVar` whose name
     appears in `env`. Recurses through every `LetExprNode` shape."""
     if isinstance(expr, LetExprVar):
@@ -527,11 +568,7 @@ def _substitute(
         inner_env = {k: v for k, v in env.items() if k not in bound}
         return LetExprFactor(
             binders=expr.binders,
-            body=(
-                _substitute(expr.body, inner_env)
-                if expr.body is not None
-                else None
-            ),
+            body=(_substitute(expr.body, inner_env) if expr.body is not None else None),
             cases=tuple(
                 LetFactorCase(
                     label=c.label,
@@ -675,9 +712,7 @@ def collect_letexpr_vars(expr: LetExprNode) -> frozenset[str]:
     if isinstance(expr, LetExprLiteral):
         return frozenset()
     if isinstance(expr, LetExprBinOp):
-        return collect_letexpr_vars(expr.left) | collect_letexpr_vars(
-            expr.right
-        )
+        return collect_letexpr_vars(expr.left) | collect_letexpr_vars(expr.right)
     if isinstance(expr, LetExprUnaryOp):
         return collect_letexpr_vars(expr.operand)
     if isinstance(expr, LetExprCall):
@@ -772,9 +807,7 @@ def index_letexpr_refs(
     if not loop_names:
         return expr
     axis_to_loop: dict[str, str] = {}
-    for dim, lname in zip(
-        enclosing_plate.batch_dims, loop_names, strict=True
-    ):
+    for dim, lname in zip(enclosing_plate.batch_dims, loop_names, strict=True):
         axis_to_loop[dim.name] = lname
     return _index_letexpr_refs_inner(expr, decl_plates, axis_to_loop)
 
@@ -804,15 +837,11 @@ def _index_letexpr_refs_inner(
         return LetExprBinOp(
             op=expr.op,
             left=_index_letexpr_refs_inner(expr.left, decl_plates, axis_to_loop),
-            right=_index_letexpr_refs_inner(
-                expr.right, decl_plates, axis_to_loop
-            ),
+            right=_index_letexpr_refs_inner(expr.right, decl_plates, axis_to_loop),
         )
     if isinstance(expr, LetExprUnaryOp):
         return LetExprUnaryOp(
-            operand=_index_letexpr_refs_inner(
-                expr.operand, decl_plates, axis_to_loop
-            ),
+            operand=_index_letexpr_refs_inner(expr.operand, decl_plates, axis_to_loop),
         )
     if isinstance(expr, LetExprCall):
         return LetExprCall(

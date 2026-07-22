@@ -39,6 +39,7 @@ from __future__ import annotations
 from typing import Literal
 
 import panproto
+import torch.distributions.constraints as _torch_constraints
 
 from quivers.dsl.ast_nodes.let_expressions import (
     LetExprBinOp,
@@ -53,7 +54,7 @@ from quivers.dsl.ast_nodes.let_expressions import (
 )
 from quivers.transpile._api import UnsupportedConstruct
 from quivers.transpile._pipeline import target_protocol
-from quivers.transpile.family_meta import FAMILY_META
+from quivers.transpile.family_meta import FAMILY_META, FamilyMeta
 from quivers.transpile.ir import (
     ConstraintSpec,
     Dim,
@@ -77,9 +78,12 @@ from quivers.transpile.ir import (
     IRSample,
     IRScore,
     Plate,
+    event_dim_of,
 )
 from quivers.transpile.renderers._bugs_helpers import (
+    TRUNCATION_FINGERPRINT,
     build_decl_plates,
+    half_support_truncation,
     index_letexpr_refs,
     push_scalar_dets_into_loops,
     render_let_expr_bugs,
@@ -166,7 +170,11 @@ def _reorder_studentt_dt(
 #: distribution it maps to. ``HalfNormal(scale)`` maps to JAGS'
 #: ``dnorm(0, tau)``; the renderer prepends ``IRArgNumber(0)`` under
 #: the loc-position arg name so the alias-transform pipeline still
-#: rewrites the scale into ``tau = 1/(scale*scale)``.
+#: rewrites the scale into ``tau = 1/(scale*scale)``. The symmetric
+#: base distribution is restricted back to the family's support by the
+#: one-sided truncation suffix
+#: [`half_support_truncation`][quivers.transpile.renderers._bugs_helpers.half_support_truncation]
+#: supplies.
 _PREPEND_ZERO: frozenset[str] = frozenset({"HalfNormal", "HalfCauchy"})
 
 #: JAGS-side argument injection for QVR families that map to JAGS'
@@ -233,6 +241,7 @@ class JAGSRenderer(RendererBase):
         proto = self.target_protocol()
         sb = proto.schema()
         jctx = _JAGSCtx(sb=sb, morphisms={}, lets={})
+        jctx.scalar_refs, jctx.bound_refs = _classify_bindings(ir)
         self._cards = dict(ir.cards)
         # Cache decl_plates so the deterministic emitter can re-index
         # let-expression refs by their declared batch_dims.
@@ -281,7 +290,7 @@ class JAGSRenderer(RendererBase):
     ) -> SchemaFragment:
         """Emit a per-batch-axis ``for (m_<axis> in 1:N_<axis>) { <lhs>
         ~ d<family>(args) }`` form."""
-        del constraint, observed
+        del constraint
         jctx = _as_jags_ctx(ctx)
         return self._emit_sample(
             jctx,
@@ -290,6 +299,7 @@ class JAGSRenderer(RendererBase):
             args=args,
             arg_names=arg_names,
             plate=plate,
+            observed=observed,
         )
 
     def marginalize(
@@ -344,29 +354,143 @@ class JAGSRenderer(RendererBase):
         value: IRArg,
         target_shape: tuple[int, ...],
     ) -> SchemaFragment:
-        """Render a scalar-to-vector broadcast as a JAGS range index
-        into a pre-bound data vector.
+        """Render a scalar-to-vector broadcast as JAGS' ``rep`` builtin.
 
-        JAGS has no scalar-to-vector broadcast primitive; the canonical
-        convention is for the host to pre-bind a vector of the broadcast
-        scalar's repeated value and index it as ``alpha[1:K]`` in the
-        model. Literal-scalar broadcasts raise
-        [`UnsupportedConstruct`][quivers.transpile._api.UnsupportedConstruct]
-        with ``arg:broadcast`` since JAGS cannot inline an arithmetic
-        scalar at the vector slot.
+        JAGS has no scalar-to-vector broadcast operator, but its base
+        function library provides ``rep(x, times)``, which returns a
+        length-``times`` vector filled with ``x``. A scalar
+        concentration over a ``K``-atom Dirichlet event axis therefore
+        emits ``rep(<scalar>, K)``: a valid vector parent whose repeated
+        entries reproduce the symmetric-Dirichlet measure the QVR
+        ``[over=K]`` clause denotes.
+
+        Only a scalar reference or numeric literal can be repeated; a
+        rank other than one has no ``rep`` form and raises rather than
+        emitting an invalid parent.
         """
         jctx = _as_jags_ctx(ctx)
-        if not isinstance(value, IRArgRef):
+        if len(target_shape) != 1:
             raise UnsupportedConstruct(
                 f"qvr-{_BACKEND}",
-                ["arg:broadcast"],
+                [
+                    f"arg:broadcast:rank-{len(target_shape)}: JAGS `rep` "
+                    "builds a 1-D vector only"
+                ],
             )
-        if not target_shape:
+        if not isinstance(value, (IRArgRef, IRArgNumber)):
             raise UnsupportedConstruct(
                 f"qvr-{_BACKEND}",
-                ["arg:broadcast:empty-shape"],
+                [
+                    f"arg:broadcast:value:{type(value).__name__}: only a "
+                    "scalar reference or numeric literal can be repeated"
+                ],
             )
-        return self._range_indexed(jctx, value.name, target_shape)
+        return self._rep_call(jctx, value, target_shape[0])
+
+    def _rep_call(
+        self, ctx: _JAGSCtx, value: IRArg, size: int
+    ) -> str:
+        """Build ``rep(<value>, <size>)`` as a JAGS ``function_call``.
+
+        The value expression is converted to a
+        [`LetExprNode`][quivers.dsl.ast_nodes.LetExprNode] and rendered
+        through the shared BUGS / JAGS expression emitter so the
+        multi-argument call structure (``name`` identifier plus an
+        ``argument_list``) matches what the pretty-printer expects.
+        """
+        rep_expr = LetExprCall(
+            func="rep",
+            args=(
+                _ir_arg_to_let_expr(value),
+                LetExprLiteral(value=float(size)),
+            ),
+        )
+        let_ctx = _jags_let_ctx(ctx, self._cards)
+        return render_let_expr_bugs(let_ctx, rep_expr)
+
+    def _broadcast_scalar_args(
+        self,
+        ctx: _JAGSCtx,
+        args: tuple[IRArg, ...],
+        arg_names: tuple[str, ...],
+        meta: FamilyMeta,
+        plate: Plate,
+    ) -> tuple[IRArg, ...]:
+        """Wrap each scalar reference bound to a vector / matrix slot in
+        [`IRArgBroadcast`][quivers.transpile.ir.IRArgBroadcast].
+
+        `Lower` already wraps literal scalars whose slot constraint is an
+        ``IndependentConstraint(base, n>=1)``, but it leaves an
+        [`IRArgRef`][quivers.transpile.ir.IRArgRef] unwrapped on the
+        assumption the referenced binding is already vector-shaped. A
+        scalar reference (free input or let-bound scalar) at such a slot
+        is a rank error in JAGS; wrapping it routes emission through
+        [`broadcast`][quivers.transpile.renderers.jags.JAGSRenderer.broadcast]
+        and the ``rep(<scalar>, K)`` form. A genuinely vector-shaped
+        binding stays untouched.
+        """
+        cls_constraints = meta.distribution_class.arg_constraints
+        if not isinstance(cls_constraints, dict):
+            return args
+        out: list[IRArg] = []
+        for arg_name, arg in zip(arg_names, args, strict=False):
+            expected = cls_constraints.get(arg_name)
+            if (
+                isinstance(arg, IRArgRef)
+                and not arg.indices
+                and isinstance(
+                    expected,
+                    _torch_constraints._IndependentConstraint,
+                )
+                and expected.event_dim >= 1
+                and arg.name in ctx.scalar_refs
+            ):
+                target = self._static_event_shape(
+                    plate, expected.event_dim, arg_name
+                )
+                out.append(
+                    IRArgBroadcast(value=arg, target_shape=target)
+                )
+            else:
+                out.append(arg)
+        return tuple(out)
+
+    def _static_event_shape(
+        self, plate: Plate, event_dim: int, arg_name: str
+    ) -> tuple[int, ...]:
+        """The static event shape a scalar arg must be repeated to.
+
+        Takes the first `event_dim` axes off the sample's
+        [`Plate.event_dims`][quivers.transpile.ir.Plate]. A plate with
+        fewer event axes than the constraint requires, or an axis whose
+        length is known only at run time
+        ([`DimDynamic`][quivers.transpile.ir.DimDynamic]), raises: JAGS'
+        ``rep`` needs a compile-time count, and silently dropping the
+        axis would regress a dynamic event axis to a scalar parent.
+        """
+        dims = plate.event_dims
+        if len(dims) < event_dim:
+            raise UnsupportedConstruct(
+                f"qvr-{_BACKEND}",
+                [
+                    f"broadcast:{arg_name}:event-rank:{len(dims)}<"
+                    f"{event_dim}: the sample's plate carries fewer event "
+                    "axes than the family constraint requires"
+                ],
+            )
+        sizes: list[int] = []
+        for dim in dims[:event_dim]:
+            if not isinstance(dim, DimStatic):
+                raise UnsupportedConstruct(
+                    f"qvr-{_BACKEND}",
+                    [
+                        f"broadcast:{arg_name}:dynamic-event-axis:"
+                        f"{_dim_name(dim)}: JAGS `rep` needs a static "
+                        "event size"
+                    ],
+                )
+            sizes.append(dim.size)
+        return tuple(sizes)
 
     def render_list(
         self, ctx: _JAGSCtx, arg: IRArgList
@@ -423,6 +547,7 @@ class JAGSRenderer(RendererBase):
                 arg_names=node.arg_names,
                 plate=node.plate,
                 via=node.via,
+                observed=True,
             )
             return
         if isinstance(node, IRDeterministic):
@@ -698,6 +823,7 @@ class JAGSRenderer(RendererBase):
         arg_names: tuple[str, ...],
         plate: Plate,
         via: str | None = None,
+        observed: bool = False,
     ) -> SchemaFragment:
         """Build ``for (...) { name[m] ~ d<family>(args) }`` per batch
         dim and attach it to the surrounding block."""
@@ -712,6 +838,14 @@ class JAGSRenderer(RendererBase):
                 f"qvr-{_BACKEND}", [f"family:no-target-name:{family}"]
             )
 
+        # A scalar reference in a vector / matrix distribution slot
+        # (e.g. a symmetric-Dirichlet concentration) has no valid JAGS
+        # form as a bare scalar; wrap it so emission repeats it into a
+        # `rep(<scalar>, K)` vector parent.
+        args = self._broadcast_scalar_args(
+            ctx, args, arg_names, meta, plate
+        )
+
         if family in _PREPEND_ZERO:
             args = (IRArgNumber(value=0.0), *args)
             arg_names = ("loc", *arg_names)
@@ -722,7 +856,9 @@ class JAGSRenderer(RendererBase):
         # the family's arg_aliases (which only renames the
         # distribution-call args). The peeled bounds are reattached
         # below as a `truncation` child of the stochastic_relation.
-        truncation_bounds: tuple[IRArg, ...] | None = None
+        truncation_bounds: tuple[IRArg, ...] | None = (
+            half_support_truncation(family, observed=observed)
+        )
         if family == "TruncatedNormal":
             if len(args) != 4:
                 raise UnsupportedConstruct(
@@ -928,7 +1064,9 @@ class JAGSRenderer(RendererBase):
             vid, kind = self._render_arg_with_kind(ctx, rewritten)
             ctx.sb.edge(trunc, vid, "child_of")
             kinds.append(kind)
-        ctx.sb.constraint(trunc, "chose-alt-fingerprint", "T( , )")
+        ctx.sb.constraint(
+            trunc, "chose-alt-fingerprint", TRUNCATION_FINGERPRINT[_BACKEND]
+        )
         ctx.sb.constraint(
             trunc, "chose-alt-child-kinds", " ".join(kinds),
         )
@@ -1050,55 +1188,6 @@ class JAGSRenderer(RendererBase):
         ctx.sb.edge(rng, hi, "upper")
         return rng
 
-    def _range_indexed(
-        self,
-        ctx: _JAGSCtx,
-        name: str,
-        target_shape: tuple[int, ...],
-    ) -> str:
-        """Build ``<name>[1:K]`` (1D) or ``<name>[1:R, 1:C]`` (2D)."""
-        iv = _fresh(ctx, "iv", "indexed_variable")
-        ctx.sb.constraint(iv, "chose-alt-fingerprint", "[ ]")
-        ctx.sb.constraint(
-            iv, "chose-alt-child-kinds", "identifier index_list"
-        )
-        ctx.sb.constraint(iv, "ptrace-0", "Cidentifier")
-        ctx.sb.constraint(iv, "ptrace-1", "T[")
-        ctx.sb.constraint(iv, "ptrace-2", "Cindex_list")
-        ctx.sb.constraint(iv, "ptrace-3", "T]")
-
-        ident = _identifier(ctx, name)
-        ctx.sb.edge(iv, ident, "name")
-
-        idx_list = _fresh(ctx, "il", "index_list")
-        ranges: list[str] = []
-        for size in target_shape:
-            ranges.append(self._range_static(ctx, size))
-
-        ptrace_idx = 0
-        fingerprint_parts: list[str] = []
-        kinds: list[str] = []
-        for i, _ in enumerate(ranges):
-            ctx.sb.constraint(idx_list, f"ptrace-{ptrace_idx}", "Crange")
-            ptrace_idx += 1
-            kinds.append("range")
-            if i < len(ranges) - 1:
-                ctx.sb.constraint(idx_list, f"ptrace-{ptrace_idx}", "T,")
-                ptrace_idx += 1
-                fingerprint_parts.append(",")
-        ctx.sb.constraint(
-            idx_list,
-            "chose-alt-fingerprint",
-            " ".join(fingerprint_parts) if fingerprint_parts else "",
-        )
-        ctx.sb.constraint(
-            idx_list, "chose-alt-child-kinds", " ".join(kinds)
-        )
-        for vid in ranges:
-            ctx.sb.edge(idx_list, vid, "child_of")
-        ctx.sb.edge(iv, idx_list, "indices")
-        return iv
-
     def _build_distribution_call(
         self,
         ctx: _JAGSCtx,
@@ -1180,7 +1269,7 @@ class JAGSRenderer(RendererBase):
         if isinstance(arg, IRArgBroadcast):
             return (
                 self.broadcast(ctx, arg.value, arg.target_shape),
-                "indexed_variable",
+                "function_call",
             )
         if isinstance(arg, IRArgList):
             return self.render_list(ctx, arg), "indexed_variable"
@@ -1831,6 +1920,13 @@ class _JAGSCtx(_RenderCtx):
         super().__init__(sb=sb, morphisms=morphisms, defines=lets)
         self.current_block: str | None = None
         self.model_block: str = ""
+        #: Names of scalar-shaped bindings, broadcast candidates for a
+        #: vector / matrix distribution slot. Populated in `render` from
+        #: the lowered IR.
+        self.scalar_refs: frozenset[str] = frozenset()
+        #: Every bindable name in the program. A vector-slot reference
+        #: outside this set is unresolvable and raises.
+        self.bound_refs: frozenset[str] = frozenset()
         self.emitted_plate_names: set[str] = set()
         self.block_children: dict[str, list[str]] = {}
         #: Declared plate for every named binding (inputs, samples,
@@ -2033,6 +2129,84 @@ def _coerce_to_ir_arg(raw: object) -> IRArg:
     raise UnsupportedConstruct(
         f"qvr-{_BACKEND}", [f"arg:coerce:{type(raw).__name__}"]
     )
+
+
+def _ir_arg_to_let_expr(arg: IRArg) -> LetExprNode:
+    """Convert a scalar [`IRArg`][quivers.transpile.ir.IRArg] to the
+    let-expression tree the shared BUGS / JAGS emitter consumes.
+
+    Only the scalar arg variants a broadcast can repeat are handled:
+    a numeric literal, a bare reference, or an indexed reference. Any
+    other variant raises rather than emitting an unrepresentable
+    ``rep`` argument.
+    """
+    if isinstance(arg, IRArgNumber):
+        return LetExprLiteral(value=arg.value)
+    if isinstance(arg, IRArgRef):
+        if not arg.indices:
+            return LetExprVar(name=arg.name)
+        return LetExprIndex(
+            array=LetExprVar(name=arg.name),
+            indices=tuple(_ir_arg_to_let_expr(i) for i in arg.indices),
+        )
+    raise UnsupportedConstruct(
+        f"qvr-{_BACKEND}",
+        [f"broadcast:value:{type(arg).__name__}"],
+    )
+
+
+def _is_scalar_shape(plate: Plate) -> bool:
+    """A binding whose plate carries neither batch nor event axes is
+    rank-0 in every replicated / joint dimension."""
+    return not plate.batch_dims and not plate.event_dims
+
+
+def _classify_bindings(
+    ir: IRProgram,
+) -> tuple[frozenset[str], frozenset[str]]:
+    """Classify every bindable name in `ir` as scalar and / or bound.
+
+    Returns ``(scalar_refs, bound_refs)``. A name is *bound* when the
+    program introduces it (a data input, sample, observe, deterministic
+    let, or marginalize latent). A bound name is *scalar* when it is
+    rank-0: an empty plate plus a scalar-support constraint for the
+    stochastic / input bindings, and an empty plate whose let-expression
+    is not a vector-producing list / factor construct for the
+    deterministic ones. A let-bound scalar therefore lands in
+    `scalar_refs` exactly like a free scalar input, so the JAGS
+    ``rep(<scalar>, K)`` broadcast fires on both.
+    """
+    scalar: set[str] = set()
+    bound: set[str] = set()
+
+    def _record_stochastic(
+        name: str, plate: Plate, constraint: ConstraintSpec
+    ) -> None:
+        bound.add(name)
+        if _is_scalar_shape(plate) and (
+            event_dim_of(constraint.to_constraint()) == 0
+        ):
+            scalar.add(name)
+
+    def _visit(nodes: tuple[IRNode, ...]) -> None:
+        for node in nodes:
+            if isinstance(node, (IRDataInput, IRSample, IRObserve)):
+                _record_stochastic(node.name, node.plate, node.constraint)
+            elif isinstance(node, IRDeterministic):
+                bound.add(node.name)
+                if _is_scalar_shape(node.plate) and not isinstance(
+                    node.expr, (LetExprList, LetExprFactor)
+                ):
+                    scalar.add(node.name)
+            elif isinstance(node, IRMarginalize):
+                _record_stochastic(
+                    node.latent, node.plate, node.constraint
+                )
+                _visit(node.scope)
+
+    _visit(ir.inputs)
+    _visit(ir.body)
+    return frozenset(scalar), frozenset(bound)
 
 
 __all__ = ["JAGSRenderer"]

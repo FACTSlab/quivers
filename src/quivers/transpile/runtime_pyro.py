@@ -1,7 +1,7 @@
 """Runtime helpers for transpiled Pyro source.
 
-Pyro ships no `TruncatedNormal`, `LogitNormal`, `HalfStudentT`, or
-`MatrixNormal` distribution. The
+Pyro ships no `TruncatedNormal`, `LogitNormal`, `HalfStudentT`,
+`MatrixNormal`, or `InverseWishart` distribution. The
 [`PyroRenderer`][quivers.transpile.renderers.pyro.PyroRenderer]
 grafts the relevant class definition from this module onto the top
 of the emitted file (parsed once through panproto's Python
@@ -33,6 +33,11 @@ Each class subclasses
 * `MatrixNormal` is the matrix-variate normal with Kronecker
   covariance ``col_covariance ⊗ row_covariance``, with the closed
   form log density and a reparameterised sampler.
+* `InverseWishart` is the inverse-Wishart over positive-definite
+  matrices, parameterised by degrees of freedom and the lower
+  Cholesky factor of the scale matrix, with the closed form log
+  density and a sampler that inverts a Wishart draw on the inverse
+  scale matrix.
 
 The classes live in the quivers package (not embedded as an exec'd
 string inside the emit) so that:
@@ -43,6 +48,11 @@ string inside the emit) so that:
 * the math here is statically analysable and unit-testable;
 * the classes are reusable across multiple emitted models without
   duplicating their source.
+
+Each class body must resolve against `pyro` and `torch` alone: the
+graft copies the `class` subtree, not this module's imports, so a
+helper that reached for any other module-level name would fail in the
+emitted program.
 """
 
 from __future__ import annotations
@@ -278,9 +288,124 @@ class MatrixNormal(pyro.distributions.torch_distribution.TorchDistribution):
         )
 
 
+class InverseWishart(pyro.distributions.torch_distribution.TorchDistribution):
+    """Inverse-Wishart over positive-definite matrices.
+
+    Parameters
+    ----------
+    df
+        Degrees of freedom ``nu``, broadcast over the batch shape.
+        Finite density requires ``nu > d - 1``; the sampler additionally
+        requires the Wishart draw to be nonsingular, i.e. ``nu > d - 1``.
+    scale_tril
+        The ``(..., d, d)`` lower Cholesky factor ``L`` of the scale
+        matrix ``Psi = L L^T``.
+
+    Pyro ships no `InverseWishart`; this implements the closed form
+    density on the positive-definite cone,
+
+        log p(X; nu, Psi)
+            = (nu/2) log|Psi| - (nu*d/2) log 2 - log Gamma_d(nu/2)
+              - ((nu + d + 1)/2) log|X| - (1/2) tr(Psi X^{-1}),
+
+    where ``Gamma_d`` is the multivariate gamma function. Because the
+    density is evaluated in closed form on ``X`` itself, no change of
+    variables enters `log_prob` and no Jacobian correction is needed:
+    the emitted model scores exactly the inverse-Wishart density that
+    the QVR family denotes. The constrained support is declared
+    positive-definite, so Pyro's own `biject_to` supplies the
+    unconstrained-space Jacobian during inference the same way it does
+    for `Wishart` or `LKJCholesky`.
+
+    `sample` uses the standard construction: if ``W ~ Wishart(nu,
+    Psi^{-1})`` then ``W^{-1} ~ InverseWishart(nu, Psi)``. The sampler
+    carries no density contribution, so the inversion's Jacobian plays
+    no role in scoring.
+
+    Both the trace and the log determinants go through Cholesky
+    factors: with ``X = C C^T``, ``log|X| = 2 sum log diag(C)`` and
+    ``tr(Psi X^{-1}) = || C^{-1} L ||_F^2``.
+    """
+
+    arg_constraints: dict[str, object] = {}
+    support = pyro.distributions.constraints.positive_definite
+    has_rsample: bool = False
+
+    def __init__(
+        self,
+        df: torch.Tensor,
+        scale_tril: torch.Tensor,
+        validate_args: bool | None = None,
+    ) -> None:
+        dtype = torch.get_default_dtype()
+        self.df = torch.as_tensor(df, dtype=dtype)
+        self.scale_tril = torch.as_tensor(scale_tril, dtype=dtype)
+        dim = self.scale_tril.shape[-1]
+        self._dim = dim
+        batch_shape = torch.broadcast_shapes(
+            self.df.shape, self.scale_tril.shape[:-2]
+        )
+        super().__init__(
+            batch_shape,
+            (dim, dim),
+            validate_args=validate_args,
+        )
+
+    def _log_multivariate_gamma(self, half_df: torch.Tensor) -> torch.Tensor:
+        """``log Gamma_d(nu/2)`` for the matrix dimension ``d``."""
+        dim = self._dim
+        dtype = self.scale_tril.dtype
+        offsets = torch.arange(dim, dtype=dtype)
+        constant = 0.25 * dim * (dim - 1) * torch.log(
+            torch.as_tensor(torch.pi, dtype=dtype)
+        )
+        return constant + torch.lgamma(
+            half_df.unsqueeze(-1) - 0.5 * offsets
+        ).sum(-1)
+
+    def log_prob(self, value: torch.Tensor) -> torch.Tensor:
+        dim = self._dim
+        value_tril = torch.linalg.cholesky(value)
+        logdet_scale = 2.0 * torch.log(
+            self.scale_tril.diagonal(dim1=-2, dim2=-1)
+        ).sum(-1)
+        logdet_value = 2.0 * torch.log(
+            value_tril.diagonal(dim1=-2, dim2=-1)
+        ).sum(-1)
+        whitened = torch.linalg.solve_triangular(
+            value_tril, self.scale_tril.expand_as(value_tril), upper=False
+        )
+        trace = (whitened * whitened).sum((-2, -1))
+        half_df = 0.5 * self.df
+        log_two = torch.log(
+            torch.as_tensor(2.0, dtype=self.scale_tril.dtype)
+        )
+        return (
+            half_df * logdet_scale
+            - half_df * dim * log_two
+            - self._log_multivariate_gamma(half_df)
+            - 0.5 * (self.df + dim + 1.0) * logdet_value
+            - 0.5 * trace
+        )
+
+    def sample(
+        self, sample_shape: torch.Size = torch.Size()
+    ) -> torch.Tensor:
+        inverse_scale = torch.cholesky_inverse(self.scale_tril)
+        wishart = pyro.distributions.Wishart(
+            df=self.df.expand(self.batch_shape),
+            covariance_matrix=inverse_scale.expand(
+                self.batch_shape + self.event_shape
+            ),
+        )
+        draw = wishart.sample(sample_shape)
+        return torch.cholesky_inverse(torch.linalg.cholesky(draw))
+
+
 __all__ = [
     "TruncatedNormal",
     "LogitNormal",
     "HalfStudentT",
     "MatrixNormal",
+    "InverseWishart",
 ]

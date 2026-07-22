@@ -748,6 +748,9 @@ FAMILY_META: dict[str, FamilyMeta] = {
             "turing": "Chisq",
             "bugs": "dchisqr", "jags": "dchisqr",
         },
+        arg_aliases={
+            "pymc": {"df": "nu"},
+        },
     ),
     "HalfCauchy": FamilyMeta(
         qvr_name="HalfCauchy",
@@ -772,9 +775,9 @@ FAMILY_META: dict[str, FamilyMeta] = {
             # and degrees of freedom; the renderer prepends ``loc=0``
             # and the `_APPEND_DF_ONE` injection appends ``k=1`` after
             # this alias map renames ``scale -> tau`` (triggering the
-            # inv_square arithmetic transform). Drop log(2) per
-            # observation is absorbed by the constant-spread
-            # tolerance.
+            # inv_square arithmetic transform). A latent draw carries
+            # the one-sided truncation suffix that restricts the
+            # symmetric ``dt`` back to the non-negative reals.
             "bugs": {"scale": "tau"},
             "jags": {"scale": "tau"},
         },
@@ -797,6 +800,12 @@ FAMILY_META: dict[str, FamilyMeta] = {
             # before this alias map is consulted, so the keyword for
             # the injected zero is renamed `loc -> mu` here.
             "webppl": {"scale": "sigma", "loc": "mu"},
+            # JAGS / BUGS `dnorm(mu, tau)` parameterise by precision;
+            # the renderer prepends ``loc=0`` and this alias renames
+            # ``scale -> tau`` (triggering the inv_square arithmetic
+            # transform). A latent draw carries the one-sided
+            # truncation suffix that restricts the symmetric ``dnorm``
+            # back to the non-negative reals.
             "bugs": {"scale": "tau"},
             "jags": {"scale": "tau"},
         },
@@ -853,6 +862,9 @@ FAMILY_META: dict[str, FamilyMeta] = {
             "pymc": "Kumaraswamy", "edward2": "Kumaraswamy",
             "gen": "kumaraswamy", "turing": "Kumaraswamy",
             "webppl": "Kumaraswamy",
+        },
+        arg_aliases={
+            "pymc": {"concentration1": "a", "concentration0": "b"},
         },
     ),
     "ContinuousBernoulli": FamilyMeta(
@@ -979,7 +991,7 @@ FAMILY_META: dict[str, FamilyMeta] = {
             "bugs": "dwish", "jags": "dwish",
         },
         arg_aliases={
-            "pymc": {"df": "nu", "covariance_matrix": "scale_matrix"},
+            "pymc": {"df": "nu", "covariance_matrix": "V"},
         },
     ),
     "InverseWishart": FamilyMeta(
@@ -1125,6 +1137,7 @@ FAMILY_META: dict[str, FamilyMeta] = {
             "bugs": "dpois", "jags": "dpois",
         },
         arg_aliases={
+            "pymc": {"rate": "mu"},
             "webppl": {"rate": "mu"},
         },
     ),
@@ -1216,9 +1229,12 @@ FAMILY_META: dict[str, FamilyMeta] = {
         quivers_class=ConditionalLKJCholesky,
         target_names={
             "stan": "lkj_corr_cholesky", "numpyro": "LKJCholesky",
-            "pyro": "LKJCorrCholesky", "pymc": "LKJCholeskyCov",
+            "pyro": "LKJCorrCholesky", "pymc": "LKJCholesky",
             "edward2": "LKJ", "turing": "LKJCholesky",
             "gen": "lkj_cholesky", "webppl": "LKJCholesky",
+        },
+        arg_aliases={
+            "pymc": {"concentration": "eta"},
         },
     ),
     "Mixture": FamilyMeta(

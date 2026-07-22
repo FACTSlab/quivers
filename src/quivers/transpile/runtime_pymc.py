@@ -9,6 +9,24 @@ normalising constant), so the emitted program's joint log-density
 matches the QVR model's `torch.distributions.ContinuousBernoulli`
 term.
 
+PyMC also ships no distribution over correlation Cholesky factors
+alone: [`pymc.LKJCholeskyCov`][pymc.LKJCholeskyCov] multiplies in a
+standard-deviation prior the QVR model does not have, and
+[`pymc.LKJCorr`][pymc.LKJCorr] carries the LKJ density of the
+correlation matrix rather than of its Cholesky factor, so it omits the
+factorisation Jacobian. The
+[`LKJCholesky`][quivers.transpile.runtime_pymc.LKJCholesky] wrapper
+below therefore supplies both halves directly: the exact
+`torch.distributions.LKJCholesky` log-density, evaluated on the
+Cholesky factor and normalised, and a matching forward sampler. The
+sampler is the C-vine method of Lewandowski, Kurowicka, and Joe, which
+draws the canonical partial correlations from Beta laws and maps them
+through the partial-correlation recursion straight to the Cholesky
+factor, so its off-diagonal correlation marginals follow the LKJ law
+and stay exchangeable across off-diagonals. PyMC's own onion sampler
+for `pymc.LKJCorr` is not reused: it produces off-diagonal marginals
+that do not match the LKJ law.
+
 The renderer parses this file through panproto's Python tree-sitter
 grammar at module-load time and copies each top-level
 `function_definition` subtree into the per-render schema, so the
@@ -74,5 +92,127 @@ def ContinuousBernoulli(name, probs, **kwargs):
         logp=_continuous_bernoulli_logp,
         random=_continuous_bernoulli_random,
         dtype="float64",
+        **kwargs,
+    )
+
+
+def _lkj_cholesky_log_normalizer(n, eta):
+    """Log normalising constant of the LKJ density over correlation
+    Cholesky factors of an ``n`` by ``n`` correlation matrix.
+
+    With ``d = n - 1`` and ``alpha = eta + d / 2`` the constant is
+    ``d * log(pi) / 2 + mvlgamma(alpha - 1/2, d) - d * lgamma(alpha)``,
+    where the multivariate log-gamma is expanded as
+    ``d (d - 1) / 4 * log(pi) + sum_j lgamma(alpha - 1/2 - j/2)`` over
+    ``j`` in ``0 .. d - 1``."""
+    dm1 = n - 1
+    alpha = eta + 0.5 * dm1
+    shifted = (
+        pt.shape_padright(alpha)
+        - 0.5
+        - 0.5 * pt.arange(dm1, dtype="float64")
+    )
+    numerator = 0.25 * dm1 * (dm1 - 1) * np.log(np.pi) + pt.sum(
+        pt.gammaln(shifted), axis=-1
+    )
+    return 0.5 * dm1 * np.log(np.pi) + numerator - dm1 * pt.gammaln(alpha)
+
+
+def _lkj_cholesky_logp(value, n, eta):
+    """Log-density of the LKJ distribution over the lower-triangular
+    Cholesky factor ``value`` of an ``n`` by ``n`` correlation matrix
+    with concentration ``eta``.
+
+    The correlation matrix ``M = value @ value.T`` has LKJ density
+    proportional to ``det(M) ** (eta - 1)``, and the Jacobian of the
+    factorisation contributes ``prod_i value[i, i] ** (n - i)``, so the
+    density of the factor is proportional to
+    ``prod_i value[i, i] ** (2 * eta - 2 + n - i)`` for one-based
+    ``i``."""
+    diag = pt.as_tensor(pt.diagonal(value, axis1=-2, axis2=-1))[..., 1:]
+    order = 2.0 * (eta - 1.0) + n - pt.arange(2, n + 1, dtype="float64")
+    unnormalized = pt.sum(order * pt.log(diag), axis=-1)
+    return unnormalized - _lkj_cholesky_log_normalizer(n, eta)
+
+
+def _lkj_cholesky_draw(n, eta, rng, size=None):
+    """Draw the lower-triangular Cholesky factor of a correlation
+    matrix distributed as LKJ with concentration ``eta`` on an ``n`` by
+    ``n`` correlation matrix, by the C-vine method of Lewandowski,
+    Kurowicka, and Joe.
+
+    The canonical partial correlations are mutually independent: the
+    partial correlation between variables ``i`` and ``j`` given
+    ``0 .. j - 1`` (zero-based, ``j < i``) is ``2 * B - 1`` for ``B``
+    drawn from ``Beta(b_j, b_j)`` with ``b_j = eta + (n - 2 - j) / 2``.
+    The partial-correlation recursion
+    ``L[i, j] = z[i, j] * prod_{k < j} sqrt(1 - z[i, k] ** 2)`` with
+    ``L[i, i] = prod_{k < i} sqrt(1 - z[i, k] ** 2)`` maps those
+    partial correlations straight to the Cholesky factor ``L`` of the
+    correlation matrix ``L @ L.T``, so ``L`` follows the same LKJ law
+    over factors that [`_lkj_cholesky_logp`][quivers.transpile.runtime_pymc._lkj_cholesky_logp]
+    scores. Its off-diagonal correlation marginals match the LKJ law
+    and stay exchangeable across off-diagonals.
+
+    ``rng`` is the generator PyMC threads through the random callback
+    and ``size`` is the requested batch shape. The result has shape
+    ``batch + (n, n)`` where ``batch`` is ``size`` when given, else the
+    shape of ``eta``."""
+    eta = np.asarray(eta, dtype="float64")
+    if size is None:
+        batch = eta.shape
+    else:
+        batch = tuple(int(s) for s in np.atleast_1d(size))
+    eta_b = np.broadcast_to(eta, batch)
+    factor = np.zeros((*batch, n, n), dtype="float64")
+    factor[..., 0, 0] = 1.0
+    for i in range(1, n):
+        acc = np.ones(batch, dtype="float64")
+        for j in range(i):
+            beta = eta_b + 0.5 * (n - 2 - j)
+            partial = 2.0 * rng.beta(beta, beta) - 1.0
+            factor[..., i, j] = partial * acc
+            acc = acc * np.sqrt(1.0 - partial * partial)
+        factor[..., i, i] = acc
+    return factor
+
+
+def LKJCholesky(name, n, eta, **kwargs):
+    """LKJ random variable over correlation Cholesky factors for PyMC.
+
+    The value is the ``n`` by ``n`` lower-triangular Cholesky factor of
+    a correlation matrix, carried in unconstrained coordinates by
+    [`CholeskyCorrTransform`][pymc.distributions.transforms.CholeskyCorrTransform].
+    Draws come from the C-vine sampler
+    [`_lkj_cholesky_draw`][quivers.transpile.runtime_pymc._lkj_cholesky_draw],
+    which returns the Cholesky factor directly, and the log-density is
+    the normalised density of the factor, so both the forward samples
+    and the total log-density match the QVR model's
+    `torch.distributions.LKJCholesky` term.
+
+    A length-``n`` zero vector rides along as a second distribution
+    parameter: it carries the correlation dimension ``n`` into PyMC's
+    core-shape inference for the multivariate random callback, which
+    cannot read ``n`` off the scalar ``eta`` alone. The sampler and the
+    log-density both ignore its value."""
+    n = int(n)
+    dim_marker = np.zeros(n, dtype="float64")
+
+    def random(eta, dim_marker, rng=None, size=None):
+        return _lkj_cholesky_draw(n, eta, rng, size)
+
+    def logp(value, eta, dim_marker):
+        return _lkj_cholesky_logp(value, n, eta)
+
+    return pymc.CustomDist(
+        name,
+        eta,
+        dim_marker,
+        random=random,
+        logp=logp,
+        signature="(),(n)->(n,n)",
+        default_transform=pymc.distributions.transforms.CholeskyCorrTransform(
+            n=n, upper=False
+        ),
         **kwargs,
     )

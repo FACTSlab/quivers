@@ -154,8 +154,8 @@ class PyroRenderer(RendererBase):
 
         pctx.v("mod", "module")
         # Pyro lacks several QVR families as built-ins (`TruncatedNormal`,
-        # `LogitNormal`, `HalfStudentT`, `MatrixNormal`); their runtime
-        # helpers live at
+        # `LogitNormal`, `HalfStudentT`, `MatrixNormal`,
+        # `InverseWishart`); their runtime helpers live at
         # [`quivers.transpile.runtime_pyro`][quivers.transpile.runtime_pyro].
         # When the IR samples or observes from such a family, graft the
         # parsed helper `class` subtree onto the module above `model`
@@ -539,7 +539,8 @@ class PyroRenderer(RendererBase):
         aliases = meta.arg_aliases.get(_TARGET, {})
         # Build the distribution call. Pyro lacks several QVR families
         # as built-ins (`TruncatedNormal`, `LogitNormal`,
-        # `HalfStudentT`, `MatrixNormal`); the renderer grafts a helper
+        # `HalfStudentT`, `MatrixNormal`, `InverseWishart`); the
+        # renderer grafts a helper
         # class from `quivers.transpile.runtime_pyro` (see
         # [`_emit_runtime_helper`][quivers.transpile.renderers.pyro._emit_runtime_helper])
         # and dispatches the call to that bare identifier rather than
