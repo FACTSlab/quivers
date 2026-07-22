@@ -6,10 +6,19 @@ The Church idiom for a probabilistic program is a top-level
 ``(define (model ...) ...)``: every sample step is a
 ``(define <name> (map (lambda (m_<axis>) (sample <dist>)) (iota N)))``
 form for each batch axis; observed steps are
-``(for-each (lambda (n) (observe <dist> (list-ref <obs> n))) (iota
-(length <obs>)))``. The IR's [`IRDataInput`][quivers.transpile.ir.IRDataInput]
-entries become the model's formal parameter list (Scheme has no
-separate declaration block; the function header carries the inputs).
+``(for-each (lambda (m_<axis>) (observe <dist> (list-ref <obs>
+m_<axis>))) (iota N))``. The IR's
+[`IRDataInput`][quivers.transpile.ir.IRDataInput] entries become the
+model's formal parameter list (Scheme has no separate declaration
+block; the function header carries the inputs).
+
+Church has no single canonical interpreter, so every emit grafts the
+self-contained reference runtime at
+[`runtime_church.scm`][quivers.transpile.runtime_church] above the
+model form: it defines ``sample`` / ``observe`` / ``factor`` on a
+distribution-object protocol plus one correctly parameterised
+distribution constructor per family, making each emitted program a
+complete Scheme module.
 
 The renderer reads
 [`FAMILY_META`][quivers.transpile.family_meta.FAMILY_META] for each
@@ -36,8 +45,24 @@ from quivers.transpile._api import UnsupportedConstruct
 from quivers.transpile._pipeline import parser_registry, target_protocol
 from quivers.transpile.renderers._scheme_helpers import render_let_expr_scheme
 from quivers.transpile.family_meta import FAMILY_META
+from quivers.dsl.ast_nodes.let_expressions import (
+    LetExprBinOp,
+    LetExprCall,
+    LetExprIndex,
+    LetExprList,
+    LetExprNode,
+    LetExprUnaryOp,
+    LetExprVar,
+)
 from quivers.transpile.ir import (
     ConstraintSpec,
+    CSCorrCholesky,
+    CSLowerCholesky,
+    CSOneHot,
+    CSPositiveDefinite,
+    CSRealMatrix,
+    CSRealVector,
+    CSSimplex,
     DimDynamic,
     DimStatic,
     IRArg,
@@ -70,6 +95,65 @@ from quivers.transpile.renderers._base import (
 _TARGET = "qvr-church"
 
 
+#: Half-support families whose Church emit injects a ``loc=0``
+#: argument and folds the symmetric base distribution onto the
+#: nonnegative reals through the runtime ``half`` wrapper.
+_HALF_FAMILIES: frozenset[str] = frozenset({"HalfNormal", "HalfCauchy"})
+
+#: The runtime positivity-fold wrapper name.
+_HALF_WRAP: str = "half"
+
+#: IR constraints whose support is a vector or matrix; a family with
+#: one of these draws its event structure natively, so a sample
+#: carrying event axes needs no inner per-event map.
+_VECTOR_CONSTRAINTS: tuple[type[ConstraintSpec], ...] = (
+    CSRealVector,
+    CSSimplex,
+    CSRealMatrix,
+    CSPositiveDefinite,
+    CSCorrCholesky,
+    CSLowerCholesky,
+    CSOneHot,
+)
+
+
+def _is_scalar_constraint(constraint: ConstraintSpec) -> bool:
+    """True iff `constraint` describes a scalar-valued support.
+
+    A scalar family stamped with event axes needs an explicit inner
+    map to realise the declared vector; a vector / matrix family does
+    not.
+    """
+    return not isinstance(constraint, _VECTOR_CONSTRAINTS)
+
+
+def _loop_name(plate: Plate) -> str | None:
+    """The per-row loop-variable name for a batched plate.
+
+    Returns ``m_<first-axis>`` (matching the outermost map layer's
+    loop variable) or ``None`` for an unbatched plate.
+    """
+    if not plate.batch_dims:
+        return None
+    return f"m_{plate.batch_dims[0].name}"
+
+
+def _plates_align(decl: Plate, surrounding: Plate) -> bool:
+    """True iff `decl`'s batch axes are a left-aligned prefix of
+    `surrounding`'s batch axes.
+
+    Purely name-based on `Dim.name`: a ref bound on ``(A,)`` read from
+    a site on ``(A, B)`` aligns on ``A``.
+    """
+    if not decl.batch_dims:
+        return False
+    decl_names = tuple(d.name for d in decl.batch_dims)
+    surr_names = tuple(d.name for d in surrounding.batch_dims)
+    if len(decl_names) > len(surr_names):
+        return False
+    return decl_names == surr_names[: len(decl_names)]
+
+
 class ChurchRenderer(RendererBase):
     """Render an [`IRProgram`][quivers.transpile.ir.IRProgram] to a
     Scheme schema in the Church probabilistic-programming idiom.
@@ -95,24 +179,35 @@ class ChurchRenderer(RendererBase):
         # references a named QVR object whose cardinality must be
         # resolved at unroll time.
         self._cards: dict[str, int] = dict(ir.cards)
+        # Name -> binding plate for every input, sample, observe,
+        # deterministic, and marginalize latent. Consulted by the
+        # per-row indexing pass so a batched reference emits a
+        # `(list-ref name m_<axis>)` access aligned with the
+        # surrounding plate.
+        self._binding_plates: dict[str, Plate] = {}
+        self._input_names: set[str] = {inp.name for inp in ir.inputs}
+        for inp in ir.inputs:
+            self._binding_plates[inp.name] = inp.plate
+        self._collect_binding_plates(ir.body)
+        # The active marginalize group plate's batch axes (empty
+        # outside a marginalize scope). Refs bound on this plate that
+        # are read from an observe on a different plate thread through
+        # the observe's `via` fibration.
+        self._group_plate_axes: tuple[str, ...] = ()
+        # The active observe's `via` fibration name (None otherwise).
+        self._current_via: str | None = None
         proto = self.target_protocol()
         sb = proto.schema()
         ctx = _RenderCtx(sb=sb, morphisms={}, defines={}, cards=self._cards)
         prog_id = _v(ctx, "prog", "program")
-        # Church ships `gaussian`, `beta`, `flip`, `multivariate-
-        # gaussian`, ... as built-in distributions but lacks
-        # `matrix-normal`. When the IR samples or observes from a
-        # family whose Church emit relies on a user-defined helper,
-        # graft the hand-written subtree at
-        # [`runtime_church.scm`][quivers.transpile.runtime_church]
-        # into the program above the model `(define ...)` form so the
-        # sampled identifier resolves through Scheme's top-level
-        # binding lookup.
-        if any(
-            _ir_uses_family(ir.body, f)
-            for f in _CHURCH_RUNTIME_HELPER_FAMILIES
-        ):
-            _graft_runtime_church_helper(ctx, prog_id)
+        # Every emitted program uses `sample` / `observe` / `factor`
+        # and one distribution constructor per family, all defined in
+        # the self-contained Church runtime at
+        # [`runtime_church.scm`][quivers.transpile.runtime_church].
+        # Graft the whole runtime subtree above the model `(define
+        # ...)` form so every referenced identifier resolves through
+        # Scheme's top-level binding lookup.
+        _graft_runtime_church_helper(ctx, prog_id)
 
         # `(model <param1> <param2> ...)` -- function signature.
         signature_children: list[str] = [_sym(ctx, "model")]
@@ -134,9 +229,7 @@ class ChurchRenderer(RendererBase):
         if return_form is not None:
             body_forms.append(return_form)
 
-        top_define = _list(
-            ctx, (_sym(ctx, "define"), signature, *body_forms)
-        )
+        top_define = _list(ctx, (_sym(ctx, "define"), signature, *body_forms))
         _e(ctx, prog_id, top_define)
         return sb.build()
 
@@ -161,30 +254,32 @@ class ChurchRenderer(RendererBase):
                 return self._render_gp_forms(ctx, node)
             return (
                 self.sample(
-                    ctx, node.name, node.family, node.args, node.arg_names,
-                    node.constraint, node.plate, observed=False,
+                    ctx,
+                    node.name,
+                    node.family,
+                    node.args,
+                    node.arg_names,
+                    node.constraint,
+                    node.plate,
+                    observed=False,
                 ),
             )
         if isinstance(node, IRObserve):
             return (
                 self.sample(
-                    ctx, node.name, node.family, node.args, node.arg_names,
-                    node.constraint, node.plate, observed=True,
+                    ctx,
+                    node.name,
+                    node.family,
+                    node.args,
+                    node.arg_names,
+                    node.constraint,
+                    node.plate,
+                    observed=True,
+                    via=node.via,
                 ),
             )
         if isinstance(node, IRDeterministic):
-            # `(define <name> <expr>)`. The expression tree comes from
-            # the surface compiler; render it via the existing Scheme
-            # let-expression helper.
-            expr_id = render_let_expr_scheme(
-                _LetExprCtx(ctx.sb, ctx, self._cards), node.expr
-            )
-            return (
-                _list(
-                    ctx,
-                    (_sym(ctx, "define"), _sym(ctx, node.name), expr_id),
-                ),
-            )
+            return (self._render_deterministic_form(ctx, node),)
         if isinstance(node, IRScore):
             # Church's score primitive: `(factor <expr>)`.
             expr_id = render_let_expr_scheme(
@@ -196,12 +291,98 @@ class ChurchRenderer(RendererBase):
         if isinstance(node, IRReturn):
             # Handled by `_return_form`; nothing to emit inline.
             return ()
-        raise UnsupportedConstruct(
-            _TARGET, [f"node:{type(node).__name__}"]
-        )
+        raise UnsupportedConstruct(_TARGET, [f"node:{type(node).__name__}"])
+
+    def _collect_binding_plates(self, body: tuple[IRNode, ...]) -> None:
+        """Record the binding plate of every named node in `body`.
+
+        Walks samples, observes, deterministics, and marginalize
+        latents (recursing into marginalize scopes) so the per-row
+        indexing pass can resolve any referenced name's batch axes.
+        """
+        for node in body:
+            if isinstance(node, (IRSample, IRObserve, IRDeterministic)):
+                self._binding_plates[node.name] = node.plate
+            elif isinstance(node, IRMarginalize):
+                self._binding_plates[node.latent] = node.plate
+                self._collect_binding_plates(node.scope)
+
+    def _render_deterministic_form(
+        self, ctx: _RenderCtx, node: IRDeterministic
+    ) -> SchemaFragment:
+        """Emit ``(define <name> <expr>)`` for a deterministic let.
+
+        When the binding carries a batch plate, the body is lifted
+        into a per-row ``(map (lambda (m_<axis>) <body>) (iota N))``
+        over each batch dim and every reference bound on the same
+        plate is indexed by the loop variable, so the arithmetic runs
+        elementwise rather than collapsing the batch axis to a single
+        shared value.
+        """
+        expr = node.expr
+        if node.plate.batch_dims:
+            loop_name = _loop_name(node.plate)
+            assert loop_name is not None
+            expr = self._index_let_refs(expr, node.plate, loop_name)
+        expr_id = render_let_expr_scheme(_LetExprCtx(ctx.sb, ctx, self._cards), expr)
+        if node.plate.batch_dims:
+            expr_id = self._wrap_in_maps(
+                ctx, expr_id, node.plate.batch_dims, axis_suffix=""
+            )
+        return _list(ctx, (_sym(ctx, "define"), _sym(ctx, node.name), expr_id))
+
+    def _index_let_refs(
+        self, expr: LetExprNode, plate: Plate, loop_name: str
+    ) -> LetExprNode:
+        """Rewrite `expr`, indexing every variable bound on a plate
+        that aligns with `plate` by ``[<loop_name>]``.
+
+        The traversal mirrors
+        [`_substitute_ref_indexing`][quivers.transpile.renderers.church.ChurchRenderer._substitute_ref_indexing]
+        at the let-expression level: only the alignment case applies
+        (let bindings carry no `via` fibration).
+        """
+        if isinstance(expr, LetExprVar):
+            decl = self._binding_plates.get(expr.name)
+            if decl is not None and _plates_align(decl, plate):
+                return LetExprIndex(array=expr, indices=(LetExprVar(name=loop_name),))
+            return expr
+        if isinstance(expr, LetExprIndex):
+            return LetExprIndex(
+                array=self._index_let_refs(expr.array, plate, loop_name),
+                indices=tuple(
+                    self._index_let_refs(i, plate, loop_name) for i in expr.indices
+                ),
+            )
+        if isinstance(expr, LetExprBinOp):
+            return LetExprBinOp(
+                op=expr.op,
+                left=self._index_let_refs(expr.left, plate, loop_name),
+                right=self._index_let_refs(expr.right, plate, loop_name),
+            )
+        if isinstance(expr, LetExprUnaryOp):
+            return LetExprUnaryOp(
+                operand=self._index_let_refs(expr.operand, plate, loop_name)
+            )
+        if isinstance(expr, LetExprCall):
+            return LetExprCall(
+                func=expr.func,
+                args=tuple(
+                    self._index_let_refs(a, plate, loop_name) for a in expr.args
+                ),
+            )
+        if isinstance(expr, LetExprList):
+            return LetExprList(
+                items=tuple(
+                    self._index_let_refs(i, plate, loop_name) for i in expr.items
+                )
+            )
+        return expr
 
     def _render_gp_forms(
-        self, ctx: _RenderCtx, node: IRSample,
+        self,
+        ctx: _RenderCtx,
+        node: IRSample,
     ) -> tuple[SchemaFragment, ...]:
         """Emit three Scheme forms for a Gaussian-process sample:
 
@@ -215,9 +396,7 @@ class ChurchRenderer(RendererBase):
         ``K[i,j] = exp(-0.5 * (x[i]-x[j])^2 / length_scale^2)``
         plus diagonal jitter via `(if (= i j) <jitter> 0)`.
         """
-        if len(node.args) != 2 or not isinstance(
-            node.args[1], IRArgKernel
-        ):
+        if len(node.args) != 2 or not isinstance(node.args[1], IRArgKernel):
             raise UnsupportedConstruct(
                 _TARGET,
                 ["family:GP:expected IRArgKernel as second arg"],
@@ -226,10 +405,7 @@ class ChurchRenderer(RendererBase):
         if kernel_arg.kernel != "rbf":
             raise UnsupportedConstruct(
                 _TARGET,
-                [
-                    f"family:GP:kernel:{kernel_arg.kernel}: only rbf "
-                    f"is implemented"
-                ],
+                [f"family:GP:kernel:{kernel_arg.kernel}: only rbf is implemented"],
             )
         n = kernel_arg.grid_size
         ls = kernel_arg.length_scale
@@ -257,6 +433,7 @@ class ChurchRenderer(RendererBase):
                 ),
             ),
         )
+
         # (define __gp_cov_<name>
         #   (map (lambda (i)
         #          (map (lambda (j)
@@ -271,19 +448,19 @@ class ChurchRenderer(RendererBase):
                 ctx,
                 (
                     _sym(ctx, "-"),
-                    _list(ctx, (_sym(ctx, "list-ref"),
-                                _sym(ctx, x), _sym(ctx, "i"))),
-                    _list(ctx, (_sym(ctx, "list-ref"),
-                                _sym(ctx, x), _sym(ctx, "j"))),
+                    _list(ctx, (_sym(ctx, "list-ref"), _sym(ctx, x), _sym(ctx, "i"))),
+                    _list(ctx, (_sym(ctx, "list-ref"), _sym(ctx, x), _sym(ctx, "j"))),
                 ),
             )
 
         diff_sq = _list(
-            ctx, (_sym(ctx, "*"), diff_form(), diff_form()),
+            ctx,
+            (_sym(ctx, "*"), diff_form(), diff_form()),
         )
         # arg to exp: (- (/ (* 0.5 diff_sq) (* ls ls)))
         ls_sq = _list(
-            ctx, (_sym(ctx, "*"), _num(ctx, ls), _num(ctx, ls)),
+            ctx,
+            (_sym(ctx, "*"), _num(ctx, ls), _num(ctx, ls)),
         )
         scaled = _list(
             ctx,
@@ -297,10 +474,12 @@ class ChurchRenderer(RendererBase):
             ),
         )
         neg_scaled = _list(
-            ctx, (_sym(ctx, "-"), scaled),
+            ctx,
+            (_sym(ctx, "-"), scaled),
         )
         exp_call = _list(
-            ctx, (_sym(ctx, "exp"), neg_scaled),
+            ctx,
+            (_sym(ctx, "exp"), neg_scaled),
         )
         jitter_if = _list(
             ctx,
@@ -308,15 +487,15 @@ class ChurchRenderer(RendererBase):
                 _sym(ctx, "if"),
                 _list(
                     ctx,
-                    (_sym(ctx, "="),
-                     _sym(ctx, "i"), _sym(ctx, "j")),
+                    (_sym(ctx, "="), _sym(ctx, "i"), _sym(ctx, "j")),
                 ),
                 _num(ctx, jitter),
                 _num(ctx, 0),
             ),
         )
         entry = _list(
-            ctx, (_sym(ctx, "+"), exp_call, jitter_if),
+            ctx,
+            (_sym(ctx, "+"), exp_call, jitter_if),
         )
         inner_lambda = _list(
             ctx,
@@ -327,7 +506,8 @@ class ChurchRenderer(RendererBase):
             ),
         )
         iota_n_inner = _list(
-            ctx, (_sym(ctx, "iota"), _num(ctx, n)),
+            ctx,
+            (_sym(ctx, "iota"), _num(ctx, n)),
         )
         inner_map = _list(
             ctx,
@@ -342,7 +522,8 @@ class ChurchRenderer(RendererBase):
             ),
         )
         iota_n_outer = _list(
-            ctx, (_sym(ctx, "iota"), _num(ctx, n)),
+            ctx,
+            (_sym(ctx, "iota"), _num(ctx, n)),
         )
         outer_map = _list(
             ctx,
@@ -356,13 +537,17 @@ class ChurchRenderer(RendererBase):
                 outer_map,
             ),
         )
-        # (define <name> (multivariate-gaussian __gp_mean_<name>
-        #                                         __gp_cov_<name>))
-        sample_form = _list(
+        # (define <name>
+        #   (map (lambda (m_<axis>) ...)
+        #        (sample (multivariate-gaussian __gp_mean_<name>
+        #                                        __gp_cov_<name>))))
+        # The GP realisation is a genuine random site, so the draw is
+        # routed through `sample`; any plate batch dims wrap it in a
+        # per-row map.
+        draw_form = _list(
             ctx,
             (
-                _sym(ctx, "define"),
-                _sym(ctx, node.name),
+                _sym(ctx, "sample"),
                 _list(
                     ctx,
                     (
@@ -373,6 +558,8 @@ class ChurchRenderer(RendererBase):
                 ),
             ),
         )
+        body = self._wrap_in_maps(ctx, draw_form, node.plate.batch_dims, axis_suffix="")
+        sample_form = _list(ctx, (_sym(ctx, "define"), _sym(ctx, node.name), body))
         return (mean_form, cov_form, sample_form)
 
     def _render_marginalize_forms(
@@ -383,9 +570,14 @@ class ChurchRenderer(RendererBase):
         per scope step (typically an observe).
         """
         expanded = self.explicit_latent_scope(node)
-        out: list[SchemaFragment] = []
-        for child in expanded:
-            out.extend(self._render_body_forms(ctx, child))
+        prev_group = self._group_plate_axes
+        self._group_plate_axes = tuple(str(d.name) for d in node.plate.batch_dims)
+        try:
+            out: list[SchemaFragment] = []
+            for child in expanded:
+                out.extend(self._render_body_forms(ctx, child))
+        finally:
+            self._group_plate_axes = prev_group
         return tuple(out)
 
     def _return_form(
@@ -435,6 +627,7 @@ class ChurchRenderer(RendererBase):
         constraint: ConstraintSpec,
         plate: Plate,
         observed: bool,
+        via: str | None = None,
     ) -> SchemaFragment:
         """Emit the per-batch-axis sample / observe form.
 
@@ -447,10 +640,17 @@ class ChurchRenderer(RendererBase):
                  (iota <B0>)))``
 
         For an observed step: a ``for-each`` over the observation
-        plate, with ``(observe <dist> (list-ref <obs> n))`` inside
+        plate, with ``(observe <dist> (list-ref <obs> m))`` inside
         each iteration.
+
+        Half-support families (`HalfNormal`, `HalfCauchy`) inject a
+        ``loc=0`` argument and wrap the base distribution in the
+        runtime ``half`` fold; references bound on an aligned plate
+        are indexed by the per-row loop variable; and a scalar family
+        stamped with event axes (via ``over=``) wraps an inner map
+        over the event dims so each draw is the declared vector.
         """
-        del arg_names, constraint
+        del arg_names
         meta = FAMILY_META.get(family)
         if meta is None:
             raise UnsupportedConstruct(_TARGET, [f"family:{family}"])
@@ -458,10 +658,91 @@ class ChurchRenderer(RendererBase):
         if target_symbol is None:
             raise UnsupportedConstruct(_TARGET, [f"family:{family}:church"])
 
+        if family in _HALF_FAMILIES:
+            # `HalfNormal(scale)` -> `(half (gaussian 0 scale))`;
+            # `HalfCauchy(scale)` -> `(half (cauchy 0 scale))`.
+            args = (IRArgNumber(value=0.0), *args)
+
+        loop_name = _loop_name(plate)
+        if loop_name is not None:
+            prev_via = self._current_via
+            self._current_via = via
+            try:
+                args = tuple(
+                    self._substitute_ref_indexing(a, plate, loop_name) for a in args
+                )
+            finally:
+                self._current_via = prev_via
+
         dist_form = self._build_dist_call(ctx, target_symbol, args)
+        if family in _HALF_FAMILIES:
+            dist_form = _list(ctx, (_sym(ctx, _HALF_WRAP), dist_form))
         if observed:
             return self._wrap_observe(ctx, name, dist_form, plate)
-        return self._wrap_sample_define(ctx, name, dist_form, plate)
+        return self._wrap_sample_define(ctx, name, dist_form, plate, constraint)
+
+    def _substitute_ref_indexing(
+        self, arg: IRArg, plate: Plate, loop_name: str
+    ) -> IRArg:
+        """Thread the surrounding plate's row index into any ref whose
+        binding plate aligns with `plate`, or through the active
+        observe's `via` fibration when the ref is bound on the group
+        plate.
+
+        Returns a rewritten IR-arg tree; the rewrite prepends a loop
+        index to the aligned ref's index list so the emitted
+        ``(list-ref name m_<axis>)`` selects the row, then defers to
+        the ordinary ref renderer.
+        """
+        if isinstance(arg, IRArgRef):
+            new_indices = tuple(
+                self._substitute_ref_indexing(i, plate, loop_name) for i in arg.indices
+            )
+            decl = self._binding_plates.get(arg.name)
+            if decl is not None and _plates_align(decl, plate):
+                return IRArgRef(
+                    name=arg.name,
+                    indices=(IRArgRef(name=loop_name), *new_indices),
+                )
+            if (
+                self._current_via is not None
+                and decl is not None
+                and tuple(str(d.name) for d in decl.batch_dims)
+                == self._group_plate_axes
+                and self._group_plate_axes
+                and arg.name not in self._input_names
+            ):
+                via_ref = IRArgRef(
+                    name=self._current_via,
+                    indices=(IRArgRef(name=loop_name),),
+                )
+                return IRArgRef(name=arg.name, indices=(via_ref, *new_indices))
+            return IRArgRef(name=arg.name, indices=new_indices)
+        if isinstance(arg, IRArgBroadcast):
+            return IRArgBroadcast(
+                value=self._substitute_ref_indexing(arg.value, plate, loop_name),
+                target_shape=arg.target_shape,
+            )
+        if isinstance(arg, IRArgList):
+            return IRArgList(
+                elements=tuple(
+                    self._substitute_ref_indexing(e, plate, loop_name)
+                    for e in arg.elements
+                )
+            )
+        if isinstance(arg, IRArgMatrix):
+            return IRArgMatrix(
+                rows=tuple(
+                    IRArgList(
+                        elements=tuple(
+                            self._substitute_ref_indexing(e, plate, loop_name)
+                            for e in row.elements
+                        )
+                    )
+                    for row in arg.rows
+                )
+            )
+        return arg
 
     def marginalize(
         self,
@@ -553,13 +834,9 @@ class ChurchRenderer(RendererBase):
             return self._render_matrix(ctx, arg)
         if isinstance(arg, IRArgFamilyRef):
             return self._render_family_ref(ctx, arg)
-        raise UnsupportedConstruct(
-            _TARGET, [f"arg:{type(arg).__name__}"]
-        )
+        raise UnsupportedConstruct(_TARGET, [f"arg:{type(arg).__name__}"])
 
-    def _render_ref(
-        self, ctx: _RenderCtx, arg: IRArgRef
-    ) -> SchemaFragment:
+    def _render_ref(self, ctx: _RenderCtx, arg: IRArgRef) -> SchemaFragment:
         """`x` for a bare reference; `(list-ref x idx)` for one index;
         nested `list-ref` for higher-rank indexing."""
         if not arg.indices:
@@ -567,26 +844,18 @@ class ChurchRenderer(RendererBase):
         current: SchemaFragment = _sym(ctx, arg.name)
         for idx in arg.indices:
             idx_form = self._render_arg(ctx, idx)
-            current = _list(
-                ctx, (_sym(ctx, "list-ref"), current, idx_form)
-            )
+            current = _list(ctx, (_sym(ctx, "list-ref"), current, idx_form))
         return current
 
-    def _render_list(
-        self, ctx: _RenderCtx, arg: IRArgList
-    ) -> SchemaFragment:
+    def _render_list(self, ctx: _RenderCtx, arg: IRArgList) -> SchemaFragment:
         children = [_sym(ctx, "list")]
         for elem in arg.elements:
             children.append(self._render_arg(ctx, elem))
         return _list(ctx, tuple(children))
 
-    def _render_matrix(
-        self, ctx: _RenderCtx, arg: IRArgMatrix
-    ) -> SchemaFragment:
+    def _render_matrix(self, ctx: _RenderCtx, arg: IRArgMatrix) -> SchemaFragment:
         del ctx, arg
-        raise UnsupportedConstruct(
-            _TARGET, ["arg:matrix-literal"]
-        )
+        raise UnsupportedConstruct(_TARGET, ["arg:matrix-literal"])
 
     def _render_family_ref(
         self, ctx: _RenderCtx, arg: IRArgFamilyRef
@@ -606,9 +875,7 @@ class ChurchRenderer(RendererBase):
         outer distribution call before lowering.
         """
         del ctx
-        raise UnsupportedConstruct(
-            _TARGET, [f"arg:family_ref:{arg.name}"]
-        )
+        raise UnsupportedConstruct(_TARGET, [f"arg:family_ref:{arg.name}"])
 
     def _wrap_sample_define(
         self,
@@ -616,17 +883,25 @@ class ChurchRenderer(RendererBase):
         name: str,
         dist_form: SchemaFragment,
         plate: Plate,
+        constraint: ConstraintSpec,
     ) -> SchemaFragment:
         """`(define <name> <body>)` where `<body>` is the (possibly
         nested) `(map (lambda (m_<axis>) (sample <dist>)) (iota N))`
-        wrapping over the plate's batch dims."""
-        sample_form = _list(ctx, (_sym(ctx, "sample"), dist_form))
-        wrapped = self._wrap_in_maps(
-            ctx, sample_form, plate.batch_dims, axis_suffix=""
-        )
-        return _list(
-            ctx, (_sym(ctx, "define"), _sym(ctx, name), wrapped)
-        )
+        wrapping over the plate's batch dims.
+
+        When the family draws a scalar (its IR constraint is a scalar
+        support) but the sample carries event axes from an ``over=``
+        declaration, an inner map over the event dims wraps the draw
+        so each batch element is the declared-length vector rather
+        than a single scalar. Families that draw a vector natively
+        (Dirichlet, MultivariateNormal, ...) carry the event axes
+        intrinsically and need no inner map.
+        """
+        inner: SchemaFragment = _list(ctx, (_sym(ctx, "sample"), dist_form))
+        if plate.event_dims and _is_scalar_constraint(constraint):
+            inner = self._wrap_in_maps(ctx, inner, plate.event_dims, axis_suffix="")
+        wrapped = self._wrap_in_maps(ctx, inner, plate.batch_dims, axis_suffix="")
+        return _list(ctx, (_sym(ctx, "define"), _sym(ctx, name), wrapped))
 
     def _wrap_in_maps(
         self,
@@ -672,9 +947,7 @@ class ChurchRenderer(RendererBase):
             (_sym(ctx, "map"), lambda_form, iota_form),
         )
 
-    def _dim_size_form(
-        self, ctx: _RenderCtx, dim: object
-    ) -> SchemaFragment:
+    def _dim_size_form(self, ctx: _RenderCtx, dim: object) -> SchemaFragment:
         """Emit the size form for one plate dim.
 
         Static dims render as their integer cardinality; dynamic dims
@@ -684,12 +957,8 @@ class ChurchRenderer(RendererBase):
         if isinstance(dim, DimStatic):
             return _num(ctx, float(dim.size))
         if isinstance(dim, DimDynamic):
-            return _list(
-                ctx, (_sym(ctx, "length"), _sym(ctx, dim.size_name))
-            )
-        raise UnsupportedConstruct(
-            _TARGET, [f"dim:{type(dim).__name__}"]
-        )
+            return _list(ctx, (_sym(ctx, "length"), _sym(ctx, dim.size_name)))
+        raise UnsupportedConstruct(_TARGET, [f"dim:{type(dim).__name__}"])
 
     def _wrap_observe(
         self,
@@ -714,21 +983,16 @@ class ChurchRenderer(RendererBase):
                     _sym(ctx, obs_name),
                 ),
             )
-        # Index variable per nested level: outermost = n0, n1, ...
-        loop_vars = tuple(
-            f"n_{i}" if len(plate.batch_dims) > 1 else "n"
-            for i in range(len(plate.batch_dims))
-        )
+        # One `m_<axis>` loop variable per batch dim, matching the
+        # loop-variable names the per-row indexing pass threaded into
+        # the distribution arguments.
+        loop_vars = tuple(f"m_{dim.name}" for dim in plate.batch_dims)
         # Build the indexed reference `(list-ref ... obs)` nested per
         # loop, innermost-first to match the lambda nesting.
         obs_ref: SchemaFragment = _sym(ctx, obs_name)
         for lv in loop_vars:
-            obs_ref = _list(
-                ctx, (_sym(ctx, "list-ref"), obs_ref, _sym(ctx, lv))
-            )
-        innermost = _list(
-            ctx, (_sym(ctx, "observe"), dist_form, obs_ref)
-        )
+            obs_ref = _list(ctx, (_sym(ctx, "list-ref"), obs_ref, _sym(ctx, lv)))
+        innermost = _list(ctx, (_sym(ctx, "observe"), dist_form, obs_ref))
         # Wrap in nested `for-each` from inner to outer.
         current = innermost
         for lv, dim in zip(
@@ -785,9 +1049,7 @@ def _num(ctx: _RenderCtx, value: float) -> SchemaFragment:
     return vid
 
 
-def _list(
-    ctx: _RenderCtx, children: tuple[SchemaFragment, ...]
-) -> SchemaFragment:
+def _list(ctx: _RenderCtx, children: tuple[SchemaFragment, ...]) -> SchemaFragment:
     """A parenthesised Scheme list with `children` in order."""
     lst = _v(ctx, _fresh(ctx, "lst"), "list")
     for child in children:
@@ -847,21 +1109,20 @@ class _LetExprCtx:
 
 
 # ---------------------------------------------------------------------------
-# Runtime-helper graft: `matrix-normal` as a top-level `(define ...)`
-# built on top of Church's `multivariate-gaussian` primitive plus
-# small vec / Kronecker / reshape helpers.
+# Runtime graft: the self-contained Church reference runtime.
 #
-# Church's built-in primitive set ships `gaussian`, `beta`, `flip`,
-# `multivariate-gaussian`, ... but lacks a matrix-variate normal.
-# The transpile-time graft parses
-# [`runtime_church.scm`][quivers.transpile.runtime_church] once at
+# Church has no single canonical interpreter, so
+# [`runtime_church.scm`][quivers.transpile.runtime_church] defines
+# `sample` / `observe` / `factor` on a distribution-object protocol
+# plus one correctly parameterised distribution constructor per QVR
+# family. The transpile-time graft parses the runtime once at
 # module-load through panproto's Scheme tree-sitter grammar; per-render,
 # it copies every grafted vertex / constraint / edge into the per-render
 # schema (with fresh vertex ids) and attaches the runtime's top-level
 # forms as `child_of` of the emitted `program` vertex above the
-# `(define (model ...) ...)` form. The graft makes `matrix-normal` /
-# `vec` / `reshape` / `mat-kron` resolve through the standard Scheme
-# top-level binding lookup at evaluation time.
+# `(define (model ...) ...)` form, so every referenced identifier
+# resolves through the standard Scheme top-level binding lookup at
+# evaluation time.
 # ---------------------------------------------------------------------------
 
 
@@ -870,19 +1131,7 @@ _RUNTIME_CHURCH_PATH = (
 )
 
 
-#: Families whose Church emit relies on the
-#: [`runtime_church.scm`][quivers.transpile.runtime_church] helper subtree.
-#: Church ships `gaussian`, `beta`, `flip`, `multivariate-gaussian`, ... as
-#: built-in distributions but lacks `matrix-normal`; the renderer grafts
-#: the helper when the IR samples or observes from any of them.
-_CHURCH_RUNTIME_HELPER_FAMILIES: frozenset[str] = frozenset({
-    "MatrixNormal",
-})
-
-
-def _load_runtime_church_schema() -> tuple[
-    panproto.Schema, str, tuple[str, ...]
-]:
+def _load_runtime_church_schema() -> tuple[panproto.Schema, str, tuple[str, ...]]:
     """Parse [`runtime_church.scm`][quivers.transpile.runtime_church]
     through panproto's Scheme tree-sitter grammar at module-load time.
 
@@ -902,9 +1151,7 @@ def _load_runtime_church_schema() -> tuple[
         None,
     )
     if src_id is None:
-        raise RuntimeError(
-            f"`program` not found in parse of {_RUNTIME_CHURCH_PATH}"
-        )
+        raise RuntimeError(f"`program` not found in parse of {_RUNTIME_CHURCH_PATH}")
     children_with_sb: list[tuple[int, str]] = []
     for edge in schema.edges:
         if edge.src != src_id:
@@ -947,25 +1194,6 @@ _RUNTIME_CHURCH_SUBTREE = _church_subtree_vertex_ids(
 )
 
 
-def _ir_uses_family(body: tuple[IRNode, ...], family: str) -> bool:
-    """True iff any [`IRSample`][quivers.transpile.ir.IRSample],
-    [`IRObserve`][quivers.transpile.ir.IRObserve], or
-    [`IRMarginalize`][quivers.transpile.ir.IRMarginalize] in `body`
-    (including nested marginalize scopes) draws from `family`."""
-    for node in body:
-        if (
-            isinstance(node, (IRSample, IRObserve))
-            and node.family == family
-        ):
-            return True
-        if isinstance(node, IRMarginalize):
-            if node.family == family:
-                return True
-            if _ir_uses_family(node.scope, family):
-                return True
-    return False
-
-
 def _graft_runtime_church_helper(ctx: _RenderCtx, program_vid: str) -> None:
     """Graft the runtime-helper subtree onto the per-render schema.
 
@@ -983,9 +1211,7 @@ def _graft_runtime_church_helper(ctx: _RenderCtx, program_vid: str) -> None:
     for old in subtree:
         new = _fresh(ctx, "rc")
         id_map[old] = new
-        kind = next(
-            v.kind for v in src_schema.vertices if v.id == old
-        )
+        kind = next(v.kind for v in src_schema.vertices if v.id == old)
         ctx.sb.vertex(new, kind)
         for cstr in src_schema.constraints_for(old):
             ctx.sb.constraint(new, cstr.sort, cstr.value)

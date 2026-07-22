@@ -123,12 +123,8 @@ class FamilyMeta(dx.Model):
     qvr_name: str
     distribution_class: type[Distribution] = dx.field(opaque=True)
     target_names: dict[str, str]
-    arg_aliases: dict[str, dict[str, str]] = dx.field(
-        default_factory=lambda: {}
-    )
-    quivers_class: type[ContinuousMorphism] | None = dx.field(
-        default=None, opaque=True
-    )
+    arg_aliases: dict[str, dict[str, str]] = dx.field(default_factory=lambda: {})
+    quivers_class: type[ContinuousMorphism] | None = dx.field(default=None, opaque=True)
     structured_lowering: StructuredSampleLowering | None = None
 
 
@@ -180,25 +176,19 @@ class BetaBinomial(Distribution):
         b = self.concentration0.to(value.dtype)
         k = value.to(value.dtype)
         log_comb = (
-            torch.lgamma(n + 1.0)
-            - torch.lgamma(k + 1.0)
-            - torch.lgamma(n - k + 1.0)
+            torch.lgamma(n + 1.0) - torch.lgamma(k + 1.0) - torch.lgamma(n - k + 1.0)
         )
         log_beta_post = (
-            torch.lgamma(a + k)
-            + torch.lgamma(b + n - k)
-            - torch.lgamma(a + b + n)
+            torch.lgamma(a + k) + torch.lgamma(b + n - k) - torch.lgamma(a + b + n)
         )
-        log_beta_prior = (
-            torch.lgamma(a) + torch.lgamma(b) - torch.lgamma(a + b)
-        )
+        log_beta_prior = torch.lgamma(a) + torch.lgamma(b) - torch.lgamma(a + b)
         return log_comb + log_beta_post - log_beta_prior
 
     def sample(self, sample_shape: torch.Size = torch.Size()) -> torch.Tensor:
         """Two-stage draw: ``p ~ Beta(a, b)``; ``k ~ Binomial(n, p)``."""
-        p = torch.distributions.Beta(
-            self.concentration1, self.concentration0
-        ).sample(sample_shape)
+        p = torch.distributions.Beta(self.concentration1, self.concentration0).sample(
+            sample_shape
+        )
         return torch.distributions.Binomial(
             total_count=self.total_count, probs=p
         ).sample()
@@ -218,10 +208,7 @@ class BetaBinomial(Distribution):
         n = self.total_count
         a = self.concentration1
         b = self.concentration0
-        return (
-            n * a * b * (a + b + n)
-            / ((a + b) ** 2 * (a + b + 1.0))
-        )
+        return n * a * b * (a + b + n) / ((a + b) ** 2 * (a + b + 1.0))
 
 
 class OrderedLogistic(Distribution):
@@ -529,11 +516,17 @@ FAMILY_META: dict[str, FamilyMeta] = {
         distribution_class=td.Normal,
         quivers_class=ConditionalNormal,
         target_names={
-            "stan": "normal", "numpyro": "Normal", "pyro": "Normal",
-            "pymc": "Normal", "edward2": "Normal",
-            "turing": "Normal", "gen": "normal",
-            "church": "gaussian", "webppl": "Gaussian",
-            "bugs": "dnorm", "jags": "dnorm",
+            "stan": "normal",
+            "numpyro": "Normal",
+            "pyro": "Normal",
+            "pymc": "Normal",
+            "edward2": "Normal",
+            "turing": "Normal",
+            "gen": "normal",
+            "church": "gaussian",
+            "webppl": "Gaussian",
+            "bugs": "dnorm",
+            "jags": "dnorm",
         },
         arg_aliases={
             "bugs": {"scale": "tau"},
@@ -547,8 +540,10 @@ FAMILY_META: dict[str, FamilyMeta] = {
         distribution_class=_LogitNormal,
         quivers_class=ConditionalLogitNormal,
         target_names={
-            "stan": "logit_normal", "numpyro": "LogitNormal",
-            "pyro": "LogitNormal", "pymc": "LogitNormal",
+            "stan": "logit_normal",
+            "numpyro": "LogitNormal",
+            "pyro": "LogitNormal",
+            "pymc": "LogitNormal",
             "edward2": "LogitNormal",
         },
         arg_aliases={
@@ -560,11 +555,17 @@ FAMILY_META: dict[str, FamilyMeta] = {
         distribution_class=td.Beta,
         quivers_class=ConditionalBeta,
         target_names={
-            "stan": "beta", "numpyro": "Beta", "pyro": "Beta",
-            "pymc": "Beta", "edward2": "Beta",
-            "turing": "Beta", "gen": "beta",
-            "church": "beta", "webppl": "Beta",
-            "bugs": "dbeta", "jags": "dbeta",
+            "stan": "beta",
+            "numpyro": "Beta",
+            "pyro": "Beta",
+            "pymc": "Beta",
+            "edward2": "Beta",
+            "turing": "Beta",
+            "gen": "beta",
+            "church": "beta",
+            "webppl": "Beta",
+            "bugs": "dbeta",
+            "jags": "dbeta",
         },
         arg_aliases={
             "pymc": {"concentration1": "alpha", "concentration0": "beta"},
@@ -589,17 +590,22 @@ FAMILY_META: dict[str, FamilyMeta] = {
         # module above the `@gen function model`; the call site emits
         # as `truncated_normal(loc, scale, low, high)`.
         target_names={
-            "numpyro": "TruncatedNormal", "pyro": "TruncatedNormal",
-            "pymc": "TruncatedNormal", "edward2": "TruncatedNormal",
+            "numpyro": "TruncatedNormal",
+            "pyro": "TruncatedNormal",
+            "pymc": "TruncatedNormal",
+            "edward2": "TruncatedNormal",
             "turing": "truncated",
             "gen": "truncated_normal",
             "stan": "normal",
-            "bugs": "dnorm", "jags": "dnorm",
+            "bugs": "dnorm",
+            "jags": "dnorm",
         },
         arg_aliases={
             "pymc": {
-                "loc": "mu", "scale": "sigma",
-                "low": "lower", "high": "upper",
+                "loc": "mu",
+                "scale": "sigma",
+                "low": "lower",
+                "high": "upper",
             },
             "bugs": {"scale": "tau"},
             "jags": {"scale": "tau"},
@@ -610,11 +616,17 @@ FAMILY_META: dict[str, FamilyMeta] = {
         distribution_class=td.Dirichlet,
         quivers_class=ConditionalDirichlet,
         target_names={
-            "stan": "dirichlet", "numpyro": "Dirichlet", "pyro": "Dirichlet",
-            "pymc": "Dirichlet", "edward2": "Dirichlet",
-            "turing": "Dirichlet", "gen": "dirichlet",
-            "church": "dirichlet", "webppl": "Dirichlet",
-            "bugs": "ddirch", "jags": "ddirich",
+            "stan": "dirichlet",
+            "numpyro": "Dirichlet",
+            "pyro": "Dirichlet",
+            "pymc": "Dirichlet",
+            "edward2": "Dirichlet",
+            "turing": "Dirichlet",
+            "gen": "dirichlet",
+            "church": "dirichlet",
+            "webppl": "Dirichlet",
+            "bugs": "ddirch",
+            "jags": "ddirich",
         },
         arg_aliases={
             "pymc": {"concentration": "a"},
@@ -626,11 +638,17 @@ FAMILY_META: dict[str, FamilyMeta] = {
         distribution_class=td.Cauchy,
         quivers_class=ConditionalCauchy,
         target_names={
-            "stan": "cauchy", "numpyro": "Cauchy", "pyro": "Cauchy",
-            "pymc": "Cauchy", "edward2": "Cauchy",
-            "turing": "Cauchy", "gen": "cauchy",
-            "church": "cauchy", "webppl": "Cauchy",
-            "bugs": "dt", "jags": "dt",
+            "stan": "cauchy",
+            "numpyro": "Cauchy",
+            "pyro": "Cauchy",
+            "pymc": "Cauchy",
+            "edward2": "Cauchy",
+            "turing": "Cauchy",
+            "gen": "cauchy",
+            "church": "cauchy",
+            "webppl": "Cauchy",
+            "bugs": "dt",
+            "jags": "dt",
         },
         arg_aliases={
             # JAGS / BUGS `dt(mu, tau, k)` parameterise by precision
@@ -649,11 +667,16 @@ FAMILY_META: dict[str, FamilyMeta] = {
         distribution_class=td.Laplace,
         quivers_class=ConditionalLaplace,
         target_names={
-            "stan": "double_exponential", "numpyro": "Laplace",
-            "pyro": "Laplace", "pymc": "Laplace",
-            "edward2": "Laplace", "turing": "Laplace",
-            "gen": "laplace", "webppl": "Laplace",
-            "bugs": "ddexp", "jags": "ddexp",
+            "stan": "double_exponential",
+            "numpyro": "Laplace",
+            "pyro": "Laplace",
+            "pymc": "Laplace",
+            "edward2": "Laplace",
+            "turing": "Laplace",
+            "gen": "laplace",
+            "webppl": "Laplace",
+            "bugs": "ddexp",
+            "jags": "ddexp",
         },
         arg_aliases={
             "bugs": {"scale": "tau"},
@@ -667,8 +690,11 @@ FAMILY_META: dict[str, FamilyMeta] = {
         distribution_class=td.Gumbel,
         quivers_class=ConditionalGumbel,
         target_names={
-            "stan": "gumbel", "numpyro": "Gumbel", "pyro": "Gumbel",
-            "pymc": "Gumbel", "edward2": "Gumbel",
+            "stan": "gumbel",
+            "numpyro": "Gumbel",
+            "pyro": "Gumbel",
+            "pymc": "Gumbel",
+            "edward2": "Gumbel",
             "turing": "Gumbel",
         },
         arg_aliases={
@@ -680,11 +706,17 @@ FAMILY_META: dict[str, FamilyMeta] = {
         distribution_class=td.LogNormal,
         quivers_class=ConditionalLogNormal,
         target_names={
-            "stan": "lognormal", "numpyro": "LogNormal", "pyro": "LogNormal",
-            "pymc": "LogNormal", "edward2": "LogNormal",
-            "turing": "LogNormal", "gen": "lognormal",
-            "church": "lognormal", "webppl": "LogNormal",
-            "bugs": "dlnorm", "jags": "dlnorm",
+            "stan": "lognormal",
+            "numpyro": "LogNormal",
+            "pyro": "LogNormal",
+            "pymc": "LogNormal",
+            "edward2": "LogNormal",
+            "turing": "LogNormal",
+            "gen": "lognormal",
+            "church": "lognormal",
+            "webppl": "LogNormal",
+            "bugs": "dlnorm",
+            "jags": "dlnorm",
         },
         arg_aliases={
             "pymc": {"loc": "mu", "scale": "sigma"},
@@ -695,11 +727,16 @@ FAMILY_META: dict[str, FamilyMeta] = {
         distribution_class=td.StudentT,
         quivers_class=ConditionalStudentT,
         target_names={
-            "stan": "student_t", "numpyro": "StudentT", "pyro": "StudentT",
-            "pymc": "StudentT", "edward2": "StudentT",
+            "stan": "student_t",
+            "numpyro": "StudentT",
+            "pyro": "StudentT",
+            "pymc": "StudentT",
+            "edward2": "StudentT",
             "turing": "TDist",
-            "church": "student-t", "webppl": "StudentT",
-            "bugs": "dt", "jags": "dt",
+            "church": "student-t",
+            "webppl": "StudentT",
+            "bugs": "dt",
+            "jags": "dt",
         },
         arg_aliases={
             "pymc": {"df": "nu", "loc": "mu", "scale": "sigma"},
@@ -710,12 +747,17 @@ FAMILY_META: dict[str, FamilyMeta] = {
         distribution_class=td.Exponential,
         quivers_class=ConditionalExponential,
         target_names={
-            "stan": "exponential", "numpyro": "Exponential",
-            "pyro": "Exponential", "pymc": "Exponential",
-            "edward2": "Exponential", "turing": "Exponential",
-            "gen": "exponential", "church": "exponential",
+            "stan": "exponential",
+            "numpyro": "Exponential",
+            "pyro": "Exponential",
+            "pymc": "Exponential",
+            "edward2": "Exponential",
+            "turing": "Exponential",
+            "gen": "exponential",
+            "church": "exponential",
             "webppl": "Exponential",
-            "bugs": "dexp", "jags": "dexp",
+            "bugs": "dexp",
+            "jags": "dexp",
         },
         arg_aliases={
             "pymc": {"rate": "lam"},
@@ -727,11 +769,17 @@ FAMILY_META: dict[str, FamilyMeta] = {
         distribution_class=td.Gamma,
         quivers_class=ConditionalGamma,
         target_names={
-            "stan": "gamma", "numpyro": "Gamma", "pyro": "Gamma",
-            "pymc": "Gamma", "edward2": "Gamma",
-            "turing": "Gamma", "gen": "gamma",
-            "church": "gamma", "webppl": "Gamma",
-            "bugs": "dgamma", "jags": "dgamma",
+            "stan": "gamma",
+            "numpyro": "Gamma",
+            "pyro": "Gamma",
+            "pymc": "Gamma",
+            "edward2": "Gamma",
+            "turing": "Gamma",
+            "gen": "gamma",
+            "church": "gamma",
+            "webppl": "Gamma",
+            "bugs": "dgamma",
+            "jags": "dgamma",
         },
         arg_aliases={
             "pymc": {"concentration": "alpha", "rate": "beta"},
@@ -743,10 +791,14 @@ FAMILY_META: dict[str, FamilyMeta] = {
         distribution_class=td.Chi2,
         quivers_class=ConditionalChi2,
         target_names={
-            "stan": "chi_square", "numpyro": "Chi2", "pyro": "Chi2",
-            "pymc": "ChiSquared", "edward2": "Chi2",
+            "stan": "chi_square",
+            "numpyro": "Chi2",
+            "pyro": "Chi2",
+            "pymc": "ChiSquared",
+            "edward2": "Chi2",
             "turing": "Chisq",
-            "bugs": "dchisqr", "jags": "dchisqr",
+            "bugs": "dchisqr",
+            "jags": "dchisqr",
         },
         arg_aliases={
             "pymc": {"df": "nu"},
@@ -757,11 +809,17 @@ FAMILY_META: dict[str, FamilyMeta] = {
         distribution_class=td.HalfCauchy,
         quivers_class=ConditionalHalfCauchy,
         target_names={
-            "stan": "cauchy", "numpyro": "HalfCauchy", "pyro": "HalfCauchy",
-            "pymc": "HalfCauchy", "edward2": "HalfCauchy",
-            "turing": "truncated", "gen": "cauchy",
-            "church": "gaussian", "webppl": "Cauchy",
-            "bugs": "dt", "jags": "dt",
+            "stan": "cauchy",
+            "numpyro": "HalfCauchy",
+            "pyro": "HalfCauchy",
+            "pymc": "HalfCauchy",
+            "edward2": "HalfCauchy",
+            "turing": "truncated",
+            "gen": "cauchy",
+            "church": "cauchy",
+            "webppl": "Cauchy",
+            "bugs": "dt",
+            "jags": "dt",
         },
         arg_aliases={
             "pymc": {"scale": "beta"},
@@ -787,11 +845,17 @@ FAMILY_META: dict[str, FamilyMeta] = {
         distribution_class=td.HalfNormal,
         quivers_class=ConditionalHalfNormal,
         target_names={
-            "stan": "normal", "numpyro": "HalfNormal", "pyro": "HalfNormal",
-            "pymc": "HalfNormal", "edward2": "HalfNormal",
-            "turing": "truncated", "gen": "normal",
-            "church": "gaussian", "webppl": "Gaussian",
-            "bugs": "dnorm", "jags": "dnorm",
+            "stan": "normal",
+            "numpyro": "HalfNormal",
+            "pyro": "HalfNormal",
+            "pymc": "HalfNormal",
+            "edward2": "HalfNormal",
+            "turing": "truncated",
+            "gen": "normal",
+            "church": "gaussian",
+            "webppl": "Gaussian",
+            "bugs": "dnorm",
+            "jags": "dnorm",
         },
         arg_aliases={
             "pymc": {"scale": "sigma"},
@@ -815,9 +879,12 @@ FAMILY_META: dict[str, FamilyMeta] = {
         distribution_class=td.InverseGamma,
         quivers_class=ConditionalInverseGamma,
         target_names={
-            "stan": "inv_gamma", "numpyro": "InverseGamma",
-            "pyro": "InverseGamma", "pymc": "InverseGamma",
-            "edward2": "InverseGamma", "turing": "InverseGamma",
+            "stan": "inv_gamma",
+            "numpyro": "InverseGamma",
+            "pyro": "InverseGamma",
+            "pymc": "InverseGamma",
+            "edward2": "InverseGamma",
+            "turing": "InverseGamma",
         },
         arg_aliases={
             "pymc": {"concentration": "alpha", "rate": "beta"},
@@ -828,11 +895,17 @@ FAMILY_META: dict[str, FamilyMeta] = {
         distribution_class=td.Weibull,
         quivers_class=ConditionalWeibull,
         target_names={
-            "stan": "weibull", "numpyro": "Weibull", "pyro": "Weibull",
-            "pymc": "Weibull", "edward2": "Weibull",
-            "turing": "Weibull", "gen": "weibull",
-            "church": "weibull", "webppl": "Weibull",
-            "bugs": "dweib", "jags": "dweib",
+            "stan": "weibull",
+            "numpyro": "Weibull",
+            "pyro": "Weibull",
+            "pymc": "Weibull",
+            "edward2": "Weibull",
+            "turing": "Weibull",
+            "gen": "weibull",
+            "church": "weibull",
+            "webppl": "Weibull",
+            "bugs": "dweib",
+            "jags": "dweib",
         },
         arg_aliases={
             "pymc": {"concentration": "alpha", "scale": "beta"},
@@ -843,10 +916,15 @@ FAMILY_META: dict[str, FamilyMeta] = {
         distribution_class=td.Pareto,
         quivers_class=ConditionalPareto,
         target_names={
-            "stan": "pareto", "numpyro": "Pareto", "pyro": "Pareto",
-            "pymc": "Pareto", "edward2": "Pareto",
-            "turing": "Pareto", "church": "pareto",
-            "bugs": "dpar", "jags": "dpar",
+            "stan": "pareto",
+            "numpyro": "Pareto",
+            "pyro": "Pareto",
+            "pymc": "Pareto",
+            "edward2": "Pareto",
+            "turing": "Pareto",
+            "church": "pareto",
+            "bugs": "dpar",
+            "jags": "dpar",
         },
         arg_aliases={
             "pymc": {"alpha": "alpha", "scale": "m"},
@@ -858,9 +936,12 @@ FAMILY_META: dict[str, FamilyMeta] = {
         quivers_class=ConditionalKumaraswamy,
         target_names={
             "stan": "kumaraswamy",
-            "numpyro": "Kumaraswamy", "pyro": "Kumaraswamy",
-            "pymc": "Kumaraswamy", "edward2": "Kumaraswamy",
-            "gen": "kumaraswamy", "turing": "Kumaraswamy",
+            "numpyro": "Kumaraswamy",
+            "pyro": "Kumaraswamy",
+            "pymc": "Kumaraswamy",
+            "edward2": "Kumaraswamy",
+            "gen": "kumaraswamy",
+            "turing": "Kumaraswamy",
             "webppl": "Kumaraswamy",
         },
         arg_aliases={
@@ -872,9 +953,12 @@ FAMILY_META: dict[str, FamilyMeta] = {
         distribution_class=td.ContinuousBernoulli,
         quivers_class=ConditionalContinuousBernoulli,
         target_names={
-            "stan": "continuous_bernoulli", "numpyro": "ContinuousBernoulli",
-            "pyro": "ContinuousBernoulli", "edward2": "ContinuousBernoulli",
-            "pymc": "ContinuousBernoulli", "turing": "ContinuousBernoulli",
+            "stan": "continuous_bernoulli",
+            "numpyro": "ContinuousBernoulli",
+            "pyro": "ContinuousBernoulli",
+            "edward2": "ContinuousBernoulli",
+            "pymc": "ContinuousBernoulli",
+            "turing": "ContinuousBernoulli",
             "gen": "continuous_bernoulli",
             "webppl": "ContinuousBernoulli",
         },
@@ -884,8 +968,10 @@ FAMILY_META: dict[str, FamilyMeta] = {
         distribution_class=td.FisherSnedecor,
         quivers_class=ConditionalFisherSnedecor,
         target_names={
-            "numpyro": "FisherSnedecor", "pyro": "FisherSnedecor",
-            "turing": "FDist", "jags": "df",
+            "numpyro": "FisherSnedecor",
+            "pyro": "FisherSnedecor",
+            "turing": "FDist",
+            "jags": "df",
         },
         arg_aliases={
             "jags": {"df1": "n", "df2": "m"},
@@ -896,11 +982,17 @@ FAMILY_META: dict[str, FamilyMeta] = {
         distribution_class=td.Uniform,
         quivers_class=ConditionalUniform,
         target_names={
-            "stan": "uniform", "numpyro": "Uniform", "pyro": "Uniform",
-            "pymc": "Uniform", "edward2": "Uniform",
-            "turing": "Uniform", "gen": "uniform",
-            "church": "uniform", "webppl": "Uniform",
-            "bugs": "dunif", "jags": "dunif",
+            "stan": "uniform",
+            "numpyro": "Uniform",
+            "pyro": "Uniform",
+            "pymc": "Uniform",
+            "edward2": "Uniform",
+            "turing": "Uniform",
+            "gen": "uniform",
+            "church": "uniform",
+            "webppl": "Uniform",
+            "bugs": "dunif",
+            "jags": "dunif",
         },
         arg_aliases={
             "pymc": {"low": "lower", "high": "upper"},
@@ -913,13 +1005,17 @@ FAMILY_META: dict[str, FamilyMeta] = {
         distribution_class=td.MultivariateNormal,
         quivers_class=ConditionalMultivariateNormal,
         target_names={
-            "stan": "multi_normal", "numpyro": "MultivariateNormal",
-            "pyro": "MultivariateNormal", "pymc": "MvNormal",
+            "stan": "multi_normal",
+            "numpyro": "MultivariateNormal",
+            "pyro": "MultivariateNormal",
+            "pymc": "MvNormal",
             "edward2": "MultivariateNormalFullCovariance",
-            "turing": "MvNormal", "gen": "mvnormal",
+            "turing": "MvNormal",
+            "gen": "mvnormal",
             "church": "multivariate-gaussian",
             "webppl": "MultivariateGaussian",
-            "bugs": "dmnorm", "jags": "dmnorm",
+            "bugs": "dmnorm",
+            "jags": "dmnorm",
         },
         arg_aliases={
             "pymc": {"loc": "mu", "covariance_matrix": "cov"},
@@ -964,7 +1060,8 @@ FAMILY_META: dict[str, FamilyMeta] = {
         distribution_class=td.RelaxedBernoulli,
         quivers_class=ConditionalRelaxedBernoulli,
         target_names={
-            "numpyro": "RelaxedBernoulli", "pyro": "RelaxedBernoulli",
+            "numpyro": "RelaxedBernoulli",
+            "pyro": "RelaxedBernoulli",
             "edward2": "RelaxedBernoulli",
         },
     ),
@@ -985,10 +1082,13 @@ FAMILY_META: dict[str, FamilyMeta] = {
         quivers_class=ConditionalWishart,
         target_names={
             "stan": "wishart",
-            "numpyro": "Wishart", "pyro": "Wishart",
-            "pymc": "Wishart", "edward2": "Wishart",
+            "numpyro": "Wishart",
+            "pyro": "Wishart",
+            "pymc": "Wishart",
+            "edward2": "Wishart",
             "turing": "Wishart",
-            "bugs": "dwish", "jags": "dwish",
+            "bugs": "dwish",
+            "jags": "dwish",
         },
         arg_aliases={
             "pymc": {"df": "nu", "covariance_matrix": "V"},
@@ -1000,7 +1100,8 @@ FAMILY_META: dict[str, FamilyMeta] = {
         quivers_class=ConditionalInverseWishart,
         target_names={
             "stan": "inv_wishart",
-            "numpyro": "InverseWishart", "pyro": "InverseWishart",
+            "numpyro": "InverseWishart",
+            "pyro": "InverseWishart",
             "turing": "InverseWishart",
         },
     ),
@@ -1083,11 +1184,17 @@ FAMILY_META: dict[str, FamilyMeta] = {
         distribution_class=_Horseshoe,
         quivers_class=ConditionalHorseshoe,
         target_names={
-            "stan": "normal", "numpyro": "Normal", "pyro": "Normal",
-            "pymc": "Normal", "edward2": "Normal",
-            "turing": "Normal", "gen": "normal",
-            "church": "gaussian", "webppl": "Gaussian",
-            "bugs": "dnorm", "jags": "dnorm",
+            "stan": "normal",
+            "numpyro": "Normal",
+            "pyro": "Normal",
+            "pymc": "Normal",
+            "edward2": "Normal",
+            "turing": "Normal",
+            "gen": "normal",
+            "church": "gaussian",
+            "webppl": "Gaussian",
+            "bugs": "dnorm",
+            "jags": "dnorm",
         },
     ),
     # ----- discrete -----
@@ -1096,11 +1203,17 @@ FAMILY_META: dict[str, FamilyMeta] = {
         distribution_class=td.Bernoulli,
         quivers_class=ConditionalBernoulli,
         target_names={
-            "stan": "bernoulli", "numpyro": "Bernoulli", "pyro": "Bernoulli",
-            "pymc": "Bernoulli", "edward2": "Bernoulli",
-            "turing": "Bernoulli", "gen": "bernoulli",
-            "church": "flip", "webppl": "Bernoulli",
-            "bugs": "dbern", "jags": "dbern",
+            "stan": "bernoulli",
+            "numpyro": "Bernoulli",
+            "pyro": "Bernoulli",
+            "pymc": "Bernoulli",
+            "edward2": "Bernoulli",
+            "turing": "Bernoulli",
+            "gen": "bernoulli",
+            "church": "flip",
+            "webppl": "Bernoulli",
+            "bugs": "dbern",
+            "jags": "dbern",
         },
         arg_aliases={
             "pymc": {"probs": "p"},
@@ -1112,12 +1225,17 @@ FAMILY_META: dict[str, FamilyMeta] = {
         distribution_class=td.Categorical,
         quivers_class=ConditionalCategorical,
         target_names={
-            "stan": "categorical", "numpyro": "Categorical",
-            "pyro": "Categorical", "pymc": "Categorical",
-            "edward2": "Categorical", "turing": "Categorical",
-            "gen": "categorical", "church": "categorical",
+            "stan": "categorical",
+            "numpyro": "Categorical",
+            "pyro": "Categorical",
+            "pymc": "Categorical",
+            "edward2": "Categorical",
+            "turing": "Categorical",
+            "gen": "categorical",
+            "church": "categorical",
             "webppl": "Categorical",
-            "bugs": "dcat", "jags": "dcat",
+            "bugs": "dcat",
+            "jags": "dcat",
         },
         arg_aliases={
             "pymc": {"probs": "p"},
@@ -1130,11 +1248,17 @@ FAMILY_META: dict[str, FamilyMeta] = {
         distribution_class=td.Poisson,
         quivers_class=ConditionalPoisson,
         target_names={
-            "stan": "poisson", "numpyro": "Poisson", "pyro": "Poisson",
-            "pymc": "Poisson", "edward2": "Poisson",
-            "turing": "Poisson", "gen": "poisson",
-            "church": "poisson", "webppl": "Poisson",
-            "bugs": "dpois", "jags": "dpois",
+            "stan": "poisson",
+            "numpyro": "Poisson",
+            "pyro": "Poisson",
+            "pymc": "Poisson",
+            "edward2": "Poisson",
+            "turing": "Poisson",
+            "gen": "poisson",
+            "church": "poisson",
+            "webppl": "Poisson",
+            "bugs": "dpois",
+            "jags": "dpois",
         },
         arg_aliases={
             "pymc": {"rate": "mu"},
@@ -1146,12 +1270,17 @@ FAMILY_META: dict[str, FamilyMeta] = {
         distribution_class=td.NegativeBinomial,
         quivers_class=ConditionalNegativeBinomial,
         target_names={
-            "stan": "neg_binomial_2", "numpyro": "NegativeBinomial2",
-            "pyro": "NegativeBinomial", "pymc": "NegativeBinomial",
-            "edward2": "NegativeBinomial", "turing": "NegativeBinomial",
-            "gen": "neg_binom", "church": "negative-binomial",
+            "stan": "neg_binomial_2",
+            "numpyro": "NegativeBinomial2",
+            "pyro": "NegativeBinomial",
+            "pymc": "NegativeBinomial",
+            "edward2": "NegativeBinomial",
+            "turing": "NegativeBinomial",
+            "gen": "neg_binom",
+            "church": "negative-binomial",
             "webppl": "NegativeBinomial",
-            "bugs": "dnegbin", "jags": "dnegbin",
+            "bugs": "dnegbin",
+            "jags": "dnegbin",
         },
         arg_aliases={
             "pymc": {"probs": "p", "total_count": "n"},
@@ -1162,9 +1291,12 @@ FAMILY_META: dict[str, FamilyMeta] = {
         distribution_class=td.Geometric,
         quivers_class=ConditionalGeometric,
         target_names={
-            "numpyro": "Geometric", "pyro": "Geometric",
-            "pymc": "Geometric", "edward2": "Geometric",
-            "turing": "Geometric", "gen": "geometric",
+            "numpyro": "Geometric",
+            "pyro": "Geometric",
+            "pymc": "Geometric",
+            "edward2": "Geometric",
+            "turing": "Geometric",
+            "gen": "geometric",
             "church": "geometric",
         },
         arg_aliases={
@@ -1176,10 +1308,15 @@ FAMILY_META: dict[str, FamilyMeta] = {
         distribution_class=td.Binomial,
         quivers_class=ConditionalBinomial,
         target_names={
-            "stan": "binomial", "numpyro": "Binomial", "pyro": "Binomial",
-            "pymc": "Binomial", "edward2": "Binomial",
-            "turing": "Binomial", "webppl": "Binomial",
-            "bugs": "dbin", "jags": "dbin",
+            "stan": "binomial",
+            "numpyro": "Binomial",
+            "pyro": "Binomial",
+            "pymc": "Binomial",
+            "edward2": "Binomial",
+            "turing": "Binomial",
+            "webppl": "Binomial",
+            "bugs": "dbin",
+            "jags": "dbin",
         },
         arg_aliases={
             "pymc": {"probs": "p", "total_count": "n"},
@@ -1191,8 +1328,11 @@ FAMILY_META: dict[str, FamilyMeta] = {
         distribution_class=td.VonMises,
         quivers_class=ConditionalVonMises,
         target_names={
-            "stan": "von_mises", "numpyro": "VonMises", "pyro": "VonMises",
-            "pymc": "VonMises", "edward2": "VonMises",
+            "stan": "von_mises",
+            "numpyro": "VonMises",
+            "pyro": "VonMises",
+            "pymc": "VonMises",
+            "edward2": "VonMises",
             "turing": "VonMises",
         },
         arg_aliases={
@@ -1204,7 +1344,8 @@ FAMILY_META: dict[str, FamilyMeta] = {
         distribution_class=td.LogisticNormal,
         quivers_class=ConditionalLogisticNormal,
         target_names={
-            "numpyro": "LogisticNormal", "pyro": "LogisticNormal",
+            "numpyro": "LogisticNormal",
+            "pyro": "LogisticNormal",
             "webppl": "LogisticNormal",
         },
         arg_aliases={
@@ -1216,7 +1357,8 @@ FAMILY_META: dict[str, FamilyMeta] = {
         distribution_class=td.OneHotCategorical,
         quivers_class=ConditionalOneHotCategorical,
         target_names={
-            "numpyro": "OneHotCategorical", "pyro": "OneHotCategorical",
+            "numpyro": "OneHotCategorical",
+            "pyro": "OneHotCategorical",
             "edward2": "OneHotCategorical",
         },
         arg_aliases={
@@ -1228,10 +1370,14 @@ FAMILY_META: dict[str, FamilyMeta] = {
         distribution_class=td.LKJCholesky,
         quivers_class=ConditionalLKJCholesky,
         target_names={
-            "stan": "lkj_corr_cholesky", "numpyro": "LKJCholesky",
-            "pyro": "LKJCorrCholesky", "pymc": "LKJCholesky",
-            "edward2": "LKJ", "turing": "LKJCholesky",
-            "gen": "lkj_cholesky", "webppl": "LKJCholesky",
+            "stan": "lkj_corr_cholesky",
+            "numpyro": "LKJCholesky",
+            "pyro": "LKJCorrCholesky",
+            "pymc": "LKJCholesky",
+            "edward2": "LKJ",
+            "turing": "LKJCholesky",
+            "gen": "lkj_cholesky",
+            "webppl": "LKJCholesky",
         },
         arg_aliases={
             "pymc": {"concentration": "eta"},
@@ -1242,9 +1388,12 @@ FAMILY_META: dict[str, FamilyMeta] = {
         distribution_class=td.MixtureSameFamily,
         quivers_class=ConditionalMixture,
         target_names={
-            "numpyro": "MixtureSameFamily", "pyro": "MixtureSameFamily",
-            "pymc": "Mixture", "edward2": "MixtureSameFamily",
-            "turing": "MixtureModel", "webppl": "Mixture",
+            "numpyro": "MixtureSameFamily",
+            "pyro": "MixtureSameFamily",
+            "pymc": "Mixture",
+            "edward2": "MixtureSameFamily",
+            "turing": "MixtureModel",
+            "webppl": "Mixture",
         },
         arg_aliases={
             "pymc": {
@@ -1258,7 +1407,8 @@ FAMILY_META: dict[str, FamilyMeta] = {
         distribution_class=td.Independent,
         quivers_class=ConditionalIndependent,
         target_names={
-            "numpyro": "Independent", "pyro": "Independent",
+            "numpyro": "Independent",
+            "pyro": "Independent",
             "edward2": "Independent",
         },
     ),
@@ -1293,7 +1443,8 @@ FAMILY_META: dict[str, FamilyMeta] = {
         target_names={
             "pymc": "LKJCorr",
             "stan": "lkj_corr",
-            "numpyro": "LKJ", "pyro": "LKJ",
+            "numpyro": "LKJ",
+            "pyro": "LKJ",
         },
     ),
     # ----- compound / shim families -----
@@ -1302,11 +1453,16 @@ FAMILY_META: dict[str, FamilyMeta] = {
         distribution_class=BetaBinomial,
         quivers_class=ConditionalBetaBinomial,
         target_names={
-            "stan": "beta_binomial", "numpyro": "BetaBinomial",
-            "pyro": "BetaBinomial", "pymc": "BetaBinomial",
-            "edward2": "BetaBinomial", "turing": "BetaBinomial",
-            "bugs": "dbetabin", "jags": "dbetabin",
-            "gen": "beta_binomial", "webppl": "BetaBinomial",
+            "stan": "beta_binomial",
+            "numpyro": "BetaBinomial",
+            "pyro": "BetaBinomial",
+            "pymc": "BetaBinomial",
+            "edward2": "BetaBinomial",
+            "turing": "BetaBinomial",
+            "bugs": "dbetabin",
+            "jags": "dbetabin",
+            "gen": "beta_binomial",
+            "webppl": "BetaBinomial",
         },
         arg_aliases={
             "pymc": {
@@ -1321,8 +1477,10 @@ FAMILY_META: dict[str, FamilyMeta] = {
         distribution_class=OrderedLogistic,
         quivers_class=ConditionalOrderedLogistic,
         target_names={
-            "stan": "ordered_logistic", "numpyro": "OrderedLogistic",
-            "pyro": "OrderedLogistic", "pymc": "OrderedLogistic",
+            "stan": "ordered_logistic",
+            "numpyro": "OrderedLogistic",
+            "pyro": "OrderedLogistic",
+            "pymc": "OrderedLogistic",
         },
     ),
     "OrderedProbit": FamilyMeta(
@@ -1330,8 +1488,10 @@ FAMILY_META: dict[str, FamilyMeta] = {
         distribution_class=OrderedProbit,
         quivers_class=ConditionalOrderedProbit,
         target_names={
-            "stan": "ordered_probit", "numpyro": "OrderedProbit",
-            "pyro": "OrderedProbit", "pymc": "OrderedProbit",
+            "stan": "ordered_probit",
+            "numpyro": "OrderedProbit",
+            "pyro": "OrderedProbit",
+            "pymc": "OrderedProbit",
         },
     ),
     "Logistic": FamilyMeta(
@@ -1339,11 +1499,16 @@ FAMILY_META: dict[str, FamilyMeta] = {
         distribution_class=Logistic,
         quivers_class=ConditionalLogistic,
         target_names={
-            "stan": "logistic", "numpyro": "Logistic",
-            "pyro": "Logistic", "pymc": "Logistic",
-            "edward2": "Logistic", "turing": "Logistic",
-            "bugs": "dlogis", "jags": "dlogis",
-            "gen": "logistic", "webppl": "Logistic",
+            "stan": "logistic",
+            "numpyro": "Logistic",
+            "pyro": "Logistic",
+            "pymc": "Logistic",
+            "edward2": "Logistic",
+            "turing": "Logistic",
+            "bugs": "dlogis",
+            "jags": "dlogis",
+            "gen": "logistic",
+            "webppl": "Logistic",
         },
         arg_aliases={
             "pymc": {"loc": "mu", "scale": "s"},
@@ -1354,11 +1519,15 @@ FAMILY_META: dict[str, FamilyMeta] = {
         distribution_class=HalfStudentT,
         quivers_class=ConditionalHalfStudentT,
         target_names={
-            "stan": "student_t", "numpyro": "HalfStudentT",
-            "pyro": "HalfStudentT", "pymc": "HalfStudentT",
+            "stan": "student_t",
+            "numpyro": "HalfStudentT",
+            "pyro": "HalfStudentT",
+            "pymc": "HalfStudentT",
             "edward2": "HalfStudentT",
-            "bugs": "dt", "jags": "dt",
-            "gen": "half_student_t", "turing": "HalfStudentT",
+            "bugs": "dt",
+            "jags": "dt",
+            "gen": "half_student_t",
+            "turing": "HalfStudentT",
             "webppl": "HalfStudentT",
         },
         arg_aliases={
