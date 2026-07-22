@@ -433,6 +433,7 @@ def _get_family_registry() -> dict[str, type]:
         ConditionalHalfNormal,
         ConditionalHorseshoe,
         ConditionalHurdlePoisson,
+        ConditionalZeroOneInflatedBeta,
         ConditionalInverseGamma,
         ConditionalInverseWishart,
         ConditionalKumaraswamy,
@@ -498,6 +499,7 @@ def _get_family_registry() -> dict[str, type]:
         "OrderedLogistic": ConditionalOrderedLogistic,
         "ZeroInflatedPoisson": ConditionalZeroInflatedPoisson,
         "HurdlePoisson": ConditionalHurdlePoisson,
+        "ZeroOneInflatedBeta": ConditionalZeroOneInflatedBeta,
         "MixtureNormal": ConditionalMixtureNormal,
     }
     try:

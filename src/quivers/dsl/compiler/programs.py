@@ -2891,6 +2891,8 @@ class _ProgramsMixin:
             return Euclidean(name=f"_{var_names[0]}", dim=1)
         elif family == "Beta":
             return UnitInterval(f"_{var_names[0]}")
+        elif family == "ZeroOneInflatedBeta":
+            return UnitInterval(f"_{var_names[0]}")
         elif family in (
             "Exponential",
             "HalfCauchy",

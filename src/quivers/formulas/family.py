@@ -226,6 +226,29 @@ families: Mapping[str, Family] = {
             ),
         ),
     ),
+    "zero_one_inflated_beta": Family(
+        name="zero_one_inflated_beta",
+        location_link=_LOGIT,
+        observe_family="ZeroOneInflatedBeta",
+        extra_observe_args=("phi", "zoi", "coi"),
+        aux_params=(
+            AuxParam(
+                name="phi",
+                prior="HalfCauchy(2.0)",
+                link=_LOG,
+            ),
+            AuxParam(
+                name="zoi",
+                prior="Beta(2.0, 2.0)",
+                link=_LOGIT,
+            ),
+            AuxParam(
+                name="coi",
+                prior="Beta(2.0, 2.0)",
+                link=_LOGIT,
+            ),
+        ),
+    ),
     "mixture": Family(
         name="mixture",
         location_link=_IDENTITY,

@@ -113,6 +113,7 @@ from quivers.continuous.families import (
     ConditionalOrderedLogistic,
     ConditionalZeroInflatedPoisson,
     ConditionalHurdlePoisson,
+    ConditionalZeroOneInflatedBeta,
     ConditionalMixtureNormal,
 )
 from quivers.continuous._ordered import OrderedLogistic
@@ -120,6 +121,7 @@ from quivers.continuous._zip_hurdle import (
     HurdlePoisson,
     MixtureNormal,
     ZeroInflatedPoisson,
+    ZeroOneInflatedBeta,
 )
 from quivers.continuous.param_source import (
     AttentionSource,
@@ -232,12 +234,14 @@ __all__ = [
     "ConditionalOrderedLogistic",
     "ConditionalZeroInflatedPoisson",
     "ConditionalHurdlePoisson",
+    "ConditionalZeroOneInflatedBeta",
     "ConditionalMixtureNormal",
     # underlying distribution classes
     "OrderedLogistic",
     "HurdlePoisson",
     "MixtureNormal",
     "ZeroInflatedPoisson",
+    "ZeroOneInflatedBeta",
     # parameter sources
     "ParamSource",
     "LinearSource",
