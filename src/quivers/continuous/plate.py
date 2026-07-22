@@ -185,6 +185,40 @@ class PlateDraw(ContinuousMorphism):
     def family(self) -> ContinuousMorphism:
         return self._family
 
+    def _row_conditioning(
+        self,
+        x: torch.Tensor | None,
+        n_rows: int,
+        device: torch.device | None,
+    ) -> torch.Tensor:
+        """Conditioning input each of ``n_rows`` per-row families reads.
+
+        A fixed (all-literal) family ignores the conditioning and needs
+        only the row count, so a value whose width does not match the
+        family's domain falls back to a zero input of the expected
+        shape. A conditional family reads its parameters from the
+        resolved input ``x`` (the scale of ``by_subj <- Normal(0, sigma)``
+        is the latent ``sigma``), so ``x`` is threaded through, broadcast
+        from a single shared row to every row when needed rather than
+        discarded.
+        """
+        width = self._domain_width
+        if x is None or x.numel() == 0:
+            return torch.zeros(n_rows, width, device=device)
+        xf = x if x.dim() == 2 else x.reshape(1, -1)
+        if xf.shape[-1] != width:
+            if xf.numel() == width:
+                xf = xf.reshape(1, width)
+            elif xf.numel() == n_rows * width:
+                xf = xf.reshape(n_rows, width)
+            else:
+                return torch.zeros(n_rows, width, device=device)
+        if xf.shape[0] == n_rows:
+            return xf
+        if xf.shape[0] == 1:
+            return xf.expand(n_rows, width)
+        return torch.zeros(n_rows, width, device=device)
+
     def rsample(
         self,
         x: torch.Tensor | None = None,
@@ -218,7 +252,7 @@ class PlateDraw(ContinuousMorphism):
         # positive-support family realised as a restricted base
         # measure, say); those ignore the input's leading axis but
         # still honour the explicit sample shape.
-        row_input = torch.zeros(1, self._domain_width, device=device)
+        row_input = self._row_conditioning(x, 1, device)
         base = self._family.rsample(
             row_input, sample_shape=torch.Size((self._index_size,))
         )
@@ -287,7 +321,6 @@ class PlateDraw(ContinuousMorphism):
         scalar family carrying an explicit event axis (``over=...``)
         is scored over the full event without loss.
         """
-        del x  # plate latents are batch-invariant
         index_size = self._index_size
         per_row_family = self._per_row_dim
         batched = y.dim() >= 2 and y.shape[0] != index_size
@@ -303,7 +336,7 @@ class PlateDraw(ContinuousMorphism):
                 self._per_row_shape if row_numel == per_row_family else (row_numel,)
             )
             sample = y.reshape(index_size, *event_shape)
-            row_input = torch.zeros(index_size, self._domain_width, device=y.device)
+            row_input = self._row_conditioning(x, index_size, y.device)
             per_row_lp = self._family.log_prob(row_input, sample)
             return per_row_lp.reshape(-1).sum().unsqueeze(0)
         batch = y.shape[0]
@@ -319,7 +352,7 @@ class PlateDraw(ContinuousMorphism):
             self._per_row_shape if row_numel == per_row_family else (row_numel,)
         )
         flat = y.reshape(batch * index_size, *event_shape)
-        row_input = torch.zeros(batch * index_size, self._domain_width, device=y.device)
+        row_input = self._row_conditioning(x, batch * index_size, y.device)
         per_row_lp = self._family.log_prob(row_input, flat)
         return per_row_lp.reshape(batch, index_size).sum(dim=-1)
 
