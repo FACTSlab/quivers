@@ -39,6 +39,7 @@ from quivers.continuous._zip_hurdle import (
     HurdlePoisson,
     MixtureNormal,
     ZeroInflatedPoisson,
+    ZeroOneInflatedBeta,
 )
 from quivers.continuous.bijectors import Bijector
 from quivers.continuous.family_spec import (
@@ -2054,6 +2055,58 @@ class ConditionalHurdlePoisson(ContinuousMorphism):
         sample_shape: torch.Size = torch.Size(),
     ) -> torch.Tensor:
         return self._get_dist(x).sample(sample_shape).long()
+
+
+class ConditionalZeroOneInflatedBeta(ContinuousMorphism):
+    """Conditional ZeroOneInflatedBeta(mu(x), phi(x), zoi(x), coi(x)).
+
+    Parameter source emits ``4 * dim`` numbers per row: logit-mu,
+    log-phi, logit-zoi, logit-coi. Used by the runtime family registry
+    for ``~ ZeroOneInflatedBeta`` declarations; formula frontend
+    prefers the inline ``observe ... <- ZeroOneInflatedBeta(mu, phi, zoi, coi)``.
+    """
+
+    def __init__(
+        self,
+        domain: AnySpace,
+        codomain: ContinuousSpace,
+        hidden_dim: int | Sequence[int] | None = None,
+        param_source: ParamSource | None = None,
+        param_source_option: str | None = None,
+    ) -> None:
+        super().__init__(domain, codomain)
+        d = codomain.dim
+        self._d = d
+        self.param_source = _make_source(
+            domain,
+            4 * d,
+            hidden_dim,
+            param_source=param_source,
+            param_source_option=param_source_option,
+        )
+
+    @property
+    def support(self) -> _constraints.Constraint:
+        return _constraints.unit_interval
+
+    def _get_dist(self, x: torch.Tensor) -> ZeroOneInflatedBeta:
+        raw = self.param_source(x)
+        d = self._d
+        mu = torch.sigmoid(raw[..., :d]).clamp(EPS, 1.0 - EPS)
+        phi = F.softplus(raw[..., d : 2 * d]) + EPS
+        zoi = torch.sigmoid(raw[..., 2 * d : 3 * d]).clamp(EPS, 1.0 - EPS)
+        coi = torch.sigmoid(raw[..., 3 * d : 4 * d]).clamp(EPS, 1.0 - EPS)
+        return ZeroOneInflatedBeta(mu, phi, zoi, coi)
+
+    def log_prob(self, x: torch.Tensor, y: torch.Tensor) -> torch.Tensor:
+        return self._get_dist(x).log_prob(y.float()).sum(dim=-1)
+
+    def rsample(
+        self,
+        x: torch.Tensor,
+        sample_shape: torch.Size = torch.Size(),
+    ) -> torch.Tensor:
+        return self._get_dist(x).sample(sample_shape)
 
 
 class ConditionalMixtureNormal(ContinuousMorphism):

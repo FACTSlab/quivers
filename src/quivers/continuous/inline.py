@@ -41,6 +41,7 @@ from quivers.continuous._zip_hurdle import (
     HurdlePoisson,
     MixtureNormal,
     ZeroInflatedPoisson,
+    ZeroOneInflatedBeta,
 )
 from quivers.continuous.measure import (
     Independent as _MeasureIndependent,
@@ -974,6 +975,7 @@ _FAMILY_SUPPORTS: dict[str, _constraints.Constraint] = {
     "OrderedLogistic": _constraints.nonnegative_integer,
     "ZeroInflatedPoisson": _constraints.nonnegative_integer,
     "HurdlePoisson": _constraints.nonnegative_integer,
+    "ZeroOneInflatedBeta": _constraints.unit_interval,
     "MixtureNormal": _constraints.real,
 }
 
@@ -1144,6 +1146,22 @@ def _hurdle_poisson_builder(
     )
 
 
+def _zero_one_inflated_beta_builder(
+    params: list[torch.Tensor],
+) -> D.Distribution:
+    """Build `ZeroOneInflatedBeta` from ``[mu, phi, zoi, coi]``.
+
+    Matches the formula-frontend emit order
+    ``observe y <- ZeroOneInflatedBeta(mu, phi, zoi, coi)``.
+    """
+    return ZeroOneInflatedBeta(
+        params[0].clamp(EPS, 1.0 - EPS),
+        params[1].clamp(min=EPS),
+        params[2].clamp(EPS, 1.0 - EPS),
+        params[3].clamp(EPS, 1.0 - EPS),
+    )
+
+
 def _mixture_normal_builder(
     params: list[torch.Tensor],
 ) -> D.Distribution:
@@ -1212,6 +1230,11 @@ _FAMILY_BUILDERS: dict[str, tuple[tuple[str, ...], Callable, bool]] = {
         _hurdle_poisson_builder,
         True,
     ),
+    "ZeroOneInflatedBeta": (
+        ("mu", "phi", "zoi", "coi"),
+        _zero_one_inflated_beta_builder,
+        False,
+    ),
     "MixtureNormal": (
         ("weights", "loc", "scale"),
         _mixture_normal_builder,
@@ -1233,6 +1256,7 @@ _PARAM_EVENT_RANKS: dict[str, tuple[int, ...]] = {
     "MixtureNormal": (1, 1, 1),  # per-component vectors
     "ZeroInflatedPoisson": (0, 0),
     "HurdlePoisson": (0, 0),
+    "ZeroOneInflatedBeta": (0, 0, 0, 0),
 }
 
 
