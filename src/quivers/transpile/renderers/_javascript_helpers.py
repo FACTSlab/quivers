@@ -111,15 +111,11 @@ def _render(ctx: _JsLetCtx, expr: LetExprNode) -> tuple[str, str]:
     if isinstance(expr, LetExprUnaryOp):
         return _emit_unary(ctx, expr)
     if isinstance(expr, LetExprCall):
-        return _emit_call(
-            ctx, expr.func, tuple(_render(ctx, a) for a in expr.args)
-        )
+        return _emit_call(ctx, expr.func, tuple(_render(ctx, a) for a in expr.args))
     if isinstance(expr, LetExprIndex):
         return _emit_index(ctx, expr)
     if isinstance(expr, LetExprList):
-        return _emit_array(
-            ctx, tuple(_render(ctx, item) for item in expr.items)
-        )
+        return _emit_array(ctx, tuple(_render(ctx, item) for item in expr.items))
     if isinstance(expr, LetExprLambda):
         return _emit_lambda(ctx, expr)
     if isinstance(expr, LetExprMethodCall):
@@ -172,10 +168,12 @@ def _emit_string(ctx: _JsLetCtx, value: str) -> tuple[str, str]:
     return vid, "string"
 
 
-_JS_PAREN_REQUIRED_OPERAND_KINDS: frozenset[str] = frozenset({
-    "binary_expression",
-    "unary_expression",
-})
+_JS_PAREN_REQUIRED_OPERAND_KINDS: frozenset[str] = frozenset(
+    {
+        "binary_expression",
+        "unary_expression",
+    }
+)
 """Operand kinds wrapped in `parenthesized_expression` when they appear
 under a binary or unary operator. WebPPL's pretty printer emits children
 in source order without re-grouping, so an unparenthesised
@@ -183,9 +181,7 @@ in source order without re-grouping, so an unparenthesised
 ``a + b * c``."""
 
 
-def _maybe_paren(
-    ctx: _JsLetCtx, rendered: tuple[str, str]
-) -> tuple[str, str]:
+def _maybe_paren(ctx: _JsLetCtx, rendered: tuple[str, str]) -> tuple[str, str]:
     """Wrap `rendered` in a `parenthesized_expression` when its vertex
     kind is in
     [`_JS_PAREN_REQUIRED_OPERAND_KINDS`][quivers.transpile.renderers._javascript_helpers._JS_PAREN_REQUIRED_OPERAND_KINDS]."""
@@ -195,9 +191,7 @@ def _maybe_paren(
     return _emit_paren(ctx, rendered)
 
 
-def _emit_paren(
-    ctx: _JsLetCtx, rendered: tuple[str, str]
-) -> tuple[str, str]:
+def _emit_paren(ctx: _JsLetCtx, rendered: tuple[str, str]) -> tuple[str, str]:
     """Wrap `rendered` in a `parenthesized_expression` vertex."""
     vid, kind = rendered
     paren = ctx.v(ctx.fresh("paren"), "parenthesized_expression")
@@ -219,9 +213,7 @@ def _emit_binop(ctx: _JsLetCtx, expr: LetExprBinOp) -> tuple[str, str]:
     vid = ctx.v(ctx.fresh("bin"), "binary_expression")
     ctx.constraint(vid, "field:operator", expr.op)
     ctx.constraint(vid, "chose-alt-fingerprint", expr.op)
-    ctx.constraint(
-        vid, "chose-alt-child-kinds", f"{left_kind} {right_kind}"
-    )
+    ctx.constraint(vid, "chose-alt-child-kinds", f"{left_kind} {right_kind}")
     ctx.e(vid, left_vid, "left")
     ctx.e(vid, right_vid, "right")
     return vid, "binary_expression"
@@ -254,9 +246,7 @@ def _emit_call(
     fn_vid, fn_kind = _emit_identifier(ctx, func)
     args_vid, args_kind = _emit_arguments(ctx, rendered)
     vid = ctx.v(ctx.fresh("call"), "call_expression")
-    ctx.constraint(
-        vid, "chose-alt-child-kinds", f"{fn_kind} {args_kind}"
-    )
+    ctx.constraint(vid, "chose-alt-child-kinds", f"{fn_kind} {args_kind}")
     ctx.e(vid, fn_vid, "function")
     ctx.e(vid, args_vid, "arguments")
     return vid, "call_expression"
@@ -283,9 +273,7 @@ def _emit_arguments(
     return vid, "arguments"
 
 
-def _emit_index(
-    ctx: _JsLetCtx, expr: LetExprIndex
-) -> tuple[str, str]:
+def _emit_index(ctx: _JsLetCtx, expr: LetExprIndex) -> tuple[str, str]:
     """Emit a `subscript_expression` (``arr[i][j]...`` form).
 
     Each level of subscripting is its own `subscript_expression`
@@ -335,9 +323,7 @@ def _emit_array(
     return vid, "array"
 
 
-def _emit_lambda(
-    ctx: _JsLetCtx, expr: LetExprLambda
-) -> tuple[str, str]:
+def _emit_lambda(ctx: _JsLetCtx, expr: LetExprLambda) -> tuple[str, str]:
     """Emit a `function_expression` ``function(<param>){return <body>;}``.
 
     WebPPL has no arrow-function or unnamed-function shorthand in
@@ -361,9 +347,7 @@ def _emit_lambda(
     ctx.e(ret_vid, body_vid, "child_of")
     block_vid = ctx.v(ctx.fresh("blk"), "statement_block")
     ctx.constraint(block_vid, "chose-alt-fingerprint", "{ }")
-    ctx.constraint(
-        block_vid, "chose-alt-child-kinds", "return_statement"
-    )
+    ctx.constraint(block_vid, "chose-alt-child-kinds", "return_statement")
     ctx.e(block_vid, ret_vid, "child_of")
     # Function expression: `function( <params> ) <block>`.
     fn_vid = ctx.v(ctx.fresh("fn"), "function_expression")
@@ -378,9 +362,7 @@ def _emit_lambda(
     return fn_vid, "function_expression"
 
 
-def _emit_method_call(
-    ctx: _JsLetCtx, expr: LetExprMethodCall
-) -> tuple[str, str]:
+def _emit_method_call(ctx: _JsLetCtx, expr: LetExprMethodCall) -> tuple[str, str]:
     """Emit a `call_expression` whose callee is a `member_expression`.
 
     Shape: ``<receiver>.<method>(<args>)`` -> `call_expression` with
@@ -418,9 +400,7 @@ def _emit_method_call(
 # ---------------------------------------------------------------------------
 
 
-def _emit_factor(
-    ctx: _JsLetCtx, expr: LetExprFactor
-) -> tuple[str, str]:
+def _emit_factor(ctx: _JsLetCtx, expr: LetExprFactor) -> tuple[str, str]:
     """Unroll a [`LetExprFactor`][quivers.dsl.ast_nodes.LetExprFactor]
     into nested `array` literals.
 
@@ -450,9 +430,7 @@ def _emit_factor(
         return _emit_array(ctx, rendered)
     if expr.body is not None and not expr.cases:
         sizes = tuple(_card_for(ctx, b) for b in expr.binders)
-        return _build_nested_array(
-            ctx, expr.binders, sizes, expr.body, ()
-        )
+        return _build_nested_array(ctx, expr.binders, sizes, expr.body, ())
     raise UnsupportedConstruct(
         f"qvr-{_target(ctx)}-helper",
         [
@@ -522,11 +500,7 @@ def _build_nested_array(
     level = len(fixed)
     rendered: list[tuple[str, str]] = []
     for i in range(sizes[level]):
-        rendered.append(
-            _build_nested_array(
-                ctx, binders, sizes, body, fixed + (i,)
-            )
-        )
+        rendered.append(_build_nested_array(ctx, binders, sizes, body, fixed + (i,)))
     return _emit_array(ctx, tuple(rendered))
 
 
