@@ -55,9 +55,19 @@ NP = N * P
 coef_idx = torch.arange(P).repeat(N)
 x = torch.randn(NP)
 
-true_beta = torch.tensor([2.0, 0.0, -1.5, 0.0])
+# Ground truth for every latent site. The horseshoe coefficient is
+# the deterministic product beta = tau * lambda_local * z_raw, so we
+# fix one decomposition that reproduces the target coefficients: a
+# unit global scale and unit local scales, with the raw draws carrying
+# the coefficient values themselves. Binding tau / lambda_local / z_raw
+# (rather than only the derived beta) pins every free latent.
+true_tau = torch.tensor(1.0)
+true_lambda_local = torch.ones(P)
+true_z_raw = torch.tensor([2.0, 0.0, -1.5, 0.0])
 true_alpha = 0.3
 true_sigma = 0.5
+
+true_beta = true_tau * true_lambda_local * true_z_raw
 mu_true = true_alpha + true_beta[coef_idx] * x
 y = torch.distributions.Normal(mu_true, true_sigma).sample()
 

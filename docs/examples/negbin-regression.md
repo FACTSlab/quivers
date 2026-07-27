@@ -53,12 +53,12 @@ ND = N * D
 out_idx = torch.arange(D).repeat(N)
 x = torch.randn(ND)
 
-true_b0 = torch.tensor([1.0, 0.5, 2.0])
-true_b1 = torch.tensor([0.5, -0.3, 0.8])
-true_disp = torch.tensor([5.0, 10.0, 3.0])
-mu_true = torch.exp(true_b0[out_idx] + true_b1[out_idx] * x)
-probs_true = true_disp[out_idx] / (true_disp[out_idx] + mu_true)
-y = torch.distributions.NegativeBinomial(true_disp[out_idx], probs_true).sample()
+true_beta_0 = torch.tensor([1.0, 0.5, 2.0])
+true_beta_1 = torch.tensor([0.5, -0.3, 0.8])
+true_dispersion = torch.tensor([5.0, 10.0, 3.0])
+mu_true = torch.exp(true_beta_0[out_idx] + true_beta_1[out_idx] * x)
+probs_true = true_dispersion[out_idx] / (true_dispersion[out_idx] + mu_true)
+y = torch.distributions.NegativeBinomial(true_dispersion[out_idx], probs_true).sample()
 
 observations = {"x": x, "y": y, "out_idx": out_idx}
 x_in = torch.zeros(ND, 1)
@@ -70,7 +70,7 @@ x_in = torch.zeros(ND, 1)
 from quivers.inference import AutoNormalGuide, ELBO, SVI
 
 oracle_nll = float(
-    -torch.distributions.NegativeBinomial(true_disp[out_idx], probs_true)
+    -torch.distributions.NegativeBinomial(true_dispersion[out_idx], probs_true)
     .log_prob(y)
     .mean()
 )
