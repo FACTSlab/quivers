@@ -69,6 +69,7 @@ true_spread = 0.6
 true_sigma = 0.4
 theta_true = true_spread * torch.randn(n_school)
 theta_true = theta_true - theta_true.mean()
+true_theta_z = theta_true / true_spread
 y = torch.distributions.Normal(theta_true, true_sigma).sample()
 
 observations = {"y": y}

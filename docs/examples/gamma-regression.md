@@ -51,9 +51,9 @@ NK = N * K
 cat_idx = torch.arange(K).repeat(N)
 x = torch.randn(NK)
 
-true_b0 = torch.tensor([1.0, 0.5, -0.5])
-true_b1 = torch.tensor([0.8, -1.0, 0.3])
-alpha_true = torch.exp(true_b0[cat_idx] + true_b1[cat_idx] * x)
+true_beta_0 = torch.tensor([1.0, 0.5, -0.5])
+true_beta_1 = torch.tensor([0.8, -1.0, 0.3])
+alpha_true = torch.exp(true_beta_0[cat_idx] + true_beta_1[cat_idx] * x)
 tally = torch.distributions.Gamma(alpha_true, 1.0).sample()
 
 observations = {"x": x, "tally": tally, "cat_idx": cat_idx}

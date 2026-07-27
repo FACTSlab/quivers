@@ -201,6 +201,50 @@ class ContinuousMorphism(nn.Module, ABC):
         return f"{cls}({self.domain!r} -> {self.codomain!r})"
 
 
+class MarginalizedFactor(ContinuousMorphism):
+    """Score-suppressed wrapper for a marginalized block's live sites.
+
+    An ungrouped ``marginalize`` block keeps its latent draw and its
+    terminal observe as live sites so a forward trace still produces
+    the sampled coordinate and response (ancestral sampling and
+    synthetic-data generation both read those sites). Their densities,
+    however, are carried once by the block's integrated score step, so
+    adding them to the joint again would double-count the very factors
+    the marginal already integrates. This wrapper delegates sampling to
+    the base morphism yet reports a zero log-density, keeping the joint
+    free of the raw per-draw factor while preserving forward behaviour.
+
+    Parameters
+    ----------
+    base : ContinuousMorphism
+        The underlying family whose sampling behaviour is preserved.
+    """
+
+    def __init__(self, base: ContinuousMorphism) -> None:
+        super().__init__(base.domain, base.codomain)
+        self.base = base
+
+    @property
+    def support(self) -> _constraints.Constraint:
+        """Delegate the support constraint to the wrapped family."""
+        return self.base.support
+
+    def rsample(
+        self, x: torch.Tensor, sample_shape: torch.Size = torch.Size()
+    ) -> torch.Tensor:
+        """Sample from the base family (forward behaviour is preserved)."""
+        return self.base.rsample(x, sample_shape)
+
+    def log_prob(self, x: torch.Tensor, y: torch.Tensor) -> torch.Tensor:
+        """Report a zero log-density.
+
+        The factor's density is carried by the block's integrated score
+        step; contributing it here would double-count it in the joint.
+        """
+        del x
+        return torch.zeros((), device=y.device, dtype=torch.get_default_dtype())
+
+
 class SampledComposition(ContinuousMorphism):
     """Composition of morphisms via ancestral sampling.
 
