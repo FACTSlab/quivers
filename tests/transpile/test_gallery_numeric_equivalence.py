@@ -206,12 +206,44 @@ _SKIP_DATASET_LOAD_FAILED: frozenset[str] = frozenset({
 # exist to compare a backend against.
 _SKIP_QVR_INCOMPATIBLE: frozenset[str] = frozenset({
     "bidirectional_rnn_lm",
+    "deep_markov",
     "gru_lm",
     "lstm_lm",
     "seq2seq",
     "transformer_lm",
+    "vae",
     "vanilla_rnn_lm",
 })
+
+# QVR reference joint log-densities, each verified against an
+# independent raw-torch reconstruction of the model's joint at the
+# ground-truth point. `test_gallery_qvr_logdensity_finite` asserts the
+# QVR trace still reproduces these, turning a finite-only check into a
+# correctness check. Update an entry only after re-deriving the joint
+# independently.
+_QVR_REFERENCE_JOINT: dict[str, float] = {
+    "ar1": -24.0308,
+    "bayesian_regression": -54.5608,
+    "beta_regression": 26.0999,
+    "bnn": -412.0953,
+    "changepoint": -131.0847,
+    "continuous_hmm": -716.6049,
+    "factor_analysis": -132.6166,
+    "gamma_regression": -69.0704,
+    "hmm": 335.3818,
+    "horseshoe_regression": -64.9299,
+    "irt_2pl": -69.2327,
+    "lda": 2550.3076,
+    "linear_gaussian_ssm": -218.7775,
+    "mixture_model": -189.3568,
+    "negbin_regression": -203.6848,
+    "parametric_pooling": -16.0530,
+    "ppca": -67.7343,
+    "stochastic_volatility": -307.8004,
+    "survival_weibull": -28.6730,
+    "tree_categorical": -14.3775,
+    "zip_regression": -651.6888,
+}
 
 # (backend, example) cells whose in-container probe script does not
 # register the per-example data shapes the gallery example needs.
@@ -442,6 +474,24 @@ def test_gallery_qvr_logdensity_finite(example: pathlib.Path) -> None:
         f"{example.stem!r}: QVR log p(θ_true, y) is non-finite ({lp!r}); "
         f"observations={list(dataset.observations)} params={list(dataset.params)}"
     )
+
+    # Finiteness alone is a weak oracle check: a measure bug can return a
+    # finite-but-wrong joint (an unclamped latent resampling, a
+    # marginalized site double-counted, a plate broadcast inflating the
+    # sum). For every model whose joint was verified against an
+    # independent raw-torch reconstruction, assert the QVR reference
+    # still equals that value. A drift here is either a real oracle
+    # regression or a deliberate ground-truth change that must be
+    # re-verified and the reference updated.
+    reference = _QVR_REFERENCE_JOINT.get(example.stem)
+    if reference is not None:
+        assert abs(lp - reference) <= 1e-3 * abs(reference) + 2e-2, (
+            f"{example.stem!r}: QVR joint {lp:.5f} drifted from its "
+            f"independently-verified reference {reference:.5f}. Either the "
+            f"oracle regressed or the ground-truth point changed; "
+            f"re-derive the joint independently before updating the "
+            f"`_QVR_REFERENCE_JOINT` entry."
+        )
 
 
 @pytest.mark.parametrize(
