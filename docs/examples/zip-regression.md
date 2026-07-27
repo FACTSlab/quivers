@@ -57,12 +57,12 @@ ND = N * D
 out_idx = torch.arange(D).repeat(N)
 x = torch.randn(ND)
 
-true_az = torch.tensor([0.5, 1.0])
-true_bz = torch.tensor([0.3, -0.2])
-true_ar = torch.tensor([0.5, 1.0])
-true_br = torch.tensor([1.0, -0.5])
-pi_true = torch.sigmoid(true_az[out_idx] + true_bz[out_idx] * x)
-rate_true = torch.exp(true_ar[out_idx] + true_br[out_idx] * x)
+true_alpha_zero = torch.tensor([0.5, 1.0])
+true_beta_zero = torch.tensor([0.3, -0.2])
+true_alpha_rate = torch.tensor([0.5, 1.0])
+true_beta_rate = torch.tensor([1.0, -0.5])
+pi_true = torch.sigmoid(true_alpha_zero[out_idx] + true_beta_zero[out_idx] * x)
+rate_true = torch.exp(true_alpha_rate[out_idx] + true_beta_rate[out_idx] * x)
 z_struct = torch.bernoulli(pi_true)
 y = z_struct * torch.poisson(rate_true)
 

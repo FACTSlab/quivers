@@ -189,10 +189,29 @@ _SKIP_DATASET_LOAD_FAILED: frozenset[str] = frozenset({
 })
 
 # Gallery examples the in-process [`QvrProbe`][tests.transpile.probes.qvr.QvrProbe]
-# cannot evaluate (missing categorical / monadic primitives in the
-# in-process trace; the trace runtime grows the case and the entry
-# comes out).
-_SKIP_QVR_INCOMPATIBLE: frozenset[str] = frozenset()
+# cannot score to a deterministic, correct joint.
+#
+# Each of these carries a `sample h <- backbone` latent whose backbone
+# is a `SampledComposition` over continuous intermediate objects
+# (RNN/LSTM/GRU scan cells, attention and feed-forward Kleisli chains).
+# Its `log_prob` marginalizes those intermediates by Monte-Carlo
+# importance sampling, redrawing on every call with no fixed seed, so
+# the joint is non-deterministic even with `h` clamped. Worse, the
+# per-timestep gates and per-layer composition latents are internal to
+# the `SampledComposition` and are never surfaced as trace sites, so no
+# point entry can pin them and the endpoint `h` carries zero density.
+# The oracle for these models needs the composition marginalization made
+# deterministic and its inner latents exposed as sites before the
+# joint can be validated; until then a deterministic reference does not
+# exist to compare a backend against.
+_SKIP_QVR_INCOMPATIBLE: frozenset[str] = frozenset({
+    "bidirectional_rnn_lm",
+    "gru_lm",
+    "lstm_lm",
+    "seq2seq",
+    "transformer_lm",
+    "vanilla_rnn_lm",
+})
 
 # (backend, example) cells whose in-container probe script does not
 # register the per-example data shapes the gallery example needs.
