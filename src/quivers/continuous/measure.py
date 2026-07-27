@@ -44,6 +44,7 @@ Categorical sources:
 
 from __future__ import annotations
 
+import math
 from abc import ABC, abstractmethod
 
 import torch
@@ -243,6 +244,13 @@ class Restrict(Measure):
                 )
             )
         except NotImplementedError:
+            symmetric = _symmetric_fold_log_normalizer(
+                self.base,
+                self.low,
+                self.high,
+            )
+            if symmetric is not None:
+                return symmetric
             return _discrete_restriction_log_normalizer(
                 self.base,
                 self.low,
@@ -662,6 +670,53 @@ class Normalize(Measure):
 
     def sample(self, sample_shape: torch.Size = torch.Size()) -> Tensor:
         return self.base.sample(sample_shape)
+
+
+def _symmetric_fold_log_normalizer(
+    base: Distribution,
+    low: Tensor | None,
+    high: Tensor | None,
+) -> Tensor | None:
+    """Closed-form log-normaliser for a one-sided restriction that
+    cuts a location-symmetric base at its own centre of symmetry.
+
+    A base whose density is symmetric about its location `loc`
+    (Normal, Cauchy, Laplace, StudentT, ...) splits exactly in half
+    at `loc`: the mass above `loc` and the mass below `loc` are each
+    `0.5`, whatever the tails. So a one-sided restriction to
+    `[loc, +inf)` or `(-inf, loc]` has mass `0.5`, i.e.
+    `log_normalizer = -log 2`, with no CDF required. This is the fold
+    that turns `Restrict(StudentT(nu, 0, s), low=0)` into the standard
+    half-Student-t whose density on the positive half is
+    `base.log_prob(x) + log 2`.
+
+    Returns the `-log 2` normaliser (shaped like `base.batch_shape`)
+    when the restriction is one-sided, the base exposes a `loc`, the
+    finite cut equals `loc` elementwise, and the base is numerically
+    symmetric about `loc`; returns `None` otherwise so the caller can
+    fall through to the discrete pmf-sum path.
+    """
+    one_sided = (low is None) != (high is None)
+    if not one_sided:
+        return None
+    loc = getattr(base, "loc", None)
+    if not isinstance(loc, Tensor):
+        return None
+    cut = low if high is None else high
+    if cut is None:
+        return None
+    cut = cut.to(dtype=loc.dtype)
+    if not bool(torch.isclose(loc, cut, atol=1e-7, rtol=1e-6).all()):
+        return None
+    scale = getattr(base, "scale", None)
+    ref = scale if isinstance(scale, Tensor) else torch.ones_like(loc)
+    for factor in (0.5, 1.0, 2.0):
+        delta = factor * ref
+        lp_above = base.log_prob(loc + delta)
+        lp_below = base.log_prob(loc - delta)
+        if not bool(torch.isclose(lp_above, lp_below, atol=1e-6, rtol=1e-5).all()):
+            return None
+    return torch.full_like(loc, -math.log(2.0))
 
 
 def _discrete_restriction_log_normalizer(

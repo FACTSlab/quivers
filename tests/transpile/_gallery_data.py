@@ -29,7 +29,11 @@ from pathlib import Path
 
 import torch
 
-from quivers.continuous.programs import MonadicProgram
+from quivers.continuous.programs import (
+    MonadicProgram,
+    _LetSpec,
+    _ScoreSpec,
+)
 from tests.transpile.probes._protocol import Point
 
 
@@ -120,6 +124,35 @@ def _qvr_sample_names(source_qvr: Path) -> list[str]:
     except OSError:
         return []
     return _SAMPLE_NAME_RE.findall(text)
+
+
+def _sample_site_names(
+    source_qvr: Path, monadic: MonadicProgram | None,
+) -> list[str]:
+    """Return the program's actual latent sample-site names.
+
+    Observed steps (`observe <name>`) are excluded: their values come
+    from the observations dict, not the captured ground truth. When
+    the compiled
+    [`MonadicProgram`][quivers.continuous.programs.MonadicProgram] is
+    available it is the authority: template inlining alpha-renames an
+    inner draw (``sample z`` inside a ``sample theta <- template(...)``
+    step) to ``theta$z``, and folds the outer name into a
+    deterministic ``let``. The compiled step specs carry the
+    post-inline names the trace actually clamps, whereas the raw
+    ``sample <name>`` regex reports the pre-inline source names and so
+    would key the ground truth to a name no site answers to. Falls
+    back to the source-level regex only when no compiled program was
+    captured (the snippet bound neither ``model`` nor ``inner``).
+    """
+    if monadic is not None:
+        names: list[str] = []
+        for spec in monadic._step_specs:
+            if isinstance(spec, (_LetSpec, _ScoreSpec)) or spec.is_observed:
+                continue
+            names.extend(spec.vars)
+        return names
+    return _qvr_sample_names(source_qvr)
 
 
 def _is_tensor_like(value: object) -> bool:
@@ -230,13 +263,31 @@ def load_gallery_data(source_qvr: Path) -> GalleryDataset | None:
             except (TypeError, ValueError):
                 return None
 
-    # Match every `sample <name>` site in the QVR source against the
-    # namespace under three spellings: bare `<name>`, suffixed
-    # `<name>_true`, and prefixed `true_<name>`. The bare spelling
-    # is accepted only when the QVR source declares the name as a
-    # sample site, so intermediate bindings (`T = 64`, `model = ...`)
-    # in the snippet do not get mis-captured as ground-truth.
-    sample_names = set(_qvr_sample_names(source_qvr))
+    # Compiled MonadicProgram. Templates compile to `Program(None)`
+    # with `program.templates[<name>]` invokers; the synthetic-data
+    # block instantiates the template at concrete arguments and binds
+    # the result to `model` (or, for examples that wire the bare
+    # morphism, `inner`). Capturing either lets the QVR probe walk
+    # the instantiated program directly, and pins the ground-truth
+    # capture below to the program's actual (post-inline) site names.
+    monadic: MonadicProgram | None = None
+    for monad_name in ("model", "inner"):
+        candidate = ns.get(monad_name)
+        if isinstance(candidate, MonadicProgram):
+            monadic = candidate
+            break
+
+    # Match every sample site against the namespace under three
+    # spellings: bare `<site>`, suffixed `<site>_true`, and prefixed
+    # `true_<site>`, keying the captured value under the site's real
+    # name so the trace clamps it. A template-inlined site carries a
+    # `$` (`theta$z`); `$` is not a legal Python identifier char, so
+    # the snippet spells it with `_` (`true_theta_z`) and the matcher
+    # accepts that normalized base too. The bare spelling is accepted
+    # only for a real sample site, so intermediate snippet bindings
+    # (`T = 64`, `model = ...`, the let-step `mu_true` / `alpha_true`
+    # intermediates) never get mis-captured as ground truth.
+    sample_sites = _sample_site_names(source_qvr, monadic)
     params: dict[str, torch.Tensor] = {}
 
     def _coerce(value: object) -> torch.Tensor | None:
@@ -251,39 +302,24 @@ def load_gallery_data(source_qvr: Path) -> GalleryDataset | None:
                 return None
         return None
 
-    for sample_name in sample_names:
-        for spelling in (
-            f"true_{sample_name}",
-            f"{sample_name}_true",
-            sample_name,
-        ):
-            if spelling not in ns:
-                continue
-            coerced = _coerce(ns[spelling])
-            if coerced is None:
-                continue
-            params[sample_name] = coerced
-            break
-
-    # Also accept the bare `true_*` / `*_true` namespace bindings
-    # whose name matches a QVR sample-site declaration. Bindings whose
-    # stripped name does not appear in the program's sample-site set
-    # are local snippet variables (the let-step intermediates
-    # `mu_true`, `alpha_true`, ... in regression examples) and would
-    # poison the backend probe by surfacing as `unused data`
-    # variables in renderers (e.g. BUGS) that reject unknown clamps.
-    for k, v in ns.items():
-        if k.startswith("true_"):
-            name = k[len("true_"):]
-        elif k.endswith("_true"):
-            name = k[: -len("_true")]
-        else:
+    for site in sample_sites:
+        if site in params:
             continue
-        if name in params or name not in sample_names:
-            continue
-        coerced = _coerce(v)
-        if coerced is not None:
-            params[name] = coerced
+        bases = [site]
+        normalized = site.replace("$", "_")
+        if normalized != site:
+            bases.append(normalized)
+        for base in bases:
+            hit: torch.Tensor | None = None
+            for spelling in (f"true_{base}", f"{base}_true", base):
+                if spelling not in ns:
+                    continue
+                hit = _coerce(ns[spelling])
+                if hit is not None:
+                    break
+            if hit is not None:
+                params[site] = hit
+                break
 
     # Program-input tensor: the snippet may bind any of the canonical
     # names below. Try each in order; the first tensor-typed binding
@@ -295,19 +331,6 @@ def load_gallery_data(source_qvr: Path) -> GalleryDataset | None:
         candidate = ns.get(x_name)
         if isinstance(candidate, torch.Tensor):
             x_input = candidate
-            break
-
-    # Compiled MonadicProgram. Templates compile to `Program(None)`
-    # with `program.templates[<name>]` invokers; the synthetic-data
-    # block instantiates the template at concrete arguments and binds
-    # the result to `model` (or, for examples that wire the bare
-    # morphism, `inner`). Capturing either lets the QVR probe walk
-    # the instantiated program directly.
-    monadic: MonadicProgram | None = None
-    for monad_name in ("model", "inner"):
-        candidate = ns.get(monad_name)
-        if isinstance(candidate, MonadicProgram):
-            monadic = candidate
             break
 
     return GalleryDataset(

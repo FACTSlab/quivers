@@ -22,7 +22,7 @@ import torch
 from quivers.continuous.programs import MonadicProgram
 from quivers.dsl.compiler import Compiler
 from quivers.dsl.parser import parse
-from quivers.inference.trace import trace
+from quivers.inference.trace import Trace, trace
 from tests.transpile.probes._protocol import LogDensityProbe, Point, ProbeResult
 
 
@@ -115,6 +115,7 @@ class QvrProbe:
                     f"None log_joint"
                 )
                 raise RuntimeError(msg)
+            _assert_all_latents_clamped(tr, fixture_name)
             log_densities.append(float(tr.log_joint.sum().item()))
 
         return ProbeResult(
@@ -122,6 +123,36 @@ class QvrProbe:
             fixture=fixture_name,
             log_densities=log_densities,
             metadata={"runtime": "quivers in-process"},
+        )
+
+
+def _assert_all_latents_clamped(tr: Trace, fixture_name: str) -> None:
+    """Fail loudly when the point leaves a free latent site unclamped.
+
+    A reference joint is only meaningful when every unobserved,
+    non-deterministic sample site is pinned to its ground-truth
+    value. Any such site the point does not clamp is resampled fresh
+    on each call, so [`trace`][quivers.inference.trace.trace] returns
+    a different (and wrong) joint every evaluation while still passing
+    a finiteness check. The guard reads
+    [`Trace.latent_sites`][quivers.effects.trace_types.Trace], which
+    excludes both observed sites (clamped to data) and deterministic
+    sites (let bindings, score / marginalize bodies), so it fires
+    only on genuinely-resampled latents and never on a legitimately
+    marginalized or observed site.
+    """
+    free = sorted(tr.latent_sites)
+    if free:
+        raise RuntimeError(
+            f"qvr probe on {fixture_name!r}: free latent sample "
+            f"site(s) {free!r} were not clamped by the point, so "
+            f"they are resampled on every call and the joint "
+            f"log-density is nondeterministic. Every unobserved, "
+            f"non-deterministic sample site must be clamped to its "
+            f"ground-truth value; bind the missing ground truth in "
+            f"the example's synthetic-data block under the site's "
+            f"name (a template-inlined site 'outer$inner' is spelled "
+            f"'outer_inner' in Python)."
         )
 
 

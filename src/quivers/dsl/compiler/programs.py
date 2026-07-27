@@ -12,7 +12,11 @@ from dataclasses import replace as _dc_replace
 from itertools import product as _cartesian_product
 from typing import cast
 import torch
-from quivers.continuous.morphisms import AnySpace, ContinuousMorphism
+from quivers.continuous.morphisms import (
+    AnySpace,
+    ContinuousMorphism,
+    MarginalizedFactor,
+)
 from quivers.core.algebras import CompositionRule
 from quivers.core.morphisms import Morphism
 
@@ -453,6 +457,28 @@ class _ProgramsMixin:
     # ``_resolve_type``, ``_resolve_any_space``, ``_resolve_index_size``
     # come from `_ResolutionMixin` via the ``Compiler`` MRO.
 
+    @property
+    def _ungrouped_marg_bodies(
+        self,
+    ) -> dict[
+        int,
+        tuple[str, str, tuple[DrawArgName | DrawArgIndex | str, ...], tuple[ProgramStep, ...]],
+    ]:
+        """Per-marker record of an ungrouped ``marginalize`` block's body.
+
+        Keyed by ``id`` of the placeholder `GroupedMarginalizeStep`
+        emitted for an ungrouped block, each entry carries the
+        ``(latent_name, prior_family, prior_args, body_steps)`` the
+        compile pass needs to build the block's integrated score
+        closure. Populated lazily so the base compiler's ``__init__``
+        stays agnostic to this mixin's state.
+        """
+        cache = self.__dict__.get("_ungrouped_marg_cache")
+        if cache is None:
+            cache = {}
+            self.__dict__["_ungrouped_marg_cache"] = cache
+        return cache
+
     def _surface_to_bind(self, step: ProgramStep) -> ProgramStep:
         """Normalize surface `SampleStep` / `ObserveStep`
         / `MarginalizeStep` nodes into `BindStep` IR.
@@ -743,49 +769,67 @@ class _ProgramsMixin:
                             step.line,
                             step.col,
                         )
-                # Introduce the coordinate. For an *ungrouped*
-                # marginalize block the latent is a real sample
-                # from its categorical prior; for a *grouped*
-                # block it is the implicit class-index vector
-                # ``torch.arange(K)`` so any downstream let-step
-                # expression that references the latent broadcasts
-                # across the class axis. The terminal observe in
-                # the body (rewritten below) overwrites this slot
-                # with the per-(N, K) log-likelihood tensor the
-                # marginalize step consumes.
+                # Introduce the coordinate. A *grouped* marginalize
+                # block seeds the latent with the implicit
+                # class-index vector ``torch.arange(K)`` so any
+                # downstream let-step that references the latent
+                # broadcasts across the class axis; the terminal
+                # observe in the body (rewritten below) overwrites
+                # that slot with the per-(N, K) log-likelihood the
+                # marginalize step consumes. An *ungrouped* block
+                # integrates the latent out analytically: the body
+                # is re-scored at each value in the prior's support
+                # and the per-class log-likelihoods are combined with
+                # the log-prior under the reduction, so the block
+                # emits a single integrated score step rather than a
+                # live latent draw and a separately-scored observe.
                 latent_name = step.vars[0]
-                if has_grouping:
-                    out.append(
-                        GroupedLatentInitStep(
-                            latent_name=latent_name,
-                            class_size=class_size,
-                            line=step.line,
-                            col=step.col,
-                        )
+                if not has_grouping:
+                    ungrouped_scope = self._expand_bind_steps(
+                        step.scope if step.scope is not None else ()
                     )
-                elif step.index is None:
-                    out.append(
-                        DrawStep(
-                            vars=step.vars,
-                            morphism=step.morphism,
-                            args=step.args,
-                            is_observed=False,
-                            line=step.line,
-                            col=step.col,
-                        )
+                    # Partition the body: deterministic lets and the
+                    # terminal observe drive the marginal score (they
+                    # are re-evaluated at each value of the latent's
+                    # support), while any inner latent samples that do
+                    # not participate in the marginal are emitted into
+                    # the main IR and scored as ordinary latents.
+                    marg_body: list[ProgramStep] = []
+                    for scoped in ungrouped_scope:
+                        if isinstance(scoped, LetStep) or (
+                            isinstance(scoped, DrawStep) and scoped.is_observed
+                        ) or isinstance(scoped, VectorisedObserveStep):
+                            marg_body.append(scoped)
+                        else:
+                            out.append(scoped)
+                    marker = GroupedMarginalizeStep(
+                        var_name=latent_name,
+                        class_size=0,
+                        probs_var=None,
+                        over_obj=None,
+                        over_objs=None,
+                        body_ll_var=latent_name,
+                        body_observes=None,
+                        reduction=step.reduction,
+                        line=step.line,
+                        col=step.col,
                     )
-                else:
-                    out.append(
-                        PlateDrawStep(
-                            name=step.vars[0],
-                            index=step.index,
-                            codomain=TypeName(name="1", line=step.line, col=step.col),
-                            morphism=step.morphism,
-                            args=step.args,
-                            line=step.line,
-                            col=step.col,
-                        )
+                    self._ungrouped_marg_bodies[id(marker)] = (
+                        latent_name,
+                        step.morphism,
+                        tuple(step.args or ()),
+                        tuple(marg_body),
                     )
+                    out.append(marker)
+                    continue
+                out.append(
+                    GroupedLatentInitStep(
+                        latent_name=latent_name,
+                        class_size=class_size,
+                        line=step.line,
+                        col=step.col,
+                    )
+                )
                 # Scope's steps. For a grouped block, rewrite every
                 # VectorisedObserveStep in the expanded body as a
                 # GroupedBodyObserveStep that writes its per-row
@@ -2321,6 +2365,12 @@ class _ProgramsMixin:
                 # tensor. The runtime convention is that the body
                 # populates `env[v]` with a per-class log-likelihood
                 # tensor before this step executes.
+                pending = self._ungrouped_marg_bodies.get(id(step))
+                if pending is not None:
+                    self._compile_ungrouped_marginalize(
+                        step, pending, steps, bound_vars, codomain
+                    )
+                    continue
                 if step.var_name not in bound_vars:
                     raise CompileError(
                         f"marginalize: variable {step.var_name!r} not bound",
@@ -2561,28 +2611,16 @@ class _ProgramsMixin:
                     )
                     continue
 
-                def _marginalize_callable(
-                    env: dict, _v: str = target_var
-                ) -> torch.Tensor:
-                    tensor = env[_v]
-                    return torch.logsumexp(tensor, dim=-1)
-
-                is_nested_inner = (
-                    step.body_ll_var is not None and step.body_ll_var != step.var_name
+                raise CompileError(
+                    f"marginalize {target_var!r}: an ungrouped marginalize "
+                    "block must reach compilation with its body captured "
+                    "(see `_expand_bind_steps`); this step carries neither a "
+                    "grouping plate nor a stashed body, which the current "
+                    "surface does not admit (e.g. an ungrouped marginalize "
+                    "inlined through a parametric template)",
+                    step.line,
+                    step.col,
                 )
-                marg_name = (
-                    step.body_ll_var if is_nested_inner else f"_marg_{step.var_name}"
-                )
-                bound_vars[marg_name] = None
-                steps.append(
-                    (
-                        (marg_name,),
-                        None,
-                        _marginalize_callable,
-                        not is_nested_inner,
-                    )
-                )
-                continue
             if isinstance(step, LetStep):
                 if step.name in bound_vars:
                     raise CompileError(
@@ -2727,6 +2765,265 @@ class _ProgramsMixin:
             self._posteriors[decl.name] = prog
         else:
             self._morphisms[decl.name] = prog
+
+    def _compile_ungrouped_marginalize(
+        self,
+        step: GroupedMarginalizeStep,
+        pending: tuple[
+            str, str, tuple[DrawArgName | DrawArgIndex | str, ...], tuple[ProgramStep, ...]
+        ],
+        steps: list[tuple],
+        bound_vars: dict[str, AnySpace | None],
+        codomain: SetObject | ContinuousSpace | None,
+    ) -> None:
+        """Compile an ungrouped ``marginalize`` block into one score step.
+
+        The block integrates the latent out analytically: for each
+        value in the prior's finite support, the body's deterministic
+        `let` steps are re-evaluated with the latent bound to that
+        value and the terminal ``observe`` is scored against the
+        clamped response, producing a per-row per-class log-likelihood
+        ``(N, K)`` tensor. Adding the per-class log-prior and reducing
+        over the class axis (log-sum-exp by default) yields each row's
+        marginal log-density; their sum is the block's single
+        contribution to the joint. The latent draw and observe stay
+        live (so a forward trace still samples them) but are wrapped in
+        a [`MarginalizedFactor`][quivers.continuous.morphisms.MarginalizedFactor]
+        so neither leaks its raw per-draw factor into the accumulator.
+
+        Supported priors are the finite-support discrete families the
+        surface admits at a marginalize head: `Categorical` (support
+        ``0 .. K-1`` with per-class prior ``probs[..., k]``) and the
+        Bernoulli relaxation family (hard support ``{0, 1}`` with prior
+        ``[1 - p, p]``). Any other family raises, since its support is
+        not enumerable in closed form here.
+        """
+        latent_name, prior_family, prior_args, body_steps = pending
+
+        # Split the body into its deterministic `let` prefix and the
+        # single terminal `observe`.
+        local_bv: dict[str, AnySpace | None] = dict(bound_vars)
+        local_bv[latent_name] = None
+        deductions_globals = dict(getattr(self, "_deductions", {}))
+        deductions_globals["__index_size__"] = self._resolve_index_size
+        body_lets: list[tuple[str, Callable]] = []
+        observe_step: VectorisedObserveStep | DrawStep | None = None
+        for bstep in body_steps:
+            if isinstance(bstep, LetStep):
+                fn = self._compile_let_expr(bstep.value, globals_=deductions_globals)
+                body_lets.append((bstep.name, fn))
+                local_bv[bstep.name] = None
+            elif isinstance(bstep, VectorisedObserveStep):
+                if observe_step is not None:
+                    raise CompileError(
+                        f"marginalize {latent_name!r}: an ungrouped "
+                        "marginalize body admits exactly one observe step",
+                        step.line,
+                        step.col,
+                    )
+                observe_step = bstep
+            elif isinstance(bstep, DrawStep) and bstep.is_observed:
+                if observe_step is not None:
+                    raise CompileError(
+                        f"marginalize {latent_name!r}: an ungrouped "
+                        "marginalize body admits exactly one observe step",
+                        step.line,
+                        step.col,
+                    )
+                observe_step = bstep
+            else:
+                raise CompileError(
+                    f"marginalize {latent_name!r}: an ungrouped marginalize "
+                    f"body admits only `let` bindings and a single `observe` "
+                    f"step; got {type(bstep).__name__}",
+                    step.line,
+                    step.col,
+                )
+
+        # Resolve the terminal observe's likelihood family and its
+        # env-resolved argument references. A body with no observe
+        # (the latent gates nothing observed) contributes only its
+        # prior: the score reduces the log-prior over the support with
+        # a zero likelihood.
+        obs_family: ContinuousMorphism | None = None
+        obs_args: tuple | None = None
+        response_var: str | None = None
+        if observe_step is not None:
+            if isinstance(observe_step, VectorisedObserveStep):
+                obs_synth = DrawStep(
+                    vars=(observe_step.index_var,),
+                    morphism=observe_step.morphism,
+                    args=observe_step.args,
+                    is_observed=True,
+                    line=observe_step.line,
+                    col=observe_step.col,
+                )
+                response_var = observe_step.response_var
+            else:
+                obs_synth = observe_step
+                response_var = observe_step.vars[0]
+            obs_family, obs_args = self._resolve_draw_morphism(
+                obs_synth, local_bv, codomain
+            )
+
+        # Resolve the prior family so the latent keeps a live, but
+        # score-suppressed, draw: a forward trace still samples the
+        # coordinate, while the block's integrated score step (not the
+        # draw) carries the prior's density into the joint.
+        prior_synth = DrawStep(
+            vars=(latent_name,),
+            morphism=prior_family,
+            args=list(prior_args),
+            is_observed=False,
+            line=step.line,
+            col=step.col,
+        )
+        prior_morph, prior_step_args = self._resolve_draw_morphism(
+            prior_synth, local_bv, codomain
+        )
+        if prior_step_args is None or len(prior_step_args) != 1:
+            raise CompileError(
+                f"marginalize {latent_name!r}: the prior family "
+                f"{prior_family!r} must carry exactly one named probability "
+                f"tensor argument",
+                step.line,
+                step.col,
+            )
+        prior_arg = prior_step_args[0]
+
+        # A single shared vector-valued likelihood parameter (e.g. a
+        # `Categorical` row ``emission_rows[k]`` of shape ``(K_cat,)``)
+        # must present a leading batch axis so the inline family reads
+        # it as one distribution rather than ``K_cat`` scalar batches;
+        # per-row scalar parameters (e.g. a Poisson rate of shape
+        # ``(N,)``) need no such reshape. A vector-valued parameter is
+        # the single ``var`` slot whose declared width exceeds one.
+        obs_param_spec = getattr(obs_family, "_param_spec", None)
+        obs_var_slots = (
+            [int(v) for kind, v in obs_param_spec if kind == "var"]
+            if obs_param_spec is not None
+            else []
+        )
+        shared_vector_theta = len(obs_var_slots) == 1 and obs_var_slots[0] > 1
+
+        _CATEGORICAL = prior_family == "Categorical"
+        _BERNOULLI = prior_family in (
+            "Bernoulli",
+            "ContinuousBernoulli",
+            "RelaxedBernoulli",
+        )
+        if not (_CATEGORICAL or _BERNOULLI):
+            raise CompileError(
+                f"marginalize {latent_name!r}: prior family {prior_family!r} "
+                "has no closed-form finite support for the ungrouped "
+                "marginalize path; supported priors are Categorical and the "
+                "Bernoulli relaxation family",
+                step.line,
+                step.col,
+            )
+        reduction = step.reduction or "logsumexp"
+
+        def _ungrouped_marginal(
+            env: dict[str, torch.Tensor],
+            _latent: str = latent_name,
+            _lets: tuple[tuple[str, Callable], ...] = tuple(body_lets),
+            _obs_family: ContinuousMorphism | None = obs_family,
+            _obs_args: tuple | None = obs_args,
+            _response: str | None = response_var,
+            _prior_arg: DrawArgIndex | str = prior_arg,
+            _categorical: bool = _CATEGORICAL,
+            _reduction: str = reduction,
+            _shared_vector: bool = shared_vector_theta,
+        ) -> torch.Tensor:
+            probs = _lookup_arg(env, _prior_arg)
+            if _categorical:
+                class_count = int(probs.shape[-1])
+                class_values: list[torch.Tensor] = [
+                    torch.tensor(k, dtype=torch.long, device=probs.device)
+                    for k in range(class_count)
+                ]
+                log_prior = torch.log(probs.clamp_min(1e-38))
+            else:
+                p = probs.clamp(1e-38, 1.0 - 1e-7)
+                class_values = [
+                    torch.zeros((), dtype=probs.dtype, device=probs.device),
+                    torch.ones((), dtype=probs.dtype, device=probs.device),
+                ]
+                log_prior = torch.stack(
+                    [torch.log1p(-p), torch.log(p)], dim=-1
+                )
+            if _obs_family is None or _response is None:
+                # No observed likelihood gates the latent: the block
+                # contributes only the reduced log-prior over the
+                # support (a zero per-class log-likelihood).
+                weighted = log_prior
+            else:
+                response = env[_response]
+                ll_cols: list[torch.Tensor] = []
+                for value in class_values:
+                    local = dict(env)
+                    local[_latent] = value
+                    for name, fn in _lets:
+                        local[name] = fn(local)
+                    if _obs_args is None:
+                        theta = local["_x_input"]
+                    else:
+                        parts = [_lookup_arg(local, a) for a in _obs_args]
+                        if len(parts) == 1:
+                            theta = parts[0]
+                            if _shared_vector and theta.dim() == 1:
+                                theta = theta.unsqueeze(0)
+                        else:
+                            common = torch.broadcast_shapes(
+                                *(t.shape for t in parts)
+                            )
+                            theta = torch.stack(
+                                [t.expand(common) for t in parts], dim=-1
+                            )
+                    ll_cols.append(_obs_family.log_prob(theta, response))
+                per_class = torch.stack(ll_cols, dim=-1)
+                weighted = log_prior + per_class
+            if _reduction == "logsumexp":
+                per_row = torch.logsumexp(weighted, dim=-1)
+            elif _reduction == "sum":
+                per_row = weighted.sum(dim=-1)
+            else:
+                per_row = weighted.mean(dim=-1)
+            return per_row.sum().reshape(1)
+
+        # Emit the block's runtime steps in order: the latent
+        # coordinate, the body's deterministic lets, the score-
+        # suppressed observe, then the integrated marginal score.
+        #
+        # The latent is bound as a deterministic let whose callable
+        # draws from the prior. A forward trace still produces a
+        # concrete coordinate (so the terminal observe can sample a
+        # response and synthetic-data generation stays intact), but the
+        # site reads as deterministic rather than as a free latent: its
+        # density is carried by the marginal score, and the reference
+        # probe must not flag it as an unclamped, resampled latent. The
+        # observe is wrapped in a `MarginalizedFactor` so its clamped /
+        # sampled response contributes nothing to the joint either.
+        def _latent_prior_sample(
+            env: dict[str, torch.Tensor],
+            _prior: ContinuousMorphism = prior_morph,
+            _arg: DrawArgIndex | str = prior_arg,
+        ) -> torch.Tensor:
+            return _prior.rsample(_lookup_arg(env, _arg))
+
+        bound_vars[latent_name] = None
+        steps.append(((latent_name,), None, _latent_prior_sample))
+        for name, fn in body_lets:
+            bound_vars[name] = None
+            steps.append(((name,), None, fn))
+        if obs_family is not None and response_var is not None:
+            bound_vars[response_var] = None
+            steps.append(
+                ((response_var,), MarginalizedFactor(obs_family), obs_args, True)
+            )
+        marg_name = f"_marg_{latent_name}"
+        bound_vars[marg_name] = None
+        steps.append(((marg_name,), None, _ungrouped_marginal, True))
 
     def _resolve_draw_morphism(
         self,
