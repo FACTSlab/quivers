@@ -337,11 +337,25 @@ def point_from_dataset(dataset: GalleryDataset) -> Point:
 
     The Point's `params` map carries the captured `true_*` ground-
     truth parameter values (one tuple-typed entry per latent name);
-    `data` carries every observation tensor as a flat list."""
+    `data` carries every observation tensor as a flat list.
+
+    When a name appears in both `dataset.params` (captured as a
+    ground-truth latent) and `dataset.observations` (clamped in the
+    `.md` snippet's observations dict for the SVI demo), the params
+    spelling wins: the latent ground truth is the canonical value to
+    score the joint at, and the entry is dropped from the data section
+    so a backend that declares the name as a parameter (Stan's
+    `parameters {}` block, a PyMC unobserved RV) does not also receive
+    it as a data input. `dataset.observations` itself is left intact,
+    so the in-process QVR trace still clamps every site."""
     def _flatten(t: torch.Tensor) -> list[float]:
         return t.detach().to(dtype=torch.float64).flatten().tolist()
     params = {k: _flatten(v) for k, v in dataset.params.items()}
-    data = {k: _flatten(v) for k, v in dataset.observations.items()}
+    data = {
+        k: _flatten(v)
+        for k, v in dataset.observations.items()
+        if k not in dataset.params
+    }
     # Squeeze scalar entries (length-1 lists) to plain floats so the
     # probe's dict-to-Tensor casting picks the right shape.
     params = {k: (v[0] if len(v) == 1 else v) for k, v in params.items()}
