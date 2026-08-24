@@ -841,15 +841,12 @@ class TuringRenderer(RendererBase):
         * `Exponential(rate)` -> `Exponential(1/rate)`
         * `Gamma(concentration, rate)` -> `Gamma(concentration, 1/rate)`
 
-        Three further families need a per-target rewrite because the
+        Two further families need a per-target rewrite because the
         Distributions.jl surface differs from torch's:
 
         * `StudentT(df, loc, scale)` -> `loc + scale * TDist(df)`
           (Distributions.jl `TDist` is standardised, one-parameter;
           the affine form recovers the location-scale density);
-        * `Weibull(scale, concentration)` ->
-          `Weibull(concentration, scale)` (Distributions.jl is
-          shape-first);
         * `LKJCholesky(concentration)` ->
           `LKJCholesky(<dim>, concentration)` (the matrix dimension is
           a mandatory leading argument, recovered from the sample's
@@ -924,10 +921,6 @@ class TuringRenderer(RendererBase):
             )
             scaled = _binary_expr(sb, counter, scale, "*", tdist)
             return _binary_expr(sb, counter, loc, "+", scaled)
-        if family == "Weibull" and len(rhs_args) >= 2:
-            # QVR `Weibull(scale, concentration)` -> Distributions.jl
-            # `Weibull(shape, scale)` (shape == concentration).
-            rhs_args = (rhs_args[1], rhs_args[0], *rhs_args[2:])
         if family == "LKJCholesky":
             if not event_dims:
                 raise UnsupportedConstruct(
@@ -962,7 +955,8 @@ class TuringRenderer(RendererBase):
         # `name[<binder>]` (when the existing index is itself a
         # reference into the batch axis).
         rewritten = tuple(
-            _replace_first_index(a, binder) for a in args
+            _replace_first_index(a, binder, ctx.batch_shaped_names)
+            for a in args
         )
         body_call = _call(
             sb,
@@ -1085,6 +1079,21 @@ _PROB_COMPLEMENT_POSITIONS: dict[str, int] = {
 }
 
 
+# Recipe table: QVR families whose Distributions.jl counterpart takes
+# the same parameters in a different positional order. The mapped
+# value is the permutation to apply to the rendered args, given as the
+# 0-based QVR positions in target order.
+#
+# torch `Weibull(scale, concentration)` has density
+# `(k/s) (x/s)^(k-1) exp(-(x/s)^k)` with `k = concentration`;
+# Distributions.jl `Weibull(alpha, theta)` has the same density with
+# `alpha` the shape and `theta` the scale, so the target call is
+# shape-first: `Weibull(concentration, scale)`.
+_ARG_ORDER_PERMUTATIONS: dict[str, tuple[int, ...]] = {
+    "Weibull": (1, 0),
+}
+
+
 def _binary_expr(
     sb: panproto.SchemaBuilder,
     counter: list[int],
@@ -1135,13 +1144,16 @@ def _transform_rhs_args(
 ) -> tuple[str, ...]:
     """Apply the family's value-level arg transforms to rendered args.
 
-    Covers the rate->scale reciprocation (Gamma / Exponential) and the
-    probs complement (NegativeBinomial). Structural rewrites that
-    change the call shape (StudentT affine, LKJCholesky dimension
-    prepend, Weibull arg swap, half-truncated wrapping) live in
-    [`_family_call`][TuringRenderer._family_call]; these value
-    transforms are position-stable and safe to apply on every path
-    that renders a family's args.
+    Covers the rate->scale reciprocation (Gamma / Exponential), the
+    probs complement (NegativeBinomial) and the argument reordering
+    (Weibull). Structural rewrites that change the call shape
+    (StudentT affine, LKJCholesky dimension prepend, half-truncated
+    wrapping) live in
+    [`_family_call`][TuringRenderer._family_call]; these arg
+    transforms preserve the rendered arg strings themselves and are
+    safe to apply on every path that renders a family's args, whether
+    the call is scalar, broadcast (`Family.(args)`) or inside an
+    `arraydist` comprehension.
     """
     if family in _RATE_TO_SCALE_INVERT_POSITIONS:
         rhs_args = _invert_rate_arg(
@@ -1151,7 +1163,36 @@ def _transform_rhs_args(
         rhs_args = _complement_prob_arg(
             sb, counter, rhs_args, _PROB_COMPLEMENT_POSITIONS[family]
         )
+    if family in _ARG_ORDER_PERMUTATIONS:
+        rhs_args = _permute_args(
+            rhs_args, _ARG_ORDER_PERMUTATIONS[family], family
+        )
     return rhs_args
+
+
+def _permute_args(
+    rhs_args: tuple[str, ...],
+    permutation: tuple[int, ...],
+    family: str,
+) -> tuple[str, ...]:
+    """Reorder the leading `len(permutation)` args of `rhs_args`.
+
+    `permutation[j]` is the 0-based QVR position whose rendered arg
+    belongs in target position `j`. Any args beyond the permuted
+    prefix keep their relative order.
+    """
+    if len(rhs_args) < len(permutation):
+        raise UnsupportedConstruct(
+            "qvr-turing",
+            [
+                f"family:{family}: expected at least "
+                f"{len(permutation)} args for the Distributions.jl "
+                f"argument order, got {len(rhs_args)}"
+            ],
+        )
+    return tuple(rhs_args[p] for p in permutation) + rhs_args[
+        len(permutation):
+    ]
 
 
 def _invert_rate_arg(
@@ -1563,16 +1604,37 @@ def _promote_scalar_ref(
     return IRArgBroadcast(value=arg, target_shape=sizes)
 
 
-def _replace_first_index(arg: IRArg, binder: str) -> IRArg:
-    """For the `arraydist([... for i in 1:B])` fallback: replace any
-    bracket-index `arg[k]` with `arg[<binder>]` so the comprehension
-    walks the batch axis. Numeric / literal args pass through."""
-    if isinstance(arg, IRArgRef) and arg.indices:
-        new_indices = tuple(
-            IRArgRef(name=binder) if isinstance(idx, IRArgRef) else idx
-            for idx in arg.indices
+def _replace_first_index(
+    arg: IRArg,
+    binder: str,
+    batch_shaped_names: frozenset[str] | set[str] = frozenset(),
+) -> IRArg:
+    """For the `arraydist([... for i in 1:B])` fallback: thread the
+    comprehension binder into each per-element arg.
+
+    An indexed reference `arg[k]` becomes `arg[<binder>]` so the
+    comprehension walks the batch axis. A bare reference to a
+    batch-shaped name (a let-bound vector like `h_mean`, or any name
+    in `batch_shaped_names`) gains a fresh `[<binder>]` index, because
+    the per-element distribution consumes one scalar entry per step
+    rather than the whole vector. Numeric / literal / scalar args pass
+    through unchanged."""
+    if isinstance(arg, IRArgRef):
+        if arg.indices:
+            new_indices = tuple(
+                IRArgRef(name=binder) if isinstance(idx, IRArgRef) else idx
+                for idx in arg.indices
+            )
+            return IRArgRef(name=arg.name, indices=new_indices)
+        if arg.name in batch_shaped_names:
+            return IRArgRef(name=arg.name, indices=(IRArgRef(name=binder),))
+    if isinstance(arg, IRArgBroadcast):
+        return IRArgBroadcast(
+            value=_replace_first_index(
+                arg.value, binder, batch_shaped_names
+            ),
+            target_shape=arg.target_shape,
         )
-        return IRArgRef(name=arg.name, indices=new_indices)
     return arg
 
 

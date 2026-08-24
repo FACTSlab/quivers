@@ -37,6 +37,7 @@ from quivers.transpile.renderers._python_helpers import (
     call,
     function_def,
     identifier,
+    name_event_rank_map,
     number_literal,
     python_binary_op as _python_binary_op,
     python_method_call as _python_method_call,
@@ -156,7 +157,13 @@ class Edward2Renderer(RendererBase):
         assert_no_dangling_refs(ir)
         proto = self.target_protocol()
         sb = proto.schema()
-        py = PyCtx(sb, cards=dict(ir.cards), target="edward2")
+        py = PyCtx(
+            sb,
+            cards=dict(ir.cards),
+            target="edward2",
+            name_event_rank=name_event_rank_map(ir),
+            gather_symbol=("tf", "gather"),
+        )
         ctx = _RenderCtx(sb=sb, morphisms={}, defines={})
 
         sb.vertex("mod", "module")
@@ -656,7 +663,12 @@ class Edward2Renderer(RendererBase):
         for rendered in rendered_args[len(arg_names) :]:
             positional.append(rendered)
 
-        sample_shape = self._sample_shape(py, plate)
+        sample_shape = self._sample_shape(
+            py,
+            plate,
+            family,
+            carried=self._carried_batch_keys(args, meta, bindings),
+        )
         if sample_shape is not None:
             keyword.append(("sample_shape", sample_shape))
         keyword.append(("name", string_literal(py, name)))
@@ -710,7 +722,14 @@ class Edward2Renderer(RendererBase):
         keyword: list[tuple[str, str]] = [
             ("input_output_cholesky", _true_literal(py)),
         ]
-        sample_shape = self._sample_shape(py, plate)
+        sample_shape = self._sample_shape(
+            py,
+            plate,
+            "LKJCholesky",
+            carried=self._carried_batch_keys(
+                args, self._lookup_meta("LKJCholesky"), bindings
+            ),
+        )
         if sample_shape is not None:
             keyword.append(("sample_shape", sample_shape))
         keyword.append(("name", string_literal(py, name)))
@@ -773,7 +792,12 @@ class Edward2Renderer(RendererBase):
             ("scale_row", _linop_cholesky(py, rendered[1])),
             ("scale_column", _linop_cholesky(py, rendered[2])),
         ]
-        sample_shape = self._sample_shape(py, plate)
+        sample_shape = self._sample_shape(
+            py,
+            plate,
+            "MatrixNormal",
+            carried=self._carried_batch_keys(args, meta, bindings),
+        )
         if sample_shape is not None:
             keyword.append(("sample_shape", sample_shape))
         keyword.append(("name", string_literal(py, name)))
@@ -1005,18 +1029,153 @@ class Edward2Renderer(RendererBase):
     # ------------------------------------------------------------------
 
     def _sample_shape(
-        self, py: PyCtx, plate: Plate
+        self,
+        py: PyCtx,
+        plate: Plate,
+        family: str,
+        *,
+        carried: tuple[str, ...] | None,
     ) -> str | None:
-        """Build the ``sample_shape=[B0, B1, ...]`` keyword payload
-        from the plate's ``batch_dims``. Returns ``None`` when the
-        plate has no batch dims (Edward2 omits the kwarg in that case).
+        """Build the ``sample_shape=[D0, D1, ...]`` keyword payload
+        for an Edward2 RV constructor.
+
+        Combines ``plate.batch_dims`` (iid axes) with the residual
+        ``plate.event_dims`` that exceed the family's natural
+        [`FamilyMeta.event_rank`][quivers.transpile.family_meta.FamilyMeta].
+        A scalar family (`event_rank=0`) folds every plate event dim
+        into the sample shape, so `Normal(0, 1) [over=LatentDim,
+        iid_over=Item]` renders `sample_shape=[Item, LatentDim]`; a
+        vector family (`event_rank=1`) folds only the dims beyond its
+        natural axis; a matrix family (`event_rank=2`) only those
+        beyond the last two.
+
+        A TFP random variable's value shape is
+        ``sample_shape + batch_shape + event_shape``, and the
+        ``batch_shape`` is whatever the constructor's arguments
+        already broadcast to. `carried` names the trailing plate axes
+        the arguments supply on their own, as returned by
+        [`_carried_batch_keys`][]; those axes must be dropped from the
+        payload or the RV is replicated once per plate index and every
+        index scores the whole plate. `Normal(loc=h_mean, scale=s)`
+        with `h_mean` shaped by the Step axis therefore renders with
+        no ``sample_shape`` at all, while `Normal(0, 1) over Step`
+        keeps ``sample_shape=[Step]``.
+
+        Returns ``None`` when nothing is left to declare (Edward2 omits
+        the keyword in that case). Raises when the arguments carry axes
+        the plate does not account for, or when their shape cannot be
+        determined: emitting either the padded or the stripped payload
+        would silently misscore the site.
         """
-        if not plate.batch_dims:
+        meta = FAMILY_META.get(family)
+        natural = meta.event_rank if meta is not None else 0
+        residual_event = (
+            plate.event_dims[: len(plate.event_dims) - natural]
+            if natural else plate.event_dims
+        )
+        dims = (*plate.batch_dims, *residual_event)
+        if not dims:
+            return None
+        if carried is None:
+            raise UnsupportedConstruct(
+                _BACKEND_KEY,
+                [
+                    f"family:{family}: plate axes over an argument whose "
+                    "broadcast shape is not statically determinable"
+                ],
+            )
+        split = len(dims) - len(carried)
+        if split < 0 or tuple(_dim_key(d) for d in dims[split:]) != carried:
+            raise UnsupportedConstruct(
+                _BACKEND_KEY,
+                [
+                    f"family:{family}: argument batch axes {carried} are "
+                    "not a trailing run of the plate axes "
+                    f"{tuple(_dim_key(d) for d in dims)}"
+                ],
+            )
+        dims = dims[:split]
+        if not dims:
             return None
         lst = py.v(py.fresh("list"), "list")
-        for dim in plate.batch_dims:
+        for dim in dims:
             py.e(lst, _dim_expr(py, dim), "child_of")
         return lst
+
+    def _carried_batch_keys(
+        self,
+        args: tuple[IRArg, ...],
+        meta: FamilyMeta,
+        bindings: dict[str, _Binding],
+    ) -> tuple[str, ...] | None:
+        """Return the batch axes the rendered arguments already
+        broadcast to, or ``None`` when any argument's shape is not
+        statically determinable.
+
+        TFP broadcasts the constructor's arguments against one
+        another, so the distribution's batch shape is the widest of
+        the per-argument batch shapes; the widest tuple is returned.
+        """
+        carried: tuple[str, ...] = ()
+        for position, arg in enumerate(args):
+            keys = self._arg_batch_keys(
+                arg,
+                arg_event_rank=_arg_event_rank(meta, position),
+                bindings=bindings,
+            )
+            if keys is None:
+                return None
+            if len(keys) > len(carried):
+                carried = keys
+        return carried
+
+    def _arg_batch_keys(
+        self,
+        arg: IRArg,
+        *,
+        arg_event_rank: int,
+        bindings: dict[str, _Binding],
+    ) -> tuple[str, ...] | None:
+        """Return the leading axes the rendered `arg` carries beyond
+        the `arg_event_rank` axes its constructor slot consumes, keyed
+        by [`_dim_key`][], or ``None`` when the shape is not
+        statically determinable.
+
+        Numeric literals are scalars. A `tf.fill` broadcast targets
+        exactly the slot's event shape, so it contributes no batch
+        axis. A list / matrix literal contributes its own extents. A
+        bare reference contributes the axes of the plate its binding
+        was declared under; a bracket-indexed reference lowers to
+        ``tf.gather`` or a subscript whose result shape the IR does
+        not pin down.
+        """
+        if isinstance(arg, IRArgNumber):
+            return ()
+        if isinstance(arg, IRArgBroadcast | IRArgFamilyRef | IRArgKernel):
+            return ()
+        if isinstance(arg, IRArgMatrix):
+            columns = len(arg.rows[0].elements) if arg.rows else 0
+            extents = (_static_key(len(arg.rows)), _static_key(columns))
+            return _drop_event_axes(extents, arg_event_rank)
+        if isinstance(arg, IRArgList):
+            return _drop_event_axes(
+                (_static_key(len(arg.elements)),), arg_event_rank
+            )
+        if isinstance(arg, IRArgRef):
+            if arg.indices:
+                return None
+            binding = bindings.get(arg.name)
+            if binding is None:
+                return None
+            extents = tuple(
+                _dim_key(dim)
+                for dim in (
+                    *binding.plate.batch_dims,
+                    *binding.plate.event_dims,
+                )
+            )
+            return _drop_event_axes(extents, arg_event_rank)
+        return None
 
     def _broadcast_target_for(
         self,
@@ -1155,6 +1314,58 @@ def _linop_cholesky(py: PyCtx, cov_expr: str) -> str:
         attribute(py, ("tf", "linalg", "LinearOperatorLowerTriangular")),
         positional=(chol,),
     )
+
+
+def _dim_key(dim: Dim) -> str:
+    """Structural key for a plate dim's extent.
+
+    Two dims share a key exactly when they denote the same axis
+    length: a static cardinality matches on its size, a runtime length
+    on the name of the input carrying it.
+    """
+    if isinstance(dim, DimStatic):
+        return _static_key(dim.size)
+    if isinstance(dim, DimDynamic):
+        return f"dynamic:{dim.size_name}"
+    raise UnsupportedConstruct(
+        _BACKEND_KEY, [f"dim:{type(dim).__name__}"]
+    )
+
+
+def _static_key(size: int) -> str:
+    """Key for a statically known extent, matching `_dim_key`."""
+    return f"static:{size}"
+
+
+def _drop_event_axes(
+    extents: tuple[str, ...], event_rank: int
+) -> tuple[str, ...]:
+    """Strip the trailing `event_rank` axes from `extents`, leaving the
+    batch axes the argument broadcasts over."""
+    return extents[: max(0, len(extents) - event_rank)]
+
+
+def _arg_event_rank(meta: FamilyMeta, arg_position: int) -> int:
+    """Return the number of event axes the family's constructor slot at
+    `arg_position` consumes, read off the torch distribution's
+    ``arg_constraints``.
+
+    A simplex or real-vector slot consumes one axis, a covariance or
+    real-matrix slot two, an ``IndependentConstraint(base, n)`` slot
+    ``n``; every other constraint is scalar-valued and consumes none.
+    """
+    cls_attr = meta.distribution_class.arg_constraints
+    if not isinstance(cls_attr, dict):
+        return 0
+    items = list(cls_attr.items())
+    if arg_position >= len(items):
+        return 0
+    _, constraint = items[arg_position]
+    if is_real_simplex(constraint) or is_real_vector(constraint):
+        return 1
+    if is_real_cov_matrix(constraint) or is_real_matrix(constraint):
+        return 2
+    return int(getattr(constraint, "event_dim", 0))
 
 
 def _dim_expr(py: PyCtx, dim: Dim) -> str:
