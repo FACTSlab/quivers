@@ -25,7 +25,14 @@ include("/io/_reshape.jl")
 function _coerce_value(v)
     if v isa AbstractArray
         if ndims(v) == 1
+            if all(x -> x isa Integer, v)
+                return [Int(x) for x in v]
+            end
             return [Float64(x) for x in v]
+        end
+        if all(row -> all(x -> x isa Integer, row), v)
+            return Array{Int}(reduce(hcat, [[Int(x) for x in row]
+                                            for row in v])')
         end
         return Array{Float64}(reduce(hcat, [[Float64(x) for x in row]
                                             for row in v])')
@@ -47,6 +54,9 @@ function main()
     source = read("/io/source.jl", String)
     points = JSON3.read(read("/io/points.json", String))
     shapes, dtypes = load_tables("/io")
+    # Julia arrays are 1-based; lift every 0-based covariate the model
+    # subscripts before it reaches the @model call.
+    index_names = index_input_names(source, dtypes)
 
     # Eval the @model declaration in Main; the macro produces a
     # callable `model` symbol.
@@ -54,7 +64,9 @@ function main()
 
     log_densities = Float64[]
     for pt in points
-        reshaped = reshape_point(pt, shapes, dtypes)
+        reshaped = shift_index_inputs(
+            reshape_point(pt, shapes, dtypes), index_names,
+        )
         data = reshaped["data"]
         params = reshaped["params"]
         # Pass observed values as positional args (sorted by name to

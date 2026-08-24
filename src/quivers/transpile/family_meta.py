@@ -118,7 +118,20 @@ from quivers.transpile.ir import (
 
 
 class FamilyMeta(dx.Model):
-    """Static transpile-only metadata for one distribution family."""
+    """Static transpile-only metadata for one distribution family.
+
+    `event_rank` is the rank of the distribution's natural event
+    shape (``Normal.event_shape == ()`` -> 0; ``Dirichlet.event_shape
+    == (K,)`` -> 1; ``LKJCholesky.event_shape == (K, K)`` -> 2).
+    Renderers consult this to compute the residual user-declared event
+    dims: given a sample with `plate.event_dims = (e1, ..., eN)`, the
+    family produces the trailing ``event_rank`` dims natively and the
+    leading ``N - event_rank`` dims must be lifted into the rendered
+    distribution (NumPyro / Pyro ``.expand([...]).to_event(...)``,
+    Edward2 ``sample_shape=[...]``). PyMC labels every plate axis with a
+    named ``dims`` coordinate, so it needs no residual lift. Default is
+    0; vector families override to 1, matrix families to 2.
+    """
 
     qvr_name: str
     distribution_class: type[Distribution] = dx.field(opaque=True)
@@ -126,6 +139,7 @@ class FamilyMeta(dx.Model):
     arg_aliases: dict[str, dict[str, str]] = dx.field(default_factory=lambda: {})
     quivers_class: type[ContinuousMorphism] | None = dx.field(default=None, opaque=True)
     structured_lowering: StructuredSampleLowering | None = None
+    event_rank: int = 0
 
 
 # ---------------------------------------------------------------------------
@@ -613,6 +627,7 @@ FAMILY_META: dict[str, FamilyMeta] = {
     ),
     "Dirichlet": FamilyMeta(
         qvr_name="Dirichlet",
+        event_rank=1,
         distribution_class=td.Dirichlet,
         quivers_class=ConditionalDirichlet,
         target_names={
@@ -1002,6 +1017,7 @@ FAMILY_META: dict[str, FamilyMeta] = {
     # ----- continuous multivariate -----
     "MultivariateNormal": FamilyMeta(
         qvr_name="MultivariateNormal",
+        event_rank=1,
         distribution_class=td.MultivariateNormal,
         quivers_class=ConditionalMultivariateNormal,
         target_names={
@@ -1040,6 +1056,7 @@ FAMILY_META: dict[str, FamilyMeta] = {
     ),
     "LowRankMVN": FamilyMeta(
         qvr_name="LowRankMVN",
+        event_rank=1,
         distribution_class=td.LowRankMultivariateNormal,
         quivers_class=ConditionalLowRankMVN,
         target_names={
@@ -1067,6 +1084,7 @@ FAMILY_META: dict[str, FamilyMeta] = {
     ),
     "RelaxedOneHotCategorical": FamilyMeta(
         qvr_name="RelaxedOneHotCategorical",
+        event_rank=1,
         distribution_class=td.RelaxedOneHotCategorical,
         quivers_class=ConditionalRelaxedOneHotCategorical,
         target_names={
@@ -1078,6 +1096,7 @@ FAMILY_META: dict[str, FamilyMeta] = {
     # ----- matrix-valued -----
     "Wishart": FamilyMeta(
         qvr_name="Wishart",
+        event_rank=2,
         distribution_class=td.Wishart,
         quivers_class=ConditionalWishart,
         target_names={
@@ -1096,6 +1115,7 @@ FAMILY_META: dict[str, FamilyMeta] = {
     ),
     "InverseWishart": FamilyMeta(
         qvr_name="InverseWishart",
+        event_rank=2,
         distribution_class=_InverseWishart,
         quivers_class=ConditionalInverseWishart,
         target_names={
@@ -1107,6 +1127,7 @@ FAMILY_META: dict[str, FamilyMeta] = {
     ),
     "MatrixNormal": FamilyMeta(
         qvr_name="MatrixNormal",
+        event_rank=2,
         distribution_class=_MatrixNormal,
         quivers_class=ConditionalMatrixNormal,
         target_names={
@@ -1151,6 +1172,7 @@ FAMILY_META: dict[str, FamilyMeta] = {
     ),
     "GP": FamilyMeta(
         qvr_name="GP",
+        event_rank=1,
         distribution_class=_GaussianProcess,
         quivers_class=ConditionalGaussianProcess,
         target_names={
@@ -1341,6 +1363,7 @@ FAMILY_META: dict[str, FamilyMeta] = {
     ),
     "LogisticNormal": FamilyMeta(
         qvr_name="LogisticNormal",
+        event_rank=1,
         distribution_class=td.LogisticNormal,
         quivers_class=ConditionalLogisticNormal,
         target_names={
@@ -1354,6 +1377,7 @@ FAMILY_META: dict[str, FamilyMeta] = {
     ),
     "OneHotCategorical": FamilyMeta(
         qvr_name="OneHotCategorical",
+        event_rank=1,
         distribution_class=td.OneHotCategorical,
         quivers_class=ConditionalOneHotCategorical,
         target_names={
@@ -1367,6 +1391,7 @@ FAMILY_META: dict[str, FamilyMeta] = {
     ),
     "LKJCholesky": FamilyMeta(
         qvr_name="LKJCholesky",
+        event_rank=2,
         distribution_class=td.LKJCholesky,
         quivers_class=ConditionalLKJCholesky,
         target_names={
@@ -1438,6 +1463,7 @@ FAMILY_META: dict[str, FamilyMeta] = {
     ),
     "LKJCorrelationFactor": FamilyMeta(
         qvr_name="LKJCorrelationFactor",
+        event_rank=2,
         distribution_class=_LKJCorrelationFactor,
         quivers_class=LKJCorrelationFactor,
         target_names={

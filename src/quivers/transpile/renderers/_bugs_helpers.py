@@ -303,6 +303,16 @@ def _emit_unary(ctx: _BugsLetCtx, expr: LetExprUnaryOp) -> str:
     return u
 
 
+#: QVR function names that map to a different identifier in the
+#: BUGS / JAGS math library. Most pure-math names (``exp``, ``log``,
+#: ``sqrt``, ``abs``, ``pow``, ...) coincide across targets and need
+#: no rewrite; the logistic sigmoid is the inverse-logit link, which
+#: BUGS / JAGS expose as ``ilogit``.
+_BUGS_FUNCTION_RENAMES: dict[str, str] = {
+    "sigmoid": "ilogit",
+}
+
+
 def _emit_call(
     ctx: _BugsLetCtx,
     func: str,
@@ -314,10 +324,13 @@ def _emit_call(
     The `name` field is an `identifier` vertex; the `arguments` field
     is an `argument_list` whose children carry their grammar kind as
     the edge label (so the panproto walker can pick the right child
-    alternative).
+    alternative). QVR-named math primitives (``sigmoid``, ...) are
+    rewritten to their BUGS / JAGS library identifiers (``ilogit``,
+    ...) via
+    [`_BUGS_FUNCTION_RENAMES`][quivers.transpile.renderers._bugs_helpers._BUGS_FUNCTION_RENAMES].
     """
     c = ctx.v(ctx.fresh("call"), "function_call")
-    name_id = _emit_identifier(ctx, func)
+    name_id = _emit_identifier(ctx, _BUGS_FUNCTION_RENAMES.get(func, func))
     ctx.e(c, name_id, "name")
     if not arg_ids:
         return c

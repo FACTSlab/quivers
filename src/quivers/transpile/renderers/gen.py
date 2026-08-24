@@ -1381,21 +1381,22 @@ class GenRenderer(RendererBase):
         rhs = render_let_expr_julia(
             _JlCtxAdapter(gx, "gen"), node.expr
         )
-        # If a downstream sample / observe references this let-binding
-        # inside its batch loop without explicit indices, infer the
-        # batch axes from that consumer so references to `node.name`
-        # inside the loop pick up the loop index.
+        # The batch axes of a let-binding come from two sources: the
+        # node's own `plate.batch_dims` (a binding indexed along a
+        # gather / covariate axis) and the axes inferred from a
+        # downstream sample / observe that references it inside a batch
+        # loop without explicit indices. References to `node.name`
+        # inside a loop pick up the loop index for every such axis.
         inferred = gx.inferred_det_axes.get(node.name, ())
-        if inferred:
-            gx.decl_axes[node.name] = inferred
-            # The let body must evaluate to a Vector / matrix shaped
-            # along the inferred batch axes. Julia's scalar `+ * - /`
-            # operators reject `scalar OP vector`, so wrap the RHS in
-            # `@.` (fused-broadcast macro) to promote every arithmetic
+        axes = _union_dims(inferred, node.plate.batch_dims)
+        gx.decl_axes[node.name] = axes
+        if axes:
+            # The let body evaluates to a Vector / matrix shaped along
+            # the batch axes. Julia's scalar `+ * - /` operators reject
+            # a scalar mixed with a vector, so wrap the RHS in `@.`
+            # (fused-broadcast macro) to promote every arithmetic
             # operator inside the body to its dotted form.
             rhs = _macro_call_space(gx, ".", (rhs,))
-        else:
-            gx.decl_axes[node.name] = node.plate.batch_dims
         stmt = _assignment(gx, _ident(gx, node.name), rhs)
         gx.body_stmts.append(stmt)
 
@@ -1545,9 +1546,17 @@ def _infer_deterministic_axes(
             inferred[name] = _union_dims(
                 inferred[name], node.plate.batch_dims
             )
-    # Transitive propagation through deterministic->deterministic refs:
-    # walk det_names twice so an earlier det inherits axes from a
-    # later det that already accumulated them.
+    # Transitive propagation through deterministic->deterministic refs.
+    # Two directions run to a joint fixpoint:
+    #
+    #   forward  a det inherits the batch axes of any det it references,
+    #            so a consumer materialised along an axis stays so when
+    #            it is itself consumed downstream;
+    #   backward a det referenced by a batched det inherits that det's
+    #            axes, because its scalar-looking result is consumed
+    #            elementwise and Julia's `+ * - /` reject a scalar mixed
+    #            with the vector siblings the batched consumer builds;
+    #            marking the producer promotes its body to `@.` too.
     for _ in range(len(det_names)):
         changed = False
         for node in ir.body:
@@ -1556,11 +1565,17 @@ def _infer_deterministic_axes(
             for ref_name in _bare_ref_names_in_expr(node.expr):
                 if ref_name not in inferred:
                     continue
-                new = _union_dims(
+                forward = _union_dims(
                     inferred[node.name], inferred[ref_name]
                 )
-                if new != inferred[node.name]:
-                    inferred[node.name] = new
+                if forward != inferred[node.name]:
+                    inferred[node.name] = forward
+                    changed = True
+                backward = _union_dims(
+                    inferred[ref_name], inferred[node.name]
+                )
+                if backward != inferred[ref_name]:
+                    inferred[ref_name] = backward
                     changed = True
         if not changed:
             break
@@ -1653,12 +1668,12 @@ def _union_dims(
 ) -> tuple[Dim, ...]:
     """Union two dim tuples by name, preserving the order in `a`
     followed by any new dims from `b`."""
-    seen = {d.name for d in a}
+    seen = {str(d.name) for d in a}
     out = list(a)
     for d in b:
-        if d.name not in seen:
+        if str(d.name) not in seen:
             out.append(d)
-            seen.add(d.name)
+            seen.add(str(d.name))
     return tuple(out)
 
 
@@ -1787,8 +1802,9 @@ def _ir_uses_family(body: tuple[IRNode, ...], family: str) -> bool:
             and node.family == family
         ):
             return True
-        if isinstance(node, IRMarginalize) and _ir_uses_family(
-            node.scope, family
+        if isinstance(node, IRMarginalize) and (
+            node.family == family
+            or _ir_uses_family(node.scope, family)
         ):
             return True
     return False

@@ -25,7 +25,12 @@ import pathlib
 import numpy as np
 import pyjags
 
-from _reshape import load_tables, reshape_point
+from _reshape import (
+    index_input_names,
+    load_tables,
+    reshape_point,
+    shift_index_inputs,
+)
 
 
 pyjags.load_module("basemod")
@@ -43,10 +48,15 @@ def main() -> None:
     source_path = io / f"source.{ext}"
     points = json.loads((io / "points.json").read_text())
     shapes, dtypes = load_tables(io)
+    # JAGS / BUGS index arrays from 1; lift every 0-based covariate
+    # the model subscripts before it becomes an observed node.
+    index_names = index_input_names(source_path.read_text(), dtypes)
 
     log_densities = []
     for pt in points:
-        reshaped = reshape_point(pt, shapes, dtypes)
+        reshaped = shift_index_inputs(
+            reshape_point(pt, shapes, dtypes), index_names,
+        )
         # Combine params + data: JAGS treats every supplied node as
         # observed, so the deviance includes the joint log-density of
         # the latent parameters AND the observed data nodes.

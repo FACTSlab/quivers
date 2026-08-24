@@ -76,6 +76,10 @@ end
 function main()
     source = read("/io/source.jl", String)
     points = JSON3.read(read("/io/points.json", String))
+    _, dtypes = load_tables("/io")
+    # Julia arrays are 1-based; lift every 0-based covariate the model
+    # subscripts before it reaches the @gen call.
+    index_names = index_input_names(source, dtypes)
 
     # Use `include_string` (whole-file evaluation) instead of
     # `Meta.parse` (single expression) so source files with multiple
@@ -92,9 +96,11 @@ function main()
         data = pt.data
         params = pt.params
         # Pass observed values as positional args sorted by name to
-        # match the renderer's alphabetical signature ordering.
+        # match the renderer's alphabetical signature ordering. A
+        # covariate the model subscripts is lifted to 1-based.
         args = Tuple(
-            _coerce(data[Symbol(k)])
+            (String(k) in index_names ? _coerce(data[Symbol(k)]) .+ 1
+                                      : _coerce(data[Symbol(k)]))
             for k in sort(collect(keys(data)))
         )
         constraints = Gen.choicemap()

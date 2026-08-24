@@ -58,6 +58,7 @@ from quivers.transpile.renderers._python_helpers import (
     call,
     function_def,
     identifier,
+    name_event_rank_map,
     number_literal,
     python_binary_op as _python_binary_op,
     python_method_call as _python_method_call,
@@ -154,7 +155,12 @@ class PyMCRenderer(RendererBase):
         proto = self.target_protocol()
         sb = proto.schema()
         ctx = _RenderCtx(sb=sb, morphisms=dict(morphisms), defines=dict(lets))
-        py = PyCtx(sb, cards=dict(ir.cards), target="pymc")
+        py = PyCtx(
+            sb,
+            cards=dict(ir.cards),
+            target="pymc",
+            name_event_rank=name_event_rank_map(ir),
+        )
         bag = _PyMCCtx(ctx=ctx, py=py, ir=ir)
 
         # `module` root.

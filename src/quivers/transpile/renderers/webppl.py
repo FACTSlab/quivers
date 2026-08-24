@@ -282,9 +282,14 @@ class WebPPLRenderer(RendererBase):
         # the source above the `var model = function (...) {...};`
         # declaration so the body's `sample(<Family>({...}))` call
         # sites resolve through normal JS name lookup.
-        if any(
-            _ir_uses_family(ir.body, f) for f in _WEBPPL_RUNTIME_HELPER_FAMILIES
-        ) or _ir_emits_qvr_bcast(ir, self._array_names):
+        if (
+            any(
+                _ir_uses_family(ir.body, f)
+                for f in _WEBPPL_RUNTIME_HELPER_FAMILIES
+            )
+            or _ir_emits_qvr_bcast(ir, self._array_names)
+            or _ir_uses_webppl_math(ir.body)
+        ):
             _graft_runtime_webppl_helper(ctx.sb, self, "prog")
         var_decl = self._fresh(ctx, "vd")
         ctx.sb.vertex(var_decl, "variable_declaration")
@@ -841,10 +846,28 @@ class WebPPLRenderer(RendererBase):
         # input reference (and each array-valued binding aligned with
         # the pivot axis) becomes ``<name>[__i]``; the loop var ``__i``
         # is injected as a bare identifier reference.
+        #
+        # Only names batch-shaped along the pivot's axis are threaded.
+        # A gather target `beta_0[out_idx]` keeps `beta_0` bare (it is
+        # shaped on a different axis, e.g. Out) while its index
+        # `out_idx` (pivot-shaped) becomes `out_idx[__i]`, so the body
+        # reads `beta_0[out_idx[__i]]` rather than the double-indexed
+        # `beta_0[__i][out_idx[__i]]`.
         loop_var = self._fresh_loop_var()
+        pivot = array_inputs[0]
+        pivot_axes = self._batch_axis_names(pivot)
+        candidates = array_inputs + array_bindings
+        if pivot_axes:
+            threaded = tuple(
+                name
+                for name in candidates
+                if self._batch_axis_names(name) == pivot_axes
+            )
+        else:
+            threaded = candidates
         rewritten = self._index_array_refs(
             node.expr,
-            array_inputs + array_bindings,
+            threaded,
             loop_var,
         )
         body_block = self._fresh(ctx, "lbody")
@@ -859,7 +882,6 @@ class WebPPLRenderer(RendererBase):
             (loop_var, "_"),
             body_block,
         )
-        pivot = array_inputs[0]
         mi_call = self._call(
             ctx,
             self._ident(ctx, "mapIndexed"),
@@ -876,6 +898,21 @@ class WebPPLRenderer(RendererBase):
         )
         self._binding_plates[node.name] = promoted_plate or node.plate
         self._binding_supports[node.name] = node.constraint
+
+    def _batch_axis_names(self, name: str) -> frozenset[str] | None:
+        """Return the batch-axis name set of ``name``'s recorded plate,
+        or ``None`` when no plate is known.
+
+        Used by the deterministic-binding lift to decide which array
+        references are aligned with the `mapIndexed` pivot axis: only
+        those get the loop index threaded, so a gather `beta_0[out_idx]`
+        keeps `beta_0` (a differently-axed prior) un-indexed while its
+        pivot-shaped index `out_idx` picks up `[__i]`.
+        """
+        plate = self._binding_plates.get(name)
+        if plate is None:
+            return None
+        return frozenset(str(dim.name) for dim in plate.batch_dims)
 
     def _fresh_loop_var(self) -> str:
         """Return a fresh `__i_<n>` loop-variable name for a lifted
@@ -2064,6 +2101,62 @@ def _ir_emits_qvr_bcast(ir: IRProgram, array_names: frozenset[str]) -> bool:
     """
     input_names = frozenset(inp.name for inp in ir.inputs)
     return _body_emits_qvr_bcast(ir.body, array_names, input_names)
+
+
+#: QVR math primitives the WebPPL runtime supplies as elementwise
+#: globals (`Math` has no bare `sigmoid` / `exp` / `log` / `sqrt`).
+_WEBPPL_MATH_HELPERS: frozenset[str] = frozenset(
+    {"sigmoid", "exp", "log", "sqrt"}
+)
+
+
+def _ir_uses_webppl_math(body: tuple[IRNode, ...]) -> bool:
+    """True iff any deterministic / score binding (including nested
+    marginalize scopes) calls a runtime math primitive that the WebPPL
+    stdlib lacks as a global.
+
+    The graft prepends the runtime carrying `sigmoid` / `exp` / `log` /
+    `sqrt` whenever one of them is called, independent of whether the
+    binding also routes through `_qvr_bcast`.
+    """
+    for node in body:
+        if isinstance(node, (IRDeterministic, IRScore)) and (
+            _let_expr_calls_any(node.expr, _WEBPPL_MATH_HELPERS)
+        ):
+            return True
+        if isinstance(node, IRMarginalize) and _ir_uses_webppl_math(
+            node.scope
+        ):
+            return True
+    return False
+
+
+def _let_expr_calls_any(expr: LetExprNode, names: frozenset[str]) -> bool:
+    """True iff the let-expression tree contains a `LetExprCall` whose
+    callee name is in ``names``."""
+    if isinstance(expr, LetExprCall):
+        if expr.func in names:
+            return True
+        return any(_let_expr_calls_any(a, names) for a in expr.args)
+    if isinstance(expr, LetExprBinOp):
+        return _let_expr_calls_any(expr.left, names) or _let_expr_calls_any(
+            expr.right, names
+        )
+    if isinstance(expr, LetExprUnaryOp):
+        return _let_expr_calls_any(expr.operand, names)
+    if isinstance(expr, LetExprIndex):
+        return _let_expr_calls_any(expr.array, names) or any(
+            _let_expr_calls_any(i, names) for i in expr.indices
+        )
+    if isinstance(expr, LetExprList):
+        return any(_let_expr_calls_any(i, names) for i in expr.items)
+    if isinstance(expr, LetExprMethodCall):
+        return _let_expr_calls_any(expr.receiver, names) or any(
+            _let_expr_calls_any(a, names) for a in expr.args
+        )
+    if isinstance(expr, LetExprLambda):
+        return _let_expr_calls_any(expr.body, names)
+    return False
 
 
 def _body_emits_qvr_bcast(

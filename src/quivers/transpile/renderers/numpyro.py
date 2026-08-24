@@ -49,6 +49,7 @@ from quivers.transpile.renderers._python_helpers import (
     attribute,
     call,
     identifier,
+    name_event_rank_map,
     number_literal,
     python_binary_op as _python_binary_op,
     python_method_call as _python_method_call,
@@ -62,6 +63,7 @@ from quivers.transpile._pipeline import parser_registry, target_protocol
 from quivers.transpile.family_meta import FAMILY_META
 from quivers.transpile.ir import (
     ConstraintSpec,
+    Dim,
     DimDynamic,
     DimStatic,
     IRArg,
@@ -180,7 +182,12 @@ class NumPyroRenderer(RendererBase):
         """
         proto = self.target_protocol()
         sb = proto.schema()
-        py = PyCtx(sb, cards=dict(ir.cards), target="numpyro")
+        py = PyCtx(
+            sb,
+            cards=dict(ir.cards),
+            target="numpyro",
+            name_event_rank=name_event_rank_map(ir),
+        )
         scalar_refs, bound_refs = _classify_bindings(ir)
         ctx = _NumPyroCtx(
             sb=sb,
@@ -858,6 +865,9 @@ class NumPyroRenderer(RendererBase):
         dist_call = self._distribution_call(
             ctx, family, args, arg_names, plate
         )
+        dist_call = self._wrap_event_dims(
+            ctx, dist_call, family, plate.event_dims
+        )
         sample_callee = attribute(py, ("numpyro", "sample"))
         positional = (string_literal(py, name), dist_call)
         keyword: tuple[tuple[str, str], ...] = ()
@@ -868,6 +878,57 @@ class NumPyroRenderer(RendererBase):
             sample_callee,
             positional=positional,
             keyword=keyword,
+        )
+
+    def _wrap_event_dims(
+        self,
+        ctx: _NumPyroCtx,
+        dist_call: str,
+        family: str,
+        event_dims: tuple[Dim, ...],
+    ) -> str:
+        """Lift the residual user-declared event dims into the
+        distribution via ``.expand([s0, ..., sn]).to_event(n)``.
+
+        The family's natural event rank comes from
+        [`FamilyMeta.event_rank`][quivers.transpile.family_meta.FamilyMeta].
+        A scalar family (`Normal`, `Beta`, ...; `event_rank=0`) lifts
+        every plate event dim, so `Normal(0, 1) [over=LatentDim,
+        iid_over=Item]` renders as
+        `Normal(0, 1).expand([2]).to_event(1)` inside the `Item` plate
+        and draws the `(Item, LatentDim)` shape the QVR sample denotes.
+        A vector family (`event_rank=1`) lifts only the dims beyond the
+        last; a matrix family (`event_rank=2`) only those beyond the
+        last two, so the distribution never re-absorbs an axis it emits
+        natively.
+        """
+        if not event_dims:
+            return dist_call
+        meta = FAMILY_META.get(family)
+        natural = meta.event_rank if meta is not None else 0
+        residual = (
+            event_dims[: len(event_dims) - natural] if natural else event_dims
+        )
+        if not residual:
+            return dist_call
+        py = ctx.py
+        list_vid = py.v(py.fresh("list"), "list")
+        for dim in residual:
+            py.e(list_vid, self._dim_size_vid(ctx, dim), "child_of")
+        expand_vid = _python_method_call(py, dist_call, "expand", (list_vid,))
+        return _python_method_call(
+            py, expand_vid, "to_event", (number_literal(py, len(residual)),)
+        )
+
+    def _dim_size_vid(self, ctx: _NumPyroCtx, dim: Dim) -> str:
+        """Render `dim.size` as a NumPyro source-token vid."""
+        if isinstance(dim, DimStatic):
+            return number_literal(ctx.py, dim.size)
+        if isinstance(dim, DimDynamic):
+            return self._dynamic_size_expr(ctx.py, dim.size_name)
+        raise UnsupportedConstruct(
+            "qvr-numpyro",
+            [f"plate:dim-kind:{type(dim).__name__}"],
         )
 
     def _distribution_call(

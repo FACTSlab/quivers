@@ -19,10 +19,22 @@ The Stan-specific layout decisions:
   Blocks are materialised lazily when first written to, so a
   program with no `transformed_parameters` declarations emits no
   empty block.
+* Sample / observe steps: an explicit
+  `target += <family>_lpdf(<variate> | <args>);` increment rather
+  than Stan's `~` sampling notation. `~` drops every term that does
+  not depend on a parameter, which makes the program's
+  `log_prob(jacobian=False)` differ from the QVR joint by an amount
+  that moves with the data; the `_lpdf` / `_lpmf` form keeps all
+  normalizing constants, so the emitted program computes the joint
+  exactly.
 * Sample-step plate loops: every batch dimension on a sample's
   plate becomes a nested `for (m_<axis> in 1:<size>)` loop, with the
-  LHS and every same-axis-indexed arg rewritten through
+  variate and every same-axis-indexed arg rewritten through
   [`substitute_indices`][quivers.transpile.renderers._base.RendererBase.substitute_indices].
+* Truncated families: the retained interval's log-mass is subtracted
+  explicitly through `<family>_lcdf` / `<family>_lccdf` and
+  `log_diff_exp`, since Stan's `T[low, high]` suffix attaches only to
+  a `~` statement.
 * Marginalize: per spec, Stan emits
   `log_sum_exp` per-group enumeration. The per-call
   [`finite_enumerable_at_call_site`][quivers.transpile.family_meta.finite_enumerable_at_call_site]
@@ -43,6 +55,7 @@ The Stan-specific layout decisions:
 
 from __future__ import annotations
 
+import math
 import pathlib
 from typing import Callable
 
@@ -120,6 +133,60 @@ from quivers.transpile.renderers._stan_helpers import (
     _substitute_let_expr,
     render_let_expr_stan,
 )
+
+
+#: Stan spells a distribution's log-density function
+#: `<name>_lpdf` when the variate is continuous and `<name>_lpmf`
+#: when it is discrete. The keys are the `target_names["stan"]`
+#: entries of [`FAMILY_META`][quivers.transpile.family_meta.FAMILY_META]
+#: plus the helper densities grafted from `runtime_stan_functions.stan`
+#: (`continuous_bernoulli`, `kumaraswamy`, `logit_normal`,
+#: `matrix_normal`). A Stan sampling name absent from this table has
+#: no log-density form, and
+#: [`StanRenderer._log_density_name`][quivers.transpile.renderers.stan.StanRenderer]
+#: raises rather than emit a `~` statement that would drop constants.
+_STAN_LOG_DENSITY_SUFFIX: dict[str, str] = {
+    "bernoulli": "lpmf",
+    "beta": "lpdf",
+    "beta_binomial": "lpmf",
+    "binomial": "lpmf",
+    "categorical": "lpmf",
+    "cauchy": "lpdf",
+    "chi_square": "lpdf",
+    "continuous_bernoulli": "lpdf",
+    "dirichlet": "lpdf",
+    "double_exponential": "lpdf",
+    "exponential": "lpdf",
+    "gamma": "lpdf",
+    "gumbel": "lpdf",
+    "inv_gamma": "lpdf",
+    "inv_wishart": "lpdf",
+    "kumaraswamy": "lpdf",
+    "lkj_corr": "lpdf",
+    "lkj_corr_cholesky": "lpdf",
+    "logistic": "lpdf",
+    "logit_normal": "lpdf",
+    "lognormal": "lpdf",
+    "matrix_normal": "lpdf",
+    "multi_normal": "lpdf",
+    "neg_binomial_2": "lpmf",
+    "normal": "lpdf",
+    "ordered_logistic": "lpmf",
+    "ordered_probit": "lpmf",
+    "pareto": "lpdf",
+    "poisson": "lpmf",
+    "student_t": "lpdf",
+    "uniform": "lpdf",
+    "von_mises": "lpdf",
+    "weibull": "lpdf",
+    "wishart": "lpdf",
+}
+
+
+def _is_infinite_bound(bound: IRArg) -> bool:
+    """Whether a truncation bound is an infinite literal, i.e. the
+    corresponding side of the support is not actually truncated."""
+    return isinstance(bound, IRArgNumber) and math.isinf(bound.value)
 
 
 class _StanLetCtx:
@@ -481,7 +548,8 @@ class StanRenderer(RendererBase):
         elif isinstance(node, IRMarginalize):
             # The discrete (logsumexp) path emits into model only;
             # the continuous path emits the latent into parameters
-            # plus the latent's `~` into model, then dispatches the
+            # plus the latent's log-density increment into model,
+            # then dispatches the
             # scope through the normal IR-walk. Pre-allocate both so
             # either path finds its blocks in canonical order.
             needed.add("parameters")
@@ -863,15 +931,25 @@ class StanRenderer(RendererBase):
         plate: Plate,
         observed: bool,
     ) -> SchemaFragment:
-        """Emit a `~` statement for a sample / observe step.
+        """Emit a `target += <family>_lpdf(...)` statement for a
+        sample / observe step.
 
-        Wraps the `~` in nested `for (m_<axis> in 1:<size>)` loops for
-        each batch dim. Indexes the LHS and every arg whose ref-name
-        sits on the plate.
+        Stan's `~` sampling notation drops every term that does not
+        depend on a parameter, so `model.log_prob(jacobian=False)`
+        on a `~`-built program omits data-only contributions and the
+        omitted amount moves with the data. The explicit
+        `target += <family>_lpdf(<lhs> | <args>)` form keeps every
+        normalizing constant, which is what the constant-spread
+        equivalence contract requires: the emitted program computes
+        the joint exactly, not up to a data-dependent offset.
+
+        Wraps the increment in nested `for (m_<axis> in 1:<size>)`
+        loops for each batch dim. Indexes the LHS and every arg whose
+        ref-name sits on the plate.
         """
         del observed  # The sample emission shape does not differ.
         del constraint  # The constraint shaped the declaration; the
-        # tilde uses the family's name from FAMILY_META.
+        # log-density suffix comes from the Stan family name.
         # Resolve the per-target family name.
         meta = FAMILY_META.get(family)
         if meta is None:
@@ -885,28 +963,18 @@ class StanRenderer(RendererBase):
                 "qvr-stan",
                 [f"family:no-stan-target:{family}"],
             )
+        density_name = self._log_density_name(family, stan_name)
         del arg_names  # Stan is positional; arg_names are unused.
         parent = self._ensure_block(ctx, "model")
         # Build loop indices for the batch dims.
         loop_names = self.index_for(ctx, plate)
-        # The innermost block we'll attach the sampling_statement to.
+        # The innermost block we'll attach the target statement to.
         innermost_parent = self._wrap_in_for_loops(
             ctx, parent, plate.batch_dims, loop_names
         )
-        # Emit the sampling statement.
-        ss = self._fresh(ctx, "ss")
-        ctx.sb.vertex(ss, "sampling_statement")
-        # LHS: name indexed by loop vars.
-        lhs_vid = self._build_lhs(ctx, name, loop_names)
-        ctx.sb.edge(ss, lhs_vid, "child_of")
-        # Distribution name on the `name` field.
-        dn = self._fresh(ctx, "dnm")
-        ctx.sb.vertex(dn, "identifier")
-        ctx.sb.constraint(dn, "literal-value", stan_name)
-        ctx.sb.edge(ss, dn, "name")
-        # Args + optional truncation suffix.
+        # Args + optional truncation correction.
         # TruncatedNormal: split (loc, scale, low, high) -> two args
-        # to `normal()` plus a `T[low, high]` suffix.
+        # to `normal_lpdf()` plus an explicit log-mass correction.
         if family == "TruncatedNormal":
             if len(args) != 4:
                 raise UnsupportedConstruct(
@@ -923,9 +991,20 @@ class StanRenderer(RendererBase):
             truncation_args = None
         injected = self._inject_stan_specific_args(family, family_args)
         rewritten = self._broadcast_scalar_refs(injected, meta, plate)
+        # `<density_name>(<lhs> | <args>)`.
+        de = self._fresh(ctx, "de")
+        ctx.sb.vertex(de, "distr_expression")
+        dn = self._fresh(ctx, "dnm")
+        ctx.sb.vertex(dn, "identifier")
+        ctx.sb.constraint(dn, "literal-value", density_name)
+        ctx.sb.edge(de, dn, "name")
+        dal = self._fresh(ctx, "dal")
+        ctx.sb.vertex(dal, "distr_argument_list")
+        # Variate: name indexed by loop vars.
+        ctx.sb.edge(dal, self._build_lhs(ctx, name, loop_names), "child_of")
         if family == "NegativeBinomial":
             self._emit_neg_binomial_2_args(
-                ctx, ss, rewritten, plate, loop_names
+                ctx, dal, rewritten, plate, loop_names
             )
         else:
             for arg in rewritten:
@@ -933,51 +1012,134 @@ class StanRenderer(RendererBase):
                     arg, plate, loop_names
                 )
                 arg_vid = self._render_arg(ctx, substituted)
-                ctx.sb.edge(ss, arg_vid, "child_of")
-        if truncation_args is not None:
-            trunc_vid = self._build_truncation_suffix(
-                ctx, truncation_args, plate, loop_names
+                ctx.sb.edge(dal, arg_vid, "child_of")
+        ctx.sb.edge(de, dal, "child_of")
+        if truncation_args is None:
+            rhs = de
+        else:
+            rhs = self._apply_truncation_correction(
+                ctx,
+                de,
+                stan_name,
+                rewritten,
+                truncation_args,
+                plate,
+                loop_names,
             )
-            ctx.sb.edge(ss, trunc_vid, "child_of")
-        ctx.sb.edge(innermost_parent, ss, "child_of")
-        return ss
+        ts = self._fresh(ctx, "sts")
+        ctx.sb.vertex(ts, "target_statement")
+        ctx.sb.edge(ts, rhs, "child_of")
+        ctx.sb.edge(innermost_parent, ts, "child_of")
+        return ts
 
-    def _build_truncation_suffix(
+    def _apply_truncation_correction(
         self,
         ctx: _RenderCtx,
+        density_vid: str,
+        stan_name: str,
+        family_args: tuple[IRArg, ...],
         bounds: tuple[IRArg, ...],
         plate: Plate,
         loop_names: tuple[str, ...],
     ) -> str:
-        """Emit a Stan `lower_upper_truncation` vertex (the `T[low,
-        high]` suffix on a sampling statement) carrying two rendered
-        bound expressions.
+        """Subtract the log-mass of the retained interval from an
+        already-rendered log-density expression.
 
-        Stan's grammar slots this vertex as a `child_of` of the
-        enclosing `sampling_statement`; the pretty printer recovers
-        the canonical `T[lower, upper];` layout from the
-        `chose-alt-fingerprint` constraint.
+        A truncated draw on `(low, high)` has log-density
+        `base_lpdf(y) - log(F(high) - F(low))`. Stan spells the two
+        tail quantities `<family>_lcdf` and `<family>_lccdf`, and
+        `log_diff_exp` forms the two-sided log-mass without leaving
+        the log scale. An infinite bound drops the corresponding
+        term: a `(-inf, high)` support corrects by `_lcdf(high)`
+        alone, a `(low, inf)` support by `_lccdf(low)` alone, and an
+        unbounded support needs no correction at all.
         """
-        trunc = self._fresh(ctx, "tnc")
-        ctx.sb.vertex(trunc, "lower_upper_truncation")
-        rendered_kinds: list[str] = []
-        for bound in bounds:
-            substituted = self._substitute_for_loops(
-                bound, plate, loop_names
+        low, high = bounds
+        low_infinite = _is_infinite_bound(low)
+        high_infinite = _is_infinite_bound(high)
+        if low_infinite and high_infinite:
+            return density_vid
+        if high_infinite:
+            correction = self._build_tail_mass_call(
+                ctx, f"{stan_name}_lccdf", low, family_args,
+                plate, loop_names,
             )
-            bound_vid = self._render_arg(ctx, substituted)
-            ctx.sb.edge(trunc, bound_vid, "child_of")
-            rendered_kinds.append(
-                ctx.sb.kind_of(bound_vid)
-                if hasattr(ctx.sb, "kind_of")
-                else "real_literal"
+        elif low_infinite:
+            correction = self._build_tail_mass_call(
+                ctx, f"{stan_name}_lcdf", high, family_args,
+                plate, loop_names,
             )
-        ctx.sb.constraint(trunc, "chose-alt-fingerprint", "T[ , ]")
-        ctx.sb.constraint(
-            trunc, "chose-alt-child-kinds",
-            " ".join(rendered_kinds),
+        else:
+            correction = self._stan_call(
+                ctx,
+                "log_diff_exp",
+                (
+                    self._build_tail_mass_call(
+                        ctx, f"{stan_name}_lcdf", high, family_args,
+                        plate, loop_names,
+                    ),
+                    self._build_tail_mass_call(
+                        ctx, f"{stan_name}_lcdf", low, family_args,
+                        plate, loop_names,
+                    ),
+                ),
+            )
+        return self._stan_binop(ctx, density_vid, "-", correction)
+
+    def _build_tail_mass_call(
+        self,
+        ctx: _RenderCtx,
+        function_name: str,
+        bound: IRArg,
+        family_args: tuple[IRArg, ...],
+        plate: Plate,
+        loop_names: tuple[str, ...],
+    ) -> str:
+        """Build `<function_name>(<bound> | <family args>)`, the
+        `_lcdf` / `_lccdf` companion of a truncated family's
+        log-density."""
+        de = self._fresh(ctx, "tde")
+        ctx.sb.vertex(de, "distr_expression")
+        fnid = self._fresh(ctx, "tdeid")
+        ctx.sb.vertex(fnid, "identifier")
+        ctx.sb.constraint(fnid, "literal-value", function_name)
+        ctx.sb.edge(de, fnid, "name")
+        dal = self._fresh(ctx, "tdal")
+        ctx.sb.vertex(dal, "distr_argument_list")
+        bound_vid = self._render_arg(
+            ctx, self._substitute_for_loops(bound, plate, loop_names)
         )
-        return trunc
+        ctx.sb.edge(dal, bound_vid, "child_of")
+        for arg in family_args:
+            substituted = self._substitute_for_loops(
+                arg, plate, loop_names
+            )
+            ctx.sb.edge(
+                dal, self._render_arg(ctx, substituted), "child_of"
+            )
+        ctx.sb.edge(de, dal, "child_of")
+        return de
+
+    def _stan_call(
+        self,
+        ctx: _RenderCtx,
+        function_name: str,
+        arg_vids: tuple[str, ...],
+    ) -> str:
+        """Emit a `function_expression` calling `function_name` on
+        already-rendered argument vertices."""
+        fn = self._fresh(ctx, "cfn")
+        ctx.sb.vertex(fn, "function_expression")
+        fnid = self._fresh(ctx, "cfnid")
+        ctx.sb.vertex(fnid, "identifier")
+        ctx.sb.constraint(fnid, "literal-value", function_name)
+        ctx.sb.edge(fn, fnid, "name")
+        al = self._fresh(ctx, "cal")
+        ctx.sb.vertex(al, "argument_list")
+        for arg_vid in arg_vids:
+            ctx.sb.edge(al, arg_vid, "child_of")
+        ctx.sb.edge(fn, al, "child_of")
+        return fn
 
     def _inject_stan_specific_args(
         self,
@@ -1220,7 +1382,7 @@ class StanRenderer(RendererBase):
         name: str,
         loop_names: tuple[str, ...],
     ) -> str:
-        """Build the LHS of a `~` statement: either a bare
+        """Build the variate of a log-density call: either a bare
         `variable_expression` or an `indexed_expression`. Lower's
         sample emission for a plated draw lands as
         `<name>[m_0, m_1, ...]` when loop vars exist."""
@@ -1307,7 +1469,8 @@ class StanRenderer(RendererBase):
         other parameters. The renderer treats the marginalize like a
         sample step plus inline scope: the latent becomes a Stan
         parameter with the appropriate constrained type, the latent's
-        draw renders as a standard `~` sampling statement, and the
+        draw renders as a `target += <family>_lpdf(...)` increment,
+        and the
         scope body's deterministic / observe nodes pass through the
         normal dispatch path with the latent name visible as a
         parameter reference. The joint log-density Stan computes is
@@ -1409,9 +1572,10 @@ class StanRenderer(RendererBase):
         """Emit a continuous-latent marginalize.
 
         Routes the marginalize through Stan's standard parameter +
-        sampling-statement path: the latent is declared as a
-        constrained parameter, drawn from its family via a `~`
-        statement in the `model` block, and the scope body's
+        log-density-increment path: the latent is declared as a
+        constrained parameter, scored against its family with a
+        `target +=` statement in the `model` block, and the scope
+        body's
         deterministic / observe nodes pass through the normal
         per-construct dispatch with the latent name now in scope as a
         parameter reference. HMC samples the latent jointly with the
@@ -1436,7 +1600,7 @@ class StanRenderer(RendererBase):
             node.plate,
             block="parameters",
         )
-        # Emit the latent's `~` sampling statement in the model block.
+        # Emit the latent's log-density increment in the model block.
         self.sample(
             ctx,
             node.latent,
@@ -1571,7 +1735,7 @@ class StanRenderer(RendererBase):
         ctx.sb.constraint(op, "literal-value", "+=")
         ctx.sb.edge(asn, op, "child_of")
         # RHS: <family>_lpdf/_lpmf(observed_var[n] | substituted args)
-        lpdf_name = self._lpdf_name(stan_name, node.constraint)
+        lpdf_name = self._log_density_name(node.family, stan_name)
         lpdf_call = self._build_lpdf_call(
             ctx,
             lpdf_name,
@@ -1833,25 +1997,34 @@ class StanRenderer(RendererBase):
         ctx.sb.edge(ie, idx_node, "child_of")
         return ie
 
-    def _lpdf_name(
+    def _log_density_name(
         self,
+        family: str,
         stan_family_name: str,
-        constraint: ConstraintSpec,
     ) -> str:
-        """Pick the right `<family>_lpmf` vs `<family>_lpdf` suffix
-        from the observe's output constraint.
+        """The `<family>_lpdf` / `<family>_lpmf` name for a Stan
+        distribution.
 
-        Per Stan: discrete outputs use `lpmf`; continuous outputs use
-        `lpdf`.
+        The suffix is a property of the distribution, not of the call
+        site: Stan names the discrete ones `_lpmf` and the continuous
+        ones `_lpdf`, and
+        [`_STAN_LOG_DENSITY_SUFFIX`][quivers.transpile.renderers.stan]
+        records that split. A family with a Stan sampling name but no
+        log-density function cannot be emitted as an explicit target
+        increment, and dropping back to `~` would silently discard
+        normalizing constants, so it raises instead.
         """
-        sup = constraint.to_constraint()
-        if (
-            is_int_bit(sup)
-            or is_int_category(sup)
-            or is_int_count(sup)
-        ):
-            return f"{stan_family_name}_lpmf"
-        return f"{stan_family_name}_lpdf"
+        suffix = _STAN_LOG_DENSITY_SUFFIX.get(stan_family_name)
+        if suffix is None:
+            raise UnsupportedConstruct(
+                "qvr-stan",
+                [
+                    f"family:no-stan-log-density:{family}: Stan's "
+                    f"`{stan_family_name}` has no `_lpdf` / `_lpmf` "
+                    f"form"
+                ],
+            )
+        return f"{stan_family_name}_{suffix}"
 
     def _latent_cardinality(
         self,
@@ -2923,7 +3096,7 @@ def _is_continuous_support(sup: Constraint) -> bool:
     Used by the marginalize dispatch: discrete latents (Bernoulli,
     Categorical, ...) compile to Stan's `log_sum_exp` enumeration;
     continuous latents (ContinuousBernoulli, Beta, ...) compile to
-    a parameter declaration plus an inline `~` sampling statement,
+    a parameter declaration plus an inline `target +=` increment,
     leaning on Stan's HMC to handle the joint over the latent.
 
     Recognises scalar reals (any of the four bounded variants),
@@ -3172,8 +3345,8 @@ def _collapse_spaces(text: str) -> str:
 # per-render, it copies the parsed `functions { ... }` block into the
 # per-render schema (with fresh vertex ids) and attaches it as a
 # `child_of` of the program above the data block. Subsequent
-# `~ kumaraswamy(a, b)` sampling statements then resolve through Stan's
-# `<family>_lpdf` lookup convention.
+# `kumaraswamy_lpdf(y | a, b)` increments then resolve against the
+# grafted helper by Stan's `<family>_lpdf` naming convention.
 # ---------------------------------------------------------------------------
 
 
@@ -3272,8 +3445,8 @@ def _ir_uses_family(body: tuple[IRNode, ...], family: str) -> bool:
 
     The marginalize check covers the continuous-latent emit path:
     a `marginalize z <- ContinuousBernoulli(p)` block compiles to
-    a Stan parameter plus a `~ continuous_bernoulli(p)` sampling
-    statement, both of which depend on the runtime-helper
+    a Stan parameter plus a `continuous_bernoulli_lpdf(z | p)`
+    increment, both of which depend on the runtime helper
     `continuous_bernoulli_lpdf`.
     """
     for node in body:

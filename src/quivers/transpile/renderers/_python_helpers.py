@@ -35,6 +35,15 @@ from quivers.dsl.ast_nodes import (
 from quivers.dsl.ast_nodes.let_expressions import LetFactorBinder
 from quivers.dsl.ast_nodes.objects import TypeName
 from quivers.transpile._api import UnsupportedConstruct
+from quivers.transpile.ir import (
+    IRDeterministic,
+    IRMarginalize,
+    IRNode,
+    IRObserve,
+    IRProgram,
+    IRSample,
+    IRScore,
+)
 from quivers.transpile.renderers._stan_helpers import (
     _substitute_let_expr,
 )
@@ -59,6 +68,8 @@ class PyCtx:
         sb: panproto.SchemaBuilder,
         cards: dict[str, int] | None = None,
         target: str = "python",
+        name_event_rank: dict[str, int] | None = None,
+        gather_symbol: tuple[str, ...] | None = None,
     ) -> None:
         self._sb = sb
         self._n = 0
@@ -67,6 +78,23 @@ class PyCtx:
         # "edward2"); selects the per-target builtin symbol table when a
         # ``LetExprCall`` is lowered.
         self.target = target
+        # Dotted callee for the target's array-gather primitive (e.g.
+        # ``("tf", "gather")``). When set, a subscript whose single
+        # index is a plate-vector name renders as
+        # ``gather(array, index)`` instead of ``array[index]``:
+        # TensorFlow's tensor / Edward2 RandomVariable ``__getitem__``
+        # rejects a vector index, so advanced-index gathers must route
+        # through ``tf.gather``. ``None`` keeps the native subscript
+        # form (JAX / PyTorch / PyTensor all support vector subscripts).
+        self.gather_symbol: tuple[str, ...] | None = gather_symbol
+        # Per-name event rank read from the IR: ``len(plate.event_dims)``
+        # for every IRDataInput / IRSample / IRObserve / IRDeterministic.
+        # The let-expression walk infers the event rank of compound
+        # subexpressions from this base; a reducing call (``sum``,
+        # ``mean``, ...) whose argument has positive inferred rank emits
+        # the backend's per-axis aggregator with an ``axis=-1`` (or
+        # ``dim=-1``) keyword instead of the scalar Python builtin.
+        self.name_event_rank: dict[str, int] = dict(name_event_rank or {})
         # Imports a lowered ``LetExprCall`` symbol requires, as
         # ``(dotted-chain, alias)`` pairs. Only NumPyro emits an import
         # block, so only it drains this; the other backends assume their
@@ -377,10 +405,41 @@ _TORCH_FUNCTIONAL: tuple[str, ...] = (
 #: target's table has no faithful single-call rendering there (e.g. it
 #: needs a ``dim`` argument, or the library exposes no matching symbol),
 #: so lowering it raises rather than emit an undefined name.
+#: QVR primitives whose semantics is per-axis reduction over the event
+#: axis. When one of these calls sees a single argument of positive
+#: inferred event rank, the emit routes to the target's array-aware
+#: aggregator (mapped in ``_LET_CALL_SYMBOLS`` below) and appends the
+#: reduction-axis keyword. A scalar argument keeps the Python builtin.
+_AXIS_REDUCING_CALLS: frozenset[str] = frozenset(
+    {"sum", "mean", "prod", "max", "min"}
+)
+
+#: Per-target keyword name for the reduction axis. NumPy / JAX / PyMC /
+#: TensorFlow spell it ``axis``; PyTorch spells it ``dim``.
+_AXIS_KEYWORD_BY_TARGET: dict[str, str] = {
+    "pyro": "dim",
+    "numpyro": "axis",
+    "pymc": "axis",
+    "edward2": "axis",
+}
+
+
+def _torch_reduce(name: str) -> _CallEntry:
+    return (("torch", name), None)
+
+
 _LET_CALL_SYMBOLS: dict[str, dict[str, _CallEntry]] = {
     "pyro": {
         **{n: _torch(n) for n in _TORCH_TOPLEVEL},
         **{n: _torch_fn(n) for n in _TORCH_FUNCTIONAL},
+        # Axis-reducing primitives map to torch's array-aware
+        # aggregators; the let-expr renderer appends ``dim=-1`` for a
+        # positive-event-rank argument. ``max`` / ``min`` route to
+        # ``amax`` / ``amin`` (the reductions that return a bare tensor
+        # rather than a ``(values, indices)`` namedtuple).
+        "sum": _torch_reduce("sum"), "mean": _torch_reduce("mean"),
+        "prod": _torch_reduce("prod"), "max": _torch_reduce("amax"),
+        "min": _torch_reduce("amin"),
     },
     "numpyro": {
         "exp": _jnp("exp"), "expm1": _jnp("expm1"), "log": _jnp("log"),
@@ -399,6 +458,8 @@ _LET_CALL_SYMBOLS: dict[str, dict[str, _CallEntry]] = {
         "selu": _jnn("selu"), "gelu": _jnn("gelu"), "silu": _jnn("silu"),
         "softplus": _jnn("softplus"), "logsigmoid": _jnn("log_sigmoid"),
         "softsign": _jnn("soft_sign"),
+        "sum": _jnp("sum"), "mean": _jnp("mean"), "prod": _jnp("prod"),
+        "max": _jnp("max"), "min": _jnp("min"),
     },
     "pymc": {
         "exp": _pmath("exp"), "expm1": _pmath("expm1"), "log": _pmath("log"),
@@ -408,6 +469,8 @@ _LET_CALL_SYMBOLS: dict[str, dict[str, _CallEntry]] = {
         "tanh": _pmath("tanh"), "floor": _pmath("floor"), "ceil": _pmath("ceil"),
         "erf": _pmath("erf"), "erfc": _pmath("erfc"), "erfinv": _pmath("erfinv"),
         "sigmoid": _pmath("sigmoid"),
+        "sum": _pmath("sum"), "mean": _pmath("mean"), "prod": _pmath("prod"),
+        "max": _pmath("max"), "min": _pmath("min"),
     },
     "edward2": {
         "exp": _tfmath("exp"), "expm1": _tfmath("expm1"), "log": _tfmath("log"),
@@ -425,6 +488,11 @@ _LET_CALL_SYMBOLS: dict[str, dict[str, _CallEntry]] = {
         "relu": _tfnn("relu"), "elu": _tfnn("elu"), "selu": _tfnn("selu"),
         "gelu": _tfnn("gelu"), "silu": _tfnn("silu"), "softplus": _tfnn("softplus"),
         "softsign": _tfnn("softsign"),
+        "sum": (("tf", "reduce_sum"), None),
+        "mean": (("tf", "reduce_mean"), None),
+        "prod": (("tf", "reduce_prod"), None),
+        "max": (("tf", "reduce_max"), None),
+        "min": (("tf", "reduce_min"), None),
     },
 }
 
@@ -546,9 +614,43 @@ def render_let_expr_python(ctx: PyCtx, expr: LetExprNode) -> str:
         args = ctx.v(ctx.fresh("args"), "argument_list")
         for a in expr.args:
             ctx.e(args, render_let_expr_python(ctx, a), "child_of")
+        # A reducing primitive (``sum``, ``mean``, ...) over a
+        # positive-event-rank argument collapses the trailing event
+        # axis; the renamed callee already targets the target's
+        # array-aware aggregator, so append the reduction-axis keyword
+        # (``axis=-1`` / ``dim=-1``). A scalar argument keeps the
+        # Python-builtin call shape with no keyword.
+        if (
+            expr.func in _AXIS_REDUCING_CALLS
+            and len(expr.args) == 1
+            and _infer_event_rank(ctx, expr.args[0]) > 0
+        ):
+            axis_kw = _AXIS_KEYWORD_BY_TARGET.get(ctx.target, "axis")
+            kw = ctx.v(ctx.fresh("kw"), "keyword_argument")
+            ctx.e(kw, identifier(ctx, axis_kw), "name")
+            ctx.e(kw, python_unary_minus(ctx, number_literal(ctx, 1)), "value")
+            ctx.e(args, kw, "child_of")
         ctx.e(c, args, "arguments")
         return c
     if isinstance(expr, LetExprIndex):
+        # A single plate-vector index (a bare `LetExprVar`, always a
+        # runtime gather covariate in QVR) routes through the target's
+        # gather primitive when one is declared, since TensorFlow /
+        # Edward2 reject a vector subscript. Every other case keeps the
+        # native `array[index]` subscript.
+        if (
+            ctx.gather_symbol is not None
+            and len(expr.indices) == 1
+            and isinstance(expr.indices[0], LetExprVar)
+        ):
+            return call(
+                ctx,
+                attribute(ctx, ctx.gather_symbol),
+                positional=(
+                    render_let_expr_python(ctx, expr.array),
+                    render_let_expr_python(ctx, expr.indices[0]),
+                ),
+            )
         s = ctx.v(ctx.fresh("subs"), "subscript")
         ctx.e(s, render_let_expr_python(ctx, expr.array), "value")
         for idx in expr.indices:
@@ -589,6 +691,97 @@ def render_let_expr_python(ctx: PyCtx, expr: LetExprNode) -> str:
             f"let-expr:{type(expr).__name__}: unhandled node kind"
         ],
     )
+
+
+def _infer_event_rank(ctx: PyCtx, expr: LetExprNode) -> int:
+    """Infer the event rank of a let-expression at emit time.
+
+    The rank of a leaf variable is ``len(plate.event_dims)`` for the
+    IRDataInput / IRSample / IRObserve / IRDeterministic it references,
+    read from `PyCtx.name_event_rank`; compound expressions propagate
+    the rank structurally:
+
+    - [`LetExprLiteral`][quivers.dsl.ast_nodes.LetExprLiteral] /
+      [`LetExprString`][quivers.dsl.ast_nodes.LetExprString] -> 0.
+    - [`LetExprVar`][quivers.dsl.ast_nodes.LetExprVar] ->
+      ``ctx.name_event_rank.get(name, 0)``.
+    - [`LetExprBinOp`][quivers.dsl.ast_nodes.LetExprBinOp] -> max of the
+      operand ranks (broadcasting lifts the lower-rank operand).
+    - [`LetExprUnaryOp`][quivers.dsl.ast_nodes.LetExprUnaryOp] -> the
+      operand rank (negation is shape-preserving).
+    - [`LetExprCall`][quivers.dsl.ast_nodes.LetExprCall] to a reducing
+      primitive -> 0 (the reduction collapses the event axis); any
+      other callee -> max of its arg ranks (treating element-wise math
+      like ``sigmoid`` / ``exp`` as shape-preserving).
+    - [`LetExprIndex`][quivers.dsl.ast_nodes.LetExprIndex] ->
+      ``max(0, arr.rank - len(indices))`` (each scalar index consumes
+      one event axis).
+    - [`LetExprList`][quivers.dsl.ast_nodes.LetExprList] -> max of the
+      element ranks.
+
+    Other node kinds are treated as scalar; the helper is conservative
+    and never lifts the rank when it is not certain.
+    """
+    if isinstance(expr, (LetExprLiteral, LetExprString)):
+        return 0
+    if isinstance(expr, LetExprVar):
+        return ctx.name_event_rank.get(expr.name, 0)
+    if isinstance(expr, LetExprBinOp):
+        return max(
+            _infer_event_rank(ctx, expr.left),
+            _infer_event_rank(ctx, expr.right),
+        )
+    if isinstance(expr, LetExprUnaryOp):
+        return _infer_event_rank(ctx, expr.operand)
+    if isinstance(expr, LetExprCall):
+        if expr.func in _AXIS_REDUCING_CALLS:
+            return 0
+        return max(
+            (_infer_event_rank(ctx, a) for a in expr.args),
+            default=0,
+        )
+    if isinstance(expr, LetExprIndex):
+        arr_rank = _infer_event_rank(ctx, expr.array)
+        return max(0, arr_rank - len(expr.indices))
+    if isinstance(expr, LetExprList):
+        return max(
+            (_infer_event_rank(ctx, item) for item in expr.items),
+            default=0,
+        )
+    return 0
+
+
+def name_event_rank_map(ir: IRProgram) -> dict[str, int]:
+    """Map every IR-bound name to its event rank ``len(plate.event_dims)``.
+
+    Covers every [`IRDataInput`][quivers.transpile.ir.IRDataInput],
+    [`IRSample`][quivers.transpile.ir.IRSample],
+    [`IRObserve`][quivers.transpile.ir.IRObserve], and
+    [`IRDeterministic`][quivers.transpile.ir.IRDeterministic] in the
+    program. Each Python renderer threads the result into its
+    [`PyCtx`][quivers.transpile.renderers._python_helpers.PyCtx] so the
+    let-expression walk can decide whether a reducing call
+    (``sum(z_row * w_row)``) collapses a genuine event axis and thus
+    needs the backend's per-axis aggregator.
+    """
+    out: dict[str, int] = {}
+    for inp in ir.inputs:
+        out[inp.name] = len(inp.plate.event_dims)
+    _walk_for_name_ranks(ir.body, out)
+    return out
+
+
+def _walk_for_name_ranks(
+    body: tuple[IRNode, ...], out: dict[str, int]
+) -> None:
+    for node in body:
+        if isinstance(node, (IRSample, IRObserve, IRDeterministic)):
+            out[node.name] = len(node.plate.event_dims)
+        elif isinstance(node, IRMarginalize):
+            out[node.latent] = 0
+            _walk_for_name_ranks(node.scope, out)
+        elif isinstance(node, IRScore):
+            out[node.name] = 0
 
 
 def _render_factor_python(ctx: PyCtx, expr: LetExprFactor) -> str:

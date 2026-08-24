@@ -6,28 +6,38 @@ Generating synthetic data` block in its sibling `.md`, this test:
 1. Extracts and executes the data-gen snippet to recover an
    `observations` dict plus every captured `true_*` ground-truth
    parameter value.
-2. Builds a single test
-   [`Point`][tests.transpile.probes._protocol.Point] anchoring
-   the ground-truth params and observations.
+2. Builds a multi-point
+   [`Point`][tests.transpile.probes._protocol.Point] set via
+   [`points_from_dataset`][tests.transpile._gallery_data.points_from_dataset]:
+   the ground truth first, then deterministic in-support
+   perturbations of the latents, of the observed data, and of both.
 3. Runs the in-process
    [`QvrProbe`][tests.transpile.probes.qvr.QvrProbe] to compute
-   `log p_QVR(θ_true, y) = sum_i log f_i(...)` at that point.
+   `log p_QVR(θ, y) = sum_i log f_i(...)` at every point.
 4. For every backend whose Docker image is locally built, runs the
-   target's native log-density probe inside the container and
-   asserts constant-spread equivalence (`max_i | δ_i − mean δ | <
-   1e-6`) per Theorem 4.1 of
+   target's native log-density probe inside the container over the
+   same point set and asserts constant-spread equivalence
+   (`max_i | δ_i − mean δ | < atol`) per Theorem 4.1 of
    [docs/semantics/transpile-correctness.md](../../docs/semantics/transpile-correctness.md).
+
+The point set is what gives the constant-spread assertion its teeth.
+Evaluated at one point the spread is identically zero, so the check
+passes whatever the backend computed. Varying the latents catches a
+mis-scored prior; varying the *data* catches a backend that drops a
+data-dependent term while keeping a stable offset as the latents move
+(a Stan `~` sampling statement discards data-only summands, for
+instance). Both must vary before the assertion means anything.
 
 Each cell resolves to one of three pre-declared outcomes:
 
-1. `(backend, example) in _EXPECTED_TRANSPILE_RAISES` — the
+1. `(backend, example) in _EXPECTED_TRANSPILE_RAISES`: the
    pipeline MUST `pytest.raises(UnsupportedConstruct)` with the
    pinned kind-prefix.
-2. Cell falls in one of the four `_SKIP_*` registries — known
+2. Cell falls in one of the four `_SKIP_*` registries: a known
    environmental gap (missing data block, QVR-probe incompatibility,
    backend probe script lacking shape registration for arbitrary
    gallery datasets). `pytest.skip` with the diagnostic.
-3. Neither — the pipeline MUST emit non-empty bytes, the QVR probe
+3. Neither: the pipeline MUST emit non-empty bytes, the QVR probe
    MUST evaluate to a finite log-density, and the in-container
    probe MUST return a vector whose constant-spread offset from
    the QVR reference is below the equivalence tolerance.
@@ -41,13 +51,15 @@ correctness signal we can produce without target runtimes.
 
 from __future__ import annotations
 
+import math
 import pathlib
 
 import pytest
 import torch
 
+from quivers.dsl.parser import parse
 from quivers.transpile import UnsupportedConstruct, transpile
-from tests.transpile import _docker, _gallery_data
+from tests.transpile import _docker, _equivalence, _gallery_data
 from tests.transpile.probes.qvr import QvrProbe
 
 
@@ -136,16 +148,6 @@ _EXPECTED_TRANSPILE_RAISES: dict[tuple[str, str], str] = {
     ("turing", "tensor_contraction"): "composition_decl",
     ("webppl", "pmf"): "composition_decl",
     ("webppl", "tensor_contraction"): "composition_decl",
-    # factor_analysis / ppca use the `sum` builtin, which has no
-    # single-call symbol mapping in the Python backends.
-    ("edward2", "factor_analysis"): "let-expr:LetExprCall",
-    ("edward2", "ppca"): "let-expr:LetExprCall",
-    ("numpyro", "factor_analysis"): "let-expr:LetExprCall",
-    ("numpyro", "ppca"): "let-expr:LetExprCall",
-    ("pymc", "factor_analysis"): "let-expr:LetExprCall",
-    ("pymc", "ppca"): "let-expr:LetExprCall",
-    ("pyro", "factor_analysis"): "let-expr:LetExprCall",
-    ("pyro", "ppca"): "let-expr:LetExprCall",
     # hmm / lda broadcast a literal scalar concentration to a vector.
     # JAGS spells this with `rep(v, K)`, so the JAGS cells transpile;
     # the BUGS renderer does not emit the broadcast and raises.
@@ -254,19 +256,12 @@ _QVR_REFERENCE_JOINT: dict[str, float] = {
 # the tensors the model expects. Generalising the probe scripts is
 # the closure path.
 _SKIP_PROBE_INCOMPATIBLE: frozenset[tuple[str, str]] = frozenset({
-    ('bugs', 'beta_regression'),
-    ('bugs', 'changepoint'),
     ('bugs', 'continuous_hmm'),
     ('bugs', 'factor_analysis'),
-    ('bugs', 'gamma_regression'),
     ('bugs', 'gru_lm'),
-    ('bugs', 'horseshoe_regression'),
-    ('bugs', 'irt_2pl'),
     ('bugs', 'linear_gaussian_ssm'),
     ('bugs', 'lstm_lm'),
-    ('bugs', 'negbin_regression'),
     ('bugs', 'ppca'),
-    ('bugs', 'survival_weibull'),
     ('bugs', 'tree_categorical'),
     ('bugs', 'vanilla_rnn_lm'),
     ('edward2', 'beta_regression'),
@@ -276,7 +271,6 @@ _SKIP_PROBE_INCOMPATIBLE: frozenset[tuple[str, str]] = frozenset({
     ('edward2', 'gru_lm'),
     ('edward2', 'hmm'),
     ('edward2', 'horseshoe_regression'),
-    ('edward2', 'irt_2pl'),
     ('edward2', 'lda'),
     ('edward2', 'linear_gaussian_ssm'),
     ('edward2', 'lstm_lm'),
@@ -284,62 +278,42 @@ _SKIP_PROBE_INCOMPATIBLE: frozenset[tuple[str, str]] = frozenset({
     ('edward2', 'tree_categorical'),
     ('edward2', 'vanilla_rnn_lm'),
     ('edward2', 'zip_regression'),
-    ('gen', 'beta_regression'),
-    ('gen', 'changepoint'),
     ('gen', 'continuous_hmm'),
     ('gen', 'factor_analysis'),
-    ('gen', 'gamma_regression'),
     ('gen', 'gru_lm'),
     ('gen', 'hmm'),
-    ('gen', 'horseshoe_regression'),
-    ('gen', 'irt_2pl'),
     ('gen', 'lda'),
     ('gen', 'linear_gaussian_ssm'),
     ('gen', 'lstm_lm'),
-    ('gen', 'negbin_regression'),
     ('gen', 'ppca'),
-    ('gen', 'survival_weibull'),
     ('gen', 'tree_categorical'),
     ('gen', 'vanilla_rnn_lm'),
     ('gen', 'zip_regression'),
-    ('jags', 'beta_regression'),
-    ('jags', 'changepoint'),
     ('jags', 'continuous_hmm'),
     ('jags', 'factor_analysis'),
-    ('jags', 'gamma_regression'),
     ('jags', 'gru_lm'),
     ('jags', 'hmm'),
-    ('jags', 'horseshoe_regression'),
-    ('jags', 'irt_2pl'),
     ('jags', 'lda'),
     ('jags', 'linear_gaussian_ssm'),
     ('jags', 'lstm_lm'),
-    ('jags', 'negbin_regression'),
     ('jags', 'ppca'),
-    ('jags', 'survival_weibull'),
     ('jags', 'tree_categorical'),
     ('jags', 'vanilla_rnn_lm'),
     ('numpyro', 'continuous_hmm'),
-    ('numpyro', 'gamma_regression'),
     ('numpyro', 'gru_lm'),
     ('numpyro', 'hmm'),
-    ('numpyro', 'horseshoe_regression'),
     ('numpyro', 'lda'),
     ('numpyro', 'linear_gaussian_ssm'),
     ('numpyro', 'lstm_lm'),
-    ('numpyro', 'negbin_regression'),
     ('numpyro', 'tree_categorical'),
     ('numpyro', 'vanilla_rnn_lm'),
     ('numpyro', 'zip_regression'),
     ('pymc', 'continuous_hmm'),
-    ('pymc', 'gamma_regression'),
     ('pymc', 'gru_lm'),
     ('pymc', 'hmm'),
-    ('pymc', 'horseshoe_regression'),
     ('pymc', 'lda'),
     ('pymc', 'linear_gaussian_ssm'),
     ('pymc', 'lstm_lm'),
-    ('pymc', 'negbin_regression'),
     ('pymc', 'tree_categorical'),
     ('pymc', 'vanilla_rnn_lm'),
     ('pymc', 'zip_regression'),
@@ -349,7 +323,6 @@ _SKIP_PROBE_INCOMPATIBLE: frozenset[tuple[str, str]] = frozenset({
     ('pyro', 'gru_lm'),
     ('pyro', 'hmm'),
     ('pyro', 'horseshoe_regression'),
-    ('pyro', 'irt_2pl'),
     ('pyro', 'lda'),
     ('pyro', 'linear_gaussian_ssm'),
     ('pyro', 'lstm_lm'),
@@ -358,42 +331,27 @@ _SKIP_PROBE_INCOMPATIBLE: frozenset[tuple[str, str]] = frozenset({
     ('pyro', 'tree_categorical'),
     ('pyro', 'vanilla_rnn_lm'),
     ('pyro', 'zip_regression'),
-    ('stan', 'beta_regression'),
     ('stan', 'continuous_hmm'),
-    ('stan', 'factor_analysis'),
-    ('stan', 'gamma_regression'),
     ('stan', 'gru_lm'),
     ('stan', 'hmm'),
-    ('stan', 'horseshoe_regression'),
-    ('stan', 'irt_2pl'),
     ('stan', 'lda'),
     ('stan', 'linear_gaussian_ssm'),
     ('stan', 'lstm_lm'),
-    ('stan', 'negbin_regression'),
-    ('stan', 'ppca'),
     ('stan', 'tree_categorical'),
     ('stan', 'vanilla_rnn_lm'),
     ('stan', 'zip_regression'),
-    ('turing', 'beta_regression'),
-    ('turing', 'changepoint'),
     ('turing', 'continuous_hmm'),
     ('turing', 'factor_analysis'),
-    ('turing', 'gamma_regression'),
     ('turing', 'gru_lm'),
     ('turing', 'hmm'),
-    ('turing', 'horseshoe_regression'),
-    ('turing', 'irt_2pl'),
     ('turing', 'lda'),
     ('turing', 'linear_gaussian_ssm'),
     ('turing', 'lstm_lm'),
-    ('turing', 'negbin_regression'),
     ('turing', 'ppca'),
-    ('turing', 'stochastic_volatility'),
     ('turing', 'tree_categorical'),
     ('turing', 'vanilla_rnn_lm'),
     ('turing', 'zip_regression'),
     ('webppl', 'beta_regression'),
-    ('webppl', 'changepoint'),
     ('webppl', 'continuous_hmm'),
     ('webppl', 'factor_analysis'),
     ('webppl', 'gamma_regression'),
@@ -469,7 +427,6 @@ def test_gallery_qvr_logdensity_finite(example: pathlib.Path) -> None:
         f"{result.log_densities!r}"
     )
     lp = result.log_densities[0]
-    import math
     assert math.isfinite(lp), (
         f"{example.stem!r}: QVR log p(θ_true, y) is non-finite ({lp!r}); "
         f"observations={list(dataset.observations)} params={list(dataset.params)}"
@@ -492,6 +449,95 @@ def test_gallery_qvr_logdensity_finite(example: pathlib.Path) -> None:
             f"re-derive the joint independently before updating the "
             f"`_QVR_REFERENCE_JOINT` entry."
         )
+
+
+@pytest.mark.parametrize(
+    "example", _gallery_cells(), ids=lambda p: p.stem
+)
+def test_gallery_multipoint_set_is_in_support_and_varies(
+    example: pathlib.Path,
+) -> None:
+    """The multi-point set stays in support and actually moves.
+
+    Two properties make
+    [`assert_log_density_match`][tests.transpile._equivalence.assert_log_density_match]
+    a real test rather than a tautology, and both are asserted here so
+    a regression surfaces without needing a Docker image:
+
+    1. Every point scores a **finite** QVR joint. A perturbation that
+       steps outside the support sends both evaluators to `-inf`, and
+       two `-inf` values differ by `nan` rather than by a constant, so
+       the comparison would be meaningless.
+    2. The joint **varies** across the set. A point set that collapses
+       to repeats of the ground truth restores the single-point
+       vacuity the multi-point check exists to remove: the spread of a
+       constant difference sequence is zero whatever the backend
+       computed. Variation in the joint is the observable form of
+       "the latents or the data really moved", and it holds for every
+       gallery shape, including examples that capture no latents (only
+       the data moves) and examples whose data is entirely
+       integer-valued covariates (only the latents move).
+    """
+    if example.stem in _SKIP_DATASET_LOAD_FAILED:
+        pytest.skip(
+            f"{example.stem!r}: synthetic-data snippet in the `.md` "
+            f"file fails to load; populate / drop from "
+            f"`_SKIP_DATASET_LOAD_FAILED`."
+        )
+    if example.stem in _SKIP_QVR_INCOMPATIBLE:
+        pytest.skip(
+            f"{example.stem!r}: in-process QVR trace cannot evaluate "
+            f"this program; populate / drop from `_SKIP_QVR_INCOMPATIBLE`."
+        )
+
+    dataset = _gallery_data.load_gallery_data(example)
+    assert dataset is not None, (
+        f"{example.stem!r}: `load_gallery_data` returned None even "
+        f"though the example was not in `_SKIP_DATASET_LOAD_FAILED`."
+    )
+
+    points = _gallery_data.points_from_dataset(dataset)
+    labels = _gallery_data.perturbation_labels(len(points))
+    assert len(points) >= 2, (
+        f"{example.stem!r}: {len(points)} point(s); the constant-spread "
+        f"contract needs at least two to be testable."
+    )
+
+    probe = QvrProbe()
+    scratch = pathlib.Path("/tmp") / f"qvr_gallery_points_{example.stem}"
+    scratch.mkdir(exist_ok=True, parents=True)
+    source = example.read_bytes()
+    lps: list[float] = []
+    for point in points:
+        lps.extend(
+            probe.evaluate(
+                source,
+                example.stem,
+                [point],
+                scratch=scratch,
+                monadic=dataset.monadic,
+                x_input=dataset.x_input,
+                observations=_gallery_data.observations_for_point(
+                    dataset, point,
+                ),
+            ).log_densities
+        )
+
+    for index, lp in enumerate(lps):
+        assert math.isfinite(lp), (
+            f"{example.stem!r}: point {index} ({labels[index]}) scores a "
+            f"non-finite QVR joint ({lp!r}), so it left the model's "
+            f"support. The perturbation for one of its sites does not "
+            f"respect the site's declared constraint."
+        )
+
+    assert len({round(lp, 6) for lp in lps}) > 1, (
+        f"{example.stem!r}: every point scores the same QVR joint "
+        f"({lps[0]!r}), so no site moved and the constant-spread check "
+        f"would pass unconditionally. Either the dataset captured "
+        f"nothing perturbable, or a constraint this example needs is "
+        f"missing from `_perturb_by_support`."
+    )
 
 
 @pytest.mark.parametrize(
@@ -524,12 +570,7 @@ def test_gallery_backend_logdensity_matches_qvr(
     if expected_raise is not None:
         source = example.read_bytes()
         with pytest.raises(UnsupportedConstruct) as exc_info:
-            transpile(
-                __import__("quivers.dsl.parser", fromlist=["parse"]).parse(
-                    source.decode("utf-8")
-                ),
-                target=backend,
-            )
+            transpile(parse(source.decode("utf-8")), target=backend)
         kinds = exc_info.value.kinds
         assert any(k.startswith(expected_raise) for k in kinds), (
             f"{backend!r} on {example.stem!r}: expected raise with "
@@ -566,29 +607,38 @@ def test_gallery_backend_logdensity_matches_qvr(
     )
 
     source = example.read_bytes()
-    emitted = transpile(
-        __import__("quivers.dsl.parser", fromlist=["parse"]).parse(
-            source.decode("utf-8")
-        ),
-        target=backend,
-    )
+    emitted = transpile(parse(source.decode("utf-8")), target=backend)
 
-    point = _gallery_data.point_from_dataset(dataset)
+    points = _gallery_data.points_from_dataset(dataset)
+    labels = _gallery_data.perturbation_labels(len(points))
     qvr_probe = QvrProbe()
     # Isolate the bind-mounted scratch per (backend, example) so a
     # probe never mounts a source or helper file another backend's run
     # left behind in a shared directory.
     scratch = pathlib.Path("/tmp") / f"qvr_gallery_eq_{example.stem}_{backend}"
     scratch.mkdir(exist_ok=True, parents=True)
-    qvr_result = qvr_probe.evaluate(
-        source,
-        example.stem,
-        [point],
-        scratch=scratch,
-        monadic=dataset.monadic,
-        x_input=dataset.x_input,
-        observations=dataset.observations,
-    )
+    # One probe call per point: the probe's `observations` keyword
+    # overrides the flat per-point payload (it is the only channel that
+    # preserves multi-axis shapes), so a perturbed point needs its own
+    # pre-shaped observation dict. Passing the dataset's ground-truth
+    # observations once for the whole set would score the QVR side at
+    # the unperturbed data while the container scored the perturbed
+    # data.
+    qvr_lps: list[float] = []
+    for point in points:
+        qvr_lps.extend(
+            qvr_probe.evaluate(
+                source,
+                example.stem,
+                [point],
+                scratch=scratch,
+                monadic=dataset.monadic,
+                x_input=dataset.x_input,
+                observations=_gallery_data.observations_for_point(
+                    dataset, point,
+                ),
+            ).log_densities
+        )
 
     script_path = (
         pathlib.Path(__file__).parent / "probes" / "_scripts" / script_name
@@ -598,7 +648,10 @@ def test_gallery_backend_logdensity_matches_qvr(
         script=script_path,
         source=emitted,
         source_ext=ext,
-        points=[{"params": point.params, "data": point.data}],
+        points=[
+            {"params": point.params, "data": point.data}
+            for point in points
+        ],
         scratch=scratch,
         shapes=_shapes_from_dataset(dataset),
         dtypes=_dtypes_from_dataset(dataset),
@@ -606,12 +659,12 @@ def test_gallery_backend_logdensity_matches_qvr(
 
     backend_lps = [float(x) for x in raw_result["log_densities"]]
 
-    from tests.transpile import _equivalence
-
     _equivalence.assert_log_density_match(
-        qvr_result.log_densities,
+        qvr_lps,
         backend_lps,
         context=f"{backend}@{example.stem}",
+        labels=labels,
+        min_points=2,
     )
 
 
@@ -641,21 +694,47 @@ def _dtypes_from_dataset(
     distinguish integer and real declarations (Stan, JAGS, BUGS, PyMC)
     get the right native type after reshape.
 
-    A tensor is tagged ``"int"`` when its declared dtype is one of
-    the torch integer kinds OR when every element is integer-valued
-    (no fractional part). The latter rule covers the common gallery
-    pattern where `torch.poisson` / `torch.distributions.Binomial`
-    returns ``float32`` counts that the model nevertheless declares
-    as ``int`` (Stan / JAGS / BUGS reject floats for int variables).
+    Resolution order, most authoritative first:
+
+    1. **The declared family.** When the name answers to a stochastic
+       site of the compiled program, its
+       [`site_supports`][tests.transpile._gallery_data.site_supports]
+       constraint decides: an integer-supported site (a Poisson /
+       Binomial / Categorical / Bernoulli observation) is ``"int"``
+       and a continuous-supported one is ``"float"``, whatever its
+       ground-truth value happens to look like. This is what keeps a
+       continuous latent whose ground truth is integer-valued (a
+       horseshoe global scale pinned at ``tau = 1.0``, unit local
+       scales) out of the ``int`` bucket: the in-container reshape
+       casts every ``int``-tagged leaf through Python's `int`, which
+       truncates the value and makes the backend's density piecewise
+       constant in integer buckets rather than equal to the QVR
+       reference.
+    2. **The declared torch dtype**, for a name with no site: an
+       integer-kinded covariate (a plate subscript such as
+       ``coef_idx``) is ``"int"``.
+    3. **The value domain**, for a float-kinded covariate: an
+       all-integer-valued one is ``"int"``. This last rule is the only
+       place the value heuristic survives, and it applies to
+       covariates alone: an observation's kind now comes from its
+       family instead.
     """
     integer_dtypes = (
         torch.int8, torch.int16, torch.int32, torch.int64,
         torch.uint8, torch.bool,
     )
+    supports = _gallery_data.site_supports(dataset)
     out: dict[str, str] = {}
     for section in (dataset.observations, dataset.params):
         for name, tensor in section.items():
-            if tensor.dtype in integer_dtypes:
+            support = supports.get(name)
+            if support is not None:
+                out[name] = (
+                    "int"
+                    if _gallery_data.is_discrete_support(support)
+                    else "float"
+                )
+            elif tensor.dtype in integer_dtypes:
                 out[name] = "int"
             elif tensor.numel() > 0 and torch.equal(
                 tensor, tensor.round(),

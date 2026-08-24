@@ -94,6 +94,8 @@ from quivers.transpile.renderers._base import (
     RendererBase,
     SchemaFragment,
     _RenderCtx,
+    reorder_negbin_args,
+    reorder_weibull_args,
 )
 
 
@@ -879,6 +881,16 @@ class JAGSRenderer(RendererBase):
         if family == "StudentT":
             args, arg_names = _reorder_studentt_dt(args, arg_names)
 
+        # NegativeBinomial / Weibull carry a target-specific argument
+        # order and reparameterisation that JAGS' `dnegbin(prob, size)`
+        # / `dweib(v, lambda)` calls require; reorder before the alias
+        # pipeline so the reshaped args (which carry their own
+        # transforms) pass through the loop below untouched.
+        if family == "NegativeBinomial":
+            args, arg_names = reorder_negbin_args(args, arg_names)
+        elif family == "Weibull":
+            args, arg_names = reorder_weibull_args(args, arg_names)
+
         aliases = meta.arg_aliases.get(_BACKEND, {})
         renamed_pairs: list[tuple[str, IRArg]] = []
         for arg_name, arg in zip(arg_names, args, strict=False):
@@ -1437,9 +1449,76 @@ class JAGSRenderer(RendererBase):
             ctx.sb.edge(fc, fn, "name")
             ctx.sb.edge(fc, inner_vid, "child_of")
             return fc, "function_call"
+        if arg.transform == "one_minus":
+            one = _number(ctx, 1)
+            diff = self._binary_expr(
+                ctx, "-", one, "number", inner_vid, inner_kind
+            )
+            return diff, "binary_expression"
+        if arg.transform == "pow_neg":
+            if arg.operand is None:
+                raise UnsupportedConstruct(
+                    f"qvr-{_BACKEND}",
+                    ["transform:pow_neg: missing exponent operand"],
+                )
+            # pow(inner, -operand): JAGS' two-argument power builtin.
+            exp_vid, exp_kind = self._render_arg_with_kind(ctx, arg.operand)
+            neg = _fresh(ctx, "ue", "unary_expression")
+            ctx.sb.constraint(neg, "field:operator", "-")
+            ctx.sb.constraint(neg, "chose-alt-fingerprint", "-")
+            ctx.sb.constraint(neg, "chose-alt-child-kinds", exp_kind)
+            ctx.sb.edge(neg, exp_vid, "operand")
+            call = self._function_call_from_vids(
+                ctx,
+                "pow",
+                ((inner_vid, inner_kind), (neg, "unary_expression")),
+            )
+            return call, "function_call"
         raise UnsupportedConstruct(
             f"qvr-{_BACKEND}", [f"transform:{arg.transform}"]
         )
+
+    def _function_call_from_vids(
+        self,
+        ctx: _JAGSCtx,
+        fn_name: str,
+        pairs: tuple[tuple[str, str], ...],
+    ) -> str:
+        """Emit ``<fn_name>(<a0>, <a1>, ...)`` as a ``function_call``
+        whose arguments ride an ``argument_list`` child, from
+        already-rendered ``(vertex, kind)`` pairs."""
+        fc = _fresh(ctx, "fc", "function_call")
+        ctx.sb.constraint(fc, "chose-alt-fingerprint", "( )")
+        ctx.sb.constraint(
+            fc, "chose-alt-child-kinds", "identifier argument_list"
+        )
+        ctx.sb.constraint(fc, "ptrace-0", "Cidentifier")
+        ctx.sb.constraint(fc, "ptrace-1", "T(")
+        ctx.sb.constraint(fc, "ptrace-2", "Cargument_list")
+        ctx.sb.constraint(fc, "ptrace-3", "T)")
+        ctx.sb.edge(fc, _identifier(ctx, fn_name), "name")
+        al = _fresh(ctx, "al", "argument_list")
+        ptrace_idx = 0
+        fingerprint_parts: list[str] = []
+        kinds: list[str] = []
+        for i, (_, kind) in enumerate(pairs):
+            ctx.sb.constraint(al, f"ptrace-{ptrace_idx}", f"C{kind}")
+            ptrace_idx += 1
+            kinds.append(kind)
+            if i < len(pairs) - 1:
+                ctx.sb.constraint(al, f"ptrace-{ptrace_idx}", "T,")
+                ptrace_idx += 1
+                fingerprint_parts.append(",")
+        ctx.sb.constraint(
+            al,
+            "chose-alt-fingerprint",
+            " ".join(fingerprint_parts) if fingerprint_parts else "",
+        )
+        ctx.sb.constraint(al, "chose-alt-child-kinds", " ".join(kinds))
+        for vid, _kind in pairs:
+            ctx.sb.edge(al, vid, "child_of")
+        ctx.sb.edge(fc, al, "arguments")
+        return fc
 
     def _binary_expr(
         self,
@@ -1870,9 +1949,16 @@ def _rewrite_arg(
         return IRArgMatrix(rows=rows)
     if isinstance(arg, IRArgTransform):
         inner = _rewrite_arg(ctx, arg.inner, loop_vars, axis_to_lv, via)
-        if inner is arg.inner:
+        operand = (
+            None
+            if arg.operand is None
+            else _rewrite_arg(ctx, arg.operand, loop_vars, axis_to_lv, via)
+        )
+        if inner is arg.inner and operand is arg.operand:
             return arg
-        return IRArgTransform(inner=inner, transform=arg.transform)
+        return IRArgTransform(
+            inner=inner, transform=arg.transform, operand=operand
+        )
     return arg
 
 

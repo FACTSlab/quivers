@@ -18,19 +18,30 @@ import pathlib
 
 import cmdstanpy
 
-from _reshape import load_tables, reshape_point
+from _reshape import (
+    index_input_names,
+    load_tables,
+    reshape_point,
+    shift_index_inputs,
+)
 
 
 def main() -> None:
     io = pathlib.Path("/io")
     source = io / "source.stan"
+    source_text = source.read_text()
     points = json.loads((io / "points.json").read_text())
     shapes, dtypes = load_tables(io)
+    # Stan arrays are 1-based; every 0-based covariate the model
+    # subscripts must be lifted before it reaches cmdstanpy.
+    index_names = index_input_names(source_text, dtypes)
 
     model = cmdstanpy.CmdStanModel(stan_file=str(source))
     log_densities = []
     for pt in points:
-        reshaped = reshape_point(pt, shapes, dtypes)
+        reshaped = shift_index_inputs(
+            reshape_point(pt, shapes, dtypes), index_names,
+        )
         params = reshaped.get("params", {})
         data = reshaped.get("data", {})
         # `jacobian=False` returns the constrained-space log
